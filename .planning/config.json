@@ -1,0 +1,84 @@
+{
+  "runtime": "claude",
+  "mode": "yolo",
+  "granularity": "standard",
+  "parallelization": true,
+  "commit_docs": true,
+  "model_profile": "adaptive",
+  "workflow": {
+    "research": true,
+    "plan_check": true,
+    "verifier": true,
+    "nyquist_validation": true,
+    "ai_integration_phase": true,
+    "use_worktrees": false,
+    "auto_advance": true,
+    "human_verify_mode": "end-of-phase",
+    "skip_discuss": false,
+    "code_review": true,
+    "pattern_mapper": true,
+    "security_enforcement": true,
+    "security_asvs_level": 1,
+    "security_block_on": "high",
+    "_auto_chain_active": true
+  },
+  "git": {
+    "allow_default_branch_commits": true
+  },
+  "model_profile_overrides": {
+    "claude": {
+      "opus": "claude-opus-5-5",
+      "sonnet": "claude-sonnet-5-5",
+      "haiku": "claude-haiku-5-5"
+    },
+    "codex": {
+      "opus": "gpt-6-sol",
+      "sonnet": "gpt-6-luna",
+      "haiku": "gpt-6-luna"
+    }
+  },
+  "effort": {
+    "routing_tier_defaults": {
+      "light": "xhigh",
+      "standard": "high",
+      "heavy": "high"
+    }
+  },
+  "preferences": {
+    "autonomous_operation": "owner-directed 2026-11-09; see .planning/AUTONOMY.md",
+    "discuss_fan_out": true,
+    "shift_left_verification": true,
+    "ci_efficiency_review": true,
+    "research_with_subagents": true
+  },
+  "plan_review": {
+    "source_grounding": true
+  },
+  "ship": {
+    "pr_body_sections": [
+      {
+        "heading": "User Stories & Acceptance Criteria",
+        "enabled": true,
+        "source": "REQUIREMENTS.md ## User Stories || REQUIREMENTS.md ## Acceptance Criteria",
+        "fallback": "- Acceptance criteria are covered by the linked requirements and verification evidence."
+      },
+      {
+        "heading": "Risks & Dependencies",
+        "enabled": true,
+        "source": "PLAN.md ## Risks || PLAN.md ## Dependencies",
+        "fallback": "- No known high-risk rollout dependencies."
+      },
+      {
+        "heading": "Success Metrics & Release Criteria",
+        "enabled": true,
+        "source": "REQUIREMENTS.md ## Definition of Done || VERIFICATION.md ## Release Criteria",
+        "fallback": "- Release when automated verification and required manual checks pass."
+      },
+      {
+        "heading": "Stakeholder Review & Approval",
+        "enabled": false,
+        "template": "- Product owner approval pending for {phase_name}."
+      }
+    ]
+  }
+}
