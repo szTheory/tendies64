@@ -76,10 +76,13 @@ blocking unrelated authorized work.
 - PII, credentials, private paths, destructive public-history rewrites, or
   deleting a repository/release.
 - Paid services beyond a clearly authorized budget.
-- The initial project license, repository visibility, first public repository
-  creation/push, and release channel remain explicit project decisions. Research
-  and local implementation continue while they are open; after the owner
-  resolves them, follow the release policy above without per-release prompts.
+- The release channel remains an explicit project decision. Research and local
+  implementation continue while it is open; after the owner resolves it, follow
+  the release policy above without per-release prompts.
+- Resolved by the owner on 2026-11-09: the project license is Apache-2.0, and
+  the repository is public under the szTheory GitHub account (creation and first
+  push authorized). Routine pushes to it proceed without new approval. The
+  PII, credential, private-path and rights stops still apply to every push.
 - Any new action outside delegated scope that materially changes project goals,
   rights, authority, risk or cost.
 

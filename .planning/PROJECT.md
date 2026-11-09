@@ -190,9 +190,13 @@ test, CI or release exists yet.
 - **Performance:** Correctness comes first. Benchmark named workloads only
   after a correctness baseline exists, and never trade correct output for
   speed.
-- **Publication:** License, repository visibility, the first public push and
-  the release channel are open owner decisions. Research and local work
-  continue in the meantime. Public publication waits for the owner.
+- **Publication:** The owner chose Apache-2.0 and a public repository under
+  szTheory (2026-11-09). The release channel and versioning scheme are still
+  open owner decisions; releases wait for them. Never publish PII,
+  credentials, private paths, or rights-bearing content.
+- **Copied code:** Under Apache-2.0, copy only from compatible licenses
+  (ISC, MIT, BSD-3, Unlicense) and record the source, commit SHA, license and
+  notice for each copy. Do not copy GPL emulator code or Angrylion-Plus.
 - **Security:** ROMs, saves, archives and fixtures are untrusted input.
   Parsers must bound sizes, reject malformed media and leave state unchanged
   when they refuse an operation.
@@ -208,7 +212,9 @@ test, CI or release exists yet.
 | Cartridge-first vertical slice; 64DD as a separate later profile (recommended default from seed and DNA) | Verifiable first profile. 64DD adds disk media, RTC and expansion requirements. | — Pending |
 | Boot without Nintendo PIF/IPL bytes, starting with the open IPL3 route (recommended) | The rights stop applies to Nintendo boot data, and nemu64-test already uses Libdragon IPL3. | — Pending |
 | Language, build system and API/ABI | To be decided through research. | — Pending |
-| License, visibility and release channel | Explicit owner decision (hard stop for publication). | — Pending (owner) |
+| License: Apache-2.0 (owner, 2026-11-09; MIT was an acceptable alternative) | Owner preference. Permissive, with an explicit patent grant. Code copied from other projects must be license-compatible: ISC, MIT, BSD-3 and Unlicense sources are copyable with notices kept; GPL sources (Project64, Mupen64Plus-core) and the Angrylion-Plus legacy MAME license must not be copied. | ✓ Good |
+| Repository visibility: public under the szTheory GitHub account (owner, 2026-11-09) | Owner decision. No PII, credentials or private paths in any tracked file or commit. Commits use the GitHub noreply address. | ✓ Good |
+| Release channel and versioning | Still an open owner decision. Releases wait on it. | — Pending (owner) |
 
 ## Evolution
 
