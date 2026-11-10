@@ -1,8 +1,9 @@
 # t64.result v1: result protocol
 
 Status: normative for Phase 1. Implemented by `runner/t64_supervisor.c`,
-`runner/t64_classify.c` and `runner/t64_synthetic.c`; proven by `unit.classify`
-and `tests/controls`. Later phases consume this contract; `schema_version` is
+`runner/t64_classify.c`, `runner/t64_synthetic.c` and the consumer
+`runner/t64_result_check.c`; proven by `unit.classify`, `tests/controls`,
+`unit.result-goldens`, `unit.result-seeds` and `unit.suite-seeds`. Later phases consume this contract; `schema_version` is
 the change seam.
 
 ## Scope and evidence stamp
@@ -76,8 +77,8 @@ No wall time, hostname or path appears in the canonical object. Those go to
 holds `core_identity`, `host_os`, `wait_status` (the raw wait status, -1 when no
 process was reaped) and `wall_ms`.
 
-Consumers (the suite consumer lands in plan 01-07) reject any unknown field and
-any `schema_version` other than the ones they implement.
+Consumers (`t64-result-check`, see "Suites and the consumer") reject any unknown
+field and any `schema_version` other than the ones they implement.
 
 ## Outcomes, precedence and exit codes
 
@@ -243,3 +244,67 @@ side effect, not a harness failure.
 Phase 1 ships two controls: `positive` (`pass` / `positive-match`) and
 `empty-halt` (`boot-fail` / `empty-output`). Plan 01-11 completes the 19-case
 matrix. Phases 3 and 4 replay the same matrix against the real core.
+
+## Suites and the consumer
+
+A suite is a JSON Lines file: one canonical `t64.result` line per case, in
+ascending `fixture_id` order (unsigned byte order), then exactly one final
+`t64.suite` record. Every line ends with LF. The suite record is canonical like
+any other object:
+
+```
+{"case_count":N,"inventory_sha256":"<64 lowercase hex>","schema":"t64.suite","schema_version":1}
+```
+
+`INVENTORY` is the pinned case list: the sorted (`LC_ALL=C`) `fixture_id`s, one
+per line, each LF-terminated, no blank lines, no duplicates. `inventory_sha256`
+is the SHA-256 of the INVENTORY bytes. A missing suite record, or a case set
+that differs from INVENTORY, is a `harness-error` (exit 1): the consumer prints
+`outcome=harness-error detail=suite-truncated` or
+`outcome=harness-error detail=inventory-mismatch` after the rule diagnostic.
+
+`t64-result-check` is the only consumer in Phase 1. Exit 0 is ok, 1 is invalid
+or harness-error, 2 is a usage error or an unreadable input. Options always
+precede the file argument. Success prints `ok FILE` (except `identity`).
+Diagnostics are `RULE-ID path[:line]: message` on stderr, and the first failure
+stops the check.
+
+| Subcommand | Behavior |
+|------------|----------|
+| `result FILE` | One result record (at most 64 KiB, exactly one canonical line). A suite record is refused (R-SCHEMA). |
+| `suite --inventory INV FILE` | A whole suite (at most 16 MiB) against the pinned inventory. |
+| `seal --inventory INV --out FILE RESULT...` | Validates each result, sorts by `fixture_id`, appends the suite record, runs the `suite` check on the output, and only then writes FILE (via `FILE.tmp` and rename). A set that does not match INVENTORY is refused with S-INVENTORY. |
+| `identity FILE` | Validates every line of a result or suite file (the suite record is optional here and no inventory is compared), then prints `fixture_id<TAB>profile_id<TAB>build_id<TAB>evidence_tier<TAB>outcome` per result. Nothing is printed when any line is invalid. The claims gate uses it to refuse synthetic evidence. |
+
+Result rules, checked in this order per record:
+
+| Rule | Fires when |
+|------|------------|
+| `R-JSON` | The strict parser rejects the bytes (the message names the category, for example `JSON-float` or `JSON-duplicate-key`, and the offset). |
+| `R-SCHEMA` | `schema` is not `t64.result` (or, for a suite record, `t64.suite`). |
+| `R-VERSION` | `schema_version` is not the integer 1. |
+| `R-UNKNOWN-FIELD`, `R-MISSING-FIELD` | The key set of the record or of `counts` differs from the exact sets above. |
+| `R-TYPE` | A field has the wrong type or shape: ids and names outside their character sets, digests that are not 64 lowercase hex or null, `guest_tick` that is not a decimal u64 string, counts that are not non-negative integers. |
+| `R-ENUM` | `outcome`, `detail`, `evidence_tier` (`smoke`, `regression-pinned`, `unit-tested`, `self-checking-fixture`, `emulator-differential`, `hardware-derived`, `synthetic`) or `stop_reason` is outside its closed set. |
+| `R-DETAIL-OUTCOME` | `detail` does not belong to `outcome`. |
+| `R-SYNTHETIC-STAMP` | `evidence_tier` synthetic, `profile_id` `synthetic-stub` and a `+synthetic` `build_id` are not all present or all absent, so the stamp cannot be dropped or half-applied. |
+| `R-NULL-RULES` | The null and zero rules above are broken, `state_digest` is not null, or `log_bytes` exceeds `log_bytes_total`. |
+| `R-NOT-CANONICAL` | The bytes differ from the canonical re-emission of the parsed record (whitespace, key order, a missing final LF). |
+
+Suite rules (the suite record itself also goes through R-JSON, R-SCHEMA,
+R-VERSION, R-UNKNOWN-FIELD, R-MISSING-FIELD, R-TYPE and R-NOT-CANONICAL):
+
+| Rule | Fires when | Detail echoed |
+|------|------------|---------------|
+| `S-TRUNCATED` | The file is empty, the final line has no LF, or the last line is a result (no suite record). | `suite-truncated` |
+| `S-EMPTY` | The file holds no result records. Zero results is never a pass. | none |
+| `S-ORDER` | A suite record is not the last line, or results are not in ascending `fixture_id` order. | none |
+| `S-DUPLICATE` | A `fixture_id` appears twice. Checked before the inventory, so a repeated line reports as a duplicate. | none |
+| `S-INVENTORY` | `case_count` differs from the number of results, `inventory_sha256` differs from the SHA-256 of INVENTORY, or the set of `fixture_id`s differs from INVENTORY. | `inventory-mismatch` |
+
+An INVENTORY that is unreadable, empty, unsorted, has duplicates or has an id
+outside `[A-Za-z0-9._-]{1,64}` is a usage error (exit 2), never a pass.
+
+Seeds live in `tests/seeded/results/` and `tests/seeded/suites/` (directory-owned
+corpora with an `EXPECT.tsv`, driven by `tests/seeded/run-expect.sh`).
+`tests/seeded/suites/INVENTORY` is a support file, not a seed.

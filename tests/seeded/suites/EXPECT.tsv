@@ -1,0 +1,17 @@
+# Seeds for t64-result-check suite --inventory INVENTORY, driven by tests/seeded/run-expect.sh.
+# Columns: file, exit, rule_id, needle (optional). Every .jsonl file here is a seed and needs a row.
+# INVENTORY is a support file (not a seed under --ext .jsonl): the two sorted fixture ids of tests/controls/golden/.
+# good.jsonl is the output of `seal` over the two goldens, checked against an independent construction
+# (the goldens plus a suite line built with printf and shasum -a 256 over INVENTORY).
+good.jsonl	0	ok
+truncated.jsonl	1	S-TRUNCATED	detail=suite-truncated
+dropped.jsonl	1	S-INVENTORY	detail=inventory-mismatch
+duplicate.jsonl	1	S-DUPLICATE
+# Extra seeds for the remaining suite rules (derived from good.jsonl by hand: reordered, suite line alone,
+# first hex digit of inventory_sha256 changed, fixture id renamed, final LF removed, suite line first plus garbage).
+bad_order.jsonl	1	S-ORDER
+bad_empty.jsonl	1	S-EMPTY
+bad_hash.jsonl	1	S-INVENTORY	inventory_sha256
+bad_set.jsonl	1	S-INVENTORY	aaa-halt
+bad_unterminated.jsonl	1	S-TRUNCATED	LF-terminated
+bad_suite_first.jsonl	1	S-ORDER	suite record must be the last line

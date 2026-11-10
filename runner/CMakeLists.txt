@@ -57,3 +57,11 @@ add_test(NAME unit.result-seeds
     --dir ${CMAKE_SOURCE_DIR}/tests/seeded/results
     --ext .json)
 set_tests_properties(unit.result-seeds PROPERTIES LABELS unit)
+
+# Suite seeds: the pinned INVENTORY is a support file, not a seed.
+add_test(NAME unit.suite-seeds
+  COMMAND sh ${CMAKE_SOURCE_DIR}/tests/seeded/run-expect.sh
+    --tool "$<TARGET_FILE:t64-result-check> suite --inventory ${CMAKE_SOURCE_DIR}/tests/seeded/suites/INVENTORY"
+    --dir ${CMAKE_SOURCE_DIR}/tests/seeded/suites
+    --ext .jsonl)
+set_tests_properties(unit.suite-seeds PROPERTIES LABELS unit)
