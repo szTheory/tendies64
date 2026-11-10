@@ -35,6 +35,28 @@ evidence. Neither build identity nor source revision enters machine state
 digest. A native result label such as “unit-tested synthetic counters” reports
 only what the test exercised; it is not guest execution or hardware evidence.
 
+## Measured native component evidence
+
+`unit.core.determinism` exercises the public ROM admission, MMIO, PI/SP DMA,
+MI, advance and digest paths with runtime-authored 4 KiB images. It checks
+independently computed PI and SP bytes across one-shot, partitioned, isolated
+and interleaved schedules, and verifies the final state digests agree for each
+image. The cross-device workload completes PI and SP transfers at tick 13;
+separate cases cover PI cancellation, SP active-to-pending promotion and the
+pending transfer reading source bytes changed after promotion. Synthetic
+counter events check guest-tick, instruction-count and frame-event stop bounds;
+they do not execute guest instructions or frames.
+
+Trace-disabled, trace-enabled and overflow runs preserve the same state digest
+and expected output bytes. The overflow check observes a full 256-record ring
+and exactly 49 dropped records after its fixed 300-write workload and device
+events. A refused ROM replacement during active PI plus active and pending SP
+work preserves content/state digests, queued descriptors and trace counters.
+Each `advance` call in the test also checks that host allocation and release
+counts do not change. These results characterize the current native model only;
+the atomic timing, FIFO, cancellation and promotion rules remain unqualified
+model choices and establish no boot or hardware behavior.
+
 ## Unsupported, deferred and unknown behavior
 
 | Area | Current disposition | What this profile says | Evidence needed to promote it |

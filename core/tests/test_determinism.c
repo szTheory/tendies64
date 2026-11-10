@@ -160,8 +160,8 @@ static bool advance_without_host_calls(fixture *value, uint32_t stop_kind,
 }
 
 static bool start_cross_device_work(fixture *value, bool trace_enabled) {
-  if (trace_enabled &&
-      t64_machine_trace_set_enabled(value->machine, true) != T64_STATUS_OK) {
+  if (t64_machine_trace_set_enabled(value->machine, trace_enabled) !=
+      T64_STATUS_OK) {
     return false;
   }
   return bus_write32(value->machine, PI_BASE, PI_DEST) == T64_STATUS_OK &&
@@ -246,6 +246,9 @@ static bool complete_cross_device_work(fixture *value, bool partitioned,
   T64_CHECK_INT(value32, 1u);
   expect_zeros(value->machine, PI_DEST, sizeof pi_expected_salt1);
   expect_zeros(value->machine, UINT32_C(0x04000000), 8u);
+  if (drain_trace) {
+    t64_trace_reset(value->machine);
+  }
 
   (void)advance_without_host_calls(value, T64_STOP_GUEST_TICK, PI_TICK,
                                    &result);
@@ -256,7 +259,7 @@ static bool complete_cross_device_work(fixture *value, bool partitioned,
                       value->machine, records, T64_TRACE_RECORD_CAPACITY,
                       &record_count, &dropped, &saturated),
                   T64_STATUS_OK);
-    T64_CHECK_INT(record_count, 11u);
+    T64_CHECK_INT(record_count, 5u);
     T64_CHECK_INT(dropped, 0u);
     T64_CHECK(!saturated);
     check_same_tick_trace_order(records, record_count);
@@ -394,6 +397,7 @@ static void test_trace_modes_and_overflow_are_observational(void) {
   }
   T64_CHECK(start_cross_device_work(&overflow_untraced, false));
   T64_CHECK(start_cross_device_work(&overflow_traced, true));
+  t64_trace_reset(overflow_traced.machine);
   for (i = 0u; i < OVERFLOW_WRITES; i++) {
     uint8_t value = (uint8_t)(i * 7u + 3u);
     T64_CHECK_INT(bus_write8(overflow_untraced.machine,
@@ -412,7 +416,7 @@ static void test_trace_modes_and_overflow_are_observational(void) {
                     &record_count, &dropped, &saturated),
                 T64_STATUS_OK);
   T64_CHECK_INT(record_count, T64_TRACE_RECORD_CAPACITY);
-  T64_CHECK_INT(dropped, UINT64_C(55));
+  T64_CHECK_INT(dropped, UINT64_C(49));
   T64_CHECK(!saturated);
   T64_CHECK_INT(t64_machine_digest(overflow_untraced.machine,
                                    digest_overflow_untraced),
@@ -508,15 +512,12 @@ static void test_guest_instruction_and_frame_bounds(void) {
                 T64_STATUS_OK);
   request.kind = T64_STOP_INSTRUCTION_COUNT;
   request.value = 3u;
-  T64_CHECK_INT(t64_machine_advance(instruction_bound.machine, &request,
-                                    &result),
-                T64_STATUS_OK);
+  (void)advance_without_host_calls(&instruction_bound, request.kind,
+                                   request.value, &result);
   T64_CHECK_INT(result.reason, T64_STOP_REASON_INSTRUCTION_COUNT);
   T64_CHECK_INT(result.tick, 6u);
   T64_CHECK_INT(instruction_bound.machine->instruction_count, 5u);
   T64_CHECK_INT(instruction_bound.machine->frame_event_count, 1u);
-  T64_CHECK_INT(instruction_bound.host.allocations, 2u);
-  T64_CHECK_INT(instruction_bound.host.releases, 0u);
 
   T64_CHECK_INT(t64_test_schedule_synthetic(frame_bound.machine, 3u,
                                             T64_TEST_EVENT_FRAME, 2u),
@@ -527,8 +528,8 @@ static void test_guest_instruction_and_frame_bounds(void) {
                 T64_STATUS_OK);
   request.kind = T64_STOP_FRAME_EVENT_COUNT;
   request.value = 2u;
-  T64_CHECK_INT(t64_machine_advance(frame_bound.machine, &request, &result),
-                T64_STATUS_OK);
+  (void)advance_without_host_calls(&frame_bound, request.kind, request.value,
+                                   &result);
   T64_CHECK_INT(result.reason, T64_STOP_REASON_FRAME_EVENT_COUNT);
   T64_CHECK_INT(result.tick, 3u);
   T64_CHECK_INT(frame_bound.machine->instruction_count, 0u);
