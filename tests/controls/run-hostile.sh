@@ -1,5 +1,6 @@
 #!/bin/sh
-# Hostile-runner controls for t64-supervisor (review findings WR-01, WR-02).
+# Hostile-runner controls for t64-supervisor (review findings WR-01, WR-02,
+# WR-04).
 # POSIX sh.
 #
 #   run-hostile.sh --bin-dir DIR --mode MODE
@@ -18,6 +19,9 @@
 #   symlink-report report replaced by a symlink               harness-error/report-invalid
 #   short-capture  log_bytes_total 500, capture "Done!\n"     harness-error/report-invalid
 #   missing-capture capture deleted, report claims 6 bytes    harness-error/report-invalid
+#   orphan         honest output, then exits 0 leaving a background child and
+#                  grandchild in its process group           pass/positive-match,
+#                  and neither descendant may outlive the supervisor
 #
 # Prints "ok MODE (...)" or "FAIL MODE: reason" and exits 0 or 1; 2 on usage.
 set -eu
@@ -42,14 +46,27 @@ SUP="$BIN_DIR/t64-supervisor"
 CHECK="$BIN_DIR/t64-result-check"
 
 case "$MODE" in
-  baseline) WANT_OUT=pass; WANT_DET=positive-match; WANT_RC=0 ;;
+  baseline | orphan) WANT_OUT=pass; WANT_DET=positive-match; WANT_RC=0 ;;
   fifo-report | fifo-capture | symlink-report | short-capture | missing-capture)
     WANT_OUT=harness-error; WANT_DET=report-invalid; WANT_RC=1 ;;
   *) echo "run-hostile: unknown mode: $MODE" >&2; exit 2 ;;
 esac
 
 T=$(mktemp -d "${TMPDIR:-/tmp}/t64hostile.XXXXXX")
-cleanup() { rm -rf "$T"; }
+# kill_recorded: SIGKILL any descendant pid the orphan runner recorded, so a
+# failing run never leaves a straggler behind.
+kill_recorded() {
+  for _pf in "$T"/child.pid "$T"/grandchild.pid; do
+    [ -f "$_pf" ] || continue
+    _p=$(cat "$_pf")
+    case "$_p" in '' | *[!0-9]*) continue ;; esac
+    kill -KILL "$_p" 2> /dev/null || :
+  done
+}
+cleanup() {
+  kill_recorded
+  rm -rf "$T"
+}
 trap cleanup EXIT
 trap 'exit 130' INT TERM HUP
 
@@ -117,6 +134,19 @@ case "$mode" in
     report_with_total 6
     rm -f "$capture"
     ;;
+  orphan)
+    printf 'Done!\n' > "$capture"
+    report_with_total 6
+    # A child that itself starts a grandchild; all stay in the runner's
+    # process group (no job control in a non-interactive sh).
+    sh -c 'sleep 300 & echo $! > "$1/grandchild.pid"; wait' sh "$state" &
+    echo $! > "$state/child.pid"
+    _n=0
+    while [ ! -s "$state/grandchild.pid" ] && [ "$_n" -lt 50 ]; do
+      sleep 0.1 2> /dev/null || sleep 1
+      _n=$((_n + 1))
+    done
+    ;;
   *) exit 2 ;;
 esac
 exit 0
@@ -162,4 +192,19 @@ grep -q "\"detail\":\"$WANT_DET\"" "$T/result.json" ||
 # The private work directory is always removed, whatever the runner left.
 _left=$(find "$T/work" -mindepth 1 -print | head -n 1)
 [ -z "$_left" ] || die "the supervisor left files in the work dir: $_left"
+if [ "$MODE" = orphan ]; then
+  [ -s "$T/child.pid" ] && [ -s "$T/grandchild.pid" ] ||
+    die "the runner did not record its descendants"
+  # A killed descendant is reparented and reaped by init; allow a few seconds
+  # for that, then any pid still alive is a survivor.
+  for _pf in "$T/child.pid" "$T/grandchild.pid"; do
+    _p=$(cat "$_pf")
+    _n=0
+    while kill -0 "$_p" 2> /dev/null; do
+      _n=$((_n + 1))
+      [ "$_n" -le 50 ] || die "descendant $_p ($(basename "$_pf" .pid)) survived the supervisor"
+      sleep 0.1 2> /dev/null || sleep 1
+    done
+  done
+fi
 echo "ok $MODE ($WANT_OUT/$WANT_DET, exit $RC)"

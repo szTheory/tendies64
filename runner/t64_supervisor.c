@@ -593,7 +593,6 @@ int main(int argc, char **argv) {
     int n;
     struct rlimit rl;
     uint64_t deadline;
-    int reaped = 0;
     int status = 0;
 
     if (a.runner_argc > 50) {
@@ -681,9 +680,12 @@ int main(int argc, char **argv) {
     close(errfd);
     o.launched = 1;
     for (;;) {
-      pid_t r = waitpid(pid, &status, WNOHANG);
-      if (r == pid) {
-        reaped = 1;
+      siginfo_t si;
+      memset(&si, 0, sizeof si);
+      /* WNOWAIT leaves an exited runner as a zombie, so its pid, and with it
+       * the process group id, cannot be reused before the group is killed. */
+      if (waitid(P_PID, (id_t)pid, &si, WEXITED | WNOHANG | WNOWAIT) == 0 &&
+          si.si_pid == pid) {
         break;
       }
       if (g_term) {
@@ -699,11 +701,13 @@ int main(int argc, char **argv) {
         nanosleep(&nap, NULL);
       }
     }
-    if (!reaped) {
-      kill(-pid, SIGKILL);
-      kill(pid, SIGKILL);
-      while (waitpid(pid, &status, 0) < 0 && errno == EINTR) {
-      }
+    /* WR-04: kill the runner's whole process group on every path, including
+     * a normal exit, before the report and capture are read, so no
+     * descendant survives the run or writes to its files after they are
+     * read. ESRCH (nothing left in the group) is expected and ignored. */
+    (void)kill(-pid, SIGKILL);
+    (void)kill(pid, SIGKILL);
+    while (waitpid(pid, &status, 0) < 0 && errno == EINTR) {
     }
     wait_status = status;
     {

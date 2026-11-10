@@ -237,9 +237,14 @@ t64-supervisor --identity synthetic --result PATH --meta PATH --work-dir DIR
   0600, and is removed at exit.
 - The runner runs in its own process group with core dumps disabled and a file
   size limit of the log limit plus 64 KiB, stdout and stderr redirected to
-  files. The supervisor polls `waitpid` against a monotonic wall-clock deadline
-  (`wall-backstop`), and on expiry or on SIGTERM/SIGINT kills the whole group
-  with SIGKILL and reaps it.
+  files. The supervisor polls for the runner's exit (`waitid` with `WNOWAIT`,
+  so the exited runner stays a zombie and its process group id cannot be
+  reused) against a monotonic wall-clock deadline (`wall-backstop`). On every
+  path, a normal exit, wall-clock expiry or SIGTERM/SIGINT, it then kills the
+  whole process group with SIGKILL, before it reads the report and the
+  capture, and reaps the runner. No descendant left in the group outlives the
+  run or writes to its files after they are read. A descendant that leaves the
+  group (`setsid`, `setpgid`) is outside this guarantee.
 - After the runner exits, the report and the capture are opened with
   `O_RDONLY|O_NOFOLLOW|O_NONBLOCK` and must be regular files by `fstat`, so a
   runner that plants a FIFO cannot block the supervisor once the wall-clock
