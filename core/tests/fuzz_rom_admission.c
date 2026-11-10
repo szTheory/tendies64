@@ -82,6 +82,9 @@ static uint8_t *machine_snapshot;
 static uint8_t *image_snapshot;
 static size_t machine_snapshot_capacity;
 static size_t image_snapshot_capacity;
+static size_t baseline_machine_capacity;
+static const void *baseline_machine_data;
+static const void *baseline_image_data;
 static bool mutation_in_progress;
 static bool baseline_digest_valid;
 static size_t baseline_image_capacity;
@@ -288,17 +291,30 @@ static void seed_nondefault_state(void) {
   machine->trace_drop_count = UINT64_C(3);
 }
 
+static bool snapshot_ranges_match_baseline(void) {
+  return baseline_machine_data != NULL && baseline_image_data != NULL &&
+         machine->machine_storage.data == baseline_machine_data &&
+         machine->machine_storage.capacity == baseline_machine_capacity &&
+         machine->image_storage.data == baseline_image_data &&
+         machine->image_storage.capacity == baseline_image_capacity;
+}
+
 static bool capture_immutable_baseline(bool check_public_digest) {
   seed_nondefault_state();
-  baseline_image_capacity = machine->image_storage.capacity;
   if (machine_snapshot == NULL || image_snapshot == NULL ||
-      machine->machine_storage.capacity > machine_snapshot_capacity ||
-      baseline_image_capacity > image_snapshot_capacity) {
+      machine->machine_storage.data == NULL ||
+      machine->image_storage.data == NULL ||
+      machine->machine_storage.capacity != machine_snapshot_capacity ||
+      machine->image_storage.capacity > image_snapshot_capacity) {
     fail_once("snapshot storage unavailable");
     return false;
   }
+  baseline_machine_data = machine->machine_storage.data;
+  baseline_image_data = machine->image_storage.data;
+  baseline_machine_capacity = machine->machine_storage.capacity;
+  baseline_image_capacity = machine->image_storage.capacity;
   (void)memcpy(machine_snapshot, machine->machine_storage.data,
-               machine->machine_storage.capacity);
+               baseline_machine_capacity);
   (void)memcpy(image_snapshot, machine->image_storage.data,
                baseline_image_capacity);
   baseline_digest_valid = check_public_digest;
@@ -310,6 +326,21 @@ static bool capture_immutable_baseline(bool check_public_digest) {
     return false;
   }
   return true;
+}
+
+static bool snapshot_oracle_rejects_shrunken_capacity(void) {
+  t64_host_storage saved_machine_storage = machine->machine_storage;
+  bool rejects_zero_capacity;
+  bool rejects_shrunken_capacity;
+
+  machine->machine_storage.capacity = 0u;
+  rejects_zero_capacity = !snapshot_ranges_match_baseline();
+  machine->machine_storage = saved_machine_storage;
+  machine->machine_storage.capacity = baseline_machine_capacity - 1u;
+  rejects_shrunken_capacity = !snapshot_ranges_match_baseline();
+  machine->machine_storage = saved_machine_storage;
+  return rejects_zero_capacity && rejects_shrunken_capacity &&
+         snapshot_ranges_match_baseline();
 }
 
 static bool refusal_is_immutable(const uint8_t *bytes, size_t length,
@@ -328,8 +359,7 @@ static bool refusal_is_immutable(const uint8_t *bytes, size_t length,
    * through consecutive refusals; successful admissions capture a new one.
    * Selected boundary controls compare both public digests directly. */
   if (machine_snapshot == NULL || image_snapshot == NULL ||
-      machine->machine_storage.capacity > machine_snapshot_capacity ||
-      baseline_image_capacity != machine->image_storage.capacity) {
+      !snapshot_ranges_match_baseline()) {
     fail_once("refusal baseline does not match owned storage");
     return false;
   }
@@ -353,10 +383,16 @@ static bool refusal_is_immutable(const uint8_t *bytes, size_t length,
     fail_once(label);
     unchanged = false;
   }
-  if (memcmp(machine_snapshot, machine->machine_storage.data,
-             machine->machine_storage.capacity) != 0 ||
-      memcmp(image_snapshot, machine->image_storage.data,
-             baseline_image_capacity) != 0) {
+  if (!snapshot_ranges_match_baseline()) {
+    if (stats.first_state_mismatch_case == NULL) {
+      stats.first_state_mismatch_case = label;
+    }
+    fail_once("refusal changed owned storage pointer or capacity");
+    unchanged = false;
+  } else if (memcmp(machine_snapshot, baseline_machine_data,
+                    baseline_machine_capacity) != 0 ||
+             memcmp(image_snapshot, baseline_image_data,
+                    baseline_image_capacity) != 0) {
     if (stats.first_state_mismatch_case == NULL) {
       stats.first_state_mismatch_case = label;
     }
@@ -519,6 +555,10 @@ static void run_fixed_inventory(uint8_t *base, uint8_t *raw,
     return;
   }
   if (sample) {
+    if (!capture_immutable_baseline(true) ||
+        !snapshot_oracle_rejects_shrunken_capacity()) {
+      fail_once("refusal snapshot oracle control");
+    }
     return;
   }
   for (i = 0u; i < 3u; i++) {
@@ -538,6 +578,10 @@ static void run_fixed_inventory(uint8_t *base, uint8_t *raw,
     stats.header_offsets[i]++;
   }
   if (!capture_immutable_baseline(true)) {
+    return;
+  }
+  if (!snapshot_oracle_rejects_shrunken_capacity()) {
+    fail_once("refusal snapshot oracle missed zero or shrunken capacity");
     return;
   }
   for (i = 0u; i < 64u; i++) {
