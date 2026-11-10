@@ -5,16 +5,16 @@ milestone_name: Verified Headless Core
 current_phase: 01
 current_phase_name: Governance, Rights and Harness Foundation
 status: executing
-stopped_at: Completed 01-09-PLAN.md
-last_updated: "2026-11-10T03:00:10.777Z"
+stopped_at: Completed 01-10-PLAN.md
+last_updated: "2026-11-10T03:12:43.021Z"
 last_activity: 2026-11-09
 last_activity_desc: Phase 1 execution started
-state_head: 911645772a2bcf5784dc104291de941e03723cb7
+state_head: cbc8c9e722ff7a1fd7f58406022dc4b5f445016e
 progress:
   total_phases: 6
   completed_phases: 0
   total_plans: 13
-  completed_plans: 9
+  completed_plans: 10
   percent: 0
 ---
 
@@ -30,7 +30,7 @@ See: .planning/PROJECT.md (updated 2026-11-09)
 ## Current Position
 
 Phase: 1 (Governance, Rights and Harness Foundation) — EXECUTING
-Plan: 10 of 13
+Plan: 11 of 13
 Status: Ready to execute
 Last activity: 2026-11-09 — Phase 1 execution started
 
@@ -67,6 +67,7 @@ Progress: [░░░░░░░░░░] 0%
 | Phase 1 P07 | 4 min | 2 tasks | 24 files |
 | Phase 1 P08 | 14min | 3 tasks | 33 files |
 | Phase 1 P09 | 11min | 3 tasks | 47 files |
+| Phase 1 P10 | 25 min | 2 tasks | 7 files |
 
 ## Accumulated Context
 
@@ -97,6 +98,8 @@ Decisions are logged in the PROJECT.md Key Decisions table. Recent decisions tha
 - [Phase 1]: Spike Rule (a) reads 'both OSes' as a conjunction: a class triggers only if the C gate lint exits 0 on host and Linux container and the Rust twin exits 1
 - [Phase 1]: 01-09: manifest forbidden shape lists sha256/size/source/build/expected/path as accept-anything members so M-FORBIDDEN-DIGEST reports them; non-forbidden shape allows optional forbidden_reason and M-FORBIDDEN-REASON fires when either right is forbidden
 - [Phase 1]: 01-09: a manifest with any finding makes rights-scan.sh exit 2 and emits no allowlist rows; --root defaults to the current directory; the CTest wrapper builds its argv label at run time because LastTest.log echoes the command line
+- [Phase 1]: 01-10: MIT text for the MADR record comes from LICENSE.MIT at tag 4.0.0 (LICENSE holds only the expression); record pins the peeled commit 2475fe19..., maintenance_owner szTheory
+- [Phase 1]: 01-10: provenance detector counts a tag only at line start (optional comment leader) within the first 20 lines; selftest asserts exact rule-id sets (76 cases, 16 ids)
 
 ### Pending Todos
 
@@ -122,6 +125,6 @@ Items acknowledged and deferred at milestone close, most recent first:
 
 ## Session Continuity
 
-Last session: 2026-11-10T03:00:10.746Z
-Stopped at: Completed 01-09-PLAN.md
+Last session: 2026-11-10T03:12:43.004Z
+Stopped at: Completed 01-10-PLAN.md
 Resume file: None
