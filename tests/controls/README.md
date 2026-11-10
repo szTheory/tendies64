@@ -87,6 +87,17 @@ is the sorted case list. Five CTest tests (label `controls`) use it:
 Adding a case means adding the script, the golden, the matrix row and the
 INVENTORY line together. Adding only one of them fails `controls.inventory`.
 
+## Hostile-runner controls
+
+`run-hostile.sh --bin-dir DIR --mode MODE` tests the supervisor itself against
+small shell runners, generated at test time, that attack the files the
+supervisor reads after the runner exits. They are CTest tests
+`controls.hostile.<mode>` (label `controls`), not matrix rows: they are not in
+INVENTORY and Phases 3 and 4 do not replay them. A watchdog turns a supervisor
+hang into a failure. The modes and what each must produce are listed in the
+script header; `baseline` is an honest runner that must pass, so a failing
+hostile mode is not an artefact of the harness.
+
 ## Host side effects
 
 On macOS, the `abort` and `segv` controls make the system write a crash report

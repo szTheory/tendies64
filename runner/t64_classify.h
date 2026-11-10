@@ -90,6 +90,13 @@ typedef struct {
   int exit_code;
   size_t report_len; /* 0 means no report file content */
   int report_malformed;
+  /* The report path exists but is not a regular file (a FIFO, a symlink, a
+   * device) or could not be read: report-invalid, never no-result. */
+  int report_unreadable;
+  /* The capture is not a regular file, or it could not be read in full (a
+   * read error, a short read or no memory for it): report-invalid, never an
+   * empty capture that could pass. */
+  int capture_unreadable;
   t64_report_stop stop;
   uint64_t guest_tick;
   uint64_t log_bytes_total;

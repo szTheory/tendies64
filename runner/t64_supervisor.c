@@ -243,20 +243,88 @@ static int create_private(const char *path) {
   return fd;
 }
 
-/* Reads up to cap bytes of a regular file; returns bytes read or -1. */
-static long read_small(const char *path, uint8_t *buf, size_t cap) {
-  struct stat st;
-  size_t got = 0;
-  int fd = open(path, O_RDONLY | O_NOFOLLOW);
+/*
+ * Opens a file the runner may have replaced (WR-01). O_NONBLOCK keeps a
+ * planted FIFO from blocking open() after the wall-clock backstop no longer
+ * applies, O_NOFOLLOW refuses a symlink, and fstat must then show a regular
+ * file. Returns the descriptor, -2 when the path does not exist, or -1 when
+ * it exists but is unusable.
+ */
+static int open_runner_file(const char *path, struct stat *st) {
+  int fd = open(path, O_RDONLY | O_NOFOLLOW | O_NONBLOCK);
   if (fd < 0) {
+    return errno == ENOENT ? -2 : -1;
+  }
+  if (fstat(fd, st) != 0 || !S_ISREG(st->st_mode)) {
+    close(fd);
     return -1;
   }
-  if (fstat(fd, &st) != 0 || !S_ISREG(st.st_mode)) {
-    close(fd);
+  return fd;
+}
+
+/* Reads up to cap bytes of the runner's report. Returns the bytes read, 0
+ * when the file is missing or empty, or -1 when the path is not a regular
+ * file or a read failed. */
+static long read_report(const char *path, uint8_t *buf, size_t cap) {
+  struct stat st;
+  size_t got = 0;
+  int fd = open_runner_file(path, &st);
+  if (fd == -2) {
+    return 0;
+  }
+  if (fd < 0) {
     return -1;
   }
   while (got < cap) {
     ssize_t r = read(fd, buf + got, cap - got);
+    if (r < 0 && errno == EINTR) {
+      continue;
+    }
+    if (r < 0) {
+      close(fd);
+      return -1;
+    }
+    if (r == 0) {
+      break;
+    }
+    got += (size_t)r;
+  }
+  close(fd);
+  return (long)got;
+}
+
+/*
+ * Reads the capture: the whole file, or log_limit+1 bytes when it is longer
+ * (so an over-long capture is still seen as one). Returns 0 and fills *out
+ * and *out_len (*out may be NULL for an empty file), or -1 when the capture
+ * is missing, not a regular file, could not be allocated or was not read in
+ * full (WR-02: never an empty or short capture that could pass).
+ */
+static int read_capture(const char *path, uint64_t log_limit, uint8_t **out,
+                        size_t *out_len) {
+  struct stat st;
+  size_t want;
+  size_t got = 0;
+  uint8_t *buf;
+  int fd = open_runner_file(path, &st);
+  *out = NULL;
+  *out_len = 0;
+  if (fd < 0) {
+    return -1;
+  }
+  if (st.st_size < 0) {
+    close(fd);
+    return -1;
+  }
+  want = (uint64_t)st.st_size > log_limit ? (size_t)log_limit + 1u
+                                          : (size_t)st.st_size;
+  buf = (uint8_t *)malloc(want + 1u);
+  if (buf == NULL) {
+    close(fd);
+    return -1;
+  }
+  while (got < want) {
+    ssize_t r = read(fd, buf + got, want - got);
     if (r < 0 && errno == EINTR) {
       continue;
     }
@@ -266,7 +334,13 @@ static long read_small(const char *path, uint8_t *buf, size_t cap) {
     got += (size_t)r;
   }
   close(fd);
-  return (long)got;
+  if (got != want) {
+    free(buf);
+    return -1;
+  }
+  *out = buf;
+  *out_len = got;
+  return 0;
 }
 
 /* ---- arguments ----------------------------------------------------------- */
@@ -648,8 +722,11 @@ int main(int argc, char **argv) {
 
     /* Read the report and the capture only when they could matter. */
     {
-      long rl2 = read_small(ws.report, repbuf, sizeof repbuf);
+      long rl2 = read_report(ws.report, repbuf, sizeof repbuf);
       t64_report rep;
+      if (rl2 < 0) {
+        o.report_unreadable = 1;
+      }
       o.report_len = rl2 > 0 ? (size_t)rl2 : 0;
       if (o.report_len > 0) {
         if (t64_parse_report(repbuf, o.report_len, &rep)) {
@@ -661,35 +738,10 @@ int main(int argc, char **argv) {
         }
       }
     }
-    {
-      struct stat st;
-      int cfd = open(ws.capture, O_RDONLY | O_NOFOLLOW);
-      if (cfd >= 0 && fstat(cfd, &st) == 0 && S_ISREG(st.st_mode)) {
-        size_t want = (size_t)st.st_size;
-        size_t got = 0;
-        if ((uint64_t)st.st_size > a.log_limit) {
-          want = (size_t)a.log_limit + 1u;
-        }
-        capture = (uint8_t *)malloc(want + 1u);
-        if (capture != NULL) {
-          while (got < want) {
-            ssize_t r = read(cfd, capture + got, want - got);
-            if (r < 0 && errno == EINTR) {
-              continue;
-            }
-            if (r <= 0) {
-              break;
-            }
-            got += (size_t)r;
-          }
-          o.capture = capture;
-          o.capture_len = got;
-        }
-      }
-      if (cfd >= 0) {
-        close(cfd);
-      }
+    if (read_capture(ws.capture, a.log_limit, &capture, &o.capture_len) != 0) {
+      o.capture_unreadable = 1;
     }
+    o.capture = capture;
   }
 classified:
   t64_classify(&o, &v);

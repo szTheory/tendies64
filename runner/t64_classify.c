@@ -207,11 +207,20 @@ static void set(t64_verdict *v, t64_detail d) {
   v->exit_code = t64_outcome_exit(v->outcome);
 }
 
+/* For an honest runner the capture holds exactly the first
+ * min(log_bytes_total, log_limit) bytes the guest emitted (WR-02). A shorter
+ * capture means bytes were lost (a read error, a runner that did not flush),
+ * and a verdict computed on it could miss a dropped FAIL line. */
+static uint64_t expected_capture_len(const t64_observation *o) {
+  return o->log_bytes_total < o->log_limit ? o->log_bytes_total : o->log_limit;
+}
+
 static int report_invalid(const t64_observation *o) {
-  return o->report_malformed || o->stop == T64_REPORT_STOP_NONE ||
-         o->guest_tick > o->bound ||
+  return o->report_malformed || o->capture_unreadable ||
+         o->stop == T64_REPORT_STOP_NONE || o->guest_tick > o->bound ||
          (o->stop == T64_REPORT_STOP_BOUND && o->guest_tick != o->bound) ||
-         o->capture_len > o->log_limit || o->log_bytes_total < o->capture_len;
+         o->capture_len > o->log_limit || o->log_bytes_total < o->capture_len ||
+         (uint64_t)o->capture_len != expected_capture_len(o);
 }
 
 void t64_classify(const t64_observation *o, t64_verdict *v) {
@@ -246,6 +255,10 @@ void t64_classify(const t64_observation *o, t64_verdict *v) {
     }
     if (o->exit_code != 0) {
       set(v, T64_D_RUNNER_EXIT_NONZERO);
+      return;
+    }
+    if (o->report_unreadable) {
+      set(v, T64_D_REPORT_INVALID);
       return;
     }
     if (o->report_len == 0) {

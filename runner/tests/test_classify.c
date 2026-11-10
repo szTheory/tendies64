@@ -73,10 +73,10 @@ static const row rows[] = {
       PASS_OUT, T64_D_POSITIVE_MATCH, 0),
     G("pass-expect-zero", SH, 40, 6, "Done!\n", 0, PASS_OUT,
       T64_D_POSITIVE_MATCH, 0),
-    G("pass-unhandled-exception-after-done", SH, 40, 55,
+    G("pass-unhandled-exception-after-done", SH, 40, 52,
       OKCAP "Unhandled Exception at 80000180\n", 2, PASS_OUT,
       T64_D_POSITIVE_MATCH, 0),
-    G("pass-unhandled-exception-before-done", SH, 40, 55,
+    G("pass-unhandled-exception-before-done", SH, 40, 40,
       "PASS a\nPASS b\nunhandled EXCEPTION\nDone!\n", 2, PASS_OUT,
       T64_D_POSITIVE_MATCH, 0),
     /* 5. timeout */
@@ -96,9 +96,9 @@ static const row rows[] = {
       GFAIL, T64_D_LOG_INVALID_UTF8, 10),
     G("gfail-invalid-utf8-with-bound-reached", SB, 1000, 3, "\xc0\xaf\n", 2,
       GFAIL, T64_D_LOG_INVALID_UTF8, 10),
-    G("gfail-invalid-utf8-beats-fail-line", SH, 40, 10, "FAIL \xed\xa0\x80\n",
+    G("gfail-invalid-utf8-beats-fail-line", SH, 40, 9, "FAIL \xed\xa0\x80\n",
       2, GFAIL, T64_D_LOG_INVALID_UTF8, 10),
-    G("gfail-fail-reported", SH, 40, 27, "PASS a\nFAIL b\nDone!\n", 2, GFAIL,
+    G("gfail-fail-reported", SH, 40, 20, "PASS a\nFAIL b\nDone!\n", 2, GFAIL,
       T64_D_FAIL_REPORTED, 10),
     G("gfail-fail-after-done-is-fail-reported", SH, 40, 27, OKCAP "FAIL c\n",
       2, GFAIL, T64_D_FAIL_REPORTED, 10),
@@ -112,7 +112,7 @@ static const row rows[] = {
       T64_D_OUTPUT_AFTER_DONE, 10),
     G("gfail-blank-line-after-done", SH, 40, 21, OKCAP "\n", 2, GFAIL,
       T64_D_OUTPUT_AFTER_DONE, 10),
-    G("gfail-output-after-done-beats-count", SH, 40, 20,
+    G("gfail-output-after-done-beats-count", SH, 40, 19,
       "PASS a\nDone!\nextra\n", 2, GFAIL, T64_D_OUTPUT_AFTER_DONE, 10),
     G("gfail-count-too-few", SH, 40, 13, "PASS a\nDone!\n", 2, GFAIL,
       T64_D_COUNT_MISMATCH, 10),
@@ -138,6 +138,18 @@ static const row rows[] = {
       T64_D_REPORT_INVALID, 1),
     G("report-total-below-capture", SH, 40, 3, OKCAP, 2, HERR,
       T64_D_REPORT_INVALID, 1),
+    /* WR-02: the capture must be exactly min(log_bytes_total, log_limit)
+     * bytes; a short capture would hide a dropped FAIL line. */
+    G("report-capture-shorter-than-total", SH, 40, 500, "Done!\n", 0, HERR,
+      T64_D_REPORT_INVALID, 1),
+    G("report-capture-one-byte-short", SH, 40, 21, OKCAP, 2, HERR,
+      T64_D_REPORT_INVALID, 1),
+    X("report-capture-short-of-limit", 0, T64_FIX_OK, 1, 0, 0, 0,
+      T64_WAIT_EXITED, 0, 50, 0, SB, 1000, 100, "PASS a\n", 2, 64, HERR,
+      T64_D_REPORT_INVALID, 1),
+    X("report-capture-equal-to-limit-is-consistent", 0, T64_FIX_OK, 1, 0, 0, 0,
+      T64_WAIT_EXITED, 0, 50, 0, SB, 1000, 100, "PASS a\n", 2, 7, GFAIL,
+      T64_D_LOG_OVER_LIMIT, 10),
     /* 1. harness-error: process paths, never trusting the runner */
     X("process-usage", 1, T64_FIX_OK, 0, 0, 0, 0, T64_WAIT_NONE, 0, 0, 0, SN,
       0, 0, "", 0, 4096, HERR, T64_D_USAGE, 1),
@@ -338,6 +350,55 @@ static void counts(void) {
   T64_CHECK_INT(v.counts.log_lines, 0);
 }
 
+/* WR-01, WR-02: a report or capture that is not a regular file, or a capture
+ * that could not be read in full, is report-invalid; it never reaches the
+ * guest verdict and is never mistaken for no-result. */
+static void unreadable_files(void) {
+  t64_observation o;
+  t64_verdict v;
+  memset(&o, 0, sizeof o);
+  o.fixture = T64_FIX_OK;
+  o.launched = 1;
+  o.wait_state = T64_WAIT_EXITED;
+  o.report_len = 50;
+  o.stop = SH;
+  o.guest_tick = 40;
+  o.capture = (const uint8_t *)OKCAP;
+  o.capture_len = sizeof OKCAP - 1u;
+  o.log_bytes_total = o.capture_len;
+  o.expect_pass = 2;
+  o.bound = 1000;
+  o.log_limit = 4096;
+  t64_classify(&o, &v);
+  T64_CHECK_INT(v.detail, T64_D_POSITIVE_MATCH); /* the baseline passes */
+  o.capture_unreadable = 1;
+  t64_classify(&o, &v);
+  T64_CHECK_INT(v.detail, T64_D_REPORT_INVALID);
+  T64_CHECK_INT(v.guest_data, 0);
+  /* An unreadable capture with nothing read is still not boot-fail. */
+  o.capture = NULL;
+  o.capture_len = 0;
+  o.log_bytes_total = 0;
+  t64_classify(&o, &v);
+  T64_CHECK_INT(v.detail, T64_D_REPORT_INVALID);
+  /* A report path that is not a regular file is report-invalid, even though
+   * nothing could be read from it (report_len 0 would be no-result). */
+  memset(&o, 0, sizeof o);
+  o.fixture = T64_FIX_OK;
+  o.launched = 1;
+  o.wait_state = T64_WAIT_EXITED;
+  o.report_unreadable = 1;
+  o.bound = 1000;
+  o.log_limit = 4096;
+  t64_classify(&o, &v);
+  T64_CHECK_INT(v.detail, T64_D_REPORT_INVALID);
+  T64_CHECK_INT(v.exit_code, 1);
+  /* Process failures still win over the report. */
+  o.exit_code = 3;
+  t64_classify(&o, &v);
+  T64_CHECK_INT(v.detail, T64_D_RUNNER_EXIT_NONZERO);
+}
+
 #define V1 "t64-report 1\n"
 static void report_parser(void) {
   static const char *const good[] = {
@@ -397,6 +458,7 @@ int main(void) {
   run_rows();
   names_and_exits();
   counts();
+  unreadable_files();
   report_parser();
   return T64_TEST_FINISH("unit.classify");
 }

@@ -110,11 +110,19 @@ Harness-error details, in evaluation order:
 5. `runner-signalled`: the runner died from a signal (for example abort or a
    segmentation fault).
 6. `runner-exit-nonzero`: the runner exited with a non-zero status.
-7. `no-result`: the runner exited 0 but left no report.
+7. `no-result`: the runner exited 0 but left no report (the report file is
+   empty or was deleted).
 8. `report-invalid`: the report is malformed, or inconsistent with the run: a
    tick above the bound; `guest-bound` with a tick that is not the bound; a
-   capture longer than the log limit; or `log_bytes_total` smaller than the
-   capture length.
+   capture longer than the log limit; `log_bytes_total` smaller than the
+   capture length; or a capture length other than
+   `min(log_bytes_total, log limit)`, the exact length an honest runner writes
+   (a shorter capture could hide a dropped `FAIL ` line). It also covers a
+   report or capture path that the runner replaced with something other than
+   a regular file (a FIFO, a symlink, a device), a capture that is missing,
+   and a capture that could not be read in full (a read error, a short read,
+   or no memory to hold it): the supervisor never classifies an empty or
+   partial capture as guest output.
 9. `fixture-digest-mismatch`: the fixture's SHA-256 differs from the pinned
    digest. The runner is not launched.
 10. `inventory-mismatch`, `suite-truncated`: produced only by suite consumers.
@@ -232,6 +240,10 @@ t64-supervisor --identity synthetic --result PATH --meta PATH --work-dir DIR
   files. The supervisor polls `waitpid` against a monotonic wall-clock deadline
   (`wall-backstop`), and on expiry or on SIGTERM/SIGINT kills the whole group
   with SIGKILL and reaps it.
+- After the runner exits, the report and the capture are opened with
+  `O_RDONLY|O_NOFOLLOW|O_NONBLOCK` and must be regular files by `fstat`, so a
+  runner that plants a FIFO cannot block the supervisor once the wall-clock
+  backstop no longer applies.
 - The canonical result and the run-meta are written to `PATH.tmp` and renamed,
   so a result file is never partial. A result is written for every outcome
   whenever `--result` was given.
