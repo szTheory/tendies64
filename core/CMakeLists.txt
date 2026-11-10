@@ -1,5 +1,10 @@
 # Production core modules are top-level t64_*.c files. Tests stay separate so
 # host-only test code never enters the deterministic production library.
+if(CMAKE_CONFIGURATION_TYPES)
+  message(FATAL_ERROR
+    "Tendies64 currently requires a single-config CMake generator because its build identity includes CMAKE_BUILD_TYPE; configure with Ninja, Unix Makefiles, or another single-config generator.")
+endif()
+
 file(GLOB T64_CORE_SOURCES CONFIGURE_DEPENDS
   "${CMAKE_CURRENT_SOURCE_DIR}/t64_*.c")
 file(GLOB T64_CORE_HEADERS CONFIGURE_DEPENDS
