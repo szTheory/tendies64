@@ -115,9 +115,6 @@ if [ -n "$LOG" ]; then
   [ -f "$LOG" ] || die "$LOG not found"
 fi
 
-command -v gh >/dev/null 2>&1 || die "gh is required"
-gh auth status >/dev/null 2>&1 || die "gh is not authenticated"
-
 # insert_row FILE SECTION ROW: add ROW directly under the last table row of
 # "## SECTION" (after the section text when it has no table rows yet). Nothing
 # else in FILE changes. ROW travels in the environment so awk never interprets
@@ -125,7 +122,11 @@ gh auth status >/dev/null 2>&1 || die "gh is not authenticated"
 insert_row() {
   _f=$1
   _sec=$2
-  _tmp=$(mktemp "${TMPDIR:-/tmp}/ci-review.XXXXXX") || die "mktemp failed"
+  # The new content is written to a temporary file in the same directory (with
+  # the log's mode, via cp -p) and renamed over the log, so an interrupt can
+  # never leave a truncated log.
+  _tmp=$(mktemp "$(dirname "$_f")/.ci-review.XXXXXX") || die "mktemp failed"
+  cp -p "$_f" "$_tmp" || { rm -f "$_tmp"; die "cannot copy $_f"; }
   if ! SEC="## $_sec" ROW=$3 awk '
     { line[NR] = $0 }
     END {
@@ -146,12 +147,12 @@ insert_row() {
     rm -f "$_tmp"
     die "section \"## $_sec\" not found in $_f"
   fi
-  cat "$_tmp" > "$_f"
-  rm -f "$_tmp"
+  mv -f "$_tmp" "$_f" || { rm -f "$_tmp"; die "cannot replace $_f"; }
 }
 
 # Findings are validated before any API call or write.
 FINDING_ROWS=""
+SEEN_IDS=" "
 if [ -n "$FINDINGS" ]; then
   _ifs=$IFS
   IFS=$NL
@@ -182,11 +183,19 @@ if [ -n "$FINDINGS" ]; then
     if [ -n "$LOG" ] && grep -q "^| $_id |" "$LOG"; then
       refuse "finding id $_id already present in $LOG"
     fi
+    case $SEEN_IDS in
+      *" $_id "*) refuse "finding id $_id is given twice" ;;
+    esac
+    SEEN_IDS="$SEEN_IDS$_id "
     FINDING_ROWS="${FINDING_ROWS}| ${_id} | ${RUN} | ${_text} | ${_verdict} | ${_reason} |${NL}"
     IFS=$NL
   done
   IFS=$_ifs
 fi
+
+# Validation needs no network; gh is checked only now.
+command -v gh >/dev/null 2>&1 || die "gh is required"
+gh auth status >/dev/null 2>&1 || die "gh is not authenticated"
 
 if [ -n "$APPEND" ] && grep -qE "^\| [0-9]{4}-[0-9]{2}-[0-9]{2} \| $RUN \|" "$APPEND"; then
   if [ -n "$FINDINGS" ]; then
