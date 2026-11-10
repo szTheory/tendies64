@@ -1,3 +1,4 @@
-#id	script	expect_pass	bound	wall_ms	slice_a	slice_b	fixture_mode	fixture_sha256	outcome	detail	exit
-positive	positive.t64s	2	1000	5000	1	7	ok	05e99f7a94e7d1fb2369e5615a92de68b468c212418255a4de019910301ad25a	pass	positive-match	0
-empty-halt	empty-halt.t64s	0	1000	5000	1	7	ok	8c7eacc007a1a83b4f1e2543617e99d05e1a888c8d1168c97cc73e7164511375	boot-fail	empty-output	11
+#id	script	expect_pass	bound	wall_ms	slice_a	slice_b	fixture_mode	fixture_sha256	outcome	detail	exit	runner_flags	log_limit
+positive	positive.t64s	2	1000	5000	1	7	ok	05e99f7a94e7d1fb2369e5615a92de68b468c212418255a4de019910301ad25a	pass	positive-match	0	-	65536
+empty-halt	empty-halt.t64s	0	1000	5000	1	7	ok	8c7eacc007a1a83b4f1e2543617e99d05e1a888c8d1168c97cc73e7164511375	boot-fail	empty-output	11	-	65536
+spin	spin.t64s	0	1000	5000	1	7	ok	fff44fb94e3ae4c3d297442c282d2448d8ee6cfcfce070e1532a6a06df10e543	timeout	guest-bound	12	-	65536

@@ -1,0 +1,4 @@
+t64-synthetic 1
+# negative control: the guest logs once and then spins past the guest-time bound
+log 5 booting\n
+end 5 spin
