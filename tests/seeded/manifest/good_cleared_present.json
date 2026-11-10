@@ -1,0 +1,38 @@
+{
+  "schema": "t64.manifest",
+  "schema_version": 1,
+  "entries": [
+    {
+      "id": "seed-cleared",
+      "source": {
+        "repo": "https://github.com/example/fixture-source",
+        "revision": "0123456789abcdef0123456789abcdef01234567",
+        "path": "."
+      },
+      "build": {
+        "recipe": "authored in place",
+        "toolchain": [
+          "none 1"
+        ]
+      },
+      "sha256": "541834797858df31578a03407e573a5bdebaadd00c156ef3cc3535283e208301",
+      "size": 13,
+      "profile": "seed-profile",
+      "source_rights": "authored-here",
+      "binary_rights": "cleared",
+      "distribution": [
+        "commit"
+      ],
+      "rights_evidence": "seed evidence: cleared in the seed",
+      "notices": [
+        "seed notice"
+      ],
+      "expected": {
+        "kind": "regression-pin",
+        "source": "seed pin",
+        "revision": "0123456789abcdef0123456789abcdef01234567"
+      },
+      "path": "fixtures/seed-good-cleared.txt"
+    }
+  ]
+}

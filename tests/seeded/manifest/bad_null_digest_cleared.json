@@ -1,0 +1,35 @@
+{
+  "schema": "t64.manifest",
+  "schema_version": 1,
+  "entries": [
+    {
+      "id": "seed-entry",
+      "source": {
+        "repo": "https://github.com/example/fixture-source",
+        "revision": "0123456789abcdef0123456789abcdef01234567",
+        "path": "."
+      },
+      "build": {
+        "recipe": "make fixture",
+        "toolchain": [
+          "tool 1.2.3"
+        ]
+      },
+      "sha256": null,
+      "size": null,
+      "profile": "seed-profile",
+      "source_rights": "cleared",
+      "binary_rights": "cleared",
+      "distribution": [
+        "local-only"
+      ],
+      "rights_evidence": "seed evidence",
+      "notices": [],
+      "expected": {
+        "kind": "self-checking",
+        "source": "seed verdict lines",
+        "revision": "0123456789abcdef0123456789abcdef01234567"
+      }
+    }
+  ]
+}

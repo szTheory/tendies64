@@ -1,0 +1,16 @@
+{
+  "schema": "t64.manifest",
+  "schema_version": 1,
+  "entries": [
+    {
+      "id": "seed-forbidden",
+      "source_rights": "forbidden",
+      "binary_rights": "forbidden",
+      "forbidden_reason": "protected material",
+      "notices": [],
+      "profile": "not-applicable",
+      "distribution": [],
+      "sha256": "541834797858df31578a03407e573a5bdebaadd00c156ef3cc3535283e208301"
+    }
+  ]
+}

@@ -22,6 +22,13 @@ add_test(NAME gov.manifest.seeds
     --dir ${CMAKE_SOURCE_DIR}/tests/seeded/manifest --ext .json
   WORKING_DIRECTORY ${CMAKE_SOURCE_DIR})
 
+# One seed per schema-engine rule that the entry seeds do not reach on their own.
+add_test(NAME gov.manifest.schema-seeds
+  COMMAND sh ${CMAKE_SOURCE_DIR}/tests/seeded/run-expect.sh
+    --tool "${T64_MANIFEST_TOOL}"
+    --dir ${CMAKE_SOURCE_DIR}/tests/seeded/manifest-schema --ext .json
+  WORKING_DIRECTORY ${CMAKE_SOURCE_DIR})
+
 # The real manifest. scripts/gate.sh exports T64_REQUIRE_FIXTURES=1 under CI=true
 # and 0 otherwise; this is the single place it becomes --require-fixtures. The
 # argument list is printed so the CTest log proves which mode ran.
@@ -30,6 +37,14 @@ add_test(NAME gov.manifest.repo
     $<TARGET_FILE:t64-manifest-check>
   WORKING_DIRECTORY ${CMAKE_SOURCE_DIR})
 
-set_tests_properties(gov.manifest.seeds gov.manifest.repo PROPERTIES
+# --require-fixtures proven in both modes, plus --emit-allowlist and the
+# schema-subset refusal, on a temporary root.
+add_test(NAME gov.manifest.require-fixtures
+  COMMAND sh ${CMAKE_SOURCE_DIR}/tests/seeded/run-require-fixtures.sh
+    --bin $<TARGET_FILE:t64-manifest-check>
+  WORKING_DIRECTORY ${CMAKE_SOURCE_DIR})
+
+set_tests_properties(gov.manifest.seeds gov.manifest.schema-seeds
+  gov.manifest.repo gov.manifest.require-fixtures PROPERTIES
   LABELS gov
   ENVIRONMENT "T64_BUILD_DIR=${CMAKE_BINARY_DIR}")

@@ -1,5 +1,29 @@
 # Seeded manifests (GOV-03). Columns: file, exit, rule_id, needle.
 # The seed set is every .json file here; add the file and its row in the same change.
-# Each bad_*.json is one valid entry with exactly one defect.
+# Each bad_*.json is one valid entry with exactly one defect. Needles for the
+# M-SCHEMA-REQUIRED rows are the missing JSON pointer followed by a colon.
 good.json	0	ok	
+good_cleared_present.json	0	ok	
 bad_missing_revision.json	1	M-SCHEMA-REQUIRED	/entries/0/source/revision:
+bad_missing_source.json	1	M-SCHEMA-REQUIRED	/entries/0/source:
+bad_missing_recipe.json	1	M-SCHEMA-REQUIRED	/entries/0/build/recipe:
+bad_missing_toolchain.json	1	M-SCHEMA-REQUIRED	/entries/0/build/toolchain:
+bad_missing_digest.json	1	M-SCHEMA-REQUIRED	/entries/0/sha256:
+bad_missing_profile.json	1	M-SCHEMA-REQUIRED	/entries/0/profile:
+bad_missing_source_rights.json	1	M-SCHEMA-REQUIRED	/entries/0/source_rights:
+bad_missing_binary_rights.json	1	M-SCHEMA-REQUIRED	/entries/0/binary_rights:
+bad_missing_notices.json	1	M-SCHEMA-REQUIRED	/entries/0/notices:
+bad_missing_expected.json	1	M-SCHEMA-REQUIRED	/entries/0/expected:
+bad_missing_expected_revision.json	1	M-SCHEMA-REQUIRED	/entries/0/expected/revision:
+bad_zero_entries.json	1	M-ZERO-ENTRIES	/entries
+bad_dup_id.json	1	M-DUP-ID	seed-entry
+bad_forbidden_digest.json	1	M-FORBIDDEN-DIGEST	seed-forbidden
+bad_forbidden_reason.json	1	M-FORBIDDEN-REASON	seed-forbidden
+bad_null_digest_cleared.json	1	M-NULL-DIGEST	seed-entry
+bad_bytes_not_permitted.json	1	M-BYTES-NOT-PERMITTED	seed-entry
+bad_path_traversal.json	1	M-PATH	seed-cleared
+bad_hw_provenance.json	1	M-HW-PROVENANCE	seed-entry
+bad_toolchain_pin.json	1	M-TOOLCHAIN-PIN	seed-entry
+bad_unknown_field.json	1	M-SCHEMA-ADDITIONAL	/entries/0/surprise:
+bad_enum_rights.json	1	M-SCHEMA-ENUM	/entries/0/source_rights:
+bad_short_sha.json	1	M-SCHEMA-PATTERN	/entries/0/sha256:

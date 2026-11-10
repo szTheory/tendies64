@@ -1,0 +1,13 @@
+# Seeds for schema-engine rules the entry seeds do not reach (GOV-03).
+# Columns: file, exit, rule_id, needle. Same driver and rules as tests/seeded/manifest.
+bad_type.json	1	M-SCHEMA-TYPE	/entries/0/size:
+bad_length_max.json	1	M-SCHEMA-LENGTH	/entries/0/id:
+bad_length_min.json	1	M-SCHEMA-LENGTH	/entries/0/build/recipe:
+bad_items_min.json	1	M-SCHEMA-ITEMS	/entries/0/build/toolchain:
+bad_items_unique.json	1	M-SCHEMA-ITEMS	/entries/0/distribution:
+bad_range_min.json	1	M-SCHEMA-RANGE	/entries/0/size:
+bad_range_max.json	1	M-SCHEMA-RANGE	/entries/0/size:
+bad_const_version.json	1	M-SCHEMA-ENUM	/schema_version:
+bad_oneof_forbidden_mix.json	1	M-SCHEMA-ONEOF	/entries/0:
+bad_json_syntax.json	1	M-JSON	JSON-
+bad_nul_in_id.json	1	M-SCHEMA-PATTERN	NUL byte
