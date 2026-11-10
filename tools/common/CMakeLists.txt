@@ -1,11 +1,14 @@
-# Shared host-side library for the tools and the runner.
-add_library(t64_common STATIC
-  t64_sha256.c
-  t64_utf8.c
-  t64_json.c
-  t64_jsonw.c)
+# Dependency-neutral SHA-256 implementation shared by the deterministic core
+# and host tools. Keep the existing header path for host callers.
+add_library(t64_sha256 STATIC t64_sha256.c)
+target_include_directories(t64_sha256 PUBLIC ${CMAKE_CURRENT_SOURCE_DIR})
+t64_target_warnings(t64_sha256)
+
+# Shared host-side helpers for tools and the runner.
+add_library(t64_common STATIC t64_utf8.c t64_json.c t64_jsonw.c)
 target_include_directories(t64_common PUBLIC ${CMAKE_CURRENT_SOURCE_DIR})
 t64_target_warnings(t64_common)
+target_link_libraries(t64_common PUBLIC t64_sha256)
 
 add_executable(test_common tests/test_common.c)
 target_link_libraries(test_common PRIVATE t64_common)

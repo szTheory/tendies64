@@ -104,6 +104,9 @@ function check_include(c, raw,   h, p, m) {
   }
   if (under_root(fdir) && fexists(fdir "/" h)) return
   if (fexists(incroot "/" h) || fexists(incroot "/include/" h) || fexists(coreinc "/" h)) return
+  # The dependency-neutral SHA implementation is linked by core and host
+  # tools, so this exact shared header is the one external core include.
+  if (h == "t64_sha256.h" && fexists(shaheader)) return
   report("L1-INCLUDE-UNLISTED", FNR, "quoted header \"" h "\" does not resolve inside core/")
 }
 
@@ -304,7 +307,8 @@ l1_scan() {
   _fdir=$(cd "$(dirname "$1")" && pwd -P) || return 2
   awk -v rules="$RULES" -v hosttime="$HOST_TIME_PFX" -v hostentropy="$HOST_ENTROPY_PFX" \
     -v hostenv="$HOST_ENV_PFX" -v fdir="$_fdir" -v incroot="$INC_ROOT" \
-    -v coreinc="$REPO/core/include" "$L1_AWK" "$1"
+    -v coreinc="$REPO/core/include" -v shaheader="$REPO/tools/common/t64_sha256.h" \
+    "$L1_AWK" "$1"
 }
 
 # collect_files MODE ARG...: write the sorted file list to $TMP/files.
@@ -325,6 +329,19 @@ collect_files() {
       esac
     done
   fi
+  sort "$TMP/files.raw" > "$TMP/files"
+}
+
+# The default production scan excludes only core/tests, where host-only stdio
+# and allocators are expected. The linked SHA implementation remains explicitly
+# inside the same source and object lint set.
+collect_default_core_files() {
+  _core_root=$1
+  : > "$TMP/files.raw"
+  find "$_core_root" -path "$_core_root/tests" -type d -prune -o \
+    -type f \( -name '*.c' -o -name '*.h' \) -print > "$TMP/files.raw" || exit 2
+  printf '%s\n' "$REPO/tools/common/t64_sha256.c" \
+    "$REPO/tools/common/t64_sha256.h" >> "$TMP/files.raw"
   sort "$TMP/files.raw" > "$TMP/files"
 }
 
@@ -538,6 +555,36 @@ selftest() {
     echo "selftest ok: a quoted core header resolves through core/include"
   fi
 
+  # Control 6: the default production selector must catch forbidden production
+  # code while excluding host-only stdio code under core/tests by path.
+  mkdir -p "$TMP/probe-core/tests"
+  printf 'extern int clock_gettime(void);\nvoid t64_forbidden(void) { (void)clock_gettime(); }\n' \
+    > "$TMP/probe-core/t64_forbidden.c"
+  printf '#include <stdio.h>\nint main(void) { return printf("host test\\n") < 0; }\n' \
+    > "$TMP/probe-core/tests/test_host_stdio.c"
+  collect_default_core_files "$TMP/probe-core"
+  if grep -q 'probe-core/t64_forbidden.c' "$TMP/files" &&
+     ! grep -q 'probe-core/tests/test_host_stdio.c' "$TMP/files"; then
+    :
+  else
+    echo "SELFTEST-FAIL default production selector did not separate core/tests"
+    _fail=$((_fail + 1))
+  fi
+  INC_ROOT="$TMP/probe-core"
+  SCAN_ROOT="$TMP/probe-core"
+  _rc=0
+  lint_list -I "$TMP/probe-core/include" -I "$REPO/tools/common" \
+    > "$TMP/default-set.out" || _rc=$?
+  if [ "$_rc" -eq 1 ] &&
+     grep -q '^L1-NAME-TIME ' "$TMP/default-set.out" &&
+     ! grep -q 'test_host_stdio.c' "$TMP/default-set.out"; then
+    echo "selftest ok: default production scan catches forbidden code and excludes core/tests"
+  else
+    echo "SELFTEST-FAIL default production source control: expected L1-NAME-TIME and excluded host test (got exit $_rc)"
+    cat "$TMP/default-set.out"
+    _fail=$((_fail + 1))
+  fi
+
   echo "core-lint selftest: seeds=$_seeds seeds_ok=$_ok failures=$_fail"
   [ "$_fail" -eq 0 ]
 }
@@ -550,8 +597,9 @@ trap 'exit 2' INT TERM HUP
 SCAN_ROOT=core
 if [ $# -eq 0 ]; then
   cd "$REPO"
-  collect_files root core
-  lint_list
+  INC_ROOT="$REPO/core"
+  collect_default_core_files core
+  lint_list -I tools/common
   exit $?
 fi
 case "$1" in

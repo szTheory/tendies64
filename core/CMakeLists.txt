@@ -3,8 +3,7 @@
 file(GLOB T64_CORE_SOURCES CONFIGURE_DEPENDS
   "${CMAKE_CURRENT_SOURCE_DIR}/t64_*.c")
 
-add_library(t64_core STATIC ${T64_CORE_SOURCES}
-  "${CMAKE_SOURCE_DIR}/tools/common/t64_sha256.c")
+add_library(t64_core STATIC ${T64_CORE_SOURCES})
 target_include_directories(t64_core
   PUBLIC "${CMAKE_CURRENT_SOURCE_DIR}/include"
   PRIVATE "${CMAKE_SOURCE_DIR}/tools/common")
@@ -12,6 +11,7 @@ t64_target_warnings(t64_core)
 # Core-only flags: no implicit float promotion and bounded stack usage.
 target_compile_options(t64_core PRIVATE -Wdouble-promotion
   -Wframe-larger-than=2048)
+target_link_libraries(t64_core PRIVATE t64_sha256)
 
 add_executable(test_tracer tests/test_tracer.c)
 target_include_directories(test_tracer PRIVATE "${CMAKE_SOURCE_DIR}/tests")
