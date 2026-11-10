@@ -1,3 +1,11 @@
+abort
+deleted-fixture
 empty-halt
+exit-nonzero
+exit0-no-result
+hang
+log-flood-backstop
 positive
+segv
 spin
+tampered-digest

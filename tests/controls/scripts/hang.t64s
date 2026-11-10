@@ -1,0 +1,4 @@
+t64-synthetic 1
+# host misbehavior control: the runner hangs in advance (wall-clock backstop)
+log 3 hanging\n
+end 5 hang

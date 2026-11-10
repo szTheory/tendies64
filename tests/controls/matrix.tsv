@@ -2,3 +2,11 @@
 positive	positive.t64s	2	1000	5000	1	7	ok	05e99f7a94e7d1fb2369e5615a92de68b468c212418255a4de019910301ad25a	pass	positive-match	0	-	65536
 empty-halt	empty-halt.t64s	0	1000	5000	1	7	ok	8c7eacc007a1a83b4f1e2543617e99d05e1a888c8d1168c97cc73e7164511375	boot-fail	empty-output	11	-	65536
 spin	spin.t64s	0	1000	5000	1	7	ok	fff44fb94e3ae4c3d297442c282d2448d8ee6cfcfce070e1532a6a06df10e543	timeout	guest-bound	12	-	65536
+abort	abort.t64s	0	1000	5000	1	7	ok	3ee1fa75f1dd77f448fee85f927259b69df0c722272aa70ac80fd3085e387f5d	harness-error	runner-signalled	1	-	65536
+segv	segv.t64s	0	1000	5000	1	7	ok	a9ded555275e339bc54f116acd5d9bb70e969b55a3b2972283dd7fb9360f0163	harness-error	runner-signalled	1	-	65536
+exit0-no-result	exit0-no-result.t64s	0	1000	5000	1	7	ok	642253ec4be8c22acd3fa8933b5813aa8e936d9208614a8630119354abae96f6	harness-error	no-result	1	-	65536
+exit-nonzero	exit-nonzero.t64s	2	1000	5000	1	7	ok	321dd35f8eb93a3e59806fac9877f593ed8022a0aa30b4eca52180bbe91f9f8c	harness-error	runner-exit-nonzero	1	-	65536
+hang	hang.t64s	0	1000	700	1	7	ok	742098502d8d767de5b6d2b8aca216e9ee27f239cc9c94d6ae021e5083b1317b	harness-error	wall-backstop	1	-	65536
+log-flood-backstop	log-flood-backstop.t64s	0	1000	5000	1	7	ok	7eff08006c4ec52e95a90886520721a69cd905f066b275c495e860fe5fdecfaf	harness-error	runner-signalled	1	--ignore-log-limit	65536
+deleted-fixture	positive.t64s	2	1000	5000	1	7	deleted	05e99f7a94e7d1fb2369e5615a92de68b468c212418255a4de019910301ad25a	missing-fixture	fixture-absent	13	-	65536
+tampered-digest	positive.t64s	2	1000	5000	1	7	tampered	05e99f7a94e7d1fb2369e5615a92de68b468c212418255a4de019910301ad25a	harness-error	fixture-digest-mismatch	1	-	65536

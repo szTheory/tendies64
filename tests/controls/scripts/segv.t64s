@@ -1,0 +1,4 @@
+t64-synthetic 1
+# host misbehavior control: the runner takes a segmentation fault at tick 5
+log 3 faulting\n
+end 5 segv

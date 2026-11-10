@@ -5,16 +5,22 @@
  * Usage (the supervisor appends everything after --slice):
  *   t64-runner-synthetic --slice TICKS --fixture PATH --bound TICKS
  *                        --log-limit BYTES --report PATH --capture PATH
+ *                        [--ignore-log-limit]
+ *
+ * --ignore-log-limit (test-only) writes the capture past the log limit, so a
+ * flood control can prove the supervisor's RLIMIT_FSIZE backstop.
  *
  * Exit codes: 0 report written, 2 usage or script grammar violation (no
  * report), 3 I/O failure. See docs/spec/result-protocol.md for the grammar.
  */
 #include <errno.h>
 #include <fcntl.h>
+#include <signal.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <sys/stat.h>
+#include <time.h>
 #include <unistd.h>
 
 #include "t64_num.h"
@@ -24,14 +30,28 @@
 #define SCRIPT_MAX_LINE 4096u
 #define REPORT_MAX_BYTES 512u
 #define DRAIN_CHUNK 4096u
+#define LOGREP_MAX_BYTES (64ull << 20)
 
+/* One log record: len bytes at off, emitted rep times back to back (rep is 1
+ * except for logrep). */
 typedef struct {
   uint64_t tick;
   size_t off;
   size_t len;
+  uint64_t rep;
 } syn_event;
 
-typedef enum { SYN_END_QUIESCE = 1, SYN_END_SPIN = 2 } syn_end_kind;
+/* The last four host-misbehavior kinds act inside advance at the end tick;
+ * EXIT7 behaves like quiesce and then exits 7 after the report is written. */
+typedef enum {
+  SYN_END_QUIESCE = 1,
+  SYN_END_SPIN = 2,
+  SYN_END_HANG = 3,
+  SYN_END_ABORT = 4,
+  SYN_END_SEGV = 5,
+  SYN_END_EXIT0 = 6,
+  SYN_END_EXIT7 = 7
+} syn_end_kind;
 
 typedef struct {
   uint8_t *data;
@@ -46,7 +66,7 @@ typedef struct {
   uint64_t halt_tick;
   size_t avail_ev;
   size_t drain_ev;
-  size_t drain_off;
+  uint64_t drain_off;
 } syn_guest;
 
 static int hexval(int c) {
@@ -70,6 +90,23 @@ static void syn_publish(syn_guest *g) {
   }
 }
 
+/* Host misbehavior, deliberately hostile (negative controls). Never returns. */
+static void syn_misbehave(syn_end_kind k) {
+  if (k == SYN_END_HANG) {
+    struct timespec nap = {0, 50 * 1000 * 1000};
+    for (;;) {
+      nanosleep(&nap, NULL);
+    }
+  }
+  if (k == SYN_END_ABORT) {
+    abort();
+  }
+  if (k == SYN_END_SEGV) {
+    raise(SIGSEGV);
+  }
+  _exit(k == SYN_END_EXIT0 ? 0 : 3);
+}
+
 static t64_advance_result syn_advance(void *inst, uint64_t bound_tick) {
   syn_guest *g = (syn_guest *)inst;
   t64_advance_result r;
@@ -81,7 +118,12 @@ static t64_advance_result syn_advance(void *inst, uint64_t bound_tick) {
   if (bound_tick < g->tick) {
     bound_tick = g->tick;
   }
-  if (g->end == SYN_END_QUIESCE && g->end_tick <= bound_tick) {
+  if (g->end_tick <= bound_tick && g->end >= SYN_END_HANG &&
+      g->end <= SYN_END_EXIT0) {
+    syn_misbehave(g->end);
+  }
+  if ((g->end == SYN_END_QUIESCE || g->end == SYN_END_EXIT7) &&
+      g->end_tick <= bound_tick) {
     g->tick = g->end_tick;
     g->halted = 1;
     g->halt_tick = g->end_tick;
@@ -106,16 +148,20 @@ static size_t syn_drain(void *inst, uint64_t *tick_out, uint8_t *buf,
     return 0;
   }
   e = &g->ev[g->drain_ev];
-  n = e->len - g->drain_off;
-  if (n > cap) {
-    n = cap;
-  }
-  memcpy(buf, g->data + e->off + g->drain_off, n);
-  *tick_out = e->tick;
-  g->drain_off += n;
-  if (g->drain_off == e->len) {
-    g->drain_ev++;
-    g->drain_off = 0;
+  {
+    uint64_t total = (uint64_t)e->len * e->rep;
+    uint64_t left = total - g->drain_off;
+    size_t i;
+    n = (left > (uint64_t)cap) ? cap : (size_t)left;
+    for (i = 0; i < n; i++) {
+      buf[i] = g->data[e->off + (size_t)((g->drain_off + i) % e->len)];
+    }
+    *tick_out = e->tick;
+    g->drain_off += n;
+    if (g->drain_off == total) {
+      g->drain_ev++;
+      g->drain_off = 0;
+    }
   }
   return n;
 }
@@ -241,6 +287,35 @@ static int syn_parse(const uint8_t *buf, size_t len, syn_guest *g) {
       g->ev[g->nev].tick = tick;
       g->ev[g->nev].off = g->data_len;
       g->ev[g->nev].len = (size_t)dl;
+      g->ev[g->nev].rep = 1;
+      g->nev++;
+      g->data_len += (size_t)dl;
+      last_tick = tick;
+    } else if (n >= 7 && memcmp(line, "logrep ", 7) == 0) {
+      uint64_t tick;
+      uint64_t count;
+      size_t rest = syn_take_tick(line + 7, n - 7, &tick);
+      size_t rest2;
+      long dl;
+      if (rest == 0 || tick < last_tick) {
+        return syn_fail("bad or decreasing tick", lineno);
+      }
+      rest2 = syn_take_tick(line + 7 + rest, n - 7 - rest, &count);
+      if (rest2 == 0 || count == 0) {
+        return syn_fail("bad logrep count", lineno);
+      }
+      dl = syn_decode_text(line + 7 + rest + rest2, n - 7 - rest - rest2,
+                           g->data + g->data_len);
+      if (dl <= 0) {
+        return syn_fail("bad or empty log text", lineno);
+      }
+      if (count > LOGREP_MAX_BYTES / (uint64_t)dl) {
+        return syn_fail("logrep total above 64 MiB", lineno);
+      }
+      g->ev[g->nev].tick = tick;
+      g->ev[g->nev].off = g->data_len;
+      g->ev[g->nev].len = (size_t)dl;
+      g->ev[g->nev].rep = count;
       g->nev++;
       g->data_len += (size_t)dl;
       last_tick = tick;
@@ -286,6 +361,7 @@ static int syn_parse(const uint8_t *buf, size_t len, syn_guest *g) {
       g->ev[g->nev].tick = tick;
       g->ev[g->nev].off = g->data_len;
       g->ev[g->nev].len = cnt;
+      g->ev[g->nev].rep = 1;
       g->nev++;
       g->data_len += cnt;
       last_tick = tick;
@@ -303,6 +379,16 @@ static int syn_parse(const uint8_t *buf, size_t len, syn_guest *g) {
         g->end = SYN_END_QUIESCE;
       } else if (dn == 4 && memcmp(d, "spin", 4) == 0) {
         g->end = SYN_END_SPIN;
+      } else if (dn == 4 && memcmp(d, "hang", 4) == 0) {
+        g->end = SYN_END_HANG;
+      } else if (dn == 5 && memcmp(d, "abort", 5) == 0) {
+        g->end = SYN_END_ABORT;
+      } else if (dn == 4 && memcmp(d, "segv", 4) == 0) {
+        g->end = SYN_END_SEGV;
+      } else if (dn == 15 && memcmp(d, "exit0-no-result", 15) == 0) {
+        g->end = SYN_END_EXIT0;
+      } else if (dn == 5 && memcmp(d, "exit7", 5) == 0) {
+        g->end = SYN_END_EXIT7;
       } else {
         return syn_fail("unknown end directive", lineno);
       }
@@ -385,18 +471,31 @@ typedef struct {
   uint64_t slice;
   uint64_t bound;
   uint64_t log_limit;
+  int ignore_log_limit; /* test-only: write past the log limit */
 } syn_args;
 
 static int parse_args(int argc, char **argv, syn_args *a) {
   int seen = 0;
   int i;
   memset(a, 0, sizeof *a);
-  for (i = 1; i + 1 < argc; i += 2) {
+  for (i = 1; i < argc; i += 2) {
     const char *k = argv[i];
-    const char *v = argv[i + 1];
+    const char *v;
     uint64_t *np = NULL;
     const char **sp = NULL;
     int bit;
+    if (strcmp(k, "--ignore-log-limit") == 0) {
+      if (a->ignore_log_limit) {
+        return -1;
+      }
+      a->ignore_log_limit = 1;
+      i--; /* a flag takes no value: the loop's i += 2 nets one step */
+      continue;
+    }
+    if (i + 1 >= argc) {
+      return -1;
+    }
+    v = argv[i + 1];
     if (strcmp(k, "--slice") == 0) {
       np = &a->slice;
       bit = 1;
@@ -470,6 +569,9 @@ int main(int argc, char **argv) {
     while ((n = syn_ops.drain_guest_log(&g, &rec_tick, chunk, sizeof chunk)) >
            0) {
       uint64_t room = (written < a.log_limit) ? a.log_limit - written : 0;
+      if (a.ignore_log_limit) {
+        room = n;
+      }
       size_t w = (n > room) ? (size_t)room : n;
       total += n;
       if (w > 0) {
@@ -510,5 +612,5 @@ int main(int argc, char **argv) {
   }
   free(g.ev);
   free(g.data);
-  return 0;
+  return g.end == SYN_END_EXIT7 ? 7 : 0;
 }

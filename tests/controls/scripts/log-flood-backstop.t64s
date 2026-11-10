@@ -1,0 +1,4 @@
+t64-synthetic 1
+# host misbehavior control: 144000 bytes against a 65536-byte log limit, written past the limit
+logrep 5 9000 0123456789abcdef
+end 5 quiesce

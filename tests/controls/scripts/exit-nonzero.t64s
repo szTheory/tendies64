@@ -1,0 +1,6 @@
+t64-synthetic 1
+# host misbehavior control: a valid report, then the runner exits 7
+log 10 PASS alpha\n
+log 20 PASS beta\n
+log 30 Done!\n
+end 40 exit7

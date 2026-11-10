@@ -1,0 +1,4 @@
+t64-synthetic 1
+# host misbehavior control: the runner aborts once the guest reaches tick 5
+log 3 aborting\n
+end 5 abort

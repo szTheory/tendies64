@@ -1,0 +1,4 @@
+t64-synthetic 1
+# host misbehavior control: the runner exits 0 without writing a report
+log 3 quitting\n
+end 5 exit0-no-result
