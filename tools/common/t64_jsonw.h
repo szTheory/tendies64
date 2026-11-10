@@ -61,6 +61,14 @@ t64_jsonw_status t64_jsonw_null(t64_jsonw *w);
 t64_jsonw_status t64_jsonw_bool(t64_jsonw *w, int v);
 
 /*
+ * Emits a parsed tree (see t64_json.h) in canonical form: members of every
+ * object are written in ascending key order whatever their order in the tree.
+ * Errors are sticky like every other writer call.
+ */
+struct t64_json_node;
+t64_jsonw_status t64_jsonw_node(t64_jsonw *w, const struct t64_json_node *node);
+
+/*
  * Completes the document: requires exactly one finished root value, appends
  * the LF, and stores the total length (including the LF) in *out_len.
  */

@@ -2,6 +2,7 @@
 add_library(t64_common STATIC
   t64_sha256.c
   t64_utf8.c
+  t64_json.c
   t64_jsonw.c)
 target_include_directories(t64_common PUBLIC ${CMAKE_CURRENT_SOURCE_DIR})
 t64_target_warnings(t64_common)
@@ -14,3 +15,15 @@ t64_target_warnings(test_common)
 
 add_test(NAME unit.common COMMAND test_common)
 set_tests_properties(unit.common PROPERTIES LABELS unit)
+
+# Canonical round-trip oracle for JSON files (parse, then emit canonically).
+add_executable(t64-json-canon t64_json_canon.c)
+target_link_libraries(t64-json-canon PRIVATE t64_common)
+t64_target_warnings(t64-json-canon)
+
+# Seeded cases: the shared driver decides which files in the directory are seeds.
+add_test(NAME unit.json-seeds
+  COMMAND sh ${CMAKE_SOURCE_DIR}/tests/seeded/run-expect.sh
+    --tool "$<TARGET_FILE:t64-json-canon> --check"
+    --dir ${CMAKE_SOURCE_DIR}/tests/seeded/json)
+set_tests_properties(unit.json-seeds PROPERTIES LABELS unit)

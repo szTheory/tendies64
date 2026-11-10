@@ -1,0 +1,8 @@
+# Seeds for t64-json-canon --check, driven by tests/seeded/run-expect.sh.
+# Columns: file, exit, rule_id, needle (optional). The directory owns the corpus: every .json file here needs a row.
+good_canonical.json	0	ok
+bad_spaces.json	1	NOT-CANONICAL
+bad_unsorted.json	1	NOT-CANONICAL
+bad_trailing_comma.json	2	JSON-trailing-comma
+bad_duplicate.json	2	JSON-duplicate-key
+bad_float.json	2	JSON-float

@@ -3,6 +3,7 @@
 
 #include <string.h>
 
+#include "t64_json.h"
 #include "t64_utf8.h"
 
 #define T64_JSONW_MAX_INT 9007199254740991LL /* 2^53 - 1 */
@@ -214,4 +215,70 @@ t64_jsonw_status t64_jsonw_finish(t64_jsonw *w, size_t *out_len) {
   if (!put(w, '\n')) return w->err;
   if (out_len != NULL) *out_len = w->len;
   return T64_JSONW_OK;
+}
+
+/* Unsigned-byte key order; a proper prefix sorts first (matches t64_jsonw_key). */
+static int key_cmp(const t64_json_node *a, const t64_json_node *b) {
+  size_t n = a->key_len < b->key_len ? a->key_len : b->key_len;
+  int c = memcmp(a->key, b->key, n);
+  if (c != 0) return c;
+  return (a->key_len > b->key_len) - (a->key_len < b->key_len);
+}
+
+static t64_jsonw_status emit_members(t64_jsonw *w, const t64_json_node *obj) {
+  const t64_json_node *m;
+  const t64_json_node *prev = NULL;
+  int sorted = 1;
+  size_t i;
+
+  for (m = obj->first; m != NULL && m->next != NULL; m = m->next) {
+    if (key_cmp(m, m->next) >= 0) {
+      sorted = 0;
+      break;
+    }
+  }
+  if (sorted) {
+    for (m = obj->first; m != NULL; m = m->next) {
+      if (t64_jsonw_key(w, m->key, m->key_len) != T64_JSONW_OK) return w->err;
+      if (t64_jsonw_node(w, m) != T64_JSONW_OK) return w->err;
+    }
+    return w->err;
+  }
+  /* Unsorted tree: repeatedly take the smallest key above the previous one. */
+  for (i = 0; i < obj->count; i++) {
+    const t64_json_node *best = NULL;
+    for (m = obj->first; m != NULL; m = m->next) {
+      if (prev != NULL && key_cmp(m, prev) <= 0) continue;
+      if (best == NULL || key_cmp(m, best) < 0) best = m;
+    }
+    if (best == NULL) return fail(w, T64_JSONW_E_ORDER); /* duplicate keys */
+    if (t64_jsonw_key(w, best->key, best->key_len) != T64_JSONW_OK) return w->err;
+    if (t64_jsonw_node(w, best) != T64_JSONW_OK) return w->err;
+    prev = best;
+  }
+  return w->err;
+}
+
+t64_jsonw_status t64_jsonw_node(t64_jsonw *w, const t64_json_node *node) {
+  const t64_json_node *c;
+
+  if (w->err != T64_JSONW_OK) return w->err;
+  if (node == NULL) return fail(w, T64_JSONW_E_STATE);
+  switch (node->type) {
+    case T64_JSON_NULL: return t64_jsonw_null(w);
+    case T64_JSON_BOOL: return t64_jsonw_bool(w, node->num != 0);
+    case T64_JSON_INT: return t64_jsonw_int(w, node->num);
+    case T64_JSON_STRING: return t64_jsonw_string(w, node->str, node->len);
+    case T64_JSON_ARRAY:
+      if (t64_jsonw_begin_array(w) != T64_JSONW_OK) return w->err;
+      for (c = node->first; c != NULL; c = c->next) {
+        if (t64_jsonw_node(w, c) != T64_JSONW_OK) return w->err;
+      }
+      return t64_jsonw_end_array(w);
+    case T64_JSON_OBJECT:
+      if (t64_jsonw_begin_object(w) != T64_JSONW_OK) return w->err;
+      if (emit_members(w, node) != T64_JSONW_OK) return w->err;
+      return t64_jsonw_end_object(w);
+  }
+  return fail(w, T64_JSONW_E_STATE);
 }
