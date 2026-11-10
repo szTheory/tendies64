@@ -11,7 +11,13 @@
 #                                 negative controls; no hash check, no decision
 #                                 data
 #   run-spike.sh --print-hashes   print the frozen-hash table for PREREG.md
-#   run-spike.sh --registered     (completed by the registration task)
+#   run-spike.sh --verify-frozen  check PREREG.md is committed and every frozen
+#                                 file still matches it, then stop
+#   run-spike.sh --admission-check  C contract table, sanitizer negative control
+#                                 (a seeded overread must be caught) and the Rust
+#                                 table; runs no fuzz and produces no decision data
+#   run-spike.sh --registered     the registered run: verify, per-class table, C
+#                                 sanitizer fuzz, C-vs-Rust differential, rules
 #
 # Needs: docker with the image rust:1.91 already present (never pulled here),
 # a host C compiler. No crates, no cargo, no network (--network none), the repo
@@ -58,7 +64,7 @@ die() {
 }
 
 usage() {
-  echo "usage: run-spike.sh --control | --print-hashes | --registered" >&2
+  echo "usage: run-spike.sh --control | --print-hashes | --verify-frozen | --admission-check | --registered" >&2
   exit 2
 }
 
@@ -236,12 +242,233 @@ print_hashes() {
   done
 }
 
+# ---------------------------------------------------------------------------
+# Registered-run machinery
+# ---------------------------------------------------------------------------
+
+ADM=$SPIKE/admission
+PREREG=$SPIKE/PREREG.md
+FZ_FLAGS='-std=c17 -O1 -g -Wall -Wextra -fsanitize=address,undefined -fno-sanitize-recover=all'
+FZ_TOOL=""
+FZ_RC=0
+
+# The frozen-hash table in PREREG.md, as "hash<TAB>path" lines.
+prereg_table() {
+  awk '
+    /<!-- frozen-hashes:begin -->/ { f = 1; next }
+    /<!-- frozen-hashes:end -->/ { f = 0 }
+    f && length($1) == 64 && $1 ~ /^[0-9a-f]+$/ && NF == 2 { print $1 "\t" $2 }
+  ' "$PREREG"
+}
+
+# The hash of run-spike.sh from the latest amendment.
+# Prints "none" when no amendment exists and "missing" when the latest has no hash.
+latest_amendment_hash() {
+  awk '
+    /^## Amendment [0-9]+ \(/ { inA = 1; have = 1; cur = ""; next }
+    /^## / { inA = 0 }
+    inA && /^run-spike\.sh sha256: / { cur = $3 }
+    END { if (!have) print "none"; else if (cur == "") print "missing"; else print cur }
+  ' "$PREREG"
+}
+
+# Refuses unless PREREG.md is committed and every frozen file matches it.
+# Only run-spike.sh may differ from the original table, and only by way of the
+# latest amendment (harness amendment protocol).
+verify_frozen() {
+  [ -f "$PREREG" ] || die "PREREG.md is missing: the registered run is refused until the spike is pre-registered"
+  git ls-files --error-unmatch "$PREREG" >/dev/null 2>&1 || die "PREREG.md is not committed"
+  git diff --quiet HEAD -- "$PREREG" || die "PREREG.md has uncommitted changes"
+  prereg_table > "$T/table.frozen"
+  frozen_paths > "$T/paths.frozen"
+  _np=$(wc -l < "$T/paths.frozen" | tr -d ' ')
+  _nt=$(wc -l < "$T/table.frozen" | tr -d ' ')
+  [ "$_np" = "$_nt" ] || die "PREREG hash table has $_nt rows, the frozen file set has $_np"
+  _nr=$(find "$RDIR" -type f | wc -l | tr -d ' ')
+  [ "$_nr" = 19 ] || die "corpus/rust holds $_nr files, expected 19"
+  _amend=$(latest_amendment_hash)
+  [ "$_amend" != missing ] || die "the latest amendment in PREREG.md has no 'run-spike.sh sha256:' line"
+  _bad=0
+  HARNESS_HASH=""
+  HARNESS_HASH_SOURCE=""
+  while IFS= read -r _p; do
+    _want=$(awk -F'\t' -v p="$_p" '$2 == p {print $1}' "$T/table.frozen")
+    [ -n "$_want" ] || die "PREREG hash table has no row for $_p"
+    [ -f "$_p" ] || die "frozen file is missing: $_p"
+    if [ "$_p" = "$SPIKE/run-spike.sh" ]; then
+      if [ "$_amend" != none ]; then
+        _want=$_amend
+        HARNESS_HASH_SOURCE="latest amendment"
+      else
+        HARNESS_HASH_SOURCE="original table"
+      fi
+    fi
+    _got=$(hash_of "$_p")
+    if [ "$_got" != "$_want" ]; then
+      echo "run-spike: frozen file changed: $_p" >&2
+      _bad=1
+    fi
+    if [ "$_p" = "$SPIKE/run-spike.sh" ]; then HARNESS_HASH=$_got; fi
+  done < "$T/paths.frozen"
+  [ "$_bad" = 0 ] || die "frozen inputs do not match PREREG.md"
+  _want_img=$(sed -n 's/^Image digest prefix: //p' "$PREREG" | head -n 1)
+  [ -n "$_want_img" ] || die "PREREG.md has no 'Image digest prefix:' line"
+  _have_img=$(docker image inspect "$IMAGE" --format '{{index .RepoDigests 0}}' 2>/dev/null || echo unknown)
+  case "$_have_img" in
+    *"sha256:$_want_img"*) ;;
+    *) die "image digest $_have_img does not match the registered prefix $_want_img" ;;
+  esac
+  echo "frozen-inputs: ok ($_np files; run-spike.sh hash from $HARNESS_HASH_SOURCE: $HARNESS_HASH)"
+}
+
+# Builds fuzz_admission under ASan and UBSan, on the host when possible and in
+# the container otherwise (recorded in FZ_TOOL), then runs it with the given
+# arguments. $1 = extra compiler flags. Output in $T/fz.out and $T/fz.err.
+fuzz_build_run() {
+  _extra=$1
+  shift
+  if [ "$FZ_TOOL" != container ]; then
+    # shellcheck disable=SC2086
+    if cc $FZ_FLAGS $_extra -o "$T/fz" "$ADM/fuzz_admission.c" "$ADM/admission.c" 2> "$T/cc.err"; then
+      FZ_TOOL=host
+      ( "$T/fz" "$@" > "$T/fz.out" 2> "$T/fz.err" ) 2> /dev/null && FZ_RC=0 || FZ_RC=$?
+      return 0
+    fi
+    FZ_TOOL=container
+  fi
+  dki sh -c '
+    extra=$1
+    shift
+    cc -std=c17 -O1 -g -Wall -Wextra -fsanitize=address,undefined -fno-sanitize-recover=all $extra \
+      -o /tmp/fz docs/spikes/rust-vs-c/admission/fuzz_admission.c docs/spikes/rust-vs-c/admission/admission.c || exit 97
+    /tmp/fz "$@"
+  ' sh "$_extra" "$@" > "$T/fz.out" 2> "$T/fz.err" && FZ_RC=0 || FZ_RC=$?
+  [ "$FZ_RC" != 97 ] || die "the fuzz harness did not compile in the container either"
+}
+
+fuzz_tool_name() {
+  if [ "$FZ_TOOL" = host ]; then
+    echo "host $(cc --version 2>&1 | head -n 1)"
+  else
+    echo "container gcc"
+  fi
+}
+
+# Table check, then the harness negative control: a build with a seeded
+# one-byte overread must be caught by the sanitizer and attributed to admission.c.
+admission_control() {
+  fuzz_build_run "" --table
+  if [ "$FZ_RC" != 0 ] || ! grep -q '^table: ok$' "$T/fz.out"; then
+    echo "admission-control: C contract table failed (exit $FZ_RC)" >&2
+    return 1
+  fi
+  fuzz_build_run "-DT64S_SEEDED_OVERREAD" --mutations 3000
+  if [ "$FZ_RC" != 0 ] && grep -q 'admission\.c' "$T/fz.err" && grep -q '^FAIL: input ' "$T/fz.err"; then
+    echo "admission-control: seeded overread caught and attributed to admission.c ($(grep '^FAIL: input ' "$T/fz.err" | head -n 1))"
+    return 0
+  fi
+  echo "admission-control: seeded overread was NOT caught (exit $FZ_RC)" >&2
+  return 1
+}
+
+# Rust side, in the container: no_std metadata form, the contract table, then
+# (when $1 is differential) the differential test over the identical inputs.
+rust_admission() {
+  dki sh -c '
+    cd docs/spikes/rust-vs-c/admission
+    rustc --edition 2021 --crate-type=lib --emit=metadata -o /tmp/adm.rmeta admission.rs || exit 98
+    echo "rust-metadata-no-std: ok"
+    rustc --edition 2021 --test -O admission.rs -o /tmp/adm_test || exit 98
+    /tmp/adm_test --exact tests::table --test-threads=1 || exit 99
+    echo "rust-table: ok"
+    if [ "$1" = differential ]; then
+      /tmp/adm_test --exact tests::differential --nocapture --test-threads=1
+    fi
+  ' sh "$1" > "$T/rust.out" 2> "$T/rust.err" && RUST_RC=0 || RUST_RC=$?
+  if [ "$RUST_RC" = 98 ]; then
+    cat "$T/rust.err" >&2
+    die "the Rust admission parser did not compile"
+  fi
+}
+
+admission_check_mode() {
+  preflight
+  new_tmp
+  admission_control
+  rust_admission table
+  grep -E '^rust-' "$T/rust.out"
+  [ "$RUST_RC" = 0 ] || die "Rust table test failed"
+  echo "admission-check: PASS (fuzz tool: $(fuzz_tool_name))"
+}
+
+registered_mode() {
+  preflight
+  new_tmp
+  verify_frozen
+  _t0=$(date +%s)
+  echo "registered-run-start: $(date -u +%Y-%m-%dT%H:%M:%SZ)"
+  run_host_lint "$CLASSES"
+  run_container_classes "$CLASSES"
+  print_env
+  print_class_table > "$T/table.tsv"
+  cat "$T/table.tsv"
+  echo "negative-controls: host-c=$NEG_HOST linux-c=$NEG_CLINUX linux-rust=$NEG_RUST (each must be 1)"
+  [ "$NEG_HOST" = 1 ] && [ "$NEG_CLINUX" = 1 ] && [ "$NEG_RUST" = 1 ] || die "a harness negative control failed"
+  _triggers=$(sed -n 's/^rule-a-triggers: //p' "$T/table.tsv")
+
+  echo "== fuzz =="
+  admission_control || die "harness negative control for the sanitizer fuzz failed"
+  fuzz_build_run ""
+  echo "fuzz-tool: $(fuzz_tool_name)"
+  echo "fuzz-flags: $FZ_FLAGS"
+  echo "fuzz-exit: $FZ_RC"
+  grep -E '^(mutations|inputs|boundary )' "$T/fz.out" || true
+  _b=no
+  if [ "$FZ_RC" = 0 ]; then
+    _san="Sanitizers C: ASan+UBSan clean"
+  else
+    _fails=$(grep '^FAIL: input ' "$T/fz.err" | head -n 3 | paste -s -d';' -)
+    _san="Sanitizers C: ASan+UBSan report: input digests: ${_fails:-none recorded}"
+    echo "--- first sanitizer report lines ---"
+    head -n 25 "$T/fz.err"
+    if grep -q 'admission\.c' "$T/fz.err"; then
+      _b=yes
+    else
+      echo "note: report has no admission.c frame (not attributable to the parser)"
+    fi
+  fi
+
+  echo "== differential =="
+  rust_admission differential
+  grep -E '^rust-' "$T/rust.out"
+  [ "$RUST_RC" = 0 ] || echo "note: the Rust differential test exited $RUST_RC (a registered finding, not a trigger)"
+  grep -E '^(boundary |mutations:|inputs:|outcomes:|fnv1a64:)' "$T/fz.out" > "$T/c.cmp" || true
+  grep -E '^(boundary |mutations:|inputs:|outcomes:|fnv1a64:)' "$T/rust.out" > "$T/r.cmp" || true
+  grep -E '^(outcomes|fnv1a64):' "$T/fz.out" || true
+  grep -E '^(outcomes|fnv1a64):' "$T/rust.out" || true
+  if [ "$RUST_RC" = 0 ] && [ -s "$T/c.cmp" ] && cmp -s "$T/c.cmp" "$T/r.cmp"; then
+    _diff=match
+  else
+    _diff=mismatch
+    diff "$T/c.cmp" "$T/r.cmp" | head -n 20 || true
+  fi
+  echo "Differential: $_diff"
+  echo "$_san"
+  echo "Sanitizers Rust: not run (stable rustc; -Zsanitizer is nightly-only, per PREREG)"
+
+  echo "== rules =="
+  echo "rule-a-triggers: $_triggers"
+  echo "rule-b-triggered: $_b"
+  if [ "$_triggers" = none ] && [ "$_b" = no ]; then _dec=stay-c17; else _dec=switch-rust; fi
+  echo "mechanical-decision: $_dec"
+  echo "registered-run-end: $(date -u +%Y-%m-%dT%H:%M:%SZ) duration-seconds: $(($(date +%s) - _t0))"
+}
+
 case "${1:-}" in
   --control) control_mode ;;
   --print-hashes) print_hashes ;;
-  --registered)
-    [ -f "$SPIKE/PREREG.md" ] || die "PREREG.md is missing: the registered run is refused until the spike is pre-registered"
-    die "the registered run is completed by the registration task"
-    ;;
+  --verify-frozen) preflight; new_tmp; verify_frozen ;;
+  --admission-check) admission_check_mode ;;
+  --registered) registered_mode ;;
   *) usage ;;
 esac
