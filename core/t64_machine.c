@@ -1,5 +1,6 @@
 #include "tendies64/t64_machine.h"
 
+#include "t64_internal.h"
 #include "t64_sha256.h"
 
 #include <stddef.h>
@@ -26,6 +27,10 @@ struct t64_machine {
   uint8_t *ram;
   size_t image_length;
   uint64_t tick;
+  uint8_t rom_header[T64_ROM_HEADER_BYTES];
+  uint8_t rom_title[T64_ROM_TITLE_BYTES];
+  uint8_t rom_game_code[T64_ROM_GAME_CODE_BYTES];
+  uint8_t rom_version;
   bool has_image;
 };
 
@@ -59,7 +64,7 @@ static const t64_profile_descriptor ntsc_cart_4m_profile = {
     .pi_duration_bytes_divisor = 2u,
     .sp_duration_base_rsp_cycles = 12u,
     .sp_duration_bytes_divisor = 8u,
-    .rom_order_policy = "canonical-only-v1",
+    .rom_order_policy = "all-known-orders-to-big-endian-v1",
     .event_order_policy = "tick-sequence-fifo-v1",
     .queue_exhaustion_policy = "reject-before-mutation-v1",
     .sequence_exhaustion_policy = "reject-before-mutation-v1",
@@ -75,42 +80,6 @@ static const t64_profile_descriptor ntsc_cart_4m_profile = {
     .machine_model_version = 1u,
     .state_serialization_version = 1u,
 };
-
-typedef struct {
-  uintptr_t begin;
-  uintptr_t end;
-} address_range;
-
-static bool make_range(const void *pointer, size_t length,
-                       address_range *range_out) {
-  uintptr_t begin;
-
-  if (pointer == NULL || range_out == NULL) {
-    return false;
-  }
-  begin = (uintptr_t)pointer;
-  if (length > (size_t)(UINTPTR_MAX - begin)) {
-    return false;
-  }
-  range_out->begin = begin;
-  range_out->end = begin + (uintptr_t)length;
-  return true;
-}
-
-static bool ranges_overlap(address_range left, address_range right) {
-  return left.begin < right.end && right.begin < left.end;
-}
-
-static bool storage_is_valid(t64_host_storage storage, size_t required,
-                             size_t alignment, address_range *range_out) {
-  if (storage.data == NULL || storage.capacity < required ||
-      storage.alignment < alignment || alignment == 0u ||
-      ((uintptr_t)storage.data % alignment) != 0u ||
-      !make_range(storage.data, storage.capacity, range_out)) {
-    return false;
-  }
-  return true;
-}
 
 static size_t bounded_text_length(const char *text, size_t capacity) {
   size_t length = 0u;
@@ -309,49 +278,42 @@ static size_t profile_serialized_size(const t64_profile_descriptor *profile) {
   return writer.offset;
 }
 
-static void hash_rom(const uint8_t *bytes, size_t length,
-                     uint8_t digest_out[T64_DIGEST_SIZE]) {
-  t64_sha256_ctx context;
+static bool range_disjoint_from_object(t64_address_range candidate,
+                                       const void *object, size_t size) {
+  t64_address_range object_range;
 
-  t64_sha256_init(&context);
-  t64_sha256_update(&context, bytes, length);
-  t64_sha256_final(&context, digest_out);
+  return t64_internal_make_range(object, size, &object_range) &&
+         !t64_internal_ranges_overlap(candidate, object_range);
 }
 
-static bool storage_disjoint_from_machine(const t64_machine *machine,
-                                          address_range candidate) {
-  address_range owned;
-
-  if (!make_range(machine->machine_storage.data,
-                  machine->machine_storage.capacity, &owned) ||
-      ranges_overlap(candidate, owned)) {
-    return false;
-  }
-  if (machine->has_image &&
-      (!make_range(machine->image_storage.data,
-                   machine->image_storage.capacity, &owned) ||
-       ranges_overlap(candidate, owned))) {
-    return false;
-  }
-  return true;
+static bool machine_storage_disjoint_from_inputs(
+    t64_address_range storage_range,
+    const t64_host_allocator *allocator,
+    const t64_profile_descriptor *profile, t64_machine **machine_out) {
+  return range_disjoint_from_object(storage_range, allocator,
+                                    sizeof *allocator) &&
+         range_disjoint_from_object(storage_range, profile, sizeof *profile) &&
+         range_disjoint_from_object(storage_range, machine_out,
+                                    sizeof *machine_out);
 }
 
-static bool input_disjoint_from_machine(const t64_machine *machine,
-                                        address_range input) {
-  address_range owned;
+static void release_bad_machine_storage(
+    const t64_host_allocator *allocator, t64_host_storage storage,
+    const t64_profile_descriptor *profile, t64_machine **machine_out) {
+  t64_address_range returned_range;
 
-  if (!make_range(machine->machine_storage.data,
-                  machine->machine_storage.capacity, &owned) ||
-      ranges_overlap(input, owned)) {
-    return false;
+  if (storage.data != NULL && allocator->release != NULL &&
+      t64_internal_make_range(storage.data, storage.capacity,
+                              &returned_range) &&
+      machine_storage_disjoint_from_inputs(returned_range, allocator, profile,
+                                           machine_out)) {
+    allocator->release(allocator->context, storage);
   }
-  if (machine->has_image &&
-      (!make_range(machine->image_storage.data,
-                   machine->image_storage.capacity, &owned) ||
-       ranges_overlap(input, owned))) {
-    return false;
-  }
-  return true;
+}
+
+static void reset_guest_state(t64_machine *machine) {
+  machine->tick = 0u;
+  (void)memset(machine->ram, 0, machine->profile.rdram_bytes);
 }
 
 const char *t64_build_identity(void) { return T64_BUILD_ID; }
@@ -425,7 +387,7 @@ t64_status t64_machine_create(const t64_host_allocator *allocator,
                               const t64_profile_descriptor *profile,
                               t64_machine **machine_out) {
   t64_host_storage storage = {NULL, 0u, 0u};
-  address_range allocation_range;
+  t64_address_range allocation_range;
   uint8_t profile_digest[T64_DIGEST_SIZE];
   size_t total_size;
   size_t alignment = _Alignof(max_align_t);
@@ -438,7 +400,7 @@ t64_status t64_machine_create(const t64_host_allocator *allocator,
   if (allocator == NULL || allocator->allocate == NULL ||
       allocator->release == NULL || !profile_fields_are_valid(profile) ||
       t64_profile_hash(profile, profile_digest) != T64_STATUS_OK ||
-      profile->rdram_bytes > (uint32_t)(SIZE_MAX - sizeof(t64_machine))) {
+      (size_t)profile->rdram_bytes > SIZE_MAX - sizeof(t64_machine)) {
     return T64_STATUS_INVALID_ARGUMENT;
   }
   total_size = sizeof(t64_machine) + (size_t)profile->rdram_bytes;
@@ -446,11 +408,11 @@ t64_status t64_machine_create(const t64_host_allocator *allocator,
                            &storage)) {
     return T64_STATUS_ALLOCATION_FAILED;
   }
-  if (!storage_is_valid(storage, total_size, alignment, &allocation_range)) {
-    if (storage.data != NULL &&
-        make_range(storage.data, storage.capacity, &allocation_range)) {
-      allocator->release(allocator->context, storage);
-    }
+  if (!t64_internal_storage_range(storage, total_size, alignment,
+                                  &allocation_range) ||
+      !machine_storage_disjoint_from_inputs(allocation_range, allocator,
+                                            profile, machine_out)) {
+    release_bad_machine_storage(allocator, storage, profile, machine_out);
     return T64_STATUS_BAD_STORAGE;
   }
   machine = (t64_machine *)storage.data;
@@ -483,77 +445,37 @@ void t64_machine_destroy(t64_machine *machine) {
 
 t64_status t64_machine_admit_rom(t64_machine *machine, const uint8_t *bytes,
                                  size_t length) {
-  static const uint8_t canonical_magic[4] = {0x80u, 0x37u, 0x12u, 0x40u};
-  static const uint8_t byte_swapped_magic[4] = {0x37u, 0x80u, 0x40u, 0x12u};
-  static const uint8_t little_endian_magic[4] = {0x40u, 0x12u, 0x37u, 0x80u};
-  t64_host_storage candidate = {NULL, 0u, 0u};
+  t64_rom_candidate candidate;
   t64_host_storage previous;
-  address_range input_range;
-  address_range candidate_range;
-  size_t i;
-  bool canonical = true;
+  t64_status status;
 
-  if (machine == NULL || bytes == NULL ||
-      length < (size_t)machine->profile.rom_min_bytes ||
-      length > (size_t)machine->profile.rom_max_bytes ||
-      (length & 3u) != 0u ||
-      !make_range(bytes, length, &input_range)) {
+  if (machine == NULL) {
     return T64_STATUS_INVALID_ROM;
   }
-  if (!input_disjoint_from_machine(machine, input_range)) {
-    return T64_STATUS_INVALID_ROM;
-  }
-  for (i = 0u; i < sizeof canonical_magic; i++) {
-    if (bytes[i] != canonical_magic[i]) {
-      canonical = false;
-      break;
-    }
-  }
-  if (!canonical) {
-    bool known_other_order = true;
-    bool known_little_order = true;
-
-    for (i = 0u; i < sizeof byte_swapped_magic; i++) {
-      if (bytes[i] != byte_swapped_magic[i]) {
-        known_other_order = false;
-      }
-      if (bytes[i] != little_endian_magic[i]) {
-        known_little_order = false;
-      }
-    }
-    return (known_other_order || known_little_order)
-               ? T64_STATUS_UNSUPPORTED_ROM_ORDER
-               : T64_STATUS_INVALID_ROM;
-  }
-  if (!machine->allocator.allocate(machine->allocator.context, length, 1u,
-                                   &candidate)) {
-    return T64_STATUS_ALLOCATION_FAILED;
-  }
-  if (!storage_is_valid(candidate, length, 1u, &candidate_range) ||
-      !storage_disjoint_from_machine(machine, candidate_range) ||
-      ranges_overlap(candidate_range, input_range)) {
-    address_range release_range;
-    bool safe_to_release =
-        candidate.data != NULL &&
-        make_range(candidate.data, candidate.capacity, &release_range) &&
-        input_disjoint_from_machine(machine, release_range) &&
-        !ranges_overlap(release_range, input_range);
-
-    if (safe_to_release) {
-      machine->allocator.release(machine->allocator.context, candidate);
-    }
-    return T64_STATUS_BAD_STORAGE;
+  status = t64_rom_candidate_prepare(
+      &machine->allocator, &machine->profile, bytes, length,
+      machine->machine_storage, machine->image_storage, machine->has_image,
+      &candidate);
+  if (status != T64_STATUS_OK) {
+    return status;
   }
 
-  (void)memcpy(candidate.data, bytes, length);
-  hash_rom((const uint8_t *)candidate.data, length,
-           machine->content_digest);
   previous = machine->image_storage;
-  machine->image_storage = candidate;
-  machine->image_length = length;
+  machine->image_storage = candidate.storage;
+  machine->image_length = candidate.length;
+  (void)memcpy(machine->content_digest, candidate.digest,
+               sizeof machine->content_digest);
+  (void)memcpy(machine->rom_header, candidate.header,
+               sizeof machine->rom_header);
+  (void)memcpy(machine->rom_title, candidate.title,
+               sizeof machine->rom_title);
+  (void)memcpy(machine->rom_game_code, candidate.game_code,
+               sizeof machine->rom_game_code);
+  machine->rom_version = candidate.version;
   machine->has_image = true;
-  machine->tick = 0u;
-  (void)memset(machine->ram, 0, machine->profile.rdram_bytes);
+  candidate.owns_storage = false;
+  reset_guest_state(machine);
+  t64_rom_candidate_discard(&machine->allocator, &candidate);
   if (previous.data != NULL) {
     machine->allocator.release(machine->allocator.context, previous);
   }

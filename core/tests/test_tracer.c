@@ -173,10 +173,10 @@ static void test_machine_tracer(void) {
   fill_authored_image(image_a);
   fill_authored_image(image_b);
   fill_authored_image(image_bad_order);
-  image_bad_order[0] = 0x37u;
-  image_bad_order[1] = 0x80u;
-  image_bad_order[2] = 0x40u;
-  image_bad_order[3] = 0x12u;
+  image_bad_order[0] = 0xdeu;
+  image_bad_order[1] = 0xadu;
+  image_bad_order[2] = 0xbeu;
+  image_bad_order[3] = 0xefu;
   T64_CHECK_INT(t64_profile_lookup(default_profile_id, &profile),
                 T64_STATUS_OK);
   T64_CHECK(profile != NULL);
@@ -203,7 +203,7 @@ static void test_machine_tracer(void) {
                 T64_STATUS_OK);
   T64_CHECK_INT(t64_machine_admit_rom(machine_a, image_bad_order,
                                       sizeof image_bad_order),
-                T64_STATUS_UNSUPPORTED_ROM_ORDER);
+                T64_STATUS_INVALID_ROM);
   T64_CHECK_INT(t64_machine_admit_rom(machine_a, image_bad_order,
                                       sizeof image_bad_order - 1u),
                 T64_STATUS_INVALID_ROM);
