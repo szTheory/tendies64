@@ -6,8 +6,6 @@
 #include "t64_num.h"
 #include "t64_utf8.h"
 
-#define REPORT_MAX_BYTES 512u
-
 static const struct {
   const char *name;
   t64_outcome outcome;
@@ -95,11 +93,16 @@ static int has_prefix(const char *s, size_t n, const char *prefix) {
 }
 
 int t64_parse_report(const uint8_t *buf, size_t len, t64_report *out) {
+  return t64_parse_report_max(buf, len, T64_REPORT_MAX_BYTES, out);
+}
+
+int t64_parse_report_max(const uint8_t *buf, size_t len, size_t max_len,
+                         t64_report *out) {
   size_t pos = 0;
   const char *s;
   size_t n;
   t64_report r;
-  if (buf == NULL || len == 0 || len > REPORT_MAX_BYTES) {
+  if (buf == NULL || len == 0 || len > max_len) {
     return 0;
   }
   if (!report_line(buf, len, &pos, &s, &n) || n != 12 ||

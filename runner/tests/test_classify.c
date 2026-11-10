@@ -446,12 +446,33 @@ static void report_parser(void) {
   T64_CHECK_INT(r.stop, SH);
   T64_CHECK_INT(r.guest_tick, 40);
   T64_CHECK_INT(r.log_bytes_total, 27);
-  /* More than 512 bytes is invalid even when every line is well formed. */
+  /* A 700-byte report whose second line is not a stop_reason line is
+   * rejected. The grammar rejects it, so this says nothing about the cap. */
   memset(big, 'x', sizeof big);
   memcpy(big, V1, sizeof V1 - 1u);
   big[sizeof big - 1u] = '\n';
   T64_CHECK(t64_parse_report((const uint8_t *)big, sizeof big, &r) == 0);
   T64_CHECK(t64_parse_report(NULL, 0, &r) == 0);
+}
+
+/* The size cap, isolated. No well-formed report is longer than 106 bytes, so
+ * the cap can only be seen through the seam: the same well-formed report is
+ * accepted when its length equals the cap and rejected, by the cap alone, when
+ * it is one byte longer than the cap. */
+static void report_cap(void) {
+  static const char longest[] =
+      V1 "stop_reason guest-bound\nguest_tick 18446744073709551615\n"
+         "log_bytes_total 9007199254740991\nend\n";
+  size_t len = sizeof longest - 1u;
+  t64_report r;
+  T64_CHECK_INT(T64_REPORT_MAX_BYTES, 512);
+  T64_CHECK_INT(len, 106); /* the longest report the grammar allows */
+  T64_CHECK(len <= T64_REPORT_MAX_BYTES);
+  T64_CHECK(t64_parse_report((const uint8_t *)longest, len, &r) == 1);
+  T64_CHECK(t64_parse_report_max((const uint8_t *)longest, len, len, &r) == 1);
+  T64_CHECK(t64_parse_report_max((const uint8_t *)longest, len, len - 1u, &r) ==
+            0);
+  T64_CHECK(t64_parse_report_max((const uint8_t *)longest, len, 0, &r) == 0);
 }
 
 int main(void) {
@@ -460,5 +481,6 @@ int main(void) {
   counts();
   unreadable_files();
   report_parser();
+  report_cap();
   return T64_TEST_FINISH("unit.classify");
 }

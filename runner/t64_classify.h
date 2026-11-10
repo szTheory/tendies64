@@ -134,10 +134,27 @@ t64_outcome t64_detail_outcome(t64_detail d);
 int t64_outcome_exit(t64_outcome o);
 
 /*
+ * Size cap on a runner report, in bytes. The longest report the grammar allows
+ * is 106 bytes, so the cap never rejects a well-formed report today: it is
+ * defence in depth that refuses an oversized buffer before reading any byte.
+ */
+#define T64_REPORT_MAX_BYTES 512u
+
+/*
  * Strict parse of the five-line runner report. Returns 1 and fills *out, or
  * 0 when the bytes deviate from the grammar in any way (including more than
- * 512 bytes, CR bytes, leading zeros, overflow or log_bytes_total above 2^53-1).
+ * T64_REPORT_MAX_BYTES bytes, CR bytes, leading zeros, overflow or
+ * log_bytes_total above 2^53-1). Equal to
+ * t64_parse_report_max(buf, len, T64_REPORT_MAX_BYTES, out).
  */
 int t64_parse_report(const uint8_t *buf, size_t len, t64_report *out);
+
+/*
+ * Test seam: the same parse with the size cap passed in, so that a test can
+ * show the cap alone rejecting a well-formed report (unit.classify).
+ * Production code calls t64_parse_report.
+ */
+int t64_parse_report_max(const uint8_t *buf, size_t len, size_t max_len,
+                         t64_report *out);
 
 #endif /* T64_CLASSIFY_H */
