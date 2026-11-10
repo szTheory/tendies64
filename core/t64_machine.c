@@ -485,7 +485,11 @@ t64_status t64_machine_advance(t64_machine *machine,
 
 t64_status t64_machine_content_digest(
     const t64_machine *machine, uint8_t digest_out[T64_DIGEST_SIZE]) {
-  if (machine == NULL || digest_out == NULL) {
+  t64_address_range output_range;
+
+  if (machine == NULL || digest_out == NULL ||
+      !t64_internal_make_range(digest_out, T64_DIGEST_SIZE, &output_range) ||
+      !t64_internal_observation_range_is_disjoint(machine, output_range)) {
     return T64_STATUS_INVALID_ARGUMENT;
   }
   if (!machine->has_image) {
@@ -496,33 +500,13 @@ t64_status t64_machine_content_digest(
   return T64_STATUS_OK;
 }
 
-static bool observation_range_is_disjoint(const t64_machine *machine,
-                                          t64_address_range output_range) {
-  t64_address_range owned_range;
-
-  if (!t64_internal_make_range(machine->machine_storage.data,
-                               machine->machine_storage.capacity,
-                               &owned_range) ||
-      t64_internal_ranges_overlap(output_range, owned_range)) {
-    return false;
-  }
-  if (machine->has_image &&
-      (!t64_internal_make_range(machine->image_storage.data,
-                                machine->image_storage.capacity,
-                                &owned_range) ||
-       t64_internal_ranges_overlap(output_range, owned_range))) {
-    return false;
-  }
-  return true;
-}
-
 t64_status t64_machine_rom_size(const t64_machine *machine,
                                 size_t *size_out) {
   t64_address_range output_range;
 
   if (machine == NULL || size_out == NULL ||
       !t64_internal_make_range(size_out, sizeof *size_out, &output_range) ||
-      !observation_range_is_disjoint(machine, output_range)) {
+      !t64_internal_observation_range_is_disjoint(machine, output_range)) {
     return T64_STATUS_INVALID_ARGUMENT;
   }
   if (!machine->has_image) {
@@ -541,13 +525,13 @@ t64_status t64_machine_rom_header(const t64_machine *machine,
   if (machine == NULL || length_out == NULL ||
       (header_out == NULL && capacity != 0u) ||
       !t64_internal_make_range(length_out, sizeof *length_out, &length_range) ||
-      !observation_range_is_disjoint(machine, length_range)) {
+      !t64_internal_observation_range_is_disjoint(machine, length_range)) {
     return T64_STATUS_INVALID_ARGUMENT;
   }
   if (header_out != NULL) {
     if (!t64_internal_make_range(header_out, capacity, &header_range) ||
         t64_internal_ranges_overlap(header_range, length_range) ||
-        !observation_range_is_disjoint(machine, header_range)) {
+        !t64_internal_observation_range_is_disjoint(machine, header_range)) {
       return T64_STATUS_INVALID_ARGUMENT;
     }
   }

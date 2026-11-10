@@ -229,6 +229,26 @@ static inline bool t64_internal_ranges_overlap(t64_address_range left,
   return left.begin < right.end && right.begin < left.end;
 }
 
+static inline bool t64_internal_observation_range_is_disjoint(
+    const t64_machine *machine, t64_address_range output_range) {
+  t64_address_range owned_range;
+
+  if (!t64_internal_make_range(machine->machine_storage.data,
+                               machine->machine_storage.capacity,
+                               &owned_range) ||
+      t64_internal_ranges_overlap(output_range, owned_range)) {
+    return false;
+  }
+  if (machine->has_image &&
+      (!t64_internal_make_range(machine->image_storage.data,
+                                machine->image_storage.capacity,
+                                &owned_range) ||
+       t64_internal_ranges_overlap(output_range, owned_range))) {
+    return false;
+  }
+  return true;
+}
+
 static inline bool t64_internal_storage_range(t64_host_storage storage,
                                               size_t required,
                                               size_t alignment,

@@ -59,9 +59,12 @@ t64_status t64_machine_digest(const t64_machine *machine,
   static const uint8_t domain[] = {'t', '6', '4', '.', 's', 't', 'a', 't',
                                    'e', '.', 'v', '5'};
   t64_sha256_ctx context;
+  t64_address_range output_range;
   size_t i;
 
-  if (machine == NULL || digest_out == NULL) {
+  if (machine == NULL || digest_out == NULL ||
+      !t64_internal_make_range(digest_out, T64_DIGEST_SIZE, &output_range) ||
+      !t64_internal_observation_range_is_disjoint(machine, output_range)) {
     return T64_STATUS_INVALID_ARGUMENT;
   }
   if (!machine->has_image) {

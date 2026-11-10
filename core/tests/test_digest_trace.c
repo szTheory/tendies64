@@ -98,6 +98,59 @@ static void test_queued_future_work_changes_digest(void) {
 static bool fixture_init(allocator_state *host_state,
                          const t64_host_allocator *allocator,
                          t64_machine **machine_out,
+                         uint8_t image[TEST_ROM_SIZE]);
+
+static void test_digest_outputs_reject_machine_and_image_aliases(void) {
+  uint8_t image[TEST_ROM_SIZE];
+  uint8_t image_prefix[T64_DIGEST_SIZE];
+  uint8_t *machine_snapshot;
+  allocator_state host_state = {0u};
+  const t64_host_allocator allocator = {test_allocate, test_release,
+                                        &host_state};
+  t64_machine *machine = NULL;
+  size_t machine_capacity;
+
+  fill_authored_rom(image);
+  T64_CHECK(fixture_init(&host_state, &allocator, &machine, image));
+  if (machine == NULL) {
+    return;
+  }
+  machine_capacity = machine->machine_storage.capacity;
+  machine_snapshot = (uint8_t *)malloc(machine_capacity);
+  T64_CHECK(machine_snapshot != NULL);
+  if (machine_snapshot == NULL) {
+    t64_machine_destroy(machine);
+    return;
+  }
+  (void)memcpy(machine_snapshot, machine->machine_storage.data,
+               machine_capacity);
+  T64_CHECK_INT(t64_machine_digest(machine,
+                                   (uint8_t *)machine->machine_storage.data),
+                T64_STATUS_INVALID_ARGUMENT);
+  T64_CHECK_INT(t64_machine_content_digest(
+                    machine, (uint8_t *)machine->machine_storage.data),
+                T64_STATUS_INVALID_ARGUMENT);
+  T64_CHECK(memcmp(machine_snapshot, machine->machine_storage.data,
+                   machine_capacity) == 0);
+
+  (void)memcpy(image_prefix, machine->image_storage.data,
+               sizeof image_prefix);
+  T64_CHECK_INT(t64_machine_digest(machine, machine->image_storage.data),
+                T64_STATUS_INVALID_ARGUMENT);
+  T64_CHECK_INT(t64_machine_content_digest(machine,
+                                           machine->image_storage.data),
+                T64_STATUS_INVALID_ARGUMENT);
+  T64_CHECK(memcmp(image_prefix, machine->image_storage.data,
+                   sizeof image_prefix) == 0);
+
+  free(machine_snapshot);
+  t64_machine_destroy(machine);
+  T64_CHECK_INT(host_state.outstanding, 0u);
+}
+
+static bool fixture_init(allocator_state *host_state,
+                         const t64_host_allocator *allocator,
+                         t64_machine **machine_out,
                          uint8_t image[TEST_ROM_SIZE]) {
   const t64_profile_descriptor *profile = NULL;
 
@@ -352,18 +405,20 @@ static void test_digest_excludes_storage_and_event_handler(void) {
   T64_CHECK_INT(t64_machine_digest(machine, before), T64_STATUS_OK);
   saved_context = machine->allocator.context;
   {
+    static uint8_t alternate_machine_storage;
+    static uint8_t alternate_image_storage;
     t64_host_storage saved_machine_storage = machine->machine_storage;
     t64_host_storage saved_image_storage = machine->image_storage;
-    void *saved_machine_data = machine->machine_storage.data;
-    void *saved_image_data = machine->image_storage.data;
     t64_event_handler_fn saved_handler =
         machine->events[machine->queue_head].handler;
     size_t unused_index =
         (machine->queue_head + 1u) % T64_EVENT_QUEUE_CAPACITY;
     uint64_t saved_unused_value = machine->events[unused_index].value;
 
-    machine->machine_storage.data = NULL;
-    machine->image_storage.data = NULL;
+    machine->machine_storage.data = &alternate_machine_storage;
+    machine->machine_storage.capacity = sizeof alternate_machine_storage;
+    machine->image_storage.data = &alternate_image_storage;
+    machine->image_storage.capacity = sizeof alternate_image_storage;
     machine->machine_storage.alignment++;
     machine->image_storage.alignment++;
     machine->events[machine->queue_head].handler = NULL;
@@ -373,8 +428,6 @@ static void test_digest_excludes_storage_and_event_handler(void) {
     T64_CHECK(memcmp(before, after, sizeof before) == 0);
     machine->machine_storage = saved_machine_storage;
     machine->image_storage = saved_image_storage;
-    machine->machine_storage.data = saved_machine_data;
-    machine->image_storage.data = saved_image_data;
     machine->events[machine->queue_head].handler = saved_handler;
     machine->events[unused_index].value = saved_unused_value;
   }
@@ -919,6 +972,7 @@ static void test_pi_state_reset_and_refused_replacement(void) {
 int main(void) {
   (void)puts("evidence: synthetic scheduler metadata only; no CPU or device execution");
   test_queued_future_work_changes_digest();
+  test_digest_outputs_reject_machine_and_image_aliases();
   test_digest_golden_and_machine_fields();
   test_digest_excludes_storage_and_event_handler();
   test_partitioned_and_isolated_advances_have_same_digest();
