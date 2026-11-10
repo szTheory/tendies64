@@ -46,6 +46,7 @@ from.
 | 2026-11-10 | 42764219989 | f02621a362ea | push | success | 58 | 57 | 6/17 | 7/50 | gate-macos/Gate 43s |
 | 2026-11-10 | 42922365743 | - | - | deferred | - | - | - | - | deferred: Cancelled redundant manual dispatch before jobs started; push run retained |
 | 2026-11-10 | 42922317641 | 5b277e93be62 | push | failure | 78 | 78 | 2/9 | 3/75 | gate-macos/Gate 67s |
+| 2026-11-10 | 42922766163 | d32a1ba15b02 | push | failure | 84 | 82 | 2/12 | 3/79 | gate-macos/Gate 70s |
 
 ## Findings
 
@@ -71,3 +72,4 @@ from.
 | F-018 | 42764219989 | Run 42764219989 (35 commits: review fixes, 61 tests): gate-linux 17 s, gate-macos 50 s, wall 58 s, critical path gate-macos (Gate step 43 s versus 27 s in the first run). The macOS leg is now the critical path because shell selftests grew (rights-scan 87 cases, provenance 95, claims 49) and macOS runners have fewer cores for ctest jobs 4. | declined | No change now: the measured critical path (57 s) is still under the 60 s target and no distinct failure class is being added or removed. Revisit at the next review if macOS exceeds 60 s: candidates are splitting the six slowest selftests into a scheduled lane and a gate step that runs the asan preset without them (F-017). Hosted runs confirmed the review fixes (CR-13 section handling, gawk 5.2.1 on x64 ELF) with no platform-specific failure. |
 | F-020 | 42922365743 | Actions run listing lag prompted redundant manual dispatch | taken | Cancelled pending duplicate; query REST exact-head state before any future dispatch |
 | F-021 | 42922317641 | Linux GCC rejected a provably false mixed-width overflow comparison | taken | Preserve checked addition using size_t intermediate; retain existing two lanes and strict warnings |
+| F-022 | 42922766163 | GCC exposed two test-only warning errors after production build passed | taken | Remove unused shared test header and parenthesize expected masked arithmetic; retain strict warnings and focused retests |

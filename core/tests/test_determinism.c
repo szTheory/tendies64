@@ -439,7 +439,7 @@ static void test_trace_modes_and_overflow_are_observational(void) {
                             UINT32_C(0x1000) + OVERFLOW_WRITES - 1u,
                             &actual),
                   T64_STATUS_OK);
-    T64_CHECK_INT(actual, (OVERFLOW_WRITES - 1u) * 7u + 3u & 0xffu);
+    T64_CHECK_INT(actual, ((OVERFLOW_WRITES - 1u) * 7u + 3u) & 0xffu);
   }
   fixture_destroy(&overflow_untraced);
   fixture_destroy(&overflow_traced);

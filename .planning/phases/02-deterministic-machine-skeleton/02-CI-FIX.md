@@ -16,3 +16,10 @@ The first push run was reviewed for critical-path cost. A redundant manual
 workflow dispatch caused by a delayed run listing was cancelled before jobs
 started; future dispatch decisions use the exact-head REST response. No cache,
 additional job, dependency or concurrency change was justified.
+
+The replacement Linux build compiled the production core, then exposed two
+test-only GCC warnings: an unused shared test header in `test_pi_dma.c` and
+missing grouping around addition before a bit mask in `test_determinism.c`.
+The header was removed and arithmetic parenthesized without changing expected
+values. Both focused tests passed. The final-source sanitizer campaign remains
+applicable because production sources and the fuzz harness are unchanged.
