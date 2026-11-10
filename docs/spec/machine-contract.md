@@ -163,15 +163,16 @@ tick-add overflow are rejected before machine-state mutation; rejected
 reservations do not consume sequence values.
 
 `t64_machine_digest` is a versioned SHA-256 encoding, not a memory dump. The
-v2 encoding streams the `t64.state.v2` domain and fixed-width big-endian
+v3 encoding streams the `t64.state.v3` domain and fixed-width big-endian
 fields. It includes the complete profile hash, immutable admitted content
 size and hash, parsed header metadata, loaded-image flag, guest tick,
 cumulative counters, sticky error and halt state, RDRAM bytes, SP DMEM and IMEM
 bytes, six-bit MI pending and mask state, the derived IRQ line, and the logical
 ordered event queue with its count and next-sequence/exhaustion state. Event
-records encode tick, sequence, device, kind, value and token. This slice extends
-the existing v2 payload without changing the state schema version or the
-profile's machine, device, or timing policy values.
+records encode tick, sequence, device, kind, value and token. This slice
+advances the state schema to v3 because SP and MI fields were not reserved in
+v2. The selected descriptor carries this version, so the profile hash changes;
+the machine, device, and timing policy values remain unchanged.
 
 | Private field or state | Digest treatment | Reason |
 | --- | --- | --- |

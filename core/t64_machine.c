@@ -59,7 +59,7 @@ static const t64_profile_descriptor ntsc_cart_4m_profile = {
     .dma_visibility_policy = "atomic-source-at-completion-v1",
     .descriptor_version = 1u,
     .machine_model_version = 1u,
-    .state_serialization_version = 2u,
+    .state_serialization_version = 3u,
 };
 
 static size_t bounded_text_length(const char *text, size_t capacity) {

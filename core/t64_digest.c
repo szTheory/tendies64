@@ -38,7 +38,7 @@ static void hash_event(t64_sha256_ctx *context, const t64_event *event) {
 t64_status t64_machine_digest(const t64_machine *machine,
                               uint8_t digest_out[T64_DIGEST_SIZE]) {
   static const uint8_t domain[] = {'t', '6', '4', '.', 's', 't', 'a', 't',
-                                   'e', '.', 'v', '2'};
+                                   'e', '.', 'v', '3'};
   t64_sha256_ctx context;
   size_t i;
 
