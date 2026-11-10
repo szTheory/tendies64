@@ -212,3 +212,36 @@ failed Rust differential; a failed sanitizer control; a lint exit 2 on either OS
 `rustc`; a modified lint; a failed negative control; and a sanitizer report in `fuzz_admission.c` only.
 Rules (a) and (b) yield `switch-rust`. Mutating the decision so it ignores the gaps fails 20 of the 27 cases.
 Restoring the bare-text attribution fails the harness-only report case.
+
+### Tool under test: disclosed gap in the original registration
+
+Rule (a) measures the full C gate lint. PREREG froze the corpus, the Rust twins, the admission files and the
+harness, but not the lint itself (review finding WR-22). So the lint could change between registration and a
+run, or after it, and `--verify-frozen` would still report "frozen inputs: ok". Run 1 recorded no hash and no
+commit for it. Amendment 1 cannot add rows to the frozen table, so the lint is now recorded, not frozen.
+`--registered` prints the commit and these hashes, and it refuses `stay-c17` when the lint files differ from
+that commit.
+
+SHA-256 of the lint as run:
+
+| file | run 1 (reconstructed) | run 2 (printed by the harness) |
+|------|-----------------------|--------------------------------|
+| `tools/lint/core-lint.sh` | `cbda76b47bda6fad758f0c9556ffa629fe66b5bcb669495861311cec5792612c` | `ca2eb8bd9c6efd02ef30d1cec8d1fe363e7f8ef9b1617ed5cbc29de8e2995980` |
+| `tools/lint/lint-objects.sh` | `92d15101eaf31e5cf608130eda256e3c1049f3a035f8b5937d7791a26d1265c7` | `941878f7dbf421c3e24333c6f7d02e37c612f189445021459728f284d1c6be86` |
+| `tools/lint/rules.txt` | `c9c8af2ef949a923424d44639c479a3624bf057905e577366784fda42a3cb6a8` | `07d375d782b427ed257a12fb64fe138bc0703961c65960057e564040b364d8f4` |
+| `tools/lint/allowlist.txt` | `f6e0e19da65ab5ae45f53be34ee0b3aa68a888aacb21434d9aafcf8372f8a238` | `f6e0e19da65ab5ae45f53be34ee0b3aa68a888aacb21434d9aafcf8372f8a238` |
+| git commit | `9390f0b4bb001ff8b690c51758f4f156c2f39336` (PREREG commit; `0063abd` has the same lint) | `68e8c2cae2566d6c78ddd09960632b489aa2f9ed` (harness checked the lint matched it) |
+
+Run 1's column is reconstructed from git: the hashes of these files at the PREREG commit, after which run 1
+ran and before RESULTS was committed. The lint is the same at `0063abd`. Run 1 did not record whether its
+working tree matched that commit, so this column is an inference, not a measurement. Between the runs, review
+fixes CR-13 (Layer 2 treats every section outside the read-only list as writable) and WR-16 (Layer 1 bans
+host-state intrinsics and checks quoted includes) changed `core-lint.sh`, `lint-objects.sh` and `rules.txt`.
+Both versions exit 1 on all 17 frozen classes on both operating systems.
+
+What this means: neither run's rule (a) result can be reproduced from the pre-registration alone. Each is
+reproducible from the commit named above. The result says nothing about later versions of the lint. CI's
+lint selftest covers those separately.
+
+Rule for future spikes: any future pre-registered spike must freeze the tool under test, not only its inputs.
+The tool's files go into the frozen set and the hash table, so that `--verify-frozen` catches a change.
