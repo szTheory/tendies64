@@ -23,3 +23,19 @@ missing grouping around addition before a bit mask in `test_determinism.c`.
 The header was removed and arithmetic parenthesized without changing expected
 values. Both focused tests passed. The final-source sanitizer campaign remains
 applicable because production sources and the fuzz harness are unchanged.
+
+The next Linux build reached `test_skeleton_probe.c` and reported that nested
+`snprintf` path joins could truncate equal-size 512-byte arrays. Each temporary
+path buffer now derives its capacity from the actual parent array and literal
+suffix. This preserves filenames while making the maximum combined span
+explicit. The focused producer/consumer test passed; production and fuzz inputs
+remain unchanged. Hosted retest is still required.
+
+The first focused probe retest failed because the test executable had a refreshed
+core identity but its subprocess probe executable had not been rebuilt by the
+single-target build. This is a build-graph defect, not a model mismatch.
+`runner/CMakeLists.txt` now makes the two new consumer test targets depend on
+all executable producers/checkers they invoke. A targeted rebuild automatically
+relinked the stale probe, and both normal consumer tests passed. The corrected
+buffer test and build dependencies also passed their focused ASan/UBSan tests.
+No warning was suppressed and no extra package or hosted lane was added.

@@ -134,7 +134,7 @@ authorized and available.
 - [x] `nyquist_compliant: true` after planner/executor verify coverage
 - [ ] Full existing gate green on both current hosted lanes before phase verify
 
-**Handoff:** Local validation and independent source/security review passed after fixes. Goal verification, hosted Linux/macOS CI and phase completion remain pending. See `02-REVIEW-FIX-2.md` for the corrected sanitizer record and `02-RECHECK-FINAL.md` for its retained-log limits.
+**Handoff:** The final hosted run [42923015327](https://github.com/szTheory/tendies64/actions/runs/42923015327) tested exact HEAD `32de4f7b664c5e8083ff22a44bda8a46f67d88c6`. macOS arm64/Apple Clang passed all 73 tests. Linux x86_64/GCC 13.3 failed during test compilation: `runner/tests/test_skeleton_probe.c` path-building `snprintf` calls at lines 541–547 trigger `-Werror=format-truncation`; CTest did not start on Linux. The run was not retried. The hosted-gate sign-off remains open until this bounded test-path issue is fixed and the Linux lane passes. Cost review F-023 records 82 s wall time, an 80 s macOS critical path, and why both existing OS/toolchain lanes remain without CI changes. Local validation and independent source/security reviews passed after fixes. See `02-REVIEW-FIX-2.md` for the corrected sanitizer record and `02-RECHECK-FINAL.md` for its retained-log limits.
 
 ## Executable Task Ownership and Waves
 

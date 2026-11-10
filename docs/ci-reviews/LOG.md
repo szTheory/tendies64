@@ -47,6 +47,7 @@ from.
 | 2026-11-10 | 42922365743 | - | - | deferred | - | - | - | - | deferred: Cancelled redundant manual dispatch before jobs started; push run retained |
 | 2026-11-10 | 42922317641 | 5b277e93be62 | push | failure | 78 | 78 | 2/9 | 3/75 | gate-macos/Gate 67s |
 | 2026-11-10 | 42922766163 | d32a1ba15b02 | push | failure | 84 | 82 | 2/12 | 3/79 | gate-macos/Gate 70s |
+| 2026-11-10 | 42923015327 | 32de4f7b664c | push | failure | 82 | 80 | 1/23 | 2/78 | gate-macos/Gate 70s |
 
 ## Findings
 
@@ -73,3 +74,4 @@ from.
 | F-020 | 42922365743 | Actions run listing lag prompted redundant manual dispatch | taken | Cancelled pending duplicate; query REST exact-head state before any future dispatch |
 | F-021 | 42922317641 | Linux GCC rejected a provably false mixed-width overflow comparison | taken | Preserve checked addition using size_t intermediate; retain existing two lanes and strict warnings |
 | F-022 | 42922766163 | GCC exposed two test-only warning errors after production build passed | taken | Remove unused shared test header and parenthesize expected masked arithmetic; retain strict warnings and focused retests |
+| F-023 | 42923015327 | Run 42923015327 measured 82 s wall and an 80 s critical path: Linux x86_64 GCC 13.3 fails at test compile after production core build; macOS arm64 Apple Clang completes all 73 tests. These remain distinct OS/toolchain checks. | declined | Keep both existing lanes. The Linux format-truncation diagnostic is in test path construction, so caching, added jobs, or concurrency changes would not address it; the gate duration does not justify those changes. |

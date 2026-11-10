@@ -520,12 +520,12 @@ static void test_claims_rejection(const char *claims_script,
                                   const char *capture_path) {
   char root_template[] = "/tmp/t64-claims-model-XXXXXX";
   char *root = mkdtemp(root_template);
-  char docs_dir[512];
-  char evidence_dir[512];
-  char record_path[512];
-  char footer_path[512];
-  char direct_claim_path[512];
-  char footer_claim_path[512];
+  char docs_dir[sizeof root_template + sizeof "/docs"];
+  char evidence_dir[sizeof root_template + sizeof "/evidence"];
+  char record_path[sizeof evidence_dir + sizeof "/model.jsonl"];
+  char footer_path[sizeof evidence_dir + sizeof "/model-footer.jsonl"];
+  char direct_claim_path[sizeof docs_dir + sizeof "/model-direct.md"];
+  char footer_claim_path[sizeof docs_dir + sizeof "/model-footer.md"];
   const char *direct_args[8];
   const char *footer_args[8];
   char combined[RECORD_CAPACITY * 2u];

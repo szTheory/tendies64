@@ -51,6 +51,8 @@ add_executable(test_skeleton_probe tests/test_skeleton_probe.c)
 target_compile_definitions(test_skeleton_probe PRIVATE ${T64_HOST_DEFS})
 target_include_directories(test_skeleton_probe PRIVATE ${CMAKE_SOURCE_DIR}/tests)
 target_link_libraries(test_skeleton_probe PRIVATE t64_common t64_core)
+add_dependencies(test_skeleton_probe
+  t64-skeleton-probe t64-model-result-check t64-result-check)
 t64_target_warnings(test_skeleton_probe)
 add_test(NAME unit.core.profile-result
   COMMAND test_skeleton_probe
@@ -68,6 +70,7 @@ set_tests_properties(unit.core.profile-result PROPERTIES LABELS unit
 
 add_executable(test_model_result tests/test_model_result.c)
 target_compile_definitions(test_model_result PRIVATE ${T64_HOST_DEFS})
+add_dependencies(test_model_result t64-model-result-check)
 t64_target_warnings(test_model_result)
 add_test(NAME unit.model-result
   COMMAND test_model_result $<TARGET_FILE:t64-model-result-check>
