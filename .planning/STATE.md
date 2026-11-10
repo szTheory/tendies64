@@ -1,16 +1,20 @@
 ---
-gsd_state_version: '1.0'
+gsd_state_version: "1.0"
 milestone: v1.0
 milestone_name: Verified Headless Core
 current_phase: 01
 current_phase_name: Governance, Rights and Harness Foundation
-status: planning
+status: executing
+stopped_at: Completed 01-01-PLAN.md
+last_updated: "2026-11-10T01:21:07.457Z"
 last_activity: 2026-11-09
+last_activity_desc: Phase 1 execution started
+state_head: 9d090101bcd2fa13a051b99ad7fa36a916178f24
 progress:
   total_phases: 6
   completed_phases: 0
-  total_plans: 0
-  completed_plans: 0
+  total_plans: 13
+  completed_plans: 1
   percent: 0
 ---
 
@@ -25,10 +29,10 @@ See: .planning/PROJECT.md (updated 2026-11-09)
 
 ## Current Position
 
-Phase: 1 of 6 in milestone v1.0 (Governance, Rights and Harness Foundation); 11 phases across v1.0 to v1.2
-Plan: 0 of TBD in current phase
-Status: Ready to plan
-Last activity: 2026-11-09 — Roadmap created (rolling; v1.0 detailed, v1.1/v1.2 provisional, v2.0 outline)
+Phase: 1 (Governance, Rights and Harness Foundation) — EXECUTING
+Plan: 2 of 13
+Status: Ready to execute
+Last activity: 2026-11-09 — Phase 1 execution started
 
 Progress: [░░░░░░░░░░] 0%
 
@@ -50,6 +54,11 @@ Progress: [░░░░░░░░░░] 0%
 - Trend: -
 
 *Updated after each plan completion*
+**Per-Plan Metrics:**
+
+| Plan | Duration | Tasks | Files |
+|------|----------|-------|-------|
+| Phase 01 P01 | 9min | 2 tasks | 15 files |
 
 ## Accumulated Context
 
@@ -61,6 +70,8 @@ Decisions are logged in the PROJECT.md Key Decisions table. Recent decisions tha
 - [Roadmap]: D1 (language/build/ABI) is recorded as the Phase 1 ADR with C17, CMake 3.25+ and Ninja as the default, and goes in the owner decision batch
 - [Roadmap]: Primary-document verification (VR4300 manual and Nintendo docs pinned by SHA) opens Phase 3, and the CPU-area check is the Phase 4 entry gate
 - [Owner, 2026-11-09]: Apache-2.0 license; public repository under szTheory. These are settled, not open gates
+- [Phase 01]: 01-01: t64_core declared in root CMakeLists.txt; core/ holds only the two CONTEXT A-1 files
+- [Phase 01]: 01-01: canonical JSON writer copies keys into per-depth 127-byte buffers; longer keys refused
 
 ### Pending Todos
 
@@ -86,6 +97,6 @@ Items acknowledged and deferred at milestone close, most recent first:
 
 ## Session Continuity
 
-Last session: 2026-11-09
-Stopped at: Roadmap and state initialized; ready for `/gsd-plan-phase 1` (discuss first, per AUTONOMY)
+Last session: 2026-11-10T01:21:07.440Z
+Stopped at: Completed 01-01-PLAN.md
 Resume file: None

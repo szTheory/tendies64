@@ -22,7 +22,7 @@ API and a playable rights-cleared homebrew. Each maps to a roadmap phase.
 - [ ] **GOV-02**: Maintainer can see a copy-provenance policy: allowed licenses (ISC, MIT, BSD-3, Unlicense), the rule that GPL and Angrylion-Plus code is never copied, the rule for reading GPL sources, and a per-copy record of source, commit SHA, license, notice and maintenance owner
 - [ ] **GOV-03**: Maintainer can see a fixture manifest in which every fixture entry records source and revision, build recipe and toolchain, digest, required profile, rights status, notices, and expected-result provenance
 - [ ] **GOV-04**: Maintainer can see a claims and evidence-tier template, so each support statement names its profile, build identity and evidence tier
-- [ ] **GOV-05**: Maintainer can run one command that runs the fast pull-request gate locally and is the command CI calls
+- [x] **GOV-05**: Maintainer can run one command that runs the fast pull-request gate locally and is the command CI calls
 - [ ] **GOV-06**: Maintainer can read recorded ADRs for CPU timing-tier numbering, the policy on non-hardware emulator-extension opcodes, wall-clock timeout classification and the determinism-lint mechanism
 - [ ] **GOV-07**: Maintainer can see no protected or unlicensed material (Nintendo PIF/IPL/CIC data, commercial ROMs, saves, 64DD media, unreviewed generated ROMs) in the repository, in public CI inputs or in uploaded artifacts, enforced by an automated check
 
@@ -189,7 +189,7 @@ re-sequenced at milestone close.
 | GOV-02 | Phase 1 | Pending |
 | GOV-03 | Phase 1 | Pending |
 | GOV-04 | Phase 1 | Pending |
-| GOV-05 | Phase 1 | Pending |
+| GOV-05 | Phase 1 | Complete |
 | GOV-06 | Phase 1 | Pending |
 | GOV-07 | Phase 1 | Pending |
 | RUN-01 | Phase 3 | Pending |
