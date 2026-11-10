@@ -84,3 +84,7 @@ model success do not establish hardware accuracy or boot compatibility.
 - [x] Scoped source review and correction evidence recorded
 
 **Approval:** verified 2026-11-10 for the authored L1 register and reviewed delta.
+
+The later equivalent allocation-size portability correction also passed a full
+ASan build and refreshed 14-test selection including the entire production
+admission campaign. See `02-FINAL-LOCAL-EVIDENCE.md` for final-source evidence.

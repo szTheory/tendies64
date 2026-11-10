@@ -398,11 +398,14 @@ t64_status t64_machine_create(const t64_host_allocator *allocator,
   if (allocator == NULL || allocator->allocate == NULL ||
       allocator->release == NULL || !profile_fields_are_valid(profile) ||
       profile->event_queue_capacity > T64_EVENT_QUEUE_CAPACITY ||
-      t64_profile_hash(profile, profile_digest) != T64_STATUS_OK ||
-      (size_t)profile->rdram_bytes > SIZE_MAX - sizeof(t64_machine)) {
+      t64_profile_hash(profile, profile_digest) != T64_STATUS_OK) {
     return T64_STATUS_INVALID_ARGUMENT;
   }
-  total_size = sizeof(t64_machine) + (size_t)profile->rdram_bytes;
+  total_size = (size_t)profile->rdram_bytes;
+  if (total_size > SIZE_MAX - sizeof(t64_machine)) {
+    return T64_STATUS_INVALID_ARGUMENT;
+  }
+  total_size += sizeof(t64_machine);
   if (!allocator->allocate(allocator->context, total_size, alignment,
                            &storage)) {
     return T64_STATUS_ALLOCATION_FAILED;

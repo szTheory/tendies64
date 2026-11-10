@@ -23,7 +23,7 @@ created: "2026-11-10"
 | **Full suite command** | `./scripts/gate.sh` |
 | **Inventory control** | `sh scripts/check-test-inventory.sh --selftest` checks 73 gate and 75 ASan names plus 148 single-removal and five malformed-inventory controls. |
 | **Sanitizer command** | `ASAN_OPTIONS=detect_leaks=0 UBSAN_OPTIONS=halt_on_error=1:print_stacktrace=1 ctest --preset asan --no-tests=error -R '^(unit\.core\..*|unit\.model-result|fuzz\.rom-admission|sanitizer\.negative-control)$' --output-on-failure` |
-| **Measured runtime** | Final local gate: 51s total, including 13s inventory-removal selftest. After review fixes: refreshed ASan component/model/control selection 13/13; unchanged full production ROM mutation campaign 69.10s. Earlier stale component evidence is superseded by `02-REVIEW-FIX-2.md`. |
+| **Measured runtime** | Final local gate: 51s total, including 13s inventory-removal selftest. Final portability correction: full ASan build and all 14 selected tests passed in 44.58s; complete production ROM mutation campaign 44.57s. `02-FINAL-LOCAL-EVIDENCE.md` records final source/blob identity and supersedes earlier split/stale records. |
 
 The repository's `asan` preset enables AddressSanitizer and
 UndefinedBehaviorSanitizer. LeakSanitizer is unsupported in this host
@@ -53,7 +53,7 @@ a hosted job.
 | SP row/line/skip decode, low-bit alignment, completion-time source read, bank wrap, active+pending queue and third-request policy (BUS-02) | unit | final `./scripts/gate.sh`, `unit.core.sp-dma` | ✅ yes | ✅ pass |
 | Canonical digest field inclusion/exclusion, interleaved instances, trace-on/off and visible overflow (CORE-06, PROF-06) | unit | final gate and ASan run, `unit.core.digest-trace` | ✅ yes | ✅ pass |
 | Raw ROM size/order normalization, field reads, refusal atomicity, max boundary and production admission path (BUS-04) | unit | final gate and ASan run, `unit.core.rom-admission` | ✅ yes | ✅ pass |
-| Seeded mutation campaign through production admission + normalization; all three orders, short prefixes and every exposed header field under ASan/UBSan (BUS-04) | deterministic fuzz | ASan run: `fuzz.rom-admission` (seed `0x7a64c0de`; 250,000 mutations + 148 fixed cases) | ✅ yes | ✅ pass, 69.10s |
+| Seeded mutation campaign through production admission + normalization; all three orders, short prefixes and every exposed header field under ASan/UBSan (BUS-04) | deterministic fuzz | ASan run: `fuzz.rom-admission` (seed `0x7a64c0de`; 250,000 mutations + 148 fixed cases) | ✅ yes | ✅ pass, 44.57s |
 | Separate seeded memory fault is actually caught by sanitizer without failing the parent CTest process | negative control | ASan run: `sanitizer.negative-control` | ✅ yes | ✅ pass |
 | Closed native model schema, scope and assertion counts (PROF-02/04) | consumer | final gate and ASan run, `unit.model-result` | ✅ yes | ✅ pass |
 | Real model probe identity; legacy result/identity/seal/suite/claims rejection (PROF-01–04) | producer/consumer seam | final gate and ASan run, `unit.core.profile-result` | ✅ yes | ✅ pass |
