@@ -24,7 +24,7 @@ export LC_ALL
 SELF=$0
 
 # Required ADR numbers (one variable; later tasks append).
-REQUIRED="0001 0005"
+REQUIRED="0001 0002 0003 0004 0005 0006"
 # Required ADRs allowed to stay proposed. Plan 01-08 accepts ADR-0002 and removes this exemption.
 PROPOSED_OK="0002"
 # The only two paths under core/ allowed while ADR-0002 is not accepted (CONTEXT A-1).
@@ -339,12 +339,12 @@ selftest() {
   done
   mk_doc "$T/docs/adr/$_target-case.md" proposed
   expect_fail DOC-ADR-NOT-ACCEPTED "a required ADR is proposed"
-  for _n in $PROPOSED_OK; do
+  for _ex in $PROPOSED_OK; do
     case " $REQUIRED " in
-      *" $_n "*)
+      *" $_ex "*)
         new_tree exempt
-        mk_doc "$T/docs/adr/$_n-case.md" proposed
-        expect_absent DOC-ADR-NOT-ACCEPTED "ADR $_n may stay proposed"
+        mk_doc "$T/docs/adr/$_ex-case.md" proposed
+        expect_absent DOC-ADR-NOT-ACCEPTED "ADR $_ex may stay proposed"
         ;;
     esac
   done
