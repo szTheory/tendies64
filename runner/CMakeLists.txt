@@ -42,6 +42,11 @@ target_compile_definitions(t64-model-result-check PRIVATE ${T64_HOST_DEFS})
 target_link_libraries(t64-model-result-check PRIVATE t64_common)
 t64_target_warnings(t64-model-result-check)
 
+add_executable(t64-skeleton-probe t64_skeleton_probe.c)
+target_compile_definitions(t64-skeleton-probe PRIVATE ${T64_HOST_DEFS})
+target_link_libraries(t64-skeleton-probe PRIVATE t64_common t64_core)
+t64_target_warnings(t64-skeleton-probe)
+
 add_executable(test_skeleton_probe tests/test_skeleton_probe.c)
 target_compile_definitions(test_skeleton_probe PRIVATE ${T64_HOST_DEFS})
 target_include_directories(test_skeleton_probe PRIVATE ${CMAKE_SOURCE_DIR}/tests)
@@ -49,8 +54,15 @@ target_link_libraries(test_skeleton_probe PRIVATE t64_common t64_core)
 t64_target_warnings(test_skeleton_probe)
 add_test(NAME unit.core.profile-result
   COMMAND test_skeleton_probe
-    ${CMAKE_CURRENT_BINARY_DIR}/t64-skeleton-probe
-    $<TARGET_FILE:t64-model-result-check>)
+    $<TARGET_FILE:t64-skeleton-probe>
+    $<TARGET_FILE:t64-model-result-check>
+    $<TARGET_FILE:t64-result-check>
+    ${CMAKE_SOURCE_DIR}/tests/controls/golden/positive.json
+    ${CMAKE_SOURCE_DIR}/tests/seeded/suites/good.jsonl
+    ${CMAKE_SOURCE_DIR}/tests/seeded/suites/INVENTORY
+    ${CMAKE_SOURCE_DIR}/scripts/check-claims.sh
+    ${CMAKE_SOURCE_DIR}
+    ${CMAKE_BINARY_DIR})
 set_tests_properties(unit.core.profile-result PROPERTIES LABELS unit)
 
 add_executable(test_model_result tests/test_model_result.c)
