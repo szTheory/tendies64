@@ -66,17 +66,15 @@ static void fill_authored_rom(uint8_t image[TEST_ROM_SIZE], uint8_t salt) {
   image[3] = 0x40u;
 }
 
-static bool fixture_init(machine_fixture *fixture, uint8_t salt) {
-  const t64_profile_descriptor *profile = NULL;
-
+static bool fixture_init_with_profile(
+    machine_fixture *fixture, uint8_t salt,
+    const t64_profile_descriptor *profile) {
   (void)memset(fixture, 0, sizeof *fixture);
   fixture->allocator.allocate = test_allocate;
   fixture->allocator.release = test_release;
   fixture->allocator.context = &fixture->host_state;
   fill_authored_rom(fixture->image, salt);
-  if (t64_profile_lookup("ntsc-cart-4m-skeleton", &profile) !=
-          T64_STATUS_OK ||
-      profile == NULL ||
+  if (profile == NULL ||
       t64_machine_create(&fixture->allocator, profile, &fixture->machine) !=
           T64_STATUS_OK ||
       fixture->machine == NULL ||
@@ -89,6 +87,15 @@ static bool fixture_init(machine_fixture *fixture, uint8_t salt) {
     return false;
   }
   return true;
+}
+
+static bool fixture_init(machine_fixture *fixture, uint8_t salt) {
+  const t64_profile_descriptor *profile = NULL;
+  t64_status status =
+      t64_profile_lookup("ntsc-cart-4m-skeleton", &profile);
+
+  return fixture_init_with_profile(
+      fixture, salt, status == T64_STATUS_OK ? profile : NULL);
 }
 
 static void fixture_destroy(machine_fixture *fixture) {
@@ -324,8 +331,11 @@ static void test_halt_precedence_at_time_and_counter_bounds(void) {
 static void test_queue_sequence_and_tick_exhaustion_are_transactional(void) {
   machine_fixture queue_fixture;
   machine_fixture sequence_fixture;
+  machine_fixture narrow_sequence_fixture;
   machine_fixture tick_fixture;
   machine_fixture max_advance_fixture;
+  const t64_profile_descriptor *base_profile = NULL;
+  t64_profile_descriptor narrow_profile;
   size_t i;
   t64_event_reservation reservation;
 
@@ -348,6 +358,47 @@ static void test_queue_sequence_and_tick_exhaustion_are_transactional(void) {
   T64_CHECK_INT(queue_fixture.machine->queue_count, 256u);
   T64_CHECK_INT(queue_fixture.machine->next_sequence, 256u);
   fixture_destroy(&queue_fixture);
+
+  T64_CHECK_INT(t64_profile_lookup("ntsc-cart-4m-skeleton", &base_profile),
+                T64_STATUS_OK);
+  if (base_profile != NULL) {
+    narrow_profile = *base_profile;
+    narrow_profile.sequence_width_bits = 8u;
+    T64_CHECK(fixture_init_with_profile(&narrow_sequence_fixture, 16u,
+                                        &narrow_profile));
+    if (narrow_sequence_fixture.machine != NULL) {
+      uint8_t digest_before[T64_DIGEST_SIZE];
+      uint8_t digest_after[T64_DIGEST_SIZE];
+
+      narrow_sequence_fixture.machine->next_sequence = UINT64_C(254);
+      T64_CHECK_INT(t64_test_schedule_synthetic(
+                        narrow_sequence_fixture.machine, 0u,
+                        T64_TEST_EVENT_NOOP, 254u),
+                    T64_STATUS_OK);
+      T64_CHECK_INT(narrow_sequence_fixture.machine->next_sequence, 255u);
+      T64_CHECK_INT(t64_test_schedule_synthetic(
+                        narrow_sequence_fixture.machine, 0u,
+                        T64_TEST_EVENT_NOOP, 255u),
+                    T64_STATUS_OK);
+      T64_CHECK(narrow_sequence_fixture.machine->sequence_exhausted);
+      T64_CHECK_INT(narrow_sequence_fixture.machine->queue_count, 2u);
+      T64_CHECK_INT(t64_machine_digest(narrow_sequence_fixture.machine,
+                                       digest_before),
+                    T64_STATUS_OK);
+      T64_CHECK_INT(t64_test_reserve_synthetic(
+                        narrow_sequence_fixture.machine, 0u,
+                        T64_TEST_EVENT_NOOP, 256u, &reservation),
+                    T64_STATUS_SEQUENCE_EXHAUSTED);
+      T64_CHECK_INT(t64_machine_digest(narrow_sequence_fixture.machine,
+                                       digest_after),
+                    T64_STATUS_OK);
+      T64_CHECK(memcmp(digest_before, digest_after, sizeof digest_before) ==
+                0);
+      T64_CHECK_INT(narrow_sequence_fixture.machine->queue_count, 2u);
+      T64_CHECK_INT(narrow_sequence_fixture.machine->next_sequence, 255u);
+      fixture_destroy(&narrow_sequence_fixture);
+    }
+  }
 
   T64_CHECK(fixture_init(&sequence_fixture, 9u));
   if (sequence_fixture.machine == NULL) {

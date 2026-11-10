@@ -19,6 +19,12 @@ static size_t queue_limit(const t64_machine *machine) {
                                                    : T64_EVENT_QUEUE_CAPACITY;
 }
 
+static uint64_t sequence_limit(const t64_machine *machine) {
+  uint32_t width = machine->profile.sequence_width_bits;
+
+  return width == 64u ? UINT64_MAX : (UINT64_C(1) << width) - UINT64_C(1);
+}
+
 static t64_status test_noop_handler(t64_machine *machine,
                                     const t64_event *event) {
   (void)machine;
@@ -103,6 +109,9 @@ t64_status t64_schedule_reserve(t64_machine *machine, uint64_t tick,
   if (machine->sequence_exhausted) {
     return T64_STATUS_SEQUENCE_EXHAUSTED;
   }
+  if (machine->next_sequence > sequence_limit(machine)) {
+    return T64_STATUS_SEQUENCE_EXHAUSTED;
+  }
 
   reservation_out->machine = machine;
   reservation_out->expected_queue_count = machine->queue_count;
@@ -142,13 +151,16 @@ t64_status t64_schedule_commit(t64_machine *machine,
   size_t insert_at;
   size_t i;
   t64_event event;
+  uint64_t maximum_sequence;
 
+  maximum_sequence = machine == NULL ? 0u : sequence_limit(machine);
   if (machine == NULL || reservation == NULL || !reservation->valid ||
       reservation->machine != machine ||
       reservation->expected_tick != machine->tick ||
       reservation->expected_queue_count != machine->queue_count ||
       reservation->event.sequence != machine->next_sequence ||
       machine->sequence_exhausted ||
+      reservation->event.sequence > maximum_sequence ||
       reservation->event.tick < machine->tick ||
       machine->queue_count >= queue_limit(machine)) {
     return T64_STATUS_INVALID_ARGUMENT;
@@ -168,7 +180,7 @@ t64_status t64_schedule_commit(t64_machine *machine,
   }
   machine->events[event_index(machine, insert_at)] = event;
   machine->queue_count++;
-  if (event.sequence == UINT64_MAX) {
+  if (event.sequence == maximum_sequence) {
     machine->sequence_exhausted = true;
   } else {
     machine->next_sequence = event.sequence + UINT64_C(1);
