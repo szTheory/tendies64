@@ -90,7 +90,8 @@
             }
           },
           {
-            "title": "Entry whose binary_rights is forbidden: a reason and no identifying data",
+            "title": "Entry whose binary_rights is forbidden: a reason, with identifying data refused by the checker",
+            "description": "This schema accepts any value for sha256, size, source, build, expected and path. t64-manifest-check enforces their absence (rule M-FORBIDDEN-DIGEST), so a validator that applies only this schema will accept a forbidden entry that carries identifying data.",
             "type": "object",
             "additionalProperties": false,
             "required": [

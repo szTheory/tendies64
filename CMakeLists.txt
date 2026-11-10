@@ -21,9 +21,10 @@ function(t64_target_warnings tgt)
   endif()
 endfunction()
 
-# CONTEXT A-1: until ADR-0002 is accepted, core/ holds exactly
-# core/t64_core_stub.c and core/include/tendies64/t64_facade.h, so the library
-# is declared here and there is no core/CMakeLists.txt.
+# ADR-0002 is accepted, so files under core/ other than the two CONTEXT A-1
+# placeholders are now legal. core/ still holds only core/t64_core_stub.c and
+# core/include/tendies64/t64_facade.h, so the library is declared here. When
+# real core code arrives, move this target to core/CMakeLists.txt.
 # Never define _POSIX_C_SOURCE for t64_core (determinism boundary).
 add_library(t64_core STATIC core/t64_core_stub.c)
 target_include_directories(t64_core PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/core/include)

@@ -1,7 +1,8 @@
 #!/bin/sh
 # Tendies64 gate: the single local command (GOV-05). POSIX sh, no bashisms.
 # Steps: banner, sh-n, lint-selftest, configure, build, ctest, core-lint, summary.
-# Later plans add steps.
+# Later plans add steps. `cmake --workflow --preset gate` runs configure, build
+# and test only; this script is the full gate.
 set -eu
 LC_ALL=C
 export LC_ALL

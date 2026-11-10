@@ -45,6 +45,7 @@
   "workflowPresets": [
     {
       "name": "gate",
+      "description": "Configure, build and CTest only. The full gate is scripts/gate.sh, which also runs sh -n, the lint selftest and core-lint",
       "steps": [
         { "type": "configure", "name": "gate" },
         { "type": "build", "name": "gate" },
