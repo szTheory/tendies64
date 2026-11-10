@@ -563,6 +563,34 @@ selftest() {
   mk ext-upper
   printf 'plain\n' > "$ST/ext-upper/Y.N64"
   case_run denied-ext-upper 1 R-DENIED-EXT "$ST/ext-upper" --tree
+  # Trailing whitespace, control bytes, dots or other non-alphanumeric bytes
+  # after the extension, and any letter case, do not hide it (WR-11), in the
+  # tree and in history, where git quotes a name with a control byte.
+  mk ext-trail
+  printf 'plain\n' > "$ST/ext-trail/a.sav "
+  printf 'plain\n' > "$ST/ext-trail/b.sav
+"
+  NEED='R-DENIED-EXT a.sav '
+  NEED2='R-DENIED-EXT b.sav?'
+  case_run ext-trailing-space-newline 1 R-DENIED-EXT "$ST/ext-trail" --tree
+  mk ext-trail2
+  printf 'plain\n' > "$ST/ext-trail2/C.SAV."
+  NEED='R-DENIED-EXT C.SAV.'
+  case_run ext-trailing-dot-upper 1 R-DENIED-EXT "$ST/ext-trail2" --tree
+  mk ext-trail3
+  printf 'plain\n' > "$ST/ext-trail3/d.Eep	"
+  case_run ext-trailing-tab-mixed 1 R-DENIED-EXT "$ST/ext-trail3" --tree
+  commit_all "$ST/ext-trail" add
+  (cd "$ST/ext-trail" && g rm -q -f -- "a.sav " "b.sav
+" && g commit -q -m rm)
+  NEED='R-DENIED-EXT a.sav '
+  NEED2='R-DENIED-EXT "b.sav'
+  case_run ext-trailing-history 1 R-DENIED-EXT "$ST/ext-trail" --history
+  mk ext-near
+  printf 'plain\n' > "$ST/ext-near/notes.save"
+  printf 'plain\n' > "$ST/ext-near/x.sav1"
+  printf 'plain\n' > "$ST/ext-near/sav"
+  case_run ext-near-miss 0 - "$ST/ext-near" --tree
   _sha=$(sha256_of "$ST/ext/x.sav")
   printf '%s\t%s\t%s\n' x.sav "$_sha" 'selftest' > "$ST/ext.tsv"
   case_run allowlist-keeps-denied-ext 1 R-DENIED-EXT "$ST/ext" --tree --allow "$ST/ext.tsv"

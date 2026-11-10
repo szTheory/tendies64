@@ -461,25 +461,55 @@ static unsigned scan_finish(scan_state *s, char hex[T64_SHA256_HEX_SIZE]) {
   return f;
 }
 
-/* Denied extension of the last path component, case-insensitive. A path that
- * git quoted (starts and ends with a double quote) is judged without the
- * closing quote. */
+static int is_alnum_ascii(char c) {
+  return (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') ||
+         (c >= '0' && c <= '9');
+}
+
+static int is_octal(char c) { return c >= '0' && c <= '7'; }
+
+/* Denied extension of the last path component, case-insensitive. Trailing
+ * bytes that are not ASCII letters or digits (whitespace, control bytes, dots,
+ * punctuation, non-ASCII) are trimmed first, so "a.sav ", "b.sav<LF>" and
+ * "C.SAV." are denied (WR-11). A path that git quoted (starts and ends with a
+ * double quote) is judged without the quotes and with trailing C-style escapes
+ * (\n, \t, \ooo, ...) trimmed too. Trimming can only widen the rule. */
 static int denied_ext(const char *path) {
   static const char *const exts[] = {"z64", "n64", "v64", "sav", "eep",
                                      "sra", "fla", "mpk", "ndd", "d64"};
-  size_t len = strlen(path), dot = 0, i, k;
-  int have_dot = 0;
-  char ext[8];
-  if (len >= 2u && path[0] == '"' && path[len - 1u] == '"') len--;
-  for (i = 0; i < len; i++) {
-    if (path[i] == '/') {
-      have_dot = 0;
-    } else if (path[i] == '.') {
+  size_t len = strlen(path), start = 0, end, dot = 0, i, k;
+  int quoted = 0, have_dot = 0;
+  char ext[4];
+  if (len >= 2u && path[0] == '"' && path[len - 1u] == '"') {
+    quoted = 1;
+    start = 1;
+    len--;
+  }
+  for (i = start; i < len; i++) {
+    if (path[i] == '/') start = i + 1u;
+  }
+  end = len;
+  for (;;) {
+    if (end > start && !is_alnum_ascii(path[end - 1u])) {
+      end--;
+    } else if (quoted && end - start >= 2u && path[end - 2u] == '\\' &&
+               strchr("abtnvfr", path[end - 1u]) != NULL) {
+      end -= 2u;
+    } else if (quoted && end - start >= 4u && path[end - 4u] == '\\' &&
+               is_octal(path[end - 3u]) && is_octal(path[end - 2u]) &&
+               is_octal(path[end - 1u])) {
+      end -= 4u;
+    } else {
+      break;
+    }
+  }
+  for (i = start; i < end; i++) {
+    if (path[i] == '.') {
       dot = i;
       have_dot = 1;
     }
   }
-  if (!have_dot || len - dot - 1u != 3u) return 0;
+  if (!have_dot || end - dot - 1u != 3u) return 0;
   for (k = 0; k < 3u; k++) {
     char c = path[dot + 1u + k];
     ext[k] = (c >= 'A' && c <= 'Z') ? (char)(c - 'A' + 'a') : c;
