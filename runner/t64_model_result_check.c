@@ -73,7 +73,7 @@ static int read_bounded_file(const char *path, uint8_t **out, size_t *out_len) {
   struct stat st;
   uint8_t *buf;
   size_t used = 0u;
-  int fd = open(path, O_RDONLY);
+  int fd = open(path, O_RDONLY | O_NONBLOCK);
 
   if (fd < 0) {
     return 0;

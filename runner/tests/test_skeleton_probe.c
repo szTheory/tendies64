@@ -216,6 +216,7 @@ static bool write_claim(const char *path, const char *evidence_path) {
 }
 
 static void test_expected_result(const char *record, const char *record_path,
+                                 const char *probe_tool,
                                  const char *model_checker,
                                  const char *capture_path) {
   char expected_record[RECORD_CAPACITY];
@@ -223,6 +224,8 @@ static void test_expected_result(const char *record, const char *record_path,
   char changed[RECORD_CAPACITY];
   size_t mismatched_length;
   int expected_length;
+  char fifo_path[] = "/tmp/t64-probe-output-fifo-XXXXXX";
+  int fifo_fd;
 
   T64_CHECK(strncmp(t64_build_identity(), "t64-build-v1-", 13u) == 0);
   T64_CHECK(strlen(t64_build_identity()) == 77u);
@@ -246,6 +249,27 @@ static void test_expected_result(const char *record, const char *record_path,
   T64_CHECK_INT(model_check(model_checker, record_path, capture_path), 0);
   T64_CHECK(output_contains(capture_path,
                             "valid schema=t64.model-result/1 model_scope=native-model-probe"));
+
+  fifo_fd = mkstemp(fifo_path);
+  T64_CHECK(fifo_fd >= 0);
+  if (fifo_fd >= 0) {
+    struct stat fifo_info;
+    const char *fifo_args[] = {
+        probe_tool, "--profile", "ntsc-cart-4m-skeleton", "--out",
+        fifo_path, NULL};
+
+    (void)close(fifo_fd);
+    T64_CHECK_INT(unlink(fifo_path), 0);
+    T64_CHECK_INT(mkfifo(fifo_path, 0600), 0);
+    if (lstat(fifo_path, &fifo_info) == 0 && S_ISFIFO(fifo_info.st_mode)) {
+      T64_CHECK_INT(run_process(fifo_args, capture_path, NULL), 3);
+      T64_CHECK(lstat(fifo_path, &fifo_info) == 0 &&
+                S_ISFIFO(fifo_info.st_mode));
+    } else {
+      T64_CHECK(false);
+    }
+    (void)unlink(fifo_path);
+  }
 
   /* Test-owned expected-value mutation proves a completed mismatch is scoped. */
   mismatched_length = replace_once(record, "\"failed\":0", "\"failed\":1",
@@ -494,7 +518,7 @@ int main(int argc, char **argv) {
                 0);
   T64_CHECK(read_file(record_path, record, sizeof record, &record_length));
   if (record_length > 0u) {
-    test_expected_result(record, record_path, argv[2], capture_path);
+    test_expected_result(record, record_path, argv[1], argv[2], capture_path);
   }
   test_unknown_profiles(argv[1], record_path, capture_path);
   T64_CHECK(write_file(record_path, record, record_length));

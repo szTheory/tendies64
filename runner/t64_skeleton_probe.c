@@ -421,13 +421,20 @@ static bool write_all(int fd, const char *bytes, size_t length) {
 
 static bool emit_output(const char *path, const char *record, size_t length) {
   int fd;
+  struct stat info;
   bool ok;
   if (path == NULL) {
     size_t written = fwrite(record, 1u, length, stdout);
     return written == length && fflush(stdout) == 0;
   }
-  fd = open(path, O_WRONLY | O_CREAT | O_TRUNC | O_NOFOLLOW, S_IRUSR | S_IWUSR);
+  fd = open(path, O_WRONLY | O_CREAT | O_NOFOLLOW | O_NONBLOCK,
+            S_IRUSR | S_IWUSR);
   if (fd < 0) {
+    return false;
+  }
+  if (fstat(fd, &info) != 0 || !S_ISREG(info.st_mode) ||
+      ftruncate(fd, 0) != 0) {
+    (void)close(fd);
     return false;
   }
   ok = write_all(fd, record, length);

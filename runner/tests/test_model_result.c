@@ -4,6 +4,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <sys/stat.h>
 #include <sys/types.h>
 #include <sys/wait.h>
 #include <unistd.h>
@@ -186,6 +187,36 @@ static void expect_file_case(const char *checker, const char *record_path,
   } else {
     failures++;
     printf("not ok %lu - %s\n", (unsigned long)test_count, name);
+  }
+}
+
+static void expect_oversized_and_fifo_rejection(const char *checker,
+                                                const char *record_path,
+                                                const char *output_path) {
+  int actual_exit = -1;
+  bool passed = write_record(record_path, oversized_record,
+                             sizeof oversized_record) != 0;
+
+  if (passed) {
+    actual_exit = process_status(checker, record_path, output_path);
+    passed = actual_exit == 2;
+  }
+  if (passed) {
+    passed = unlink(record_path) == 0 && mkfifo(record_path, 0600) == 0;
+  }
+  if (passed) {
+    actual_exit = process_status(checker, record_path, output_path);
+    passed = actual_exit == 2;
+  }
+  (void)unlink(record_path);
+  test_count++;
+  if (passed) {
+    printf("ok %lu - reject input above configured bound\n",
+           (unsigned long)test_count);
+  } else {
+    failures++;
+    printf("not ok %lu - reject input above configured bound\n",
+           (unsigned long)test_count);
   }
 }
 
@@ -428,9 +459,7 @@ int main(int argc, char **argv) {
               "reject string above configured bound", 1, NULL);
 
   (void)memset(oversized_record, ' ', sizeof oversized_record);
-  expect_case(argv[1], record_path, output_path, oversized_record,
-              sizeof oversized_record, "reject input above configured bound",
-              2, NULL);
+  expect_oversized_and_fifo_rejection(argv[1], record_path, output_path);
 
   (void)unlink(record_path);
   (void)unlink(output_path);
