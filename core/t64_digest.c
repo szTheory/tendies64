@@ -72,6 +72,13 @@ t64_status t64_machine_digest(const t64_machine *machine,
   hash_u32(&context, machine->halted ? UINT32_C(1) : UINT32_C(0));
   hash_u32(&context, machine->profile.rdram_bytes);
   t64_sha256_update(&context, machine->ram, machine->profile.rdram_bytes);
+  hash_u32(&context, (uint32_t)sizeof machine->sp_dmem);
+  t64_sha256_update(&context, machine->sp_dmem, sizeof machine->sp_dmem);
+  hash_u32(&context, (uint32_t)sizeof machine->sp_imem);
+  t64_sha256_update(&context, machine->sp_imem, sizeof machine->sp_imem);
+  hash_u32(&context, machine->mi_pending & T64_MI_INTERRUPT_BITS);
+  hash_u32(&context, machine->mi_mask & T64_MI_INTERRUPT_BITS);
+  hash_u32(&context, machine->mi_irq_line ? UINT32_C(1) : UINT32_C(0));
   hash_u32(&context, (uint32_t)machine->queue_count);
   hash_u64(&context, machine->next_sequence);
   hash_u32(&context,

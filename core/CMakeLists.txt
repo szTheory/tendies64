@@ -154,7 +154,9 @@ add_test(NAME unit.core.digest-trace COMMAND test_digest_trace)
 set_tests_properties(unit.core.digest-trace PROPERTIES LABELS unit)
 
 add_executable(test_bus tests/test_bus.c)
-target_include_directories(test_bus PRIVATE "${CMAKE_SOURCE_DIR}/tests")
+target_include_directories(test_bus PRIVATE
+  "${CMAKE_CURRENT_SOURCE_DIR}"
+  "${CMAKE_SOURCE_DIR}/tests")
 target_link_libraries(test_bus PRIVATE t64_core)
 t64_target_warnings(test_bus)
 add_test(NAME unit.core.bus COMMAND test_bus)

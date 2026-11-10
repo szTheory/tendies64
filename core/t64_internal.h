@@ -133,6 +133,10 @@ t64_status t64_bus_write(t64_machine *machine, uint32_t address,
 void t64_mi_set_pending(t64_machine *machine, uint32_t bits);
 void t64_mi_clear_pending(t64_machine *machine, uint32_t bits);
 void t64_mi_write_mask(t64_machine *machine, uint32_t command);
+bool t64_mi_register_read(const t64_machine *machine, uint32_t address,
+                          uint32_t *value_out);
+t64_status t64_mi_register_write(t64_machine *machine, uint32_t address,
+                                uint32_t value);
 
 static inline bool t64_internal_make_range(const void *pointer, size_t length,
                                            t64_address_range *range_out) {
