@@ -1,0 +1,4 @@
+t64-synthetic 1
+# guest-fail control: two bytes that are not valid UTF-8
+logx 10 ff fe
+end 20 quiesce

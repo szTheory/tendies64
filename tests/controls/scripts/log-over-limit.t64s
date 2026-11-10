@@ -1,0 +1,4 @@
+t64-synthetic 1
+# guest-fail control: 100 bytes emitted against a 64-byte log limit
+logrep 10 10 abcdefghi\n
+end 20 quiesce

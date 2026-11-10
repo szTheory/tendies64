@@ -1,0 +1,8 @@
+t64-synthetic 1
+# pass control (ADR-0004): PASS lines, Done!, then mixed-case unhandled-exception lines, then a spin
+log 10 PASS alpha\n
+log 20 PASS beta\n
+log 30 Done!\n
+log 35 Unhandled Exception at 0x1\n
+log 36 UNHANDLED EXCEPTION again\n
+end 40 spin

@@ -1,0 +1,7 @@
+t64-synthetic 1
+# guest-fail control: output after Done! that is not a FAIL line, so the locked order reaches output-after-done
+log 10 PASS a\n
+log 20 PASS b\n
+log 30 Done!\n
+log 35 PASS c\n
+end 40 quiesce

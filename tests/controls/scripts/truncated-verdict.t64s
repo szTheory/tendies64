@@ -1,0 +1,6 @@
+t64-synthetic 1
+# guest-fail control: the verdict line is cut short ("Do", no LF) and the guest halts
+log 10 PASS a\n
+log 20 PASS b\n
+log 30 Do
+end 40 quiesce

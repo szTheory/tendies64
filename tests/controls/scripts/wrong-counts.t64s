@@ -1,0 +1,6 @@
+t64-synthetic 1
+# guest-fail control: Done! arrives after two PASS lines but the matrix expects three
+log 10 PASS a\n
+log 20 PASS b\n
+log 30 Done!\n
+end 40 quiesce

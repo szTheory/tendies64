@@ -1,0 +1,3 @@
+t64-synthetic 1
+# boot-fail control: no output at all while the guest spins to the bound
+end 5 spin

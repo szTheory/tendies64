@@ -173,9 +173,16 @@ endings, at most 1 MiB, lines at most 4096 bytes.
   `\\`, `\xHH`. No newline is added automatically. The text must not be empty.
 - `logx <tick> <hh> ...`: emits raw bytes given as two-digit hex tokens
   separated by single spaces.
+- `logrep <tick> <count> <text>`: emits `<text>` (same escapes as `log`, not
+  empty) `<count>` times back to back at the tick. `count` is at least 1 and
+  the total (`count` times the decoded text length) is at most 64 MiB.
 - `end <tick> <directive>`: exactly one, as the last non-comment line.
-  Directives in this version: `quiesce` (the guest halts at the tick) and
-  `spin` (the guest never halts). Plan 01-11 extends the set.
+  Directives: `quiesce` (the guest halts at the tick) and `spin` (the guest
+  never halts). The negative controls add host-misbehavior directives, which act
+  inside `advance` once the bound reaches the end tick: `hang` (sleep forever),
+  `abort` (`abort()`), `segv` (`raise(SIGSEGV)`) and `exit0-no-result` (`_exit(0)`
+  before any report is written). `exit7` behaves like `quiesce`, writes the
+  complete report, and then exits 7.
 - Ticks are non-decreasing decimal u64 values across the whole file.
 
 Any grammar violation makes the runner exit 2 with no report.
@@ -195,10 +202,14 @@ Runner:
 ```
 t64-runner-synthetic --slice TICKS --fixture PATH --bound TICKS
                      --log-limit BYTES --report PATH --capture PATH
+                     [--ignore-log-limit]
 ```
 
-The caller supplies `--slice`; the supervisor appends the rest. Exit codes: 0
-report written, 2 usage or grammar violation, 3 I/O failure.
+The caller supplies `--slice` and any flag; the supervisor appends the rest.
+`--ignore-log-limit` is test-only: the runner writes the capture past the log
+limit so the supervisor's `RLIMIT_FSIZE` backstop can be proven (the
+`log-flood-backstop` control). Exit codes: 0 report written (7 for the `exit7`
+directive), 2 usage or grammar violation, 3 I/O failure.
 
 Supervisor:
 
@@ -231,7 +242,11 @@ t64-supervisor --identity synthetic --result PATH --meta PATH --work-dir DIR
 
 `tests/controls/matrix.tsv` has one TAB-separated row per control; the header
 starts with `#`. Columns: `id script expect_pass bound wall_ms slice_a slice_b
-fixture_mode fixture_sha256 outcome detail exit`. Goldens live in
+fixture_mode fixture_sha256 outcome detail exit runner_flags log_limit`.
+`runner_flags` is `-` for none or space-separated runner flags; `log_limit` is the
+log limit in bytes (default 65536). `fixture_mode` is `ok`, `deleted` (the
+fixture path does not exist) or `tampered` (one byte is appended to a copy of the
+script). Goldens live in
 `tests/controls/golden/<id>.json` and scripts in `tests/controls/scripts/`;
 both directories are directory-owned corpora. Every case runs twice with two
 slice sizes and the canonical bytes must be identical to each other and to the
@@ -241,9 +256,21 @@ controls can leave host crash reports (on macOS a `.ips` file in the user's
 diagnostic reports directory) even with core dumps disabled; that is a host
 side effect, not a harness failure.
 
-Phase 1 ships two controls: `positive` (`pass` / `positive-match`) and
-`empty-halt` (`boot-fail` / `empty-output`). Plan 01-11 completes the 19-case
-matrix. Phases 3 and 4 replay the same matrix against the real core.
+The matrix holds 19 live cases, pinned by `tests/controls/INVENTORY` (the sorted
+case ids, the same format as any suite INVENTORY). All six outcomes occur:
+`pass` (`positive`, `positive-unhandled`), `timeout` (`spin`), `boot-fail`
+(`empty-halt`, `empty-bound`), `guest-fail` (`wrong-counts`, `fail-reported`,
+`fail-after-done`, `truncated-verdict`, `log-invalid-utf8`, `log-over-limit`),
+`missing-fixture` (`deleted-fixture`) and `harness-error` (`tampered-digest`,
+`abort`, `segv`, `exit0-no-result`, `exit-nonzero`, `hang`,
+`log-flood-backstop`). `fail-after-done` uses a `PASS` line after `Done!` (not a
+`FAIL` line), so it reaches `output-after-done` under the locked order. The live
+suite controls (`controls.suite`, `controls.suite-dropped`,
+`controls.suite-truncated`, `controls.inventory-drift`, `controls.inventory`) are
+driven by `tests/controls/run-suite.sh --bin-dir DIR --mode
+suite|dropped|truncated|drift|inventory`. `tests/controls/README.md` lists each
+case and what it proves. Phases 3 and 4 replay the same matrix against the real
+core.
 
 ## Suites and the consumer
 

@@ -10,3 +10,11 @@ hang	hang.t64s	0	1000	700	1	7	ok	742098502d8d767de5b6d2b8aca216e9ee27f239cc9c94d
 log-flood-backstop	log-flood-backstop.t64s	0	1000	5000	1	7	ok	7eff08006c4ec52e95a90886520721a69cd905f066b275c495e860fe5fdecfaf	harness-error	runner-signalled	1	--ignore-log-limit	65536
 deleted-fixture	positive.t64s	2	1000	5000	1	7	deleted	05e99f7a94e7d1fb2369e5615a92de68b468c212418255a4de019910301ad25a	missing-fixture	fixture-absent	13	-	65536
 tampered-digest	positive.t64s	2	1000	5000	1	7	tampered	05e99f7a94e7d1fb2369e5615a92de68b468c212418255a4de019910301ad25a	harness-error	fixture-digest-mismatch	1	-	65536
+wrong-counts	wrong-counts.t64s	3	1000	5000	1	7	ok	7238eb82362a5a68973baa3cf8ea7b25d3f54e66e5ede8113c1f07c4b258b886	guest-fail	count-mismatch	10	-	65536
+fail-reported	fail-reported.t64s	1	1000	5000	1	7	ok	ffeb198eda5eb44df12ebdaf28cff99f561092f3743da8250e875d78c6de9c1b	guest-fail	fail-reported	10	-	65536
+fail-after-done	fail-after-done.t64s	2	1000	5000	1	7	ok	402f10e6f7d6331c70d0c9436f4678c4e28c89b31bd8d79213e173c2760d6cc6	guest-fail	output-after-done	10	-	65536
+truncated-verdict	truncated-verdict.t64s	2	1000	5000	1	7	ok	16f5fd08f3cd236f31d5bfd01dd4bb8b3bec5aad92ddd36564f43b918ac1b805	guest-fail	verdict-incomplete	10	-	65536
+log-invalid-utf8	log-invalid-utf8.t64s	0	1000	5000	1	7	ok	eb37fa56ff8eb7d7c62382a3abb38d48452c543ee80c8fe59d983e8263c1ebc6	guest-fail	log-invalid-utf8	10	-	65536
+log-over-limit	log-over-limit.t64s	0	1000	5000	1	7	ok	850294388f2ad9dfe25c0aa597fd05a376f829e5a5ab78fe268b02888f1bfdda	guest-fail	log-over-limit	10	-	64
+empty-bound	empty-bound.t64s	0	1000	5000	1	7	ok	d615089f6d651437c783a712d80c004c8338089e655085db2f3a69d1e747e87a	boot-fail	empty-output	11	-	65536
+positive-unhandled	positive-unhandled.t64s	2	1000	5000	1	7	ok	f7bd2eef25923c51fd4b9f70db0b84fcb3292e8836caf7212daf0469ee05b5a9	pass	positive-match	0	-	65536
