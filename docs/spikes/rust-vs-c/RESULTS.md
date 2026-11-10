@@ -245,3 +245,14 @@ lint selftest covers those separately.
 
 Rule for future spikes: any future pre-registered spike must freeze the tool under test, not only its inputs.
 The tool's files go into the frozen set and the hash table, so that `--verify-frozen` catches a change.
+
+### Correction to "Calibration against the forecast"
+
+Run 1's calibration says the sanitizer negative control means "the clean result is not a vacuous pass". That
+overstates it (review finding WR-23). The negative control shows that the sanitizer was live and that a
+report would have been attributed. It does not show that the fuzz reached code that could fail. After its
+length checks, `admission.c` reads only `buf[0..3]` of a block of at least 4096 bytes. So every input either
+stopped at a length check or ran the same four in-bounds loads, and rule (b) was nearly certain to read "not
+triggered" in either language. Rule (b)'s result is therefore not evidence for C over Rust. The memory-safety
+mitigation that ADR-0002 relies on moves to the production ROM admission parser, which Phase 2 must fuzz under
+ASan and UBSan (ROADMAP Phase 2, success criterion 6).

@@ -84,8 +84,10 @@ Spike and acceptance rules:
 
 - Good: native C ABI, copy-with-provenance from permissive C references, a small flat tree.
 - Good: the determinism boundary is checkable by object inspection on both operating systems.
-- Bad: no compile-time memory safety. Mitigation: sanitizer fuzzing of the admission parser during the phase,
-  and the switch criterion (b).
+- Bad: no compile-time memory safety. Planned mitigation: sanitizer fuzzing of the production ROM admission
+  parser (Phase 2 success criterion), sanitizer builds of the tools, and review. The spike did not establish
+  this mitigation (see "Evidence limits"). In Phase 1, code review, not the tests, found memory-safety bugs
+  in the C tools (CR-01, WR-07).
 - Bad: the facade is provisional, so consumers must not treat it as an ABI promise before Phase 10.
 
 ### Confirmation
@@ -102,13 +104,50 @@ applies them mechanically. Per rule:
   macro, inline asm) are caught by the Layer-1 source scan only.
 - Rule (b), a sanitizer finding in the C admission parser: not triggered. A fuzz of 2000040 in-memory inputs
   (a ten-size boundary sweep and 2,000,000 deterministic mutations) under ASan and UBSan produced no report.
-  A seeded overread was caught and attributed in the same harness, so the clean result is not vacuous.
+  A seeded overread was caught and attributed in the same harness. That shows the sanitizer was live. It does
+  not show that the fuzz reached code that could fail (see "Evidence limits").
 - The Rust admission parser agrees with the C parser on all 2000040 inputs (differential match). It is not
   run under sanitizers: `-Zsanitizer` is nightly-only and the pinned image is stable.
+- Re-run under PREREG Amendment 1. The phase code review found that the original harness's decision failed
+  open: it would have printed "stay-c17" even for an unfinished fuzz or a broken lint. Run 1 was clean on
+  every one of those points. The amended harness has three outcomes (stay-c17, switch-rust, inconclusive). Run
+  once (RESULTS.md, Addendum 1), it decided stay-c17 with no completeness gaps and the same per-class verdicts
+  and fuzz counts. The re-run checks that the evidence is complete. It does not make the evidence stronger.
 
-Evidence limits: Linux evidence is the aarch64 container only, and the C corpus is the frozen seeds. The gate
-rule `DOC-CORE-BEFORE-ADR` no longer blocks other core files. The Layer-2 object lint (ADR-0006) remains the
-determinism check, and plan 01-13's CI run adds ubuntu-24.04 x64.
+The gate rule `DOC-CORE-BEFORE-ADR` no longer blocks other core files. The Layer-2 object lint (ADR-0006)
+remains the determinism check, and plan 01-13's CI run adds ubuntu-24.04 x64.
+
+### Evidence limits
+
+What the spike shows, and what it does not:
+
+- Rule (b) as constructed could not fire. After its three length checks, the spike admission parser reads
+  only `buf[0..3]` of a block that is known to hold at least 4096 bytes, with no loop and no length-dependent
+  index. So every one of the 2,000,040 fuzz inputs either stopped at a length check or ran the same four
+  in-bounds loads, and "rule (b) not triggered" is not evidence for C over Rust.
+- So the spike did not establish the consequence "sanitizer fuzzing mitigates memory-unsafe input". The
+  production ROM admission parser does not exist yet (Phase 2, BUS-04). Phase 2's success criteria require it
+  to be fuzzed under ASan and UBSan with inputs that reach every read that depends on a header field, and the
+  fuzz target must be the production parser, not a stub.
+- During Phase 1, the C tools did have memory-safety bugs, and code review found them, not the plan's tests.
+  In CR-01, `t64_sanitize` wrote one byte past its buffer when it truncated schema-valid manifest text (a
+  stack-buffer-overflow under ASan). It is fixed in commit `eb9f161` and guarded by the unit test
+  `unit.schema-sanitize`, which fails on the old code even without a sanitizer. In WR-07, `t64-manifest-check`
+  read 64 bytes from a shorter string and dereferenced NULL when given a non-default `--schema`. It is fixed in
+  commit `6d709d0`.
+- Rule (a) holds on the frozen corpus only. Three C classes are caught by the Layer-1 source scan alone and
+  have no Layer-2 object backstop: floating point, build-time macro and inline asm. A new idiom that evades
+  the token scan would get through. Those three classes are weaker than the rest.
+- The Rust twins reject 13 of the 17 classes at compile time. Rust needs extra source rules for the other four
+  (atomic static, allocation, floating point, build-time macro) and for the `extern crate std` escape. The C
+  gate catches all 17 only by running its lint.
+- The C lint that rule (a) measures was not frozen by the pre-registration. Its hashes and commit for both
+  runs are recorded in RESULTS.md as a disclosed gap.
+- Linux evidence is the aarch64 container only, and the C corpus is the frozen seeds, not arbitrary C.
+
+The decision stays C17 as a reversible default under the registered rules. Those rules were applied as
+written, and their evidence is weaker than the record first said. The owner may revisit the choice at any
+time. The reversal criteria and the reversal window below are unchanged.
 
 ## Reversal evidence
 

@@ -118,6 +118,7 @@ Plans:
   3. Component tests show PI and SP DMA completing as scheduled guest-time events under the documented length and alignment rules, never as an instantaneous copy. They also show MI separating masked interrupts from pending ones. Each expectation cites its source
   4. ROM admission refuses oversized, truncated and malformed images, and images of unknown byte order, and the state digest is unchanged after each refusal. A ROM whose header country byte disagrees with the selected profile still runs under the profile's TV type and region (two-profile diff test)
   5. Turning on tracing produces guest-time-stamped events at device boundaries, and the final digest is identical to an untraced run
+  6. The ROM admission parser is fuzzed under ASan and UBSan with inputs that exercise every header-field-dependent read, and the fuzz target is the production parser, not a stub (ADR-0002, "Evidence limits": the Phase 1 spike parser read four bytes, so its fuzz established nothing about memory safety)
 **Plans**: TBD
 
 ### Phase 3: First Headless ROM Through Open IPL3
