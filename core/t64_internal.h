@@ -15,7 +15,9 @@
 #define T64_MI_INTERRUPT_BITS UINT32_C(0x3f)
 #define T64_DEVICE_MI_TEST UINT32_C(0xffff0002)
 #define T64_DEVICE_PI UINT32_C(0x00000003)
+#define T64_DEVICE_SP UINT32_C(0x00000004)
 #define T64_PI_EVENT_COMPLETE UINT32_C(1)
+#define T64_SP_EVENT_COMPLETE UINT32_C(1)
 
 #define T64_DEVICE_SYNTHETIC_TEST UINT32_C(0xffff0001)
 #define T64_TEST_EVENT_NOOP UINT32_C(1)
@@ -64,6 +66,35 @@ typedef struct {
   bool token_exhausted;
 } t64_pi_state;
 
+typedef struct {
+  bool valid;
+  bool dram_to_sp;
+  bool imem;
+  uint32_t raw_mem_address;
+  uint32_t raw_dram_address;
+  uint32_t raw_length;
+  uint32_t aligned_dram_start;
+  uint32_t internal_start;
+  uint32_t bytes_per_line;
+  uint32_t line_count;
+  uint32_t skip;
+  uint32_t payload_bytes;
+  uint64_t start_tick;
+  uint64_t end_tick;
+  uint64_t token;
+} t64_sp_dma_descriptor;
+
+typedef struct {
+  uint32_t mem_address;
+  uint32_t dram_address;
+  uint32_t read_length;
+  uint32_t write_length;
+  t64_sp_dma_descriptor active;
+  t64_sp_dma_descriptor pending;
+  uint64_t next_token;
+  bool token_exhausted;
+} t64_sp_state;
+
 typedef struct t64_event t64_event;
 typedef t64_status (*t64_event_handler_fn)(t64_machine *machine,
                                            const t64_event *event);
@@ -100,6 +131,7 @@ struct t64_machine {
   uint32_t mi_mask;
   bool mi_irq_line;
   t64_pi_state pi;
+  t64_sp_state sp;
   size_t image_length;
   uint64_t tick;
   uint64_t instruction_count;
@@ -170,6 +202,12 @@ t64_status t64_pi_write_register(t64_machine *machine, uint32_t address,
                                  uint32_t value);
 t64_status t64_pi_complete(t64_machine *machine, const t64_event *event);
 void t64_pi_reset_machine_state(t64_machine *machine);
+t64_status t64_sp_read_register(const t64_machine *machine, uint32_t address,
+                                uint32_t *value_out);
+t64_status t64_sp_write_register(t64_machine *machine, uint32_t address,
+                                 uint32_t value);
+t64_status t64_sp_complete(t64_machine *machine, const t64_event *event);
+void t64_sp_reset_machine_state(t64_machine *machine);
 
 static inline bool t64_internal_make_range(const void *pointer, size_t length,
                                            t64_address_range *range_out) {

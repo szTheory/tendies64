@@ -278,6 +278,7 @@ static void release_bad_machine_storage(
 
 void t64_machine_reset_execution_state(t64_machine *machine) {
   t64_pi_reset_machine_state(machine);
+  t64_sp_reset_machine_state(machine);
   machine->tick = 0u;
   machine->instruction_count = 0u;
   machine->frame_event_count = 0u;

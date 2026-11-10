@@ -163,12 +163,22 @@ static void test_memory_boundaries(void) {
    * Reserved device windows follow Decision B §Physical map; the SDK rcp.h
    * overview (lines 29-55, SHA-256
    * 982f5ae01956783653d1085ef31c3d936f471f09bd1e65e27a578fae498f972f)
-   * supplies their boundaries. None can alias low RDRAM.
+   * supplies their boundaries. SP control registers are handled below; other
+   * unsupported windows cannot alias low RDRAM.
    */
   T64_CHECK_INT(t64_machine_bus_read(machine, UINT32_C(0x03f00000), 4u,
                                      &value), T64_STATUS_BUS_UNSUPPORTED);
   T64_CHECK_INT(t64_machine_bus_read(machine, UINT32_C(0x04040000), 4u,
-                                     &value), T64_STATUS_BUS_UNSUPPORTED);
+                                     &value), T64_STATUS_OK);
+  T64_CHECK_INT(value, 0u);
+  T64_CHECK_INT(t64_machine_bus_write(machine, UINT32_C(0x04040000), 4u,
+                                      UINT32_C(0xffffffff)), T64_STATUS_OK);
+  T64_CHECK_INT(t64_machine_bus_read(machine, UINT32_C(0x04040000), 4u,
+                                     &value), T64_STATUS_OK);
+  T64_CHECK_INT(value, UINT32_C(0x1fff));
+  T64_CHECK_INT(t64_machine_bus_write(machine, UINT32_C(0x04040010), 4u,
+                                      UINT32_C(1)),
+                T64_STATUS_BUS_UNSUPPORTED);
   T64_CHECK_INT(t64_machine_bus_read(machine, UINT32_C(0x04080000), 4u,
                                      &value), T64_STATUS_BUS_UNSUPPORTED);
   T64_CHECK_INT(t64_machine_bus_read(machine, UINT32_C(0x04080004), 4u,
