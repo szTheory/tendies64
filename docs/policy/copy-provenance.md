@@ -78,6 +78,11 @@ A file is copied-looking when any of these holds:
 - its first 20 lines carry an SPDX license identifier tag with a value other than `Apache-2.0`;
 - its first 20 lines name an SPDX copyright holder other than `Tendies64 contributors`.
 
+A tag counts when nothing but blanks, comment-leader characters (any run of `/ * # ; - ! % < > @ :`), the
+word `REM` or, on line 1, a UTF-8 byte-order mark precede it on its line. So doubled leaders such as `///`,
+`##`, `%%` or `;;` and a one-line block comment all count. A tag that follows other words in a sentence is
+prose and does not count.
+
 A copied-looking file with no entry in `provenance/copies.json` fails the gate. A missing SHA, a missing owner
 or a license that is not allowlisted also fails.
 

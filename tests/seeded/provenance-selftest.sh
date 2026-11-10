@@ -266,12 +266,29 @@ base_tree line20-spdx
 check P-UNRECORDED-COPY
 
 _n=0
-for _lead in '<!--' '/*' '//' '--' '*' '#' ';' ''; do
+for _lead in '<!--' '/*' '//' '--' '*' '#' ';' '' '/**' '///' '##' '%' ';;' '---' \
+  'REM' 'rem' '::' '/*!' '<!---' '%%' '#!' '// *'; do
   _n=$((_n + 1))
   base_tree "leader-$_n"
   printf '  %s %s ISC\n' "$_lead" "$LIC" | mk lib/lead.txt
   check P-UNRECORDED-COPY
 done
+
+# A UTF-8 byte-order mark before the comment leader on line 1 (WR-13).
+base_tree bom-line1
+printf '\357\273\277// %s GPL-2.0-only\nint x;\n' "$LIC" | mk lib/bom.c
+check P-UNRECORDED-COPY
+base_tree bom-copyright
+printf '\357\273\277# %s 2020 Someone Else\n' "$CRT" | mk lib/bomc.sh
+check P-UNRECORDED-COPY
+# A one-line block comment around the tag.
+base_tree block-oneline
+printf '/** %s GPL-2.0-only */\nint y;\n' "$LIC" | mk lib/blk.c
+check P-UNRECORDED-COPY
+# A word before the tag is prose, not a header (the policy keeps that rule).
+base_tree rem-word-prose
+printf 'REMARK %s MIT\n' "$LIC" | mk docs/remark.txt
+check ok "copied_looking=1 entries=1"
 
 # ---- record fields ---------------------------------------------------------
 

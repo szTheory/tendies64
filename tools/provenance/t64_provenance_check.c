@@ -338,20 +338,33 @@ static const char *holder_of(const char *v) {
   return p;
 }
 
+/* Comment-leader bytes skipped before a tag: any run of these and blanks, so
+ * a doubled or tripled leader ("///", "##", "%%", ";;", "<!---", "::", a
+ * block opener followed by extra stars) still counts (WR-13). */
+static int is_leader(char c) {
+  return c == '/' || c == '*' || c == '#' || c == ';' || c == '-' ||
+         c == '!' || c == '%' || c == '<' || c == '>' || c == '@' ||
+         c == ':' || c == ' ' || c == '\t';
+}
+
 static void scan_line(const char *s, size_t len, const char *want, hdr_t *h) {
-  static const char *const leaders[] = {"<!--", "/*", "//", "--", "*", "#", ";"};
   size_t i = 0;
-  size_t k;
   char expr[EXPR_MAX];
 
-  while (i < len && (s[i] == ' ' || s[i] == '\t')) i++;
-  for (k = 0; k < sizeof leaders / sizeof leaders[0]; k++) {
-    if (starts_with(s + i, len - i, leaders[k])) {
-      i += strlen(leaders[k]);
+  /* A run of leader bytes and the batch-file word REM (any case, followed by
+   * a blank); a tag after any other word is prose and does not count. */
+  for (;;) {
+    if (i < len && is_leader(s[i])) {
+      i++;
+    } else if (len - i >= 4u && (s[i] == 'R' || s[i] == 'r') &&
+               (s[i + 1u] == 'E' || s[i + 1u] == 'e') &&
+               (s[i + 2u] == 'M' || s[i + 2u] == 'm') &&
+               (s[i + 3u] == ' ' || s[i + 3u] == '\t')) {
+      i += 4u;
+    } else {
       break;
     }
   }
-  while (i < len && (s[i] == ' ' || s[i] == '\t')) i++;
 
   if (starts_with(s + i, len - i, TAG_LICENSE)) {
     size_t t = strlen(TAG_LICENSE);
@@ -372,6 +385,11 @@ static void scan_header(const char *buf, size_t n, const char *want, hdr_t *h) {
   h->other_license = 0;
   h->foreign_holder = 0;
   h->want_match = 0;
+  /* A UTF-8 byte-order mark before line 1 is not part of the line. */
+  if (n >= 3u && (unsigned char)buf[0] == 0xEFu &&
+      (unsigned char)buf[1] == 0xBBu && (unsigned char)buf[2] == 0xBFu) {
+    pos = 3u;
+  }
   for (line = 0; line < HEAD_LINES && pos < n; line++) {
     size_t end = pos;
     while (end < n && buf[end] != '\n') end++;
