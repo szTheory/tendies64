@@ -19,6 +19,7 @@
 #include <time.h>
 #include <unistd.h>
 
+#include "t64_classify.h"
 #include "t64_jsonw.h"
 #include "t64_num.h"
 #include "t64_sha256.h"
@@ -35,180 +36,6 @@
 #define PROFILE_DESCRIPTOR                                                     \
   "{\"profile_id\":\"synthetic-stub\",\"schema\":\"t64.profile\","            \
   "\"schema_version\":1}\n"
-
-/* ---- classification (Task 1: static; Task 2 moves it out) -------------- */
-
-typedef struct {
-  uint64_t fail_reported;
-  uint64_t log_bytes;
-  uint64_t log_bytes_total;
-  uint64_t log_lines;
-  uint64_t pass_reported;
-  uint64_t unhandled_exception_lines;
-} counts_t;
-
-typedef struct {
-  const char *outcome;
-  const char *detail;
-  int exit_code;
-  int guest_data;
-  counts_t counts;
-} verdict_t;
-
-typedef enum { FIX_OK, FIX_ABSENT, FIX_MISMATCH, FIX_BAD } fix_state;
-
-typedef struct {
-  int usage_error;
-  fix_state fixture;
-  int launched;
-  int exec_failed;
-  int supervisor_signalled;
-  int wall_backstop;
-  int exited;
-  int exit_code;
-  int signalled;
-  size_t report_len;
-  int report_malformed;
-  int stop_halt; /* 1 guest-halt, 0 guest-bound */
-  uint64_t guest_tick;
-  uint64_t log_bytes_total;
-  const uint8_t *capture;
-  size_t capture_len;
-  uint64_t expect_pass;
-  uint64_t bound;
-  uint64_t log_limit;
-} obs_t;
-
-static int line_has_unhandled(const uint8_t *p, size_t n) {
-  static const char pat[] = "unhandled exception";
-  size_t plen = sizeof pat - 1u;
-  size_t i;
-  size_t j;
-  if (n < plen) {
-    return 0;
-  }
-  for (i = 0; i + plen <= n; i++) {
-    for (j = 0; j < plen; j++) {
-      int c = p[i + j];
-      if (c >= 'A' && c <= 'Z') {
-        c += 'a' - 'A';
-      }
-      if (c != pat[j]) {
-        break;
-      }
-    }
-    if (j == plen) {
-      return 1;
-    }
-  }
-  return 0;
-}
-
-static void scan_lines(const obs_t *o, counts_t *c, int *done_seen) {
-  size_t pos = 0;
-  memset(c, 0, sizeof *c);
-  *done_seen = 0;
-  c->log_bytes = o->capture_len;
-  c->log_bytes_total = o->log_bytes_total;
-  while (pos < o->capture_len) {
-    const uint8_t *p = o->capture + pos;
-    size_t n = 0;
-    while (pos + n < o->capture_len && p[n] != '\n') {
-      n++;
-    }
-    pos += n + ((pos + n < o->capture_len) ? 1u : 0u);
-    c->log_lines++;
-    if (n >= 5 && memcmp(p, "PASS ", 5) == 0) {
-      c->pass_reported++;
-    }
-    if (n >= 5 && memcmp(p, "FAIL ", 5) == 0) {
-      c->fail_reported++;
-    }
-    if (line_has_unhandled(p, n)) {
-      c->unhandled_exception_lines++;
-    }
-    if (n == 5 && memcmp(p, "Done!", 5) == 0) {
-      *done_seen = 1;
-    }
-  }
-}
-
-static void classify1(const obs_t *o, verdict_t *v) {
-  int done_seen;
-  memset(v, 0, sizeof *v);
-  v->outcome = "harness-error";
-  v->exit_code = 1;
-  if (o->usage_error) {
-    v->detail = "usage";
-    return;
-  }
-  if (o->exec_failed) {
-    v->detail = "exec-failed";
-    return;
-  }
-  if (o->supervisor_signalled) {
-    v->detail = "supervisor-signalled";
-    return;
-  }
-  if (o->wall_backstop) {
-    v->detail = "wall-backstop";
-    return;
-  }
-  if (o->launched && o->signalled) {
-    v->detail = "runner-signalled";
-    return;
-  }
-  if (o->launched && o->exit_code != 0) {
-    v->detail = "runner-exit-nonzero";
-    return;
-  }
-  if (o->launched && o->report_len == 0) {
-    v->detail = "no-result";
-    return;
-  }
-  if (o->launched && (o->report_malformed || o->guest_tick > o->bound ||
-                      (!o->stop_halt && o->guest_tick != o->bound) ||
-                      o->capture_len > o->log_limit ||
-                      o->log_bytes_total < o->capture_len)) {
-    v->detail = "report-invalid";
-    return;
-  }
-  if (o->fixture == FIX_MISMATCH) {
-    v->detail = "fixture-digest-mismatch";
-    return;
-  }
-  if (o->fixture == FIX_BAD) {
-    v->detail = "usage";
-    return;
-  }
-  if (o->fixture == FIX_ABSENT) {
-    v->outcome = "missing-fixture";
-    v->detail = "fixture-absent";
-    v->exit_code = 13;
-    return;
-  }
-  if (!o->launched) {
-    v->detail = "unclassified";
-    return;
-  }
-  v->guest_data = 1;
-  scan_lines(o, &v->counts, &done_seen);
-  if (o->capture_len == 0) {
-    v->outcome = "boot-fail";
-    v->detail = "empty-output";
-    v->exit_code = 11;
-    return;
-  }
-  if (!done_seen) {
-    v->outcome = "timeout";
-    v->detail = "guest-bound";
-    v->exit_code = 12;
-    return;
-  }
-  v->outcome = "pass";
-  v->detail = "positive-match";
-  v->exit_code = 0;
-}
 
 /* ---- utilities --------------------------------------------------------- */
 
@@ -304,62 +131,6 @@ static int valid_fixture_id(const char *s) {
   return 1;
 }
 
-/* ---- report parsing (Task 1: static; Task 2 moves it out) -------------- */
-
-static int next_line(const uint8_t *b, size_t len, size_t *pos, const char **s,
-                     size_t *n) {
-  size_t i = *pos;
-  while (i < len && b[i] != '\n') {
-    i++;
-  }
-  if (i >= len) {
-    return 0;
-  }
-  *s = (const char *)(b + *pos);
-  *n = i - *pos;
-  *pos = i + 1;
-  return 1;
-}
-
-static int parse_report(const uint8_t *b, size_t len, int *halt,
-                        uint64_t *tick, uint64_t *total) {
-  size_t pos = 0;
-  const char *s;
-  size_t n;
-  if (len > REPORT_MAX_BYTES) {
-    return 0;
-  }
-  if (!next_line(b, len, &pos, &s, &n) || n != 12 ||
-      memcmp(s, "t64-report 1", 12) != 0) {
-    return 0;
-  }
-  if (!next_line(b, len, &pos, &s, &n) || n < 12 ||
-      memcmp(s, "stop_reason ", 12) != 0) {
-    return 0;
-  }
-  if (n == 23 && memcmp(s + 12, "guest-bound", 11) == 0) {
-    *halt = 0;
-  } else if (n == 22 && memcmp(s + 12, "guest-halt", 10) == 0) {
-    *halt = 1;
-  } else {
-    return 0;
-  }
-  if (!next_line(b, len, &pos, &s, &n) || n < 11 ||
-      memcmp(s, "guest_tick ", 11) != 0 ||
-      !t64_parse_u64(s + 11, n - 11, tick)) {
-    return 0;
-  }
-  if (!next_line(b, len, &pos, &s, &n) || n < 16 ||
-      memcmp(s, "log_bytes_total ", 16) != 0 ||
-      !t64_parse_u64(s + 16, n - 16, total) || *total > T64_MAX_SAFE_INT) {
-    return 0;
-  }
-  if (!next_line(b, len, &pos, &s, &n) || n != 3 || memcmp(s, "end", 3) != 0) {
-    return 0;
-  }
-  return pos == len;
-}
-
 /* ---- result writers ----------------------------------------------------- */
 
 #define J(x)                                                                   \
@@ -394,7 +165,7 @@ static int kv_int(t64_jsonw *w, const char *k, uint64_t v) {
   return 0;
 }
 
-static int build_result(char *buf, size_t cap, size_t *len, const verdict_t *v,
+static int build_result(char *buf, size_t cap, size_t *len, const t64_verdict *v,
                         const char *fixture_id, const char *fixture_digest,
                         const char *log_digest, const char *stop_reason,
                         uint64_t guest_tick, const char *profile_hash) {
@@ -418,13 +189,13 @@ static int build_result(char *buf, size_t cap, size_t *len, const verdict_t *v,
     return -1;
   }
   J(t64_jsonw_end_object(&w));
-  if (kv_str(&w, "detail", v->detail) != 0 ||
+  if (kv_str(&w, "detail", t64_detail_name(v->detail)) != 0 ||
       kv_str(&w, "evidence_tier", "synthetic") != 0 ||
       kv_strn(&w, "fixture_digest", fixture_digest) != 0 ||
       kv_str(&w, "fixture_id", fixture_id) != 0 ||
       kv_str(&w, "guest_tick", tick) != 0 ||
       kv_strn(&w, "log_digest", log_digest) != 0 ||
-      kv_str(&w, "outcome", v->outcome) != 0 ||
+      kv_str(&w, "outcome", t64_outcome_name(v->outcome)) != 0 ||
       kv_str(&w, "profile_hash", profile_hash) != 0 ||
       kv_str(&w, "profile_id", "synthetic-stub") != 0 ||
       kv_str(&w, "schema", "t64.result") != 0 ||
@@ -602,7 +373,7 @@ static const char *find_opt_value(int argc, char **argv, const char *name) {
 
 /* ---- fixture ------------------------------------------------------------- */
 
-static fix_state check_fixture(const char *path, const char *want_hex,
+static t64_fixture_state check_fixture(const char *path, const char *want_hex,
                                char digest_hex[T64_SHA256_HEX_SIZE],
                                int *have_digest) {
   struct stat st;
@@ -613,19 +384,19 @@ static fix_state check_fixture(const char *path, const char *want_hex,
   int fd;
   *have_digest = 0;
   if (lstat(path, &st) != 0) {
-    return (errno == ENOENT || errno == ENOTDIR) ? FIX_ABSENT : FIX_BAD;
+    return (errno == ENOENT || errno == ENOTDIR) ? T64_FIX_ABSENT : T64_FIX_BAD;
   }
   if (!S_ISREG(st.st_mode) || st.st_size < 0 ||
       (unsigned long long)st.st_size > FIXTURE_MAX_BYTES) {
-    return FIX_BAD;
+    return T64_FIX_BAD;
   }
   fd = open(path, O_RDONLY | O_NOFOLLOW);
   if (fd < 0) {
-    return FIX_BAD;
+    return T64_FIX_BAD;
   }
   if (fstat(fd, &st) != 0 || !S_ISREG(st.st_mode)) {
     close(fd);
-    return FIX_BAD;
+    return T64_FIX_BAD;
   }
   t64_sha256_init(&ctx);
   for (;;) {
@@ -635,7 +406,7 @@ static fix_state check_fixture(const char *path, const char *want_hex,
     }
     if (r < 0) {
       close(fd);
-      return FIX_BAD;
+      return T64_FIX_BAD;
     }
     if (r == 0) {
       break;
@@ -643,7 +414,7 @@ static fix_state check_fixture(const char *path, const char *want_hex,
     total += (uint64_t)r;
     if (total > FIXTURE_MAX_BYTES) {
       close(fd);
-      return FIX_BAD;
+      return T64_FIX_BAD;
     }
     t64_sha256_update(&ctx, chunk, (size_t)r);
   }
@@ -651,7 +422,7 @@ static fix_state check_fixture(const char *path, const char *want_hex,
   t64_sha256_final(&ctx, digest);
   t64_sha256_hex(digest, digest_hex);
   *have_digest = 1;
-  return strcmp(digest_hex, want_hex) == 0 ? FIX_OK : FIX_MISMATCH;
+  return strcmp(digest_hex, want_hex) == 0 ? T64_FIX_OK : T64_FIX_DIGEST_MISMATCH;
 }
 
 /* ---- main ---------------------------------------------------------------- */
@@ -679,8 +450,8 @@ static void workset_cleanup(workset *ws) {
 
 int main(int argc, char **argv) {
   sup_args a;
-  obs_t o;
-  verdict_t v;
+  t64_observation o;
+  t64_verdict v;
   workset ws;
   char fixture_digest[T64_SHA256_HEX_SIZE];
   char log_digest[T64_SHA256_HEX_SIZE];
@@ -736,7 +507,7 @@ int main(int argc, char **argv) {
                               &have_fixture_digest);
   }
 
-  if (!o.usage_error && o.fixture == FIX_OK) {
+  if (!o.usage_error && o.fixture == T64_FIX_OK) {
     int ep[2];
     char *child_argv[64];
     char bound_s[24];
@@ -869,21 +640,22 @@ int main(int argc, char **argv) {
     }
     close(ep[0]);
     if (WIFEXITED(status)) {
-      o.exited = 1;
+      o.wait_state = T64_WAIT_EXITED;
       o.exit_code = WEXITSTATUS(status);
     } else if (WIFSIGNALED(status)) {
-      o.signalled = 1;
+      o.wait_state = T64_WAIT_SIGNALLED;
     }
 
     /* Read the report and the capture only when they could matter. */
     {
       long rl2 = read_small(ws.report, repbuf, sizeof repbuf);
-      int halt = 0;
+      t64_report rep;
       o.report_len = rl2 > 0 ? (size_t)rl2 : 0;
       if (o.report_len > 0) {
-        if (parse_report(repbuf, o.report_len, &halt, &o.guest_tick,
-                         &o.log_bytes_total)) {
-          o.stop_halt = halt;
+        if (t64_parse_report(repbuf, o.report_len, &rep)) {
+          o.stop = rep.stop;
+          o.guest_tick = rep.guest_tick;
+          o.log_bytes_total = rep.log_bytes_total;
         } else {
           o.report_malformed = 1;
         }
@@ -920,7 +692,7 @@ int main(int argc, char **argv) {
     }
   }
 classified:
-  classify1(&o, &v);
+  t64_classify(&o, &v);
   if (v.guest_data) {
     t64_sha256_ctx lc;
     uint8_t ld[T64_SHA256_DIGEST_SIZE];
@@ -930,7 +702,8 @@ classified:
     t64_sha256_final(&lc, ld);
     t64_sha256_hex(ld, log_digest);
     have_log_digest = 1;
-    stop_reason = o.stop_halt ? "guest-halt" : "guest-bound";
+    stop_reason =
+        o.stop == T64_REPORT_STOP_HALT ? "guest-halt" : "guest-bound";
     guest_tick = o.guest_tick;
   }
 
@@ -959,8 +732,8 @@ classified:
        atomic_write(meta_path, metabuf, metalen) != 0)) {
     fprintf(stderr, "t64-supervisor: cannot write run-meta\n");
   }
-  fprintf(stderr, "t64-supervisor: outcome=%s detail=%s\n", v.outcome,
-          v.detail);
+  fprintf(stderr, "t64-supervisor: outcome=%s detail=%s\n",
+          t64_outcome_name(v.outcome), t64_detail_name(v.detail));
   workset_cleanup(&ws);
   free(capture);
   return v.exit_code;
