@@ -1,0 +1,38 @@
+{
+  "version": 6,
+  "cmakeMinimumRequired": { "major": 3, "minor": 25, "patch": 0 },
+  "configurePresets": [
+    {
+      "name": "gate",
+      "generator": "Ninja",
+      "binaryDir": "${sourceDir}/build/gate",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Release",
+        "T64_WERROR": "ON"
+      },
+      "warnings": { "dev": true, "uninitialized": true },
+      "errors": { "dev": true }
+    }
+  ],
+  "buildPresets": [
+    { "name": "gate", "configurePreset": "gate" }
+  ],
+  "testPresets": [
+    {
+      "name": "gate",
+      "configurePreset": "gate",
+      "output": { "outputOnFailure": true },
+      "execution": { "noTestsAction": "error" }
+    }
+  ],
+  "workflowPresets": [
+    {
+      "name": "gate",
+      "steps": [
+        { "type": "configure", "name": "gate" },
+        { "type": "build", "name": "gate" },
+        { "type": "test", "name": "gate" }
+      ]
+    }
+  ]
+}
