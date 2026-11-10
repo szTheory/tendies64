@@ -18,6 +18,13 @@ add_test(NAME gov.provenance.repo
   COMMAND sh ${CMAKE_SOURCE_DIR}/scripts/check-provenance.sh
   WORKING_DIRECTORY ${CMAKE_SOURCE_DIR})
 
-set_tests_properties(gov.provenance.repo PROPERTIES
+# One temporary tree per rule id, each asserted by the exact set of rule ids
+# printed; the checker is passed explicitly, not found through T64_BUILD_DIR.
+add_test(NAME gov.provenance.selftest
+  COMMAND sh ${CMAKE_SOURCE_DIR}/tests/seeded/provenance-selftest.sh
+    --bin $<TARGET_FILE:t64-provenance-check>
+  WORKING_DIRECTORY ${CMAKE_SOURCE_DIR})
+
+set_tests_properties(gov.provenance.repo gov.provenance.selftest PROPERTIES
   LABELS gov
   ENVIRONMENT "T64_BUILD_DIR=${CMAKE_BINARY_DIR}")
