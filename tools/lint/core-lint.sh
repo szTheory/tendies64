@@ -73,6 +73,133 @@ function check_include(c,   h, p) {
   else if (!(h in okhdr)) report("L1-INCLUDE-UNLISTED", FNR, "header <" h "> is not on the core allowlist")
 }
 
+function addnames(rule, list,   n, a, i) {
+  n = split(list, a, " ")
+  for (i = 1; i <= n; i++) nameRule[a[i]] = rule
+}
+
+function addprefixes(rule, list,   n, a, i) {
+  n = split(list, a, " ")
+  for (i = 1; i <= n; i++) { nprefix++; pfx[nprefix] = a[i]; pfxRule[nprefix] = rule }
+}
+
+# Attribute-like constructs take a parenthesised argument list that is skipped
+# as a unit. Returns 1 for every token that belongs to such a construct.
+function attr_track(t) {
+  if (attrdepth > 0) {
+    if (t == "(") attrdepth++
+    else if (t == ")") attrdepth--
+    return 1
+  }
+  if (attrwait) {
+    attrwait = 0
+    if (t == "(") { attrdepth = 1; return 1 }
+    return 0
+  }
+  if (t == "__attribute__" || t == "__attribute" || t == "__declspec" || t == "_Alignas" || t == "alignas" || t == "_Static_assert" || t == "static_assert") {
+    attrwait = 1
+    return 1
+  }
+  return 0
+}
+
+# Top-level declaration tracking for the file-scope state heuristics. Tokens
+# are collected only at brace depth 0; bodies are skipped as units.
+function feed(t) {
+  if (depth > 0) return
+  if (dn == 0) dline = FNR
+  dn++; dt[dn] = t
+}
+
+function open_brace(   i) {
+  if (depth == 0) {
+    bodykind = 3
+    if (dn > 0 && dt[dn] == ")") bodykind = 1
+    else {
+      for (i = 1; i <= dn; i++) if (dt[i] == "=") bodykind = 2
+      if (bodykind == 3) { if (dn == 0) dline = FNR; dn++; dt[dn] = "{}" }
+    }
+  }
+  depth++
+}
+
+function close_brace() {
+  if (depth > 0) depth--
+  if (depth == 0) { if (bodykind == 1) dn = 0; bodykind = 0 }
+}
+
+# A top-level declaration ended with ";". Report a non-const object.
+function end_decl(   i, lim, eq, fp, st, ex, td, cn, rem, skipnext, t) {
+  if (dn == 0) return
+  eq = 0; fp = 0
+  for (i = 1; i <= dn; i++) if (dt[i] == "=") { eq = i; break }
+  lim = (eq > 0) ? eq - 1 : dn
+  st = 0; ex = 0; td = 0; cn = 0; rem = 0; skipnext = 0
+  for (i = 1; i <= lim; i++) {
+    t = dt[i]
+    if (t == "static") st = 1
+    else if (t == "extern") ex = 1
+    else if (t == "typedef") td = 1
+    else if (t == "const") cn = 1
+    if (t == "(" && fp == 0) fp = i
+    if (skipnext) { skipnext = 0; continue }
+    if (t == "struct" || t == "union" || t == "enum") { skipnext = 1; continue }
+    if (t == "{}" || (t in declq)) continue
+    rem++
+  }
+  dn = 0
+  if (td || ex) return
+  if (rem == 0) return
+  if (fp > 0 && dt[fp + 1] != "*") return
+  if (cn) return
+  if (st) report("L1-STATIC-MUTABLE", dline, "non-const static object at file scope")
+  else report("L1-GLOBAL-MUTABLE", dline, "non-const object with external linkage at file scope")
+}
+
+function number(t) { }
+
+function ident(tok, pp,   i) {
+  if (attr_track(tok)) return
+  if (tok in nameRule) report(nameRule[tok], FNR, "banned name \"" tok "\"")
+  else {
+    for (i = 1; i <= nprefix; i++)
+      if (substr(tok, 1, length(pfx[i])) == pfx[i]) { report(pfxRule[i], FNR, "banned name \"" tok "\""); break }
+  }
+  if (!pp) feed(tok)
+}
+
+function punct(ch, pp) {
+  if (attr_track(ch)) return
+  if (pp) return
+  if (ch == "{") open_brace()
+  else if (ch == "}") close_brace()
+  else if (depth > 0) return
+  else if (ch == ";") end_decl()
+  else feed(ch)
+}
+
+function scan(c, pp,   rest, ch, tok) {
+  rest = c
+  while (length(rest) > 0) {
+    ch = substr(rest, 1, 1)
+    if (ch == " " || ch == "\t") { rest = substr(rest, 2); continue }
+    if (ch ~ /[A-Za-z_]/) {
+      match(rest, /^[A-Za-z_][A-Za-z0-9_]*/)
+      tok = substr(rest, 1, RLENGTH); rest = substr(rest, RLENGTH + 1)
+      ident(tok, pp)
+      continue
+    }
+    if (ch ~ /[0-9]/ || (ch == "." && substr(rest, 2, 1) ~ /[0-9]/)) {
+      match(rest, /^[0-9.]([eEpP][+-]|[A-Za-z0-9_.])*/)
+      tok = substr(rest, 1, RLENGTH); rest = substr(rest, RLENGTH + 1)
+      number(tok)
+      continue
+    }
+    punct(ch, pp)
+    rest = substr(rest, 2)
+  }
+}
+
 BEGIN {
   sq = sprintf("%c", 39); bs = "\\"
   while ((getline ln < rules) > 0) {
@@ -80,6 +207,15 @@ BEGIN {
     if (n >= 5 && f[1] ~ /^L[12]-/) hint[f[1]] = f[5]
   }
   close(rules)
+  addnames("L1-NAME-TIME", "time clock clock_gettime gettimeofday timespec_get mach_absolute_time localtime gmtime mktime difftime strftime")
+  addnames("L1-NAME-ENTROPY", "rand srand rand_r random srandom drand48 arc4random arc4random_buf getrandom getentropy")
+  addnames("L1-NAME-FILE", "fopen freopen fclose fread fwrite fseek ftell fflush open openat creat unlink remove rename mmap munmap stat fstat lstat opendir readdir")
+  addnames("L1-NAME-STDIO", "printf fprintf sprintf snprintf vprintf puts putchar getchar scanf sscanf perror")
+  addnames("L1-NAME-ALLOC", "malloc calloc realloc free aligned_alloc posix_memalign alloca")
+  addnames("L1-NAME-ENV", "getenv secure_getenv setenv setlocale")
+  addprefixes("L1-NAME-THREAD", "pthread_ thrd_ mtx_ cnd_ tss_")
+  n = split("static extern const volatile register inline _Thread_local __inline __inline__ restrict _Noreturn auto", a, " ")
+  for (i = 1; i <= n; i++) declq[a[i]] = 1
   n = split("stdio.h stdlib.h math.h time.h errno.h assert.h setjmp.h signal.h pthread.h threads.h stdatomic.h unistd.h fcntl.h", a, " ")
   for (i = 1; i <= n; i++) banhdr[a[i]] = 1
   n = split("stdint.h stddef.h stdbool.h stdalign.h limits.h string.h", a, " ")
@@ -88,8 +224,11 @@ BEGIN {
 
 {
   code = strip($0)
-  isinc = (code ~ /^[ \t]*#[ \t]*include/)
-  if (isinc) check_include(code)
+  ispp = ppcont || (code ~ /^[ \t]*#/)
+  isinc = !ppcont && (code ~ /^[ \t]*#[ \t]*include/)
+  ppcont = ispp && (substr(code, length(code), 1) == bs)
+  if (isinc) { check_include(code); next }
+  scan(code, ispp)
 }
 '
 

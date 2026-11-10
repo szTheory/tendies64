@@ -9,3 +9,12 @@ L2-W-SECTION|2|no|the object has a non-empty writable data section|core state li
 L2-W-COMMON|2|yes|the object has a common symbol|compile core with -fno-common and keep state in the instance struct
 L2-CTOR|2|no|the object has a constructor or destructor section|core runs nothing at load time; initialize through an explicit create call
 L2-UNDEF-SYMBOL|2|no|the object references a symbol that the core does not define and tools/lint/allowlist.txt does not allow|a host symbol is a determinism leak; route it through a host callback, or add an ADR-backed allowlist row
+L1-NAME-TIME|1|no|a host time or clock name is used|guest time comes from the emulated tick counter, never the host clock
+L1-NAME-ENTROPY|1|no|a host entropy or random name is used|core is deterministic; randomness is an input supplied by the host through the facade
+L1-NAME-FILE|1|no|a host file or memory-mapping name is used|core performs no file I/O; the host loads and saves bytes and passes them in
+L1-NAME-STDIO|1|no|a stdio print or scan name is used|core does not print; guest output goes through the drain_guest_log facade call
+L1-NAME-ALLOC|1|no|a heap allocation name is used|core memory comes from host callbacks or caller-owned storage
+L1-NAME-THREAD|1|no|a host threading name is used|core is single-threaded and runs only inside advance()
+L1-NAME-ENV|1|no|a host environment or locale name is used|core reads no process environment; configuration arrives through the facade
+L1-STATIC-MUTABLE|1|no|a non-const file-scope static object (heuristic; Layer 2 is authoritative)|move the state into the caller-owned instance struct, or make it const
+L1-GLOBAL-MUTABLE|1|no|a non-const file-scope object with external linkage (heuristic; Layer 2 is authoritative)|move the state into the caller-owned instance struct, or make it const
