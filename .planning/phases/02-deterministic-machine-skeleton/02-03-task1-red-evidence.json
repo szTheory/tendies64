@@ -1,0 +1,11 @@
+{
+  "command": "ctest --preset gate --output-junit 02-03-task1-red.xml -R unit.core.scheduler --output-on-failure",
+  "exit_code": 8,
+  "failing_test": "unit.core.scheduler#unit.core.scheduler",
+  "target_test": "unit.core.scheduler",
+  "expected": "An unattainable instruction-count bound returns a quiescent stop at tick zero without calling the host allocator.",
+  "actual": "The target assertion ran and failed as intended: t64_machine_advance returned status 1 (invalid argument), rather than status 0; the initialized result remained unchanged.",
+  "verdict": "RED_EVIDENCE_OK",
+  "reason": "target_test_failed",
+  "semanticAssessment": "The current public API rejects the new instruction-count stop kind, so the target assertion demonstrates the missing planned behavior. The test compiled, ran once, and failed on that assertion."
+}
