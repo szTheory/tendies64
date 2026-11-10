@@ -1,6 +1,7 @@
 #!/bin/sh
 # Tendies64 gate: the single local command (GOV-05). POSIX sh, no bashisms.
-# Steps: banner, sh-n, configure, build, ctest, summary. Later plans add steps.
+# Steps: banner, sh-n, lint-selftest, configure, build, ctest, core-lint, summary.
+# Later plans add steps.
 set -eu
 LC_ALL=C
 export LC_ALL
@@ -66,9 +67,11 @@ sh_n() {
 
 banner
 step sh-n sh_n
+step lint-selftest sh tools/lint/core-lint.sh --selftest
 step configure cmake --preset gate
 step build cmake --build --preset gate
 step ctest ctest --preset gate
+step core-lint sh tools/lint/core-lint.sh
 
 GATE_TOTAL=$(($(date +%s) - GATE_T0))
 echo "[gate] summary:"

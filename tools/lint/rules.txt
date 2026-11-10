@@ -1,0 +1,11 @@
+# Determinism lint rule ids: the single source of truth (PROF-07).
+# Format: ID|layer|meta|description|hint
+# meta=yes: proven by a dedicated control in --selftest instead of an EXPECT seed.
+L1-INCLUDE-BANNED|1|no|a banned standard or system header is included|core has no host services; take the value through a host callback or the facade instead
+L1-INCLUDE-UNLISTED|1|no|an angle-bracket header outside the core allowlist is included|allowed: stdint.h stddef.h stdbool.h stdalign.h limits.h string.h and tendies64/*.h; adding one needs an ADR
+L1-ZERO-FILES|1|yes|the scan found no core source files|a lint that scans nothing is a failure; check the root or the file list
+L2-COMPILE|2|yes|the file does not compile with the fixed lint flags|fix the compile error first; the object check needs a valid object
+L2-W-SECTION|2|no|the object has a non-empty writable data section|core state lives in the caller-owned instance struct, never in file-scope data
+L2-W-COMMON|2|yes|the object has a common symbol|compile core with -fno-common and keep state in the instance struct
+L2-CTOR|2|no|the object has a constructor or destructor section|core runs nothing at load time; initialize through an explicit create call
+L2-UNDEF-SYMBOL|2|no|the object references a symbol that the core does not define and tools/lint/allowlist.txt does not allow|a host symbol is a determinism leak; route it through a host callback, or add an ADR-backed allowlist row

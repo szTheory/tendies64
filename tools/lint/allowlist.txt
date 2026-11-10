@@ -1,0 +1,11 @@
+# Layer-2 undefined-symbol allowlist (PROF-07). Symbols the core may reference
+# without defining them. Format: name|why|ADR/date|os
+# os is "any" or the output of `uname -s` (for example Darwin).
+# A leading underscore on Mach-O symbols is stripped before comparison.
+# malloc and every other host service is deliberately absent: core memory comes
+# from host callbacks.
+memcpy|compilers emit calls to the mem* block functions|ADR-0006 2026-11-09|any
+memmove|compilers emit calls to the mem* block functions|ADR-0006 2026-11-09|any
+memset|compilers emit calls to the mem* block functions|ADR-0006 2026-11-09|any
+memcmp|compilers emit calls to the mem* block functions|ADR-0006 2026-11-09|any
+bzero|Apple clang rewrites memset(p,0,n) to bzero; Darwin only|ADR-0006 2026-11-09|Darwin
