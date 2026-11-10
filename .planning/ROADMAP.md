@@ -78,7 +78,6 @@ Decimal phases appear between their surrounding integers in numeric order.
 
 ### Phase 1: Governance, Rights and Harness Foundation
 **Goal**: Before any emulator code exists, the maintainer can run one gate command that enforces the provenance, rights and determinism rules, plus a runner skeleton that classifies every outcome correctly
-**Mode:** mvp
 **Depends on**: Nothing (first phase)
 **Requirements**: GOV-01, GOV-02, GOV-03, GOV-04, GOV-05, GOV-06, GOV-07, RUN-02, RUN-04, PROF-07, VER-04
 **Decision gates**: D1 is recorded here as an ADR (default C17, CMake 3.25+, Ninja) and accepted before any core code merges. D4: the allowlist is recorded as written, and out-of-list code is not copied. The rule for reading GPL and MAME-licensed sources is ratified here. CI cost and gating are rechecked for a public repository
@@ -107,7 +106,6 @@ Plans:
 
 ### Phase 2: Deterministic Machine Skeleton
 **Goal**: A machine instance with a named profile advances in guest time over the memory map, RDRAM, MI, PI and SP DMA, and produces the same state digest whether it runs alone or interleaved with another instance
-**Mode:** mvp
 **Depends on**: Phase 1
 **Requirements**: CORE-01, CORE-02, CORE-03, CORE-06, PROF-01, PROF-02, PROF-03, PROF-04, PROF-06, BUS-01, BUS-02, BUS-04
 **Decision gates**: None beyond D1 (accepted in Phase 1)
@@ -123,7 +121,6 @@ Plans:
 
 ### Phase 3: First Headless ROM Through Open IPL3
 **Goal**: A hello ROM boots through HLE-PIF seeding and a pinned open IPL3 with no Nintendo boot bytes, prints through ISViewer, and the headless runner reports a pass with identical digests across platforms
-**Mode:** mvp
 **Depends on**: Phase 2
 **Requirements**: BOOT-01, BOOT-02, BOOT-03, BOOT-04, RUN-01, RUN-03, RUN-05, PROF-05
 **Decision gates**: D3 (IPL3 variant/revision pin and named maintenance owner) must be resolved before BOOT-02 is satisfied. **First task: primary-document verification.** Pin mirrored copies of the NEC VR4300 user's manual and the Nintendo documents cited by the bootstrap pack by SHA-256 in an evidence index. The documents are rights-bearing, so record the source and digest and do not commit the files
@@ -134,11 +131,11 @@ Plans:
   3. The pinned IPL3 has a recorded sha256, md5, source revision, license and named maintenance owner. The gate confirms that no Nintendo PIF, IPL or CIC bytes exist in the repository or in CI artifacts
   4. A guest that produces no output is classified boot-fail, never pass. The boot-limits document lists unmodeled PIF challenge/response, CIC variants and timeout behavior as deferred, so the project never reports "boot solved"
   5. The hello-ROM run produces identical state digests on two operating systems and with two compilers, shown by a CI matrix
+  6. The headless runner's fixture digest attests the bytes the runner actually reads: real-ROM runs pass an already-open verified descriptor or a private copy, so the supervisor's digest cannot differ from what the guest loads (closes the Phase 1 review finding WR-06; see docs/spec/result-protocol.md, "Known limitation")
 **Plans**: TBD
 
 ### Phase 4: Complete VR4300 CPU
 **Goal**: The VR4300 interpreter implements MIPS III integer, CP0, TLB, cache-scope and soft-float COP1 behavior. Native tests with independent expected values verify it, and the `nemu64-test` CPU groups report per-group status
-**Mode:** mvp
 **Depends on**: Phase 3
 **Requirements**: CPU-01, CPU-02, CPU-03, CPU-04, CPU-05, CPU-06, CPU-07, CPU-09, VER-01, VER-03
 **Decision gates**: **Entry gate: finish the CPU-area primary-document check** against the manual pinned in Phase 3. That covers TLB/XTLB vectors, CP0 write masks, CACHE operations, Count rate, FCR31 and unimplemented operations, LL/SC link rules and delay-slot exceptions. Each must move from community or inference to a citation or test before the phase plan is final. D2: `nemu64-test` runs local-only until its rights are documented. D4: copy Berkeley SoftFloat 3e only after an exact license check and a provenance record; otherwise write a subset
@@ -152,7 +149,6 @@ Plans:
 
 ### Phase 5: RSP Low-Level Emulation
 **Goal**: The RSP runs real microcode on its scalar and vector units from IMEM/DMEM, with DMA and status semantics, checked against a permanent scalar VU reference and the `nemu64-test` RSP groups
-**Mode:** mvp
 **Depends on**: Phase 4
 **Requirements**: RSP-01, RSP-02, RSP-03, RSP-04, RSP-05
 **Decision gates**: **Entry gate: RSP-area evidence check.** DMA copy timing, dual-issue and stall rules, DMEM/IMEM contention, halt corruption, and VMOV and clamp details are checked against test vectors or primary sources rather than wiki prose. D2 applies to the RSP groups (local-only)
@@ -166,7 +162,6 @@ Plans:
 
 ### Phase 6: Cold Boot, CPU Timing and Full Base Suite
 **Goal**: The machine reaches IPL3 through the full RDRAM register protocol with instruction-granular CPU timing, and the complete `nemu64-test` base suite is classified per group, by lane, with pinned counts
-**Mode:** mvp
 **Depends on**: Phase 4, Phase 5
 **Requirements**: BUS-03, CPU-08, VER-02
 **Decision gates**: D2: lanes are defined and run locally. Public CI lanes that use `nemu64-test` turn on only after D2 is resolved. The project-authored hello ROM stays the permanent public smoke lane. D6 applies to any milestone-close release
@@ -190,7 +185,6 @@ expectations. This outline is revised at the v1.0 close.
 
 ### Phase 7: RDP Reference Renderer and VI Scanout
 **Goal**: Command lists render into RDRAM through an in-tree software RDP, and the VI produces raw frames under the profile's TV timing. Conformance is reported as labeled differential evidence, never as hardware truth
-**Mode:** mvp
 **Depends on**: Phase 4 (CPU-built command lists). Can run in parallel with Phases 5 and 6
 **Requirements**: VID-01, VID-02, VID-03, VID-04, VID-05, VID-06
 **Decision gates**: Entry gate: RDP/VI evidence check. D5 applies to any Angrylion-Plus-derived claim. The parallel-rdp suites need a per-file license audit before use
@@ -203,7 +197,6 @@ expectations. This outline is revised at the v1.0 close.
 
 ### Phase 8: Audio Interface and Raw Capture
 **Goal**: The AI turns guest DMA into raw audio buffers whose cadence comes only from guest time, and a headless run captures raw video and audio as files with metadata
-**Mode:** mvp
 **Depends on**: Phase 5 (real audio needs RSP microcode), Phase 7 (video capture)
 **Requirements**: AUD-01, AUD-02, AUD-03, RUN-06
 **Research**: MODERATE (DACRATE values, cadence phase, 8 KiB carry vectors)
@@ -215,7 +208,6 @@ expectations. This outline is revised at the v1.0 close.
 
 ### Phase 9: Controller, Save Media and Replay
 **Goal**: Timed logical input drives the standard controller, explicitly selected save devices behave with defined refusal postconditions, and machine state and input replays reproduce runs exactly
-**Mode:** mvp
 **Depends on**: Phase 8 (state export covers every device in the profile)
 **Requirements**: SAVE-01, SAVE-02, SAVE-03, SAVE-04, CORE-04, CORE-05
 **Research**: MODERATE (joybus response timing, EEPROM write timing; FlashRAM deferred)
@@ -236,7 +228,6 @@ This outline is revised at the v1.1 close.
 
 ### Phase 10: Frozen API and Installed Consumer
 **Goal**: An independent consumer, using only a clean installed package, exercises every lifetime, admission, advance, output and failure postcondition, and only then is the C-ABI frozen
-**Mode:** mvp
 **Depends on**: Phase 9
 **Requirements**: API-01, API-02, API-03, API-04, VER-05
 **Research**: MODERATE
@@ -248,7 +239,6 @@ This outline is revised at the v1.1 close.
 
 ### Phase 11: Minimal Host and Playable Homebrew
 **Goal**: A rights-cleared homebrew title runs headlessly and plays in a minimal host window with a physical controller, without the core depending on the host
-**Mode:** mvp
 **Depends on**: Phase 10
 **Requirements**: API-05, API-06, API-07
 **Decision gates**: D7 (no branding in the host or packaging). D6 applies to any release. D4 covers SDL3, which is zlib-licensed and link-only. Pin the route B libdragon toolchain and record its GCC/newlib notices

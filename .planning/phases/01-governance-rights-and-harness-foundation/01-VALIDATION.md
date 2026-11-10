@@ -1,9 +1,9 @@
 ---
 phase: "1"
 slug: "governance-rights-and-harness-foundation"
-status: draft
-nyquist_compliant: false
-wave_0_complete: false
+status: validated
+nyquist_compliant: true
+wave_0_complete: true
 created: "2026-11-09"
 ---
 
@@ -84,4 +84,4 @@ created: "2026-11-09"
 - [ ] Feedback latency under 60 s
 - [ ] `nyquist_compliant: true` set in frontmatter
 
-**Approval:** pending
+**Approval:** approved 2026-11-10 (61 automated tests, every task has an automated verify; gate 16-20 s local, 15-27 s hosted)
