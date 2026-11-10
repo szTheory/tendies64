@@ -13,6 +13,8 @@
 typedef struct {
   void *live[MAX_TRACKED_ALLOCATIONS];
   size_t capacity[MAX_TRACKED_ALLOCATIONS];
+  size_t reported_capacity;
+  size_t reported_alignment;
   size_t allocation_count;
   size_t release_count;
   size_t outstanding_count;
@@ -46,12 +48,18 @@ static bool test_allocate(void *context, size_t size, size_t alignment,
     }
   }
   state->live[state->allocation_count] = memory;
-  state->capacity[state->allocation_count] = size;
+  storage_out->data = memory;
+  storage_out->capacity = state->reported_capacity == 0u
+                              ? size
+                              : state->reported_capacity;
+  storage_out->alignment = state->reported_alignment == 0u
+                               ? alignment
+                               : state->reported_alignment;
+  state->capacity[state->allocation_count] = storage_out->capacity;
   state->allocation_count++;
   state->outstanding_count++;
-  storage_out->data = memory;
-  storage_out->capacity = size;
-  storage_out->alignment = alignment;
+  state->reported_capacity = 0u;
+  state->reported_alignment = 0u;
   return true;
 }
 
@@ -97,14 +105,58 @@ static void print_digest(const uint8_t digest[T64_DIGEST_SIZE]) {
   }
 }
 
+static bool digest_is_nonzero(const uint8_t digest[T64_DIGEST_SIZE]) {
+  size_t i;
+
+  for (i = 0u; i < T64_DIGEST_SIZE; i++) {
+    if (digest[i] != 0u) {
+      return true;
+    }
+  }
+  return false;
+}
+
+static bool allocator_states_are_disjoint(const allocator_state *left,
+                                          const allocator_state *right) {
+  size_t i, j;
+
+  for (i = 0u; i < left->allocation_count; i++) {
+    uintptr_t left_begin;
+    uintptr_t left_end;
+
+    if (left->live[i] == NULL) {
+      continue;
+    }
+    left_begin = (uintptr_t)left->live[i];
+    left_end = left_begin + left->capacity[i];
+    for (j = 0u; j < right->allocation_count; j++) {
+      uintptr_t right_begin;
+      uintptr_t right_end;
+
+      if (right->live[j] == NULL) {
+        continue;
+      }
+      right_begin = (uintptr_t)right->live[j];
+      right_end = right_begin + right->capacity[j];
+      if (left_begin < right_end && right_begin < left_end) {
+        return false;
+      }
+    }
+  }
+  return true;
+}
+
 static void test_machine_tracer(void) {
   static const char default_profile_id[] = "ntsc-cart-4m-skeleton";
   uint8_t image_a[TEST_ROM_SIZE];
   uint8_t image_b[TEST_ROM_SIZE];
+  uint8_t image_bad_order[TEST_ROM_SIZE];
   uint8_t profile_digest_a[T64_DIGEST_SIZE];
   uint8_t profile_digest_b[T64_DIGEST_SIZE];
   uint8_t content_digest_a[T64_DIGEST_SIZE];
   uint8_t content_digest_after_mutation[T64_DIGEST_SIZE];
+  uint8_t state_digest_before_refusal[T64_DIGEST_SIZE];
+  uint8_t state_digest_after_refusal[T64_DIGEST_SIZE];
   uint8_t state_digest_a[T64_DIGEST_SIZE];
   uint8_t state_digest_b[T64_DIGEST_SIZE];
   const t64_profile_descriptor *profile = NULL;
@@ -120,6 +172,11 @@ static void test_machine_tracer(void) {
 
   fill_authored_image(image_a);
   fill_authored_image(image_b);
+  fill_authored_image(image_bad_order);
+  image_bad_order[0] = 0x37u;
+  image_bad_order[1] = 0x80u;
+  image_bad_order[2] = 0x40u;
+  image_bad_order[3] = 0x12u;
   T64_CHECK_INT(t64_profile_lookup(default_profile_id, &profile),
                 T64_STATUS_OK);
   T64_CHECK(profile != NULL);
@@ -129,6 +186,7 @@ static void test_machine_tracer(void) {
   T64_CHECK_INT(t64_profile_hash(profile, profile_digest_a), T64_STATUS_OK);
   T64_CHECK_INT(t64_profile_hash(profile, profile_digest_b), T64_STATUS_OK);
   T64_CHECK(memcmp(profile_digest_a, profile_digest_b, T64_DIGEST_SIZE) == 0);
+  T64_CHECK(digest_is_nonzero(profile_digest_a));
 
   status = t64_machine_create(&host_a, profile, &machine_a);
   T64_CHECK_INT(status, T64_STATUS_OK);
@@ -140,6 +198,26 @@ static void test_machine_tracer(void) {
                 T64_STATUS_OK);
   T64_CHECK_INT(t64_machine_content_digest(machine_a, content_digest_a),
                 T64_STATUS_OK);
+  T64_CHECK(digest_is_nonzero(content_digest_a));
+  T64_CHECK_INT(t64_machine_digest(machine_a, state_digest_before_refusal),
+                T64_STATUS_OK);
+  T64_CHECK_INT(t64_machine_admit_rom(machine_a, image_bad_order,
+                                      sizeof image_bad_order),
+                T64_STATUS_UNSUPPORTED_ROM_ORDER);
+  T64_CHECK_INT(t64_machine_admit_rom(machine_a, image_bad_order,
+                                      sizeof image_bad_order - 1u),
+                T64_STATUS_INVALID_ROM);
+  {
+    uint8_t unchanged_digest[T64_DIGEST_SIZE];
+    T64_CHECK_INT(t64_machine_content_digest(machine_a, unchanged_digest),
+                  T64_STATUS_OK);
+    T64_CHECK(memcmp(content_digest_a, unchanged_digest,
+                     T64_DIGEST_SIZE) == 0);
+  }
+  T64_CHECK_INT(t64_machine_digest(machine_a, state_digest_after_refusal),
+                T64_STATUS_OK);
+  T64_CHECK(memcmp(state_digest_before_refusal, state_digest_after_refusal,
+                   T64_DIGEST_SIZE) == 0);
   image_a[0x100u] ^= 0xffu;
   T64_CHECK_INT(t64_machine_content_digest(
                     machine_a, content_digest_after_mutation),
@@ -152,6 +230,7 @@ static void test_machine_tracer(void) {
   T64_CHECK_INT(result.tick, UINT64_C(9));
   T64_CHECK_INT(t64_machine_digest(machine_a, state_digest_a),
                 T64_STATUS_OK);
+  T64_CHECK(digest_is_nonzero(state_digest_a));
 
   status = t64_machine_create(&host_b, profile, &machine_b);
   T64_CHECK_INT(status, T64_STATUS_OK);
@@ -164,6 +243,7 @@ static void test_machine_tracer(void) {
     T64_CHECK_INT(t64_machine_digest(machine_b, state_digest_b),
                   T64_STATUS_OK);
     T64_CHECK(memcmp(state_digest_a, state_digest_b, T64_DIGEST_SIZE) == 0);
+    T64_CHECK(allocator_states_are_disjoint(&alloc_a, &alloc_b));
   }
 
   (void)printf("profile=%s profile_sha256=", profile->profile_id);
@@ -186,7 +266,40 @@ static void test_machine_tracer(void) {
   T64_CHECK_INT(alloc_b.release_errors, 0u);
 }
 
+static void test_allocator_storage_validation(void) {
+  const t64_profile_descriptor *profile = NULL;
+  allocator_state short_storage = {0};
+  allocator_state misreported_alignment = {0};
+  const t64_host_allocator short_allocator = {
+      test_allocate, test_release, &short_storage};
+  const t64_host_allocator alignment_allocator = {
+      test_allocate, test_release, &misreported_alignment};
+  t64_machine *machine = NULL;
+
+  T64_CHECK_INT(t64_profile_lookup("ntsc-cart-4m-skeleton", &profile),
+                T64_STATUS_OK);
+  if (profile == NULL) {
+    return;
+  }
+  short_storage.reported_capacity = 1u;
+  T64_CHECK_INT(t64_machine_create(&short_allocator, profile, &machine),
+                T64_STATUS_BAD_STORAGE);
+  T64_CHECK(machine == NULL);
+  T64_CHECK_INT(short_storage.allocation_count, 1u);
+  T64_CHECK_INT(short_storage.release_count, 1u);
+  T64_CHECK_INT(short_storage.outstanding_count, 0u);
+
+  misreported_alignment.reported_alignment = 1u;
+  T64_CHECK_INT(t64_machine_create(&alignment_allocator, profile, &machine),
+                T64_STATUS_BAD_STORAGE);
+  T64_CHECK(machine == NULL);
+  T64_CHECK_INT(misreported_alignment.allocation_count, 1u);
+  T64_CHECK_INT(misreported_alignment.release_count, 1u);
+  T64_CHECK_INT(misreported_alignment.outstanding_count, 0u);
+}
+
 int main(void) {
   test_machine_tracer();
+  test_allocator_storage_validation();
   return T64_TEST_FINISH("unit.core.tracer");
 }
