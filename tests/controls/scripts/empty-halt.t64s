@@ -1,0 +1,3 @@
+t64-synthetic 1
+# negative control: the guest halts without printing anything
+end 5 quiesce

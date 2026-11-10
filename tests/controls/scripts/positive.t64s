@@ -1,0 +1,6 @@
+t64-synthetic 1
+# positive control: two PASS lines, then Done!, then a clean halt
+log 10 PASS alpha\n
+log 20 PASS beta\n
+log 30 Done!\n
+end 40 quiesce

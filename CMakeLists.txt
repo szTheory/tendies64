@@ -44,3 +44,6 @@ foreach(t64_tool_file IN LISTS T64_TOOL_CMAKELISTS)
     add_subdirectory(tools/${t64_tool_name})
   endif()
 endforeach()
+
+add_subdirectory(runner)
+add_subdirectory(tests/controls)
