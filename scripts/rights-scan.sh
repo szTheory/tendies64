@@ -10,8 +10,11 @@
 # provenance/docs-assets.tsv is always added to the allowlist when present.
 # The binary is ${T64_BUILD_DIR:-build/gate}/tools/rights/t64-blobscan.
 #
-# Rules owned here: R-SHALLOW, R-NOT-GIT. Every other rule id comes from
-# t64-blobscan. Output is "RULE <id> <path> [oid]" and a final summary line.
+# Rules owned here: R-SHALLOW, R-NOT-GIT, R-LFS-ATTR, R-GITLINK, and R-SYMLINK
+# for a staging directory. Every other rule id comes from t64-blobscan.
+# --staging DIR scans the files of an artifact staging directory (paths are
+# relative to DIR for allowlist matching); no CI step calls it yet because
+# Phase 1 uploads no artifacts, so the selftest is its proof. Output is "RULE <id> <path> [oid]" and a final summary line.
 # Exit 0 clean, 1 findings, 2 harness error.
 # Every pipeline stage goes through a temp file so its status is checked
 # (dash masks pipeline failures).
@@ -43,6 +46,8 @@ ALLOW_LIST=""
 HARNESS=0
 TREE_N="skipped"
 HIST_N="skipped"
+STAGE_N=""
+BS_CWD=""
 
 fatal() {
   echo "rights-scan: error: $*" >&2
@@ -72,7 +77,10 @@ run_blobscan() {
     done < "$ALLOW_LIST"
   fi
   BS_RC=0
-  "$@" < "$_bs_in" > "$TMP/bs.out" 2>&1 || BS_RC=$?
+  (
+    if [ -n "$BS_CWD" ]; then cd "$BS_CWD" || exit 125; fi
+    exec "$@" < "$_bs_in" > "$TMP/bs.out" 2>&1
+  ) || BS_RC=$?
 }
 
 # absorb LABEL: copies $TMP/bs.out into the report (minus the summary line),
@@ -94,6 +102,34 @@ scan_tree() {
   run_blobscan "$TMP/tree.z" --files
   absorb tree
   TREE_N=${SCANNED_N:-0}
+
+  # R-GITLINK: index entries of mode 160000.
+  git -c core.quotepath=false ls-files -s > "$TMP/index.s" || fatal "git ls-files -s failed"
+  awk -F'\t' '{ split($1, m, " "); if (m[1] == "160000") print "RULE R-GITLINK " $2 }' \
+    "$TMP/index.s" >> "$TMP/report" || fatal "awk failed"
+
+  # R-LFS-ATTR: any tracked or untracked .gitattributes that names the lfs filter.
+  _rc=0
+  git -c core.quotepath=false grep -l -F -e 'filter=lfs' --untracked \
+    -- ':(glob)**/.gitattributes' > "$TMP/lfs.files" || _rc=$?
+  [ "$_rc" -le 1 ] || fatal "git grep failed"
+  awk '{ print "RULE R-LFS-ATTR " $0 }' "$TMP/lfs.files" >> "$TMP/report" ||
+    fatal "awk failed"
+}
+
+scan_staging() {
+  [ -d "$STAGING" ] || fatal "staging directory not found: $STAGING"
+  (cd "$STAGING" && find . -type l -print) > "$TMP/stage.links" ||
+    fatal "find failed"
+  awk '{ sub(/^\.\//, ""); print "RULE R-SYMLINK " $0 }' "$TMP/stage.links" \
+    >> "$TMP/report" || fatal "awk failed"
+  (cd "$STAGING" && find . ! -type d ! -type l -print0) > "$TMP/stage.z" ||
+    fatal "find failed"
+  BS_CWD=$STAGING
+  run_blobscan "$TMP/stage.z" --files
+  BS_CWD=""
+  absorb staging
+  STAGE_N=${SCANNED_N:-0}
 }
 
 scan_history() {
@@ -122,6 +158,29 @@ scan_history() {
   run_blobscan "$TMP/stream" --git-batch "$TMP/names"
   absorb history
   HIST_N=${SCANNED_N:-0}
+
+  # R-GITLINK: a gitlink is not an object in rev-list, but every gitlink that
+  # ever entered a tree shows up as a mode-160000 entry in the raw log.
+  awk -F'\t' '/^:/ { split($1, m, " ")
+      if (m[1] == ":160000" || m[2] == "160000") print $2 }' "$TMP/log.raw" \
+    > "$TMP/gitlinks.all" || fatal "awk failed"
+  sort -u "$TMP/gitlinks.all" > "$TMP/gitlinks" || fatal "sort failed"
+  awk '{ print "RULE R-GITLINK " $0 }' "$TMP/gitlinks" >> "$TMP/report" ||
+    fatal "awk failed"
+
+  # R-LFS-ATTR in history: every blob ever named .gitattributes.
+  awk '{ i = index($0, " "); if (i == 0) next
+      path = substr($0, i + 1); n = split(path, a, "/")
+      if (a[n] == ".gitattributes") print $1 " " path }' "$TMP/names" \
+    > "$TMP/attr.names" || fatal "awk failed"
+  while IFS= read -r _line; do
+    _oid=${_line%% *}
+    _path=${_line#* }
+    git cat-file blob "$_oid" > "$TMP/attr.blob" || fatal "git cat-file blob failed"
+    if grep -q -F 'filter=lfs' "$TMP/attr.blob"; then
+      echo "RULE R-LFS-ATTR $_path $_oid" >> "$TMP/report"
+    fi
+  done < "$TMP/attr.names"
 }
 
 scan_main() {
@@ -132,32 +191,33 @@ scan_main() {
     cat "$TMP/allow.cli" >> "$ALLOW_LIST"
   fi
 
-  if [ "$DO_TREE" -eq 1 ] || [ "$DO_HISTORY" -eq 1 ]; then
-    if ! git rev-parse --git-dir > /dev/null 2>&1; then
-      echo "RULE R-NOT-GIT ." >> "$TMP/report"
-      DO_TREE=0
-      DO_HISTORY=0
-    else
-      _top=$(git rev-parse --show-toplevel) || fatal "no work tree"
-      cd "$_top"
-      if [ -f provenance/docs-assets.tsv ]; then
-        echo "$_top/provenance/docs-assets.tsv" >> "$ALLOW_LIST"
-      fi
-      if [ "$DO_HISTORY" -eq 1 ] &&
-        [ "$(git rev-parse --is-shallow-repository)" = "true" ]; then
-        echo "RULE R-SHALLOW ." >> "$TMP/report"
-        DO_HISTORY=0
-      fi
+  if git rev-parse --git-dir > /dev/null 2>&1; then
+    _top=$(git rev-parse --show-toplevel) || fatal "no work tree"
+    cd "$_top"
+    if [ -f provenance/docs-assets.tsv ]; then
+      echo "$_top/provenance/docs-assets.tsv" >> "$ALLOW_LIST"
     fi
+    if [ "$DO_HISTORY" -eq 1 ] &&
+      [ "$(git rev-parse --is-shallow-repository)" = "true" ]; then
+      echo "RULE R-SHALLOW ." >> "$TMP/report"
+      DO_HISTORY=0
+    fi
+  elif [ "$DO_TREE" -eq 1 ] || [ "$DO_HISTORY" -eq 1 ]; then
+    echo "RULE R-NOT-GIT ." >> "$TMP/report"
+    DO_TREE=0
+    DO_HISTORY=0
   fi
 
   [ -x "$BLOBSCAN" ] || fatal "missing $BLOBSCAN (build first: cmake --build --preset gate)"
-  [ "$DO_TREE" -eq 1 ] && scan_tree
-  [ "$DO_HISTORY" -eq 1 ] && scan_history
+  if [ "$DO_TREE" -eq 1 ]; then scan_tree; fi
+  if [ "$DO_HISTORY" -eq 1 ]; then scan_history; fi
+  if [ -n "$STAGING" ]; then scan_staging; fi
 
   cat "$TMP/report"
   _f=$(grep -c '^RULE ' "$TMP/report" || true)
-  echo "rights-scan: tree=$TREE_N history=$HIST_N findings=$_f"
+  _stage=""
+  if [ -n "$STAGING" ]; then _stage=" staging=$STAGE_N"; fi
+  echo "rights-scan: tree=$TREE_N history=$HIST_N${_stage} findings=$_f"
   if [ "$HARNESS" -eq 1 ]; then
     exit 2
   fi
@@ -181,6 +241,7 @@ ST_FAIL=0
 NEED=""
 NEED2=""
 ABSENT=""
+NOTRE=""
 
 sha256_of() {
   if command -v sha256sum > /dev/null 2>&1; then
@@ -194,6 +255,17 @@ sha256_of() {
 new_repo() {
   mkdir "$ST/$1"
   (cd "$ST/$1" && git init -q > /dev/null 2>&1)
+}
+
+# mk NAME: a repository holding one text file, so a scan has something to read.
+mk() {
+  new_repo "$1"
+  printf 'readme\n' > "$ST/$1/README.txt"
+}
+
+# fill FILE N CHAR: writes N copies of CHAR (no newline).
+fill() {
+  awk -v n="$2" -v c="$3" 'BEGIN { for (i = 0; i < n; i++) printf "%s", c }' > "$1"
 }
 
 commit_all() {
@@ -230,12 +302,16 @@ case_run() {
   if [ -z "$_why" ] && [ -n "$ABSENT" ]; then
     if grep -q "^RULE $ABSENT " "$_out"; then _why="unexpected RULE $ABSENT"; fi
   fi
+  if [ -z "$_why" ] && [ -n "$NOTRE" ]; then
+    if grep -q "$NOTRE" "$_out"; then _why="output matches $NOTRE"; fi
+  fi
   NEED=""
   NEED2=""
   ABSENT=""
+  NOTRE=""
   ST_CASES=$((ST_CASES + 1))
   if [ -z "$_why" ]; then
-    echo "ok $_name"
+    echo "ok $_name ($_rule)"
   else
     ST_FAIL=$((ST_FAIL + 1))
     echo "FAIL $_name: $_why"
@@ -260,7 +336,7 @@ direct_run() {
   fi
   ST_CASES=$((ST_CASES + 1))
   if [ -z "$_why" ]; then
-    echo "ok $_name"
+    echo "ok $_name ($_rule)"
   else
     ST_FAIL=$((ST_FAIL + 1))
     echo "FAIL $_name: $_why"
@@ -339,6 +415,180 @@ selftest() {
   commit_all "$ST/allow" add
   case_run allowlisted-history 0 - "$ST/allow" --history --allow "$ST/allow.tsv"
 
+  # ---- content classes, one seeded repository per case --------------------
+  # utf-16 with a BOM: NUL near the start and invalid UTF-8.
+  mk utf16
+  printf '\377\376a\000b\000\n' > "$ST/utf16/t.txt"
+  NEED='R-INVALID-UTF8'
+  case_run utf16-bom 1 R-NUL-HEAD "$ST/utf16" --tree
+
+  # NUL only after byte 8192: its own rule, and not the head rule.
+  mk nul-late
+  fill "$ST/nul-late/t.txt" 9002 a
+  printf '\000' >> "$ST/nul-late/t.txt"
+  ABSENT=R-NUL-HEAD
+  case_run nul-late 1 R-NUL-LATE "$ST/nul-late" --tree
+  commit_all "$ST/nul-late" add
+  (cd "$ST/nul-late" && g rm -q t.txt && g commit -q -m rm)
+  ABSENT=R-NUL-HEAD
+  case_run nul-late-history 1 R-NUL-LATE "$ST/nul-late" --history
+
+  # a NUL exactly at the last head byte is still the head rule.
+  mk nul-edge
+  fill "$ST/nul-edge/t.txt" 8191 a
+  printf '\000' >> "$ST/nul-edge/t.txt"
+  ABSENT=R-NUL-LATE
+  case_run nul-head-edge 1 R-NUL-HEAD "$ST/nul-edge" --tree
+
+  mk latin1
+  printf 'caf\351\n' > "$ST/latin1/t.txt"
+  ABSENT=R-NUL-HEAD
+  case_run latin1 1 R-INVALID-UTF8 "$ST/latin1" --tree
+  mk overlong
+  printf '\300\200\n' > "$ST/overlong/t.txt"
+  case_run overlong 1 R-INVALID-UTF8 "$ST/overlong" --tree
+
+  # valid multi-byte characters across the 65536-byte read buffer edge pass,
+  # in the tree and in history.
+  mk straddle
+  fill "$ST/straddle/a.txt" 65535 a
+  printf '\342\202\254\n' >> "$ST/straddle/a.txt"
+  fill "$ST/straddle/b.txt" 65534 a
+  printf '\342\202\254\n' >> "$ST/straddle/b.txt"
+  fill "$ST/straddle/c.txt" 65535 a
+  printf '\360\237\230\200\n' >> "$ST/straddle/c.txt"
+  fill "$ST/straddle/d.txt" 65534 a
+  printf '\360\237\230\200\n' >> "$ST/straddle/d.txt"
+  fill "$ST/straddle/e.txt" 65533 a
+  printf '\360\237\230\200\n' >> "$ST/straddle/e.txt"
+  commit_all "$ST/straddle" add
+  NEED='history=[1-9]'
+  case_run straddle 0 - "$ST/straddle"
+  mk straddle-bad
+  fill "$ST/straddle-bad/a.txt" 65535 a
+  printf '\342\202' >> "$ST/straddle-bad/a.txt"
+  case_run straddle-truncated 1 R-INVALID-UTF8 "$ST/straddle-bad" --tree
+  mk straddle-bad2
+  fill "$ST/straddle-bad2/a.txt" 65535 a
+  printf '\342\202a\n' >> "$ST/straddle-bad2/a.txt"
+  case_run straddle-broken 1 R-INVALID-UTF8 "$ST/straddle-bad2" --tree
+
+  # a denied extension fails even for harmless text, and an allowlisted digest
+  # does not waive it.
+  mk ext
+  printf 'plain\n' > "$ST/ext/x.sav"
+  case_run denied-ext-text 1 R-DENIED-EXT "$ST/ext" --tree
+  mk ext-upper
+  printf 'plain\n' > "$ST/ext-upper/Y.N64"
+  case_run denied-ext-upper 1 R-DENIED-EXT "$ST/ext-upper" --tree
+  _sha=$(sha256_of "$ST/ext/x.sav")
+  printf '%s\t%s\t%s\n' x.sav "$_sha" 'selftest' > "$ST/ext.tsv"
+  case_run allowlist-keeps-denied-ext 1 R-DENIED-EXT "$ST/ext" --tree --allow "$ST/ext.tsv"
+
+  # opaque containers by magic.
+  mk zip
+  printf 'PK\003\004rest\n' > "$ST/zip/t.txt"
+  case_run zip 1 R-CONTAINER "$ST/zip" --tree
+  mk gzip
+  printf '\037\213rest\n' > "$ST/gzip/t.txt"
+  case_run gzip 1 R-CONTAINER "$ST/gzip" --tree
+  mk xz
+  printf '\375\067zXZ\000rest\n' > "$ST/xz/t.txt"
+  case_run xz 1 R-CONTAINER "$ST/xz" --tree
+  mk bzip2
+  printf 'BZh91AY&SYrest\n' > "$ST/bzip2/t.txt"
+  case_run bzip2 1 R-CONTAINER "$ST/bzip2" --tree
+  mk zstd
+  printf '\050\265\057\375rest\n' > "$ST/zstd/t.txt"
+  case_run zstd 1 R-CONTAINER "$ST/zstd" --tree
+  mk sevenz
+  printf '7z\274\257\047\034rest\n' > "$ST/sevenz/t.txt"
+  case_run 7z 1 R-CONTAINER "$ST/sevenz" --tree
+  mk tar
+  fill "$ST/tar/t.txt" 257 x
+  printf 'ustar\n' >> "$ST/tar/t.txt"
+  case_run tar-ustar 1 R-CONTAINER "$ST/tar" --tree
+  mk bzh
+  printf 'BZh is only a word here\nBZh91 no\n' > "$ST/bzh/t.txt"
+  case_run bzh-text 0 - "$ST/bzh" --tree
+
+  # Git LFS pointer files and attributes hide bytes behind valid text.
+  mk lfsp
+  printf 'version https://git-lfs.github.com/spec/v1\noid sha256:%s\nsize 5\n' \
+    0000000000000000000000000000000000000000000000000000000000000000 > "$ST/lfsp/t.txt"
+  case_run lfs-pointer 1 R-LFS-POINTER "$ST/lfsp" --tree
+  mk lfsa
+  printf '*.bin filter=lfs diff=lfs merge=lfs -text\n' > "$ST/lfsa/.gitattributes"
+  case_run lfs-attr 1 R-LFS-ATTR "$ST/lfsa" --tree
+  commit_all "$ST/lfsa" attr
+  (cd "$ST/lfsa" && g rm -q -f .gitattributes && g commit -q -m rm)
+  case_run lfs-attr-history 1 R-LFS-ATTR "$ST/lfsa" --history
+
+  # gitlinks are not objects, so rev-list never sees them.
+  mk gl
+  (cd "$ST/gl" && g add README.txt &&
+    g update-index --add --cacheinfo 160000,1111111111111111111111111111111111111111,sub)
+  NEED='R-GITLINK sub'
+  case_run gitlink 1 R-GITLINK "$ST/gl" --tree
+  (cd "$ST/gl" && g commit -q -m gitlink)
+  (cd "$ST/gl" && g update-index --force-remove sub && g commit -q -m ungitlink)
+  case_run gitlink-history 1 R-GITLINK "$ST/gl" --history
+  case_run gitlink-gone-from-tree 0 - "$ST/gl" --tree
+
+  # renames share one blob; every name is reported.
+  mk ren
+  printf "${ROM_Z64}"'tail\n' > "$ST/ren/a.txt"
+  commit_all "$ST/ren" add
+  (cd "$ST/ren" && g mv a.txt b.txt && g commit -q -m rename)
+  NEED='R-ROM-MAGIC a.txt'
+  NEED2='R-ROM-MAGIC b.txt'
+  case_run rename 1 R-ROM-MAGIC "$ST/ren" --history
+
+  # a tracked symlink in the tree.
+  mk tlink
+  ln -s README.txt "$ST/tlink/link"
+  case_run tree-symlink 1 R-SYMLINK "$ST/tlink" --tree
+
+  # ---- artifact staging directories ----------------------------------------
+  mkdir "$ST/s-link"
+  printf 'ok\n' > "$ST/s-link/ok.txt"
+  ln -s ok.txt "$ST/s-link/lnk"
+  case_run staging-symlink 1 R-SYMLINK "$ST" --staging "$ST/s-link"
+  mkdir "$ST/s-rom"
+  printf "${ROM_Z64}"'tail\n' > "$ST/s-rom/x.dat"
+  case_run staging-rom-magic 1 R-ROM-MAGIC "$ST" --staging "$ST/s-rom"
+  mkdir "$ST/s-nul"
+  printf 'ab\000cd\n' > "$ST/s-nul/x.dat"
+  case_run staging-nul 1 R-NUL-HEAD "$ST" --staging "$ST/s-nul"
+  mkdir "$ST/s-clean"
+  printf 'fine\n' > "$ST/s-clean/ok.txt"
+  NEED='staging=[1-9]'
+  case_run staging-clean 0 - "$ST" --staging "$ST/s-clean"
+  mkdir "$ST/s-empty"
+  case_run staging-empty 2 R-ZERO-SCANNED "$ST" --staging "$ST/s-empty"
+  mkdir "$ST/s-fifo"
+  printf 'fine\n' > "$ST/s-fifo/ok.txt"
+  mkfifo "$ST/s-fifo/pipe"
+  case_run staging-fifo 1 R-SPECIAL "$ST" --staging "$ST/s-fifo"
+
+  # ---- advisories never fail the scan -----------------------------------------
+  mk adv
+  fill "$ST/adv/t.txt" 4031 a
+  printf '\n' >> "$ST/adv/t.txt"
+  NEED='^ADVISORY A-SIZE-4032 '
+  case_run advisory-4032 0 - "$ST/adv" --tree
+  mk lit
+  awk 'BEGIN { printf "static const unsigned char t[] = {\n"
+    for (i = 0; i < 300; i++) printf "0x41, "
+    printf "0x42};\n" }' > "$ST/lit/t.c"
+  NEED='^ADVISORY A-BYTE-LITERAL-RUN '
+  case_run byte-literal-run 0 - "$ST/lit" --tree
+  mk lit-short
+  awk 'BEGIN { for (i = 0; i < 255; i++) printf "0x41, "
+    printf "\nint x = 0x123, y = 0x4;\n" }' > "$ST/lit-short/t.c"
+  NOTRE='^ADVISORY A-BYTE-LITERAL-RUN '
+  case_run byte-literal-short 0 - "$ST/lit-short" --tree
+
   echo "selftest: cases=$ST_CASES failures=$ST_FAIL"
   [ "$ST_FAIL" -eq 0 ] || exit 1
   exit 0
@@ -360,7 +610,7 @@ while [ $# -gt 0 ]; do
       ;;
     --staging)
       [ $# -ge 2 ] || usage
-      STAGING=$2
+      STAGING=$(cd "$2" 2> /dev/null && pwd -P) || fatal "staging directory not found: $2"
       EXPLICIT=1
       shift
       ;;

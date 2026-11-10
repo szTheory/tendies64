@@ -35,9 +35,22 @@
 
 enum { EXIT_CLEAN = 0, EXIT_FINDINGS = 1, EXIT_HARNESS = 2 };
 
-/* Content classes (bit flags). */
+/* Content classes (bit flags). A-* are advisories, the rest are rules. */
 #define C_ROM 1u
-#define CONTENT_MASK (C_ROM)
+#define C_NUL_HEAD 2u
+#define C_NUL_LATE 4u
+#define C_UTF8 8u
+#define C_CONTAINER 16u
+#define C_LFS 32u
+#define A_SIZE_4032 64u
+#define A_BYTE_RUN 128u
+#define CONTENT_MASK                                                           \
+  (C_ROM | C_NUL_HEAD | C_NUL_LATE | C_UTF8 | C_CONTAINER | C_LFS |            \
+   A_SIZE_4032 | A_BYTE_RUN)
+
+#define NUL_HEAD_BYTES 8192u
+#define BYTE_RUN_MIN 256u
+#define SIZE_ADVISORY 4032u
 
 typedef struct {
   char *path;
@@ -239,26 +252,166 @@ static void load_names(const char *path) {
 
 /* ------------------------------------------------------------------ scan */
 
+enum { L_IDLE, L_ZERO, L_X, L_H1, L_H2 };
+
 typedef struct {
   t64_sha256_ctx sha;
   uint64_t size;
   unsigned char head[HEAD_KEEP];
   size_t headlen;
+  int has_nul;
+  uint64_t first_nul;
+  /* streaming RFC 3629 validator, carried across buffer boundaries */
+  unsigned u8_need;
+  unsigned char u8_lo, u8_hi;
+  int u8_bad;
+  /* run of consecutive hex byte literals such as "0x80, 0x37," */
+  int lstate;
+  unsigned long run, maxrun;
 } scan_state;
 
 static void scan_init(scan_state *s) {
   t64_sha256_init(&s->sha);
   s->size = 0;
   s->headlen = 0;
+  s->has_nul = 0;
+  s->first_nul = 0;
+  s->u8_need = 0;
+  s->u8_lo = 0x80;
+  s->u8_hi = 0xBF;
+  s->u8_bad = 0;
+  s->lstate = L_IDLE;
+  s->run = 0;
+  s->maxrun = 0;
+}
+
+static void u8_step(scan_state *s, unsigned char c) {
+  if (s->u8_bad) return;
+  if (s->u8_need == 0) {
+    if (c < 0x80) return;
+    s->u8_lo = 0x80;
+    s->u8_hi = 0xBF;
+    if (c >= 0xC2 && c <= 0xDF) {
+      s->u8_need = 1;
+    } else if (c == 0xE0) {
+      s->u8_need = 2;
+      s->u8_lo = 0xA0;
+    } else if (c == 0xED) {
+      s->u8_need = 2;
+      s->u8_hi = 0x9F;
+    } else if (c >= 0xE1 && c <= 0xEF) {
+      s->u8_need = 2;
+    } else if (c == 0xF0) {
+      s->u8_need = 3;
+      s->u8_lo = 0x90;
+    } else if (c == 0xF4) {
+      s->u8_need = 3;
+      s->u8_hi = 0x8F;
+    } else if (c >= 0xF1 && c <= 0xF3) {
+      s->u8_need = 3;
+    } else {
+      s->u8_bad = 1; /* 80..C1 and F5..FF never start a sequence */
+    }
+    return;
+  }
+  if (c < s->u8_lo || c > s->u8_hi) {
+    s->u8_bad = 1;
+    return;
+  }
+  s->u8_need--;
+  s->u8_lo = 0x80;
+  s->u8_hi = 0xBF;
+}
+
+static int is_hex_any(unsigned char c) {
+  return (c >= '0' && c <= '9') || (c >= 'a' && c <= 'f') ||
+         (c >= 'A' && c <= 'F');
+}
+
+static int is_sep(unsigned char c) {
+  return c == ',' || c == ' ' || c == '\t' || c == '\n' || c == '\r';
+}
+
+static void lit_idle(scan_state *s, unsigned char c) {
+  if (c == '0') {
+    s->lstate = L_ZERO;
+  } else if (!is_sep(c)) {
+    s->run = 0;
+  }
+}
+
+static void lit_done(scan_state *s) {
+  s->run++;
+  if (s->run > s->maxrun) s->maxrun = s->run;
+  s->lstate = L_IDLE;
+}
+
+static void lit_step(scan_state *s, unsigned char c) {
+  switch (s->lstate) {
+    case L_ZERO:
+      if (c == 'x' || c == 'X') {
+        s->lstate = L_X;
+      } else {
+        s->run = 0;
+        s->lstate = L_IDLE;
+        lit_idle(s, c);
+      }
+      break;
+    case L_X:
+      if (is_hex_any(c)) {
+        s->lstate = L_H1;
+      } else {
+        s->run = 0;
+        s->lstate = L_IDLE;
+        lit_idle(s, c);
+      }
+      break;
+    case L_H1:
+      if (is_hex_any(c)) {
+        s->lstate = L_H2;
+        break;
+      }
+      lit_done(s);
+      if (!is_sep(c)) {
+        s->run = 0;
+        lit_idle(s, c);
+      }
+      break;
+    case L_H2:
+      if (is_hex_any(c)) { /* 0xABC is not a byte literal */
+        s->run = 0;
+        s->lstate = L_IDLE;
+        break;
+      }
+      lit_done(s);
+      if (!is_sep(c)) {
+        s->run = 0;
+        lit_idle(s, c);
+      }
+      break;
+    default:
+      lit_idle(s, c);
+      break;
+  }
 }
 
 static void scan_feed(scan_state *s, const unsigned char *b, size_t n) {
+  size_t i;
   t64_sha256_update(&s->sha, b, n);
   if (s->headlen < HEAD_KEEP) {
     size_t take = HEAD_KEEP - s->headlen;
     if (take > n) take = n;
     memcpy(s->head + s->headlen, b, take);
     s->headlen += take;
+  }
+  for (i = 0; i < n; i++) {
+    unsigned char c = b[i];
+    if (c == 0 && !s->has_nul) {
+      s->has_nul = 1;
+      s->first_nul = s->size + (uint64_t)i;
+    }
+    u8_step(s, c);
+    lit_step(s, c);
   }
   s->size += (uint64_t)n;
 }
@@ -271,18 +424,85 @@ static int rom_magic(const unsigned char *h, size_t n) {
   return 0;
 }
 
+static int has_prefix(const unsigned char *h, size_t n, const char *lit,
+                      size_t litlen) {
+  return n >= litlen && memcmp(h, lit, litlen) == 0;
+}
+
+/* Opaque containers by magic. Never recursed into. */
+static int container_magic(const unsigned char *h, size_t n) {
+  if (has_prefix(h, n, "PK\x03\x04", 4u)) return 1;               /* zip */
+  if (has_prefix(h, n, "\x1f\x8b", 2u)) return 1;                  /* gzip */
+  if (has_prefix(h, n, "\xfd\x37\x7a\x58\x5a\x00", 6u)) return 1; /* xz */
+  if (n >= 10u && h[0] == 'B' && h[1] == 'Z' && h[2] == 'h' && h[3] >= '1' &&
+      h[3] <= '9' && memcmp(h + 4, "\x31\x41\x59\x26\x53\x59", 6u) == 0) {
+    return 1; /* bzip2 */
+  }
+  if (has_prefix(h, n, "\x28\xb5\x2f\xfd", 4u)) return 1;         /* zstd */
+  if (has_prefix(h, n, "\x37\x7a\xbc\xaf\x27\x1c", 6u)) return 1; /* 7z */
+  if (n >= 262u && memcmp(h + 257, "ustar", 5u) == 0) return 1;     /* tar */
+  return 0;
+}
+
 static unsigned scan_finish(scan_state *s, char hex[T64_SHA256_HEX_SIZE]) {
+  static const char lfs[] = "version https://git-lfs.github.com/spec/v1";
   uint8_t d[T64_SHA256_DIGEST_SIZE];
   unsigned f = 0;
   t64_sha256_final(&s->sha, d);
   t64_sha256_hex(d, hex);
+  if (s->lstate == L_H1 || s->lstate == L_H2) lit_done(s);
   if (rom_magic(s->head, s->headlen)) f |= C_ROM;
+  if (s->has_nul) f |= (s->first_nul < NUL_HEAD_BYTES) ? C_NUL_HEAD : C_NUL_LATE;
+  if (s->u8_bad || s->u8_need != 0) f |= C_UTF8;
+  if (container_magic(s->head, s->headlen)) f |= C_CONTAINER;
+  if (has_prefix(s->head, s->headlen, lfs, sizeof lfs - 1u)) f |= C_LFS;
+  if (s->size == SIZE_ADVISORY) f |= A_SIZE_4032;
+  if (s->maxrun >= BYTE_RUN_MIN) f |= A_BYTE_RUN;
   return f;
 }
 
-/* Emits the findings of one name. */
+/* Denied extension of the last path component, case-insensitive. A path that
+ * git quoted (starts and ends with a double quote) is judged without the
+ * closing quote. */
+static int denied_ext(const char *path) {
+  static const char *const exts[] = {"z64", "n64", "v64", "sav", "eep",
+                                     "sra", "fla", "mpk", "ndd", "d64"};
+  size_t len = strlen(path), dot = 0, i, k;
+  int have_dot = 0;
+  char ext[8];
+  if (len >= 2u && path[0] == '"' && path[len - 1u] == '"') len--;
+  for (i = 0; i < len; i++) {
+    if (path[i] == '/') {
+      have_dot = 0;
+    } else if (path[i] == '.') {
+      dot = i;
+      have_dot = 1;
+    }
+  }
+  if (!have_dot || len - dot - 1u != 3u) return 0;
+  for (k = 0; k < 3u; k++) {
+    char c = path[dot + 1u + k];
+    ext[k] = (c >= 'A' && c <= 'Z') ? (char)(c - 'A' + 'a') : c;
+  }
+  ext[3] = '\0';
+  for (i = 0; i < sizeof exts / sizeof exts[0]; i++) {
+    if (strcmp(ext, exts[i]) == 0) return 1;
+  }
+  return 0;
+}
+
+/* Emits the findings of one name. The extension rule is policy, not content,
+ * so an allowlisted digest does not waive it. */
 static void report_name(const char *path, const char *oid, unsigned flags) {
+  if (denied_ext(path)) emit("RULE", "R-DENIED-EXT", path, oid);
   if (flags & C_ROM) emit("RULE", "R-ROM-MAGIC", path, oid);
+  if (flags & C_NUL_HEAD) emit("RULE", "R-NUL-HEAD", path, oid);
+  if (flags & C_NUL_LATE) emit("RULE", "R-NUL-LATE", path, oid);
+  if (flags & C_UTF8) emit("RULE", "R-INVALID-UTF8", path, oid);
+  if (flags & C_CONTAINER) emit("RULE", "R-CONTAINER", path, oid);
+  if (flags & C_LFS) emit("RULE", "R-LFS-POINTER", path, oid);
+  if (flags & A_SIZE_4032) emit("ADVISORY", "A-SIZE-4032", path, NULL);
+  if (flags & A_BYTE_RUN) emit("ADVISORY", "A-BYTE-LITERAL-RUN", path, NULL);
 }
 
 /* ------------------------------------------------------------- git batch */
@@ -386,7 +606,16 @@ static void scan_path(const char *path) {
     }
     die("cannot stat input path");
   }
-  if (!S_ISREG(sb.st_mode)) die("non-regular file (not supported yet)");
+  if (S_ISLNK(sb.st_mode)) {
+    g_scanned++;
+    emit("RULE", "R-SYMLINK", shown, NULL);
+    return;
+  }
+  if (!S_ISREG(sb.st_mode)) { /* never opened: a FIFO would block */
+    g_scanned++;
+    emit("RULE", "R-SPECIAL", shown, NULL);
+    return;
+  }
   fd = open(path, O_RDONLY | O_NOFOLLOW);
   if (fd < 0) die("cannot open input path");
   scan_init(&st);
