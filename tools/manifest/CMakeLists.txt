@@ -31,9 +31,12 @@ add_test(NAME gov.manifest.schema-seeds
 
 # The real manifest. scripts/gate.sh exports T64_REQUIRE_FIXTURES=1 under CI=true
 # and 0 otherwise; this is the single place it becomes --require-fixtures. The
-# argument list is printed so the CTest log proves which mode ran.
+# argument list is printed so the CTest log proves which mode ran. CTest also
+# echoes this command line into the log, so the label is assembled at run time
+# ($n below): the log then holds exactly one "manifest-check argv:" line, the
+# one printed by the test, and never one made of the script text.
 add_test(NAME gov.manifest.repo
-  COMMAND sh -c [=[a="--schema fixtures/manifest.schema.json"; if [ "${T64_REQUIRE_FIXTURES:-0}" = 1 ]; then a="$a --require-fixtures"; fi; echo "manifest-check argv: $a fixtures/manifest.json"; exec "$0" $a fixtures/manifest.json]=]
+  COMMAND sh -c [=[n=manifest-check; a="--schema fixtures/manifest.schema.json"; if [ "${T64_REQUIRE_FIXTURES:-0}" = 1 ]; then a="$a --require-fixtures"; fi; echo "$n argv: $a fixtures/manifest.json"; exec "$0" $a fixtures/manifest.json]=]
     $<TARGET_FILE:t64-manifest-check>
   WORKING_DIRECTORY ${CMAKE_SOURCE_DIR})
 

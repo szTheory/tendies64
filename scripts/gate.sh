@@ -9,6 +9,16 @@ export LC_ALL
 ROOT=$(cd "$(dirname "$0")/.." && pwd -P)
 cd "$ROOT"
 
+# CONTEXT "Gate": a CI run adds exactly one flag, --require-fixtures, and nothing
+# else may differ from a local run. The CTest test gov.manifest.repo turns this
+# variable into the flag; this is the only place the gate reads the environment.
+if [ "${CI:-}" = true ]; then
+  export T64_REQUIRE_FIXTURES=1
+  echo "[gate] CI mode: --require-fixtures"
+else
+  export T64_REQUIRE_FIXTURES=0
+fi
+
 GATE_T0=$(date +%s)
 GATE_STEPS=""
 

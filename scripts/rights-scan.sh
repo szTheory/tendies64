@@ -8,7 +8,13 @@
 # With no scope flag it scans the working tree and all reachable history
 # (a superset of any PR range). --range limits history to BASE..HEAD.
 # provenance/docs-assets.tsv is always added to the allowlist when present.
-# The binary is ${T64_BUILD_DIR:-build/gate}/tools/rights/t64-blobscan.
+# fixtures/manifest.json is the second allowlist source (GOV-03): when the
+# scanned repository has one, t64-manifest-check --emit-allowlist turns its
+# authored-here/cleared commit-channel entries into extra rows. A manifest with
+# any finding emits nothing and fails the scan (exit 2), so a bad entry can
+# never whitelist protected bytes.
+# The binaries are ${T64_BUILD_DIR:-build/gate}/tools/rights/t64-blobscan and
+# ${T64_BUILD_DIR:-build/gate}/tools/manifest/t64-manifest-check.
 #
 # Rules owned here: R-SHALLOW, R-NOT-GIT, R-LFS-ATTR, R-GITLINK, and R-SYMLINK
 # for a staging directory. Every other rule id comes from t64-blobscan.
@@ -34,6 +40,8 @@ case $BUILD in
   *) BUILD=$SCRIPT_ROOT/$BUILD ;;
 esac
 BLOBSCAN=$BUILD/tools/rights/t64-blobscan
+MANIFEST_CHECK=$BUILD/tools/manifest/t64-manifest-check
+MANIFEST_SCHEMA=$SCRIPT_ROOT/fixtures/manifest.schema.json
 
 DO_TREE=0
 DO_HISTORY=0
@@ -196,6 +204,22 @@ scan_main() {
     cd "$_top"
     if [ -f provenance/docs-assets.tsv ]; then
       echo "$_top/provenance/docs-assets.tsv" >> "$ALLOW_LIST"
+    fi
+    if [ -f fixtures/manifest.json ]; then
+      [ -x "$MANIFEST_CHECK" ] ||
+        fatal "missing $MANIFEST_CHECK (build first: cmake --build --preset gate)"
+      [ -f "$MANIFEST_SCHEMA" ] || fatal "missing $MANIFEST_SCHEMA"
+      _mrc=0
+      "$MANIFEST_CHECK" --schema "$MANIFEST_SCHEMA" --root "$_top" \
+        --emit-allowlist "$TMP/manifest.allow" "$_top/fixtures/manifest.json" \
+        > "$TMP/manifest.out" 2>&1 || _mrc=$?
+      if [ "$_mrc" -ne 0 ]; then
+        cat "$TMP/manifest.out" >&2
+        fatal "fixtures/manifest.json has findings, so it cannot feed the allowlist"
+      fi
+      if [ -s "$TMP/manifest.allow" ]; then
+        echo "$TMP/manifest.allow" >> "$ALLOW_LIST"
+      fi
     fi
     if [ "$DO_HISTORY" -eq 1 ] &&
       [ "$(git rev-parse --is-shallow-repository)" = "true" ]; then
@@ -588,6 +612,38 @@ selftest() {
     printf "\nint x = 0x123, y = 0x4;\n" }' > "$ST/lit-short/t.c"
   NOTRE='^ADVISORY A-BYTE-LITERAL-RUN '
   case_run byte-literal-short 0 - "$ST/lit-short" --tree
+
+  # The manifest is the only allowlist path for committed non-text bytes: a
+  # cleared NUL-bearing fixture listed in fixtures/manifest.json passes, the
+  # same bytes unlisted fail, and a manifest with a finding fails the scan.
+  [ -x "$MANIFEST_CHECK" ] ||
+    fatal "missing $MANIFEST_CHECK (build first: cmake --build --preset gate)"
+  new_repo manifest-unlisted
+  mkdir "$ST/manifest-unlisted/fixtures"
+  printf 'cleared\000fixture\n' > "$ST/manifest-unlisted/fixtures/blob.bin"
+  case_run manifest-unlisted 1 R-NUL-HEAD "$ST/manifest-unlisted" --tree
+  new_repo manifest-ok
+  mkdir "$ST/manifest-ok/fixtures"
+  printf 'cleared\000fixture\n' > "$ST/manifest-ok/fixtures/blob.bin"
+  _msha=$(sha256_of "$ST/manifest-ok/fixtures/blob.bin")
+  _msize=$(wc -c < "$ST/manifest-ok/fixtures/blob.bin" | tr -d ' ')
+  _mrev=0123456789abcdef0123456789abcdef01234567
+  _mentry='{"id":"selftest-blob","source":{"repo":"https://github.com/example/fixture-source","revision":"'$_mrev'","path":"."},"build":{"recipe":"authored in place","toolchain":["none 1"]},"sha256":"SHA","size":SIZE,"profile":"selftest","source_rights":"authored-here","binary_rights":"cleared","distribution":["commit"],"rights_evidence":"selftest","notices":[],"expected":{"kind":"regression-pin","source":"selftest","revision":"'$_mrev'"},"path":"fixtures/blob.bin"}'
+  printf '{"schema":"t64.manifest","schema_version":1,"entries":[%s]}\n' \
+    "$(printf '%s' "$_mentry" | sed -e "s/SHA/$_msha/" -e "s/SIZE/$_msize/")" \
+    > "$ST/manifest-ok/fixtures/manifest.json"
+  case_run manifest-allowlisted 0 - "$ST/manifest-ok" --tree
+  commit_all "$ST/manifest-ok" add
+  case_run manifest-allowlisted-history 0 - "$ST/manifest-ok" --history
+  # Same listing, different bytes: the checker reports M-DIGEST-MISMATCH and the
+  # scan stops instead of trusting the manifest.
+  printf 'tampered\000fixture\n' > "$ST/manifest-ok/fixtures/blob.bin"
+  NEED='cannot feed the allowlist'
+  case_run manifest-digest-mismatch 2 M-DIGEST-MISMATCH "$ST/manifest-ok" --tree
+  # A manifest that is not valid at all also stops the scan.
+  printf '{' > "$ST/manifest-ok/fixtures/manifest.json"
+  NEED='cannot feed the allowlist'
+  case_run manifest-invalid 2 M-JSON "$ST/manifest-ok" --tree
 
   echo "selftest: cases=$ST_CASES failures=$ST_FAIL"
   [ "$ST_FAIL" -eq 0 ] || exit 1
