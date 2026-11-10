@@ -67,7 +67,7 @@ systems and two compilers.
 
 Decimal phases appear between their surrounding integers in numeric order.
 
-- [ ] **Phase 1: Governance, Rights and Harness Foundation** - ADRs, provenance and fixture policies, the gate command, determinism lint and a six-outcome runner with negative controls, before any emulator code
+- [x] **Phase 1: Governance, Rights and Harness Foundation** - ADRs, provenance and fixture policies, the gate command, determinism lint and a six-outcome runner with negative controls, before any emulator code (completed 2026-11-10)
 - [ ] **Phase 2: Deterministic Machine Skeleton** - Guest-time scheduler, named profile, memory map, RDRAM, MI, PI/SP DMA, ROM admission and digests equal across interleaved instances
 - [ ] **Phase 3: First Headless ROM Through Open IPL3** - Primary documents pinned; HLE-PIF plus pinned open IPL3 boots a hello ROM that prints through ISViewer, with digests matching across two operating systems and two compilers
 - [ ] **Phase 4: Complete VR4300 CPU** - MIPS III integer, delay slots, CP0, TLB, unaligned access, LL/SC, cache scope and soft-float COP1, with per-group `nemu64-test` CPU status
@@ -87,7 +87,7 @@ Decimal phases appear between their surrounding integers in numeric order.
   2. The maintainer runs the single gate command locally, and CI runs that same command verbatim on explicitly labeled runners with SHA-pinned actions. The first CI run has a recorded critical-path review
   3. The runner skeleton classifies synthetic cases into exactly one of pass, guest-fail, boot-fail, timeout, missing-fixture and harness-error. In CI, a wrong expected value fails; missing, malformed, timed-out and crashed runs never pass; and a changed test inventory is detected
   4. The gate goes red on each seeded violation: a core source that reads host time, files, threads, entropy or a mutable global (caught by both the source lint and the link-level symbol allowlist); a protected or unmanifested binary in the tree or in a CI artifact; and a fixture-manifest entry missing source, revision, recipe, digest, profile, rights, notices or expected-result provenance
-**Plans**: 13/13 plans executed in 5 waves
+**Plans**: 13/13 plans complete in 5 waves
 
 Plans:
 - [x] 01-01-PLAN.md — Gate, CMake/presets, the two CONTEXT A-1 core stub paths, tools/common (SHA-256, UTF-8, canonical writer) with vector tests (wave 1)
