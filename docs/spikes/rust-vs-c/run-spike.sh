@@ -18,6 +18,14 @@
 #                                 table; runs no fuzz and produces no decision data
 #   run-spike.sh --registered     the registered run: verify, per-class table, C
 #                                 sanitizer fuzz, C-vs-Rust differential, rules
+#   run-spike.sh --decision-selftest  negative controls for the mechanical
+#                                 decision on synthetic inputs (no docker, no
+#                                 compiler, no decision data); PREREG Amendment 1
+#
+# The mechanical decision has three values (PREREG Amendment 1):
+#   switch-rust   rule (a) or rule (b) fired, as registered
+#   stay-c17      neither fired AND the evidence for "neither fired" is complete
+#   inconclusive  anything else; exit 3. Only stay-c17 may auto-accept ADR-0002.
 #
 # Needs: docker with the image rust:1.91 already present (never pulled here),
 # a host C compiler. No crates, no cargo, no network (--network none), the repo
@@ -58,13 +66,22 @@ constructor|bad_ctor.c|ctor.rs
 extern-host|bad_extern_host.c|extern_host.rs
 std-escape|-|std_escape.rs'
 
+# Set to yes once the registered run has passed verify_frozen: from then on a
+# harness error is reported as an inconclusive decision, never as silence.
+DECIDING=no
+
 die() {
   echo "run-spike: $*" >&2
+  if [ "$DECIDING" = yes ]; then
+    echo "completeness-gaps: harness error: $*"
+    echo "mechanical-decision: inconclusive"
+    exit 3
+  fi
   exit 2
 }
 
 usage() {
-  echo "usage: run-spike.sh --control | --print-hashes | --verify-frozen | --admission-check | --registered" >&2
+  echo "usage: run-spike.sh --control | --print-hashes | --verify-frozen | --admission-check | --registered | --decision-selftest" >&2
   exit 2
 }
 
@@ -178,7 +195,11 @@ print_class_table() {
         else if (ch == "0" && cl == "0" && rr == "1") { verdict = "yes"; trig = trig (trig == "" ? "" : ",") c }
         if (ch != "n/a" && ch != "0" && ch != "1") { note = note " ANOMALY(c_host exit " ch ")"; anom++ }
         if (cl != "n/a" && cl != "0" && cl != "1") { note = note " ANOMALY(c_linux exit " cl ")"; anom++ }
-        if (rr != "0" && rr != "1") { note = note " ANOMALY(rust exit " rr ")"; anom++ }
+        if ((c in rrc) && rr != "0" && rr != "1") { note = note " ANOMALY(rust exit " rr ")"; anom++ }
+        # Amendment 1: a class with no Linux C row (when it has a C twin) or no
+        # Rust row was not measured, which is an anomaly, not a pass.
+        if (ch != "n/a" && !(c in crc)) { note = note " ANOMALY(c_linux row missing)"; anom++ }
+        if (!(c in rrc)) { note = note " ANOMALY(rust row missing)"; anom++ }
         if (ch != "n/a" && cl != "n/a" && ((ch == "0") != (cl == "0"))) note = note " DISAGREE(host/linux)"
         printf "%s\t%s\t%s\t%s\t%s\thost=%s; linux=%s; rust=%s%s\n", c, ch, cl, rr, verdict, hid[c], (c in cid) ? cid[c] : "n/a", rcode[c], note
       }
@@ -354,6 +375,41 @@ fuzz_tool_name() {
   fi
 }
 
+# Amendment 1, rule (b) attribution. A sanitizer report is an ASan "ERROR:
+# AddressSanitizer" line or a UBSan "runtime error:" line. A frame or location
+# is attributable when it names admission.c itself: the original harness matched
+# the bare text "admission.c", which also matches the harness file
+# fuzz_admission.c and any non-sanitizer message that mentions the file.
+san_report_in() {
+  grep -Eq 'ERROR: AddressSanitizer|runtime error:' "$1"
+}
+
+admission_frame_in() {
+  grep -Eq '(^|[^A-Za-z0-9_])admission\.c:[0-9]' "$1"
+}
+
+# Amendment 1 (review WR-22): the C lint is the tool under test for rule (a) but
+# is not in the frozen set. The registered run records its hashes and the commit,
+# and refuses a "stay-c17" when those files differ from the commit.
+TUT_PATHS='tools/lint/core-lint.sh tools/lint/lint-objects.sh tools/lint/rules.txt tools/lint/allowlist.txt'
+TUT_CLEAN=no
+
+print_tool_under_test() {
+  echo "git-commit: $(git rev-parse HEAD)"
+  for _p in $TUT_PATHS; do
+    [ -f "$_p" ] || die "tool under test is missing: $_p"
+    printf 'tool-under-test sha256: %s  %s\n' "$(hash_of "$_p")" "$_p"
+  done
+  # shellcheck disable=SC2086
+  if git diff --quiet HEAD -- $TUT_PATHS; then
+    TUT_CLEAN=yes
+    echo "tool-under-test: matches the commit above (recorded, not frozen by PREREG)"
+  else
+    TUT_CLEAN=no
+    echo "tool-under-test: has uncommitted changes"
+  fi
+}
+
 # Table check, then the harness negative control: a build with a seeded
 # one-byte overread must be caught by the sanitizer and attributed to admission.c.
 admission_control() {
@@ -363,7 +419,8 @@ admission_control() {
     return 1
   fi
   fuzz_build_run "-DT64S_SEEDED_OVERREAD" --mutations 3000
-  if [ "$FZ_RC" != 0 ] && grep -q 'admission\.c' "$T/fz.err" && grep -q '^FAIL: input ' "$T/fz.err"; then
+  if [ "$FZ_RC" != 0 ] && san_report_in "$T/fz.err" && admission_frame_in "$T/fz.err" &&
+    grep -q '^FAIL: input ' "$T/fz.err"; then
     echo "admission-control: seeded overread caught and attributed to admission.c ($(grep '^FAIL: input ' "$T/fz.err" | head -n 1))"
     return 0
   fi
@@ -401,51 +458,146 @@ admission_check_mode() {
   echo "admission-check: PASS (fuzz tool: $(fuzz_tool_name))"
 }
 
+# ---------------------------------------------------------------------------
+# Mechanical decision (PREREG Amendment 1)
+# ---------------------------------------------------------------------------
+#
+# The original harness printed stay-c17 whenever rule (a) listed no trigger and
+# rule (b) had no report naming admission.c, so a fuzz that crashed, was killed,
+# ran out of memory or found an info-field bug, a broken lint (exit 2) or a
+# missing rustc (exit 127) all still read "stay-c17" (review WR-21).
+#
+# Inputs: $T/table.tsv (print_class_table), $T/box.out, $T/fz.out, $T/fz.err,
+# $T/rust.out, and NEG_HOST NEG_CLINUX NEG_RUST ADM_CTRL FZ_RAN FZ_RC TUT_CLEAN.
+# Sets DEC and prints the rules block.
+#
+#   inconclusive  a harness negative control failed (lint or rustc cannot fail,
+#                 so neither rule can be read), whatever else happened
+#   switch-rust   otherwise, rule (a) lists a trigger, or the fuzz exited
+#                 non-zero with an ASan or UBSan report attributable to
+#                 admission.c (rule b)
+#   stay-c17      otherwise, only when every completeness condition holds:
+#                 class table anomalies 0 (no lint exit 2, no rustc exit 127, no
+#                 missing row), the container reported a rustc version, the
+#                 sanitizer negative control passed, the fuzz ran and exited 0
+#                 with "mutations: 2000000", "inputs: 2000040" and
+#                 "info-consistency: ok", no sanitizer report text, the Rust
+#                 differential printed the same info-consistency line, and the
+#                 tool under test matches the recorded commit
+#   inconclusive  anything else
+GAPS=""
+
+gap() {
+  GAPS="${GAPS}${GAPS:+; }$1"
+}
+
+decide() {
+  GAPS=""
+  _untrusted=no
+  if [ "${NEG_HOST:-}" != 1 ] || [ "${NEG_CLINUX:-}" != 1 ] || [ "${NEG_RUST:-}" != 1 ]; then
+    _untrusted=yes
+    gap "harness negative control failed (host-c=${NEG_HOST:-none} linux-c=${NEG_CLINUX:-none} linux-rust=${NEG_RUST:-none}, each must be 1)"
+  fi
+
+  # Rule (a) and the class-table completeness.
+  _triggers=$(sed -n 's/^rule-a-triggers: //p' "$T/table.tsv")
+  _anom=$(sed -n 's/^anomalies: //p' "$T/table.tsv")
+  if [ -z "$_triggers" ]; then
+    _triggers=none
+    gap "class table has no rule-a-triggers line"
+  fi
+  [ "${_anom:-missing}" = 0 ] || gap "class table anomalies: ${_anom:-missing}"
+  grep -Eq '^I	rustc	rustc [0-9]' "$T/box.out" || gap "the container reported no rustc version"
+  [ "${TUT_CLEAN:-no}" = yes ] || gap "the tool under test (tools/lint) differs from the recorded commit"
+
+  # Rule (b) and the fuzz completeness.
+  [ "${ADM_CTRL:-not-run}" = ok ] || gap "sanitizer negative control: ${ADM_CTRL:-not-run}"
+  _b=no
+  if [ "${FZ_RAN:-no}" != yes ]; then
+    gap "the registered fuzz did not run"
+  else
+    if [ "$FZ_RC" != 0 ]; then
+      if san_report_in "$T/fz.err" && admission_frame_in "$T/fz.err"; then
+        _b=yes
+      else
+        gap "fuzz exited $FZ_RC with no sanitizer report attributable to admission.c (a harness finding, not a trigger)"
+      fi
+    elif san_report_in "$T/fz.err"; then
+      gap "sanitizer report text present although the fuzz exited 0"
+    fi
+    grep -qx 'mutations: 2000000' "$T/fz.out" || gap "fuzz output lacks 'mutations: 2000000'"
+    grep -qx 'inputs: 2000040' "$T/fz.out" || gap "fuzz output lacks 'inputs: 2000040'"
+    _ci=$(grep '^info-consistency: ' "$T/fz.out" | head -n 1)
+    _ri=$(grep '^info-consistency: ' "$T/rust.out" 2>/dev/null | head -n 1)
+    if [ "$_ci" != "info-consistency: ok" ] || [ "$_ri" != "$_ci" ]; then
+      gap "info-consistency C='${_ci:-missing}' Rust='${_ri:-missing}' (both must read ok)"
+    fi
+  fi
+
+  if [ "$_untrusted" = yes ]; then
+    DEC=inconclusive
+  elif [ "$_triggers" != none ] || [ "$_b" = yes ]; then
+    DEC=switch-rust
+  elif [ -z "$GAPS" ]; then
+    DEC=stay-c17
+  else
+    DEC=inconclusive
+  fi
+  echo "rule-a-triggers: $_triggers"
+  echo "rule-b-triggered: $_b"
+  echo "completeness-gaps: ${GAPS:-none}"
+  echo "mechanical-decision: $DEC"
+}
+
 registered_mode() {
   preflight
   new_tmp
   verify_frozen
+  DECIDING=yes
+  NEG_HOST="" NEG_CLINUX="" NEG_RUST="" ADM_CTRL=not-run FZ_RAN=no RUST_RC=""
+  : > "$T/fz.out"
+  : > "$T/fz.err"
+  : > "$T/rust.out"
   _t0=$(date +%s)
   echo "registered-run-start: $(date -u +%Y-%m-%dT%H:%M:%SZ)"
+  print_tool_under_test
   run_host_lint "$CLASSES"
   run_container_classes "$CLASSES"
   print_env
   print_class_table > "$T/table.tsv"
   cat "$T/table.tsv"
   echo "negative-controls: host-c=$NEG_HOST linux-c=$NEG_CLINUX linux-rust=$NEG_RUST (each must be 1)"
-  [ "$NEG_HOST" = 1 ] && [ "$NEG_CLINUX" = 1 ] && [ "$NEG_RUST" = 1 ] || die "a harness negative control failed"
-  _triggers=$(sed -n 's/^rule-a-triggers: //p' "$T/table.tsv")
 
   echo "== fuzz =="
-  admission_control || die "harness negative control for the sanitizer fuzz failed"
-  fuzz_build_run ""
+  if admission_control; then
+    ADM_CTRL=ok
+    FZ_RAN=yes
+    fuzz_build_run ""
+  else
+    ADM_CTRL=failed
+    echo "fuzz: not run, because the sanitizer negative control failed"
+  fi
   echo "fuzz-tool: $(fuzz_tool_name)"
   echo "fuzz-flags: $FZ_FLAGS"
   echo "fuzz-exit: $FZ_RC"
-  grep -E '^(mutations|inputs|boundary )' "$T/fz.out" || true
-  _b=no
-  if [ "$FZ_RC" = 0 ]; then
+  grep -E '^(mutations|inputs|boundary |info-consistency)' "$T/fz.out" || true
+  if [ "$FZ_RAN" = yes ] && [ "$FZ_RC" = 0 ]; then
     _san="Sanitizers C: ASan+UBSan clean"
   else
     _fails=$(grep '^FAIL: input ' "$T/fz.err" | head -n 3 | paste -s -d';' -)
-    _san="Sanitizers C: ASan+UBSan report: input digests: ${_fails:-none recorded}"
-    echo "--- first sanitizer report lines ---"
+    _san="Sanitizers C: not clean or not run: input digests: ${_fails:-none recorded}"
+    echo "--- first lines of the fuzz stderr ---"
     head -n 25 "$T/fz.err"
-    if grep -q 'admission\.c' "$T/fz.err"; then
-      _b=yes
-    else
-      echo "note: report has no admission.c frame (not attributable to the parser)"
-    fi
   fi
 
   echo "== differential =="
   rust_admission differential
-  grep -E '^rust-' "$T/rust.out"
+  grep -E '^rust-' "$T/rust.out" || true
   [ "$RUST_RC" = 0 ] || echo "note: the Rust differential test exited $RUST_RC (a registered finding, not a trigger)"
   grep -E '^(boundary |mutations:|inputs:|outcomes:|fnv1a64:)' "$T/fz.out" > "$T/c.cmp" || true
   grep -E '^(boundary |mutations:|inputs:|outcomes:|fnv1a64:)' "$T/rust.out" > "$T/r.cmp" || true
-  grep -E '^(outcomes|fnv1a64):' "$T/fz.out" || true
-  grep -E '^(outcomes|fnv1a64):' "$T/rust.out" || true
+  grep -E '^(outcomes|fnv1a64|info-consistency):' "$T/fz.out" || true
+  grep -E '^(outcomes|fnv1a64|info-consistency):' "$T/rust.out" || true
   if [ "$RUST_RC" = 0 ] && [ -s "$T/c.cmp" ] && cmp -s "$T/c.cmp" "$T/r.cmp"; then
     _diff=match
   else
@@ -457,11 +609,193 @@ registered_mode() {
   echo "Sanitizers Rust: not run (stable rustc; -Zsanitizer is nightly-only, per PREREG)"
 
   echo "== rules =="
-  echo "rule-a-triggers: $_triggers"
-  echo "rule-b-triggered: $_b"
-  if [ "$_triggers" = none ] && [ "$_b" = no ]; then _dec=stay-c17; else _dec=switch-rust; fi
-  echo "mechanical-decision: $_dec"
+  DECIDING=no
+  decide
   echo "registered-run-end: $(date -u +%Y-%m-%dT%H:%M:%SZ) duration-seconds: $(($(date +%s) - _t0))"
+  [ "$DEC" != inconclusive ] || exit 3
+}
+
+# ---------------------------------------------------------------------------
+# Decision negative controls (PREREG Amendment 1)
+# ---------------------------------------------------------------------------
+# Each case starts from a synthetic clean fixture that decides stay-c17, changes
+# one fact, and checks the decision that the real decide() and
+# print_class_table() produce. No docker, no compiler, no decision data.
+
+# st_fixture: a clean run's intermediate files and variables.
+st_fixture() {
+  : > "$T/host.tsv"
+  : > "$T/box.tsv"
+  printf '%s\n' "$CLASSES" | while IFS='|' read -r _n _c _r; do
+    if [ "$_n" = control ]; then _e=0; else _e=1; fi
+    if [ "$_c" = - ]; then
+      printf '%s\tn/a\t-\n' "$_n" >> "$T/host.tsv"
+      printf 'R\t%s\t0\t-\n' "$_n" >> "$T/box.tsv"
+      continue
+    fi
+    printf '%s\t%s\tL1-X\n' "$_n" "$_e" >> "$T/host.tsv"
+    printf 'C\t%s\t%s\tL1-X\n' "$_n" "$_e" >> "$T/box.tsv"
+    printf 'R\t%s\t%s\tE0433\n' "$_n" "$_e" >> "$T/box.tsv"
+  done
+  {
+    cat "$T/box.tsv"
+    printf 'NR\t1\nNC\t1\n'
+    printf 'I\tcontainer-arch\taarch64\nI\trustc\trustc 1.91.1 (selftest)\n'
+  } > "$T/box.out"
+  printf 'boundary 0: 3333\nmutations: 2000000\ninputs: 2000040\noutcomes: 1 1 1 1 1 1 1\nfnv1a64: 0000000000000000\ninfo-consistency: ok\n' > "$T/fz.out"
+  : > "$T/fz.err"
+  printf 'mutations: 2000000\ninputs: 2000040\ninfo-consistency: ok\n' > "$T/rust.out"
+  NEG_HOST=1 NEG_CLINUX=1 NEG_RUST=1 ADM_CTRL=ok FZ_RAN=yes FZ_RC=0 RUST_RC=0 TUT_CLEAN=yes
+}
+
+# st_edit FILE AWK-PROGRAM: rewrite FILE through awk (portable in-place edit).
+st_edit() {
+  awk -F'\t' -v OFS='\t' "$2" "$1" > "$1.new" && mv "$1.new" "$1"
+}
+
+st_drop_box_row() {
+  st_edit "$T/box.tsv" "!(\$1 == \"$1\" && \$2 == \"$2\")"
+}
+
+# st_perturb CASE: change one fact of the clean fixture.
+st_perturb() {
+  case $1 in
+    clean) ;;
+    fuzz-calloc-exit3)
+      FZ_RC=3
+      printf 'boundary 0: 3333\n' > "$T/fz.out"
+      printf 'harness: allocation of 67108864 bytes failed\n' > "$T/fz.err" ;;
+    fuzz-outcome-range-exit4)
+      FZ_RC=4
+      printf 'boundary 0: 3333\n' > "$T/fz.out"
+      printf 'harness: outcome code 9 out of range\n' > "$T/fz.err" ;;
+    fuzz-info-bad-exit5)
+      FZ_RC=5
+      st_edit "$T/fz.out" '/^info-consistency:/ { $0 = "info-consistency: BAD" } { print }' ;;
+    fuzz-killed-137)
+      FZ_RC=137
+      printf 'boundary 0: 3333\n' > "$T/fz.out" ;;
+    fuzz-docker-125)
+      FZ_RC=125
+      : > "$T/fz.out"
+      printf 'docker: Error response from daemon\n' > "$T/fz.err" ;;
+    fuzz-exit0-short)
+      st_edit "$T/fz.out" '/^mutations:/ { $0 = "mutations: 1000" } /^inputs:/ { $0 = "inputs: 1040" } { print }' ;;
+    fuzz-exit0-no-inputs-line)
+      st_edit "$T/fz.out" '!/^inputs:/' ;;
+    fuzz-exit0-no-info-line)
+      st_edit "$T/fz.out" '!/^info-consistency:/' ;;
+    fuzz-exit0-with-report-text)
+      printf 'admission.c:23:5: runtime error: load of address\n' > "$T/fz.err" ;;
+    fuzz-not-run)
+      FZ_RAN=no
+      : > "$T/fz.out" ;;
+    rust-differential-failed)
+      RUST_RC=101
+      : > "$T/rust.out" ;;
+    sanitizer-control-failed)
+      ADM_CTRL=failed ;;
+    lint-exit2-host)
+      st_edit "$T/host.tsv" '$1 == "host-time" { $2 = 2 } { print }' ;;
+    lint-exit2-linux)
+      st_edit "$T/box.tsv" '$1 == "C" && $2 == "file-io" { $3 = 2 } { print }' ;;
+    lint-linux-row-missing)
+      st_drop_box_row C thread ;;
+    rustc-missing)
+      st_edit "$T/box.tsv" '$1 == "R" { $3 = 127 } { print }'
+      st_edit "$T/box.out" '!($1 == "I" && $2 == "rustc")' ;;
+    rust-row-missing)
+      st_drop_box_row R tls ;;
+    tool-under-test-modified)
+      TUT_CLEAN=no ;;
+    negative-control-host-lint)
+      NEG_HOST=0 ;;
+    negative-control-rust)
+      NEG_RUST=0 ;;
+    report-only-in-harness)
+      FZ_RC=1
+      st_edit "$T/fz.out" '/^boundary/'
+      printf '==1==ERROR: AddressSanitizer: heap-buffer-overflow\n    #0 0x1 in run_one fuzz_admission.c:123\n    #1 0x2 in main fuzz_admission.c:199\n' > "$T/fz.err" ;;
+    admission-named-without-report)
+      FZ_RC=2
+      st_edit "$T/fz.out" '/^boundary/'
+      printf 'cc: error: docs/spikes/rust-vs-c/admission/admission.c:1: cannot open\n' > "$T/fz.err" ;;
+    rule-b-asan)
+      FZ_RC=1
+      st_edit "$T/fz.out" '/^boundary/'
+      printf '==1==ERROR: AddressSanitizer: heap-buffer-overflow\n    #0 0x1 in t64s_admit admission.c:23\n    #1 0x2 in run_one fuzz_admission.c:123\nFAIL: input phase=mutation index=7 len=4096 fnv1a64=0\n' > "$T/fz.err" ;;
+    rule-b-ubsan-linux-path)
+      FZ_RC=1
+      st_edit "$T/fz.out" '/^boundary/'
+      printf '/src/docs/spikes/rust-vs-c/admission/admission.c:28:8: runtime error: load of null pointer\n' > "$T/fz.err" ;;
+    rule-a)
+      st_edit "$T/host.tsv" '$1 == "host-time" { $2 = 0 } { print }'
+      st_edit "$T/box.tsv" '$1 == "C" && $2 == "host-time" { $3 = 0 } { print }' ;;
+    rule-a-broken-negative-control)
+      st_perturb rule-a
+      NEG_CLINUX=0 ;;
+    *) die "decision-selftest: unknown case $1" ;;
+  esac
+}
+
+ST_CASES='clean stay-c17
+fuzz-calloc-exit3 inconclusive
+fuzz-outcome-range-exit4 inconclusive
+fuzz-info-bad-exit5 inconclusive
+fuzz-killed-137 inconclusive
+fuzz-docker-125 inconclusive
+fuzz-exit0-short inconclusive
+fuzz-exit0-no-inputs-line inconclusive
+fuzz-exit0-no-info-line inconclusive
+fuzz-exit0-with-report-text inconclusive
+fuzz-not-run inconclusive
+rust-differential-failed inconclusive
+sanitizer-control-failed inconclusive
+lint-exit2-host inconclusive
+lint-exit2-linux inconclusive
+lint-linux-row-missing inconclusive
+rustc-missing inconclusive
+rust-row-missing inconclusive
+tool-under-test-modified inconclusive
+negative-control-host-lint inconclusive
+negative-control-rust inconclusive
+report-only-in-harness inconclusive
+admission-named-without-report inconclusive
+rule-b-asan switch-rust
+rule-b-ubsan-linux-path switch-rust
+rule-a switch-rust
+rule-a-broken-negative-control inconclusive'
+
+decision_selftest_mode() {
+  new_tmp
+  _fail=0
+  _n=0
+  while read -r _case _want; do
+    [ -n "$_case" ] || continue
+    _n=$((_n + 1))
+    _got=$(
+      st_fixture
+      st_perturb "$_case"
+      print_class_table > "$T/table.tsv"
+      decide > "$T/decide.out"
+      sed -n 's/^mechanical-decision: //p' "$T/decide.out"
+    ) || _got="error"
+    if [ "$_got" = "$_want" ]; then
+      echo "ok   $_case -> $_got"
+    else
+      echo "FAIL $_case -> ${_got:-none} (expected $_want)"
+      sed 's/^/     /' "$T/decide.out" 2>/dev/null || true
+      _fail=$((_fail + 1))
+    fi
+  done <<EOF
+$ST_CASES
+EOF
+  if [ "$_fail" = 0 ]; then
+    echo "decision-selftest: PASS ($_n cases)"
+    return 0
+  fi
+  echo "decision-selftest: FAIL ($_fail of $_n cases)"
+  return 1
 }
 
 case "${1:-}" in
@@ -470,5 +804,6 @@ case "${1:-}" in
   --verify-frozen) preflight; new_tmp; verify_frozen ;;
   --admission-check) admission_check_mode ;;
   --registered) registered_mode ;;
+  --decision-selftest) decision_selftest_mode ;;
   *) usage ;;
 esac

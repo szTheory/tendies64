@@ -13,5 +13,12 @@ add_test(NAME repo.ci-yml
 add_test(NAME repo.ci-yml-selftest
   COMMAND sh ${CMAKE_SOURCE_DIR}/scripts/check-ci-yml.sh --selftest
   WORKING_DIRECTORY ${CMAKE_SOURCE_DIR})
+# Negative controls for the Rust-vs-C spike's mechanical decision (PREREG
+# Amendment 1). Runs the frozen harness's decision code on synthetic inputs only:
+# no docker, no compiler, nothing built, no decision data.
+add_test(NAME repo.spike-decision-selftest
+  COMMAND sh ${CMAKE_SOURCE_DIR}/docs/spikes/rust-vs-c/run-spike.sh --decision-selftest
+  WORKING_DIRECTORY ${CMAKE_SOURCE_DIR})
 set_tests_properties(repo.docs repo.docs-selftest repo.ci-yml repo.ci-yml-selftest
+  repo.spike-decision-selftest
   PROPERTIES LABELS repo)

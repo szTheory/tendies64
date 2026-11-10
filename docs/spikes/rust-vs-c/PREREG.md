@@ -241,3 +241,64 @@ Stated so the results can be read against it:
   side under ASan and UBSan, to catch a typing error before freezing. No sanitizer report appeared. That scale
   is 1 percent of the registered run and is not decision data.
 - The registered run, the per-class table at full scale and the 2,000,000-mutation fuzz have not been run.
+
+## Amendment 1 (2026-11-10)
+
+Written after run 1's results were known (RESULTS.md, Decision: stay-c17). The phase code review found the
+harness bugs below (review findings WR-21 and WR-22). This amendment changes the harness only. No class, corpus
+file, admission file, seed, mutation count, compiler flag or rule threshold changes, and rules (a) and (b) are
+evaluated as registered.
+
+Harness bugs:
+
+1. The decision failed open. It printed `stay-c17` whenever rule (a) listed no trigger and rule (b) found no
+   report naming `admission.c`. So a fuzz that did not finish still read `stay-c17`: allocation failure (exit
+   3), an outcome out of range (exit 4), an `info-consistency: BAD` result (exit 5), a docker failure, or an OOM
+   kill. So did a broken C lint (exit 2 on every class, counted as an anomaly but ignored) and a missing
+   `rustc` (exit 127). The script never checked that `inputs: 2000040` was printed.
+2. Rule (b) attribution matched the bare text `admission.c`. That text also matches the harness file
+   `fuzz_admission.c` and any message that names the file without a sanitizer report.
+3. The tool that rule (a) measures, the C gate lint (`tools/lint/core-lint.sh`, `lint-objects.sh`,
+   `rules.txt`, `allowlist.txt`), is not in the frozen set, and run 1 recorded neither its hashes nor a commit.
+
+Changes:
+
+- The decision has three values. `switch-rust`: rule (a) lists a trigger, or the fuzz exited non-zero with an
+  ASan or UBSan report attributable to `admission.c`. `stay-c17`: neither rule fired, and all of these hold.
+  The class table has 0 anomalies, so no lint exit 2, no `rustc` exit 127 and no missing row. The container
+  reported a `rustc` version. The sanitizer negative control passed. The fuzz ran and exited 0 and printed
+  `mutations: 2000000`, `inputs: 2000040` and `info-consistency: ok`, with no sanitizer report text. The Rust
+  differential printed the same `info-consistency` line. The lint files match the recorded commit.
+  `inconclusive`: anything else, and also any failed lint or `rustc` negative control, even when a rule
+  appears to fire (a lint that cannot fail proves nothing either way). `inconclusive` exits 3. A harness error
+  after the frozen-input check now prints `mechanical-decision: inconclusive` instead of stopping with no
+  decision line.
+- A sanitizer report means an ASan `ERROR: AddressSanitizer` line or a UBSan `runtime error:` line.
+  Attribution needs a location in `admission.c` itself (`admission.c:<line>`, not preceded by a name
+  character), so a frame in `fuzz_admission.c` alone is a harness finding. The same test is used by the
+  sanitizer negative control.
+- A class row missing from the Linux C results or the Rust results counts as an anomaly.
+- `--registered` prints the git commit and the SHA-256 of the four lint files as run.
+  The lint is recorded, not frozen. Freezing it would add rows to the table above, which this protocol does
+  not allow. This is a disclosed gap in the original registration. Any future spike must freeze the tool under
+  test.
+- New mode `--decision-selftest`: 27 negative and positive controls run the real decision code on synthetic
+  inputs. Each changes one fact of a clean fixture that decides `stay-c17`. Every non-clean condition above
+  must yield `inconclusive`. Rules (a) and (b) must yield `switch-rust`. A report in `fuzz_admission.c` only
+  must not. CTest runs it as `repo.spike-decision-selftest`. Nothing is built, and no decision data is
+  produced.
+
+Direction of the change: compared with run 1's harness, these rules can only turn a would-be `stay-c17` into
+`inconclusive`, or a would-be `switch-rust` caused by an unattributable report into `inconclusive`. They
+cannot produce `stay-c17` where the original harness would not have.
+
+Not amended, because the protocol forbids changing admission files: `fuzz_admission.c` accepts a malformed
+`--mutations` value (review IN-24). The registered run passes no arguments, so it is unaffected.
+
+Known limit, unchanged by this amendment (review WR-23): after its length checks the spike parser reads only
+`buf[0..3]`, so rule (b) as constructed could hardly fire. See ADR-0002, "Evidence limits".
+
+The re-run uses the lint as it stands at the re-run commit. That lint has changed since run 1 through
+review fixes CR-13 and WR-16, and the results record both versions.
+
+run-spike.sh sha256: 9154633fa7d4cb151017c2917d517c2a08a31601fda26c7b9e1b648e300a0794
