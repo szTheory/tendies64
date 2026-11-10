@@ -1,0 +1,13 @@
+{
+  "command": "ctest --test-dir build/gate --no-tests=error -R ^unit.core.profile$ --output-on-failure --output-junit .planning/phases/02-deterministic-machine-skeleton/02-01-profile-red.xml",
+  "exitCode": 8,
+  "output": "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n<testsuite name=\"(empty)\"\n\ttests=\"1\"\n\tfailures=\"1\"\n\tdisabled=\"0\"\n\tskipped=\"0\"\n\thostname=\"\"\n\ttime=\"0\"\n\ttimestamp=\"2026-11-10T11:16:22\"\n\t>\n\t<testcase name=\"unit.core.profile\" classname=\"unit.core.profile\" time=\"0.272796\" status=\"fail\">\n\t\t<failure message=\"Failed\"/>\n\t\t<properties>\n\t\t\t<property name=\"cmake_labels\" value=\"unit\"/>\n\t\t</properties>\n\t\t<system-out>core/tests/test_profile.c:21: CHECK_INT failed: status got 1 want 0\ncore/tests/test_profile.c:22: CHECK failed: serialized_length &gt; 0u\nunit.core.profile: checks=4 failures=2\n</system-out>\n\t</testcase>\n</testsuite>\n",
+  "targetTest": "unit.core.profile",
+  "targetFile": "core/tests/test_profile.c",
+  "expected": "The named profile descriptor serializes into stable canonical bytes.",
+  "actual": "The target test failed on the planned assertion that t64_profile_serialize returns T64_STATUS_OK; the production seam still has a RED stub.",
+  "reportPath": "build/gate/.planning/phases/02-deterministic-machine-skeleton/02-01-profile-red.xml",
+  "runStartedAt": "2026-11-10T16:16:22Z",
+  "reportModifiedAt": "1794327382",
+  "semanticAssessment": "The registered unit.core.profile target executed and failed on its descriptor serialization assertion because the planned production behavior is absent; no compile, discovery, fixture, or setup error occurred."
+}

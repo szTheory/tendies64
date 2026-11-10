@@ -250,6 +250,16 @@ t64_status t64_profile_hash(const t64_profile_descriptor *profile,
   return T64_STATUS_OK;
 }
 
+t64_status t64_profile_serialize(const t64_profile_descriptor *profile,
+                                 uint8_t *bytes_out, size_t capacity,
+                                 size_t *length_out) {
+  (void)profile;
+  (void)bytes_out;
+  (void)capacity;
+  (void)length_out;
+  return T64_STATUS_INVALID_ARGUMENT;
+}
+
 t64_status t64_machine_create(const t64_host_allocator *allocator,
                               const t64_profile_descriptor *profile,
                               t64_machine **machine_out) {

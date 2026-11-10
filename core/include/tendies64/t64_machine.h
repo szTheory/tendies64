@@ -12,6 +12,7 @@
 
 #define T64_DIGEST_SIZE 32u
 #define T64_PROFILE_TEXT_CAPACITY 64u
+#define T64_PROFILE_SERIALIZED_MAX_BYTES 2048u
 
 #define T64_STATUS_OK UINT32_C(0)
 #define T64_STATUS_INVALID_ARGUMENT UINT32_C(1)
@@ -58,6 +59,7 @@ typedef struct {
 typedef struct {
   char profile_id[T64_PROFILE_TEXT_CAPACITY];
   char console_target[T64_PROFILE_TEXT_CAPACITY];
+  char console_qualification[T64_PROFILE_TEXT_CAPACITY];
   uint32_t tv_standard;
   uint32_t region;
   uint32_t media_kind;
@@ -67,6 +69,38 @@ typedef struct {
   uint32_t save_kind;
   char boot_route[T64_PROFILE_TEXT_CAPACITY];
   char boot_status[T64_PROFILE_TEXT_CAPACITY];
+  char guest_tick_unit[T64_PROFILE_TEXT_CAPACITY];
+  uint32_t cpu_rsp_ratio_numerator;
+  uint32_t cpu_rsp_ratio_denominator;
+  uint32_t synchronization_quantum;
+  char timing_tier[T64_PROFILE_TEXT_CAPACITY];
+  char scheduler_version[T64_PROFILE_TEXT_CAPACITY];
+  char pi_model_version[T64_PROFILE_TEXT_CAPACITY];
+  char sp_model_version[T64_PROFILE_TEXT_CAPACITY];
+  uint32_t rom_min_bytes;
+  uint32_t rom_max_bytes;
+  uint32_t event_queue_capacity;
+  uint32_t sequence_width_bits;
+  uint32_t advance_event_budget;
+  uint32_t pi_duration_base_ticks;
+  uint32_t pi_duration_bytes_divisor;
+  uint32_t sp_duration_base_rsp_cycles;
+  uint32_t sp_duration_bytes_divisor;
+  char rom_order_policy[T64_PROFILE_TEXT_CAPACITY];
+  char event_order_policy[T64_PROFILE_TEXT_CAPACITY];
+  char queue_exhaustion_policy[T64_PROFILE_TEXT_CAPACITY];
+  char sequence_exhaustion_policy[T64_PROFILE_TEXT_CAPACITY];
+  char advance_budget_policy[T64_PROFILE_TEXT_CAPACITY];
+  char guest_time_bound_policy[T64_PROFILE_TEXT_CAPACITY];
+  char halt_precedence_policy[T64_PROFILE_TEXT_CAPACITY];
+  char pi_register_policy[T64_PROFILE_TEXT_CAPACITY];
+  char sp_register_policy[T64_PROFILE_TEXT_CAPACITY];
+  char device_error_policy[T64_PROFILE_TEXT_CAPACITY];
+  char dma_cancel_policy[T64_PROFILE_TEXT_CAPACITY];
+  char dma_visibility_policy[T64_PROFILE_TEXT_CAPACITY];
+  uint32_t descriptor_version;
+  uint32_t machine_model_version;
+  uint32_t state_serialization_version;
 } t64_profile_descriptor;
 
 typedef struct {
@@ -84,6 +118,9 @@ t64_status t64_profile_lookup(const char *profile_id,
                               const t64_profile_descriptor **profile_out);
 t64_status t64_profile_hash(const t64_profile_descriptor *profile,
                             uint8_t digest_out[T64_DIGEST_SIZE]);
+t64_status t64_profile_serialize(const t64_profile_descriptor *profile,
+                                 uint8_t *bytes_out, size_t capacity,
+                                 size_t *length_out);
 
 /* Create/destroy and admission are the only operations that call the host. */
 t64_status t64_machine_create(const t64_host_allocator *allocator,
@@ -97,6 +134,8 @@ t64_status t64_machine_advance(t64_machine *machine,
                                t64_stop_result *result_out);
 t64_status t64_machine_content_digest(
     const t64_machine *machine, uint8_t digest_out[T64_DIGEST_SIZE]);
+t64_status t64_machine_profile(
+    const t64_machine *machine, const t64_profile_descriptor **profile_out);
 t64_status t64_machine_digest(const t64_machine *machine,
                               uint8_t digest_out[T64_DIGEST_SIZE]);
 
