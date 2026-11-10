@@ -1,6 +1,7 @@
 # Seeds for t64-result-check result, driven by tests/seeded/run-expect.sh.
 # Columns: file, exit, rule_id, needle (optional). Every .json file here is a seed and needs a row.
-# All seeds are hand-edited copies of tests/controls/golden/positive.json.
+# All seeds are hand-edited copies of a golden in tests/controls/golden/ (positive.json
+# unless the row's comment names another), with one field changed.
 good.json	0	ok
 bad_unknown_field.json	1	R-UNKNOWN-FIELD	wall_ms
 bad_missing_field.json	1	R-MISSING-FIELD	fixture_digest
@@ -11,3 +12,30 @@ bad_not_canonical.json	1	R-NOT-CANONICAL
 bad_detail_outcome.json	1	R-DETAIL-OUTCOME
 bad_synthetic_stamp.json	1	R-SYNTHETIC-STAMP
 bad_u64_number.json	1	R-TYPE	guest_tick
+# WR-03: cross-field relations the classifier makes deterministic (R-CONSISTENCY).
+bad_cons_line_sum.json	1	R-CONSISTENCY	pass_reported + fail_reported exceeds log_lines
+bad_cons_unhandled.json	1	R-CONSISTENCY	unhandled_exception_lines exceeds log_lines
+# from spin.json
+bad_cons_lines_bytes.json	1	R-CONSISTENCY	log_lines exceeds log_bytes
+# from spin.json
+bad_cons_no_lines.json	1	R-CONSISTENCY	a non-empty capture has at least one line
+bad_cons_empty_digest.json	1	R-CONSISTENCY	empty-string digest exactly when log_bytes is 0
+# from empty-halt.json
+bad_cons_digest_not_empty.json	1	R-CONSISTENCY	empty-string digest exactly when log_bytes is 0
+# The WR-02 forgery: a pass whose capture is shorter than log_bytes_total.
+bad_cons_short_capture.json	1	R-CONSISTENCY	positive-match requires log_bytes equal to log_bytes_total
+# from log-over-limit.json
+bad_cons_over_limit_equal.json	1	R-CONSISTENCY	log-over-limit requires log_bytes below log_bytes_total
+bad_cons_pass_fail.json	1	R-CONSISTENCY	positive-match requires fail_reported 0
+bad_cons_pass_empty.json	1	R-CONSISTENCY	positive-match requires log_bytes > 0
+bad_cons_bootfail_bytes.json	1	R-CONSISTENCY	boot-fail requires log_bytes 0
+# from spin.json
+bad_cons_timeout_halt.json	1	R-CONSISTENCY	timeout requires stop_reason guest-bound
+# from fail-reported.json
+bad_cons_failreported_zero.json	1	R-CONSISTENCY	fail-reported requires fail_reported > 0
+# from truncated-verdict.json
+bad_cons_incomplete_bound.json	1	R-CONSISTENCY	verdict-incomplete requires stop_reason guest-halt
+# from fail-after-done.json
+bad_cons_after_done_lines.json	1	R-CONSISTENCY	output-after-done requires at least 2 log_lines
+# from abort.json: a harness error after launch always carries the fixture digest.
+bad_null_fixture_digest_after_launch.json	1	R-NULL-RULES	runner-signalled requires fixture_digest to be present

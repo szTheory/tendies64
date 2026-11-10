@@ -288,6 +288,124 @@ static int lookup_outcome(const t64_json_node *n, t64_outcome *out) {
   return 0;
 }
 
+/* SHA-256 of the empty string: the log_digest of an empty capture. */
+static const char empty_digest[] =
+    "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855";
+
+/*
+ * R-CONSISTENCY (WR-03): relations between outcome, detail, stop_reason, the
+ * counts and log_digest that the classifier makes deterministic for a guest
+ * outcome (docs/spec/result-protocol.md, precedence section; ADR-0005). The
+ * counts are derived from the capture, the capture holds exactly
+ * min(log_bytes_total, log limit) bytes, and the guest-fail details are tried
+ * in a fixed order before boot-fail, timeout and pass. A record that breaks
+ * one of these was not produced by the classifier. counts order:
+ * fail_reported, log_bytes, log_bytes_total, log_lines, pass_reported,
+ * unhandled_exception_lines.
+ */
+static int check_consistency(const t64_json_node *root, const uint64_t *c,
+                             t64_detail detail, diag *d) {
+  const uint64_t fail = c[0];
+  const uint64_t bytes = c[1];
+  const uint64_t total = c[2];
+  const uint64_t lines = c[3];
+  const uint64_t pass = c[4];
+  const uint64_t unhandled = c[5];
+  const t64_json_node *ld = t64_json_get(root, "log_digest");
+  const t64_json_node *stop = t64_json_get(root, "stop_reason");
+  const char *name = t64_detail_name(detail);
+  int is_empty_digest = ld->len == sizeof empty_digest - 1u &&
+                        memcmp(ld->str, empty_digest, ld->len) == 0;
+
+  /* Line counts: every counted line is one line, and every line has a byte
+   * (an empty line is its LF; an unterminated last line is non-empty). */
+  if (pass + fail > lines) {
+    set_diag(d, "R-CONSISTENCY",
+             "pass_reported + fail_reported exceeds log_lines");
+    return 0;
+  }
+  if (unhandled > lines) {
+    set_diag(d, "R-CONSISTENCY", "unhandled_exception_lines exceeds log_lines");
+    return 0;
+  }
+  if (lines > bytes) {
+    set_diag(d, "R-CONSISTENCY", "log_lines exceeds log_bytes");
+    return 0;
+  }
+  if (bytes > 0 && lines == 0) {
+    set_diag(d, "R-CONSISTENCY", "a non-empty capture has at least one line");
+    return 0;
+  }
+  /* The digest of an empty capture is the digest of the empty string. */
+  if ((bytes == 0) != is_empty_digest) {
+    set_diag(d, "R-CONSISTENCY",
+             "log_digest is the empty-string digest exactly when log_bytes is 0");
+    return 0;
+  }
+  /* The capture is cut short of log_bytes_total only by the log limit, and
+   * then log-over-limit is the first guest detail that applies. */
+  if (detail == T64_D_LOG_OVER_LIMIT && bytes >= total) {
+    set_diag(d, "R-CONSISTENCY",
+             "log-over-limit requires log_bytes below log_bytes_total");
+    return 0;
+  }
+  if (detail != T64_D_LOG_OVER_LIMIT && bytes != total) {
+    set_diag(d, "R-CONSISTENCY",
+             "%s requires log_bytes equal to log_bytes_total", name);
+    return 0;
+  }
+  /* A FAIL line makes fail-reported win over every later guest detail. */
+  if (fail > 0 && detail != T64_D_LOG_OVER_LIMIT &&
+      detail != T64_D_LOG_INVALID_UTF8 && detail != T64_D_FAIL_REPORTED) {
+    set_diag(d, "R-CONSISTENCY", "%s requires fail_reported 0", name);
+    return 0;
+  }
+  switch (detail) {
+    case T64_D_FAIL_REPORTED:
+      if (fail == 0) {
+        set_diag(d, "R-CONSISTENCY", "fail-reported requires fail_reported > 0");
+        return 0;
+      }
+      break;
+    case T64_D_OUTPUT_AFTER_DONE:
+      if (lines < 2) {
+        set_diag(d, "R-CONSISTENCY",
+                 "output-after-done requires at least 2 log_lines");
+        return 0;
+      }
+      break;
+    case T64_D_VERDICT_INCOMPLETE:
+      if (!str_is(stop, "guest-halt")) {
+        set_diag(d, "R-CONSISTENCY",
+                 "verdict-incomplete requires stop_reason guest-halt");
+        return 0;
+      }
+      break;
+    case T64_D_EMPTY_OUTPUT:
+      if (bytes != 0) {
+        set_diag(d, "R-CONSISTENCY", "boot-fail requires log_bytes 0");
+        return 0;
+      }
+      break;
+    case T64_D_GUEST_BOUND:
+      if (!str_is(stop, "guest-bound")) {
+        set_diag(d, "R-CONSISTENCY", "timeout requires stop_reason guest-bound");
+        return 0;
+      }
+      break;
+    default:
+      break;
+  }
+  /* An empty capture is boot-fail unless an earlier detail applied first;
+   * only log-over-limit (a zero log limit) can precede it with no bytes. */
+  if (bytes == 0 && detail != T64_D_EMPTY_OUTPUT &&
+      detail != T64_D_LOG_OVER_LIMIT) {
+    set_diag(d, "R-CONSISTENCY", "%s requires log_bytes > 0", name);
+    return 0;
+  }
+  return 1;
+}
+
 static int validate_result(const t64_json_node *root, rec *r, diag *d) {
   const t64_json_node *n_counts;
   const t64_json_node *n;
@@ -441,6 +559,17 @@ static int validate_result(const t64_json_node *root, rec *r, diag *d) {
       set_diag(d, "R-NULL-RULES", "missing-fixture requires fixture_digest null");
       return 0;
     }
+    /* These details happen only after the fixture was read and verified (a
+     * digest mismatch, or anything after the runner was launched). */
+    if (t64_json_get(root, "fixture_digest")->type == T64_JSON_NULL &&
+        (detail == T64_D_FIXTURE_DIGEST_MISMATCH || detail == T64_D_EXEC_FAILED ||
+         detail == T64_D_SUPERVISOR_SIGNALLED || detail == T64_D_WALL_BACKSTOP ||
+         detail == T64_D_RUNNER_SIGNALLED || detail == T64_D_RUNNER_EXIT_NONZERO ||
+         detail == T64_D_NO_RESULT || detail == T64_D_REPORT_INVALID)) {
+      set_diag(d, "R-NULL-RULES", "%s requires fixture_digest to be present",
+               t64_detail_name(detail));
+      return 0;
+    }
   } else {
     /* counts order: fail_reported, log_bytes, log_bytes_total, ... */
     if (t64_json_get(root, "log_digest")->type == T64_JSON_NULL ||
@@ -457,6 +586,9 @@ static int validate_result(const t64_json_node *root, rec *r, diag *d) {
     }
     if (counts[1] > counts[2]) {
       set_diag(d, "R-NULL-RULES", "counts.log_bytes exceeds counts.log_bytes_total");
+      return 0;
+    }
+    if (!check_consistency(root, counts, detail, d)) {
       return 0;
     }
   }

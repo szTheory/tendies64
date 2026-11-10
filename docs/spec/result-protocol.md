@@ -335,8 +335,26 @@ Result rules, checked in this order per record:
 | `R-ENUM` | `outcome`, `detail`, `evidence_tier` (`smoke`, `regression-pinned`, `unit-tested`, `self-checking-fixture`, `emulator-differential`, `hardware-derived`, `synthetic`) or `stop_reason` is outside its closed set. |
 | `R-DETAIL-OUTCOME` | `detail` does not belong to `outcome`. |
 | `R-SYNTHETIC-STAMP` | `evidence_tier` synthetic, `profile_id` `synthetic-stub` and a `+synthetic` `build_id` are not all present or all absent, so the stamp cannot be dropped or half-applied. |
-| `R-NULL-RULES` | The null and zero rules above are broken, `state_digest` is not null, or `log_bytes` exceeds `log_bytes_total`. |
+| `R-NULL-RULES` | The null and zero rules above are broken, `state_digest` is not null, `log_bytes` exceeds `log_bytes_total`, or `fixture_digest` is null for a detail that happens only after the fixture was read (`fixture-digest-mismatch`, and every harness-error detail after launch: `exec-failed`, `supervisor-signalled`, `wall-backstop`, `runner-signalled`, `runner-exit-nonzero`, `no-result`, `report-invalid`). |
+| `R-CONSISTENCY` | A guest outcome breaks a relation the classifier makes deterministic (listed below), so the record was not produced by the classifier. |
 | `R-NOT-CANONICAL` | The bytes differ from the canonical re-emission of the parsed record (whitespace, key order, a missing final LF). |
+
+`R-CONSISTENCY` relations, for the four guest outcomes. They follow from the
+counts being derived from the capture, the capture holding exactly
+`min(log_bytes_total, log limit)` bytes, and the fixed guest-detail order:
+
+- `pass_reported + fail_reported <= log_lines`,
+  `unhandled_exception_lines <= log_lines` and `log_lines <= log_bytes`; a
+  non-empty capture has at least one line.
+- `log_digest` is the SHA-256 of the empty string exactly when `log_bytes` is 0.
+- `log-over-limit` requires `log_bytes < log_bytes_total`; every other guest
+  detail requires `log_bytes == log_bytes_total`.
+- `fail_reported > 0` only with `log-over-limit`, `log-invalid-utf8` or
+  `fail-reported`; `fail-reported` requires `fail_reported > 0`.
+- `output-after-done` requires at least 2 lines; `verdict-incomplete` requires
+  `stop_reason` `guest-halt`; `timeout` requires `stop_reason` `guest-bound`.
+- `boot-fail` requires `log_bytes` 0; every other guest detail except
+  `log-over-limit` requires `log_bytes > 0`.
 
 Suite rules (the suite record itself also goes through R-JSON, R-SCHEMA,
 R-VERSION, R-UNKNOWN-FIELD, R-MISSING-FIELD, R-TYPE and R-NOT-CANONICAL):
