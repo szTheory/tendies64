@@ -43,7 +43,7 @@ API and a playable rights-cleared homebrew. Each maps to a roadmap phase.
 - [ ] **PROF-04**: User can see unsupported, deferred and unknown profile features documented, with the evidence that would promote each
 - [ ] **PROF-05**: User gets identical state digests for identical profile, content, input and guest-time bounds, across two operating systems and two compilers
 - [ ] **PROF-06**: Maintainer can see two interleaved instances in one process produce digests equal to isolated runs
-- [ ] **PROF-07**: Maintainer can see a mechanical lint that fails the build when the core reads host time, files, threads, entropy or mutable globals
+- [x] **PROF-07**: Maintainer can see a mechanical lint that fails the build when the core reads host time, files, threads, entropy or mutable globals
 
 ### Machine Core (CORE)
 
@@ -204,7 +204,7 @@ re-sequenced at milestone close.
 | PROF-04 | Phase 2 | Pending |
 | PROF-05 | Phase 3 | Pending |
 | PROF-06 | Phase 2 | Pending |
-| PROF-07 | Phase 1 | Pending |
+| PROF-07 | Phase 1 | Complete |
 | CORE-01 | Phase 2 | Pending |
 | CORE-02 | Phase 2 | Pending |
 | CORE-03 | Phase 2 | Pending |
