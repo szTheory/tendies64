@@ -49,6 +49,7 @@ static t64_status start_rom_dma(t64_machine *machine, uint32_t raw_length) {
   t64_event_reservation reservation;
   t64_pi_state *pi = &machine->pi;
   uint32_t length = (raw_length & T64_PI_LENGTH_MASK) + UINT32_C(1);
+  uint64_t duration_ticks;
   uint64_t delay;
   uint64_t token;
   t64_status status;
@@ -75,11 +76,15 @@ static t64_status start_rom_dma(t64_machine *machine, uint32_t raw_length) {
     trace_refusal(machine, UINT32_C(0x0c), T64_STATUS_RESOURCE_EXHAUSTED);
     return T64_STATUS_RESOURCE_EXHAUSTED;
   }
-  if ((uint64_t)(length / UINT32_C(2)) >= UINT64_MAX - UINT64_C(1)) {
+  duration_ticks = (uint64_t)length /
+                   (uint64_t)machine->profile.pi_duration_bytes_divisor;
+  if ((uint64_t)machine->profile.pi_duration_base_ticks >
+      UINT64_MAX - duration_ticks) {
     trace_refusal(machine, UINT32_C(0x0c), T64_STATUS_TICK_OVERFLOW);
     return T64_STATUS_TICK_OVERFLOW;
   }
-  delay = UINT64_C(1) + (uint64_t)(length / UINT32_C(2));
+  delay = (uint64_t)machine->profile.pi_duration_base_ticks +
+          duration_ticks;
   token = pi->next_token;
   status = t64_schedule_reserve_after(machine, delay, T64_DEVICE_PI,
                                       T64_PI_EVENT_COMPLETE,

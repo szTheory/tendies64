@@ -220,6 +220,63 @@ static void test_delayed_rom_copy(void) {
   t64_machine_destroy(machine);
 }
 
+static void test_profile_pi_duration_controls_completion_tick(void) {
+  uint8_t image[TEST_ROM_BYTES];
+  const t64_host_allocator allocator = {test_allocate, test_release, NULL};
+  const t64_profile_descriptor *base_profile = NULL;
+  t64_profile_descriptor profile;
+  t64_machine *machine = NULL;
+  t64_stop_request request = {T64_STOP_GUEST_TICK, UINT64_C(6)};
+  t64_stop_result result = {0u, 0u};
+  uint32_t value = 0u;
+
+  fill_authored_image(image, sizeof image);
+  check_status("PI timing profile lookup succeeds",
+               t64_profile_lookup("ntsc-cart-4m-skeleton", &base_profile),
+               T64_STATUS_OK);
+  if (base_profile == NULL) {
+    return;
+  }
+  profile = *base_profile;
+  profile.pi_duration_base_ticks = 5u;
+  profile.pi_duration_bytes_divisor = 1u;
+  check_status("PI timing profile machine creation succeeds",
+               t64_machine_create(&allocator, &profile, &machine),
+               T64_STATUS_OK);
+  if (machine == NULL) {
+    return;
+  }
+  check_status("PI timing profile ROM admission succeeds",
+               t64_machine_admit_rom(machine, image, sizeof image),
+               T64_STATUS_OK);
+  check_status("PI timing profile DRAM address setup succeeds",
+               t64_machine_bus_write(machine, TEST_PI_BASE, 4u, 0x100u),
+               T64_STATUS_OK);
+  check_status("PI timing profile cartridge address setup succeeds",
+               t64_machine_bus_write(machine, TEST_PI_BASE + 4u, 4u,
+                                     TEST_CART_BASE + 0x100u),
+               T64_STATUS_OK);
+  check_status("PI timing profile accepts a two-byte request",
+               t64_machine_bus_write(machine, TEST_PI_BASE + 12u, 4u, 1u),
+               T64_STATUS_OK);
+  check_status("PI timing profile advances through tick 6",
+               t64_machine_advance(machine, &request, &result), T64_STATUS_OK);
+  check_status("PI status is readable before custom completion tick",
+               t64_machine_bus_read(machine, TEST_PI_BASE + 16u, 4u, &value),
+               T64_STATUS_OK);
+  check_u64("PI remains busy through custom tick 6", value & 1u, 1u);
+
+  request.value = UINT64_C(7);
+  check_status("PI timing profile advances through tick 7",
+               t64_machine_advance(machine, &request, &result), T64_STATUS_OK);
+  check_u64("PI custom completion occurs at tick 7", result.tick, 7u);
+  check_status("PI status is readable after custom completion tick",
+               t64_machine_bus_read(machine, TEST_PI_BASE + 16u, 4u, &value),
+               T64_STATUS_OK);
+  check_u64("PI is idle at custom tick 7", value & 1u, 0u);
+  t64_machine_destroy(machine);
+}
+
 static void test_register_masks_and_invalid_requests(void) {
   uint8_t image[TEST_ROM_BYTES];
   t64_machine *machine = NULL;
@@ -1037,6 +1094,7 @@ int main(void) {
 
   (void)printf("TAP version 13\n");
   test_delayed_rom_copy();
+  test_profile_pi_duration_controls_completion_tick();
   test_register_masks_and_invalid_requests();
   test_busy_start_and_model_minimum();
   test_exact_range_boundaries();
