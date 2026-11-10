@@ -11,6 +11,9 @@
 #define T64_ROM_TITLE_BYTES 20u
 #define T64_ROM_GAME_CODE_BYTES 4u
 #define T64_EVENT_QUEUE_CAPACITY 256u
+#define T64_SP_BANK_BYTES 4096u
+#define T64_MI_INTERRUPT_BITS UINT32_C(0x3f)
+#define T64_DEVICE_MI_TEST UINT32_C(0xffff0002)
 
 #define T64_DEVICE_SYNTHETIC_TEST UINT32_C(0xffff0001)
 #define T64_TEST_EVENT_NOOP UINT32_C(1)
@@ -65,6 +68,11 @@ struct t64_machine {
   uint8_t profile_digest[T64_DIGEST_SIZE];
   uint8_t content_digest[T64_DIGEST_SIZE];
   uint8_t *ram;
+  uint8_t sp_dmem[T64_SP_BANK_BYTES];
+  uint8_t sp_imem[T64_SP_BANK_BYTES];
+  uint32_t mi_pending;
+  uint32_t mi_mask;
+  bool mi_irq_line;
   size_t image_length;
   uint64_t tick;
   uint64_t instruction_count;
@@ -118,6 +126,13 @@ void t64_machine_reset_execution_state(t64_machine *machine);
 void t64_trace_reset(t64_machine *machine);
 void t64_trace_emit(t64_machine *machine, uint64_t tick, uint32_t device,
                     uint32_t kind, uint64_t value);
+t64_status t64_bus_read(t64_machine *machine, uint32_t address,
+                        uint32_t width, uint32_t *value_out);
+t64_status t64_bus_write(t64_machine *machine, uint32_t address,
+                         uint32_t width, uint32_t value);
+void t64_mi_set_pending(t64_machine *machine, uint32_t bits);
+void t64_mi_clear_pending(t64_machine *machine, uint32_t bits);
+void t64_mi_write_mask(t64_machine *machine, uint32_t command);
 
 static inline bool t64_internal_make_range(const void *pointer, size_t length,
                                            t64_address_range *range_out) {

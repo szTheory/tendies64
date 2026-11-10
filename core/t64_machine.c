@@ -291,6 +291,11 @@ void t64_machine_reset_execution_state(t64_machine *machine) {
 static void reset_guest_state(t64_machine *machine) {
   t64_machine_reset_execution_state(machine);
   (void)memset(machine->ram, 0, machine->profile.rdram_bytes);
+  (void)memset(machine->sp_dmem, 0, sizeof machine->sp_dmem);
+  (void)memset(machine->sp_imem, 0, sizeof machine->sp_imem);
+  machine->mi_pending = 0u;
+  machine->mi_mask = 0u;
+  machine->mi_irq_line = false;
   t64_trace_reset(machine);
 }
 

@@ -18,7 +18,15 @@
 #define T64_TRACE_RECORD_CAPACITY 256u
 
 #define T64_TRACE_DEVICE_MACHINE UINT32_C(0)
+#define T64_TRACE_DEVICE_BUS UINT32_C(1)
+#define T64_TRACE_DEVICE_MI UINT32_C(2)
 #define T64_TRACE_KIND_ROM_ADMITTED UINT32_C(1)
+#define T64_TRACE_KIND_BUS_READ8 UINT32_C(1)
+#define T64_TRACE_KIND_BUS_WRITE8 UINT32_C(2)
+#define T64_TRACE_KIND_BUS_READ32 UINT32_C(3)
+#define T64_TRACE_KIND_BUS_WRITE32 UINT32_C(4)
+#define T64_TRACE_KIND_MI_PENDING UINT32_C(1)
+#define T64_TRACE_KIND_MI_MASK UINT32_C(2)
 
 #define T64_STATUS_OK UINT32_C(0)
 #define T64_STATUS_INVALID_ARGUMENT UINT32_C(1)
@@ -35,6 +43,11 @@
 #define T64_STATUS_SEQUENCE_EXHAUSTED UINT32_C(12)
 #define T64_STATUS_TICK_OVERFLOW UINT32_C(13)
 #define T64_STATUS_RESOURCE_EXHAUSTED UINT32_C(14)
+#define T64_STATUS_BUS_UNMAPPED UINT32_C(15)
+#define T64_STATUS_BUS_UNSUPPORTED UINT32_C(16)
+#define T64_STATUS_BUS_ALIGNMENT UINT32_C(17)
+#define T64_STATUS_BUS_RANGE UINT32_C(18)
+#define T64_STATUS_BUS_DEVICE_REFUSED UINT32_C(19)
 
 #define T64_TV_NTSC UINT32_C(1)
 #define T64_TV_PAL UINT32_C(2)
@@ -180,6 +193,18 @@ t64_status t64_machine_profile(
     const t64_machine *machine, const t64_profile_descriptor **profile_out);
 t64_status t64_machine_digest(const t64_machine *machine,
                               uint8_t digest_out[T64_DIGEST_SIZE]);
+
+/*
+ * Host debug access to physical byte addresses, called between advance calls.
+ * Width must be 1 or 4; words are big-endian and require four-byte alignment.
+ * Rejected writes have no partial effects, and rejected reads leave value_out
+ * unchanged. These calls do not execute guest code or translate virtual
+ * addresses.
+ */
+t64_status t64_machine_bus_read(t64_machine *machine, uint32_t address,
+                                uint32_t width, uint32_t *value_out);
+t64_status t64_machine_bus_write(t64_machine *machine, uint32_t address,
+                                 uint32_t width, uint32_t value);
 
 /* Trace state is observer-only and never changes the canonical digest. */
 t64_status t64_machine_trace_set_enabled(t64_machine *machine, bool enabled);
