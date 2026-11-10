@@ -21,3 +21,13 @@ add_test(NAME gov.rights.repo
 set_tests_properties(gov.rights.selftest gov.rights.repo PROPERTIES
   LABELS gov
   ENVIRONMENT "T64_BUILD_DIR=${CMAKE_BINARY_DIR}")
+
+# PII and private-path scan: tree, history diffs, messages and commit metadata.
+# It runs in every gate run and before every push (AUTONOMY section 4).
+add_test(NAME gov.pii.selftest
+  COMMAND sh ${CMAKE_SOURCE_DIR}/scripts/pii-scan.sh --selftest
+  WORKING_DIRECTORY ${CMAKE_SOURCE_DIR})
+add_test(NAME gov.pii.repo
+  COMMAND sh ${CMAKE_SOURCE_DIR}/scripts/pii-scan.sh
+  WORKING_DIRECTORY ${CMAKE_SOURCE_DIR})
+set_tests_properties(gov.pii.selftest gov.pii.repo PROPERTIES LABELS gov)
