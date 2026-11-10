@@ -1,7 +1,7 @@
 ---
 phase: "02"
 slug: "deterministic-machine-skeleton"
-status: measured-local
+status: validated
 nyquist_compliant: true
 wave_0_complete: true
 created: "2026-11-10"
@@ -9,9 +9,9 @@ created: "2026-11-10"
 
 # Phase 2 — Validation Strategy
 
-> Local validation measured on 2026-11-10 after Plan 02-08. The final local
-> gate and the selected ASan/UBSan component, fuzz and negative-control run
-> passed. Independent review and hosted CI remain pending the parent handoff.
+> Local implementation, independent source review and corrected sanitizer
+> evidence are complete. Hosted CI remains pending; phase completion has not
+> been claimed.
 
 ## Test Infrastructure
 
@@ -23,7 +23,7 @@ created: "2026-11-10"
 | **Full suite command** | `./scripts/gate.sh` |
 | **Inventory control** | `sh scripts/check-test-inventory.sh --selftest` checks 73 gate and 75 ASan names plus 148 single-removal and five malformed-inventory controls. |
 | **Sanitizer command** | `ASAN_OPTIONS=detect_leaks=0 UBSAN_OPTIONS=halt_on_error=1:print_stacktrace=1 ctest --preset asan --no-tests=error -R '^(unit\.core\..*|unit\.model-result|fuzz\.rom-admission|sanitizer\.negative-control)$' --output-on-failure` |
-| **Measured runtime** | Final local gate: 51s total, including 13s inventory-removal selftest. ASan/UBSan selected run: 14/14 tests, 75.84s wall; ROM mutation campaign 75.83s. |
+| **Measured runtime** | Final local gate: 51s total, including 13s inventory-removal selftest. After review fixes: refreshed ASan component/model/control selection 13/13; unchanged full production ROM mutation campaign 69.10s. Earlier stale component evidence is superseded by `02-REVIEW-FIX-2.md`. |
 
 The repository's `asan` preset enables AddressSanitizer and
 UndefinedBehaviorSanitizer. LeakSanitizer is unsupported in this host
@@ -53,7 +53,7 @@ a hosted job.
 | SP row/line/skip decode, low-bit alignment, completion-time source read, bank wrap, active+pending queue and third-request policy (BUS-02) | unit | final `./scripts/gate.sh`, `unit.core.sp-dma` | ✅ yes | ✅ pass |
 | Canonical digest field inclusion/exclusion, interleaved instances, trace-on/off and visible overflow (CORE-06, PROF-06) | unit | final gate and ASan run, `unit.core.digest-trace` | ✅ yes | ✅ pass |
 | Raw ROM size/order normalization, field reads, refusal atomicity, max boundary and production admission path (BUS-04) | unit | final gate and ASan run, `unit.core.rom-admission` | ✅ yes | ✅ pass |
-| Seeded mutation campaign through production admission + normalization; all three orders, short prefixes and every exposed header field under ASan/UBSan (BUS-04) | deterministic fuzz | ASan run: `fuzz.rom-admission` (seed `0x7a64c0de`; 250,000 mutations + 148 fixed cases) | ✅ yes | ✅ pass, 75.83s |
+| Seeded mutation campaign through production admission + normalization; all three orders, short prefixes and every exposed header field under ASan/UBSan (BUS-04) | deterministic fuzz | ASan run: `fuzz.rom-admission` (seed `0x7a64c0de`; 250,000 mutations + 148 fixed cases) | ✅ yes | ✅ pass, 69.10s |
 | Separate seeded memory fault is actually caught by sanitizer without failing the parent CTest process | negative control | ASan run: `sanitizer.negative-control` | ✅ yes | ✅ pass |
 | Closed native model schema, scope and assertion counts (PROF-02/04) | consumer | final gate and ASan run, `unit.model-result` | ✅ yes | ✅ pass |
 | Real model probe identity; legacy result/identity/seal/suite/claims rejection (PROF-01–04) | producer/consumer seam | final gate and ASan run, `unit.core.profile-result` | ✅ yes | ✅ pass |
@@ -134,9 +134,7 @@ authorized and available.
 - [x] `nyquist_compliant: true` after planner/executor verify coverage
 - [ ] Full existing gate green on both current hosted lanes before phase verify
 
-**Handoff:** Local implementation and validation passed. Independent code review,
-security review, goal verification, hosted Linux/macOS CI and parent-owned phase
-completion remain pending; this document does not claim they passed.
+**Handoff:** Local validation and independent source/security review passed after fixes. Goal verification, hosted Linux/macOS CI and phase completion remain pending. See `02-REVIEW-FIX-2.md` for the corrected sanitizer record and `02-RECHECK-FINAL.md` for its retained-log limits.
 
 ## Executable Task Ownership and Waves
 
@@ -292,3 +290,11 @@ Equality: 10 raw candidates = 3 kept/authored + 7 explicitly dropped with owner
 and reason. Kept prohibition count 3 = 3 flagged descriptor-less items.
 No external API, database schema, AI integration or frontend exists in this
 phase. The UI keyword match on “Component tests” does not authorize UI work.
+
+## Validation Audit 2026-11-10
+
+| Metric | Count |
+|---|---|
+| Gaps found | 0 |
+| Resolved | 0 |
+| Escalated | 0 |
