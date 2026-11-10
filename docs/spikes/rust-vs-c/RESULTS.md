@@ -2,7 +2,9 @@
 
 Registered by `PREREG.md` in commit `9390f0b4bb001ff8b690c51758f4f156c2f39336`, which precedes this file.
 Every number below is the output of `sh docs/spikes/rust-vs-c/run-spike.sh --registered`, run once. Rules
-(a) and (b), the A-2 interpretation and the A-3 action rule are applied exactly as registered.
+(a) and (b), the A-2 interpretation and the A-3 action rule are applied exactly as registered. The sections up
+to "Calibration against the forecast" report run 1 with the original harness. "Addendum 1" at the end reports
+run 2 with the harness of PREREG Amendment 1, which fixed a fail-open decision found by the phase code review.
 
 ## Run metadata
 
@@ -24,7 +26,8 @@ Linux evidence is aarch64 only. The ubuntu-24.04 x64 runner is first exercised b
 
 | run-spike.sh SHA-256 | source | produced the reported table |
 |----------------------|--------|-----------------------------|
-| 65548f8c7ed2b3542d802574b8ca795b08eea6f41b00470fdd49746cf20b7f79 | original PREREG table (no amendment exists) | yes (run 1) |
+| 65548f8c7ed2b3542d802574b8ca795b08eea6f41b00470fdd49746cf20b7f79 | original PREREG table | yes (run 1, the tables below) |
+| 9154633fa7d4cb151017c2917d517c2a08a31601fda26c7b9e1b648e300a0794 | PREREG Amendment 1 | yes (run 2, Addendum 1) |
 
 ## Per-class table
 
@@ -166,3 +169,46 @@ Informational only. No class was added after registration, and nothing in this t
   the corpus, the two parsers and the harness, not in running them.
 - Limits: Linux evidence is aarch64 only, the Rust parser is not sanitizer-checked (its safety rests on
   `forbid(unsafe_code)` and the matching differential), and the corpus is the frozen seeds, not arbitrary C.
+
+## Addendum 1: run 2 with the amended harness (2026-11-10)
+
+Why: the phase code review (finding WR-21) showed that the original harness's decision failed open. It
+printed `stay-c17` even when the fuzz had not finished, or when the lint or `rustc` was broken. Run 1 was
+clean on every one of those points (fuzz exit 0, 2000040 inputs, `info-consistency: ok`, anomalies none, all
+negative controls 1), so its recorded result was not wrong. But that harness could not have told an
+incomplete run apart from a clean one. PREREG Amendment 1 makes the decision three-valued (`stay-c17`,
+`switch-rust`, `inconclusive`), was committed first (commit `68e8c2c`), and was then run once with
+`sh docs/spikes/rust-vs-c/run-spike.sh --registered`.
+
+| item | run 2 value |
+|------|-------------|
+| harness | `run-spike.sh` SHA-256 `9154633fa7d4cb151017c2917d517c2a08a31601fda26c7b9e1b648e300a0794`, from the latest amendment |
+| frozen inputs | ok, 42 files (41 against the original table, `run-spike.sh` against Amendment 1) |
+| git commit as run | `68e8c2cae2566d6c78ddd09960632b489aa2f9ed` |
+| started, ended | 2026-11-10T05:16:10Z, 2026-11-10T05:16:16Z (6 s) |
+| host, image, container | Darwin arm64, Apple clang 21.0.0; `rust@sha256:867f1d1162913c401378a8504fb17fe2032c760dc316448766f150a130204aad`; aarch64, rustc 1.91.1, gcc 14.2.0 |
+| per-class table | identical verdicts to run 1: all 17 frozen classes exit 1 on the host and in Linux; the Rust twins reject 13 and accept 4 (atomic static, allocation, floating point, build-time macro); std escape accepted |
+| rule-a-triggers | none |
+| anomalies | 0 |
+| negative controls | host-c=1 linux-c=1 linux-rust=1 |
+| sanitizer negative control | seeded overread caught, attributed to `admission.c` (`phase=boundary index=8 len=67108864`) |
+| fuzz | host Apple clang, registered flags, exit 0, `mutations: 2000000`, `inputs: 2000040`, `info-consistency: ok` |
+| boundary sweep | identical to run 1 |
+| differential | match; C and Rust `outcomes: 83571 83673 83153 623372 249689 407044 469538`, `fnv1a64: a4750d6120f0629e`, both `info-consistency: ok` |
+| rule-b-triggered | no |
+| completeness-gaps | none |
+
+Decision (run 2): stay-c17
+
+Run 2 checks completeness that run 1's harness did not check. It does not strengthen what the rules
+measure. Rule (b) still could hardly fire, because the parser it fuzzes reads four bytes (review finding
+WR-23; see ADR-0002, "Evidence limits"). The lint that run 2 measured is a later version than run 1's: review fixes
+CR-13 and WR-16 changed it in between. Both versions catch all 17 classes.
+
+The negative controls for the new decision are `run-spike.sh --decision-selftest` (CTest
+`repo.spike-decision-selftest`, 27 cases). Each non-clean condition yields `inconclusive`: fuzz exit 3, 4, 5,
+125 or 137; a short or missing `inputs:` line; a missing or BAD `info-consistency`; a fuzz that did not run; a
+failed Rust differential; a failed sanitizer control; a lint exit 2 on either OS; a missing row; a missing
+`rustc`; a modified lint; a failed negative control; and a sanitizer report in `fuzz_admission.c` only.
+Rules (a) and (b) yield `switch-rust`. Mutating the decision so it ignores the gaps fails 20 of the 27 cases.
+Restoring the bare-text attribution fails the harness-only report case.
