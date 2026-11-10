@@ -36,6 +36,20 @@ target_compile_definitions(t64-result-check PRIVATE ${T64_HOST_DEFS})
 target_link_libraries(t64-result-check PRIVATE t64_classify t64_common)
 t64_target_warnings(t64-result-check)
 
+# Native model observations use a distinct schema and never enter t64.result.
+add_executable(t64-model-result-check t64_model_result_check.c)
+target_compile_definitions(t64-model-result-check PRIVATE ${T64_HOST_DEFS})
+target_link_libraries(t64-model-result-check PRIVATE t64_common)
+t64_target_warnings(t64-model-result-check)
+
+add_executable(test_model_result tests/test_model_result.c)
+target_compile_definitions(test_model_result PRIVATE ${T64_HOST_DEFS})
+t64_target_warnings(test_model_result)
+add_test(NAME unit.model-result
+  COMMAND test_model_result $<TARGET_FILE:t64-model-result-check>
+    ${CMAKE_SOURCE_DIR}/tests/controls/golden/positive.json)
+set_tests_properties(unit.model-result PROPERTIES LABELS unit)
+
 # Every committed supervisor golden must validate; zero goldens is a failure.
 add_test(NAME unit.result-goldens
   COMMAND sh -c [=[
