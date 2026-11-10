@@ -1,0 +1,124 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Tendies64 fixture manifest",
+  "description": "Structural schema for fixtures/manifest.json (GOV-03). Only the keyword subset implemented by t64-manifest-check is used; any other keyword makes the checker fail. Cross-field rights rules (digest, distribution, path, toolchain pin) live in the checker and are listed in docs/policy/rights-and-fixtures.md.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema", "schema_version", "entries"],
+  "properties": {
+    "schema": { "type": "string", "const": "t64.manifest" },
+    "schema_version": { "type": "integer", "const": 1 },
+    "entries": {
+      "type": "array",
+      "maxItems": 1024,
+      "items": {
+        "oneOf": [
+          {
+            "title": "Entry whose binary_rights is authored-here, cleared or pending",
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "id", "source", "build", "sha256", "size", "profile",
+              "source_rights", "binary_rights", "distribution",
+              "rights_evidence", "notices", "expected"
+            ],
+            "properties": {
+              "id": { "type": "string", "pattern": "^[a-z0-9][a-z0-9-]*$", "maxLength": 64 },
+              "source": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": ["repo", "revision", "path"],
+                "properties": {
+                  "repo": {
+                    "type": "string",
+                    "pattern": "^https://github\\.com/[A-Za-z0-9._-]+/[A-Za-z0-9._-]+$",
+                    "maxLength": 200
+                  },
+                  "revision": { "type": "string", "pattern": "^[0-9a-f]{40}$" },
+                  "path": { "type": "string", "minLength": 1, "maxLength": 256 }
+                }
+              },
+              "build": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": ["recipe", "toolchain"],
+                "properties": {
+                  "recipe": { "type": "string", "minLength": 1, "maxLength": 1024 },
+                  "toolchain": {
+                    "type": "array",
+                    "minItems": 1,
+                    "maxItems": 32,
+                    "items": { "type": "string", "minLength": 1, "maxLength": 128 }
+                  }
+                }
+              },
+              "sha256": { "type": ["string", "null"], "pattern": "^[0-9a-f]{64}$" },
+              "size": { "type": ["integer", "null"], "minimum": 0, "maximum": 68719476736 },
+              "profile": { "type": "string", "pattern": "^[a-z0-9][a-z0-9-]*$", "maxLength": 64 },
+              "source_rights": { "enum": ["authored-here", "cleared", "pending", "forbidden"] },
+              "binary_rights": { "enum": ["authored-here", "cleared", "pending"] },
+              "distribution": {
+                "type": "array",
+                "maxItems": 4,
+                "uniqueItems": true,
+                "items": { "enum": ["commit", "artifact", "build-only", "local-only"] }
+              },
+              "rights_evidence": { "type": "string", "minLength": 1, "maxLength": 4096 },
+              "notices": {
+                "type": "array",
+                "maxItems": 64,
+                "items": { "type": "string", "minLength": 1, "maxLength": 1024 }
+              },
+              "expected": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": ["kind", "source", "revision"],
+                "properties": {
+                  "kind": {
+                    "enum": [
+                      "self-checking", "spec-derived", "hardware-derived",
+                      "differential", "regression-pin"
+                    ]
+                  },
+                  "source": { "type": "string", "minLength": 1, "maxLength": 256 },
+                  "revision": { "type": "string", "minLength": 1, "maxLength": 128 }
+                }
+              },
+              "path": { "type": "string", "minLength": 1, "maxLength": 256 },
+              "capture_provenance": { "type": "string", "minLength": 1, "maxLength": 1024 },
+              "forbidden_reason": { "type": "string", "minLength": 1, "maxLength": 2048 }
+            }
+          },
+          {
+            "title": "Entry whose binary_rights is forbidden: a reason and no identifying data",
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "id", "source_rights", "binary_rights", "forbidden_reason",
+              "notices", "profile", "distribution"
+            ],
+            "properties": {
+              "id": { "type": "string", "pattern": "^[a-z0-9][a-z0-9-]*$", "maxLength": 64 },
+              "source_rights": { "const": "forbidden" },
+              "binary_rights": { "const": "forbidden" },
+              "forbidden_reason": { "type": "string", "minLength": 1, "maxLength": 2048 },
+              "notices": {
+                "type": "array",
+                "maxItems": 64,
+                "items": { "type": "string", "minLength": 1, "maxLength": 1024 }
+              },
+              "profile": { "type": "string", "pattern": "^[a-z0-9][a-z0-9-]*$", "maxLength": 64 },
+              "distribution": { "type": "array", "maxItems": 0 },
+              "sha256": {},
+              "size": {},
+              "source": {},
+              "build": {},
+              "expected": {},
+              "path": {}
+            }
+          }
+        ]
+      }
+    }
+  }
+}

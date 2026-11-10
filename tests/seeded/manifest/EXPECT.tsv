@@ -1,0 +1,5 @@
+# Seeded manifests (GOV-03). Columns: file, exit, rule_id, needle.
+# The seed set is every .json file here; add the file and its row in the same change.
+# Each bad_*.json is one valid entry with exactly one defect.
+good.json	0	ok	
+bad_missing_revision.json	1	M-SCHEMA-REQUIRED	/entries/0/source/revision:

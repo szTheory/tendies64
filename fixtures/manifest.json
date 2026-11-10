@@ -1,0 +1,49 @@
+{
+  "schema": "t64.manifest",
+  "schema_version": 1,
+  "entries": [
+    {
+      "id": "nemu64-test-base",
+      "source": {
+        "repo": "https://github.com/thelemmy/nemu64-test",
+        "revision": "9a8b9f7d94ee2f6f57d7feed70c98c22cdc30e6c",
+        "path": "."
+      },
+      "build": {
+        "recipe": "Build the base test ROM from the pinned revision with the pinned Rust nightly and nust64 in a separate fixture lane (upstream: cargo run --release). The core build never runs it.",
+        "toolchain": ["rust nightly-2026-07-16", "nust64 0.4.1"]
+      },
+      "sha256": null,
+      "size": null,
+      "profile": "first-profile-unnamed",
+      "source_rights": "pending",
+      "binary_rights": "pending",
+      "distribution": ["local-only"],
+      "rights_evidence": "Decision D2 (owner stop): the rights of this upstream repository and of its built ROM are not documented, so both stay pending and the ROM stays local-only: never committed, never uploaded, never used in public CI. The owner decides after a per-asset rights audit. Revision pin: upstream HEAD read with git ls-remote on 2026-11-10 (UTC) was 9a8b9f7d94ee2f6f57d7feed70c98c22cdc30e6c, the same revision the phase research recorded as upstream HEAD (a commit dated 2026-09-08), so the pin did not move. The digest stays null until two clean builds on separate machines agree (research item: reproducibility unknown).",
+      "notices": [],
+      "expected": {
+        "kind": "self-checking",
+        "source": "ISViewer verdict lines",
+        "revision": "9a8b9f7d94ee2f6f57d7feed70c98c22cdc30e6c"
+      }
+    },
+    {
+      "id": "nintendo-pif-boot-rom",
+      "source_rights": "forbidden",
+      "binary_rights": "forbidden",
+      "forbidden_reason": "Nintendo PIF, IPL and CIC boot data is protected material (docs/policy/rights-and-fixtures.md). It is never committed, uploaded or used in public CI, and no digest of it is recorded here. The boot route is a high-level or clean-room replacement.",
+      "notices": [],
+      "profile": "not-applicable",
+      "distribution": []
+    },
+    {
+      "id": "commercial-cartridge-roms",
+      "source_rights": "forbidden",
+      "binary_rights": "forbidden",
+      "forbidden_reason": "Commercial cartridge ROM images are protected material (docs/policy/rights-and-fixtures.md). They are never committed, uploaded or used in public CI, and no digest of any of them is recorded here.",
+      "notices": [],
+      "profile": "not-applicable",
+      "distribution": []
+    }
+  ]
+}
