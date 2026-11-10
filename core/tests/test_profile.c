@@ -339,11 +339,15 @@ static void test_rejected_descriptors(
     const t64_profile_descriptor *profile) {
   t64_profile_descriptor empty = {0};
   t64_profile_descriptor changed = *profile;
-  t64_profile_descriptor changed_before;
+  t64_profile_descriptor valid_mutable = *profile;
   union {
     t64_profile_descriptor profile;
     size_t length;
   } profile_length_alias;
+  union {
+    t64_profile_descriptor profile;
+    uint8_t bytes[T64_PROFILE_SERIALIZED_MAX_BYTES];
+  } source_alias;
   union {
     size_t alignment;
     uint8_t bytes[T64_PROFILE_SERIALIZED_MAX_BYTES];
@@ -351,6 +355,7 @@ static void test_rejected_descriptors(
   uint8_t digest[T64_DIGEST_SIZE];
   uint8_t serialized[T64_PROFILE_SERIALIZED_MAX_BYTES];
   uint8_t serialized_before[T64_PROFILE_SERIALIZED_MAX_BYTES];
+  uint8_t source_alias_before[T64_PROFILE_SERIALIZED_MAX_BYTES];
   size_t serialized_length = 0u;
   size_t required_length = 0u;
 
@@ -379,11 +384,21 @@ static void test_rejected_descriptors(
                     required_length, &serialized_length),
                 T64_STATUS_INVALID_ARGUMENT);
 
-  changed_before = changed;
-  T64_CHECK_INT(t64_profile_serialize(&changed, (uint8_t *)&changed,
-                                      required_length, &serialized_length),
+  T64_CHECK(required_length <= sizeof source_alias.bytes);
+  T64_CHECK_INT(t64_profile_serialize(&valid_mutable, serialized,
+                                      sizeof serialized, &serialized_length),
+                T64_STATUS_OK);
+  T64_CHECK_INT(serialized_length, required_length);
+  memset(source_alias.bytes, 0x6bu, sizeof source_alias.bytes);
+  source_alias.profile = valid_mutable;
+  (void)memcpy(source_alias_before, source_alias.bytes,
+               sizeof source_alias_before);
+  T64_CHECK_INT(t64_profile_serialize(
+                    &source_alias.profile, source_alias.bytes,
+                    sizeof source_alias.bytes, &serialized_length),
                 T64_STATUS_INVALID_ARGUMENT);
-  T64_CHECK(memcmp(&changed, &changed_before, sizeof changed) == 0);
+  T64_CHECK(memcmp(source_alias.bytes, source_alias_before,
+                   sizeof source_alias_before) == 0);
   profile_length_alias.profile = *profile;
   T64_CHECK_INT(t64_profile_serialize(&profile_length_alias.profile, NULL, 0u,
                                       &profile_length_alias.length),
