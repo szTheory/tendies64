@@ -1,0 +1,4 @@
+# Docs-asset allowlist for the GOV-07 rights scan (GOV-07, CONTEXT "GOV-07 check").
+# One row per allowed non-text asset: path<TAB>sha256<TAB>reason
+# Tree and staging files match on path and sha256; history blobs match on sha256 only.
+# Lines starting with # and empty lines are ignored. Phase 1 has no rows.
