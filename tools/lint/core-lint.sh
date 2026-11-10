@@ -156,10 +156,19 @@ function end_decl(   i, lim, eq, fp, st, ex, td, cn, rem, skipnext, t) {
   else report("L1-GLOBAL-MUTABLE", dline, "non-const object with external linkage at file scope")
 }
 
-function number(t) { }
+# A non-hex pp-number with "." or an e/E exponent, or a hex one with "." or a
+# p/P exponent, is a floating-point literal.
+function number(t) {
+  if (t ~ /^0[xX]/) {
+    if (t ~ /[.pP]/) report("L1-FLOAT-LITERAL", FNR, "floating-point literal " t)
+  } else if (t ~ /[.eE]/) report("L1-FLOAT-LITERAL", FNR, "floating-point literal " t)
+}
 
 function ident(tok, pp,   i) {
-  if (attr_track(tok)) return
+  if (attr_track(tok)) {
+    if (attrdepth > 0 && (tok in ctorword)) report("L1-ATTR-CTOR", FNR, "attribute \"" tok "\" runs code at load time")
+    return
+  }
   if (tok in nameRule) report(nameRule[tok], FNR, "banned name \"" tok "\"")
   else {
     for (i = 1; i <= nprefix; i++)
@@ -214,6 +223,15 @@ BEGIN {
   addnames("L1-NAME-ALLOC", "malloc calloc realloc free aligned_alloc posix_memalign alloca")
   addnames("L1-NAME-ENV", "getenv secure_getenv setenv setlocale")
   addprefixes("L1-NAME-THREAD", "pthread_ thrd_ mtx_ cnd_ tss_")
+  addnames("L1-TOKEN-FLOAT", "float double")
+  addnames("L1-BUILD-MACRO", "__DATE__ __TIME__ __TIMESTAMP__")
+  addnames("L1-ASM", "asm __asm __asm__")
+  addnames("L1-TLS", "__thread _Thread_local thread_local")
+  addnames("L1-TOKEN-ATOMIC", "_Atomic")
+  addnames("L1-RUNTIME-HELPER", "__int128")
+  addprefixes("L1-RUNTIME-HELPER", "__builtin_popcount")
+  n = split("constructor destructor __constructor__ __destructor__", a, " ")
+  for (i = 1; i <= n; i++) ctorword[a[i]] = 1
   n = split("static extern const volatile register inline _Thread_local __inline __inline__ restrict _Noreturn auto", a, " ")
   for (i = 1; i <= n; i++) declq[a[i]] = 1
   n = split("stdio.h stdlib.h math.h time.h errno.h assert.h setjmp.h signal.h pthread.h threads.h stdatomic.h unistd.h fcntl.h", a, " ")
@@ -324,6 +342,9 @@ selftest() {
       _fail=$((_fail + 1))
       continue
     }
+    if [ "$_ids" != PASS ]; then
+      for _id in $_ids; do printf '%s\n' "$_id" >> "$TMP/expect.ids"; done
+    fi
     _rc=0
     sh "$SELF" --files "$_seed" > "$TMP/seed.out" 2> "$TMP/seed.err" || _rc=$?
     if [ "$_ids" = PASS ]; then
@@ -357,6 +378,37 @@ selftest() {
   if [ "$_seeds" -eq 0 ]; then
     echo "SELFTEST-FAIL no seeds found under tools/lint/selftest"
     _fail=$((_fail + 1))
+  fi
+
+  # Coverage gate: every non-meta rule in rules.txt appears in some EXPECT
+  # line, every EXPECT id is a rule in rules.txt, and a meta rule is only
+  # legitimate when this function has a dedicated control for it.
+  : >> "$TMP/expect.ids"
+  sort -u "$TMP/expect.ids" > "$TMP/expect.s"
+  awk -F'|' '/^L[12]-/ { print $1 }' "$RULES" > "$TMP/rules.all"
+  sort -u "$TMP/rules.all" > "$TMP/rules.all.s"
+  awk -F'|' '/^L[12]-/ && $3 != "yes" { print $1 }' "$RULES" > "$TMP/rules.seeded"
+  sort -u "$TMP/rules.seeded" > "$TMP/rules.seeded.s"
+  awk -F'|' '/^L[12]-/ && $3 == "yes" { print $1 }' "$RULES" > "$TMP/rules.meta"
+  sort -u "$TMP/rules.meta" > "$TMP/rules.meta.s"
+  printf '%s\n' L1-ZERO-FILES L2-COMPILE L2-W-COMMON | sort > "$TMP/controls.s"
+  _nrules=$(wc -l < "$TMP/rules.all.s" | tr -d ' ')
+  comm -23 "$TMP/rules.seeded.s" "$TMP/expect.s" > "$TMP/unproven"
+  comm -23 "$TMP/rules.meta.s" "$TMP/controls.s" >> "$TMP/unproven"
+  comm -23 "$TMP/expect.s" "$TMP/rules.all.s" > "$TMP/unknown"
+  while IFS= read -r _id; do
+    echo "SELFTEST-RULE-UNPROVEN $_id"
+    _fail=$((_fail + 1))
+  done < "$TMP/unproven"
+  while IFS= read -r _id; do
+    echo "SELFTEST-RULE-UNKNOWN $_id"
+    _fail=$((_fail + 1))
+  done < "$TMP/unknown"
+  if [ "$_nrules" -eq 0 ]; then
+    echo "SELFTEST-FAIL rules.txt lists no rules"
+    _fail=$((_fail + 1))
+  elif [ ! -s "$TMP/unproven" ] && [ ! -s "$TMP/unknown" ]; then
+    echo "selftest ok: coverage gate checked $_nrules rule ids against the seeds"
   fi
 
   # Control 1: scanning zero files must fail (green-on-empty control).

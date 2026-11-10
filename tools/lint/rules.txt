@@ -18,3 +18,11 @@ L1-NAME-THREAD|1|no|a host threading name is used|core is single-threaded and ru
 L1-NAME-ENV|1|no|a host environment or locale name is used|core reads no process environment; configuration arrives through the facade
 L1-STATIC-MUTABLE|1|no|a non-const file-scope static object (heuristic; Layer 2 is authoritative)|move the state into the caller-owned instance struct, or make it const
 L1-GLOBAL-MUTABLE|1|no|a non-const file-scope object with external linkage (heuristic; Layer 2 is authoritative)|move the state into the caller-owned instance struct, or make it const
+L1-TOKEN-FLOAT|1|no|the float or double type is used|core is integer-only; use fixed-width integers and explicit fixed-point arithmetic
+L1-FLOAT-LITERAL|1|no|a floating-point literal is used|core is integer-only; write the constant as an integer scaled by a named factor
+L1-BUILD-MACRO|1|no|a build-time macro (__DATE__, __TIME__, __TIMESTAMP__) is used|build identity comes from the build-id input, never from the wall clock at compile time
+L1-ASM|1|no|inline assembly is used|core is portable C17; assembly is not reproducible across targets
+L1-TLS|1|no|thread-local storage is used|core has no thread state; keep state in the caller-owned instance struct
+L1-TOKEN-ATOMIC|1|no|the _Atomic qualifier is used|core is single-threaded; atomics imply shared mutable state
+L1-ATTR-CTOR|1|no|a constructor or destructor attribute is used|core runs nothing at load time; initialize through an explicit create call
+L1-RUNTIME-HELPER|1|no|a construct that pulls in a compiler runtime helper (__int128, __builtin_popcount*)|the helper symbol differs per arch and compiler; write the loop or the multiply by hand
