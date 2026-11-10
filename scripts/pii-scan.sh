@@ -4,8 +4,10 @@
 #   pii-scan.sh [--tree] [--history] [--range BASE..HEAD] [--selftest]
 #
 # With no scope flag it scans the working tree (tracked files plus untracked,
-# non-ignored files) and all reachable history: added lines of every diff,
-# commit messages, and author and committer addresses.
+# non-ignored files) and all history reachable from HEAD and every local
+# branch, tag and remote-tracking ref: added lines of every diff, commit
+# messages, and author and committer addresses. --range BASE..HEAD (or one
+# revision) limits history; it is validated and passed after --end-of-options.
 #
 # Rules (stable ids):
 #   P-PRIVATE-PATH  a per-user home (/Users/<name>, /home/<name>, a drive-
@@ -209,18 +211,49 @@ hist_hits() {
   finish "$1" "$TMP/hist.tsv" "${5:-}"
 }
 
-scan_history() {
+# check_range: rejects a --range value that git could parse as an option or
+# that does not name commits. Accepted: BASE..HEAD or one revision; no side
+# may be empty, start with "-" or contain "..", and each side must resolve to
+# a commit. The value is then passed after --end-of-options (git 2.24+).
+check_range() {
+  case $RANGE in
+    *...*) fatal "--range must be BASE..HEAD or one revision: $RANGE" ;;
+    *..*)
+      _ra=${RANGE%%..*}
+      _rb=${RANGE#*..}
+      ;;
+    *)
+      _ra=$RANGE
+      _rb=$RANGE
+      ;;
+  esac
+  for _side in "$_ra" "$_rb"; do
+    case $_side in
+      "" | -* | *..*) fatal "invalid --range: $RANGE" ;;
+    esac
+    git rev-parse --verify -q "$_side^{commit}" > /dev/null 2>&1 ||
+      fatal "--range side does not name a commit: $_side"
+  done
+}
+
+# revs CMD...: runs CMD with the revision arguments of the history scope:
+# the validated --range, or every local branch, tag and remote-tracking ref
+# plus HEAD (a detached CI checkout), so history on other refs of a full
+# clone is scanned too.
+revs() {
   if [ -n "$RANGE" ]; then
-    _spec=$RANGE
+    "$@" --end-of-options "$RANGE" --
+  elif git rev-parse --verify -q HEAD > /dev/null 2>&1; then
+    "$@" --branches --tags --remotes --end-of-options HEAD --
   else
-    _spec=HEAD
+    "$@" --branches --tags --remotes --
   fi
+}
+
+scan_history() {
   COMMITS=0
-  if git rev-parse --verify -q "${_spec%%..*}" > /dev/null 2>&1 || [ -n "$RANGE" ]; then
-    git rev-list "$_spec" > "$TMP/commits.list" 2> /dev/null || : > "$TMP/commits.list"
-  else
-    : > "$TMP/commits.list"
-  fi
+  if [ -n "$RANGE" ]; then check_range; fi
+  revs git rev-list > "$TMP/commits.list" || fatal "git rev-list failed"
   COMMITS=$(($(wc -l < "$TMP/commits.list")))
   if [ "$COMMITS" -eq 0 ]; then
     echo "RULE P-ZERO-SCANNED history" >> "$TMP/report"
@@ -235,8 +268,8 @@ scan_history() {
   # content diff even where a committed attribute (-diff, binary) would print
   # "Binary files differ"; NUL bytes become spaces so no awk or grep drops the
   # rest of a line.
-  git -c core.quotepath=false log -m -p --text --no-color --no-ext-diff \
-    --no-textconv --format='COMMIT %H' "$_spec" > "$TMP/log.p.raw" ||
+  revs git -c core.quotepath=false log -m -p --text --no-color --no-ext-diff \
+    --no-textconv --format='COMMIT %H' > "$TMP/log.p.raw" ||
     fatal "git log -p failed"
   tr '\000' ' ' < "$TMP/log.p.raw" > "$TMP/log.p" || fatal "tr failed"
   awk -v text="$TMP/added.txt" -v loc="$TMP/added.loc" '
@@ -253,7 +286,7 @@ scan_history() {
   # Commit messages. A message is free text, so no in-band marker can be
   # trusted inside it: %w(0,2,2) indents every message line (blank lines
   # included) by two spaces, and only an unindented line is a record marker.
-  git log --format='COMMIT %H%n%w(0,2,2)%B' "$_spec" > "$TMP/log.msg" ||
+  revs git log --format='COMMIT %H%n%w(0,2,2)%B' > "$TMP/log.msg" ||
     fatal "git log failed"
   awk -v text="$TMP/msg.txt" -v loc="$TMP/msg.loc" '
     /^COMMIT / { c = $2; next }
@@ -266,7 +299,7 @@ scan_history() {
   hist_hits P-EMAIL "$TMP/msg.txt" "$TMP/msg.loc" "$EMAIL_RE"
 
   # Author and committer addresses.
-  git log --format='%h%x09%ae%x09%ce' "$_spec" > "$TMP/log.meta" ||
+  revs git log --format='%h%x09%ae%x09%ce' > "$TMP/log.meta" ||
     fatal "git log failed"
   awk -F'\t' "$AWK_LIB"'
     {
@@ -485,6 +518,26 @@ selftest() {
   printf 'and %s\n' "$P_LINUX" >> "$ST/wv/n.txt"
   (cd "$ST/wv" && g add n.txt && g commit -q -m more)
   case_run waiver-new-commit 1 P-PRIVATE-PATH "$ST/wv" --history
+
+  # History covers every local branch, tag and remote-tracking ref, not only
+  # HEAD (WR-18); --range is validated and never parsed as a git option.
+  new_repo refs
+  commit_all "$ST/refs" init
+  (cd "$ST/refs" && g checkout -q -b side2 &&
+    printf 'see %s\n' "$P_MAC" > n.txt && g add n.txt && g commit -q -m side2 &&
+    g checkout -q -)
+  case_run history-side-branch 1 P-PRIVATE-PATH "$ST/refs" --history
+  new_repo tagonly
+  commit_all "$ST/tagonly" init
+  (cd "$ST/tagonly" && g checkout -q --detach &&
+    printf 'see %s\n' "$P_MAC" > n.txt && g add n.txt && g commit -q -m t &&
+    g tag -a -m t v-seed && g checkout -q -)
+  case_run history-tag-only 1 P-PRIVATE-PATH "$ST/tagonly" --history
+  case_run range-side-branch 1 P-PRIVATE-PATH "$ST/refs" --range "$(cd "$ST/refs" && git rev-parse HEAD)..side2"
+  case_run range-leading-dash 2 - "$ST/refs" --range --all
+  case_run range-option-side 2 - "$ST/refs" --range "HEAD..--output=$ST/refs/x"
+  case_run range-unresolvable 2 - "$ST/refs" --range "nosuchref..HEAD"
+  case_run range-empty-side 2 - "$ST/refs" --range "..HEAD"
 
   # A line that looks like a diff header must not escape the scan.
   new_repo hdr

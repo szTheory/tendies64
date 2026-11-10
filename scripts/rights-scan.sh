@@ -5,8 +5,10 @@
 #   rights-scan.sh [--tree] [--history] [--range BASE..HEAD] [--staging DIR]
 #                  [--allow TSV]... [--selftest]
 #
-# With no scope flag it scans the working tree and all reachable history
-# (a superset of any PR range). --range limits history to BASE..HEAD.
+# With no scope flag it scans the working tree and all history reachable from
+# HEAD and every local branch, tag and remote-tracking ref (a superset of any
+# PR range). --range limits history to BASE..HEAD (or one revision); it is
+# validated and passed to git after --end-of-options.
 # provenance/docs-assets.tsv is always added to the allowlist when present.
 # fixtures/manifest.json is the second allowlist source (GOV-03): when the
 # scanned repository has one, t64-manifest-check --emit-allowlist turns its
@@ -141,15 +143,50 @@ scan_staging() {
   STAGE_N=${SCANNED_N:-0}
 }
 
-scan_history() {
+# check_range: rejects a --range value that git could parse as an option or
+# that does not name commits. Accepted: BASE..HEAD or one revision; no side
+# may be empty, start with "-" or contain "..", and each side must resolve to
+# a commit. The value is then passed after --end-of-options (git 2.24+).
+check_range() {
+  case $RANGE in
+    *...*) fatal "--range must be BASE..HEAD or one revision: $RANGE" ;;
+    *..*)
+      _ra=${RANGE%%..*}
+      _rb=${RANGE#*..}
+      ;;
+    *)
+      _ra=$RANGE
+      _rb=$RANGE
+      ;;
+  esac
+  for _side in "$_ra" "$_rb"; do
+    case $_side in
+      "" | -* | *..*) fatal "invalid --range: $RANGE" ;;
+    esac
+    git rev-parse --verify -q "$_side^{commit}" > /dev/null 2>&1 ||
+      fatal "--range side does not name a commit: $_side"
+  done
+}
+
+# revs CMD...: runs CMD with the revision arguments of the history scope:
+# the validated --range, or every local branch, tag and remote-tracking ref
+# plus HEAD (a detached CI checkout), so history on other refs of a full
+# clone is scanned too.
+revs() {
   if [ -n "$RANGE" ]; then
-    _spec=$RANGE
+    "$@" --end-of-options "$RANGE" --
+  elif git rev-parse --verify -q HEAD > /dev/null 2>&1; then
+    "$@" --branches --tags --remotes --end-of-options HEAD --
   else
-    _spec=HEAD
+    "$@" --branches --tags --remotes --
   fi
-  git rev-list --objects "$_spec" > "$TMP/revlist" || fatal "git rev-list failed"
-  git -c core.quotepath=false log -m --raw --no-abbrev --no-renames --no-color \
-    --no-ext-diff --ignore-submodules=none --format= "$_spec" > "$TMP/log.raw" ||
+}
+
+scan_history() {
+  if [ -n "$RANGE" ]; then check_range; fi
+  revs git rev-list --objects > "$TMP/revlist" || fatal "git rev-list failed"
+  revs git -c core.quotepath=false log -m --raw --no-abbrev --no-renames --no-color \
+    --no-ext-diff --ignore-submodules=none --format= > "$TMP/log.raw" ||
     fatal "git log failed"
   # Every (blob, path) pair that ever appeared: rev-list names each object once,
   # so renames and copies need the raw log to report every name.
@@ -411,6 +448,26 @@ selftest() {
   (cd "$ST/rom-del" && g rm -q data.txt && g commit -q -m remove)
   case_run rom-add-then-delete 1 R-ROM-MAGIC "$ST/rom-del" --history
   case_run rom-deleted-tree-only 0 - "$ST/rom-del" --tree
+
+  # History covers every branch, tag and remote-tracking ref, not only HEAD,
+  # and --range is validated and never parsed as a git option (WR-18).
+  new_repo refs
+  printf 'readme\n' > "$ST/refs/README.txt"
+  commit_all "$ST/refs" init
+  (cd "$ST/refs" && g checkout -q -b side && printf "${ROM_Z64}"'tail\n' > d.txt &&
+    g add d.txt && g commit -q -m side && g checkout -q -)
+  case_run history-side-branch 1 R-ROM-MAGIC "$ST/refs" --history
+  new_repo tagonly
+  printf 'readme\n' > "$ST/tagonly/README.txt"
+  commit_all "$ST/tagonly" init
+  (cd "$ST/tagonly" && g checkout -q --detach && printf "${ROM_Z64}"'tail\n' > d.txt &&
+    g add d.txt && g commit -q -m t && g tag v-seed && g checkout -q -)
+  case_run history-tag-only 1 R-ROM-MAGIC "$ST/tagonly" --history
+  case_run range-side-branch 1 R-ROM-MAGIC "$ST/refs" --range "$(cd "$ST/refs" && git rev-parse HEAD)..side"
+  case_run range-leading-dash 2 - "$ST/refs" --range --all
+  case_run range-option-side 2 - "$ST/refs" --range "HEAD..--output=$ST/refs/x"
+  case_run range-unresolvable 2 - "$ST/refs" --range "nosuchref..HEAD"
+  case_run range-empty-side 2 - "$ST/refs" --range "..HEAD"
 
   # shallow clone: the history scan would be vacuous, so it fails.
   new_repo deep
