@@ -1,0 +1,10 @@
+{
+  "command": "ASAN_OPTIONS=detect_leaks=0 UBSAN_OPTIONS=halt_on_error=1:print_stacktrace=1 build/asan/core/test_fuzz_rom_admission",
+  "exitCode": 1,
+  "output": "1..1\n# rom admission: seed=0x7a64c0de mutations=0 fixed_cases=148 accepted=67 refused=81 orders=0/0/0 fields=60 inventory=fixed-v1 sanitizer=asan+ubsan total_calls=148 branches=2/64/2/2/1/4/1/1/1/1/1/2 failure=misaligned reported allocation status_expected=4 status_actual=0 state_case=misaligned reported allocation\nnot ok 1 - production admission campaign has exact mutations, inventory, and refusal invariants\n",
+  "targetTest": "production admission campaign has exact mutations, inventory, and refusal invariants",
+  "targetFile": "core/tests/fuzz_rom_admission.c",
+  "expected": "The fixed reported-alignment negative case returns BAD_STORAGE and preserves all owned bytes; the full 250000-mutation campaign then passes.",
+  "actual": "The reported-misalignment case returned status 0 (OK) instead of 4 (BAD_STORAGE) and changed owned bytes; the test stopped before the mutation loop.",
+  "semanticAssessment": "The named CTest target built and ran. Its single TAP assertion failed on the planned allocator-misalignment invariant, not on compilation, test discovery, setup, or sanitizer output. This RED result shows admission accepts storage whose reported alignment does not match its address."
+}

@@ -179,3 +179,33 @@ target_link_libraries(test_sp_dma PRIVATE t64_core)
 t64_target_warnings(test_sp_dma)
 add_test(NAME unit.core.sp-dma COMMAND test_sp_dma)
 set_tests_properties(unit.core.sp-dma PROPERTIES LABELS unit)
+
+# Long admission fuzzing and the intentional fault are only available from the
+# existing ASan/UBSan preset. They are deliberately absent from the fast gate.
+set(T64_HAS_ADDRESS_AND_UNDEFINED_SANITIZERS FALSE)
+if(CMAKE_C_FLAGS MATCHES "-fsanitize=address,undefined" AND
+   CMAKE_EXE_LINKER_FLAGS MATCHES "-fsanitize=address,undefined")
+  set(T64_HAS_ADDRESS_AND_UNDEFINED_SANITIZERS TRUE)
+endif()
+
+if(T64_HAS_ADDRESS_AND_UNDEFINED_SANITIZERS)
+  # Sanitizer instrumentation grows existing core stack frames. Keep the
+  # project's frame-size diagnostics visible but nonfatal in this preset only.
+  target_compile_options(t64_core PRIVATE -Wno-error=frame-larger-than)
+
+  add_executable(test_fuzz_rom_admission tests/fuzz_rom_admission.c)
+  target_include_directories(test_fuzz_rom_admission PRIVATE
+    "${CMAKE_CURRENT_SOURCE_DIR}"
+    "${CMAKE_SOURCE_DIR}/tests")
+  target_link_libraries(test_fuzz_rom_admission PRIVATE t64_core)
+  t64_target_warnings(test_fuzz_rom_admission)
+  add_test(NAME fuzz.rom-admission COMMAND test_fuzz_rom_admission)
+  set_tests_properties(fuzz.rom-admission PROPERTIES TIMEOUT 120 LABELS fuzz)
+
+  add_executable(sanitizer_fault tests/sanitizer_fault.c)
+  t64_target_warnings(sanitizer_fault)
+  add_test(NAME sanitizer.negative-control
+    COMMAND sh "${CMAKE_SOURCE_DIR}/scripts/expect-sanitizer.sh"
+      "$<TARGET_FILE:sanitizer_fault>")
+  set_tests_properties(sanitizer.negative-control PROPERTIES LABELS sanitizer)
+endif()
