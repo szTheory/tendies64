@@ -1,0 +1,26 @@
+{
+  "schema": "t64.copies",
+  "schema_version": 1,
+  "copies": [
+    {
+      "id": "madr-4-0-0-headings",
+      "paths": ["docs/adr/0000-template.md"],
+      "upstream": {
+        "repo": "https://github.com/adr/madr",
+        "path": "template/adr-template.md",
+        "revision": "2475fe1973f66a12aaf58a91d8fa7b42c0f5ea3d"
+      },
+      "retrieved": "2026-11-09",
+      "spdx": "MIT",
+      "license_text": "LICENSES/MIT.txt",
+      "notice": "Copyright (c) 2017-2022 Oliver Kopp, Olaf Zimmermann",
+      "mode": "adapted",
+      "modifications": "heading structure only; MADR comment prose not copied; added Reversal evidence and a body Status line",
+      "verification_test": "repo.docs (scripts/check-docs.sh rule DOC-TEMPLATE)",
+      "maintenance_owner": "szTheory",
+      "upstream_status": "active",
+      "exposure": []
+    }
+  ],
+  "exposure": []
+}

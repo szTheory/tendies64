@@ -5,6 +5,10 @@ decision-makers: a GitHub login or a role, never an email
 consulted: logins, roles or none
 informed: logins, roles or none
 ---
+<!--
+SPDX-FileCopyrightText: Copyright (c) 2017-2022 Oliver Kopp, Olaf Zimmermann
+SPDX-License-Identifier: MIT
+-->
 
 # {Short title: the problem solved and the solution chosen}
 
