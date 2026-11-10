@@ -1,4 +1,9 @@
 # Docs-asset allowlist for the GOV-07 rights scan (GOV-07, CONTEXT "GOV-07 check").
 # One row per allowed non-text asset: path<TAB>sha256<TAB>reason
-# Tree and staging files match on path and sha256; history blobs match on sha256 only.
+# path: relative, under docs/, no empty, "." or ".." component, no backslash.
+# sha256: 64 lowercase hex. reason: non-empty. Exactly three columns.
+# A row matches on path AND sha256 in the tree, staging and history, and waives
+# only the non-text classes (R-NUL-HEAD, R-NUL-LATE, R-INVALID-UTF8). It never
+# waives R-ROM-MAGIC, R-CONTAINER, R-LFS-POINTER, R-DENIED-EXT or R-SYMLINK.
+# A malformed row stops the scan. Changes need code-owner review (.github/CODEOWNERS).
 # Lines starting with # and empty lines are ignored. Phase 1 has no rows.

@@ -1,8 +1,10 @@
 /*
  * t64-blobscan: byte classifier for the GOV-07 rights scan (authored here).
  *
- *   t64-blobscan --git-batch NAMES [--allow TSV]...   (stdin: git cat-file --batch)
- *   t64-blobscan --files [--allow TSV]...             (stdin: NUL-separated paths)
+ *   t64-blobscan --git-batch NAMES [--allow TSV]... [--allow-docs TSV]...
+ *                                   (stdin: git cat-file --batch)
+ *   t64-blobscan --files [--allow TSV]... [--allow-docs TSV]...
+ *                                   (stdin: NUL-separated paths)
  *
  * NAMES holds "<oid> <path>" lines (git rev-list --objects output, extended with
  * every other name a blob had in history). Every name of a shared blob is
@@ -12,6 +14,17 @@
  *   blobscan: scanned=N findings=M advisories=K
  * Exit 0 clean, 1 findings, 2 harness error (malformed stream, unreadable
  * input, or nothing scanned).
+ *
+ * Allowlists. An --allow row (path<TAB>sha256<TAB>reason; the manifest and
+ * the command line) waives every content class; tree and staging files match
+ * on path and digest, history blobs on the digest alone. An --allow-docs row
+ * (provenance/docs-assets.tsv) is validated strictly: a relative path under
+ * docs/ with no empty, "." or ".." component, no backslash or control byte, a
+ * lowercase 64-hex digest and a non-empty reason, exactly three columns. It
+ * matches on path AND digest everywhere, history included, and waives only
+ * the non-text classes (R-NUL-HEAD, R-NUL-LATE, R-INVALID-UTF8) and the
+ * advisories; never ROM magic, containers or LFS pointers. Denied extensions
+ * and symlinks are never waived by any row.
  *
  * ROM magic at offset 0, in any byte order, is a rule regardless of extension:
  * 80371240 (z64), 37804012 (v64) and 40123780 (n64). These are format facts,
@@ -55,7 +68,12 @@ enum { EXIT_CLEAN = 0, EXIT_FINDINGS = 1, EXIT_HARNESS = 2 };
 typedef struct {
   char *path;
   char sha[T64_SHA256_HEX_SIZE];
+  unsigned mask;   /* content classes this row waives */
+  int path_always; /* 1: history must match the path too (docs rows) */
 } allow_row;
+
+/* The classes a docs-asset row may waive: non-text bytes and advisories. */
+#define DOCS_MASK (C_NUL_HEAD | C_NUL_LATE | C_UTF8 | A_SIZE_4032 | A_BYTE_RUN)
 
 typedef struct {
   const char *oid;
@@ -137,7 +155,42 @@ static char *slurp(const char *path, size_t *outlen) {
   return buf;
 }
 
-static void load_allow(const char *path) {
+static void bad_row(int docs, const char *what, unsigned long lineno) {
+  (void)fprintf(stderr, "blobscan: error: %s in %s row %lu\n", what,
+                docs ? "docs-assets" : "allowlist", lineno);
+  exit(EXIT_HARNESS);
+}
+
+/* A docs-asset path: relative, under docs/, every component non-empty and
+ * neither "." nor "..", no backslash and no control byte. */
+static int docs_path_ok(const char *p) {
+  const char *c;
+  if (strncmp(p, "docs/", 5u) != 0) return 0;
+  for (c = p; *c != '\0'; c++) {
+    unsigned char u = (unsigned char)*c;
+    if (u < 0x20u || u == 0x7fu || u == '\\') return 0;
+  }
+  c = p;
+  for (;;) {
+    const char *e = strchr(c, '/');
+    size_t n = (e != NULL) ? (size_t)(e - c) : strlen(c);
+    if (n == 0u) return 0;
+    if (n == 1u && c[0] == '.') return 0;
+    if (n == 2u && c[0] == '.' && c[1] == '.') return 0;
+    if (e == NULL) break;
+    c = e + 1;
+  }
+  return 1;
+}
+
+static int has_non_space(const char *s) {
+  for (; *s != '\0'; s++) {
+    if (*s != ' ' && *s != '\t' && *s != '\r') return 1;
+  }
+  return 0;
+}
+
+static void load_allow(const char *path, int docs) {
   size_t len, pos = 0;
   unsigned long lineno = 0;
   char *buf = slurp(path, &len);
@@ -159,27 +212,21 @@ static void load_allow(const char *path) {
     c1 = strchr(line, '\t');
     c2 = (c1 != NULL) ? strchr(c1 + 1, '\t') : NULL;
     if (c1 == NULL || c2 == NULL || c1 == line || c2[1] == '\0') {
-      (void)fprintf(stderr, "blobscan: error: malformed allowlist row %lu\n",
-                    lineno);
-      exit(EXIT_HARNESS);
+      bad_row(docs, "malformed", lineno);
     }
     *c1 = '\0';
     *c2 = '\0';
-    if (strlen(c1 + 1) != 64u) {
-      (void)fprintf(stderr, "blobscan: error: bad sha256 in allowlist row %lu\n",
-                    lineno);
-      exit(EXIT_HARNESS);
-    }
+    if (strlen(c1 + 1) != 64u) bad_row(docs, "bad sha256", lineno);
     {
       size_t i;
       for (i = 0; i < 64u; i++) {
-        if (!is_hex_lower(c1[1 + i])) {
-          (void)fprintf(stderr,
-                        "blobscan: error: bad sha256 in allowlist row %lu\n",
-                        lineno);
-          exit(EXIT_HARNESS);
-        }
+        if (!is_hex_lower(c1[1 + i])) bad_row(docs, "bad sha256", lineno);
       }
+    }
+    if (docs) {
+      if (strchr(c2 + 1, '\t') != NULL) bad_row(docs, "extra column", lineno);
+      if (!has_non_space(c2 + 1)) bad_row(docs, "empty reason", lineno);
+      if (!docs_path_ok(line)) bad_row(docs, "path not under docs/", lineno);
     }
     if (g_allow_n == g_allow_cap) {
       size_t nc = g_allow_cap == 0 ? 16u : g_allow_cap * 2u;
@@ -192,19 +239,28 @@ static void load_allow(const char *path) {
     if (g_allow[g_allow_n].path == NULL) die("out of memory");
     memcpy(g_allow[g_allow_n].sha, c1 + 1, 64u);
     g_allow[g_allow_n].sha[64] = '\0';
+    g_allow[g_allow_n].mask = docs ? DOCS_MASK : CONTENT_MASK;
+    g_allow[g_allow_n].path_always = docs;
     g_allow_n++;
   }
   free(buf);
 }
 
-/* path == NULL matches on the digest alone (history blobs). */
-static int allow_match(const char *path, const char *sha) {
+/* The content classes waived for one name with one digest. history != 0
+ * lets an --allow row match on the digest alone; a docs row always needs the
+ * path too. path == NULL (an unnamed history blob) matches no docs row. */
+static unsigned allow_waive(const char *path, const char *sha, int history) {
   size_t i;
+  unsigned m = 0;
   for (i = 0; i < g_allow_n; i++) {
     if (strcmp(g_allow[i].sha, sha) != 0) continue;
-    if (path == NULL || strcmp(g_allow[i].path, path) == 0) return 1;
+    if (history && !g_allow[i].path_always) {
+      m |= g_allow[i].mask;
+    } else if (path != NULL && strcmp(g_allow[i].path, path) == 0) {
+      m |= g_allow[i].mask;
+    }
   }
-  return 0;
+  return m;
 }
 
 static int name_cmp(const void *a, const void *b) {
@@ -595,7 +651,6 @@ static void run_git_batch(void) {
     if (getc(stdin) != '\n') die("missing batch record terminator");
     flags = scan_finish(&st, hex);
     g_scanned++;
-    if (allow_match(NULL, hex)) flags &= ~(unsigned)CONTENT_MASK;
     /* binary search for the first name of this oid */
     lo = 0;
     hi = g_names_n;
@@ -608,10 +663,11 @@ static void run_git_batch(void) {
       }
     }
     if (lo >= g_names_n || strcmp(g_names[lo].oid, line) != 0) {
-      report_name("(unnamed)", line, flags);
+      report_name("(unnamed)", line, flags & ~allow_waive(NULL, hex, 1));
     } else {
       for (i = lo; i < g_names_n && strcmp(g_names[i].oid, line) == 0; i++) {
-        report_name(g_names[i].path, line, flags);
+        report_name(g_names[i].path, line,
+                    flags & ~allow_waive(g_names[i].path, hex, 1));
       }
     }
   }
@@ -661,7 +717,7 @@ static void scan_path(const char *path) {
   (void)close(fd);
   flags = scan_finish(&st, hex);
   g_scanned++;
-  if (allow_match(shown, hex)) flags &= ~(unsigned)CONTENT_MASK;
+  flags &= ~allow_waive(shown, hex, 0);
   report_name(shown, NULL, flags);
 }
 
@@ -705,13 +761,17 @@ int main(int argc, char **argv) {
     } else if (strcmp(argv[i], "--files") == 0) {
       files = 1;
     } else if (strcmp(argv[i], "--allow") == 0 && i + 1 < argc) {
-      load_allow(argv[++i]);
+      load_allow(argv[++i], 0);
+    } else if (strcmp(argv[i], "--allow-docs") == 0 && i + 1 < argc) {
+      load_allow(argv[++i], 1);
     } else {
-      die("usage: t64-blobscan (--git-batch NAMES | --files) [--allow TSV]...");
+      die("usage: t64-blobscan (--git-batch NAMES | --files) [--allow TSV]... "
+          "[--allow-docs TSV]...");
     }
   }
   if ((names == NULL) == (files == 0)) {
-    die("usage: t64-blobscan (--git-batch NAMES | --files) [--allow TSV]...");
+    die("usage: t64-blobscan (--git-batch NAMES | --files) [--allow TSV]... "
+          "[--allow-docs TSV]...");
   }
   if (names != NULL) {
     load_names(names);

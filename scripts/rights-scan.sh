@@ -9,7 +9,9 @@
 # HEAD and every local branch, tag and remote-tracking ref (a superset of any
 # PR range). --range limits history to BASE..HEAD (or one revision); it is
 # validated and passed to git after --end-of-options.
-# provenance/docs-assets.tsv is always added to the allowlist when present.
+# provenance/docs-assets.tsv is always passed as --allow-docs when present:
+# each row must name a path under docs/ and waives only the non-text classes
+# of that path with that digest, in the tree and in history (WR-14).
 # fixtures/manifest.json is the second allowlist source (GOV-03): when the
 # scanned repository has one, t64-manifest-check --emit-allowlist turns its
 # authored-here/cleared commit-channel entries into extra rows. A manifest with
@@ -53,6 +55,7 @@ DO_SELFTEST=0
 EXPLICIT=0
 TMP=""
 ALLOW_LIST=""
+DOCS_ALLOW=""
 HARNESS=0
 TREE_N="skipped"
 HIST_N="skipped"
@@ -85,6 +88,9 @@ run_blobscan() {
     while IFS= read -r _a; do
       set -- "$@" --allow "$_a"
     done < "$ALLOW_LIST"
+  fi
+  if [ -n "$DOCS_ALLOW" ]; then
+    set -- "$@" --allow-docs "$DOCS_ALLOW"
   fi
   BS_RC=0
   (
@@ -241,7 +247,7 @@ scan_main() {
     _top=$(git rev-parse --show-toplevel) || fatal "no work tree"
     cd "$_top"
     if [ -f provenance/docs-assets.tsv ]; then
-      echo "$_top/provenance/docs-assets.tsv" >> "$ALLOW_LIST"
+      DOCS_ALLOW=$_top/provenance/docs-assets.tsv
     fi
     if [ -f fixtures/manifest.json ]; then
       [ -x "$MANIFEST_CHECK" ] ||
@@ -591,6 +597,68 @@ selftest() {
   printf 'plain\n' > "$ST/ext-near/x.sav1"
   printf 'plain\n' > "$ST/ext-near/sav"
   case_run ext-near-miss 0 - "$ST/ext-near" --tree
+  # provenance/docs-assets.tsv (WR-14): a row waives only the non-text classes
+  # of one docs/ path with one digest, in the tree and in history; it never
+  # waives ROM magic, containers, LFS pointers, denied extensions or symlinks,
+  # and a malformed row stops the scan.
+  mk docs-ok
+  mkdir -p "$ST/docs-ok/docs" "$ST/docs-ok/provenance"
+  printf 'img\000\377data\n' > "$ST/docs-ok/docs/img.png"
+  printf '%s\t%s\t%s\n' docs/img.png "$(sha256_of "$ST/docs-ok/docs/img.png")" \
+    'selftest diagram' > "$ST/docs-ok/provenance/docs-assets.tsv"
+  NEED='tree=3'
+  case_run docs-asset-nul-waived 0 - "$ST/docs-ok" --tree
+  commit_all "$ST/docs-ok" add
+  case_run docs-asset-nul-waived-history 0 - "$ST/docs-ok" --history
+  # Same bytes under another name in history: path and digest must both match.
+  (cd "$ST/docs-ok" && cp docs/img.png docs/copy.png && g add docs/copy.png &&
+    g commit -q -m copy && g rm -q docs/copy.png && g commit -q -m rm)
+  NEED='R-NUL-HEAD docs/copy.png'
+  ABSENT=R-ROM-MAGIC
+  case_run docs-asset-history-other-path 1 R-NUL-HEAD "$ST/docs-ok" --history
+  # docs_case NAME RULE CONTENT-PRINTF [FILE]: a docs/ asset with a matching row
+  # whose RULE is never waived by the docs allowlist.
+  docs_case() {
+    mk "$1"
+    mkdir -p "$ST/$1/docs" "$ST/$1/provenance"
+    printf "$3" > "$ST/$1/docs/${4:-a.png}"
+    printf '%s\t%s\t%s\n' "docs/${4:-a.png}" "$(sha256_of "$ST/$1/docs/${4:-a.png}")" \
+      'selftest' > "$ST/$1/provenance/docs-assets.tsv"
+    case_run "$1" 1 "$2" "$ST/$1" --tree
+  }
+  docs_case docs-asset-rom-magic R-ROM-MAGIC "${ROM_Z64}"'\000tail\n'
+  docs_case docs-asset-container R-CONTAINER 'PK\003\004\000rest\n'
+  docs_case docs-asset-lfs R-LFS-POINTER 'version https://git-lfs.github.com/spec/v1\noid sha256:0\nsize 1\n'
+  docs_case docs-asset-denied-ext R-DENIED-EXT 'save\000\n' x.sav
+  (cd "$ST/docs-asset-rom-magic" && commit_all . add)
+  case_run docs-asset-rom-magic-history 1 R-ROM-MAGIC "$ST/docs-asset-rom-magic" --history
+  mk docs-link
+  mkdir -p "$ST/docs-link/docs" "$ST/docs-link/provenance"
+  ln -s ../README.txt "$ST/docs-link/docs/l.png"
+  printf '%s\t%s\t%s\n' docs/l.png "$(sha256_of "$ST/docs-link/README.txt")" 'selftest' \
+    > "$ST/docs-link/provenance/docs-assets.tsv"
+  case_run docs-asset-symlink 1 R-SYMLINK "$ST/docs-link" --tree
+  # bad_docs_row NAME ROW: a malformed docs-assets row is a harness error.
+  bad_docs_row() {
+    mk "$1"
+    mkdir -p "$ST/$1/provenance"
+    printf '%s\n' "$2" > "$ST/$1/provenance/docs-assets.tsv"
+    NEED='docs-assets row 1'
+    case_run "$1" 2 - "$ST/$1" --tree
+  }
+  _z=0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef
+  _Z=0123456789ABCDEF0123456789abcdef0123456789abcdef0123456789abcdef
+  bad_docs_row docs-row-outside-docs "$(printf 'assets/a.png\t%s\twhy' "$_z")"
+  bad_docs_row docs-row-traversal "$(printf 'docs/../a.png\t%s\twhy' "$_z")"
+  bad_docs_row docs-row-absolute "$(printf '/docs/a.png\t%s\twhy' "$_z")"
+  bad_docs_row docs-row-dot "$(printf 'docs/./a.png\t%s\twhy' "$_z")"
+  bad_docs_row docs-row-backslash "$(printf 'docs\\a.png\t%s\twhy' "$_z")"
+  bad_docs_row docs-row-upper-sha "$(printf 'docs/a.png\t%s\twhy' "$_Z")"
+  bad_docs_row docs-row-short-sha "$(printf 'docs/a.png\t%s\twhy' 0123)"
+  bad_docs_row docs-row-no-reason "$(printf 'docs/a.png\t%s\t ' "$_z")"
+  bad_docs_row docs-row-two-cols "$(printf 'docs/a.png\t%s' "$_z")"
+  bad_docs_row docs-row-extra-col "$(printf 'docs/a.png\t%s\twhy\textra' "$_z")"
+
   _sha=$(sha256_of "$ST/ext/x.sav")
   printf '%s\t%s\t%s\n' x.sav "$_sha" 'selftest' > "$ST/ext.tsv"
   case_run allowlist-keeps-denied-ext 1 R-DENIED-EXT "$ST/ext" --tree --allow "$ST/ext.tsv"

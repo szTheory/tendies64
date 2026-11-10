@@ -1,0 +1,5 @@
+# Files that can waive a gate control need the owner's review. GitHub enforces
+# this only when branch protection requires code-owner review.
+/provenance/docs-assets.tsv @szTheory
+/fixtures/manifest.json @szTheory
+/tools/rights/pii-history-waivers.tsv @szTheory
