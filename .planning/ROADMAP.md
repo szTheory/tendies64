@@ -303,7 +303,7 @@ Phase 7 may run in parallel with Phases 5 and 6 once Phase 4 is complete.
 
 | Phase | Milestone | Plans Complete | Status | Completed |
 |-------|-----------|----------------|--------|-----------|
-| 1. Governance, Rights and Harness Foundation | v1.0 | 13/13 | In Progress | - |
+| 1. Governance, Rights and Harness Foundation | v1.0 | 13/13 | Complete | 2026-11-10 |
 | 2. Deterministic Machine Skeleton | v1.0 | 1/8 | In Progress | - |
 | 3. First Headless ROM Through Open IPL3 | v1.0 | 0/TBD | Not started | - |
 | 4. Complete VR4300 CPU | v1.0 | 0/TBD | Not started | - |
