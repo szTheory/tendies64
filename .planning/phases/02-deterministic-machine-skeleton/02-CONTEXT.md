@@ -161,6 +161,11 @@ requirement and existing stops; it does not reopen C17 or authorize unreviewed
 fixtures. Source-evidence gaps do not become support claims. The UI keyword gate
 matched "Component tests"; this phase has no frontend or human interaction UI.
 
+Execution lesson from plan 02-02: sanitize captured test evidence before its first
+commit. CTest JUnit embeds checkout paths even when the command is portable;
+retain portable assertion/command/result records, remove hostnames and local or
+temporary paths, and check the artifact before committing. Raw logs stay local.
+
 </specifics>
 
 <deferred>

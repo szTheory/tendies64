@@ -18,7 +18,7 @@ actuals:
   tasks: 2
   commits: 4
 plan_head_before: aa0399bfed639d96d8372b2fa240ba9d969cd03d
-plan_head_after: 123f1dc0ef7ba583e11dd33a644745cd43075804
+plan_head_after: b3944156b76a5274eec8e067c9a502bffb289489
 
 tech-stack:
   added: []
@@ -84,7 +84,7 @@ coverage:
 
 duration: 40min
 completed: 2026-11-10
-status: halted
+status: complete
 ---
 
 # Phase 2 Plan 2: Deterministic Machine Skeleton Summary
@@ -107,10 +107,10 @@ status: halted
 
 ## Task Commits
 
-1. **Task 1 RED: Admit all byte orders through the production transaction** — `87d9697` (`test`)
-2. **Task 1 GREEN: Normalize and own raw ROM admission candidates** — `e54210a` (`feat`)
-3. **Task 2 RED: Enforce allocator, aliasing and replacement postconditions** — `688b8da` (`test`)
-4. **Task 2 GREEN: Enforce lifecycle storage and observer contracts** — `123f1dc` (`feat`)
+1. **Task 1 RED: Admit all byte orders through the production transaction** — `a29b207` (`test`)
+2. **Task 1 GREEN: Normalize and own raw ROM admission candidates** — `4794b34` (`feat`)
+3. **Task 2 RED: Enforce allocator, aliasing and replacement postconditions** — `289ef64` (`test`)
+4. **Task 2 GREEN: Enforce lifecycle storage and observer contracts** — `b394415` (`feat`)
 
 ## Files Created/Modified
 
@@ -137,7 +137,7 @@ status: halted
 - **Fix:** Updated the profile policy digest expectation and tracer status assertions alongside the production behavior.
 - **Files modified:** `core/tests/test_profile.c`, `core/tests/test_tracer.c`
 - **Verification:** Focused profile and tracer tests passed.
-- **Committed in:** `e54210a`
+- **Committed in:** `4794b34`
 
 **Total deviations:** 1 auto-fixed (Rule 1).
 **Impact on plan:** The updates align existing tests with the planned production contract.
@@ -147,18 +147,13 @@ status: halted
 - `cmake --build --preset gate` — passed.
 - `ctest --preset gate --no-tests=error -R '^unit\\.core\\.(lifecycle|rom-admission|tracer|profile)$' --output-on-failure` — 4/4 passed after the final source changes.
 - `./scripts/gate.sh` — build and lint passed; CTest reported 64/65 passed. The only failure was `gov.pii.repo`, with six `P-PRIVATE-PATH` findings in previously committed RED evidence blobs.
-- Current working versions of both evidence files use portable source labels and contain no private checkout paths. The gate scans commits, so changing current files alone does not resolve findings in earlier blobs.
+- After the orchestrator sanitized the unpushed historical evidence blobs, the PII scan reported zero findings and the full gate passed all 65 CTests plus source/object lint in 31 seconds. Final production source bytes and existing working changes were preserved.
 
 ## Issues Encountered
 
-The full gate identified two historical evidence artifacts that still contain absolute checkout paths:
+CTest JUnit RED evidence retained local paths. The orchestrator confirmed that all affected commits were unpushed, sanitized only those historical evidence blobs, preserved the final tree and working changes, updated the local descendant commit identities, and reran the PII scan and full gate successfully. No public history was rewritten and no waiver was added. Commit references in this summary now use the rewritten local identities.
 
-| Commit | Affected artifact |
-|---|---|
-| `87d9697` | `.planning/phases/02-deterministic-machine-skeleton/02-02-red-evidence.json` |
-| `688b8da` | `.planning/phases/02-deterministic-machine-skeleton/02-02-task2-red-evidence.json` |
-
-The current versions are sanitized and the focused code tests pass. Per the parent executor's instruction, history cleanup and the final full-gate rerun are pending at handoff; this summary remains `halted` until that gate passes. No history rewrite or waiver was made here.
+Evidence-capture lesson: remove checkout paths, temporary paths and hostnames from captured test output before its first commit; retain portable command, assertion and result evidence instead of raw JUnit output.
 
 ## User Setup Required
 
@@ -166,7 +161,7 @@ None.
 
 ## Next Phase Readiness
 
-The ROM/lifecycle implementation is ready for the next machine slice after the parent removes the two historical path findings and confirms the full gate. This work establishes current reset/refusal boundaries; future machine-state fields must be added to the same digest and reset audit. It does not establish DMA or scheduler correctness.
+The ROM/lifecycle implementation and full gate are ready for the next machine slice. This work establishes current reset/refusal boundaries; future machine-state fields must be added to the same digest and reset audit. It does not establish DMA or scheduler correctness.
 
 ---
 *Phase: 02-deterministic-machine-skeleton*
@@ -176,4 +171,4 @@ The ROM/lifecycle implementation is ready for the next machine slice after the p
 
 - Task source, test, and contract artifacts exist.
 - All four task commits are ancestors of the current plan head.
-- The only pending gate issue is the recorded historical PII scan failure.
+- The PII scan and complete local gate pass after unpushed-history cleanup.

@@ -117,14 +117,14 @@ Plans:
   4. ROM admission refuses oversized, truncated and malformed images, and images of unknown byte order, and the state digest is unchanged after each refusal. A ROM whose header country byte disagrees with the selected profile still runs under the profile's TV type and region (two-profile diff test)
   5. Turning on tracing produces guest-time-stamped events at device boundaries, and the final digest is identical to an untraced run
   6. The ROM admission parser is fuzzed under ASan and UBSan with inputs that exercise every header-field-dependent read, and the fuzz target is the production parser, not a stub (ADR-0002, "Evidence limits": the Phase 1 spike parser read four bytes, so its fuzz established nothing about memory safety)
-**Plans**: 1/8 plans executed
+**Plans**: 2/8 plans executed
 
 Plans:
 **Wave 1**
 - [x] 02-01-PLAN.md — Owned instance tracer, linted hash primitive and explicit profile identity
 
 **Wave 2** *(blocked on Wave 1 completion)*
-- [ ] 02-02-PLAN.md — Transactional production ROM normalization and allocator refusal contracts
+- [x] 02-02-PLAN.md — Transactional production ROM normalization and allocator refusal contracts
 
 **Wave 3** *(blocked on Wave 2 completion)*
 - [ ] 02-03-PLAN.md — Exact guest-time scheduler, canonical digest and observational trace
@@ -304,7 +304,7 @@ Phase 7 may run in parallel with Phases 5 and 6 once Phase 4 is complete.
 | Phase | Milestone | Plans Complete | Status | Completed |
 |-------|-----------|----------------|--------|-----------|
 | 1. Governance, Rights and Harness Foundation | v1.0 | 13/13 | Complete | 2026-11-10 |
-| 2. Deterministic Machine Skeleton | v1.0 | 1/8 | In Progress | - |
+| 2. Deterministic Machine Skeleton | v1.0 | 2/8 | In Progress | - |
 | 3. First Headless ROM Through Open IPL3 | v1.0 | 0/TBD | Not started | - |
 | 4. Complete VR4300 CPU | v1.0 | 0/TBD | Not started | - |
 | 5. RSP Low-Level Emulation | v1.0 | 0/TBD | Not started | - |
