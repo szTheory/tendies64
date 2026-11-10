@@ -13,7 +13,12 @@
 typedef struct {
   t64_host_allocator allocator;
   t64_machine *machine;
+  uint8_t image[4096];
 } fixture;
+
+static t64_status observed_mem_status;
+static t64_status observed_dram_status;
+static t64_status observed_length_status;
 
 static bool test_allocate(void *context, size_t size, size_t alignment,
                           t64_host_storage *storage_out) {
@@ -41,16 +46,31 @@ static void test_release(void *context, t64_host_storage storage) {
 
 static bool fixture_init(fixture *value) {
   const t64_profile_descriptor *profile = NULL;
+  size_t i;
 
   memset(value, 0, sizeof *value);
   value->allocator.allocate = test_allocate;
   value->allocator.release = test_release;
+  for (i = 0u; i < sizeof value->image; i++) {
+    value->image[i] = (uint8_t)((i * 29u + 7u) & 0xffu);
+  }
+  value->image[0] = 0x80u;
+  value->image[1] = 0x37u;
+  value->image[2] = 0x12u;
+  value->image[3] = 0x40u;
+  value->image[0x3eu] = (uint8_t)'E';
   if (t64_profile_lookup("ntsc-cart-4m-skeleton", &profile) !=
           T64_STATUS_OK ||
       profile == NULL ||
       t64_machine_create(&value->allocator, profile, &value->machine) !=
           T64_STATUS_OK ||
       value->machine == NULL) {
+    return false;
+  }
+  if (t64_machine_admit_rom(value->machine, value->image,
+                            sizeof value->image) != T64_STATUS_OK) {
+    t64_machine_destroy(value->machine);
+    value->machine = NULL;
     return false;
   }
   return true;
@@ -64,6 +84,9 @@ static bool source_at_completion_test(void) {
   uint32_t byte = 0u;
   size_t i;
   bool passed = true;
+  t64_status mem_status;
+  t64_status dram_status;
+  t64_status length_status;
 
   if (!fixture_init(&value)) {
     return false;
@@ -76,12 +99,17 @@ static bool source_at_completion_test(void) {
       passed = false;
     }
   }
-  if (t64_machine_bus_write(value.machine, TEST_SP_BASE, 4u,
-                            UINT32_C(0x00000003)) != T64_STATUS_OK ||
-      t64_machine_bus_write(value.machine, TEST_SP_BASE + 4u, 4u,
-                            UINT32_C(0x00000107)) != T64_STATUS_OK ||
-      t64_machine_bus_write(value.machine, TEST_SP_BASE + 8u, 4u,
-                            UINT32_C(0)) != T64_STATUS_OK) {
+  mem_status = t64_machine_bus_write(value.machine, TEST_SP_BASE, 4u,
+                                     UINT32_C(0x00000003));
+  dram_status = t64_machine_bus_write(value.machine, TEST_SP_BASE + 4u, 4u,
+                                      UINT32_C(0x00000107));
+  length_status = t64_machine_bus_write(value.machine, TEST_SP_BASE + 8u, 4u,
+                                        UINT32_C(0));
+  observed_mem_status = mem_status;
+  observed_dram_status = dram_status;
+  observed_length_status = length_status;
+  if (mem_status != T64_STATUS_OK || dram_status != T64_STATUS_OK ||
+      length_status != T64_STATUS_OK) {
     passed = false;
   }
   for (i = 0u; i < sizeof expected; i++) {
@@ -134,5 +162,10 @@ int main(void) {
   puts("1..1");
   printf("%s 1 - SP source is read at the 13-tick completion deadline\n",
          passed ? "ok" : "not ok");
+  if (!passed) {
+    printf("# SP register statuses: mem=%u dram=%u length=%u\n",
+           (unsigned)observed_mem_status, (unsigned)observed_dram_status,
+           (unsigned)observed_length_status);
+  }
   return passed ? 0 : 1;
 }
