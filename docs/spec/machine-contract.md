@@ -90,6 +90,59 @@ Callbacks run only during machine creation, admission, replacement, and
 destruction. Scheduled guest execution and read-only observations do not call
 the host.
 
+## Deterministic scheduler and state digest
+
+The private scheduler orders admitted work by the pair `(guest_tick,
+sequence)`. Equal-tick work therefore runs in enqueue order. A guest-tick stop
+is inclusive: events at the requested tick run before the machine reports the
+bound, and an empty queue advances the idle guest tick to that bound. A bound
+below the current tick is refused without changing machine state. A counter
+stop below its cumulative counter is likewise refused; an equal counter
+returns immediately without dispatch. For a larger counter target, dispatch
+stops as soon as the selected cumulative instruction or frame-event counter
+reaches the target, leaving later events at that same tick queued. These
+counters are driven only by explicitly labeled synthetic test events in this
+slice; they are not evidence of CPU execution or video frames.
+
+A halt already present wins before dispatch. A halt event dispatched at an
+inclusive time bound wins over the bound result. If the event queue empties
+before a counter target is reached, the result is quiescent at the last
+dispatched tick. Each advance dispatches at most the profile's 4096-event
+budget. Budget exhaustion, an invalid queued handler, a handler error, or a
+counter overflow reports a resource-limit result and retains already completed
+work. Counter overflow is checked before removing its event, so that event
+remains pending. Queue capacity, past deadlines, sequence exhaustion and
+tick-add overflow are rejected before machine-state mutation; rejected
+reservations do not consume sequence values.
+
+`t64_machine_digest` is a versioned SHA-256 encoding, not a memory dump. The
+v2 encoding streams the `t64.state.v2` domain and fixed-width big-endian
+fields. It includes the complete profile hash, immutable admitted content
+size and hash, parsed header metadata, loaded-image flag, guest tick,
+cumulative counters, sticky error and halt state, RDRAM bytes, and the logical
+ordered event queue with its count and next-sequence/exhaustion state. Event
+records encode tick, sequence, device, kind, value and token. The state schema
+version is part of the selected descriptor and was advanced to 2; the profile's
+machine and device policy values remain unchanged.
+
+| Private field or state | Digest treatment | Reason |
+| --- | --- | --- |
+| Selected profile and its policy/version fields | Include profile hash | Fixes timing, capacity and model policy for this instance |
+| Admitted image length and content digest | Include | Identifies the immutable installed content |
+| Parsed header, title, game code and version | Include | Records normalized content metadata explicitly |
+| Loaded-image flag | Include | Distinguishes lifecycle state; digest returns not-ready before admission |
+| Guest tick, instruction/frame counters, sticky error, halt | Include | Changes future advancement and stop results |
+| RDRAM bytes | Include | Writable machine memory |
+| Queue count, logical event fields, next sequence and exhausted flag | Include | Determines future dispatch and enqueue behavior |
+| Allocator callbacks/context and machine/image storage descriptors | Exclude | Host ownership and pointer locations are not machine behavior |
+| RAM pointer, event handler pointers and build/source identity | Exclude | Storage/code identity is not serialized machine state |
+| Queue head, unused event slots, structure padding | Exclude | Physical layout is not logical queue state |
+| Trace configuration, records and drop observation | Exclude | Observer state must not alter guest state or its digest |
+
+The field-mutation, exclusion, relocation, golden-vector, interleaving and
+partition tests cover this audit. Future device/register/request state must be
+added to the encoding and this table with its own tests when introduced.
+
 ## Replacement reset snapshot
 
 This table is the reset audit for content replacement. New future-affecting
@@ -103,13 +156,12 @@ introduced.
 | Normalized 64-byte header, title, game code, version, content digest | Yes | Install values parsed from the candidate |
 | Guest tick | Yes | Reset to zero |
 | RDRAM | Yes | Clear to zero |
-| Instruction/frame counters | No | Reset to the profile's initial value when introduced |
+| Instruction/frame counters | Yes | Reset to zero |
 | CPU/RSP registers and SP banks | No | Reset to the profile's initial state when introduced |
-| Scheduler queue and enqueue sequence | No | Empty queue and initial sequence when introduced |
+| Scheduler queue, next sequence and exhaustion state | Yes | Empty queue, initial sequence and available sequence |
 | DMA descriptors, device latches, and interrupt state | No | Reset to the profile's initial state when introduced |
 | Trace ring and observer drop count | No | Clear records and drops when introduced; keep observer state out of the machine digest |
 
-There is no observer ring or drop counter in the current slice. Refusal
-assertions therefore compare every present machine observation and ownership
-counter. Later device slices must extend this snapshot and preserve the same
-no-change refusal guarantee.
+The trace observer is added in the following task. Refusal assertions compare
+every present machine observation and ownership counter. Later device slices
+must extend this snapshot and preserve the same no-change refusal guarantee.

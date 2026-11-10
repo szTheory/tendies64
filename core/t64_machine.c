@@ -15,8 +15,6 @@
 #endif
 
 #define T64_BASE_RAM_BYTES UINT32_C(4194304)
-#define T64_STATE_HASH_VERSION UINT32_C(1)
-
 static const t64_profile_descriptor ntsc_cart_4m_profile = {
     .profile_id = "ntsc-cart-4m-skeleton",
     .console_target = "NUS-CPU-03",
@@ -61,7 +59,7 @@ static const t64_profile_descriptor ntsc_cart_4m_profile = {
     .dma_visibility_policy = "atomic-source-at-completion-v1",
     .descriptor_version = 1u,
     .machine_model_version = 1u,
-    .state_serialization_version = 1u,
+    .state_serialization_version = 2u,
 };
 
 static size_t bounded_text_length(const char *text, size_t capacity) {
@@ -71,27 +69,6 @@ static size_t bounded_text_length(const char *text, size_t capacity) {
     length++;
   }
   return length;
-}
-
-static void hash_u32(t64_sha256_ctx *context, uint32_t value) {
-  uint8_t bytes[4];
-
-  bytes[0] = (uint8_t)(value >> 24);
-  bytes[1] = (uint8_t)(value >> 16);
-  bytes[2] = (uint8_t)(value >> 8);
-  bytes[3] = (uint8_t)value;
-  t64_sha256_update(context, bytes, sizeof bytes);
-}
-
-static void hash_u64(t64_sha256_ctx *context, uint64_t value) {
-  uint8_t bytes[8];
-  unsigned i;
-
-  for (i = 0u; i < 8u; i++) {
-    unsigned shift = 56u - (i * 8u);
-    bytes[i] = (uint8_t)(value >> shift);
-  }
-  t64_sha256_update(context, bytes, sizeof bytes);
 }
 
 typedef struct {
@@ -141,7 +118,6 @@ static bool profile_fields_are_valid(const t64_profile_descriptor *profile) {
          profile->rom_min_bytes >= 4096u &&
          profile->rom_max_bytes >= profile->rom_min_bytes &&
          profile->event_queue_capacity > 0u &&
-         profile->event_queue_capacity <= T64_EVENT_QUEUE_CAPACITY &&
          profile->sequence_width_bits > 0u &&
          profile->sequence_width_bits <= 64u &&
          profile->advance_event_budget > 0u &&
@@ -400,6 +376,7 @@ t64_status t64_machine_create(const t64_host_allocator *allocator,
   *machine_out = NULL;
   if (allocator == NULL || allocator->allocate == NULL ||
       allocator->release == NULL || !profile_fields_are_valid(profile) ||
+      profile->event_queue_capacity > T64_EVENT_QUEUE_CAPACITY ||
       t64_profile_hash(profile, profile_digest) != T64_STATUS_OK ||
       (size_t)profile->rdram_bytes > SIZE_MAX - sizeof(t64_machine)) {
     return T64_STATUS_INVALID_ARGUMENT;
@@ -586,32 +563,5 @@ t64_status t64_machine_profile(
     return T64_STATUS_INVALID_ARGUMENT;
   }
   *profile_out = &machine->profile;
-  return T64_STATUS_OK;
-}
-
-t64_status t64_machine_digest(const t64_machine *machine,
-                              uint8_t digest_out[T64_DIGEST_SIZE]) {
-  static const uint8_t domain[] = {'t', '6', '4', '.', 's', 't', 'a', 't',
-                                   'e', '.', 'v', '1'};
-  t64_sha256_ctx context;
-
-  if (machine == NULL || digest_out == NULL) {
-    return T64_STATUS_INVALID_ARGUMENT;
-  }
-  if (!machine->has_image) {
-    return T64_STATUS_NOT_READY;
-  }
-  t64_sha256_init(&context);
-  t64_sha256_update(&context, domain, sizeof domain);
-  hash_u32(&context, T64_STATE_HASH_VERSION);
-  t64_sha256_update(&context, machine->profile_digest,
-                    sizeof machine->profile_digest);
-  t64_sha256_update(&context, machine->content_digest,
-                    sizeof machine->content_digest);
-  hash_u64(&context, machine->tick);
-  hash_u32(&context, (uint32_t)machine->image_length);
-  hash_u32(&context, machine->profile.rdram_bytes);
-  t64_sha256_update(&context, machine->ram, machine->profile.rdram_bytes);
-  t64_sha256_final(&context, digest_out);
   return T64_STATUS_OK;
 }
