@@ -24,7 +24,7 @@ export LC_ALL
 SELF=$0
 
 # Required ADR numbers (one variable; later tasks append).
-REQUIRED="0001 0002 0003 0004 0005 0006"
+REQUIRED="0001 0002 0003 0004 0005 0006 0007"
 # Required ADRs allowed to stay proposed. Plan 01-08 accepts ADR-0002 and removes this exemption.
 PROPOSED_OK="0002"
 # The only two paths under core/ allowed while ADR-0002 is not accepted (CONTEXT A-1).
@@ -32,7 +32,8 @@ CORE_ALLOW="core/t64_core_stub.c core/include/tendies64/t64_facade.h"
 # Headings every ADR and the template carry, in this order (extra headings are allowed between them).
 ADR_HEADINGS="## Context and Problem Statement|## Decision Drivers|## Considered Options|## Decision Outcome|### Consequences|### Confirmation|## Reversal evidence|## Pros and Cons of the Options|## More Information"
 # Policy files, one per line: "path|heading|heading|...". Every listed heading must appear as a full line.
-POLICIES=""
+POLICIES="docs/policy/copy-provenance.md|## Allowed licenses|## Never copied|## Reading rule|## Pre-vetted, not yet allowed|## Per-copy record|## Exposure log|## REUSE scope|## Automated enforcement
+docs/policy/rights-and-fixtures.md|## Protected material|## Rights statuses|## Distribution channels|## Fixture manifest|## Automated enforcement|## Local-only material"
 
 usage() {
   echo "usage: check-docs.sh [--root DIR] [--selftest]" >&2

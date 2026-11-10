@@ -7,4 +7,11 @@ add_test(NAME repo.docs
 add_test(NAME repo.docs-selftest
   COMMAND sh ${CMAKE_SOURCE_DIR}/scripts/check-docs.sh --selftest
   WORKING_DIRECTORY ${CMAKE_SOURCE_DIR})
-set_tests_properties(repo.docs repo.docs-selftest PROPERTIES LABELS repo)
+add_test(NAME repo.ci-yml
+  COMMAND sh ${CMAKE_SOURCE_DIR}/scripts/check-ci-yml.sh
+  WORKING_DIRECTORY ${CMAKE_SOURCE_DIR})
+add_test(NAME repo.ci-yml-selftest
+  COMMAND sh ${CMAKE_SOURCE_DIR}/scripts/check-ci-yml.sh --selftest
+  WORKING_DIRECTORY ${CMAKE_SOURCE_DIR})
+set_tests_properties(repo.docs repo.docs-selftest repo.ci-yml repo.ci-yml-selftest
+  PROPERTIES LABELS repo)
