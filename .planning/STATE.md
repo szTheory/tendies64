@@ -5,16 +5,16 @@ milestone_name: Verified Headless Core
 current_phase: 01
 current_phase_name: Governance, Rights and Harness Foundation
 status: executing
-stopped_at: Completed 01-07-PLAN.md
-last_updated: "2026-11-10T02:27:49.999Z"
+stopped_at: Completed 01-08-PLAN.md
+last_updated: "2026-11-10T02:42:14.613Z"
 last_activity: 2026-11-09
 last_activity_desc: Phase 1 execution started
-state_head: de1f3169a57ee4a09530b1dd6436b148fc6a08d7
+state_head: 31c7bb6a836444bff0bf3c69a7871ab639c07d8c
 progress:
   total_phases: 6
   completed_phases: 0
   total_plans: 13
-  completed_plans: 7
+  completed_plans: 8
   percent: 0
 ---
 
@@ -30,7 +30,7 @@ See: .planning/PROJECT.md (updated 2026-11-09)
 ## Current Position
 
 Phase: 1 (Governance, Rights and Harness Foundation) — EXECUTING
-Plan: 8 of 13
+Plan: 9 of 13
 Status: Ready to execute
 Last activity: 2026-11-09 — Phase 1 execution started
 
@@ -65,6 +65,7 @@ Progress: [░░░░░░░░░░] 0%
 | Phase 1 P05 | 30min | 2 tasks | 17 files |
 | Phase 1 P06 | 8 min | 3 tasks | 5 files |
 | Phase 1 P07 | 4 min | 2 tasks | 24 files |
+| Phase 1 P08 | 14min | 3 tasks | 33 files |
 
 ## Accumulated Context
 
@@ -91,6 +92,8 @@ Decisions are logged in the PROJECT.md Key Decisions table. Recent decisions tha
 - [Phase 1]: 01-06: added P-SHALLOW to pii-scan (unlisted rule id) so a shallow clone cannot pass a vacuous history scan; ROADMAP SC4 artifact leg covered by seeded staging-rom-magic and staging-nul cases
 - [Phase 1]: 01-07: result consumer checks schema, then schema_version, then exact key sets, and checks canonical bytes last; S-DUPLICATE precedes S-ORDER and S-INVENTORY; only S-TRUNCATED and S-INVENTORY echo a harness-error detail line
 - [Phase 1]: 01-07: identity prints nothing unless every line validated and compares no inventory (run suite first); profile_id/build_id restricted to [A-Za-z0-9._+-]{1,128}
+- [Phase 1]: D1 decided by the pre-registered Rust spike: stay with C17 (no Rule (a) or Rule (b) trigger); ADR-0002 accepted, check-docs requires all of ADR 0001-0007 accepted
+- [Phase 1]: Spike Rule (a) reads 'both OSes' as a conjunction: a class triggers only if the C gate lint exits 0 on host and Linux container and the Rust twin exits 1
 
 ### Pending Todos
 
@@ -116,6 +119,6 @@ Items acknowledged and deferred at milestone close, most recent first:
 
 ## Session Continuity
 
-Last session: 2026-11-10T02:27:49.974Z
-Stopped at: Completed 01-07-PLAN.md
+Last session: 2026-11-10T02:42:14.595Z
+Stopped at: Completed 01-08-PLAN.md
 Resume file: None
