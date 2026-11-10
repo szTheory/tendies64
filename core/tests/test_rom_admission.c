@@ -1,3 +1,4 @@
+#line 1 "core/tests/test_rom_admission.c"
 #include <stdbool.h>
 #include <stdint.h>
 #include <stdio.h>
@@ -132,6 +133,43 @@ static void check_digest(const t64_machine *machine,
   T64_CHECK(memcmp(actual, expected, T64_DIGEST_SIZE) == 0);
 }
 
+static void check_header_and_size(const t64_machine *machine,
+                                  const uint8_t *canonical,
+                                  size_t expected_image_size) {
+  uint8_t header[T64_ROM_HEADER_SIZE];
+  uint8_t untouched[T64_ROM_HEADER_SIZE];
+  size_t image_size = SIZE_MAX;
+  size_t required = 0u;
+  size_t i;
+
+  T64_CHECK_INT(t64_machine_rom_size(machine, &image_size), T64_STATUS_OK);
+  T64_CHECK_INT(image_size, expected_image_size);
+
+  T64_CHECK_INT(t64_machine_rom_header(machine, NULL, 0u, &required),
+                T64_STATUS_BUFFER_TOO_SMALL);
+  T64_CHECK_INT(required, T64_ROM_HEADER_SIZE);
+
+  (void)memset(untouched, 0xc3, sizeof untouched);
+  required = 0u;
+  T64_CHECK_INT(t64_machine_rom_header(machine, untouched,
+                                       T64_ROM_HEADER_SIZE - 1u, &required),
+                T64_STATUS_BUFFER_TOO_SMALL);
+  T64_CHECK_INT(required, T64_ROM_HEADER_SIZE);
+  for (i = 0u; i < sizeof untouched; i++) {
+    T64_CHECK_INT(untouched[i], 0xc3u);
+  }
+
+  required = 0u;
+  T64_CHECK_INT(t64_machine_rom_header(machine, header, sizeof header,
+                                       &required),
+                T64_STATUS_OK);
+  T64_CHECK_INT(required, T64_ROM_HEADER_SIZE);
+  T64_CHECK(memcmp(header, canonical, T64_ROM_HEADER_SIZE) == 0);
+  T64_CHECK(memcmp(header + 0x20u, canonical + 0x20u, 20u) == 0);
+  T64_CHECK(memcmp(header + 0x3bu, canonical + 0x3bu, 4u) == 0);
+  T64_CHECK_INT(header[0x3fu], canonical[0x3fu]);
+}
+
 static void check_refusal_unchanged(t64_machine *machine,
                                     allocator_state *allocator,
                                     const uint8_t *bytes, size_t length,
@@ -142,14 +180,25 @@ static void check_refusal_unchanged(t64_machine *machine,
   uint8_t content_after[T64_DIGEST_SIZE];
   uint8_t profile_before[T64_DIGEST_SIZE];
   uint8_t profile_after[T64_DIGEST_SIZE];
+  uint8_t header_before[T64_ROM_HEADER_SIZE];
+  uint8_t header_after[T64_ROM_HEADER_SIZE];
   const t64_profile_descriptor *profile = NULL;
   size_t allocations_before = allocator->allocation_count;
   size_t releases_before = allocator->release_count;
   size_t outstanding_before = allocator->outstanding_count;
+  size_t image_size_before = 0u;
+  size_t image_size_after = 0u;
+  size_t header_length = 0u;
 
   T64_CHECK_INT(t64_machine_digest(machine, state_before), T64_STATUS_OK);
   T64_CHECK_INT(t64_machine_content_digest(machine, content_before),
                 T64_STATUS_OK);
+  T64_CHECK_INT(t64_machine_rom_size(machine, &image_size_before),
+                T64_STATUS_OK);
+  T64_CHECK_INT(t64_machine_rom_header(machine, header_before,
+                                       sizeof header_before, &header_length),
+                T64_STATUS_OK);
+  T64_CHECK_INT(header_length, T64_ROM_HEADER_SIZE);
   T64_CHECK_INT(t64_machine_profile(machine, &profile), T64_STATUS_OK);
   T64_CHECK(profile != NULL);
   if (profile != NULL) {
@@ -164,6 +213,14 @@ static void check_refusal_unchanged(t64_machine *machine,
   T64_CHECK_INT(t64_machine_content_digest(machine, content_after),
                 T64_STATUS_OK);
   T64_CHECK(memcmp(content_before, content_after, T64_DIGEST_SIZE) == 0);
+  T64_CHECK_INT(t64_machine_rom_size(machine, &image_size_after),
+                T64_STATUS_OK);
+  T64_CHECK_INT(image_size_after, image_size_before);
+  T64_CHECK_INT(t64_machine_rom_header(machine, header_after,
+                                       sizeof header_after, &header_length),
+                T64_STATUS_OK);
+  T64_CHECK_INT(header_length, T64_ROM_HEADER_SIZE);
+  T64_CHECK(memcmp(header_before, header_after, T64_ROM_HEADER_SIZE) == 0);
   T64_CHECK_INT(t64_machine_profile(machine, &profile), T64_STATUS_OK);
   T64_CHECK(profile != NULL);
   if (profile != NULL) {
@@ -220,6 +277,7 @@ static void test_all_orders_and_refusal_state(void) {
     encode_order(canonical, raw, sizeof raw, orders[i]);
     T64_CHECK_INT(t64_machine_admit_rom(machine, raw, sizeof raw),
                   T64_STATUS_OK);
+    check_header_and_size(machine, canonical, sizeof canonical);
     if (t64_machine_content_digest(machine, expected_digest) ==
         T64_STATUS_OK) {
       uint8_t independent_digest[T64_DIGEST_SIZE];
@@ -294,15 +352,17 @@ static void test_minimum_and_maximum_boundaries(void) {
   T64_CHECK_INT(t64_machine_admit_rom(machine, maximum_span,
                                       (size_t)TEST_ROM_MIN_BYTES),
                 T64_STATUS_OK);
+  check_header_and_size(machine, maximum_span, TEST_ROM_MIN_BYTES);
   T64_CHECK_INT(t64_machine_admit_rom(machine, maximum_span,
                                       (size_t)TEST_ROM_MAX_BYTES),
                 T64_STATUS_OK);
+  check_header_and_size(machine, maximum_span, TEST_ROM_MAX_BYTES);
   sha256_bytes(maximum_span, (size_t)TEST_ROM_MAX_BYTES, expected_digest);
   check_digest(machine, expected_digest);
   T64_CHECK_INT(t64_machine_digest(machine, before_rejection), T64_STATUS_OK);
-  T64_CHECK_INT(t64_machine_admit_rom(machine, maximum_span,
-                                      (size_t)TEST_ROM_MAX_BYTES + 1u),
-                T64_STATUS_INVALID_ROM);
+  check_refusal_unchanged(machine, &allocator, maximum_span,
+                          (size_t)TEST_ROM_MAX_BYTES + 1u,
+                          T64_STATUS_INVALID_ROM);
   T64_CHECK_INT(t64_machine_digest(machine, after_rejection), T64_STATUS_OK);
   T64_CHECK(memcmp(before_rejection, after_rejection, T64_DIGEST_SIZE) == 0);
 

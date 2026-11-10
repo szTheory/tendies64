@@ -299,14 +299,19 @@ static bool machine_storage_disjoint_from_inputs(
 
 static void release_bad_machine_storage(
     const t64_host_allocator *allocator, t64_host_storage storage,
-    const t64_profile_descriptor *profile, t64_machine **machine_out) {
+    size_t required, const t64_profile_descriptor *profile,
+    t64_machine **machine_out) {
   t64_address_range returned_range;
+  t64_address_range requested_range;
 
   if (storage.data != NULL && allocator->release != NULL &&
       t64_internal_make_range(storage.data, storage.capacity,
                               &returned_range) &&
+      t64_internal_make_range(storage.data, required, &requested_range) &&
       machine_storage_disjoint_from_inputs(returned_range, allocator, profile,
-                                           machine_out)) {
+                                           machine_out) &&
+      machine_storage_disjoint_from_inputs(requested_range, allocator,
+                                           profile, machine_out)) {
     allocator->release(allocator->context, storage);
   }
 }
@@ -412,7 +417,8 @@ t64_status t64_machine_create(const t64_host_allocator *allocator,
                                   &allocation_range) ||
       !machine_storage_disjoint_from_inputs(allocation_range, allocator,
                                             profile, machine_out)) {
-    release_bad_machine_storage(allocator, storage, profile, machine_out);
+    release_bad_machine_storage(allocator, storage, total_size, profile,
+                                machine_out);
     return T64_STATUS_BAD_STORAGE;
   }
   machine = (t64_machine *)storage.data;
@@ -513,6 +519,73 @@ t64_status t64_machine_content_digest(
   }
   (void)memcpy(digest_out, machine->content_digest,
                sizeof machine->content_digest);
+  return T64_STATUS_OK;
+}
+
+static bool observation_range_is_disjoint(const t64_machine *machine,
+                                          t64_address_range output_range) {
+  t64_address_range owned_range;
+
+  if (!t64_internal_make_range(machine->machine_storage.data,
+                               machine->machine_storage.capacity,
+                               &owned_range) ||
+      t64_internal_ranges_overlap(output_range, owned_range)) {
+    return false;
+  }
+  if (machine->has_image &&
+      (!t64_internal_make_range(machine->image_storage.data,
+                                machine->image_storage.capacity,
+                                &owned_range) ||
+       t64_internal_ranges_overlap(output_range, owned_range))) {
+    return false;
+  }
+  return true;
+}
+
+t64_status t64_machine_rom_size(const t64_machine *machine,
+                                size_t *size_out) {
+  t64_address_range output_range;
+
+  if (machine == NULL || size_out == NULL ||
+      !t64_internal_make_range(size_out, sizeof *size_out, &output_range) ||
+      !observation_range_is_disjoint(machine, output_range)) {
+    return T64_STATUS_INVALID_ARGUMENT;
+  }
+  if (!machine->has_image) {
+    return T64_STATUS_NOT_READY;
+  }
+  *size_out = machine->image_length;
+  return T64_STATUS_OK;
+}
+
+t64_status t64_machine_rom_header(const t64_machine *machine,
+                                  uint8_t *header_out, size_t capacity,
+                                  size_t *length_out) {
+  t64_address_range length_range;
+  t64_address_range header_range;
+
+  if (machine == NULL || length_out == NULL ||
+      (header_out == NULL && capacity != 0u) ||
+      !t64_internal_make_range(length_out, sizeof *length_out, &length_range) ||
+      !observation_range_is_disjoint(machine, length_range)) {
+    return T64_STATUS_INVALID_ARGUMENT;
+  }
+  if (header_out != NULL) {
+    if (!t64_internal_make_range(header_out, capacity, &header_range) ||
+        t64_internal_ranges_overlap(header_range, length_range) ||
+        !observation_range_is_disjoint(machine, header_range)) {
+      return T64_STATUS_INVALID_ARGUMENT;
+    }
+  }
+  if (!machine->has_image) {
+    return T64_STATUS_NOT_READY;
+  }
+  if (header_out == NULL || capacity < T64_ROM_HEADER_BYTES) {
+    *length_out = T64_ROM_HEADER_BYTES;
+    return T64_STATUS_BUFFER_TOO_SMALL;
+  }
+  *length_out = T64_ROM_HEADER_BYTES;
+  (void)memcpy(header_out, machine->rom_header, T64_ROM_HEADER_BYTES);
   return T64_STATUS_OK;
 }
 

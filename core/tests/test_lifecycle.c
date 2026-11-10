@@ -1,3 +1,4 @@
+#line 1 "core/tests/test_lifecycle.c"
 #include <stdbool.h>
 #include <stddef.h>
 #include <stdint.h>
@@ -297,6 +298,30 @@ static void test_invalid_creation_does_not_allocate(void) {
   T64_CHECK_INT(allocator.allocation_attempts, attempts_before + 1u);
   T64_CHECK_INT(allocator.release_count, 0u);
   T64_CHECK_INT(allocator.outstanding_count, 0u);
+
+  allocator.alias_pointer = &machine;
+  allocator.next_mode = ALLOCATE_ALIAS;
+  T64_CHECK_INT(t64_machine_create(&valid_allocator, profile, &machine),
+                T64_STATUS_BAD_STORAGE);
+  T64_CHECK(machine == NULL);
+  T64_CHECK_INT(allocator.allocation_attempts, attempts_before + 2u);
+  T64_CHECK_INT(allocator.bad_release_attempts, 0u);
+  T64_CHECK_INT(allocator.release_count, 0u);
+
+  allocator.next_mode = ALLOCATE_SHORT_CAPACITY;
+  T64_CHECK_INT(t64_machine_create(&valid_allocator, profile, &machine),
+                T64_STATUS_BAD_STORAGE);
+  T64_CHECK(machine == NULL);
+  T64_CHECK_INT(allocator.release_count, 1u);
+  T64_CHECK_INT(allocator.outstanding_count, 0u);
+
+  allocator.next_mode = ALLOCATE_BAD_ALIGNMENT;
+  T64_CHECK_INT(t64_machine_create(&valid_allocator, profile, &machine),
+                T64_STATUS_BAD_STORAGE);
+  T64_CHECK(machine == NULL);
+  T64_CHECK_INT(allocator.release_count, 2u);
+  T64_CHECK_INT(allocator.outstanding_count, 0u);
+  T64_CHECK_INT(allocator.bad_release_attempts, 0u);
 }
 
 static void test_admission_alias_and_descriptor_refusals(void) {
@@ -329,6 +354,26 @@ static void test_admission_alias_and_descriptor_refusals(void) {
   T64_CHECK(machine != NULL);
   if (machine == NULL) {
     return;
+  }
+  {
+    uint8_t header[T64_ROM_HEADER_SIZE];
+    size_t image_size = 123u;
+    size_t header_length = 321u;
+
+    (void)memset(header, 0xacu, sizeof header);
+    T64_CHECK_INT(t64_machine_rom_size(machine, &image_size),
+                  T64_STATUS_NOT_READY);
+    T64_CHECK_INT(image_size, 123u);
+    T64_CHECK_INT(t64_machine_rom_header(machine, NULL, 0u, &header_length),
+                  T64_STATUS_NOT_READY);
+    T64_CHECK_INT(header_length, 321u);
+    T64_CHECK_INT(t64_machine_rom_header(machine, header, sizeof header,
+                                         &header_length),
+                  T64_STATUS_NOT_READY);
+    T64_CHECK_INT(header_length, 321u);
+    for (size_t i = 0u; i < sizeof header; i++) {
+      T64_CHECK_INT(header[i], 0xacu);
+    }
   }
   T64_CHECK_INT(t64_machine_admit_rom(machine, image, sizeof image),
                 T64_STATUS_OK);
@@ -393,14 +438,12 @@ static void test_zero_capacity_aliases_are_not_released(void) {
   const t64_host_allocator host_allocator = {test_allocate, test_release,
                                               &allocator};
   uint8_t image[TEST_ROM_BYTES];
-  uint8_t alias_storage[TEST_ROM_BYTES];
   const t64_profile_descriptor *profile = NULL;
   t64_machine *machine = NULL;
   size_t bad_releases_before;
   size_t protected_releases_before;
 
   fill_image(image, 3u);
-  (void)memset(alias_storage, 0xa5, sizeof alias_storage);
   T64_CHECK_INT(t64_profile_lookup("ntsc-cart-4m-skeleton", &profile),
                 T64_STATUS_OK);
   if (profile == NULL) {
@@ -414,18 +457,17 @@ static void test_zero_capacity_aliases_are_not_released(void) {
   T64_CHECK_INT(t64_machine_admit_rom(machine, image, sizeof image),
                 T64_STATUS_OK);
   bad_releases_before = allocator.bad_release_attempts;
-  allocator.alias_pointer = alias_storage;
-  allocator.next_mode = ALLOCATE_ALIAS;
-  T64_CHECK_INT(t64_machine_admit_rom(machine, image, sizeof image),
-                T64_STATUS_BAD_STORAGE);
+  check_machine_snapshot(machine, profile, image, sizeof image, &allocator,
+                         ALLOCATE_ALIAS, image, T64_STATUS_BAD_STORAGE, false,
+                         0u, 0u);
   T64_CHECK_INT(allocator.bad_release_attempts, bad_releases_before);
 
   protected_releases_before = allocator.protected_release_attempts;
   allocator.alias_pointer = allocator.slots[1].data;
   allocator.protected_pointer = allocator.alias_pointer;
-  allocator.next_mode = ALLOCATE_ALIAS;
-  T64_CHECK_INT(t64_machine_admit_rom(machine, image, sizeof image),
-                T64_STATUS_BAD_STORAGE);
+  check_machine_snapshot(machine, profile, image, sizeof image, &allocator,
+                         ALLOCATE_ALIAS, allocator.alias_pointer,
+                         T64_STATUS_BAD_STORAGE, false, 0u, 0u);
   T64_CHECK_INT(allocator.protected_release_attempts,
                 protected_releases_before);
 
@@ -482,6 +524,19 @@ static void test_adjacent_candidate_and_replacement_order(void) {
   T64_CHECK_INT(t64_machine_content_digest(machine, actual_digest),
                 T64_STATUS_OK);
   T64_CHECK(memcmp(actual_digest, expected_digest, T64_DIGEST_SIZE) == 0);
+  {
+    uint8_t header[T64_ROM_HEADER_SIZE];
+    size_t image_size = 0u;
+    size_t header_length = 0u;
+
+    T64_CHECK_INT(t64_machine_rom_size(machine, &image_size), T64_STATUS_OK);
+    T64_CHECK_INT(image_size, TEST_ROM_BYTES);
+    T64_CHECK_INT(t64_machine_rom_header(machine, header, sizeof header,
+                                         &header_length),
+                  T64_STATUS_OK);
+    T64_CHECK_INT(header_length, T64_ROM_HEADER_SIZE);
+    T64_CHECK(memcmp(header, arena, T64_ROM_HEADER_SIZE) == 0);
+  }
 
   old_image = allocator.slots[1].data;
   T64_CHECK_INT(t64_machine_profile(machine, &observed), T64_STATUS_OK);
@@ -505,6 +560,19 @@ static void test_adjacent_candidate_and_replacement_order(void) {
   T64_CHECK_INT(t64_machine_content_digest(machine, actual_digest),
                 T64_STATUS_OK);
   T64_CHECK(memcmp(actual_digest, expected_digest, T64_DIGEST_SIZE) == 0);
+  {
+    uint8_t header[T64_ROM_HEADER_SIZE];
+    size_t image_size = 0u;
+    size_t header_length = 0u;
+
+    T64_CHECK_INT(t64_machine_rom_size(machine, &image_size), T64_STATUS_OK);
+    T64_CHECK_INT(image_size, sizeof replacement);
+    T64_CHECK_INT(t64_machine_rom_header(machine, header, sizeof header,
+                                         &header_length),
+                  T64_STATUS_OK);
+    T64_CHECK_INT(header_length, T64_ROM_HEADER_SIZE);
+    T64_CHECK(memcmp(header, replacement, T64_ROM_HEADER_SIZE) == 0);
+  }
   T64_CHECK_INT(t64_machine_profile(machine, &observed), T64_STATUS_OK);
   T64_CHECK(observed != NULL);
   if (observed != NULL) {
@@ -514,6 +582,67 @@ static void test_adjacent_candidate_and_replacement_order(void) {
   T64_CHECK_INT(t64_machine_advance(machine, &reset_tick, &result),
                 T64_STATUS_OK);
   T64_CHECK_INT(result.tick, 0u);
+
+  {
+    uint8_t state_before[T64_DIGEST_SIZE];
+    uint8_t state_after[T64_DIGEST_SIZE];
+    uint8_t too_small[T64_ROM_HEADER_SIZE];
+    uint8_t too_small_before[T64_ROM_HEADER_SIZE];
+    size_t output_length = 777u;
+    size_t output_size = 888u;
+    size_t attempts_before = allocator.allocation_attempts;
+    union {
+      size_t alignment;
+      uint8_t bytes[T64_ROM_HEADER_SIZE];
+    } overlapping_outputs;
+
+    T64_CHECK_INT(t64_machine_digest(machine, state_before), T64_STATUS_OK);
+    T64_CHECK_INT(t64_machine_rom_header(machine, NULL, 0u, &output_length),
+                  T64_STATUS_BUFFER_TOO_SMALL);
+    T64_CHECK_INT(output_length, T64_ROM_HEADER_SIZE);
+
+    (void)memset(too_small, 0x5au, sizeof too_small);
+    (void)memcpy(too_small_before, too_small, sizeof too_small);
+    output_length = 0u;
+    T64_CHECK_INT(t64_machine_rom_header(machine, too_small,
+                                         T64_ROM_HEADER_SIZE - 1u,
+                                         &output_length),
+                  T64_STATUS_BUFFER_TOO_SMALL);
+    T64_CHECK_INT(output_length, T64_ROM_HEADER_SIZE);
+    T64_CHECK(memcmp(too_small, too_small_before, sizeof too_small) == 0);
+
+    output_length = 777u;
+    T64_CHECK_INT(t64_machine_rom_header(machine, NULL, 1u, &output_length),
+                  T64_STATUS_INVALID_ARGUMENT);
+    T64_CHECK_INT(output_length, 777u);
+    T64_CHECK_INT(t64_machine_rom_header(machine, NULL, 0u, NULL),
+                  T64_STATUS_INVALID_ARGUMENT);
+    T64_CHECK_INT(t64_machine_rom_size(machine, NULL),
+                  T64_STATUS_INVALID_ARGUMENT);
+    T64_CHECK_INT(t64_machine_rom_size(NULL, &output_size),
+                  T64_STATUS_INVALID_ARGUMENT);
+    T64_CHECK_INT(t64_machine_rom_size(
+                      machine, (size_t *)allocator.slots[0].data),
+                  T64_STATUS_INVALID_ARGUMENT);
+    T64_CHECK_INT(t64_machine_rom_header(
+                      machine, (uint8_t *)allocator.slots[0].data,
+                      T64_ROM_HEADER_SIZE, &output_length),
+                  T64_STATUS_INVALID_ARGUMENT);
+    T64_CHECK_INT(t64_machine_rom_header(
+                      machine, (uint8_t *)allocator.slots[2].data,
+                      T64_ROM_HEADER_SIZE, &output_length),
+                  T64_STATUS_INVALID_ARGUMENT);
+    overlapping_outputs.alignment = 0u;
+    T64_CHECK_INT(t64_machine_rom_header(
+                      machine, overlapping_outputs.bytes,
+                      T64_ROM_HEADER_SIZE, &overlapping_outputs.alignment),
+                  T64_STATUS_INVALID_ARGUMENT);
+    T64_CHECK_INT(overlapping_outputs.alignment, 0u);
+
+    T64_CHECK_INT(allocator.allocation_attempts, attempts_before);
+    T64_CHECK_INT(t64_machine_digest(machine, state_after), T64_STATUS_OK);
+    T64_CHECK(memcmp(state_before, state_after, T64_DIGEST_SIZE) == 0);
+  }
 
   t64_machine_destroy(machine);
   free(arena);

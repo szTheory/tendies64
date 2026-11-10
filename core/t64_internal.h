@@ -7,7 +7,7 @@
 #include <stddef.h>
 #include <stdint.h>
 
-#define T64_ROM_HEADER_BYTES 64u
+#define T64_ROM_HEADER_BYTES T64_ROM_HEADER_SIZE
 #define T64_ROM_TITLE_BYTES 20u
 #define T64_ROM_GAME_CODE_BYTES 4u
 

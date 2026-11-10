@@ -11,6 +11,7 @@
 #include <stdint.h>
 
 #define T64_DIGEST_SIZE 32u
+#define T64_ROM_HEADER_SIZE 64u
 #define T64_PROFILE_TEXT_CAPACITY 64u
 #define T64_PROFILE_SERIALIZED_MAX_BYTES 2048u
 #define T64_PROFILE_SERIALIZATION_VERSION UINT32_C(1)
@@ -140,6 +141,17 @@ t64_status t64_machine_advance(t64_machine *machine,
                                t64_stop_result *result_out);
 t64_status t64_machine_content_digest(
     const t64_machine *machine, uint8_t digest_out[T64_DIGEST_SIZE]);
+/* Read-only admission observations; outputs are unchanged on NOT_READY/refusal. */
+t64_status t64_machine_rom_size(const t64_machine *machine,
+                                size_t *size_out);
+/*
+ * Copies the fixed normalized header on success. A NULL/zero-capacity query
+ * returns BUFFER_TOO_SMALL and the required 64-byte length. On any
+ * BUFFER_TOO_SMALL result the output bytes remain unchanged.
+ */
+t64_status t64_machine_rom_header(const t64_machine *machine,
+                                  uint8_t *header_out, size_t capacity,
+                                  size_t *length_out);
 /* The returned descriptor is borrowed and valid until machine destruction. */
 t64_status t64_machine_profile(
     const t64_machine *machine, const t64_profile_descriptor **profile_out);

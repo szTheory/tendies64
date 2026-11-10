@@ -34,13 +34,19 @@ static bool candidate_is_disjoint(t64_address_range candidate,
 
 static void release_invalid_distinct_storage(
     const t64_host_allocator *allocator, t64_host_storage storage,
+    size_t required,
     t64_host_storage machine_storage, t64_host_storage current_image_storage,
     bool has_current_image, t64_address_range input_range) {
   t64_address_range returned_range;
+  t64_address_range requested_range;
 
   if (storage.data != NULL && allocator != NULL && allocator->release != NULL &&
       t64_internal_make_range(storage.data, storage.capacity, &returned_range) &&
+      t64_internal_make_range(storage.data, required, &requested_range) &&
       candidate_is_disjoint(returned_range, machine_storage,
+                            current_image_storage, has_current_image,
+                            input_range) &&
+      candidate_is_disjoint(requested_range, machine_storage,
                             current_image_storage, has_current_image,
                             input_range)) {
     allocator->release(allocator->context, storage);
@@ -150,7 +156,8 @@ t64_status t64_rom_candidate_prepare(
       !candidate_is_disjoint(candidate_range, machine_storage,
                              current_image_storage, has_current_image,
                              input_range)) {
-    release_invalid_distinct_storage(allocator, storage, machine_storage,
+    release_invalid_distinct_storage(allocator, storage, length,
+                                     machine_storage,
                                      current_image_storage, has_current_image,
                                      input_range);
     return T64_STATUS_BAD_STORAGE;
