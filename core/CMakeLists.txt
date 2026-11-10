@@ -125,3 +125,12 @@ target_link_libraries(test_rom_admission PRIVATE t64_core t64_sha256)
 t64_target_warnings(test_rom_admission)
 add_test(NAME unit.core.rom-admission COMMAND test_rom_admission)
 set_tests_properties(unit.core.rom-admission PROPERTIES LABELS unit)
+
+add_executable(test_lifecycle tests/test_lifecycle.c)
+target_include_directories(test_lifecycle PRIVATE
+  "${CMAKE_SOURCE_DIR}/tests"
+  "${CMAKE_SOURCE_DIR}/tools/common")
+target_link_libraries(test_lifecycle PRIVATE t64_core t64_sha256)
+t64_target_warnings(test_lifecycle)
+add_test(NAME unit.core.lifecycle COMMAND test_lifecycle)
+set_tests_properties(unit.core.lifecycle PROPERTIES LABELS unit)

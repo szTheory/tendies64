@@ -1,0 +1,13 @@
+{
+  "command": "ctest --test-dir build/gate --no-tests=error -R ^unit.core.lifecycle$ --output-on-failure --output-junit 02-02-red-task2.xml",
+  "exitCode": 8,
+  "output": "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n<testsuite name=\"(empty)\"\n\ttests=\"1\"\n\tfailures=\"1\"\n\tdisabled=\"0\"\n\tskipped=\"0\"\n\thostname=\"\"\n\ttime=\"0\"\n\ttimestamp=\"2026-11-10T12:00:22\"\n\t>\n\t<testcase name=\"unit.core.lifecycle\" classname=\"unit.core.lifecycle\" time=\"0.402262\" status=\"fail\">\n\t\t<failure message=\"Failed\"/>\n\t\t<properties>\n\t\t\t<property name=\"cmake_labels\" value=\"unit\"/>\n\t\t</properties>\n\t\t<system-out>core/tests/test_lifecycle.c:364: CHECK_INT failed: allocator.protected_release_attempts got 1 want 0\ncore/tests/test_lifecycle.c:421: CHECK_INT failed: allocator.bad_release_attempts got 1 want 0\ncore/tests/test_lifecycle.c:430: CHECK_INT failed: allocator.protected_release_attempts got 1 want 0\ncore/tests/test_lifecycle.c:436: CHECK_INT failed: allocator.bad_release_attempts got 1 want 0\nunit.core.lifecycle: checks=174 failures=4\n</system-out>\n\t</testcase>\n</testsuite>\n",
+  "targetTest": "unit.core.lifecycle",
+  "targetFile": "core/tests/test_lifecycle.c",
+  "expected": "A malformed allocation descriptor that aliases live ROM or caller input is refused without releasing the aliased pointer or changing state.",
+  "actual": "The target failed only on the intentional no-release checks for invalid zero-capacity aliases, where cleanup called the release callback on the aliased pointer.",
+  "reportPath": "build/gate/02-02-red-task2.xml",
+  "runStartedAt": "2026-11-10T17:00:22Z",
+  "reportModifiedAt": "1794330022",
+  "semanticAssessment": "The registered lifecycle test compiled and executed. The only failures were the planned assertions that invalid zero-capacity aliases must not be passed to release; all other allocation-count, state-preservation, reset, adjacent-range, and independent-instance assertions passed."
+}
