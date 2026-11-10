@@ -18,7 +18,13 @@
  * Cross-field rules: M-ZERO-ENTRIES, M-DUP-ID, M-FORBIDDEN-DIGEST,
  * M-FORBIDDEN-REASON, M-NULL-DIGEST, M-BYTES-NOT-PERMITTED, M-PATH,
  * M-DIGEST-MISMATCH, M-FIXTURE-ABSENT (only with --require-fixtures),
- * M-HW-PROVENANCE, M-TOOLCHAIN-PIN.
+ * M-HW-PROVENANCE, M-TOOLCHAIN-PIN, M-ID-FORMAT, M-DIGEST-FORMAT.
+ *
+ * The cross-field rules re-check in code every shape they rely on (string
+ * types, the id and sha256 formats), because --schema PATH accepts any
+ * subset-valid schema, including one that constrains nothing (WR-07). In
+ * particular no value reaches an allowlist row unless it is free of TAB, LF
+ * and every other control byte.
  *
  * --emit-allowlist FILE writes "path<TAB>sha256<TAB>manifest:<id>" rows for
  * entries whose binary_rights is authored-here or cleared, that name a path
@@ -267,7 +273,32 @@ static int hash_file(const char *full, char hex[T64_SHA256_HEX_SIZE],
   return 0;
 }
 
+/* The id rule of the pinned schema: ^[a-z0-9][a-z0-9-]*$, at most 64 bytes. */
+static int id_format_ok(const t64_json_node *id) {
+  size_t i;
+  if (id == NULL || id->type != T64_JSON_STRING || id->len == 0u || id->len > 64u)
+    return 0;
+  for (i = 0; i < id->len; i++) {
+    unsigned char c = (unsigned char)id->str[i];
+    int ok = (c >= 'a' && c <= 'z') || (c >= '0' && c <= '9') || (i > 0u && c == '-');
+    if (!ok) return 0;
+  }
+  return 1;
+}
+
+/* Exactly 64 lowercase hex characters (so no TAB, LF or NUL either). */
+static int sha_format_ok(const t64_json_node *sha) {
+  size_t i;
+  if (sha == NULL || sha->type != T64_JSON_STRING || sha->len != 64u) return 0;
+  for (i = 0; i < 64u; i++) {
+    char c = sha->str[i];
+    if (!((c >= '0' && c <= '9') || (c >= 'a' && c <= 'f'))) return 0;
+  }
+  return 1;
+}
+
 static int toolchain_pinned(const t64_json_node *item, regex_t *re) {
+  if (item->type != T64_JSON_STRING) return 0;
   if (strlen(item->str) != item->len) return 0;
   if (regexec(re, item->str, 0, NULL, 0) != 0) return 0;
   if (item->len >= 2u && item->str[item->len - 2u] == '.' &&
@@ -309,6 +340,10 @@ static void check_entry(const t64_json_node *e, regex_t *pin_re) {
   char msg[256];
 
   t64_sanitize(id_n->str, id_n->len, id, sizeof id);
+  if (!id_format_ok(id_n)) {
+    finding("M-ID-FORMAT", id,
+            "id must match ^[a-z0-9][a-z0-9-]*$ and be at most 64 bytes");
+  }
 
   if (str_is(sr, "forbidden") || str_is(br, "forbidden")) {
     if (blank(t64_json_get(e, "forbidden_reason"))) {
@@ -340,6 +375,11 @@ static void check_entry(const t64_json_node *e, regex_t *pin_re) {
     int has_artifact = dist_has(dist, "artifact");
     int sha_ok = sha != NULL && sha->type == T64_JSON_STRING;
 
+    if (sha_ok && !sha_format_ok(sha)) {
+      finding("M-DIGEST-FORMAT", id, "sha256 must be 64 lowercase hex characters");
+      sha_ok = 0;
+    }
+
     if (!pending && (!sha_ok || size == NULL || size->type != T64_JSON_INT)) {
       finding("M-NULL-DIGEST", id,
               "sha256 and size may be null only while binary_rights is pending");
@@ -367,9 +407,14 @@ static void check_entry(const t64_json_node *e, regex_t *pin_re) {
       const t64_json_node *tc = t64_json_get(t64_json_get(e, "build"), "toolchain");
       const t64_json_node *it;
       size_t idx = 0;
-      if (tc != NULL) {
+      if (tc != NULL && tc->type != T64_JSON_ARRAY) {
+        finding("M-TOOLCHAIN-PIN", id, "build.toolchain is not an array");
+      } else if (tc != NULL) {
         for (it = tc->first; it != NULL; it = it->next, idx++) {
-          if (!toolchain_pinned(it, pin_re)) {
+          if (it->type != T64_JSON_STRING) {
+            (void)snprintf(msg, sizeof msg, "toolchain item %zu is not a string", idx);
+            finding("M-TOOLCHAIN-PIN", id, msg);
+          } else if (!toolchain_pinned(it, pin_re)) {
             char shown[64];
             t64_sanitize(it->str, it->len, shown, sizeof shown);
             (void)snprintf(msg, sizeof msg,
@@ -384,6 +429,10 @@ static void check_entry(const t64_json_node *e, regex_t *pin_re) {
 
     if (path != NULL) {
       const char *why = NULL;
+      if (path->type != T64_JSON_STRING) {
+        finding("M-PATH", id, "path is not a string");
+        return;
+      }
       if (path_lexical(path, &why)) {
         finding("M-PATH", id, why);
         return;

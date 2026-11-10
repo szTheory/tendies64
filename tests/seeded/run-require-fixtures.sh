@@ -156,6 +156,43 @@ run schema-open-additional 2 'M-SCHEMA-KEYWORD' --schema "$T/open.schema.json" -
 sed 's/"\^\[0-9a-f\]{40}\$"/"[0-9a-f]{40}"/' "$SCHEMA" > "$T/loose.schema.json"
 run schema-unanchored-pattern 2 'M-SCHEMA-KEYWORD' --schema "$T/loose.schema.json" --root "$T" "$MAN"
 
+# WR-07: --schema PATH may constrain nothing, so the cross-field rules must
+# re-check every shape they rely on. Each case below uses a schema that only
+# requires an object, names an absent fixture (so no digest comparison runs)
+# and must fail with an empty allowlist, never crash or write a row.
+printf '{"type": "object"}\n' > "$T/permissive.schema.json"
+# perm NAME RULE SED_EXPR: rewrites the manifest with SED_EXPR and runs the case.
+perm() {
+  _pname=$1
+  _prule=$2
+  sed -e 's#"path":"fixtures/plain.txt"#"path":"fixtures/absent.txt"#' -e "$3" \
+    "$MAN" > "$T/fixtures/perm.json"
+  rm -f "$T/allow.tsv"
+  run "$_pname" 1 "$_prule" --schema "$T/permissive.schema.json" --root "$T" \
+    --emit-allowlist "$T/allow.tsv" "$T/fixtures/perm.json"
+  CASES=$((CASES + 1))
+  if [ -f "$T/allow.tsv" ] && [ ! -s "$T/allow.tsv" ]; then
+    echo "ok $_pname-allowlist-empty"
+  else
+    FAILS=$((FAILS + 1))
+    echo "FAIL $_pname-allowlist-empty: the allowlist is missing or has rows"
+  fi
+}
+perm permissive-short-sha M-DIGEST-FORMAT "s/\"sha256\":\"$SHA\"/\"sha256\":\"ab\"/"
+# A 64-byte digest holding a TAB and an LF would split the allowlist row.
+_bad=$(printf '%s' "$SHA" | cut -c 1-60)
+perm permissive-tab-sha M-DIGEST-FORMAT "s/\"sha256\":\"$SHA\"/\"sha256\":\"$_bad\\\\t\\\\nab\"/"
+perm permissive-upper-sha M-DIGEST-FORMAT "s/\"sha256\":\"$SHA\"/\"sha256\":\"$(printf '%s' "$SHA" | tr 'a-f' 'A-F')\"/"
+perm permissive-toolchain-int M-TOOLCHAIN-PIN 's/"toolchain":\["none 1"\]/"toolchain":[5]/'
+perm permissive-toolchain-string M-TOOLCHAIN-PIN 's/"toolchain":\["none 1"\]/"toolchain":"none 1"/'
+perm permissive-path-int M-PATH 's#"path":"fixtures/absent.txt"#"path":5#'
+perm permissive-id-tab M-ID-FORMAT 's/"id":"temp-cleared"/"id":"temp\\tcleared"/'
+perm permissive-id-long M-ID-FORMAT "s/\"id\":\"temp-cleared\"/\"id\":\"$(awk 'BEGIN { for (i = 0; i < 65; i++) printf "a" }')\"/"
+# The control: the same permissive schema with the honest manifest is clean.
+sed 's#"path":"fixtures/plain.txt"#"path":"fixtures/absent.txt"#' "$MAN" > "$T/fixtures/perm.json"
+run permissive-honest 0 'skipped=1' --schema "$T/permissive.schema.json" --root "$T" \
+  "$T/fixtures/perm.json"
+
 echo "run-require-fixtures: cases=$CASES failures=$FAILS"
 [ "$FAILS" -eq 0 ] || exit 1
 exit 0
