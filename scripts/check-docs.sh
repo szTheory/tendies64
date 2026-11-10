@@ -214,7 +214,7 @@ new_tree() {
   mkdir -p "$T/docs/adr" "$T/docs/policy"
   mk_template "$T/docs/adr/0000-template.md"
   for _n in $REQUIRED; do
-    if [ "$_n" = "0002" ]; then _s=proposed; else _s=accepted; fi
+    case " $PROPOSED_OK " in *" $_n "*) _s=proposed ;; *) _s=accepted ;; esac
     mk_doc "$T/docs/adr/$_n-case.md" "$_s"
   done
   printf '%s\n' "$POLICIES" | while IFS= read -r _line; do
@@ -372,6 +372,7 @@ selftest() {
   printf '/* facade */\n' > "$T/core/include/tendies64/t64_facade.h"
   expect_absent DOC-CORE-BEFORE-ADR "(a) only the two allowlisted paths and no ADR-0002 pass"
   new_tree core-b
+  rm -f "$T"/docs/adr/0002-*.md
   mk_doc "$T/docs/adr/0002-x.md" proposed
   mkdir -p "$T/core"
   printf 'int x;\n' > "$T/core/x.c"
@@ -384,11 +385,13 @@ selftest() {
   printf '/* y */\n' > "$T/core/include/tendies64/y.h"
   expect_fail DOC-CORE-BEFORE-ADR "(c) an extra core/include/tendies64/y.h with no ADR-0002 fails"
   new_tree core-d
+  rm -f "$T"/docs/adr/0002-*.md
   mk_doc "$T/docs/adr/0002-x.md" proposed
   mkdir -p "$T/core"
   printf 'project(core)\n' > "$T/core/CMakeLists.txt"
   expect_fail DOC-CORE-BEFORE-ADR "(d) core/CMakeLists.txt with ADR-0002 proposed fails"
   new_tree core-e
+  rm -f "$T"/docs/adr/0002-*.md
   mk_doc "$T/docs/adr/0002-x.md" accepted
   mkdir -p "$T/core"
   printf 'int x;\n' > "$T/core/x.c"
