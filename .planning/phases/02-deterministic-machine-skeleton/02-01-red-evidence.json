@@ -1,0 +1,13 @@
+{
+  "command": "ctest --test-dir build/gate --no-tests=error -R ^unit.core.tracer$ --output-on-failure --output-junit .planning/phases/02-deterministic-machine-skeleton/02-01-red.xml",
+  "exitCode": 8,
+  "output": "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n<testsuite name=\"(empty)\"\n\ttests=\"1\"\n\tfailures=\"1\"\n\tdisabled=\"0\"\n\tskipped=\"0\"\n\thostname=\"\"\n\ttime=\"0\"\n\ttimestamp=\"2026-11-10T11:02:31\"\n\t>\n\t<testcase name=\"unit.core.tracer\" classname=\"unit.core.tracer\" time=\"0.00225621\" status=\"fail\">\n\t\t<failure message=\"Failed\"/>\n\t\t<properties>\n\t\t\t<property name=\"cmake_labels\" value=\"unit\"/>\n\t\t</properties>\n\t\t<system-out>core/tests/test_tracer.c:123: CHECK_INT failed: t64_profile_lookup(default_profile_id, &amp;profile) got 2 want 0\ncore/tests/test_tracer.c:124: CHECK failed: profile != NULL\nunit.core.tracer: checks=2 failures=2\n</system-out>\n\t</testcase>\n</testsuite>\n",
+  "targetTest": "unit.core.tracer",
+  "targetFile": "core/tests/test_tracer.c",
+  "expected": "The named skeleton profile lookup succeeds and the tracer reaches owned content, tick 9, and a digest.",
+  "actual": "The target test failed on the assertion that lookup of ntsc-cart-4m-skeleton returns T64_STATUS_OK; the RED scaffold returns T64_STATUS_UNKNOWN_PROFILE (2).",
+  "reportPath": "build/gate/.planning/phases/02-deterministic-machine-skeleton/02-01-red.xml",
+  "runStartedAt": "2026-11-10T16:02:31Z",
+  "reportModifiedAt": "1794326551",
+  "semanticAssessment": "The registered unit.core.tracer target executed and failed on a planned profile lookup assertion because the production behavior is absent; this is not a compilation, discovery, fixture, or setup failure."
+}
