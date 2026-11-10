@@ -22,6 +22,12 @@ applies that direction; update it when the owner changes policy.
   reversible evidence-backed default, recording rationale and reversal
   evidence in project-owned decisions, and continuing. Batch genuinely
   necessary owner decisions.
+- Execution efficiency (owner feedback, 2026-11-10): reuse approved contracts
+  and begin the smallest verifying implementation promptly. Reopen research or
+  design only for a concrete contradiction or failure. Keep handoffs concise;
+  repeat checks only after relevant changes or an unresolved failure warrants
+  them. Base progress and elapsed-time claims on commits, test results and
+  timestamps rather than perceived activity.
 - At each discussion, enumerate actual decision points. Fan out one agent per
   independent decision cluster when it saves time/context. Apply relevant
   CPU/cache/virtual-memory, RSP/microcode, RDP/video, audio, memory/bus,
@@ -41,6 +47,9 @@ applies that direction; update it when the owner changes policy.
   guest time, video, audio and host presentation as distinct evidence. Report
   missing, skipped, timed-out, harness-failed and guest-failed results
   separately.
+- Sanitize captured compiler/test evidence before its first commit. Raw JUnit
+  and logs can embed checkout paths, temporary paths and hostnames; retain
+  portable command/assertion/result records and keep raw captures local.
 - A test ROM's repository license does not automatically grant redistribution
   rights for its generated ROM or embedded content. Keep a fixture manifest
   with source/revision, build recipe/toolchain, digest, boot/profile

@@ -28,7 +28,7 @@ patterns-established:
   - "Physical reads and writes preflight width, alignment, range, and device support before mutation; adjacent unsupported ranges never alias RAM."
   - "Bus and MI observations record guest ticks without changing machine progress."
 requirements-completed: [BUS-01, CORE-02, CORE-06]
-duration: "approximately 4h"
+duration: "37 min"
 completed: 2026-11-10
 status: complete
 plan_head_before: 4e9ca9f93490f9a02f87a57f895669518edf21ee
