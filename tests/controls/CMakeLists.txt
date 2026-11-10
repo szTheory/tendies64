@@ -32,10 +32,10 @@ set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS
   "${CMAKE_CURRENT_SOURCE_DIR}/INVENTORY")
 
 # Hostile-runner controls (label "controls"): supervisor tests against shell
-# runners that misbehave (WR-01, WR-02, WR-04). They are not matrix rows and
-# are not replayed against the real core.
+# runners that misbehave (WR-01, WR-02, WR-04, WR-05). They are not matrix
+# rows and are not replayed against the real core.
 foreach(t64_mode baseline fifo-report fifo-capture symlink-report
-        short-capture missing-capture orphan)
+        short-capture missing-capture orphan wall-ms-max)
   add_test(NAME controls.hostile.${t64_mode}
     COMMAND sh ${CMAKE_CURRENT_SOURCE_DIR}/run-hostile.sh
             --bin-dir $<TARGET_FILE_DIR:t64-supervisor> --mode ${t64_mode})

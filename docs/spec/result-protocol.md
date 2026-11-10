@@ -228,7 +228,10 @@ t64-supervisor --identity synthetic --result PATH --meta PATH --work-dir DIR
                [--capture-out PATH] -- RUNNER [ARGS...]
 ```
 
-- Phase 1 accepts only `--identity synthetic`. `--wall-ms` is at least 1;
+- Phase 1 accepts only `--identity synthetic`. `--wall-ms` is at least 1 and
+  may be any u64; the deadline saturates at the largest u64 instead of
+  wrapping, so a huge value means no practical wall limit, never an immediate
+  `wall-backstop`;
   `--log-limit` is at most 64 MiB; every option may appear once.
 - The fixture is checked with `lstat` before anything runs: it must be a
   regular file (not a symlink, FIFO or device) of at most 64 MiB.

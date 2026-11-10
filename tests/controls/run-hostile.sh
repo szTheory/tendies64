@@ -1,6 +1,6 @@
 #!/bin/sh
 # Hostile-runner controls for t64-supervisor (review findings WR-01, WR-02,
-# WR-04).
+# WR-04, WR-05).
 # POSIX sh.
 #
 #   run-hostile.sh --bin-dir DIR --mode MODE
@@ -22,6 +22,8 @@
 #   orphan         honest output, then exits 0 leaving a background child and
 #                  grandchild in its process group           pass/positive-match,
 #                  and neither descendant may outlive the supervisor
+#   wall-ms-max    the honest runner with --wall-ms 2^64-1    pass/positive-match
+#                  (the deadline saturates instead of wrapping to wall-backstop)
 #
 # Prints "ok MODE (...)" or "FAIL MODE: reason" and exits 0 or 1; 2 on usage.
 set -eu
@@ -46,11 +48,18 @@ SUP="$BIN_DIR/t64-supervisor"
 CHECK="$BIN_DIR/t64-result-check"
 
 case "$MODE" in
-  baseline | orphan) WANT_OUT=pass; WANT_DET=positive-match; WANT_RC=0 ;;
+  baseline | orphan | wall-ms-max)
+    WANT_OUT=pass; WANT_DET=positive-match; WANT_RC=0 ;;
   fifo-report | fifo-capture | symlink-report | short-capture | missing-capture)
     WANT_OUT=harness-error; WANT_DET=report-invalid; WANT_RC=1 ;;
   *) echo "run-hostile: unknown mode: $MODE" >&2; exit 2 ;;
 esac
+WALL_MS=5000
+RUNNER_MODE=$MODE
+if [ "$MODE" = wall-ms-max ]; then
+  WALL_MS=18446744073709551615
+  RUNNER_MODE=baseline
+fi
 
 T=$(mktemp -d "${TMPDIR:-/tmp}/t64hostile.XXXXXX")
 # kill_recorded: SIGKILL any descendant pid the orphan runner recorded, so a
@@ -177,9 +186,9 @@ run_sup() {
 }
 
 run_sup --identity synthetic --result "$T/result.json" --meta "$T/meta.json" \
-  --work-dir "$T/work" --wall-ms 5000 --bound 1000 --log-limit 65536 \
+  --work-dir "$T/work" --wall-ms "$WALL_MS" --bound 1000 --log-limit 65536 \
   --fixture-id "hostile-$MODE" --fixture "$T/fixture.txt" --fixture-sha256 "$SHA" \
-  --expect-pass 0 -- sh "$T/runner.sh" "$MODE" "$T"
+  --expect-pass 0 -- sh "$T/runner.sh" "$RUNNER_MODE" "$T"
 
 [ -f "$T/result.json" ] || die "no result written (exit $RC): $(head -n 1 "$T/sup.err")"
 "$CHECK" result "$T/result.json" > /dev/null 2> "$T/check.err" ||

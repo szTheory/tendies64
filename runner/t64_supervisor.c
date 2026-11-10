@@ -644,7 +644,12 @@ int main(int argc, char **argv) {
       o.usage_error = 1;
       goto classified;
     }
-    deadline = now_ms() + a.wall_ms;
+    {
+      /* WR-05: saturate, so a huge --wall-ms cannot wrap the deadline below
+       * the current time and turn a valid run into wall-backstop. */
+      uint64_t start = now_ms();
+      deadline = a.wall_ms > UINT64_MAX - start ? UINT64_MAX : start + a.wall_ms;
+    }
     pid = fork();
     if (pid < 0) {
       close(ep[0]);
