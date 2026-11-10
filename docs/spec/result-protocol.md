@@ -387,3 +387,45 @@ outside `[A-Za-z0-9._-]{1,64}` is a usage error (exit 2), never a pass.
 Seeds live in `tests/seeded/results/` and `tests/seeded/suites/` (directory-owned
 corpora with an `EXPECT.tsv`, driven by `tests/seeded/run-expect.sh`).
 `tests/seeded/suites/INVENTORY` is a support file, not a seed.
+
+## Native model observations: t64.model-result v1
+
+`t64-model-result-check result FILE` validates one completed observation from a
+native deterministic model probe. This protocol is separate from
+`t64.result` v1: the model record has no guest verdict, fixture-run outcome,
+host time, or host path, and it is never converted into a guest result. Exit 0
+means the record is structurally valid; it does not mean that the assertions
+matched. Exit 1 means the record is invalid, and exit 2 means usage or input
+failure.
+
+The record is one canonical UTF-8 JSON object with no spaces between tokens,
+keys sorted by unsigned byte order, and exactly one final LF. The top-level key
+order is:
+
+`assertions`, `build_id`, `content_digest`, `evidence_tier`, `guest_tick`,
+`model_scope`, `outcome`, `profile_hash`, `profile_id`, `schema`,
+`schema_version`, `state_digest`.
+
+`assertions` is an object with exactly `checked` then `failed`; both are JSON
+integers in the canonical range 0..2^53-1, `checked` is positive, and
+`failed` does not exceed `checked`. The other fields are fixed or validated as
+follows:
+
+| Field | Required value or shape |
+|-------|-------------------------|
+| `build_id` | `t64-build-v1-` followed by 64 lowercase hex digits. The production build fingerprint covers the project version, production source/configuration inputs, and build policy. A producer must compare it with the identity of the code it actually exercised. |
+| `content_digest`, `profile_hash`, `state_digest` | Non-null SHA-256 strings of exactly 64 lowercase hex digits. |
+| `evidence_tier` | `unit-tested`. |
+| `guest_tick` | Canonical decimal u64 string (`0` or a nonzero digit followed by digits, bounded by 2^64-1). |
+| `model_scope` | `native-model-probe`. |
+| `outcome` | `model-match` exactly when `assertions.failed` is 0; otherwise `model-mismatch`. |
+| `profile_id` | `ntsc-cart-4m-skeleton`. |
+| `schema` / `schema_version` | `t64.model-result` / integer `1`. |
+
+Unknown and duplicate fields, missing fields, wrong types or values, noncanonical
+JSON, and trailing bytes are rejected. The consumer bounds the input to 64 KiB,
+the nesting depth to two objects, strings to 256 bytes, and parsed nodes to 64.
+Its success line repeats the native model scope and the stored outcome so a
+valid `model-mismatch` cannot be mistaken for a match or a guest pass. The
+format records model observations only; it does not claim hardware accuracy,
+boot compatibility, or memory safety.

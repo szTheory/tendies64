@@ -27,6 +27,7 @@ static const char canonical_match[] =
 static const char canonical_suite[] =
     "{\"case_count\":1,\"inventory_sha256\":\"" DIGEST_A
     "\",\"schema\":\"t64.suite\",\"schema_version\":1}\n";
+static char oversized_record[65537];
 
 static size_t test_count;
 static size_t failures;
@@ -192,6 +193,8 @@ int main(int argc, char **argv) {
   char record_path[] = "/tmp/t64-model-record-XXXXXX";
   char output_path[] = "/tmp/t64-model-output-XXXXXX";
   char changed[2048];
+  char replacement[320];
+  char long_profile[258];
   char suite_path[] = "/tmp/t64-model-suite-XXXXXX";
   int record_fd;
   int output_fd;
@@ -211,7 +214,7 @@ int main(int argc, char **argv) {
   (void)close(output_fd);
   (void)close(suite_fd);
 
-  printf("1..33\n");
+  printf("1..37\n");
   expect_case(argv[1], record_path, output_path, canonical_match,
               sizeof canonical_match - 1u, "accept canonical model-match", 0,
               "model_scope=native-model-probe");
@@ -319,6 +322,13 @@ int main(int argc, char **argv) {
   expect_case(argv[1], record_path, output_path, changed, length,
               "reject duplicate nested assertion field", 1, NULL);
 
+  length = replace_once(canonical_match,
+                        "\"assertions\":{\"checked\":3,\"failed\":0}",
+                        "\"assertions\":{\"checked\":3,\"failed\":0,\"other\":0}",
+                        changed, sizeof changed);
+  expect_case(argv[1], record_path, output_path, changed, length,
+              "reject unknown nested assertion field", 1, NULL);
+
   length = replace_once(canonical_match, "\"checked\":3",
                         "\"checked\":9007199254740992", changed,
                         sizeof changed);
@@ -395,8 +405,35 @@ int main(int argc, char **argv) {
   expect_case(argv[1], record_path, output_path, changed, length,
               "reject noncanonical internal whitespace", 1, NULL);
 
+  length = replace_once(
+      canonical_match,
+      "\"schema\":\"t64.model-result\",\"schema_version\":1",
+      "\"schema_version\":1,\"schema\":\"t64.model-result\"", changed,
+      sizeof changed);
+  expect_case(argv[1], record_path, output_path, changed, length,
+              "reject noncanonical key order", 1, NULL);
+
+  (void)memset(long_profile, 'x', sizeof long_profile - 1u);
+  long_profile[sizeof long_profile - 1u] = '\0';
+  {
+    int written = snprintf(replacement, sizeof replacement,
+                           "\"profile_id\":\"%s\"", long_profile);
+    length = written < 0 || (size_t)written >= sizeof replacement
+                 ? 0u
+                 : replace_once(canonical_match,
+                                "\"profile_id\":\"ntsc-cart-4m-skeleton\"",
+                                replacement, changed, sizeof changed);
+  }
+  expect_case(argv[1], record_path, output_path, changed, length,
+              "reject string above configured bound", 1, NULL);
+
+  (void)memset(oversized_record, ' ', sizeof oversized_record);
+  expect_case(argv[1], record_path, output_path, oversized_record,
+              sizeof oversized_record, "reject input above configured bound",
+              2, NULL);
+
   (void)unlink(record_path);
   (void)unlink(output_path);
   (void)unlink(suite_path);
-  return failures == 0u && test_count == 33u ? 0 : 1;
+  return failures == 0u && test_count == 37u ? 0 : 1;
 }
