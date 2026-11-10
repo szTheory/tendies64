@@ -276,6 +276,7 @@ static t64_status dispatch_front(t64_machine *machine) {
   }
   queue_pop_front(machine);
   machine->tick = event.tick;
+  t64_trace_emit(machine, event.tick, event.device, event.kind, event.value);
   status = event.handler(machine, &event);
   return status;
 }

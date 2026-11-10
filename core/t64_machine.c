@@ -291,6 +291,7 @@ void t64_machine_reset_execution_state(t64_machine *machine) {
 static void reset_guest_state(t64_machine *machine) {
   t64_machine_reset_execution_state(machine);
   (void)memset(machine->ram, 0, machine->profile.rdram_bytes);
+  t64_trace_reset(machine);
 }
 
 const char *t64_build_identity(void) { return T64_BUILD_ID; }
@@ -454,6 +455,8 @@ t64_status t64_machine_admit_rom(t64_machine *machine, const uint8_t *bytes,
   machine->has_image = true;
   candidate.owns_storage = false;
   reset_guest_state(machine);
+  t64_trace_emit(machine, machine->tick, T64_TRACE_DEVICE_MACHINE,
+                 T64_TRACE_KIND_ROM_ADMITTED, (uint64_t)candidate.length);
   t64_rom_candidate_discard(&machine->allocator, &candidate);
   if (previous.data != NULL) {
     machine->allocator.release(machine->allocator.context, previous);

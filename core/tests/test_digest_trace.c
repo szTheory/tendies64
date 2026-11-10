@@ -12,6 +12,7 @@
 
 typedef struct {
   size_t outstanding;
+  size_t callback_calls;
 } allocator_state;
 
 static bool test_allocate(void *context, size_t size, size_t alignment,
@@ -22,6 +23,7 @@ static bool test_allocate(void *context, size_t size, size_t alignment,
   if (state == NULL || storage_out == NULL || alignment == 0u) {
     return false;
   }
+  state->callback_calls++;
   memory = malloc(size);
   if (memory == NULL || ((uintptr_t)memory % alignment) != 0u) {
     free(memory);
@@ -38,6 +40,7 @@ static void test_release(void *context, t64_host_storage storage) {
   allocator_state *state = (allocator_state *)context;
 
   if (state != NULL && storage.data != NULL) {
+    state->callback_calls++;
     state->outstanding--;
     free(storage.data);
   }
@@ -107,6 +110,40 @@ static bool fixture_init(allocator_state *host_state,
       *machine_out == NULL ||
       t64_machine_admit_rom(*machine_out, image, TEST_ROM_SIZE) !=
           T64_STATUS_OK) {
+    t64_machine_destroy(*machine_out);
+    *machine_out = NULL;
+    return false;
+  }
+  (void)host_state;
+  return true;
+}
+
+static bool fixture_init_with_trace(allocator_state *host_state,
+                                    const t64_host_allocator *allocator,
+                                    t64_machine **machine_out,
+                                    uint8_t image[TEST_ROM_SIZE],
+                                    bool enable_before_admission) {
+  const t64_profile_descriptor *profile = NULL;
+
+  *machine_out = NULL;
+  fill_authored_rom(image);
+  if (t64_profile_lookup("ntsc-cart-4m-skeleton", &profile) !=
+          T64_STATUS_OK ||
+      profile == NULL ||
+      t64_machine_create(allocator, profile, machine_out) != T64_STATUS_OK ||
+      *machine_out == NULL) {
+    t64_machine_destroy(*machine_out);
+    *machine_out = NULL;
+    return false;
+  }
+  if (enable_before_admission &&
+      t64_machine_trace_set_enabled(*machine_out, true) != T64_STATUS_OK) {
+    t64_machine_destroy(*machine_out);
+    *machine_out = NULL;
+    return false;
+  }
+  if (t64_machine_admit_rom(*machine_out, image, TEST_ROM_SIZE) !=
+      T64_STATUS_OK) {
     t64_machine_destroy(*machine_out);
     *machine_out = NULL;
     return false;
@@ -364,6 +401,7 @@ static void test_scheduler_trace_records_boundary(void) {
   t64_stop_result result = {0u, 0u};
   t64_trace_record record = {0u, 0u, 0u, 0u};
   size_t record_count = SIZE_MAX;
+  size_t callbacks_before_advance;
   uint64_t dropped = UINT64_MAX;
   bool saturated = true;
 
@@ -375,8 +413,10 @@ static void test_scheduler_trace_records_boundary(void) {
   T64_CHECK_INT(t64_test_schedule_synthetic(machine, 5u,
                                             T64_TEST_EVENT_NOOP, 17u),
                 T64_STATUS_OK);
+  callbacks_before_advance = host_state.callback_calls;
   T64_CHECK_INT(t64_machine_advance(machine, &request, &result),
                 T64_STATUS_OK);
+  T64_CHECK_INT(host_state.callback_calls, callbacks_before_advance);
   T64_CHECK_INT(t64_machine_trace_drain(machine, &record, 1u, &record_count,
                                         &dropped, &saturated),
                 T64_STATUS_OK);
@@ -392,6 +432,354 @@ static void test_scheduler_trace_records_boundary(void) {
   T64_CHECK_INT(host_state.outstanding, 0u);
 }
 
+static void test_trace_drain_validation_and_digest_exclusion(void) {
+  uint8_t image[TEST_ROM_SIZE];
+  uint8_t digest_before[T64_DIGEST_SIZE];
+  uint8_t digest_after[T64_DIGEST_SIZE];
+  allocator_state host_state = {0u};
+  const t64_host_allocator allocator = {test_allocate, test_release,
+                                        &host_state};
+  t64_machine *machine = NULL;
+  t64_stop_request request = {T64_STOP_GUEST_TICK, 4u};
+  t64_stop_result result = {0u, 0u};
+  t64_trace_record record = {0u, 0u, 0u, 0u};
+  size_t count;
+  uint64_t dropped;
+  bool saturated;
+
+  T64_CHECK(fixture_init(&host_state, &allocator, &machine, image));
+  if (machine == NULL) {
+    return;
+  }
+  T64_CHECK_INT(t64_machine_digest(machine, digest_before), T64_STATUS_OK);
+  T64_CHECK_INT(t64_machine_trace_set_enabled(machine, true), T64_STATUS_OK);
+  T64_CHECK_INT(t64_machine_digest(machine, digest_after), T64_STATUS_OK);
+  T64_CHECK(memcmp(digest_before, digest_after, sizeof digest_before) == 0);
+  T64_CHECK_INT(t64_test_schedule_synthetic(machine, 4u,
+                                            T64_TEST_EVENT_NOOP, 41u),
+                T64_STATUS_OK);
+  T64_CHECK_INT(t64_machine_advance(machine, &request, &result),
+                T64_STATUS_OK);
+  T64_CHECK_INT(t64_machine_digest(machine, digest_before), T64_STATUS_OK);
+
+  count = 77u;
+  dropped = 88u;
+  saturated = true;
+  T64_CHECK_INT(t64_machine_trace_drain(machine, NULL, 1u, &count, &dropped,
+                                        &saturated),
+                T64_STATUS_INVALID_ARGUMENT);
+  T64_CHECK_INT(count, 77u);
+  T64_CHECK_INT(dropped, 88u);
+  T64_CHECK(saturated);
+  T64_CHECK_INT(t64_machine_trace_drain(machine, (t64_trace_record *)machine,
+                                        1u, &count, &dropped, &saturated),
+                T64_STATUS_INVALID_ARGUMENT);
+  T64_CHECK_INT(count, 77u);
+
+  T64_CHECK_INT(t64_machine_trace_drain(machine, NULL, 0u, &count, &dropped,
+                                        &saturated),
+                T64_STATUS_OK);
+  T64_CHECK_INT(count, 0u);
+  T64_CHECK_INT(dropped, 0u);
+  T64_CHECK(!saturated);
+  T64_CHECK_INT(t64_machine_trace_drain(machine, &record, 1u, &count, &dropped,
+                                        &saturated),
+                T64_STATUS_OK);
+  T64_CHECK_INT(count, 1u);
+  T64_CHECK_INT(record.tick, 4u);
+  T64_CHECK_INT(record.value, 41u);
+  T64_CHECK_INT(t64_machine_digest(machine, digest_after), T64_STATUS_OK);
+  T64_CHECK(memcmp(digest_before, digest_after, sizeof digest_before) == 0);
+  t64_machine_destroy(machine);
+  T64_CHECK_INT(host_state.outstanding, 0u);
+}
+
+static void test_trace_fifo_drain_and_same_digest_as_untraced(void) {
+  uint8_t image_a[TEST_ROM_SIZE];
+  uint8_t image_b[TEST_ROM_SIZE];
+  uint8_t digest_a[T64_DIGEST_SIZE];
+  uint8_t digest_b[T64_DIGEST_SIZE];
+  allocator_state alloc_a = {0u};
+  allocator_state alloc_b = {0u};
+  const t64_host_allocator host_a = {test_allocate, test_release, &alloc_a};
+  const t64_host_allocator host_b = {test_allocate, test_release, &alloc_b};
+  t64_machine *machine_a = NULL;
+  t64_machine *machine_b = NULL;
+  t64_stop_request request = {T64_STOP_GUEST_TICK, 7u};
+  t64_stop_result result = {0u, 0u};
+  t64_trace_record records[2];
+  size_t count = 0u;
+  uint64_t dropped = 0u;
+  bool saturated = false;
+
+  T64_CHECK(fixture_init(&alloc_a, &host_a, &machine_a, image_a));
+  T64_CHECK(fixture_init(&alloc_b, &host_b, &machine_b, image_b));
+  if (machine_a == NULL || machine_b == NULL) {
+    t64_machine_destroy(machine_a);
+    t64_machine_destroy(machine_b);
+    return;
+  }
+  T64_CHECK_INT(t64_machine_trace_set_enabled(machine_b, true), T64_STATUS_OK);
+  T64_CHECK_INT(t64_test_schedule_synthetic(machine_a, 3u,
+                                            T64_TEST_EVENT_NOOP, 31u),
+                T64_STATUS_OK);
+  T64_CHECK_INT(t64_test_schedule_synthetic(machine_a, 7u,
+                                            T64_TEST_EVENT_NOOP, 72u),
+                T64_STATUS_OK);
+  T64_CHECK_INT(t64_test_schedule_synthetic(machine_b, 3u,
+                                            T64_TEST_EVENT_NOOP, 31u),
+                T64_STATUS_OK);
+  T64_CHECK_INT(t64_test_schedule_synthetic(machine_b, 7u,
+                                            T64_TEST_EVENT_NOOP, 72u),
+                T64_STATUS_OK);
+  T64_CHECK_INT(t64_machine_advance(machine_a, &request, &result),
+                T64_STATUS_OK);
+  T64_CHECK_INT(t64_machine_advance(machine_b, &request, &result),
+                T64_STATUS_OK);
+  T64_CHECK_INT(t64_machine_trace_drain(machine_b, records, 1u, &count,
+                                        &dropped, &saturated),
+                T64_STATUS_OK);
+  T64_CHECK_INT(count, 1u);
+  T64_CHECK_INT(records[0].tick, 3u);
+  T64_CHECK_INT(records[0].device, T64_DEVICE_SYNTHETIC_TEST);
+  T64_CHECK_INT(records[0].kind, T64_TEST_EVENT_NOOP);
+  T64_CHECK_INT(records[0].value, 31u);
+  T64_CHECK_INT(dropped, 0u);
+  T64_CHECK(!saturated);
+  T64_CHECK_INT(t64_machine_trace_drain(machine_b, records, 2u, &count,
+                                        &dropped, &saturated),
+                T64_STATUS_OK);
+  T64_CHECK_INT(count, 1u);
+  T64_CHECK_INT(records[0].tick, 7u);
+  T64_CHECK_INT(records[0].value, 72u);
+  T64_CHECK_INT(t64_machine_digest(machine_a, digest_a), T64_STATUS_OK);
+  T64_CHECK_INT(t64_machine_digest(machine_b, digest_b), T64_STATUS_OK);
+  T64_CHECK(memcmp(digest_a, digest_b, sizeof digest_a) == 0);
+
+  t64_machine_destroy(machine_b);
+  t64_machine_destroy(machine_a);
+  T64_CHECK_INT(alloc_a.outstanding, 0u);
+  T64_CHECK_INT(alloc_b.outstanding, 0u);
+}
+
+static void test_trace_overflow_and_saturating_drop_counter(void) {
+  uint8_t image_a[TEST_ROM_SIZE];
+  uint8_t image_b[TEST_ROM_SIZE];
+  uint8_t digest_a[T64_DIGEST_SIZE];
+  uint8_t digest_b[T64_DIGEST_SIZE];
+  allocator_state alloc_a = {0u};
+  allocator_state alloc_b = {0u};
+  const t64_host_allocator host_a = {test_allocate, test_release, &alloc_a};
+  const t64_host_allocator host_b = {test_allocate, test_release, &alloc_b};
+  t64_machine *machine_a = NULL;
+  t64_machine *machine_b = NULL;
+  t64_stop_request request = {T64_STOP_GUEST_TICK, 0u};
+  t64_stop_result result = {0u, 0u};
+  t64_trace_record records[T64_TRACE_RECORD_CAPACITY];
+  size_t count = 0u;
+  uint64_t dropped = 0u;
+  bool saturated = false;
+  size_t i;
+
+  T64_CHECK(fixture_init(&alloc_a, &host_a, &machine_a, image_a));
+  T64_CHECK(fixture_init_with_trace(&alloc_b, &host_b, &machine_b, image_b,
+                                    true));
+  if (machine_a == NULL || machine_b == NULL) {
+    t64_machine_destroy(machine_a);
+    t64_machine_destroy(machine_b);
+    return;
+  }
+  for (i = 0u; i < T64_EVENT_QUEUE_CAPACITY; i++) {
+    T64_CHECK_INT(t64_test_schedule_synthetic(machine_a, 0u,
+                                              T64_TEST_EVENT_NOOP, i),
+                  T64_STATUS_OK);
+    T64_CHECK_INT(t64_test_schedule_synthetic(machine_b, 0u,
+                                              T64_TEST_EVENT_NOOP, i),
+                  T64_STATUS_OK);
+  }
+  T64_CHECK_INT(t64_machine_advance(machine_a, &request, &result),
+                T64_STATUS_OK);
+  T64_CHECK_INT(t64_machine_advance(machine_b, &request, &result),
+                T64_STATUS_OK);
+  T64_CHECK_INT(t64_machine_trace_drain(machine_b, records,
+                                        T64_TRACE_RECORD_CAPACITY, &count,
+                                        &dropped, &saturated),
+                T64_STATUS_OK);
+  T64_CHECK_INT(count, T64_TRACE_RECORD_CAPACITY);
+  T64_CHECK_INT(records[0].device, T64_TRACE_DEVICE_MACHINE);
+  T64_CHECK_INT(records[0].kind, T64_TRACE_KIND_ROM_ADMITTED);
+  T64_CHECK_INT(records[0].value, TEST_ROM_SIZE);
+  for (i = 1u; i < T64_TRACE_RECORD_CAPACITY; i++) {
+    T64_CHECK_INT(records[i].tick, 0u);
+    T64_CHECK_INT(records[i].device, T64_DEVICE_SYNTHETIC_TEST);
+    T64_CHECK_INT(records[i].kind, T64_TEST_EVENT_NOOP);
+    T64_CHECK_INT(records[i].value, i - 1u);
+  }
+  T64_CHECK_INT(dropped, 1u);
+  T64_CHECK(!saturated);
+  T64_CHECK_INT(t64_machine_digest(machine_a, digest_a), T64_STATUS_OK);
+  T64_CHECK_INT(t64_machine_digest(machine_b, digest_b), T64_STATUS_OK);
+  T64_CHECK(memcmp(digest_a, digest_b, sizeof digest_a) == 0);
+
+  T64_CHECK_INT(t64_machine_trace_set_enabled(machine_a, true), T64_STATUS_OK);
+  for (i = 0u; i < T64_TRACE_RECORD_CAPACITY; i++) {
+    t64_trace_emit(machine_a, 2u, T64_TRACE_DEVICE_MACHINE,
+                   T64_TRACE_KIND_ROM_ADMITTED, (uint64_t)i);
+  }
+  machine_a->trace_drop_count = UINT64_MAX - UINT64_C(1);
+  t64_trace_emit(machine_a, 2u, T64_TRACE_DEVICE_MACHINE,
+                 T64_TRACE_KIND_ROM_ADMITTED, 999u);
+  T64_CHECK_INT(machine_a->trace_drop_count, UINT64_MAX);
+  T64_CHECK(!machine_a->trace_drop_count_saturated);
+  t64_trace_emit(machine_a, 2u, T64_TRACE_DEVICE_MACHINE,
+                 T64_TRACE_KIND_ROM_ADMITTED, 1000u);
+  T64_CHECK_INT(machine_a->trace_drop_count, UINT64_MAX);
+  T64_CHECK(machine_a->trace_drop_count_saturated);
+  T64_CHECK_INT(t64_machine_trace_drain(machine_a, NULL, 0u, &count, &dropped,
+                                        &saturated),
+                T64_STATUS_OK);
+  T64_CHECK_INT(count, 0u);
+  T64_CHECK_INT(dropped, UINT64_MAX);
+  T64_CHECK(saturated);
+  t64_machine_destroy(machine_b);
+  t64_machine_destroy(machine_a);
+  T64_CHECK_INT(alloc_a.outstanding, 0u);
+  T64_CHECK_INT(alloc_b.outstanding, 0u);
+}
+
+static void test_admission_reset_and_refusal_preserve_scheduler_trace(void) {
+  uint8_t image[TEST_ROM_SIZE];
+  uint8_t replacement[TEST_ROM_SIZE];
+  uint8_t digest_before[T64_DIGEST_SIZE];
+  uint8_t digest_after[T64_DIGEST_SIZE];
+  allocator_state host_state = {0u};
+  const t64_host_allocator allocator = {test_allocate, test_release,
+                                        &host_state};
+  t64_machine *machine = NULL;
+  t64_stop_request request = {T64_STOP_GUEST_TICK, 0u};
+  t64_stop_result result = {0u, 0u};
+  size_t saved_trace_count;
+  size_t saved_trace_head;
+  uint64_t saved_drops;
+  bool saved_saturation;
+  t64_trace_record admission_before;
+  t64_trace_record scheduler_before;
+  t64_event pending_before;
+  size_t saved_queue_count;
+  uint64_t saved_next_sequence;
+  t64_trace_record output;
+  size_t count = 0u;
+  uint64_t dropped = 0u;
+  bool saturated = false;
+  size_t i;
+
+  T64_CHECK(fixture_init_with_trace(&host_state, &allocator, &machine, image,
+                                    true));
+  if (machine == NULL) {
+    return;
+  }
+  T64_CHECK_INT(machine->trace_count, 1u);
+  T64_CHECK_INT(t64_test_schedule_synthetic(machine, 0u,
+                                            T64_TEST_EVENT_NOOP, 19u),
+                T64_STATUS_OK);
+  T64_CHECK_INT(t64_test_schedule_synthetic(machine, 5u,
+                                            T64_TEST_EVENT_NOOP, 23u),
+                T64_STATUS_OK);
+  T64_CHECK_INT(t64_machine_advance(machine, &request, &result),
+                T64_STATUS_OK);
+  T64_CHECK_INT(machine->trace_count, 2u);
+  T64_CHECK_INT(machine->queue_count, 1u);
+  saved_queue_count = machine->queue_count;
+  saved_next_sequence = machine->next_sequence;
+  pending_before = machine->events[machine->queue_head];
+  saved_trace_count = machine->trace_count;
+  saved_trace_head = machine->trace_head;
+  saved_drops = machine->trace_drop_count;
+  saved_saturation = machine->trace_drop_count_saturated;
+  admission_before = machine->trace_records[machine->trace_head];
+  scheduler_before = machine->trace_records[
+      (machine->trace_head + machine->trace_count - 1u) %
+      T64_TRACE_RECORD_CAPACITY];
+  T64_CHECK_INT(t64_machine_digest(machine, digest_before), T64_STATUS_OK);
+
+  fill_authored_rom(replacement);
+  replacement[0] = 0xdeu;
+  replacement[1] = 0xadu;
+  replacement[2] = 0xbeu;
+  replacement[3] = 0xefu;
+  T64_CHECK_INT(t64_machine_admit_rom(machine, replacement,
+                                      sizeof replacement),
+                T64_STATUS_INVALID_ROM);
+  T64_CHECK_INT(t64_machine_digest(machine, digest_after), T64_STATUS_OK);
+  T64_CHECK(memcmp(digest_before, digest_after, sizeof digest_before) == 0);
+  T64_CHECK_INT(machine->trace_count, saved_trace_count);
+  T64_CHECK_INT(machine->trace_head, saved_trace_head);
+  T64_CHECK_INT(machine->trace_drop_count, saved_drops);
+  T64_CHECK(machine->trace_drop_count_saturated == saved_saturation);
+  T64_CHECK_INT(machine->queue_count, saved_queue_count);
+  T64_CHECK_INT(machine->next_sequence, saved_next_sequence);
+  T64_CHECK_INT(machine->events[machine->queue_head].tick,
+                pending_before.tick);
+  T64_CHECK_INT(machine->events[machine->queue_head].sequence,
+                pending_before.sequence);
+  T64_CHECK_INT(machine->events[machine->queue_head].value,
+                pending_before.value);
+  T64_CHECK(t64_test_event_handler_matches(machine, 0u));
+  T64_CHECK_INT(t64_machine_trace_drain(machine, &output, 1u, &count,
+                                        &dropped, &saturated),
+                T64_STATUS_OK);
+  T64_CHECK_INT(count, 1u);
+  T64_CHECK_INT(output.tick, admission_before.tick);
+  T64_CHECK_INT(output.device, admission_before.device);
+  T64_CHECK_INT(output.kind, admission_before.kind);
+  T64_CHECK_INT(output.value, admission_before.value);
+  T64_CHECK_INT(t64_machine_trace_drain(machine, &output, 1u, &count,
+                                        &dropped, &saturated),
+                T64_STATUS_OK);
+  T64_CHECK_INT(count, 1u);
+  T64_CHECK_INT(output.tick, scheduler_before.tick);
+  T64_CHECK_INT(output.device, scheduler_before.device);
+  T64_CHECK_INT(output.kind, scheduler_before.kind);
+  T64_CHECK_INT(output.value, scheduler_before.value);
+  T64_CHECK_INT(output.tick, 0u);
+  T64_CHECK_INT(output.device, T64_DEVICE_SYNTHETIC_TEST);
+  T64_CHECK_INT(output.kind, T64_TEST_EVENT_NOOP);
+  T64_CHECK_INT(output.value, 19u);
+
+  fill_authored_rom(replacement);
+  replacement[0x100u] ^= 0x80u;
+  T64_CHECK_INT(t64_machine_admit_rom(machine, replacement,
+                                      sizeof replacement),
+                T64_STATUS_OK);
+  T64_CHECK_INT(machine->tick, 0u);
+  T64_CHECK_INT(machine->instruction_count, 0u);
+  T64_CHECK_INT(machine->frame_event_count, 0u);
+  T64_CHECK_INT(machine->queue_count, 0u);
+  T64_CHECK_INT(machine->trace_count, 1u);
+  T64_CHECK_INT(machine->trace_head, 0u);
+  T64_CHECK_INT(machine->trace_drop_count, 0u);
+  T64_CHECK(!machine->trace_drop_count_saturated);
+  T64_CHECK(machine->trace_enabled);
+  for (i = 0u; i < T64_TRACE_RECORD_CAPACITY; i++) {
+    T64_CHECK_INT(machine->trace_records[i].tick, 0u);
+    T64_CHECK_INT(machine->trace_records[i].device, 0u);
+    if (i != 0u) {
+      T64_CHECK_INT(machine->trace_records[i].kind, 0u);
+      T64_CHECK_INT(machine->trace_records[i].value, 0u);
+    }
+  }
+  T64_CHECK_INT(t64_machine_trace_drain(machine, &output, 1u, &count,
+                                        &dropped, &saturated),
+                T64_STATUS_OK);
+  T64_CHECK_INT(count, 1u);
+  T64_CHECK_INT(output.tick, 0u);
+  T64_CHECK_INT(output.device, T64_TRACE_DEVICE_MACHINE);
+  T64_CHECK_INT(output.kind, T64_TRACE_KIND_ROM_ADMITTED);
+  T64_CHECK_INT(output.value, TEST_ROM_SIZE);
+  t64_machine_destroy(machine);
+  T64_CHECK_INT(host_state.outstanding, 0u);
+}
+
 int main(void) {
   (void)puts("evidence: synthetic scheduler metadata only; no CPU or device execution");
   test_queued_future_work_changes_digest();
@@ -399,5 +787,9 @@ int main(void) {
   test_digest_excludes_storage_and_event_handler();
   test_partitioned_and_isolated_advances_have_same_digest();
   test_scheduler_trace_records_boundary();
+  test_trace_drain_validation_and_digest_exclusion();
+  test_trace_fifo_drain_and_same_digest_as_untraced();
+  test_trace_overflow_and_saturating_drop_counter();
+  test_admission_reset_and_refusal_preserve_scheduler_trace();
   return T64_TEST_FINISH("unit.core.digest-trace");
 }

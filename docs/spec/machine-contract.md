@@ -143,6 +143,18 @@ The field-mutation, exclusion, relocation, golden-vector, interleaving and
 partition tests cover this audit. Future device/register/request state must be
 added to the encoding and this table with its own tests when introduced.
 
+The observer is disabled by default and can be enabled per machine. When
+enabled, successful ROM admission emits a machine-boundary record at guest tick
+zero, and each dispatched scheduler event emits a record at its scheduled
+guest tick before its handler runs. Records contain fixed-width tick, device,
+kind and value fields. The 256-record ring keeps older records when full and
+drops the new record; the cumulative u64 drop count saturates and reports a
+separate saturation flag. Draining copies whole records in FIFO order, outside
+advance. A zero-capacity drain may pass a null record buffer, copies zero
+records and leaves the queue intact. Invalid nonzero output buffers are refused
+without draining. Neither trace enablement nor draining calls the host or
+changes the canonical digest.
+
 ## Replacement reset snapshot
 
 This table is the reset audit for content replacement. New future-affecting
@@ -160,8 +172,8 @@ introduced.
 | CPU/RSP registers and SP banks | No | Reset to the profile's initial state when introduced |
 | Scheduler queue, next sequence and exhaustion state | Yes | Empty queue, initial sequence and available sequence |
 | DMA descriptors, device latches, and interrupt state | No | Reset to the profile's initial state when introduced |
-| Trace ring and observer drop count | No | Clear records and drops when introduced; keep observer state out of the machine digest |
+| Trace records, drop count and enablement | Yes | Clear records and drops; preserve enablement and emit a new admission record when enabled |
 
-The trace observer is added in the following task. Refusal assertions compare
-every present machine observation and ownership counter. Later device slices
+Refusal assertions compare every present machine observation, scheduler state,
+trace records/drop observation and ownership counter. Later device slices
 must extend this snapshot and preserve the same no-change refusal guarantee.
