@@ -10,7 +10,8 @@ fixture records its rights. A hash proves identity, not rights.
 These classes are rights-bearing or untrusted. They are never committed, never uploaded from CI and never
 redistributed without documented permission:
 
-- ROMs and ROM images, in any extension or encoding.
+- ROMs and ROM images, in any extension or encoding. The ban covers every encoding; the automated check
+  does not detect every encoding (see "Automated enforcement").
 - IPL, PIF and CIC boot data.
 - 64DD media and disk images.
 - Save data of any kind.
@@ -49,10 +50,30 @@ committed anywhere in the repository.
 
 ## Automated enforcement
 
-The GOV-07 classes (ROM magic at offset 0, NUL or invalid UTF-8 blobs not listed in the manifest, denied
-extensions, opaque containers, LFS pointers) are checked over the working tree, the history in a pull
-request range and a staging directory by `scripts/rights-scan.sh` (plan 01-06). The manifest checker
-(plan 01-09) validates the schema and the cross-field rules.
+`scripts/rights-scan.sh` (plan 01-06) checks the working tree, all history reachable from HEAD and every
+local branch, tag and remote-tracking ref (or a validated `--range`), and a staging directory. It detects
+exactly these classes and nothing more:
+
+- ROM magic in the first four bytes (offset 0) of a blob, in z64, v64 or n64 byte order, under any name.
+  Magic at any other offset is not detected.
+- Default-deny of non-text bytes: a blob with a NUL byte or invalid UTF-8 fails unless
+  `fixtures/manifest.json` lists it as an authored-here or cleared commit-channel fixture with that path and
+  digest. A row in `provenance/docs-assets.tsv` (a path under `docs/` plus its digest) waives only these
+  non-text classes for that path; it never waives ROM magic, containers, LFS pointers, denied extensions or
+  symlinks.
+- Denied extensions (`z64 n64 v64 sav eep sra fla mpk ndd d64`, any letter case, ignoring trailing
+  whitespace, control bytes and punctuation after the extension), even for plain text.
+- Opaque containers by magic (zip, gzip, xz, bzip2, zstd, 7z, tar), LFS pointer files and LFS attributes,
+  gitlinks, and symlinks or special files.
+
+Two heuristics are advisories only and never fail the scan: a run of 256 or more consecutive `0x..` byte
+literals (`A-BYTE-LITERAL-RUN`) and a blob of exactly 4032 bytes (`A-SIZE-4032`).
+
+Residual risk: a ROM that is re-encoded as valid UTF-8 text (hex or decimal byte arrays, base64, any other
+text encoding), or whose magic is not at offset 0, passes every blocking class. Such material is caught
+only by the default-deny of non-text bytes when it is committed raw, and otherwise by review. The scan
+does not claim to detect it. The manifest checker (plan 01-09) validates the schema and the cross-field
+rules.
 
 Phase 1 CI uploads nothing, so no CI step scans a staging directory yet. The staging mode is proven by the
 seeded `staging-rom-magic` and `staging-nul` cases in `gov.rights.selftest`, which run in every gate run.
