@@ -68,19 +68,25 @@ static int write_all(int fd, const void *p, size_t n) {
   return 0;
 }
 
-/* Writes PATH.tmp then renames it over PATH. Returns 0 on success. */
+/*
+ * Writes a temporary file next to PATH, then renames it over PATH. Returns 0
+ * on success. The temporary name comes from mkstemp (PATH.tmp.XXXXXX,
+ * created with O_EXCL), so two supervisors writing the same PATH never share
+ * a temporary file, and nothing planted at a predictable name (a symlink, a
+ * FIFO that would block open) is ever opened (IN-01).
+ */
 static int atomic_write(const char *path, const void *data, size_t len) {
   char tmp[4096];
   int fd;
-  int n = snprintf(tmp, sizeof tmp, "%s.tmp", path);
+  int n = snprintf(tmp, sizeof tmp, "%s.tmp.XXXXXX", path);
   if (n <= 0 || (size_t)n >= sizeof tmp) {
     return -1;
   }
-  fd = open(tmp, O_WRONLY | O_CREAT | O_TRUNC | O_NOFOLLOW, 0644);
+  fd = mkstemp(tmp);
   if (fd < 0) {
     return -1;
   }
-  if (write_all(fd, data, len) != 0 || fsync(fd) != 0) {
+  if (fchmod(fd, 0644) != 0 || write_all(fd, data, len) != 0 || fsync(fd) != 0) {
     close(fd);
     unlink(tmp);
     return -1;
@@ -90,16 +96,6 @@ static int atomic_write(const char *path, const void *data, size_t len) {
     return -1;
   }
   return 0;
-}
-
-/* Heap copy, so exec argv needs no const casts. Freed by process exit. */
-static char *dupstr(const char *s) {
-  size_t n = strlen(s) + 1u;
-  char *p = (char *)malloc(n);
-  if (p != NULL) {
-    memcpy(p, s, n);
-  }
-  return p;
 }
 
 static int is_hex64(const char *s) {
@@ -583,7 +579,15 @@ int main(int argc, char **argv) {
 
   if (!o.usage_error && o.fixture == T64_FIX_OK) {
     int ep[2];
+    /* Every runner argument lives in this block's own storage, so building
+     * the argv cannot fail or silently truncate it (IN-02). */
     char *child_argv[64];
+    char opt_fixture[] = "--fixture";
+    char opt_bound[] = "--bound";
+    char opt_limit[] = "--log-limit";
+    char opt_report[] = "--report";
+    char opt_capture[] = "--capture";
+    char fixture_s[4096];
     char bound_s[24];
     char limit_s[24];
     int nargv = 0;
@@ -621,21 +625,26 @@ int main(int argc, char **argv) {
       close(rfd);
       close(cfd);
     }
+    n = snprintf(fixture_s, sizeof fixture_s, "%s", a.fixture);
+    if (n <= 0 || (size_t)n >= sizeof fixture_s) {
+      o.usage_error = 1;
+      goto classified;
+    }
     snprintf(bound_s, sizeof bound_s, "%llu", (unsigned long long)a.bound);
     snprintf(limit_s, sizeof limit_s, "%llu", (unsigned long long)a.log_limit);
     for (i = 0; i < a.runner_argc; i++) {
       child_argv[nargv++] = a.runner_argv[i];
     }
-    child_argv[nargv++] = dupstr("--fixture");
-    child_argv[nargv++] = dupstr(a.fixture);
-    child_argv[nargv++] = dupstr("--bound");
-    child_argv[nargv++] = dupstr(bound_s);
-    child_argv[nargv++] = dupstr("--log-limit");
-    child_argv[nargv++] = dupstr(limit_s);
-    child_argv[nargv++] = dupstr("--report");
-    child_argv[nargv++] = dupstr(ws.report);
-    child_argv[nargv++] = dupstr("--capture");
-    child_argv[nargv++] = dupstr(ws.capture);
+    child_argv[nargv++] = opt_fixture;
+    child_argv[nargv++] = fixture_s;
+    child_argv[nargv++] = opt_bound;
+    child_argv[nargv++] = bound_s;
+    child_argv[nargv++] = opt_limit;
+    child_argv[nargv++] = limit_s;
+    child_argv[nargv++] = opt_report;
+    child_argv[nargv++] = ws.report;
+    child_argv[nargv++] = opt_capture;
+    child_argv[nargv++] = ws.capture;
     child_argv[nargv] = NULL;
 
     if (pipe(ep) != 0 || fcntl(ep[0], F_SETFD, FD_CLOEXEC) != 0 ||

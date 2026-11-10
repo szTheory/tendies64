@@ -17,10 +17,13 @@
  * its own canonical re-emission, so a record that validates is the canonical
  * record and nothing else.
  */
+#include <errno.h>
 #include <stdarg.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <sys/stat.h>
+#include <unistd.h>
 
 #include "t64_classify.h"
 #include "t64_json.h"
@@ -142,6 +145,21 @@ static int read_file(const char *path, size_t max, uint8_t **out,
   *out = buf;
   *outlen = n;
   return 1;
+}
+
+static int write_all(int fd, const uint8_t *p, size_t n) {
+  while (n > 0) {
+    ssize_t r = write(fd, p, n);
+    if (r < 0 && errno == EINTR) {
+      continue;
+    }
+    if (r <= 0) {
+      return -1;
+    }
+    p += r;
+    n -= (size_t)r;
+  }
+  return 0;
 }
 
 /* ---- small validators ---------------------------------------------------- */
@@ -1075,7 +1093,7 @@ static int cmd_seal(const char *inv_path, const char *out_path, int n_in,
   char suite_line[256];
   t64_jsonw w;
   size_t suite_len = 0;
-  FILE *f;
+  int fd;
 
   if (!inventory_load(inv_path, &inv)) {
     return EXIT_USAGE;
@@ -1145,18 +1163,30 @@ static int cmd_seal(const char *inv_path, const char *out_path, int n_in,
     print_fail(out_path, &d);
     goto done;
   }
-  if (snprintf(tmp_path, sizeof tmp_path, "%s.tmp", out_path) >= (int)sizeof tmp_path) {
+  /* IN-01: a fresh mkstemp name (O_EXCL) next to FILE, so nothing planted at
+   * a predictable FILE.tmp (a symlink to a victim) is followed, and the
+   * descriptor is closed on every path. */
+  if (snprintf(tmp_path, sizeof tmp_path, "%s.tmp.XXXXXX", out_path) >=
+      (int)sizeof tmp_path) {
     fprintf(stderr, "ERROR output path is too long\n");
     rc = EXIT_USAGE;
     goto done;
   }
-  f = fopen(tmp_path, "wb");
-  if (f == NULL || fwrite(outbuf, 1, outlen, f) != outlen || fclose(f) != 0 ||
-      rename(tmp_path, out_path) != 0) {
+  fd = mkstemp(tmp_path);
+  if (fd < 0) {
     fprintf(stderr, "ERROR cannot write %s\n", out_path);
-    (void)remove(tmp_path);
     rc = EXIT_USAGE;
     goto done;
+  }
+  {
+    int bad_write = fchmod(fd, 0644) != 0 || write_all(fd, outbuf, outlen) != 0;
+    int bad_close = close(fd) != 0;
+    if (bad_write || bad_close || rename(tmp_path, out_path) != 0) {
+      fprintf(stderr, "ERROR cannot write %s\n", out_path);
+      (void)unlink(tmp_path);
+      rc = EXIT_USAGE;
+      goto done;
+    }
   }
   printf("ok %s\n", out_path);
   rc = EXIT_OK;

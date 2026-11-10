@@ -1,7 +1,6 @@
 #!/bin/sh
 # Hostile-runner controls for t64-supervisor (review findings WR-01, WR-02,
-# WR-04, WR-05).
-# POSIX sh.
+# WR-04, WR-05) and planted temporary files (IN-01). POSIX sh.
 #
 #   run-hostile.sh --bin-dir DIR --mode MODE
 #
@@ -24,6 +23,12 @@
 #                  and neither descendant may outlive the supervisor
 #   wall-ms-max    the honest runner with --wall-ms 2^64-1    pass/positive-match
 #                  (the deadline saturates instead of wrapping to wall-backstop)
+#   result-tmp-fifo the honest runner, with a FIFO planted at RESULT.tmp and
+#                  META.tmp (the old fixed temporary names)  pass/positive-match,
+#                  and the supervisor must not block on them
+#   seal-tmp-symlink t64-result-check seal with OUT.tmp planted as a symlink to
+#                  a victim file: the seal succeeds, OUT is a regular file and
+#                  the victim is unchanged (no supervisor run)
 #
 # Prints "ok MODE (...)" or "FAIL MODE: reason" and exits 0 or 1; 2 on usage.
 set -eu
@@ -48,7 +53,7 @@ SUP="$BIN_DIR/t64-supervisor"
 CHECK="$BIN_DIR/t64-result-check"
 
 case "$MODE" in
-  baseline | orphan | wall-ms-max)
+  baseline | orphan | wall-ms-max | result-tmp-fifo | seal-tmp-symlink)
     WANT_OUT=pass; WANT_DET=positive-match; WANT_RC=0 ;;
   fifo-report | fifo-capture | symlink-report | short-capture | missing-capture)
     WANT_OUT=harness-error; WANT_DET=report-invalid; WANT_RC=1 ;;
@@ -56,10 +61,10 @@ case "$MODE" in
 esac
 WALL_MS=5000
 RUNNER_MODE=$MODE
-if [ "$MODE" = wall-ms-max ]; then
-  WALL_MS=18446744073709551615
-  RUNNER_MODE=baseline
-fi
+case "$MODE" in
+  wall-ms-max) WALL_MS=18446744073709551615; RUNNER_MODE=baseline ;;
+  result-tmp-fifo) RUNNER_MODE=baseline ;;
+esac
 
 T=$(mktemp -d "${TMPDIR:-/tmp}/t64hostile.XXXXXX")
 # kill_recorded: SIGKILL any descendant pid the orphan runner recorded, so a
@@ -91,6 +96,24 @@ sha256_of() {
     shasum -a 256 "$1" | awk '{print $1}'
   fi
 }
+
+if [ "$MODE" = seal-tmp-symlink ]; then
+  HERE=$(cd "$(dirname "$0")" && pwd -P)
+  cp "$HERE/golden/positive.json" "$T/positive.json"
+  printf 'positive\n' > "$T/INVENTORY"
+  printf 'victim\n' > "$T/victim"
+  ln -s "$T/victim" "$T/suite.jsonl.tmp"
+  _rc=0
+  "$CHECK" seal --inventory "$T/INVENTORY" --out "$T/suite.jsonl" "$T/positive.json" \
+    > "$T/seal.out" 2>&1 || _rc=$?
+  [ "$_rc" = 0 ] || die "seal exit $_rc: $(head -n 1 "$T/seal.out")"
+  [ "$(cat "$T/victim")" = victim ] || die "the seal wrote through the planted symlink"
+  [ -f "$T/suite.jsonl" ] && [ ! -L "$T/suite.jsonl" ] || die "the suite is not a regular file"
+  "$CHECK" suite --inventory "$T/INVENTORY" "$T/suite.jsonl" > /dev/null 2> "$T/check.err" ||
+    die "the sealed suite does not verify: $(head -n 1 "$T/check.err")"
+  echo "ok $MODE (victim unchanged, suite verifies)"
+  exit 0
+fi
 
 printf 'hostile runner fixture\n' > "$T/fixture.txt"
 SHA=$(sha256_of "$T/fixture.txt")
@@ -184,6 +207,10 @@ run_sup() {
     die "the supervisor did not return within ${WATCHDOG}s (hang)"
   fi
 }
+
+if [ "$MODE" = result-tmp-fifo ]; then
+  mkfifo "$T/result.json.tmp" "$T/meta.json.tmp"
+fi
 
 run_sup --identity synthetic --result "$T/result.json" --meta "$T/meta.json" \
   --work-dir "$T/work" --wall-ms "$WALL_MS" --bound 1000 --log-limit 65536 \

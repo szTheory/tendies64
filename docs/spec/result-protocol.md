@@ -252,8 +252,10 @@ t64-supervisor --identity synthetic --result PATH --meta PATH --work-dir DIR
   `O_RDONLY|O_NOFOLLOW|O_NONBLOCK` and must be regular files by `fstat`, so a
   runner that plants a FIFO cannot block the supervisor once the wall-clock
   backstop no longer applies.
-- The canonical result and the run-meta are written to `PATH.tmp` and renamed,
-  so a result file is never partial. A result is written for every outcome
+- The canonical result and the run-meta are written to a fresh temporary file
+  next to PATH (`PATH.tmp.XXXXXX` from `mkstemp`, created with `O_EXCL`) and
+  renamed, so a result file is never partial and nothing planted at a
+  predictable temporary name is opened. A result is written for every outcome
   whenever `--result` was given.
 - The supervisor never uses the runner's exit code as an outcome; it only
   rejects a non-zero one.
@@ -320,7 +322,7 @@ stops the check.
 |------------|----------|
 | `result FILE` | One result record (at most 64 KiB, exactly one canonical line). A suite record is refused (R-SCHEMA). |
 | `suite --inventory INV FILE` | A whole suite (at most 16 MiB) against the pinned inventory. |
-| `seal --inventory INV --out FILE RESULT...` | Validates each result, sorts by `fixture_id`, appends the suite record, runs the `suite` check on the output, and only then writes FILE (via `FILE.tmp` and rename). A set that does not match INVENTORY is refused with S-INVENTORY. |
+| `seal --inventory INV --out FILE RESULT...` | Validates each result, sorts by `fixture_id`, appends the suite record, runs the `suite` check on the output, and only then writes FILE (via a fresh `mkstemp` file `FILE.tmp.XXXXXX` and rename). A set that does not match INVENTORY is refused with S-INVENTORY. |
 | `identity FILE` | Validates every line of a result or suite file (the suite record is optional here and no inventory is compared), then prints `fixture_id<TAB>profile_id<TAB>build_id<TAB>evidence_tier<TAB>outcome` per result. Nothing is printed when any line is invalid. The claims gate uses it to refuse synthetic evidence. |
 
 Result rules, checked in this order per record:
