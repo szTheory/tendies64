@@ -804,11 +804,17 @@ static void scan_one(const char *rel) {
 
   if (third) {
     looking = 1;
-  } else if (s == FS_PRESENT) {
-    if (read_head(full, head, &n) == 0) {
-      scan_header(head, n, NULL, &h);
-      looking = h.other_license || h.foreign_holder;
-    }
+  } else if (s == FS_BAD) {
+    /* IN-13: a listed path behind a symlink, or not a regular file, cannot
+     * be read for its header, so it is reported rather than passed. */
+    finding("P-PATH", rel, "listed path: %s", why);
+    return;
+  } else if (read_head(full, head, &n) == 0) {
+    scan_header(head, n, NULL, &h);
+    looking = h.other_license || h.foreign_holder;
+  } else {
+    finding("P-HEADER", rel, "cannot read the file header");
+    return;
   }
   if (!looking) return;
   g_looking++;

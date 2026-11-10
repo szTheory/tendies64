@@ -402,7 +402,7 @@ check P-LICENSE-TEXT
 base_tree license-text-symlink
 rm "$ROOT/LICENSES/MIT.txt"
 ln -s ../src/own.c "$ROOT/LICENSES/MIT.txt"
-check P-LICENSE-TEXT
+check "P-LICENSE-TEXT P-PATH"
 
 base_tree license-text-wrong-name
 E_LT=LICENSES/mit.txt
@@ -452,6 +452,23 @@ base_tree path-symlink-dir
 ln -s lib "$ROOT/linkdir"
 E_PATHS='["linkdir/copied.c"]'
 check "P-PATH P-UNRECORDED-COPY"
+
+# IN-13: a listed path that is a symlink, or a file whose header cannot be
+# read, is reported instead of being counted as scanned and silently passed.
+base_tree tree-symlink
+ln -s own.c "$ROOT/src/alias.c"
+check P-PATH
+
+base_tree unreadable-file
+printf '// %s GPL-2.0-only\n' "$LIC" | mk lib/locked.c
+chmod 000 "$ROOT/lib/locked.c"
+if [ -r "$ROOT/lib/locked.c" ]; then
+  echo "skip $NAME: a mode-000 file is still readable (running as root)"
+  chmod 644 "$ROOT/lib/locked.c"
+else
+  check P-HEADER
+  chmod 644 "$ROOT/lib/locked.c"
+fi
 
 base_tree list-path-traversal
 LIST_EXTRA='../escape.c'
