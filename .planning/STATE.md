@@ -5,16 +5,16 @@ milestone_name: Verified Headless Core
 current_phase: 01
 current_phase_name: Governance, Rights and Harness Foundation
 status: executing
-stopped_at: Completed 01-04-PLAN.md
-last_updated: "2026-11-10T01:54:18.530Z"
+stopped_at: Completed 01-05-PLAN.md
+last_updated: "2026-11-10T02:03:48.656Z"
 last_activity: 2026-11-09
 last_activity_desc: Phase 1 execution started
-state_head: cbe4061bcfe65a968c0ca6562bf89de6c45ed293
+state_head: 82d627bb542950b75cf1812e0ced1df4735d6b38
 progress:
   total_phases: 6
   completed_phases: 0
   total_plans: 13
-  completed_plans: 4
+  completed_plans: 5
   percent: 0
 ---
 
@@ -30,7 +30,7 @@ See: .planning/PROJECT.md (updated 2026-11-09)
 ## Current Position
 
 Phase: 1 (Governance, Rights and Harness Foundation) — EXECUTING
-Plan: 5 of 13
+Plan: 6 of 13
 Status: Ready to execute
 Last activity: 2026-11-09 — Phase 1 execution started
 
@@ -62,6 +62,7 @@ Progress: [░░░░░░░░░░] 0%
 | Phase 01 P02 | 30min | 2 tasks | 16 files |
 | Phase 1 P03 | 6min | 3 tasks | 24 files |
 | Phase 1 P04 | 8min | 3 tasks | 14 files |
+| Phase 1 P05 | 30min | 2 tasks | 17 files |
 
 ## Accumulated Context
 
@@ -81,6 +82,8 @@ Decisions are logged in the PROJECT.md Key Decisions table. Recent decisions tha
 - [Phase 1]: 01-03: Layer-1 lint skips name checks inside attribute parentheses; selftest rejects meta rules without a dedicated control; allowlist malformed row is a tool error
 - [Phase 1]: 01-04: ADR-0002 stays proposed (PROPOSED_OK exemption in check-docs.sh, removed by plan 01-08); DOC-CORE-BEFORE-ADR is path-based with no content marker
 - [Phase 1]: 01-04: check-ci-yml.sh adds a --gate option for the CI-GATE-EXEC mutation; CI-TIMEOUT accepts 1 to 10 minutes
+- [Phase 1]: 01-05: JSON parser rejects object keys over 127 bytes (string-length) because the canonical writer cannot emit them; depth limit clamped to 64
+- [Phase 1]: 01-05: run-expect.sh treats only --ext-matching files as seeds and matches rule_id ok as a whole word
 
 ### Pending Todos
 
@@ -106,6 +109,6 @@ Items acknowledged and deferred at milestone close, most recent first:
 
 ## Session Continuity
 
-Last session: 2026-11-10T01:54:18.506Z
-Stopped at: Completed 01-04-PLAN.md
+Last session: 2026-11-10T02:03:48.630Z
+Stopped at: Completed 01-05-PLAN.md
 Resume file: None

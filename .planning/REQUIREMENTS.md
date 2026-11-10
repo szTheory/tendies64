@@ -31,7 +31,7 @@ API and a playable rights-cleared homebrew. Each maps to a roadmap phase.
 - [ ] **RUN-01**: User can run a ROM headlessly with a fixed reset, a named profile, timed logical input and a guest-time limit, and receive a machine-readable result
 - [x] **RUN-02**: User can distinguish six outcomes in a result: pass, guest-fail, boot-fail, timeout, missing-fixture and harness-error
 - [ ] **RUN-03**: User can see a result classified as boot-fail, not pass, when a guest produces empty output
-- [ ] **RUN-04**: Maintainer can see negative controls in the suite: a wrong expected value fails; a missing, malformed, timed-out or crashed run never passes; a changed test inventory is detected
+- [x] **RUN-04**: Maintainer can see negative controls in the suite: a wrong expected value fails; a missing, malformed, timed-out or crashed run never passes; a changed test inventory is detected
 - [ ] **RUN-05**: User can capture guest log output through an ISViewer-style interface, with the length-register and buffer semantics specified in writing
 - [ ] **RUN-06**: User can capture raw video frames and raw audio sample buffers from a headless run, as files with metadata, separately from host presentation
 
@@ -195,7 +195,7 @@ re-sequenced at milestone close.
 | RUN-01 | Phase 3 | Pending |
 | RUN-02 | Phase 1 | Complete |
 | RUN-03 | Phase 3 | Pending |
-| RUN-04 | Phase 1 | Pending |
+| RUN-04 | Phase 1 | Complete |
 | RUN-05 | Phase 3 | Pending |
 | RUN-06 | Phase 8 | Pending |
 | PROF-01 | Phase 2 | Pending |
