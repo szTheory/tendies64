@@ -218,3 +218,36 @@ Requirements: GOV-01..07, RUN-02, RUN-04, PROF-07, VER-04.
 - Optional local-only protected-hash denylist: maintainer's local choice, never committed.
 
 </deferred>
+
+## Amendments (plan-check iteration 1, 2026-11-09)
+
+Recorded by the orchestrator in response to plan-checker findings. Each is reversible and
+owner-visible; none changes a rights, publication or physical stop.
+
+- **A-1 Stub core exemption (replaces the `T64-STUB:` text marker).** ROADMAP's "ADR-0002
+  accepted before any core code merges" is interpreted as: no *behavioral* core code. Exactly
+  two placeholder paths may exist before ADR-0002 is accepted: `core/t64_core_stub.c` and
+  `core/include/tendies64/t64_facade.h`. They contain no machine behavior, and the facade
+  header is explicitly provisional (not an ABI promise; the API freeze is Phase 10). The
+  `DOC-CORE-BEFORE-ADR` check uses an exact-path allowlist (and also covers `core/**/*.h`);
+  any other file under `core/` fails until ADR-0002 is `accepted`. The stub exists so the
+  determinism lint never scans zero files.
+- **A-2 Spike scope.** The Rust spike's "determinism lint equivalent" means: the frozen leak
+  corpus is re-expressed as Rust twins and each twin is checked against `#![no_std]` +
+  `#![forbid(unsafe_code)]` compile-time rejection (single-file `rustc --emit=metadata`), plus
+  the Rust ROM-admission size/header parser fuzzed under ASan/UBSan. The interpretation is
+  recorded in `PREREG.md` before results exist.
+- **A-3 Switch-to-Rust outcome stops the phase.** If the spike's pre-registered criteria say
+  "switch", the plan that would accept ADR-0002 stops and escalates to the owner (a real
+  owner decision: it rewrites the C stub, lint and CMake). Only a "stay with C17" outcome may
+  auto-accept ADR-0002.
+- **A-4 Claim sentence.** `boot-fail` is added to the outcome counts in the claim sentence
+  template so that all six outcomes sum to the total.
+- **A-5 Claims validation tier.** Claim-block validation is POSIX sh + awk (not a C tool): it
+  is not security-sensitive and runs identically on both OSes. Evidence-identity checks that
+  need hashing stay in the C tools. Recorded as a deliberate deviation from the research's
+  tier map.
+- **A-6 Plan sizing rule for this phase.** Executors stay within context budget: each plan
+  lists at most about 15 files and each task writes fewer than 10 files. Directory-owned data
+  corpora (seeds, goldens) may be listed as a single directory glob entry. Wave numbers are
+  recomputed after the split.
