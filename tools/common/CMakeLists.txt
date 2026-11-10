@@ -27,3 +27,17 @@ add_test(NAME unit.json-seeds
     --tool "$<TARGET_FILE:t64-json-canon> --check"
     --dir ${CMAKE_SOURCE_DIR}/tests/seeded/json)
 set_tests_properties(unit.json-seeds PROPERTIES LABELS unit)
+
+# Strict JSON parser: independent negative corpus, then a deterministic mutation run.
+add_executable(test_json tests/test_json.c)
+target_link_libraries(test_json PRIVATE t64_common)
+target_include_directories(test_json PRIVATE ${CMAKE_SOURCE_DIR}/tests)
+t64_target_warnings(test_json)
+add_test(NAME unit.json COMMAND test_json)
+
+add_executable(test_json_fuzz tests/test_json_fuzz.c)
+target_link_libraries(test_json_fuzz PRIVATE t64_common)
+target_include_directories(test_json_fuzz PRIVATE ${CMAKE_SOURCE_DIR}/tests)
+t64_target_warnings(test_json_fuzz)
+add_test(NAME unit.json-fuzz COMMAND test_json_fuzz)
+set_tests_properties(unit.json unit.json-fuzz PROPERTIES LABELS unit)
