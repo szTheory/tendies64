@@ -5,16 +5,16 @@ milestone_name: Verified Headless Core
 current_phase: 01
 current_phase_name: Governance, Rights and Harness Foundation
 status: executing
-stopped_at: Completed 01-03-PLAN.md
-last_updated: "2026-11-10T01:42:07.228Z"
+stopped_at: Completed 01-04-PLAN.md
+last_updated: "2026-11-10T01:54:18.530Z"
 last_activity: 2026-11-09
 last_activity_desc: Phase 1 execution started
-state_head: e8f70c9db8784e1b14016be04b8771cdcbab344a
+state_head: cbe4061bcfe65a968c0ca6562bf89de6c45ed293
 progress:
   total_phases: 6
   completed_phases: 0
   total_plans: 13
-  completed_plans: 3
+  completed_plans: 4
   percent: 0
 ---
 
@@ -30,7 +30,7 @@ See: .planning/PROJECT.md (updated 2026-11-09)
 ## Current Position
 
 Phase: 1 (Governance, Rights and Harness Foundation) — EXECUTING
-Plan: 4 of 13
+Plan: 5 of 13
 Status: Ready to execute
 Last activity: 2026-11-09 — Phase 1 execution started
 
@@ -61,6 +61,7 @@ Progress: [░░░░░░░░░░] 0%
 | Phase 01 P01 | 9min | 2 tasks | 15 files |
 | Phase 01 P02 | 30min | 2 tasks | 16 files |
 | Phase 1 P03 | 6min | 3 tasks | 24 files |
+| Phase 1 P04 | 8min | 3 tasks | 14 files |
 
 ## Accumulated Context
 
@@ -78,6 +79,8 @@ Decisions are logged in the PROJECT.md Key Decisions table. Recent decisions tha
 - [Phase 01]: 01-02: runner targets add _DARWIN_C_SOURCE on Apple because _POSIX_C_SOURCE=200809L hides O_NOFOLLOW and mkdtemp (core is untouched)
 - [Phase 01]: 01-02: synthetic verdict grammar is PASS lines starting 'PASS ', FAIL lines starting 'FAIL ', and a verdict line exactly 'Done!' (synthetic-only)
 - [Phase 1]: 01-03: Layer-1 lint skips name checks inside attribute parentheses; selftest rejects meta rules without a dedicated control; allowlist malformed row is a tool error
+- [Phase 1]: 01-04: ADR-0002 stays proposed (PROPOSED_OK exemption in check-docs.sh, removed by plan 01-08); DOC-CORE-BEFORE-ADR is path-based with no content marker
+- [Phase 1]: 01-04: check-ci-yml.sh adds a --gate option for the CI-GATE-EXEC mutation; CI-TIMEOUT accepts 1 to 10 minutes
 
 ### Pending Todos
 
@@ -103,6 +106,6 @@ Items acknowledged and deferred at milestone close, most recent first:
 
 ## Session Continuity
 
-Last session: 2026-11-10T01:42:07.204Z
-Stopped at: Completed 01-03-PLAN.md
+Last session: 2026-11-10T01:54:18.506Z
+Stopped at: Completed 01-04-PLAN.md
 Resume file: None
