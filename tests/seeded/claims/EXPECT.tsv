@@ -1,0 +1,23 @@
+# Seeds for scripts/check-claims.sh --files, driven by tests/seeded/run-expect.sh (--ext .md).
+# Columns: file, exit, rule_id, needle (optional). Every .md file here is a seed and needs a row.
+# Each bad seed violates exactly one rule and has the shape of a valid claim otherwise. The directory
+# is excluded from the repository scan (docs/claims/TEMPLATE.md). The rules that need a built evidence
+# tool or a temporary root (C-ORACLE, C-EVIDENCE-MISMATCH, C-EVIDENCE-INVALID, C-ZERO-INPUT) are proven
+# by the cases in "check-claims.sh --selftest" (gov.claims.selftest).
+good_self_checking.md	0	ok
+good_hardware_scope.md	0	ok
+bad_tier.md	1	C-TIER-ENUM	experimental
+bad_synthetic_tier.md	1	C-SYNTHETIC	tier synthetic
+bad_synthetic_profile.md	1	C-SYNTHETIC	profile synthetic-stub
+bad_synthetic_build.md	1	C-SYNTHETIC	+synthetic
+bad_missing_field.md	1	C-FIELD-MISSING	missing key profile_id
+bad_unknown_field.md	1	C-FIELD-UNKNOWN	unknown key wall_ms
+bad_counts.md	1	C-COUNTS	sum to 7 but total is 9
+bad_reserved_in_block.md	1	C-RESERVED-WORD	reserved for hardware-derived
+bad_reserved_prose.md	1	C-RESERVED-WORD	outside a claim block
+bad_statement.md	1	C-STATEMENT	statement differs
+bad_emulator_missing.md	1	C-FIELD-MISSING	needs key emulator_revision
+bad_hw_no_scope.md	1	C-FIELD-MISSING	needs key scope
+bad_id_format.md	1	C-ID-FORMAT	build_id
+bad_unterminated.md	1	C-BLOCK-SYNTAX	unterminated
+bad_evidence_synthetic.md	1	C-EVIDENCE-SYNTHETIC	synthetic result

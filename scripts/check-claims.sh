@@ -588,6 +588,12 @@ selftest() {
   st_expect "reserved word with an empty hardware scope" 1 C-RESERVED-WORD runner --files "$_sd/hw_empty.md"
   ( defaults; c_extra='emulator: example-emulator'; mkclaim "$_sd/wrong_cond.md" )
   st_expect "conditional key on the wrong tier" 1 C-FIELD-UNKNOWN runner --files "$_sd/wrong_cond.md"
+  ( defaults; c_scope=example-scope; mkclaim "$_sd/wrong_cond2.md" )
+  st_expect "scope on a tier that is not hardware-derived" 1 C-FIELD-UNKNOWN runner --files "$_sd/wrong_cond2.md"
+  ( defaults; c_profile=$(printf '%065d' 0); mkclaim "$_sd/prof_long.md" )
+  st_expect "profile_id longer than 64 characters" 1 C-ID-FORMAT runner --files "$_sd/prof_long.md"
+  ( defaults; c_profile=$(printf '%064d' 0); mkclaim "$_sd/prof_64.md" )
+  st_expect "profile_id of exactly 64 characters" 0 ok runner --files "$_sd/prof_64.md"
   ( defaults; c_extra='tier: smoke'; mkclaim "$_sd/dupkey.md" )
   st_expect "duplicate key" 1 C-BLOCK-SYNTAX runner --files "$_sd/dupkey.md"
   ( defaults; c_extra='not a key value line'; mkclaim "$_sd/nokv.md" )

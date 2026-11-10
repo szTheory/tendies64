@@ -10,6 +10,15 @@ add_test(NAME gov.claims.repo
   COMMAND sh ${CMAKE_SOURCE_DIR}/scripts/check-claims.sh
   WORKING_DIRECTORY ${CMAKE_SOURCE_DIR})
 
-set_tests_properties(gov.claims.selftest gov.claims.repo PROPERTIES
+# Seeded claim files (directory-owned corpus, CONTEXT A-6): each bad_*.md must
+# fail with its rule id, each good_*.md must pass. The seeds sit outside the
+# repository scan; this is the only test that reads them.
+add_test(NAME gov.claims.seeds
+  COMMAND sh ${CMAKE_SOURCE_DIR}/tests/seeded/run-expect.sh
+    --tool "sh scripts/check-claims.sh --files"
+    --dir tests/seeded/claims --ext .md
+  WORKING_DIRECTORY ${CMAKE_SOURCE_DIR})
+
+set_tests_properties(gov.claims.selftest gov.claims.repo gov.claims.seeds PROPERTIES
   LABELS gov
   ENVIRONMENT "T64_BUILD_DIR=${CMAKE_BINARY_DIR}")
