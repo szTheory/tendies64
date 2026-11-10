@@ -1,67 +1,73 @@
 ---
 phase: "02"
 slug: "deterministic-machine-skeleton"
-status: planned
-nyquist_compliant: false
-wave_0_complete: false
+status: measured-local
+nyquist_compliant: true
+wave_0_complete: true
 created: "2026-11-10"
 ---
 
 # Phase 2 — Validation Strategy
 
-> Planned validation contract. Registrations are owned by the tasks below;
-> none were created or run during planning. Coverage is planned, not measured.
+> Local validation measured on 2026-11-10 after Plan 02-08. The final local
+> gate and the selected ASan/UBSan component, fuzz and negative-control run
+> passed. Independent review and hosted CI remain pending the parent handoff.
 
 ## Test Infrastructure
 
 | Property | Value |
 |----------|-------|
 | **Framework** | CTest + project-authored C assertions in `tests/t64_test.h`; no third-party framework |
-| **Config file** | `CMakeLists.txt`, `CMakePresets.json`, `scripts/gate.sh`, core lint |
+| **Config file** | `CMakeLists.txt`, `CMakePresets.json`, `scripts/gate.sh`, `scripts/check-test-inventory.sh`, core lint |
 | **Quick run command** | `ctest --preset gate --no-tests=error -R '^unit\.core\.determinism$' --output-on-failure` (single registered seam; full inventory is enforced by the full gate) |
 | **Full suite command** | `./scripts/gate.sh` |
-| **Sanitizer command** | `cmake --preset asan && cmake --build --preset asan && ASAN_OPTIONS=detect_leaks=1 UBSAN_OPTIONS=halt_on_error=1:print_stacktrace=1 ctest --preset asan --no-tests=error -R '^fuzz\.rom-admission$' --output-on-failure -V` |
-| **Estimated runtime** | Not measured; keep the component suite in the existing fast gate and the bounded sanitizer campaign outside hosted CI unless evidence justifies a separate lane. |
+| **Inventory control** | `sh scripts/check-test-inventory.sh --selftest` checks 73 gate and 75 ASan names plus 148 single-removal and five malformed-inventory controls. |
+| **Sanitizer command** | `ASAN_OPTIONS=detect_leaks=0 UBSAN_OPTIONS=halt_on_error=1:print_stacktrace=1 ctest --preset asan --no-tests=error -R '^(unit\.core\..*|unit\.model-result|fuzz\.rom-admission|sanitizer\.negative-control)$' --output-on-failure` |
+| **Measured runtime** | Final local gate: 51s total, including 13s inventory-removal selftest. ASan/UBSan selected run: 14/14 tests, 75.84s wall; ROM mutation campaign 75.83s. |
 
-The repository already has an `asan` preset using AddressSanitizer and
-UndefinedBehaviorSanitizer. The existing gate invokes CTest and core lint; add
-focused test registrations to that gate path rather than adding another hosted
-job. [VERIFIED: CMakePresets.json:5-43; scripts/gate.sh:57-64]
+The repository's `asan` preset enables AddressSanitizer and
+UndefinedBehaviorSanitizer. LeakSanitizer is unsupported in this host
+environment, so the completed sanitizer run used `detect_leaks=0`; both address
+and undefined-behavior instrumentation remained enabled. The existing gate
+checks the exact inventory before CTest and still runs core lint without adding
+a hosted job.
 
 ## Sampling Rate
 
 - **After each task:** run the targeted CTest command below.
-- **After each plan wave:** run `./scripts/gate.sh`.
+- **After each plan wave:** run `./scripts/gate.sh` (the final run passed).
 - **Before phase verification:** require the full gate on the existing Linux and
   macOS CI lanes and complete the configured review/verification steps.
-- **Feedback target:** preserve the existing fast gate; research did not measure
-  a runtime for the new tests.
+- **Feedback target:** the final gate took 51 seconds; exact-inventory mutation
+  selftests took 13 seconds within that run.
 
 ## Per-Contract Verification Map
 
 | Contract / requirement | Test type | Automated command | File exists? | Status |
 |------------------------|-----------|-------------------|--------------|--------|
-| Allocation callbacks, alignment/alias checks, allocation denial and transactional replacement (PROF-06, BUS-04) | unit | `ctest --preset gate --no-tests=error -R '^unit\.core\.lifecycle$' --output-on-failure` | ❌ Wave 0 | ⬜ pending |
-| Profile/build identity, profile limits, header-country independence and target-vs-boot distinction (PROF-01–04) | unit + result seam | `ctest --preset gate --no-tests=error -R '^unit\.core\.profile$' --output-on-failure` | ❌ Wave 0 | ⬜ pending |
-| Queue order/capacity/sequence exhaustion, inclusive idle bound, same-tick counter stop, halt and quiescence (CORE-01–03) | unit | `ctest --preset gate --no-tests=error -R '^unit\.core\.scheduler$' --output-on-failure` | ❌ Wave 0 | ⬜ pending |
-| Physical map, RDRAM last-byte boundary, no-alias unsupported results and MI pending/mask behavior (BUS-01) | unit | `ctest --preset gate --no-tests=error -R '^unit\.core\.bus$' --output-on-failure` | ❌ Wave 0 | ⬜ pending |
-| PI register masks/readback, busy/error/IRQ, reset cancellation token, exact model deadline and destination visibility (BUS-01–02) | unit | `ctest --preset gate --no-tests=error -R '^unit\.core\.pi-dma$' --output-on-failure` | ❌ Wave 0 | ⬜ pending |
-| SP row/line/skip decode, low-bit alignment, completion-time source read, bank wrap, active+pending queue and third-request policy (BUS-02) | unit | `ctest --preset gate --no-tests=error -R '^unit\.core\.sp-dma$' --output-on-failure` | ❌ Wave 0 | ⬜ pending |
-| Canonical digest field inclusion/exclusion, interleaved instances, trace-on/off and visible overflow (CORE-06, PROF-06) | unit | `ctest --preset gate --no-tests=error -R '^unit\.core\.digest-trace$' --output-on-failure` | ❌ Wave 0 | ⬜ pending |
-| Raw ROM size/order normalization, field reads, refusal atomicity, max boundary and production admission path (BUS-04) | unit | `ctest --preset gate --no-tests=error -R '^unit\.core\.rom-admission$' --output-on-failure` | ❌ Wave 0 | ⬜ pending |
-| Seeded mutation campaign through production admission + normalization; all three orders, short prefixes and every exposed header field under ASan/UBSan (BUS-04) | deterministic fuzz | `ASAN_OPTIONS=detect_leaks=1 UBSAN_OPTIONS=halt_on_error=1:print_stacktrace=1 ctest --preset asan --no-tests=error -R '^fuzz\.rom-admission$' --output-on-failure` | ❌ Wave 0 | ⬜ pending |
-| Separate seeded memory fault is actually caught by sanitizer without failing the parent CTest process | negative control | `ctest --preset asan --no-tests=error -R '^sanitizer\.negative-control$' --output-on-failure` | ❌ Wave 0 | ⬜ pending |
-| Closed native model schema, scope and assertion counts (PROF-02/04) | consumer | `ctest --preset gate --no-tests=error -R '^unit\.model-result$' --output-on-failure` | ❌ 02-07 Task 2 | ⬜ pending |
-| Real model probe identity; legacy result/identity/seal/suite/claims rejection (PROF-01–04) | producer/consumer seam | `ctest --preset gate --no-tests=error -R '^unit\.core\.profile-result$' --output-on-failure` | ❌ 02-08 Task 1 | ⬜ pending |
-| Cross-device isolated/interleaved/partition/observer equality (CORE-01–03/06, PROF-06) | seam | `ctest --preset gate --no-tests=error -R '^unit\.core\.determinism$' --output-on-failure` | ❌ 02-08 Task 2 | ⬜ pending |
-| Every required registration present; every single-name removal fails with all others remaining (D-14) | inventory | `sh scripts/check-test-inventory.sh --selftest` then `sh scripts/check-test-inventory.sh --preset gate` | ❌ 02-08 Task 3 | ⬜ pending |
+| Allocation callbacks, alignment/alias checks, allocation denial and transactional replacement (PROF-06, BUS-04) | unit | final `./scripts/gate.sh`, `unit.core.lifecycle` | ✅ yes | ✅ pass |
+| Profile/build identity, profile limits, header-country independence and target-vs-boot distinction (PROF-01–04) | unit + result seam | final `./scripts/gate.sh`, `unit.core.profile` | ✅ yes | ✅ pass |
+| Queue order/capacity/sequence exhaustion, inclusive idle bound, same-tick counter stop, halt and quiescence (CORE-01–03) | unit | final `./scripts/gate.sh`, `unit.core.scheduler` | ✅ yes | ✅ pass |
+| Physical map, RDRAM last-byte boundary, no-alias unsupported results and MI pending/mask behavior (BUS-01) | unit | final `./scripts/gate.sh`, `unit.core.bus` | ✅ yes | ✅ pass |
+| PI register masks/readback, busy/error/IRQ, reset cancellation token, exact model deadline and destination visibility (BUS-01–02) | unit | final `./scripts/gate.sh`, `unit.core.pi-dma` | ✅ yes | ✅ pass |
+| SP row/line/skip decode, low-bit alignment, completion-time source read, bank wrap, active+pending queue and third-request policy (BUS-02) | unit | final `./scripts/gate.sh`, `unit.core.sp-dma` | ✅ yes | ✅ pass |
+| Canonical digest field inclusion/exclusion, interleaved instances, trace-on/off and visible overflow (CORE-06, PROF-06) | unit | final gate and ASan run, `unit.core.digest-trace` | ✅ yes | ✅ pass |
+| Raw ROM size/order normalization, field reads, refusal atomicity, max boundary and production admission path (BUS-04) | unit | final gate and ASan run, `unit.core.rom-admission` | ✅ yes | ✅ pass |
+| Seeded mutation campaign through production admission + normalization; all three orders, short prefixes and every exposed header field under ASan/UBSan (BUS-04) | deterministic fuzz | ASan run: `fuzz.rom-admission` (seed `0x7a64c0de`; 250,000 mutations + 148 fixed cases) | ✅ yes | ✅ pass, 75.83s |
+| Separate seeded memory fault is actually caught by sanitizer without failing the parent CTest process | negative control | ASan run: `sanitizer.negative-control` | ✅ yes | ✅ pass |
+| Closed native model schema, scope and assertion counts (PROF-02/04) | consumer | final gate and ASan run, `unit.model-result` | ✅ yes | ✅ pass |
+| Real model probe identity; legacy result/identity/seal/suite/claims rejection (PROF-01–04) | producer/consumer seam | final gate and ASan run, `unit.core.profile-result` | ✅ yes | ✅ pass |
+| Cross-device isolated/interleaved/partition/observer equality (CORE-01–03/06, PROF-06) | seam | final gate and ASan run, `unit.core.determinism` | ✅ yes | ✅ pass; 1,933 assertions |
+| Every required registration present; every single-name removal fails with all others remaining (D-14) | inventory | public gate selftest and exact inventory: 73 gate / 75 ASan | ✅ yes | ✅ pass; 148 removal and five malformed controls |
 
-The planner should map these contracts to task IDs and waves. Expected values must
-be source/policy-derived and independently calculated; label hardware-derived
-evidence only when it came from a rights-cleared hardware capture. No ROM, PIF,
-IPL, firmware or commercial fixture belongs in this corpus.
+Expected values are independently calculated from the selected model and
+authored test data. These native checks are not hardware-derived evidence. No
+ROM, PIF, IPL, firmware or commercial fixture was added to this corpus.
 
 ## Required Negative Controls
+
+All controls below were exercised by the final local gate, the ASan/UBSan
+component run, or the inventory selftest as shown in the verification map.
 
 - **Admission refusal:** start from a valid synthetic image and non-default
   machine state; attempt null, short, oversized, non-word-aligned and unknown-
@@ -101,16 +107,16 @@ IPL, firmware or commercial fixture belongs in this corpus.
 
 ## Wave 0 Requirements
 
-- [ ] Register native component tests for lifecycle, profile, scheduler, bus,
+- [x] Register native component tests for lifecycle, profile, scheduler, bus,
   PI DMA, SP DMA, digest/trace and ROM admission.
-- [ ] Add the bounded production admission/normalization mutation driver and its
+- [x] Add the bounded production admission/normalization mutation driver and its
   field/branch/case inventory under the asan preset.
-- [ ] Add a separate sanitizer negative-control child and parent test.
-- [ ] Make the exact SHA-256 implementation linked into the core part of the
+- [x] Add a separate sanitizer negative-control child and parent test.
+- [x] Make the exact SHA-256 implementation linked into the core part of the
   linted core source set.
-- [ ] Preserve current `./scripts/gate.sh` as the single full local/CI command.
-- [ ] Add model checker/probe tests and legacy evidence rejection.
-- [ ] Add exact complete inventory and single-registration removal controls
+- [x] Preserve current `./scripts/gate.sh` as the single full local/CI command.
+- [x] Add model checker/probe tests and legacy evidence rejection.
+- [x] Add exact complete inventory and single-registration removal controls
   before CTest in the public gate.
 
 ## Manual-Only Verifications
@@ -121,14 +127,16 @@ authorized and available.
 
 ## Validation Sign-Off
 
-- [ ] All tasks have an automated verify or Wave 0 dependency
-- [ ] No three consecutive tasks lack automated verification
-- [ ] Wave 0 covers all missing test references
-- [ ] No watch-mode flags
-- [ ] `nyquist_compliant: true` after planner/executor verify coverage
+- [x] All tasks have an automated verify or Wave 0 dependency
+- [x] No three consecutive tasks lack automated verification
+- [x] Wave 0 covers all missing test references
+- [x] No watch-mode flags
+- [x] `nyquist_compliant: true` after planner/executor verify coverage
 - [ ] Full existing gate green on both current hosted lanes before phase verify
 
-**Approval:** implementation evidence pending; routine work is autonomous under AUTONOMY.md.
+**Handoff:** Local implementation and validation passed. Independent code review,
+security review, goal verification, hosted Linux/macOS CI and parent-owned phase
+completion remain pending; this document does not claim they passed.
 
 ## Executable Task Ownership and Waves
 
@@ -162,12 +170,14 @@ All commands below use the existing presets and add `--no-tests=error`.
 Waves are deliberately sequential: each plan expands the same private state,
 build registrations and digest/reset contract. Parallel writes would collide.
 There are 11 required gate `unit.core.*` registrations plus `unit.model-result`.
-Plan 08 Task 3 pins all 61 measured Phase 1 registrations plus these 12 names
-(73 gate tests); asan adds both campaign/control registrations (75 tests).
-Existing synthetic facade/control tests remain. This is planned, not measured
-Phase 2 implementation evidence.
-Sanitizer campaign timeout is 120 seconds; timeout is incomplete evidence, never
-a pass or authority to reduce the fixed campaign. No new dependency or CI job.
+The implemented checker pins all 61 Phase 1 names plus these 12 Phase 2 names
+(73 gate tests); ASan adds both campaign/control registrations (75 tests).
+The final checker selftest individually removed all 148 expected names across
+isolated CTest trees and rejected each one; duplicate, unexpected, disabled,
+empty and enumeration-error controls also failed closed. The final gate measured
+13 seconds for these inventory controls. The full bounded sanitizer campaign
+completed in 75.83 seconds, under its 120-second limit. No dependency or CI job
+was added.
 
 ## Multi-Source Coverage Audit
 
