@@ -682,8 +682,46 @@ static void test_resource_refusals_are_atomic(void) {
   t64_machine_destroy(machine);
 }
 
+static void test_pi_digest_inclusion(void) {
+  uint8_t image[TEST_ROM_BYTES];
+  t64_machine *machine = NULL;
+  uint8_t digest_before[T64_DIGEST_SIZE];
+  uint8_t digest_after[T64_DIGEST_SIZE];
+  t64_status status;
+
+  if (!create_test_machine(&machine, image, sizeof image)) {
+    return;
+  }
+  status = t64_machine_digest(machine, digest_before);
+  check_status("PI digest baseline is available", status, T64_STATUS_OK);
+  status = t64_machine_bus_write(machine, TEST_PI_BASE, 4u,
+                                 UINT32_C(0x100));
+  check_status("PI DRAM latch mutation succeeds", status, T64_STATUS_OK);
+  status = t64_machine_digest(machine, digest_after);
+  check_status("PI digest after latch mutation is available", status,
+               T64_STATUS_OK);
+  check_u64("PI raw register latch changes canonical future-state digest",
+            memcmp(digest_before, digest_after, sizeof digest_before) != 0,
+            UINT64_C(1));
+  t64_machine_destroy(machine);
+}
+
+static void emit_tap_assertion(unsigned test_number, const char *name) {
+  bool passed = failure_count == 0u && check_count > 0u;
+
+  (void)printf("%s %u - %s\n", passed ? "ok" : "not ok", test_number,
+               name);
+  if (!passed) {
+    (void)printf("# failed assertion: %s\n# expected: %llu\n# actual: %llu\n",
+                 first_failure_name != NULL ? first_failure_name :
+                                              "at least one test assertion",
+                 (unsigned long long)first_failure_expected,
+                 (unsigned long long)first_failure_actual);
+  }
+}
+
 int main(void) {
-  bool passed;
+  bool all_passed;
 
   (void)printf("TAP version 13\n");
   test_delayed_rom_copy();
@@ -692,15 +730,20 @@ int main(void) {
   test_exact_range_boundaries();
   test_largest_profile_transfer();
   test_resource_refusals_are_atomic();
-  passed = failure_count == 0u && check_count > 0u;
-  (void)printf("%s 1 - PI transfers 16 authored bytes at tick 9 with pending IRQ\n",
-               passed ? "ok" : "not ok");
-  if (!passed) {
-    (void)printf("# failed assertion: %s\n# expected: %llu\n# actual: %llu\n",
-                 first_failure_name,
-                 (unsigned long long)first_failure_expected,
-                 (unsigned long long)first_failure_actual);
-  }
-  (void)printf("1..1\n");
-  return passed ? EXIT_SUCCESS : EXIT_FAILURE;
+  emit_tap_assertion(1u,
+                     "PI transfers 16 authored bytes at tick 9 with pending IRQ");
+  all_passed = failure_count == 0u && check_count > 0u;
+
+  check_count = 0u;
+  failure_count = 0u;
+  first_failure_name = NULL;
+  first_failure_actual = 0u;
+  first_failure_expected = 0u;
+  test_pi_digest_inclusion();
+  emit_tap_assertion(2u,
+                     "PI raw register state changes canonical future-state digest");
+  all_passed = all_passed && failure_count == 0u && check_count > 0u;
+
+  (void)printf("1..2\n");
+  return all_passed ? EXIT_SUCCESS : EXIT_FAILURE;
 }

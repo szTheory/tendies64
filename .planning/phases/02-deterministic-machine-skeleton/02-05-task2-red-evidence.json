@@ -1,0 +1,10 @@
+{
+  "command": "./build/gate/core/test_pi_dma",
+  "exitCode": 1,
+  "output": "TAP version 13\nok 1 - PI transfers 16 authored bytes at tick 9 with pending IRQ\nnot ok 2 - PI raw register state changes canonical future-state digest\n# failed assertion: PI raw register latch changes canonical future-state digest\n# expected: 1\n# actual: 0\n1..2\n",
+  "targetTest": "PI raw register state changes canonical future-state digest",
+  "targetFile": "test_pi_dma.c",
+  "expected": "Changing the PI DRAM address latch changes canonical machine digest.",
+  "actual": "The target assertion ran and observed identical digests before and after the latch write.",
+  "semanticAssessment": "The first PI behavior assertion passed. The named digest assertion failed because v3 serialization omits PI raw latches. No build, setup, fixture, or unrelated assertion failed. This is the planned future-state audit gap."
+}
