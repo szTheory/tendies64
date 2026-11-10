@@ -116,3 +116,12 @@ target_link_libraries(test_profile PRIVATE t64_core)
 t64_target_warnings(test_profile)
 add_test(NAME unit.core.profile COMMAND test_profile)
 set_tests_properties(unit.core.profile PROPERTIES LABELS unit)
+
+add_executable(test_rom_admission tests/test_rom_admission.c)
+target_include_directories(test_rom_admission PRIVATE
+  "${CMAKE_SOURCE_DIR}/tests"
+  "${CMAKE_SOURCE_DIR}/tools/common")
+target_link_libraries(test_rom_admission PRIVATE t64_core t64_sha256)
+t64_target_warnings(test_rom_admission)
+add_test(NAME unit.core.rom-admission COMMAND test_rom_admission)
+set_tests_properties(unit.core.rom-admission PROPERTIES LABELS unit)

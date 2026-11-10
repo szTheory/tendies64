@@ -1,0 +1,13 @@
+{
+  "command": "ctest --test-dir build/gate --no-tests=error -R ^unit.core.rom-admission$ --output-on-failure --output-junit 02-02-red-task1.xml",
+  "exitCode": 8,
+  "output": "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n<testsuite name=\"(empty)\"\n\ttests=\"1\"\n\tfailures=\"1\"\n\tdisabled=\"0\"\n\tskipped=\"0\"\n\thostname=\"\"\n\ttime=\"1\"\n\ttimestamp=\"2026-11-10T11:45:48\"\n\t>\n\t<testcase name=\"unit.core.rom-admission\" classname=\"unit.core.rom-admission\" time=\"1.64709\" status=\"fail\">\n\t\t<failure message=\"Failed\"/>\n\t\t<properties>\n\t\t\t<property name=\"cmake_labels\" value=\"unit\"/>\n\t\t</properties>\n\t\t<system-out>core/tests/test_rom_admission.c:222: CHECK_INT failed: t64_machine_admit_rom(machine, raw, sizeof raw) got 6 want 0\ncore/tests/test_rom_admission.c:222: CHECK_INT failed: t64_machine_admit_rom(machine, raw, sizeof raw) got 6 want 0\nunit.core.rom-admission: checks=1200 failures=2\n</system-out>\n\t</testcase>\n</testsuite>\n",
+  "targetTest": "unit.core.rom-admission",
+  "targetFile": "core/tests/test_rom_admission.c",
+  "expected": "All three accepted dump orders normalize to the same independently authored canonical image digest.",
+  "actual": "The target executed its admission assertion for the byte-swapped and word-reversed forms; current production code returned T64_STATUS_UNSUPPORTED_ROM_ORDER (6) instead of accepting and normalizing them.",
+  "reportPath": "build/gate/02-02-red-task1.xml",
+  "runStartedAt": "2026-11-10T16:45:48Z",
+  "reportModifiedAt": "1794329150",
+  "semanticAssessment": "The registered CTest target compiled and executed. It failed on the intended public-admission assertion for the two supported noncanonical dump orders; there were no discovery, build, setup, or fixture failures."
+}
