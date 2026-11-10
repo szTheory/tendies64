@@ -30,7 +30,7 @@ created: "2026-11-09"
 
 - **After every task commit:** the relevant quick command (under 30 s)
 - **After every plan wave:** `./scripts/gate.sh`
-- **Before `/gsd-verify-work`:** full gate green on `gate-linux` and `gate-macos`, first CI run recorded in `docs/ci-reviews/LOG.md`, Rust spike result recorded
+- **Before `/gsd-verify-work`:** full gate green on `gate-linux` and `gate-macos`, every completed CI run of the phase recorded in `docs/ci-reviews/LOG.md` (the first run's review is the VER-04 phase-gate minimum), Rust spike result recorded
 - **Max feedback latency:** 60 seconds
 
 ---
@@ -40,7 +40,7 @@ created: "2026-11-09"
 | Success criterion | Behavior | Test type | Automated command | File exists | Status |
 |-------------------|----------|-----------|-------------------|-------------|--------|
 | SC1 | ADRs, policy and claims template exist with required headings, statuses and reversal evidence | doc check | `sh scripts/check-docs.sh` | ❌ W0 | ⬜ pending |
-| SC2 | Gate runs locally; CI runs it verbatim; explicit labels; SHA pins; first run reviewed | static + recorded | `sh scripts/check-ci-yml.sh`; row for first run id in `docs/ci-reviews/LOG.md` | ❌ W0 | ⬜ pending |
+| SC2 | Gate runs locally; CI runs it verbatim; explicit labels; SHA pins; every completed run reviewed (first run minimum) | static + recorded | `sh scripts/check-ci-yml.sh`; a row per completed run id (first run included) in `docs/ci-reviews/LOG.md` | ❌ W0 | ⬜ pending |
 | SC3 | Six outcomes classify exactly; wrong value fails; missing, malformed, timeout and crash never pass; inventory change detected | CTest control matrix | `ctest --preset gate -L controls` | ❌ W0 | ⬜ pending |
 | SC4a | Core reading time, files, threads, entropy or mutable globals fails both lint layers | seeded | `sh tools/lint/core-lint.sh --selftest` | ❌ W0 | ⬜ pending |
 | SC4b | Protected or unmanifested binary in tree, commit range or staging fails | seeded temp repos | `sh scripts/rights-scan.sh --selftest` | ❌ W0 | ⬜ pending |
@@ -63,7 +63,7 @@ created: "2026-11-09"
 - [ ] `CMakeLists.txt`, `CMakePresets.json`, `tests/t64_test.h`, `tools/common/*` (JSON, SHA-256 with FIPS 180-4 vectors, UTF-8 with RFC 3629 negatives)
 - [ ] `scripts/gate.sh` skeleton (`LC_ALL=C`, versions banner, timed steps), `scripts/check-docs.sh`, `scripts/check-ci-yml.sh`
 - [ ] Seeded directories `tests/seeded/{manifest,provenance,claims}` and `tools/lint/selftest/`
-- [ ] ADR-0002 (language/build/ABI) accepted before the first `core/*.c` lands
+- [ ] ADR-0002 (language/build/ABI) accepted before the first `core/*.c` lands. Superseded in detail by CONTEXT amendment A-1: exactly `core/t64_core_stub.c` and `core/include/tendies64/t64_facade.h` may exist before acceptance, and any other file under `core/` fails `DOC-CORE-BEFORE-ADR` (plan 01-04) until ADR-0002 is accepted (plan 01-08)
 
 ---
 
@@ -71,7 +71,7 @@ created: "2026-11-09"
 
 | Behavior | Requirement | Why Manual | Test Instructions |
 |----------|-------------|------------|-------------------|
-| First CI run critical-path review recorded | VER-04 | Needs a real hosted run | Run `scripts/ci-review.sh <run-id>` after the first push and append the row to `docs/ci-reviews/LOG.md` |
+| Critical-path review recorded for every completed CI run of the phase (the first run's row is the phase-gate minimum) | VER-04 | Needs real hosted runs | Run `scripts/ci-review.sh <run-id> --append docs/ci-reviews/LOG.md` for each completed run of the phase's pushed SHAs (plan 01-13 automates this and verifies coverage) |
 
 ---
 

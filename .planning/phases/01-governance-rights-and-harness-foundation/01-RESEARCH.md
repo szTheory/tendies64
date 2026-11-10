@@ -501,15 +501,16 @@ Spike code stays in `docs/spikes/` (text only; the GOV-07 scan covers it).
 | A8 | Layer-2 results on arm64 Linux + emulated x86-64 gcc represent the x64 runner; GitHub's CMake 3.31.6/4.4.5 not run here | Lint, CMake | First CI run is the check; item logged in `docs/ci-reviews/LOG.md` |
 | A9 | `macos-26` runner `awk`/`sh` match local (BWK 20200816, bash 3.2.57) | Portability | Runner readme lists Bash 3.2.57 [CITED]; awk build not listed [UNKNOWN] |
 
-## Open Questions
+## Open Questions (RESOLVED)
 
-1. **Where does the "C admission parser" for the spike live?**
-   - Known: CONTEXT criterion (b) refers to fuzzing "the C admission parser during the phase" while Phase 1 delivers no ROM behavior (BUS-04 is Phase 2).
-   - Unclear: whether it is a shipped `core/` file. Recommendation: spike-only under `docs/spikes/`, not in `core/`; BUS-04 later reuses its tests.
-2. **`fetch-depth: 0` in `ci.yml`.** It is a `with:` key, not a `run:` line, so the "no other `run:` lines" self-check still holds. Required by GOV-07 range scans (Pitfall 9e). Recommendation: add it and assert it in `check-ci-yml.sh`.
-3. **Where SHA-256 lives.** Recommendation: `tools/common` in Phase 1 (core stays minimal so ADR-0002 can precede it), migrating to `core/` in Phase 2 if the state digest needs it. A one-line core stub file keeps the lint scanning a real file.
-4. **Full REUSE compliance?** Not required by CONTEXT; leave undecided and document that only copied files carry headers in Phase 1.
-5. **macOS `.ips` crash reports from controls.** Cosmetic; document in `tests/controls/README`.
+All five questions were resolved during planning (plan-check iteration 1, 2026-11-09). Each answer points at the plan or policy that implements it.
+
+1. **Where does the "C admission parser" for the spike live?** RESOLVED: spike-only, under `docs/spikes/rust-vs-c/admission/`, never in `core/`. It is not built by CMake. BUS-04 (Phase 2) may reuse its tests. Implemented in plan 01-08.
+   - Original note: CONTEXT criterion (b) refers to fuzzing "the C admission parser during the phase" while Phase 1 delivers no ROM behavior (BUS-04 is Phase 2).
+2. **`fetch-depth: 0` in `ci.yml`.** RESOLVED: added to both checkout steps and asserted by `check-ci-yml.sh` rule `CI-FETCH-DEPTH`. It is a `with:` key, so the "no other `run:` lines" rule still holds. Required by the full-history GOV-07 scan (Pitfall 9e). Implemented in plan 01-04.
+3. **Where SHA-256 lives.** RESOLVED: `tools/common/t64_sha256.c` in Phase 1, tested against FIPS 180-4 vectors. Core stays limited to the two allowlisted stub paths (CONTEXT A-1) until ADR-0002 is accepted. It may move to `core/` in Phase 2 if the state digest needs it. The hand-rolled implementation (Assumption A6) has a threat-register row in plan 01-01. Implemented in plan 01-01.
+4. **Full REUSE compliance?** RESOLVED: not in v1. Copied files carry SPDX headers (REUSE 3.3 minimum), their license text goes in `LICENSES/<SPDX-id>.txt`, and each copy has a `provenance/copies.json` record. Project-authored files carry no headers, and the root `LICENSE` stays the Apache-2.0 notice. The decision is written in `docs/policy/copy-provenance.md` (plan 01-04) and enforced by `t64-provenance-check` (plan 01-10).
+5. **macOS `.ips` crash reports from controls.** RESOLVED: the child gets RLIMIT_CORE 0. The executor deletes any `.ips` files the controls create, and the side effect is documented in `tests/controls/README.md`. Implemented in plan 01-11.
 
 ## Environment Availability
 
@@ -564,7 +565,7 @@ Note: a direct CMake 3.25.3 binary download was blocked by the sandbox permissio
 - [ ] `CMakeLists.txt`, `CMakePresets.json`, `tests/t64_test.h`, `tools/common/*` (JSON, SHA-256 with FIPS 180-4 vectors, UTF-8 with RFC 3629 negatives)
 - [ ] `scripts/gate.sh` skeleton (LC_ALL=C, versions banner, timed steps) and `scripts/check-docs.sh`, `scripts/check-ci-yml.sh`
 - [ ] Seeded directories `tests/seeded/{manifest,provenance,claims}` and `tools/lint/selftest/`
-- [ ] Planning note: ADR-0002 must be accepted before the first `core/*.c`
+- [ ] Planning note: ADR-0002 must be accepted before the first `core/*.c`. Superseded in detail by CONTEXT amendment A-1 (2026-11-09): an exact-path allowlist of the two stub paths, with every other file under `core/` blocked until acceptance (plans 01-04 and 01-08)
 
 ## Security Domain
 
