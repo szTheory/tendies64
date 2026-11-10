@@ -88,7 +88,7 @@ Decimal phases appear between their surrounding integers in numeric order.
   2. The maintainer runs the single gate command locally, and CI runs that same command verbatim on explicitly labeled runners with SHA-pinned actions. The first CI run has a recorded critical-path review
   3. The runner skeleton classifies synthetic cases into exactly one of pass, guest-fail, boot-fail, timeout, missing-fixture and harness-error. In CI, a wrong expected value fails; missing, malformed, timed-out and crashed runs never pass; and a changed test inventory is detected
   4. The gate goes red on each seeded violation: a core source that reads host time, files, threads, entropy or a mutable global (caught by both the source lint and the link-level symbol allowlist); a protected or unmanifested binary in the tree or in a CI artifact; and a fixture-manifest entry missing source, revision, recipe, digest, profile, rights, notices or expected-result provenance
-**Plans**: 11/13 plans executed in 5 waves
+**Plans**: 12/13 plans executed in 5 waves
 
 Plans:
 - [x] 01-01-PLAN.md — Gate, CMake/presets, the two CONTEXT A-1 core stub paths, tools/common (SHA-256, UTF-8, canonical writer) with vector tests (wave 1)
@@ -102,7 +102,7 @@ Plans:
 - [x] 01-09-PLAN.md — Fixture manifest + schema-subset validator, per-field seeds, single CI=true block, rights allowlist feed (wave 3)
 - [x] 01-10-PLAN.md — Per-copy provenance records (MADR adoption), LICENSES/MIT.txt, provenance checker with temp-tree selftest (wave 3)
 - [x] 01-11-PLAN.md — Full 19-case negative-control matrix, twice-run byte compare, pinned INVENTORY, live suite controls (wave 4)
-- [ ] 01-12-PLAN.md — Claims template + claims gate refusing synthetic evidence, seeded claim corpus (wave 4)
+- [x] 01-12-PLAN.md — Claims template + claims gate refusing synthetic evidence, seeded claim corpus (wave 4)
 - [ ] 01-13-PLAN.md — Pre-push checks, first hosted CI run for the pushed SHA, measured critical-path review, fork-PR approval tightened (wave 5)
 
 ### Phase 2: Deterministic Machine Skeleton
@@ -287,7 +287,7 @@ Phase 7 may run in parallel with Phases 5 and 6 once Phase 4 is complete.
 
 | Phase | Milestone | Plans Complete | Status | Completed |
 |-------|-----------|----------------|--------|-----------|
-| 1. Governance, Rights and Harness Foundation | v1.0 | 11/13 | In Progress | - |
+| 1. Governance, Rights and Harness Foundation | v1.0 | 12/13 | In Progress | - |
 | 2. Deterministic Machine Skeleton | v1.0 | 0/TBD | Not started | - |
 | 3. First Headless ROM Through Open IPL3 | v1.0 | 0/TBD | Not started | - |
 | 4. Complete VR4300 CPU | v1.0 | 0/TBD | Not started | - |

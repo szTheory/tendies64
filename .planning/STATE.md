@@ -5,16 +5,16 @@ milestone_name: Verified Headless Core
 current_phase: 01
 current_phase_name: Governance, Rights and Harness Foundation
 status: executing
-stopped_at: Completed 01-11-PLAN.md
-last_updated: "2026-11-10T03:21:20.833Z"
+stopped_at: Completed 01-12-PLAN.md
+last_updated: "2026-11-10T03:38:05.766Z"
 last_activity: 2026-11-09
 last_activity_desc: Phase 1 execution started
-state_head: 9d5ff8d0fb93f52ee115d6d1fe2fb08ca78ad23a
+state_head: 7144f556c532b94b46a696588b03099eac8fcef2
 progress:
   total_phases: 6
   completed_phases: 0
   total_plans: 13
-  completed_plans: 11
+  completed_plans: 12
   percent: 0
 ---
 
@@ -30,7 +30,7 @@ See: .planning/PROJECT.md (updated 2026-11-09)
 ## Current Position
 
 Phase: 1 (Governance, Rights and Harness Foundation) — EXECUTING
-Plan: 12 of 13
+Plan: 13 of 13
 Status: Ready to execute
 Last activity: 2026-11-09 — Phase 1 execution started
 
@@ -69,6 +69,7 @@ Progress: [░░░░░░░░░░] 0%
 | Phase 1 P09 | 11min | 3 tasks | 47 files |
 | Phase 1 P10 | 25 min | 2 tasks | 7 files |
 | Phase 1 P11 | 6 min | 3 tasks | 40 files |
+| Phase 1 P12 | 16min | 2 tasks | 21 files |
 
 ## Accumulated Context
 
@@ -103,6 +104,8 @@ Decisions are logged in the PROJECT.md Key Decisions table. Recent decisions tha
 - [Phase 1]: 01-10: provenance detector counts a tag only at line start (optional comment leader) within the first 20 lines; selftest asserts exact rule-id sets (76 cases, 16 ids)
 - [Phase 1]: 01-11: host-misbehavior behaviours are end directives (hang, abort, segv, exit0-no-result, exit7); logrep stored as one repeated event; matrix columns runner_flags and log_limit appended after exit
 - [Phase 1]: 01-11: no supervisor or classifier change was needed; all 19 controls matched the locked precedence table and goldens derived independently with printf and shasum
+- [Phase 1]: 01-12: claims gate is POSIX sh + awk; evidence must pass t64-result-check identity AND end with a t64.suite record; synthetic evidence reports only C-EVIDENCE-SYNTHETIC
+- [Phase 1]: 01-12: oracle_kind/oracle_revision empty is C-ORACLE; conditional keys on the wrong tier are C-FIELD-UNKNOWN; selftest (49 cases) proves rules the 17 seeds cannot reach
 
 ### Pending Todos
 
@@ -128,6 +131,6 @@ Items acknowledged and deferred at milestone close, most recent first:
 
 ## Session Continuity
 
-Last session: 2026-11-10T03:21:20.754Z
-Stopped at: Completed 01-11-PLAN.md
+Last session: 2026-11-10T03:38:05.746Z
+Stopped at: Completed 01-12-PLAN.md
 Resume file: None
