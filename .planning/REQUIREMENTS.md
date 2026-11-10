@@ -85,7 +85,7 @@ API and a playable rights-cleared homebrew. Each maps to a roadmap phase.
 - [ ] **VER-01**: Maintainer can build and run the `nemu64-test` `base` suite headlessly from a pinned commit, with per-group status, once its rights are documented (owner stop D2); until then the run is local-only and nothing derived is uploaded
 - [ ] **VER-02**: Maintainer can see timing, cycle and cop0hazard groups reported as informational, experimental and stress groups kept out of required CI, and a scheduled lane for stress groups
 - [ ] **VER-03**: Maintainer can see test inventories pinned by exact counts, so a missing or reduced test set fails
-- [ ] **VER-04**: Maintainer can see CI use explicit runner labels, pinned action SHAs and a measured critical-path review recorded after each run
+- [x] **VER-04**: Maintainer can see CI use explicit runner labels, pinned action SHAs and a measured critical-path review recorded after each run
 - [ ] **VER-05**: Maintainer can see a clean installed package run the same permitted headless fixture through an independent consumer, with relocation and negative controls
 
 ### RSP (RSP)
@@ -231,7 +231,7 @@ re-sequenced at milestone close.
 | VER-01 | Phase 4 | Pending |
 | VER-02 | Phase 6 | Pending |
 | VER-03 | Phase 4 | Pending |
-| VER-04 | Phase 1 | Pending |
+| VER-04 | Phase 1 | Complete |
 | VER-05 | Phase 10 | Pending |
 | RSP-01 | Phase 5 | Pending |
 | RSP-02 | Phase 5 | Pending |

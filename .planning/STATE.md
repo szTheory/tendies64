@@ -4,17 +4,17 @@ milestone: v1.0
 milestone_name: Verified Headless Core
 current_phase: 01
 current_phase_name: Governance, Rights and Harness Foundation
-status: executing
-stopped_at: Completed 01-12-PLAN.md
-last_updated: "2026-11-10T03:38:05.766Z"
+status: verifying
+stopped_at: Completed 01-13-PLAN.md
+last_updated: "2026-11-10T03:51:41.005Z"
 last_activity: 2026-11-09
 last_activity_desc: Phase 1 execution started
-state_head: 7144f556c532b94b46a696588b03099eac8fcef2
+state_head: e219408aab43485366ae3c04bab066345d00752d
 progress:
   total_phases: 6
   completed_phases: 0
   total_plans: 13
-  completed_plans: 12
+  completed_plans: 13
   percent: 0
 ---
 
@@ -31,7 +31,7 @@ See: .planning/PROJECT.md (updated 2026-11-09)
 
 Phase: 1 (Governance, Rights and Harness Foundation) — EXECUTING
 Plan: 13 of 13
-Status: Ready to execute
+Status: Phase complete — ready for verification
 Last activity: 2026-11-09 — Phase 1 execution started
 
 Progress: [░░░░░░░░░░] 0%
@@ -70,6 +70,7 @@ Progress: [░░░░░░░░░░] 0%
 | Phase 1 P10 | 25 min | 2 tasks | 7 files |
 | Phase 1 P11 | 6 min | 3 tasks | 40 files |
 | Phase 1 P12 | 16min | 2 tasks | 21 files |
+| Phase 1 P13 | 10 min | 2 tasks | 2 files |
 
 ## Accumulated Context
 
@@ -106,6 +107,8 @@ Decisions are logged in the PROJECT.md Key Decisions table. Recent decisions tha
 - [Phase 1]: 01-11: no supervisor or classifier change was needed; all 19 controls matched the locked precedence table and goldens derived independently with printf and shasum
 - [Phase 1]: 01-12: claims gate is POSIX sh + awk; evidence must pass t64-result-check identity AND end with a t64.suite record; synthetic evidence reports only C-EVIDENCE-SYNTHETIC
 - [Phase 1]: 01-12: oracle_kind/oracle_revision empty is C-ORACLE; conditional keys on the wrong tier are C-FIELD-UNKNOWN; selftest (49 cases) proves rules the 17 seeds cannot reach
+- [Phase 1]: 01-13: only the first push triggers a hosted run; log-only commits carry [skip ci], so every completed run has a Runs row
+- [Phase 1]: 01-13: requiring gate-linux and gate-macos as status checks on main left as an owner-visible item (F-007); fork-PR approval set to all_external_contributors
 
 ### Pending Todos
 
@@ -131,6 +134,6 @@ Items acknowledged and deferred at milestone close, most recent first:
 
 ## Session Continuity
 
-Last session: 2026-11-10T03:38:05.746Z
-Stopped at: Completed 01-12-PLAN.md
+Last session: 2026-11-10T03:51:40.975Z
+Stopped at: Completed 01-13-PLAN.md
 Resume file: None
