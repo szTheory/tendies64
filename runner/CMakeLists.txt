@@ -63,7 +63,8 @@ add_test(NAME unit.core.profile-result
     ${CMAKE_SOURCE_DIR}/scripts/check-claims.sh
     ${CMAKE_SOURCE_DIR}
     ${CMAKE_BINARY_DIR})
-set_tests_properties(unit.core.profile-result PROPERTIES LABELS unit)
+set_tests_properties(unit.core.profile-result PROPERTIES LABELS unit
+  TIMEOUT 60)
 
 add_executable(test_model_result tests/test_model_result.c)
 target_compile_definitions(test_model_result PRIVATE ${T64_HOST_DEFS})
@@ -71,7 +72,7 @@ t64_target_warnings(test_model_result)
 add_test(NAME unit.model-result
   COMMAND test_model_result $<TARGET_FILE:t64-model-result-check>
     ${CMAKE_SOURCE_DIR}/tests/controls/golden/positive.json)
-set_tests_properties(unit.model-result PROPERTIES LABELS unit)
+set_tests_properties(unit.model-result PROPERTIES LABELS unit TIMEOUT 60)
 
 # Every committed supervisor golden must validate; zero goldens is a failure.
 add_test(NAME unit.result-goldens

@@ -1,6 +1,7 @@
 #include <errno.h>
 #include <fcntl.h>
 #include <stdbool.h>
+#include <signal.h>
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -8,12 +9,14 @@
 #include <sys/stat.h>
 #include <sys/types.h>
 #include <sys/wait.h>
+#include <time.h>
 #include <unistd.h>
 
 #include "t64_test.h"
 #include "tendies64/t64_machine.h"
 
 #define RECORD_CAPACITY 4096u
+#define CHILD_DEADLINE_MS 10000u
 
 static const char expected_profile_hash[] =
     "b7d1600ad960b4e04fdc3ec372675edc47b26b15be8e9cd84cbab4fd75835647";
@@ -21,14 +24,105 @@ static const char expected_content_digest[] =
     "658c40a86a711053f3a36d29993181811cce283a623a6e7b1fee4003649cfe3b";
 static const char expected_state_digest[] =
     "63afb49d9669dea05112953b01c369def27d242787825823d8a310815cf7dfb6";
+static const char *test_executable_path;
 
-static int run_process(const char *const input_args[], const char *capture_path,
-                       const char *build_dir) {
+static bool process_group_exists(pid_t group) {
+  if (kill(-group, 0) == 0) {
+    return true;
+  }
+  return errno == EPERM;
+}
+
+static bool deadline_reached(const struct timespec *now,
+                             const struct timespec *deadline) {
+  return now->tv_sec > deadline->tv_sec ||
+         (now->tv_sec == deadline->tv_sec &&
+          now->tv_nsec >= deadline->tv_nsec);
+}
+
+static void terminate_process_group(pid_t group, bool child_reaped) {
+  struct timespec cleanup_deadline;
+  struct timespec now;
+  struct timespec pause_time = {0, 1000000L};
+  int status;
+
+  (void)kill(-group, SIGKILL);
+  if (!child_reaped) {
+    pid_t waited;
+
+    (void)kill(group, SIGKILL);
+    do {
+      waited = waitpid(group, &status, 0);
+    } while (waited < 0 && errno == EINTR);
+  }
+  while (waitpid(-group, &status, WNOHANG) > 0) {
+  }
+  if (clock_gettime(CLOCK_MONOTONIC, &cleanup_deadline) != 0) {
+    return;
+  }
+  cleanup_deadline.tv_sec++;
+  while (process_group_exists(group) &&
+         clock_gettime(CLOCK_MONOTONIC, &now) == 0 &&
+         !deadline_reached(&now, &cleanup_deadline)) {
+    (void)nanosleep(&pause_time, NULL);
+  }
+}
+
+static int wait_for_process_group(pid_t child, unsigned timeout_ms,
+                                  int *status_out) {
+  struct timespec deadline;
+  struct timespec now;
+  struct timespec pause_time = {0, 1000000L};
+  int child_status = 0;
+  bool child_reaped = false;
+
+  if (clock_gettime(CLOCK_MONOTONIC, &deadline) != 0) {
+    terminate_process_group(child, false);
+    return 127;
+  }
+  deadline.tv_sec += (time_t)(timeout_ms / 1000u);
+  deadline.tv_nsec += (long)(timeout_ms % 1000u) * 1000000L;
+  if (deadline.tv_nsec >= 1000000000L) {
+    deadline.tv_sec++;
+    deadline.tv_nsec -= 1000000000L;
+  }
+
+  for (;;) {
+    if (!child_reaped) {
+      pid_t waited = waitpid(child, &child_status, WNOHANG);
+
+      if (waited == child) {
+        child_reaped = true;
+      } else if (waited < 0 && errno == ECHILD) {
+        child_reaped = true;
+      } else if (waited < 0 && errno != EINTR) {
+        terminate_process_group(child, false);
+        return 127;
+      }
+    }
+    if (child_reaped && !process_group_exists(child)) {
+      *status_out = child_status;
+      return 0;
+    }
+    if (clock_gettime(CLOCK_MONOTONIC, &now) != 0 ||
+        deadline_reached(&now, &deadline)) {
+      terminate_process_group(child, child_reaped);
+      *status_out = child_status;
+      return 1;
+    }
+    (void)nanosleep(&pause_time, NULL);
+  }
+}
+
+static int run_process_with_timeout(const char *const input_args[],
+                                    const char *capture_path,
+                                    const char *build_dir,
+                                    unsigned timeout_ms) {
   char *args[16];
   size_t argument_count = 0u;
   pid_t child;
   int status = 0;
-  pid_t waited;
+  int wait_result;
 
   while (input_args[argument_count] != NULL) {
     if (argument_count + 1u >= sizeof args / sizeof args[0]) {
@@ -53,6 +147,9 @@ static int run_process(const char *const input_args[], const char *capture_path,
     return 127;
   }
   if (child == 0) {
+    if (setpgid(0, 0) != 0) {
+      _exit(127);
+    }
     int capture_fd = open(capture_path, O_WRONLY | O_CREAT | O_TRUNC, 0600);
     if (capture_fd < 0 || dup2(capture_fd, STDOUT_FILENO) < 0 ||
         dup2(capture_fd, STDERR_FILENO) < 0) {
@@ -65,10 +162,14 @@ static int run_process(const char *const input_args[], const char *capture_path,
     execv(args[0], args);
     _exit(127);
   }
-  do {
-    waited = waitpid(child, &status, 0);
-  } while (waited < 0 && errno == EINTR);
-  if (waited != child || !WIFEXITED(status)) {
+  wait_result = wait_for_process_group(child, timeout_ms, &status);
+  if (wait_result == 1) {
+    while (argument_count > 0u) {
+      free(args[--argument_count]);
+    }
+    return 124;
+  }
+  if (wait_result != 0 || !WIFEXITED(status)) {
     while (argument_count > 0u) {
       free(args[--argument_count]);
     }
@@ -79,6 +180,12 @@ static int run_process(const char *const input_args[], const char *capture_path,
     free(args[--argument_count]);
   }
   return status;
+}
+
+static int run_process(const char *const input_args[], const char *capture_path,
+                       const char *build_dir) {
+  return run_process_with_timeout(input_args, capture_path, build_dir,
+                                  CHILD_DEADLINE_MS);
 }
 
 static bool read_file(const char *path, char *buffer, size_t capacity,
@@ -269,6 +376,14 @@ static void test_expected_result(const char *record, const char *record_path,
       T64_CHECK(false);
     }
     (void)unlink(fifo_path);
+  }
+  {
+    const char *hang_args[] = {test_executable_path,
+                               "--timeout-descendants", NULL};
+
+    T64_CHECK_INT(run_process_with_timeout(hang_args, capture_path, NULL,
+                                          100u),
+                  124);
   }
 
   /* Test-owned expected-value mutation proves a completed mismatch is scoped. */
@@ -494,6 +609,17 @@ int main(int argc, char **argv) {
   int sealed_fd;
   int suite_fd;
 
+  if (argc == 2 && strcmp(argv[1], "--timeout-descendants") == 0) {
+    pid_t descendant = fork();
+
+    if (descendant < 0) {
+      return 127;
+    }
+    for (;;) {
+      (void)pause();
+    }
+  }
+  test_executable_path = argv[0];
   if (argc != 10) {
     return 2;
   }

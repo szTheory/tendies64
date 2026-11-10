@@ -1,12 +1,14 @@
 #include <errno.h>
 #include <fcntl.h>
 #include <stdbool.h>
+#include <signal.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <sys/stat.h>
 #include <sys/types.h>
 #include <sys/wait.h>
+#include <time.h>
 #include <unistd.h>
 
 #define DIGEST_A "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
@@ -32,6 +34,9 @@ static char oversized_record[65537];
 
 static size_t test_count;
 static size_t failures;
+static const char *test_executable_path;
+
+#define CHILD_DEADLINE_MS 10000u
 
 static size_t replace_once(const char *source, const char *needle,
                            const char *replacement, char *out, size_t capacity) {
@@ -107,16 +112,109 @@ static int write_record(const char *path, const char *record, size_t length) {
   return ok;
 }
 
-static int process_status(const char *checker, const char *record_path,
-                          const char *output_path) {
+static bool process_group_exists(pid_t group) {
+  if (kill(-group, 0) == 0) {
+    return true;
+  }
+  return errno == EPERM;
+}
+
+static bool deadline_reached(const struct timespec *now,
+                             const struct timespec *deadline) {
+  return now->tv_sec > deadline->tv_sec ||
+         (now->tv_sec == deadline->tv_sec &&
+          now->tv_nsec >= deadline->tv_nsec);
+}
+
+static void terminate_process_group(pid_t group, bool child_reaped) {
+  struct timespec cleanup_deadline;
+  struct timespec now;
+  struct timespec pause_time = {0, 1000000L};
+  int status;
+
+  (void)kill(-group, SIGKILL);
+  if (!child_reaped) {
+    pid_t waited;
+
+    (void)kill(group, SIGKILL);
+    do {
+      waited = waitpid(group, &status, 0);
+    } while (waited < 0 && errno == EINTR);
+  }
+  while (waitpid(-group, &status, WNOHANG) > 0) {
+  }
+  if (clock_gettime(CLOCK_MONOTONIC, &cleanup_deadline) != 0) {
+    return;
+  }
+  cleanup_deadline.tv_sec++;
+  while (process_group_exists(group) &&
+         clock_gettime(CLOCK_MONOTONIC, &now) == 0 &&
+         !deadline_reached(&now, &cleanup_deadline)) {
+    (void)nanosleep(&pause_time, NULL);
+  }
+}
+
+static int wait_for_process_group(pid_t child, unsigned timeout_ms,
+                                  int *status_out) {
+  struct timespec deadline;
+  struct timespec now;
+  struct timespec pause_time = {0, 1000000L};
+  int child_status = 0;
+  bool child_reaped = false;
+
+  if (clock_gettime(CLOCK_MONOTONIC, &deadline) != 0) {
+    terminate_process_group(child, false);
+    return 127;
+  }
+  deadline.tv_sec += (time_t)(timeout_ms / 1000u);
+  deadline.tv_nsec += (long)(timeout_ms % 1000u) * 1000000L;
+  if (deadline.tv_nsec >= 1000000000L) {
+    deadline.tv_sec++;
+    deadline.tv_nsec -= 1000000000L;
+  }
+
+  for (;;) {
+    if (!child_reaped) {
+      pid_t waited = waitpid(child, &child_status, WNOHANG);
+
+      if (waited == child) {
+        child_reaped = true;
+      } else if (waited < 0 && errno == ECHILD) {
+        child_reaped = true;
+      } else if (waited < 0 && errno != EINTR) {
+        terminate_process_group(child, false);
+        return 127;
+      }
+    }
+    if (child_reaped && !process_group_exists(child)) {
+      *status_out = child_status;
+      return 0;
+    }
+    if (clock_gettime(CLOCK_MONOTONIC, &now) != 0 ||
+        deadline_reached(&now, &deadline)) {
+      terminate_process_group(child, child_reaped);
+      *status_out = child_status;
+      return 1;
+    }
+    (void)nanosleep(&pause_time, NULL);
+  }
+}
+
+static int process_status_with_timeout(const char *checker,
+                                       const char *record_path,
+                                       const char *output_path,
+                                       unsigned timeout_ms) {
   pid_t child = fork();
   int status = 0;
-  pid_t waited;
+  int wait_result;
 
   if (child < 0) {
     return 127;
   }
   if (child == 0) {
+    if (setpgid(0, 0) != 0) {
+      _exit(127);
+    }
     int output_fd = open(output_path, O_WRONLY | O_TRUNC);
     if (output_fd < 0 || dup2(output_fd, STDOUT_FILENO) < 0 ||
         dup2(output_fd, STDERR_FILENO) < 0) {
@@ -126,16 +224,23 @@ static int process_status(const char *checker, const char *record_path,
     execl(checker, checker, "result", record_path, (char *)NULL);
     _exit(127);
   }
-  do {
-    waited = waitpid(child, &status, 0);
-  } while (waited < 0 && errno == EINTR);
-  if (waited != child) {
+  wait_result = wait_for_process_group(child, timeout_ms, &status);
+  if (wait_result == 1) {
+    return 124;
+  }
+  if (wait_result != 0) {
     return 127;
   }
   if (!WIFEXITED(status)) {
     return 128;
   }
   return WEXITSTATUS(status);
+}
+
+static int process_status(const char *checker, const char *record_path,
+                          const char *output_path) {
+  return process_status_with_timeout(checker, record_path, output_path,
+                                     CHILD_DEADLINE_MS);
 }
 
 static int output_contains(const char *path, const char *needle) {
@@ -208,6 +313,11 @@ static void expect_oversized_and_fifo_rejection(const char *checker,
     actual_exit = process_status(checker, record_path, output_path);
     passed = actual_exit == 2;
   }
+  if (passed) {
+    actual_exit = process_status_with_timeout(
+        test_executable_path, "--timeout-descendants", output_path, 100u);
+    passed = actual_exit == 124;
+  }
   (void)unlink(record_path);
   test_count++;
   if (passed) {
@@ -232,9 +342,21 @@ int main(int argc, char **argv) {
   int suite_fd;
   size_t length;
 
+  if (argc == 3 && strcmp(argv[1], "result") == 0 &&
+      strcmp(argv[2], "--timeout-descendants") == 0) {
+    pid_t descendant = fork();
+
+    if (descendant < 0) {
+      return 127;
+    }
+    for (;;) {
+      (void)pause();
+    }
+  }
   if (argc != 3) {
     return 2;
   }
+  test_executable_path = argv[0];
   record_fd = mkstemp(record_path);
   output_fd = mkstemp(output_path);
   suite_fd = mkstemp(suite_path);
