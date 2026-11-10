@@ -1,0 +1,11 @@
+{
+  "command": "ctest --preset gate --output-junit 02-03-task2-red.xml -R unit.core.digest-trace --output-on-failure",
+  "exit_code": 8,
+  "failing_test": "unit.core.digest-trace#unit.core.digest-trace",
+  "target_test": "unit.core.digest-trace",
+  "expected": "Adding a future scheduled event changes the canonical digest.",
+  "actual": "The target assertion executed and failed: the state digests before and after enqueue were identical.",
+  "verdict": "RED_EVIDENCE_OK",
+  "reason": "target_test_failed",
+  "semanticAssessment": "The event is future-affecting scheduler state, but the current state digest omits it. The target assertion compiled, ran once, and failed on the intended comparison."
+}

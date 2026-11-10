@@ -143,3 +143,12 @@ target_link_libraries(test_scheduler PRIVATE t64_core)
 t64_target_warnings(test_scheduler)
 add_test(NAME unit.core.scheduler COMMAND test_scheduler)
 set_tests_properties(unit.core.scheduler PROPERTIES LABELS unit)
+
+add_executable(test_digest_trace tests/test_digest_trace.c)
+target_include_directories(test_digest_trace PRIVATE
+  "${CMAKE_CURRENT_SOURCE_DIR}"
+  "${CMAKE_SOURCE_DIR}/tests")
+target_link_libraries(test_digest_trace PRIVATE t64_core)
+t64_target_warnings(test_digest_trace)
+add_test(NAME unit.core.digest-trace COMMAND test_digest_trace)
+set_tests_properties(unit.core.digest-trace PROPERTIES LABELS unit)
