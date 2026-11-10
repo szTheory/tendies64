@@ -34,7 +34,7 @@ static t64_status refuse(t64_machine *machine, uint32_t offset,
 }
 
 static bool decode_descriptor(const t64_machine *machine, bool dram_to_sp,
-                              uint32_t raw_length,
+                              uint32_t raw_length, uint64_t start_tick,
                               t64_sp_dma_descriptor *descriptor_out,
                               t64_status *status_out) {
   uint64_t row_start;
@@ -52,7 +52,6 @@ static bool decode_descriptor(const t64_machine *machine, bool dram_to_sp,
       (uint64_t)(machine->sp.dram_address & T64_SP_DRAM_ADDRESS_MASK &
                  ~UINT32_C(7));
   uint64_t dram_end;
-  uint64_t ticks_now = machine->tick;
   uint32_t rsp_ratio_numerator = machine->profile.cpu_rsp_ratio_numerator;
   uint32_t rsp_ratio_denominator = machine->profile.cpu_rsp_ratio_denominator;
   uint32_t tick_unit_length = 0u;
@@ -112,7 +111,7 @@ static bool decode_descriptor(const t64_machine *machine, bool dram_to_sp,
     return false;
   }
   duration_ticks = duration_scaled / (uint64_t)rsp_ratio_denominator;
-  if (duration_ticks == 0u || ticks_now > UINT64_MAX - duration_ticks) {
+  if (duration_ticks == 0u || start_tick > UINT64_MAX - duration_ticks) {
     *status_out = T64_STATUS_TICK_OVERFLOW;
     return false;
   }
@@ -130,8 +129,8 @@ static bool decode_descriptor(const t64_machine *machine, bool dram_to_sp,
   descriptor_out->line_count = line_count;
   descriptor_out->skip = skip_field;
   descriptor_out->payload_bytes = (uint32_t)payload_bytes;
-  descriptor_out->start_tick = ticks_now;
-  descriptor_out->end_tick = ticks_now + duration_ticks;
+  descriptor_out->start_tick = start_tick;
+  descriptor_out->end_tick = start_tick + duration_ticks;
   *status_out = T64_STATUS_OK;
   return true;
 }
@@ -142,15 +141,28 @@ static t64_status start_dma(t64_machine *machine, bool dram_to_sp,
   t64_sp_dma_descriptor descriptor;
   t64_status status = T64_STATUS_OK;
   uint64_t token;
+  uint64_t start_tick;
+  bool pending_slot;
 
-  if (machine->sp.active.valid) {
-    return refuse(machine, offset, T64_STATUS_BUS_DEVICE_REFUSED);
+  if (dma_full(&machine->sp)) {
+    if (dram_to_sp) {
+      machine->sp.read_length = raw_length & T64_SP_LENGTH_MASK;
+    } else {
+      machine->sp.write_length = raw_length & T64_SP_LENGTH_MASK;
+    }
+    t64_trace_emit(machine, machine->tick, T64_TRACE_DEVICE_SP,
+                   T64_TRACE_KIND_SP_DROP,
+                   ((uint64_t)T64_STATUS_BUS_DEVICE_REFUSED << 32) |
+                       (uint64_t)offset);
+    return T64_STATUS_BUS_DEVICE_REFUSED;
   }
   if (machine->sp.token_exhausted) {
     return refuse(machine, offset, T64_STATUS_RESOURCE_EXHAUSTED);
   }
-  if (!decode_descriptor(machine, dram_to_sp, raw_length, &descriptor,
-                         &status)) {
+  pending_slot = machine->sp.active.valid;
+  start_tick = pending_slot ? machine->sp.active.end_tick : machine->tick;
+  if (!decode_descriptor(machine, dram_to_sp, raw_length, start_tick,
+                         &descriptor, &status)) {
     return refuse(machine, offset, status);
   }
   token = machine->sp.next_token;
@@ -167,7 +179,11 @@ static t64_status start_dma(t64_machine *machine, bool dram_to_sp,
   }
 
   descriptor.token = token;
-  machine->sp.active = descriptor;
+  if (pending_slot) {
+    machine->sp.pending = descriptor;
+  } else {
+    machine->sp.active = descriptor;
+  }
   if (dram_to_sp) {
     machine->sp.read_length = raw_length & T64_SP_LENGTH_MASK;
   } else {
@@ -252,6 +268,7 @@ t64_status t64_sp_complete(t64_machine *machine, const t64_event *event) {
   t64_sp_dma_descriptor *descriptor;
   uint8_t *sp_bank;
   uint64_t dram_row;
+  uint64_t completed_token;
   uint32_t payload_offset = 0u;
   uint32_t row;
 
@@ -267,6 +284,7 @@ t64_status t64_sp_complete(t64_machine *machine, const t64_event *event) {
   if (machine->ram == NULL) {
     return T64_STATUS_RESOURCE_EXHAUSTED;
   }
+  completed_token = descriptor->token;
 
   sp_bank = descriptor->imem ? machine->sp_imem : machine->sp_dmem;
   dram_row = (uint64_t)descriptor->aligned_dram_start;
@@ -294,8 +312,16 @@ t64_status t64_sp_complete(t64_machine *machine, const t64_event *event) {
   }
 
   t64_trace_emit(machine, event->tick, T64_TRACE_DEVICE_SP,
-                 T64_TRACE_KIND_SP_COMPLETE, event->token);
+                 T64_TRACE_KIND_SP_COMPLETE, completed_token);
   (void)memset(descriptor, 0, sizeof *descriptor);
+  if (machine->sp.pending.valid) {
+    uint64_t promoted_token = machine->sp.pending.token;
+
+    machine->sp.active = machine->sp.pending;
+    (void)memset(&machine->sp.pending, 0, sizeof machine->sp.pending);
+    t64_trace_emit(machine, event->tick, T64_TRACE_DEVICE_SP,
+                   T64_TRACE_KIND_SP_PROMOTE, promoted_token);
+  }
   return T64_STATUS_OK;
 }
 

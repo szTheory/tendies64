@@ -176,7 +176,18 @@ static void test_memory_boundaries(void) {
   T64_CHECK_INT(t64_machine_bus_read(machine, UINT32_C(0x04040000), 4u,
                                      &value), T64_STATUS_OK);
   T64_CHECK_INT(value, UINT32_C(0x1fff));
+  T64_CHECK_INT(t64_machine_bus_write(machine, UINT32_C(0x04040004), 4u,
+                                      UINT32_C(0xffffffff)), T64_STATUS_OK);
+  T64_CHECK_INT(t64_machine_bus_read(machine, UINT32_C(0x04040004), 4u,
+                                     &value), T64_STATUS_OK);
+  T64_CHECK_INT(value, UINT32_C(0x00ffffff));
   T64_CHECK_INT(t64_machine_bus_write(machine, UINT32_C(0x04040010), 4u,
+                                      UINT32_C(1)),
+                T64_STATUS_BUS_UNSUPPORTED);
+  T64_CHECK_INT(t64_machine_bus_write(machine, UINT32_C(0x0404001c), 4u,
+                                      UINT32_C(1)),
+                T64_STATUS_BUS_UNSUPPORTED);
+  T64_CHECK_INT(t64_machine_bus_write(machine, UINT32_C(0x04080000), 4u,
                                       UINT32_C(1)),
                 T64_STATUS_BUS_UNSUPPORTED);
   T64_CHECK_INT(t64_machine_bus_read(machine, UINT32_C(0x04080000), 4u,

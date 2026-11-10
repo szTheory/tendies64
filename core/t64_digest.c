@@ -35,10 +35,29 @@ static void hash_event(t64_sha256_ctx *context, const t64_event *event) {
   hash_u64(context, event->token);
 }
 
+static void hash_sp_descriptor(t64_sha256_ctx *context,
+                               const t64_sp_dma_descriptor *descriptor) {
+  hash_u32(context, descriptor->valid ? UINT32_C(1) : UINT32_C(0));
+  hash_u32(context, descriptor->dram_to_sp ? UINT32_C(1) : UINT32_C(0));
+  hash_u32(context, descriptor->imem ? UINT32_C(1) : UINT32_C(0));
+  hash_u32(context, descriptor->raw_mem_address);
+  hash_u32(context, descriptor->raw_dram_address);
+  hash_u32(context, descriptor->raw_length);
+  hash_u32(context, descriptor->aligned_dram_start);
+  hash_u32(context, descriptor->internal_start);
+  hash_u32(context, descriptor->bytes_per_line);
+  hash_u32(context, descriptor->line_count);
+  hash_u32(context, descriptor->skip);
+  hash_u32(context, descriptor->payload_bytes);
+  hash_u64(context, descriptor->start_tick);
+  hash_u64(context, descriptor->end_tick);
+  hash_u64(context, descriptor->token);
+}
+
 t64_status t64_machine_digest(const t64_machine *machine,
                               uint8_t digest_out[T64_DIGEST_SIZE]) {
   static const uint8_t domain[] = {'t', '6', '4', '.', 's', 't', 'a', 't',
-                                   'e', '.', 'v', '4'};
+                                   'e', '.', 'v', '5'};
   t64_sha256_ctx context;
   size_t i;
 
@@ -102,6 +121,15 @@ t64_status t64_machine_digest(const t64_machine *machine,
   hash_u64(&context, machine->pi.next_token);
   hash_u32(&context,
            machine->pi.token_exhausted ? UINT32_C(1) : UINT32_C(0));
+  hash_u32(&context, machine->sp.mem_address);
+  hash_u32(&context, machine->sp.dram_address);
+  hash_u32(&context, machine->sp.read_length);
+  hash_u32(&context, machine->sp.write_length);
+  hash_sp_descriptor(&context, &machine->sp.active);
+  hash_sp_descriptor(&context, &machine->sp.pending);
+  hash_u64(&context, machine->sp.next_token);
+  hash_u32(&context,
+           machine->sp.token_exhausted ? UINT32_C(1) : UINT32_C(0));
   hash_u32(&context, (uint32_t)machine->queue_count);
   hash_u64(&context, machine->next_sequence);
   hash_u32(&context,

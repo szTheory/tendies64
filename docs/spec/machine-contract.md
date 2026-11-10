@@ -193,6 +193,56 @@ Nintendo SDK `rcp.h`, PI lines 667-767, SHA-256
 references do not establish the model's `1 + N/2` timing, source-read-at-event
 visibility, reset edge ordering, or busy-start ERROR rule.
 
+## SP DMA model
+
+The SP control block at `0x04040000` implements `SP_MEM_ADDR`, `SP_DRAM_ADDR`,
+`SP_RD_LEN`, `SP_WR_LEN`, read-only `SP_STATUS`, `SP_DMA_FULL`, and
+`SP_DMA_BUSY`. `SP_RD_LEN` transfers RDRAM to the selected 4 KiB DMEM/IMEM bank;
+`SP_WR_LEN` transfers that bank to RDRAM. `SP_STATUS` reports DMA_BUSY in bit 2
+and DMA_FULL in bit 3. The dedicated full/busy registers return 0 or 1. Status,
+semaphore, and SP PC writes remain unsupported in this phase.
+
+SP address and length latches retain their masked 13-bit, 24-bit, and 24-bit
+values. Each descriptor separately records those raw values and the aligned
+starts: initial SP and RDRAM low three bits are ignored for memory access,
+while the source low bits remain observable in the descriptor and digest. The
+length fields decode as `L = F & 0xfff`, `C = (F >> 12) & 0xff`, and
+`S = (F >> 20) & 0xf`; bytes per line are `(L | 7) + 1`, line count is `C + 1`,
+and each next DRAM row starts at the previous row start plus its length and
+`S`. Before accepting either direction, the implementation checks every full
+row with 64-bit arithmetic against the installed 4 MiB RDRAM span. It does not
+wrap or partially accept a row. Payload bytes advance contiguously in the
+selected internal bank and wrap through its 12-bit address field at 4 KiB.
+That bank-wrap behavior is an explicit address-field inference, not a hardware
+measurement.
+
+Each accepted request has an immutable active or pending descriptor and its
+completion event reserved in the bounded scheduler before the corresponding
+busy state becomes visible. The pending request starts at the active request's
+deadline; its event is already in the queue, so promotion consumes no new
+capacity and cannot fail under later queue pressure. A third request while both
+slots are occupied retains its masked triggering length latch, emits one
+observer-only `SP_DROP` record, returns the bus-device-refused status, and leaves
+both descriptors, reserved events, guest error state, and MI pending bits intact.
+Resource refusal for a row, deadline, token, sequence, or queue-capacity problem
+does not change the triggering length latch or either accepted descriptor.
+Busy remains set across promotion; full is set exactly while both descriptors
+are occupied.
+
+For the named `sp_dma_skeleton_v1` policy, each request costs
+`12 + payload_bytes/8` RSP-cycle units. The profile records the integer
+CPU:RSP ratio and uses an exact conversion to GuestTick; the selected profile is
+1:1, so an 8-byte request completes 13 ticks after its start and a 48-byte
+request completes 18 ticks after its start. These are deterministic model
+deadlines, not measured hardware latency. Completion reads source bytes from
+the current owned RAM/SP bank at the scheduled event and copies all rows
+atomically in increasing row/byte order. Advancement allocates no snapshot and
+calls no host callback. A pending source can therefore change after issue and
+before its own completion. SP DMA completion does not set MI SP pending; PI and
+SP events at the same tick retain the scheduler's global `(tick, sequence)`
+order. Successful content replacement clears SP descriptors and scheduler
+events, preventing old requests from writing into replacement state.
+
 ## Deterministic scheduler and state digest
 
 The private scheduler orders admitted work by the pair `(guest_tick,
@@ -219,19 +269,22 @@ tick-add overflow are rejected before machine-state mutation; rejected
 reservations do not consume sequence values.
 
 `t64_machine_digest` is a versioned SHA-256 encoding, not a memory dump. The
-v4 encoding streams the `t64.state.v4` domain and fixed-width big-endian
+v5 encoding streams the `t64.state.v5` domain and fixed-width big-endian
 fields. It includes the complete profile hash, immutable admitted content
 size and hash, parsed header metadata, loaded-image flag, guest tick,
 cumulative counters, sticky error and halt state, RDRAM bytes, SP DMEM and IMEM
 bytes, six-bit MI pending and mask state, the derived IRQ line, all PI raw
 latches and sticky error, PI active/canceled flags and immutable descriptor,
-active/next token and token-exhaustion state, and the logical ordered event
-queue with its count and next-sequence/exhaustion state. Event records encode
-tick, sequence, device, kind, value and token. PI state was not reserved in v3,
-so the selected profile and state schema advance together to v4. The profile
-digest is `34e61cf9555546a83aa81d856bb7b011a9247359aad005eb410382ded209d27a`;
-the independently assembled default fixture state digest is
-`511c3f575be2172b525da607747a91aeab2246360d6708a2da8306033e46e8b1`.
+active/next token and token-exhaustion state, all SP raw latches, both complete
+SP descriptors and SP next-token/exhaustion state, and the logical ordered event
+queue with its count and next-sequence/exhaustion state. Busy/full are derived
+from descriptor validity. Event records encode tick, sequence, device, kind,
+value and token. PI state was not reserved in v3, so the selected profile and
+state schema advanced together to v4; SP state was not reserved in v4, so they
+now advance together to v5. The profile digest is
+`b7d1600ad960b4e04fdc3ec372675edc47b26b15be8e9cd84cbab4fd75835647`; the
+independently assembled default fixture state digest is
+`6813739ff2fc1cffac6d85fa86df0c593e3035f8a640c642e37790acd96b6e77`.
 
 | Private field or state | Digest treatment | Reason |
 | --- | --- | --- |
@@ -245,15 +298,16 @@ the independently assembled default fixture state digest is
 | MI pending bits, mask bits, and derived IRQ line | Include | Device interrupt state and the CPU seam's current line |
 | PI raw address/length/timing latches and sticky error | Include | Register readback and later request behavior |
 | PI active/canceled state, immutable descriptor, active/next token, exhaustion | Include | Determines whether the reserved event may copy or complete, and identity of later work |
+| SP raw latches, active/pending immutable descriptors, next token and exhaustion | Include | Determines row addresses, completion ticks, promotion and request identity; busy/full are derived |
 | Queue count, logical event fields, next sequence and exhausted flag | Include | Determines future dispatch and enqueue behavior |
 | Allocator callbacks/context and machine/image storage descriptors | Exclude | Host ownership and pointer locations are not machine behavior |
 | RAM pointer, event handler pointers and build/source identity | Exclude | Storage/code identity is not serialized machine state |
 | Queue head, unused event slots, structure padding | Exclude | Physical layout is not logical queue state |
 | Trace configuration, records and drop observation | Exclude | Observer state must not alter guest state or its digest |
 
-The field-mutation test toggles every PI latch, flag, descriptor value, token,
-and exhaustion state. Exclusion, relocation, golden-vector, interleaving and
-partition tests cover the remaining audit. Future device/register/request
+The field-mutation tests toggle every PI and SP latch, flag, descriptor value,
+token, and exhaustion state. Exclusion, relocation, golden-vector, interleaving
+and partition tests cover the remaining audit. Future device/register/request
 state must be added to the encoding and this table with its own tests.
 
 The observer is disabled by default and can be enabled per machine. When

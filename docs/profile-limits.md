@@ -23,9 +23,9 @@ cancellation policies, and descriptor, machine and state-serialization
 versions. These fields participate in a versioned canonical serialization:
 UTF-8 text values use a big-endian 32-bit byte length, and numeric values use
 fixed-width big-endian encoding. No padding, pointers or map iteration order
-participates. The current descriptor uses state-serialization version 4 to
-include the PI request/latch state in the `t64.state.v4` digest. Trace capacity
-is observer-only and excluded from behavior identity and state digest.
+participates. The current descriptor uses state-serialization version 5 to
+include PI and SP request/latch state in the `t64.state.v5` digest. Trace
+capacity is observer-only and excluded from behavior identity and state digest.
 
 Build identity is a separate `t64-build-v1-` SHA-256 fingerprint over the
 project version, compiler/build settings and SHA-256 hashes of production

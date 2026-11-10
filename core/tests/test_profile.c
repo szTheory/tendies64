@@ -489,7 +489,7 @@ static void test_profile_contract(void) {
   test_country_metadata_and_test_contrast(profile, profile_hash);
   digest_to_hex(profile_hash, profile_hash_hex);
   T64_CHECK_STR(profile_hash_hex,
-                "34e61cf9555546a83aa81d856bb7b011a9247359aad005eb410382ded209d27a");
+                "b7d1600ad960b4e04fdc3ec372675edc47b26b15be8e9cd84cbab4fd75835647");
   T64_CHECK(strncmp(t64_build_identity(), "t64-build-v1-", 13u) == 0);
   T64_CHECK(strchr(t64_build_identity(), '/') == NULL);
   T64_CHECK(strlen(t64_source_revision()) > 0u);
