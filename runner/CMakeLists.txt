@@ -29,3 +29,31 @@ target_compile_definitions(t64-supervisor PRIVATE
   T64_BUILD_ID=\"${PROJECT_VERSION}+synthetic\")
 target_link_libraries(t64-supervisor PRIVATE t64_classify t64_common t64_core)
 t64_target_warnings(t64-supervisor)
+
+# Consumer of t64.result v1 records and t64.suite files (plan 01-07).
+add_executable(t64-result-check t64_result_check.c)
+target_compile_definitions(t64-result-check PRIVATE ${T64_HOST_DEFS})
+target_link_libraries(t64-result-check PRIVATE t64_classify t64_common)
+t64_target_warnings(t64-result-check)
+
+# Every committed supervisor golden must validate; zero goldens is a failure.
+add_test(NAME unit.result-goldens
+  COMMAND sh -c [=[
+n=0
+for f in "$1"/*.json; do
+  [ -f "$f" ] || continue
+  "$2" result "$f" || exit 1
+  n=$((n + 1))
+done
+echo "goldens validated: $n"
+[ "$n" -gt 0 ]
+]=] sh ${CMAKE_SOURCE_DIR}/tests/controls/golden $<TARGET_FILE:t64-result-check>)
+set_tests_properties(unit.result-goldens PROPERTIES LABELS unit)
+
+# Single-result seeds (directory-owned corpus, driven by the shared driver).
+add_test(NAME unit.result-seeds
+  COMMAND sh ${CMAKE_SOURCE_DIR}/tests/seeded/run-expect.sh
+    --tool "$<TARGET_FILE:t64-result-check> result"
+    --dir ${CMAKE_SOURCE_DIR}/tests/seeded/results
+    --ext .json)
+set_tests_properties(unit.result-seeds PROPERTIES LABELS unit)

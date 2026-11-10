@@ -1,0 +1,13 @@
+# Seeds for t64-result-check result, driven by tests/seeded/run-expect.sh.
+# Columns: file, exit, rule_id, needle (optional). Every .json file here is a seed and needs a row.
+# All seeds are hand-edited copies of tests/controls/golden/positive.json.
+good.json	0	ok
+bad_unknown_field.json	1	R-UNKNOWN-FIELD	wall_ms
+bad_missing_field.json	1	R-MISSING-FIELD	fixture_digest
+bad_version.json	1	R-VERSION
+bad_float.json	1	R-JSON	float
+bad_dup_key.json	1	R-JSON	duplicate-key
+bad_not_canonical.json	1	R-NOT-CANONICAL
+bad_detail_outcome.json	1	R-DETAIL-OUTCOME
+bad_synthetic_stamp.json	1	R-SYNTHETIC-STAMP
+bad_u64_number.json	1	R-TYPE	guest_tick
