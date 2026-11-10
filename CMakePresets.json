@@ -34,7 +34,7 @@
       "name": "gate",
       "configurePreset": "gate",
       "output": { "outputOnFailure": true },
-      "execution": { "noTestsAction": "error" }
+      "execution": { "noTestsAction": "error", "jobs": 4 }
     },
     {
       "name": "asan",
