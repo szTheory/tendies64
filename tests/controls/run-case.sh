@@ -52,7 +52,10 @@ LOG_LIMIT=$(field 14)
 [ -n "$LOG_LIMIT" ] || LOG_LIMIT=65536
 
 TMPD=$(mktemp -d "${TMPDIR:-/tmp}/t64.XXXXXX")
-trap 'rm -rf "$TMPD"' EXIT INT TERM HUP
+# A signal exits (running the EXIT cleanup) instead of resuming the script
+# against a deleted work directory.
+trap 'rm -rf "$TMPD"' EXIT
+trap 'exit 130' INT TERM HUP
 
 case "$MODE" in
   ok) FIXTURE="$HERE/scripts/$SCRIPT" ;;

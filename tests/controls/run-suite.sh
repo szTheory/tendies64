@@ -59,24 +59,28 @@ case "$MODE" in
 esac
 
 TMPD=$(mktemp -d "${TMPDIR:-/tmp}/t64suite.XXXXXX")
-trap 'rm -rf "$TMPD"' EXIT INT TERM HUP
+# A signal exits (running the EXIT cleanup) instead of resuming the script
+# against a deleted work directory.
+trap 'rm -rf "$TMPD"' EXIT
+trap 'exit 130' INT TERM HUP
 mkdir "$TMPD/results"
 
 # Run every case once (run-case.sh itself runs two slice sizes and checks the
 # golden), keeping the canonical result of each, in sorted-id order.
 IDS=$(matrix_ids)
-RESULTS=""
+# The result paths are kept as positional parameters, so a TMPDIR with a space
+# survives (the argument loop above has consumed the command line).
+set --
 for id in $IDS; do
   sh "$HERE/run-case.sh" --bin-dir "$BIN_DIR" --case "$id" \
     --result-out "$TMPD/results/$id.json" > /dev/null 2> "$TMPD/case.err" ||
     die "case $id failed: $(head -n 1 "$TMPD/case.err")"
-  RESULTS="$RESULTS $TMPD/results/$id.json"
+  set -- "$@" "$TMPD/results/$id.json"
 done
-[ -n "$RESULTS" ] || die "no cases ran"
+[ $# -gt 0 ] || die "no cases ran"
 
 SUITE="$TMPD/suite.jsonl"
-# shellcheck disable=SC2086
-"$CHECK" seal --inventory "$INV" --out "$SUITE" $RESULTS > "$TMPD/seal.out" 2>&1 ||
+"$CHECK" seal --inventory "$INV" --out "$SUITE" "$@" > "$TMPD/seal.out" 2>&1 ||
   die "seal failed: $(head -n 1 "$TMPD/seal.out")"
 
 # expect_fail FILE INV RULE DETAIL: the suite check must exit exactly 1 and name
