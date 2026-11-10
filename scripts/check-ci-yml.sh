@@ -27,6 +27,9 @@
 #   CI-TIMEOUT           each job sets timeout-minutes from 1 to 10
 #   CI-SECRETS           no secrets reference in any spelling (secrets.X, secrets['X'], secrets[...],
 #                        toJSON(secrets)) and no token (github.token, github['token'], toJSON(github))
+#   CI-UPLOAD-ARTIFACT   no upload-artifact or upload-pages-artifact step (GOV-07 CI artifact leg: the
+#                        rights scan of an artifact staging directory is a deferred step, so the
+#                        capability to publish workflow output stays closed until that step exists)
 #   CI-EXPR-IN-RUN       no expression in a run line
 #   CI-GATE-EXEC         the gate script is executable
 #   CI-ZERO-JOBS         the workflow defines no jobs
@@ -36,7 +39,7 @@ export LC_ALL
 
 SELF=$0
 ROOT=$(cd "$(dirname "$0")/.." && pwd -P)
-ALL_RULES="CI-RUN-LINE CI-USES-PIN CI-RUNNER-LABEL CI-LATEST-LABEL CI-PR-TARGET CI-TRIGGER CI-WORKFLOW-FILE CI-PERMISSIONS-TOP CI-PERMISSIONS-JOB CI-PERSIST-CREDS CI-FETCH-DEPTH CI-TIMEOUT CI-SECRETS CI-EXPR-IN-RUN CI-GATE-EXEC CI-ZERO-JOBS"
+ALL_RULES="CI-RUN-LINE CI-USES-PIN CI-RUNNER-LABEL CI-LATEST-LABEL CI-PR-TARGET CI-TRIGGER CI-WORKFLOW-FILE CI-PERMISSIONS-TOP CI-PERMISSIONS-JOB CI-PERSIST-CREDS CI-FETCH-DEPTH CI-TIMEOUT CI-SECRETS CI-UPLOAD-ARTIFACT CI-EXPR-IN-RUN CI-GATE-EXEC CI-ZERO-JOBS"
 
 usage() {
   echo "usage: check-ci-yml.sh [--file PATH | --dir DIR] [--gate PATH] [--selftest]" >&2
@@ -90,6 +93,7 @@ scan_yml() {
       if (line ~ /(^|[^A-Za-z0-9_])secrets([^A-Za-z0-9_]|$)/ ||
           line ~ /github[ \t]*(\.[ \t]*token|\[[ \t]*["\047][ \t]*token[ \t]*["\047][ \t]*\])/ ||
           line ~ /[(,][ \t]*github[ \t]*[),]/) viol("CI-SECRETS", "secrets and the github token must not be referenced")
+      if (line ~ /upload(-pages)?-artifact/) viol("CI-UPLOAD-ARTIFACT", "publishing workflow output is closed until an artifact staging scan step exists")
       if (line ~ /:[ \t]+[|>][-+0-9]*[ \t]*$/) viol("CI-RUN-LINE", "block scalars are forbidden")
       if (line ~ /(^|[^A-Za-z0-9_-])run[ \t]*:/) {
         nruns++
@@ -241,6 +245,8 @@ selftest() {
   expect CI-TIMEOUT "a job without a timeout" "$W/timeout.yml"
   awk '/timeout-minutes: 10/ && !done { print; print "    env:"; print "      TOKEN: ${{ secrets.TOKEN }}"; done = 1; next } { print }' "$REAL" > "$W/secrets.yml"
   expect CI-SECRETS "a secrets reference" "$W/secrets.yml"
+  awk '/^    steps:/ && !done { print; print "      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9  # v7.0.2"; done = 1; next } { print }' "$REAL" > "$W/upload.yml"
+  expect CI-UPLOAD-ARTIFACT "an upload-artifact step" "$W/upload.yml"
   mut expr 's|run: ./scripts/gate.sh|run: ./scripts/gate.sh ${{ github.head_ref }}|'
   expect CI-EXPR-IN-RUN "an expression in a run line" "$W/expr.yml"
 
