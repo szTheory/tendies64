@@ -252,6 +252,8 @@ static void test_machine_tracer(void) {
   print_digest(content_digest_a);
   (void)printf(" state_sha256=");
   print_digest(state_digest_a);
+  (void)printf(" build_id=%s source_revision=%s", t64_build_identity(),
+               t64_source_revision());
   (void)printf(" evidence=unit-tested synthetic counters; no guest execution\n");
 
   t64_machine_destroy(machine_b);

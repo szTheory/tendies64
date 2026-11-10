@@ -13,6 +13,7 @@
 #define T64_DIGEST_SIZE 32u
 #define T64_PROFILE_TEXT_CAPACITY 64u
 #define T64_PROFILE_SERIALIZED_MAX_BYTES 2048u
+#define T64_PROFILE_SERIALIZATION_VERSION UINT32_C(1)
 
 #define T64_STATUS_OK UINT32_C(0)
 #define T64_STATUS_INVALID_ARGUMENT UINT32_C(1)
@@ -38,6 +39,10 @@
 typedef uint32_t t64_status;
 
 typedef struct t64_machine t64_machine;
+
+/* Build identity is separate from machine/profile/state identity. */
+const char *t64_build_identity(void);
+const char *t64_source_revision(void);
 
 typedef struct {
   void *data;
@@ -118,6 +123,7 @@ t64_status t64_profile_lookup(const char *profile_id,
                               const t64_profile_descriptor **profile_out);
 t64_status t64_profile_hash(const t64_profile_descriptor *profile,
                             uint8_t digest_out[T64_DIGEST_SIZE]);
+/* On BUFFER_TOO_SMALL, length_out receives the required size; bytes stay intact. */
 t64_status t64_profile_serialize(const t64_profile_descriptor *profile,
                                  uint8_t *bytes_out, size_t capacity,
                                  size_t *length_out);
@@ -134,6 +140,7 @@ t64_status t64_machine_advance(t64_machine *machine,
                                t64_stop_result *result_out);
 t64_status t64_machine_content_digest(
     const t64_machine *machine, uint8_t digest_out[T64_DIGEST_SIZE]);
+/* The returned descriptor is borrowed and valid until machine destruction. */
 t64_status t64_machine_profile(
     const t64_machine *machine, const t64_profile_descriptor **profile_out);
 t64_status t64_machine_digest(const t64_machine *machine,
