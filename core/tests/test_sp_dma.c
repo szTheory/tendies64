@@ -14,6 +14,8 @@ typedef struct {
   t64_host_allocator allocator;
   t64_machine *machine;
   uint8_t image[4096];
+  size_t allocations;
+  size_t releases;
 } fixture;
 
 static t64_status observed_mem_status;
@@ -60,9 +62,9 @@ static bool advance_to(t64_machine *machine, uint64_t tick) {
 
 static bool test_allocate(void *context, size_t size, size_t alignment,
                           t64_host_storage *storage_out) {
+  fixture *value = (fixture *)context;
   void *memory;
 
-  (void)context;
   if (storage_out == NULL || size == 0u || alignment == 0u) {
     return false;
   }
@@ -74,11 +76,18 @@ static bool test_allocate(void *context, size_t size, size_t alignment,
   storage_out->data = memory;
   storage_out->capacity = size;
   storage_out->alignment = alignment;
+  if (value != NULL) {
+    value->allocations++;
+  }
   return true;
 }
 
 static void test_release(void *context, t64_host_storage storage) {
-  (void)context;
+  fixture *value = (fixture *)context;
+
+  if (value != NULL) {
+    value->releases++;
+  }
   free(storage.data);
 }
 
@@ -89,6 +98,7 @@ static bool fixture_init(fixture *value) {
   memset(value, 0, sizeof *value);
   value->allocator.allocate = test_allocate;
   value->allocator.release = test_release;
+  value->allocator.context = value;
   for (i = 0u; i < sizeof value->image; i++) {
     value->image[i] = (uint8_t)((i * 29u + 7u) & 0xffu);
   }
@@ -325,12 +335,173 @@ static bool last_valid_and_first_invalid_row_test(void) {
   return passed;
 }
 
+static bool pending_queue_and_source_visibility_test(void) {
+  fixture value;
+  t64_sp_dma_descriptor active_before;
+  t64_sp_dma_descriptor pending_before;
+  uint8_t pending_bytes[16];
+  uint32_t status = 0u;
+  uint32_t length_latch = 0u;
+  size_t allocations_before;
+  size_t releases_before;
+  size_t i;
+  bool passed = true;
+
+  if (!fixture_init(&value)) {
+    return false;
+  }
+  (void)t64_machine_trace_set_enabled(value.machine, true);
+  for (i = 0u; i < 8u; i++) {
+    if (t64_machine_bus_write(value.machine, UINT32_C(0x100) +
+                                                 (uint32_t)i,
+                              1u, UINT32_C(0x20) + (uint32_t)i) !=
+        T64_STATUS_OK) {
+      passed = false;
+    }
+    pending_bytes[i] = (uint8_t)(UINT8_C(0x90) + (uint8_t)i);
+  }
+  for (; i < sizeof pending_bytes; i++) {
+    pending_bytes[i] = (uint8_t)(UINT8_C(0x90) + (uint8_t)i);
+  }
+  if (t64_machine_bus_write(value.machine, TEST_SP_BASE, 4u, 0u) !=
+          T64_STATUS_OK ||
+      t64_machine_bus_write(value.machine, TEST_SP_BASE + 4u, 4u,
+                            UINT32_C(0x100)) != T64_STATUS_OK ||
+      t64_machine_bus_write(value.machine, TEST_SP_BASE + 8u, 4u, 0u) !=
+          T64_STATUS_OK ||
+      t64_machine_bus_write(value.machine, TEST_SP_BASE, 4u,
+                            UINT32_C(0x1020)) != T64_STATUS_OK ||
+      t64_machine_bus_write(value.machine, TEST_SP_BASE + 4u, 4u,
+                            UINT32_C(0x200)) != T64_STATUS_OK ||
+      t64_machine_bus_write(value.machine, TEST_SP_BASE + 8u, 4u,
+                            UINT32_C(8)) != T64_STATUS_OK) {
+    passed = false;
+  }
+  if (t64_machine_bus_read(value.machine, TEST_SP_BASE + 0x14u, 4u,
+                           &status) != T64_STATUS_OK ||
+      status != UINT32_C(1) ||
+      t64_machine_bus_read(value.machine, TEST_SP_BASE + 0x18u, 4u,
+                           &status) != T64_STATUS_OK ||
+      status != UINT32_C(1)) {
+    passed = false;
+  }
+  if (!passed || !value.machine->sp.pending.valid) {
+    t64_machine_destroy(value.machine);
+    return false;
+  }
+
+  active_before = value.machine->sp.active;
+  pending_before = value.machine->sp.pending;
+  while (value.machine->queue_count <
+         (size_t)value.machine->profile.event_queue_capacity) {
+    t64_status schedule_status = t64_test_schedule_synthetic(
+        value.machine, UINT64_C(1000) + (uint64_t)value.machine->queue_count,
+        T64_TEST_EVENT_NOOP, UINT64_C(0));
+
+    if (schedule_status != T64_STATUS_OK) {
+      passed = false;
+      break;
+    }
+  }
+  if (value.machine->queue_count !=
+      (size_t)value.machine->profile.event_queue_capacity) {
+    passed = false;
+  }
+
+  if (t64_machine_bus_write(value.machine, TEST_SP_BASE, 4u,
+                            UINT32_C(0x0040)) != T64_STATUS_OK ||
+      t64_machine_bus_write(value.machine, TEST_SP_BASE + 4u, 4u,
+                            UINT32_C(0x300)) != T64_STATUS_OK ||
+      t64_machine_bus_write(value.machine, TEST_SP_BASE + 12u, 4u,
+                            UINT32_C(8)) !=
+          T64_STATUS_BUS_DEVICE_REFUSED ||
+      value.machine->queue_count !=
+          (size_t)value.machine->profile.event_queue_capacity ||
+      memcmp(&active_before, &value.machine->sp.active,
+             sizeof active_before) != 0 ||
+      memcmp(&pending_before, &value.machine->sp.pending,
+             sizeof pending_before) != 0 ||
+      t64_machine_bus_read(value.machine, TEST_SP_BASE + 12u, 4u,
+                           &length_latch) != T64_STATUS_OK ||
+      length_latch != UINT32_C(8) ||
+      t64_machine_bus_read(value.machine, UINT32_C(0x04300008), 4u,
+                           &status) != T64_STATUS_OK ||
+      status != 0u) {
+    passed = false;
+  }
+
+  allocations_before = value.allocations;
+  releases_before = value.releases;
+  if (!advance_to(value.machine, UINT64_C(13))) {
+    passed = false;
+  }
+  if (value.machine->sp.active.token != pending_before.token ||
+      value.machine->sp.pending.valid ||
+      !value.machine->sp.active.valid ||
+      value.machine->queue_count >=
+          (size_t)value.machine->profile.event_queue_capacity ||
+      t64_machine_bus_read(value.machine, TEST_SP_BASE + 0x14u, 4u,
+                           &status) != T64_STATUS_OK ||
+      status != 0u ||
+      t64_machine_bus_read(value.machine, TEST_SP_BASE + 0x18u, 4u,
+                           &status) != T64_STATUS_OK ||
+      status != UINT32_C(1)) {
+    passed = false;
+  }
+  for (i = 0u; i < sizeof pending_bytes; i++) {
+    pending_bytes[i] = (uint8_t)(UINT8_C(0x40) + (uint8_t)i);
+    if (t64_machine_bus_write(value.machine, UINT32_C(0x200) +
+                                                 (uint32_t)i,
+                              1u, (uint32_t)pending_bytes[i]) !=
+        T64_STATUS_OK) {
+      passed = false;
+    }
+  }
+  if (!advance_to(value.machine, UINT64_C(26)) ||
+      !bytes_are_zero(value.machine, UINT32_C(0x04001020), 16u) ||
+      !advance_to(value.machine, UINT64_C(27)) ||
+      !bytes_equal(value.machine, UINT32_C(0x04001020), pending_bytes,
+                   sizeof pending_bytes) ||
+      value.machine->sp.active.valid || value.machine->sp.pending.valid ||
+      t64_machine_bus_read(value.machine, TEST_SP_BASE + 0x18u, 4u,
+                           &status) != T64_STATUS_OK ||
+      status != 0u ||
+      t64_machine_bus_read(value.machine, UINT32_C(0x04300008), 4u,
+                           &status) != T64_STATUS_OK ||
+      status != 0u || value.allocations != allocations_before ||
+      value.releases != releases_before) {
+    passed = false;
+  }
+  t64_machine_destroy(value.machine);
+  return passed;
+}
+
+static bool sp_latches_participate_in_digest_test(void) {
+  fixture value;
+  uint8_t before[T64_DIGEST_SIZE];
+  uint8_t after[T64_DIGEST_SIZE];
+  bool passed;
+
+  if (!fixture_init(&value)) {
+    return false;
+  }
+  passed = t64_machine_digest(value.machine, before) == T64_STATUS_OK &&
+           t64_machine_bus_write(value.machine, TEST_SP_BASE, 4u,
+                                 UINT32_C(0x00001237)) == T64_STATUS_OK &&
+           t64_machine_digest(value.machine, after) == T64_STATUS_OK &&
+           memcmp(before, after, sizeof before) != 0;
+  t64_machine_destroy(value.machine);
+  return passed;
+}
+
 int main(void) {
   static const char *const names[] = {
       "SP source is read at the 13-tick completion deadline",
       "SP rectangular rows honor skip, alignment, and IMEM selection",
       "SP write wraps within the selected DMEM bank",
-      "SP validates the final valid and first invalid DRAM rows"};
+      "SP validates the final valid and first invalid DRAM rows",
+      "SP pending requests survive full queue pressure and source mutation",
+      "SP latches participate in the canonical digest schema"};
   bool results[sizeof names / sizeof names[0]];
   size_t i;
   bool all_passed = true;
@@ -339,7 +510,9 @@ int main(void) {
   results[1] = rectangular_imem_rows_test();
   results[2] = write_wraps_in_selected_dmem_test();
   results[3] = last_valid_and_first_invalid_row_test();
-  puts("1..4");
+  results[4] = pending_queue_and_source_visibility_test();
+  results[5] = sp_latches_participate_in_digest_test();
+  puts("1..6");
   for (i = 0u; i < sizeof names / sizeof names[0]; i++) {
     printf("%s %zu - %s\n", results[i] ? "ok" : "not ok", i + 1u,
            names[i]);

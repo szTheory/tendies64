@@ -1,0 +1,10 @@
+{
+  "command": "./build/gate/core/test_sp_dma",
+  "exitCode": 1,
+  "output": "1..6\nok 1 - SP source is read at the 13-tick completion deadline\nok 2 - SP rectangular rows honor skip, alignment, and IMEM selection\nok 3 - SP write wraps within the selected DMEM bank\nok 4 - SP validates the final valid and first invalid DRAM rows\nnot ok 5 - SP pending requests survive full queue pressure and source mutation\nnot ok 6 - SP latches participate in the canonical digest schema\n",
+  "targetTest": "SP latches participate in the canonical digest schema",
+  "targetFile": "test_sp_dma.c",
+  "expected": "Changing an SP register latch changes the canonical machine-state digest.",
+  "actual": "The test machine accepted the SP_MEM_ADDR write, but its digest remained byte-for-byte unchanged because SP state is not yet serialized.",
+  "semanticAssessment": "The target TAP assertion ran against a successfully created and ROM-admitted synthetic machine and failed on the planned future-state digest behavior. The pending-queue target also failed because the baseline implementation rejects a second request while one request is active. The run had no build, setup, or discovery error."
+}
