@@ -1,0 +1,10 @@
+{
+  "command": "./build/gate/core/test_sp_dma",
+  "exitCode": 1,
+  "output": "1..1\nnot ok 1 - SP source is read at the 13-tick completion deadline\n",
+  "targetTest": "SP source is read at the 13-tick completion deadline",
+  "targetFile": "test_sp_dma.c",
+  "expected": "An accepted 8-byte SP read keeps DMEM unchanged through tick 12 and copies source bytes at tick 13.",
+  "actual": "The target TAP assertion failed. The current bus has no SP register handling, so the SP length-register write is unsupported and no request is accepted.",
+  "semanticAssessment": "The target test executed and failed on the planned delayed-copy behavior. Source inspection confirms the SP register window is not routed to a device handler in this baseline; the failure is not a build, setup, discovery, or fixture error."
+}
