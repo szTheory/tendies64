@@ -14,6 +14,16 @@ t64_target_warnings(t64-manifest-check)
 
 set(T64_MANIFEST_TOOL "$<TARGET_FILE:t64-manifest-check> --schema fixtures/manifest.schema.json")
 
+# t64_sanitize bounds (CR-01): guard bytes after the capacity catch an
+# off-by-one write without a sanitizer.
+add_executable(test_schema tests/test_schema.c t64_schema.c)
+target_include_directories(test_schema PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}
+  ${CMAKE_SOURCE_DIR}/tests)
+target_link_libraries(test_schema PRIVATE t64_common)
+t64_target_warnings(test_schema)
+add_test(NAME unit.schema-sanitize COMMAND test_schema)
+set_tests_properties(unit.schema-sanitize PROPERTIES LABELS unit)
+
 # Seeded manifests (directory-owned corpus, CONTEXT A-6): each bad_*.json must
 # fail with its rule id; good*.json must pass.
 add_test(NAME gov.manifest.seeds

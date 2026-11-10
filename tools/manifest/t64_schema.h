@@ -46,7 +46,9 @@ size_t t64_ptr_push_index(t64_ptr *p, size_t index);
 void t64_ptr_pop(t64_ptr *p, size_t old_len);
 
 /* Copies s into out (capacity cap, at least 4) with control bytes replaced by
- * '?' and a "..." tail when it does not fit. */
+ * '?' and a "..." tail when it does not fit. Never writes at or past
+ * out[cap]: a string of len <= cap-1 is copied whole; a longer one keeps its
+ * first cap-4 bytes, then "..." and the NUL. Below cap 4 only "" is written. */
 void t64_sanitize(const char *s, size_t len, char *out, size_t cap);
 
 typedef void (*t64_schema_emit_fn)(void *ctx, const char *rule,

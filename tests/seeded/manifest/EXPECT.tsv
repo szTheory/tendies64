@@ -27,3 +27,6 @@ bad_toolchain_pin.json	1	M-TOOLCHAIN-PIN	seed-entry
 bad_unknown_field.json	1	M-SCHEMA-ADDITIONAL	/entries/0/surprise:
 bad_enum_rights.json	1	M-SCHEMA-ENUM	/entries/0/source_rights:
 bad_short_sha.json	1	M-SCHEMA-PATTERN	/entries/0/sha256:
+# CR-01: a value longer than the display buffer is cut with "..." (needle), never written past it; run under the asan preset.
+bad_toolchain_long.json	1	M-TOOLCHAIN-PIN	"longtoolnamelongtoolnamelongtoolnamelongtoolnamelongtoolname..."
+bad_enum_long.json	1	M-SCHEMA-ENUM	"rightsvaluerightsvaluerightsvaluerightsvaluerightsvalueright..."

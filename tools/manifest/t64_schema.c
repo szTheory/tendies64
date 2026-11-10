@@ -69,18 +69,22 @@ void t64_ptr_pop(t64_ptr *p, size_t old_len) {
 void t64_sanitize(const char *s, size_t len, char *out, size_t cap) {
   size_t i;
   size_t n = 0;
+  size_t keep = len;
   int cut = 0;
 
   if (cap < 4u) {
     if (cap > 0u) out[0] = '\0';
     return;
   }
-  for (i = 0; i < len; i++) {
+  /* Fits when len bytes plus the NUL fit in cap. Otherwise keep cap-4 bytes,
+   * so the bytes, "..." and the NUL end exactly at out[cap-1] (CR-01: the
+   * old guard let the NUL land on out[cap]). */
+  if (len > cap - 1u) {
+    keep = cap - 4u;
+    cut = 1;
+  }
+  for (i = 0; i < keep; i++) {
     unsigned char c = (unsigned char)s[i];
-    if (n + 4u > cap) {
-      cut = 1;
-      break;
-    }
     out[n++] = (c < 0x20u || c == 0x7fu) ? '?' : (char)c;
   }
   if (cut) {
