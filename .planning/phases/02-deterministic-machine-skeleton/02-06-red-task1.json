@@ -1,10 +1,10 @@
 {
   "command": "./build/gate/core/test_sp_dma",
   "exitCode": 1,
-  "output": "1..1\nnot ok 1 - SP source is read at the 13-tick completion deadline\n# SP register statuses: mem=16 dram=16 length=16\n",
+  "output": "1..4\nnot ok 1 - SP source is read at the 13-tick completion deadline\nnot ok 2 - SP rectangular rows honor skip, alignment, and IMEM selection\nnot ok 3 - SP write wraps within the selected DMEM bank\nnot ok 4 - SP validates the final valid and first invalid DRAM rows\n# SP register statuses: mem=16 dram=16 length=16\n",
   "targetTest": "SP source is read at the 13-tick completion deadline",
   "targetFile": "test_sp_dma.c",
   "expected": "An accepted 8-byte SP read keeps DMEM unchanged through tick 12 and copies source bytes at tick 13.",
-  "actual": "All three SP register writes returned T64_STATUS_BUS_UNSUPPORTED (16); no request was accepted and the planned completion copy was absent.",
-  "semanticAssessment": "The target test executed with a successfully created and ROM-admitted synthetic machine, then failed on the planned SP delayed-copy behavior because SP registers are unsupported in the baseline. This is not a build, setup, discovery, or fixture error."
+  "actual": "All three initial SP register writes returned T64_STATUS_BUS_UNSUPPORTED (16); none of the four planned SP DMA cases completed.",
+  "semanticAssessment": "The target test executed with a successfully created and ROM-admitted synthetic machine, then failed on the planned SP delayed-copy behavior because SP registers are unsupported in the baseline. All four planned behavioral targets ran; the run was not a build, setup, discovery, or fixture error."
 }
