@@ -153,6 +153,15 @@ t64_target_warnings(test_digest_trace)
 add_test(NAME unit.core.digest-trace COMMAND test_digest_trace)
 set_tests_properties(unit.core.digest-trace PROPERTIES LABELS unit)
 
+add_executable(test_determinism tests/test_determinism.c)
+target_include_directories(test_determinism PRIVATE
+  "${CMAKE_CURRENT_SOURCE_DIR}"
+  "${CMAKE_SOURCE_DIR}/tests")
+target_link_libraries(test_determinism PRIVATE t64_core)
+t64_target_warnings(test_determinism)
+add_test(NAME unit.core.determinism COMMAND test_determinism)
+set_tests_properties(unit.core.determinism PROPERTIES LABELS unit)
+
 add_executable(test_bus tests/test_bus.c)
 target_include_directories(test_bus PRIVATE
   "${CMAKE_CURRENT_SOURCE_DIR}"

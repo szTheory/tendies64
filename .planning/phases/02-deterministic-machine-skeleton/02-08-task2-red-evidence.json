@@ -1,0 +1,10 @@
+{
+  "command": "ctest --preset gate --no-tests=error -R ^unit.core.determinism$ --output-on-failure --output-junit <local-report>",
+  "exitCode": 8,
+  "output": "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n<testsuite name=\"(empty)\"\n\ttests=\"1\"\n\tfailures=\"1\"\n\tdisabled=\"0\"\n\tskipped=\"0\"\n\thostname=\"\"\n\ttime=\"0\"\n\ttimestamp=\"2026-11-10T16:48:36\"\n\t>\n\t<testcase name=\"unit.core.determinism\" classname=\"unit.core.determinism\" time=\"0.27579\" status=\"fail\">\n\t\t<failure message=\"Failed\"/>\n\t\t<properties>\n\t\t\t<property name=\"cmake_labels\" value=\"unit\"/>\n\t\t</properties>\n\t\t<system-out>$PROJECT/core/tests/test_determinism.c:259: CHECK_INT failed: record_count got 47 want 11\n$PROJECT/core/tests/test_determinism.c:415: CHECK_INT failed: dropped got 57 want 55\nprofile=ntsc-cart-4m-skeleton profile_sha256=b7d1600ad960b4e04fdc3ec372675edc47b26b15be8e9cd84cbab4fd75835647 build_id=t64-build-v1-270d7045b235cdf3d5f0b2e17501b507dbb5889c1d0b24928bed2265111b42dd source_revision=a1354a1cbdd6c98449b86b4d8b485f0c63539d24\nevidence=unit-tested synthetic counter events; no guest execution\nunit.core.determinism: checks=1931 failures=2\n</system-out>\n\t</testcase>\n</testsuite>\n",
+  "targetTest": "unit.core.determinism",
+  "targetFile": "core/tests/test_determinism.c",
+  "expected": "cross-device deterministic run has the pinned same-tick completion trace count and exact bounded trace overflow count",
+  "actual": "the trace comparison assertions failed because the trace included initialization and precondition-read records beyond the expected completion-only records",
+  "semanticAssessment": "The target CTest compiled, executed 1,931 assertions, and failed exactly two intended trace-count assertions (observed 47 versus expected 11 and 57 dropped versus expected 55). Digest, device bytes, scheduler behavior, and refusal assertions passed. This is actionable RED evidence for isolating the trace capture window and pinning the exact overflow boundary, not a discovery or compile failure."
+}
