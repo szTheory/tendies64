@@ -5,16 +5,16 @@ milestone_name: Verified Headless Core
 current_phase: 01
 current_phase_name: Governance, Rights and Harness Foundation
 status: executing
-stopped_at: Completed 01-05-PLAN.md
-last_updated: "2026-11-10T02:03:48.656Z"
+stopped_at: Completed 01-06-PLAN.md
+last_updated: "2026-11-10T02:19:28.068Z"
 last_activity: 2026-11-09
 last_activity_desc: Phase 1 execution started
-state_head: 82d627bb542950b75cf1812e0ced1df4735d6b38
+state_head: 585741f886f8d45f8256661b5ecd40539d85daae
 progress:
   total_phases: 6
   completed_phases: 0
   total_plans: 13
-  completed_plans: 5
+  completed_plans: 6
   percent: 0
 ---
 
@@ -30,7 +30,7 @@ See: .planning/PROJECT.md (updated 2026-11-09)
 ## Current Position
 
 Phase: 1 (Governance, Rights and Harness Foundation) — EXECUTING
-Plan: 6 of 13
+Plan: 7 of 13
 Status: Ready to execute
 Last activity: 2026-11-09 — Phase 1 execution started
 
@@ -63,6 +63,7 @@ Progress: [░░░░░░░░░░] 0%
 | Phase 1 P03 | 6min | 3 tasks | 24 files |
 | Phase 1 P04 | 8min | 3 tasks | 14 files |
 | Phase 1 P05 | 30min | 2 tasks | 17 files |
+| Phase 1 P06 | 8 min | 3 tasks | 5 files |
 
 ## Accumulated Context
 
@@ -84,6 +85,9 @@ Decisions are logged in the PROJECT.md Key Decisions table. Recent decisions tha
 - [Phase 1]: 01-04: check-ci-yml.sh adds a --gate option for the CI-GATE-EXEC mutation; CI-TIMEOUT accepts 1 to 10 minutes
 - [Phase 1]: 01-05: JSON parser rejects object keys over 127 bytes (string-length) because the canonical writer cannot emit them; depth limit clamped to 64
 - [Phase 1]: 01-05: run-expect.sh treats only --ext-matching files as seeds and matches rule_id ok as a whole word
+- [Phase 1]: 01-06: allowlisted digests waive content classes only; R-DENIED-EXT is never waived, and zero-scanned results exit 2
+- [Phase 1]: 01-06: history blob names come from rev-list --objects plus the raw log, since rev-list names a shared blob once; gitlinks read from raw-log mode 160000
+- [Phase 1]: 01-06: added P-SHALLOW to pii-scan (unlisted rule id) so a shallow clone cannot pass a vacuous history scan; ROADMAP SC4 artifact leg covered by seeded staging-rom-magic and staging-nul cases
 
 ### Pending Todos
 
@@ -109,6 +113,6 @@ Items acknowledged and deferred at milestone close, most recent first:
 
 ## Session Continuity
 
-Last session: 2026-11-10T02:03:48.630Z
-Stopped at: Completed 01-05-PLAN.md
+Last session: 2026-11-10T02:19:28.029Z
+Stopped at: Completed 01-06-PLAN.md
 Resume file: None
