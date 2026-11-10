@@ -153,6 +153,8 @@ t64_status t64_rom_candidate_prepare(
     return T64_STATUS_ALLOCATION_FAILED;
   }
   if (!t64_internal_storage_range(storage, length, 1u, &candidate_range) ||
+      (storage.alignment > 0u &&
+       ((uintptr_t)storage.data % storage.alignment) != 0u) ||
       !candidate_is_disjoint(candidate_range, machine_storage,
                              current_image_storage, has_current_image,
                              input_range)) {
