@@ -25,8 +25,8 @@ SELF=$0
 
 # Required ADR numbers (one variable; later tasks append).
 REQUIRED="0001 0002 0003 0004 0005 0006 0007"
-# Required ADRs allowed to stay proposed. Plan 01-08 accepts ADR-0002 and removes this exemption.
-PROPOSED_OK="0002"
+# Required ADRs allowed to stay proposed. Empty: plan 01-08 accepted ADR-0002 (spike result stay-c17).
+PROPOSED_OK=""
 # The only two paths under core/ allowed while ADR-0002 is not accepted (CONTEXT A-1).
 CORE_ALLOW="core/t64_core_stub.c core/include/tendies64/t64_facade.h"
 # Headings every ADR and the template carry, in this order (extra headings are allowed between them).
@@ -340,6 +340,9 @@ selftest() {
   done
   mk_doc "$T/docs/adr/$_target-case.md" proposed
   expect_fail DOC-ADR-NOT-ACCEPTED "a required ADR is proposed"
+  new_tree notacc-0002
+  mk_doc "$T/docs/adr/0002-case.md" proposed
+  expect_fail DOC-ADR-NOT-ACCEPTED "ADR 0002 proposed fails now that it is accepted"
   for _ex in $PROPOSED_OK; do
     case " $REQUIRED " in
       *" $_ex "*)

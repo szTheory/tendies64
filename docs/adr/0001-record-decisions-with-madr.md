@@ -48,8 +48,8 @@ Rules (enforced by `scripts/check-docs.sh`):
   of the Options, More Information. Extra subheadings are allowed.
 - The Reversal evidence section is not empty.
 - The set of required decisions is a list at the top of the checker. A required decision that is absent, or
-  present with a status other than `accepted`, fails the gate. ADR-0002 is exempt from the acceptance rule
-  until the plan that runs its pre-registered spike accepts it.
+  present with a status other than `accepted`, fails the gate. ADR-0002 was exempt from the acceptance rule
+  until plan 01-08 accepted it after its pre-registered spike, so no exemption remains.
 - An owner-visible decision is flagged `[owner-visible]` in its text. The flag informs the owner; it does not
   block work.
 

@@ -1,6 +1,6 @@
 ---
-status: proposed
-date: 2026-11-09
+status: accepted
+date: 2026-11-10
 decision-makers: szTheory
 consulted: none
 informed: none
@@ -8,7 +8,7 @@ informed: none
 
 # C17 core and runner, CMake and Ninja build, C ABI behind opaque instances
 
-**Status:** proposed
+**Status:** accepted
 
 ## Context and Problem Statement
 
@@ -36,7 +36,8 @@ block work. Which language and ABI should the core use, and what evidence would 
 
 ## Decision Outcome
 
-Chosen option: "C17 core and runner", provisionally, until the pre-registered spike below accepts it.
+Chosen option: "C17 core and runner". The pre-registered spike below decided "stay with C17"
+(`docs/spikes/rust-vs-c/RESULTS.md`), which accepts this record under amendment A-3.
 
 Language and build (D1):
 
@@ -74,8 +75,10 @@ Spike and acceptance rules:
 - Amendment A-3: a "switch" outcome stops the accepting plan and the workflow must escalate to the owner,
   because it rewrites the C stub, the lint and the CMake files. Only a "stay with C17" outcome may
   auto-accept this record.
-- Until this record is accepted, `DOC-CORE-BEFORE-ADR` in `scripts/check-docs.sh` fails any file under
-  `core/` other than `core/t64_core_stub.c` and `core/include/tendies64/t64_facade.h`.
+- Outcome: the registered run (`docs/spikes/rust-vs-c/RESULTS.md`, Decision: stay-c17) triggered neither
+  criterion, so this record is accepted. Before acceptance, `DOC-CORE-BEFORE-ADR` in `scripts/check-docs.sh`
+  failed any file under `core/` other than `core/t64_core_stub.c` and `core/include/tendies64/t64_facade.h`.
+  With this record accepted, other core files are legal.
 
 ### Consequences
 
@@ -87,10 +90,25 @@ Spike and acceptance rules:
 
 ### Confirmation
 
-Plan 01-08's pre-registered spike. It accepts this record on a "stay with C17" outcome, or stops and
-escalates to the owner on a "switch" outcome. The gate rule `DOC-CORE-BEFORE-ADR` keeps behavioral core code
-out until then. The Layer-2 object lint (ADR-0006) is the determinism check that criterion (a) compares
-against.
+The pre-registered spike decided this record. `docs/spikes/rust-vs-c/PREREG.md` froze the class list, the file
+hashes, both rules and the time box in a commit that precedes the results; `docs/spikes/rust-vs-c/RESULTS.md`
+applies them mechanically. Per rule:
+
+- Rule (a), the C lint cannot catch a seeded leak class that Rust rejects at compile time: not triggered. The
+  full C gate lint (both layers) exits 1 on all 17 frozen classes on the macOS host and in the Linux
+  container, so no class is both missed by the C gate and rejected by the Rust twin. The Rust twins reject 13 of
+  the 17 classes. Four (atomic static, allocation, floating point, build-time macro) compile under `#![no_std]`
+  and `#![forbid(unsafe_code)]`, and the std escape compiles too. Three C classes (floating point, build-time
+  macro, inline asm) are caught by the Layer-1 source scan only.
+- Rule (b), a sanitizer finding in the C admission parser: not triggered. A fuzz of 2000040 in-memory inputs
+  (a ten-size boundary sweep and 2,000,000 deterministic mutations) under ASan and UBSan produced no report.
+  A seeded overread was caught and attributed in the same harness, so the clean result is not vacuous.
+- The Rust admission parser agrees with the C parser on all 2000040 inputs (differential match). It is not
+  run under sanitizers: `-Zsanitizer` is nightly-only and the pinned image is stable.
+
+Evidence limits: Linux evidence is the aarch64 container only, and the C corpus is the frozen seeds. The gate
+rule `DOC-CORE-BEFORE-ADR` no longer blocks other core files. The Layer-2 object lint (ADR-0006) remains the
+determinism check, and plan 01-13's CI run adds ubuntu-24.04 x64.
 
 ## Reversal evidence
 
@@ -130,6 +148,6 @@ Style, speed, ecosystem and preference do not count.
 
 ## More Information
 
-- Related: ADR-0006 (determinism lint mechanism), `docs/spikes/` (spike pre-registration and results, added
-  by plan 01-08), `tools/lint/`.
+- Related: ADR-0006 (determinism lint mechanism), `docs/spikes/rust-vs-c/` (`PREREG.md` and `RESULTS.md`),
+  `tools/lint/`.
 - The phase context records D1 and amendments A-1 to A-3 in `.planning/phases/`.
