@@ -177,11 +177,15 @@ scan_history() {
   hist_hits P-PRIVATE-PATH "$TMP/added.txt" "$TMP/added.loc" "$PATH_RE"
   hist_hits P-EMAIL "$TMP/added.txt" "$TMP/added.loc" "$EMAIL_RE"
 
-  # Commit messages.
-  git log --format='COMMIT %h%n%B' "$_spec" > "$TMP/log.msg" || fatal "git log failed"
+  # Commit messages. A message is free text, so no in-band marker can be
+  # trusted inside it: %w(0,2,2) indents every message line (blank lines
+  # included) by two spaces, and only an unindented line is a record marker.
+  git log --format='COMMIT %h%n%w(0,2,2)%B' "$_spec" > "$TMP/log.msg" ||
+    fatal "git log failed"
   awk -v text="$TMP/msg.txt" -v loc="$TMP/msg.loc" '
     /^COMMIT / { c = $2; next }
-    { print $0 > text; print "message:" c > loc }
+    { if (substr($0, 1, 2) == "  ") $0 = substr($0, 3)
+      print $0 > text; print "message:" c > loc }
     END { close(text); close(loc) }' "$TMP/log.msg" || fatal "awk failed"
   : >> "$TMP/msg.txt"
   : >> "$TMP/msg.loc"
@@ -376,6 +380,14 @@ selftest() {
   printf 'x\n' > "$ST/msg/a.txt"
   (cd "$ST/msg" && g add -A && g commit -q -m "contact $E_REAL")
   case_run message-email 1 P-EMAIL "$ST/msg" --history
+  # A body line that begins with the word a record marker used to start with
+  # must still be scanned (free text has no reserved prefix).
+  new_repo msgmark
+  printf 'x\n' > "$ST/msgmark/a.txt"
+  (cd "$ST/msgmark" && g add -A &&
+    g commit -q -m "subject" -m "COMMIT contact $E_REAL" -m "COMMIT see $P_MAC")
+  case_run message-marker-lookalike 1 P-EMAIL "$ST/msgmark" --history
+  case_run message-marker-lookalike-path 1 P-PRIVATE-PATH "$ST/msgmark" --history
 
   # Redaction: nothing but three characters of a match is ever printed.
   new_repo red
