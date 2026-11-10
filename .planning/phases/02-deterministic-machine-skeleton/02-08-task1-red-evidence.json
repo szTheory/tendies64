@@ -1,0 +1,10 @@
+{
+  "command": "ctest --preset gate --no-tests=error -R ^unit.core.profile-result$ --output-on-failure --output-junit <local-report>",
+  "exitCode": 8,
+  "output": "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n<testsuite name=\"(empty)\"\n\ttests=\"1\"\n\tfailures=\"1\"\n\tdisabled=\"0\"\n\tskipped=\"0\"\n\thostname=\"\"\n\ttime=\"0\"\n\ttimestamp=\"2026-11-10T16:20:25\"\n\t>\n\t<testcase name=\"unit.core.profile-result\" classname=\"unit.core.profile-result\" time=\"0.506267\" status=\"fail\">\n\t\t<failure message=\"Failed\"/>\n\t\t<properties>\n\t\t\t<property name=\"cmake_labels\" value=\"unit\"/>\n\t\t</properties>\n\t\t<system-out>$PROJECT/runner/tests/test_skeleton_probe.c:89: CHECK_INT failed: run(argv[1], \"ntsc-cart-4m-skeleton\", record_path, output_path) got 127 want 0\n$PROJECT/runner/tests/test_skeleton_probe.c:90: CHECK_INT failed: check(argv[2], record_path, output_path) got 1 want 0\nunit.core.profile-result: checks=4 failures=2\n</system-out>\n\t</testcase>\n</testsuite>\n",
+  "targetTest": "unit.core.profile-result",
+  "targetFile": "runner/tests/test_skeleton_probe.c",
+  "expected": "the named profile probe exits zero and emits a canonical model record accepted by the strict model checker",
+  "actual": "the producer executable is not implemented yet; the target test observed child exit 127 and checker refusal",
+  "semanticAssessment": "The target CTest executed and failed its intended producer-success assertion. Its child could not find the not-yet-implemented producer; the checker then refused the empty record. This is the planned RED for Task 1, not a compile, discovery, or fixture failure."
+}
