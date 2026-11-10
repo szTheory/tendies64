@@ -64,13 +64,47 @@ function strip(s,   out, i, n, c, d, q) {
   return out
 }
 
-function check_include(c,   h, p) {
-  if (!match(c, /^[ \t]*#[ \t]*include[ \t]*</)) return
-  h = substr(c, RLENGTH + 1)
-  p = index(h, ">"); if (p > 0) h = substr(h, 1, p - 1)
-  if ((h in banhdr) || substr(h, 1, 4) == "sys/") report("L1-INCLUDE-BANNED", FNR, "banned header <" h ">")
-  else if (substr(h, 1, 9) == "tendies64/") { }
-  else if (!(h in okhdr)) report("L1-INCLUDE-UNLISTED", FNR, "header <" h "> is not on the core allowlist")
+function fexists(path,   r, l) {
+  r = (getline l < path)
+  close(path)
+  return r >= 0
+}
+
+function under_root(d) {
+  return d == incroot || substr(d, 1, length(incroot) + 1) == incroot "/"
+}
+
+# Quoted includes must resolve to a file inside the core tree (WR-16): next to
+# the including file when that file is itself inside the root, or under the
+# root, root/include or core/include. A path with "..", a backslash or a
+# leading "/" is refused outright. A computed include (#include MACRO) cannot
+# be checked and is refused too. raw is the unstripped line (strip() empties
+# string contents, so the quoted name is read from it).
+function check_include(c, raw,   h, p, m) {
+  if (!match(c, /^[ \t]*#[ \t]*(include_next|include|import)[ \t]*/)) return
+  m = substr(c, RLENGTH + 1, 1)
+  if (m == "<") {
+    h = substr(c, RLENGTH + 2)
+    p = index(h, ">"); if (p > 0) h = substr(h, 1, p - 1)
+    if ((h in banhdr) || substr(h, 1, 4) == "sys/") report("L1-INCLUDE-BANNED", FNR, "banned header <" h ">")
+    else if (substr(h, 1, 10) == "tendies64/" && h !~ /(^|\/)\.\.(\/|$)/ && fexists(coreinc "/" h)) { }
+    else if (!(h in okhdr)) report("L1-INCLUDE-UNLISTED", FNR, "header <" h "> is not on the core allowlist")
+    return
+  }
+  if (m != "\"") {
+    report("L1-INCLUDE-UNLISTED", FNR, "computed include; name the header literally")
+    return
+  }
+  p = index(raw, "\"")
+  h = substr(raw, p + 1)
+  p = index(h, "\""); if (p > 0) h = substr(h, 1, p - 1)
+  if (h == "" || substr(h, 1, 1) == "/" || index(h, bs) > 0 || h ~ /(^|\/)\.\.(\/|$)/) {
+    report("L1-INCLUDE-UNLISTED", FNR, "quoted header \"" h "\" must be a relative path inside core/ without ..")
+    return
+  }
+  if (under_root(fdir) && fexists(fdir "/" h)) return
+  if (fexists(incroot "/" h) || fexists(incroot "/include/" h) || fexists(coreinc "/" h)) return
+  report("L1-INCLUDE-UNLISTED", FNR, "quoted header \"" h "\" does not resolve inside core/")
 }
 
 function addnames(rule, list,   n, a, i) {
@@ -224,6 +258,9 @@ BEGIN {
   addnames("L1-NAME-ALLOC", "malloc calloc realloc free aligned_alloc posix_memalign alloca")
   addnames("L1-NAME-ENV", "getenv secure_getenv setenv setlocale")
   addprefixes("L1-NAME-THREAD", "pthread_ thrd_ mtx_ cnd_ tss_")
+  addprefixes("L1-NAME-TIME", hosttime)
+  addprefixes("L1-NAME-ENTROPY", hostentropy)
+  addprefixes("L1-NAME-ENV", hostenv)
   addnames("L1-TOKEN-FLOAT", "float double")
   addnames("L1-BUILD-MACRO", "__DATE__ __TIME__ __TIMESTAMP__")
   addnames("L1-ASM", "asm __asm __asm__")
@@ -246,14 +283,29 @@ BEGIN {
 {
   code = strip($0)
   ispp = ppcont || (code ~ /^[ \t]*#/)
-  isinc = !ppcont && (code ~ /^[ \t]*#[ \t]*include/)
+  isinc = !ppcont && (code ~ /^[ \t]*#[ \t]*(include|import)/)
   ppcont = ispp && (substr(code, length(code), 1) == bs)
-  if (isinc) { check_include(code); next }
+  if (isinc) { check_include(code, $0); next }
   if (!ppcont && code ~ /^[ \t]*#[ \t]*pragma[ \t]/ && code ~ /(section|data_seg|bss_seg|const_seg|code_seg)/)
     report("L1-ATTR-SECTION", FNR, "a section pragma places objects in a named section")
   scan(code, ispp)
 }
 '
+
+# Host-state intrinsics compile to an instruction, not a call, so Layer 2 sees
+# no symbol (WR-16). Each list is a set of name prefixes.
+HOST_TIME_PFX="__builtin_readcyclecounter __builtin_readsteadycounter __builtin_ia32_rdtsc __builtin_ia32_rdpid __rdtsc _rdtsc __builtin_arm_rsr __builtin_arm_wsr __builtin_arm_isb _ReadStatusReg __builtin_ppc_mftb __builtin_ppc_get_timebase __mftb"
+HOST_ENTROPY_PFX="__builtin_ia32_rdrand __builtin_ia32_rdseed _rdrand _rdseed __builtin_arm_rndr"
+HOST_ENV_PFX="__builtin_cpu_"
+INC_ROOT="$REPO/core"
+
+# l1_scan FILE: Layer 1 over one file, appended to stdout.
+l1_scan() {
+  _fdir=$(cd "$(dirname "$1")" && pwd -P) || return 2
+  awk -v rules="$RULES" -v hosttime="$HOST_TIME_PFX" -v hostentropy="$HOST_ENTROPY_PFX" \
+    -v hostenv="$HOST_ENV_PFX" -v fdir="$_fdir" -v incroot="$INC_ROOT" \
+    -v coreinc="$REPO/core/include" "$L1_AWK" "$1"
+}
 
 # collect_files MODE ARG...: write the sorted file list to $TMP/files.
 # Modes: root DIR | files F...
@@ -293,7 +345,7 @@ lint_list() {
 '
   set -f
   for _f in $(cat "$TMP/files"); do
-    awk -v rules="$RULES" "$L1_AWK" "$_f" >> "$TMP/l1.out" || { echo "core-lint: awk failed on $_f" >&2; exit 2; }
+    l1_scan "$_f" >> "$TMP/l1.out" || { echo "core-lint: awk failed on $_f" >&2; exit 2; }
     case "$_f" in
       *.c) printf '%s\n' "$_f" >> "$TMP/clist" ;;
     esac
@@ -462,6 +514,30 @@ selftest() {
     fi
   fi
 
+  # Control 4: every host-state intrinsic prefix is reported by Layer 1 under
+  # its rule (one generated call per prefix, so no list entry is dead).
+  for _pair in "L1-NAME-TIME|$HOST_TIME_PFX" "L1-NAME-ENTROPY|$HOST_ENTROPY_PFX" "L1-NAME-ENV|$HOST_ENV_PFX"; do
+    _rid=${_pair%%|*}
+    for _p in ${_pair#*|}; do
+      printf 'unsigned long long t64_b(void) { return (unsigned long long)%sx(); }\n' "$_p" > "$TMP/intr.c"
+      if l1_scan "$TMP/intr.c" | grep -q "^$_rid "; then :; else
+        echo "SELFTEST-FAIL intrinsic control: $_p is not reported as $_rid"
+        _fail=$((_fail + 1))
+      fi
+    done
+  done
+  echo "selftest ok: host-state intrinsic prefixes are reported"
+
+  # Control 5: a quoted include of a core header passes from any directory.
+  printf '#include "tendies64/t64_facade.h"\nint t64_q(void) { return 0; }\n' > "$TMP/qok.c"
+  if l1_scan "$TMP/qok.c" | grep -q '^L1-'; then
+    echo "SELFTEST-FAIL quoted-include control: a core header was refused"
+    l1_scan "$TMP/qok.c"
+    _fail=$((_fail + 1))
+  else
+    echo "selftest ok: a quoted core header resolves through core/include"
+  fi
+
   echo "core-lint selftest: seeds=$_seeds seeds_ok=$_ok failures=$_fail"
   [ "$_fail" -eq 0 ]
 }
@@ -486,6 +562,7 @@ case "$1" in
   --root)
     [ $# -eq 2 ] || usage
     SCAN_ROOT=$2
+    INC_ROOT=$(cd "$2" 2> /dev/null && pwd -P) || { echo "core-lint: root is not a directory: $2" >&2; exit 2; }
     collect_files root "$2"
     lint_list -I "$2" -I "$2/include"
     ;;

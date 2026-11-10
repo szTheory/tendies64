@@ -39,8 +39,12 @@ spelling, and the source scan gives readable hints before a symbol name does.
 Layer 1, `tools/lint/core-lint.sh` (POSIX sh and awk): an include allowlist (`stdint.h stddef.h stdbool.h
 stdalign.h limits.h string.h` and project headers), banned headers, banned tokens (floating types,
 `__DATE__`, `__TIME__`, `__TIMESTAMP__`, inline assembly, thread-local storage, atomics, constructor
-attributes), banned time, entropy, file, stdio, allocation, thread and environment names, and heuristics for
-mutable file-scope objects. Each violation prints a rule id, `file:line` and a hint. Rule ids, layers and
+and section attributes, section pragmas), banned time, entropy, file, stdio, allocation, thread and
+environment names, and heuristics for mutable file-scope objects. Host-state intrinsics (cycle counters such
+as `__builtin_readcyclecounter` and `__rdtsc`, system-register reads, hardware random numbers, CPU
+identification builtins) compile to an instruction rather than a call, so Layer 2 cannot see them; Layer 1
+bans them by name prefix. A quoted include must resolve inside the core tree (next to a core file, or under
+`core/include`), with no `..`; a computed include is refused (code-review finding WR-16). Each violation prints a rule id, `file:line` and a hint. Rule ids, layers and
 hints live in `tools/lint/rules.txt`, the single source of truth.
 
 Layer 2, `tools/lint/lint-objects.sh` (authoritative): each core file is compiled to an object with exactly
