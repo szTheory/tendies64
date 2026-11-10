@@ -117,7 +117,32 @@ Plans:
   4. ROM admission refuses oversized, truncated and malformed images, and images of unknown byte order, and the state digest is unchanged after each refusal. A ROM whose header country byte disagrees with the selected profile still runs under the profile's TV type and region (two-profile diff test)
   5. Turning on tracing produces guest-time-stamped events at device boundaries, and the final digest is identical to an untraced run
   6. The ROM admission parser is fuzzed under ASan and UBSan with inputs that exercise every header-field-dependent read, and the fuzz target is the production parser, not a stub (ADR-0002, "Evidence limits": the Phase 1 spike parser read four bytes, so its fuzz established nothing about memory safety)
-**Plans**: TBD
+**Plans**: 8 plans
+
+Plans:
+**Wave 1**
+- [ ] 02-01-PLAN.md — Owned instance tracer, linted hash primitive and explicit profile identity
+
+**Wave 2** *(blocked on Wave 1 completion)*
+- [ ] 02-02-PLAN.md — Transactional production ROM normalization and allocator refusal contracts
+
+**Wave 3** *(blocked on Wave 2 completion)*
+- [ ] 02-03-PLAN.md — Exact guest-time scheduler, canonical digest and observational trace
+
+**Wave 4** *(blocked on Wave 3 completion)*
+- [ ] 02-04-PLAN.md — Checked physical memory map and separate MI pending/masks
+
+**Wave 5** *(blocked on Wave 4 completion)*
+- [ ] 02-05-PLAN.md — Scheduled PI DMA, cancellation and exact register policy
+
+**Wave 6** *(blocked on Wave 5 completion)*
+- [ ] 02-06-PLAN.md — Checked SP row DMA, active/pending queue and source visibility
+
+**Wave 7** *(blocked on Wave 6 completion)*
+- [ ] 02-07-PLAN.md — Production sanitizer campaign and strict separate native model-result contract
+
+**Wave 8** *(blocked on Wave 7 completion)*
+- [ ] 02-08-PLAN.md — Checked host probe, cross-device determinism, exact inventory gate and final evidence
 
 ### Phase 3: First Headless ROM Through Open IPL3
 **Goal**: A hello ROM boots through HLE-PIF seeding and a pinned open IPL3 with no Nintendo boot bytes, prints through ISViewer, and the headless runner reports a pass with identical digests across platforms
