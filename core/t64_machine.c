@@ -17,23 +17,6 @@
 #define T64_BASE_RAM_BYTES UINT32_C(4194304)
 #define T64_STATE_HASH_VERSION UINT32_C(1)
 
-struct t64_machine {
-  t64_host_allocator allocator;
-  t64_host_storage machine_storage;
-  t64_host_storage image_storage;
-  t64_profile_descriptor profile;
-  uint8_t profile_digest[T64_DIGEST_SIZE];
-  uint8_t content_digest[T64_DIGEST_SIZE];
-  uint8_t *ram;
-  size_t image_length;
-  uint64_t tick;
-  uint8_t rom_header[T64_ROM_HEADER_BYTES];
-  uint8_t rom_title[T64_ROM_TITLE_BYTES];
-  uint8_t rom_game_code[T64_ROM_GAME_CODE_BYTES];
-  uint8_t rom_version;
-  bool has_image;
-};
-
 static const t64_profile_descriptor ntsc_cart_4m_profile = {
     .profile_id = "ntsc-cart-4m-skeleton",
     .console_target = "NUS-CPU-03",
@@ -158,6 +141,7 @@ static bool profile_fields_are_valid(const t64_profile_descriptor *profile) {
          profile->rom_min_bytes >= 4096u &&
          profile->rom_max_bytes >= profile->rom_min_bytes &&
          profile->event_queue_capacity > 0u &&
+         profile->event_queue_capacity <= T64_EVENT_QUEUE_CAPACITY &&
          profile->sequence_width_bits > 0u &&
          profile->sequence_width_bits <= 64u &&
          profile->advance_event_budget > 0u &&
@@ -316,8 +300,20 @@ static void release_bad_machine_storage(
   }
 }
 
-static void reset_guest_state(t64_machine *machine) {
+void t64_machine_reset_execution_state(t64_machine *machine) {
   machine->tick = 0u;
+  machine->instruction_count = 0u;
+  machine->frame_event_count = 0u;
+  machine->sticky_error_status = T64_STATUS_OK;
+  machine->halted = false;
+  machine->queue_head = 0u;
+  machine->queue_count = 0u;
+  machine->next_sequence = 0u;
+  machine->sequence_exhausted = false;
+}
+
+static void reset_guest_state(t64_machine *machine) {
+  t64_machine_reset_execution_state(machine);
   (void)memset(machine->ram, 0, machine->profile.rdram_bytes);
 }
 
@@ -497,16 +493,7 @@ t64_status t64_machine_advance(t64_machine *machine,
   if (!machine->has_image) {
     return T64_STATUS_NOT_READY;
   }
-  if (request->kind != T64_STOP_GUEST_TICK) {
-    return T64_STATUS_INVALID_ARGUMENT;
-  }
-  if (request->value < machine->tick) {
-    return T64_STATUS_TIME_REVERSED;
-  }
-  machine->tick = request->value;
-  result_out->reason = T64_STOP_REASON_BOUND;
-  result_out->tick = machine->tick;
-  return T64_STATUS_OK;
+  return t64_scheduler_advance(machine, request, result_out);
 }
 
 t64_status t64_machine_content_digest(

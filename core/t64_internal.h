@@ -10,6 +10,14 @@
 #define T64_ROM_HEADER_BYTES T64_ROM_HEADER_SIZE
 #define T64_ROM_TITLE_BYTES 20u
 #define T64_ROM_GAME_CODE_BYTES 4u
+#define T64_EVENT_QUEUE_CAPACITY 256u
+
+#define T64_DEVICE_SYNTHETIC_TEST UINT32_C(0xffff0001)
+#define T64_TEST_EVENT_NOOP UINT32_C(1)
+#define T64_TEST_EVENT_INSTRUCTION UINT32_C(2)
+#define T64_TEST_EVENT_FRAME UINT32_C(3)
+#define T64_TEST_EVENT_HALT UINT32_C(4)
+#define T64_TEST_EVENT_REPEAT_INSTRUCTION UINT32_C(5)
 
 typedef struct {
   uintptr_t begin;
@@ -26,6 +34,81 @@ typedef struct {
   uint8_t digest[T64_DIGEST_SIZE];
   bool owns_storage;
 } t64_rom_candidate;
+
+typedef struct t64_event t64_event;
+typedef t64_status (*t64_event_handler_fn)(t64_machine *machine,
+                                           const t64_event *event);
+
+struct t64_event {
+  uint64_t tick;
+  uint64_t sequence;
+  uint32_t device;
+  uint32_t kind;
+  uint64_t value;
+  uint64_t token;
+  t64_event_handler_fn handler;
+};
+
+typedef struct {
+  t64_machine *machine;
+  t64_event event;
+  size_t expected_queue_count;
+  uint64_t expected_tick;
+  bool valid;
+} t64_event_reservation;
+
+struct t64_machine {
+  t64_host_allocator allocator;
+  t64_host_storage machine_storage;
+  t64_host_storage image_storage;
+  t64_profile_descriptor profile;
+  uint8_t profile_digest[T64_DIGEST_SIZE];
+  uint8_t content_digest[T64_DIGEST_SIZE];
+  uint8_t *ram;
+  size_t image_length;
+  uint64_t tick;
+  uint64_t instruction_count;
+  uint64_t frame_event_count;
+  uint32_t sticky_error_status;
+  uint8_t rom_header[T64_ROM_HEADER_BYTES];
+  uint8_t rom_title[T64_ROM_TITLE_BYTES];
+  uint8_t rom_game_code[T64_ROM_GAME_CODE_BYTES];
+  uint8_t rom_version;
+  bool has_image;
+  bool halted;
+  t64_event events[T64_EVENT_QUEUE_CAPACITY];
+  size_t queue_head;
+  size_t queue_count;
+  uint64_t next_sequence;
+  bool sequence_exhausted;
+};
+
+t64_status t64_schedule_reserve(t64_machine *machine, uint64_t tick,
+                                uint32_t device, uint32_t kind,
+                                uint64_t value, uint64_t token,
+                                t64_event_handler_fn handler,
+                                t64_event_reservation *reservation_out);
+t64_status t64_schedule_reserve_after(t64_machine *machine, uint64_t delay,
+                                      uint32_t device, uint32_t kind,
+                                      uint64_t value, uint64_t token,
+                                      t64_event_handler_fn handler,
+                                      t64_event_reservation *reservation_out);
+t64_status t64_schedule_commit(t64_machine *machine,
+                               t64_event_reservation *reservation);
+t64_status t64_scheduler_advance(t64_machine *machine,
+                                 const t64_stop_request *request,
+                                 t64_stop_result *result_out);
+t64_status t64_test_schedule_synthetic(t64_machine *machine, uint64_t tick,
+                                       uint32_t kind, uint64_t value);
+t64_status t64_test_schedule_synthetic_after(t64_machine *machine,
+                                             uint64_t delay, uint32_t kind,
+                                             uint64_t value);
+t64_status t64_test_reserve_synthetic(t64_machine *machine, uint64_t tick,
+                                      uint32_t kind, uint64_t value,
+                                      t64_event_reservation *reservation_out);
+bool t64_test_event_handler_matches(const t64_machine *machine,
+                                    size_t logical_offset);
+void t64_machine_reset_execution_state(t64_machine *machine);
 
 static inline bool t64_internal_make_range(const void *pointer, size_t length,
                                            t64_address_range *range_out) {

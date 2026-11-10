@@ -136,7 +136,9 @@ add_test(NAME unit.core.lifecycle COMMAND test_lifecycle)
 set_tests_properties(unit.core.lifecycle PROPERTIES LABELS unit)
 
 add_executable(test_scheduler tests/test_scheduler.c)
-target_include_directories(test_scheduler PRIVATE "${CMAKE_SOURCE_DIR}/tests")
+target_include_directories(test_scheduler PRIVATE
+  "${CMAKE_CURRENT_SOURCE_DIR}"
+  "${CMAKE_SOURCE_DIR}/tests")
 target_link_libraries(test_scheduler PRIVATE t64_core)
 t64_target_warnings(test_scheduler)
 add_test(NAME unit.core.scheduler COMMAND test_scheduler)
