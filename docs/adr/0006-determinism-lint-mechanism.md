@@ -49,10 +49,23 @@ Layer 2, `tools/lint/lint-objects.sh` (authoritative): each core file is compile
 -std=c17 -O2 -fno-common -fno-stack-protector -fno-pic -U_FORTIFY_SOURCE -D_FORTIFY_SOURCE=0
 ```
 
-The object fails on any non-empty writable data section (`.data .bss .tdata .tbss`, and on Mach-O
-`__DATA,__data`, `__bss`, `__common`, `__thread_*`), any common symbol, any constructor section
-(`.init_array`, `__DATA,__mod_init_func`) and any undefined symbol that the core does not define and the
-allowlist does not name. Constant tables in `__DATA,__const` and `.data.rel.ro*` stay allowed.
+The object fails on any non-empty section that is not on an explicit read-only list, any common symbol, any
+constructor section (`.init_array`, `__DATA,__mod_init_func`) and any undefined symbol that the core does not
+define and the allowlist does not name. The section check is allow-by-name, not deny-by-name (code-review
+finding CR-13), so state placed in a custom-named section through `__attribute__((section(...)))` or a
+section pragma fails:
+
+- Mach-O read-only list: `__TEXT,{__text __const __cstring __literal4 __literal8 __literal16 __ustring
+  __eh_frame __gcc_except_tab}`, `__DATA,__const`, `__DATA_CONST,__const`, `__LD,__compact_unwind` and
+  `__DWARF,*`. Mach-O has no per-section write flag, so the name decides.
+- ELF read-only list: `.text* .rodata* .data.rel.ro* .eh_frame .eh_frame_hdr .gcc_except_table* .comment
+  .note* .group .symtab .strtab .shstrtab .symtab_shndx .rel* .rela* .llvm_addrsig .debug_*` and the ARM and
+  RISC-V attribute and unwind sections. The flags from `readelf -S -W` are also read: any section with the
+  write or TLS flag fails whatever its name, except `.data.rel.ro*`.
+
+Constant tables in `__DATA,__const` and `.data.rel.ro*` stay allowed. Residual: a non-const object that is
+explicitly placed in `__DATA,__const` (Mach-O) or `.data.rel.ro*` (ELF) passes the object check; the
+Layer-1 rule `L1-ATTR-SECTION` reports every section attribute and section pragma in core sources.
 
 Measured deltas that shape the exact mechanism (evidence label MEASURED unless stated):
 
@@ -65,7 +78,8 @@ Measured deltas that shape the exact mechanism (evidence label MEASURED unless s
   `c` also fails.
 - Constructors land in `__DATA,__mod_init_func` or `.init_array`, and both are denied. A seed must keep an
   observable effect, because an empty constructor is deleted by the optimizer.
-- The section tool differs: `size -m` on Darwin and `size -A` elsewhere.
+- The section tool differs: `size -m` on Darwin and `readelf -S -W` elsewhere (it shows the section flags,
+  which `size -A` does not).
 - Compiler runtime helpers can surface from innocent code: `__builtin_popcount*` becomes `__popcountdi2` on
   x86-64 gcc, `__int128` division becomes `__udivti3`, and a stack frame above 4 KiB becomes
   `___chkstk_darwin` on macOS. None is allowlisted by default.

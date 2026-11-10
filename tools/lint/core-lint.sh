@@ -167,6 +167,7 @@ function number(t) {
 function ident(tok, pp,   i) {
   if (attr_track(tok)) {
     if (attrdepth > 0 && (tok in ctorword)) report("L1-ATTR-CTOR", FNR, "attribute \"" tok "\" runs code at load time")
+    if (attrdepth > 0 && (tok in sectword)) report("L1-ATTR-SECTION", FNR, "attribute \"" tok "\" places an object in a named section")
     return
   }
   if (tok in nameRule) report(nameRule[tok], FNR, "banned name \"" tok "\"")
@@ -232,6 +233,8 @@ BEGIN {
   addprefixes("L1-RUNTIME-HELPER", "__builtin_popcount")
   n = split("constructor destructor __constructor__ __destructor__", a, " ")
   for (i = 1; i <= n; i++) ctorword[a[i]] = 1
+  n = split("section __section__ allocate", a, " ")
+  for (i = 1; i <= n; i++) sectword[a[i]] = 1
   n = split("static extern const volatile register inline _Thread_local __inline __inline__ restrict _Noreturn auto", a, " ")
   for (i = 1; i <= n; i++) declq[a[i]] = 1
   n = split("stdio.h stdlib.h math.h time.h errno.h assert.h setjmp.h signal.h pthread.h threads.h stdatomic.h unistd.h fcntl.h", a, " ")
@@ -246,6 +249,8 @@ BEGIN {
   isinc = !ppcont && (code ~ /^[ \t]*#[ \t]*include/)
   ppcont = ispp && (substr(code, length(code), 1) == bs)
   if (isinc) { check_include(code); next }
+  if (!ppcont && code ~ /^[ \t]*#[ \t]*pragma[ \t]/ && code ~ /(section|data_seg|bss_seg|const_seg|code_seg)/)
+    report("L1-ATTR-SECTION", FNR, "a section pragma places objects in a named section")
   scan(code, ispp)
 }
 '

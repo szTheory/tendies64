@@ -4,6 +4,22 @@
 # constructors and undefined symbols that the core does not define and
 # allowlist.txt does not allow. Objects are only compiled, never linked or run.
 #
+# Sections are allow-by-name (CR-13): every non-empty section that is not on
+# the explicit read-only list below is a violation, so state placed in a
+# custom-named section fails. On ELF the section flags are read too (readelf
+# -S), and any section with the write or TLS flag fails, whatever its name,
+# except .data.rel.ro* (made read-only after relocation). Mach-O carries no
+# per-section write flag, so the name list decides there.
+#   Mach-O read-only: __TEXT,{__text __const __cstring __literal4 __literal8
+#     __literal16 __ustring __eh_frame __gcc_except_tab}, __DATA,__const,
+#     __DATA_CONST,__const, __LD,__compact_unwind, __DWARF,*
+#   ELF read-only: .text* .rodata* .data.rel.ro* .eh_frame .eh_frame_hdr
+#     .gcc_except_table* .comment .note* .group .symtab .strtab .shstrtab
+#     .symtab_shndx .rel* .rela* .llvm_addrsig .debug_* .ARM.exidx*
+#     .ARM.extab* .ARM.attributes .riscv.attributes
+# Constructor sections (.init_array .fini_array .preinit_array .ctors .dtors,
+# __mod_init_func __mod_term_func __init_offsets) are L2-CTOR.
+#
 # Usage:
 #   lint-objects.sh [-I DIR]... [--] FILE.c...   compile, then check
 #   lint-objects.sh --objects OBJ...             check precompiled objects only
@@ -48,7 +64,9 @@ while [ $# -gt 0 ]; do
 done
 [ $# -gt 0 ] || usage
 
-for _tool in nm size ${CC:-cc}; do
+_secttool=size
+[ "$OS" = Darwin ] || _secttool=readelf
+for _tool in nm $_secttool ${CC:-cc}; do
   if ! command -v "$_tool" >/dev/null 2>&1; then
     echo "lint-objects: required tool not found: $_tool" >&2
     exit 2
@@ -96,28 +114,54 @@ _i=0
 while IFS='|' read -r _obj _name; do
   _i=$((_i + 1))
 
-  # Sections: size -m on Mach-O, size -A on ELF. Size-zero sections are ignored.
+  # Sections: size -m on Mach-O, readelf -S -W on ELF (names, sizes and
+  # flags). Size-zero sections are ignored. A section header line that does
+  # not parse is a violation, never a silent pass.
   if [ "$OS" = Darwin ]; then
     size -m "$_obj" > "$TMP/size.out" || { echo "lint-objects: size failed on $_name" >&2; exit 2; }
   else
-    size -A "$_obj" > "$TMP/size.out" || { echo "lint-objects: size failed on $_name" >&2; exit 2; }
+    readelf -S -W "$_obj" > "$TMP/size.out" || { echo "lint-objects: readelf failed on $_name" >&2; exit 2; }
   fi
   awk -v os="$OS" '
+    function ro_macho(s) {
+      return s ~ /^__TEXT,(__text|__const|__cstring|__literal4|__literal8|__literal16|__ustring|__eh_frame|__gcc_except_tab)$/ ||
+        s == "__DATA,__const" || s == "__DATA_CONST,__const" ||
+        s == "__LD,__compact_unwind" || s ~ /^__DWARF,/
+    }
+    function ro_elf(n) {
+      return n ~ /^\.(text|rodata|gcc_except_table|note|rel|rela)(\.|$)/ ||
+        n ~ /^\.debug_/ || n ~ /^\.data\.rel\.ro(\.|$)/ ||
+        n ~ /^\.(eh_frame|eh_frame_hdr|comment|group|symtab|strtab|shstrtab|symtab_shndx|llvm_addrsig)$/ ||
+        n ~ /^\.ARM\.(exidx|extab)(\.|$)/ || n == ".ARM.attributes" || n == ".riscv.attributes"
+    }
+    function ctor(n) {
+      return n ~ /^\.(init_array|fini_array|preinit_array|ctors|dtors)(\.|$)/ ||
+        n ~ /,(__mod_init_func|__mod_term_func|__init_offsets)$/
+    }
     os == "Darwin" && /^[ \t]*Section \(/ {
       l = $0; sub(/^[ \t]*Section \(/, "", l)
-      p = index(l, "): "); if (p == 0) next
+      p = index(l, "): ")
+      if (p == 0) { print "W|unparsed:" l "|?"; next }
       s = substr(l, 1, p - 1); gsub(/, /, ",", s); z = substr(l, p + 3) + 0
-      if (z > 0 && s ~ /^__DATA,(__mod_init_func|__mod_term_func)/) print "C|" s "|" z
-      else if (z > 0 && s ~ /^__DATA,(__data|__bss|__common|__thread_)/) print "W|" s "|" z
+      if (z <= 0) next
+      if (ctor(s)) print "C|" s "|" z
+      else if (!ro_macho(s)) print "W|" s "|" z
     }
-    os != "Darwin" && NF == 3 && $2 ~ /^[0-9]+$/ && $2 + 0 > 0 {
-      n = $1
-      if (n ~ /^\.(init_array|fini_array|preinit_array|ctors|dtors)(\.|$)/) print "C|" n "|" $2
-      else if (n ~ /^\.(data|bss|tdata|tbss|sdata|sbss|ldata|lbss)(\.|$)/ && n !~ /^\.data\.rel\.ro/) print "W|" n "|" $2
+    os != "Darwin" && /^[ \t]*\[ *[0-9]+\]/ {
+      l = $0; sub(/^[ \t]*\[ *[0-9]+\][ \t]*/, "", l)
+      n = split(l, f, /[ \t]+/)
+      if (f[1] == "NULL" && n == 8) next
+      if (n != 9 && n != 10) { print "W|unparsed:" l "|?"; next }
+      nm = f[1]; sz = f[5]; flg = (n == 10) ? f[7] : ""
+      if (sz !~ /^[0-9a-fA-F]+$/) { print "W|unparsed:" l "|?"; next }
+      if (sz !~ /[1-9a-fA-F]/) next
+      if (ctor(nm)) print "C|" nm "|0x" sz
+      else if (flg ~ /[WT]/ && nm !~ /^\.data\.rel\.ro(\.|$)/) print "W|" nm "|0x" sz
+      else if (!ro_elf(nm)) print "W|" nm "|0x" sz
     }' "$TMP/size.out" > "$TMP/sec.out"
   while IFS='|' read -r _kind _sec _sz; do
     case "$_kind" in
-      W) viol L2-W-SECTION "$_name" "writable data section $_sec ($_sz bytes)" ;;
+      W) viol L2-W-SECTION "$_name" "section $_sec ($_sz bytes) is writable or not on the read-only section list" ;;
       C) viol L2-CTOR "$_name" "constructor or destructor section $_sec ($_sz bytes)" ;;
     esac
   done < "$TMP/sec.out"

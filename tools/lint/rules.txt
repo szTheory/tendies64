@@ -5,7 +5,7 @@ L1-INCLUDE-BANNED|1|no|a banned standard or system header is included|core has n
 L1-INCLUDE-UNLISTED|1|no|an angle-bracket header outside the core allowlist is included|allowed: stdint.h stddef.h stdbool.h stdalign.h limits.h string.h and tendies64/*.h; adding one needs an ADR
 L1-ZERO-FILES|1|yes|the scan found no core source files|a lint that scans nothing is a failure; check the root or the file list
 L2-COMPILE|2|yes|the file does not compile with the fixed lint flags|fix the compile error first; the object check needs a valid object
-L2-W-SECTION|2|no|the object has a non-empty writable data section|core state lives in the caller-owned instance struct, never in file-scope data
+L2-W-SECTION|2|no|the object has a non-empty section that is writable or not on the read-only section list|core state lives in the caller-owned instance struct, never in file-scope data
 L2-W-COMMON|2|yes|the object has a common symbol|compile core with -fno-common and keep state in the instance struct
 L2-CTOR|2|no|the object has a constructor or destructor section|core runs nothing at load time; initialize through an explicit create call
 L2-UNDEF-SYMBOL|2|no|the object references a symbol that the core does not define and tools/lint/allowlist.txt does not allow|a host symbol is a determinism leak; route it through a host callback, or add an ADR-backed allowlist row
@@ -25,4 +25,5 @@ L1-ASM|1|no|inline assembly is used|core is portable C17; assembly is not reprod
 L1-TLS|1|no|thread-local storage is used|core has no thread state; keep state in the caller-owned instance struct
 L1-TOKEN-ATOMIC|1|no|the _Atomic qualifier is used|core is single-threaded; atomics imply shared mutable state
 L1-ATTR-CTOR|1|no|a constructor or destructor attribute is used|core runs nothing at load time; initialize through an explicit create call
+L1-ATTR-SECTION|1|no|a section attribute or section pragma places an object in a named section|core keeps state in the caller-owned instance struct; a named section only hides it
 L1-RUNTIME-HELPER|1|no|a construct that pulls in a compiler runtime helper (__int128, __builtin_popcount*)|the helper symbol differs per arch and compiler; write the loop or the multiply by hand
