@@ -431,9 +431,9 @@ and `ext-trailing-newline` to the selftest.
 
 **File:** `scripts/pii-scan.sh:36`
 **Issue:** Every alternative in `PATH_RE` needs a path separator after the user name
-(`/Users/[A-Za-z0-9._-]+/`), so a user name that ends the token is invisible: `cd /Users/jane`,
-`HOME=/Users/jane`, `"/home/jane"`, `C:\Users\jane` at end of line. Reproduced: `git grep -E` for the
-pattern on a line `cd /Users/jane` returns nothing. The design comment says prose naming a directory must not
+(`/Users/[A-Za-z0-9._-]+/`), so a user name that ends the token is invisible: `cd /Users/<user>`,
+`HOME=/Users/<user>`, `"/home/<user>"`, `C:\Users\<user>` at end of line. Reproduced: `git grep -E` for the
+pattern on a line `cd /Users/<user>` returns nothing. The design comment says prose naming a directory must not
 match, but `/Users/<name>` names a person, not a directory. Also absent: `/root/`, `/Volumes/<name>/`,
 `/mnt/c/Users/<name>/`, `/tmp/claude-*` style session directories that are not under `/private/tmp`.
 **Fix:** Match the user name followed by `/`, whitespace, quote, `:` or end of line:

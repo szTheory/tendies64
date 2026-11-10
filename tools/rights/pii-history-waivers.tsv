@@ -1,0 +1,9 @@
+# History waivers for scripts/pii-scan.sh (AUTONOMY section 4).
+# One row per immutable (commit, path) pair whose added diff lines hold matches
+# that are known not to be private data:
+#   commit(40 lowercase hex)<TAB>path<TAB>rule<TAB>count<TAB>reason
+# The waiver drops the hits of that commit's diff to that path only when their
+# number equals count exactly; any other number fails the scan. Waivers never
+# apply to the working tree, to commit messages or to commit metadata. A real
+# private value is an owner stop, never a waiver row.
+097cc7ef456edf787472b75072e7e553910c7198	.planning/phases/01-governance-rights-and-harness-foundation/01-REVIEW.md	P-PRIVATE-PATH	5	WR-12 review text used a fictitious placeholder user name as an example before the stricter pattern; the tree copy now uses <user>
