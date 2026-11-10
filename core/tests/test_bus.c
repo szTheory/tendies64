@@ -187,7 +187,11 @@ static void test_memory_boundaries(void) {
                                      &value), T64_STATUS_BUS_UNSUPPORTED);
   T64_CHECK_INT(t64_machine_bus_read(machine, UINT32_C(0x04500000), 4u,
                                      &value), T64_STATUS_BUS_UNSUPPORTED);
+  /* PI's first raw register is now decoded; unimplemented offsets stay closed. */
   T64_CHECK_INT(t64_machine_bus_read(machine, UINT32_C(0x04600000), 4u,
+                                     &value), T64_STATUS_OK);
+  T64_CHECK_INT(value, UINT32_C(0));
+  T64_CHECK_INT(t64_machine_bus_read(machine, UINT32_C(0x04600034), 4u,
                                      &value), T64_STATUS_BUS_UNSUPPORTED);
   T64_CHECK_INT(t64_machine_bus_read(machine, UINT32_C(0x04700000), 4u,
                                      &value), T64_STATUS_BUS_UNSUPPORTED);

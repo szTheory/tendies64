@@ -14,6 +14,8 @@
 #define T64_SP_BANK_BYTES 4096u
 #define T64_MI_INTERRUPT_BITS UINT32_C(0x3f)
 #define T64_DEVICE_MI_TEST UINT32_C(0xffff0002)
+#define T64_DEVICE_PI UINT32_C(0x00000003)
+#define T64_PI_EVENT_COMPLETE UINT32_C(1)
 
 #define T64_DEVICE_SYNTHETIC_TEST UINT32_C(0xffff0001)
 #define T64_TEST_EVENT_NOOP UINT32_C(1)
@@ -37,6 +39,30 @@ typedef struct {
   uint8_t digest[T64_DIGEST_SIZE];
   bool owns_storage;
 } t64_rom_candidate;
+
+typedef struct {
+  uint32_t dram_address;
+  uint32_t cart_address;
+  uint32_t read_length;
+  uint32_t write_length;
+  uint32_t domain1_latency;
+  uint32_t domain1_pulse_width;
+  uint32_t domain1_page_size;
+  uint32_t domain1_release_duration;
+  uint32_t domain2_latency;
+  uint32_t domain2_pulse_width;
+  uint32_t domain2_page_size;
+  uint32_t domain2_release_duration;
+  bool error;
+  bool active_valid;
+  bool active_canceled;
+  uint32_t active_dram_address;
+  uint32_t active_cart_address;
+  uint32_t active_length;
+  uint64_t active_token;
+  uint64_t next_token;
+  bool token_exhausted;
+} t64_pi_state;
 
 typedef struct t64_event t64_event;
 typedef t64_status (*t64_event_handler_fn)(t64_machine *machine,
@@ -73,6 +99,7 @@ struct t64_machine {
   uint32_t mi_pending;
   uint32_t mi_mask;
   bool mi_irq_line;
+  t64_pi_state pi;
   size_t image_length;
   uint64_t tick;
   uint64_t instruction_count;
@@ -137,6 +164,12 @@ bool t64_mi_register_read(const t64_machine *machine, uint32_t address,
                           uint32_t *value_out);
 t64_status t64_mi_register_write(t64_machine *machine, uint32_t address,
                                 uint32_t value);
+t64_status t64_pi_read_register(const t64_machine *machine, uint32_t address,
+                                uint32_t *value_out);
+t64_status t64_pi_write_register(t64_machine *machine, uint32_t address,
+                                 uint32_t value);
+t64_status t64_pi_complete(t64_machine *machine, const t64_event *event);
+void t64_pi_reset_machine_state(t64_machine *machine);
 
 static inline bool t64_internal_make_range(const void *pointer, size_t length,
                                            t64_address_range *range_out) {

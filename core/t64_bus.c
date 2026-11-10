@@ -38,7 +38,8 @@ typedef enum {
   T64_BUS_REGION_SP_IMEM,
   T64_BUS_REGION_CARTRIDGE,
   T64_BUS_REGION_UNSUPPORTED,
-  T64_BUS_REGION_MI
+  T64_BUS_REGION_MI,
+  T64_BUS_REGION_PI
 } t64_bus_region;
 
 static t64_bus_region decode_region(const t64_machine *machine,
@@ -69,13 +70,15 @@ static t64_bus_region decode_region(const t64_machine *machine,
   if (address >= T64_SP_DMEM_BASE && address < T64_SP_APERTURE_END) {
     return T64_BUS_REGION_UNSUPPORTED;
   }
+  if (address >= T64_PI_BASE &&
+      address < T64_PI_BASE + T64_DEVICE_WINDOW_BYTES) {
+    return T64_BUS_REGION_PI;
+  }
   if ((address >= T64_DP_BASE && address < T64_MI_BASE) ||
       (address >= T64_VI_BASE &&
        address < T64_VI_BASE + T64_DEVICE_WINDOW_BYTES) ||
       (address >= T64_AI_BASE &&
        address < T64_AI_BASE + T64_DEVICE_WINDOW_BYTES) ||
-      (address >= T64_PI_BASE &&
-       address < T64_PI_BASE + T64_DEVICE_WINDOW_BYTES) ||
       (address >= T64_RI_BASE &&
        address < T64_RI_BASE + T64_DEVICE_WINDOW_BYTES) ||
       (address >= T64_SI_BASE &&
@@ -156,6 +159,7 @@ static const uint8_t *region_bytes(const t64_machine *machine,
   case T64_BUS_REGION_UNMAPPED:
   case T64_BUS_REGION_UNSUPPORTED:
   case T64_BUS_REGION_MI:
+  case T64_BUS_REGION_PI:
     break;
   }
   *remaining_out = 0u;
@@ -201,6 +205,18 @@ t64_status t64_bus_read(t64_machine *machine, uint32_t address,
   if (region == T64_BUS_REGION_MI) {
     if (width != 4u || !t64_mi_register_read(machine, address, &value)) {
       return T64_STATUS_BUS_UNSUPPORTED;
+    }
+    *value_out = value;
+    trace_bus(machine, address, width, value, false);
+    return T64_STATUS_OK;
+  }
+  if (region == T64_BUS_REGION_PI) {
+    if (width != 4u) {
+      return T64_STATUS_BUS_UNSUPPORTED;
+    }
+    status = t64_pi_read_register(machine, address, &value);
+    if (status != T64_STATUS_OK) {
+      return status;
     }
     *value_out = value;
     trace_bus(machine, address, width, value, false);
@@ -254,6 +270,16 @@ t64_status t64_bus_write(t64_machine *machine, uint32_t address,
     }
     return status;
   }
+  if (region == T64_BUS_REGION_PI) {
+    if (width != 4u) {
+      return T64_STATUS_BUS_UNSUPPORTED;
+    }
+    status = t64_pi_write_register(machine, address, value);
+    if (status == T64_STATUS_OK) {
+      trace_bus(machine, address, width, value, true);
+    }
+    return status;
+  }
   switch (region) {
   case T64_BUS_REGION_RDRAM:
     offset = (size_t)address;
@@ -274,6 +300,7 @@ t64_status t64_bus_write(t64_machine *machine, uint32_t address,
   case T64_BUS_REGION_UNMAPPED:
   case T64_BUS_REGION_UNSUPPORTED:
   case T64_BUS_REGION_MI:
+  case T64_BUS_REGION_PI:
     break;
   }
   if (bytes == NULL || (size_t)width > remaining) {
