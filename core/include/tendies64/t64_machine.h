@@ -171,7 +171,10 @@ t64_status t64_profile_lookup(const char *profile_id,
                               const t64_profile_descriptor **profile_out);
 t64_status t64_profile_hash(const t64_profile_descriptor *profile,
                             uint8_t digest_out[T64_DIGEST_SIZE]);
-/* On BUFFER_TOO_SMALL, length_out receives the required size; bytes stay intact. */
+/*
+ * Output spans must not overlap each other or the source profile. On
+ * BUFFER_TOO_SMALL, length_out receives the required size; bytes stay intact.
+ */
 t64_status t64_profile_serialize(const t64_profile_descriptor *profile,
                                  uint8_t *bytes_out, size_t capacity,
                                  size_t *length_out);

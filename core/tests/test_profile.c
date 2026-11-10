@@ -339,8 +339,18 @@ static void test_rejected_descriptors(
     const t64_profile_descriptor *profile) {
   t64_profile_descriptor empty = {0};
   t64_profile_descriptor changed = *profile;
+  t64_profile_descriptor changed_before;
+  union {
+    t64_profile_descriptor profile;
+    size_t length;
+  } profile_length_alias;
+  union {
+    size_t alignment;
+    uint8_t bytes[T64_PROFILE_SERIALIZED_MAX_BYTES];
+  } overlapping_outputs;
   uint8_t digest[T64_DIGEST_SIZE];
   uint8_t serialized[T64_PROFILE_SERIALIZED_MAX_BYTES];
+  uint8_t serialized_before[T64_PROFILE_SERIALIZED_MAX_BYTES];
   size_t serialized_length = 0u;
   size_t required_length = 0u;
 
@@ -358,6 +368,45 @@ static void test_rejected_descriptors(
                 T64_STATUS_BUFFER_TOO_SMALL);
   T64_CHECK_INT(serialized_length, required_length);
   T64_CHECK(serialized[0] == 0xa5u);
+
+  T64_CHECK_INT(t64_profile_serialize(profile, NULL, 0u, NULL),
+                T64_STATUS_INVALID_ARGUMENT);
+  T64_CHECK_INT(t64_profile_serialize(
+                    profile, NULL, 0u, (size_t *)(uintptr_t)(UINTPTR_MAX - 1u)),
+                T64_STATUS_INVALID_ARGUMENT);
+  T64_CHECK_INT(t64_profile_serialize(
+                    profile, (uint8_t *)(uintptr_t)(UINTPTR_MAX - 4u),
+                    required_length, &serialized_length),
+                T64_STATUS_INVALID_ARGUMENT);
+
+  changed_before = changed;
+  T64_CHECK_INT(t64_profile_serialize(&changed, (uint8_t *)&changed,
+                                      required_length, &serialized_length),
+                T64_STATUS_INVALID_ARGUMENT);
+  T64_CHECK(memcmp(&changed, &changed_before, sizeof changed) == 0);
+  profile_length_alias.profile = *profile;
+  T64_CHECK_INT(t64_profile_serialize(&profile_length_alias.profile, NULL, 0u,
+                                      &profile_length_alias.length),
+                T64_STATUS_INVALID_ARGUMENT);
+  T64_CHECK(memcmp(&profile_length_alias.profile, profile,
+                   sizeof *profile) == 0);
+
+  memset(overlapping_outputs.bytes, 0xa5,
+         sizeof overlapping_outputs.bytes);
+  (void)memcpy(serialized_before, overlapping_outputs.bytes,
+               sizeof serialized_before);
+  T64_CHECK_INT(t64_profile_serialize(
+                    profile, overlapping_outputs.bytes, required_length,
+                    (size_t *)(void *)overlapping_outputs.bytes),
+                T64_STATUS_INVALID_ARGUMENT);
+  T64_CHECK(memcmp(overlapping_outputs.bytes, serialized_before,
+                   sizeof serialized_before) == 0);
+  T64_CHECK_INT(t64_profile_serialize(
+                    profile, overlapping_outputs.bytes, required_length - 1u,
+                    (size_t *)(void *)overlapping_outputs.bytes),
+                T64_STATUS_INVALID_ARGUMENT);
+  T64_CHECK(memcmp(overlapping_outputs.bytes, serialized_before,
+                   sizeof serialized_before) == 0);
 }
 
 static void test_country_metadata_and_test_contrast(

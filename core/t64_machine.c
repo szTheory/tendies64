@@ -347,13 +347,26 @@ t64_status t64_profile_serialize(const t64_profile_descriptor *profile,
                                  uint8_t *bytes_out, size_t capacity,
                                  size_t *length_out) {
   profile_writer writer;
+  t64_address_range profile_range;
+  t64_address_range length_range;
+  t64_address_range bytes_range;
   size_t required;
 
-  if (length_out == NULL || !profile_fields_are_valid(profile)) {
+  if (length_out == NULL || !profile_fields_are_valid(profile) ||
+      !t64_internal_make_range(profile, sizeof *profile, &profile_range) ||
+      !t64_internal_make_range(length_out, sizeof *length_out,
+                               &length_range) ||
+      t64_internal_ranges_overlap(profile_range, length_range)) {
     return T64_STATUS_INVALID_ARGUMENT;
   }
   required = profile_serialized_size(profile);
   if (required > T64_PROFILE_SERIALIZED_MAX_BYTES) {
+    return T64_STATUS_INVALID_ARGUMENT;
+  }
+  if (bytes_out != NULL &&
+      (!t64_internal_make_range(bytes_out, capacity, &bytes_range) ||
+       t64_internal_ranges_overlap(bytes_range, profile_range) ||
+       t64_internal_ranges_overlap(bytes_range, length_range))) {
     return T64_STATUS_INVALID_ARGUMENT;
   }
   if (bytes_out == NULL || capacity < required) {
