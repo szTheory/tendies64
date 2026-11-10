@@ -81,6 +81,12 @@ struct t64_machine {
   size_t queue_count;
   uint64_t next_sequence;
   bool sequence_exhausted;
+  t64_trace_record trace_records[T64_TRACE_RECORD_CAPACITY];
+  size_t trace_head;
+  size_t trace_count;
+  uint64_t trace_drop_count;
+  bool trace_drop_count_saturated;
+  bool trace_enabled;
 };
 
 t64_status t64_schedule_reserve(t64_machine *machine, uint64_t tick,
@@ -109,6 +115,9 @@ t64_status t64_test_reserve_synthetic(t64_machine *machine, uint64_t tick,
 bool t64_test_event_handler_matches(const t64_machine *machine,
                                     size_t logical_offset);
 void t64_machine_reset_execution_state(t64_machine *machine);
+void t64_trace_reset(t64_machine *machine);
+void t64_trace_emit(t64_machine *machine, uint64_t tick, uint32_t device,
+                    uint32_t kind, uint64_t value);
 
 static inline bool t64_internal_make_range(const void *pointer, size_t length,
                                            t64_address_range *range_out) {

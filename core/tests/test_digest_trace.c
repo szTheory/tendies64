@@ -354,11 +354,50 @@ static void test_partitioned_and_isolated_advances_have_same_digest(void) {
   T64_CHECK_INT(alloc_b.outstanding, 0u);
 }
 
+static void test_scheduler_trace_records_boundary(void) {
+  uint8_t image[TEST_ROM_SIZE];
+  allocator_state host_state = {0u};
+  const t64_host_allocator allocator = {test_allocate, test_release,
+                                        &host_state};
+  t64_machine *machine = NULL;
+  t64_stop_request request = {T64_STOP_GUEST_TICK, 5u};
+  t64_stop_result result = {0u, 0u};
+  t64_trace_record record = {0u, 0u, 0u, 0u};
+  size_t record_count = SIZE_MAX;
+  uint64_t dropped = UINT64_MAX;
+  bool saturated = true;
+
+  T64_CHECK(fixture_init(&host_state, &allocator, &machine, image));
+  if (machine == NULL) {
+    return;
+  }
+  T64_CHECK_INT(t64_machine_trace_set_enabled(machine, true), T64_STATUS_OK);
+  T64_CHECK_INT(t64_test_schedule_synthetic(machine, 5u,
+                                            T64_TEST_EVENT_NOOP, 17u),
+                T64_STATUS_OK);
+  T64_CHECK_INT(t64_machine_advance(machine, &request, &result),
+                T64_STATUS_OK);
+  T64_CHECK_INT(t64_machine_trace_drain(machine, &record, 1u, &record_count,
+                                        &dropped, &saturated),
+                T64_STATUS_OK);
+  T64_CHECK_INT(record_count, 1u);
+  T64_CHECK_INT(record.tick, 5u);
+  T64_CHECK_INT(record.device, T64_DEVICE_SYNTHETIC_TEST);
+  T64_CHECK_INT(record.kind, T64_TEST_EVENT_NOOP);
+  T64_CHECK_INT(record.value, 17u);
+  T64_CHECK_INT(dropped, 0u);
+  T64_CHECK(!saturated);
+
+  t64_machine_destroy(machine);
+  T64_CHECK_INT(host_state.outstanding, 0u);
+}
+
 int main(void) {
   (void)puts("evidence: synthetic scheduler metadata only; no CPU or device execution");
   test_queued_future_work_changes_digest();
   test_digest_golden_and_machine_fields();
   test_digest_excludes_storage_and_event_handler();
   test_partitioned_and_isolated_advances_have_same_digest();
+  test_scheduler_trace_records_boundary();
   return T64_TEST_FINISH("unit.core.digest-trace");
 }

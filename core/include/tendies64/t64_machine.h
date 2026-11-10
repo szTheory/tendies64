@@ -15,6 +15,10 @@
 #define T64_PROFILE_TEXT_CAPACITY 64u
 #define T64_PROFILE_SERIALIZED_MAX_BYTES 2048u
 #define T64_PROFILE_SERIALIZATION_VERSION UINT32_C(1)
+#define T64_TRACE_RECORD_CAPACITY 256u
+
+#define T64_TRACE_DEVICE_MACHINE UINT32_C(0)
+#define T64_TRACE_KIND_ROM_ADMITTED UINT32_C(1)
 
 #define T64_STATUS_OK UINT32_C(0)
 #define T64_STATUS_INVALID_ARGUMENT UINT32_C(1)
@@ -131,6 +135,13 @@ typedef struct {
   uint64_t tick;
 } t64_stop_result;
 
+typedef struct {
+  uint64_t tick;
+  uint32_t device;
+  uint32_t kind;
+  uint64_t value;
+} t64_trace_record;
+
 /* The returned descriptor is immutable and remains valid for program life. */
 t64_status t64_profile_lookup(const char *profile_id,
                               const t64_profile_descriptor **profile_out);
@@ -169,5 +180,18 @@ t64_status t64_machine_profile(
     const t64_machine *machine, const t64_profile_descriptor **profile_out);
 t64_status t64_machine_digest(const t64_machine *machine,
                               uint8_t digest_out[T64_DIGEST_SIZE]);
+
+/* Trace state is observer-only and never changes the canonical digest. */
+t64_status t64_machine_trace_set_enabled(t64_machine *machine, bool enabled);
+/*
+ * Copies up to capacity whole records in FIFO order and reports the
+ * cumulative saturated drop observation. A zero capacity permits NULL
+ * records_out, copies nothing, and leaves queued records intact. All output
+ * parameters are required; invalid outputs leave observer state unchanged.
+ */
+t64_status t64_machine_trace_drain(
+    t64_machine *machine, t64_trace_record *records_out, size_t capacity,
+    size_t *count_out, uint64_t *dropped_out,
+    bool *drop_count_saturated_out);
 
 #endif /* TENDIES64_T64_MACHINE_H */
