@@ -1,0 +1,157 @@
+{
+  "phase": "02",
+  "reviewed_source": "76c7e22857a659a9e1108fd9e0c84951b53be755",
+  "verdict": "SECURED",
+  "asvs_level": 1,
+  "block_on": "high",
+  "threats_open": 0,
+  "register_authored_at_plan_time": true,
+  "accepted_risks": [],
+  "threats": [
+    {
+      "id": "T-02-01",
+      "status": "CLOSED",
+      "implementation": "core/t64_machine.c",
+      "test": "core/tests/test_lifecycle.c"
+    },
+    {
+      "id": "T-02-02",
+      "status": "CLOSED",
+      "implementation": "core/t64_machine.c",
+      "test": "core/tests/test_profile.c"
+    },
+    {
+      "id": "T-02-03",
+      "status": "CLOSED",
+      "implementation": "core/t64_rom.c",
+      "test": "core/tests/test_rom_admission.c"
+    },
+    {
+      "id": "T-02-04",
+      "status": "CLOSED",
+      "implementation": "core/t64_rom.c",
+      "test": "core/tests/test_lifecycle.c"
+    },
+    {
+      "id": "T-02-05",
+      "status": "CLOSED",
+      "implementation": "core/t64_internal.h",
+      "test": "core/tests/test_lifecycle.c"
+    },
+    {
+      "id": "T-02-06",
+      "status": "CLOSED",
+      "implementation": "core/t64_scheduler.c",
+      "test": "core/tests/test_scheduler.c"
+    },
+    {
+      "id": "T-02-07",
+      "status": "CLOSED",
+      "implementation": "core/t64_digest.c",
+      "test": "core/tests/test_digest_trace.c"
+    },
+    {
+      "id": "T-02-08",
+      "status": "CLOSED",
+      "implementation": "core/t64_trace.c",
+      "test": "core/tests/test_determinism.c"
+    },
+    {
+      "id": "T-02-09",
+      "status": "CLOSED",
+      "implementation": "core/t64_bus.c",
+      "test": "core/tests/test_bus.c"
+    },
+    {
+      "id": "T-02-10",
+      "status": "CLOSED",
+      "implementation": "core/t64_mi.c",
+      "test": "core/tests/test_bus.c"
+    },
+    {
+      "id": "T-02-11",
+      "status": "CLOSED",
+      "implementation": "core/t64_pi.c",
+      "test": "core/tests/test_pi_dma.c"
+    },
+    {
+      "id": "T-02-12",
+      "status": "CLOSED",
+      "implementation": "core/t64_pi.c",
+      "test": "core/tests/test_pi_dma.c"
+    },
+    {
+      "id": "T-02-13",
+      "status": "CLOSED",
+      "implementation": "core/t64_machine.c",
+      "test": "core/tests/test_pi_dma.c"
+    },
+    {
+      "id": "T-02-14",
+      "status": "CLOSED",
+      "implementation": "core/t64_sp.c",
+      "test": "core/tests/test_sp_dma.c"
+    },
+    {
+      "id": "T-02-15",
+      "status": "CLOSED",
+      "implementation": "core/t64_sp.c",
+      "test": "core/tests/test_sp_dma.c"
+    },
+    {
+      "id": "T-02-16",
+      "status": "CLOSED",
+      "implementation": "core/t64_sp.c",
+      "test": "core/tests/test_sp_dma.c"
+    },
+    {
+      "id": "T-02-17",
+      "status": "CLOSED",
+      "implementation": "core/tests/fuzz_rom_admission.c",
+      "test": "core/tests/fuzz_rom_admission.c"
+    },
+    {
+      "id": "T-02-18",
+      "status": "CLOSED",
+      "implementation": "scripts/expect-sanitizer.sh",
+      "test": "core/tests/sanitizer_fault.c"
+    },
+    {
+      "id": "T-02-19",
+      "status": "CLOSED",
+      "implementation": "runner/t64_model_result_check.c",
+      "test": "runner/tests/test_model_result.c"
+    },
+    {
+      "id": "T-02-20",
+      "status": "CLOSED",
+      "implementation": "core/tests/test_determinism.c",
+      "test": "core/tests/test_determinism.c"
+    },
+    {
+      "id": "T-02-21",
+      "status": "CLOSED",
+      "implementation": "runner/t64_model_result_check.c",
+      "test": "runner/tests/test_skeleton_probe.c"
+    },
+    {
+      "id": "T-02-22",
+      "status": "CLOSED",
+      "implementation": "scripts/check-test-inventory.sh",
+      "test": "scripts/check-test-inventory.sh"
+    },
+    {
+      "id": "T-02-SC",
+      "status": "CLOSED",
+      "implementation": "core/CMakeLists.txt",
+      "test": "provenance/copies.json"
+    }
+  ],
+  "limits": [
+    "Authored-register L1 verification only; independent source review has actionable findings which remain mandatory completion gates.",
+    "Summaries lack literal Threat Flags sections; none were available to map.",
+    "Existing ASan log and unchanged production inputs verified; no broad rerun.",
+    "Address and undefined sanitizers active; host leak detector unavailable and disabled."
+  ],
+  "followup": "Recheck changed mitigations after source-review fixes before phase completion."
+}
