@@ -191,15 +191,28 @@ static void check_digest_differs_after_u64_change(t64_machine *machine,
   *field = saved;
 }
 
+static void check_digest_differs_after_bool_change(t64_machine *machine,
+                                                   bool *field) {
+  uint8_t before[T64_DIGEST_SIZE];
+  uint8_t after[T64_DIGEST_SIZE];
+  bool saved = *field;
+
+  T64_CHECK_INT(t64_machine_digest(machine, before), T64_STATUS_OK);
+  *field = !saved;
+  T64_CHECK_INT(t64_machine_digest(machine, after), T64_STATUS_OK);
+  T64_CHECK(memcmp(before, after, sizeof before) != 0);
+  *field = saved;
+}
+
 static void test_digest_golden_and_machine_fields(void) {
   uint8_t image[TEST_ROM_SIZE];
   uint8_t digest[T64_DIGEST_SIZE];
-  /* Independently assembled SHA-256 of the documented state.v3 byte stream. */
+  /* Independently assembled SHA-256 of the documented state.v4 byte stream. */
   uint8_t expected[T64_DIGEST_SIZE] = {
-      0xbeu, 0x9eu, 0xa5u, 0xf7u, 0xa1u, 0xddu, 0x5fu, 0x2bu,
-      0x98u, 0x92u, 0x25u, 0x18u, 0x5au, 0x99u, 0x85u, 0x54u,
-      0x7eu, 0xbfu, 0x70u, 0x4au, 0x83u, 0x02u, 0xc8u, 0xf9u,
-      0xdau, 0x6eu, 0x1eu, 0x2au, 0xa1u, 0x2eu, 0x80u, 0xbdu};
+      0x51u, 0x1cu, 0x3fu, 0x57u, 0x5bu, 0xe2u, 0x17u, 0x2bu,
+      0x52u, 0x5du, 0xa6u, 0x07u, 0x74u, 0x7au, 0x91u, 0xaeu,
+      0xabu, 0x22u, 0x46u, 0x36u, 0x0du, 0x67u, 0x08u, 0xa2u,
+      0xdau, 0x83u, 0x06u, 0x03u, 0x3eu, 0x46u, 0xe8u, 0xb1u};
   allocator_state host_state = {0u};
   const t64_host_allocator allocator = {test_allocate, test_release,
                                         &host_state};
@@ -245,6 +258,38 @@ static void test_digest_golden_and_machine_fields(void) {
   T64_CHECK_INT(t64_machine_digest(machine, digest), T64_STATUS_OK);
   T64_CHECK(memcmp(digest, expected, sizeof expected) != 0);
   machine->sequence_exhausted = false;
+
+  check_digest_differs_after_u32_change(machine, &machine->pi.dram_address);
+  check_digest_differs_after_u32_change(machine, &machine->pi.cart_address);
+  check_digest_differs_after_u32_change(machine, &machine->pi.read_length);
+  check_digest_differs_after_u32_change(machine, &machine->pi.write_length);
+  check_digest_differs_after_u32_change(machine, &machine->pi.domain1_latency);
+  check_digest_differs_after_u32_change(machine,
+                                        &machine->pi.domain1_pulse_width);
+  check_digest_differs_after_u32_change(machine,
+                                        &machine->pi.domain1_page_size);
+  check_digest_differs_after_u32_change(machine,
+                                        &machine->pi.domain1_release_duration);
+  check_digest_differs_after_u32_change(machine, &machine->pi.domain2_latency);
+  check_digest_differs_after_u32_change(machine,
+                                        &machine->pi.domain2_pulse_width);
+  check_digest_differs_after_u32_change(machine,
+                                        &machine->pi.domain2_page_size);
+  check_digest_differs_after_u32_change(machine,
+                                        &machine->pi.domain2_release_duration);
+  check_digest_differs_after_bool_change(machine, &machine->pi.error);
+  check_digest_differs_after_bool_change(machine, &machine->pi.active_valid);
+  check_digest_differs_after_bool_change(machine,
+                                        &machine->pi.active_canceled);
+  check_digest_differs_after_u32_change(machine,
+                                        &machine->pi.active_dram_address);
+  check_digest_differs_after_u32_change(machine,
+                                        &machine->pi.active_cart_address);
+  check_digest_differs_after_u32_change(machine, &machine->pi.active_length);
+  check_digest_differs_after_u64_change(machine, &machine->pi.active_token);
+  check_digest_differs_after_u64_change(machine, &machine->pi.next_token);
+  check_digest_differs_after_bool_change(machine,
+                                        &machine->pi.token_exhausted);
 
   T64_CHECK_INT(t64_test_schedule_synthetic(machine, 9u,
                                             T64_TEST_EVENT_NOOP, 17u),
@@ -781,6 +826,96 @@ static void test_admission_reset_and_refusal_preserve_scheduler_trace(void) {
   T64_CHECK_INT(host_state.outstanding, 0u);
 }
 
+static void test_pi_state_reset_and_refused_replacement(void) {
+  uint8_t image[TEST_ROM_SIZE];
+  uint8_t replacement[TEST_ROM_SIZE];
+  uint8_t digest_before[T64_DIGEST_SIZE];
+  uint8_t digest_after[T64_DIGEST_SIZE];
+  allocator_state host_state = {0u};
+  const t64_host_allocator allocator = {test_allocate, test_release,
+                                        &host_state};
+  t64_machine *machine = NULL;
+  uint32_t value = 0u;
+
+  T64_CHECK(fixture_init(&host_state, &allocator, &machine, image));
+  if (machine == NULL) {
+    return;
+  }
+  T64_CHECK_INT(t64_machine_bus_write(machine, UINT32_C(0x04600000), 4u,
+                                     UINT32_C(0x100)),
+                T64_STATUS_OK);
+  T64_CHECK_INT(t64_machine_bus_write(machine, UINT32_C(0x04600004), 4u,
+                                     UINT32_C(0x10000100)),
+                T64_STATUS_OK);
+  T64_CHECK_INT(t64_machine_bus_write(machine, UINT32_C(0x04600014), 4u,
+                                     UINT32_C(0xab)),
+                T64_STATUS_OK);
+  T64_CHECK_INT(t64_machine_bus_write(machine, UINT32_C(0x0460000c), 4u,
+                                     UINT32_C(15)),
+                T64_STATUS_OK);
+  T64_CHECK_INT(t64_machine_bus_write(machine, UINT32_C(0x04600010), 4u,
+                                     UINT32_C(1)),
+                T64_STATUS_OK);
+  T64_CHECK(machine->pi.active_valid);
+  T64_CHECK(machine->pi.active_canceled);
+  T64_CHECK(machine->pi.active_token != 0u);
+  T64_CHECK_INT(t64_machine_digest(machine, digest_before), T64_STATUS_OK);
+
+  fill_authored_rom(replacement);
+  replacement[0] = 0xdeu;
+  replacement[1] = 0xadu;
+  replacement[2] = 0xbeu;
+  replacement[3] = 0xefu;
+  T64_CHECK_INT(t64_machine_admit_rom(machine, replacement,
+                                      sizeof replacement),
+                T64_STATUS_INVALID_ROM);
+  T64_CHECK_INT(t64_machine_digest(machine, digest_after), T64_STATUS_OK);
+  T64_CHECK(memcmp(digest_before, digest_after, sizeof digest_before) == 0);
+  T64_CHECK(machine->pi.active_valid);
+  T64_CHECK(machine->pi.active_canceled);
+  T64_CHECK_INT(machine->queue_count, 1u);
+
+  fill_authored_rom(replacement);
+  replacement[0x100u] ^= 0x80u;
+  T64_CHECK_INT(t64_machine_admit_rom(machine, replacement,
+                                      sizeof replacement),
+                T64_STATUS_OK);
+  T64_CHECK_INT(t64_machine_bus_read(machine, UINT32_C(0x04600000), 4u,
+                                     &value),
+                T64_STATUS_OK);
+  T64_CHECK_INT(value, 0u);
+  T64_CHECK_INT(t64_machine_bus_read(machine, UINT32_C(0x04600004), 4u,
+                                     &value),
+                T64_STATUS_OK);
+  T64_CHECK_INT(value, 0u);
+  T64_CHECK_INT(t64_machine_bus_read(machine, UINT32_C(0x04600008), 4u,
+                                     &value),
+                T64_STATUS_OK);
+  T64_CHECK_INT(value, 0u);
+  T64_CHECK_INT(t64_machine_bus_read(machine, UINT32_C(0x0460000c), 4u,
+                                     &value),
+                T64_STATUS_OK);
+  T64_CHECK_INT(value, 0u);
+  T64_CHECK_INT(t64_machine_bus_read(machine, UINT32_C(0x04600014), 4u,
+                                     &value),
+                T64_STATUS_OK);
+  T64_CHECK_INT(value, 0u);
+  T64_CHECK(!machine->pi.active_valid);
+  T64_CHECK(!machine->pi.active_canceled);
+  T64_CHECK(!machine->pi.error);
+  T64_CHECK_INT(machine->pi.active_dram_address, 0u);
+  T64_CHECK_INT(machine->pi.active_cart_address, 0u);
+  T64_CHECK_INT(machine->pi.active_length, 0u);
+  T64_CHECK_INT(machine->pi.active_token, 0u);
+  T64_CHECK_INT(machine->pi.next_token, 1u);
+  T64_CHECK(!machine->pi.token_exhausted);
+  T64_CHECK_INT(machine->queue_count, 0u);
+  T64_CHECK_INT(machine->mi_pending, 0u);
+  T64_CHECK_INT(machine->mi_mask, 0u);
+  t64_machine_destroy(machine);
+  T64_CHECK_INT(host_state.outstanding, 0u);
+}
+
 int main(void) {
   (void)puts("evidence: synthetic scheduler metadata only; no CPU or device execution");
   test_queued_future_work_changes_digest();
@@ -792,5 +927,6 @@ int main(void) {
   test_trace_fifo_drain_and_same_digest_as_untraced();
   test_trace_overflow_and_saturating_drop_counter();
   test_admission_reset_and_refusal_preserve_scheduler_trace();
+  test_pi_state_reset_and_refused_replacement();
   return T64_TEST_FINISH("unit.core.digest-trace");
 }

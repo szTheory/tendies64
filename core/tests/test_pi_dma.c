@@ -44,7 +44,9 @@ static bool test_allocate(void *context, size_t size, size_t alignment,
                           t64_host_storage *storage_out) {
   void *data = NULL;
 
-  (void)context;
+  if (context != NULL) {
+    (*(size_t *)context)++;
+  }
   if (storage_out == NULL || size == 0u || alignment == 0u ||
       alignment > _Alignof(max_align_t)) {
     return false;
@@ -61,7 +63,9 @@ static bool test_allocate(void *context, size_t size, size_t alignment,
 }
 
 static void test_release(void *context, t64_host_storage storage) {
-  (void)context;
+  if (context != NULL) {
+    (*(size_t *)context)++;
+  }
   free(storage.data);
 }
 
@@ -706,6 +710,314 @@ static void test_pi_digest_inclusion(void) {
   t64_machine_destroy(machine);
 }
 
+static t64_status clear_pi_event(t64_machine *machine,
+                                 const t64_event *event) {
+  return t64_pi_write_register(machine, TEST_PI_BASE + UINT32_C(0x10),
+                               (uint32_t)event->value);
+}
+
+static t64_status schedule_pi_clear(t64_machine *machine, uint64_t tick) {
+  t64_event_reservation reservation;
+  t64_status status = t64_schedule_reserve(
+      machine, tick, T64_DEVICE_SYNTHETIC_TEST, UINT32_C(0x5049434c),
+      UINT64_C(2), UINT64_C(0), clear_pi_event, &reservation);
+
+  return status == T64_STATUS_OK
+             ? t64_schedule_commit(machine, &reservation)
+             : status;
+}
+
+static void test_cancel_and_stale_completion(void) {
+  uint8_t image[TEST_ROM_BYTES];
+  size_t callback_calls = 0u;
+  const t64_host_allocator allocator = {test_allocate, test_release,
+                                        &callback_calls};
+  const t64_profile_descriptor *profile = NULL;
+  t64_machine *machine = NULL;
+  t64_stop_request request = {T64_STOP_GUEST_TICK, UINT64_C(8)};
+  t64_stop_result result;
+  t64_event stale = {0};
+  uint32_t value = 0u;
+  uint8_t digest_before_stale[T64_DIGEST_SIZE];
+  uint8_t digest_after_stale[T64_DIGEST_SIZE];
+  uint64_t canceled_token;
+  size_t callbacks_before_advance;
+  size_t i;
+
+  fill_authored_image(image, sizeof image);
+  check_status("PI cancel profile lookup succeeds",
+               t64_profile_lookup("ntsc-cart-4m-skeleton", &profile),
+               T64_STATUS_OK);
+  check_status("PI cancel machine creation succeeds",
+               t64_machine_create(&allocator, profile, &machine),
+               T64_STATUS_OK);
+  if (machine == NULL) {
+    check_u64("PI cancel fixture machine exists", 0u, 1u);
+    return;
+  }
+  check_status("PI cancel image admission succeeds",
+               t64_machine_admit_rom(machine, image, sizeof image),
+               T64_STATUS_OK);
+  check_status("PI cancel DRAM latch setup succeeds",
+               t64_machine_bus_write(machine, TEST_PI_BASE, 4u, 0x100u),
+               T64_STATUS_OK);
+  check_status("PI cancel CART latch setup succeeds",
+               t64_machine_bus_write(machine, TEST_PI_BASE + 4u, 4u,
+                                     TEST_CART_BASE + 0x100u),
+               T64_STATUS_OK);
+  check_status("PI cancel request is admitted",
+               t64_machine_bus_write(machine, TEST_PI_BASE + 12u, 4u, 15u),
+               T64_STATUS_OK);
+  canceled_token = machine->pi.active_token;
+  check_u64("PI request has a nonzero completion token",
+            canceled_token != 0u, 1u);
+
+  callbacks_before_advance = callback_calls;
+  check_status("PI advances to one tick before reset cancellation",
+               t64_machine_advance(machine, &request, &result),
+               T64_STATUS_OK);
+  check_u64("Reset test reaches the deadline minus one", result.tick, 8u);
+  check_u64("PI is active at the deadline minus one",
+            machine->pi.active_valid, 1u);
+  check_status("PI destination is readable before reset at tick 8",
+               t64_machine_bus_read(machine, 0x100u, 1u, &value),
+               T64_STATUS_OK);
+  check_u64("No copy occurs before reset at deadline minus one", value, 0u);
+  check_u64("Guest advancement makes no host allocator calls",
+            callback_calls, callbacks_before_advance);
+
+  /* Full queue proves reset reuses its reserved completion, not a new slot. */
+  for (i = 0u; i < T64_EVENT_QUEUE_CAPACITY - 1u; i++) {
+    check_status("PI cancel queue fill preserves reserved completion",
+                 t64_test_schedule_synthetic(machine, 100u,
+                                             T64_TEST_EVENT_NOOP, i),
+                 T64_STATUS_OK);
+  }
+  check_u64("PI completion remains reserved in a full queue",
+            machine->queue_count, T64_EVENT_QUEUE_CAPACITY);
+  check_status("PI reset cancels without allocating a queue slot",
+               t64_machine_bus_write(machine, TEST_PI_BASE + 16u, 4u, 1u),
+               T64_STATUS_OK);
+  check_status("Repeated PI reset is idempotent",
+               t64_machine_bus_write(machine, TEST_PI_BASE + 16u, 4u, 1u),
+               T64_STATUS_OK);
+  check_u64("Repeated reset preserves the original token",
+            machine->pi.active_token, canceled_token);
+  check_u64("Repeated reset preserves one active completion",
+            machine->queue_count, T64_EVENT_QUEUE_CAPACITY);
+  check_u64("Repeated reset marks the request canceled",
+            machine->pi.active_canceled, 1u);
+  check_status("PI status remains busy until the original deadline",
+               t64_machine_bus_read(machine, TEST_PI_BASE + 16u, 4u, &value),
+               T64_STATUS_OK);
+  check_u64("Canceled transfer retains busy and clears error", value, 1u);
+
+  request.value = 9u;
+  check_status("Canceled request dispatches its retained completion",
+               t64_machine_advance(machine, &request, &result),
+               T64_STATUS_OK);
+  check_u64("Canceled completion runs at original tick 9", result.tick, 9u);
+  check_u64("Canceled completion returns controller idle",
+            machine->pi.active_valid, 0u);
+  check_status("Canceled destination remains readable after completion",
+               t64_machine_bus_read(machine, 0x100u, 1u, &value),
+               T64_STATUS_OK);
+  check_u64("Canceled completion suppresses the copy", value, 0u);
+  check_u64("Canceled completion raises PI pending exactly as a completion",
+            (machine->mi_pending & UINT32_C(0x10)) != 0u, 1u);
+  check_status("PI clear command acknowledges canceled completion",
+               t64_machine_bus_write(machine, TEST_PI_BASE + 16u, 4u, 2u),
+               T64_STATUS_OK);
+  request.value = 9u;
+  check_status("Repeated advance at completed tick succeeds",
+               t64_machine_advance(machine, &request, &result),
+               T64_STATUS_OK);
+  check_u64("No duplicate PI event restores cleared pending", machine->mi_pending,
+            0u);
+
+  check_status("New PI request can start after canceled completion",
+               t64_machine_bus_write(machine, TEST_PI_BASE, 4u, 0x108u),
+               T64_STATUS_OK);
+  check_status("New PI request uses a new cartridge span",
+               t64_machine_bus_write(machine, TEST_PI_BASE + 4u, 4u,
+                                     TEST_CART_BASE + 0x120u),
+               T64_STATUS_OK);
+  check_status("New request is admitted with a distinct token",
+               t64_machine_bus_write(machine, TEST_PI_BASE + 12u, 4u, 15u),
+               T64_STATUS_OK);
+  check_u64("A later PI request uses a distinct nonwrapping token",
+            machine->pi.active_token != canceled_token, 1u);
+  stale.device = T64_DEVICE_PI;
+  stale.kind = T64_PI_EVENT_COMPLETE;
+  stale.token = canceled_token;
+  stale.tick = 10u;
+  check_status("Digest before injected stale completion is available",
+               t64_machine_digest(machine, digest_before_stale),
+               T64_STATUS_OK);
+  check_status("Injected stale PI completion is ignored",
+               t64_pi_complete(machine, &stale), T64_STATUS_OK);
+  check_status("Digest after injected stale completion is available",
+               t64_machine_digest(machine, digest_after_stale),
+               T64_STATUS_OK);
+  check_u64("Stale completion is a canonical state no-op",
+            memcmp(digest_before_stale, digest_after_stale,
+                   sizeof digest_before_stale) == 0,
+            1u);
+  check_u64("Stale token cannot deactivate the newer transfer",
+            machine->pi.active_valid, 1u);
+  check_u64("Stale token cannot change the newer active token",
+            machine->pi.active_token != canceled_token, 1u);
+  check_status("New request completes at its own deadline",
+               t64_machine_advance(machine, &(t64_stop_request){
+                                                  T64_STOP_GUEST_TICK, 18u},
+                                   &result),
+               T64_STATUS_OK);
+  check_status("New destination contains the new source bytes",
+               t64_machine_bus_read(machine, 0x108u, 1u, &value),
+               T64_STATUS_OK);
+  check_u64("New request copies only its own descriptor", value,
+            image[0x120u]);
+  check_status("Old canceled destination remains zero",
+               t64_machine_bus_read(machine, 0x100u, 1u, &value),
+               T64_STATUS_OK);
+  check_u64("Stale event cannot write the old destination", value, 0u);
+  check_u64("Advance through PI events has no host allocator calls",
+            callback_calls, callbacks_before_advance);
+  t64_machine_destroy(machine);
+}
+
+static void test_same_tick_clear_fifo(void) {
+  uint8_t image_a[TEST_ROM_BYTES];
+  uint8_t image_b[TEST_ROM_BYTES];
+  t64_machine *machine_a = NULL;
+  t64_machine *machine_b = NULL;
+  t64_stop_request request = {T64_STOP_GUEST_TICK, 9u};
+  t64_stop_result result;
+
+  if (!create_test_machine(&machine_a, image_a, sizeof image_a) ||
+      !create_test_machine(&machine_b, image_b, sizeof image_b)) {
+    t64_machine_destroy(machine_a);
+    t64_machine_destroy(machine_b);
+    return;
+  }
+  check_status("Clear-before-completion event reserves tick 9 first",
+               schedule_pi_clear(machine_a, 9u), T64_STATUS_OK);
+  check_status("PI clear-before request DRAM latch succeeds",
+               t64_machine_bus_write(machine_a, TEST_PI_BASE, 4u, 0x100u),
+               T64_STATUS_OK);
+  check_status("PI clear-before request CART latch succeeds",
+               t64_machine_bus_write(machine_a, TEST_PI_BASE + 4u, 4u,
+                                     TEST_CART_BASE + 0x100u),
+               T64_STATUS_OK);
+  check_status("PI clear-before request queues after clear at same tick",
+               t64_machine_bus_write(machine_a, TEST_PI_BASE + 12u, 4u, 15u),
+               T64_STATUS_OK);
+  check_status("PI clear-after request DRAM latch succeeds",
+               t64_machine_bus_write(machine_b, TEST_PI_BASE, 4u, 0x100u),
+               T64_STATUS_OK);
+  check_status("PI clear-after request CART latch succeeds",
+               t64_machine_bus_write(machine_b, TEST_PI_BASE + 4u, 4u,
+                                     TEST_CART_BASE + 0x100u),
+               T64_STATUS_OK);
+  check_status("PI completion reserves tick 9 before later clear",
+               t64_machine_bus_write(machine_b, TEST_PI_BASE + 12u, 4u, 15u),
+               T64_STATUS_OK);
+  check_status("Clear-after-completion event reserves tick 9 second",
+               schedule_pi_clear(machine_b, 9u), T64_STATUS_OK);
+  check_status("FIFO clear-before request advances through tick 9",
+               t64_machine_advance(machine_a, &request, &result),
+               T64_STATUS_OK);
+  check_u64("Completion after an earlier same-tick clear sets PI pending",
+            (machine_a->mi_pending & UINT32_C(0x10)) != 0u, 1u);
+  check_status("FIFO clear-after request advances through tick 9",
+               t64_machine_advance(machine_b, &request, &result),
+               T64_STATUS_OK);
+  check_u64("A later same-tick clear removes PI pending",
+            (machine_b->mi_pending & UINT32_C(0x10)) != 0u, 0u);
+  t64_machine_destroy(machine_a);
+  t64_machine_destroy(machine_b);
+}
+
+static void test_pi_trace_observer(void) {
+  uint8_t image[TEST_ROM_BYTES];
+  t64_machine *machine = NULL;
+  t64_trace_record records[T64_TRACE_RECORD_CAPACITY];
+  t64_stop_request request = {T64_STOP_GUEST_TICK, 9u};
+  t64_stop_result result;
+  uint8_t digest_before[T64_DIGEST_SIZE];
+  uint8_t digest_after[T64_DIGEST_SIZE];
+  size_t count = 0u;
+  uint64_t dropped = 0u;
+  bool saturated = false;
+  bool saw_refused = false;
+  bool saw_issue = false;
+  bool saw_cancel = false;
+  bool saw_completion = false;
+  size_t cancel_count = 0u;
+  size_t i;
+
+  if (!create_test_machine(&machine, image, sizeof image)) {
+    return;
+  }
+  check_status("PI trace observer enables without a host sink",
+               t64_machine_trace_set_enabled(machine, true), T64_STATUS_OK);
+  check_status("PI refusal is visible through a model trace record",
+               t64_machine_bus_write(machine, TEST_PI_BASE + 12u, 4u, 0u),
+               T64_STATUS_BUS_DEVICE_REFUSED);
+  check_status("PI trace DRAM address setup succeeds",
+               t64_machine_bus_write(machine, TEST_PI_BASE, 4u, 0x100u),
+               T64_STATUS_OK);
+  check_status("PI trace cartridge address setup succeeds",
+               t64_machine_bus_write(machine, TEST_PI_BASE + 4u, 4u,
+                                     TEST_CART_BASE + 0x100u),
+               T64_STATUS_OK);
+  check_status("PI trace transfer issues",
+               t64_machine_bus_write(machine, TEST_PI_BASE + 12u, 4u, 15u),
+               T64_STATUS_OK);
+  check_status("PI trace cancellation is accepted",
+               t64_machine_bus_write(machine, TEST_PI_BASE + 16u, 4u, 1u),
+               T64_STATUS_OK);
+  check_status("Repeated PI trace reset is idempotent",
+               t64_machine_bus_write(machine, TEST_PI_BASE + 16u, 4u, 1u),
+               T64_STATUS_OK);
+  check_status("PI trace transfer completes at its scheduled boundary",
+               t64_machine_advance(machine, &request, &result),
+               T64_STATUS_OK);
+  check_status("PI digest is available before draining observer records",
+               t64_machine_digest(machine, digest_before), T64_STATUS_OK);
+  check_status("PI observer records drain outside machine advancement",
+               t64_machine_trace_drain(machine, records,
+                                       T64_TRACE_RECORD_CAPACITY, &count,
+                                       &dropped, &saturated),
+               T64_STATUS_OK);
+  for (i = 0u; i < count; i++) {
+    if (records[i].device != T64_TRACE_DEVICE_PI) {
+      continue;
+    }
+    saw_refused |= records[i].kind == T64_TRACE_KIND_PI_REFUSED;
+    saw_issue |= records[i].kind == T64_TRACE_KIND_PI_ISSUE;
+    if (records[i].kind == T64_TRACE_KIND_PI_CANCEL) {
+      saw_cancel = true;
+      cancel_count++;
+    }
+    saw_completion |= records[i].kind == T64_TRACE_KIND_PI_COMPLETE &&
+                      records[i].tick == UINT64_C(9);
+  }
+  check_u64("PI observer identifies refused operations", saw_refused, 1u);
+  check_u64("PI observer identifies request issue", saw_issue, 1u);
+  check_u64("PI observer identifies cancellation", saw_cancel, 1u);
+  check_u64("Repeated reset emits only one cancellation trace", cancel_count,
+            1u);
+  check_u64("PI observer timestamps completion at tick 9", saw_completion,
+            1u);
+  check_status("PI digest is available after observer drain",
+               t64_machine_digest(machine, digest_after), T64_STATUS_OK);
+  check_u64("PI trace drain leaves canonical machine state unchanged",
+            memcmp(digest_before, digest_after, sizeof digest_before) == 0,
+            1u);
+  t64_machine_destroy(machine);
+}
+
 static void emit_tap_assertion(unsigned test_number, const char *name) {
   bool passed = failure_count == 0u && check_count > 0u;
 
@@ -740,6 +1052,9 @@ int main(void) {
   first_failure_actual = 0u;
   first_failure_expected = 0u;
   test_pi_digest_inclusion();
+  test_cancel_and_stale_completion();
+  test_same_tick_clear_fifo();
+  test_pi_trace_observer();
   emit_tap_assertion(2u,
                      "PI raw register state changes canonical future-state digest");
   all_passed = all_passed && failure_count == 0u && check_count > 0u;

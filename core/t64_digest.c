@@ -38,7 +38,7 @@ static void hash_event(t64_sha256_ctx *context, const t64_event *event) {
 t64_status t64_machine_digest(const t64_machine *machine,
                               uint8_t digest_out[T64_DIGEST_SIZE]) {
   static const uint8_t domain[] = {'t', '6', '4', '.', 's', 't', 'a', 't',
-                                   'e', '.', 'v', '3'};
+                                   'e', '.', 'v', '4'};
   t64_sha256_ctx context;
   size_t i;
 
@@ -79,6 +79,29 @@ t64_status t64_machine_digest(const t64_machine *machine,
   hash_u32(&context, machine->mi_pending & T64_MI_INTERRUPT_BITS);
   hash_u32(&context, machine->mi_mask & T64_MI_INTERRUPT_BITS);
   hash_u32(&context, machine->mi_irq_line ? UINT32_C(1) : UINT32_C(0));
+  hash_u32(&context, machine->pi.dram_address);
+  hash_u32(&context, machine->pi.cart_address);
+  hash_u32(&context, machine->pi.read_length);
+  hash_u32(&context, machine->pi.write_length);
+  hash_u32(&context, machine->pi.domain1_latency);
+  hash_u32(&context, machine->pi.domain1_pulse_width);
+  hash_u32(&context, machine->pi.domain1_page_size);
+  hash_u32(&context, machine->pi.domain1_release_duration);
+  hash_u32(&context, machine->pi.domain2_latency);
+  hash_u32(&context, machine->pi.domain2_pulse_width);
+  hash_u32(&context, machine->pi.domain2_page_size);
+  hash_u32(&context, machine->pi.domain2_release_duration);
+  hash_u32(&context, machine->pi.error ? UINT32_C(1) : UINT32_C(0));
+  hash_u32(&context, machine->pi.active_valid ? UINT32_C(1) : UINT32_C(0));
+  hash_u32(&context,
+           machine->pi.active_canceled ? UINT32_C(1) : UINT32_C(0));
+  hash_u32(&context, machine->pi.active_dram_address);
+  hash_u32(&context, machine->pi.active_cart_address);
+  hash_u32(&context, machine->pi.active_length);
+  hash_u64(&context, machine->pi.active_token);
+  hash_u64(&context, machine->pi.next_token);
+  hash_u32(&context,
+           machine->pi.token_exhausted ? UINT32_C(1) : UINT32_C(0));
   hash_u32(&context, (uint32_t)machine->queue_count);
   hash_u64(&context, machine->next_sequence);
   hash_u32(&context,

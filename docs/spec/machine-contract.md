@@ -104,8 +104,9 @@ addresses in the vendor RDRAM aperture `[0x00400000, 0x03f00000)` and the
 RDRAM-register window are recognized but unsupported for this profile. The
 SP aperture has separate 4 KiB DMEM and IMEM byte banks at
 `[0x04000000, 0x04001000)` and `[0x04001000, 0x04002000)`; other SP, DP
-command/span, VI, AI, PI, RI, and SI addresses are explicit unsupported
-windows. MI interrupt-pending is read-only, and MI interrupt-mask supports
+command/span, VI, AI, RI, and SI addresses are explicit unsupported windows.
+PI's word registers at `0x04600000..0x04600030` implement the ROM DMA model
+below. MI interrupt-pending is read-only, and MI interrupt-mask supports
 the paired clear/set commands.
 
 Admitted cartridge bytes are read-only at `[0x10000000, 0x1fc00000)` and are
@@ -137,6 +138,61 @@ direction in `kind`, with physical address in the upper 32 bits and data in the
 lower 32 bits of `value`. MI records pack pending bits, mask bits, and line
 state into `value`. These records do not change execution or the state digest.
 
+## PI ROM DMA model
+
+The PI exposes 32-bit registers at `0x04600000` through `0x04600030` on
+four-byte offsets: DRAM address, cartridge address, read length, write length,
+status, then domain 1 and domain 2 latency/pulse-width/page-size/release-duration
+latches. DRAM address and both length latches retain 24 bits; the cartridge
+address retains 32 bits. Timing latches retain 8, 8, 4, and 2 bits in that
+order for each domain. Reads return the last masked writes. These widths and
+field meanings follow the cited SDK `rcp.h` PI map (lines 667-767).
+
+Only PI write-length starts work in this ROM profile. Read-length writes retain
+their masked latch and are refused because cartridge writes are unsupported.
+PI status exposes DMA_BUSY (bit 0), IO_BUSY (bit 1), and ERROR (bit 2); this
+model keeps IO_BUSY clear because it does not model program-I/O requests.
+Status writes use bit 0 to reset the PI controller and bit 1 to clear pending
+PI in MI. Clearing pending PI does not change MI masks. When both bits are
+written, reset is applied first and the pending clear second; a later event at
+the same tick follows scheduler FIFO and may set PI pending again.
+
+The source documents the register map, status meanings, and the raw/software
+DMA constraints of an even byte count, at most 16 MiB, 8-byte RDRAM alignment,
+and 2-byte PI alignment. The following details are explicitly selected
+skeleton behavior where the source does not establish raw-register edges or
+electrical timing:
+
+| Behavior | Selected model contract | Evidence label |
+| --- | --- | --- |
+| Write-length encoding | `N = (write_length & 0x00ffffff) + 1`; accept even `N` only. Keep the masked raw latch on semantic refusal. | `N-1` decode and odd raw-register refusal are model policy/inference from the API's even byte-count rule. |
+| Address range | Require full source span inside the admitted cartridge image and full destination span inside installed 4 MiB RDRAM; perform additions in checked 64-bit arithmetic before accepting. | Profile limit and refusal behavior. |
+| Request identity | Snapshot DRAM address, cartridge address, byte count, token, and completion event before setting active/busy. Later raw-latch writes do not alter the accepted descriptor. | Deterministic machine policy. |
+| Duration and visibility | Reserve one event at `current_tick + 1 + N/2`; read owned ROM bytes and atomically copy the full span at that completion event. Domain timing latches do not affect this equation. | Named model timing and visibility policy; not measured hardware timing or progressive bus arbitration. |
+| Busy start | Retain the original active request, retain the new masked write-length latch, refuse the second request, and set sticky ERROR. | Explicit compatibility policy; the SDK's program-I/O ERROR description does not prove this second-DMA edge. |
+| Reset while active | Mark the active request canceled, clear ERROR, retain its busy state, token, and already-reserved deadline. Do not accept a replacement request until that completion returns the controller to idle. | Token-preserving cancellation policy. |
+| Canceled completion | At the original deadline, match the token, skip the copy, clear active/busy once, and set PI pending once. Reset while idle clears ERROR without creating an event or interrupt. | Model policy; tests cover exact deadline and stale-token negative controls. |
+| Resource refusal | Queue, tick, sequence, or token exhaustion refuses before changing the request latch, descriptor, busy state, or digest. Semantic invalid starts may update the masked raw latch; busy start is the named exception with sticky ERROR. | Reservation and checked-arithmetic policy. |
+
+The source is read from the machine-owned admitted ROM at completion, not
+snapshotted at request time. Thus a scheduled event cannot observe a partial
+destination copy, and guest source changes before completion would be visible
+under this model. PI completion sets MI pending independent of its mask; only
+the status clear-interrupt command clears pending PI. Every accepted request
+has one reserved queue slot before busy becomes visible. A cancellation reuses
+that event rather than allocating another one. PI trace records identify issue,
+refusal, cancellation and completion at their model ticks; traces have no host
+sink and remain outside the canonical digest.
+
+The register definitions and alignment/count constraints are pinned in
+[Decision B](../../.planning/phases/02-deterministic-machine-skeleton/02-DECISION-B.md):
+Nintendo SDK `rcp.h`, PI lines 667-767, SHA-256
+`982f5ae01956783653d1085ef31c3d936f471f09bd1e65e27a578fae498f972f`, and
+`osPiRawStartDma`, SHA-256
+`560ef2b35b5cb96b2c175608e137d70203ab1f1e3cb4a14572935bf266f4a83b`. Those
+references do not establish the model's `1 + N/2` timing, source-read-at-event
+visibility, reset edge ordering, or busy-start ERROR rule.
+
 ## Deterministic scheduler and state digest
 
 The private scheduler orders admitted work by the pair `(guest_tick,
@@ -163,16 +219,19 @@ tick-add overflow are rejected before machine-state mutation; rejected
 reservations do not consume sequence values.
 
 `t64_machine_digest` is a versioned SHA-256 encoding, not a memory dump. The
-v3 encoding streams the `t64.state.v3` domain and fixed-width big-endian
+v4 encoding streams the `t64.state.v4` domain and fixed-width big-endian
 fields. It includes the complete profile hash, immutable admitted content
 size and hash, parsed header metadata, loaded-image flag, guest tick,
 cumulative counters, sticky error and halt state, RDRAM bytes, SP DMEM and IMEM
-bytes, six-bit MI pending and mask state, the derived IRQ line, and the logical
-ordered event queue with its count and next-sequence/exhaustion state. Event
-records encode tick, sequence, device, kind, value and token. This slice
-advances the state schema to v3 because SP and MI fields were not reserved in
-v2. The selected descriptor carries this version, so the profile hash changes;
-the machine, device, and timing policy values remain unchanged.
+bytes, six-bit MI pending and mask state, the derived IRQ line, all PI raw
+latches and sticky error, PI active/canceled flags and immutable descriptor,
+active/next token and token-exhaustion state, and the logical ordered event
+queue with its count and next-sequence/exhaustion state. Event records encode
+tick, sequence, device, kind, value and token. PI state was not reserved in v3,
+so the selected profile and state schema advance together to v4. The profile
+digest is `34e61cf9555546a83aa81d856bb7b011a9247359aad005eb410382ded209d27a`;
+the independently assembled default fixture state digest is
+`511c3f575be2172b525da607747a91aeab2246360d6708a2da8306033e46e8b1`.
 
 | Private field or state | Digest treatment | Reason |
 | --- | --- | --- |
@@ -184,15 +243,18 @@ the machine, device, and timing policy values remain unchanged.
 | RDRAM bytes | Include | Writable machine memory |
 | SP DMEM and IMEM bytes | Include | Writable SP-local memory banks |
 | MI pending bits, mask bits, and derived IRQ line | Include | Device interrupt state and the CPU seam's current line |
+| PI raw address/length/timing latches and sticky error | Include | Register readback and later request behavior |
+| PI active/canceled state, immutable descriptor, active/next token, exhaustion | Include | Determines whether the reserved event may copy or complete, and identity of later work |
 | Queue count, logical event fields, next sequence and exhausted flag | Include | Determines future dispatch and enqueue behavior |
 | Allocator callbacks/context and machine/image storage descriptors | Exclude | Host ownership and pointer locations are not machine behavior |
 | RAM pointer, event handler pointers and build/source identity | Exclude | Storage/code identity is not serialized machine state |
 | Queue head, unused event slots, structure padding | Exclude | Physical layout is not logical queue state |
 | Trace configuration, records and drop observation | Exclude | Observer state must not alter guest state or its digest |
 
-The field-mutation, exclusion, relocation, golden-vector, interleaving and
-partition tests cover this audit. Future device/register/request state remains
-to be added to the encoding and this table with its own tests when introduced.
+The field-mutation test toggles every PI latch, flag, descriptor value, token,
+and exhaustion state. Exclusion, relocation, golden-vector, interleaving and
+partition tests cover the remaining audit. Future device/register/request
+state must be added to the encoding and this table with its own tests.
 
 The observer is disabled by default and can be enabled per machine. When
 enabled, successful ROM admission emits a machine-boundary record at guest tick
@@ -225,7 +287,7 @@ introduced.
 | Instruction/frame counters | Yes | Reset to zero |
 | CPU/RSP registers | No | Reset to the profile's initial state when introduced |
 | Scheduler queue, next sequence and exhaustion state | Yes | Empty queue, initial sequence and available sequence |
-| DMA descriptors and device latches | No | Reset to the profile's initial state when introduced |
+| PI raw latches, error, active/canceled descriptor and token state | Yes | Clear latches and descriptor, clear active/error/exhaustion flags, reset next token to 1 |
 | Trace records, drop count and enablement | Yes | Clear records and drops; preserve enablement and emit a new admission record when enabled |
 
 Refusal assertions compare every present machine observation, scheduler state,
