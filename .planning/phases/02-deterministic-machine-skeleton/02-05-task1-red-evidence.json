@@ -1,0 +1,10 @@
+{
+  "command": "./build/gate/core/test_pi_dma",
+  "exitCode": 1,
+  "output": "TAP version 13\nnot ok 1 - PI transfers 16 authored bytes at tick 9 with pending IRQ\n# failed assertion: PI DRAM address register write is accepted\n# expected: 0\n# actual: 16\n1..1\n",
+  "targetTest": "PI transfers 16 authored bytes at tick 9 with pending IRQ",
+  "targetFile": "test_pi_dma.c",
+  "expected": "The PI DRAM address register write is accepted before a 16-byte ROM DMA can be scheduled.",
+  "actual": "The target assertion ran and observed T64_STATUS_BUS_UNSUPPORTED (16).",
+  "semanticAssessment": "The sole TAP target assertion failed on the planned PI register-access behavior. Profile lookup, machine creation and synthetic ROM admission passed; this is not a compile, setup or unrelated failure. The bus still treats the PI window as unsupported because PI is not implemented."
+}

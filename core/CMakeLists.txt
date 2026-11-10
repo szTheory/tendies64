@@ -161,3 +161,12 @@ target_link_libraries(test_bus PRIVATE t64_core)
 t64_target_warnings(test_bus)
 add_test(NAME unit.core.bus COMMAND test_bus)
 set_tests_properties(unit.core.bus PROPERTIES LABELS unit)
+
+add_executable(test_pi_dma tests/test_pi_dma.c)
+target_include_directories(test_pi_dma PRIVATE
+  "${CMAKE_CURRENT_SOURCE_DIR}"
+  "${CMAKE_SOURCE_DIR}/tests")
+target_link_libraries(test_pi_dma PRIVATE t64_core)
+t64_target_warnings(test_pi_dma)
+add_test(NAME unit.core.pi-dma COMMAND test_pi_dma)
+set_tests_properties(unit.core.pi-dma PROPERTIES LABELS unit)
