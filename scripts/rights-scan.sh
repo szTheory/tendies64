@@ -117,8 +117,9 @@ scan_tree() {
     "$TMP/index.s" >> "$TMP/report" || fatal "awk failed"
 
   # R-LFS-ATTR: any tracked or untracked .gitattributes that names the lfs filter.
+  # -a: an attribute that marks the file itself binary must not hide it.
   _rc=0
-  git -c core.quotepath=false grep -l -F -e 'filter=lfs' --untracked \
+  git -c core.quotepath=false grep -a -l -F -e 'filter=lfs' --untracked \
     -- ':(glob)**/.gitattributes' > "$TMP/lfs.files" || _rc=$?
   [ "$_rc" -le 1 ] || fatal "git grep failed"
   awk '{ print "RULE R-LFS-ATTR " $0 }' "$TMP/lfs.files" >> "$TMP/report" ||
@@ -185,7 +186,7 @@ scan_history() {
     _oid=${_line%% *}
     _path=${_line#* }
     git cat-file blob "$_oid" > "$TMP/attr.blob" || fatal "git cat-file blob failed"
-    if grep -q -F 'filter=lfs' "$TMP/attr.blob"; then
+    if grep -a -q -F 'filter=lfs' "$TMP/attr.blob"; then
       echo "RULE R-LFS-ATTR $_path $_oid" >> "$TMP/report"
     fi
   done < "$TMP/attr.names"
@@ -547,6 +548,14 @@ selftest() {
   commit_all "$ST/lfsa" attr
   (cd "$ST/lfsa" && g rm -q -f .gitattributes && g commit -q -m rm)
   case_run lfs-attr-history 1 R-LFS-ATTR "$ST/lfsa" --history
+  # An attributes file that marks every file binary (itself included) and
+  # carries a NUL is still read for the lfs filter, in the tree and history.
+  mk lfsb
+  printf '* -diff binary\n\000\n*.bin filter=lfs\n' > "$ST/lfsb/.gitattributes"
+  case_run lfs-attr-nodiff 1 R-LFS-ATTR "$ST/lfsb" --tree
+  commit_all "$ST/lfsb" attr
+  (cd "$ST/lfsb" && g rm -q -f .gitattributes && g commit -q -m rm)
+  case_run lfs-attr-nodiff-history 1 R-LFS-ATTR "$ST/lfsb" --history
 
   # gitlinks are not objects, so rev-list never sees them.
   mk gl

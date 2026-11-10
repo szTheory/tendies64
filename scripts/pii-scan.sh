@@ -117,13 +117,15 @@ scan_tree() {
     HARNESS=1
     return 0
   fi
+  # -a: a committed attribute (-diff, binary) must not make git grep treat a
+  # file as binary and skip it; real binaries yield matches, never silence.
   _rc=0
-  git grep -n -I -o -E --untracked -e "$PATH_RE" > "$TMP/tree.path" || _rc=$?
+  git grep -a -n -o -E --untracked -e "$PATH_RE" > "$TMP/tree.path" || _rc=$?
   [ "$_rc" -le 1 ] || fatal "git grep failed"
   tree_tsv "$TMP/tree.path" "$TMP/tree.path.tsv"
   finish P-PRIVATE-PATH "$TMP/tree.path.tsv"
   _rc=0
-  git grep -n -I -o -E --untracked -e "$EMAIL_RE" > "$TMP/tree.email" || _rc=$?
+  git grep -a -n -o -E --untracked -e "$EMAIL_RE" > "$TMP/tree.email" || _rc=$?
   [ "$_rc" -le 1 ] || fatal "git grep failed"
   tree_tsv "$TMP/tree.email" "$TMP/tree.email.tsv"
   finish P-EMAIL "$TMP/tree.email.tsv"
@@ -133,7 +135,7 @@ scan_tree() {
 # line) and maps each hit back to its location in LOC.
 hist_hits() {
   _rc=0
-  grep -n -o -E -e "$4" "$2" > "$TMP/hist.hits" || _rc=$?
+  grep -a -n -o -E -e "$4" "$2" > "$TMP/hist.hits" || _rc=$?
   [ "$_rc" -le 1 ] || fatal "grep failed"
   awk 'NR == FNR { loc[FNR] = $0; next }
       { i = index($0, ":"); n = substr($0, 1, i - 1) + 0
@@ -164,9 +166,14 @@ scan_history() {
   # Added lines of every diff. Content lines start with ' ', '+' or '-', so a
   # line starting with "COMMIT " or "diff --git " is always a marker. Lines that
   # start with '+' are scanned in full, including "+++ " headers (a content
-  # line that looks like a header must not escape the scan).
-  git -c core.quotepath=false log -m -p --no-color --no-ext-diff --no-textconv \
-    --format='COMMIT %h' "$_spec" > "$TMP/log.p" || fatal "git log -p failed"
+  # line that looks like a header must not escape the scan). --text forces a
+  # content diff even where a committed attribute (-diff, binary) would print
+  # "Binary files differ"; NUL bytes become spaces so no awk or grep drops the
+  # rest of a line.
+  git -c core.quotepath=false log -m -p --text --no-color --no-ext-diff \
+    --no-textconv --format='COMMIT %h' "$_spec" > "$TMP/log.p.raw" ||
+    fatal "git log -p failed"
+  tr '\000' ' ' < "$TMP/log.p.raw" > "$TMP/log.p" || fatal "tr failed"
   awk -v text="$TMP/added.txt" -v loc="$TMP/added.loc" '
     /^COMMIT / { c = $2; f = ""; next }
     /^diff --git / { f = $3; sub(/^a\//, "", f); next }
@@ -369,6 +376,24 @@ selftest() {
   commit_all "$ST/hdr" add
   (cd "$ST/hdr" && g rm -q -f n.txt && g commit -q -m remove)
   case_run history-header-lookalike 1 P-PRIVATE-PATH "$ST/hdr" --history
+
+  # A committed attribute that marks files binary (-diff, binary) must not
+  # hide their content from the tree or the history pass, and a NUL byte on
+  # the line must not turn the match into a "binary file matches" message.
+  new_repo attr
+  printf '* -diff\n' > "$ST/attr/.gitattributes"
+  printf 'see %s\n' "$P_MAC" > "$ST/attr/n.md"
+  case_run attr-nodiff-tree 1 P-PRIVATE-PATH "$ST/attr" --tree
+  commit_all "$ST/attr" add
+  (cd "$ST/attr" && g rm -q -f n.md && g commit -q -m remove)
+  case_run attr-nodiff-history 1 P-PRIVATE-PATH "$ST/attr" --history
+  new_repo attrb
+  printf '*.md binary\n' > "$ST/attrb/.gitattributes"
+  printf 'nul\000 see %s\n' "$P_MAC" > "$ST/attrb/n.md"
+  case_run attr-binary-nul-tree 1 P-PRIVATE-PATH "$ST/attrb" --tree
+  commit_all "$ST/attrb" add
+  (cd "$ST/attrb" && g rm -q -f n.md && g commit -q -m remove)
+  case_run attr-binary-nul-history 1 P-PRIVATE-PATH "$ST/attrb" --history
 
   # Commit metadata.
   new_repo auth
