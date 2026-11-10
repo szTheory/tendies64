@@ -260,6 +260,18 @@ t64-supervisor --identity synthetic --result PATH --meta PATH --work-dir DIR
 - The supervisor never uses the runner's exit code as an outcome; it only
   rejects a non-zero one.
 
+Known limitation (to resolve in Phase 3): `fixture_digest` attests the fixture
+bytes as read by the supervisor, not necessarily as read by the runner. The
+supervisor hashes the file at `--fixture` and then passes the same path to the
+runner, which opens it again, so the file can change between the two reads.
+This is acceptable only for Phase 1's synthetic scripts, which are never
+support evidence. Before any real-ROM run (Phases 3 and 4), where the digest is
+the identity claim, the supervisor must hand the runner the bytes it verified:
+either an already-open descriptor to the verified file, or a private copy made
+while hashing (created with `O_EXCL` and mode 0400 inside the private work
+directory). The chosen mechanism is recorded here when it lands; until then no
+result may present `fixture_digest` as proof of what the runner executed.
+
 ## Control matrix
 
 `tests/controls/matrix.tsv` has one TAB-separated row per control; the header
