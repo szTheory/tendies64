@@ -39,6 +39,15 @@ applies that direction; update it when the owner changes policy.
 
 ## 2. Verification and CI
 
+- Workflow application (2026-11-10): when installed GSD instructions conflict
+  about judgment-tier prohibitions, apply their specific autonomous-mode soft
+  gate: report non-authoritative verdicts and every flag prominently, and
+  complete with those flags when all automated phase requirements pass and no
+  concrete stop is unresolved. A generic human-review recommendation alone is
+  not an acknowledgment gate. Preserve the original report and routing rationale;
+  never record human validation or risk acceptance that did not occur. Concrete
+  rights, authority, physical, publication and evidence gaps still stop work.
+
 - Aim for zero human verification where tools can give useful evidence. Shift
   checks left to component, seam, integration, headless guest and installed
   consumer boundaries as each exists. Throwaway local verification is fine.

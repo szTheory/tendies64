@@ -68,7 +68,7 @@ systems and two compilers.
 Decimal phases appear between their surrounding integers in numeric order.
 
 - [x] **Phase 1: Governance, Rights and Harness Foundation** - ADRs, provenance and fixture policies, the gate command, determinism lint and a six-outcome runner with negative controls, before any emulator code (completed 2026-11-10)
-- [ ] **Phase 2: Deterministic Machine Skeleton** - Guest-time scheduler, named profile, memory map, RDRAM, MI, PI/SP DMA, ROM admission and digests equal across interleaved instances
+- [x] **Phase 2: Deterministic Machine Skeleton** - Guest-time scheduler, named profile, memory map, RDRAM, MI, PI/SP DMA, ROM admission and digests equal across interleaved instances (completed 2026-11-10)
 - [ ] **Phase 3: First Headless ROM Through Open IPL3** - Primary documents pinned; HLE-PIF plus pinned open IPL3 boots a hello ROM that prints through ISViewer, with digests matching across two operating systems and two compilers
 - [ ] **Phase 4: Complete VR4300 CPU** - MIPS III integer, delay slots, CP0, TLB, unaligned access, LL/SC, cache scope and soft-float COP1, with per-group `nemu64-test` CPU status
 - [ ] **Phase 5: RSP Low-Level Emulation** - Scalar and vector units, DMA and status semantics, checked against a permanent scalar VU oracle and the `nemu64-test` RSP groups
@@ -107,7 +107,8 @@ Plans:
 ### Phase 2: Deterministic Machine Skeleton
 **Goal**: A machine instance with a named profile advances in guest time over the memory map, RDRAM, MI, PI and SP DMA, and produces the same state digest whether it runs alone or interleaved with another instance
 **Depends on**: Phase 1
-**Requirements**: CORE-01, CORE-02, CORE-03, CORE-06, PROF-01, PROF-02, PROF-03, PROF-04, PROF-06, BUS-01, BUS-02, BUS-04
+**Requirements**: CORE-01, CORE-03, CORE-06, PROF-01, PROF-02, PROF-03, PROF-04, PROF-06, BUS-01, BUS-02, BUS-04
+**Partial contribution**: CORE-02 scheduler foundation and profile quantum are verified here; completion requires the later devices, with final integration owned by Phase 9.
 **Decision gates**: None beyond D1 (accepted in Phase 1)
 **Research**: Standard patterns for time, profile, outputs and bus. DMA length/alignment and MI semantics cite references, and each citation records its evidence tier
 **Success Criteria** (what must be TRUE):
@@ -117,7 +118,7 @@ Plans:
   4. ROM admission refuses oversized, truncated and malformed images, and images of unknown byte order, and the state digest is unchanged after each refusal. A ROM whose header country byte disagrees with the selected profile still runs under the profile's TV type and region (two-profile diff test)
   5. Turning on tracing produces guest-time-stamped events at device boundaries, and the final digest is identical to an untraced run
   6. The ROM admission parser is fuzzed under ASan and UBSan with inputs that exercise every header-field-dependent read, and the fuzz target is the production parser, not a stub (ADR-0002, "Evidence limits": the Phase 1 spike parser read four bytes, so its fuzz established nothing about memory safety)
-**Plans**: 8/8 plans executed
+**Plans**: 8/8 plans complete
 
 Plans:
 **Wave 1**
@@ -234,12 +235,13 @@ expectations. This outline is revised at the v1.0 close.
 ### Phase 9: Controller, Save Media and Replay
 **Goal**: Timed logical input drives the standard controller, explicitly selected save devices behave with defined refusal postconditions, and machine state and input replays reproduce runs exactly
 **Depends on**: Phase 8 (state export covers every device in the profile)
-**Requirements**: SAVE-01, SAVE-02, SAVE-03, SAVE-04, CORE-04, CORE-05
+**Requirements**: SAVE-01, SAVE-02, SAVE-03, SAVE-04, CORE-02, CORE-04, CORE-05
 **Research**: MODERATE (joybus response timing, EEPROM write timing; FlashRAM deferred)
 **Success Criteria** (what must be TRUE):
   1. A timed-input script drives the standard controller over SI/PIF joybus, and an authored ROM reports the expected button states at the expected guest times
   2. EEPROM (4 and 16 Kbit, with the busy window and block rules) and SRAM work only when the profile selects them explicitly. Unknown device requests are refused with defined postconditions. Save bytes round-trip through import and export with endianness handling, and a refused import leaves the digest unchanged
   3. Exporting and re-importing machine state reproduces the canonical digest exactly, and a recorded input replay bound to profile, build and content hash reproduces the original run's digests
+  4. CPU, RSP, RDP, VI, AI, PI, SI and MI activity is ordered by the same guest-time scheduler, including coincident-event and partition/interleave checks; the CPU-to-RSP quantum remains part of profile identity (CORE-02 completion).
 **Plans**: TBD
 
 ## v1.2 Embeddable and Playable

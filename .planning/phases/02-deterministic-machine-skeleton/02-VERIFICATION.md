@@ -1,9 +1,13 @@
 ---
 phase: 02-deterministic-machine-skeleton
-verified: 2026-11-10T23:34:18Z
-status: gaps_found
-score: "39/40 plan truths; roadmap criteria 6/6"
+verified: 2026-11-10T23:53:51Z
+status: passed
+score: "40/40 plan truths; roadmap criteria 6/6"
+completion_with_flags: 3
 covered_files:
+  - .planning/AUTONOMY.md
+  - .planning/REQUIREMENTS.md
+  - .planning/ROADMAP.md
   - .planning/phases/02-deterministic-machine-skeleton/02-01-PLAN.md
   - .planning/phases/02-deterministic-machine-skeleton/02-01-SUMMARY.md
   - .planning/phases/02-deterministic-machine-skeleton/02-02-PLAN.md
@@ -20,6 +24,17 @@ covered_files:
   - .planning/phases/02-deterministic-machine-skeleton/02-07-SUMMARY.md
   - .planning/phases/02-deterministic-machine-skeleton/02-08-PLAN.md
   - .planning/phases/02-deterministic-machine-skeleton/02-08-SUMMARY.md
+  - .planning/phases/02-deterministic-machine-skeleton/02-CI-FIX.md
+  - .planning/phases/02-deterministic-machine-skeleton/02-CONTEXT.md
+  - .planning/phases/02-deterministic-machine-skeleton/02-FINAL-LOCAL-EVIDENCE.md
+  - .planning/phases/02-deterministic-machine-skeleton/02-RECHECK-FINAL.md
+  - .planning/phases/02-deterministic-machine-skeleton/02-REVIEW-DISPOSITION.md
+  - .planning/phases/02-deterministic-machine-skeleton/02-REVIEW-FIX-2.md
+  - .planning/phases/02-deterministic-machine-skeleton/02-REVIEW.md
+  - .planning/phases/02-deterministic-machine-skeleton/02-SECURITY.md
+  - .planning/phases/02-deterministic-machine-skeleton/02-VALIDATION.md
+  - .planning/phases/02-deterministic-machine-skeleton/02-VERIFICATION-TYPED-ROUTING.md
+  - .planning/phases/02-deterministic-machine-skeleton/02-WORKFLOW-RECONCILIATION.md
   - CMakeLists.txt
   - core/CMakeLists.txt
   - core/include/tendies64/t64_machine.h
@@ -45,7 +60,6 @@ covered_files:
   - core/tests/test_scheduler.c
   - core/tests/test_sp_dma.c
   - core/tests/test_tracer.c
-  - docs/ci-reviews/LOG.md
   - docs/evidence/phase02-core.md
   - docs/profile-limits.md
   - docs/spec/machine-contract.md
@@ -60,26 +74,24 @@ covered_files:
   - scripts/gate.sh
   - tools/common/CMakeLists.txt
   - tools/lint/core-lint.sh
-covered_digest: "v4:sha256:a83e4c264db34e131dea55389d9d43f17638b9620d0fbd091349ca831950817a"
+covered_digest: "v4:sha256:b62c9a0e6c0409fc032445448ed1e00dc826340abd6870b2f5f6f7d5d45edfe1"
 behavior_unverified: 0
 overrides_applied: 0
+re_verification:
+  previous_status: gaps_found
+  previous_score: 39/40
+  gaps_closed:
+    - "Both hosted gates pass on corrected source SHA 34b43f760e0858cdbc3a37e031058f176eea4073."
+  gaps_remaining: []
+  regressions: []
 decision_coverage:
   honored: 14
   total: 14
   not_honored: []
-gaps:
-  - truth: "The existing gate passes on both hosted operating-system/toolchain lanes for the exact phase source."
-    status: failed
-    reason: "Run 42923015327 at 32de4f7b664c5e8083ff22a44bda8a46f67d88c6 fails compiling runner/tests/test_skeleton_probe.c on Linux GCC 13.3 with -Werror=format-truncation. CTest never starts on Linux; macOS passes 73/73."
-    artifacts:
-      - path: "runner/tests/test_skeleton_probe.c"
-        issue: "Unchecked snprintf joins at lines 541-547 append suffixes to a 512-byte buffer, and GCC cannot prove the result fits."
-    missing:
-      - "Bound or safely join the test paths, then obtain a passing Linux hosted gate on the corrected exact source."
 deferred:
-  - truth: "CORE-02 device execution beyond the Phase 2 scheduler skeleton (CPU/RSP instruction execution, RDP, VI, AI, and SI)."
-    addressed_in: "Phases 4, 5, 7, 8, and 9"
-    evidence: "ROADMAP goals/success criteria assign CPU to Phase 4, RSP to Phase 5, RDP/VI to Phase 7, audio to Phase 8, and controller/SI to Phase 9."
+  - truth: "CORE-02 full device integration; Phase 2 verifies only its scheduler foundation and profile quantum."
+    addressed_in: "Phase 9"
+    evidence: "The updated ROADMAP assigns CORE-02 completion to Phase 9 success criterion 4; REQUIREMENTS.md keeps CORE-02 partial and unchecked."
 unverified_prohibitions:
   - statement: "The canonical core must not acquire host clocks, files, entropy, threads, physical input, presentation, or mutable global machine state."
     verdict: "No violation observed in the production core; the determinism lint is wired into the gate."
@@ -90,15 +102,16 @@ unverified_prohibitions:
   - statement: "Model, fuzz, digest, or probe success must not become a boot, hardware-accuracy, broad-compatibility, or memory-safety claim."
     verdict: "No overclaim observed; the model protocol and profile limits label the evidence as synthetic/native model evidence."
     flag: "unverified-prohibition — human review recommended; judgment-tier, non-authoritative check."
+human_verification: []
 ---
 
 # Phase 2: Deterministic Machine Skeleton Verification Report
 
 **Phase Goal:** A machine instance with a named profile advances in guest time over the memory map, RDRAM, MI, PI and SP DMA, and produces the same state digest whether it runs alone or interleaved with another instance.
 
-**Verified:** 2026-11-10T23:34:18Z  
-**Status:** gaps_found  
-**Re-verification:** No — initial verification
+**Verified:** 2026-11-10T23:53:51Z
+**Status:** passed — automated phase contract; complete with 3 flagged prohibitions
+**Re-verification:** Yes — after the hosted gate gap was fixed
 
 ## Goal Achievement
 
@@ -106,14 +119,14 @@ unverified_prohibitions:
 
 | # | Roadmap success criterion | Status | Evidence |
 |---|---|---|---|
-| 1 | The named first profile fixes NTSC, cartridge, 4 MiB RDRAM, the intended open-IPL3 route, and CPU:RSP quantum in its profile hash; results identify profile and build; limits state promotion evidence. | ✓ VERIFIED | `core/t64_machine.c` defines and serializes the full descriptor; `core/tests/test_profile.c` checks profile fields, changed-field hashing, identity separation, and country independence; `runner/t64_skeleton_probe.c` emits a strict `t64.model-result` record; `docs/profile-limits.md` labels the target unqualified and lists limits. The successful macOS `unit.core.profile-result` and `unit.core.profile` checks are in run [42923015327](https://github.com/szTheory/tendies64/actions/runs/42923015327). |
+| 1 | The named first profile fixes NTSC, cartridge, 4 MiB RDRAM, the intended open-IPL3 route, and CPU:RSP quantum in its profile hash; results identify profile and build; limits state promotion evidence. | ✓ VERIFIED | `core/t64_machine.c` defines and serializes the full descriptor; `core/tests/test_profile.c` checks profile fields, changed-field hashing, identity separation, and country independence; `runner/t64_skeleton_probe.c` emits a strict `t64.model-result` record; `docs/profile-limits.md` labels the target unqualified and lists limits. The exact-SHA Linux and macOS gates both pass in run [42925122280](https://github.com/szTheory/tendies64/actions/runs/42925122280). |
 | 2 | Guest-time, instruction-count, and frame-event bounds stop with the correct reason; isolated/interleaved instances agree. | ✓ VERIFIED | `core/t64_scheduler.c` owns ordered dispatch and all stop modes. `core/tests/test_scheduler.c` checks bounds and precedence; `core/tests/test_determinism.c` compares isolated, interleaved, one-shot, and partitioned device workloads. MacOS hosted `unit.core.scheduler` and `unit.core.determinism` passed. Counter events are synthetic; no CPU or frame execution is claimed. |
 | 3 | PI/SP transfers occur as scheduled events under the documented model policies; MI masks remain separate from pending state. | ✓ VERIFIED | PI and SP requests reserve completion events in `core/t64_pi.c` and `core/t64_sp.c`; `core/t64_bus.c` routes register access; `core/t64_mi.c` holds pending and masks separately. `unit.core.pi-dma`, `unit.core.sp-dma`, and `unit.core.bus` passed on macOS. Exact policy and source labels are in `docs/spec/machine-contract.md`. The timing values are synthetic model policy, not hardware timing. |
 | 4 | Bounded ROM admission rejects malformed/oversized/unknown-order inputs without changing state; header country does not select TV or region. | ✓ VERIFIED | `core/t64_rom.c` bounds and normalizes the candidate before `core/t64_machine.c` commits it. `core/tests/test_rom_admission.c` checks refusal digests and metadata, all byte orders, and size boundaries; `core/tests/test_profile.c` checks country independence across explicit descriptors. `unit.core.rom-admission` passed on macOS; the ASan/UBSan admission campaign also passed locally. |
 | 5 | Device-boundary traces carry guest ticks and do not alter the digest. | ✓ VERIFIED | `core/t64_trace.c` copies into a bounded per-instance ring; BUS, MI, PI, SP, scheduler, and admission paths call the observer. `core/tests/test_digest_trace.c` and `core/tests/test_determinism.c` check trace-on/off/overflow digest equality and visible drops; macOS `unit.core.digest-trace` and `unit.core.determinism` passed. |
 | 6 | Production ROM admission is exercised by a bounded ASan/UBSan campaign covering header-field reads and a sanitizer negative control. | ✓ VERIFIED | `core/tests/fuzz_rom_admission.c` calls the public admission path. The final local ASan/UBSan CTest selection passed 14/14; `build/asan/Testing/Temporary/LastTest.log` records 250,000 mutations plus 148 fixed cases (250,148 calls) in 44.57 s, and the negative-control child was detected. This is bounded parser evidence, not a memory-safety proof. |
 
-**Score:** 6/6 roadmap criteria verified. The 40 detailed plan predicates add implementation detail; 39/40 are verified. The sole failed predicate is the two-hosted-lanes completion requirement below.
+**Score:** 6/6 roadmap criteria and 40/40 detailed plan predicates verified. CORE-02 remains a partial contribution by the updated roadmap; its all-device integration is assigned to Phase 9.
 
 ### Detailed Plan Must-Have Coverage
 
@@ -126,14 +139,14 @@ unverified_prohibitions:
 | 02-05 | 5/5 | ✓ VERIFIED | PI address/length checks, reservation, delayed copy, cancellation tokens, pending IRQ, digest and trace behavior are in `core/t64_pi.c`; `unit.core.pi-dma` passed. |
 | 02-06 | 5/5 | ✓ VERIFIED | SP row/skip/bank-wrap decode, completion-time source reads, active/pending promotion, refusal, and no synthetic SP IRQ are implemented in `core/t64_sp.c`; `unit.core.sp-dma` passed. |
 | 02-07 | 4/4 | ✓ VERIFIED | The final-source sanitizer run exercised the production fuzzer and caught its deliberate fault; model-result parsing remains a separate strict consumer in `runner/t64_model_result_check.c`. |
-| 02-08 | 5/6 | ✗ FAILED | The real model probe, legacy consumer refusals, cross-device determinism, and exact inventory gate are implemented and passed on macOS. The plan’s requirement that both hosted lanes pass is not met: Linux GCC fails while compiling `runner/tests/test_skeleton_probe.c`. |
+| 02-08 | 6/6 | ✓ VERIFIED | The real model probe, legacy consumer refusals, cross-device determinism, exact inventory gate, and both hosted lanes pass on corrected SHA `34b43f760e0858cdbc3a37e031058f176eea4073`. The exact run is 42925122280. |
 
 ### Seven Flagged Assumptions Reviewed
 
 | Assumption | Finding | Evidence |
 |---|---|---|
 | CORE-01: one scheduler owns progress | Supported for this skeleton. Public advance enters `t64_scheduler_advance`; PI/SP completions reserve events there. Host bus operations are explicit out-of-band debug stimuli between advances. | `core/t64_machine.c`, `core/t64_scheduler.c`, `core/t64_pi.c`, `core/t64_sp.c`; scheduler and DMA tests. |
-| CORE-02: only present devices have behavior | Supported and bounded. The implemented device paths are RDRAM, MI, PI, SP DMA, and synthetic stop counters; CPU/RDP/VI/AI/SI execution is not present or claimed. | `core/t64_bus.c`, `docs/profile-limits.md`, `docs/spec/machine-contract.md`. |
+| CORE-02: only present devices have behavior | Phase 2 contributes the generic scheduler foundation and profile quantum. Full all-device integration is explicitly assigned to Phase 9; absent devices remain unimplemented and unclaimed. | Updated `.planning/ROADMAP.md` Phase 2 partial-contribution note and Phase 9 criterion 4; `.planning/REQUIREMENTS.md` retains CORE-02 as partial/unchecked. |
 | CORE-06: meaningful implemented boundaries use a copy-only observer | Supported for current paths. The ring makes no host callback and is called at machine, bus, MI, PI, SP, and scheduled-event boundaries. | `core/t64_trace.c`, its callers, and `core/tests/test_determinism.c`. |
 | PROF-03: region consumers use the descriptor | Supported. Profile selection sets TV/region; the ROM parser preserves metadata but does not use country to choose behavior. | `core/t64_machine.c`, `core/t64_rom.c`, `core/tests/test_profile.c`, `docs/spec/machine-contract.md`. |
 | PROF-06: writable machine state is per instance | Supported for current production code. Machine, RAM, device, queue, and observer state live in `t64_machine`; core lint rejects mutable globals; interleaved-instance digest tests pass. | `core/t64_internal.h`, `core/tests/test_determinism.c`, `tools/lint/core-lint.sh`. |
@@ -159,7 +172,7 @@ The GSD artifact query passed all 25 plan-declared artifacts for existence and s
 | Public machine API and per-instance storage (`core/include/tendies64/t64_machine.h`, `core/t64_internal.h`) | ✓ VERIFIED | Public lifecycle/advance/admission contracts and owned machine state are used by production and tests. |
 | Admission/profile/digest/scheduler/trace (`core/t64_machine.c`, `core/t64_rom.c`, `core/t64_digest.c`, `core/t64_scheduler.c`, `core/t64_trace.c`) | ✓ VERIFIED | Substantive implementations; CMake compiles `core/t64_*.c` into `t64_core`; public-entry tests reach them. |
 | Bus and DMA (`core/t64_bus.c`, `core/t64_mi.c`, `core/t64_pi.c`, `core/t64_sp.c`) | ✓ VERIFIED | Device registers route through the bus; scheduled completions use reserved scheduler events and per-instance state. |
-| Component and integration tests (`core/tests/test_*.c`, `core/tests/fuzz_rom_admission.c`) | ✓ VERIFIED | The macOS hosted gate runs all registered tests; final local ASan selection ran core tests, fuzz, and negative control. |
+| Component and integration tests (`core/tests/test_*.c`, `core/tests/fuzz_rom_admission.c`) | ✓ VERIFIED | Both hosted gate lanes pass the pinned inventory; the final local ASan selection ran core tests, fuzz, and negative control. |
 | Model producer/consumer (`runner/t64_skeleton_probe.c`, `runner/t64_model_result_check.c`, `runner/tests/test_skeleton_probe.c`, `runner/tests/test_model_result.c`) | ✓ VERIFIED | CMake links production producer/checker. Probe integration tests exercise actual emitted bytes and legacy rejection paths. |
 | Gate and inventory (`scripts/gate.sh`, `scripts/check-test-inventory.sh`, `scripts/expect-sanitizer.sh`) | ✓ VERIFIED | The gate checks the exact test inventory before CTest; macOS gate completed. |
 | Contract/evidence docs (`docs/profile-limits.md`, `docs/spec/machine-contract.md`, `docs/spec/result-protocol.md`, `docs/evidence/phase02-core.md`) | ✓ VERIFIED | Describe model limits, caller ownership, timing assumptions, real local measurements, and claim boundaries. |
@@ -186,22 +199,22 @@ The GSD artifact query passed all 25 plan-declared artifacts for existence and s
 
 | Behavior | Command/evidence | Result | Status |
 |---|---|---|---|
-| Full existing gate on macOS arm64 / Apple Clang | Run 42923015327, `./scripts/gate.sh` | Build and all 73/73 tests passed; includes profile/result, scheduler, bus, PI, SP, digest/trace, determinism, inventory, rights and provenance checks | ✓ PASS |
-| Full existing gate on Linux x86_64 / GCC 13.3 | Same exact run and SHA | Build stopped compiling `runner/tests/test_skeleton_probe.c`; warnings are errors; CTest did not run | ✗ FAIL |
+| Full existing gate on Linux x86_64 / GCC 13.3 | Run 42925122280 at `34b43f760e0858cdbc3a37e031058f176eea4073` | Gate job passed with the size-derived path buffers and explicit producer/checker target dependencies | ✓ PASS |
+| Full existing gate on macOS arm64 / Apple Clang | Same exact run and SHA | Gate job passed; 146 s queue delay and 58 s execution | ✓ PASS |
 | Final local ASan/UBSan selection | `ctest --preset asan ... -R '^(unit\.core\..*|unit\.model-result|fuzz\.rom-admission|sanitizer\.negative-control)$'` as recorded in `02-FINAL-LOCAL-EVIDENCE.md` and `LastTest.log` | 14/14 passed; fuzz executed 250,148 production admission calls in 44.57 s; separate negative control detected | ✓ PASS |
 
 ## Probe Execution
 
 | Probe | Command/evidence | Result | Status |
 |---|---|---|---|
-| Production named-profile probe | Hosted `unit.core.profile-result` invokes `t64-skeleton-probe` as a child and validates its emitted record | Passed on the exact SHA in the successful macOS 73-test gate | ✓ PASS |
+| Production named-profile probe | Hosted `unit.core.profile-result` invokes `t64-skeleton-probe` as a child and validates its emitted record | Both hosted gate jobs passed on the corrected exact SHA | ✓ PASS |
 
 ## Requirements Coverage
 
 | Requirement | Source plan | Status | Evidence |
 |---|---|---|---|
 | CORE-01 | 02-01, 02-03, 02-05–08 | ✓ SATISFIED | Per-instance scheduler and interleaved/isolated tests. |
-| CORE-02 | 02-03–08 | DEFERRED beyond this skeleton | Current queue orders synthetic counter events and implemented PI/SP paths. CPU/RSP execution, RDP, VI, AI, and SI device behavior is explicitly outside this phase and appears in later roadmap goals listed under Deferred Items. |
+| CORE-02 | Phase 2 scheduler foundation; Phase 9 final integration | PARTIAL — deferred | Phase 2 verifies the scheduler foundation and profile quantum. Updated Phase 9 criterion 4 owns final all-device ordering; REQUIREMENTS.md keeps CORE-02 partial and unchecked. |
 | CORE-03 | 02-03, 02-08 | ✓ SATISFIED for stop-bound contract | Guest tick is advanced directly; instruction/frame stop bounds are synthetic scheduler events, not instruction/frame execution. |
 | CORE-06 | 02-03–08 | ✓ SATISFIED | Timestamped device-boundary observer and trace-on/off/overflow equality tests. |
 | PROF-01 | 02-01, 02-07–08 | ✓ SATISFIED | Named descriptor and profile hash in real model-result output. |
@@ -213,7 +226,7 @@ The GSD artifact query passed all 25 plan-declared artifacts for existence and s
 | BUS-02 | 02-05–08 | ✓ SATISFIED for named PI/SP model | Delayed copies, lengths/alignment, queues, cancellation and completion-time visibility are tested. Timing is model policy, not hardware evidence. |
 | BUS-04 | 02-01–02, 02-07 | ✓ SATISFIED | Bounded production admission, three byte orders, refusal immutability, header-field fuzz, ASan/UBSan, and negative control. |
 
-No Phase 2 requirement is orphaned from the plans. CORE-02's remaining device work is explicitly deferred to later roadmap phases; no CPU/boot/hardware-accuracy claim is made here.
+No Phase 2 requirement is orphaned from the plans. CORE-02 is a partial Phase 2 contribution and remains unchecked until Phase 9. No CPU execution, boot, or hardware-accuracy claim is made here.
 
 ### Decision Coverage
 
@@ -221,21 +234,27 @@ The decision-coverage gate reported 14/14 trackable CONTEXT decisions honored an
 
 ## Anti-Patterns Found
 
-No unresolved TODO/FIXME/XXX markers or implementation stubs were found in the Phase 2 code paths. `XXXXXX` matches in tests/docs are `mkstemp`/`mktemp` filename templates, not placeholders. The Linux format warning is a real test build blocker, not a stub.
+No unresolved TODO/FIXME/XXX markers or implementation stubs were found in the Phase 2 code paths. `XXXXXX` matches in tests/docs are `mkstemp`/`mktemp` filename templates. The prior Linux path warning is fixed with capacities derived from each parent path buffer and literal suffix; CMake now declares the test subprocess dependencies explicitly.
 
 | File | Line | Pattern | Severity | Impact |
 |---|---:|---|---|---|
-| `runner/tests/test_skeleton_probe.c` | 541-547 | Potentially truncating `snprintf` path joins under GCC 13 | 🛑 Blocker | Linux gate stops before CTest; see gap above. |
+| — | — | None | — | The prior compiler warning is closed; both hosted gate jobs pass. |
 
-## Human Verification Required
+## Advisory Human Review
 
-The three judgment-tier prohibitions above remain flagged for human review. No violation was observed, but the automated verifier cannot silently convert those non-authoritative judgments to verified prohibitions. The phase is already `gaps_found` because the hosted Linux gate failed.
+The three judgment-tier prohibitions above remain flagged as non-authoritative, and human review is recommended. Autonomous routing does not create a required human task from these generic flags alone. No human validation or owner risk acceptance is claimed.
 
 ## Gaps Summary
 
-The machine skeleton, six roadmap success criteria, all current-scope behaviors, and final local sanitizer evidence are supported by code and passing behavioral checks. The exact-SHA hosted macOS lane passes 73/73 tests. Phase completion is blocked by one concrete portability issue: GCC 13 rejects the test's bounded-path construction under `-Werror=format-truncation`, so the Linux hosted gate never reaches CTest. No retry or source edit was made during verification. The current owner can fix the path construction and run the specified follow-up validation.
+The prior Linux compile gap is closed: run 42925122280 at exact SHA `34b43f760e0858cdbc3a37e031058f176eea4073` reports success on both hosted lanes. The corrected path capacities and test target dependencies are in the small reviewed diff; no production or fuzz code changed. All Phase 2 goal criteria and detailed plan truths are verified.
+
+## Autonomous Routing Reconciliation
+
+This `passed` status applies to the automated phase contract. Completion carries three prominently recorded, non-authoritative judgment flags; the flags remain unverified and human review is recommended. Under the owner's autonomous workflow, those generic recommendations do not create required human tasks when no violation or concrete rights, authority, publication, physical, or evidence stop was found. No human validation or owner risk acceptance is claimed.
+
+The mode-specific routing follows `.planning/AUTONOMY.md` and is documented in `02-WORKFLOW-RECONCILIATION.md`. The earlier typed-verifier result and its `human_needed` routing are preserved verbatim in `02-VERIFICATION-TYPED-ROUTING.md` for audit history. This reconciles routing only; it does not change evidence or silently clear any prohibition.
 
 ---
 
-_Verified: 2026-11-10T23:34:18Z_  
+_Verified: 2026-11-10T23:53:51Z_
 _Verifier: gsd-verifier_

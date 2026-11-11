@@ -10,8 +10,8 @@ created: "2026-11-10"
 # Phase 2 — Validation Strategy
 
 > Local implementation, independent source review and corrected sanitizer
-> evidence are complete. Hosted CI remains pending; phase completion has not
-> been claimed.
+> evidence are complete. Final hosted Linux and macOS gates passed the same
+> source; see the hosted sign-off and verification report.
 
 ## Test Infrastructure
 
@@ -132,9 +132,9 @@ authorized and available.
 - [x] Wave 0 covers all missing test references
 - [x] No watch-mode flags
 - [x] `nyquist_compliant: true` after planner/executor verify coverage
-- [ ] Full existing gate green on both current hosted lanes before phase verify
+- [x] Full existing gate green on both current hosted lanes before phase verify
 
-**Handoff:** The final hosted run [42923015327](https://github.com/szTheory/tendies64/actions/runs/42923015327) tested exact HEAD `32de4f7b664c5e8083ff22a44bda8a46f67d88c6`. macOS arm64/Apple Clang passed all 73 tests. Linux x86_64/GCC 13.3 failed during test compilation: `runner/tests/test_skeleton_probe.c` path-building `snprintf` calls at lines 541–547 trigger `-Werror=format-truncation`; CTest did not start on Linux. The run was not retried. The hosted-gate sign-off remains open until this bounded test-path issue is fixed and the Linux lane passes. Cost review F-023 records 82 s wall time, an 80 s macOS critical path, and why both existing OS/toolchain lanes remain without CI changes. Local validation and independent source/security reviews passed after fixes. See `02-REVIEW-FIX-2.md` for the corrected sanitizer record and `02-RECHECK-FINAL.md` for its retained-log limits.
+**Handoff:** Final hosted run [42925122280](https://github.com/szTheory/tendies64/actions/runs/42925122280) tested exact HEAD `34b43f760e0858cdbc3a37e031058f176eea4073`; Linux and macOS gates both passed. The Linux test-path sizing and consumer-target build dependencies are recorded in `02-CI-FIX.md`. The run took 205 s wall with a 204 s critical path: Linux queue/run was 2/38 s and macOS was 146/58 s. Cost review F-024 records that queue wait dominated and no cache or workflow change was justified. The earlier failed hosted run remains documented in F-023. Local validation and independent source/security reviews passed after fixes. See `02-REVIEW-FIX-2.md` for the corrected sanitizer record and `02-RECHECK-FINAL.md` for its retained-log limits.
 
 ## Executable Task Ownership and Waves
 

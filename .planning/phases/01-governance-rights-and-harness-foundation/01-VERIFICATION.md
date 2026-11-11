@@ -1,6 +1,6 @@
 ---
 phase: 01-governance-rights-and-harness-foundation
-verified: 2026-11-10T05:30:00Z
+verified: 2026-11-11T00:03:21Z
 status: passed
 score: 4/4 must-haves verified
 covered_files:
@@ -31,26 +31,32 @@ covered_files:
   - .planning/phases/01-governance-rights-and-harness-foundation/01-12-SUMMARY.md
   - .planning/phases/01-governance-rights-and-harness-foundation/01-13-PLAN.md
   - .planning/phases/01-governance-rights-and-harness-foundation/01-13-SUMMARY.md
-  - docs/ci-reviews/LOG.md
+  - .planning/phases/01-governance-rights-and-harness-foundation/01-REGRESSION-EVIDENCE.md
   - runner/t64_classify.c
   - scripts/check-ci-yml.sh
   - scripts/gate.sh
   - scripts/rights-scan.sh
   - tools/lint/core-lint.sh
-covered_digest: "v4:sha256:216e9913cc89b54b92e36342a0918737f9c85af74d28c3e80341cecb4b0752f9"
+covered_digest: "v4:sha256:f3c117c3b1ec0a151005d006bd081fe3016a18342c46839fe726316b6030ba07"
 behavior_unverified: 0
 overrides_applied: 0
 gaps: []
+re_verification:
+  previous_status: passed
+  previous_score: 4/4
+  gaps_closed: []
+  gaps_remaining: []
+  regressions: []
 ---
 
 # Phase 1: Governance, Rights and Harness Foundation Verification Report
 
 **Phase Goal:** Before any emulator code exists, the maintainer can run one gate command that enforces the provenance, rights and determinism rules, plus a runner skeleton that classifies every outcome correctly
-**Verified:** 2026-11-10
+**Verified:** 2026-11-11
 **Status:** passed (human items resolved, see "Human verification resolution")
-**Re-verification:** No, initial verification
+**Re-verification:** Yes — regression evidence refreshed after Phase 2
 
-The phase goal is achieved in the codebase. No truth failed. Status is `human_needed` only because of the three decision and publication items above, none of which is a code gap. Every statement below was re-run or re-derived by the verifier. Nothing is taken from SUMMARY.md. Experiments ran in a scratch clone, and the tracked tree was not modified.
+The phase goal remains achieved. The initial code verification found no failed truth; its three human items were later resolved as recorded below. This refresh checks the Phase 2 changes that expand the gate and lint coverage, while preserving the original evidence and measurements.
 
 ## Goal Achievement
 
@@ -165,7 +171,7 @@ No TBD, FIXME or XXX marker without a follow-up reference was introduced by the 
 - `.planning/state.json` is untracked and has no private paths or email addresses in it.
 - Deferred review items IN-03, IN-04, IN-14, IN-24 and IN-25 remain open and are recorded in the disposition ledger.
 
-### Human Verification Required
+### Human Verification Items at Initial Pass (resolved below)
 
 1. **Reword or accept commit 097cc7e before the first push.** The waiver becomes permanent public history once pushed. Expected: an owner decision, then either a reworded commit with the waiver row removed, or an accepted waiver.
 2. **Push and review the next hosted run.** Expected: both jobs green with 61 tests and a new row in `docs/ci-reviews/LOG.md`.
@@ -173,11 +179,11 @@ No TBD, FIXME or XXX marker without a follow-up reference was introduced by the 
 
 ### Gaps Summary
 
-No gaps. All four roadmap success criteria and all 11 requirement IDs are supported by evidence the verifier produced directly. The negative controls fail correctly when the code or fixtures are mutated. The three open items need an owner decision or a publication step. The five warnings are follow-ups that do not reduce the goal.
+No gaps. All four roadmap success criteria and all 11 requirement IDs were supported by the original evidence. The three initial human items were resolved below. The five warnings remain recorded as follow-ups and do not reduce the goal.
 
 ---
 
-_Verified: 2026-11-10_
+_Verified: 2026-11-11_
 _Verifier: Claude (gsd-verifier)_
 
 
@@ -199,3 +205,22 @@ Also applied after the verifier ran: verifier warning W2 (check-ci-yml.sh now re
 case, selftest 38/38) and W3 (WR-06 added to Phase 3 success criterion 6). W5 (main has no branch protection) and the
 D2/D6/D7 gates remain open owner items. The covered-input digest was regenerated with `verification.fingerprint` after
 the LOG.md row was appended.
+
+## Regression Re-check (2026-11-11)
+
+The original four roadmap criteria remain satisfied. The phase-owned
+[regression evidence snapshot](01-REGRESSION-EVIDENCE.md) records the bounded
+diff review and Phase 2 hosted run evidence. The original Phase 1 run records
+and initial measurements above are unchanged.
+
+| # | Truth | Status | Current evidence |
+|---|---|---|---|
+| 1 | Governance, provenance and claims rules remain recorded | ✓ VERIFIED | The Phase 1 ADRs, copy-provenance policy and claims template are unchanged from baseline. |
+| 2 | One gate still runs locally and CI invokes it on the reviewed runners | ✓ VERIFIED | The prior gate stages remain; inventory checks are added before CTest. The exact Phase 2 run passed both hosted lanes. |
+| 3 | Synthetic runner classification and inventory controls remain effective | ✓ VERIFIED | The classifier is unchanged; the exact inventory includes all 61 Phase 1 names plus 12 Phase 2 names, and the hosted gate passes. |
+| 4 | Seeded rights, manifest and deterministic-core violations remain detectable | ✓ VERIFIED | The rights scanner is unchanged; source/object lint is retained and expanded to shared SHA source. The hosted gate passed and the final local lint record reports 15 sources with zero violations. |
+
+**Regression score:** 4/4. No new gap or human-verification item was found. The
+current fingerprint replaces coverage of the shared append-only CI log with a
+snapshot of the exact run evidence; historical Phase 1 CI provenance links
+remain in this report.

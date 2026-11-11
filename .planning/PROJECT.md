@@ -23,7 +23,13 @@ breadth or polish.
 
 ### Validated
 
-(None yet. Requirements are validated by shipping.)
+- ✓ Governance, provenance, rights/PII scans, deterministic-core lint and the
+  six-outcome synthetic harness — Phase 1; source regressions remain in the gate.
+- ✓ Named NTSC cartridge/4 MB machine skeleton, per-instance scheduler, checked
+  physical map, MI, delayed PI/SP DMA, canonical digest and observational trace
+  — Phase 2. Its intended boot route is identified; boot is unimplemented.
+- ✓ Transactional production ROM admission with authored-byte tests and bounded
+  ASan/UBSan mutation coverage — Phase 2. This does not prove memory safety.
 
 ### Active
 
@@ -167,9 +173,12 @@ promotes it.
 
 ### Current state
 
-This is a greenfield project. The repository contains only the bootstrap
-pack, the GSD config and these planning documents. No emulator code, build,
-test, CI or release exists yet.
+Phases 1 and 2 are implemented in the public Apache-2.0 repository. The
+canonical gate passes on Linux/GCC and macOS/Clang. The deterministic machine
+skeleton supports native model workloads, ROM admission and scheduled PI/SP DMA;
+it does not execute CPU/RSP instructions, boot a ROM, or implement VI/audio.
+Phase 3 opens primary-document verification and the rights-reviewed open IPL3
+headless hello-ROM slice. No software release has been published.
 
 ## Constraints
 
@@ -211,7 +220,7 @@ test, CI or release exists yet.
 | Small, flat dependency tree; copy-with-provenance preferred (owner) | Supply-chain and maintenance cost. | — Pending |
 | Cartridge-first vertical slice; 64DD as a separate later profile (recommended default from seed and DNA) | Verifiable first profile. 64DD adds disk media, RTC and expansion requirements. | — Pending |
 | Boot without Nintendo PIF/IPL bytes, starting with the open IPL3 route (recommended) | The rights stop applies to Nintendo boot data, and nemu64-test already uses Libdragon IPL3. | — Pending |
-| Language, build system and API/ABI | To be decided through research. | — Pending |
+| C17, CMake/Ninja; API/ABI freeze later | ADR-0002 accepted C17 with explicit spike evidence limits; real admission fuzzing added in Phase 2. | ✓ Scoped evidence |
 | License: Apache-2.0 (owner, 2026-11-09; MIT was an acceptable alternative) | Owner preference. Permissive, with an explicit patent grant. Code copied from other projects must be license-compatible: ISC, MIT, BSD-3 and Unlicense sources are copyable with notices kept; GPL sources (Project64, Mupen64Plus-core) and the Angrylion-Plus legacy MAME license must not be copied. | ✓ Good |
 | Repository visibility: public under the szTheory GitHub account (owner, 2026-11-09) | Owner decision. No PII, credentials or private paths in any tracked file or commit. Commits use the GitHub noreply address. | ✓ Good |
 | Release channel and versioning | Still an open owner decision. Releases wait on it. | — Pending (owner) |
@@ -234,4 +243,4 @@ This document evolves at phase transitions and milestone boundaries.
 4. Update Context with current state
 
 ---
-*Last updated: 2026-11-09 after initialization*
+*Last updated: 2026-11-10 after Phase 2*

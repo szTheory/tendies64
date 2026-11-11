@@ -2,45 +2,45 @@
 gsd_state_version: "1.0"
 milestone: v1.0
 milestone_name: Verified Headless Core
-current_phase: 2
-current_phase_name: Deterministic Machine Skeleton
-current_plan: 8 of 8
-status: verifying
-stopped_at: Phase 2 implementation complete; independent review and verification in progress
-last_updated: "2026-11-10T22:14:46.718Z"
+current_phase: 3
+current_phase_name: First Headless ROM Through Open IPL3
+current_plan: Not started
+status: planning
+stopped_at: Phase 2 verified and closed; continuing Phase 3 decision-focused research
+last_updated: "2026-11-11T00:07:02.051Z"
 last_activity: 2026-11-10
-last_activity_desc: Phase 1 complete, transitioned to Phase 2
-state_head: 10679a5583328dc6dbae92b4f4df9fd2eaa67373
+state_head: 34b43f760e0858cdbc3a37e031058f176eea4073
 progress:
   total_phases: 6
-  completed_phases: 1
+  completed_phases: 2
   total_plans: 21
   completed_plans: 21
-  percent: 17
+  percent: 33
+last_activity_desc: Phase 2 complete, transitioned to Phase 3
 ---
 
 # Project State
 
 ## Project Reference
 
-See: .planning/PROJECT.md (updated 2026-11-09)
+See: .planning/PROJECT.md (updated 2026-11-10)
 
 **Core value:** Every Tendies64 support claim is backed by evidence: a named profile, a pinned build and a reproducible, rights-cleared guest result.
-**Current focus:** Phase 2 — Deterministic Machine Skeleton
+**Current focus:** Phase 3 — First Headless ROM Through Open IPL3
 
 ## Current Position
 
-Phase: 2 (Deterministic Machine Skeleton)
-Current Plan: 8 of 8
-Status: Phase complete — ready for verification
-Last activity: 2026-11-10 — Plan 02-01 verified and committed; continuing 02-02
+Phase: 3 — First Headless ROM Through Open IPL3
+Current Plan: Not started
+Status: Ready to plan
+Last activity: 2026-11-10
 
-Progress: [██░░░░░░░░] 17%
+Progress: [███░░░░░░░] 33%
 
 ## Performance Metrics
 
 **Velocity:**
-- Total plans completed: 14
+- Total plans completed: 21
 - Average duration: -
 - Total execution time: 0 hours
 
@@ -49,6 +49,7 @@ Progress: [██░░░░░░░░] 17%
 | Phase | Plans | Total | Avg/Plan |
 |-------|-------|-------|----------|
 | 1 | 13 | - | - |
+| 2 | 8 | - | - |
 
 **Recent Trend:**
 - Last 5 plans: -
@@ -88,7 +89,7 @@ Progress: [██░░░░░░░░] 17%
 Decisions are logged in the PROJECT.md Key Decisions table. Recent decisions that affect current work:
 
 - [Roadmap]: Milestone v1.0 covers Phases 1-6, ending with the full `nemu64-test` base suite classified. GSD milestone IDs are not software versions
-- [Roadmap]: D1 (language/build/ABI) is recorded as the Phase 1 ADR with C17, CMake 3.25+ and Ninja as the default, and goes in the owner decision batch
+- [Roadmap]: D1 is accepted: C17, CMake 3.25+ and Ninja; the API/ABI remains unfrozen. ADR-0002 records spike limits; Phase 2 fuzzed real admission under ASan/UBSan.
 - [Roadmap]: Primary-document verification (VR4300 manual and Nintendo docs pinned by SHA) opens Phase 3, and the CPU-area check is the Phase 4 entry gate
 - [Owner, 2026-11-09]: Apache-2.0 license; public repository under szTheory. These are settled, not open gates
 - [Phase 01]: 01-01: t64_core declared in root CMakeLists.txt; core/ holds only the two CONTEXT A-1 files
@@ -119,6 +120,9 @@ Decisions are logged in the PROJECT.md Key Decisions table. Recent decisions tha
 - [Phase 1]: 01-13: only the first push triggers a hosted run; log-only commits carry [skip ci], so every completed run has a Runs row
 - [Phase 1]: 01-13: requiring gate-linux and gate-macos as status checks on main left as an owner-visible item (F-007); fork-PR approval set to all_external_contributors
 
+- [Phase 2]: Machine skeleton verified on both hosted lanes; native model evidence only. Three non-authoritative judgment flags retained under autonomous soft-gate policy; no violation or accepted risk.
+- [Phase 2]: CORE-02 remains partial; all-device integration is assigned to Phase 9.
+
 ### Pending Todos
 
 None yet.
@@ -143,6 +147,6 @@ Items acknowledged and deferred at milestone close, most recent first:
 
 ## Session Continuity
 
-Last session: 2026-11-10T22:14:46.643Z
-Stopped at: Phase 2 implementation complete; independent review and verification in progress
+Last session: 2026-11-11T00:07:02.001Z
+Stopped at: Phase 2 verified and closed; continuing Phase 3 decision-focused research
 Resume file: None

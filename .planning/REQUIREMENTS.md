@@ -37,29 +37,29 @@ API and a playable rights-cleared homebrew. Each maps to a roadmap phase.
 
 ### Profiles and Determinism (PROF)
 
-- [ ] **PROF-01**: User can select a named machine profile that fixes console revision, TV type, RAM size, boot route, expansion and peripheral set, and the first profile is NTSC, cartridge-only, 4 MB RDRAM with an open IPL3 boot route
-- [ ] **PROF-02**: User can see the profile identity, and the build identity, recorded in every result
-- [ ] **PROF-03**: User can see TV type and region come from the profile and never inferred from the ROM header country byte
-- [ ] **PROF-04**: User can see unsupported, deferred and unknown profile features documented, with the evidence that would promote each
+- [x] **PROF-01**: User can select a named machine profile that fixes console revision, TV type, RAM size, boot route, expansion and peripheral set, and the first profile is NTSC, cartridge-only, 4 MB RDRAM with an open IPL3 boot route
+- [x] **PROF-02**: User can see the profile identity, and the build identity, recorded in every result
+- [x] **PROF-03**: User can see TV type and region come from the profile and never inferred from the ROM header country byte
+- [x] **PROF-04**: User can see unsupported, deferred and unknown profile features documented, with the evidence that would promote each
 - [ ] **PROF-05**: User gets identical state digests for identical profile, content, input and guest-time bounds, across two operating systems and two compilers
-- [ ] **PROF-06**: Maintainer can see two interleaved instances in one process produce digests equal to isolated runs
+- [x] **PROF-06**: Maintainer can see two interleaved instances in one process produce digests equal to isolated runs
 - [x] **PROF-07**: Maintainer can see a mechanical lint that fails the build when the core reads host time, files, threads, entropy or mutable globals
 
 ### Machine Core (CORE)
 
-- [ ] **CORE-01**: The core advances in guest time using a single-threaded event queue with a total order, and the host never drives guest time
+- [x] **CORE-01**: The core advances in guest time using a single-threaded event queue with a total order, and the host never drives guest time
 - [ ] **CORE-02**: Device activity (CPU, RSP, RDP, VI, AI, PI, SI, MI) is ordered by the scheduler, with the CPU-to-RSP synchronization quantum recorded in the profile identity
-- [ ] **CORE-03**: The core runs for a bounded stop condition (guest time, instruction count or frame event) and reports why it stopped
+- [x] **CORE-03**: The core runs for a bounded stop condition (guest time, instruction count or frame event) and reports why it stopped
 - [ ] **CORE-04**: User can export and import a versioned machine state with a canonical digest, and a restore-then-digest round trip is exact
 - [ ] **CORE-05**: User can record and replay timed input as an artifact bound to profile, build and content hash
-- [ ] **CORE-06**: Maintainer can inspect guest-time-stamped trace events at device boundaries without changing results
+- [x] **CORE-06**: Maintainer can inspect guest-time-stamped trace events at device boundaries without changing results
 
 ### Bus, Memory and Devices (BUS)
 
-- [ ] **BUS-01**: The core implements the memory map, 4 MB RDRAM, cartridge ROM access through PI and the MI interrupt registers, with masked-versus-pending interrupt behavior per the references
-- [ ] **BUS-02**: PI and SP DMA copy data with their documented length, alignment and timing rules, never as an instantaneous memory copy
+- [x] **BUS-01**: The core implements the memory map, 4 MB RDRAM, cartridge ROM access through PI and the MI interrupt registers, with masked-versus-pending interrupt behavior per the references
+- [x] **BUS-02**: PI and SP DMA copy data with their documented length, alignment and timing rules, never as an instantaneous memory copy
 - [ ] **BUS-03**: RDRAM tier A (preset RI configuration) works first, and RDRAM tier B (register protocol, MI repeat mode, calibration read-back) follows for the full cold-boot path
-- [ ] **BUS-04**: A ROM is admitted through a documented, bounded procedure: size limits, header parse, byte-order handling, rejection of malformed media, and unchanged state on refusal
+- [x] **BUS-04**: A ROM is admitted through a documented, bounded procedure: size limits, header parse, byte-order handling, rejection of malformed media, and unchanged state on refusal
 
 ### VR4300 CPU (CPU)
 
@@ -198,23 +198,23 @@ re-sequenced at milestone close.
 | RUN-04 | Phase 1 | Complete |
 | RUN-05 | Phase 3 | Pending |
 | RUN-06 | Phase 8 | Pending |
-| PROF-01 | Phase 2 | Pending |
-| PROF-02 | Phase 2 | Pending |
-| PROF-03 | Phase 2 | Pending |
-| PROF-04 | Phase 2 | Pending |
+| PROF-01 | Phase 2 | Complete |
+| PROF-02 | Phase 2 | Complete |
+| PROF-03 | Phase 2 | Complete |
+| PROF-04 | Phase 2 | Complete |
 | PROF-05 | Phase 3 | Pending |
-| PROF-06 | Phase 2 | Pending |
+| PROF-06 | Phase 2 | Complete |
 | PROF-07 | Phase 1 | Complete |
-| CORE-01 | Phase 2 | Pending |
-| CORE-02 | Phase 2 | Pending |
-| CORE-03 | Phase 2 | Pending |
+| CORE-01 | Phase 2 | Complete |
+| CORE-02 | Phase 9 | Partial — Phase 2 scheduler foundation verified; remaining device integration deferred |
+| CORE-03 | Phase 2 | Complete |
 | CORE-04 | Phase 9 | Pending |
 | CORE-05 | Phase 9 | Pending |
-| CORE-06 | Phase 2 | Pending |
-| BUS-01 | Phase 2 | Pending |
-| BUS-02 | Phase 2 | Pending |
+| CORE-06 | Phase 2 | Complete |
+| BUS-01 | Phase 2 | Complete |
+| BUS-02 | Phase 2 | Complete |
 | BUS-03 | Phase 6 | Pending |
-| BUS-04 | Phase 2 | Pending |
+| BUS-04 | Phase 2 | Complete |
 | CPU-01 | Phase 4 | Pending |
 | CPU-02 | Phase 4 | Pending |
 | CPU-03 | Phase 4 | Pending |
