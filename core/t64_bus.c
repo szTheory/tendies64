@@ -44,6 +44,7 @@ typedef enum {
   T64_BUS_REGION_PI,
   T64_BUS_REGION_SP_REG,
   T64_BUS_REGION_WARM,
+  T64_BUS_REGION_ISVIEWER,
   T64_BUS_REGION_ABSENT_RDRAM_PROBE
 } t64_bus_region;
 
@@ -81,6 +82,11 @@ static t64_bus_region decode_region(const t64_machine *machine,
   if (address >= T64_SP_REGISTER_BASE && address < T64_SP_REGISTER_END) {
     return T64_BUS_REGION_SP_REG;
   }
+  if (address >= T64_ISVIEWER_BASE &&
+      address - T64_ISVIEWER_BASE < T64_ISVIEWER_DEVICE_BYTES &&
+      t64_isviewer_active(machine)) {
+    return T64_BUS_REGION_ISVIEWER;
+  }
   if (address == UINT32_C(0x04080000) ||
       (address >= T64_AI_BASE &&
        address < T64_AI_BASE + T64_DEVICE_WINDOW_BYTES) ||
@@ -113,7 +119,7 @@ static t64_bus_region decode_region(const t64_machine *machine,
 }
 
 static t64_status validate_access(uint32_t address, uint32_t width) {
-  if (width != 1u && width != 4u) {
+  if (width != 1u && width != 2u && width != 4u) {
     return T64_STATUS_INVALID_ARGUMENT;
   }
   if ((uint64_t)address + (uint64_t)width > UINT64_C(0x100000000)) {
@@ -122,13 +128,18 @@ static t64_status validate_access(uint32_t address, uint32_t width) {
   if (width == 4u && (address & UINT32_C(3)) != 0u) {
     return T64_STATUS_BUS_ALIGNMENT;
   }
+  if (width == 2u && (address & UINT32_C(1)) != 0u) {
+    return T64_STATUS_BUS_ALIGNMENT;
+  }
   return T64_STATUS_OK;
 }
 
 static uint32_t read_big_endian(const uint8_t *bytes, uint32_t width) {
   uint32_t value = bytes[0];
 
-  if (width == 4u) {
+  if (width == 2u) {
+    value = (value << 8) | (uint32_t)bytes[1];
+  } else if (width == 4u) {
     value = (value << 24) | ((uint32_t)bytes[1] << 16) |
             ((uint32_t)bytes[2] << 8) | (uint32_t)bytes[3];
   }
@@ -139,6 +150,11 @@ static void write_big_endian(uint8_t *bytes, uint32_t width,
                              uint32_t value) {
   if (width == 1u) {
     bytes[0] = (uint8_t)value;
+    return;
+  }
+  if (width == 2u) {
+    bytes[0] = (uint8_t)(value >> 8);
+    bytes[1] = (uint8_t)value;
     return;
   }
   bytes[0] = (uint8_t)(value >> 24);
@@ -179,6 +195,7 @@ static const uint8_t *region_bytes(const t64_machine *machine,
   case T64_BUS_REGION_PI:
   case T64_BUS_REGION_SP_REG:
   case T64_BUS_REGION_WARM:
+  case T64_BUS_REGION_ISVIEWER:
   case T64_BUS_REGION_ABSENT_RDRAM_PROBE:
     break;
   }
@@ -193,6 +210,8 @@ static void trace_bus(t64_machine *machine, uint32_t address, uint32_t width,
 
   if (width == 1u) {
     kind = is_write ? T64_TRACE_KIND_BUS_WRITE8 : T64_TRACE_KIND_BUS_READ8;
+  } else if (width == 2u) {
+    kind = is_write ? T64_TRACE_KIND_BUS_WRITE16 : T64_TRACE_KIND_BUS_READ16;
   } else {
     kind = is_write ? T64_TRACE_KIND_BUS_WRITE32 : T64_TRACE_KIND_BUS_READ32;
   }
@@ -221,6 +240,15 @@ t64_status t64_bus_read(t64_machine *machine, uint32_t address,
   }
   if (region == T64_BUS_REGION_UNSUPPORTED) {
     return T64_STATUS_BUS_UNSUPPORTED;
+  }
+  if (region == T64_BUS_REGION_ISVIEWER) {
+    status = t64_isviewer_read(machine, address, width, &value);
+    if (status != T64_STATUS_OK) {
+      return status;
+    }
+    *value_out = value;
+    trace_bus(machine, address, width, value, false);
+    return T64_STATUS_OK;
   }
   if (region == T64_BUS_REGION_MI) {
     status = t64_warm_device_read(machine, address, width, &value);
@@ -312,6 +340,13 @@ t64_status t64_bus_write(t64_machine *machine, uint32_t address,
   if (region == T64_BUS_REGION_UNMAPPED) {
     return T64_STATUS_BUS_UNMAPPED;
   }
+  if (region == T64_BUS_REGION_ISVIEWER) {
+    status = t64_isviewer_write(machine, address, width, value);
+    if (status == T64_STATUS_OK) {
+      trace_bus(machine, address, width, value, true);
+    }
+    return status;
+  }
   if (region == T64_BUS_REGION_CARTRIDGE) {
     return T64_STATUS_BUS_DEVICE_REFUSED;
   }
@@ -393,6 +428,7 @@ t64_status t64_bus_write(t64_machine *machine, uint32_t address,
   case T64_BUS_REGION_PI:
   case T64_BUS_REGION_SP_REG:
   case T64_BUS_REGION_WARM:
+  case T64_BUS_REGION_ISVIEWER:
   case T64_BUS_REGION_ABSENT_RDRAM_PROBE:
     break;
   }

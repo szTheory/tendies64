@@ -177,7 +177,8 @@ add_dependencies(test_isviewer t64-boot-fixtures)
 add_test(NAME unit.core.isviewer COMMAND test_isviewer)
 set_tests_properties(unit.core.isviewer PROPERTIES
   LABELS unit
-  ENVIRONMENT "T64_TEST_IPL3_PATH=${T64_BOOT_FIXTURE_DIR}/ipl3_compat.z64")
+  ENVIRONMENT
+    "T64_TEST_IPL3_PATH=${T64_BOOT_FIXTURE_DIR}/ipl3_compat.z64;T64_BOOT_FIXTURES_DIR=${T64_BOOT_FIXTURE_DIR}")
 
 add_executable(test_cpu_path tests/test_cpu_path.c)
 target_include_directories(test_cpu_path PRIVATE

@@ -698,7 +698,7 @@ int main(void) {
   uint64_t authored_entry_tick = 0u;
   uint64_t authored_entry_retired = 0u;
   uint32_t authored_entry_pc = 0u;
-  uint64_t loader_tick_limit = UINT64_C(700000);
+  uint64_t loader_tick_limit = UINT64_C(530180);
   warm_dma_trace observed_dma = {0u};
   uint64_t next_tick;
   t64_cpu_stop_detail stop_detail = {UINT64_MAX, UINT32_MAX, UINT32_MAX};
@@ -1183,7 +1183,7 @@ int main(void) {
                 UINT32_C(0x007f8ff0));
   T64_CHECK(observed_dma.pi_issue_count > 0u);
   T64_CHECK(observed_dma.pi_complete_count > 0u);
-  T64_CHECK(unsupported_stop_observed);
+  T64_CHECK(!unsupported_stop_observed);
   T64_CHECK_INT(observed_dma.pi_copy_check_count, UINT64_C(2));
   T64_CHECK(!observed_dma.pi_copy_mismatch);
   T64_CHECK(observed_dma.authored_app_copy_verified);
@@ -1192,8 +1192,14 @@ int main(void) {
   T64_CHECK_INT(authored_dmem_zero_token, UINT64_C(8));
   T64_CHECK(authored_entry_observed);
   T64_CHECK_INT(authored_entry_pc, UINT32_C(0x80000400));
-  T64_CHECK_INT(stop_detail.pc, UINT32_C(0x8000041c));
-  T64_CHECK_INT(stop_detail.opcode, UINT32_C(0xad0a0000));
+  T64_CHECK_INT(t64_machine_cpu_stop_detail(machine, &stop_detail),
+                T64_STATUS_NOT_READY);
+  T64_CHECK_INT(machine->tick, UINT64_C(530180));
+  T64_CHECK_INT(machine->cpu.retired_instructions, UINT64_C(530180));
+  T64_CHECK_INT(machine->cpu.pc, UINT32_C(0x8000041c));
+  T64_CHECK(!machine->cpu.stopped);
+  T64_CHECK_INT(machine->output.captured_bytes, 0u);
+  T64_CHECK_INT(machine->output.magic_register, 0u);
   T64_CHECK_INT(machine->cpu.gpr[8], UINT64_C(0xffffffffb3ff0000));
 
   T64_CHECK(fixtures_dir != NULL && fixtures_dir[0] != '\0');

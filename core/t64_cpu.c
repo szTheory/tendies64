@@ -168,7 +168,7 @@ static bool cpu_read_scalar(t64_machine *machine, uint64_t virtual_address,
           UINT64_C(0x100000000)) {
     return false;
   }
-  if (width == 1u || width == 4u) {
+  if (width == 1u || width == 2u || width == 4u) {
     uint32_t value = 0u;
     t64_status status = t64_bus_read(machine, physical_address, width, &value);
 
@@ -234,7 +234,7 @@ static bool cpu_write_scalar(t64_machine *machine, uint64_t virtual_address,
           UINT64_C(0x100000000)) {
     return false;
   }
-  if (width == 1u || width == 4u) {
+  if (width == 1u || width == 2u || width == 4u) {
     return t64_bus_write(machine, physical_address, width, (uint32_t)value) ==
            T64_STATUS_OK;
   }

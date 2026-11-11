@@ -22,6 +22,14 @@
 #define T64_WARM_DEVICE_POLICY_VERSION UINT32_C(3)
 #define T64_WARM_ABSENT_RDRAM_PROBE_ADDRESS UINT32_C(0x00400000)
 #define T64_WARM_ABSENT_RDRAM_PROBE_BYTES UINT32_C(4)
+#define T64_ISVIEWER_BASE UINT32_C(0x13ff0000)
+#define T64_ISVIEWER_MAGIC_OFFSET UINT32_C(0x0000)
+#define T64_ISVIEWER_COUNT_OFFSET UINT32_C(0x0014)
+#define T64_ISVIEWER_BUFFER_OFFSET UINT32_C(0x0020)
+#define T64_ISVIEWER_BUFFER_BYTES 512u
+#define T64_ISVIEWER_CAPTURE_BYTES 4096u
+#define T64_ISVIEWER_DEVICE_BYTES UINT32_C(0x0220)
+#define T64_ISVIEWER_POLICY_VERSION UINT32_C(2)
 
 #define T64_DEVICE_SYNTHETIC_TEST UINT32_C(0xffff0001)
 #define T64_TEST_EVENT_NOOP UINT32_C(1)
@@ -34,6 +42,8 @@
 #define T64_TRACE_KIND_CPU_ENTRY UINT32_C(2)
 #define T64_TRACE_KIND_CPU_RETIREMENT UINT32_C(3)
 #define T64_TRACE_KIND_CPU_UNSUPPORTED UINT32_C(4)
+#define T64_TRACE_KIND_BUS_READ16 UINT32_C(5)
+#define T64_TRACE_KIND_BUS_WRITE16 UINT32_C(6)
 
 typedef struct {
   uintptr_t begin;
@@ -159,6 +169,12 @@ typedef struct {
   uint32_t policy_version;
   bool video_output_ready;
   bool audio_output_ready;
+  uint32_t magic_register;
+  uint32_t byte_count;
+  uint8_t buffer[T64_ISVIEWER_BUFFER_BYTES];
+  uint32_t captured_bytes;
+  uint8_t captured[T64_ISVIEWER_CAPTURE_BYTES];
+  bool lost_output;
 } t64_output_state;
 
 typedef struct t64_event t64_event;
@@ -268,6 +284,11 @@ t64_status t64_warm_device_read(const t64_machine *machine, uint32_t address,
                                 uint32_t width, uint32_t *value_out);
 t64_status t64_warm_device_write(t64_machine *machine, uint32_t address,
                                  uint32_t width, uint32_t value);
+bool t64_isviewer_active(const t64_machine *machine);
+t64_status t64_isviewer_read(const t64_machine *machine, uint32_t address,
+                             uint32_t width, uint32_t *value_out);
+t64_status t64_isviewer_write(t64_machine *machine, uint32_t address,
+                              uint32_t width, uint32_t value);
 void t64_mi_set_pending(t64_machine *machine, uint32_t bits);
 void t64_mi_clear_pending(t64_machine *machine, uint32_t bits);
 void t64_mi_write_mask(t64_machine *machine, uint32_t command);

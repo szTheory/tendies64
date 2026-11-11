@@ -1,9 +1,9 @@
 # Open IPL3 warm-entry limits
 
 This document records the qualified software profile and the exact boundary
-reached by the pinned IPL3 and authored hello fixture. It does not claim an
-authentic IPL2 handoff, cold boot, full RSP, captured application output, broad
-compatibility, or hardware accuracy.
+reached by the pinned IPL3 and authored hello fixture, including the captured
+guest transcript. It does not claim an authentic IPL2 handoff, cold boot, full
+RSP, public output-copy ABI, broad compatibility, or hardware accuracy.
 
 ## Input admission and prepared profile
 
@@ -102,29 +102,31 @@ token, cancellation, bounds, row and bank rules remain checked independently.
 
 The policy digest is SHA-256 over the exact UTF-8 `policy_digest_input` string
 in `fixtures/boot-contract.json`, including its final LF:
-`831a0a58ef8f82bc54f880ad5a1259bddf1b3d2e21680ac6637ea5994705a7fe`. It binds
-the cache operations, device policy version 3, both exact zero-source SP
-destinations, prepared SP status, the MI_INTR ignored-write exception, and the
-interrupt-clear commands.
+`c64cfcfdbd3ccdd08fdafbc63539af5b8026caeb70fad173bee933a93e96b141`. It binds
+the cache and warm-device policies plus the libdragon ISViewer software
+contract: writable magic readback, 512-byte big-endian buffer, count-register
+lanes, exact unpadded flush, reset state, and sticky 4096-byte capture limit.
 
 The profile descriptor v2 digest is
-`5775f19766dc0ae070178dc87f2e6b0f11a9e5dc587fa380588f3b82b7d768d2`; the
-admitted-source initial state v6 digest is
-`a3820a5bf34b713b5903e42f455a1c579a57799a48411d3d33ed59786c3e93bf`. Both
-expected values were derived independently from the documented profile/state
-field orders and pinned asset bytes. The derivation first reproduced the
-previous policy/profile/state values exactly; it did not use production
-digest output as the new expected value. The v1 synthetic goldens remain
-unchanged. Descriptor version 2 and state serialization version 6 remain
-unchanged; the policy hash identifies the behavior change.
+`77049094be14d6fcd1f9321ef19ea01726a11c803e0f350a77ff0e6a24b40837`; the
+admitted-source initial state v7 digest is
+`9c22e908bec3f08ce063f88e760ca61c97c5656766e46d7514ad44f0151e71b6`. The
+test-only reference encoder first reproduces the previous policy, profile and
+state values exactly (`831a0a58…`, `5775f197…`, `a3820a5b…`), then independently
+checks these current values. State v6 retains its previous meaning and bytes;
+the warm profile now explicitly selects state v7. The v1 synthetic goldens
+remain unchanged.
 
 Profile serialization uses ASCII domain `T64PDESC`, u32 serialization version
 1, length-prefixed UTF-8 fields and big-endian u32 values in the order in
 `core/t64_machine.c`; its v2 tail contains the asset, payload and policy hashes
-plus seed-reset version. State v6 preserves the v5 serialized machine state,
-then includes the three hashes, warm seed, CPU/cache/device state and output
-readiness fields in the order in `core/t64_digest.c`. Allocator addresses,
-unused queue storage, host time and trace data remain outside the digest.
+plus seed-reset version. State v7 preserves the warm v6 CPU, boot, cache and
+device fields, then includes the output policy/readiness, magic register,
+pending byte count and full 512-byte buffer, captured length and full 4096-byte
+capture, and sticky loss flag in fixed order. The independent state test
+mutates each future-affecting output field and checks that the digest changes.
+Allocator addresses, unused queue storage, host time and trace data remain
+outside the digest.
 
 ## Observed loader and authored-entry path
 
@@ -148,13 +150,15 @@ queue refusal, reset behavior and per-instance ordering.
 
 The authored app entry at `0x80000400` executes at tick/retirement 530174. Its
 first output instruction is `sw t2,0(t0)` at PC `0x8000041c`, tick 530181, after
-530180 retirements, with `t2=0xffffffffedcba987`. The initial fixture incorrectly
-used the physical address `0x13ff0000` as a KUSEG guest address; that dated
-observation remains in the plan 03-05 summary. The corrected fixture uses the
-uncached KSEG1 alias and carries `t0=0xffffffffb3ff0000`, translating to physical
-`0x13ff0000`. Supported virtual-address modes are unchanged. The store still
-stops before output capture because the ISViewer bus device is not implemented
-yet; plan 03-06 owns that boundary.
+530180 retirements, with `t2=0xffffffffedcba987`. The authored fixture uses the
+uncached KSEG1 alias `0xffffffffb3ff0000`, translating to physical
+`0x13ff0000`; supported virtual-address modes are unchanged. The pinned loader
+and authored hello then execute through magic readback and flush the exact
+transcript `Tendies64 hello via open IPL3\n` (30 bytes). The guest stops at
+unsupported BREAK at tick 530438, PC `0x80000478`; this output capture is not a
+guest-completion result. A separate authored control fills 4096 bytes and
+observes sticky refusal of byte 4097. The bytes remain in per-machine internal
+capture state; this slice adds no public output-copy ABI or host I/O callback.
 
 ## Remaining evidence limits
 

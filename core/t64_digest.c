@@ -60,10 +60,15 @@ t64_status t64_machine_digest(const t64_machine *machine,
                                       'e', '.', 'v', '5'};
   static const uint8_t domain_v6[] = {'t', '6', '4', '.', 's', 't', 'a', 't',
                                       'e', '.', 'v', '6'};
+  static const uint8_t domain_v7[] = {'t', '6', '4', '.', 's', 't', 'a', 't',
+                                      'e', '.', 'v', '7'};
   t64_sha256_ctx context;
   t64_address_range output_range;
   const bool has_v6_state =
       machine != NULL && machine->profile.state_serialization_version == 6u;
+  const bool has_v7_state =
+      machine != NULL && machine->profile.state_serialization_version == 7u;
+  const bool has_warm_state = has_v6_state || has_v7_state;
   size_t i;
 
   if (machine == NULL || digest_out == NULL ||
@@ -76,7 +81,9 @@ t64_status t64_machine_digest(const t64_machine *machine,
   }
 
   t64_sha256_init(&context);
-  if (has_v6_state) {
+  if (has_v7_state) {
+    t64_sha256_update(&context, domain_v7, sizeof domain_v7);
+  } else if (has_v6_state) {
     t64_sha256_update(&context, domain_v6, sizeof domain_v6);
   } else {
     t64_sha256_update(&context, domain_v5, sizeof domain_v5);
@@ -150,7 +157,7 @@ t64_status t64_machine_digest(const t64_machine *machine,
 
     hash_event(&context, &machine->events[index]);
   }
-  if (has_v6_state) {
+  if (has_warm_state) {
     for (i = 0u; i < sizeof machine->boot.asset_sha256; i++) {
       t64_sha256_update(&context, &machine->boot.asset_sha256[i], 1u);
     }
@@ -211,6 +218,19 @@ t64_status t64_machine_digest(const t64_machine *machine,
                                                           : UINT32_C(0));
     hash_u32(&context, machine->output.audio_output_ready ? UINT32_C(1)
                                                           : UINT32_C(0));
+    if (has_v7_state) {
+      hash_u32(&context, machine->output.magic_register);
+      hash_u32(&context, machine->output.byte_count);
+      hash_u32(&context, T64_ISVIEWER_BUFFER_BYTES);
+      t64_sha256_update(&context, machine->output.buffer,
+                        sizeof machine->output.buffer);
+      hash_u32(&context, machine->output.captured_bytes);
+      hash_u32(&context, T64_ISVIEWER_CAPTURE_BYTES);
+      t64_sha256_update(&context, machine->output.captured,
+                        sizeof machine->output.captured);
+      hash_u32(&context,
+               machine->output.lost_output ? UINT32_C(1) : UINT32_C(0));
+    }
   }
   t64_sha256_final(&context, digest_out);
   return T64_STATUS_OK;
