@@ -1161,8 +1161,11 @@ static void test_actual_hello(const t64_host_allocator *allocator,
                machine->cpu.last_opcode, machine->output.magic_register,
                machine->output.byte_count, machine->output.captured_bytes,
                (unsigned)machine->output.lost_output);
-  check(result.reason == T64_STOP_REASON_CPU_UNSUPPORTED,
-        "hello retains its explicit unsupported BREAK boundary after output");
+  check(result.reason == T64_STOP_REASON_GUEST_COMPLETION &&
+            machine->tick == UINT64_C(530438) &&
+            machine->cpu.retired_instructions == UINT64_C(530437) &&
+            machine->cpu.pc == UINT32_C(0x80000478),
+        "exact authored BREAK convention stops before instruction retirement");
   exact = machine->output.captured_bytes == sizeof expected - 1u &&
           memcmp(machine->output.captured, expected, sizeof expected - 1u) == 0;
   check(exact, "actual hello captures the independent exact 30-byte transcript");
@@ -1180,9 +1183,11 @@ static void test_actual_hello(const t64_host_allocator *allocator,
             memcmp(host_output, expected, sizeof host_output) == 0,
         "public drain copies the exact actual guest transcript");
   check_status(t64_machine_cpu_stop_detail(machine, &detail), T64_STATUS_OK,
-               "unsupported post-output stop detail is available");
-  check(detail.opcode == UINT32_C(0x0000000d),
-        "captured output does not turn the unsupported BREAK into guest pass");
+               "software completion stop detail is available");
+  check(detail.retired_instructions == UINT64_C(530437) &&
+            detail.pc == UINT32_C(0x80000478) &&
+            detail.opcode == UINT32_C(0x0000000d),
+        "captured output does not independently establish a guest pass");
   t64_machine_destroy(machine);
 }
 
