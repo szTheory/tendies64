@@ -1,0 +1,10 @@
+{
+  "command": "cmake -E env T64_TEST_HELLO_PATH=build/fixtures/hello.z64 build/gate/runner/test_fixture_descriptor",
+  "exitCode": 1,
+  "output": "1..1\nnot ok 1 - prepares a verified immutable descriptor\n",
+  "targetTest": "prepares a verified immutable descriptor",
+  "targetFile": "runner/tests/test_fixture_descriptor.c",
+  "expected": "T64_VERIFIED_INPUT_OK with the exact 4280-byte fixture size and pinned SHA-256",
+  "actual": "T64_VERIFIED_INPUT_ERROR (status=2)",
+  "semanticAssessment": "The descriptor target compiled, discovered and executed one TAP assertion. It failed on the planned success behavior because the linkable RED scaffold returns an error; no build, setup, fixture or discovery error occurred."
+}

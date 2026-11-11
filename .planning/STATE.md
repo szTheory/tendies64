@@ -4,18 +4,18 @@ milestone: v1.0
 milestone_name: Verified Headless Core
 current_phase: 3
 current_phase_name: First Headless ROM Through Open IPL3
-current_plan: 9 of 13
+current_plan: 10 of 13
 status: executing
-stopped_at: Completed 03-08-PLAN.md
-last_updated: "2026-11-11T12:19:55.256Z"
+stopped_at: Completed 03-09-PLAN.md
+last_updated: "2026-11-11T13:39:06.152Z"
 last_activity: 2026-11-10
 last_activity_desc: Phase 3 execution started
-state_head: a4b3475fd667aeb92f6f9a0947d54aa233a7e74a
+state_head: 1bc5f7d62451fcbc92e8b0d8636d6ab24a85083b
 progress:
   total_phases: 6
   completed_phases: 2
   total_plans: 34
-  completed_plans: 29
+  completed_plans: 30
   percent: 33
 ---
 
@@ -31,7 +31,7 @@ See: .planning/PROJECT.md (updated 2026-11-10)
 ## Current Position
 
 Phase: 3 (First Headless ROM Through Open IPL3) — EXECUTING
-Current Plan: 9 of 13
+Current Plan: 10 of 13
 Status: Ready to execute
 Last activity: 2026-11-10 — Phase 3 execution started
 
@@ -89,6 +89,7 @@ Progress: [███░░░░░░░] 33%
 | Phase 3 P6 | 45 min | 1 tasks | 16 files |
 | Phase 03 P07 | 47min | 1 tasks | 11 files |
 | Phase 03 P08 | 27min | 1 tasks | 8 files |
+| Phase 3 P09 | 58min | 2 tasks | 9 files |
 
 ## Accumulated Context
 
@@ -154,6 +155,9 @@ Decisions are logged in the PROJECT.md Key Decisions table. Recent decisions tha
 - [Phase 03]: Keep schema v1 closed and canonical, with uint64 ticks as decimal strings and equal-tick array order preserved.
 - [Phase 03]: Queue validated input schedules only on fresh owned machines; traces establish scheduling time, not SI/controller consumption.
 - [Phase 03]: Pin fixture source revision to the commit containing the exact four hashed inputs while preserving all seven ROM identities.
+- [Phase 3]: Keep --real refused until the real producer is implemented in 03-11; this helper is preparation evidence, not actual CPU-runner proof.
+- [Phase 3]: Keep raw schedule file length/SHA distinct from the canonical parsed schedule SHA.
+- [Phase 3]: Limit legacy O_NONBLOCK hardening to avoiding FIFO open stalls; the synthetic original-path race remains open.
 
 ### Pending Todos
 
@@ -179,6 +183,6 @@ Items acknowledged and deferred at milestone close, most recent first:
 
 ## Session Continuity
 
-Last session: 2026-11-11T12:19:55.122Z
-Stopped at: Completed 03-08-PLAN.md
+Last session: 2026-11-11T13:39:06.013Z
+Stopped at: Completed 03-09-PLAN.md
 Resume file: None
