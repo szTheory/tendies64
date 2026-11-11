@@ -183,7 +183,7 @@ status: complete
 
 ## Limits
 
-- Determinism evidence covers the pinned warm-entry profile, authored hello ROM, and input bytes on the current host. Cross-compiler/cross-OS equality requires the 13 actual hosted artifacts and comparator in Plan 13; no hosted comparison is claimed here.
+- Determinism evidence covers the pinned warm-entry profile, authored hello ROM, and input bytes on the current host. Cross-compiler/cross-OS equality requires the two actual hosted artifacts and comparator in Plan 13; no hosted comparison is claimed here.
 - The actual output-overflow guest demonstrates 4097 attempted bytes and 4096 retained. Counter saturation is directly injected in core tests but is unreachable through the bounded producer; if exactness is false in a real producer result, it emits a postlaunch `harness-error/host-error` with zero trusted progress counts and null unavailable output/state identities, never a pass or saturated exact total.
 - This evidence does not establish cold IPL2/PIF execution, general game compatibility, hardware timing accuracy, or controller consumption. Logical inputs are trace-only; the boot path is a prepared warm-entry profile.
 

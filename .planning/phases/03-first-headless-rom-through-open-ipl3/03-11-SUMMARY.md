@@ -129,7 +129,7 @@ status: complete
 **1. [Rule 1 - Bug] Rounded sub-pointer allocator alignment for the host allocator.**
 - **Found during:** Task 1.
 - **Issue:** `posix_memalign` refused the core's valid one-byte allocation alignment, causing setup refusal before guest execution.
-- **Fix:** The producer rounds only the host allocation alignment to pointer alignment and preserves the core-requested alignment in the returned storage descriptor.
+- **Fix:** The producer rounds only the host allocation alignment to pointer alignment and reports the actual host allocation alignment in the returned storage descriptor.
 - **Files modified:** `runner/t64_real.c`.
 
 **2. [Rule 1 - Bug] Kept empty output at the guest bound a boot failure.**
