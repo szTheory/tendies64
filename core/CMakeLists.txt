@@ -167,6 +167,18 @@ set_tests_properties(unit.core.tracer unit.core.boot-entry PROPERTIES
   ENVIRONMENT
     "T64_TEST_IPL3_PATH=${T64_BOOT_FIXTURE_DIR}/ipl3_compat.z64;T64_BOOT_FIXTURES_DIR=${T64_BOOT_FIXTURE_DIR};T64_BOOT_CONTRACT_PATH=${CMAKE_SOURCE_DIR}/fixtures/boot-contract.json")
 
+add_executable(test_cpu_path tests/test_cpu_path.c)
+target_include_directories(test_cpu_path PRIVATE
+  "${CMAKE_CURRENT_SOURCE_DIR}"
+  "${CMAKE_SOURCE_DIR}/tests")
+target_link_libraries(test_cpu_path PRIVATE t64_core)
+t64_target_warnings(test_cpu_path)
+add_dependencies(test_cpu_path t64-boot-fixtures)
+add_test(NAME unit.core.cpu-path COMMAND test_cpu_path)
+set_tests_properties(unit.core.cpu-path PROPERTIES
+  LABELS unit
+  ENVIRONMENT "T64_TEST_IPL3_PATH=${T64_BOOT_FIXTURE_DIR}/ipl3_compat.z64")
+
 add_executable(test_profile tests/test_profile.c)
 target_include_directories(test_profile PRIVATE "${CMAKE_SOURCE_DIR}/tests")
 target_link_libraries(test_profile PRIVATE t64_core)
