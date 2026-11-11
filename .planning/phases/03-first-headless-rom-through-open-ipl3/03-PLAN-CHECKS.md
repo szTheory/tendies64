@@ -1,37 +1,54 @@
-# Phase 3 planning verification
+# Phase 3 revision-2 planning verification
 
-Document checks only; no Phase 3 implementation/build/test is claimed.
+Document checks only. No Phase 3 source implementation, build, runtime test or human validation is claimed.
+
+## Review findings addressed
+
+| Original finding | Required property | Concrete correction |
+|---|---|---|
+| Blocker: original03-01 scope | Bounded plan while retaining first actual-entry tracer | Split into current03-01–03; first plan has7 declared files, real tracer plus explicit public-header/scheduler ownership. Fixture and gate tasks remain dependent, with no scaffold detour. |
+| Blocker: original03-08 handoff | Both actual hosted records reach one required comparator | Current03-13/1 requires two exact-SHA canonical JSON uploads; /2 requires authorized exact-run job/artifact validation, retrieval into one workspace and strict comparison before final verification. Missing/duplicate/wrong-SHA inputs fail. |
+| Warning: original03-04 scope | Bounded output/input plans | Current03-06,07,08 each own five files: guest capture, copy/submission seam and canonical schedule parser respectively. |
+| Warning: original03-06 scope | Checker before producer and supervisor after runner | Current03-10 owns five checker-contract files; current03-11 owns eight runner/supervisor files with explicit dependency. |
+
+These are planner corrections to all four required properties; independent failed-item review remains next. No reviewer approval is invented.
+
+## Current document checks
 
 | Check | Observed result |
 |---|---|
-| GSD plan frontmatter schema | All eight valid; no missing/wrong-valued fields. |
-| GSD plan structure and closing output tag | All eight valid and complete; 19 tasks, two or three per plan. |
-| GSD verify-failure-directions 3 | 66 automated commands, zero blockers/warnings; each has immediate fails_when. |
-| GSD decision-coverage-plan with explicit context | All 15 locked decisions covered by task/objective citations. |
-| GSD verify-command-paths 3 | Zero blockers/warnings; detector reports not_applicable for its recognized command-path patterns. Direct path ownership audit below supplements it. |
-| Dependency/shared-wave audit | Eight sequential waves; every prior dependency named, no same-wave overlap, shared inventory/build/digest state serialized. |
-| Task/read/path audit | Every task has read_first/action/acceptance_criteria/automated/fails_when/done; maximum five modified files; every tracked modified file appears in read_first. New source/tool/test paths are explicitly intentional artifacts. |
-| Requirement frontmatter | All eight assigned IDs represented; no empty requirements arrays. |
-| Threat uniqueness | Sixteen distinct numbered T-03 entries; only reserved T-03-SC repeats. Every plan has ASVS1 high-blocking register and specific tests/mitigations. |
-| Source/probe audits | Six success criteria, eight requirements, fifteen decisions and in-scope research covered; fourteen edge rows preserved, five unclassified flags retained; eighty recall candidates explicitly disposed into three judgment prohibitions. |
-| API detector on plan scope | detected=false, exit 1 is the detector's normal negative verdict; COVERAGE.md explains local build-input/core/runner scope. |
-| Assumption-delta detector | detected=false on Phase 3 roadmap; version-dispatched primary result identity still documented in COVERAGE.md. |
-| ORM scan | No relevant ORM/schema-push paths; local JSON protocols are not database schemas. |
+| GSD frontmatter and plan structure | All thirteen plans valid, complete closing output tags; no structure errors. |
+| Scope/ownership |21 tasks; maximum9 files per plan and5 per task. Exact task-owned file union equals every frontmatter list. Every modified path is explicit in read_first, including earlier-created files. |
+| First actual-entry ownership | core/t64_internal.h private state, public machine header and scheduler.c expansion all belong to current03-01; real tracer is still the first task and uses the existing generic callback path before named stop expansion. |
+| Dependency/shared-state audit | Thirteen sequential waves with the correct preceding dependency, no same-wave overlap; shared build/inventory/profile/digest state serialized. |
+| GSD verify-failure-directions3 |73 automated commands; zero blockers/warnings, no read error. Each command has its immediate fails_when. |
+| GSD decision coverage |All15 locked decisions covered. All8 assigned requirement IDs are in frontmatter and all6 roadmap criteria have exact owners. |
+| GSD verify-command-paths3 |73 commands, zero blockers/warnings; recognized path detector reports not_applicable. Direct source/read/ownership audit supplements it. |
+| Threat uniqueness |26 distinct numbered T-03 entries; only reserved T-03-SC repeats. Every plan includes ASVS1 high/critical-blocking mitigations with specific proof. |
+| Probes |All14 edges preserved;9 explicit planned predicates and5 originally unclassified flags retained. All80 recall candidates remain dispositioned into3 descriptor-less judgment prohibitions. |
+| API detector |Nonempty revised plan+Phase3 scope returned detected=false; exit1 is its normal negative verdict, not skipped. COVERAGE.md distinguishes CI administration from runtime integrations. |
+| ORM/assumption scope |No ORM schema paths. Existing assumption-delta negative verdict remains applicable to the unchanged phase goal; v1/v2 dispatch and separate model identity remain explicit. |
+| Portable/privacy/whitespace scan |No literal private home path in current plans; portable @$HOME execution references retained. git diff --check passed. No protected/manual/raw/tool/binary material was added. |
 
-The structure checker warns that real v2's one-way wire contract has no new checkpoint. D-12 already explicitly settles adding real v2 while preserving v1; the task records this settled decision and the installed reversibility rule therefore requires no repeated checkpoint.
+The one-way v2 warning now belongs to03-10: D-12 already explicitly settled adding real v2 while preserving v1, so the installed settled-decision rule requires no repeated checkpoint.
 
-## Threat-to-proof continuation map
+## Current threat-to-proof ownership
 
-| Threat refs | Concrete proof owned by execution |
+| Threat refs | Owning proof |
 |---|---|
-| T-03-01, T-03-SC | 03-01 fixture --selftest/--build and boot-entry; 03-07 identity mismatch; 03-08 staged rights scans. |
-| T-03-02 | 03-01 boot-limits/index review; existing gov.rights.repo/gov.pii.repo/gov.claims.repo checks in final gate and staged-output scan. |
-| T-03-03, T-03-04 | unit.core.cpu-path/cp0-cache and real unsupported-opcode control, bound/partition cases and instrumented CPU run. |
-| T-03-05, T-03-06 | unit.core.warm-device-policy/sp-dma/pi-dma, adjacent range and ASan/UBSan cases. |
-| T-03-07, T-03-08 | unit.core.isviewer, output-overflow and input-partition; independent lane/count/copy/parse bounds. |
-| T-03-09, T-03-10 | runner.fixture-descriptor, synchronized source-replaced, actual CPU repeat and owned-resource fault controls. |
-| T-03-11, T-03-12 | runner.result-v2, integration.open-ipl3-hello and real raw-report/capture/process error controls. |
-| T-03-13, T-03-14 | Six actual negative controls, integration.open-ipl3-determinism and per-name inventory omission selftests. |
-| T-03-15, T-03-16 | compare-boot-evidence --selftest, two current hosted gates, actual state/transcript subset comparison and sanitized output scans. |
+| T-03-01,02 |03-01 actual tracer, asset/payload qualification, public/private/profile/scheduler stop and state checks. |
+| T-03-03,04 |03-02 tool/packer reproducibility, separate asset/payload/authored-ROM identities and rights manifest. |
+| T-03-05,06 |03-03 boot-entry, exact inventory/gate provisioning, hash-only primary index and boot-limit claim checks. |
+| T-03-07,08 |03-04 cpu-path/cp0-cache, real unsupported/bound cases and instrumented CPU run. |
+| T-03-09,10 |03-05 warm-device-policy/sp-dma/pi-dma and adjacent guest transfer bounds. |
+| T-03-11,12 |03-06 ISViewer lanes/counts/capacity and actual overflow control. |
+| T-03-13,14 |03-07 bounded alias-safe copy, canonical produced-byte identity and queue-input refusal/state behavior. |
+| T-03-15,16 |03-08 canonical parse/tick/count boundaries and actual input-partition/trace proof. |
+| T-03-17,18 |03-09 descriptor faults, synchronized replacement and cleanup; actual CPU repeat in03-11. |
+| T-03-19,20 |03-10 strict v2/raw consistency/outcome controls, unchanged v1/model contracts. |
+| T-03-21,22 |03-11 actual IPL3/DMA/hello/descriptor admission and report/capture/process controls. |
+| T-03-23,24 |03-12 real failure controls, future-state/partition/interleave/trace and exact90/92 inventories. |
+| T-03-25,26 |03-13 required exact-SHA successful-job JSON delivery/collector/comparator, current sanitizers and sanitized rights/PII evidence. |
+| T-03-SC |Qualified source/byte pins and bounded rights-audited build tools; no npm/pip/cargo installation. |
 
-Three judgment flags remain prominent and non-authoritative. Five original unclassified edge flags remain explicit despite newly authored acceptance predicates. No human validation, owner acceptance or passing runtime evidence is claimed. Source qualification is bounded implementation work with no routine approval gate. Original dirty AGENTS.md/config.json and untracked state.json are outside this planning commit.
+Three judgment flags and five original unclassified flags remain non-authoritative/prominent; no human validation or risk acceptance is recorded. Concrete rights/authority/evidence stops still apply. Dirty AGENTS.md/config.json, untracked state.json and the original reviewer report are outside this revision commit.

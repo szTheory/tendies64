@@ -9,7 +9,7 @@
       "reason": null,
       "probe_id": "EDGE-03-01",
       "authored_acceptance": "Schedules accept 0 and 128 events within 65536 bytes; 129 events or 65537 bytes are refused before guest launch, and events at the guest bound execute while later events stay pending.",
-      "plan": "03-04"
+      "plan": "03-08"
     },
     {
       "requirement_id": "RUN-01",
@@ -20,7 +20,7 @@
       "reason": null,
       "probe_id": "EDGE-03-02",
       "authored_acceptance": "Guest ticks use checked uint64 decimal strings; equal-tick events retain source-array order and overflow/reversed times are refused without partial submission.",
-      "plan": "03-04"
+      "plan": "03-08"
     },
     {
       "requirement_id": "RUN-03",
@@ -31,7 +31,7 @@
       "reason": "FLAG: original classifier had no category. Planner authored a domain-specific acceptance predicate but does not auto-green the unclassified row; review against actual execution evidence.",
       "probe_id": "EDGE-03-03",
       "authored_acceptance": "A real guest with zero captured bytes is boot-fail at both authored halt and the guest bound; harness errors still take precedence.",
-      "plan": "03-06"
+      "plan": "03-10"
     },
     {
       "requirement_id": "RUN-05",
@@ -42,7 +42,7 @@
       "reason": null,
       "probe_id": "EDGE-03-04",
       "authored_acceptance": "Zero-byte flush appends nothing; lengths 1,3,4,512 copy exactly those bytes and length 513 is refused without partial output.",
-      "plan": "03-04"
+      "plan": "03-06"
     },
     {
       "requirement_id": "RUN-05",
@@ -53,7 +53,7 @@
       "reason": null,
       "probe_id": "EDGE-03-05",
       "authored_acceptance": "ISViewer length and equality are byte-based with big-endian word/halfword lanes; flushes exclude padding and never normalize text.",
-      "plan": "03-04"
+      "plan": "03-06"
     },
     {
       "requirement_id": "RUN-05",
@@ -64,7 +64,7 @@
       "reason": null,
       "probe_id": "EDGE-03-06",
       "authored_acceptance": "Repeating a nonzero flush appends the same requested bytes again; a repeated drain with no new bytes returns empty and does not alter guest state.",
-      "plan": "03-04"
+      "plan": "03-07"
     },
     {
       "requirement_id": "RUN-05",
@@ -75,7 +75,7 @@
       "reason": null,
       "probe_id": "EDGE-03-07",
       "authored_acceptance": "Each instance owns its output; advance and drain are serialized by the caller, alias/refused drains leave state unchanged, and interleaving two instances does not mix output.",
-      "plan": "03-04"
+      "plan": "03-07"
     },
     {
       "requirement_id": "PROF-05",
@@ -86,7 +86,7 @@
       "reason": "FLAG: original classifier had no category. Planner authored a domain-specific acceptance predicate but does not auto-green the unclassified row; review against actual execution evidence.",
       "probe_id": "EDGE-03-08",
       "authored_acceptance": "Equivalent actual profile/content/input/log/guest-bound state compares equal across partitions/interleaving/trace toggles and both hosted compilers while truthful compiler build IDs may differ.",
-      "plan": "03-07"
+      "plan": "03-12"
     },
     {
       "requirement_id": "BOOT-01",
@@ -119,7 +119,7 @@
       "reason": null,
       "probe_id": "EDGE-03-11",
       "authored_acceptance": "When completion and guest bound coincide, queued events at the bound are included and the authored completion verdict is evaluated from exact bytes and CPU milestones; empty output remains boot-fail.",
-      "plan": "03-06"
+      "plan": "03-10"
     },
     {
       "requirement_id": "BOOT-03",
@@ -130,7 +130,7 @@
       "reason": null,
       "probe_id": "EDGE-03-12",
       "authored_acceptance": "A missing input asset is missing-fixture; a present real guest producing empty output is boot-fail, and empty or missing boot-limits evidence cannot support a boot claim.",
-      "plan": "03-06"
+      "plan": "03-10"
     },
     {
       "requirement_id": "BOOT-03",
@@ -141,7 +141,7 @@
       "reason": null,
       "probe_id": "EDGE-03-13",
       "authored_acceptance": "Outcome precedence is host/setup/report/capture error, missing fixture, explicit unsupported/overflow disposition, empty-output boot-fail, exact completed transcript pass, wrong completed text guest-fail, then nonempty incomplete bound timeout.",
-      "plan": "03-06"
+      "plan": "03-10"
     },
     {
       "requirement_id": "BOOT-04",
@@ -152,7 +152,7 @@
       "reason": "FLAG: original classifier had no category. Planner authored a domain-specific acceptance predicate but does not auto-green the unclassified row; review against actual execution evidence.",
       "probe_id": "EDGE-03-14",
       "authored_acceptance": "Only the authored exact transcript plus actual IPL3 entry, loader DMA, hello entry and fixture-bound completion milestones can yield a real pass; wrong text or synthetic/model records cannot.",
-      "plan": "03-06"
+      "plan": "03-10"
     }
   ],
   "coverage": {
