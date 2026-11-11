@@ -3,6 +3,14 @@ phase: 03
 review: 03-REVIEW.md
 titles: json
 findings:
+  - id: CR-03
+    severity: critical
+    disposition: open
+    title: "CI checker accepts required steps that can fail without failing the job"
+  - id: WR-01
+    severity: warning
+    disposition: open
+    title: "CI checker does not bind host job names to runner labels"
   - id: CR-01
     severity: critical
     disposition: fixed
@@ -11,17 +19,19 @@ findings:
     severity: critical
     disposition: fixed
     title: "Missing `log_sha256` crashes the supervisor during capture validation"
-open: 0
-total: 2
-recorded: 2026-11-11T18:32:24.980Z
+open: 2
+total: 4
+recorded: 2026-11-11T21:30:49.661Z
 ---
 
 # Phase 03: Code Review Disposition
 
 | Finding | Severity | Disposition | Source |
 |---------|----------|-------------|--------|
-| CR-01 | critical | fixed | 03-REVIEW-FIX.md |
-| CR-02 | critical | fixed | 03-REVIEW-FIX.md |
+| CR-03 | critical | open | - |
+| WR-01 | warning | open | - |
+| CR-01 | critical | fixed | 03-REVIEW-FIX.md (not in the current review) |
+| CR-02 | critical | fixed | 03-REVIEW-FIX.md (not in the current review) |
 
 Dispositions: `open` (recorded, not yet triaged), `fixed`, `skipped`, `deferred`.
 Set `deferred` by hand and put the reason in the Source cell; both are preserved. A `|` in the reason is kept as prose and escaped on the next run.
