@@ -30,6 +30,10 @@ breadth or polish.
   — Phase 2. Its intended boot route is identified; boot is unimplemented.
 - ✓ Transactional production ROM admission with authored-byte tests and bounded
   ASan/UBSan mutation coverage — Phase 2. This does not prove memory safety.
+- ✓ Authored hello through pinned Unlicense IPL3, exact bounded ISViewer output,
+  verified descriptor admission and timed-input trace — Phase 3. Actual
+  Linux/GCC and macOS/Clang records agree for the named prepared-warm profile;
+  this is smoke evidence, not cold-boot or hardware-accuracy qualification.
 
 ### Active
 
