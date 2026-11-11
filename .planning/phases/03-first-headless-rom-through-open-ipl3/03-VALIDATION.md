@@ -17,7 +17,7 @@ Existing C17/CTest, CMake gate/asan presets, canonical JSON/SHA helpers, exact i
 
 The first actual-entry tracer extends existing unit.core.tracer. Qualification determines numeric header/payload/copy/entry layout from the actual pinned source bytes, with separate whole upstream asset SHA256/MD5, embedded executable payload SHA256 and authored normalized whole-ROM SHA256. Header transformations are explicit; full upstream asset identity is not blindly compared to a transformed ROM prefix. Both private fields and required public-header/scheduler expansion are owned by 03-01/1–2. Authored tools/hello are 03-02; gate/registration and early existing GCC lane are 03-03.
 
-Full gate runs at coherent inventory boundaries and before final verification; no unnecessary repetition after irrelevant changes. Shared build/inventory/profile/digest state serializes all thirteen waves. Exact existing 73 gate/75 ASan names are retained; all 17 additions yield final 90/92. Remove each expected name individually in inventory selftests, plus duplicate/disabled/unexpected/empty cases.
+Full gate runs at coherent inventory boundaries and before final verification; no unnecessary repetition after irrelevant changes. Shared build/inventory/profile/digest state serializes all thirteen waves. Exact existing 73 gate/75 ASan names are retained; all 18 additions yield final 91/93. Remove each expected name individually in inventory selftests, plus duplicate/disabled/unexpected/empty cases.
 
 Full all-target ASan/UBSan build precedes selected tests. Current host requires ASAN_OPTIONS=detect_leaks=0:halt_on_error=1 and UBSAN_OPTIONS=halt_on_error=1:print_stacktrace=1; address/undefined remain active. Existing bounded admission fuzz and intentional sanitizer fault child remain. A fault child succeeding cleanly is failure of the sanitizer control.
 
@@ -83,7 +83,7 @@ unit.core.tracer remains its existing identity, now with mandatory actual pinned
 | 03-09 | 81 /83 | fixture-descriptor, source-replaced. |
 | 03-10 | 82 /84 | result-v2. |
 | 03-11 | 83 /85 | open-ipl3-hello and actual replacement repetition. |
-| 03-12–13 | 90 /92 | Six real controls and open-ipl3-determinism; each single missing name rejected. |
+| 03-12–13 | 91 /93 | Six real controls and open-ipl3-determinism; each single missing name rejected. |
 
 ## Mandatory hosted handoff and comparator
 
