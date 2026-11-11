@@ -1,0 +1,10 @@
+{
+  "command": "T64_TEST_IPL3_PATH=build/fixtures/ipl3_compat.z64 build/gate/core/test_isviewer",
+  "exitCode": 1,
+  "output": "TAP version 13\nnot ok 1 - libdragon magic register stores and reads back guest values\n# setup=ready write-status=19 read-status=16 value=0xdecafbad\n1..1\n",
+  "targetTest": "libdragon magic register stores and reads back guest values",
+  "targetFile": "core/tests/test_isviewer.c",
+  "expected": "A width-4 write of 0xedcba987 to 0x13ff0000 succeeds, and a width-4 read returns the same guest-written value.",
+  "actual": "The planned assertion executed after fixture admission. The write returned status 19 (BUS_DEVICE_REFUSED); the read returned status 16 (BUS_UNSUPPORTED) and left the output sentinel unchanged.",
+  "semanticAssessment": "Valid behavioral RED: setup completed, the exact named TAP assertion failed, and the bus refused an access that the planned libdragon compatibility contract requires to be writable/readable. This is not a compile, discovery, or fixture failure."
+}

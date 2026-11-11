@@ -167,6 +167,18 @@ set_tests_properties(unit.core.tracer unit.core.boot-entry PROPERTIES
   ENVIRONMENT
     "T64_TEST_IPL3_PATH=${T64_BOOT_FIXTURE_DIR}/ipl3_compat.z64;T64_BOOT_FIXTURES_DIR=${T64_BOOT_FIXTURE_DIR};T64_BOOT_CONTRACT_PATH=${CMAKE_SOURCE_DIR}/fixtures/boot-contract.json")
 
+add_executable(test_isviewer tests/test_isviewer.c)
+target_include_directories(test_isviewer PRIVATE
+  "${CMAKE_CURRENT_SOURCE_DIR}"
+  "${CMAKE_SOURCE_DIR}/tools/common")
+target_link_libraries(test_isviewer PRIVATE t64_core)
+t64_target_warnings(test_isviewer)
+add_dependencies(test_isviewer t64-boot-fixtures)
+add_test(NAME unit.core.isviewer COMMAND test_isviewer)
+set_tests_properties(unit.core.isviewer PROPERTIES
+  LABELS unit
+  ENVIRONMENT "T64_TEST_IPL3_PATH=${T64_BOOT_FIXTURE_DIR}/ipl3_compat.z64")
+
 add_executable(test_cpu_path tests/test_cpu_path.c)
 target_include_directories(test_cpu_path PRIVATE
   "${CMAKE_CURRENT_SOURCE_DIR}"
