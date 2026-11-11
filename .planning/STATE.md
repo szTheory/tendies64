@@ -4,18 +4,18 @@ milestone: v1.0
 milestone_name: Verified Headless Core
 current_phase: 3
 current_phase_name: First Headless ROM Through Open IPL3
-current_plan: 3 of 13
+current_plan: 4 of 13
 status: executing
-stopped_at: Completed 03-02-PLAN.md
-last_updated: "2026-11-11T04:14:37.907Z"
+stopped_at: Completed 03-03-PLAN.md
+last_updated: "2026-11-11T05:39:53.843Z"
 last_activity: 2026-11-10
 last_activity_desc: Phase 3 execution started
-state_head: 4a1a4900247d3d3830a4131bd3626ab8cc17c31e
+state_head: 0445a566809b4c35b4a573157cd6bb97c677b194
 progress:
   total_phases: 6
   completed_phases: 2
   total_plans: 34
-  completed_plans: 23
+  completed_plans: 24
   percent: 33
 ---
 
@@ -31,7 +31,7 @@ See: .planning/PROJECT.md (updated 2026-11-10)
 ## Current Position
 
 Phase: 3 (First Headless ROM Through Open IPL3) — EXECUTING
-Current Plan: 3 of 13
+Current Plan: 4 of 13
 Status: Ready to execute
 Last activity: 2026-11-10 — Phase 3 execution started
 
@@ -83,6 +83,7 @@ Progress: [███░░░░░░░] 33%
 | Phase 02 P08 | 54 min | 3 tasks | 12 files |
 | Phase 03 P01 | 64min | 2 tasks | 10 files |
 | Phase 03 P02 | 42min | 1 tasks | 11 files |
+| Phase 03 P03 | 52min | 1 tasks | 14 files |
 
 ## Accumulated Context
 
@@ -130,6 +131,9 @@ Decisions are logged in the PROJECT.md Key Decisions table. Recent decisions tha
 - [Phase 03]: Keep the pinned 4096-byte source asset, 4032-byte executable payload and authored ROM as distinct identities, with separate rights records.
 - [Phase 03]: Set header offset 0x10 to the checked nonzero 184-byte flat app length expected by loader_compat; retain the one-MiB whole-cartridge ceiling.
 - [Phase 03]: Pin authored source to a commit containing the files and exact content hash; keep per-host tool binary hashes in ignored local build metadata.
+- [Phase 03]: Keep prepared-RDRAM descriptor 2 and state version 6 as explicit software policy, not hardware handoff evidence.
+- [Phase 03]: Keep computed per-host tool hashes in ignored receipts; remove fixed Darwin hashes that vary by build path and toolchain.
+- [Phase 03]: Install only zlib1g-dev in hosted Ubuntu CI behind explicit GitHub Actions/Linux guards; local gates do not provision packages.
 
 ### Pending Todos
 
@@ -155,6 +159,6 @@ Items acknowledged and deferred at milestone close, most recent first:
 
 ## Session Continuity
 
-Last session: 2026-11-11T04:14:37.782Z
-Stopped at: Completed 03-02-PLAN.md
+Last session: 2026-11-11T05:39:53.711Z
+Stopped at: Completed 03-03-PLAN.md
 Resume file: None

@@ -49,6 +49,8 @@ from.
 | 2026-11-10 | 42922766163 | d32a1ba15b02 | push | failure | 84 | 82 | 2/12 | 3/79 | gate-macos/Gate 70s |
 | 2026-11-10 | 42923015327 | 32de4f7b664c | push | failure | 82 | 80 | 1/23 | 2/78 | gate-macos/Gate 70s |
 | 2026-11-10 | 42925122280 | 34b43f760e08 | push | success | 205 | 204 | 2/38 | 146/58 | gate-macos/Gate 52s |
+| 2026-11-11 | 42962237106 | 325dfbdd938b | push | failure | 169 | 168 | 2/73 | 2/166 | gate-macos/Gate 157s |
+| 2026-11-11 | 42966035712 | 0445a566809b | push | success | 306 | 305 | 2/98 | 3/302 | gate-macos/Gate 291s |
 
 ## Findings
 
@@ -77,3 +79,4 @@ from.
 | F-022 | 42922766163 | GCC exposed two test-only warning errors after production build passed | taken | Remove unused shared test header and parenthesize expected masked arithmetic; retain strict warnings and focused retests |
 | F-023 | 42923015327 | Run 42923015327 measured 82 s wall and an 80 s critical path: Linux x86_64 GCC 13.3 fails at test compile after production core build; macOS arm64 Apple Clang completes all 73 tests. These remain distinct OS/toolchain checks. | declined | Keep both existing lanes. The Linux format-truncation diagnostic is in test path construction, so caching, added jobs, or concurrency changes would not address it; the gate duration does not justify those changes. |
 | F-024 | 42925122280 | Run 42925122280 succeeded on both distinct OS/toolchain lanes. Measured Linux queue/run was 2/38 s; macOS was 146/58 s, so the 204 s critical path was dominated by macOS queue time, not gate execution. | declined | Keep both compiler/platform checks. The long macOS wait is a queue delay, while its gate took 58 s; caching cannot reduce queue time and no new job or concurrency change is justified by this run. |
+| F-025 | 42962237106 | Pinned Binutils failures hid compiler diagnostics in ephemeral CI jobs | taken | Reproduce in Ubuntu 24.04, then print a bounded path-sanitized log tail on failure; keep the existing two jobs and no build-log artifacts. |

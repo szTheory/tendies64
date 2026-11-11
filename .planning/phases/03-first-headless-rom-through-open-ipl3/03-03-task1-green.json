@@ -53,7 +53,49 @@
       "inventoryAsanTests": 76,
       "coreLintViolations": 0,
       "notes": "Fixture qualification ran once; the CMake build was up to date afterward. gov.manifest.repo passed after CMake built the checker."
+    },
+    {
+      "command": "sh scripts/gate.sh",
+      "exitCode": 0,
+      "durationSeconds": 24,
+      "ctestPassed": 74,
+      "ctestFailed": 0,
+      "inventoryGateTests": 74,
+      "inventoryAsanTests": 76,
+      "inventoryRemovalControls": 148,
+      "inventoryMalformedControls": 5,
+      "coreLintFiles": 15,
+      "coreLintViolations": 0,
+      "notes": "Final corrected canonical gate on macOS arm64: fixture qualification passed, CMake build was current, all 74 tests passed, exact inventory controls passed, and core lint was clean."
+    },
+    {
+      "command": "scripts/rights-scan.sh --tree --history",
+      "exitCode": 0,
+      "treeItems": 463,
+      "historyItems": 879,
+      "findings": 0
+    },
+    {
+      "command": "scripts/pii-scan.sh --tree --history",
+      "exitCode": 0,
+      "treeFiles": 463,
+      "historyCommits": 204,
+      "findings": 0
     }
   ],
+  "hostedCi": {
+    "runId": 42966035712,
+    "headSha": "0445a566809b4c35b4a573157cd6bb97c677b194",
+    "event": "push",
+    "attempt": 1,
+    "conclusion": "success",
+    "jobs": {
+      "gate-linux": {"conclusion": "success", "queueSeconds": 2, "runSeconds": 98},
+      "gate-macos": {"conclusion": "success", "queueSeconds": 3, "runSeconds": 302}
+    },
+    "wallSeconds": 306,
+    "criticalPathSeconds": 305,
+    "slowestStep": "gate-macos/Gate 291s"
+  },
   "scopeLimit": "Prepared-RDRAM software warm entry only: ANDI retired at guest tick 1; unsupported LUI stopped at tick 2. The authored hello ROM was not admitted or executed; no hardware handoff or accuracy claim is made."
 }
