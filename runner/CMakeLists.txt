@@ -5,6 +5,25 @@ set(T64_HOST_DEFS _POSIX_C_SOURCE=200809L)
 if(APPLE)
   list(APPEND T64_HOST_DEFS _DARWIN_C_SOURCE)
 endif()
+
+# Host-side closed logical-input schedule parser.
+add_library(t64_input STATIC t64_input.c)
+target_include_directories(t64_input PUBLIC ${CMAKE_CURRENT_SOURCE_DIR})
+target_link_libraries(t64_input PUBLIC t64_common)
+t64_target_warnings(t64_input)
+
+add_executable(test_input tests/test_input.c)
+target_compile_definitions(test_input PRIVATE ${T64_HOST_DEFS})
+target_link_libraries(test_input PRIVATE t64_input t64_core)
+t64_target_warnings(test_input)
+add_dependencies(test_input t64-boot-fixtures)
+add_test(NAME controls.real.input-partition COMMAND test_input)
+set_tests_properties(controls.real.input-partition PROPERTIES
+  LABELS controls
+  TIMEOUT 120
+  ENVIRONMENT
+    "T64_TEST_IPL3_PATH=${CMAKE_SOURCE_DIR}/build/fixtures/ipl3_compat.z64;T64_TEST_HELLO_PATH=${CMAKE_SOURCE_DIR}/build/fixtures/hello.z64;T64_BOOT_FIXTURES_DIR=${CMAKE_SOURCE_DIR}/build/fixtures")
+
 # The classifier is pure and needs no POSIX definitions.
 add_library(t64_classify STATIC t64_classify.c)
 target_include_directories(t64_classify PUBLIC ${CMAKE_CURRENT_SOURCE_DIR})

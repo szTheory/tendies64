@@ -85,7 +85,8 @@ PHASE03_TESTS='unit.core.boot-entry
 unit.core.cpu-path
 unit.core.cp0-cache
 unit.core.warm-device-policy
-unit.core.isviewer'
+unit.core.isviewer
+controls.real.input-partition'
 
 ASAN_ONLY='fuzz.rom-admission
 sanitizer.negative-control'

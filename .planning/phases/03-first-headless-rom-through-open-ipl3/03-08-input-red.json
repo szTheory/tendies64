@@ -1,0 +1,10 @@
+{
+  "command": "build/gate/runner/test_input",
+  "exitCode": 1,
+  "output": "TAP version 13\nnot ok 1 - accepts an empty canonical t64.input v1 schedule\n# expected status 0, observed 4\n1..1\n",
+  "targetTest": "accepts an empty canonical t64.input v1 schedule",
+  "targetFile": "runner/tests/test_input.c",
+  "expected": "T64_INPUT_OK (status 0) for an empty canonical t64.input v1 schedule",
+  "actual": "T64_INPUT_INVALID_SCHEMA (status 4)",
+  "semanticAssessment": "The test executable built and ran the named parser behavior. The canonical empty t64.input v1 document was rejected by the linkable RED scaffold with T64_INPUT_INVALID_SCHEMA; the planned behavior assertion failed for the missing parser implementation, not for test discovery, compilation, or fixture setup."
+}
