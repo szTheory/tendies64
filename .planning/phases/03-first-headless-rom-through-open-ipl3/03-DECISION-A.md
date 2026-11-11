@@ -1,0 +1,48 @@
+# Phase 3 Decision A — Open IPL3 Provenance and Pin
+
+**Scope.** Decision-focused research for the open IPL3 source revision, variant, rights, artifact identity, and rebuild provenance. Hardware entry-state and runner contracts are covered by the other Phase 3 research notes.
+
+## Recommendation
+
+Pin the **r8-source compatibility variant** from `n64brew/libdragon` commit [`98154dafd5ac50e74ee09a5de1035d24a53f54f0`](https://github.com/n64brew/libdragon/tree/98154dafd5ac50e74ee09a5de1035d24a53f54f0): `boot/bin/ipl3_compat.z64`. It is a 4,096-byte upstream generated artifact with SHA-256 `f522db2e31a701f82597f399e76d55c9487760d015aff9d90176b463ae39a068` and MD5 `71ce6a00936394ad364fbe584234fd82` (computed from that pinned GitHub path). The hash identifies these bytes; the rights basis is the source repository’s Unlicense and its boot documentation, not the hash.
+
+The compatibility variant is the smallest fit for this authored hello path: upstream documents a flat load from ROM offset `0x10001000` to the header entrypoint, so the phase need not first implement libdragon’s ELF/TOC loader. Its same-tree alternative, `boot/bin/ipl3_prod.z64`, is the better reversal if the hello fixture needs ELF segments or production loader behavior. The “r8” label refers to the boot source revision: upstream’s changelog identifies r8 for the production binary, while the compatibility binary is built from that same source tree and is not separately version-labeled.
+
+**Maintenance owner:** Tendies64 maintainers own the exact pinned bytes, manifest entry, rights evidence, and any future update. `n64brew/libdragon` is the current upstream/rehost; the original `DragonMinded/libdragon` repository is archived. Do not treat the new repository’s October 5 README-link changes as fresh boot-code maintenance: its compatibility source and generated binary blobs match the archived upstream tree.
+
+**Decision status:** rights and artifact identity support this pin under the project’s existing Unlicense allowlist. Reproducible source regeneration is not yet established; keep that limitation explicit and do not claim it has been rebuilt.
+
+## Options and tradeoffs
+
+| Option | Fit | Tradeoff | Recommendation |
+|---|---|---|---|
+| r8-source `ipl3_compat.z64` | Loads the project’s flat hello image; avoids ELF/TOC loader scope | Upstream committed output is signed for CIC-6102; exact upstream compiler and signing-tool provenance are not stated in the boot README | **Select as the phase input**, pinned by source revision and both digests |
+| r8-source `ipl3_prod.z64` | Standard libdragon production path; loads ELF program segments | Adds ELF scan/segment/ROM-layout behavior that the phase’s hello proof does not need | Switch only if the project-authored hello requires ELF loading |
+| r8-source `ipl3_dev.z64` | Includes development logging facilities | Different development/trampoline path; the hello ROM itself can write ISViewer output | Do not use as the compatibility claim or first production-profile pin |
+
+## Verified upstream facts
+
+- **The archive claim is current and confirmed.** GitHub marks [`DragonMinded/libdragon`](https://github.com/DragonMinded/libdragon) as archived by its owner on **2026-10-01**, read-only. The claim in the Phase 3 brief is accurate; it is not being repeated from the bootstrap note alone.
+- **The rehost is exact for the boot tree.** The `n64brew` commit above is a public, non-archived repository with root license `Unlicense`. Its parent chain points to `DragonMinded/libdragon@e356bf3f56f7afbf7e5246329562f145965cfdfc`; at those two revisions, the Git blob IDs match for `boot/README.md`, `boot/ipl3.c`, `boot/loader_compat.c`, and `boot/bin/ipl3_compat.z64`. The later commits changed repository links, not these boot inputs. [n64brew commit](https://github.com/n64brew/libdragon/commit/98154dafd5ac50e74ee09a5de1035d24a53f54f0) · [archived source commit](https://github.com/DragonMinded/libdragon/commit/e356bf3f56f7afbf7e5246329562f145965cfdfc)
+- **The binary has an affirmative license basis.** The pinned root [`LICENSE.md`](https://github.com/n64brew/libdragon/blob/98154dafd5ac50e74ee09a5de1035d24a53f54f0/LICENSE.md) is Unlicense and expressly covers compiling and distributing software as a compiled binary. The pinned [`boot/README.md`](https://github.com/n64brew/libdragon/blob/98154dafd5ac50e74ee09a5de1035d24a53f54f0/boot/README.md) calls this open-source bootcode and lists the committed `ipl3_compat.z64`; the compatibility-build input files are covered by the same root license and have no separate file-license declarations. Unlicense is already in `docs/policy/copy-provenance.md`’s allowlist, so no allowlist expansion or source-code copy is needed.
+- **Variant and output provenance are documented.** The README describes compatibility mode as the flat-image path and documents its boot flags. It says the checked-in production and compatibility binaries are signed for CIC-6102; its source-build instructions say a newly produced production/compatibility binary needs signing for hardware or accurate emulators. The compatibility linker script marks a dummy opcode used to simplify hash cracking. This is a CIC checksum/signature property of the open IPL3 output, not evidence that Nintendo PIF, CIC firmware, IPL, or ROM bytes are inputs to the compatibility build. The latter distinction is an inference from the public source/build input set; any byte-level assurance should be made from the pinned build and not from the signature label alone.
+- **Rebuild metadata is incomplete.** The boot README gives `make COMPAT=1` but no exact compiler or signer revision. The project’s official archived toolchain release identifies GCC 16.2.0, Binutils 2.45, and Newlib 4.4.0.20231231; its Linux x86-64 Debian asset is SHA-256 `fac8e6572493a66468b7d45df41b042f90b1a630ec96aa218bd5fb1f320a0a4d`. This is a viable pinned compiler package for a source-build qualification, not proof it produced the committed IPL3. The release marks the toolchain GPLv3; the compiler is a build tool and must not be copied or linked into Tendies64. [Official toolchain release](https://github.com/DragonMinded/libdragon/releases/tag/toolchain-continuous-prerelease)
+
+## Pin and qualification procedure
+
+For the phase baseline, record the artifact as an upstream committed input in the fixture/provenance record: repo, full commit, `boot/bin/ipl3_compat.z64`, source and binary rights `cleared`, 4,096-byte size, both digests above, the Unlicense notice, and links to the pinned license and boot README. Describe the recipe honestly as retrieving that committed generated artifact and verifying its digest; the upstream compiler and signing tool remain **unknown**, not inferred. The checked-in binary is already CIC-6102-signed; a CIC signature is a checksum compatibility result, not a Nintendo CIC boot ROM.
+
+Before making any **reproducible-source-build** claim, qualify a clean source build separately: pin the exact compiler package by version and SHA-256, pin the signer and its version/recipe if producing a CIC-signed image, and compare the resulting output to the upstream binary. If using an unsigned image because HLE-PIF intentionally skips CIC validation, verify that boot contract first and record the unsigned output as a distinct artifact. Compare the intended executable payload and signature/collision region explicitly; retain and report the full output digest either way. Do not say the build reproduces byte-for-byte unless the whole digest matches.
+
+One source-build trap is already visible in [`boot/Makefile`](https://github.com/n64brew/libdragon/blob/98154dafd5ac50e74ee09a5de1035d24a53f54f0/boot/Makefile): `make clean` removes the dev/prod binaries but leaves `bin/ipl3_compat.z64`. A clean compatibility build must remove that target in an isolated checkout before invoking `make COMPAT=1`, or a stale checked-in binary can survive and be mistaken for a build result. Do not run `make install`; it changes the upstream `n64tool` source. The local environment has no `mips64-elf-*` compiler, so no build was attempted and no tool was installed.
+
+## Acceptance and negative controls
+
+- Verify the exact pinned file is 4,096 bytes and matches both recorded digests before loading; a one-byte edit, truncation, wrong revision, or missing manifest record must fail admission.
+- Rights evidence must cite the upstream Unlicense and boot documentation. The rights scan must continue to reject any Nintendo boot/PIF/CIC bytes, commercial ROMs, or unmanifested binary; hashes must not be stored as a substitute for rights evidence.
+- Run the source-build qualification only after compiler and signer pins exist. Check both the upstream binary and rebuilt output; distinguish exact artifact identity from any documented signature-region comparison.
+- Keep the open IPL3 guest input separate from core implementation and from any Nintendo boot data. Do not include, download, build, or use `nemu64-test` as part of this decision.
+
+## Reversal evidence and remaining limits
+
+Switch to the same-source production variant if the authored hello needs ELF loading. Reconsider the source pin if `n64brew` changes the boot tree, its rights/notice basis changes, or a source audit finds an external/protected input; stop using the artifact if the per-file/binary rights evidence no longer holds. Require a pinned compiler and signer plus clean-build evidence before claiming reproducibility. The source/build/signing provenance gap is a verification task, not evidence of an unresolved license conflict; the pinned upstream artifact can serve as the bounded Phase 3 input while that gap remains visible.
