@@ -51,6 +51,7 @@ from.
 | 2026-11-10 | 42925122280 | 34b43f760e08 | push | success | 205 | 204 | 2/38 | 146/58 | gate-macos/Gate 52s |
 | 2026-11-11 | 42962237106 | 325dfbdd938b | push | failure | 169 | 168 | 2/73 | 2/166 | gate-macos/Gate 157s |
 | 2026-11-11 | 42966035712 | 0445a566809b | push | success | 306 | 305 | 2/98 | 3/302 | gate-macos/Gate 291s |
+| 2026-11-11 | 43007339324 | 0efc1846903c | push | success | 301 | 299 | 2/113 | 4/295 | gate-macos/Gate 281s |
 
 ## Findings
 
@@ -80,3 +81,6 @@ from.
 | F-023 | 42923015327 | Run 42923015327 measured 82 s wall and an 80 s critical path: Linux x86_64 GCC 13.3 fails at test compile after production core build; macOS arm64 Apple Clang completes all 73 tests. These remain distinct OS/toolchain checks. | declined | Keep both existing lanes. The Linux format-truncation diagnostic is in test path construction, so caching, added jobs, or concurrency changes would not address it; the gate duration does not justify those changes. |
 | F-024 | 42925122280 | Run 42925122280 succeeded on both distinct OS/toolchain lanes. Measured Linux queue/run was 2/38 s; macOS was 146/58 s, so the 204 s critical path was dominated by macOS queue time, not gate execution. | declined | Keep both compiler/platform checks. The long macOS wait is a queue delay, while its gate took 58 s; caching cannot reduce queue time and no new job or concurrency change is justified by this run. |
 | F-025 | 42962237106 | Pinned Binutils failures hid compiler diagnostics in ephemeral CI jobs | taken | Reproduce in Ubuntu 24.04, then print a bounded path-sanitized log tail on failure; keep the existing two jobs and no build-log artifacts. |
+| F-026 | 43007339324 | Coherent CPU/warm-loader/ISViewer source passes both existing jobs. Wall301s, critical path299s; Linux Gate110s (qualification81s), macOS Gate281s (qualification199s). | declined | Retain the two distinct OS/compiler checks and10-minute limits. Fresh pinned tool builds dominate, with no queue bottleneck. No extra action, cache or lane is justified for this intermediate candidate; revisit qualification reuse when final CI wiring is measured. |
+| F-027 | 43007339324 | macOS CTest44.51s is led by rights/provenance/PII negative-control selftests (28.14/22.14/20.93s under parallel load). The actual ISViewer hello+overflow test takes0.86s; warm-device trace0.03s. | declined | Preserve scanner controls and guest timing. Guest execution is not the CI critical path, so shortening modeled DMA or dropping controls would not address the measured bottleneck. |
+| F-028 | 43007339324 | The fresh canonical gate qualifies/builds fixtures before configure and the CMake consumer producer runs again; the complete subsequent CMake build is4s on each host. | declined | Record the small duplicate for consolidation during final CI wiring. Keep one qualified producer and provenance checks; avoid a separate requalification run or new cache solely to save a small fraction of this301s run. |
