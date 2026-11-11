@@ -158,7 +158,17 @@ Plans:
   4. A guest that produces no output is classified boot-fail, never pass. The boot-limits document lists unmodeled PIF challenge/response, CIC variants and timeout behavior as deferred, so the project never reports "boot solved"
   5. The hello-ROM run produces identical state digests on two operating systems and with two compilers, shown by a CI matrix
   6. The headless runner's fixture digest attests the bytes the runner actually reads: real-ROM runs pass an already-open verified descriptor or a private copy, so the supervisor's digest cannot differ from what the guest loads (closes the Phase 1 review finding WR-06; see docs/spec/result-protocol.md, "Known limitation")
-**Plans**: TBD
+**Plans**: 8 plans
+
+Plans:
+- [ ] 03-01-PLAN.md — Qualify the actual linked IPL3/toolchain and execute its warm entry; build authored hello.
+- [ ] 03-02-PLAN.md — Expand the qualified integer, CP0 and cache execution path.
+- [ ] 03-03-PLAN.md — Run bounded warm reset/probe policies and delayed loader DMA.
+- [ ] 03-04-PLAN.md — Capture exact bounded ISViewer bytes and schedule timed input traces.
+- [ ] 03-05-PLAN.md — Attest immutable fixture/input descriptors and synchronized replacement resistance.
+- [ ] 03-06-PLAN.md — Produce/check strict real v2 through the actual IPL3-to-hello runner.
+- [ ] 03-07-PLAN.md — Prove real failure controls and partition/interleave/trace determinism.
+- [ ] 03-08-PLAN.md — Verify current-source sanitizers and matching guest state in both existing hosted lanes.
 
 ### Phase 4: Complete VR4300 CPU
 **Goal**: The VR4300 interpreter implements MIPS III integer, CP0, TLB, cache-scope and soft-float COP1 behavior. Native tests with independent expected values verify it, and the `nemu64-test` CPU groups report per-group status
