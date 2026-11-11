@@ -627,6 +627,7 @@ run_build()
     build_set "$staging"
     write_build_metadata "$staging"
     install_generated_outputs "$staging"
+    PAYLOAD=build/fixtures/ipl3_compat.payload.bin
     trap - EXIT HUP INT TERM
     rm -rf "$staging"
 }
