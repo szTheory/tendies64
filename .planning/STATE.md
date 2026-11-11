@@ -4,18 +4,18 @@ milestone: v1.0
 milestone_name: Verified Headless Core
 current_phase: 3
 current_phase_name: First Headless ROM Through Open IPL3
-current_plan: 4 of 13
+current_plan: 5 of 13
 status: executing
-stopped_at: Completed 03-03-PLAN.md
-last_updated: "2026-11-11T05:39:53.843Z"
+stopped_at: Completed 03-04-PLAN.md
+last_updated: "2026-11-11T07:07:32.789Z"
 last_activity: 2026-11-10
 last_activity_desc: Phase 3 execution started
-state_head: 0445a566809b4c35b4a573157cd6bb97c677b194
+state_head: d10fbfa126d3b1a28bf7295b2d6af92c2973785e
 progress:
   total_phases: 6
   completed_phases: 2
   total_plans: 34
-  completed_plans: 24
+  completed_plans: 25
   percent: 33
 ---
 
@@ -31,7 +31,7 @@ See: .planning/PROJECT.md (updated 2026-11-10)
 ## Current Position
 
 Phase: 3 (First Headless ROM Through Open IPL3) — EXECUTING
-Current Plan: 4 of 13
+Current Plan: 5 of 13
 Status: Ready to execute
 Last activity: 2026-11-10 — Phase 3 execution started
 
@@ -84,6 +84,7 @@ Progress: [███░░░░░░░] 33%
 | Phase 03 P01 | 64min | 2 tasks | 10 files |
 | Phase 03 P02 | 42min | 1 tasks | 11 files |
 | Phase 03 P03 | 52min | 1 tasks | 14 files |
+| Phase 3 P04 | 73min | 2 tasks | 10 files |
 
 ## Accumulated Context
 
@@ -134,6 +135,9 @@ Decisions are logged in the PROJECT.md Key Decisions table. Recent decisions tha
 - [Phase 03]: Keep prepared-RDRAM descriptor 2 and state version 6 as explicit software policy, not hardware handoff evidence.
 - [Phase 03]: Keep computed per-host tool hashes in ignored receipts; remove fixed Darwin hashes that vary by build path and toolchain.
 - [Phase 03]: Install only zlib1g-dev in hosted Ubuntu CI behind explicit GitHub Actions/Linux guards; local gates do not provision packages.
+- [Phase 3]: Count advances once per successful instruction retirement as deterministic software policy, not hardware cycle timing.
+- [Phase 3]: CACHE behavior is a coherent-functional warm subset over pinned inventory candidates; no general timing or cache-fidelity claim.
+- [Phase 3]: Update actively hashed CPU/cache policy values as supported behavior changes; the digest distinguishes identity without a profile ID or serialization version bump.
 
 ### Pending Todos
 
@@ -159,6 +163,6 @@ Items acknowledged and deferred at milestone close, most recent first:
 
 ## Session Continuity
 
-Last session: 2026-11-11T05:39:53.711Z
-Stopped at: Completed 03-03-PLAN.md
+Last session: 2026-11-11T07:07:32.656Z
+Stopped at: Completed 03-04-PLAN.md
 Resume file: None
