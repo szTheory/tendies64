@@ -87,6 +87,15 @@ target_compile_definitions(t64-result-check PRIVATE ${T64_HOST_DEFS})
 target_link_libraries(t64-result-check PRIVATE t64_classify t64_common)
 t64_target_warnings(t64-result-check)
 
+# Strict real t64.result v2 behavior, separate from v1 goldens and model output.
+add_executable(test_result_v2 tests/test_result_v2.c)
+target_compile_definitions(test_result_v2 PRIVATE ${T64_HOST_DEFS})
+add_dependencies(test_result_v2 t64-result-check)
+t64_target_warnings(test_result_v2)
+add_test(NAME runner.result-v2
+  COMMAND test_result_v2 $<TARGET_FILE:t64-result-check>)
+set_tests_properties(runner.result-v2 PROPERTIES LABELS runner TIMEOUT 60)
+
 # Native model observations use a distinct schema and never enter t64.result.
 add_executable(t64-model-result-check t64_model_result_check.c)
 target_compile_definitions(t64-model-result-check PRIVATE ${T64_HOST_DEFS})

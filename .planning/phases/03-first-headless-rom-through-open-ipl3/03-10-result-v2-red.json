@@ -1,0 +1,10 @@
+{
+  "command": "build/gate/runner/test_result_v2 build/gate/runner/t64-result-check",
+  "exitCode": 1,
+  "output": "TAP version 13\n1..1\nnot ok 1 - accepts independently authored canonical real v2 pass\n# expected: checker exit=0\n# actual: checker exit=1 rule=R-VERSION\n",
+  "targetTest": "accepts independently authored canonical real v2 pass",
+  "targetFile": "runner/tests/test_result_v2.c",
+  "expected": "The checker accepts the independent canonical real-v2 pass report and exits 0.",
+  "actual": "The checker exits 1 and reports R-VERSION because it only accepts schema_version 1.",
+  "semanticAssessment": "The probe and existing t64-result-check compiled and executed. The first planned behavioral assertion rejected a fully formed, canonical schema_version 2 guest-execution report with R-VERSION. This is the missing v2 behavior, not a compile, setup, fixture, parser, or discovery failure. The report is structural contract input only; it does not claim an actual guest run."
+}
