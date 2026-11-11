@@ -138,7 +138,8 @@ are model policy, not hardware timing claims.
 The fixture producer needs a C compiler, `jq`, `curl`, GNU Binutils 2.45
 MIPS64-ELF tools (qualified from the pinned source when absent), `make`, `tar`
 with xz support, system zlib development headers and library (`zlib.h`/`libz`;
-Ubuntu CI provides these with `zlib1g-dev`), `awk`, `dd`, `find`, SHA-256 and
+the fixture builder provisions `zlib1g-dev` only on hosted Ubuntu CI when
+missing), `awk`, `dd`, `find`, SHA-256 and
 MD5 tools (`shasum` or `sha256sum`, and `md5` or `md5sum`), plus CMake and
 Ninja. It downloads only the hash-pinned public source asset and, when
 required, the hash-pinned Binutils source archive. Generated ROMs stay

@@ -180,6 +180,27 @@ safe_extract_binutils()
         die 'extracted Binutils source exceeds the bounded file inventory'
 }
 
+system_zlib_headers_present()
+{
+    printf '%s\n' '#include <zlib.h>' | "$CC" -E -x c - >/dev/null 2>&1
+}
+
+ensure_system_zlib_headers()
+{
+    if system_zlib_headers_present; then
+        return
+    fi
+    if [ "${CI:-}" = true ] && [ "${GITHUB_ACTIONS:-}" = true ] &&
+        [ "$(uname -s)" = Linux ] && command -v sudo >/dev/null 2>&1 &&
+        command -v apt-get >/dev/null 2>&1; then
+        echo 'provisioning host system zlib headers for pinned Binutils build'
+        sudo apt-get update -qq
+        sudo apt-get install --yes --no-install-recommends zlib1g-dev
+    fi
+    system_zlib_headers_present || \
+        die 'pinned Binutils source build requires system zlib development headers (zlib.h); on Ubuntu install zlib1g-dev'
+}
+
 build_pinned_binutils()
 {
     require_command curl
@@ -187,9 +208,7 @@ build_pinned_binutils()
     require_command tar
     require_command awk
     require_command "$CC"
-    if ! printf '%s\n' '#include <zlib.h>' | "$CC" -E -x c - >/dev/null 2>&1; then
-        die 'pinned Binutils source build requires system zlib development headers (zlib.h); install the host zlib development package, such as zlib1g-dev on Ubuntu'
-    fi
+    ensure_system_zlib_headers
     mkdir -p build/tools/downloads build/tools/source build/tools/build \
         build/tools/install
     archive=build/tools/downloads/binutils-2.45.tar.xz
