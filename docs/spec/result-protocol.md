@@ -1,10 +1,11 @@
-# t64.result v1: result protocol
+# t64.result v1 and v2: result protocols
 
-Status: normative for Phase 1. Implemented by `runner/t64_supervisor.c`,
-`runner/t64_classify.c`, `runner/t64_synthetic.c` and the consumer
-`runner/t64_result_check.c`; proven by `unit.classify`, `tests/controls`,
-`unit.result-goldens`, `unit.result-seeds` and `unit.suite-seeds`. Later phases consume this contract; `schema_version` is
-the change seam.
+The v1 contract is normative for Phase 1; the real guest v2 section is the
+Phase 3 extension. V1 is implemented by `runner/t64_supervisor.c`,
+`runner/t64_classify.c`, `runner/t64_synthetic.c` and
+`runner/t64_result_check.c`, and is covered by `unit.classify`,
+`tests/controls`, `unit.result-goldens`, `unit.result-seeds` and
+`unit.suite-seeds`. `schema_version` separates the contracts.
 
 ## Scope and evidence stamp
 
@@ -403,6 +404,96 @@ outside `[A-Za-z0-9._-]{1,64}` is a usage error (exit 2), never a pass.
 Seeds live in `tests/seeded/results/` and `tests/seeded/suites/` (directory-owned
 corpora with an `EXPECT.tsv`, driven by `tests/seeded/run-expect.sh`).
 `tests/seeded/suites/INVENTORY` is a support file, not a seed.
+
+## Real guest results: t64.result v2
+
+Phase 3 adds `t64.result` schema version 2 for real guest-execution observations.
+It is an explicit versioned extension: the v1 key set, null rules, synthetic
+stamp rules, result goldens and suite behavior remain unchanged. V2 is a single
+canonical UTF-8 JSON object with exactly one final LF. Object keys use unsigned
+UTF-8 byte order, strings use the parser's canonical JSON escaping, and numbers
+are limited to the schema-version integer; guest ticks, retired instruction
+counts and log byte counts are canonical unsigned decimal strings. Unknown,
+missing, duplicate or wrongly typed fields are invalid. The checker chooses the
+v2 rules by `schema_version`/v2 fields, validates the version before the closed
+key set, and keeps `t64.model-result` separate.
+
+The v2 root keys, in canonical order, are:
+
+`build_id`, `counts`, `detail`, `evidence_kind`, `evidence_tier`, `fixture_id`,
+`fixture_sha256`, `guest_stop`, `guest_tick`, `input_digest`,
+`instruction_count`, `ipl3_payload_sha256`, `ipl3_sha256`, `log_sha256`,
+`milestones`, `outcome`, `profile_digest`, `profile_id`, `schema`,
+`schema_version`, `source_revision`, `state_digest`.
+
+| Field | Type and constraint |
+|-------|---------------------|
+| `schema` / `schema_version` | `t64.result` / integer `2`. |
+| `evidence_kind` / `evidence_tier` | Exactly `guest-execution` / `smoke`. |
+| `build_id` | `t64-build-v1-` followed by 64 lowercase hex characters. |
+| `source_revision` | 40 lowercase hexadecimal characters. |
+| `profile_id` / `profile_digest` | The pinned profile `ntsc-cart-4m-openipl3-warm-v1` and digest `08634481792748ade0e64073b9cd51d5972ec3a56421278b3203979087b4e05d`. |
+| `fixture_id` / `fixture_sha256` | Manifest ID and normalized whole authored-ROM SHA-256. For `hello-openipl3`, the digest is `fa276cc175a4e764b6fd5413193c44b51f38fd8135e33e400032827e02f27c7c`. |
+| `ipl3_sha256` | SHA-256 of the full pinned source IPL3 asset: `f522db2e31a701f82597f399e76d55c9487760d015aff9d90176b463ae39a068`. |
+| `ipl3_payload_sha256` | SHA-256 of the separately verified executed embedded payload: `f716a90b1d36ec4253d096790791256d3543455e54473a755ff8c3d1199b15d5`. |
+| `input_digest`, `log_sha256`, `state_digest` | 64 lowercase hexadecimal characters for admitted input, captured bytes and final guest state. |
+| `guest_tick`, `instruction_count` | Canonical unsigned 64-bit decimal strings. The checker requires retired instruction count not to exceed guest ticks. |
+| `guest_stop` | Object with exactly `bound_tick` (unsigned decimal string) and `kind` from the stop enum below. `guest_tick` cannot exceed the bound. A `guest-bound` stop must be exactly at the bound. |
+| `milestones` | Array of zero to four records with exactly `kind`, `guest_tick`, `pc`. Kinds are ordered `ipl3-entry`, `loader-dma`, `hello-entry`, `hello-completion`; each kind may occur once, ticks cannot decrease or exceed `guest_tick`, and `pc` is 16 lowercase hex characters. IPL3 entry and hello entry PCs are pinned to `ffffffffa4000040` and `ffffffff80000400`. |
+| `counts` | Object with exactly `log_bytes` and `log_bytes_total`, both unsigned decimal strings. Retained bytes are at most 4096 and cannot exceed total bytes. Complete capture counts agree; overflow reports a truncated retained prefix and larger total. |
+| `outcome`, `detail` | Closed values and paired meanings described below. |
+
+Every launched record has all identity fields non-null. A prelaunch record
+instead has every identity field null, zero guest ticks/instructions/log bytes,
+and no milestones. The only admitted prelaunch classifications are
+`fixture-absent` / `missing-fixture` with `not-started`, `usage` or
+`exec-failed` / `harness-error` with `not-started`, and `refusal` /
+`harness-error` with `refused`. A partially null identity is invalid. The
+identity set is `build_id`, `source_revision`, `profile_id`, `profile_digest`,
+`fixture_id`, `fixture_sha256`, `ipl3_sha256`, `ipl3_payload_sha256`,
+`input_digest`, `log_sha256`, and `state_digest`.
+
+The allowed `guest_stop.kind` values are `authored-completion`, `guest-bound`,
+`unsupported-execution`, `output-overflow`, `not-started`, `refused`,
+`host-error`, and `report-error`. The `outcome` set is `pass`, `guest-fail`,
+`boot-fail`, `timeout`, `missing-fixture`, and `harness-error`. The `detail` set
+is `capture-invalid`, `empty-output`, `exec-failed`, `fixture-absent`,
+`guest-bound`, `host-error`, `no-result`, `output-overflow`, `positive-match`,
+`refusal`, `report-error`, `report-invalid`, `runner-exit-nonzero`,
+`runner-signalled`, `supervisor-signalled`, `unsupported-execution`, `usage`,
+`wall-backstop`, and `wrong-transcript`. Details map to one outcome: only
+`fixture-absent` maps to `missing-fixture`; `empty-output` and
+`unsupported-execution` map to `boot-fail`; `guest-bound` maps to `timeout`;
+`positive-match` maps to `pass`; `wrong-transcript` maps to `guest-fail`; all
+remaining details map to `harness-error`. Stop-specific consistency rules
+further restrict those pairs:
+
+- Host/process, report and capture errors are `harness-error`; a failed or
+  malformed report cannot become a guest outcome. `host-error` accepts host,
+  wall-backstop, supervisor and runner process details. `report-error` accepts
+  report, no-result and capture-invalid details.
+- `unsupported-execution` is `boot-fail` with explicit detail and no completion
+  milestone. `output-overflow` is `harness-error` with 4096 retained bytes and a
+  larger total.
+- Empty output at authored completion or at the guest bound is always
+  `boot-fail` / `empty-output`, with the SHA-256 of the empty byte string. A
+  non-empty incomplete capture at the bound is `timeout` / `guest-bound`.
+- Authored completion requires all four ordered milestones. Exactly the
+  manifest fixture, its expected 30-byte transcript (`86594505bea53c9843f9eaf07e4cf0121cbe0055670324674fd8385c88ffd18e`),
+  `positive-match`, and nonzero retired instructions can produce `pass`. Other
+  non-empty completed output is `guest-fail` / `wrong-transcript`.
+
+For the authored `hello-openipl3` fixture, the whole normalized ROM identity is
+independent from the upstream IPL3 asset identity: qualified authored-header
+transformations mean the ROM hash need not share a byte prefix with the source
+asset hash. `ipl3_sha256` records source-asset provenance; `ipl3_payload_sha256`
+records the separately verified embedded bytes the guest executes.
+
+These checks validate a report's closed structure and claimed identities. A
+unit-authored valid JSON record is contract evidence only; it does not prove a
+guest was executed. Actual boot and CPU-retirement claims require the phase's
+runner evidence, exact input/output identities and independent guest milestone
+tests.
 
 ## Native model observations: t64.model-result v1
 

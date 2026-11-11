@@ -1,5 +1,5 @@
 /*
- * t64-result-check: the consumer of t64.result v1 records and t64.suite
+ * t64-result-check: the consumer of t64.result v1/v2 records and t64.suite
  * files (RUN-02, RUN-04). Normative contract: docs/spec/result-protocol.md.
  *
  *   t64-result-check result FILE
@@ -47,9 +47,21 @@ static const char *const result_keys[] = {
     "profile_hash",   "profile_id",   "schema",
     "schema_version", "state_digest", "stop_reason"};
 
+static const char *const real_result_keys[] = {
+    "build_id",       "counts",       "detail",       "evidence_kind",
+    "evidence_tier",  "fixture_id",   "fixture_sha256", "guest_stop",
+    "guest_tick",     "input_digest", "instruction_count",
+    "ipl3_payload_sha256", "ipl3_sha256", "log_sha256", "milestones",
+    "outcome",        "profile_digest", "profile_id", "schema",
+    "schema_version", "source_revision", "state_digest"};
+
 static const char *const count_keys[] = {
     "fail_reported", "log_bytes",     "log_bytes_total",
     "log_lines",     "pass_reported", "unhandled_exception_lines"};
+
+static const char *const real_count_keys[] = {"log_bytes", "log_bytes_total"};
+static const char *const guest_stop_keys[] = {"bound_tick", "kind"};
+static const char *const milestone_keys[] = {"guest_tick", "kind", "pc"};
 
 static const char *const suite_keys[] = {"case_count", "inventory_sha256",
                                          "schema", "schema_version"};
@@ -63,6 +75,38 @@ static const char *const tier_names[] = {"smoke",
                                          "synthetic"};
 
 static const char *const stop_names[] = {"guest-bound", "guest-halt", "none"};
+
+static const char *const real_stop_names[] = {
+    "authored-completion", "guest-bound", "host-error", "not-started",
+    "output-overflow", "refused", "report-error", "unsupported-execution"};
+static const char *const real_outcome_names[] = {
+    "boot-fail", "guest-fail", "harness-error", "missing-fixture", "pass",
+    "timeout"};
+static const char *const real_detail_names[] = {
+    "capture-invalid", "empty-output", "exec-failed", "fixture-absent",
+    "guest-bound", "host-error", "no-result", "output-overflow",
+    "positive-match", "refusal", "report-error", "report-invalid",
+    "runner-exit-nonzero", "runner-signalled", "supervisor-signalled",
+    "unsupported-execution", "usage", "wall-backstop", "wrong-transcript"};
+static const char *const milestone_names[] = {
+    "ipl3-entry", "loader-dma", "hello-entry", "hello-completion"};
+
+static const char expected_profile_id[] = "ntsc-cart-4m-openipl3-warm-v1";
+static const char expected_profile_digest[] =
+    "08634481792748ade0e64073b9cd51d5972ec3a56421278b3203979087b4e05d";
+static const char expected_ipl3_sha256[] =
+    "f522db2e31a701f82597f399e76d55c9487760d015aff9d90176b463ae39a068";
+static const char expected_ipl3_payload_sha256[] =
+    "f716a90b1d36ec4253d096790791256d3543455e54473a755ff8c3d1199b15d5";
+static const char expected_fixture_id[] = "hello-openipl3";
+static const char expected_fixture_sha256[] =
+    "fa276cc175a4e764b6fd5413193c44b51f38fd8135e33e400032827e02f27c7c";
+static const char expected_log_sha256[] =
+    "86594505bea53c9843f9eaf07e4cf0121cbe0055670324674fd8385c88ffd18e";
+static const char expected_empty_sha256[] =
+    "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855";
+static const uint64_t expected_log_bytes = 30u;
+static const uint64_t max_real_log_bytes = 4096u;
 
 /* ---- diagnostics --------------------------------------------------------- */
 
@@ -184,6 +228,33 @@ static int is_hex64(const t64_json_node *n) {
   return 1;
 }
 
+static int is_lower_hex(const t64_json_node *n, size_t expected_len) {
+  size_t i;
+  if (n == NULL || n->type != T64_JSON_STRING || n->len != expected_len) {
+    return 0;
+  }
+  for (i = 0; i < expected_len; i++) {
+    char c = n->str[i];
+    if (!((c >= '0' && c <= '9') || (c >= 'a' && c <= 'f'))) {
+      return 0;
+    }
+  }
+  return 1;
+}
+
+static int is_build_id(const t64_json_node *n) {
+  static const char prefix[] = "t64-build-v1-";
+  return n != NULL && n->type == T64_JSON_STRING &&
+         n->len == sizeof prefix - 1u + 64u &&
+         memcmp(n->str, prefix, sizeof prefix - 1u) == 0 &&
+         is_lower_hex(&(t64_json_node){.type = T64_JSON_STRING,
+                                      .str = n->str + sizeof prefix - 1u,
+                                      .len = 64u},
+                      64u);
+}
+
+static int is_pc(const t64_json_node *n) { return is_lower_hex(n, 16u); }
+
 /* [A-Za-z0-9._-] (plus '+' when allow_plus), 1..max bytes. */
 static int name_ok(const t64_json_node *n, size_t max, int allow_plus) {
   size_t i;
@@ -257,6 +328,30 @@ static int schema_and_version(const t64_json_node *root, const char *schema,
   v = t64_json_get(root, "schema_version");
   if (v != NULL && !(v->type == T64_JSON_INT && v->num == 1)) {
     set_diag(d, "R-VERSION", "schema_version is not the integer 1");
+    return 0;
+  }
+  return 1;
+}
+
+static int schema_and_version_exact(const t64_json_node *root,
+                                    const char *schema, int64_t version,
+                                    diag *d) {
+  const t64_json_node *s;
+  const t64_json_node *v;
+
+  if (root->type != T64_JSON_OBJECT) {
+    set_diag(d, "R-TYPE", "record is not an object");
+    return 0;
+  }
+  s = t64_json_get(root, "schema");
+  if (s != NULL && !str_is(s, schema)) {
+    set_diag(d, "R-SCHEMA", "schema is not %s", schema);
+    return 0;
+  }
+  v = t64_json_get(root, "schema_version");
+  if (v == NULL || v->type != T64_JSON_INT || v->num != version) {
+    set_diag(d, "R-VERSION", "schema_version is not the integer %lld",
+             (long long)version);
     return 0;
   }
   return 1;
@@ -619,6 +714,427 @@ static int validate_result(const t64_json_node *root, rec *r, diag *d) {
   return 1;
 }
 
+static int copy_result_identity(rec *r, const t64_json_node *root, diag *d) {
+  const t64_json_node *fixture = t64_json_get(root, "fixture_id");
+  const t64_json_node *profile = t64_json_get(root, "profile_id");
+  const t64_json_node *build = t64_json_get(root, "build_id");
+  const t64_json_node *tier = t64_json_get(root, "evidence_tier");
+  const t64_json_node *outcome = t64_json_get(root, "outcome");
+
+  if (fixture->type == T64_JSON_STRING) {
+    copy_str(r->fixture_id, sizeof r->fixture_id, fixture);
+  } else {
+    r->fixture_id[0] = '\0';
+  }
+  if (profile->type == T64_JSON_STRING) {
+    copy_str(r->profile_id, sizeof r->profile_id, profile);
+  } else {
+    r->profile_id[0] = '\0';
+  }
+  if (build->type == T64_JSON_STRING) {
+    copy_str(r->build_id, sizeof r->build_id, build);
+  } else {
+    r->build_id[0] = '\0';
+  }
+  if (tier->type == T64_JSON_STRING) {
+    copy_str(r->tier, sizeof r->tier, tier);
+  } else {
+    r->tier[0] = '\0';
+  }
+  if (outcome->type == T64_JSON_STRING) {
+    copy_str(r->outcome, sizeof r->outcome, outcome);
+  } else {
+    set_diag(d, "R-TYPE", "outcome must be a string");
+    return 0;
+  }
+  return 1;
+}
+
+static int real_detail_outcome_ok(const t64_json_node *detail,
+                                 const t64_json_node *outcome) {
+  if (str_is(detail, "fixture-absent")) {
+    return str_is(outcome, "missing-fixture");
+  }
+  if (str_is(detail, "wrong-transcript")) {
+    return str_is(outcome, "guest-fail");
+  }
+  if (str_is(detail, "empty-output") ||
+      str_is(detail, "unsupported-execution")) {
+    return str_is(outcome, "boot-fail");
+  }
+  if (str_is(detail, "guest-bound")) {
+    return str_is(outcome, "timeout");
+  }
+  if (str_is(detail, "positive-match")) {
+    return str_is(outcome, "pass");
+  }
+  return str_is(outcome, "harness-error");
+}
+
+static int real_milestone_index(const t64_json_node *kind) {
+  size_t i;
+  for (i = 0; i < ARRAY_LEN(milestone_names); i++) {
+    if (str_is(kind, milestone_names[i])) {
+      return (int)i;
+    }
+  }
+  return -1;
+}
+
+typedef struct {
+  size_t count;
+  int index[4];
+  uint64_t tick[4];
+} real_milestone_summary;
+
+static int validate_real_milestones(const t64_json_node *array,
+                                    uint64_t guest_tick,
+                                    real_milestone_summary *summary,
+                                    diag *d) {
+  const t64_json_node *item;
+  int previous_index = -1;
+  uint64_t previous_tick = 0u;
+  size_t i = 0u;
+
+  if (array->type != T64_JSON_ARRAY || array->count > 4u) {
+    set_diag(d, "R-TYPE", "milestones must be an array of at most four records");
+    return 0;
+  }
+  summary->count = array->count;
+  for (item = array->first; item != NULL; item = item->next) {
+    const t64_json_node *kind;
+    const t64_json_node *tick_node;
+    const t64_json_node *pc;
+    uint64_t tick;
+    int index;
+
+    if (i >= ARRAY_LEN(summary->index) ||
+        !keys_ok(item, milestone_keys, ARRAY_LEN(milestone_keys),
+                 "milestone", d)) {
+      return 0;
+    }
+    kind = t64_json_get(item, "kind");
+    tick_node = t64_json_get(item, "guest_tick");
+    pc = t64_json_get(item, "pc");
+    index = real_milestone_index(kind);
+    if (index < 0) {
+      set_diag(d, "R-ENUM", "milestone kind is not in the closed milestone set");
+      return 0;
+    }
+    if (!t64_json_u64_string(tick_node, &tick) || !is_pc(pc)) {
+      set_diag(d, "R-TYPE",
+               "milestone guest_tick must be a decimal u64 and pc must be 16 lowercase hex");
+      return 0;
+    }
+    if (index <= previous_index || tick < previous_tick || tick > guest_tick) {
+      set_diag(d, "R-CONSISTENCY",
+               "milestones must be unique, ordered and no later than guest_tick");
+      return 0;
+    }
+    if (index == 0 &&
+        !str_is(pc, "ffffffffa4000040")) {
+      set_diag(d, "R-IDENTITY", "ipl3-entry pc does not match the pinned IPL3 entry");
+      return 0;
+    }
+    if (index == 2 && !str_is(pc, "ffffffff80000400")) {
+      set_diag(d, "R-IDENTITY", "hello-entry pc does not match the authored fixture entry");
+      return 0;
+    }
+    summary->index[i] = index;
+    summary->tick[i] = tick;
+    previous_index = index;
+    previous_tick = tick;
+    i++;
+  }
+  return 1;
+}
+
+static int validate_real_result(const t64_json_node *root, rec *r, diag *d) {
+  static const char *const identity_fields[] = {
+      "build_id", "source_revision", "profile_id", "profile_digest",
+      "fixture_id", "fixture_sha256", "ipl3_sha256",
+      "ipl3_payload_sha256", "input_digest", "log_sha256", "state_digest"};
+  const t64_json_node *counts_node;
+  const t64_json_node *stop_node;
+  const t64_json_node *milestones_node;
+  const t64_json_node *n;
+  const t64_json_node *detail;
+  const t64_json_node *outcome;
+  const t64_json_node *stop_kind;
+  uint64_t guest_tick;
+  uint64_t instruction_count;
+  uint64_t bound_tick;
+  uint64_t log_bytes;
+  uint64_t log_bytes_total;
+  real_milestone_summary milestones;
+  size_t null_identities = 0u;
+  size_t i;
+  int prelaunch;
+
+  if (!schema_and_version_exact(root, "t64.result", 2, d)) {
+    return 0;
+  }
+  if (!keys_ok(root, real_result_keys, ARRAY_LEN(real_result_keys), "record", d)) {
+    return 0;
+  }
+
+  n = t64_json_get(root, "evidence_kind");
+  if (!str_is(n, "guest-execution") ||
+      !str_is(t64_json_get(root, "evidence_tier"), "smoke")) {
+    set_diag(d, "R-ENUM", "v2 requires evidence_kind guest-execution and evidence_tier smoke");
+    return 0;
+  }
+  if (!name_ok(t64_json_get(root, "fixture_id"), 64u, 0)) {
+    const t64_json_node *fixture_id = t64_json_get(root, "fixture_id");
+    if (fixture_id->type != T64_JSON_NULL) {
+      set_diag(d, "R-TYPE", "fixture_id must match [A-Za-z0-9._-]{1,64} or be null prelaunch");
+      return 0;
+    }
+  }
+
+  for (i = 0; i < ARRAY_LEN(identity_fields); i++) {
+    n = t64_json_get(root, identity_fields[i]);
+    if (n->type == T64_JSON_NULL) {
+      null_identities++;
+    } else if (n->type != T64_JSON_STRING) {
+      set_diag(d, "R-TYPE", "%s must be a string or null prelaunch", identity_fields[i]);
+      return 0;
+    }
+  }
+  if (null_identities != 0u && null_identities != ARRAY_LEN(identity_fields)) {
+    set_diag(d, "R-NULL-RULES",
+             "prelaunch identity fields are all null; launched identities are all present");
+    return 0;
+  }
+  prelaunch = null_identities == ARRAY_LEN(identity_fields);
+
+  if (!prelaunch) {
+    const t64_json_node *fixture_id = t64_json_get(root, "fixture_id");
+    const t64_json_node *fixture_sha = t64_json_get(root, "fixture_sha256");
+    const t64_json_node *source_revision = t64_json_get(root, "source_revision");
+
+    if (!is_build_id(t64_json_get(root, "build_id")) ||
+        !is_lower_hex(source_revision, 40u) ||
+        !name_ok(t64_json_get(root, "profile_id"), 128u, 1) ||
+        !is_hex64(t64_json_get(root, "profile_digest")) ||
+        !is_hex64(fixture_sha) ||
+        !is_hex64(t64_json_get(root, "ipl3_sha256")) ||
+        !is_hex64(t64_json_get(root, "ipl3_payload_sha256")) ||
+        !is_hex64(t64_json_get(root, "input_digest")) ||
+        !is_hex64(t64_json_get(root, "log_sha256")) ||
+        !is_hex64(t64_json_get(root, "state_digest"))) {
+      set_diag(d, "R-TYPE", "real identities must use their closed name and SHA-256 forms");
+      return 0;
+    }
+    if (!str_is(t64_json_get(root, "profile_id"), expected_profile_id) ||
+        !str_is(t64_json_get(root, "profile_digest"), expected_profile_digest) ||
+        !str_is(t64_json_get(root, "ipl3_sha256"), expected_ipl3_sha256) ||
+        !str_is(t64_json_get(root, "ipl3_payload_sha256"),
+                expected_ipl3_payload_sha256)) {
+      set_diag(d, "R-IDENTITY", "profile or pinned IPL3 identity does not match this v2 contract");
+      return 0;
+    }
+    if (str_is(fixture_id, expected_fixture_id) &&
+        !str_is(fixture_sha, expected_fixture_sha256)) {
+      set_diag(d, "R-IDENTITY", "hello-openipl3 fixture digest does not match the manifest");
+      return 0;
+    }
+  }
+
+  n = t64_json_get(root, "guest_tick");
+  if (!t64_json_u64_string(n, &guest_tick) ||
+      !t64_json_u64_string(t64_json_get(root, "instruction_count"),
+                           &instruction_count)) {
+    set_diag(d, "R-TYPE", "guest_tick and instruction_count must be decimal u64 strings");
+    return 0;
+  }
+
+  stop_node = t64_json_get(root, "guest_stop");
+  if (!keys_ok(stop_node, guest_stop_keys, ARRAY_LEN(guest_stop_keys),
+               "guest_stop", d)) {
+    return 0;
+  }
+  stop_kind = t64_json_get(stop_node, "kind");
+  if (!in_list(stop_kind, real_stop_names, ARRAY_LEN(real_stop_names))) {
+    set_diag(d, "R-ENUM", "guest_stop.kind is outside the closed v2 stop set");
+    return 0;
+  }
+  if (!t64_json_u64_string(t64_json_get(stop_node, "bound_tick"), &bound_tick) ||
+      guest_tick > bound_tick || instruction_count > guest_tick) {
+    set_diag(d, "R-CONSISTENCY",
+             "guest_tick must not exceed bound_tick or precede instruction_count");
+    return 0;
+  }
+
+  counts_node = t64_json_get(root, "counts");
+  if (!keys_ok(counts_node, real_count_keys, ARRAY_LEN(real_count_keys),
+               "counts", d)) {
+    return 0;
+  }
+  if (!t64_json_u64_string(t64_json_get(counts_node, "log_bytes"), &log_bytes) ||
+      !t64_json_u64_string(t64_json_get(counts_node, "log_bytes_total"),
+                           &log_bytes_total) ||
+      log_bytes > max_real_log_bytes || log_bytes > log_bytes_total) {
+    set_diag(d, "R-TYPE", "counts must hold bounded log_bytes and decimal u64 log_bytes_total");
+    return 0;
+  }
+
+  detail = t64_json_get(root, "detail");
+  outcome = t64_json_get(root, "outcome");
+  if (detail->type != T64_JSON_STRING || outcome->type != T64_JSON_STRING) {
+    set_diag(d, "R-TYPE", "detail and outcome must be strings");
+    return 0;
+  }
+  if (!in_list(outcome, real_outcome_names, ARRAY_LEN(real_outcome_names)) ||
+      !in_list(detail, real_detail_names, ARRAY_LEN(real_detail_names))) {
+    set_diag(d, "R-ENUM", "outcome or detail is outside the closed v2 enum");
+    return 0;
+  }
+  if (!real_detail_outcome_ok(detail, outcome)) {
+    set_diag(d, "R-DETAIL-OUTCOME", "detail does not belong to outcome");
+    return 0;
+  }
+
+  milestones_node = t64_json_get(root, "milestones");
+  if (!validate_real_milestones(milestones_node, guest_tick, &milestones, d)) {
+    return 0;
+  }
+
+  if (prelaunch) {
+    int fixture_absent = str_is(detail, "fixture-absent") &&
+                         str_is(outcome, "missing-fixture") &&
+                         str_is(stop_kind, "not-started");
+    int refused = str_is(detail, "refusal") &&
+                  str_is(outcome, "harness-error") &&
+                  str_is(stop_kind, "refused");
+    int rejected_before_launch =
+        str_is(outcome, "harness-error") &&
+        (str_is(detail, "usage") || str_is(detail, "exec-failed")) &&
+        str_is(stop_kind, "not-started");
+
+    if ((!fixture_absent && !refused && !rejected_before_launch) ||
+        guest_tick != 0u || instruction_count != 0u || log_bytes != 0u ||
+        log_bytes_total != 0u || milestones.count != 0u) {
+      set_diag(d, "R-NULL-RULES",
+               "null identities are limited to zero-progress prelaunch errors or missing-fixture");
+      return 0;
+    }
+    if (!copy_result_identity(r, root, d)) {
+      return 0;
+    }
+    return 1;
+  }
+
+  if (str_is(stop_kind, "not-started") || str_is(stop_kind, "refused")) {
+    set_diag(d, "R-NULL-RULES", "not-started and refused stops require null prelaunch identities");
+    return 0;
+  }
+  if (log_bytes == 0u) {
+    if (!str_is(t64_json_get(root, "log_sha256"), expected_empty_sha256)) {
+      set_diag(d, "R-CONSISTENCY", "empty output requires the SHA-256 of empty bytes");
+      return 0;
+    }
+  } else if (str_is(t64_json_get(root, "log_sha256"), expected_empty_sha256)) {
+    set_diag(d, "R-CONSISTENCY", "non-empty output cannot use the empty-string digest");
+    return 0;
+  }
+
+  if (str_is(stop_kind, "guest-bound")) {
+    if (guest_tick != bound_tick ||
+        (milestones.count > 0u && milestones.index[milestones.count - 1u] == 3)) {
+      set_diag(d, "R-CONSISTENCY",
+               "guest-bound must reach bound_tick without a completion milestone");
+      return 0;
+    }
+    if (log_bytes == 0u) {
+      if (!str_is(detail, "empty-output") || !str_is(outcome, "boot-fail")) {
+        set_diag(d, "R-CONSISTENCY", "empty output at the guest bound is boot-fail");
+        return 0;
+      }
+    } else if (!str_is(detail, "guest-bound") || !str_is(outcome, "timeout")) {
+      set_diag(d, "R-CONSISTENCY", "non-empty incomplete output at the guest bound is timeout");
+      return 0;
+    }
+  } else if (str_is(stop_kind, "authored-completion")) {
+    if (milestones.count != 4u || milestones.index[0] != 0 ||
+        milestones.index[1] != 1 || milestones.index[2] != 2 ||
+        milestones.index[3] != 3) {
+      set_diag(d, "R-CONSISTENCY",
+               "authored completion requires ordered IPL3, loader-DMA, hello-entry and completion milestones");
+      return 0;
+    }
+    if (log_bytes == 0u) {
+      if (!str_is(detail, "empty-output") || !str_is(outcome, "boot-fail")) {
+        set_diag(d, "R-CONSISTENCY", "empty output at authored completion is boot-fail");
+        return 0;
+      }
+    } else if (str_is(t64_json_get(root, "log_sha256"), expected_log_sha256) &&
+               log_bytes == expected_log_bytes &&
+               log_bytes_total == expected_log_bytes) {
+      if (instruction_count == 0u ||
+          !str_is(t64_json_get(root, "fixture_id"), expected_fixture_id) ||
+          !str_is(t64_json_get(root, "fixture_sha256"), expected_fixture_sha256) ||
+          !str_is(detail, "positive-match") || !str_is(outcome, "pass") ||
+          !str_is(t64_json_get(milestones_node->first->next->next->next, "pc"),
+                  "ffffffff80000478")) {
+        set_diag(d, "R-CONSISTENCY",
+                 "pass requires the exact fixture, transcript, nonzero retirement and completion PC");
+        return 0;
+      }
+    } else if (!str_is(detail, "wrong-transcript") ||
+               !str_is(outcome, "guest-fail")) {
+      set_diag(d, "R-CONSISTENCY", "wrong completed transcript is guest-fail");
+      return 0;
+    }
+  } else if (str_is(stop_kind, "unsupported-execution")) {
+    if (!str_is(detail, "unsupported-execution") ||
+        !str_is(outcome, "boot-fail") ||
+        (milestones.count > 0u && milestones.index[milestones.count - 1u] == 3)) {
+      set_diag(d, "R-CONSISTENCY",
+               "unsupported execution before completion is boot-fail with no completion milestone");
+      return 0;
+    }
+  } else if (str_is(stop_kind, "output-overflow")) {
+    if (!str_is(detail, "output-overflow") ||
+        !str_is(outcome, "harness-error") ||
+        log_bytes != max_real_log_bytes || log_bytes_total <= log_bytes) {
+      set_diag(d, "R-CONSISTENCY",
+               "output overflow is harness-error with a full retained prefix and larger total");
+      return 0;
+    }
+  } else if (str_is(stop_kind, "host-error")) {
+    if (!str_is(outcome, "harness-error") ||
+        !(str_is(detail, "host-error") || str_is(detail, "wall-backstop") ||
+          str_is(detail, "supervisor-signalled") ||
+          str_is(detail, "runner-signalled") ||
+          str_is(detail, "runner-exit-nonzero"))) {
+      set_diag(d, "R-DETAIL-OUTCOME", "host-error stop requires a host harness-error detail");
+      return 0;
+    }
+  } else if (str_is(stop_kind, "report-error")) {
+    if (!str_is(outcome, "harness-error") ||
+        !(str_is(detail, "report-error") || str_is(detail, "no-result") ||
+          str_is(detail, "report-invalid") ||
+          str_is(detail, "capture-invalid"))) {
+      set_diag(d, "R-DETAIL-OUTCOME", "report-error stop requires a report harness-error detail");
+      return 0;
+    }
+  }
+
+  if (str_is(detail, "output-overflow") && !str_is(stop_kind, "output-overflow")) {
+    set_diag(d, "R-DETAIL-OUTCOME", "output-overflow detail requires output-overflow stop");
+    return 0;
+  }
+  if (log_bytes != log_bytes_total &&
+      !str_is(stop_kind, "output-overflow") &&
+      !str_is(detail, "capture-invalid")) {
+    set_diag(d, "R-CONSISTENCY", "complete captures require log_bytes equal log_bytes_total");
+    return 0;
+  }
+
+  return copy_result_identity(r, root, d);
+}
+
 static int validate_suite_record(const t64_json_node *root, suite_rec *s,
                                  diag *d) {
   const t64_json_node *n;
@@ -648,6 +1164,43 @@ static int validate_suite_record(const t64_json_node *root, suite_rec *s,
 /* ---- one line (or one file) ---------------------------------------------- */
 
 enum { KIND_NONE = 0, KIND_RESULT = 1, KIND_SUITE = 2 };
+
+static int is_real_v2_candidate(const t64_json_node *root) {
+  const t64_json_node *schema;
+  const t64_json_node *version;
+  int has_v2_fields;
+  int synthetic_v1_stamp;
+
+  if (root->type != T64_JSON_OBJECT) {
+    return 0;
+  }
+  schema = t64_json_get(root, "schema");
+  if (!str_is(schema, "t64.result")) {
+    return 0;
+  }
+  version = t64_json_get(root, "schema_version");
+  has_v2_fields = t64_json_get(root, "evidence_kind") != NULL ||
+                  t64_json_get(root, "guest_stop") != NULL ||
+                  t64_json_get(root, "instruction_count") != NULL ||
+                  t64_json_get(root, "milestones") != NULL;
+  if (has_v2_fields) {
+    return 1;
+  }
+  synthetic_v1_stamp =
+      str_is(t64_json_get(root, "evidence_tier"), "synthetic") &&
+      str_is(t64_json_get(root, "profile_id"), "synthetic-stub") &&
+      str_is(t64_json_get(root, "build_id"), "0.0.0+synthetic") &&
+      t64_json_get(root, "fixture_digest") != NULL &&
+      t64_json_get(root, "log_digest") != NULL &&
+      t64_json_get(root, "stop_reason") != NULL;
+  /* The locked synthetic v1 stamp is the one legacy-shaped exception needed
+   * for v1's version-before-keys diagnostic. All other version-2 objects,
+   * including malformed v2 objects missing marker fields, enter v2 validation. */
+  if (synthetic_v1_stamp) {
+    return 0;
+  }
+  return version != NULL && version->type == T64_JSON_INT && version->num == 2;
+}
 
 /*
  * Parses and validates one record, `line` including its LF when it has one.
@@ -681,7 +1234,11 @@ static int check_line(const uint8_t *line, size_t len, int allow_suite,
     }
     kind = validate_suite_record(doc.root, s, d) ? KIND_SUITE : KIND_NONE;
   } else {
-    kind = validate_result(doc.root, r, d) ? KIND_RESULT : KIND_NONE;
+    if (is_real_v2_candidate(doc.root)) {
+      kind = validate_real_result(doc.root, r, d) ? KIND_RESULT : KIND_NONE;
+    } else {
+      kind = validate_result(doc.root, r, d) ? KIND_RESULT : KIND_NONE;
+    }
   }
   if (kind == KIND_NONE) {
     t64_json_free(&doc);
