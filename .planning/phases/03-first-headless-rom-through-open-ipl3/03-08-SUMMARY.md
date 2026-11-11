@@ -60,7 +60,7 @@ metrics:
 
 ## Performance
 
-- **Duration:** 24 minutes
+- **Duration:** 27 minutes
 - **Started:** 2026-11-11T11:52:02Z
 - **Completed:** 2026-11-11T12:18:37Z
 - **Tasks:** 1

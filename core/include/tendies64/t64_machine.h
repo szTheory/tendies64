@@ -268,7 +268,8 @@ t64_status t64_machine_queue_input(t64_machine *machine, uint64_t tick,
 
 /*
  * Host debug access to physical byte addresses, called between advance calls.
- * Width must be 1 or 4; words are big-endian and require four-byte alignment.
+ * Width must be 1, 2, or 4. Halfwords and words are big-endian and require
+ * natural alignment; individual device registers can further restrict width.
  * Rejected writes have no partial effects, and rejected reads leave value_out
  * unchanged. These calls do not execute guest code or translate virtual
  * addresses.
