@@ -106,7 +106,8 @@ t64_target_warnings(test_real_runner)
 add_test(NAME integration.open-ipl3-hello
   COMMAND test_real_runner
     $<TARGET_FILE:t64-runner-real>
-    $<TARGET_FILE:t64-result-check>)
+    $<TARGET_FILE:t64-result-check>
+    $<TARGET_FILE:t64-supervisor>)
 set_tests_properties(integration.open-ipl3-hello PROPERTIES
   LABELS integration TIMEOUT 120
   ENVIRONMENT

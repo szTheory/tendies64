@@ -1,0 +1,14 @@
+TAP version 13
+ok 1 - uses the pinned generated fixture and canonical schedule
+ok 2 - prepares verified unlinked read-only runner descriptors
+ok 3 - actual producer exits successfully after guest completion
+ok 4 - captures the exact authored guest transcript
+ok 5 - strict real-result checker accepts the producer report
+ok 6 - parsed real-result outcome is pass
+ok 7 - report binds descriptor identities, real milestones and stop progress
+ok 8 - bounded producer exits without claiming guest completion
+ok 9 - bounded execution validates as timeout with no guest output or pass
+ok 10 - prepares a separately hashed malformed input descriptor
+ok 11 - malformed canonical schedule refuses before launch and cannot pass
+not ok 12 - real supervisor emits a checked v2 pass and exact captured guest bytes
+1..12

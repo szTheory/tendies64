@@ -134,6 +134,37 @@ static bool spawn_runner(char *runner, char *report_path, char *capture_path,
   return true;
 }
 
+static bool spawn_supervisor_real(char *supervisor, char *result_path,
+                                  char *meta_path, char *work_dir,
+                                  char *capture_path, char *fixture_path,
+                                  char *input_path, int *status_out) {
+  char real_option[] = "--real";
+  char result_option[] = "--result";
+  char meta_option[] = "--meta";
+  char work_option[] = "--work-dir";
+  char wall_option[] = "--wall-ms";
+  char wall_ms[] = "30000";
+  char fixture_option[] = "--fixture";
+  char input_option[] = "--input";
+  char capture_option[] = "--capture-out";
+  char *const args[] = {supervisor, real_option, result_option, result_path,
+                        meta_option, meta_path, work_option, work_dir,
+                        wall_option, wall_ms, fixture_option, fixture_path,
+                        input_option, input_path, capture_option, capture_path,
+                        NULL};
+  pid_t pid = fork();
+  if (pid == 0) {
+    execv(supervisor, args);
+    _exit(127);
+  }
+  if (pid < 0) return false;
+  while (waitpid(pid, status_out, 0) < 0) {
+    if (errno == EINTR) continue;
+    return false;
+  }
+  return true;
+}
+
 static bool read_file(const char *path, uint8_t *bytes, size_t capacity,
                       size_t *length_out) {
   int fd = open(path, O_RDONLY);
@@ -172,7 +203,10 @@ static bool checker_accepts(char *checker, char *report_path) {
     char mode[] = "result";
     char *const args[] = {checker, mode, report_path, NULL};
     int null_fd = open("/dev/null", O_WRONLY);
-    if (null_fd >= 0) (void)dup2(null_fd, STDERR_FILENO);
+    if (null_fd >= 0) {
+      (void)dup2(null_fd, STDOUT_FILENO);
+      (void)dup2(null_fd, STDERR_FILENO);
+    }
     execv(checker, args);
     _exit(127);
   }
@@ -225,8 +259,8 @@ static bool report_field_is_null(const uint8_t *bytes, size_t length,
 
 int main(int argc, char **argv) {
   static const uint8_t expected_log[] = "Tendies64 hello via open IPL3\n";
-  const char *fixture_path = getenv("T64_TEST_HELLO_PATH");
-  const char *input_path = getenv("T64_TEST_INPUT_PATH");
+  char *fixture_path = getenv("T64_TEST_HELLO_PATH");
+  char *input_path = getenv("T64_TEST_INPUT_PATH");
   char fixture_hash[T64_VERIFIED_INPUT_SHA256_HEX_SIZE];
   char input_hash[T64_VERIFIED_INPUT_SHA256_HEX_SIZE];
   char directory[] = "/tmp/t64-real-runner.XXXXXX";
@@ -237,6 +271,9 @@ int main(int argc, char **argv) {
   char invalid_input_path[256];
   char invalid_report_path[256];
   char invalid_capture_path[256];
+  char supervisor_report_path[256];
+  char supervisor_meta_path[256];
+  char supervisor_capture_path[256];
   char report[4097] = {0};
   uint8_t capture[128];
   char invalid_schedule[] =
@@ -248,9 +285,10 @@ int main(int argc, char **argv) {
   t64_verified_input invalid_input = {-1, 0u, {0u}, {0}, 0u};
   char invalid_input_hash[T64_VERIFIED_INPUT_SHA256_HEX_SIZE];
   int runner_status = 0;
-  bool setup_ok = argc == 3 && fixture_path != NULL && input_path != NULL;
+  bool setup_ok = argc == 4 && fixture_path != NULL && input_path != NULL;
   bool spawned = false;
 
+  (void)printf("TAP version 13\n");
   if (setup_ok) {
     hash_file(fixture_path, FIXTURE_SIZE, fixture_hash);
     hash_file(input_path, INPUT_SIZE, input_hash);
@@ -272,6 +310,12 @@ int main(int argc, char **argv) {
                    "%s/invalid.json", directory);
     (void)snprintf(invalid_capture_path, sizeof invalid_capture_path,
                    "%s/invalid.log", directory);
+    (void)snprintf(supervisor_report_path, sizeof supervisor_report_path,
+                   "%s/supervisor.json", directory);
+    (void)snprintf(supervisor_meta_path, sizeof supervisor_meta_path,
+                   "%s/supervisor.meta", directory);
+    (void)snprintf(supervisor_capture_path, sizeof supervisor_capture_path,
+                   "%s/supervisor.log", directory);
     setup_ok = t64_verified_input_prepare(
                    fixture_path, FIXTURE_SIZE, FIXTURE_SHA256,
                    T64_VERIFIED_FIXTURE_MAX_BYTES, &fixture) ==
@@ -397,6 +441,33 @@ int main(int argc, char **argv) {
           "malformed canonical schedule refuses before launch and cannot pass");
   }
 
+  {
+    int supervisor_status = 0;
+    bool supervisor_started = setup_ok && spawn_supervisor_real(
+        argv[3], supervisor_report_path, supervisor_meta_path, directory,
+        supervisor_capture_path, fixture_path, input_path,
+        &supervisor_status);
+    uint8_t supervisor_report[4097] = {0};
+    uint8_t supervisor_capture[128];
+    size_t supervisor_report_length = 0u;
+    size_t supervisor_capture_length = 0u;
+    bool supervisor_files_read = supervisor_started &&
+        read_file(supervisor_report_path, supervisor_report,
+                  sizeof supervisor_report - 1u, &supervisor_report_length) &&
+        read_file(supervisor_capture_path, supervisor_capture,
+                  sizeof supervisor_capture, &supervisor_capture_length);
+    check(supervisor_files_read && WIFEXITED(supervisor_status) &&
+              WEXITSTATUS(supervisor_status) == 0 &&
+              checker_accepts(argv[2], supervisor_report_path) &&
+              report_string_equals(supervisor_report,
+                                   supervisor_report_length, NULL, "outcome",
+                                   "pass") &&
+              supervisor_capture_length == sizeof expected_log - 1u &&
+              memcmp(supervisor_capture, expected_log,
+                     sizeof expected_log - 1u) == 0,
+          "real supervisor emits a checked v2 pass and exact captured guest bytes");
+  }
+
   t64_verified_input_release(&fixture);
   t64_verified_input_release(&input);
   t64_verified_input_release(&invalid_input);
@@ -408,6 +479,9 @@ int main(int argc, char **argv) {
     (void)unlink(invalid_input_path);
     (void)unlink(invalid_report_path);
     (void)unlink(invalid_capture_path);
+    (void)unlink(supervisor_report_path);
+    (void)unlink(supervisor_meta_path);
+    (void)unlink(supervisor_capture_path);
     (void)rmdir(directory);
   } else if (setup_ok) {
     fprintf(stderr, "local failure artifacts: %s\n", directory);

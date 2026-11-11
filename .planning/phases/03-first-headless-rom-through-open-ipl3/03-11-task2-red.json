@@ -1,0 +1,10 @@
+{
+  "command": "T64_TEST_HELLO_PATH=build/fixtures/hello.z64 T64_TEST_INPUT_PATH=build/fixtures/hello.input.json ./build/gate/runner/test_real_runner ./build/gate/runner/t64-runner-real ./build/gate/runner/t64-result-check ./build/gate/runner/t64-supervisor",
+  "exitCode": 1,
+  "output": "TAP version 13\nok 1 - uses the pinned generated fixture and canonical schedule\nok 2 - prepares verified unlinked read-only runner descriptors\nok 3 - actual producer exits successfully after guest completion\nok 4 - captures the exact authored guest transcript\nok 5 - strict real-result checker accepts the producer report\nok 6 - parsed real-result outcome is pass\nok 7 - report binds descriptor identities, real milestones and stop progress\nok 8 - bounded producer exits without claiming guest completion\nok 9 - bounded execution validates as timeout with no guest output or pass\nok 10 - prepares a separately hashed malformed input descriptor\nok 11 - malformed canonical schedule refuses before launch and cannot pass\nnot ok 12 - real supervisor emits a checked v2 pass and exact captured guest bytes\n1..12\n",
+  "targetTest": "real supervisor emits a checked v2 pass and exact captured guest bytes",
+  "targetFile": "runner/tests/test_real_runner.c",
+  "expected": "Supervisor launches the real producer and emits a strict v2 pass with exact guest bytes.",
+  "actual": "Supervisor --real reports unavailable and creates no checked result/capture.",
+  "semanticAssessment": "The target TAP assertion is the only failure in the run. Direct producer positive, bounded-empty and malformed-input assertions all pass. The supervisor refusal matches the missing planned behavior."
+}
