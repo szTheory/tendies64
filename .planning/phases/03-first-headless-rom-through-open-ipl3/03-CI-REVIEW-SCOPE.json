@@ -1,0 +1,25 @@
+{
+  "diff_base": "be85859cc23ca2066ae140865d9111db05d27647",
+  "reviewed_through": "8eea81c35ab2d7069ea413997c3d9d36dbd99c2e",
+  "depth": "deep",
+  "reason": "Incremental review after the43-file pre-CI review, including its fixes and all CI evidence implementation. Hosted pair remains blocked externally.",
+  "files": [
+    ".github/workflows/ci.yml",
+    "core/t64_internal.h",
+    "core/t64_machine.c",
+    "core/t64_rom.c",
+    "core/tests/test_boot_entry.c",
+    "docs/evidence/phase3-ci.md",
+    "docs/spec/boot-limits.md",
+    "runner/t64_real.c",
+    "runner/t64_result_check.c",
+    "runner/t64_supervisor.c",
+    "runner/tests/test_fixture_descriptor.c",
+    "runner/tests/test_real_runner.c",
+    "runner/tests/test_result_v2.c",
+    "scripts/check-ci-yml.sh",
+    "scripts/collect-boot-evidence.sh",
+    "scripts/compare-boot-evidence.sh",
+    "scripts/gate.sh"
+  ]
+}
