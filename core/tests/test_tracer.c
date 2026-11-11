@@ -4,11 +4,24 @@
 #include <stdlib.h>
 #include <string.h>
 
+#include "../t64_internal.h"
+#include "../../tools/common/t64_sha256.h"
 #include "t64_test.h"
 #include "tendies64/t64_machine.h"
 
 #define TEST_ROM_SIZE 4096u
 #define MAX_TRACKED_ALLOCATIONS 8u
+#define OPEN_IPL3_PROFILE_ID "ntsc-cart-4m-openipl3-warm-v1"
+#define OPEN_IPL3_ASSET_SHA256                                               \
+  "f522db2e31a701f82597f399e76d55c9487760d015aff9d90176b463ae39a068"
+#define OPEN_IPL3_PAYLOAD_SHA256                                             \
+  "f716a90b1d36ec4253d096790791256d3543455e54473a755ff8c3d1199b15d5"
+
+enum {
+  TEST_TRACE_KIND_CPU_ENTRY = 2u,
+  TEST_TRACE_KIND_CPU_RETIREMENT = 3u,
+  TEST_TRACE_KIND_CPU_UNSUPPORTED = 4u
+};
 
 typedef struct {
   void *live[MAX_TRACKED_ALLOCATIONS];
@@ -103,6 +116,184 @@ static void print_digest(const uint8_t digest[T64_DIGEST_SIZE]) {
     (void)putchar(digits[digest[i] >> 4]);
     (void)putchar(digits[digest[i] & 0x0fu]);
   }
+}
+
+static bool read_pinned_ipl3(uint8_t image[TEST_ROM_SIZE]) {
+  const char *path = getenv("T64_TEST_IPL3_PATH");
+  FILE *file;
+  size_t length;
+  int extra;
+
+  if (path == NULL || path[0] == '\0' || image == NULL) {
+    return false;
+  }
+  file = fopen(path, "rb");
+  if (file == NULL) {
+    return false;
+  }
+  length = fread(image, 1u, TEST_ROM_SIZE, file);
+  extra = fgetc(file);
+  if (fclose(file) != 0) {
+    return false;
+  }
+  return length == TEST_ROM_SIZE && extra == EOF;
+}
+
+static bool bytes_match_sha256(const uint8_t *bytes, size_t length,
+                               const char *expected_hex) {
+  t64_sha256_ctx context;
+  uint8_t digest[T64_SHA256_DIGEST_SIZE];
+  char actual_hex[T64_SHA256_HEX_SIZE];
+
+  t64_sha256_init(&context);
+  t64_sha256_update(&context, bytes, length);
+  t64_sha256_final(&context, digest);
+  t64_sha256_hex(digest, actual_hex);
+  return strcmp(actual_hex, expected_hex) == 0;
+}
+
+static int tap_open_ipl3_profile_lookup(void) {
+  const t64_profile_descriptor *profile = NULL;
+  t64_status status =
+      t64_profile_lookup(OPEN_IPL3_PROFILE_ID, &profile);
+
+  (void)puts("TAP version 13");
+  (void)printf("%s 1 - open IPL3 warm profile is discoverable\n",
+               status == T64_STATUS_OK && profile != NULL ? "ok" : "not ok");
+  (void)printf("# expected status=%u and descriptor; observed status=%u\n",
+               T64_STATUS_OK, status);
+  (void)puts("1..1");
+  return status == T64_STATUS_OK && profile != NULL ? 0 : 1;
+}
+
+static void test_actual_open_ipl3_entry(void) {
+  uint8_t image[TEST_ROM_SIZE];
+  uint8_t altered[TEST_ROM_SIZE];
+  uint8_t state_before_refusal[T64_DIGEST_SIZE];
+  uint8_t state_after_refusal[T64_DIGEST_SIZE];
+  uint8_t state_before_reversed[T64_DIGEST_SIZE];
+  uint8_t state_after_reversed[T64_DIGEST_SIZE];
+  t64_trace_record records[16];
+  const t64_profile_descriptor *profile = NULL;
+  allocator_state allocator_state_value = {0};
+  const t64_host_allocator allocator = {
+      test_allocate, test_release, &allocator_state_value};
+  t64_machine *machine = NULL;
+  t64_stop_request request = {T64_STOP_GUEST_TICK, UINT64_C(1)};
+  t64_stop_result result = {0u, 0u};
+  t64_status status;
+  size_t count = 0u;
+  uint64_t dropped = 0u;
+  bool saturated = false;
+  bool entry_seen = false;
+  bool first_instruction_seen = false;
+  bool unsupported_seen = false;
+  size_t i;
+
+  {
+    const bool read_ok = read_pinned_ipl3(image);
+    T64_CHECK(read_ok);
+    if (!read_ok) {
+      return;
+    }
+  }
+  T64_CHECK(bytes_match_sha256(image, sizeof image, OPEN_IPL3_ASSET_SHA256));
+  T64_CHECK(bytes_match_sha256(image + 0x40u, sizeof image - 0x40u,
+                               OPEN_IPL3_PAYLOAD_SHA256));
+  T64_CHECK_INT(t64_profile_lookup(OPEN_IPL3_PROFILE_ID, &profile),
+                T64_STATUS_OK);
+  T64_CHECK(profile != NULL);
+  if (profile == NULL) {
+    return;
+  }
+  T64_CHECK_STR(profile->profile_id, OPEN_IPL3_PROFILE_ID);
+  T64_CHECK_INT(profile->descriptor_version, 2u);
+  T64_CHECK_INT(profile->machine_model_version, 2u);
+  T64_CHECK_INT(profile->state_serialization_version, 6u);
+  T64_CHECK_STR(profile->boot_status, "prepared-warm-entry-partial");
+
+  status = t64_machine_create(&allocator, profile, &machine);
+  T64_CHECK_INT(status, T64_STATUS_OK);
+  T64_CHECK(machine != NULL);
+  if (status != T64_STATUS_OK || machine == NULL) {
+    return;
+  }
+  T64_CHECK_INT(t64_machine_trace_set_enabled(machine, true), T64_STATUS_OK);
+  T64_CHECK_INT(t64_machine_admit_rom(machine, image, sizeof image),
+                T64_STATUS_OK);
+  T64_CHECK_INT(t64_machine_digest(machine, state_before_refusal),
+                T64_STATUS_OK);
+  (void)memcpy(altered, image, sizeof altered);
+  altered[0x100u] ^= 0x01u;
+  T64_CHECK_INT(t64_machine_admit_rom(machine, altered, sizeof altered),
+                T64_STATUS_INVALID_ROM);
+  T64_CHECK_INT(t64_machine_digest(machine, state_after_refusal),
+                T64_STATUS_OK);
+  T64_CHECK(memcmp(state_before_refusal, state_after_refusal,
+                   sizeof state_before_refusal) == 0);
+
+  T64_CHECK_INT(t64_machine_advance(machine, &request, &result),
+                T64_STATUS_OK);
+  T64_CHECK_INT(result.reason, T64_STOP_REASON_BOUND);
+  T64_CHECK_INT(result.tick, UINT64_C(1));
+  T64_CHECK_INT(t64_machine_trace_drain(machine, records,
+                                        sizeof records / sizeof records[0],
+                                        &count, &dropped, &saturated),
+                T64_STATUS_OK);
+  for (i = 0u; i < count; i++) {
+    if (records[i].device != T64_TRACE_DEVICE_MACHINE) {
+      continue;
+    }
+    if (records[i].kind == TEST_TRACE_KIND_CPU_ENTRY &&
+        records[i].value == UINT64_C(0xa4000040)) {
+      entry_seen = true;
+    }
+    if (records[i].kind == TEST_TRACE_KIND_CPU_RETIREMENT &&
+        records[i].value == UINT64_C(0xa40000403044d236)) {
+      first_instruction_seen = true;
+    }
+  }
+  T64_CHECK(entry_seen);
+  T64_CHECK(first_instruction_seen);
+  T64_CHECK_INT(dropped, 0u);
+  T64_CHECK(!saturated);
+
+  request.value = UINT64_C(2);
+  T64_CHECK_INT(t64_machine_advance(machine, &request, &result),
+                T64_STATUS_OK);
+  T64_CHECK_INT(result.reason, T64_STOP_REASON_RESOURCE_LIMIT);
+  T64_CHECK_INT(t64_machine_trace_drain(machine, records,
+                                        sizeof records / sizeof records[0],
+                                        &count, &dropped, &saturated),
+                T64_STATUS_OK);
+  for (i = 0u; i < count; i++) {
+    if (records[i].device == T64_TRACE_DEVICE_MACHINE &&
+        records[i].kind == TEST_TRACE_KIND_CPU_UNSUPPORTED &&
+        records[i].value == UINT64_C(0xa40000443c1da400)) {
+      unsupported_seen = true;
+    }
+  }
+  T64_CHECK(unsupported_seen);
+
+  T64_CHECK_INT(t64_machine_digest(machine, state_before_reversed),
+                T64_STATUS_OK);
+  request.value = UINT64_C(1);
+  T64_CHECK_INT(t64_machine_advance(machine, &request, &result),
+                T64_STATUS_TIME_REVERSED);
+  T64_CHECK_INT(t64_machine_digest(machine, state_after_reversed),
+                T64_STATUS_OK);
+  T64_CHECK(memcmp(state_before_reversed, state_after_reversed,
+                   sizeof state_before_reversed) == 0);
+
+  (void)printf("profile=%s asset_sha256=%s payload_sha256=%s\n",
+               profile->profile_id, OPEN_IPL3_ASSET_SHA256,
+               OPEN_IPL3_PAYLOAD_SHA256);
+  (void)printf("entry_pc=0xa4000040 retired_opcode=0x3044d236 ");
+  (void)printf("unsupported_pc=0xa4000044 unsupported_opcode=0x3c1da400 ");
+  (void)printf("evidence=one real instruction retired; partial stop only\n");
+  t64_machine_destroy(machine);
+  T64_CHECK_INT(allocator_state_value.outstanding_count, 0u);
+  T64_CHECK_INT(allocator_state_value.release_errors, 0u);
 }
 
 static bool digest_is_nonzero(const uint8_t digest[T64_DIGEST_SIZE]) {
@@ -301,6 +492,14 @@ static void test_allocator_storage_validation(void) {
 }
 
 int main(void) {
+  const char *tap_mode = getenv("T64_TDD_TAP");
+
+  if (tap_mode != NULL && strcmp(tap_mode, "profile") == 0) {
+    return tap_open_ipl3_profile_lookup();
+  }
+  if (getenv("T64_TEST_IPL3_PATH") != NULL) {
+    test_actual_open_ipl3_entry();
+  }
   test_machine_tracer();
   test_allocator_storage_validation();
   return T64_TEST_FINISH("unit.core.tracer");

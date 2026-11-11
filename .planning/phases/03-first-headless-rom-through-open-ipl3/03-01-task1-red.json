@@ -1,0 +1,10 @@
+{
+  "command": "T64_TDD_TAP=profile build/gate/core/test_tracer",
+  "exitCode": 1,
+  "output": "TAP version 13\nnot ok 1 - open IPL3 warm profile is discoverable\n# expected status=0 and descriptor; observed status=2\n1..1\n",
+  "targetTest": "open IPL3 warm profile is discoverable",
+  "targetFile": "core/tests/test_tracer.c",
+  "expected": "t64_profile_lookup returns T64_STATUS_OK and a descriptor for the byte-pinned open IPL3 profile",
+  "actual": "The test executable ran; profile lookup returned status 2 with no descriptor, so the target TAP assertion failed.",
+  "semanticAssessment": "Valid behavioral RED: compilation succeeded, exactly one TAP assertion ran, and only the planned profile lookup assertion failed because the profile is not implemented yet."
+}
