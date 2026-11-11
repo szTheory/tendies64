@@ -286,6 +286,17 @@ now advance together to v5. The profile digest is
 independently assembled default fixture state digest is
 `6813739ff2fc1cffac6d85fa86df0c593e3035f8a640c642e37790acd96b6e77`.
 
+The open IPL3 warm profile preserves separate historical v6 and v7 encodings
+and uses the active `t64.state.v8` encoding. Its v8 extension includes pinned
+boot asset, payload and policy hashes; prepared boot offsets and seed fields;
+CPU GPR/HI/LO/CP0, retirement and stop state; cache and prepared guest-device
+state; and retained ISViewer state, including attempted-byte total and its
+saturation flag. The active state serialization version is 8 and the profile
+digest is `d8c12cb2a00410a2153ca62da318166f3ca029dea8e3d6b9c841262cb8203c71`.
+The independent initial warm-entry state vector is
+`d2212ea39cadf8642cab2451fbcea484f5c6997d51619faef41e9ada24aa9724`; the
+tests retain the prior v6 and v7 vectors as historical evidence.
+
 | Private field or state | Digest treatment | Reason |
 | --- | --- | --- |
 | Selected profile and its policy/version fields | Include profile hash | Fixes timing, capacity and model policy for this instance |
@@ -300,15 +311,28 @@ independently assembled default fixture state digest is
 | PI active/canceled state, immutable descriptor, active/next token, exhaustion | Include | Determines whether the reserved event may copy or complete, and identity of later work |
 | SP raw latches, active/pending immutable descriptors, next token and exhaustion | Include | Determines row addresses, completion ticks, promotion and request identity; busy/full are derived |
 | Queue count, logical event fields, next sequence and exhausted flag | Include | Determines future dispatch and enqueue behavior |
+| Warm boot asset/payload/policy hashes, offsets, entry and HLE seed | Include in warm v6-v8 | Binds the prepared entry and future boot state to source and policy |
+| Warm CPU registers, CP0, delay slot, retirement and terminal-stop state | Include in warm v6-v8 | Determines subsequent instruction behavior and stop results |
+| Warm cache policy/last operation and prepared MI/RI device state | Include in warm v6-v8 | Determines later cache/device accesses and readback |
+| ISViewer register buffer, retained prefix, loss, attempted total and saturation | Include in warm v7-v8; v8 adds exact-total fields | Determines future output and whether its total remains exact |
 | Allocator callbacks/context and machine/image storage descriptors | Exclude | Host ownership and pointer locations are not machine behavior |
 | RAM pointer, event handler pointers and build/source identity | Exclude | Storage/code identity is not serialized machine state |
 | Queue head, unused event slots, structure padding | Exclude | Physical layout is not logical queue state |
 | Trace configuration, records, drop observation, and output-drain cursor | Exclude | Observer state must not alter guest state or its digest |
 
 The field-mutation tests toggle every PI and SP latch, flag, descriptor value,
-token, and exhaustion state. Exclusion, relocation, golden-vector, interleaving
-and partition tests cover the remaining audit. Future device/register/request
-state must be added to the encoding and this table with its own tests.
+token, and exhaustion state, plus each warm CPU/CP0 register slot and every
+serialized cache, boot, guest-device, pending-input and output field.
+Independent reference encoders and fixed v6/v7/v8 vectors pin field order;
+agreement between production digests alone is not hardware-accuracy evidence.
+The actual open IPL3 guest is compared at the same 530500-tick request bound
+using one-shot and 1/7/31-tick partitions, trace enabled and disabled runs,
+different output-drain timing, and two interleaved machines. Trace-on logical
+31-tick partitions drain at substeps no larger than 16 ticks, and resource
+limit yields continue to the same guest stop. These local checks establish
+repeatability for the pinned warm profile, authored hello ROM and input bytes
+on the current host. Hosted compiler comparison is recorded separately in
+Phase 3 Plan 13.
 
 The observer is disabled by default and can be enabled per machine. When
 enabled, successful ROM admission emits a machine-boundary record at guest tick
@@ -329,13 +353,16 @@ changes the canonical digest.
 ABI. The caller serializes it with `t64_machine_advance` and other calls on the
 same instance. It copies the not-yet-observed suffix of that instance's
 retained ISViewer capture into caller-owned storage and reports the copied
-length, required length, exact total bytes requested by all nonzero guest
-flushes (including refused flushes), whether that total is exact, SHA-256 of
-the complete retained prefix, and sticky loss state. A u64 overflow saturates
-the total and marks it inexact. A short buffer reports the required
-length and observations without copying or advancing the cursor. Repeated
-drains with no new bytes copy zero. Host copying never releases the 4096-byte
-guest capture or changes guest identity.
+length, required length, total bytes requested by all nonzero guest flushes
+(including refused flushes), whether that total is exact, SHA-256 of the
+complete retained prefix, and sticky loss state. The guest counts every
+nonzero flush request with checked u64 arithmetic, even when the retained
+4096-byte prefix is full. A u64 overflow saturates the counter and marks it
+inexact; the public observation does not present that saturated value as an
+exact total. A short buffer reports the required length and observations
+without copying or advancing the cursor. Repeated drains with no new bytes
+copy zero. Host copying never releases the 4096-byte guest capture or changes
+guest identity.
 
 Before writing either output, drain validates pointer ranges, address overflow,
 pairwise result/data overlap, and overlap with machine storage, the admitted

@@ -12,6 +12,7 @@
 #include <unistd.h>
 
 #include "t64_json.h"
+#include "tendies64/t64_machine.h"
 
 typedef struct {
   const char *name;
@@ -359,6 +360,79 @@ static bool field_u64_equals(const t64_json_node *object, const char *key,
   return field_u64(object, key, &actual) && actual == expected;
 }
 
+static bool json_values_equal(const t64_json_node *left,
+                              const t64_json_node *right) {
+  const t64_json_node *left_child;
+  const t64_json_node *right_child;
+
+  if (left == NULL || right == NULL || left->type != right->type ||
+      left->count != right->count) {
+    return false;
+  }
+  switch (left->type) {
+  case T64_JSON_NULL:
+    return true;
+  case T64_JSON_BOOL:
+  case T64_JSON_INT:
+    return left->num == right->num;
+  case T64_JSON_STRING:
+    return left->len == right->len &&
+           memcmp(left->str, right->str, left->len) == 0;
+  case T64_JSON_ARRAY:
+  case T64_JSON_OBJECT:
+    left_child = left->first;
+    right_child = right->first;
+    while (left_child != NULL && right_child != NULL) {
+      if (left->type == T64_JSON_OBJECT &&
+          (left_child->key_len != right_child->key_len ||
+           memcmp(left_child->key, right_child->key,
+                  left_child->key_len) != 0)) {
+        return false;
+      }
+      if (!json_values_equal(left_child, right_child)) return false;
+      left_child = left_child->next;
+      right_child = right_child->next;
+    }
+    return left_child == NULL && right_child == NULL;
+  }
+  return false;
+}
+
+/* Compiler-specific build_id is deliberately excluded. These canonical
+ * guest-evidence fields must match across repeated actual runs. */
+static bool canonical_guest_identity_equal(const uint8_t *first_bytes,
+                                           size_t first_length,
+                                           const uint8_t *second_bytes,
+                                           size_t second_length) {
+  static const char *const fields[] = {
+      "profile_id", "profile_digest", "fixture_id", "fixture_sha256",
+      "ipl3_sha256", "ipl3_payload_sha256", "input_digest", "log_sha256",
+      "state_digest", "guest_tick", "instruction_count", "counts",
+      "guest_stop", "milestones", "outcome", "detail"};
+  t64_json_doc first = {0};
+  t64_json_doc second = {0};
+  size_t i;
+  bool equal = false;
+
+  if (t64_json_parse(first_bytes, first_length, NULL, &first, NULL) != 0 ||
+      t64_json_parse(second_bytes, second_length, NULL, &second, NULL) != 0) {
+    goto cleanup;
+  }
+  equal = true;
+  for (i = 0u; i < sizeof fields / sizeof fields[0]; i++) {
+    if (!json_values_equal(t64_json_get(first.root, fields[i]),
+                           t64_json_get(second.root, fields[i]))) {
+      equal = false;
+      break;
+    }
+  }
+
+cleanup:
+  t64_json_free(&first);
+  t64_json_free(&second);
+  return equal;
+}
+
 static bool milestone_pc_equals(const t64_json_node *root,
                                 const char *milestone_kind,
                                 const char *expected_pc) {
@@ -682,6 +756,30 @@ static bool checker_rejects_skipped_ipl3_milestone(
          !checker_accepts(checker, report_path);
 }
 
+static bool changed_seed_profile_digest(char output[65]) {
+  static const char digits[] = "0123456789abcdef";
+  const t64_profile_descriptor *profile = NULL;
+  t64_profile_descriptor changed;
+  uint8_t digest[T64_DIGEST_SIZE];
+  size_t i;
+
+  if (output == NULL ||
+      t64_profile_lookup("ntsc-cart-4m-openipl3-warm-v1", &profile) !=
+          T64_STATUS_OK ||
+      profile == NULL) {
+    return false;
+  }
+  changed = *profile;
+  changed.hle_seed_reset_version++;
+  if (t64_profile_hash(&changed, digest) != T64_STATUS_OK) return false;
+  for (i = 0u; i < T64_DIGEST_SIZE; i++) {
+    output[i * 2u] = digits[digest[i] >> 4];
+    output[i * 2u + 1u] = digits[digest[i] & 0x0fu];
+  }
+  output[T64_DIGEST_SIZE * 2u] = '\0';
+  return true;
+}
+
 static uint8_t *find_bytes(uint8_t *bytes, size_t length,
                            const uint8_t *needle, size_t needle_length) {
   size_t i;
@@ -722,6 +820,9 @@ static bool checker_identity_mutations(const char *supervisor,
   char report_path[512] = {0};
   uint8_t baseline[4097];
   size_t baseline_length = 0u;
+  uint8_t repeated[4097];
+  size_t repeated_length = 0u;
+  char changed_seed_digest[T64_DIGEST_SIZE * 2u + 1u];
   char observed[192] = "no valid positive identity report";
   size_t i;
   int n;
@@ -739,6 +840,14 @@ static bool checker_identity_mutations(const char *supervisor,
     (void)printf("# positive identity baseline failed: %s\n", observed);
     goto cleanup;
   }
+  if (!run_guest_case_copy(supervisor, checker, positive_fixture, input_path,
+                           &positive_identity, observed, repeated,
+                           sizeof repeated, &repeated_length) ||
+      !canonical_guest_identity_equal(baseline, baseline_length, repeated,
+                                      repeated_length)) {
+    (void)printf("# repeated positive runs differ in canonical guest identities, excluding build_id\n");
+    goto cleanup;
+  }
   ok = true;
   for (i = 0u; i < sizeof mutations / sizeof mutations[0]; i++) {
     if (!checker_rejects_mutation(checker, report_path, baseline,
@@ -747,6 +856,13 @@ static bool checker_identity_mutations(const char *supervisor,
       (void)printf("# checker mutation failed: %s\n", mutations[i].field);
       ok = false;
     }
+  }
+  if (!changed_seed_profile_digest(changed_seed_digest) ||
+      !checker_rejects_mutation(checker, report_path, baseline,
+                                baseline_length, "profile_digest",
+                                changed_seed_digest)) {
+    (void)printf("# checker mutation failed: altered HLE seed profile identity\n");
+    ok = false;
   }
   if (!checker_rejects_skipped_ipl3_milestone(checker, report_path, baseline,
                                               baseline_length)) {

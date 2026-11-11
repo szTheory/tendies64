@@ -167,6 +167,20 @@ set_tests_properties(unit.core.tracer unit.core.boot-entry PROPERTIES
   ENVIRONMENT
     "T64_TEST_IPL3_PATH=${T64_BOOT_FIXTURE_DIR}/ipl3_compat.z64;T64_BOOT_FIXTURES_DIR=${T64_BOOT_FIXTURE_DIR};T64_BOOT_CONTRACT_PATH=${CMAKE_SOURCE_DIR}/fixtures/boot-contract.json")
 
+add_executable(test_boot_determinism tests/test_boot_determinism.c)
+target_include_directories(test_boot_determinism PRIVATE
+  "${CMAKE_CURRENT_SOURCE_DIR}"
+  "${CMAKE_SOURCE_DIR}/tests"
+  "${CMAKE_SOURCE_DIR}/tools/common")
+target_link_libraries(test_boot_determinism PRIVATE t64_core t64_sha256)
+t64_target_warnings(test_boot_determinism)
+add_dependencies(test_boot_determinism t64-boot-fixtures)
+add_test(NAME integration.open-ipl3-determinism COMMAND test_boot_determinism)
+set_tests_properties(integration.open-ipl3-determinism PROPERTIES
+  LABELS integration TIMEOUT 180
+  ENVIRONMENT
+    "T64_TEST_IPL3_PATH=${T64_BOOT_FIXTURE_DIR}/ipl3_compat.z64;T64_TEST_INPUT_PATH=${T64_BOOT_FIXTURE_DIR}/hello.input.json;T64_BOOT_FIXTURES_DIR=${T64_BOOT_FIXTURE_DIR}")
+
 add_executable(test_isviewer tests/test_isviewer.c)
 target_include_directories(test_isviewer PRIVATE
   "${CMAKE_CURRENT_SOURCE_DIR}"

@@ -97,7 +97,8 @@ controls.real.empty-bound
 controls.real.wrong-transcript
 controls.real.unsupported-opcode
 controls.real.output-overflow
-controls.real.identity-mismatch'
+controls.real.identity-mismatch
+integration.open-ipl3-determinism'
 
 ASAN_ONLY='fuzz.rom-admission
 sanitizer.negative-control'

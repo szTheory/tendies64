@@ -121,7 +121,7 @@ add_dependencies(t64-supervisor-test t64-runner-test t64-result-check)
 # result checker; fixture paths remain test inputs and never reach the child.
 add_executable(test_real_controls tests/test_real_controls.c)
 target_compile_definitions(test_real_controls PRIVATE ${T64_HOST_DEFS})
-target_link_libraries(test_real_controls PRIVATE t64_common)
+target_link_libraries(test_real_controls PRIVATE t64_common t64_core)
 t64_target_warnings(test_real_controls)
 add_dependencies(test_real_controls
   t64-supervisor t64-result-check t64-supervisor-test t64-boot-fixtures)
