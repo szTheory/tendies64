@@ -132,15 +132,15 @@ static bool bytes_match_sha256(const uint8_t *bytes, size_t length,
 
 int main(void) {
   static const char expected_profile_sha256[] =
-      "81b89421ce8b3bb3449280680b8f6cbe57fe2faacf5e9b6f1c30534efe8c33de";
+      "5775f19766dc0ae070178dc87f2e6b0f11a9e5dc587fa380588f3b82b7d768d2";
   static const char expected_state_sha256[] =
-      "20a32f7402a30db21bd6d253501e896e63b6ecac00977aeb7dff73436108a0c3";
+      "a3820a5bf34b713b5903e42f455a1c579a57799a48411d3d33ed59786c3e93bf";
   static const char expected_asset_sha256[] =
       "f522db2e31a701f82597f399e76d55c9487760d015aff9d90176b463ae39a068";
   static const char expected_payload_sha256[] =
       "f716a90b1d36ec4253d096790791256d3543455e54473a755ff8c3d1199b15d5";
   static const char expected_policy_sha256[] =
-      "04d7519d43805b08a71f1356460ba1b6b2cca30e5d124c6c5e5e318f6ac7ba2c";
+      "831a0a58ef8f82bc54f880ad5a1259bddf1b3d2e21680ac6637ea5994705a7fe";
   static const uint8_t zero_dmem_prefix[IPL3_DMEM_OFFSET] = {0u};
   const t64_profile_descriptor *profile = NULL;
   allocator_state allocator_state_value = {0u};
@@ -266,19 +266,20 @@ int main(void) {
 
   T64_CHECK_INT(t64_machine_advance(machine, &request, &result),
                 T64_STATUS_OK);
-  T64_CHECK_INT(result.reason, T64_STOP_REASON_CPU_UNSUPPORTED);
-  T64_CHECK_INT(result.tick, 81u);
-  T64_CHECK_INT(machine->instruction_count, 80u);
-  T64_CHECK_INT(machine->cpu.retired_instructions, 80u);
-  T64_CHECK_INT(t64_machine_cpu_stop_detail(machine, &detail), T64_STATUS_OK);
-  T64_CHECK_INT(detail.retired_instructions, 80u);
-  T64_CHECK_INT(detail.pc, UINT32_C(0xa40002b0));
-  T64_CHECK_INT(detail.opcode, UINT32_C(0xac430008));
+  T64_CHECK_INT(result.reason, T64_STOP_REASON_BOUND);
+  T64_CHECK_INT(result.tick, 100u);
+  T64_CHECK_INT(machine->instruction_count, 100u);
+  T64_CHECK_INT(machine->cpu.retired_instructions, 100u);
+  T64_CHECK_INT(machine->cpu.pc, UINT32_C(0xa4000354));
+  T64_CHECK_INT(machine->cpu.last_pc, UINT32_C(0xa4000350));
+  T64_CHECK_INT(machine->cpu.last_opcode, UINT32_C(0x240af000));
+  T64_CHECK_INT(t64_machine_cpu_stop_detail(machine, &detail),
+                T64_STATUS_NOT_READY);
   request.value = 100u;
   T64_CHECK_INT(t64_machine_advance(machine, &request, &repeated_result),
                 T64_STATUS_OK);
-  T64_CHECK_INT(repeated_result.reason, T64_STOP_REASON_CPU_UNSUPPORTED);
-  T64_CHECK_INT(repeated_result.tick, 81u);
+  T64_CHECK_INT(repeated_result.reason, T64_STOP_REASON_BOUND);
+  T64_CHECK_INT(repeated_result.tick, 100u);
 
 done:
   t64_machine_destroy(machine);

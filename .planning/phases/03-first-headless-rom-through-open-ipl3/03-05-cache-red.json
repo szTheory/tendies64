@@ -1,10 +1,11 @@
 {
   "command": "T64_TEST_IPL3_PATH=build/fixtures/ipl3_compat.z64 build/gate/core/test_cpu_path --cp0-cache",
   "exitCode": 1,
-  "output": "1..6\nok 1 - CP0 Count reads before its retirement tick and compares after wrap\nok 2 - CP0 Cause, WatchLo, and cache tags apply documented masks\nok 3 - MTC0 Compare clears the latched timer interrupt\nnot ok 4 - CACHE index tags and D hit writeback preserve coherent memory\nok 5 - unknown CP0 selects and CACHE operations stop without retirement\nok 6 - CP0 and cache state participate in the v6 digest\n",
+  "output": "1..6\nok 1 - CP0 Count reads before its retirement tick and compares after wrap\nok 2 - CP0 Cause, WatchLo, and cache tags apply documented masks\nok 3 - MTC0 Compare clears the latched timer interrupt\n# cache case=2 stop=1 pc=0xa4000044 opcode=0xbd110000 op=0x0 cache_pc=0x00000000 cache_addr=0x00000000 seen=0 ram=12345678\n# gpr8=0xffffffff807f8000 gpr9=0x0000000012345678 gpr10=0xffffffff80000100 rdram=4194304 tick=2 bus_read=0\nnot ok 4 - CACHE index tags and D hit writeback preserve coherent memory\nok 5 - unknown CP0 selects and CACHE operations stop without retirement\nok 6 - CP0 and cache state participate in the v6 digest\n",
   "targetTest": "CACHE index tags and D hit writeback preserve coherent memory",
   "targetFile": "core/tests/test_cpu_path.c",
   "expected": "The independent CACHE Hit Invalidate D (operation 0x11) case retires and records its operation/address before the explicit unsupported stop.",
-  "actual": "The target TAP group failed only in the cache behavior cases after operation 0x11 was added; the other five CP0/cache cases passed. The new operation is currently rejected before retirement.",
-  "semanticAssessment": "RED_VALID: the compiled target ran all six CP0/cache tests; the intended operation 0x11 assertion group failed, not build or fixture discovery."
+  "actual": "With CACHE operation 0x11 temporarily excluded from the production allow-list, the corrected test setup retires only its KSEG0 sentinel store, then stops at PC 0xa4000044 on opcode 0xbd110000. The cache record remains unseen. Other five CP0/cache cases pass.",
+  "semanticAssessment": "RED_VALID: exact CACHE operation 0x11 is unsupported before retirement; the test distinguishes it from the preceding successful RAM sentinel store.",
+  "initialAttemptAssessment": "The first committed RED attempt was invalid: it reused the out-of-RDRAM CACHE base for the sentinel store, which stopped before reaching CACHE. The test base is now KSEG0 0xffffffff80000100, and this corrected RED was reproduced by temporarily excluding operation 0x11 without rewriting history."
 }

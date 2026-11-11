@@ -10,6 +10,25 @@
 #define T64_SP_LENGTH_MASK UINT32_C(0x00ffffff)
 #define T64_SP_STATUS_DMA_BUSY UINT32_C(0x00000004)
 #define T64_SP_STATUS_DMA_FULL UINT32_C(0x00000008)
+#define T64_WARM_ZERO_SOURCE_SP_DRAM UINT32_C(0x00802000)
+
+static bool warm_zero_source_sp_transfer(
+    const t64_machine *machine, bool dram_to_sp, bool imem,
+    uint32_t raw_mem_address, uint32_t raw_dram_address,
+    uint32_t raw_length, uint32_t internal_start,
+    uint32_t bytes_per_line, uint32_t line_count, uint32_t skip) {
+  return machine != NULL && machine->has_image &&
+         machine->profile.rdram_bytes == UINT32_C(0x00400000) &&
+         machine->guest_devices.policy_version ==
+             T64_WARM_DEVICE_POLICY_VERSION &&
+         dram_to_sp &&
+         ((imem && raw_mem_address == UINT32_C(0x00001000)) ||
+          (!imem && raw_mem_address == UINT32_C(0x00000000))) &&
+         raw_dram_address == T64_WARM_ZERO_SOURCE_SP_DRAM &&
+         raw_length == UINT32_C(0x00000fff) && internal_start == 0u &&
+         bytes_per_line == T64_SP_BANK_BYTES && line_count == 1u &&
+         skip == 0u;
+}
 
 static bool dma_busy(const t64_sp_state *sp) {
   return sp->active.valid || sp->pending.valid;
@@ -55,6 +74,7 @@ static bool decode_descriptor(const t64_machine *machine, bool dram_to_sp,
   uint32_t rsp_ratio_numerator = machine->profile.cpu_rsp_ratio_numerator;
   uint32_t rsp_ratio_denominator = machine->profile.cpu_rsp_ratio_denominator;
   uint32_t tick_unit_length = 0u;
+  bool warm_zero_source;
 
   if (descriptor_out == NULL || status_out == NULL) {
     return false;
@@ -71,13 +91,21 @@ static bool decode_descriptor(const t64_machine *machine, bool dram_to_sp,
 
   row_start = dram_start;
   row_advance = (uint64_t)bytes_per_line + (uint64_t)skip_field;
+  warm_zero_source = warm_zero_source_sp_transfer(
+      machine, dram_to_sp, (machine->sp.mem_address & UINT32_C(0x1000)) != 0u,
+      machine->sp.mem_address & T64_SP_MEM_ADDRESS_MASK,
+      machine->sp.dram_address & T64_SP_DRAM_ADDRESS_MASK,
+      raw_length & T64_SP_LENGTH_MASK,
+      machine->sp.mem_address & UINT32_C(0x00000ff8), bytes_per_line,
+      line_count, skip_field);
   for (uint32_t row = 0u; row < line_count; row++) {
     if (row_start > UINT64_MAX - (uint64_t)bytes_per_line) {
       *status_out = T64_STATUS_BUS_DEVICE_REFUSED;
       return false;
     }
     dram_end = row_start + (uint64_t)bytes_per_line;
-    if (dram_end > (uint64_t)machine->profile.rdram_bytes) {
+    if (dram_end > (uint64_t)machine->profile.rdram_bytes &&
+        !warm_zero_source) {
       *status_out = T64_STATUS_BUS_DEVICE_REFUSED;
       return false;
     }
@@ -271,6 +299,7 @@ t64_status t64_sp_complete(t64_machine *machine, const t64_event *event) {
   uint64_t completed_token;
   uint32_t payload_offset = 0u;
   uint32_t row;
+  bool warm_zero_source;
 
   if (machine == NULL || event == NULL || event->device != T64_DEVICE_SP ||
       event->kind != T64_SP_EVENT_COMPLETE) {
@@ -284,6 +313,11 @@ t64_status t64_sp_complete(t64_machine *machine, const t64_event *event) {
   if (machine->ram == NULL) {
     return T64_STATUS_RESOURCE_EXHAUSTED;
   }
+  warm_zero_source = warm_zero_source_sp_transfer(
+      machine, descriptor->dram_to_sp, descriptor->imem,
+      descriptor->raw_mem_address, descriptor->raw_dram_address,
+      descriptor->raw_length, descriptor->internal_start,
+      descriptor->bytes_per_line, descriptor->line_count, descriptor->skip);
   completed_token = descriptor->token;
 
   sp_bank = descriptor->imem ? machine->sp_imem : machine->sp_dmem;
@@ -297,11 +331,13 @@ t64_status t64_sp_complete(t64_machine *machine, const t64_event *event) {
           (T64_SP_BANK_BYTES - UINT32_C(1));
       size_t dram_offset = (size_t)(dram_row + (uint64_t)byte);
 
-      if (dram_offset >= (size_t)machine->profile.rdram_bytes) {
+      if (dram_offset >= (size_t)machine->profile.rdram_bytes &&
+          !warm_zero_source) {
         return T64_STATUS_RESOURCE_EXHAUSTED;
       }
       if (descriptor->dram_to_sp) {
-        sp_bank[internal_offset] = machine->ram[dram_offset];
+        sp_bank[internal_offset] =
+            warm_zero_source ? 0u : machine->ram[dram_offset];
       } else {
         machine->ram[dram_offset] = sp_bank[internal_offset];
       }

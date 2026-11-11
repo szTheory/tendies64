@@ -30,6 +30,7 @@
 
 #define T64_CACHE_INDEX_STORE_TAG_I UINT32_C(0x08)
 #define T64_CACHE_INDEX_STORE_TAG_D UINT32_C(0x09)
+#define T64_CACHE_HIT_INVALIDATE_D UINT32_C(0x11)
 #define T64_CACHE_HIT_WRITEBACK_INVALIDATE_D UINT32_C(0x15)
 
 static uint64_t sign_extend_32(uint32_t value) {
@@ -830,6 +831,7 @@ static bool execute_cache(t64_machine *machine, uint32_t pc,
 
   if (operation != T64_CACHE_INDEX_STORE_TAG_I &&
       operation != T64_CACHE_INDEX_STORE_TAG_D &&
+      operation != T64_CACHE_HIT_INVALIDATE_D &&
       operation != T64_CACHE_HIT_WRITEBACK_INVALIDATE_D) {
     return false;
   }

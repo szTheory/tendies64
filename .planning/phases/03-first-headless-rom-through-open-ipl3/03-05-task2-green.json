@@ -1,0 +1,8 @@
+{
+  "command": "ctest --preset gate -V -R '^unit\\.core\\.warm-device-policy$'",
+  "exitCode": 0,
+  "output": "PASS unit.core.warm-device-policy. Observed bounded smoke at tick 100, 100 retired, next PC 0xa4000354, last PC 0xa4000350 opcode 0x240af000. SP token 1 IMEM zero-source transfer issued tick 81 and completed tick 605. PI token 2 copied 184 bytes from 0x10001000 to 0x400 and matched at completion tick 523701. SP token 7 IMEM completed tick 529645; queued token 8 DMEM zero-source completed tick 530169. Authored entry 0x80000400 executed tick 530174. First ISViewer store stopped at PC 0x8000041c with KUSEG t0=0x13ff0000; translator refused before any device handler. Trace collector reported no drops or saturation.",
+  "targetTest": "qualified warm-device contract admits authored ROM and executes RI path",
+  "targetFile": "core/tests/test_warm_devices.c",
+  "negativeCoverage": "Exact two-bank zero-source tuple, adjacent and partial range refusal, pre-deadline invisibility, completion-time bank contents, cancellation, full-queue refusal, reset/status preservation, and per-instance interleaving passed."
+}

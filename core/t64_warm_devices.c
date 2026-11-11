@@ -4,6 +4,7 @@
 
 #define T64_MI_INIT_MODE UINT32_C(0x04300000)
 #define T64_MI_VERSION UINT32_C(0x04300004)
+#define T64_MI_INTR UINT32_C(0x04300008)
 #define T64_RI_SELECT UINT32_C(0x0470000c)
 #define T64_SP_STATUS UINT32_C(0x04040010)
 #define T64_SP_DMA_FULL UINT32_C(0x04040014)
@@ -15,6 +16,14 @@
 #define T64_SI_STATUS UINT32_C(0x04800018)
 #define T64_SP_STATUS_DMA_BUSY UINT32_C(0x00000004)
 #define T64_SP_STATUS_DMA_FULL UINT32_C(0x00000008)
+#define T64_SP_STATUS_HALT UINT32_C(0x00000001)
+#define T64_SP_STATUS_RESET_COMMAND UINT32_C(0x00aaaa0e)
+#define T64_MI_INTERRUPT_SP UINT32_C(0x00000001)
+#define T64_MI_INTERRUPT_SI UINT32_C(0x00000002)
+#define T64_MI_INTERRUPT_AI UINT32_C(0x00000004)
+#define T64_MI_INTERRUPT_DP UINT32_C(0x00000020)
+#define T64_MI_INTR_WARM_IGNORED_WRITE UINT32_C(0x00000555)
+#define T64_MI_INIT_CLEAR_DP_INTR UINT32_C(0x00000800)
 
 static bool warm_policy_active(const t64_machine *machine) {
   return machine != NULL && machine->profile.rdram_bytes == UINT32_C(0x00400000) &&
@@ -65,7 +74,10 @@ t64_status t64_warm_device_read(const t64_machine *machine, uint32_t address,
     value = 0u;
     break;
   case T64_SP_STATUS:
-    value = (machine->sp.active.valid || machine->sp.pending.valid
+    /* This qualified profile has no RSP engine: HALT remains set and the
+       unmodeled status flags remain clear, while DMA flags stay live. */
+    value = T64_SP_STATUS_HALT |
+            (machine->sp.active.valid || machine->sp.pending.valid
                  ? T64_SP_STATUS_DMA_BUSY
                  : 0u) |
             (machine->sp.active.valid && machine->sp.pending.valid
@@ -100,10 +112,21 @@ t64_status t64_warm_device_write(t64_machine *machine, uint32_t address,
   }
   switch (address) {
   case T64_MI_INIT_MODE:
+    if (value == T64_MI_INIT_CLEAR_DP_INTR) {
+      t64_mi_clear_pending(machine, T64_MI_INTERRUPT_DP);
+      return T64_STATUS_OK;
+    }
     return value == 0u || value == 1u ? T64_STATUS_OK
                                       : T64_STATUS_BUS_DEVICE_REFUSED;
   case T64_MI_VERSION:
     return T64_STATUS_BUS_DEVICE_REFUSED;
+  case T64_MI_INTR:
+    /* The SDK identifies MI_INTR as read-only. This exact ignored write is
+       accepted only because the pinned warm loader emits it; it does not
+       alter pending state, masks, DMA or device reset state. */
+    return value == T64_MI_INTR_WARM_IGNORED_WRITE
+               ? T64_STATUS_OK
+               : T64_STATUS_BUS_DEVICE_REFUSED;
   case T64_RI_SELECT:
     if (value > UINT32_C(1)) {
       return T64_STATUS_BUS_DEVICE_REFUSED;
@@ -112,17 +135,40 @@ t64_status t64_warm_device_write(t64_machine *machine, uint32_t address,
     machine->guest_devices.ri_select_known = true;
     return T64_STATUS_OK;
   case T64_SP_STATUS:
-    /* RSP execution is out of scope. Only the warm reset's zero command is
-       accepted; it changes no unmodeled RSP state. */
-    return value == 0u ? T64_STATUS_OK : T64_STATUS_BUS_DEVICE_REFUSED;
+    /* rcp.h documents 0x00aaaa0e as set HALT, clear BROKE/INTR and all
+       signal bits. The named warm profile holds those flags at their reset
+       values because no RSP engine can change them. Do not reset or cancel
+       DMA here; the SP status command is separate from the machine reset. */
+    if (value == 0u) {
+      return T64_STATUS_OK;
+    }
+    if (value == T64_SP_STATUS_RESET_COMMAND) {
+      t64_mi_clear_pending(machine, T64_MI_INTERRUPT_SP);
+      return T64_STATUS_OK;
+    }
+    return T64_STATUS_BUS_DEVICE_REFUSED;
   case T64_SP_SEMAPHORE:
   case T64_SP_PC:
   case T64_AI_CONTROL:
-  case T64_SI_STATUS:
     return value == 0u ? T64_STATUS_OK : T64_STATUS_BUS_DEVICE_REFUSED;
+  case T64_AI_STATUS:
+    /* The SDK documents writes as audio-interrupt clear. The warm profile
+       admits only the reached zero write and uses canonical MI pending state. */
+    if (value != 0u) {
+      return T64_STATUS_BUS_DEVICE_REFUSED;
+    }
+    t64_mi_clear_pending(machine, T64_MI_INTERRUPT_AI);
+    return T64_STATUS_OK;
+  case T64_SI_STATUS:
+    /* SI status writes clear SI interrupt; keep this profile's exact zero
+       reset write and preserve all unrelated MI/DMA state. */
+    if (value != 0u) {
+      return T64_STATUS_BUS_DEVICE_REFUSED;
+    }
+    t64_mi_clear_pending(machine, T64_MI_INTERRUPT_SI);
+    return T64_STATUS_OK;
   case T64_SP_DMA_FULL:
   case T64_SP_DMA_BUSY:
-  case T64_AI_STATUS:
     return T64_STATUS_BUS_DEVICE_REFUSED;
   case T64_WARM_ABSENT_RDRAM_PROBE_ADDRESS:
     return T64_STATUS_OK;

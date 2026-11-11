@@ -1,0 +1,8 @@
+{
+  "command": "T64_TEST_IPL3_PATH=build/fixtures/ipl3_compat.z64 build/gate/core/test_cpu_path --cp0-cache",
+  "exitCode": 0,
+  "output": "1..6\nok 1 - CP0 Count reads before its retirement tick and compares after wrap\nok 2 - CP0 Cause, WatchLo, and cache tags apply documented masks\nok 3 - MTC0 Compare clears the latched timer interrupt\nok 4 - CACHE index tags and D hit writeback preserve coherent memory\nok 5 - unknown CP0 selects and CACHE operations stop without retirement\nok 6 - CP0 and cache state participate in the v6 digest\n",
+  "targetTest": "CACHE index tags and D hit writeback preserve coherent memory",
+  "targetFile": "core/tests/test_cpu_path.c",
+  "semanticAssessment": "GREEN: corrected CACHE operation 0x11 case retires, records its operation and translated address, and leaves backing RDRAM unchanged; the other five CP0/cache assertions also pass."
+}

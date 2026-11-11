@@ -1,8 +1,8 @@
 {
   "schema": "t64.open-ipl3-boot-contract",
   "schema_version": 1,
-  "qualification_status": "byte-qualified; the current local run retires 80 real IPL3 instructions through warm MI/RI selection and the 4 MiB capacity probe before an exact SP DMA source-policy stop; prepared software values and all current limits are recorded below",
-  "scope": "prepared-RDRAM software warm-entry tracer only",
+  "qualification_status": "byte-qualified; actual pinned IPL3 reaches the authored app entry and first ISViewer store instruction after bounded PI/SP DMA. The attempted output address is KUSEG and is refused by the current translator before any device handler; no guest output is captured.",
+  "scope": "prepared-RDRAM software warm-entry, authored app-entry and first output-instruction tracer; no RSP engine or output device",
   "hardware_handoff_assertion": false,
   "source": {
     "repository": "https://github.com/n64brew/libdragon",
@@ -98,13 +98,17 @@
     "partial_implementation_policies": {
       "input": "source-asset-or-flat-payload-qualified-z64-v2",
       "cpu": "qualified integer/control/load-store and CP0 inventory subset; unsupported encodings stop explicitly",
-      "cache": "coherent-functional warm subset for pinned CACHE inventory candidates; no timing or general cache-fidelity claim",
-      "devices": "prepared-warm-mi-ri-sp-ai-si-reset-probe-v2",
-      "output": "unimplemented-until-isviewer-v1"
+      "cache": "coherent-functional CACHE operations 0x08, 0x09, 0x11 and 0x15; no cache timing or general cache-fidelity claim",
+      "devices": "prepared-warm-mi-ri-sp-ai-si-reset-probe-v3",
+      "output": "unimplemented-until-isviewer-v1",
+      "sp_zero_source": "absent-source-0x00802000, raw length 0x0fff, exact 4096-byte DRAM-to-SP row to either IMEM offset 0x1000 or DMEM offset 0; other tuples refused",
+      "sp_status": "permanently HALTed prepared-warm policy: accept zero/no-op or exact 0x00aaaa0e set-HALT/clear-BROKE-INTR-SIG0..7 command; other state-changing encodings refused; writes do not cancel DMA",
+      "mi_intr_write": "MI_INTR is documented read-only; only exact width-4 value 0x555 is accepted as an ignored software-compatibility write, preserving pending/mask/DMA state; other writes refused",
+      "interrupt_resets": "MI_INIT_MODE exact width-4 0x800 clears MI DP pending; AI_STATUS and SI_STATUS exact width-4 zero writes clear their respective pending interrupt; other values refused"
     },
     "boot_policy_digest_algorithm": "SHA-256 over the UTF-8 bytes of policy_digest_input, including its final LF",
-    "boot_policy_digest": "04d7519d43805b08a71f1356460ba1b6b2cca30e5d124c6c5e5e318f6ac7ba2c",
-    "policy_digest_input": "t64.openipl3.profile-policy.v1\nprofile_id=ntsc-cart-4m-openipl3-warm-v1\nasset_source_revision=98154dafd5ac50e74ee09a5de1035d24a53f54f0\nasset_source_path=boot/bin/ipl3_compat.z64\nasset_sha256=f522db2e31a701f82597f399e76d55c9487760d015aff9d90176b463ae39a068\nasset_input_policy=source-asset-or-flat-payload-qualified-z64-v2\npayload_source_offset=0x40\npayload_length=0xfc0\npayload_sha256=f716a90b1d36ec4253d096790791256d3543455e54473a755ff8c3d1199b15d5\npayload_dmem_destination=0xa4000040\ncpu_entry_pc=0xa4000040\nrom_min_bytes=4096\nrom_max_bytes=1048576\nrom_order_policy=exact-source-or-flat-payload-z64-v2\nauthored_header_entry_offset=0x08\nauthored_header_load_size_offset=0x10\nauthored_flat_payload_offset=0x1000\nauthored_load_size=nonzero-equals-admitted-bytes-after-0x1000\nauthored_entry=aligned-kseg0-contained-in-installed-4m-rdram-v1\nconsole_target=NUS-CPU-03\nconsole_qualification=unqualified-target\ntv_standard=1\nregion=1\nmedia_kind=1\nrdram_bytes=4194304\nexpansion_bytes=0\nperipheral_flags=0\nsave_kind=0\nhle_seed_reset_version=1\nhle_s3_rom_type=0\nhle_s4_tv_type=1\nhle_s5_reset_type=1\nhle_s6_entropy_seed=0\nhle_s7_boot_info_version=1\ngpr_initial=zero-except-s3-through-s7\nhi_lo_initial=zero\ncp0_initial=zero\ncpu_tick_per_retirement=1\ncpu_event_order=tick-sequence-fifo-v1\ncpu_decode_policy=integer-control-load-store-cp0-inventory-subset-v2\ncpu_unsupported_stop=7\ncpu_completion_stop=8\ncache_policy=coherent-functional-warm-subset-v1\nmi_version_prepared=0-non-iQue-software-selection\nri_select_prepared=1-nonzero-software-selection\nabsent_rdram_probe=exact-word-0x00400000-read-zero-write-noop-v1\ndevice_policy=prepared-warm-mi-ri-sp-ai-si-reset-probe-v2\noutput_policy=unimplemented-until-isviewer-v1\n"
+    "boot_policy_digest": "831a0a58ef8f82bc54f880ad5a1259bddf1b3d2e21680ac6637ea5994705a7fe",
+    "policy_digest_input": "t64.openipl3.profile-policy.v1\nprofile_id=ntsc-cart-4m-openipl3-warm-v1\nasset_source_revision=98154dafd5ac50e74ee09a5de1035d24a53f54f0\nasset_source_path=boot/bin/ipl3_compat.z64\nasset_sha256=f522db2e31a701f82597f399e76d55c9487760d015aff9d90176b463ae39a068\nasset_input_policy=source-asset-or-flat-payload-qualified-z64-v2\npayload_source_offset=0x40\npayload_length=0xfc0\npayload_sha256=f716a90b1d36ec4253d096790791256d3543455e54473a755ff8c3d1199b15d5\npayload_dmem_destination=0xa4000040\ncpu_entry_pc=0xa4000040\nrom_min_bytes=4096\nrom_max_bytes=1048576\nrom_order_policy=exact-source-or-flat-payload-z64-v2\nauthored_header_entry_offset=0x08\nauthored_header_load_size_offset=0x10\nauthored_flat_payload_offset=0x1000\nauthored_load_size=nonzero-equals-admitted-bytes-after-0x1000\nauthored_entry=aligned-kseg0-contained-in-installed-4m-rdram-v1\nconsole_target=NUS-CPU-03\nconsole_qualification=unqualified-target\ntv_standard=1\nregion=1\nmedia_kind=1\nrdram_bytes=4194304\nexpansion_bytes=0\nperipheral_flags=0\nsave_kind=0\nhle_seed_reset_version=1\nhle_s3_rom_type=0\nhle_s4_tv_type=1\nhle_s5_reset_type=1\nhle_s6_entropy_seed=0\nhle_s7_boot_info_version=1\ngpr_initial=zero-except-s3-through-s7\nhi_lo_initial=zero\ncp0_initial=zero\ncpu_tick_per_retirement=1\ncpu_event_order=tick-sequence-fifo-v1\ncpu_decode_policy=integer-control-load-store-cp0-inventory-subset-v2\ncpu_unsupported_stop=7\ncpu_completion_stop=8\ncache_policy=coherent-functional-warm-cache-ops-08-09-11-15-v2\nmi_version_prepared=0-non-iQue-software-selection\nri_select_prepared=1-nonzero-software-selection\nabsent_rdram_probe=exact-word-0x00400000-read-zero-write-noop-v1\ndevice_policy=prepared-warm-mi-ri-sp-ai-si-reset-probe-v3\nsp_zero_source_policy=absent-source-0x00802000-raw0x0fff-bank-dmem0-or-imem0x1000-v2\nsp_status_policy=prepared-halted-fixed-flags-set-halt-clear-broke-intr-signals-0x00aaaa0e-v1\nmi_intr_write_policy=exact-width4-value0x555-ignored-read-only-mi-intr-v1\nmi_init_mode_reset_policy=exact-width4-value0x800-clear-mi-dp-interrupt-v1\nai_si_interrupt_reset_policy=zero-write-clear-mi-ai-si-pending-v1\noutput_policy=unimplemented-until-isviewer-v1\n"
   },
   "toolchain": {
     "name": "GNU Binutils",
@@ -348,7 +352,13 @@
         "state": "attempted but refused before DMA issue; exact zero-source behavior remains for plan task 2"
       },
       "unsupported_retired": false,
-      "reached_cp0_pcs": ["0xA4000064", "0xA400006C", "0xA4000070", "0xA4000074", "0xA4000078"],
+      "reached_cp0_pcs": [
+        "0xA4000064",
+        "0xA400006C",
+        "0xA4000070",
+        "0xA4000074",
+        "0xA4000078"
+      ],
       "later_tag_and_cache_candidates_dynamically_reached": false,
       "later_tag_and_cache_candidates_tested": true,
       "software_stop_code": 7,
@@ -381,5 +391,106 @@
     ],
     "manual_bytes_or_extracted_text_in_repository": false,
     "claim_limit": "This contract records upstream software expectations and a project-selected deterministic warm preset. It does not assert authentic IPL2 handoff, cold boot, hardware calibration, broad compatibility, or hardware accuracy."
+  },
+  "current_implementation_observation": {
+    "profile_id": "ntsc-cart-4m-openipl3-warm-v1",
+    "asset_sha256": "f522db2e31a701f82597f399e76d55c9487760d015aff9d90176b463ae39a068",
+    "payload_sha256": "f716a90b1d36ec4253d096790791256d3543455e54473a755ff8c3d1199b15d5",
+    "boot_policy_digest": "831a0a58ef8f82bc54f880ad5a1259bddf1b3d2e21680ac6637ea5994705a7fe",
+    "profile_descriptor_sha256": "5775f19766dc0ae070178dc87f2e6b0f11a9e5dc587fa380588f3b82b7d768d2",
+    "initial_state_sha256": "a3820a5bf34b713b5903e42f455a1c579a57799a48411d3d33ed59786c3e93bf",
+    "warm_device_policy_version": 3,
+    "software_selected_mi_version": 0,
+    "software_selected_ri_select": 1,
+    "qualification_trace_capture": "bounded trace drained at intervals no longer than 16 guest ticks; no records dropped and no saturation",
+    "initial_loader_probe_boundary": {
+      "tick": 100,
+      "retired_instructions": 100,
+      "next_pc": "0xA4000354",
+      "last_pc": "0xA4000350",
+      "last_opcode": "0x240AF000",
+      "meaning": "bounded integration smoke point; CPU has no unsupported stop here"
+    },
+    "capacity_probe_absent_word": "0x00400000",
+    "capacity_probe_policy": "exact 4-byte word read-zero/write-no-op only; adjacent words are refused",
+    "sp_dma_bootstrap": {
+      "token": 1,
+      "issue_tick": 81,
+      "completion_tick": 605,
+      "mem_address": "0x1000",
+      "dram_address": "0x00802000",
+      "raw_length": "0x0FFF",
+      "payload_bytes": 4096,
+      "bank": "IMEM",
+      "result": "exact qualified absent-source fill completed at deadline"
+    },
+    "pi_dma": [
+      {
+        "token": 1,
+        "issue_tick": 520733,
+        "completion_tick": 520858,
+        "dram_address": "0x003FFF08",
+        "cart_address": "0x10000B08",
+        "length_bytes": 248
+      },
+      {
+        "token": 2,
+        "issue_tick": 523608,
+        "completion_tick": 523701,
+        "dram_address": "0x00000400",
+        "cart_address": "0x10001000",
+        "length_bytes": 184,
+        "bytes_equal_at_completion": true
+      }
+    ],
+    "sp_dma_late_loader": [
+      {
+        "token": 7,
+        "issue_tick": 525537,
+        "completion_tick": 529645,
+        "mem_address": "0x1000",
+        "dram_address": "0x003F8000",
+        "raw_length": "0x0001F3FF",
+        "bank": "IMEM"
+      },
+      {
+        "token": 8,
+        "issue_tick": 525547,
+        "completion_tick": 530169,
+        "mem_address": "0x0000",
+        "dram_address": "0x00802000",
+        "raw_length": "0x00000FFF",
+        "bank": "DMEM",
+        "queued_behind_token": 7
+      }
+    ],
+    "cache_11_observation": {
+      "virtual_address": "0x807F8FF0",
+      "translated_physical_address": "0x007F8FF0",
+      "installed_rdram_bytes": 4194304,
+      "result": "coherent-functional operation recorded without host/RDRAM access"
+    },
+    "authored_entry": {
+      "pc": "0x80000400",
+      "tick": 530174,
+      "retired_instructions": 530174,
+      "executed": true
+    },
+    "first_output_instruction": {
+      "pc": "0x8000041C",
+      "tick": 530181,
+      "retired_instructions": 530180,
+      "opcode": "0xAD0A0000",
+      "instruction": "sw t2,0(t0)",
+      "gpr_t0": "0x0000000013FF0000",
+      "gpr_t2": "0xFFFFFFFFEDCBA987",
+      "fixture_constant": "fixtures/hello/hello.S:6, T64_ISVIEWER_BASE=0x13ff0000",
+      "address_class": "KUSEG",
+      "result": "refused by t64_cpu_translate before any bus or ISViewer handler; no output captured",
+      "next_phase_prerequisite": "03-06 must decide/implement the fixture-address contract at the owning end-to-end boundary; do not broaden virtual-address modes in this slice"
+    },
+    "unsupported_retired": false,
+    "verification": "unit.core.warm-device-policy with exact fixture; focused and full local test evidence is recorded in 03-05-SUMMARY.md",
+    "claim_limit": "software-only prepared warm entry and authored app-entry evidence; no captured output, authentic IPL2 handoff, full RSP, cold boot, broad compatibility or hardware-accuracy claim"
   }
 }

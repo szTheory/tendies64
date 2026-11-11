@@ -133,19 +133,21 @@ static bool test_real_entry_and_next_boundary(
   }
   request.value = UINT64_C(100);
   status = t64_machine_advance(machine, &request, &result);
-  (void)t64_machine_cpu_stop_detail(machine, &detail);
   if (status != T64_STATUS_OK ||
-      result.reason != T64_STOP_REASON_CPU_UNSUPPORTED ||
-      result.tick != UINT64_C(81) ||
-      detail.retired_instructions != UINT64_C(80) ||
-      detail.pc != UINT32_C(0xa40002b0) ||
-      detail.opcode != UINT32_C(0xac430008)) {
-    (void)printf("# actual stop status=%u reason=%u tick=%llu retired=%llu "
-                 "pc=0x%08x opcode=0x%08x\n",
+      result.reason != T64_STOP_REASON_BOUND ||
+      result.tick != UINT64_C(100) ||
+      machine->cpu.retired_instructions != UINT64_C(100) ||
+      machine->cpu.pc != UINT32_C(0xa4000354) ||
+      machine->cpu.last_pc != UINT32_C(0xa4000350) ||
+      machine->cpu.last_opcode != UINT32_C(0x240af000) ||
+      t64_machine_cpu_stop_detail(machine, &detail) != T64_STATUS_NOT_READY) {
+    (void)printf("# actual boundary status=%u reason=%u tick=%llu retired=%llu "
+                 "pc=0x%08x last_pc=0x%08x last_opcode=0x%08x\n",
                  (unsigned)status, result.reason,
                  (unsigned long long)result.tick,
-                 (unsigned long long)detail.retired_instructions, detail.pc,
-                 detail.opcode);
+                 (unsigned long long)machine->cpu.retired_instructions,
+                 machine->cpu.pc, machine->cpu.last_pc,
+                 machine->cpu.last_opcode);
     return false;
   }
   return true;
@@ -561,7 +563,7 @@ static bool test_cache_operations_are_coherent(
   size_t i;
 
   for (i = 0u; i < sizeof cache_cases / sizeof cache_cases[0]; i++) {
-    uint32_t program[] = {UINT32_C(0xad090000), cache_cases[i].opcode,
+    uint32_t program[] = {UINT32_C(0xad490000), cache_cases[i].opcode,
                           UINT32_C(0x7000003f)};
     t64_stop_result result = {UINT32_MAX, UINT64_MAX};
     t64_cpu_stop_detail detail = {UINT64_MAX, UINT32_MAX, UINT32_MAX};
@@ -572,6 +574,7 @@ static bool test_cache_operations_are_coherent(
     }
     machine->cpu.gpr[8] = cache_cases[i].virtual_base;
     machine->cpu.gpr[9] = UINT64_C(0x12345678);
+    machine->cpu.gpr[10] = UINT64_C(0xffffffff80000100);
     if (!stop_at_unsupported(machine, &result, &detail) ||
         detail.retired_instructions != UINT64_C(2) ||
         detail.pc != IPL3_ENTRY_PC + UINT32_C(8) ||
@@ -582,6 +585,24 @@ static bool test_cache_operations_are_coherent(
         !machine->cache.operation_seen || machine->ram[0x100u] != 0x12u ||
         machine->ram[0x101u] != 0x34u || machine->ram[0x102u] != 0x56u ||
         machine->ram[0x103u] != 0x78u) {
+      (void)printf("# cache case=%zu stop=%llu pc=0x%08x opcode=0x%08x "
+                   "op=0x%x cache_pc=0x%08x cache_addr=0x%08x "
+                   "seen=%d ram=%02x%02x%02x%02x\n",
+                   i, (unsigned long long)detail.retired_instructions,
+                   detail.pc, detail.opcode, machine->cache.last_operation,
+                   machine->cache.last_pc, machine->cache.last_address,
+                   machine->cache.operation_seen ? 1 : 0,
+                   machine->ram[0x100u], machine->ram[0x101u],
+                   machine->ram[0x102u], machine->ram[0x103u]);
+      (void)printf("# gpr8=0x%016llx gpr9=0x%016llx gpr10=0x%016llx "
+                   "rdram=%llu tick=%llu bus_read=%d\n",
+                   (unsigned long long)machine->cpu.gpr[8],
+                   (unsigned long long)machine->cpu.gpr[9],
+                   (unsigned long long)machine->cpu.gpr[10],
+                   (unsigned long long)machine->profile.rdram_bytes,
+                   (unsigned long long)machine->tick,
+                   (int)t64_bus_read(machine, UINT32_C(0x100), 4u,
+                                     &(uint32_t){0}));
       return false;
     }
   }
