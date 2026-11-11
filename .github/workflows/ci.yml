@@ -26,6 +26,18 @@ jobs:
           fetch-depth: 0
       - name: Gate
         run: ./scripts/gate.sh
+      - name: Emit guest evidence
+        run: sh scripts/collect-boot-evidence.sh --emit
+      - name: Rights scan sanitized output
+        run: sh scripts/rights-scan.sh --staging build/evidence
+      - name: PII scan sanitized output
+        run: sh scripts/collect-boot-evidence.sh --scan-pii
+      - name: Upload sanitized guest evidence
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02  # v4.6.2
+        with:
+          name: t64-boot-evidence-${{ github.sha }}-${{ github.run_id }}-${{ github.run_attempt }}-${{ github.job }}
+          path: build/evidence/gate-linux.json
+          if-no-files-found: error
 
   gate-macos:
     runs-on: macos-26
@@ -40,3 +52,15 @@ jobs:
           fetch-depth: 0
       - name: Gate
         run: ./scripts/gate.sh
+      - name: Emit guest evidence
+        run: sh scripts/collect-boot-evidence.sh --emit
+      - name: Rights scan sanitized output
+        run: sh scripts/rights-scan.sh --staging build/evidence
+      - name: PII scan sanitized output
+        run: sh scripts/collect-boot-evidence.sh --scan-pii
+      - name: Upload sanitized guest evidence
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02  # v4.6.2
+        with:
+          name: t64-boot-evidence-${{ github.sha }}-${{ github.run_id }}-${{ github.run_attempt }}-${{ github.job }}
+          path: build/evidence/gate-macos.json
+          if-no-files-found: error
