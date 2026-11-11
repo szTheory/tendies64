@@ -606,7 +606,8 @@ static bool execute_case(const uint8_t *ipl3, size_t ipl3_length,
         machine, output, sizeof output, &drain);
     out->output_matches =
         drain_status == T64_STATUS_OK && drain.copied_bytes == sizeof output &&
-        drain.total_produced_bytes == sizeof output && !drain.lost_output &&
+        drain.total_attempted_bytes == sizeof output && !drain.lost_output &&
+        drain.total_attempted_bytes_exact &&
         memcmp(output, expected_output, sizeof output) == 0;
     out->completed = t64_machine_digest(machine, out->digest) ==
                      T64_STATUS_OK;

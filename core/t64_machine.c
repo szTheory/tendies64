@@ -81,10 +81,10 @@ static const t64_profile_descriptor ntsc_cart_4m_profile = {
 #define T64_OPENIPL3_AUTHORED_PAYLOAD_OFFSET UINT32_C(0x00001000)
 #define T64_OPENIPL3_POLICY_SHA256_BYTES                                     \
   {                                                                          \
-    0x4eu, 0x3cu, 0xf8u, 0x9cu, 0x61u, 0xb3u, 0x25u, 0xedu,                  \
-        0x76u, 0xd9u, 0x50u, 0xcau, 0xa7u, 0x75u, 0x2bu, 0x2bu,              \
-        0x8fu, 0xcbu, 0xcau, 0x6au, 0x01u, 0xa0u, 0x8du, 0xc2u,              \
-        0x02u, 0xccu, 0x52u, 0x71u, 0xacu, 0xe9u, 0x8au, 0x2bu               \
+    0xb7u, 0x21u, 0x56u, 0xeau, 0xaau, 0xe1u, 0x11u, 0x71u,                  \
+        0xcau, 0x5fu, 0x02u, 0x64u, 0x2au, 0xf4u, 0xdcu, 0x52u,              \
+        0x6bu, 0x90u, 0x23u, 0x11u, 0xddu, 0x8cu, 0xc1u, 0x95u,              \
+        0x1du, 0x14u, 0xcau, 0xb5u, 0xc1u, 0x32u, 0x58u, 0x64u               \
   }
 
 static const t64_profile_descriptor ntsc_cart_4m_openipl3_warm_profile = {
@@ -131,7 +131,7 @@ static const t64_profile_descriptor ntsc_cart_4m_openipl3_warm_profile = {
     .dma_visibility_policy = "atomic-source-at-completion-v1",
     .descriptor_version = 2u,
     .machine_model_version = 2u,
-    .state_serialization_version = 7u,
+    .state_serialization_version = 8u,
     .asset_sha256 = T64_OPENIPL3_ASSET_SHA256_BYTES,
     .payload_sha256 = T64_OPENIPL3_PAYLOAD_SHA256_BYTES,
     .boot_policy_sha256 = T64_OPENIPL3_POLICY_SHA256_BYTES,

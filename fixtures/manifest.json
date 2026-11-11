@@ -155,7 +155,7 @@
       ],
       "expected": {
         "kind": "self-checking",
-        "source": "Assembly-selected empty BREAK control in fixtures/hello/hello.S",
+        "source": "Assembly VARIANT=1: immediate BREAK at authored entry 0x80000400 with opcode 0x0000000d; expect boot-fail/empty-output, zero output and no retirement.",
         "revision": "source-content-sha256:ceeedee4fde9635542bf1c1de40567f6b8a6773285b92b6ab0ac965c01584ad1"
       }
     },
@@ -167,7 +167,7 @@
         "path": "fixtures/hello/hello.S"
       },
       "build": {
-        "recipe": "Assemble VARIANT=2 with GNU Binutils 2.45 from source-content-sha256 ceeedee4fde9635542bf1c1de40567f6b8a6773285b92b6ab0ac965c01584ad1; package the wrong-transcript control with the pinned 4032-byte Unlicense IPL3 payload and a checked nonzero flat load length. Whole cartridge SHA-256 49d50b3f1b5e6695770cd69d9d89bda4645b354936390106227e1601995e3137, size 4272. Build-only. Maintenance owner: Tendies64 maintainers.",
+        "recipe": "Assemble VARIANT=2 with GNU Binutils 2.45 from source-content-sha256 ceeedee4fde9635542bf1c1de40567f6b8a6773285b92b6ab0ac965c01584ad1; package the wrong-transcript control with the pinned 4032-byte Unlicense IPL3 payload and a checked nonzero flat load length. Whole cartridge SHA-256 7626a661296fd8f5a5939ceb3b1fa3321f96e23be0e0bbf6b06b7e57871d86b8, size 4272. Build-only. Maintenance owner: Tendies64 maintainers.",
         "toolchain": [
           "GNU Binutils 2.45"
         ]
@@ -186,7 +186,7 @@
       ],
       "expected": {
         "kind": "self-checking",
-        "source": "Assembly-selected wrong transcript control in fixtures/hello/hello.S",
+        "source": "Assembly VARIANT=2: complete literal `Wrong guest transcript\\n` (23 bytes) then BREAK at 0x80000478; expect guest-fail/wrong-transcript.",
         "revision": "source-content-sha256:ceeedee4fde9635542bf1c1de40567f6b8a6773285b92b6ab0ac965c01584ad1"
       }
     },
@@ -217,7 +217,7 @@
       ],
       "expected": {
         "kind": "self-checking",
-        "source": "Assembly-selected empty loop control in fixtures/hello/hello.S",
+        "source": "Assembly VARIANT=3: unconditional loop at entry without output; at guest bound 530500 expect boot-fail/empty-output.",
         "revision": "source-content-sha256:ceeedee4fde9635542bf1c1de40567f6b8a6773285b92b6ab0ac965c01584ad1"
       }
     },
@@ -248,7 +248,7 @@
       ],
       "expected": {
         "kind": "self-checking",
-        "source": "Assembly-selected incomplete transcript loop control in fixtures/hello/hello.S",
+        "source": "Assembly VARIANT=4: emit exact 16-byte prefix `Tendies64 hello ` then loop; at guest bound 530500 expect timeout/guest-bound with that prefix.",
         "revision": "source-content-sha256:ceeedee4fde9635542bf1c1de40567f6b8a6773285b92b6ab0ac965c01584ad1"
       }
     },
@@ -279,7 +279,7 @@
       ],
       "expected": {
         "kind": "self-checking",
-        "source": "Assembly-selected unsupported-opcode control in fixtures/hello/hello.S",
+        "source": "Assembly VARIANT=5: execute word 0xffffffff at 0x80000400 before BREAK; expect boot-fail/unsupported-execution at the actual PC/opcode without retirement.",
         "revision": "source-content-sha256:ceeedee4fde9635542bf1c1de40567f6b8a6773285b92b6ab0ac965c01584ad1"
       }
     },
@@ -310,7 +310,7 @@
       ],
       "expected": {
         "kind": "self-checking",
-        "source": "Assembly-selected ISViewer output-overflow control in fixtures/hello/hello.S",
+        "source": "Assembly VARIANT=6: flush eight 512-byte x blocks then request one more byte; expect harness-error/output-overflow with retained 4096-byte prefix and exact 4097 attempted bytes.",
         "revision": "source-content-sha256:ceeedee4fde9635542bf1c1de40567f6b8a6773285b92b6ab0ac965c01584ad1"
       }
     },

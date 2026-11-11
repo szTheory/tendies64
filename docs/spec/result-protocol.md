@@ -471,7 +471,7 @@ The v2 root keys, in canonical order, are:
 | `evidence_kind` / `evidence_tier` | Exactly `guest-execution` / `smoke`. |
 | `build_id` | `t64-build-v1-` followed by 64 lowercase hex characters. |
 | `source_revision` | 40 lowercase hexadecimal characters. |
-| `profile_id` / `profile_digest` | The pinned profile `ntsc-cart-4m-openipl3-warm-v1` and digest `a171241f68c377f7c324a995a08ff8bd8da60bbe70df14193d8f4b8ae7e9769f`. |
+| `profile_id` / `profile_digest` | The pinned profile `ntsc-cart-4m-openipl3-warm-v1` and digest `d8c12cb2a00410a2153ca62da318166f3ca029dea8e3d6b9c841262cb8203c71`. |
 | `fixture_id` / `fixture_sha256` | Manifest ID and normalized whole authored-ROM SHA-256. For `hello-openipl3`, the digest is `fa276cc175a4e764b6fd5413193c44b51f38fd8135e33e400032827e02f27c7c`. |
 | `ipl3_sha256` | SHA-256 of the full pinned source IPL3 asset: `f522db2e31a701f82597f399e76d55c9487760d015aff9d90176b463ae39a068`. |
 | `ipl3_payload_sha256` | SHA-256 of the separately verified executed embedded payload: `f716a90b1d36ec4253d096790791256d3543455e54473a755ff8c3d1199b15d5`. |
@@ -479,7 +479,7 @@ The v2 root keys, in canonical order, are:
 | `guest_tick`, `instruction_count` | Canonical unsigned 64-bit decimal strings. The checker requires retired instruction count not to exceed guest ticks. |
 | `guest_stop` | Object with exactly `bound_tick` (unsigned decimal string) and `kind` from the stop enum below. `guest_tick` cannot exceed the bound. A `guest-bound` stop must be exactly at the bound. |
 | `milestones` | Array of zero to four records with exactly `kind`, `guest_tick`, `pc`. Kinds are ordered `ipl3-entry`, `loader-dma`, `hello-entry`, `hello-completion`; each kind may occur once, ticks cannot decrease or exceed `guest_tick`, and `pc` is 16 lowercase hex characters. IPL3 entry and hello entry PCs are pinned to `ffffffffa4000040` and `ffffffff80000400`. |
-| `counts` | Object with exactly `log_bytes` and `log_bytes_total`, both unsigned decimal strings. Retained bytes are at most 4096 and cannot exceed total bytes. Complete capture counts agree; overflow reports a truncated retained prefix and larger total. |
+| `counts` | Object with exactly `log_bytes` and `log_bytes_total`, both unsigned decimal strings. `log_bytes` is the retained capture prefix (at most 4096); `log_bytes_total` is the exact sum of requested lengths for all nonzero guest flushes, including refused flushes. Complete capture counts agree; overflow reports a truncated retained prefix and the larger exact attempted total. |
 | `outcome`, `detail` | Closed values and paired meanings described below. |
 
 `profile_digest` is the SHA-256 returned by `t64_profile_hash` over the complete
@@ -533,7 +533,11 @@ further restrict those pairs:
   precedence over a guest pass.
 - `unsupported-execution` is `boot-fail` with explicit detail and no completion
   milestone. `output-overflow` is `harness-error` with 4096 retained bytes and a
-  larger total.
+  larger exact attempted total. If the core's checked 64-bit total saturates,
+  the producer emits `harness-error` / `host-error` with `log_sha256: null` and
+  both log counts zero to mean the log and total are unknown; zero does not
+  assert that the guest emitted no output, and the saturated value is never
+  serialized as an exact count.
 - Empty output at authored completion or at the guest bound is always
   `boot-fail` / `empty-output`, with the SHA-256 of the empty byte string. A
   non-empty incomplete capture at the bound is `timeout` / `guest-bound`.

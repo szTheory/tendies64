@@ -59,8 +59,10 @@ t64_status t64_machine_output_drain(t64_machine *machine, uint8_t *bytes_out,
   }
   (void)memset(&result, 0, sizeof result);
   result.required_bytes = pending_bytes;
-  result.total_produced_bytes = machine->output.captured_bytes;
+  result.total_attempted_bytes = machine->output.total_attempted_bytes;
   result.lost_output = machine->output.lost_output;
+  result.total_attempted_bytes_exact =
+      !machine->output.total_attempted_bytes_saturated;
   t64_sha256_final(&digest_context, result.captured_sha256);
   if (capacity < pending_bytes) {
     *result_out = result;

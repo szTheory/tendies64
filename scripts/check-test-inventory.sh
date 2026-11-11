@@ -91,7 +91,13 @@ runner.result-v2
 integration.open-ipl3-hello
 controls.real.source-replaced
 controls.real.open-ipl3-source-replaced
-controls.real.input-partition'
+controls.real.input-partition
+controls.real.empty-halt
+controls.real.empty-bound
+controls.real.wrong-transcript
+controls.real.unsupported-opcode
+controls.real.output-overflow
+controls.real.identity-mismatch'
 
 ASAN_ONLY='fuzz.rom-admission
 sanitizer.negative-control'
@@ -242,9 +248,11 @@ run_mode_selftest() {
     _removed=$((_removed + 1))
   done
   echo "inventory selftest removals preset=$_preset count=$_removed expected=$_count"
+  _TOTAL_REMOVED=$((_TOTAL_REMOVED + _removed))
 }
 
 selftest() {
+  _TOTAL_REMOVED=0
   run_mode_selftest gate
   run_mode_selftest asan
 
@@ -274,7 +282,7 @@ selftest() {
   printf 'include("missing-inventory-testfile.cmake")\n' >"$_error/CTestTestfile.cmake"
   selftest_rejection gate "$_error" "inventory enumeration error:"
 
-  echo "test inventory selftest PASS removal_controls=148 malformed_controls=5"
+  echo "test inventory selftest PASS removal_controls=$_TOTAL_REMOVED malformed_controls=5"
 }
 
 ROOT=$(cd "$(dirname "$0")/.." && pwd -P)

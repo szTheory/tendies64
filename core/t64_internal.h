@@ -29,7 +29,7 @@
 #define T64_ISVIEWER_BUFFER_BYTES 512u
 #define T64_ISVIEWER_CAPTURE_BYTES 4096u
 #define T64_ISVIEWER_DEVICE_BYTES UINT32_C(0x0220)
-#define T64_ISVIEWER_POLICY_VERSION UINT32_C(2)
+#define T64_ISVIEWER_POLICY_VERSION UINT32_C(3)
 
 #define T64_DEVICE_SYNTHETIC_TEST UINT32_C(0xffff0001)
 #define T64_TEST_EVENT_NOOP UINT32_C(1)
@@ -173,6 +173,8 @@ typedef struct {
   uint32_t captured_bytes;
   uint8_t captured[T64_ISVIEWER_CAPTURE_BYTES];
   bool lost_output;
+  uint64_t total_attempted_bytes;
+  bool total_attempted_bytes_saturated;
 } t64_output_state;
 
 typedef struct t64_event t64_event;

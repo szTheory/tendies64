@@ -20,7 +20,7 @@ bool t64_isviewer_active(const t64_machine *machine) {
   static const char profile_id[] = "ntsc-cart-4m-openipl3-warm-v1";
 
   return machine != NULL && machine->profile.descriptor_version == 2u &&
-         machine->profile.state_serialization_version == 7u &&
+         machine->profile.state_serialization_version == 8u &&
          memcmp(machine->profile.profile_id, profile_id,
                 sizeof profile_id) == 0 &&
          machine->output.policy_version == T64_ISVIEWER_POLICY_VERSION;
@@ -116,6 +116,14 @@ static t64_status flush_bytes(t64_output_state *output, uint32_t count,
     output->byte_count = next_register_value;
     return T64_STATUS_OK;
   }
+  if (output->total_attempted_bytes_saturated ||
+      UINT64_MAX - output->total_attempted_bytes < (uint64_t)count) {
+    output->total_attempted_bytes = UINT64_MAX;
+    output->total_attempted_bytes_saturated = true;
+    output->lost_output = true;
+    return T64_STATUS_BUS_DEVICE_REFUSED;
+  }
+  output->total_attempted_bytes += (uint64_t)count;
   if (output->lost_output) {
     return T64_STATUS_BUS_DEVICE_REFUSED;
   }

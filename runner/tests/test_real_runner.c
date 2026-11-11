@@ -29,7 +29,7 @@
 #define LOG_SHA256 \
   "86594505bea53c9843f9eaf07e4cf0121cbe0055670324674fd8385c88ffd18e"
 #define PROFILE_SHA256 \
-  "a171241f68c377f7c324a995a08ff8bd8da60bbe70df14193d8f4b8ae7e9769f"
+  "d8c12cb2a00410a2153ca62da318166f3ca029dea8e3d6b9c841262cb8203c71"
 
 static unsigned checks;
 static unsigned failures;

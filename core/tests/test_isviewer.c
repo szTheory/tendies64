@@ -244,7 +244,8 @@ static bool output_state_is_reset(const t64_output_state *output) {
          bytes_are(output->buffer, sizeof output->buffer, 0u) &&
          output->captured_bytes == 0u &&
          bytes_are(output->captured, sizeof output->captured, 0u) &&
-         !output->lost_output;
+         !output->lost_output && output->total_attempted_bytes == 0u &&
+         !output->total_attempted_bytes_saturated;
 }
 
 static void test_magic_register(const t64_host_allocator *allocator,
@@ -314,7 +315,7 @@ static void test_public_output_and_input_seams(
   t64_sha256_init(&sha_context);
   t64_sha256_update(&sha_context, expected_bytes, sizeof expected_bytes);
   t64_sha256_final(&sha_context, expected_digest);
-  check(drain.total_produced_bytes == sizeof expected_bytes &&
+  check(drain.total_attempted_bytes == sizeof expected_bytes &&
             !drain.lost_output &&
             memcmp(drain.captured_sha256, expected_digest,
                    sizeof expected_digest) == 0,
@@ -328,7 +329,7 @@ static void test_public_output_and_input_seams(
   check_status(t64_machine_output_drain(machine, bytes, sizeof bytes, &drain),
                T64_STATUS_OK, "repeated empty drain succeeds");
   check(drain.copied_bytes == 0u && drain.required_bytes == 0u &&
-            drain.total_produced_bytes == sizeof expected_bytes &&
+            drain.total_attempted_bytes == sizeof expected_bytes &&
             bytes_are(bytes, sizeof bytes, UINT8_C(0x5a)),
         "repeated empty drain copies nothing and preserves lifetime total");
 
@@ -343,7 +344,7 @@ static void test_public_output_and_input_seams(
                "short output buffer reports the required pending length");
   check(drain.copied_bytes == 0u &&
             drain.required_bytes == sizeof next_bytes &&
-            drain.total_produced_bytes == 2u * sizeof expected_bytes &&
+            drain.total_attempted_bytes == 2u * sizeof expected_bytes &&
             bytes_are(too_small, sizeof too_small, UINT8_C(0x5a)),
         "short output query leaves bytes and observer cursor unchanged");
   check(state_digest(machine, state_after) &&
@@ -387,7 +388,7 @@ static void test_public_output_and_input_seams(
   check_status(t64_machine_output_drain(machine, bytes, sizeof bytes, &drain),
                T64_STATUS_OK, "drain works after output lifecycle reset");
   check(drain.copied_bytes == sizeof reset_bytes &&
-            drain.total_produced_bytes == sizeof reset_bytes &&
+            drain.total_attempted_bytes == sizeof reset_bytes &&
             memcmp(bytes, reset_bytes, sizeof reset_bytes) == 0,
         "reset observer cursor begins at the new image prefix");
   t64_machine_destroy(machine);
@@ -542,7 +543,8 @@ static void test_output_loss_observation(
   check_status(t64_machine_output_drain(machine, NULL, 0u, &result),
                T64_STATUS_OK, "empty lost-output observation succeeds");
   check(result.copied_bytes == 0u && result.required_bytes == 0u &&
-            result.total_produced_bytes == 0u && result.lost_output,
+            result.total_attempted_bytes == UINT64_C(513) &&
+            result.lost_output && result.total_attempted_bytes_exact,
         "drain reports sticky loss even when no output was retained");
 
   check_status(t64_machine_admit_rom(machine, asset, asset_length),
@@ -566,8 +568,8 @@ static void test_output_loss_observation(
                                         sizeof full_capture, &result),
                T64_STATUS_OK, "full retained prefix remains drainable after loss");
   check(result.copied_bytes == T64_ISVIEWER_CAPTURE_BYTES &&
-            result.total_produced_bytes == T64_ISVIEWER_CAPTURE_BYTES &&
-            result.lost_output &&
+            result.total_attempted_bytes == T64_ISVIEWER_CAPTURE_BYTES + 1u &&
+            result.lost_output && result.total_attempted_bytes_exact &&
             bytes_are(full_capture, sizeof full_capture, (uint8_t)'x'),
         "drain preserves all retained bytes and reports sticky loss");
   t64_machine_destroy(machine);
@@ -988,14 +990,17 @@ static void test_oversize_and_total_limit(
     size_t asset_length) {
   t64_machine *oversize = create_machine(allocator, asset, asset_length);
   t64_machine *total = create_machine(allocator, asset, asset_length);
+  t64_machine *saturated = create_machine(allocator, asset, asset_length);
+  t64_output_drain_result saturation_result = {0};
   uint32_t previous_count;
   bool full_capture;
   size_t i;
 
-  if (oversize == NULL || total == NULL) {
+  if (oversize == NULL || total == NULL || saturated == NULL) {
     check(false, "overflow test machines are admitted");
     t64_machine_destroy(oversize);
     t64_machine_destroy(total);
+    t64_machine_destroy(saturated);
     return;
   }
   fill_pattern_buffer(oversize);
@@ -1008,12 +1013,16 @@ static void test_oversize_and_total_limit(
   check(oversize->output.captured_bytes == 0u &&
             oversize->output.byte_count == 0u,
         "oversize flush changes no capture bytes or count register");
+  check(oversize->output.total_attempted_bytes == UINT64_C(513) &&
+            !oversize->output.total_attempted_bytes_saturated,
+        "oversize rejection records the complete requested flush length");
   check_status(t64_machine_bus_write(oversize, T64_ISVIEWER_BASE + 0x16u, 2u,
                                      1u),
                T64_STATUS_BUS_DEVICE_REFUSED,
                "sticky loss refuses a later nonzero flush");
   check(oversize->output.captured_bytes == 0u &&
-            oversize->output.lost_output,
+            oversize->output.lost_output &&
+            oversize->output.total_attempted_bytes == UINT64_C(514),
         "later refused flush cannot hide or partially capture output");
 
   for (i = 0u; i < T64_ISVIEWER_BUFFER_BYTES; i += 4u) {
@@ -1041,12 +1050,32 @@ static void test_oversize_and_total_limit(
   full_capture = total->output.captured_bytes == T64_ISVIEWER_CAPTURE_BYTES &&
                  total->output.byte_count == previous_count &&
                  total->output.lost_output &&
+                 total->output.total_attempted_bytes == UINT64_C(4097) &&
                  bytes_are(total->output.captured,
                            T64_ISVIEWER_CAPTURE_BYTES, (uint8_t)'x');
   check(full_capture,
         "total overflow is sticky and leaves the full capture unchanged");
+  saturated->output.total_attempted_bytes = UINT64_MAX - UINT64_C(1);
+  check_status(t64_machine_bus_write(saturated, T64_ISVIEWER_BASE + 0x16u,
+                                     2u, 2u),
+               T64_STATUS_BUS_DEVICE_REFUSED,
+               "attempted-byte counter overflow refuses before appending");
+  check(saturated->output.captured_bytes == 0u &&
+            saturated->output.total_attempted_bytes == UINT64_MAX &&
+            saturated->output.total_attempted_bytes_saturated &&
+            saturated->output.lost_output,
+        "counter overflow saturates, records inexactness, and appends nothing");
+  check_status(t64_machine_output_drain(saturated, NULL, 0u,
+                                        &saturation_result),
+               T64_STATUS_OK,
+               "saturated attempted-byte total remains observable");
+  check(saturation_result.total_attempted_bytes == UINT64_MAX &&
+            !saturation_result.total_attempted_bytes_exact &&
+            saturation_result.lost_output,
+        "drain marks the saturated attempted-byte total as inexact");
   t64_machine_destroy(oversize);
   t64_machine_destroy(total);
+  t64_machine_destroy(saturated);
 }
 
 static bool digest_changes_and_restores(t64_machine *machine, void *field,
@@ -1074,7 +1103,7 @@ static bool digest_changes_and_restores(t64_machine *machine, void *field,
   return passed;
 }
 
-static void test_v7_digest_covers_output_state(
+static void test_v8_digest_covers_output_state(
     const t64_host_allocator *allocator, const uint8_t *asset,
     size_t asset_length) {
   t64_machine *machine = create_machine(allocator, asset, asset_length);
@@ -1094,7 +1123,13 @@ static void test_v7_digest_covers_output_state(
   (void)digest_changes_and_restores(machine, &machine->output.captured[0],
                                     "v7 digest changes with captured bytes");
   (void)digest_changes_and_restores(machine, &machine->output.lost_output,
-                                    "v7 digest changes with sticky overflow state");
+                                    "v8 digest changes with sticky overflow state");
+  (void)digest_changes_and_restores(
+      machine, &machine->output.total_attempted_bytes,
+      "v8 digest changes with attempted output bytes");
+  (void)digest_changes_and_restores(
+      machine, &machine->output.total_attempted_bytes_saturated,
+      "v8 digest changes with attempted output total exactness");
   t64_machine_destroy(machine);
 }
 
@@ -1178,7 +1213,7 @@ static void test_actual_hello(const t64_host_allocator *allocator,
                T64_STATUS_OK,
                "public output drain remains available after terminal BREAK");
   check(drain.copied_bytes == sizeof host_output &&
-            drain.total_produced_bytes == sizeof host_output &&
+            drain.total_attempted_bytes == sizeof host_output &&
             !drain.lost_output &&
             memcmp(host_output, expected, sizeof host_output) == 0,
         "public drain copies the exact actual guest transcript");
@@ -1219,7 +1254,9 @@ static void test_actual_overflow_guest(const t64_host_allocator *allocator,
   exact = machine->output.captured_bytes == T64_ISVIEWER_CAPTURE_BYTES &&
           bytes_are(machine->output.captured, T64_ISVIEWER_CAPTURE_BYTES,
                     (uint8_t)'x') &&
-          machine->output.lost_output && machine->output.byte_count == 512u;
+          machine->output.lost_output && machine->output.byte_count == 512u &&
+          machine->output.total_attempted_bytes == UINT64_C(4097) &&
+          !machine->output.total_attempted_bytes_saturated;
   check(exact,
         "actual guest fills 4096 bytes then cannot append its 4097th byte");
   t64_machine_destroy(machine);
@@ -1253,7 +1290,7 @@ int main(void) {
     test_flush_boundaries(&allocator, asset, asset_length);
     test_count_lanes_and_repeat(&allocator, asset, asset_length);
     test_oversize_and_total_limit(&allocator, asset, asset_length);
-    test_v7_digest_covers_output_state(&allocator, asset, asset_length);
+    test_v8_digest_covers_output_state(&allocator, asset, asset_length);
     test_reset_and_instance_isolation(&allocator, asset, asset_length);
     test_public_output_and_input_seams(&allocator, asset, asset_length);
     test_output_drain_refusals_and_isolation(&allocator, asset, asset_length);

@@ -56,7 +56,8 @@ target_include_directories(t64_verified_input_test PUBLIC ${CMAKE_CURRENT_SOURCE
 target_link_libraries(t64_verified_input_test PRIVATE t64_common)
 t64_target_warnings(t64_verified_input_test)
 
-add_executable(t64-supervisor t64_supervisor.c t64_real_result.c)
+add_executable(t64-supervisor t64_supervisor.c t64_real_result.c
+  t64_real_fixture.c)
 target_compile_definitions(t64-supervisor PRIVATE
   ${T64_HOST_DEFS}
   T64_BUILD_ID=\"${PROJECT_VERSION}+synthetic\")
@@ -66,7 +67,7 @@ t64_target_warnings(t64-supervisor)
 
 # First headless real guest producer. It consumes verified inherited snapshots
 # and emits a canonical t64.result v2 record.
-add_executable(t64-runner-real t64_real.c t64_real_result.c)
+add_executable(t64-runner-real t64_real.c t64_real_result.c t64_real_fixture.c)
 target_compile_definitions(t64-runner-real PRIVATE ${T64_HOST_DEFS})
 target_link_libraries(t64-runner-real PRIVATE
   t64_input t64_common t64_core)
@@ -74,7 +75,7 @@ t64_target_warnings(t64-runner-real)
 add_dependencies(t64-supervisor t64-runner-real)
 
 # Test-only twin permits bounded post-guest report/process fault injection.
-add_executable(t64-runner-test t64_real.c t64_real_result.c)
+add_executable(t64-runner-test t64_real.c t64_real_result.c t64_real_fixture.c)
 target_compile_definitions(t64-runner-test PRIVATE
   ${T64_HOST_DEFS} T64_REAL_RUNNER_TESTING)
 target_link_libraries(t64-runner-test PRIVATE
@@ -99,7 +100,7 @@ set_tests_properties(controls.real.source-replaced PROPERTIES
   DEPENDS runner.fixture-descriptor)
 
 # Consumer of t64.result v1 records and t64.suite files (plan 01-07).
-add_executable(t64-result-check t64_result_check.c)
+add_executable(t64-result-check t64_result_check.c t64_real_fixture.c)
 target_compile_definitions(t64-result-check PRIVATE ${T64_HOST_DEFS})
 target_link_libraries(t64-result-check PRIVATE t64_classify t64_common)
 t64_target_warnings(t64-result-check)
@@ -107,7 +108,8 @@ add_dependencies(t64-supervisor t64-result-check)
 
 # Test-only supervisor exposes a barrier after both verified snapshots exist,
 # before launching the real producer, for synchronized replacement coverage.
-add_executable(t64-supervisor-test t64_supervisor.c t64_real_result.c)
+add_executable(t64-supervisor-test t64_supervisor.c t64_real_result.c
+  t64_real_fixture.c)
 target_compile_definitions(t64-supervisor-test PRIVATE
   ${T64_HOST_DEFS} T64_SUPERVISOR_TESTING)
 target_link_libraries(t64-supervisor-test PRIVATE
@@ -126,7 +128,28 @@ add_dependencies(test_real_controls
 add_test(NAME controls.real.empty-halt
   COMMAND test_real_controls $<TARGET_FILE:t64-supervisor>
     $<TARGET_FILE:t64-result-check> empty-halt)
-set_tests_properties(controls.real.empty-halt PROPERTIES
+add_test(NAME controls.real.empty-bound
+  COMMAND test_real_controls $<TARGET_FILE:t64-supervisor>
+    $<TARGET_FILE:t64-result-check> empty-bound)
+add_test(NAME controls.real.wrong-transcript
+  COMMAND test_real_controls $<TARGET_FILE:t64-supervisor>
+    $<TARGET_FILE:t64-result-check> wrong-transcript)
+add_test(NAME controls.real.unsupported-opcode
+  COMMAND test_real_controls $<TARGET_FILE:t64-supervisor>
+    $<TARGET_FILE:t64-result-check> unsupported-opcode)
+add_test(NAME controls.real.output-overflow
+  COMMAND test_real_controls $<TARGET_FILE:t64-supervisor>
+    $<TARGET_FILE:t64-result-check> output-overflow)
+add_test(NAME controls.real.identity-mismatch
+  COMMAND test_real_controls $<TARGET_FILE:t64-supervisor>
+    $<TARGET_FILE:t64-result-check> identity-mismatch)
+set_tests_properties(
+  controls.real.empty-halt
+  controls.real.empty-bound
+  controls.real.wrong-transcript
+  controls.real.unsupported-opcode
+  controls.real.output-overflow
+  controls.real.identity-mismatch PROPERTIES
   LABELS controls TIMEOUT 120
   ENVIRONMENT
     "T64_TEST_FIXTURE_DIR=${CMAKE_SOURCE_DIR}/build/fixtures;T64_TEST_INPUT_PATH=${CMAKE_SOURCE_DIR}/build/fixtures/hello.input.json")

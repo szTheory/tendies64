@@ -192,9 +192,10 @@ typedef struct {
 typedef struct {
   size_t copied_bytes;
   size_t required_bytes;
-  uint64_t total_produced_bytes;
+  uint64_t total_attempted_bytes;
   uint8_t captured_sha256[T64_DIGEST_SIZE];
   bool lost_output;
+  bool total_attempted_bytes_exact;
 } t64_output_drain_result;
 
 /* The returned descriptor is immutable and remains valid for program life. */

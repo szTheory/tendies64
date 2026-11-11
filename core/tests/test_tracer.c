@@ -209,7 +209,7 @@ static bool profile_v2_identity_is_serialized(
       !decode_sha256_hex(OPEN_IPL3_PAYLOAD_SHA256,
                          expected + T64_SHA256_DIGEST_SIZE) ||
       !decode_sha256_hex(
-          "4e3cf89c61b325ed76d950caa7752b2b8fcbca6a01a08dc202cc5271ace98a2b",
+          "b72156eaaae11171ca5f02642af4dc526b902311dd8cc1951d14cab5c1325864",
           expected + 2u * T64_SHA256_DIGEST_SIZE)) {
     return false;
   }
@@ -391,14 +391,14 @@ static void test_actual_open_ipl3_entry(void) {
   T64_CHECK_STR(profile->profile_id, OPEN_IPL3_PROFILE_ID);
   T64_CHECK_INT(profile->descriptor_version, 2u);
   T64_CHECK_INT(profile->machine_model_version, 2u);
-  T64_CHECK_INT(profile->state_serialization_version, 7u);
+  T64_CHECK_INT(profile->state_serialization_version, 8u);
   T64_CHECK_STR(profile->boot_status, "prepared-warm-entry-partial");
   T64_CHECK(decode_sha256_hex(OPEN_IPL3_ASSET_SHA256,
                               expected_asset_sha256));
   T64_CHECK(decode_sha256_hex(OPEN_IPL3_PAYLOAD_SHA256,
                               expected_payload_sha256));
   T64_CHECK(decode_sha256_hex(
-      "4e3cf89c61b325ed76d950caa7752b2b8fcbca6a01a08dc202cc5271ace98a2b",
+      "b72156eaaae11171ca5f02642af4dc526b902311dd8cc1951d14cab5c1325864",
       expected_policy_sha256));
   T64_CHECK(memcmp(profile->asset_sha256, expected_asset_sha256,
                    sizeof expected_asset_sha256) == 0);

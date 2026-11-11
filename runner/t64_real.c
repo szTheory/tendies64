@@ -14,11 +14,11 @@
 #include <unistd.h>
 
 #include "t64_input.h"
+#include "t64_real_fixture.h"
 #include "t64_real_result.h"
 #include "t64_sha256.h"
 #include "tendies64/t64_machine.h"
 
-#define T64_REAL_FIXTURE_SIZE 4280u
 #define T64_REAL_FIXTURE_MAX_BYTES (1u << 20)
 #define T64_REAL_OUTPUT_CAPACITY 4096u
 #define T64_REAL_EXPECTED_LOG_BYTES 30u
@@ -27,7 +27,7 @@
 #define T64_REAL_EXPECTED_PROFILE_ID "ntsc-cart-4m-openipl3-warm-v1"
 #define T64_REAL_EXPECTED_FIXTURE_ID "hello-openipl3"
 #define T64_REAL_EXPECTED_PROFILE_SHA256 \
-  "a171241f68c377f7c324a995a08ff8bd8da60bbe70df14193d8f4b8ae7e9769f"
+  "d8c12cb2a00410a2153ca62da318166f3ca029dea8e3d6b9c841262cb8203c71"
 #define T64_REAL_EXPECTED_ASSET_SHA256 \
   "f522db2e31a701f82597f399e76d55c9487760d015aff9d90176b463ae39a068"
 #define T64_REAL_EXPECTED_PAYLOAD_SHA256 \
@@ -252,6 +252,16 @@ static bool observe_trace_record(trace_observation *observation,
     observation->saw_ipl3_entry = true;
   }
   if (record->device == T64_TRACE_DEVICE_MACHINE &&
+      record->kind == T64_TRACE_KIND_CPU_ENTRY &&
+      (uint32_t)record->value == T64_REAL_HELLO_ENTRY_PC &&
+      !observation->saw_hello_entry) {
+    if (!add_milestone(observation->result, "hello-entry", record->tick,
+                       T64_REAL_HELLO_ENTRY_PC)) {
+      return false;
+    }
+    observation->saw_hello_entry = true;
+  }
+  if (record->device == T64_TRACE_DEVICE_MACHINE &&
       record->kind == T64_TRACE_KIND_CPU_RETIREMENT) {
     observation->retired++;
     observation->last_cpu_pc = pc;
@@ -325,12 +335,13 @@ static bool drain_trace(t64_machine *machine,
 
 static bool drain_output(t64_machine *machine, uint8_t output[4096],
                          size_t *length_io, uint64_t *total_out,
-                         bool *lost_out) {
+                         bool *lost_out, bool *total_exact_out) {
   t64_output_drain_result result;
   size_t capacity;
   t64_status status;
 
   if (length_io == NULL || total_out == NULL || lost_out == NULL ||
+      total_exact_out == NULL ||
       *length_io > T64_REAL_OUTPUT_CAPACITY) {
     return false;
   }
@@ -344,7 +355,10 @@ static bool drain_output(t64_machine *machine, uint8_t output[4096],
     return false;
   }
   *length_io += result.copied_bytes;
-  *total_out = result.total_produced_bytes;
+  *total_exact_out = result.total_attempted_bytes_exact;
+  *total_out = result.total_attempted_bytes_exact
+                   ? result.total_attempted_bytes
+                   : 0u;
   *lost_out = result.lost_output;
   return true;
 }
@@ -418,6 +432,7 @@ static bool valid_source_revision(const char *revision) {
 
 static bool initialize_launched_result(t64_real_result *result,
                                        const t64_profile_descriptor *profile,
+                                       const t64_real_fixture *fixture,
                                        const char *fixture_sha,
                                        const char *input_sha) {
   uint8_t profile_digest[T64_DIGEST_SIZE];
@@ -427,7 +442,7 @@ static bool initialize_launched_result(t64_real_result *result,
   char asset_hex[T64_SHA256_HEX_SIZE];
   char payload_hex[T64_SHA256_HEX_SIZE];
 
-  if (profile == NULL || !valid_build_identity(build_id) ||
+  if (profile == NULL || fixture == NULL || !valid_build_identity(build_id) ||
       !valid_source_revision(source_revision) ||
       t64_profile_hash(profile, profile_digest) != T64_STATUS_OK) {
     return false;
@@ -450,7 +465,7 @@ static bool initialize_launched_result(t64_real_result *result,
   (void)snprintf(result->profile_digest, sizeof result->profile_digest, "%s",
                  profile_hex);
   (void)snprintf(result->fixture_id, sizeof result->fixture_id, "%s",
-                 T64_REAL_EXPECTED_FIXTURE_ID);
+                 fixture->id);
   (void)snprintf(result->fixture_sha256, sizeof result->fixture_sha256, "%s",
                  fixture_sha);
   (void)snprintf(result->ipl3_sha256, sizeof result->ipl3_sha256, "%s",
@@ -483,6 +498,7 @@ static int run_real(int fixture_fd, int input_fd, uint64_t guest_ticks) {
   t64_input_schedule *schedule = NULL;
   t64_input_error input_error;
   const t64_profile_descriptor *profile = NULL;
+  const t64_real_fixture *fixture_identity = NULL;
   t64_machine *machine = NULL;
   t64_real_result result;
   trace_observation observations = {0};
@@ -490,6 +506,7 @@ static int run_real(int fixture_fd, int input_fd, uint64_t guest_ticks) {
   size_t output_length = 0u;
   uint64_t output_total = 0u;
   bool output_lost = false;
+  bool output_total_exact = true;
   uint64_t current_tick = 0u;
   uint64_t previous_yield_records = 0u;
   uint64_t resource_yields = 0u;
@@ -504,12 +521,13 @@ static int run_real(int fixture_fd, int input_fd, uint64_t guest_ticks) {
   char content_digest_hex[T64_SHA256_HEX_SIZE];
   bool qualified_completion;
 
-  if (!read_snapshot(fixture_fd, T64_REAL_FIXTURE_MAX_BYTES,
-                     T64_REAL_FIXTURE_SIZE, &fixture)) {
+  if (!read_snapshot(fixture_fd, T64_REAL_FIXTURE_MAX_BYTES, 0u, &fixture)) {
     exit_code = emit_prelaunch("refusal", "refused", guest_ticks, 0);
     goto cleanup;
   }
-  if (strcmp(fixture.sha256_hex, T64_REAL_EXPECTED_FIXTURE_SHA256) != 0) {
+  fixture_identity = t64_real_fixture_find_bytes(fixture.length,
+                                                 fixture.sha256_hex);
+  if (fixture_identity == NULL) {
     exit_code = emit_prelaunch("refusal", "refused", guest_ticks, 0);
     goto cleanup;
   }
@@ -551,7 +569,8 @@ static int run_real(int fixture_fd, int input_fd, uint64_t guest_ticks) {
       }
     }
   }
-  if (!initialize_launched_result(&result, profile, fixture.sha256_hex,
+  if (!initialize_launched_result(&result, profile, fixture_identity,
+                                  fixture.sha256_hex,
                                   input_digest)) {
     exit_code = emit_prelaunch("refusal", "refused", guest_ticks, 0);
     goto cleanup;
@@ -584,8 +603,7 @@ static int run_real(int fixture_fd, int input_fd, uint64_t guest_ticks) {
     (void)snprintf(result.guest_stop_kind, sizeof result.guest_stop_kind,
                    "host-error");
     (void)snprintf(result.outcome, sizeof result.outcome, "harness-error");
-    (void)snprintf(result.detail, sizeof result.detail,
-                   "core-content-mismatch");
+    (void)snprintf(result.detail, sizeof result.detail, "host-error");
     goto finalize;
   }
   observations.result = &result;
@@ -627,7 +645,7 @@ static int run_real(int fixture_fd, int input_fd, uint64_t guest_ticks) {
       if (status != T64_STATUS_OK || stop.tick < current_tick ||
           stop.tick > target || !drain_trace(machine, &observations) ||
           !drain_output(machine, output, &output_length, &output_total,
-                        &output_lost)) {
+                        &output_lost, &output_total_exact)) {
         (void)snprintf(result.guest_stop_kind, sizeof result.guest_stop_kind,
                        "host-error");
         (void)snprintf(result.outcome, sizeof result.outcome,
@@ -636,6 +654,13 @@ static int run_real(int fixture_fd, int input_fd, uint64_t guest_ticks) {
         goto finalize;
       }
       current_tick = stop.tick;
+      if (!output_total_exact) {
+        (void)snprintf(result.guest_stop_kind, sizeof result.guest_stop_kind,
+                       "host-error");
+        (void)snprintf(result.outcome, sizeof result.outcome, "harness-error");
+        (void)snprintf(result.detail, sizeof result.detail, "host-error");
+        goto finalize;
+      }
       if (output_lost) {
         (void)snprintf(result.guest_stop_kind, sizeof result.guest_stop_kind,
                        "output-overflow");
@@ -705,13 +730,28 @@ static int run_real(int fixture_fd, int input_fd, uint64_t guest_ticks) {
     goto finalize;
   }
 
+  if ((stop.reason == T64_STOP_REASON_GUEST_COMPLETION ||
+       stop.reason == T64_STOP_REASON_CPU_UNSUPPORTED) &&
+      !observations.saw_hello_entry &&
+      stop_detail.pc == T64_REAL_HELLO_ENTRY_PC) {
+    if (!add_milestone(&result, "hello-entry", stop.tick,
+                       T64_REAL_HELLO_ENTRY_PC)) {
+      (void)snprintf(result.guest_stop_kind, sizeof result.guest_stop_kind,
+                     "host-error");
+      (void)snprintf(result.outcome, sizeof result.outcome, "harness-error");
+      (void)snprintf(result.detail, sizeof result.detail, "host-error");
+      goto finalize;
+    }
+    observations.saw_hello_entry = true;
+  }
+
   if (stop.reason == T64_STOP_REASON_GUEST_COMPLETION) {
     qualified_completion =
-        strcmp(fixture.sha256_hex, T64_REAL_EXPECTED_FIXTURE_SHA256) == 0 &&
+        fixture_identity != NULL && fixture_identity->completion_pc != 0u &&
         observations.saw_completion &&
-        observations.completion_pc == T64_REAL_HELLO_PC &&
+        observations.completion_pc == fixture_identity->completion_pc &&
         observations.completion_opcode == T64_REAL_BREAK_OPCODE &&
-        stop_detail.pc == T64_REAL_HELLO_PC &&
+        stop_detail.pc == fixture_identity->completion_pc &&
         stop_detail.opcode == T64_REAL_BREAK_OPCODE &&
         observations.saw_ipl3_entry && observations.saw_loader_dma &&
         observations.saw_hello_entry;
@@ -731,7 +771,11 @@ static int run_real(int fixture_fd, int input_fd, uint64_t guest_ticks) {
       if (output_length == 0u) {
         (void)snprintf(result.outcome, sizeof result.outcome, "boot-fail");
         (void)snprintf(result.detail, sizeof result.detail, "empty-output");
-      } else if (output_length == sizeof expected_log - 1u &&
+      } else if (fixture_identity->pass_eligible &&
+                 strcmp(fixture_identity->id,
+                        T64_REAL_EXPECTED_FIXTURE_ID) == 0 &&
+                 fixture.sha256_hex[0] != '\0' &&
+                 output_length == sizeof expected_log - 1u &&
                  memcmp(output, expected_log, sizeof expected_log - 1u) == 0 &&
                  bytes_equal_hex(output, output_length,
                                  T64_REAL_EXPECTED_LOG_SHA256)) {
@@ -759,19 +803,34 @@ static int run_real(int fixture_fd, int input_fd, uint64_t guest_ticks) {
 finalize:
   result.guest_tick = stop.tick <= guest_ticks ? stop.tick : current_tick;
   result.instruction_count = observations.retired;
-  result.log_bytes = (uint64_t)output_length;
-  result.log_bytes_total = output_total;
-  if (result.log_bytes == result.log_bytes_total) {
-    if (digest_hex(output, output_length, output_digest)) {
-      (void)snprintf(result.log_sha256, sizeof result.log_sha256, "%s",
-                     output_digest);
-      result.has_log_sha256 = true;
-    }
-  } else if (strcmp(result.detail, "output-overflow") == 0) {
-    if (digest_hex(output, output_length, output_digest)) {
-      (void)snprintf(result.log_sha256, sizeof result.log_sha256, "%s",
-                     output_digest);
-      result.has_log_sha256 = true;
+  if (!output_total_exact) {
+    /* A saturated attempted-byte total is a lower bound, not an exact count.
+     * Do not publish either the saturated value or a partial capture as a
+     * verified log. */
+    output_length = 0u;
+    output_total = 0u;
+    result.has_log_sha256 = false;
+    result.log_bytes = 0u;
+    result.log_bytes_total = 0u;
+    (void)snprintf(result.guest_stop_kind, sizeof result.guest_stop_kind,
+                   "host-error");
+    (void)snprintf(result.outcome, sizeof result.outcome, "harness-error");
+    (void)snprintf(result.detail, sizeof result.detail, "host-error");
+  } else {
+    result.log_bytes = (uint64_t)output_length;
+    result.log_bytes_total = output_total;
+    if (result.log_bytes == result.log_bytes_total) {
+      if (digest_hex(output, output_length, output_digest)) {
+        (void)snprintf(result.log_sha256, sizeof result.log_sha256, "%s",
+                       output_digest);
+        result.has_log_sha256 = true;
+      }
+    } else if (strcmp(result.detail, "output-overflow") == 0) {
+      if (digest_hex(output, output_length, output_digest)) {
+        (void)snprintf(result.log_sha256, sizeof result.log_sha256, "%s",
+                       output_digest);
+        result.has_log_sha256 = true;
+      }
     }
   }
   if (machine != NULL &&

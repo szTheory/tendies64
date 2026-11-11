@@ -107,28 +107,32 @@ the CPU's exact non-retiring software debug-stop convention for BREAK
 `0x0000000d` outside delay slots, along with cache and warm-device policies
 and the libdragon ISViewer software contract: writable magic readback,
 512-byte big-endian buffer, count-register lanes, exact unpadded flush, reset
-state, and sticky 4096-byte capture limit.
+state, sticky 4096-byte retained prefix, and an exact u64 total of requested
+flush bytes including refused attempts. On u64 saturation the API reports the
+maximum with an explicit inexact flag; the real runner fails closed instead of
+writing that saturated value as an exact result total.
 
 The active profile descriptor v2 digest is
-`a171241f68c377f7c324a995a08ff8bd8da60bbe70df14193d8f4b8ae7e9769f`; the
-admitted-source initial state v7 digest is
-`5f49fcf4117746ea95df61234930c3775c042b6442d5a4b94baad8d87fd00d34`. The
-test-only reference encoder first reproduces the previous policy, profile and
-state values exactly (`831a0a58…`, `5775f197…`, `a3820a5b…`), then independently
-checks these current values. State v6 retains its previous meaning and bytes;
-the warm profile now explicitly selects state v7. The v1 synthetic goldens
-remain unchanged.
+`d8c12cb2a00410a2153ca62da318166f3ca029dea8e3d6b9c841262cb8203c71`; the
+admitted-source initial state v8 digest is
+`d2212ea39cadf8642cab2451fbcea484f5c6997d51619faef41e9ada24aa9724`. The
+test-only reference encoder preserves prior policy, profile and state values
+as independent historical vectors, then checks the new active values. State
+v6 and v7 keep their previous meanings and bytes; the warm profile now selects
+state v8. The v1 synthetic goldens remain unchanged.
 
 Profile serialization uses ASCII domain `T64PDESC`, u32 serialization version
 1, length-prefixed UTF-8 fields and big-endian u32 values in the order in
 `core/t64_machine.c`; its v2 tail contains the asset, payload and policy hashes
-plus seed-reset version. State v7 preserves the warm v6 CPU, boot, cache and
+plus seed-reset version. State v8 preserves the warm v6 CPU, boot, cache and
 device fields, then includes the output policy/readiness, magic register,
-pending byte count and full 512-byte buffer, captured length and full 4096-byte
-capture, and sticky loss flag in fixed order. The independent state test
-mutates each future-affecting output field and checks that the digest changes.
-Allocator addresses, unused queue storage, host time and trace data remain
-outside the digest.
+pending byte count and full 512-byte buffer, retained length and full 4096-byte
+capture, sticky loss flag, total attempted flush bytes, and total exactness
+flag in fixed order. State v7 remains verifiable with its previous output
+fields. Independent tests mutate every future-affecting output field, check
+the independent initial-state vector, and exercise saturation. Allocator
+addresses, unused queue storage, host time and trace data remain outside the
+digest.
 
 ## Observed loader and authored-entry path
 

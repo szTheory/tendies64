@@ -329,8 +329,10 @@ changes the canonical digest.
 ABI. The caller serializes it with `t64_machine_advance` and other calls on the
 same instance. It copies the not-yet-observed suffix of that instance's
 retained ISViewer capture into caller-owned storage and reports the copied
-length, required length, total retained guest bytes, SHA-256 of the complete
-retained prefix, and sticky loss state. A short buffer reports the required
+length, required length, exact total bytes requested by all nonzero guest
+flushes (including refused flushes), whether that total is exact, SHA-256 of
+the complete retained prefix, and sticky loss state. A u64 overflow saturates
+the total and marks it inexact. A short buffer reports the required
 length and observations without copying or advancing the cursor. Repeated
 drains with no new bytes copy zero. Host copying never releases the 4096-byte
 guest capture or changes guest identity.
@@ -353,7 +355,7 @@ The event only records a deterministic timed input observation. It is not
 consumed by SI, PIF, or a controller model. Invalid port/axis values, past
 ticks, unready or terminal machines, a full queue, and sequence exhaustion
 refuse without partial queue or sequence mutation. Input records are
-observer-only; the pending event tuple is included in state-v7 identity until
+observer-only; the pending event tuple is included in state-v8 identity until
 it dispatches.
 
 ## Replacement reset snapshot

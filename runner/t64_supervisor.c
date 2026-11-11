@@ -27,6 +27,7 @@
 #include "t64_jsonw.h"
 #include "t64_num.h"
 #include "t64_real_result.h"
+#include "t64_real_fixture.h"
 #include "t64_sha256.h"
 #include "t64_verified_input.h"
 #include "tendies64/t64_facade.h"
@@ -40,17 +41,14 @@
 #define LOG_LIMIT_MAX (64ull << 20)
 #define REPORT_MAX_BYTES 512u
 #define FSIZE_SLACK (64ull << 10)
-#define REAL_FIXTURE_SIZE 4280u
 #define REAL_INPUT_SIZE 54u
+#define REAL_INPUT_MAX_BYTES T64_VERIFIED_SCHEDULE_MAX_BYTES
 #define REAL_GUEST_TICKS UINT64_C(530500)
-#define REAL_FIXTURE_ID "hello-openipl3"
 #define REAL_PROFILE_ID "ntsc-cart-4m-openipl3-warm-v1"
-#define REAL_FIXTURE_SHA256 \
-  "fa276cc175a4e764b6fd5413193c44b51f38fd8135e33e400032827e02f27c7c"
 #define REAL_INPUT_SHA256 \
   "6d5593bc2d95465b44ec7ce7785e5ff7d7d53605de9b039a021bc697d226186d"
 #define REAL_PROFILE_SHA256 \
-  "a171241f68c377f7c324a995a08ff8bd8da60bbe70df14193d8f4b8ae7e9769f"
+  "d8c12cb2a00410a2153ca62da318166f3ca029dea8e3d6b9c841262cb8203c71"
 #define REAL_ASSET_SHA256 \
   "f522db2e31a701f82597f399e76d55c9487760d015aff9d90176b463ae39a068"
 #define REAL_PAYLOAD_SHA256 \
@@ -122,7 +120,7 @@ static int atomic_write(const char *path, const void *data, size_t len) {
 
 static int is_hex64(const char *s) {
   size_t i;
-  if (strlen(s) != 64) {
+  if (s == NULL || strlen(s) != 64) {
     return 0;
   }
   for (i = 0; i < 64; i++) {
@@ -413,12 +411,15 @@ typedef struct {
   const char *fixture;
   const char *fixture_sha;
   const char *input;
+  const char *input_sha256;
   const char *capture_out;
+  uint64_t input_size;
   uint64_t wall_ms;
   uint64_t bound;
   uint64_t log_limit;
   uint64_t expect_pass;
   int real_mode;
+  int input_options_seen;
 #ifdef T64_SUPERVISOR_TESTING
   uint64_t test_ready_fd;
   uint64_t test_gate_fd;
@@ -449,6 +450,8 @@ static int parse_args(int argc, char **argv, sup_args *a) {
       {"--fixture", &a->fixture, NULL, 1, 0},
       {"--fixture-sha256", &a->fixture_sha, NULL, 1, 0},
       {"--input", &a->input, NULL, 0, 0},
+      {"--input-size", NULL, &a->input_size, 0, 0},
+      {"--input-sha256", &a->input_sha256, NULL, 0, 0},
 #ifdef T64_SUPERVISOR_TESTING
       {"--test-ready-fd", NULL, &a->test_ready_fd, 0, 0},
       {"--test-gate-fd", NULL, &a->test_gate_fd, 0, 0},
@@ -482,6 +485,10 @@ static int parse_args(int argc, char **argv, sup_args *a) {
       bad = 1;
       break;
     }
+    if (strcmp(argv[i], "--input-size") == 0 ||
+        strcmp(argv[i], "--input-sha256") == 0) {
+      a->input_options_seen = 1;
+    }
     opts[k].seen = 1;
     if (opts[k].sp != NULL) {
       *opts[k].sp = argv[i + 1];
@@ -505,6 +512,20 @@ static int parse_args(int argc, char **argv, sup_args *a) {
     if (a->result == NULL || a->meta == NULL || a->work_dir == NULL ||
         a->wall_ms == 0u || a->fixture == NULL || a->input == NULL ||
         a->runner_argc != 0) {
+      bad = 1;
+    }
+    if (!bad && a->input_options_seen) {
+      if (a->input_size == 0u || a->input_size > REAL_INPUT_MAX_BYTES ||
+          !is_hex64(a->input_sha256)) {
+        bad = 1;
+      }
+    } else if (!bad) {
+      a->input_size = REAL_INPUT_SIZE;
+      a->input_sha256 = REAL_INPUT_SHA256;
+    }
+    if (!bad && a->bound == 0u) {
+      a->bound = REAL_GUEST_TICKS;
+    } else if (!bad && a->bound > UINT64_C(600000)) {
       bad = 1;
     }
 #ifdef T64_SUPERVISOR_TESTING
@@ -537,7 +558,7 @@ static int parse_args(int argc, char **argv, sup_args *a) {
          a->wall_ms == 0u || a->log_limit > LOG_LIMIT_MAX ||
          a->fixture_id == NULL || !valid_fixture_id(a->fixture_id) ||
          a->fixture_sha == NULL || !is_hex64(a->fixture_sha) ||
-         a->input != NULL)) {
+         a->input != NULL || a->input_options_seen)) {
       bad = 1;
     }
   }
@@ -717,10 +738,13 @@ static int real_checker_accepts(char *checker, char *report) {
 static int real_report_matches_capture(const uint8_t *bytes, size_t length,
                                        const uint8_t *capture,
                                        size_t capture_length,
-                                       uint64_t capture_total) {
+                                       uint64_t capture_total,
+                                       const t64_real_fixture *fixture,
+                                       const char *input_digest) {
   t64_json_doc document = {0};
   const t64_json_node *root;
   const t64_json_node *counts;
+  const t64_json_node *stop;
   const char *build_id = t64_build_identity();
   const char *source_revision = t64_source_revision();
   uint64_t log_bytes = 0u;
@@ -730,28 +754,48 @@ static int real_report_matches_capture(const uint8_t *bytes, size_t length,
   int valid = 0;
 
   if (bytes == NULL || length == 0u || build_id == NULL ||
-      source_revision == NULL ||
+      source_revision == NULL || fixture == NULL || input_digest == NULL ||
       t64_json_parse(bytes, length, NULL, &document, NULL) != 0) {
     return 0;
   }
   root = document.root;
   counts = t64_json_get(root, "counts");
+  stop = t64_json_get(root, "guest_stop");
   if (counts == NULL || counts->type != T64_JSON_OBJECT ||
       !real_json_string_equals(root, "build_id", build_id) ||
       !real_json_string_equals(root, "source_revision", source_revision) ||
       !real_json_string_equals(root, "profile_id", REAL_PROFILE_ID) ||
       !real_json_string_equals(root, "profile_digest", REAL_PROFILE_SHA256) ||
-      !real_json_string_equals(root, "fixture_id", REAL_FIXTURE_ID) ||
-      !real_json_string_equals(root, "fixture_sha256", REAL_FIXTURE_SHA256) ||
+      !real_json_string_equals(root, "fixture_id", fixture->id) ||
+      !real_json_string_equals(root, "fixture_sha256", fixture->sha256) ||
       !real_json_string_equals(root, "ipl3_sha256", REAL_ASSET_SHA256) ||
       !real_json_string_equals(root, "ipl3_payload_sha256",
                                REAL_PAYLOAD_SHA256) ||
-      !real_json_string_equals(root, "input_digest", REAL_INPUT_SHA256) ||
+      !real_json_string_equals(root, "input_digest", input_digest) ||
       !real_json_u64(counts, "log_bytes", &log_bytes) ||
       !real_json_u64(counts, "log_bytes_total", &log_total) ||
-      log_bytes != (uint64_t)capture_length || log_total != capture_total ||
+      log_bytes != (uint64_t)capture_length ||
+      capture_total != (uint64_t)capture_length ||
+      (log_total != capture_total &&
+       !(log_total > capture_total && log_bytes == UINT64_C(4096) &&
+         capture_length == 4096u &&
+         real_json_string_equals(root, "outcome", "harness-error") &&
+         real_json_string_equals(root, "detail", "output-overflow") &&
+         real_json_string_equals(stop, "kind", "output-overflow"))) ||
       log_total < log_bytes ||
       capture_length > T64_REAL_RESULT_MAX_BYTES) {
+    goto done;
+  }
+  if (t64_json_get(root, "log_sha256")->type == T64_JSON_NULL &&
+      log_bytes == 0u && log_total == 0u && capture_length == 0u &&
+      capture_total == 0u &&
+      real_json_string_equals(root, "outcome", "harness-error") &&
+      real_json_string_equals(root, "detail", "host-error") &&
+      real_json_string_equals(stop, "kind", "host-error")) {
+    /* The producer may know the capture is untrustworthy while its attempted
+     * total counter is saturated. Preserve that as an unknown log, not a
+     * fabricated exact count or an empty-log digest. */
+    valid = 1;
     goto done;
   }
   {
@@ -884,19 +928,20 @@ static int real_result_write_atomic(const char *path,
 }
 
 static void real_set_prelaunch(t64_real_result *result, const char *outcome,
-                               const char *detail, const char *stop_kind) {
+                               const char *detail, const char *stop_kind,
+                               uint64_t bound_tick) {
   memset(result, 0, sizeof *result);
   result->prelaunch = true;
   (void)snprintf(result->guest_stop_kind, sizeof result->guest_stop_kind,
                  "%s", stop_kind);
   (void)snprintf(result->outcome, sizeof result->outcome, "%s", outcome);
   (void)snprintf(result->detail, sizeof result->detail, "%s", detail);
-  result->bound_tick = REAL_GUEST_TICKS;
+  result->bound_tick = bound_tick;
 }
 
-static int real_schedule_digest(int fd,
+static int real_schedule_digest(int fd, uint64_t expected_size,
                                 char output[T64_REAL_RESULT_HEX_SIZE]) {
-  uint8_t raw[REAL_INPUT_SIZE];
+  uint8_t raw[REAL_INPUT_MAX_BYTES];
   t64_input_schedule *schedule = NULL;
   t64_input_error input_error;
   size_t total = 0u;
@@ -904,14 +949,24 @@ static int real_schedule_digest(int fd,
   const uint8_t *canonical;
   t64_sha256_ctx hash;
   uint8_t digest[T64_SHA256_DIGEST_SIZE];
-  if (lseek(fd, 0, SEEK_SET) != 0) return -1;
-  while (total < sizeof raw) {
-    ssize_t count = read(fd, raw + total, sizeof raw - total);
+  uint8_t extra;
+  if (expected_size == 0u || expected_size > sizeof raw ||
+      lseek(fd, 0, SEEK_SET) != 0) {
+    return -1;
+  }
+  while (total < (size_t)expected_size) {
+    ssize_t count = read(fd, raw + total, (size_t)expected_size - total);
     if (count < 0 && errno == EINTR) continue;
     if (count <= 0) return -1;
     total += (size_t)count;
   }
-  if (t64_input_parse(raw, sizeof raw, &schedule, &input_error) !=
+  for (;;) {
+    ssize_t count = read(fd, &extra, sizeof extra);
+    if (count < 0 && errno == EINTR) continue;
+    if (count != 0) return -1;
+    break;
+  }
+  if (t64_input_parse(raw, total, &schedule, &input_error) !=
       T64_INPUT_OK) {
     return -1;
   }
@@ -926,10 +981,54 @@ static int real_schedule_digest(int fd,
   t64_sha256_hex(digest, output);
   t64_input_schedule_destroy(schedule);
   if (lseek(fd, 0, SEEK_SET) != 0) return -1;
-  return strcmp(output, REAL_INPUT_SHA256) == 0 ? 0 : -1;
+  return 0;
+}
+
+static int real_fixture_identify_path(const char *path,
+                                      const t64_real_fixture **fixture_out,
+                                      int *missing_out) {
+  uint8_t buffer[16384];
+  t64_sha256_ctx hash;
+  uint8_t digest[T64_SHA256_DIGEST_SIZE];
+  char digest_hex[T64_SHA256_HEX_SIZE];
+  struct stat st;
+  uint64_t total = 0u;
+  int fd;
+
+  if (path == NULL || fixture_out == NULL || missing_out == NULL) return -1;
+  *fixture_out = NULL;
+  *missing_out = 0;
+  fd = open(path, O_RDONLY | O_NOFOLLOW | O_NONBLOCK | O_CLOEXEC);
+  if (fd < 0) {
+    if (errno == ENOENT || errno == ENOTDIR) *missing_out = 1;
+    return -1;
+  }
+  if (fstat(fd, &st) != 0 || !S_ISREG(st.st_mode) || st.st_size <= 0 ||
+      (uint64_t)st.st_size > T64_VERIFIED_FIXTURE_MAX_BYTES) {
+    close(fd);
+    return -1;
+  }
+  t64_sha256_init(&hash);
+  for (;;) {
+    ssize_t count = read(fd, buffer, sizeof buffer);
+    if (count < 0 && errno == EINTR) continue;
+    if (count < 0 || (uint64_t)count > T64_VERIFIED_FIXTURE_MAX_BYTES - total) {
+      close(fd);
+      return -1;
+    }
+    if (count == 0) break;
+    t64_sha256_update(&hash, buffer, (size_t)count);
+    total += (uint64_t)count;
+  }
+  if (close(fd) != 0 || total != (uint64_t)st.st_size) return -1;
+  t64_sha256_final(&hash, digest);
+  t64_sha256_hex(digest, digest_hex);
+  *fixture_out = t64_real_fixture_find_bytes((size_t)total, digest_hex);
+  return *fixture_out == NULL ? 0 : 1;
 }
 
 static int real_result_initialize(t64_real_result *result,
+                                  const t64_real_fixture *fixture,
                                   const char *input_digest) {
   const t64_profile_descriptor *profile = NULL;
   const char *build_id = t64_build_identity();
@@ -938,7 +1037,8 @@ static int real_result_initialize(t64_real_result *result,
   char profile_hex[T64_SHA256_HEX_SIZE];
   char asset_hex[T64_SHA256_HEX_SIZE];
   char payload_hex[T64_SHA256_HEX_SIZE];
-  if (result == NULL || build_id == NULL || source_revision == NULL ||
+  if (result == NULL || fixture == NULL || build_id == NULL ||
+      source_revision == NULL ||
       input_digest == NULL ||
       strlen(build_id) >= sizeof result->build_id ||
       strlen(source_revision) >= sizeof result->source_revision ||
@@ -952,8 +1052,7 @@ static int real_result_initialize(t64_real_result *result,
   t64_sha256_hex(profile->payload_sha256, payload_hex);
   if (strcmp(profile_hex, REAL_PROFILE_SHA256) != 0 ||
       strcmp(asset_hex, REAL_ASSET_SHA256) != 0 ||
-      strcmp(payload_hex, REAL_PAYLOAD_SHA256) != 0 ||
-      strcmp(input_digest, REAL_INPUT_SHA256) != 0) {
+      strcmp(payload_hex, REAL_PAYLOAD_SHA256) != 0) {
     return -1;
   }
   memset(result, 0, sizeof *result);
@@ -965,9 +1064,9 @@ static int real_result_initialize(t64_real_result *result,
   (void)snprintf(result->profile_digest, sizeof result->profile_digest, "%s",
                  profile_hex);
   (void)snprintf(result->fixture_id, sizeof result->fixture_id, "%s",
-                 REAL_FIXTURE_ID);
+                 fixture->id);
   (void)snprintf(result->fixture_sha256, sizeof result->fixture_sha256, "%s",
-                 REAL_FIXTURE_SHA256);
+                 fixture->sha256);
   (void)snprintf(result->ipl3_sha256, sizeof result->ipl3_sha256, "%s",
                  asset_hex);
   (void)snprintf(result->ipl3_payload_sha256,
@@ -1013,9 +1112,10 @@ static int real_result_set_capture(t64_real_result *result,
 }
 
 static int real_write_prelaunch(const char *path, const char *outcome,
-                                const char *detail, const char *stop_kind) {
+                                const char *detail, const char *stop_kind,
+                                uint64_t bound_tick) {
   t64_real_result result;
-  real_set_prelaunch(&result, outcome, detail, stop_kind);
+  real_set_prelaunch(&result, outcome, detail, stop_kind, bound_tick);
   return real_result_write_atomic(path, &result);
 }
 
@@ -1082,6 +1182,7 @@ static int real_run_mode(const sup_args *args, const char *self_path) {
   t64_verified_input input = {-1, 0u, {0u}, {0}, 0u};
   t64_verified_input_status fixture_status;
   t64_verified_input_status input_status;
+  const t64_real_fixture *fixture_identity = NULL;
   t64_real_result identities;
   workset ws;
   char canonical_input[T64_REAL_RESULT_HEX_SIZE];
@@ -1111,6 +1212,8 @@ static int real_run_mode(const sup_args *args, const char *self_path) {
   uint64_t deadline = 0u;
   bool wall_backstop = false;
   bool supervisor_signalled = false;
+  int fixture_missing = 0;
+  int fixture_known;
   int exec_failed = 0;
   int runner_status = 0;
   struct rlimit limit;
@@ -1121,32 +1224,48 @@ static int real_run_mode(const sup_args *args, const char *self_path) {
 #endif
 
   memset(&ws, 0, sizeof ws);
+  fixture_known = real_fixture_identify_path(args->fixture,
+                                             &fixture_identity,
+                                             &fixture_missing);
+  if (fixture_known != 1 || fixture_identity == NULL) {
+    if (fixture_missing) {
+      (void)real_write_prelaunch(args->result, "missing-fixture",
+                                 "fixture-absent", "not-started",
+                                 args->bound);
+    } else {
+      (void)real_write_prelaunch(args->result, "harness-error", "refusal",
+                                 "refused", args->bound);
+    }
+    goto cleanup;
+  }
   fixture_status = t64_verified_input_prepare(
-      args->fixture, REAL_FIXTURE_SIZE, REAL_FIXTURE_SHA256,
+      args->fixture, fixture_identity->size, fixture_identity->sha256,
       T64_VERIFIED_FIXTURE_MAX_BYTES, &fixture);
   if (fixture_status != T64_VERIFIED_INPUT_OK) {
-    const char *outcome = fixture_status == T64_VERIFIED_INPUT_MISSING
-                              ? "missing-fixture"
-                              : "harness-error";
-    const char *detail = fixture_status == T64_VERIFIED_INPUT_MISSING
-                             ? "fixture-absent"
-                             : "refusal";
-    (void)real_write_prelaunch(args->result, outcome, detail, "not-started");
+    if (fixture_status == T64_VERIFIED_INPUT_MISSING) {
+      (void)real_write_prelaunch(args->result, "missing-fixture",
+                                 "fixture-absent", "not-started",
+                                 args->bound);
+    } else {
+      (void)real_write_prelaunch(args->result, "harness-error", "refusal",
+                                 "refused", args->bound);
+    }
     goto cleanup;
   }
   input_status = t64_verified_input_prepare(
-      args->input, REAL_INPUT_SIZE, REAL_INPUT_SHA256,
+      args->input, args->input_size, args->input_sha256,
       T64_VERIFIED_SCHEDULE_MAX_BYTES, &input);
   if (input_status != T64_VERIFIED_INPUT_OK ||
-      real_schedule_digest(input.fd, canonical_input) != 0 ||
-      real_result_initialize(&identities, canonical_input) != 0) {
+      real_schedule_digest(input.fd, args->input_size, canonical_input) != 0 ||
+      real_result_initialize(&identities, fixture_identity,
+                             canonical_input) != 0) {
     (void)real_write_prelaunch(args->result, "harness-error", "refusal",
-                               "refused");
+                               "refused", args->bound);
     goto cleanup;
   }
   if (real_test_barrier(args) != 0) {
     (void)real_write_prelaunch(args->result, "harness-error", "refusal",
-                               "refused");
+                               "refused", args->bound);
     goto cleanup;
   }
   start_ms = now_ms();
@@ -1155,7 +1274,7 @@ static int real_run_mode(const sup_args *args, const char *self_path) {
       real_resolve_sibling(self_path, "t64-result-check", checker_path,
                            sizeof checker_path) != 0) {
     (void)real_write_prelaunch(args->result, "harness-error", "exec-failed",
-                               "not-started");
+                               "not-started", args->bound);
     goto cleanup;
   }
   {
@@ -1164,7 +1283,7 @@ static int real_run_mode(const sup_args *args, const char *self_path) {
     if (length <= 0 || (size_t)length >= sizeof ws.dir ||
         mkdtemp(ws.dir) == NULL) {
       (void)real_write_prelaunch(args->result, "harness-error", "usage",
-                                 "not-started");
+                                 "not-started", args->bound);
       goto cleanup;
     }
   }
@@ -1175,7 +1294,7 @@ static int real_run_mode(const sup_args *args, const char *self_path) {
   capture_fd = create_private(ws.capture);
   if (report_fd < 0 || capture_fd < 0) {
     (void)real_write_prelaunch(args->result, "harness-error", "usage",
-                               "not-started");
+                               "not-started", args->bound);
     goto cleanup;
   }
   close(report_fd);
@@ -1195,7 +1314,7 @@ static int real_run_mode(const sup_args *args, const char *self_path) {
   (void)snprintf(fixture_fd_text, sizeof fixture_fd_text, "%d", fixture.fd);
   (void)snprintf(input_fd_text, sizeof input_fd_text, "%d", input.fd);
   (void)snprintf(guest_ticks_text, sizeof guest_ticks_text, "%llu",
-                 (unsigned long long)REAL_GUEST_TICKS);
+                 (unsigned long long)args->bound);
   deadline = args->wall_ms > UINT64_MAX - start_ms
                  ? UINT64_MAX
                  : start_ms + args->wall_ms;
@@ -1249,7 +1368,7 @@ static int real_run_mode(const sup_args *args, const char *self_path) {
   (void)setpgid(pid, pid);
   close(exec_pipe[1]);
   exec_pipe[1] = -1;
-  identities.bound_tick = REAL_GUEST_TICKS;
+  identities.bound_tick = args->bound;
   for (;;) {
     siginfo_t info;
     memset(&info, 0, sizeof info);
@@ -1298,7 +1417,7 @@ static int real_run_mode(const sup_args *args, const char *self_path) {
         real_checker_accepts(checker_path, ws.report);
     capture_matches_report = real_report_matches_capture(
         (const uint8_t *)report_bytes, (size_t)report_length, capture,
-        capture_length, capture_total);
+        capture_length, capture_total, fixture_identity, canonical_input);
     report_valid = report_schema_valid && capture_matches_report;
   }
   process_ok = !wall_backstop && !supervisor_signalled && !exec_failed &&
@@ -1369,7 +1488,7 @@ static int real_run_mode(const sup_args *args, const char *self_path) {
 
 before_launch_error:
   (void)real_write_prelaunch(args->result, "harness-error", "exec-failed",
-                             "not-started");
+                             "not-started", args->bound);
   goto cleanup;
 
 cleanup:
@@ -1443,7 +1562,7 @@ int main(int argc, char **argv) {
     if (parse_rc != 0) {
       if (result_path != NULL) {
         (void)real_write_prelaunch(result_path, "harness-error", "usage",
-                                   "not-started");
+                                   "not-started", REAL_GUEST_TICKS);
       }
       return 2;
     }

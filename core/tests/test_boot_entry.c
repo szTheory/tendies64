@@ -281,12 +281,15 @@ static void reference_machine_digest(const t64_machine *machine,
       't', '6', '4', '.', 's', 't', 'a', 't', 'e', '.', 'v', '6'};
   static const uint8_t domain_v7[] = {
       't', '6', '4', '.', 's', 't', 'a', 't', 'e', '.', 'v', '7'};
+  static const uint8_t domain_v8[] = {
+      't', '6', '4', '.', 's', 't', 'a', 't', 'e', '.', 'v', '8'};
   const bool v7 = machine->profile.state_serialization_version == 7u;
+  const bool v8 = machine->profile.state_serialization_version == 8u;
   t64_sha256_ctx context;
   size_t i;
 
   t64_sha256_init(&context);
-  t64_sha256_update(&context, v7 ? domain_v7 : domain_v6,
+  t64_sha256_update(&context, v8 ? domain_v8 : (v7 ? domain_v7 : domain_v6),
                     sizeof domain_v6);
   reference_hash_u32(&context, machine->profile.state_serialization_version);
   t64_sha256_update(&context, machine->profile_digest,
@@ -411,7 +414,7 @@ static void reference_machine_digest(const t64_machine *machine,
   reference_hash_u32(&context, machine->output.policy_version);
   reference_hash_u32(&context, machine->output.video_output_ready ? 1u : 0u);
   reference_hash_u32(&context, machine->output.audio_output_ready ? 1u : 0u);
-  if (v7) {
+  if (v7 || v8) {
     reference_hash_u32(&context, machine->output.magic_register);
     reference_hash_u32(&context, machine->output.byte_count);
     reference_hash_u32(&context, T64_ISVIEWER_BUFFER_BYTES);
@@ -422,6 +425,12 @@ static void reference_machine_digest(const t64_machine *machine,
     t64_sha256_update(&context, machine->output.captured,
                       sizeof machine->output.captured);
     reference_hash_u32(&context, machine->output.lost_output ? 1u : 0u);
+    if (v8) {
+      reference_hash_u64(&context, machine->output.total_attempted_bytes);
+      reference_hash_u32(
+          &context,
+          machine->output.total_attempted_bytes_saturated ? 1u : 0u);
+    }
   }
   t64_sha256_final(&context, digest);
 }
@@ -435,12 +444,18 @@ int main(void) {
       "a171241f68c377f7c324a995a08ff8bd8da60bbe70df14193d8f4b8ae7e9769f";
   static const char expected_v7_state_sha256[] =
       "5f49fcf4117746ea95df61234930c3775c042b6442d5a4b94baad8d87fd00d34";
+  static const char expected_v8_profile_sha256[] =
+      "d8c12cb2a00410a2153ca62da318166f3ca029dea8e3d6b9c841262cb8203c71";
+  static const char expected_v8_state_sha256[] =
+      "d2212ea39cadf8642cab2451fbcea484f5c6997d51619faef41e9ada24aa9724";
   static const char expected_asset_sha256[] =
       "f522db2e31a701f82597f399e76d55c9487760d015aff9d90176b463ae39a068";
   static const char expected_payload_sha256[] =
       "f716a90b1d36ec4253d096790791256d3543455e54473a755ff8c3d1199b15d5";
-  static const char expected_policy_sha256[] =
+  static const char expected_v7_policy_sha256[] =
       "4e3cf89c61b325ed76d950caa7752b2b8fcbca6a01a08dc202cc5271ace98a2b";
+  static const char expected_v8_policy_sha256[] =
+      "b72156eaaae11171ca5f02642af4dc526b902311dd8cc1951d14cab5c1325864";
   static const char expected_v6_policy_sha256[] =
       "831a0a58ef8f82bc54f880ad5a1259bddf1b3d2e21680ac6637ea5994705a7fe";
   static const uint8_t zero_dmem_prefix[IPL3_DMEM_OFFSET] = {0u};
@@ -450,15 +465,18 @@ int main(void) {
       test_allocate, test_release, &allocator_state_value};
   t64_profile_descriptor altered_profile;
   t64_profile_descriptor legacy_profile;
+  t64_profile_descriptor legacy_v7_profile;
   t64_machine *machine = NULL;
   t64_machine *rejected_machine = NULL;
   t64_machine legacy_machine;
+  t64_machine legacy_v7_machine;
   uint8_t asset[IPL3_ASSET_BYTES];
   uint8_t altered_asset[IPL3_ASSET_BYTES];
   uint8_t digest[T64_DIGEST_SIZE];
   uint8_t expected_asset_digest[T64_DIGEST_SIZE];
   uint8_t expected_payload_digest[T64_DIGEST_SIZE];
   uint8_t expected_policy_digest[T64_DIGEST_SIZE];
+  uint8_t expected_v7_policy_digest[T64_DIGEST_SIZE];
   uint8_t expected_v6_policy_digest[T64_DIGEST_SIZE];
   uint8_t reference_digest[T64_DIGEST_SIZE];
   uint8_t reference_profile[T64_DIGEST_SIZE];
@@ -504,16 +522,30 @@ int main(void) {
   T64_CHECK_INT(profile->rom_max_bytes, UINT32_C(1048576));
   T64_CHECK_INT(profile->descriptor_version, 2u);
   T64_CHECK_INT(profile->machine_model_version, 2u);
-  T64_CHECK_INT(profile->state_serialization_version, 7u);
+  T64_CHECK_INT(profile->state_serialization_version, 8u);
   T64_CHECK_INT(profile->hle_seed_reset_version, 1u);
   T64_CHECK(decode_sha256_hex(expected_asset_sha256, expected_asset_digest));
   T64_CHECK(decode_sha256_hex(expected_payload_sha256,
                               expected_payload_digest));
-  T64_CHECK(decode_sha256_hex(expected_policy_sha256,
+  T64_CHECK(decode_sha256_hex(expected_v8_policy_sha256,
                               expected_policy_digest));
+  T64_CHECK(decode_sha256_hex(expected_v7_policy_sha256,
+                              expected_v7_policy_digest));
   T64_CHECK(decode_sha256_hex(expected_v6_policy_sha256,
                               expected_v6_policy_digest));
-  legacy_profile = *profile;
+  legacy_v7_profile = *profile;
+  legacy_v7_profile.state_serialization_version = 7u;
+  (void)memcpy(legacy_v7_profile.boot_policy_sha256,
+               expected_v7_policy_digest,
+               sizeof legacy_v7_profile.boot_policy_sha256);
+  reference_profile_digest(&legacy_v7_profile, reference_profile);
+  digest_to_hex(reference_profile, profile_hex);
+  T64_CHECK_STR(profile_hex, expected_v7_profile_sha256);
+  T64_CHECK_INT(t64_profile_hash(&legacy_v7_profile, digest),
+                T64_STATUS_OK);
+  T64_CHECK(memcmp(digest, reference_profile, sizeof digest) == 0);
+
+  legacy_profile = legacy_v7_profile;
   legacy_profile.state_serialization_version = 6u;
   (void)memcpy(legacy_profile.boot_policy_sha256, expected_v6_policy_digest,
                sizeof legacy_profile.boot_policy_sha256);
@@ -527,7 +559,7 @@ int main(void) {
   digest_to_hex(reference_profile, profile_hex);
   T64_CHECK_INT(t64_profile_hash(profile, digest), T64_STATUS_OK);
   T64_CHECK(memcmp(digest, reference_profile, sizeof digest) == 0);
-  T64_CHECK_STR(profile_hex, expected_v7_profile_sha256);
+  T64_CHECK_STR(profile_hex, expected_v8_profile_sha256);
 
   altered_profile = *profile;
   altered_profile.boot_policy_sha256[0] ^= UINT8_C(1);
@@ -582,6 +614,22 @@ int main(void) {
   T64_CHECK(memcmp(machine->boot.policy_sha256, expected_policy_digest,
                    sizeof expected_policy_digest) == 0);
 
+  legacy_v7_machine = *machine;
+  legacy_v7_machine.profile = legacy_v7_profile;
+  reference_profile_digest(&legacy_v7_profile,
+                           legacy_v7_machine.profile_digest);
+  (void)memcpy(legacy_v7_machine.boot.policy_sha256,
+               expected_v7_policy_digest,
+               sizeof legacy_v7_machine.boot.policy_sha256);
+  legacy_v7_machine.output.policy_version = 2u;
+  reference_machine_digest(&legacy_v7_machine, reference_digest);
+  digest_to_hex(reference_digest, state_hex);
+  T64_CHECK_STR(state_hex, expected_v7_state_sha256);
+  T64_CHECK_INT(t64_machine_digest(&legacy_v7_machine, production_digest),
+                T64_STATUS_OK);
+  T64_CHECK(memcmp(production_digest, reference_digest,
+                   sizeof reference_digest) == 0);
+
   legacy_machine = *machine;
   legacy_machine.profile = legacy_profile;
   reference_profile_digest(&legacy_profile, legacy_machine.profile_digest);
@@ -601,7 +649,7 @@ int main(void) {
   reference_machine_digest(machine, reference_digest);
   T64_CHECK(memcmp(digest, reference_digest, sizeof digest) == 0);
   digest_to_hex(reference_digest, state_hex);
-  T64_CHECK_STR(state_hex, expected_v7_state_sha256);
+  T64_CHECK_STR(state_hex, expected_v8_state_sha256);
 
   T64_CHECK_INT(t64_machine_advance(machine, &request, &result),
                 T64_STATUS_OK);

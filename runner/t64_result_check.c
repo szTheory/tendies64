@@ -27,6 +27,7 @@
 
 #include "t64_classify.h"
 #include "t64_json.h"
+#include "t64_real_fixture.h"
 #include "t64_jsonw.h"
 #include "t64_sha256.h"
 
@@ -93,7 +94,7 @@ static const char *const milestone_names[] = {
 
 static const char expected_profile_id[] = "ntsc-cart-4m-openipl3-warm-v1";
 static const char expected_profile_digest[] =
-    "a171241f68c377f7c324a995a08ff8bd8da60bbe70df14193d8f4b8ae7e9769f";
+    "d8c12cb2a00410a2153ca62da318166f3ca029dea8e3d6b9c841262cb8203c71";
 static const char expected_ipl3_sha256[] =
     "f522db2e31a701f82597f399e76d55c9487760d015aff9d90176b463ae39a068";
 static const char expected_ipl3_payload_sha256[] =
@@ -939,17 +940,18 @@ static int validate_real_result(const t64_json_node *root, rec *r, diag *d) {
       set_diag(d, "R-TYPE", "real identities must use their closed name and SHA-256 forms");
       return 0;
     }
+    if (t64_real_fixture_find_identity(fixture_id->str,
+                                       fixture_sha->str) == NULL) {
+      set_diag(d, "R-IDENTITY",
+               "fixture id and SHA-256 pair is not in the real smoke allowlist");
+      return 0;
+    }
     if (!str_is(t64_json_get(root, "profile_id"), expected_profile_id) ||
         !str_is(t64_json_get(root, "profile_digest"), expected_profile_digest) ||
         !str_is(t64_json_get(root, "ipl3_sha256"), expected_ipl3_sha256) ||
         !str_is(t64_json_get(root, "ipl3_payload_sha256"),
                 expected_ipl3_payload_sha256)) {
       set_diag(d, "R-IDENTITY", "profile or pinned IPL3 identity does not match this v2 contract");
-      return 0;
-    }
-    if (str_is(fixture_id, expected_fixture_id) &&
-        !str_is(fixture_sha, expected_fixture_sha256)) {
-      set_diag(d, "R-IDENTITY", "hello-openipl3 fixture digest does not match the manifest");
       return 0;
     }
   }
