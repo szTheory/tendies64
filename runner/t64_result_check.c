@@ -55,6 +55,9 @@ static const char *const real_result_keys[] = {
     "ipl3_payload_sha256", "ipl3_sha256", "log_sha256", "milestones",
     "outcome",        "profile_digest", "profile_id", "schema",
     "schema_version", "source_revision", "state_digest"};
+static const char *const boot_evidence_keys[] = {
+    "commit_sha", "job_name", "result", "run_attempt", "run_id", "schema",
+    "schema_version"};
 
 static const char *const count_keys[] = {
     "fail_reported", "log_bytes",     "log_bytes_total",
@@ -1591,6 +1594,129 @@ static int cmd_result(const char *path) {
   return EXIT_OK;
 }
 
+static int lower_hex_text(const char *text, size_t expected_len) {
+  size_t i;
+  if (text == NULL || strlen(text) != expected_len) return 0;
+  for (i = 0; i < expected_len; i++) {
+    if (!((text[i] >= '0' && text[i] <= '9') ||
+          (text[i] >= 'a' && text[i] <= 'f'))) {
+      return 0;
+    }
+  }
+  return 1;
+}
+
+static int decimal_text(const char *text) {
+  size_t i;
+  size_t len;
+  if (text == NULL || text[0] == '\0') return 0;
+  len = strlen(text);
+  if (len > 1u && text[0] == '0') return 0;
+  for (i = 0; i < len; i++) {
+    if (text[i] < '0' || text[i] > '9') return 0;
+  }
+  return 1;
+}
+
+static int cmd_boot_evidence(const char *path, const char *expected_sha,
+                             const char *expected_run,
+                             const char *expected_attempt,
+                             const char *expected_job) {
+  uint8_t *buf = NULL;
+  size_t len = 0u;
+  t64_json_limits lim;
+  t64_json_doc doc;
+  t64_json_error err;
+  t64_jsonw w;
+  const t64_json_node *commit_sha;
+  const t64_json_node *run_id;
+  const t64_json_node *run_attempt;
+  const t64_json_node *job_name;
+  const t64_json_node *result;
+  const t64_json_node *source_revision;
+  const t64_json_node *outcome;
+  const t64_json_node *detail;
+  char *canon = NULL;
+  size_t canon_len = 0u;
+  rec checked;
+  diag d;
+  int ok = 0;
+
+  if (!lower_hex_text(expected_sha, 40u) || !decimal_text(expected_run) ||
+      !decimal_text(expected_attempt) ||
+      (strcmp(expected_job, "gate-linux") != 0 &&
+       strcmp(expected_job, "gate-macos") != 0)) {
+    return EXIT_USAGE;
+  }
+  if (!load_input(path, RECORD_MAX_BYTES, &buf, &len)) {
+    return EXIT_USAGE;
+  }
+  t64_json_limits_default(&lim);
+  lim.max_input = RECORD_MAX_BYTES;
+  if (t64_json_parse(buf, len, &lim, &doc, &err) != 0) {
+    set_diag(&d, "R-JSON", "JSON-%s offset=%lu",
+             t64_json_category_name(err.category), (unsigned long)err.offset);
+    goto done;
+  }
+  if (!schema_and_version_exact(doc.root, "t64.boot-evidence", 1, &d) ||
+      !keys_ok(doc.root, boot_evidence_keys, ARRAY_LEN(boot_evidence_keys),
+               "boot evidence", &d)) {
+    goto parsed_done;
+  }
+
+  commit_sha = t64_json_get(doc.root, "commit_sha");
+  run_id = t64_json_get(doc.root, "run_id");
+  run_attempt = t64_json_get(doc.root, "run_attempt");
+  job_name = t64_json_get(doc.root, "job_name");
+  result = t64_json_get(doc.root, "result");
+  if (!is_lower_hex(commit_sha, 40u) || !str_is(commit_sha, expected_sha) ||
+      !str_is(run_id, expected_run) ||
+      !str_is(run_attempt, expected_attempt) ||
+      !str_is(job_name, expected_job)) {
+    set_diag(&d, "R-EVIDENCE-SELECTOR",
+             "wrapper SHA, run, attempt, or job differs from the expected selector");
+    goto parsed_done;
+  }
+  memset(&checked, 0, sizeof checked);
+  if (!validate_real_result(result, &checked, &d)) {
+    goto parsed_done;
+  }
+  source_revision = t64_json_get(result, "source_revision");
+  outcome = t64_json_get(result, "outcome");
+  detail = t64_json_get(result, "detail");
+  if (!str_is(source_revision, expected_sha) || !str_is(outcome, "pass") ||
+      !str_is(detail, "positive-match")) {
+    set_diag(&d, "R-EVIDENCE-RESULT",
+             "nested result must be a real v2 pass from the selected source revision");
+    goto parsed_done;
+  }
+
+  canon = (char *)malloc(len + 16u);
+  if (canon == NULL) {
+    set_diag(&d, "R-NOT-CANONICAL",
+             "out of memory while canonicalizing boot evidence");
+    goto parsed_done;
+  }
+  t64_jsonw_init(&w, canon, len + 16u);
+  if (t64_jsonw_node(&w, doc.root) != T64_JSONW_OK ||
+      t64_jsonw_finish(&w, &canon_len) != T64_JSONW_OK || canon_len != len ||
+      memcmp(canon, buf, len) != 0) {
+    set_diag(&d, "R-NOT-CANONICAL",
+             "boot evidence bytes differ from the canonical form");
+    goto parsed_done;
+  }
+  ok = 1;
+
+parsed_done:
+  t64_json_free(&doc);
+done:
+  if (!ok) print_fail(path, &d);
+  else printf("ok %s\n", path);
+  free(canon);
+  free(buf);
+  return ok ? EXIT_OK : EXIT_INVALID;
+}
+
 static int cmd_suite(const char *inv_path, const char *path) {
   inventory inv;
   uint8_t *buf;
@@ -1800,7 +1926,8 @@ static int usage(void) {
           "usage: t64-result-check result FILE\n"
           "       t64-result-check suite --inventory INV FILE\n"
           "       t64-result-check seal --inventory INV --out FILE RESULT...\n"
-          "       t64-result-check identity FILE\n");
+          "       t64-result-check identity FILE\n"
+          "       t64-result-check boot-evidence --sha SHA --run RUN --attempt ATTEMPT --job JOB FILE\n");
   return EXIT_USAGE;
 }
 
@@ -1813,6 +1940,12 @@ int main(int argc, char **argv) {
   }
   if (strcmp(argv[1], "identity") == 0 && argc == 3 && argv[2][0] != '-') {
     return cmd_identity(argv[2]);
+  }
+  if (strcmp(argv[1], "boot-evidence") == 0 && argc == 11 &&
+      strcmp(argv[2], "--sha") == 0 && strcmp(argv[4], "--run") == 0 &&
+      strcmp(argv[6], "--attempt") == 0 && strcmp(argv[8], "--job") == 0 &&
+      argv[10][0] != '-') {
+    return cmd_boot_evidence(argv[10], argv[3], argv[5], argv[7], argv[9]);
   }
   if (strcmp(argv[1], "suite") == 0 && argc == 5 &&
       strcmp(argv[2], "--inventory") == 0 && argv[4][0] != '-') {

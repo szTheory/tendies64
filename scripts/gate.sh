@@ -1,7 +1,7 @@
 #!/bin/sh
 # Tendies64 gate: the single local command (GOV-05). POSIX sh, no bashisms.
-# Steps: banner, sh-n, lint-selftest, configure, build, inventory controls,
-# ctest, core-lint, summary. `cmake --workflow --preset gate` runs configure, build
+# Steps: banner, sh-n, lint-selftest, configure, build, evidence selftests,
+# inventory controls, ctest, core-lint, summary. `cmake --workflow --preset gate` runs configure, build
 # and test only; this script is the full gate.
 set -eu
 LC_ALL=C
@@ -82,12 +82,18 @@ sh_n() {
   echo "[gate] sh-n: checked $_n script(s)"
 }
 
+boot_evidence_selftest() {
+  sh scripts/collect-boot-evidence.sh --selftest
+  sh scripts/compare-boot-evidence.sh --selftest
+}
+
 banner
 step sh-n sh_n
 step lint-selftest sh tools/lint/core-lint.sh --selftest
 step fixture-qualification sh scripts/build-boot-fixtures.sh --qualify
 step configure cmake --preset gate
 step build cmake --build --preset gate
+step boot-evidence-selftest boot_evidence_selftest
 step test-inventory-selftest sh scripts/check-test-inventory.sh --selftest
 step test-inventory sh scripts/check-test-inventory.sh --preset gate
 step ctest ctest --preset gate

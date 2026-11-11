@@ -65,6 +65,8 @@ static const char model_result[] =
     "\"schema\":\"t64.model-result\",\"schema_version\":1,"
     "\"state_digest\":\"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb\"}\n";
 
+#define EVIDENCE_SHA "a69d215a06968d1552494222a8c9536c304ee537"
+
 static unsigned test_count;
 static unsigned failure_count;
 
@@ -143,6 +145,58 @@ static int run_checker(const char *checker, const char *report, int *exit_code,
   return 1;
 }
 
+static int run_evidence_checker(const char *checker, const char *report,
+                                const char *sha, const char *run,
+                                const char *attempt, const char *job,
+                                int *exit_code, char *diagnostic,
+                                size_t diagnostic_size) {
+  int error_pipe[2];
+  pid_t child;
+  int status;
+  size_t used = 0u;
+  int null_fd;
+
+  diagnostic[0] = '\0';
+  if (pipe(error_pipe) != 0) return 0;
+  child = fork();
+  if (child < 0) {
+    (void)close(error_pipe[0]);
+    (void)close(error_pipe[1]);
+    return 0;
+  }
+  if (child == 0) {
+    (void)close(error_pipe[0]);
+    null_fd = open("/dev/null", O_WRONLY);
+    if (null_fd < 0 || dup2(null_fd, STDOUT_FILENO) < 0 ||
+        dup2(error_pipe[1], STDERR_FILENO) < 0) {
+      _exit(126);
+    }
+    (void)close(error_pipe[1]);
+    if (null_fd != STDOUT_FILENO && null_fd != STDERR_FILENO) {
+      (void)close(null_fd);
+    }
+    execl(checker, checker, "boot-evidence", "--sha", sha, "--run", run,
+          "--attempt", attempt, "--job", job, report, (char *)NULL);
+    _exit(127);
+  }
+  (void)close(error_pipe[1]);
+  while (used + 1u < diagnostic_size) {
+    ssize_t got = read(error_pipe[0], diagnostic + used,
+                       diagnostic_size - used - 1u);
+    if (got < 0 && errno == EINTR) continue;
+    if (got <= 0) break;
+    used += (size_t)got;
+  }
+  diagnostic[used] = '\0';
+  (void)close(error_pipe[0]);
+  while (waitpid(child, &status, 0) < 0) {
+    if (errno != EINTR) return 0;
+  }
+  *exit_code = WIFEXITED(status) ? WEXITSTATUS(status)
+                                  : 128 + WTERMSIG(status);
+  return 1;
+}
+
 static void extract_rule(const char *diagnostic, char *rule, size_t rule_size) {
   size_t i = 0u;
   while (diagnostic[i] != '\0' && diagnostic[i] != ' ' && i + 1u < rule_size) {
@@ -190,6 +244,88 @@ static int make_variant(char *out, size_t capacity, const char *before,
   }
   memcpy(out, valid_pass_v2, sizeof valid_pass_v2);
   return replace_once(out, capacity, before, after);
+}
+
+static int make_evidence(char *out, size_t capacity, const char *sha,
+                         const char *job, const char *run,
+                         const char *attempt, const char *result) {
+  int n;
+  int tail;
+  size_t result_len = strlen(result);
+  size_t used;
+  if (result_len == 0u || result[result_len - 1u] != '\n') return 0;
+  result_len--;
+  n = snprintf(out, capacity,
+               "{\"commit_sha\":\"%s\",\"job_name\":\"%s\",\"result\":",
+               sha, job);
+  if (n < 0 || (size_t)n >= capacity) return 0;
+  used = (size_t)n;
+  if (result_len > capacity - used - 1u) return 0;
+  memcpy(out + used, result, result_len);
+  used += result_len;
+  tail = snprintf(out + used, capacity - used,
+                  ",\"run_attempt\":\"%s\",\"run_id\":\"%s\","
+                  "\"schema\":\"t64.boot-evidence\",\"schema_version\":1}\n",
+                  attempt, run);
+  return tail >= 0 && (size_t)tail < capacity - used;
+}
+
+static int expect_evidence_case(const char *checker, const char *name,
+                                const char *report, int expected_exit,
+                                const char *expected_rule,
+                                const char *expected_sha,
+                                const char *expected_run,
+                                const char *expected_attempt,
+                                const char *expected_job) {
+  char report_path[] = "/tmp/t64-boot-evidence-XXXXXX";
+  char diagnostic[1024];
+  char rule[64] = "none";
+  int report_fd;
+  int checker_exit = -1;
+  int good;
+  int passed;
+  unsigned id = ++test_count;
+
+  report_fd = mkstemp(report_path);
+  if (report_fd < 0 || !write_all(report_fd, report, strlen(report))) {
+    if (report_fd >= 0) (void)close(report_fd);
+    (void)unlink(report_path);
+    printf("not ok %u - %s\n# expected: evidence report can be prepared\n",
+           id, name);
+    failure_count++;
+    return 0;
+  }
+  if (close(report_fd) != 0) {
+    (void)unlink(report_path);
+    printf("not ok %u - %s\n# expected: evidence report closes cleanly\n",
+           id, name);
+    failure_count++;
+    return 0;
+  }
+  good = run_evidence_checker(checker, report_path, expected_sha,
+                              expected_run, expected_attempt, expected_job,
+                              &checker_exit, diagnostic, sizeof diagnostic);
+  (void)unlink(report_path);
+  if (!good) {
+    printf("not ok %u - %s\n# expected: evidence checker executes\n", id,
+           name);
+    failure_count++;
+    return 0;
+  }
+  extract_rule(diagnostic, rule, sizeof rule);
+  passed = checker_exit == expected_exit &&
+           (expected_rule == NULL || strcmp(rule, expected_rule) == 0);
+  if (passed) {
+    printf("ok %u - %s\n", id, name);
+  } else {
+    printf("not ok %u - %s\n# expected: exit=%d rule=%s\n"
+           "# actual: exit=%d rule=%s\n",
+           id, name, expected_exit,
+           expected_rule != NULL ? expected_rule : "none", checker_exit,
+           rule);
+    failure_count++;
+  }
+  return passed;
 }
 
 static int expect_case(const char *checker, const char *name, const char *report,
@@ -276,6 +412,8 @@ static int expect_file_case(const char *checker, const char *name,
 
 int main(int argc, char **argv) {
   char changed[8192];
+  char evidence[8192];
+  char changed_evidence[8192];
   char *report;
 
   if (argc != 3) {
@@ -283,6 +421,65 @@ int main(int argc, char **argv) {
     return 2;
   }
   puts("TAP version 13");
+  if (make_evidence(evidence, sizeof evidence, EVIDENCE_SHA, "gate-linux",
+                    "123456789", "1", valid_pass_v2)) {
+    (void)expect_evidence_case(
+        argv[1], "accepts independently specified exact-run guest evidence",
+        evidence, 0, NULL, EVIDENCE_SHA, "123456789", "1", "gate-linux");
+    if (make_evidence(changed_evidence, sizeof changed_evidence,
+                      "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb", "gate-linux",
+                      "123456789", "1", valid_pass_v2)) {
+      (void)expect_evidence_case(argv[1], "rejects evidence for another SHA",
+                                 changed_evidence, 1, "R-EVIDENCE-SELECTOR",
+                                 EVIDENCE_SHA, "123456789", "1", "gate-linux");
+    }
+    if (make_evidence(changed_evidence, sizeof changed_evidence, EVIDENCE_SHA,
+                      "gate-linux", "123456790", "1", valid_pass_v2)) {
+      (void)expect_evidence_case(argv[1], "rejects evidence for another run",
+                                 changed_evidence, 1, "R-EVIDENCE-SELECTOR",
+                                 EVIDENCE_SHA, "123456789", "1", "gate-linux");
+    }
+    if (make_evidence(changed_evidence, sizeof changed_evidence, EVIDENCE_SHA,
+                      "gate-linux", "123456789", "2", valid_pass_v2)) {
+      (void)expect_evidence_case(
+          argv[1], "rejects evidence for another run attempt",
+          changed_evidence, 1, "R-EVIDENCE-SELECTOR", EVIDENCE_SHA,
+          "123456789", "1", "gate-linux");
+    }
+    if (make_evidence(changed_evidence, sizeof changed_evidence, EVIDENCE_SHA,
+                      "gate-macos", "123456789", "1", valid_pass_v2)) {
+      (void)expect_evidence_case(argv[1], "rejects evidence for another job",
+                                 changed_evidence, 1, "R-EVIDENCE-SELECTOR",
+                                 EVIDENCE_SHA, "123456789", "1", "gate-linux");
+    }
+    if (make_variant(changed, sizeof changed, EVIDENCE_SHA,
+                     "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb") &&
+        make_evidence(changed_evidence, sizeof changed_evidence, EVIDENCE_SHA,
+                      "gate-linux", "123456789", "1", changed)) {
+      (void)expect_evidence_case(
+          argv[1], "rejects nested result from another source revision",
+          changed_evidence, 1, "R-EVIDENCE-RESULT", EVIDENCE_SHA,
+          "123456789", "1", "gate-linux");
+    }
+    if (replace_once(evidence, sizeof evidence,
+                     "\"schema_version\":1}",
+                     "\"schema_version\":1,\"zz_extra\":0}")) {
+      (void)expect_evidence_case(argv[1], "rejects unknown wrapper fields",
+                                 evidence, 1, "R-UNKNOWN-FIELD", EVIDENCE_SHA,
+                                 "123456789", "1", "gate-linux");
+    }
+    if (make_evidence(changed_evidence, sizeof changed_evidence, EVIDENCE_SHA,
+                      "gate-linux", "123456789", "1", model_result)) {
+      (void)expect_evidence_case(argv[1],
+                                 "rejects native model output as guest evidence",
+                                 changed_evidence, 1, "R-SCHEMA", EVIDENCE_SHA,
+                                 "123456789", "1", "gate-linux");
+    }
+  } else {
+    printf("not ok %u - prepares independent canonical evidence wrapper\n",
+           ++test_count);
+    failure_count++;
+  }
   (void)expect_case(argv[1], "accepts independently authored canonical real v2 pass",
                     valid_pass_v2, 0, NULL);
   if (make_variant(changed, sizeof changed,
