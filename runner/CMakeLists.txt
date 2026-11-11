@@ -45,7 +45,7 @@ t64_target_warnings(t64-runner-synthetic)
 add_library(t64_verified_input STATIC t64_verified_input.c)
 target_compile_definitions(t64_verified_input PRIVATE ${T64_HOST_DEFS})
 target_include_directories(t64_verified_input PUBLIC ${CMAKE_CURRENT_SOURCE_DIR})
-target_link_libraries(t64_verified_input PUBLIC t64_common)
+target_link_libraries(t64_verified_input PRIVATE t64_common)
 t64_target_warnings(t64_verified_input)
 
 add_executable(t64-supervisor t64_supervisor.c)

@@ -460,7 +460,7 @@ static t64_fixture_state check_fixture(const char *path, const char *want_hex,
       (unsigned long long)st.st_size > FIXTURE_MAX_BYTES) {
     return T64_FIX_BAD;
   }
-  fd = open(path, O_RDONLY | O_NOFOLLOW);
+  fd = open(path, O_RDONLY | O_NOFOLLOW | O_NONBLOCK);
   if (fd < 0) {
     return T64_FIX_BAD;
   }
@@ -552,6 +552,14 @@ int main(int argc, char **argv) {
   memset(&ws, 0, sizeof ws);
   result_path = find_opt_value(argc, argv, "--result");
   meta_path = find_opt_value(argc, argv, "--meta");
+
+  /* Real result production is intentionally staged for plan 03-11. Keep its
+   * spelling explicit and fail before the legacy original-path handoff. */
+  if (argc > 1 && strcmp(argv[1], "--real") == 0) {
+    fprintf(stderr,
+            "t64-supervisor: --real is unavailable until the real producer is implemented\n");
+    return 2;
+  }
 
   memset(&sa, 0, sizeof sa);
   sa.sa_handler = on_term; /* no SA_RESTART: waitpid polling still wakes */
