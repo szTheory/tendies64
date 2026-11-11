@@ -56,12 +56,12 @@ target_include_directories(t64_verified_input_test PUBLIC ${CMAKE_CURRENT_SOURCE
 target_link_libraries(t64_verified_input_test PRIVATE t64_common)
 t64_target_warnings(t64_verified_input_test)
 
-add_executable(t64-supervisor t64_supervisor.c)
+add_executable(t64-supervisor t64_supervisor.c t64_real_result.c)
 target_compile_definitions(t64-supervisor PRIVATE
   ${T64_HOST_DEFS}
   T64_BUILD_ID=\"${PROJECT_VERSION}+synthetic\")
 target_link_libraries(t64-supervisor PRIVATE
-  t64_classify t64_common t64_core t64_verified_input)
+  t64_classify t64_input t64_common t64_core t64_verified_input)
 t64_target_warnings(t64-supervisor)
 
 # First headless real guest producer. It consumes verified inherited snapshots
@@ -71,6 +71,15 @@ target_compile_definitions(t64-runner-real PRIVATE ${T64_HOST_DEFS})
 target_link_libraries(t64-runner-real PRIVATE
   t64_input t64_common t64_core)
 t64_target_warnings(t64-runner-real)
+add_dependencies(t64-supervisor t64-runner-real)
+
+# Test-only twin permits bounded post-guest report/process fault injection.
+add_executable(t64-runner-test t64_real.c t64_real_result.c)
+target_compile_definitions(t64-runner-test PRIVATE
+  ${T64_HOST_DEFS} T64_REAL_RUNNER_TESTING)
+target_link_libraries(t64-runner-test PRIVATE
+  t64_input t64_common t64_core)
+t64_target_warnings(t64-runner-test)
 
 add_executable(test_fixture_descriptor tests/test_fixture_descriptor.c)
 target_compile_definitions(test_fixture_descriptor PRIVATE
@@ -94,22 +103,43 @@ add_executable(t64-result-check t64_result_check.c)
 target_compile_definitions(t64-result-check PRIVATE ${T64_HOST_DEFS})
 target_link_libraries(t64-result-check PRIVATE t64_classify t64_common)
 t64_target_warnings(t64-result-check)
+add_dependencies(t64-supervisor t64-result-check)
+
+# Test-only supervisor exposes a barrier after both verified snapshots exist,
+# before launching the real producer, for synchronized replacement coverage.
+add_executable(t64-supervisor-test t64_supervisor.c t64_real_result.c)
+target_compile_definitions(t64-supervisor-test PRIVATE
+  ${T64_HOST_DEFS} T64_SUPERVISOR_TESTING)
+target_link_libraries(t64-supervisor-test PRIVATE
+  t64_classify t64_input t64_common t64_core t64_verified_input)
+t64_target_warnings(t64-supervisor-test)
+add_dependencies(t64-supervisor-test t64-runner-test t64-result-check)
 
 # Descriptor-attested actual IPL3/hello positive integration.
 add_executable(test_real_runner tests/test_real_runner.c)
 target_compile_definitions(test_real_runner PRIVATE ${T64_HOST_DEFS})
 target_link_libraries(test_real_runner PRIVATE
-  t64_verified_input t64_common)
+  t64_verified_input t64_common t64_core)
 add_dependencies(test_real_runner
-  t64-runner-real t64-result-check t64-supervisor t64-boot-fixtures)
+  t64-runner-real t64-result-check t64-supervisor t64-supervisor-test
+  t64-runner-test t64-boot-fixtures)
 t64_target_warnings(test_real_runner)
 add_test(NAME integration.open-ipl3-hello
   COMMAND test_real_runner
     $<TARGET_FILE:t64-runner-real>
     $<TARGET_FILE:t64-result-check>
-    $<TARGET_FILE:t64-supervisor>)
+    $<TARGET_FILE:t64-supervisor>
+    $<TARGET_FILE:t64-supervisor-test>)
 set_tests_properties(integration.open-ipl3-hello PROPERTIES
   LABELS integration TIMEOUT 120
+  ENVIRONMENT
+    "T64_TEST_HELLO_PATH=${CMAKE_SOURCE_DIR}/build/fixtures/hello.z64;T64_TEST_INPUT_PATH=${CMAKE_SOURCE_DIR}/build/fixtures/hello.input.json")
+add_test(NAME controls.real.open-ipl3-source-replaced
+  COMMAND test_real_runner --source-replacement
+    $<TARGET_FILE:t64-result-check>
+    $<TARGET_FILE:t64-supervisor-test>)
+set_tests_properties(controls.real.open-ipl3-source-replaced PROPERTIES
+  LABELS controls TIMEOUT 120
   ENVIRONMENT
     "T64_TEST_HELLO_PATH=${CMAKE_SOURCE_DIR}/build/fixtures/hello.z64;T64_TEST_INPUT_PATH=${CMAKE_SOURCE_DIR}/build/fixtures/hello.input.json")
 

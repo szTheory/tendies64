@@ -235,13 +235,43 @@ t64-supervisor --identity synthetic --result PATH --meta PATH --work-dir DIR
   `wall-backstop`;
   `--log-limit` is at most 64 MiB; every option may appear once.
 - Phase 3 recognizes supervisor option `--real` before the `--` runner
-  separator and refuses it with exit 2 until the real producer is implemented
-  in plan 03-11. It launches no child and does not enter the synthetic
-  original-path launch route. A runner argument named `--real` after `--` is
-  still passed to that runner.
-- The fixture is checked with `lstat` before anything runs: it must be a
+  separator. The real command is:
+
+  ```text
+  t64-supervisor --real --result PATH --meta PATH --work-dir DIR --wall-ms N
+                 --fixture PATH --input PATH [--capture-out PATH]
+  ```
+
+  Real mode pins the `hello-openipl3` fixture, the canonical empty input
+  schedule, profile `ntsc-cart-4m-openipl3-warm-v1`, and guest bound 530500.
+  It copies and hashes the exact fixture and input into unlinked read-only
+  descriptors before launching the sibling `t64-runner-real`; caller paths
+  are never passed to that producer. A runner argument named `--real` after
+  the synthetic `--` separator is still passed to the synthetic runner.
+
+  A local run against the authorized generated fixture and schedule is:
+
+  ```sh
+  mkdir -p build/real-run
+  build/gate/runner/t64-supervisor --real \
+    --result build/real-run/result.json --meta build/real-run/run.meta \
+    --work-dir build/real-run --wall-ms 30000 \
+    --fixture build/fixtures/hello.z64 \
+    --input build/fixtures/hello.input.json \
+    --capture-out build/real-run/guest.log
+  build/gate/runner/t64-result-check result build/real-run/result.json
+  ```
+
+  This is a prepared-warm-entry smoke observation for the pinned fixture,
+  profile, empty logical-input schedule, exact authored transcript and fixed
+  guest bound. The input schema can schedule logical input events; it does not
+  provide a wall-clock clock source or broaden the supported profile. The
+  producer hashes the whole normalized ROM and embedded payload separately,
+  then checks `t64_machine_content_digest` against the whole-ROM hash
+  immediately after core admission and before guest advance.
+- In synthetic mode, the fixture is checked with `lstat` before anything runs: it must be a
   regular file (not a symlink, FIFO or device) of at most 64 MiB.
-- A private `mkdtemp` directory under `--work-dir` holds the report, capture,
+- In synthetic mode, a private `mkdtemp` directory under `--work-dir` holds the report, capture,
   stdout and stderr files, created with `O_CREAT|O_EXCL|O_NOFOLLOW` and mode
   0600, and is removed at exit.
 - The runner runs in its own process group with core dumps disabled and a file
@@ -263,8 +293,11 @@ t64-supervisor --identity synthetic --result PATH --meta PATH --work-dir DIR
   renamed, so a result file is never partial and nothing planted at a
   predictable temporary name is opened. A result is written for every outcome
   whenever `--result` was given.
-- The supervisor never uses the runner's exit code as an outcome; it only
-  rejects a non-zero one.
+- A zero runner exit is necessary but not sufficient: the supervisor also
+  checks the raw report, capture bytes, report identities and actual process
+  status. Any non-zero exit overrides a structurally valid guest pass with
+  `harness-error` / `runner-exit-nonzero`; independently checked progress,
+  state and capture identities remain in the report.
 
 Known limitation: the legacy synthetic route hashes the file at `--fixture`
 and then passes that same original path to its runner, which opens it again.
@@ -285,9 +318,15 @@ still parses and core-admits the original fixture and canonical schedule. A
 separately labeled original-path reopen control detects both replacements.
 Raw input-file length/SHA identify descriptor bytes; canonical schedule SHA
 identifies parser-produced canonical JSON and may differ when formatting
-differs. This is preparation-seam evidence only. `--real` remains refused, and
-plan 03-11 must repeat replacement resistance through actual CPU-runner
-admission before SC6 can close.
+differs. The 03-09 controls prove the descriptor helper and original-path
+reopen contrast. Plan 03-11 adds a separate core-backed control: after the
+supervisor has finalized and validated both snapshots, a test barrier pauses
+before child launch; both caller paths are atomically replaced, then the child
+admits only the inherited snapshots. The actual producer independently checks
+core's normalized content digest against the whole-ROM digest, and the control
+checks the core digest separately before releasing the race. The source-asset
+SHA in the v2 result is pinned provenance; the original 4,096-byte asset is
+not a runtime descriptor and is not rehashed during guest launch.
 
 ## Control matrix
 
@@ -436,7 +475,7 @@ The v2 root keys, in canonical order, are:
 | `fixture_id` / `fixture_sha256` | Manifest ID and normalized whole authored-ROM SHA-256. For `hello-openipl3`, the digest is `fa276cc175a4e764b6fd5413193c44b51f38fd8135e33e400032827e02f27c7c`. |
 | `ipl3_sha256` | SHA-256 of the full pinned source IPL3 asset: `f522db2e31a701f82597f399e76d55c9487760d015aff9d90176b463ae39a068`. |
 | `ipl3_payload_sha256` | SHA-256 of the separately verified executed embedded payload: `f716a90b1d36ec4253d096790791256d3543455e54473a755ff8c3d1199b15d5`. |
-| `input_digest`, `log_sha256`, `state_digest` | 64 lowercase hexadecimal characters for admitted input, captured bytes and final guest state. |
+| `input_digest`, `log_sha256`, `state_digest` | 64 lowercase hexadecimal characters when independently known. These may be null only on a postlaunch `harness-error` with `host-error` or `report-error` stop. |
 | `guest_tick`, `instruction_count` | Canonical unsigned 64-bit decimal strings. The checker requires retired instruction count not to exceed guest ticks. |
 | `guest_stop` | Object with exactly `bound_tick` (unsigned decimal string) and `kind` from the stop enum below. `guest_tick` cannot exceed the bound. A `guest-bound` stop must be exactly at the bound. |
 | `milestones` | Array of zero to four records with exactly `kind`, `guest_tick`, `pc`. Kinds are ordered `ipl3-entry`, `loader-dma`, `hello-entry`, `hello-completion`; each kind may occur once, ticks cannot decrease or exceed `guest_tick`, and `pc` is 16 lowercase hex characters. IPL3 entry and hello entry PCs are pinned to `ffffffffa4000040` and `ffffffff80000400`. |
@@ -447,12 +486,24 @@ The v2 root keys, in canonical order, are:
 profile descriptor. The embedded boot-policy SHA is a distinct nested identity
 and cannot replace it.
 
-Every launched record has all identity fields non-null. A prelaunch record
-instead has every identity field null, zero guest ticks/instructions/log bytes,
-and no milestones. The only admitted prelaunch classifications are
+Every supervisor-known identity stays non-null after launch: build, source
+revision, profile, fixture, full source-asset provenance and embedded payload.
+Input, log and state digests may be null only when genuinely unavailable on a
+postlaunch `harness-error` whose stop kind is `host-error` or `report-error`.
+If the child report is untrusted, a null state digest requires zero *verified*
+guest ticks and instructions and no milestones. Zero here means the supervisor
+has no trusted progress observation; it is not proof that the guest executed
+zero steps. A known canonical input digest and independently retained capture
+digest/counts remain present even when the child report is untrusted. A null
+log digest requires both log counts to be zero. A valid checked report followed
+by a nonzero child exit may retain its known state, progress and milestones,
+but the supervisor overrides its guest outcome with `harness-error`.
+
+A prelaunch record instead has every identity field null, zero guest
+ticks/instructions/log bytes, and no milestones. The only admitted prelaunch classifications are
 `fixture-absent` / `missing-fixture` with `not-started`, `usage` or
 `exec-failed` / `harness-error` with `not-started`, and `refusal` /
-`harness-error` with `refused`. A partially null identity is invalid. The
+`harness-error` with `refused`. The
 identity set is `build_id`, `source_revision`, `profile_id`, `profile_digest`,
 `fixture_id`, `fixture_sha256`, `ipl3_sha256`, `ipl3_payload_sha256`,
 `input_digest`, `log_sha256`, and `state_digest`.
@@ -476,6 +527,10 @@ further restrict those pairs:
   malformed report cannot become a guest outcome. `host-error` accepts host,
   wall-backstop, supervisor and runner process details. `report-error` accepts
   report, no-result and capture-invalid details.
+- A postlaunch partial-null identity set is limited to input, log and state
+  digests under the untrusted-error rule above; all supervisor-known identities
+  remain required. A report error after correct guest text still takes
+  precedence over a guest pass.
 - `unsupported-execution` is `boot-fail` with explicit detail and no completion
   milestone. `output-overflow` is `harness-error` with 4096 retained bytes and a
   larger total.
@@ -490,8 +545,12 @@ further restrict those pairs:
 For the authored `hello-openipl3` fixture, the whole normalized ROM identity is
 independent from the upstream IPL3 asset identity: qualified authored-header
 transformations mean the ROM hash need not share a byte prefix with the source
-asset hash. `ipl3_sha256` records source-asset provenance; `ipl3_payload_sha256`
-records the separately verified embedded bytes the guest executes.
+asset hash. The runtime fixture descriptor contains the 4,280-byte authored ROM
+with a 4,032-byte embedded payload. The original 4,096-byte source asset is not
+a runtime input, so the producer does not rehash those absent source bytes or
+claim prefix equality. `ipl3_sha256` records the qualified source-asset
+provenance identity already pinned in the profile/manifest; `ipl3_payload_sha256`
+records the separately rehashed embedded bytes the guest executes.
 
 These checks validate a report's closed structure and claimed identities. A
 unit-authored valid JSON record is contract evidence only; it does not prove a

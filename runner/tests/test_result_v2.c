@@ -285,6 +285,48 @@ int main(int argc, char **argv) {
   puts("TAP version 13");
   (void)expect_case(argv[1], "accepts independently authored canonical real v2 pass",
                     valid_pass_v2, 0, NULL);
+  if (make_variant(changed, sizeof changed,
+                   "\"state_digest\":\"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb\"",
+                   "\"state_digest\":null")) {
+    (void)replace_once(changed, sizeof changed,
+                       "\"guest_stop\":{\"bound_tick\":\"600000\",\"kind\":\"authored-completion\"}",
+                       "\"guest_stop\":{\"bound_tick\":\"600000\",\"kind\":\"report-error\"}");
+    (void)replace_once(changed, sizeof changed, "\"guest_tick\":\"530438\"",
+                       "\"guest_tick\":\"0\"");
+    (void)replace_once(changed, sizeof changed,
+                       "\"instruction_count\":\"530437\"",
+                       "\"instruction_count\":\"0\"");
+    (void)replace_once(
+        changed, sizeof changed,
+        "\"milestones\":[{\"guest_tick\":\"0\",\"kind\":\"ipl3-entry\",\"pc\":\"ffffffffa4000040\"},{\"guest_tick\":\"100\",\"kind\":\"loader-dma\",\"pc\":\"ffffffffa4000100\"},{\"guest_tick\":\"530174\",\"kind\":\"hello-entry\",\"pc\":\"ffffffff80000400\"},{\"guest_tick\":\"530438\",\"kind\":\"hello-completion\",\"pc\":\"ffffffff80000478\"}],",
+        "\"milestones\":[],");
+    (void)replace_once(changed, sizeof changed, "\"outcome\":\"pass\"",
+                       "\"outcome\":\"harness-error\"");
+    (void)replace_once(changed, sizeof changed,
+                       "\"detail\":\"positive-match\"",
+                       "\"detail\":\"report-invalid\"");
+    (void)expect_case(argv[1],
+                      "accepts untrusted postlaunch report with null state and zero verified progress",
+                      changed, 0, NULL);
+  }
+  if (make_variant(changed, sizeof changed,
+                   "\"state_digest\":\"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb\"",
+                   "\"state_digest\":null")) {
+    (void)expect_case(argv[1], "rejects mixed-null identities on a guest pass",
+                      changed, 1, "R-NULL-RULES");
+  }
+  if (make_variant(changed, sizeof changed, "\"outcome\":\"pass\"",
+                   "\"outcome\":\"harness-error\"")) {
+    (void)replace_once(changed, sizeof changed,
+                       "\"detail\":\"positive-match\"",
+                       "\"detail\":\"runner-exit-nonzero\"");
+    (void)replace_once(changed, sizeof changed,
+                       "\"kind\":\"authored-completion\"",
+                       "\"kind\":\"host-error\"");
+    (void)expect_case(argv[1],
+                      "harness error overrides correct captured transcript after nonzero child exit",
+                      changed, 0, NULL);
+  }
   (void)expect_file_case(argv[1], "continues to accept legacy v1 positive golden",
                          argv[2], 0, NULL);
   (void)expect_case(argv[1], "refuses native model result as guest evidence",

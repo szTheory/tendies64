@@ -1,13 +1,15 @@
 /*
- * t64-supervisor: runs one runner under a wall-clock backstop, never trusts
- * the runner's exit code, and always writes a canonical t64.result v1 plus a
- * non-canonical run-meta file, both atomically (authored here).
+ * t64-supervisor: runs synthetic v1 or descriptor-backed real v2 under a
+ * wall-clock backstop. Real reports are independently checked against raw
+ * capture and process status before an atomic result is written.
  *
  * See docs/spec/result-protocol.md for the CLI and the result contract.
  */
 #include <errno.h>
 #include <fcntl.h>
+#include <limits.h>
 #include <signal.h>
+#include <stdbool.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -20,10 +22,15 @@
 #include <unistd.h>
 
 #include "t64_classify.h"
+#include "t64_input.h"
+#include "t64_json.h"
 #include "t64_jsonw.h"
 #include "t64_num.h"
+#include "t64_real_result.h"
 #include "t64_sha256.h"
+#include "t64_verified_input.h"
 #include "tendies64/t64_facade.h"
+#include "tendies64/t64_machine.h"
 
 #ifndef T64_BUILD_ID
 #define T64_BUILD_ID "0.0.0+synthetic"
@@ -33,6 +40,21 @@
 #define LOG_LIMIT_MAX (64ull << 20)
 #define REPORT_MAX_BYTES 512u
 #define FSIZE_SLACK (64ull << 10)
+#define REAL_FIXTURE_SIZE 4280u
+#define REAL_INPUT_SIZE 54u
+#define REAL_GUEST_TICKS UINT64_C(530500)
+#define REAL_FIXTURE_ID "hello-openipl3"
+#define REAL_PROFILE_ID "ntsc-cart-4m-openipl3-warm-v1"
+#define REAL_FIXTURE_SHA256 \
+  "fa276cc175a4e764b6fd5413193c44b51f38fd8135e33e400032827e02f27c7c"
+#define REAL_INPUT_SHA256 \
+  "6d5593bc2d95465b44ec7ce7785e5ff7d7d53605de9b039a021bc697d226186d"
+#define REAL_PROFILE_SHA256 \
+  "a171241f68c377f7c324a995a08ff8bd8da60bbe70df14193d8f4b8ae7e9769f"
+#define REAL_ASSET_SHA256 \
+  "f522db2e31a701f82597f399e76d55c9487760d015aff9d90176b463ae39a068"
+#define REAL_PAYLOAD_SHA256 \
+  "f716a90b1d36ec4253d096790791256d3543455e54473a755ff8c3d1199b15d5"
 #define PROFILE_DESCRIPTOR                                                     \
   "{\"profile_id\":\"synthetic-stub\",\"schema\":\"t64.profile\","            \
   "\"schema_version\":1}\n"
@@ -339,6 +361,47 @@ static int read_capture(const char *path, uint64_t log_limit, uint8_t **out,
   return 0;
 }
 
+static int read_real_capture(const char *path, uint8_t **out, size_t *out_len,
+                             uint64_t *total_out) {
+  struct stat st;
+  size_t want;
+  size_t got = 0u;
+  uint8_t *buf;
+  int fd = open_runner_file(path, &st);
+  if (out == NULL || out_len == NULL || total_out == NULL) {
+    if (fd >= 0) close(fd);
+    return -1;
+  }
+  *out = NULL;
+  *out_len = 0u;
+  *total_out = 0u;
+  if (fd < 0 || st.st_size < 0) {
+    if (fd >= 0) close(fd);
+    return -1;
+  }
+  want = st.st_size > 4096 ? 4096u : (size_t)st.st_size;
+  buf = (uint8_t *)malloc(want + 1u);
+  if (buf == NULL) {
+    close(fd);
+    return -1;
+  }
+  while (got < want) {
+    ssize_t count = read(fd, buf + got, want - got);
+    if (count < 0 && errno == EINTR) continue;
+    if (count <= 0) break;
+    got += (size_t)count;
+  }
+  close(fd);
+  if (got != want) {
+    free(buf);
+    return -1;
+  }
+  *out = buf;
+  *out_len = want;
+  *total_out = (uint64_t)st.st_size;
+  return 0;
+}
+
 /* ---- arguments ----------------------------------------------------------- */
 
 typedef struct {
@@ -349,12 +412,18 @@ typedef struct {
   const char *fixture_id;
   const char *fixture;
   const char *fixture_sha;
+  const char *input;
   const char *capture_out;
   uint64_t wall_ms;
   uint64_t bound;
   uint64_t log_limit;
   uint64_t expect_pass;
   int real_mode;
+#ifdef T64_SUPERVISOR_TESTING
+  uint64_t test_ready_fd;
+  uint64_t test_gate_fd;
+  const char *test_fault;
+#endif
   char **runner_argv;
   int runner_argc;
 } sup_args;
@@ -379,6 +448,12 @@ static int parse_args(int argc, char **argv, sup_args *a) {
       {"--fixture-id", &a->fixture_id, NULL, 1, 0},
       {"--fixture", &a->fixture, NULL, 1, 0},
       {"--fixture-sha256", &a->fixture_sha, NULL, 1, 0},
+      {"--input", &a->input, NULL, 0, 0},
+#ifdef T64_SUPERVISOR_TESTING
+      {"--test-ready-fd", NULL, &a->test_ready_fd, 0, 0},
+      {"--test-gate-fd", NULL, &a->test_gate_fd, 0, 0},
+      {"--test-fault", &a->test_fault, NULL, 0, 0},
+#endif
       {"--expect-pass", NULL, &a->expect_pass, 1, 0},
       {"--capture-out", &a->capture_out, NULL, 0, 0},
   };
@@ -415,22 +490,54 @@ static int parse_args(int argc, char **argv, sup_args *a) {
     }
     i += 2;
   }
-  if (!bad && (i >= argc || strcmp(argv[i], "--") != 0 || i + 1 >= argc)) {
-    bad = 1;
-  }
-  if (!bad) {
+  if (!bad && i < argc && strcmp(argv[i], "--") == 0) {
     a->runner_argv = &argv[i + 1];
     a->runner_argc = argc - i - 1;
-  }
-  for (k = 0; k < nopt && !bad; k++) {
-    if (opts[k].required && !opts[k].seen) {
+    if (a->runner_argc == 0) {
       bad = 1;
     }
+  } else if (!bad && !a->real_mode) {
+    bad = 1;
+  } else if (!bad && i < argc) {
+    bad = 1;
   }
-  if (!bad) {
-    if (strcmp(a->identity, "synthetic") != 0 || a->wall_ms == 0 ||
-        a->log_limit > LOG_LIMIT_MAX || !valid_fixture_id(a->fixture_id) ||
-        !is_hex64(a->fixture_sha)) {
+  if (!bad && a->real_mode) {
+    if (a->result == NULL || a->meta == NULL || a->work_dir == NULL ||
+        a->wall_ms == 0u || a->fixture == NULL || a->input == NULL ||
+        a->runner_argc != 0) {
+      bad = 1;
+    }
+#ifdef T64_SUPERVISOR_TESTING
+    if ((a->test_ready_fd == 0u) != (a->test_gate_fd == 0u) ||
+        a->test_ready_fd > (uint64_t)INT_MAX ||
+        a->test_gate_fd > (uint64_t)INT_MAX ||
+        (a->test_ready_fd != 0u && a->test_ready_fd <= STDERR_FILENO) ||
+        (a->test_gate_fd != 0u && a->test_gate_fd <= STDERR_FILENO)) {
+      bad = 1;
+    }
+    if (a->test_fault != NULL &&
+        strcmp(a->test_fault, "exit-nonzero") != 0 &&
+        strcmp(a->test_fault, "capture-closed") != 0 &&
+        strcmp(a->test_fault, "crash-after-output") != 0 &&
+        strcmp(a->test_fault, "delay-after-output") != 0 &&
+        strcmp(a->test_fault, "report-missing") != 0 &&
+        strcmp(a->test_fault, "report-truncated") != 0 &&
+        strcmp(a->test_fault, "report-oversize") != 0 &&
+        strcmp(a->test_fault, "report-malformed") != 0 &&
+        strcmp(a->test_fault, "report-unknown") != 0) {
+      bad = 1;
+    }
+#endif
+  } else if (!bad) {
+    for (k = 0; k < nopt && !bad; k++) {
+      if (opts[k].required && !opts[k].seen) bad = 1;
+    }
+    if (!bad &&
+        (a->identity == NULL || strcmp(a->identity, "synthetic") != 0 ||
+         a->wall_ms == 0u || a->log_limit > LOG_LIMIT_MAX ||
+         a->fixture_id == NULL || !valid_fixture_id(a->fixture_id) ||
+         a->fixture_sha == NULL || !is_hex64(a->fixture_sha) ||
+         a->input != NULL)) {
       bad = 1;
     }
   }
@@ -528,6 +635,761 @@ static void workset_cleanup(workset *ws) {
   ws->made_dir = 0;
 }
 
+static int real_resolve_sibling(const char *self_path, const char *name,
+                                char *output, size_t capacity) {
+  char resolved[4096];
+  char *slash;
+  int length;
+  if (self_path == NULL || name == NULL || output == NULL || capacity == 0u ||
+      realpath(self_path, resolved) == NULL) {
+    return -1;
+  }
+  slash = strrchr(resolved, '/');
+  if (slash == NULL) return -1;
+  slash[1] = '\0';
+  length = snprintf(output, capacity, "%s%s", resolved, name);
+  return length > 0 && (size_t)length < capacity ? 0 : -1;
+}
+
+static int real_json_string_equals(const t64_json_node *container,
+                                   const char *key, const char *expected) {
+  const t64_json_node *value = t64_json_get(container, key);
+  size_t length = strlen(expected);
+  return value != NULL && value->type == T64_JSON_STRING &&
+         value->len == length && memcmp(value->str, expected, length) == 0;
+}
+
+static int real_json_u64(const t64_json_node *container, const char *key,
+                         uint64_t *value_out) {
+  const t64_json_node *value = t64_json_get(container, key);
+  return value != NULL && t64_json_u64_string(value, value_out);
+}
+
+static int real_json_copy_string(const t64_json_node *node, char *output,
+                                 size_t capacity) {
+  if (node == NULL || node->type != T64_JSON_STRING || output == NULL ||
+      capacity == 0u || node->len >= capacity ||
+      memchr(node->str, '\0', node->len) != NULL) {
+    return 0;
+  }
+  memcpy(output, node->str, node->len);
+  output[node->len] = '\0';
+  return 1;
+}
+
+static int real_json_copy_identity(const t64_json_node *root, const char *key,
+                                   char *output, size_t capacity,
+                                   bool *present) {
+  const t64_json_node *node = t64_json_get(root, key);
+  if (node == NULL || output == NULL || present == NULL) return 0;
+  if (node->type == T64_JSON_NULL) {
+    output[0] = '\0';
+    *present = false;
+    return 1;
+  }
+  if (!real_json_copy_string(node, output, capacity)) return 0;
+  *present = true;
+  return 1;
+}
+
+static int real_checker_accepts(char *checker, char *report) {
+  pid_t pid = fork();
+  int status = 0;
+  if (pid == 0) {
+    char result_mode[] = "result";
+    char *const args[] = {checker, result_mode, report, NULL};
+    int null_fd = open("/dev/null", O_WRONLY);
+    if (null_fd >= 0) {
+      (void)dup2(null_fd, STDOUT_FILENO);
+      (void)dup2(null_fd, STDERR_FILENO);
+    }
+    execv(checker, args);
+    _exit(127);
+  }
+  if (pid < 0) return 0;
+  while (waitpid(pid, &status, 0) < 0) {
+    if (errno == EINTR) continue;
+    return 0;
+  }
+  return WIFEXITED(status) && WEXITSTATUS(status) == 0;
+}
+
+static int real_report_matches_capture(const uint8_t *bytes, size_t length,
+                                       const uint8_t *capture,
+                                       size_t capture_length,
+                                       uint64_t capture_total) {
+  t64_json_doc document = {0};
+  const t64_json_node *root;
+  const t64_json_node *counts;
+  const char *build_id = t64_build_identity();
+  const char *source_revision = t64_source_revision();
+  uint64_t log_bytes = 0u;
+  uint64_t log_total = 0u;
+  uint8_t digest[T64_SHA256_DIGEST_SIZE];
+  char digest_hex[T64_SHA256_HEX_SIZE];
+  int valid = 0;
+
+  if (bytes == NULL || length == 0u || build_id == NULL ||
+      source_revision == NULL ||
+      t64_json_parse(bytes, length, NULL, &document, NULL) != 0) {
+    return 0;
+  }
+  root = document.root;
+  counts = t64_json_get(root, "counts");
+  if (counts == NULL || counts->type != T64_JSON_OBJECT ||
+      !real_json_string_equals(root, "build_id", build_id) ||
+      !real_json_string_equals(root, "source_revision", source_revision) ||
+      !real_json_string_equals(root, "profile_id", REAL_PROFILE_ID) ||
+      !real_json_string_equals(root, "profile_digest", REAL_PROFILE_SHA256) ||
+      !real_json_string_equals(root, "fixture_id", REAL_FIXTURE_ID) ||
+      !real_json_string_equals(root, "fixture_sha256", REAL_FIXTURE_SHA256) ||
+      !real_json_string_equals(root, "ipl3_sha256", REAL_ASSET_SHA256) ||
+      !real_json_string_equals(root, "ipl3_payload_sha256",
+                               REAL_PAYLOAD_SHA256) ||
+      !real_json_string_equals(root, "input_digest", REAL_INPUT_SHA256) ||
+      !real_json_u64(counts, "log_bytes", &log_bytes) ||
+      !real_json_u64(counts, "log_bytes_total", &log_total) ||
+      log_bytes != (uint64_t)capture_length || log_total != capture_total ||
+      log_total < log_bytes ||
+      capture_length > T64_REAL_RESULT_MAX_BYTES) {
+    goto done;
+  }
+  {
+    t64_sha256_ctx hash;
+    t64_sha256_init(&hash);
+    t64_sha256_update(&hash, capture, capture_length);
+    t64_sha256_final(&hash, digest);
+  }
+  t64_sha256_hex(digest, digest_hex);
+  if (real_json_string_equals(root, "log_sha256", digest_hex)) {
+    valid = 1;
+  }
+done:
+  t64_json_free(&document);
+  return valid;
+}
+
+static int real_result_write_atomic(const char *path,
+                                    const t64_real_result *result);
+
+static int real_report_decode(const uint8_t *bytes, size_t length,
+                              t64_real_result *result) {
+  t64_json_doc document = {0};
+  const t64_json_node *root;
+  const t64_json_node *counts;
+  const t64_json_node *stop;
+  const t64_json_node *milestones;
+  const t64_json_node *item;
+  size_t index = 0u;
+  int valid = 0;
+
+  if (bytes == NULL || length == 0u || result == NULL ||
+      t64_json_parse(bytes, length, NULL, &document, NULL) != 0) {
+    return 0;
+  }
+  root = document.root;
+  counts = t64_json_get(root, "counts");
+  stop = t64_json_get(root, "guest_stop");
+  milestones = t64_json_get(root, "milestones");
+  memset(result, 0, sizeof *result);
+  result->prelaunch = false;
+  if (root == NULL || root->type != T64_JSON_OBJECT || counts == NULL ||
+      counts->type != T64_JSON_OBJECT || stop == NULL ||
+      stop->type != T64_JSON_OBJECT || milestones == NULL ||
+      milestones->type != T64_JSON_ARRAY ||
+      milestones->count > T64_REAL_RESULT_MAX_MILESTONES ||
+      !real_json_copy_identity(root, "build_id", result->build_id,
+                               sizeof result->build_id, &(bool){false}) ||
+      !real_json_copy_identity(root, "source_revision",
+                               result->source_revision,
+                               sizeof result->source_revision,
+                               &(bool){false}) ||
+      !real_json_copy_identity(root, "profile_id", result->profile_id,
+                               sizeof result->profile_id, &(bool){false}) ||
+      !real_json_copy_identity(root, "profile_digest",
+                               result->profile_digest,
+                               sizeof result->profile_digest, &(bool){false}) ||
+      !real_json_copy_identity(root, "fixture_id", result->fixture_id,
+                               sizeof result->fixture_id, &(bool){false}) ||
+      !real_json_copy_identity(root, "fixture_sha256",
+                               result->fixture_sha256,
+                               sizeof result->fixture_sha256, &(bool){false}) ||
+      !real_json_copy_identity(root, "ipl3_sha256", result->ipl3_sha256,
+                               sizeof result->ipl3_sha256, &(bool){false}) ||
+      !real_json_copy_identity(root, "ipl3_payload_sha256",
+                               result->ipl3_payload_sha256,
+                               sizeof result->ipl3_payload_sha256,
+                               &(bool){false}) ||
+      !real_json_copy_identity(root, "input_digest", result->input_digest,
+                               sizeof result->input_digest,
+                               &result->has_input_digest) ||
+      !real_json_copy_identity(root, "log_sha256", result->log_sha256,
+                               sizeof result->log_sha256,
+                               &result->has_log_sha256) ||
+      !real_json_copy_identity(root, "state_digest", result->state_digest,
+                               sizeof result->state_digest,
+                               &result->has_state_digest) ||
+      !real_json_copy_string(t64_json_get(stop, "kind"),
+                             result->guest_stop_kind,
+                             sizeof result->guest_stop_kind) ||
+      !real_json_copy_string(t64_json_get(root, "outcome"), result->outcome,
+                             sizeof result->outcome) ||
+      !real_json_copy_string(t64_json_get(root, "detail"), result->detail,
+                             sizeof result->detail) ||
+      !real_json_u64(stop, "bound_tick", &result->bound_tick) ||
+      !real_json_u64(root, "guest_tick", &result->guest_tick) ||
+      !real_json_u64(root, "instruction_count", &result->instruction_count) ||
+      !real_json_u64(counts, "log_bytes", &result->log_bytes) ||
+      !real_json_u64(counts, "log_bytes_total", &result->log_bytes_total)) {
+    goto done;
+  }
+  for (item = milestones->first; item != NULL; item = item->next) {
+    t64_real_milestone *milestone = &result->milestones[index++];
+    if (item->type != T64_JSON_OBJECT ||
+        !real_json_copy_string(t64_json_get(item, "kind"), milestone->kind,
+                               sizeof milestone->kind) ||
+        !real_json_copy_string(t64_json_get(item, "pc"), milestone->pc,
+                               sizeof milestone->pc) ||
+        !real_json_u64(item, "guest_tick", &milestone->guest_tick)) {
+      goto done;
+    }
+  }
+  result->milestone_count = index;
+  valid = true;
+done:
+  t64_json_free(&document);
+  return valid;
+}
+
+static int real_write_report_override(const char *path, const uint8_t *bytes,
+                                      size_t length, const char *detail) {
+  t64_real_result result;
+  if (!real_report_decode(bytes, length, &result)) return -1;
+  (void)snprintf(result.guest_stop_kind, sizeof result.guest_stop_kind,
+                 "host-error");
+  (void)snprintf(result.outcome, sizeof result.outcome, "harness-error");
+  (void)snprintf(result.detail, sizeof result.detail, "%s", detail);
+  return real_result_write_atomic(path, &result);
+}
+
+static int real_result_write_atomic(const char *path,
+                                   const t64_real_result *result) {
+  char bytes[T64_REAL_RESULT_MAX_BYTES];
+  size_t length = 0u;
+  if (path == NULL ||
+      !t64_real_result_encode(result, bytes, sizeof bytes, &length)) {
+    return -1;
+  }
+  return atomic_write(path, bytes, length);
+}
+
+static void real_set_prelaunch(t64_real_result *result, const char *outcome,
+                               const char *detail, const char *stop_kind) {
+  memset(result, 0, sizeof *result);
+  result->prelaunch = true;
+  (void)snprintf(result->guest_stop_kind, sizeof result->guest_stop_kind,
+                 "%s", stop_kind);
+  (void)snprintf(result->outcome, sizeof result->outcome, "%s", outcome);
+  (void)snprintf(result->detail, sizeof result->detail, "%s", detail);
+  result->bound_tick = REAL_GUEST_TICKS;
+}
+
+static int real_schedule_digest(int fd,
+                                char output[T64_REAL_RESULT_HEX_SIZE]) {
+  uint8_t raw[REAL_INPUT_SIZE];
+  t64_input_schedule *schedule = NULL;
+  t64_input_error input_error;
+  size_t total = 0u;
+  size_t canonical_length = 0u;
+  const uint8_t *canonical;
+  t64_sha256_ctx hash;
+  uint8_t digest[T64_SHA256_DIGEST_SIZE];
+  if (lseek(fd, 0, SEEK_SET) != 0) return -1;
+  while (total < sizeof raw) {
+    ssize_t count = read(fd, raw + total, sizeof raw - total);
+    if (count < 0 && errno == EINTR) continue;
+    if (count <= 0) return -1;
+    total += (size_t)count;
+  }
+  if (t64_input_parse(raw, sizeof raw, &schedule, &input_error) !=
+      T64_INPUT_OK) {
+    return -1;
+  }
+  canonical = t64_input_schedule_canonical_json(schedule, &canonical_length);
+  if (canonical == NULL || canonical_length == 0u) {
+    t64_input_schedule_destroy(schedule);
+    return -1;
+  }
+  t64_sha256_init(&hash);
+  t64_sha256_update(&hash, canonical, canonical_length);
+  t64_sha256_final(&hash, digest);
+  t64_sha256_hex(digest, output);
+  t64_input_schedule_destroy(schedule);
+  if (lseek(fd, 0, SEEK_SET) != 0) return -1;
+  return strcmp(output, REAL_INPUT_SHA256) == 0 ? 0 : -1;
+}
+
+static int real_result_initialize(t64_real_result *result,
+                                  const char *input_digest) {
+  const t64_profile_descriptor *profile = NULL;
+  const char *build_id = t64_build_identity();
+  const char *source_revision = t64_source_revision();
+  uint8_t profile_digest[T64_DIGEST_SIZE];
+  char profile_hex[T64_SHA256_HEX_SIZE];
+  char asset_hex[T64_SHA256_HEX_SIZE];
+  char payload_hex[T64_SHA256_HEX_SIZE];
+  if (result == NULL || build_id == NULL || source_revision == NULL ||
+      input_digest == NULL ||
+      strlen(build_id) >= sizeof result->build_id ||
+      strlen(source_revision) >= sizeof result->source_revision ||
+      t64_profile_lookup(REAL_PROFILE_ID, &profile) != T64_STATUS_OK ||
+      profile == NULL || t64_profile_hash(profile, profile_digest) !=
+                             T64_STATUS_OK) {
+    return -1;
+  }
+  t64_sha256_hex(profile_digest, profile_hex);
+  t64_sha256_hex(profile->asset_sha256, asset_hex);
+  t64_sha256_hex(profile->payload_sha256, payload_hex);
+  if (strcmp(profile_hex, REAL_PROFILE_SHA256) != 0 ||
+      strcmp(asset_hex, REAL_ASSET_SHA256) != 0 ||
+      strcmp(payload_hex, REAL_PAYLOAD_SHA256) != 0 ||
+      strcmp(input_digest, REAL_INPUT_SHA256) != 0) {
+    return -1;
+  }
+  memset(result, 0, sizeof *result);
+  (void)snprintf(result->build_id, sizeof result->build_id, "%s", build_id);
+  (void)snprintf(result->source_revision, sizeof result->source_revision,
+                 "%s", source_revision);
+  (void)snprintf(result->profile_id, sizeof result->profile_id, "%s",
+                 REAL_PROFILE_ID);
+  (void)snprintf(result->profile_digest, sizeof result->profile_digest, "%s",
+                 profile_hex);
+  (void)snprintf(result->fixture_id, sizeof result->fixture_id, "%s",
+                 REAL_FIXTURE_ID);
+  (void)snprintf(result->fixture_sha256, sizeof result->fixture_sha256, "%s",
+                 REAL_FIXTURE_SHA256);
+  (void)snprintf(result->ipl3_sha256, sizeof result->ipl3_sha256, "%s",
+                 asset_hex);
+  (void)snprintf(result->ipl3_payload_sha256,
+                 sizeof result->ipl3_payload_sha256, "%s", payload_hex);
+  (void)snprintf(result->input_digest, sizeof result->input_digest, "%s",
+                 input_digest);
+  result->has_input_digest = true;
+  result->bound_tick = REAL_GUEST_TICKS;
+  (void)snprintf(result->guest_stop_kind, sizeof result->guest_stop_kind,
+                 "host-error");
+  (void)snprintf(result->outcome, sizeof result->outcome, "harness-error");
+  (void)snprintf(result->detail, sizeof result->detail, "host-error");
+  return 0;
+}
+
+static int real_result_set_capture(t64_real_result *result,
+                                   const uint8_t *capture,
+                                   size_t capture_length,
+                                   uint64_t capture_total,
+                                   bool capture_valid) {
+  uint8_t digest[T64_SHA256_DIGEST_SIZE];
+  char digest_hex[T64_SHA256_HEX_SIZE];
+  if (result == NULL) return -1;
+  result->has_log_sha256 = false;
+  result->log_bytes = 0u;
+  result->log_bytes_total = 0u;
+  if (!capture_valid) return 0;
+  if (capture_length > 4096u || capture_total < capture_length ||
+      (capture_length != 0u && capture == NULL)) {
+    return -1;
+  }
+  t64_sha256_ctx hash;
+  t64_sha256_init(&hash);
+  t64_sha256_update(&hash, capture, capture_length);
+  t64_sha256_final(&hash, digest);
+  t64_sha256_hex(digest, digest_hex);
+  (void)snprintf(result->log_sha256, sizeof result->log_sha256, "%s",
+                 digest_hex);
+  result->has_log_sha256 = true;
+  result->log_bytes = (uint64_t)capture_length;
+  result->log_bytes_total = capture_total;
+  return 0;
+}
+
+static int real_write_prelaunch(const char *path, const char *outcome,
+                                const char *detail, const char *stop_kind) {
+  t64_real_result result;
+  real_set_prelaunch(&result, outcome, detail, stop_kind);
+  return real_result_write_atomic(path, &result);
+}
+
+static int real_write_postlaunch_error(const char *path,
+                                       const t64_real_result *identities,
+                                       const char *stop_kind,
+                                       const char *detail,
+                                       const uint8_t *capture,
+                                       size_t capture_length,
+                                       uint64_t capture_total,
+                                       bool capture_valid) {
+  t64_real_result result;
+  if (identities == NULL) return -1;
+  result = *identities;
+  result.prelaunch = false;
+  result.guest_tick = 0u;
+  result.instruction_count = 0u;
+  result.milestone_count = 0u;
+  result.has_state_digest = false;
+  if (real_result_set_capture(&result, capture, capture_length,
+                              capture_total,
+                              capture_valid) != 0) {
+    return -1;
+  }
+  (void)snprintf(result.guest_stop_kind, sizeof result.guest_stop_kind, "%s",
+                 stop_kind);
+  (void)snprintf(result.outcome, sizeof result.outcome, "harness-error");
+  (void)snprintf(result.detail, sizeof result.detail, "%s", detail);
+  return real_result_write_atomic(path, &result);
+}
+
+static int real_clear_cloexec(int fd) {
+  int flags = fcntl(fd, F_GETFD);
+  return flags >= 0 && fcntl(fd, F_SETFD, flags & ~FD_CLOEXEC) == 0;
+}
+
+static int real_test_barrier(const sup_args *args) {
+#ifdef T64_SUPERVISOR_TESTING
+  if (args->test_ready_fd != 0u) {
+    int ready_fd = (int)args->test_ready_fd;
+    int gate_fd = (int)args->test_gate_fd;
+    uint8_t token = 1u;
+    ssize_t count;
+    if (write_all(ready_fd, &token, 1u) != 0) {
+      close(ready_fd);
+      close(gate_fd);
+      return -1;
+    }
+    do {
+      count = read(gate_fd, &token, 1u);
+    } while (count < 0 && errno == EINTR);
+    close(ready_fd);
+    close(gate_fd);
+    return count == 1 && token == 1u ? 0 : -1;
+  }
+#else
+  (void)args;
+#endif
+  return 0;
+}
+
+static int real_run_mode(const sup_args *args, const char *self_path) {
+  t64_verified_input fixture = {-1, 0u, {0u}, {0}, 0u};
+  t64_verified_input input = {-1, 0u, {0u}, {0}, 0u};
+  t64_verified_input_status fixture_status;
+  t64_verified_input_status input_status;
+  t64_real_result identities;
+  workset ws;
+  char canonical_input[T64_REAL_RESULT_HEX_SIZE];
+  char runner_path[4096];
+  char checker_path[4096];
+  char fixture_fd_text[24];
+  char input_fd_text[24];
+  char guest_ticks_text[24];
+  char report_bytes[T64_REAL_RESULT_MAX_BYTES + 1u];
+  uint8_t *capture = NULL;
+  size_t capture_length = 0u;
+  uint64_t capture_total = 0u;
+  long report_length = 0;
+  bool capture_valid = false;
+  bool capture_export_failed = false;
+  bool report_schema_valid = false;
+  bool capture_matches_report = false;
+  bool report_valid = false;
+  bool process_ok = false;
+  int exit_code = 1;
+  int wait_status = -1;
+  int exec_pipe[2] = {-1, -1};
+  int report_fd = -1;
+  int capture_fd = -1;
+  pid_t pid = -1;
+  uint64_t start_ms = now_ms();
+  uint64_t deadline = 0u;
+  bool wall_backstop = false;
+  bool supervisor_signalled = false;
+  int exec_failed = 0;
+  int runner_status = 0;
+  struct rlimit limit;
+#ifdef T64_SUPERVISOR_TESTING
+  const char *runner_name = "t64-runner-test";
+#else
+  const char *runner_name = "t64-runner-real";
+#endif
+
+  memset(&ws, 0, sizeof ws);
+  fixture_status = t64_verified_input_prepare(
+      args->fixture, REAL_FIXTURE_SIZE, REAL_FIXTURE_SHA256,
+      T64_VERIFIED_FIXTURE_MAX_BYTES, &fixture);
+  if (fixture_status != T64_VERIFIED_INPUT_OK) {
+    const char *outcome = fixture_status == T64_VERIFIED_INPUT_MISSING
+                              ? "missing-fixture"
+                              : "harness-error";
+    const char *detail = fixture_status == T64_VERIFIED_INPUT_MISSING
+                             ? "fixture-absent"
+                             : "refusal";
+    (void)real_write_prelaunch(args->result, outcome, detail, "not-started");
+    goto cleanup;
+  }
+  input_status = t64_verified_input_prepare(
+      args->input, REAL_INPUT_SIZE, REAL_INPUT_SHA256,
+      T64_VERIFIED_SCHEDULE_MAX_BYTES, &input);
+  if (input_status != T64_VERIFIED_INPUT_OK ||
+      real_schedule_digest(input.fd, canonical_input) != 0 ||
+      real_result_initialize(&identities, canonical_input) != 0) {
+    (void)real_write_prelaunch(args->result, "harness-error", "refusal",
+                               "refused");
+    goto cleanup;
+  }
+  if (real_test_barrier(args) != 0) {
+    (void)real_write_prelaunch(args->result, "harness-error", "refusal",
+                               "refused");
+    goto cleanup;
+  }
+  start_ms = now_ms();
+  if (real_resolve_sibling(self_path, runner_name, runner_path,
+                           sizeof runner_path) != 0 ||
+      real_resolve_sibling(self_path, "t64-result-check", checker_path,
+                           sizeof checker_path) != 0) {
+    (void)real_write_prelaunch(args->result, "harness-error", "exec-failed",
+                               "not-started");
+    goto cleanup;
+  }
+  {
+    int length = snprintf(ws.dir, sizeof ws.dir, "%s/t64real.XXXXXX",
+                          args->work_dir);
+    if (length <= 0 || (size_t)length >= sizeof ws.dir ||
+        mkdtemp(ws.dir) == NULL) {
+      (void)real_write_prelaunch(args->result, "harness-error", "usage",
+                                 "not-started");
+      goto cleanup;
+    }
+  }
+  ws.made_dir = 1;
+  (void)snprintf(ws.report, sizeof ws.report, "%s/report", ws.dir);
+  (void)snprintf(ws.capture, sizeof ws.capture, "%s/capture", ws.dir);
+  report_fd = create_private(ws.report);
+  capture_fd = create_private(ws.capture);
+  if (report_fd < 0 || capture_fd < 0) {
+    (void)real_write_prelaunch(args->result, "harness-error", "usage",
+                               "not-started");
+    goto cleanup;
+  }
+  close(report_fd);
+  report_fd = -1;
+  close(capture_fd);
+  capture_fd = -1;
+  if (real_resolve_sibling(self_path, runner_name, runner_path,
+                           sizeof runner_path) != 0) {
+    goto before_launch_error;
+  }
+  if (pipe(exec_pipe) != 0 ||
+      fcntl(exec_pipe[0], F_SETFD, FD_CLOEXEC) != 0 ||
+      fcntl(exec_pipe[1], F_SETFD, FD_CLOEXEC) != 0 ||
+      fcntl(exec_pipe[0], F_SETFL, O_NONBLOCK) != 0) {
+    goto before_launch_error;
+  }
+  (void)snprintf(fixture_fd_text, sizeof fixture_fd_text, "%d", fixture.fd);
+  (void)snprintf(input_fd_text, sizeof input_fd_text, "%d", input.fd);
+  (void)snprintf(guest_ticks_text, sizeof guest_ticks_text, "%llu",
+                 (unsigned long long)REAL_GUEST_TICKS);
+  deadline = args->wall_ms > UINT64_MAX - start_ms
+                 ? UINT64_MAX
+                 : start_ms + args->wall_ms;
+  pid = fork();
+  if (pid < 0) goto before_launch_error;
+  if (pid == 0) {
+    int devnull;
+    char option_fixture[] = "--fixture-fd";
+    char option_input[] = "--input-fd";
+    char option_profile[] = "--profile";
+    char option_ticks[] = "--guest-ticks";
+    char profile_id[] = REAL_PROFILE_ID;
+    char *const child_args[] = {
+        runner_path, option_fixture, fixture_fd_text, option_input,
+        input_fd_text, option_profile, profile_id, option_ticks,
+        guest_ticks_text, NULL};
+    setpgid(0, 0);
+    limit.rlim_cur = 0;
+    limit.rlim_max = 0;
+    (void)setrlimit(RLIMIT_CORE, &limit);
+    limit.rlim_cur = (rlim_t)(T64_REAL_RESULT_MAX_BYTES + FSIZE_SLACK);
+    limit.rlim_max = limit.rlim_cur;
+    (void)setrlimit(RLIMIT_FSIZE, &limit);
+    devnull = open("/dev/null", O_RDONLY);
+    if (devnull >= 0) (void)dup2(devnull, STDIN_FILENO);
+    report_fd = open(ws.report, O_WRONLY | O_TRUNC | O_NOFOLLOW);
+    capture_fd = open(ws.capture, O_WRONLY | O_TRUNC | O_NOFOLLOW);
+    if (report_fd < 0 || capture_fd < 0 ||
+        !real_clear_cloexec(fixture.fd) || !real_clear_cloexec(input.fd) ||
+        dup2(report_fd, STDOUT_FILENO) < 0 ||
+        dup2(capture_fd, STDERR_FILENO) < 0) {
+      _exit(126);
+    }
+#ifdef T64_SUPERVISOR_TESTING
+    if (args->test_fault != NULL &&
+        setenv("T64_REAL_RUNNER_TEST_FAULT", args->test_fault, 1) != 0) {
+      _exit(126);
+    }
+#endif
+    close(report_fd);
+    close(capture_fd);
+    close(exec_pipe[0]);
+    signal(SIGPIPE, SIG_DFL);
+    execv(runner_path, child_args);
+    {
+      int exec_error = errno;
+      (void)!write(exec_pipe[1], &exec_error, sizeof exec_error);
+    }
+    _exit(127);
+  }
+  (void)setpgid(pid, pid);
+  close(exec_pipe[1]);
+  exec_pipe[1] = -1;
+  identities.bound_tick = REAL_GUEST_TICKS;
+  for (;;) {
+    siginfo_t info;
+    memset(&info, 0, sizeof info);
+    if (waitid(P_PID, (id_t)pid, &info,
+               WEXITED | WNOHANG | WNOWAIT) == 0 && info.si_pid == pid) {
+      break;
+    }
+    if (g_term) {
+      supervisor_signalled = true;
+      break;
+    }
+    if (now_ms() >= deadline) {
+      wall_backstop = true;
+      break;
+    }
+    {
+      struct timespec nap = {0, 2 * 1000 * 1000};
+      (void)nanosleep(&nap, NULL);
+    }
+  }
+  (void)kill(-pid, SIGKILL);
+  (void)kill(pid, SIGKILL);
+  while (waitpid(pid, &wait_status, 0) < 0 && errno == EINTR) {
+  }
+  pid = -1;
+  if (WIFEXITED(wait_status)) {
+    runner_status = WEXITSTATUS(wait_status);
+  }
+  {
+    int error_number = 0;
+    if (read(exec_pipe[0], &error_number, sizeof error_number) ==
+        (ssize_t)sizeof error_number) {
+      exec_failed = 1;
+    }
+    close(exec_pipe[0]);
+    exec_pipe[0] = -1;
+  }
+  report_length = read_report(ws.report, (uint8_t *)report_bytes,
+                              sizeof report_bytes);
+  capture_valid = read_real_capture(ws.capture, &capture, &capture_length,
+                                    &capture_total) == 0;
+  report_valid = false;
+  if (report_length > 0 &&
+      (size_t)report_length <= T64_REAL_RESULT_MAX_BYTES && capture_valid) {
+    report_schema_valid =
+        real_checker_accepts(checker_path, ws.report);
+    capture_matches_report = real_report_matches_capture(
+        (const uint8_t *)report_bytes, (size_t)report_length, capture,
+        capture_length, capture_total);
+    report_valid = report_schema_valid && capture_matches_report;
+  }
+  process_ok = !wall_backstop && !supervisor_signalled && !exec_failed &&
+               WIFEXITED(wait_status) && runner_status == 0;
+  if (args->capture_out != NULL && capture_valid &&
+      atomic_write(args->capture_out, capture, capture_length) != 0) {
+    capture_export_failed = true;
+  }
+  if (process_ok && report_valid && capture_valid &&
+      !capture_export_failed) {
+    if (atomic_write(args->result, report_bytes, (size_t)report_length) == 0) {
+      exit_code = 0;
+    }
+  } else if (!wall_backstop && !supervisor_signalled && !exec_failed &&
+             WIFEXITED(wait_status) && runner_status != 0 && report_valid &&
+             capture_valid &&
+             real_write_report_override(
+                 args->result, (const uint8_t *)report_bytes,
+                 (size_t)report_length, "runner-exit-nonzero") == 0) {
+    exit_code = 1;
+  } else if (capture_export_failed && report_valid && capture_valid &&
+             real_write_report_override(args->result,
+                                        (const uint8_t *)report_bytes,
+                                        (size_t)report_length,
+                                        "host-error") == 0) {
+    exit_code = 1;
+  } else {
+    const char *kind = "host-error";
+    const char *detail = "host-error";
+    if (capture_export_failed) detail = "host-error";
+    else if (wall_backstop) detail = "wall-backstop";
+    else if (supervisor_signalled) detail = "supervisor-signalled";
+    else if (exec_failed) detail = "exec-failed";
+    else if (WIFSIGNALED(wait_status)) detail = "runner-signalled";
+    else if (WIFEXITED(wait_status) && runner_status != 0)
+      detail = "runner-exit-nonzero";
+    else if (report_length == 0) {
+      kind = "report-error";
+      detail = "no-result";
+    } else if (report_length < 0 ||
+               (size_t)report_length > T64_REAL_RESULT_MAX_BYTES) {
+      kind = "report-error";
+      detail = "report-invalid";
+    } else if (!capture_valid ||
+               (report_schema_valid && !capture_matches_report)) {
+      kind = "report-error";
+      detail = "capture-invalid";
+    } else {
+      kind = "report-error";
+      detail = "report-invalid";
+    }
+    if (real_write_postlaunch_error(args->result, &identities, kind, detail,
+                                    capture, capture_length,
+                                    capture_total,
+                                    capture_valid) == 0) {
+      exit_code = 1;
+    }
+  }
+  {
+    char meta_buffer[1024];
+    size_t meta_length = 0u;
+    if (build_meta(meta_buffer, sizeof meta_buffer, &meta_length, wait_status,
+                   now_ms() - start_ms) == 0) {
+      (void)atomic_write(args->meta, meta_buffer, meta_length);
+    }
+  }
+  goto cleanup;
+
+before_launch_error:
+  (void)real_write_prelaunch(args->result, "harness-error", "exec-failed",
+                             "not-started");
+  goto cleanup;
+
+cleanup:
+  if (exec_pipe[0] >= 0) close(exec_pipe[0]);
+  if (exec_pipe[1] >= 0) close(exec_pipe[1]);
+  if (report_fd >= 0) close(report_fd);
+  if (capture_fd >= 0) close(capture_fd);
+  if (pid > 0) {
+    (void)kill(-pid, SIGKILL);
+    (void)kill(pid, SIGKILL);
+    while (waitpid(pid, &wait_status, 0) < 0 && errno == EINTR) {
+    }
+  }
+  workset_cleanup(&ws);
+  free(capture);
+  t64_verified_input_release(&fixture);
+  t64_verified_input_release(&input);
+  return exit_code;
+}
+
 int main(int argc, char **argv) {
   sup_args a;
   t64_observation o;
@@ -577,12 +1439,15 @@ int main(int argc, char **argv) {
   t64_sha256_hex(sdig, profile_hash);
 
   parse_rc = parse_args(argc, argv, &a);
-  /* Real result production is staged for plan 03-11. The flag is recognized
-   * only in the supervisor option region, before the -- runner separator. */
   if (a.real_mode) {
-    fprintf(stderr,
-            "t64-supervisor: --real is unavailable until the real producer is implemented\n");
-    return 2;
+    if (parse_rc != 0) {
+      if (result_path != NULL) {
+        (void)real_write_prelaunch(result_path, "harness-error", "usage",
+                                   "not-started");
+      }
+      return 2;
+    }
+    return real_run_mode(&a, argv[0]);
   }
   if (parse_rc != 0) {
     o.usage_error = 1;

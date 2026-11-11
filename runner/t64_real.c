@@ -5,6 +5,7 @@
 #include <inttypes.h>
 #include <limits.h>
 #include <stdbool.h>
+#include <signal.h>
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -38,6 +39,14 @@
 #define T64_REAL_HELLO_PC UINT32_C(0x80000478)
 #define T64_REAL_HELLO_ENTRY_PC UINT32_C(0x80000400)
 #define T64_REAL_BREAK_OPCODE UINT32_C(0x0000000d)
+
+#ifdef T64_REAL_RUNNER_TESTING
+static const char *g_test_fault;
+
+static bool test_fault_is(const char *name) {
+  return g_test_fault != NULL && strcmp(g_test_fault, name) == 0;
+}
+#endif
 
 static const uint8_t expected_log[T64_REAL_EXPECTED_LOG_BYTES + 1u] =
     "Tendies64 hello via open IPL3\n";
@@ -490,7 +499,9 @@ static int run_real(int fixture_fd, int input_fd, uint64_t guest_ticks) {
   int exit_code = 0;
   char input_digest[T64_SHA256_HEX_SIZE];
   uint8_t state_digest[T64_DIGEST_SIZE];
+  uint8_t content_digest[T64_DIGEST_SIZE];
   char output_digest[T64_SHA256_HEX_SIZE];
+  char content_digest_hex[T64_SHA256_HEX_SIZE];
   bool qualified_completion;
 
   if (!read_snapshot(fixture_fd, T64_REAL_FIXTURE_MAX_BYTES,
@@ -560,6 +571,22 @@ static int run_real(int fixture_fd, int input_fd, uint64_t guest_ticks) {
   if (status != T64_STATUS_OK) {
     exit_code = emit_prelaunch("refusal", "refused", guest_ticks, 0);
     goto cleanup;
+  }
+  if (t64_machine_content_digest(machine, content_digest) != T64_STATUS_OK) {
+    (void)snprintf(result.guest_stop_kind, sizeof result.guest_stop_kind,
+                   "host-error");
+    (void)snprintf(result.outcome, sizeof result.outcome, "harness-error");
+    (void)snprintf(result.detail, sizeof result.detail, "host-error");
+    goto finalize;
+  }
+  t64_sha256_hex(content_digest, content_digest_hex);
+  if (strcmp(content_digest_hex, fixture.sha256_hex) != 0) {
+    (void)snprintf(result.guest_stop_kind, sizeof result.guest_stop_kind,
+                   "host-error");
+    (void)snprintf(result.outcome, sizeof result.outcome, "harness-error");
+    (void)snprintf(result.detail, sizeof result.detail,
+                   "core-content-mismatch");
+    goto finalize;
   }
   observations.result = &result;
   if (!drain_trace(machine, &observations)) {
@@ -752,6 +779,11 @@ finalize:
     set_digest(result.state_digest, state_digest);
     result.has_state_digest = true;
   }
+#ifdef T64_REAL_RUNNER_TESTING
+  if (test_fault_is("capture-closed")) {
+    (void)close(STDERR_FILENO);
+  } else
+#endif
   if (!write_all(STDERR_FILENO, output, output_length)) {
     result.has_log_sha256 = false;
     result.log_bytes = 0u;
@@ -812,5 +844,53 @@ int main(int argc, char **argv) {
   if (!seen_fixture || !seen_input || !seen_profile || !seen_ticks) {
     return emit_prelaunch("usage", "not-started", guest_ticks, 2);
   }
-  return run_real(fixture_fd, input_fd, guest_ticks);
+#ifdef T64_REAL_RUNNER_TESTING
+  g_test_fault = getenv("T64_REAL_RUNNER_TEST_FAULT");
+  if (g_test_fault != NULL &&
+      strcmp(g_test_fault, "exit-nonzero") != 0 &&
+      strcmp(g_test_fault, "capture-closed") != 0 &&
+      strcmp(g_test_fault, "crash-after-output") != 0 &&
+      strcmp(g_test_fault, "delay-after-output") != 0 &&
+      strcmp(g_test_fault, "report-missing") != 0 &&
+      strcmp(g_test_fault, "report-truncated") != 0 &&
+      strcmp(g_test_fault, "report-oversize") != 0 &&
+      strcmp(g_test_fault, "report-malformed") != 0 &&
+      strcmp(g_test_fault, "report-unknown") != 0) {
+    return emit_prelaunch("usage", "not-started", guest_ticks, 2);
+  }
+#endif
+  {
+    int status = run_real(fixture_fd, input_fd, guest_ticks);
+#ifdef T64_REAL_RUNNER_TESTING
+    if (status == 0 && test_fault_is("exit-nonzero")) return 7;
+    if (status == 0 && test_fault_is("crash-after-output")) {
+      (void)raise(SIGKILL);
+    }
+    if (status == 0 && test_fault_is("delay-after-output")) {
+      (void)sleep(3u);
+    }
+    if (status == 0 && test_fault_is("report-missing")) {
+      (void)ftruncate(STDOUT_FILENO, 0);
+    } else if (status == 0 && test_fault_is("report-truncated")) {
+      (void)ftruncate(STDOUT_FILENO, (off_t)8);
+    } else if (status == 0 && test_fault_is("report-oversize")) {
+      uint8_t extra[T64_REAL_RESULT_MAX_BYTES];
+      memset(extra, 'x', sizeof extra);
+      (void)write_all(STDOUT_FILENO, extra, sizeof extra);
+    } else if (status == 0 && test_fault_is("report-malformed")) {
+      static const uint8_t malformed[] = "{not-json}\n";
+      (void)ftruncate(STDOUT_FILENO, 0);
+      (void)lseek(STDOUT_FILENO, 0, SEEK_SET);
+      (void)write_all(STDOUT_FILENO, malformed, sizeof malformed - 1u);
+    } else if (status == 0 && test_fault_is("report-unknown")) {
+      static const uint8_t unknown[] =
+          "{\"schema\":\"t64.result\",\"schema_version\":2,"
+          "\"unknown\":true}\n";
+      (void)ftruncate(STDOUT_FILENO, 0);
+      (void)lseek(STDOUT_FILENO, 0, SEEK_SET);
+      (void)write_all(STDOUT_FILENO, unknown, sizeof unknown - 1u);
+    }
+#endif
+    return status;
+  }
 }

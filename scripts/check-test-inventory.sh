@@ -88,7 +88,9 @@ unit.core.warm-device-policy
 unit.core.isviewer
 runner.fixture-descriptor
 runner.result-v2
+integration.open-ipl3-hello
 controls.real.source-replaced
+controls.real.open-ipl3-source-replaced
 controls.real.input-partition'
 
 ASAN_ONLY='fuzz.rom-admission

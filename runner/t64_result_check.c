@@ -870,6 +870,11 @@ static int validate_real_result(const t64_json_node *root, rec *r, diag *d) {
   size_t null_identities = 0u;
   size_t i;
   int prelaunch;
+  int supervisor_identity_missing = 0;
+  int input_digest_missing = 0;
+  int log_digest_missing = 0;
+  int state_digest_missing = 0;
+  int postlaunch_untrusted = 0;
 
   if (!schema_and_version_exact(root, "t64.result", 2, d)) {
     return 0;
@@ -896,17 +901,22 @@ static int validate_real_result(const t64_json_node *root, rec *r, diag *d) {
     n = t64_json_get(root, identity_fields[i]);
     if (n->type == T64_JSON_NULL) {
       null_identities++;
+      if (i < 8u) supervisor_identity_missing = 1;
+      else if (i == 8u) input_digest_missing = 1;
+      else if (i == 9u) log_digest_missing = 1;
+      else state_digest_missing = 1;
     } else if (n->type != T64_JSON_STRING) {
       set_diag(d, "R-TYPE", "%s must be a string or null prelaunch", identity_fields[i]);
       return 0;
     }
   }
-  if (null_identities != 0u && null_identities != ARRAY_LEN(identity_fields)) {
+  prelaunch = null_identities == ARRAY_LEN(identity_fields);
+  postlaunch_untrusted = null_identities != 0u && !prelaunch;
+  if (postlaunch_untrusted && supervisor_identity_missing) {
     set_diag(d, "R-NULL-RULES",
-             "prelaunch identity fields are all null; launched identities are all present");
+             "postlaunch records must retain supervisor-known build, profile, fixture and IPL3 identities");
     return 0;
   }
-  prelaunch = null_identities == ARRAY_LEN(identity_fields);
 
   if (!prelaunch) {
     const t64_json_node *fixture_id = t64_json_get(root, "fixture_id");
@@ -920,9 +930,12 @@ static int validate_real_result(const t64_json_node *root, rec *r, diag *d) {
         !is_hex64(fixture_sha) ||
         !is_hex64(t64_json_get(root, "ipl3_sha256")) ||
         !is_hex64(t64_json_get(root, "ipl3_payload_sha256")) ||
-        !is_hex64(t64_json_get(root, "input_digest")) ||
-        !is_hex64(t64_json_get(root, "log_sha256")) ||
-        !is_hex64(t64_json_get(root, "state_digest"))) {
+        (!input_digest_missing &&
+         !is_hex64(t64_json_get(root, "input_digest"))) ||
+        (!log_digest_missing &&
+         !is_hex64(t64_json_get(root, "log_sha256"))) ||
+        (!state_digest_missing &&
+         !is_hex64(t64_json_get(root, "state_digest")))) {
       set_diag(d, "R-TYPE", "real identities must use their closed name and SHA-256 forms");
       return 0;
     }
@@ -1025,11 +1038,32 @@ static int validate_real_result(const t64_json_node *root, rec *r, diag *d) {
     return 1;
   }
 
+  if (postlaunch_untrusted) {
+    if (!str_is(outcome, "harness-error") ||
+        !(str_is(stop_kind, "host-error") ||
+          str_is(stop_kind, "report-error")) ||
+        ((input_digest_missing || state_digest_missing) &&
+         (!state_digest_missing || guest_tick != 0u ||
+          instruction_count != 0u || milestones.count != 0u)) ||
+        (log_digest_missing &&
+         (log_bytes != 0u || log_bytes_total != 0u))) {
+      set_diag(d, "R-NULL-RULES",
+               "postlaunch null input/state/log digests are limited to untrusted harness errors with zero verified state progress and zero counts for unknown logs");
+      return 0;
+    }
+  }
+
   if (str_is(stop_kind, "not-started") || str_is(stop_kind, "refused")) {
     set_diag(d, "R-NULL-RULES", "not-started and refused stops require null prelaunch identities");
     return 0;
   }
-  if (log_bytes == 0u) {
+  if (log_digest_missing) {
+    if (!postlaunch_untrusted || log_bytes != 0u || log_bytes_total != 0u) {
+      set_diag(d, "R-NULL-RULES",
+               "null log digest requires an untrusted postlaunch harness error and zero trusted counts");
+      return 0;
+    }
+  } else if (log_bytes == 0u) {
     if (!str_is(t64_json_get(root, "log_sha256"), expected_empty_sha256)) {
       set_diag(d, "R-CONSISTENCY", "empty output requires the SHA-256 of empty bytes");
       return 0;

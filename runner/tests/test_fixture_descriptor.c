@@ -855,6 +855,9 @@ static int helper_touch_supervisor_marker(const char *supervisor,
   char (*storage)[4096] = (char (*)[4096])calloc(28u, sizeof *storage);
   char **args = (char **)calloc(29u, sizeof *args);
   char fixture_sha[] = FIXTURE_SHA256;
+  uint8_t *real_result_bytes = NULL;
+  size_t real_result_length = 0u;
+  char *real_result_text = NULL;
   size_t count = 0u;
   pid_t pid;
   int status = 0;
@@ -912,14 +915,29 @@ static int helper_touch_supervisor_marker(const char *supervisor,
     if (errno != EINTR) goto done;
   }
   if (real_mode == 1) {
+    if (read_path(result_path, 4096u, &real_result_bytes,
+                  &real_result_length) == 0) {
+      real_result_text = (char *)malloc(real_result_length + 1u);
+      if (real_result_text != NULL) {
+        memcpy(real_result_text, real_result_bytes, real_result_length);
+        real_result_text[real_result_length] = '\0';
+      }
+    }
     result = WIFEXITED(status) && WEXITSTATUS(status) == 2 &&
-             access(marker_path, F_OK) != 0 && access(result_path, F_OK) != 0;
+             access(marker_path, F_OK) != 0 && real_result_text != NULL &&
+             strstr(real_result_text, "\"outcome\":\"harness-error\"") !=
+                 NULL &&
+             strstr(real_result_text, "\"detail\":\"usage\"") != NULL &&
+             strstr(real_result_text,
+                    "\"kind\":\"not-started\"") != NULL;
   } else if (real_mode == 2) {
     result = access(result_path, F_OK) == 0 && access(marker_path, F_OK) != 0;
   } else {
     result = access(marker_path, F_OK) == 0;
   }
 done:
+  free(real_result_text);
+  free(real_result_bytes);
   free(storage);
   free(args);
   return result;
@@ -1137,7 +1155,7 @@ static int run_replacement_control(const char *program, const char *supervisor) 
         meta_path, 0);
   }
   check(real_refused,
-        "--real refuses before launch and never forwards original paths to a child");
+        "incomplete --real invocation refuses before launch with a canonical usage record");
   check(real_after_separator,
         "runner-owned --real after the separator does not select supervisor real mode");
   {
