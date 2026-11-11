@@ -497,9 +497,7 @@ int main(void) {
   if (tap_mode != NULL && strcmp(tap_mode, "profile") == 0) {
     return tap_open_ipl3_profile_lookup();
   }
-  if (getenv("T64_TEST_IPL3_PATH") != NULL) {
-    test_actual_open_ipl3_entry();
-  }
+  test_actual_open_ipl3_entry();
   test_machine_tracer();
   test_allocator_storage_validation();
   return T64_TEST_FINISH("unit.core.tracer");

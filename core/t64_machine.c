@@ -62,6 +62,98 @@ static const t64_profile_descriptor ntsc_cart_4m_profile = {
     .state_serialization_version = 5u,
 };
 
+static const t64_profile_descriptor ntsc_cart_4m_openipl3_warm_profile = {
+    .profile_id = "ntsc-cart-4m-openipl3-warm-v1",
+    .console_target = "NUS-CPU-03",
+    .console_qualification = "unqualified-target",
+    .tv_standard = T64_TV_NTSC,
+    .region = T64_REGION_US,
+    .media_kind = T64_MEDIA_CARTRIDGE,
+    .rdram_bytes = T64_BASE_RAM_BYTES,
+    .expansion_bytes = 0u,
+    .peripheral_flags = 0u,
+    .save_kind = T64_SAVE_NONE,
+    .boot_route = "hle-pif+open-ipl3",
+    .boot_status = "prepared-warm-entry-partial",
+    .guest_tick_unit = "model-rsp-cycle",
+    .cpu_rsp_ratio_numerator = 1u,
+    .cpu_rsp_ratio_denominator = 1u,
+    .synchronization_quantum = 1u,
+    .timing_tier = "partial-warm-entry",
+    .scheduler_version = "tick-sequence-fifo-v1",
+    .pi_model_version = "pi_dma_skeleton_v1",
+    .sp_model_version = "sp_dma_skeleton_v1",
+    .rom_min_bytes = 4096u,
+    .rom_max_bytes = 4096u,
+    .event_queue_capacity = 256u,
+    .sequence_width_bits = 64u,
+    .advance_event_budget = 4096u,
+    .pi_duration_base_ticks = 1u,
+    .pi_duration_bytes_divisor = 2u,
+    .sp_duration_base_rsp_cycles = 12u,
+    .sp_duration_bytes_divisor = 8u,
+    .rom_order_policy = "exact-pinned-z64-bytes-only-v1",
+    .event_order_policy = "tick-sequence-fifo-v1",
+    .queue_exhaustion_policy = "reject-before-mutation-v1",
+    .sequence_exhaustion_policy = "reject-before-mutation-v1",
+    .advance_budget_policy = "bounded-4096-events-v1",
+    .guest_time_bound_policy = "inclusive-idle-advance-v1",
+    .halt_precedence_policy = "halt-at-bound-wins-v1",
+    .pi_register_policy = "pi-register-skeleton-v1",
+    .sp_register_policy = "sp-register-skeleton-v1",
+    .device_error_policy = "sticky-pi-error-v1",
+    .dma_cancel_policy = "token-match-complete-once-v1",
+    .dma_visibility_policy = "atomic-source-at-completion-v1",
+    .descriptor_version = 2u,
+    .machine_model_version = 2u,
+    .state_serialization_version = 6u,
+};
+
+static const uint8_t openipl3_asset_sha256[T64_DIGEST_SIZE] = {
+    0xf5u, 0x22u, 0xdbu, 0x2eu, 0x31u, 0xa7u, 0x01u, 0xf8u,
+    0x25u, 0x97u, 0xf3u, 0x99u, 0xe7u, 0x6du, 0x55u, 0xc9u,
+    0x48u, 0x77u, 0x60u, 0xd0u, 0x15u, 0xafu, 0xf9u, 0xd9u,
+    0x01u, 0x76u, 0xb4u, 0x63u, 0xaeu, 0x39u, 0xa0u, 0x68u};
+static const uint8_t openipl3_payload_sha256[T64_DIGEST_SIZE] = {
+    0xf7u, 0x16u, 0xa9u, 0x0bu, 0x1du, 0x36u, 0xecu, 0x42u,
+    0x53u, 0xd0u, 0x96u, 0x79u, 0x07u, 0x91u, 0x25u, 0x6du,
+    0x35u, 0x43u, 0x45u, 0x5eu, 0x54u, 0x47u, 0x3au, 0x75u,
+    0x5fu, 0xf8u, 0xc3u, 0xd1u, 0x19u, 0x9bu, 0x15u, 0xd5u};
+static const uint8_t openipl3_policy_sha256[T64_DIGEST_SIZE] = {
+    0xa6u, 0xeeu, 0xbau, 0x46u, 0x6au, 0xe8u, 0x80u, 0x4au,
+    0x8du, 0xecu, 0x79u, 0xceu, 0x8cu, 0x5du, 0xecu, 0xe4u,
+    0x0eu, 0xa5u, 0xd2u, 0x5bu, 0x29u, 0x72u, 0x4du, 0x53u,
+    0xf7u, 0xe1u, 0xebu, 0xe4u, 0x6fu, 0xfdu, 0x5cu, 0xc9u};
+
+static bool is_openipl3_profile(const t64_profile_descriptor *profile) {
+  static const char profile_id[] = "ntsc-cart-4m-openipl3-warm-v1";
+  uint8_t candidate_digest[T64_DIGEST_SIZE];
+  uint8_t canonical_digest[T64_DIGEST_SIZE];
+
+  if (profile == NULL || profile->descriptor_version != 2u ||
+      strcmp(profile->profile_id, profile_id) != 0 ||
+      t64_profile_hash(profile, candidate_digest) != T64_STATUS_OK ||
+      t64_profile_hash(&ntsc_cart_4m_openipl3_warm_profile,
+                       canonical_digest) != T64_STATUS_OK) {
+    return false;
+  }
+  return memcmp(candidate_digest, canonical_digest,
+                sizeof candidate_digest) == 0;
+}
+
+static bool openipl3_asset_matches(const uint8_t *bytes, size_t length) {
+  t64_sha256_ctx context;
+  uint8_t digest[T64_DIGEST_SIZE];
+
+  if (bytes == NULL || length != 4096u) {
+    return false;
+  }
+  t64_sha256_init(&context);
+  t64_sha256_update(&context, bytes, length);
+  t64_sha256_final(&context, digest);
+  return memcmp(digest, openipl3_asset_sha256, sizeof digest) == 0;
+}
+
 static size_t bounded_text_length(const char *text, size_t capacity) {
   size_t length = 0u;
 
@@ -229,6 +321,10 @@ static void write_profile(profile_writer *writer,
   profile_writer_u32(writer, profile->descriptor_version);
   profile_writer_u32(writer, profile->machine_model_version);
   profile_writer_u32(writer, profile->state_serialization_version);
+  if (profile->descriptor_version == 2u) {
+    profile_writer_bytes(writer, openipl3_policy_sha256,
+                         sizeof openipl3_policy_sha256);
+  }
 }
 
 static size_t profile_serialized_size(const t64_profile_descriptor *profile) {
@@ -290,15 +386,135 @@ void t64_machine_reset_execution_state(t64_machine *machine) {
   machine->sequence_exhausted = false;
 }
 
-static void reset_guest_state(t64_machine *machine) {
+static t64_status openipl3_cpu_step(t64_machine *machine,
+                                    const t64_event *event);
+
+static t64_status schedule_openipl3_cpu_step(t64_machine *machine) {
+  t64_event_reservation reservation;
+  t64_status status = t64_schedule_reserve_after(
+      machine, UINT64_C(1), T64_DEVICE_CPU, T64_CPU_EVENT_STEP, UINT64_C(0),
+      UINT64_C(0), openipl3_cpu_step, &reservation);
+
+  if (status != T64_STATUS_OK) {
+    return status;
+  }
+  return t64_schedule_commit(machine, &reservation);
+}
+
+static t64_status openipl3_cpu_step(t64_machine *machine,
+                                    const t64_event *event) {
+  uint32_t physical_pc;
+  uint32_t opcode = 0u;
+  t64_status status;
+
+  (void)event;
+  if (machine->cpu.stopped) {
+    return T64_STATUS_RESOURCE_EXHAUSTED;
+  }
+  machine->cpu.last_pc = machine->cpu.pc;
+  physical_pc = machine->cpu.pc;
+  if (physical_pc >= UINT32_C(0x80000000) &&
+      physical_pc < UINT32_C(0xc0000000)) {
+    physical_pc &= UINT32_C(0x1fffffff);
+  }
+  status = t64_bus_read(machine, physical_pc, 4u, &opcode);
+  machine->cpu.last_opcode = opcode;
+  if (status != T64_STATUS_OK || machine->cpu.pc != machine->boot.entry_pc ||
+      opcode != UINT32_C(0x3044d236)) {
+    machine->cpu.stopped = true;
+    machine->cpu.stop_reason = UINT32_C(7);
+    machine->cpu.stop_pc = machine->cpu.pc;
+    machine->cpu.stop_opcode = opcode;
+    t64_trace_emit(machine, machine->tick, T64_TRACE_DEVICE_MACHINE,
+                   T64_TRACE_KIND_CPU_UNSUPPORTED,
+                   ((uint64_t)machine->cpu.pc << 32) | (uint64_t)opcode);
+    return T64_STATUS_RESOURCE_EXHAUSTED;
+  }
+  if (machine->cpu.retired_instructions == UINT64_MAX ||
+      machine->instruction_count == UINT64_MAX) {
+    machine->cpu.stopped = true;
+    machine->cpu.stop_reason = UINT32_C(7);
+    machine->cpu.stop_pc = machine->cpu.pc;
+    machine->cpu.stop_opcode = opcode;
+    t64_trace_emit(machine, machine->tick, T64_TRACE_DEVICE_MACHINE,
+                   T64_TRACE_KIND_CPU_UNSUPPORTED,
+                   ((uint64_t)machine->cpu.pc << 32) | (uint64_t)opcode);
+    return T64_STATUS_RESOURCE_EXHAUSTED;
+  }
+
+  {
+    const uint32_t source_register = (opcode >> 21) & UINT32_C(0x1f);
+    const uint32_t target_register = (opcode >> 16) & UINT32_C(0x1f);
+    const uint64_t immediate = (uint64_t)(opcode & UINT32_C(0xffff));
+
+    machine->cpu.gpr[target_register] =
+        machine->cpu.gpr[source_register] & immediate;
+  }
+  machine->cpu.gpr[0] = 0u;
+  machine->cpu.retired_instructions++;
+  machine->instruction_count++;
+  t64_trace_emit(machine, machine->tick, T64_TRACE_DEVICE_MACHINE,
+                 T64_TRACE_KIND_CPU_RETIREMENT,
+                 ((uint64_t)machine->cpu.pc << 32) | (uint64_t)opcode);
+  machine->cpu.pc += UINT32_C(4);
+  return schedule_openipl3_cpu_step(machine);
+}
+
+static t64_status prepare_openipl3_warm_entry(t64_machine *machine) {
+  const uint8_t *image = (const uint8_t *)machine->image_storage.data;
+
+  machine->boot.source_offset = UINT32_C(0x40);
+  machine->boot.payload_length = UINT32_C(0xfc0);
+  machine->boot.dmem_offset = UINT32_C(0x40);
+  machine->boot.entry_pc = UINT32_C(0xa4000040);
+  machine->boot.seed_reset_version = UINT32_C(1);
+  machine->boot.seed_s3_rom_type = UINT32_C(0);
+  machine->boot.seed_s4_tv_type = UINT32_C(1);
+  machine->boot.seed_s5_reset_type = UINT32_C(1);
+  machine->boot.seed_s6_entropy = UINT32_C(0);
+  machine->boot.seed_s7_boot_info_version = UINT32_C(1);
+  (void)memcpy(machine->boot.asset_sha256, openipl3_asset_sha256,
+               sizeof machine->boot.asset_sha256);
+  (void)memcpy(machine->boot.payload_sha256, openipl3_payload_sha256,
+               sizeof machine->boot.payload_sha256);
+  (void)memcpy(machine->boot.policy_sha256, openipl3_policy_sha256,
+               sizeof machine->boot.policy_sha256);
+  (void)memcpy(machine->sp_dmem + machine->boot.dmem_offset,
+               image + machine->boot.source_offset,
+               machine->boot.payload_length);
+  machine->cpu.gpr[19] = machine->boot.seed_s3_rom_type;
+  machine->cpu.gpr[20] = machine->boot.seed_s4_tv_type;
+  machine->cpu.gpr[21] = machine->boot.seed_s5_reset_type;
+  machine->cpu.gpr[22] = machine->boot.seed_s6_entropy;
+  machine->cpu.gpr[23] = machine->boot.seed_s7_boot_info_version;
+  machine->cpu.pc = machine->boot.entry_pc;
+  machine->cache.policy_version = UINT32_C(1);
+  machine->guest_devices.policy_version = UINT32_C(1);
+  machine->output.policy_version = UINT32_C(1);
+  machine->boot.prepared = true;
+  t64_trace_emit(machine, machine->tick, T64_TRACE_DEVICE_MACHINE,
+                 T64_TRACE_KIND_CPU_ENTRY, machine->cpu.pc);
+  return schedule_openipl3_cpu_step(machine);
+}
+
+static t64_status reset_guest_state(t64_machine *machine) {
   t64_machine_reset_execution_state(machine);
   (void)memset(machine->ram, 0, machine->profile.rdram_bytes);
   (void)memset(machine->sp_dmem, 0, sizeof machine->sp_dmem);
   (void)memset(machine->sp_imem, 0, sizeof machine->sp_imem);
+  (void)memset(&machine->cpu, 0, sizeof machine->cpu);
+  (void)memset(&machine->boot, 0, sizeof machine->boot);
+  (void)memset(&machine->cache, 0, sizeof machine->cache);
+  (void)memset(&machine->guest_devices, 0, sizeof machine->guest_devices);
+  (void)memset(&machine->output, 0, sizeof machine->output);
   machine->mi_pending = 0u;
   machine->mi_mask = 0u;
   machine->mi_irq_line = false;
   t64_trace_reset(machine);
+  if (is_openipl3_profile(&machine->profile)) {
+    return prepare_openipl3_warm_entry(machine);
+  }
+  return T64_STATUS_OK;
 }
 
 const char *t64_build_identity(void) { return T64_BUILD_ID; }
@@ -307,7 +523,9 @@ const char *t64_source_revision(void) { return T64_SOURCE_REVISION; }
 
 t64_status t64_profile_lookup(const char *profile_id,
                               const t64_profile_descriptor **profile_out) {
-  static const char known_profile_id[] = "ntsc-cart-4m-skeleton";
+  static const char skeleton_profile_id[] = "ntsc-cart-4m-skeleton";
+  static const char openipl3_profile_id[] =
+      "ntsc-cart-4m-openipl3-warm-v1";
   size_t i;
 
   if (profile_out == NULL) {
@@ -318,11 +536,20 @@ t64_status t64_profile_lookup(const char *profile_id,
     return T64_STATUS_INVALID_ARGUMENT;
   }
   for (i = 0u;; i++) {
-    if (profile_id[i] != known_profile_id[i]) {
+    if (profile_id[i] != skeleton_profile_id[i]) {
+      break;
+    }
+    if (skeleton_profile_id[i] == '\0') {
+      *profile_out = &ntsc_cart_4m_profile;
+      return T64_STATUS_OK;
+    }
+  }
+  for (i = 0u;; i++) {
+    if (profile_id[i] != openipl3_profile_id[i]) {
       return T64_STATUS_UNKNOWN_PROFILE;
     }
-    if (known_profile_id[i] == '\0') {
-      *profile_out = &ntsc_cart_4m_profile;
+    if (openipl3_profile_id[i] == '\0') {
+      *profile_out = &ntsc_cart_4m_openipl3_warm_profile;
       return T64_STATUS_OK;
     }
   }
@@ -401,6 +628,11 @@ t64_status t64_machine_create(const t64_host_allocator *allocator,
       t64_profile_hash(profile, profile_digest) != T64_STATUS_OK) {
     return T64_STATUS_INVALID_ARGUMENT;
   }
+  if (profile->descriptor_version == 2u &&
+      strcmp(profile->profile_id, "ntsc-cart-4m-openipl3-warm-v1") == 0 &&
+      !is_openipl3_profile(profile)) {
+    return T64_STATUS_INVALID_ARGUMENT;
+  }
   total_size = (size_t)profile->rdram_bytes;
   if (total_size > SIZE_MAX - sizeof(t64_machine)) {
     return T64_STATUS_INVALID_ARGUMENT;
@@ -455,6 +687,10 @@ t64_status t64_machine_admit_rom(t64_machine *machine, const uint8_t *bytes,
   if (machine == NULL) {
     return T64_STATUS_INVALID_ROM;
   }
+  if (is_openipl3_profile(&machine->profile) &&
+      !openipl3_asset_matches(bytes, length)) {
+    return T64_STATUS_INVALID_ROM;
+  }
   status = t64_rom_candidate_prepare(
       &machine->allocator, &machine->profile, bytes, length,
       machine->machine_storage, machine->image_storage, machine->has_image,
@@ -477,14 +713,14 @@ t64_status t64_machine_admit_rom(t64_machine *machine, const uint8_t *bytes,
   machine->rom_version = candidate.version;
   machine->has_image = true;
   candidate.owns_storage = false;
-  reset_guest_state(machine);
+  status = reset_guest_state(machine);
   t64_trace_emit(machine, machine->tick, T64_TRACE_DEVICE_MACHINE,
                  T64_TRACE_KIND_ROM_ADMITTED, (uint64_t)candidate.length);
   t64_rom_candidate_discard(&machine->allocator, &candidate);
   if (previous.data != NULL) {
     machine->allocator.release(machine->allocator.context, previous);
   }
-  return T64_STATUS_OK;
+  return status;
 }
 
 t64_status t64_machine_advance(t64_machine *machine,

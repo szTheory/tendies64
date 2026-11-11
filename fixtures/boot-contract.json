@@ -1,7 +1,7 @@
 {
   "schema": "t64.open-ipl3-boot-contract",
   "schema_version": 1,
-  "qualification_status": "byte-qualified; execution pending",
+  "qualification_status": "byte-qualified; one real entry instruction retired; explicit partial stop at next unsupported opcode",
   "scope": "prepared-RDRAM software warm-entry tracer only",
   "hardware_handoff_assertion": false,
   "source": {
@@ -82,8 +82,8 @@
       "output": "unimplemented-until-isviewer-v1"
     },
     "boot_policy_digest_algorithm": "SHA-256 over the UTF-8 bytes of policy_digest_input, including its final LF",
-    "boot_policy_digest": "a3eddbf271b5dddb628f7a2bb346fc78e94af78e746caf75ef4f132e4ee3eebc",
-    "policy_digest_input": "t64.openipl3.profile-policy.v1\nprofile_id=ntsc-cart-4m-openipl3-warm-v1\nasset_source_revision=98154dafd5ac50e74ee09a5de1035d24a53f54f0\nasset_source_path=boot/bin/ipl3_compat.z64\nasset_sha256=f522db2e31a701f82597f399e76d55c9487760d015aff9d90176b463ae39a068\npayload_source_offset=0x40\npayload_length=0xfc0\npayload_sha256=f716a90b1d36ec4253d096790791256d3543455e54473a755ff8c3d1199b15d5\npayload_dmem_destination=0xa4000040\ncpu_entry_pc=0xa4000040\nconsole_target=NUS-CPU-03\nconsole_qualification=unqualified-target\ntv_standard=1\nregion=1\nmedia_kind=1\nrdram_bytes=4194304\nexpansion_bytes=0\nperipheral_flags=0\nsave_kind=0\nhle_seed_reset_version=1\nhle_s3_rom_type=0\nhle_s4_tv_type=1\nhle_s5_reset_type=1\nhle_s6_entropy_seed=0\nhle_s7_boot_info_version=1\ngpr_initial=zero-except-s3-through-s7\nhi_lo_initial=zero\ncp0_initial=zero\ncpu_tick_per_retirement=1\ncpu_event_order=tick-sequence-fifo-v1\ncpu_unsupported_stop=7\ncpu_completion_stop=8\ncache_policy=unimplemented-stops-v1\ndevice_policy=existing-skeleton-until-warm-register-slice-v1\noutput_policy=unimplemented-until-isviewer-v1\n"
+    "boot_policy_digest": "a6eeba466ae8804a8dec79ce8c5dece40ea5d25b29724d53f7e1ebe46ffd5cc9",
+    "policy_digest_input": "t64.openipl3.profile-policy.v1\nprofile_id=ntsc-cart-4m-openipl3-warm-v1\nasset_source_revision=98154dafd5ac50e74ee09a5de1035d24a53f54f0\nasset_source_path=boot/bin/ipl3_compat.z64\nasset_sha256=f522db2e31a701f82597f399e76d55c9487760d015aff9d90176b463ae39a068\nasset_input_policy=exact-pinned-z64-bytes-only-v1\npayload_source_offset=0x40\npayload_length=0xfc0\npayload_sha256=f716a90b1d36ec4253d096790791256d3543455e54473a755ff8c3d1199b15d5\npayload_dmem_destination=0xa4000040\ncpu_entry_pc=0xa4000040\nconsole_target=NUS-CPU-03\nconsole_qualification=unqualified-target\ntv_standard=1\nregion=1\nmedia_kind=1\nrdram_bytes=4194304\nexpansion_bytes=0\nperipheral_flags=0\nsave_kind=0\nhle_seed_reset_version=1\nhle_s3_rom_type=0\nhle_s4_tv_type=1\nhle_s5_reset_type=1\nhle_s6_entropy_seed=0\nhle_s7_boot_info_version=1\ngpr_initial=zero-except-s3-through-s7\nhi_lo_initial=zero\ncp0_initial=zero\ncpu_tick_per_retirement=1\ncpu_event_order=tick-sequence-fifo-v1\ncpu_decode_policy=entry-andi-exact-unsupported-stop-v1\ncpu_unsupported_stop=7\ncpu_completion_stop=8\ncache_policy=unimplemented-stops-v1\ndevice_policy=existing-skeleton-until-warm-register-slice-v1\noutput_policy=unimplemented-until-isviewer-v1\n"
   },
   "toolchain": {
     "name": "GNU Binutils",
@@ -180,32 +180,114 @@
       }
     ],
     "cp0_static_candidates": [
-      {"pc": "0xA4000064", "opcode": "0x40044800", "instruction": "mfc0 a0,c0_count"},
-      {"pc": "0xA400006C", "opcode": "0x40826800", "instruction": "mtc0 v0,c0_cause"},
-      {"pc": "0xA4000070", "opcode": "0x40824800", "instruction": "mtc0 v0,c0_count"},
-      {"pc": "0xA4000074", "opcode": "0x40825800", "instruction": "mtc0 v0,c0_compare"},
-      {"pc": "0xA4000078", "opcode": "0x40829000", "instruction": "mtc0 v0,c0_watchlo"},
-      {"pc": "0xA4000148", "opcode": "0x4080E000", "instruction": "mtc0 zero,c0_taglo"},
-      {"pc": "0xA400014C", "opcode": "0x4080E800", "instruction": "mtc0 zero,c0_taghi"}
+      {
+        "pc": "0xA4000064",
+        "opcode": "0x40044800",
+        "instruction": "mfc0 a0,c0_count"
+      },
+      {
+        "pc": "0xA400006C",
+        "opcode": "0x40826800",
+        "instruction": "mtc0 v0,c0_cause"
+      },
+      {
+        "pc": "0xA4000070",
+        "opcode": "0x40824800",
+        "instruction": "mtc0 v0,c0_count"
+      },
+      {
+        "pc": "0xA4000074",
+        "opcode": "0x40825800",
+        "instruction": "mtc0 v0,c0_compare"
+      },
+      {
+        "pc": "0xA4000078",
+        "opcode": "0x40829000",
+        "instruction": "mtc0 v0,c0_watchlo"
+      },
+      {
+        "pc": "0xA4000148",
+        "opcode": "0x4080E000",
+        "instruction": "mtc0 zero,c0_taglo"
+      },
+      {
+        "pc": "0xA400014C",
+        "opcode": "0x4080E800",
+        "instruction": "mtc0 zero,c0_taghi"
+      }
     ],
     "cache_static_candidates": [
-      {"pc_range": "0xA4000158-0xA4000164", "operation": "CACHE 0x9; offsets 0,16,32,48 from v0"},
-      {"pc_range": "0xA4000180-0xA400018C", "operation": "CACHE 0x8; offsets 0,32,64,96 from v0"},
-      {"pc": "0xA40001D4", "opcode": "0xBCB50000", "operation": "CACHE 0x15,0(a1)"},
-      {"pc": "0xA40001DC", "opcode": "0xBC550000", "operation": "CACHE 0x15,0(v0)"}
+      {
+        "pc_range": "0xA4000158-0xA4000164",
+        "operation": "CACHE 0x9; offsets 0,16,32,48 from v0"
+      },
+      {
+        "pc_range": "0xA4000180-0xA400018C",
+        "operation": "CACHE 0x8; offsets 0,32,64,96 from v0"
+      },
+      {
+        "pc": "0xA40001D4",
+        "opcode": "0xBCB50000",
+        "operation": "CACHE 0x15,0(a1)"
+      },
+      {
+        "pc": "0xA40001DC",
+        "opcode": "0xBC550000",
+        "operation": "CACHE 0x15,0(v0)"
+      }
     ],
     "warm_path_memory_device_candidates": [
-      {"virtual_address": "0xA4300004", "source_name": "MI_VERSION", "evidence": "pinned minidragon.h and decoded load at 0xA4000080"},
-      {"virtual_address": "0xA470000C", "source_name": "RI_SELECT", "evidence": "pinned minidragon.h and decoded load at 0xA4000094"},
-      {"virtual_address": "0xA0000000", "source": "warm-path RDRAM capacity probe; source increments candidate address by 2 MiB"},
-      {"virtual_address": "0xA4040000", "source_name": "SP register window", "evidence": "pinned minidragon.h"},
-      {"virtual_address": "0xA4600010", "source_name": "PI_STATUS", "evidence": "pinned minidragon.h and decoded load at 0xA40000FC"}
+      {
+        "virtual_address": "0xA4300004",
+        "source_name": "MI_VERSION",
+        "evidence": "pinned minidragon.h and decoded load at 0xA4000080"
+      },
+      {
+        "virtual_address": "0xA470000C",
+        "source_name": "RI_SELECT",
+        "evidence": "pinned minidragon.h and decoded load at 0xA4000094"
+      },
+      {
+        "virtual_address": "0xA0000000",
+        "source": "warm-path RDRAM capacity probe; source increments candidate address by 2 MiB"
+      },
+      {
+        "virtual_address": "0xA4040000",
+        "source_name": "SP register window",
+        "evidence": "pinned minidragon.h"
+      },
+      {
+        "virtual_address": "0xA4600010",
+        "source_name": "PI_STATUS",
+        "evidence": "pinned minidragon.h and decoded load at 0xA40000FC"
+      }
     ],
     "unresolved_indirect_targets": [
       "loader_compat.c stage2 calls stage3(entrypoint); entrypoint is read from the authored ROM header at runtime.",
       "ipl3.c stage1 jumps to computed rdram_stage2 after PI DMA; its address depends on memory size and loaded stage size."
     ],
-    "dynamically_observed_coverage_at_qualification": []
+    "dynamically_observed_coverage_at_qualification": [
+      {
+        "profile_id": "ntsc-cart-4m-openipl3-warm-v1",
+        "asset_sha256": "f522db2e31a701f82597f399e76d55c9487760d015aff9d90176b463ae39a068",
+        "payload_sha256": "f716a90b1d36ec4253d096790791256d3543455e54473a755ff8c3d1199b15d5",
+        "entry_pc": "0xA4000040",
+        "entry_opcode": "0x3044D236",
+        "entry_instruction": "andi a0,v0,0xd236",
+        "retired_instructions": 1,
+        "retirement_tick": 1,
+        "unsupported_pc": "0xA4000044",
+        "unsupported_opcode": "0x3C1DA400",
+        "unsupported_instruction": "lui",
+        "unsupported_retired": false,
+        "software_stop_code": 7,
+        "current_public_stop_reason": 6,
+        "current_public_stop_name": "RESOURCE_LIMIT",
+        "stop_tick": 2,
+        "verification": "unit.core.tracer against the exact byte-pinned fixture",
+        "claim_limit": "software-only prepared warm entry; no IPL2 hardware handoff, full IPL3 boot, broad compatibility or hardware-accuracy claim"
+      }
+    ]
   },
   "evidence_boundary": {
     "hardware_documents": [
@@ -217,7 +299,12 @@
       },
       {
         "document": "NEC VR4300/VR4305/VR4310 User's Manual, U10504EJ7V0UMJ1, 7th edition",
-        "sections": ["4.2-4.3", "5.2.4", "5.4.9", "11.3-11.5"],
+        "sections": [
+          "4.2-4.3",
+          "5.2.4",
+          "5.4.9",
+          "11.3-11.5"
+        ],
         "sha256": "b7c1900f1707a4b238ebd82af1669e9628e4df4875ceabfa012a9d95b4716b75",
         "scope": "architecture, address translation and cache behavior; not evidence for a specific N64 IPL2 handoff"
       }

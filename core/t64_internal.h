@@ -14,6 +14,7 @@
 #define T64_SP_BANK_BYTES 4096u
 #define T64_MI_INTERRUPT_BITS UINT32_C(0x3f)
 #define T64_DEVICE_MI_TEST UINT32_C(0xffff0002)
+#define T64_DEVICE_CPU UINT32_C(0x00000005)
 #define T64_DEVICE_PI UINT32_C(0x00000003)
 #define T64_DEVICE_SP UINT32_C(0x00000004)
 #define T64_PI_EVENT_COMPLETE UINT32_C(1)
@@ -25,6 +26,11 @@
 #define T64_TEST_EVENT_FRAME UINT32_C(3)
 #define T64_TEST_EVENT_HALT UINT32_C(4)
 #define T64_TEST_EVENT_REPEAT_INSTRUCTION UINT32_C(5)
+
+#define T64_CPU_EVENT_STEP UINT32_C(1)
+#define T64_TRACE_KIND_CPU_ENTRY UINT32_C(2)
+#define T64_TRACE_KIND_CPU_RETIREMENT UINT32_C(3)
+#define T64_TRACE_KIND_CPU_UNSUPPORTED UINT32_C(4)
 
 typedef struct {
   uintptr_t begin;
@@ -95,6 +101,63 @@ typedef struct {
   bool token_exhausted;
 } t64_sp_state;
 
+typedef struct {
+  uint64_t gpr[32];
+  uint64_t hi;
+  uint64_t lo;
+  uint64_t cp0[32];
+  uint64_t retired_instructions;
+  uint32_t pc;
+  uint32_t last_pc;
+  uint32_t last_opcode;
+  uint32_t delay_slot_pc;
+  uint32_t delay_target;
+  bool delay_slot_pending;
+  bool stopped;
+  uint32_t stop_reason;
+  uint32_t stop_pc;
+  uint32_t stop_opcode;
+} t64_cpu_state;
+
+typedef struct {
+  uint8_t asset_sha256[T64_DIGEST_SIZE];
+  uint8_t payload_sha256[T64_DIGEST_SIZE];
+  uint8_t policy_sha256[T64_DIGEST_SIZE];
+  uint32_t source_offset;
+  uint32_t payload_length;
+  uint32_t dmem_offset;
+  uint32_t entry_pc;
+  uint32_t seed_reset_version;
+  uint32_t seed_s3_rom_type;
+  uint32_t seed_s4_tv_type;
+  uint32_t seed_s5_reset_type;
+  uint32_t seed_s6_entropy;
+  uint32_t seed_s7_boot_info_version;
+  bool prepared;
+} t64_boot_state;
+
+typedef struct {
+  uint32_t policy_version;
+  uint32_t last_operation;
+  uint32_t last_pc;
+  uint32_t last_address;
+  bool operation_seen;
+} t64_cache_state;
+
+typedef struct {
+  uint32_t policy_version;
+  uint32_t mi_version;
+  uint32_t ri_select;
+  bool mi_version_known;
+  bool ri_select_known;
+} t64_guest_device_state;
+
+typedef struct {
+  uint32_t policy_version;
+  bool video_output_ready;
+  bool audio_output_ready;
+} t64_output_state;
+
 typedef struct t64_event t64_event;
 typedef t64_status (*t64_event_handler_fn)(t64_machine *machine,
                                            const t64_event *event);
@@ -132,6 +195,11 @@ struct t64_machine {
   bool mi_irq_line;
   t64_pi_state pi;
   t64_sp_state sp;
+  t64_cpu_state cpu;
+  t64_boot_state boot;
+  t64_cache_state cache;
+  t64_guest_device_state guest_devices;
+  t64_output_state output;
   size_t image_length;
   uint64_t tick;
   uint64_t instruction_count;

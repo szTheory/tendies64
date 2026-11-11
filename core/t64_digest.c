@@ -56,10 +56,14 @@ static void hash_sp_descriptor(t64_sha256_ctx *context,
 
 t64_status t64_machine_digest(const t64_machine *machine,
                               uint8_t digest_out[T64_DIGEST_SIZE]) {
-  static const uint8_t domain[] = {'t', '6', '4', '.', 's', 't', 'a', 't',
-                                   'e', '.', 'v', '5'};
+  static const uint8_t domain_v5[] = {'t', '6', '4', '.', 's', 't', 'a', 't',
+                                      'e', '.', 'v', '5'};
+  static const uint8_t domain_v6[] = {'t', '6', '4', '.', 's', 't', 'a', 't',
+                                      'e', '.', 'v', '6'};
   t64_sha256_ctx context;
   t64_address_range output_range;
+  const bool has_v6_state =
+      machine != NULL && machine->profile.state_serialization_version == 6u;
   size_t i;
 
   if (machine == NULL || digest_out == NULL ||
@@ -72,7 +76,11 @@ t64_status t64_machine_digest(const t64_machine *machine,
   }
 
   t64_sha256_init(&context);
-  t64_sha256_update(&context, domain, sizeof domain);
+  if (has_v6_state) {
+    t64_sha256_update(&context, domain_v6, sizeof domain_v6);
+  } else {
+    t64_sha256_update(&context, domain_v5, sizeof domain_v5);
+  }
   hash_u32(&context, machine->profile.state_serialization_version);
   t64_sha256_update(&context, machine->profile_digest,
                     sizeof machine->profile_digest);
@@ -141,6 +149,68 @@ t64_status t64_machine_digest(const t64_machine *machine,
     size_t index = (machine->queue_head + i) % T64_EVENT_QUEUE_CAPACITY;
 
     hash_event(&context, &machine->events[index]);
+  }
+  if (has_v6_state) {
+    for (i = 0u; i < sizeof machine->boot.asset_sha256; i++) {
+      t64_sha256_update(&context, &machine->boot.asset_sha256[i], 1u);
+    }
+    for (i = 0u; i < sizeof machine->boot.payload_sha256; i++) {
+      t64_sha256_update(&context, &machine->boot.payload_sha256[i], 1u);
+    }
+    for (i = 0u; i < sizeof machine->boot.policy_sha256; i++) {
+      t64_sha256_update(&context, &machine->boot.policy_sha256[i], 1u);
+    }
+    hash_u32(&context, machine->boot.source_offset);
+    hash_u32(&context, machine->boot.payload_length);
+    hash_u32(&context, machine->boot.dmem_offset);
+    hash_u32(&context, machine->boot.entry_pc);
+    hash_u32(&context, machine->boot.seed_reset_version);
+    hash_u32(&context, machine->boot.seed_s3_rom_type);
+    hash_u32(&context, machine->boot.seed_s4_tv_type);
+    hash_u32(&context, machine->boot.seed_s5_reset_type);
+    hash_u32(&context, machine->boot.seed_s6_entropy);
+    hash_u32(&context, machine->boot.seed_s7_boot_info_version);
+    hash_u32(&context, machine->boot.prepared ? UINT32_C(1) : UINT32_C(0));
+    for (i = 0u; i < 32u; i++) {
+      hash_u64(&context, machine->cpu.gpr[i]);
+    }
+    hash_u64(&context, machine->cpu.hi);
+    hash_u64(&context, machine->cpu.lo);
+    for (i = 0u; i < 32u; i++) {
+      hash_u64(&context, machine->cpu.cp0[i]);
+    }
+    hash_u64(&context, machine->cpu.retired_instructions);
+    hash_u32(&context, machine->cpu.pc);
+    hash_u32(&context, machine->cpu.last_pc);
+    hash_u32(&context, machine->cpu.last_opcode);
+    hash_u32(&context, machine->cpu.delay_slot_pc);
+    hash_u32(&context, machine->cpu.delay_target);
+    hash_u32(&context,
+             machine->cpu.delay_slot_pending ? UINT32_C(1) : UINT32_C(0));
+    hash_u32(&context, machine->cpu.stopped ? UINT32_C(1) : UINT32_C(0));
+    hash_u32(&context, machine->cpu.stop_reason);
+    hash_u32(&context, machine->cpu.stop_pc);
+    hash_u32(&context, machine->cpu.stop_opcode);
+    hash_u32(&context, machine->cache.policy_version);
+    hash_u32(&context, machine->cache.last_operation);
+    hash_u32(&context, machine->cache.last_pc);
+    hash_u32(&context, machine->cache.last_address);
+    hash_u32(&context,
+             machine->cache.operation_seen ? UINT32_C(1) : UINT32_C(0));
+    hash_u32(&context, machine->guest_devices.policy_version);
+    hash_u32(&context, machine->guest_devices.mi_version);
+    hash_u32(&context, machine->guest_devices.ri_select);
+    hash_u32(&context, machine->guest_devices.mi_version_known
+                           ? UINT32_C(1)
+                           : UINT32_C(0));
+    hash_u32(&context, machine->guest_devices.ri_select_known
+                           ? UINT32_C(1)
+                           : UINT32_C(0));
+    hash_u32(&context, machine->output.policy_version);
+    hash_u32(&context, machine->output.video_output_ready ? UINT32_C(1)
+                                                          : UINT32_C(0));
+    hash_u32(&context, machine->output.audio_output_ready ? UINT32_C(1)
+                                                          : UINT32_C(0));
   }
   t64_sha256_final(&context, digest_out);
   return T64_STATUS_OK;
