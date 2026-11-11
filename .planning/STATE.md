@@ -4,18 +4,18 @@ milestone: v1.0
 milestone_name: Verified Headless Core
 current_phase: 3
 current_phase_name: First Headless ROM Through Open IPL3
-current_plan: 12 of 13
+current_plan: 13 of 13
 status: executing
-stopped_at: Completed 03-11-PLAN.md
-last_updated: "2026-11-11T16:12:20.851Z"
+stopped_at: Completed 03-12-PLAN.md
+last_updated: "2026-11-11T17:51:21.793Z"
 last_activity: 2026-11-10
 last_activity_desc: Phase 3 execution started
-state_head: 0413fe840e21ddf247ca03d386bce3d4b80cbc5c
+state_head: d25f9b762a07b04242d4de166341dbecdf39fd3e
 progress:
   total_phases: 6
   completed_phases: 2
   total_plans: 34
-  completed_plans: 32
+  completed_plans: 33
   percent: 33
 ---
 
@@ -31,7 +31,7 @@ See: .planning/PROJECT.md (updated 2026-11-10)
 ## Current Position
 
 Phase: 3 (First Headless ROM Through Open IPL3) — EXECUTING
-Current Plan: 12 of 13
+Current Plan: 13 of 13
 Status: Ready to execute
 Last activity: 2026-11-10 — Phase 3 execution started
 
@@ -92,6 +92,7 @@ Progress: [███░░░░░░░] 33%
 | Phase 3 P09 | 58min | 2 tasks | 9 files |
 | Phase 03 P10 | 41min | 1 tasks | 7 files |
 | Phase 03 P11 | 87m | 2 tasks | 25 files |
+| Phase 03 P12 | 80min | 2 tasks | 28 files |
 
 ## Accumulated Context
 
@@ -166,6 +167,9 @@ Decisions are logged in the PROJECT.md Key Decisions table. Recent decisions tha
 - [Phase 03]: Qualify guest completion only when the pinned fixture reaches its authored PC/opcode stop; arbitrary BREAK or transcript text is insufficient.
 - [Phase 03]: On postlaunch untrusted harness errors, retain supervisor-known identities and independently verified input/capture facts; null state requires zero trusted progress and no milestones.
 - [Phase 03]: Treat the full IPL3 asset SHA as pinned provenance, while runtime independently hashes only the embedded payload and normalized authored ROM present in the fixture.
+- [Phase 03]: Only the seven generated rights-cleared named variants enter the real guest path; unknown fixture identities remain refused and only the original positive fixture can pass.
+- [Phase 03]: Local determinism establishes repeatability for this pinned warm profile and authored inputs on this host; hosted Linux/GCC and macOS/Clang equality remains Plan 13 evidence.
+- [Phase 03]: The v8 observer records exact attempted flush bytes with checked arithmetic separately from the retained 4096-byte capture; an inexact saturated value is never emitted as an exact result total.
 
 ### Pending Todos
 
@@ -191,6 +195,6 @@ Items acknowledged and deferred at milestone close, most recent first:
 
 ## Session Continuity
 
-Last session: 2026-11-11T16:12:20.629Z
-Stopped at: Completed 03-11-PLAN.md
+Last session: 2026-11-11T17:51:21.649Z
+Stopped at: Completed 03-12-PLAN.md
 Resume file: None
