@@ -1,0 +1,42 @@
+{
+  "plan": "03-02",
+  "source_revision": "47c756d25f7fc0fca0a6cc133591a9db08481039",
+  "source_content_sha256": "351d02339e1bf570923cb328cc64e8113ebcc3c29b88a60817f94f4c15205b19",
+  "commands": [
+    {
+      "command": "sh scripts/build-boot-fixtures.sh --qualify",
+      "exitCode": 0,
+      "output": "qualified authored fixture source, tools, boot identities and manifest"
+    },
+    {
+      "command": "sh scripts/build-boot-fixtures.sh --build",
+      "exitCode": 0,
+      "output": "completed with exit code 0"
+    },
+    {
+      "command": "sh scripts/build-boot-fixtures.sh --selftest",
+      "exitCode": 0,
+      "output": "TAP 9/9 passed; truncated boot asset, wrong boot asset hash, zero-length flat payload, payload beyond one MiB cartridge ceiling, unaligned flat payload entry, incorrect cartridge clock, incorrect CRC2 field and wrong assembler tool were rejected; two clean builds produced identical bytes and hashes for all seven ROM variants; source, tool, boot, payload and manifest identities passed."
+    },
+    {
+      "command": "build/gate/tools/manifest/t64-manifest-check --schema fixtures/manifest.schema.json --root $PWD fixtures/manifest.json",
+      "exitCode": 0,
+      "output": "manifest: entries=12 permitted=0 present=0 skipped=0 errors=0; ok fixtures/manifest.json"
+    }
+  ],
+  "identities": {
+    "upstream_asset_sha256": "f522db2e31a701f82597f399e76d55c9487760d015aff9d90176b463ae39a068",
+    "upstream_asset_md5": "71ce6a00936394ad364fbe584234fd82",
+    "embedded_ipl3_payload_sha256": "f716a90b1d36ec4253d096790791256d3543455e54473a755ff8c3d1199b15d5",
+    "hello_rom_sha256": "2d86100f6a0f0f1c344248239cd195aea18e64f31721375b28a459c1650f2bae",
+    "hello_rom_size_bytes": 4280,
+    "flat_payload_size_bytes": 184,
+    "flat_payload_header_size_field": 184,
+    "expected_transcript_sha256": "86594505bea53c9843f9eaf07e4cf0121cbe0055670324674fd8385c88ffd18e"
+  },
+  "limitations": [
+    "Fixture construction and byte checks do not execute the guest or claim that the hello ROM runs.",
+    "Generated ROMs and per-host tool metadata remain ignored local build artifacts.",
+    "Tool source, recipe and GNU Binutils 2.45 version are pinned; host-specific binary hashes remain local build evidence."
+  ]
+}

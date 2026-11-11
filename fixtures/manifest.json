@@ -11,20 +11,307 @@
       },
       "build": {
         "recipe": "Build the base test ROM from the pinned revision with the pinned Rust nightly and nust64 in a separate fixture lane (upstream: cargo run --release). The core build never runs it.",
-        "toolchain": ["rust nightly-2026-07-16", "nust64 0.4.1"]
+        "toolchain": [
+          "rust nightly-2026-07-16",
+          "nust64 0.4.1"
+        ]
       },
       "sha256": null,
       "size": null,
       "profile": "first-profile-unnamed",
       "source_rights": "pending",
       "binary_rights": "pending",
-      "distribution": ["local-only"],
+      "distribution": [
+        "local-only"
+      ],
       "rights_evidence": "Decision D2 (owner stop): the rights of this upstream repository and of its built ROM are not documented, so both stay pending and the ROM stays local-only: never committed, never uploaded, never used in public CI. The owner decides after a per-asset rights audit. Revision pin: upstream HEAD read with git ls-remote on 2026-11-10 (UTC) was 9a8b9f7d94ee2f6f57d7feed70c98c22cdc30e6c, the same revision the phase research recorded as upstream HEAD (a commit dated 2026-09-08), so the pin did not move. The digest stays null until two clean builds on separate machines agree (research item: reproducibility unknown).",
       "notices": [],
       "expected": {
         "kind": "self-checking",
         "source": "ISViewer verdict lines",
         "revision": "9a8b9f7d94ee2f6f57d7feed70c98c22cdc30e6c"
+      }
+    },
+    {
+      "id": "openipl3-compat-asset",
+      "source": {
+        "repo": "https://github.com/n64brew/libdragon",
+        "revision": "98154dafd5ac50e74ee09a5de1035d24a53f54f0",
+        "path": "boot/bin/ipl3_compat.z64"
+      },
+      "build": {
+        "recipe": "Retrieve the committed generated artifact into build/fixtures/ipl3_compat.z64 and verify 4096 bytes, SHA-256 f522db2e31a701f82597f399e76d55c9487760d015aff9d90176b463ae39a068 and MD5 71ce6a00936394ad364fbe584234fd82. The original compiler and signer are unknown; no source-rebuild or byte-reproducibility claim is made. Maintenance owner: Tendies64 maintainers. Build-only; no protected Nintendo data is included.",
+        "toolchain": [
+          "n64brew libdragon generated artifact 98154dafd5ac50e74ee09a5de1035d24a53f54f0"
+        ]
+      },
+      "sha256": "f522db2e31a701f82597f399e76d55c9487760d015aff9d90176b463ae39a068",
+      "size": 4096,
+      "profile": "ntsc-cart-4m-openipl3-warm-v1",
+      "source_rights": "cleared",
+      "binary_rights": "cleared",
+      "distribution": [
+        "build-only"
+      ],
+      "rights_evidence": "The pinned upstream root Unlicense at https://github.com/n64brew/libdragon/blob/98154dafd5ac50e74ee09a5de1035d24a53f54f0/LICENSE.md covers its source and compiled artifact. Exact revision and bytes are pinned; original compiler and signer remain unknown. This records identity and documented rights, not source rebuild or hardware accuracy.",
+      "notices": [
+        "n64brew/libdragon revision 98154dafd5ac50e74ee09a5de1035d24a53f54f0 is Unlicense; its original compiler and signer are unknown.",
+        "The authored cartridge copies only source bytes 0x40 through 0x0fff as the embedded IPL3 payload."
+      ],
+      "expected": {
+        "kind": "regression-pin",
+        "source": "fixtures/boot-contract.json full pinned source asset identity",
+        "revision": "98154dafd5ac50e74ee09a5de1035d24a53f54f0"
+      }
+    },
+    {
+      "id": "openipl3-compat-payload",
+      "source": {
+        "repo": "https://github.com/n64brew/libdragon",
+        "revision": "98154dafd5ac50e74ee09a5de1035d24a53f54f0",
+        "path": "boot/bin/ipl3_compat.z64"
+      },
+      "build": {
+        "recipe": "Extract source offset 0x40, length 4032, from the independently verified 4096-byte Unlicense asset into build/fixtures/ipl3_compat.payload.bin. Verify SHA-256 f716a90b1d36ec4253d096790791256d3543455e54473a755ff8c3d1199b15d5 before copying those exact bytes to cartridge offset 0x40. Original compiler and signer are unknown. Maintenance owner: Tendies64 maintainers. Build-only.",
+        "toolchain": [
+          "n64brew libdragon generated artifact 98154dafd5ac50e74ee09a5de1035d24a53f54f0"
+        ]
+      },
+      "sha256": "f716a90b1d36ec4253d096790791256d3543455e54473a755ff8c3d1199b15d5",
+      "size": 4032,
+      "profile": "ntsc-cart-4m-openipl3-warm-v1",
+      "source_rights": "cleared",
+      "binary_rights": "cleared",
+      "distribution": [
+        "build-only"
+      ],
+      "rights_evidence": "This is the exact 4032-byte executable payload region from the separately recorded Unlicense asset at n64brew/libdragon revision 98154dafd5ac50e74ee09a5de1035d24a53f54f0. The full source artifact identity remains separately recorded. Maintenance owner: Tendies64 maintainers.",
+      "notices": [
+        "Embedded source payload is covered by the upstream Unlicense at the pinned libdragon revision.",
+        "Payload hash identifies bytes at offset 0x40; it is not the whole source asset or authored cartridge hash."
+      ],
+      "expected": {
+        "kind": "regression-pin",
+        "source": "fixtures/boot-contract.json copied payload identity",
+        "revision": "98154dafd5ac50e74ee09a5de1035d24a53f54f0"
+      }
+    },
+    {
+      "id": "hello-openipl3",
+      "source": {
+        "repo": "https://github.com/szTheory/tendies64",
+        "revision": "47c756d25f7fc0fca0a6cc133591a9db08481039",
+        "path": "fixtures/hello/hello.S"
+      },
+      "build": {
+        "recipe": "sh scripts/build-boot-fixtures.sh --build; GNU Binutils 2.45 per pinned source/configure recipe in fixtures/boot-contract.json. Authored source-content-sha256=351d02339e1bf570923cb328cc64e8113ebcc3c29b88a60817f94f4c15205b19. Uses openipl3-compat-asset (4096 bytes) and openipl3-compat-payload (source 0x40, 4032 bytes; copied to cartridge 0x40); flat app starts at 0x1000. Header newly authored from zero, no upstream header copied: magic 0x80371240, clock 0x0f, linked entry 0x80000400, 0x10=184 nonzero loader_compat length (not CRC1; avoids 1 MiB fallback), CRC2=0/no CIC claim, title TENDIES64 HELLO, region E. Independent 30-byte transcript literal in scripts/build-boot-fixtures.sh; not emulator output. Authored source Apache-2.0; embedded IPL3 Unlicense. Maintenance owner: Tendies64 maintainers. Build-only; host C compiler and per-host tool hashes in ignored build/fixtures/hello.build.json; original IPL3 compiler/signer unknown.",
+        "toolchain": [
+          "GNU Binutils 2.45"
+        ]
+      },
+      "sha256": "2d86100f6a0f0f1c344248239cd195aea18e64f31721375b28a459c1650f2bae",
+      "size": 4280,
+      "profile": "ntsc-cart-4m-openipl3-warm-v1",
+      "source_rights": "authored-here",
+      "binary_rights": "cleared",
+      "distribution": [
+        "build-only"
+      ],
+      "rights_evidence": "The hello assembly, linker script and packer are authored here under Apache-2.0 (LICENSE). The generated cartridge embeds only the separately recorded Unlicense IPL3 payload from the exact pinned libdragon artifact. The complete source and binary composition is rights-cleared. Binary bytes are generated locally and are not committed or uploaded. Maintenance owner: Tendies64 maintainers.",
+      "notices": [
+        "Authored guest source and packer are licensed under Apache-2.0; see LICENSE.",
+        "The embedded open IPL3 payload is Unlicense under the pinned n64brew/libdragon commit; see its separate manifest record."
+      ],
+      "expected": {
+        "kind": "self-checking",
+        "source": "Independent exact transcript literal in scripts/build-boot-fixtures.sh; fixture construction does not execute a guest or derive expected bytes from emulator output.",
+        "revision": "source-content-sha256:351d02339e1bf570923cb328cc64e8113ebcc3c29b88a60817f94f4c15205b19"
+      }
+    },
+    {
+      "id": "hello-empty-break",
+      "source": {
+        "repo": "https://github.com/szTheory/tendies64",
+        "revision": "47c756d25f7fc0fca0a6cc133591a9db08481039",
+        "path": "fixtures/hello/hello.S"
+      },
+      "build": {
+        "recipe": "Assemble VARIANT=1 with GNU Binutils 2.45 from source-content-sha256 351d02339e1bf570923cb328cc64e8113ebcc3c29b88a60817f94f4c15205b19; package the empty BREAK control with the pinned 4032-byte Unlicense IPL3 payload and a checked nonzero flat load length. Whole cartridge SHA-256 5ae986bb263cafa28e2b06a17e3d3f3ee229c55f75cd1ab91df7a9698e35a652, size 4128. Build-only. Maintenance owner: Tendies64 maintainers.",
+        "toolchain": [
+          "GNU Binutils 2.45"
+        ]
+      },
+      "sha256": "5ae986bb263cafa28e2b06a17e3d3f3ee229c55f75cd1ab91df7a9698e35a652",
+      "size": 4128,
+      "profile": "ntsc-cart-4m-openipl3-warm-v1",
+      "source_rights": "authored-here",
+      "binary_rights": "cleared",
+      "distribution": [
+        "build-only"
+      ],
+      "rights_evidence": "The empty BREAK control is authored here under Apache-2.0 and embeds only the separately recorded Unlicense IPL3 payload. The composition is rights-cleared and build-only. Maintenance owner: Tendies64 maintainers.",
+      "notices": [
+        "Apache-2.0 authored control; embedded IPL3 bytes are Unlicense and separately manifested."
+      ],
+      "expected": {
+        "kind": "self-checking",
+        "source": "Assembly-selected empty BREAK control in fixtures/hello/hello.S",
+        "revision": "source-content-sha256:351d02339e1bf570923cb328cc64e8113ebcc3c29b88a60817f94f4c15205b19"
+      }
+    },
+    {
+      "id": "hello-wrong-text",
+      "source": {
+        "repo": "https://github.com/szTheory/tendies64",
+        "revision": "47c756d25f7fc0fca0a6cc133591a9db08481039",
+        "path": "fixtures/hello/hello.S"
+      },
+      "build": {
+        "recipe": "Assemble VARIANT=2 with GNU Binutils 2.45 from source-content-sha256 351d02339e1bf570923cb328cc64e8113ebcc3c29b88a60817f94f4c15205b19; package the wrong-transcript control with the pinned 4032-byte Unlicense IPL3 payload and a checked nonzero flat load length. Whole cartridge SHA-256 49d50b3f1b5e6695770cd69d9d89bda4645b354936390106227e1601995e3137, size 4272. Build-only. Maintenance owner: Tendies64 maintainers.",
+        "toolchain": [
+          "GNU Binutils 2.45"
+        ]
+      },
+      "sha256": "49d50b3f1b5e6695770cd69d9d89bda4645b354936390106227e1601995e3137",
+      "size": 4272,
+      "profile": "ntsc-cart-4m-openipl3-warm-v1",
+      "source_rights": "authored-here",
+      "binary_rights": "cleared",
+      "distribution": [
+        "build-only"
+      ],
+      "rights_evidence": "The wrong-transcript control is authored here under Apache-2.0 and embeds only the separately recorded Unlicense IPL3 payload. The composition is rights-cleared and build-only. Maintenance owner: Tendies64 maintainers.",
+      "notices": [
+        "Apache-2.0 authored control; embedded IPL3 bytes are Unlicense and separately manifested."
+      ],
+      "expected": {
+        "kind": "self-checking",
+        "source": "Assembly-selected wrong transcript control in fixtures/hello/hello.S",
+        "revision": "source-content-sha256:351d02339e1bf570923cb328cc64e8113ebcc3c29b88a60817f94f4c15205b19"
+      }
+    },
+    {
+      "id": "hello-empty-loop",
+      "source": {
+        "repo": "https://github.com/szTheory/tendies64",
+        "revision": "47c756d25f7fc0fca0a6cc133591a9db08481039",
+        "path": "fixtures/hello/hello.S"
+      },
+      "build": {
+        "recipe": "Assemble VARIANT=3 with GNU Binutils 2.45 from source-content-sha256 351d02339e1bf570923cb328cc64e8113ebcc3c29b88a60817f94f4c15205b19; package the empty loop control with the pinned 4032-byte Unlicense IPL3 payload and a checked nonzero flat load length. Whole cartridge SHA-256 88edd612852e36897a979182db53bf7cb184c31d56128c74e9544ec797f3c815, size 4128. Build-only. Maintenance owner: Tendies64 maintainers.",
+        "toolchain": [
+          "GNU Binutils 2.45"
+        ]
+      },
+      "sha256": "88edd612852e36897a979182db53bf7cb184c31d56128c74e9544ec797f3c815",
+      "size": 4128,
+      "profile": "ntsc-cart-4m-openipl3-warm-v1",
+      "source_rights": "authored-here",
+      "binary_rights": "cleared",
+      "distribution": [
+        "build-only"
+      ],
+      "rights_evidence": "The empty loop control is authored here under Apache-2.0 and embeds only the separately recorded Unlicense IPL3 payload. The composition is rights-cleared and build-only. Maintenance owner: Tendies64 maintainers.",
+      "notices": [
+        "Apache-2.0 authored control; embedded IPL3 bytes are Unlicense and separately manifested."
+      ],
+      "expected": {
+        "kind": "self-checking",
+        "source": "Assembly-selected empty loop control in fixtures/hello/hello.S",
+        "revision": "source-content-sha256:351d02339e1bf570923cb328cc64e8113ebcc3c29b88a60817f94f4c15205b19"
+      }
+    },
+    {
+      "id": "hello-incomplete-loop",
+      "source": {
+        "repo": "https://github.com/szTheory/tendies64",
+        "revision": "47c756d25f7fc0fca0a6cc133591a9db08481039",
+        "path": "fixtures/hello/hello.S"
+      },
+      "build": {
+        "recipe": "Assemble VARIANT=4 with GNU Binutils 2.45 from source-content-sha256 351d02339e1bf570923cb328cc64e8113ebcc3c29b88a60817f94f4c15205b19; package the partial-transcript loop control with the pinned 4032-byte Unlicense IPL3 payload and a checked nonzero flat load length. Whole cartridge SHA-256 1d88f778f04120b23a299a6ea9ee3584995a479855df46c6e27fa63e76e211e6, size 4272. Build-only. Maintenance owner: Tendies64 maintainers.",
+        "toolchain": [
+          "GNU Binutils 2.45"
+        ]
+      },
+      "sha256": "1d88f778f04120b23a299a6ea9ee3584995a479855df46c6e27fa63e76e211e6",
+      "size": 4272,
+      "profile": "ntsc-cart-4m-openipl3-warm-v1",
+      "source_rights": "authored-here",
+      "binary_rights": "cleared",
+      "distribution": [
+        "build-only"
+      ],
+      "rights_evidence": "The incomplete loop control is authored here under Apache-2.0 and embeds only the separately recorded Unlicense IPL3 payload. The composition is rights-cleared and build-only. Maintenance owner: Tendies64 maintainers.",
+      "notices": [
+        "Apache-2.0 authored control; embedded IPL3 bytes are Unlicense and separately manifested."
+      ],
+      "expected": {
+        "kind": "self-checking",
+        "source": "Assembly-selected incomplete transcript loop control in fixtures/hello/hello.S",
+        "revision": "source-content-sha256:351d02339e1bf570923cb328cc64e8113ebcc3c29b88a60817f94f4c15205b19"
+      }
+    },
+    {
+      "id": "hello-unsupported",
+      "source": {
+        "repo": "https://github.com/szTheory/tendies64",
+        "revision": "47c756d25f7fc0fca0a6cc133591a9db08481039",
+        "path": "fixtures/hello/hello.S"
+      },
+      "build": {
+        "recipe": "Assemble VARIANT=5 with GNU Binutils 2.45 from source-content-sha256 351d02339e1bf570923cb328cc64e8113ebcc3c29b88a60817f94f4c15205b19; package the reserved unsupported-opcode control with the pinned 4032-byte Unlicense IPL3 payload and a checked nonzero flat load length. Whole cartridge SHA-256 7c89481f15137f24a7c7067a67ccd6929dad6a5f982ec459bf39114d2f9926e9, size 4128. Build-only. Maintenance owner: Tendies64 maintainers.",
+        "toolchain": [
+          "GNU Binutils 2.45"
+        ]
+      },
+      "sha256": "7c89481f15137f24a7c7067a67ccd6929dad6a5f982ec459bf39114d2f9926e9",
+      "size": 4128,
+      "profile": "ntsc-cart-4m-openipl3-warm-v1",
+      "source_rights": "authored-here",
+      "binary_rights": "cleared",
+      "distribution": [
+        "build-only"
+      ],
+      "rights_evidence": "The unsupported-opcode control is authored here under Apache-2.0 and embeds only the separately recorded Unlicense IPL3 payload. The composition is rights-cleared and build-only. Maintenance owner: Tendies64 maintainers.",
+      "notices": [
+        "Apache-2.0 authored control; embedded IPL3 bytes are Unlicense and separately manifested."
+      ],
+      "expected": {
+        "kind": "self-checking",
+        "source": "Assembly-selected unsupported-opcode control in fixtures/hello/hello.S",
+        "revision": "source-content-sha256:351d02339e1bf570923cb328cc64e8113ebcc3c29b88a60817f94f4c15205b19"
+      }
+    },
+    {
+      "id": "hello-output-overflow",
+      "source": {
+        "repo": "https://github.com/szTheory/tendies64",
+        "revision": "47c756d25f7fc0fca0a6cc133591a9db08481039",
+        "path": "fixtures/hello/hello.S"
+      },
+      "build": {
+        "recipe": "Assemble VARIANT=6 with GNU Binutils 2.45 from source-content-sha256 351d02339e1bf570923cb328cc64e8113ebcc3c29b88a60817f94f4c15205b19; package the 4097-byte ISViewer output-overflow control with the pinned 4032-byte Unlicense IPL3 payload and a checked nonzero flat load length. Whole cartridge SHA-256 7aa086e200cf0d40b60bc4351146e081d96820014aeeade2901774f99c72a4c6, size 4264. Build-only. Maintenance owner: Tendies64 maintainers.",
+        "toolchain": [
+          "GNU Binutils 2.45"
+        ]
+      },
+      "sha256": "7aa086e200cf0d40b60bc4351146e081d96820014aeeade2901774f99c72a4c6",
+      "size": 4264,
+      "profile": "ntsc-cart-4m-openipl3-warm-v1",
+      "source_rights": "authored-here",
+      "binary_rights": "cleared",
+      "distribution": [
+        "build-only"
+      ],
+      "rights_evidence": "The output-overflow control is authored here under Apache-2.0 and embeds only the separately recorded Unlicense IPL3 payload. The composition is rights-cleared and build-only. Maintenance owner: Tendies64 maintainers.",
+      "notices": [
+        "Apache-2.0 authored control; embedded IPL3 bytes are Unlicense and separately manifested."
+      ],
+      "expected": {
+        "kind": "self-checking",
+        "source": "Assembly-selected ISViewer output-overflow control in fixtures/hello/hello.S",
+        "revision": "source-content-sha256:351d02339e1bf570923cb328cc64e8113ebcc3c29b88a60817f94f4c15205b19"
       }
     },
     {
