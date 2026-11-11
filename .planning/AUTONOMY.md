@@ -39,6 +39,11 @@ applies that direction; update it when the owner changes policy.
 
 ## 2. Verification and CI
 
+- Generated GSD state projection `.planning/state.json` stays git-ignored. The
+  owning state commands maintain it during routine bookkeeping; preserve human
+  edits to configuration/instructions, rather than restoring an obsolete cache
+  after a legitimate state update. Do not commit the projection.
+
 - Workflow application (2026-11-10): when installed GSD instructions conflict
   about judgment-tier prohibitions, apply their specific autonomous-mode soft
   gate: report non-authoritative verdicts and every flag prominently, and

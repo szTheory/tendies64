@@ -1,2 +1,3 @@
 .planning/research/.cache/
 build/
+.planning/state.json
