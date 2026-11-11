@@ -69,7 +69,7 @@ Decimal phases appear between their surrounding integers in numeric order.
 
 - [x] **Phase 1: Governance, Rights and Harness Foundation** - ADRs, provenance and fixture policies, the gate command, determinism lint and a six-outcome runner with negative controls, before any emulator code (completed 2026-11-10)
 - [x] **Phase 2: Deterministic Machine Skeleton** - Guest-time scheduler, named profile, memory map, RDRAM, MI, PI/SP DMA, ROM admission and digests equal across interleaved instances (completed 2026-11-10)
-- [ ] **Phase 3: First Headless ROM Through Open IPL3** - Primary documents pinned; HLE-PIF plus pinned open IPL3 boots a hello ROM that prints through ISViewer, with digests matching across two operating systems and two compilers
+- [x] **Phase 3: First Headless ROM Through Open IPL3** - Primary documents pinned; HLE-PIF plus pinned open IPL3 boots a hello ROM that prints through ISViewer, with digests matching across two operating systems and two compilers (completed 2026-11-11)
 - [ ] **Phase 4: Complete VR4300 CPU** - MIPS III integer, delay slots, CP0, TLB, unaligned access, LL/SC, cache scope and soft-float COP1, with per-group `nemu64-test` CPU status
 - [ ] **Phase 5: RSP Low-Level Emulation** - Scalar and vector units, DMA and status semantics, checked against a permanent scalar VU oracle and the `nemu64-test` RSP groups
 - [ ] **Phase 6: Cold Boot, CPU Timing and Full Base Suite** - RDRAM register protocol, instruction-granular timing and the whole base suite classified by lane with pinned counts
@@ -158,7 +158,7 @@ Plans:
   4. A guest that produces no output is classified boot-fail, never pass. The boot-limits document lists unmodeled PIF challenge/response, CIC variants and timeout behavior as deferred, so the project never reports "boot solved"
   5. The hello-ROM run produces identical state digests on two operating systems and with two compilers, shown by a CI matrix
   6. The headless runner's fixture digest attests the bytes the runner actually reads: real-ROM runs pass an already-open verified descriptor or a private copy, so the supervisor's digest cannot differ from what the guest loads (closes the Phase 1 review finding WR-06; see docs/spec/result-protocol.md, "Known limitation")
-**Plans**: 13/13 plans executed
+**Plans**: 13/13 plans complete
 
 Plans:
 - [x] 03-01-PLAN.md — Qualify and execute the actual warm-entry tracer.
