@@ -363,6 +363,11 @@ static inline bool t64_internal_storage_range(t64_host_storage storage,
          t64_internal_make_range(storage.data, storage.capacity, range_out);
 }
 
+t64_status t64_rom_input_preflight(
+    const t64_profile_descriptor *profile, const uint8_t *bytes,
+    size_t length, t64_host_storage machine_storage,
+    t64_host_storage current_image_storage, bool has_current_image,
+    t64_address_range *input_range_out);
 t64_status t64_rom_candidate_prepare(
     const t64_host_allocator *allocator,
     const t64_profile_descriptor *profile, const uint8_t *bytes,

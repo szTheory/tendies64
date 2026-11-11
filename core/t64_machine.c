@@ -696,9 +696,16 @@ t64_status t64_machine_admit_rom(t64_machine *machine, const uint8_t *bytes,
   if (machine == NULL) {
     return T64_STATUS_INVALID_ROM;
   }
-  if (is_openipl3_profile(&machine->profile) &&
-      !openipl3_asset_matches(bytes, length)) {
-    return T64_STATUS_INVALID_ROM;
+  if (is_openipl3_profile(&machine->profile)) {
+    status = t64_rom_input_preflight(
+        &machine->profile, bytes, length, machine->machine_storage,
+        machine->image_storage, machine->has_image, NULL);
+    if (status != T64_STATUS_OK) {
+      return status;
+    }
+    if (!openipl3_asset_matches(bytes, length)) {
+      return T64_STATUS_INVALID_ROM;
+    }
   }
   status = t64_rom_candidate_prepare(
       &machine->allocator, &machine->profile, bytes, length,

@@ -17,6 +17,8 @@
 
 typedef struct {
   size_t outstanding;
+  size_t allocation_attempts;
+  size_t releases;
 } allocator_state;
 
 static bool test_allocate(void *context, size_t size, size_t alignment,
@@ -27,6 +29,7 @@ static bool test_allocate(void *context, size_t size, size_t alignment,
   if (state == NULL || storage_out == NULL || alignment == 0u) {
     return false;
   }
+  state->allocation_attempts++;
   memory = malloc(size);
   if (memory == NULL || ((uintptr_t)memory % alignment) != 0u) {
     free(memory);
@@ -45,7 +48,37 @@ static void test_release(void *context, t64_host_storage storage) {
   if (state != NULL && storage.data != NULL) {
     free(storage.data);
     state->outstanding--;
+    state->releases++;
   }
+}
+
+static void hash_machine_storage(const t64_machine *machine,
+                                 uint8_t digest[T64_DIGEST_SIZE]) {
+  t64_sha256_ctx context;
+
+  t64_sha256_init(&context);
+  t64_sha256_update(&context, machine->machine_storage.data,
+                    machine->machine_storage.capacity);
+  t64_sha256_final(&context, digest);
+}
+
+static void check_refused_admission_unchanged(
+    t64_machine *machine, allocator_state *allocator,
+    const uint8_t *bytes, size_t length) {
+  uint8_t state_before[T64_DIGEST_SIZE];
+  uint8_t state_after[T64_DIGEST_SIZE];
+  size_t attempts_before = allocator->allocation_attempts;
+  size_t releases_before = allocator->releases;
+  size_t outstanding_before = allocator->outstanding;
+
+  hash_machine_storage(machine, state_before);
+  T64_CHECK_INT(t64_machine_admit_rom(machine, bytes, length),
+                T64_STATUS_INVALID_ROM);
+  hash_machine_storage(machine, state_after);
+  T64_CHECK(memcmp(state_before, state_after, sizeof state_before) == 0);
+  T64_CHECK_INT(allocator->allocation_attempts, attempts_before);
+  T64_CHECK_INT(allocator->releases, releases_before);
+  T64_CHECK_INT(allocator->outstanding, outstanding_before);
 }
 
 static bool read_qualified_asset(uint8_t bytes[IPL3_ASSET_BYTES]) {
@@ -575,6 +608,16 @@ int main(void) {
   if (machine == NULL) {
     goto done;
   }
+  /* This begins inside the last 64 bytes of the machine's RDRAM allocation.
+   * Admission must reject the known overlap before warm-profile hashing. */
+  check_refused_admission_unchanged(
+      machine, &allocator_state_value,
+      machine->ram + profile->rdram_bytes - 64u, IPL3_ASSET_BYTES);
+  check_refused_admission_unchanged(
+      machine, &allocator_state_value,
+      (const uint8_t *)(uintptr_t)(UINTPTR_MAX - (uintptr_t)32u),
+      IPL3_ASSET_BYTES);
+
   (void)memcpy(altered_asset, asset, sizeof altered_asset);
   altered_asset[0x100u] ^= UINT8_C(1);
   T64_CHECK_INT(t64_machine_admit_rom(machine, altered_asset,
@@ -589,6 +632,14 @@ int main(void) {
 
   T64_CHECK_INT(t64_machine_admit_rom(machine, asset, sizeof asset),
                 T64_STATUS_OK);
+  check_refused_admission_unchanged(
+      machine, &allocator_state_value,
+      (const uint8_t *)machine->image_storage.data, IPL3_ASSET_BYTES);
+  check_refused_admission_unchanged(
+      machine, &allocator_state_value,
+      (const uint8_t *)machine->image_storage.data +
+          machine->image_storage.capacity - 64u,
+      IPL3_ASSET_BYTES);
   T64_CHECK(machine->boot.prepared);
   T64_CHECK_INT(machine->boot.source_offset, IPL3_PAYLOAD_SOURCE_OFFSET);
   T64_CHECK_INT(machine->boot.payload_length, IPL3_PAYLOAD_BYTES);

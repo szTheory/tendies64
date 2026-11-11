@@ -119,6 +119,30 @@ static void hash_image(const uint8_t *canonical, size_t length,
   t64_sha256_final(&context, digest_out);
 }
 
+t64_status t64_rom_input_preflight(
+    const t64_profile_descriptor *profile, const uint8_t *bytes,
+    size_t length, t64_host_storage machine_storage,
+    t64_host_storage current_image_storage, bool has_current_image,
+    t64_address_range *input_range_out) {
+  t64_address_range input_range;
+
+  if (profile == NULL || bytes == NULL ||
+      length < (size_t)profile->rom_min_bytes ||
+      length > (size_t)profile->rom_max_bytes || (length & 3u) != 0u ||
+      !t64_internal_make_range(bytes, length, &input_range)) {
+    return T64_STATUS_INVALID_ROM;
+  }
+  if (!range_is_disjoint(input_range, machine_storage, true) ||
+      !range_is_disjoint(input_range, current_image_storage,
+                         has_current_image)) {
+    return T64_STATUS_INVALID_ROM;
+  }
+  if (input_range_out != NULL) {
+    *input_range_out = input_range;
+  }
+  return T64_STATUS_OK;
+}
+
 t64_status t64_rom_candidate_prepare(
     const t64_host_allocator *allocator,
     const t64_profile_descriptor *profile, const uint8_t *bytes,
@@ -135,14 +159,9 @@ t64_status t64_rom_candidate_prepare(
     return T64_STATUS_INVALID_ARGUMENT;
   }
   (void)memset(candidate_out, 0, sizeof *candidate_out);
-  if (bytes == NULL || length < (size_t)profile->rom_min_bytes ||
-      length > (size_t)profile->rom_max_bytes || (length & 3u) != 0u ||
-      !t64_internal_make_range(bytes, length, &input_range)) {
-    return T64_STATUS_INVALID_ROM;
-  }
-  if (!range_is_disjoint(input_range, machine_storage, true) ||
-      !range_is_disjoint(input_range, current_image_storage,
-                         has_current_image)) {
+  if (t64_rom_input_preflight(profile, bytes, length, machine_storage,
+                              current_image_storage, has_current_image,
+                              &input_range) != T64_STATUS_OK) {
     return T64_STATUS_INVALID_ROM;
   }
   if (!detect_order(bytes, &order)) {
