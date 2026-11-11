@@ -84,6 +84,10 @@ applies that direction; update it when the owner changes policy.
   maintenance cost. Keep one canonical fast local command aligned with the fast
   pull-request gate. Long timing/stress suites and noisy benchmarks belong in
   scheduled or release lanes until their recurring value is shown.
+- A guarded distribution-package install still needs its declared legitimacy
+  audit before first use. Record package/provider, official provenance,
+  acquisition trust, purpose and lifetime then; a later audit must disclose the
+  missed pre-use check rather than claim it occurred.
 - After every CI run and release workflow, inspect measured critical-path
   delays, duplicate setup/builds, fetches, cache behavior, concurrency and
   matrix cost. Take low-risk wins only when distinct evidence stays intact; log

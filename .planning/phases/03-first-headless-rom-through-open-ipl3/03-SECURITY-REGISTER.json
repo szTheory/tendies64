@@ -1,0 +1,373 @@
+{
+  "phase": "03",
+  "register_authored_at_plan_time": true,
+  "asvs_level": 1,
+  "block_on": "high",
+  "source_revision": "7c0ea9b",
+  "threats": [
+    {
+      "threat_id": "T-03-01",
+      "category": "Tampering",
+      "component": "pinned source regions and CPU entry",
+      "severity": "high",
+      "disposition": "mitigate",
+      "mitigation_plan": "Qualify whole asset/payload offsets/hashes before executing actual entry; existing tracer asserts real retirement, exact copied bytes and unsupported stop.",
+      "status": "closed",
+      "plans": [
+        "03-01-PLAN.md"
+      ],
+      "evidence": "core/t64_machine.c:186,200,467; core/tests/test_tracer.c:345"
+    },
+    {
+      "threat_id": "T-03-02",
+      "category": "Denial of service",
+      "component": "CPU stop/scheduler/profile fields",
+      "severity": "high",
+      "disposition": "mitigate",
+      "mitigation_plan": "Task 2 declares header/private/scheduler ownership, persistent named stops and no extra retirement; existing tracer plus versioned state tests.",
+      "status": "closed",
+      "plans": [
+        "03-01-PLAN.md"
+      ],
+      "evidence": "core/t64_cpu.c:869; core/t64_scheduler.c:329; core/t64_digest.c:195; core/tests/test_tracer.c:555"
+    },
+    {
+      "threat_id": "T-03-SC",
+      "category": "Tampering",
+      "component": "qualified build inputs",
+      "severity": "high",
+      "disposition": "mitigate",
+      "mitigation_plan": "No npm/pip/cargo installs. Source/byte-pinned binutils and cleared upstream IPL3 qualify in 03-01; authored assembly/packer and distinct asset/payload/ROM identities in 03-02. Any new package install needs the legitimacy audit before use.",
+      "status": "closed",
+      "plans": [
+        "03-01-PLAN.md",
+        "03-02-PLAN.md",
+        "03-03-PLAN.md",
+        "03-04-PLAN.md",
+        "03-05-PLAN.md",
+        "03-06-PLAN.md",
+        "03-07-PLAN.md",
+        "03-08-PLAN.md",
+        "03-09-PLAN.md",
+        "03-10-PLAN.md",
+        "03-11-PLAN.md",
+        "03-12-PLAN.md",
+        "03-13-PLAN.md"
+      ],
+      "evidence": "docs/evidence/zlib-host-prerequisite-audit.md; scripts/build-boot-fixtures.sh:190; fixtures/boot-contract.json:120"
+    },
+    {
+      "threat_id": "T-03-03",
+      "category": "Tampering",
+      "component": "authored fixture packer/tool inputs",
+      "severity": "high",
+      "disposition": "mitigate",
+      "mitigation_plan": "Exact source/tool/asset/payload/ROM pin checks and reproducible --selftest/--build reject altered inputs and bounds.",
+      "status": "closed",
+      "plans": [
+        "03-02-PLAN.md"
+      ],
+      "evidence": "scripts/build-boot-fixtures.sh:94,285,485,551; tools/fixture/t64_rom_pack.c:192"
+    },
+    {
+      "threat_id": "T-03-04",
+      "category": "Information disclosure",
+      "component": "rights-bearing generated inputs",
+      "severity": "high",
+      "disposition": "mitigate",
+      "mitigation_plan": "Manifest separates rights/recipe/owner and no manual/protected/tool bytes are published; existing governance scan in final gate.",
+      "status": "closed",
+      "plans": [
+        "03-02-PLAN.md"
+      ],
+      "evidence": "fixtures/manifest.json:107,115; scripts/build-boot-fixtures.sh:478; .github/workflows/ci.yml:39"
+    },
+    {
+      "threat_id": "T-03-05",
+      "category": "Tampering",
+      "component": "boot identity/gate registration",
+      "severity": "high",
+      "disposition": "mitigate",
+      "mitigation_plan": "boot-entry and exact per-name inventory controls reject missing/misidentified inputs/tests; verified fixture producer precedes gate consumers.",
+      "status": "closed",
+      "plans": [
+        "03-03-PLAN.md"
+      ],
+      "evidence": "core/CMakeLists.txt:146,163; core/tests/test_boot_entry.c:621; scripts/check-test-inventory.sh:84,244"
+    },
+    {
+      "threat_id": "T-03-06",
+      "category": "Information disclosure",
+      "component": "boot claims and primary sources",
+      "severity": "high",
+      "disposition": "mitigate",
+      "mitigation_plan": "Limits document preserves software/primary/unknown distinctions and hash-only manual index; existing claims/rights/PII checks.",
+      "status": "closed",
+      "plans": [
+        "03-03-PLAN.md"
+      ],
+      "evidence": "docs/spec/boot-limits.md:3,175; 03-PRIMARY-EVIDENCE-INDEX.md:5,27; tools/claims/CMakeLists.txt:9; tools/rights/CMakeLists.txt:18,30"
+    },
+    {
+      "threat_id": "T-03-07",
+      "category": "Tampering",
+      "component": "CPU/KSEG/CP0/cache execution",
+      "severity": "high",
+      "disposition": "mitigate",
+      "mitigation_plan": "cpu-path/cp0-cache independently test qualified encodings, delay slots, widths/masks/state and explicit unsupported stop.",
+      "status": "closed",
+      "plans": [
+        "03-04-PLAN.md"
+      ],
+      "evidence": "core/tests/test_cpu_path.c:776,796; core/CMakeLists.txt:204,208"
+    },
+    {
+      "threat_id": "T-03-08",
+      "category": "Denial of service",
+      "component": "retirement and guest bounds",
+      "severity": "high",
+      "disposition": "mitigate",
+      "mitigation_plan": "Only actual retirement and bounded scheduler work count; bound/unsupported/partition cases plus current sanitizer CPU run.",
+      "status": "closed",
+      "plans": [
+        "03-04-PLAN.md"
+      ],
+      "evidence": "core/t64_cpu.c:942,1026; core/t64_scheduler.c:341; core/tests/test_tracer.c:555; core/tests/test_boot_determinism.c:425; 03-04-SUMMARY.md; docs/evidence/phase3-ci.md"
+    },
+    {
+      "threat_id": "T-03-09",
+      "category": "Tampering",
+      "component": "warm device ranges/reset/DMA",
+      "severity": "high",
+      "disposition": "mitigate",
+      "mitigation_plan": "warm-device-policy/sp-dma/pi-dma independently test exact masks, adjacent ranges, delays and token/reset behavior.",
+      "status": "closed",
+      "plans": [
+        "03-05-PLAN.md"
+      ],
+      "evidence": "core/t64_warm_devices.c:34,113; core/t64_sp.c:309; core/tests/test_warm_devices.c:584,709,841"
+    },
+    {
+      "threat_id": "T-03-10",
+      "category": "Elevation of privilege",
+      "component": "guest memory transfer bounds",
+      "severity": "high",
+      "disposition": "mitigate",
+      "mitigation_plan": "Profile-scoped zero source and checked source/destination spans prevent host access; negative range cases and ASan/UBSan.",
+      "status": "closed",
+      "plans": [
+        "03-05-PLAN.md"
+      ],
+      "evidence": "core/t64_sp.c:15,102,334; core/t64_pi.c:38,69; core/tests/test_warm_devices.c:709; 03-05-SUMMARY.md:119"
+    },
+    {
+      "threat_id": "T-03-11",
+      "category": "Tampering",
+      "component": "ISViewer lengths and lanes",
+      "severity": "high",
+      "disposition": "mitigate",
+      "mitigation_plan": "isviewer tests magic, byte-based exact count, wrong/partial/repeated lanes and 512/513 boundaries before capture commit.",
+      "status": "closed",
+      "plans": [
+        "03-06-PLAN.md"
+      ],
+      "evidence": "core/t64_isviewer.c:29,130,163; core/tests/test_isviewer.c:251,884,935,988"
+    },
+    {
+      "threat_id": "T-03-12",
+      "category": "Denial of service",
+      "component": "guest output capacity",
+      "severity": "high",
+      "disposition": "mitigate",
+      "mitigation_plan": "4096-byte total cap and sticky overflow refuse lost/truncated success; output-overflow actual guest control.",
+      "status": "closed",
+      "plans": [
+        "03-06-PLAN.md"
+      ],
+      "evidence": "core/t64_isviewer.c:119,130; core/tests/test_isviewer.c:1229; runner/t64_real.c:696"
+    },
+    {
+      "threat_id": "T-03-13",
+      "category": "Tampering",
+      "component": "owned output caller-copy spans",
+      "severity": "high",
+      "disposition": "mitigate",
+      "mitigation_plan": "output-drain alias/size/null/refusal tests preserve guest state; canonical produced bytes exclude observer cursor.",
+      "status": "closed",
+      "plans": [
+        "03-07-PLAN.md"
+      ],
+      "evidence": "core/t64_observe.c:27,37,67; core/t64_digest.c:228; core/tests/test_isviewer.c:397"
+    },
+    {
+      "threat_id": "T-03-14",
+      "category": "Tampering",
+      "component": "input submission and future state",
+      "severity": "high",
+      "disposition": "mitigate",
+      "mitigation_plan": "Checked reserve-before-commit tick/order/queue semantics and digest tests reject partial input mutation.",
+      "status": "closed",
+      "plans": [
+        "03-07-PLAN.md"
+      ],
+      "evidence": "core/t64_observe.c:103,115; core/t64_scheduler.c:103; core/tests/test_isviewer.c:578,622"
+    },
+    {
+      "threat_id": "T-03-15",
+      "category": "Denial of service",
+      "component": "schedule JSON/count/tick parse",
+      "severity": "high",
+      "disposition": "mitigate",
+      "mitigation_plan": "input-partition rejects >65536 bytes/>128 events, floats/unknown keys/reversed/overflow time before execution.",
+      "status": "closed",
+      "plans": [
+        "03-08-PLAN.md"
+      ],
+      "evidence": "runner/t64_input.h:9; runner/t64_input.c:92,101,123,216,241; runner/tests/test_input.c:127"
+    },
+    {
+      "threat_id": "T-03-16",
+      "category": "Tampering",
+      "component": "canonical input identity and scheduling trace",
+      "severity": "high",
+      "disposition": "mitigate",
+      "mitigation_plan": "Actual boot schedule/trace/partition cases enforce digest and equal-tick order with no controller-consumption claim.",
+      "status": "closed",
+      "plans": [
+        "03-08-PLAN.md"
+      ],
+      "evidence": "runner/t64_input.c:158,188; runner/tests/test_input.c:238,470,492,521; core/t64_observe.c:86"
+    },
+    {
+      "threat_id": "T-03-17",
+      "category": "Tampering",
+      "component": "supervisor-to-runner bytes",
+      "severity": "high",
+      "disposition": "mitigate",
+      "mitigation_plan": "fixture-descriptor/source-replaced barriers prove read-only unlinked inherited descriptors; repeat actual CPU admission in 03-11.",
+      "status": "closed",
+      "plans": [
+        "03-09-PLAN.md"
+      ],
+      "evidence": "runner/t64_verified_input.c:244; runner/t64_real.c:118; runner/tests/test_fixture_descriptor.c:1075; runner/tests/test_real_runner.c:513"
+    },
+    {
+      "threat_id": "T-03-18",
+      "category": "Denial of service",
+      "component": "descriptor/process cleanup",
+      "severity": "high",
+      "disposition": "mitigate",
+      "mitigation_plan": "Fault injection at copy/finalize/reopen/read/launch validates zero guest launches on refusal and fd/path/process cleanup.",
+      "status": "closed",
+      "plans": [
+        "03-09-PLAN.md"
+      ],
+      "evidence": "runner/t64_verified_input.c:177,219,231,254; runner/t64_supervisor.c:1505; runner/tests/test_fixture_descriptor.c:1336"
+    },
+    {
+      "threat_id": "T-03-19",
+      "category": "Spoofing",
+      "component": "real v2 identity and guest evidence",
+      "severity": "high",
+      "disposition": "mitigate",
+      "mitigation_plan": "result-v2 rejects malformed/unknown/inconsistent data, requires exact transcript/CPU milestone identity and preserves v1/model isolation.",
+      "status": "closed",
+      "plans": [
+        "03-10-PLAN.md"
+      ],
+      "evidence": "runner/t64_result_check.c:794,886,890,1097; runner/tests/test_result_v2.c:545,547"
+    },
+    {
+      "threat_id": "T-03-20",
+      "category": "Tampering",
+      "component": "outcome/stop classification",
+      "severity": "high",
+      "disposition": "mitigate",
+      "mitigation_plan": "Independent empty/wrong/bound/unsupported/report cases preserve harness precedence and explicit six outcomes.",
+      "status": "closed",
+      "plans": [
+        "03-10-PLAN.md"
+      ],
+      "evidence": "runner/t64_real.c:730,780,803; runner/t64_supervisor.c:1434,1459; runner/tests/test_real_controls.c:61,879"
+    },
+    {
+      "threat_id": "T-03-21",
+      "category": "Spoofing",
+      "component": "actual CPU/output milestones",
+      "severity": "high",
+      "disposition": "mitigate",
+      "mitigation_plan": "open-ipl3-hello requires descriptor-admitted actual IPL3 entry/DMA/hello/completion and literal exact guest bytes.",
+      "status": "closed",
+      "plans": [
+        "03-11-PLAN.md"
+      ],
+      "evidence": "runner/t64_real.c:621,674,780,810; runner/tests/test_real_runner.c:769,786"
+    },
+    {
+      "threat_id": "T-03-22",
+      "category": "Tampering",
+      "component": "child report/capture/admission",
+      "severity": "high",
+      "disposition": "mitigate",
+      "mitigation_plan": "Real-mode raw report/capture/process validation and synchronized actual source-replacement control prevent false pass.",
+      "status": "closed",
+      "plans": [
+        "03-11-PLAN.md"
+      ],
+      "evidence": "runner/t64_supervisor.c:792,1425,1434; runner/tests/test_real_runner.c:513,934"
+    },
+    {
+      "threat_id": "T-03-23",
+      "category": "Repudiation",
+      "component": "real negative verdicts",
+      "severity": "high",
+      "disposition": "mitigate",
+      "mitigation_plan": "Six real controls prove intended guest failure boundaries and positive counterparts, including raw report/process errors.",
+      "status": "closed",
+      "plans": [
+        "03-12-PLAN.md"
+      ],
+      "evidence": "runner/tests/test_real_controls.c:597,894; runner/tests/test_real_runner.c:925; runner/CMakeLists.txt:128"
+    },
+    {
+      "threat_id": "T-03-24",
+      "category": "Tampering",
+      "component": "canonical state and required tests",
+      "severity": "high",
+      "disposition": "mitigate",
+      "mitigation_plan": "open-ipl3-determinism audits future fields and partition/interleave/trace; exact91/93 per-name omission selftest.",
+      "status": "closed",
+      "plans": [
+        "03-12-PLAN.md"
+      ],
+      "evidence": "core/t64_digest.c:181; core/tests/test_boot_determinism.c:425,662; scripts/check-test-inventory.sh:84,103,244"
+    },
+    {
+      "threat_id": "T-03-25",
+      "category": "Tampering",
+      "component": "exact-SHA hosted evidence delivery",
+      "severity": "high",
+      "disposition": "mitigate",
+      "mitigation_plan": "Required scoped uploads plus collector validate repo/workflow/SHA/run/attempt/successful jobs/unique artifacts and canonical records before comparison.",
+      "status": "closed",
+      "plans": [
+        "03-13-PLAN.md"
+      ],
+      "evidence": ".github/workflows/ci.yml:35; scripts/collect-boot-evidence.sh:157,183,209,248,267; runner/t64_result_check.c:1661; scripts/compare-boot-evidence.sh:45,70; scripts/check-ci-yml.sh:68,196,222,344,363"
+    },
+    {
+      "threat_id": "T-03-26",
+      "category": "Information disclosure",
+      "component": "published evidence and final claims",
+      "severity": "high",
+      "disposition": "mitigate",
+      "mitigation_plan": "Only authorized sanitized JSON is uploaded; rights/PII scans exclude manuals/private/raw/tool bytes; current sanitizer/security/high findings block.",
+      "status": "closed",
+      "plans": [
+        "03-13-PLAN.md"
+      ],
+      "evidence": ".github/workflows/ci.yml:31,57; scripts/collect-boot-evidence.sh:75,99; docs/evidence/phase3-ci.md; 03-REVIEW-FIX.md"
+    }
+  ],
+  "limitation": "All planned code mitigations verified; hosted cross-host pair remains pending. Retrospective package audit does not establish pre-use compliance."
+}
