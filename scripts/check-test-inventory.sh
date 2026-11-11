@@ -86,6 +86,8 @@ unit.core.cpu-path
 unit.core.cp0-cache
 unit.core.warm-device-policy
 unit.core.isviewer
+runner.fixture-descriptor
+controls.real.source-replaced
 controls.real.input-partition'
 
 ASAN_ONLY='fuzz.rom-admission

@@ -16,6 +16,24 @@
 #define T64_VERIFIED_INPUT_CHUNK_BYTES 65536u
 #define T64_VERIFIED_INPUT_PATH_CAPACITY 4096u
 
+#ifdef T64_VERIFIED_INPUT_TESTING
+static int t64_test_fault_stage = -1;
+void t64_verified_input_test_fail_once(int stage);
+void t64_verified_input_test_fail_once(int stage) {
+  t64_test_fault_stage = stage;
+}
+static int take_test_fault(int stage) {
+  if (t64_test_fault_stage != stage) return 0;
+  t64_test_fault_stage = -1;
+  return 1;
+}
+#else
+static int take_test_fault(int stage) {
+  (void)stage;
+  return 0;
+}
+#endif
+
 static int valid_hex_sha256(const char *hex) {
   size_t i;
   if (hex == NULL || strlen(hex) != T64_SHA256_HEX_SIZE - 1u) return 0;
@@ -68,8 +86,15 @@ static int copy_and_hash(int source_fd, int writer_fd, uint64_t expected_size,
   uint64_t total = 0u;
   t64_sha256_init(&hash);
   for (;;) {
-    ssize_t count = read(source_fd, buffer, sizeof buffer);
+    ssize_t count;
     size_t offset = 0u;
+    int short_copy;
+    if (take_test_fault(2)) {
+      errno = EINTR;
+      count = -1;
+    } else {
+      count = read(source_fd, buffer, sizeof buffer);
+    }
     if (count < 0 && errno == EINTR) continue;
     if (count < 0) return -1;
     if (count == 0) break;
@@ -77,15 +102,22 @@ static int copy_and_hash(int source_fd, int writer_fd, uint64_t expected_size,
         (uint64_t)count > expected_size - total) {
       return -1;
     }
-    while (offset < (size_t)count) {
-      ssize_t written = write(writer_fd, buffer + offset,
-                              (size_t)count - offset);
-      if (written < 0 && errno == EINTR) continue;
-      if (written <= 0) return -1;
-      offset += (size_t)written;
+    short_copy = take_test_fault(3);
+    {
+      size_t copy_length = short_copy && count > 1
+                               ? (size_t)count / 2u
+                               : (short_copy ? 0u : (size_t)count);
+      while (offset < copy_length) {
+        ssize_t written = write(writer_fd, buffer + offset,
+                                copy_length - offset);
+        if (written < 0 && errno == EINTR) continue;
+        if (written <= 0) return -1;
+        offset += (size_t)written;
+      }
+      t64_sha256_update(&hash, buffer, copy_length);
+      total += (uint64_t)copy_length;
+      if (short_copy) return -1;
     }
-    t64_sha256_update(&hash, buffer, (size_t)count);
-    total += (uint64_t)count;
   }
   if (total != expected_size || total > max_bytes) return -1;
   t64_sha256_final(&hash, digest_out);
@@ -114,6 +146,7 @@ static int verify_readonly_snapshot(int fd, const struct stat *writer_stat,
       fd_flags < 0 || (fd_flags & FD_CLOEXEC) == 0) {
     return -1;
   }
+  if (take_test_fault(6)) return -1;
   t64_sha256_init(&hash);
   for (;;) {
     ssize_t count = read(fd, buffer, sizeof buffer);
@@ -126,6 +159,7 @@ static int verify_readonly_snapshot(int fd, const struct stat *writer_stat,
   }
   if (total != expected_size) return -1;
   t64_sha256_final(&hash, digest);
+  if (take_test_fault(7)) digest[0] ^= 0xffu;
   if (memcmp(digest, expected_digest, sizeof digest) != 0) return -1;
   return lseek(fd, 0, SEEK_SET) == 0 ? 0 : -1;
 }
@@ -177,7 +211,7 @@ t64_verified_input_status t64_verified_input_prepare(
     cleanup_prepare(source_fd, -1, -1, NULL);
     return T64_VERIFIED_INPUT_ERROR;
   }
-  writer_fd = mkstemp(temp_path);
+  writer_fd = take_test_fault(1) ? -1 : mkstemp(temp_path);
   if (writer_fd < 0 || set_close_on_exec(writer_fd) != 0 ||
       fstat(writer_fd, &writer_stat) != 0 || !S_ISREG(writer_stat.st_mode) ||
       copy_and_hash(source_fd, writer_fd, expected_size, max_bytes,
@@ -190,7 +224,8 @@ t64_verified_input_status t64_verified_input_prepare(
       fstat(source_fd, &source_after) != 0 || !S_ISREG(source_after.st_mode) ||
       source_after.st_dev != source_stat.st_dev ||
       source_after.st_ino != source_stat.st_ino || source_after.st_size < 0 ||
-      (uint64_t)source_after.st_size != expected_size || fsync(writer_fd) != 0 ||
+      (uint64_t)source_after.st_size != expected_size ||
+      take_test_fault(4) || fsync(writer_fd) != 0 ||
       fchmod(writer_fd, 0400) != 0 || fsync(writer_fd) != 0 ||
       fstat(writer_fd, &writer_stat) != 0) {
     cleanup_prepare(source_fd, writer_fd, -1, temp_path);
@@ -206,11 +241,14 @@ t64_verified_input_status t64_verified_input_prepare(
       return T64_VERIFIED_INPUT_ERROR;
     }
   }
-  snapshot_fd = open(temp_path,
-                     O_RDONLY | O_NOFOLLOW | O_NONBLOCK | O_CLOEXEC);
+  snapshot_fd = take_test_fault(5)
+                    ? -1
+                    : open(temp_path,
+                           O_RDONLY | O_NOFOLLOW | O_NONBLOCK | O_CLOEXEC);
   if (snapshot_fd < 0 || set_close_on_exec(snapshot_fd) != 0 ||
       verify_readonly_snapshot(snapshot_fd, &writer_stat, expected_size,
-                               copied_digest) != 0 || unlink(temp_path) != 0 ||
+                               copied_digest) != 0 ||
+      (take_test_fault(8) ? -1 : unlink(temp_path)) != 0 ||
       fstat(snapshot_fd, &unlinked_stat) != 0 || unlinked_stat.st_nlink != 0 ||
       lseek(snapshot_fd, 0, SEEK_SET) != 0 || move_above_stdio(&snapshot_fd) != 0) {
     cleanup_prepare(-1, -1, snapshot_fd, temp_path);

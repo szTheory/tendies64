@@ -354,6 +354,7 @@ typedef struct {
   uint64_t bound;
   uint64_t log_limit;
   uint64_t expect_pass;
+  int real_mode;
   char **runner_argv;
   int runner_argc;
 } sup_args;
@@ -386,6 +387,15 @@ static int parse_args(int argc, char **argv, sup_args *a) {
   size_t k;
   int bad = 0;
   while (i < argc && strcmp(argv[i], "--") != 0) {
+    if (strcmp(argv[i], "--real") == 0) {
+      if (a->real_mode) {
+        bad = 1;
+        break;
+      }
+      a->real_mode = 1;
+      i++;
+      continue;
+    }
     int found = 0;
     for (k = 0; k < nopt; k++) {
       if (strcmp(argv[i], opts[k].name) == 0) {
@@ -553,13 +563,6 @@ int main(int argc, char **argv) {
   result_path = find_opt_value(argc, argv, "--result");
   meta_path = find_opt_value(argc, argv, "--meta");
 
-  /* Real result production is intentionally staged for plan 03-11. Keep its
-   * spelling explicit and fail before the legacy original-path handoff. */
-  if (argc > 1 && strcmp(argv[1], "--real") == 0) {
-    fprintf(stderr,
-            "t64-supervisor: --real is unavailable until the real producer is implemented\n");
-    return 2;
-  }
 
   memset(&sa, 0, sizeof sa);
   sa.sa_handler = on_term; /* no SA_RESTART: waitpid polling still wakes */
@@ -574,6 +577,13 @@ int main(int argc, char **argv) {
   t64_sha256_hex(sdig, profile_hash);
 
   parse_rc = parse_args(argc, argv, &a);
+  /* Real result production is staged for plan 03-11. The flag is recognized
+   * only in the supervisor option region, before the -- runner separator. */
+  if (a.real_mode) {
+    fprintf(stderr,
+            "t64-supervisor: --real is unavailable until the real producer is implemented\n");
+    return 2;
+  }
   if (parse_rc != 0) {
     o.usage_error = 1;
   } else {

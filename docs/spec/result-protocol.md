@@ -233,6 +233,11 @@ t64-supervisor --identity synthetic --result PATH --meta PATH --work-dir DIR
   wrapping, so a huge value means no practical wall limit, never an immediate
   `wall-backstop`;
   `--log-limit` is at most 64 MiB; every option may appear once.
+- Phase 3 recognizes supervisor option `--real` before the `--` runner
+  separator and refuses it with exit 2 until the real producer is implemented
+  in plan 03-11. It launches no child and does not enter the synthetic
+  original-path launch route. A runner argument named `--real` after `--` is
+  still passed to that runner.
 - The fixture is checked with `lstat` before anything runs: it must be a
   regular file (not a symlink, FIFO or device) of at most 64 MiB.
 - A private `mkdtemp` directory under `--work-dir` holds the report, capture,
@@ -260,17 +265,28 @@ t64-supervisor --identity synthetic --result PATH --meta PATH --work-dir DIR
 - The supervisor never uses the runner's exit code as an outcome; it only
   rejects a non-zero one.
 
-Known limitation (to resolve in Phase 3): `fixture_digest` attests the fixture
-bytes as read by the supervisor, not necessarily as read by the runner. The
-supervisor hashes the file at `--fixture` and then passes the same path to the
-runner, which opens it again, so the file can change between the two reads.
-This is acceptable only for Phase 1's synthetic scripts, which are never
-support evidence. Before any real-ROM run (Phases 3 and 4), where the digest is
-the identity claim, the supervisor must hand the runner the bytes it verified:
-either an already-open descriptor to the verified file, or a private copy made
-while hashing (created with `O_EXCL` and mode 0400 inside the private work
-directory). The chosen mechanism is recorded here when it lands; until then no
-result may present `fixture_digest` as proof of what the runner executed.
+Known limitation: the legacy synthetic route hashes the file at `--fixture`
+and then passes that same original path to its runner, which opens it again.
+The file can change between those reads. This limitation remains confined to
+synthetic results, which are never support evidence. Its `check_fixture` open
+uses `O_NONBLOCK` so a replacement FIFO cannot stall the supervisor before
+the regular-file check; that does not close the original-path race.
+
+Plan 03-09 adds `t64_verified_input_prepare` for the future real route. It opens
+the source with no-follow/nonblocking flags, requires a regular file and a
+profile-bounded length, copies and hashes the exact bytes into an exclusive
+private file, syncs and removes write permission, closes the writer, reopens
+read-only, verifies the same inode, full length and SHA-256, then unlinks and
+rewinds the owned descriptor. The helper control passes only these inherited
+descriptors and identities: it blocks before first read, replaces both private
+source paths with same-length changed bytes, then proves the descriptor reader
+still parses and core-admits the original fixture and canonical schedule. A
+separately labeled original-path reopen control detects both replacements.
+Raw input-file length/SHA identify descriptor bytes; canonical schedule SHA
+identifies parser-produced canonical JSON and may differ when formatting
+differs. This is preparation-seam evidence only. `--real` remains refused, and
+plan 03-11 must repeat replacement resistance through actual CPU-runner
+admission before SC6 can close.
 
 ## Control matrix
 

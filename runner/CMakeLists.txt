@@ -48,6 +48,14 @@ target_include_directories(t64_verified_input PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}
 target_link_libraries(t64_verified_input PRIVATE t64_common)
 t64_target_warnings(t64_verified_input)
 
+# Test-only fault injection stays out of the supervisor's production library.
+add_library(t64_verified_input_test STATIC t64_verified_input.c)
+target_compile_definitions(t64_verified_input_test PRIVATE
+  ${T64_HOST_DEFS} T64_VERIFIED_INPUT_TESTING)
+target_include_directories(t64_verified_input_test PUBLIC ${CMAKE_CURRENT_SOURCE_DIR})
+target_link_libraries(t64_verified_input_test PRIVATE t64_common)
+t64_target_warnings(t64_verified_input_test)
+
 add_executable(t64-supervisor t64_supervisor.c)
 target_compile_definitions(t64-supervisor PRIVATE
   ${T64_HOST_DEFS}
@@ -57,18 +65,19 @@ target_link_libraries(t64-supervisor PRIVATE
 t64_target_warnings(t64-supervisor)
 
 add_executable(test_fixture_descriptor tests/test_fixture_descriptor.c)
-target_compile_definitions(test_fixture_descriptor PRIVATE ${T64_HOST_DEFS})
+target_compile_definitions(test_fixture_descriptor PRIVATE
+  ${T64_HOST_DEFS} T64_VERIFIED_INPUT_TESTING)
 target_link_libraries(test_fixture_descriptor PRIVATE
-  t64_verified_input t64_input t64_core)
+  t64_verified_input_test t64_input t64_core)
 t64_target_warnings(test_fixture_descriptor)
 add_dependencies(test_fixture_descriptor t64-supervisor t64-boot-fixtures)
 add_test(NAME runner.fixture-descriptor COMMAND test_fixture_descriptor)
 add_test(NAME controls.real.source-replaced
-  COMMAND test_fixture_descriptor --replacement)
+  COMMAND test_fixture_descriptor --replacement $<TARGET_FILE:t64-supervisor>)
 set_tests_properties(runner.fixture-descriptor controls.real.source-replaced
   PROPERTIES LABELS controls TIMEOUT 120
   ENVIRONMENT
-    "T64_TEST_HELLO_PATH=${CMAKE_SOURCE_DIR}/build/fixtures/hello.z64;T64_TEST_INPUT_PATH=${CMAKE_SOURCE_DIR}/build/fixtures/input-empty.json")
+    "T64_TEST_HELLO_PATH=${CMAKE_SOURCE_DIR}/build/fixtures/hello.z64;T64_TEST_INPUT_PATH=${CMAKE_SOURCE_DIR}/build/fixtures/hello.input.json")
 set_tests_properties(controls.real.source-replaced PROPERTIES
   DEPENDS runner.fixture-descriptor)
 
