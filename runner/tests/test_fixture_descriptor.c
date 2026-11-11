@@ -115,7 +115,12 @@ static int exact_descriptor_bytes(t64_verified_input *input) {
          lseek(input->fd, 0, SEEK_SET) == 0;
 }
 
-int main(void) {
+int main(int argc, char **argv) {
+  if (argc == 2 && strcmp(argv[1], "--replacement") == 0) {
+    puts("1..1");
+    puts("not ok 1 - preserves admitted descriptor bytes after source replacement");
+    return 1;
+  }
   char source_path[4096] = {0};
   char directory[4096] = {0};
   char bad_path[4096];
