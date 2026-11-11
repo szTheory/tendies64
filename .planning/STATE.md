@@ -4,18 +4,18 @@ milestone: v1.0
 milestone_name: Verified Headless Core
 current_phase: 3
 current_phase_name: First Headless ROM Through Open IPL3
-current_plan: 2 of 13
+current_plan: 3 of 13
 status: executing
-stopped_at: Completed 03-01-PLAN.md
-last_updated: "2026-11-11T03:05:27.436Z"
+stopped_at: Completed 03-02-PLAN.md
+last_updated: "2026-11-11T04:14:37.907Z"
 last_activity: 2026-11-10
 last_activity_desc: Phase 3 execution started
-state_head: 603653e4eaf94208a379ea8d4b207aa46e424abd
+state_head: 4a1a4900247d3d3830a4131bd3626ab8cc17c31e
 progress:
   total_phases: 6
   completed_phases: 2
   total_plans: 34
-  completed_plans: 22
+  completed_plans: 23
   percent: 33
 ---
 
@@ -31,7 +31,7 @@ See: .planning/PROJECT.md (updated 2026-11-10)
 ## Current Position
 
 Phase: 3 (First Headless ROM Through Open IPL3) — EXECUTING
-Current Plan: 2 of 13
+Current Plan: 3 of 13
 Status: Ready to execute
 Last activity: 2026-11-10 — Phase 3 execution started
 
@@ -82,6 +82,7 @@ Progress: [███░░░░░░░] 33%
 | Phase 02 P07 | 54 min | 2 tasks | 11 files |
 | Phase 02 P08 | 54 min | 3 tasks | 12 files |
 | Phase 03 P01 | 64min | 2 tasks | 10 files |
+| Phase 03 P02 | 42min | 1 tasks | 11 files |
 
 ## Accumulated Context
 
@@ -126,6 +127,9 @@ Decisions are logged in the PROJECT.md Key Decisions table. Recent decisions tha
 - [Phase 03]: Admit only the exact byte-pinned Unlicense libdragon IPL3 asset and bind its embedded payload separately.
 - [Phase 03]: Treat warm entry state as a deterministic software preset, with no authentic IPL2 handoff or hardware-accuracy claim.
 - [Phase 03]: Decode only the verified IPL3 entry ANDI and stop explicitly on unsupported execution.
+- [Phase 03]: Keep the pinned 4096-byte source asset, 4032-byte executable payload and authored ROM as distinct identities, with separate rights records.
+- [Phase 03]: Set header offset 0x10 to the checked nonzero 184-byte flat app length expected by loader_compat; retain the one-MiB whole-cartridge ceiling.
+- [Phase 03]: Pin authored source to a commit containing the files and exact content hash; keep per-host tool binary hashes in ignored local build metadata.
 
 ### Pending Todos
 
@@ -151,6 +155,6 @@ Items acknowledged and deferred at milestone close, most recent first:
 
 ## Session Continuity
 
-Last session: 2026-11-11T03:05:27.346Z
-Stopped at: Completed 03-01-PLAN.md
+Last session: 2026-11-11T04:14:37.782Z
+Stopped at: Completed 03-02-PLAN.md
 Resume file: None

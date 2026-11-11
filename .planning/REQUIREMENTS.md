@@ -76,7 +76,7 @@ API and a playable rights-cleared homebrew. Each maps to a roadmap phase.
 ### Boot (BOOT)
 
 - [ ] **BOOT-01**: The machine boots through an HLE-PIF step that seeds post-IPL2 state and then runs a pinned open IPL3 as guest code, with no Nintendo boot bytes in the repository
-- [ ] **BOOT-02**: The pinned IPL3 binary has recorded sha256 and md5, source revision, license and a named maintenance owner
+- [x] **BOOT-02**: The pinned IPL3 binary has recorded sha256 and md5, source revision, license and a named maintenance owner
 - [ ] **BOOT-03**: A boot-limits document lists unmodeled PIF challenge/response, CIC variants and timeout behavior, so "boots" is never reported as "boot solved"
 - [ ] **BOOT-04**: A hello ROM, authored in this project or rights-reviewed, prints through ISViewer under the headless runner on the first profile
 
@@ -225,7 +225,7 @@ re-sequenced at milestone close.
 | CPU-08 | Phase 6 | Pending |
 | CPU-09 | Phase 4 | Pending |
 | BOOT-01 | Phase 3 | Pending |
-| BOOT-02 | Phase 3 | Pending |
+| BOOT-02 | Phase 3 | Complete |
 | BOOT-03 | Phase 3 | Pending |
 | BOOT-04 | Phase 3 | Pending |
 | VER-01 | Phase 4 | Pending |
