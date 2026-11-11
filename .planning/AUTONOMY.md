@@ -64,6 +64,12 @@ applies that direction; update it when the owner changes policy.
 - Sanitize captured compiler/test evidence before its first commit. Raw JUnit
   and logs can embed checkout paths, temporary paths and hostnames; retain
   portable command/assertion/result records and keep raw captures local.
+- Validate a RED run at its first failed behavioral assertion and observed
+  values, not merely a well-formed TAP group or a validator's acceptance. A
+  setup/addressing failure does not prove the intended defect. Correct the
+  setup, demonstrate the intended failure against the pre-feature behavior,
+  then confirm GREEN; disclose invalid attempts and reconstructed controls.
+  Check newly generated evidence for private paths before committing it.
 - A test ROM's repository license does not automatically grant redistribution
   rights for its generated ROM or embedded content. Keep a fixture manifest
   with source/revision, build recipe/toolchain, digest, boot/profile
