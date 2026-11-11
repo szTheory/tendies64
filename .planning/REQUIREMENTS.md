@@ -28,11 +28,11 @@ API and a playable rights-cleared homebrew. Each maps to a roadmap phase.
 
 ### Test Harness and Result Protocol (RUN)
 
-- [ ] **RUN-01**: User can run a ROM headlessly with a fixed reset, a named profile, timed logical input and a guest-time limit, and receive a machine-readable result
+- [x] **RUN-01**: User can run a ROM headlessly with a fixed reset, a named profile, timed logical input and a guest-time limit, and receive a machine-readable result
 - [x] **RUN-02**: User can distinguish six outcomes in a result: pass, guest-fail, boot-fail, timeout, missing-fixture and harness-error
 - [x] **RUN-03**: User can see a result classified as boot-fail, not pass, when a guest produces empty output
 - [x] **RUN-04**: Maintainer can see negative controls in the suite: a wrong expected value fails; a missing, malformed, timed-out or crashed run never passes; a changed test inventory is detected
-- [ ] **RUN-05**: User can capture guest log output through an ISViewer-style interface, with the length-register and buffer semantics specified in writing
+- [x] **RUN-05**: User can capture guest log output through an ISViewer-style interface, with the length-register and buffer semantics specified in writing
 - [ ] **RUN-06**: User can capture raw video frames and raw audio sample buffers from a headless run, as files with metadata, separately from host presentation
 
 ### Profiles and Determinism (PROF)
@@ -41,7 +41,7 @@ API and a playable rights-cleared homebrew. Each maps to a roadmap phase.
 - [x] **PROF-02**: User can see the profile identity, and the build identity, recorded in every result
 - [x] **PROF-03**: User can see TV type and region come from the profile and never inferred from the ROM header country byte
 - [x] **PROF-04**: User can see unsupported, deferred and unknown profile features documented, with the evidence that would promote each
-- [ ] **PROF-05**: User gets identical state digests for identical profile, content, input and guest-time bounds, across two operating systems and two compilers
+- [x] **PROF-05**: User gets identical state digests for identical profile, content, input and guest-time bounds, across two operating systems and two compilers
 - [x] **PROF-06**: Maintainer can see two interleaved instances in one process produce digests equal to isolated runs
 - [x] **PROF-07**: Maintainer can see a mechanical lint that fails the build when the core reads host time, files, threads, entropy or mutable globals
 
@@ -75,9 +75,9 @@ API and a playable rights-cleared homebrew. Each maps to a roadmap phase.
 
 ### Boot (BOOT)
 
-- [ ] **BOOT-01**: The machine boots through an HLE-PIF step that seeds post-IPL2 state and then runs a pinned open IPL3 as guest code, with no Nintendo boot bytes in the repository
+- [x] **BOOT-01**: The machine boots through an HLE-PIF step that seeds post-IPL2 state and then runs a pinned open IPL3 as guest code, with no Nintendo boot bytes in the repository
 - [x] **BOOT-02**: The pinned IPL3 binary has recorded sha256 and md5, source revision, license and a named maintenance owner
-- [ ] **BOOT-03**: A boot-limits document lists unmodeled PIF challenge/response, CIC variants and timeout behavior, so "boots" is never reported as "boot solved"
+- [x] **BOOT-03**: A boot-limits document lists unmodeled PIF challenge/response, CIC variants and timeout behavior, so "boots" is never reported as "boot solved"
 - [x] **BOOT-04**: A hello ROM, authored in this project or rights-reviewed, prints through ISViewer under the headless runner on the first profile
 
 ### Fixtures and CI (VER)
@@ -192,17 +192,17 @@ re-sequenced at milestone close.
 | GOV-05 | Phase 1 | Complete |
 | GOV-06 | Phase 1 | Complete |
 | GOV-07 | Phase 1 | Complete |
-| RUN-01 | Phase 3 | Pending |
+| RUN-01 | Phase 3 | Complete |
 | RUN-02 | Phase 1 | Complete |
 | RUN-03 | Phase 3 | Complete |
 | RUN-04 | Phase 1 | Complete |
-| RUN-05 | Phase 3 | Pending |
+| RUN-05 | Phase 3 | Complete |
 | RUN-06 | Phase 8 | Pending |
 | PROF-01 | Phase 2 | Complete |
 | PROF-02 | Phase 2 | Complete |
 | PROF-03 | Phase 2 | Complete |
 | PROF-04 | Phase 2 | Complete |
-| PROF-05 | Phase 3 | Pending |
+| PROF-05 | Phase 3 | Complete |
 | PROF-06 | Phase 2 | Complete |
 | PROF-07 | Phase 1 | Complete |
 | CORE-01 | Phase 2 | Complete |
@@ -224,9 +224,9 @@ re-sequenced at milestone close.
 | CPU-07 | Phase 4 | Pending |
 | CPU-08 | Phase 6 | Pending |
 | CPU-09 | Phase 4 | Pending |
-| BOOT-01 | Phase 3 | Pending |
+| BOOT-01 | Phase 3 | Complete |
 | BOOT-02 | Phase 3 | Complete |
-| BOOT-03 | Phase 3 | Pending |
+| BOOT-03 | Phase 3 | Complete |
 | BOOT-04 | Phase 3 | Complete |
 | VER-01 | Phase 4 | Pending |
 | VER-02 | Phase 6 | Pending |

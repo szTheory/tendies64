@@ -31,6 +31,9 @@ applies that direction; update it when the owner changes policy.
   Once implementation checks pass, close the summary and state promptly; do
   not repeat broad tests or scans solely for bookkeeping changes. Report the
   specific remaining command if a handoff stalls.
+  Keep routine summary/state closeout with the orchestrator when execution
+  evidence is already saved. A slow bookkeeping handoff is not a reason to
+  redispatch implementation or repeatedly recheck a passing hosted pair.
 - At each discussion, enumerate actual decision points. Fan out one agent per
   independent decision cluster when it saves time/context. Apply relevant
   CPU/cache/virtual-memory, RSP/microcode, RDP/video, audio, memory/bus,

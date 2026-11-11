@@ -1,15 +1,15 @@
 ---
 phase: "03"
 slug: first-headless-rom-through-open-ipl3
-status: planned
+status: validated
 nyquist_compliant: true
-wave_0_complete: false
+wave_0_complete: true
 created: "2026-11-10"
 ---
 
 # Phase 3 — Final Validation Contract
 
-Revision 2 preserves all six roadmap success criteria, eight requirements and fifteen decisions. Planning only: no Phase 3 implementation, build, test or human validation has passed. New tests are written/registered with their owning feature; no setup-only Wave 0 is added.
+Post-implementation audit preserves all six roadmap criteria, eight requirements and fifteen decisions. All thirteen plans now have summaries. The required automated behavior checks and actual exact-source hosted pair passed; details and coverage limits are in docs/evidence/phase3-ci.md. No human validation is asserted. Tests were registered with their owning features; no setup-only Wave 0 was needed.
 
 ## Infrastructure, sampling and limits
 
@@ -23,7 +23,7 @@ Full all-target ASan/UBSan build precedes selected tests. Current host requires 
 
 ## Exact test/task/wave/requirement/threat/command map
 
-All rows are pending implementation/execution. Owning task supplies specific behavior and failure direction.
+All named rows below are implemented and passed in the successful exact-source hosted common gates (run 43103669084 attempt 1, source 7c0ea9b5f3076122d506074aa7d3a2283cf9e2a6). Each row has behavior and failure-direction controls in its owning test. The required collector/comparator passed on the actual pair; same-host mock controls are supplementary. Requirement coverage is complete; no missing automated test requires a Nyquist test-generation agent. Phase acceptance remains the verifier's separate decision.
 
 | CTest identity | Plan/task; wave equals plan number | Requirement | Threat ref | Exact command |
 |---|---|---|---|---|
@@ -108,7 +108,15 @@ Fourteen surfaced edge predicates remain in current must_haves and 03-PROBE-LEDG
 - [x] Every planned executable command has an immediate failure direction.
 - [x] All tests/requirements/threats have exact planned ownership.
 - [x] Required exact-SHA two-job evidence handoff/comparator is concrete.
-- [ ] Feature implementation and all exact local/hosted/sanitizer checks pass.
-- [ ] Actual runtime source/rights/claim evidence and post-implementation review pass.
+- [x] Feature checks and exact hosted pair passed, with full sanitizer and later affected-path coverage limits recorded.
+- [x] Actual runtime/source/rights evidence and resolved post-implementation review are recorded.
 
-No execution pass is claimed; no routine owner acknowledgment is required.
+Automated execution evidence is recorded; no routine owner acknowledgment is required. Full ASan/UBSan passed before later test-setup and shell changes, followed by affected-path instrumented checks and current hosted gates. Three non-authoritative judgment flags remain under AUTONOMY; no human sign-off is inferred.
+
+## Validation Audit 2026-11-11
+
+| Metric | Count |
+|---|---|
+| Gaps found | 0 |
+| Resolved | 0 |
+| Escalated | 0 |
