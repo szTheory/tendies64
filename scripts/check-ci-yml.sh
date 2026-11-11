@@ -25,6 +25,7 @@
 #   CI-PERSIST-CREDS     each checkout step sets persist-credentials: false
 #   CI-FETCH-DEPTH       each checkout step sets fetch-depth: 0 (full-history rights scan)
 #   CI-TIMEOUT           each job sets timeout-minutes from 1 to 10
+#   CI-REQUIRED-STEP     jobs and steps cannot weaken required success semantics
 #   CI-SECRETS           no secrets reference in any spelling (secrets.X, secrets['X'], secrets[...],
 #                        toJSON(secrets)) and no token (github.token, github['token'], toJSON(github))
 #   CI-UPLOAD-ARTIFACT   both existing gate jobs upload one exact sanitized JSON after both scans
@@ -37,7 +38,7 @@ export LC_ALL
 
 SELF=$0
 ROOT=$(cd "$(dirname "$0")/.." && pwd -P)
-ALL_RULES="CI-RUN-LINE CI-USES-PIN CI-RUNNER-LABEL CI-LATEST-LABEL CI-PR-TARGET CI-TRIGGER CI-WORKFLOW-FILE CI-PERMISSIONS-TOP CI-PERMISSIONS-JOB CI-PERSIST-CREDS CI-FETCH-DEPTH CI-TIMEOUT CI-SECRETS CI-UPLOAD-ARTIFACT CI-EXPR-IN-RUN CI-GATE-EXEC CI-ZERO-JOBS"
+ALL_RULES="CI-RUN-LINE CI-USES-PIN CI-RUNNER-LABEL CI-LATEST-LABEL CI-PR-TARGET CI-TRIGGER CI-WORKFLOW-FILE CI-PERMISSIONS-TOP CI-PERMISSIONS-JOB CI-PERSIST-CREDS CI-FETCH-DEPTH CI-TIMEOUT CI-REQUIRED-STEP CI-SECRETS CI-UPLOAD-ARTIFACT CI-EXPR-IN-RUN CI-GATE-EXEC CI-ZERO-JOBS"
 
 usage() {
   echo "usage: check-ci-yml.sh [--file PATH | --dir DIR] [--gate PATH] [--selftest]" >&2
@@ -64,6 +65,11 @@ scan_yml() {
         if (!hascontents) vjob("CI-PERMISSIONS-JOB", "permissions must grant contents: read")
         if (!hastimeout) vjob("CI-TIMEOUT", "timeout-minutes is missing")
         if (!hasruns) vjob("CI-RUNNER-LABEL", "runs-on is missing")
+        if (job_control) vjob("CI-REQUIRED-STEP", "job-level if and continue-on-error controls are forbidden")
+        if (job == "gate-linux" && job_runs_on != "ubuntu-24.04")
+          vjob("CI-RUNNER-LABEL", "gate-linux must run on ubuntu-24.04")
+        if (job == "gate-macos" && job_runs_on != "macos-26")
+          vjob("CI-RUNNER-LABEL", "gate-macos must run on macos-26")
         if (job_runs != 4 || gate_runs != 1 || emit_runs != 1 ||
             rights_runs != 1 || pii_runs != 1)
           vjob("CI-RUN-LINE", "job must run the gate and each exact evidence command once")
@@ -125,6 +131,7 @@ scan_yml() {
       if (line ~ /:[ \t]+[|>][-+0-9]*[ \t]*$/) viol("CI-RUN-LINE", "block scalars are forbidden")
 
       key = body; sub(/[ \t]*:.*/, "", key)
+      field = key; gsub(/^["\047]|["\047]$/, "", field)
       val = ""
       p = index(body, ":")
       if (p > 0) val = clean(substr(body, p + 1))
@@ -169,6 +176,7 @@ scan_yml() {
         closejob()
         job = key; njobs++
         hascontents = 0; hastimeout = 0; hasruns = 0; inperm = 0
+        job_control = 0; job_runs_on = ""
         job_runs = 0; gate_runs = 0; emit_runs = 0; rights_runs = 0; pii_runs = 0
         step_count = 0; checkout_step_count = 0; gate_step_count = 0
         emit_step_count = 0; rights_step_count = 0; pii_step_count = 0
@@ -184,13 +192,15 @@ scan_yml() {
 
       if (injobs && job != "") {
         if (ind == 4 && !isitem) {
-          inperm = (key == "permissions" && val == "")
-          if (key == "timeout-minutes") {
+          inperm = (field == "permissions" && val == "")
+          if (field == "if" || field == "continue-on-error") job_control = 1
+          if (field == "timeout-minutes") {
             if (val ~ /^[0-9]+$/ && val + 0 >= 1 && val + 0 <= 10) hastimeout = 1
             else viol("CI-TIMEOUT", "timeout-minutes must be an integer from 1 to 10")
           }
-          if (key == "runs-on") {
+          if (field == "runs-on") {
             hasruns = 1
+            job_runs_on = val
             if (val != "ubuntu-24.04" && val != "macos-26") viol("CI-RUNNER-LABEL", "runs-on must be exactly ubuntu-24.04 or macos-26, found: " val)
           }
         } else if (ind == 6 && !isitem && inperm) {
@@ -209,6 +219,8 @@ scan_yml() {
           else if (current_step == "PII scan sanitized output") { pii_step_count++; pii_step_line = NR }
           else if (current_step == "Upload sanitized guest evidence") { upload_step_count++; upload_step_line = NR }
         }
+        if (ind == 8 && !isitem && (field == "if" || field == "continue-on-error"))
+          vjob("CI-REQUIRED-STEP", "step-level if and continue-on-error controls are forbidden")
         if (ind == 8 && !isitem) in_upload_with = (key == "with" && val == "")
         if (ind == 10 && !isitem && in_upload_with && upload_action) {
           if (key == "name") {
@@ -287,6 +299,22 @@ mut() {
   sed "$2" "$REAL" > "$W/$1.yml"
 }
 
+inject_step_key() {
+  awk -v target="$1" -v field="$2" -v value="$3" '
+    $0 == "      - name: " target { print; print "        " field ": " value; found = 1; next }
+    { print }
+    END { if (!found) exit 2 }
+  ' "$REAL" > "$W/$4.yml"
+}
+
+inject_job_key() {
+  awk -v target="$1" -v field="$2" -v value="$3" '
+    $0 == "  " target ":" { print; print "    " field ": " value; found = 1; next }
+    { print }
+    END { if (!found) exit 2 }
+  ' "$REAL" > "$W/$4.yml"
+}
+
 selftest() {
   REAL=$ROOT/.github/workflows/ci.yml
   if [ ! -f "$REAL" ]; then echo "check-ci-yml: workflow not found: $REAL" >&2; return 1; fi
@@ -313,6 +341,10 @@ selftest() {
 
   mut runner 's|ubuntu-24.04|ubuntu-22.04|'
   expect CI-RUNNER-LABEL "an unlisted runner label" "$W/runner.yml"
+  awk '!changed && /^    runs-on: ubuntu-24.04$/ { sub(/ubuntu-24.04$/, "macos-26"); changed = 1 } { print } END { if (!changed) exit 2 }' "$REAL" > "$W/runner-linux-macos.yml"
+  expect CI-RUNNER-LABEL "gate-linux assigned to macOS" "$W/runner-linux-macos.yml"
+  awk '!changed && /^    runs-on: macos-26$/ { sub(/macos-26$/, "ubuntu-24.04"); changed = 1 } { print } END { if (!changed) exit 2 }' "$REAL" > "$W/runner-macos-linux.yml"
+  expect CI-RUNNER-LABEL "gate-macos assigned to Linux" "$W/runner-macos-linux.yml"
   mut latest 's|macos-26|macos-latest|'
   expect CI-LATEST-LABEL "a -latest label" "$W/latest.yml"
   mut prtarget 's|^  pull_request:|  pull_request_target:|'
@@ -327,6 +359,27 @@ selftest() {
   expect CI-FETCH-DEPTH "a shallow checkout" "$W/fetch.yml"
   grep -v 'timeout-minutes' "$REAL" > "$W/timeout.yml" || true
   expect CI-TIMEOUT "a job without a timeout" "$W/timeout.yml"
+
+  # Required jobs and steps cannot be skipped or have failures softened.
+  for _step in "Gate" "Emit guest evidence" "Rights scan sanitized output" \
+    "PII scan sanitized output" "Upload sanitized guest evidence"; do
+    _label=$(printf '%s' "$_step" | tr '[:upper:] ' '[:lower:]-')
+    inject_step_key "$_step" continue-on-error true "soft-$_label"
+    expect CI-REQUIRED-STEP "$_step with continue-on-error enabled" "$W/soft-$_label.yml"
+    inject_step_key "$_step" if false "skip-$_label"
+    expect CI-REQUIRED-STEP "$_step with a skip condition" "$W/skip-$_label.yml"
+  done
+  inject_step_key "Gate" '"if"' false soft-quoted-if
+  expect CI-REQUIRED-STEP "a quoted step-level skip key" "$W/soft-quoted-if.yml"
+  inject_job_key gate-linux continue-on-error true job-soft
+  expect CI-REQUIRED-STEP "a job-level continue-on-error control" "$W/job-soft.yml"
+  inject_job_key gate-linux if false job-skip
+  expect CI-REQUIRED-STEP "a job-level skip condition" "$W/job-skip.yml"
+  inject_job_key gate-linux '"continue-on-error"' true job-quoted-soft
+  expect CI-REQUIRED-STEP "a quoted job-level continue-on-error key" "$W/job-quoted-soft.yml"
+  inject_job_key gate-linux '"if"' false job-quoted-skip
+  expect CI-REQUIRED-STEP "a quoted job-level skip key" "$W/job-quoted-skip.yml"
+
   awk '/timeout-minutes: 10/ && !done { print; print "    env:"; print "      TOKEN: ${{ secrets.TOKEN }}"; done = 1; next } { print }' "$REAL" > "$W/secrets.yml"
   expect CI-SECRETS "a secrets reference" "$W/secrets.yml"
   awk '/^    steps:/ && !done { print; print "      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9  # v7.0.2"; done = 1; next } { print }' "$REAL" > "$W/upload.yml"
