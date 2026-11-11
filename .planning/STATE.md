@@ -4,18 +4,18 @@ milestone: v1.0
 milestone_name: Verified Headless Core
 current_phase: 3
 current_phase_name: First Headless ROM Through Open IPL3
-current_plan: 1
+current_plan: 2 of 13
 status: executing
-stopped_at: Phase 2 verified and closed; continuing Phase 3 decision-focused research
-last_updated: "2026-11-11T01:53:13.992Z"
+stopped_at: Completed 03-01-PLAN.md
+last_updated: "2026-11-11T03:05:27.436Z"
 last_activity: 2026-11-10
 last_activity_desc: Phase 3 execution started
-state_head: 514cc4b992b8f0c24348ab01b5e77e32ce8d9a6a
+state_head: 603653e4eaf94208a379ea8d4b207aa46e424abd
 progress:
   total_phases: 6
   completed_phases: 2
   total_plans: 34
-  completed_plans: 21
+  completed_plans: 22
   percent: 33
 ---
 
@@ -31,8 +31,8 @@ See: .planning/PROJECT.md (updated 2026-11-10)
 ## Current Position
 
 Phase: 3 (First Headless ROM Through Open IPL3) — EXECUTING
-Current Plan: 1
-Status: Executing Phase 3
+Current Plan: 2 of 13
+Status: Ready to execute
 Last activity: 2026-11-10 — Phase 3 execution started
 
 Progress: [███░░░░░░░] 33%
@@ -81,6 +81,7 @@ Progress: [███░░░░░░░] 33%
 | Phase 02 P06 | 40 min | 2 tasks | 15 files |
 | Phase 02 P07 | 54 min | 2 tasks | 11 files |
 | Phase 02 P08 | 54 min | 3 tasks | 12 files |
+| Phase 03 P01 | 64min | 2 tasks | 10 files |
 
 ## Accumulated Context
 
@@ -122,6 +123,9 @@ Decisions are logged in the PROJECT.md Key Decisions table. Recent decisions tha
 
 - [Phase 2]: Machine skeleton verified on both hosted lanes; native model evidence only. Three non-authoritative judgment flags retained under autonomous soft-gate policy; no violation or accepted risk.
 - [Phase 2]: CORE-02 remains partial; all-device integration is assigned to Phase 9.
+- [Phase 03]: Admit only the exact byte-pinned Unlicense libdragon IPL3 asset and bind its embedded payload separately.
+- [Phase 03]: Treat warm entry state as a deterministic software preset, with no authentic IPL2 handoff or hardware-accuracy claim.
+- [Phase 03]: Decode only the verified IPL3 entry ANDI and stop explicitly on unsupported execution.
 
 ### Pending Todos
 
@@ -147,6 +151,6 @@ Items acknowledged and deferred at milestone close, most recent first:
 
 ## Session Continuity
 
-Last session: 2026-11-11T00:07:02.001Z
-Stopped at: Phase 2 verified and closed; continuing Phase 3 decision-focused research
+Last session: 2026-11-11T03:05:27.346Z
+Stopped at: Completed 03-01-PLAN.md
 Resume file: None
