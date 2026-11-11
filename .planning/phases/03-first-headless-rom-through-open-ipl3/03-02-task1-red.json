@@ -1,0 +1,10 @@
+{
+  "command": "sh scripts/build-boot-fixtures.sh --selftest",
+  "exitCode": 1,
+  "output": "TAP version 13\n1..4\nnot ok 1 - flat payload range accepts valid payload\nok 2 - flat payload range rejects zero bytes\nnot ok 3 - flat payload range accepts exact cartridge limit\nok 4 - flat payload range rejects cartridge overflow\n",
+  "targetTest": "flat payload range accepts valid payload",
+  "targetFile": "tools/fixture/t64_rom_pack.c",
+  "expected": "A valid nonzero payload within the 1 MiB whole-cartridge ceiling is accepted.",
+  "actual": "The selftest assertion failed because the range predicate currently rejects the valid 4096-byte payload.",
+  "semanticAssessment": "The C selftest compiled and executed four TAP cases. The named target test failed on its planned valid-range assertion; zero and over-limit refusal controls passed. This is the expected RED for implementing checked flat-payload sizing."
+}
