@@ -9,6 +9,8 @@
 
 #define IPL3_ASSET_BYTES 4096u
 #define IPL3_ENTRY_PC UINT32_C(0xa4000040)
+#define T64_CP0_CAUSE_SOFTWARE_MASK UINT32_C(0x00000300)
+#define T64_CP0_CAUSE_TIMER_MASK UINT32_C(0x00008000)
 
 typedef struct {
   size_t outstanding;
@@ -398,6 +400,208 @@ static bool test_overflow_and_unsupported_opcode(
          detail.opcode == UINT32_C(0x7000003f);
 }
 
+static bool test_cp0_count_wrap_and_compare(
+    t64_machine *machine, const uint8_t asset[IPL3_ASSET_BYTES]) {
+  static const uint32_t program[] = {
+      UINT32_C(0x400a4800), /* mfc0 t2,c0_count */
+      UINT32_C(0x00000000), /* nop */
+      UINT32_C(0x00000000), /* nop */
+      UINT32_C(0x7000003f), /* explicit unsupported stop */
+  };
+  t64_stop_result result = {UINT32_MAX, UINT64_MAX};
+  t64_cpu_stop_detail detail = {UINT64_MAX, UINT32_MAX, UINT32_MAX};
+
+  if (!install_program(machine, asset, program,
+                       sizeof program / sizeof program[0])) {
+    return false;
+  }
+  machine->cpu.cp0[9] = UINT64_C(0xfffffffe);
+  machine->cpu.cp0[11] = UINT64_C(0);
+  if (!stop_at_unsupported(machine, &result, &detail)) {
+    return false;
+  }
+  if (detail.retired_instructions != UINT64_C(3) ||
+      detail.pc != IPL3_ENTRY_PC + UINT32_C(12) ||
+      machine->cpu.gpr[10] != UINT64_C(0xfffffffffffffffe) ||
+      machine->cpu.cp0[9] != UINT64_C(1) ||
+      (machine->cpu.cp0[13] & T64_CP0_CAUSE_TIMER_MASK) == 0u) {
+    (void)printf("# actual retired=%llu pc=0x%08x opcode=0x%08x "
+                 "mfc0_t2=0x%016llx count=0x%08llx cause=0x%08llx\n",
+                 (unsigned long long)detail.retired_instructions,
+                 detail.pc, detail.opcode,
+                 (unsigned long long)machine->cpu.gpr[10],
+                 (unsigned long long)machine->cpu.cp0[9],
+                 (unsigned long long)machine->cpu.cp0[13]);
+    return false;
+  }
+  return true;
+}
+
+static bool test_cp0_register_masks(
+    t64_machine *machine, const uint8_t asset[IPL3_ASSET_BYTES]) {
+  static const uint32_t program[] = {
+      UINT32_C(0x40886800), /* mtc0 t0,c0_cause */
+      UINT32_C(0x40899000), /* mtc0 t1,c0_watchlo */
+      UINT32_C(0x408ae000), /* mtc0 t2,c0_taglo */
+      UINT32_C(0x408be800), /* mtc0 t3,c0_taghi */
+      UINT32_C(0x7000003f), /* explicit unsupported stop */
+  };
+  t64_stop_result result = {UINT32_MAX, UINT64_MAX};
+  t64_cpu_stop_detail detail = {UINT64_MAX, UINT32_MAX, UINT32_MAX};
+
+  if (!install_program(machine, asset, program,
+                       sizeof program / sizeof program[0])) {
+    return false;
+  }
+  machine->cpu.gpr[8] = UINT64_C(0xffffffff);
+  machine->cpu.gpr[9] = UINT64_C(0xffffffff);
+  machine->cpu.gpr[10] = UINT64_C(0xffffffff);
+  machine->cpu.gpr[11] = UINT64_C(0xffffffff);
+  machine->cpu.cp0[13] = T64_CP0_CAUSE_TIMER_MASK;
+  return stop_at_unsupported(machine, &result, &detail) &&
+         detail.retired_instructions == UINT64_C(4) &&
+         machine->cpu.cp0[13] ==
+             (T64_CP0_CAUSE_TIMER_MASK | T64_CP0_CAUSE_SOFTWARE_MASK) &&
+         machine->cpu.cp0[18] == UINT64_C(0xfffffffb) &&
+         machine->cpu.cp0[28] == UINT64_C(0x0fffffc0) &&
+         machine->cpu.cp0[29] == UINT64_C(0);
+}
+
+static bool test_cp0_compare_write_clears_timer(
+    t64_machine *machine, const uint8_t asset[IPL3_ASSET_BYTES]) {
+  static const uint32_t program[] = {
+      UINT32_C(0x40885800), /* mtc0 t0,c0_compare */
+      UINT32_C(0x7000003f), /* explicit unsupported stop */
+  };
+  t64_stop_result result = {UINT32_MAX, UINT64_MAX};
+  t64_cpu_stop_detail detail = {UINT64_MAX, UINT32_MAX, UINT32_MAX};
+
+  if (!install_program(machine, asset, program,
+                       sizeof program / sizeof program[0])) {
+    return false;
+  }
+  machine->cpu.gpr[8] = UINT64_C(7);
+  machine->cpu.cp0[13] =
+      T64_CP0_CAUSE_TIMER_MASK | T64_CP0_CAUSE_SOFTWARE_MASK;
+  return stop_at_unsupported(machine, &result, &detail) &&
+         detail.retired_instructions == UINT64_C(1) &&
+         machine->cpu.cp0[11] == UINT64_C(7) &&
+         machine->cpu.cp0[13] == T64_CP0_CAUSE_SOFTWARE_MASK;
+}
+
+static bool test_cache_operations_are_coherent(
+    t64_machine *machine, const uint8_t asset[IPL3_ASSET_BYTES]) {
+  static const struct {
+    uint32_t opcode;
+    uint32_t operation;
+  } cache_cases[] = {
+      {UINT32_C(0xbd080000), UINT32_C(0x08)}, /* index store tag I */
+      {UINT32_C(0xbd090000), UINT32_C(0x09)}, /* index store tag D */
+      {UINT32_C(0xbd150000), UINT32_C(0x15)}, /* hit WB/invalidate D */
+  };
+  size_t i;
+
+  for (i = 0u; i < sizeof cache_cases / sizeof cache_cases[0]; i++) {
+    uint32_t program[] = {UINT32_C(0xad090000), cache_cases[i].opcode,
+                          UINT32_C(0x7000003f)};
+    t64_stop_result result = {UINT32_MAX, UINT64_MAX};
+    t64_cpu_stop_detail detail = {UINT64_MAX, UINT32_MAX, UINT32_MAX};
+
+    if (!install_program(machine, asset, program,
+                         sizeof program / sizeof program[0])) {
+      return false;
+    }
+    machine->cpu.gpr[8] = UINT64_C(0xffffffff80000100);
+    machine->cpu.gpr[9] = UINT64_C(0x12345678);
+    if (!stop_at_unsupported(machine, &result, &detail) ||
+        detail.retired_instructions != UINT64_C(2) ||
+        detail.pc != IPL3_ENTRY_PC + UINT32_C(8) ||
+        machine->cache.policy_version != UINT32_C(1) ||
+        machine->cache.last_operation != cache_cases[i].operation ||
+        machine->cache.last_pc != IPL3_ENTRY_PC + UINT32_C(4) ||
+        machine->cache.last_address != UINT32_C(0x100) ||
+        !machine->cache.operation_seen || machine->ram[0x100u] != 0x12u ||
+        machine->ram[0x101u] != 0x34u || machine->ram[0x102u] != 0x56u ||
+        machine->ram[0x103u] != 0x78u) {
+      return false;
+    }
+  }
+  return true;
+}
+
+static bool test_cp0_cache_unsupported_encodings(
+    t64_machine *machine, const uint8_t asset[IPL3_ASSET_BYTES]) {
+  static const uint32_t unsupported_cp0[] = {
+      UINT32_C(0x40004801), /* mfc0 t0,count,sel=1 */
+      UINT32_C(0x40806800), /* mtc0 t0,c0_index */
+  };
+  static const uint32_t unsupported_cache[] = {
+      UINT32_C(0xbd100000), /* unqualified CACHE operation */
+      UINT32_C(0xbd150000), /* valid op with unsupported address mode */
+  };
+  size_t i;
+
+  for (i = 0u; i < sizeof unsupported_cp0 / sizeof unsupported_cp0[0];
+       i++) {
+    t64_stop_result result = {UINT32_MAX, UINT64_MAX};
+    t64_cpu_stop_detail detail = {UINT64_MAX, UINT32_MAX, UINT32_MAX};
+
+    if (!install_program(machine, asset, &unsupported_cp0[i], 1u) ||
+        !stop_at_unsupported(machine, &result, &detail) ||
+        detail.retired_instructions != UINT64_C(0) ||
+        detail.pc != IPL3_ENTRY_PC ||
+        detail.opcode != unsupported_cp0[i]) {
+      return false;
+    }
+  }
+  for (i = 0u; i < sizeof unsupported_cache / sizeof unsupported_cache[0];
+       i++) {
+    t64_stop_result result = {UINT32_MAX, UINT64_MAX};
+    t64_cpu_stop_detail detail = {UINT64_MAX, UINT32_MAX, UINT32_MAX};
+
+    if (!install_program(machine, asset, &unsupported_cache[i], 1u)) {
+      return false;
+    }
+    machine->cpu.gpr[8] = i == 0u ? UINT64_C(0xffffffff80000100)
+                                  : UINT64_C(0x100);
+    if (!stop_at_unsupported(machine, &result, &detail) ||
+        detail.retired_instructions != UINT64_C(0) ||
+        detail.pc != IPL3_ENTRY_PC ||
+        detail.opcode != unsupported_cache[i] ||
+        machine->cache.operation_seen) {
+      return false;
+    }
+  }
+  return true;
+}
+
+static bool test_cp0_cache_state_is_in_digest(
+    t64_machine *machine, const uint8_t asset[IPL3_ASSET_BYTES]) {
+  uint8_t baseline[T64_DIGEST_SIZE];
+  uint8_t changed[T64_DIGEST_SIZE];
+  uint64_t cp0_value;
+  t64_cache_state cache_value;
+  bool cp0_hashed;
+  bool cache_hashed;
+
+  if (t64_machine_admit_rom(machine, asset, IPL3_ASSET_BYTES) !=
+          T64_STATUS_OK ||
+      t64_machine_digest(machine, baseline) != T64_STATUS_OK) {
+    return false;
+  }
+  cp0_value = machine->cpu.cp0[9];
+  machine->cpu.cp0[9] = cp0_value ^ UINT64_C(1);
+  cp0_hashed = t64_machine_digest(machine, changed) == T64_STATUS_OK &&
+               memcmp(baseline, changed, sizeof baseline) != 0;
+  machine->cpu.cp0[9] = cp0_value;
+  cache_value = machine->cache;
+  machine->cache.last_operation ^= UINT32_C(1);
+  cache_hashed = t64_machine_digest(machine, changed) == T64_STATUS_OK &&
+                 memcmp(baseline, changed, sizeof baseline) != 0;
+  machine->cache = cache_value;
+  return cp0_hashed && cache_hashed;
+}
+
 typedef bool (*cpu_test_fn)(t64_machine *machine,
                             const uint8_t asset[IPL3_ASSET_BYTES]);
 
@@ -406,11 +610,11 @@ typedef struct {
   cpu_test_fn run;
 } cpu_test_case;
 
-int main(void) {
+int main(int argc, char **argv) {
   allocator_state allocator_state_value = {0u};
   const t64_host_allocator allocator = {
       test_allocate, test_release, &allocator_state_value};
-  static const cpu_test_case cases[] = {
+  static const cpu_test_case cpu_path_cases[] = {
       {"qualified IPL3 integer path reaches the CP0 boundary",
        test_real_entry_and_next_boundary},
       {"MIPS III sign extension, shifts and BAL delay slot",
@@ -426,12 +630,42 @@ int main(void) {
       {"guest overflow and unsupported opcodes stop without retirement",
        test_overflow_and_unsupported_opcode},
   };
+  static const cpu_test_case cp0_cache_cases[] = {
+      {"CP0 Count reads before its retirement tick and compares after wrap",
+       test_cp0_count_wrap_and_compare},
+      {"CP0 Cause, WatchLo, and cache tags apply documented masks",
+       test_cp0_register_masks},
+      {"MTC0 Compare clears the latched timer interrupt",
+       test_cp0_compare_write_clears_timer},
+      {"CACHE index tags and D hit writeback preserve coherent memory",
+       test_cache_operations_are_coherent},
+      {"unknown CP0 selects and CACHE operations stop without retirement",
+       test_cp0_cache_unsupported_encodings},
+      {"CP0 and cache state participate in the v6 digest",
+       test_cp0_cache_state_is_in_digest},
+  };
+  const cpu_test_case *cases;
+  size_t case_count;
   const t64_profile_descriptor *profile = NULL;
   t64_machine *machine = NULL;
   uint8_t asset[IPL3_ASSET_BYTES];
   size_t i;
   size_t failure_count = 0u;
 
+  if (argc != 2 ||
+      (strcmp(argv[1], "--cpu-path") != 0 &&
+       strcmp(argv[1], "--cp0-cache") != 0)) {
+    (void)puts("1..1");
+    (void)puts("not ok 1 - select --cpu-path or --cp0-cache");
+    return 2;
+  }
+  if (strcmp(argv[1], "--cp0-cache") == 0) {
+    cases = cp0_cache_cases;
+    case_count = sizeof cp0_cache_cases / sizeof cp0_cache_cases[0];
+  } else {
+    cases = cpu_path_cases;
+    case_count = sizeof cpu_path_cases / sizeof cpu_path_cases[0];
+  }
   if (!read_qualified_asset(asset) ||
       t64_profile_lookup("ntsc-cart-4m-openipl3-warm-v1", &profile) !=
           T64_STATUS_OK ||
@@ -445,8 +679,8 @@ int main(void) {
     }
     return 1;
   }
-  (void)printf("1..%zu\n", sizeof cases / sizeof cases[0]);
-  for (i = 0u; i < sizeof cases / sizeof cases[0]; i++) {
+  (void)printf("1..%zu\n", case_count);
+  for (i = 0u; i < case_count; i++) {
     bool okay = cases[i].run(machine, asset);
 
     (void)printf("%s %zu - %s\n", okay ? "ok" : "not ok", i + 1u,

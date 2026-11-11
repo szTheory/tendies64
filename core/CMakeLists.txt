@@ -174,8 +174,12 @@ target_include_directories(test_cpu_path PRIVATE
 target_link_libraries(test_cpu_path PRIVATE t64_core)
 t64_target_warnings(test_cpu_path)
 add_dependencies(test_cpu_path t64-boot-fixtures)
-add_test(NAME unit.core.cpu-path COMMAND test_cpu_path)
+add_test(NAME unit.core.cpu-path COMMAND test_cpu_path --cpu-path)
 set_tests_properties(unit.core.cpu-path PROPERTIES
+  LABELS unit
+  ENVIRONMENT "T64_TEST_IPL3_PATH=${T64_BOOT_FIXTURE_DIR}/ipl3_compat.z64")
+add_test(NAME unit.core.cp0-cache COMMAND test_cpu_path --cp0-cache)
+set_tests_properties(unit.core.cp0-cache PROPERTIES
   LABELS unit
   ENVIRONMENT "T64_TEST_IPL3_PATH=${T64_BOOT_FIXTURE_DIR}/ipl3_compat.z64")
 

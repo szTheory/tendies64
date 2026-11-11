@@ -81,7 +81,9 @@ unit.core.profile-result
 unit.core.determinism
 unit.model-result'
 
-PHASE03_TESTS='unit.core.boot-entry'
+PHASE03_TESTS='unit.core.boot-entry
+unit.core.cpu-path
+unit.core.cp0-cache'
 
 ASAN_ONLY='fuzz.rom-admission
 sanitizer.negative-control'
