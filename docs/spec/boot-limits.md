@@ -182,11 +182,15 @@ only the stated deterministic software subset and authored fixture route.
 ## Verification record
 
 The current local gate passed all 91 registered gate tests, the collector and
-comparator selftests, rights/PII checks, and core lint with zero violations.
-The full all-target ASan/UBSan build and exact 93-name inventory passed; the
-parallel sanitizer suite passed 93/93 in 121.53 seconds with address and
-undefined checks active and leak detection disabled for this macOS host. The
-intentional sanitizer negative control detected its injected fault.
+comparator selftests, rights/PII checks, and core lint with zero violations in
+57 seconds. The full all-target ASan/UBSan build and exact 93-name inventory
+passed; the parallel sanitizer suite passed 93/93 in 121.53 seconds with
+address and undefined checks active and leak detection disabled for this
+macOS host. The intentional sanitizer negative control detected its injected
+fault. That full run preceded later test-only fixture setup checks; after those
+checks, the all-target sanitizer build passed and the changed descriptor and
+hello integration tests passed 2/2. The full 93-test sanitizer suite was not
+repeated after the test-only changes.
 
 The first hosted candidate was commit
 `73e63e04ca2bc21ac5c7e80adbc6b6041cc55285`, run 43087470400 attempt 1. Linux
@@ -200,3 +204,13 @@ results. The previous sanitizer failure was an assertion-budget issue: a
 the test still verifies watchdog kill precedence, and production watchdog
 semantics are unchanged. A new exact-SHA hosted run and paired comparison are
 required before claiming the two-host result.
+
+The next candidate, `d6adbec2c1a28c00b31786b55ca3b832658b6185`, also failed
+Linux compilation in run 43091181251 attempt 1: ignored test-only `symlink`,
+`ftruncate` and `write` results remained in the fixture descriptor and source
+replacement setup. macOS passed but its artifact cannot form a pair without
+the Linux record. Those fixture-creation and barrier-release results are now
+checked, and a cached Ubuntu 24.04/GCC 13.3 x86_64 container syntax-checked the
+three affected C translation units with the CI warning flags. This
+compile-only check is not a complete Linux build or guest evidence; the next
+hosted run remains authoritative.

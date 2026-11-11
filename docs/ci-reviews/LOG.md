@@ -54,6 +54,7 @@ from.
 | 2026-11-11 | 43007339324 | 0efc1846903c | push | success | 301 | 299 | 2/113 | 4/295 | gate-macos/Gate 281s |
 | 2026-11-11 | 43020272408 | 8b308cb4580c | push | success | 239 | 237 | 2/106 | 2/235 | gate-macos/Gate 228s |
 | 2026-11-11 | 43087470400 | 73e63e04ca2b | push | failure | 266 | 264 | 2/108 | 2/262 | gate-macos/Gate 249s |
+| 2026-11-11 | 43091181251 | d6adbec2c1a2 | push | failure | 274 | 272 | 2/95 | 2/270 | gate-macos/Gate 253s |
 
 ## Findings
 
@@ -88,3 +89,4 @@ from.
 | F-028 | 43007339324 | The fresh canonical gate qualifies/builds fixtures before configure and the CMake consumer producer runs again; the complete subsequent CMake build is4s on each host. | declined | Record the small duplicate for consolidation during final CI wiring. Keep one qualified producer and provenance checks; avoid a separate requalification run or new cache solely to save a small fraction of this301s run. |
 | F-029 | 43020272408 | Input/output API and canonical-schedule candidate passed all79 tests on both hosts. Linux queue/run2/106s; macOS2/235s. Script101/227s, with qualification74/171s and real input control0.25/0.22s. | declined | Keep the existing two compiler/platform jobs and limits. Variation from the preceding run is dominated by qualification and shell-test timing; do not attribute it to emulator throughput or change guest timing. F026-F028 still describe the measured optimization opportunities. |
 | F-030 | 43087470400 | Linux build rejected ignored ftruncate results in test-only report-mutation cases while macOS completed successfully | taken | Checked the test-only syscall results; production watchdog behavior and the two CI lanes remain unchanged. |
+| F-031 | 43091181251 | Linux GCC 13.3 rejected ignored test-only symlink, ftruncate and write results in descriptor and replacement fixtures while macOS completed successfully | taken | Check test setup syscalls and assert created fixtures before validating refusal; preserve the existing two CI lanes and production behavior. |

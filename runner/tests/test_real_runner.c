@@ -544,6 +544,7 @@ static int run_source_replacement(char *checker, char *supervisor) {
                   mkdtemp(directory) != NULL;
   bool ready = false;
   bool replaced = false;
+  bool release_ok = true;
   bool child_done = false;
 
   (void)printf("TAP version 13\n");
@@ -621,13 +622,13 @@ static int run_source_replacement(char *checker, char *supervisor) {
                  strcmp(observed_input, replacement_input_hash) == 0;
     }
   }
-  check(replaced,
-        "replaces both same-size source paths after snapshot verification");
   if (gate_write >= 0) {
-    (void)write(gate_write, &release_token, 1u);
-    close(gate_write);
+    release_ok = write(gate_write, &release_token, 1u) == 1;
+    if (close(gate_write) != 0) release_ok = false;
     gate_write = -1;
   }
+  check(replaced && release_ok,
+        "replaces both same-size source paths and releases the snapshot barrier");
   if (ready_read >= 0) {
     close(ready_read);
     ready_read = -1;

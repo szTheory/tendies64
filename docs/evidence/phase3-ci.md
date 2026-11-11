@@ -48,7 +48,12 @@ It downloads each exact artifact name into a fresh private directory with
 directories, extra files and JSON larger than 64 KiB, and validates each
 record through the strict C checker. The pair is renamed into a new output
 directory only after both records pass. The collector reports each artifact
-ID and archive digest plus each sanitized record's SHA-256.
+ID and the API-reported archive digest plus each sanitized record's SHA-256.
+It checks the API digest's `sha256:<hex>` shape but does not recompute the
+downloaded archive digest: `gh run download` extracts the artifact directly.
+Separately, `shasum` computes `record_sha256` over each extracted JSON file's
+bytes. These are different layers and are never compared; the archive digest
+is retained as GitHub metadata, while the record digest is locally verified.
 
 `sh scripts/compare-boot-evidence.sh` reruns the C selector checks for both
 job names, requires all nested guest result fields except `build_id` to match,
@@ -67,13 +72,15 @@ run 43020272408: the run and attempt objects expose the selected run id in
 `id`, and the attempt jobs expose run id, attempt, head SHA, name, status and
 conclusion. That historical run has no artifacts and is not evidence for this
 change. The [GitHub artifact API reference](https://docs.github.com/en/rest/actions/artifacts)
-defines artifact digest and workflow-run metadata; the [GitHub CLI download
+defines artifact digest and workflow-run metadata; the [pinned upload-artifact
+README](https://github.com/actions/upload-artifact/blob/ea165f8d65b6e75b540449e92b4886f43607fa02/README.md)
+defines `artifact-digest` as the artifact SHA-256; and the [GitHub CLI download
 manual](https://cli.github.com/manual/gh_run_download) documents extraction of
 one selected artifact into the requested directory.
 
 ## Local validation before hosted publication
 
-- `./scripts/gate.sh`: passed on macOS arm64 in 61 s: exact gate inventory
+- `./scripts/gate.sh`: passed on macOS arm64 in 57 s: exact gate inventory
   91/91, CTest 91/91, evidence selftests (collector positive plus 23 rejection
   cases; comparator positive plus 8 mismatch cases), and core lint with zero
   violations.
@@ -87,6 +94,15 @@ one selected artifact into the requested directory.
   child's kill. Raising only that test limit to 2500 ms preserved the 3 s
   delay and production watchdog policy; the focused case passed alone and in
   the full suite (23.15 s under parallel load).
+- After the later test-only setup-result checks, the all-target ASan/UBSan
+  build passed and the affected `runner.fixture-descriptor` and
+  `integration.open-ipl3-hello` tests passed 2/2 in 19.57 s. The full 93-test
+  sanitizer suite was not repeated after those setup-only changes.
+- A cached Ubuntu 24.04 image ran GCC 13.3.0 on Linux x86_64 with the CI
+  warning flags in `-fsyntax-only` mode for `runner/t64_real.c`,
+  `runner/tests/test_fixture_descriptor.c`, and
+  `runner/tests/test_real_runner.c`; all passed. The image had no CMake/Ninja,
+  so this is a compiler warning preflight, not a complete Linux build.
 - scripts/check-ci-yml.sh --selftest: passed 43 mutation cases.
 - ctest --preset gate -R '^repo\.ci-yml(-selftest)?$': passed both existing CI-checker registrations.
 - The collector refused prior successful run 43020272408 after validating its run, attempt and two successful job records because it had no proof artifacts; it published no output. This negative API-path check is not hosted evidence.
@@ -114,6 +130,23 @@ production watchdog behavior or the two-job CI shape.
 | gate-linux (job 130755528714) | failure; no artifact | none | none |
 | gate-macos (job 130755529262) | success; not accepted as a pair | 13888016671, archive digest `sha256:3d6040c64993002bbcc432304c3c12c3032ee9266018bdf54cdfb739f036eafb` | not retrieved; artifact is incomplete proof |
 
-A later successful exact-SHA run and comparator result are still required to
-establish hosted proof. Its run, attempt, both job IDs, artifact IDs and
-digests, record hashes, measured timings, and comparison will be appended here.
+The corrected candidate SHA
+`d6adbec2c1a28c00b31786b55ca3b832658b6185` ran as
+[workflow 43091181251, attempt 1](https://github.com/szTheory/tendies64/actions/runs/43091181251).
+Linux reached compilation but GCC 13.3 rejected ignored results from test-only
+`symlink`, `ftruncate` and `write` calls in the fixture-descriptor and source
+replacement tests. The macOS job passed and uploaded one sanitized record, but
+Linux uploaded none, so this second attempt also produced no pair. Its
+macOS-only artifact is not eligible for a later run's proof.
+
+| Job | Conclusion | Artifact ID | Archive digest |
+| --- | --- | --- | --- |
+| gate-linux (job 130768347502) | failure; no artifact | none | none |
+| gate-macos (job 130768347199) | success; not accepted as a pair | 13888448324 | API-reported `sha256:da8933bba84cf1515a58267a7c3bf353d33692551bf10c9de48f604869663a36`; record not retrieved |
+
+This run took 274 s wall time; Linux queue/run was 2/95 s, macOS was 2/270 s,
+and the macOS Gate step took 253 s. Review F-031 records the compile finding
+and test-only setup checks. A later successful exact-SHA run and comparator
+result are still required to establish hosted proof. Its run, attempt, both
+job IDs, artifact IDs and API digests, extracted-record hashes, measured
+timings, and comparison will be appended here.

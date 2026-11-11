@@ -1258,38 +1258,60 @@ int main(int argc, char **argv) {
         "missing source refuses without changing output or leaking resources");
 
   (void)snprintf(link_path, sizeof link_path, "%s/symlink", directory);
-  (void)symlink(source_path, link_path);
-  before_fds = count_open_fds();
-  status = t64_verified_input_prepare(link_path, FIXTURE_SIZE, FIXTURE_SHA256,
-                                     FIXTURE_LIMIT, &unchanged);
-  unlink(link_path);
-  check(status == T64_VERIFIED_INPUT_ERROR && count_open_fds() == before_fds &&
-            count_entries(directory) == 1,
-        "symlink source refuses without following or leaking resources");
+  {
+    bool link_created = symlink(source_path, link_path) == 0;
+    int link_removed;
+    before_fds = count_open_fds();
+    status = link_created
+                 ? t64_verified_input_prepare(link_path, FIXTURE_SIZE,
+                                              FIXTURE_SHA256, FIXTURE_LIMIT,
+                                              &unchanged)
+                 : T64_VERIFIED_INPUT_ERROR;
+    link_removed = link_created ? unlink(link_path) : 0;
+    check(link_created && link_removed == 0 &&
+              status == T64_VERIFIED_INPUT_ERROR &&
+              count_open_fds() == before_fds && count_entries(directory) == 1,
+          "symlink source refuses without following or leaking resources");
+  }
 
   (void)snprintf(fifo_path, sizeof fifo_path, "%s/fifo", directory);
-  (void)mkfifo(fifo_path, 0600);
-  before_fds = count_open_fds();
-  status = t64_verified_input_prepare(fifo_path, FIXTURE_SIZE, FIXTURE_SHA256,
-                                     FIXTURE_LIMIT, &unchanged);
-  unlink(fifo_path);
-  check(status == T64_VERIFIED_INPUT_ERROR && count_open_fds() == before_fds &&
-            count_entries(directory) == 1,
-        "non-regular FIFO source refuses without blocking or leaking resources");
+  {
+    bool fifo_created = mkfifo(fifo_path, 0600) == 0;
+    int fifo_removed;
+    before_fds = count_open_fds();
+    status = fifo_created
+                 ? t64_verified_input_prepare(fifo_path, FIXTURE_SIZE,
+                                              FIXTURE_SHA256, FIXTURE_LIMIT,
+                                              &unchanged)
+                 : T64_VERIFIED_INPUT_ERROR;
+    fifo_removed = fifo_created ? unlink(fifo_path) : 0;
+    check(fifo_created && fifo_removed == 0 &&
+              status == T64_VERIFIED_INPUT_ERROR &&
+              count_open_fds() == before_fds && count_entries(directory) == 1,
+          "non-regular FIFO source refuses without blocking or leaking resources");
+  }
 
   (void)snprintf(large_path, sizeof large_path, "%s/oversize", directory);
   unrelated = open(large_path, O_WRONLY | O_CREAT | O_EXCL | O_NOFOLLOW, 0600);
-  if (unrelated >= 0) {
-    (void)ftruncate(unrelated, FIXTURE_LIMIT + 1u);
-    close(unrelated);
+  {
+    bool oversize_created = unrelated >= 0;
+    int close_status = 0;
+    int remove_status;
+    if (unrelated >= 0) {
+      oversize_created = ftruncate(unrelated, FIXTURE_LIMIT + 1u) == 0;
+      close_status = close(unrelated);
+      unrelated = -1;
+    }
+    before_fds = count_open_fds();
+    status = t64_verified_input_prepare(large_path, FIXTURE_LIMIT + 1u,
+                                        FIXTURE_SHA256, FIXTURE_LIMIT,
+                                        &unchanged);
+    remove_status = unlink(large_path);
+    check(oversize_created && close_status == 0 && remove_status == 0 &&
+              status == T64_VERIFIED_INPUT_ERROR &&
+              count_open_fds() == before_fds && count_entries(directory) == 1,
+          "profile ceiling rejects oversize source before copying");
   }
-  before_fds = count_open_fds();
-  status = t64_verified_input_prepare(large_path, FIXTURE_LIMIT + 1u,
-                                     FIXTURE_SHA256, FIXTURE_LIMIT, &unchanged);
-  unlink(large_path);
-  check(status == T64_VERIFIED_INPUT_ERROR && count_open_fds() == before_fds &&
-            count_entries(directory) == 1,
-        "profile ceiling rejects oversize source before copying");
 
   unrelated = open("/dev/null", O_RDONLY);
   before_fds = count_open_fds();
