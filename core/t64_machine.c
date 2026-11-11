@@ -76,12 +76,15 @@ static const t64_profile_descriptor ntsc_cart_4m_profile = {
         0x35u, 0x43u, 0x45u, 0x5eu, 0x54u, 0x47u, 0x3au, 0x75u,              \
         0x5fu, 0xf8u, 0xc3u, 0xd1u, 0x19u, 0x9bu, 0x15u, 0xd5u               \
   }
+#define T64_OPENIPL3_FLAT_ENTRY_POLICY "exact-source-or-flat-payload-z64-v2"
+#define T64_OPENIPL3_ROM_LIMIT UINT32_C(0x00100000)
+#define T64_OPENIPL3_AUTHORED_PAYLOAD_OFFSET UINT32_C(0x00001000)
 #define T64_OPENIPL3_POLICY_SHA256_BYTES                                     \
   {                                                                          \
-    0x5du, 0x6au, 0xacu, 0xdcu, 0x47u, 0xcbu, 0xb6u, 0xfbu,                  \
-        0x3au, 0xd8u, 0x0eu, 0x78u, 0x29u, 0x35u, 0xfdu, 0xb3u,              \
-        0x30u, 0xafu, 0x55u, 0x9eu, 0xc8u, 0xe9u, 0x14u, 0x36u,              \
-        0x56u, 0xffu, 0xedu, 0xd5u, 0x06u, 0x9cu, 0xf9u, 0x84u               \
+    0x04u, 0xd7u, 0x51u, 0x9du, 0x43u, 0x80u, 0x5bu, 0x08u,                  \
+        0xa7u, 0x1fu, 0x13u, 0x56u, 0x46u, 0x0bu, 0xa1u, 0xb6u,              \
+        0xb2u, 0xccu, 0xa3u, 0x0eu, 0x5du, 0x12u, 0x4cu, 0x6cu,              \
+        0x5eu, 0x5eu, 0x31u, 0x8fu, 0x6au, 0xc7u, 0xbau, 0x2cu               \
   }
 
 static const t64_profile_descriptor ntsc_cart_4m_openipl3_warm_profile = {
@@ -103,10 +106,10 @@ static const t64_profile_descriptor ntsc_cart_4m_openipl3_warm_profile = {
     .synchronization_quantum = 1u,
     .timing_tier = "partial-warm-entry",
     .scheduler_version = "tick-sequence-fifo-v1",
-    .pi_model_version = "pi_dma_skeleton_v1",
-    .sp_model_version = "sp_dma_skeleton_v1",
+    .pi_model_version = "pi_dma_bounded_cart_v1",
+    .sp_model_version = "sp_dma_bounded_warm_v1",
     .rom_min_bytes = 4096u,
-    .rom_max_bytes = 4096u,
+    .rom_max_bytes = T64_OPENIPL3_ROM_LIMIT,
     .event_queue_capacity = 256u,
     .sequence_width_bits = 64u,
     .advance_event_budget = 4096u,
@@ -114,15 +117,15 @@ static const t64_profile_descriptor ntsc_cart_4m_openipl3_warm_profile = {
     .pi_duration_bytes_divisor = 2u,
     .sp_duration_base_rsp_cycles = 12u,
     .sp_duration_bytes_divisor = 8u,
-    .rom_order_policy = "exact-pinned-z64-bytes-only-v1",
+    .rom_order_policy = T64_OPENIPL3_FLAT_ENTRY_POLICY,
     .event_order_policy = "tick-sequence-fifo-v1",
     .queue_exhaustion_policy = "reject-before-mutation-v1",
     .sequence_exhaustion_policy = "reject-before-mutation-v1",
     .advance_budget_policy = "bounded-4096-events-v1",
     .guest_time_bound_policy = "inclusive-idle-advance-v1",
     .halt_precedence_policy = "halt-at-bound-wins-v1",
-    .pi_register_policy = "pi-register-skeleton-v1",
-    .sp_register_policy = "sp-register-skeleton-v1",
+    .pi_register_policy = "bounded-pi-register-and-cart-dma-v1",
+    .sp_register_policy = "bounded-sp-register-reset-and-dma-v1",
     .device_error_policy = "sticky-pi-error-v1",
     .dma_cancel_policy = "token-match-complete-once-v1",
     .dma_visibility_policy = "atomic-source-at-completion-v1",
@@ -175,7 +178,13 @@ static bool is_openipl3_profile(const t64_profile_descriptor *profile) {
                 sizeof candidate_digest) == 0;
 }
 
-static bool openipl3_asset_matches(const uint8_t *bytes, size_t length) {
+static uint32_t read_be32(const uint8_t *bytes) {
+  return ((uint32_t)bytes[0] << 24) | ((uint32_t)bytes[1] << 16) |
+         ((uint32_t)bytes[2] << 8) | (uint32_t)bytes[3];
+}
+
+static bool openipl3_source_asset_matches(const uint8_t *bytes,
+                                          size_t length) {
   t64_sha256_ctx context;
   uint8_t digest[T64_DIGEST_SIZE];
 
@@ -186,6 +195,45 @@ static bool openipl3_asset_matches(const uint8_t *bytes, size_t length) {
   t64_sha256_update(&context, bytes, length);
   t64_sha256_final(&context, digest);
   return memcmp(digest, openipl3_asset_sha256, sizeof digest) == 0;
+}
+
+static bool openipl3_authored_flat_rom_matches(const uint8_t *bytes,
+                                               size_t length) {
+  static const uint8_t z64_magic[4] = {0x80u, 0x37u, 0x12u, 0x40u};
+  t64_sha256_ctx context;
+  uint8_t digest[T64_DIGEST_SIZE];
+  uint32_t entry_pc;
+  uint32_t load_bytes;
+  uint32_t physical_entry;
+  size_t flat_length;
+
+  if (bytes == NULL || length <= T64_OPENIPL3_AUTHORED_PAYLOAD_OFFSET ||
+      length > (size_t)T64_OPENIPL3_ROM_LIMIT || (length & 3u) != 0u ||
+      memcmp(bytes, z64_magic, sizeof z64_magic) != 0) {
+    return false;
+  }
+  t64_sha256_init(&context);
+  t64_sha256_update(&context, bytes + UINT32_C(0x40), UINT32_C(0x0fc0));
+  t64_sha256_final(&context, digest);
+  if (memcmp(digest, openipl3_payload_sha256, sizeof digest) != 0) {
+    return false;
+  }
+
+  entry_pc = read_be32(bytes + UINT32_C(0x08));
+  load_bytes = read_be32(bytes + UINT32_C(0x10));
+  physical_entry = entry_pc & UINT32_C(0x1fffffff);
+  flat_length = length - (size_t)T64_OPENIPL3_AUTHORED_PAYLOAD_OFFSET;
+  return (entry_pc & UINT32_C(0xe0000000)) == UINT32_C(0x80000000) &&
+         (entry_pc & UINT32_C(3)) == 0u && load_bytes > 0u &&
+         (size_t)load_bytes == flat_length &&
+         physical_entry < T64_BASE_RAM_BYTES &&
+         (uint64_t)physical_entry + (uint64_t)load_bytes <=
+             (uint64_t)T64_BASE_RAM_BYTES;
+}
+
+static bool openipl3_asset_matches(const uint8_t *bytes, size_t length) {
+  return openipl3_source_asset_matches(bytes, length) ||
+         openipl3_authored_flat_rom_matches(bytes, length);
 }
 
 typedef struct {
@@ -445,7 +493,11 @@ static t64_status prepare_openipl3_warm_entry(t64_machine *machine) {
   machine->cpu.gpr[23] = machine->boot.seed_s7_boot_info_version;
   machine->cpu.pc = machine->boot.entry_pc;
   machine->cache.policy_version = UINT32_C(1);
-  machine->guest_devices.policy_version = UINT32_C(1);
+  machine->guest_devices.policy_version = T64_WARM_DEVICE_POLICY_VERSION;
+  machine->guest_devices.mi_version = 0u;
+  machine->guest_devices.ri_select = 1u;
+  machine->guest_devices.mi_version_known = true;
+  machine->guest_devices.ri_select_known = true;
   machine->output.policy_version = UINT32_C(1);
   machine->boot.prepared = true;
   t64_trace_emit(machine, machine->tick, T64_TRACE_DEVICE_MACHINE,

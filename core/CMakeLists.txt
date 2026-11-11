@@ -194,7 +194,7 @@ add_test(NAME unit.core.warm-device-policy COMMAND test_warm_devices)
 set_tests_properties(unit.core.warm-device-policy PROPERTIES
   LABELS unit
   ENVIRONMENT
-    "T64_TEST_IPL3_PATH=${T64_BOOT_FIXTURE_DIR}/ipl3_compat.z64;T64_TEST_HELLO_PATH=${T64_BOOT_FIXTURE_DIR}/hello.z64")
+    "T64_TEST_IPL3_PATH=${T64_BOOT_FIXTURE_DIR}/ipl3_compat.z64;T64_TEST_HELLO_PATH=${T64_BOOT_FIXTURE_DIR}/hello.z64;T64_BOOT_FIXTURES_DIR=${T64_BOOT_FIXTURE_DIR}")
 
 add_executable(test_profile tests/test_profile.c)
 target_include_directories(test_profile PRIVATE "${CMAKE_SOURCE_DIR}/tests")

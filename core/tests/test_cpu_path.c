@@ -136,10 +136,10 @@ static bool test_real_entry_and_next_boundary(
   (void)t64_machine_cpu_stop_detail(machine, &detail);
   if (status != T64_STATUS_OK ||
       result.reason != T64_STOP_REASON_CPU_UNSUPPORTED ||
-      result.tick != UINT64_C(38) ||
-      detail.retired_instructions != UINT64_C(37) ||
-      detail.pc != UINT32_C(0xa4000080) ||
-      detail.opcode != UINT32_C(0x8c510004)) {
+      result.tick != UINT64_C(81) ||
+      detail.retired_instructions != UINT64_C(80) ||
+      detail.pc != UINT32_C(0xa40002b0) ||
+      detail.opcode != UINT32_C(0xac430008)) {
     (void)printf("# actual stop status=%u reason=%u tick=%llu retired=%llu "
                  "pc=0x%08x opcode=0x%08x\n",
                  (unsigned)status, result.reason,

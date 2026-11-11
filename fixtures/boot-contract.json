@@ -1,7 +1,7 @@
 {
   "schema": "t64.open-ipl3-boot-contract",
   "schema_version": 1,
-  "qualification_status": "byte-qualified; 37 real instructions retired through the qualified integer/control and reached CP0 subset; explicit partial stop at the unsupported MI_VERSION read; later pinned CP0/CACHE candidates are independently tested",
+  "qualification_status": "byte-qualified; the current local run retires 80 real IPL3 instructions through warm MI/RI selection and the 4 MiB capacity probe before an exact SP DMA source-policy stop; prepared software values and all current limits are recorded below",
   "scope": "prepared-RDRAM software warm-entry tracer only",
   "hardware_handoff_assertion": false,
   "source": {
@@ -59,6 +59,26 @@
     "machine_model_version": 2,
     "state_serialization_version": 6,
     "rdram_bytes": 4194304,
+    "rom_min_bytes": 4096,
+    "rom_max_bytes": 1048576,
+    "rom_order_policy": "exact-source-or-flat-payload-z64-v2",
+    "authored_rom_layout_policy": {
+      "embedded_boot_payload_offset": "0x40",
+      "embedded_boot_payload_bytes": 4032,
+      "embedded_boot_payload_sha256": "f716a90b1d36ec4253d096790791256d3543455e54473a755ff8c3d1199b15d5",
+      "flat_payload_offset": "0x1000",
+      "header_entry_offset": "0x08",
+      "header_load_size_offset": "0x10",
+      "load_size_rule": "nonzero-and-exactly-admitted-bytes-after-0x1000",
+      "entry_rule": "aligned-kseg0-address-with-complete-payload-inside-installed-4m-rdram",
+      "whole_cartridge_limit_bytes": 1048576
+    },
+    "prepared_warm_software_values": {
+      "mi_version": 0,
+      "mi_version_meaning": "project-selected value with high nibble not equal to the 0xB0 iQue branch; not a NUS-CPU-03 observation",
+      "ri_select": 1,
+      "ri_select_meaning": "project-selected nonzero RI_SELECT branch that reaches the capacity probe; not a silicon calibration"
+    },
     "media_kind": "cartridge (public profile enum 1)",
     "tv_standard": "NTSC (public profile enum 1)",
     "reset_type": "warm (libdragon s5 value 1)",
@@ -76,15 +96,15 @@
     "unsupported_stop_code": 7,
     "guest_completion_stop_code": 8,
     "partial_implementation_policies": {
-      "input": "exact-pinned-z64-bytes-only-v1",
+      "input": "source-asset-or-flat-payload-qualified-z64-v2",
       "cpu": "qualified integer/control/load-store and CP0 inventory subset; unsupported encodings stop explicitly",
       "cache": "coherent-functional warm subset for pinned CACHE inventory candidates; no timing or general cache-fidelity claim",
-      "devices": "existing-skeleton-until-warm-register-slice-v1",
+      "devices": "prepared-warm-mi-ri-sp-ai-si-reset-probe-v2",
       "output": "unimplemented-until-isviewer-v1"
     },
     "boot_policy_digest_algorithm": "SHA-256 over the UTF-8 bytes of policy_digest_input, including its final LF",
-    "boot_policy_digest": "5d6aacdc47cbb6fb3ad80e782935fdb330af559ec8e9143656ffedd5069cf984",
-    "policy_digest_input": "t64.openipl3.profile-policy.v1\nprofile_id=ntsc-cart-4m-openipl3-warm-v1\nasset_source_revision=98154dafd5ac50e74ee09a5de1035d24a53f54f0\nasset_source_path=boot/bin/ipl3_compat.z64\nasset_sha256=f522db2e31a701f82597f399e76d55c9487760d015aff9d90176b463ae39a068\nasset_input_policy=exact-pinned-z64-bytes-only-v1\npayload_source_offset=0x40\npayload_length=0xfc0\npayload_sha256=f716a90b1d36ec4253d096790791256d3543455e54473a755ff8c3d1199b15d5\npayload_dmem_destination=0xa4000040\ncpu_entry_pc=0xa4000040\nconsole_target=NUS-CPU-03\nconsole_qualification=unqualified-target\ntv_standard=1\nregion=1\nmedia_kind=1\nrdram_bytes=4194304\nexpansion_bytes=0\nperipheral_flags=0\nsave_kind=0\nhle_seed_reset_version=1\nhle_s3_rom_type=0\nhle_s4_tv_type=1\nhle_s5_reset_type=1\nhle_s6_entropy_seed=0\nhle_s7_boot_info_version=1\ngpr_initial=zero-except-s3-through-s7\nhi_lo_initial=zero\ncp0_initial=zero\ncpu_tick_per_retirement=1\ncpu_event_order=tick-sequence-fifo-v1\ncpu_decode_policy=integer-control-load-store-cp0-inventory-subset-v2\ncpu_unsupported_stop=7\ncpu_completion_stop=8\ncache_policy=coherent-functional-warm-subset-v1\ndevice_policy=existing-skeleton-until-warm-register-slice-v1\noutput_policy=unimplemented-until-isviewer-v1\n"
+    "boot_policy_digest": "04d7519d43805b08a71f1356460ba1b6b2cca30e5d124c6c5e5e318f6ac7ba2c",
+    "policy_digest_input": "t64.openipl3.profile-policy.v1\nprofile_id=ntsc-cart-4m-openipl3-warm-v1\nasset_source_revision=98154dafd5ac50e74ee09a5de1035d24a53f54f0\nasset_source_path=boot/bin/ipl3_compat.z64\nasset_sha256=f522db2e31a701f82597f399e76d55c9487760d015aff9d90176b463ae39a068\nasset_input_policy=source-asset-or-flat-payload-qualified-z64-v2\npayload_source_offset=0x40\npayload_length=0xfc0\npayload_sha256=f716a90b1d36ec4253d096790791256d3543455e54473a755ff8c3d1199b15d5\npayload_dmem_destination=0xa4000040\ncpu_entry_pc=0xa4000040\nrom_min_bytes=4096\nrom_max_bytes=1048576\nrom_order_policy=exact-source-or-flat-payload-z64-v2\nauthored_header_entry_offset=0x08\nauthored_header_load_size_offset=0x10\nauthored_flat_payload_offset=0x1000\nauthored_load_size=nonzero-equals-admitted-bytes-after-0x1000\nauthored_entry=aligned-kseg0-contained-in-installed-4m-rdram-v1\nconsole_target=NUS-CPU-03\nconsole_qualification=unqualified-target\ntv_standard=1\nregion=1\nmedia_kind=1\nrdram_bytes=4194304\nexpansion_bytes=0\nperipheral_flags=0\nsave_kind=0\nhle_seed_reset_version=1\nhle_s3_rom_type=0\nhle_s4_tv_type=1\nhle_s5_reset_type=1\nhle_s6_entropy_seed=0\nhle_s7_boot_info_version=1\ngpr_initial=zero-except-s3-through-s7\nhi_lo_initial=zero\ncp0_initial=zero\ncpu_tick_per_retirement=1\ncpu_event_order=tick-sequence-fifo-v1\ncpu_decode_policy=integer-control-load-store-cp0-inventory-subset-v2\ncpu_unsupported_stop=7\ncpu_completion_stop=8\ncache_policy=coherent-functional-warm-subset-v1\nmi_version_prepared=0-non-iQue-software-selection\nri_select_prepared=1-nonzero-software-selection\nabsent_rdram_probe=exact-word-0x00400000-read-zero-write-noop-v1\ndevice_policy=prepared-warm-mi-ri-sp-ai-si-reset-probe-v2\noutput_policy=unimplemented-until-isviewer-v1\n"
   },
   "toolchain": {
     "name": "GNU Binutils",
@@ -311,21 +331,32 @@
       "asset_sha256": "f522db2e31a701f82597f399e76d55c9487760d015aff9d90176b463ae39a068",
       "payload_sha256": "f716a90b1d36ec4253d096790791256d3543455e54473a755ff8c3d1199b15d5",
       "entry_pc": "0xA4000040",
-      "retired_instructions": 37,
-      "stop_tick": 38,
-      "unsupported_pc": "0xA4000080",
-      "unsupported_opcode": "0x8C510004",
-      "unsupported_instruction": "lw s1,4(v0); MI_VERSION at 0xA4300004 is outside the implemented device slice",
+      "retired_instructions": 80,
+      "stop_tick": 81,
+      "unsupported_pc": "0xA40002B0",
+      "unsupported_opcode": "0xAC430008",
+      "unsupported_instruction": "sw v1,8(v0); exact SP_RD_LEN write requests 4096 bytes from source 0x00802000 outside installed 4 MiB RDRAM",
+      "software_selected_mi_version": 0,
+      "software_selected_ri_select": 1,
+      "capacity_probe_absent_word": "0x00400000",
+      "capacity_probe_policy": "word-only read-zero/write-noop; adjacent words are unsupported",
+      "sp_dma_attempt": {
+        "mem_address": "0x1000",
+        "dram_address": "0x00802000",
+        "raw_length": "0x0FFF",
+        "payload_bytes": 4096,
+        "state": "attempted but refused before DMA issue; exact zero-source behavior remains for plan task 2"
+      },
       "unsupported_retired": false,
       "reached_cp0_pcs": ["0xA4000064", "0xA400006C", "0xA4000070", "0xA4000074", "0xA4000078"],
       "later_tag_and_cache_candidates_dynamically_reached": false,
       "later_tag_and_cache_candidates_tested": true,
       "software_stop_code": 7,
       "public_stop_reason": "CPU_UNSUPPORTED",
-      "public_stop_detail_pc": "0xA4000080",
-      "public_stop_detail_opcode": "0x8C510004",
+      "public_stop_detail_pc": "0xA40002B0",
+      "public_stop_detail_opcode": "0xAC430008",
       "verification": "unit.core.tracer and unit.core.boot-entry against the exact byte-pinned fixture",
-      "claim_limit": "software-only prepared warm entry; no IPL2 hardware handoff, full IPL3 boot, authored-ROM execution, broad compatibility or hardware-accuracy claim"
+      "claim_limit": "software-only prepared warm entry; MI_VERSION/RI_SELECT are chosen software inputs, not hardware observations; no IPL2 hardware handoff, guest completion, broad compatibility or hardware-accuracy claim"
     }
   },
   "evidence_boundary": {

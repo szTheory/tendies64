@@ -19,6 +19,9 @@
 #define T64_DEVICE_SP UINT32_C(0x00000004)
 #define T64_PI_EVENT_COMPLETE UINT32_C(1)
 #define T64_SP_EVENT_COMPLETE UINT32_C(1)
+#define T64_WARM_DEVICE_POLICY_VERSION UINT32_C(2)
+#define T64_WARM_ABSENT_RDRAM_PROBE_ADDRESS UINT32_C(0x00400000)
+#define T64_WARM_ABSENT_RDRAM_PROBE_BYTES UINT32_C(4)
 
 #define T64_DEVICE_SYNTHETIC_TEST UINT32_C(0xffff0001)
 #define T64_TEST_EVENT_NOOP UINT32_C(1)
@@ -261,6 +264,10 @@ t64_status t64_bus_read(t64_machine *machine, uint32_t address,
                         uint32_t width, uint32_t *value_out);
 t64_status t64_bus_write(t64_machine *machine, uint32_t address,
                          uint32_t width, uint32_t value);
+t64_status t64_warm_device_read(const t64_machine *machine, uint32_t address,
+                                uint32_t width, uint32_t *value_out);
+t64_status t64_warm_device_write(t64_machine *machine, uint32_t address,
+                                 uint32_t width, uint32_t value);
 void t64_mi_set_pending(t64_machine *machine, uint32_t bits);
 void t64_mi_clear_pending(t64_machine *machine, uint32_t bits);
 void t64_mi_write_mask(t64_machine *machine, uint32_t command);

@@ -289,15 +289,15 @@ static int tap_openipl3_public_stop_and_identity(void) {
                first_result.reason, (unsigned long long)first_result.tick);
   (void)printf("%s 3 - CPU unsupported stop persists across later advances\n",
                stop_setup_ok && repeat_result.reason == UINT32_C(7) &&
-                       repeat_result.tick == UINT64_C(38)
+                       repeat_result.tick == UINT64_C(81)
                    ? "ok"
                    : "not ok");
-  (void)printf("# expected repeat reason=7 tick=38; observed reason=%u tick=%llu\n",
+  (void)printf("# expected repeat reason=7 tick=81; observed reason=%u tick=%llu\n",
                repeat_result.reason, (unsigned long long)repeat_result.tick);
-  (void)printf("%s 4 - stop detail reports 37 retirements and unsupported opcode\n",
-               stop_setup_ok && detail.retired_instructions == UINT64_C(37) &&
-                       detail.pc == UINT32_C(0xa4000080) &&
-                       detail.opcode == UINT32_C(0x8c510004)
+  (void)printf("%s 4 - stop detail reports 80 retirements and unsupported opcode\n",
+               stop_setup_ok && detail.retired_instructions == UINT64_C(80) &&
+                       detail.pc == UINT32_C(0xa40002b0) &&
+                       detail.opcode == UINT32_C(0xac430008)
                    ? "ok"
                    : "not ok");
   (void)printf("# observed retired=%llu pc=0x%08x opcode=0x%08x\n",
@@ -310,10 +310,10 @@ static int tap_openipl3_public_stop_and_identity(void) {
   (void)puts("1..5");
   return stop_setup_ok && first_result.reason == UINT32_C(7) &&
                  repeat_result.reason == UINT32_C(7) &&
-                 repeat_result.tick == UINT64_C(38) &&
-                 detail.retired_instructions == UINT64_C(37) &&
-                 detail.pc == UINT32_C(0xa4000080) &&
-                 detail.opcode == UINT32_C(0x8c510004) && identity_ok
+                 repeat_result.tick == UINT64_C(81) &&
+                 detail.retired_instructions == UINT64_C(80) &&
+                 detail.pc == UINT32_C(0xa40002b0) &&
+                 detail.opcode == UINT32_C(0xac430008) && identity_ok
              ? 0
              : 1;
 }
@@ -442,12 +442,12 @@ static void test_actual_open_ipl3_entry(void) {
   T64_CHECK_INT(t64_machine_advance(machine, &request, &result),
                 T64_STATUS_OK);
   T64_CHECK_INT(result.reason, T64_STOP_REASON_CPU_UNSUPPORTED);
-  T64_CHECK_INT(result.tick, UINT64_C(38));
+  T64_CHECK_INT(result.tick, UINT64_C(81));
   T64_CHECK_INT(t64_machine_cpu_stop_detail(machine, &stop_detail),
                 T64_STATUS_OK);
-  T64_CHECK_INT(stop_detail.retired_instructions, UINT64_C(37));
-  T64_CHECK_INT(stop_detail.pc, UINT32_C(0xa4000080));
-  T64_CHECK_INT(stop_detail.opcode, UINT32_C(0x8c510004));
+  T64_CHECK_INT(stop_detail.retired_instructions, UINT64_C(80));
+  T64_CHECK_INT(stop_detail.pc, UINT32_C(0xa40002b0));
+  T64_CHECK_INT(stop_detail.opcode, UINT32_C(0xac430008));
   T64_CHECK_INT(t64_machine_trace_drain(machine, records,
                                         sizeof records / sizeof records[0],
                                         &count, &dropped, &saturated),
@@ -455,7 +455,7 @@ static void test_actual_open_ipl3_entry(void) {
   for (i = 0u; i < count; i++) {
     if (records[i].device == T64_TRACE_DEVICE_MACHINE &&
         records[i].kind == TEST_TRACE_KIND_CPU_UNSUPPORTED &&
-        records[i].value == UINT64_C(0xa40000808c510004)) {
+        records[i].value == UINT64_C(0xa40002b0ac430008)) {
       unsupported_seen = true;
     }
   }
@@ -469,7 +469,7 @@ static void test_actual_open_ipl3_entry(void) {
   T64_CHECK_INT(t64_machine_advance(machine, &request, &result),
                 T64_STATUS_OK);
   T64_CHECK_INT(result.reason, T64_STOP_REASON_CPU_UNSUPPORTED);
-  T64_CHECK_INT(result.tick, UINT64_C(38));
+  T64_CHECK_INT(result.tick, UINT64_C(81));
   T64_CHECK_INT(t64_machine_digest(machine, state_after_reversed),
                 T64_STATUS_OK);
   T64_CHECK(memcmp(state_before_reversed, state_after_reversed,
@@ -489,8 +489,8 @@ static void test_actual_open_ipl3_entry(void) {
                profile->profile_id, OPEN_IPL3_ASSET_SHA256,
                OPEN_IPL3_PAYLOAD_SHA256);
   (void)printf("entry_pc=0xa4000040 retired_opcode=0x3044d236 ");
-  (void)printf("unsupported_pc=0xa4000080 unsupported_opcode=0x8c510004 ");
-  (void)printf("retired=37 stop_tick=38 evidence=bounded real CPU path\n");
+  (void)printf("unsupported_pc=0xa40002b0 unsupported_opcode=0xac430008 ");
+  (void)printf("retired=80 stop_tick=81 evidence=bounded real CPU path\n");
   t64_machine_destroy(machine);
   T64_CHECK_INT(allocator_state_value.outstanding_count, 0u);
   T64_CHECK_INT(allocator_state_value.release_errors, 0u);
@@ -550,11 +550,11 @@ static void test_openipl3_instruction_count_boundary(void) {
   T64_CHECK_INT(t64_machine_advance(machine, &request, &result),
                 T64_STATUS_OK);
   T64_CHECK_INT(result.reason, T64_STOP_REASON_CPU_UNSUPPORTED);
-  T64_CHECK_INT(result.tick, UINT64_C(38));
+  T64_CHECK_INT(result.tick, UINT64_C(81));
   T64_CHECK_INT(t64_machine_cpu_stop_detail(machine, &detail), T64_STATUS_OK);
-  T64_CHECK_INT(detail.retired_instructions, UINT64_C(37));
-  T64_CHECK_INT(detail.pc, UINT32_C(0xa4000080));
-  T64_CHECK_INT(detail.opcode, UINT32_C(0x8c510004));
+  T64_CHECK_INT(detail.retired_instructions, UINT64_C(80));
+  T64_CHECK_INT(detail.pc, UINT32_C(0xa40002b0));
+  T64_CHECK_INT(detail.opcode, UINT32_C(0xac430008));
   t64_machine_destroy(machine);
   T64_CHECK_INT(allocator_state_value.outstanding_count, 0u);
   T64_CHECK_INT(allocator_state_value.release_errors, 0u);

@@ -1,0 +1,9 @@
+{
+  "command": "cmake --build --preset gate --target test_boot_entry test_warm_devices test_tracer test_cpu_path && ctest --preset gate --no-tests=error -R '^unit\\.core\\.(warm-device-policy|boot-entry|bus|cpu-path)$' --output-on-failure",
+  "exitCode": 0,
+  "output": "Test project <checkout>/build/gate\n1/4 unit.core.cpu-path Passed\n2/4 unit.core.bus Passed\n3/4 unit.core.boot-entry Passed\n4/4 unit.core.warm-device-policy Passed\n100% tests passed, 0 tests failed out of 4",
+  "targetTest": "unit.core.warm-device-policy",
+  "targetFile": "core/tests/test_warm_devices.c",
+  "expected": "The exact warm RI/MI path, source/payload/header admission rules, and bounded memory probes pass while unsupported adjacent accesses remain refused.",
+  "actual": "Focused gate set passed 4/4. Live IPL3 stopped at tick 81 after 80 retirements at PC 0xA40002B0 opcode 0xAC430008, the exact SP_RD_LEN write from 0x00802000; the following task will add only that qualified SP source case."
+}

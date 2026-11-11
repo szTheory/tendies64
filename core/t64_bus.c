@@ -42,7 +42,9 @@ typedef enum {
   T64_BUS_REGION_UNSUPPORTED,
   T64_BUS_REGION_MI,
   T64_BUS_REGION_PI,
-  T64_BUS_REGION_SP_REG
+  T64_BUS_REGION_SP_REG,
+  T64_BUS_REGION_WARM,
+  T64_BUS_REGION_ABSENT_RDRAM_PROBE
 } t64_bus_region;
 
 static t64_bus_region decode_region(const t64_machine *machine,
@@ -51,6 +53,12 @@ static t64_bus_region decode_region(const t64_machine *machine,
 
   if ((uint64_t)address < ram_end) {
     return T64_BUS_REGION_RDRAM;
+  }
+  if (address == T64_WARM_ABSENT_RDRAM_PROBE_ADDRESS &&
+      ram_end == (uint64_t)T64_WARM_ABSENT_RDRAM_PROBE_ADDRESS &&
+      machine->guest_devices.policy_version ==
+          T64_WARM_DEVICE_POLICY_VERSION) {
+    return T64_BUS_REGION_ABSENT_RDRAM_PROBE;
   }
   if (address < T64_RDRAM_REG_BASE) {
     return T64_BUS_REGION_UNSUPPORTED;
@@ -73,6 +81,15 @@ static t64_bus_region decode_region(const t64_machine *machine,
   if (address >= T64_SP_REGISTER_BASE && address < T64_SP_REGISTER_END) {
     return T64_BUS_REGION_SP_REG;
   }
+  if (address == UINT32_C(0x04080000) ||
+      (address >= T64_AI_BASE &&
+       address < T64_AI_BASE + T64_DEVICE_WINDOW_BYTES) ||
+      (address >= T64_RI_BASE &&
+       address < T64_RI_BASE + T64_DEVICE_WINDOW_BYTES) ||
+      (address >= T64_SI_BASE &&
+       address < T64_SI_BASE + T64_DEVICE_WINDOW_BYTES)) {
+    return T64_BUS_REGION_WARM;
+  }
   if (address >= T64_SP_DMEM_BASE && address < T64_SP_APERTURE_END) {
     return T64_BUS_REGION_UNSUPPORTED;
   }
@@ -83,12 +100,6 @@ static t64_bus_region decode_region(const t64_machine *machine,
   if ((address >= T64_DP_BASE && address < T64_MI_BASE) ||
       (address >= T64_VI_BASE &&
        address < T64_VI_BASE + T64_DEVICE_WINDOW_BYTES) ||
-      (address >= T64_AI_BASE &&
-       address < T64_AI_BASE + T64_DEVICE_WINDOW_BYTES) ||
-      (address >= T64_RI_BASE &&
-       address < T64_RI_BASE + T64_DEVICE_WINDOW_BYTES) ||
-      (address >= T64_SI_BASE &&
-       address < T64_SI_BASE + T64_DEVICE_WINDOW_BYTES) ||
       (address >= T64_PIF_BASE && address < T64_PIF_END)) {
     return T64_BUS_REGION_UNSUPPORTED;
   }
@@ -167,6 +178,8 @@ static const uint8_t *region_bytes(const t64_machine *machine,
   case T64_BUS_REGION_MI:
   case T64_BUS_REGION_PI:
   case T64_BUS_REGION_SP_REG:
+  case T64_BUS_REGION_WARM:
+  case T64_BUS_REGION_ABSENT_RDRAM_PROBE:
     break;
   }
   *remaining_out = 0u;
@@ -210,7 +223,14 @@ t64_status t64_bus_read(t64_machine *machine, uint32_t address,
     return T64_STATUS_BUS_UNSUPPORTED;
   }
   if (region == T64_BUS_REGION_MI) {
-    if (width != 4u || !t64_mi_register_read(machine, address, &value)) {
+    status = t64_warm_device_read(machine, address, width, &value);
+    if (status == T64_STATUS_OK) {
+      *value_out = value;
+      trace_bus(machine, address, width, value, false);
+      return T64_STATUS_OK;
+    }
+    if (status != T64_STATUS_BUS_UNSUPPORTED || width != 4u ||
+        !t64_mi_register_read(machine, address, &value)) {
       return T64_STATUS_BUS_UNSUPPORTED;
     }
     *value_out = value;
@@ -233,7 +253,26 @@ t64_status t64_bus_read(t64_machine *machine, uint32_t address,
     if (width != 4u) {
       return T64_STATUS_BUS_UNSUPPORTED;
     }
+    status = t64_warm_device_read(machine, address, width, &value);
+    if (status == T64_STATUS_OK) {
+      *value_out = value;
+      trace_bus(machine, address, width, value, false);
+      return T64_STATUS_OK;
+    }
+    if (status != T64_STATUS_BUS_UNSUPPORTED) {
+      return status;
+    }
     status = t64_sp_read_register(machine, address, &value);
+    if (status != T64_STATUS_OK) {
+      return status;
+    }
+    *value_out = value;
+    trace_bus(machine, address, width, value, false);
+    return T64_STATUS_OK;
+  }
+  if (region == T64_BUS_REGION_WARM ||
+      region == T64_BUS_REGION_ABSENT_RDRAM_PROBE) {
+    status = t64_warm_device_read(machine, address, width, &value);
     if (status != T64_STATUS_OK) {
       return status;
     }
@@ -283,6 +322,13 @@ t64_status t64_bus_write(t64_machine *machine, uint32_t address,
     if (width != 4u) {
       return T64_STATUS_BUS_UNSUPPORTED;
     }
+    status = t64_warm_device_write(machine, address, width, value);
+    if (status != T64_STATUS_BUS_UNSUPPORTED) {
+      if (status == T64_STATUS_OK) {
+        trace_bus(machine, address, width, value, true);
+      }
+      return status;
+    }
     status = t64_mi_register_write(machine, address, value);
     if (status == T64_STATUS_OK) {
       trace_bus(machine, address, width, value, true);
@@ -303,7 +349,22 @@ t64_status t64_bus_write(t64_machine *machine, uint32_t address,
     if (width != 4u) {
       return T64_STATUS_BUS_UNSUPPORTED;
     }
+    status = t64_warm_device_write(machine, address, width, value);
+    if (status != T64_STATUS_BUS_UNSUPPORTED) {
+      if (status == T64_STATUS_OK) {
+        trace_bus(machine, address, width, value, true);
+      }
+      return status;
+    }
     status = t64_sp_write_register(machine, address, value);
+    if (status == T64_STATUS_OK) {
+      trace_bus(machine, address, width, value, true);
+    }
+    return status;
+  }
+  if (region == T64_BUS_REGION_WARM ||
+      region == T64_BUS_REGION_ABSENT_RDRAM_PROBE) {
+    status = t64_warm_device_write(machine, address, width, value);
     if (status == T64_STATUS_OK) {
       trace_bus(machine, address, width, value, true);
     }
@@ -331,6 +392,8 @@ t64_status t64_bus_write(t64_machine *machine, uint32_t address,
   case T64_BUS_REGION_MI:
   case T64_BUS_REGION_PI:
   case T64_BUS_REGION_SP_REG:
+  case T64_BUS_REGION_WARM:
+  case T64_BUS_REGION_ABSENT_RDRAM_PROBE:
     break;
   }
   if (bytes == NULL || (size_t)width > remaining) {
