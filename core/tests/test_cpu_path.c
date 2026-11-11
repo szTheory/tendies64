@@ -115,6 +115,7 @@ static bool test_real_entry_and_next_boundary(
   t64_stop_request request = {T64_STOP_GUEST_TICK, UINT64_C(2)};
   t64_stop_result result = {UINT32_MAX, UINT64_MAX};
   t64_cpu_stop_detail detail = {UINT64_MAX, UINT32_MAX, UINT32_MAX};
+  t64_status status;
 
   if (t64_machine_admit_rom(machine, asset, IPL3_ASSET_BYTES) !=
           T64_STATUS_OK ||
@@ -124,16 +125,30 @@ static bool test_real_entry_and_next_boundary(
       machine->cpu.retired_instructions != UINT64_C(2) ||
       machine->instruction_count != UINT64_C(2) ||
       machine->cpu.gpr[29] != UINT64_C(0xffffffffa4000000)) {
+    (void)printf("# initial entry state pc=0x%08x retired=%llu gpr29=0x%016llx\n",
+                 machine->cpu.pc,
+                 (unsigned long long)machine->cpu.retired_instructions,
+                 (unsigned long long)machine->cpu.gpr[29]);
     return false;
   }
-  request.value = UINT64_C(10);
-  return t64_machine_advance(machine, &request, &result) == T64_STATUS_OK &&
-         result.reason == T64_STOP_REASON_CPU_UNSUPPORTED &&
-         result.tick == UINT64_C(10) &&
-         t64_machine_cpu_stop_detail(machine, &detail) == T64_STATUS_OK &&
-         detail.retired_instructions == UINT64_C(9) &&
-         detail.pc == UINT32_C(0xa4000064) &&
-         detail.opcode == UINT32_C(0x40044800);
+  request.value = UINT64_C(100);
+  status = t64_machine_advance(machine, &request, &result);
+  (void)t64_machine_cpu_stop_detail(machine, &detail);
+  if (status != T64_STATUS_OK ||
+      result.reason != T64_STOP_REASON_CPU_UNSUPPORTED ||
+      result.tick != UINT64_C(17) ||
+      detail.retired_instructions != UINT64_C(16) ||
+      detail.pc != UINT32_C(0xa4000080) ||
+      detail.opcode != UINT32_C(0x8c510004)) {
+    (void)printf("# actual stop status=%u reason=%u tick=%llu retired=%llu "
+                 "pc=0x%08x opcode=0x%08x\n",
+                 (unsigned)status, result.reason,
+                 (unsigned long long)result.tick,
+                 (unsigned long long)detail.retired_instructions, detail.pc,
+                 detail.opcode);
+    return false;
+  }
+  return true;
 }
 
 static bool test_integer_sign_extension_and_bal_delay(
@@ -170,6 +185,43 @@ static bool test_integer_sign_extension_and_bal_delay(
          machine->cpu.gpr[13] == UINT64_C(0x000000007fffffff) &&
          machine->cpu.gpr[14] == UINT64_C(0x1234) &&
          machine->cpu.gpr[31] == UINT64_C(0xffffffffa4000064);
+}
+
+static bool test_signed_multiply_and_hilo(
+    t64_machine *machine, const uint8_t asset[IPL3_ASSET_BYTES]) {
+  static const uint32_t program[] = {
+      UINT32_C(0x01090018), /* mult t0,t1 */
+      UINT32_C(0x00005012), /* mflo t2 */
+      UINT32_C(0x00005810), /* mfhi t3 */
+      UINT32_C(0x7000003f), /* explicit unsupported stop */
+  };
+  t64_stop_result result = {UINT32_MAX, UINT64_MAX};
+  t64_cpu_stop_detail detail = {UINT64_MAX, UINT32_MAX, UINT32_MAX};
+
+  if (!install_program(machine, asset, program,
+                       sizeof program / sizeof program[0])) {
+    return false;
+  }
+  machine->cpu.gpr[8] = UINT64_C(0xffffffff80000002);
+  machine->cpu.gpr[9] = UINT64_C(3);
+  if (!stop_at_unsupported(machine, &result, &detail)) {
+    return false;
+  }
+  if (detail.retired_instructions != UINT64_C(3) ||
+      detail.pc != IPL3_ENTRY_PC + UINT32_C(12) ||
+      machine->cpu.hi != UINT64_C(0xffffffffffffffff) ||
+      machine->cpu.lo != UINT64_C(0xffffffffe8000002) ||
+      machine->cpu.gpr[10] != machine->cpu.lo ||
+      machine->cpu.gpr[11] != machine->cpu.hi) {
+    (void)printf("# actual retired=%llu pc=0x%08x opcode=0x%08x "
+                 "hi=0x%016llx lo=0x%016llx\n",
+                 (unsigned long long)detail.retired_instructions,
+                 detail.pc, detail.opcode,
+                 (unsigned long long)machine->cpu.hi,
+                 (unsigned long long)machine->cpu.lo);
+    return false;
+  }
+  return true;
 }
 
 static bool test_beq_delay_slot(
@@ -533,7 +585,7 @@ static bool test_cp0_cache_unsupported_encodings(
     t64_machine *machine, const uint8_t asset[IPL3_ASSET_BYTES]) {
   static const uint32_t unsupported_cp0[] = {
       UINT32_C(0x40004801), /* mfc0 t0,count,sel=1 */
-      UINT32_C(0x40806800), /* mtc0 t0,c0_index */
+      UINT32_C(0x40880000), /* mtc0 t0,c0_index */
   };
   static const uint32_t unsupported_cache[] = {
       UINT32_C(0xbd100000), /* unqualified CACHE operation */
@@ -619,6 +671,8 @@ int main(int argc, char **argv) {
        test_real_entry_and_next_boundary},
       {"MIPS III sign extension, shifts and BAL delay slot",
        test_integer_sign_extension_and_bal_delay},
+      {"signed 32-bit multiply writes sign-extended HI/LO words",
+       test_signed_multiply_and_hilo},
       {"taken conditional branch retires its delay slot",
        test_beq_delay_slot},
       {"indirect jump and link preserve delay-slot behavior",
