@@ -216,6 +216,37 @@ static void test_magic_register(const t64_host_allocator *allocator,
   t64_machine_destroy(machine);
 }
 
+static void test_public_output_and_input_seams(
+    const t64_host_allocator *allocator, const uint8_t *asset,
+    size_t asset_length) {
+  static const uint8_t expected_bytes[] = {'A', 'B', 'C'};
+  t64_machine *machine = create_machine(allocator, asset, asset_length);
+  t64_output_drain_result drain = {0};
+  uint8_t bytes[sizeof expected_bytes] = {0};
+  t64_status status;
+
+  if (machine == NULL) {
+    check(false, "public observation seam machine is admitted");
+    return;
+  }
+  (void)t64_machine_bus_write(machine, T64_ISVIEWER_BASE + 0x20u, 4u,
+                              UINT32_C(0x41424300));
+  (void)t64_machine_bus_write(machine, T64_ISVIEWER_BASE + 0x16u, 2u, 3u);
+
+  status = t64_machine_output_drain(machine, bytes, sizeof bytes, &drain);
+  check_status(status, T64_STATUS_OK,
+               "ready output drain returns the captured guest bytes");
+  check(drain.copied_bytes == sizeof expected_bytes &&
+            drain.required_bytes == sizeof expected_bytes &&
+            memcmp(bytes, expected_bytes, sizeof expected_bytes) == 0,
+        "output drain copies the exact pending capture prefix");
+  check_status(t64_machine_queue_input(machine, machine->tick, 0u,
+                                       UINT16_C(0x8001), -128, 127),
+               T64_STATUS_OK,
+               "port-zero logical input is accepted for trace scheduling");
+  t64_machine_destroy(machine);
+}
+
 static void test_buffer_endianness_and_refusals(
     const t64_host_allocator *allocator, const uint8_t *asset,
     size_t asset_length) {
@@ -682,6 +713,7 @@ int main(void) {
     test_oversize_and_total_limit(&allocator, asset, asset_length);
     test_v7_digest_covers_output_state(&allocator, asset, asset_length);
     test_reset_and_instance_isolation(&allocator, asset, asset_length);
+    test_public_output_and_input_seams(&allocator, asset, asset_length);
     test_actual_hello(&allocator, hello, hello_length);
     test_actual_overflow_guest(&allocator, overflow, overflow_length);
   }

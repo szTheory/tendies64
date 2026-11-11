@@ -22,6 +22,7 @@
 #define T64_TRACE_DEVICE_MI UINT32_C(2)
 #define T64_TRACE_DEVICE_PI UINT32_C(3)
 #define T64_TRACE_DEVICE_SP UINT32_C(4)
+#define T64_TRACE_DEVICE_INPUT UINT32_C(6)
 #define T64_TRACE_KIND_ROM_ADMITTED UINT32_C(1)
 #define T64_TRACE_KIND_BUS_READ8 UINT32_C(1)
 #define T64_TRACE_KIND_BUS_WRITE8 UINT32_C(2)
@@ -38,6 +39,7 @@
 #define T64_TRACE_KIND_SP_PROMOTE UINT32_C(3)
 #define T64_TRACE_KIND_SP_DROP UINT32_C(4)
 #define T64_TRACE_KIND_SP_COMPLETE UINT32_C(5)
+#define T64_TRACE_KIND_INPUT_SUBMITTED UINT32_C(1)
 
 #define T64_STATUS_OK UINT32_C(0)
 #define T64_STATUS_INVALID_ARGUMENT UINT32_C(1)
@@ -179,6 +181,15 @@ typedef struct {
   uint64_t value;
 } t64_trace_record;
 
+/* Result of a host copy from the retained per-machine ISViewer prefix. */
+typedef struct {
+  size_t copied_bytes;
+  size_t required_bytes;
+  uint64_t total_produced_bytes;
+  uint8_t captured_sha256[T64_DIGEST_SIZE];
+  bool lost_output;
+} t64_output_drain_result;
+
 /* The returned descriptor is immutable and remains valid for program life. */
 t64_status t64_profile_lookup(const char *profile_id,
                               const t64_profile_descriptor **profile_out);
@@ -223,6 +234,35 @@ t64_status t64_machine_digest(const t64_machine *machine,
 /* Returns NOT_READY until a terminal CPU stop; refusals leave output intact. */
 t64_status t64_machine_cpu_stop_detail(
     const t64_machine *machine, t64_cpu_stop_detail *detail_out);
+
+/*
+ * Copy newly observed bytes from the retained guest capture. The guest's
+ * lifetime capture is never consumed or freed by this observer cursor. Calls
+ * must be serialized with advance and other instance access. Result and data
+ * spans must be valid, disjoint from each other, and disjoint from all
+ * machine-owned storage, including the admitted image and RDRAM. On
+ * BUFFER_TOO_SMALL, required_bytes and the capture observations are reported,
+ * while copied_bytes is zero and no bytes or cursor are changed. Other
+ * refusals leave both caller spans and the machine unchanged. An empty drain
+ * succeeds with zero copied bytes. Available after ROM admission, including
+ * after a terminal CPU stop; reset or successful image replacement clears
+ * both capture and observer cursor.
+ */
+t64_status t64_machine_output_drain(t64_machine *machine, uint8_t *bytes_out,
+                                   size_t capacity,
+                                   t64_output_drain_result *result_out);
+
+/*
+ * Submit a deterministic port-0 observation event. Buttons are bits 0..15;
+ * signed axes are logical 8-bit values in [-128,127]. Events are scheduled
+ * and traced in tick/sequence order but are not consumed by SI/PIF or a
+ * controller model. Calls must be serialized with advance. Refusals do not
+ * change the queue or sequence. Submission is accepted only for an admitted,
+ * nonterminal machine and a tick at or after the current guest tick.
+ */
+t64_status t64_machine_queue_input(t64_machine *machine, uint64_t tick,
+                                   uint32_t port, uint16_t buttons,
+                                   int32_t axis_x, int32_t axis_y);
 
 /*
  * Host debug access to physical byte addresses, called between advance calls.
