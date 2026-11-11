@@ -166,6 +166,143 @@ static int tap_open_ipl3_profile_lookup(void) {
   return status == T64_STATUS_OK && profile != NULL ? 0 : 1;
 }
 
+static int hex_nibble(char value) {
+  if (value >= '0' && value <= '9') {
+    return value - '0';
+  }
+  if (value >= 'a' && value <= 'f') {
+    return value - 'a' + 10;
+  }
+  if (value >= 'A' && value <= 'F') {
+    return value - 'A' + 10;
+  }
+  return -1;
+}
+
+static bool decode_sha256_hex(const char *hex,
+                              uint8_t digest[T64_SHA256_DIGEST_SIZE]) {
+  size_t i;
+
+  if (hex == NULL || strlen(hex) != 64u || digest == NULL) {
+    return false;
+  }
+  for (i = 0u; i < T64_SHA256_DIGEST_SIZE; i++) {
+    int high = hex_nibble(hex[i * 2u]);
+    int low = hex_nibble(hex[i * 2u + 1u]);
+
+    if (high < 0 || low < 0) {
+      return false;
+    }
+    digest[i] = (uint8_t)(((uint32_t)high << 4) | (uint32_t)low);
+  }
+  return true;
+}
+
+static bool profile_v2_identity_is_serialized(
+    const t64_profile_descriptor *profile) {
+  uint8_t expected[3u * T64_SHA256_DIGEST_SIZE + 4u];
+  uint8_t serialized[T64_PROFILE_SERIALIZED_MAX_BYTES];
+  size_t serialized_length = 0u;
+  t64_status status;
+
+  if (!decode_sha256_hex(OPEN_IPL3_ASSET_SHA256, expected) ||
+      !decode_sha256_hex(OPEN_IPL3_PAYLOAD_SHA256,
+                         expected + T64_SHA256_DIGEST_SIZE) ||
+      !decode_sha256_hex(
+          "a6eeba466ae8804a8dec79ce8c5dece40ea5d25b29724d53f7e1ebe46ffd5cc9",
+          expected + 2u * T64_SHA256_DIGEST_SIZE)) {
+    return false;
+  }
+  expected[96] = 0u;
+  expected[97] = 0u;
+  expected[98] = 0u;
+  expected[99] = 1u;
+  status = t64_profile_serialize(profile, NULL, 0u, &serialized_length);
+  if (status != T64_STATUS_BUFFER_TOO_SMALL ||
+      serialized_length > sizeof serialized ||
+      serialized_length < sizeof expected) {
+    return false;
+  }
+  status = t64_profile_serialize(profile, serialized, sizeof serialized,
+                                 &serialized_length);
+  return status == T64_STATUS_OK &&
+         memcmp(serialized + serialized_length - sizeof expected, expected,
+                sizeof expected) == 0;
+}
+
+static bool run_openipl3_to_unsupported(t64_stop_result *first_result,
+                                        t64_stop_result *repeat_result) {
+  uint8_t image[TEST_ROM_SIZE];
+  const t64_profile_descriptor *profile = NULL;
+  allocator_state allocator_state_value = {0};
+  const t64_host_allocator allocator = {
+      test_allocate, test_release, &allocator_state_value};
+  t64_machine *machine = NULL;
+  t64_stop_request request = {T64_STOP_GUEST_TICK, UINT64_C(2)};
+  t64_status status;
+  bool okay = false;
+
+  if (!read_pinned_ipl3(image) ||
+      !bytes_match_sha256(image, sizeof image, OPEN_IPL3_ASSET_SHA256) ||
+      t64_profile_lookup(OPEN_IPL3_PROFILE_ID, &profile) != T64_STATUS_OK ||
+      profile == NULL) {
+    return false;
+  }
+  status = t64_machine_create(&allocator, profile, &machine);
+  if (status != T64_STATUS_OK || machine == NULL) {
+    return false;
+  }
+  if (t64_machine_admit_rom(machine, image, sizeof image) == T64_STATUS_OK &&
+      t64_machine_advance(machine, &request, first_result) == T64_STATUS_OK) {
+    request.value = UINT64_C(10);
+    okay = t64_machine_advance(machine, &request, repeat_result) ==
+           T64_STATUS_OK;
+  }
+  t64_machine_destroy(machine);
+  return okay;
+}
+
+static int tap_openipl3_public_stop_and_identity(void) {
+  const t64_profile_descriptor *profile = NULL;
+  t64_stop_result first_result = {0u, 0u};
+  t64_stop_result repeat_result = {0u, 0u};
+  bool asset_setup_ok;
+  bool stop_setup_ok;
+  bool identity_ok;
+  t64_status lookup_status =
+      t64_profile_lookup(OPEN_IPL3_PROFILE_ID, &profile);
+
+  asset_setup_ok = lookup_status == T64_STATUS_OK && profile != NULL;
+  identity_ok = asset_setup_ok && profile_v2_identity_is_serialized(profile);
+  stop_setup_ok =
+      run_openipl3_to_unsupported(&first_result, &repeat_result);
+  (void)puts("TAP version 13");
+  (void)printf("%s 1 - exact pinned IPL3 reaches the stop observation\n",
+               stop_setup_ok ? "ok" : "not ok");
+  (void)printf("%s 2 - CPU unsupported execution has explicit stop code\n",
+               stop_setup_ok && first_result.reason == UINT32_C(7) ? "ok"
+                                                                   : "not ok");
+  (void)printf("# expected first reason=7; observed=%u tick=%llu\n",
+               first_result.reason, (unsigned long long)first_result.tick);
+  (void)printf("%s 3 - CPU unsupported stop persists across later advances\n",
+               stop_setup_ok && repeat_result.reason == UINT32_C(7) &&
+                       repeat_result.tick == UINT64_C(2)
+                   ? "ok"
+                   : "not ok");
+  (void)printf("# expected repeat reason=7 tick=2; observed reason=%u tick=%llu\n",
+               repeat_result.reason, (unsigned long long)repeat_result.tick);
+  (void)printf("%s 4 - descriptor v2 serializes pinned identities and seed\n",
+               identity_ok ? "ok" : "not ok");
+  (void)printf("# expected 32-byte asset/payload/policy hashes and seed version 1; observed lookup status=%u\n",
+               lookup_status);
+  (void)puts("1..4");
+  return stop_setup_ok && first_result.reason == UINT32_C(7) &&
+                 repeat_result.reason == UINT32_C(7) &&
+                 repeat_result.tick == UINT64_C(2) && identity_ok
+             ? 0
+             : 1;
+}
+
 static void test_actual_open_ipl3_entry(void) {
   uint8_t image[TEST_ROM_SIZE];
   uint8_t altered[TEST_ROM_SIZE];
@@ -496,6 +633,9 @@ int main(void) {
 
   if (tap_mode != NULL && strcmp(tap_mode, "profile") == 0) {
     return tap_open_ipl3_profile_lookup();
+  }
+  if (tap_mode != NULL && strcmp(tap_mode, "cpu-stop") == 0) {
+    return tap_openipl3_public_stop_and_identity();
   }
   test_actual_open_ipl3_entry();
   test_machine_tracer();
