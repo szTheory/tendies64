@@ -44,6 +44,7 @@ typedef struct t64_input_schedule t64_input_schedule;
  * *schedule_out receives a new owned schedule. On refusal, the caller's
  * existing *schedule_out value is unchanged. JSON tick strings are canonical
  * unsigned decimal and events remain in source-array order at equal ticks.
+ * These host-side schedules do not run in or call back from core advancement.
  */
 t64_input_status t64_input_parse(const uint8_t *bytes, size_t length,
                                  t64_input_schedule **schedule_out,
@@ -53,6 +54,7 @@ void t64_input_schedule_destroy(t64_input_schedule *schedule);
 size_t t64_input_schedule_event_count(const t64_input_schedule *schedule);
 bool t64_input_schedule_event(const t64_input_schedule *schedule,
                               size_t index, t64_input_event *event_out);
+/* Returned canonical bytes and digest are borrowed until schedule destruction. */
 const uint8_t *t64_input_schedule_canonical_json(
     const t64_input_schedule *schedule, size_t *length_out);
 const uint8_t *t64_input_schedule_sha256(

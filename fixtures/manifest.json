@@ -100,11 +100,11 @@
       "id": "hello-openipl3",
       "source": {
         "repo": "https://github.com/szTheory/tendies64",
-        "revision": "ca96b4f0ea426530d96d6f5c07c5acaae78975c1",
+        "revision": "e8b167397da364e18355294a48bcb27fdd1640d6",
         "path": "fixtures/hello/hello.S"
       },
       "build": {
-        "recipe": "sh scripts/build-boot-fixtures.sh --build; GNU Binutils 2.45 per pinned source/configure recipe in fixtures/boot-contract.json. Authored source-content-sha256=aabc5b5359daa615381af8b667efa09c9cf934f349ba7d3beb3a666e68f81977. Uses openipl3-compat-asset (4096 bytes) and openipl3-compat-payload (source 0x40, 4032 bytes; copied to cartridge 0x40); flat app starts at 0x1000. Header newly authored from zero, no upstream header copied: magic 0x80371240, clock 0x0f, linked entry 0x80000400, 0x10=184 nonzero loader_compat length (not CRC1; avoids 1 MiB fallback), CRC2=0/no CIC claim, title TENDIES64 HELLO, region E. Independent 30-byte transcript literal in scripts/build-boot-fixtures.sh; not emulator output. Authored source Apache-2.0; embedded IPL3 Unlicense. Maintenance owner: Tendies64 maintainers. Build-only; host C compiler and per-host tool hashes in ignored build/fixtures/hello.build.json; original IPL3 compiler/signer unknown.",
+        "recipe": "sh scripts/build-boot-fixtures.sh --build; GNU Binutils 2.45 per pinned source/configure recipe in fixtures/boot-contract.json. Authored source-content-sha256=ceeedee4fde9635542bf1c1de40567f6b8a6773285b92b6ab0ac965c01584ad1. Uses openipl3-compat-asset (4096 bytes) and openipl3-compat-payload (source 0x40, 4032 bytes; copied to cartridge 0x40); flat app starts at 0x1000. Header newly authored from zero, no upstream header copied: magic 0x80371240, clock 0x0f, linked entry 0x80000400, 0x10=184 nonzero loader_compat length (not CRC1; avoids 1 MiB fallback), CRC2=0/no CIC claim, title TENDIES64 HELLO, region E. Independent 30-byte transcript literal in scripts/build-boot-fixtures.sh; not emulator output. Authored source Apache-2.0; embedded IPL3 Unlicense. Maintenance owner: Tendies64 maintainers. Build-only; host C compiler and per-host tool hashes in ignored build/fixtures/hello.build.json; original IPL3 compiler/signer unknown.",
         "toolchain": [
           "GNU Binutils 2.45"
         ]
@@ -125,18 +125,18 @@
       "expected": {
         "kind": "self-checking",
         "source": "Independent exact transcript literal in scripts/build-boot-fixtures.sh; fixture construction does not execute a guest or derive expected bytes from emulator output.",
-        "revision": "source-content-sha256:aabc5b5359daa615381af8b667efa09c9cf934f349ba7d3beb3a666e68f81977"
+        "revision": "source-content-sha256:ceeedee4fde9635542bf1c1de40567f6b8a6773285b92b6ab0ac965c01584ad1"
       }
     },
     {
       "id": "hello-empty-break",
       "source": {
         "repo": "https://github.com/szTheory/tendies64",
-        "revision": "ca96b4f0ea426530d96d6f5c07c5acaae78975c1",
+        "revision": "e8b167397da364e18355294a48bcb27fdd1640d6",
         "path": "fixtures/hello/hello.S"
       },
       "build": {
-        "recipe": "Assemble VARIANT=1 with GNU Binutils 2.45 from source-content-sha256 1231ec08b1bb5bfeb800428a07b8d75f87caa704d26de6103dca2833d918724b; package the empty BREAK control with the pinned 4032-byte Unlicense IPL3 payload and a checked nonzero flat load length. Whole cartridge SHA-256 5ae986bb263cafa28e2b06a17e3d3f3ee229c55f75cd1ab91df7a9698e35a652, size 4128. Build-only. Maintenance owner: Tendies64 maintainers.",
+        "recipe": "Assemble VARIANT=1 with GNU Binutils 2.45 from source-content-sha256 ceeedee4fde9635542bf1c1de40567f6b8a6773285b92b6ab0ac965c01584ad1; package the empty BREAK control with the pinned 4032-byte Unlicense IPL3 payload and a checked nonzero flat load length. Whole cartridge SHA-256 5ae986bb263cafa28e2b06a17e3d3f3ee229c55f75cd1ab91df7a9698e35a652, size 4128. Build-only. Maintenance owner: Tendies64 maintainers.",
         "toolchain": [
           "GNU Binutils 2.45"
         ]
@@ -156,18 +156,18 @@
       "expected": {
         "kind": "self-checking",
         "source": "Assembly-selected empty BREAK control in fixtures/hello/hello.S",
-        "revision": "source-content-sha256:aabc5b5359daa615381af8b667efa09c9cf934f349ba7d3beb3a666e68f81977"
+        "revision": "source-content-sha256:ceeedee4fde9635542bf1c1de40567f6b8a6773285b92b6ab0ac965c01584ad1"
       }
     },
     {
       "id": "hello-wrong-text",
       "source": {
         "repo": "https://github.com/szTheory/tendies64",
-        "revision": "ca96b4f0ea426530d96d6f5c07c5acaae78975c1",
+        "revision": "e8b167397da364e18355294a48bcb27fdd1640d6",
         "path": "fixtures/hello/hello.S"
       },
       "build": {
-        "recipe": "Assemble VARIANT=2 with GNU Binutils 2.45 from source-content-sha256 1231ec08b1bb5bfeb800428a07b8d75f87caa704d26de6103dca2833d918724b; package the wrong-transcript control with the pinned 4032-byte Unlicense IPL3 payload and a checked nonzero flat load length. Whole cartridge SHA-256 49d50b3f1b5e6695770cd69d9d89bda4645b354936390106227e1601995e3137, size 4272. Build-only. Maintenance owner: Tendies64 maintainers.",
+        "recipe": "Assemble VARIANT=2 with GNU Binutils 2.45 from source-content-sha256 ceeedee4fde9635542bf1c1de40567f6b8a6773285b92b6ab0ac965c01584ad1; package the wrong-transcript control with the pinned 4032-byte Unlicense IPL3 payload and a checked nonzero flat load length. Whole cartridge SHA-256 49d50b3f1b5e6695770cd69d9d89bda4645b354936390106227e1601995e3137, size 4272. Build-only. Maintenance owner: Tendies64 maintainers.",
         "toolchain": [
           "GNU Binutils 2.45"
         ]
@@ -187,18 +187,18 @@
       "expected": {
         "kind": "self-checking",
         "source": "Assembly-selected wrong transcript control in fixtures/hello/hello.S",
-        "revision": "source-content-sha256:aabc5b5359daa615381af8b667efa09c9cf934f349ba7d3beb3a666e68f81977"
+        "revision": "source-content-sha256:ceeedee4fde9635542bf1c1de40567f6b8a6773285b92b6ab0ac965c01584ad1"
       }
     },
     {
       "id": "hello-empty-loop",
       "source": {
         "repo": "https://github.com/szTheory/tendies64",
-        "revision": "ca96b4f0ea426530d96d6f5c07c5acaae78975c1",
+        "revision": "e8b167397da364e18355294a48bcb27fdd1640d6",
         "path": "fixtures/hello/hello.S"
       },
       "build": {
-        "recipe": "Assemble VARIANT=3 with GNU Binutils 2.45 from source-content-sha256 1231ec08b1bb5bfeb800428a07b8d75f87caa704d26de6103dca2833d918724b; package the empty loop control with the pinned 4032-byte Unlicense IPL3 payload and a checked nonzero flat load length. Whole cartridge SHA-256 88edd612852e36897a979182db53bf7cb184c31d56128c74e9544ec797f3c815, size 4128. Build-only. Maintenance owner: Tendies64 maintainers.",
+        "recipe": "Assemble VARIANT=3 with GNU Binutils 2.45 from source-content-sha256 ceeedee4fde9635542bf1c1de40567f6b8a6773285b92b6ab0ac965c01584ad1; package the empty loop control with the pinned 4032-byte Unlicense IPL3 payload and a checked nonzero flat load length. Whole cartridge SHA-256 88edd612852e36897a979182db53bf7cb184c31d56128c74e9544ec797f3c815, size 4128. Build-only. Maintenance owner: Tendies64 maintainers.",
         "toolchain": [
           "GNU Binutils 2.45"
         ]
@@ -218,18 +218,18 @@
       "expected": {
         "kind": "self-checking",
         "source": "Assembly-selected empty loop control in fixtures/hello/hello.S",
-        "revision": "source-content-sha256:aabc5b5359daa615381af8b667efa09c9cf934f349ba7d3beb3a666e68f81977"
+        "revision": "source-content-sha256:ceeedee4fde9635542bf1c1de40567f6b8a6773285b92b6ab0ac965c01584ad1"
       }
     },
     {
       "id": "hello-incomplete-loop",
       "source": {
         "repo": "https://github.com/szTheory/tendies64",
-        "revision": "ca96b4f0ea426530d96d6f5c07c5acaae78975c1",
+        "revision": "e8b167397da364e18355294a48bcb27fdd1640d6",
         "path": "fixtures/hello/hello.S"
       },
       "build": {
-        "recipe": "Assemble VARIANT=4 with GNU Binutils 2.45 from source-content-sha256 1231ec08b1bb5bfeb800428a07b8d75f87caa704d26de6103dca2833d918724b; package the partial-transcript loop control with the pinned 4032-byte Unlicense IPL3 payload and a checked nonzero flat load length. Whole cartridge SHA-256 1d88f778f04120b23a299a6ea9ee3584995a479855df46c6e27fa63e76e211e6, size 4272. Build-only. Maintenance owner: Tendies64 maintainers.",
+        "recipe": "Assemble VARIANT=4 with GNU Binutils 2.45 from source-content-sha256 ceeedee4fde9635542bf1c1de40567f6b8a6773285b92b6ab0ac965c01584ad1; package the partial-transcript loop control with the pinned 4032-byte Unlicense IPL3 payload and a checked nonzero flat load length. Whole cartridge SHA-256 1d88f778f04120b23a299a6ea9ee3584995a479855df46c6e27fa63e76e211e6, size 4272. Build-only. Maintenance owner: Tendies64 maintainers.",
         "toolchain": [
           "GNU Binutils 2.45"
         ]
@@ -249,18 +249,18 @@
       "expected": {
         "kind": "self-checking",
         "source": "Assembly-selected incomplete transcript loop control in fixtures/hello/hello.S",
-        "revision": "source-content-sha256:aabc5b5359daa615381af8b667efa09c9cf934f349ba7d3beb3a666e68f81977"
+        "revision": "source-content-sha256:ceeedee4fde9635542bf1c1de40567f6b8a6773285b92b6ab0ac965c01584ad1"
       }
     },
     {
       "id": "hello-unsupported",
       "source": {
         "repo": "https://github.com/szTheory/tendies64",
-        "revision": "ca96b4f0ea426530d96d6f5c07c5acaae78975c1",
+        "revision": "e8b167397da364e18355294a48bcb27fdd1640d6",
         "path": "fixtures/hello/hello.S"
       },
       "build": {
-        "recipe": "Assemble VARIANT=5 with GNU Binutils 2.45 from source-content-sha256 1231ec08b1bb5bfeb800428a07b8d75f87caa704d26de6103dca2833d918724b; package the reserved unsupported-opcode control with the pinned 4032-byte Unlicense IPL3 payload and a checked nonzero flat load length. Whole cartridge SHA-256 7c89481f15137f24a7c7067a67ccd6929dad6a5f982ec459bf39114d2f9926e9, size 4128. Build-only. Maintenance owner: Tendies64 maintainers.",
+        "recipe": "Assemble VARIANT=5 with GNU Binutils 2.45 from source-content-sha256 ceeedee4fde9635542bf1c1de40567f6b8a6773285b92b6ab0ac965c01584ad1; package the reserved unsupported-opcode control with the pinned 4032-byte Unlicense IPL3 payload and a checked nonzero flat load length. Whole cartridge SHA-256 7c89481f15137f24a7c7067a67ccd6929dad6a5f982ec459bf39114d2f9926e9, size 4128. Build-only. Maintenance owner: Tendies64 maintainers.",
         "toolchain": [
           "GNU Binutils 2.45"
         ]
@@ -280,18 +280,18 @@
       "expected": {
         "kind": "self-checking",
         "source": "Assembly-selected unsupported-opcode control in fixtures/hello/hello.S",
-        "revision": "source-content-sha256:aabc5b5359daa615381af8b667efa09c9cf934f349ba7d3beb3a666e68f81977"
+        "revision": "source-content-sha256:ceeedee4fde9635542bf1c1de40567f6b8a6773285b92b6ab0ac965c01584ad1"
       }
     },
     {
       "id": "hello-output-overflow",
       "source": {
         "repo": "https://github.com/szTheory/tendies64",
-        "revision": "ca96b4f0ea426530d96d6f5c07c5acaae78975c1",
+        "revision": "e8b167397da364e18355294a48bcb27fdd1640d6",
         "path": "fixtures/hello/hello.S"
       },
       "build": {
-        "recipe": "Assemble VARIANT=6 with GNU Binutils 2.45 from source-content-sha256 1231ec08b1bb5bfeb800428a07b8d75f87caa704d26de6103dca2833d918724b; package the 4097-byte ISViewer output-overflow control with the pinned 4032-byte Unlicense IPL3 payload and a checked nonzero flat load length. Whole cartridge SHA-256 7aa086e200cf0d40b60bc4351146e081d96820014aeeade2901774f99c72a4c6, size 4264. Build-only. Maintenance owner: Tendies64 maintainers.",
+        "recipe": "Assemble VARIANT=6 with GNU Binutils 2.45 from source-content-sha256 ceeedee4fde9635542bf1c1de40567f6b8a6773285b92b6ab0ac965c01584ad1; package the 4097-byte ISViewer output-overflow control with the pinned 4032-byte Unlicense IPL3 payload and a checked nonzero flat load length. Whole cartridge SHA-256 7aa086e200cf0d40b60bc4351146e081d96820014aeeade2901774f99c72a4c6, size 4264. Build-only. Maintenance owner: Tendies64 maintainers.",
         "toolchain": [
           "GNU Binutils 2.45"
         ]
@@ -311,7 +311,7 @@
       "expected": {
         "kind": "self-checking",
         "source": "Assembly-selected ISViewer output-overflow control in fixtures/hello/hello.S",
-        "revision": "source-content-sha256:aabc5b5359daa615381af8b667efa09c9cf934f349ba7d3beb3a666e68f81977"
+        "revision": "source-content-sha256:ceeedee4fde9635542bf1c1de40567f6b8a6773285b92b6ab0ac965c01584ad1"
       }
     },
     {
