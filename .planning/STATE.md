@@ -4,18 +4,18 @@ milestone: v1.0
 milestone_name: Verified Headless Core
 current_phase: 3
 current_phase_name: First Headless ROM Through Open IPL3
-current_plan: 5 of 13
+current_plan: 6 of 13
 status: executing
-stopped_at: Completed 03-04-PLAN.md
-last_updated: "2026-11-11T07:07:32.789Z"
+stopped_at: Completed 03-05-PLAN.md
+last_updated: "2026-11-11T09:47:00.242Z"
 last_activity: 2026-11-10
 last_activity_desc: Phase 3 execution started
-state_head: d10fbfa126d3b1a28bf7295b2d6af92c2973785e
+state_head: 3c5d6379d2e20f9acacecdbdc006fb9cea73bd4f
 progress:
   total_phases: 6
   completed_phases: 2
   total_plans: 34
-  completed_plans: 25
+  completed_plans: 26
   percent: 33
 ---
 
@@ -31,7 +31,7 @@ See: .planning/PROJECT.md (updated 2026-11-10)
 ## Current Position
 
 Phase: 3 (First Headless ROM Through Open IPL3) — EXECUTING
-Current Plan: 5 of 13
+Current Plan: 6 of 13
 Status: Ready to execute
 Last activity: 2026-11-10 — Phase 3 execution started
 
@@ -85,6 +85,7 @@ Progress: [███░░░░░░░] 33%
 | Phase 03 P02 | 42min | 1 tasks | 11 files |
 | Phase 03 P03 | 52min | 1 tasks | 14 files |
 | Phase 3 P04 | 73min | 2 tasks | 10 files |
+| Phase 3 P5 | 138min | 2 tasks | 20 files |
 
 ## Accumulated Context
 
@@ -138,6 +139,9 @@ Decisions are logged in the PROJECT.md Key Decisions table. Recent decisions tha
 - [Phase 3]: Count advances once per successful instruction retirement as deterministic software policy, not hardware cycle timing.
 - [Phase 3]: CACHE behavior is a coherent-functional warm subset over pinned inventory candidates; no general timing or cache-fidelity claim.
 - [Phase 3]: Update actively hashed CPU/cache policy values as supported behavior changes; the digest distinguishes identity without a profile ID or serialization version bump.
+- [Phase 3]: Warm-device policy v3 binds only the enumerated DMEM and IMEM zero-source tuples, fixed HALT status, and exact reset commands as prepared software behavior.
+- [Phase 3]: CACHE operations 0x08, 0x09, 0x11, and 0x15 use the coherent-functional warm subset without cache-line timing or RDRAM access.
+- [Phase 3]: The authored hello first output store uses KUSEG 0x13ff0000; plan 03-06 owns the fixture-address contract, and virtual-address modes stay bounded.
 
 ### Pending Todos
 
@@ -163,6 +167,6 @@ Items acknowledged and deferred at milestone close, most recent first:
 
 ## Session Continuity
 
-Last session: 2026-11-11T07:07:32.656Z
-Stopped at: Completed 03-04-PLAN.md
+Last session: 2026-11-11T09:47:00.095Z
+Stopped at: Completed 03-05-PLAN.md
 Resume file: None
