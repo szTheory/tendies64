@@ -142,13 +142,30 @@ static const uint8_t openipl3_payload_sha256[T64_DIGEST_SIZE] =
 static const uint8_t openipl3_policy_sha256[T64_DIGEST_SIZE] =
     T64_OPENIPL3_POLICY_SHA256_BYTES;
 
-static bool is_openipl3_profile(const t64_profile_descriptor *profile) {
+static size_t bounded_text_length(const char *text, size_t capacity) {
+  size_t length = 0u;
+
+  while (length < capacity && text[length] != '\0') {
+    length++;
+  }
+  return length;
+}
+
+static bool has_openipl3_profile_id(const t64_profile_descriptor *profile) {
   static const char profile_id[] = "ntsc-cart-4m-openipl3-warm-v1";
+
+  return profile != NULL &&
+         bounded_text_length(profile->profile_id, sizeof profile->profile_id) ==
+             sizeof profile_id - 1u &&
+         memcmp(profile->profile_id, profile_id, sizeof profile_id - 1u) == 0;
+}
+
+static bool is_openipl3_profile(const t64_profile_descriptor *profile) {
   uint8_t candidate_digest[T64_DIGEST_SIZE];
   uint8_t canonical_digest[T64_DIGEST_SIZE];
 
   if (profile == NULL || profile->descriptor_version != 2u ||
-      strcmp(profile->profile_id, profile_id) != 0 ||
+      !has_openipl3_profile_id(profile) ||
       t64_profile_hash(profile, candidate_digest) != T64_STATUS_OK ||
       t64_profile_hash(&ntsc_cart_4m_openipl3_warm_profile,
                        canonical_digest) != T64_STATUS_OK) {
@@ -169,15 +186,6 @@ static bool openipl3_asset_matches(const uint8_t *bytes, size_t length) {
   t64_sha256_update(&context, bytes, length);
   t64_sha256_final(&context, digest);
   return memcmp(digest, openipl3_asset_sha256, sizeof digest) == 0;
-}
-
-static size_t bounded_text_length(const char *text, size_t capacity) {
-  size_t length = 0u;
-
-  while (length < capacity && text[length] != '\0') {
-    length++;
-  }
-  return length;
 }
 
 typedef struct {
@@ -651,7 +659,7 @@ t64_status t64_machine_create(const t64_host_allocator *allocator,
     return T64_STATUS_INVALID_ARGUMENT;
   }
   if (profile->descriptor_version == 2u &&
-      strcmp(profile->profile_id, "ntsc-cart-4m-openipl3-warm-v1") == 0 &&
+      has_openipl3_profile_id(profile) &&
       !is_openipl3_profile(profile)) {
     return T64_STATUS_INVALID_ARGUMENT;
   }

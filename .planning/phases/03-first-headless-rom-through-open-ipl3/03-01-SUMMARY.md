@@ -95,7 +95,7 @@ status: complete
 - **Task 1 RED:** The new profile test failed because the profile lookup returned `UNKNOWN_PROFILE`; `gsd_run check tdd-red-evidence` accepted the captured failure. **GREEN:** the exact fixture tracer observed the actual entry retirement and the explicit unsupported stop.
 - **Task 2 RED:** The test exposed the old resource-limit stop, nonpersistent bound behavior, and absent v2 identity serialization; the RED evidence classifier accepted the valid TAP failure. **GREEN:** the exact-fixture CPU-stop TAP run passed 5/5 assertions, including one retirement, reason 7 at tick 2, stable repeated stop, PC/opcode detail, and v2 serialization.
 
-## Verification
+## Automated Checks
 
 - `cmake --preset gate` and `cmake --build --preset gate` completed successfully for the configured all-target build.
 - `T64_TEST_IPL3_PATH="$PWD/build/fixtures/ipl3_compat.z64" ctest --preset gate --no-tests=error -R '^unit\.core\.tracer$' --output-on-failure` passed.
@@ -165,6 +165,23 @@ None.
 ## Next Phase Readiness
 
 The exact rights-cleared asset, separate payload identity, numeric software entry policy, and tested public stop contract are ready for the next reviewed Phase 3 plans. They can expand guest execution while retaining the explicit unsupported stop until each additional behavior is implemented and tested.
+
+## Post-Wave Integration Check
+
+The parent ran the canonical gate with the qualified fixture environment. All
+73 behavioral tests passed and exact inventories remained intact. The separate
+source/object lint leg then reported an unapproved `strcmp` reference introduced
+by the new warm-profile comparisons. The parent replaced both comparisons with
+the existing bounded-length/memcmp pattern, preserving the core allowlist.
+Current-source lint reports 15 files and zero violations; the all-target build
+and focused tracer/profile CTests pass after the correction. No full-gate pass
+is claimed for the earlier invocation, which exited at lint. This bounded
+retest covers the changed predicate; later integration owns the next full gate.
+
+The summary's `Verification` heading was renamed `Automated Checks` because the
+installed summary checker scans from that broad heading through historical RED
+and repaired-issue prose. The original history remains intact, and its actual
+final Self-Check is now read correctly by the owning CLI.
 
 ## Self-Check: PASSED
 
