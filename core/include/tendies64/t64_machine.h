@@ -76,6 +76,8 @@
 #define T64_STOP_REASON_HALT UINT32_C(4)
 #define T64_STOP_REASON_QUIESCENT UINT32_C(5)
 #define T64_STOP_REASON_RESOURCE_LIMIT UINT32_C(6)
+#define T64_STOP_REASON_CPU_UNSUPPORTED UINT32_C(7)
+#define T64_STOP_REASON_GUEST_COMPLETION UINT32_C(8)
 
 typedef uint32_t t64_status;
 
@@ -147,6 +149,11 @@ typedef struct {
   uint32_t descriptor_version;
   uint32_t machine_model_version;
   uint32_t state_serialization_version;
+  /* Version-2 profile identity; legacy descriptor serialization ignores it. */
+  uint8_t asset_sha256[T64_DIGEST_SIZE];
+  uint8_t payload_sha256[T64_DIGEST_SIZE];
+  uint8_t boot_policy_sha256[T64_DIGEST_SIZE];
+  uint32_t hle_seed_reset_version;
 } t64_profile_descriptor;
 
 typedef struct {
@@ -158,6 +165,12 @@ typedef struct {
   uint32_t reason;
   uint64_t tick;
 } t64_stop_result;
+
+typedef struct {
+  uint64_t retired_instructions;
+  uint32_t pc;
+  uint32_t opcode;
+} t64_cpu_stop_detail;
 
 typedef struct {
   uint64_t tick;
@@ -207,6 +220,9 @@ t64_status t64_machine_profile(
     const t64_machine *machine, const t64_profile_descriptor **profile_out);
 t64_status t64_machine_digest(const t64_machine *machine,
                               uint8_t digest_out[T64_DIGEST_SIZE]);
+/* Returns NOT_READY until a terminal CPU stop; refusals leave output intact. */
+t64_status t64_machine_cpu_stop_detail(
+    const t64_machine *machine, t64_cpu_stop_detail *detail_out);
 
 /*
  * Host debug access to physical byte addresses, called between advance calls.

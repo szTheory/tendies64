@@ -299,6 +299,12 @@ static void set_stop_result(t64_stop_result *result_out, uint32_t reason,
   result_out->tick = tick;
 }
 
+static uint32_t cpu_stop_result_reason(const t64_machine *machine) {
+  return machine->cpu.stop_reason == T64_STOP_REASON_GUEST_COMPLETION
+             ? T64_STOP_REASON_GUEST_COMPLETION
+             : T64_STOP_REASON_CPU_UNSUPPORTED;
+}
+
 static uint64_t selected_counter(const t64_machine *machine,
                                  uint32_t stop_kind) {
   return stop_kind == T64_STOP_INSTRUCTION_COUNT
@@ -320,6 +326,11 @@ static t64_status advance_time_bound(t64_machine *machine,
   if (request->value < machine->tick) {
     return T64_STATUS_TIME_REVERSED;
   }
+  if (machine->cpu.stopped) {
+    set_stop_result(result_out, cpu_stop_result_reason(machine),
+                    machine->tick);
+    return T64_STATUS_OK;
+  }
   if (machine->halted) {
     set_stop_result(result_out, T64_STOP_REASON_HALT, machine->tick);
     return T64_STATUS_OK;
@@ -328,21 +339,28 @@ static t64_status advance_time_bound(t64_machine *machine,
     t64_status status;
 
     if (dispatched >= machine->profile.advance_event_budget) {
-      set_stop_result(result_out, T64_STOP_REASON_RESOURCE_LIMIT, machine->tick);
+      set_stop_result(result_out, T64_STOP_REASON_RESOURCE_LIMIT,
+                      machine->tick);
       return T64_STATUS_OK;
     }
     if (!event_can_dispatch(machine, queue_front(machine))) {
-      set_stop_result(result_out, T64_STOP_REASON_RESOURCE_LIMIT, machine->tick);
+      set_stop_result(result_out, T64_STOP_REASON_RESOURCE_LIMIT,
+                      machine->tick);
       return T64_STATUS_OK;
     }
     status = dispatch_front(machine);
     dispatched++;
     if (status != T64_STATUS_OK) {
-      set_stop_result(result_out, T64_STOP_REASON_RESOURCE_LIMIT, machine->tick);
+      set_stop_result(result_out,
+                      machine->cpu.stopped
+                          ? cpu_stop_result_reason(machine)
+                          : T64_STOP_REASON_RESOURCE_LIMIT,
+                      machine->tick);
       return T64_STATUS_OK;
     }
     if (machine->halted) {
-      set_stop_result(result_out, T64_STOP_REASON_HALT, machine->tick);
+      set_stop_result(result_out, T64_STOP_REASON_HALT,
+                      machine->tick);
       return T64_STATUS_OK;
     }
   }
@@ -360,42 +378,57 @@ static t64_status advance_counter_bound(t64_machine *machine,
   if (request->value < current) {
     return T64_STATUS_LIMIT_REVERSED;
   }
+  if (machine->cpu.stopped) {
+    set_stop_result(result_out, cpu_stop_result_reason(machine),
+                    machine->tick);
+    return T64_STATUS_OK;
+  }
   if (machine->halted) {
     set_stop_result(result_out, T64_STOP_REASON_HALT, machine->tick);
     return T64_STATUS_OK;
   }
   if (request->value == current) {
-    set_stop_result(result_out, reached_reason(request->kind), machine->tick);
+    set_stop_result(result_out, reached_reason(request->kind),
+                    machine->tick);
     return T64_STATUS_OK;
   }
   while (current < request->value) {
     t64_status status;
 
     if (machine->queue_count == 0u) {
-      set_stop_result(result_out, T64_STOP_REASON_QUIESCENT, machine->tick);
+      set_stop_result(result_out, T64_STOP_REASON_QUIESCENT,
+                      machine->tick);
       return T64_STATUS_OK;
     }
     if (dispatched >= machine->profile.advance_event_budget) {
-      set_stop_result(result_out, T64_STOP_REASON_RESOURCE_LIMIT, machine->tick);
+      set_stop_result(result_out, T64_STOP_REASON_RESOURCE_LIMIT,
+                      machine->tick);
       return T64_STATUS_OK;
     }
     if (!event_can_dispatch(machine, queue_front(machine))) {
-      set_stop_result(result_out, T64_STOP_REASON_RESOURCE_LIMIT, machine->tick);
+      set_stop_result(result_out, T64_STOP_REASON_RESOURCE_LIMIT,
+                      machine->tick);
       return T64_STATUS_OK;
     }
     status = dispatch_front(machine);
     dispatched++;
     if (status != T64_STATUS_OK) {
-      set_stop_result(result_out, T64_STOP_REASON_RESOURCE_LIMIT, machine->tick);
+      set_stop_result(result_out,
+                      machine->cpu.stopped
+                          ? cpu_stop_result_reason(machine)
+                          : T64_STOP_REASON_RESOURCE_LIMIT,
+                      machine->tick);
       return T64_STATUS_OK;
     }
     if (machine->halted) {
-      set_stop_result(result_out, T64_STOP_REASON_HALT, machine->tick);
+      set_stop_result(result_out, T64_STOP_REASON_HALT,
+                      machine->tick);
       return T64_STATUS_OK;
     }
     current = selected_counter(machine, request->kind);
   }
-  set_stop_result(result_out, reached_reason(request->kind), machine->tick);
+  set_stop_result(result_out, reached_reason(request->kind),
+                  machine->tick);
   return T64_STATUS_OK;
 }
 

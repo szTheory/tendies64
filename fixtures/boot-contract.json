@@ -76,6 +76,7 @@
     "unsupported_stop_code": 7,
     "guest_completion_stop_code": 8,
     "partial_implementation_policies": {
+      "input": "exact-pinned-z64-bytes-only-v1",
       "cpu": "decode only the verified entry ANDI; every other opcode stops explicitly",
       "cache": "unimplemented-stops-v1",
       "devices": "existing-skeleton-until-warm-register-slice-v1",
@@ -281,9 +282,13 @@
         "unsupported_instruction": "lui",
         "unsupported_retired": false,
         "software_stop_code": 7,
-        "current_public_stop_reason": 6,
-        "current_public_stop_name": "RESOURCE_LIMIT",
+        "current_public_stop_reason": 7,
+        "current_public_stop_name": "CPU_UNSUPPORTED",
+        "cpu_retired_instructions_at_stop": 1,
+        "public_stop_detail_pc": "0xA4000044",
+        "public_stop_detail_opcode": "0x3C1DA400",
         "stop_tick": 2,
+        "guest_completion_observed": false,
         "verification": "unit.core.tracer against the exact byte-pinned fixture",
         "claim_limit": "software-only prepared warm entry; no IPL2 hardware handoff, full IPL3 boot, broad compatibility or hardware-accuracy claim"
       }

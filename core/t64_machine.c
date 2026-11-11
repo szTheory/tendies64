@@ -62,6 +62,28 @@ static const t64_profile_descriptor ntsc_cart_4m_profile = {
     .state_serialization_version = 5u,
 };
 
+#define T64_OPENIPL3_ASSET_SHA256_BYTES                                      \
+  {                                                                          \
+    0xf5u, 0x22u, 0xdbu, 0x2eu, 0x31u, 0xa7u, 0x01u, 0xf8u,                  \
+        0x25u, 0x97u, 0xf3u, 0x99u, 0xe7u, 0x6du, 0x55u, 0xc9u,              \
+        0x48u, 0x77u, 0x60u, 0xd0u, 0x15u, 0xafu, 0xf9u, 0xd9u,              \
+        0x01u, 0x76u, 0xb4u, 0x63u, 0xaeu, 0x39u, 0xa0u, 0x68u               \
+  }
+#define T64_OPENIPL3_PAYLOAD_SHA256_BYTES                                    \
+  {                                                                          \
+    0xf7u, 0x16u, 0xa9u, 0x0bu, 0x1du, 0x36u, 0xecu, 0x42u,                  \
+        0x53u, 0xd0u, 0x96u, 0x79u, 0x07u, 0x91u, 0x25u, 0x6du,              \
+        0x35u, 0x43u, 0x45u, 0x5eu, 0x54u, 0x47u, 0x3au, 0x75u,              \
+        0x5fu, 0xf8u, 0xc3u, 0xd1u, 0x19u, 0x9bu, 0x15u, 0xd5u               \
+  }
+#define T64_OPENIPL3_POLICY_SHA256_BYTES                                     \
+  {                                                                          \
+    0xa6u, 0xeeu, 0xbau, 0x46u, 0x6au, 0xe8u, 0x80u, 0x4au,                  \
+        0x8du, 0xecu, 0x79u, 0xceu, 0x8cu, 0x5du, 0xecu, 0xe4u,              \
+        0x0eu, 0xa5u, 0xd2u, 0x5bu, 0x29u, 0x72u, 0x4du, 0x53u,              \
+        0xf7u, 0xe1u, 0xebu, 0xe4u, 0x6fu, 0xfdu, 0x5cu, 0xc9u               \
+  }
+
 static const t64_profile_descriptor ntsc_cart_4m_openipl3_warm_profile = {
     .profile_id = "ntsc-cart-4m-openipl3-warm-v1",
     .console_target = "NUS-CPU-03",
@@ -107,23 +129,18 @@ static const t64_profile_descriptor ntsc_cart_4m_openipl3_warm_profile = {
     .descriptor_version = 2u,
     .machine_model_version = 2u,
     .state_serialization_version = 6u,
+    .asset_sha256 = T64_OPENIPL3_ASSET_SHA256_BYTES,
+    .payload_sha256 = T64_OPENIPL3_PAYLOAD_SHA256_BYTES,
+    .boot_policy_sha256 = T64_OPENIPL3_POLICY_SHA256_BYTES,
+    .hle_seed_reset_version = 1u,
 };
 
-static const uint8_t openipl3_asset_sha256[T64_DIGEST_SIZE] = {
-    0xf5u, 0x22u, 0xdbu, 0x2eu, 0x31u, 0xa7u, 0x01u, 0xf8u,
-    0x25u, 0x97u, 0xf3u, 0x99u, 0xe7u, 0x6du, 0x55u, 0xc9u,
-    0x48u, 0x77u, 0x60u, 0xd0u, 0x15u, 0xafu, 0xf9u, 0xd9u,
-    0x01u, 0x76u, 0xb4u, 0x63u, 0xaeu, 0x39u, 0xa0u, 0x68u};
-static const uint8_t openipl3_payload_sha256[T64_DIGEST_SIZE] = {
-    0xf7u, 0x16u, 0xa9u, 0x0bu, 0x1du, 0x36u, 0xecu, 0x42u,
-    0x53u, 0xd0u, 0x96u, 0x79u, 0x07u, 0x91u, 0x25u, 0x6du,
-    0x35u, 0x43u, 0x45u, 0x5eu, 0x54u, 0x47u, 0x3au, 0x75u,
-    0x5fu, 0xf8u, 0xc3u, 0xd1u, 0x19u, 0x9bu, 0x15u, 0xd5u};
-static const uint8_t openipl3_policy_sha256[T64_DIGEST_SIZE] = {
-    0xa6u, 0xeeu, 0xbau, 0x46u, 0x6au, 0xe8u, 0x80u, 0x4au,
-    0x8du, 0xecu, 0x79u, 0xceu, 0x8cu, 0x5du, 0xecu, 0xe4u,
-    0x0eu, 0xa5u, 0xd2u, 0x5bu, 0x29u, 0x72u, 0x4du, 0x53u,
-    0xf7u, 0xe1u, 0xebu, 0xe4u, 0x6fu, 0xfdu, 0x5cu, 0xc9u};
+static const uint8_t openipl3_asset_sha256[T64_DIGEST_SIZE] =
+    T64_OPENIPL3_ASSET_SHA256_BYTES;
+static const uint8_t openipl3_payload_sha256[T64_DIGEST_SIZE] =
+    T64_OPENIPL3_PAYLOAD_SHA256_BYTES;
+static const uint8_t openipl3_policy_sha256[T64_DIGEST_SIZE] =
+    T64_OPENIPL3_POLICY_SHA256_BYTES;
 
 static bool is_openipl3_profile(const t64_profile_descriptor *profile) {
   static const char profile_id[] = "ntsc-cart-4m-openipl3-warm-v1";
@@ -322,8 +339,13 @@ static void write_profile(profile_writer *writer,
   profile_writer_u32(writer, profile->machine_model_version);
   profile_writer_u32(writer, profile->state_serialization_version);
   if (profile->descriptor_version == 2u) {
-    profile_writer_bytes(writer, openipl3_policy_sha256,
-                         sizeof openipl3_policy_sha256);
+    profile_writer_bytes(writer, profile->asset_sha256,
+                         sizeof profile->asset_sha256);
+    profile_writer_bytes(writer, profile->payload_sha256,
+                         sizeof profile->payload_sha256);
+    profile_writer_bytes(writer, profile->boot_policy_sha256,
+                         sizeof profile->boot_policy_sha256);
+    profile_writer_u32(writer, profile->hle_seed_reset_version);
   }
 }
 
@@ -422,7 +444,7 @@ static t64_status openipl3_cpu_step(t64_machine *machine,
   if (status != T64_STATUS_OK || machine->cpu.pc != machine->boot.entry_pc ||
       opcode != UINT32_C(0x3044d236)) {
     machine->cpu.stopped = true;
-    machine->cpu.stop_reason = UINT32_C(7);
+    machine->cpu.stop_reason = T64_STOP_REASON_CPU_UNSUPPORTED;
     machine->cpu.stop_pc = machine->cpu.pc;
     machine->cpu.stop_opcode = opcode;
     t64_trace_emit(machine, machine->tick, T64_TRACE_DEVICE_MACHINE,
@@ -433,7 +455,7 @@ static t64_status openipl3_cpu_step(t64_machine *machine,
   if (machine->cpu.retired_instructions == UINT64_MAX ||
       machine->instruction_count == UINT64_MAX) {
     machine->cpu.stopped = true;
-    machine->cpu.stop_reason = UINT32_C(7);
+    machine->cpu.stop_reason = T64_STOP_REASON_CPU_UNSUPPORTED;
     machine->cpu.stop_pc = machine->cpu.pc;
     machine->cpu.stop_opcode = opcode;
     t64_trace_emit(machine, machine->tick, T64_TRACE_DEVICE_MACHINE,
@@ -809,5 +831,25 @@ t64_status t64_machine_profile(
     return T64_STATUS_INVALID_ARGUMENT;
   }
   *profile_out = &machine->profile;
+  return T64_STATUS_OK;
+}
+
+t64_status t64_machine_cpu_stop_detail(
+    const t64_machine *machine, t64_cpu_stop_detail *detail_out) {
+  t64_address_range output_range;
+  t64_cpu_stop_detail detail;
+
+  if (machine == NULL || detail_out == NULL ||
+      !t64_internal_make_range(detail_out, sizeof *detail_out, &output_range) ||
+      !t64_internal_observation_range_is_disjoint(machine, output_range)) {
+    return T64_STATUS_INVALID_ARGUMENT;
+  }
+  if (!machine->has_image || !machine->cpu.stopped) {
+    return T64_STATUS_NOT_READY;
+  }
+  detail.retired_instructions = machine->cpu.retired_instructions;
+  detail.pc = machine->cpu.stop_pc;
+  detail.opcode = machine->cpu.stop_opcode;
+  (void)memcpy(detail_out, &detail, sizeof detail);
   return T64_STATUS_OK;
 }

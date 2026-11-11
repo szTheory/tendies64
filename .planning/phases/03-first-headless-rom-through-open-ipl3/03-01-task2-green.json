@@ -1,0 +1,9 @@
+{
+  "command": "T64_TEST_IPL3_PATH=\"$PWD/build/fixtures/ipl3_compat.z64\" T64_TDD_TAP=cpu-stop build/gate/core/test_tracer",
+  "exitCode": 0,
+  "output": "TAP version 13\nok 1 - exact pinned IPL3 reaches the stop observation\nok 2 - CPU unsupported execution has explicit stop code\n# expected first reason=7; observed=7 tick=2\nok 3 - CPU unsupported stop persists across later advances\n# expected repeat reason=7 tick=2; observed reason=7 tick=2\nok 4 - stop detail reports one retirement and unsupported opcode\n# observed retired=1 pc=0xa4000044 opcode=0x3c1da400\nok 5 - descriptor v2 serializes pinned identities and seed\n# expected 32-byte asset/payload/policy hashes and seed version 1; observed lookup status=0\n1..5\n",
+  "targetTest": "CPU unsupported execution has explicit stop code",
+  "targetFile": "core/tests/test_tracer.c",
+  "result": "The named public stop, persistent stop tick, one-retirement stop detail, and version-2 asset/payload/policy/seed serialization all pass on the exact pinned fixture.",
+  "semanticAssessment": "The executable admitted the exact fixture, retired the real entry instruction, then returned CPU_UNSUPPORTED for the next opcode. Repeated advances remained stopped at tick 2. No broader IPL3 or hardware behavior is claimed."
+}

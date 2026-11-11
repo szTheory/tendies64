@@ -231,7 +231,8 @@ static bool profile_v2_identity_is_serialized(
 }
 
 static bool run_openipl3_to_unsupported(t64_stop_result *first_result,
-                                        t64_stop_result *repeat_result) {
+                                        t64_stop_result *repeat_result,
+                                        t64_cpu_stop_detail *detail) {
   uint8_t image[TEST_ROM_SIZE];
   const t64_profile_descriptor *profile = NULL;
   allocator_state allocator_state_value = {0};
@@ -254,9 +255,10 @@ static bool run_openipl3_to_unsupported(t64_stop_result *first_result,
   }
   if (t64_machine_admit_rom(machine, image, sizeof image) == T64_STATUS_OK &&
       t64_machine_advance(machine, &request, first_result) == T64_STATUS_OK) {
+    okay = t64_machine_cpu_stop_detail(machine, detail) == T64_STATUS_OK;
     request.value = UINT64_C(10);
-    okay = t64_machine_advance(machine, &request, repeat_result) ==
-           T64_STATUS_OK;
+    okay = okay && t64_machine_advance(machine, &request, repeat_result) ==
+                       T64_STATUS_OK;
   }
   t64_machine_destroy(machine);
   return okay;
@@ -266,6 +268,7 @@ static int tap_openipl3_public_stop_and_identity(void) {
   const t64_profile_descriptor *profile = NULL;
   t64_stop_result first_result = {0u, 0u};
   t64_stop_result repeat_result = {0u, 0u};
+  t64_cpu_stop_detail detail = {0u, 0u, 0u};
   bool asset_setup_ok;
   bool stop_setup_ok;
   bool identity_ok;
@@ -274,8 +277,8 @@ static int tap_openipl3_public_stop_and_identity(void) {
 
   asset_setup_ok = lookup_status == T64_STATUS_OK && profile != NULL;
   identity_ok = asset_setup_ok && profile_v2_identity_is_serialized(profile);
-  stop_setup_ok =
-      run_openipl3_to_unsupported(&first_result, &repeat_result);
+  stop_setup_ok = run_openipl3_to_unsupported(
+      &first_result, &repeat_result, &detail);
   (void)puts("TAP version 13");
   (void)printf("%s 1 - exact pinned IPL3 reaches the stop observation\n",
                stop_setup_ok ? "ok" : "not ok");
@@ -291,14 +294,26 @@ static int tap_openipl3_public_stop_and_identity(void) {
                    : "not ok");
   (void)printf("# expected repeat reason=7 tick=2; observed reason=%u tick=%llu\n",
                repeat_result.reason, (unsigned long long)repeat_result.tick);
-  (void)printf("%s 4 - descriptor v2 serializes pinned identities and seed\n",
+  (void)printf("%s 4 - stop detail reports one retirement and unsupported opcode\n",
+               stop_setup_ok && detail.retired_instructions == UINT64_C(1) &&
+                       detail.pc == UINT32_C(0xa4000044) &&
+                       detail.opcode == UINT32_C(0x3c1da400)
+                   ? "ok"
+                   : "not ok");
+  (void)printf("# observed retired=%llu pc=0x%08x opcode=0x%08x\n",
+               (unsigned long long)detail.retired_instructions, detail.pc,
+               detail.opcode);
+  (void)printf("%s 5 - descriptor v2 serializes pinned identities and seed\n",
                identity_ok ? "ok" : "not ok");
   (void)printf("# expected 32-byte asset/payload/policy hashes and seed version 1; observed lookup status=%u\n",
                lookup_status);
-  (void)puts("1..4");
+  (void)puts("1..5");
   return stop_setup_ok && first_result.reason == UINT32_C(7) &&
                  repeat_result.reason == UINT32_C(7) &&
-                 repeat_result.tick == UINT64_C(2) && identity_ok
+                 repeat_result.tick == UINT64_C(2) &&
+                 detail.retired_instructions == UINT64_C(1) &&
+                 detail.pc == UINT32_C(0xa4000044) &&
+                 detail.opcode == UINT32_C(0x3c1da400) && identity_ok
              ? 0
              : 1;
 }
@@ -308,9 +323,14 @@ static void test_actual_open_ipl3_entry(void) {
   uint8_t altered[TEST_ROM_SIZE];
   uint8_t state_before_refusal[T64_DIGEST_SIZE];
   uint8_t state_after_refusal[T64_DIGEST_SIZE];
+  uint8_t state_after_first_retirement[T64_DIGEST_SIZE];
   uint8_t state_before_reversed[T64_DIGEST_SIZE];
   uint8_t state_after_reversed[T64_DIGEST_SIZE];
+  uint8_t expected_asset_sha256[T64_SHA256_DIGEST_SIZE];
+  uint8_t expected_payload_sha256[T64_SHA256_DIGEST_SIZE];
+  uint8_t expected_policy_sha256[T64_SHA256_DIGEST_SIZE];
   t64_trace_record records[16];
+  t64_cpu_stop_detail stop_detail = {0u, 0u, 0u};
   const t64_profile_descriptor *profile = NULL;
   allocator_state allocator_state_value = {0};
   const t64_host_allocator allocator = {
@@ -348,6 +368,20 @@ static void test_actual_open_ipl3_entry(void) {
   T64_CHECK_INT(profile->machine_model_version, 2u);
   T64_CHECK_INT(profile->state_serialization_version, 6u);
   T64_CHECK_STR(profile->boot_status, "prepared-warm-entry-partial");
+  T64_CHECK(decode_sha256_hex(OPEN_IPL3_ASSET_SHA256,
+                              expected_asset_sha256));
+  T64_CHECK(decode_sha256_hex(OPEN_IPL3_PAYLOAD_SHA256,
+                              expected_payload_sha256));
+  T64_CHECK(decode_sha256_hex(
+      "a6eeba466ae8804a8dec79ce8c5dece40ea5d25b29724d53f7e1ebe46ffd5cc9",
+      expected_policy_sha256));
+  T64_CHECK(memcmp(profile->asset_sha256, expected_asset_sha256,
+                   sizeof expected_asset_sha256) == 0);
+  T64_CHECK(memcmp(profile->payload_sha256, expected_payload_sha256,
+                   sizeof expected_payload_sha256) == 0);
+  T64_CHECK(memcmp(profile->boot_policy_sha256, expected_policy_sha256,
+                   sizeof expected_policy_sha256) == 0);
+  T64_CHECK_INT(profile->hle_seed_reset_version, 1u);
 
   status = t64_machine_create(&allocator, profile, &machine);
   T64_CHECK_INT(status, T64_STATUS_OK);
@@ -373,6 +407,10 @@ static void test_actual_open_ipl3_entry(void) {
                 T64_STATUS_OK);
   T64_CHECK_INT(result.reason, T64_STOP_REASON_BOUND);
   T64_CHECK_INT(result.tick, UINT64_C(1));
+  T64_CHECK_INT(t64_machine_digest(machine, state_after_first_retirement),
+                T64_STATUS_OK);
+  T64_CHECK(memcmp(state_before_refusal, state_after_first_retirement,
+                   sizeof state_before_refusal) != 0);
   T64_CHECK_INT(t64_machine_trace_drain(machine, records,
                                         sizeof records / sizeof records[0],
                                         &count, &dropped, &saturated),
@@ -398,7 +436,13 @@ static void test_actual_open_ipl3_entry(void) {
   request.value = UINT64_C(2);
   T64_CHECK_INT(t64_machine_advance(machine, &request, &result),
                 T64_STATUS_OK);
-  T64_CHECK_INT(result.reason, T64_STOP_REASON_RESOURCE_LIMIT);
+  T64_CHECK_INT(result.reason, T64_STOP_REASON_CPU_UNSUPPORTED);
+  T64_CHECK_INT(result.tick, UINT64_C(2));
+  T64_CHECK_INT(t64_machine_cpu_stop_detail(machine, &stop_detail),
+                T64_STATUS_OK);
+  T64_CHECK_INT(stop_detail.retired_instructions, UINT64_C(1));
+  T64_CHECK_INT(stop_detail.pc, UINT32_C(0xa4000044));
+  T64_CHECK_INT(stop_detail.opcode, UINT32_C(0x3c1da400));
   T64_CHECK_INT(t64_machine_trace_drain(machine, records,
                                         sizeof records / sizeof records[0],
                                         &count, &dropped, &saturated),
@@ -411,6 +455,18 @@ static void test_actual_open_ipl3_entry(void) {
     }
   }
   T64_CHECK(unsupported_seen);
+
+  T64_CHECK_INT(t64_machine_digest(machine, state_before_reversed),
+                T64_STATUS_OK);
+  request.value = UINT64_C(10);
+  T64_CHECK_INT(t64_machine_advance(machine, &request, &result),
+                T64_STATUS_OK);
+  T64_CHECK_INT(result.reason, T64_STOP_REASON_CPU_UNSUPPORTED);
+  T64_CHECK_INT(result.tick, UINT64_C(2));
+  T64_CHECK_INT(t64_machine_digest(machine, state_after_reversed),
+                T64_STATUS_OK);
+  T64_CHECK(memcmp(state_before_reversed, state_after_reversed,
+                   sizeof state_before_reversed) == 0);
 
   T64_CHECK_INT(t64_machine_digest(machine, state_before_reversed),
                 T64_STATUS_OK);
@@ -428,6 +484,59 @@ static void test_actual_open_ipl3_entry(void) {
   (void)printf("entry_pc=0xa4000040 retired_opcode=0x3044d236 ");
   (void)printf("unsupported_pc=0xa4000044 unsupported_opcode=0x3c1da400 ");
   (void)printf("evidence=one real instruction retired; partial stop only\n");
+  t64_machine_destroy(machine);
+  T64_CHECK_INT(allocator_state_value.outstanding_count, 0u);
+  T64_CHECK_INT(allocator_state_value.release_errors, 0u);
+}
+
+static void test_openipl3_instruction_count_boundary(void) {
+  uint8_t image[TEST_ROM_SIZE];
+  const t64_profile_descriptor *profile = NULL;
+  allocator_state allocator_state_value = {0};
+  const t64_host_allocator allocator = {
+      test_allocate, test_release, &allocator_state_value};
+  t64_machine *machine = NULL;
+  t64_stop_request request = {T64_STOP_INSTRUCTION_COUNT, UINT64_C(1)};
+  t64_stop_result result = {0u, 0u};
+  t64_cpu_stop_detail detail = {UINT64_C(99), UINT32_C(99), UINT32_C(99)};
+  t64_status status;
+  bool read_ok = read_pinned_ipl3(image);
+
+  T64_CHECK(read_ok);
+  if (!read_ok) {
+    return;
+  }
+  T64_CHECK_INT(t64_profile_lookup(OPEN_IPL3_PROFILE_ID, &profile),
+                T64_STATUS_OK);
+  if (profile == NULL) {
+    return;
+  }
+  status = t64_machine_create(&allocator, profile, &machine);
+  T64_CHECK_INT(status, T64_STATUS_OK);
+  if (status != T64_STATUS_OK || machine == NULL) {
+    return;
+  }
+  T64_CHECK_INT(t64_machine_admit_rom(machine, image, sizeof image),
+                T64_STATUS_OK);
+  T64_CHECK_INT(t64_machine_advance(machine, &request, &result),
+                T64_STATUS_OK);
+  T64_CHECK_INT(result.reason, T64_STOP_REASON_INSTRUCTION_COUNT);
+  T64_CHECK_INT(result.tick, UINT64_C(1));
+  T64_CHECK_INT(t64_machine_cpu_stop_detail(machine, &detail),
+                T64_STATUS_NOT_READY);
+  T64_CHECK_INT(detail.retired_instructions, UINT64_C(99));
+  T64_CHECK_INT(detail.pc, UINT32_C(99));
+  T64_CHECK_INT(detail.opcode, UINT32_C(99));
+
+  request.value = UINT64_C(2);
+  T64_CHECK_INT(t64_machine_advance(machine, &request, &result),
+                T64_STATUS_OK);
+  T64_CHECK_INT(result.reason, T64_STOP_REASON_CPU_UNSUPPORTED);
+  T64_CHECK_INT(result.tick, UINT64_C(2));
+  T64_CHECK_INT(t64_machine_cpu_stop_detail(machine, &detail), T64_STATUS_OK);
+  T64_CHECK_INT(detail.retired_instructions, UINT64_C(1));
+  T64_CHECK_INT(detail.pc, UINT32_C(0xa4000044));
+  T64_CHECK_INT(detail.opcode, UINT32_C(0x3c1da400));
   t64_machine_destroy(machine);
   T64_CHECK_INT(allocator_state_value.outstanding_count, 0u);
   T64_CHECK_INT(allocator_state_value.release_errors, 0u);
@@ -638,6 +747,7 @@ int main(void) {
     return tap_openipl3_public_stop_and_identity();
   }
   test_actual_open_ipl3_entry();
+  test_openipl3_instruction_count_boundary();
   test_machine_tracer();
   test_allocator_storage_validation();
   return T64_TEST_FINISH("unit.core.tracer");
