@@ -51,7 +51,7 @@ coverage:
     requirement: BOOT-01
     verification:
       - kind: integration
-        ref: "sh scripts/gate.sh; unit.core.boot-entry"
+        ref: "scripts/gate.sh"
         status: pass
     human_judgment: true
     rationale: "The tested path retires one IPL3 instruction and then halts on an unsupported opcode; it does not demonstrate the full HLE-PIF/open-IPL3 flow required by BOOT-01."
@@ -63,6 +63,8 @@ status: complete
 # Phase 3 Plan 03: Inspectable Warm Entry Summary
 
 **The canonical gate now verifies the bounded warm-entry contract and provisions its qualified fixture producer on both hosted platforms.**
+
+Implementation and limits: `core/tests/test_boot_entry.c` and `docs/spec/boot-limits.md`.
 
 ## Performance
 
