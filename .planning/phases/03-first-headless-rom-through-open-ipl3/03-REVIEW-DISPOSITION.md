@@ -5,11 +5,11 @@ titles: json
 findings:
   - id: CR-03
     severity: critical
-    disposition: open
+    disposition: fixed
     title: "CI checker accepts required steps that can fail without failing the job"
   - id: WR-01
     severity: warning
-    disposition: open
+    disposition: fixed
     title: "CI checker does not bind host job names to runner labels"
   - id: CR-01
     severity: critical
@@ -19,17 +19,17 @@ findings:
     severity: critical
     disposition: fixed
     title: "Missing `log_sha256` crashes the supervisor during capture validation"
-open: 2
+open: 0
 total: 4
-recorded: 2026-11-11T21:30:49.661Z
+recorded: 2026-11-11T21:31:05.434Z
 ---
 
 # Phase 03: Code Review Disposition
 
 | Finding | Severity | Disposition | Source |
 |---------|----------|-------------|--------|
-| CR-03 | critical | open | - |
-| WR-01 | warning | open | - |
+| CR-03 | critical | fixed | 03-REVIEW-FIX.md |
+| WR-01 | warning | fixed | 03-REVIEW-FIX.md |
 | CR-01 | critical | fixed | 03-REVIEW-FIX.md (not in the current review) |
 | CR-02 | critical | fixed | 03-REVIEW-FIX.md (not in the current review) |
 
