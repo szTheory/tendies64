@@ -148,13 +148,13 @@ queue refusal, reset behavior and per-instance ordering.
 
 The authored app entry at `0x80000400` executes at tick/retirement 530174. Its
 first output instruction is `sw t2,0(t0)` at PC `0x8000041c`, tick 530181, after
-530180 retirements. It carries `t0=0x0000000013ff0000` and
-`t2=0xffffffffedcba987`. `fixtures/hello/hello.S` line 6 defines
-`T64_ISVIEWER_BASE` as `0x13ff0000`, a KUSEG address. The current CPU translator
-refuses that address before any bus or ISViewer handler, so this is an output
-instruction boundary, not captured guest output. Plan 03-06 must address this
-fixture-address contract at its owning end-to-end boundary; this plan does not
-broaden supported virtual-address modes.
+530180 retirements, with `t2=0xffffffffedcba987`. The initial fixture incorrectly
+used the physical address `0x13ff0000` as a KUSEG guest address; that dated
+observation remains in the plan 03-05 summary. The corrected fixture uses the
+uncached KSEG1 alias and carries `t0=0xffffffffb3ff0000`, translating to physical
+`0x13ff0000`. Supported virtual-address modes are unchanged. The store still
+stops before output capture because the ISViewer bus device is not implemented
+yet; plan 03-06 owns that boundary.
 
 ## Remaining evidence limits
 
