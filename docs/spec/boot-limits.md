@@ -136,9 +136,13 @@ arithmetic use unsigned host operations. Independent instruction snippets
 check arithmetic, delay slots, alignment, partial stores, and virtual-address
 translation.
 
-The reached CP0 subset is `MFC0 Count` and `MTC0 Cause`, `Count`, `Compare`,
-`WatchLo`, `TagLo`, and `TagHi`, all with select 0. Other registers, selects,
-and coprocessor operations stop with the current PC/opcode and do not retire.
+The implemented CP0 inventory subset is `MFC0 Count` and `MTC0 Cause`,
+`Count`, `Compare`, `WatchLo`, `TagLo`, and `TagHi`, all with select 0. The
+actual warm trace reaches `MFC0 Count` at PC `0xA4000064` and the four `MTC0`
+operations at PCs `0xA400006C` through `0xA4000078`; it stops before the pinned
+`TagLo` and `TagHi` candidates at `0xA4000148` and `0xA400014C`. Those later
+forms have independent instruction tests. Other registers, selects, and
+coprocessor operations stop with the current PC/opcode and do not retire.
 Register writes use these masks: Cause permits software-pending bits 9:8 and
 preserves other bits; WatchLo uses `0xFFFFFFFB`; TagLo uses `0x0FFFFFC0`; the
 VR4300 TagHi value is zero for this 32-bit physical-address profile. Count and
@@ -156,16 +160,19 @@ is modeled; exception entry, interrupt delivery, and processor-cycle timing
 are not implemented. This cadence is a guest-time policy, not a hardware
 timing claim.
 
-The reached CACHE encodings are `0x8` Index Store Tag I, `0x9` Index Store Tag
-D, and `0x15` Hit Writeback Invalidate D (NEC manual §16, CACHE operation
-table; same indexed document hash). The pinned path writes zero TagLo/TagHi
-before its index tag stores, leaving those lines invalid. Under the named
-`coherent-functional` policy, instruction fetches and data accesses share the
-backing bytes, so there is no hidden dirty line to write back. The emulator
-records the last supported cache operation, PC, translated physical address,
-and an operation-seen flag in the already hashed v6 cache state. It does not
-model per-line cache timing or claim general cache fidelity. Unsupported
-cache operations and unsupported address modes stop explicitly.
+The pinned CACHE inventory candidates are `0x8` Index Store Tag I, `0x9`
+Index Store Tag D, and `0x15` Hit Writeback Invalidate D (NEC manual §16,
+CACHE operation table; same indexed document hash). Their PCs are listed in
+`boot-contract.json`; this warm trace stops at PC `0xA4000080` before reaching
+them, and independent instruction tests exercise each operation. The later
+static path writes zero TagLo/TagHi before its index tag stores, leaving those
+lines invalid if that path is reached. Under the named `coherent-functional`
+policy, instruction fetches and data accesses share the backing bytes, so
+there is no hidden dirty line to write back. The emulator records the last
+supported cache operation, PC, translated physical address, and an
+operation-seen flag in the already hashed v6 cache state. It does not model
+per-line cache timing or claim general cache fidelity. Unsupported cache
+operations and unsupported address modes stop explicitly.
 
 The actual byte-pinned IPL3 now reaches the unsupported MI_VERSION load:
 `LW s1,4(v0)` (`0x8C510004`) at virtual address `0xA4300004`, PC

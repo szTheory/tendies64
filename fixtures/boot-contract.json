@@ -1,7 +1,7 @@
 {
   "schema": "t64.open-ipl3-boot-contract",
   "schema_version": 1,
-  "qualification_status": "byte-qualified; 37 real instructions retired through the qualified integer, CP0, and coherent-functional cache subset; explicit partial stop at the unsupported MI_VERSION read",
+  "qualification_status": "byte-qualified; 37 real instructions retired through the qualified integer/control and reached CP0 subset; explicit partial stop at the unsupported MI_VERSION read; later pinned CP0/CACHE candidates are independently tested",
   "scope": "prepared-RDRAM software warm-entry tracer only",
   "hardware_handoff_assertion": false,
   "source": {
@@ -78,7 +78,7 @@
     "partial_implementation_policies": {
       "input": "exact-pinned-z64-bytes-only-v1",
       "cpu": "qualified integer/control/load-store and CP0 inventory subset; unsupported encodings stop explicitly",
-      "cache": "coherent-functional warm subset for reached CACHE encodings; no timing or general cache-fidelity claim",
+      "cache": "coherent-functional warm subset for pinned CACHE inventory candidates; no timing or general cache-fidelity claim",
       "devices": "existing-skeleton-until-warm-register-slice-v1",
       "output": "unimplemented-until-isviewer-v1"
     },
@@ -317,6 +317,9 @@
       "unsupported_opcode": "0x8C510004",
       "unsupported_instruction": "lw s1,4(v0); MI_VERSION at 0xA4300004 is outside the implemented device slice",
       "unsupported_retired": false,
+      "reached_cp0_pcs": ["0xA4000064", "0xA400006C", "0xA4000070", "0xA4000074", "0xA4000078"],
+      "later_tag_and_cache_candidates_dynamically_reached": false,
+      "later_tag_and_cache_candidates_tested": true,
       "software_stop_code": 7,
       "public_stop_reason": "CPU_UNSUPPORTED",
       "public_stop_detail_pc": "0xA4000080",
