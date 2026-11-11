@@ -30,7 +30,7 @@ API and a playable rights-cleared homebrew. Each maps to a roadmap phase.
 
 - [ ] **RUN-01**: User can run a ROM headlessly with a fixed reset, a named profile, timed logical input and a guest-time limit, and receive a machine-readable result
 - [x] **RUN-02**: User can distinguish six outcomes in a result: pass, guest-fail, boot-fail, timeout, missing-fixture and harness-error
-- [ ] **RUN-03**: User can see a result classified as boot-fail, not pass, when a guest produces empty output
+- [x] **RUN-03**: User can see a result classified as boot-fail, not pass, when a guest produces empty output
 - [x] **RUN-04**: Maintainer can see negative controls in the suite: a wrong expected value fails; a missing, malformed, timed-out or crashed run never passes; a changed test inventory is detected
 - [ ] **RUN-05**: User can capture guest log output through an ISViewer-style interface, with the length-register and buffer semantics specified in writing
 - [ ] **RUN-06**: User can capture raw video frames and raw audio sample buffers from a headless run, as files with metadata, separately from host presentation
@@ -78,7 +78,7 @@ API and a playable rights-cleared homebrew. Each maps to a roadmap phase.
 - [ ] **BOOT-01**: The machine boots through an HLE-PIF step that seeds post-IPL2 state and then runs a pinned open IPL3 as guest code, with no Nintendo boot bytes in the repository
 - [x] **BOOT-02**: The pinned IPL3 binary has recorded sha256 and md5, source revision, license and a named maintenance owner
 - [ ] **BOOT-03**: A boot-limits document lists unmodeled PIF challenge/response, CIC variants and timeout behavior, so "boots" is never reported as "boot solved"
-- [ ] **BOOT-04**: A hello ROM, authored in this project or rights-reviewed, prints through ISViewer under the headless runner on the first profile
+- [x] **BOOT-04**: A hello ROM, authored in this project or rights-reviewed, prints through ISViewer under the headless runner on the first profile
 
 ### Fixtures and CI (VER)
 
@@ -194,7 +194,7 @@ re-sequenced at milestone close.
 | GOV-07 | Phase 1 | Complete |
 | RUN-01 | Phase 3 | Pending |
 | RUN-02 | Phase 1 | Complete |
-| RUN-03 | Phase 3 | Pending |
+| RUN-03 | Phase 3 | Complete |
 | RUN-04 | Phase 1 | Complete |
 | RUN-05 | Phase 3 | Pending |
 | RUN-06 | Phase 8 | Pending |
@@ -227,7 +227,7 @@ re-sequenced at milestone close.
 | BOOT-01 | Phase 3 | Pending |
 | BOOT-02 | Phase 3 | Complete |
 | BOOT-03 | Phase 3 | Pending |
-| BOOT-04 | Phase 3 | Pending |
+| BOOT-04 | Phase 3 | Complete |
 | VER-01 | Phase 4 | Pending |
 | VER-02 | Phase 6 | Pending |
 | VER-03 | Phase 4 | Pending |

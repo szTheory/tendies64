@@ -158,7 +158,7 @@ Plans:
   4. A guest that produces no output is classified boot-fail, never pass. The boot-limits document lists unmodeled PIF challenge/response, CIC variants and timeout behavior as deferred, so the project never reports "boot solved"
   5. The hello-ROM run produces identical state digests on two operating systems and with two compilers, shown by a CI matrix
   6. The headless runner's fixture digest attests the bytes the runner actually reads: real-ROM runs pass an already-open verified descriptor or a private copy, so the supervisor's digest cannot differ from what the guest loads (closes the Phase 1 review finding WR-06; see docs/spec/result-protocol.md, "Known limitation")
-**Plans**: 10/13 plans executed
+**Plans**: 11/13 plans executed
 
 Plans:
 - [x] 03-01-PLAN.md — Qualify and execute the actual warm-entry tracer.
@@ -171,7 +171,7 @@ Plans:
 - [x] 03-08-PLAN.md — Parse canonical timed-input schedules and prove their trace.
 - [x] 03-09-PLAN.md — Attest immutable fixture and schedule descriptors.
 - [x] 03-10-PLAN.md — Define the strict real-result v2 checker contract.
-- [ ] 03-11-PLAN.md — Run and supervise actual IPL3-to-hello execution.
+- [x] 03-11-PLAN.md — Run and supervise actual IPL3-to-hello execution.
 - [ ] 03-12-PLAN.md — Prove real failure controls and guest determinism.
 - [ ] 03-13-PLAN.md — Collect exact-SHA hosted evidence and verify current sources.
 
@@ -322,7 +322,7 @@ Phase 7 may run in parallel with Phases 5 and 6 once Phase 4 is complete.
 |-------|-----------|----------------|--------|-----------|
 | 1. Governance, Rights and Harness Foundation | v1.0 | 13/13 | Complete | 2026-11-10 |
 | 2. Deterministic Machine Skeleton | v1.0 | 8/8 | In Progress | - |
-| 3. First Headless ROM Through Open IPL3 | v1.0 | 10/13 | In Progress | - |
+| 3. First Headless ROM Through Open IPL3 | v1.0 | 11/13 | In Progress | - |
 | 4. Complete VR4300 CPU | v1.0 | 0/TBD | Not started | - |
 | 5. RSP Low-Level Emulation | v1.0 | 0/TBD | Not started | - |
 | 6. Cold Boot, CPU Timing and Full Base Suite | v1.0 | 0/TBD | Not started | - |
