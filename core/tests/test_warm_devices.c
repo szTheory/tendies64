@@ -1194,7 +1194,7 @@ int main(void) {
   T64_CHECK_INT(authored_entry_pc, UINT32_C(0x80000400));
   T64_CHECK_INT(stop_detail.pc, UINT32_C(0x8000041c));
   T64_CHECK_INT(stop_detail.opcode, UINT32_C(0xad0a0000));
-  T64_CHECK_INT(machine->cpu.gpr[8], UINT64_C(0x0000000013ff0000));
+  T64_CHECK_INT(machine->cpu.gpr[8], UINT64_C(0xffffffffb3ff0000));
 
   T64_CHECK(fixtures_dir != NULL && fixtures_dir[0] != '\0');
   for (variant_index = 0u;

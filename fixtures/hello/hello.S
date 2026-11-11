@@ -3,7 +3,8 @@
 .set noreorder
 .set noat
 
-.equ T64_ISVIEWER_BASE, 0x13ff0000
+/* Guest uses the uncached KSEG1 alias of physical ISViewer 0x13ff0000. */
+.equ T64_ISVIEWER_BASE, 0xb3ff0000
 .equ T64_ISVIEWER_BUFFER, 0x20
 .equ T64_ISVIEWER_FLUSH_HALFWORD, 0x16
 .equ T64_ISVIEWER_MAGIC_HI, 0x1234
