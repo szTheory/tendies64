@@ -417,7 +417,7 @@ write_build_metadata()
     expected="$output_dir/hello.expected.txt"
     input="$output_dir/hello.input.json"
     printf '%s\n' 'Tendies64 hello via open IPL3' > "$expected"
-    printf '%s\n' '{"schema":"t64.input-schedule","schema_version":1,"events":[]}' > "$input"
+    printf '%s\n' '{"events":[],"schema":"t64.input","schema_version":1}' > "$input"
     jq -n --arg os "$HOST_OS" --arg arch "$HOST_ARCH" \
         --arg source_hash "$source_hash" \
         --arg compiler_version "$compiler_version" \
@@ -450,7 +450,7 @@ write_build_metadata()
             {offset:"0x20",field:"authored cartridge title",value:"TENDIES64 HELLO"},
             {offset:"0x3a",field:"cartridge region",value:"E"}],
           expected_transcript:{source:"independent literal in scripts/build-boot-fixtures.sh",length_bytes:30,sha256:$transcript_sha,hex:$transcript_hex},
-          empty_input_schedule:{sha256:$input_sha,format:"t64.input-schedule v1; zero events"},
+          empty_input_schedule:{sha256:$input_sha,format:"t64.input v1; zero events"},
           toolchain_source:{name:"GNU Binutils",version:"2.45",sha256:"c50c0e7f9cb188980e2cc97e4537626b1672441815587f1eab69d2a1bfbef5d2",configure_flags:["--target=mips64-elf","--disable-nls","--disable-werror","--disable-gdb","--disable-gprof","--disable-gold","--with-system-zlib"]},
           host_tools:{as:{version:$as_version,sha256:$as_sha},ld:{version:$ld_version,sha256:$ld_sha},objcopy:{version:$objcopy_version,sha256:$objcopy_sha},objdump:{version:$objdump_version,sha256:$objdump_sha}},
           roms:$roms,
