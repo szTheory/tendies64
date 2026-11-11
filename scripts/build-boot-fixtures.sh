@@ -592,6 +592,7 @@ run_selftest()
     build_set "$final"
     write_build_metadata "$final"
     install_generated_outputs "$final"
+    PAYLOAD=build/fixtures/ipl3_compat.payload.bin
     verify_manifest
     printf 'PASS: source, tool, boot, payload and manifest identities\n'
 }
