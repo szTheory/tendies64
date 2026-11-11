@@ -136,8 +136,8 @@ static bool test_real_entry_and_next_boundary(
   (void)t64_machine_cpu_stop_detail(machine, &detail);
   if (status != T64_STATUS_OK ||
       result.reason != T64_STOP_REASON_CPU_UNSUPPORTED ||
-      result.tick != UINT64_C(17) ||
-      detail.retired_instructions != UINT64_C(16) ||
+      result.tick != UINT64_C(38) ||
+      detail.retired_instructions != UINT64_C(37) ||
       detail.pc != UINT32_C(0xa4000080) ||
       detail.opcode != UINT32_C(0x8c510004)) {
     (void)printf("# actual stop status=%u reason=%u tick=%llu retired=%llu "
@@ -209,8 +209,8 @@ static bool test_signed_multiply_and_hilo(
   }
   if (detail.retired_instructions != UINT64_C(3) ||
       detail.pc != IPL3_ENTRY_PC + UINT32_C(12) ||
-      machine->cpu.hi != UINT64_C(0xffffffffffffffff) ||
-      machine->cpu.lo != UINT64_C(0xffffffffe8000002) ||
+      machine->cpu.hi != UINT64_C(0xfffffffffffffffe) ||
+      machine->cpu.lo != UINT64_C(0xffffffff80000006) ||
       machine->cpu.gpr[10] != machine->cpu.lo ||
       machine->cpu.gpr[11] != machine->cpu.hi) {
     (void)printf("# actual retired=%llu pc=0x%08x opcode=0x%08x "
@@ -667,7 +667,7 @@ int main(int argc, char **argv) {
   const t64_host_allocator allocator = {
       test_allocate, test_release, &allocator_state_value};
   static const cpu_test_case cpu_path_cases[] = {
-      {"qualified IPL3 integer path reaches the CP0 boundary",
+      {"qualified IPL3 integer path reaches the MI device boundary",
        test_real_entry_and_next_boundary},
       {"MIPS III sign extension, shifts and BAL delay slot",
        test_integer_sign_extension_and_bal_delay},

@@ -36,26 +36,39 @@ exactly 4096 input bytes. This is an explicit descriptor policy, not evidence
 that hardware or a real IPL2 supplied these registers.
 
 Admission copies the bytes and records the asset, payload, and policy hashes
-before scheduling one CPU step. The actual first word, `0x3044D236`, is
+before scheduling the CPU. The actual first word, `0x3044D236`, is
 `ANDI a0,v0,0xd236` at `0xA4000040`; it retires at guest tick 1. The following
-word, `0x3C1DA400` (`LUI` at `0xA4000044`), is unsupported. The machine stops
-explicitly at tick 2 with one retired instruction and no completion event.
-This establishes one partial entry instruction only. It establishes no
-continued IPL3 routine, output, working device set, or running game.
+`LUI` retires, and execution takes a BAL helper path that includes signed
+32-bit multiply and HI/LO transfers. The profile then retires the reached
+CP0 and CACHE instructions and stops at the first unsupported device read,
+described below. This remains a partial warm-entry trace: it does not
+establish output, a complete device set, authored-ROM execution, or a running
+game.
+
+The fixture contract preserves the 03-01 initial qualification snapshot from
+2026-11-10, including its one-instruction coverage record and unsupported LUI
+boundary. Its active policy identity now names the implemented subset:
+`cpu_decode_policy=integer-control-load-store-cp0-inventory-subset-v2` and
+`cache_policy=coherent-functional-warm-subset-v1`. This identity correction
+updates the policy digest and therefore the profile and initial state hashes;
+the asset, profile ID, descriptor version, state serialization version, and v1
+synthetic identity remain unchanged. The new current execution observation is
+recorded beside the historical 03-01 snapshot in `boot-contract.json`.
 
 ## Independent identity goldens
 
 The test's descriptor and initial-state goldens are fixed literals derived
-from the field orders below and the qualified bytes, not copied from an
-emulator-produced digest. The profile descriptor digest is
-`f67e9fb4ad2c065e9ec4dc3048f447a8755255a281c602d2ac8c6cc5bcf38faa`.
+independently from the field orders below and the pinned fixture bytes, not
+copied from an emulator-produced digest. The profile descriptor digest is
+`d5a2b703c15ec8707e61a369530c524e6e88ef6d5548f0df2239a9a93a05c746`.
 The initial state digest, taken after exact admission and before dispatch, is
-`21217cbc347896be9e97f7edcddd912a2fe4c9b0f151dd2e3809887477b6b42d`.
+`1c7e4086d89234c9d304e40f7e17468ddc8fcd04316904ddd7b5bc87913e96ea`.
 The existing v1 synthetic profile golden remains separate and unchanged.
 
-Profile serialization v2 is SHA-256 over the following byte sequence:
+The version-2 profile descriptor uses profile serialization version 1 and is
+SHA-256 over the following byte sequence:
 
-1. ASCII domain `T64PDESC`, then u32 version `2`.
+1. ASCII domain `T64PDESC`, then u32 serialization version `1`.
 2. Each text value as u32 byte length followed by those UTF-8 bytes, without a
    terminator, in this order: `profile_id`, `console_target`,
    `console_qualification`.
@@ -79,8 +92,8 @@ Profile serialization v2 is SHA-256 over the following byte sequence:
 
 All integers are unsigned big-endian. The boot-policy SHA-256 is over the
 exact UTF-8 `policy_digest_input` in `fixtures/boot-contract.json`, including
-its final LF; its digest is
-`a6eeba466ae8804a8dec79ce8c5dece40ea5d25b29724d53f7e1ebe46ffd5cc9`. That
+its final LF; its current digest is
+`5d6aacdc47cbb6fb3ad80e782935fdb330af559ec8e9143656ffedd5069cf984`. That
 input explicitly binds source revision/path and asset/payload identities,
 entry and DMEM locations, profile fields, seed values, CPU/event behavior,
 unsupported/completion codes, and cache/device/output policy.
@@ -112,6 +125,58 @@ Allocator pointers, host time, padding, unused queue storage, build identity,
 and observer data are excluded. The ordering and sizes above permit a separate
 vector generator to calculate the checked-in expected digest without calling
 the machine digest API.
+
+## Bounded CPU, CP0, and cache execution
+
+The shared production CPU path implements the pinned warm path's reached
+integer, branch/delay-slot, load/store, and KSEG0/KSEG1 operations. It also
+implements the dynamically reached signed 32-bit `MULT` and `MFLO` helper
+instructions. `MULT` writes sign-extended 32-bit HI/LO words; overflow and
+arithmetic use unsigned host operations. Independent instruction snippets
+check arithmetic, delay slots, alignment, partial stores, and virtual-address
+translation.
+
+The reached CP0 subset is `MFC0 Count` and `MTC0 Cause`, `Count`, `Compare`,
+`WatchLo`, `TagLo`, and `TagHi`, all with select 0. Other registers, selects,
+and coprocessor operations stop with the current PC/opcode and do not retire.
+Register writes use these masks: Cause permits software-pending bits 9:8 and
+preserves other bits; WatchLo uses `0xFFFFFFFB`; TagLo uses `0x0FFFFFC0`; the
+VR4300 TagHi value is zero for this 32-bit physical-address profile. Count and
+Compare use all 32 bits. These fields and instruction forms follow the NEC
+VR4300 manual's CP0 instruction, Cause, WatchLo, and cache-tag descriptions
+(§§3.2.6, 5.4.8, 6.3.6, and 6.3.8; document SHA-256 is recorded in the
+[primary evidence index](../../.planning/phases/03-first-headless-rom-through-open-ipl3/03-PRIMARY-EVIDENCE-INDEX.md)).
+
+The hardware Count register advances continuously at half PClock (§6.3.3).
+The deterministic software policy here advances Count by one after each
+successful instruction retirement. `MFC0` reads Count before that retirement
+increment; the increment wraps at 32 bits. Count/Compare equality sets Cause
+IP7, and writing Compare clears IP7, following §6.3.4. Only this pending bit
+is modeled; exception entry, interrupt delivery, and processor-cycle timing
+are not implemented. This cadence is a guest-time policy, not a hardware
+timing claim.
+
+The reached CACHE encodings are `0x8` Index Store Tag I, `0x9` Index Store Tag
+D, and `0x15` Hit Writeback Invalidate D (NEC manual §16, CACHE operation
+table; same indexed document hash). The pinned path writes zero TagLo/TagHi
+before its index tag stores, leaving those lines invalid. Under the named
+`coherent-functional` policy, instruction fetches and data accesses share the
+backing bytes, so there is no hidden dirty line to write back. The emulator
+records the last supported cache operation, PC, translated physical address,
+and an operation-seen flag in the already hashed v6 cache state. It does not
+model per-line cache timing or claim general cache fidelity. Unsupported
+cache operations and unsupported address modes stop explicitly.
+
+The actual byte-pinned IPL3 now reaches the unsupported MI_VERSION load:
+`LW s1,4(v0)` (`0x8C510004`) at virtual address `0xA4300004`, PC
+`0xA4000080`. The stop occurs at guest tick 38 after 37 retired instructions.
+The profile's MI device slice does not implement MI_VERSION, so this boundary
+is retained as an explicit unsupported stop. The warm profile's updated
+identity is independently bound by descriptor digest
+`d5a2b703c15ec8707e61a369530c524e6e88ef6d5548f0df2239a9a93a05c746` and
+initial v6 state digest
+`1c7e4086d89234c9d304e40f7e17468ddc8fcd04316904ddd7b5bc87913e96ea`; the v1
+synthetic golden remains unchanged.
 
 ## Evidence limits and prerequisites
 

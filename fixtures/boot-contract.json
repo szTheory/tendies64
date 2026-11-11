@@ -1,7 +1,7 @@
 {
   "schema": "t64.open-ipl3-boot-contract",
   "schema_version": 1,
-  "qualification_status": "byte-qualified; one real entry instruction retired; explicit partial stop at next unsupported opcode",
+  "qualification_status": "byte-qualified; 37 real instructions retired through the qualified integer, CP0, and coherent-functional cache subset; explicit partial stop at the unsupported MI_VERSION read",
   "scope": "prepared-RDRAM software warm-entry tracer only",
   "hardware_handoff_assertion": false,
   "source": {
@@ -77,14 +77,14 @@
     "guest_completion_stop_code": 8,
     "partial_implementation_policies": {
       "input": "exact-pinned-z64-bytes-only-v1",
-      "cpu": "decode only the verified entry ANDI; every other opcode stops explicitly",
-      "cache": "unimplemented-stops-v1",
+      "cpu": "qualified integer/control/load-store and CP0 inventory subset; unsupported encodings stop explicitly",
+      "cache": "coherent-functional warm subset for reached CACHE encodings; no timing or general cache-fidelity claim",
       "devices": "existing-skeleton-until-warm-register-slice-v1",
       "output": "unimplemented-until-isviewer-v1"
     },
     "boot_policy_digest_algorithm": "SHA-256 over the UTF-8 bytes of policy_digest_input, including its final LF",
-    "boot_policy_digest": "a6eeba466ae8804a8dec79ce8c5dece40ea5d25b29724d53f7e1ebe46ffd5cc9",
-    "policy_digest_input": "t64.openipl3.profile-policy.v1\nprofile_id=ntsc-cart-4m-openipl3-warm-v1\nasset_source_revision=98154dafd5ac50e74ee09a5de1035d24a53f54f0\nasset_source_path=boot/bin/ipl3_compat.z64\nasset_sha256=f522db2e31a701f82597f399e76d55c9487760d015aff9d90176b463ae39a068\nasset_input_policy=exact-pinned-z64-bytes-only-v1\npayload_source_offset=0x40\npayload_length=0xfc0\npayload_sha256=f716a90b1d36ec4253d096790791256d3543455e54473a755ff8c3d1199b15d5\npayload_dmem_destination=0xa4000040\ncpu_entry_pc=0xa4000040\nconsole_target=NUS-CPU-03\nconsole_qualification=unqualified-target\ntv_standard=1\nregion=1\nmedia_kind=1\nrdram_bytes=4194304\nexpansion_bytes=0\nperipheral_flags=0\nsave_kind=0\nhle_seed_reset_version=1\nhle_s3_rom_type=0\nhle_s4_tv_type=1\nhle_s5_reset_type=1\nhle_s6_entropy_seed=0\nhle_s7_boot_info_version=1\ngpr_initial=zero-except-s3-through-s7\nhi_lo_initial=zero\ncp0_initial=zero\ncpu_tick_per_retirement=1\ncpu_event_order=tick-sequence-fifo-v1\ncpu_decode_policy=entry-andi-exact-unsupported-stop-v1\ncpu_unsupported_stop=7\ncpu_completion_stop=8\ncache_policy=unimplemented-stops-v1\ndevice_policy=existing-skeleton-until-warm-register-slice-v1\noutput_policy=unimplemented-until-isviewer-v1\n"
+    "boot_policy_digest": "5d6aacdc47cbb6fb3ad80e782935fdb330af559ec8e9143656ffedd5069cf984",
+    "policy_digest_input": "t64.openipl3.profile-policy.v1\nprofile_id=ntsc-cart-4m-openipl3-warm-v1\nasset_source_revision=98154dafd5ac50e74ee09a5de1035d24a53f54f0\nasset_source_path=boot/bin/ipl3_compat.z64\nasset_sha256=f522db2e31a701f82597f399e76d55c9487760d015aff9d90176b463ae39a068\nasset_input_policy=exact-pinned-z64-bytes-only-v1\npayload_source_offset=0x40\npayload_length=0xfc0\npayload_sha256=f716a90b1d36ec4253d096790791256d3543455e54473a755ff8c3d1199b15d5\npayload_dmem_destination=0xa4000040\ncpu_entry_pc=0xa4000040\nconsole_target=NUS-CPU-03\nconsole_qualification=unqualified-target\ntv_standard=1\nregion=1\nmedia_kind=1\nrdram_bytes=4194304\nexpansion_bytes=0\nperipheral_flags=0\nsave_kind=0\nhle_seed_reset_version=1\nhle_s3_rom_type=0\nhle_s4_tv_type=1\nhle_s5_reset_type=1\nhle_s6_entropy_seed=0\nhle_s7_boot_info_version=1\ngpr_initial=zero-except-s3-through-s7\nhi_lo_initial=zero\ncp0_initial=zero\ncpu_tick_per_retirement=1\ncpu_event_order=tick-sequence-fifo-v1\ncpu_decode_policy=integer-control-load-store-cp0-inventory-subset-v2\ncpu_unsupported_stop=7\ncpu_completion_stop=8\ncache_policy=coherent-functional-warm-subset-v1\ndevice_policy=existing-skeleton-until-warm-register-slice-v1\noutput_policy=unimplemented-until-isviewer-v1\n"
   },
   "toolchain": {
     "name": "GNU Binutils",
@@ -300,7 +300,30 @@
         "verification": "unit.core.tracer against the exact byte-pinned fixture",
         "claim_limit": "software-only prepared warm entry; no IPL2 hardware handoff, full IPL3 boot, broad compatibility or hardware-accuracy claim"
       }
-    ]
+    ],
+    "initial_qualification_snapshot": {
+      "date": "2026-11-10",
+      "plan": "03-01",
+      "scope": "Preserved initial one-instruction entry observation; its exact retired opcode and unsupported LUI boundary remain in dynamically_observed_coverage_at_qualification."
+    },
+    "current_implementation_observation": {
+      "profile_id": "ntsc-cart-4m-openipl3-warm-v1",
+      "asset_sha256": "f522db2e31a701f82597f399e76d55c9487760d015aff9d90176b463ae39a068",
+      "payload_sha256": "f716a90b1d36ec4253d096790791256d3543455e54473a755ff8c3d1199b15d5",
+      "entry_pc": "0xA4000040",
+      "retired_instructions": 37,
+      "stop_tick": 38,
+      "unsupported_pc": "0xA4000080",
+      "unsupported_opcode": "0x8C510004",
+      "unsupported_instruction": "lw s1,4(v0); MI_VERSION at 0xA4300004 is outside the implemented device slice",
+      "unsupported_retired": false,
+      "software_stop_code": 7,
+      "public_stop_reason": "CPU_UNSUPPORTED",
+      "public_stop_detail_pc": "0xA4000080",
+      "public_stop_detail_opcode": "0x8C510004",
+      "verification": "unit.core.tracer and unit.core.boot-entry against the exact byte-pinned fixture",
+      "claim_limit": "software-only prepared warm entry; no IPL2 hardware handoff, full IPL3 boot, authored-ROM execution, broad compatibility or hardware-accuracy claim"
+    }
   },
   "evidence_boundary": {
     "hardware_documents": [

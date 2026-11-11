@@ -14,6 +14,23 @@
 #define T64_CPU_BNEL UINT32_C(0x15)
 #define T64_CPU_BLEZL UINT32_C(0x16)
 #define T64_CPU_BGTZL UINT32_C(0x17)
+#define T64_CPU_COP0 UINT32_C(0x10)
+#define T64_CPU_CACHE UINT32_C(0x2f)
+
+#define T64_CP0_COUNT UINT32_C(9)
+#define T64_CP0_COMPARE UINT32_C(11)
+#define T64_CP0_CAUSE UINT32_C(13)
+#define T64_CP0_WATCHLO UINT32_C(18)
+#define T64_CP0_TAGLO UINT32_C(28)
+#define T64_CP0_TAGHI UINT32_C(29)
+#define T64_CP0_CAUSE_SOFTWARE_MASK UINT32_C(0x00000300)
+#define T64_CP0_CAUSE_TIMER_MASK UINT32_C(0x00008000)
+#define T64_CP0_WATCHLO_MASK UINT32_C(0xfffffffb)
+#define T64_CP0_TAGLO_MASK UINT32_C(0x0fffffc0)
+
+#define T64_CACHE_INDEX_STORE_TAG_I UINT32_C(0x08)
+#define T64_CACHE_INDEX_STORE_TAG_D UINT32_C(0x09)
+#define T64_CACHE_HIT_WRITEBACK_INVALIDATE_D UINT32_C(0x15)
 
 static uint64_t sign_extend_32(uint32_t value) {
   if ((value & UINT32_C(0x80000000)) != 0u) {
@@ -570,6 +587,30 @@ static bool execute_special(t64_machine *machine, uint32_t pc,
     *value_out = sign_extend_32(
         arithmetic_shift_right_32(right32, left32 & UINT32_C(0x1f)));
     break;
+  case 0x18u: {
+    uint32_t left_magnitude;
+    uint32_t right_magnitude;
+    uint64_t product;
+    bool negative;
+
+    if ((opcode & UINT32_C(0x0000ffc0)) != 0u) {
+      return false;
+    }
+    negative = ((left32 ^ right32) & UINT32_C(0x80000000)) != 0u;
+    left_magnitude = (left32 & UINT32_C(0x80000000)) != 0u
+                         ? ~left32 + UINT32_C(1)
+                         : left32;
+    right_magnitude = (right32 & UINT32_C(0x80000000)) != 0u
+                          ? ~right32 + UINT32_C(1)
+                          : right32;
+    product = (uint64_t)left_magnitude * (uint64_t)right_magnitude;
+    if (negative) {
+      product = ~product + UINT64_C(1);
+    }
+    machine->cpu.hi = sign_extend_32((uint32_t)(product >> 32));
+    machine->cpu.lo = sign_extend_32((uint32_t)product);
+    return true;
+  }
   case 0x10u:
     *value_out = machine->cpu.hi;
     break;
@@ -720,6 +761,109 @@ static bool execute_integer(t64_machine *machine, uint32_t opcode,
   return true;
 }
 
+static bool execute_cp0(t64_machine *machine, uint32_t opcode,
+                        bool *write_gpr_out, uint32_t *destination_out,
+                        uint64_t *value_out) {
+  uint32_t suboperation = (opcode >> 21) & UINT32_C(0x1f);
+  uint32_t rt = (opcode >> 16) & UINT32_C(0x1f);
+  uint32_t rd = (opcode >> 11) & UINT32_C(0x1f);
+  uint32_t select = opcode & UINT32_C(7);
+
+  *write_gpr_out = false;
+  *destination_out = 0u;
+  *value_out = UINT64_C(0);
+  if ((opcode & UINT32_C(0x7f8)) != 0u || select != 0u) {
+    return false;
+  }
+  if (suboperation == 0u) { /* MFC0 */
+    if (rd != T64_CP0_COUNT) {
+      return false;
+    }
+    *write_gpr_out = true;
+    *destination_out = rt;
+    *value_out = sign_extend_32((uint32_t)machine->cpu.cp0[rd]);
+    return true;
+  }
+  if (suboperation != 4u) { /* MTC0 */
+    return false;
+  }
+
+  switch (rd) {
+  case T64_CP0_COUNT:
+  case T64_CP0_COMPARE:
+    machine->cpu.cp0[rd] = (uint32_t)machine->cpu.gpr[rt];
+    if (rd == T64_CP0_COMPARE) {
+      machine->cpu.cp0[T64_CP0_CAUSE] =
+          (uint32_t)machine->cpu.cp0[T64_CP0_CAUSE] &
+          ~T64_CP0_CAUSE_TIMER_MASK;
+    }
+    return true;
+  case T64_CP0_CAUSE:
+    machine->cpu.cp0[rd] =
+        ((uint32_t)machine->cpu.cp0[rd] &
+         ~T64_CP0_CAUSE_SOFTWARE_MASK) |
+        ((uint32_t)machine->cpu.gpr[rt] & T64_CP0_CAUSE_SOFTWARE_MASK);
+    return true;
+  case T64_CP0_WATCHLO:
+    machine->cpu.cp0[rd] =
+        (uint32_t)machine->cpu.gpr[rt] & T64_CP0_WATCHLO_MASK;
+    return true;
+  case T64_CP0_TAGLO:
+    machine->cpu.cp0[rd] =
+        (uint32_t)machine->cpu.gpr[rt] & T64_CP0_TAGLO_MASK;
+    return true;
+  case T64_CP0_TAGHI:
+    /* VR4300 has a 32-bit physical address and no implemented TagHi bits. */
+    machine->cpu.cp0[rd] = UINT32_C(0);
+    return true;
+  default:
+    return false;
+  }
+}
+
+static bool execute_cache(t64_machine *machine, uint32_t pc,
+                          uint32_t opcode) {
+  uint32_t operation = (opcode >> 16) & UINT32_C(0x1f);
+  uint32_t base = (opcode >> 21) & UINT32_C(0x1f);
+  uint32_t physical_address;
+  uint64_t virtual_address;
+
+  if (operation != T64_CACHE_INDEX_STORE_TAG_I &&
+      operation != T64_CACHE_INDEX_STORE_TAG_D &&
+      operation != T64_CACHE_HIT_WRITEBACK_INVALIDATE_D) {
+    return false;
+  }
+  virtual_address =
+      machine->cpu.gpr[base] + sign_extend_16((uint16_t)opcode);
+  if (!t64_cpu_translate(virtual_address, &physical_address)) {
+    return false;
+  }
+
+  /*
+   * The qualified profile uses coherent-functional memory: guest writes and
+   * instruction fetches already see the same backing bytes. Cache operations
+   * therefore have no hidden line data to flush, and only their last observed
+   * identity/address is retained in the v6 cache state.
+   */
+  machine->cache.last_operation = operation;
+  machine->cache.last_pc = pc;
+  machine->cache.last_address = physical_address;
+  machine->cache.operation_seen = true;
+  return true;
+}
+
+static void cp0_retirement_tick(t64_machine *machine) {
+  uint32_t count = (uint32_t)machine->cpu.cp0[T64_CP0_COUNT] + UINT32_C(1);
+  uint32_t compare = (uint32_t)machine->cpu.cp0[T64_CP0_COMPARE];
+  uint32_t cause = (uint32_t)machine->cpu.cp0[T64_CP0_CAUSE];
+
+  machine->cpu.cp0[T64_CP0_COUNT] = count;
+  if (count == compare) {
+    cause |= T64_CP0_CAUSE_TIMER_MASK;
+  }
+  machine->cpu.cp0[T64_CP0_CAUSE] = cause;
+}
+
 static void cpu_stop_unsupported(t64_machine *machine, uint32_t pc,
                                  uint32_t opcode) {
   machine->cpu.stopped = true;
@@ -801,6 +945,19 @@ t64_status t64_cpu_step(t64_machine *machine, const t64_event *event) {
       cpu_stop_unsupported(machine, pc, opcode);
       return T64_STATUS_RESOURCE_EXHAUSTED;
     }
+  } else if ((opcode >> 26) == T64_CPU_COP0) {
+    supported = execute_cp0(machine, opcode, &write_gpr, &destination,
+                            &value);
+    if (!supported) {
+      cpu_stop_unsupported(machine, pc, opcode);
+      return T64_STATUS_RESOURCE_EXHAUSTED;
+    }
+  } else if ((opcode >> 26) == T64_CPU_CACHE) {
+    supported = execute_cache(machine, pc, opcode);
+    if (!supported) {
+      cpu_stop_unsupported(machine, pc, opcode);
+      return T64_STATUS_RESOURCE_EXHAUSTED;
+    }
   } else {
     supported = execute_integer(machine, opcode, &write_gpr, &destination,
                                 &value);
@@ -843,6 +1000,7 @@ t64_status t64_cpu_step(t64_machine *machine, const t64_event *event) {
   machine->cpu.gpr[0] = 0u;
   machine->cpu.retired_instructions++;
   machine->instruction_count++;
+  cp0_retirement_tick(machine);
   t64_trace_emit(machine, machine->tick, T64_TRACE_DEVICE_MACHINE,
                  T64_TRACE_KIND_CPU_RETIREMENT,
                  ((uint64_t)pc << 32) | (uint64_t)opcode);
