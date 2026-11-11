@@ -231,4 +231,12 @@ new local gate passed 91/91 tests in 160 seconds, including a mocked valid
 attempt-2 pair with a retained attempt-1 artifact and rejection of a current
 artifact mislabeled as attempt 1. This collector-only compatibility change
 does not alter guest behavior, CI job count, action pin or timeout. A fresh
-normal push is needed for a complete exact-run Linux/macOS pair.
+normal push produced the required exact-run Linux/macOS pair: run 43103669084,
+attempt 1, source `7c0ea9b5f3076122d506074aa7d3a2283cf9e2a6`. Both jobs passed
+and the actual guest records agree on the named warm profile's fixture,
+guest-stop bound, transcript and state digest. The two compiler build IDs
+differ, as expected. This is smoke evidence for this authored fixture and
+profile only; it does not claim authentic IPL2 state, cold boot, hardware
+accuracy, or general ROM compatibility. See `docs/evidence/phase3-ci.md` for
+the artifact IDs, API archive metadata, extracted JSON hashes, and measured
+CI timings.

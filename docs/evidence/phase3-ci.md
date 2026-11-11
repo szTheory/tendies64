@@ -192,5 +192,59 @@ This failure exposed a collector recovery gap: a later attempt on the same run
 can retain an artifact from an earlier attempt. The collector now selects only
 the requested exact-attempt pair and validates any lower-attempt artifacts as
 historical metadata without downloading or pairing them. The 10-minute timeout,
-two hosted jobs and workflow remained unchanged. A new normal push is required
+two hosted jobs and workflow remained unchanged. A new normal push was required
 for clean exact-run collection; prior artifacts remain untouched.
+
+## Final exact-SHA hosted pair
+
+The normal push of source
+`7c0ea9b5f3076122d506074aa7d3a2283cf9e2a6` completed as [run
+43103669084, attempt 1](https://github.com/szTheory/tendies64/actions/runs/43103669084).
+The run and both jobs completed successfully: `gate-linux` job `130801302890`
+and `gate-macos` job `130801302572`. Each passed the common gate, emitted from
+its real supervisor result, passed the staged rights/PII scans, and uploaded
+only its canonical JSON record.
+
+| Job | Artifact ID | API archive size | API archive digest | Extracted JSON size | Extracted record SHA-256 | Build ID |
+| --- | --- | ---: | --- | ---: | --- | --- |
+| gate-linux | 13892259569 | 962 bytes | `sha256:6317ebb793436ba93abc737c909266665d86763a6fd36f4a209bb612d802e2df` | 1587 bytes | `cd2a21c8471de0e1f2040aeacaeaf03b57f04e8b5cf157782e4e0b1787a0c013` | `t64-build-v1-4209255e99dfd12fa973fa21f1093ec79ac0af6e2f7e6d3439a4d09603363e2b` |
+| gate-macos | 13892669317 | 962 bytes | `sha256:e0aceddaa6f661d8590c9899f18a5db23bb94122423ce0806a204cd7857a05db` | 1587 bytes | `edc14bf88b6bebe74c4a427a2e4f5034e685873e517046585a9309f3ce950e61` | `t64-build-v1-065bf0cc1fc8ed2cfdbe674bf3db3cd9db1f421e4875b3d401799a8b31562ead` |
+
+Artifact IDs and archive sizes/digests are GitHub API metadata. Record sizes
+and hashes were measured over the extracted JSON files. The collector checks
+the API digest shape but does not recompute the archive digest from
+`gh run download` output; archive and record hashes are distinct. The actual
+collector published the pair atomically to `build/evidence-run-43103669084`,
+and `scripts/compare-boot-evidence.sh` passed against the exact SHA/run/attempt
+selectors. The nested results match source SHA, fixture/profile/asset/payload/
+input identities, guest bounds, log and state. Their different truthful build
+IDs are allowed.
+
+Both records report `outcome=pass`, `detail=positive-match`,
+`evidence_kind=guest-execution`, and `evidence_tier=smoke` for profile
+`ntsc-cart-4m-openipl3-warm-v1`. They match at guest tick 530438, 530437
+retired instructions, authored completion bound 530500, final PC
+`ffffffff80000478`, 30-byte transcript digest
+`86594505bea53c9843f9eaf07e4cf0121cbe0055670324674fd8385c88ffd18e`, and
+state digest `2e336d7b28c9696a47fa8b794a0583a581b8660d39e6e70664174549540f2f7c`.
+This establishes agreement for this authored fixture and warm profile; it
+does not establish cold boot, hardware accuracy, or broad ROM compatibility.
+
+`scripts/ci-review.sh` measured 287 s wall time and a 286 s critical path
+through macOS. Linux queue/run was 2/123 s; macOS was 2/284 s, with
+`gate-macos/Gate` the slowest step at 272 s. The earlier run 43094128662 is
+now terminal/cancelled: Linux queue/run was 2/108 s and macOS was 240/603 s
+before cancellation. Its upload log shows three retries that parsed HTML
+where JSON was expected, then backoff; the underlying cause is unknown.
+`docs/ci-reviews/LOG.md` preserves the earlier deferral row and records this
+follow-up as F-034. Its single Linux artifact was not mixed into this pair.
+Queued zero-job run 43098235914 was superseded and was not used.
+
+The full 93-test ASan/UBSan suite passed before the final test-setup and
+shell-guard changes. After the later test-setup checks, the all-target
+sanitizer build and focused affected tests passed; the final source's two
+hosted common gates passed. The full local sanitizer suite was not repeated
+solely for the later shell-only guard change. ASVS level 1 is closed at 27/27
+in `03-SECURITY.md`; the zlib host prerequisite audit is recorded separately
+and preserves the historical pre-use audit gap without claiming human
+approval.

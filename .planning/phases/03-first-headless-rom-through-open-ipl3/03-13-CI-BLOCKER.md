@@ -1,54 +1,58 @@
 ---
 phase: 03
 plan: "13"
-status: hosted-proof-pending
+status: hosted-proof-collected
 source_commit: 7c0ea9b5f3076122d506074aa7d3a2283cf9e2a6
-observed_at: 2026-11-11T21:40:00Z
+observed_at: 2026-11-11T21:42:09Z
 ---
 
-# Plan 13: implementation present, hosted proof pending
+# Plan 13: exact-SHA hosted proof collected
 
-Do not mark this plan or phase complete. No `03-13-SUMMARY.md` exists because
-the mandatory actual two-host artifact pair has not been collected/compared.
-Do not redispatch the implementation or fabricate an async-job manifest: the
-installed external-job capability is disabled and has no GitHub adapter.
+The required actual Linux/macOS artifact pair has been collected and compared
+for this source. The plan can now close in `03-13-SUMMARY.md`; Phase 3 goal
+verification remains with the parent executor, so this note does not mark the
+phase complete.
 
-## Recovery update
+## Successful hosted pair
 
-The previously stuck predecessor is now terminal/cancelled. Both jobs in the
-normal push run [43103669084](https://github.com/szTheory/tendies64/actions/runs/43103669084)
-are running for `7c0ea9b5f3076122d506074aa7d3a2283cf9e2a6`, attempt 1.
-Code-review findings are fixed; the ASVS1 mitigation audit is verified in
-`03-SECURITY.md`. Resume the existing executor for this new exact pair.
-The original failure below is historical, not the current cloud state.
+The normal push run [43103669084](https://github.com/szTheory/tendies64/actions/runs/43103669084)
+completed successfully for SHA `7c0ea9b5f3076122d506074aa7d3a2283cf9e2a6`,
+attempt 1. `gate-linux` job `130801302890` and `gate-macos` job
+`130801302572` both passed Gate, evidence emission, rights and PII scans, and
+the scoped JSON upload. The exact-run collector published the pair to the
+ignored local directory `build/evidence-run-43103669084`; the comparator
+reports matching guest identities, bound, state and authored transcript.
+Different truthful compiler build IDs are allowed.
 
-## Earlier blockage
+Linux artifact `13892259569` has API archive metadata size 962 bytes and
+digest `sha256:6317ebb793436ba93abc737c909266665d86763a6fd36f4a209bb612d802e2df`;
+its extracted 1587-byte JSON record hashes to
+`cd2a21c8471de0e1f2040aeacaeaf03b57f04e8b5cf157782e4e0b1787a0c013`.
+macOS artifact `13892669317` has API archive metadata size 962 bytes and
+digest `sha256:e0aceddaa6f661d8590c9899f18a5db23bb94122423ce0806a204cd7857a05db`;
+its extracted 1587-byte JSON record hashes to
+`edc14bf88b6bebe74c4a427a2e4f5034e685873e517046585a9309f3ce950e61`. The
+archive digest and extracted record hash/size describe separate layers; the
+archive digests were not recomputed locally.
 
-The earlier pushed source was `8eea81c35ab2d7069ea413997c3d9d36dbd99c2e`. Its push run is
-[43098235914](https://github.com/szTheory/tendies64/actions/runs/43098235914),
-attempt 1, workflow `.github/workflows/ci.yml`; it is queued with zero jobs.
-The predecessor run 43094128662 still reads `in_progress` despite its macOS
-upload being cancelled at its ten-minute job boundary. Normal and force cancel
-both return 409, and log retrieval returns 502/timeouts. The underlying upload
-cause is unavailable. Its Linux artifact is partial evidence only and must not
-be combined with another run/attempt/SHA. Preserve all prior artifacts.
+Both records report v2 pass for profile `ntsc-cart-4m-openipl3-warm-v1`,
+guest tick 530438, 530437 retired instructions, authored completion bound
+530500, final PC `ffffffff80000478`, the same 30-byte log digest and the same
+state digest. Full result details and the measured CI critical path are in
+`docs/evidence/phase3-ci.md`.
 
-The source implementation, common gate, exact 91/93 inventories, full sanitizer
-run and later affected-path retests are recorded in `docs/evidence/phase3-ci.md`.
-Pre-CI review blockers were fixed; final incremental code/security reviews are
-the parent's next work while GitHub remains blocked. No owner decision is
-needed for these reviews, and the ten-minute job limits remain unchanged.
+## Earlier blockage and superseded queue entry
 
-Resume the existing `phase3_execute13` agent after reviews and cloud state permit;
-if its session is unavailable, reconcile the existing commits and resume only
-pending hosted collection/evidence/summary work, not all implementation tasks.
-Do not use interactive mode to introduce a new routine owner gate.
+Predecessor run `43094128662` is now terminal/cancelled. Its Linux job passed
+and uploaded one record, but the macOS upload step was cancelled at the
+unchanged 10-minute job timeout. The retrieved log shows three retries where
+the upload action expected JSON but received HTML (`Unexpected token '<'`)
+before backoff. This is the observed symptom; the underlying cause remains
+unknown. Its Linux artifact was not combined with this run. The historical
+deferred timing row remains in `docs/ci-reviews/LOG.md`; follow-up F-034 records
+the final timings and log symptom.
 
-```sh
-sh scripts/collect-boot-evidence.sh --collect --repo szTheory/tendies64 --sha 7c0ea9b5f3076122d506074aa7d3a2283cf9e2a6 --run 43103669084 --attempt 1 --out build/evidence-run-43103669084
-sh scripts/compare-boot-evidence.sh --sha 7c0ea9b5f3076122d506074aa7d3a2283cf9e2a6 --run 43103669084 --attempt 1 build/evidence-run-43103669084/gate-linux.json build/evidence-run-43103669084/gate-macos.json
-```
-
-Only run collection after that exact attempt has completed successfully with
-both required jobs/artifacts. Any later source fix needs its own explicit
-tested selectors; never relabel these records as a later build.
+Queued run `43098235914` for source
+`8eea81c35ab2d7069ea413997c3d9d36dbd99c2e` is superseded and was not used.
+No timeout, action pin, hosted lane, or artifact was changed or deleted for
+recovery.

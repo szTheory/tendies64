@@ -56,6 +56,7 @@ from.
 | 2026-11-11 | 43087470400 | 73e63e04ca2b | push | failure | 266 | 264 | 2/108 | 2/262 | gate-macos/Gate 249s |
 | 2026-11-11 | 43091181251 | d6adbec2c1a2 | push | failure | 274 | 272 | 2/95 | 2/270 | gate-macos/Gate 253s |
 | 2026-11-11 | 43094128662 | - | - | deferred | - | - | - | - | deferred: macOS upload step canceled at the 10-minute timeout; run/job status remained in progress, cancel endpoints returned 409, and job logs returned 502 |
+| 2026-11-11 | 43103669084 | 7c0ea9b5f307 | push | success | 287 | 286 | 2/123 | 2/284 | gate-macos/Gate 272s |
 
 ## Findings
 
@@ -92,3 +93,5 @@ from.
 | F-030 | 43087470400 | Linux build rejected ignored ftruncate results in test-only report-mutation cases while macOS completed successfully | taken | Checked the test-only syscall results; production watchdog behavior and the two CI lanes remain unchanged. |
 | F-031 | 43091181251 | Linux GCC 13.3 rejected ignored test-only symlink, ftruncate and write results in descriptor and replacement fixtures while macOS completed successfully | taken | Check test setup syscalls and assert created fixtures before validating refusal; preserve the existing two CI lanes and production behavior. |
 | F-032 | 43094128662 | Exact-attempt recovery with retained prior-attempt artifacts | taken | Collector selects and validates only the exact requested attempt pair while preserving lower-attempt artifacts as metadata. |
+| F-033 | 43094128662 | Mac upload received HTML instead of JSON on retries and was cancelled at timeout | declined | The log does not expose an underlying status or cause; keep the action pin, two jobs and 10-minute limit unchanged and verify the new exact push. |
+| F-034 | 43094128662 | Terminal follow-up on cancelled Mac evidence upload | taken | Final reads show the run was cancelled and logs returned HTML where JSON was expected; retain the original deferred timing row as a historical observation, record the symptom, and leave root cause unknown. |
