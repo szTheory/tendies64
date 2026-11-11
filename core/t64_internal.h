@@ -239,6 +239,10 @@ t64_status t64_schedule_commit(t64_machine *machine,
 t64_status t64_scheduler_advance(t64_machine *machine,
                                  const t64_stop_request *request,
                                  t64_stop_result *result_out);
+t64_status t64_cpu_schedule(t64_machine *machine);
+t64_status t64_cpu_step(t64_machine *machine, const t64_event *event);
+bool t64_cpu_translate(uint64_t virtual_address,
+                       uint32_t *physical_address_out);
 t64_status t64_test_schedule_synthetic(t64_machine *machine, uint64_t tick,
                                        uint32_t kind, uint64_t value);
 t64_status t64_test_schedule_synthetic_after(t64_machine *machine,

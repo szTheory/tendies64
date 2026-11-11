@@ -329,7 +329,7 @@ static void test_actual_open_ipl3_entry(void) {
   uint8_t expected_asset_sha256[T64_SHA256_DIGEST_SIZE];
   uint8_t expected_payload_sha256[T64_SHA256_DIGEST_SIZE];
   uint8_t expected_policy_sha256[T64_SHA256_DIGEST_SIZE];
-  t64_trace_record records[16];
+  t64_trace_record records[32];
   t64_cpu_stop_detail stop_detail = {0u, 0u, 0u};
   const t64_profile_descriptor *profile = NULL;
   allocator_state allocator_state_value = {0};
@@ -436,13 +436,18 @@ static void test_actual_open_ipl3_entry(void) {
   request.value = UINT64_C(2);
   T64_CHECK_INT(t64_machine_advance(machine, &request, &result),
                 T64_STATUS_OK);
-  T64_CHECK_INT(result.reason, T64_STOP_REASON_CPU_UNSUPPORTED);
+  T64_CHECK_INT(result.reason, T64_STOP_REASON_BOUND);
   T64_CHECK_INT(result.tick, UINT64_C(2));
+  request.value = UINT64_C(10);
+  T64_CHECK_INT(t64_machine_advance(machine, &request, &result),
+                T64_STATUS_OK);
+  T64_CHECK_INT(result.reason, T64_STOP_REASON_CPU_UNSUPPORTED);
+  T64_CHECK_INT(result.tick, UINT64_C(10));
   T64_CHECK_INT(t64_machine_cpu_stop_detail(machine, &stop_detail),
                 T64_STATUS_OK);
-  T64_CHECK_INT(stop_detail.retired_instructions, UINT64_C(1));
-  T64_CHECK_INT(stop_detail.pc, UINT32_C(0xa4000044));
-  T64_CHECK_INT(stop_detail.opcode, UINT32_C(0x3c1da400));
+  T64_CHECK_INT(stop_detail.retired_instructions, UINT64_C(9));
+  T64_CHECK_INT(stop_detail.pc, UINT32_C(0xa4000064));
+  T64_CHECK_INT(stop_detail.opcode, UINT32_C(0x40044800));
   T64_CHECK_INT(t64_machine_trace_drain(machine, records,
                                         sizeof records / sizeof records[0],
                                         &count, &dropped, &saturated),
@@ -450,7 +455,7 @@ static void test_actual_open_ipl3_entry(void) {
   for (i = 0u; i < count; i++) {
     if (records[i].device == T64_TRACE_DEVICE_MACHINE &&
         records[i].kind == TEST_TRACE_KIND_CPU_UNSUPPORTED &&
-        records[i].value == UINT64_C(0xa40000443c1da400)) {
+        records[i].value == UINT64_C(0xa400006440044800)) {
       unsupported_seen = true;
     }
   }
@@ -462,7 +467,7 @@ static void test_actual_open_ipl3_entry(void) {
   T64_CHECK_INT(t64_machine_advance(machine, &request, &result),
                 T64_STATUS_OK);
   T64_CHECK_INT(result.reason, T64_STOP_REASON_CPU_UNSUPPORTED);
-  T64_CHECK_INT(result.tick, UINT64_C(2));
+  T64_CHECK_INT(result.tick, UINT64_C(10));
   T64_CHECK_INT(t64_machine_digest(machine, state_after_reversed),
                 T64_STATUS_OK);
   T64_CHECK(memcmp(state_before_reversed, state_after_reversed,
@@ -482,8 +487,8 @@ static void test_actual_open_ipl3_entry(void) {
                profile->profile_id, OPEN_IPL3_ASSET_SHA256,
                OPEN_IPL3_PAYLOAD_SHA256);
   (void)printf("entry_pc=0xa4000040 retired_opcode=0x3044d236 ");
-  (void)printf("unsupported_pc=0xa4000044 unsupported_opcode=0x3c1da400 ");
-  (void)printf("evidence=one real instruction retired; partial stop only\n");
+  (void)printf("unsupported_pc=0xa4000064 unsupported_opcode=0x40044800 ");
+  (void)printf("retired=9 stop_tick=10 evidence=bounded real CPU path\n");
   t64_machine_destroy(machine);
   T64_CHECK_INT(allocator_state_value.outstanding_count, 0u);
   T64_CHECK_INT(allocator_state_value.release_errors, 0u);
@@ -531,12 +536,23 @@ static void test_openipl3_instruction_count_boundary(void) {
   request.value = UINT64_C(2);
   T64_CHECK_INT(t64_machine_advance(machine, &request, &result),
                 T64_STATUS_OK);
-  T64_CHECK_INT(result.reason, T64_STOP_REASON_CPU_UNSUPPORTED);
+  T64_CHECK_INT(result.reason, T64_STOP_REASON_INSTRUCTION_COUNT);
   T64_CHECK_INT(result.tick, UINT64_C(2));
+  T64_CHECK_INT(t64_machine_cpu_stop_detail(machine, &detail),
+                T64_STATUS_NOT_READY);
+  T64_CHECK_INT(detail.retired_instructions, UINT64_C(99));
+  T64_CHECK_INT(detail.pc, UINT32_C(99));
+  T64_CHECK_INT(detail.opcode, UINT32_C(99));
+
+  request.value = UINT64_C(10);
+  T64_CHECK_INT(t64_machine_advance(machine, &request, &result),
+                T64_STATUS_OK);
+  T64_CHECK_INT(result.reason, T64_STOP_REASON_CPU_UNSUPPORTED);
+  T64_CHECK_INT(result.tick, UINT64_C(10));
   T64_CHECK_INT(t64_machine_cpu_stop_detail(machine, &detail), T64_STATUS_OK);
-  T64_CHECK_INT(detail.retired_instructions, UINT64_C(1));
-  T64_CHECK_INT(detail.pc, UINT32_C(0xa4000044));
-  T64_CHECK_INT(detail.opcode, UINT32_C(0x3c1da400));
+  T64_CHECK_INT(detail.retired_instructions, UINT64_C(9));
+  T64_CHECK_INT(detail.pc, UINT32_C(0xa4000064));
+  T64_CHECK_INT(detail.opcode, UINT32_C(0x40044800));
   t64_machine_destroy(machine);
   T64_CHECK_INT(allocator_state_value.outstanding_count, 0u);
   T64_CHECK_INT(allocator_state_value.release_errors, 0u);

@@ -159,7 +159,7 @@ int main(void) {
   char state_hex[T64_DIGEST_SIZE * 2u + 1u];
   size_t observed_rom_size = SIZE_MAX;
   t64_status status;
-  t64_stop_request request = {T64_STOP_GUEST_TICK, UINT64_C(2)};
+  t64_stop_request request = {T64_STOP_GUEST_TICK, UINT64_C(10)};
   t64_stop_result result = {UINT32_MAX, UINT64_MAX};
   t64_stop_result repeated_result = {UINT32_MAX, UINT64_MAX};
   t64_cpu_stop_detail detail = {UINT64_MAX, UINT32_MAX, UINT32_MAX};
@@ -267,18 +267,18 @@ int main(void) {
   T64_CHECK_INT(t64_machine_advance(machine, &request, &result),
                 T64_STATUS_OK);
   T64_CHECK_INT(result.reason, T64_STOP_REASON_CPU_UNSUPPORTED);
-  T64_CHECK_INT(result.tick, 2u);
-  T64_CHECK_INT(machine->instruction_count, 1u);
-  T64_CHECK_INT(machine->cpu.retired_instructions, 1u);
+  T64_CHECK_INT(result.tick, 10u);
+  T64_CHECK_INT(machine->instruction_count, 9u);
+  T64_CHECK_INT(machine->cpu.retired_instructions, 9u);
   T64_CHECK_INT(t64_machine_cpu_stop_detail(machine, &detail), T64_STATUS_OK);
-  T64_CHECK_INT(detail.retired_instructions, 1u);
-  T64_CHECK_INT(detail.pc, UINT32_C(0xa4000044));
-  T64_CHECK_INT(detail.opcode, UINT32_C(0x3c1da400));
+  T64_CHECK_INT(detail.retired_instructions, 9u);
+  T64_CHECK_INT(detail.pc, UINT32_C(0xa4000064));
+  T64_CHECK_INT(detail.opcode, UINT32_C(0x40044800));
   request.value = 10u;
   T64_CHECK_INT(t64_machine_advance(machine, &request, &repeated_result),
                 T64_STATUS_OK);
   T64_CHECK_INT(repeated_result.reason, T64_STOP_REASON_CPU_UNSUPPORTED);
-  T64_CHECK_INT(repeated_result.tick, 2u);
+  T64_CHECK_INT(repeated_result.tick, 10u);
 
 done:
   t64_machine_destroy(machine);

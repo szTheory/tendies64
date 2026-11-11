@@ -416,80 +416,6 @@ void t64_machine_reset_execution_state(t64_machine *machine) {
   machine->sequence_exhausted = false;
 }
 
-static t64_status openipl3_cpu_step(t64_machine *machine,
-                                    const t64_event *event);
-
-static t64_status schedule_openipl3_cpu_step(t64_machine *machine) {
-  t64_event_reservation reservation;
-  t64_status status = t64_schedule_reserve_after(
-      machine, UINT64_C(1), T64_DEVICE_CPU, T64_CPU_EVENT_STEP, UINT64_C(0),
-      UINT64_C(0), openipl3_cpu_step, &reservation);
-
-  if (status != T64_STATUS_OK) {
-    return status;
-  }
-  return t64_schedule_commit(machine, &reservation);
-}
-
-static t64_status openipl3_cpu_step(t64_machine *machine,
-                                    const t64_event *event) {
-  uint32_t physical_pc;
-  uint32_t opcode = 0u;
-  t64_status status;
-
-  (void)event;
-  if (machine->cpu.stopped) {
-    return T64_STATUS_RESOURCE_EXHAUSTED;
-  }
-  machine->cpu.last_pc = machine->cpu.pc;
-  physical_pc = machine->cpu.pc;
-  if (physical_pc >= UINT32_C(0x80000000) &&
-      physical_pc < UINT32_C(0xc0000000)) {
-    physical_pc &= UINT32_C(0x1fffffff);
-  }
-  status = t64_bus_read(machine, physical_pc, 4u, &opcode);
-  machine->cpu.last_opcode = opcode;
-  if (status != T64_STATUS_OK || machine->cpu.pc != machine->boot.entry_pc ||
-      opcode != UINT32_C(0x3044d236)) {
-    machine->cpu.stopped = true;
-    machine->cpu.stop_reason = T64_STOP_REASON_CPU_UNSUPPORTED;
-    machine->cpu.stop_pc = machine->cpu.pc;
-    machine->cpu.stop_opcode = opcode;
-    t64_trace_emit(machine, machine->tick, T64_TRACE_DEVICE_MACHINE,
-                   T64_TRACE_KIND_CPU_UNSUPPORTED,
-                   ((uint64_t)machine->cpu.pc << 32) | (uint64_t)opcode);
-    return T64_STATUS_RESOURCE_EXHAUSTED;
-  }
-  if (machine->cpu.retired_instructions == UINT64_MAX ||
-      machine->instruction_count == UINT64_MAX) {
-    machine->cpu.stopped = true;
-    machine->cpu.stop_reason = T64_STOP_REASON_CPU_UNSUPPORTED;
-    machine->cpu.stop_pc = machine->cpu.pc;
-    machine->cpu.stop_opcode = opcode;
-    t64_trace_emit(machine, machine->tick, T64_TRACE_DEVICE_MACHINE,
-                   T64_TRACE_KIND_CPU_UNSUPPORTED,
-                   ((uint64_t)machine->cpu.pc << 32) | (uint64_t)opcode);
-    return T64_STATUS_RESOURCE_EXHAUSTED;
-  }
-
-  {
-    const uint32_t source_register = (opcode >> 21) & UINT32_C(0x1f);
-    const uint32_t target_register = (opcode >> 16) & UINT32_C(0x1f);
-    const uint64_t immediate = (uint64_t)(opcode & UINT32_C(0xffff));
-
-    machine->cpu.gpr[target_register] =
-        machine->cpu.gpr[source_register] & immediate;
-  }
-  machine->cpu.gpr[0] = 0u;
-  machine->cpu.retired_instructions++;
-  machine->instruction_count++;
-  t64_trace_emit(machine, machine->tick, T64_TRACE_DEVICE_MACHINE,
-                 T64_TRACE_KIND_CPU_RETIREMENT,
-                 ((uint64_t)machine->cpu.pc << 32) | (uint64_t)opcode);
-  machine->cpu.pc += UINT32_C(4);
-  return schedule_openipl3_cpu_step(machine);
-}
-
 static t64_status prepare_openipl3_warm_entry(t64_machine *machine) {
   const uint8_t *image = (const uint8_t *)machine->image_storage.data;
 
@@ -524,7 +450,7 @@ static t64_status prepare_openipl3_warm_entry(t64_machine *machine) {
   machine->boot.prepared = true;
   t64_trace_emit(machine, machine->tick, T64_TRACE_DEVICE_MACHINE,
                  T64_TRACE_KIND_CPU_ENTRY, machine->cpu.pc);
-  return schedule_openipl3_cpu_step(machine);
+  return t64_cpu_schedule(machine);
 }
 
 static t64_status reset_guest_state(t64_machine *machine) {
