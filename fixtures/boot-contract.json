@@ -141,7 +141,7 @@
         "sha256": "be48cea3c0407ab9dc65e4458f3d8f4ffab018a97a7d66de41ecdde8770626d5"
       }
     },
-    "host_coverage_limit": "Built and executed on macOS arm64 only; Linux host build and cross-host guest evidence are deferred to the coherent hosted gate."
+    "host_coverage_limit": "Local source-built executable hashes are host-specific receipt values; the exact-SHA hosted gate reports Linux x86_64/GCC and macOS arm64/Clang coverage. Neither host build proves original IPL2 handoff or hardware accuracy."
   },
   "disassembly": {
     "command": "build/tools/install/bin/mips64-elf-objdump -D -b binary -m mips:isa64 -EB --adjust-vma=0xa4000040 <copied-payload>",
