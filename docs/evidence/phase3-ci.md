@@ -41,8 +41,11 @@ are the sources checked.
 attempt through the GitHub REST API, including repository, workflow path,
 push event, exact source SHA and attempt number. It requires exactly one
 completed successful `gate-linux` and `gate-macos` job with matching run,
-attempt and SHA, then exactly two current-attempt proof artifacts with matching
-run and source SHA, unexpired bounded sizes and valid SHA-256 artifact digests.
+attempt and SHA. It selects exactly the two artifact names for that run's
+requested attempt. Properly identified artifacts from lower attempts may remain
+listed and are not downloaded; their names, attempt ordering, source SHA, run
+metadata, digest shape, size bound and unique IDs are still checked. The two
+selected artifacts must be unexpired and bounded.
 It downloads each exact artifact name into a fresh private directory with
 `gh run download`, refuses links, special filesystem entries, nested
 directories, extra files and JSON larger than 64 KiB, and validates each
@@ -63,8 +66,10 @@ full IPL3, IPL3 payload, profile, input, guest-stop bound, progress, log and
 state identities, this comparison checks each of those identities. A
 different valid compiler build ID alone is permitted.
 
-The collector selftest passed one local-only positive pair and 23 independent
-rejection cases. The comparator selftest passed a local-only pair with
+The collector selftest passed a local-only positive pair and 24 independent
+rejection cases, including a valid attempt-2 pair while retaining a validated
+attempt-1 artifact and rejection of a current artifact mislabeled as attempt 1.
+The comparator selftest passed a local-only pair with
 different valid build IDs and rejected eight selector, missing/duplicate-input,
 unequal-input, unequal-bound and unequal-state cases. These local selftests exercise behavior only and do
 not satisfy the hosted proof. API shapes were checked read-only against prior
@@ -109,6 +114,13 @@ one selected artifact into the requested directory.
 - The emitter produced a canonical wrapper from a real local supervisor pass; both staged rights and PII scans passed. This local smoke confirms the emitter path only and does not satisfy the hosted proof.
 - The current common gate includes both collector and comparator selftests;
   their real local supervisor records remain explicitly non-hosted inputs.
+- After making artifact selection attempt-specific, `./scripts/gate.sh` passed
+  on macOS arm64 in 160 s: exact gate inventory 91/91, CTest 91/91, the
+  collector's retained-attempt case plus 24 rejections, comparator positive
+  plus 8 mismatches, rights and PII checks, and core lint with zero violations.
+  The initial collector selftest before this run found a stale local build
+  embedding source revision `d6adbec...` while HEAD was `d3ad1c8...`; after
+  configuring and rebuilding the gate preset, the local selftest passed.
 
 ## Hosted run records
 
@@ -150,3 +162,35 @@ and test-only setup checks. A later successful exact-SHA run and comparator
 result are still required to establish hosted proof. Its run, attempt, both
 job IDs, artifact IDs and API digests, extracted-record hashes, measured
 timings, and comparison will be appended here.
+
+The test-only setup-check candidate SHA
+`d3ad1c8093fba2aa9b637d3cdaf74e244875346a` ran as
+[workflow 43094128662, attempt 1](https://github.com/szTheory/tendies64/actions/runs/43094128662).
+The Linux job 130778472362 completed successfully and uploaded artifact
+13889518730. Its API metadata reports archive size 962 bytes and digest
+`sha256:dde81e2da0d015769fdde87da814dba9865a23d7d057e17db315edf512d74879`.
+The separately extracted `gate-linux.json` is 1587 bytes with record SHA-256
+`394604abb080e8457af0e99515950e36862e5b0b2295e44e9197f16ec311b1e5`. The API
+archive size and digest describe the uploaded container; the JSON size and
+record hash describe its extracted payload. They are not compared.
+
+The macOS job 130778471704 passed Gate, evidence emission, rights scan and PII
+scan. The job started at 20:15:18Z; its upload step began at 20:20:11Z and was
+marked `cancelled` at 20:25:18Z, exactly at the unchanged 10-minute job timeout.
+No macOS artifact was created, so the Linux record is preliminary only and
+this run cannot establish the hosted pair. Run, attempt, check-suite and job reads continued to report
+`in_progress` with `updated_at` frozen at 20:15:18Z. Both normal and force
+cancel endpoints returned HTTP 409 stating the run was not in progress. The
+connected log endpoint timed out and the direct job-log REST request returned
+HTTP 502, so the upload's underlying cause is unavailable; it is not attributed
+to an Actions outage or to the workflow. The live [GitHub Status API](https://www.githubstatus.com/api/v2/summary.json)
+reported `All Systems Operational` and Actions `operational` at
+2026-11-11T20:29:11.880Z. Review LOG.md records a deferral because run timing
+and step logs could not be read.
+
+This failure exposed a collector recovery gap: a later attempt on the same run
+can retain an artifact from an earlier attempt. The collector now selects only
+the requested exact-attempt pair and validates any lower-attempt artifacts as
+historical metadata without downloading or pairing them. The 10-minute timeout,
+two hosted jobs and workflow remained unchanged. A new normal push is required
+for clean exact-run collection; prior artifacts remain untouched.

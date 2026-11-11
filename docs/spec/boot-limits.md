@@ -214,3 +214,21 @@ checked, and a cached Ubuntu 24.04/GCC 13.3 x86_64 container syntax-checked the
 three affected C translation units with the CI warning flags. This
 compile-only check is not a complete Linux build or guest evidence; the next
 hosted run remains authoritative.
+
+The `d3ad1c8093fba2aa9b637d3cdaf74e244875346a` push reached a successful Linux
+gate and evidence upload, but the macOS job's upload step was marked canceled
+at the 10-minute job timeout. The macOS gate, emitter and sanitization steps
+had passed. The run and job APIs remained stale at `in_progress`; normal and
+force-cancel requests returned HTTP 409, and the job-log API returned HTTP 502.
+The underlying upload cause is unknown. The retained Linux artifact is not
+paired with another run and does not count as hosted proof. A live GitHub Status
+API read at 2026-11-11T20:29:11.880Z reported Actions operational; this does not
+explain this individual upload failure.
+
+The collector now accepts verified older-attempt artifact metadata while
+downloading and validating only the exact selected attempt's two records. The
+new local gate passed 91/91 tests in 160 seconds, including a mocked valid
+attempt-2 pair with a retained attempt-1 artifact and rejection of a current
+artifact mislabeled as attempt 1. This collector-only compatibility change
+does not alter guest behavior, CI job count, action pin or timeout. A fresh
+normal push is needed for a complete exact-run Linux/macOS pair.

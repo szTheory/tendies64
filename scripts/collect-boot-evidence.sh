@@ -206,17 +206,41 @@ collect() {
   jq -s '{total_count:.[0].total_count,artifacts:[.[].artifacts[]]}' "$artifacts_pages" > "$artifacts_file" || die "cannot combine artifact pages"
   linux_name=t64-boot-evidence-$sha-$run-$attempt-gate-linux
   macos_name=t64-boot-evidence-$sha-$run-$attempt-gate-macos
-  jq -e --arg sha "$sha" --arg run "$run" --arg linux "$linux_name" --arg macos "$macos_name" '
-    ([.artifacts[] | select(.name | startswith("t64-boot-evidence-"))]) as $proof |
-    (.total_count == (.artifacts | length)) and ($proof | length) == 2 and
-    ([ $proof[].name ] | sort) == ([$linux,$macos] | sort) and
-    ([ $proof[].id | tostring ] | unique | length) == 2 and
-    all($proof[];
-      .expired == false and (.size_in_bytes | type) == "number" and
-      .size_in_bytes > 0 and .size_in_bytes <= 65536 and
-      (.digest | type) == "string" and (.digest | test("^sha256:[0-9a-f]{64}$")) and
-      (.workflow_run.id | tostring) == $run and .workflow_run.head_sha == $sha)
-  ' "$artifacts_file" >/dev/null || die "run must have exactly two unexpired, bounded, run-bound proof artifacts for the selected SHA/attempt/jobs"
+  jq -e --arg sha "$sha" --arg run "$run" --arg attempt "$attempt" --arg linux "$linux_name" --arg macos "$macos_name" '
+    def prior_attempt($candidate; $selected):
+      (($candidate | length) < ($selected | length)) or
+      ((($candidate | length) == ($selected | length)) and ($candidate < $selected));
+    (.total_count == (.artifacts | length)) and
+    (
+      ([.artifacts[] | select((.name // "") | startswith("t64-boot-evidence-"))]) as $proof |
+      ([$proof[] | select(.name == $linux or .name == $macos)]) as $current |
+      ($proof | length) >= 2 and
+      ($current | length) == 2 and
+      ([$current[].name] | sort) == ([$linux,$macos] | sort) and
+      ([$proof[].name] | unique | length) == ($proof | length) and
+      ([$proof[].id | tostring] | unique | length) == ($proof | length) and
+      all($proof[];
+        . as $artifact |
+        ($artifact.name | split("-")) as $parts |
+        $parts[5] as $artifact_attempt |
+        (($parts | length) == 8 and $parts[0] == "t64" and
+         $parts[1] == "boot" and $parts[2] == "evidence" and
+         $parts[3] == $sha and $parts[4] == $run and
+         ($artifact_attempt | test("^[1-9][0-9]*$")) and
+         $parts[6] == "gate" and ($parts[7] == "linux" or $parts[7] == "macos") and
+         (($artifact_attempt == $attempt) or prior_attempt($artifact_attempt; $attempt)) and
+         (($artifact.id | type) == "number") and $artifact.id > 0 and
+         (($artifact.expired | type) == "boolean") and
+         (($artifact.size_in_bytes | type) == "number") and
+         $artifact.size_in_bytes > 0 and $artifact.size_in_bytes <= 65536 and
+         (($artifact.digest | type) == "string") and
+         ($artifact.digest | test("^sha256:[0-9a-f]{64}$")) and
+         (($artifact.workflow_run.id | tostring) == $run) and
+         ($artifact.workflow_run.head_sha == $sha))
+      ) and
+      all($current[]; .expired == false)
+    )
+  ' "$artifacts_file" >/dev/null || die "run must have exactly two unexpired current proof artifacts with only correctly identified older attempts retained"
 
   mkdir "$TMP/gate-linux" "$TMP/gate-macos" "$TMP/publish" || die "cannot create private artifact directories"
   gh run download "$run" --repo "$repo" --name "$linux_name" --dir "$TMP/gate-linux" || die "cannot download exact gate-linux artifact"
@@ -280,12 +304,31 @@ selftest() {
   mkdir -p "$TMP/download/$linux_name" "$TMP/download/$macos_name"
   cp "$TMP/linux.json" "$TMP/download/$linux_name/gate-linux.json"
   cp "$TMP/macos.json" "$TMP/download/$macos_name/gate-macos.json"
+  linux_attempt2_name=t64-boot-evidence-$sha-123-2-gate-linux
+  macos_attempt2_name=t64-boot-evidence-$sha-123-2-gate-macos
+  jq -cnS --arg commit "$sha" --arg run 123 --arg attempt 2 --arg job gate-linux \
+    --slurpfile result "$TMP/result.json" \
+    '{schema:"t64.boot-evidence",schema_version:1,commit_sha:$commit,run_id:$run,run_attempt:$attempt,job_name:$job,result:$result[0]}' \
+    > "$TMP/linux-attempt2.json"
+  jq -cnS --arg commit "$sha" --arg run 123 --arg attempt 2 --arg job gate-macos \
+    --slurpfile result "$TMP/result.json" \
+    '{schema:"t64.boot-evidence",schema_version:1,commit_sha:$commit,run_id:$run,run_attempt:$attempt,job_name:$job,result:$result[0]}' \
+    > "$TMP/macos-attempt2.json"
+  mkdir -p "$TMP/download/$linux_attempt2_name" "$TMP/download/$macos_attempt2_name"
+  cp "$TMP/linux-attempt2.json" "$TMP/download/$linux_attempt2_name/gate-linux.json"
+  cp "$TMP/macos-attempt2.json" "$TMP/download/$macos_attempt2_name/gate-macos.json"
   linux_size=$(wc -c < "$TMP/linux.json" | tr -d ' ')
   macos_size=$(wc -c < "$TMP/macos.json" | tr -d ' ')
+  linux_attempt2_size=$(wc -c < "$TMP/linux-attempt2.json" | tr -d ' ')
+  macos_attempt2_size=$(wc -c < "$TMP/macos-attempt2.json" | tr -d ' ')
   jq -cn --arg sha "$sha" '{id:123,run_attempt:1,path:".github/workflows/ci.yml",event:"push",head_sha:$sha,status:"completed",conclusion:"success",repository:{full_name:"szTheory/tendies64"}}' > "$TMP/run.json"
+  jq -cn --arg sha "$sha" '{id:123,run_attempt:2,path:".github/workflows/ci.yml",event:"push",head_sha:$sha,status:"completed",conclusion:"success",repository:{full_name:"szTheory/tendies64"}}' > "$TMP/run-attempt2.json"
   jq -cn --arg sha "$sha" '{id:123,run_attempt:1,path:".github/workflows/ci.yml",head_sha:$sha,status:"completed",conclusion:"success"}' > "$TMP/attempt.json"
+  jq -cn --arg sha "$sha" '{id:123,run_attempt:2,path:".github/workflows/ci.yml",head_sha:$sha,status:"completed",conclusion:"success"}' > "$TMP/attempt2.json"
   jq -cn --arg sha "$sha" '[{id:301,run_id:123,run_attempt:1,head_sha:$sha,name:"gate-linux",status:"completed",conclusion:"success"},{id:302,run_id:123,run_attempt:1,head_sha:$sha,name:"gate-macos",status:"completed",conclusion:"success"}] | {total_count:length,jobs:.}' > "$TMP/jobs.json"
+  jq -cn --arg sha "$sha" '[{id:303,run_id:123,run_attempt:2,head_sha:$sha,name:"gate-linux",status:"completed",conclusion:"success"},{id:304,run_id:123,run_attempt:2,head_sha:$sha,name:"gate-macos",status:"completed",conclusion:"success"}] | {total_count:length,jobs:.}' > "$TMP/jobs-attempt2.json"
   jq -cn --arg sha "$sha" --arg linux "$linux_name" --arg macos "$macos_name" --argjson linux_size "$linux_size" --argjson macos_size "$macos_size" '[{id:401,name:$linux,size_in_bytes:$linux_size,expired:false,digest:"sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",workflow_run:{id:123,head_sha:$sha}},{id:402,name:$macos,size_in_bytes:$macos_size,expired:false,digest:"sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",workflow_run:{id:123,head_sha:$sha}}] | {total_count:length,artifacts:.}' > "$TMP/artifacts.json"
+  jq -cn --arg sha "$sha" --arg linux "$linux_attempt2_name" --arg macos "$macos_attempt2_name" --argjson old_size "$linux_size" --argjson linux_size "$linux_attempt2_size" --argjson macos_size "$macos_attempt2_size" '[{id:403,name:("t64-boot-evidence-"+$sha+"-123-1-gate-linux"),size_in_bytes:$old_size,expired:true,digest:"sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",workflow_run:{id:123,head_sha:$sha}},{id:404,name:$linux,size_in_bytes:$linux_size,expired:false,digest:"sha256:dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",workflow_run:{id:123,head_sha:$sha}},{id:405,name:$macos,size_in_bytes:$macos_size,expired:false,digest:"sha256:eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",workflow_run:{id:123,head_sha:$sha}}] | {total_count:length,artifacts:.}' > "$TMP/artifacts-attempt2.json"
   printf '%s\n' \
     '#!/bin/sh' \
     'set -eu' \
@@ -293,10 +336,12 @@ selftest() {
     'if [ "${1:-}" = api ]; then' \
     '  endpoint=${2:-}' \
     '  case "$endpoint" in' \
-    '    repos/szTheory/tendies64/actions/runs/123) case ${T64_MOCK_CASE:-} in wrong-run-sha) jq ".head_sha=\"0000000000000000000000000000000000000000\"" "$root/run.json" ;; wrong-run-id) jq ".id=999" "$root/run.json" ;; wrong-run-attempt) jq ".run_attempt=2" "$root/run.json" ;; *) cat "$root/run.json" ;; esac ;;' \
+    '    repos/szTheory/tendies64/actions/runs/123) case ${T64_MOCK_CASE:-} in retained-old-attempt|wrong-current-attempt) cat "$root/run-attempt2.json" ;; wrong-run-sha) jq ".head_sha=\"0000000000000000000000000000000000000000\"" "$root/run.json" ;; wrong-run-id) jq ".id=999" "$root/run.json" ;; wrong-run-attempt) jq ".run_attempt=2" "$root/run.json" ;; *) cat "$root/run.json" ;; esac ;;' \
     '    repos/szTheory/tendies64/actions/runs/123/attempts/1) case ${T64_MOCK_CASE:-} in wrong-attempt) jq ".run_attempt=2" "$root/attempt.json" ;; *) cat "$root/attempt.json" ;; esac ;;' \
     '    repos/szTheory/tendies64/actions/runs/123/attempts/1/jobs?per_page=100\&page=1) case ${T64_MOCK_CASE:-} in failed-job) jq ".jobs[1].conclusion=\"failure\"" "$root/jobs.json" ;; incomplete-job) jq ".jobs[1].status=\"in_progress\"" "$root/jobs.json" ;; duplicate-job) jq ".jobs += [.jobs[0]] | .total_count=.jobs|length" "$root/jobs.json" ;; missing-job) jq ".jobs=[.jobs[0]] | .total_count=1" "$root/jobs.json" ;; wrong-job-sha) jq ".jobs[1].head_sha=\"0000000000000000000000000000000000000000\"" "$root/jobs.json" ;; *) cat "$root/jobs.json" ;; esac ;;' \
-    '    repos/szTheory/tendies64/actions/runs/123/artifacts?per_page=100\&page=1) case ${T64_MOCK_CASE:-} in missing-artifact) jq ".artifacts=[.artifacts[0]] | .total_count=1" "$root/artifacts.json" ;; duplicate-artifact) jq ".artifacts += [.artifacts[0] | .id=499] | .total_count=.artifacts|length" "$root/artifacts.json" ;; wrong-artifact-attempt) jq ".artifacts |= map(.name |= sub(\"-1-gate-\";\"-2-gate-\"))" "$root/artifacts.json" ;; wrong-artifact-run) jq ".artifacts[0].workflow_run.id=999" "$root/artifacts.json" ;; wrong-artifact-source) jq ".artifacts[0].workflow_run.head_sha=\"0000000000000000000000000000000000000000\"" "$root/artifacts.json" ;; expired-artifact) jq ".artifacts[0].expired=true" "$root/artifacts.json" ;; large-artifact) jq ".artifacts[0].size_in_bytes=65537" "$root/artifacts.json" ;; wrong-artifact-sha) jq ".artifacts[0].name |= sub(\"[0-9a-f]{40}\";\"0000000000000000000000000000000000000000\")" "$root/artifacts.json" ;; *) cat "$root/artifacts.json" ;; esac ;;' \
+    '    repos/szTheory/tendies64/actions/runs/123/attempts/2) cat "$root/attempt2.json" ;;' \
+    '    repos/szTheory/tendies64/actions/runs/123/attempts/2/jobs?per_page=100\&page=1) cat "$root/jobs-attempt2.json" ;;' \
+    '    repos/szTheory/tendies64/actions/runs/123/artifacts?per_page=100\&page=1) case ${T64_MOCK_CASE:-} in retained-old-attempt) cat "$root/artifacts-attempt2.json" ;; wrong-current-attempt) jq ".artifacts[2].name |= sub(\"-2-gate-macos$\";\"-1-gate-macos\")" "$root/artifacts-attempt2.json" ;; missing-artifact) jq ".artifacts=[.artifacts[0]] | .total_count=1" "$root/artifacts.json" ;; duplicate-artifact) jq ".artifacts += [.artifacts[0] | .id=499] | .total_count=.artifacts|length" "$root/artifacts.json" ;; wrong-artifact-attempt) jq ".artifacts |= map(.name |= sub(\"-1-gate-\";\"-2-gate-\"))" "$root/artifacts.json" ;; wrong-artifact-run) jq ".artifacts[0].workflow_run.id=999" "$root/artifacts.json" ;; wrong-artifact-source) jq ".artifacts[0].workflow_run.head_sha=\"0000000000000000000000000000000000000000\"" "$root/artifacts.json" ;; expired-artifact) jq ".artifacts[0].expired=true" "$root/artifacts.json" ;; large-artifact) jq ".artifacts[0].size_in_bytes=65537" "$root/artifacts.json" ;; wrong-artifact-sha) jq ".artifacts[0].name |= sub(\"[0-9a-f]{40}\";\"0000000000000000000000000000000000000000\")" "$root/artifacts.json" ;; *) cat "$root/artifacts.json" ;; esac ;;' \
     '    *) echo "unexpected mock API endpoint: $endpoint" >&2; exit 2 ;;' \
     '  esac' \
     '  exit 0' \
@@ -319,6 +364,13 @@ selftest() {
   [ "$(find "$TMP/collected" -type f | wc -l | tr -d ' ')" = 2 ] || die "mocked collector did not publish exactly two records"
   cmp -s "$TMP/linux.json" "$TMP/collected/gate-linux.json" || die "mocked Linux record changed during collection"
   cmp -s "$TMP/macos.json" "$TMP/collected/gate-macos.json" || die "mocked macOS record changed during collection"
+  PATH="$TMP/mockbin:$PATH" T64_EVIDENCE_MOCK_ROOT="$TMP" T64_MOCK_CASE=retained-old-attempt \
+    sh "$ROOT/scripts/collect-boot-evidence.sh" --collect --repo szTheory/tendies64 \
+    --sha "$sha" --run 123 --attempt 2 --out "$TMP/collected-attempt2" >/dev/null ||
+    die "mocked exact-run collection rejected a valid attempt-2 pair with a retained attempt-1 artifact"
+  [ "$(find "$TMP/collected-attempt2" -type f | wc -l | tr -d ' ')" = 2 ] || die "attempt-2 collection did not publish exactly two current records"
+  cmp -s "$TMP/linux-attempt2.json" "$TMP/collected-attempt2/gate-linux.json" || die "attempt-2 Linux record changed during collection"
+  cmp -s "$TMP/macos-attempt2.json" "$TMP/collected-attempt2/gate-macos.json" || die "attempt-2 macOS record changed during collection"
   rejects=0
   expect_reject() {
     case_name=$1
@@ -332,6 +384,19 @@ selftest() {
     [ ! -e "$TMP/rejected" ] && [ ! -L "$TMP/rejected" ] || die "collector selftest partially published after rejecting $*"
     rejects=$((rejects + 1))
   }
+  expect_attempt2_reject() {
+    case_name=$1
+    description=$2
+    rm -rf "$TMP/rejected-attempt2"
+    if PATH="$TMP/mockbin:$PATH" T64_EVIDENCE_MOCK_ROOT="$TMP" T64_MOCK_CASE="$case_name" \
+      sh "$ROOT/scripts/collect-boot-evidence.sh" --collect --repo szTheory/tendies64 \
+      --sha "$sha" --run 123 --attempt 2 --out "$TMP/rejected-attempt2" >/dev/null 2>&1; then
+      die "collector selftest accepted $description"
+    fi
+    [ ! -e "$TMP/rejected-attempt2" ] && [ ! -L "$TMP/rejected-attempt2" ] || die "collector selftest partially published after rejecting $description"
+    rejects=$((rejects + 1))
+  }
+  expect_attempt2_reject wrong-current-attempt "a current macOS artifact mislabeled as retained attempt 1"
   expect_reject wrong-run-sha "a wrong run SHA"
   expect_reject wrong-run-id "a wrong run id"
   expect_reject wrong-run-attempt "a run object for another attempt"
