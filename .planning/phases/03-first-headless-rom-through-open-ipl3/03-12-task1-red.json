@@ -1,0 +1,10 @@
+{
+  "command": "T64_TEST_FIXTURE_DIR=build/fixtures T64_TEST_INPUT_PATH=build/fixtures/hello.input.json build/gate/runner/test_real_controls build/gate/runner/t64-supervisor build/gate/runner/t64-result-check empty-halt",
+  "exitCode": 1,
+  "output": "TAP version 13\n1..1\n# observed outcome=harness-error detail=refusal stop=refused exit=1\nnot ok 1 - empty BREAK returns boot-fail/empty-output after real IPL3 execution\n",
+  "targetTest": "empty BREAK returns boot-fail/empty-output after real IPL3 execution",
+  "targetFile": "runner/tests/test_real_controls.c",
+  "expected": "The named hello-empty-break ROM executes through the pinned IPL3 and returns boot-fail/empty-output with its fixture identity and exact empty capture.",
+  "actual": "The real supervisor and strict checker accept a prelaunch harness-error/refusal with stop=refused; the known named variant is rejected before guest admission.",
+  "semanticAssessment": "Valid behavioral RED for the missing real-variant admission path: the planned actual supervisor/checker control ran against the generated rights-cleared hello-empty-break ROM and failed its guest-outcome assertion because production admission still rejects that fixture identity before execution. This is the behavior the implementation must change; it is not a missing executable, setup, or checker failure."
+}

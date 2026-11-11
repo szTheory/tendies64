@@ -115,6 +115,22 @@ target_link_libraries(t64-supervisor-test PRIVATE
 t64_target_warnings(t64-supervisor-test)
 add_dependencies(t64-supervisor-test t64-runner-test t64-result-check)
 
+# Real guest negative controls share the production supervisor and strict
+# result checker; fixture paths remain test inputs and never reach the child.
+add_executable(test_real_controls tests/test_real_controls.c)
+target_compile_definitions(test_real_controls PRIVATE ${T64_HOST_DEFS})
+target_link_libraries(test_real_controls PRIVATE t64_common)
+t64_target_warnings(test_real_controls)
+add_dependencies(test_real_controls
+  t64-supervisor t64-result-check t64-supervisor-test t64-boot-fixtures)
+add_test(NAME controls.real.empty-halt
+  COMMAND test_real_controls $<TARGET_FILE:t64-supervisor>
+    $<TARGET_FILE:t64-result-check> empty-halt)
+set_tests_properties(controls.real.empty-halt PROPERTIES
+  LABELS controls TIMEOUT 120
+  ENVIRONMENT
+    "T64_TEST_FIXTURE_DIR=${CMAKE_SOURCE_DIR}/build/fixtures;T64_TEST_INPUT_PATH=${CMAKE_SOURCE_DIR}/build/fixtures/hello.input.json")
+
 # Descriptor-attested actual IPL3/hello positive integration.
 add_executable(test_real_runner tests/test_real_runner.c)
 target_compile_definitions(test_real_runner PRIVATE ${T64_HOST_DEFS})
