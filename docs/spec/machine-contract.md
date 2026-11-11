@@ -303,7 +303,7 @@ independently assembled default fixture state digest is
 | Allocator callbacks/context and machine/image storage descriptors | Exclude | Host ownership and pointer locations are not machine behavior |
 | RAM pointer, event handler pointers and build/source identity | Exclude | Storage/code identity is not serialized machine state |
 | Queue head, unused event slots, structure padding | Exclude | Physical layout is not logical queue state |
-| Trace configuration, records and drop observation | Exclude | Observer state must not alter guest state or its digest |
+| Trace configuration, records, drop observation, and output-drain cursor | Exclude | Observer state must not alter guest state or its digest |
 
 The field-mutation tests toggle every PI and SP latch, flag, descriptor value,
 token, and exhaustion state. Exclusion, relocation, golden-vector, interleaving
@@ -322,6 +322,39 @@ advance. A zero-capacity drain may pass a null record buffer, copies zero
 records and leaves the queue intact. Invalid nonzero output buffers are refused
 without draining. Neither trace enablement nor draining calls the host or
 changes the canonical digest.
+
+## Output observation and timed input
+
+`t64_machine_output_drain` is a provisional host observation call, not a frozen
+ABI. The caller serializes it with `t64_machine_advance` and other calls on the
+same instance. It copies the not-yet-observed suffix of that instance's
+retained ISViewer capture into caller-owned storage and reports the copied
+length, required length, total retained guest bytes, SHA-256 of the complete
+retained prefix, and sticky loss state. A short buffer reports the required
+length and observations without copying or advancing the cursor. Repeated
+drains with no new bytes copy zero. Host copying never releases the 4096-byte
+guest capture or changes guest identity.
+
+Before writing either output, drain validates pointer ranges, address overflow,
+pairwise result/data overlap, and overlap with machine storage, the admitted
+image, and RDRAM. Invalid or null nonempty spans leave caller bytes and the
+instance unchanged. The result span is required. A null data span is allowed
+only with zero capacity. Draining is available after admission, including
+after a terminal CPU stop; successful image replacement resets both guest
+output and the observer cursor.
+
+`t64_machine_queue_input` accepts an absolute guest tick, port 0, 16 button
+bits, and X/Y axes in the signed 8-bit range `[-128,127]`. The scheduled event
+value stores buttons in bits 0-15, X in bits 16-23, and Y in bits 24-31 using
+two's-complement octets. It uses the existing per-instance scheduler's
+reserve-then-commit path and sequence ordering. Its stable trace identity is
+device 6, kind 1; event kind numbers are interpreted with their device source.
+The event only records a deterministic timed input observation. It is not
+consumed by SI, PIF, or a controller model. Invalid port/axis values, past
+ticks, unready or terminal machines, a full queue, and sequence exhaustion
+refuse without partial queue or sequence mutation. Input records are
+observer-only; the pending event tuple is included in state-v7 identity until
+it dispatches.
 
 ## Replacement reset snapshot
 
@@ -343,6 +376,7 @@ introduced.
 | Scheduler queue, next sequence and exhaustion state | Yes | Empty queue, initial sequence and available sequence |
 | PI raw latches, error, active/canceled descriptor and token state | Yes | Clear latches and descriptor, clear active/error/exhaustion flags, reset next token to 1 |
 | Trace records, drop count and enablement | Yes | Clear records and drops; preserve enablement and emit a new admission record when enabled |
+| Output-drain cursor | Yes | Reset to zero with guest output; observer-only and excluded from the canonical digest |
 
 Refusal assertions compare every present machine observation, scheduler state,
 trace records/drop observation and ownership counter. Later device slices

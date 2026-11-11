@@ -219,6 +219,7 @@ t64_status t64_machine_digest(const t64_machine *machine,
     hash_u32(&context, machine->output.audio_output_ready ? UINT32_C(1)
                                                           : UINT32_C(0));
     if (has_v7_state) {
+      /* Retained guest output is future state; the host drain cursor is not. */
       hash_u32(&context, machine->output.magic_register);
       hash_u32(&context, machine->output.byte_count);
       hash_u32(&context, T64_ISVIEWER_BUFFER_BYTES);

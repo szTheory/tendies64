@@ -81,10 +81,10 @@ static const t64_profile_descriptor ntsc_cart_4m_profile = {
 #define T64_OPENIPL3_AUTHORED_PAYLOAD_OFFSET UINT32_C(0x00001000)
 #define T64_OPENIPL3_POLICY_SHA256_BYTES                                     \
   {                                                                          \
-    0xc6u, 0x4cu, 0xfcu, 0xfdu, 0xbdu, 0x3cu, 0xcdu, 0xd0u,                  \
-        0x8fu, 0xdau, 0xfbu, 0xc6u, 0x35u, 0x39u, 0xafu, 0x5bu,              \
-        0x80u, 0x26u, 0xcau, 0xebu, 0x70u, 0xfau, 0xd1u, 0x73u,              \
-        0xbeu, 0xe9u, 0x33u, 0xa9u, 0x3eu, 0x96u, 0xb1u, 0x41u               \
+    0x08u, 0x63u, 0x44u, 0x81u, 0x79u, 0x27u, 0x48u, 0xadu,                  \
+        0xe0u, 0xe6u, 0x40u, 0x73u, 0xb9u, 0xcdu, 0x51u, 0xd5u,              \
+        0x97u, 0x2eu, 0xc3u, 0xa5u, 0x64u, 0x21u, 0x27u, 0x8bu,              \
+        0x32u, 0x03u, 0x97u, 0x90u, 0x87u, 0xb4u, 0xe0u, 0x5du               \
   }
 
 static const t64_profile_descriptor ntsc_cart_4m_openipl3_warm_profile = {
@@ -515,6 +515,7 @@ static t64_status reset_guest_state(t64_machine *machine) {
   (void)memset(&machine->cache, 0, sizeof machine->cache);
   (void)memset(&machine->guest_devices, 0, sizeof machine->guest_devices);
   (void)memset(&machine->output, 0, sizeof machine->output);
+  machine->output_drain_cursor = 0u;
   machine->mi_pending = 0u;
   machine->mi_mask = 0u;
   machine->mi_irq_line = false;

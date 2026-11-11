@@ -1,4 +1,5 @@
 #include "t64_internal.h"
+#include "t64_sha256.h"
 
 #include <stdbool.h>
 #include <stdint.h>
@@ -123,6 +124,66 @@ static t64_machine *create_machine(const t64_host_allocator *allocator,
   return machine;
 }
 
+static t64_machine *create_unadmitted_machine(
+    const t64_host_allocator *allocator) {
+  const t64_profile_descriptor *profile = NULL;
+  t64_machine *machine = NULL;
+
+  if (t64_profile_lookup("ntsc-cart-4m-openipl3-warm-v1", &profile) !=
+          T64_STATUS_OK ||
+      profile == NULL ||
+      t64_machine_create(allocator, profile, &machine) != T64_STATUS_OK ||
+      machine == NULL) {
+    t64_machine_destroy(machine);
+    return NULL;
+  }
+  return machine;
+}
+
+static bool capture_bytes(t64_machine *machine, const uint8_t *bytes,
+                          size_t length) {
+  uint32_t word = 0u;
+  size_t i;
+
+  if (machine == NULL || bytes == NULL || length == 0u || length > 4u) {
+    return false;
+  }
+  for (i = 0u; i < length; i++) {
+    word |= (uint32_t)bytes[i] << (24u - (uint32_t)(i * 8u));
+  }
+  return t64_machine_bus_write(machine, T64_ISVIEWER_BASE + 0x20u, 4u,
+                               word) == T64_STATUS_OK &&
+         t64_machine_bus_write(machine, T64_ISVIEWER_BASE + 0x16u, 2u,
+                               (uint32_t)length) == T64_STATUS_OK;
+}
+
+static bool state_digest(const t64_machine *machine,
+                         uint8_t digest_out[T64_DIGEST_SIZE]) {
+  return t64_machine_digest(machine, digest_out) == T64_STATUS_OK;
+}
+
+static bool state_digests_equal(const t64_machine *left,
+                                const t64_machine *right) {
+  uint8_t left_digest[T64_DIGEST_SIZE];
+  uint8_t right_digest[T64_DIGEST_SIZE];
+
+  return state_digest(left, left_digest) && state_digest(right, right_digest) &&
+         memcmp(left_digest, right_digest, sizeof left_digest) == 0;
+}
+
+static bool sha256_matches(const uint8_t *bytes, size_t length,
+                           const uint8_t expected_bytes[T64_DIGEST_SIZE]) {
+  t64_sha256_ctx context;
+  uint8_t digest[T64_DIGEST_SIZE];
+
+  t64_sha256_init(&context);
+  if (length > 0u) {
+    t64_sha256_update(&context, bytes, length);
+  }
+  t64_sha256_final(&context, digest);
+  return memcmp(digest, expected_bytes, sizeof digest) == 0;
+}
+
 static bool bytes_are(const uint8_t *bytes, size_t length, uint8_t value) {
   size_t i;
 
@@ -220,18 +281,28 @@ static void test_public_output_and_input_seams(
     const t64_host_allocator *allocator, const uint8_t *asset,
     size_t asset_length) {
   static const uint8_t expected_bytes[] = {'A', 'B', 'C'};
+  static const uint8_t next_bytes[] = {'D', 'E', 'F'};
+  static const uint8_t reset_bytes[] = {'N', 'E', 'W'};
   t64_machine *machine = create_machine(allocator, asset, asset_length);
   t64_output_drain_result drain = {0};
   uint8_t bytes[sizeof expected_bytes] = {0};
+  uint8_t too_small[2] = {UINT8_C(0x5a), UINT8_C(0x5a)};
+  uint8_t state_before[T64_DIGEST_SIZE];
+  uint8_t state_after[T64_DIGEST_SIZE];
+  uint8_t expected_digest[T64_DIGEST_SIZE];
+  t64_sha256_ctx sha_context;
   t64_status status;
+  size_t i;
+  bool input_event_found = false;
 
   if (machine == NULL) {
     check(false, "public observation seam machine is admitted");
     return;
   }
-  (void)t64_machine_bus_write(machine, T64_ISVIEWER_BASE + 0x20u, 4u,
-                              UINT32_C(0x41424300));
-  (void)t64_machine_bus_write(machine, T64_ISVIEWER_BASE + 0x16u, 2u, 3u);
+  check(capture_bytes(machine, expected_bytes, sizeof expected_bytes),
+        "public output test seeds exact guest-owned bytes");
+  check(state_digest(machine, state_before),
+        "state digest is available before host drain");
 
   status = t64_machine_output_drain(machine, bytes, sizeof bytes, &drain);
   check_status(status, T64_STATUS_OK,
@@ -240,11 +311,466 @@ static void test_public_output_and_input_seams(
             drain.required_bytes == sizeof expected_bytes &&
             memcmp(bytes, expected_bytes, sizeof expected_bytes) == 0,
         "output drain copies the exact pending capture prefix");
+  t64_sha256_init(&sha_context);
+  t64_sha256_update(&sha_context, expected_bytes, sizeof expected_bytes);
+  t64_sha256_final(&sha_context, expected_digest);
+  check(drain.total_produced_bytes == sizeof expected_bytes &&
+            !drain.lost_output &&
+            memcmp(drain.captured_sha256, expected_digest,
+                   sizeof expected_digest) == 0,
+        "drain reports lifetime total, prefix hash and no loss");
+  check(state_digest(machine, state_after) &&
+            memcmp(state_before, state_after, sizeof state_before) == 0,
+        "copying output does not change the canonical machine digest");
+
+  (void)memset(bytes, 0x5a, sizeof bytes);
+  drain = (t64_output_drain_result){0};
+  check_status(t64_machine_output_drain(machine, bytes, sizeof bytes, &drain),
+               T64_STATUS_OK, "repeated empty drain succeeds");
+  check(drain.copied_bytes == 0u && drain.required_bytes == 0u &&
+            drain.total_produced_bytes == sizeof expected_bytes &&
+            bytes_are(bytes, sizeof bytes, UINT8_C(0x5a)),
+        "repeated empty drain copies nothing and preserves lifetime total");
+
+  check(capture_bytes(machine, next_bytes, sizeof next_bytes),
+        "next output chunk is captured independently");
+  check(state_digest(machine, state_before),
+        "state digest is available before short-buffer query");
+  (void)memset(&drain, 0xa5, sizeof drain);
+  check_status(t64_machine_output_drain(machine, too_small, sizeof too_small,
+                                        &drain),
+               T64_STATUS_BUFFER_TOO_SMALL,
+               "short output buffer reports the required pending length");
+  check(drain.copied_bytes == 0u &&
+            drain.required_bytes == sizeof next_bytes &&
+            drain.total_produced_bytes == 2u * sizeof expected_bytes &&
+            bytes_are(too_small, sizeof too_small, UINT8_C(0x5a)),
+        "short output query leaves bytes and observer cursor unchanged");
+  check(state_digest(machine, state_after) &&
+            memcmp(state_before, state_after, sizeof state_before) == 0,
+        "short output query leaves canonical state unchanged");
+  (void)memset(bytes, 0, sizeof bytes);
+  check_status(t64_machine_output_drain(machine, bytes, sizeof bytes, &drain),
+               T64_STATUS_OK, "retry after short buffer copies the same chunk");
+  check(drain.copied_bytes == sizeof next_bytes &&
+            memcmp(bytes, next_bytes, sizeof next_bytes) == 0 &&
+            sha256_matches((const uint8_t *)"ABCDEF", 6u,
+                           drain.captured_sha256),
+        "captured-prefix hash includes all lifetime output in order");
+
   check_status(t64_machine_queue_input(machine, machine->tick, 0u,
                                        UINT16_C(0x8001), -128, 127),
                T64_STATUS_OK,
                "port-zero logical input is accepted for trace scheduling");
+  for (i = 0u; i < machine->queue_count; i++) {
+    size_t index = (machine->queue_head + i) % T64_EVENT_QUEUE_CAPACITY;
+    const t64_event *event = &machine->events[index];
+
+    if (event->device == T64_TRACE_DEVICE_INPUT &&
+        event->kind == T64_TRACE_KIND_INPUT_SUBMITTED) {
+      input_event_found = event->tick == machine->tick &&
+                          event->value == UINT64_C(0x7f808001) &&
+                          event->token == 0u;
+      break;
+    }
+  }
+  check(input_event_found,
+        "queued input encodes buttons and signed axes in the v7 event tuple");
+
+  check_status(t64_machine_admit_rom(machine, asset, asset_length),
+               T64_STATUS_OK, "successful image replacement resets output");
+  check(output_state_is_reset(&machine->output),
+        "image replacement clears guest capture and loss state");
+  check(capture_bytes(machine, reset_bytes, sizeof reset_bytes),
+        "replacement image produces a fresh capture prefix");
+  (void)memset(bytes, 0, sizeof bytes);
+  check_status(t64_machine_output_drain(machine, bytes, sizeof bytes, &drain),
+               T64_STATUS_OK, "drain works after output lifecycle reset");
+  check(drain.copied_bytes == sizeof reset_bytes &&
+            drain.total_produced_bytes == sizeof reset_bytes &&
+            memcmp(bytes, reset_bytes, sizeof reset_bytes) == 0,
+        "reset observer cursor begins at the new image prefix");
   t64_machine_destroy(machine);
+}
+
+static void test_output_drain_refusals_and_isolation(
+    const t64_host_allocator *allocator, const uint8_t *asset,
+    size_t asset_length) {
+  static const uint8_t seeded[] = {'X', 'Y', 'Z'};
+  t64_machine *machine = create_machine(allocator, asset, asset_length);
+  t64_machine *other = create_machine(allocator, asset, asset_length);
+  t64_machine *unadmitted = create_unadmitted_machine(allocator);
+  t64_output_drain_result result;
+  t64_output_drain_result before_result;
+  uint8_t output[sizeof seeded];
+  uint8_t before_output[sizeof seeded];
+  uint8_t state_before[T64_DIGEST_SIZE];
+  uint8_t state_after[T64_DIGEST_SIZE];
+  uint8_t owned_before[sizeof result];
+  uint8_t owned_after[sizeof result];
+  union {
+    t64_output_drain_result result;
+    uint8_t bytes[sizeof(t64_output_drain_result)];
+  } overlap;
+  t64_status status;
+
+  if (machine == NULL || other == NULL || unadmitted == NULL) {
+    check(false, "output refusal and isolation machines are available");
+    t64_machine_destroy(machine);
+    t64_machine_destroy(other);
+    t64_machine_destroy(unadmitted);
+    return;
+  }
+  check(capture_bytes(machine, seeded, sizeof seeded),
+        "refusal test seeds a pending output chunk");
+  check(state_digest(machine, state_before),
+        "refusal test captures its pre-call state digest");
+  (void)memset(&result, 0xa5, sizeof result);
+  (void)memcpy(&before_result, &result, sizeof result);
+  (void)memset(output, 0x5a, sizeof output);
+  (void)memcpy(before_output, output, sizeof output);
+  status = t64_machine_output_drain(machine, output, SIZE_MAX, &result);
+  check_status(status, T64_STATUS_INVALID_ARGUMENT,
+               "overflowing data span is refused before copying");
+  check(memcmp(&result, &before_result, sizeof result) == 0 &&
+            memcmp(output, before_output, sizeof output) == 0,
+        "overflow refusal leaves caller result and bytes unchanged");
+
+  (void)memset(&result, 0xa5, sizeof result);
+  (void)memcpy(&before_result, &result, sizeof result);
+  status = t64_machine_output_drain(machine, NULL, sizeof output, &result);
+  check_status(status, T64_STATUS_INVALID_ARGUMENT,
+               "null nonempty data span is refused");
+  check(memcmp(&result, &before_result, sizeof result) == 0,
+        "null data refusal leaves result unchanged");
+  check_status(t64_machine_output_drain(machine, output, sizeof output, NULL),
+               T64_STATUS_INVALID_ARGUMENT,
+               "null result span is refused");
+
+  (void)memset(&overlap, 0xa5, sizeof overlap);
+  (void)memcpy(owned_before, overlap.bytes, sizeof owned_before);
+  status = t64_machine_output_drain(machine, overlap.bytes, sizeof seeded,
+                                    &overlap.result);
+  check_status(status, T64_STATUS_INVALID_ARGUMENT,
+               "pairwise-overlapping result and data spans are refused");
+  (void)memcpy(owned_after, overlap.bytes, sizeof owned_after);
+  check(memcmp(owned_before, owned_after, sizeof owned_before) == 0,
+        "pairwise alias refusal leaves the shared caller bytes unchanged");
+
+  (void)memset(&result, 0xa5, sizeof result);
+  (void)memcpy(&before_result, &result, sizeof result);
+  (void)memcpy(owned_before, machine->ram, sizeof owned_before);
+  check_status(t64_machine_output_drain(machine, machine->ram, sizeof seeded,
+                                        &result),
+               T64_STATUS_INVALID_ARGUMENT,
+               "RDRAM alias is refused");
+  (void)memcpy(owned_after, machine->ram, sizeof owned_after);
+  check(memcmp(owned_before, owned_after, sizeof owned_before) == 0 &&
+            memcmp(&result, &before_result, sizeof result) == 0,
+        "RDRAM alias refusal preserves both caller and machine bytes");
+  check_status(t64_machine_output_drain(
+                   machine, (uint8_t *)machine->image_storage.data,
+                   sizeof seeded, &result),
+               T64_STATUS_INVALID_ARGUMENT, "admitted-image alias is refused");
+  check_status(t64_machine_output_drain(machine, (uint8_t *)machine,
+                                        sizeof seeded, &result),
+               T64_STATUS_INVALID_ARGUMENT, "machine-storage alias is refused");
+
+  (void)memcpy(owned_before, machine->ram, sizeof owned_before);
+  check_status(t64_machine_output_drain(
+                   machine, output, sizeof output,
+                   (t64_output_drain_result *)machine->ram),
+               T64_STATUS_INVALID_ARGUMENT,
+               "result span inside RDRAM is refused");
+  (void)memcpy(owned_after, machine->ram, sizeof owned_after);
+  check(memcmp(owned_before, owned_after, sizeof owned_before) == 0,
+        "result alias refusal preserves RDRAM bytes");
+  check(state_digest(machine, state_after) &&
+            memcmp(state_before, state_after, sizeof state_before) == 0,
+        "all invalid output spans leave guest future state unchanged");
+
+  (void)memset(&result, 0xa5, sizeof result);
+  (void)memcpy(&before_result, &result, sizeof result);
+  (void)memset(output, 0x5a, sizeof output);
+  (void)memcpy(before_output, output, sizeof output);
+  check_status(t64_machine_output_drain(unadmitted, output, sizeof output,
+                                        &result),
+               T64_STATUS_NOT_READY,
+               "drain before image admission is not ready");
+  check(memcmp(&result, &before_result, sizeof result) == 0 &&
+            memcmp(output, before_output, sizeof output) == 0,
+        "not-ready drain leaves caller outputs unchanged");
+
+  check_status(t64_machine_admit_rom(machine, asset, asset_length),
+               T64_STATUS_OK,
+               "interleaving control starts a fresh first-instance capture");
+  check(capture_bytes(other, (const uint8_t *)"ABC", 3u),
+        "second instance captures its independent bytes");
+  check(capture_bytes(machine, (const uint8_t *)"XYZ", 3u),
+        "first instance captures its independent bytes");
+  check_status(t64_machine_output_drain(machine, output, sizeof output,
+                                        &result),
+               T64_STATUS_OK, "first interleaved instance drains");
+  check(memcmp(output, "XYZ", sizeof output) == 0,
+        "first interleaved instance returns only its own bytes");
+  check_status(t64_machine_output_drain(other, output, sizeof output,
+                                        &result),
+               T64_STATUS_OK, "second interleaved instance drains");
+  check(memcmp(output, "ABC", sizeof output) == 0,
+        "second interleaved instance returns only its own bytes");
+  t64_machine_destroy(machine);
+  t64_machine_destroy(other);
+  t64_machine_destroy(unadmitted);
+}
+
+static void test_output_loss_observation(
+    const t64_host_allocator *allocator, const uint8_t *asset,
+    size_t asset_length) {
+  t64_machine *machine = create_machine(allocator, asset, asset_length);
+  t64_output_drain_result result = {0};
+  uint8_t full_capture[T64_ISVIEWER_CAPTURE_BYTES];
+  size_t i;
+
+  if (machine == NULL) {
+    check(false, "loss observation test machine is admitted");
+    return;
+  }
+  check_status(t64_machine_bus_write(machine, T64_ISVIEWER_BASE + 0x14u, 4u,
+                                     513u),
+               T64_STATUS_BUS_DEVICE_REFUSED,
+               "overflow setup sets sticky output loss");
+  check_status(t64_machine_output_drain(machine, NULL, 0u, &result),
+               T64_STATUS_OK, "empty lost-output observation succeeds");
+  check(result.copied_bytes == 0u && result.required_bytes == 0u &&
+            result.total_produced_bytes == 0u && result.lost_output,
+        "drain reports sticky loss even when no output was retained");
+
+  check_status(t64_machine_admit_rom(machine, asset, asset_length),
+               T64_STATUS_OK, "new image clears prior output loss");
+  for (i = 0u; i < T64_ISVIEWER_BUFFER_BYTES; i += 4u) {
+    (void)t64_machine_bus_write(
+        machine, T64_ISVIEWER_BASE + T64_ISVIEWER_BUFFER_OFFSET +
+                     (uint32_t)i,
+        4u, UINT32_C(0x78787878));
+  }
+  for (i = 0u; i < T64_ISVIEWER_CAPTURE_BYTES / T64_ISVIEWER_BUFFER_BYTES;
+       i++) {
+    (void)t64_machine_bus_write(machine, T64_ISVIEWER_BASE + 0x16u, 2u,
+                                T64_ISVIEWER_BUFFER_BYTES);
+  }
+  (void)t64_machine_bus_write(machine, T64_ISVIEWER_BASE + 0x16u, 2u, 1u);
+  check(machine->output.lost_output &&
+            machine->output.captured_bytes == T64_ISVIEWER_CAPTURE_BYTES,
+        "lifetime cap retains its prefix and records the refused next byte");
+  check_status(t64_machine_output_drain(machine, full_capture,
+                                        sizeof full_capture, &result),
+               T64_STATUS_OK, "full retained prefix remains drainable after loss");
+  check(result.copied_bytes == T64_ISVIEWER_CAPTURE_BYTES &&
+            result.total_produced_bytes == T64_ISVIEWER_CAPTURE_BYTES &&
+            result.lost_output &&
+            bytes_are(full_capture, sizeof full_capture, (uint8_t)'x'),
+        "drain preserves all retained bytes and reports sticky loss");
+  t64_machine_destroy(machine);
+}
+
+static void test_input_refusals_and_identity(
+    const t64_host_allocator *allocator, const uint8_t *asset,
+    size_t asset_length) {
+  t64_machine *first = create_machine(allocator, asset, asset_length);
+  t64_machine *same = create_machine(allocator, asset, asset_length);
+  t64_machine *different = create_machine(allocator, asset, asset_length);
+  t64_machine *unadmitted = create_unadmitted_machine(allocator);
+  t64_machine *past = create_machine(allocator, asset, asset_length);
+  t64_machine *full = create_machine(allocator, asset, asset_length);
+  t64_machine *exhausted = create_machine(allocator, asset, asset_length);
+  t64_machine *terminal = create_machine(allocator, asset, asset_length);
+  uint8_t before[T64_DIGEST_SIZE];
+  uint8_t after[T64_DIGEST_SIZE];
+  t64_stop_request request = {T64_STOP_GUEST_TICK, 1u};
+  t64_stop_result result;
+  t64_status status;
+
+  if (first == NULL || same == NULL || different == NULL || unadmitted == NULL ||
+      past == NULL || full == NULL || exhausted == NULL || terminal == NULL) {
+    check(false, "input refusal test machines are available");
+    t64_machine_destroy(first);
+    t64_machine_destroy(same);
+    t64_machine_destroy(different);
+    t64_machine_destroy(unadmitted);
+    t64_machine_destroy(past);
+    t64_machine_destroy(full);
+    t64_machine_destroy(exhausted);
+    t64_machine_destroy(terminal);
+    return;
+  }
+
+  check_status(t64_machine_queue_input(first, 0u, 0u, UINT16_C(0x1234), -1, 1),
+               T64_STATUS_OK, "first logical input submission succeeds");
+  check_status(t64_machine_queue_input(same, 0u, 0u, UINT16_C(0x1234), -1, 1),
+               T64_STATUS_OK, "identical logical input submission succeeds");
+  check(state_digests_equal(first, same),
+        "identical pending input tuples produce identical future digests");
+  check_status(t64_machine_queue_input(different, 0u, 0u,
+                                       UINT16_C(0x1235), -1, 1),
+               T64_STATUS_OK, "different logical input submission succeeds");
+  check(!state_digests_equal(first, different),
+        "pending input payload changes the canonical future digest");
+
+  check(state_digest(first, before), "input refusal baseline digest is available");
+  check_status(t64_machine_queue_input(first, 0u, 1u, 0u, 0, 0),
+               T64_STATUS_INVALID_ARGUMENT, "nonzero input port is refused");
+  check(state_digest(first, after) && memcmp(before, after, sizeof before) == 0,
+        "unsupported port refusal leaves pending queue and digest unchanged");
+  check_status(t64_machine_queue_input(first, 0u, 0u, 0u, -129, 0),
+               T64_STATUS_INVALID_ARGUMENT, "axis below signed-eight range is refused");
+  check_status(t64_machine_queue_input(first, 0u, 0u, 0u, 0, 128),
+               T64_STATUS_INVALID_ARGUMENT, "axis above signed-eight range is refused");
+  check(state_digest(first, after) && memcmp(before, after, sizeof before) == 0,
+        "axis refusals preserve queue and sequence state");
+
+  check_status(t64_machine_queue_input(unadmitted, 0u, 0u, 0u, 0, 0),
+               T64_STATUS_NOT_READY, "input before ROM admission is refused");
+  check_status(t64_machine_advance(past, &request, &result), T64_STATUS_OK,
+               "past-time control advances a ready guest");
+  check(result.tick == 1u, "past-time control reaches the requested tick");
+  check(state_digest(past, before), "past-time baseline digest is available");
+  check_status(t64_machine_queue_input(past, 0u, 0u, 0u, 0, 0),
+               T64_STATUS_TIME_REVERSED, "input at a past guest tick is refused");
+  check(state_digest(past, after) && memcmp(before, after, sizeof before) == 0,
+        "past-time refusal leaves digest and queue unchanged");
+
+  while (full->queue_count < full->profile.event_queue_capacity) {
+    status = t64_test_schedule_synthetic(full, UINT64_C(10),
+                                         T64_TEST_EVENT_NOOP, 0u);
+    if (status != T64_STATUS_OK) {
+      break;
+    }
+  }
+  check(full->queue_count == full->profile.event_queue_capacity,
+        "queue-full control fills the bounded per-instance scheduler");
+  check(state_digest(full, before), "queue-full baseline digest is available");
+  check_status(t64_machine_queue_input(full, 0u, 0u, 1u, 0, 0),
+               T64_STATUS_QUEUE_FULL, "full scheduler refuses input atomically");
+  check(state_digest(full, after) && memcmp(before, after, sizeof before) == 0,
+        "queue-full refusal leaves event tuples and sequence unchanged");
+
+  exhausted->sequence_exhausted = true;
+  check(state_digest(exhausted, before),
+        "sequence-exhaustion baseline digest is available");
+  check_status(t64_machine_queue_input(exhausted, 0u, 0u, 1u, 0, 0),
+               T64_STATUS_SEQUENCE_EXHAUSTED,
+               "exhausted scheduler sequence refuses input");
+  check(state_digest(exhausted, after) &&
+            memcmp(before, after, sizeof before) == 0,
+        "sequence refusal leaves next sequence and queue unchanged");
+
+  terminal->cpu.stopped = true;
+  check(state_digest(terminal, before),
+        "terminal-state baseline digest is available");
+  check_status(t64_machine_queue_input(terminal, 0u, 0u, 1u, 0, 0),
+               T64_STATUS_NOT_READY,
+               "terminal CPU state refuses new input events");
+  check(state_digest(terminal, after) &&
+            memcmp(before, after, sizeof before) == 0,
+        "terminal refusal leaves canonical future state unchanged");
+
+  t64_machine_destroy(first);
+  t64_machine_destroy(same);
+  t64_machine_destroy(different);
+  t64_machine_destroy(unadmitted);
+  t64_machine_destroy(past);
+  t64_machine_destroy(full);
+  t64_machine_destroy(exhausted);
+  t64_machine_destroy(terminal);
+}
+
+static void test_input_trace_order_and_observer_invariance(
+    const t64_host_allocator *allocator, const uint8_t *asset,
+    size_t asset_length) {
+  static const uint8_t output_seed[] = {'A', 'B', 'C'};
+  t64_machine *traced = create_machine(allocator, asset, asset_length);
+  t64_machine *untraced = create_machine(allocator, asset, asset_length);
+  t64_trace_record records[T64_TRACE_RECORD_CAPACITY];
+  t64_output_drain_result drain = {0};
+  t64_stop_result result;
+  size_t record_count = 0u;
+  uint64_t dropped = 0u;
+  bool saturated = false;
+  size_t input_count = 0u;
+  size_t i;
+  bool ordered = true;
+  uint8_t bytes[sizeof output_seed];
+
+  if (traced == NULL || untraced == NULL) {
+    check(false, "trace invariance machines are admitted");
+    t64_machine_destroy(traced);
+    t64_machine_destroy(untraced);
+    return;
+  }
+  check(capture_bytes(traced, output_seed, sizeof output_seed) &&
+            capture_bytes(untraced, output_seed, sizeof output_seed),
+        "both machines produce identical retained guest output");
+  check_status(t64_machine_trace_set_enabled(traced, true), T64_STATUS_OK,
+               "trace is enabled for the first instance");
+  check_status(t64_machine_trace_set_enabled(untraced, false), T64_STATUS_OK,
+               "trace remains disabled for the second instance");
+  check_status(t64_machine_queue_input(traced, 1u, 0u, UINT16_C(0x1234), -1, 1),
+               T64_STATUS_OK, "first same-tick traced input is queued");
+  check_status(t64_machine_queue_input(traced, 1u, 0u, UINT16_C(0xabcd), 2, -2),
+               T64_STATUS_OK, "second same-tick traced input is queued");
+  check_status(t64_machine_queue_input(untraced, 1u, 0u, UINT16_C(0x1234), -1, 1),
+               T64_STATUS_OK, "first same-tick untraced input is queued");
+  check_status(t64_machine_queue_input(untraced, 1u, 0u,
+                                       UINT16_C(0xabcd), 2, -2),
+               T64_STATUS_OK, "second same-tick untraced input is queued");
+  check(state_digests_equal(traced, untraced),
+        "same input schedule has equal digest with different trace settings");
+
+  check_status(t64_machine_output_drain(traced, bytes, sizeof bytes, &drain),
+               T64_STATUS_OK, "first instance drains output before advance");
+  check(state_digests_equal(traced, untraced),
+        "different output-drain timing leaves equal canonical digests");
+  check_status(advance_guest_in_chunks(traced, 1u, &result), T64_STATUS_OK,
+               "traced guest advances through its scheduled input tick");
+  check_status(advance_guest_in_chunks(untraced, 1u, &result), T64_STATUS_OK,
+               "untraced guest advances through its scheduled input tick");
+  check(state_digests_equal(traced, untraced),
+        "trace and drain choices do not change guest future state");
+  check_status(t64_machine_output_drain(untraced, bytes, sizeof bytes, &drain),
+               T64_STATUS_OK, "second instance drains output after advance");
+  check(state_digests_equal(traced, untraced),
+        "post-advance drain also leaves the canonical digest unchanged");
+
+  check_status(t64_machine_trace_drain(traced, records,
+                                       T64_TRACE_RECORD_CAPACITY,
+                                       &record_count, &dropped, &saturated),
+               T64_STATUS_OK, "traced input records drain successfully");
+  for (i = 0u; i < record_count; i++) {
+    if (records[i].device == T64_TRACE_DEVICE_INPUT &&
+        records[i].kind == T64_TRACE_KIND_INPUT_SUBMITTED) {
+      if (input_count == 0u) {
+        ordered = records[i].tick == 1u &&
+                  records[i].value == UINT64_C(0x01ff1234);
+      } else if (input_count == 1u) {
+        ordered = ordered && records[i].tick == 1u &&
+                  records[i].value == UINT64_C(0xfe02abcd);
+      } else {
+        ordered = false;
+      }
+      input_count++;
+    }
+  }
+  check(input_count == 2u && ordered && dropped == 0u && !saturated,
+        "trace identifies input source and kind at tick in submission order");
+  record_count = 99u;
+  check_status(t64_machine_trace_drain(untraced, records,
+                                       T64_TRACE_RECORD_CAPACITY,
+                                       &record_count, &dropped, &saturated),
+               T64_STATUS_OK, "disabled trace drain succeeds");
+  check(record_count == 0u,
+        "trace-disabled input events do not create observer records");
+  t64_machine_destroy(traced);
+  t64_machine_destroy(untraced);
 }
 
 static void test_buffer_endianness_and_refusals(
@@ -616,6 +1142,8 @@ static void test_actual_hello(const t64_host_allocator *allocator,
   t64_stop_request request = {T64_STOP_GUEST_TICK, UINT64_C(700000)};
   t64_stop_result result = {UINT32_MAX, UINT64_MAX};
   t64_cpu_stop_detail detail = {UINT64_MAX, UINT32_MAX, UINT32_MAX};
+  t64_output_drain_result drain = {0};
+  uint8_t host_output[sizeof expected - 1u] = {0};
   t64_status status;
   bool exact;
 
@@ -642,6 +1170,15 @@ static void test_actual_hello(const t64_host_allocator *allocator,
             machine->output.byte_count == sizeof expected - 1u &&
             !machine->output.lost_output,
         "actual hello completes the libdragon magic handshake and exact flush");
+  check_status(t64_machine_output_drain(machine, host_output,
+                                        sizeof host_output, &drain),
+               T64_STATUS_OK,
+               "public output drain remains available after terminal BREAK");
+  check(drain.copied_bytes == sizeof host_output &&
+            drain.total_produced_bytes == sizeof host_output &&
+            !drain.lost_output &&
+            memcmp(host_output, expected, sizeof host_output) == 0,
+        "public drain copies the exact actual guest transcript");
   check_status(t64_machine_cpu_stop_detail(machine, &detail), T64_STATUS_OK,
                "unsupported post-output stop detail is available");
   check(detail.opcode == UINT32_C(0x0000000d),
@@ -714,6 +1251,11 @@ int main(void) {
     test_v7_digest_covers_output_state(&allocator, asset, asset_length);
     test_reset_and_instance_isolation(&allocator, asset, asset_length);
     test_public_output_and_input_seams(&allocator, asset, asset_length);
+    test_output_drain_refusals_and_isolation(&allocator, asset, asset_length);
+    test_output_loss_observation(&allocator, asset, asset_length);
+    test_input_refusals_and_identity(&allocator, asset, asset_length);
+    test_input_trace_order_and_observer_invariance(&allocator, asset,
+                                                   asset_length);
     test_actual_hello(&allocator, hello, hello_length);
     test_actual_overflow_guest(&allocator, overflow, overflow_length);
   }

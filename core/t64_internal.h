@@ -219,6 +219,8 @@ struct t64_machine {
   t64_cache_state cache;
   t64_guest_device_state guest_devices;
   t64_output_state output;
+  /* Host observer cursor; never contributes to guest identity. */
+  size_t output_drain_cursor;
   size_t image_length;
   uint64_t tick;
   uint64_t instruction_count;
@@ -255,6 +257,8 @@ t64_status t64_schedule_reserve_after(t64_machine *machine, uint64_t delay,
                                       t64_event_reservation *reservation_out);
 t64_status t64_schedule_commit(t64_machine *machine,
                                t64_event_reservation *reservation);
+t64_status t64_input_event_handler(t64_machine *machine,
+                                   const t64_event *event);
 t64_status t64_scheduler_advance(t64_machine *machine,
                                  const t64_stop_request *request,
                                  t64_stop_result *result_out);
