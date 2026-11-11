@@ -20,10 +20,6 @@ HOST_TOOL_STAMP=build/tools/qualified-host-tools.json
 EXPECTED_ASSET_SHA256=f522db2e31a701f82597f399e76d55c9487760d015aff9d90176b463ae39a068
 EXPECTED_ASSET_MD5=71ce6a00936394ad364fbe584234fd82
 EXPECTED_PAYLOAD_SHA256=f716a90b1d36ec4253d096790791256d3543455e54473a755ff8c3d1199b15d5
-EXPECTED_AS_SHA256_DARWIN=a57235c0f2986576ce3d1068ec70d03c74f6a84ae5b5abe606780b4f00a8f684
-EXPECTED_LD_SHA256_DARWIN=aa8c8ddc6fd3a2579fa5bb41719eda0e70ff4be3275d481e2814b72d701213e2
-EXPECTED_OBJCOPY_SHA256_DARWIN=da223203af0487c6ea655a9693d4f4c15c5219189b7f52c378525d7440791da9
-EXPECTED_OBJDUMP_SHA256_DARWIN=be48cea3c0407ab9dc65e4458f3d8f4ffab018a97a7d66de41ecdde8770626d5
 
 die()
 {
@@ -113,7 +109,11 @@ verify_contract()
          .asset.copied_payload.destination_virtual_address == "0xA4000040" and
          .asset.copied_payload.linked_entry_pc == "0xA4000040" and
          .toolchain.name == "GNU Binutils" and .toolchain.version == "2.45" and
-         .toolchain.source_sha256 == "c50c0e7f9cb188980e2cc97e4537626b1672441815587f1eab69d2a1bfbef5d2"' \
+         .toolchain.source_sha256 == "c50c0e7f9cb188980e2cc97e4537626b1672441815587f1eab69d2a1bfbef5d2" and
+         .toolchain.host_prerequisites.system_zlib.header == "zlib.h" and
+         .toolchain.host_prerequisites.system_zlib.link_library == "libz" and
+         .toolchain.host_prerequisites.system_zlib.scope == "host toolchain build only" and
+         .toolchain.host_prerequisites.system_zlib.linux_ci_package == "zlib1g-dev"' \
         fixtures/boot-contract.json >/dev/null || \
         die 'boot-contract.json does not match the qualified source and toolchain pins'
 }
@@ -186,6 +186,10 @@ build_pinned_binutils()
     require_command make
     require_command tar
     require_command awk
+    require_command "$CC"
+    if ! printf '%s\n' '#include <zlib.h>' | "$CC" -E -x c - >/dev/null 2>&1; then
+        die 'pinned Binutils source build requires system zlib development headers (zlib.h); install the host zlib development package, such as zlib1g-dev on Ubuntu'
+    fi
     mkdir -p build/tools/downloads build/tools/source build/tools/build \
         build/tools/install
     archive=build/tools/downloads/binutils-2.45.tar.xz
@@ -212,7 +216,7 @@ build_pinned_binutils()
     log=build/tools/binutils-2.45-build.log
     build="build/tools/build/binutils-2.45-$BINUTILS_SHA256"
     mkdir -p "$build"
-    (
+    if (
         cd "$build"
         "$ROOT/$source/configure" \
             --target=mips64-elf \
@@ -223,9 +227,17 @@ build_pinned_binutils()
             --disable-gprof \
             --disable-gold \
             --with-system-zlib
-        make -j2 all-binutils all-gas all-ld
-        make install
-    ) >"$log" 2>&1 || die "pinned Binutils source build failed; inspect $log"
+        make -j2 all-binutils all-gas all-ld && \
+            make install-binutils install-gas install-ld
+    ) >"$log" 2>&1; then
+        :
+    else
+        build_status=$?
+        echo "error: pinned Binutils source build failed (exit $build_status); last 80 sanitized log lines:" >&2
+        tail -n 80 "$log" | sed -E \
+            "s|$ROOT|<checkout>|g; s|/home/[^/[:space:]]+|<home>|g; s|/Users/[^/[:space:]]+|<home>|g" >&2
+        die "pinned Binutils source build failed (exit $build_status)"
+    fi
 }
 
 ensure_tools()
@@ -259,13 +271,6 @@ verify_tool_hashes()
     OBJDUMP_SHA256=$(sha256_file "$OBJDUMP")
     HOST_OS=$(uname -s)
     HOST_ARCH=$(uname -m)
-
-    if [ "$HOST_OS" = Darwin ]; then
-        [ "$AS_SHA256" = "$EXPECTED_AS_SHA256_DARWIN" ] || die 'macOS assembler binary hash drift'
-        [ "$LD_SHA256" = "$EXPECTED_LD_SHA256_DARWIN" ] || die 'macOS linker binary hash drift'
-        [ "$OBJCOPY_SHA256" = "$EXPECTED_OBJCOPY_SHA256_DARWIN" ] || die 'macOS objcopy binary hash drift'
-        [ "$OBJDUMP_SHA256" = "$EXPECTED_OBJDUMP_SHA256_DARWIN" ] || die 'macOS objdump binary hash drift'
-    fi
 
     if [ -f "$HOST_TOOL_STAMP" ]; then
         jq -e --arg os "$HOST_OS" --arg arch "$HOST_ARCH" \

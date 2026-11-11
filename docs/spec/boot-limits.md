@@ -137,9 +137,16 @@ are model policy, not hardware timing claims.
 
 The fixture producer needs a C compiler, `jq`, `curl`, GNU Binutils 2.45
 MIPS64-ELF tools (qualified from the pinned source when absent), `make`, `tar`
-with xz support, `awk`, `dd`, `find`, SHA-256 and MD5 tools (`shasum` or
-`sha256sum`, and `md5` or `md5sum`), plus CMake and Ninja. It downloads only
-the hash-pinned public source asset and, when required, the hash-pinned
-Binutils source archive. Generated ROMs stay build-only and are checked
-against the local fixture manifest; no manual, firmware, or protected bytes
-are included.
+with xz support, system zlib development headers and library (`zlib.h`/`libz`;
+Ubuntu CI provides these with `zlib1g-dev`), `awk`, `dd`, `find`, SHA-256 and
+MD5 tools (`shasum` or `sha256sum`, and `md5` or `md5sum`), plus CMake and
+Ninja. It downloads only the hash-pinned public source asset and, when
+required, the hash-pinned Binutils source archive. Generated ROMs stay
+build-only and are checked against the local fixture manifest; no manual,
+firmware, or protected bytes are included.
+
+Each host's four Binutils executable SHA-256 values are recorded in the
+ignored `build/tools/qualified-host-tools.json` receipt and checked against
+that host's receipt on reuse. The pinned Binutils archive hash and version
+identify source/toolchain origin; per-host executable hashes can differ with
+compiler, SDK, and build path and do not enter guest or profile identity.
