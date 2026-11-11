@@ -183,6 +183,19 @@ set_tests_properties(unit.core.cp0-cache PROPERTIES
   LABELS unit
   ENVIRONMENT "T64_TEST_IPL3_PATH=${T64_BOOT_FIXTURE_DIR}/ipl3_compat.z64")
 
+add_executable(test_warm_devices tests/test_warm_devices.c)
+target_include_directories(test_warm_devices PRIVATE
+  "${CMAKE_CURRENT_SOURCE_DIR}"
+  "${CMAKE_SOURCE_DIR}/tests")
+target_link_libraries(test_warm_devices PRIVATE t64_core)
+t64_target_warnings(test_warm_devices)
+add_dependencies(test_warm_devices t64-boot-fixtures)
+add_test(NAME unit.core.warm-device-policy COMMAND test_warm_devices)
+set_tests_properties(unit.core.warm-device-policy PROPERTIES
+  LABELS unit
+  ENVIRONMENT
+    "T64_TEST_IPL3_PATH=${T64_BOOT_FIXTURE_DIR}/ipl3_compat.z64;T64_TEST_HELLO_PATH=${T64_BOOT_FIXTURE_DIR}/hello.z64")
+
 add_executable(test_profile tests/test_profile.c)
 target_include_directories(test_profile PRIVATE "${CMAKE_SOURCE_DIR}/tests")
 target_link_libraries(test_profile PRIVATE t64_core)
