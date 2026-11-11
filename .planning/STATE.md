@@ -4,18 +4,18 @@ milestone: v1.0
 milestone_name: Verified Headless Core
 current_phase: 3
 current_phase_name: First Headless ROM Through Open IPL3
-current_plan: 8 of 13
+current_plan: 9 of 13
 status: executing
-stopped_at: Completed 03-07-PLAN.md
-last_updated: "2026-11-11T11:41:35.747Z"
+stopped_at: Completed 03-08-PLAN.md
+last_updated: "2026-11-11T12:19:55.256Z"
 last_activity: 2026-11-10
 last_activity_desc: Phase 3 execution started
-state_head: acee5a1c4516f4bcf72abc2add46d2c8b38a5431
+state_head: a4b3475fd667aeb92f6f9a0947d54aa233a7e74a
 progress:
   total_phases: 6
   completed_phases: 2
   total_plans: 34
-  completed_plans: 28
+  completed_plans: 29
   percent: 33
 ---
 
@@ -31,7 +31,7 @@ See: .planning/PROJECT.md (updated 2026-11-10)
 ## Current Position
 
 Phase: 3 (First Headless ROM Through Open IPL3) — EXECUTING
-Current Plan: 8 of 13
+Current Plan: 9 of 13
 Status: Ready to execute
 Last activity: 2026-11-10 — Phase 3 execution started
 
@@ -88,6 +88,7 @@ Progress: [███░░░░░░░] 33%
 | Phase 3 P5 | 138min | 2 tasks | 20 files |
 | Phase 3 P6 | 45 min | 1 tasks | 16 files |
 | Phase 03 P07 | 47min | 1 tasks | 11 files |
+| Phase 03 P08 | 27min | 1 tasks | 8 files |
 
 ## Accumulated Context
 
@@ -150,6 +151,9 @@ Decisions are logged in the PROJECT.md Key Decisions table. Recent decisions tha
 - [Phase 03]: Keep observer drain cursor outside canonical v7 guest identity; pending input tuples are already represented in the serialized queue.
 - [Phase 03]: Represent port-0 input as a scheduled trace-only event with signed 8-bit axes; do not update SI/controller state.
 - [Phase 03]: Preserve the existing ISViewer inventory registration and baseline rather than duplicating it.
+- [Phase 03]: Keep schema v1 closed and canonical, with uint64 ticks as decimal strings and equal-tick array order preserved.
+- [Phase 03]: Queue validated input schedules only on fresh owned machines; traces establish scheduling time, not SI/controller consumption.
+- [Phase 03]: Pin fixture source revision to the commit containing the exact four hashed inputs while preserving all seven ROM identities.
 
 ### Pending Todos
 
@@ -175,6 +179,6 @@ Items acknowledged and deferred at milestone close, most recent first:
 
 ## Session Continuity
 
-Last session: 2026-11-11T11:41:35.613Z
-Stopped at: Completed 03-07-PLAN.md
+Last session: 2026-11-11T12:19:55.122Z
+Stopped at: Completed 03-08-PLAN.md
 Resume file: None
