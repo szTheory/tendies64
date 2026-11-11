@@ -28,6 +28,9 @@ applies that direction; update it when the owner changes policy.
   repeat checks only after relevant changes or an unresolved failure warrants
   them. Base progress and elapsed-time claims on commits, test results and
   timestamps rather than perceived activity.
+  Once implementation checks pass, close the summary and state promptly; do
+  not repeat broad tests or scans solely for bookkeeping changes. Report the
+  specific remaining command if a handoff stalls.
 - At each discussion, enumerate actual decision points. Fan out one agent per
   independent decision cluster when it saves time/context. Apply relevant
   CPU/cache/virtual-memory, RSP/microcode, RDP/video, audio, memory/bus,
@@ -70,6 +73,9 @@ applies that direction; update it when the owner changes policy.
   setup, demonstrate the intended failure against the pre-feature behavior,
   then confirm GREEN; disclose invalid attempts and reconstructed controls.
   Check newly generated evidence for private paths before committing it.
+  A hardcoded false placeholder is not RED evidence. Verification-only work
+  over already implemented behavior may start green; remove an inapplicable
+  TDD marker with a recorded rationale instead of manufacturing a failure.
 - A test ROM's repository license does not automatically grant redistribution
   rights for its generated ROM or embedded content. Keep a fixture manifest
   with source/revision, build recipe/toolchain, digest, boot/profile
