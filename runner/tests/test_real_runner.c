@@ -1,6 +1,7 @@
 #define _POSIX_C_SOURCE 200809L
 
 #include <errno.h>
+#include <dirent.h>
 #include <fcntl.h>
 #include <poll.h>
 #include <stdbool.h>
@@ -320,6 +321,22 @@ static bool report_field_is_null(const uint8_t *bytes, size_t length,
   return is_null;
 }
 
+static bool supervisor_workset_removed(const char *work_dir) {
+  DIR *directory = opendir(work_dir);
+  struct dirent *entry;
+  bool removed = directory != NULL;
+
+  if (directory == NULL) return false;
+  while ((entry = readdir(directory)) != NULL) {
+    if (strncmp(entry->d_name, "t64real.", sizeof "t64real." - 1u) == 0) {
+      removed = false;
+      break;
+    }
+  }
+  if (closedir(directory) != 0) return false;
+  return removed;
+}
+
 static bool supervisor_error_case(char *supervisor, char *checker,
                                   char *fixture_path, char *input_path,
                                   char *result_path, char *meta_path,
@@ -356,7 +373,8 @@ static bool supervisor_error_case(char *supervisor, char *checker,
       input_path, wall_ptr, fault_ptr, &status);
   files_read = started &&
       read_file(result_path, report, sizeof report - 1u, &report_length) &&
-      read_file(capture_path, capture, sizeof capture, &capture_length);
+      read_file(capture_path, capture, sizeof capture, &capture_length) &&
+      supervisor_workset_removed(work_dir);
   if (!files_read) return false;
   report[report_length] = '\0';
   if (!WIFEXITED(status) || WEXITSTATUS(status) != 1 ||
@@ -912,6 +930,9 @@ int main(int argc, char **argv) {
         {"report-unknown", NULL, "report-invalid", "report-error", false,
          sizeof expected_log - 1u,
          "unknown child report field after real output cannot become a pass"},
+        {"report-missing-log-sha256", NULL, "report-invalid", "report-error",
+         false, sizeof expected_log - 1u,
+         "missing log hash in an otherwise valid child report becomes report-invalid and removes its workset"},
         {"capture-closed", NULL, "capture-invalid", "report-error", false,
          0u, "closed capture descriptor after guest report cannot become a pass"},
         {"crash-after-output", NULL, "runner-signalled", "host-error", false,

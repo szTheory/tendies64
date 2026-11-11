@@ -378,6 +378,38 @@ static bool write_all(int fd, const uint8_t *bytes, size_t length) {
   return true;
 }
 
+#ifdef T64_REAL_RUNNER_TESTING
+static bool write_report_missing_log_sha256(const t64_real_result *result,
+                                            int fd) {
+  static const char field_name[] = "\"log_sha256\":";
+  char report[T64_REAL_RESULT_MAX_BYTES + 1u];
+  size_t length = 0u;
+  char *field;
+  char *value_end;
+  size_t field_offset;
+  size_t removed_bytes;
+
+  if (!t64_real_result_encode(result, report, sizeof report - 1u, &length) ||
+      length >= sizeof report) {
+    return false;
+  }
+  report[length] = '\0';
+  field = strstr(report, field_name);
+  if (field == NULL) {
+    return false;
+  }
+  value_end = strchr(field + sizeof field_name - 1u, ',');
+  if (value_end == NULL) {
+    return false;
+  }
+  field_offset = (size_t)(field - report);
+  removed_bytes = (size_t)(value_end + 1u - field);
+  memmove(field, value_end + 1u, length - field_offset - removed_bytes);
+  length -= removed_bytes;
+  return write_all(fd, (const uint8_t *)report, length);
+}
+#endif
+
 static void set_prelaunch_result(t64_real_result *result, const char *detail,
                                  const char *stop_kind) {
   (void)memset(result, 0, sizeof *result);
@@ -853,6 +885,13 @@ finalize:
     (void)snprintf(result.outcome, sizeof result.outcome, "harness-error");
     (void)snprintf(result.detail, sizeof result.detail, "host-error");
   }
+#ifdef T64_REAL_RUNNER_TESTING
+  if (test_fault_is("report-missing-log-sha256")) {
+    if (!write_report_missing_log_sha256(&result, STDOUT_FILENO)) {
+      exit_code = 2;
+    }
+  } else
+#endif
   if (!t64_real_result_write_fd(&result, STDOUT_FILENO)) {
     exit_code = 2;
   }
@@ -914,7 +953,8 @@ int main(int argc, char **argv) {
       strcmp(g_test_fault, "report-truncated") != 0 &&
       strcmp(g_test_fault, "report-oversize") != 0 &&
       strcmp(g_test_fault, "report-malformed") != 0 &&
-      strcmp(g_test_fault, "report-unknown") != 0) {
+      strcmp(g_test_fault, "report-unknown") != 0 &&
+      strcmp(g_test_fault, "report-missing-log-sha256") != 0) {
     return emit_prelaunch("usage", "not-started", guest_ticks, 2);
   }
 #endif

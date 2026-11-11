@@ -545,7 +545,8 @@ static int parse_args(int argc, char **argv, sup_args *a) {
         strcmp(a->test_fault, "report-truncated") != 0 &&
         strcmp(a->test_fault, "report-oversize") != 0 &&
         strcmp(a->test_fault, "report-malformed") != 0 &&
-        strcmp(a->test_fault, "report-unknown") != 0) {
+        strcmp(a->test_fault, "report-unknown") != 0 &&
+        strcmp(a->test_fault, "report-missing-log-sha256") != 0) {
       bad = 1;
     }
 #endif
@@ -745,6 +746,7 @@ static int real_report_matches_capture(const uint8_t *bytes, size_t length,
   const t64_json_node *root;
   const t64_json_node *counts;
   const t64_json_node *stop;
+  const t64_json_node *log_sha256;
   const char *build_id = t64_build_identity();
   const char *source_revision = t64_source_revision();
   uint64_t log_bytes = 0u;
@@ -761,6 +763,7 @@ static int real_report_matches_capture(const uint8_t *bytes, size_t length,
   root = document.root;
   counts = t64_json_get(root, "counts");
   stop = t64_json_get(root, "guest_stop");
+  log_sha256 = t64_json_get(root, "log_sha256");
   if (counts == NULL || counts->type != T64_JSON_OBJECT ||
       !real_json_string_equals(root, "build_id", build_id) ||
       !real_json_string_equals(root, "source_revision", source_revision) ||
@@ -786,7 +789,10 @@ static int real_report_matches_capture(const uint8_t *bytes, size_t length,
       capture_length > T64_REAL_RESULT_MAX_BYTES) {
     goto done;
   }
-  if (t64_json_get(root, "log_sha256")->type == T64_JSON_NULL &&
+  if (log_sha256 == NULL) {
+    goto done;
+  }
+  if (log_sha256->type == T64_JSON_NULL &&
       log_bytes == 0u && log_total == 0u && capture_length == 0u &&
       capture_total == 0u &&
       real_json_string_equals(root, "outcome", "harness-error") &&
@@ -796,6 +802,9 @@ static int real_report_matches_capture(const uint8_t *bytes, size_t length,
      * total counter is saturated. Preserve that as an unknown log, not a
      * fabricated exact count or an empty-log digest. */
     valid = 1;
+    goto done;
+  }
+  if (log_sha256->type != T64_JSON_STRING) {
     goto done;
   }
   {
@@ -1415,9 +1424,11 @@ static int real_run_mode(const sup_args *args, const char *self_path) {
       (size_t)report_length <= T64_REAL_RESULT_MAX_BYTES && capture_valid) {
     report_schema_valid =
         real_checker_accepts(checker_path, ws.report);
-    capture_matches_report = real_report_matches_capture(
-        (const uint8_t *)report_bytes, (size_t)report_length, capture,
-        capture_length, capture_total, fixture_identity, canonical_input);
+    if (report_schema_valid) {
+      capture_matches_report = real_report_matches_capture(
+          (const uint8_t *)report_bytes, (size_t)report_length, capture,
+          capture_length, capture_total, fixture_identity, canonical_input);
+    }
     report_valid = report_schema_valid && capture_matches_report;
   }
   process_ok = !wall_backstop && !supervisor_signalled && !exec_failed &&
