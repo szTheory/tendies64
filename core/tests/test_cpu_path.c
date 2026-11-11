@@ -655,6 +655,85 @@ static bool test_cp0_cache_unsupported_encodings(
   return true;
 }
 
+static bool test_software_debug_stop_break(
+    t64_machine *machine, const uint8_t asset[IPL3_ASSET_BYTES]) {
+  static const uint32_t completion_program[] = {
+      T64_CPU_SOFTWARE_DEBUG_STOP_BREAK,
+  };
+  static const uint32_t unrecognized_break_program[] = {
+      UINT32_C(0x0000004d), /* BREAK with a nonzero code field */
+  };
+  static const uint32_t delay_slot_program[] = {
+      UINT32_C(0x10000001), /* beq zero,zero,+1 */
+      T64_CPU_SOFTWARE_DEBUG_STOP_BREAK,
+  };
+  t64_stop_request request = {T64_STOP_GUEST_TICK, UINT64_C(100)};
+  t64_stop_result result = {UINT32_MAX, UINT64_MAX};
+  t64_cpu_stop_detail detail = {UINT64_MAX, UINT32_MAX, UINT32_MAX};
+  t64_trace_record records[16];
+  size_t count = 0u;
+  uint64_t dropped = UINT64_MAX;
+  bool saturated = true;
+  bool saw_completion = false;
+  bool retired_break = false;
+  size_t i;
+
+  if (!install_program(machine, asset, completion_program,
+                       sizeof completion_program / sizeof completion_program[0]) ||
+      t64_machine_trace_set_enabled(machine, true) != T64_STATUS_OK ||
+      t64_machine_advance(machine, &request, &result) != T64_STATUS_OK ||
+      result.reason != T64_STOP_REASON_GUEST_COMPLETION ||
+      result.tick != UINT64_C(1) || machine->cpu.retired_instructions != 0u ||
+      machine->cpu.pc != IPL3_ENTRY_PC ||
+      t64_machine_cpu_stop_detail(machine, &detail) != T64_STATUS_OK ||
+      detail.retired_instructions != 0u || detail.pc != IPL3_ENTRY_PC ||
+      detail.opcode != T64_CPU_SOFTWARE_DEBUG_STOP_BREAK ||
+      t64_machine_trace_drain(machine, records,
+                              sizeof records / sizeof records[0], &count,
+                              &dropped, &saturated) != T64_STATUS_OK ||
+      dropped != 0u || saturated) {
+    return false;
+  }
+  for (i = 0u; i < count; i++) {
+    if (records[i].device == T64_TRACE_DEVICE_MACHINE &&
+        records[i].kind == T64_TRACE_KIND_CPU_COMPLETION &&
+        records[i].value ==
+            (((uint64_t)IPL3_ENTRY_PC << 32) |
+             T64_CPU_SOFTWARE_DEBUG_STOP_BREAK)) {
+      saw_completion = true;
+    }
+    if (records[i].device == T64_TRACE_DEVICE_MACHINE &&
+        records[i].kind == T64_TRACE_KIND_CPU_RETIREMENT &&
+        records[i].value ==
+            (((uint64_t)IPL3_ENTRY_PC << 32) |
+             T64_CPU_SOFTWARE_DEBUG_STOP_BREAK)) {
+      retired_break = true;
+    }
+  }
+  if (!saw_completion || retired_break ||
+      !install_program(machine, asset, unrecognized_break_program,
+                       sizeof unrecognized_break_program /
+                           sizeof unrecognized_break_program[0]) ||
+      t64_machine_advance(machine, &request, &result) != T64_STATUS_OK ||
+      result.reason != T64_STOP_REASON_CPU_UNSUPPORTED ||
+      result.tick != UINT64_C(1) ||
+      t64_machine_cpu_stop_detail(machine, &detail) != T64_STATUS_OK ||
+      detail.retired_instructions != 0u || detail.pc != IPL3_ENTRY_PC ||
+      detail.opcode != unrecognized_break_program[0] ||
+      !install_program(machine, asset, delay_slot_program,
+                       sizeof delay_slot_program / sizeof delay_slot_program[0]) ||
+      t64_machine_advance(machine, &request, &result) != T64_STATUS_OK ||
+      result.reason != T64_STOP_REASON_CPU_UNSUPPORTED ||
+      result.tick != UINT64_C(2) ||
+      t64_machine_cpu_stop_detail(machine, &detail) != T64_STATUS_OK ||
+      detail.retired_instructions != UINT64_C(1) ||
+      detail.pc != IPL3_ENTRY_PC + UINT32_C(4) ||
+      detail.opcode != T64_CPU_SOFTWARE_DEBUG_STOP_BREAK) {
+    return false;
+  }
+  return true;
+}
+
 static bool test_cp0_cache_state_is_in_digest(
     t64_machine *machine, const uint8_t asset[IPL3_ASSET_BYTES]) {
   uint8_t baseline[T64_DIGEST_SIZE];
@@ -711,6 +790,8 @@ int main(int argc, char **argv) {
        test_unsupported_alignment_and_address_modes},
       {"guest overflow and unsupported opcodes stop without retirement",
        test_overflow_and_unsupported_opcode},
+      {"software debug-stop BREAK is exact, nonretiring and excluded in delay slots",
+       test_software_debug_stop_break},
   };
   static const cpu_test_case cp0_cache_cases[] = {
       {"CP0 Count reads before its retirement tick and compares after wrap",

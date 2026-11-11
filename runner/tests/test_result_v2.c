@@ -32,7 +32,7 @@ static const char valid_pass_v2[] =
     "{\"guest_tick\":\"530174\",\"kind\":\"hello-entry\",\"pc\":\"ffffffff80000400\"},"
     "{\"guest_tick\":\"530438\",\"kind\":\"hello-completion\",\"pc\":\"ffffffff80000478\"}],"
     "\"outcome\":\"pass\","
-    "\"profile_digest\":\"6e6c4f86beb81c08023dfdf3a7b04e5d74ab0d4038ef5a95ea1a83f3eb8bba97\","
+    "\"profile_digest\":\"a171241f68c377f7c324a995a08ff8bd8da60bbe70df14193d8f4b8ae7e9769f\","
     "\"profile_id\":\"ntsc-cart-4m-openipl3-warm-v1\","
     "\"schema\":\"t64.result\","
     "\"schema_version\":2,"
@@ -344,7 +344,7 @@ int main(int argc, char **argv) {
                       "R-TYPE");
   }
   if (make_variant(changed, sizeof changed,
-                   "6e6c4f86beb81c08023dfdf3a7b04e5d74ab0d4038ef5a95ea1a83f3eb8bba97",
+                   "a171241f68c377f7c324a995a08ff8bd8da60bbe70df14193d8f4b8ae7e9769f",
                    "08634481792748ade0e64073b9cd51d5972ec3a56421278b3203979087b4e05d")) {
     (void)expect_case(argv[1], "rejects boot-policy digest substituted for full profile identity",
                       changed, 1, "R-IDENTITY");

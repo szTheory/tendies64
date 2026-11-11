@@ -432,7 +432,7 @@ The v2 root keys, in canonical order, are:
 | `evidence_kind` / `evidence_tier` | Exactly `guest-execution` / `smoke`. |
 | `build_id` | `t64-build-v1-` followed by 64 lowercase hex characters. |
 | `source_revision` | 40 lowercase hexadecimal characters. |
-| `profile_id` / `profile_digest` | The pinned profile `ntsc-cart-4m-openipl3-warm-v1` and digest `6e6c4f86beb81c08023dfdf3a7b04e5d74ab0d4038ef5a95ea1a83f3eb8bba97`. |
+| `profile_id` / `profile_digest` | The pinned profile `ntsc-cart-4m-openipl3-warm-v1` and digest `a171241f68c377f7c324a995a08ff8bd8da60bbe70df14193d8f4b8ae7e9769f`. |
 | `fixture_id` / `fixture_sha256` | Manifest ID and normalized whole authored-ROM SHA-256. For `hello-openipl3`, the digest is `fa276cc175a4e764b6fd5413193c44b51f38fd8135e33e400032827e02f27c7c`. |
 | `ipl3_sha256` | SHA-256 of the full pinned source IPL3 asset: `f522db2e31a701f82597f399e76d55c9487760d015aff9d90176b463ae39a068`. |
 | `ipl3_payload_sha256` | SHA-256 of the separately verified executed embedded payload: `f716a90b1d36ec4253d096790791256d3543455e54473a755ff8c3d1199b15d5`. |

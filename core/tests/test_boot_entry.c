@@ -432,15 +432,15 @@ int main(void) {
   static const char expected_v6_state_sha256[] =
       "a3820a5bf34b713b5903e42f455a1c579a57799a48411d3d33ed59786c3e93bf";
   static const char expected_v7_profile_sha256[] =
-      "6e6c4f86beb81c08023dfdf3a7b04e5d74ab0d4038ef5a95ea1a83f3eb8bba97";
+      "a171241f68c377f7c324a995a08ff8bd8da60bbe70df14193d8f4b8ae7e9769f";
   static const char expected_v7_state_sha256[] =
-      "10232c080e55a88dfadfbfa7d467b9a911a9cdb909638336bd0fa713b7d95a56";
+      "5f49fcf4117746ea95df61234930c3775c042b6442d5a4b94baad8d87fd00d34";
   static const char expected_asset_sha256[] =
       "f522db2e31a701f82597f399e76d55c9487760d015aff9d90176b463ae39a068";
   static const char expected_payload_sha256[] =
       "f716a90b1d36ec4253d096790791256d3543455e54473a755ff8c3d1199b15d5";
   static const char expected_policy_sha256[] =
-      "08634481792748ade0e64073b9cd51d5972ec3a56421278b3203979087b4e05d";
+      "4e3cf89c61b325ed76d950caa7752b2b8fcbca6a01a08dc202cc5271ace98a2b";
   static const char expected_v6_policy_sha256[] =
       "831a0a58ef8f82bc54f880ad5a1259bddf1b3d2e21680ac6637ea5994705a7fe";
   static const uint8_t zero_dmem_prefix[IPL3_DMEM_OFFSET] = {0u};

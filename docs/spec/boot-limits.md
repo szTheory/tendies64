@@ -102,15 +102,17 @@ token, cancellation, bounds, row and bank rules remain checked independently.
 
 The policy digest is SHA-256 over the exact UTF-8 `policy_digest_input` string
 in `fixtures/boot-contract.json`, including its final LF:
-`c64cfcfdbd3ccdd08fdafbc63539af5b8026caeb70fad173bee933a93e96b141`. It binds
-the cache and warm-device policies plus the libdragon ISViewer software
-contract: writable magic readback, 512-byte big-endian buffer, count-register
-lanes, exact unpadded flush, reset state, and sticky 4096-byte capture limit.
+`4e3cf89c61b325ed76d950caa7752b2b8fcbca6a01a08dc202cc5271ace98a2b`. It binds
+the CPU's exact non-retiring software debug-stop convention for BREAK
+`0x0000000d` outside delay slots, along with cache and warm-device policies
+and the libdragon ISViewer software contract: writable magic readback,
+512-byte big-endian buffer, count-register lanes, exact unpadded flush, reset
+state, and sticky 4096-byte capture limit.
 
-The profile descriptor v2 digest is
-`77049094be14d6fcd1f9321ef19ea01726a11c803e0f350a77ff0e6a24b40837`; the
+The active profile descriptor v2 digest is
+`a171241f68c377f7c324a995a08ff8bd8da60bbe70df14193d8f4b8ae7e9769f`; the
 admitted-source initial state v7 digest is
-`9c22e908bec3f08ce063f88e760ca61c97c5656766e46d7514ad44f0151e71b6`. The
+`5f49fcf4117746ea95df61234930c3775c042b6442d5a4b94baad8d87fd00d34`. The
 test-only reference encoder first reproduces the previous policy, profile and
 state values exactly (`831a0a58…`, `5775f197…`, `a3820a5b…`), then independently
 checks these current values. State v6 retains its previous meaning and bytes;
@@ -154,9 +156,13 @@ first output instruction is `sw t2,0(t0)` at PC `0x8000041c`, tick 530181, after
 uncached KSEG1 alias `0xffffffffb3ff0000`, translating to physical
 `0x13ff0000`; supported virtual-address modes are unchanged. The pinned loader
 and authored hello then execute through magic readback and flush the exact
-transcript `Tendies64 hello via open IPL3\n` (30 bytes). The guest stops at
-unsupported BREAK at tick 530438, PC `0x80000478`; this output capture is not a
-guest-completion result. A separate authored control fills 4096 bytes and
+transcript `Tendies64 hello via open IPL3\n` (30 bytes). The exact BREAK
+`0x0000000d` at tick 530438, PC `0x80000478`, now produces a non-retiring
+software debug stop after 530437 retired instructions. This stop is not a
+hardware exception or guest verdict: the runner separately requires the
+manifest-bound fixture digest, PC and opcode before treating it as authored
+completion. Other BREAK encodings and delay-slot BREAKs remain unsupported. A
+separate authored control fills 4096 bytes and
 observes sticky refusal of byte 4097. The bytes remain in per-machine internal
 capture state; this slice adds no public output-copy ABI or host I/O callback.
 

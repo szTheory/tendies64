@@ -209,7 +209,7 @@ static bool profile_v2_identity_is_serialized(
       !decode_sha256_hex(OPEN_IPL3_PAYLOAD_SHA256,
                          expected + T64_SHA256_DIGEST_SIZE) ||
       !decode_sha256_hex(
-          "08634481792748ade0e64073b9cd51d5972ec3a56421278b3203979087b4e05d",
+          "4e3cf89c61b325ed76d950caa7752b2b8fcbca6a01a08dc202cc5271ace98a2b",
           expected + 2u * T64_SHA256_DIGEST_SIZE)) {
     return false;
   }
@@ -398,7 +398,7 @@ static void test_actual_open_ipl3_entry(void) {
   T64_CHECK(decode_sha256_hex(OPEN_IPL3_PAYLOAD_SHA256,
                               expected_payload_sha256));
   T64_CHECK(decode_sha256_hex(
-      "08634481792748ade0e64073b9cd51d5972ec3a56421278b3203979087b4e05d",
+      "4e3cf89c61b325ed76d950caa7752b2b8fcbca6a01a08dc202cc5271ace98a2b",
       expected_policy_sha256));
   T64_CHECK(memcmp(profile->asset_sha256, expected_asset_sha256,
                    sizeof expected_asset_sha256) == 0);

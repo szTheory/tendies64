@@ -877,6 +877,17 @@ static void cpu_stop_unsupported(t64_machine *machine, uint32_t pc,
                  ((uint64_t)pc << 32) | (uint64_t)opcode);
 }
 
+static void cpu_stop_completion(t64_machine *machine, uint32_t pc,
+                                uint32_t opcode) {
+  machine->cpu.stopped = true;
+  machine->cpu.stop_reason = T64_STOP_REASON_GUEST_COMPLETION;
+  machine->cpu.stop_pc = pc;
+  machine->cpu.stop_opcode = opcode;
+  t64_trace_emit(machine, machine->tick, T64_TRACE_DEVICE_MACHINE,
+                 T64_TRACE_KIND_CPU_COMPLETION,
+                 ((uint64_t)pc << 32) | (uint64_t)opcode);
+}
+
 t64_status t64_cpu_schedule(t64_machine *machine) {
   t64_event_reservation reservation;
   t64_status status;
@@ -931,6 +942,18 @@ t64_status t64_cpu_step(t64_machine *machine, const t64_event *event) {
   if (machine->cpu.retired_instructions == UINT64_MAX ||
       machine->instruction_count == UINT64_MAX) {
     cpu_stop_unsupported(machine, pc, opcode);
+    return T64_STATUS_RESOURCE_EXHAUSTED;
+  }
+
+  /* This exact BREAK encoding is a project software debug stop. It has no
+   * hardware exception semantics and is never retired. A BREAK in a delay
+   * slot, or any other encoding, remains explicitly unsupported. */
+  if (opcode == T64_CPU_SOFTWARE_DEBUG_STOP_BREAK) {
+    if (in_delay_slot) {
+      cpu_stop_unsupported(machine, pc, opcode);
+    } else {
+      cpu_stop_completion(machine, pc, opcode);
+    }
     return T64_STATUS_RESOURCE_EXHAUSTED;
   }
 

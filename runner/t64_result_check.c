@@ -93,7 +93,7 @@ static const char *const milestone_names[] = {
 
 static const char expected_profile_id[] = "ntsc-cart-4m-openipl3-warm-v1";
 static const char expected_profile_digest[] =
-    "6e6c4f86beb81c08023dfdf3a7b04e5d74ab0d4038ef5a95ea1a83f3eb8bba97";
+    "a171241f68c377f7c324a995a08ff8bd8da60bbe70df14193d8f4b8ae7e9769f";
 static const char expected_ipl3_sha256[] =
     "f522db2e31a701f82597f399e76d55c9487760d015aff9d90176b463ae39a068";
 static const char expected_ipl3_payload_sha256[] =
