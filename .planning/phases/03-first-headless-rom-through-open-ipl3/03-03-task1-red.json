@@ -1,0 +1,10 @@
+{
+  "command": "node -e 'const {spawnSync}=require(\"child_process\"); const r=spawnSync(\"sh\",[\"scripts/check-test-inventory.sh\",\"--preset\",\"gate\"],{encoding:\"utf8\"}); const output=(r.stdout||\"\")+(r.stderr||\"\"); const expected=r.status!==0 && output.includes(\"missing required test: unit.core.boot-entry\"); process.stdout.write(\"TAP version 13\\n\"+(expected?\"not ok 1 - gate inventory rejects the missing boot-entry registration\":\"ok 1 - gate inventory rejects the missing boot-entry registration\")+\"\\n# expected: missing required test: unit.core.boot-entry\\n# observed: \"+output.trim().replace(/\\n/g,\" | \")+\"\\n1..1\\n\"); process.exitCode=expected?1:0;'",
+  "exitCode": 1,
+  "output": "TAP version 13\nnot ok 1 - gate inventory rejects the missing boot-entry registration\n# expected: missing required test: unit.core.boot-entry\n# observed: missing required test: unit.core.boot-entry\n1..1\n",
+  "targetTest": "gate inventory rejects the missing boot-entry registration",
+  "targetFile": "scripts/check-test-inventory.sh",
+  "expected": "The reviewed inventory currently lacks unit.core.boot-entry and reports that exact missing identity.",
+  "actual": "The gate inventory exits 1 with missing required test: unit.core.boot-entry.",
+  "semanticAssessment": "The TAP target executed and failed on the exact expected registration assertion; no configure, compile, or discovery error occurred."
+}

@@ -81,6 +81,8 @@ unit.core.profile-result
 unit.core.determinism
 unit.model-result'
 
+PHASE03_TESTS='unit.core.boot-entry'
+
 ASAN_ONLY='fuzz.rom-admission
 sanitizer.negative-control'
 
@@ -97,7 +99,7 @@ expected_names() {
     *) echo "unsupported preset: $_preset" >&2; return 2 ;;
   esac
   {
-    printf '%s\n' "$BASELINE_CORE" "$BASELINE_CONTROLS" "$PHASE02_TESTS" "$_extra"
+    printf '%s\n' "$BASELINE_CORE" "$BASELINE_CONTROLS" "$PHASE02_TESTS" "$PHASE03_TESTS" "$_extra"
   } | awk 'NF' | sort
 }
 
