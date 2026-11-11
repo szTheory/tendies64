@@ -202,8 +202,18 @@ int main(void) {
                 T64_STATUS_BUS_UNSUPPORTED);
   T64_CHECK_INT(value, UINT32_C(0xdecafbad));
 
+  memset(machine->sp_imem, UINT8_C(0xa5), sizeof machine->sp_imem);
   T64_CHECK_INT(t64_machine_advance(machine, &request, &result),
                 T64_STATUS_OK);
+  T64_CHECK(machine->sp.active.valid);
+  if (machine->sp.active.valid) {
+    T64_CHECK_INT(machine->sp.active.raw_mem_address, UINT32_C(0x1000));
+    T64_CHECK_INT(machine->sp.active.raw_dram_address, UINT32_C(0x00802000));
+    T64_CHECK_INT(machine->sp.active.raw_length, UINT32_C(0x0fff));
+    T64_CHECK_INT(machine->sp.active.start_tick, UINT64_C(81));
+    T64_CHECK_INT(machine->sp.active.end_tick, UINT64_C(605));
+  }
+  T64_CHECK_INT(machine->sp_imem[0], UINT8_C(0xa5));
   advanced_past_device = result.reason == T64_STOP_REASON_CPU_UNSUPPORTED &&
                          result.tick > UINT64_C(38) &&
                          machine->cpu.retired_instructions > UINT64_C(37);

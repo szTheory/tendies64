@@ -1,0 +1,11 @@
+{
+  "command": "T64_TEST_IPL3_PATH=build/fixtures/ipl3_compat.z64 T64_TEST_HELLO_PATH=build/fixtures/hello.z64 T64_BOOT_FIXTURES_DIR=build/fixtures build/gate/core/test_warm_devices",
+  "exitCode": 1,
+  "output": "TAP version 13\n# warm-path stop reason=7 tick=81 retired=80 pc=0xa40002b0 opcode=0xac430008\n# stop operands v0=0xffffffffa4040000 v1=0x00000fff s0=0x00400000 s1=0x00000000\nnot ok 1 - qualified warm-device contract admits authored ROM and executes RI path\n1..1\n",
+  "targetTest": "qualified warm-device contract admits authored ROM and executes RI path",
+  "targetFile": "core/tests/test_warm_devices.c",
+  "expected": "The actual IPL3 issues the exact warm SP descriptor: IMEM 0x1000, DRAM 0x00802000, raw length 0x0FFF, start tick 81, end tick 605; destination IMEM remains unchanged before completion.",
+  "actual": "The target ran and failed the planned active-descriptor assertion. Execution stopped at tick 81, 80 retirements, PC 0xA40002B0 opcode 0xAC430008; the SP RD_LEN store was refused, so no SP descriptor was issued.",
+  "stderr": "<checkout>/core/tests/test_warm_devices.c:208: CHECK failed: machine->sp.active.valid",
+  "semanticAssessment": "RED_VALID: target TAP assertion failed because the exact qualified out-of-installed-RDRAM SP source is not implemented; prior assertions and fixture setup passed."
+}
