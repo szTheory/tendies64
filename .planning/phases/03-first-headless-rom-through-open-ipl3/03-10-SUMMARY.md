@@ -120,6 +120,17 @@ The first full-gate CTest invocation yielded before its terminal status was capt
 
 No broad RUN or BOOT requirement is completed by this plan. The test report is independently authored structural input and does not represent actual guest execution. The actual producer, CPU run and phase-level boot evidence remain with the later Phase 3 plans; no runtime `--real` support is claimed here.
 
+## Follow-up Identity Correction
+
+Parent integration preparation found that the initial v2 sample and validator
+substituted the nested boot-policy digest for the full profile identity. The
+independent v7 profile vector in `unit.core.boot-entry` distinguishes the two.
+With the sample corrected to the full profile SHA, the checker rejected it
+with `R-IDENTITY` and incorrectly accepted the boot-policy substitution. The
+checker, protocol and negative case were then corrected. Focused v1/v2/model
+and boot-entry regressions passed (6/6), and focused ASan/UBSan v2 passed.
+No core policy or profile bytes changed.
+
 ## Next Phase Readiness
 
 Plan 03-11 can emit the closed v2 shape once its real runner has collected the pinned input, output, state and CPU milestone evidence. It must still prove actual guest execution independently.
