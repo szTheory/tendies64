@@ -546,10 +546,17 @@ static bool test_cache_operations_are_coherent(
   static const struct {
     uint32_t opcode;
     uint32_t operation;
+    uint64_t virtual_base;
+    uint32_t physical_address;
   } cache_cases[] = {
-      {UINT32_C(0xbd080000), UINT32_C(0x08)}, /* index store tag I */
-      {UINT32_C(0xbd090000), UINT32_C(0x09)}, /* index store tag D */
-      {UINT32_C(0xbd150000), UINT32_C(0x15)}, /* hit WB/invalidate D */
+      {UINT32_C(0xbd080000), UINT32_C(0x08),
+       UINT64_C(0xffffffff80000100), UINT32_C(0x100)}, /* index store tag I */
+      {UINT32_C(0xbd090000), UINT32_C(0x09),
+       UINT64_C(0xffffffff80000100), UINT32_C(0x100)}, /* index store tag D */
+      {UINT32_C(0xbd110000), UINT32_C(0x11),
+       UINT64_C(0xffffffff807f8000), UINT32_C(0x007f8000)}, /* hit invalidate D */
+      {UINT32_C(0xbd150000), UINT32_C(0x15),
+       UINT64_C(0xffffffff80000100), UINT32_C(0x100)}, /* hit WB/invalidate D */
   };
   size_t i;
 
@@ -563,7 +570,7 @@ static bool test_cache_operations_are_coherent(
                          sizeof program / sizeof program[0])) {
       return false;
     }
-    machine->cpu.gpr[8] = UINT64_C(0xffffffff80000100);
+    machine->cpu.gpr[8] = cache_cases[i].virtual_base;
     machine->cpu.gpr[9] = UINT64_C(0x12345678);
     if (!stop_at_unsupported(machine, &result, &detail) ||
         detail.retired_instructions != UINT64_C(2) ||
@@ -571,7 +578,7 @@ static bool test_cache_operations_are_coherent(
         machine->cache.policy_version != UINT32_C(1) ||
         machine->cache.last_operation != cache_cases[i].operation ||
         machine->cache.last_pc != IPL3_ENTRY_PC + UINT32_C(4) ||
-        machine->cache.last_address != UINT32_C(0x100) ||
+        machine->cache.last_address != cache_cases[i].physical_address ||
         !machine->cache.operation_seen || machine->ram[0x100u] != 0x12u ||
         machine->ram[0x101u] != 0x34u || machine->ram[0x102u] != 0x56u ||
         machine->ram[0x103u] != 0x78u) {
