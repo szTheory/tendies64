@@ -176,6 +176,27 @@ The Nintendo 64 Programming Manual v5.2 §6.10 and the NEC VR4300/VR4305/VR4310
 manual support the aggregate IPL3 responsibilities and CPU/address/cache
 context; their pinned hashes and locators are in the phase primary evidence
 index. They do not establish original IPL2 register values, cold-start
-behavior, PIF/CIC variants, or the prepared warm values. No hosted CI run of
-this current CPU/device source is claimed here. The local tests establish only
-the stated deterministic software subset and authored fixture route.
+behavior, PIF/CIC variants, or the prepared warm values. Local tests establish
+only the stated deterministic software subset and authored fixture route.
+
+## Verification record
+
+The current local gate passed all 91 registered gate tests, the collector and
+comparator selftests, rights/PII checks, and core lint with zero violations.
+The full all-target ASan/UBSan build and exact 93-name inventory passed; the
+parallel sanitizer suite passed 93/93 in 121.53 seconds with address and
+undefined checks active and leak detection disabled for this macOS host. The
+intentional sanitizer negative control detected its injected fault.
+
+The first hosted candidate was commit
+`73e63e04ca2bc21ac5c7e80adbc6b6041cc55285`, run 43087470400 attempt 1. Linux
+failed compilation because GCC treated four ignored `ftruncate` results in
+test-only report mutation cases as errors. macOS completed its gate and
+uploaded one sanitized record, but Linux uploaded none, so these records do
+not establish a cross-host pair. The test-only file operations now check their
+results. The previous sanitizer failure was an assertion-budget issue: a
+1000 ms test-only wall cap killed before the delayed child could produce its
+30-byte transcript. The cap is now 2500 ms while the child delay remains 3 s;
+the test still verifies watchdog kill precedence, and production watchdog
+semantics are unchanged. A new exact-SHA hosted run and paired comparison are
+required before claiming the two-host result.

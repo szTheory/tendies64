@@ -73,22 +73,47 @@ one selected artifact into the requested directory.
 
 ## Local validation before hosted publication
 
-- ./scripts/gate.sh: passed with 91 registered tests and zero failures.
+- `./scripts/gate.sh`: passed on macOS arm64 in 61 s: exact gate inventory
+  91/91, CTest 91/91, evidence selftests (collector positive plus 23 rejection
+  cases; comparator positive plus 8 mismatch cases), and core lint with zero
+  violations.
+- Full all-target ASan/UBSan build and exact 93-name inventory passed. With
+  `detect_leaks=0`, active address/undefined checks, the bounded admission fuzz
+  and intentional sanitizer control, the parallel full suite passed 93/93 in
+  121.53 s; `sanitizer.negative-control` confirmed the injected fault is
+  detected. The earlier full run was 92/93 because the test's 1000 ms
+  after-output wall limit killed before the guest transcript appeared (0 bytes
+  captured), although the test expected output followed by the 3 s delayed
+  child's kill. Raising only that test limit to 2500 ms preserved the 3 s
+  delay and production watchdog policy; the focused case passed alone and in
+  the full suite (23.15 s under parallel load).
 - scripts/check-ci-yml.sh --selftest: passed 43 mutation cases.
 - ctest --preset gate -R '^repo\.ci-yml(-selftest)?$': passed both existing CI-checker registrations.
 - The collector refused prior successful run 43020272408 after validating its run, attempt and two successful job records because it had no proof artifacts; it published no output. This negative API-path check is not hosted evidence.
 - The emitter produced a canonical wrapper from a real local supervisor pass; both staged rights and PII scans passed. This local smoke confirms the emitter path only and does not satisfy the hosted proof.
-- The current common gate includes both collector and comparator selftests; their real local supervisor records remain explicitly non-hosted inputs.
+- The current common gate includes both collector and comparator selftests;
+  their real local supervisor records remain explicitly non-hosted inputs.
 
 ## Hosted run records
 
-No hosted run has yet been selected. After the complete emitter, collector, and
-comparator path is committed, this section will record the exact pushed SHA,
-run attempt, job conclusions, artifact IDs, artifact digests, measured CI
-timings, and comparator result. Only records retrieved from that exact
-successful GitHub run attempt count.
+The first complete candidate was pushed as SHA
+`73e63e04ca2bc21ac5c7e80adbc6b6041cc55285` and ran as
+[workflow 43087470400, attempt 1](https://github.com/szTheory/tendies64/actions/runs/43087470400).
+It failed on Linux during compilation: GCC 13.3 with `-Werror` rejected four
+ignored `ftruncate` results in test-only report mutation cases. The macOS job
+passed and uploaded its sanitized record, but no Linux record exists, so there
+was no collector/comparator run and no cross-host proof. The single macOS
+artifact below is retained as failed-attempt metadata only and must not be
+paired with a later run. Run wall time was 266 s; Linux queue/run was 2/108 s,
+macOS queue/run was 2/262 s, with the macOS Gate step taking 249 s. Review
+F-030 records that the test-only syscall results were checked without changing
+production watchdog behavior or the two-job CI shape.
 
 | Job | Conclusion | Artifact ID | Record SHA-256 |
 | --- | --- | --- | --- |
-| gate-linux | pending | pending | pending |
-| gate-macos | pending | pending | pending |
+| gate-linux (job 130755528714) | failure; no artifact | none | none |
+| gate-macos (job 130755529262) | success; not accepted as a pair | 13888016671, archive digest `sha256:3d6040c64993002bbcc432304c3c12c3032ee9266018bdf54cdfb739f036eafb` | not retrieved; artifact is incomplete proof |
+
+A later successful exact-SHA run and comparator result are still required to
+establish hosted proof. Its run, attempt, both job IDs, artifact IDs and
+digests, record hashes, measured timings, and comparison will be appended here.

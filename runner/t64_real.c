@@ -969,25 +969,29 @@ int main(int argc, char **argv) {
       (void)sleep(3u);
     }
     if (status == 0 && test_fault_is("report-missing")) {
-      (void)ftruncate(STDOUT_FILENO, 0);
+      if (ftruncate(STDOUT_FILENO, 0) != 0) return 1;
     } else if (status == 0 && test_fault_is("report-truncated")) {
-      (void)ftruncate(STDOUT_FILENO, (off_t)8);
+      if (ftruncate(STDOUT_FILENO, (off_t)8) != 0) return 1;
     } else if (status == 0 && test_fault_is("report-oversize")) {
       uint8_t extra[T64_REAL_RESULT_MAX_BYTES];
       memset(extra, 'x', sizeof extra);
-      (void)write_all(STDOUT_FILENO, extra, sizeof extra);
+      if (!write_all(STDOUT_FILENO, extra, sizeof extra)) return 1;
     } else if (status == 0 && test_fault_is("report-malformed")) {
       static const uint8_t malformed[] = "{not-json}\n";
-      (void)ftruncate(STDOUT_FILENO, 0);
-      (void)lseek(STDOUT_FILENO, 0, SEEK_SET);
-      (void)write_all(STDOUT_FILENO, malformed, sizeof malformed - 1u);
+      if (ftruncate(STDOUT_FILENO, 0) != 0 ||
+          lseek(STDOUT_FILENO, 0, SEEK_SET) < 0 ||
+          !write_all(STDOUT_FILENO, malformed, sizeof malformed - 1u)) {
+        return 1;
+      }
     } else if (status == 0 && test_fault_is("report-unknown")) {
       static const uint8_t unknown[] =
           "{\"schema\":\"t64.result\",\"schema_version\":2,"
           "\"unknown\":true}\n";
-      (void)ftruncate(STDOUT_FILENO, 0);
-      (void)lseek(STDOUT_FILENO, 0, SEEK_SET);
-      (void)write_all(STDOUT_FILENO, unknown, sizeof unknown - 1u);
+      if (ftruncate(STDOUT_FILENO, 0) != 0 ||
+          lseek(STDOUT_FILENO, 0, SEEK_SET) < 0 ||
+          !write_all(STDOUT_FILENO, unknown, sizeof unknown - 1u)) {
+        return 1;
+      }
     }
 #endif
     return status;

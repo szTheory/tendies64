@@ -938,7 +938,7 @@ int main(int argc, char **argv) {
         {"crash-after-output", NULL, "runner-signalled", "host-error", false,
          sizeof expected_log - 1u,
          "runner crash after correct guest text takes harness-error precedence"},
-        {"delay-after-output", "1000", "wall-backstop", "host-error", false,
+        {"delay-after-output", "2500", "wall-backstop", "host-error", false,
          sizeof expected_log - 1u,
          "wall kill after correct guest text takes harness-error precedence"},
     };
@@ -949,6 +949,28 @@ int main(int argc, char **argv) {
           fault_meta_path, directory, fault_capture_path, cases[i].fault,
           cases[i].wall_limit, cases[i].detail, cases[i].stop_kind,
           cases[i].trusted_progress, cases[i].capture_length);
+      if (!passed) {
+        uint8_t diagnostic_report[4097] = {0};
+        uint8_t diagnostic_capture[128];
+        size_t diagnostic_report_length = 0u;
+        size_t diagnostic_capture_length = 0u;
+        bool have_report = read_file(fault_report_path, diagnostic_report,
+                                     sizeof diagnostic_report - 1u,
+                                     &diagnostic_report_length);
+        bool have_capture = read_file(fault_capture_path, diagnostic_capture,
+                                      sizeof diagnostic_capture,
+                                      &diagnostic_capture_length);
+        fprintf(stderr,
+                "supervisor fault diagnostic: fault=%s expected_detail=%s "
+                "expected_stop=%s report_bytes=%zu capture_bytes=%s%zu "
+                "report=%.*s\n",
+                cases[i].fault, cases[i].detail, cases[i].stop_kind,
+                have_report ? diagnostic_report_length : 0u,
+                have_capture ? "" : "unreadable/too-large:",
+                have_capture ? diagnostic_capture_length : 0u,
+                have_report ? (int)diagnostic_report_length : 0,
+                have_report ? (const char *)diagnostic_report : "");
+      }
       check(passed, cases[i].description);
     }
   }
