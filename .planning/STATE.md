@@ -4,18 +4,18 @@ milestone: v1.0
 milestone_name: Verified Headless Core
 current_phase: 3
 current_phase_name: First Headless ROM Through Open IPL3
-current_plan: 6 of 13
+current_plan: 7 of 13
 status: executing
-stopped_at: Completed 03-05-PLAN.md
-last_updated: "2026-11-11T09:47:00.242Z"
+stopped_at: Completed 03-06-PLAN.md
+last_updated: "2026-11-11T10:50:20.939Z"
 last_activity: 2026-11-10
 last_activity_desc: Phase 3 execution started
-state_head: 3c5d6379d2e20f9acacecdbdc006fb9cea73bd4f
+state_head: a9d68808dbe75fb6b1ef0dae4f4915e28ff1dfd9
 progress:
   total_phases: 6
   completed_phases: 2
   total_plans: 34
-  completed_plans: 26
+  completed_plans: 27
   percent: 33
 ---
 
@@ -31,7 +31,7 @@ See: .planning/PROJECT.md (updated 2026-11-10)
 ## Current Position
 
 Phase: 3 (First Headless ROM Through Open IPL3) — EXECUTING
-Current Plan: 6 of 13
+Current Plan: 7 of 13
 Status: Ready to execute
 Last activity: 2026-11-10 — Phase 3 execution started
 
@@ -86,6 +86,7 @@ Progress: [███░░░░░░░] 33%
 | Phase 03 P03 | 52min | 1 tasks | 14 files |
 | Phase 3 P04 | 73min | 2 tasks | 10 files |
 | Phase 3 P5 | 138min | 2 tasks | 20 files |
+| Phase 3 P6 | 45 min | 1 tasks | 16 files |
 
 ## Accumulated Context
 
@@ -142,6 +143,9 @@ Decisions are logged in the PROJECT.md Key Decisions table. Recent decisions tha
 - [Phase 3]: Warm-device policy v3 binds only the enumerated DMEM and IMEM zero-source tuples, fixed HALT status, and exact reset commands as prepared software behavior.
 - [Phase 3]: CACHE operations 0x08, 0x09, 0x11, and 0x15 use the coherent-functional warm subset without cache-line timing or RDRAM access.
 - [Phase 3]: The authored hello first output store uses KUSEG 0x13ff0000; plan 03-06 owns the fixture-address contract, and virtual-address modes stay bounded.
+- [Phase 3]: Model the pinned libdragon magic register as writable per-instance storage with readback, not as a fixed hardware value.
+- [Phase 3]: Use warm state serialization version 7 for ISViewer state; preserve v6 state bytes and legacy synthetic identities.
+- [Phase 3]: Preserve aligned CPU halfword loads and stores as one width-2 bus transaction.
 
 ### Pending Todos
 
@@ -167,6 +171,6 @@ Items acknowledged and deferred at milestone close, most recent first:
 
 ## Session Continuity
 
-Last session: 2026-11-11T09:47:00.095Z
-Stopped at: Completed 03-05-PLAN.md
+Last session: 2026-11-11T10:50:20.802Z
+Stopped at: Completed 03-06-PLAN.md
 Resume file: None
