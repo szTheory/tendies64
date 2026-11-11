@@ -141,6 +141,7 @@ int main(void) {
       "f716a90b1d36ec4253d096790791256d3543455e54473a755ff8c3d1199b15d5";
   static const char expected_policy_sha256[] =
       "a6eeba466ae8804a8dec79ce8c5dece40ea5d25b29724d53f7e1ebe46ffd5cc9";
+  static const uint8_t zero_dmem_prefix[IPL3_DMEM_OFFSET] = {0u};
   const t64_profile_descriptor *profile = NULL;
   allocator_state allocator_state_value = {0u};
   const t64_host_allocator allocator = {
@@ -181,7 +182,18 @@ int main(void) {
     goto done;
   }
   T64_CHECK_STR(profile->profile_id, "ntsc-cart-4m-openipl3-warm-v1");
+  T64_CHECK_STR(profile->console_target, "NUS-CPU-03");
+  T64_CHECK_STR(profile->console_qualification, "unqualified-target");
   T64_CHECK_STR(profile->boot_status, "prepared-warm-entry-partial");
+  T64_CHECK_INT(profile->tv_standard, 1u);
+  T64_CHECK_INT(profile->region, 1u);
+  T64_CHECK_INT(profile->media_kind, 1u);
+  T64_CHECK_INT(profile->rdram_bytes, 4194304u);
+  T64_CHECK_INT(profile->expansion_bytes, 0u);
+  T64_CHECK_INT(profile->peripheral_flags, 0u);
+  T64_CHECK_INT(profile->save_kind, 0u);
+  T64_CHECK_INT(profile->rom_min_bytes, IPL3_ASSET_BYTES);
+  T64_CHECK_INT(profile->rom_max_bytes, IPL3_ASSET_BYTES);
   T64_CHECK_INT(profile->descriptor_version, 2u);
   T64_CHECK_INT(profile->machine_model_version, 2u);
   T64_CHECK_INT(profile->state_serialization_version, 6u);
@@ -227,6 +239,8 @@ int main(void) {
   T64_CHECK_INT(machine->boot.source_offset, IPL3_PAYLOAD_SOURCE_OFFSET);
   T64_CHECK_INT(machine->boot.payload_length, IPL3_PAYLOAD_BYTES);
   T64_CHECK_INT(machine->boot.dmem_offset, IPL3_DMEM_OFFSET);
+  T64_CHECK(memcmp(machine->sp_dmem, zero_dmem_prefix,
+                   sizeof zero_dmem_prefix) == 0);
   T64_CHECK_INT(machine->boot.entry_pc, IPL3_ENTRY_PC);
   T64_CHECK_INT(machine->cpu.pc, IPL3_ENTRY_PC);
   T64_CHECK_INT(machine->cpu.gpr[19], 0u);

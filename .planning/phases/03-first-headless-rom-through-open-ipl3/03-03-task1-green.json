@@ -1,0 +1,59 @@
+{
+  "task": "Make warm-entry identities and limits inspectable and automatically checked",
+  "result": "pass",
+  "goldens": {
+    "profile_sha256": "f67e9fb4ad2c065e9ec4dc3048f447a8755255a281c602d2ac8c6cc5bcf38faa",
+    "initial_state_v6_sha256": "21217cbc347896be9e97f7edcddd912a2fe4c9b0f151dd2e3809887477b6b42d",
+    "asset_sha256": "f522db2e31a701f82597f399e76d55c9487760d015aff9d90176b463ae39a068",
+    "payload_sha256": "f716a90b1d36ec4253d096790791256d3543455e54473a755ff8c3d1199b15d5",
+    "boot_policy_sha256": "a6eeba466ae8804a8dec79ce8c5dece40ea5d25b29724d53f7e1ebe46ffd5cc9"
+  },
+  "automated_checks": [
+    {
+      "command": "cmake --preset gate",
+      "exitCode": 0
+    },
+    {
+      "command": "cmake --build --preset gate --target test_boot_entry test_tracer",
+      "exitCode": 0,
+      "notes": "The initial build from the new CMake graph refreshed the fixture producer once; no recursive build occurred."
+    },
+    {
+      "command": "ctest --preset gate -R '^unit\\.core\\.(tracer|boot-entry)$' --output-on-failure",
+      "exitCode": 0,
+      "passed": 2,
+      "failed": 0
+    },
+    {
+      "command": "sh scripts/check-test-inventory.sh --selftest",
+      "exitCode": 0,
+      "gateRemovalControls": 74,
+      "asanRemovalControls": 76,
+      "removalControls": 148,
+      "malformedControls": 5
+    },
+    {
+      "command": "sh scripts/check-test-inventory.sh --preset gate",
+      "exitCode": 0,
+      "registeredTests": 74
+    },
+    {
+      "command": "sh tools/lint/core-lint.sh",
+      "exitCode": 0,
+      "files": 15,
+      "violations": 0
+    },
+    {
+      "command": "sh scripts/gate.sh",
+      "exitCode": 0,
+      "durationSeconds": 40,
+      "ctestPassed": 74,
+      "ctestFailed": 0,
+      "inventoryGateTests": 74,
+      "inventoryAsanTests": 76,
+      "coreLintViolations": 0,
+      "notes": "Fixture qualification ran once; the CMake build was up to date afterward. gov.manifest.repo passed after CMake built the checker."
+    }
+  ],
+  "scopeLimit": "Prepared-RDRAM software warm entry only: ANDI retired at guest tick 1; unsupported LUI stopped at tick 2. The authored hello ROM was not admitted or executed; no hardware handoff or accuracy claim is made."
+}

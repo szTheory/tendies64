@@ -20,6 +20,12 @@ else
   export T64_REQUIRE_FIXTURES=0
 fi
 
+# Both the tracer and boot-entry CTests consume the qualified 4096-byte asset.
+# Pass stable source/build paths explicitly rather than depending on caller cwd.
+export T64_BOOT_FIXTURES_DIR="$ROOT/build/fixtures"
+export T64_BOOT_CONTRACT_PATH="$ROOT/fixtures/boot-contract.json"
+export T64_TEST_IPL3_PATH="$T64_BOOT_FIXTURES_DIR/ipl3_compat.z64"
+
 GATE_T0=$(date +%s)
 GATE_STEPS=""
 
@@ -79,6 +85,7 @@ sh_n() {
 banner
 step sh-n sh_n
 step lint-selftest sh tools/lint/core-lint.sh --selftest
+step fixture-qualification sh scripts/build-boot-fixtures.sh --qualify
 step configure cmake --preset gate
 step build cmake --build --preset gate
 step test-inventory-selftest sh scripts/check-test-inventory.sh --selftest

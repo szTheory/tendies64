@@ -108,12 +108,64 @@ target_compile_definitions(t64_core PRIVATE
   "T64_BUILD_ID=\"${T64_BUILD_ID}\""
   "T64_SOURCE_REVISION=\"${T64_SOURCE_REVISION}\"")
 
+# The exact IPL3 input and authored hello variants are local, build-only
+# fixtures. Keep their producer incremental and make every consuming test
+# depend on the complete qualified output set. The producer invokes no CMake
+# or Ninja targets, so it cannot recurse into this build.
+set(T64_BOOT_FIXTURE_DIR "${CMAKE_SOURCE_DIR}/build/fixtures")
+set(T64_BOOT_FIXTURE_OUTPUTS
+  "${T64_BOOT_FIXTURE_DIR}/ipl3_compat.z64"
+  "${T64_BOOT_FIXTURE_DIR}/ipl3_compat.payload.bin"
+  "${T64_BOOT_FIXTURE_DIR}/hello.z64"
+  "${T64_BOOT_FIXTURE_DIR}/hello-empty-break.z64"
+  "${T64_BOOT_FIXTURE_DIR}/hello-wrong-text.z64"
+  "${T64_BOOT_FIXTURE_DIR}/hello-empty-loop.z64"
+  "${T64_BOOT_FIXTURE_DIR}/hello-incomplete-loop.z64"
+  "${T64_BOOT_FIXTURE_DIR}/hello-unsupported.z64"
+  "${T64_BOOT_FIXTURE_DIR}/hello-output-overflow.z64"
+  "${T64_BOOT_FIXTURE_DIR}/hello.payload.bin"
+  "${T64_BOOT_FIXTURE_DIR}/hello.expected.txt"
+  "${T64_BOOT_FIXTURE_DIR}/hello.input.json"
+  "${T64_BOOT_FIXTURE_DIR}/hello.build.json")
+add_custom_command(
+  OUTPUT ${T64_BOOT_FIXTURE_OUTPUTS}
+  COMMAND "${CMAKE_COMMAND}" -E env "CC=${CMAKE_C_COMPILER}"
+    sh "${CMAKE_SOURCE_DIR}/scripts/build-boot-fixtures.sh" --build
+  DEPENDS
+    "${CMAKE_SOURCE_DIR}/fixtures/boot-contract.json"
+    "${CMAKE_SOURCE_DIR}/fixtures/manifest.json"
+    "${CMAKE_SOURCE_DIR}/fixtures/hello/hello.S"
+    "${CMAKE_SOURCE_DIR}/fixtures/hello/hello.ld"
+    "${CMAKE_SOURCE_DIR}/scripts/build-boot-fixtures.sh"
+    "${CMAKE_SOURCE_DIR}/tools/fixture/t64_rom_pack.c"
+    "${CMAKE_SOURCE_DIR}/tools/common/t64_sha256.c"
+    "${CMAKE_SOURCE_DIR}/tools/common/t64_sha256.h"
+  WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}"
+  COMMENT "Building pinned boot and authored hello fixtures"
+  VERBATIM)
+add_custom_target(t64-boot-fixtures DEPENDS ${T64_BOOT_FIXTURE_OUTPUTS})
+
 add_executable(test_tracer tests/test_tracer.c)
 target_include_directories(test_tracer PRIVATE "${CMAKE_SOURCE_DIR}/tests")
 target_link_libraries(test_tracer PRIVATE t64_core)
 t64_target_warnings(test_tracer)
+add_dependencies(test_tracer t64-boot-fixtures)
 add_test(NAME unit.core.tracer COMMAND test_tracer)
 set_tests_properties(unit.core.tracer PROPERTIES LABELS unit)
+
+add_executable(test_boot_entry tests/test_boot_entry.c)
+target_include_directories(test_boot_entry PRIVATE
+  "${CMAKE_CURRENT_SOURCE_DIR}"
+  "${CMAKE_SOURCE_DIR}/tests"
+  "${CMAKE_SOURCE_DIR}/tools/common")
+target_link_libraries(test_boot_entry PRIVATE t64_core t64_sha256)
+t64_target_warnings(test_boot_entry)
+add_dependencies(test_boot_entry t64-boot-fixtures)
+add_test(NAME unit.core.boot-entry COMMAND test_boot_entry)
+set_tests_properties(unit.core.boot-entry PROPERTIES LABELS unit)
+set_tests_properties(unit.core.tracer unit.core.boot-entry PROPERTIES
+  ENVIRONMENT
+    "T64_TEST_IPL3_PATH=${T64_BOOT_FIXTURE_DIR}/ipl3_compat.z64;T64_BOOT_FIXTURES_DIR=${T64_BOOT_FIXTURE_DIR};T64_BOOT_CONTRACT_PATH=${CMAKE_SOURCE_DIR}/fixtures/boot-contract.json")
 
 add_executable(test_profile tests/test_profile.c)
 target_include_directories(test_profile PRIVATE "${CMAKE_SOURCE_DIR}/tests")
