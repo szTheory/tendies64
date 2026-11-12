@@ -976,9 +976,10 @@ static bool execute_integer(t64_machine *machine, uint32_t opcode,
   return true;
 }
 
-static bool execute_cp0(t64_machine *machine, uint32_t opcode,
-                        bool *write_gpr_out, uint32_t *destination_out,
-                        uint64_t *value_out) {
+static bool execute_cp0_warm(t64_machine *machine, uint32_t opcode,
+                             bool *write_gpr_out,
+                             uint32_t *destination_out,
+                             uint64_t *value_out) {
   uint32_t suboperation = (opcode >> 21) & UINT32_C(0x1f);
   uint32_t rt = (opcode >> 16) & UINT32_C(0x1f);
   uint32_t rd = (opcode >> 11) & UINT32_C(0x1f);
@@ -1034,6 +1035,26 @@ static bool execute_cp0(t64_machine *machine, uint32_t opcode,
   default:
     return false;
   }
+}
+
+static t64_cp0_transfer_result execute_cp0_vr4300(
+    t64_machine *machine, uint32_t opcode, bool *write_gpr_out,
+    uint32_t *destination_out, uint64_t *value_out) {
+  t64_cp0_effect effect = {0};
+  t64_cp0_transfer_result result =
+      t64_cp0_prepare_transfer(machine, opcode, &effect);
+
+  *write_gpr_out = false;
+  *destination_out = 0u;
+  *value_out = UINT64_C(0);
+  if (result != T64_CP0_TRANSFER_OK) {
+    return result;
+  }
+  t64_cp0_commit_transfer(machine, &effect);
+  *write_gpr_out = effect.write_gpr;
+  *destination_out = effect.gpr_index;
+  *value_out = effect.gpr_value;
+  return T64_CP0_TRANSFER_OK;
 }
 
 static bool execute_cache(t64_machine *machine, uint32_t pc,
@@ -1669,8 +1690,24 @@ t64_status t64_cpu_step(t64_machine *machine, const t64_event *event) {
   } else if (is_eret) {
     supported = true;
   } else if ((opcode >> 26) == T64_CPU_COP0) {
-    supported = execute_cp0(machine, opcode, &write_gpr, &destination,
-                            &value);
+    if (new_profile) {
+      t64_cp0_transfer_result cp0_result =
+          execute_cp0_vr4300(machine, opcode, &write_gpr, &destination,
+                             &value);
+
+      if (cp0_result == T64_CP0_TRANSFER_RESERVED) {
+        return cpu_enter_exception(machine, UINT32_C(10), 0u,
+                                   in_delay_slot, false, 0u);
+      }
+      if (cp0_result == T64_CP0_TRANSFER_UNSUPPORTED) {
+        cpu_stop_unsupported(machine, pc, opcode);
+        return T64_STATUS_RESOURCE_EXHAUSTED;
+      }
+      supported = true;
+    } else {
+      supported = execute_cp0_warm(machine, opcode, &write_gpr,
+                                   &destination, &value);
+    }
     if (!supported) {
       cpu_stop_unsupported(machine, pc, opcode);
       return T64_STATUS_RESOURCE_EXHAUSTED;

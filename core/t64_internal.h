@@ -171,6 +171,23 @@ typedef struct {
   uint32_t coprocessor;
 } t64_cpu_exception_result;
 
+typedef enum {
+  T64_CP0_TRANSFER_OK = 0,
+  T64_CP0_TRANSFER_RESERVED = 1,
+  T64_CP0_TRANSFER_UNSUPPORTED = 2
+} t64_cp0_transfer_result;
+
+typedef struct {
+  bool write_gpr;
+  uint32_t gpr_index;
+  uint64_t gpr_value;
+  bool write_cp0;
+  uint32_t cp0_index;
+  uint64_t cp0_value;
+  bool clear_timer_pending;
+  bool reset_random;
+} t64_cp0_effect;
+
 typedef struct {
   bool translated;
   bool refill;
@@ -218,6 +235,8 @@ typedef struct {
   uint64_t stop_pc_full;
   uint32_t attempt_outcome;
   uint32_t semantic_policy_version;
+  /* Prepared CPU entry begins after Config EP/BE initialization is closed. */
+  bool cp0_config_init_window;
   bool tlb_shutdown;
   bool pending_exception_valid;
   uint32_t pending_exception_code;
@@ -382,6 +401,10 @@ t64_status t64_cpu_schedule(t64_machine *machine);
 t64_status t64_cpu_step(t64_machine *machine, const t64_event *event);
 t64_status t64_cpu_exception_enter(
     t64_machine *machine, const t64_cpu_exception_result *exception);
+t64_cp0_transfer_result t64_cp0_prepare_transfer(
+    const t64_machine *machine, uint32_t opcode, t64_cp0_effect *effect_out);
+void t64_cp0_commit_transfer(t64_machine *machine,
+                             const t64_cp0_effect *effect);
 bool t64_cpu_translate(uint64_t virtual_address,
                        uint32_t *physical_address_out);
 t64_status t64_bus_probe_access(const t64_machine *machine,

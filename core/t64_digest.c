@@ -65,6 +65,7 @@ static void hash_vr4300_cpu_state(t64_sha256_ctx *context,
   hash_u64(context, cpu->stop_pc_full);
   hash_u32(context, cpu->attempt_outcome);
   hash_u32(context, cpu->semantic_policy_version);
+  hash_u32(context, cpu->cp0_config_init_window ? UINT32_C(1) : UINT32_C(0));
   hash_u32(context, cpu->tlb_shutdown ? UINT32_C(1) : UINT32_C(0));
   hash_u32(context, cpu->pending_exception_valid ? UINT32_C(1) : UINT32_C(0));
   hash_u32(context, cpu->pending_exception_code);
