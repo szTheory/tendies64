@@ -345,7 +345,7 @@ collect_default_core_files() {
   sort "$TMP/files.raw" > "$TMP/files"
 }
 
-# lint_list [-I DIR]...: run both layers over the files listed in $TMP/files.
+# lint_list [-I DIR|-D MACRO]...: run both layers over the files in $TMP/files.
 # Prints violations and the summary line; returns 0 clean, 1 violations.
 lint_list() {
   _nfiles=$(wc -l < "$TMP/files" | tr -d ' ')
@@ -599,7 +599,7 @@ if [ $# -eq 0 ]; then
   cd "$REPO"
   INC_ROOT="$REPO/core"
   collect_default_core_files core
-  lint_list -I tools/common
+  lint_list -I tools/common -I core/softfloat -D SOFTFLOAT_FAST_INT64=1
   exit $?
 fi
 case "$1" in

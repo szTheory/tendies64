@@ -1,105 +1,150 @@
-/* SPDX-License-Identifier: BSD-3-Clause */
-/* SPDX-FileCopyrightText: 2011-2016 The Regents of the University of California */
-/*============================================================================
-
-This C source file is part of the SoftFloat IEEE Floating-Point Arithmetic
-Package, Release 3e, by John R. Hauser.
-
-Copyright 2011, 2012, 2013, 2014, 2015, 2016 The Regents of the University of
-California.  All rights reserved.
-
-Redistribution and use in source and binary forms, with or without
-modification, are permitted provided that the following conditions are met:
-
- 1. Redistributions of source code must retain the above copyright notice,
-    this list of conditions, and the following disclaimer.
-
- 2. Redistributions in binary form must reproduce the above copyright notice
-    this list of conditions, and the following disclaimer in the
-    documentation and/or other materials provided with the distribution.
-
- 3. Neither the name of the University nor the names of its contributors may
-    be used to endorse or promote products derived from this software without
-    specific prior written permission.
-
-THIS SOFTWARE IS PROVIDED BY THE REGENTS AND CONTRIBUTORS "AS IS", AND ANY
-EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED
-WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE, ARE
-DISCLAIMED.  IN NO EVENT SHALL THE REGENTS OR CONTRIBUTORS BE LIABLE FOR ANY
-DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES
-(INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES;
-LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND
-ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
-(INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS
-SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
-
-=============================================================================*/
-
 #include "t64_internal.h"
 
 #include <stdbool.h>
 #include <stdint.h>
 
-static uint_fast8_t t64_count_leading_zeros32(uint32_t value) {
-  uint_fast8_t count = 0u;
+#include "softfloat/softfloat.h"
 
-  while (value != 0u && (value & UINT32_C(0x80000000)) == 0u) {
-    value <<= 1;
-    count++;
+void softfloat_raiseFlags(t64_softfloat_context *context, uint_fast8_t flags) {
+  context->exception_flags =
+      (uint8_t)(context->exception_flags | (uint8_t)flags);
+}
+
+static bool t64_softfloat_context_valid(const t64_softfloat_context *context) {
+  return context != NULL && context->rounding_mode <= 3u &&
+         context->tininess_mode <= 1u;
+}
+
+static int32_t t64_i32_from_bits(uint32_t bits) {
+  if (bits < UINT32_C(0x80000000)) {
+    return (int32_t)bits;
   }
-  return count;
+  return -1 - (int32_t)~bits;
+}
+
+static int64_t t64_i64_from_bits(uint64_t bits) {
+  if (bits <= (uint64_t)INT64_MAX) {
+    return (int64_t)bits;
+  }
+  return -1 - (int64_t)~bits;
+}
+
+static void t64_softfloat_store(t64_softfloat_context *context,
+                                uint64_t bits,
+                                t64_softfloat_result *result_out) {
+  t64_softfloat_result result = {bits, context->exception_flags};
+  *result_out = result;
 }
 
 t64_status t64_softfloat_i32_to_f64(int32_t input,
                                     t64_softfloat_context *context,
                                     t64_softfloat_result *result_out) {
-  t64_softfloat_result result = {0u, 0u};
-  uint32_t input_bits;
-  uint32_t magnitude;
-  uint_fast8_t shift_distance;
-  uint_fast32_t exponent;
-  bool sign;
-
-  if (context == NULL || result_out == NULL || context->rounding_mode > 3u ||
-      context->tininess_mode > 1u) {
+  if (!t64_softfloat_context_valid(context) || result_out == NULL) {
     return T64_STATUS_INVALID_ARGUMENT;
   }
-  if (input != 0) {
-    input_bits = (uint32_t)input;
-    sign = input < 0;
-    magnitude = sign ? UINT32_C(0) - input_bits : input_bits;
-    shift_distance = t64_count_leading_zeros32(magnitude) + 21u;
-    exponent = UINT32_C(0x432) - shift_distance;
-    result.bits = (sign ? UINT64_C(0x8000000000000000) : UINT64_C(0)) +
-                  ((uint64_t)exponent << 52) +
-                  ((uint64_t)magnitude << shift_distance);
-  }
-  result.exception_flags = context->exception_flags;
-  *result_out = result;
-  return T64_STATUS_OK;
+  return t64_softfloat_execute(T64_SOFTFLOAT_OP_I32_TO_F64, context,
+                               (uint32_t)input, 0u, result_out);
 }
 
 t64_status t64_softfloat_execute(t64_softfloat_operation operation,
                                  t64_softfloat_context *context,
                                  uint64_t a_bits, uint64_t b_bits,
                                  t64_softfloat_result *result_out) {
-  int32_t signed_word;
+  uint64_t bits;
+  float32_t f32_a = {(uint32_t)a_bits};
+  float32_t f32_b = {(uint32_t)b_bits};
+  float64_t f64_a = {a_bits};
+  float64_t f64_b = {b_bits};
 
-  (void)b_bits;
-  if (context == NULL || result_out == NULL || context->rounding_mode > 3u ||
-      context->tininess_mode > 1u) {
+  if (!t64_softfloat_context_valid(context) || result_out == NULL) {
     return T64_STATUS_INVALID_ARGUMENT;
   }
   switch (operation) {
     case T64_SOFTFLOAT_OP_I32_TO_F64:
-      if ((uint32_t)a_bits < UINT32_C(0x80000000)) {
-        signed_word = (int32_t)(uint32_t)a_bits;
-      } else {
-        signed_word = -1 - (int32_t)~(uint32_t)a_bits;
-      }
-      return t64_softfloat_i32_to_f64(signed_word, context, result_out);
+      bits = i32_to_f64(context, t64_i32_from_bits((uint32_t)a_bits)).v;
+      break;
     case T64_SOFTFLOAT_OP_F32_ADD:
+      bits = f32_add(context, f32_a, f32_b).v;
+      break;
+    case T64_SOFTFLOAT_OP_F32_SUB:
+      bits = f32_sub(context, f32_a, f32_b).v;
+      break;
+    case T64_SOFTFLOAT_OP_F32_MUL:
+      bits = f32_mul(context, f32_a, f32_b).v;
+      break;
+    case T64_SOFTFLOAT_OP_F32_DIV:
+      bits = f32_div(context, f32_a, f32_b).v;
+      break;
+    case T64_SOFTFLOAT_OP_F32_SQRT:
+      bits = f32_sqrt(context, f32_a).v;
+      break;
+    case T64_SOFTFLOAT_OP_F32_EQ:
+      bits = f32_eq(context, f32_a, f32_b) ? 1u : 0u;
+      break;
+    case T64_SOFTFLOAT_OP_F32_LE:
+      bits = f32_le(context, f32_a, f32_b) ? 1u : 0u;
+      break;
+    case T64_SOFTFLOAT_OP_F32_LT:
+      bits = f32_lt(context, f32_a, f32_b) ? 1u : 0u;
+      break;
+    case T64_SOFTFLOAT_OP_F32_TO_F64:
+      bits = f32_to_f64(context, f32_a).v;
+      break;
+    case T64_SOFTFLOAT_OP_F32_TO_I32:
+      bits = (uint64_t)(int64_t)f32_to_i32(
+          context, f32_a, context->rounding_mode, true);
+      break;
+    case T64_SOFTFLOAT_OP_F32_TO_I64:
+      bits = (uint64_t)f32_to_i64(
+          context, f32_a, context->rounding_mode, true);
+      break;
+    case T64_SOFTFLOAT_OP_F64_ADD:
+      bits = f64_add(context, f64_a, f64_b).v;
+      break;
+    case T64_SOFTFLOAT_OP_F64_SUB:
+      bits = f64_sub(context, f64_a, f64_b).v;
+      break;
+    case T64_SOFTFLOAT_OP_F64_MUL:
+      bits = f64_mul(context, f64_a, f64_b).v;
+      break;
+    case T64_SOFTFLOAT_OP_F64_DIV:
+      bits = f64_div(context, f64_a, f64_b).v;
+      break;
+    case T64_SOFTFLOAT_OP_F64_SQRT:
+      bits = f64_sqrt(context, f64_a).v;
+      break;
+    case T64_SOFTFLOAT_OP_F64_EQ:
+      bits = f64_eq(context, f64_a, f64_b) ? 1u : 0u;
+      break;
+    case T64_SOFTFLOAT_OP_F64_LE:
+      bits = f64_le(context, f64_a, f64_b) ? 1u : 0u;
+      break;
+    case T64_SOFTFLOAT_OP_F64_LT:
+      bits = f64_lt(context, f64_a, f64_b) ? 1u : 0u;
+      break;
+    case T64_SOFTFLOAT_OP_F64_TO_F32:
+      bits = f64_to_f32(context, f64_a).v;
+      break;
+    case T64_SOFTFLOAT_OP_F64_TO_I32:
+      bits = (uint64_t)(int64_t)f64_to_i32(
+          context, f64_a, context->rounding_mode, true);
+      break;
+    case T64_SOFTFLOAT_OP_F64_TO_I64:
+      bits = (uint64_t)f64_to_i64(
+          context, f64_a, context->rounding_mode, true);
+      break;
+    case T64_SOFTFLOAT_OP_I32_TO_F32:
+      bits = i32_to_f32(context, t64_i32_from_bits((uint32_t)a_bits)).v;
+      break;
+    case T64_SOFTFLOAT_OP_I64_TO_F32:
+      bits = i64_to_f32(context, t64_i64_from_bits(a_bits)).v;
+      break;
+    case T64_SOFTFLOAT_OP_I64_TO_F64:
+      bits = i64_to_f64(context, t64_i64_from_bits(a_bits)).v;
+      break;
+    default:
       return T64_STATUS_NOT_READY;
   }
-  return T64_STATUS_NOT_READY;
+  t64_softfloat_store(context, bits, result_out);
+  return T64_STATUS_OK;
 }

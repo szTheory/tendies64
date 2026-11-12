@@ -11,6 +11,7 @@ file(GLOB T64_CORE_HEADERS CONFIGURE_DEPENDS
   "${CMAKE_CURRENT_SOURCE_DIR}/include/tendies64/*.h")
 file(GLOB T64_CORE_INTERNAL_HEADERS CONFIGURE_DEPENDS
   "${CMAKE_CURRENT_SOURCE_DIR}/t64_*.h")
+include("${CMAKE_CURRENT_SOURCE_DIR}/softfloat/sources.cmake")
 
 # Build identity is a digest of the actual production inputs and build policy.
 # Only hashes and source-relative names enter the digest; no path or timestamp
@@ -20,6 +21,9 @@ set(T64_BUILD_INPUTS
   ${T64_CORE_SOURCES}
   ${T64_CORE_HEADERS}
   ${T64_CORE_INTERNAL_HEADERS}
+  ${T64_SOFTFLOAT_SOURCES}
+  ${T64_SOFTFLOAT_HEADERS}
+  "${CMAKE_CURRENT_SOURCE_DIR}/softfloat/sources.cmake"
   "${CMAKE_SOURCE_DIR}/CMakeLists.txt"
   "${CMAKE_CURRENT_SOURCE_DIR}/CMakeLists.txt"
   "${CMAKE_SOURCE_DIR}/CMakePresets.json"
@@ -95,16 +99,21 @@ if(T64_GIT_DIR_STATUS EQUAL 0 AND NOT T64_GIT_DIR STREQUAL "")
     ${T64_REVISION_DEPENDENCIES})
 endif()
 
-add_library(t64_core STATIC ${T64_CORE_SOURCES})
+add_library(t64_core STATIC
+  ${T64_CORE_SOURCES}
+  ${T64_SOFTFLOAT_SOURCES}
+  ${T64_SOFTFLOAT_HEADERS})
 target_include_directories(t64_core
   PUBLIC "${CMAKE_CURRENT_SOURCE_DIR}/include"
-  PRIVATE "${CMAKE_SOURCE_DIR}/tools/common")
+  PRIVATE "${CMAKE_SOURCE_DIR}/tools/common"
+          "${CMAKE_CURRENT_SOURCE_DIR}/softfloat")
 t64_target_warnings(t64_core)
 # Core-only flags: no implicit float promotion and bounded stack usage.
 target_compile_options(t64_core PRIVATE -Wdouble-promotion
   -Wframe-larger-than=2048)
 target_link_libraries(t64_core PRIVATE t64_sha256)
 target_compile_definitions(t64_core PRIVATE
+  "SOFTFLOAT_FAST_INT64=1"
   "T64_BUILD_ID=\"${T64_BUILD_ID}\""
   "T64_SOURCE_REVISION=\"${T64_SOURCE_REVISION}\"")
 
@@ -224,7 +233,10 @@ target_include_directories(test_softfloat PRIVATE
 target_link_libraries(test_softfloat PRIVATE t64_core)
 t64_target_warnings(test_softfloat)
 add_test(NAME unit.core.softfloat32 COMMAND test_softfloat --softfloat32)
-set_tests_properties(unit.core.softfloat32 PROPERTIES LABELS unit)
+add_test(NAME unit.core.softfloat64 COMMAND test_softfloat --softfloat64)
+add_test(NAME unit.core.softfloat-isolation COMMAND test_softfloat --isolation)
+set_tests_properties(unit.core.softfloat32 unit.core.softfloat64
+  unit.core.softfloat-isolation PROPERTIES LABELS unit)
 
 add_executable(test_cpu_cache tests/test_cpu_cache.c)
 target_include_directories(test_cpu_cache PRIVATE

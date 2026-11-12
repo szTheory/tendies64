@@ -1,0 +1,61 @@
+/* SPDX-License-Identifier: BSD-3-Clause */
+/* SPDX-FileCopyrightText: 2011-2017 The Regents of the University of California */
+
+/*============================================================================
+
+This C header file is part of the SoftFloat IEEE Floating-Point Arithmetic
+Package, Release 3e, by John R. Hauser.
+
+Copyright 2011, 2012, 2013, 2014, 2015, 2016, 2017 The Regents of the
+University of California.  All rights reserved.
+
+Redistribution and use in source and binary forms, with or without
+modification, are permitted provided that the following conditions are met:
+
+ 1. Redistributions of source code must retain the above copyright notice,
+    this list of conditions, and the following disclaimer.
+
+ 2. Redistributions in binary form must reproduce the above copyright notice,
+    this list of conditions, and the following disclaimer in the documentation
+    and/or other materials provided with the distribution.
+
+ 3. Neither the name of the University nor the names of its contributors may
+    be used to endorse or promote products derived from this software without
+    specific prior written permission.
+
+THIS SOFTWARE IS PROVIDED BY THE REGENTS AND CONTRIBUTORS "AS IS", AND ANY
+EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED
+WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE, ARE
+DISCLAIMED.  IN NO EVENT SHALL THE REGENTS OR CONTRIBUTORS BE LIABLE FOR ANY
+DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES
+(INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES;
+LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND
+ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
+(INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS
+SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+
+=============================================================================*/
+
+#ifndef primitives_h
+#define primitives_h 1
+
+#include <stdint.h>
+#include "primitiveTypes.h"
+#include "softfloat.h"
+
+uint_fast8_t t64_sf_count_leading_zeros8(uint_fast8_t);
+uint16_t t64_sf_approx_recip_k0(uint_fast8_t);
+uint16_t t64_sf_approx_recip_k1(uint_fast8_t);
+uint16_t t64_sf_approx_recip_sqrt_k0(uint_fast8_t);
+uint16_t t64_sf_approx_recip_sqrt_k1(uint_fast8_t);
+uint_fast8_t softfloat_countLeadingZeros32(t64_softfloat_context *, uint32_t);
+uint_fast8_t softfloat_countLeadingZeros64(t64_softfloat_context *, uint64_t);
+uint32_t softfloat_approxRecip32_1(t64_softfloat_context *, uint32_t);
+uint32_t softfloat_approxRecipSqrt32_1(t64_softfloat_context *, unsigned int, uint32_t);
+struct uint128 softfloat_mul64To128(t64_softfloat_context *, uint64_t, uint64_t);
+uint32_t softfloat_shiftRightJam32(t64_softfloat_context *, uint32_t, uint_fast16_t);
+uint64_t softfloat_shiftRightJam64(t64_softfloat_context *, uint64_t, uint_fast32_t);
+struct uint64_extra softfloat_shiftRightJam64Extra(t64_softfloat_context *, uint64_t, uint64_t, uint_fast32_t);
+uint64_t softfloat_shortShiftRightJam64(t64_softfloat_context *, uint64_t, uint_fast8_t);
+
+#endif

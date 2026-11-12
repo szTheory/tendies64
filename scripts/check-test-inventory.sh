@@ -113,7 +113,9 @@ unit.core.cpu-link
 unit.core.cpu-icache
 unit.core.cpu-cache-ops
 unit.core.cpu-dcache
-unit.core.softfloat32'
+unit.core.softfloat32
+unit.core.softfloat64
+unit.core.softfloat-isolation'
 
 CPU_COVERAGE_OPCODES='ADD
 ADDU

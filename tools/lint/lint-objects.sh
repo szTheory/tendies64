@@ -21,7 +21,7 @@
 # __mod_init_func __mod_term_func __init_offsets) are L2-CTOR.
 #
 # Usage:
-#   lint-objects.sh [-I DIR]... [--] FILE.c...   compile, then check
+#   lint-objects.sh [-I DIR|-D MACRO]... [--] FILE.c...   compile, then check
 #   lint-objects.sh --objects OBJ...             check precompiled objects only
 # Output: "RULE-ID path: message (hint: ...)" per violation. Exit 0 clean,
 # 1 violations, 2 usage or tool error. Include paths must not contain spaces.
@@ -53,10 +53,12 @@ viol() {
 
 MODE=compile
 INCFLAGS=""
+DEFFLAGS=""
 while [ $# -gt 0 ]; do
   case "$1" in
     --objects) MODE=objects; shift; break ;;
     -I) [ $# -ge 2 ] || usage; INCFLAGS="$INCFLAGS -I$2"; shift 2 ;;
+    -D) [ $# -ge 2 ] || usage; DEFFLAGS="$DEFFLAGS -D$2"; shift 2 ;;
     --) shift; break ;;
     -*) usage ;;
     *) break ;;
@@ -92,7 +94,7 @@ for _f in "$@"; do
   # shellcheck disable=SC2086
   if ${CC:-cc} -std=c17 -O2 -fno-common -fno-stack-protector -fno-pic \
       -U_FORTIFY_SOURCE -D_FORTIFY_SOURCE=0 -I"$REPO/core/include" \
-      -I"$(dirname "$_f")" $INCFLAGS -c "$_f" -o "$_obj" 2> "$TMP/cc$_i.err"; then
+      -I"$(dirname "$_f")" $INCFLAGS $DEFFLAGS -c "$_f" -o "$_obj" 2> "$TMP/cc$_i.err"; then
     printf '%s|%s\n' "$_obj" "$_f" >> "$LIST"
   else
     viol L2-COMPILE "$_f" "compiler rejected the file"

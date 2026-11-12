@@ -93,3 +93,23 @@ reached the production dispatch after the existing conversion passed, so the
 failure is missing arithmetic behavior rather than test setup. The complete
 JUnit report, unchanged console output, command, and classifier record remain
 under ignored `build/private-cpu-diagnostic`.
+
+### GREEN result
+
+After the exact selected closure was linked into `t64_core`, the unchanged
+partial-baseline test passed both checks through the production raw dispatch:
+`i32 -2^31 -> f64` returned `0xc1e0000000000000`, status 0, flags 0; `f32
+1 + 2` returned `0x40400000`, status 0, flags 0. The independently derived
+results remained the same as the RED expectation. The focused CPU path and
+softfloat32 CTest cases passed after relinking against this build.
+
+The expanded final registration adds `unit.core.softfloat64` and
+`unit.core.softfloat-isolation`. Both format tests exercise all selected raw
+wrappers with exact positive and negative values, all four rounding modes,
+five IEEE flag categories, before/after tininess, and NaN/integer-conversion
+policy; isolation interleaves distinct rounding and tininess contexts. The
+first tininess probe (normal times its predecessor) was discarded because it
+did not distinguish the two policies in this arithmetic path; the final probe
+uses maximum-subnormal times the next binary value above one, whose exact
+product rounds to minimum-normal and yields different underflow flags. Final
+focused verification passed all three registered tests.

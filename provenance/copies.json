@@ -3,27 +3,10 @@
   "schema_version": 1,
   "copies": [
     {
-      "id": "softfloat-i32-to-f64-tracer",
-      "paths": ["core/t64_softfloat.c"],
-      "upstream": {
-        "repo": "https://github.com/ucb-bar/berkeley-softfloat-3",
-        "path": "source/i32_to_f64.c",
-        "revision": "f74b1e48110ac3a27dd49b787d164e55e42d81d1"
-      },
-      "retrieved": "2026-11-12",
-      "spdx": "BSD-3-Clause",
-      "license_text": "LICENSES/BSD-3-Clause.txt",
-      "notice": "Copyright 2011, 2012, 2013, 2014, 2015, 2016 The Regents of the University of California. All rights reserved.",
-      "mode": "adapted",
-      "modifications": "Adapt only i32_to_f64; replace softfloat_countLeadingZeros32 with an authored bounded integer helper and packToF64UI with direct integer bit packing; expose explicit context and raw result. Upstream source SHA-256: de334caa22edfcfc2a35572a2e858f0c500ad5018fc4335b46dfb003e0076183.",
-      "verification_test": "unit.core.cpu-path: CVT.D.W; expected from -2^31 = -1 * 2^31, double exponent 1023+31=1054 (0x41e), zero fraction, sign=1",
-      "maintenance_owner": "szTheory",
-      "upstream_status": "active",
-      "exposure": []
-    },
-    {
       "id": "madr-4-0-0-headings",
-      "paths": ["docs/adr/0000-template.md"],
+      "paths": [
+        "docs/adr/0000-template.md"
+      ],
       "upstream": {
         "repo": "https://github.com/adr/madr",
         "path": "template/adr-template.md",
@@ -36,6 +19,1161 @@
       "mode": "adapted",
       "modifications": "heading structure only; MADR comment prose not copied; added Reversal evidence and a body Status line",
       "verification_test": "repo.docs (scripts/check-docs.sh rule DOC-TEMPLATE)",
+      "maintenance_owner": "szTheory",
+      "upstream_status": "active",
+      "exposure": []
+    },
+    {
+      "id": "softfloat-f32-add",
+      "paths": [
+        "core/softfloat/f32_add.c"
+      ],
+      "upstream": {
+        "repo": "https://github.com/ucb-bar/berkeley-softfloat-3",
+        "path": "source/f32_add.c",
+        "revision": "f74b1e48110ac3a27dd49b787d164e55e42d81d1"
+      },
+      "retrieved": "2026-11-12",
+      "spdx": "BSD-3-Clause",
+      "license_text": "LICENSES/BSD-3-Clause.txt",
+      "notice": "Copyright 2011, 2012, 2013, 2014, 2015, 2016 The Regents of the University of California. All rights reserved.",
+      "mode": "adapted",
+      "modifications": "adapt the selected helper to integer bit-carrier types, keep pure helpers stateless, and thread the caller context through any rounding/tininess/flag-dependent calls; upstream source SHA-256: 540c8f2d95b30bc846fe5b747aa6aae1bb70c687b9429278678bb0a000f65dcc.",
+      "verification_test": "unit.core.softfloat32",
+      "maintenance_owner": "szTheory",
+      "upstream_status": "active",
+      "exposure": []
+    },
+    {
+      "id": "softfloat-f32-div",
+      "paths": [
+        "core/softfloat/f32_div.c"
+      ],
+      "upstream": {
+        "repo": "https://github.com/ucb-bar/berkeley-softfloat-3",
+        "path": "source/f32_div.c",
+        "revision": "f74b1e48110ac3a27dd49b787d164e55e42d81d1"
+      },
+      "retrieved": "2026-11-12",
+      "spdx": "BSD-3-Clause",
+      "license_text": "LICENSES/BSD-3-Clause.txt",
+      "notice": "Copyright 2011, 2012, 2013, 2014 The Regents of the University of California. All rights reserved.",
+      "mode": "adapted",
+      "modifications": "adapt the selected helper to integer bit-carrier types, keep pure helpers stateless, and thread the caller context through any rounding/tininess/flag-dependent calls; replace direct ambient-state references to softfloat_raiseFlags with explicit context access or context-taking helpers; use the authored integer NaN propagation policy and context-aware signaling-NaN flag helper; upstream source SHA-256: ec341d5028f63f19230729ed8d8aca424b08f221adfdce4ebce3caa6d54ba0d8.",
+      "verification_test": "unit.core.softfloat32",
+      "maintenance_owner": "szTheory",
+      "upstream_status": "active",
+      "exposure": []
+    },
+    {
+      "id": "softfloat-f32-eq",
+      "paths": [
+        "core/softfloat/f32_eq.c"
+      ],
+      "upstream": {
+        "repo": "https://github.com/ucb-bar/berkeley-softfloat-3",
+        "path": "source/f32_eq.c",
+        "revision": "f74b1e48110ac3a27dd49b787d164e55e42d81d1"
+      },
+      "retrieved": "2026-11-12",
+      "spdx": "BSD-3-Clause",
+      "license_text": "LICENSES/BSD-3-Clause.txt",
+      "notice": "Copyright 2011, 2012, 2013, 2014 The Regents of the University of California. All rights reserved.",
+      "mode": "adapted",
+      "modifications": "adapt the selected helper to integer bit-carrier types, keep pure helpers stateless, and thread the caller context through any rounding/tininess/flag-dependent calls; replace direct ambient-state references to softfloat_raiseFlags with explicit context access or context-taking helpers; upstream source SHA-256: 2bb5a867872c4489c9d1363efeccc1d09af4f8c74914c4821b38171a3ad7acb2.",
+      "verification_test": "unit.core.softfloat32",
+      "maintenance_owner": "szTheory",
+      "upstream_status": "active",
+      "exposure": []
+    },
+    {
+      "id": "softfloat-f32-le",
+      "paths": [
+        "core/softfloat/f32_le.c"
+      ],
+      "upstream": {
+        "repo": "https://github.com/ucb-bar/berkeley-softfloat-3",
+        "path": "source/f32_le.c",
+        "revision": "f74b1e48110ac3a27dd49b787d164e55e42d81d1"
+      },
+      "retrieved": "2026-11-12",
+      "spdx": "BSD-3-Clause",
+      "license_text": "LICENSES/BSD-3-Clause.txt",
+      "notice": "Copyright 2011, 2012, 2013, 2014 The Regents of the University of California. All rights reserved.",
+      "mode": "adapted",
+      "modifications": "adapt the selected helper to integer bit-carrier types, keep pure helpers stateless, and thread the caller context through any rounding/tininess/flag-dependent calls; replace direct ambient-state references to softfloat_raiseFlags with explicit context access or context-taking helpers; upstream source SHA-256: 84d3e3211b5ad2870602fd00bbc43b14bd9caec33292b433b8537b132bce5ce9.",
+      "verification_test": "unit.core.softfloat32",
+      "maintenance_owner": "szTheory",
+      "upstream_status": "active",
+      "exposure": []
+    },
+    {
+      "id": "softfloat-f32-lt",
+      "paths": [
+        "core/softfloat/f32_lt.c"
+      ],
+      "upstream": {
+        "repo": "https://github.com/ucb-bar/berkeley-softfloat-3",
+        "path": "source/f32_lt.c",
+        "revision": "f74b1e48110ac3a27dd49b787d164e55e42d81d1"
+      },
+      "retrieved": "2026-11-12",
+      "spdx": "BSD-3-Clause",
+      "license_text": "LICENSES/BSD-3-Clause.txt",
+      "notice": "Copyright 2011, 2012, 2013, 2014 The Regents of the University of California. All rights reserved.",
+      "mode": "adapted",
+      "modifications": "adapt the selected helper to integer bit-carrier types, keep pure helpers stateless, and thread the caller context through any rounding/tininess/flag-dependent calls; replace direct ambient-state references to softfloat_raiseFlags with explicit context access or context-taking helpers; upstream source SHA-256: b992a2f1f5a678b12865e50f836ab499993009566d491c82ef521dedee5218ce.",
+      "verification_test": "unit.core.softfloat32",
+      "maintenance_owner": "szTheory",
+      "upstream_status": "active",
+      "exposure": []
+    },
+    {
+      "id": "softfloat-f32-mul",
+      "paths": [
+        "core/softfloat/f32_mul.c"
+      ],
+      "upstream": {
+        "repo": "https://github.com/ucb-bar/berkeley-softfloat-3",
+        "path": "source/f32_mul.c",
+        "revision": "f74b1e48110ac3a27dd49b787d164e55e42d81d1"
+      },
+      "retrieved": "2026-11-12",
+      "spdx": "BSD-3-Clause",
+      "license_text": "LICENSES/BSD-3-Clause.txt",
+      "notice": "Copyright 2011, 2012, 2013, 2014, 2015 The Regents of the University of California. All rights reserved.",
+      "mode": "adapted",
+      "modifications": "adapt the selected helper to integer bit-carrier types, keep pure helpers stateless, and thread the caller context through any rounding/tininess/flag-dependent calls; replace direct ambient-state references to softfloat_raiseFlags with explicit context access or context-taking helpers; use the authored integer NaN propagation policy and context-aware signaling-NaN flag helper; upstream source SHA-256: bca46360750b343f24aafcfa7c36f24e3fc4fb6465d0c49f60de7980a86bc37b.",
+      "verification_test": "unit.core.softfloat32",
+      "maintenance_owner": "szTheory",
+      "upstream_status": "active",
+      "exposure": []
+    },
+    {
+      "id": "softfloat-f32-sqrt",
+      "paths": [
+        "core/softfloat/f32_sqrt.c"
+      ],
+      "upstream": {
+        "repo": "https://github.com/ucb-bar/berkeley-softfloat-3",
+        "path": "source/f32_sqrt.c",
+        "revision": "f74b1e48110ac3a27dd49b787d164e55e42d81d1"
+      },
+      "retrieved": "2026-11-12",
+      "spdx": "BSD-3-Clause",
+      "license_text": "LICENSES/BSD-3-Clause.txt",
+      "notice": "Copyright 2011, 2012, 2013, 2014, 2015, 2016 The Regents of the University of California. All rights reserved.",
+      "mode": "adapted",
+      "modifications": "adapt the selected helper to integer bit-carrier types, keep pure helpers stateless, and thread the caller context through any rounding/tininess/flag-dependent calls; replace direct ambient-state references to softfloat_raiseFlags with explicit context access or context-taking helpers; use the authored integer NaN propagation policy and context-aware signaling-NaN flag helper; upstream source SHA-256: 2eb2d1a5a35d2e839aa69e18bda3868ef5f86c214df6adad3ae50cb8a6195dc8.",
+      "verification_test": "unit.core.softfloat32",
+      "maintenance_owner": "szTheory",
+      "upstream_status": "active",
+      "exposure": []
+    },
+    {
+      "id": "softfloat-f32-sub",
+      "paths": [
+        "core/softfloat/f32_sub.c"
+      ],
+      "upstream": {
+        "repo": "https://github.com/ucb-bar/berkeley-softfloat-3",
+        "path": "source/f32_sub.c",
+        "revision": "f74b1e48110ac3a27dd49b787d164e55e42d81d1"
+      },
+      "retrieved": "2026-11-12",
+      "spdx": "BSD-3-Clause",
+      "license_text": "LICENSES/BSD-3-Clause.txt",
+      "notice": "Copyright 2011, 2012, 2013, 2014, 2015, 2016 The Regents of the University of California. All rights reserved.",
+      "mode": "adapted",
+      "modifications": "adapt the selected helper to integer bit-carrier types, keep pure helpers stateless, and thread the caller context through any rounding/tininess/flag-dependent calls; upstream source SHA-256: c4020ba5c2d5f10e647711bd7287c574ca498b0e469ee99f1f9c68c930d43311.",
+      "verification_test": "unit.core.softfloat32",
+      "maintenance_owner": "szTheory",
+      "upstream_status": "active",
+      "exposure": []
+    },
+    {
+      "id": "softfloat-f32-to-f64",
+      "paths": [
+        "core/softfloat/f32_to_f64.c"
+      ],
+      "upstream": {
+        "repo": "https://github.com/ucb-bar/berkeley-softfloat-3",
+        "path": "source/f32_to_f64.c",
+        "revision": "f74b1e48110ac3a27dd49b787d164e55e42d81d1"
+      },
+      "retrieved": "2026-11-12",
+      "spdx": "BSD-3-Clause",
+      "license_text": "LICENSES/BSD-3-Clause.txt",
+      "notice": "Copyright 2011, 2012, 2013, 2014, 2015 The Regents of the University of California. All rights reserved.",
+      "mode": "adapted",
+      "modifications": "adapt the selected helper to integer bit-carrier types, keep pure helpers stateless, and thread the caller context through any rounding/tininess/flag-dependent calls; upstream source SHA-256: d25caefe4a26b9e9e1fa1cc53c683d8a22468122b2d09c16deb0e833702ada10.",
+      "verification_test": "unit.core.softfloat32",
+      "maintenance_owner": "szTheory",
+      "upstream_status": "active",
+      "exposure": []
+    },
+    {
+      "id": "softfloat-f32-to-i32",
+      "paths": [
+        "core/softfloat/f32_to_i32.c"
+      ],
+      "upstream": {
+        "repo": "https://github.com/ucb-bar/berkeley-softfloat-3",
+        "path": "source/f32_to_i32.c",
+        "revision": "f74b1e48110ac3a27dd49b787d164e55e42d81d1"
+      },
+      "retrieved": "2026-11-12",
+      "spdx": "BSD-3-Clause",
+      "license_text": "LICENSES/BSD-3-Clause.txt",
+      "notice": "Copyright 2011, 2012, 2013, 2014, 2015, 2016, 2017 The Regents of the University of California. All rights reserved.",
+      "mode": "adapted",
+      "modifications": "adapt the selected helper to integer bit-carrier types, keep pure helpers stateless, and thread the caller context through any rounding/tininess/flag-dependent calls; replace direct ambient-state references to softfloat_raiseFlags with explicit context access or context-taking helpers; upstream source SHA-256: f955cfbb69c337d4546c2cf5353654432fb3170cc9f4fb0f416e306fdb4ea73c.",
+      "verification_test": "unit.core.softfloat32",
+      "maintenance_owner": "szTheory",
+      "upstream_status": "active",
+      "exposure": []
+    },
+    {
+      "id": "softfloat-f32-to-i64",
+      "paths": [
+        "core/softfloat/f32_to_i64.c"
+      ],
+      "upstream": {
+        "repo": "https://github.com/ucb-bar/berkeley-softfloat-3",
+        "path": "source/f32_to_i64.c",
+        "revision": "f74b1e48110ac3a27dd49b787d164e55e42d81d1"
+      },
+      "retrieved": "2026-11-12",
+      "spdx": "BSD-3-Clause",
+      "license_text": "LICENSES/BSD-3-Clause.txt",
+      "notice": "Copyright 2011, 2012, 2013, 2014, 2015, 2016, 2017 The Regents of the University of California. All rights reserved.",
+      "mode": "adapted",
+      "modifications": "adapt the selected helper to integer bit-carrier types, keep pure helpers stateless, and thread the caller context through any rounding/tininess/flag-dependent calls; replace direct ambient-state references to softfloat_raiseFlags with explicit context access or context-taking helpers; upstream source SHA-256: d7a1083de841e474736b8357f2342879b23c155a1591475f95020c48228bcefc.",
+      "verification_test": "unit.core.softfloat32",
+      "maintenance_owner": "szTheory",
+      "upstream_status": "active",
+      "exposure": []
+    },
+    {
+      "id": "softfloat-f64-add",
+      "paths": [
+        "core/softfloat/f64_add.c"
+      ],
+      "upstream": {
+        "repo": "https://github.com/ucb-bar/berkeley-softfloat-3",
+        "path": "source/f64_add.c",
+        "revision": "f74b1e48110ac3a27dd49b787d164e55e42d81d1"
+      },
+      "retrieved": "2026-11-12",
+      "spdx": "BSD-3-Clause",
+      "license_text": "LICENSES/BSD-3-Clause.txt",
+      "notice": "Copyright 2011, 2012, 2013, 2014 The Regents of the University of California. All rights reserved.",
+      "mode": "adapted",
+      "modifications": "adapt the selected helper to integer bit-carrier types, keep pure helpers stateless, and thread the caller context through any rounding/tininess/flag-dependent calls; upstream source SHA-256: edb05c732053d1107456c95b7f9b18e58a25546925d3ffafac27b5f263db0b2e.",
+      "verification_test": "unit.core.softfloat64",
+      "maintenance_owner": "szTheory",
+      "upstream_status": "active",
+      "exposure": []
+    },
+    {
+      "id": "softfloat-f64-div",
+      "paths": [
+        "core/softfloat/f64_div.c"
+      ],
+      "upstream": {
+        "repo": "https://github.com/ucb-bar/berkeley-softfloat-3",
+        "path": "source/f64_div.c",
+        "revision": "f74b1e48110ac3a27dd49b787d164e55e42d81d1"
+      },
+      "retrieved": "2026-11-12",
+      "spdx": "BSD-3-Clause",
+      "license_text": "LICENSES/BSD-3-Clause.txt",
+      "notice": "Copyright 2011, 2012, 2013, 2014 The Regents of the University of California. All rights reserved.",
+      "mode": "adapted",
+      "modifications": "adapt the selected helper to integer bit-carrier types, keep pure helpers stateless, and thread the caller context through any rounding/tininess/flag-dependent calls; replace direct ambient-state references to softfloat_raiseFlags with explicit context access or context-taking helpers; use the authored integer NaN propagation policy and context-aware signaling-NaN flag helper; upstream source SHA-256: c44985b8084d6407fd3cd4043dbe02c2651721ac03d1c3920798fc1b75ea2f3e.",
+      "verification_test": "unit.core.softfloat64",
+      "maintenance_owner": "szTheory",
+      "upstream_status": "active",
+      "exposure": []
+    },
+    {
+      "id": "softfloat-f64-eq",
+      "paths": [
+        "core/softfloat/f64_eq.c"
+      ],
+      "upstream": {
+        "repo": "https://github.com/ucb-bar/berkeley-softfloat-3",
+        "path": "source/f64_eq.c",
+        "revision": "f74b1e48110ac3a27dd49b787d164e55e42d81d1"
+      },
+      "retrieved": "2026-11-12",
+      "spdx": "BSD-3-Clause",
+      "license_text": "LICENSES/BSD-3-Clause.txt",
+      "notice": "Copyright 2011, 2012, 2013, 2014 The Regents of the University of California. All rights reserved.",
+      "mode": "adapted",
+      "modifications": "adapt the selected helper to integer bit-carrier types, keep pure helpers stateless, and thread the caller context through any rounding/tininess/flag-dependent calls; replace direct ambient-state references to softfloat_raiseFlags with explicit context access or context-taking helpers; upstream source SHA-256: 70f18d1accbd596ff4be01882ec05b2006aedc96d0e5bde63f8c95851eedccd8.",
+      "verification_test": "unit.core.softfloat64",
+      "maintenance_owner": "szTheory",
+      "upstream_status": "active",
+      "exposure": []
+    },
+    {
+      "id": "softfloat-f64-le",
+      "paths": [
+        "core/softfloat/f64_le.c"
+      ],
+      "upstream": {
+        "repo": "https://github.com/ucb-bar/berkeley-softfloat-3",
+        "path": "source/f64_le.c",
+        "revision": "f74b1e48110ac3a27dd49b787d164e55e42d81d1"
+      },
+      "retrieved": "2026-11-12",
+      "spdx": "BSD-3-Clause",
+      "license_text": "LICENSES/BSD-3-Clause.txt",
+      "notice": "Copyright 2011, 2012, 2013, 2014 The Regents of the University of California. All rights reserved.",
+      "mode": "adapted",
+      "modifications": "adapt the selected helper to integer bit-carrier types, keep pure helpers stateless, and thread the caller context through any rounding/tininess/flag-dependent calls; replace direct ambient-state references to softfloat_raiseFlags with explicit context access or context-taking helpers; upstream source SHA-256: a5ebbcf9314360ef9ce8e064856129d0665db2371de4069ed2d16ecc79e4042b.",
+      "verification_test": "unit.core.softfloat64",
+      "maintenance_owner": "szTheory",
+      "upstream_status": "active",
+      "exposure": []
+    },
+    {
+      "id": "softfloat-f64-lt",
+      "paths": [
+        "core/softfloat/f64_lt.c"
+      ],
+      "upstream": {
+        "repo": "https://github.com/ucb-bar/berkeley-softfloat-3",
+        "path": "source/f64_lt.c",
+        "revision": "f74b1e48110ac3a27dd49b787d164e55e42d81d1"
+      },
+      "retrieved": "2026-11-12",
+      "spdx": "BSD-3-Clause",
+      "license_text": "LICENSES/BSD-3-Clause.txt",
+      "notice": "Copyright 2011, 2012, 2013, 2014 The Regents of the University of California. All rights reserved.",
+      "mode": "adapted",
+      "modifications": "adapt the selected helper to integer bit-carrier types, keep pure helpers stateless, and thread the caller context through any rounding/tininess/flag-dependent calls; replace direct ambient-state references to softfloat_raiseFlags with explicit context access or context-taking helpers; upstream source SHA-256: f3bd638772b93335cb693ccaa149e482c38135634e50217fd6b1f925db20df45.",
+      "verification_test": "unit.core.softfloat64",
+      "maintenance_owner": "szTheory",
+      "upstream_status": "active",
+      "exposure": []
+    },
+    {
+      "id": "softfloat-f64-mul",
+      "paths": [
+        "core/softfloat/f64_mul.c"
+      ],
+      "upstream": {
+        "repo": "https://github.com/ucb-bar/berkeley-softfloat-3",
+        "path": "source/f64_mul.c",
+        "revision": "f74b1e48110ac3a27dd49b787d164e55e42d81d1"
+      },
+      "retrieved": "2026-11-12",
+      "spdx": "BSD-3-Clause",
+      "license_text": "LICENSES/BSD-3-Clause.txt",
+      "notice": "Copyright 2011, 2012, 2013, 2014 The Regents of the University of California. All rights reserved.",
+      "mode": "adapted",
+      "modifications": "adapt the selected helper to integer bit-carrier types, keep pure helpers stateless, and thread the caller context through any rounding/tininess/flag-dependent calls; replace direct ambient-state references to softfloat_raiseFlags with explicit context access or context-taking helpers; use the authored integer NaN propagation policy and context-aware signaling-NaN flag helper; upstream source SHA-256: 335137bca17d29eddb451f562869ca7327c5fe472f347d2e36c55e4c2219e79b.",
+      "verification_test": "unit.core.softfloat64",
+      "maintenance_owner": "szTheory",
+      "upstream_status": "active",
+      "exposure": []
+    },
+    {
+      "id": "softfloat-f64-sqrt",
+      "paths": [
+        "core/softfloat/f64_sqrt.c"
+      ],
+      "upstream": {
+        "repo": "https://github.com/ucb-bar/berkeley-softfloat-3",
+        "path": "source/f64_sqrt.c",
+        "revision": "f74b1e48110ac3a27dd49b787d164e55e42d81d1"
+      },
+      "retrieved": "2026-11-12",
+      "spdx": "BSD-3-Clause",
+      "license_text": "LICENSES/BSD-3-Clause.txt",
+      "notice": "Copyright 2011, 2012, 2013, 2014, 2017 The Regents of the University of California. All rights reserved.",
+      "mode": "adapted",
+      "modifications": "adapt the selected helper to integer bit-carrier types, keep pure helpers stateless, and thread the caller context through any rounding/tininess/flag-dependent calls; replace direct ambient-state references to softfloat_raiseFlags with explicit context access or context-taking helpers; use the authored integer NaN propagation policy and context-aware signaling-NaN flag helper; upstream source SHA-256: 643a9abb4d30aff2cac9be281687055a1a677ae7555ca782fc3fb1932d000908.",
+      "verification_test": "unit.core.softfloat64",
+      "maintenance_owner": "szTheory",
+      "upstream_status": "active",
+      "exposure": []
+    },
+    {
+      "id": "softfloat-f64-sub",
+      "paths": [
+        "core/softfloat/f64_sub.c"
+      ],
+      "upstream": {
+        "repo": "https://github.com/ucb-bar/berkeley-softfloat-3",
+        "path": "source/f64_sub.c",
+        "revision": "f74b1e48110ac3a27dd49b787d164e55e42d81d1"
+      },
+      "retrieved": "2026-11-12",
+      "spdx": "BSD-3-Clause",
+      "license_text": "LICENSES/BSD-3-Clause.txt",
+      "notice": "Copyright 2011, 2012, 2013, 2014 The Regents of the University of California. All rights reserved.",
+      "mode": "adapted",
+      "modifications": "adapt the selected helper to integer bit-carrier types, keep pure helpers stateless, and thread the caller context through any rounding/tininess/flag-dependent calls; upstream source SHA-256: 6b581000e70e679e057d2ce17e0839aa5a7da6982685b9718b6540069441e689.",
+      "verification_test": "unit.core.softfloat64",
+      "maintenance_owner": "szTheory",
+      "upstream_status": "active",
+      "exposure": []
+    },
+    {
+      "id": "softfloat-f64-to-f32",
+      "paths": [
+        "core/softfloat/f64_to_f32.c"
+      ],
+      "upstream": {
+        "repo": "https://github.com/ucb-bar/berkeley-softfloat-3",
+        "path": "source/f64_to_f32.c",
+        "revision": "f74b1e48110ac3a27dd49b787d164e55e42d81d1"
+      },
+      "retrieved": "2026-11-12",
+      "spdx": "BSD-3-Clause",
+      "license_text": "LICENSES/BSD-3-Clause.txt",
+      "notice": "Copyright 2011, 2012, 2013, 2014, 2015 The Regents of the University of California. All rights reserved.",
+      "mode": "adapted",
+      "modifications": "adapt the selected helper to integer bit-carrier types, keep pure helpers stateless, and thread the caller context through any rounding/tininess/flag-dependent calls; upstream source SHA-256: 48e998019d76613444c6f20e5d272464abd2657795830905dcf629bb18d90529.",
+      "verification_test": "unit.core.softfloat32",
+      "maintenance_owner": "szTheory",
+      "upstream_status": "active",
+      "exposure": []
+    },
+    {
+      "id": "softfloat-f64-to-i32",
+      "paths": [
+        "core/softfloat/f64_to_i32.c"
+      ],
+      "upstream": {
+        "repo": "https://github.com/ucb-bar/berkeley-softfloat-3",
+        "path": "source/f64_to_i32.c",
+        "revision": "f74b1e48110ac3a27dd49b787d164e55e42d81d1"
+      },
+      "retrieved": "2026-11-12",
+      "spdx": "BSD-3-Clause",
+      "license_text": "LICENSES/BSD-3-Clause.txt",
+      "notice": "Copyright 2011, 2012, 2013, 2014, 2015, 2016, 2017 The Regents of the University of California. All rights reserved.",
+      "mode": "adapted",
+      "modifications": "adapt the selected helper to integer bit-carrier types, keep pure helpers stateless, and thread the caller context through any rounding/tininess/flag-dependent calls; replace direct ambient-state references to softfloat_raiseFlags with explicit context access or context-taking helpers; upstream source SHA-256: 8cb6390959e1800514601ceab2a2010bfc6189729357d212c377208951a3b286.",
+      "verification_test": "unit.core.softfloat64",
+      "maintenance_owner": "szTheory",
+      "upstream_status": "active",
+      "exposure": []
+    },
+    {
+      "id": "softfloat-f64-to-i64",
+      "paths": [
+        "core/softfloat/f64_to_i64.c"
+      ],
+      "upstream": {
+        "repo": "https://github.com/ucb-bar/berkeley-softfloat-3",
+        "path": "source/f64_to_i64.c",
+        "revision": "f74b1e48110ac3a27dd49b787d164e55e42d81d1"
+      },
+      "retrieved": "2026-11-12",
+      "spdx": "BSD-3-Clause",
+      "license_text": "LICENSES/BSD-3-Clause.txt",
+      "notice": "Copyright 2011, 2012, 2013, 2014, 2015, 2016, 2017 The Regents of the University of California. All rights reserved.",
+      "mode": "adapted",
+      "modifications": "adapt the selected helper to integer bit-carrier types, keep pure helpers stateless, and thread the caller context through any rounding/tininess/flag-dependent calls; replace direct ambient-state references to softfloat_raiseFlags with explicit context access or context-taking helpers; upstream source SHA-256: 1502fb0ef9d22983b8f5040284f3a69a8479326109a7b82f14c7217687b90900.",
+      "verification_test": "unit.core.softfloat64",
+      "maintenance_owner": "szTheory",
+      "upstream_status": "active",
+      "exposure": []
+    },
+    {
+      "id": "softfloat-i32-to-f32",
+      "paths": [
+        "core/softfloat/i32_to_f32.c"
+      ],
+      "upstream": {
+        "repo": "https://github.com/ucb-bar/berkeley-softfloat-3",
+        "path": "source/i32_to_f32.c",
+        "revision": "f74b1e48110ac3a27dd49b787d164e55e42d81d1"
+      },
+      "retrieved": "2026-11-12",
+      "spdx": "BSD-3-Clause",
+      "license_text": "LICENSES/BSD-3-Clause.txt",
+      "notice": "Copyright 2011, 2012, 2013, 2014 The Regents of the University of California. All rights reserved.",
+      "mode": "adapted",
+      "modifications": "adapt the selected helper to integer bit-carrier types, keep pure helpers stateless, and thread the caller context through any rounding/tininess/flag-dependent calls; upstream source SHA-256: e6ccd7ec5ca8ea2b64435e94ecb0962be000f31d36abb88e68f6e90b44c0c290.",
+      "verification_test": "unit.core.softfloat32",
+      "maintenance_owner": "szTheory",
+      "upstream_status": "active",
+      "exposure": []
+    },
+    {
+      "id": "softfloat-i32-to-f64",
+      "paths": [
+        "core/softfloat/i32_to_f64.c"
+      ],
+      "upstream": {
+        "repo": "https://github.com/ucb-bar/berkeley-softfloat-3",
+        "path": "source/i32_to_f64.c",
+        "revision": "f74b1e48110ac3a27dd49b787d164e55e42d81d1"
+      },
+      "retrieved": "2026-11-12",
+      "spdx": "BSD-3-Clause",
+      "license_text": "LICENSES/BSD-3-Clause.txt",
+      "notice": "Copyright 2011, 2012, 2013, 2014, 2015, 2016 The Regents of the University of California. All rights reserved.",
+      "mode": "adapted",
+      "modifications": "retain this as its own source destination; the existing inline tracer implementation will be removed and this function will back the CPU conversion seam; adapt the selected helper to integer bit-carrier types, keep pure helpers stateless, and thread the caller context through any rounding/tininess/flag-dependent calls; upstream source SHA-256: de334caa22edfcfc2a35572a2e858f0c500ad5018fc4335b46dfb003e0076183.",
+      "verification_test": "unit.core.cpu-path",
+      "maintenance_owner": "szTheory",
+      "upstream_status": "active",
+      "exposure": []
+    },
+    {
+      "id": "softfloat-i64-to-f32",
+      "paths": [
+        "core/softfloat/i64_to_f32.c"
+      ],
+      "upstream": {
+        "repo": "https://github.com/ucb-bar/berkeley-softfloat-3",
+        "path": "source/i64_to_f32.c",
+        "revision": "f74b1e48110ac3a27dd49b787d164e55e42d81d1"
+      },
+      "retrieved": "2026-11-12",
+      "spdx": "BSD-3-Clause",
+      "license_text": "LICENSES/BSD-3-Clause.txt",
+      "notice": "Copyright 2011, 2012, 2013, 2014, 2015, 2016 The Regents of the University of California. All rights reserved.",
+      "mode": "adapted",
+      "modifications": "adapt the selected helper to integer bit-carrier types, keep pure helpers stateless, and thread the caller context through any rounding/tininess/flag-dependent calls; upstream source SHA-256: 15c028b6e784138754cd7af1e6c360416ea26d71e97f52fe2a5cb452eb6048c4.",
+      "verification_test": "unit.core.softfloat32",
+      "maintenance_owner": "szTheory",
+      "upstream_status": "active",
+      "exposure": []
+    },
+    {
+      "id": "softfloat-i64-to-f64",
+      "paths": [
+        "core/softfloat/i64_to_f64.c"
+      ],
+      "upstream": {
+        "repo": "https://github.com/ucb-bar/berkeley-softfloat-3",
+        "path": "source/i64_to_f64.c",
+        "revision": "f74b1e48110ac3a27dd49b787d164e55e42d81d1"
+      },
+      "retrieved": "2026-11-12",
+      "spdx": "BSD-3-Clause",
+      "license_text": "LICENSES/BSD-3-Clause.txt",
+      "notice": "Copyright 2011, 2012, 2013, 2014 The Regents of the University of California. All rights reserved.",
+      "mode": "adapted",
+      "modifications": "adapt the selected helper to integer bit-carrier types, keep pure helpers stateless, and thread the caller context through any rounding/tininess/flag-dependent calls; upstream source SHA-256: 905170a7a36d108afa5fc43596cd4a29a5a6a8f82264ad890b45feeb5bad021c.",
+      "verification_test": "unit.core.softfloat64",
+      "maintenance_owner": "szTheory",
+      "upstream_status": "active",
+      "exposure": []
+    },
+    {
+      "id": "softfloat-s-addMagsF32",
+      "paths": [
+        "core/softfloat/s_addMagsF32.c"
+      ],
+      "upstream": {
+        "repo": "https://github.com/ucb-bar/berkeley-softfloat-3",
+        "path": "source/s_addMagsF32.c",
+        "revision": "f74b1e48110ac3a27dd49b787d164e55e42d81d1"
+      },
+      "retrieved": "2026-11-12",
+      "spdx": "BSD-3-Clause",
+      "license_text": "LICENSES/BSD-3-Clause.txt",
+      "notice": "Copyright 2011, 2012, 2013, 2014, 2015, 2016 The Regents of the University of California. All rights reserved.",
+      "mode": "adapted",
+      "modifications": "adapt the selected helper to integer bit-carrier types, keep pure helpers stateless, and thread the caller context through any rounding/tininess/flag-dependent calls; use the authored integer NaN propagation policy and context-aware signaling-NaN flag helper; upstream source SHA-256: 5b2d7992841c17e42a96e5aec865b4386cdc7e9030ac6f4d25ad74e4e73fb59b.",
+      "verification_test": "unit.core.softfloat32 and unit.core.softfloat64 (addition)",
+      "maintenance_owner": "szTheory",
+      "upstream_status": "active",
+      "exposure": []
+    },
+    {
+      "id": "softfloat-s-addMagsF64",
+      "paths": [
+        "core/softfloat/s_addMagsF64.c"
+      ],
+      "upstream": {
+        "repo": "https://github.com/ucb-bar/berkeley-softfloat-3",
+        "path": "source/s_addMagsF64.c",
+        "revision": "f74b1e48110ac3a27dd49b787d164e55e42d81d1"
+      },
+      "retrieved": "2026-11-12",
+      "spdx": "BSD-3-Clause",
+      "license_text": "LICENSES/BSD-3-Clause.txt",
+      "notice": "Copyright 2011, 2012, 2013, 2014, 2015, 2016 The Regents of the University of California. All rights reserved.",
+      "mode": "adapted",
+      "modifications": "adapt the selected helper to integer bit-carrier types, keep pure helpers stateless, and thread the caller context through any rounding/tininess/flag-dependent calls; use the authored integer NaN propagation policy and context-aware signaling-NaN flag helper; upstream source SHA-256: 2b4f69206b4e8d3fc26bc64ca147663530b68b53b0b0e7817c724e2d99376ec5.",
+      "verification_test": "unit.core.softfloat32 and unit.core.softfloat64 (addition)",
+      "maintenance_owner": "szTheory",
+      "upstream_status": "active",
+      "exposure": []
+    },
+    {
+      "id": "softfloat-s-approxRecip32-1",
+      "paths": [
+        "core/softfloat/s_approxRecip32_1.c"
+      ],
+      "upstream": {
+        "repo": "https://github.com/ucb-bar/berkeley-softfloat-3",
+        "path": "source/s_approxRecip32_1.c",
+        "revision": "f74b1e48110ac3a27dd49b787d164e55e42d81d1"
+      },
+      "retrieved": "2026-11-12",
+      "spdx": "BSD-3-Clause",
+      "license_text": "LICENSES/BSD-3-Clause.txt",
+      "notice": "Copyright 2011, 2012, 2013, 2014, 2015, 2016 The Regents of the University of California. All rights reserved.",
+      "mode": "adapted",
+      "modifications": "adapt the selected helper to integer bit-carrier types, keep pure helpers stateless, and thread the caller context through any rounding/tininess/flag-dependent calls; upstream source SHA-256: 38e984f9c6ea5843216ba73d08fafd217b285badce557bc9eb58227acc3667ea.",
+      "verification_test": "unit.core.softfloat32 and unit.core.softfloat64 (division)",
+      "maintenance_owner": "szTheory",
+      "upstream_status": "active",
+      "exposure": []
+    },
+    {
+      "id": "softfloat-s-approxRecipSqrt32-1",
+      "paths": [
+        "core/softfloat/s_approxRecipSqrt32_1.c"
+      ],
+      "upstream": {
+        "repo": "https://github.com/ucb-bar/berkeley-softfloat-3",
+        "path": "source/s_approxRecipSqrt32_1.c",
+        "revision": "f74b1e48110ac3a27dd49b787d164e55e42d81d1"
+      },
+      "retrieved": "2026-11-12",
+      "spdx": "BSD-3-Clause",
+      "license_text": "LICENSES/BSD-3-Clause.txt",
+      "notice": "Copyright 2011, 2012, 2013, 2014, 2015, 2016 The Regents of the University of California. All rights reserved.",
+      "mode": "adapted",
+      "modifications": "adapt the selected helper to integer bit-carrier types, keep pure helpers stateless, and thread the caller context through any rounding/tininess/flag-dependent calls; upstream source SHA-256: dae5502facf520d0915403967e3436e1c2d2f5b848527accdb3b1d2a3654a47f.",
+      "verification_test": "unit.core.softfloat32 and unit.core.softfloat64 (square root)",
+      "maintenance_owner": "szTheory",
+      "upstream_status": "active",
+      "exposure": []
+    },
+    {
+      "id": "softfloat-s-approxRecipSqrt-1Ks",
+      "paths": [
+        "core/softfloat/s_approxRecipSqrt_1Ks.c"
+      ],
+      "upstream": {
+        "repo": "https://github.com/ucb-bar/berkeley-softfloat-3",
+        "path": "source/s_approxRecipSqrt_1Ks.c",
+        "revision": "f74b1e48110ac3a27dd49b787d164e55e42d81d1"
+      },
+      "retrieved": "2026-11-12",
+      "spdx": "BSD-3-Clause",
+      "license_text": "LICENSES/BSD-3-Clause.txt",
+      "notice": "Copyright 2011, 2012, 2013, 2014, 2015, 2016 The Regents of the University of California. All rights reserved.",
+      "mode": "adapted",
+      "modifications": "make each selected coefficient array static const and expose it only through a pure integer accessor; adapt the selected helper to integer bit-carrier types, keep pure helpers stateless, and thread the caller context through any rounding/tininess/flag-dependent calls; upstream source SHA-256: d7c4b4833ce9f42e86d9933a550ad0d6e4b8bc4df4bb30518c8a747b12699bf8.",
+      "verification_test": "unit.core.softfloat32 and unit.core.softfloat64 (square root)",
+      "maintenance_owner": "szTheory",
+      "upstream_status": "active",
+      "exposure": []
+    },
+    {
+      "id": "softfloat-s-approxRecip-1Ks",
+      "paths": [
+        "core/softfloat/s_approxRecip_1Ks.c"
+      ],
+      "upstream": {
+        "repo": "https://github.com/ucb-bar/berkeley-softfloat-3",
+        "path": "source/s_approxRecip_1Ks.c",
+        "revision": "f74b1e48110ac3a27dd49b787d164e55e42d81d1"
+      },
+      "retrieved": "2026-11-12",
+      "spdx": "BSD-3-Clause",
+      "license_text": "LICENSES/BSD-3-Clause.txt",
+      "notice": "Copyright 2011, 2012, 2013, 2014, 2015, 2016 The Regents of the University of California. All rights reserved.",
+      "mode": "adapted",
+      "modifications": "make each selected coefficient array static const and expose it only through a pure integer accessor; adapt the selected helper to integer bit-carrier types, keep pure helpers stateless, and thread the caller context through any rounding/tininess/flag-dependent calls; upstream source SHA-256: a073abc2d5e7a4dfd97f323027d1ef1d370225aa922ae2395398ff3c7c8e9633.",
+      "verification_test": "unit.core.softfloat32, unit.core.softfloat64, and unit.core.softfloat-isolation",
+      "maintenance_owner": "szTheory",
+      "upstream_status": "active",
+      "exposure": []
+    },
+    {
+      "id": "softfloat-s-countLeadingZeros8",
+      "paths": [
+        "core/softfloat/s_countLeadingZeros8.c"
+      ],
+      "upstream": {
+        "repo": "https://github.com/ucb-bar/berkeley-softfloat-3",
+        "path": "source/s_countLeadingZeros8.c",
+        "revision": "f74b1e48110ac3a27dd49b787d164e55e42d81d1"
+      },
+      "retrieved": "2026-11-12",
+      "spdx": "BSD-3-Clause",
+      "license_text": "LICENSES/BSD-3-Clause.txt",
+      "notice": "Copyright 2011, 2012, 2013, 2014 The Regents of the University of California. All rights reserved.",
+      "mode": "adapted",
+      "modifications": "adapt the selected helper to integer bit-carrier types, keep pure helpers stateless, and thread the caller context through any rounding/tininess/flag-dependent calls; upstream source SHA-256: 8d0076e681bc613b607d8ff9d1b72631a3bfe66dd75ecb7f4faed5ddc3b830ca.",
+      "verification_test": "unit.core.softfloat32 and unit.core.softfloat64 (conversion/normalization)",
+      "maintenance_owner": "szTheory",
+      "upstream_status": "active",
+      "exposure": []
+    },
+    {
+      "id": "softfloat-s-countLeadingZeros32",
+      "paths": [
+        "core/softfloat/s_countLeadingZeros32.c"
+      ],
+      "upstream": {
+        "repo": "https://github.com/ucb-bar/berkeley-softfloat-3",
+        "path": "source/s_countLeadingZeros32.c",
+        "revision": "f74b1e48110ac3a27dd49b787d164e55e42d81d1"
+      },
+      "retrieved": "2026-11-12",
+      "spdx": "BSD-3-Clause",
+      "license_text": "LICENSES/BSD-3-Clause.txt",
+      "notice": "Copyright 2011, 2012, 2013, 2014, 2015 The Regents of the University of California. All rights reserved.",
+      "mode": "adapted",
+      "modifications": "adapt the selected helper to integer bit-carrier types, keep pure helpers stateless, and thread the caller context through any rounding/tininess/flag-dependent calls; upstream source SHA-256: 4cc8579412c437c011f3d9795a2bbd3d4eb06349c69ce624aa169471c643f336.",
+      "verification_test": "unit.core.softfloat32 and unit.core.softfloat64 (conversion/normalization)",
+      "maintenance_owner": "szTheory",
+      "upstream_status": "active",
+      "exposure": []
+    },
+    {
+      "id": "softfloat-s-countLeadingZeros64",
+      "paths": [
+        "core/softfloat/s_countLeadingZeros64.c"
+      ],
+      "upstream": {
+        "repo": "https://github.com/ucb-bar/berkeley-softfloat-3",
+        "path": "source/s_countLeadingZeros64.c",
+        "revision": "f74b1e48110ac3a27dd49b787d164e55e42d81d1"
+      },
+      "retrieved": "2026-11-12",
+      "spdx": "BSD-3-Clause",
+      "license_text": "LICENSES/BSD-3-Clause.txt",
+      "notice": "Copyright 2011, 2012, 2013, 2014, 2015 The Regents of the University of California. All rights reserved.",
+      "mode": "adapted",
+      "modifications": "adapt the selected helper to integer bit-carrier types, keep pure helpers stateless, and thread the caller context through any rounding/tininess/flag-dependent calls; upstream source SHA-256: f8fc823d585542552de1295cc8181369799030e7c67d2fa21ae6f7be16bb6840.",
+      "verification_test": "unit.core.softfloat32 and unit.core.softfloat64 (conversion/normalization)",
+      "maintenance_owner": "szTheory",
+      "upstream_status": "active",
+      "exposure": []
+    },
+    {
+      "id": "softfloat-s-mul64To128",
+      "paths": [
+        "core/softfloat/s_mul64To128.c"
+      ],
+      "upstream": {
+        "repo": "https://github.com/ucb-bar/berkeley-softfloat-3",
+        "path": "source/s_mul64To128.c",
+        "revision": "f74b1e48110ac3a27dd49b787d164e55e42d81d1"
+      },
+      "retrieved": "2026-11-12",
+      "spdx": "BSD-3-Clause",
+      "license_text": "LICENSES/BSD-3-Clause.txt",
+      "notice": "Copyright 2011, 2012, 2013, 2014, 2015 The Regents of the University of California. All rights reserved.",
+      "mode": "adapted",
+      "modifications": "adapt the selected helper to integer bit-carrier types, keep pure helpers stateless, and thread the caller context through any rounding/tininess/flag-dependent calls; upstream source SHA-256: 1cff12724898aaace69ba3d7301404ded67156ba13466aec4a25f1a3cbb9564d.",
+      "verification_test": "unit.core.softfloat64 (multiplication)",
+      "maintenance_owner": "szTheory",
+      "upstream_status": "active",
+      "exposure": []
+    },
+    {
+      "id": "softfloat-s-normRoundPackToF32",
+      "paths": [
+        "core/softfloat/s_normRoundPackToF32.c"
+      ],
+      "upstream": {
+        "repo": "https://github.com/ucb-bar/berkeley-softfloat-3",
+        "path": "source/s_normRoundPackToF32.c",
+        "revision": "f74b1e48110ac3a27dd49b787d164e55e42d81d1"
+      },
+      "retrieved": "2026-11-12",
+      "spdx": "BSD-3-Clause",
+      "license_text": "LICENSES/BSD-3-Clause.txt",
+      "notice": "Copyright 2011, 2012, 2013, 2014, 2015, 2016 The Regents of the University of California. All rights reserved.",
+      "mode": "adapted",
+      "modifications": "adapt the selected helper to integer bit-carrier types, keep pure helpers stateless, and thread the caller context through any rounding/tininess/flag-dependent calls; upstream source SHA-256: 2e473ba709740808cfd59931034be7c67c80c87ddb76a4765dceb23c9bb518d2.",
+      "verification_test": "unit.core.softfloat32 and unit.core.softfloat64 (normalization)",
+      "maintenance_owner": "szTheory",
+      "upstream_status": "active",
+      "exposure": []
+    },
+    {
+      "id": "softfloat-s-normRoundPackToF64",
+      "paths": [
+        "core/softfloat/s_normRoundPackToF64.c"
+      ],
+      "upstream": {
+        "repo": "https://github.com/ucb-bar/berkeley-softfloat-3",
+        "path": "source/s_normRoundPackToF64.c",
+        "revision": "f74b1e48110ac3a27dd49b787d164e55e42d81d1"
+      },
+      "retrieved": "2026-11-12",
+      "spdx": "BSD-3-Clause",
+      "license_text": "LICENSES/BSD-3-Clause.txt",
+      "notice": "Copyright 2011, 2012, 2013, 2014, 2015, 2016 The Regents of the University of California. All rights reserved.",
+      "mode": "adapted",
+      "modifications": "adapt the selected helper to integer bit-carrier types, keep pure helpers stateless, and thread the caller context through any rounding/tininess/flag-dependent calls; upstream source SHA-256: 4e65ccecf8ee96e2c5815575df3a0e4495ac82987a841868cb1d130556a3dd0a.",
+      "verification_test": "unit.core.softfloat32 and unit.core.softfloat64 (normalization)",
+      "maintenance_owner": "szTheory",
+      "upstream_status": "active",
+      "exposure": []
+    },
+    {
+      "id": "softfloat-s-normSubnormalF32Sig",
+      "paths": [
+        "core/softfloat/s_normSubnormalF32Sig.c"
+      ],
+      "upstream": {
+        "repo": "https://github.com/ucb-bar/berkeley-softfloat-3",
+        "path": "source/s_normSubnormalF32Sig.c",
+        "revision": "f74b1e48110ac3a27dd49b787d164e55e42d81d1"
+      },
+      "retrieved": "2026-11-12",
+      "spdx": "BSD-3-Clause",
+      "license_text": "LICENSES/BSD-3-Clause.txt",
+      "notice": "Copyright 2011, 2012, 2013, 2014, 2015, 2016 The Regents of the University of California. All rights reserved.",
+      "mode": "adapted",
+      "modifications": "adapt the selected helper to integer bit-carrier types, keep pure helpers stateless, and thread the caller context through any rounding/tininess/flag-dependent calls; upstream source SHA-256: 6063e5c0ee98527c1a5d728195d11ef5ccd9077515812b0380a2f1953244c861.",
+      "verification_test": "unit.core.softfloat32 and unit.core.softfloat64 (subnormal inputs)",
+      "maintenance_owner": "szTheory",
+      "upstream_status": "active",
+      "exposure": []
+    },
+    {
+      "id": "softfloat-s-normSubnormalF64Sig",
+      "paths": [
+        "core/softfloat/s_normSubnormalF64Sig.c"
+      ],
+      "upstream": {
+        "repo": "https://github.com/ucb-bar/berkeley-softfloat-3",
+        "path": "source/s_normSubnormalF64Sig.c",
+        "revision": "f74b1e48110ac3a27dd49b787d164e55e42d81d1"
+      },
+      "retrieved": "2026-11-12",
+      "spdx": "BSD-3-Clause",
+      "license_text": "LICENSES/BSD-3-Clause.txt",
+      "notice": "Copyright 2011, 2012, 2013, 2014, 2015, 2016 The Regents of the University of California. All rights reserved.",
+      "mode": "adapted",
+      "modifications": "adapt the selected helper to integer bit-carrier types, keep pure helpers stateless, and thread the caller context through any rounding/tininess/flag-dependent calls; upstream source SHA-256: be1efe0196eacce551f117e58f5d2bc053a4a2897f37fa5805b23e7d4e00de95.",
+      "verification_test": "unit.core.softfloat32 and unit.core.softfloat64 (subnormal inputs)",
+      "maintenance_owner": "szTheory",
+      "upstream_status": "active",
+      "exposure": []
+    },
+    {
+      "id": "softfloat-s-roundPackToF32",
+      "paths": [
+        "core/softfloat/s_roundPackToF32.c"
+      ],
+      "upstream": {
+        "repo": "https://github.com/ucb-bar/berkeley-softfloat-3",
+        "path": "source/s_roundPackToF32.c",
+        "revision": "f74b1e48110ac3a27dd49b787d164e55e42d81d1"
+      },
+      "retrieved": "2026-11-12",
+      "spdx": "BSD-3-Clause",
+      "license_text": "LICENSES/BSD-3-Clause.txt",
+      "notice": "Copyright 2011, 2012, 2013, 2014, 2015, 2017 The Regents of the University of California. All rights reserved.",
+      "mode": "adapted",
+      "modifications": "adapt the selected helper to integer bit-carrier types, keep pure helpers stateless, and thread the caller context through any rounding/tininess/flag-dependent calls; replace direct ambient-state references to softfloat_roundingMode, softfloat_detectTininess, softfloat_exceptionFlags, softfloat_raiseFlags with explicit context access or context-taking helpers; upstream source SHA-256: aac61a425bed4e973c9e0e1fb254f74cb7c04602131509ed98513269da83e45a.",
+      "verification_test": "unit.core.softfloat32 and unit.core.softfloat64 (rounding/flags)",
+      "maintenance_owner": "szTheory",
+      "upstream_status": "active",
+      "exposure": []
+    },
+    {
+      "id": "softfloat-s-roundPackToF64",
+      "paths": [
+        "core/softfloat/s_roundPackToF64.c"
+      ],
+      "upstream": {
+        "repo": "https://github.com/ucb-bar/berkeley-softfloat-3",
+        "path": "source/s_roundPackToF64.c",
+        "revision": "f74b1e48110ac3a27dd49b787d164e55e42d81d1"
+      },
+      "retrieved": "2026-11-12",
+      "spdx": "BSD-3-Clause",
+      "license_text": "LICENSES/BSD-3-Clause.txt",
+      "notice": "Copyright 2011, 2012, 2013, 2014, 2015, 2017 The Regents of the University of California. All rights reserved.",
+      "mode": "adapted",
+      "modifications": "adapt the selected helper to integer bit-carrier types, keep pure helpers stateless, and thread the caller context through any rounding/tininess/flag-dependent calls; replace direct ambient-state references to softfloat_roundingMode, softfloat_detectTininess, softfloat_exceptionFlags, softfloat_raiseFlags with explicit context access or context-taking helpers; upstream source SHA-256: e549468a71417c8fefd927d582ec8481e2d6f595c406a4db5efff9b462f8e2c8.",
+      "verification_test": "unit.core.softfloat32 and unit.core.softfloat64 (rounding/flags)",
+      "maintenance_owner": "szTheory",
+      "upstream_status": "active",
+      "exposure": []
+    },
+    {
+      "id": "softfloat-s-roundToI32",
+      "paths": [
+        "core/softfloat/s_roundToI32.c"
+      ],
+      "upstream": {
+        "repo": "https://github.com/ucb-bar/berkeley-softfloat-3",
+        "path": "source/s_roundToI32.c",
+        "revision": "f74b1e48110ac3a27dd49b787d164e55e42d81d1"
+      },
+      "retrieved": "2026-11-12",
+      "spdx": "BSD-3-Clause",
+      "license_text": "LICENSES/BSD-3-Clause.txt",
+      "notice": "Copyright 2011, 2012, 2013, 2014, 2015, 2016, 2017 The Regents of the University of California. All rights reserved.",
+      "mode": "adapted",
+      "modifications": "adapt the selected helper to integer bit-carrier types, keep pure helpers stateless, and thread the caller context through any rounding/tininess/flag-dependent calls; replace direct ambient-state references to softfloat_exceptionFlags, softfloat_raiseFlags with explicit context access or context-taking helpers; upstream source SHA-256: 9a64993647fe9cd9031d5a34d0caf86f48ba4b86b6c9bdecf3602d318fbc6401.",
+      "verification_test": "unit.core.softfloat32 and unit.core.softfloat64 (integer conversion)",
+      "maintenance_owner": "szTheory",
+      "upstream_status": "active",
+      "exposure": []
+    },
+    {
+      "id": "softfloat-s-roundToI64",
+      "paths": [
+        "core/softfloat/s_roundToI64.c"
+      ],
+      "upstream": {
+        "repo": "https://github.com/ucb-bar/berkeley-softfloat-3",
+        "path": "source/s_roundToI64.c",
+        "revision": "f74b1e48110ac3a27dd49b787d164e55e42d81d1"
+      },
+      "retrieved": "2026-11-12",
+      "spdx": "BSD-3-Clause",
+      "license_text": "LICENSES/BSD-3-Clause.txt",
+      "notice": "Copyright 2011, 2012, 2013, 2014, 2015, 2016, 2017 The Regents of the University of California. All rights reserved.",
+      "mode": "adapted",
+      "modifications": "adapt the selected helper to integer bit-carrier types, keep pure helpers stateless, and thread the caller context through any rounding/tininess/flag-dependent calls; replace direct ambient-state references to softfloat_exceptionFlags, softfloat_raiseFlags with explicit context access or context-taking helpers; upstream source SHA-256: 19008822ceff3ef5e46a770e5ffccb1953a8377c588001ca5da9dc82d1c44d2a.",
+      "verification_test": "unit.core.softfloat32 and unit.core.softfloat64 (integer conversion)",
+      "maintenance_owner": "szTheory",
+      "upstream_status": "active",
+      "exposure": []
+    },
+    {
+      "id": "softfloat-s-shiftRightJam32",
+      "paths": [
+        "core/softfloat/s_shiftRightJam32.c"
+      ],
+      "upstream": {
+        "repo": "https://github.com/ucb-bar/berkeley-softfloat-3",
+        "path": "source/s_shiftRightJam32.c",
+        "revision": "f74b1e48110ac3a27dd49b787d164e55e42d81d1"
+      },
+      "retrieved": "2026-11-12",
+      "spdx": "BSD-3-Clause",
+      "license_text": "LICENSES/BSD-3-Clause.txt",
+      "notice": "Copyright 2011, 2012, 2013, 2014, 2015, 2016 The Regents of the University of California. All rights reserved.",
+      "mode": "adapted",
+      "modifications": "adapt the selected helper to integer bit-carrier types, keep pure helpers stateless, and thread the caller context through any rounding/tininess/flag-dependent calls; upstream source SHA-256: 96dee4db4ed95ffe7bd44060f980f0a010003a11c20f5757992dcc1f447e0b62.",
+      "verification_test": "unit.core.softfloat32 and unit.core.softfloat64 (arithmetic smoke)",
+      "maintenance_owner": "szTheory",
+      "upstream_status": "active",
+      "exposure": []
+    },
+    {
+      "id": "softfloat-s-shiftRightJam64",
+      "paths": [
+        "core/softfloat/s_shiftRightJam64.c"
+      ],
+      "upstream": {
+        "repo": "https://github.com/ucb-bar/berkeley-softfloat-3",
+        "path": "source/s_shiftRightJam64.c",
+        "revision": "f74b1e48110ac3a27dd49b787d164e55e42d81d1"
+      },
+      "retrieved": "2026-11-12",
+      "spdx": "BSD-3-Clause",
+      "license_text": "LICENSES/BSD-3-Clause.txt",
+      "notice": "Copyright 2011, 2012, 2013, 2014, 2015, 2016 The Regents of the University of California. All rights reserved.",
+      "mode": "adapted",
+      "modifications": "adapt the selected helper to integer bit-carrier types, keep pure helpers stateless, and thread the caller context through any rounding/tininess/flag-dependent calls; upstream source SHA-256: ea54abfce241315f78b69893f6d7b20ab767e5fe8ade6b107245d8dc0745630f.",
+      "verification_test": "unit.core.softfloat32 and unit.core.softfloat64 (arithmetic smoke)",
+      "maintenance_owner": "szTheory",
+      "upstream_status": "active",
+      "exposure": []
+    },
+    {
+      "id": "softfloat-s-shiftRightJam64Extra",
+      "paths": [
+        "core/softfloat/s_shiftRightJam64Extra.c"
+      ],
+      "upstream": {
+        "repo": "https://github.com/ucb-bar/berkeley-softfloat-3",
+        "path": "source/s_shiftRightJam64Extra.c",
+        "revision": "f74b1e48110ac3a27dd49b787d164e55e42d81d1"
+      },
+      "retrieved": "2026-11-12",
+      "spdx": "BSD-3-Clause",
+      "license_text": "LICENSES/BSD-3-Clause.txt",
+      "notice": "Copyright 2011, 2012, 2013, 2014, 2015, 2016 The Regents of the University of California. All rights reserved.",
+      "mode": "adapted",
+      "modifications": "adapt the selected helper to integer bit-carrier types, keep pure helpers stateless, and thread the caller context through any rounding/tininess/flag-dependent calls; upstream source SHA-256: 5371094c6e887cde72b34336c0246bfac9984d567376a4e18e4b79b9ed303dff.",
+      "verification_test": "unit.core.softfloat32 and unit.core.softfloat64 (arithmetic smoke)",
+      "maintenance_owner": "szTheory",
+      "upstream_status": "active",
+      "exposure": []
+    },
+    {
+      "id": "softfloat-s-shortShiftRightJam64",
+      "paths": [
+        "core/softfloat/s_shortShiftRightJam64.c"
+      ],
+      "upstream": {
+        "repo": "https://github.com/ucb-bar/berkeley-softfloat-3",
+        "path": "source/s_shortShiftRightJam64.c",
+        "revision": "f74b1e48110ac3a27dd49b787d164e55e42d81d1"
+      },
+      "retrieved": "2026-11-12",
+      "spdx": "BSD-3-Clause",
+      "license_text": "LICENSES/BSD-3-Clause.txt",
+      "notice": "Copyright 2011, 2012, 2013, 2014, 2015, 2016 The Regents of the University of California. All rights reserved.",
+      "mode": "adapted",
+      "modifications": "adapt the selected helper to integer bit-carrier types, keep pure helpers stateless, and thread the caller context through any rounding/tininess/flag-dependent calls; upstream source SHA-256: 0fcadc566939b0155100929995ee5234fb40cc146cf7093d6c9c15184aaca00c.",
+      "verification_test": "unit.core.softfloat32 and unit.core.softfloat64 (arithmetic smoke)",
+      "maintenance_owner": "szTheory",
+      "upstream_status": "active",
+      "exposure": []
+    },
+    {
+      "id": "softfloat-s-subMagsF32",
+      "paths": [
+        "core/softfloat/s_subMagsF32.c"
+      ],
+      "upstream": {
+        "repo": "https://github.com/ucb-bar/berkeley-softfloat-3",
+        "path": "source/s_subMagsF32.c",
+        "revision": "f74b1e48110ac3a27dd49b787d164e55e42d81d1"
+      },
+      "retrieved": "2026-11-12",
+      "spdx": "BSD-3-Clause",
+      "license_text": "LICENSES/BSD-3-Clause.txt",
+      "notice": "Copyright 2011, 2012, 2013, 2014, 2015, 2016 The Regents of the University of California. All rights reserved.",
+      "mode": "adapted",
+      "modifications": "adapt the selected helper to integer bit-carrier types, keep pure helpers stateless, and thread the caller context through any rounding/tininess/flag-dependent calls; replace direct ambient-state references to softfloat_roundingMode, softfloat_raiseFlags with explicit context access or context-taking helpers; use the authored integer NaN propagation policy and context-aware signaling-NaN flag helper; upstream source SHA-256: 53ca2e9f6f1edc7095133e7c98018d69d1e6cd0d5f5b5c0393c4e656ee9a965c.",
+      "verification_test": "unit.core.softfloat32 and unit.core.softfloat64 (subtraction)",
+      "maintenance_owner": "szTheory",
+      "upstream_status": "active",
+      "exposure": []
+    },
+    {
+      "id": "softfloat-s-subMagsF64",
+      "paths": [
+        "core/softfloat/s_subMagsF64.c"
+      ],
+      "upstream": {
+        "repo": "https://github.com/ucb-bar/berkeley-softfloat-3",
+        "path": "source/s_subMagsF64.c",
+        "revision": "f74b1e48110ac3a27dd49b787d164e55e42d81d1"
+      },
+      "retrieved": "2026-11-12",
+      "spdx": "BSD-3-Clause",
+      "license_text": "LICENSES/BSD-3-Clause.txt",
+      "notice": "Copyright 2011, 2012, 2013, 2014, 2015, 2016 The Regents of the University of California. All rights reserved.",
+      "mode": "adapted",
+      "modifications": "adapt the selected helper to integer bit-carrier types, keep pure helpers stateless, and thread the caller context through any rounding/tininess/flag-dependent calls; replace direct ambient-state references to softfloat_roundingMode, softfloat_raiseFlags with explicit context access or context-taking helpers; use the authored integer NaN propagation policy and context-aware signaling-NaN flag helper; upstream source SHA-256: 733f17b90486602ff6c67fa3d99166a841b03276c0fcc7da66751d1e8631f01f.",
+      "verification_test": "unit.core.softfloat32 and unit.core.softfloat64 (subtraction)",
+      "maintenance_owner": "szTheory",
+      "upstream_status": "active",
+      "exposure": []
+    },
+    {
+      "id": "softfloat-header-internals",
+      "paths": [
+        "core/softfloat/internals.h"
+      ],
+      "upstream": {
+        "repo": "https://github.com/ucb-bar/berkeley-softfloat-3",
+        "path": "source/include/internals.h",
+        "revision": "f74b1e48110ac3a27dd49b787d164e55e42d81d1"
+      },
+      "retrieved": "2026-11-12",
+      "spdx": "BSD-3-Clause",
+      "license_text": "LICENSES/BSD-3-Clause.txt",
+      "notice": "Copyright 2011, 2012, 2013, 2014, 2015, 2016, 2017 The Regents of the University of California. All rights reserved.",
+      "mode": "adapted",
+      "modifications": "prune to the selected binary32/binary64 arithmetic, comparisons, and signed W/L conversions; add explicit context pointers on state-dependent declarations; upstream source SHA-256: 3983c618d09b0745d9238997ce40f855944db3c7d8574cc3329b56983a004d86.",
+      "verification_test": "unit.core.softfloat32, unit.core.softfloat64, and unit.core.softfloat-isolation",
+      "maintenance_owner": "szTheory",
+      "upstream_status": "active",
+      "exposure": []
+    },
+    {
+      "id": "softfloat-header-primitiveTypes",
+      "paths": [
+        "core/softfloat/primitiveTypes.h"
+      ],
+      "upstream": {
+        "repo": "https://github.com/ucb-bar/berkeley-softfloat-3",
+        "path": "source/include/primitiveTypes.h",
+        "revision": "f74b1e48110ac3a27dd49b787d164e55e42d81d1"
+      },
+      "retrieved": "2026-11-12",
+      "spdx": "BSD-3-Clause",
+      "license_text": "LICENSES/BSD-3-Clause.txt",
+      "notice": "Copyright 2011, 2012, 2013, 2014 The Regents of the University of California. All rights reserved.",
+      "mode": "adapted",
+      "modifications": "retain only portable SOFTFLOAT_FAST_INT64 limb layouts; no compiler 128-bit integer type; upstream source SHA-256: 6b0841b1aa4a9c3a1c0a89e868d5d69592e54360dc8e4ba947f7853243a55dcc.",
+      "verification_test": "unit.core.softfloat32, unit.core.softfloat64, and unit.core.softfloat-isolation",
+      "maintenance_owner": "szTheory",
+      "upstream_status": "active",
+      "exposure": []
+    },
+    {
+      "id": "softfloat-header-primitives",
+      "paths": [
+        "core/softfloat/primitives.h"
+      ],
+      "upstream": {
+        "repo": "https://github.com/ucb-bar/berkeley-softfloat-3",
+        "path": "source/include/primitives.h",
+        "revision": "f74b1e48110ac3a27dd49b787d164e55e42d81d1"
+      },
+      "retrieved": "2026-11-12",
+      "spdx": "BSD-3-Clause",
+      "license_text": "LICENSES/BSD-3-Clause.txt",
+      "notice": "Copyright 2011, 2012, 2013, 2014, 2015, 2016, 2017 The Regents of the University of California. All rights reserved.",
+      "mode": "adapted",
+      "modifications": "retain only the selected portable integer-limb helper declarations and definitions; upstream source SHA-256: f416c1a7a3f84d863ddc089665147b3ea51c62451a49b849c5176cfce402cd1d.",
+      "verification_test": "unit.core.softfloat32, unit.core.softfloat64, and unit.core.softfloat-isolation",
+      "maintenance_owner": "szTheory",
+      "upstream_status": "active",
+      "exposure": []
+    },
+    {
+      "id": "softfloat-header-softfloat",
+      "paths": [
+        "core/softfloat/softfloat.h"
+      ],
+      "upstream": {
+        "repo": "https://github.com/ucb-bar/berkeley-softfloat-3",
+        "path": "source/include/softfloat.h",
+        "revision": "f74b1e48110ac3a27dd49b787d164e55e42d81d1"
+      },
+      "retrieved": "2026-11-12",
+      "spdx": "BSD-3-Clause",
+      "license_text": "LICENSES/BSD-3-Clause.txt",
+      "notice": "Copyright 2011, 2012, 2013, 2014, 2015, 2016, 2017 The Regents of the University of California. All rights reserved.",
+      "mode": "adapted",
+      "modifications": "prune to the selected binary32/binary64 arithmetic, comparisons, and signed W/L conversions; add explicit context pointers on state-dependent declarations; upstream source SHA-256: 27c5f39c21e10e1e798457cdfada111cc2e440a17acba8804e6a2b0a1d7833fc.",
+      "verification_test": "unit.core.softfloat32, unit.core.softfloat64, and unit.core.softfloat-isolation",
+      "maintenance_owner": "szTheory",
+      "upstream_status": "active",
+      "exposure": []
+    },
+    {
+      "id": "softfloat-header-softfloat-types",
+      "paths": [
+        "core/softfloat/softfloat_types.h"
+      ],
+      "upstream": {
+        "repo": "https://github.com/ucb-bar/berkeley-softfloat-3",
+        "path": "source/include/softfloat_types.h",
+        "revision": "f74b1e48110ac3a27dd49b787d164e55e42d81d1"
+      },
+      "retrieved": "2026-11-12",
+      "spdx": "BSD-3-Clause",
+      "license_text": "LICENSES/BSD-3-Clause.txt",
+      "notice": "Copyright 2011, 2012, 2013, 2014, 2015, 2017 The Regents of the University of California. All rights reserved.",
+      "mode": "adapted",
+      "modifications": "retain only raw binary32/binary64 bit-carrier types; remove unrelated formats; upstream source SHA-256: ec3a7b1e314fcdfe6e0f558199a6f466f31d82e0a3ac9fa8287b0dd54e875cd2.",
+      "verification_test": "unit.core.softfloat32, unit.core.softfloat64, and unit.core.softfloat-isolation",
       "maintenance_owner": "szTheory",
       "upstream_status": "active",
       "exposure": []

@@ -2,6 +2,7 @@
 #define TENDIES64_T64_INTERNAL_H
 
 #include "tendies64/t64_machine.h"
+#include "softfloat/softfloat_types.h"
 
 #include <stdbool.h>
 #include <stddef.h>
@@ -162,22 +163,37 @@ typedef struct {
 } t64_cpu_raw_context;
 
 typedef struct {
-  uint8_t rounding_mode;
-  uint8_t tininess_mode;
-  uint8_t exception_flags;
-} t64_softfloat_context;
-
-#define T64_SOFTFLOAT_TININESS_BEFORE_ROUNDING UINT8_C(0)
-#define T64_SOFTFLOAT_TININESS_AFTER_ROUNDING UINT8_C(1)
-
-typedef struct {
   uint64_t bits;
   uint8_t exception_flags;
 } t64_softfloat_result;
 
 typedef enum {
   T64_SOFTFLOAT_OP_I32_TO_F64 = 1,
-  T64_SOFTFLOAT_OP_F32_ADD = 2
+  T64_SOFTFLOAT_OP_F32_ADD = 2,
+  T64_SOFTFLOAT_OP_F32_SUB = 3,
+  T64_SOFTFLOAT_OP_F32_MUL = 4,
+  T64_SOFTFLOAT_OP_F32_DIV = 5,
+  T64_SOFTFLOAT_OP_F32_SQRT = 6,
+  T64_SOFTFLOAT_OP_F32_EQ = 7,
+  T64_SOFTFLOAT_OP_F32_LE = 8,
+  T64_SOFTFLOAT_OP_F32_LT = 9,
+  T64_SOFTFLOAT_OP_F32_TO_F64 = 10,
+  T64_SOFTFLOAT_OP_F32_TO_I32 = 11,
+  T64_SOFTFLOAT_OP_F32_TO_I64 = 12,
+  T64_SOFTFLOAT_OP_F64_ADD = 13,
+  T64_SOFTFLOAT_OP_F64_SUB = 14,
+  T64_SOFTFLOAT_OP_F64_MUL = 15,
+  T64_SOFTFLOAT_OP_F64_DIV = 16,
+  T64_SOFTFLOAT_OP_F64_SQRT = 17,
+  T64_SOFTFLOAT_OP_F64_EQ = 18,
+  T64_SOFTFLOAT_OP_F64_LE = 19,
+  T64_SOFTFLOAT_OP_F64_LT = 20,
+  T64_SOFTFLOAT_OP_F64_TO_F32 = 21,
+  T64_SOFTFLOAT_OP_F64_TO_I32 = 22,
+  T64_SOFTFLOAT_OP_F64_TO_I64 = 23,
+  T64_SOFTFLOAT_OP_I32_TO_F32 = 24,
+  T64_SOFTFLOAT_OP_I64_TO_F32 = 25,
+  T64_SOFTFLOAT_OP_I64_TO_F64 = 26
 } t64_softfloat_operation;
 
 typedef struct {
