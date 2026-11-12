@@ -590,6 +590,29 @@ static bool write_file(const char *path, const void *bytes, size_t length) {
   return close(fd) == 0;
 }
 
+static bool create_file(const char *path, const void *bytes, size_t length,
+                        mode_t mode) {
+  size_t offset = 0u;
+  int fd = open(path, O_WRONLY | O_CREAT | O_EXCL | O_CLOEXEC, mode);
+  if (fd < 0) return false;
+  while (offset < length) {
+    ssize_t count = write(fd, (const uint8_t *)bytes + offset,
+                          length - offset);
+    if (count < 0 && errno == EINTR) continue;
+    if (count <= 0) {
+      close(fd);
+      unlink(path);
+      return false;
+    }
+    offset += (size_t)count;
+  }
+  if (close(fd) != 0) {
+    unlink(path);
+    return false;
+  }
+  return true;
+}
+
 static bool replace_test_text(char *bytes, size_t *length, size_t capacity,
                               const char *from, const char *to) {
   char *match = strstr(bytes, from);
@@ -1036,6 +1059,96 @@ static void test_guest_record_controls(const char *production_executable,
   free(overflow_output);
 }
 
+static void test_build_script_preuse_refusal(const char *source_root) {
+  static const char invalid_receipt[] =
+      "{\"schema\":\"t64.cpu-qualification\","
+      "\"schema_version\":1,\"status\":\"unqualified\"}\n";
+  static const char fake_compiler[] =
+      "#!/bin/sh\n"
+      "printf '%s\\n' FAKE_CC_INVOKED\n"
+      ": > \"$T64_PREUSE_MARKER\"\n"
+      "exit 73\n";
+  char private_template[4096] = {0};
+  char private_root[4096] = {0};
+  char receipt_path[4096] = {0};
+  char compiler_path[4096] = {0};
+  char marker_path[4096] = {0};
+  char script_path[4096] = {0};
+  char output[8192] = {0};
+  char *saved_cc = NULL;
+  char *saved_marker = NULL;
+  const char *old_cc = getenv("CC");
+  const char *old_marker = getenv("T64_PREUSE_MARKER");
+  const char *argv[4];
+  bool had_cc = old_cc != NULL;
+  bool had_marker = old_marker != NULL;
+  int result = -1;
+  int count;
+
+  if (had_cc) saved_cc = strdup(old_cc);
+  if (had_marker) saved_marker = strdup(old_marker);
+  count = snprintf(private_template, sizeof private_template,
+                   "%s/build/private-cpu-diagnostic/preuse-control.XXXXXX",
+                   source_root);
+  if (saved_cc == NULL && had_cc) goto cleanup;
+  if (saved_marker == NULL && had_marker) goto cleanup;
+  if (count <= 0 || (size_t)count >= sizeof private_template ||
+      mkdtemp(private_template) == NULL) goto cleanup;
+  count = snprintf(private_root, sizeof private_root, "%s", private_template);
+  if (count <= 0 || (size_t)count >= sizeof private_root) goto cleanup;
+  count = snprintf(receipt_path, sizeof receipt_path, "%s/qualification.json",
+                   private_root);
+  if (count <= 0 || (size_t)count >= sizeof receipt_path ||
+      !create_file(receipt_path, invalid_receipt,
+                   sizeof invalid_receipt - 1u, S_IRUSR | S_IWUSR))
+    goto cleanup;
+  count = snprintf(compiler_path, sizeof compiler_path, "%s/fake-cc",
+                   private_root);
+  if (count <= 0 || (size_t)count >= sizeof compiler_path ||
+      !create_file(compiler_path, fake_compiler, sizeof fake_compiler - 1u,
+                   S_IRUSR | S_IWUSR | S_IXUSR))
+    goto cleanup;
+  count = snprintf(marker_path, sizeof marker_path, "%s/compiler-ran",
+                   private_root);
+  if (count <= 0 || (size_t)count >= sizeof marker_path) goto cleanup;
+  count = snprintf(script_path, sizeof script_path,
+                   "%s/scripts/build-cpu-diagnostic.sh", source_root);
+  if (count <= 0 || (size_t)count >= sizeof script_path) goto cleanup;
+  if (setenv("CC", compiler_path, 1) != 0 ||
+      setenv("T64_PREUSE_MARKER", marker_path, 1) != 0)
+    goto cleanup;
+
+  argv[0] = "/bin/sh";
+  argv[1] = script_path;
+  argv[2] = "--qualify";
+  argv[3] = NULL;
+  result = run_tool("/bin/sh", argv, 3u,
+                    "T64_CPU_DIAGNOSTIC_QUALIFICATION_ROOT", private_root,
+                    output, sizeof output);
+  if (result != 4 || access(marker_path, F_OK) == 0 ||
+      strstr(output, "pre-use qualification refused") == NULL) {
+    (void)fprintf(stderr,
+                  "pre-use refusal control observed exit=%d compiler-ran=%s "
+                  "output=%s\n",
+                  result, access(marker_path, F_OK) == 0 ? "yes" : "no",
+                  output);
+  }
+  check(result == 4 && access(marker_path, F_OK) != 0 &&
+            strstr(output, "pre-use qualification refused") != NULL,
+        "invalid qualification receipt blocks before compiler invocation");
+
+cleanup:
+  if (had_cc) (void)setenv("CC", saved_cc, 1);
+  else (void)unsetenv("CC");
+  if (had_marker) (void)setenv("T64_PREUSE_MARKER", saved_marker, 1);
+  else (void)unsetenv("T64_PREUSE_MARKER");
+  if (compiler_path[0] != '\0') (void)unlink(compiler_path);
+  if (receipt_path[0] != '\0') (void)unlink(receipt_path);
+  if (private_root[0] != '\0') (void)rmdir(private_root);
+  free(saved_cc);
+  free(saved_marker);
+}
+
 static void test_production_adapter(char *executable, char *test_executable,
                                    const char *source_root) {
   static const char guest_transcript[] =
@@ -1397,7 +1510,10 @@ int main(int argc, char **argv) {
   test_cpu_profile_authored_guest();
   test_cpu_profile_exact_image_limit();
   test_cpu_profile_malformed_flat_images();
-  if (argc == 4) test_production_adapter(argv[1], argv[2], argv[3]);
+  if (argc == 4) {
+    test_build_script_preuse_refusal(argv[3]);
+    test_production_adapter(argv[1], argv[2], argv[3]);
+  }
   else check(false, "production and replacement-control executable paths");
   if (failures != 0u) {
     (void)fprintf(stderr, "runner.cpu-diagnostic: %u assertion(s) failed\n",
