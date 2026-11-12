@@ -58,6 +58,7 @@ from.
 | 2026-11-11 | 43094128662 | - | - | deferred | - | - | - | - | deferred: macOS upload step canceled at the 10-minute timeout; run/job status remained in progress, cancel endpoints returned 409, and job logs returned 502 |
 | 2026-11-11 | 43103669084 | 7c0ea9b5f307 | push | success | 287 | 286 | 2/123 | 2/284 | gate-macos/Gate 272s |
 | 2026-11-12 | 43131692146 | 71bccef37730 | push | success | 207 | 207 | 2/109 | 2/205 | gate-macos/Gate 194s |
+| 2026-11-12 | 43136535272 | 76241f8cbcc5 | push | success | 275 | 274 | 2/127 | 2/272 | gate-macos/Gate 260s |
 
 ## Findings
 
@@ -97,3 +98,4 @@ from.
 | F-033 | 43094128662 | Mac upload received HTML instead of JSON on retries and was cancelled at timeout | declined | The log does not expose an underlying status or cause; keep the action pin, two jobs and 10-minute limit unchanged and verify the new exact push. |
 | F-034 | 43094128662 | Terminal follow-up on cancelled Mac evidence upload | taken | Final reads show the run was cancelled and logs returned HTML where JSON was expected; retain the original deferred timing row as a historical observation, record the symptom, and leave root cause unknown. |
 | F-035 | 43131692146 | Both hosted gates pass the CPU profile commit. Linux queue/run is 2/109 seconds; macOS is 2/205, with macOS Gate 194 seconds and total wall 207 seconds. | declined | Retain both distinct compiler/platform jobs and their existing limits. Queue time is negligible and the measured gate is below the preceding successful run; this run does not justify caches, extra lanes or concurrency changes. |
+| F-036 | 43136535272 | Both hosted gates pass the authored protocol commit. Wall275s, critical path274s; Linux queue/run2/127s and macOS2/272s. macOS Gate260s includes fixture qualification177s and CTest36.41s; Linux qualification83s and CTest16.78s. The two new tests total0.02s on macOS and0.01s on Linux. | declined | Retain both distinct compiler/platform jobs and existing limits. Fresh fixture/tool qualification remains dominant; the new protocol tests do not explain the longer gate. No added cache, lane, concurrency or guest-timing change is supported by this run. Existing qualification-reuse opportunities remain recorded in F026-F028. |
