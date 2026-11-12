@@ -167,6 +167,8 @@ typedef struct {
   uint64_t bad_virtual_address;
   uint64_t epc;
   bool branch_delay;
+  bool sets_coprocessor;
+  uint32_t coprocessor;
 } t64_cpu_exception_result;
 
 typedef struct {
@@ -378,6 +380,8 @@ t64_status t64_scheduler_advance(t64_machine *machine,
                                  t64_stop_result *result_out);
 t64_status t64_cpu_schedule(t64_machine *machine);
 t64_status t64_cpu_step(t64_machine *machine, const t64_event *event);
+t64_status t64_cpu_exception_enter(
+    t64_machine *machine, const t64_cpu_exception_result *exception);
 bool t64_cpu_translate(uint64_t virtual_address,
                        uint32_t *physical_address_out);
 t64_status t64_test_schedule_synthetic(t64_machine *machine, uint64_t tick,

@@ -43,6 +43,24 @@ static bool has_vr4300_cpu_state(const t64_machine *machine) {
          machine->profile.state_serialization_version == UINT32_C(9);
 }
 
+static t64_status cpu_enter_exception(t64_machine *machine, uint32_t code,
+                                      uint64_t bad_virtual_address,
+                                      bool branch_delay,
+                                      bool sets_coprocessor,
+                                      uint32_t coprocessor) {
+  t64_cpu_exception_result exception;
+  uint64_t pc = machine->cpu.pc_full;
+
+  exception.valid = true;
+  exception.code = code;
+  exception.bad_virtual_address = bad_virtual_address;
+  exception.epc = branch_delay ? machine->cpu.delay_slot_pc_full - 4u : pc;
+  exception.branch_delay = branch_delay;
+  exception.sets_coprocessor = sets_coprocessor;
+  exception.coprocessor = coprocessor;
+  return t64_cpu_exception_enter(machine, &exception);
+}
+
 static void sync_vr4300_full_addresses(t64_cpu_state *cpu) {
   cpu->pc_full = t64_cpu_canonical_address(cpu->pc);
   cpu->last_pc_full = t64_cpu_canonical_address(cpu->last_pc);
@@ -925,6 +943,7 @@ t64_status t64_cpu_schedule(t64_machine *machine) {
 
 t64_status t64_cpu_step(t64_machine *machine, const t64_event *event) {
   uint32_t pc;
+  uint64_t pc_full;
   uint32_t physical_pc;
   uint32_t opcode = 0u;
   uint32_t next_pc;
@@ -948,13 +967,24 @@ t64_status t64_cpu_step(t64_machine *machine, const t64_event *event) {
   if (machine->cpu.stopped) {
     return T64_STATUS_RESOURCE_EXHAUSTED;
   }
-  pc = machine->cpu.pc;
+  pc_full = has_vr4300_cpu_state(machine)
+                ? machine->cpu.pc_full
+                : (uint64_t)machine->cpu.pc;
+  pc = (uint32_t)pc_full;
+  machine->cpu.pc = pc;
   in_delay_slot = machine->cpu.delay_slot_pending;
   machine->cpu.last_pc = pc;
   if (has_vr4300_cpu_state(machine)) {
-    machine->cpu.last_pc_full = t64_cpu_canonical_address(pc);
+    machine->cpu.last_pc_full = pc_full;
+    if ((pc_full & UINT64_C(3)) != 0u) {
+      return cpu_enter_exception(machine, UINT32_C(4), pc_full,
+                                 in_delay_slot, false, 0u);
+    }
   }
-  if (!t64_cpu_translate(sign_extend_32(pc), &physical_pc) ||
+  if (!t64_cpu_translate(has_vr4300_cpu_state(machine)
+                            ? pc_full
+                            : sign_extend_32(pc),
+                        &physical_pc) ||
       t64_bus_read(machine, physical_pc, 4u, &opcode) != T64_STATUS_OK) {
     machine->cpu.last_opcode = 0u;
     cpu_stop_unsupported(machine, pc, 0u);
@@ -967,10 +997,13 @@ t64_status t64_cpu_step(t64_machine *machine, const t64_event *event) {
     return T64_STATUS_RESOURCE_EXHAUSTED;
   }
 
-  /* This exact BREAK encoding is a project software debug stop. It has no
-   * hardware exception semantics and is never retired. A BREAK in a delay
-   * slot, or any other encoding, remains explicitly unsupported. */
+  /* The new profile treats BREAK as an architectural exception. Warm-v1
+   * retains its already qualified, exact-encoding software stop. */
   if (opcode == T64_CPU_SOFTWARE_DEBUG_STOP_BREAK) {
+    if (has_vr4300_cpu_state(machine)) {
+      return cpu_enter_exception(machine, UINT32_C(9), 0u, in_delay_slot,
+                                 false, 0u);
+    }
     if (in_delay_slot) {
       cpu_stop_unsupported(machine, pc, opcode);
     } else {
