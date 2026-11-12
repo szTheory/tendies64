@@ -21,6 +21,13 @@
 #include "t64_verified_input.h"
 #include "tendies64/t64_machine.h"
 
+#ifdef S_ISVTX
+#define CPU_STICKY_DIRECTORY_MODE ((mode_t)S_ISVTX)
+#else
+/* POSIX sticky-bit value; some libc feature sets hide the S_ISVTX macro. */
+#define CPU_STICKY_DIRECTORY_MODE ((mode_t)01000)
+#endif
+
 #define CPU_PROFILE_ID "ntsc-cart-4m-openipl3-vr4300-v1"
 #define CPU_ROM_LIMIT UINT64_C(0x00401000)
 #define CPU_TICK_LIMIT UINT64_C(10000000)
@@ -236,7 +243,7 @@ static bool private_temporary_directory(const char *directory,
       realpath(temporary_root, canonical_root) == NULL ||
       !path_is_within(directory, canonical_root) ||
       stat(directory, &info) != 0 || !S_ISDIR(info.st_mode)) return false;
-  if ((info.st_mode & S_ISVTX) != 0) return true;
+  if ((info.st_mode & CPU_STICKY_DIRECTORY_MODE) != 0) return true;
   return info.st_uid == geteuid() &&
          (info.st_mode & (S_IWGRP | S_IWOTH)) == 0;
 }
