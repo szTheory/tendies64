@@ -110,7 +110,9 @@ visibility and primary CACHE operations for the selected profile.
   or unreached tail occurred.
 - Inventory controls preserve104 gate/106 ASan names and all84 integer rows.
   Portable records/specifications pass unwaived tree/history PII checks;
-  final-source hosted verification is tracked in docs/ci-reviews/LOG.md.
+  final sourceca53982 then passed both full hosted lanes:104 tests, zero lint
+  violations, guest evidence and publication checks. Timings and review are
+  tracked in docs/ci-reviews/LOG.md.
 
 ## Deviations and Evidence Limits
 
