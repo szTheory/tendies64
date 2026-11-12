@@ -67,8 +67,8 @@ API and a playable rights-cleared homebrew. Each maps to a roadmap phase.
 - [ ] **CPU-02**: Branches, branch-likely and delay slots behave correctly, including exceptions in delay slots
 - [x] **CPU-03**: CP0 (Count, Compare, Status, Cause, Random, writable masks), exceptions and interrupts behave per the primary manual
 - [x] **CPU-04**: Address translation includes the TLB (refill, invalid, modified, XTLB) and address errors
-- [ ] **CPU-05**: Unaligned loads and stores, LL/SC and LLD/SCD behave correctly
-- [ ] **CPU-06**: A functional cache model exists, with a written scope decision on what cache behavior is guest-visible
+- [x] **CPU-05**: Unaligned loads and stores, LL/SC and LLD/SCD behave correctly
+- [x] **CPU-06**: A functional cache model exists, with a written scope decision on what cache behavior is guest-visible
 - [ ] **CPU-07**: COP1 uses integer soft-float with correct rounding modes, FCR31 and unimplemented-operation behavior; host floating point is never the canonical path
 - [ ] **CPU-08**: CPU timing at tier 1 (instruction-granular cost) is available, and the cycle-accurate tier is documented as deferred
 - [ ] **CPU-09**: Native component tests use independently sourced expected values, with edge and negative cases for each of the above
@@ -219,8 +219,8 @@ re-sequenced at milestone close.
 | CPU-02 | Phase 4 | Pending |
 | CPU-03 | Phase 4 | Complete |
 | CPU-04 | Phase 4 | Complete |
-| CPU-05 | Phase 4 | Pending |
-| CPU-06 | Phase 4 | Pending |
+| CPU-05 | Phase 4 | Complete |
+| CPU-06 | Phase 4 | Complete |
 | CPU-07 | Phase 4 | Pending |
 | CPU-08 | Phase 6 | Pending |
 | CPU-09 | Phase 4 | Pending |
