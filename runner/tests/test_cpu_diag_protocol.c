@@ -1,13 +1,181 @@
 #include "t64_cpu_diag_protocol.h"
 
+#include <stdarg.h>
 #include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
 
 static const uint8_t inventory_json[] =
-    "{\"identity\":{\"base_rom_sha256\":\"0000000000000000000000000000000000000000000000000000000000000000\",\"core_build_sha256\":\"1111111111111111111111111111111111111111111111111111111111111111\",\"overlay_sha256\":\"2222222222222222222222222222222222222222222222222222222222222222\",\"profile_sha256\":\"3333333333333333333333333333333333333333333333333333333333333333\",\"selected_rom_sha256\":\"4444444444444444444444444444444444444444444444444444444444444444\",\"selector\":\"authored-selector\",\"source_revision\":\"5555555555555555555555555555555555555555\",\"tool_receipt_sha256\":\"6666666666666666666666666666666666666666666666666666666666666666\"},\"registrations\":[{\"execution\":\"values\",\"group\":\"arithmetic\",\"index\":0,\"lane\":\"required-base\",\"level\":\"BasicFunctionality\",\"name\":\"authored.case\",\"reason\":\"required\",\"values\":[{\"id\":\"case.one\",\"index\":0}]}],\"schema\":\"t64.cpu-inventory\",\"schema_version\":1}\n";
+    "{"
+    "\"declared_counts\":{\"registrations\":\"1\",\"required_values\":\"1\",\"values\":\"1\"},"
+    "\"identity\":{"
+    "\"base_rom_sha256\":\"0000000000000000000000000000000000000000000000000000000000000000\","
+    "\"core_build_sha256\":\"1111111111111111111111111111111111111111111111111111111111111111\","
+    "\"overlay_sha256\":\"2222222222222222222222222222222222222222222222222222222222222222\","
+    "\"profile_sha256\":\"3333333333333333333333333333333333333333333333333333333333333333\","
+    "\"selected_rom_sha256\":\"4444444444444444444444444444444444444444444444444444444444444444\","
+    "\"selector\":\"authored-selector\","
+    "\"source_revision\":\"5555555555555555555555555555555555555555\","
+    "\"tool_receipt_sha256\":\"6666666666666666666666666666666666666666666666666666666666666666\"},"
+    "\"registrations\":[{\"execution\":\"values\",\"group\":\"arithmetic\",\"index\":0,\"lane\":\"required-base\",\"level\":\"BasicFunctionality\",\"name\":\"authored.case\",\"reason\":\"required\",\"values\":[{\"id\":\"case.one\",\"index\":0}]}],"
+    "\"schema\":\"t64.cpu-inventory\",\"schema_version\":1}\n";
 
 static const char expected_pass_batch[] =
-    "{\"identity\":{\"base_rom_sha256\":\"0000000000000000000000000000000000000000000000000000000000000000\",\"core_build_sha256\":\"1111111111111111111111111111111111111111111111111111111111111111\",\"inventory_sha256\":\"54e3c1520e2e534644cae7f96002099d03cf53dd6419ec5a4838e9e50bf286a5\",\"overlay_sha256\":\"2222222222222222222222222222222222222222222222222222222222222222\",\"profile_sha256\":\"3333333333333333333333333333333333333333333333333333333333333333\",\"selected_rom_sha256\":\"4444444444444444444444444444444444444444444444444444444444444444\",\"selector\":\"authored-selector\",\"source_revision\":\"5555555555555555555555555555555555555555\",\"tool_receipt_sha256\":\"6666666666666666666666666666666666666666666666666666666666666666\"},\"records\":[{\"event\":\"start\",\"registration_index\":0,\"value_index\":0},{\"event\":\"outcome\",\"status\":\"pass\"},{\"complete\":true,\"event\":\"done\",\"record_count\":\"3\"}],\"schema\":\"t64.cpu-batch\",\"schema_version\":1}\n";
+    "{\"identity\":{\"base_rom_sha256\":\"0000000000000000000000000000000000000000000000000000000000000000\",\"core_build_sha256\":\"1111111111111111111111111111111111111111111111111111111111111111\",\"inventory_sha256\":\"5684230a4db8610fb16853e6f065f09d43c30885a1fefd2c3fc9900b395bb00e\",\"overlay_sha256\":\"2222222222222222222222222222222222222222222222222222222222222222\",\"profile_sha256\":\"3333333333333333333333333333333333333333333333333333333333333333\",\"selected_rom_sha256\":\"4444444444444444444444444444444444444444444444444444444444444444\",\"selector\":\"authored-selector\",\"source_revision\":\"5555555555555555555555555555555555555555\",\"tool_receipt_sha256\":\"6666666666666666666666666666666666666666666666666666666666666666\"},\"records\":[{\"event\":\"start\",\"registration_index\":0,\"value_index\":0},{\"event\":\"outcome\",\"status\":\"pass\"},{\"complete\":true,\"event\":\"done\",\"record_count\":\"3\"}],\"schema\":\"t64.cpu-batch\",\"schema_version\":1}\n";
+
+static const char *const expected_groups[] = {
+    "address_error_exception", "arithmetic", "cache", "cop0", "cop1",
+    "cop_unusable", "endian_re", "exception_instructions", "jumps",
+    "overflow_exception", "privilege", "tlb", "tlb64", "traps"};
+
+#if defined(__clang__) || defined(__GNUC__)
+__attribute__((format(printf, 4, 5)))
+#endif
+static bool appendf(char *output, size_t capacity, size_t *length,
+                    const char *format, ...) {
+  va_list args;
+  int written;
+  if (*length >= capacity) return false;
+  va_start(args, format);
+  written = vsnprintf(output + *length, capacity - *length, format, args);
+  va_end(args);
+  if (written < 0 || (size_t)written >= capacity - *length) return false;
+  *length += (size_t)written;
+  return true;
+}
+
+static bool append_registration(char *output, size_t capacity, size_t *length,
+                                uint32_t registration_index, const char *name,
+                                const char *group, const char *level,
+                                const char *lane, const char *reason,
+                                const char *execution,
+                                const char *const *value_ids,
+                                size_t value_count) {
+  size_t i;
+  if (!appendf(output, capacity, length,
+               "{\"execution\":\"%s\",\"group\":\"%s\",\"index\":%u,\"lane\":\"%s\",\"level\":\"%s\",\"name\":\"%s\",\"reason\":\"%s\",\"values\":[",
+               execution, group, registration_index, lane, level, name,
+               reason)) {
+    return false;
+  }
+  for (i = 0u; i < value_count; i++) {
+    if (i != 0u && !appendf(output, capacity, length, ",")) return false;
+    if (!appendf(output, capacity, length,
+                 "{\"id\":\"%s\",\"index\":%zu}", value_ids[i], i)) {
+      return false;
+    }
+  }
+  return appendf(output, capacity, length, "]}");
+}
+
+static bool build_authored_inventory(
+    char *output, size_t capacity, size_t *length_out,
+    const char *const *groups, size_t group_count, bool include_other_lanes,
+    bool two_arithmetic_values, size_t selector_length, size_t name_length,
+    size_t value_id_length) {
+  static const char *const other_lanes[][3] = {
+      {"weird", "Weird", "not-required-weird"},
+      {"timing", "Timing", "not-required-timing"},
+      {"cycle", "Cycle", "not-required-cycle"},
+      {"cop0-hazard", "COP0Hazard", "not-required-cop0-hazard"},
+      {"quirk", "PoorlyUnderstoodQuirk", "not-required-quirk"},
+      {"stress", "StressTest", "not-required-stress"}};
+  char selector[T64_CPU_DIAG_MAX_SELECTOR_BYTES + 1u];
+  char name[T64_CPU_DIAG_MAX_NAME_BYTES + 1u];
+  char value_id[T64_CPU_DIAG_MAX_VALUE_ID_BYTES + 1u];
+  char second_value_id[T64_CPU_DIAG_MAX_VALUE_ID_BYTES + 1u];
+  const char *values[2];
+  size_t registration_count = group_count + (include_other_lanes ? 7u : 0u);
+  size_t required_value_count = group_count;
+  size_t value_count;
+  size_t length = 0u;
+  size_t i;
+  uint32_t registration_index = 0u;
+  if (groups == NULL || group_count == 0u || output == NULL || length_out == NULL ||
+      selector_length == 0u || selector_length > T64_CPU_DIAG_MAX_SELECTOR_BYTES ||
+      name_length > T64_CPU_DIAG_MAX_NAME_BYTES ||
+      value_id_length > T64_CPU_DIAG_MAX_VALUE_ID_BYTES) {
+    return false;
+  }
+  if (two_arithmetic_values) {
+    for (i = 0u; i < group_count; i++) {
+      if (strcmp(groups[i], "arithmetic") == 0) required_value_count++;
+    }
+  }
+  value_count = required_value_count + (include_other_lanes ? 6u : 0u);
+  (void)memset(selector, 's', selector_length);
+  selector[selector_length] = '\0';
+  if (!appendf(output, capacity, &length,
+               "{\"declared_counts\":{\"registrations\":\"%zu\",\"required_values\":\"%zu\",\"values\":\"%zu\"},"
+               "\"identity\":{\"base_rom_sha256\":\"0000000000000000000000000000000000000000000000000000000000000000\","
+               "\"core_build_sha256\":\"1111111111111111111111111111111111111111111111111111111111111111\","
+               "\"overlay_sha256\":\"2222222222222222222222222222222222222222222222222222222222222222\","
+               "\"profile_sha256\":\"3333333333333333333333333333333333333333333333333333333333333333\","
+               "\"selected_rom_sha256\":\"4444444444444444444444444444444444444444444444444444444444444444\","
+               "\"selector\":\"%s\","
+               "\"source_revision\":\"5555555555555555555555555555555555555555\","
+               "\"tool_receipt_sha256\":\"6666666666666666666666666666666666666666666666666666666666666666\"},"
+               "\"registrations\":[",
+               registration_count, required_value_count, value_count, selector)) {
+    return false;
+  }
+  for (i = 0u; i < group_count; i++) {
+    size_t value_count_for_registration =
+        two_arithmetic_values && strcmp(groups[i], "arithmetic") == 0 ? 2u : 1u;
+    const char *level = (i & 1u) == 0u ? "BasicFunctionality" : "RarelyUsed";
+    (void)snprintf(name, sizeof name, "authored.required.%02zu", i);
+    if (name_length != 0u) {
+      (void)memset(name, 'n', name_length);
+      name[name_length] = '\0';
+    }
+    (void)snprintf(value_id, sizeof value_id, "authored.value.%02zu.0", i);
+    (void)snprintf(second_value_id, sizeof second_value_id,
+                   "authored.value.%02zu.1", i);
+    if (value_id_length != 0u) {
+      (void)memset(value_id, 'v', value_id_length);
+      value_id[value_id_length] = '\0';
+      (void)memset(second_value_id, 'w', value_id_length);
+      second_value_id[value_id_length] = '\0';
+    }
+    values[0] = value_id;
+    values[1] = second_value_id;
+    if (i != 0u && !appendf(output, capacity, &length, ",")) return false;
+    if (!append_registration(output, capacity, &length, registration_index,
+                             name, groups[i], level, "required-base", "required",
+                             "values", values, value_count_for_registration)) {
+      return false;
+    }
+    registration_index++;
+  }
+  if (include_other_lanes) {
+    for (i = 0u; i < sizeof other_lanes / sizeof other_lanes[0]; i++) {
+      (void)snprintf(name, sizeof name, "authored.nonrequired.%02zu", i);
+      (void)snprintf(value_id, sizeof value_id, "authored.nonrequired.value.%02zu", i);
+      values[0] = value_id;
+      if (!appendf(output, capacity, &length, ",") ||
+          !append_registration(output, capacity, &length, registration_index,
+                               name, "arithmetic", other_lanes[i][1],
+                               other_lanes[i][0], other_lanes[i][2], "once",
+                               (const char *const[]){"once"}, 1u)) {
+        return false;
+      }
+      registration_index++;
+    }
+    if (!appendf(output, capacity, &length, ",") ||
+        !append_registration(output, capacity, &length, registration_index,
+                             "authored.non-cpu", "non-cpu", "RDPBasic",
+                             "skipped-non-cpu", "outside-cpu-scope", "omitted",
+                             NULL, 0u)) {
+      return false;
+    }
+  }
+  if (!appendf(output, capacity, &length,
+               "],\"schema\":\"t64.cpu-inventory\",\"schema_version\":1}\n")) {
+    return false;
+  }
+  *length_out = length;
+  return true;
+}
 
 static unsigned failures;
 
@@ -78,6 +246,92 @@ static bool empty_inventory_bytes(uint8_t *output, size_t capacity,
   return true;
 }
 
+static bool make_inventory(char *bytes, size_t capacity, size_t *length_out,
+                           size_t group_count, bool include_other_lanes,
+                           bool two_arithmetic_values) {
+  return build_authored_inventory(bytes, capacity, length_out, expected_groups,
+                                  group_count, include_other_lanes,
+                                  two_arithmetic_values, 17u, 0u, 0u);
+}
+
+static bool add_required_batch(t64_cpu_diag_inventory *inventory,
+                               t64_cpu_diag_aggregate *aggregate,
+                               uint32_t registration_index,
+                               uint32_t value_index,
+                               t64_cpu_diag_outcome outcome) {
+  char bytes[T64_CPU_DIAG_MAX_BATCH_BYTES + 1u];
+  size_t length = 0u;
+  t64_cpu_diag_status status = t64_cpu_diag_batch_encode(
+      inventory, registration_index, value_index, outcome, bytes, sizeof bytes,
+      &length);
+  if (status != T64_CPU_DIAG_OK) {
+    (void)fprintf(stderr, "batch encode expected ok, observed %s\n",
+                  t64_cpu_diag_status_name(status));
+    failures++;
+    return false;
+  }
+  status = t64_cpu_diag_aggregate_add_batch(
+      aggregate, (const uint8_t *)bytes, length);
+  if (status != T64_CPU_DIAG_OK) {
+    (void)fprintf(stderr, "batch add expected ok, observed %s\n",
+                  t64_cpu_diag_status_name(status));
+    failures++;
+    return false;
+  }
+  return true;
+}
+
+static bool add_all_required_in_reverse(t64_cpu_diag_inventory *inventory,
+                                        t64_cpu_diag_aggregate *aggregate,
+                                        size_t group_count,
+                                        size_t skip_registration,
+                                        size_t skip_value) {
+  size_t registration_index = group_count;
+  while (registration_index > 0u) {
+    size_t current = --registration_index;
+    size_t value_count = current == 1u ? 2u : 1u;
+    size_t value_index = value_count;
+    while (value_index > 0u) {
+      size_t current_value = --value_index;
+      if (current == skip_registration && current_value == skip_value) continue;
+      if (!add_required_batch(inventory, aggregate, (uint32_t)current,
+                              (uint32_t)current_value,
+                              T64_CPU_DIAG_OUTCOME_PASS)) {
+        return false;
+      }
+    }
+  }
+  return true;
+}
+
+static bool replace_text(char *bytes, size_t *length, size_t capacity,
+                         const char *from, const char *to) {
+  char *match = strstr(bytes, from);
+  size_t from_length = strlen(from);
+  size_t to_length = strlen(to);
+  size_t tail_length;
+  if (match == NULL || *length + to_length < from_length ||
+      *length + to_length - from_length + 1u > capacity) {
+    return false;
+  }
+  tail_length = *length - (size_t)(match - bytes) - from_length;
+  memmove(match + to_length, match + from_length, tail_length + 1u);
+  memcpy(match, to, to_length);
+  *length = *length + to_length - from_length;
+  return true;
+}
+
+static bool mutate_first_character_after(char *bytes, const char *prefix,
+                                         char replacement) {
+  char *match = strstr(bytes, prefix);
+  char *value;
+  if (match == NULL) return false;
+  value = match + strlen(prefix);
+  if (*value == '\0' || *value == '"') return false;
+  *value = replacement;
+  return true;
+}
+
 static void test_complete_batch_round_trip(void) {
   t64_cpu_diag_inventory *inventory = parse_authored_inventory();
   t64_cpu_diag_aggregate *aggregate = NULL;
@@ -92,7 +346,7 @@ static void test_complete_batch_round_trip(void) {
   if (t64_cpu_diag_inventory_registration_count(inventory) != 1u ||
       t64_cpu_diag_inventory_required_value_count(inventory) != 1u ||
       strcmp(t64_cpu_diag_inventory_sha256(inventory),
-             "54e3c1520e2e534644cae7f96002099d03cf53dd6419ec5a4838e9e50bf286a5") !=
+             "5684230a4db8610fb16853e6f065f09d43c30885a1fefd2c3fc9900b395bb00e") !=
           0) {
     (void)fprintf(stderr, "authored inventory returned unexpected count or digest\n");
     failures++;
@@ -127,9 +381,9 @@ static void test_complete_batch_round_trip(void) {
                 T64_CPU_DIAG_OK);
   if (group_status != T64_CPU_DIAG_GROUP_PASS || expected != 1u ||
       reached != 1u || passed != 1u || failed != 0u ||
-      !t64_cpu_diag_aggregate_is_complete(aggregate)) {
+      t64_cpu_diag_aggregate_is_complete(aggregate)) {
     (void)fprintf(stderr,
-                  "complete arithmetic batch expected pass(1/1), observed state=%u expected=%zu reached=%zu pass=%zu fail=%zu complete=%u\n",
+                  "single arithmetic group expected pass(1/1) and whole-inventory incomplete, observed state=%u expected=%zu reached=%zu pass=%zu fail=%zu whole_complete=%u\n",
                   (unsigned)group_status, expected, reached, passed, failed,
                   t64_cpu_diag_aggregate_is_complete(aggregate) ? 1u : 0u);
     failures++;
@@ -227,8 +481,9 @@ static void test_failure_and_incomplete_outcomes(void) {
       if (outcomes[i] == T64_CPU_DIAG_OUTCOME_FAIL) {
         if (group_status != T64_CPU_DIAG_GROUP_FAIL || expected != 1u ||
             reached != 1u || failed != 1u ||
-            !t64_cpu_diag_aggregate_is_complete(aggregate)) {
-          (void)fprintf(stderr, "fail outcome was not a complete failed group\n");
+            t64_cpu_diag_aggregate_is_complete(aggregate)) {
+          (void)fprintf(stderr,
+                        "fail outcome was not a failed group with whole inventory incomplete\n");
           failures++;
         }
       } else if (group_status != T64_CPU_DIAG_GROUP_INCOMPLETE ||
@@ -306,9 +561,545 @@ cleanup:
   t64_cpu_diag_inventory_destroy(inventory);
 }
 
+static void test_full_set_order_and_duplicate_seam(void) {
+  char *bytes = (char *)malloc(T64_CPU_DIAG_MAX_INVENTORY_BYTES);
+  size_t length = 0u;
+  size_t i;
+  char duplicate_batch[T64_CPU_DIAG_MAX_BATCH_BYTES + 1u];
+  size_t duplicate_length = 0u;
+  t64_cpu_diag_inventory *inventory = NULL;
+  t64_cpu_diag_aggregate *aggregate = NULL;
+  if (bytes == NULL) {
+    (void)fprintf(stderr, "authored full inventory allocation failed\n");
+    failures++;
+    return;
+  }
+  if (!make_inventory(bytes, T64_CPU_DIAG_MAX_INVENTORY_BYTES, &length,
+                      sizeof expected_groups / sizeof expected_groups[0], true,
+                      true)) {
+    (void)fprintf(stderr, "could not construct authored full inventory\n");
+    failures++;
+    goto cleanup;
+  }
+  expect_status("full authored inventory parse",
+                t64_cpu_diag_inventory_parse((const uint8_t *)bytes, length,
+                                             &inventory),
+                T64_CPU_DIAG_OK);
+  if (inventory == NULL) goto cleanup;
+  if (t64_cpu_diag_required_group_count() !=
+      sizeof expected_groups / sizeof expected_groups[0]) {
+    (void)fprintf(stderr, "required group map size was not exactly fourteen\n");
+    failures++;
+  }
+  for (i = 0u; i < sizeof expected_groups / sizeof expected_groups[0]; i++) {
+    const char *actual = t64_cpu_diag_required_group_name(i);
+    if (actual == NULL || strcmp(actual, expected_groups[i]) != 0) {
+      (void)fprintf(stderr, "required group order mismatch at index %zu\n", i);
+      failures++;
+    }
+  }
+  if (t64_cpu_diag_inventory_registration_count(inventory) != 21u ||
+      t64_cpu_diag_inventory_required_value_count(inventory) != 15u) {
+    (void)fprintf(stderr,
+                  "full authored counts expected registrations=21 required-values=15, observed registrations=%zu required-values=%zu\n",
+                  t64_cpu_diag_inventory_registration_count(inventory),
+                  t64_cpu_diag_inventory_required_value_count(inventory));
+    failures++;
+  }
+  expect_status("full aggregate create",
+                t64_cpu_diag_aggregate_create(inventory, &aggregate),
+                T64_CPU_DIAG_OK);
+  if (aggregate == NULL ||
+      !add_all_required_in_reverse(
+          inventory, aggregate,
+          sizeof expected_groups / sizeof expected_groups[0], SIZE_MAX,
+          SIZE_MAX)) {
+    goto cleanup;
+  }
+  if (!t64_cpu_diag_aggregate_is_complete(aggregate) ||
+      t64_cpu_diag_aggregate_member_count(aggregate) != 15u) {
+    (void)fprintf(stderr,
+                  "full fourteen-group set expected complete with fifteen values\n");
+    failures++;
+  }
+  for (i = 0u; i < 15u; i++) {
+    t64_cpu_diag_member_result member;
+    size_t expected_registration = i == 0u ? 0u : (i <= 2u ? 1u : i - 1u);
+    size_t expected_value = i == 2u ? 1u : 0u;
+    char expected_name[64];
+    char expected_value_id[64];
+    (void)snprintf(expected_name, sizeof expected_name,
+                   "authored.required.%02zu", expected_registration);
+    (void)snprintf(expected_value_id, sizeof expected_value_id,
+                   "authored.value.%02zu.%zu", expected_registration,
+                   expected_value);
+    if (!t64_cpu_diag_aggregate_member_at(aggregate, i, &member) ||
+        member.registration_index != expected_registration ||
+        member.value_index != expected_value || !member.has_outcome ||
+        member.outcome != T64_CPU_DIAG_OUTCOME_PASS ||
+        strcmp(member.group, expected_groups[expected_registration]) != 0 ||
+        strcmp(member.registration_name, expected_name) != 0 ||
+        strcmp(member.value_id, expected_value_id) != 0) {
+      (void)fprintf(stderr,
+                    "aggregate member order expected registration=%zu value=%zu, observed index=%zu\n",
+                    expected_registration, expected_value, i);
+      failures++;
+    }
+  }
+  for (i = 0u; i < sizeof expected_groups / sizeof expected_groups[0]; i++) {
+    t64_cpu_diag_group_status group_status = T64_CPU_DIAG_GROUP_INCOMPLETE;
+    size_t expected = 0u;
+    size_t reached = 0u;
+    size_t passed = 0u;
+    size_t failed = 0u;
+    size_t expected_count = i == 1u ? 2u : 1u;
+    expect_status("complete group lookup",
+                  t64_cpu_diag_aggregate_group(aggregate, expected_groups[i],
+                                               &group_status, &expected,
+                                               &reached, &passed, &failed),
+                  T64_CPU_DIAG_OK);
+    if (group_status != T64_CPU_DIAG_GROUP_PASS ||
+        expected != expected_count || reached != expected_count ||
+        passed != expected_count || failed != 0u) {
+      (void)fprintf(stderr, "complete group status mismatch for %s\n",
+                    expected_groups[i]);
+      failures++;
+    }
+  }
+  expect_status("duplicate seam batch encode",
+                t64_cpu_diag_batch_encode(inventory, 0u, 0u,
+                                         T64_CPU_DIAG_OUTCOME_PASS,
+                                         duplicate_batch,
+                                         sizeof duplicate_batch,
+                                         &duplicate_length),
+                T64_CPU_DIAG_OK);
+  expect_status("duplicate first/last batch seam",
+                t64_cpu_diag_aggregate_add_batch(
+                    aggregate, (const uint8_t *)duplicate_batch,
+                    duplicate_length),
+                T64_CPU_DIAG_DUPLICATE_MEMBER);
+  if (t64_cpu_diag_aggregate_is_complete(aggregate)) {
+    (void)fprintf(stderr,
+                  "duplicate batch seam did not invalidate complete inventory\n");
+    failures++;
+  }
+
+cleanup:
+  t64_cpu_diag_aggregate_destroy(aggregate);
+  t64_cpu_diag_inventory_destroy(inventory);
+  free(bytes);
+}
+
+static void test_omitted_value_and_missing_group(void) {
+  char *bytes = (char *)malloc(T64_CPU_DIAG_MAX_INVENTORY_BYTES);
+  size_t length = 0u;
+  t64_cpu_diag_inventory *inventory = NULL;
+  t64_cpu_diag_aggregate *aggregate = NULL;
+  t64_cpu_diag_group_status group_status = T64_CPU_DIAG_GROUP_PASS;
+  size_t expected = 0u;
+  size_t reached = 0u;
+  if (bytes == NULL) {
+    (void)fprintf(stderr, "authored reduced inventory allocation failed\n");
+    failures++;
+    return;
+  }
+  if (!make_inventory(bytes, T64_CPU_DIAG_MAX_INVENTORY_BYTES, &length, 14u,
+                      false, true)) {
+    failures++;
+    goto cleanup;
+  }
+  expect_status("full inventory for omitted value",
+                t64_cpu_diag_inventory_parse((const uint8_t *)bytes, length,
+                                             &inventory),
+                T64_CPU_DIAG_OK);
+  if (inventory == NULL) goto cleanup;
+  expect_status("omitted aggregate create",
+                t64_cpu_diag_aggregate_create(inventory, &aggregate),
+                T64_CPU_DIAG_OK);
+  if (aggregate == NULL ||
+      !add_all_required_in_reverse(inventory, aggregate, 14u, 1u, 1u)) {
+    goto cleanup;
+  }
+  expect_status("omitted arithmetic group lookup",
+                t64_cpu_diag_aggregate_group(aggregate, "arithmetic",
+                                             &group_status, &expected, &reached,
+                                             NULL, NULL),
+                T64_CPU_DIAG_OK);
+  if (group_status != T64_CPU_DIAG_GROUP_INCOMPLETE || expected != 2u ||
+      reached != 1u || t64_cpu_diag_aggregate_is_complete(aggregate)) {
+    (void)fprintf(stderr,
+                  "omitted value expected arithmetic incomplete(1/2), observed state=%u expected=%zu reached=%zu whole_complete=%u\n",
+                  (unsigned)group_status, expected, reached,
+                  t64_cpu_diag_aggregate_is_complete(aggregate) ? 1u : 0u);
+    failures++;
+  }
+  if (!add_required_batch(inventory, aggregate, 1u, 1u,
+                          T64_CPU_DIAG_OUTCOME_PASS) ||
+      !t64_cpu_diag_aggregate_is_complete(aggregate)) {
+    (void)fprintf(stderr, "complete membership remained incomplete after exact missing value arrived\n");
+    failures++;
+  }
+
+cleanup:
+  t64_cpu_diag_aggregate_destroy(aggregate);
+  t64_cpu_diag_inventory_destroy(inventory);
+  free(bytes);
+
+  bytes = (char *)malloc(T64_CPU_DIAG_MAX_INVENTORY_BYTES);
+  length = 0u;
+  inventory = NULL;
+  aggregate = NULL;
+  if (bytes == NULL ||
+      !make_inventory(bytes, T64_CPU_DIAG_MAX_INVENTORY_BYTES, &length, 13u,
+                      true, true)) {
+    (void)fprintf(stderr, "could not construct reduced required-group inventory\n");
+    failures++;
+    free(bytes);
+    return;
+  }
+  expect_status("reduced thirteen-group inventory parse",
+                t64_cpu_diag_inventory_parse((const uint8_t *)bytes, length,
+                                             &inventory),
+                T64_CPU_DIAG_OK);
+  if (inventory != NULL) {
+    expect_status("reduced aggregate create",
+                  t64_cpu_diag_aggregate_create(inventory, &aggregate),
+                  T64_CPU_DIAG_OK);
+    if (aggregate != NULL) {
+      (void)add_all_required_in_reverse(inventory, aggregate, 13u, SIZE_MAX,
+                                        SIZE_MAX);
+      group_status = T64_CPU_DIAG_GROUP_PASS;
+      expected = 99u;
+      reached = 99u;
+      expect_status("missing traps group lookup",
+                    t64_cpu_diag_aggregate_group(aggregate, "traps",
+                                                 &group_status, &expected,
+                                                 &reached, NULL, NULL),
+                    T64_CPU_DIAG_OK);
+      if (group_status != T64_CPU_DIAG_GROUP_INCOMPLETE || expected != 0u ||
+          reached != 0u || t64_cpu_diag_aggregate_is_complete(aggregate)) {
+        (void)fprintf(stderr,
+                      "reduced inventory expected missing traps and incomplete whole set\n");
+        failures++;
+      }
+    }
+  }
+  t64_cpu_diag_aggregate_destroy(aggregate);
+  t64_cpu_diag_inventory_destroy(inventory);
+  free(bytes);
+}
+
+static void test_inventory_count_name_and_order_controls(void) {
+  char *bytes = (char *)malloc(T64_CPU_DIAG_MAX_INVENTORY_BYTES);
+  size_t length = 0u;
+  t64_cpu_diag_inventory *inventory = NULL;
+  char *match;
+  char *digits;
+  if (bytes == NULL) {
+    failures++;
+    return;
+  }
+  if (!make_inventory(bytes, T64_CPU_DIAG_MAX_INVENTORY_BYTES, &length, 14u,
+                      true, true)) {
+    (void)fprintf(stderr, "could not construct inventory tampering controls\n");
+    failures++;
+    free(bytes);
+    return;
+  }
+  if (!replace_text(bytes, &length, T64_CPU_DIAG_MAX_INVENTORY_BYTES,
+                    "\"required_values\":\"15\"",
+                    "\"required_values\":\"14\"")) {
+    (void)fprintf(stderr, "could not construct declared-denominator mismatch\n");
+    failures++;
+  } else {
+    expect_status("declared denominator mismatch",
+                  t64_cpu_diag_inventory_parse((const uint8_t *)bytes, length,
+                                               &inventory),
+                  T64_CPU_DIAG_INVALID_INVENTORY);
+  }
+  if (inventory != NULL) {
+    t64_cpu_diag_inventory_destroy(inventory);
+    inventory = NULL;
+  }
+  if (!make_inventory(bytes, T64_CPU_DIAG_MAX_INVENTORY_BYTES, &length, 14u,
+                      true, true)) {
+    failures++;
+    goto cleanup;
+  }
+  match = strstr(bytes, "\"name\":\"authored.required.01\"");
+  if (match == NULL) {
+    (void)fprintf(stderr, "could not construct duplicate-name inventory control\n");
+    failures++;
+  } else {
+    digits = match + strlen("\"name\":\"authored.required.");
+    digits[0] = '0';
+    digits[1] = '0';
+    expect_status("duplicate registration name",
+                  t64_cpu_diag_inventory_parse((const uint8_t *)bytes, length,
+                                               &inventory),
+                  T64_CPU_DIAG_INVALID_INVENTORY);
+  }
+  if (inventory != NULL) {
+    t64_cpu_diag_inventory_destroy(inventory);
+    inventory = NULL;
+  }
+  if (!make_inventory(bytes, T64_CPU_DIAG_MAX_INVENTORY_BYTES, &length, 14u,
+                      true, true)) {
+    failures++;
+    goto cleanup;
+  }
+  match = strstr(bytes, "\"index\":1,\"lane\":\"required-base\"");
+  if (match == NULL) {
+    (void)fprintf(stderr, "could not construct reordered registration control\n");
+    failures++;
+  } else {
+    digits = match + strlen("\"index\":");
+    *digits = '0';
+    expect_status("reordered source registration index",
+                  t64_cpu_diag_inventory_parse((const uint8_t *)bytes, length,
+                                               &inventory),
+                  T64_CPU_DIAG_INVALID_INVENTORY);
+  }
+
+cleanup:
+  t64_cpu_diag_inventory_destroy(inventory);
+  free(bytes);
+}
+
+static void test_wrong_batch_identity_unknown_member_and_aggregate_only(void) {
+  static const char aggregate_only[] =
+      "{\"groups\":[{\"group\":\"arithmetic\",\"status\":\"pass\"}],\"schema\":\"t64.cpu-groups\",\"schema_version\":1}\n";
+  char *inventory_bytes = (char *)malloc(T64_CPU_DIAG_MAX_INVENTORY_BYTES);
+  char batch[T64_CPU_DIAG_MAX_BATCH_BYTES + 1u];
+  size_t inventory_length = 0u;
+  size_t batch_length = 0u;
+  t64_cpu_diag_inventory *inventory = NULL;
+  t64_cpu_diag_aggregate *aggregate = NULL;
+  if (inventory_bytes == NULL) {
+    failures++;
+    return;
+  }
+  if (!make_inventory(inventory_bytes, T64_CPU_DIAG_MAX_INVENTORY_BYTES,
+                      &inventory_length, 14u, true, true)) {
+    failures++;
+    free(inventory_bytes);
+    return;
+  }
+  expect_status("identity-control inventory parse",
+                t64_cpu_diag_inventory_parse((const uint8_t *)inventory_bytes,
+                                             inventory_length, &inventory),
+                T64_CPU_DIAG_OK);
+  if (inventory == NULL) {
+    free(inventory_bytes);
+    return;
+  }
+
+  expect_status("ROM identity aggregate create",
+                t64_cpu_diag_aggregate_create(inventory, &aggregate),
+                T64_CPU_DIAG_OK);
+  if (aggregate != NULL &&
+      make_batch(inventory, T64_CPU_DIAG_OUTCOME_PASS, batch, sizeof batch,
+                 &batch_length)) {
+    if (!mutate_first_character_after(batch, "\"base_rom_sha256\":\"", '1')) {
+      (void)fprintf(stderr, "could not construct ROM-identity mismatch control\n");
+      failures++;
+    } else {
+      expect_status("batch base ROM mismatch",
+                    t64_cpu_diag_aggregate_add_batch(
+                        aggregate, (const uint8_t *)batch, batch_length),
+                    T64_CPU_DIAG_IDENTITY_MISMATCH);
+      if (t64_cpu_diag_aggregate_is_complete(aggregate)) {
+        (void)fprintf(stderr, "ROM-identity mismatch completed inventory\n");
+        failures++;
+      }
+    }
+  }
+  t64_cpu_diag_aggregate_destroy(aggregate);
+  aggregate = NULL;
+
+  expect_status("selector identity aggregate create",
+                t64_cpu_diag_aggregate_create(inventory, &aggregate),
+                T64_CPU_DIAG_OK);
+  if (aggregate != NULL &&
+      make_batch(inventory, T64_CPU_DIAG_OUTCOME_PASS, batch, sizeof batch,
+                 &batch_length)) {
+    if (!mutate_first_character_after(batch, "\"selector\":\"", 'x')) {
+      (void)fprintf(stderr, "could not construct selector mismatch control\n");
+      failures++;
+    } else {
+      expect_status("batch selector mismatch",
+                    t64_cpu_diag_aggregate_add_batch(
+                        aggregate, (const uint8_t *)batch, batch_length),
+                    T64_CPU_DIAG_IDENTITY_MISMATCH);
+    }
+  }
+  t64_cpu_diag_aggregate_destroy(aggregate);
+  aggregate = NULL;
+
+  expect_status("unknown-member aggregate create",
+                t64_cpu_diag_aggregate_create(inventory, &aggregate),
+                T64_CPU_DIAG_OK);
+  if (aggregate != NULL) {
+    expect_status("unknown-member batch encode",
+                  t64_cpu_diag_batch_encode(inventory, 13u, 0u,
+                                            T64_CPU_DIAG_OUTCOME_PASS, batch,
+                                            sizeof batch, &batch_length),
+                  T64_CPU_DIAG_OK);
+    if (!replace_text(batch, &batch_length, sizeof batch,
+                      "\"registration_index\":13",
+                      "\"registration_index\":65535")) {
+      (void)fprintf(stderr, "could not construct unknown-member batch control\n");
+      failures++;
+    } else {
+      expect_status("unknown member index",
+                    t64_cpu_diag_aggregate_add_batch(
+                        aggregate, (const uint8_t *)batch, batch_length),
+                    T64_CPU_DIAG_INVALID_BATCH);
+    }
+  }
+  t64_cpu_diag_aggregate_destroy(aggregate);
+  aggregate = NULL;
+
+  expect_status("truncated aggregate create",
+                t64_cpu_diag_aggregate_create(inventory, &aggregate),
+                T64_CPU_DIAG_OK);
+  if (aggregate != NULL &&
+      make_batch(inventory, T64_CPU_DIAG_OUTCOME_PASS, batch, sizeof batch,
+                 &batch_length)) {
+    expect_status("truncated batch transcript",
+                  t64_cpu_diag_aggregate_add_batch(
+                      aggregate, (const uint8_t *)batch, batch_length - 1u),
+                  T64_CPU_DIAG_INVALID_SCHEMA);
+  }
+  t64_cpu_diag_aggregate_destroy(aggregate);
+  aggregate = NULL;
+
+  expect_status("aggregate-only summary create",
+                t64_cpu_diag_aggregate_create(inventory, &aggregate),
+                T64_CPU_DIAG_OK);
+  if (aggregate != NULL) {
+    expect_status("aggregate-only summary rejected",
+                  t64_cpu_diag_aggregate_add_batch(
+                      aggregate, (const uint8_t *)aggregate_only,
+                      sizeof aggregate_only - 1u),
+                  T64_CPU_DIAG_INVALID_SCHEMA);
+    if (t64_cpu_diag_aggregate_is_complete(aggregate)) {
+      (void)fprintf(stderr, "aggregate-only summary completed the suite\n");
+      failures++;
+    }
+  }
+
+  t64_cpu_diag_aggregate_destroy(aggregate);
+  t64_cpu_diag_inventory_destroy(inventory);
+  free(inventory_bytes);
+}
+
+static void test_maximum_legal_shape_and_size_limits(void) {
+  char *inventory_bytes = (char *)malloc(T64_CPU_DIAG_MAX_INVENTORY_BYTES + 1u);
+  uint8_t oversized_batch[T64_CPU_DIAG_MAX_BATCH_BYTES + 1u];
+  size_t inventory_length = 0u;
+  size_t batch_length = 0u;
+  const char *const one_group[] = {"arithmetic"};
+  t64_cpu_diag_inventory *inventory = NULL;
+  t64_cpu_diag_inventory *over_inventory = NULL;
+  t64_cpu_diag_aggregate *aggregate = NULL;
+  t64_cpu_diag_group_status group_status = T64_CPU_DIAG_GROUP_INCOMPLETE;
+  size_t expected = 0u;
+  size_t reached = 0u;
+  char batch[T64_CPU_DIAG_MAX_BATCH_BYTES + 1u];
+  if (inventory_bytes == NULL) {
+    failures++;
+    return;
+  }
+  if (!build_authored_inventory(inventory_bytes,
+                                T64_CPU_DIAG_MAX_INVENTORY_BYTES,
+                                &inventory_length, one_group, 1u, false, false,
+                                T64_CPU_DIAG_MAX_SELECTOR_BYTES,
+                                T64_CPU_DIAG_MAX_NAME_BYTES,
+                                T64_CPU_DIAG_MAX_VALUE_ID_BYTES)) {
+    (void)fprintf(stderr, "could not construct maximum legal inventory fields\n");
+    failures++;
+    goto cleanup;
+  }
+  expect_status("maximum legal field inventory parse",
+                t64_cpu_diag_inventory_parse((const uint8_t *)inventory_bytes,
+                                             inventory_length, &inventory),
+                T64_CPU_DIAG_OK);
+  if (inventory == NULL) goto cleanup;
+  expect_status("maximum shape aggregate create",
+                t64_cpu_diag_aggregate_create(inventory, &aggregate),
+                T64_CPU_DIAG_OK);
+  if (aggregate != NULL) {
+    expect_status("maximum shape batch encode",
+                  t64_cpu_diag_batch_encode(inventory, 0u, 0u,
+                                            T64_CPU_DIAG_OUTCOME_PASS, batch,
+                                            sizeof batch, &batch_length),
+                  T64_CPU_DIAG_OK);
+    if (batch_length > T64_CPU_DIAG_MAX_BATCH_BYTES) {
+      (void)fprintf(stderr, "maximum legal batch exceeded the 4096-byte capture\n");
+      failures++;
+    }
+    expect_status("maximum shape batch add",
+                  t64_cpu_diag_aggregate_add_batch(
+                      aggregate, (const uint8_t *)batch, batch_length),
+                  T64_CPU_DIAG_OK);
+    expect_status("maximum shape group status",
+                  t64_cpu_diag_aggregate_group(aggregate, "arithmetic",
+                                               &group_status, &expected,
+                                               &reached, NULL, NULL),
+                  T64_CPU_DIAG_OK);
+    if (group_status != T64_CPU_DIAG_GROUP_PASS || expected != 1u ||
+        reached != 1u) {
+      (void)fprintf(stderr, "maximum legal batch did not preserve its member\n");
+      failures++;
+    }
+  }
+  t64_cpu_diag_aggregate_destroy(aggregate);
+  aggregate = NULL;
+
+  (void)memset(oversized_batch, ' ', sizeof oversized_batch);
+  expect_status("oversized aggregate create",
+                t64_cpu_diag_aggregate_create(inventory, &aggregate),
+                T64_CPU_DIAG_OK);
+  if (aggregate != NULL) {
+    expect_status("batch one byte over capture bound",
+                  t64_cpu_diag_aggregate_add_batch(
+                      aggregate, oversized_batch, sizeof oversized_batch),
+                  T64_CPU_DIAG_SIZE_LIMIT);
+    if (t64_cpu_diag_aggregate_is_complete(aggregate)) {
+      (void)fprintf(stderr, "oversized transcript completed inventory\n");
+      failures++;
+    }
+  }
+  t64_cpu_diag_aggregate_destroy(aggregate);
+  aggregate = NULL;
+
+  if (inventory_length < T64_CPU_DIAG_MAX_INVENTORY_BYTES + 1u) {
+    (void)memset(inventory_bytes + inventory_length, ' ',
+                 T64_CPU_DIAG_MAX_INVENTORY_BYTES + 1u - inventory_length);
+    expect_status("inventory one byte above metadata limit",
+                  t64_cpu_diag_inventory_parse(
+                      (const uint8_t *)inventory_bytes,
+                      T64_CPU_DIAG_MAX_INVENTORY_BYTES + 1u,
+                      &over_inventory),
+                  T64_CPU_DIAG_SIZE_LIMIT);
+  }
+
+cleanup:
+  t64_cpu_diag_aggregate_destroy(aggregate);
+  t64_cpu_diag_inventory_destroy(inventory);
+  t64_cpu_diag_inventory_destroy(over_inventory);
+  free(inventory_bytes);
+}
+
 int main(int argc, char **argv) {
   if (argc == 2 && strcmp(argv[1], "--inventory") == 0) {
     test_single_group_does_not_complete_required_set();
+    test_full_set_order_and_duplicate_seam();
+    test_omitted_value_and_missing_group();
+    test_inventory_count_name_and_order_controls();
+    test_wrong_batch_identity_unknown_member_and_aggregate_only();
+    test_maximum_legal_shape_and_size_limits();
     if (failures != 0u) return 1;
     (void)printf("CPU diagnostic inventory controls PASS\n");
     return 0;

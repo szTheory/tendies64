@@ -31,6 +31,12 @@ typedef struct {
 } t64_cpu_diag_value;
 
 typedef struct {
+  uint32_t registration_index;
+  uint32_t value_index;
+  size_t flat_index;
+} t64_cpu_diag_required_member;
+
+typedef struct {
   uint32_t index;
   const char *name;
   size_t name_length;
@@ -49,9 +55,13 @@ struct t64_cpu_diag_inventory {
   t64_cpu_diag_identity identity;
   t64_cpu_diag_registration *registrations;
   t64_cpu_diag_value *values;
+  t64_cpu_diag_required_member *required_members;
   size_t registration_count;
   size_t value_count;
   size_t required_value_count;
+  uint64_t declared_registration_count;
+  uint64_t declared_value_count;
+  uint64_t declared_required_value_count;
   char sha256[T64_SHA256_HEX_SIZE];
 };
 
@@ -59,6 +69,7 @@ struct t64_cpu_diag_aggregate {
   const t64_cpu_diag_inventory *inventory;
   uint8_t *seen;
   uint8_t *outcomes;
+  bool invalid;
 };
 
 static const char *const t64_cpu_diag_groups[] = {
@@ -74,7 +85,10 @@ static const char *const t64_cpu_diag_outcomes[] = {
     "pass", "fail", "incomplete", "not-run", "guest-stop", "harness-error"};
 
 static const char *const t64_cpu_diag_inventory_keys[] = {
-    "identity", "registrations", "schema", "schema_version"};
+    "declared_counts", "identity", "registrations", "schema",
+    "schema_version"};
+static const char *const t64_cpu_diag_declared_count_keys[] = {
+    "registrations", "required_values", "values"};
 static const char *const t64_cpu_diag_identity_keys[] = {
     "base_rom_sha256", "core_build_sha256", "overlay_sha256",
     "profile_sha256", "selected_rom_sha256", "selector",
@@ -161,6 +175,13 @@ static bool index_node(const t64_json_node *node, uint32_t *value_out) {
   }
   *value_out = (uint32_t)node->num;
   return true;
+}
+
+static bool declared_count(const t64_json_node *object, const char *key,
+                           uint64_t *value_out) {
+  const t64_json_node *node = t64_json_get(object, key);
+  return t64_json_u64_string(node, value_out) != 0 &&
+         *value_out <= T64_CPU_DIAG_MAX_ROWS;
 }
 
 static bool canonical_document(const t64_json_doc *document,
@@ -395,6 +416,7 @@ static t64_cpu_diag_status canonical_inventory_parse(
   t64_cpu_diag_inventory *inventory = NULL;
   t64_json_doc document = {0};
   const t64_json_node *registrations_node;
+  const t64_json_node *declared_counts_node;
   const t64_json_node *registration_node;
   const t64_json_node *values_node;
   const t64_json_node *value_node;
@@ -405,6 +427,10 @@ static t64_cpu_diag_status canonical_inventory_parse(
   size_t value_count = 0u;
   size_t required_value_count = 0u;
   size_t total_rows = 0u;
+  uint64_t declared_registration_count = 0u;
+  uint64_t declared_value_count = 0u;
+  uint64_t declared_required_value_count = 0u;
+  size_t required_member_index = 0u;
   size_t i;
   t64_cpu_diag_status status = T64_CPU_DIAG_INVALID_INVENTORY;
   uint8_t digest[T64_SHA256_DIGEST_SIZE];
@@ -437,9 +463,20 @@ static t64_cpu_diag_status canonical_inventory_parse(
     goto cleanup;
   }
   registrations_node = t64_json_get(document.root, "registrations");
+  declared_counts_node = t64_json_get(document.root, "declared_counts");
   if (registrations_node == NULL || registrations_node->type != T64_JSON_ARRAY ||
       registrations_node->count == 0u ||
-      registrations_node->count > T64_CPU_DIAG_MAX_ROWS) {
+      registrations_node->count > T64_CPU_DIAG_MAX_ROWS ||
+      !object_has_exact_keys(
+          declared_counts_node, t64_cpu_diag_declared_count_keys,
+          sizeof t64_cpu_diag_declared_count_keys /
+              sizeof t64_cpu_diag_declared_count_keys[0]) ||
+      !declared_count(declared_counts_node, "registrations",
+                      &declared_registration_count) ||
+      !declared_count(declared_counts_node, "required_values",
+                      &declared_required_value_count) ||
+      !declared_count(declared_counts_node, "values", &declared_value_count) ||
+      declared_registration_count != registrations_node->count) {
     status = T64_CPU_DIAG_INVALID_INVENTORY;
     goto cleanup;
   }
@@ -467,7 +504,8 @@ static t64_cpu_diag_status canonical_inventory_parse(
       status = T64_CPU_DIAG_INVALID_INVENTORY;
       goto cleanup;
     }
-    if (total_rows > T64_CPU_DIAG_MAX_ROWS - 1u - values_node->count) {
+    if (values_node->count > T64_CPU_DIAG_MAX_ROWS - 1u ||
+        total_rows > T64_CPU_DIAG_MAX_ROWS - 1u - values_node->count) {
       status = T64_CPU_DIAG_SIZE_LIMIT;
       goto cleanup;
     }
@@ -495,6 +533,11 @@ static t64_cpu_diag_status canonical_inventory_parse(
     registration_node = registration_node->next;
   }
   if (registration_node != NULL || required_value_count == 0u) {
+    status = T64_CPU_DIAG_INVALID_INVENTORY;
+    goto cleanup;
+  }
+  if (declared_value_count != value_count ||
+      declared_required_value_count != required_value_count) {
     status = T64_CPU_DIAG_INVALID_INVENTORY;
     goto cleanup;
   }
@@ -557,6 +600,31 @@ static t64_cpu_diag_status canonical_inventory_parse(
     free(value_names);
   }
 
+  inventory->required_members = (t64_cpu_diag_required_member *)calloc(
+      required_value_count, sizeof *inventory->required_members);
+  if (inventory->required_members == NULL) {
+    status = T64_CPU_DIAG_ALLOCATION_FAILED;
+    goto cleanup;
+  }
+  for (registration_index = 0u; registration_index < registration_count;
+       registration_index++) {
+    const t64_cpu_diag_registration *registration =
+        &inventory->registrations[registration_index];
+    size_t j;
+    if (!registration->required) continue;
+    for (j = 0u; j < registration->value_count; j++) {
+      t64_cpu_diag_required_member *member =
+          &inventory->required_members[required_member_index++];
+      member->registration_index = (uint32_t)registration_index;
+      member->value_index = (uint32_t)j;
+      member->flat_index = registration->value_offset + j;
+    }
+  }
+  if (required_member_index != required_value_count) {
+    status = T64_CPU_DIAG_INVALID_INVENTORY;
+    goto cleanup;
+  }
+
   if (!parse_identity(t64_json_get(document.root, "identity"), false,
                       &inventory->identity, &inventory_hash)) {
     status = T64_CPU_DIAG_INVALID_INVENTORY;
@@ -565,6 +633,9 @@ static t64_cpu_diag_status canonical_inventory_parse(
   inventory->registration_count = registration_count;
   inventory->value_count = value_count;
   inventory->required_value_count = required_value_count;
+  inventory->declared_registration_count = declared_registration_count;
+  inventory->declared_value_count = declared_value_count;
+  inventory->declared_required_value_count = declared_required_value_count;
   t64_sha256_init(&sha);
   t64_sha256_update(&sha, bytes, length);
   t64_sha256_final(&sha, digest);
@@ -580,6 +651,7 @@ cleanup:
   if (inventory != NULL) {
     free(inventory->registrations);
     free(inventory->values);
+    free(inventory->required_members);
     free(inventory);
   }
   t64_json_free(&document);
@@ -596,6 +668,7 @@ void t64_cpu_diag_inventory_destroy(t64_cpu_diag_inventory *inventory) {
   if (inventory == NULL) return;
   free(inventory->registrations);
   free(inventory->values);
+  free(inventory->required_members);
   t64_json_free(&inventory->document);
   free(inventory);
 }
@@ -918,12 +991,19 @@ t64_cpu_diag_status t64_cpu_diag_aggregate_add_batch(
   if (aggregate == NULL) return T64_CPU_DIAG_INVALID_ARGUMENT;
   status = parse_batch(aggregate->inventory, bytes, length, &registration_index,
                        &value_index, &outcome);
-  if (status != T64_CPU_DIAG_OK) return status;
+  if (status != T64_CPU_DIAG_OK) {
+    aggregate->invalid = true;
+    return status;
+  }
   if (!valid_member(aggregate->inventory, registration_index, value_index,
                     &flat_index)) {
+    aggregate->invalid = true;
     return T64_CPU_DIAG_INVALID_BATCH;
   }
-  if (aggregate->seen[flat_index] != 0u) return T64_CPU_DIAG_DUPLICATE_MEMBER;
+  if (aggregate->seen[flat_index] != 0u) {
+    aggregate->invalid = true;
+    return T64_CPU_DIAG_DUPLICATE_MEMBER;
+  }
   aggregate->seen[flat_index] = 1u;
   aggregate->outcomes[flat_index] = (uint8_t)outcome;
   return T64_CPU_DIAG_OK;
@@ -933,22 +1013,64 @@ bool t64_cpu_diag_aggregate_is_complete(
     const t64_cpu_diag_aggregate *aggregate) {
   size_t i;
   if (aggregate == NULL || aggregate->inventory == NULL ||
-      aggregate->inventory->required_value_count == 0u) {
+      aggregate->inventory->required_value_count == 0u || aggregate->invalid) {
     return false;
   }
-  for (i = 0u; i < aggregate->inventory->registration_count; i++) {
-    const t64_cpu_diag_registration *registration =
-        &aggregate->inventory->registrations[i];
-    size_t j;
-    if (!registration->required) continue;
-    for (j = 0u; j < registration->value_count; j++) {
-      size_t flat_index = registration->value_offset + j;
-      if (aggregate->seen[flat_index] == 0u ||
-          aggregate->outcomes[flat_index] > T64_CPU_DIAG_OUTCOME_FAIL) {
-        return false;
+  for (i = 0u; i < t64_cpu_diag_required_group_count(); i++) {
+    size_t registration_index;
+    size_t expected = 0u;
+    for (registration_index = 0u;
+         registration_index < aggregate->inventory->registration_count;
+         registration_index++) {
+      const t64_cpu_diag_registration *registration =
+          &aggregate->inventory->registrations[registration_index];
+      if (registration->required &&
+          strcmp(registration->group,
+                 t64_cpu_diag_required_group_name(i)) == 0) {
+        expected += registration->value_count;
       }
     }
+    if (expected == 0u) return false;
   }
+  for (i = 0u; i < aggregate->inventory->required_value_count; i++) {
+    size_t flat_index = aggregate->inventory->required_members[i].flat_index;
+    if (aggregate->seen[flat_index] == 0u ||
+        aggregate->outcomes[flat_index] > T64_CPU_DIAG_OUTCOME_FAIL) {
+      return false;
+    }
+  }
+  return true;
+}
+
+size_t t64_cpu_diag_aggregate_member_count(
+    const t64_cpu_diag_aggregate *aggregate) {
+  return aggregate == NULL ? 0u : aggregate->inventory->required_value_count;
+}
+
+bool t64_cpu_diag_aggregate_member_at(
+    const t64_cpu_diag_aggregate *aggregate, size_t required_ordinal,
+    t64_cpu_diag_member_result *result_out) {
+  const t64_cpu_diag_required_member *member;
+  const t64_cpu_diag_registration *registration;
+  const t64_cpu_diag_value *value;
+  if (aggregate == NULL || result_out == NULL ||
+      required_ordinal >= aggregate->inventory->required_value_count) {
+    return false;
+  }
+  member = &aggregate->inventory->required_members[required_ordinal];
+  registration =
+      &aggregate->inventory->registrations[member->registration_index];
+  value = &aggregate->inventory->values[member->flat_index];
+  result_out->registration_index = member->registration_index;
+  result_out->value_index = member->value_index;
+  result_out->group = registration->group;
+  result_out->registration_name = registration->name;
+  result_out->value_id = value->id;
+  result_out->has_outcome = aggregate->seen[member->flat_index] != 0u;
+  result_out->outcome = result_out->has_outcome
+                            ? (t64_cpu_diag_outcome)aggregate->outcomes[
+                                  member->flat_index]
+                            : T64_CPU_DIAG_OUTCOME_INCOMPLETE;
   return true;
 }
 
@@ -961,11 +1083,12 @@ t64_cpu_diag_status t64_cpu_diag_aggregate_group(
   size_t passed = 0u;
   size_t failed = 0u;
   size_t i;
-  bool complete = true;
+  bool complete;
   if (aggregate == NULL || group == NULL || status_out == NULL) {
     return T64_CPU_DIAG_INVALID_ARGUMENT;
   }
   if (!valid_group(group)) return T64_CPU_DIAG_INVALID_SCHEMA;
+  complete = !aggregate->invalid;
   for (i = 0u; i < aggregate->inventory->registration_count; i++) {
     const t64_cpu_diag_registration *registration =
         &aggregate->inventory->registrations[i];

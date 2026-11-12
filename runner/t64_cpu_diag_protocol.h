@@ -49,6 +49,16 @@ typedef enum {
 typedef struct t64_cpu_diag_inventory t64_cpu_diag_inventory;
 typedef struct t64_cpu_diag_aggregate t64_cpu_diag_aggregate;
 
+typedef struct {
+  uint32_t registration_index;
+  uint32_t value_index;
+  const char *group;
+  const char *registration_name;
+  const char *value_id;
+  bool has_outcome;
+  t64_cpu_diag_outcome outcome;
+} t64_cpu_diag_member_result;
+
 /* Parses one canonical, closed t64.cpu-inventory v1 document. */
 t64_cpu_diag_status t64_cpu_diag_inventory_parse(
     const uint8_t *bytes, size_t length,
@@ -80,6 +90,12 @@ t64_cpu_diag_status t64_cpu_diag_aggregate_add_batch(
     t64_cpu_diag_aggregate *aggregate, const uint8_t *bytes, size_t length);
 bool t64_cpu_diag_aggregate_is_complete(
     const t64_cpu_diag_aggregate *aggregate);
+size_t t64_cpu_diag_aggregate_member_count(
+    const t64_cpu_diag_aggregate *aggregate);
+/* Iterates required members in pinned source-registration/value order. */
+bool t64_cpu_diag_aggregate_member_at(
+    const t64_cpu_diag_aggregate *aggregate, size_t required_ordinal,
+    t64_cpu_diag_member_result *result_out);
 t64_cpu_diag_status t64_cpu_diag_aggregate_group(
     const t64_cpu_diag_aggregate *aggregate, const char *group,
     t64_cpu_diag_group_status *status_out, size_t *expected_out,
