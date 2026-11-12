@@ -70,6 +70,11 @@ applies that direction; update it when the owner changes policy.
 - Sanitize captured compiler/test evidence before its first commit. Raw JUnit
   and logs can embed checkout paths, temporary paths and hostnames; retain
   portable command/assertion/result records and keep raw captures local.
+  Apply the same rule to specifications and source citations: use the title,
+  edition, pages, public URL and verified digest, never the workstation cache
+  path. Fix a newly generated private-path finding rather than adding a waiver.
+  If already committed but still unpublished, repair only those local commits
+  while preserving owner edits; the public-history stop remains unchanged.
 - Validate a RED run at its first failed behavioral assertion and observed
   values, not merely a well-formed TAP group or a validator's acceptance. A
   setup/addressing failure does not prove the intended defect. Correct the
