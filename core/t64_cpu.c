@@ -622,6 +622,122 @@ static bool execute_memory(t64_machine *machine, uint32_t opcode,
   return false;
 }
 
+static void execute_word_multiply_unsigned(t64_machine *machine,
+                                           uint32_t left, uint32_t right) {
+  uint64_t product = (uint64_t)left * (uint64_t)right;
+
+  machine->cpu.hi = sign_extend_32((uint32_t)(product >> 32));
+  machine->cpu.lo = sign_extend_32((uint32_t)product);
+}
+
+static bool execute_word_divide(t64_machine *machine, uint32_t dividend,
+                                uint32_t divisor, bool signed_operation) {
+  uint32_t quotient;
+  uint32_t remainder;
+
+  if (signed_operation) {
+    bool dividend_negative = (dividend & UINT32_C(0x80000000)) != 0u;
+    bool divisor_negative = (divisor & UINT32_C(0x80000000)) != 0u;
+    uint32_t dividend_magnitude;
+    uint32_t divisor_magnitude;
+
+    if (divisor == 0u) {
+      machine->cpu.lo = sign_extend_32(
+          dividend_negative ? UINT32_C(0x80000001) : UINT32_C(0x7fffffff));
+      machine->cpu.hi = sign_extend_32(dividend);
+      return true;
+    }
+    if (dividend == UINT32_C(0x80000000) && divisor == UINT32_MAX) {
+      return false;
+    }
+    dividend_magnitude = dividend_negative ? ~dividend + UINT32_C(1)
+                                           : dividend;
+    divisor_magnitude = divisor_negative ? ~divisor + UINT32_C(1)
+                                         : divisor;
+    quotient = dividend_magnitude / divisor_magnitude;
+    remainder = dividend_magnitude % divisor_magnitude;
+    if (dividend_negative != divisor_negative) {
+      quotient = ~quotient + UINT32_C(1);
+    }
+    if (dividend_negative) {
+      remainder = ~remainder + UINT32_C(1);
+    }
+  } else {
+    if (divisor == 0u) {
+      return false;
+    }
+    quotient = dividend / divisor;
+    remainder = dividend % divisor;
+  }
+  machine->cpu.lo = sign_extend_32(quotient);
+  machine->cpu.hi = sign_extend_32(remainder);
+  return true;
+}
+
+static void execute_doubleword_multiply(t64_machine *machine, uint64_t left,
+                                        uint64_t right,
+                                        bool signed_operation) {
+  uint64_t high;
+  uint64_t low;
+
+  if (signed_operation) {
+    bool negative =
+        ((left ^ right) & UINT64_C(0x8000000000000000)) != 0u;
+
+    multiply_u64_full(unsigned_magnitude_64(left),
+                      unsigned_magnitude_64(right), &high, &low);
+    if (negative) {
+      bool carry = low == 0u;
+
+      low = ~low + UINT64_C(1);
+      high = ~high + (carry ? UINT64_C(1) : UINT64_C(0));
+    }
+  } else {
+    multiply_u64_full(left, right, &high, &low);
+  }
+  machine->cpu.hi = high;
+  machine->cpu.lo = low;
+}
+
+static bool execute_doubleword_divide(t64_machine *machine, uint64_t dividend,
+                                      uint64_t divisor,
+                                      bool signed_operation) {
+  uint64_t quotient;
+  uint64_t remainder;
+
+  if (divisor == 0u) {
+    return false;
+  }
+  if (signed_operation) {
+    bool dividend_negative =
+        (dividend & UINT64_C(0x8000000000000000)) != 0u;
+    bool divisor_negative =
+        (divisor & UINT64_C(0x8000000000000000)) != 0u;
+    uint64_t dividend_magnitude;
+    uint64_t divisor_magnitude;
+
+    if (dividend == UINT64_C(0x8000000000000000) && divisor == UINT64_MAX) {
+      return false;
+    }
+    dividend_magnitude = unsigned_magnitude_64(dividend);
+    divisor_magnitude = unsigned_magnitude_64(divisor);
+    quotient = dividend_magnitude / divisor_magnitude;
+    remainder = dividend_magnitude % divisor_magnitude;
+    if (dividend_negative != divisor_negative) {
+      quotient = ~quotient + UINT64_C(1);
+    }
+    if (dividend_negative) {
+      remainder = ~remainder + UINT64_C(1);
+    }
+  } else {
+    quotient = dividend / divisor;
+    remainder = dividend % divisor;
+  }
+  machine->cpu.lo = quotient;
+  machine->cpu.hi = remainder;
+  return true;
+}
+
 static bool execute_special(t64_machine *machine, uint32_t pc,
                             uint32_t opcode, bool new_profile,
                             bool *write_gpr_out,
@@ -688,128 +804,27 @@ static bool execute_special(t64_machine *machine, uint32_t pc,
     return true;
   }
   case 0x19u: {
-    uint64_t product;
-
     if (!new_profile) {
       return false;
     }
-    product = (uint64_t)left32 * (uint64_t)right32;
-    machine->cpu.hi = sign_extend_32((uint32_t)(product >> 32));
-    machine->cpu.lo = sign_extend_32((uint32_t)product);
+    execute_word_multiply_unsigned(machine, left32, right32);
     return true;
   }
-  case 0x1au: {
-    uint32_t dividend = left32;
-    uint32_t divisor = right32;
-    uint32_t dividend_magnitude;
-    uint32_t divisor_magnitude;
-    uint32_t quotient;
-    uint32_t remainder;
-    bool dividend_negative = (dividend & UINT32_C(0x80000000)) != 0u;
-    bool divisor_negative = (divisor & UINT32_C(0x80000000)) != 0u;
-
-    if (!new_profile) {
-      return false;
-    }
-    if (divisor == 0u) {
-      machine->cpu.lo = sign_extend_32(
-          dividend_negative ? UINT32_C(0x80000001) : UINT32_C(0x7fffffff));
-      machine->cpu.hi = sign_extend_32(dividend);
-      return true;
-    }
-    if (dividend == UINT32_C(0x80000000) &&
-        divisor == UINT32_MAX) {
-      return false;
-    }
-    dividend_magnitude = dividend_negative ? ~dividend + UINT32_C(1)
-                                           : dividend;
-    divisor_magnitude = divisor_negative ? ~divisor + UINT32_C(1)
-                                         : divisor;
-    quotient = dividend_magnitude / divisor_magnitude;
-    remainder = dividend_magnitude % divisor_magnitude;
-    if (dividend_negative != divisor_negative) {
-      quotient = ~quotient + UINT32_C(1);
-    }
-    if (dividend_negative) {
-      remainder = ~remainder + UINT32_C(1);
-    }
-    machine->cpu.lo = sign_extend_32(quotient);
-    machine->cpu.hi = sign_extend_32(remainder);
-    return true;
-  }
-  case 0x1bu: {
-    uint32_t quotient;
-    uint32_t remainder;
-
-    if (!new_profile || right32 == 0u) {
-      return false;
-    }
-    quotient = left32 / right32;
-    remainder = left32 % right32;
-    machine->cpu.lo = sign_extend_32(quotient);
-    machine->cpu.hi = sign_extend_32(remainder);
-    return true;
-  }
+  case 0x1au:
+  case 0x1bu:
+    return new_profile &&
+           execute_word_divide(machine, left32, right32, function == 0x1au);
   case 0x1cu:
-  case 0x1du: {
-    uint64_t left = function == 0x1cu ? unsigned_magnitude_64(left64)
-                                     : left64;
-    uint64_t right = function == 0x1cu ? unsigned_magnitude_64(right64)
-                                      : right64;
-    uint64_t high;
-    uint64_t low;
-
+  case 0x1du:
     if (!new_profile) {
       return false;
     }
-    multiply_u64_full(left, right, &high, &low);
-    if (function == 0x1cu &&
-        (((left64 ^ right64) & UINT64_C(0x8000000000000000)) != 0u)) {
-      bool carry = low == 0u;
-
-      low = ~low + UINT64_C(1);
-      high = ~high + (carry ? UINT64_C(1) : UINT64_C(0));
-    }
-    machine->cpu.hi = high;
-    machine->cpu.lo = low;
+    execute_doubleword_multiply(machine, left64, right64, function == 0x1cu);
     return true;
-  }
   case 0x1eu:
-  case 0x1fu: {
-    uint64_t quotient;
-    uint64_t remainder;
-
-    if (!new_profile || right64 == 0u) {
-      return false;
-    }
-    if (function == 0x1eu) {
-      bool dividend_negative =
-          (left64 & UINT64_C(0x8000000000000000)) != 0u;
-      bool divisor_negative =
-          (right64 & UINT64_C(0x8000000000000000)) != 0u;
-      uint64_t dividend_magnitude = unsigned_magnitude_64(left64);
-      uint64_t divisor_magnitude = unsigned_magnitude_64(right64);
-
-      if (left64 == UINT64_C(0x8000000000000000) &&
-          right64 == UINT64_MAX) {
-        return false;
-      }
-      quotient = dividend_magnitude / divisor_magnitude;
-      remainder = dividend_magnitude % divisor_magnitude;
-      if (dividend_negative != divisor_negative) {
-        quotient = ~quotient + UINT64_C(1);
-      }
-      if (dividend_negative) {
-        remainder = ~remainder + UINT64_C(1);
-      }
-    } else {
-      quotient = left64 / right64;
-      remainder = left64 % right64;
-    }
-    machine->cpu.lo = quotient;
-    machine->cpu.hi = remainder;
-    return true;
-  }
+  case 0x1fu:
+    return new_profile && execute_doubleword_divide(
+                               machine, left64, right64, function == 0x1eu);
   case 0x10u:
     *value_out = machine->cpu.hi;
     break;
