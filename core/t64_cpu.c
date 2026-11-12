@@ -35,6 +35,13 @@
 #define T64_STATUS_ERL UINT32_C(0x00000004)
 #define T64_STATUS_EXL UINT32_C(0x00000002)
 #define T64_STATUS_KSU UINT32_C(0x00000018)
+#define T64_STATUS_UX UINT32_C(0x00000020)
+#define T64_STATUS_SX UINT32_C(0x00000040)
+#define T64_STATUS_RE UINT32_C(0x02000000)
+#define T64_STATUS_USER UINT32_C(0x00000010)
+#define T64_STATUS_SUPERVISOR UINT32_C(0x00000008)
+#define T64_WATCHLO_R UINT32_C(0x00000002)
+#define T64_WATCHLO_W UINT32_C(0x00000001)
 
 #define T64_CACHE_INDEX_STORE_TAG_I UINT32_C(0x08)
 #define T64_CACHE_INDEX_STORE_TAG_D UINT32_C(0x09)
@@ -1285,19 +1292,85 @@ static bool watch_matches(const t64_machine *machine, uint32_t physical,
                           bool store) {
   uint32_t watchlo = (uint32_t)machine->cpu.cp0[T64_CP0_WATCHLO];
   uint32_t status = (uint32_t)machine->cpu.cp0[T64_CP0_STATUS];
-  uint32_t enabled = store ? UINT32_C(2) : UINT32_C(1);
+  uint32_t enabled = store ? T64_WATCHLO_W : T64_WATCHLO_R;
 
   return (status & T64_STATUS_EXL) == 0u && (watchlo & enabled) != 0u &&
          (physical & UINT32_C(0xfffffff8)) ==
              (watchlo & UINT32_C(0xfffffff8));
 }
 
+static bool cpu_reverse_endian_active(const t64_machine *machine) {
+  uint32_t status = (uint32_t)machine->cpu.cp0[T64_CP0_STATUS];
+  uint32_t config = (uint32_t)machine->cpu.cp0[16];
+
+  return (status & (T64_STATUS_EXL | T64_STATUS_ERL)) == 0u &&
+         (status & T64_STATUS_KSU) == T64_STATUS_USER &&
+         (status & T64_STATUS_RE) != 0u &&
+         (config & UINT32_C(0x00008000)) != 0u;
+}
+
+static uint8_t partial_access_mask(uint32_t width, uint32_t offset,
+                                   bool left, bool little_endian) {
+  bool low_bytes = little_endian == left;
+  uint32_t all_bytes = (UINT32_C(1) << width) - 1u;
+
+  if (little_endian && width == 4u) {
+    uint32_t word_base = offset < 4u ? 4u : 0u;
+    uint32_t within = offset & 3u;
+    uint32_t count = left ? within + 1u : 4u - within;
+    uint32_t start = left ? word_base + 4u - count : word_base;
+
+    return (uint8_t)(((UINT32_C(1) << count) - 1u) << start);
+  }
+  if (little_endian && width == 8u) {
+    uint32_t count = left ? offset + 1u : 8u - offset;
+    uint32_t start = left ? 8u - count : 0u;
+
+    return (uint8_t)(((UINT32_C(1) << count) - 1u) << start);
+  }
+
+  if (low_bytes) {
+    return (uint8_t)((UINT32_C(1) << (offset + 1u)) - 1u);
+  }
+  return (uint8_t)(all_bytes & ~((UINT32_C(1) << offset) - 1u));
+}
+
+static bool memory_op_requires_64bit_mode(uint32_t operation) {
+  switch (operation) {
+  case 0x1au: case 0x1bu: case 0x2cu: case 0x2du:
+  case 0x37u: case 0x3fu:
+    return true;
+  default:
+    return false;
+  }
+}
+
+static bool memory_op_refused_in_32bit_user_or_supervisor(
+    const t64_machine *machine) {
+  uint32_t status = (uint32_t)machine->cpu.cp0[T64_CP0_STATUS];
+  uint32_t privilege = status & T64_STATUS_KSU;
+
+  if ((status & (T64_STATUS_EXL | T64_STATUS_ERL)) != 0u) {
+    return false;
+  }
+  if (privilege == T64_STATUS_USER) {
+    return (status & T64_STATUS_UX) == 0u;
+  }
+  if (privilege == T64_STATUS_SUPERVISOR) {
+    return (status & T64_STATUS_SX) == 0u;
+  }
+  return false;
+}
+
 static t64_status cpu_preflight_memory(t64_machine *machine, uint32_t opcode,
                                        bool in_delay_slot, bool *handled_out) {
   uint32_t width = 0u;
   uint32_t physical = 0u;
+  uint32_t probe_width;
+  uint8_t touched;
   bool store = false;
   bool partial = false;
+  bool reverse_endian;
   uint64_t address;
   t64_mmu_request request;
   t64_mmu_result translation;
@@ -1349,6 +1422,12 @@ static t64_status cpu_preflight_memory(t64_machine *machine, uint32_t opcode,
     }
     return T64_STATUS_OK;
   }
+  if (memory_op_requires_64bit_mode(opcode >> 26) &&
+      memory_op_refused_in_32bit_user_or_supervisor(machine)) {
+    *handled_out = true;
+    return cpu_enter_exception(machine, UINT32_C(10), 0u, in_delay_slot,
+                               false, 0u);
+  }
   address = effective_address(&machine->cpu,
                               (opcode >> 21) & UINT32_C(0x1f),
                               (uint16_t)opcode);
@@ -1372,6 +1451,11 @@ static t64_status cpu_preflight_memory(t64_machine *machine, uint32_t opcode,
     return T64_STATUS_INVALID_ARGUMENT;
   }
   physical = (uint32_t)translation.physical_address;
+  reverse_endian = cpu_reverse_endian_active(machine);
+  probe_width = width;
+  if (partial && reverse_endian) {
+    probe_width = 8u;
+  }
 
   if (watch_matches(machine, physical, store)) {
     *handled_out = true;
@@ -1380,9 +1464,28 @@ static t64_status cpu_preflight_memory(t64_machine *machine, uint32_t opcode,
   }
 
   if (partial) {
-    physical &= ~(width - 1u);
+    physical &= ~(probe_width - 1u);
   }
-  for (offset = 0u; offset < width; offset++) {
+  touched = partial
+                ? partial_access_mask(
+                      width,
+                      (uint32_t)address &
+                          (reverse_endian && width == 4u ? 7u : width - 1u),
+                      ((opcode >> 26) == 0x22u ||
+                       (opcode >> 26) == 0x2au ||
+                       (opcode >> 26) == 0x2cu),
+                      reverse_endian)
+                : (uint8_t)((UINT32_C(1) << width) - 1u);
+
+  for (offset = 0u; offset < probe_width; offset++) {
+    if ((touched & (uint8_t)(UINT8_C(1) << offset)) == 0u) {
+      continue;
+    }
+    if (physical > UINT32_MAX - offset) {
+      *handled_out = true;
+      return cpu_enter_exception(machine, UINT32_C(7), address,
+                                 in_delay_slot, false, 0u);
+    }
     status = t64_bus_probe_access(machine, physical + offset, UINT32_C(1));
     if (status == T64_STATUS_BUS_UNMAPPED || status == T64_STATUS_BUS_RANGE) {
       *handled_out = true;

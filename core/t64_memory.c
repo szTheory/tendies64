@@ -10,15 +10,37 @@ typedef struct {
   bool partial_left;
   bool partial_right;
   bool sign_extend;
+  bool reverse_endian;
   uint32_t destination;
   uint32_t width;
+  uint32_t bus_width;
   uint64_t virtual_address;
   uint32_t physical_address;
   uint8_t byte_mask;
-  t64_mmu_result translation;
   uint64_t bus_value;
   uint64_t result_value;
 } t64_staged_memory_effect;
+
+#define T64_STATUS_EXL UINT32_C(0x00000002)
+#define T64_STATUS_ERL UINT32_C(0x00000004)
+#define T64_STATUS_KSU UINT32_C(0x00000018)
+#define T64_STATUS_USER UINT32_C(0x00000010)
+#define T64_STATUS_RE UINT32_C(0x02000000)
+#define T64_CONFIG_BE UINT32_C(0x00008000)
+
+static bool reverse_endian_active(const t64_machine *machine) {
+  uint32_t status = (uint32_t)machine->cpu.cp0[12];
+  uint32_t config = (uint32_t)machine->cpu.cp0[16];
+
+  return (status & (T64_STATUS_EXL | T64_STATUS_ERL)) == 0u &&
+         (status & T64_STATUS_KSU) == T64_STATUS_USER &&
+         (status & T64_STATUS_RE) != 0u && (config & T64_CONFIG_BE) != 0u;
+}
+
+/* In BE mode the VR4300's RE transform selects a byte lane in the physical
+ * 64-bit data container. The bus exposes those canonical physical lanes
+ * directly, so apply the address XOR here and keep the transferred bytes in
+ * big-endian physical order. */
 
 static uint64_t sign_extend_16(uint16_t value) {
   return (value & UINT16_C(0x8000)) != 0u
@@ -98,10 +120,18 @@ static bool translate_effect(t64_machine *machine,
       translation.physical_address > UINT32_MAX) {
     return false;
   }
-  effect->translation = translation;
   effect->physical_address = (uint32_t)translation.physical_address;
   if (partial) {
-    effect->physical_address &= ~(effect->width - 1u);
+    effect->bus_width = effect->reverse_endian ? 8u : effect->width;
+    effect->physical_address &= ~(effect->bus_width - 1u);
+  } else {
+    effect->bus_width = effect->width;
+    if (effect->reverse_endian) {
+      uint32_t lane_xor = 8u - effect->width;
+      effect->physical_address =
+          (effect->physical_address & ~UINT32_C(7)) |
+          ((effect->physical_address & UINT32_C(7)) ^ lane_xor);
+    }
   }
   return true;
 }
@@ -131,17 +161,29 @@ static uint64_t byte_at(uint64_t value, uint32_t width, uint32_t index) {
 }
 
 static uint64_t merge_load(uint64_t memory, uint64_t previous,
-                           uint32_t width, uint32_t offset, bool left) {
+                           uint32_t width, uint32_t offset, bool left,
+                           bool little_endian) {
   uint64_t result = previous &
                     (width == 4u ? UINT64_C(0xffffffff) : UINT64_MAX);
-  uint32_t count = left ? width - offset : offset + 1u;
+  uint32_t count = little_endian ? (left ? offset + 1u : width - offset)
+                                 : (left ? width - offset : offset + 1u);
   uint32_t index;
 
   for (index = 0u; index < count; index++) {
-    uint32_t memory_index = left ? offset + index : index;
-    uint32_t register_index = left ? index : width - count + index;
-    uint32_t shift = (width - register_index - 1u) * 8u;
-    uint64_t lane_mask = UINT64_C(0xff) << shift;
+    uint32_t memory_index;
+    uint32_t register_index;
+    uint32_t shift;
+    uint64_t lane_mask;
+
+    if (little_endian) {
+      memory_index = left ? index : offset + index;
+      register_index = left ? offset - index : width - 1u - index;
+    } else {
+      memory_index = left ? offset + index : index;
+      register_index = left ? index : width - count + index;
+    }
+    shift = (width - register_index - 1u) * 8u;
+    lane_mask = UINT64_C(0xff) << shift;
 
     result = (result & ~lane_mask) | (byte_at(memory, width, memory_index)
                                       << shift);
@@ -149,28 +191,116 @@ static uint64_t merge_load(uint64_t memory, uint64_t previous,
   return result;
 }
 
-static uint8_t merge_store_mask(uint32_t width, uint32_t offset, bool left) {
-  uint32_t count = left ? width - offset : offset + 1u;
+static uint32_t reverse_merge_location(uint32_t width, uint32_t offset,
+                                       bool left, uint32_t *count_out,
+                                       uint32_t *register_start_out) {
+  uint32_t base;
+
+  if (width == 4u) {
+    uint32_t within = offset & 3u;
+    base = offset < 4u ? 4u : 0u;
+    *count_out = left ? within + 1u : 4u - within;
+    *register_start_out = left ? 0u : 4u - *count_out;
+    return left ? base + 4u - *count_out : base;
+  }
+
+  *count_out = left ? offset + 1u : 8u - offset;
+  *register_start_out = left ? 0u : 8u - *count_out;
+  return left ? 8u - *count_out : 0u;
+}
+
+static uint64_t merge_load_reverse(uint64_t memory, uint64_t previous,
+                                   uint32_t width, uint32_t offset,
+                                   bool left) {
+  uint32_t count;
+  uint32_t register_start;
+  uint32_t memory_start = reverse_merge_location(
+      width, offset, left, &count, &register_start);
+  uint64_t result = width == 4u ? (uint32_t)previous : previous;
+  uint32_t index;
+
+  for (index = 0u; index < count; index++) {
+    uint32_t register_index = register_start + index;
+    uint32_t shift = (width - register_index - 1u) * 8u;
+    uint64_t lane_mask = UINT64_C(0xff) << shift;
+
+    result = (result & ~lane_mask) |
+             (byte_at(memory, 8u, memory_start + index) << shift);
+  }
+  return result;
+}
+
+static uint8_t merge_store_mask_reverse(uint32_t width, uint32_t offset,
+                                        bool left) {
+  uint32_t count;
+  uint32_t register_start;
+  uint32_t memory_start = reverse_merge_location(
+      width, offset, left, &count, &register_start);
+  uint8_t mask = 0u;
+  uint32_t index;
+
+  (void)register_start;
+  for (index = 0u; index < count; index++) {
+    mask = (uint8_t)(mask | (uint8_t)(UINT8_C(1) << (memory_start + index)));
+  }
+  return mask;
+}
+
+static uint64_t merge_store_value_reverse(uint64_t source, uint32_t width,
+                                          uint32_t offset, bool left) {
+  uint32_t count;
+  uint32_t register_start;
+  uint32_t memory_start = reverse_merge_location(
+      width, offset, left, &count, &register_start);
+  uint64_t value = 0u;
+  uint32_t index;
+
+  for (index = 0u; index < count; index++) {
+    uint32_t memory_index = memory_start + index;
+    uint32_t shift = (8u - memory_index - 1u) * 8u;
+
+    value |= byte_at(source, width, register_start + index) << shift;
+  }
+  return value;
+}
+
+static uint8_t merge_store_mask(uint32_t width, uint32_t offset, bool left,
+                                bool little_endian) {
+  uint32_t count = little_endian ? (left ? offset + 1u : width - offset)
+                                 : (left ? width - offset : offset + 1u);
   uint8_t mask = 0u;
   uint32_t index;
 
   for (index = 0u; index < count; index++) {
-    uint32_t memory_index = left ? offset + index : index;
+    uint32_t memory_index = little_endian
+                                ? (left ? index : offset + index)
+                                : (left ? offset + index : index);
     mask = (uint8_t)(mask | (uint8_t)(UINT8_C(1) << memory_index));
   }
   return mask;
 }
 
 static uint64_t merge_store_value(uint64_t source, uint32_t width,
-                                  uint32_t offset, bool left) {
-  uint32_t count = left ? width - offset : offset + 1u;
+                                  uint32_t offset, bool left,
+                                  bool little_endian) {
+  uint32_t count = little_endian ? (left ? offset + 1u : width - offset)
+                                 : (left ? width - offset : offset + 1u);
   uint64_t value = 0u;
   uint32_t index;
 
   for (index = 0u; index < count; index++) {
-    uint32_t memory_index = left ? offset + index : index;
-    uint32_t register_index = left ? index : width - count + index;
-    uint32_t shift = (width - memory_index - 1u) * 8u;
+    uint32_t memory_index;
+    uint32_t register_index;
+    uint32_t shift;
+
+    if (little_endian) {
+      memory_index = left ? index : offset + index;
+      register_index = left ? offset - index : width - 1u - index;
+    } else {
+      memory_index = left ? offset + index : index;
+      register_index = left ? index : width - count + index;
+    }
+    shift = (width - memory_index - 1u) * 8u;
 
     value |= byte_at(source, width, register_index) << shift;
   }
@@ -182,8 +312,11 @@ static bool stage_memory_effect(t64_machine *machine, uint32_t opcode,
   uint32_t rt = (opcode >> 16) & UINT32_C(0x1f);
   bool okay;
 
-  if (!decode_memory_effect(machine, opcode, effect) ||
-      !translate_effect(machine, effect)) {
+  if (!decode_memory_effect(machine, opcode, effect)) {
+    return false;
+  }
+  effect->reverse_endian = reverse_endian_active(machine);
+  if (!translate_effect(machine, effect)) {
     return false;
   }
   if (effect->load) {
@@ -191,20 +324,29 @@ static bool stage_memory_effect(t64_machine *machine, uint32_t opcode,
         (uint32_t)effect->virtual_address & (effect->width - 1u);
     bool partial = effect->partial_left || effect->partial_right;
 
-    effect->byte_mask =
-        partial ? merge_store_mask(effect->width, offset,
-                                   effect->partial_left)
-                : (uint8_t)((UINT32_C(1) << effect->width) - 1u);
+    effect->byte_mask = !partial
+        ? (uint8_t)((UINT32_C(1) << effect->width) - 1u)
+        : effect->reverse_endian
+              ? merge_store_mask_reverse(
+                    effect->width,
+                    (uint32_t)effect->virtual_address & 7u,
+                    effect->partial_left)
+              : merge_store_mask(effect->width, offset,
+                                 effect->partial_left, false);
 
     effect->bus_value = read_bus_value(machine, effect->physical_address,
-                                       effect->width, &okay);
+                                       effect->bus_width, &okay);
     if (!okay) {
       return false;
     }
     if (effect->partial_left || effect->partial_right) {
-      effect->result_value = merge_load(
-          effect->bus_value, machine->cpu.gpr[rt], effect->width, offset,
-          effect->partial_left);
+      effect->result_value = effect->reverse_endian
+          ? merge_load_reverse(effect->bus_value, machine->cpu.gpr[rt],
+                               effect->width,
+                               (uint32_t)effect->virtual_address & 7u,
+                               effect->partial_left)
+          : merge_load(effect->bus_value, machine->cpu.gpr[rt], effect->width,
+                       offset, effect->partial_left, false);
     } else {
       effect->result_value = effect->bus_value;
       if (effect->sign_extend && effect->width == 1u &&
@@ -229,10 +371,20 @@ static bool stage_memory_effect(t64_machine *machine, uint32_t opcode,
         (uint32_t)effect->virtual_address & (effect->width - 1u);
 
     if (effect->partial_left || effect->partial_right) {
-      effect->byte_mask = merge_store_mask(effect->width, offset,
-                                           effect->partial_left);
-      effect->bus_value = merge_store_value(source, effect->width, offset,
-                                            effect->partial_left);
+      effect->byte_mask = effect->reverse_endian
+          ? merge_store_mask_reverse(
+                effect->width,
+                (uint32_t)effect->virtual_address & 7u,
+                effect->partial_left)
+          : merge_store_mask(effect->width, offset, effect->partial_left,
+                             false);
+      effect->bus_value = effect->reverse_endian
+          ? merge_store_value_reverse(
+                source, effect->width,
+                (uint32_t)effect->virtual_address & 7u,
+                effect->partial_left)
+          : merge_store_value(source, effect->width, offset,
+                              effect->partial_left, false);
     } else {
       effect->byte_mask = (uint8_t)((UINT32_C(1) << effect->width) - 1u);
       effect->bus_value = source;
@@ -247,14 +399,14 @@ static bool commit_memory_effect(t64_machine *machine,
   t64_status status;
 
   if (effect->store) {
-    if (effect->width <= 4u && effect->byte_mask ==
-                                    (uint8_t)((UINT32_C(1) << effect->width) -
-                                              1u)) {
+    if (effect->bus_width <= 4u && effect->byte_mask ==
+                                        (uint8_t)((UINT32_C(1) << effect->width) -
+                                                  1u)) {
       status = t64_bus_write(machine, effect->physical_address,
                              effect->width, (uint32_t)effect->bus_value);
     } else {
       status = t64_bus_write_masked(machine, effect->physical_address,
-                                    effect->width, effect->byte_mask,
+                                    effect->bus_width, effect->byte_mask,
                                     effect->bus_value);
     }
     return status == T64_STATUS_OK;

@@ -104,6 +104,7 @@ PHASE04_TESTS='runner.cpu-diagnostic-protocol
 runner.cpu-diagnostic-inventory
 unit.core.cpu-exceptions
 unit.core.cpu-mmu
+unit.core.cpu-memory
 unit.core.cpu-integer
 unit.core.cpu-control
 unit.core.cpu-cp0

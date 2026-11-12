@@ -311,7 +311,7 @@ static bool test_watch_exception(
   }
   machine->cpu.gpr[9] = UINT64_C(0xffffffff80002000);
   machine->ram[0x2000u] = UINT8_C(0x12);
-  machine->cpu.cp0[18] = UINT32_C(0x00002001);
+  machine->cpu.cp0[18] = UINT32_C(0x00002002);
   return expect_exception(machine, UINT64_C(1), UINT32_C(23), TEST_PC, false,
                           false, 0u) &&
          machine->cpu.retired_instructions == 0u;
