@@ -38,6 +38,7 @@
 #define T64_STATUS_KSU UINT32_C(0x00000018)
 #define T64_STATUS_UX UINT32_C(0x00000020)
 #define T64_STATUS_SX UINT32_C(0x00000040)
+#define T64_STATUS_FR UINT32_C(0x04000000)
 #define T64_STATUS_RE UINT32_C(0x02000000)
 #define T64_STATUS_USER UINT32_C(0x00000010)
 #define T64_STATUS_SUPERVISOR UINT32_C(0x00000008)
@@ -2096,6 +2097,10 @@ t64_status t64_cpu_step(t64_machine *machine, const t64_event *event) {
 
     if (format != UINT32_C(0x14) || ft != 0u ||
         function != UINT32_C(0x21)) {
+      cpu_stop_unsupported(machine, pc, opcode);
+      return T64_STATUS_RESOURCE_EXHAUSTED;
+    }
+    if (((uint32_t)machine->cpu.cp0[T64_CP0_STATUS] & T64_STATUS_FR) == 0u) {
       cpu_stop_unsupported(machine, pc, opcode);
       return T64_STATUS_RESOURCE_EXHAUSTED;
     }

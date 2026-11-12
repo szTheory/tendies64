@@ -142,7 +142,11 @@ inferred width-four RE rule; none is a physical-console qualification.
 Count/Compare synchronize against guest ticks,
 merge timer, MI, and software interrupt ownership, and are included in the v9
 digest. The timer handler path is model evidence only; it does not establish a
-physical clock rate or broad ROM compatibility. The BEV=1 general exception
+physical clock rate or broad ROM compatibility. Plan11 adds only the `CVT.D.W`
+conversion path when `Status.CU1` and `Status.FR` are set. Until Plan12 adds
+paired FR=0 register mapping, the model stops FR=0 `CVT.D.W` as unsupported
+before reading or writing an FPR or retiring. Broader COP1 arithmetic remains
+later work. The BEV=1 general exception
 vector discrepancy on manual p.181 remains unresolved: its table implies
 `0xBFC00380`, while its prose gives `0x80000180`. The selected handler path
 uses BEV=0 vector `0x80000180`; the BEV=1 policy remains unqualified.
