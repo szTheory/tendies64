@@ -12,9 +12,9 @@ provides:
 affects: [phase-04-arithmetic-matrix, phase-04-cop1, phase-04-qualification]
 actuals:
   tasks: 2
-  commits: 7
+  commits: 8
 plan_head_before: 463b868d8e7f629766c186f7ea8574c536b7fa52
-plan_head_after: 01a205d445767a560e9cdbcfdfd901801ad83a2f
+plan_head_after: 479a147116ca07fcd84fdbc74016ec9de2afe60f
 tech-stack:
   added: [Pinned BSD-3-Clause SoftFloat generic source subset]
   patterns: [Explicit arithmetic context, per-file audited provenance, integer-only IEEE kernels]
@@ -80,7 +80,7 @@ remaining COP1 mapping, prechecks and architectural flag/trap commits.
 ## Task Commits
 
 1. **Task 1: audited conversion and mode boundary** - `d172d9d` (test/audit, original setup RED discarded), `79afd09` (test), `afccc69` (feat), `4c4be9b` (test), `c04448a` (fix).
-2. **Task 2: raw dispatch and exact closure** - `88e9bd5` (test), `01a205d` (feat).
+2. **Task 2: raw dispatch and exact closure** - `88e9bd5` (test), `01a205d` (feat), `479a147` (fix).
 
 ## Automated Checks
 
@@ -116,6 +116,17 @@ remaining COP1 mapping, prechecks and architectural flag/trap commits.
   SoftFloat targets passed4/4 with the required sanitizer environment.
 - Fresh unwaived PII tree/history checks pass. Hosted final-source verification
   is recorded separately in docs/ci-reviews/LOG.md.
+- Initial hosted source01a205d passed the full macOS lane but failed Linux
+  compilation where its64-bit uint_fast32_t narrows to uint32_t. The local
+  evidence above is unchanged. Repair479a147 adds explicit audited word/sign
+  conversions in20 existing helpers with updated adaptation notes; pin and
+  closure are unchanged. Linux GCC13.3 strict Release t64_core compilation
+  passed every selected object. Local build, raw/CPU selection4/4, lint82/0,
+  full ASan build and the same4 instrumented tests passed. The local container
+  supplied compiler coverage only. Fresh source479a147 then passed both full
+  hosted lanes:107 tests, lint82/zero violations, guest evidence and publication
+  checks. Original89-minute metrics describe the initial owning slice;
+  this later portability repair is tracked separately in the CI log.
 
 ## Deviations and Evidence Limits
 
