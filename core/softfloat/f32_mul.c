@@ -134,7 +134,8 @@ float32_t f32_mul(t64_softfloat_context *context, float32_t a, float32_t b)
  zero:
     uiZ = packToF32UI( signZ, 0, 0 );
  uiZ:
-    uZ.ui = uiZ;
+    /* All paths above carry only binary32 fields in uiZ. */
+    uZ.ui = (uint32_t)uiZ;
     return uZ.f;
 
 }

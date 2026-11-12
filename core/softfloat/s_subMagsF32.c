@@ -129,9 +129,12 @@ float32_t softfloat_subMagsF32(t64_softfloat_context *context, uint_fast32_t uiA
             sigX = sigA | 0x40000000;
             sigY = sigB + (expB ? 0x40000000 : sigB);
         }
+        /* sigY is a binary32 partial significand below 2^31. */
         return
             softfloat_normRoundPackToF32(context,
-                signZ, expZ, sigX - softfloat_shiftRightJam32(context,  sigY, (uint_fast16_t) expDiff )
+                signZ, expZ, sigX - softfloat_shiftRightJam32(
+                                 context, (uint32_t)sigY,
+                                 (uint_fast16_t)expDiff)
             );
     }
     /*------------------------------------------------------------------------
@@ -139,7 +142,8 @@ float32_t softfloat_subMagsF32(t64_softfloat_context *context, uint_fast32_t uiA
  propagateNaN:
     uiZ = softfloat_propagateNaNF32UI(context,  uiA, uiB );
  uiZ:
-    uZ.ui = uiZ;
+    /* All paths above carry only binary32 fields in uiZ. */
+    uZ.ui = (uint32_t)uiZ;
     return uZ.f;
 
 }

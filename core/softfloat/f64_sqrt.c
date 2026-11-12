@@ -100,7 +100,8 @@ float64_t f64_sqrt(t64_softfloat_context *context, float64_t a)
     sigA |= UINT64_C( 0x0010000000000000 );
     sig32A = (uint32_t) (sigA>>21);
     recipSqrt32 = softfloat_approxRecipSqrt32_1(context, (unsigned int) expA, sig32A );
-    sig32Z = ((uint_fast64_t) sig32A * recipSqrt32)>>32;
+    /* The high word of this 32x32 product is at most UINT32_MAX. */
+    sig32Z = (uint32_t)(((uint_fast64_t)sig32A * recipSqrt32) >> 32);
     if ( expA ) {
         sigA <<= 8;
         sig32Z >>= 1;
@@ -108,7 +109,8 @@ float64_t f64_sqrt(t64_softfloat_context *context, float64_t a)
         sigA <<= 9;
     }
     rem = sigA - (uint_fast64_t) sig32Z * sig32Z;
-    q = ((uint32_t) (rem>>2) * (uint_fast64_t) recipSqrt32)>>32;
+    /* The high word of this 32x32 product is at most UINT32_MAX. */
+    q = (uint32_t)(((uint32_t)(rem >> 2) * (uint_fast64_t)recipSqrt32) >> 32);
     sigZ = ((uint_fast64_t) sig32Z<<32 | 1<<5) + ((uint_fast64_t) q<<3);
     /*------------------------------------------------------------------------
     *------------------------------------------------------------------------*/

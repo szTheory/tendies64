@@ -99,7 +99,9 @@ float32_t softfloat_addMagsF32(t64_softfloat_context *context, uint_fast32_t uiA
             }
             expZ = expB;
             sigA += expA ? 0x20000000 : sigA;
-            sigA = softfloat_shiftRightJam32(context,  sigA, (uint_fast16_t) -expDiff );
+            /* Normalized binary32 partial significands fit in 30 bits here. */
+            sigA = softfloat_shiftRightJam32(
+                context, (uint32_t)sigA, (uint_fast16_t)-expDiff);
         } else {
             if ( expA == 0xFF ) {
                 if ( sigA ) goto propagateNaN;
@@ -108,7 +110,9 @@ float32_t softfloat_addMagsF32(t64_softfloat_context *context, uint_fast32_t uiA
             }
             expZ = expA;
             sigB += expB ? 0x20000000 : sigB;
-            sigB = softfloat_shiftRightJam32(context,  sigB, (uint_fast16_t) expDiff );
+            /* Normalized binary32 partial significands fit in 30 bits here. */
+            sigB = softfloat_shiftRightJam32(
+                context, (uint32_t)sigB, (uint_fast16_t)expDiff);
         }
         sigZ = 0x20000000 + sigA + sigB;
         if ( sigZ < 0x40000000 ) {
@@ -122,7 +126,8 @@ float32_t softfloat_addMagsF32(t64_softfloat_context *context, uint_fast32_t uiA
  propagateNaN:
     uiZ = softfloat_propagateNaNF32UI(context,  uiA, uiB );
  uiZ:
-    uZ.ui = uiZ;
+    /* All paths above carry only binary32 fields in uiZ. */
+    uZ.ui = (uint32_t)uiZ;
     return uZ.f;
 
 }

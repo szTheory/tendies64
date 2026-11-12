@@ -50,9 +50,10 @@ struct uint128 softfloat_mul64To128(t64_softfloat_context *context, uint64_t a, 
     struct uint128 z;
     uint64_t mid1, mid;
 
-    a32 = a>>32;
+    /* Split each operand into exact high and low 32-bit words. */
+    a32 = (uint32_t)(a >> 32);
     a0 = (uint32_t) a;
-    b32 = b>>32;
+    b32 = (uint32_t)(b >> 32);
     b0 = (uint32_t) b;
     z.v0 = (uint_fast64_t) a0 * b0;
     mid1 = (uint_fast64_t) a32 * b0;

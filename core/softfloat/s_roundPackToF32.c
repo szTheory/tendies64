@@ -75,7 +75,9 @@ float32_t
             isTiny =
                 (context->tininess_mode == softfloat_tininess_beforeRounding)
                     || (exp < -1) || (sig + roundIncrement < 0x80000000);
-            sig = softfloat_shiftRightJam32(context,  sig, (uint_fast16_t) -exp );
+            /* Underflow rounding consumes the low binary32 significand word. */
+            sig = softfloat_shiftRightJam32(
+                context, (uint32_t)sig, (uint_fast16_t)-exp);
             exp = 0;
             roundBits = sig & 0x7F;
             if ( isTiny && roundBits ) {
@@ -102,7 +104,8 @@ float32_t
     *------------------------------------------------------------------------*/
     uiZ = packToF32UI( sign, exp, sig );
  uiZ:
-    uZ.ui = uiZ;
+    /* All paths above carry only binary32 fields in uiZ. */
+    uZ.ui = (uint32_t)uiZ;
     return uZ.f;
 
 }

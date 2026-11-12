@@ -136,7 +136,9 @@ float32_t f32_div(t64_softfloat_context *context, float32_t a, float32_t b)
         sigA <<= 7;
     }
     sigB <<= 8;
-    sigZ = ((uint_fast64_t) sigA * softfloat_approxRecip32_1(context,  sigB ))>>32;
+    /* sigB is <= 0xFFFFFF00 after normalization and the 8-bit shift. */
+    sigZ = ((uint_fast64_t) sigA * softfloat_approxRecip32_1(
+                context, (uint32_t)sigB))>>32;
     /*------------------------------------------------------------------------
     *------------------------------------------------------------------------*/
     sigZ += 2;
@@ -176,7 +178,8 @@ float32_t f32_div(t64_softfloat_context *context, float32_t a, float32_t b)
  zero:
     uiZ = packToF32UI( signZ, 0, 0 );
  uiZ:
-    uZ.ui = uiZ;
+    /* All paths above carry only binary32 fields in uiZ. */
+    uZ.ui = (uint32_t)uiZ;
     return uZ.f;
 
 }

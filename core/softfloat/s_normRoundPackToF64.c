@@ -48,7 +48,9 @@ float64_t
     int_fast8_t shiftDist;
     union ui64_f64 uZ;
 
-    shiftDist = softfloat_countLeadingZeros64(context,  sig ) - 1;
+    /* A 64-bit significand has a -1..63 normalization shift. */
+    shiftDist = (int_fast8_t)(
+        (int)softfloat_countLeadingZeros64(context, sig) - 1);
     exp -= shiftDist;
     if ( (10 <= shiftDist) && ((unsigned int) exp < 0x7FD) ) {
         uZ.ui = packToF64UI( sign, sig ? exp : 0, sig<<(shiftDist - 10) );

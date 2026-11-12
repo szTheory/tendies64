@@ -57,19 +57,21 @@ uint32_t softfloat_approxRecipSqrt32_1(t64_softfloat_context *context, unsigned 
 
     index = (int) ((a>>27 & UINT32_C(0xE)) + (uint32_t) oddExpA);
     eps = (uint16_t) (a>>12);
-    r0 = t64_sf_approx_recip_sqrt_k0((uint_fast8_t)index)
-             - ((t64_sf_approx_recip_sqrt_k1((uint_fast8_t)index) * (uint_fast32_t) eps)
-                    >>20);
+    /* Table coefficient bounds keep this correction within the 16-bit r0. */
+    r0 = (uint16_t)(t64_sf_approx_recip_sqrt_k0((uint_fast8_t)index) -
+                    ((t64_sf_approx_recip_sqrt_k1((uint_fast8_t)index) *
+                      (uint_fast32_t)eps) >> 20));
     ESqrR0 = (uint_fast32_t) r0 * r0;
     if ( ! oddExpA ) ESqrR0 <<= 1;
-    sigma0 = ~(uint_fast32_t) (((uint32_t) ESqrR0 * (uint_fast64_t) a)>>23);
+    sigma0 = ~(uint32_t)(((uint32_t)ESqrR0 * (uint_fast64_t)a) >> 23);
     r = ((uint_fast32_t) r0<<16) + (uint_fast32_t) ((r0 * (uint_fast64_t) sigma0)>>25);
-    sqrSigma0 = ((uint_fast64_t) sigma0 * sigma0)>>32;
+    /* This is the high word of a 32x32-bit square. */
+    sqrSigma0 = (uint32_t)(((uint_fast64_t)sigma0 * sigma0) >> 32);
     r += ((uint32_t) ((r>>1) + (r>>3) - ((uint_fast32_t) r0<<14))
               * (uint_fast64_t) sqrSigma0)
              >>48;
     if ( ! (r & 0x80000000) ) r = 0x80000000;
-    return r;
+    return (uint32_t)r;
 
 }
 

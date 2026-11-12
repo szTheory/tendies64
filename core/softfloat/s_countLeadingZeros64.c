@@ -51,7 +51,8 @@ uint_fast8_t softfloat_countLeadingZeros64(t64_softfloat_context *context, uint6
     uint32_t a32;
 
     count = 0;
-    a32 = a>>32;
+    /* The upper half is exactly one 32-bit word. */
+    a32 = (uint32_t)(a >> 32);
     if ( ! a32 ) {
         count = 32;
         a32 = (uint32_t) a;

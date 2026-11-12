@@ -123,13 +123,18 @@ float64_t f64_div(t64_softfloat_context *context, float64_t a, float64_t b)
         sigA <<= 10;
     }
     sigB <<= 11;
-    recip32 = softfloat_approxRecip32_1(context,  sigB>>32 ) - 2;
-    sig32Z = ((uint32_t) (sigA>>32) * (uint_fast64_t) recip32)>>32;
+    /* sigB is normalized to [2^63, 2^64), so its high word fits uint32_t. */
+    recip32 = softfloat_approxRecip32_1(context, (uint32_t)(sigB >> 32)) - 2u;
+    /* The high word of this 32x32 product is at most UINT32_MAX. */
+    sig32Z = (uint32_t)(((uint32_t)(sigA >> 32) *
+                         (uint_fast64_t)recip32) >> 32);
     doubleTerm = sig32Z<<1;
     rem =
         ((sigA - (uint_fast64_t) doubleTerm * (uint32_t) (sigB>>32))<<28)
             - (uint_fast64_t) doubleTerm * ((uint32_t) sigB>>4);
-    q = (((uint32_t) (rem>>32) * (uint_fast64_t) recip32)>>32) + 4;
+    /* The high word of this 32x32 product is at most UINT32_MAX. */
+    q = (uint32_t)(((uint32_t)(rem >> 32) * (uint_fast64_t)recip32) >> 32);
+    q += 4u;
     sigZ = ((uint_fast64_t) sig32Z<<32) + ((uint_fast64_t) q<<4);
     /*------------------------------------------------------------------------
     *------------------------------------------------------------------------*/

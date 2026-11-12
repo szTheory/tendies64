@@ -54,13 +54,16 @@ uint32_t softfloat_approxRecip32_1(t64_softfloat_context *context, uint32_t a)
 
     index = a>>27 & 0xF;
     eps = (uint16_t) (a>>11);
-    r0 = t64_sf_approx_recip_k0((uint_fast8_t)index)
-             - ((t64_sf_approx_recip_k1((uint_fast8_t)index) * (uint_fast32_t) eps)>>20);
-    sigma0 = ~(uint_fast32_t) ((r0 * (uint_fast64_t) a)>>7);
+    /* Table coefficient bounds keep this correction within the 16-bit r0. */
+    r0 = (uint16_t)(t64_sf_approx_recip_k0((uint_fast8_t)index) -
+                    ((t64_sf_approx_recip_k1((uint_fast8_t)index) *
+                      (uint_fast32_t)eps) >> 20));
+    sigma0 = ~(uint32_t)((r0 * (uint_fast64_t)a) >> 7);
     r = ((uint_fast32_t) r0<<16) + (uint_fast32_t) ((r0 * (uint_fast64_t) sigma0)>>24);
-    sqrSigma0 = ((uint_fast64_t) sigma0 * sigma0)>>32;
+    /* This is the high word of a 32x32-bit square. */
+    sqrSigma0 = (uint32_t)(((uint_fast64_t)sigma0 * sigma0) >> 32);
     r += ((uint32_t) r * (uint_fast64_t) sqrSigma0)>>48;
-    return r;
+    return (uint32_t)r;
 
 }
 

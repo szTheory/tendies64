@@ -46,7 +46,9 @@ struct exp16_sig64 softfloat_normSubnormalF64Sig(t64_softfloat_context *context,
     int_fast8_t shiftDist;
     struct exp16_sig64 z;
 
-    shiftDist = softfloat_countLeadingZeros64(context,  sig ) - 11;
+    /* Nonzero binary64 subnormal fractions yield shifts in 1..52. */
+    shiftDist = (int_fast8_t)(
+        (int)softfloat_countLeadingZeros64(context, sig) - 11);
     z.exp = 1 - shiftDist;
     z.sig = sig<<shiftDist;
     return z;

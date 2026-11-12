@@ -56,7 +56,9 @@ float64_t i32_to_f64(t64_softfloat_context *context, int32_t a)
     } else {
         sign = (a < 0);
         absA = sign ? -(uint_fast32_t) a : (uint_fast32_t) a;
-        shiftDist = softfloat_countLeadingZeros32(context,  absA ) + 21;
+        /* absA is a nonzero signed-32 magnitude; clz is 0..31, so +21 fits. */
+        shiftDist = (int_fast8_t)(softfloat_countLeadingZeros32(
+                                      context, (uint32_t)absA) + 21);
         uiZ =
             packToF64UI(
                 sign, 0x432 - shiftDist, (uint_fast64_t) absA<<shiftDist );

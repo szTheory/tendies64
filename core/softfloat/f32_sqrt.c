@@ -95,7 +95,7 @@ float32_t f32_sqrt(t64_softfloat_context *context, float32_t a)
     sigA = (sigA | 0x00800000)<<8;
     sigZ =
         ((uint_fast64_t) sigA * softfloat_approxRecipSqrt32_1(
-             context, (unsigned int)expA, sigA))
+             context, (unsigned int)expA, (uint32_t)sigA))
             >>32;
     if ( expA ) sigZ >>= 1;
     /*------------------------------------------------------------------------
@@ -103,7 +103,8 @@ float32_t f32_sqrt(t64_softfloat_context *context, float32_t a)
     sigZ += 2;
     if ( (sigZ & 0x3F) < 2 ) {
         shiftedSigZ = sigZ>>2;
-        negRem = shiftedSigZ * shiftedSigZ;
+        /* Keep the low word used by this binary32 square-remainder check. */
+        negRem = (uint32_t)(shiftedSigZ * shiftedSigZ);
         sigZ &= ~(uint_fast32_t)3u;
         if ( negRem & 0x80000000 ) {
             sigZ |= 1;
@@ -118,7 +119,8 @@ float32_t f32_sqrt(t64_softfloat_context *context, float32_t a)
     softfloat_raiseFlags(context,  softfloat_flag_invalid );
     uiZ = defaultNaNF32UI;
  uiZ:
-    uZ.ui = uiZ;
+    /* All paths above carry only binary32 fields in uiZ. */
+    uZ.ui = (uint32_t)uiZ;
     return uZ.f;
 
 }

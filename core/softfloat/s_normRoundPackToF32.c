@@ -48,7 +48,9 @@ float32_t
     int_fast8_t shiftDist;
     union ui32_f32 uZ;
 
-    shiftDist = softfloat_countLeadingZeros32(context,  sig ) - 1;
+    /* sig is a binary32 significand word; clz yields a -1..31 shift. */
+    shiftDist = (int_fast8_t)(softfloat_countLeadingZeros32(
+                                  context, (uint32_t)sig) - 1);
     exp -= shiftDist;
     if ( (7 <= shiftDist) && ((unsigned int) exp < 0xFD) ) {
         uZ.ui = packToF32UI( sign, sig ? exp : 0, sig<<(shiftDist - 7) );

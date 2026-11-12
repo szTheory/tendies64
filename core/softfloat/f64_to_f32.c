@@ -84,7 +84,8 @@ float32_t f64_to_f32(t64_softfloat_context *context, float64_t a)
     *------------------------------------------------------------------------*/
     return softfloat_roundPackToF32(context,  sign, exp - 0x381, frac32 | 0x40000000 );
  uiZ:
-    uZ.ui = uiZ;
+    /* All paths above carry only binary32 fields in uiZ. */
+    uZ.ui = (uint32_t)uiZ;
     return uZ.f;
 
 }

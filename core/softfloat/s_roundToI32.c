@@ -76,7 +76,8 @@ int_fast32_t
     ) {
         sig32 &= ~(uint_fast32_t) 1;
     }
-    uZ.ui = sign ? -sig32 : sig32;
+    /* The prior high-bit check bounds valid sig32 to one W word. */
+    uZ.ui = (uint32_t)(sign ? -sig32 : sig32);
     z = uZ.i;
     if ( z && ((z < 0) ^ sign) ) goto invalid;
     if ( roundBits ) {
