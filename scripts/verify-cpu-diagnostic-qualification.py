@@ -254,34 +254,61 @@ def check_tools(
     return {"host_c_compiler": str(compiler_path), "target_binutils": records}
 
 
-def lock_registry_packages(lock: object) -> set[tuple[str, str, str]]:
+def lock_registry_packages(
+    lock: object, root_package: tuple[str, str]
+) -> set[tuple[str, str, str]]:
     if not isinstance(lock, dict) or not isinstance(lock.get("package"), list):
         refuse("packaged Cargo.lock has no valid package list")
+    if (
+        not isinstance(root_package, tuple)
+        or len(root_package) != 2
+        or any(not isinstance(part, str) or not part for part in root_package)
+    ):
+        refuse("packaged root package identity is malformed")
     packages: set[tuple[str, str, str]] = set()
+    root_seen = False
+    identities: set[tuple[str, str, str]] = set()
+    registry_source = "registry+https://github.com/rust-lang/crates.io-index"
     for row in lock["package"]:
         if not isinstance(row, dict):
             refuse("packaged Cargo.lock contains a malformed package row")
-        source = row.get("source")
-        if source is None:
-            continue
-        if not isinstance(source, str) or not source.startswith("registry+"):
-            refuse("Cargo.lock contains an unreviewed git or non-registry source")
+        if set(row) - {"name", "version", "source", "checksum", "dependencies"}:
+            refuse("packaged Cargo.lock contains an unsupported package field")
         name = row.get("name")
         version = row.get("version")
+        if not isinstance(name, str) or not name or not isinstance(version, str) or not version:
+            refuse("packaged Cargo.lock package identity is malformed")
+
+        # Cargo's sole source-less package must be the exact root package from
+        # the already hash-checked Cargo.toml. Path/workspace dependencies are
+        # intentionally unsupported: their source closure is not recursively
+        # accepted by this receipt.
+        if "source" not in row:
+            if (name, version) != root_package or root_seen:
+                refuse("Cargo.lock contains an unreviewed source-less/path package")
+            if "checksum" in row:
+                refuse("source-less root package unexpectedly has a checksum")
+            root_seen = True
+            continue
+        source = row["source"]
+        if not isinstance(source, str) or not source.startswith("registry+"):
+            refuse("Cargo.lock contains an unreviewed git or non-registry source")
+        if source != registry_source:
+            refuse("Cargo.lock contains an unreviewed registry source")
         checksum = row.get("checksum")
         if (
-            not isinstance(name, str)
-            or not name
-            or not isinstance(version, str)
-            or not version
-            or not isinstance(checksum, str)
+            not isinstance(checksum, str)
             or HEX64.fullmatch(checksum) is None
         ):
             refuse("Cargo.lock registry package identity or checksum is malformed")
         package = (name, version, checksum)
-        if package in packages:
+        identity = (name, version, source)
+        if package in packages or identity in identities:
             refuse("Cargo.lock contains a duplicate registry package")
         packages.add(package)
+        identities.add(identity)
+    if not root_seen:
+        refuse("Cargo.lock does not contain its exact root package")
     return packages
 
 
@@ -603,6 +630,23 @@ def validate(receipt_path: pathlib.Path, repository: pathlib.Path) -> dict:
         "project package",
     )
     checked_file(repository, project["manifest"], "packaged Cargo.toml", private_root)
+    manifest_path = lexical_path(
+        pathlib.Path(project["manifest"]["path"]), repository
+    )
+    try:
+        project_manifest = tomllib.loads(manifest_path.read_text(encoding="utf-8"))
+        root_package = project_manifest["package"]
+        root_identity = (root_package["name"], root_package["version"])
+    except (OSError, KeyError, TypeError, tomllib.TOMLDecodeError):
+        refuse("packaged Cargo.toml root package identity cannot be parsed")
+    if (
+        not isinstance(root_identity[0], str)
+        or not root_identity[0]
+        or not isinstance(root_identity[1], str)
+        or not root_identity[1]
+        or "workspace" in project_manifest
+    ):
+        refuse("packaged Cargo.toml is not one exact root package")
     lock_sha = checked_file(
         repository, project["lockfile"], "packaged Cargo.lock", private_root
     )
@@ -616,7 +660,7 @@ def validate(receipt_path: pathlib.Path, repository: pathlib.Path) -> dict:
         lock = tomllib.loads(lock_path.read_text(encoding="utf-8"))
     except (OSError, tomllib.TOMLDecodeError):
         refuse("packaged Cargo.lock cannot be parsed")
-    locked_packages = lock_registry_packages(lock)
+    locked_packages = lock_registry_packages(lock, root_identity)
 
     dependencies = data["dependencies"]
     if not isinstance(dependencies, list) or not dependencies:

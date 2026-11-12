@@ -123,17 +123,24 @@ def main() -> int:
             registry_fixture = {
                 "package": [
                     {
+                        "name": "authored-root",
+                        "version": "1.0.0",
+                        "dependencies": ["authored-dependency"],
+                    },
+                    {
                         "name": "authored-dependency",
                         "version": "1.0.0",
-                        "source": "registry+https://example.invalid/index",
+                        "source": "registry+https://github.com/rust-lang/crates.io-index",
                         "checksum": "a" * 64,
                     }
                 ]
             }
             require(
-                verifier.lock_registry_packages(registry_fixture)
+                verifier.lock_registry_packages(
+                    registry_fixture, ("authored-root", "1.0.0")
+                )
                 == {("authored-dependency", "1.0.0", "a" * 64)},
-                "authored registry lock baseline was not accepted",
+                "authored exact root-plus-registry lock baseline was not accepted",
             )
             reached += 1
             refused = False
@@ -148,12 +155,29 @@ def main() -> int:
                                 "source": "git+https://example.invalid/repo#0123456789abcdef",
                             },
                         ]
-                    }
+                    },
+                    ("authored-root", "1.0.0"),
                 )
             except verifier.Refusal as error:
                 refused = str(error) == "Cargo.lock contains an unreviewed git or non-registry source"
             reached += 1
             require(refused, "unreviewed Git-source mutation missed its refusal")
+
+            refused = False
+            try:
+                verifier.lock_registry_packages(
+                    {
+                        "package": [
+                            *registry_fixture["package"],
+                            {"name": "unreviewed-path", "version": "1.0.0"},
+                        ]
+                    },
+                    ("authored-root", "1.0.0"),
+                )
+            except verifier.Refusal as error:
+                refused = str(error) == "Cargo.lock contains an unreviewed source-less/path package"
+            reached += 1
+            require(refused, "source-less path-package mutation missed its refusal")
 
             bad_compiler = {
                 "host_c_compiler": {"path": str(compiler), "sha256": "0" * 64},
@@ -223,9 +247,27 @@ def main() -> int:
             require(result.returncode == 4 and expected in result.stdout, f"{kind} missed its refusal: {result.stdout}")
             require(not marker.exists(), f"{kind} reached the fake compiler")
 
-    require(reached == 1 + 4 + 2 + 1 + 1 + 2, "not every portable qualification control was reached")
-    print("PASS: compiler/binutils hashes, selected path, registry lock, missing receipt and symlink controls")
-    print("PASS: all 11 portable qualification-control assertions were reached")
+        overlay_report = root / "overlay-controls.junit.xml"
+        overlay_controls = source_root / "scripts/tests/test_cpu_diagnostic_overlay_controls.py"
+        overlay_result = subprocess.run(
+            [sys.executable, "-B", str(overlay_controls), str(overlay_report)],
+            check=False,
+            text=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+            env={**os.environ, "PYTHONDONTWRITEBYTECODE": "1"},
+        )
+        require(
+            overlay_result.returncode == 0
+            and "exact_range_replacement" in overlay_result.stdout
+            and "bad_file_hash_refused_before_write" in overlay_result.stdout,
+            f"overlay source-range controls failed: {overlay_result.stdout}",
+        )
+        reached += 1
+
+    require(reached == 1 + 4 + 3 + 1 + 1 + 2 + 1, "not every portable qualification control was reached")
+    print("PASS: compiler/binutils hashes, selected path, exact root-plus-registry lock, Git/path refusals, overlay ranges, missing receipt and symlink controls")
+    print("PASS: all 13 portable qualification-control assertions were reached")
     return 0
 
 
