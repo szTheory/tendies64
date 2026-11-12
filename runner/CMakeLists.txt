@@ -30,6 +30,18 @@ add_test(NAME runner.cpu-diagnostic-inventory
 set_tests_properties(runner.cpu-diagnostic-inventory PROPERTIES
   LABELS runner TIMEOUT 60)
 
+add_executable(test_cpu_diagnostic tests/test_cpu_diagnostic.c)
+target_compile_definitions(test_cpu_diagnostic PRIVATE ${T64_HOST_DEFS})
+target_include_directories(test_cpu_diagnostic PRIVATE ${CMAKE_SOURCE_DIR}/core)
+target_link_libraries(test_cpu_diagnostic PRIVATE t64_common t64_core)
+t64_target_warnings(test_cpu_diagnostic)
+add_dependencies(test_cpu_diagnostic t64-boot-fixtures)
+add_test(NAME runner.cpu-diagnostic COMMAND test_cpu_diagnostic)
+set_tests_properties(runner.cpu-diagnostic PROPERTIES
+  LABELS runner TIMEOUT 120
+  ENVIRONMENT
+    "T64_TEST_IPL3_PATH=${CMAKE_SOURCE_DIR}/build/fixtures/ipl3_compat.z64")
+
 add_executable(test_input tests/test_input.c)
 target_compile_definitions(test_input PRIVATE ${T64_HOST_DEFS})
 target_link_libraries(test_input PRIVATE t64_input t64_core)

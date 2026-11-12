@@ -102,6 +102,7 @@ integration.open-ipl3-determinism'
 
 PHASE04_TESTS='runner.cpu-diagnostic-protocol
 runner.cpu-diagnostic-inventory
+runner.cpu-diagnostic
 unit.core.cpu-exceptions
 unit.core.cpu-mmu
 unit.core.cpu-memory
