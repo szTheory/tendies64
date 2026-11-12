@@ -21,3 +21,16 @@ pre-use ordering defect, rather than a setup or test-discovery failure.
 The unchanged JUnit report was accepted by the RED evidence classifier as
 `RED_EVIDENCE_OK`. Its private raw record and report remain in the ignored
 qualification workspace.
+
+## Source-faithful inventory contract RED control
+
+The authored protocol control preserves the pinned `Weird` level on a CPU
+registration assigned to `required-base`, and checks that an otherwise-valid
+inventory using the superseded schema version is refused. This follows the
+upstream runner: the default `base` feature dispatches `Weird` tests through the
+base profile. The prior protocol version rejected that source-faithful row and
+accepted a stale-version fixture. The focused `runner.cpu-diagnostic-protocol`
+test failed on these behavior assertions and was accepted by the RED evidence
+classifier as `RED_EVIDENCE_OK`. It used only authored native protocol data;
+no external diagnostic or guest execution was involved. The raw JUnit and
+record remain private.

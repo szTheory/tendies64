@@ -15,8 +15,8 @@ static const uint8_t inventory_json[] =
     "\"profile_sha256\":\"3333333333333333333333333333333333333333333333333333333333333333\","
     "\"source_revision\":\"5555555555555555555555555555555555555555\","
     "\"tool_receipt_sha256\":\"6666666666666666666666666666666666666666666666666666666666666666\"},"
-    "\"registrations\":[{\"execution\":\"values\",\"group\":\"arithmetic\",\"index\":0,\"lane\":\"required-base\",\"level\":\"BasicFunctionality\",\"name\":\"authored.case\",\"reason\":\"required\",\"values\":[{\"id\":\"case.one\",\"index\":0,\"selected_rom_sha256\":\"4444444444444444444444444444444444444444444444444444444444444444\",\"selector\":\"authored-selector\"}]}],"
-    "\"schema\":\"t64.cpu-inventory\",\"schema_version\":2}\n";
+    "\"registrations\":[{\"execution\":\"values\",\"group\":\"arithmetic\",\"index\":0,\"lane\":\"required-base\",\"level\":\"Weird\",\"name\":\"authored.case\",\"reason\":\"required\",\"values\":[{\"id\":\"case.one\",\"index\":0,\"selected_rom_sha256\":\"4444444444444444444444444444444444444444444444444444444444444444\",\"selector\":\"authored-selector\"}]}],"
+    "\"schema\":\"t64.cpu-inventory\",\"schema_version\":3}\n";
 
 static const char expected_pass_batch[] =
     "{\"identity\":{\"base_rom_sha256\":\"0000000000000000000000000000000000000000000000000000000000000000\",\"core_build_sha256\":\"1111111111111111111111111111111111111111111111111111111111111111\",\"inventory_sha256\":\"6e06913830ec4f07f185140833aa5c5ef329770163dc8974c44d12cb285ffddb\",\"overlay_sha256\":\"2222222222222222222222222222222222222222222222222222222222222222\",\"profile_sha256\":\"3333333333333333333333333333333333333333333333333333333333333333\",\"selected_rom_sha256\":\"4444444444444444444444444444444444444444444444444444444444444444\",\"selector\":\"authored-selector\",\"source_revision\":\"5555555555555555555555555555555555555555\",\"tool_receipt_sha256\":\"6666666666666666666666666666666666666666666666666666666666666666\"},\"records\":[{\"event\":\"start\",\"registration_index\":0,\"value_index\":0},{\"event\":\"outcome\",\"status\":\"pass\"},{\"complete\":true,\"event\":\"done\",\"record_count\":\"3\"}],\"schema\":\"t64.cpu-batch\",\"schema_version\":2}\n";
@@ -187,6 +187,9 @@ static bool build_authored_inventory(
 
 static unsigned failures;
 
+static bool replace_text(char *bytes, size_t *length, size_t capacity,
+                         const char *from, const char *to);
+
 static void expect_status(const char *case_name, t64_cpu_diag_status actual,
                           t64_cpu_diag_status expected) {
   if (actual != expected) {
@@ -203,6 +206,51 @@ static t64_cpu_diag_inventory *parse_authored_inventory(void) {
       inventory_json, sizeof inventory_json - 1u, &inventory);
   expect_status("authored inventory parse", status, T64_CPU_DIAG_OK);
   return inventory;
+}
+
+static void test_inventory_v3_base_levels_and_stale_v2(void) {
+  char bytes[sizeof inventory_json + 64u];
+  size_t length = sizeof inventory_json - 1u;
+  t64_cpu_diag_inventory *inventory = NULL;
+  memcpy(bytes, inventory_json, length + 1u);
+  expect_status("v3 Weird base member accepted",
+                t64_cpu_diag_inventory_parse((const uint8_t *)bytes, length,
+                                             &inventory),
+                T64_CPU_DIAG_OK);
+  t64_cpu_diag_inventory_destroy(inventory);
+  inventory = NULL;
+
+  memcpy(bytes, inventory_json, length + 1u);
+  if (!replace_text(bytes, &length, sizeof bytes,
+                    "\"schema_version\":3", "\"schema_version\":2") ||
+      !replace_text(bytes, &length, sizeof bytes,
+                    "\"level\":\"Weird\"",
+                    "\"level\":\"BasicFunctionality\"")) {
+    (void)fprintf(stderr, "could not construct stale v2 inventory control\n");
+    failures++;
+  } else {
+    expect_status("stale inventory v2 rejected",
+                  t64_cpu_diag_inventory_parse((const uint8_t *)bytes, length,
+                                               &inventory),
+                  T64_CPU_DIAG_INVALID_SCHEMA);
+  }
+  t64_cpu_diag_inventory_destroy(inventory);
+  inventory = NULL;
+
+  memcpy(bytes, inventory_json, sizeof inventory_json);
+  length = sizeof inventory_json - 1u;
+  if (!replace_text(bytes, &length, sizeof bytes,
+                    "\"lane\":\"required-base\"",
+                    "\"lane\":\"weird\"")) {
+    (void)fprintf(stderr, "could not construct v3 excluded Weird-lane control\n");
+    failures++;
+  } else {
+    expect_status("v3 Weird cannot be reclassified as separate lane",
+                  t64_cpu_diag_inventory_parse((const uint8_t *)bytes, length,
+                                               &inventory),
+                  T64_CPU_DIAG_INVALID_INVENTORY);
+  }
+  t64_cpu_diag_inventory_destroy(inventory);
 }
 
 static bool make_batch(const t64_cpu_diag_inventory *inventory,
@@ -1178,6 +1226,7 @@ cleanup:
 
 int main(int argc, char **argv) {
   if (argc == 2 && strcmp(argv[1], "--inventory") == 0) {
+    test_inventory_v3_base_levels_and_stale_v2();
     test_single_group_does_not_complete_required_set();
     test_full_set_order_and_duplicate_seam();
     test_omitted_value_and_missing_group();
@@ -1189,6 +1238,7 @@ int main(int argc, char **argv) {
     return 0;
   }
   if (argc != 1) return 2;
+  test_inventory_v3_base_levels_and_stale_v2();
   test_complete_batch_round_trip();
   test_incomplete_and_wrong_identity_batches();
   test_failure_and_incomplete_outcomes();
