@@ -1,0 +1,18 @@
+{
+  "task": "04-01.2",
+  "command": "cmake --build --preset gate --target test_boot_entry && ctest --preset gate --no-tests=error -R '^(unit.core.boot-entry)$' --output-on-failure --output-junit build/gate/task2-red.xml",
+  "targetTest": "unit.core.boot-entry",
+  "targetFile": "core/tests/test_boot_entry.c",
+  "expected": "The prepared v9 CPU state serializes to the independently specified full-state SHA-256 a8eb98f7b08cbaa900f2b9f8f8d197c5eca9aec3dff2ba2b5f78a7926c3aaa57.",
+  "observed": "The registered target compiled and executed with the qualified IPL3 fixture. The independent reference produced the pinned digest, while current production state digest was 46f12fc25bfd4f0a7bc8f2047b9e41b3d26f519270f555001436ffc63c25e5e7; the intended digest equality assertion failed.",
+  "result": {
+    "exitCode": 8,
+    "tests": 1,
+    "passed": 0,
+    "failed": 1,
+    "classifier": "RED_EVIDENCE_OK",
+    "classifierReason": "target_test_failed",
+    "matchedTest": "unit.core.boot-entry#unit.core.boot-entry"
+  },
+  "semanticAssessment": "This is the expected pre-feature behavior: v9 production hashing omits the prepared full-width CPU, timer, TLB, cache, link, and FPU fields covered by the independent serializer. Test discovery, compilation, fixture loading, new profile lookup, and seed assertions succeeded. The unchanged JUnit XML was classified with RED_EVIDENCE_OK and remains in ignored local build output; this committed record keeps only portable observations."
+}

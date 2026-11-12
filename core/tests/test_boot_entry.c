@@ -15,6 +15,11 @@
 #define IPL3_DMEM_OFFSET 0x40u
 #define IPL3_ENTRY_PC UINT32_C(0xa4000040)
 
+static void digest_to_hex(const uint8_t digest[T64_DIGEST_SIZE],
+                          char hex[T64_DIGEST_SIZE * 2u + 1u]);
+static void reference_machine_digest(const t64_machine *machine,
+                                    uint8_t digest[T64_DIGEST_SIZE]);
+
 typedef struct {
   size_t outstanding;
   size_t allocation_attempts;
@@ -84,6 +89,8 @@ static void check_refused_admission_unchanged(
 static void test_vr4300_profile_entry(
     const uint8_t asset[IPL3_ASSET_BYTES]) {
   static const char profile_id[] = "ntsc-cart-4m-openipl3-vr4300-v1";
+  static const char expected_v9_prepared_state_sha256[] =
+      "a8eb98f7b08cbaa900f2b9f8f8d197c5eca9aec3dff2ba2b5f78a7926c3aaa57";
   allocator_state allocator_state_value = {0u};
   const t64_host_allocator allocator = {
       test_allocate, test_release, &allocator_state_value};
@@ -96,6 +103,10 @@ static void test_vr4300_profile_entry(
   uint8_t state_after[T64_DIGEST_SIZE];
   uint8_t content_before[T64_DIGEST_SIZE];
   uint8_t content_after[T64_DIGEST_SIZE];
+  uint8_t reference_digest[T64_DIGEST_SIZE];
+  uint8_t production_digest[T64_DIGEST_SIZE];
+  char reference_hex[T64_DIGEST_SIZE * 2u + 1u];
+  char production_hex[T64_DIGEST_SIZE * 2u + 1u];
   t64_stop_request request = {T64_STOP_GUEST_TICK, UINT64_C(1)};
   t64_stop_result result = {UINT32_MAX, UINT64_MAX};
   t64_status status;
@@ -147,6 +158,23 @@ static void test_vr4300_profile_entry(
   T64_CHECK_INT(machine->cpu.cp0[12], UINT32_C(0x34000000));
   T64_CHECK_INT(machine->cpu.cp0[15], UINT32_C(0x00000b00));
   T64_CHECK_INT(machine->cpu.cp0[16], UINT32_C(0x7006e463));
+
+  /* v9 hashes its prepared CPU future state before the first instruction. */
+  T64_CHECK_INT(t64_machine_digest(machine, production_digest),
+                T64_STATUS_OK);
+  reference_machine_digest(machine, reference_digest);
+  digest_to_hex(reference_digest, reference_hex);
+  T64_CHECK_STR(reference_hex, expected_v9_prepared_state_sha256);
+  if (memcmp(production_digest, reference_digest,
+             sizeof reference_digest) != 0) {
+    digest_to_hex(production_digest, production_hex);
+    (void)fprintf(stderr,
+                  "RED observation: prepared v9 reference state %s, "
+                  "production state %s\n",
+                  reference_hex, production_hex);
+  }
+  T64_CHECK(memcmp(production_digest, reference_digest,
+                   sizeof reference_digest) == 0);
 
   T64_CHECK_INT(t64_machine_advance(machine, &request, &result),
                 T64_STATUS_OK);
@@ -317,6 +345,23 @@ static void reference_hash_u64(t64_sha256_ctx *context, uint64_t value) {
   t64_sha256_update(context, bytes, sizeof bytes);
 }
 
+static void reference_hash_zeros(t64_sha256_ctx *context, size_t length) {
+  static const uint8_t zeros[64] = {0u};
+
+  while (length > 0u) {
+    size_t chunk = length < sizeof zeros ? length : sizeof zeros;
+
+    t64_sha256_update(context, zeros, chunk);
+    length -= chunk;
+  }
+}
+
+static uint64_t reference_sign_extend_32(uint32_t value) {
+  return (value & UINT32_C(0x80000000)) != 0u
+             ? UINT64_C(0xffffffff00000000) | (uint64_t)value
+             : (uint64_t)value;
+}
+
 static size_t reference_text_length(const char *text, size_t capacity) {
   size_t length = 0u;
 
@@ -439,6 +484,69 @@ static void reference_hash_sp_descriptor(
   reference_hash_u64(context, descriptor->token);
 }
 
+static void reference_hash_v9_prepared_cpu_state(
+    t64_sha256_ctx *context, const t64_machine *machine) {
+  size_t i;
+
+  /* Full-width address state follows the v9 CPU field table. */
+  reference_hash_u64(context, reference_sign_extend_32(machine->cpu.pc));
+  reference_hash_u64(context,
+                     reference_sign_extend_32(machine->cpu.last_pc));
+  reference_hash_u64(context,
+                     reference_sign_extend_32(machine->cpu.delay_slot_pc));
+  reference_hash_u64(context,
+                     reference_sign_extend_32(machine->cpu.delay_target));
+  reference_hash_u64(context,
+                     reference_sign_extend_32(machine->cpu.stop_pc));
+  reference_hash_u32(context, 0u); /* No CPU attempt has run yet. */
+  reference_hash_u32(context, 1u); /* Named VR4300 CPU policy version. */
+  reference_hash_u32(context, 0u); /* TLB shutdown. */
+  reference_hash_u32(context, 0u); /* Pending exception. */
+  reference_hash_u32(context, 0u); /* Pending exception code. */
+  reference_hash_u64(context, 0u); /* Pending exception address. */
+  reference_hash_u64(context, 0u); /* Pending exception EPC. */
+  reference_hash_u32(context, 0u); /* Pending exception delay-slot flag. */
+
+  reference_hash_u32(context, 32u); /* Paired TLB entry count. */
+  for (i = 0u; i < 32u; i++) {
+    reference_hash_u64(context, 0u); /* PageMask. */
+    reference_hash_u64(context, 0u); /* VPN2. */
+    reference_hash_u64(context, 0u); /* Region. */
+    reference_hash_u32(context, 0u); /* ASID. */
+    reference_hash_u64(context, 0u); /* EntryLo0. */
+    reference_hash_u64(context, 0u); /* EntryLo1. */
+  }
+
+  reference_hash_u64(context, 0u); /* Count synchronization tick. */
+  reference_hash_u32(context, 0u); /* Half-clock phase. */
+  reference_hash_u64(context, UINT64_MAX); /* No pending equality deadline. */
+  reference_hash_u64(context, 0u); /* Equality latch generation. */
+  reference_hash_u32(context, 0u); /* Initial equality is not latched. */
+  reference_hash_u32(context, 0u); /* Physical link address. */
+  reference_hash_u32(context, 0u); /* Link width. */
+  reference_hash_u32(context, 0u); /* Link valid. */
+
+  reference_hash_u32(context, 512u); /* 16 KiB I-cache / 32-byte lines. */
+  for (i = 0u; i < 512u; i++) {
+    reference_hash_u32(context, 0u); /* Physical tag. */
+    reference_hash_u32(context, 0u); /* Valid. */
+    reference_hash_zeros(context, 32u);
+  }
+  reference_hash_u32(context, 512u); /* 8 KiB D-cache / 16-byte lines. */
+  for (i = 0u; i < 512u; i++) {
+    reference_hash_u32(context, 0u); /* Physical tag. */
+    reference_hash_u32(context, 0u); /* Valid. */
+    reference_hash_u32(context, 0u); /* Dirty. */
+    reference_hash_zeros(context, 16u);
+  }
+  reference_hash_u32(context, 32u); /* FPR count. */
+  for (i = 0u; i < 32u; i++) {
+    reference_hash_u64(context, 0u);
+  }
+  reference_hash_u32(context, UINT32_C(0x00000b00)); /* FCR0. */
+  reference_hash_u32(context, 0u); /* FCR31. */
+}
+
 static void reference_machine_digest(const t64_machine *machine,
                                     uint8_t digest[T64_DIGEST_SIZE]) {
   static const uint8_t domain_v6[] = {
@@ -447,13 +555,18 @@ static void reference_machine_digest(const t64_machine *machine,
       't', '6', '4', '.', 's', 't', 'a', 't', 'e', '.', 'v', '7'};
   static const uint8_t domain_v8[] = {
       't', '6', '4', '.', 's', 't', 'a', 't', 'e', '.', 'v', '8'};
+  static const uint8_t domain_v9[] = {
+      't', '6', '4', '.', 's', 't', 'a', 't', 'e', '.', 'v', '9'};
   const bool v7 = machine->profile.state_serialization_version == 7u;
   const bool v8 = machine->profile.state_serialization_version == 8u;
+  const bool v9 = machine->profile.state_serialization_version == 9u;
   t64_sha256_ctx context;
   size_t i;
 
   t64_sha256_init(&context);
-  t64_sha256_update(&context, v8 ? domain_v8 : (v7 ? domain_v7 : domain_v6),
+  t64_sha256_update(&context, v9 ? domain_v9
+                                : (v8 ? domain_v8
+                                      : (v7 ? domain_v7 : domain_v6)),
                     sizeof domain_v6);
   reference_hash_u32(&context, machine->profile.state_serialization_version);
   t64_sha256_update(&context, machine->profile_digest,
@@ -563,6 +676,9 @@ static void reference_machine_digest(const t64_machine *machine,
   reference_hash_u32(&context, machine->cpu.stop_reason);
   reference_hash_u32(&context, machine->cpu.stop_pc);
   reference_hash_u32(&context, machine->cpu.stop_opcode);
+  if (v9) {
+    reference_hash_v9_prepared_cpu_state(&context, machine);
+  }
   reference_hash_u32(&context, machine->cache.policy_version);
   reference_hash_u32(&context, machine->cache.last_operation);
   reference_hash_u32(&context, machine->cache.last_pc);
@@ -578,7 +694,7 @@ static void reference_machine_digest(const t64_machine *machine,
   reference_hash_u32(&context, machine->output.policy_version);
   reference_hash_u32(&context, machine->output.video_output_ready ? 1u : 0u);
   reference_hash_u32(&context, machine->output.audio_output_ready ? 1u : 0u);
-  if (v7 || v8) {
+  if (v7 || v8 || v9) {
     reference_hash_u32(&context, machine->output.magic_register);
     reference_hash_u32(&context, machine->output.byte_count);
     reference_hash_u32(&context, T64_ISVIEWER_BUFFER_BYTES);
@@ -589,7 +705,7 @@ static void reference_machine_digest(const t64_machine *machine,
     t64_sha256_update(&context, machine->output.captured,
                       sizeof machine->output.captured);
     reference_hash_u32(&context, machine->output.lost_output ? 1u : 0u);
-    if (v8) {
+    if (v8 || v9) {
       reference_hash_u64(&context, machine->output.total_attempted_bytes);
       reference_hash_u32(
           &context,
