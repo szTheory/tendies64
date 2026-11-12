@@ -94,8 +94,8 @@ status: complete
 
 ## Task Commits
 
-1. **Task 1: Move a COP1 value through FPR memory and an exception handler** — `1d10132` (RED test/evidence), `8cbef8b` (implementation); [test_cpu_path.c](../../../core/tests/test_cpu_path.c:2419), [t64_cop1.c](../../../core/t64_cop1.c:1).
-2. **Task 2: Cover register layout, control fields and COP1 branches** — `9730078` (RED test/evidence), `6b64b2f` (corrected branch target vector and recaptured RED), `9d71c3e` (implementation/tests); [test_cop1.c](../../../core/tests/test_cop1.c:1), [t64_cpu.c](../../../core/t64_cpu.c:463).
+1. **Task 1: Move a COP1 value through FPR memory and an exception handler** — `1d10132` (RED test/evidence), `8cbef8b` (implementation); [test_cpu_path.c](../../../core/tests/test_cpu_path.c#L2419), [t64_cop1.c](../../../core/t64_cop1.c#L1).
+2. **Task 2: Cover register layout, control fields and COP1 branches** — `9730078` (RED test/evidence), `6b64b2f` (corrected branch target vector and recaptured RED), `9d71c3e` (implementation/tests); [test_cop1.c](../../../core/tests/test_cop1.c#L1), [t64_cpu.c](../../../core/t64_cpu.c#L463).
 
 ## Files Created/Modified
 

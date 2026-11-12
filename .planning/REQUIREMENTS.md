@@ -69,7 +69,7 @@ API and a playable rights-cleared homebrew. Each maps to a roadmap phase.
 - [x] **CPU-04**: Address translation includes the TLB (refill, invalid, modified, XTLB) and address errors
 - [x] **CPU-05**: Unaligned loads and stores, LL/SC and LLD/SCD behave correctly
 - [x] **CPU-06**: A functional cache model exists, with a written scope decision on what cache behavior is guest-visible
-- [ ] **CPU-07**: COP1 uses integer soft-float with correct rounding modes, FCR31 and unimplemented-operation behavior; host floating point is never the canonical path
+- [x] **CPU-07**: COP1 uses integer soft-float with correct rounding modes, FCR31 and unimplemented-operation behavior; host floating point is never the canonical path
 - [ ] **CPU-08**: CPU timing at tier 1 (instruction-granular cost) is available, and the cycle-accurate tier is documented as deferred
 - [ ] **CPU-09**: Native component tests use independently sourced expected values, with edge and negative cases for each of the above
 
@@ -221,7 +221,7 @@ re-sequenced at milestone close.
 | CPU-04 | Phase 4 | Complete |
 | CPU-05 | Phase 4 | Complete |
 | CPU-06 | Phase 4 | Complete |
-| CPU-07 | Phase 4 | Pending |
+| CPU-07 | Phase 4 | Complete |
 | CPU-08 | Phase 6 | Pending |
 | CPU-09 | Phase 4 | Pending |
 | BOOT-01 | Phase 3 | Complete |
