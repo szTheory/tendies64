@@ -286,6 +286,10 @@ static t64_status dispatch_front(t64_machine *machine) {
   if (!event_can_dispatch(machine, &event)) {
     return T64_STATUS_RESOURCE_EXHAUSTED;
   }
+  status = t64_cp0_synchronize_guest_time(machine, event.tick);
+  if (status != T64_STATUS_OK) {
+    return status;
+  }
   queue_pop_front(machine);
   machine->tick = event.tick;
   t64_trace_emit(machine, event.tick, event.device, event.kind, event.value);
@@ -322,6 +326,7 @@ static t64_status advance_time_bound(t64_machine *machine,
                                      const t64_stop_request *request,
                                      t64_stop_result *result_out) {
   size_t dispatched = 0u;
+  t64_status status;
 
   if (request->value < machine->tick) {
     return T64_STATUS_TIME_REVERSED;
@@ -336,8 +341,6 @@ static t64_status advance_time_bound(t64_machine *machine,
     return T64_STATUS_OK;
   }
   while (machine->queue_count > 0u && queue_front(machine)->tick <= request->value) {
-    t64_status status;
-
     if (dispatched >= machine->profile.advance_event_budget) {
       set_stop_result(result_out, T64_STOP_REASON_RESOURCE_LIMIT,
                       machine->tick);
@@ -363,6 +366,10 @@ static t64_status advance_time_bound(t64_machine *machine,
                       machine->tick);
       return T64_STATUS_OK;
     }
+  }
+  status = t64_cp0_synchronize_guest_time(machine, request->value);
+  if (status != T64_STATUS_OK) {
+    return status;
   }
   machine->tick = request->value;
   set_stop_result(result_out, T64_STOP_REASON_BOUND, machine->tick);

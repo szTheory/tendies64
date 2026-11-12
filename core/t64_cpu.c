@@ -1039,10 +1039,10 @@ static bool execute_cp0_warm(t64_machine *machine, uint32_t opcode,
 
 static t64_cp0_transfer_result execute_cp0_vr4300(
     t64_machine *machine, uint32_t opcode, bool *write_gpr_out,
-    uint32_t *destination_out, uint64_t *value_out) {
-  t64_cp0_effect effect = {0};
+    uint32_t *destination_out, uint64_t *value_out,
+    t64_cp0_effect *effect_out) {
   t64_cp0_transfer_result result =
-      t64_cp0_prepare_transfer(machine, opcode, &effect);
+      t64_cp0_prepare_transfer(machine, opcode, effect_out);
 
   *write_gpr_out = false;
   *destination_out = 0u;
@@ -1050,10 +1050,9 @@ static t64_cp0_transfer_result execute_cp0_vr4300(
   if (result != T64_CP0_TRANSFER_OK) {
     return result;
   }
-  t64_cp0_commit_transfer(machine, &effect);
-  *write_gpr_out = effect.write_gpr;
-  *destination_out = effect.gpr_index;
-  *value_out = effect.gpr_value;
+  *write_gpr_out = effect_out->write_gpr;
+  *destination_out = effect_out->gpr_index;
+  *value_out = effect_out->gpr_value;
   return T64_CP0_TRANSFER_OK;
 }
 
@@ -1543,6 +1542,7 @@ t64_status t64_cpu_step(t64_machine *machine, const t64_event *event) {
   uint32_t link_register = 0u;
   uint32_t destination = 0u;
   uint64_t value = 0u;
+  t64_cp0_effect cp0_effect = {0};
   bool in_delay_slot;
   bool is_branch;
   bool branch_taken = false;
@@ -1553,6 +1553,7 @@ t64_status t64_cpu_step(t64_machine *machine, const t64_event *event) {
   bool trap_noop = false;
   bool memory_handled = false;
   bool is_eret = false;
+  bool cp0_effect_prepared = false;
   bool supported;
   uint64_t eret_target = 0u;
   t64_status status;
@@ -1565,6 +1566,11 @@ t64_status t64_cpu_step(t64_machine *machine, const t64_event *event) {
     return T64_STATUS_RESOURCE_EXHAUSTED;
   }
   new_profile = has_vr4300_cpu_state(machine);
+  status = t64_cp0_synchronize_guest_time(machine, machine->tick);
+  if (status != T64_STATUS_OK) {
+    machine->cpu.attempt_outcome = T64_CPU_ATTEMPT_HOST_ERROR;
+    return status;
+  }
   pc_full = new_profile
                 ? machine->cpu.pc_full
                 : (uint64_t)machine->cpu.pc;
@@ -1574,6 +1580,11 @@ t64_status t64_cpu_step(t64_machine *machine, const t64_event *event) {
   machine->cpu.last_pc = pc;
   if (new_profile) {
     machine->cpu.last_pc_full = pc_full;
+    if (t64_cp0_interrupt_pending(machine)) {
+      machine->cpu.last_opcode = 0u;
+      return cpu_enter_exception(machine, UINT32_C(0), 0u,
+                                 in_delay_slot, false, 0u);
+    }
     if ((pc_full & UINT64_C(3)) != 0u) {
       machine->cpu.last_opcode = 0u;
       return cpu_enter_exception(machine, UINT32_C(4), pc_full,
@@ -1690,7 +1701,7 @@ t64_status t64_cpu_step(t64_machine *machine, const t64_event *event) {
     if (new_profile) {
       t64_cp0_transfer_result cp0_result =
           execute_cp0_vr4300(machine, opcode, &write_gpr, &destination,
-                             &value);
+                             &value, &cp0_effect);
 
       if (cp0_result == T64_CP0_TRANSFER_RESERVED) {
         return cpu_enter_exception(machine, UINT32_C(10), 0u,
@@ -1700,6 +1711,7 @@ t64_status t64_cpu_step(t64_machine *machine, const t64_event *event) {
         cpu_stop_unsupported(machine, pc, opcode);
         return T64_STATUS_RESOURCE_EXHAUSTED;
       }
+      cp0_effect_prepared = true;
       supported = true;
     } else {
       supported = execute_cp0_warm(machine, opcode, &write_gpr,
@@ -1769,10 +1781,15 @@ t64_status t64_cpu_step(t64_machine *machine, const t64_event *event) {
   next_pc = (uint32_t)next_pc_full;
   machine->cpu.pc = next_pc;
   machine->cpu.gpr[0] = 0u;
+  if (cp0_effect_prepared) {
+    t64_cp0_commit_transfer(machine, &cp0_effect);
+  }
   machine->cpu.retired_instructions++;
   machine->instruction_count++;
   t64_cp0_instruction_retired(machine);
-  cp0_retirement_tick(machine);
+  if (!new_profile) {
+    cp0_retirement_tick(machine);
+  }
   if (has_vr4300_cpu_state(machine)) {
     machine->cpu.attempt_outcome = T64_CPU_ATTEMPT_RETIRED;
     machine->cpu.pc_full = next_pc_full;

@@ -16,9 +16,11 @@ path only. It does not establish full IPL3 completion or general ROM support.
 
 Hardware field references are NEC, *VR4300/VR4305/VR4310 64-Bit
 Microprocessor User's Manual*, U10504EJ7V0UMJ1, 7th edition, August 2000,
-SHA-256 `b7c1900f1707a4b238ebd82af1669e9628e4df4875ceabfa012a9d95b4716b75`.
-The cited Config and PRId fields are in §§5.4.5–5.4.6, pp.151–153; the
-prepared values below remain software choices where noted. The project
+SHA-256 `b7c1900f1707a4b238ebd82af1669e9628e4df4875ceabfa012a9d95b4716b75`
+([public PDF](https://hack64.net/docs/VR43XX.pdf)). The cited Config and PRId
+fields are in §§5.4.5–5.4.6, pp.151–153; Count and Compare are in §6.3.3,
+p.164 and §6.3.4, p.165. Prepared values and emulator clock mapping remain
+software choices where noted. The project
 [CPU decision record](../../.planning/phases/04-complete-vr4300-cpu/04-DECISION-CPU.md)
 records the manual evidence, unresolved alternatives, and reversal criteria.
 
@@ -61,10 +63,13 @@ must not be described as reset-silicon observations.
 All other CP0 slots are zero in this prepared state. Random, PRId, and FCR0 are
 represented by their selected values above. The initial Count phase is zero;
 `count_compare_deadline = UINT64_MAX` means no later equality deadline has
-been scheduled, and the equality latch and its generation start clear. This
-plan adds identity fields, not the later guest-clock timer implementation.
-The current CPU helper still increments Count on retirement; that inherited
-behavior is not evidence for the manual's free-running half-PClock rule.
+been materialized before the first positive guest-time synchronization, and
+the equality latch and its generation start clear. The first positive
+synchronization computes the next strict equality deadline, including a full
+32-bit wrap when prepared Count and Compare are initially equal. In the new
+profile, Count advances once per two guest ticks regardless of retirement;
+this selected mapping is deterministic model policy, not a physical clock-rate
+measurement. Warm-v1 retains its exact retirement-based Count behavior.
 
 ## Internal state contracts
 
@@ -119,17 +124,17 @@ independent mutable state across two machines.
 
 ## Limits and unresolved evidence
 
-This slice does not implement architectural exceptions, TLB lookup or writes,
-cache hits/refills/writeback, LL/SC, COP1 arithmetic, or the CPU's later
-guest-time Count model. It records and hashes their prepared state so those
-features can be added without aliasing machines that have different future
-behavior. The BEV=1 general exception vector discrepancy on manual p.181
-remains unresolved: its table implies `0xBFC00380`, while its prose gives
-`0x80000180`. No vector behavior is claimed here; reverse that policy only
-with a manual erratum or controlled hardware-derived evidence.
+This slice does not implement TLB lookup or writes, cache hits/refills/writeback,
+LL/SC, or COP1 arithmetic. Count/Compare now synchronize against guest ticks,
+merge timer, MI, and software interrupt ownership, and are included in the v9
+digest. The timer handler path is model evidence only; it does not establish a
+physical clock rate or broad ROM compatibility. The BEV=1 general exception
+vector discrepancy on manual p.181 remains unresolved: its table implies
+`0xBFC00380`, while its prose gives `0x80000180`. The selected handler path
+uses BEV=0 vector `0x80000180`; the BEV=1 policy remains unqualified.
 
 The warm-v1 profile retains descriptor v2, machine model v2, state v8, and
 its existing seven fixtures and exact golden bytes. The new profile's current
-evidence covers one instruction at the pinned entry and deterministic seed
-identity only. It does not establish broad software compatibility, physical
+evidence covers its pinned entry and a deterministic Count/Compare interrupt
+handler path. It does not establish broad software compatibility, physical
 clock accuracy, or hardware accuracy.

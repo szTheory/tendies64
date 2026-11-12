@@ -405,6 +405,9 @@ t64_cp0_transfer_result t64_cp0_prepare_transfer(
     const t64_machine *machine, uint32_t opcode, t64_cp0_effect *effect_out);
 void t64_cp0_commit_transfer(t64_machine *machine,
                              const t64_cp0_effect *effect);
+t64_status t64_cp0_synchronize_guest_time(t64_machine *machine,
+                                          uint64_t tick);
+bool t64_cp0_interrupt_pending(t64_machine *machine);
 bool t64_cp0_access_unusable(const t64_machine *machine);
 uint32_t t64_cp0_random_tlb_index(const t64_machine *machine);
 void t64_cp0_instruction_retired(t64_machine *machine);

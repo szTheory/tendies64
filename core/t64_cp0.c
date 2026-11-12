@@ -55,8 +55,14 @@
 #define T64_ENTRYHI64_MASK UINT64_C(0xc00000ffffffe0ff)
 #define T64_ENTRYHI_HIGH32_MASK UINT64_C(0xc00000ff00000000)
 #define T64_CAUSE_SOFTWARE_MASK UINT32_C(0x00000300)
+#define T64_CAUSE_IP2_MASK UINT32_C(0x00000400)
+#define T64_CAUSE_INTERRUPT_MASK UINT32_C(0x0000ff00)
 #define T64_CAUSE_DEFINED_MASK UINT32_C(0xb000ff7c)
 #define T64_CAUSE_TIMER_MASK UINT32_C(0x00008000)
+#define T64_STATUS_IE UINT32_C(0x00000001)
+#define T64_STATUS_EXL UINT32_C(0x00000002)
+#define T64_STATUS_ERL UINT32_C(0x00000004)
+#define T64_COUNT_MODULUS UINT64_C(0x100000000)
 #define T64_CONFIG_EP_MASK UINT32_C(0x0f000000)
 #define T64_CONFIG_BE_MASK UINT32_C(0x00008000)
 #define T64_CONFIG_CU_MASK UINT32_C(0x00000008)
@@ -468,13 +474,141 @@ t64_cp0_transfer_result t64_cp0_prepare_transfer(
   return prepare_cp0_write(machine, operation, rt, rd, effect_out);
 }
 
+static void refresh_count_compare_deadline(t64_machine *machine) {
+  uint64_t count_distance;
+  uint64_t ticks_until_equality;
+  uint32_t count = (uint32_t)machine->cpu.cp0[T64_CP0_COUNT];
+  uint32_t compare = (uint32_t)machine->cpu.cp0[T64_CP0_COMPARE];
+
+  count_distance = (uint64_t)(uint32_t)(compare - count);
+  if (count_distance == 0u) {
+    count_distance = T64_COUNT_MODULUS;
+  }
+  ticks_until_equality = count_distance * UINT64_C(2) -
+                         (uint64_t)machine->cpu.count_half_clock_phase;
+  if (ticks_until_equality > UINT64_MAX - machine->cpu.count_sync_tick) {
+    machine->cpu.count_compare_deadline = UINT64_MAX;
+  } else {
+    machine->cpu.count_compare_deadline =
+        machine->cpu.count_sync_tick + ticks_until_equality;
+  }
+}
+
+t64_status t64_cp0_synchronize_guest_time(t64_machine *machine,
+                                          uint64_t tick) {
+  uint64_t elapsed_ticks;
+  uint64_t count_increments;
+  uint64_t equality_distance;
+  uint32_t count;
+  uint32_t compare;
+  uint32_t next_count;
+  uint32_t next_phase;
+  uint32_t cause;
+  uint32_t phase;
+
+  if (machine == NULL) {
+    return T64_STATUS_INVALID_ARGUMENT;
+  }
+  if (!is_vr4300_profile(machine)) {
+    return T64_STATUS_OK;
+  }
+  if (tick < machine->cpu.count_sync_tick) {
+    return T64_STATUS_TIME_REVERSED;
+  }
+  phase = machine->cpu.count_half_clock_phase;
+  if (phase > 1u) {
+    return T64_STATUS_INVALID_ARGUMENT;
+  }
+
+  elapsed_ticks = tick - machine->cpu.count_sync_tick;
+  if (elapsed_ticks == 0u) {
+    return T64_STATUS_OK;
+  }
+  count_increments = elapsed_ticks / UINT64_C(2) +
+                     ((elapsed_ticks % UINT64_C(2) + (uint64_t)phase) /
+                      UINT64_C(2));
+  next_phase = (uint32_t)((elapsed_ticks % UINT64_C(2) +
+                           (uint64_t)phase) % UINT64_C(2));
+  count = (uint32_t)machine->cpu.cp0[T64_CP0_COUNT];
+  compare = (uint32_t)machine->cpu.cp0[T64_CP0_COMPARE];
+  next_count = count + (uint32_t)count_increments;
+  if (count_increments != 0u) {
+    equality_distance = (uint64_t)(uint32_t)(compare - count);
+    if (equality_distance == 0u) {
+      equality_distance = T64_COUNT_MODULUS;
+    }
+    if (count_increments >= equality_distance) {
+      uint64_t equality_count =
+          UINT64_C(1) +
+          (count_increments - equality_distance) / T64_COUNT_MODULUS;
+
+      cause = (uint32_t)machine->cpu.cp0[T64_CP0_CAUSE];
+      machine->cpu.cp0[T64_CP0_CAUSE] = cause | T64_CAUSE_TIMER_MASK;
+      machine->cpu.count_equality_latch_generation += equality_count;
+      machine->cpu.count_equality_latched = next_count == compare;
+    } else if (next_count != compare) {
+      machine->cpu.count_equality_latched = false;
+    }
+  }
+  machine->cpu.cp0[T64_CP0_COUNT] = (uint64_t)next_count;
+  machine->cpu.count_half_clock_phase = next_phase;
+  machine->cpu.count_sync_tick = tick;
+  refresh_count_compare_deadline(machine);
+  return T64_STATUS_OK;
+}
+
+bool t64_cp0_interrupt_pending(t64_machine *machine) {
+  uint32_t cause;
+  uint32_t status;
+
+  if (machine == NULL || !is_vr4300_profile(machine)) {
+    return false;
+  }
+  cause = (uint32_t)machine->cpu.cp0[T64_CP0_CAUSE];
+  if (machine->mi_irq_line) {
+    cause |= T64_CAUSE_IP2_MASK;
+  } else {
+    cause &= ~T64_CAUSE_IP2_MASK;
+  }
+  machine->cpu.cp0[T64_CP0_CAUSE] = cause;
+  status = (uint32_t)machine->cpu.cp0[T64_CP0_STATUS];
+  return (status & T64_STATUS_IE) != 0u &&
+         (status & (T64_STATUS_EXL | T64_STATUS_ERL)) == 0u &&
+         (status & cause & T64_CAUSE_INTERRUPT_MASK) != 0u;
+}
+
 void t64_cp0_commit_transfer(t64_machine *machine,
                              const t64_cp0_effect *effect) {
   if (machine == NULL || effect == NULL) {
     return;
   }
   if (effect->write_cp0 && effect->cp0_index < 32u) {
+    if (effect->cp0_index == T64_CP0_COUNT ||
+        effect->cp0_index == T64_CP0_COMPARE) {
+      if (t64_cp0_synchronize_guest_time(machine, machine->tick) !=
+          T64_STATUS_OK) {
+        return;
+      }
+    }
     machine->cpu.cp0[effect->cp0_index] = effect->cp0_value;
+    if (effect->cp0_index == T64_CP0_COUNT) {
+      uint32_t count = (uint32_t)effect->cp0_value;
+      uint32_t compare = (uint32_t)machine->cpu.cp0[T64_CP0_COMPARE];
+
+      machine->cpu.count_equality_latched = count == compare;
+      if (count == compare) {
+        machine->cpu.cp0[T64_CP0_CAUSE] =
+            (uint32_t)machine->cpu.cp0[T64_CP0_CAUSE] |
+            T64_CAUSE_TIMER_MASK;
+        machine->cpu.count_equality_latch_generation++;
+      }
+      refresh_count_compare_deadline(machine);
+    } else if (effect->cp0_index == T64_CP0_COMPARE) {
+      machine->cpu.count_equality_latched =
+          (uint32_t)machine->cpu.cp0[T64_CP0_COUNT] ==
+          (uint32_t)effect->cp0_value;
+      refresh_count_compare_deadline(machine);
+    }
   }
   if (effect->clear_timer_pending) {
     machine->cpu.cp0[T64_CP0_CAUSE] =
