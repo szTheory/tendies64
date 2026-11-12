@@ -124,8 +124,11 @@ independent mutable state across two machines.
 
 ## Limits and unresolved evidence
 
-This slice does not implement TLB lookup or writes, cache hits/refills/writeback,
-LL/SC, or COP1 arithmetic. Count/Compare now synchronize against guest ticks,
+The VR4300 profile implements paired TLB translation and management across
+the selected 32-bit and extended address modes, with precise refill, invalid,
+modified, and address faults. Cache attributes are carried by translation;
+cache hits/refills/writeback, LL/SC, and COP1 arithmetic remain later work.
+Count/Compare synchronize against guest ticks,
 merge timer, MI, and software interrupt ownership, and are included in the v9
 digest. The timer handler path is model evidence only; it does not establish a
 physical clock rate or broad ROM compatibility. The BEV=1 general exception
@@ -135,6 +138,17 @@ uses BEV=0 vector `0x80000180`; the BEV=1 policy remains unqualified.
 
 The warm-v1 profile retains descriptor v2, machine model v2, state v8, and
 its existing seven fixtures and exact golden bytes. The new profile's current
-evidence covers its pinned entry and a deterministic Count/Compare interrupt
-handler path. It does not establish broad software compatibility, physical
+evidence covers its pinned entry, a deterministic Count/Compare interrupt
+handler, and a guest TLB-refill handler that installs a mapping and retries the
+load. Native tests cover all 32 TLB entries, seven page sizes, modes, permissions,
+and management operations. It does not establish broad software compatibility, physical
 clock accuracy, or hardware accuracy.
+
+TLB tag/ASID matching precedes the V check (NEC §5.4.9, pp.155–157). Invalid
+entries therefore still participate in probe and duplicate detection. The
+prepared zeroed entries can produce duplicate matches for virtual tag zero
+with ASID zero; the selected model sets TS and enters shutdown until reset.
+This is a documented consequence of the software seed, not a claim about
+hardware reset contents. Unsupported masks or physical-width requests are
+refused before partial architectural effects. Warm-v1 keeps its separate
+direct-only translation and CACHE subset.

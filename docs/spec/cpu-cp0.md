@@ -100,7 +100,14 @@ atomically; CU/K0 remain software writable.
 Random stepping is a selected instruction-boundary policy: after each retired
 instruction, step the low five-bit value over Wired..31; an instruction that
 uses Random for TLBWR consumes `t64_cp0_random_tlb_index()` before that step.
-Full TLB operations are implemented by their later CPU slice.
+The VR4300 profile implements TLBP, TLBR, TLBWI, and TLBWR through the shared
+MMU contract. TLBWI uses Index's low five bits; TLBWR consumes the pre-retirement
+Random selection. Probe and lookup include invalid entries in tag matching;
+duplicate matches set the read-only TS state and select shutdown until reset.
+TLB faults commit BadVAddr, EntryHi, Context, and XContext through the precise
+exception path. XContext region and BadVPN2 hardware fields update in both
+32-bit and extended modes. These are native model contracts; cache-line
+behavior and hardware qualification are separate.
 
 ## Count, Compare, and interrupt boundary
 

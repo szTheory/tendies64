@@ -87,6 +87,11 @@ applies that direction; update it when the owner changes policy.
   A hardcoded false placeholder is not RED evidence. Verification-only work
   over already implemented behavior may start green; remove an inapplicable
   TDD marker with a recorded rationale instead of manufacturing a failure.
+  A task explicitly marked tdd=true must capture and classify its actual
+  pre-implementation report even when the plan type is execute and the global
+  TDD setting is off. Semantic notes alone do not replace that formal guard.
+  If the guard was missed, preserve the deviation and label any later isolated
+  regression controls as current evidence, never as original RED history.
 - A test ROM's repository license does not automatically grant redistribution
   rights for its generated ROM or embedded content. Keep a fixture manifest
   with source/revision, build recipe/toolchain, digest, boot/profile

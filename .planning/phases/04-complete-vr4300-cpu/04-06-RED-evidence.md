@@ -54,3 +54,37 @@ operand at KUSEG `0x100` raises a TLB refill before cache or reservation
 effects. NEC U10504EJ7V0UM00, p. 402, specifies virtual-to-physical translation
 for CACHE operands and says TLB miss/invalid exceptions may occur. Cache line
 state and writeback semantics remain outside this plan.
+
+## Formal-report gap and current reconstructed controls
+
+The executor did not perform or retain formal `check tdd-red-evidence`
+classification for either original pre-implementation run. The observations
+above are semantic history, not a claimed original classifier verdict. Task
+tests and implementation were also committed together. This process deviation
+is retained; the following controls do not backdate or replace that history.
+
+On 2026-11-12 the parent compiled isolated, single-field mutations against the
+current production test objects and a copy of the core archive. Production C
+sources, objects, archive and executables were left unchanged. The controls
+reuse the registered tests' mode arguments and qualified authored IPL3 fixture
+environment; no external diagnostic or protected material was used.
+
+| Current control | Exact perturbation | Actual first failed assertion |
+|---|---|---|
+| Refill vector | In `tlb_refill_vector`, change the normal offset from0 to180 hex; retain the extended offset80. | CPU-path case11 sees PCffffffff80000180 instead of refill80000000, ExcCode2, BadVAddr4000, EntryHi4000, destinationfeedface, retired0 and no-partial-effects1. Other14 internal cases pass. |
+| XKPHYS domain | On the high-physical-width refusal branch, assign BUS before returning the existing address fault. | MMU case3 observes fault1, translated0 and domain0(BUS), expected domain1(XKPHYS). Other8 internal cases pass. |
+
+Each actual isolated CTest run discovered one registered target and exited8.
+Its unchanged generated JUnit document was passed to
+`check tdd-red-evidence`: both returned `RED_EVIDENCE_OK`, reason
+`target_test_failed`, matching the exact CPU-path/MMU target. These are
+current regression-mutation controls, not pre-feature runs. Current unmodified
+production CPU-path and MMU CTests subsequently passed2/2.
+
+The initial control-harness attempt omitted the CPU-path mode argument and
+fixture environment. Its setup failures were inspected, excluded and never
+submitted as valid RED. Corrected runs above used the original CTest arguments
+and environment. Raw JUnit, console, compiler and classifier records remain
+ignored under `build/phase4-mmu-regression-controls/`; only portable facts are
+tracked here. Hash checks confirmed the production sources and archive were
+unchanged by the controls.
