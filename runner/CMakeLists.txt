@@ -33,10 +33,13 @@ set_tests_properties(runner.cpu-diagnostic-inventory PROPERTIES
 add_executable(test_cpu_diagnostic tests/test_cpu_diagnostic.c)
 target_compile_definitions(test_cpu_diagnostic PRIVATE ${T64_HOST_DEFS})
 target_include_directories(test_cpu_diagnostic PRIVATE ${CMAKE_SOURCE_DIR}/core)
-target_link_libraries(test_cpu_diagnostic PRIVATE t64_common t64_core)
+target_link_libraries(test_cpu_diagnostic PRIVATE
+  t64_cpu_diag_protocol t64_verified_input t64_common t64_core)
 t64_target_warnings(test_cpu_diagnostic)
 add_dependencies(test_cpu_diagnostic t64-boot-fixtures)
-add_test(NAME runner.cpu-diagnostic COMMAND test_cpu_diagnostic)
+add_test(NAME runner.cpu-diagnostic
+  COMMAND test_cpu_diagnostic $<TARGET_FILE:t64-cpu-diagnostic>
+          $<TARGET_FILE:t64-cpu-diagnostic-test-hooks>)
 set_tests_properties(runner.cpu-diagnostic PROPERTIES
   LABELS runner TIMEOUT 120
   ENVIRONMENT
@@ -77,6 +80,26 @@ target_compile_definitions(t64_verified_input PRIVATE ${T64_HOST_DEFS})
 target_include_directories(t64_verified_input PUBLIC ${CMAKE_CURRENT_SOURCE_DIR})
 target_link_libraries(t64_verified_input PRIVATE t64_common)
 t64_target_warnings(t64_verified_input)
+
+# Separate local CPU adapter; its CLI and authored controls share strict
+# protocol, immutable snapshots, and the canonical machine implementation.
+add_executable(t64-cpu-diagnostic t64_cpu_diagnostic.c)
+target_compile_definitions(t64-cpu-diagnostic PRIVATE ${T64_HOST_DEFS})
+target_link_libraries(t64-cpu-diagnostic PRIVATE
+  t64_cpu_diag_protocol t64_verified_input t64_common t64_core)
+t64_target_warnings(t64-cpu-diagnostic)
+
+# A second copy of the adapter exposes a pipe barrier only to the authored
+# replacement control. The executable used by normal production paths has no
+# test hook; both targets share the same core/protocol implementation.
+add_executable(t64-cpu-diagnostic-test-hooks t64_cpu_diagnostic.c)
+target_compile_definitions(t64-cpu-diagnostic-test-hooks PRIVATE
+  ${T64_HOST_DEFS} T64_CPU_DIAGNOSTIC_TESTING)
+target_link_libraries(t64-cpu-diagnostic-test-hooks PRIVATE
+  t64_cpu_diag_protocol t64_verified_input t64_common t64_core)
+t64_target_warnings(t64-cpu-diagnostic-test-hooks)
+add_dependencies(test_cpu_diagnostic
+  t64-cpu-diagnostic t64-cpu-diagnostic-test-hooks)
 
 # Test-only fault injection stays out of the supervisor's production library.
 add_library(t64_verified_input_test STATIC t64_verified_input.c)

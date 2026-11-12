@@ -14,20 +14,11 @@
 #define T64_CPU_DIAG_MAX_IDENTITY_TEXT 128u
 
 typedef struct {
-  const char *source_revision;
-  const char *overlay_sha256;
-  const char *tool_receipt_sha256;
-  const char *core_build_sha256;
-  const char *profile_sha256;
-  const char *base_rom_sha256;
-  const char *selector;
-  const char *selected_rom_sha256;
-} t64_cpu_diag_identity;
-
-typedef struct {
   uint32_t index;
   const char *id;
   size_t id_length;
+  const char *selector;
+  const char *selected_rom_sha256;
 } t64_cpu_diag_value;
 
 typedef struct {
@@ -91,8 +82,7 @@ static const char *const t64_cpu_diag_declared_count_keys[] = {
     "registrations", "required_values", "values"};
 static const char *const t64_cpu_diag_identity_keys[] = {
     "base_rom_sha256", "core_build_sha256", "overlay_sha256",
-    "profile_sha256", "selected_rom_sha256", "selector",
-    "source_revision", "tool_receipt_sha256"};
+    "profile_sha256", "source_revision", "tool_receipt_sha256"};
 static const char *const t64_cpu_diag_batch_identity_keys[] = {
     "base_rom_sha256", "core_build_sha256", "inventory_sha256",
     "overlay_sha256", "profile_sha256", "selected_rom_sha256", "selector",
@@ -100,7 +90,8 @@ static const char *const t64_cpu_diag_batch_identity_keys[] = {
 static const char *const t64_cpu_diag_registration_keys[] = {
     "execution", "group", "index", "lane", "level", "name", "reason",
     "values"};
-static const char *const t64_cpu_diag_value_keys[] = {"id", "index"};
+static const char *const t64_cpu_diag_value_keys[] = {
+    "id", "index", "selected_rom_sha256", "selector"};
 static const char *const t64_cpu_diag_batch_keys[] = {
     "identity", "records", "schema", "schema_version"};
 static const char *const t64_cpu_diag_start_keys[] = {
@@ -207,22 +198,25 @@ static bool canonical_document(const t64_json_doc *document,
 }
 
 static bool parse_schema_version(const t64_json_node *root,
-                                 const char *schema) {
+                                 const char *schema, uint32_t expected_version) {
   const t64_json_node *version = t64_json_get(root, "schema_version");
   return string_equals(t64_json_get(root, "schema"), schema) &&
          version != NULL && version->type == T64_JSON_INT &&
-         version->num == (int64_t)T64_CPU_DIAG_SCHEMA_VERSION;
+         version->num == (int64_t)expected_version;
 }
 
-static bool parse_identity(const t64_json_node *object, bool include_inventory,
+static bool parse_identity(const t64_json_node *object,
+                           bool include_batch_fields,
                            t64_cpu_diag_identity *identity,
+                           const char **selector_out,
+                           const char **selected_rom_sha256_out,
                            const char **inventory_sha256_out) {
   static const char inventory_hash_key[] = "inventory_sha256";
   const t64_json_node *node;
-  const char *const *keys = include_inventory
+  const char *const *keys = include_batch_fields
                                 ? t64_cpu_diag_batch_identity_keys
                                 : t64_cpu_diag_identity_keys;
-  size_t key_count = include_inventory
+  size_t key_count = include_batch_fields
                          ? sizeof t64_cpu_diag_batch_identity_keys /
                                sizeof t64_cpu_diag_batch_identity_keys[0]
                          : sizeof t64_cpu_diag_identity_keys /
@@ -242,24 +236,27 @@ static bool parse_identity(const t64_json_node *object, bool include_inventory,
   node = string_member(object, "profile_sha256");
   if (!lowercase_hex(node, 64u)) return false;
   identity->profile_sha256 = node->str;
-  node = string_member(object, "selected_rom_sha256");
-  if (!lowercase_hex(node, 64u)) return false;
-  identity->selected_rom_sha256 = node->str;
-  node = string_member(object, "selector");
-  if (!selector_text(node)) return false;
-  identity->selector = node->str;
   node = string_member(object, "source_revision");
   if (!lowercase_hex(node, 40u)) return false;
   identity->source_revision = node->str;
   node = string_member(object, "tool_receipt_sha256");
   if (!lowercase_hex(node, 64u)) return false;
   identity->tool_receipt_sha256 = node->str;
-  if (include_inventory) {
+  if (include_batch_fields) {
+    node = string_member(object, "selector");
+    if (!selector_text(node) || selector_out == NULL) return false;
+    *selector_out = node->str;
+    node = string_member(object, "selected_rom_sha256");
+    if (!lowercase_hex(node, 64u) || selected_rom_sha256_out == NULL)
+      return false;
+    *selected_rom_sha256_out = node->str;
     node = string_member(object, inventory_hash_key);
     if (!lowercase_hex(node, 64u) || inventory_sha256_out == NULL) return false;
     *inventory_sha256_out = node->str;
-  } else if (inventory_sha256_out != NULL) {
-    *inventory_sha256_out = NULL;
+  } else {
+    if (selector_out != NULL) *selector_out = NULL;
+    if (selected_rom_sha256_out != NULL) *selected_rom_sha256_out = NULL;
+    if (inventory_sha256_out != NULL) *inventory_sha256_out = NULL;
   }
   return true;
 }
@@ -271,9 +268,7 @@ static bool identity_matches(const t64_cpu_diag_identity *left,
          strcmp(left->tool_receipt_sha256, right->tool_receipt_sha256) == 0 &&
          strcmp(left->core_build_sha256, right->core_build_sha256) == 0 &&
          strcmp(left->profile_sha256, right->profile_sha256) == 0 &&
-         strcmp(left->base_rom_sha256, right->base_rom_sha256) == 0 &&
-         strcmp(left->selector, right->selector) == 0 &&
-         strcmp(left->selected_rom_sha256, right->selected_rom_sha256) == 0;
+         strcmp(left->base_rom_sha256, right->base_rom_sha256) == 0;
 }
 
 static bool one_of(const char *value, const char *const *values, size_t count) {
@@ -282,6 +277,121 @@ static bool one_of(const char *value, const char *const *values, size_t count) {
     if (strcmp(value, values[i]) == 0) return true;
   }
   return false;
+}
+
+t64_cpu_diag_status t64_cpu_diag_guest_transcript_parse(
+    const uint8_t *bytes, size_t length, uint32_t expected_registration_index,
+    uint32_t expected_value_index, t64_cpu_diag_guest_result *result_out) {
+  static const char *const root_keys[] = {"records", "schema", "schema_version"};
+  static const char *const start_keys[] = {
+      "event", "registration_index", "value_index"};
+  static const char *const outcome_keys[] = {"event", "status"};
+  static const char *const done_keys[] = {"complete", "event", "record_count"};
+  t64_json_limits limits = {T64_CPU_DIAG_MAX_BATCH_BYTES, 8u, 256u, 64u};
+  t64_json_error json_error = {T64_JSON_OK, 0u};
+  t64_json_doc document = {0};
+  const t64_json_node *records;
+  const t64_json_node *record;
+  const t64_json_node *field;
+  uint32_t registration_index;
+  uint32_t value_index;
+  t64_cpu_diag_outcome outcome;
+  size_t outcome_index;
+  t64_cpu_diag_status status = T64_CPU_DIAG_INVALID_BATCH;
+
+  if (bytes == NULL || result_out == NULL) return T64_CPU_DIAG_INVALID_ARGUMENT;
+  if (length == 0u || length > T64_CPU_DIAG_MAX_BATCH_BYTES)
+    return T64_CPU_DIAG_SIZE_LIMIT;
+  if (t64_json_parse(bytes, length, &limits, &document, &json_error) != 0)
+    return T64_CPU_DIAG_INVALID_JSON;
+  if (!object_has_exact_keys(document.root, root_keys,
+                             sizeof root_keys / sizeof root_keys[0]) ||
+      !parse_schema_version(document.root, "t64.cpu-run",
+                            T64_CPU_DIAG_GUEST_RUN_VERSION)) {
+    status = T64_CPU_DIAG_INVALID_SCHEMA;
+    goto cleanup;
+  }
+  if (!canonical_document(&document, bytes, length)) {
+    status = T64_CPU_DIAG_INVALID_SCHEMA;
+    goto cleanup;
+  }
+  records = t64_json_get(document.root, "records");
+  if (records == NULL || records->type != T64_JSON_ARRAY ||
+      records->count < 2u || records->count > 3u) {
+    status = records != NULL && records->type == T64_JSON_ARRAY &&
+                     records->count < 2u
+                 ? T64_CPU_DIAG_INCOMPLETE
+                 : T64_CPU_DIAG_INVALID_BATCH;
+    goto cleanup;
+  }
+  record = records->first;
+  if (record == NULL || !object_has_exact_keys(record, start_keys,
+                                                sizeof start_keys / sizeof start_keys[0]) ||
+      !string_equals(t64_json_get(record, "event"), "start") ||
+      !index_node(t64_json_get(record, "registration_index"),
+                  &registration_index) ||
+      !index_node(t64_json_get(record, "value_index"), &value_index)) {
+    status = T64_CPU_DIAG_INVALID_BATCH;
+    goto cleanup;
+  }
+  if (registration_index != expected_registration_index ||
+      value_index != expected_value_index) {
+    status = T64_CPU_DIAG_IDENTITY_MISMATCH;
+    goto cleanup;
+  }
+  record = record->next;
+  if (record == NULL || !object_has_exact_keys(record, outcome_keys,
+                                                sizeof outcome_keys / sizeof outcome_keys[0]) ||
+      !string_equals(t64_json_get(record, "event"), "outcome")) {
+    status = T64_CPU_DIAG_INVALID_BATCH;
+    goto cleanup;
+  }
+  field = string_member(record, "status");
+  if (!printable_text(field, 32u, false)) {
+    status = T64_CPU_DIAG_INVALID_BATCH;
+    goto cleanup;
+  }
+  for (outcome_index = 0u; outcome_index <
+       sizeof t64_cpu_diag_outcomes / sizeof t64_cpu_diag_outcomes[0];
+       outcome_index++) {
+    if (field->len == strlen(t64_cpu_diag_outcomes[outcome_index]) &&
+        memcmp(field->str, t64_cpu_diag_outcomes[outcome_index], field->len) == 0)
+      break;
+  }
+  if (outcome_index == sizeof t64_cpu_diag_outcomes /
+                            sizeof t64_cpu_diag_outcomes[0]) {
+    status = T64_CPU_DIAG_INVALID_BATCH;
+    goto cleanup;
+  }
+  outcome = (t64_cpu_diag_outcome)outcome_index;
+  record = record->next;
+  if (record == NULL) {
+    status = T64_CPU_DIAG_INCOMPLETE;
+    goto cleanup;
+  }
+  if (!object_has_exact_keys(record, done_keys,
+                             sizeof done_keys / sizeof done_keys[0]) ||
+      !string_equals(t64_json_get(record, "event"), "done")) {
+    status = T64_CPU_DIAG_INVALID_BATCH;
+    goto cleanup;
+  }
+  field = t64_json_get(record, "complete");
+  if (field == NULL || field->type != T64_JSON_BOOL || field->num != 1 ||
+      !string_equals(t64_json_get(record, "record_count"), "3")) {
+    status = T64_CPU_DIAG_INCOMPLETE;
+    goto cleanup;
+  }
+  if (record->next != NULL) {
+    status = T64_CPU_DIAG_INVALID_BATCH;
+    goto cleanup;
+  }
+  result_out->registration_index = registration_index;
+  result_out->value_index = value_index;
+  result_out->outcome = outcome;
+  status = T64_CPU_DIAG_OK;
+cleanup:
+  t64_json_free(&document);
+  return status;
 }
 
 static bool valid_group(const char *group) {
@@ -399,6 +509,12 @@ static bool value_fields(const t64_json_node *node, uint32_t expected_index,
   value->index = index;
   value->id = field->str;
   value->id_length = field->len;
+  field = string_member(node, "selected_rom_sha256");
+  if (!lowercase_hex(field, 64u)) return false;
+  value->selected_rom_sha256 = field->str;
+  field = string_member(node, "selector");
+  if (!selector_text(field)) return false;
+  value->selector = field->str;
   return true;
 }
 
@@ -420,7 +536,6 @@ static t64_cpu_diag_status canonical_inventory_parse(
   const t64_json_node *registration_node;
   const t64_json_node *values_node;
   const t64_json_node *value_node;
-  const char *inventory_hash = NULL;
   const char **names = NULL;
   size_t registration_count;
   size_t registration_index = 0u;
@@ -449,7 +564,8 @@ static t64_cpu_diag_status canonical_inventory_parse(
           document.root, t64_cpu_diag_inventory_keys,
           sizeof t64_cpu_diag_inventory_keys /
               sizeof t64_cpu_diag_inventory_keys[0]) ||
-      !parse_schema_version(document.root, "t64.cpu-inventory")) {
+      !parse_schema_version(document.root, "t64.cpu-inventory",
+                            T64_CPU_DIAG_INVENTORY_VERSION)) {
     status = T64_CPU_DIAG_INVALID_SCHEMA;
     goto cleanup;
   }
@@ -458,7 +574,7 @@ static t64_cpu_diag_status canonical_inventory_parse(
     goto cleanup;
   }
   if (!parse_identity(t64_json_get(document.root, "identity"), false,
-                      &(t64_cpu_diag_identity){0}, &inventory_hash)) {
+                      &(t64_cpu_diag_identity){0}, NULL, NULL, NULL)) {
     status = T64_CPU_DIAG_INVALID_INVENTORY;
     goto cleanup;
   }
@@ -626,7 +742,7 @@ static t64_cpu_diag_status canonical_inventory_parse(
   }
 
   if (!parse_identity(t64_json_get(document.root, "identity"), false,
-                      &inventory->identity, &inventory_hash)) {
+                      &inventory->identity, NULL, NULL, NULL)) {
     status = T64_CPU_DIAG_INVALID_INVENTORY;
     goto cleanup;
   }
@@ -697,6 +813,30 @@ const char *t64_cpu_diag_inventory_sha256(
   return inventory == NULL ? NULL : inventory->sha256;
 }
 
+bool t64_cpu_diag_inventory_identity(
+    const t64_cpu_diag_inventory *inventory,
+    t64_cpu_diag_identity *identity_out) {
+  if (inventory == NULL || identity_out == NULL) return false;
+  *identity_out = inventory->identity;
+  return true;
+}
+
+bool t64_cpu_diag_inventory_member_binding(
+    const t64_cpu_diag_inventory *inventory, uint32_t registration_index,
+    uint32_t value_index, t64_cpu_diag_member_binding *binding_out) {
+  const t64_cpu_diag_registration *registration;
+  const t64_cpu_diag_value *value;
+  if (inventory == NULL || binding_out == NULL ||
+      registration_index >= inventory->registration_count) return false;
+  registration = &inventory->registrations[registration_index];
+  if (!registration->required || value_index >= registration->value_count)
+    return false;
+  value = &inventory->values[registration->value_offset + value_index];
+  binding_out->selector = value->selector;
+  binding_out->selected_rom_sha256 = value->selected_rom_sha256;
+  return true;
+}
+
 const char *t64_cpu_diag_status_name(t64_cpu_diag_status status) {
   static const char *const names[] = {
       "ok",          "invalid-argument", "size-limit", "invalid-json",
@@ -732,8 +872,13 @@ static bool write_u64_string(t64_jsonw *writer, uint64_t value) {
 }
 
 static bool write_batch_identity(t64_jsonw *writer,
-                                 const t64_cpu_diag_inventory *inventory) {
+                                 const t64_cpu_diag_inventory *inventory,
+                                 uint32_t registration_index,
+                                 uint32_t value_index) {
   const t64_cpu_diag_identity *identity = &inventory->identity;
+  t64_cpu_diag_member_binding binding;
+  if (!t64_cpu_diag_inventory_member_binding(
+          inventory, registration_index, value_index, &binding)) return false;
   return t64_jsonw_begin_object(writer) == T64_JSONW_OK &&
          write_key(writer, "base_rom_sha256") &&
          write_string(writer, identity->base_rom_sha256) &&
@@ -746,8 +891,8 @@ static bool write_batch_identity(t64_jsonw *writer,
          write_key(writer, "profile_sha256") &&
          write_string(writer, identity->profile_sha256) &&
          write_key(writer, "selected_rom_sha256") &&
-         write_string(writer, identity->selected_rom_sha256) &&
-         write_key(writer, "selector") && write_string(writer, identity->selector) &&
+         write_string(writer, binding.selected_rom_sha256) &&
+         write_key(writer, "selector") && write_string(writer, binding.selector) &&
          write_key(writer, "source_revision") &&
          write_string(writer, identity->source_revision) &&
          write_key(writer, "tool_receipt_sha256") &&
@@ -789,7 +934,8 @@ t64_cpu_diag_status t64_cpu_diag_batch_encode(
   t64_jsonw_init(&writer, bytes_out, capacity);
   if (t64_jsonw_begin_object(&writer) != T64_JSONW_OK ||
       !write_key(&writer, "identity") ||
-      !write_batch_identity(&writer, inventory) ||
+      !write_batch_identity(&writer, inventory, registration_index,
+                            value_index) ||
       !write_key(&writer, "records") ||
       t64_jsonw_begin_array(&writer) != T64_JSONW_OK ||
       t64_jsonw_begin_object(&writer) != T64_JSONW_OK ||
@@ -813,7 +959,7 @@ t64_cpu_diag_status t64_cpu_diag_batch_encode(
       t64_jsonw_end_array(&writer) != T64_JSONW_OK ||
       !write_key(&writer, "schema") || !write_string(&writer, "t64.cpu-batch") ||
       !write_key(&writer, "schema_version") ||
-      t64_jsonw_int(&writer, T64_CPU_DIAG_SCHEMA_VERSION) != T64_JSONW_OK ||
+      t64_jsonw_int(&writer, T64_CPU_DIAG_BATCH_VERSION) != T64_JSONW_OK ||
       t64_jsonw_end_object(&writer) != T64_JSONW_OK ||
       t64_jsonw_finish(&writer, &length) != T64_JSONW_OK) {
     return writer.err == T64_JSONW_E_OVERFLOW ? T64_CPU_DIAG_OUTPUT_OVERFLOW
@@ -851,6 +997,8 @@ static t64_cpu_diag_status parse_batch(
   const t64_json_node *done;
   const t64_json_node *field;
   t64_cpu_diag_identity batch_identity = {0};
+  const char *batch_selector = NULL;
+  const char *batch_selected_rom_sha256 = NULL;
   const char *batch_inventory_sha = NULL;
   uint32_t registration_index;
   uint32_t value_index;
@@ -871,7 +1019,8 @@ static t64_cpu_diag_status parse_batch(
   if (!object_has_exact_keys(document.root, t64_cpu_diag_batch_keys,
                              sizeof t64_cpu_diag_batch_keys /
                                  sizeof t64_cpu_diag_batch_keys[0]) ||
-      !parse_schema_version(document.root, "t64.cpu-batch")) {
+      !parse_schema_version(document.root, "t64.cpu-batch",
+                            T64_CPU_DIAG_BATCH_VERSION)) {
     status = T64_CPU_DIAG_INVALID_SCHEMA;
     goto cleanup;
   }
@@ -880,7 +1029,8 @@ static t64_cpu_diag_status parse_batch(
     goto cleanup;
   }
   if (!parse_identity(t64_json_get(document.root, "identity"), true,
-                      &batch_identity, &batch_inventory_sha)) {
+                      &batch_identity, &batch_selector,
+                      &batch_selected_rom_sha256, &batch_inventory_sha)) {
     status = T64_CPU_DIAG_INVALID_BATCH;
     goto cleanup;
   }
@@ -918,6 +1068,16 @@ static t64_cpu_diag_status parse_batch(
   if (!valid_member(inventory, registration_index, value_index, NULL)) {
     status = T64_CPU_DIAG_INVALID_BATCH;
     goto cleanup;
+  }
+  {
+    t64_cpu_diag_member_binding binding;
+    if (!t64_cpu_diag_inventory_member_binding(
+            inventory, registration_index, value_index, &binding) ||
+        strcmp(binding.selector, batch_selector) != 0 ||
+        strcmp(binding.selected_rom_sha256, batch_selected_rom_sha256) != 0) {
+      status = T64_CPU_DIAG_IDENTITY_MISMATCH;
+      goto cleanup;
+    }
   }
   if (!object_has_exact_keys(outcome_node, t64_cpu_diag_outcome_keys,
                              sizeof t64_cpu_diag_outcome_keys /

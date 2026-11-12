@@ -13,15 +13,13 @@ static const uint8_t inventory_json[] =
     "\"core_build_sha256\":\"1111111111111111111111111111111111111111111111111111111111111111\","
     "\"overlay_sha256\":\"2222222222222222222222222222222222222222222222222222222222222222\","
     "\"profile_sha256\":\"3333333333333333333333333333333333333333333333333333333333333333\","
-    "\"selected_rom_sha256\":\"4444444444444444444444444444444444444444444444444444444444444444\","
-    "\"selector\":\"authored-selector\","
     "\"source_revision\":\"5555555555555555555555555555555555555555\","
     "\"tool_receipt_sha256\":\"6666666666666666666666666666666666666666666666666666666666666666\"},"
-    "\"registrations\":[{\"execution\":\"values\",\"group\":\"arithmetic\",\"index\":0,\"lane\":\"required-base\",\"level\":\"BasicFunctionality\",\"name\":\"authored.case\",\"reason\":\"required\",\"values\":[{\"id\":\"case.one\",\"index\":0}]}],"
-    "\"schema\":\"t64.cpu-inventory\",\"schema_version\":1}\n";
+    "\"registrations\":[{\"execution\":\"values\",\"group\":\"arithmetic\",\"index\":0,\"lane\":\"required-base\",\"level\":\"BasicFunctionality\",\"name\":\"authored.case\",\"reason\":\"required\",\"values\":[{\"id\":\"case.one\",\"index\":0,\"selected_rom_sha256\":\"4444444444444444444444444444444444444444444444444444444444444444\",\"selector\":\"authored-selector\"}]}],"
+    "\"schema\":\"t64.cpu-inventory\",\"schema_version\":2}\n";
 
 static const char expected_pass_batch[] =
-    "{\"identity\":{\"base_rom_sha256\":\"0000000000000000000000000000000000000000000000000000000000000000\",\"core_build_sha256\":\"1111111111111111111111111111111111111111111111111111111111111111\",\"inventory_sha256\":\"5684230a4db8610fb16853e6f065f09d43c30885a1fefd2c3fc9900b395bb00e\",\"overlay_sha256\":\"2222222222222222222222222222222222222222222222222222222222222222\",\"profile_sha256\":\"3333333333333333333333333333333333333333333333333333333333333333\",\"selected_rom_sha256\":\"4444444444444444444444444444444444444444444444444444444444444444\",\"selector\":\"authored-selector\",\"source_revision\":\"5555555555555555555555555555555555555555\",\"tool_receipt_sha256\":\"6666666666666666666666666666666666666666666666666666666666666666\"},\"records\":[{\"event\":\"start\",\"registration_index\":0,\"value_index\":0},{\"event\":\"outcome\",\"status\":\"pass\"},{\"complete\":true,\"event\":\"done\",\"record_count\":\"3\"}],\"schema\":\"t64.cpu-batch\",\"schema_version\":1}\n";
+    "{\"identity\":{\"base_rom_sha256\":\"0000000000000000000000000000000000000000000000000000000000000000\",\"core_build_sha256\":\"1111111111111111111111111111111111111111111111111111111111111111\",\"inventory_sha256\":\"6e06913830ec4f07f185140833aa5c5ef329770163dc8974c44d12cb285ffddb\",\"overlay_sha256\":\"2222222222222222222222222222222222222222222222222222222222222222\",\"profile_sha256\":\"3333333333333333333333333333333333333333333333333333333333333333\",\"selected_rom_sha256\":\"4444444444444444444444444444444444444444444444444444444444444444\",\"selector\":\"authored-selector\",\"source_revision\":\"5555555555555555555555555555555555555555\",\"tool_receipt_sha256\":\"6666666666666666666666666666666666666666666666666666666666666666\"},\"records\":[{\"event\":\"start\",\"registration_index\":0,\"value_index\":0},{\"event\":\"outcome\",\"status\":\"pass\"},{\"complete\":true,\"event\":\"done\",\"record_count\":\"3\"}],\"schema\":\"t64.cpu-batch\",\"schema_version\":2}\n";
 
 static const char *const expected_groups[] = {
     "address_error_exception", "arithmetic", "cache", "cop0", "cop1",
@@ -49,6 +47,7 @@ static bool append_registration(char *output, size_t capacity, size_t *length,
                                 const char *group, const char *level,
                                 const char *lane, const char *reason,
                                 const char *execution,
+                                const char *selector,
                                 const char *const *value_ids,
                                 size_t value_count) {
   size_t i;
@@ -60,8 +59,18 @@ static bool append_registration(char *output, size_t capacity, size_t *length,
   }
   for (i = 0u; i < value_count; i++) {
     if (i != 0u && !appendf(output, capacity, length, ",")) return false;
-    if (!appendf(output, capacity, length,
-                 "{\"id\":\"%s\",\"index\":%zu}", value_ids[i], i)) {
+    if (value_count == 2u && strcmp(group, "arithmetic") == 0 && i == 1u) {
+      if (!appendf(output, capacity, length,
+                   "{\"id\":\"%s\",\"index\":%zu,"
+                   "\"selected_rom_sha256\":\"7777777777777777777777777777777777777777777777777777777777777777\","
+                   "\"selector\":\"second-selector\"}", value_ids[i], i)) {
+        return false;
+      }
+    } else if (!appendf(
+                   output, capacity, length,
+                   "{\"id\":\"%s\",\"index\":%zu,"
+                   "\"selected_rom_sha256\":\"4444444444444444444444444444444444444444444444444444444444444444\","
+                   "\"selector\":\"%s\"}", value_ids[i], i, selector)) {
       return false;
     }
   }
@@ -111,12 +120,10 @@ static bool build_authored_inventory(
                "\"core_build_sha256\":\"1111111111111111111111111111111111111111111111111111111111111111\","
                "\"overlay_sha256\":\"2222222222222222222222222222222222222222222222222222222222222222\","
                "\"profile_sha256\":\"3333333333333333333333333333333333333333333333333333333333333333\","
-               "\"selected_rom_sha256\":\"4444444444444444444444444444444444444444444444444444444444444444\","
-               "\"selector\":\"%s\","
                "\"source_revision\":\"5555555555555555555555555555555555555555\","
                "\"tool_receipt_sha256\":\"6666666666666666666666666666666666666666666666666666666666666666\"},"
                "\"registrations\":[",
-               registration_count, required_value_count, value_count, selector)) {
+               registration_count, required_value_count, value_count)) {
     return false;
   }
   for (i = 0u; i < group_count; i++) {
@@ -142,7 +149,8 @@ static bool build_authored_inventory(
     if (i != 0u && !appendf(output, capacity, &length, ",")) return false;
     if (!append_registration(output, capacity, &length, registration_index,
                              name, groups[i], level, "required-base", "required",
-                             "values", values, value_count_for_registration)) {
+                             "values", selector, values,
+                             value_count_for_registration)) {
       return false;
     }
     registration_index++;
@@ -156,7 +164,7 @@ static bool build_authored_inventory(
           !append_registration(output, capacity, &length, registration_index,
                                name, "arithmetic", other_lanes[i][1],
                                other_lanes[i][0], other_lanes[i][2], "once",
-                               (const char *const[]){"once"}, 1u)) {
+                               selector, (const char *const[]){"once"}, 1u)) {
         return false;
       }
       registration_index++;
@@ -165,12 +173,12 @@ static bool build_authored_inventory(
         !append_registration(output, capacity, &length, registration_index,
                              "authored.non-cpu", "non-cpu", "RDPBasic",
                              "skipped-non-cpu", "outside-cpu-scope", "omitted",
-                             NULL, 0u)) {
+                             selector, NULL, 0u)) {
       return false;
     }
   }
   if (!appendf(output, capacity, &length,
-               "],\"schema\":\"t64.cpu-inventory\",\"schema_version\":1}\n")) {
+               "],\"schema\":\"t64.cpu-inventory\",\"schema_version\":2}\n")) {
     return false;
   }
   *length_out = length;
@@ -346,7 +354,7 @@ static void test_complete_batch_round_trip(void) {
   if (t64_cpu_diag_inventory_registration_count(inventory) != 1u ||
       t64_cpu_diag_inventory_required_value_count(inventory) != 1u ||
       strcmp(t64_cpu_diag_inventory_sha256(inventory),
-             "5684230a4db8610fb16853e6f065f09d43c30885a1fefd2c3fc9900b395bb00e") !=
+             "6e06913830ec4f07f185140833aa5c5ef329770163dc8974c44d12cb285ffddb") !=
           0) {
     (void)fprintf(stderr, "authored inventory returned unexpected count or digest\n");
     failures++;
@@ -569,6 +577,8 @@ static void test_full_set_order_and_duplicate_seam(void) {
   size_t duplicate_length = 0u;
   t64_cpu_diag_inventory *inventory = NULL;
   t64_cpu_diag_aggregate *aggregate = NULL;
+  t64_cpu_diag_member_binding first_binding;
+  t64_cpu_diag_member_binding second_binding;
   if (bytes == NULL) {
     (void)fprintf(stderr, "authored full inventory allocation failed\n");
     failures++;
@@ -604,6 +614,22 @@ static void test_full_set_order_and_duplicate_seam(void) {
                   "full authored counts expected registrations=21 required-values=15, observed registrations=%zu required-values=%zu\n",
                   t64_cpu_diag_inventory_registration_count(inventory),
                   t64_cpu_diag_inventory_required_value_count(inventory));
+    failures++;
+  }
+  if (!t64_cpu_diag_inventory_member_binding(inventory, 1u, 0u,
+                                             &first_binding) ||
+      !t64_cpu_diag_inventory_member_binding(inventory, 1u, 1u,
+                                             &second_binding) ||
+      strcmp(first_binding.selector, "sssssssssssssssss") != 0 ||
+      strcmp(first_binding.selected_rom_sha256,
+             "4444444444444444444444444444444444444444444444444444444444444444") !=
+          0 ||
+      strcmp(second_binding.selector, "second-selector") != 0 ||
+      strcmp(second_binding.selected_rom_sha256,
+             "7777777777777777777777777777777777777777777777777777777777777777") !=
+          0) {
+    (void)fprintf(stderr,
+                  "distinct per-value selector/selected-ROM bindings were not retained\n");
     failures++;
   }
   expect_status("full aggregate create",
@@ -871,6 +897,12 @@ static void test_wrong_batch_identity_unknown_member_and_aggregate_only(void) {
       "{\"groups\":[{\"group\":\"arithmetic\",\"status\":\"pass\"}],\"schema\":\"t64.cpu-groups\",\"schema_version\":1}\n";
   char *inventory_bytes = (char *)malloc(T64_CPU_DIAG_MAX_INVENTORY_BYTES);
   char batch[T64_CPU_DIAG_MAX_BATCH_BYTES + 1u];
+  char original_second_hash[] =
+      "\"selected_rom_sha256\":\"7777777777777777777777777777777777777777777777777777777777777777\"";
+  char swapped_second_hash[] =
+      "\"selected_rom_sha256\":\"4444444444444444444444444444444444444444444444444444444444444444\"";
+  char unregistered_hash[] =
+      "\"selected_rom_sha256\":\"8888888888888888888888888888888888888888888888888888888888888888\"";
   size_t inventory_length = 0u;
   size_t batch_length = 0u;
   t64_cpu_diag_inventory *inventory = NULL;
@@ -893,6 +925,58 @@ static void test_wrong_batch_identity_unknown_member_and_aggregate_only(void) {
     free(inventory_bytes);
     return;
   }
+
+  expect_status("registered alternate member batch encode",
+                t64_cpu_diag_batch_encode(inventory, 1u, 1u,
+                                          T64_CPU_DIAG_OUTCOME_PASS, batch,
+                                          sizeof batch, &batch_length),
+                T64_CPU_DIAG_OK);
+  expect_status("swapped binding aggregate create",
+                t64_cpu_diag_aggregate_create(inventory, &aggregate),
+                T64_CPU_DIAG_OK);
+  if (aggregate != NULL) {
+    if (!replace_text(batch, &batch_length, sizeof batch,
+                      original_second_hash, swapped_second_hash) ||
+        !replace_text(batch, &batch_length, sizeof batch,
+                      "\"selector\":\"second-selector\"",
+                      "\"selector\":\"sssssssssssssssss\"")) {
+      (void)fprintf(stderr, "could not construct swapped member binding control\n");
+      failures++;
+    } else {
+      expect_status("swapped registered member binding",
+                    t64_cpu_diag_aggregate_add_batch(
+                        aggregate, (const uint8_t *)batch, batch_length),
+                    T64_CPU_DIAG_IDENTITY_MISMATCH);
+    }
+  }
+  t64_cpu_diag_aggregate_destroy(aggregate);
+  aggregate = NULL;
+
+  expect_status("unregistered binding batch encode",
+                t64_cpu_diag_batch_encode(inventory, 1u, 1u,
+                                          T64_CPU_DIAG_OUTCOME_PASS, batch,
+                                          sizeof batch, &batch_length),
+                T64_CPU_DIAG_OK);
+  expect_status("unregistered binding aggregate create",
+                t64_cpu_diag_aggregate_create(inventory, &aggregate),
+                T64_CPU_DIAG_OK);
+  if (aggregate != NULL) {
+    if (!replace_text(batch, &batch_length, sizeof batch,
+                      original_second_hash, unregistered_hash) ||
+        !replace_text(batch, &batch_length, sizeof batch,
+                      "\"selector\":\"second-selector\"",
+                      "\"selector\":\"unregistered-selector\"")) {
+      (void)fprintf(stderr, "could not construct unregistered binding control\n");
+      failures++;
+    } else {
+      expect_status("unregistered member binding",
+                    t64_cpu_diag_aggregate_add_batch(
+                        aggregate, (const uint8_t *)batch, batch_length),
+                    T64_CPU_DIAG_IDENTITY_MISMATCH);
+    }
+  }
+  t64_cpu_diag_aggregate_destroy(aggregate);
+  aggregate = NULL;
 
   expect_status("ROM identity aggregate create",
                 t64_cpu_diag_aggregate_create(inventory, &aggregate),

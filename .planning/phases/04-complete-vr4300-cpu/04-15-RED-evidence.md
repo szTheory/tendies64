@@ -29,3 +29,22 @@ and the guest was rerun. That setup failure is excluded from RED evidence.
 The unchanged JUnit report and full console output remain in ignored local
 build storage. This portable record contains only the command, target, expected
 behavior, and observed guest values; it contains no raw report or checkout path.
+
+## Task 1 contract correction: member-bound patched-ROM identities
+
+**Target:** `runner.cpu-diagnostic` in `runner/tests/test_cpu_diagnostic.c`
+
+**Command:** `ctest --preset gate --no-tests=error -R '^runner\.cpu-diagnostic$' --output-on-failure --output-junit <private JUnit report>`
+
+**Classifier:** `RED_EVIDENCE_OK` (`target_test_failed`, one target test executed)
+
+The authored v2 inventory carries selector and selected-ROM SHA-256 on each
+required value. Its first registration has two distinct selector/ROM bindings.
+The production executable ran and returned
+`classification=harness-error status=invalid-inventory-or-profile` when asked
+to validate that canonical inventory. This isolates the contract gap: the
+shared implementation still accepts only the earlier inventory shape with
+one global selected-ROM binding. The unchanged report was classified before
+the schema implementation changed. The report and classifier record stay in
+ignored build storage; this portable evidence contains no raw records or
+private paths.
