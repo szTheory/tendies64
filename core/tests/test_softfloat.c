@@ -341,7 +341,57 @@ static void test_rounding_and_flags(void) {
                   UINT64_C(0x0010000000000000), T64_SOFTFLOAT_FLAG_INEXACT);
 }
 
+static void test_signed_conversion_boundaries(void) {
+  for (uint8_t rounding = 0u; rounding < 4u; ++rounding) {
+    t64_softfloat_context first = {
+        rounding, T64_SOFTFLOAT_TININESS_AFTER_ROUNDING, 0u};
+    t64_softfloat_context second = {
+        (uint8_t)(3u - rounding), T64_SOFTFLOAT_TININESS_BEFORE_ROUNDING,
+        T64_SOFTFLOAT_FLAG_DIVIDE_BY_ZERO};
+    t64_softfloat_result result = {UINT64_C(0xa5a5a5a5a5a5a5a5), 0xffu};
+
+    /* 2^31 is an exact binary32 integer, one above INT32_MAX. */
+    T64_CHECK_INT(t64_softfloat_execute(T64_SOFTFLOAT_OP_F32_TO_I32, &first,
+                                        UINT32_C(0x4f000000), 0u, &result),
+                  T64_STATUS_OK);
+    T64_CHECK(result.bits == UINT64_C(0xffffffff80000000));
+    T64_CHECK_INT(result.exception_flags, T64_SOFTFLOAT_FLAG_INVALID);
+    T64_CHECK_INT(first.exception_flags, T64_SOFTFLOAT_FLAG_INVALID);
+
+    /* An exact operation on a differently configured context is isolated. */
+    T64_CHECK_INT(t64_softfloat_execute(T64_SOFTFLOAT_OP_F64_ADD, &second,
+                                        UINT64_C(0x3ff0000000000000),
+                                        UINT64_C(0x4000000000000000), &result),
+                  T64_STATUS_OK);
+    T64_CHECK(result.bits == UINT64_C(0x4008000000000000));
+    T64_CHECK_INT(result.exception_flags,
+                  T64_SOFTFLOAT_FLAG_DIVIDE_BY_ZERO);
+    T64_CHECK_INT(second.rounding_mode, (uint8_t)(3u - rounding));
+    T64_CHECK_INT(second.tininess_mode,
+                  T64_SOFTFLOAT_TININESS_BEFORE_ROUNDING);
+    T64_CHECK_INT(second.exception_flags,
+                  T64_SOFTFLOAT_FLAG_DIVIDE_BY_ZERO);
+    T64_CHECK_INT(first.rounding_mode, rounding);
+    T64_CHECK_INT(first.tininess_mode,
+                  T64_SOFTFLOAT_TININESS_AFTER_ROUNDING);
+    T64_CHECK_INT(first.exception_flags, T64_SOFTFLOAT_FLAG_INVALID);
+
+    /* Reset only the first context to make the next operation's flags local. */
+    first.exception_flags = 0u;
+    /* 2^63 is an exact binary64 integer, one above INT64_MAX. */
+    T64_CHECK_INT(t64_softfloat_execute(T64_SOFTFLOAT_OP_F64_TO_I64, &first,
+                                        UINT64_C(0x43e0000000000000), 0u,
+                                        &result),
+                  T64_STATUS_OK);
+    T64_CHECK(result.bits == UINT64_C(0x8000000000000000));
+    T64_CHECK_INT(result.exception_flags, T64_SOFTFLOAT_FLAG_INVALID);
+    T64_CHECK_INT(first.exception_flags, T64_SOFTFLOAT_FLAG_INVALID);
+  }
+}
+
 static void test_context_isolation(void) {
+  test_signed_conversion_boundaries();
+
   t64_softfloat_context nearest = {0u, 0u, T64_SOFTFLOAT_FLAG_INVALID};
   t64_softfloat_context upward = {3u, 1u, T64_SOFTFLOAT_FLAG_OVERFLOW};
   t64_softfloat_result nearest_result = {0u, 0u};

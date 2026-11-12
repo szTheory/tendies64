@@ -89,4 +89,29 @@ This table is the frozen pre-copy denominator: 50 generic C sources and 5 generi
 - A build-identity mutation check appended a temporary comment to the selected `f32_add.c` input and reconfigured CMake. The identity changed from `t64-build-v1-3134b7a9ddac6d990413ad9a0a399d6ab4dae7ae576b124258396105a9d2a8ab` to `t64-build-v1-21f7ddc2eb494557f86ff781312e3c56b7145f59b67be8d645aa105378e470ee`; restoring the exact source restored the original identity. The temporary edit and backup were removed.
 - For the strict compiler and source/object lint, the authored platform header now requires the build's explicit `SOFTFLOAT_FAST_INT64=1` define. This keeps CMake and lint compilation on the same portable limb implementation. The two-limb multiply and jam-shift files also include the selected primitive prototype header, and the copied arithmetic files use explicit narrowing/sign casts only where range checks or bit extraction establish the destination width. Nonsemantic trailing spaces and redundant blank lines at EOF were removed from copied files to satisfy the repository's normal whitespace check.
 
+## Independently Derived Edge Matrix
+
+### Task 1: signed W/L upper-bound slice
+
+These expectations were written down before running the production wrapper. The
+inputs are exact powers of two, so their bit decomposition gives an exact
+integer independent of any floating-point implementation:
+
+| Format / operation | Input bits and decomposition | Integer interval and result | Expected flags |
+|---|---|---|---|
+| binary32 `F32_TO_I32` | `0x4f000000`: sign 0, exponent field 158, unbiased exponent 31, significand 1; value `1 × 2^31 = 2147483648` | `INT32_MAX = 2147483647 < 2147483648`; outside the signed W interval. The raw invalid-conversion contract returns `INT32_MIN`, sign-extended to `0xffffffff80000000`. | invalid; no inexact because the input is an exact integer |
+| binary64 `F64_TO_I64` | `0x43e0000000000000`: sign 0, exponent field 1086, unbiased exponent 63, significand 1; value `1 × 2^63 = 9223372036854775808` | `INT64_MAX = 9223372036854775807 < 9223372036854775808`; outside the signed L interval. The raw invalid-conversion contract returns `INT64_MIN`, `0x8000000000000000`. | invalid; no inexact because the input is an exact integer |
+
+The same boundary is evaluated for RM0–RM3. Since the values are exact
+integers, rounding does not change the range classification or result. Each
+boundary operation gets a fresh flag state. An exact binary64 `1 + 2 = 3`
+operation is interleaved on a second context configured with a different
+rounding mode, before-tininess policy, and preexisting divide-by-zero flag;
+the expected result and sticky flags are derived from those inputs, while the
+first context's mode, tininess, and invalid flag are checked unchanged.
+
+The remaining matrix expansion records each category, operation, rounding
+mode, expected bit pattern, flags, and independent derivation in this section
+as Task 2 coverage is added.
+
 The source paths and hashes above were calculated from the official pinned git objects before copying any additional source into the repository.
