@@ -494,6 +494,9 @@ t64_status t64_bus_write(t64_machine *machine, uint32_t address,
 t64_status t64_bus_write_masked(t64_machine *machine, uint32_t address,
                                  uint32_t width, uint8_t byte_mask,
                                  uint64_t value);
+void t64_cpu_link_invalidate_range(t64_machine *machine,
+                                   uint32_t physical_address,
+                                   uint32_t width);
 bool t64_memory_execute(t64_machine *machine, uint32_t opcode,
                         bool *write_gpr_out, uint32_t *destination_out,
                         uint64_t *value_out);

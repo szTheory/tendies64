@@ -1282,6 +1282,10 @@ static bool memory_access_info(uint32_t opcode, uint32_t *width_out,
     *store_out = true;
     *partial_out = true;
     return true;
+  case 0x30u: *width_out = 4u; return true;
+  case 0x34u: *width_out = 8u; return true;
+  case 0x38u: *width_out = 4u; *store_out = true; return true;
+  case 0x3cu: *width_out = 8u; *store_out = true; return true;
   case 0x37u: *width_out = 8u; return true;
   case 0x3fu: *width_out = 8u; *store_out = true; return true;
   default: return false;
@@ -1338,6 +1342,7 @@ static uint8_t partial_access_mask(uint32_t width, uint32_t offset,
 static bool memory_op_requires_64bit_mode(uint32_t operation) {
   switch (operation) {
   case 0x1au: case 0x1bu: case 0x2cu: case 0x2du:
+  case 0x34u: case 0x3cu:
   case 0x37u: case 0x3fu:
     return true;
   default:

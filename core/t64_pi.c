@@ -277,6 +277,8 @@ t64_status t64_pi_complete(t64_machine *machine, const t64_event *event) {
                  (const uint8_t *)machine->image_storage.data +
                      (size_t)cart_offset,
                  (size_t)machine->pi.active_length);
+    t64_cpu_link_invalidate_range(machine, machine->pi.active_dram_address,
+                                  machine->pi.active_length);
   }
   machine->pi.active_valid = false;
   machine->pi.active_canceled = false;

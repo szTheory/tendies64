@@ -414,11 +414,128 @@ static bool commit_memory_effect(t64_machine *machine,
   return effect->load;
 }
 
+void t64_cpu_link_invalidate_range(t64_machine *machine,
+                                   uint32_t physical_address,
+                                   uint32_t width) {
+  uint64_t write_start = (uint64_t)physical_address;
+  uint64_t write_end = write_start + (uint64_t)width;
+  uint64_t link_start;
+  uint64_t link_end;
+
+  if (machine == NULL || width == 0u || !machine->cpu.linked_valid) {
+    return;
+  }
+  link_start = (uint64_t)machine->cpu.linked_physical_address;
+  link_end = link_start + (uint64_t)machine->cpu.linked_width;
+  if (write_start < link_end && link_start < write_end) {
+    machine->cpu.linked_valid = false;
+    machine->cpu.linked_physical_address = 0u;
+    machine->cpu.linked_width = 0u;
+  }
+}
+
+static bool execute_linked_memory(t64_machine *machine, uint32_t opcode,
+                                  bool *write_gpr_out,
+                                  uint32_t *destination_out,
+                                  uint64_t *value_out) {
+  uint32_t operation = opcode >> 26;
+  uint32_t rs = (opcode >> 21) & UINT32_C(0x1f);
+  uint32_t rt = (opcode >> 16) & UINT32_C(0x1f);
+  uint32_t width;
+  uint16_t immediate = (uint16_t)opcode;
+  bool load;
+  uint64_t virtual_address;
+  uint32_t physical_address;
+  t64_mmu_request request;
+  t64_mmu_result translation = {0};
+  bool okay;
+
+  *write_gpr_out = false;
+  *destination_out = 0u;
+  *value_out = 0u;
+  switch (operation) {
+  case 0x30u: width = 4u; load = true; break;
+  case 0x34u: width = 8u; load = true; break;
+  case 0x38u: width = 4u; load = false; break;
+  case 0x3cu: width = 8u; load = false; break;
+  default: return false;
+  }
+
+  virtual_address = machine->cpu.gpr[rs] + sign_extend_16(immediate);
+  request.virtual_address = virtual_address;
+  request.width = width;
+  request.kind = load ? T64_MMU_ACCESS_READ : T64_MMU_ACCESS_WRITE;
+  if (!t64_mmu_translate(machine, &request, &translation) ||
+      translation.fault != T64_MMU_FAULT_NONE || !translation.translated ||
+      !translation.cacheable || translation.physical_address > UINT32_MAX) {
+    return false;
+  }
+  physical_address = (uint32_t)translation.physical_address;
+  if (reverse_endian_active(machine)) {
+    uint32_t lane_xor = 8u - width;
+    physical_address = (physical_address & ~UINT32_C(7)) |
+                       ((physical_address & UINT32_C(7)) ^ lane_xor);
+  }
+
+  if (load) {
+    *value_out = read_bus_value(machine, physical_address, width, &okay);
+    if (!okay) {
+      return false;
+    }
+    if (width == 4u) {
+      *value_out = sign_extend_32((uint32_t)*value_out);
+    }
+    machine->cpu.linked_physical_address = physical_address;
+    machine->cpu.linked_width = width;
+    machine->cpu.linked_valid = true;
+    machine->cpu.cp0[17] = (uint64_t)(physical_address >> 4);
+    *write_gpr_out = true;
+    *destination_out = rt;
+    return true;
+  }
+
+  {
+    bool success = machine->cpu.linked_valid &&
+                   machine->cpu.linked_physical_address == physical_address &&
+                   machine->cpu.linked_width == width;
+    uint64_t source = machine->cpu.gpr[rt];
+    t64_status status = T64_STATUS_OK;
+
+    machine->cpu.linked_valid = false;
+    machine->cpu.linked_physical_address = 0u;
+    machine->cpu.linked_width = 0u;
+    if (success) {
+      status = width == 4u
+                   ? t64_bus_write(machine, physical_address, 4u,
+                                   (uint32_t)source)
+                   : t64_bus_write_masked(machine, physical_address, 8u,
+                                          UINT8_C(0xff), source);
+      if (status != T64_STATUS_OK) {
+        return false;
+      }
+    }
+    *write_gpr_out = true;
+    *destination_out = rt;
+    *value_out = success ? UINT64_C(1) : UINT64_C(0);
+  }
+  return true;
+}
+
 bool t64_memory_execute(t64_machine *machine, uint32_t opcode,
                         bool *write_gpr_out, uint32_t *destination_out,
                         uint64_t *value_out) {
   t64_staged_memory_effect effect;
+  uint32_t operation = opcode >> 26;
 
+  if (operation == 0x30u || operation == 0x34u || operation == 0x38u ||
+      operation == 0x3cu) {
+    if (machine == NULL || write_gpr_out == NULL ||
+        destination_out == NULL || value_out == NULL) {
+      return false;
+    }
+    return execute_linked_memory(machine, opcode, write_gpr_out,
+                                 destination_out, value_out);
+  }
   if (write_gpr_out == NULL || destination_out == NULL || value_out == NULL ||
       !stage_memory_effect(machine, opcode, &effect) ||
       !commit_memory_effect(machine, &effect)) {

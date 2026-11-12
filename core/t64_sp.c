@@ -340,6 +340,7 @@ t64_status t64_sp_complete(t64_machine *machine, const t64_event *event) {
             warm_zero_source ? 0u : machine->ram[dram_offset];
       } else {
         machine->ram[dram_offset] = sp_bank[internal_offset];
+        t64_cpu_link_invalidate_range(machine, (uint32_t)dram_offset, 1u);
       }
       payload_offset++;
     }

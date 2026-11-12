@@ -139,7 +139,8 @@ static bool test_vr4300_break_enters_rdram_handler(
                  ((uint32_t)machine->ram[0x2001u] << 16) |
                  ((uint32_t)machine->ram[0x2002u] << 8) |
                  (uint32_t)machine->ram[0x2003u];
-  if (status != T64_STATUS_OK || result.reason != T64_STOP_REASON_BOUND ||
+  if (status != T64_STATUS_OK ||
+      result.reason != T64_STOP_REASON_BOUND ||
       result.tick != UINT64_C(2) ||
       machine->cpu.retired_instructions != UINT64_C(1) ||
       machine->cpu.pc != handler_pc + UINT32_C(4) ||
@@ -1434,9 +1435,9 @@ static bool test_vr4300_ll_sc_scheduled_dma(
   const uint32_t physical_data = UINT32_C(0x2000);
   const uint32_t virtual_code = UINT32_C(0x80001000);
   const uint64_t virtual_data = UINT64_C(0xffffffff80002000);
-  const uint32_t nop_count = UINT32_C(20);
+  const uint32_t nop_count = UINT32_C(30);
   const uint32_t program_count = nop_count + UINT32_C(2);
-  uint32_t program[22] = {0};
+  uint32_t program[32] = {0};
   const uint32_t expected_data[4] = {
       sp_to_rdram ? UINT32_C(0xa0) : (uint32_t)asset[0],
       sp_to_rdram ? UINT32_C(0xa1) : (uint32_t)asset[1],
@@ -1519,7 +1520,8 @@ static bool test_vr4300_ll_sc_scheduled_dma(
   for (index = 0u; index < 4u; index++) {
     observed[index] = machine->ram[physical_data + (uint32_t)index];
   }
-  if (status != T64_STATUS_OK || result.reason != T64_STOP_REASON_BOUND ||
+  if (status != T64_STATUS_OK ||
+      result.reason != T64_STOP_REASON_INSTRUCTION_COUNT ||
       result.tick < (sp_to_rdram ? UINT64_C(13) : UINT64_C(5)) ||
       machine->cpu.gpr[9] != 0u || machine->cpu.linked_valid ||
       observed[0] != expected_data[0] || observed[1] != expected_data[1] ||
