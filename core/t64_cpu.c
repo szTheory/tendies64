@@ -34,6 +34,7 @@
 #define T64_CP0_TAGLO_MASK UINT32_C(0x0fffffc0)
 
 #define T64_STATUS_ERL UINT32_C(0x00000004)
+#define T64_CPU_COP1_CAUSE_MASK UINT32_C(0x0003f000)
 #define T64_STATUS_EXL UINT32_C(0x00000002)
 #define T64_STATUS_KSU UINT32_C(0x00000018)
 #define T64_STATUS_UX UINT32_C(0x00000020)
@@ -472,6 +473,9 @@ static bool branch_condition(uint32_t opcode, const t64_cpu_state *cpu,
   *likely_out = false;
   *link_out = false;
   *link_register_out = 0u;
+  if (t64_cop1_is_branch(opcode)) {
+    return t64_cop1_branch_condition(cpu, opcode, likely_out);
+  }
   switch (operation) {
   case T64_CPU_BEQ:
   case T64_CPU_BEQL:
@@ -525,8 +529,12 @@ static bool branch_condition(uint32_t opcode, const t64_cpu_state *cpu,
   }
 }
 
-static bool is_branch_instruction(uint32_t opcode) {
+static bool is_branch_instruction(uint32_t opcode, bool new_profile) {
   uint32_t operation = opcode >> 26;
+
+  if (new_profile && t64_cop1_is_branch(opcode)) {
+    return true;
+  }
 
   if (operation == T64_CPU_REGIMM) {
     uint32_t suboperation = (opcode >> 16) & UINT32_C(0x1f);
@@ -1743,6 +1751,10 @@ static bool cpu_instruction_is_reserved(uint32_t opcode) {
   uint32_t operation = opcode >> 26;
   uint32_t suboperation;
 
+  if (t64_cop1_is_branch(opcode)) {
+    return !t64_cop1_branch_encoding_valid(opcode);
+  }
+
   if (operation == 0u) {
     return !special_function_is_defined(opcode & UINT32_C(0x3f)) ||
            special_fields_are_reserved(opcode);
@@ -1901,6 +1913,7 @@ t64_status t64_cpu_step(t64_machine *machine, const t64_event *event) {
   bool link = false;
   bool write_gpr = false;
   bool write_fpr = false;
+  bool clear_fcr31_causes = false;
   bool new_profile;
   bool trap_noop = false;
   bool memory_handled = false;
@@ -2019,11 +2032,7 @@ t64_status t64_cpu_step(t64_machine *machine, const t64_event *event) {
     return T64_STATUS_RESOURCE_EXHAUSTED;
   }
 
-  is_branch = is_branch_instruction(opcode);
-  if (new_profile && in_delay_slot && is_branch) {
-    cpu_stop_unsupported(machine, pc, opcode);
-    return T64_STATUS_RESOURCE_EXHAUSTED;
-  }
+  is_branch = is_branch_instruction(opcode, new_profile);
 
   if (new_profile) {
     if (cpu_instruction_exception(machine, opcode, in_delay_slot,
@@ -2153,6 +2162,7 @@ t64_status t64_cpu_step(t64_machine *machine, const t64_event *event) {
       fpr_width = cop1_result.fpr_width;
       fpr_value = cop1_result.result_bits;
     }
+    clear_fcr31_causes = cop1_result.clear_fcr31_causes;
     supported = true;
   } else if ((opcode >> 26) == T64_CPU_CACHE) {
     t64_status cache_status = T64_STATUS_BUS_UNSUPPORTED;
@@ -2190,6 +2200,9 @@ t64_status t64_cpu_step(t64_machine *machine, const t64_event *event) {
   }
   if (write_fpr) {
     t64_cop1_commit_fpr(machine, fpr_destination, fpr_width, fpr_value);
+  }
+  if (clear_fcr31_causes) {
+    machine->cpu.fcr31 &= ~T64_CPU_COP1_CAUSE_MASK;
   }
   if (link && (new_profile || !branch_likely || branch_taken) &&
       link_register != 0u) {

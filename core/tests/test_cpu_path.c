@@ -1724,6 +1724,7 @@ static bool test_cp0_cache_unsupported_encodings(
   static const uint32_t unsupported_cp0[] = {
       UINT32_C(0x40004801), /* mfc0 t0,count,sel=1 */
       UINT32_C(0x40880000), /* mtc0 t0,c0_index */
+      UINT32_C(0x45010002), /* warm-v1 keeps COP1 branches refused */
   };
   static const uint32_t unsupported_cache[] = {
       UINT32_C(0xbd100000), /* undefined/unqualified CACHE operation */
@@ -2402,7 +2403,7 @@ int main(int argc, char **argv) {
        test_cp0_compare_write_clears_timer},
       {"CACHE index tags and D hit writeback preserve coherent memory",
        test_cache_operations_are_coherent},
-      {"unknown CP0 selects and unsupported warm-v1 CACHE forms stop",
+      {"unknown CP0 selects and warm-v1 CACHE/COP1 forms stop",
        test_cp0_cache_unsupported_encodings},
       {"CP0 and cache state participate in the v6 digest",
        test_cp0_cache_state_is_in_digest},

@@ -297,6 +297,7 @@ typedef struct {
   uint32_t destination_fpr;
   uint32_t fpr_width;
   uint64_t result_bits;
+  bool clear_fcr31_causes;
   uint32_t fcr31_flags;
 } t64_cpu_cop1_result;
 
@@ -490,6 +491,10 @@ t64_status t64_cpu_step(t64_machine *machine, const t64_event *event);
 t64_status t64_cop1_execute(t64_machine *machine, uint32_t opcode,
                             bool in_delay_slot,
                             t64_cpu_cop1_result *result_out);
+bool t64_cop1_is_branch(uint32_t opcode);
+bool t64_cop1_branch_encoding_valid(uint32_t opcode);
+bool t64_cop1_branch_condition(const t64_cpu_state *cpu, uint32_t opcode,
+                               bool *likely_out);
 void t64_cop1_commit_fpr(t64_machine *machine, uint32_t reg,
                          uint32_t width, uint64_t bits);
 t64_status t64_memory_execute_cop1_status(

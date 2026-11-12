@@ -31,6 +31,31 @@ static uint64_t cop1_sign_extend32(uint32_t bits) {
              : (uint64_t)bits;
 }
 
+bool t64_cop1_is_branch(uint32_t opcode) {
+  return (opcode >> 26) == UINT32_C(0x11) &&
+         ((opcode >> 21) & UINT32_C(0x1f)) == UINT32_C(0x08);
+}
+
+bool t64_cop1_branch_encoding_valid(uint32_t opcode) {
+  return t64_cop1_is_branch(opcode) &&
+         ((opcode >> 16) & UINT32_C(0x1f)) <= UINT32_C(0x03);
+}
+
+bool t64_cop1_branch_condition(const t64_cpu_state *cpu, uint32_t opcode,
+                               bool *likely_out) {
+  uint32_t suboperation;
+  bool condition;
+
+  if (cpu == NULL || likely_out == NULL ||
+      !t64_cop1_branch_encoding_valid(opcode)) {
+    return false;
+  }
+  suboperation = (opcode >> 16) & UINT32_C(0x1f);
+  condition = (cpu->fcr31 & UINT32_C(0x00800000)) != 0u;
+  *likely_out = (suboperation & UINT32_C(0x02)) != 0u;
+  return condition == ((suboperation & UINT32_C(0x01)) != 0u);
+}
+
 static bool cop1_fr(const t64_machine *machine) {
   return ((uint32_t)machine->cpu.cp0[12] & T64_STATUS_FR) != 0u;
 }
@@ -324,6 +349,7 @@ t64_status t64_cop1_execute(t64_machine *machine, uint32_t opcode,
     result_out->destination_fpr = fd;
     result_out->fpr_width = 64u;
     result_out->result_bits = conversion.bits;
+    result_out->clear_fcr31_causes = true;
     result_out->fcr31_flags = conversion.exception_flags;
     return T64_STATUS_OK;
   }
