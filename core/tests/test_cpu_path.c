@@ -101,6 +101,21 @@ static uint32_t encode_cvt_d_w(uint32_t source, uint32_t destination) {
          (source << 11) | (destination << 6) | UINT32_C(0x21);
 }
 
+static uint32_t encode_mtc1(uint32_t source, uint32_t destination) {
+  return (UINT32_C(0x11) << 26) | (UINT32_C(0x04) << 21) |
+         (source << 16) | (destination << 11);
+}
+
+static uint32_t encode_dmfc1(uint32_t destination, uint32_t source) {
+  return (UINT32_C(0x11) << 26) | (UINT32_C(0x01) << 21) |
+         (destination << 16) | (source << 11);
+}
+
+static uint32_t encode_cop1_memory(uint32_t operation, uint32_t base,
+                                   uint32_t reg, uint16_t offset) {
+  return (operation << 26) | (base << 21) | (reg << 16) | (uint32_t)offset;
+}
+
 static uint32_t read_be32_bytes(const uint8_t *bytes) {
   return ((uint32_t)bytes[0] << 24) | ((uint32_t)bytes[1] << 16) |
          ((uint32_t)bytes[2] << 8) | (uint32_t)bytes[3];
@@ -333,6 +348,163 @@ static bool test_vr4300_cvt_d_w_is_machine_local(
 
   t64_machine_destroy(other);
   return other_allocator_state.outstanding == 0u;
+}
+
+static bool test_vr4300_cop1_transfer_conversion_memory_tracer(
+    t64_machine *machine, const uint8_t asset[IPL3_ASSET_BYTES]) {
+  const uint64_t virtual_code = UINT64_C(0xffffffff80001000);
+  const uint64_t virtual_data = UINT64_C(0xffffffff80002000);
+  const uint64_t expected_value = UINT64_C(0xc1e0000000000000);
+  const uint32_t status_cu1_fr = (UINT32_C(1) << 29) | (UINT32_C(1) << 26);
+  const uint32_t program[] = {
+      encode_mtc1(8u, 1u),
+      encode_cvt_d_w(1u, 2u),
+      encode_cop1_memory(UINT32_C(0x3d), 9u, 2u, 0u),
+      encode_cop1_memory(UINT32_C(0x35), 9u, 3u, 0u),
+      encode_dmfc1(10u, 3u),
+  };
+  const uint64_t unusable_pc = UINT64_C(0xffffffff80003000);
+  const uint32_t unusable_opcode = encode_mtc1(8u, 5u);
+  const uint32_t handler_opcode = UINT32_C(0x240a005a);
+  allocator_state handler_allocator_state = {0u};
+  const t64_host_allocator handler_allocator = {
+      test_allocate, test_release, &handler_allocator_state};
+  const t64_profile_descriptor *profile = NULL;
+  t64_machine *handler_machine = NULL;
+  const t64_vr4300_dcache_line *data_line;
+  t64_status status;
+  uint32_t stored_high;
+  uint32_t stored_low;
+  uint64_t retired_before;
+  size_t index;
+
+  if (machine == NULL || asset == NULL ||
+      t64_machine_admit_rom(machine, asset, IPL3_ASSET_BYTES) !=
+          T64_STATUS_OK) {
+    (void)puts("# COP1 tracer fixture setup failed");
+    return false;
+  }
+  (void)memset(machine->ram + UINT32_C(0x2000), 0, 16u);
+  for (index = 0u; index < sizeof program / sizeof program[0]; index++) {
+    write_rdram_instruction(machine, UINT32_C(0x1000) +
+                                         (uint32_t)(index * 4u),
+                            program[index]);
+    clear_instruction_index(machine, virtual_code + (uint64_t)(index * 4u));
+  }
+  machine->cpu.pc = UINT32_C(0x80001000);
+  machine->cpu.pc_full = virtual_code;
+  machine->cpu.cp0[12] |= status_cu1_fr;
+  machine->cpu.gpr[8] = UINT64_C(0x80000000);
+  machine->cpu.gpr[9] = virtual_data;
+  for (index = 0u; index < sizeof program / sizeof program[0]; index++) {
+    status = t64_cpu_step(machine, NULL);
+    if (status != T64_STATUS_OK ||
+        machine->cpu.last_opcode != program[index] ||
+        machine->cpu.attempt_outcome != T64_CPU_ATTEMPT_RETIRED) {
+      (void)printf("# COP1 tracer step=%zu expected opcode=%08x retired=1 "
+                   "observed opcode=%08x status=%u cause=%08x "
+                   "pc=%016llx outcome=%u retired=%llu\n",
+                   index, program[index], machine->cpu.last_opcode,
+                   (unsigned)status, (unsigned)machine->cpu.cp0[13],
+                   (unsigned long long)machine->cpu.last_pc_full,
+                   (unsigned)machine->cpu.attempt_outcome,
+                   (unsigned long long)machine->cpu.retired_instructions);
+      return false;
+    }
+  }
+  data_line = &machine->cpu.dcache[(UINT32_C(0x2000) >> 4) &
+                                   (T64_VR4300_DCACHE_LINE_COUNT - 1u)];
+  stored_high = read_be32_bytes(data_line->data);
+  stored_low = read_be32_bytes(data_line->data + 4u);
+  if (machine->cpu.fpr[2] != expected_value ||
+      machine->cpu.fpr[3] != expected_value ||
+      machine->cpu.gpr[10] != expected_value || !data_line->valid ||
+      !data_line->dirty || data_line->physical_tag != UINT32_C(0x2000) ||
+      stored_high != UINT32_C(0xc1e00000) ||
+      stored_low != UINT32_C(0x00000000)) {
+    (void)printf("# COP1 tracer expected fpr2/fpr3/gpr10=%016llx cache="
+                 "%08x%08x valid/dirty/tag=%u/%u/%08x observed="
+                 "%016llx/%016llx/%016llx cache=%08x%08x %u/%u/%08x\n",
+                 (unsigned long long)expected_value, UINT32_C(0xc1e00000),
+                 UINT32_C(0), data_line->valid ? 1u : 0u,
+                 data_line->dirty ? 1u : 0u, UINT32_C(0x2000),
+                 (unsigned long long)machine->cpu.fpr[2],
+                 (unsigned long long)machine->cpu.fpr[3],
+                 (unsigned long long)machine->cpu.gpr[10],
+                 stored_high, stored_low,
+                 data_line->valid ? 1u : 0u,
+                 data_line->dirty ? 1u : 0u, data_line->physical_tag);
+    return false;
+  }
+
+  if (t64_profile_lookup("ntsc-cart-4m-openipl3-vr4300-v1", &profile) !=
+          T64_STATUS_OK ||
+      profile == NULL ||
+      t64_machine_create(&handler_allocator, profile, &handler_machine) !=
+          T64_STATUS_OK ||
+      handler_machine == NULL ||
+      t64_machine_admit_rom(handler_machine, asset, IPL3_ASSET_BYTES) !=
+          T64_STATUS_OK) {
+    (void)puts("# CU1-disabled handler fixture setup failed");
+    if (handler_machine != NULL) {
+      t64_machine_destroy(handler_machine);
+    }
+    return false;
+  }
+  write_rdram_instruction(handler_machine, UINT32_C(0x3000),
+                          unusable_opcode);
+  write_rdram_instruction(handler_machine, UINT32_C(0x0180), handler_opcode);
+  clear_instruction_index(handler_machine, unusable_pc);
+  clear_instruction_index(handler_machine,
+                          UINT64_C(0xffffffff80000180));
+  handler_machine->cpu.pc = UINT32_C(0x80003000);
+  handler_machine->cpu.pc_full = unusable_pc;
+  handler_machine->cpu.cp0[12] |= status_cu1_fr;
+  handler_machine->cpu.cp0[12] &= ~(uint64_t)(UINT32_C(1) << 29);
+  handler_machine->cpu.gpr[8] = UINT64_C(0x12345678);
+  handler_machine->cpu.fpr[5] = UINT64_C(0x1122334455667788);
+  retired_before = handler_machine->cpu.retired_instructions;
+  status = t64_cpu_step(handler_machine, NULL);
+  if (status != T64_STATUS_OK ||
+      handler_machine->cpu.last_opcode != unusable_opcode ||
+      handler_machine->cpu.fpr[5] != UINT64_C(0x1122334455667788) ||
+      ((uint32_t)handler_machine->cpu.cp0[13] & UINT32_C(0x7c)) !=
+          (UINT32_C(11) << 2) ||
+      (((uint32_t)handler_machine->cpu.cp0[13] >> 28) & UINT32_C(3)) != 1u ||
+      handler_machine->cpu.cp0[14] != unusable_pc ||
+      handler_machine->cpu.retired_instructions != retired_before ||
+      handler_machine->cpu.attempt_outcome !=
+          T64_CPU_ATTEMPT_GUEST_EXCEPTION ||
+      handler_machine->cpu.pc != UINT32_C(0x80000180)) {
+    (void)printf("# CU1-disabled MTC1 expected cause=0000002c epc=%016llx "
+                 "pc=ffffffff80000180 destination=1122334455667788 "
+                 "observed opcode=%08x cause=%08x epc=%016llx "
+                 "pc=%016llx destination=%016llx status=%u outcome=%u\n",
+                 (unsigned long long)unusable_pc,
+                 handler_machine->cpu.last_opcode,
+                 (unsigned)handler_machine->cpu.cp0[13],
+                 (unsigned long long)handler_machine->cpu.cp0[14],
+                 (unsigned long long)handler_machine->cpu.pc_full,
+                 (unsigned long long)handler_machine->cpu.fpr[5],
+                 (unsigned)status,
+                 (unsigned)handler_machine->cpu.attempt_outcome);
+    t64_machine_destroy(handler_machine);
+    return false;
+  }
+  status = t64_cpu_step(handler_machine, NULL);
+  if (status != T64_STATUS_OK || handler_machine->cpu.gpr[10] !=
+                                     UINT64_C(0x5a)) {
+    (void)printf("# CU1 handler expected gpr10=000000000000005a observed="
+                 "%016llx status=%u pc=%016llx opcode=%08x\n",
+                 (unsigned long long)handler_machine->cpu.gpr[10],
+                 (unsigned)status,
+                 (unsigned long long)handler_machine->cpu.last_pc_full,
+                 handler_machine->cpu.last_opcode);
+    t64_machine_destroy(handler_machine);
+    return false;
+  }
+  t64_machine_destroy(handler_machine);
+  return handler_allocator_state.outstanding == 0u;
 }
 
 static bool test_vr4300_instruction_cache_stale_then_invalidated(
@@ -2220,6 +2392,8 @@ int main(int argc, char **argv) {
        test_vr4300_break_enters_rdram_handler},
       {"CVT.D.W converts exact signed words with isolated machine FPR/FCR31 state",
        test_vr4300_cvt_d_w_is_machine_local},
+      {"MTC1/CVT.D.W/SDC1/LDC1/DMFC1 follows MMU and cached memory; CU1 traps to handler",
+       test_vr4300_cop1_transfer_conversion_memory_tracer},
       {"mapped load miss is repaired by a guest TLBWI handler and retried",
        test_vr4300_tlb_refill_and_retry},
       {"guest-time Count equality interrupts then resumes after Compare commit",
