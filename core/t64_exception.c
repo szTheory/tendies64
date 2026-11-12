@@ -7,15 +7,24 @@
 #define T64_CP0_STATUS UINT32_C(12)
 #define T64_CP0_CAUSE UINT32_C(13)
 #define T64_CP0_EPC UINT32_C(14)
+#define T64_CP0_ENTRYHI UINT32_C(10)
+#define T64_CP0_CONTEXT UINT32_C(4)
+#define T64_CP0_XCONTEXT UINT32_C(20)
 
 #define T64_STATUS_EXL UINT32_C(0x00000002)
 #define T64_STATUS_BEV UINT32_C(0x00400000)
 #define T64_CAUSE_BD UINT32_C(0x80000000)
 #define T64_CAUSE_CE UINT32_C(0x30000000)
 #define T64_CAUSE_EXCCODE UINT32_C(0x0000007c)
+#define T64_ENTRYHI_ASID_MASK UINT64_C(0x00000000000000ff)
+#define T64_ENTRYHI32_VPN_MASK UINT64_C(0x00000000ffffe000)
+#define T64_ENTRYHI64_VPN_MASK UINT64_C(0xc00000ffffffe000)
+#define T64_CONTEXT_BADVPN2_MASK UINT64_C(0x00000000007ffff0)
+#define T64_XCONTEXT_BADVPN2_MASK UINT64_C(0x00000001fffffff0)
+#define T64_XCONTEXT_REGION_MASK UINT64_C(0x0000000180000000)
 
 static bool exception_updates_bad_vaddr(uint32_t code) {
-  return code == UINT32_C(2) || code == UINT32_C(3) ||
+  return code == UINT32_C(1) || code == UINT32_C(2) || code == UINT32_C(3) ||
          code == UINT32_C(4) || code == UINT32_C(5);
 }
 
@@ -27,6 +36,38 @@ static uint64_t general_exception_vector(uint32_t status) {
     return UINT64_C(0xffffffffbfc00380);
   }
   return UINT64_C(0xffffffff80000180);
+}
+
+static uint64_t tlb_refill_vector(uint32_t status, bool extended) {
+  uint64_t base = (status & T64_STATUS_BEV) != 0u
+                      ? UINT64_C(0xffffffffbfc00200)
+                      : UINT64_C(0xffffffff80000000);
+
+  return base + (extended ? UINT64_C(0x80) : UINT64_C(0));
+}
+
+static void update_tlb_fault_context(t64_machine *machine,
+                                     const t64_cpu_exception_result *exception) {
+  uint64_t address = exception->bad_virtual_address;
+  uint64_t old_entry_hi = machine->cpu.cp0[T64_CP0_ENTRYHI];
+  uint64_t entry_hi_mask = exception->tlb_extended
+                               ? T64_ENTRYHI64_VPN_MASK
+                               : T64_ENTRYHI32_VPN_MASK;
+  uint64_t entry_hi = (old_entry_hi & T64_ENTRYHI_ASID_MASK) |
+                      (address & entry_hi_mask);
+  uint64_t context = machine->cpu.cp0[T64_CP0_CONTEXT];
+  uint64_t xcontext = machine->cpu.cp0[T64_CP0_XCONTEXT];
+
+  machine->cpu.cp0[T64_CP0_ENTRYHI] = entry_hi;
+  machine->cpu.cp0[T64_CP0_CONTEXT] =
+      (context & ~T64_CONTEXT_BADVPN2_MASK) |
+      ((address >> 9) & T64_CONTEXT_BADVPN2_MASK);
+  machine->cpu.cp0[T64_CP0_XCONTEXT] =
+      (xcontext & ~T64_XCONTEXT_BADVPN2_MASK) |
+      (exception->tlb_extended
+           ? ((((address >> 31) & T64_XCONTEXT_REGION_MASK) |
+               ((address >> 9) & UINT64_C(0x000000007ffffff0))))
+           : ((address >> 9) & T64_CONTEXT_BADVPN2_MASK));
 }
 
 t64_status t64_cpu_exception_enter(
@@ -75,9 +116,14 @@ t64_status t64_cpu_exception_enter(
   if (exception_updates_bad_vaddr(exception->code)) {
     machine->cpu.cp0[T64_CP0_BAD_VADDR] = exception->bad_virtual_address;
   }
+  if (exception->sets_tlb_context) {
+    update_tlb_fault_context(machine, exception);
+  }
   machine->cpu.cp0[T64_CP0_STATUS] = old_status | T64_STATUS_EXL;
 
-  vector = general_exception_vector(old_status);
+  vector = exception->tlb_refill && (old_status & T64_STATUS_EXL) == 0u
+               ? tlb_refill_vector(old_status, exception->tlb_extended)
+               : general_exception_vector(old_status);
   machine->cpu.pc_full = vector;
   machine->cpu.pc = (uint32_t)vector;
   machine->cpu.delay_slot_pending = false;

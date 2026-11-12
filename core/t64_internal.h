@@ -169,6 +169,9 @@ typedef struct {
   bool branch_delay;
   bool sets_coprocessor;
   uint32_t coprocessor;
+  bool sets_tlb_context;
+  bool tlb_refill;
+  bool tlb_extended;
 } t64_cpu_exception_result;
 
 typedef enum {
@@ -186,16 +189,60 @@ typedef struct {
   uint64_t cp0_value;
   bool clear_timer_pending;
   bool reset_random;
+  uint32_t tlb_operation;
+  uint32_t tlb_index;
+  bool tlb_duplicate;
 } t64_cp0_effect;
 
+typedef enum {
+  T64_CP0_TLB_NONE = 0,
+  T64_CP0_TLB_PROBE = 1,
+  T64_CP0_TLB_READ = 2,
+  T64_CP0_TLB_WRITE_INDEXED = 3,
+  T64_CP0_TLB_WRITE_RANDOM = 4
+} t64_cp0_tlb_operation;
+
+typedef enum {
+  T64_MMU_ACCESS_FETCH = 0,
+  T64_MMU_ACCESS_READ = 1,
+  T64_MMU_ACCESS_WRITE = 2
+} t64_mmu_access_kind;
+
+typedef enum {
+  T64_MMU_DOMAIN_BUS = 0,
+  T64_MMU_DOMAIN_XKPHYS = 1
+} t64_mmu_physical_domain;
+
+typedef enum {
+  T64_MMU_FAULT_NONE = 0,
+  T64_MMU_FAULT_ADDRESS = 1,
+  T64_MMU_FAULT_TLB_REFILL = 2,
+  T64_MMU_FAULT_TLB_INVALID = 3,
+  T64_MMU_FAULT_TLB_MODIFIED = 4,
+  T64_MMU_FAULT_DUPLICATE_MATCH = 5
+} t64_mmu_fault;
+
 typedef struct {
-  bool translated;
-  bool refill;
-  bool invalid;
-  bool modified;
-  uint32_t physical_address;
+  uint64_t virtual_address;
+  uint32_t width;
+  t64_mmu_access_kind kind;
+} t64_mmu_request;
+
+typedef struct {
+  t64_mmu_fault fault;
+  uint64_t virtual_address;
+  uint64_t physical_address;
   uint32_t matched_entry;
-} t64_cpu_mmu_result;
+  uint32_t entry_lo;
+  uint32_t width;
+  uint8_t cache_algorithm;
+  t64_mmu_physical_domain physical_domain;
+  bool translated;
+  bool cacheable;
+  bool extended_address_mode;
+  bool tlb_context_valid;
+  bool tlb_refill_vector;
+} t64_mmu_result;
 
 typedef struct {
   bool supported;
@@ -403,6 +450,9 @@ t64_status t64_cpu_exception_enter(
     t64_machine *machine, const t64_cpu_exception_result *exception);
 t64_cp0_transfer_result t64_cp0_prepare_transfer(
     const t64_machine *machine, uint32_t opcode, t64_cp0_effect *effect_out);
+t64_cp0_transfer_result t64_cp0_prepare_tlb_instruction(
+    const t64_machine *machine, uint32_t opcode,
+    t64_cp0_effect *effect_out);
 void t64_cp0_commit_transfer(t64_machine *machine,
                              const t64_cp0_effect *effect);
 t64_status t64_cp0_synchronize_guest_time(t64_machine *machine,
@@ -411,6 +461,12 @@ bool t64_cp0_interrupt_pending(t64_machine *machine);
 bool t64_cp0_access_unusable(const t64_machine *machine);
 uint32_t t64_cp0_random_tlb_index(const t64_machine *machine);
 void t64_cp0_instruction_retired(t64_machine *machine);
+bool t64_mmu_translate(const t64_machine *machine,
+                       const t64_mmu_request *request,
+                       t64_mmu_result *result_out);
+bool t64_mmu_probe(const t64_machine *machine, uint64_t entry_hi,
+                   uint32_t *entry_index_out, bool *duplicate_out);
+bool t64_mmu_page_mask_is_defined(uint64_t page_mask);
 bool t64_cpu_translate(uint64_t virtual_address,
                        uint32_t *physical_address_out);
 t64_status t64_bus_probe_access(const t64_machine *machine,

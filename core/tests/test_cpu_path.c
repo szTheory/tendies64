@@ -161,6 +161,126 @@ static bool test_vr4300_break_enters_rdram_handler(
   return true;
 }
 
+static bool test_vr4300_tlb_refill_and_retry(
+    t64_machine *machine, const uint8_t asset[IPL3_ASSET_BYTES]) {
+  const uint32_t load_pc = UINT32_C(0x80001000);
+  const uint32_t refill_pc = UINT32_C(0x80000000);
+  const uint32_t virtual_data = UINT32_C(0x00004000);
+  const uint32_t physical_data = UINT32_C(0x00003000);
+  const uint64_t expected_value = UINT64_C(0x12345678);
+  const uint32_t entry_lo = UINT32_C(0x000000df);
+  static const uint32_t refill_handler[] = {
+      UINT32_C(0x341a00df), /* ori k0,zero,EntryLo */
+      UINT32_C(0x409a1000), /* mtc0 k0,EntryLo0 */
+      UINT32_C(0x409a1800), /* mtc0 k0,EntryLo1 */
+      UINT32_C(0x42000002), /* tlbwi */
+      UINT32_C(0x42000018), /* eret */
+  };
+  t64_vr4300_dcache_line data_line_before;
+  uint8_t bytes_before[4];
+  uint32_t linked_address_before;
+  uint32_t linked_width_before;
+  bool linked_valid_before;
+  bool refill_state_ok;
+  bool failed_access_state_ok;
+  t64_status status;
+  size_t index;
+
+  if (machine == NULL || asset == NULL ||
+      t64_machine_admit_rom(machine, asset, IPL3_ASSET_BYTES) !=
+          T64_STATUS_OK) {
+    (void)puts("# TLB refill fixture setup failed");
+    return false;
+  }
+  for (index = 0u; index < sizeof refill_handler / sizeof refill_handler[0];
+       index++) {
+    write_rdram_instruction(machine, (uint32_t)(index * 4u),
+                            refill_handler[index]);
+  }
+  write_rdram_instruction(machine, UINT32_C(0x1000), UINT32_C(0x8c880000));
+  write_rdram_instruction(machine, UINT32_C(0x1004), UINT32_C(0x24090007));
+  machine->ram[physical_data] = UINT8_C(0x12);
+  machine->ram[physical_data + 1u] = UINT8_C(0x34);
+  machine->ram[physical_data + 2u] = UINT8_C(0x56);
+  machine->ram[physical_data + 3u] = UINT8_C(0x78);
+  machine->cpu.pc = load_pc;
+  machine->cpu.pc_full = t64_cpu_canonical_address(load_pc);
+  machine->cpu.cp0[0] = UINT64_C(0);  /* Index selects entry zero. */
+  machine->cpu.cp0[12] = UINT64_C(0); /* Kernel, BEV=0, 32-bit mode. */
+  machine->cpu.gpr[4] = (uint64_t)virtual_data;
+  machine->cpu.gpr[8] = UINT64_C(0xfeedface);
+  machine->cpu.linked_valid = true;
+  machine->cpu.linked_width = UINT32_C(4);
+  machine->cpu.linked_physical_address = UINT32_C(0x80);
+  data_line_before = machine->cpu.dcache[0];
+  (void)memcpy(bytes_before, machine->ram + physical_data,
+               sizeof bytes_before);
+  linked_address_before = machine->cpu.linked_physical_address;
+  linked_width_before = machine->cpu.linked_width;
+  linked_valid_before = machine->cpu.linked_valid;
+
+  status = t64_cpu_step(machine, NULL);
+  refill_state_ok =
+      status == T64_STATUS_OK && machine->cpu.pending_exception_valid &&
+      machine->cpu.pc_full == t64_cpu_canonical_address(refill_pc) &&
+      (uint32_t)machine->cpu.cp0[13] == (UINT32_C(2) << 2) &&
+      machine->cpu.cp0[8] == (uint64_t)virtual_data &&
+      machine->cpu.cp0[10] == (uint64_t)virtual_data;
+  failed_access_state_ok =
+      machine->cpu.gpr[8] == UINT64_C(0xfeedface) &&
+      memcmp(bytes_before, machine->ram + physical_data,
+             sizeof bytes_before) == 0 &&
+      memcmp(&data_line_before, &machine->cpu.dcache[0],
+             sizeof data_line_before) == 0 &&
+      machine->cpu.linked_valid == linked_valid_before &&
+      machine->cpu.linked_width == linked_width_before &&
+      machine->cpu.linked_physical_address == linked_address_before;
+  if (!refill_state_ok || !failed_access_state_ok) {
+    (void)printf("# TLB miss observed status=%u pc=%016llx code=%u "
+                 "badvaddr=%016llx entryhi=%016llx gpr8=%016llx "
+                 "retired=%llu refill_ok=%u no_partial_effects=%u\n",
+                 (unsigned)status,
+                 (unsigned long long)machine->cpu.pc_full,
+                 ((uint32_t)machine->cpu.cp0[13] >> 2) & UINT32_C(31),
+                 (unsigned long long)machine->cpu.cp0[8],
+                 (unsigned long long)machine->cpu.cp0[10],
+                 (unsigned long long)machine->cpu.gpr[8],
+                 (unsigned long long)machine->cpu.retired_instructions,
+                 refill_state_ok ? 1u : 0u,
+                 failed_access_state_ok ? 1u : 0u);
+    return false;
+  }
+
+  for (index = 0u; index < 8u && machine->cpu.gpr[8] != expected_value;
+       index++) {
+    status = t64_cpu_step(machine, NULL);
+    if (status != T64_STATUS_OK) {
+      break;
+    }
+  }
+  if (status == T64_STATUS_OK && machine->cpu.gpr[8] == expected_value) {
+    status = t64_cpu_step(machine, NULL);
+  }
+  if (status != T64_STATUS_OK || machine->cpu.gpr[8] != expected_value ||
+      machine->cpu.gpr[9] != UINT64_C(7) ||
+      machine->cpu.tlb[0].entry_lo0 != (uint64_t)entry_lo ||
+      machine->cpu.tlb[0].entry_lo1 != (uint64_t)entry_lo ||
+      machine->cpu.pending_exception_valid) {
+    (void)printf("# TLB retry observed status=%u pc=%016llx gpr8=%016llx "
+                 "gpr9=%016llx tlblo0=%016llx tlblo1=%016llx "
+                 "pending=%u\n",
+                 (unsigned)status,
+                 (unsigned long long)machine->cpu.pc_full,
+                 (unsigned long long)machine->cpu.gpr[8],
+                 (unsigned long long)machine->cpu.gpr[9],
+                 (unsigned long long)machine->cpu.tlb[0].entry_lo0,
+                 (unsigned long long)machine->cpu.tlb[0].entry_lo1,
+                 machine->cpu.pending_exception_valid ? 1u : 0u);
+    return false;
+  }
+  return true;
+}
+
 static bool test_vr4300_protected_cp0_guest_handler(
     t64_machine *machine, const uint8_t asset[IPL3_ASSET_BYTES]) {
   static const uint32_t program[] = {
@@ -178,6 +298,7 @@ static bool test_vr4300_protected_cp0_guest_handler(
   t64_status status;
   uint32_t observed_status;
   uint32_t cause;
+  size_t index;
 
   if (machine == NULL || asset == NULL ||
       t64_machine_admit_rom(machine, asset, IPL3_ASSET_BYTES) !=
@@ -191,13 +312,24 @@ static bool test_vr4300_protected_cp0_guest_handler(
   machine->cpu.gpr[8] = UINT32_C(0x98000001);
   machine->cpu.gpr[9] = UINT32_C(0x00000010);
   machine->cpu.gpr[13] = UINT64_C(0x1122334455667788);
+  for (index = 1u; index < T64_VR4300_TLB_ENTRY_COUNT; index++) {
+    machine->cpu.tlb[index].asid = UINT32_C(1);
+  }
+  machine->cpu.tlb[0].vpn2 = UINT64_C(0x1000);
+  machine->cpu.tlb[0].asid = UINT32_C(0);
+  machine->cpu.tlb[0].entry_lo0 = UINT64_C(0x5e);
+  machine->cpu.tlb[0].entry_lo1 = UINT64_C(0x5e);
   write_rdram_instruction(machine, UINT32_C(0x0180),
                           UINT32_C(0x240e005a)); /* addiu t6,zero,0x5a */
   write_rdram_instruction(machine, UINT32_C(0x0184),
                           UINT32_C(0xbc000000)); /* unsupported CACHE stop */
-  for (size_t i = 0u; i < sizeof program / sizeof program[0]; i++) {
-    write_instruction(machine, i, program[i]);
+  for (index = 0u; index < sizeof program / sizeof program[0]; index++) {
+    write_rdram_instruction(machine, UINT32_C(0x1000) +
+                                        (uint32_t)(index * 4u),
+                            program[index]);
   }
+  machine->cpu.pc = UINT32_C(0x1000);
+  machine->cpu.pc_full = UINT64_C(0x1000);
 
   status = t64_machine_advance(machine, &request, &result);
   (void)t64_machine_cpu_stop_detail(machine, &detail);
@@ -206,8 +338,7 @@ static bool test_vr4300_protected_cp0_guest_handler(
   if (status != T64_STATUS_OK ||
       result.reason != T64_STOP_REASON_CPU_UNSUPPORTED ||
       detail.pc != handler_pc + UINT32_C(4) ||
-      machine->cpu.cp0[14] != t64_cpu_canonical_address(
-                                  IPL3_ENTRY_PC + UINT32_C(16)) ||
+      machine->cpu.cp0[14] != UINT64_C(0x1010) ||
       ((cause >> 2) & UINT32_C(0x1f)) != UINT32_C(11) ||
       machine->cpu.gpr[10] != UINT64_C(0xffffffff90200001) ||
       machine->cpu.gpr[11] != UINT64_C(0x0123456789abcdef) ||
@@ -958,9 +1089,9 @@ static bool test_cp0_cache_unsupported_encodings(
       UINT32_C(0x40004801), /* mfc0 t0,count,sel=1 */
       UINT32_C(0x40880000), /* mtc0 t0,c0_index */
   };
-  static const uint32_t unsupported_cache[] = {
-      UINT32_C(0xbd100000), /* unqualified CACHE operation */
-      UINT32_C(0xbd150000), /* valid op with unsupported address mode */
+  static const uint32_t cache_cases[] = {
+      UINT32_C(0xbd100000), /* undefined/unqualified CACHE operation */
+      UINT32_C(0xbd150000), /* Hit_Writeback_Invalidate_D */
   };
   size_t i;
 
@@ -977,22 +1108,39 @@ static bool test_cp0_cache_unsupported_encodings(
       return false;
     }
   }
-  for (i = 0u; i < sizeof unsupported_cache / sizeof unsupported_cache[0];
-       i++) {
+  for (i = 0u; i < sizeof cache_cases / sizeof cache_cases[0]; i++) {
     t64_stop_result result = {UINT32_MAX, UINT64_MAX};
     t64_cpu_stop_detail detail = {UINT64_MAX, UINT32_MAX, UINT32_MAX};
 
-    if (!install_program(machine, asset, &unsupported_cache[i], 1u)) {
+    if (!install_program(machine, asset, &cache_cases[i], 1u)) {
       return false;
     }
     machine->cpu.gpr[8] = i == 0u ? UINT64_C(0xffffffff80000100)
                                   : UINT64_C(0x100);
-    if (!stop_at_unsupported(machine, &result, &detail) ||
-        detail.retired_instructions != UINT64_C(0) ||
-        detail.pc != IPL3_ENTRY_PC ||
-        detail.opcode != unsupported_cache[i] ||
-        machine->cache.operation_seen) {
-      return false;
+    if (i == 0u) {
+      if (!stop_at_unsupported(machine, &result, &detail) ||
+          detail.retired_instructions != UINT64_C(0) ||
+          detail.pc != IPL3_ENTRY_PC || detail.opcode != cache_cases[i] ||
+          machine->cache.operation_seen) {
+        return false;
+      }
+    } else {
+      /* The manual specifies virtual-to-physical translation for CACHE
+       * operands and allows TLB miss/invalid exceptions. Use ASID 1 so this
+       * KUSEG address does not collide with the all-zero invalid seed tags. */
+      t64_stop_request request = {T64_STOP_GUEST_TICK, UINT64_C(1)};
+      machine->cpu.cp0[10] = UINT64_C(1);
+      if (t64_machine_advance(machine, &request, &result) != T64_STATUS_OK ||
+          result.reason != T64_STOP_REASON_BOUND ||
+          machine->cpu.pc_full != t64_cpu_canonical_address(
+                                      UINT32_C(0x80000000)) ||
+          (uint32_t)machine->cpu.cp0[13] >> 2 != UINT32_C(2) ||
+          machine->cpu.cp0[8] != UINT64_C(0x100) ||
+          machine->cpu.cp0[10] != UINT64_C(0x101) ||
+          machine->cpu.retired_instructions != UINT64_C(0) ||
+          machine->cache.operation_seen) {
+        return false;
+      }
     }
   }
   return true;
@@ -1145,7 +1293,7 @@ int main(int argc, char **argv) {
        test_cp0_compare_write_clears_timer},
       {"CACHE index tags and D hit writeback preserve coherent memory",
        test_cache_operations_are_coherent},
-      {"unknown CP0 selects and CACHE operations stop without retirement",
+      {"unknown CP0 selects stop and CACHE operands use TLB translation",
        test_cp0_cache_unsupported_encodings},
       {"CP0 and cache state participate in the v6 digest",
        test_cp0_cache_state_is_in_digest},
@@ -1153,6 +1301,8 @@ int main(int argc, char **argv) {
   static const cpu_test_case vr4300_cases[] = {
       {"new-profile BREAK schedules a nonretiring RDRAM handler",
        test_vr4300_break_enters_rdram_handler},
+      {"mapped load miss is repaired by a guest TLBWI handler and retried",
+       test_vr4300_tlb_refill_and_retry},
       {"guest-time Count equality interrupts then resumes after Compare commit",
        test_vr4300_timer_interrupt_handler},
       {"protected CP0 transfers resume a guest handler without destination writes",

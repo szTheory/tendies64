@@ -51,6 +51,9 @@
 #define T64_CONTEXT_PTEBASE32_MASK UINT64_C(0x00000000ff800000)
 #define T64_CONTEXT_PTEBASE64_MASK UINT64_C(0xffffffff80000000)
 #define T64_PAGEMASK_FIELD UINT32_C(0x01ffe000)
+#define T64_ENTRYHI_REGION_MASK UINT64_C(0xc000000000000000)
+#define T64_ENTRYHI_VPN_MASK UINT64_C(0x000000ffffffe000)
+#define T64_ENTRYHI_ASID_MASK UINT64_C(0x00000000000000ff)
 #define T64_ENTRYHI32_MASK UINT32_C(0xffffe0ff)
 #define T64_ENTRYHI64_MASK UINT64_C(0xc00000ffffffe0ff)
 #define T64_ENTRYHI_HIGH32_MASK UINT64_C(0xc00000ff00000000)
@@ -185,19 +188,6 @@ static uint64_t cp0_read_value(const t64_machine *machine, uint32_t rd) {
   }
 }
 
-static bool page_mask_is_defined(uint32_t page_mask) {
-  switch (page_mask & T64_PAGEMASK_FIELD) {
-  case UINT32_C(0x00000000):
-  case UINT32_C(0x00006000):
-  case UINT32_C(0x0001e000):
-  case UINT32_C(0x0007e000):
-  case UINT32_C(0x001fe000):
-  case UINT32_C(0x007fe000):
-  case UINT32_C(0x01ffe000): return true;
-  default: return false;
-  }
-}
-
 static bool config_write_is_supported(const t64_machine *machine,
                                       uint32_t source, uint32_t old_config) {
   uint32_t changed_init_fields = (source ^ old_config) &
@@ -256,7 +246,7 @@ static t64_cp0_transfer_result prepare_tlb_register_write(
     effect_out->write_cp0 = true;
     break;
   case T64_CP0_PAGEMASK:
-    if (!page_mask_is_defined(word)) {
+    if (!t64_mmu_page_mask_is_defined((uint64_t)word)) {
       return T64_CP0_TRANSFER_UNSUPPORTED;
     }
     effect_out->write_cp0 = true;
@@ -474,6 +464,73 @@ t64_cp0_transfer_result t64_cp0_prepare_transfer(
   return prepare_cp0_write(machine, operation, rt, rd, effect_out);
 }
 
+t64_cp0_transfer_result t64_cp0_prepare_tlb_instruction(
+    const t64_machine *machine, uint32_t opcode,
+    t64_cp0_effect *effect_out) {
+  uint32_t function;
+  uint32_t index = UINT32_MAX;
+  bool duplicate = false;
+
+  if (machine == NULL || effect_out == NULL || !is_vr4300_profile(machine) ||
+      (opcode >> 26) != T64_COP0_OPCODE ||
+      ((opcode >> 21) & UINT32_C(0x1f)) != UINT32_C(0x10) ||
+      ((opcode >> 16) & UINT32_C(0x1f)) != 0u ||
+      ((opcode >> 11) & UINT32_C(0x1f)) != 0u ||
+      ((opcode >> 6) & UINT32_C(0x1f)) != 0u ||
+      (opcode & UINT32_C(0x000007c0)) != 0u) {
+    return T64_CP0_TRANSFER_RESERVED;
+  }
+  (void)memset(effect_out, 0, sizeof *effect_out);
+  function = opcode & UINT32_C(0x3f);
+  switch (function) {
+  case UINT32_C(0x01):
+    effect_out->tlb_operation = T64_CP0_TLB_READ;
+    effect_out->tlb_index =
+        (uint32_t)machine->cpu.cp0[T64_CP0_INDEX] & T64_RANDOM_INDEX_MASK;
+    return T64_CP0_TRANSFER_OK;
+  case UINT32_C(0x02):
+    if (!t64_mmu_page_mask_is_defined(
+            machine->cpu.cp0[T64_CP0_PAGEMASK])) {
+      return T64_CP0_TRANSFER_UNSUPPORTED;
+    }
+    effect_out->tlb_operation = T64_CP0_TLB_WRITE_INDEXED;
+    effect_out->tlb_index =
+        (uint32_t)machine->cpu.cp0[T64_CP0_INDEX] & T64_RANDOM_INDEX_MASK;
+    return T64_CP0_TRANSFER_OK;
+  case UINT32_C(0x06):
+    if (!t64_mmu_page_mask_is_defined(
+            machine->cpu.cp0[T64_CP0_PAGEMASK])) {
+      return T64_CP0_TRANSFER_UNSUPPORTED;
+    }
+    effect_out->tlb_operation = T64_CP0_TLB_WRITE_RANDOM;
+    effect_out->tlb_index = t64_cp0_random_tlb_index(machine);
+    return T64_CP0_TRANSFER_OK;
+  case UINT32_C(0x08):
+    if (!t64_mmu_probe(machine, machine->cpu.cp0[T64_CP0_ENTRYHI], &index,
+                       &duplicate)) {
+      return T64_CP0_TRANSFER_UNSUPPORTED;
+    }
+    effect_out->tlb_operation = T64_CP0_TLB_PROBE;
+    effect_out->tlb_index = index;
+    effect_out->tlb_duplicate = duplicate;
+    effect_out->write_cp0 = true;
+    effect_out->cp0_index = T64_CP0_INDEX;
+    if (duplicate || index == UINT32_MAX) {
+      effect_out->cp0_value =
+          (machine->cpu.cp0[T64_CP0_INDEX] &
+           (uint64_t)(T64_INDEX_FIELD & ~UINT32_C(0x1f))) |
+          (uint64_t)T64_INDEX_PROBE;
+    } else {
+      effect_out->cp0_value =
+          (machine->cpu.cp0[T64_CP0_INDEX] &
+           (uint64_t)(T64_INDEX_FIELD & ~UINT32_C(0x1f))) |
+          (uint64_t)index;
+    }
+    return T64_CP0_TRANSFER_OK;
+  default: return T64_CP0_TRANSFER_RESERVED;
+  }
+}
+
 static void refresh_count_compare_deadline(t64_machine *machine) {
   uint64_t count_distance;
   uint64_t ticks_until_equality;
@@ -616,6 +673,40 @@ void t64_cp0_commit_transfer(t64_machine *machine,
   }
   if (effect->reset_random) {
     machine->cpu.cp0[T64_CP0_RANDOM] = UINT32_C(31);
+  }
+  if (effect->tlb_operation == T64_CP0_TLB_READ) {
+    const t64_vr4300_tlb_pair *entry =
+        &machine->cpu.tlb[effect->tlb_index & T64_RANDOM_INDEX_MASK];
+
+    machine->cpu.cp0[T64_CP0_PAGEMASK] = entry->page_mask;
+    machine->cpu.cp0[T64_CP0_ENTRYHI] =
+        ((entry->region << 62) & T64_ENTRYHI_REGION_MASK) |
+        (entry->vpn2 & T64_ENTRYHI_VPN_MASK) |
+        ((uint64_t)entry->asid & T64_ENTRYHI_ASID_MASK);
+    machine->cpu.cp0[T64_CP0_ENTRYLO0] =
+        entry->entry_lo0 & (uint64_t)T64_ENTRYLO_MASK;
+    machine->cpu.cp0[T64_CP0_ENTRYLO1] =
+        entry->entry_lo1 & (uint64_t)T64_ENTRYLO_MASK;
+  } else if (effect->tlb_operation == T64_CP0_TLB_WRITE_INDEXED ||
+             effect->tlb_operation == T64_CP0_TLB_WRITE_RANDOM) {
+    t64_vr4300_tlb_pair *entry =
+        &machine->cpu.tlb[effect->tlb_index & T64_RANDOM_INDEX_MASK];
+    uint64_t entry_hi = machine->cpu.cp0[T64_CP0_ENTRYHI];
+
+    entry->page_mask = machine->cpu.cp0[T64_CP0_PAGEMASK] &
+                       (uint64_t)T64_PAGEMASK_FIELD;
+    entry->region = (entry_hi >> 62) & UINT64_C(3);
+    entry->vpn2 = entry_hi & T64_ENTRYHI_VPN_MASK;
+    entry->asid = (uint32_t)(entry_hi & T64_ENTRYHI_ASID_MASK);
+    entry->entry_lo0 = machine->cpu.cp0[T64_CP0_ENTRYLO0] &
+                       (uint64_t)T64_ENTRYLO_MASK;
+    entry->entry_lo1 = machine->cpu.cp0[T64_CP0_ENTRYLO1] &
+                       (uint64_t)T64_ENTRYLO_MASK;
+  }
+  if (effect->tlb_duplicate) {
+    machine->cpu.tlb_shutdown = true;
+    machine->cpu.cp0[T64_CP0_STATUS] =
+        (uint32_t)machine->cpu.cp0[T64_CP0_STATUS] | T64_STATUS_TS;
   }
 }
 

@@ -9,10 +9,13 @@
 #define IPL3_ASSET_BYTES 4096u
 #define TEST_PC UINT64_C(0xffffffff80001000)
 #define GENERAL_VECTOR UINT64_C(0xffffffff80000180)
+#define T64_CP0_CONTEXT UINT32_C(4)
 #define T64_CP0_BAD_VADDR UINT32_C(8)
+#define T64_CP0_ENTRYHI UINT32_C(10)
 #define T64_CP0_STATUS UINT32_C(12)
 #define T64_CP0_CAUSE UINT32_C(13)
 #define T64_CP0_EPC UINT32_C(14)
+#define T64_CP0_XCONTEXT UINT32_C(20)
 #define T64_CP0_ERROR_EPC UINT32_C(30)
 #define T64_STATUS_ERL UINT32_C(0x00000004)
 #define T64_STATUS_EXL UINT32_C(0x00000002)
@@ -165,8 +168,18 @@ static bool expect_exception(t64_machine *machine, uint64_t ticks,
   return okay;
 }
 
-/* NEC U10504EJ7V0UMJ1, pp.171-174, 180-182, gives Cause/EPC/BD and vector
- * semantics; the expected ExcCode values below use Table 6-2 directly. */
+/* NEC, VR4300/VR4305/VR4310 64-Bit Microprocessor User's Manual,
+ * U10504EJ7V0UM00, pp.143, 155-158, 180-189. The pinned public PDF is
+ * https://hack64.net/docs/VR43XX.pdf (SHA-256
+ * b7c1900f1707a4b238ebd82af1669e9628e4df4875ceabfa012a9d95b4716b75).
+ * Cause/EPC/BD/vector expectations use its TLB and exception tables. */
+static void separate_invalid_seed_entries_by_asid(t64_machine *machine) {
+  uint32_t index;
+
+  for (index = 0u; index < T64_VR4300_TLB_ENTRY_COUNT; index++) {
+    machine->cpu.tlb[index].asid = UINT32_C(1);
+  }
+}
 static bool test_syscall_exception(
     t64_machine *machine, const uint8_t asset[IPL3_ASSET_BYTES]) {
   static const uint32_t program[] = {UINT32_C(0x0000000c)};
@@ -472,9 +485,17 @@ static bool test_instruction_tlb_miss(
   static const uint32_t program[] = {UINT32_C(0x24080001)};
   const uint64_t kuseg_pc = UINT64_C(0x00001000);
 
-  return prepare_program(machine, asset, kuseg_pc, program, 1u) &&
-         expect_exception(machine, UINT64_C(1), UINT32_C(2), kuseg_pc, false,
+  if (!prepare_program(machine, asset, kuseg_pc, program, 1u)) {
+    return false;
+  }
+  separate_invalid_seed_entries_by_asid(machine);
+  return expect_exception(machine, UINT64_C(1), UINT32_C(2), kuseg_pc, false,
                           true, kuseg_pc) &&
+         machine->cpu.pc_full == t64_cpu_canonical_address(
+                                     UINT32_C(0x80000000)) &&
+         machine->cpu.cp0[T64_CP0_ENTRYHI] == UINT64_C(0) &&
+         machine->cpu.cp0[T64_CP0_CONTEXT] == UINT64_C(0) &&
+         machine->cpu.cp0[T64_CP0_XCONTEXT] == UINT64_C(0) &&
          machine->cpu.retired_instructions == 0u;
 }
 
@@ -486,9 +507,13 @@ static bool test_data_tlb_miss(
   if (!prepare_program(machine, asset, TEST_PC, program, 1u)) {
     return false;
   }
+  separate_invalid_seed_entries_by_asid(machine);
   machine->cpu.gpr[9] = kuseg_address;
   return expect_exception(machine, UINT64_C(1), UINT32_C(2), TEST_PC, false,
                           true, kuseg_address) &&
+         machine->cpu.pc_full == t64_cpu_canonical_address(
+                                     UINT32_C(0x80000000)) &&
+         machine->cpu.cp0[T64_CP0_ENTRYHI] == UINT64_C(0) &&
          machine->cpu.retired_instructions == 0u;
 }
 
@@ -500,10 +525,14 @@ static bool test_data_store_tlb_miss(
   if (!prepare_program(machine, asset, TEST_PC, program, 1u)) {
     return false;
   }
+  separate_invalid_seed_entries_by_asid(machine);
   machine->cpu.gpr[8] = UINT64_C(0xdeadbeef);
   machine->cpu.gpr[9] = kuseg_address;
   return expect_exception(machine, UINT64_C(1), UINT32_C(3), TEST_PC, false,
                           true, kuseg_address) &&
+         machine->cpu.pc_full == t64_cpu_canonical_address(
+                                     UINT32_C(0x80000000)) &&
+         machine->cpu.cp0[T64_CP0_ENTRYHI] == UINT64_C(0) &&
          machine->cpu.retired_instructions == 0u;
 }
 

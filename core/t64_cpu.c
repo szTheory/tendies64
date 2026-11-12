@@ -26,6 +26,7 @@
 #define T64_CP0_WATCHLO UINT32_C(18)
 #define T64_CP0_TAGLO UINT32_C(28)
 #define T64_CP0_TAGHI UINT32_C(29)
+#define T64_CP0_STATUS_TS UINT32_C(0x00200000)
 #define T64_CP0_CAUSE_SOFTWARE_MASK UINT32_C(0x00000300)
 #define T64_CP0_CAUSE_TIMER_MASK UINT32_C(0x00008000)
 #define T64_CP0_WATCHLO_MASK UINT32_C(0xfffffffb)
@@ -55,7 +56,7 @@ static t64_status cpu_enter_exception(t64_machine *machine, uint32_t code,
                                       bool branch_delay,
                                       bool sets_coprocessor,
                                       uint32_t coprocessor) {
-  t64_cpu_exception_result exception;
+  t64_cpu_exception_result exception = {0};
   uint64_t pc = machine->cpu.pc_full;
 
   exception.valid = true;
@@ -191,17 +192,55 @@ bool t64_cpu_translate(uint64_t virtual_address,
   return true;
 }
 
+static bool cpu_translate_access(const t64_machine *machine,
+                                 uint64_t virtual_address, uint32_t width,
+                                 t64_mmu_access_kind kind,
+                                 t64_mmu_result *result_out) {
+  t64_mmu_request request;
+  uint32_t physical_address;
+
+  if (machine == NULL || result_out == NULL) {
+    return false;
+  }
+  if (has_vr4300_cpu_state(machine)) {
+    request.virtual_address = virtual_address;
+    request.width = width;
+    request.kind = kind;
+    return t64_mmu_translate(machine, &request, result_out);
+  }
+  *result_out = (t64_mmu_result){0};
+  result_out->virtual_address = virtual_address;
+  result_out->width = width;
+  result_out->physical_domain = T64_MMU_DOMAIN_BUS;
+  if ((width != 1u && width != 2u && width != 4u && width != 8u) ||
+      (kind == T64_MMU_ACCESS_FETCH &&
+       (virtual_address & UINT64_C(3)) != 0u) ||
+      (kind != T64_MMU_ACCESS_FETCH && width > 1u &&
+       (virtual_address & ((uint64_t)width - 1u)) != 0u) ||
+      !t64_cpu_translate(virtual_address, &physical_address) ||
+      (uint64_t)physical_address + width > UINT64_C(0x100000000)) {
+    result_out->fault = T64_MMU_FAULT_ADDRESS;
+    return true;
+  }
+  result_out->physical_address = (uint64_t)physical_address;
+  result_out->translated = true;
+  result_out->cacheable = true;
+  return true;
+}
+
 static bool cpu_read_bytes(t64_machine *machine, uint64_t virtual_address,
                            uint8_t *bytes_out, uint32_t width) {
+  t64_mmu_result translation;
   uint32_t physical_address;
   uint32_t index;
 
   if (machine == NULL || bytes_out == NULL || width == 0u ||
-      !t64_cpu_translate(virtual_address, &physical_address) ||
-      (uint64_t)physical_address + (uint64_t)width >
-          UINT64_C(0x100000000)) {
+      !cpu_translate_access(machine, virtual_address, width,
+                            T64_MMU_ACCESS_READ, &translation) ||
+      !translation.translated || translation.physical_address > UINT32_MAX) {
     return false;
   }
+  physical_address = (uint32_t)translation.physical_address;
   for (index = 0u; index < width; index++) {
     uint32_t byte_value = 0u;
     t64_status status = t64_bus_read(machine, physical_address + index, 1u,
@@ -217,14 +256,16 @@ static bool cpu_read_bytes(t64_machine *machine, uint64_t virtual_address,
 
 static bool cpu_read_scalar(t64_machine *machine, uint64_t virtual_address,
                             uint32_t width, uint64_t *value_out) {
+  t64_mmu_result translation;
   uint32_t physical_address;
 
   if (machine == NULL || value_out == NULL ||
-      !t64_cpu_translate(virtual_address, &physical_address) ||
-      (uint64_t)physical_address + (uint64_t)width >
-          UINT64_C(0x100000000)) {
+      !cpu_translate_access(machine, virtual_address, width,
+                            T64_MMU_ACCESS_READ, &translation) ||
+      !translation.translated || translation.physical_address > UINT32_MAX) {
     return false;
   }
+  physical_address = (uint32_t)translation.physical_address;
   if (width == 1u || width == 2u || width == 4u) {
     uint32_t value = 0u;
     t64_status status = t64_bus_read(machine, physical_address, width, &value);
@@ -254,15 +295,17 @@ static bool cpu_read_scalar(t64_machine *machine, uint64_t virtual_address,
 
 static bool cpu_write_bytes(t64_machine *machine, uint64_t virtual_address,
                             const uint8_t *bytes, uint32_t width) {
+  t64_mmu_result translation;
   uint32_t physical_address;
   uint32_t index;
 
   if (machine == NULL || bytes == NULL || width == 0u ||
-      !t64_cpu_translate(virtual_address, &physical_address) ||
-      (uint64_t)physical_address + (uint64_t)width >
-          UINT64_C(0x100000000)) {
+      !cpu_translate_access(machine, virtual_address, width,
+                            T64_MMU_ACCESS_WRITE, &translation) ||
+      !translation.translated || translation.physical_address > UINT32_MAX) {
     return false;
   }
+  physical_address = (uint32_t)translation.physical_address;
   /* Validate the complete byte range before the first write. */
   for (index = 0u; index < width; index++) {
     uint32_t ignored = 0u;
@@ -283,14 +326,16 @@ static bool cpu_write_bytes(t64_machine *machine, uint64_t virtual_address,
 
 static bool cpu_write_scalar(t64_machine *machine, uint64_t virtual_address,
                              uint32_t width, uint64_t value) {
+  t64_mmu_result translation;
   uint32_t physical_address;
 
   if (machine == NULL ||
-      !t64_cpu_translate(virtual_address, &physical_address) ||
-      (uint64_t)physical_address + (uint64_t)width >
-          UINT64_C(0x100000000)) {
+      !cpu_translate_access(machine, virtual_address, width,
+                            T64_MMU_ACCESS_WRITE, &translation) ||
+      !translation.translated || translation.physical_address > UINT32_MAX) {
     return false;
   }
+  physical_address = (uint32_t)translation.physical_address;
   if (width == 1u || width == 2u || width == 4u) {
     return t64_bus_write(machine, physical_address, width, (uint32_t)value) ==
            T64_STATUS_OK;
@@ -1041,8 +1086,18 @@ static t64_cp0_transfer_result execute_cp0_vr4300(
     t64_machine *machine, uint32_t opcode, bool *write_gpr_out,
     uint32_t *destination_out, uint64_t *value_out,
     t64_cp0_effect *effect_out) {
-  t64_cp0_transfer_result result =
-      t64_cp0_prepare_transfer(machine, opcode, effect_out);
+  uint32_t operation = (opcode >> 21) & UINT32_C(0x1f);
+  uint32_t function = opcode & UINT32_C(0x3f);
+  t64_cp0_transfer_result result;
+
+  if (operation == UINT32_C(0x10) &&
+      (function == UINT32_C(1) || function == UINT32_C(2) ||
+       function == UINT32_C(6) || function == UINT32_C(8))) {
+    result =
+        t64_cp0_prepare_tlb_instruction(machine, opcode, effect_out);
+  } else {
+    result = t64_cp0_prepare_transfer(machine, opcode, effect_out);
+  }
 
   *write_gpr_out = false;
   *destination_out = 0u;
@@ -1062,6 +1117,7 @@ static bool execute_cache(t64_machine *machine, uint32_t pc,
   uint32_t base = (opcode >> 21) & UINT32_C(0x1f);
   uint32_t physical_address;
   uint64_t virtual_address;
+  t64_mmu_result translation;
 
   if (operation != T64_CACHE_INDEX_STORE_TAG_I &&
       operation != T64_CACHE_INDEX_STORE_TAG_D &&
@@ -1071,9 +1127,12 @@ static bool execute_cache(t64_machine *machine, uint32_t pc,
   }
   virtual_address =
       machine->cpu.gpr[base] + sign_extend_16((uint16_t)opcode);
-  if (!t64_cpu_translate(virtual_address, &physical_address)) {
+  if (!cpu_translate_access(machine, virtual_address, UINT32_C(1),
+                            T64_MMU_ACCESS_READ, &translation) ||
+      !translation.translated || translation.physical_address > UINT32_MAX) {
     return false;
   }
+  physical_address = (uint32_t)translation.physical_address;
 
   /*
    * The qualified profile uses coherent-functional memory: guest writes and
@@ -1130,11 +1189,49 @@ static void cpu_stop_completion(t64_machine *machine, uint32_t pc,
                  ((uint64_t)pc << 32) | (uint64_t)opcode);
 }
 
-static bool virtual_address_is_canonical(uint64_t address) {
-  uint64_t high = address >> 40;
-  bool sign = ((address >> 39) & UINT64_C(1)) != 0u;
+static t64_status cpu_enter_mmu_fault(t64_machine *machine,
+                                      const t64_mmu_request *request,
+                                      const t64_mmu_result *translation,
+                                      bool in_delay_slot,
+                                      uint32_t instruction) {
+  t64_cpu_exception_result exception = {0};
+  uint32_t code;
 
-  return sign ? high == UINT64_C(0xffffff) : high == UINT64_C(0);
+  if (translation->fault == T64_MMU_FAULT_DUPLICATE_MATCH) {
+    machine->cpu.tlb_shutdown = true;
+    machine->cpu.cp0[T64_CP0_STATUS] =
+        (uint32_t)machine->cpu.cp0[T64_CP0_STATUS] | T64_CP0_STATUS_TS;
+    cpu_stop_unsupported(machine, machine->cpu.pc, instruction);
+    return T64_STATUS_RESOURCE_EXHAUSTED;
+  }
+  switch (translation->fault) {
+  case T64_MMU_FAULT_ADDRESS:
+    code = request->kind == T64_MMU_ACCESS_WRITE ? UINT32_C(5)
+                                                 : UINT32_C(4);
+    break;
+  case T64_MMU_FAULT_TLB_MODIFIED: code = UINT32_C(1); break;
+  case T64_MMU_FAULT_TLB_REFILL:
+  case T64_MMU_FAULT_TLB_INVALID:
+    code = request->kind == T64_MMU_ACCESS_WRITE ? UINT32_C(3)
+                                                 : UINT32_C(2);
+    break;
+  case T64_MMU_FAULT_NONE:
+  case T64_MMU_FAULT_DUPLICATE_MATCH:
+  default:
+    machine->cpu.attempt_outcome = T64_CPU_ATTEMPT_HOST_ERROR;
+    return T64_STATUS_INVALID_ARGUMENT;
+  }
+  exception.valid = true;
+  exception.code = code;
+  exception.bad_virtual_address = request->virtual_address;
+  exception.epc = in_delay_slot
+                      ? machine->cpu.delay_slot_pc_full - UINT64_C(4)
+                      : machine->cpu.pc_full;
+  exception.branch_delay = in_delay_slot;
+  exception.sets_tlb_context = translation->tlb_context_valid;
+  exception.tlb_refill = translation->tlb_refill_vector;
+  exception.tlb_extended = translation->extended_address_mode;
+  return t64_cpu_exception_enter(machine, &exception);
 }
 
 static bool memory_access_info(uint32_t opcode, uint32_t *width_out,
@@ -1197,31 +1294,75 @@ static t64_status cpu_preflight_memory(t64_machine *machine, uint32_t opcode,
   bool store = false;
   bool partial = false;
   uint64_t address;
+  t64_mmu_request request;
+  t64_mmu_result translation;
   t64_status status;
   uint32_t offset;
 
   *handled_out = false;
   if (!memory_access_info(opcode, &width, &store, &partial)) {
+    if ((opcode >> 26) == T64_CPU_CACHE) {
+      t64_mmu_request cache_request;
+      t64_mmu_result cache_translation;
+      uint32_t cache_operation =
+          (opcode >> 16) & UINT32_C(0x1f);
+
+      if (cache_operation != T64_CACHE_INDEX_STORE_TAG_I &&
+          cache_operation != T64_CACHE_INDEX_STORE_TAG_D &&
+          cache_operation != T64_CACHE_HIT_INVALIDATE_D &&
+          cache_operation != T64_CACHE_HIT_WRITEBACK_INVALIDATE_D) {
+        return T64_STATUS_OK;
+      }
+
+      cache_request.virtual_address =
+          machine->cpu.gpr[(opcode >> 21) & UINT32_C(0x1f)] +
+          sign_extend_16((uint16_t)opcode);
+      cache_request.width = UINT32_C(1);
+      cache_request.kind = T64_MMU_ACCESS_READ;
+      if (!t64_mmu_translate(machine, &cache_request,
+                             &cache_translation)) {
+        *handled_out = true;
+        machine->cpu.attempt_outcome = T64_CPU_ATTEMPT_HOST_ERROR;
+        return T64_STATUS_INVALID_ARGUMENT;
+      }
+      if (cache_translation.fault != T64_MMU_FAULT_NONE) {
+        *handled_out = true;
+        return cpu_enter_mmu_fault(machine, &cache_request,
+                                   &cache_translation, in_delay_slot,
+                                   opcode);
+      }
+      if (!cache_translation.translated ||
+          cache_translation.physical_address > UINT32_MAX) {
+        *handled_out = true;
+        machine->cpu.attempt_outcome = T64_CPU_ATTEMPT_HOST_ERROR;
+        return T64_STATUS_INVALID_ARGUMENT;
+      }
+    }
     return T64_STATUS_OK;
   }
   address = effective_address(&machine->cpu,
                               (opcode >> 21) & UINT32_C(0x1f),
                               (uint16_t)opcode);
-  if (!partial && width > 1u &&
-      (address & ((uint64_t)width - UINT64_C(1))) != 0u) {
+  request.virtual_address = address;
+  request.width = partial ? UINT32_C(1) : width;
+  request.kind = store ? T64_MMU_ACCESS_WRITE : T64_MMU_ACCESS_READ;
+  if (!cpu_translate_access(machine, request.virtual_address, request.width,
+                            request.kind, &translation)) {
     *handled_out = true;
-    return cpu_enter_exception(machine, store ? UINT32_C(5) : UINT32_C(4),
-                               address, in_delay_slot, false, 0u);
+    machine->cpu.attempt_outcome = T64_CPU_ATTEMPT_HOST_ERROR;
+    return T64_STATUS_INVALID_ARGUMENT;
   }
-  if (!t64_cpu_translate(address, &physical)) {
-    uint32_t code = virtual_address_is_canonical(address)
-                        ? (store ? UINT32_C(3) : UINT32_C(2))
-                        : (store ? UINT32_C(5) : UINT32_C(4));
-
+  if (translation.fault != T64_MMU_FAULT_NONE) {
     *handled_out = true;
-    return cpu_enter_exception(machine, code, address, in_delay_slot, false,
-                               0u);
+    return cpu_enter_mmu_fault(machine, &request, &translation,
+                               in_delay_slot, opcode);
   }
+  if (!translation.translated || translation.physical_address > UINT32_MAX) {
+    *handled_out = true;
+    machine->cpu.attempt_outcome = T64_CPU_ATTEMPT_HOST_ERROR;
+    return T64_STATUS_INVALID_ARGUMENT;
+  }
+  physical = (uint32_t)translation.physical_address;
 
   if (watch_matches(machine, physical, store)) {
     *handled_out = true;
@@ -1565,6 +1706,11 @@ t64_status t64_cpu_step(t64_machine *machine, const t64_event *event) {
   if (machine->cpu.stopped) {
     return T64_STATUS_RESOURCE_EXHAUSTED;
   }
+  if (machine->cpu.tlb_shutdown) {
+    cpu_stop_unsupported(machine, machine->cpu.pc,
+                         machine->cpu.last_opcode);
+    return T64_STATUS_RESOURCE_EXHAUSTED;
+  }
   new_profile = has_vr4300_cpu_state(machine);
   status = t64_cp0_synchronize_guest_time(machine, machine->tick);
   if (status != T64_STATUS_OK) {
@@ -1591,18 +1737,31 @@ t64_status t64_cpu_step(t64_machine *machine, const t64_event *event) {
                                  in_delay_slot, false, 0u);
     }
   }
-  if (!t64_cpu_translate(new_profile ? pc_full : sign_extend_32(pc),
-                         &physical_pc)) {
-    machine->cpu.last_opcode = 0u;
-    if (new_profile) {
-      uint32_t code = virtual_address_is_canonical(pc_full)
-                          ? UINT32_C(2)
-                          : UINT32_C(4);
-      return cpu_enter_exception(machine, code, pc_full, in_delay_slot,
-                                 false, 0u);
+  {
+    t64_mmu_result translation;
+    uint64_t virtual_pc = new_profile ? pc_full : sign_extend_32(pc);
+
+    if (!cpu_translate_access(machine, virtual_pc, UINT32_C(4),
+                              T64_MMU_ACCESS_FETCH, &translation)) {
+      machine->cpu.last_opcode = 0u;
+      machine->cpu.attempt_outcome = T64_CPU_ATTEMPT_HOST_ERROR;
+      return T64_STATUS_INVALID_ARGUMENT;
     }
-    cpu_stop_unsupported(machine, pc, 0u);
-    return T64_STATUS_RESOURCE_EXHAUSTED;
+    if (translation.fault != T64_MMU_FAULT_NONE ||
+        !translation.translated ||
+        translation.physical_address > UINT32_MAX) {
+      machine->cpu.last_opcode = 0u;
+      if (new_profile) {
+        t64_mmu_request request = {
+            virtual_pc, UINT32_C(4), T64_MMU_ACCESS_FETCH};
+
+        return cpu_enter_mmu_fault(machine, &request, &translation,
+                                   in_delay_slot, 0u);
+      }
+      cpu_stop_unsupported(machine, pc, 0u);
+      return T64_STATUS_RESOURCE_EXHAUSTED;
+    }
+    physical_pc = (uint32_t)translation.physical_address;
   }
   status = t64_bus_read(machine, physical_pc, 4u, &opcode);
   if (status != T64_STATUS_OK) {
@@ -1783,6 +1942,10 @@ t64_status t64_cpu_step(t64_machine *machine, const t64_event *event) {
   machine->cpu.gpr[0] = 0u;
   if (cp0_effect_prepared) {
     t64_cp0_commit_transfer(machine, &cp0_effect);
+    if (machine->cpu.tlb_shutdown) {
+      cpu_stop_unsupported(machine, pc, opcode);
+      return T64_STATUS_RESOURCE_EXHAUSTED;
+    }
   }
   machine->cpu.retired_instructions++;
   machine->instruction_count++;
