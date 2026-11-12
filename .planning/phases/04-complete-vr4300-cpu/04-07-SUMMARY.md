@@ -96,8 +96,10 @@ mode restrictions, reverse-endian selection and precise fault boundaries.
 - After the bounded preflight correction, full all-target ASan build and6
   affected CPU-memory/path/MMU/bus/exception/integer tests passed. The final common gate passed100/100 tests and lint with zero violations.
 - Hosted source4866d60 passed both Linux and macOS:100 tests, zero lint
-  violations, guest evidence and publication scans. CI timings and the later
-  correction run are tracked in docs/ci-reviews/LOG.md.
+  violations, guest evidence and publication scans. The exact correction
+  source521f554 then passed the same two hosted lanes and all100 tests,
+  lint and publication checks. Both measured runs are tracked in
+  docs/ci-reviews/LOG.md.
 - Portable notes and public specifications pass the unwaived tree PII scan.
   No external diagnostic ROM, capture, result or tool receipt was published.
 
