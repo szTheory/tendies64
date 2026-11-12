@@ -106,6 +106,17 @@ static uint32_t encode_mtc1(uint32_t source, uint32_t destination) {
          (source << 16) | (destination << 11);
 }
 
+static uint32_t encode_ctc1(uint32_t source, uint32_t destination) {
+  return (UINT32_C(0x11) << 26) | (UINT32_C(0x06) << 21) |
+         (source << 16) | (destination << 11);
+}
+
+static uint32_t encode_add_s(uint32_t left, uint32_t right,
+                             uint32_t destination) {
+  return (UINT32_C(0x11) << 26) | (UINT32_C(0x10) << 21) |
+         (right << 16) | (left << 11) | (destination << 6);
+}
+
 static uint32_t encode_dmfc1(uint32_t destination, uint32_t source) {
   return (UINT32_C(0x11) << 26) | (UINT32_C(0x01) << 21) |
          (destination << 16) | (source << 11);
@@ -531,6 +542,122 @@ static bool test_vr4300_cop1_transfer_conversion_memory_tracer(
   }
   t64_machine_destroy(handler_machine);
   return handler_allocator_state.outstanding == 0u;
+}
+
+static bool test_vr4300_cop1_rounding_trap_recovery_and_e_cause(
+    t64_machine *machine, const uint8_t asset[IPL3_ASSET_BYTES]) {
+  const uint32_t add_opcode = encode_add_s(1u, 2u, 3u);
+  const uint32_t invalid_format =
+      (UINT32_C(0x11) << 26) | (UINT32_C(0x10) << 21) |
+      (UINT32_C(8) << 11) | (UINT32_C(9) << 6) | UINT32_C(0x20);
+  const uint32_t handler[] = {encode_ctc1(8u, 31u), /* CTC1 t0,FCR31 */
+                              UINT32_C(0x42000018)}; /* ERET */
+  const uint64_t guest_pc = UINT64_C(0xffffffff80001000);
+  const uint64_t handler_pc = UINT64_C(0xffffffff80000180);
+  const uint32_t status_cu1_fr =
+      (UINT32_C(1) << 29) | (UINT32_C(1) << 26);
+  t64_stop_request request = {T64_STOP_GUEST_TICK, UINT64_C(1)};
+  t64_stop_result result = {UINT32_MAX, UINT64_MAX};
+  t64_status status;
+  size_t i;
+
+  if (machine == NULL || asset == NULL ||
+      t64_machine_admit_rom(machine, asset, IPL3_ASSET_BYTES) !=
+          T64_STATUS_OK) {
+    (void)puts("# COP1 arithmetic fixture setup failed");
+    return false;
+  }
+  write_rdram_instruction(machine, UINT32_C(0x1000), add_opcode);
+  write_rdram_instruction(machine, UINT32_C(0x1004), invalid_format);
+  clear_instruction_index(machine, guest_pc);
+  clear_instruction_index(machine, guest_pc + UINT64_C(4));
+  for (i = 0u; i < sizeof handler / sizeof handler[0]; i++) {
+    write_rdram_instruction(machine, UINT32_C(0x0180) + (uint32_t)(i * 4u),
+                            handler[i]);
+    clear_instruction_index(machine, handler_pc + (uint64_t)(i * 4u));
+  }
+  machine->cpu.pc = UINT32_C(0x80001000);
+  machine->cpu.pc_full = guest_pc;
+  machine->cpu.cp0[12] = status_cu1_fr;
+  machine->cpu.gpr[8] = UINT64_C(0); /* Clear Cause/Enable before retry. */
+  machine->cpu.fpr[1] = UINT64_C(0x3f800000); /* 1 */
+  machine->cpu.fpr[2] = UINT64_C(0x33800000); /* 2^-24, half an ulp at 1 */
+  machine->cpu.fpr[3] = UINT64_C(0x1122334455667788);
+  machine->cpu.fpr[9] = UINT64_C(0xaabbccddeeff0011);
+  machine->cpu.fcr31 = UINT32_C(0x00010090); /* old V cause, O flag, I enable */
+
+  status = t64_machine_advance(machine, &request, &result);
+  if (status != T64_STATUS_OK || result.reason != T64_STOP_REASON_BOUND ||
+      result.tick != UINT64_C(1) || machine->cpu.last_opcode != add_opcode ||
+      machine->cpu.last_pc_full != guest_pc ||
+      machine->cpu.attempt_outcome != T64_CPU_ATTEMPT_GUEST_EXCEPTION ||
+      machine->cpu.pc_full != handler_pc ||
+      machine->cpu.cp0[14] != guest_pc ||
+      ((uint32_t)machine->cpu.cp0[13] & UINT32_C(0x7c)) !=
+          (UINT32_C(15) << 2) ||
+      (machine->cpu.fcr31 & UINT32_C(0x0003f000)) != UINT32_C(0x00001000) ||
+      (machine->cpu.fcr31 & UINT32_C(0x0000007c)) != UINT32_C(0x00000010) ||
+      machine->cpu.fpr[3] != UINT64_C(0x1122334455667788)) {
+    (void)printf("# inexact trap expected opcode=%08x pc=%016llx cp0-cause=0000003c "
+                 "fcr31-cause/flags=00001000/10 fpr3=1122334455667788; "
+                 "observed opcode=%08x pc=%016llx epc=%016llx "
+                 "cp0-cause=%08x fcr31=%08x fpr3=%016llx "
+                 "status=%u outcome=%u\n",
+                 add_opcode, (unsigned long long)guest_pc,
+                 machine->cpu.last_opcode,
+                 (unsigned long long)machine->cpu.last_pc_full,
+                 (unsigned long long)machine->cpu.cp0[14],
+                 (uint32_t)machine->cpu.cp0[13], machine->cpu.fcr31,
+                 (unsigned long long)machine->cpu.fpr[3], (unsigned)status,
+                 machine->cpu.attempt_outcome);
+    return false;
+  }
+
+  request.value = UINT64_C(4);
+  status = t64_machine_advance(machine, &request, &result);
+  if (status != T64_STATUS_OK || result.reason != T64_STOP_REASON_BOUND ||
+      result.tick != UINT64_C(4) || machine->cpu.last_opcode != add_opcode ||
+      machine->cpu.last_pc_full != guest_pc ||
+      machine->cpu.attempt_outcome != T64_CPU_ATTEMPT_RETIRED ||
+      machine->cpu.fpr[3] != UINT64_C(0x112233443f800000) ||
+      (machine->cpu.fcr31 & UINT32_C(0x0003f000)) != UINT32_C(0x00001000) ||
+      (machine->cpu.fcr31 & UINT32_C(0x0000007c)) != UINT32_C(0x00000004)) {
+    (void)printf("# resumed ADD.S expected fpr3=112233443f800000 "
+                 "fcr31 cause/flags=00001000/04 observed=%016llx fcr31=%08x "
+                 "opcode=%08x pc=%016llx outcome=%u status=%u\n",
+                 (unsigned long long)machine->cpu.fpr[3], machine->cpu.fcr31,
+                 machine->cpu.last_opcode,
+                 (unsigned long long)machine->cpu.last_pc_full,
+                 machine->cpu.attempt_outcome, (unsigned)status);
+    return false;
+  }
+
+  request.value = UINT64_C(5);
+  status = t64_machine_advance(machine, &request, &result);
+  if (status != T64_STATUS_OK || result.reason != T64_STOP_REASON_BOUND ||
+      result.tick != UINT64_C(5) ||
+      machine->cpu.last_opcode != invalid_format ||
+      machine->cpu.last_pc_full != guest_pc + UINT64_C(4) ||
+      machine->cpu.attempt_outcome != T64_CPU_ATTEMPT_GUEST_EXCEPTION ||
+      machine->cpu.pc_full != handler_pc ||
+      machine->cpu.cp0[14] != guest_pc + UINT64_C(4) ||
+      (machine->cpu.fcr31 & UINT32_C(0x0003f000)) != UINT32_C(0x00020000) ||
+      (machine->cpu.fcr31 & UINT32_C(0x0000007c)) != UINT32_C(0x00000004) ||
+      machine->cpu.fpr[9] != UINT64_C(0xaabbccddeeff0011)) {
+    (void)printf("# E-only expected opcode=%08x pc=%016llx cause=00020000 "
+                 "flags=04 destination=aabbccddeeff0011 observed opcode=%08x "
+                 "pc=%016llx epc=%016llx cp0-cause=%08x fcr31=%08x "
+                 "fpr9=%016llx status=%u outcome=%u\n",
+                 invalid_format, (unsigned long long)(guest_pc + UINT64_C(4)),
+                 machine->cpu.last_opcode,
+                 (unsigned long long)machine->cpu.last_pc_full,
+                 (unsigned long long)machine->cpu.cp0[14],
+                 (uint32_t)machine->cpu.cp0[13], machine->cpu.fcr31,
+                 (unsigned long long)machine->cpu.fpr[9], (unsigned)status,
+                 machine->cpu.attempt_outcome);
+    return false;
+  }
+  return true;
 }
 
 static bool test_vr4300_instruction_cache_stale_then_invalidated(
@@ -2421,6 +2548,8 @@ int main(int argc, char **argv) {
        test_vr4300_cvt_d_w_is_machine_local},
       {"MTC1/CVT.D.W/SDC1/LDC1/DMFC1 follows MMU and cached memory; CU1 traps to handler",
        test_vr4300_cop1_transfer_conversion_memory_tracer},
+      {"ADD.S rounding modes trap precisely, recover, and preserve E-only Cause",
+       test_vr4300_cop1_rounding_trap_recovery_and_e_cause},
       {"mapped load miss is repaired by a guest TLBWI handler and retried",
        test_vr4300_tlb_refill_and_retry},
       {"guest-time Count equality interrupts then resumes after Compare commit",
