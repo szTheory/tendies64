@@ -65,6 +65,7 @@ static t64_machine *make_machine(const t64_host_allocator *allocator,
   static const uint32_t program[] = {
       UINT32_C(0x45010002), /* BC1T +2 */
       UINT32_C(0x24080001), /* delay: addiu t0,zero,1 */
+      UINT32_C(0x240a0003), /* fall-through: addiu t2,zero,3 */
       UINT32_C(0x24090002), /* target: addiu t1,zero,2 */
   };
   t64_machine *machine = NULL;
@@ -108,7 +109,7 @@ int main(void) {
     status = t64_machine_advance(machine, &request, &result);
     (void)fprintf(stderr,
                    "# COP1 BC1T expected opcode=45010002 retires to PC="
-                   "ffffffff80001004 with delay target=ffffffff80001010; "
+                   "ffffffff80001004 with delay target=ffffffff8000100c; "
                    "observed opcode=%08x status=%u cause=%08x epc=%016llx "
                    "pc=%016llx outcome=%u delay=%u target=%016llx\n",
                    machine->cpu.last_opcode, (unsigned)status,
@@ -122,7 +123,7 @@ int main(void) {
     T64_CHECK(machine->cpu.attempt_outcome == T64_CPU_ATTEMPT_RETIRED);
     T64_CHECK(machine->cpu.pc_full == TEST_PC + UINT64_C(4));
     T64_CHECK(machine->cpu.delay_slot_pending);
-    T64_CHECK(machine->cpu.delay_target_full == TEST_PC + UINT64_C(16));
+    T64_CHECK(machine->cpu.delay_target_full == TEST_PC + UINT64_C(12));
     T64_CHECK(machine->cpu.cp0[13] == UINT64_C(0));
     t64_machine_destroy(machine);
   }
