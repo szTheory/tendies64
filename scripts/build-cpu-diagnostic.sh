@@ -43,6 +43,18 @@ compile_packer()
         tools/fixture/t64_rom_pack.c tools/common/t64_sha256.c -o "$PACKER"
 }
 
+verify_preuse_qualification()
+{
+    require_command python3
+    qualification_root=${T64_CPU_DIAGNOSTIC_QUALIFICATION_ROOT:-build/private-cpu-diagnostic}
+    [ -d "$qualification_root" ] && [ ! -L "$qualification_root" ] || {
+        printf '%s\n' 'pre-use qualification refused: private qualification root is missing' >&2
+        exit 4
+    }
+    python3 scripts/verify-cpu-diagnostic-qualification.py \
+        "$qualification_root/qualification.json" "$ROOT" 2>&1 || exit 4
+}
+
 run_selftest()
 {
     compile_packer
@@ -79,6 +91,7 @@ verify_target_tools()
 
 run_qualify()
 {
+    verify_preuse_qualification
     compile_packer
     "$PACKER" --selftest >/dev/null || die 'packer selftest failed'
     verify_boot_asset
