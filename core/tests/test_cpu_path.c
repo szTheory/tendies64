@@ -1427,6 +1427,127 @@ static bool test_vr4300_ll_sc_one_shot(
   return true;
 }
 
+static bool test_vr4300_ll_sc_scheduled_dma(
+    t64_machine *machine, const uint8_t asset[IPL3_ASSET_BYTES],
+    bool sp_to_rdram) {
+  const uint32_t physical_code = UINT32_C(0x1000);
+  const uint32_t physical_data = UINT32_C(0x2000);
+  const uint32_t virtual_code = UINT32_C(0x80001000);
+  const uint64_t virtual_data = UINT64_C(0xffffffff80002000);
+  const uint32_t nop_count = UINT32_C(20);
+  const uint32_t program_count = nop_count + UINT32_C(2);
+  uint32_t program[22] = {0};
+  const uint32_t expected_data[4] = {
+      sp_to_rdram ? UINT32_C(0xa0) : (uint32_t)asset[0],
+      sp_to_rdram ? UINT32_C(0xa1) : (uint32_t)asset[1],
+      sp_to_rdram ? UINT32_C(0xa2) : (uint32_t)asset[2],
+      sp_to_rdram ? UINT32_C(0xa3) : (uint32_t)asset[3],
+  };
+  const uint32_t device_base =
+      sp_to_rdram ? UINT32_C(0x04040000) : UINT32_C(0x04600000);
+  t64_stop_request request = {T64_STOP_INSTRUCTION_COUNT, 0u};
+  t64_stop_result result = {0u, 0u};
+  t64_status status;
+  uint32_t observed[4];
+  size_t index;
+
+  if (machine == NULL || asset == NULL ||
+      t64_machine_admit_rom(machine, asset, IPL3_ASSET_BYTES) !=
+          T64_STATUS_OK) {
+    (void)puts("# LL/SC DMA fixture setup failed");
+    return false;
+  }
+  program[0] = UINT32_C(0xc0880000); /* ll t0,0(a0) */
+  program[program_count - 1u] = UINT32_C(0xe0890000); /* sc t1,0(a0) */
+  for (index = 0u; index < program_count; index++) {
+    write_rdram_instruction(machine,
+                            physical_code + (uint32_t)(index * 4u),
+                            program[index]);
+  }
+  (void)memset(machine->ram + physical_data, 0, 8u);
+  machine->ram[physical_data] = UINT8_C(0x11);
+  machine->ram[physical_data + 1u] = UINT8_C(0x22);
+  machine->ram[physical_data + 2u] = UINT8_C(0x33);
+  machine->ram[physical_data + 3u] = UINT8_C(0x44);
+  if (sp_to_rdram) {
+    for (index = 0u; index < 8u; index++) {
+      machine->sp_dmem[index] = (uint8_t)(UINT8_C(0xa0) + (uint8_t)index);
+    }
+  }
+  machine->cpu.pc = virtual_code;
+  machine->cpu.pc_full = t64_cpu_canonical_address(virtual_code);
+  machine->cpu.gpr[4] = virtual_data;
+  machine->cpu.gpr[9] = UINT64_C(0xdeadbeef);
+
+  status = t64_cpu_step(machine, NULL);
+  if (status != T64_STATUS_OK) {
+    (void)printf("# %s LL expected-status=%u observed-status=%u value="
+                 "%016llx\n",
+                 sp_to_rdram ? "SP" : "PI", (unsigned)T64_STATUS_OK,
+                 (unsigned)status,
+                 (unsigned long long)machine->cpu.gpr[8]);
+    return false;
+  }
+  if (sp_to_rdram) {
+    status = t64_machine_bus_write(machine, device_base, 4u, 0u);
+    if (status == T64_STATUS_OK) {
+      status = t64_machine_bus_write(machine, device_base + 4u, 4u,
+                                     physical_data);
+    }
+    if (status == T64_STATUS_OK) {
+      status = t64_machine_bus_write(machine, device_base + 12u, 4u,
+                                     UINT32_C(7));
+    }
+  } else {
+    status = t64_machine_bus_write(machine, device_base, 4u, physical_data);
+    if (status == T64_STATUS_OK) {
+      status = t64_machine_bus_write(machine, device_base + 4u, 4u,
+                                     UINT32_C(0x10000000));
+    }
+    if (status == T64_STATUS_OK) {
+      status = t64_machine_bus_write(machine, device_base + 12u, 4u,
+                                     UINT32_C(7));
+    }
+  }
+  if (status != T64_STATUS_OK) {
+    (void)printf("# %s DMA request failed status=%u\n",
+                 sp_to_rdram ? "SP" : "PI", (unsigned)status);
+    return false;
+  }
+  request.value = (uint64_t)program_count;
+  status = t64_machine_advance(machine, &request, &result);
+  for (index = 0u; index < 4u; index++) {
+    observed[index] = machine->ram[physical_data + (uint32_t)index];
+  }
+  if (status != T64_STATUS_OK || result.reason != T64_STOP_REASON_BOUND ||
+      result.tick < (sp_to_rdram ? UINT64_C(13) : UINT64_C(5)) ||
+      machine->cpu.gpr[9] != 0u || machine->cpu.linked_valid ||
+      observed[0] != expected_data[0] || observed[1] != expected_data[1] ||
+      observed[2] != expected_data[2] || observed[3] != expected_data[3]) {
+    (void)printf("# %s DMA/SC status=%u reason=%u instructions=%llu "
+                 "tick=%llu rt=%016llx link=%u bytes=%02x%02x%02x%02x\n",
+                 sp_to_rdram ? "SP" : "PI", (unsigned)status,
+                 result.reason,
+                 (unsigned long long)machine->instruction_count,
+                 (unsigned long long)result.tick,
+                 (unsigned long long)machine->cpu.gpr[9],
+                 machine->cpu.linked_valid ? 1u : 0u,
+                 observed[0], observed[1], observed[2], observed[3]);
+    return false;
+  }
+  return true;
+}
+
+static bool test_vr4300_pi_dma_breaks_link(
+    t64_machine *machine, const uint8_t asset[IPL3_ASSET_BYTES]) {
+  return test_vr4300_ll_sc_scheduled_dma(machine, asset, false);
+}
+
+static bool test_vr4300_sp_dma_breaks_link(
+    t64_machine *machine, const uint8_t asset[IPL3_ASSET_BYTES]) {
+  return test_vr4300_ll_sc_scheduled_dma(machine, asset, true);
+}
+
 typedef bool (*cpu_test_fn)(t64_machine *machine,
                             const uint8_t asset[IPL3_ASSET_BYTES]);
 
@@ -1490,6 +1611,10 @@ int main(int argc, char **argv) {
        test_vr4300_page_edge_unaligned_merges},
       {"LL/SC succeeds once for an exact physical word reservation",
        test_vr4300_ll_sc_one_shot},
+      {"scheduled overlapping PI DMA breaks an LL reservation",
+       test_vr4300_pi_dma_breaks_link},
+      {"scheduled overlapping SP DMA breaks an LL reservation",
+       test_vr4300_sp_dma_breaks_link},
   };
   const cpu_test_case *cases;
   size_t case_count;
