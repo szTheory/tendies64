@@ -101,7 +101,8 @@ controls.real.identity-mismatch
 integration.open-ipl3-determinism'
 
 PHASE04_TESTS='runner.cpu-diagnostic-protocol
-runner.cpu-diagnostic-inventory'
+runner.cpu-diagnostic-inventory
+unit.core.cpu-exceptions'
 
 ASAN_ONLY='fuzz.rom-admission
 sanitizer.negative-control'

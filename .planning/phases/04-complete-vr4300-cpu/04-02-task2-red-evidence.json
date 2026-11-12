@@ -1,0 +1,18 @@
+{
+  "task": "04-02.2",
+  "command": "ctest --preset gate --no-tests=error -R '^unit.core.cpu-exceptions$' --output-on-failure --output-junit build/04-02-task2-red.xml",
+  "targetTest": "unit.core.cpu-exceptions",
+  "targetFile": "core/tests/test_cpu_exceptions.c",
+  "expected": "SYSCALL at the scheduled CPU boundary enters the common vector with ExcCode=8, EPC equal to its full-width PC, and no retirement.",
+  "observed": "The target executed the new-profile SYSCALL at 0xffffffff80001000 on tick 1, but stopped as model-unsupported (reason=7, outcome=3) with Cause=0, EPC=0, and retired=0.",
+  "result": {
+    "exitCode": 8,
+    "tests": 1,
+    "passed": 0,
+    "failed": 1,
+    "classifier": "RED_EVIDENCE_OK",
+    "classifierReason": "target_test_failed",
+    "matchedTest": "unit.core.cpu-exceptions#unit.core.cpu-exceptions"
+  },
+  "semanticAssessment": "This is the expected pre-feature behavior. The registered target was discovered, compiled, and executed the authored SYSCALL case; the assertion observed a model-unsupported stop rather than a guest exception. Additional named exception and ERET cases are independently reported by the same registered suite. Raw JUnit remains in ignored local build output."
+}
