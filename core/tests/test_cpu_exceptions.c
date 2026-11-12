@@ -423,6 +423,60 @@ static bool test_faulting_store_has_no_partial_write(
          machine->ram[physical + 2u] == UINT8_C(0x44);
 }
 
+static bool test_instruction_bus_error(
+    t64_machine *machine, const uint8_t asset[IPL3_ASSET_BYTES]) {
+  static const uint32_t program[] = {UINT32_C(0x24080001)};
+  const uint64_t unmapped_pc = UINT64_C(0xffffffffbfc00800);
+
+  if (!prepare_program(machine, asset, TEST_PC, program, 1u)) {
+    return false;
+  }
+  machine->cpu.pc = (uint32_t)unmapped_pc;
+  machine->cpu.pc_full = unmapped_pc;
+  return expect_exception(machine, UINT64_C(1), UINT32_C(6), unmapped_pc,
+                          false, false, 0u) &&
+         machine->cpu.retired_instructions == 0u;
+}
+
+static bool test_data_bus_error(
+    t64_machine *machine, const uint8_t asset[IPL3_ASSET_BYTES]) {
+  static const uint32_t program[] = {UINT32_C(0x8d280000)};
+  const uint64_t unmapped_address = UINT64_C(0xffffffffbfc00800);
+
+  if (!prepare_program(machine, asset, TEST_PC, program, 1u)) {
+    return false;
+  }
+  machine->cpu.gpr[9] = unmapped_address;
+  return expect_exception(machine, UINT64_C(1), UINT32_C(7), TEST_PC, false,
+                          false, 0u) &&
+         machine->cpu.retired_instructions == 0u;
+}
+
+static bool test_instruction_tlb_miss(
+    t64_machine *machine, const uint8_t asset[IPL3_ASSET_BYTES]) {
+  static const uint32_t program[] = {UINT32_C(0x24080001)};
+  const uint64_t kuseg_pc = UINT64_C(0x00001000);
+
+  return prepare_program(machine, asset, kuseg_pc, program, 1u) &&
+         expect_exception(machine, UINT64_C(1), UINT32_C(2), kuseg_pc, false,
+                          true, kuseg_pc) &&
+         machine->cpu.retired_instructions == 0u;
+}
+
+static bool test_data_tlb_miss(
+    t64_machine *machine, const uint8_t asset[IPL3_ASSET_BYTES]) {
+  static const uint32_t program[] = {UINT32_C(0x8d280000)};
+  const uint64_t kuseg_address = UINT64_C(0x00001000);
+
+  if (!prepare_program(machine, asset, TEST_PC, program, 1u)) {
+    return false;
+  }
+  machine->cpu.gpr[9] = kuseg_address;
+  return expect_exception(machine, UINT64_C(1), UINT32_C(2), TEST_PC, false,
+                          true, kuseg_address) &&
+         machine->cpu.retired_instructions == 0u;
+}
+
 static bool test_scheduler_exhaustion_is_host_error(
     t64_machine *machine, const uint8_t asset[IPL3_ASSET_BYTES]) {
   static const uint32_t program[] = {UINT32_C(0x0000000d)};
@@ -476,6 +530,11 @@ int main(void) {
        test_fetch_alignment_precedes_syscall_decode},
       {"faulting unaligned store preserves all memory bytes",
        test_faulting_store_has_no_partial_write},
+      {"unmapped instruction fetch raises IBE", test_instruction_bus_error},
+      {"unmapped data load raises DBE", test_data_bus_error},
+      {"unmapped instruction translation raises TLBL",
+       test_instruction_tlb_miss},
+      {"unmapped data translation raises TLBL", test_data_tlb_miss},
       {"scheduler exhaustion remains a host error with no guest commit",
        test_scheduler_exhaustion_is_host_error},
   };
