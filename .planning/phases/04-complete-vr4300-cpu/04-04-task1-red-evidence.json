@@ -1,0 +1,15 @@
+{
+  "test": "unit.core.cpu-path",
+  "command": "ctest --preset gate --no-tests=error -R '^unit\\.core\\.cpu-path$' --output-junit build/gate/04-04-task1-red-junit.xml --output-on-failure",
+  "exitCode": 8,
+  "reportFormat": "JUnit XML",
+  "reportPath": "build/gate/build/gate/04-04-task1-red-junit.xml",
+  "runStartedAt": "2026-11-12T03:53:48Z",
+  "reportModifiedAt": "2026-11-12T03:53:48.791Z",
+  "reportNewerThanRunStart": true,
+  "classifierVerdict": "RED_EVIDENCE_OK",
+  "classifierTarget": "unit.core.cpu-path#unit.core.cpu-path",
+  "expected": "MTC0 Status writes the defined fields. With input 0x98000001 and hardware-owned TS21 set, readback is 0x90200001; MFC0 sign-extends it, DMFC0 preserves the zero-extended register layout, and clearing CU0 before the next MFC0 raises Coprocessor Unusable without changing the destination.",
+  "observed": "The compiled guest stopped as CPU_UNSUPPORTED (reason 7) at PC 0xa4000040 on opcode 0x40886000 before retirement. CP0 Status remained 0x34200000; Cause and EPC remained zero; the destination remained 0x1122334455667788. The expected handler was not reached.",
+  "semanticAssessment": "Valid behavioral RED: the registered unit.core.cpu-path test executed and its protected CP0 guest assertion failed because the real MTC0 Status instruction stopped unsupported before the architectural write. This was not a compile, setup, test-discovery, or unrelated assertion failure."
+}

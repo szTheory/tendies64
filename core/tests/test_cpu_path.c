@@ -161,6 +161,79 @@ static bool test_vr4300_break_enters_rdram_handler(
   return true;
 }
 
+static bool test_vr4300_protected_cp0_guest_handler(
+    t64_machine *machine, const uint8_t asset[IPL3_ASSET_BYTES]) {
+  static const uint32_t program[] = {
+      UINT32_C(0x40886000), /* mtc0 t0,c0_status */
+      UINT32_C(0x400a6000), /* mfc0 t2,c0_status */
+      UINT32_C(0x402b6000), /* dmfc0 t3,c0_status */
+      UINT32_C(0x40896000), /* mtc0 t1,c0_status: enter user mode */
+      UINT32_C(0x400d6000), /* mfc0 t5,c0_status: CU0 fault */
+  };
+  const uint32_t handler_pc = UINT32_C(0x80000180);
+  const uint32_t expected_status = UINT32_C(0x90200001);
+  t64_stop_request request = {T64_STOP_GUEST_TICK, UINT64_C(100)};
+  t64_stop_result result = {UINT32_MAX, UINT64_MAX};
+  t64_cpu_stop_detail detail = {UINT64_MAX, UINT32_MAX, UINT32_MAX};
+  t64_status status;
+  uint32_t observed_status;
+  uint32_t cause;
+
+  if (machine == NULL || asset == NULL ||
+      t64_machine_admit_rom(machine, asset, IPL3_ASSET_BYTES) !=
+          T64_STATUS_OK) {
+    (void)puts("# protected CP0 fixture setup failed");
+    return false;
+  }
+  (void)memcpy(machine->cpu.gpr, (uint64_t[32]){0}, sizeof machine->cpu.gpr);
+  machine->cpu.cp0[12] = UINT32_C(0x34200000); /* Keep hardware TS set. */
+  machine->cpu.gpr[8] = UINT32_C(0x98000001);
+  machine->cpu.gpr[9] = UINT32_C(0x00000010);
+  machine->cpu.gpr[13] = UINT64_C(0x1122334455667788);
+  write_rdram_instruction(machine, UINT32_C(0x0180),
+                          UINT32_C(0x240e005a)); /* addiu t6,zero,0x5a */
+  write_rdram_instruction(machine, UINT32_C(0x0184),
+                          UINT32_C(0xbc000000)); /* unsupported CACHE stop */
+  for (size_t i = 0u; i < sizeof program / sizeof program[0]; i++) {
+    write_instruction(machine, i, program[i]);
+  }
+
+  status = t64_machine_advance(machine, &request, &result);
+  (void)t64_machine_cpu_stop_detail(machine, &detail);
+  observed_status = (uint32_t)machine->cpu.cp0[12];
+  cause = (uint32_t)machine->cpu.cp0[13];
+  if (status != T64_STATUS_OK ||
+      result.reason != T64_STOP_REASON_CPU_UNSUPPORTED ||
+      detail.pc != handler_pc + UINT32_C(4) ||
+      machine->cpu.cp0[14] != t64_cpu_canonical_address(
+                                  IPL3_ENTRY_PC + UINT32_C(16)) ||
+      ((cause >> 2) & UINT32_C(0x1f)) != UINT32_C(11) ||
+      machine->cpu.gpr[10] != UINT64_C(0xffffffff90200001) ||
+      machine->cpu.gpr[11] != UINT64_C(0x0000000090200001) ||
+      machine->cpu.gpr[13] != UINT64_C(0x1122334455667788) ||
+      machine->cpu.gpr[14] != UINT64_C(0x5a) ||
+      observed_status != UINT32_C(0x00200012) ||
+      detail.retired_instructions != UINT64_C(5)) {
+    (void)printf("# expected status=0x%08x mfc0=0xffffffff%08x "
+                 "dmfc0=0x00000000%08x unchanged_t5=0x1122334455667788 "
+                 "actual status=%u reason=%u stop_pc=0x%08x opcode=0x%08x "
+                 "cp0_status=0x%08x cause=0x%08x epc=0x%016llx "
+                 "mfc0_t2=0x%016llx dmfc0_t3=0x%016llx t5=0x%016llx "
+                 "t6=0x%016llx retired=%llu\n",
+                 expected_status, expected_status, expected_status,
+                 (unsigned)status, result.reason, detail.pc, detail.opcode,
+                 observed_status, cause,
+                 (unsigned long long)machine->cpu.cp0[14],
+                 (unsigned long long)machine->cpu.gpr[10],
+                 (unsigned long long)machine->cpu.gpr[11],
+                 (unsigned long long)machine->cpu.gpr[13],
+                 (unsigned long long)machine->cpu.gpr[14],
+                 (unsigned long long)detail.retired_instructions);
+    return false;
+  }
+  return true;
+}
+
 static bool test_vr4300_integer_delay_fault_and_full_width_jalr(
     t64_machine *machine, const uint8_t asset[IPL3_ASSET_BYTES]) {
   static const uint32_t program[] = {
@@ -1002,6 +1075,8 @@ int main(int argc, char **argv) {
   static const cpu_test_case vr4300_cases[] = {
       {"new-profile BREAK schedules a nonretiring RDRAM handler",
        test_vr4300_break_enters_rdram_handler},
+      {"protected CP0 transfers resume a guest handler without destination writes",
+       test_vr4300_protected_cp0_guest_handler},
       {"DADDU/ADDU branch fault resumes handler and JALR keeps full target",
        test_vr4300_integer_delay_fault_and_full_width_jalr},
       {"not-taken branch-likely annuls a faulting delay slot",
