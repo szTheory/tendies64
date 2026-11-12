@@ -190,7 +190,8 @@ static bool test_vr4300_break_enters_rdram_handler(
 
 static bool test_vr4300_cvt_d_w_is_machine_local(
     t64_machine *machine, const uint8_t asset[IPL3_ASSET_BYTES]) {
-  const uint64_t cvt_pc = UINT64_C(0x80001000);
+  const uint64_t cvt_pc =
+      t64_cpu_canonical_address(UINT32_C(0x80001000));
   const uint64_t destination_sentinel = UINT64_C(0x1122334455667788);
   const uint32_t coprocessor_usable = UINT32_C(1) << 29;
   const uint32_t instruction_a = encode_cvt_d_w(1u, 2u);
@@ -242,13 +243,18 @@ static bool test_vr4300_cvt_d_w_is_machine_local(
   status = t64_cpu_step(machine, NULL);
   if (status != T64_STATUS_OK || machine->cpu.fpr[2] != expected_a ||
       machine->cpu.fcr31 != 0u ||
+      machine->cpu.last_opcode != instruction_a ||
       machine->cpu.attempt_outcome != T64_CPU_ATTEMPT_RETIRED ||
       machine->cpu.retired_instructions != UINT64_C(1)) {
     (void)printf("# CVT.D.W -2^31 expected=%016llx observed=%016llx "
-                 "status=%u fcr31=%08x outcome=%u retired=%llu\n",
+                 "status=%u fcr31=%08x cause=%08x last_opcode=%08x "
+                 "pc=%016llx outcome=%u retired=%llu\n",
                  (unsigned long long)expected_a,
                  (unsigned long long)machine->cpu.fpr[2], (unsigned)status,
                  (unsigned)machine->cpu.fcr31,
+                 (unsigned)machine->cpu.cp0[13],
+                 (unsigned)machine->cpu.last_opcode,
+                 (unsigned long long)machine->cpu.pc_full,
                  (unsigned)machine->cpu.attempt_outcome,
                  (unsigned long long)machine->cpu.retired_instructions);
     t64_machine_destroy(other);

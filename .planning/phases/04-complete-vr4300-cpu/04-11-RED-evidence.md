@@ -29,18 +29,30 @@ biased exponent `1023 + 31 = 1054 = 0x41e`, and zero fraction, yielding
 `0xc1e0000000000000` exactly. The conversion is exact, so it raises no IEEE
 flags.
 
-### RED run
+### RED runs
 
-- Command: `cmake --preset gate && cmake --build --preset gate && ctest --preset gate --no-tests=error -R '^(unit\.core\.cpu-path)$' --output-on-failure --output-junit <ignored private JUnit report>`.
-- The CMake configure and all-target gate build passed. CTest ran exactly one
-  test and exited 8 after its existing CPU-path cases completed.
+The first run is retained as a discarded setup attempt. Its test used a
+zero-extended KSEG0 PC. A follow-up diagnostic showed Cause `0x00000010`
+(AdEL), `last_opcode=0`, and a redirect to the general exception vector, so
+the guest CVT.D.W opcode was never fetched. The JUnit format classifier
+accepted that process failure, but semantic inspection disqualified it; it
+did not authorize implementation.
+
+The fixture now uses the canonical sign-extended address
+`0xffffffff80001000`. The fresh pre-implementation run used
+`cmake --preset gate && cmake --build --preset gate && ctest --preset gate --no-tests=error -R '^(unit\.core\.cpu-path)$' --output-on-failure --output-junit <ignored private JUnit report>`.
+The CMake configure and all-target gate build passed; CTest ran exactly one
+test and exited 8 after the existing CPU-path cases completed.
+
 - Target test: `unit.core.cpu-path`; target source:
-  `core/tests/test_cpu_path.c`; classifier: `RED_EVIDENCE_OK` (`target_test_failed`).
-- First planned behavior failure was TAP case 14, the CVT.D.W assertion:
-  expected FPR2 `c1e0000000000000`; observed sentinel
-  `1122334455667788`, status 0, guest-exception outcome, retired count 0.
-  The test reached the guest opcode and result assertion after fixture setup;
-  this was not a build, discovery, or fixture failure.
-- Full raw JUnit and classifier record remain under ignored
+  `core/tests/test_cpu_path.c`; classifier: `RED_EVIDENCE_OK`
+  (`target_test_failed`).
+- First intended behavior failure was TAP case 14. The test fetched opcode
+  `0x468008a1` (matching `last_opcode`) and then failed the CVT.D.W result
+  assertion: expected FPR2 `c1e0000000000000`; observed sentinel
+  `1122334455667788`, status 14, Cause 0, model-unsupported outcome, and
+  retired count 0. The PC remained canonical at the intended KSEG0 address.
+  This is a valid feature RED, not a setup or fetch failure.
+- Full raw JUnit and classifier records remain under ignored
   `build/private-cpu-diagnostic`; no checkout or temporary absolute path is
   included here.
