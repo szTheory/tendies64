@@ -17,13 +17,24 @@ static bool width_is_supported(uint32_t width) {
 }
 
 bool t64_isviewer_active(const t64_machine *machine) {
-  static const char profile_id[] = "ntsc-cart-4m-openipl3-warm-v1";
+  static const char warm_profile_id[] = "ntsc-cart-4m-openipl3-warm-v1";
+  static const char cpu_profile_id[] = "ntsc-cart-4m-openipl3-vr4300-v1";
+  bool warm_profile;
+  bool cpu_profile;
 
-  return machine != NULL && machine->profile.descriptor_version == 2u &&
-         machine->profile.state_serialization_version == 8u &&
-         memcmp(machine->profile.profile_id, profile_id,
-                sizeof profile_id) == 0 &&
-         machine->output.policy_version == T64_ISVIEWER_POLICY_VERSION;
+  if (machine == NULL ||
+      machine->output.policy_version != T64_ISVIEWER_POLICY_VERSION) {
+    return false;
+  }
+  warm_profile = machine->profile.descriptor_version == 2u &&
+                 machine->profile.state_serialization_version == 8u &&
+                 memcmp(machine->profile.profile_id, warm_profile_id,
+                        sizeof warm_profile_id) == 0;
+  cpu_profile = machine->profile.descriptor_version == 3u &&
+                machine->profile.state_serialization_version == 9u &&
+                memcmp(machine->profile.profile_id, cpu_profile_id,
+                       sizeof cpu_profile_id) == 0;
+  return warm_profile || cpu_profile;
 }
 
 static t64_status validate_isviewer_access(const t64_machine *machine,

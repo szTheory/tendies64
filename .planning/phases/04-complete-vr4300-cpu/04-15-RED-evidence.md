@@ -2,8 +2,10 @@
 
 ## Task 1: CPU-profile authored output through the canonical machine
 
-**Target:** `runner.cpu-diagnostic` in `runner/tests/test_cpu_diagnostic.c`  
-**Command:** `cmake --build --preset gate --target test_cpu_diagnostic && ctest --preset gate --no-tests=error -R '^runner\.cpu-diagnostic$' --output-on-failure --output-junit <private JUnit report>`  
+**Target:** `runner.cpu-diagnostic` in `runner/tests/test_cpu_diagnostic.c`
+
+**Command:** `cmake --build --preset gate --target test_cpu_diagnostic && ctest --preset gate --no-tests=error -R '^runner\.cpu-diagnostic$' --output-on-failure --output-junit <private JUnit report>`
+
 **Classifier:** `RED_EVIDENCE_OK` (`target_test_failed`, one target test executed)
 
 The authored guest reaches image entry `0x80000400` through the cleared IPL3
