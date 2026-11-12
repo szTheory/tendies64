@@ -262,7 +262,58 @@ static void test_empty_inventory_refused(void) {
   t64_cpu_diag_inventory_destroy(inventory);
 }
 
-int main(void) {
+static void test_single_group_does_not_complete_required_set(void) {
+  t64_cpu_diag_inventory *inventory = parse_authored_inventory();
+  t64_cpu_diag_aggregate *aggregate = NULL;
+  char bytes[T64_CPU_DIAG_MAX_BATCH_BYTES + 1u];
+  size_t length = 0u;
+  t64_cpu_diag_group_status group_status = T64_CPU_DIAG_GROUP_INCOMPLETE;
+  size_t expected = 0u;
+  size_t reached = 0u;
+  if (inventory == NULL) return;
+  expect_status("single-group aggregate create",
+                t64_cpu_diag_aggregate_create(inventory, &aggregate),
+                T64_CPU_DIAG_OK);
+  if (aggregate == NULL ||
+      !make_batch(inventory, T64_CPU_DIAG_OUTCOME_PASS, bytes, sizeof bytes,
+                  &length)) {
+    goto cleanup;
+  }
+  expect_status("single exact group batch",
+                t64_cpu_diag_aggregate_add_batch(
+                    aggregate, (const uint8_t *)bytes, length),
+                T64_CPU_DIAG_OK);
+  expect_status("single exact group status",
+                t64_cpu_diag_aggregate_group(aggregate, "arithmetic",
+                                             &group_status, &expected, &reached,
+                                             NULL, NULL),
+                T64_CPU_DIAG_OK);
+  if (group_status != T64_CPU_DIAG_GROUP_PASS || expected != 1u ||
+      reached != 1u) {
+    (void)fprintf(stderr,
+                  "single exact group expected pass(1/1), observed state=%u expected=%zu reached=%zu\n",
+                  (unsigned)group_status, expected, reached);
+    failures++;
+  }
+  if (t64_cpu_diag_aggregate_is_complete(aggregate)) {
+    (void)fprintf(stderr,
+                  "whole inventory expected incomplete with 13 required groups absent, observed complete=1\n");
+    failures++;
+  }
+
+cleanup:
+  t64_cpu_diag_aggregate_destroy(aggregate);
+  t64_cpu_diag_inventory_destroy(inventory);
+}
+
+int main(int argc, char **argv) {
+  if (argc == 2 && strcmp(argv[1], "--inventory") == 0) {
+    test_single_group_does_not_complete_required_set();
+    if (failures != 0u) return 1;
+    (void)printf("CPU diagnostic inventory controls PASS\n");
+    return 0;
+  }
+  if (argc != 1) return 2;
   test_complete_batch_round_trip();
   test_incomplete_and_wrong_identity_batches();
   test_failure_and_incomplete_outcomes();

@@ -25,6 +25,10 @@ t64_target_warnings(test_cpu_diag_protocol)
 add_test(NAME runner.cpu-diagnostic-protocol COMMAND test_cpu_diag_protocol)
 set_tests_properties(runner.cpu-diagnostic-protocol PROPERTIES
   LABELS runner TIMEOUT 60)
+add_test(NAME runner.cpu-diagnostic-inventory
+  COMMAND test_cpu_diag_protocol --inventory)
+set_tests_properties(runner.cpu-diagnostic-inventory PROPERTIES
+  LABELS runner TIMEOUT 60)
 
 add_executable(test_input tests/test_input.c)
 target_compile_definitions(test_input PRIVATE ${T64_HOST_DEFS})

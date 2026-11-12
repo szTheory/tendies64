@@ -100,7 +100,8 @@ controls.real.output-overflow
 controls.real.identity-mismatch
 integration.open-ipl3-determinism'
 
-PHASE04_TESTS='runner.cpu-diagnostic-protocol'
+PHASE04_TESTS='runner.cpu-diagnostic-protocol
+runner.cpu-diagnostic-inventory'
 
 ASAN_ONLY='fuzz.rom-admission
 sanitizer.negative-control'
