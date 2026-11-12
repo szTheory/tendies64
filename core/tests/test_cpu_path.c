@@ -195,7 +195,7 @@ static bool test_vr4300_instruction_cache_stale_then_invalidated(
   machine->cpu.gpr[4] = t64_cpu_canonical_address(UINT32_C(0xa0001000));
   machine->cpu.gpr[9] = (uint64_t)changed_instruction;
   machine->cpu.gpr[11] = UINT64_C(1);
-  machine->cpu.gpr[13] = t64_cpu_canonical_address(virtual_pc);
+  machine->cpu.gpr[5] = t64_cpu_canonical_address(virtual_pc);
 
   /* Retire the original instruction, uncached guest store, loop counter,
    * branch, delay slot, and second execution of the now-stale instruction. */
@@ -249,6 +249,69 @@ static bool test_vr4300_instruction_cache_stale_then_invalidated(
                  (unsigned long long)t64_cpu_canonical_address(virtual_pc),
                  (unsigned long long)machine->cpu.gpr[8],
                  (unsigned long long)machine->cpu.last_pc_full);
+    return false;
+  }
+  return true;
+}
+
+static bool test_vr4300_instruction_cache_failed_fill_preserves_line(
+    t64_machine *machine, const uint8_t asset[IPL3_ASSET_BYTES]) {
+  const uint32_t first_pc = UINT32_C(0x80001000);
+  const uint32_t refused_pc = UINT32_C(0x80401000);
+  const uint32_t line_index = (first_pc >> 5) &
+                              (T64_VR4300_ICACHE_LINE_COUNT - 1u);
+  const uint32_t initial_instruction = UINT32_C(0x24080007);
+  t64_vr4300_icache_line line_before;
+  t64_status status;
+
+  if (machine == NULL || asset == NULL ||
+      t64_machine_admit_rom(machine, asset, IPL3_ASSET_BYTES) !=
+          T64_STATUS_OK) {
+    (void)puts("# failed-fill I-cache fixture setup failed");
+    return false;
+  }
+  write_rdram_instruction(machine, UINT32_C(0x1000), initial_instruction);
+  machine->cpu.pc = first_pc;
+  machine->cpu.pc_full = t64_cpu_canonical_address(first_pc);
+  status = t64_cpu_step(machine, NULL);
+  if (status != T64_STATUS_OK || machine->cpu.gpr[8] != UINT64_C(7) ||
+      !machine->cpu.icache[line_index].valid ||
+      machine->cpu.icache[line_index].physical_tag != UINT32_C(0x1000)) {
+    (void)printf("# failed-fill cache seed status=%u gpr8=%016llx "
+                 "valid=%u tag=%08x\n",
+                 (unsigned)status, (unsigned long long)machine->cpu.gpr[8],
+                 machine->cpu.icache[line_index].valid ? 1u : 0u,
+                 machine->cpu.icache[line_index].physical_tag);
+    return false;
+  }
+  line_before = machine->cpu.icache[line_index];
+  machine->cpu.pc = refused_pc;
+  machine->cpu.pc_full = t64_cpu_canonical_address(refused_pc);
+  status = t64_cpu_step(machine, NULL);
+  if (status != T64_STATUS_RESOURCE_EXHAUSTED ||
+      !machine->cpu.stopped ||
+      machine->cpu.stop_reason != T64_STOP_REASON_CPU_UNSUPPORTED ||
+      machine->cpu.stop_pc != refused_pc ||
+      machine->cpu.stop_opcode != 0u ||
+      machine->cpu.pc_full != t64_cpu_canonical_address(refused_pc) ||
+      machine->cpu.stop_pc_full != t64_cpu_canonical_address(refused_pc) ||
+      machine->cpu.last_opcode != 0u ||
+      machine->cpu.retired_instructions != UINT64_C(1) ||
+      memcmp(&line_before, &machine->cpu.icache[line_index],
+             sizeof line_before) != 0) {
+    (void)printf("# failed-fill result status=%u stopped=%u reason=%u "
+                 "stop_pc=%08x stop_opcode=%08x pc_full=%016llx "
+                 "last_opcode=%08x retired=%llu line_same=%u\n",
+                 (unsigned)status, machine->cpu.stopped ? 1u : 0u,
+                 machine->cpu.stop_reason, machine->cpu.stop_pc,
+                 machine->cpu.stop_opcode,
+                 (unsigned long long)machine->cpu.pc_full,
+                 machine->cpu.last_opcode,
+                 (unsigned long long)machine->cpu.retired_instructions,
+                 memcmp(&line_before, &machine->cpu.icache[line_index],
+                        sizeof line_before) == 0
+                     ? 1u
+                     : 0u);
     return false;
   }
   return true;
@@ -1691,6 +1754,8 @@ int main(int argc, char **argv) {
   static const cpu_test_case vr4300_cases[] = {
       {"uncached code update stays stale until targeted I-cache invalidation",
        test_vr4300_instruction_cache_stale_then_invalidated},
+      {"failed I-cache fill preserves prior line and does not publish an opcode",
+       test_vr4300_instruction_cache_failed_fill_preserves_line},
       {"new-profile BREAK schedules a nonretiring RDRAM handler",
        test_vr4300_break_enters_rdram_handler},
       {"mapped load miss is repaired by a guest TLBWI handler and retried",

@@ -25,6 +25,12 @@ not behavioral RED evidence. The assertion was corrected to observe GPR8,
 `last_pc_full`, backing bytes, and retirement outcome. The corrected target
 then built, ran the guest case, and produced the classifier-accepted RED above.
 
+The first post-implementation focused run then stopped at `CACHE` before
+invalidation: the test encoded base register `a1` but initialized `t5`. The
+fixture now initializes `a1`; the corrected focused gate passed both
+`unit.core.cpu-path` and `unit.core.cpu-mmu`. That run is a distinct tracer
+setup correction, not RED evidence.
+
 ## Task 2
 
 Task 2's RED evidence will be appended after its focused behavior matrix exists.

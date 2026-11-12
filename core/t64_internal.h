@@ -487,6 +487,13 @@ void t64_trace_emit(t64_machine *machine, uint64_t tick, uint32_t device,
                     uint32_t kind, uint64_t value);
 t64_status t64_bus_read(t64_machine *machine, uint32_t address,
                         uint32_t width, uint32_t *value_out);
+t64_status t64_cpu_icache_fetch(t64_machine *machine,
+                                uint64_t virtual_address,
+                                uint32_t physical_address,
+                                uint32_t *opcode_out);
+void t64_cpu_icache_hit_invalidate(t64_machine *machine,
+                                   uint64_t virtual_address,
+                                   uint32_t physical_address);
 t64_status t64_bus_read_wide(t64_machine *machine, uint32_t address,
                              uint64_t *value_out);
 t64_status t64_bus_write(t64_machine *machine, uint32_t address,

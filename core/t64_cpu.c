@@ -45,6 +45,7 @@
 
 #define T64_CACHE_INDEX_STORE_TAG_I UINT32_C(0x08)
 #define T64_CACHE_INDEX_STORE_TAG_D UINT32_C(0x09)
+#define T64_CACHE_HIT_INVALIDATE_I UINT32_C(0x10)
 #define T64_CACHE_HIT_INVALIDATE_D UINT32_C(0x11)
 #define T64_CACHE_HIT_WRITEBACK_INVALIDATE_D UINT32_C(0x15)
 
@@ -1133,8 +1134,13 @@ static bool execute_cache(t64_machine *machine, uint32_t pc,
 
   if (operation != T64_CACHE_INDEX_STORE_TAG_I &&
       operation != T64_CACHE_INDEX_STORE_TAG_D &&
+      operation != T64_CACHE_HIT_INVALIDATE_I &&
       operation != T64_CACHE_HIT_INVALIDATE_D &&
       operation != T64_CACHE_HIT_WRITEBACK_INVALIDATE_D) {
+    return false;
+  }
+  if (operation == T64_CACHE_HIT_INVALIDATE_I &&
+      !has_vr4300_cpu_state(machine)) {
     return false;
   }
   virtual_address =
@@ -1144,9 +1150,15 @@ static bool execute_cache(t64_machine *machine, uint32_t pc,
       !translation.translated || translation.physical_address > UINT32_MAX) {
     return false;
   }
+  if (has_vr4300_cpu_state(machine) && !translation.cacheable) {
+    return false;
+  }
   physical_address = (uint32_t)translation.physical_address;
 
-  if (operation == T64_CACHE_HIT_INVALIDATE_D ||
+  if (operation == T64_CACHE_HIT_INVALIDATE_I) {
+    t64_cpu_icache_hit_invalidate(machine, virtual_address,
+                                  physical_address);
+  } else if (operation == T64_CACHE_HIT_INVALIDATE_D ||
       operation == T64_CACHE_HIT_WRITEBACK_INVALIDATE_D) {
     t64_cpu_link_invalidate_dcache_line(machine, physical_address);
   }
@@ -1401,6 +1413,7 @@ static t64_status cpu_preflight_memory(t64_machine *machine, uint32_t opcode,
       }
       if (cache_operation != T64_CACHE_INDEX_STORE_TAG_I &&
           cache_operation != T64_CACHE_INDEX_STORE_TAG_D &&
+          cache_operation != T64_CACHE_HIT_INVALIDATE_I &&
           cache_operation != T64_CACHE_HIT_INVALIDATE_D &&
           cache_operation != T64_CACHE_HIT_WRITEBACK_INVALIDATE_D) {
         return T64_STATUS_OK;
@@ -1696,6 +1709,8 @@ static bool cpu_coprocessor_unusable(const t64_machine *machine,
 
   if (operation >= T64_CPU_COP0 && operation <= UINT32_C(0x13)) {
     coprocessor = operation - T64_CPU_COP0;
+  } else if (operation == T64_CPU_CACHE) {
+    coprocessor = 0u;
   } else {
     switch (operation) {
     case 0x31u: case 0x35u: case 0x39u: case 0x3du:
@@ -1823,6 +1838,7 @@ t64_status t64_cpu_step(t64_machine *machine, const t64_event *event) {
   bool is_eret = false;
   bool cp0_effect_prepared = false;
   bool supported;
+  bool instruction_cacheable = false;
   uint64_t eret_target = 0u;
   t64_status status;
 
@@ -1889,8 +1905,13 @@ t64_status t64_cpu_step(t64_machine *machine, const t64_event *event) {
       return T64_STATUS_RESOURCE_EXHAUSTED;
     }
     physical_pc = (uint32_t)translation.physical_address;
+    instruction_cacheable = translation.cacheable;
   }
-  status = t64_bus_read(machine, physical_pc, 4u, &opcode);
+  if (new_profile && instruction_cacheable) {
+    status = t64_cpu_icache_fetch(machine, pc_full, physical_pc, &opcode);
+  } else {
+    status = t64_bus_read(machine, physical_pc, 4u, &opcode);
+  }
   if (status != T64_STATUS_OK) {
     machine->cpu.last_opcode = 0u;
     if (new_profile && (status == T64_STATUS_BUS_UNMAPPED ||
