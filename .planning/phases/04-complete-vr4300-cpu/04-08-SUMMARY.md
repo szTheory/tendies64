@@ -98,8 +98,10 @@ facts and unresolved physical-console behavior.
   core lint with zero violations.
 - Exact inventory is101 gate/103 ASan; all84 integer coverage rows and
   omission controls remain intact. Portable evidence/specifications pass the unwaived PII tree/history scan.
-- Fresh hosted verification is tracked in docs/ci-reviews/LOG.md against the
-  final source commit. No external diagnostic ROM or derived result is public.
+- Final source7e09bed passed both Linux and macOS hosted gates:101 tests,
+  zero lint violations, guest evidence and publication checks. Measured CI
+  review is tracked in docs/ci-reviews/LOG.md. No external diagnostic ROM or
+  derived result is public.
 
 ## Deviations and Evidence Limits
 
