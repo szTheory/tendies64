@@ -104,7 +104,8 @@ PHASE04_TESTS='runner.cpu-diagnostic-protocol
 runner.cpu-diagnostic-inventory
 unit.core.cpu-exceptions
 unit.core.cpu-integer
-unit.core.cpu-control'
+unit.core.cpu-control
+unit.core.cpu-cp0'
 
 CPU_COVERAGE_OPCODES='ADD
 ADDU

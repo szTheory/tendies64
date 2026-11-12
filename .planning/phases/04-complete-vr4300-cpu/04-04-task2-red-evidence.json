@@ -1,0 +1,15 @@
+{
+  "test": "unit.core.cpu-cp0",
+  "command": "ctest --preset gate --no-tests=error -R '^(unit.core.cpu-cp0|unit.core.cpu-path)$' --output-junit build/gate/04-04-task2-red-junit.xml --output-on-failure",
+  "exitCode": 8,
+  "reportFormat": "JUnit XML",
+  "reportPath": "build/gate/build/gate/04-04-task2-red-junit.xml",
+  "runStartedAt": "2026-11-12T04:16:20Z",
+  "reportModifiedAt": "2026-11-12T04:16:20.907Z",
+  "reportNewerThanRunStart": true,
+  "classifierVerdict": "RED_EVIDENCE_OK",
+  "classifierTarget": "unit.core.cpu-cp0#unit.core.cpu-cp0",
+  "expected": "MTC0 Index preserves the hardware probe bit P and writes the six-bit index field; input 0xffffffff yields 0x8000003f from initial 0x80000000.",
+  "observed": "The compiled and registered unit executed MTC0 Index. Transfer result was 2 (unsupported), Index remained 0x80000000, and the expected value was 0x8000003f. The adjacent unit.core.cpu-path test passed.",
+  "semanticAssessment": "Valid behavioral RED: unit.core.cpu-cp0 was discovered and executed, then failed its targeted MTC0 Index behavior assertion with observed architectural state. This was not a build, setup, discovery, or unrelated failure."
+}

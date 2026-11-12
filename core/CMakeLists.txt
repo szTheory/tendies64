@@ -210,6 +210,15 @@ set_tests_properties(unit.core.cp0-cache PROPERTIES
   LABELS unit
   ENVIRONMENT "T64_TEST_IPL3_PATH=${T64_BOOT_FIXTURE_DIR}/ipl3_compat.z64")
 
+add_executable(test_cpu_cp0 tests/test_cpu_cp0.c)
+target_include_directories(test_cpu_cp0 PRIVATE
+  "${CMAKE_CURRENT_SOURCE_DIR}"
+  "${CMAKE_SOURCE_DIR}/tests")
+target_link_libraries(test_cpu_cp0 PRIVATE t64_core)
+t64_target_warnings(test_cpu_cp0)
+add_test(NAME unit.core.cpu-cp0 COMMAND test_cpu_cp0)
+set_tests_properties(unit.core.cpu-cp0 PROPERTIES LABELS unit)
+
 add_executable(test_cpu_exceptions tests/test_cpu_exceptions.c)
 target_include_directories(test_cpu_exceptions PRIVATE
   "${CMAKE_CURRENT_SOURCE_DIR}"
