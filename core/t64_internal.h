@@ -30,6 +30,11 @@
 #define T64_ISVIEWER_CAPTURE_BYTES 4096u
 #define T64_ISVIEWER_DEVICE_BYTES UINT32_C(0x0220)
 #define T64_ISVIEWER_POLICY_VERSION UINT32_C(3)
+#define T64_VR4300_TLB_ENTRY_COUNT 32u
+#define T64_VR4300_ICACHE_LINE_COUNT 512u
+#define T64_VR4300_DCACHE_LINE_COUNT 512u
+#define T64_VR4300_ICACHE_LINE_BYTES 32u
+#define T64_VR4300_DCACHE_LINE_BYTES 16u
 
 #define T64_DEVICE_SYNTHETIC_TEST UINT32_C(0xffff0001)
 #define T64_TEST_EVENT_NOOP UINT32_C(1)
@@ -112,6 +117,82 @@ typedef struct {
   bool token_exhausted;
 } t64_sp_state;
 
+typedef enum {
+  T64_CPU_ATTEMPT_NONE = 0,
+  T64_CPU_ATTEMPT_RETIRED = 1,
+  T64_CPU_ATTEMPT_GUEST_EXCEPTION = 2,
+  T64_CPU_ATTEMPT_MODEL_UNSUPPORTED = 3,
+  T64_CPU_ATTEMPT_SOFTWARE_STOP = 4,
+  T64_CPU_ATTEMPT_HOST_ERROR = 5
+} t64_cpu_attempt_outcome;
+
+typedef struct {
+  uint64_t page_mask;
+  uint64_t vpn2;
+  uint64_t region;
+  uint32_t asid;
+  uint64_t entry_lo0;
+  uint64_t entry_lo1;
+} t64_vr4300_tlb_pair;
+
+typedef struct {
+  uint32_t physical_tag;
+  bool valid;
+  uint8_t data[T64_VR4300_ICACHE_LINE_BYTES];
+} t64_vr4300_icache_line;
+
+typedef struct {
+  uint32_t physical_tag;
+  bool valid;
+  bool dirty;
+  uint8_t data[T64_VR4300_DCACHE_LINE_BYTES];
+} t64_vr4300_dcache_line;
+
+/* Raw decode input and narrow, side-effect-free contracts for later CPU slices. */
+typedef struct {
+  uint64_t pc;
+  uint32_t instruction_word;
+  uint32_t opcode;
+  uint32_t rs;
+  uint32_t rt;
+  uint32_t rd;
+  uint32_t shift;
+  uint32_t immediate;
+  bool in_delay_slot;
+} t64_cpu_raw_context;
+
+typedef struct {
+  bool valid;
+  uint32_t code;
+  uint64_t bad_virtual_address;
+  uint64_t epc;
+  bool branch_delay;
+} t64_cpu_exception_result;
+
+typedef struct {
+  bool translated;
+  bool refill;
+  bool invalid;
+  bool modified;
+  uint32_t physical_address;
+  uint32_t matched_entry;
+} t64_cpu_mmu_result;
+
+typedef struct {
+  bool supported;
+  bool hit;
+  bool dirty;
+  uint32_t line_index;
+  uint32_t physical_tag;
+} t64_cpu_cache_result;
+
+typedef struct {
+  bool supported;
+  uint32_t destination_fpr;
+  uint64_t result_bits;
+  uint32_t fcr31_flags;
+} t64_cpu_cop1_result;
+
 typedef struct {
   uint64_t gpr[32];
   uint64_t hi;
@@ -128,7 +209,40 @@ typedef struct {
   uint32_t stop_reason;
   uint32_t stop_pc;
   uint32_t stop_opcode;
+  uint64_t pc_full;
+  uint64_t last_pc_full;
+  uint64_t delay_slot_pc_full;
+  uint64_t delay_target_full;
+  uint64_t stop_pc_full;
+  uint32_t attempt_outcome;
+  uint32_t semantic_policy_version;
+  bool tlb_shutdown;
+  bool pending_exception_valid;
+  uint32_t pending_exception_code;
+  uint64_t pending_exception_address;
+  uint64_t pending_exception_epc;
+  bool pending_exception_bd;
+  t64_vr4300_tlb_pair tlb[T64_VR4300_TLB_ENTRY_COUNT];
+  uint64_t count_sync_tick;
+  uint32_t count_half_clock_phase;
+  uint64_t count_compare_deadline;
+  uint64_t count_equality_latch_generation;
+  bool count_equality_latched;
+  uint32_t linked_physical_address;
+  uint32_t linked_width;
+  bool linked_valid;
+  t64_vr4300_icache_line icache[T64_VR4300_ICACHE_LINE_COUNT];
+  t64_vr4300_dcache_line dcache[T64_VR4300_DCACHE_LINE_COUNT];
+  uint64_t fpr[32];
+  uint32_t fcr0;
+  uint32_t fcr31;
 } t64_cpu_state;
+
+static inline uint64_t t64_cpu_canonical_address(uint32_t address) {
+  return (address & UINT32_C(0x80000000)) != 0u
+             ? (UINT64_C(0xffffffff00000000) | (uint64_t)address)
+             : (uint64_t)address;
+}
 
 typedef struct {
   uint8_t asset_sha256[T64_DIGEST_SIZE];

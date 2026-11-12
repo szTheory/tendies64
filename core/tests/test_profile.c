@@ -536,6 +536,90 @@ static void test_country_metadata_and_test_contrast(
   T64_CHECK_INT(alloc.release_errors, 0u);
 }
 
+static void test_vr4300_profile_contract(void) {
+  static const char asset_sha256[] =
+      "f522db2e31a701f82597f399e76d55c9487760d015aff9d90176b463ae39a068";
+  static const char payload_sha256[] =
+      "f716a90b1d36ec4253d096790791256d3543455e54473a755ff8c3d1199b15d5";
+  static const char policy_sha256[] =
+      "faa54438c8b0cdd60e1e388b61566a963ad3d1feb05c23cbf207b4645157064c";
+  const t64_profile_descriptor *profile = NULL;
+  t64_profile_descriptor changed;
+  uint8_t expected_asset[T64_DIGEST_SIZE];
+  uint8_t expected_payload[T64_DIGEST_SIZE];
+  uint8_t expected_policy[T64_DIGEST_SIZE];
+  uint8_t profile_hash[T64_DIGEST_SIZE];
+  uint8_t changed_hash[T64_DIGEST_SIZE];
+  uint8_t serialized[T64_PROFILE_SERIALIZED_MAX_BYTES];
+  size_t serialized_length = 0u;
+  size_t metadata_length = (T64_DIGEST_SIZE * 3u) + sizeof(uint32_t);
+  char profile_hash_hex[T64_DIGEST_SIZE * 2u + 1u];
+
+  T64_CHECK_INT(
+      t64_profile_lookup("ntsc-cart-4m-openipl3-vr4300-v1", &profile),
+      T64_STATUS_OK);
+  T64_CHECK(profile != NULL);
+  if (profile == NULL) {
+    return;
+  }
+  T64_CHECK_INT(profile->descriptor_version, 3u);
+  T64_CHECK_INT(profile->machine_model_version, 3u);
+  T64_CHECK_INT(profile->state_serialization_version, 9u);
+  T64_CHECK_INT(profile->hle_seed_reset_version, 2u);
+  T64_CHECK_STR(profile->boot_route, "hle-pif+open-ipl3");
+  T64_CHECK_STR(profile->boot_status, "prepared-vr4300-entry-partial");
+  T64_CHECK(hex_decode(asset_sha256, expected_asset, sizeof expected_asset));
+  T64_CHECK(hex_decode(payload_sha256, expected_payload,
+                       sizeof expected_payload));
+  T64_CHECK(hex_decode(policy_sha256, expected_policy, sizeof expected_policy));
+  T64_CHECK(memcmp(profile->asset_sha256, expected_asset,
+                   sizeof expected_asset) == 0);
+  T64_CHECK(memcmp(profile->payload_sha256, expected_payload,
+                   sizeof expected_payload) == 0);
+  T64_CHECK(memcmp(profile->boot_policy_sha256, expected_policy,
+                   sizeof expected_policy) == 0);
+  T64_CHECK_INT(t64_profile_serialize(profile, serialized,
+                                      sizeof serialized, &serialized_length),
+                T64_STATUS_OK);
+  T64_CHECK(serialized_length >= metadata_length);
+  if (serialized_length >= metadata_length) {
+    size_t metadata_offset = serialized_length - metadata_length;
+
+    T64_CHECK(memcmp(serialized + metadata_offset, expected_asset,
+                     sizeof expected_asset) == 0);
+    T64_CHECK(memcmp(serialized + metadata_offset + T64_DIGEST_SIZE,
+                     expected_payload, sizeof expected_payload) == 0);
+    T64_CHECK(memcmp(serialized + metadata_offset + (T64_DIGEST_SIZE * 2u),
+                     expected_policy, sizeof expected_policy) == 0);
+    T64_CHECK_INT(serialized[serialized_length - 4u], 0u);
+    T64_CHECK_INT(serialized[serialized_length - 3u], 0u);
+    T64_CHECK_INT(serialized[serialized_length - 2u], 0u);
+    T64_CHECK_INT(serialized[serialized_length - 1u], 2u);
+  }
+  T64_CHECK_INT(t64_profile_hash(profile, profile_hash), T64_STATUS_OK);
+  digest_to_hex(profile_hash, profile_hash_hex);
+  T64_CHECK_STR(profile_hash_hex,
+                "d1f620cfef32824759c40c4e22a7e9f6cab3796981f34ac1e1dfd55c78f197a1");
+
+#define CHECK_VR4300_PROFILE_MUTATION(statement)                              \
+  do {                                                                         \
+    changed = *profile;                                                        \
+    statement                                                                 \
+    T64_CHECK_INT(t64_profile_hash(&changed, changed_hash), T64_STATUS_OK);    \
+    T64_CHECK(memcmp(profile_hash, changed_hash, T64_DIGEST_SIZE) != 0);       \
+  } while (0)
+
+  CHECK_VR4300_PROFILE_MUTATION(changed.asset_sha256[0] ^= UINT8_C(1););
+  CHECK_VR4300_PROFILE_MUTATION(changed.payload_sha256[31] ^= UINT8_C(1););
+  CHECK_VR4300_PROFILE_MUTATION(changed.boot_policy_sha256[0] ^= UINT8_C(1););
+  CHECK_VR4300_PROFILE_MUTATION(changed.hle_seed_reset_version++;);
+  CHECK_VR4300_PROFILE_MUTATION(changed.descriptor_version++;);
+  CHECK_VR4300_PROFILE_MUTATION(changed.machine_model_version++;);
+  CHECK_VR4300_PROFILE_MUTATION(changed.state_serialization_version++;);
+
+#undef CHECK_VR4300_PROFILE_MUTATION
+}
+
 static void test_profile_contract(void) {
   const t64_profile_descriptor *profile = NULL;
   uint8_t profile_hash[T64_DIGEST_SIZE];
@@ -551,6 +635,7 @@ static void test_profile_contract(void) {
   test_each_descriptor_field_changes_hash(profile, profile_hash);
   test_rejected_descriptors(profile);
   test_country_metadata_and_test_contrast(profile, profile_hash);
+  test_vr4300_profile_contract();
   digest_to_hex(profile_hash, profile_hash_hex);
   T64_CHECK_STR(profile_hash_hex,
                 "b7d1600ad960b4e04fdc3ec372675edc47b26b15be8e9cd84cbab4fd75835647");

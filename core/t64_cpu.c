@@ -34,10 +34,21 @@
 #define T64_CACHE_HIT_WRITEBACK_INVALIDATE_D UINT32_C(0x15)
 
 static uint64_t sign_extend_32(uint32_t value) {
-  if ((value & UINT32_C(0x80000000)) != 0u) {
-    return UINT64_C(0xffffffff00000000) | (uint64_t)value;
-  }
-  return (uint64_t)value;
+  return t64_cpu_canonical_address(value);
+}
+
+static bool has_vr4300_cpu_state(const t64_machine *machine) {
+  return machine != NULL &&
+         machine->profile.machine_model_version == UINT32_C(3) &&
+         machine->profile.state_serialization_version == UINT32_C(9);
+}
+
+static void sync_vr4300_full_addresses(t64_cpu_state *cpu) {
+  cpu->pc_full = t64_cpu_canonical_address(cpu->pc);
+  cpu->last_pc_full = t64_cpu_canonical_address(cpu->last_pc);
+  cpu->delay_slot_pc_full = t64_cpu_canonical_address(cpu->delay_slot_pc);
+  cpu->delay_target_full = t64_cpu_canonical_address(cpu->delay_target);
+  cpu->stop_pc_full = t64_cpu_canonical_address(cpu->stop_pc);
 }
 
 static uint64_t sign_extend_16(uint16_t value) {
@@ -872,6 +883,10 @@ static void cpu_stop_unsupported(t64_machine *machine, uint32_t pc,
   machine->cpu.stop_reason = T64_STOP_REASON_CPU_UNSUPPORTED;
   machine->cpu.stop_pc = pc;
   machine->cpu.stop_opcode = opcode;
+  if (has_vr4300_cpu_state(machine)) {
+    machine->cpu.attempt_outcome = T64_CPU_ATTEMPT_MODEL_UNSUPPORTED;
+    sync_vr4300_full_addresses(&machine->cpu);
+  }
   t64_trace_emit(machine, machine->tick, T64_TRACE_DEVICE_MACHINE,
                  T64_TRACE_KIND_CPU_UNSUPPORTED,
                  ((uint64_t)pc << 32) | (uint64_t)opcode);
@@ -883,6 +898,10 @@ static void cpu_stop_completion(t64_machine *machine, uint32_t pc,
   machine->cpu.stop_reason = T64_STOP_REASON_GUEST_COMPLETION;
   machine->cpu.stop_pc = pc;
   machine->cpu.stop_opcode = opcode;
+  if (has_vr4300_cpu_state(machine)) {
+    machine->cpu.attempt_outcome = T64_CPU_ATTEMPT_SOFTWARE_STOP;
+    sync_vr4300_full_addresses(&machine->cpu);
+  }
   t64_trace_emit(machine, machine->tick, T64_TRACE_DEVICE_MACHINE,
                  T64_TRACE_KIND_CPU_COMPLETION,
                  ((uint64_t)pc << 32) | (uint64_t)opcode);
@@ -932,6 +951,9 @@ t64_status t64_cpu_step(t64_machine *machine, const t64_event *event) {
   pc = machine->cpu.pc;
   in_delay_slot = machine->cpu.delay_slot_pending;
   machine->cpu.last_pc = pc;
+  if (has_vr4300_cpu_state(machine)) {
+    machine->cpu.last_pc_full = t64_cpu_canonical_address(pc);
+  }
   if (!t64_cpu_translate(sign_extend_32(pc), &physical_pc) ||
       t64_bus_read(machine, physical_pc, 4u, &opcode) != T64_STATUS_OK) {
     machine->cpu.last_opcode = 0u;
@@ -1026,6 +1048,10 @@ t64_status t64_cpu_step(t64_machine *machine, const t64_event *event) {
   machine->cpu.retired_instructions++;
   machine->instruction_count++;
   cp0_retirement_tick(machine);
+  if (has_vr4300_cpu_state(machine)) {
+    machine->cpu.attempt_outcome = T64_CPU_ATTEMPT_RETIRED;
+    sync_vr4300_full_addresses(&machine->cpu);
+  }
   t64_trace_emit(machine, machine->tick, T64_TRACE_DEVICE_MACHINE,
                  T64_TRACE_KIND_CPU_RETIREMENT,
                  ((uint64_t)pc << 32) | (uint64_t)opcode);

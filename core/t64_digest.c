@@ -54,6 +54,70 @@ static void hash_sp_descriptor(t64_sha256_ctx *context,
   hash_u64(context, descriptor->token);
 }
 
+static void hash_vr4300_cpu_state(t64_sha256_ctx *context,
+                                  const t64_cpu_state *cpu) {
+  size_t i;
+
+  hash_u64(context, cpu->pc_full);
+  hash_u64(context, cpu->last_pc_full);
+  hash_u64(context, cpu->delay_slot_pc_full);
+  hash_u64(context, cpu->delay_target_full);
+  hash_u64(context, cpu->stop_pc_full);
+  hash_u32(context, cpu->attempt_outcome);
+  hash_u32(context, cpu->semantic_policy_version);
+  hash_u32(context, cpu->tlb_shutdown ? UINT32_C(1) : UINT32_C(0));
+  hash_u32(context, cpu->pending_exception_valid ? UINT32_C(1) : UINT32_C(0));
+  hash_u32(context, cpu->pending_exception_code);
+  hash_u64(context, cpu->pending_exception_address);
+  hash_u64(context, cpu->pending_exception_epc);
+  hash_u32(context, cpu->pending_exception_bd ? UINT32_C(1) : UINT32_C(0));
+
+  hash_u32(context, T64_VR4300_TLB_ENTRY_COUNT);
+  for (i = 0u; i < T64_VR4300_TLB_ENTRY_COUNT; i++) {
+    const t64_vr4300_tlb_pair *entry = &cpu->tlb[i];
+
+    hash_u64(context, entry->page_mask);
+    hash_u64(context, entry->vpn2);
+    hash_u64(context, entry->region);
+    hash_u32(context, entry->asid);
+    hash_u64(context, entry->entry_lo0);
+    hash_u64(context, entry->entry_lo1);
+  }
+
+  hash_u64(context, cpu->count_sync_tick);
+  hash_u32(context, cpu->count_half_clock_phase);
+  hash_u64(context, cpu->count_compare_deadline);
+  hash_u64(context, cpu->count_equality_latch_generation);
+  hash_u32(context, cpu->count_equality_latched ? UINT32_C(1) : UINT32_C(0));
+  hash_u32(context, cpu->linked_physical_address);
+  hash_u32(context, cpu->linked_width);
+  hash_u32(context, cpu->linked_valid ? UINT32_C(1) : UINT32_C(0));
+
+  hash_u32(context, T64_VR4300_ICACHE_LINE_COUNT);
+  for (i = 0u; i < T64_VR4300_ICACHE_LINE_COUNT; i++) {
+    const t64_vr4300_icache_line *line = &cpu->icache[i];
+
+    hash_u32(context, line->physical_tag);
+    hash_u32(context, line->valid ? UINT32_C(1) : UINT32_C(0));
+    t64_sha256_update(context, line->data, sizeof line->data);
+  }
+  hash_u32(context, T64_VR4300_DCACHE_LINE_COUNT);
+  for (i = 0u; i < T64_VR4300_DCACHE_LINE_COUNT; i++) {
+    const t64_vr4300_dcache_line *line = &cpu->dcache[i];
+
+    hash_u32(context, line->physical_tag);
+    hash_u32(context, line->valid ? UINT32_C(1) : UINT32_C(0));
+    hash_u32(context, line->dirty ? UINT32_C(1) : UINT32_C(0));
+    t64_sha256_update(context, line->data, sizeof line->data);
+  }
+  hash_u32(context, 32u);
+  for (i = 0u; i < 32u; i++) {
+    hash_u64(context, cpu->fpr[i]);
+  }
+  hash_u32(context, cpu->fcr0);
+  hash_u32(context, cpu->fcr31);
+}
+
 t64_status t64_machine_digest(const t64_machine *machine,
                               uint8_t digest_out[T64_DIGEST_SIZE]) {
   static const uint8_t domain_v5[] = {'t', '6', '4', '.', 's', 't', 'a', 't',
@@ -211,6 +275,9 @@ t64_status t64_machine_digest(const t64_machine *machine,
     hash_u32(&context, machine->cpu.stop_reason);
     hash_u32(&context, machine->cpu.stop_pc);
     hash_u32(&context, machine->cpu.stop_opcode);
+    if (has_v9_state) {
+      hash_vr4300_cpu_state(&context, &machine->cpu);
+    }
     hash_u32(&context, machine->cache.policy_version);
     hash_u32(&context, machine->cache.last_operation);
     hash_u32(&context, machine->cache.last_pc);

@@ -86,6 +86,116 @@ static void check_refused_admission_unchanged(
   T64_CHECK_INT(allocator->outstanding, outstanding_before);
 }
 
+static void check_vr4300_cpu_state_hash_sensitivity(
+    const t64_machine *machine) {
+  t64_machine changed_machine;
+  uint8_t original_digest[T64_DIGEST_SIZE];
+  uint8_t changed_digest[T64_DIGEST_SIZE];
+
+  T64_CHECK_INT(t64_machine_digest(machine, original_digest), T64_STATUS_OK);
+#define CHECK_CPU_FIELD_MUTATION(statement)                                   \
+  do {                                                                         \
+    changed_machine = *machine;                                                \
+    statement                                                                 \
+    T64_CHECK_INT(t64_machine_digest(&changed_machine, changed_digest),        \
+                  T64_STATUS_OK);                                              \
+    T64_CHECK(memcmp(original_digest, changed_digest,                          \
+                     sizeof original_digest) != 0);                            \
+  } while (0)
+
+  CHECK_CPU_FIELD_MUTATION(changed_machine.boot.asset_sha256[0] ^=
+                           UINT8_C(1););
+  CHECK_CPU_FIELD_MUTATION(changed_machine.boot.payload_sha256[0] ^=
+                           UINT8_C(1););
+  CHECK_CPU_FIELD_MUTATION(changed_machine.boot.policy_sha256[0] ^=
+                           UINT8_C(1););
+  CHECK_CPU_FIELD_MUTATION(changed_machine.boot.source_offset++;);
+  CHECK_CPU_FIELD_MUTATION(changed_machine.boot.payload_length++;);
+  CHECK_CPU_FIELD_MUTATION(changed_machine.boot.dmem_offset++;);
+  CHECK_CPU_FIELD_MUTATION(changed_machine.boot.entry_pc++;);
+  CHECK_CPU_FIELD_MUTATION(changed_machine.boot.seed_reset_version++;);
+  CHECK_CPU_FIELD_MUTATION(changed_machine.boot.seed_s3_rom_type++;);
+  CHECK_CPU_FIELD_MUTATION(changed_machine.boot.seed_s4_tv_type++;);
+  CHECK_CPU_FIELD_MUTATION(changed_machine.boot.seed_s5_reset_type++;);
+  CHECK_CPU_FIELD_MUTATION(changed_machine.boot.seed_s6_entropy++;);
+  CHECK_CPU_FIELD_MUTATION(
+      changed_machine.boot.seed_s7_boot_info_version++;);
+  CHECK_CPU_FIELD_MUTATION(changed_machine.boot.prepared = false;);
+  CHECK_CPU_FIELD_MUTATION(changed_machine.cpu.pc_full ^= UINT64_C(1););
+  CHECK_CPU_FIELD_MUTATION(changed_machine.cpu.last_pc_full ^= UINT64_C(1););
+  CHECK_CPU_FIELD_MUTATION(
+      changed_machine.cpu.delay_slot_pc_full ^= UINT64_C(1););
+  CHECK_CPU_FIELD_MUTATION(changed_machine.cpu.delay_target_full ^=
+                           UINT64_C(1););
+  CHECK_CPU_FIELD_MUTATION(changed_machine.cpu.stop_pc_full ^= UINT64_C(1););
+  CHECK_CPU_FIELD_MUTATION(
+      changed_machine.cpu.attempt_outcome = T64_CPU_ATTEMPT_RETIRED;);
+  CHECK_CPU_FIELD_MUTATION(changed_machine.cpu.semantic_policy_version++;);
+  CHECK_CPU_FIELD_MUTATION(changed_machine.cpu.tlb_shutdown = true;);
+  CHECK_CPU_FIELD_MUTATION(
+      changed_machine.cpu.pending_exception_valid = true;);
+  CHECK_CPU_FIELD_MUTATION(changed_machine.cpu.pending_exception_code++;);
+  CHECK_CPU_FIELD_MUTATION(
+      changed_machine.cpu.pending_exception_address ^= UINT64_C(1););
+  CHECK_CPU_FIELD_MUTATION(
+      changed_machine.cpu.pending_exception_epc ^= UINT64_C(1););
+  CHECK_CPU_FIELD_MUTATION(changed_machine.cpu.pending_exception_bd = true;);
+  CHECK_CPU_FIELD_MUTATION(
+      changed_machine.cpu.tlb[T64_VR4300_TLB_ENTRY_COUNT - 1u].page_mask ^=
+      UINT64_C(1););
+  CHECK_CPU_FIELD_MUTATION(
+      changed_machine.cpu.tlb[T64_VR4300_TLB_ENTRY_COUNT - 1u].vpn2 ^=
+      UINT64_C(1););
+  CHECK_CPU_FIELD_MUTATION(
+      changed_machine.cpu.tlb[T64_VR4300_TLB_ENTRY_COUNT - 1u].region ^=
+      UINT64_C(1););
+  CHECK_CPU_FIELD_MUTATION(
+      changed_machine.cpu.tlb[T64_VR4300_TLB_ENTRY_COUNT - 1u].asid ^= 1u;);
+  CHECK_CPU_FIELD_MUTATION(
+      changed_machine.cpu.tlb[T64_VR4300_TLB_ENTRY_COUNT - 1u].entry_lo0 ^=
+      UINT64_C(1););
+  CHECK_CPU_FIELD_MUTATION(
+      changed_machine.cpu.tlb[T64_VR4300_TLB_ENTRY_COUNT - 1u].entry_lo1 ^=
+      UINT64_C(1););
+  CHECK_CPU_FIELD_MUTATION(changed_machine.cpu.count_sync_tick++;);
+  CHECK_CPU_FIELD_MUTATION(changed_machine.cpu.count_half_clock_phase++;);
+  CHECK_CPU_FIELD_MUTATION(changed_machine.cpu.count_compare_deadline--;);
+  CHECK_CPU_FIELD_MUTATION(
+      changed_machine.cpu.count_equality_latch_generation++;);
+  CHECK_CPU_FIELD_MUTATION(
+      changed_machine.cpu.count_equality_latched = true;);
+  CHECK_CPU_FIELD_MUTATION(changed_machine.cpu.linked_physical_address++;);
+  CHECK_CPU_FIELD_MUTATION(changed_machine.cpu.linked_width++;);
+  CHECK_CPU_FIELD_MUTATION(changed_machine.cpu.linked_valid = true;);
+  CHECK_CPU_FIELD_MUTATION(
+      changed_machine.cpu.icache[T64_VR4300_ICACHE_LINE_COUNT - 1u]
+          .physical_tag++;);
+  CHECK_CPU_FIELD_MUTATION(
+      changed_machine.cpu.icache[T64_VR4300_ICACHE_LINE_COUNT - 1u].valid =
+          true;);
+  CHECK_CPU_FIELD_MUTATION(
+      changed_machine.cpu.icache[T64_VR4300_ICACHE_LINE_COUNT - 1u].data[
+          T64_VR4300_ICACHE_LINE_BYTES - 1u] ^= UINT8_C(1););
+  CHECK_CPU_FIELD_MUTATION(
+      changed_machine.cpu.dcache[T64_VR4300_DCACHE_LINE_COUNT - 1u]
+          .physical_tag++;);
+  CHECK_CPU_FIELD_MUTATION(
+      changed_machine.cpu.dcache[T64_VR4300_DCACHE_LINE_COUNT - 1u].valid =
+          true;);
+  CHECK_CPU_FIELD_MUTATION(
+      changed_machine.cpu.dcache[T64_VR4300_DCACHE_LINE_COUNT - 1u].dirty =
+          true;);
+  CHECK_CPU_FIELD_MUTATION(
+      changed_machine.cpu.dcache[T64_VR4300_DCACHE_LINE_COUNT - 1u].data[
+          T64_VR4300_DCACHE_LINE_BYTES - 1u] ^= UINT8_C(1););
+  CHECK_CPU_FIELD_MUTATION(
+      changed_machine.cpu.fpr[31] ^= UINT64_C(1););
+  CHECK_CPU_FIELD_MUTATION(changed_machine.cpu.fcr0 ^= UINT32_C(1););
+  CHECK_CPU_FIELD_MUTATION(changed_machine.cpu.fcr31 ^= UINT32_C(1););
+
+#undef CHECK_CPU_FIELD_MUTATION
+}
+
 static void test_vr4300_profile_entry(
     const uint8_t asset[IPL3_ASSET_BYTES]) {
   static const char profile_id[] = "ntsc-cart-4m-openipl3-vr4300-v1";
@@ -97,6 +207,7 @@ static void test_vr4300_profile_entry(
   const t64_profile_descriptor *profile = NULL;
   t64_profile_descriptor altered_profile;
   t64_machine *machine = NULL;
+  t64_machine *peer_machine = NULL;
   t64_machine *rejected_machine = NULL;
   uint8_t altered_asset[IPL3_ASSET_BYTES];
   uint8_t state_before[T64_DIGEST_SIZE];
@@ -105,8 +216,12 @@ static void test_vr4300_profile_entry(
   uint8_t content_after[T64_DIGEST_SIZE];
   uint8_t reference_digest[T64_DIGEST_SIZE];
   uint8_t production_digest[T64_DIGEST_SIZE];
+  uint8_t prepared_seed_digest[T64_DIGEST_SIZE];
+  uint8_t peer_digest[T64_DIGEST_SIZE];
+  uint8_t changed_digest[T64_DIGEST_SIZE];
   char reference_hex[T64_DIGEST_SIZE * 2u + 1u];
   char production_hex[T64_DIGEST_SIZE * 2u + 1u];
+  size_t i;
   t64_stop_request request = {T64_STOP_GUEST_TICK, UINT64_C(1)};
   t64_stop_result result = {UINT32_MAX, UINT64_MAX};
   t64_status status;
@@ -158,10 +273,61 @@ static void test_vr4300_profile_entry(
   T64_CHECK_INT(machine->cpu.cp0[12], UINT32_C(0x34000000));
   T64_CHECK_INT(machine->cpu.cp0[15], UINT32_C(0x00000b00));
   T64_CHECK_INT(machine->cpu.cp0[16], UINT32_C(0x7006e463));
+  T64_CHECK_INT(machine->cpu.pc_full, UINT64_C(0xffffffffa4000040));
+  T64_CHECK_INT(machine->cpu.last_pc_full, 0u);
+  T64_CHECK_INT(machine->cpu.delay_slot_pc_full, 0u);
+  T64_CHECK_INT(machine->cpu.delay_target_full, 0u);
+  T64_CHECK_INT(machine->cpu.stop_pc_full, 0u);
+  T64_CHECK_INT(machine->cpu.attempt_outcome, T64_CPU_ATTEMPT_NONE);
+  T64_CHECK_INT(machine->cpu.semantic_policy_version, 1u);
+  T64_CHECK(!machine->cpu.tlb_shutdown);
+  T64_CHECK(!machine->cpu.pending_exception_valid);
+  T64_CHECK_INT(machine->cpu.pending_exception_code, 0u);
+  T64_CHECK_INT(machine->cpu.pending_exception_address, 0u);
+  T64_CHECK_INT(machine->cpu.pending_exception_epc, 0u);
+  T64_CHECK(!machine->cpu.pending_exception_bd);
+  for (i = 0u; i < T64_VR4300_TLB_ENTRY_COUNT; i++) {
+    T64_CHECK_INT(machine->cpu.tlb[i].page_mask, 0u);
+    T64_CHECK_INT(machine->cpu.tlb[i].vpn2, 0u);
+    T64_CHECK_INT(machine->cpu.tlb[i].region, 0u);
+    T64_CHECK_INT(machine->cpu.tlb[i].asid, 0u);
+    T64_CHECK_INT(machine->cpu.tlb[i].entry_lo0, 0u);
+    T64_CHECK_INT(machine->cpu.tlb[i].entry_lo1, 0u);
+  }
+  T64_CHECK_INT(machine->cpu.count_sync_tick, 0u);
+  T64_CHECK_INT(machine->cpu.count_half_clock_phase, 0u);
+  T64_CHECK_INT(machine->cpu.count_compare_deadline, UINT64_MAX);
+  T64_CHECK_INT(machine->cpu.count_equality_latch_generation, 0u);
+  T64_CHECK(!machine->cpu.count_equality_latched);
+  T64_CHECK_INT(machine->cpu.linked_physical_address, 0u);
+  T64_CHECK_INT(machine->cpu.linked_width, 0u);
+  T64_CHECK(!machine->cpu.linked_valid);
+  for (i = 0u; i < T64_VR4300_ICACHE_LINE_COUNT; i++) {
+    T64_CHECK_INT(machine->cpu.icache[i].physical_tag, 0u);
+    T64_CHECK(!machine->cpu.icache[i].valid);
+    T64_CHECK(memcmp(machine->cpu.icache[i].data,
+                     (const uint8_t[T64_VR4300_ICACHE_LINE_BYTES]){0u},
+                     T64_VR4300_ICACHE_LINE_BYTES) == 0);
+  }
+  for (i = 0u; i < T64_VR4300_DCACHE_LINE_COUNT; i++) {
+    T64_CHECK_INT(machine->cpu.dcache[i].physical_tag, 0u);
+    T64_CHECK(!machine->cpu.dcache[i].valid);
+    T64_CHECK(!machine->cpu.dcache[i].dirty);
+    T64_CHECK(memcmp(machine->cpu.dcache[i].data,
+                     (const uint8_t[T64_VR4300_DCACHE_LINE_BYTES]){0u},
+                     T64_VR4300_DCACHE_LINE_BYTES) == 0);
+  }
+  for (i = 0u; i < 32u; i++) {
+    T64_CHECK_INT(machine->cpu.fpr[i], 0u);
+  }
+  T64_CHECK_INT(machine->cpu.fcr0, UINT32_C(0x00000b00));
+  T64_CHECK_INT(machine->cpu.fcr31, 0u);
 
   /* v9 hashes its prepared CPU future state before the first instruction. */
   T64_CHECK_INT(t64_machine_digest(machine, production_digest),
                 T64_STATUS_OK);
+  (void)memcpy(prepared_seed_digest, production_digest,
+               sizeof prepared_seed_digest);
   reference_machine_digest(machine, reference_digest);
   digest_to_hex(reference_digest, reference_hex);
   T64_CHECK_STR(reference_hex, expected_v9_prepared_state_sha256);
@@ -175,16 +341,43 @@ static void test_vr4300_profile_entry(
   }
   T64_CHECK(memcmp(production_digest, reference_digest,
                    sizeof reference_digest) == 0);
+  check_vr4300_cpu_state_hash_sensitivity(machine);
+
+  T64_CHECK_INT(t64_machine_create(&allocator, profile, &peer_machine),
+                T64_STATUS_OK);
+  T64_CHECK(peer_machine != NULL);
+  if (peer_machine == NULL) {
+    goto done;
+  }
+  T64_CHECK_INT(t64_machine_admit_rom(peer_machine, asset,
+                                      IPL3_ASSET_BYTES),
+                T64_STATUS_OK);
+  T64_CHECK_INT(t64_machine_digest(peer_machine, peer_digest),
+                T64_STATUS_OK);
+  T64_CHECK(memcmp(prepared_seed_digest, peer_digest,
+                   sizeof prepared_seed_digest) == 0);
+  machine->cpu.tlb[0].asid = 1u;
+  T64_CHECK_INT(t64_machine_digest(machine, changed_digest), T64_STATUS_OK);
+  T64_CHECK(memcmp(prepared_seed_digest, changed_digest,
+                   sizeof prepared_seed_digest) != 0);
+  T64_CHECK_INT(t64_machine_digest(peer_machine, changed_digest),
+                T64_STATUS_OK);
+  T64_CHECK(memcmp(prepared_seed_digest, changed_digest,
+                   sizeof prepared_seed_digest) == 0);
+  machine->cpu.tlb[0].asid = 0u;
 
   T64_CHECK_INT(t64_machine_advance(machine, &request, &result),
                 T64_STATUS_OK);
   T64_CHECK_INT(result.reason, T64_STOP_REASON_BOUND);
   T64_CHECK_INT(result.tick, 1u);
   T64_CHECK_INT(machine->cpu.last_pc, IPL3_ENTRY_PC);
+  T64_CHECK_INT(machine->cpu.last_pc_full, UINT64_C(0xffffffffa4000040));
   T64_CHECK_INT(machine->cpu.last_opcode, UINT32_C(0x3044d236));
   /* 0x3044d236 is ANDI a0,v0,0xd236; seeded v0 is zero. */
   T64_CHECK_INT(machine->cpu.gpr[4], 0u);
   T64_CHECK_INT(machine->cpu.pc, IPL3_ENTRY_PC + 4u);
+  T64_CHECK_INT(machine->cpu.pc_full, UINT64_C(0xffffffffa4000044));
+  T64_CHECK_INT(machine->cpu.attempt_outcome, T64_CPU_ATTEMPT_RETIRED);
   T64_CHECK_INT(machine->cpu.retired_instructions, 1u);
   T64_CHECK_INT(machine->instruction_count, 1u);
   T64_CHECK(!machine->cpu.stopped);
@@ -196,6 +389,9 @@ static void test_vr4300_profile_entry(
   T64_CHECK_INT(machine->cpu.pc, IPL3_ENTRY_PC);
   T64_CHECK_INT(machine->cpu.retired_instructions, 0u);
   T64_CHECK_INT(machine->cpu.cp0[16], UINT32_C(0x7006e463));
+  T64_CHECK_INT(t64_machine_digest(machine, state_after), T64_STATUS_OK);
+  T64_CHECK(memcmp(prepared_seed_digest, state_after,
+                   sizeof prepared_seed_digest) == 0);
 
   (void)memcpy(altered_asset, asset, sizeof altered_asset);
   altered_asset[0x100u] ^= UINT8_C(1);
@@ -219,7 +415,7 @@ static void test_vr4300_profile_entry(
                                   &rejected_machine),
                 T64_STATUS_INVALID_ARGUMENT);
   T64_CHECK(rejected_machine == NULL);
-  T64_CHECK_INT(allocator_state_value.outstanding, 2u);
+  T64_CHECK_INT(allocator_state_value.outstanding, 4u);
 
   /* Exercise a corrupted in-machine descriptor as a transactional refusal. */
   machine->profile.boot_policy_sha256[0] ^= UINT8_C(1);
@@ -236,6 +432,7 @@ static void test_vr4300_profile_entry(
 
 done:
   t64_machine_destroy(rejected_machine);
+  t64_machine_destroy(peer_machine);
   t64_machine_destroy(machine);
   T64_CHECK_INT(allocator_state_value.outstanding, 0u);
 }
@@ -343,23 +540,6 @@ static void reference_hash_u64(t64_sha256_ctx *context, uint64_t value) {
     bytes[i] = (uint8_t)(value >> (56u - (i * 8u)));
   }
   t64_sha256_update(context, bytes, sizeof bytes);
-}
-
-static void reference_hash_zeros(t64_sha256_ctx *context, size_t length) {
-  static const uint8_t zeros[64] = {0u};
-
-  while (length > 0u) {
-    size_t chunk = length < sizeof zeros ? length : sizeof zeros;
-
-    t64_sha256_update(context, zeros, chunk);
-    length -= chunk;
-  }
-}
-
-static uint64_t reference_sign_extend_32(uint32_t value) {
-  return (value & UINT32_C(0x80000000)) != 0u
-             ? UINT64_C(0xffffffff00000000) | (uint64_t)value
-             : (uint64_t)value;
 }
 
 static size_t reference_text_length(const char *text, size_t capacity) {
@@ -487,64 +667,67 @@ static void reference_hash_sp_descriptor(
 static void reference_hash_v9_prepared_cpu_state(
     t64_sha256_ctx *context, const t64_machine *machine) {
   size_t i;
+  const t64_cpu_state *cpu = &machine->cpu;
 
   /* Full-width address state follows the v9 CPU field table. */
-  reference_hash_u64(context, reference_sign_extend_32(machine->cpu.pc));
-  reference_hash_u64(context,
-                     reference_sign_extend_32(machine->cpu.last_pc));
-  reference_hash_u64(context,
-                     reference_sign_extend_32(machine->cpu.delay_slot_pc));
-  reference_hash_u64(context,
-                     reference_sign_extend_32(machine->cpu.delay_target));
-  reference_hash_u64(context,
-                     reference_sign_extend_32(machine->cpu.stop_pc));
-  reference_hash_u32(context, 0u); /* No CPU attempt has run yet. */
-  reference_hash_u32(context, 1u); /* Named VR4300 CPU policy version. */
-  reference_hash_u32(context, 0u); /* TLB shutdown. */
-  reference_hash_u32(context, 0u); /* Pending exception. */
-  reference_hash_u32(context, 0u); /* Pending exception code. */
-  reference_hash_u64(context, 0u); /* Pending exception address. */
-  reference_hash_u64(context, 0u); /* Pending exception EPC. */
-  reference_hash_u32(context, 0u); /* Pending exception delay-slot flag. */
+  reference_hash_u64(context, cpu->pc_full);
+  reference_hash_u64(context, cpu->last_pc_full);
+  reference_hash_u64(context, cpu->delay_slot_pc_full);
+  reference_hash_u64(context, cpu->delay_target_full);
+  reference_hash_u64(context, cpu->stop_pc_full);
+  reference_hash_u32(context, cpu->attempt_outcome);
+  reference_hash_u32(context, cpu->semantic_policy_version);
+  reference_hash_u32(context, cpu->tlb_shutdown ? 1u : 0u);
+  reference_hash_u32(context, cpu->pending_exception_valid ? 1u : 0u);
+  reference_hash_u32(context, cpu->pending_exception_code);
+  reference_hash_u64(context, cpu->pending_exception_address);
+  reference_hash_u64(context, cpu->pending_exception_epc);
+  reference_hash_u32(context, cpu->pending_exception_bd ? 1u : 0u);
 
   reference_hash_u32(context, 32u); /* Paired TLB entry count. */
   for (i = 0u; i < 32u; i++) {
-    reference_hash_u64(context, 0u); /* PageMask. */
-    reference_hash_u64(context, 0u); /* VPN2. */
-    reference_hash_u64(context, 0u); /* Region. */
-    reference_hash_u32(context, 0u); /* ASID. */
-    reference_hash_u64(context, 0u); /* EntryLo0. */
-    reference_hash_u64(context, 0u); /* EntryLo1. */
+    const t64_vr4300_tlb_pair *entry = &cpu->tlb[i];
+
+    reference_hash_u64(context, entry->page_mask);
+    reference_hash_u64(context, entry->vpn2);
+    reference_hash_u64(context, entry->region);
+    reference_hash_u32(context, entry->asid);
+    reference_hash_u64(context, entry->entry_lo0);
+    reference_hash_u64(context, entry->entry_lo1);
   }
 
-  reference_hash_u64(context, 0u); /* Count synchronization tick. */
-  reference_hash_u32(context, 0u); /* Half-clock phase. */
-  reference_hash_u64(context, UINT64_MAX); /* No pending equality deadline. */
-  reference_hash_u64(context, 0u); /* Equality latch generation. */
-  reference_hash_u32(context, 0u); /* Initial equality is not latched. */
-  reference_hash_u32(context, 0u); /* Physical link address. */
-  reference_hash_u32(context, 0u); /* Link width. */
-  reference_hash_u32(context, 0u); /* Link valid. */
+  reference_hash_u64(context, cpu->count_sync_tick);
+  reference_hash_u32(context, cpu->count_half_clock_phase);
+  reference_hash_u64(context, cpu->count_compare_deadline);
+  reference_hash_u64(context, cpu->count_equality_latch_generation);
+  reference_hash_u32(context, cpu->count_equality_latched ? 1u : 0u);
+  reference_hash_u32(context, cpu->linked_physical_address);
+  reference_hash_u32(context, cpu->linked_width);
+  reference_hash_u32(context, cpu->linked_valid ? 1u : 0u);
 
   reference_hash_u32(context, 512u); /* 16 KiB I-cache / 32-byte lines. */
   for (i = 0u; i < 512u; i++) {
-    reference_hash_u32(context, 0u); /* Physical tag. */
-    reference_hash_u32(context, 0u); /* Valid. */
-    reference_hash_zeros(context, 32u);
+    const t64_vr4300_icache_line *line = &cpu->icache[i];
+
+    reference_hash_u32(context, line->physical_tag);
+    reference_hash_u32(context, line->valid ? 1u : 0u);
+    t64_sha256_update(context, line->data, sizeof line->data);
   }
   reference_hash_u32(context, 512u); /* 8 KiB D-cache / 16-byte lines. */
   for (i = 0u; i < 512u; i++) {
-    reference_hash_u32(context, 0u); /* Physical tag. */
-    reference_hash_u32(context, 0u); /* Valid. */
-    reference_hash_u32(context, 0u); /* Dirty. */
-    reference_hash_zeros(context, 16u);
+    const t64_vr4300_dcache_line *line = &cpu->dcache[i];
+
+    reference_hash_u32(context, line->physical_tag);
+    reference_hash_u32(context, line->valid ? 1u : 0u);
+    reference_hash_u32(context, line->dirty ? 1u : 0u);
+    t64_sha256_update(context, line->data, sizeof line->data);
   }
   reference_hash_u32(context, 32u); /* FPR count. */
   for (i = 0u; i < 32u; i++) {
-    reference_hash_u64(context, 0u);
+    reference_hash_u64(context, cpu->fpr[i]);
   }
-  reference_hash_u32(context, UINT32_C(0x00000b00)); /* FCR0. */
-  reference_hash_u32(context, 0u); /* FCR31. */
+  reference_hash_u32(context, cpu->fcr0);
+  reference_hash_u32(context, cpu->fcr31);
 }
 
 static void reference_machine_digest(const t64_machine *machine,

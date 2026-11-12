@@ -550,6 +550,9 @@ static void test_trace_drain_validation_and_digest_exclusion(void) {
   if (machine == NULL) {
     return;
   }
+  /* Exercise the v9 serializer with this authored fixture; profile admission
+   * itself is covered by the qualified boot-entry test. */
+  machine->profile.state_serialization_version = 9u;
   T64_CHECK_INT(t64_machine_digest(machine, digest_before), T64_STATUS_OK);
   T64_CHECK_INT(t64_machine_trace_set_enabled(machine, true), T64_STATUS_OK);
   T64_CHECK_INT(t64_machine_digest(machine, digest_after), T64_STATUS_OK);

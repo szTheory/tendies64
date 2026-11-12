@@ -216,13 +216,27 @@ static size_t bounded_text_length(const char *text, size_t capacity) {
   return length;
 }
 
+static bool bounded_text_equal(const char *left, size_t left_capacity,
+                               const char *right, size_t right_capacity) {
+  size_t left_length;
+  size_t right_length;
+
+  if (left == NULL || right == NULL) {
+    return false;
+  }
+  left_length = bounded_text_length(left, left_capacity);
+  right_length = bounded_text_length(right, right_capacity);
+  return left_length == right_length &&
+         memcmp(left, right, left_length) == 0;
+}
+
 static bool has_openipl3_profile_id(const t64_profile_descriptor *profile) {
   static const char profile_id[] = "ntsc-cart-4m-openipl3-warm-v1";
 
   return profile != NULL &&
-         bounded_text_length(profile->profile_id, sizeof profile->profile_id) ==
-             sizeof profile_id - 1u &&
-         memcmp(profile->profile_id, profile_id, sizeof profile_id - 1u) == 0;
+         bounded_text_equal(profile->profile_id,
+                            sizeof profile->profile_id,
+                            profile_id, sizeof profile_id);
 }
 
 static bool has_vr4300_openipl3_profile_id(
@@ -230,9 +244,9 @@ static bool has_vr4300_openipl3_profile_id(
   static const char profile_id[] = "ntsc-cart-4m-openipl3-vr4300-v1";
 
   return profile != NULL &&
-         bounded_text_length(profile->profile_id, sizeof profile->profile_id) ==
-             sizeof profile_id - 1u &&
-         memcmp(profile->profile_id, profile_id, sizeof profile_id - 1u) == 0;
+         bounded_text_equal(profile->profile_id,
+                            sizeof profile->profile_id,
+                            profile_id, sizeof profile_id);
 }
 
 static bool has_pinned_openipl3_profile_id(
@@ -641,6 +655,7 @@ static t64_status prepare_openipl3_vr4300_entry(t64_machine *machine) {
   machine->cpu.gpr[22] = machine->boot.seed_s6_entropy;
   machine->cpu.gpr[23] = machine->boot.seed_s7_boot_info_version;
   machine->cpu.pc = machine->boot.entry_pc;
+  machine->cpu.pc_full = t64_cpu_canonical_address(machine->cpu.pc);
   /*
    * Prepared software seed, not a cold-reset or NUS-CPU-03 measurement.
    * Config fixed fields/positions follow NEC U10504EJ7V0UMJ1 §5.4.6,
@@ -654,6 +669,22 @@ static t64_status prepare_openipl3_vr4300_entry(t64_machine *machine) {
   /* Count=Compare=0, phase=0, and no initial equality latch. */
   machine->cpu.cp0[9] = UINT32_C(0);
   machine->cpu.cp0[11] = UINT32_C(0);
+  machine->cpu.last_pc_full = t64_cpu_canonical_address(0u);
+  machine->cpu.delay_slot_pc_full = t64_cpu_canonical_address(0u);
+  machine->cpu.delay_target_full = t64_cpu_canonical_address(0u);
+  machine->cpu.stop_pc_full = t64_cpu_canonical_address(0u);
+  machine->cpu.attempt_outcome = T64_CPU_ATTEMPT_NONE;
+  machine->cpu.semantic_policy_version = UINT32_C(1);
+  machine->cpu.count_sync_tick = machine->tick;
+  machine->cpu.count_half_clock_phase = UINT32_C(0);
+  machine->cpu.count_compare_deadline = UINT64_MAX;
+  machine->cpu.count_equality_latch_generation = UINT64_C(0);
+  machine->cpu.count_equality_latched = false;
+  machine->cpu.linked_physical_address = UINT32_C(0);
+  machine->cpu.linked_width = UINT32_C(0);
+  machine->cpu.linked_valid = false;
+  machine->cpu.fcr0 = UINT32_C(0x00000b00);
+  machine->cpu.fcr31 = UINT32_C(0);
   machine->cache.policy_version = UINT32_C(2);
   machine->guest_devices.policy_version = T64_WARM_DEVICE_POLICY_VERSION;
   machine->guest_devices.mi_version = 0u;
@@ -709,15 +740,18 @@ t64_status t64_profile_lookup(const char *profile_id,
   if (profile_id == NULL || profile_id[0] == '\0') {
     return T64_STATUS_INVALID_ARGUMENT;
   }
-  if (strcmp(profile_id, skeleton_profile_id) == 0) {
+  if (bounded_text_equal(profile_id, T64_PROFILE_TEXT_CAPACITY,
+                         skeleton_profile_id, sizeof skeleton_profile_id)) {
     *profile_out = &ntsc_cart_4m_profile;
     return T64_STATUS_OK;
   }
-  if (strcmp(profile_id, warm_profile_id) == 0) {
+  if (bounded_text_equal(profile_id, T64_PROFILE_TEXT_CAPACITY,
+                         warm_profile_id, sizeof warm_profile_id)) {
     *profile_out = &ntsc_cart_4m_openipl3_warm_profile;
     return T64_STATUS_OK;
   }
-  if (strcmp(profile_id, vr4300_profile_id) == 0) {
+  if (bounded_text_equal(profile_id, T64_PROFILE_TEXT_CAPACITY,
+                         vr4300_profile_id, sizeof vr4300_profile_id)) {
     *profile_out = &ntsc_cart_4m_openipl3_vr4300_profile;
     return T64_STATUS_OK;
   }
