@@ -166,7 +166,7 @@ static bool test_vr4300_protected_cp0_guest_handler(
   static const uint32_t program[] = {
       UINT32_C(0x40886000), /* mtc0 t0,c0_status */
       UINT32_C(0x400a6000), /* mfc0 t2,c0_status */
-      UINT32_C(0x402b6000), /* dmfc0 t3,c0_status */
+      UINT32_C(0x402b7000), /* dmfc0 t3,c0_epc */
       UINT32_C(0x40896000), /* mtc0 t1,c0_status: enter user mode */
       UINT32_C(0x400d6000), /* mfc0 t5,c0_status: CU0 fault */
   };
@@ -187,6 +187,7 @@ static bool test_vr4300_protected_cp0_guest_handler(
   }
   (void)memcpy(machine->cpu.gpr, (uint64_t[32]){0}, sizeof machine->cpu.gpr);
   machine->cpu.cp0[12] = UINT32_C(0x34200000); /* Keep hardware TS set. */
+  machine->cpu.cp0[14] = UINT64_C(0x0123456789abcdef);
   machine->cpu.gpr[8] = UINT32_C(0x98000001);
   machine->cpu.gpr[9] = UINT32_C(0x00000010);
   machine->cpu.gpr[13] = UINT64_C(0x1122334455667788);
@@ -209,18 +210,19 @@ static bool test_vr4300_protected_cp0_guest_handler(
                                   IPL3_ENTRY_PC + UINT32_C(16)) ||
       ((cause >> 2) & UINT32_C(0x1f)) != UINT32_C(11) ||
       machine->cpu.gpr[10] != UINT64_C(0xffffffff90200001) ||
-      machine->cpu.gpr[11] != UINT64_C(0x0000000090200001) ||
+      machine->cpu.gpr[11] != UINT64_C(0x0123456789abcdef) ||
       machine->cpu.gpr[13] != UINT64_C(0x1122334455667788) ||
       machine->cpu.gpr[14] != UINT64_C(0x5a) ||
       observed_status != UINT32_C(0x00200012) ||
       detail.retired_instructions != UINT64_C(5)) {
     (void)printf("# expected status=0x%08x mfc0=0xffffffff%08x "
-                 "dmfc0=0x00000000%08x unchanged_t5=0x1122334455667788 "
+                 "dmfc0_epc=0x0123456789abcdef "
+                 "unchanged_t5=0x1122334455667788 "
                  "actual status=%u reason=%u stop_pc=0x%08x opcode=0x%08x "
                  "cp0_status=0x%08x cause=0x%08x epc=0x%016llx "
                  "mfc0_t2=0x%016llx dmfc0_t3=0x%016llx t5=0x%016llx "
                  "t6=0x%016llx retired=%llu\n",
-                 expected_status, expected_status, expected_status,
+                 expected_status, expected_status,
                  (unsigned)status, result.reason, detail.pc, detail.opcode,
                  observed_status, cause,
                  (unsigned long long)machine->cpu.cp0[14],

@@ -6,6 +6,7 @@
 
 #define T64_COP0_OPCODE UINT32_C(0x10)
 #define T64_CP0_RANDOM UINT32_C(1)
+#define T64_CP0_EPC UINT32_C(14)
 #define T64_CP0_STATUS UINT32_C(12)
 #define T64_STATUS_WRITABLE_MASK UINT32_C(0xf757ffff)
 #define T64_STATUS_TS UINT32_C(0x00200000)
@@ -43,18 +44,25 @@ t64_cp0_transfer_result t64_cp0_prepare_transfer(
        operation != 5u)) {
     return T64_CP0_TRANSFER_RESERVED;
   }
-  if (rd != T64_CP0_STATUS) {
-    return T64_CP0_TRANSFER_UNSUPPORTED;
-  }
-
   if (operation == 0u || operation == 1u) {
-    uint32_t value = (uint32_t)machine->cpu.cp0[rd];
+    uint64_t value;
+
+    if ((operation == 0u && rd != T64_CP0_STATUS) ||
+        (operation == 1u && rd != T64_CP0_EPC)) {
+      return T64_CP0_TRANSFER_UNSUPPORTED;
+    }
+    value = machine->cpu.cp0[rd];
 
     effect_out->write_gpr = true;
     effect_out->gpr_index = rt;
-    effect_out->gpr_value = operation == 0u ? sign_extend_word(value)
-                                             : (uint64_t)value;
+    effect_out->gpr_value = operation == 0u
+                                ? sign_extend_word((uint32_t)value)
+                                : value;
     return T64_CP0_TRANSFER_OK;
+  }
+
+  if (rd != T64_CP0_STATUS) {
+    return T64_CP0_TRANSFER_UNSUPPORTED;
   }
 
   old_status = (uint32_t)machine->cpu.cp0[T64_CP0_STATUS];

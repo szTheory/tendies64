@@ -9,7 +9,7 @@
   "reportNewerThanRunStart": true,
   "classifierVerdict": "RED_EVIDENCE_OK",
   "classifierTarget": "unit.core.cpu-path#unit.core.cpu-path",
-  "expected": "MTC0 Status writes the defined fields. With input 0x98000001 and hardware-owned TS21 set, readback is 0x90200001; MFC0 sign-extends it, DMFC0 preserves the zero-extended register layout, and clearing CU0 before the next MFC0 raises Coprocessor Unusable without changing the destination.",
+  "expected": "MTC0 Status writes the defined fields. With input 0x98000001 and hardware-owned TS21 set, readback is 0x90200001; MFC0 sign-extends it, DMFC0 EPC preserves a seeded 64-bit register value, and clearing CU0 before the next MFC0 raises Coprocessor Unusable without changing the destination.",
   "observed": "The compiled guest stopped as CPU_UNSUPPORTED (reason 7) at PC 0xa4000040 on opcode 0x40886000 before retirement. CP0 Status remained 0x34200000; Cause and EPC remained zero; the destination remained 0x1122334455667788. The expected handler was not reached.",
   "semanticAssessment": "Valid behavioral RED: the registered unit.core.cpu-path test executed and its protected CP0 guest assertion failed because the real MTC0 Status instruction stopped unsupported before the architectural write. This was not a compile, setup, test-discovery, or unrelated assertion failure."
 }
