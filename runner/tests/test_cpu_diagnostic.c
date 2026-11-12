@@ -619,6 +619,24 @@ static bool temp_path(const char *kind, char *path, size_t capacity,
   return write_file(path, bytes, length);
 }
 
+static bool public_test_path(const char *source_root, char *path,
+                             size_t capacity) {
+  int fd;
+  int count;
+  if (source_root == NULL || path == NULL || capacity == 0u) return false;
+  count = snprintf(path, capacity,
+                   "%s/core/tests/t64-cpu-diagnostic-public.XXXXXX",
+                   source_root);
+  if (count <= 0 || (size_t)count >= capacity) return false;
+  fd = mkstemp(path);
+  if (fd < 0) return false;
+  if (close(fd) != 0 || unlink(path) != 0) {
+    unlink(path);
+    return false;
+  }
+  return true;
+}
+
 static void hex_digest(const uint8_t *bytes, size_t length,
                        char output[T64_SHA256_HEX_SIZE]) {
   t64_sha256_ctx hash;
@@ -650,6 +668,8 @@ static int run_tool(const char *executable, const char *const argv[], size_t arg
     close(output_pipe[0]);
     (void)dup2(output_pipe[1], STDOUT_FILENO);
     close(output_pipe[1]);
+    if (setenv("CI", "", 1) != 0 ||
+        setenv("T64_REQUIRE_FIXTURES", "0", 1) != 0) _exit(126);
     if (env_name != NULL && env_value != NULL)
       (void)setenv(env_name, env_value, 1);
     for (i = 0u; i < argc; i++) {
@@ -819,6 +839,8 @@ static int run_tool_with_snapshot_replacement(
         snprintf(release_text, sizeof release_text, "%d", release_pipe[0]) <= 0 ||
         setenv("T64_CPU_DIAG_TEST_READY_FD", ready_text, 1) != 0 ||
         setenv("T64_CPU_DIAG_TEST_RELEASE_FD", release_text, 1) != 0 ||
+        setenv("CI", "", 1) != 0 ||
+        setenv("T64_REQUIRE_FIXTURES", "0", 1) != 0 ||
         argc >= sizeof child_argv / sizeof child_argv[0]) _exit(126);
     for (i = 0u; i < argc; i++) {
       child_argv[i] = strdup(argv[i]);
@@ -1014,8 +1036,8 @@ static void test_guest_record_controls(const char *production_executable,
   free(overflow_output);
 }
 
-static void test_production_adapter(char *executable,
-                                    char *test_executable) {
+static void test_production_adapter(char *executable, char *test_executable,
+                                   const char *source_root) {
   static const char guest_transcript[] =
       "{\"records\":[{\"event\":\"start\",\"registration_index\":0,"
       "\"value_index\":0},{\"event\":\"outcome\",\"status\":\"pass\"},"
@@ -1035,6 +1057,7 @@ static void test_production_adapter(char *executable,
   char malformed_path[128] = {0};
   char swapped_binding_path[128] = {0};
   char unregistered_binding_path[128] = {0};
+  char public_batch_path[4096] = {0};
   char batch_paths[15][128] = {{0}};
   char size_text[32];
   char hash_text[T64_SHA256_HEX_SIZE];
@@ -1055,6 +1078,9 @@ static void test_production_adapter(char *executable,
   const char *local_refusal_argv[12] = {executable, "--run-local",
                                   "--local-only", NULL, NULL, NULL, NULL,
                                         "600000", "0", "0", NULL, NULL};
+  const char *authored_refusal_argv[11] = {
+      executable, "--run-authored", NULL, NULL, NULL, NULL,
+      "600000", "0", "0", NULL, NULL};
 
   if (executable == NULL || executable[0] == '\0') {
     check(false, "receive production adapter executable path");
@@ -1115,6 +1141,27 @@ static void test_production_adapter(char *executable,
   check(result == 0 && strstr(tool_output, "classification=pass") != NULL &&
             strstr(tool_output, "park=1") != NULL,
         "production adapter derives pass from guest records and traced park");
+  if (!public_test_path(source_root, public_batch_path,
+                        sizeof public_batch_path)) {
+    check(false, "prepare absent public-repository output path");
+  } else {
+    run_argv[9] = public_batch_path;
+    result = run_tool(executable, run_argv, 10u, NULL, NULL, tool_output,
+                      sizeof tool_output);
+    check(result == 4 &&
+              strstr(tool_output, "status=output-not-private") != NULL &&
+              strstr(tool_output, "classification=pass") == NULL &&
+              access(public_batch_path, F_OK) != 0,
+          "production adapter refuses tracked public output before guest run");
+    result = run_tool(executable, run_argv, 10u, "PATH", "", tool_output,
+                      sizeof tool_output);
+    check(result == 4 &&
+              strstr(tool_output, "status=output-not-private") != NULL &&
+              access(public_batch_path, F_OK) != 0,
+          "production adapter fails closed on public path when git is unavailable");
+    if (access(public_batch_path, F_OK) == 0) unlink(public_batch_path);
+    run_argv[9] = batch_path;
+  }
   {
     const char *wrong_member_rom_argv[11] = {
         executable, "--run-authored", inventory_path, rom_path, size_text,
@@ -1313,7 +1360,23 @@ static void test_production_adapter(char *executable,
   check(result == 4 && strstr(tool_output, "local-only-refused") != NULL,
         "external mode refuses CI even with an explicit local-only flag");
 
+  authored_refusal_argv[2] = inventory_path;
+  authored_refusal_argv[3] = rom_path;
+  authored_refusal_argv[4] = size_text;
+  authored_refusal_argv[5] = hash_text;
+  authored_refusal_argv[9] = batch_path;
+  result = run_tool(executable, authored_refusal_argv, 10u, "CI", "true",
+                    tool_output, sizeof tool_output);
+  check(result == 4 && strstr(tool_output, "local-only-refused") != NULL,
+        "authored adapter refuses CI before accepting caller-supplied ROMs");
+  result = run_tool(executable, authored_refusal_argv, 10u,
+                    "T64_REQUIRE_FIXTURES", "1", tool_output,
+                    sizeof tool_output);
+  check(result == 4 && strstr(tool_output, "local-only-refused") != NULL,
+        "authored adapter refuses required-fixture mode before guest execution");
+
 cleanup:
+  if (public_batch_path[0] != '\0') unlink(public_batch_path);
   free(batch_bytes);
   free(rom);
   free(second_rom);
@@ -1334,7 +1397,7 @@ int main(int argc, char **argv) {
   test_cpu_profile_authored_guest();
   test_cpu_profile_exact_image_limit();
   test_cpu_profile_malformed_flat_images();
-  if (argc == 3) test_production_adapter(argv[1], argv[2]);
+  if (argc == 4) test_production_adapter(argv[1], argv[2], argv[3]);
   else check(false, "production and replacement-control executable paths");
   if (failures != 0u) {
     (void)fprintf(stderr, "runner.cpu-diagnostic: %u assertion(s) failed\n",

@@ -65,6 +65,13 @@ static bool parse_u64(const char *text, uint64_t *value_out) {
   return true;
 }
 
+static bool local_execution_allowed(void) {
+  const char *ci = getenv("CI");
+  const char *require_fixtures = getenv("T64_REQUIRE_FIXTURES");
+  return (ci == NULL || strcmp(ci, "true") != 0) &&
+         (require_fixtures == NULL || strcmp(require_fixtures, "1") != 0);
+}
+
 static bool read_bounded_file(const char *path, size_t max_bytes,
                               uint8_t **bytes_out, size_t *length_out) {
   struct stat st;
@@ -157,16 +164,151 @@ static bool parse_inventory_file(const char *path,
   return status == T64_CPU_DIAG_OK;
 }
 
+static bool path_is_within(const char *path, const char *directory) {
+  size_t directory_length;
+  if (path == NULL || directory == NULL) return false;
+  if (strcmp(path, directory) == 0) return true;
+  directory_length = strlen(directory);
+  if (directory_length == 1u && directory[0] == '/')
+    return path[0] == '/';
+  return strncmp(path, directory, directory_length) == 0 &&
+         path[directory_length] == '/';
+}
+
+static bool directory_has_git_marker(const char *directory) {
+  char current[CPU_FILE_PATH_CAPACITY];
+  char marker[CPU_FILE_PATH_CAPACITY];
+  struct stat info;
+  size_t length;
+  if (directory == NULL || strlen(directory) >= sizeof current) return true;
+  memcpy(current, directory, strlen(directory) + 1u);
+  for (;;) {
+    int count = snprintf(marker, sizeof marker, "%s%s.git", current,
+                         strcmp(current, "/") == 0 ? "" : "/");
+    if (count <= 0 || (size_t)count >= sizeof marker) return true;
+    if (lstat(marker, &info) == 0) return true;
+    if (errno != ENOENT && errno != ENOTDIR) return true;
+    if (strcmp(current, "/") == 0) return false;
+    length = strlen(current);
+    if (length == 0u) return true;
+    {
+      char *slash = strrchr(current, '/');
+      if (slash == NULL) return true;
+      if (slash == current) current[1] = '\0';
+      else *slash = '\0';
+    }
+  }
+}
+
+static int git_path_status(const char *directory, bool check_ignore,
+                           const char *basename) {
+  pid_t child = fork();
+  int status = 0;
+  if (child < 0) return -1;
+  if (child == 0) {
+    int null_fd = open("/dev/null", O_WRONLY | O_CLOEXEC);
+    if (null_fd >= 0) {
+      (void)dup2(null_fd, STDOUT_FILENO);
+      (void)dup2(null_fd, STDERR_FILENO);
+      close(null_fd);
+    }
+    if (check_ignore) {
+      execlp("git", "git", "-C", directory, "check-ignore", "--quiet",
+             "--no-index", "--", basename, (char *)NULL);
+    } else {
+      execlp("git", "git", "-C", directory, "rev-parse",
+             "--show-toplevel", (char *)NULL);
+    }
+    _exit(127);
+  }
+  while (waitpid(child, &status, 0) < 0) {
+    if (errno == EINTR) continue;
+    return -1;
+  }
+  return WIFEXITED(status) ? WEXITSTATUS(status) : -1;
+}
+
+static bool private_temporary_directory(const char *directory,
+                                        const char *temporary_root) {
+  char canonical_root[CPU_FILE_PATH_CAPACITY];
+  struct stat info;
+  if (temporary_root == NULL || temporary_root[0] == '\0' ||
+      realpath(temporary_root, canonical_root) == NULL ||
+      !path_is_within(directory, canonical_root) ||
+      stat(directory, &info) != 0 || !S_ISDIR(info.st_mode)) return false;
+  if ((info.st_mode & S_ISVTX) != 0) return true;
+  return info.st_uid == geteuid() &&
+         (info.st_mode & (S_IWGRP | S_IWOTH)) == 0;
+}
+
+static bool private_batch_path(const char *path, char *resolved_path,
+                               size_t capacity) {
+  char absolute_path[CPU_FILE_PATH_CAPACITY];
+  char parent_path[CPU_FILE_PATH_CAPACITY];
+  char canonical_parent[CPU_FILE_PATH_CAPACITY];
+  char output_name[CPU_FILE_PATH_CAPACITY];
+  char working_directory[CPU_FILE_PATH_CAPACITY];
+  char *slash;
+  const char *temporary_root = getenv("TMPDIR");
+  int length;
+  if (path == NULL || path[0] == '\0' || resolved_path == NULL ||
+      capacity == 0u || strlen(path) >= sizeof absolute_path) return false;
+  if (path[0] == '/') {
+    memcpy(absolute_path, path, strlen(path) + 1u);
+  } else {
+    if (getcwd(working_directory, sizeof working_directory) == NULL)
+      return false;
+    length = snprintf(absolute_path, sizeof absolute_path, "%s/%s",
+                      working_directory, path);
+    if (length <= 0 || (size_t)length >= sizeof absolute_path) return false;
+  }
+  slash = strrchr(absolute_path, '/');
+  if (slash == NULL) {
+    memcpy(parent_path, ".", sizeof ".");
+    memcpy(output_name, absolute_path, strlen(absolute_path) + 1u);
+  } else {
+    size_t name_length = strlen(slash + 1);
+    if (name_length == 0u || name_length >= sizeof output_name) return false;
+    memcpy(output_name, slash + 1, name_length + 1u);
+    if (strcmp(output_name, ".") == 0 || strcmp(output_name, "..") == 0)
+      return false;
+    if (slash == absolute_path) {
+      slash[1] = '\0';
+    } else {
+      *slash = '\0';
+    }
+    memcpy(parent_path, absolute_path, strlen(absolute_path) + 1u);
+  }
+  if (realpath(parent_path, canonical_parent) == NULL) return false;
+  length = snprintf(resolved_path, capacity, "%s%s%s", canonical_parent,
+                    strcmp(canonical_parent, "/") == 0 ? "" : "/",
+                    output_name);
+  if (length <= 0 || (size_t)length >= capacity) return false;
+
+  if (git_path_status(canonical_parent, false, NULL) == 0)
+    return git_path_status(canonical_parent, true, output_name) == 0;
+  if (directory_has_git_marker(canonical_parent)) return false;
+
+  if (private_temporary_directory(canonical_parent, temporary_root) ||
+      private_temporary_directory(canonical_parent, "/tmp")) return true;
+  return false;
+}
+
 static bool write_batch_file(const char *path, const char *bytes,
                              size_t length) {
+  char private_path[CPU_FILE_PATH_CAPACITY];
   int fd;
   bool ok;
-  if (path == NULL || path[0] == '\0') return false;
-  fd = open(path, O_WRONLY | O_CREAT | O_EXCL | O_NOFOLLOW | O_CLOEXEC, 0600);
+  if (!private_batch_path(path, private_path, sizeof private_path)) {
+    errno = EPERM;
+    return false;
+  }
+  fd = open(private_path, O_WRONLY | O_CREAT | O_EXCL | O_NOFOLLOW | O_CLOEXEC,
+            0600);
   if (fd < 0) return false;
   ok = write_all(fd, bytes, length) && fsync(fd) == 0;
   if (close(fd) != 0) ok = false;
-  if (!ok) unlink(path);
+  if (!ok) unlink(private_path);
   return ok;
 }
 
@@ -611,6 +753,7 @@ static int command_run(int argc, char **argv, bool local_mode) {
   uint8_t digest[T64_SHA256_DIGEST_SIZE];
   char profile_hex[T64_SHA256_HEX_SIZE];
   char batch[T64_CPU_DIAG_MAX_BATCH_BYTES];
+  char private_output_path[CPU_FILE_PATH_CAPACITY];
   size_t batch_length = 0u;
   t64_cpu_diag_aggregate *aggregate = NULL;
   t64_cpu_diag_status protocol_status;
@@ -621,23 +764,31 @@ static int command_run(int argc, char **argv, bool local_mode) {
   int offset = local_mode ? 1 : 0;
   int exit_code = 4;
   if (local_mode) {
-    const char *ci = getenv("CI");
-    const char *require_fixtures = getenv("T64_REQUIRE_FIXTURES");
     if (argc != 11 || strcmp(argv[2], "--local-only") != 0 ||
-        (ci != NULL && strcmp(ci, "true") == 0) ||
-        (require_fixtures != NULL && strcmp(require_fixtures, "1") == 0)) {
+        !local_execution_allowed()) {
       (void)puts("classification=harness-error status=local-only-refused");
       return 4;
     }
     offset = 1;
-  } else if (argc != 10) {
-    (void)puts("classification=harness-error status=invalid-argument");
-    return 4;
+  } else {
+    if (argc != 10) {
+      (void)puts("classification=harness-error status=invalid-argument");
+      return 4;
+    }
+    if (!local_execution_allowed()) {
+      (void)puts("classification=harness-error status=local-only-refused");
+      return 4;
+    }
   }
   inventory_path = argv[2 + offset];
   rom_path = argv[3 + offset];
   rom_hash = argv[5 + offset];
   output_path = argv[9 + offset];
+  if (!private_batch_path(output_path, private_output_path,
+                          sizeof private_output_path)) {
+    (void)puts("classification=harness-error status=output-not-private");
+    goto cleanup;
+  }
   if (!parse_u64(argv[4 + offset], &rom_size_value) ||
       rom_size_value == 0u || rom_size_value > CPU_ROM_LIMIT ||
       !parse_u64(argv[6 + offset], &tick_bound) || tick_bound == 0u ||
@@ -718,7 +869,11 @@ static int command_run(int argc, char **argv, bool local_mode) {
                  t64_cpu_diag_status_name(protocol_status));
     goto cleanup;
   }
-  if (!write_batch_file(output_path, batch, batch_length)) {
+  if (!write_batch_file(private_output_path, batch, batch_length)) {
+    if (errno == EPERM) {
+      (void)puts("classification=harness-error status=output-not-private");
+      goto cleanup;
+    }
     (void)printf("classification=harness-error status=output-failed errno=%d\n",
                  errno);
     goto cleanup;

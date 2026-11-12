@@ -39,7 +39,8 @@ t64_target_warnings(test_cpu_diagnostic)
 add_dependencies(test_cpu_diagnostic t64-boot-fixtures)
 add_test(NAME runner.cpu-diagnostic
   COMMAND test_cpu_diagnostic $<TARGET_FILE:t64-cpu-diagnostic>
-          $<TARGET_FILE:t64-cpu-diagnostic-test-hooks>)
+          $<TARGET_FILE:t64-cpu-diagnostic-test-hooks>
+          ${CMAKE_SOURCE_DIR})
 set_tests_properties(runner.cpu-diagnostic PROPERTIES
   LABELS runner TIMEOUT 120
   ENVIRONMENT
