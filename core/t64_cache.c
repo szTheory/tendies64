@@ -11,6 +11,26 @@
 #define T64_CART_END UINT32_C(0x1fc00000)
 #define T64_ICACHE_LINE_MASK (T64_VR4300_ICACHE_LINE_BYTES - 1u)
 #define T64_DCACHE_LINE_MASK (T64_VR4300_DCACHE_LINE_BYTES - 1u)
+#define T64_CACHE_TAGLO_PTAG_MASK UINT32_C(0x0fffff00)
+#define T64_CACHE_TAGLO_PSTATE_MASK UINT32_C(0x000000c0)
+#define T64_CACHE_TAGLO_PTAG_SHIFT UINT32_C(8)
+#define T64_CACHE_TAGLO_PSTATE_SHIFT UINT32_C(6)
+#define T64_CACHE_CP0_TAGLO UINT32_C(28)
+#define T64_CACHE_CP0_TAGHI UINT32_C(29)
+
+#define T64_CACHE_INDEX_INVALIDATE_I UINT32_C(0x00)
+#define T64_CACHE_INDEX_WRITEBACK_INVALIDATE_D UINT32_C(0x01)
+#define T64_CACHE_INDEX_LOAD_TAG_I UINT32_C(0x04)
+#define T64_CACHE_INDEX_LOAD_TAG_D UINT32_C(0x05)
+#define T64_CACHE_INDEX_STORE_TAG_I UINT32_C(0x08)
+#define T64_CACHE_INDEX_STORE_TAG_D UINT32_C(0x09)
+#define T64_CACHE_CREATE_DIRTY_EXCLUSIVE_D UINT32_C(0x0d)
+#define T64_CACHE_HIT_INVALIDATE_I UINT32_C(0x10)
+#define T64_CACHE_HIT_INVALIDATE_D UINT32_C(0x11)
+#define T64_CACHE_FILL_I UINT32_C(0x14)
+#define T64_CACHE_HIT_WRITEBACK_INVALIDATE_D UINT32_C(0x15)
+#define T64_CACHE_HIT_WRITEBACK_I UINT32_C(0x18)
+#define T64_CACHE_HIT_WRITEBACK_D UINT32_C(0x19)
 
 typedef enum {
   T64_ICACHE_BACKING_UNSUPPORTED = 0,
@@ -170,6 +190,29 @@ t64_status t64_cpu_icache_fetch(t64_machine *machine,
                 ((uint32_t)line->data[offset + 1u] << 16) |
                 ((uint32_t)line->data[offset + 2u] << 8) |
                 (uint32_t)line->data[offset + 3u];
+  return T64_STATUS_OK;
+}
+
+t64_status t64_cpu_icache_fill(t64_machine *machine,
+                               uint64_t virtual_address,
+                               uint32_t physical_address) {
+  const uint32_t index = icache_index(virtual_address);
+  const uint32_t tag = icache_physical_tag(physical_address);
+  t64_vr4300_icache_line *line;
+  uint8_t staged[T64_VR4300_ICACHE_LINE_BYTES];
+  t64_status status;
+
+  if (machine == NULL) {
+    return T64_STATUS_INVALID_ARGUMENT;
+  }
+  status = icache_stage_line(machine, physical_address, staged);
+  if (status != T64_STATUS_OK) {
+    return status;
+  }
+  line = &machine->cpu.icache[index];
+  (void)memcpy(line->data, staged, sizeof line->data);
+  line->physical_tag = tag;
+  line->valid = true;
   return T64_STATUS_OK;
 }
 
@@ -379,4 +422,198 @@ t64_status t64_cpu_dcache_hit_writeback(t64_machine *machine,
     line->dirty = false;
   }
   return status;
+}
+
+static uint32_t cache_tag_from_taglo(uint64_t virtual_address,
+                                     uint32_t taglo,
+                                     uint32_t line_bytes) {
+  const uint32_t low_mask = UINT32_C(0x1000) - line_bytes;
+  const uint32_t ptag =
+      (taglo & T64_CACHE_TAGLO_PTAG_MASK) >> T64_CACHE_TAGLO_PTAG_SHIFT;
+
+  return (ptag << 12) | ((uint32_t)virtual_address & low_mask);
+}
+
+static uint32_t taglo_from_cache_line(uint32_t physical_tag, uint32_t state) {
+  return ((physical_tag >> 12) << T64_CACHE_TAGLO_PTAG_SHIFT) |
+         (state << T64_CACHE_TAGLO_PSTATE_SHIFT);
+}
+
+static t64_status index_store_tag(t64_machine *machine,
+                                  uint64_t virtual_address,
+                                  uint32_t operation) {
+  uint32_t taglo = (uint32_t)machine->cpu.cp0[T64_CACHE_CP0_TAGLO];
+  uint32_t state =
+      (taglo & T64_CACHE_TAGLO_PSTATE_MASK) >>
+      T64_CACHE_TAGLO_PSTATE_SHIFT;
+
+  if (operation == T64_CACHE_INDEX_STORE_TAG_I) {
+    t64_vr4300_icache_line *line =
+        &machine->cpu.icache[icache_index(virtual_address)];
+    if (state != 0u && state != 2u) {
+      return T64_STATUS_BUS_UNSUPPORTED;
+    }
+    line->physical_tag = cache_tag_from_taglo(
+        virtual_address, taglo, T64_VR4300_ICACHE_LINE_BYTES);
+    line->valid = state == 2u;
+    return T64_STATUS_OK;
+  }
+  if (operation == T64_CACHE_INDEX_STORE_TAG_D) {
+    t64_vr4300_dcache_line *line =
+        &machine->cpu.dcache[dcache_index(virtual_address)];
+    if (state == 1u) {
+      return T64_STATUS_BUS_UNSUPPORTED;
+    }
+    line->physical_tag = cache_tag_from_taglo(
+        virtual_address, taglo, T64_VR4300_DCACHE_LINE_BYTES);
+    line->valid = state != 0u;
+    line->dirty = state == 3u;
+    return T64_STATUS_OK;
+  }
+  return T64_STATUS_INVALID_ARGUMENT;
+}
+
+t64_status t64_cpu_cache_operation(t64_machine *machine,
+                                   uint32_t operation,
+                                   uint64_t virtual_address,
+                                   uint32_t physical_address) {
+  t64_status status;
+
+  if (machine == NULL) {
+    return T64_STATUS_INVALID_ARGUMENT;
+  }
+  switch (operation) {
+  case T64_CACHE_INDEX_INVALIDATE_I:
+    machine->cpu.icache[icache_index(virtual_address)].valid = false;
+    return T64_STATUS_OK;
+  case T64_CACHE_INDEX_WRITEBACK_INVALIDATE_D: {
+    t64_vr4300_dcache_line *line =
+        &machine->cpu.dcache[dcache_index(virtual_address)];
+    if (!line->valid) {
+      return T64_STATUS_OK;
+    }
+    /* The primary table says any non-Invalid line is written back, including
+     * a clean line; do not narrow this to the dirty-only hit operations. */
+    status = t64_bus_writeback_cache_line(
+        machine, line->physical_tag, line->data,
+        T64_VR4300_DCACHE_LINE_BYTES);
+    if (status != T64_STATUS_OK) {
+      return status;
+    }
+    t64_cpu_link_invalidate_dcache_line(machine, line->physical_tag);
+    line->valid = false;
+    line->dirty = false;
+    return T64_STATUS_OK;
+  }
+  case T64_CACHE_INDEX_LOAD_TAG_I: {
+    const t64_vr4300_icache_line *line =
+        &machine->cpu.icache[icache_index(virtual_address)];
+    machine->cpu.cp0[T64_CACHE_CP0_TAGLO] = taglo_from_cache_line(
+        line->physical_tag, line->valid ? 2u : 0u);
+    machine->cpu.cp0[T64_CACHE_CP0_TAGHI] = 0u;
+    return T64_STATUS_OK;
+  }
+  case T64_CACHE_INDEX_LOAD_TAG_D: {
+    const t64_vr4300_dcache_line *line =
+        &machine->cpu.dcache[dcache_index(virtual_address)];
+    uint32_t state = !line->valid ? 0u : (line->dirty ? 3u : 2u);
+    machine->cpu.cp0[T64_CACHE_CP0_TAGLO] =
+        taglo_from_cache_line(line->physical_tag, state);
+    machine->cpu.cp0[T64_CACHE_CP0_TAGHI] = 0u;
+    return T64_STATUS_OK;
+  }
+  case T64_CACHE_INDEX_STORE_TAG_I:
+  case T64_CACHE_INDEX_STORE_TAG_D:
+    return index_store_tag(machine, virtual_address, operation);
+  case T64_CACHE_CREATE_DIRTY_EXCLUSIVE_D: {
+    t64_vr4300_dcache_line *line =
+        &machine->cpu.dcache[dcache_index(virtual_address)];
+    const uint32_t tag = dcache_physical_tag(physical_address);
+    if (!line->valid || line->physical_tag != tag) {
+      if (line->valid && line->dirty) {
+        status = t64_bus_validate_dcache_line_writeback(
+            machine, line->physical_tag);
+        if (status != T64_STATUS_OK) {
+          return status;
+        }
+        status = t64_bus_writeback_dcache_line(
+            machine, line->physical_tag, line->data);
+        if (status != T64_STATUS_OK) {
+          return status;
+        }
+      }
+      line->physical_tag = tag;
+    }
+    line->valid = true;
+    line->dirty = true;
+    return T64_STATUS_OK;
+  }
+  case T64_CACHE_HIT_INVALIDATE_I: {
+    t64_vr4300_icache_line *line =
+        &machine->cpu.icache[icache_index(virtual_address)];
+    if (line->valid &&
+        line->physical_tag == icache_physical_tag(physical_address)) {
+      line->valid = false;
+    }
+    return T64_STATUS_OK;
+  }
+  case T64_CACHE_HIT_INVALIDATE_D: {
+    t64_vr4300_dcache_line *line =
+        &machine->cpu.dcache[dcache_index(virtual_address)];
+    if (line->valid &&
+        line->physical_tag == dcache_physical_tag(physical_address)) {
+      line->valid = false;
+      line->dirty = false;
+      t64_cpu_link_invalidate_dcache_line(machine, physical_address);
+    }
+    return T64_STATUS_OK;
+  }
+  case T64_CACHE_FILL_I:
+    return t64_cpu_icache_fill(machine, virtual_address, physical_address);
+  case T64_CACHE_HIT_WRITEBACK_INVALIDATE_D: {
+    t64_vr4300_dcache_line *line =
+        &machine->cpu.dcache[dcache_index(virtual_address)];
+    if (!line->valid ||
+        line->physical_tag != dcache_physical_tag(physical_address)) {
+      return T64_STATUS_OK;
+    }
+    if (line->dirty) {
+      status = t64_bus_validate_dcache_line_writeback(
+          machine, line->physical_tag);
+      if (status != T64_STATUS_OK) {
+        return status;
+      }
+      status = t64_bus_writeback_dcache_line(
+          machine, line->physical_tag, line->data);
+      if (status != T64_STATUS_OK) {
+        return status;
+      }
+    }
+    t64_cpu_link_invalidate_dcache_line(machine, physical_address);
+    line->valid = false;
+    line->dirty = false;
+    return T64_STATUS_OK;
+  }
+  case T64_CACHE_HIT_WRITEBACK_I: {
+    t64_vr4300_icache_line *line =
+        &machine->cpu.icache[icache_index(virtual_address)];
+    if (!line->valid ||
+        line->physical_tag != icache_physical_tag(physical_address)) {
+      return T64_STATUS_OK;
+    }
+    status = t64_bus_validate_cache_writeback(
+        machine, line->physical_tag, T64_VR4300_ICACHE_LINE_BYTES);
+    if (status != T64_STATUS_OK) {
+      return status;
+    }
+    return t64_bus_writeback_cache_line(
+        machine, line->physical_tag, line->data,
+        T64_VR4300_ICACHE_LINE_BYTES);
+  }
+  case T64_CACHE_HIT_WRITEBACK_D:
+    return t64_cpu_dcache_hit_writeback(machine, virtual_address,
+                                        physical_address);
+  default:
+    return T64_STATUS_INVALID_ARGUMENT;
+  }
 }

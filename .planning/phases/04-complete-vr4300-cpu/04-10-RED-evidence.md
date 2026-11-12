@@ -61,3 +61,31 @@ assessments. No raw workstation path is reproduced here.
   guest instruction fetch, address translation, and link setup all succeeded.
   The guest reached the operation assertion and exposed the missing I
   Hit_Write_Back behavior; this was not setup failure.
+
+### Manual Bus-error routing for CACHE and ordinary D-cache eviction
+
+- **Primary citation:** NEC VR4300/VR4305/VR4310 User's Manual, 7th edition,
+  August 2000, §16, printed p.405: CACHE exceptions include Bus error. The
+  p.404 Index_Write_Back_Invalidate D row writes back a non-Invalid indexed
+  line before invalidating it.
+- **Command:** `ctest --preset gate --no-tests=error -R '^unit\.core\.cpu-cache-ops$' --output-on-failure --output-junit <ignored report>`
+- **Target:** `unit.core.cpu-cache-ops`; `core/tests/test_cpu_cache.c`, cases
+  15–17.
+- **Run:** 2026-11-12 11:55:25–11:55:26 UTC; report modified during the run.
+- **Exit:** 8. Classifier: `RED_EVIDENCE_OK` (`target_test_failed`); all prior
+  operation rows passed, then the three guest fault-routing assertions failed.
+- **Expected:** Guest MTC0 TagLo and D Index_Store_Tag construct a dirty valid
+  line tagged `0x04900000`, which is confirmed to decode as `BUS_UNMAPPED`.
+  CACHE Index_Write_Back_Invalidate, a cached LW, and a cached SW each attempt
+  writeback and raise precise DBE ExcCode 7 at the failing instruction without
+  retirement, changing the dirty line, backing, or LL link.
+- **Observed:** The two setup instructions retired and created dirty tag
+  `0x04900000`. Each of the three real guest operations then stopped with
+  status 14 instead of entering the DBE handler. Cause and EPC remained zero,
+  PC stayed at `0xffffffff80003008`, retired count stayed 2, and line/link/
+  backing state remained unchanged.
+- **Semantic assessment:** Guest fetch, CP0 TagLo write, architectural TagLo
+  conversion, Index_Store_Tag, target translation, and the cache eviction or
+  writeback attempt all succeeded far enough to prove the destination was
+  rejected as `BUS_UNMAPPED`. The defect is loss of bus status at CPU dispatch,
+  not an unsupported mapped device, malformed tag, or fixture failure.

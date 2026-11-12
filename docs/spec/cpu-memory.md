@@ -20,6 +20,28 @@ not decomposed into side-effecting byte accesses. Unsupported device/model
 operations remain distinct from guest address, TLB and bus exceptions.
 Scratch staged effects are not serialized; committed architectural state is.
 
+## Write-back data cache
+
+The prepared profile uses a 512-entry, 16-byte-line direct-mapped D-cache.
+Cacheable loads and stores select by virtual VA[12:4] and match the translated
+physical line. A load/store miss stages the full line before replacing an old
+entry; a dirty victim is written from its stored physical tag only after the
+entire destination range is accepted. A cacheable CPU store changes selected
+line bytes and marks the line dirty while backing remains unchanged. A refused
+fill or writeback preserves the old line, its dirty bytes, backing, and LL
+reservation.
+
+RDRAM and SP DMEM/IMEM are accepted writeback destinations. Admitted cartridge
+bytes can be read for fills, but cartridge writeback is refused because that
+range is read-only. An unmapped or physical-range writeback failure raises the
+guest DBE exception (ExcCode 7) before retirement; mapped unsupported device
+interactions remain model stops. Cacheable and uncached aliases, plus scheduled
+PI/SP DMA, intentionally do not snoop D-cache lines. A later cached access can
+therefore see the old line until replacement or an applicable CACHE operation.
+Committed CPU byte stores invalidate only overlapping LL bytes. DMA invalidates
+only bytes it actually commits. Cache writeback is a separate writer: it does
+not snoop and does not invalidate an unrelated LL reservation.
+
 ## Reverse-endian selection
 
 Config.BE stays one. Status.RE applies in user mode; instruction fetch and
@@ -84,6 +106,8 @@ claims about undocumented silicon behavior:
   intersects the linked interval. Touching intervals remain separate; a
   single shared byte invalidates. Rejected or canceled writes have no
   invalidation effect. Bus masked writes report only selected committed bytes.
+- D-cache writeback publishes its cache line to backing without treating the
+  writeback as an external snooper or invalidating unrelated LL links.
 - PI and SP DMA invalidate the physical backing bytes they actually commit:
   PI writes RDRAM, while SP DMA can write RDRAM or SP DMEM/IMEM. DMA does not
   snoop or update the modeled D-cache. A targeted D-cache invalidate applies

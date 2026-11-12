@@ -145,21 +145,19 @@ static bool translate_effect(t64_machine *machine,
 }
 
 static uint64_t read_bus_value(t64_machine *machine, uint32_t address,
-                               uint32_t width, bool *okay_out) {
+                               uint32_t width, t64_status *status_out) {
   uint64_t value = 0u;
   uint32_t part = 0u;
   t64_status status;
 
-  *okay_out = false;
+  *status_out = T64_STATUS_INVALID_ARGUMENT;
   if (width == 8u) {
     status = t64_bus_read_wide(machine, address, &value);
   } else {
     status = t64_bus_read(machine, address, width, &part);
     value = (uint64_t)part;
   }
-  if (status == T64_STATUS_OK) {
-    *okay_out = true;
-  }
+  *status_out = status;
   return value;
 }
 
@@ -315,17 +313,20 @@ static uint64_t merge_store_value(uint64_t source, uint32_t width,
   return value;
 }
 
-static bool stage_memory_effect(t64_machine *machine, uint32_t opcode,
-                                t64_staged_memory_effect *effect) {
+static t64_status stage_memory_effect(t64_machine *machine, uint32_t opcode,
+                                      t64_staged_memory_effect *effect,
+                                      bool *supported_out) {
   uint32_t rt = (opcode >> 16) & UINT32_C(0x1f);
-  bool okay;
+  t64_status status;
 
+  *supported_out = false;
   if (!decode_memory_effect(machine, opcode, effect)) {
-    return false;
+    return T64_STATUS_OK;
   }
+  *supported_out = true;
   effect->reverse_endian = reverse_endian_active(machine);
   if (!translate_effect(machine, effect)) {
-    return false;
+    return T64_STATUS_BUS_UNSUPPORTED;
   }
   if (effect->load) {
     uint32_t offset =
@@ -344,17 +345,19 @@ static bool stage_memory_effect(t64_machine *machine, uint32_t opcode,
 
     if (vr4300_cache_profile(machine) && effect->cacheable) {
       uint64_t cached_value = 0u;
-      t64_status status = t64_cpu_dcache_read(
+      status = t64_cpu_dcache_read(
           machine, effect->virtual_address, effect->physical_address,
           effect->bus_width, &cached_value);
-      okay = status == T64_STATUS_OK;
+      if (status != T64_STATUS_OK) {
+        return status;
+      }
       effect->bus_value = cached_value;
     } else {
       effect->bus_value = read_bus_value(machine, effect->physical_address,
-                                         effect->bus_width, &okay);
-    }
-    if (!okay) {
-      return false;
+                                         effect->bus_width, &status);
+      if (status != T64_STATUS_OK) {
+        return status;
+      }
     }
     if (effect->partial_left || effect->partial_right) {
       effect->result_value = effect->reverse_endian
@@ -379,7 +382,7 @@ static bool stage_memory_effect(t64_machine *machine, uint32_t opcode,
     if (effect->width == 4u && (effect->partial_left || effect->partial_right)) {
       effect->result_value = sign_extend_32((uint32_t)effect->result_value);
     }
-    return true;
+    return T64_STATUS_OK;
   }
 
   if (effect->store) {
@@ -406,13 +409,14 @@ static bool stage_memory_effect(t64_machine *machine, uint32_t opcode,
       effect->byte_mask = (uint8_t)((UINT32_C(1) << effect->width) - 1u);
       effect->bus_value = source;
     }
-    return true;
+    return T64_STATUS_OK;
   }
-  return false;
+  *supported_out = false;
+  return T64_STATUS_OK;
 }
 
-static bool commit_memory_effect(t64_machine *machine,
-                                 t64_staged_memory_effect *effect) {
+static t64_status commit_memory_effect(t64_machine *machine,
+                                       t64_staged_memory_effect *effect) {
   t64_status status;
 
   if (effect->store) {
@@ -431,9 +435,9 @@ static bool commit_memory_effect(t64_machine *machine,
                                     effect->bus_width, effect->byte_mask,
                                     effect->bus_value);
     }
-    return status == T64_STATUS_OK;
+    return status;
   }
-  return effect->load;
+  return effect->load ? T64_STATUS_OK : T64_STATUS_BUS_UNSUPPORTED;
 }
 
 void t64_cpu_link_invalidate_range(t64_machine *machine,
@@ -466,10 +470,12 @@ void t64_cpu_link_invalidate_dcache_line(t64_machine *machine,
                                 T64_VR4300_DCACHE_LINE_BYTES);
 }
 
-static bool execute_linked_memory(t64_machine *machine, uint32_t opcode,
-                                  bool *write_gpr_out,
-                                  uint32_t *destination_out,
-                                  uint64_t *value_out) {
+static t64_status execute_linked_memory(t64_machine *machine,
+                                        uint32_t opcode,
+                                        bool *supported_out,
+                                        bool *write_gpr_out,
+                                        uint32_t *destination_out,
+                                        uint64_t *value_out) {
   uint32_t operation = opcode >> 26;
   uint32_t rs = (opcode >> 21) & UINT32_C(0x1f);
   uint32_t rt = (opcode >> 16) & UINT32_C(0x1f);
@@ -480,8 +486,9 @@ static bool execute_linked_memory(t64_machine *machine, uint32_t opcode,
   uint32_t physical_address;
   t64_mmu_request request;
   t64_mmu_result translation = {0};
-  bool okay;
+  t64_status status;
 
+  *supported_out = false;
   *write_gpr_out = false;
   *destination_out = 0u;
   *value_out = 0u;
@@ -490,7 +497,7 @@ static bool execute_linked_memory(t64_machine *machine, uint32_t opcode,
   case 0x34u: width = 8u; load = true; break;
   case 0x38u: width = 4u; load = false; break;
   case 0x3cu: width = 8u; load = false; break;
-  default: return false;
+  default: return T64_STATUS_OK;
   }
 
   virtual_address = machine->cpu.gpr[rs] + sign_extend_16(immediate);
@@ -500,8 +507,9 @@ static bool execute_linked_memory(t64_machine *machine, uint32_t opcode,
   if (!t64_mmu_translate(machine, &request, &translation) ||
       translation.fault != T64_MMU_FAULT_NONE || !translation.translated ||
       !translation.cacheable || translation.physical_address > UINT32_MAX) {
-    return false;
+    return T64_STATUS_OK;
   }
+  *supported_out = true;
   physical_address = (uint32_t)translation.physical_address;
   if (reverse_endian_active(machine)) {
     uint32_t lane_xor = 8u - width;
@@ -511,14 +519,13 @@ static bool execute_linked_memory(t64_machine *machine, uint32_t opcode,
 
   if (load) {
     if (vr4300_cache_profile(machine) && translation.cacheable) {
-      t64_status status = t64_cpu_dcache_read(
+      status = t64_cpu_dcache_read(
           machine, virtual_address, physical_address, width, value_out);
-      okay = status == T64_STATUS_OK;
     } else {
-      *value_out = read_bus_value(machine, physical_address, width, &okay);
+      *value_out = read_bus_value(machine, physical_address, width, &status);
     }
-    if (!okay) {
-      return false;
+    if (status != T64_STATUS_OK) {
+      return status;
     }
     if (width == 4u) {
       *value_out = sign_extend_32((uint32_t)*value_out);
@@ -529,7 +536,7 @@ static bool execute_linked_memory(t64_machine *machine, uint32_t opcode,
     machine->cpu.cp0[17] = (uint64_t)(physical_address >> 4);
     *write_gpr_out = true;
     *destination_out = rt;
-    return true;
+    return T64_STATUS_OK;
   }
 
   {
@@ -537,8 +544,8 @@ static bool execute_linked_memory(t64_machine *machine, uint32_t opcode,
                    machine->cpu.linked_physical_address == physical_address &&
                    machine->cpu.linked_width == width;
     uint64_t source = machine->cpu.gpr[rt];
-    t64_status status = T64_STATUS_OK;
 
+    status = T64_STATUS_OK;
     if (success) {
       if (vr4300_cache_profile(machine) && translation.cacheable) {
         status = t64_cpu_dcache_write(
@@ -552,7 +559,7 @@ static bool execute_linked_memory(t64_machine *machine, uint32_t opcode,
                                             UINT8_C(0xff), source);
       }
       if (status != T64_STATUS_OK) {
-        return false;
+        return status;
       }
     }
     machine->cpu.linked_valid = false;
@@ -562,33 +569,58 @@ static bool execute_linked_memory(t64_machine *machine, uint32_t opcode,
     *destination_out = rt;
     *value_out = success ? UINT64_C(1) : UINT64_C(0);
   }
-  return true;
+  return T64_STATUS_OK;
 }
 
-bool t64_memory_execute(t64_machine *machine, uint32_t opcode,
-                        bool *write_gpr_out, uint32_t *destination_out,
-                        uint64_t *value_out) {
+t64_status t64_memory_execute_status(
+    t64_machine *machine, uint32_t opcode, bool *supported_out,
+    bool *write_gpr_out, uint32_t *destination_out, uint64_t *value_out) {
   t64_staged_memory_effect effect;
   uint32_t operation = opcode >> 26;
+  t64_status status;
 
+  if (supported_out != NULL) {
+    *supported_out = false;
+  }
+  if (write_gpr_out != NULL) {
+    *write_gpr_out = false;
+  }
+  if (destination_out != NULL) {
+    *destination_out = 0u;
+  }
+  if (value_out != NULL) {
+    *value_out = 0u;
+  }
+  if (machine == NULL || supported_out == NULL || write_gpr_out == NULL ||
+      destination_out == NULL || value_out == NULL) {
+    return T64_STATUS_INVALID_ARGUMENT;
+  }
   if (operation == 0x30u || operation == 0x34u || operation == 0x38u ||
       operation == 0x3cu) {
-    if (machine == NULL || write_gpr_out == NULL ||
-        destination_out == NULL || value_out == NULL) {
-      return false;
-    }
-    return execute_linked_memory(machine, opcode, write_gpr_out,
-                                 destination_out, value_out);
+    return execute_linked_memory(machine, opcode, supported_out,
+                                 write_gpr_out, destination_out, value_out);
   }
-  if (write_gpr_out == NULL || destination_out == NULL || value_out == NULL ||
-      !stage_memory_effect(machine, opcode, &effect) ||
-      !commit_memory_effect(machine, &effect)) {
-    return false;
+  status = stage_memory_effect(machine, opcode, &effect, supported_out);
+  if (status != T64_STATUS_OK || !*supported_out) {
+    return status;
+  }
+  status = commit_memory_effect(machine, &effect);
+  if (status != T64_STATUS_OK) {
+    return status;
   }
   if (effect.load) {
     *write_gpr_out = true;
     *destination_out = effect.destination;
     *value_out = effect.result_value;
   }
-  return true;
+  return T64_STATUS_OK;
+}
+
+bool t64_memory_execute(t64_machine *machine, uint32_t opcode,
+                        bool *write_gpr_out, uint32_t *destination_out,
+                        uint64_t *value_out) {
+  bool supported = false;
+  return t64_memory_execute_status(machine, opcode, &supported,
+                                   write_gpr_out, destination_out,
+                                   value_out) == T64_STATUS_OK && supported;
 }

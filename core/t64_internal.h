@@ -505,6 +505,19 @@ t64_status t64_cpu_dcache_write(t64_machine *machine,
 t64_status t64_cpu_dcache_hit_writeback(t64_machine *machine,
                                         uint64_t virtual_address,
                                         uint32_t physical_address);
+t64_status t64_cpu_icache_fill(t64_machine *machine,
+                               uint64_t virtual_address,
+                               uint32_t physical_address);
+t64_status t64_cpu_cache_operation(t64_machine *machine,
+                                   uint32_t operation,
+                                   uint64_t virtual_address,
+                                   uint32_t physical_address);
+t64_status t64_bus_validate_cache_writeback(t64_machine *machine,
+                                            uint32_t physical_address,
+                                            uint32_t line_bytes);
+t64_status t64_bus_writeback_cache_line(
+    t64_machine *machine, uint32_t physical_address, const uint8_t *data,
+    uint32_t line_bytes);
 t64_status t64_bus_validate_dcache_line_writeback(
     t64_machine *machine, uint32_t physical_address);
 t64_status t64_bus_writeback_dcache_line(
@@ -525,6 +538,9 @@ void t64_cpu_link_invalidate_dcache_line(t64_machine *machine,
 bool t64_memory_execute(t64_machine *machine, uint32_t opcode,
                         bool *write_gpr_out, uint32_t *destination_out,
                         uint64_t *value_out);
+t64_status t64_memory_execute_status(
+    t64_machine *machine, uint32_t opcode, bool *supported_out,
+    bool *write_gpr_out, uint32_t *destination_out, uint64_t *value_out);
 t64_status t64_warm_device_read(const t64_machine *machine, uint32_t address,
                                 uint32_t width, uint32_t *value_out);
 t64_status t64_warm_device_write(t64_machine *machine, uint32_t address,

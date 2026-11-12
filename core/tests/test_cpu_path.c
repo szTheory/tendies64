@@ -88,6 +88,14 @@ static void write_rdram_instruction(t64_machine *machine,
   machine->ram[physical_address + 3u] = (uint8_t)opcode;
 }
 
+static void clear_instruction_index(t64_machine *machine,
+                                    uint64_t virtual_address) {
+  uint32_t index = (uint32_t)(virtual_address >> 5) &
+                   (T64_VR4300_ICACHE_LINE_COUNT - UINT32_C(1));
+
+  machine->cpu.icache[index].valid = false;
+}
+
 static uint32_t read_be32_bytes(const uint8_t *bytes) {
   return ((uint32_t)bytes[0] << 24) | ((uint32_t)bytes[1] << 16) |
          ((uint32_t)bytes[2] << 8) | (uint32_t)bytes[3];
@@ -587,12 +595,17 @@ static bool test_vr4300_protected_cp0_guest_handler(
   write_rdram_instruction(machine, UINT32_C(0x0180),
                           UINT32_C(0x240e005a)); /* addiu t6,zero,0x5a */
   write_rdram_instruction(machine, UINT32_C(0x0184),
-                          UINT32_C(0xbc000000)); /* unsupported CACHE stop */
+                          UINT32_C(0xbc1c0000)); /* undefined CACHE stop */
   for (index = 0u; index < sizeof program / sizeof program[0]; index++) {
     write_rdram_instruction(machine, UINT32_C(0x1000) +
                                         (uint32_t)(index * 4u),
                             program[index]);
   }
+  /* Earlier guest cases ran through the same virtual indices. This case
+   * replaces their synthetic code and must begin from its own fetched image. */
+  clear_instruction_index(machine, UINT64_C(0x1000));
+  clear_instruction_index(machine,
+                          t64_cpu_canonical_address(handler_pc));
   machine->cpu.pc = UINT32_C(0x1000);
   machine->cpu.pc_full = UINT64_C(0x1000);
 
@@ -1852,26 +1865,38 @@ static bool test_vr4300_sp_dma_breaks_link(
   return test_vr4300_ll_sc_scheduled_dma(machine, asset, true);
 }
 
-static bool test_vr4300_sp_dram_to_dmem_does_not_snoop_dcache(
-    t64_machine *machine, const uint8_t asset[IPL3_ASSET_BYTES]) {
+static bool test_vr4300_sp_dma_does_not_snoop_dcache(
+    t64_machine *machine, const uint8_t asset[IPL3_ASSET_BYTES],
+    bool dram_to_sp) {
   const uint32_t physical_code = UINT32_C(0x1000);
   const uint32_t physical_dram = UINT32_C(0x2000);
   const uint32_t virtual_code = UINT32_C(0x80001000);
-  const uint64_t cached_dmem = UINT64_C(0xffffffff84000000);
-  const uint64_t uncached_dmem = UINT64_C(0xffffffffa4000000);
+  const uint32_t physical_cached_target =
+      dram_to_sp ? UINT32_C(0x04000000) : physical_dram;
+  const uint64_t cached_target = dram_to_sp
+      ? UINT64_C(0xffffffff84000000)
+      : UINT64_C(0xffffffff80002000);
+  const uint64_t uncached_target = dram_to_sp
+      ? UINT64_C(0xffffffffa4000000)
+      : UINT64_C(0xffffffffa0002000);
   const uint32_t program_count = UINT32_C(33);
-  const uint32_t cache_index = 0u;
+  const uint32_t cache_index =
+      (physical_cached_target >> 4) &
+      (T64_VR4300_DCACHE_LINE_COUNT - UINT32_C(1));
   const t64_stop_request request = {T64_STOP_INSTRUCTION_COUNT,
                                     UINT64_C(33)};
   t64_stop_result result = {0u, 0u};
   t64_vr4300_dcache_line *line;
   t64_status status;
   uint32_t index;
+  bool dma_bytes_match = true;
+
+  const uint32_t expected_cached = UINT32_C(0x11223344);
 
   if (machine == NULL || asset == NULL ||
       t64_machine_admit_rom(machine, asset, IPL3_ASSET_BYTES) !=
           T64_STATUS_OK) {
-    (void)puts("# SP DMEM D-cache fixture setup failed");
+    (void)puts("# SP D-cache no-snoop fixture setup failed");
     return false;
   }
   for (index = 0u; index < program_count; index++) {
@@ -1886,28 +1911,39 @@ static bool test_vr4300_sp_dram_to_dmem_does_not_snoop_dcache(
     write_rdram_instruction(machine,
                             physical_code + index * UINT32_C(4), opcode);
   }
-  machine->sp_dmem[0] = UINT8_C(0x11);
-  machine->sp_dmem[1] = UINT8_C(0x22);
-  machine->sp_dmem[2] = UINT8_C(0x33);
-  machine->sp_dmem[3] = UINT8_C(0x44);
-  machine->ram[physical_dram] = UINT8_C(0xa0);
-  machine->ram[physical_dram + 1u] = UINT8_C(0xa1);
-  machine->ram[physical_dram + 2u] = UINT8_C(0xa2);
-  machine->ram[physical_dram + 3u] = UINT8_C(0xa3);
-  for (index = 4u; index < 8u; index++) {
-    machine->ram[physical_dram + index] = (uint8_t)(UINT8_C(0xa0) + index);
+  for (index = 0u; index < program_count; index++) {
+    clear_instruction_index(machine,
+                            t64_cpu_canonical_address(virtual_code) +
+                                (uint64_t)index * UINT64_C(4));
+  }
+  if (dram_to_sp) {
+    machine->sp_dmem[0] = UINT8_C(0x11);
+    machine->sp_dmem[1] = UINT8_C(0x22);
+    machine->sp_dmem[2] = UINT8_C(0x33);
+    machine->sp_dmem[3] = UINT8_C(0x44);
+    for (index = 0u; index < 8u; index++) {
+      machine->ram[physical_dram + index] = (uint8_t)(UINT8_C(0xa0) + index);
+    }
+  } else {
+    machine->ram[physical_dram] = UINT8_C(0x11);
+    machine->ram[physical_dram + 1u] = UINT8_C(0x22);
+    machine->ram[physical_dram + 2u] = UINT8_C(0x33);
+    machine->ram[physical_dram + 3u] = UINT8_C(0x44);
+    for (index = 0u; index < 8u; index++) {
+      machine->sp_dmem[index] = (uint8_t)(UINT8_C(0xa0) + index);
+    }
   }
   machine->cpu.pc = virtual_code;
   machine->cpu.pc_full = t64_cpu_canonical_address(virtual_code);
-  machine->cpu.gpr[4] = cached_dmem;
-  machine->cpu.gpr[5] = uncached_dmem;
+  machine->cpu.gpr[4] = cached_target;
+  machine->cpu.gpr[5] = uncached_target;
   line = &machine->cpu.dcache[cache_index];
 
   status = t64_cpu_step(machine, NULL);
   if (status != T64_STATUS_OK ||
-      machine->cpu.gpr[8] != UINT64_C(0x11223344) || !line->valid ||
-      line->dirty || line->physical_tag != UINT32_C(0x04000000) ||
-      read_be32_bytes(line->data) != UINT32_C(0x11223344)) {
+      machine->cpu.gpr[8] != expected_cached || !line->valid ||
+      line->dirty || line->physical_tag != physical_cached_target ||
+      read_be32_bytes(line->data) != expected_cached) {
     (void)printf("# SP DMEM cache fill status=%u gpr8=%016llx "
                  "valid=%u dirty=%u tag=%08x data=%08x\n",
                  (unsigned)status, (unsigned long long)machine->cpu.gpr[8],
@@ -1921,29 +1957,38 @@ static bool test_vr4300_sp_dram_to_dmem_does_not_snoop_dcache(
                                    physical_dram);
   }
   if (status == T64_STATUS_OK) {
-    status = t64_machine_bus_write(machine, UINT32_C(0x04040008), 4u,
-                                   UINT32_C(7));
+    status = t64_machine_bus_write(machine,
+                                   dram_to_sp ? UINT32_C(0x04040008)
+                                              : UINT32_C(0x0404000c),
+                                   4u, UINT32_C(7));
   }
   if (status != T64_STATUS_OK) {
-    (void)printf("# SP DRAM-to-DMEM DMA request status=%u\n",
+    (void)printf("# SP %s DMA request status=%u\n",
+                 dram_to_sp ? "DRAM-to-DMEM" : "DMEM-to-DRAM",
                  (unsigned)status);
     return false;
   }
   status = t64_machine_advance(machine, &request, &result);
+  for (index = 0u; index < 8u; index++) {
+    uint8_t observed = dram_to_sp
+                          ? machine->sp_dmem[index]
+                          : machine->ram[physical_dram + index];
+    dma_bytes_match = dma_bytes_match &&
+                      observed == (uint8_t)(UINT8_C(0xa0) + index);
+  }
   if (status != T64_STATUS_OK ||
       result.reason != T64_STOP_REASON_INSTRUCTION_COUNT ||
       result.tick < UINT64_C(13) ||
-      machine->cpu.gpr[9] != UINT64_C(0x11223344) ||
+      machine->cpu.gpr[9] != expected_cached ||
       machine->cpu.gpr[10] != UINT64_C(0xffffffffa0a1a2a3) ||
-      machine->sp_dmem[0] != UINT8_C(0xa0) ||
-      machine->sp_dmem[1] != UINT8_C(0xa1) ||
-      machine->sp_dmem[2] != UINT8_C(0xa2) ||
-      machine->sp_dmem[3] != UINT8_C(0xa3) || !line->valid || line->dirty ||
-      line->physical_tag != UINT32_C(0x04000000) ||
-      read_be32_bytes(line->data) != UINT32_C(0x11223344)) {
-    (void)printf("# SP DMA no-snoop status=%u reason=%u tick=%llu "
+      !dma_bytes_match ||
+      !line->valid || line->dirty ||
+      line->physical_tag != physical_cached_target ||
+      read_be32_bytes(line->data) != expected_cached) {
+    (void)printf("# SP %s no-snoop status=%u reason=%u tick=%llu "
                  "cached=%016llx uncached=%016llx dmem=%02x%02x%02x%02x "
                  "line=%08x\n",
+                 dram_to_sp ? "DRAM-to-DMEM" : "DMEM-to-DRAM",
                  (unsigned)status, result.reason,
                  (unsigned long long)result.tick,
                  (unsigned long long)machine->cpu.gpr[9],
@@ -1954,6 +1999,16 @@ static bool test_vr4300_sp_dram_to_dmem_does_not_snoop_dcache(
     return false;
   }
   return true;
+}
+
+static bool test_vr4300_sp_dram_to_dmem_does_not_snoop_dcache(
+    t64_machine *machine, const uint8_t asset[IPL3_ASSET_BYTES]) {
+  return test_vr4300_sp_dma_does_not_snoop_dcache(machine, asset, true);
+}
+
+static bool test_vr4300_sp_dmem_to_dram_does_not_snoop_dcache(
+    t64_machine *machine, const uint8_t asset[IPL3_ASSET_BYTES]) {
+  return test_vr4300_sp_dma_does_not_snoop_dcache(machine, asset, false);
 }
 
 typedef bool (*cpu_test_fn)(t64_machine *machine,
@@ -2031,6 +2086,8 @@ int main(int argc, char **argv) {
        test_vr4300_sp_dma_breaks_link},
       {"SP DRAM-to-DMEM DMA changes backing without snooping D-cache",
        test_vr4300_sp_dram_to_dmem_does_not_snoop_dcache},
+      {"SP DMEM-to-DRAM DMA changes backing without snooping D-cache",
+       test_vr4300_sp_dmem_to_dram_does_not_snoop_dcache},
   };
   const cpu_test_case *cases;
   size_t case_count;

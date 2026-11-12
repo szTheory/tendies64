@@ -43,11 +43,18 @@
 #define T64_WATCHLO_R UINT32_C(0x00000002)
 #define T64_WATCHLO_W UINT32_C(0x00000001)
 
+#define T64_CACHE_INDEX_INVALIDATE_I UINT32_C(0x00)
+#define T64_CACHE_INDEX_WRITEBACK_INVALIDATE_D UINT32_C(0x01)
+#define T64_CACHE_INDEX_LOAD_TAG_I UINT32_C(0x04)
+#define T64_CACHE_INDEX_LOAD_TAG_D UINT32_C(0x05)
 #define T64_CACHE_INDEX_STORE_TAG_I UINT32_C(0x08)
 #define T64_CACHE_INDEX_STORE_TAG_D UINT32_C(0x09)
+#define T64_CACHE_CREATE_DIRTY_EXCLUSIVE_D UINT32_C(0x0d)
 #define T64_CACHE_HIT_INVALIDATE_I UINT32_C(0x10)
 #define T64_CACHE_HIT_INVALIDATE_D UINT32_C(0x11)
+#define T64_CACHE_FILL_I UINT32_C(0x14)
 #define T64_CACHE_HIT_WRITEBACK_INVALIDATE_D UINT32_C(0x15)
+#define T64_CACHE_HIT_WRITEBACK_I UINT32_C(0x18)
 #define T64_CACHE_HIT_WRITEBACK_D UINT32_C(0x19)
 
 static uint64_t sign_extend_32(uint32_t value) {
@@ -58,6 +65,27 @@ static bool has_vr4300_cpu_state(const t64_machine *machine) {
   return machine != NULL &&
          machine->profile.machine_model_version == UINT32_C(3) &&
          machine->profile.state_serialization_version == UINT32_C(9);
+}
+
+static bool vr4300_cache_operation_is_defined(uint32_t operation) {
+  switch (operation) {
+  case T64_CACHE_INDEX_INVALIDATE_I:
+  case T64_CACHE_INDEX_WRITEBACK_INVALIDATE_D:
+  case T64_CACHE_INDEX_LOAD_TAG_I:
+  case T64_CACHE_INDEX_LOAD_TAG_D:
+  case T64_CACHE_INDEX_STORE_TAG_I:
+  case T64_CACHE_INDEX_STORE_TAG_D:
+  case T64_CACHE_CREATE_DIRTY_EXCLUSIVE_D:
+  case T64_CACHE_HIT_INVALIDATE_I:
+  case T64_CACHE_HIT_INVALIDATE_D:
+  case T64_CACHE_FILL_I:
+  case T64_CACHE_HIT_WRITEBACK_INVALIDATE_D:
+  case T64_CACHE_HIT_WRITEBACK_I:
+  case T64_CACHE_HIT_WRITEBACK_D:
+    return true;
+  default:
+    return false;
+  }
 }
 
 static t64_status cpu_enter_exception(t64_machine *machine, uint32_t code,
@@ -594,7 +622,8 @@ static bool execute_branch(uint64_t pc, bool full_width, uint32_t opcode,
 
 static bool execute_memory(t64_machine *machine, uint32_t opcode,
                            bool *write_gpr_out, uint32_t *destination_out,
-                           uint64_t *value_out) {
+                           uint64_t *value_out,
+                           t64_status *memory_status_out) {
   uint32_t operation = opcode >> 26;
   uint32_t rs = (opcode >> 21) & UINT32_C(0x1f);
   uint32_t rt = (opcode >> 16) & UINT32_C(0x1f);
@@ -609,9 +638,13 @@ static bool execute_memory(t64_machine *machine, uint32_t opcode,
   bool partial_right = false;
 
   if (has_vr4300_cpu_state(machine)) {
-    return t64_memory_execute(machine, opcode, write_gpr_out,
-                              destination_out, value_out);
+    bool supported = false;
+    *memory_status_out = t64_memory_execute_status(
+        machine, opcode, &supported, write_gpr_out, destination_out,
+        value_out);
+    return supported && *memory_status_out == T64_STATUS_OK;
   }
+  *memory_status_out = T64_STATUS_OK;
 
   switch (operation) {
   case 0x1au: width = 8u; is_load = true; partial_left = true; break;
@@ -965,7 +998,8 @@ static bool execute_special(t64_machine *machine, uint32_t pc,
 static bool execute_integer(t64_machine *machine, uint32_t opcode,
                             bool new_profile, bool *write_gpr_out,
                             uint32_t *destination_out,
-                            uint64_t *value_out) {
+                            uint64_t *value_out,
+                            t64_status *memory_status_out) {
   uint32_t operation = opcode >> 26;
   uint32_t rs = (opcode >> 21) & UINT32_C(0x1f);
   uint32_t rt = (opcode >> 16) & UINT32_C(0x1f);
@@ -975,6 +1009,7 @@ static bool execute_integer(t64_machine *machine, uint32_t opcode,
   uint64_t left64 = machine->cpu.gpr[rs];
   uint64_t result64;
 
+  *memory_status_out = T64_STATUS_OK;
   *write_gpr_out = false;
   *destination_out = 0u;
   *value_out = 0u;
@@ -984,11 +1019,11 @@ static bool execute_integer(t64_machine *machine, uint32_t opcode,
   }
   if (operation >= 0x1au && operation <= 0x2fu) {
     return execute_memory(machine, opcode, write_gpr_out, destination_out,
-                          value_out);
+                          value_out, memory_status_out);
   }
   if (operation == 0x37u || operation == 0x3fu) {
     return execute_memory(machine, opcode, write_gpr_out, destination_out,
-                          value_out);
+                          value_out, memory_status_out);
   }
   switch (operation) {
   case 0x08u:
@@ -1027,7 +1062,7 @@ static bool execute_integer(t64_machine *machine, uint32_t opcode,
     break;
   default:
     return execute_memory(machine, opcode, write_gpr_out, destination_out,
-                          value_out);
+                          value_out, memory_status_out);
   }
   *write_gpr_out = true;
   *destination_out = rt;
@@ -1126,59 +1161,67 @@ static t64_cp0_transfer_result execute_cp0_vr4300(
 }
 
 static bool execute_cache(t64_machine *machine, uint32_t pc,
-                          uint32_t opcode) {
+                          uint32_t opcode,
+                          t64_status *operation_status_out) {
   uint32_t operation = (opcode >> 16) & UINT32_C(0x1f);
   uint32_t base = (opcode >> 21) & UINT32_C(0x1f);
   uint32_t physical_address;
   uint64_t virtual_address;
   t64_mmu_result translation;
+  t64_status status;
 
-  if (operation != T64_CACHE_INDEX_STORE_TAG_I &&
-      operation != T64_CACHE_INDEX_STORE_TAG_D &&
-      operation != T64_CACHE_HIT_INVALIDATE_I &&
-      operation != T64_CACHE_HIT_INVALIDATE_D &&
-      operation != T64_CACHE_HIT_WRITEBACK_INVALIDATE_D &&
-      operation != T64_CACHE_HIT_WRITEBACK_D) {
-    return false;
-  }
-  if (operation == T64_CACHE_HIT_WRITEBACK_D &&
-      !has_vr4300_cpu_state(machine)) {
-    return false;
-  }
-  if (operation == T64_CACHE_HIT_INVALIDATE_I &&
-      !has_vr4300_cpu_state(machine)) {
-    return false;
-  }
+  *operation_status_out = T64_STATUS_BUS_UNSUPPORTED;
   virtual_address =
       machine->cpu.gpr[base] + sign_extend_16((uint16_t)opcode);
+
+  if (!has_vr4300_cpu_state(machine)) {
+    /* Preserve the exact warm-v1 CACHE subset and effects. */
+    if (operation != T64_CACHE_INDEX_STORE_TAG_I &&
+        operation != T64_CACHE_INDEX_STORE_TAG_D &&
+        operation != T64_CACHE_HIT_INVALIDATE_I &&
+        operation != T64_CACHE_HIT_INVALIDATE_D &&
+        operation != T64_CACHE_HIT_WRITEBACK_INVALIDATE_D) {
+      return false;
+    }
+    if (operation == T64_CACHE_HIT_INVALIDATE_I) {
+      return false;
+    }
+    if (!cpu_translate_access(machine, virtual_address, UINT32_C(1),
+                              T64_MMU_ACCESS_READ, &translation) ||
+        !translation.translated ||
+        translation.physical_address > UINT32_MAX) {
+      return false;
+    }
+    physical_address = (uint32_t)translation.physical_address;
+    if (operation == T64_CACHE_HIT_INVALIDATE_D ||
+        operation == T64_CACHE_HIT_WRITEBACK_INVALIDATE_D) {
+      t64_cpu_link_invalidate_dcache_line(machine, physical_address);
+    }
+    machine->cache.last_operation = operation;
+    machine->cache.last_pc = pc;
+    machine->cache.last_address = physical_address;
+    machine->cache.operation_seen = true;
+    return true;
+  }
+
+  if (!vr4300_cache_operation_is_defined(operation)) {
+    return false;
+  }
   if (!cpu_translate_access(machine, virtual_address, UINT32_C(1),
                             T64_MMU_ACCESS_READ, &translation) ||
       !translation.translated || translation.physical_address > UINT32_MAX) {
     return false;
   }
-  if (has_vr4300_cpu_state(machine) && !translation.cacheable) {
+  if (!translation.cacheable) {
     return false;
   }
   physical_address = (uint32_t)translation.physical_address;
-
-  if (operation == T64_CACHE_HIT_INVALIDATE_I) {
-    t64_cpu_icache_hit_invalidate(machine, virtual_address,
-                                  physical_address);
-  } else if (operation == T64_CACHE_HIT_WRITEBACK_D) {
-    if (t64_cpu_dcache_hit_writeback(machine, virtual_address,
-                                     physical_address) != T64_STATUS_OK) {
-      return false;
-    }
-  } else if (operation == T64_CACHE_HIT_INVALIDATE_D ||
-      operation == T64_CACHE_HIT_WRITEBACK_INVALIDATE_D) {
-    t64_cpu_link_invalidate_dcache_line(machine, physical_address);
+  status = t64_cpu_cache_operation(machine, operation, virtual_address,
+                                   physical_address);
+  if (status != T64_STATUS_OK) {
+    *operation_status_out = status;
+    return false;
   }
-
-  /*
-   * The I-cache is independent of direct backing writes. Hit_Invalidate I
-   * changes only its matching line and never touches an LL/SC reservation.
-   * D-cache data and writeback semantics remain outside this slice.
-   */
   machine->cache.last_operation = operation;
   machine->cache.last_pc = pc;
   machine->cache.last_address = physical_address;
@@ -1421,12 +1464,7 @@ static t64_status cpu_preflight_memory(t64_machine *machine, uint32_t opcode,
       if (!has_vr4300_cpu_state(machine)) {
         return T64_STATUS_OK;
       }
-      if (cache_operation != T64_CACHE_INDEX_STORE_TAG_I &&
-          cache_operation != T64_CACHE_INDEX_STORE_TAG_D &&
-          cache_operation != T64_CACHE_HIT_INVALIDATE_I &&
-          cache_operation != T64_CACHE_HIT_INVALIDATE_D &&
-          cache_operation != T64_CACHE_HIT_WRITEBACK_INVALIDATE_D &&
-          cache_operation != T64_CACHE_HIT_WRITEBACK_D) {
+      if (!vr4300_cache_operation_is_defined(cache_operation)) {
         return T64_STATUS_OK;
       }
 
@@ -1852,6 +1890,7 @@ t64_status t64_cpu_step(t64_machine *machine, const t64_event *event) {
   bool instruction_cacheable = false;
   uint64_t eret_target = 0u;
   t64_status status;
+  t64_status memory_status = T64_STATUS_OK;
 
   (void)event;
   if (machine == NULL) {
@@ -2040,15 +2079,31 @@ t64_status t64_cpu_step(t64_machine *machine, const t64_event *event) {
       return T64_STATUS_RESOURCE_EXHAUSTED;
     }
   } else if ((opcode >> 26) == T64_CPU_CACHE) {
-    supported = execute_cache(machine, pc, opcode);
+    t64_status cache_status = T64_STATUS_BUS_UNSUPPORTED;
+    supported = execute_cache(machine, pc, opcode, &cache_status);
     if (!supported) {
+      if (cache_status == T64_STATUS_BUS_UNMAPPED ||
+          cache_status == T64_STATUS_BUS_RANGE) {
+        uint64_t address = machine->cpu.gpr[(opcode >> 21) & UINT32_C(0x1f)] +
+                           sign_extend_16((uint16_t)opcode);
+        return cpu_enter_exception(machine, UINT32_C(7), address,
+                                   in_delay_slot, false, 0u);
+      }
       cpu_stop_unsupported(machine, pc, opcode);
       return T64_STATUS_RESOURCE_EXHAUSTED;
     }
   } else {
     supported = execute_integer(machine, opcode, new_profile, &write_gpr,
-                                &destination, &value);
+                                &destination, &value, &memory_status);
     if (!supported) {
+      if (memory_status == T64_STATUS_BUS_UNMAPPED ||
+          memory_status == T64_STATUS_BUS_RANGE) {
+        uint64_t address = effective_address(
+            &machine->cpu, (opcode >> 21) & UINT32_C(0x1f),
+            (uint16_t)opcode);
+        return cpu_enter_exception(machine, UINT32_C(7), address,
+                                   in_delay_slot, false, 0u);
+      }
       cpu_stop_unsupported(machine, pc, opcode);
       return T64_STATUS_RESOURCE_EXHAUSTED;
     }

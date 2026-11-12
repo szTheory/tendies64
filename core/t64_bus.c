@@ -626,17 +626,20 @@ t64_status t64_bus_write_masked(t64_machine *machine, uint32_t address,
   return T64_STATUS_OK;
 }
 
-static t64_status dcache_writeback_destination(
-    t64_machine *machine, uint32_t address, uint8_t **bytes_out) {
-  const uint64_t end = (uint64_t)address + T64_VR4300_DCACHE_LINE_BYTES;
+static t64_status cache_writeback_destination(
+    t64_machine *machine, uint32_t address, uint32_t line_bytes,
+    uint8_t **bytes_out) {
+  const uint64_t end = (uint64_t)address + line_bytes;
   t64_bus_region region;
   uint32_t offset;
   uint8_t *bytes = NULL;
 
-  if (machine == NULL || bytes_out == NULL) {
+  if (machine == NULL || bytes_out == NULL ||
+      (line_bytes != T64_VR4300_DCACHE_LINE_BYTES &&
+       line_bytes != T64_VR4300_ICACHE_LINE_BYTES)) {
     return T64_STATUS_INVALID_ARGUMENT;
   }
-  if ((address & (T64_VR4300_DCACHE_LINE_BYTES - UINT32_C(1))) != 0u) {
+  if ((address & (line_bytes - UINT32_C(1))) != 0u) {
     return T64_STATUS_BUS_ALIGNMENT;
   }
   if (end > UINT64_C(0x100000000)) {
@@ -677,7 +680,7 @@ static t64_status dcache_writeback_destination(
   case T64_BUS_REGION_ABSENT_RDRAM_PROBE:
     return T64_STATUS_BUS_DEVICE_REFUSED;
   }
-  for (offset = 1u; offset < T64_VR4300_DCACHE_LINE_BYTES; offset++) {
+  for (offset = 1u; offset < line_bytes; offset++) {
     if (decode_region(machine, address + offset) != region) {
       return T64_STATUS_BUS_RANGE;
     }
@@ -686,16 +689,19 @@ static t64_status dcache_writeback_destination(
   return T64_STATUS_OK;
 }
 
-t64_status t64_bus_validate_dcache_line_writeback(
-    t64_machine *machine, uint32_t physical_address) {
+t64_status t64_bus_validate_cache_writeback(t64_machine *machine,
+                                            uint32_t physical_address,
+                                            uint32_t line_bytes) {
   uint8_t *ignored = NULL;
 
-  return dcache_writeback_destination(machine, physical_address, &ignored);
+  return cache_writeback_destination(machine, physical_address, line_bytes,
+                                     &ignored);
 }
 
-t64_status t64_bus_writeback_dcache_line(
-    t64_machine *machine, uint32_t physical_address,
-    const uint8_t data[T64_VR4300_DCACHE_LINE_BYTES]) {
+t64_status t64_bus_writeback_cache_line(t64_machine *machine,
+                                        uint32_t physical_address,
+                                        const uint8_t *data,
+                                        uint32_t line_bytes) {
   uint8_t *destination = NULL;
   uint32_t offset;
   t64_status status;
@@ -703,20 +709,33 @@ t64_status t64_bus_writeback_dcache_line(
   if (data == NULL) {
     return T64_STATUS_INVALID_ARGUMENT;
   }
-  status = dcache_writeback_destination(machine, physical_address,
-                                        &destination);
+  status = cache_writeback_destination(machine, physical_address, line_bytes,
+                                       &destination);
   if (status != T64_STATUS_OK) {
     return status;
   }
-  (void)memcpy(destination, data, T64_VR4300_DCACHE_LINE_BYTES);
+  (void)memcpy(destination, data, line_bytes);
   /* Cache writeback exposes already committed CPU data. Reservation effects
    * belong to the original store or explicit D-cache invalidation, not to an
    * unrelated backing write caused by line maintenance. */
-  for (offset = 0u; offset < T64_VR4300_DCACHE_LINE_BYTES; offset += 4u) {
+  for (offset = 0u; offset < line_bytes; offset += 4u) {
     trace_bus(machine, physical_address + offset, 4u,
               read_big_endian(data + offset, 4u), true);
   }
   return T64_STATUS_OK;
+}
+
+t64_status t64_bus_validate_dcache_line_writeback(
+    t64_machine *machine, uint32_t physical_address) {
+  return t64_bus_validate_cache_writeback(
+      machine, physical_address, T64_VR4300_DCACHE_LINE_BYTES);
+}
+
+t64_status t64_bus_writeback_dcache_line(
+    t64_machine *machine, uint32_t physical_address,
+    const uint8_t data[T64_VR4300_DCACHE_LINE_BYTES]) {
+  return t64_bus_writeback_cache_line(
+      machine, physical_address, data, T64_VR4300_DCACHE_LINE_BYTES);
 }
 
 t64_status t64_machine_bus_read(t64_machine *machine, uint32_t address,

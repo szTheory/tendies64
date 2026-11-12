@@ -99,7 +99,10 @@ static bool read_asset(uint8_t bytes[IPL3_ASSET_BYTES]) {
 }
 
 static uint32_t entry_lo(uint32_t physical_base, bool valid, bool dirty) {
-  uint32_t result = ((physical_base >> 12) << 6) | UINT32_C(0x18);
+  /* These instruction-lane tests use uncached TLB windows so backing writes
+   * remain their independent memory oracle; D-cache behavior has its own
+   * cache-specific guest suite. */
+  uint32_t result = ((physical_base >> 12) << 6) | UINT32_C(0x10);
 
   if (valid) {
     result |= UINT32_C(0x2);
