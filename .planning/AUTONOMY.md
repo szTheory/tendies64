@@ -37,6 +37,9 @@ applies that direction; update it when the owner changes policy.
   Keep routine summary/state closeout with the orchestrator when execution
   evidence is already saved. A slow bookkeeping handoff is not a reason to
   redispatch implementation or repeatedly recheck a passing hosted pair.
+  On a shared branch, a parent documentation commit can contain unfinished
+  child RED commits in its ancestry. Defer its push until those source/test
+  commits are verified; pin pushes to the intended verified commit.
 - At each discussion, enumerate actual decision points. Fan out one agent per
   independent decision cluster when it saves time/context. Apply relevant
   CPU/cache/virtual-memory, RSP/microcode, RDP/video, audio, memory/bus,
@@ -92,6 +95,12 @@ applies that direction; update it when the owner changes policy.
   TDD setting is off. Semantic notes alone do not replace that formal guard.
   If the guard was missed, preserve the deviation and label any later isolated
   regression controls as current evidence, never as original RED history.
+  For CPU instruction tracers, confirm the intended fetched opcode and inspect
+  Cause, full PC and attempt outcome before accepting a result mismatch as
+  behavioral RED. An unchanged destination plus non-retirement can be an
+  earlier fetch/address fault. Use canonical sign-extended KSEG addresses in
+  32-bit kernel fixtures; do not weaken production address validation to make
+  a malformed fixture execute.
 - A test ROM's repository license does not automatically grant redistribution
   rights for its generated ROM or embedded content. Keep a fixture manifest
   with source/revision, build recipe/toolchain, digest, boot/profile
