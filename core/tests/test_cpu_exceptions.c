@@ -274,6 +274,21 @@ static bool test_coprocessor_unusable_ce(
              UINT32_C(1);
 }
 
+static bool test_watch_exception(
+    t64_machine *machine, const uint8_t asset[IPL3_ASSET_BYTES]) {
+  static const uint32_t program[] = {UINT32_C(0x8d280000)};
+
+  if (!prepare_program(machine, asset, TEST_PC, program, 1u)) {
+    return false;
+  }
+  machine->cpu.gpr[9] = UINT64_C(0xffffffff80002000);
+  machine->ram[0x2000u] = UINT8_C(0x12);
+  machine->cpu.cp0[18] = UINT32_C(0x00002001);
+  return expect_exception(machine, UINT64_C(1), UINT32_C(23), TEST_PC, false,
+                          false, 0u) &&
+         machine->cpu.retired_instructions == 0u;
+}
+
 static bool test_eret_epc_and_resume(
     t64_machine *machine, const uint8_t asset[IPL3_ASSET_BYTES]) {
   static const uint32_t handler[] = {UINT32_C(0x42000018)};
@@ -447,6 +462,8 @@ int main(void) {
       {"ADD overflow raises Ov without a destination write",
        test_integer_overflow_exception},
       {"unusable COP1 records CE=1", test_coprocessor_unusable_ce},
+      {"WatchLo read match raises Watch before a load commit",
+       test_watch_exception},
       {"ERET uses EPC, clears EXL, and resumes full-width execution",
        test_eret_epc_and_resume},
       {"ERET uses ErrorEPC under ERL and preserves EXL",

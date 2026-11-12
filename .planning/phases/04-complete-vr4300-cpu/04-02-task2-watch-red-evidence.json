@@ -1,0 +1,18 @@
+{
+  "task": "04-02.2-watch",
+  "command": "ctest --preset gate --no-tests=error -R '^unit.core.cpu-exceptions$' --output-on-failure --output-junit build/04-02-task2-watch-red.xml",
+  "targetTest": "unit.core.cpu-exceptions",
+  "targetFile": "core/tests/test_cpu_exceptions.c",
+  "expected": "A load matching WatchLo with R=1 raises Watch (ExcCode=23) before register or instruction retirement.",
+  "observed": "The registered suite compiled and executed the matching LW at the expected PC and tick, but retired it (reason=BOUND, outcome=RETIRED) with Cause=0 instead of raising Watch.",
+  "result": {
+    "exitCode": 8,
+    "tests": 1,
+    "passed": 0,
+    "failed": 1,
+    "classifier": "RED_EVIDENCE_OK",
+    "classifierReason": "target_test_failed",
+    "matchedTest": "unit.core.cpu-exceptions#unit.core.cpu-exceptions"
+  },
+  "semanticAssessment": "This is the expected pre-feature behavior. The new Watch assertion ran in the registered target and observed retirement of the matching load rather than ExcCode 23. Raw JUnit remains in ignored local build output."
+}
