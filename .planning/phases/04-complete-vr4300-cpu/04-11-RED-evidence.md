@@ -56,3 +56,14 @@ test and exited 8 after the existing CPU-path cases completed.
 - Full raw JUnit and classifier records remain under ignored
   `build/private-cpu-diagnostic`; no checkout or temporary absolute path is
   included here.
+
+### FR=0 support-boundary RED
+
+Review confirmed that Status.FR can be cleared by guest CP0 state before
+Plan12. The initial tracer used independent FPR slots in that mode even though
+paired-register mapping is outside this slice. Before the guard, a canonical
+FR=0 run fetched opcode `0x468008a1`, wrote `0xc1e0000000000000` over the
+destination sentinel, and retired. The new test requires a model-unsupported
+stop with no destination write and no retirement until Plan12 provides paired
+mapping. Its exact `unit.core.cpu-path` JUnit record was classified
+`RED_EVIDENCE_OK`; no source guard was present during that run.

@@ -205,6 +205,7 @@ static bool test_vr4300_cvt_d_w_is_machine_local(
   t64_machine *other = NULL;
   t64_status status;
   uint64_t retired_before;
+  const uint64_t status_fr = UINT64_C(1) << 26;
 
   if (machine == NULL || asset == NULL ||
       t64_machine_admit_rom(machine, asset, IPL3_ASSET_BYTES) !=
@@ -273,6 +274,31 @@ static bool test_vr4300_cvt_d_w_is_machine_local(
                  (unsigned long long)machine->cpu.fpr[2],
                  (unsigned)machine->cpu.fcr31, (unsigned)other->cpu.fcr31,
                  (unsigned)status);
+    t64_machine_destroy(other);
+    return false;
+  }
+
+  machine->cpu.pc = (uint32_t)cvt_pc;
+  machine->cpu.pc_full = cvt_pc;
+  machine->cpu.cp0[12] &= ~status_fr;
+  machine->cpu.fpr[2] = destination_sentinel;
+  retired_before = machine->cpu.retired_instructions;
+  status = t64_cpu_step(machine, NULL);
+  if (status != T64_STATUS_RESOURCE_EXHAUSTED ||
+      machine->cpu.fpr[2] != destination_sentinel ||
+      machine->cpu.fcr31 != 0u || machine->cpu.last_opcode != instruction_a ||
+      machine->cpu.retired_instructions != retired_before ||
+      machine->cpu.attempt_outcome != T64_CPU_ATTEMPT_MODEL_UNSUPPORTED) {
+    (void)printf("# FR=0 CVT.D.W expected unsupported/no-write observed "
+                 "status=%u destination=%016llx fcr31=%08x "
+                 "last_opcode=%08x outcome=%u retired=%llu/%llu\n",
+                 (unsigned)status,
+                 (unsigned long long)machine->cpu.fpr[2],
+                 (unsigned)machine->cpu.fcr31,
+                 (unsigned)machine->cpu.last_opcode,
+                 (unsigned)machine->cpu.attempt_outcome,
+                 (unsigned long long)machine->cpu.retired_instructions,
+                 (unsigned long long)retired_before);
     t64_machine_destroy(other);
     return false;
   }
