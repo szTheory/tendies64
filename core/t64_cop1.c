@@ -211,6 +211,12 @@ static bool cop1_float_is_subnormal(uint32_t format, uint64_t bits) {
          (bits & cop1_float_fraction_mask(format)) != 0u;
 }
 
+static uint8_t cop1_softfloat_rounding(uint32_t fcr31_rounding) {
+  if (fcr31_rounding == UINT32_C(2)) return 3u; /* RP -> round maximum */
+  if (fcr31_rounding == UINT32_C(3)) return 2u; /* RM -> round minimum */
+  return (uint8_t)fcr31_rounding;
+}
+
 static uint64_t cop1_canonical_quiet_nan(uint32_t format) {
   /* A deterministic positive payload with the VR4300 quiet bit clear. */
   return format == UINT32_C(16) ? UINT64_C(0x7f800001)
@@ -441,12 +447,18 @@ static t64_status cop1_execute_floating(
   uint32_t source_format = format;
   bool explicit_rounding = function >= UINT32_C(0x08) &&
                            function <= UINT32_C(0x0f);
-  uint32_t raw_rounding = machine->cpu.fcr31 & UINT32_C(3);
+  uint32_t raw_rounding = cop1_softfloat_rounding(
+      machine->cpu.fcr31 & UINT32_C(3));
   t64_status status;
 
   result_out->supported = true;
   if (format != UINT32_C(16) && format != UINT32_C(17) &&
       format != UINT32_C(20) && format != UINT32_C(21)) {
+    return cop1_raise_unimplemented_result(machine, in_delay_slot,
+                                            result_out);
+  }
+  if ((format == UINT32_C(20) || format == UINT32_C(21)) &&
+      function != UINT32_C(0x20) && function != UINT32_C(0x21)) {
     return cop1_raise_unimplemented_result(machine, in_delay_slot,
                                             result_out);
   }
@@ -632,9 +644,6 @@ static t64_status cop1_execute_floating(
                                               result_out);
     }
     if (explicit_rounding) {
-      raw_rounding = function <= UINT32_C(0x0b)
-                         ? function - UINT32_C(0x08)
-                         : function - UINT32_C(0x0c);
       raw_rounding = function == UINT32_C(0x08) ||
                              function == UINT32_C(0x0c)
                          ? 0u
@@ -643,8 +652,8 @@ static t64_status cop1_execute_floating(
                                ? 1u
                                : function == UINT32_C(0x0a) ||
                                          function == UINT32_C(0x0e)
-                                     ? 2u
-                                     : 3u;
+                                     ? 3u
+                                     : 2u;
     }
     context.rounding_mode = (uint8_t)raw_rounding;
     status = t64_softfloat_execute(operation, &context, source_a, source_b,
