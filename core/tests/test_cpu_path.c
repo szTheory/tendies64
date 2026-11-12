@@ -96,6 +96,11 @@ static void clear_instruction_index(t64_machine *machine,
   machine->cpu.icache[index].valid = false;
 }
 
+static uint32_t encode_cvt_d_w(uint32_t source, uint32_t destination) {
+  return (UINT32_C(0x11) << 26) | (UINT32_C(0x14) << 21) |
+         (source << 11) | (destination << 6) | UINT32_C(0x21);
+}
+
 static uint32_t read_be32_bytes(const uint8_t *bytes) {
   return ((uint32_t)bytes[0] << 24) | ((uint32_t)bytes[1] << 16) |
          ((uint32_t)bytes[2] << 8) | (uint32_t)bytes[3];
@@ -181,6 +186,121 @@ static bool test_vr4300_break_enters_rdram_handler(
     return false;
   }
   return true;
+}
+
+static bool test_vr4300_cvt_d_w_is_machine_local(
+    t64_machine *machine, const uint8_t asset[IPL3_ASSET_BYTES]) {
+  const uint64_t cvt_pc = UINT64_C(0x80001000);
+  const uint64_t destination_sentinel = UINT64_C(0x1122334455667788);
+  const uint32_t coprocessor_usable = UINT32_C(1) << 29;
+  const uint32_t instruction_a = encode_cvt_d_w(1u, 2u);
+  const uint32_t instruction_b = encode_cvt_d_w(3u, 4u);
+  const uint64_t expected_a = UINT64_C(0xc1e0000000000000);
+  const uint64_t expected_b = UINT64_C(0x405ec00000000000);
+  allocator_state other_allocator_state = {0u};
+  const t64_host_allocator other_allocator = {
+      test_allocate, test_release, &other_allocator_state};
+  const t64_profile_descriptor *profile = NULL;
+  t64_machine *other = NULL;
+  t64_status status;
+  uint64_t retired_before;
+
+  if (machine == NULL || asset == NULL ||
+      t64_machine_admit_rom(machine, asset, IPL3_ASSET_BYTES) !=
+          T64_STATUS_OK ||
+      t64_profile_lookup("ntsc-cart-4m-openipl3-vr4300-v1", &profile) !=
+          T64_STATUS_OK ||
+      profile == NULL ||
+      t64_machine_create(&other_allocator, profile, &other) != T64_STATUS_OK ||
+      other == NULL ||
+      t64_machine_admit_rom(other, asset, IPL3_ASSET_BYTES) != T64_STATUS_OK) {
+    (void)puts("# CVT.D.W fixture setup failed");
+    if (other != NULL) {
+      t64_machine_destroy(other);
+    }
+    return false;
+  }
+
+  write_rdram_instruction(machine, UINT32_C(0x1000), instruction_a);
+  clear_instruction_index(machine, cvt_pc);
+  machine->cpu.pc = (uint32_t)cvt_pc;
+  machine->cpu.pc_full = cvt_pc;
+  machine->cpu.cp0[12] |= coprocessor_usable;
+  machine->cpu.fpr[1] = UINT32_C(0x80000000);
+  machine->cpu.fpr[2] = destination_sentinel;
+  machine->cpu.fcr31 = 0u;
+
+  write_rdram_instruction(other, UINT32_C(0x1000), instruction_b);
+  clear_instruction_index(other, cvt_pc);
+  other->cpu.pc = (uint32_t)cvt_pc;
+  other->cpu.pc_full = cvt_pc;
+  other->cpu.cp0[12] |= coprocessor_usable;
+  other->cpu.fpr[3] = UINT32_C(123);
+  other->cpu.fpr[4] = destination_sentinel;
+  other->cpu.fcr31 = UINT32_C(0x41); /* invalid sticky flag plus toward-zero RM */
+
+  status = t64_cpu_step(machine, NULL);
+  if (status != T64_STATUS_OK || machine->cpu.fpr[2] != expected_a ||
+      machine->cpu.fcr31 != 0u ||
+      machine->cpu.attempt_outcome != T64_CPU_ATTEMPT_RETIRED ||
+      machine->cpu.retired_instructions != UINT64_C(1)) {
+    (void)printf("# CVT.D.W -2^31 expected=%016llx observed=%016llx "
+                 "status=%u fcr31=%08x outcome=%u retired=%llu\n",
+                 (unsigned long long)expected_a,
+                 (unsigned long long)machine->cpu.fpr[2], (unsigned)status,
+                 (unsigned)machine->cpu.fcr31,
+                 (unsigned)machine->cpu.attempt_outcome,
+                 (unsigned long long)machine->cpu.retired_instructions);
+    t64_machine_destroy(other);
+    return false;
+  }
+
+  status = t64_cpu_step(other, NULL);
+  if (status != T64_STATUS_OK || other->cpu.fpr[4] != expected_b ||
+      other->cpu.fcr31 != UINT32_C(0x41) ||
+      other->cpu.attempt_outcome != T64_CPU_ATTEMPT_RETIRED ||
+      machine->cpu.fpr[2] != expected_a || machine->cpu.fcr31 != 0u) {
+    (void)printf("# interleaved CVT.D.W expected B=%016llx observed B=%016llx "
+                 "A=%016llx/%08x B-fcr31=%08x status=%u\n",
+                 (unsigned long long)expected_b,
+                 (unsigned long long)other->cpu.fpr[4],
+                 (unsigned long long)machine->cpu.fpr[2],
+                 (unsigned)machine->cpu.fcr31, (unsigned)other->cpu.fcr31,
+                 (unsigned)status);
+    t64_machine_destroy(other);
+    return false;
+  }
+
+  other->cpu.pc = (uint32_t)cvt_pc;
+  other->cpu.pc_full = cvt_pc;
+  other->cpu.cp0[12] &= ~(uint64_t)coprocessor_usable;
+  other->cpu.fpr[4] = destination_sentinel;
+  retired_before = other->cpu.retired_instructions;
+  status = t64_cpu_step(other, NULL);
+  if (status != T64_STATUS_OK || other->cpu.fpr[4] != destination_sentinel ||
+      other->cpu.fcr31 != UINT32_C(0x41) ||
+      ((uint32_t)other->cpu.cp0[13] & UINT32_C(0x7c)) !=
+          (UINT32_C(11) << 2) ||
+      (((uint32_t)other->cpu.cp0[13] >> 28) & UINT32_C(3)) != 1u ||
+      other->cpu.cp0[14] != cvt_pc ||
+      other->cpu.retired_instructions != retired_before ||
+      other->cpu.attempt_outcome != T64_CPU_ATTEMPT_GUEST_EXCEPTION) {
+    (void)printf("# CU1-disabled CVT.D.W expected destination=%016llx "
+                 "observed=%016llx cause=%08x epc=%016llx fcr31=%08x "
+                 "status=%u retired=%llu/%llu\n",
+                 (unsigned long long)destination_sentinel,
+                 (unsigned long long)other->cpu.fpr[4],
+                 (unsigned)other->cpu.cp0[13],
+                 (unsigned long long)other->cpu.cp0[14],
+                 (unsigned)other->cpu.fcr31, (unsigned)status,
+                 (unsigned long long)other->cpu.retired_instructions,
+                 (unsigned long long)retired_before);
+    t64_machine_destroy(other);
+    return false;
+  }
+
+  t64_machine_destroy(other);
+  return other_allocator_state.outstanding == 0u;
 }
 
 static bool test_vr4300_instruction_cache_stale_then_invalidated(
@@ -2066,6 +2186,8 @@ int main(int argc, char **argv) {
        test_vr4300_instruction_cache_failed_fill_preserves_line},
       {"new-profile BREAK schedules a nonretiring RDRAM handler",
        test_vr4300_break_enters_rdram_handler},
+      {"CVT.D.W converts exact signed words with isolated machine FPR/FCR31 state",
+       test_vr4300_cvt_d_w_is_machine_local},
       {"mapped load miss is repaired by a guest TLBWI handler and retried",
        test_vr4300_tlb_refill_and_retry},
       {"guest-time Count equality interrupts then resumes after Compare commit",
