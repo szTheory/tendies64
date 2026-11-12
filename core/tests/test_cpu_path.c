@@ -1235,6 +1235,125 @@ static bool test_cp0_cache_state_is_in_digest(
   return cp0_hashed && cache_hashed;
 }
 
+/* NEC VR43XX Users Manual U10504EJ7V0UM00, §§16 (pp. 463, 519–522),
+ * https://hack64.net/docs/VR43XX.pdf, SHA-256
+ * b7c1900f1707a4b238ebd82af1669e9628e4df4875ceabfa012a9d95b4716b75.
+ * Expected lane bytes are read from the big-endian instruction tables. */
+static bool test_vr4300_page_edge_unaligned_merges(
+    t64_machine *machine, const uint8_t asset[IPL3_ASSET_BYTES]) {
+  static const uint32_t program[] = {
+      UINT32_C(0x88880000), /* lwl t0,0(a0) */
+      UINT32_C(0x98880003), /* lwr t0,3(a0) */
+      UINT32_C(0xa8890000), /* swl t1,0(a0) */
+      UINT32_C(0xb8890003), /* swr t1,3(a0) */
+      UINT32_C(0x888a0000), /* lwl t2,0(a0) */
+      UINT32_C(0x988a0003), /* lwr t2,3(a0) */
+  };
+  const uint64_t address = UINT64_C(0x00400ffe);
+  const uint64_t second_address = UINT64_C(0x00401001);
+  t64_vr4300_tlb_pair *mapping;
+  t64_status status;
+  size_t index;
+  uint64_t first_merge;
+  uint64_t faulting_merge;
+
+  if (machine == NULL || asset == NULL ||
+      !install_program(machine, asset, program,
+                       sizeof program / sizeof program[0])) {
+    (void)puts("# page-edge merge fixture setup failed");
+    return false;
+  }
+  machine->cpu.pc_full = t64_cpu_canonical_address(IPL3_ENTRY_PC);
+  machine->cpu.cp0[10] = 0u;
+  machine->cpu.cp0[12] = 0u;
+  for (index = 0u; index < T64_VR4300_TLB_ENTRY_COUNT; index++) {
+    machine->cpu.tlb[index] = (t64_vr4300_tlb_pair){0};
+    machine->cpu.tlb[index].asid = UINT32_C(0xff);
+  }
+  mapping = &machine->cpu.tlb[7];
+  mapping->vpn2 = UINT64_C(0x00400000);
+  mapping->asid = 0u;
+  mapping->entry_lo0 = UINT32_C(0x0000009e); /* PA 0x2000, V/D, C=3. */
+  mapping->entry_lo1 = UINT32_C(0x000000de); /* PA 0x3000, V/D, C=3. */
+  machine->cpu.gpr[4] = address;
+  machine->cpu.gpr[8] = UINT64_C(0x1122334455667788);
+  machine->cpu.gpr[9] = UINT64_C(0x00000000a1b2c3d4);
+  machine->ram[UINT32_C(0x2ffc)] = UINT8_C(0x11);
+  machine->ram[UINT32_C(0x2ffd)] = UINT8_C(0x22);
+  machine->ram[UINT32_C(0x2ffe)] = UINT8_C(0xde);
+  machine->ram[UINT32_C(0x2fff)] = UINT8_C(0xad);
+  machine->ram[UINT32_C(0x3000)] = UINT8_C(0xbe);
+  machine->ram[UINT32_C(0x3001)] = UINT8_C(0xef);
+  machine->ram[UINT32_C(0x3002)] = UINT8_C(0x33);
+  machine->ram[UINT32_C(0x3003)] = UINT8_C(0x44);
+
+  status = t64_cpu_step(machine, NULL);
+  first_merge = machine->cpu.gpr[8];
+  if (status != T64_STATUS_OK ||
+      first_merge != UINT64_C(0xffffffffdead7788)) {
+    (void)printf("# page-edge LWL status=%u expected=ffffffffdead7788 "
+                 "observed=%016llx\n",
+                 (unsigned)status, (unsigned long long)first_merge);
+    return false;
+  }
+  if (t64_cpu_step(machine, NULL) != T64_STATUS_OK ||
+      machine->cpu.gpr[8] != UINT64_C(0xffffffffdeadbeef)) {
+    (void)printf("# page-edge LWR expected=ffffffffdeadbeef "
+                 "observed=%016llx\n",
+                 (unsigned long long)machine->cpu.gpr[8]);
+    return false;
+  }
+  if (t64_cpu_step(machine, NULL) != T64_STATUS_OK ||
+      t64_cpu_step(machine, NULL) != T64_STATUS_OK ||
+      machine->ram[UINT32_C(0x2ffc)] != UINT8_C(0x11) ||
+      machine->ram[UINT32_C(0x2ffd)] != UINT8_C(0x22) ||
+      machine->ram[UINT32_C(0x2ffe)] != UINT8_C(0xa1) ||
+      machine->ram[UINT32_C(0x2fff)] != UINT8_C(0xb2) ||
+      machine->ram[UINT32_C(0x3000)] != UINT8_C(0xc3) ||
+      machine->ram[UINT32_C(0x3001)] != UINT8_C(0xd4) ||
+      machine->ram[UINT32_C(0x3002)] != UINT8_C(0x33) ||
+      machine->ram[UINT32_C(0x3003)] != UINT8_C(0x44)) {
+    (void)printf("# page-edge stores bytes=%02x%02x%02x%02x%02x%02x%02x%02x\n",
+                 machine->ram[UINT32_C(0x2ffc)],
+                 machine->ram[UINT32_C(0x2ffd)],
+                 machine->ram[UINT32_C(0x2ffe)],
+                 machine->ram[UINT32_C(0x2fff)],
+                 machine->ram[UINT32_C(0x3000)],
+                 machine->ram[UINT32_C(0x3001)],
+                 machine->ram[UINT32_C(0x3002)],
+                 machine->ram[UINT32_C(0x3003)]);
+    return false;
+  }
+
+  machine->cpu.gpr[10] = UINT64_C(0x0000000055667788);
+  if (t64_cpu_step(machine, NULL) != T64_STATUS_OK) {
+    return false;
+  }
+  faulting_merge = machine->cpu.gpr[10];
+  mapping->entry_lo1 &= ~UINT32_C(0x00000002);
+  status = t64_cpu_step(machine, NULL);
+  if (status != T64_STATUS_OK || machine->cpu.gpr[10] != faulting_merge ||
+      machine->cpu.retired_instructions != UINT64_C(5) ||
+      (uint32_t)machine->cpu.cp0[13] !=
+          (UINT32_C(2) << 2) ||
+      machine->cpu.cp0[8] != second_address ||
+      machine->cpu.pc_full !=
+          t64_cpu_canonical_address(UINT32_C(0x80000180))) {
+    (void)printf("# protected second LWR status=%u retired=%llu "
+                 "gpr10=%016llx expected=%016llx cause=%08x "
+                 "badvaddr=%016llx pc=%016llx\n",
+                 (unsigned)status,
+                 (unsigned long long)machine->cpu.retired_instructions,
+                 (unsigned long long)machine->cpu.gpr[10],
+                 (unsigned long long)faulting_merge,
+                 (uint32_t)machine->cpu.cp0[13],
+                 (unsigned long long)machine->cpu.cp0[8],
+                 (unsigned long long)machine->cpu.pc_full);
+    return false;
+  }
+  return true;
+}
+
 typedef bool (*cpu_test_fn)(t64_machine *machine,
                             const uint8_t asset[IPL3_ASSET_BYTES]);
 
@@ -1294,6 +1413,8 @@ int main(int argc, char **argv) {
        test_vr4300_integer_delay_fault_and_full_width_jalr},
       {"not-taken branch-likely annuls a faulting delay slot",
        test_vr4300_not_taken_likely_annuls_faulting_slot},
+      {"page-edge LWL/LWR and SWL/SWR preserve lanes and fault precisely",
+       test_vr4300_page_edge_unaligned_merges},
   };
   const cpu_test_case *cases;
   size_t case_count;
