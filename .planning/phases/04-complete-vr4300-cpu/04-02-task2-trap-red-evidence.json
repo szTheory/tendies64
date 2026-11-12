@@ -1,0 +1,18 @@
+{
+  "task": "04-02.2-trap",
+  "command": "ctest --preset gate --no-tests=error -R '^unit.core.cpu-exceptions$' --output-on-failure --output-junit build/04-02-task2-trap-red.xml",
+  "targetTest": "unit.core.cpu-exceptions",
+  "targetFile": "core/tests/test_cpu_exceptions.c",
+  "expected": "Equal operands in TEQ raise ExcCode=13 without retiring the instruction.",
+  "observed": "The registered suite compiled and executed the TEQ case at 0xffffffff80001000, but current execution stopped as model-unsupported (reason=7, outcome=3) with Cause=0 and retired=0.",
+  "result": {
+    "exitCode": 8,
+    "tests": 1,
+    "passed": 0,
+    "failed": 1,
+    "classifier": "RED_EVIDENCE_OK",
+    "classifierReason": "target_test_failed",
+    "matchedTest": "unit.core.cpu-exceptions#unit.core.cpu-exceptions"
+  },
+  "semanticAssessment": "This is the expected pre-feature behavior. The newly added TEQ assertion ran inside the registered exception target and observed a model-unsupported stop rather than ExcCode 13. Raw JUnit remains in ignored local build output."
+}

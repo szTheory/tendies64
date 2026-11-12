@@ -230,6 +230,20 @@ static bool test_reserved_instruction_exception(
          machine->cpu.retired_instructions == 0u;
 }
 
+static bool test_trap_exception(
+    t64_machine *machine, const uint8_t asset[IPL3_ASSET_BYTES]) {
+  static const uint32_t program[] = {UINT32_C(0x012a0034)};
+
+  if (!prepare_program(machine, asset, TEST_PC, program, 1u)) {
+    return false;
+  }
+  machine->cpu.gpr[9] = UINT64_C(0x12345678);
+  machine->cpu.gpr[10] = UINT64_C(0x12345678);
+  return expect_exception(machine, UINT64_C(1), UINT32_C(13), TEST_PC, false,
+                          false, 0u) &&
+         machine->cpu.retired_instructions == 0u;
+}
+
 static bool test_integer_overflow_exception(
     t64_machine *machine, const uint8_t asset[IPL3_ASSET_BYTES]) {
   static const uint32_t program[] = {UINT32_C(0x012a4020)};
@@ -429,6 +443,7 @@ int main(void) {
       {"nested delay fault under old BD=0 preserves the original pair",
        test_old_exl_preserves_bd_zero},
       {"reserved encoding raises RI", test_reserved_instruction_exception},
+      {"TEQ raises Tr when its operands are equal", test_trap_exception},
       {"ADD overflow raises Ov without a destination write",
        test_integer_overflow_exception},
       {"unusable COP1 records CE=1", test_coprocessor_unusable_ce},
