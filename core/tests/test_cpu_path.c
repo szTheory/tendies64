@@ -1354,6 +1354,79 @@ static bool test_vr4300_page_edge_unaligned_merges(
   return true;
 }
 
+static bool test_vr4300_ll_sc_one_shot(
+    t64_machine *machine, const uint8_t asset[IPL3_ASSET_BYTES]) {
+  static const uint32_t program[] = {
+      UINT32_C(0xc0880000), /* ll t0,0(a0) */
+      UINT32_C(0xe0890000), /* sc t1,0(a0) */
+      UINT32_C(0xe08a0000), /* sc t2,0(a0) */
+  };
+  const uint32_t virtual_code = UINT32_C(0x80001000);
+  const uint64_t virtual_data = UINT64_C(0xffffffff80002000);
+  const uint32_t physical_data = UINT32_C(0x2000);
+  t64_status status;
+  uint64_t observed;
+
+  if (machine == NULL || asset == NULL ||
+      t64_machine_admit_rom(machine, asset, IPL3_ASSET_BYTES) !=
+          T64_STATUS_OK) {
+    (void)puts("# LL/SC fixture setup failed");
+    return false;
+  }
+  (void)memset(machine->ram + physical_data, 0, 8u);
+  machine->ram[physical_data] = UINT8_C(0x12);
+  machine->ram[physical_data + 1u] = UINT8_C(0x34);
+  machine->ram[physical_data + 2u] = UINT8_C(0x56);
+  machine->ram[physical_data + 3u] = UINT8_C(0x78);
+  write_rdram_instruction(machine, UINT32_C(0x1000), program[0]);
+  write_rdram_instruction(machine, UINT32_C(0x1004), program[1]);
+  write_rdram_instruction(machine, UINT32_C(0x1008), program[2]);
+  machine->cpu.pc = virtual_code;
+  machine->cpu.pc_full = t64_cpu_canonical_address(virtual_code);
+  machine->cpu.gpr[4] = virtual_data;
+  machine->cpu.gpr[9] = UINT64_C(0xaabbccdd);
+  machine->cpu.gpr[10] = UINT64_C(0xcafebabe);
+
+  status = t64_cpu_step(machine, NULL);
+  observed = machine->cpu.gpr[8];
+  if (status != T64_STATUS_OK || observed != UINT64_C(0x12345678)) {
+    (void)printf("# LL status expected=%u observed=%u value expected="
+                 "0000000012345678 observed=%016llx\n",
+                 (unsigned)T64_STATUS_OK, (unsigned)status,
+                 (unsigned long long)observed);
+    return false;
+  }
+  status = t64_cpu_step(machine, NULL);
+  if (status != T64_STATUS_OK || machine->cpu.gpr[9] != UINT64_C(1) ||
+      machine->ram[physical_data] != UINT8_C(0xaa) ||
+      machine->ram[physical_data + 1u] != UINT8_C(0xbb) ||
+      machine->ram[physical_data + 2u] != UINT8_C(0xcc) ||
+      machine->ram[physical_data + 3u] != UINT8_C(0xdd)) {
+    (void)printf("# first SC status=%u rt=%016llx bytes=%02x%02x%02x%02x\n",
+                 (unsigned)status, (unsigned long long)machine->cpu.gpr[9],
+                 machine->ram[physical_data],
+                 machine->ram[physical_data + 1u],
+                 machine->ram[physical_data + 2u],
+                 machine->ram[physical_data + 3u]);
+    return false;
+  }
+  status = t64_cpu_step(machine, NULL);
+  if (status != T64_STATUS_OK || machine->cpu.gpr[10] != UINT64_C(0) ||
+      machine->ram[physical_data] != UINT8_C(0xaa) ||
+      machine->ram[physical_data + 1u] != UINT8_C(0xbb) ||
+      machine->ram[physical_data + 2u] != UINT8_C(0xcc) ||
+      machine->ram[physical_data + 3u] != UINT8_C(0xdd)) {
+    (void)printf("# repeat SC status=%u rt=%016llx bytes=%02x%02x%02x%02x\n",
+                 (unsigned)status, (unsigned long long)machine->cpu.gpr[10],
+                 machine->ram[physical_data],
+                 machine->ram[physical_data + 1u],
+                 machine->ram[physical_data + 2u],
+                 machine->ram[physical_data + 3u]);
+    return false;
+  }
+  return true;
+}
+
 typedef bool (*cpu_test_fn)(t64_machine *machine,
                             const uint8_t asset[IPL3_ASSET_BYTES]);
 
@@ -1415,6 +1488,8 @@ int main(int argc, char **argv) {
        test_vr4300_not_taken_likely_annuls_faulting_slot},
       {"page-edge LWL/LWR and SWL/SWR preserve lanes and fault precisely",
        test_vr4300_page_edge_unaligned_merges},
+      {"LL/SC succeeds once for an exact physical word reservation",
+       test_vr4300_ll_sc_one_shot},
   };
   const cpu_test_case *cases;
   size_t case_count;
