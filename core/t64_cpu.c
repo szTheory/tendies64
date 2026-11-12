@@ -126,6 +126,27 @@ static uint64_t arithmetic_shift_right_64(uint64_t value, uint32_t amount) {
   return shifted;
 }
 
+static uint64_t unsigned_magnitude_64(uint64_t value) {
+  return (value & UINT64_C(0x8000000000000000)) != 0u
+             ? ~value + UINT64_C(1)
+             : value;
+}
+
+/* Portable 64x64 -> 128 multiplication using four 32-bit partial products. */
+static void multiply_u64_full(uint64_t left, uint64_t right,
+                              uint64_t *high_out, uint64_t *low_out) {
+  uint64_t left_low = (uint64_t)(uint32_t)left;
+  uint64_t left_high = left >> 32;
+  uint64_t right_low = (uint64_t)(uint32_t)right;
+  uint64_t right_high = right >> 32;
+  uint64_t low_product = left_low * right_low;
+  uint64_t middle = left_high * right_low + (low_product >> 32);
+  uint64_t cross = left_low * right_high + (uint32_t)middle;
+
+  *low_out = (cross << 32) | (uint32_t)low_product;
+  *high_out = left_high * right_high + (middle >> 32) + (cross >> 32);
+}
+
 static bool add_overflow_32(uint32_t left, uint32_t right,
                             uint32_t result) {
   return ((~(left ^ right) & (left ^ result)) & UINT32_C(0x80000000)) != 0u;
@@ -423,8 +444,14 @@ static bool branch_condition(uint32_t opcode, const t64_cpu_state *cpu,
 static bool is_branch_instruction(uint32_t opcode) {
   uint32_t operation = opcode >> 26;
 
-  if (operation == T64_CPU_REGIMM || operation == T64_CPU_J ||
-      operation == T64_CPU_JAL || operation == T64_CPU_BEQ ||
+  if (operation == T64_CPU_REGIMM) {
+    uint32_t suboperation = (opcode >> 16) & UINT32_C(0x1f);
+
+    return suboperation <= 3u ||
+           (suboperation >= 16u && suboperation <= 19u);
+  }
+  if (operation == T64_CPU_J || operation == T64_CPU_JAL ||
+      operation == T64_CPU_BEQ ||
       operation == T64_CPU_BNE || operation == T64_CPU_BLEZ ||
       operation == T64_CPU_BGTZ || operation == T64_CPU_BEQL ||
       operation == T64_CPU_BNEL || operation == T64_CPU_BLEZL ||
@@ -596,7 +623,8 @@ static bool execute_memory(t64_machine *machine, uint32_t opcode,
 }
 
 static bool execute_special(t64_machine *machine, uint32_t pc,
-                            uint32_t opcode, bool *write_gpr_out,
+                            uint32_t opcode, bool new_profile,
+                            bool *write_gpr_out,
                             uint32_t *destination_out, uint64_t *value_out) {
   uint32_t rs = (opcode >> 21) & UINT32_C(0x1f);
   uint32_t rt = (opcode >> 16) & UINT32_C(0x1f);
@@ -630,6 +658,11 @@ static bool execute_special(t64_machine *machine, uint32_t pc,
     *value_out = sign_extend_32(
         arithmetic_shift_right_32(right32, left32 & UINT32_C(0x1f)));
     break;
+  case 0x0fu:
+    if (!new_profile) {
+      return false;
+    }
+    return true;
   case 0x18u: {
     uint32_t left_magnitude;
     uint32_t right_magnitude;
@@ -652,6 +685,129 @@ static bool execute_special(t64_machine *machine, uint32_t pc,
     }
     machine->cpu.hi = sign_extend_32((uint32_t)(product >> 32));
     machine->cpu.lo = sign_extend_32((uint32_t)product);
+    return true;
+  }
+  case 0x19u: {
+    uint64_t product;
+
+    if (!new_profile) {
+      return false;
+    }
+    product = (uint64_t)left32 * (uint64_t)right32;
+    machine->cpu.hi = sign_extend_32((uint32_t)(product >> 32));
+    machine->cpu.lo = sign_extend_32((uint32_t)product);
+    return true;
+  }
+  case 0x1au: {
+    uint32_t dividend = left32;
+    uint32_t divisor = right32;
+    uint32_t dividend_magnitude;
+    uint32_t divisor_magnitude;
+    uint32_t quotient;
+    uint32_t remainder;
+    bool dividend_negative = (dividend & UINT32_C(0x80000000)) != 0u;
+    bool divisor_negative = (divisor & UINT32_C(0x80000000)) != 0u;
+
+    if (!new_profile) {
+      return false;
+    }
+    if (divisor == 0u) {
+      machine->cpu.lo = sign_extend_32(
+          dividend_negative ? UINT32_C(0x80000001) : UINT32_C(0x7fffffff));
+      machine->cpu.hi = sign_extend_32(dividend);
+      return true;
+    }
+    if (dividend == UINT32_C(0x80000000) &&
+        divisor == UINT32_MAX) {
+      return false;
+    }
+    dividend_magnitude = dividend_negative ? ~dividend + UINT32_C(1)
+                                           : dividend;
+    divisor_magnitude = divisor_negative ? ~divisor + UINT32_C(1)
+                                         : divisor;
+    quotient = dividend_magnitude / divisor_magnitude;
+    remainder = dividend_magnitude % divisor_magnitude;
+    if (dividend_negative != divisor_negative) {
+      quotient = ~quotient + UINT32_C(1);
+    }
+    if (dividend_negative) {
+      remainder = ~remainder + UINT32_C(1);
+    }
+    machine->cpu.lo = sign_extend_32(quotient);
+    machine->cpu.hi = sign_extend_32(remainder);
+    return true;
+  }
+  case 0x1bu: {
+    uint32_t quotient;
+    uint32_t remainder;
+
+    if (!new_profile || right32 == 0u) {
+      return false;
+    }
+    quotient = left32 / right32;
+    remainder = left32 % right32;
+    machine->cpu.lo = sign_extend_32(quotient);
+    machine->cpu.hi = sign_extend_32(remainder);
+    return true;
+  }
+  case 0x1cu:
+  case 0x1du: {
+    uint64_t left = function == 0x1cu ? unsigned_magnitude_64(left64)
+                                     : left64;
+    uint64_t right = function == 0x1cu ? unsigned_magnitude_64(right64)
+                                      : right64;
+    uint64_t high;
+    uint64_t low;
+
+    if (!new_profile) {
+      return false;
+    }
+    multiply_u64_full(left, right, &high, &low);
+    if (function == 0x1cu &&
+        (((left64 ^ right64) & UINT64_C(0x8000000000000000)) != 0u)) {
+      bool carry = low == 0u;
+
+      low = ~low + UINT64_C(1);
+      high = ~high + (carry ? UINT64_C(1) : UINT64_C(0));
+    }
+    machine->cpu.hi = high;
+    machine->cpu.lo = low;
+    return true;
+  }
+  case 0x1eu:
+  case 0x1fu: {
+    uint64_t quotient;
+    uint64_t remainder;
+
+    if (!new_profile || right64 == 0u) {
+      return false;
+    }
+    if (function == 0x1eu) {
+      bool dividend_negative =
+          (left64 & UINT64_C(0x8000000000000000)) != 0u;
+      bool divisor_negative =
+          (right64 & UINT64_C(0x8000000000000000)) != 0u;
+      uint64_t dividend_magnitude = unsigned_magnitude_64(left64);
+      uint64_t divisor_magnitude = unsigned_magnitude_64(right64);
+
+      if (left64 == UINT64_C(0x8000000000000000) &&
+          right64 == UINT64_MAX) {
+        return false;
+      }
+      quotient = dividend_magnitude / divisor_magnitude;
+      remainder = dividend_magnitude % divisor_magnitude;
+      if (dividend_negative != divisor_negative) {
+        quotient = ~quotient + UINT64_C(1);
+      }
+      if (dividend_negative) {
+        remainder = ~remainder + UINT64_C(1);
+      }
+    } else {
+      quotient = left64 / right64;
+      remainder = left64 % right64;
+    }
+    machine->cpu.lo = quotient;
+    machine->cpu.hi = remainder;
     return true;
   }
   case 0x10u:
@@ -733,7 +889,8 @@ static bool execute_special(t64_machine *machine, uint32_t pc,
 }
 
 static bool execute_integer(t64_machine *machine, uint32_t opcode,
-                            bool *write_gpr_out, uint32_t *destination_out,
+                            bool new_profile, bool *write_gpr_out,
+                            uint32_t *destination_out,
                             uint64_t *value_out) {
   uint32_t operation = opcode >> 26;
   uint32_t rs = (opcode >> 21) & UINT32_C(0x1f);
@@ -748,8 +905,8 @@ static bool execute_integer(t64_machine *machine, uint32_t opcode,
   *destination_out = 0u;
   *value_out = 0u;
   if (operation == 0u) {
-    return execute_special(machine, machine->cpu.pc, opcode, write_gpr_out,
-                           destination_out, value_out);
+    return execute_special(machine, machine->cpu.pc, opcode, new_profile,
+                           write_gpr_out, destination_out, value_out);
   }
   if (operation >= 0x1au && operation <= 0x2fu) {
     return execute_memory(machine, opcode, write_gpr_out, destination_out,
@@ -1154,7 +1311,8 @@ static bool special_function_is_defined(uint32_t function) {
   case 0x00u: case 0x02u: case 0x03u: case 0x04u: case 0x06u: case 0x07u:
   case 0x08u: case 0x09u: case 0x0cu: case 0x0du: case 0x0fu:
   case 0x10u: case 0x11u: case 0x12u: case 0x13u: case 0x14u: case 0x16u:
-  case 0x17u: case 0x18u: case 0x19u: case 0x1au: case 0x1bu:
+  case 0x17u: case 0x18u: case 0x19u: case 0x1au: case 0x1bu: case 0x1cu:
+  case 0x1du: case 0x1eu: case 0x1fu:
   case 0x20u: case 0x21u: case 0x22u: case 0x23u: case 0x24u: case 0x25u:
   case 0x26u: case 0x27u: case 0x2au: case 0x2bu: case 0x2cu: case 0x2du:
   case 0x2eu: case 0x2fu: case 0x30u: case 0x31u: case 0x32u: case 0x33u:
@@ -1165,12 +1323,48 @@ static bool special_function_is_defined(uint32_t function) {
   }
 }
 
+static bool special_fields_are_reserved(uint32_t opcode) {
+  uint32_t rs = (opcode >> 21) & UINT32_C(0x1f);
+  uint32_t rt = (opcode >> 16) & UINT32_C(0x1f);
+  uint32_t rd = (opcode >> 11) & UINT32_C(0x1f);
+  uint32_t shift = (opcode >> 6) & UINT32_C(0x1f);
+  uint32_t function = opcode & UINT32_C(0x3f);
+
+  switch (function) {
+  case 0x00u: case 0x02u: case 0x03u:
+  case 0x38u: case 0x3au: case 0x3bu: case 0x3cu: case 0x3eu: case 0x3fu:
+    return rs != 0u;
+  case 0x04u: case 0x06u: case 0x07u:
+  case 0x14u: case 0x16u: case 0x17u:
+    return shift != 0u;
+  case 0x08u: /* JR */
+    return rt != 0u || rd != 0u || shift != 0u;
+  case 0x09u: /* JALR */
+    return rt != 0u || shift != 0u;
+  case 0x10u: case 0x12u: /* MFHI/MFLO */
+    return rs != 0u || rt != 0u || shift != 0u;
+  case 0x11u: case 0x13u: /* MTHI/MTLO */
+    return rt != 0u || rd != 0u || shift != 0u;
+  case 0x18u: case 0x19u: case 0x1au: case 0x1bu:
+  case 0x1cu: case 0x1du: case 0x1eu: case 0x1fu:
+    return rd != 0u || shift != 0u;
+  case 0x0cu: case 0x0du: /* SYSCALL/BREAK code fields */
+  case 0x30u: case 0x31u: case 0x32u: case 0x33u: case 0x34u: case 0x36u:
+    return false;
+  case 0x0fu: /* SYNC: this profile defines only the stype-zero form. */
+    return rs != 0u || rt != 0u || rd != 0u || shift != 0u;
+  default:
+    return shift != 0u;
+  }
+}
+
 static bool cpu_instruction_is_reserved(uint32_t opcode) {
   uint32_t operation = opcode >> 26;
   uint32_t suboperation;
 
   if (operation == 0u) {
-    return !special_function_is_defined(opcode & UINT32_C(0x3f));
+    return !special_function_is_defined(opcode & UINT32_C(0x3f)) ||
+           special_fields_are_reserved(opcode);
   }
   if (operation == T64_CPU_REGIMM) {
     suboperation = (opcode >> 16) & UINT32_C(0x1f);
@@ -1178,6 +1372,13 @@ static bool cpu_instruction_is_reserved(uint32_t opcode) {
              (suboperation >= 8u && suboperation <= 12u) ||
              suboperation == 14u ||
              (suboperation >= 16u && suboperation <= 19u));
+  }
+  if (operation == 0x06u || operation == 0x07u ||
+      operation == 0x16u || operation == 0x17u) {
+    return ((opcode >> 16) & UINT32_C(0x1f)) != 0u;
+  }
+  if (operation == 0x0fu) {
+    return ((opcode >> 21) & UINT32_C(0x1f)) != 0u;
   }
   return operation == 0x1cu || operation == 0x1du ||
          operation == 0x1eu || operation == 0x1fu;
@@ -1261,13 +1462,18 @@ static bool cpu_instruction_exception(t64_machine *machine, uint32_t opcode,
                                        in_delay_slot, false, 0u);
     return true;
   }
-  if (cpu_test_trap(&machine->cpu, opcode, &is_trap)) {
+  {
+    bool trap_condition_is_true =
+        cpu_test_trap(&machine->cpu, opcode, &is_trap);
+
     if (is_trap) {
-      *status_out = cpu_enter_exception(machine, UINT32_C(13), 0u,
-                                         in_delay_slot, false, 0u);
-      return true;
+      if (trap_condition_is_true) {
+        *status_out = cpu_enter_exception(machine, UINT32_C(13), 0u,
+                                           in_delay_slot, false, 0u);
+        return true;
+      }
+      *trap_noop_out = true;
     }
-    *trap_noop_out = true;
   }
   if (cpu_instruction_overflows(machine, opcode)) {
     *status_out = cpu_enter_exception(machine, UINT32_C(12), 0u,
@@ -1392,6 +1598,12 @@ t64_status t64_cpu_step(t64_machine *machine, const t64_event *event) {
     return T64_STATUS_RESOURCE_EXHAUSTED;
   }
 
+  is_branch = is_branch_instruction(opcode);
+  if (new_profile && in_delay_slot && is_branch) {
+    cpu_stop_unsupported(machine, pc, opcode);
+    return T64_STATUS_RESOURCE_EXHAUSTED;
+  }
+
   if (new_profile) {
     if (cpu_instruction_exception(machine, opcode, in_delay_slot,
                                   &trap_noop, &status)) {
@@ -1425,7 +1637,6 @@ t64_status t64_cpu_step(t64_machine *machine, const t64_event *event) {
     }
   }
 
-  is_branch = is_branch_instruction(opcode);
   if (in_delay_slot && is_branch) {
     cpu_stop_unsupported(machine, pc, opcode);
     return T64_STATUS_RESOURCE_EXHAUSTED;
@@ -1456,8 +1667,8 @@ t64_status t64_cpu_step(t64_machine *machine, const t64_event *event) {
       return T64_STATUS_RESOURCE_EXHAUSTED;
     }
   } else {
-    supported = execute_integer(machine, opcode, &write_gpr, &destination,
-                                &value);
+    supported = execute_integer(machine, opcode, new_profile, &write_gpr,
+                                &destination, &value);
     if (!supported) {
       cpu_stop_unsupported(machine, pc, opcode);
       return T64_STATUS_RESOURCE_EXHAUSTED;
@@ -1467,7 +1678,8 @@ t64_status t64_cpu_step(t64_machine *machine, const t64_event *event) {
   if (write_gpr && destination != 0u) {
     machine->cpu.gpr[destination] = value;
   }
-  if (link && (!branch_likely || branch_taken) && link_register != 0u) {
+  if (link && (new_profile || !branch_likely || branch_taken) &&
+      link_register != 0u) {
     machine->cpu.gpr[link_register] =
         new_profile ? pc_full + UINT64_C(8)
                     : sign_extend_32(pc + UINT32_C(8));
