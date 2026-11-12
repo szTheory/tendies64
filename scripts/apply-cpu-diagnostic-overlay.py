@@ -8,10 +8,14 @@ import hashlib
 import json
 import os
 import pathlib
+import re
 import sys
 import tempfile
+from collections.abc import Callable
 
 PINNED_SOURCE_REVISION = "9a8b9f7d94ee2f6f57d7feed70c98c22cdc30e6c"
+SOURCE_PROJECTION_SHA256 = "2382f2b434b4fbda80e73e26ad9ca226eb88a221817fae2e6eba35002d8469d0"
+REQUIRED_LEVELS = {"BasicFunctionality", "RarelyUsed", "Weird"}
 
 
 def sha256(data: bytes) -> str:
@@ -74,7 +78,122 @@ def checked_source_path(root: pathlib.Path, relative: pathlib.PurePosixPath) -> 
     return resolved
 
 
-def apply_overlay(source_root: pathlib.Path, patch_path: pathlib.Path) -> int:
+def safe_relative_path(text: object, label: str) -> pathlib.PurePosixPath:
+    if not isinstance(text, str) or not text or "\\" in text or "\x00" in text:
+        raise ValueError(f"{label} path is malformed")
+    relative = pathlib.PurePosixPath(text)
+    if (
+        relative.is_absolute()
+        or not relative.parts
+        or any(part in ("", ".", "..", ".git") for part in relative.parts)
+    ):
+        raise ValueError(f"{label} path escapes its permitted directory or names .git")
+    return relative
+
+
+def checked_json(path: pathlib.Path, label: str) -> object:
+    if path.is_symlink() or path.stat().st_size > 16 * 1024 * 1024:
+        raise ValueError(f"{label} is linked or exceeds its size limit")
+    return json.loads(path.read_text(encoding="utf-8"), object_pairs_hook=reject_duplicate_keys)
+
+
+def render_required_testlist(
+    source_root: pathlib.Path, projection_path: pathlib.Path, source_audit_path: pathlib.Path
+) -> bytes:
+    projection = checked_json(projection_path, "source projection")
+    audit = checked_json(source_audit_path, "source audit")
+    if not isinstance(projection, dict) or not isinstance(audit, dict):
+        raise ValueError("source projection or source audit is malformed")
+    projection_digest = projection.get("projection_sha256")
+    body = {key: value for key, value in projection.items() if key != "projection_sha256"}
+    canonical = (
+        json.dumps(body, ensure_ascii=False, sort_keys=True, separators=(",", ":")) + "\n"
+    ).encode("utf-8")
+    if (
+        projection.get("schema") != "t64.cpu-source-projection"
+        or projection.get("schema_version") != 2
+        or projection.get("source_revision") != PINNED_SOURCE_REVISION
+        or projection_digest != SOURCE_PROJECTION_SHA256
+        or sha256(canonical) != SOURCE_PROJECTION_SHA256
+        or audit.get("source_revision") != PINNED_SOURCE_REVISION
+        or audit.get("unclassified_or_missing") != []
+        or audit.get("quick_default_registrations") != 1085
+    ):
+        raise ValueError("source projection or source audit differs from the reviewed seal")
+
+    source_list = source_root / "src/tests/testlist.rs"
+    source_bytes = source_list.read_bytes()
+    expected_list_sha = projection.get("testlist_sha256")
+    if sha256(source_bytes) != expected_list_sha or audit.get("testlist_sha256") != expected_list_sha:
+        raise ValueError("pinned source registration list differs from the sealed projection")
+    rows = projection.get("registrations")
+    audit_rows = audit.get("registrations")
+    if not isinstance(rows, list) or not isinstance(audit_rows, list) or len(rows) != 1085 or len(audit_rows) != 1085:
+        raise ValueError("source projection does not preserve all 1085 registrations")
+    source_lines = source_bytes.decode("utf-8").splitlines()
+    output = [
+        "// Generated privately from the sealed source projection; do not publish this derived file.\n",
+        "use alloc::boxed::Box;\nuse alloc::vec;\nuse alloc::vec::Vec;\n",
+        "use super::Test;\n\n",
+        "pub fn tests() -> Vec<(usize, Box<dyn Test>)> {\n    vec![\n",
+    ]
+    required_count = 0
+    for index, (row, audited) in enumerate(zip(rows, audit_rows, strict=True)):
+        if not isinstance(row, dict) or not isinstance(audited, dict):
+            raise ValueError("source registration row is malformed")
+        if (
+            row.get("index") != index
+            or audited.get("index") != index
+            or row.get("constructor") != audited.get("path")
+            or row.get("source_name") != audited.get("upstream_name")
+            or row.get("level") != audited.get("level")
+            or row.get("source_value_count") != audited.get("source_value_count")
+            or row.get("effective_value_count") != audited.get("effective_value_count")
+            or row.get("source_file_sha256") != audited.get("source_sha256")
+            or row.get("values_method_sha256") != audited.get("values_method_sha256")
+        ):
+            raise ValueError(f"source projection and audit differ at registration {index}")
+        relative_source = pathlib.PurePosixPath(str(row.get("source_file", "")))
+        if (
+            relative_source.is_absolute()
+            or not relative_source.parts
+            or ".." in relative_source.parts
+        ):
+            raise ValueError(f"registration {index} has an invalid source implementation path")
+        implementation = source_root.joinpath(*relative_source.parts)
+        if implementation.is_symlink() or not implementation.is_file() or sha256(implementation.read_bytes()) != row["source_file_sha256"]:
+            raise ValueError(f"registration {index} implementation bytes differ from the projection")
+        if row.get("lane") != "required-base":
+            continue
+        if row.get("group") == "non-cpu" or row.get("level") not in REQUIRED_LEVELS:
+            raise ValueError(f"non-base registration entered the required CPU list at {index}")
+        constructor = row.get("constructor")
+        source_anchor = audited.get("line")
+        if not isinstance(constructor, str) or not isinstance(source_anchor, int) or source_anchor < 0:
+            raise ValueError(f"registration {index} has no source constructor anchor")
+        expression = re.compile(
+            r"^\s*Box::new\(\s*" + re.escape(constructor) + r"\s*\{\s*\}\s*\)\s*,?\s*$"
+        )
+        found = [line for line in source_lines[source_anchor : source_anchor + 4] if expression.fullmatch(line)]
+        if len(found) != 1:
+            raise ValueError(f"registration {index} constructor does not match its pinned source expression")
+        output.append(
+            f"        ({index}usize, Box::new({constructor} {{}}) as Box<dyn Test>),\n"
+        )
+        required_count += 1
+    if required_count == 0 or projection.get("empty_required_groups") != []:
+        raise ValueError("source projection has no complete required CPU set")
+    output.append("    ]\n}\n")
+    return "".join(output).encode("utf-8")
+
+
+def apply_overlay(
+    source_root: pathlib.Path,
+    patch_path: pathlib.Path,
+    projection_path: pathlib.Path | None = None,
+    source_audit_path: pathlib.Path | None = None,
+    replace_operation: Callable[[pathlib.Path, pathlib.Path], None] = os.replace,
+) -> int:
     root = source_root.resolve(strict=True)
     if source_root.is_symlink() or not root.is_dir():
         raise ValueError("source root is missing, linked, or not a directory")
@@ -85,7 +204,11 @@ def apply_overlay(source_root: pathlib.Path, patch_path: pathlib.Path) -> int:
         "schema", "schema_version", "source_revision", "edits"
     }:
         raise ValueError("overlay root fields do not match the closed schema")
-    if patch["schema"] != "t64.cpu-source-overlay" or patch["schema_version"] != 1:
+    if (
+        patch["schema"] != "t64.cpu-source-overlay"
+        or type(patch["schema_version"]) is not int
+        or patch["schema_version"] != 1
+    ):
         raise ValueError("unsupported overlay schema")
     if patch["source_revision"] != PINNED_SOURCE_REVISION:
         raise ValueError("overlay does not target the pinned source revision")
@@ -98,62 +221,129 @@ def apply_overlay(source_root: pathlib.Path, patch_path: pathlib.Path) -> int:
         tuple[pathlib.Path, bytes, list[dict[str, object]], str],
     ] = {}
     for edit in edits:
-        if not isinstance(edit, dict) or set(edit) != {
-            "path", "file_sha256", "offset", "length", "range_sha256", "replacement_utf8"
-        }:
+        range_keys = {"path", "file_sha256", "offset", "length", "range_sha256"}
+        replacement_key_sets = (
+            range_keys | {"replacement_utf8"},
+            range_keys | {"replacement_file", "replacement_sha256"},
+            range_keys | {"generator"},
+        )
+        if not isinstance(edit, dict) or set(edit) not in replacement_key_sets:
             raise ValueError("overlay edit is malformed")
         path_text = edit["path"]
         file_sha = edit["file_sha256"]
-        relative = pathlib.PurePosixPath(path_text) if isinstance(path_text, str) else pathlib.PurePosixPath("")
-        if relative.is_absolute() or not relative.parts or any(
-            part in ("", ".", "..") for part in relative.parts
-        ):
-            raise ValueError("overlay path escapes source root")
+        relative = safe_relative_path(path_text, "overlay target")
         if not isinstance(file_sha, str) or len(file_sha) != 64:
             raise ValueError("overlay source-file SHA-256 is malformed")
         path = checked_source_path(root, relative)
         data = path.read_bytes()
         if sha256(data) != file_sha:
             raise ValueError(f"source file SHA-256 mismatch: {relative.as_posix()}")
+        if "replacement_utf8" in edit:
+            replacement = edit["replacement_utf8"]
+        elif "replacement_file" in edit:
+            replacement_relative = safe_relative_path(
+                edit["replacement_file"], "overlay replacement"
+            )
+            replacement_path = checked_source_path(patch_path.parent.resolve(strict=True), replacement_relative)
+            replacement_bytes = replacement_path.read_bytes()
+            replacement_sha = edit["replacement_sha256"]
+            if (
+                not isinstance(replacement_sha, str)
+                or not re.fullmatch(r"[0-9a-f]{64}", replacement_sha)
+                or sha256(replacement_bytes) != replacement_sha
+            ):
+                raise ValueError("authored overlay replacement SHA-256 mismatch")
+            try:
+                replacement = replacement_bytes.decode("utf-8")
+            except UnicodeDecodeError:
+                raise ValueError("authored replacement is not UTF-8") from None
+        else:
+            if edit["generator"] != "required-testlist-v1":
+                raise ValueError("overlay replacement generator is unsupported")
+            if projection_path is None or source_audit_path is None:
+                raise ValueError("required-testlist generator inputs are missing")
+            replacement = render_required_testlist(root, projection_path, source_audit_path).decode("utf-8")
+        normalized_edit = dict(edit)
+        normalized_edit["replacement_utf8"] = replacement
         if relative in pending:
             saved_path, original, ranges, saved_sha = pending[relative]
             if saved_sha != file_sha or saved_path != path or original != data:
                 raise ValueError("overlay repeats a source path with inconsistent bytes")
-            ranges.append(edit)
+            ranges.append(normalized_edit)
         else:
-            pending[relative] = (path, data, [edit], file_sha)
+            pending[relative] = (path, data, [normalized_edit], file_sha)
 
-    outputs: list[tuple[pathlib.Path, bytes, int]] = []
+    outputs: list[tuple[pathlib.Path, bytes, bytes, int]] = []
     for path, source, ranges, _ in pending.values():
-        outputs.append((path, apply_ranges(source, ranges), path.stat().st_mode & 0o777))
+        outputs.append(
+            (path, apply_ranges(source, ranges), source, path.stat().st_mode & 0o777)
+        )
 
-    for path, data, mode in outputs:
-        descriptor, temporary_name = tempfile.mkstemp(prefix=".cpu-overlay.", dir=path.parent)
-        temporary_path = pathlib.Path(temporary_name)
-        try:
+    staged: list[tuple[pathlib.Path, pathlib.Path, bytes, int]] = []
+    replaced: list[tuple[pathlib.Path, bytes, int]] = []
+    try:
+        for path, data, original, mode in outputs:
+            descriptor, temporary_name = tempfile.mkstemp(
+                prefix=".cpu-overlay.", dir=path.parent
+            )
+            temporary_path = pathlib.Path(temporary_name)
+            staged.append((path, temporary_path, original, mode))
             with os.fdopen(descriptor, "wb") as stream:
                 stream.write(data)
                 stream.flush()
                 os.fsync(stream.fileno())
             temporary_path.chmod(mode)
-            os.replace(temporary_path, path)
-        except BaseException:
+        for path, temporary_path, original, mode in staged:
+            replace_operation(temporary_path, path)
+            replaced.append((path, original, mode))
+    except OSError as error:
+        rollback_errors: list[str] = []
+        for path, original, mode in reversed(replaced):
+            backup_path: pathlib.Path | None = None
             try:
+                descriptor, backup_name = tempfile.mkstemp(
+                    prefix=".cpu-overlay-rollback.", dir=path.parent
+                )
+                backup_path = pathlib.Path(backup_name)
+                with os.fdopen(descriptor, "wb") as stream:
+                    stream.write(original)
+                    stream.flush()
+                    os.fsync(stream.fileno())
+                backup_path.chmod(mode)
+                replace_operation(backup_path, path)
+            except OSError as rollback_error:
+                rollback_errors.append(f"{path}: {rollback_error}")
+            finally:
+                if backup_path is not None and backup_path.exists():
+                    backup_path.unlink()
+        if rollback_errors:
+            raise ValueError(
+                "overlay write failed and rollback was incomplete: "
+                + "; ".join(rollback_errors)
+            ) from error
+        raise ValueError("overlay write failed; already-published edits were restored") from error
+    finally:
+        for _, temporary_path, _, _ in staged:
+            if temporary_path.exists():
                 temporary_path.unlink()
-            except OSError:
-                pass
-            raise
     return 0
 
 
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--apply", nargs=2, metavar=("SOURCE_ROOT", "PATCH"))
+    parser.add_argument("--source-projection")
+    parser.add_argument("--source-audit")
     args = parser.parse_args(argv)
     try:
         if args.apply is None:
             parser.error("--apply SOURCE_ROOT PATCH is required")
-        return apply_overlay(pathlib.Path(args.apply[0]), pathlib.Path(args.apply[1]))
+        return apply_overlay(
+            pathlib.Path(args.apply[0]),
+            pathlib.Path(args.apply[1]),
+            pathlib.Path(args.source_projection) if args.source_projection else None,
+            pathlib.Path(args.source_audit) if args.source_audit else None,
+        )
     except (OSError, ValueError, json.JSONDecodeError) as error:
         print(f"overlay refused: {error}", file=sys.stderr)
         return 4
