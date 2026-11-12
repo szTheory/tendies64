@@ -298,7 +298,10 @@ typedef struct {
   uint32_t fpr_width;
   uint64_t result_bits;
   bool clear_fcr31_causes;
+  uint32_t fcr31_causes;
   uint32_t fcr31_flags;
+  bool write_fcr31_condition;
+  bool fcr31_condition;
 } t64_cpu_cop1_result;
 
 typedef struct {

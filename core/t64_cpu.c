@@ -1903,6 +1903,8 @@ t64_status t64_cpu_step(t64_machine *machine, const t64_event *event) {
   uint32_t destination = 0u;
   uint32_t fpr_destination = 0u;
   uint32_t fpr_width = 0u;
+  uint32_t fcr31_causes = 0u;
+  uint32_t fcr31_flags = 0u;
   uint64_t value = 0u;
   uint64_t fpr_value = 0u;
   t64_cp0_effect cp0_effect = {0};
@@ -1914,6 +1916,8 @@ t64_status t64_cpu_step(t64_machine *machine, const t64_event *event) {
   bool write_gpr = false;
   bool write_fpr = false;
   bool clear_fcr31_causes = false;
+  bool write_fcr31_condition = false;
+  bool fcr31_condition = false;
   bool new_profile;
   bool trap_noop = false;
   bool memory_handled = false;
@@ -2163,6 +2167,10 @@ t64_status t64_cpu_step(t64_machine *machine, const t64_event *event) {
       fpr_value = cop1_result.result_bits;
     }
     clear_fcr31_causes = cop1_result.clear_fcr31_causes;
+    fcr31_causes = cop1_result.fcr31_causes;
+    fcr31_flags = cop1_result.fcr31_flags;
+    write_fcr31_condition = cop1_result.write_fcr31_condition;
+    fcr31_condition = cop1_result.fcr31_condition;
     supported = true;
   } else if ((opcode >> 26) == T64_CPU_CACHE) {
     t64_status cache_status = T64_STATUS_BUS_UNSUPPORTED;
@@ -2203,6 +2211,14 @@ t64_status t64_cpu_step(t64_machine *machine, const t64_event *event) {
   }
   if (clear_fcr31_causes) {
     machine->cpu.fcr31 &= ~T64_CPU_COP1_CAUSE_MASK;
+  }
+  machine->cpu.fcr31 |= fcr31_causes | fcr31_flags;
+  if (write_fcr31_condition) {
+    if (fcr31_condition) {
+      machine->cpu.fcr31 |= UINT32_C(0x00800000);
+    } else {
+      machine->cpu.fcr31 &= ~UINT32_C(0x00800000);
+    }
   }
   if (link && (new_profile || !branch_likely || branch_taken) &&
       link_register != 0u) {
