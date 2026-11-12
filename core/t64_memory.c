@@ -1,0 +1,281 @@
+#include "t64_internal.h"
+
+#include <stdbool.h>
+#include <stdint.h>
+
+typedef struct {
+  bool recognized;
+  bool load;
+  bool store;
+  bool partial_left;
+  bool partial_right;
+  bool sign_extend;
+  uint32_t destination;
+  uint32_t width;
+  uint64_t virtual_address;
+  uint32_t physical_address;
+  uint8_t byte_mask;
+  t64_mmu_result translation;
+  uint64_t bus_value;
+  uint64_t result_value;
+} t64_staged_memory_effect;
+
+static uint64_t sign_extend_16(uint16_t value) {
+  return (value & UINT16_C(0x8000)) != 0u
+             ? UINT64_C(0xffffffffffff0000) | (uint64_t)value
+             : (uint64_t)value;
+}
+
+static uint64_t sign_extend_32(uint32_t value) {
+  return (value & UINT32_C(0x80000000)) != 0u
+             ? UINT64_C(0xffffffff00000000) | (uint64_t)value
+             : (uint64_t)value;
+}
+
+static bool decode_memory_effect(t64_machine *machine, uint32_t opcode,
+                                 t64_staged_memory_effect *effect_out) {
+  uint32_t operation = opcode >> 26;
+  uint32_t rs = (opcode >> 21) & UINT32_C(0x1f);
+  uint32_t rt = (opcode >> 16) & UINT32_C(0x1f);
+  uint16_t immediate = (uint16_t)opcode;
+  uint64_t address;
+
+  if (machine == NULL || effect_out == NULL) {
+    return false;
+  }
+  *effect_out = (t64_staged_memory_effect){0};
+  effect_out->destination = rt;
+  switch (operation) {
+  case 0x1au: effect_out->width = 8u; effect_out->load = true;
+    effect_out->partial_left = true; break;
+  case 0x1bu: effect_out->width = 8u; effect_out->load = true;
+    effect_out->partial_right = true; break;
+  case 0x20u: effect_out->width = 1u; effect_out->load = true;
+    effect_out->sign_extend = true; break;
+  case 0x21u: effect_out->width = 2u; effect_out->load = true;
+    effect_out->sign_extend = true; break;
+  case 0x22u: effect_out->width = 4u; effect_out->load = true;
+    effect_out->partial_left = true; break;
+  case 0x23u: effect_out->width = 4u; effect_out->load = true;
+    effect_out->sign_extend = true; break;
+  case 0x24u: effect_out->width = 1u; effect_out->load = true; break;
+  case 0x25u: effect_out->width = 2u; effect_out->load = true; break;
+  case 0x26u: effect_out->width = 4u; effect_out->load = true;
+    effect_out->partial_right = true; break;
+  case 0x27u: effect_out->width = 4u; effect_out->load = true; break;
+  case 0x28u: effect_out->width = 1u; effect_out->store = true; break;
+  case 0x29u: effect_out->width = 2u; effect_out->store = true; break;
+  case 0x2au: effect_out->width = 4u; effect_out->store = true;
+    effect_out->partial_left = true; break;
+  case 0x2bu: effect_out->width = 4u; effect_out->store = true; break;
+  case 0x2cu: effect_out->width = 8u; effect_out->store = true;
+    effect_out->partial_left = true; break;
+  case 0x2du: effect_out->width = 8u; effect_out->store = true;
+    effect_out->partial_right = true; break;
+  case 0x2eu: effect_out->width = 4u; effect_out->store = true;
+    effect_out->partial_right = true; break;
+  case 0x37u: effect_out->width = 8u; effect_out->load = true; break;
+  case 0x3fu: effect_out->width = 8u; effect_out->store = true; break;
+  default: return false;
+  }
+  effect_out->recognized = true;
+  address = machine->cpu.gpr[rs] + sign_extend_16(immediate);
+  effect_out->virtual_address = address;
+  return true;
+}
+
+static bool translate_effect(t64_machine *machine,
+                             t64_staged_memory_effect *effect) {
+  t64_mmu_request request;
+  t64_mmu_result translation = {0};
+  bool partial = effect->partial_left || effect->partial_right;
+
+  request.virtual_address = effect->virtual_address;
+  request.width = partial ? 1u : effect->width;
+  request.kind = effect->store ? T64_MMU_ACCESS_WRITE : T64_MMU_ACCESS_READ;
+  if (!t64_mmu_translate(machine, &request, &translation) ||
+      translation.fault != T64_MMU_FAULT_NONE || !translation.translated ||
+      translation.physical_address > UINT32_MAX) {
+    return false;
+  }
+  effect->translation = translation;
+  effect->physical_address = (uint32_t)translation.physical_address;
+  if (partial) {
+    effect->physical_address &= ~(effect->width - 1u);
+  }
+  return true;
+}
+
+static uint64_t read_bus_value(t64_machine *machine, uint32_t address,
+                               uint32_t width, bool *okay_out) {
+  uint64_t value = 0u;
+  uint32_t part = 0u;
+  t64_status status;
+
+  *okay_out = false;
+  if (width == 8u) {
+    status = t64_bus_read_wide(machine, address, &value);
+  } else {
+    status = t64_bus_read(machine, address, width, &part);
+    value = (uint64_t)part;
+  }
+  if (status == T64_STATUS_OK) {
+    *okay_out = true;
+  }
+  return value;
+}
+
+static uint64_t byte_at(uint64_t value, uint32_t width, uint32_t index) {
+  uint32_t shift = (width - index - 1u) * 8u;
+  return (value >> shift) & UINT64_C(0xff);
+}
+
+static uint64_t merge_load(uint64_t memory, uint64_t previous,
+                           uint32_t width, uint32_t offset, bool left) {
+  uint64_t result = previous &
+                    (width == 4u ? UINT64_C(0xffffffff) : UINT64_MAX);
+  uint32_t count = left ? width - offset : offset + 1u;
+  uint32_t index;
+
+  for (index = 0u; index < count; index++) {
+    uint32_t memory_index = left ? offset + index : index;
+    uint32_t register_index = left ? index : width - count + index;
+    uint32_t shift = (width - register_index - 1u) * 8u;
+    uint64_t lane_mask = UINT64_C(0xff) << shift;
+
+    result = (result & ~lane_mask) | (byte_at(memory, width, memory_index)
+                                      << shift);
+  }
+  return result;
+}
+
+static uint8_t merge_store_mask(uint32_t width, uint32_t offset, bool left) {
+  uint32_t count = left ? width - offset : offset + 1u;
+  uint8_t mask = 0u;
+  uint32_t index;
+
+  for (index = 0u; index < count; index++) {
+    uint32_t memory_index = left ? offset + index : index;
+    mask = (uint8_t)(mask | (uint8_t)(UINT8_C(1) << memory_index));
+  }
+  return mask;
+}
+
+static uint64_t merge_store_value(uint64_t source, uint32_t width,
+                                  uint32_t offset, bool left) {
+  uint32_t count = left ? width - offset : offset + 1u;
+  uint64_t value = 0u;
+  uint32_t index;
+
+  for (index = 0u; index < count; index++) {
+    uint32_t memory_index = left ? offset + index : index;
+    uint32_t register_index = left ? index : width - count + index;
+    uint32_t shift = (width - memory_index - 1u) * 8u;
+
+    value |= byte_at(source, width, register_index) << shift;
+  }
+  return value;
+}
+
+static bool stage_memory_effect(t64_machine *machine, uint32_t opcode,
+                                t64_staged_memory_effect *effect) {
+  uint32_t rt = (opcode >> 16) & UINT32_C(0x1f);
+  bool okay;
+
+  if (!decode_memory_effect(machine, opcode, effect) ||
+      !translate_effect(machine, effect)) {
+    return false;
+  }
+  if (effect->load) {
+    uint32_t offset =
+        (uint32_t)effect->virtual_address & (effect->width - 1u);
+    bool partial = effect->partial_left || effect->partial_right;
+
+    effect->byte_mask =
+        partial ? merge_store_mask(effect->width, offset,
+                                   effect->partial_left)
+                : (uint8_t)((UINT32_C(1) << effect->width) - 1u);
+
+    effect->bus_value = read_bus_value(machine, effect->physical_address,
+                                       effect->width, &okay);
+    if (!okay) {
+      return false;
+    }
+    if (effect->partial_left || effect->partial_right) {
+      effect->result_value = merge_load(
+          effect->bus_value, machine->cpu.gpr[rt], effect->width, offset,
+          effect->partial_left);
+    } else {
+      effect->result_value = effect->bus_value;
+      if (effect->sign_extend && effect->width == 1u &&
+          (effect->bus_value & UINT64_C(0x80)) != 0u) {
+        effect->result_value |= UINT64_C(0xffffffffffffff00);
+      } else if (effect->sign_extend && effect->width == 2u &&
+                 (effect->bus_value & UINT64_C(0x8000)) != 0u) {
+        effect->result_value |= UINT64_C(0xffffffffffff0000);
+      } else if (effect->sign_extend && effect->width == 4u) {
+        effect->result_value = sign_extend_32((uint32_t)effect->bus_value);
+      }
+    }
+    if (effect->width == 4u && (effect->partial_left || effect->partial_right)) {
+      effect->result_value = sign_extend_32((uint32_t)effect->result_value);
+    }
+    return true;
+  }
+
+  if (effect->store) {
+    uint64_t source = machine->cpu.gpr[rt];
+    uint32_t offset =
+        (uint32_t)effect->virtual_address & (effect->width - 1u);
+
+    if (effect->partial_left || effect->partial_right) {
+      effect->byte_mask = merge_store_mask(effect->width, offset,
+                                           effect->partial_left);
+      effect->bus_value = merge_store_value(source, effect->width, offset,
+                                            effect->partial_left);
+    } else {
+      effect->byte_mask = (uint8_t)((UINT32_C(1) << effect->width) - 1u);
+      effect->bus_value = source;
+    }
+    return true;
+  }
+  return false;
+}
+
+static bool commit_memory_effect(t64_machine *machine,
+                                 t64_staged_memory_effect *effect) {
+  t64_status status;
+
+  if (effect->store) {
+    if (effect->width <= 4u && effect->byte_mask ==
+                                    (uint8_t)((UINT32_C(1) << effect->width) -
+                                              1u)) {
+      status = t64_bus_write(machine, effect->physical_address,
+                             effect->width, (uint32_t)effect->bus_value);
+    } else {
+      status = t64_bus_write_masked(machine, effect->physical_address,
+                                    effect->width, effect->byte_mask,
+                                    effect->bus_value);
+    }
+    return status == T64_STATUS_OK;
+  }
+  return effect->load;
+}
+
+bool t64_memory_execute(t64_machine *machine, uint32_t opcode,
+                        bool *write_gpr_out, uint32_t *destination_out,
+                        uint64_t *value_out) {
+  t64_staged_memory_effect effect;
+
+  if (write_gpr_out == NULL || destination_out == NULL || value_out == NULL ||
+      !stage_memory_effect(machine, opcode, &effect) ||
+      !commit_memory_effect(machine, &effect)) {
+    return false;
+  }
+  if (effect.load) {
+    *write_gpr_out = true;
+    *destination_out = effect.destination;
+    *value_out = effect.result_value;
+  }
+  return true;
+}

@@ -163,6 +163,16 @@ static void write_big_endian(uint8_t *bytes, uint32_t width,
   bytes[3] = (uint8_t)value;
 }
 
+static uint64_t read_big_endian_64(const uint8_t *bytes) {
+  uint64_t value = 0u;
+  uint32_t index;
+
+  for (index = 0u; index < 8u; index++) {
+    value = (value << 8) | (uint64_t)bytes[index];
+  }
+  return value;
+}
+
 static const uint8_t *region_bytes(const t64_machine *machine,
                                    t64_bus_region region,
                                    uint32_t address, size_t *remaining_out) {
@@ -361,6 +371,47 @@ t64_status t64_bus_read(t64_machine *machine, uint32_t address,
   return T64_STATUS_OK;
 }
 
+t64_status t64_bus_read_wide(t64_machine *machine, uint32_t address,
+                             uint64_t *value_out) {
+  t64_bus_region region;
+  const uint8_t *bytes;
+  size_t remaining = 0u;
+
+  if (machine == NULL || value_out == NULL) {
+    return T64_STATUS_INVALID_ARGUMENT;
+  }
+  if ((address & UINT32_C(7)) != 0u) {
+    return T64_STATUS_BUS_ALIGNMENT;
+  }
+  if ((uint64_t)address + UINT64_C(8) > UINT64_C(0x100000000)) {
+    return T64_STATUS_BUS_RANGE;
+  }
+  region = decode_region(machine, address);
+  if (region == T64_BUS_REGION_UNMAPPED) {
+    return T64_STATUS_BUS_UNMAPPED;
+  }
+  if (region == T64_BUS_REGION_UNSUPPORTED) {
+    return T64_STATUS_BUS_UNSUPPORTED;
+  }
+  if (region == T64_BUS_REGION_MI || region == T64_BUS_REGION_PI ||
+      region == T64_BUS_REGION_SP_REG || region == T64_BUS_REGION_WARM ||
+      region == T64_BUS_REGION_ISVIEWER ||
+      region == T64_BUS_REGION_ABSENT_RDRAM_PROBE) {
+    return T64_STATUS_BUS_DEVICE_REFUSED;
+  }
+  bytes = region_bytes(machine, region, address, &remaining);
+  if (bytes == NULL) {
+    return region == T64_BUS_REGION_CARTRIDGE
+               ? T64_STATUS_BUS_RANGE
+               : T64_STATUS_BUS_DEVICE_REFUSED;
+  }
+  if (remaining < 8u) {
+    return T64_STATUS_BUS_RANGE;
+  }
+  *value_out = read_big_endian_64(bytes);
+  return T64_STATUS_OK;
+}
+
 t64_status t64_bus_write(t64_machine *machine, uint32_t address,
                          uint32_t width, uint32_t value) {
   t64_bus_region region;
@@ -477,6 +528,90 @@ t64_status t64_bus_write(t64_machine *machine, uint32_t address,
   }
   write_big_endian(bytes, width, value);
   trace_bus(machine, address, width, value, true);
+  return T64_STATUS_OK;
+}
+
+t64_status t64_bus_write_masked(t64_machine *machine, uint32_t address,
+                                uint32_t width, uint8_t byte_mask,
+                                uint64_t value) {
+  t64_bus_region region;
+  uint8_t *bytes = NULL;
+  size_t offset = 0u;
+  size_t remaining = 0u;
+  uint32_t index;
+  uint32_t byte_count;
+  uint32_t valid_mask;
+
+  if (machine == NULL || (width != 4u && width != 8u)) {
+    return T64_STATUS_INVALID_ARGUMENT;
+  }
+  byte_count = width;
+  valid_mask = (UINT32_C(1) << byte_count) - 1u;
+  if (byte_mask == 0u || ((uint32_t)byte_mask & ~valid_mask) != 0u) {
+    return T64_STATUS_INVALID_ARGUMENT;
+  }
+  if ((address & (width - 1u)) != 0u) {
+    return T64_STATUS_BUS_ALIGNMENT;
+  }
+  if ((uint64_t)address + width > UINT64_C(0x100000000)) {
+    return T64_STATUS_BUS_RANGE;
+  }
+  if (width == 4u && byte_mask == UINT8_C(0x0f)) {
+    return t64_bus_write(machine, address, 4u, (uint32_t)value);
+  }
+
+  region = decode_region(machine, address);
+  if (region == T64_BUS_REGION_UNMAPPED) {
+    return T64_STATUS_BUS_UNMAPPED;
+  }
+  if (region == T64_BUS_REGION_UNSUPPORTED) {
+    return T64_STATUS_BUS_UNSUPPORTED;
+  }
+  switch (region) {
+  case T64_BUS_REGION_RDRAM:
+    offset = (size_t)address;
+    remaining = (size_t)machine->profile.rdram_bytes - offset;
+    bytes = machine->ram + offset;
+    break;
+  case T64_BUS_REGION_SP_DMEM:
+    offset = (size_t)(address - T64_SP_DMEM_BASE);
+    remaining = sizeof machine->sp_dmem - offset;
+    bytes = machine->sp_dmem + offset;
+    break;
+  case T64_BUS_REGION_SP_IMEM:
+    offset = (size_t)(address - T64_SP_IMEM_BASE);
+    remaining = sizeof machine->sp_imem - offset;
+    bytes = machine->sp_imem + offset;
+    break;
+  case T64_BUS_REGION_CARTRIDGE:
+  case T64_BUS_REGION_UNMAPPED:
+  case T64_BUS_REGION_UNSUPPORTED:
+  case T64_BUS_REGION_MI:
+  case T64_BUS_REGION_PI:
+  case T64_BUS_REGION_SP_REG:
+  case T64_BUS_REGION_WARM:
+  case T64_BUS_REGION_ISVIEWER:
+  case T64_BUS_REGION_ABSENT_RDRAM_PROBE:
+    break;
+  }
+  if (bytes == NULL) {
+    return T64_STATUS_BUS_DEVICE_REFUSED;
+  }
+  if ((size_t)width > remaining) {
+    return T64_STATUS_BUS_RANGE;
+  }
+  for (index = 0u; index < byte_count; index++) {
+    if (((uint32_t)byte_mask & (UINT32_C(1) << index)) != 0u) {
+      uint32_t shift = (byte_count - index - 1u) * 8u;
+      bytes[index] = (uint8_t)(value >> shift);
+    }
+  }
+  if (width == 4u) {
+    trace_bus(machine, address, 4u, (uint32_t)value, true);
+  } else {
+    trace_bus(machine, address, 4u, (uint32_t)(value >> 32), true);
+    trace_bus(machine, address + 4u, 4u, (uint32_t)value, true);
+  }
   return T64_STATUS_OK;
 }
 

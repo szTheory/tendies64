@@ -599,6 +599,11 @@ static bool execute_memory(t64_machine *machine, uint32_t opcode,
   bool partial_left = false;
   bool partial_right = false;
 
+  if (has_vr4300_cpu_state(machine)) {
+    return t64_memory_execute(machine, opcode, write_gpr_out,
+                              destination_out, value_out);
+  }
+
   switch (operation) {
   case 0x1au: width = 8u; is_load = true; partial_left = true; break;
   case 0x1bu: width = 8u; is_load = true; partial_right = true; break;

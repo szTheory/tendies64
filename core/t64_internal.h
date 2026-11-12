@@ -487,8 +487,16 @@ void t64_trace_emit(t64_machine *machine, uint64_t tick, uint32_t device,
                     uint32_t kind, uint64_t value);
 t64_status t64_bus_read(t64_machine *machine, uint32_t address,
                         uint32_t width, uint32_t *value_out);
+t64_status t64_bus_read_wide(t64_machine *machine, uint32_t address,
+                             uint64_t *value_out);
 t64_status t64_bus_write(t64_machine *machine, uint32_t address,
                          uint32_t width, uint32_t value);
+t64_status t64_bus_write_masked(t64_machine *machine, uint32_t address,
+                                 uint32_t width, uint8_t byte_mask,
+                                 uint64_t value);
+bool t64_memory_execute(t64_machine *machine, uint32_t opcode,
+                        bool *write_gpr_out, uint32_t *destination_out,
+                        uint64_t *value_out);
 t64_status t64_warm_device_read(const t64_machine *machine, uint32_t address,
                                 uint32_t width, uint32_t *value_out);
 t64_status t64_warm_device_write(t64_machine *machine, uint32_t address,
