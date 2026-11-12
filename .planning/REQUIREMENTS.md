@@ -63,7 +63,7 @@ API and a playable rights-cleared homebrew. Each maps to a roadmap phase.
 
 ### VR4300 CPU (CPU)
 
-- [ ] **CPU-01**: The VR4300 integer interpreter runs MIPS III 64-bit operations with correct 32-bit sign-extension behavior
+- [x] **CPU-01**: The VR4300 integer interpreter runs MIPS III 64-bit operations with correct 32-bit sign-extension behavior
 - [ ] **CPU-02**: Branches, branch-likely and delay slots behave correctly, including exceptions in delay slots
 - [ ] **CPU-03**: CP0 (Count, Compare, Status, Cause, Random, writable masks), exceptions and interrupts behave per the primary manual
 - [ ] **CPU-04**: Address translation includes the TLB (refill, invalid, modified, XTLB) and address errors
@@ -215,7 +215,7 @@ re-sequenced at milestone close.
 | BUS-02 | Phase 2 | Complete |
 | BUS-03 | Phase 6 | Pending |
 | BUS-04 | Phase 2 | Complete |
-| CPU-01 | Phase 4 | Pending |
+| CPU-01 | Phase 4 | Complete |
 | CPU-02 | Phase 4 | Pending |
 | CPU-03 | Phase 4 | Pending |
 | CPU-04 | Phase 4 | Pending |
