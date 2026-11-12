@@ -86,6 +86,15 @@ static const t64_profile_descriptor ntsc_cart_4m_profile = {
         0x6bu, 0x90u, 0x23u, 0x11u, 0xddu, 0x8cu, 0xc1u, 0x95u,              \
         0x1du, 0x14u, 0xcau, 0xb5u, 0xc1u, 0x32u, 0x58u, 0x64u               \
   }
+#define T64_VR4300_OPENIPL3_POLICY_SHA256_BYTES                              \
+  {                                                                          \
+    0xfau, 0xa5u, 0x44u, 0x38u, 0xc8u, 0xb0u, 0xcdu, 0xd6u,                  \
+        0x0eu, 0x1eu, 0x38u, 0x8bu, 0x61u, 0x56u, 0x6au, 0x96u,              \
+        0x3au, 0xd3u, 0xd1u, 0xfeu, 0xb0u, 0x5cu, 0x23u, 0xcbu,              \
+        0xf2u, 0x07u, 0xb4u, 0x64u, 0x51u, 0x57u, 0x06u, 0x4cu               \
+  }
+#define T64_VR4300_OPENIPL3_FLAT_ENTRY_POLICY \
+  "exact-source-or-flat-payload-z64-v3"
 
 static const t64_profile_descriptor ntsc_cart_4m_openipl3_warm_profile = {
     .profile_id = "ntsc-cart-4m-openipl3-warm-v1",
@@ -138,12 +147,65 @@ static const t64_profile_descriptor ntsc_cart_4m_openipl3_warm_profile = {
     .hle_seed_reset_version = 1u,
 };
 
+static const t64_profile_descriptor ntsc_cart_4m_openipl3_vr4300_profile = {
+    .profile_id = "ntsc-cart-4m-openipl3-vr4300-v1",
+    .console_target = "NUS-CPU-03",
+    .console_qualification = "unqualified-target-software-seed",
+    .tv_standard = T64_TV_NTSC,
+    .region = T64_REGION_US,
+    .media_kind = T64_MEDIA_CARTRIDGE,
+    .rdram_bytes = T64_BASE_RAM_BYTES,
+    .expansion_bytes = 0u,
+    .peripheral_flags = 0u,
+    .save_kind = T64_SAVE_NONE,
+    .boot_route = "hle-pif+open-ipl3",
+    .boot_status = "prepared-vr4300-entry-partial",
+    .guest_tick_unit = "model-rsp-cycle",
+    .cpu_rsp_ratio_numerator = 1u,
+    .cpu_rsp_ratio_denominator = 1u,
+    .synchronization_quantum = 1u,
+    .timing_tier = "instruction-step-model-policy",
+    .scheduler_version = "tick-sequence-fifo-v1",
+    .pi_model_version = "pi_dma_bounded_cart_v1",
+    .sp_model_version = "sp_dma_bounded_warm_v1",
+    .rom_min_bytes = 4096u,
+    .rom_max_bytes = T64_OPENIPL3_ROM_LIMIT,
+    .event_queue_capacity = 256u,
+    .sequence_width_bits = 64u,
+    .advance_event_budget = 4096u,
+    .pi_duration_base_ticks = 1u,
+    .pi_duration_bytes_divisor = 2u,
+    .sp_duration_base_rsp_cycles = 12u,
+    .sp_duration_bytes_divisor = 8u,
+    .rom_order_policy = T64_VR4300_OPENIPL3_FLAT_ENTRY_POLICY,
+    .event_order_policy = "tick-sequence-fifo-v1",
+    .queue_exhaustion_policy = "reject-before-mutation-v1",
+    .sequence_exhaustion_policy = "reject-before-mutation-v1",
+    .advance_budget_policy = "bounded-4096-events-v1",
+    .guest_time_bound_policy = "inclusive-idle-advance-v1",
+    .halt_precedence_policy = "halt-at-bound-wins-v1",
+    .pi_register_policy = "bounded-pi-register-and-cart-dma-v1",
+    .sp_register_policy = "bounded-sp-register-reset-and-dma-v1",
+    .device_error_policy = "sticky-pi-error-v1",
+    .dma_cancel_policy = "token-match-complete-once-v1",
+    .dma_visibility_policy = "atomic-source-at-completion-v1",
+    .descriptor_version = 3u,
+    .machine_model_version = 3u,
+    .state_serialization_version = 9u,
+    .asset_sha256 = T64_OPENIPL3_ASSET_SHA256_BYTES,
+    .payload_sha256 = T64_OPENIPL3_PAYLOAD_SHA256_BYTES,
+    .boot_policy_sha256 = T64_VR4300_OPENIPL3_POLICY_SHA256_BYTES,
+    .hle_seed_reset_version = 2u,
+};
+
 static const uint8_t openipl3_asset_sha256[T64_DIGEST_SIZE] =
     T64_OPENIPL3_ASSET_SHA256_BYTES;
 static const uint8_t openipl3_payload_sha256[T64_DIGEST_SIZE] =
     T64_OPENIPL3_PAYLOAD_SHA256_BYTES;
 static const uint8_t openipl3_policy_sha256[T64_DIGEST_SIZE] =
     T64_OPENIPL3_POLICY_SHA256_BYTES;
+static const uint8_t vr4300_openipl3_policy_sha256[T64_DIGEST_SIZE] =
+    T64_VR4300_OPENIPL3_POLICY_SHA256_BYTES;
 
 static size_t bounded_text_length(const char *text, size_t capacity) {
   size_t length = 0u;
@@ -163,6 +225,22 @@ static bool has_openipl3_profile_id(const t64_profile_descriptor *profile) {
          memcmp(profile->profile_id, profile_id, sizeof profile_id - 1u) == 0;
 }
 
+static bool has_vr4300_openipl3_profile_id(
+    const t64_profile_descriptor *profile) {
+  static const char profile_id[] = "ntsc-cart-4m-openipl3-vr4300-v1";
+
+  return profile != NULL &&
+         bounded_text_length(profile->profile_id, sizeof profile->profile_id) ==
+             sizeof profile_id - 1u &&
+         memcmp(profile->profile_id, profile_id, sizeof profile_id - 1u) == 0;
+}
+
+static bool has_pinned_openipl3_profile_id(
+    const t64_profile_descriptor *profile) {
+  return has_openipl3_profile_id(profile) ||
+         has_vr4300_openipl3_profile_id(profile);
+}
+
 static bool is_openipl3_profile(const t64_profile_descriptor *profile) {
   uint8_t candidate_digest[T64_DIGEST_SIZE];
   uint8_t canonical_digest[T64_DIGEST_SIZE];
@@ -176,6 +254,28 @@ static bool is_openipl3_profile(const t64_profile_descriptor *profile) {
   }
   return memcmp(candidate_digest, canonical_digest,
                 sizeof candidate_digest) == 0;
+}
+
+static bool is_vr4300_openipl3_profile(
+    const t64_profile_descriptor *profile) {
+  uint8_t candidate_digest[T64_DIGEST_SIZE];
+  uint8_t canonical_digest[T64_DIGEST_SIZE];
+
+  if (profile == NULL || profile->descriptor_version != 3u ||
+      !has_vr4300_openipl3_profile_id(profile) ||
+      t64_profile_hash(profile, candidate_digest) != T64_STATUS_OK ||
+      t64_profile_hash(&ntsc_cart_4m_openipl3_vr4300_profile,
+                       canonical_digest) != T64_STATUS_OK) {
+    return false;
+  }
+  return memcmp(candidate_digest, canonical_digest,
+                sizeof candidate_digest) == 0;
+}
+
+static bool is_pinned_openipl3_profile(
+    const t64_profile_descriptor *profile) {
+  return is_openipl3_profile(profile) ||
+         is_vr4300_openipl3_profile(profile);
 }
 
 static uint32_t read_be32(const uint8_t *bytes) {
@@ -323,6 +423,17 @@ static void profile_writer_text(profile_writer *writer, const char *text,
   profile_writer_bytes(writer, (const uint8_t *)text, length);
 }
 
+static void write_openipl3_boot_metadata(
+    profile_writer *writer, const t64_profile_descriptor *profile) {
+  profile_writer_bytes(writer, profile->asset_sha256,
+                       sizeof profile->asset_sha256);
+  profile_writer_bytes(writer, profile->payload_sha256,
+                       sizeof profile->payload_sha256);
+  profile_writer_bytes(writer, profile->boot_policy_sha256,
+                       sizeof profile->boot_policy_sha256);
+  profile_writer_u32(writer, profile->hle_seed_reset_version);
+}
+
 static void write_profile(profile_writer *writer,
                           const t64_profile_descriptor *profile) {
   static const uint8_t domain[] = {'T', '6', '4', 'P', 'D', 'E', 'S', 'C'};
@@ -395,13 +506,10 @@ static void write_profile(profile_writer *writer,
   profile_writer_u32(writer, profile->machine_model_version);
   profile_writer_u32(writer, profile->state_serialization_version);
   if (profile->descriptor_version == 2u) {
-    profile_writer_bytes(writer, profile->asset_sha256,
-                         sizeof profile->asset_sha256);
-    profile_writer_bytes(writer, profile->payload_sha256,
-                         sizeof profile->payload_sha256);
-    profile_writer_bytes(writer, profile->boot_policy_sha256,
-                         sizeof profile->boot_policy_sha256);
-    profile_writer_u32(writer, profile->hle_seed_reset_version);
+    write_openipl3_boot_metadata(writer, profile);
+  } else if (profile->descriptor_version == 3u) {
+    /* Descriptor v3 explicitly carries all pinned boot metadata as well. */
+    write_openipl3_boot_metadata(writer, profile);
   }
 }
 
@@ -505,6 +613,60 @@ static t64_status prepare_openipl3_warm_entry(t64_machine *machine) {
   return t64_cpu_schedule(machine);
 }
 
+static t64_status prepare_openipl3_vr4300_entry(t64_machine *machine) {
+  const uint8_t *image = (const uint8_t *)machine->image_storage.data;
+
+  machine->boot.source_offset = UINT32_C(0x40);
+  machine->boot.payload_length = UINT32_C(0xfc0);
+  machine->boot.dmem_offset = UINT32_C(0x40);
+  machine->boot.entry_pc = UINT32_C(0xa4000040);
+  machine->boot.seed_reset_version = UINT32_C(2);
+  machine->boot.seed_s3_rom_type = UINT32_C(0);
+  machine->boot.seed_s4_tv_type = UINT32_C(1);
+  machine->boot.seed_s5_reset_type = UINT32_C(1);
+  machine->boot.seed_s6_entropy = UINT32_C(0);
+  machine->boot.seed_s7_boot_info_version = UINT32_C(1);
+  (void)memcpy(machine->boot.asset_sha256, openipl3_asset_sha256,
+               sizeof machine->boot.asset_sha256);
+  (void)memcpy(machine->boot.payload_sha256, openipl3_payload_sha256,
+               sizeof machine->boot.payload_sha256);
+  (void)memcpy(machine->boot.policy_sha256, vr4300_openipl3_policy_sha256,
+               sizeof machine->boot.policy_sha256);
+  (void)memcpy(machine->sp_dmem + machine->boot.dmem_offset,
+               image + machine->boot.source_offset,
+               machine->boot.payload_length);
+  machine->cpu.gpr[19] = machine->boot.seed_s3_rom_type;
+  machine->cpu.gpr[20] = machine->boot.seed_s4_tv_type;
+  machine->cpu.gpr[21] = machine->boot.seed_s5_reset_type;
+  machine->cpu.gpr[22] = machine->boot.seed_s6_entropy;
+  machine->cpu.gpr[23] = machine->boot.seed_s7_boot_info_version;
+  machine->cpu.pc = machine->boot.entry_pc;
+  /*
+   * Prepared software seed, not a cold-reset or NUS-CPU-03 measurement.
+   * Config fixed fields/positions follow NEC U10504EJ7V0UMJ1 §5.4.6,
+   * pp.151-153; the VR4300 implementation identifier follows §5.4.5, p.151.
+   */
+  machine->cpu.cp0[1] = UINT32_C(31); /* Random, selected prepared boundary. */
+  machine->cpu.cp0[6] = UINT32_C(0);  /* Wired. */
+  machine->cpu.cp0[12] = UINT32_C(0x34000000); /* CU0/CU1/FR; kernel. */
+  machine->cpu.cp0[15] = UINT32_C(0x00000b00); /* PRId Imp 0x0b, Rev 0. */
+  machine->cpu.cp0[16] = UINT32_C(0x7006e463);
+  /* Count=Compare=0, phase=0, and no initial equality latch. */
+  machine->cpu.cp0[9] = UINT32_C(0);
+  machine->cpu.cp0[11] = UINT32_C(0);
+  machine->cache.policy_version = UINT32_C(2);
+  machine->guest_devices.policy_version = T64_WARM_DEVICE_POLICY_VERSION;
+  machine->guest_devices.mi_version = 0u;
+  machine->guest_devices.ri_select = 1u;
+  machine->guest_devices.mi_version_known = true;
+  machine->guest_devices.ri_select_known = true;
+  machine->output.policy_version = T64_ISVIEWER_POLICY_VERSION;
+  machine->boot.prepared = true;
+  t64_trace_emit(machine, machine->tick, T64_TRACE_DEVICE_MACHINE,
+                 T64_TRACE_KIND_CPU_ENTRY, machine->cpu.pc);
+  return t64_cpu_schedule(machine);
+}
+
 static t64_status reset_guest_state(t64_machine *machine) {
   t64_machine_reset_execution_state(machine);
   (void)memset(machine->ram, 0, machine->profile.rdram_bytes);
@@ -523,6 +685,9 @@ static t64_status reset_guest_state(t64_machine *machine) {
   if (is_openipl3_profile(&machine->profile)) {
     return prepare_openipl3_warm_entry(machine);
   }
+  if (is_vr4300_openipl3_profile(&machine->profile)) {
+    return prepare_openipl3_vr4300_entry(machine);
+  }
   return T64_STATUS_OK;
 }
 
@@ -533,9 +698,9 @@ const char *t64_source_revision(void) { return T64_SOURCE_REVISION; }
 t64_status t64_profile_lookup(const char *profile_id,
                               const t64_profile_descriptor **profile_out) {
   static const char skeleton_profile_id[] = "ntsc-cart-4m-skeleton";
-  static const char openipl3_profile_id[] =
-      "ntsc-cart-4m-openipl3-warm-v1";
-  size_t i;
+  static const char warm_profile_id[] = "ntsc-cart-4m-openipl3-warm-v1";
+  static const char vr4300_profile_id[] =
+      "ntsc-cart-4m-openipl3-vr4300-v1";
 
   if (profile_out == NULL) {
     return T64_STATUS_INVALID_ARGUMENT;
@@ -544,24 +709,19 @@ t64_status t64_profile_lookup(const char *profile_id,
   if (profile_id == NULL || profile_id[0] == '\0') {
     return T64_STATUS_INVALID_ARGUMENT;
   }
-  for (i = 0u;; i++) {
-    if (profile_id[i] != skeleton_profile_id[i]) {
-      break;
-    }
-    if (skeleton_profile_id[i] == '\0') {
-      *profile_out = &ntsc_cart_4m_profile;
-      return T64_STATUS_OK;
-    }
+  if (strcmp(profile_id, skeleton_profile_id) == 0) {
+    *profile_out = &ntsc_cart_4m_profile;
+    return T64_STATUS_OK;
   }
-  for (i = 0u;; i++) {
-    if (profile_id[i] != openipl3_profile_id[i]) {
-      return T64_STATUS_UNKNOWN_PROFILE;
-    }
-    if (openipl3_profile_id[i] == '\0') {
-      *profile_out = &ntsc_cart_4m_openipl3_warm_profile;
-      return T64_STATUS_OK;
-    }
+  if (strcmp(profile_id, warm_profile_id) == 0) {
+    *profile_out = &ntsc_cart_4m_openipl3_warm_profile;
+    return T64_STATUS_OK;
   }
+  if (strcmp(profile_id, vr4300_profile_id) == 0) {
+    *profile_out = &ntsc_cart_4m_openipl3_vr4300_profile;
+    return T64_STATUS_OK;
+  }
+  return T64_STATUS_UNKNOWN_PROFILE;
 }
 
 t64_status t64_profile_hash(const t64_profile_descriptor *profile,
@@ -637,9 +797,8 @@ t64_status t64_machine_create(const t64_host_allocator *allocator,
       t64_profile_hash(profile, profile_digest) != T64_STATUS_OK) {
     return T64_STATUS_INVALID_ARGUMENT;
   }
-  if (profile->descriptor_version == 2u &&
-      has_openipl3_profile_id(profile) &&
-      !is_openipl3_profile(profile)) {
+  if (has_pinned_openipl3_profile_id(profile) &&
+      !is_pinned_openipl3_profile(profile)) {
     return T64_STATUS_INVALID_ARGUMENT;
   }
   total_size = (size_t)profile->rdram_bytes;
@@ -691,12 +850,21 @@ t64_status t64_machine_admit_rom(t64_machine *machine, const uint8_t *bytes,
                                  size_t length) {
   t64_rom_candidate candidate;
   t64_host_storage previous;
+  uint8_t current_profile_digest[T64_DIGEST_SIZE];
   t64_status status;
 
   if (machine == NULL) {
     return T64_STATUS_INVALID_ROM;
   }
-  if (is_openipl3_profile(&machine->profile)) {
+  if (t64_profile_hash(&machine->profile, current_profile_digest) !=
+          T64_STATUS_OK ||
+      memcmp(current_profile_digest, machine->profile_digest,
+             sizeof current_profile_digest) != 0 ||
+      (has_pinned_openipl3_profile_id(&machine->profile) &&
+       !is_pinned_openipl3_profile(&machine->profile))) {
+    return T64_STATUS_INVALID_ARGUMENT;
+  }
+  if (is_pinned_openipl3_profile(&machine->profile)) {
     status = t64_rom_input_preflight(
         &machine->profile, bytes, length, machine->machine_storage,
         machine->image_storage, machine->has_image, NULL);

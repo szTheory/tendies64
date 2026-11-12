@@ -139,6 +139,7 @@ static void test_vr4300_profile_entry(
   T64_CHECK_INT(machine->cpu.gpr[21], 1u);
   T64_CHECK_INT(machine->cpu.gpr[22], 0u);
   T64_CHECK_INT(machine->cpu.gpr[23], 1u);
+  T64_CHECK_INT(machine->cpu.gpr[2], 0u);
   T64_CHECK_INT(machine->cpu.cp0[1], 31u);
   T64_CHECK_INT(machine->cpu.cp0[6], 0u);
   T64_CHECK_INT(machine->cpu.cp0[9], 0u);
@@ -190,7 +191,7 @@ static void test_vr4300_profile_entry(
                                   &rejected_machine),
                 T64_STATUS_INVALID_ARGUMENT);
   T64_CHECK(rejected_machine == NULL);
-  T64_CHECK_INT(allocator_state_value.outstanding, 1u);
+  T64_CHECK_INT(allocator_state_value.outstanding, 2u);
 
   /* Exercise a corrupted in-machine descriptor as a transactional refusal. */
   machine->profile.boot_policy_sha256[0] ^= UINT8_C(1);

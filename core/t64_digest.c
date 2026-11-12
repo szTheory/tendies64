@@ -64,6 +64,8 @@ t64_status t64_machine_digest(const t64_machine *machine,
                                       'e', '.', 'v', '7'};
   static const uint8_t domain_v8[] = {'t', '6', '4', '.', 's', 't', 'a', 't',
                                       'e', '.', 'v', '8'};
+  static const uint8_t domain_v9[] = {'t', '6', '4', '.', 's', 't', 'a', 't',
+                                      'e', '.', 'v', '9'};
   t64_sha256_ctx context;
   t64_address_range output_range;
   const bool has_v6_state =
@@ -72,7 +74,10 @@ t64_status t64_machine_digest(const t64_machine *machine,
       machine != NULL && machine->profile.state_serialization_version == 7u;
   const bool has_v8_state =
       machine != NULL && machine->profile.state_serialization_version == 8u;
-  const bool has_warm_state = has_v6_state || has_v7_state || has_v8_state;
+  const bool has_v9_state =
+      machine != NULL && machine->profile.state_serialization_version == 9u;
+  const bool has_warm_state =
+      has_v6_state || has_v7_state || has_v8_state || has_v9_state;
   size_t i;
 
   if (machine == NULL || digest_out == NULL ||
@@ -85,7 +90,9 @@ t64_status t64_machine_digest(const t64_machine *machine,
   }
 
   t64_sha256_init(&context);
-  if (has_v8_state) {
+  if (has_v9_state) {
+    t64_sha256_update(&context, domain_v9, sizeof domain_v9);
+  } else if (has_v8_state) {
     t64_sha256_update(&context, domain_v8, sizeof domain_v8);
   } else if (has_v7_state) {
     t64_sha256_update(&context, domain_v7, sizeof domain_v7);
@@ -224,7 +231,7 @@ t64_status t64_machine_digest(const t64_machine *machine,
                                                           : UINT32_C(0));
     hash_u32(&context, machine->output.audio_output_ready ? UINT32_C(1)
                                                           : UINT32_C(0));
-    if (has_v7_state || has_v8_state) {
+    if (has_v7_state || has_v8_state || has_v9_state) {
       /* Retained guest output is future state; the host drain cursor is not. */
       hash_u32(&context, machine->output.magic_register);
       hash_u32(&context, machine->output.byte_count);
@@ -237,7 +244,7 @@ t64_status t64_machine_digest(const t64_machine *machine,
                         sizeof machine->output.captured);
       hash_u32(&context,
                machine->output.lost_output ? UINT32_C(1) : UINT32_C(0));
-      if (has_v8_state) {
+      if (has_v8_state || has_v9_state) {
         hash_u64(&context, machine->output.total_attempted_bytes);
         hash_u32(&context,
                  machine->output.total_attempted_bytes_saturated
