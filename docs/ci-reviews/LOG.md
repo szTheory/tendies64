@@ -57,6 +57,7 @@ from.
 | 2026-11-11 | 43091181251 | d6adbec2c1a2 | push | failure | 274 | 272 | 2/95 | 2/270 | gate-macos/Gate 253s |
 | 2026-11-11 | 43094128662 | - | - | deferred | - | - | - | - | deferred: macOS upload step canceled at the 10-minute timeout; run/job status remained in progress, cancel endpoints returned 409, and job logs returned 502 |
 | 2026-11-11 | 43103669084 | 7c0ea9b5f307 | push | success | 287 | 286 | 2/123 | 2/284 | gate-macos/Gate 272s |
+| 2026-11-12 | 43131692146 | 71bccef37730 | push | success | 207 | 207 | 2/109 | 2/205 | gate-macos/Gate 194s |
 
 ## Findings
 
@@ -95,3 +96,4 @@ from.
 | F-032 | 43094128662 | Exact-attempt recovery with retained prior-attempt artifacts | taken | Collector selects and validates only the exact requested attempt pair while preserving lower-attempt artifacts as metadata. |
 | F-033 | 43094128662 | Mac upload received HTML instead of JSON on retries and was cancelled at timeout | declined | The log does not expose an underlying status or cause; keep the action pin, two jobs and 10-minute limit unchanged and verify the new exact push. |
 | F-034 | 43094128662 | Terminal follow-up on cancelled Mac evidence upload | taken | Final reads show the run was cancelled and logs returned HTML where JSON was expected; retain the original deferred timing row as a historical observation, record the symptom, and leave root cause unknown. |
+| F-035 | 43131692146 | Both hosted gates pass the CPU profile commit. Linux queue/run is 2/109 seconds; macOS is 2/205, with macOS Gate 194 seconds and total wall 207 seconds. | declined | Retain both distinct compiler/platform jobs and their existing limits. Queue time is negligible and the measured gate is below the preceding successful run; this run does not justify caches, extra lanes or concurrency changes. |
