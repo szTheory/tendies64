@@ -490,7 +490,9 @@ static bool test_scheduler_exhaustion_is_host_error(
   machine->cpu.cp0[T64_CP0_EPC] = UINT64_C(0xffffffff80003000);
   machine->sequence_exhausted = true;
   status = advance_ticks(machine, UINT64_C(1), &result);
-  return status == T64_STATUS_SEQUENCE_EXHAUSTED &&
+  return status == T64_STATUS_OK &&
+         result.reason == T64_STOP_REASON_RESOURCE_LIMIT &&
+         result.tick == UINT64_C(1) &&
          machine->cpu.attempt_outcome == T64_CPU_ATTEMPT_HOST_ERROR &&
          machine->cpu.cp0[T64_CP0_EPC] == UINT64_C(0xffffffff80003000) &&
          (uint32_t)machine->cpu.cp0[T64_CP0_CAUSE] == 0u &&
