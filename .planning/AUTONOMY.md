@@ -40,6 +40,31 @@ applies that direction; update it when the owner changes policy.
   On a shared branch, a parent documentation commit can contain unfinished
   child RED commits in its ancestry. Defer its push until those source/test
   commits are verified; pin pushes to the intended verified commit.
+- Efficiency correction (owner feedback, 2026-11-12): before a broad retest,
+  inspect `node scripts/verification-scope.mjs --base <last-tested-source>`.
+  It includes staged, unstaged and new source changes, including ignored code
+  in production directories. Its output is advisory: required first-time
+  checks, dependency effects, rights/publication gates and private input/tool
+  qualification still apply. It does not inspect private build inputs.
+  `T64_BUILD_ID` already hashes production content and compiler/build policy;
+  `T64_SOURCE_REVISION` is a separate provenance annotation. A metadata-only
+  commit changing that annotation is not a reason to rerun the full core gate
+  or admission fuzzing. Refresh an annotation or artifact-identity check when
+  needed, preserve the actual tested artifact identity, and reuse unaffected
+  semantic evidence. Do not relabel an old binary as newly tested.
+  Executors own implementation and substantive evidence acquisition; the
+  orchestrator writes routine SUMMARY/state/roadmap closeout from the saved
+  commands, results, commits and limitations in one batch. Review reports,
+  private qualification records and required evidence are substantive work,
+  not optional bookkeeping. Name the complete audit scope at dispatch,
+  including the current verification plan's own evidence threats, and schedule
+  final artifact checks explicitly so they do not appear as a late new audit.
+  Reserve the shared Git index only immediately around an actual mutation and
+  explicitly release it afterward; an intended future commit is not a lock.
+  For private qualification, audit source/tool/lock and excluded asset closure
+  before the qualified build; scan actual ELF/ROM composition after building
+  and before execution. Never require an output hash before its output exists,
+  and never use that staging distinction to bypass a pre-use rights check.
 - At each discussion, enumerate actual decision points. Fan out one agent per
   independent decision cluster when it saves time/context. Apply relevant
   CPU/cache/virtual-memory, RSP/microcode, RDP/video, audio, memory/bus,
