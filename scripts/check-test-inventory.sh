@@ -100,6 +100,8 @@ controls.real.output-overflow
 controls.real.identity-mismatch
 integration.open-ipl3-determinism'
 
+PHASE04_TESTS='runner.cpu-diagnostic-protocol'
+
 ASAN_ONLY='fuzz.rom-admission
 sanitizer.negative-control'
 
@@ -116,7 +118,7 @@ expected_names() {
     *) echo "unsupported preset: $_preset" >&2; return 2 ;;
   esac
   {
-    printf '%s\n' "$BASELINE_CORE" "$BASELINE_CONTROLS" "$PHASE02_TESTS" "$PHASE03_TESTS" "$_extra"
+    printf '%s\n' "$BASELINE_CORE" "$BASELINE_CONTROLS" "$PHASE02_TESTS" "$PHASE03_TESTS" "$PHASE04_TESTS" "$_extra"
   } | awk 'NF' | sort
 }
 
