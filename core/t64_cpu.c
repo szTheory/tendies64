@@ -1443,10 +1443,7 @@ static bool cpu_coprocessor_unusable(const t64_machine *machine,
   status = (uint32_t)machine->cpu.cp0[T64_CP0_STATUS];
   usable_mask = UINT32_C(1) << (28u + coprocessor);
   if (coprocessor == 0u) {
-    bool kernel = (status & (T64_STATUS_EXL | T64_STATUS_ERL)) != 0u ||
-                  (status & T64_STATUS_KSU) == 0u;
-
-    if (kernel || (status & usable_mask) != 0u) {
+    if (!t64_cp0_access_unusable(machine)) {
       return false;
     }
   } else if ((status & usable_mask) != 0u) {
@@ -1774,6 +1771,7 @@ t64_status t64_cpu_step(t64_machine *machine, const t64_event *event) {
   machine->cpu.gpr[0] = 0u;
   machine->cpu.retired_instructions++;
   machine->instruction_count++;
+  t64_cp0_instruction_retired(machine);
   cp0_retirement_tick(machine);
   if (has_vr4300_cpu_state(machine)) {
     machine->cpu.attempt_outcome = T64_CPU_ATTEMPT_RETIRED;

@@ -79,7 +79,8 @@ The prepared v9 CPU fields are:
    The existing 32-bit PC fields remain for the bounded interpreter; v9 also
    binds their canonical 64-bit forms.
 2. Attempt outcome (`none`, `retired`, `guest exception`, `model unsupported`,
-   `software stop`, or `host error`) and CPU semantic-policy version.
+   `software stop`, or `host error`), CPU semantic-policy version, and the
+   Config initialization-window flag (false in the prepared profile).
 3. TLB shutdown and pending-exception validity, code, bad address, EPC, and
    branch-delay flag.
 4. Thirty-two paired TLB records. Each stores PageMask, VPN2, region, ASID,
@@ -93,7 +94,7 @@ The prepared v9 CPU fields are:
 8. Thirty-two 64-bit FPR values, FCR0, and FCR31.
 
 The initial v9 digest is
-`a8eb98f7b08cbaa900f2b9f8f8d197c5eca9aec3dff2ba2b5f78a7926c3aaa57` for the
+`dfd84ba75420a9cf7f0883c18b78fbf8999cf13f41dd79d28879a5d724b6720e` for the
 pinned fixture and prepared seed. The profile test pins descriptor hash
 `d1f620cfef32824759c40c4e22a7e9f6cab3796981f34ac1e1dfd55c78f197a1`.
 Both vectors are checked against independent test-side serialization or

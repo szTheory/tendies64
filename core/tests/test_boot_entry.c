@@ -131,6 +131,7 @@ static void check_vr4300_cpu_state_hash_sensitivity(
   CHECK_CPU_FIELD_MUTATION(
       changed_machine.cpu.attempt_outcome = T64_CPU_ATTEMPT_RETIRED;);
   CHECK_CPU_FIELD_MUTATION(changed_machine.cpu.semantic_policy_version++;);
+  CHECK_CPU_FIELD_MUTATION(changed_machine.cpu.cp0_config_init_window = true;);
   CHECK_CPU_FIELD_MUTATION(changed_machine.cpu.tlb_shutdown = true;);
   CHECK_CPU_FIELD_MUTATION(
       changed_machine.cpu.pending_exception_valid = true;);
@@ -200,7 +201,7 @@ static void test_vr4300_profile_entry(
     const uint8_t asset[IPL3_ASSET_BYTES]) {
   static const char profile_id[] = "ntsc-cart-4m-openipl3-vr4300-v1";
   static const char expected_v9_prepared_state_sha256[] =
-      "a8eb98f7b08cbaa900f2b9f8f8d197c5eca9aec3dff2ba2b5f78a7926c3aaa57";
+      "dfd84ba75420a9cf7f0883c18b78fbf8999cf13f41dd79d28879a5d724b6720e";
   allocator_state allocator_state_value = {0u};
   const t64_host_allocator allocator = {
       test_allocate, test_release, &allocator_state_value};
@@ -677,6 +678,7 @@ static void reference_hash_v9_prepared_cpu_state(
   reference_hash_u64(context, cpu->stop_pc_full);
   reference_hash_u32(context, cpu->attempt_outcome);
   reference_hash_u32(context, cpu->semantic_policy_version);
+  reference_hash_u32(context, cpu->cp0_config_init_window ? 1u : 0u);
   reference_hash_u32(context, cpu->tlb_shutdown ? 1u : 0u);
   reference_hash_u32(context, cpu->pending_exception_valid ? 1u : 0u);
   reference_hash_u32(context, cpu->pending_exception_code);
