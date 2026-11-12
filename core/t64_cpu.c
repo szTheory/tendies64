@@ -48,6 +48,7 @@
 #define T64_CACHE_HIT_INVALIDATE_I UINT32_C(0x10)
 #define T64_CACHE_HIT_INVALIDATE_D UINT32_C(0x11)
 #define T64_CACHE_HIT_WRITEBACK_INVALIDATE_D UINT32_C(0x15)
+#define T64_CACHE_HIT_WRITEBACK_D UINT32_C(0x19)
 
 static uint64_t sign_extend_32(uint32_t value) {
   return t64_cpu_canonical_address(value);
@@ -1136,7 +1137,12 @@ static bool execute_cache(t64_machine *machine, uint32_t pc,
       operation != T64_CACHE_INDEX_STORE_TAG_D &&
       operation != T64_CACHE_HIT_INVALIDATE_I &&
       operation != T64_CACHE_HIT_INVALIDATE_D &&
-      operation != T64_CACHE_HIT_WRITEBACK_INVALIDATE_D) {
+      operation != T64_CACHE_HIT_WRITEBACK_INVALIDATE_D &&
+      operation != T64_CACHE_HIT_WRITEBACK_D) {
+    return false;
+  }
+  if (operation == T64_CACHE_HIT_WRITEBACK_D &&
+      !has_vr4300_cpu_state(machine)) {
     return false;
   }
   if (operation == T64_CACHE_HIT_INVALIDATE_I &&
@@ -1158,6 +1164,11 @@ static bool execute_cache(t64_machine *machine, uint32_t pc,
   if (operation == T64_CACHE_HIT_INVALIDATE_I) {
     t64_cpu_icache_hit_invalidate(machine, virtual_address,
                                   physical_address);
+  } else if (operation == T64_CACHE_HIT_WRITEBACK_D) {
+    if (t64_cpu_dcache_hit_writeback(machine, virtual_address,
+                                     physical_address) != T64_STATUS_OK) {
+      return false;
+    }
   } else if (operation == T64_CACHE_HIT_INVALIDATE_D ||
       operation == T64_CACHE_HIT_WRITEBACK_INVALIDATE_D) {
     t64_cpu_link_invalidate_dcache_line(machine, physical_address);
@@ -1414,7 +1425,8 @@ static t64_status cpu_preflight_memory(t64_machine *machine, uint32_t opcode,
           cache_operation != T64_CACHE_INDEX_STORE_TAG_D &&
           cache_operation != T64_CACHE_HIT_INVALIDATE_I &&
           cache_operation != T64_CACHE_HIT_INVALIDATE_D &&
-          cache_operation != T64_CACHE_HIT_WRITEBACK_INVALIDATE_D) {
+          cache_operation != T64_CACHE_HIT_WRITEBACK_INVALIDATE_D &&
+          cache_operation != T64_CACHE_HIT_WRITEBACK_D) {
         return T64_STATUS_OK;
       }
 

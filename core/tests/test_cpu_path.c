@@ -88,6 +88,11 @@ static void write_rdram_instruction(t64_machine *machine,
   machine->ram[physical_address + 3u] = (uint8_t)opcode;
 }
 
+static uint32_t read_be32_bytes(const uint8_t *bytes) {
+  return ((uint32_t)bytes[0] << 24) | ((uint32_t)bytes[1] << 16) |
+         ((uint32_t)bytes[2] << 8) | (uint32_t)bytes[3];
+}
+
 static bool install_program(t64_machine *machine,
                             const uint8_t asset[IPL3_ASSET_BYTES],
                             const uint32_t *program, size_t instruction_count) {
@@ -118,6 +123,7 @@ static bool test_vr4300_break_enters_rdram_handler(
   uint32_t cause;
   uint32_t status_register;
   uint32_t stored_value;
+  const t64_vr4300_dcache_line *stored_line;
 
   if (machine == NULL || asset == NULL ||
       t64_machine_admit_rom(machine, asset, IPL3_ASSET_BYTES) !=
@@ -135,10 +141,9 @@ static bool test_vr4300_break_enters_rdram_handler(
   status = t64_machine_advance(machine, &request, &result);
   cause = (uint32_t)machine->cpu.cp0[13];
   status_register = (uint32_t)machine->cpu.cp0[12];
-  stored_value = ((uint32_t)machine->ram[0x2000u] << 24) |
-                 ((uint32_t)machine->ram[0x2001u] << 16) |
-                 ((uint32_t)machine->ram[0x2002u] << 8) |
-                 (uint32_t)machine->ram[0x2003u];
+  stored_line = &machine->cpu.dcache[(UINT32_C(0x2000) >> 4) &
+                                    (T64_VR4300_DCACHE_LINE_COUNT - 1u)];
+  stored_value = read_be32_bytes(stored_line->data);
   if (status != T64_STATUS_OK ||
       result.reason != T64_STOP_REASON_BOUND ||
       result.tick != UINT64_C(2) ||
@@ -147,16 +152,24 @@ static bool test_vr4300_break_enters_rdram_handler(
       machine->cpu.cp0[14] != t64_cpu_canonical_address(break_pc) ||
       (cause & UINT32_C(0x8000007c)) != (UINT32_C(9) << 2) ||
       (status_register & UINT32_C(2)) == 0u ||
-      stored_value != store_value) {
+      stored_value != store_value || !stored_line->valid ||
+      !stored_line->dirty ||
+      stored_line->physical_tag != UINT32_C(0x00002000) ||
+      read_be32_bytes(machine->ram + UINT32_C(0x2000)) != 0u) {
     (void)printf("# BREAK handler status=%u reason=%u tick=%llu retired=%llu "
                  "pc=%016llx cause=%08x epc=%016llx status=%08x "
-                 "store=%08x\n",
+                 "store=%08x line=%u/%u/%08x/%08x backing=%08x "
+                 "base=%016llx\n",
                  (unsigned)status, result.reason,
                  (unsigned long long)result.tick,
                  (unsigned long long)machine->cpu.retired_instructions,
                  (unsigned long long)machine->cpu.pc_full, cause,
                  (unsigned long long)machine->cpu.cp0[14], status_register,
-                 stored_value);
+                 stored_value, stored_line->valid ? 1u : 0u,
+                 stored_line->dirty ? 1u : 0u, stored_line->physical_tag,
+                 read_be32_bytes(stored_line->data),
+                 read_be32_bytes(machine->ram + UINT32_C(0x2000)),
+                 (unsigned long long)machine->cpu.gpr[9]);
     return false;
   }
   return true;
@@ -279,6 +292,9 @@ static bool test_vr4300_cached_store_waits_for_hit_writeback(
   machine->cpu.gpr[4] = t64_cpu_canonical_address(data_virtual);
   machine->cpu.gpr[5] = t64_cpu_canonical_address(data_virtual);
   machine->cpu.gpr[8] = expected;
+  machine->cpu.linked_valid = true;
+  machine->cpu.linked_physical_address = UINT32_C(0x00004000);
+  machine->cpu.linked_width = UINT32_C(4);
   machine->cpu.pc = UINT32_C(0x80001000);
   machine->cpu.pc_full = t64_cpu_canonical_address(machine->cpu.pc);
 
@@ -290,6 +306,9 @@ static bool test_vr4300_cached_store_waits_for_hit_writeback(
             (uint32_t)machine->ram[data_physical + 3u];
   if (status != T64_STATUS_OK || backing != 0u || !line->valid ||
       !line->dirty || line->physical_tag != data_physical ||
+      !machine->cpu.linked_valid ||
+      machine->cpu.linked_physical_address != UINT32_C(0x00004000) ||
+      machine->cpu.linked_width != UINT32_C(4) ||
       (((uint32_t)line->data[0] << 24) |
        ((uint32_t)line->data[1] << 16) |
        ((uint32_t)line->data[2] << 8) |
@@ -299,7 +318,7 @@ static bool test_vr4300_cached_store_waits_for_hit_writeback(
                  "backing=%08x valid=%u dirty=%u tag=%08x data=%08x "
                  "pc=%016llx last_pc=%016llx opcode=%08x outcome=%u "
                  "retired=%llu stopped=%u gpr4=%016llx gpr8=%016llx "
-                 "cause=%08x badvaddr=%016llx\n",
+                 "cause=%08x badvaddr=%016llx link=%u/%08x/%u\n",
                  data_physical, expected, (unsigned)status, backing,
                  line->valid ? 1u : 0u, line->dirty ? 1u : 0u,
                  line->physical_tag,
@@ -315,7 +334,10 @@ static bool test_vr4300_cached_store_waits_for_hit_writeback(
                  (unsigned long long)machine->cpu.gpr[4],
                  (unsigned long long)machine->cpu.gpr[8],
                  (uint32_t)machine->cpu.cp0[13],
-                 (unsigned long long)machine->cpu.cp0[8]);
+                 (unsigned long long)machine->cpu.cp0[8],
+                 machine->cpu.linked_valid ? 1u : 0u,
+                 machine->cpu.linked_physical_address,
+                 machine->cpu.linked_width);
     return false;
   }
 
@@ -325,11 +347,17 @@ static bool test_vr4300_cached_store_waits_for_hit_writeback(
             ((uint32_t)machine->ram[data_physical + 2u] << 8) |
             (uint32_t)machine->ram[data_physical + 3u];
   if (status != T64_STATUS_OK || backing != expected || !line->valid ||
-      line->dirty) {
+      line->dirty || !machine->cpu.linked_valid ||
+      machine->cpu.linked_physical_address != UINT32_C(0x00004000) ||
+      machine->cpu.linked_width != UINT32_C(4)) {
     (void)printf("# hit-writeback expected backing=%08x valid=1 dirty=0; "
-                 "observed status=%u backing=%08x valid=%u dirty=%u\n",
+                 "observed status=%u backing=%08x valid=%u dirty=%u "
+                 "link=%u/%08x/%u\n",
                  expected, (unsigned)status, backing,
-                 line->valid ? 1u : 0u, line->dirty ? 1u : 0u);
+                 line->valid ? 1u : 0u, line->dirty ? 1u : 0u,
+                 machine->cpu.linked_valid ? 1u : 0u,
+                 machine->cpu.linked_physical_address,
+                 machine->cpu.linked_width);
     return false;
   }
   return true;
@@ -697,6 +725,7 @@ static bool test_vr4300_integer_delay_fault_and_full_width_jalr(
   t64_status status;
   uint32_t cause;
   uint32_t stored;
+  const t64_vr4300_dcache_line *stored_line;
   size_t i;
 
   if (machine == NULL || asset == NULL ||
@@ -723,10 +752,9 @@ static bool test_vr4300_integer_delay_fault_and_full_width_jalr(
 
   status = t64_machine_advance(machine, &request, &result);
   cause = (uint32_t)machine->cpu.cp0[13];
-  stored = ((uint32_t)machine->ram[0x2000u] << 24) |
-           ((uint32_t)machine->ram[0x2001u] << 16) |
-           ((uint32_t)machine->ram[0x2002u] << 8) |
-           (uint32_t)machine->ram[0x2003u];
+  stored_line = &machine->cpu.dcache[(UINT32_C(0x2000) >> 4) &
+                                     (T64_VR4300_DCACHE_LINE_COUNT - 1u)];
+  stored = read_be32_bytes(stored_line->data);
   if (status != T64_STATUS_OK || result.reason != T64_STOP_REASON_BOUND ||
       result.tick != UINT64_C(6) ||
       machine->cpu.retired_instructions != UINT64_C(5) ||
@@ -734,18 +762,26 @@ static bool test_vr4300_integer_delay_fault_and_full_width_jalr(
       machine->cpu.gpr[11] != UINT64_C(0xffffffffffffffff) ||
       machine->cpu.cp0[14] != branch_pc ||
       (cause & UINT32_C(0x8000007c)) != UINT32_C(0x80000030) ||
+      !stored_line->valid || !stored_line->dirty ||
+      stored_line->physical_tag != UINT32_C(0x00002000) ||
+      read_be32_bytes(machine->ram + UINT32_C(0x2000)) != 0u ||
       stored != UINT32_MAX || machine->cpu.pc_full !=
                                   UINT64_C(0xffffffff80000188)) {
     (void)printf("# integer-delay status=%u reason=%u tick=%llu retired=%llu "
                  "t0=%016llx t3=%016llx pc=%016llx cause=%08x "
-                 "epc=%016llx store=%08x\n",
+                 "epc=%016llx store=%08x line=%u/%u/%08x/%08x "
+                 "base=%016llx\n",
                  (unsigned)status, result.reason,
                  (unsigned long long)result.tick,
                  (unsigned long long)machine->cpu.retired_instructions,
                  (unsigned long long)machine->cpu.gpr[8],
                  (unsigned long long)machine->cpu.gpr[11],
                  (unsigned long long)machine->cpu.pc_full, cause,
-                 (unsigned long long)machine->cpu.cp0[14], stored);
+                 (unsigned long long)machine->cpu.cp0[14], stored,
+                 stored_line->valid ? 1u : 0u,
+                 stored_line->dirty ? 1u : 0u, stored_line->physical_tag,
+                 read_be32_bytes(stored_line->data),
+                 (unsigned long long)machine->cpu.gpr[16]);
     return false;
   }
   if (machine->cpu.delay_target_full != target) {
@@ -1510,8 +1546,8 @@ static bool test_vr4300_page_edge_unaligned_merges(
   mapping = &machine->cpu.tlb[7];
   mapping->vpn2 = UINT64_C(0x00400000);
   mapping->asid = 0u;
-  mapping->entry_lo0 = UINT32_C(0x0000009e); /* PA 0x2000, V/D, C=3. */
-  mapping->entry_lo1 = UINT32_C(0x000000de); /* PA 0x3000, V/D, C=3. */
+  mapping->entry_lo0 = UINT32_C(0x00000096); /* PA 0x2000, V/D, C=2. */
+  mapping->entry_lo1 = UINT32_C(0x000000d6); /* PA 0x3000, V/D, C=2. */
   machine->cpu.gpr[4] = address;
   machine->cpu.gpr[8] = UINT64_C(0x1122334455667788);
   machine->cpu.gpr[9] = UINT64_C(0x00000000a1b2c3d4);
@@ -1603,6 +1639,7 @@ static bool test_vr4300_ll_sc_one_shot(
   const uint32_t physical_data = UINT32_C(0x2000);
   t64_status status;
   uint64_t observed;
+  const t64_vr4300_dcache_line *data_line;
 
   if (machine == NULL || asset == NULL ||
       t64_machine_admit_rom(machine, asset, IPL3_ASSET_BYTES) !=
@@ -1623,6 +1660,8 @@ static bool test_vr4300_ll_sc_one_shot(
   machine->cpu.gpr[4] = virtual_data;
   machine->cpu.gpr[9] = UINT64_C(0xaabbccdd);
   machine->cpu.gpr[10] = UINT64_C(0xcafebabe);
+  data_line = &machine->cpu.dcache[(physical_data >> 4) &
+                                   (T64_VR4300_DCACHE_LINE_COUNT - 1u)];
 
   status = t64_cpu_step(machine, NULL);
   observed = machine->cpu.gpr[8];
@@ -1635,12 +1674,17 @@ static bool test_vr4300_ll_sc_one_shot(
   }
   status = t64_cpu_step(machine, NULL);
   if (status != T64_STATUS_OK || machine->cpu.gpr[9] != UINT64_C(1) ||
-      machine->ram[physical_data] != UINT8_C(0xaa) ||
-      machine->ram[physical_data + 1u] != UINT8_C(0xbb) ||
-      machine->ram[physical_data + 2u] != UINT8_C(0xcc) ||
-      machine->ram[physical_data + 3u] != UINT8_C(0xdd)) {
-    (void)printf("# first SC status=%u rt=%016llx bytes=%02x%02x%02x%02x\n",
+      read_be32_bytes(data_line->data) != UINT32_C(0xaabbccdd) ||
+      !data_line->valid || !data_line->dirty ||
+      data_line->physical_tag != physical_data ||
+      machine->ram[physical_data] != UINT8_C(0x12) ||
+      machine->ram[physical_data + 1u] != UINT8_C(0x34) ||
+      machine->ram[physical_data + 2u] != UINT8_C(0x56) ||
+      machine->ram[physical_data + 3u] != UINT8_C(0x78)) {
+    (void)printf("# first SC status=%u rt=%016llx cache=%08x "
+                 "backing=%02x%02x%02x%02x\n",
                  (unsigned)status, (unsigned long long)machine->cpu.gpr[9],
+                 read_be32_bytes(data_line->data),
                  machine->ram[physical_data],
                  machine->ram[physical_data + 1u],
                  machine->ram[physical_data + 2u],
@@ -1649,12 +1693,17 @@ static bool test_vr4300_ll_sc_one_shot(
   }
   status = t64_cpu_step(machine, NULL);
   if (status != T64_STATUS_OK || machine->cpu.gpr[10] != UINT64_C(0) ||
-      machine->ram[physical_data] != UINT8_C(0xaa) ||
-      machine->ram[physical_data + 1u] != UINT8_C(0xbb) ||
-      machine->ram[physical_data + 2u] != UINT8_C(0xcc) ||
-      machine->ram[physical_data + 3u] != UINT8_C(0xdd)) {
-    (void)printf("# repeat SC status=%u rt=%016llx bytes=%02x%02x%02x%02x\n",
+      read_be32_bytes(data_line->data) != UINT32_C(0xaabbccdd) ||
+      !data_line->valid || !data_line->dirty ||
+      data_line->physical_tag != physical_data ||
+      machine->ram[physical_data] != UINT8_C(0x12) ||
+      machine->ram[physical_data + 1u] != UINT8_C(0x34) ||
+      machine->ram[physical_data + 2u] != UINT8_C(0x56) ||
+      machine->ram[physical_data + 3u] != UINT8_C(0x78)) {
+    (void)printf("# repeat SC status=%u rt=%016llx cache=%08x "
+                 "backing=%02x%02x%02x%02x\n",
                  (unsigned)status, (unsigned long long)machine->cpu.gpr[10],
+                 read_be32_bytes(data_line->data),
                  machine->ram[physical_data],
                  machine->ram[physical_data + 1u],
                  machine->ram[physical_data + 2u],
@@ -1671,9 +1720,10 @@ static bool test_vr4300_ll_sc_scheduled_dma(
   const uint32_t physical_data = UINT32_C(0x2000);
   const uint32_t virtual_code = UINT32_C(0x80001000);
   const uint64_t virtual_data = UINT64_C(0xffffffff80002000);
+  const uint64_t uncached_data = UINT64_C(0xffffffffa0002000);
   const uint32_t nop_count = UINT32_C(30);
-  const uint32_t program_count = nop_count + UINT32_C(2);
-  uint32_t program[32] = {0};
+  const uint32_t program_count = nop_count + UINT32_C(4);
+  uint32_t program[36] = {0};
   const uint32_t expected_data[4] = {
       sp_to_rdram ? UINT32_C(0xa0) : (uint32_t)asset[0],
       sp_to_rdram ? UINT32_C(0xa1) : (uint32_t)asset[1],
@@ -1686,6 +1736,8 @@ static bool test_vr4300_ll_sc_scheduled_dma(
   t64_stop_result result = {0u, 0u};
   t64_status status;
   uint32_t observed[4];
+  uint32_t expected_uncached_word;
+  const t64_vr4300_dcache_line *data_line;
   size_t index;
 
   if (machine == NULL || asset == NULL ||
@@ -1695,6 +1747,8 @@ static bool test_vr4300_ll_sc_scheduled_dma(
     return false;
   }
   program[0] = UINT32_C(0xc0880000); /* ll t0,0(a0) */
+  program[program_count - 3u] = UINT32_C(0x8c8a0000); /* lw t2,0(a0) */
+  program[program_count - 2u] = UINT32_C(0x8cab0000); /* lw t3,0(a1) */
   program[program_count - 1u] = UINT32_C(0xe0890000); /* sc t1,0(a0) */
   for (index = 0u; index < program_count; index++) {
     write_rdram_instruction(machine,
@@ -1714,7 +1768,10 @@ static bool test_vr4300_ll_sc_scheduled_dma(
   machine->cpu.pc = virtual_code;
   machine->cpu.pc_full = t64_cpu_canonical_address(virtual_code);
   machine->cpu.gpr[4] = virtual_data;
+  machine->cpu.gpr[5] = uncached_data;
   machine->cpu.gpr[9] = UINT64_C(0xdeadbeef);
+  data_line = &machine->cpu.dcache[(physical_data >> 4) &
+                                   (T64_VR4300_DCACHE_LINE_COUNT - 1u)];
 
   status = t64_cpu_step(machine, NULL);
   if (status != T64_STATUS_OK) {
@@ -1753,6 +1810,9 @@ static bool test_vr4300_ll_sc_scheduled_dma(
   }
   request.value = (uint64_t)program_count;
   status = t64_machine_advance(machine, &request, &result);
+  expected_uncached_word =
+      (expected_data[0] << 24) | (expected_data[1] << 16) |
+      (expected_data[2] << 8) | expected_data[3];
   for (index = 0u; index < 4u; index++) {
     observed[index] = machine->ram[physical_data + (uint32_t)index];
   }
@@ -1760,6 +1820,12 @@ static bool test_vr4300_ll_sc_scheduled_dma(
       result.reason != T64_STOP_REASON_INSTRUCTION_COUNT ||
       result.tick < (sp_to_rdram ? UINT64_C(13) : UINT64_C(5)) ||
       machine->cpu.gpr[9] != 0u || machine->cpu.linked_valid ||
+      machine->cpu.gpr[10] != UINT64_C(0x11223344) ||
+      machine->cpu.gpr[11] !=
+          t64_cpu_canonical_address(expected_uncached_word) ||
+      !data_line->valid || data_line->dirty ||
+      data_line->physical_tag != physical_data ||
+      read_be32_bytes(data_line->data) != UINT32_C(0x11223344) ||
       observed[0] != expected_data[0] || observed[1] != expected_data[1] ||
       observed[2] != expected_data[2] || observed[3] != expected_data[3]) {
     (void)printf("# %s DMA/SC status=%u reason=%u instructions=%llu "
@@ -1784,6 +1850,110 @@ static bool test_vr4300_pi_dma_breaks_link(
 static bool test_vr4300_sp_dma_breaks_link(
     t64_machine *machine, const uint8_t asset[IPL3_ASSET_BYTES]) {
   return test_vr4300_ll_sc_scheduled_dma(machine, asset, true);
+}
+
+static bool test_vr4300_sp_dram_to_dmem_does_not_snoop_dcache(
+    t64_machine *machine, const uint8_t asset[IPL3_ASSET_BYTES]) {
+  const uint32_t physical_code = UINT32_C(0x1000);
+  const uint32_t physical_dram = UINT32_C(0x2000);
+  const uint32_t virtual_code = UINT32_C(0x80001000);
+  const uint64_t cached_dmem = UINT64_C(0xffffffff84000000);
+  const uint64_t uncached_dmem = UINT64_C(0xffffffffa4000000);
+  const uint32_t program_count = UINT32_C(33);
+  const uint32_t cache_index = 0u;
+  const t64_stop_request request = {T64_STOP_INSTRUCTION_COUNT,
+                                    UINT64_C(33)};
+  t64_stop_result result = {0u, 0u};
+  t64_vr4300_dcache_line *line;
+  t64_status status;
+  uint32_t index;
+
+  if (machine == NULL || asset == NULL ||
+      t64_machine_admit_rom(machine, asset, IPL3_ASSET_BYTES) !=
+          T64_STATUS_OK) {
+    (void)puts("# SP DMEM D-cache fixture setup failed");
+    return false;
+  }
+  for (index = 0u; index < program_count; index++) {
+    uint32_t opcode = UINT32_C(0);
+    if (index == 0u) {
+      opcode = UINT32_C(0x8c880000); /* lw t0,0(a0) */
+    } else if (index == program_count - 2u) {
+      opcode = UINT32_C(0x8c890000); /* lw t1,0(a0) */
+    } else if (index == program_count - 1u) {
+      opcode = UINT32_C(0x8caa0000); /* lw t2,0(a1) */
+    }
+    write_rdram_instruction(machine,
+                            physical_code + index * UINT32_C(4), opcode);
+  }
+  machine->sp_dmem[0] = UINT8_C(0x11);
+  machine->sp_dmem[1] = UINT8_C(0x22);
+  machine->sp_dmem[2] = UINT8_C(0x33);
+  machine->sp_dmem[3] = UINT8_C(0x44);
+  machine->ram[physical_dram] = UINT8_C(0xa0);
+  machine->ram[physical_dram + 1u] = UINT8_C(0xa1);
+  machine->ram[physical_dram + 2u] = UINT8_C(0xa2);
+  machine->ram[physical_dram + 3u] = UINT8_C(0xa3);
+  for (index = 4u; index < 8u; index++) {
+    machine->ram[physical_dram + index] = (uint8_t)(UINT8_C(0xa0) + index);
+  }
+  machine->cpu.pc = virtual_code;
+  machine->cpu.pc_full = t64_cpu_canonical_address(virtual_code);
+  machine->cpu.gpr[4] = cached_dmem;
+  machine->cpu.gpr[5] = uncached_dmem;
+  line = &machine->cpu.dcache[cache_index];
+
+  status = t64_cpu_step(machine, NULL);
+  if (status != T64_STATUS_OK ||
+      machine->cpu.gpr[8] != UINT64_C(0x11223344) || !line->valid ||
+      line->dirty || line->physical_tag != UINT32_C(0x04000000) ||
+      read_be32_bytes(line->data) != UINT32_C(0x11223344)) {
+    (void)printf("# SP DMEM cache fill status=%u gpr8=%016llx "
+                 "valid=%u dirty=%u tag=%08x data=%08x\n",
+                 (unsigned)status, (unsigned long long)machine->cpu.gpr[8],
+                 line->valid ? 1u : 0u, line->dirty ? 1u : 0u,
+                 line->physical_tag, read_be32_bytes(line->data));
+    return false;
+  }
+  status = t64_machine_bus_write(machine, UINT32_C(0x04040000), 4u, 0u);
+  if (status == T64_STATUS_OK) {
+    status = t64_machine_bus_write(machine, UINT32_C(0x04040004), 4u,
+                                   physical_dram);
+  }
+  if (status == T64_STATUS_OK) {
+    status = t64_machine_bus_write(machine, UINT32_C(0x04040008), 4u,
+                                   UINT32_C(7));
+  }
+  if (status != T64_STATUS_OK) {
+    (void)printf("# SP DRAM-to-DMEM DMA request status=%u\n",
+                 (unsigned)status);
+    return false;
+  }
+  status = t64_machine_advance(machine, &request, &result);
+  if (status != T64_STATUS_OK ||
+      result.reason != T64_STOP_REASON_INSTRUCTION_COUNT ||
+      result.tick < UINT64_C(13) ||
+      machine->cpu.gpr[9] != UINT64_C(0x11223344) ||
+      machine->cpu.gpr[10] != UINT64_C(0xffffffffa0a1a2a3) ||
+      machine->sp_dmem[0] != UINT8_C(0xa0) ||
+      machine->sp_dmem[1] != UINT8_C(0xa1) ||
+      machine->sp_dmem[2] != UINT8_C(0xa2) ||
+      machine->sp_dmem[3] != UINT8_C(0xa3) || !line->valid || line->dirty ||
+      line->physical_tag != UINT32_C(0x04000000) ||
+      read_be32_bytes(line->data) != UINT32_C(0x11223344)) {
+    (void)printf("# SP DMA no-snoop status=%u reason=%u tick=%llu "
+                 "cached=%016llx uncached=%016llx dmem=%02x%02x%02x%02x "
+                 "line=%08x\n",
+                 (unsigned)status, result.reason,
+                 (unsigned long long)result.tick,
+                 (unsigned long long)machine->cpu.gpr[9],
+                 (unsigned long long)machine->cpu.gpr[10],
+                 machine->sp_dmem[0], machine->sp_dmem[1],
+                 machine->sp_dmem[2], machine->sp_dmem[3],
+                 read_be32_bytes(line->data));
+    return false;
+  }
+  return true;
 }
 
 typedef bool (*cpu_test_fn)(t64_machine *machine,
@@ -1859,6 +2029,8 @@ int main(int argc, char **argv) {
        test_vr4300_pi_dma_breaks_link},
       {"scheduled overlapping SP DMA breaks an LL reservation",
        test_vr4300_sp_dma_breaks_link},
+      {"SP DRAM-to-DMEM DMA changes backing without snooping D-cache",
+       test_vr4300_sp_dram_to_dmem_does_not_snoop_dcache},
   };
   const cpu_test_case *cases;
   size_t case_count;

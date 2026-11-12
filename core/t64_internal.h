@@ -494,6 +494,22 @@ t64_status t64_cpu_icache_fetch(t64_machine *machine,
 void t64_cpu_icache_hit_invalidate(t64_machine *machine,
                                    uint64_t virtual_address,
                                    uint32_t physical_address);
+t64_status t64_cpu_dcache_read(t64_machine *machine,
+                               uint64_t virtual_address,
+                               uint32_t physical_address, uint32_t width,
+                               uint64_t *value_out);
+t64_status t64_cpu_dcache_write(t64_machine *machine,
+                                uint64_t virtual_address,
+                                uint32_t physical_address, uint32_t width,
+                                uint8_t byte_mask, uint64_t value);
+t64_status t64_cpu_dcache_hit_writeback(t64_machine *machine,
+                                        uint64_t virtual_address,
+                                        uint32_t physical_address);
+t64_status t64_bus_validate_dcache_line_writeback(
+    t64_machine *machine, uint32_t physical_address);
+t64_status t64_bus_writeback_dcache_line(
+    t64_machine *machine, uint32_t physical_address,
+    const uint8_t data[T64_VR4300_DCACHE_LINE_BYTES]);
 t64_status t64_bus_read_wide(t64_machine *machine, uint32_t address,
                              uint64_t *value_out);
 t64_status t64_bus_write(t64_machine *machine, uint32_t address,

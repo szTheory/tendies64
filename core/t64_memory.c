@@ -11,6 +11,7 @@ typedef struct {
   bool partial_right;
   bool sign_extend;
   bool reverse_endian;
+  bool cacheable;
   uint32_t destination;
   uint32_t width;
   uint32_t bus_width;
@@ -27,6 +28,12 @@ typedef struct {
 #define T64_STATUS_USER UINT32_C(0x00000010)
 #define T64_STATUS_RE UINT32_C(0x02000000)
 #define T64_CONFIG_BE UINT32_C(0x00008000)
+
+static bool vr4300_cache_profile(const t64_machine *machine) {
+  return machine != NULL &&
+         machine->profile.machine_model_version == UINT32_C(3) &&
+         machine->profile.state_serialization_version == UINT32_C(9);
+}
 
 static bool reverse_endian_active(const t64_machine *machine) {
   uint32_t status = (uint32_t)machine->cpu.cp0[12];
@@ -120,6 +127,7 @@ static bool translate_effect(t64_machine *machine,
       translation.physical_address > UINT32_MAX) {
     return false;
   }
+  effect->cacheable = translation.cacheable;
   effect->physical_address = (uint32_t)translation.physical_address;
   if (partial) {
     effect->bus_width = effect->reverse_endian ? 8u : effect->width;
@@ -334,8 +342,17 @@ static bool stage_memory_effect(t64_machine *machine, uint32_t opcode,
               : merge_store_mask(effect->width, offset,
                                  effect->partial_left, false);
 
-    effect->bus_value = read_bus_value(machine, effect->physical_address,
-                                       effect->bus_width, &okay);
+    if (vr4300_cache_profile(machine) && effect->cacheable) {
+      uint64_t cached_value = 0u;
+      t64_status status = t64_cpu_dcache_read(
+          machine, effect->virtual_address, effect->physical_address,
+          effect->bus_width, &cached_value);
+      okay = status == T64_STATUS_OK;
+      effect->bus_value = cached_value;
+    } else {
+      effect->bus_value = read_bus_value(machine, effect->physical_address,
+                                         effect->bus_width, &okay);
+    }
     if (!okay) {
       return false;
     }
@@ -399,7 +416,12 @@ static bool commit_memory_effect(t64_machine *machine,
   t64_status status;
 
   if (effect->store) {
-    if (effect->bus_width <= 4u && effect->byte_mask ==
+    if (vr4300_cache_profile(machine) && effect->cacheable) {
+      status = t64_cpu_dcache_write(machine, effect->virtual_address,
+                                    effect->physical_address,
+                                    effect->bus_width, effect->byte_mask,
+                                    effect->bus_value);
+    } else if (effect->bus_width <= 4u && effect->byte_mask ==
                                         (uint8_t)((UINT32_C(1) << effect->width) -
                                                   1u)) {
       status = t64_bus_write(machine, effect->physical_address,
@@ -488,7 +510,13 @@ static bool execute_linked_memory(t64_machine *machine, uint32_t opcode,
   }
 
   if (load) {
-    *value_out = read_bus_value(machine, physical_address, width, &okay);
+    if (vr4300_cache_profile(machine) && translation.cacheable) {
+      t64_status status = t64_cpu_dcache_read(
+          machine, virtual_address, physical_address, width, value_out);
+      okay = status == T64_STATUS_OK;
+    } else {
+      *value_out = read_bus_value(machine, physical_address, width, &okay);
+    }
     if (!okay) {
       return false;
     }
@@ -512,11 +540,17 @@ static bool execute_linked_memory(t64_machine *machine, uint32_t opcode,
     t64_status status = T64_STATUS_OK;
 
     if (success) {
-      status = width == 4u
-                   ? t64_bus_write(machine, physical_address, 4u,
-                                   (uint32_t)source)
-                   : t64_bus_write_masked(machine, physical_address, 8u,
-                                          UINT8_C(0xff), source);
+      if (vr4300_cache_profile(machine) && translation.cacheable) {
+        status = t64_cpu_dcache_write(
+            machine, virtual_address, physical_address, width,
+            (uint8_t)((UINT32_C(1) << width) - 1u), source);
+      } else {
+        status = width == 4u
+                     ? t64_bus_write(machine, physical_address, 4u,
+                                     (uint32_t)source)
+                     : t64_bus_write_masked(machine, physical_address, 8u,
+                                            UINT8_C(0xff), source);
+      }
       if (status != T64_STATUS_OK) {
         return false;
       }

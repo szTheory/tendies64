@@ -144,6 +144,20 @@ static void check_status(const char *name, t64_status actual,
   check_u64(name, (uint64_t)actual, (uint64_t)expected);
 }
 
+static uint8_t dcache_byte(const t64_machine *machine,
+                           uint32_t physical_address) {
+  const uint32_t tag = physical_address & ~UINT32_C(0x0f);
+  uint32_t index;
+
+  for (index = 0u; index < T64_VR4300_DCACHE_LINE_COUNT; index++) {
+    const t64_vr4300_dcache_line *line = &machine->cpu.dcache[index];
+    if (line->valid && line->physical_tag == tag) {
+      return line->data[physical_address & UINT32_C(0x0f)];
+    }
+  }
+  return UINT8_MAX;
+}
+
 static void install_program(t64_machine *machine, const uint32_t *program,
                             size_t count) {
   size_t index;
@@ -356,7 +370,7 @@ static void test_word_alias_and_width_mismatch(
       step(value.machine, "physical-alias SC")) {
     check_u64("same physical range through alias succeeds",
               value.machine->cpu.gpr[9], 1u);
-    check_u64("physical-alias store commits", value.machine->ram[0x2000],
+      check_u64("physical-alias store commits", dcache_byte(value.machine, 0x2000),
               UINT64_C(0xaa));
   }
   fixture_destroy(&value);
@@ -445,7 +459,7 @@ static void test_doubleword_and_rt_zero(
     if (step(value.machine, "SCD")) {
       check_u64("SCD exact doubleword succeeds", value.machine->cpu.gpr[9],
                 1u);
-      check_u64("SCD updates last byte", value.machine->ram[0x2007],
+      check_u64("SCD updates last byte", dcache_byte(value.machine, 0x2007),
                 UINT64_C(0x11));
     }
   }
@@ -463,8 +477,8 @@ static void test_doubleword_and_rt_zero(
   if (step(value.machine, "LL with rt zero") &&
       step(value.machine, "SC with rt zero")) {
     check_u64("rt zero remains hardwired", value.machine->cpu.gpr[0], 0u);
-    check_u64("SC rt zero still performs the store",
-              value.machine->ram[UINT32_C(0x2000)], 0u);
+    check_u64("SC rt zero still performs the cached store",
+              dcache_byte(value.machine, UINT32_C(0x2000)), 0u);
   }
   fixture_destroy(&value);
 }
@@ -489,10 +503,10 @@ static void test_source_register_alias(
       step(value.machine, "source-alias SC")) {
     check_u64("SC rt/base alias succeeds", value.machine->cpu.gpr[9], 1u);
     check_u64("SC captured aliased source before result commit",
-              ((uint64_t)value.machine->ram[0x2000] << 24) |
-                  ((uint64_t)value.machine->ram[0x2001] << 16) |
-                  ((uint64_t)value.machine->ram[0x2002] << 8) |
-                  (uint64_t)value.machine->ram[0x2003],
+              ((uint64_t)dcache_byte(value.machine, 0x2000) << 24) |
+                  ((uint64_t)dcache_byte(value.machine, 0x2001) << 16) |
+                  ((uint64_t)dcache_byte(value.machine, 0x2002) << 8) |
+                  (uint64_t)dcache_byte(value.machine, 0x2003),
               UINT64_C(0x80002000));
   }
   fixture_destroy(&value);
@@ -543,9 +557,9 @@ static void test_reverse_endian_user_and_lladdr(
       check_u64("user RE SC succeeds at same selected lane",
                 value.machine->cpu.gpr[9], 1u);
       check_u64("user RE SC first selected byte",
-                value.machine->ram[UINT32_C(0x2004)], UINT64_C(0xa1));
+                dcache_byte(value.machine, UINT32_C(0x2004)), UINT64_C(0xa1));
       check_u64("user RE SC last selected byte",
-                value.machine->ram[UINT32_C(0x2007)], UINT64_C(0xd4));
+                dcache_byte(value.machine, UINT32_C(0x2007)), UINT64_C(0xd4));
     }
   }
   value.machine->cpu.pc = UINT32_C(0x00400008);
@@ -1058,14 +1072,14 @@ static void test_accepted_nonoverlap_dma_preserves_link(
   check_status(sp_to_rdram ? "SP nonoverlap DMA starts" : "PI nonoverlap DMA starts",
                status, T64_STATUS_OK);
   if (status == T64_STATUS_OK) {
-    request.value = UINT64_C(32);
+    request.value = UINT64_C(31);
     status = t64_machine_advance(value.machine, &request, &result);
     check_status(sp_to_rdram ? "SP nonoverlap DMA advances" : "PI nonoverlap DMA advances",
                  status, T64_STATUS_OK);
     check_u64(sp_to_rdram ? "SP guest program reaches SC" : "PI guest program reaches SC",
               result.reason, T64_STOP_REASON_INSTRUCTION_COUNT);
-    check_u64(sp_to_rdram ? "SC succeeds after disjoint SP write" : "SC succeeds after disjoint PI write",
-              value.machine->cpu.gpr[9], 1u);
+    check_bool(sp_to_rdram ? "disjoint SP write preserves link before SC" : "disjoint PI write preserves link before SC",
+               value.machine->cpu.linked_valid, true);
     check_bool(sp_to_rdram ? "disjoint SP write does not snoop D-cache" : "disjoint PI write does not snoop D-cache",
                memcmp(dcache_before, value.machine->cpu.dcache,
                       sizeof dcache_before) == 0,
@@ -1076,6 +1090,12 @@ static void test_accepted_nonoverlap_dma_preserves_link(
                              : asset[index];
       check_u64(sp_to_rdram ? "SP accepted write byte" : "PI accepted write byte",
                 value.machine->ram[UINT32_C(0x3000) + index], expected);
+    }
+    if (step(value.machine, sp_to_rdram ? "SC after disjoint SP write"
+                                        : "SC after disjoint PI write")) {
+      check_u64(sp_to_rdram ? "SC succeeds after disjoint SP write"
+                            : "SC succeeds after disjoint PI write",
+                value.machine->cpu.gpr[9], 1u);
     }
   }
   fixture_destroy(&value);

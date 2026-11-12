@@ -2,6 +2,7 @@
 
 #include <stddef.h>
 #include <stdint.h>
+#include <string.h>
 
 #define T64_SP_DMEM_BASE UINT32_C(0x04000000)
 #define T64_SP_IMEM_BASE UINT32_C(0x04001000)
@@ -621,6 +622,99 @@ t64_status t64_bus_write_masked(t64_machine *machine, uint32_t address,
   } else {
     trace_bus(machine, address, 4u, (uint32_t)(value >> 32), true);
     trace_bus(machine, address + 4u, 4u, (uint32_t)value, true);
+  }
+  return T64_STATUS_OK;
+}
+
+static t64_status dcache_writeback_destination(
+    t64_machine *machine, uint32_t address, uint8_t **bytes_out) {
+  const uint64_t end = (uint64_t)address + T64_VR4300_DCACHE_LINE_BYTES;
+  t64_bus_region region;
+  uint32_t offset;
+  uint8_t *bytes = NULL;
+
+  if (machine == NULL || bytes_out == NULL) {
+    return T64_STATUS_INVALID_ARGUMENT;
+  }
+  if ((address & (T64_VR4300_DCACHE_LINE_BYTES - UINT32_C(1))) != 0u) {
+    return T64_STATUS_BUS_ALIGNMENT;
+  }
+  if (end > UINT64_C(0x100000000)) {
+    return T64_STATUS_BUS_RANGE;
+  }
+  region = decode_region(machine, address);
+  switch (region) {
+  case T64_BUS_REGION_RDRAM:
+    if (machine->ram == NULL || end > machine->profile.rdram_bytes) {
+      return T64_STATUS_BUS_RANGE;
+    }
+    bytes = machine->ram + (size_t)address;
+    break;
+  case T64_BUS_REGION_SP_DMEM:
+    if (address < T64_SP_DMEM_BASE ||
+        end > (uint64_t)T64_SP_IMEM_BASE) {
+      return T64_STATUS_BUS_RANGE;
+    }
+    bytes = machine->sp_dmem + (size_t)(address - T64_SP_DMEM_BASE);
+    break;
+  case T64_BUS_REGION_SP_IMEM:
+    if (address < T64_SP_IMEM_BASE || end > (uint64_t)T64_SP_MEMORY_END) {
+      return T64_STATUS_BUS_RANGE;
+    }
+    bytes = machine->sp_imem + (size_t)(address - T64_SP_IMEM_BASE);
+    break;
+  case T64_BUS_REGION_CARTRIDGE:
+    return T64_STATUS_BUS_DEVICE_REFUSED;
+  case T64_BUS_REGION_UNMAPPED:
+    return T64_STATUS_BUS_UNMAPPED;
+  case T64_BUS_REGION_UNSUPPORTED:
+    return T64_STATUS_BUS_UNSUPPORTED;
+  case T64_BUS_REGION_MI:
+  case T64_BUS_REGION_PI:
+  case T64_BUS_REGION_SP_REG:
+  case T64_BUS_REGION_WARM:
+  case T64_BUS_REGION_ISVIEWER:
+  case T64_BUS_REGION_ABSENT_RDRAM_PROBE:
+    return T64_STATUS_BUS_DEVICE_REFUSED;
+  }
+  for (offset = 1u; offset < T64_VR4300_DCACHE_LINE_BYTES; offset++) {
+    if (decode_region(machine, address + offset) != region) {
+      return T64_STATUS_BUS_RANGE;
+    }
+  }
+  *bytes_out = bytes;
+  return T64_STATUS_OK;
+}
+
+t64_status t64_bus_validate_dcache_line_writeback(
+    t64_machine *machine, uint32_t physical_address) {
+  uint8_t *ignored = NULL;
+
+  return dcache_writeback_destination(machine, physical_address, &ignored);
+}
+
+t64_status t64_bus_writeback_dcache_line(
+    t64_machine *machine, uint32_t physical_address,
+    const uint8_t data[T64_VR4300_DCACHE_LINE_BYTES]) {
+  uint8_t *destination = NULL;
+  uint32_t offset;
+  t64_status status;
+
+  if (data == NULL) {
+    return T64_STATUS_INVALID_ARGUMENT;
+  }
+  status = dcache_writeback_destination(machine, physical_address,
+                                        &destination);
+  if (status != T64_STATUS_OK) {
+    return status;
+  }
+  (void)memcpy(destination, data, T64_VR4300_DCACHE_LINE_BYTES);
+  /* Cache writeback exposes already committed CPU data. Reservation effects
+   * belong to the original store or explicit D-cache invalidation, not to an
+   * unrelated backing write caused by line maintenance. */
+  for (offset = 0u; offset < T64_VR4300_DCACHE_LINE_BYTES; offset += 4u) {
+    trace_bus(machine, physical_address + offset, 4u,
+              read_big_endian(data + offset, 4u), true);
   }
   return T64_STATUS_OK;
 }
