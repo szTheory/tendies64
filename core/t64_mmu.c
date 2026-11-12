@@ -234,7 +234,7 @@ bool t64_mmu_probe(const t64_machine *machine, uint64_t entry_hi,
       match_count++;
     }
   }
-  if (match_count != 0u) {
+  if (match_count == 1u) {
     *entry_index_out = found;
   }
   *duplicate_out = match_count > 1u;
@@ -314,12 +314,12 @@ bool t64_mmu_translate(const t64_machine *machine,
     uint32_t cache_algorithm =
         (uint32_t)((address >> 59) & UINT64_C(7));
 
+    result.physical_domain = T64_MMU_DOMAIN_XKPHYS;
     if ((address & T64_XKPHYS_PHYSICAL_HIGH_MASK) != 0u) {
       set_address_fault(request, &result);
       *result_out = result;
       return true;
     }
-    result.physical_domain = T64_MMU_DOMAIN_XKPHYS;
     result.physical_address = address & T64_ADDRESS32_MASK;
     result.cache_algorithm = (uint8_t)cache_algorithm;
     result.cacheable = cache_algorithm != UINT32_C(2);
@@ -343,6 +343,7 @@ bool t64_mmu_translate(const t64_machine *machine,
     }
     if (match_count > 1u) {
       result.fault = T64_MMU_FAULT_DUPLICATE_MATCH;
+      result.matched_entry = UINT32_MAX;
       *result_out = result;
       return true;
     }

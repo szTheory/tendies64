@@ -1307,6 +1307,10 @@ static t64_status cpu_preflight_memory(t64_machine *machine, uint32_t opcode,
       uint32_t cache_operation =
           (opcode >> 16) & UINT32_C(0x1f);
 
+      /* Warm-v1 retains its legacy direct-only CACHE subset. */
+      if (!has_vr4300_cpu_state(machine)) {
+        return T64_STATUS_OK;
+      }
       if (cache_operation != T64_CACHE_INDEX_STORE_TAG_I &&
           cache_operation != T64_CACHE_INDEX_STORE_TAG_D &&
           cache_operation != T64_CACHE_HIT_INVALIDATE_D &&

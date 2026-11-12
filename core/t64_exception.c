@@ -20,7 +20,7 @@
 #define T64_ENTRYHI32_VPN_MASK UINT64_C(0x00000000ffffe000)
 #define T64_ENTRYHI64_VPN_MASK UINT64_C(0xc00000ffffffe000)
 #define T64_CONTEXT_BADVPN2_MASK UINT64_C(0x00000000007ffff0)
-#define T64_XCONTEXT_BADVPN2_MASK UINT64_C(0x00000001fffffff0)
+#define T64_XCONTEXT_BADVPN2_MASK UINT64_C(0x000000007ffffff0)
 #define T64_XCONTEXT_REGION_MASK UINT64_C(0x0000000180000000)
 
 static bool exception_updates_bad_vaddr(uint32_t code) {
@@ -57,17 +57,20 @@ static void update_tlb_fault_context(t64_machine *machine,
                       (address & entry_hi_mask);
   uint64_t context = machine->cpu.cp0[T64_CP0_CONTEXT];
   uint64_t xcontext = machine->cpu.cp0[T64_CP0_XCONTEXT];
+  uint64_t xcontext_fields = T64_XCONTEXT_BADVPN2_MASK |
+                             T64_XCONTEXT_REGION_MASK;
+  uint64_t xcontext_bad_vpn2 = (address >> 9) &
+                               T64_XCONTEXT_BADVPN2_MASK;
+  uint64_t xcontext_region = (address >> 31) &
+                             T64_XCONTEXT_REGION_MASK;
 
   machine->cpu.cp0[T64_CP0_ENTRYHI] = entry_hi;
   machine->cpu.cp0[T64_CP0_CONTEXT] =
       (context & ~T64_CONTEXT_BADVPN2_MASK) |
       ((address >> 9) & T64_CONTEXT_BADVPN2_MASK);
   machine->cpu.cp0[T64_CP0_XCONTEXT] =
-      (xcontext & ~T64_XCONTEXT_BADVPN2_MASK) |
-      (exception->tlb_extended
-           ? ((((address >> 31) & T64_XCONTEXT_REGION_MASK) |
-               ((address >> 9) & UINT64_C(0x000000007ffffff0))))
-           : ((address >> 9) & T64_CONTEXT_BADVPN2_MASK));
+      (xcontext & ~xcontext_fields) | xcontext_bad_vpn2 |
+      xcontext_region;
 }
 
 t64_status t64_cpu_exception_enter(

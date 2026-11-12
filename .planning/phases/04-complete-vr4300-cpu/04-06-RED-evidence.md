@@ -24,3 +24,33 @@ the pinned public copy is <https://hack64.net/docs/VR43XX.pdf>, SHA-256
 
 This record describes software behavior and the cited manual. It makes no
 hardware-accuracy or human-approval claim.
+
+## Task 2: XKPHYS physical-width refusal
+
+The registered MMU assertion was executed before the correction:
+
+```sh
+ctest --preset gate --no-tests=error -R '^unit\.core\.cpu-mmu$' --output-on-failure
+```
+
+The test reached its intended result-field assertion for XKPHYS address
+`0x8000000100000000`. The address correctly returned an address fault and no
+translation, but the result reported physical domain `BUS` instead of
+`XKPHYS`. The input address identifies XKPHYS and must retain that domain even
+when its unsupported physical width is refused. This was a translation-result
+behavior RED; the test target compiled and was discovered by CTest.
+
+The address-width rule follows NEC U10504EJ7V0UM00, pp. 139–140: XKPHYS
+physical address bits 58:32 must be zero. This evidence records the emulator's
+software result and does not claim hardware execution.
+
+## CACHE translation scope
+
+The warm-v1 `unit.core.cp0-cache` fixture retains its legacy direct-only
+supported subset. Its unqualified operation and KUSEG hit operation stop as
+model-unsupported; that fixture is not hardware evidence. The VR4300 profile
+has a separate assertion that a supported `Hit_Writeback_Invalidate_D`
+operand at KUSEG `0x100` raises a TLB refill before cache or reservation
+effects. NEC U10504EJ7V0UM00, p. 402, specifies virtual-to-physical translation
+for CACHE operands and says TLB miss/invalid exceptions may occur. Cache line
+state and writeback semantics remain outside this plan.

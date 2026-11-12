@@ -1089,9 +1089,9 @@ static bool test_cp0_cache_unsupported_encodings(
       UINT32_C(0x40004801), /* mfc0 t0,count,sel=1 */
       UINT32_C(0x40880000), /* mtc0 t0,c0_index */
   };
-  static const uint32_t cache_cases[] = {
+  static const uint32_t unsupported_cache[] = {
       UINT32_C(0xbd100000), /* undefined/unqualified CACHE operation */
-      UINT32_C(0xbd150000), /* Hit_Writeback_Invalidate_D */
+      UINT32_C(0xbd150000), /* warm-v1 direct-only CACHE subset */
   };
   size_t i;
 
@@ -1108,39 +1108,22 @@ static bool test_cp0_cache_unsupported_encodings(
       return false;
     }
   }
-  for (i = 0u; i < sizeof cache_cases / sizeof cache_cases[0]; i++) {
+  for (i = 0u; i < sizeof unsupported_cache / sizeof unsupported_cache[0];
+       i++) {
     t64_stop_result result = {UINT32_MAX, UINT64_MAX};
     t64_cpu_stop_detail detail = {UINT64_MAX, UINT32_MAX, UINT32_MAX};
 
-    if (!install_program(machine, asset, &cache_cases[i], 1u)) {
+    if (!install_program(machine, asset, &unsupported_cache[i], 1u)) {
       return false;
     }
     machine->cpu.gpr[8] = i == 0u ? UINT64_C(0xffffffff80000100)
                                   : UINT64_C(0x100);
-    if (i == 0u) {
-      if (!stop_at_unsupported(machine, &result, &detail) ||
-          detail.retired_instructions != UINT64_C(0) ||
-          detail.pc != IPL3_ENTRY_PC || detail.opcode != cache_cases[i] ||
-          machine->cache.operation_seen) {
-        return false;
-      }
-    } else {
-      /* The manual specifies virtual-to-physical translation for CACHE
-       * operands and allows TLB miss/invalid exceptions. Use ASID 1 so this
-       * KUSEG address does not collide with the all-zero invalid seed tags. */
-      t64_stop_request request = {T64_STOP_GUEST_TICK, UINT64_C(1)};
-      machine->cpu.cp0[10] = UINT64_C(1);
-      if (t64_machine_advance(machine, &request, &result) != T64_STATUS_OK ||
-          result.reason != T64_STOP_REASON_BOUND ||
-          machine->cpu.pc_full != t64_cpu_canonical_address(
-                                      UINT32_C(0x80000000)) ||
-          (uint32_t)machine->cpu.cp0[13] >> 2 != UINT32_C(2) ||
-          machine->cpu.cp0[8] != UINT64_C(0x100) ||
-          machine->cpu.cp0[10] != UINT64_C(0x101) ||
-          machine->cpu.retired_instructions != UINT64_C(0) ||
-          machine->cache.operation_seen) {
-        return false;
-      }
+    if (!stop_at_unsupported(machine, &result, &detail) ||
+        detail.retired_instructions != UINT64_C(0) ||
+        detail.pc != IPL3_ENTRY_PC ||
+        detail.opcode != unsupported_cache[i] ||
+        machine->cache.operation_seen) {
+      return false;
     }
   }
   return true;
@@ -1293,7 +1276,7 @@ int main(int argc, char **argv) {
        test_cp0_compare_write_clears_timer},
       {"CACHE index tags and D hit writeback preserve coherent memory",
        test_cache_operations_are_coherent},
-      {"unknown CP0 selects stop and CACHE operands use TLB translation",
+      {"unknown CP0 selects and unsupported warm-v1 CACHE forms stop",
        test_cp0_cache_unsupported_encodings},
       {"CP0 and cache state participate in the v6 digest",
        test_cp0_cache_state_is_in_digest},
