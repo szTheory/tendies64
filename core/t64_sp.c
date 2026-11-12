@@ -5,6 +5,8 @@
 
 #define T64_SP_REGISTER_BASE UINT32_C(0x04040000)
 #define T64_SP_REGISTER_END UINT32_C(0x04040020)
+#define T64_SP_DMEM_BASE UINT32_C(0x04000000)
+#define T64_SP_IMEM_BASE UINT32_C(0x04001000)
 #define T64_SP_MEM_ADDRESS_MASK UINT32_C(0x00001fff)
 #define T64_SP_DRAM_ADDRESS_MASK UINT32_C(0x00ffffff)
 #define T64_SP_LENGTH_MASK UINT32_C(0x00ffffff)
@@ -338,6 +340,11 @@ t64_status t64_sp_complete(t64_machine *machine, const t64_event *event) {
       if (descriptor->dram_to_sp) {
         sp_bank[internal_offset] =
             warm_zero_source ? 0u : machine->ram[dram_offset];
+        t64_cpu_link_invalidate_range(
+            machine,
+            (descriptor->imem ? T64_SP_IMEM_BASE : T64_SP_DMEM_BASE) +
+                internal_offset,
+            1u);
       } else {
         machine->ram[dram_offset] = sp_bank[internal_offset];
         t64_cpu_link_invalidate_range(machine, (uint32_t)dram_offset, 1u);

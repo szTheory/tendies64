@@ -1146,11 +1146,16 @@ static bool execute_cache(t64_machine *machine, uint32_t pc,
   }
   physical_address = (uint32_t)translation.physical_address;
 
+  if (operation == T64_CACHE_HIT_INVALIDATE_D ||
+      operation == T64_CACHE_HIT_WRITEBACK_INVALIDATE_D) {
+    t64_cpu_link_invalidate_dcache_line(machine, physical_address);
+  }
+
   /*
    * The qualified profile uses coherent-functional memory: guest writes and
    * instruction fetches already see the same backing bytes. Cache operations
-   * therefore have no hidden line data to flush, and only their last observed
-   * identity/address is retained in the v6 cache state.
+   * do not flush hidden line data, but a targeted D-line invalidation clears an
+   * overlapping linked reservation.
    */
   machine->cache.last_operation = operation;
   machine->cache.last_pc = pc;

@@ -434,6 +434,16 @@ void t64_cpu_link_invalidate_range(t64_machine *machine,
   }
 }
 
+void t64_cpu_link_invalidate_dcache_line(t64_machine *machine,
+                                         uint32_t physical_address) {
+  uint32_t line_address =
+      physical_address &
+      ~(T64_VR4300_DCACHE_LINE_BYTES - UINT32_C(1));
+
+  t64_cpu_link_invalidate_range(machine, line_address,
+                                T64_VR4300_DCACHE_LINE_BYTES);
+}
+
 static bool execute_linked_memory(t64_machine *machine, uint32_t opcode,
                                   bool *write_gpr_out,
                                   uint32_t *destination_out,
@@ -501,9 +511,6 @@ static bool execute_linked_memory(t64_machine *machine, uint32_t opcode,
     uint64_t source = machine->cpu.gpr[rt];
     t64_status status = T64_STATUS_OK;
 
-    machine->cpu.linked_valid = false;
-    machine->cpu.linked_physical_address = 0u;
-    machine->cpu.linked_width = 0u;
     if (success) {
       status = width == 4u
                    ? t64_bus_write(machine, physical_address, 4u,
@@ -514,6 +521,9 @@ static bool execute_linked_memory(t64_machine *machine, uint32_t opcode,
         return false;
       }
     }
+    machine->cpu.linked_valid = false;
+    machine->cpu.linked_physical_address = 0u;
+    machine->cpu.linked_width = 0u;
     *write_gpr_out = true;
     *destination_out = rt;
     *value_out = success ? UINT64_C(1) : UINT64_C(0);

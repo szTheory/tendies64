@@ -62,8 +62,40 @@ additional deferred pending-latch mechanism.
 
 Native tests exercise alignment, segment/TLB permissions, Watch, physical
 range faults, merge offsets, page boundaries and refused-device effects.
-LL/SC and cache fill/writeback semantics are subsequent slices; this document
-does not claim their qualification.
+
+## LL/SC reservation policy
+
+The manual defines LLAddr as the physical address bits `[31:4]` of the last
+load-linked operation. Tendies64 records that diagnostic value while keeping
+the full linked physical start and transfer width in per-machine state. A
+successful, translated LL/LLD replaces the reservation only after the load
+completes.
+
+The following are explicit model choices for this selected profile, not
+claims about undocumented silicon behavior:
+
+- SC/SCD check access faults before producing a result or attempting a store.
+  A completed decision succeeds only when the physical start and width match
+  the active reservation. Either completed result consumes it once; a fault
+  preserves the reservation through fault entry, and ERET clears it. The
+  source value is captured before an aliased result register is written, and
+  `rt=0` still performs the conditional store decision.
+- Committed external writes invalidate only when their physical byte interval
+  intersects the linked interval. Touching intervals remain separate; a
+  single shared byte invalidates. Rejected or canceled writes have no
+  invalidation effect. Bus masked writes report only selected committed bytes.
+- PI and SP DMA invalidate the physical backing bytes they actually commit:
+  PI writes RDRAM, while SP DMA can write RDRAM or SP DMEM/IMEM. DMA does not
+  snoop or update the modeled D-cache. A targeted D-cache invalidate applies
+  the selected 16-byte physical line interval to the reservation.
+
+These choices keep the coherent-functional memory model deterministic and
+make the invalidation granule observable in tests. Reopen them if a stronger
+primary VR4300 specification or an authorized independent hardware
+measurement establishes different SC/SCD matching, consumption, fault, or
+invalidation behavior. That evidence must identify the tested processor and
+transfer widths and include the byte-level result; another emulator's output
+or an unlicensed source tree is not reversal evidence.
 
 ## Source and evidence
 
@@ -75,8 +107,9 @@ Figure 3-2, pp.62–63; endian and memory adapter definitions, pp.365–368;
 LBU/LD, pp.439–441; LHU, pp.450–451; SB/SD/SH, pp.486/491/501;
 LW/SW omissions, pp.458/515; LL/LWC/SWC, pp.453/460/516;
 LWR/SWR tables, pp.466/523; partial merges, pp.445–446/497/499–500;
-Watch, pp.175/198.
+LLAddr, p.154; LL, pp.452–453; LLD, pp.454–455; Watch, pp.175/198.
 
 The registered CPU-memory matrix and CPU-path integration tests contain
-independent expected bytes. The [portable RED record](../../.planning/phases/04-complete-vr4300-cpu/04-07-RED-evidence.md)
-distinguishes valid behavioral failures from discarded vectors and setup errors.
+independent expected bytes. The [04-07 portable RED record](../../.planning/phases/04-complete-vr4300-cpu/04-07-RED-evidence.md)
+and [04-08 portable RED record](../../.planning/phases/04-complete-vr4300-cpu/04-08-RED-evidence.md)
+distinguish valid behavioral failures from discarded vectors and setup errors.

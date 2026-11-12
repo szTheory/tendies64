@@ -527,7 +527,9 @@ t64_status t64_bus_write(t64_machine *machine, uint32_t address,
     return T64_STATUS_BUS_RANGE;
   }
   write_big_endian(bytes, width, value);
-  if (region == T64_BUS_REGION_RDRAM) {
+  if (region == T64_BUS_REGION_RDRAM ||
+      region == T64_BUS_REGION_SP_DMEM ||
+      region == T64_BUS_REGION_SP_IMEM) {
     t64_cpu_link_invalidate_range(machine, address, width);
   }
   trace_bus(machine, address, width, value, true);
@@ -607,7 +609,9 @@ t64_status t64_bus_write_masked(t64_machine *machine, uint32_t address,
     if (((uint32_t)byte_mask & (UINT32_C(1) << index)) != 0u) {
       uint32_t shift = (byte_count - index - 1u) * 8u;
       bytes[index] = (uint8_t)(value >> shift);
-      if (region == T64_BUS_REGION_RDRAM) {
+      if (region == T64_BUS_REGION_RDRAM ||
+          region == T64_BUS_REGION_SP_DMEM ||
+          region == T64_BUS_REGION_SP_IMEM) {
         t64_cpu_link_invalidate_range(machine, address + index, 1u);
       }
     }
