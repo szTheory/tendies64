@@ -110,8 +110,246 @@ rounding mode, before-tininess policy, and preexisting divide-by-zero flag;
 the expected result and sticky flags are derived from those inputs, while the
 first context's mode, tininess, and invalid flag are checked unchanged.
 
-The remaining matrix expansion records each category, operation, rounding
-mode, expected bit pattern, flags, and independent derivation in this section
-as Task 2 coverage is added.
+### Task 2: complete raw edge matrix
+
+The raw test table has 126 uniquely named vector families; each family is run
+through `t64_softfloat_execute` under RM0 through RM3 with a fresh context and
+zero initial flags. The table stores format, operation, operands, category,
+expected-source class, four expected result bit patterns, and four expected
+flag bytes. The audit table below is generated from those authored constants
+and maps every family to its categories, source method, and per-mode result.
+No result was harvested from the wrapper, host floating point, or another
+emulator. A standard-library integer square-root check was used only for the
+integer midpoint comparison documented below.
+
+The test-side inventory checks the exact 126-family count, unique family IDs,
+all 26 operation IDs in each rounding mode, every required category in each
+format and rounding mode, all three expected-source classes in each format
+and mode, the five IEEE flag bits in each format, and rounding-sensitive
+families for every add/subtract/multiply/divide/square-root kernel in both
+formats. Removing a required row or its category/source metadata therefore
+fails the existing raw test selection. The explicit context-isolation test
+still interleaves different rounding/tininess settings and sticky flags; the
+before/after tininess discriminator below remains unchanged.
+
+#### Independent derivation rules
+
+- **Exact baseline rows:** Decode the hex sign/exponent/fraction fields and
+  use exact integer or dyadic arithmetic: `1+2=3`, `3−1=2`, `1.5×2=3`,
+  `6/2=3`, `sqrt(4)=2`; comparisons use exact equality/order. `1.5` converts
+  exactly between the two binary formats; integer 2/3 encode exactly in the
+  listed formats. The result arrays repeat under all RMs because none of
+  these exact operations has a discarded bit.
+- **Addition tie and neighbors:** At 1, binary32 ULP is `2^-23`; the
+  halfway addend is `2^-24` (`0x33800000`). Its predecessor and successor
+  (`0x337fffff`, `0x33800001`) are on opposite sides of the exact midpoint.
+  For binary64 the corresponding addend is `2^-53` (`0x3ca0000000000000`),
+  bracketed by `0x3c9fffffffffffff` and `0x3ca0000000000001`. The rounding
+  outputs follow comparison of the exact sum with 1 and its adjacent
+  encodings; nearest-even selects the even significand at the exact tie.
+- **Cross-format tie and neighbors:** `1+2^-24` lies exactly halfway between
+  binary32 1 and its successor. The binary64 encodings immediately below and
+  above that value are one integer bit-pattern step away. Negating the exact
+  rational reverses directed-rounding choices while preserving nearest-even.
+- **Integer-to-float ties:** `2^24+1` is midway between adjacent binary32
+  values `2^24` and `2^24+2`; `2^53+1` is midway between adjacent binary64
+  values `2^53` and `2^53+2`. For negative inputs, toward-negative selects
+  the more-negative endpoint and toward-positive selects toward zero. The
+  parity of the lower significand establishes the nearest-even endpoint.
+- **Signed zeros:** The sign bit alone distinguishes the zero inputs. Adding
+  like-signed zeros preserves that sign. Adding opposite-signed zeros gives
+  negative zero only under round-toward-negative; the other modes give
+  positive zero.
+- **Subnormal/normal boundaries:** Binary32 min-subnormal is `2^-149`,
+  max-subnormal is `(2^23−1)×2^-149`, and min-normal is `2^-126`.
+  Binary64 uses `2^-1074`, `(2^52−1)×2^-1074`, and `2^-1022`. Thus
+  min-subnormal + min-subnormal is the next subnormal; max-subnormal +
+  min-subnormal is min-normal; and min-normal − max-subnormal is
+  min-subnormal. Multiplication by exactly 1 preserves the min-normal and
+  max-normal encodings.
+- **Infinity and NaN rows:** Exponent/fraction fields classify the special
+  operands. Infinity signs follow the sign xor for multiplication. The
+  authored raw NaN policy already audited above selects and quiets the first
+  NaN payload; signaling inputs raise invalid. Quiet-NaN equality is false
+  without invalid; ordered comparisons with NaNs return false and raise
+  invalid under the selected raw wrapper contract.
+- **Signed W/L limits:** Compare each decoded exact integer with
+  `[-2^31,2^31−1]` or `[-2^63,2^63−1]`. Binary32 W uses exact `−2^31`,
+  predecessor `2^31−128`, and the next representable value `2^31`; binary32
+  L uses `−2^63`, predecessor `2^63−2^39` (`0x5effffff`), and `2^63`.
+  The predecessor is `(2^24−1)×2^39 = 2^63−2^39`; this is the corrected
+  expectation recorded after an initial exponent-step miscalculation.
+  Binary64 W includes exact endpoints and the adjacent out-of-range
+  integers; binary64 L's largest in-range value is `2^63−1024`, followed by
+  `2^63`. Values below the signed minimum are also tested. Invalid exact
+  conversions return the raw signed-minimum sentinel and set invalid only.
+- **Overflow/underflow and flags:** Largest finite times 2 exceeds the
+  finite range; the output arrays select infinity or largest finite by sign
+  and directed mode and set overflow|inexact. Min-subnormal times `1/2` is
+  exactly halfway between zero and min-subnormal; nearest-even/toward-zero
+  choose signed zero, while directed modes choose the adjacent value as
+  required by sign, setting underflow|inexact. The existing distinct
+  before/after tininess vectors continue to check tininess independently of
+  the final encoded result. `±1/0` gives signed infinity with divide-by-zero;
+  `0/0`, infinity cancellation, infinity×zero, and sqrt of a negative finite
+  value are invalid and return the authored default quiet NaN.
+- **Non-exact arithmetic kernels:** For subtract, `1−2^-25` in binary32
+  (and `1−2^-54` in binary64) is the midpoint between 1 and its predecessor;
+  neighboring encoded subtrahends bracket that midpoint. For multiply,
+  `(1+2^-23)^2 = 1+2^-22+2^-46` (binary32) and
+  `(1+2^-52)^2 = 1+2^-51+2^-104` (binary64), so the exact product is just
+  above the second successor and below the third; negative operands reverse
+  directed choices. Division uses exact `1/3`; its adjacent encodings are
+  selected by integer cross-multiplication against 1, with sign reversing
+  directed bounds. Square root uses integer midpoint comparisons: for
+  binary32, `n=floor(sqrt(2×2^47))=0xb504f3` and
+  `4×2^47−(2n+1)^2=−28184177`, so sqrt(2) is below the midpoint and nearest
+  selects `0x3fb504f3`; for binary64, `n=floor(sqrt(2×2^105))=
+  0x16a09e667f3bcc` and `4×2^105−(2n+1)^2=3292739303401103`, so it is
+  above the midpoint and nearest selects `0x3ff6a09e667f3bcd`. Directed
+  modes select the corresponding adjacent lower/upper encoding. These
+  integer comparisons, not the library result, establish the expected root
+  rows. An initial guessed sqrt table and a misread of its first mismatch
+  output were discarded after this derivation; the corrected table passed,
+  and no production sqrt defect was observed.
+
+#### Per-family category, source, and expected-result inventory
+
+Every table cell lists the result bits and accumulated flags for that RM.
+`bits` means direct bit decomposition/classification; `rational` means exact
+dyadic/rational arithmetic or interval comparison; `integer` means signed
+integer midpoint or range comparison. The named families are also the
+stable omission-control IDs checked by the test inventory.
+
+<!-- PLAN17-MATRIX-INVENTORY -->
+| Family ID | Format / operation | Category | Source | RM0 bits / flags | RM1 bits / flags | RM2 bits / flags | RM3 bits / flags |
+|---|---|---|---|---|---|---|---|
+| `base-i32-f64` | binary64 `I32_TO_F64` | BASE | bits | 0x4008000000000000 / 0u | 0x4008000000000000 / 0u | 0x4008000000000000 / 0u | 0x4008000000000000 / 0u |
+| `base-f32-add` | binary32 `F32_ADD` | BASE | bits | 0x40400000 / 0u | 0x40400000 / 0u | 0x40400000 / 0u | 0x40400000 / 0u |
+| `base-f32-sub` | binary32 `F32_SUB` | BASE | bits | 0x40000000 / 0u | 0x40000000 / 0u | 0x40000000 / 0u | 0x40000000 / 0u |
+| `base-f32-mul` | binary32 `F32_MUL` | BASE | bits | 0x40400000 / 0u | 0x40400000 / 0u | 0x40400000 / 0u | 0x40400000 / 0u |
+| `base-f32-div` | binary32 `F32_DIV` | BASE | rational | 0x40400000 / 0u | 0x40400000 / 0u | 0x40400000 / 0u | 0x40400000 / 0u |
+| `base-f32-sqrt` | binary32 `F32_SQRT` | BASE | bits | 0x40000000 / 0u | 0x40000000 / 0u | 0x40000000 / 0u | 0x40000000 / 0u |
+| `base-f32-eq` | binary32 `F32_EQ` | BASE | bits | 1u / 0u | 1u / 0u | 1u / 0u | 1u / 0u |
+| `base-f32-le` | binary32 `F32_LE` | BASE | bits | 1u / 0u | 1u / 0u | 1u / 0u | 1u / 0u |
+| `base-f32-lt` | binary32 `F32_LT` | BASE | bits | 1u / 0u | 1u / 0u | 1u / 0u | 1u / 0u |
+| `base-f32-f64` | binary32 `F32_TO_F64` | BASE | bits | 0x3ff8000000000000 / 0u | 0x3ff8000000000000 / 0u | 0x3ff8000000000000 / 0u | 0x3ff8000000000000 / 0u |
+| `base-f32-i32` | binary32 `F32_TO_I32` | BASE | bits | 2u / 0u | 2u / 0u | 2u / 0u | 2u / 0u |
+| `base-f32-i64` | binary32 `F32_TO_I64` | BASE | bits | 2u / 0u | 2u / 0u | 2u / 0u | 2u / 0u |
+| `base-f64-add` | binary64 `F64_ADD` | BASE | bits | 0x4008000000000000 / 0u | 0x4008000000000000 / 0u | 0x4008000000000000 / 0u | 0x4008000000000000 / 0u |
+| `base-f64-sub` | binary64 `F64_SUB` | BASE | bits | 0x4000000000000000 / 0u | 0x4000000000000000 / 0u | 0x4000000000000000 / 0u | 0x4000000000000000 / 0u |
+| `base-f64-mul` | binary64 `F64_MUL` | BASE | bits | 0x4008000000000000 / 0u | 0x4008000000000000 / 0u | 0x4008000000000000 / 0u | 0x4008000000000000 / 0u |
+| `base-f64-div` | binary64 `F64_DIV` | BASE | rational | 0x4008000000000000 / 0u | 0x4008000000000000 / 0u | 0x4008000000000000 / 0u | 0x4008000000000000 / 0u |
+| `base-f64-sqrt` | binary64 `F64_SQRT` | BASE | bits | 0x4000000000000000 / 0u | 0x4000000000000000 / 0u | 0x4000000000000000 / 0u | 0x4000000000000000 / 0u |
+| `base-f64-eq` | binary64 `F64_EQ` | BASE | bits | 1u / 0u | 1u / 0u | 1u / 0u | 1u / 0u |
+| `base-f64-le` | binary64 `F64_LE` | BASE | bits | 1u / 0u | 1u / 0u | 1u / 0u | 1u / 0u |
+| `base-f64-lt` | binary64 `F64_LT` | BASE | bits | 1u / 0u | 1u / 0u | 1u / 0u | 1u / 0u |
+| `base-f64-f32` | binary64 `F64_TO_F32` | BASE | bits | 0x3fc00000 / 0u | 0x3fc00000 / 0u | 0x3fc00000 / 0u | 0x3fc00000 / 0u |
+| `base-f64-i32` | binary64 `F64_TO_I32` | BASE | bits | 2u / 0u | 2u / 0u | 2u / 0u | 2u / 0u |
+| `base-f64-i64` | binary64 `F64_TO_I64` | BASE | bits | 2u / 0u | 2u / 0u | 2u / 0u | 2u / 0u |
+| `base-i32-f32` | binary32 `I32_TO_F32` | BASE | bits | 0x40400000 / 0u | 0x40400000 / 0u | 0x40400000 / 0u | 0x40400000 / 0u |
+| `base-i64-f32` | binary32 `I64_TO_F32` | BASE | bits | 0x40400000 / 0u | 0x40400000 / 0u | 0x40400000 / 0u | 0x40400000 / 0u |
+| `base-i64-f64` | binary64 `I64_TO_F64` | BASE | bits | 0x4008000000000000 / 0u | 0x4008000000000000 / 0u | 0x4008000000000000 / 0u | 0x4008000000000000 / 0u |
+| `f32-add-half-ulp-positive` | binary32 `F32_ADD` | TIE, INEXACT, ROUNDING_SENSITIVE | rational | 0x3f800000 / 1u | 0x3f800000 / 1u | 0x3f800000 / 1u | 0x3f800001 / 1u |
+| `f32-add-half-ulp-below` | binary32 `F32_ADD` | NEIGHBOR, INEXACT | rational | 0x3f800000 / 1u | 0x3f800000 / 1u | 0x3f800000 / 1u | 0x3f800001 / 1u |
+| `f32-add-half-ulp-above` | binary32 `F32_ADD` | NEIGHBOR, INEXACT | rational | 0x3f800001 / 1u | 0x3f800000 / 1u | 0x3f800000 / 1u | 0x3f800001 / 1u |
+| `f64-add-half-ulp-positive` | binary64 `F64_ADD` | TIE, INEXACT, ROUNDING_SENSITIVE | rational | 0x3ff0000000000000 / 1u | 0x3ff0000000000000 / 1u | 0x3ff0000000000000 / 1u | 0x3ff0000000000001 / 1u |
+| `f64-add-half-ulp-below` | binary64 `F64_ADD` | NEIGHBOR, INEXACT | rational | 0x3ff0000000000000 / 1u | 0x3ff0000000000000 / 1u | 0x3ff0000000000000 / 1u | 0x3ff0000000000001 / 1u |
+| `f64-add-half-ulp-above` | binary64 `F64_ADD` | NEIGHBOR, INEXACT | rational | 0x3ff0000000000001 / 1u | 0x3ff0000000000000 / 1u | 0x3ff0000000000000 / 1u | 0x3ff0000000000001 / 1u |
+| `f64-to-f32-halfway-positive` | binary64 `F64_TO_F32` | TIE, INEXACT | rational | 0x3f800000 / 1u | 0x3f800000 / 1u | 0x3f800000 / 1u | 0x3f800001 / 1u |
+| `f64-to-f32-neighbor-below` | binary64 `F64_TO_F32` | NEIGHBOR, INEXACT | rational | 0x3f800000 / 1u | 0x3f800000 / 1u | 0x3f800000 / 1u | 0x3f800001 / 1u |
+| `f64-to-f32-neighbor-above` | binary64 `F64_TO_F32` | NEIGHBOR, INEXACT | rational | 0x3f800001 / 1u | 0x3f800000 / 1u | 0x3f800000 / 1u | 0x3f800001 / 1u |
+| `f64-to-f32-halfway-negative` | binary64 `F64_TO_F32` | TIE, INEXACT | rational | 0xbf800000 / 1u | 0xbf800000 / 1u | 0xbf800001 / 1u | 0xbf800000 / 1u |
+| `f64-to-f32-neighbor-negative-below` | binary64 `F64_TO_F32` | NEIGHBOR, INEXACT | rational | 0xbf800000 / 1u | 0xbf800000 / 1u | 0xbf800001 / 1u | 0xbf800000 / 1u |
+| `f64-to-f32-neighbor-negative-above` | binary64 `F64_TO_F32` | NEIGHBOR, INEXACT | rational | 0xbf800001 / 1u | 0xbf800000 / 1u | 0xbf800001 / 1u | 0xbf800000 / 1u |
+| `i32-to-f32-integer-tie-positive` | binary32 `I32_TO_F32` | TIE, INEXACT | integer | 0x4b800000 / 1u | 0x4b800000 / 1u | 0x4b800000 / 1u | 0x4b800001 / 1u |
+| `i32-to-f32-integer-tie-negative` | binary32 `I32_TO_F32` | TIE, INEXACT | integer | 0xcb800000 / 1u | 0xcb800000 / 1u | 0xcb800001 / 1u | 0xcb800000 / 1u |
+| `i64-to-f32-integer-tie-positive` | binary32 `I64_TO_F32` | TIE, INEXACT | integer | 0x4b800000 / 1u | 0x4b800000 / 1u | 0x4b800000 / 1u | 0x4b800001 / 1u |
+| `i64-to-f32-integer-tie-negative` | binary32 `I64_TO_F32` | TIE, INEXACT | integer | 0xcb800000 / 1u | 0xcb800000 / 1u | 0xcb800001 / 1u | 0xcb800000 / 1u |
+| `i64-to-f64-integer-tie-positive` | binary64 `I64_TO_F64` | TIE, INEXACT | integer | 0x4340000000000000 / 1u | 0x4340000000000000 / 1u | 0x4340000000000000 / 1u | 0x4340000000000001 / 1u |
+| `i64-to-f64-integer-tie-negative` | binary64 `I64_TO_F64` | TIE, INEXACT | integer | 0xc340000000000000 / 1u | 0xc340000000000000 / 1u | 0xc340000000000001 / 1u | 0xc340000000000000 / 1u |
+| `f32-zero-positive` | binary32 `F32_ADD` | ZERO_SIGN | bits | 0u / 0u | 0u / 0u | 0u / 0u | 0u / 0u |
+| `f32-zero-negative` | binary32 `F32_ADD` | ZERO_SIGN | bits | 0x80000000 / 0u | 0x80000000 / 0u | 0x80000000 / 0u | 0x80000000 / 0u |
+| `f32-zero-opposite` | binary32 `F32_ADD` | ZERO_SIGN | bits | 0u / 0u | 0u / 0u | 0x80000000 / 0u | 0u / 0u |
+| `f64-zero-positive` | binary64 `F64_ADD` | ZERO_SIGN | bits | 0u / 0u | 0u / 0u | 0u / 0u | 0u / 0u |
+| `f64-zero-negative` | binary64 `F64_ADD` | ZERO_SIGN | bits | 0x8000000000000000 / 0u | 0x8000000000000000 / 0u | 0x8000000000000000 / 0u | 0x8000000000000000 / 0u |
+| `f64-zero-opposite` | binary64 `F64_ADD` | ZERO_SIGN | bits | 0u / 0u | 0u / 0u | 0x8000000000000000 / 0u | 0u / 0u |
+| `f32-minsub-plus-minsub` | binary32 `F32_ADD` | SUBNORMAL | rational | 2u / 0u | 2u / 0u | 2u / 0u | 2u / 0u |
+| `f32-maxsub-plus-minsub` | binary32 `F32_ADD` | SUBNORMAL | rational | 0x00800000 / 0u | 0x00800000 / 0u | 0x00800000 / 0u | 0x00800000 / 0u |
+| `f32-minnormal-minus-maxsub` | binary32 `F32_SUB` | SUBNORMAL | rational | 1u / 0u | 1u / 0u | 1u / 0u | 1u / 0u |
+| `f32-minnormal-times-one` | binary32 `F32_MUL` | SUBNORMAL | bits | 0x00800000 / 0u | 0x00800000 / 0u | 0x00800000 / 0u | 0x00800000 / 0u |
+| `f32-maxnormal-times-one` | binary32 `F32_MUL` | SUBNORMAL | bits | 0x7f7fffff / 0u | 0x7f7fffff / 0u | 0x7f7fffff / 0u | 0x7f7fffff / 0u |
+| `f64-minsub-plus-minsub` | binary64 `F64_ADD` | SUBNORMAL | rational | 2u / 0u | 2u / 0u | 2u / 0u | 2u / 0u |
+| `f64-maxsub-plus-minsub` | binary64 `F64_ADD` | SUBNORMAL | rational | 0x0010000000000000 / 0u | 0x0010000000000000 / 0u | 0x0010000000000000 / 0u | 0x0010000000000000 / 0u |
+| `f64-minnormal-minus-maxsub` | binary64 `F64_SUB` | SUBNORMAL | rational | 1u / 0u | 1u / 0u | 1u / 0u | 1u / 0u |
+| `f64-minnormal-times-one` | binary64 `F64_MUL` | SUBNORMAL | bits | 0x0010000000000000 / 0u | 0x0010000000000000 / 0u | 0x0010000000000000 / 0u | 0x0010000000000000 / 0u |
+| `f64-maxnormal-times-one` | binary64 `F64_MUL` | SUBNORMAL | bits | 0x7fefffffffffffff / 0u | 0x7fefffffffffffff / 0u | 0x7fefffffffffffff / 0u | 0x7fefffffffffffff / 0u |
+| `f32-positive-infinity-plus-one` | binary32 `F32_ADD` | INFINITY | bits | 0x7f800000 / 0u | 0x7f800000 / 0u | 0x7f800000 / 0u | 0x7f800000 / 0u |
+| `f32-negative-infinity-times-two` | binary32 `F32_MUL` | INFINITY | bits | 0xff800000 / 0u | 0xff800000 / 0u | 0xff800000 / 0u | 0xff800000 / 0u |
+| `f64-positive-infinity-plus-one` | binary64 `F64_ADD` | INFINITY | bits | 0x7ff0000000000000 / 0u | 0x7ff0000000000000 / 0u | 0x7ff0000000000000 / 0u | 0x7ff0000000000000 / 0u |
+| `f64-negative-infinity-times-two` | binary64 `F64_MUL` | INFINITY | bits | 0xfff0000000000000 / 0u | 0xfff0000000000000 / 0u | 0xfff0000000000000 / 0u | 0xfff0000000000000 / 0u |
+| `f32-qnan-propagation` | binary32 `F32_ADD` | QNAN | bits | 0x7fc12345 / 0u | 0x7fc12345 / 0u | 0x7fc12345 / 0u | 0x7fc12345 / 0u |
+| `f32-qnan-eq` | binary32 `F32_EQ` | QNAN | bits | 0u / 0u | 0u / 0u | 0u / 0u | 0u / 0u |
+| `f32-qnan-le-invalid` | binary32 `F32_LE` | QNAN, INVALID | bits | 0u / T64_SOFTFLOAT_FLAG_INVALID | 0u / T64_SOFTFLOAT_FLAG_INVALID | 0u / T64_SOFTFLOAT_FLAG_INVALID | 0u / T64_SOFTFLOAT_FLAG_INVALID |
+| `f32-snan-propagation` | binary32 `F32_ADD` | SNAN | bits | 0x7fc12345 / T64_SOFTFLOAT_FLAG_INVALID | 0x7fc12345 / T64_SOFTFLOAT_FLAG_INVALID | 0x7fc12345 / T64_SOFTFLOAT_FLAG_INVALID | 0x7fc12345 / T64_SOFTFLOAT_FLAG_INVALID |
+| `f32-snan-lt-invalid` | binary32 `F32_LT` | SNAN, INVALID | bits | 0u / T64_SOFTFLOAT_FLAG_INVALID | 0u / T64_SOFTFLOAT_FLAG_INVALID | 0u / T64_SOFTFLOAT_FLAG_INVALID | 0u / T64_SOFTFLOAT_FLAG_INVALID |
+| `f64-qnan-propagation` | binary64 `F64_ADD` | QNAN | bits | 0x7ff8123456789abc / 0u | 0x7ff8123456789abc / 0u | 0x7ff8123456789abc / 0u | 0x7ff8123456789abc / 0u |
+| `f64-qnan-eq` | binary64 `F64_EQ` | QNAN | bits | 0u / 0u | 0u / 0u | 0u / 0u | 0u / 0u |
+| `f64-qnan-le-invalid` | binary64 `F64_LE` | QNAN, INVALID | bits | 0u / T64_SOFTFLOAT_FLAG_INVALID | 0u / T64_SOFTFLOAT_FLAG_INVALID | 0u / T64_SOFTFLOAT_FLAG_INVALID | 0u / T64_SOFTFLOAT_FLAG_INVALID |
+| `f64-snan-propagation` | binary64 `F64_ADD` | SNAN | bits | 0x7ff8123456789abc / T64_SOFTFLOAT_FLAG_INVALID | 0x7ff8123456789abc / T64_SOFTFLOAT_FLAG_INVALID | 0x7ff8123456789abc / T64_SOFTFLOAT_FLAG_INVALID | 0x7ff8123456789abc / T64_SOFTFLOAT_FLAG_INVALID |
+| `f64-snan-lt-invalid` | binary64 `F64_LT` | SNAN, INVALID | bits | 0u / T64_SOFTFLOAT_FLAG_INVALID | 0u / T64_SOFTFLOAT_FLAG_INVALID | 0u / T64_SOFTFLOAT_FLAG_INVALID | 0u / T64_SOFTFLOAT_FLAG_INVALID |
+| `f32-i32-min-endpoint` | binary32 `F32_TO_I32` | RANGE | integer | 0xffffffff80000000 / 0u | 0xffffffff80000000 / 0u | 0xffffffff80000000 / 0u | 0xffffffff80000000 / 0u |
+| `f32-i32-below-min` | binary32 `F32_TO_I32` | RANGE, INVALID | integer | 0xffffffff80000000 / T64_SOFTFLOAT_FLAG_INVALID | 0xffffffff80000000 / T64_SOFTFLOAT_FLAG_INVALID | 0xffffffff80000000 / T64_SOFTFLOAT_FLAG_INVALID | 0xffffffff80000000 / T64_SOFTFLOAT_FLAG_INVALID |
+| `f32-i32-max-in-range` | binary32 `F32_TO_I32` | RANGE | integer | 0x000000007fffff80 / 0u | 0x000000007fffff80 / 0u | 0x000000007fffff80 / 0u | 0x000000007fffff80 / 0u |
+| `f32-i32-above-max` | binary32 `F32_TO_I32` | RANGE, INVALID | integer | 0xffffffff80000000 / T64_SOFTFLOAT_FLAG_INVALID | 0xffffffff80000000 / T64_SOFTFLOAT_FLAG_INVALID | 0xffffffff80000000 / T64_SOFTFLOAT_FLAG_INVALID | 0xffffffff80000000 / T64_SOFTFLOAT_FLAG_INVALID |
+| `f32-i64-min-endpoint` | binary32 `F32_TO_I64` | RANGE | integer | 0x8000000000000000 / 0u | 0x8000000000000000 / 0u | 0x8000000000000000 / 0u | 0x8000000000000000 / 0u |
+| `f32-i64-below-min` | binary32 `F32_TO_I64` | RANGE, INVALID | integer | 0x8000000000000000 / T64_SOFTFLOAT_FLAG_INVALID | 0x8000000000000000 / T64_SOFTFLOAT_FLAG_INVALID | 0x8000000000000000 / T64_SOFTFLOAT_FLAG_INVALID | 0x8000000000000000 / T64_SOFTFLOAT_FLAG_INVALID |
+| `f32-i64-max-in-range` | binary32 `F32_TO_I64` | RANGE | integer | 0x7fffff8000000000 / 0u | 0x7fffff8000000000 / 0u | 0x7fffff8000000000 / 0u | 0x7fffff8000000000 / 0u |
+| `f32-i64-above-max` | binary32 `F32_TO_I64` | RANGE, INVALID | integer | 0x8000000000000000 / T64_SOFTFLOAT_FLAG_INVALID | 0x8000000000000000 / T64_SOFTFLOAT_FLAG_INVALID | 0x8000000000000000 / T64_SOFTFLOAT_FLAG_INVALID | 0x8000000000000000 / T64_SOFTFLOAT_FLAG_INVALID |
+| `f64-i32-min-endpoint` | binary64 `F64_TO_I32` | RANGE | integer | 0xffffffff80000000 / 0u | 0xffffffff80000000 / 0u | 0xffffffff80000000 / 0u | 0xffffffff80000000 / 0u |
+| `f64-i32-below-min` | binary64 `F64_TO_I32` | RANGE, INVALID | integer | 0xffffffff80000000 / T64_SOFTFLOAT_FLAG_INVALID | 0xffffffff80000000 / T64_SOFTFLOAT_FLAG_INVALID | 0xffffffff80000000 / T64_SOFTFLOAT_FLAG_INVALID | 0xffffffff80000000 / T64_SOFTFLOAT_FLAG_INVALID |
+| `f64-i32-max-endpoint` | binary64 `F64_TO_I32` | RANGE | integer | 0x000000007fffffff / 0u | 0x000000007fffffff / 0u | 0x000000007fffffff / 0u | 0x000000007fffffff / 0u |
+| `f64-i32-above-max` | binary64 `F64_TO_I32` | RANGE, INVALID | integer | 0xffffffff80000000 / T64_SOFTFLOAT_FLAG_INVALID | 0xffffffff80000000 / T64_SOFTFLOAT_FLAG_INVALID | 0xffffffff80000000 / T64_SOFTFLOAT_FLAG_INVALID | 0xffffffff80000000 / T64_SOFTFLOAT_FLAG_INVALID |
+| `f64-i64-min-endpoint` | binary64 `F64_TO_I64` | RANGE | integer | 0x8000000000000000 / 0u | 0x8000000000000000 / 0u | 0x8000000000000000 / 0u | 0x8000000000000000 / 0u |
+| `f64-i64-below-min` | binary64 `F64_TO_I64` | RANGE, INVALID | integer | 0x8000000000000000 / T64_SOFTFLOAT_FLAG_INVALID | 0x8000000000000000 / T64_SOFTFLOAT_FLAG_INVALID | 0x8000000000000000 / T64_SOFTFLOAT_FLAG_INVALID | 0x8000000000000000 / T64_SOFTFLOAT_FLAG_INVALID |
+| `f64-i64-max-endpoint` | binary64 `F64_TO_I64` | RANGE | integer | 0x7ffffffffffffc00 / 0u | 0x7ffffffffffffc00 / 0u | 0x7ffffffffffffc00 / 0u | 0x7ffffffffffffc00 / 0u |
+| `f64-i64-above-max` | binary64 `F64_TO_I64` | RANGE, INVALID | integer | 0x8000000000000000 / T64_SOFTFLOAT_FLAG_INVALID | 0x8000000000000000 / T64_SOFTFLOAT_FLAG_INVALID | 0x8000000000000000 / T64_SOFTFLOAT_FLAG_INVALID | 0x8000000000000000 / T64_SOFTFLOAT_FLAG_INVALID |
+| `f32-overflow-positive` | binary32 `F32_MUL` | OVERFLOW, INEXACT | rational | 0x7f800000 / 5u | 0x7f7fffff / 5u | 0x7f7fffff / 5u | 0x7f800000 / 5u |
+| `f32-overflow-negative` | binary32 `F32_MUL` | OVERFLOW, INEXACT | rational | 0xff800000 / 5u | 0xff7fffff / 5u | 0xff800000 / 5u | 0xff7fffff / 5u |
+| `f64-overflow-positive` | binary64 `F64_MUL` | OVERFLOW, INEXACT | rational | 0x7ff0000000000000 / 5u | 0x7fefffffffffffff / 5u | 0x7fefffffffffffff / 5u | 0x7ff0000000000000 / 5u |
+| `f64-overflow-negative` | binary64 `F64_MUL` | OVERFLOW, INEXACT | rational | 0xfff0000000000000 / 5u | 0xffefffffffffffff / 5u | 0xfff0000000000000 / 5u | 0xffefffffffffffff / 5u |
+| `f32-underflow-positive` | binary32 `F32_MUL` | UNDERFLOW, INEXACT | rational | 0u / 3u | 0u / 3u | 0u / 3u | 1u / 3u |
+| `f32-underflow-negative` | binary32 `F32_MUL` | UNDERFLOW, INEXACT | rational | 0x80000000 / 3u | 0x80000000 / 3u | 0x80000001 / 3u | 0x80000000 / 3u |
+| `f64-underflow-positive` | binary64 `F64_MUL` | UNDERFLOW, INEXACT | rational | 0u / 3u | 0u / 3u | 0u / 3u | 1u / 3u |
+| `f64-underflow-negative` | binary64 `F64_MUL` | UNDERFLOW, INEXACT | rational | 0x8000000000000000 / 3u | 0x8000000000000000 / 3u | 0x8000000000000001 / 3u | 0x8000000000000000 / 3u |
+| `f32-divzero-positive` | binary32 `F32_DIV` | DIVZERO | rational | 0x7f800000 / T64_SOFTFLOAT_FLAG_DIVIDE_BY_ZERO | 0x7f800000 / T64_SOFTFLOAT_FLAG_DIVIDE_BY_ZERO | 0x7f800000 / T64_SOFTFLOAT_FLAG_DIVIDE_BY_ZERO | 0x7f800000 / T64_SOFTFLOAT_FLAG_DIVIDE_BY_ZERO |
+| `f32-divzero-negative` | binary32 `F32_DIV` | DIVZERO | rational | 0xff800000 / T64_SOFTFLOAT_FLAG_DIVIDE_BY_ZERO | 0xff800000 / T64_SOFTFLOAT_FLAG_DIVIDE_BY_ZERO | 0xff800000 / T64_SOFTFLOAT_FLAG_DIVIDE_BY_ZERO | 0xff800000 / T64_SOFTFLOAT_FLAG_DIVIDE_BY_ZERO |
+| `f64-divzero-positive` | binary64 `F64_DIV` | DIVZERO | rational | 0x7ff0000000000000 / T64_SOFTFLOAT_FLAG_DIVIDE_BY_ZERO | 0x7ff0000000000000 / T64_SOFTFLOAT_FLAG_DIVIDE_BY_ZERO | 0x7ff0000000000000 / T64_SOFTFLOAT_FLAG_DIVIDE_BY_ZERO | 0x7ff0000000000000 / T64_SOFTFLOAT_FLAG_DIVIDE_BY_ZERO |
+| `f64-divzero-negative` | binary64 `F64_DIV` | DIVZERO | rational | 0xfff0000000000000 / T64_SOFTFLOAT_FLAG_DIVIDE_BY_ZERO | 0xfff0000000000000 / T64_SOFTFLOAT_FLAG_DIVIDE_BY_ZERO | 0xfff0000000000000 / T64_SOFTFLOAT_FLAG_DIVIDE_BY_ZERO | 0xfff0000000000000 / T64_SOFTFLOAT_FLAG_DIVIDE_BY_ZERO |
+| `f32-invalid-zero-over-zero` | binary32 `F32_DIV` | INVALID | rational | 0x7fc00000 / T64_SOFTFLOAT_FLAG_INVALID | 0x7fc00000 / T64_SOFTFLOAT_FLAG_INVALID | 0x7fc00000 / T64_SOFTFLOAT_FLAG_INVALID | 0x7fc00000 / T64_SOFTFLOAT_FLAG_INVALID |
+| `f32-invalid-infinity-cancel` | binary32 `F32_SUB` | INVALID | bits | 0x7fc00000 / T64_SOFTFLOAT_FLAG_INVALID | 0x7fc00000 / T64_SOFTFLOAT_FLAG_INVALID | 0x7fc00000 / T64_SOFTFLOAT_FLAG_INVALID | 0x7fc00000 / T64_SOFTFLOAT_FLAG_INVALID |
+| `f32-invalid-infinity-times-zero` | binary32 `F32_MUL` | INVALID | bits | 0x7fc00000 / T64_SOFTFLOAT_FLAG_INVALID | 0x7fc00000 / T64_SOFTFLOAT_FLAG_INVALID | 0x7fc00000 / T64_SOFTFLOAT_FLAG_INVALID | 0x7fc00000 / T64_SOFTFLOAT_FLAG_INVALID |
+| `f32-invalid-negative-sqrt` | binary32 `F32_SQRT` | INVALID | bits | 0x7fc00000 / T64_SOFTFLOAT_FLAG_INVALID | 0x7fc00000 / T64_SOFTFLOAT_FLAG_INVALID | 0x7fc00000 / T64_SOFTFLOAT_FLAG_INVALID | 0x7fc00000 / T64_SOFTFLOAT_FLAG_INVALID |
+| `f64-invalid-zero-over-zero` | binary64 `F64_DIV` | INVALID | rational | 0x7ff8000000000000 / T64_SOFTFLOAT_FLAG_INVALID | 0x7ff8000000000000 / T64_SOFTFLOAT_FLAG_INVALID | 0x7ff8000000000000 / T64_SOFTFLOAT_FLAG_INVALID | 0x7ff8000000000000 / T64_SOFTFLOAT_FLAG_INVALID |
+| `f64-invalid-infinity-cancel` | binary64 `F64_SUB` | INVALID | bits | 0x7ff8000000000000 / T64_SOFTFLOAT_FLAG_INVALID | 0x7ff8000000000000 / T64_SOFTFLOAT_FLAG_INVALID | 0x7ff8000000000000 / T64_SOFTFLOAT_FLAG_INVALID | 0x7ff8000000000000 / T64_SOFTFLOAT_FLAG_INVALID |
+| `f64-invalid-infinity-times-zero` | binary64 `F64_MUL` | INVALID | bits | 0x7ff8000000000000 / T64_SOFTFLOAT_FLAG_INVALID | 0x7ff8000000000000 / T64_SOFTFLOAT_FLAG_INVALID | 0x7ff8000000000000 / T64_SOFTFLOAT_FLAG_INVALID | 0x7ff8000000000000 / T64_SOFTFLOAT_FLAG_INVALID |
+| `f64-invalid-negative-sqrt` | binary64 `F64_SQRT` | INVALID | bits | 0x7ff8000000000000 / T64_SOFTFLOAT_FLAG_INVALID | 0x7ff8000000000000 / T64_SOFTFLOAT_FLAG_INVALID | 0x7ff8000000000000 / T64_SOFTFLOAT_FLAG_INVALID | 0x7ff8000000000000 / T64_SOFTFLOAT_FLAG_INVALID |
+| `f32-sub-half-ulp-below-one` | binary32 `F32_SUB` | NEIGHBOR, INEXACT, ROUNDING_SENSITIVE | rational | 0x3f800000 / 1u | 0x3f7fffff / 1u | 0x3f7fffff / 1u | 0x3f800000 / 1u |
+| `f32-sub-half-ulp-at-one` | binary32 `F32_SUB` | TIE, INEXACT, ROUNDING_SENSITIVE | rational | 0x3f800000 / 1u | 0x3f7fffff / 1u | 0x3f7fffff / 1u | 0x3f800000 / 1u |
+| `f32-sub-half-ulp-above-one` | binary32 `F32_SUB` | NEIGHBOR, INEXACT, ROUNDING_SENSITIVE | rational | 0x3f7fffff / 1u | 0x3f7fffff / 1u | 0x3f7fffff / 1u | 0x3f800000 / 1u |
+| `f64-sub-half-ulp-below-one` | binary64 `F64_SUB` | NEIGHBOR, INEXACT, ROUNDING_SENSITIVE | rational | 0x3ff0000000000000 / 1u | 0x3fefffffffffffff / 1u | 0x3fefffffffffffff / 1u | 0x3ff0000000000000 / 1u |
+| `f64-sub-half-ulp-at-one` | binary64 `F64_SUB` | TIE, INEXACT, ROUNDING_SENSITIVE | rational | 0x3ff0000000000000 / 1u | 0x3fefffffffffffff / 1u | 0x3fefffffffffffff / 1u | 0x3ff0000000000000 / 1u |
+| `f64-sub-half-ulp-above-one` | binary64 `F64_SUB` | NEIGHBOR, INEXACT, ROUNDING_SENSITIVE | rational | 0x3fefffffffffffff / 1u | 0x3fefffffffffffff / 1u | 0x3fefffffffffffff / 1u | 0x3ff0000000000000 / 1u |
+| `f32-mul-near-one-positive` | binary32 `F32_MUL` | NEIGHBOR, INEXACT, ROUNDING_SENSITIVE | rational | 0x3f800002 / 1u | 0x3f800002 / 1u | 0x3f800002 / 1u | 0x3f800003 / 1u |
+| `f32-mul-near-one-negative` | binary32 `F32_MUL` | NEIGHBOR, INEXACT, ROUNDING_SENSITIVE | rational | 0xbf800002 / 1u | 0xbf800002 / 1u | 0xbf800003 / 1u | 0xbf800002 / 1u |
+| `f64-mul-near-one-positive` | binary64 `F64_MUL` | NEIGHBOR, INEXACT, ROUNDING_SENSITIVE | rational | 0x3ff0000000000002 / 1u | 0x3ff0000000000002 / 1u | 0x3ff0000000000002 / 1u | 0x3ff0000000000003 / 1u |
+| `f64-mul-near-one-negative` | binary64 `F64_MUL` | NEIGHBOR, INEXACT, ROUNDING_SENSITIVE | rational | 0xbff0000000000002 / 1u | 0xbff0000000000002 / 1u | 0xbff0000000000003 / 1u | 0xbff0000000000002 / 1u |
+| `f32-div-one-third-positive` | binary32 `F32_DIV` | INEXACT, ROUNDING_SENSITIVE | rational | 0x3eaaaaab / 1u | 0x3eaaaaaa / 1u | 0x3eaaaaaa / 1u | 0x3eaaaaab / 1u |
+| `f32-div-one-third-negative` | binary32 `F32_DIV` | INEXACT, ROUNDING_SENSITIVE | rational | 0xbeaaaaab / 1u | 0xbeaaaaaa / 1u | 0xbeaaaaab / 1u | 0xbeaaaaaa / 1u |
+| `f64-div-one-third-positive` | binary64 `F64_DIV` | INEXACT, ROUNDING_SENSITIVE | rational | 0x3fd5555555555555 / 1u | 0x3fd5555555555555 / 1u | 0x3fd5555555555555 / 1u | 0x3fd5555555555556 / 1u |
+| `f64-div-one-third-negative` | binary64 `F64_DIV` | INEXACT, ROUNDING_SENSITIVE | rational | 0xbfd5555555555555 / 1u | 0xbfd5555555555555 / 1u | 0xbfd5555555555556 / 1u | 0xbfd5555555555555 / 1u |
+| `f32-sqrt-two` | binary32 `F32_SQRT` | INEXACT, ROUNDING_SENSITIVE | rational | 0x3fb504f3 / 1u | 0x3fb504f3 / 1u | 0x3fb504f3 / 1u | 0x3fb504f4 / 1u |
+| `f64-sqrt-two` | binary64 `F64_SQRT` | INEXACT, ROUNDING_SENSITIVE | rational | 0x3ff6a09e667f3bcd / 1u | 0x3ff6a09e667f3bcc / 1u | 0x3ff6a09e667f3bcc / 1u | 0x3ff6a09e667f3bcd / 1u |
+
 
 The source paths and hashes above were calculated from the official pinned git objects before copying any additional source into the repository.
