@@ -436,16 +436,17 @@ static bool is_branch_instruction(uint32_t opcode) {
           ((opcode & UINT32_C(0x3f)) == 9u));
 }
 
-static bool execute_branch(uint32_t pc, uint32_t opcode,
+static bool execute_branch(uint64_t pc, bool full_width, uint32_t opcode,
                            const t64_cpu_state *cpu, bool *taken_out,
                            bool *likely_out, bool *link_out,
                            uint32_t *link_register_out,
-                           uint32_t *target_out) {
+                           uint64_t *target_out) {
   uint32_t operation = opcode >> 26;
   uint32_t rs = (opcode >> 21) & UINT32_C(0x1f);
   uint32_t immediate = opcode & UINT32_C(0xffff);
-  uint32_t pc_after_delay = pc + UINT32_C(8);
-  uint32_t target;
+  uint64_t branch_pc = full_width ? pc : (uint64_t)(uint32_t)pc;
+  uint64_t pc_after_delay = branch_pc + UINT64_C(8);
+  uint64_t target;
   bool taken;
 
   *taken_out = false;
@@ -454,8 +455,11 @@ static bool execute_branch(uint32_t pc, uint32_t opcode,
   *link_register_out = 0u;
   *target_out = 0u;
   if (operation == T64_CPU_J || operation == T64_CPU_JAL) {
-    target = ((pc + UINT32_C(4)) & UINT32_C(0xf0000000)) |
-             ((opcode & UINT32_C(0x03ffffff)) << 2);
+    uint64_t region_mask = full_width ? UINT64_C(0xfffffffff0000000)
+                                      : UINT64_C(0xf0000000);
+
+    target = ((branch_pc + UINT64_C(4)) & region_mask) |
+             ((uint64_t)(opcode & UINT32_C(0x03ffffff)) << 2);
     *taken_out = true;
     *target_out = target;
     if (operation == T64_CPU_JAL) {
@@ -470,12 +474,14 @@ static bool execute_branch(uint32_t pc, uint32_t opcode,
 
     if (function == 8u) {
       *taken_out = true;
-      *target_out = (uint32_t)cpu->gpr[rs];
+      *target_out = full_width ? cpu->gpr[rs]
+                               : (uint64_t)(uint32_t)cpu->gpr[rs];
       return true;
     }
     if (function == 9u) {
       *taken_out = true;
-      *target_out = (uint32_t)cpu->gpr[rs];
+      *target_out = full_width ? cpu->gpr[rs]
+                               : (uint64_t)(uint32_t)cpu->gpr[rs];
       *link_out = true;
       *link_register_out = rd;
       return true;
@@ -498,8 +504,8 @@ static bool execute_branch(uint32_t pc, uint32_t opcode,
       return false;
     }
   }
-  target = pc + UINT32_C(4) +
-           (uint32_t)(sign_extend_16_32((uint16_t)immediate) << 2);
+  target = branch_pc + UINT64_C(4) +
+           (sign_extend_16((uint16_t)immediate) << 2);
   *taken_out = taken;
   *target_out = taken ? target : pc_after_delay;
   return true;
@@ -1293,7 +1299,8 @@ t64_status t64_cpu_step(t64_machine *machine, const t64_event *event) {
   uint32_t physical_pc;
   uint32_t opcode = 0u;
   uint32_t next_pc;
-  uint32_t target = 0u;
+  uint64_t next_pc_full;
+  uint64_t target = 0u;
   uint32_t link_register = 0u;
   uint32_t destination = 0u;
   uint64_t value = 0u;
@@ -1424,9 +1431,9 @@ t64_status t64_cpu_step(t64_machine *machine, const t64_event *event) {
     return T64_STATUS_RESOURCE_EXHAUSTED;
   }
   if (is_branch) {
-    supported = execute_branch(pc, opcode, &machine->cpu, &branch_taken,
-                               &branch_likely, &link, &link_register,
-                               &target);
+    supported = execute_branch(pc_full, new_profile, opcode, &machine->cpu,
+                               &branch_taken, &branch_likely, &link,
+                               &link_register, &target);
     if (!supported) {
       cpu_stop_unsupported(machine, pc, opcode);
       return T64_STATUS_RESOURCE_EXHAUSTED;
@@ -1462,30 +1469,43 @@ t64_status t64_cpu_step(t64_machine *machine, const t64_event *event) {
   }
   if (link && (!branch_likely || branch_taken) && link_register != 0u) {
     machine->cpu.gpr[link_register] =
-        sign_extend_32(pc + UINT32_C(8));
+        new_profile ? pc_full + UINT64_C(8)
+                    : sign_extend_32(pc + UINT32_C(8));
   }
 
   if (in_delay_slot) {
-    next_pc = machine->cpu.delay_target;
+    next_pc_full = new_profile ? machine->cpu.delay_target_full
+                               : (uint64_t)machine->cpu.delay_target;
     machine->cpu.delay_slot_pending = false;
     machine->cpu.delay_slot_pc = 0u;
     machine->cpu.delay_target = 0u;
+    machine->cpu.delay_slot_pc_full = 0u;
+    machine->cpu.delay_target_full = 0u;
   } else if (is_branch && branch_likely && !branch_taken) {
-    next_pc = pc + UINT32_C(8);
+    next_pc_full = (new_profile ? pc_full : (uint64_t)pc) + UINT64_C(8);
     machine->cpu.delay_slot_pending = false;
     machine->cpu.delay_slot_pc = 0u;
     machine->cpu.delay_target = 0u;
+    machine->cpu.delay_slot_pc_full = 0u;
+    machine->cpu.delay_target_full = 0u;
   } else if (is_branch) {
-    next_pc = pc + UINT32_C(4);
+    next_pc_full = (new_profile ? pc_full : (uint64_t)pc) + UINT64_C(4);
     machine->cpu.delay_slot_pending = true;
-    machine->cpu.delay_slot_pc = next_pc;
-    machine->cpu.delay_target = target;
+    machine->cpu.delay_slot_pc = (uint32_t)next_pc_full;
+    machine->cpu.delay_target = (uint32_t)target;
+    machine->cpu.delay_slot_pc_full = next_pc_full;
+    machine->cpu.delay_target_full = target;
   } else {
-    next_pc = is_eret ? (uint32_t)eret_target : pc + UINT32_C(4);
+    next_pc_full = is_eret ? eret_target
+                           : (new_profile ? pc_full : (uint64_t)pc) +
+                                 UINT64_C(4);
     machine->cpu.delay_slot_pending = false;
     machine->cpu.delay_slot_pc = 0u;
     machine->cpu.delay_target = 0u;
+    machine->cpu.delay_slot_pc_full = 0u;
+    machine->cpu.delay_target_full = 0u;
   }
+  next_pc = (uint32_t)next_pc_full;
   machine->cpu.pc = next_pc;
   machine->cpu.gpr[0] = 0u;
   machine->cpu.retired_instructions++;
@@ -1493,10 +1513,8 @@ t64_status t64_cpu_step(t64_machine *machine, const t64_event *event) {
   cp0_retirement_tick(machine);
   if (has_vr4300_cpu_state(machine)) {
     machine->cpu.attempt_outcome = T64_CPU_ATTEMPT_RETIRED;
-    sync_vr4300_full_addresses(&machine->cpu);
-    if (is_eret) {
-      machine->cpu.pc_full = eret_target;
-    }
+    machine->cpu.pc_full = next_pc_full;
+    machine->cpu.last_pc_full = pc_full;
   }
   t64_trace_emit(machine, machine->tick, T64_TRACE_DEVICE_MACHINE,
                  T64_TRACE_KIND_CPU_RETIREMENT,
