@@ -128,6 +128,10 @@ The VR4300 profile implements paired TLB translation and management across
 the selected 32-bit and extended address modes, with precise refill, invalid,
 modified, and address faults. Cache attributes are carried by translation;
 cache hits/refills/writeback, LL/SC, and COP1 arithmetic remain later work.
+Integer scalar and merge accesses, user reverse-endian physical lanes, and
+Watch exceptions have native model tests. The [memory contract](cpu-memory.md)
+records exact byte selection, fault boundaries and the inferred width-four RE
+rule; none is a physical-console qualification.
 Count/Compare synchronize against guest ticks,
 merge timer, MI, and software interrupt ownership, and are included in the v9
 digest. The timer handler path is model evidence only; it does not establish a
