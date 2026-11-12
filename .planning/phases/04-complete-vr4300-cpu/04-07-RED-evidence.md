@@ -63,6 +63,38 @@ The corrected fixture keeps both 32-bit halves asymmetric and verifies byte,
 halfword, word, and doubleword scalar accesses, stores, and unchanged BE
 instruction fetch/kernel behavior.
 
+## Scalar RE bus-bound preflight correction
+
+A follow-up regression models a 4092-byte cartridge extent (4 modulo 8) using
+the admitted fixture's existing backing allocation. It maps VA `0x1000` to
+cartridge PA `0x10000000` and executes user+RE LBU at VA `0x1ffb`; the source
+operand byte is still inside the modeled image, while XOR7 selects cartridge
+offset 4092, outside it. The same case checks LHU at `0x1ffa` and LW at
+`0x1ff8`, whose width-dependent selected ranges also begin at offset 4092.
+
+Before the preflight fix, the registered memory target reached this assertion
+and exited 8. The observed first case stopped model-unsupported with status 14,
+Cause 0, BadVAddr 0, unchanged destination `0xfeedface`, and retired count
+137; it should enter Data Bus Error (ExcCode 7) before retirement. The
+unchanged report was captured at `2026-11-12T08:43:37Z`, and
+`check tdd-red-evidence` returned `RED_EVIDENCE_OK` for
+`unit.core.cpu-memory`. Raw JUnit and the private record are
+`build/private-cpu-diagnostic/04-07-scalar-re-lane-boundary-red.*`.
+
+Preflight now applies the same physical lane XOR as the staged bus access
+before probing scalar RE bytes. The first post-fix run raised ExcCode 7 as
+expected but caught an overstrong test expectation that BadVAddr equal the
+operand address. The project's CP0 policy updates BadVAddr only for address
+and TLB exceptions, so the corrected regression asserts it remains unchanged
+(zero in this fixture). The final focused `unit.core.cpu-memory` run passed,
+including all three byte/half/word cartridge-bound cases. No device operation
+is issued by preflight probes.
+
+Scalar effects retain their width through `bus_width=width` and the common
+width-preserving bus read/write calls. Wide and partial MMIO operations keep
+the native wide/masked bus path, which refuses unsupported device transactions
+before writing and does not split them into byte stores.
+
 Raw JUnit, console output, and classifier records remain ignored under
 `build/private-cpu-diagnostic/`; this file contains only portable test facts
 and the selected model interpretation.

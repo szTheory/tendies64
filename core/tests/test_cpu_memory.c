@@ -855,6 +855,52 @@ static bool test_user_double_merge_mode_refusal(fixture *value) {
   return true;
 }
 
+static bool test_reverse_endian_scalar_cartridge_bounds(fixture *value) {
+  static const uint32_t operations[] = {0x24u, 0x25u, 0x23u};
+  static const uint16_t offsets[] = {UINT16_C(0x0ffb), UINT16_C(0x0ffa),
+                                     UINT16_C(0x0ff8)};
+  static const uint32_t widths[] = {1u, 2u, 4u};
+  t64_machine *machine = value->machine;
+  const uint32_t status_bits = STATUS_USER | STATUS_RE | STATUS_UX;
+  size_t saved_image_length = machine->image_length;
+  uint32_t index;
+
+  /* A 4-byte-aligned, 4 mod 8 cartridge end makes the selected RE byte,
+   * halfword, and word lane fall outside the backed image while the
+   * untranslated operand range remains inside it. */
+  machine->image_length = 4092u;
+  set_entry(machine, 0u, 0u, 1u, UINT32_C(0x1000), true, true,
+            UINT32_C(0x10000000), true, true);
+  for (index = 0u; index < 3u; index++) {
+    uint64_t address = UINT64_C(0x1000) + offsets[index];
+    uint64_t retired_before = machine->cpu.retired_instructions;
+    t64_status result = run_one(
+        machine, encode_i(operations[index], 8u, offsets[index]),
+        status_bits, UINT64_C(0x1000), UINT64_C(0xfeedface));
+
+    if (result != T64_STATUS_OK || cause_code(machine) != 7u ||
+        machine->cpu.cp0[8] != 0u ||
+        machine->cpu.gpr[8] != UINT64_C(0xfeedface) ||
+        machine->cpu.retired_instructions != retired_before) {
+      (void)printf(
+          "# RE scalar lane bound width=%u va=%016llx status=%u cause=%u badvaddr=%016llx destination=%016llx retired=%llu\n",
+          widths[index], (unsigned long long)address, (unsigned)result,
+          cause_code(machine),
+          (unsigned long long)machine->cpu.cp0[8],
+          (unsigned long long)machine->cpu.gpr[8],
+          (unsigned long long)machine->cpu.retired_instructions);
+      machine->image_length = saved_image_length;
+      set_entry(machine, 0u, 0u, 1u, UINT32_C(0x1000), true, true,
+                UINT32_C(0x2000), true, true);
+      return false;
+    }
+  }
+  machine->image_length = saved_image_length;
+  set_entry(machine, 0u, 0u, 1u, UINT32_C(0x1000), true, true,
+            UINT32_C(0x2000), true, true);
+  return true;
+}
+
 int main(void) {
   static const memory_test_case tests[] = {
       {"user reverse endian selects physical lanes while kernel and fetch stay BE",
@@ -877,6 +923,8 @@ int main(void) {
        test_fault_priority_and_store_preflight},
       {"LDL in 32-bit user mode raises Reserved Instruction",
        test_user_double_merge_mode_refusal},
+      {"user RE scalar widths preflight the selected cartridge lane",
+       test_reverse_endian_scalar_cartridge_bounds},
   };
   fixture value = {0};
   size_t index;

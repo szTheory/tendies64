@@ -1455,6 +1455,11 @@ static t64_status cpu_preflight_memory(t64_machine *machine, uint32_t opcode,
   probe_width = width;
   if (partial && reverse_endian) {
     probe_width = 8u;
+  } else if (reverse_endian) {
+    uint32_t lane_xor = 8u - width;
+
+    physical = (physical & ~UINT32_C(7)) |
+               ((physical & UINT32_C(7)) ^ lane_xor);
   }
 
   if (watch_matches(machine, physical, store)) {
