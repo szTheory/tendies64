@@ -765,7 +765,7 @@ static bool build_inventory(const uint8_t *rom, size_t rom_length,
       count = snprintf(
           output + offset, capacity - offset,
           "{\"execution\":\"values\",\"group\":\"%s\",\"index\":%zu,"
-          "\"lane\":\"required-base\",\"level\":\"BasicFunctionality\","
+          "\"lane\":\"required-base\",\"level\":\"Weird\","
           "\"name\":\"authored.cpu-profile.%02zu\",\"reason\":\"required\","
           "\"values\":[{\"id\":\"park-output\",\"index\":0,"
           "\"selected_rom_sha256\":\"%s\",\"selector\":\"authored-selector-a\"},"
@@ -786,7 +786,7 @@ static bool build_inventory(const uint8_t *rom, size_t rom_length,
     offset += (size_t)count;
   }
   count = snprintf(output + offset, capacity - offset,
-                   "],\"schema\":\"t64.cpu-inventory\",\"schema_version\":2}\n");
+                   "],\"schema\":\"t64.cpu-inventory\",\"schema_version\":3}\n");
   return count > 0 && (size_t)count < capacity - offset;
 }
 

@@ -7,7 +7,7 @@ upstream source inventory, ROM identity, tool receipt, or diagnostic result.
 ## Ownership and evidence boundary
 
 `runner/t64_cpu_diag_protocol.c` is the single implementation of the
-`t64.cpu-inventory` v2 and `t64.cpu-batch` v2 schemas. The same CMake target
+`t64.cpu-inventory` v3 and `t64.cpu-batch` v2 schemas. The same CMake target
 serves authored controls and the later production adapter. The schemas remain
 separate from public `t64.result` and the public hello-fixture collector.
 
@@ -30,12 +30,14 @@ Plan 16 also owns source, tool, asset, and rights qualification. This public
 protocol and its controls use authored-only data. External diagnostic inputs,
 ROMs, captures, receipts, and derived results remain local and private.
 
-## `t64.cpu-inventory` v2
+## `t64.cpu-inventory` v3
 
 The root has exactly `declared_counts`, `identity`, `registrations`, `schema`,
 and `schema_version`. The schema string is `t64.cpu-inventory`; the version is
-integer `2`. JSON is canonical: object keys use the shared writer's bytewise
-order, arrays retain source order, and one newline terminates the document.
+integer `3`. Version 2 is rejected because it omitted CPU registrations that
+the pinned executor dispatches through its default `base` profile. JSON is
+canonical: object keys use the shared writer's bytewise order, arrays retain
+source order, and one newline terminates the document.
 Unknown keys, duplicate keys, reordered or gapped indices, and noncanonical
 bytes are refused.
 
@@ -82,12 +84,14 @@ The required group map and order are fixed:
 13. `tlb64`
 14. `traps`
 
-`BasicFunctionality` and `RarelyUsed` CPU registrations use lane
+`BasicFunctionality`, `RarelyUsed`, and `Weird` CPU registrations use lane
 `required-base`, group from that map, reason `required`, and one or more exact
-values. Other CPU levels stay explicit and out of the required denominator:
-`Weird`/`weird`, `Timing`/`timing`, `Cycle`/`cycle`, `COP0Hazard`/`cop0-hazard`,
-`PoorlyUnderstoodQuirk`/`quirk`, and `StressTest`/`stress`. Each such row needs
-a nonempty reason. Non-CPU registrations use group `non-cpu`, lane
+values. This follows the pinned executor's default `base` profile, which
+dispatches all three source levels. Other CPU levels stay explicit and out of
+the required denominator: `Timing`/`timing`, `Cycle`/`cycle`,
+`COP0Hazard`/`cop0-hazard`, `PoorlyUnderstoodQuirk`/`quirk`, and
+`StressTest`/`stress`. Each such row needs a nonempty reason. Non-CPU
+registrations use group `non-cpu`, lane
 `skipped-non-cpu`, execution `omitted`, an empty value list, and a reason.
 
 Execution is `values` for an explicit per-value list. `once` has exactly one

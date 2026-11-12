@@ -407,9 +407,9 @@ static bool valid_level(const char *level) {
 static bool valid_lane_level(const char *lane, const char *level) {
   if (strcmp(lane, "required-base") == 0) {
     return strcmp(level, "BasicFunctionality") == 0 ||
-           strcmp(level, "RarelyUsed") == 0;
+           strcmp(level, "RarelyUsed") == 0 ||
+           strcmp(level, "Weird") == 0;
   }
-  if (strcmp(lane, "weird") == 0) return strcmp(level, "Weird") == 0;
   if (strcmp(lane, "timing") == 0) return strcmp(level, "Timing") == 0;
   if (strcmp(lane, "cycle") == 0) return strcmp(level, "Cycle") == 0;
   if (strcmp(lane, "cop0-hazard") == 0) return strcmp(level, "COP0Hazard") == 0;

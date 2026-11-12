@@ -6,7 +6,7 @@
 #include <stddef.h>
 #include <stdint.h>
 
-#define T64_CPU_DIAG_INVENTORY_VERSION 2u
+#define T64_CPU_DIAG_INVENTORY_VERSION 3u
 #define T64_CPU_DIAG_BATCH_VERSION 2u
 #define T64_CPU_DIAG_GUEST_RUN_VERSION 1u
 #define T64_CPU_DIAG_MAX_INVENTORY_BYTES (1024u * 1024u)
@@ -81,7 +81,7 @@ typedef struct {
   t64_cpu_diag_outcome outcome;
 } t64_cpu_diag_guest_result;
 
-/* Parses one canonical, closed t64.cpu-inventory v2 document. */
+/* Parses one canonical, closed t64.cpu-inventory v3 document. */
 t64_cpu_diag_status t64_cpu_diag_inventory_parse(
     const uint8_t *bytes, size_t length,
     t64_cpu_diag_inventory **inventory_out);

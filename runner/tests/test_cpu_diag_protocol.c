@@ -19,7 +19,7 @@ static const uint8_t inventory_json[] =
     "\"schema\":\"t64.cpu-inventory\",\"schema_version\":3}\n";
 
 static const char expected_pass_batch[] =
-    "{\"identity\":{\"base_rom_sha256\":\"0000000000000000000000000000000000000000000000000000000000000000\",\"core_build_sha256\":\"1111111111111111111111111111111111111111111111111111111111111111\",\"inventory_sha256\":\"6e06913830ec4f07f185140833aa5c5ef329770163dc8974c44d12cb285ffddb\",\"overlay_sha256\":\"2222222222222222222222222222222222222222222222222222222222222222\",\"profile_sha256\":\"3333333333333333333333333333333333333333333333333333333333333333\",\"selected_rom_sha256\":\"4444444444444444444444444444444444444444444444444444444444444444\",\"selector\":\"authored-selector\",\"source_revision\":\"5555555555555555555555555555555555555555\",\"tool_receipt_sha256\":\"6666666666666666666666666666666666666666666666666666666666666666\"},\"records\":[{\"event\":\"start\",\"registration_index\":0,\"value_index\":0},{\"event\":\"outcome\",\"status\":\"pass\"},{\"complete\":true,\"event\":\"done\",\"record_count\":\"3\"}],\"schema\":\"t64.cpu-batch\",\"schema_version\":2}\n";
+    "{\"identity\":{\"base_rom_sha256\":\"0000000000000000000000000000000000000000000000000000000000000000\",\"core_build_sha256\":\"1111111111111111111111111111111111111111111111111111111111111111\",\"inventory_sha256\":\"0b5b78464f4cb5743af96e6a04fce411be4abe689c3ef3b88e74d575b15ce82b\",\"overlay_sha256\":\"2222222222222222222222222222222222222222222222222222222222222222\",\"profile_sha256\":\"3333333333333333333333333333333333333333333333333333333333333333\",\"selected_rom_sha256\":\"4444444444444444444444444444444444444444444444444444444444444444\",\"selector\":\"authored-selector\",\"source_revision\":\"5555555555555555555555555555555555555555\",\"tool_receipt_sha256\":\"6666666666666666666666666666666666666666666666666666666666666666\"},\"records\":[{\"event\":\"start\",\"registration_index\":0,\"value_index\":0},{\"event\":\"outcome\",\"status\":\"pass\"},{\"complete\":true,\"event\":\"done\",\"record_count\":\"3\"}],\"schema\":\"t64.cpu-batch\",\"schema_version\":2}\n";
 
 static const char *const expected_groups[] = {
     "address_error_exception", "arithmetic", "cache", "cop0", "cop1",
@@ -83,7 +83,6 @@ static bool build_authored_inventory(
     bool two_arithmetic_values, size_t selector_length, size_t name_length,
     size_t value_id_length) {
   static const char *const other_lanes[][3] = {
-      {"weird", "Weird", "not-required-weird"},
       {"timing", "Timing", "not-required-timing"},
       {"cycle", "Cycle", "not-required-cycle"},
       {"cop0-hazard", "COP0Hazard", "not-required-cop0-hazard"},
@@ -94,7 +93,7 @@ static bool build_authored_inventory(
   char value_id[T64_CPU_DIAG_MAX_VALUE_ID_BYTES + 1u];
   char second_value_id[T64_CPU_DIAG_MAX_VALUE_ID_BYTES + 1u];
   const char *values[2];
-  size_t registration_count = group_count + (include_other_lanes ? 7u : 0u);
+  size_t registration_count = group_count + (include_other_lanes ? 6u : 0u);
   size_t required_value_count = group_count;
   size_t value_count;
   size_t length = 0u;
@@ -111,7 +110,7 @@ static bool build_authored_inventory(
       if (strcmp(groups[i], "arithmetic") == 0) required_value_count++;
     }
   }
-  value_count = required_value_count + (include_other_lanes ? 6u : 0u);
+  value_count = required_value_count + (include_other_lanes ? 5u : 0u);
   (void)memset(selector, 's', selector_length);
   selector[selector_length] = '\0';
   if (!appendf(output, capacity, &length,
@@ -129,7 +128,9 @@ static bool build_authored_inventory(
   for (i = 0u; i < group_count; i++) {
     size_t value_count_for_registration =
         two_arithmetic_values && strcmp(groups[i], "arithmetic") == 0 ? 2u : 1u;
-    const char *level = (i & 1u) == 0u ? "BasicFunctionality" : "RarelyUsed";
+    static const char *const required_levels[] = {
+        "BasicFunctionality", "RarelyUsed", "Weird"};
+    const char *level = required_levels[i % 3u];
     (void)snprintf(name, sizeof name, "authored.required.%02zu", i);
     if (name_length != 0u) {
       (void)memset(name, 'n', name_length);
@@ -178,7 +179,7 @@ static bool build_authored_inventory(
     }
   }
   if (!appendf(output, capacity, &length,
-               "],\"schema\":\"t64.cpu-inventory\",\"schema_version\":2}\n")) {
+               "],\"schema\":\"t64.cpu-inventory\",\"schema_version\":3}\n")) {
     return false;
   }
   *length_out = length;
@@ -222,10 +223,7 @@ static void test_inventory_v3_base_levels_and_stale_v2(void) {
 
   memcpy(bytes, inventory_json, length + 1u);
   if (!replace_text(bytes, &length, sizeof bytes,
-                    "\"schema_version\":3", "\"schema_version\":2") ||
-      !replace_text(bytes, &length, sizeof bytes,
-                    "\"level\":\"Weird\"",
-                    "\"level\":\"BasicFunctionality\"")) {
+                    "\"schema_version\":3", "\"schema_version\":2")) {
     (void)fprintf(stderr, "could not construct stale v2 inventory control\n");
     failures++;
   } else {
@@ -245,7 +243,7 @@ static void test_inventory_v3_base_levels_and_stale_v2(void) {
     (void)fprintf(stderr, "could not construct v3 excluded Weird-lane control\n");
     failures++;
   } else {
-    expect_status("v3 Weird cannot be reclassified as separate lane",
+    expect_status("v3 Weird cannot be reclassified outside base",
                   t64_cpu_diag_inventory_parse((const uint8_t *)bytes, length,
                                                &inventory),
                   T64_CPU_DIAG_INVALID_INVENTORY);
@@ -402,7 +400,7 @@ static void test_complete_batch_round_trip(void) {
   if (t64_cpu_diag_inventory_registration_count(inventory) != 1u ||
       t64_cpu_diag_inventory_required_value_count(inventory) != 1u ||
       strcmp(t64_cpu_diag_inventory_sha256(inventory),
-             "6e06913830ec4f07f185140833aa5c5ef329770163dc8974c44d12cb285ffddb") !=
+             "0b5b78464f4cb5743af96e6a04fce411be4abe689c3ef3b88e74d575b15ce82b") !=
           0) {
     (void)fprintf(stderr, "authored inventory returned unexpected count or digest\n");
     failures++;
@@ -656,10 +654,10 @@ static void test_full_set_order_and_duplicate_seam(void) {
       failures++;
     }
   }
-  if (t64_cpu_diag_inventory_registration_count(inventory) != 21u ||
+  if (t64_cpu_diag_inventory_registration_count(inventory) != 20u ||
       t64_cpu_diag_inventory_required_value_count(inventory) != 15u) {
     (void)fprintf(stderr,
-                  "full authored counts expected registrations=21 required-values=15, observed registrations=%zu required-values=%zu\n",
+                  "full authored counts expected registrations=20 required-values=15, observed registrations=%zu required-values=%zu\n",
                   t64_cpu_diag_inventory_registration_count(inventory),
                   t64_cpu_diag_inventory_required_value_count(inventory));
     failures++;
