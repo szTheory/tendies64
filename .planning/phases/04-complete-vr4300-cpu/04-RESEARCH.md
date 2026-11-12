@@ -103,3 +103,37 @@ Confidence is high in the selected architecture and located manual statements,
 conditional in the unqualified helper/tool/asset closures, and explicitly unknown
 for the listed silicon/undefined-behavior policies. No hardware qualification is
 inferred from document agreement or emulator output.
+
+## Package Legitimacy Audit
+
+No npm/pip/Cargo binary-package installation is selected by this plan. The
+private recipe uses the Rust compiler to emit ELF, existing qualified
+objcopy/linker tools and the project-owned flat ROM packer. It does not run
+the upstream Cargo runner or install the candidate packaging tool.
+
+| Package | Registry | Age | Downloads | Source Repo | Verdict | Disposition |
+|---|---|---|---|---|---|---|
+| nust64 (candidate 0.4.1) | crates.io | First published 2022-06-16 per registry check | 60 weekly in check | https://github.com/rust-n64/nust64 | [SUS] low-downloads | NOT SELECTED; no installation/invocation. Project packer provides the required capability. |
+
+The actual GSD legitimacy query was run with the runtime's supported environment
+proxy enabled. Its registry signals confirmed existence, source repository,
+first publication date and no deprecation; its only remaining reason was
+low-downloads. The earlier all-unknown response was a transport failure and was
+not used as evidence of missing metadata. This heuristic is not proof that
+the tool is malicious, and it is not permission to install it. The official
+upstream links/package identity are recorded in 04-DECISION-TESTS.md.
+
+Packages removed for SLOP: none. SUS candidate: nust64, excluded from the selected
+recipe. If later proposed again, its exact source/lock/behavior audit and the
+required blocking package-verification checkpoint precede installation.
+
+Other pre-use qualification remains incomplete: the exact Rust nightly host
+channel/component/compiler manifests and checksums, plus every actual Cargo
+library dependency in the pinned test lock, source correspondence, licenses,
+resolution and build hooks. These are not asserted registry-OK or approved.
+Plan16.1 must enumerate the actual graph and run per-package legitimacy/source
+checks before acquisition/build; ASSUMED/SUS inputs stop for the protocol's
+required verification, with no inferred approval. Nothing is installed by this
+research or by an unverified package name. The SoftFloat copy is a separately
+audited fixed source closure under the existing BSD-3-Clause copy policy, not
+a registry installation.

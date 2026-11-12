@@ -20,3 +20,20 @@
 - Tracer-first behavioral slices are required; no setup-only wave or deferred
   umbrella test plan. Routine reversible planning and execution continue under
   AUTONOMY; rights/authority/destructive/paid stops remain in force.
+
+## Recovered planner return
+
+The server interrupted the planner after all16plans, validation, source audit
+and probe ledger were saved. Parent reconciled the complete on-disk output,
+corrected portable runtime references and escaped shell operators, and ran both
+owning verify-command probes:33commands, zero reported blockers/warnings. Path
+probe not_applicable is retained as its actual result, not a proof of execution.
+Independent plan checking follows; no implementation or tests were repeated.
+
+The registry seam initially returned all-unknown transport signals. This host's
+Node supports --use-env-proxy; NODE_USE_ENV_PROXY=1 allowed the same read-only
+query to reach crates.io. Do not confuse unreachable metadata with absent
+metadata, disable TLS, or alter installed GSD code. The remaining candidate
+nust64 low-downloads flag is retained; the tool is not selected because the
+planned project packer plus qualified objcopy/linker removes its need. Actual
+selected dependencies still require per-use audit and any real package stop.

@@ -104,7 +104,7 @@ their later phases. No public diagnostic-ROM input/output is authorized.
   timing/cycle/hazard/quirk and omitted non-CPU lanes. Executed failures may be
   reported; missing/reduced/unreached members cannot satisfy completeness.
 - **D-11:** Before any installation/build/run, audit exact Rust/channel/components,
-  nust64 package/source/locks/checksums/transitives/build hooks and final asset
+  selected package/source/locks/checksums/transitives/build hooks and final asset
   composition. Remove the unclear Geneva/font/framebuffer path; explicitly
   select and qualify the already cleared IPL3's format/startup. Root MIT does
   not clear composed ROM assets. An unresolved input blocks that use; it never

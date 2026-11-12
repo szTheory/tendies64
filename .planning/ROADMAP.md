@@ -186,7 +186,58 @@ Plans:
   2. COP1 soft-float tests pass for single and double precision in all four rounding modes, including FCR31 cause and flag bits and unimplemented-operation exceptions. The lint shows that the canonical path uses no host floating point
   3. The maintainer can read the written cache-scope decision (which cache behavior is guest-visible), and the functional cache-model tests pass
   4. The maintainer builds `nemu64-test` from its pinned commit, runs it headlessly and gets per-group status for the CPU groups, with inventories pinned by exact count; a missing or reduced test set fails. Until D2 is resolved this runs locally only, and no derived ROM or output is uploaded
-**Plans**: TBD
+**Plans**: 0/18 plans executed
+**Wave 1**
+- [ ] 04-01-PLAN.md
+- [ ] 04-14-PLAN.md
+
+**Wave 2** *(blocked on Wave 1 completion)*
+- [ ] 04-02-PLAN.md
+
+**Wave 3** *(blocked on Wave 2 completion)*
+- [ ] 04-03-PLAN.md
+
+**Wave 4** *(blocked on Wave 3 completion)*
+- [ ] 04-04-PLAN.md
+
+**Wave 5** *(blocked on Wave 4 completion)*
+- [ ] 04-05-PLAN.md
+
+**Wave 6** *(blocked on Wave 5 completion)*
+- [ ] 04-06-PLAN.md
+
+**Wave 7** *(blocked on Wave 6 completion)*
+- [ ] 04-07-PLAN.md
+
+**Wave 8** *(blocked on Wave 7 completion)*
+- [ ] 04-08-PLAN.md
+
+**Wave 9** *(blocked on Wave 8 completion)*
+- [ ] 04-09-PLAN.md
+
+**Wave 10** *(blocked on Wave 9 completion)*
+- [ ] 04-10-PLAN.md
+
+**Wave 11** *(blocked on Wave 10 completion)*
+- [ ] 04-11-PLAN.md
+
+**Wave 12** *(blocked on Wave 11 completion)*
+- [ ] 04-17-PLAN.md
+
+**Wave 13** *(blocked on Wave 12 completion)*
+- [ ] 04-12-PLAN.md
+
+**Wave 14** *(blocked on Wave 13 completion)*
+- [ ] 04-13-PLAN.md
+
+**Wave 15** *(blocked on Wave 14 completion)*
+- [ ] 04-15-PLAN.md
+
+**Wave 16** *(blocked on Wave 15 completion)*
+- [ ] 04-18-PLAN.md
+
+**Wave 17** *(blocked on Wave 16 completion)*
+- [ ] 04-16-PLAN.md
 
 ### Phase 5: RSP Low-Level Emulation
 **Goal**: The RSP runs real microcode on its scalar and vector units from IMEM/DMEM, with DMA and status semantics, checked against a permanent scalar VU reference and the `nemu64-test` RSP groups
@@ -323,7 +374,7 @@ Phase 7 may run in parallel with Phases 5 and 6 once Phase 4 is complete.
 | 1. Governance, Rights and Harness Foundation | v1.0 | 13/13 | Complete | 2026-11-10 |
 | 2. Deterministic Machine Skeleton | v1.0 | 8/8 | In Progress | - |
 | 3. First Headless ROM Through Open IPL3 | v1.0 | 13/13 | In Progress | - |
-| 4. Complete VR4300 CPU | v1.0 | 0/TBD | Not started | - |
+| 4. Complete VR4300 CPU | v1.0 | 0/18 | Planned     | - |
 | 5. RSP Low-Level Emulation | v1.0 | 0/TBD | Not started | - |
 | 6. Cold Boot, CPU Timing and Full Base Suite | v1.0 | 0/TBD | Not started | - |
 | 7. RDP Reference Renderer and VI Scanout | v1.1 | 0/TBD | Not started | - |
