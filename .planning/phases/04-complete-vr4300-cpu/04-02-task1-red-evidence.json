@@ -1,0 +1,18 @@
+{
+  "task": "04-02.1",
+  "command": "ctest --preset gate --no-tests=error -R '^unit.core.cpu-path$' --output-on-failure --output-junit build/04-02-task1-red.xml",
+  "targetTest": "unit.core.cpu-path",
+  "targetFile": "core/tests/test_cpu_path.c",
+  "expected": "BREAK enters the general handler without retiring, schedules the next CPU boundary, and the handler stores 0xDEADBEEF by tick 2.",
+  "observed": "The registered target compiled and ran all nine legacy assertions. On the new-profile case it returned status=0, reason=guest-completion, tick=1, retired=0, PC=0xffffffff80001000, Cause=0, EPC=0, Status=0x34000000, and store=0.",
+  "result": {
+    "exitCode": 8,
+    "tests": 1,
+    "passed": 0,
+    "failed": 1,
+    "classifier": "RED_EVIDENCE_OK",
+    "classifierReason": "target_test_failed",
+    "matchedTest": "unit.core.cpu-path#unit.core.cpu-path"
+  },
+  "semanticAssessment": "This is the expected pre-feature behavior: the actual registered CTest target was discovered, compiled, and executed, and the new assertion observed BREAK completion instead of guest exception entry and handler progress. All existing warm-v1 CPU path assertions passed. Raw JUnit remains in ignored local build output."
+}

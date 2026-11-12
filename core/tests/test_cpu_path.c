@@ -79,6 +79,15 @@ static void write_instruction(t64_machine *machine, size_t index,
   machine->sp_dmem[offset + 3u] = (uint8_t)opcode;
 }
 
+static void write_rdram_instruction(t64_machine *machine,
+                                    uint32_t physical_address,
+                                    uint32_t opcode) {
+  machine->ram[physical_address] = (uint8_t)(opcode >> 24);
+  machine->ram[physical_address + 1u] = (uint8_t)(opcode >> 16);
+  machine->ram[physical_address + 2u] = (uint8_t)(opcode >> 8);
+  machine->ram[physical_address + 3u] = (uint8_t)opcode;
+}
+
 static bool install_program(t64_machine *machine,
                             const uint8_t asset[IPL3_ASSET_BYTES],
                             const uint32_t *program, size_t instruction_count) {
@@ -94,6 +103,60 @@ static bool install_program(t64_machine *machine,
   machine->cpu.pc = IPL3_ENTRY_PC;
   for (i = 0u; i < instruction_count; i++) {
     write_instruction(machine, i, program[i]);
+  }
+  return true;
+}
+
+static bool test_vr4300_break_enters_rdram_handler(
+    t64_machine *machine, const uint8_t asset[IPL3_ASSET_BYTES]) {
+  const uint32_t break_pc = UINT32_C(0x80001000);
+  const uint32_t handler_pc = UINT32_C(0x80000180);
+  const uint32_t store_value = UINT32_C(0xdeadbeef);
+  t64_stop_request request = {T64_STOP_GUEST_TICK, UINT64_C(2)};
+  t64_stop_result result = {UINT32_MAX, UINT64_MAX};
+  t64_status status;
+  uint32_t cause;
+  uint32_t status_register;
+  uint32_t stored_value;
+
+  if (machine == NULL || asset == NULL ||
+      t64_machine_admit_rom(machine, asset, IPL3_ASSET_BYTES) !=
+          T64_STATUS_OK) {
+    (void)puts("# new-profile exception fixture setup failed");
+    return false;
+  }
+  write_rdram_instruction(machine, UINT32_C(0x1000), UINT32_C(0x0000000d));
+  write_rdram_instruction(machine, UINT32_C(0x0180), UINT32_C(0xad280000));
+  machine->cpu.pc = break_pc;
+  machine->cpu.pc_full = t64_cpu_canonical_address(break_pc);
+  machine->cpu.gpr[8] = store_value;
+  machine->cpu.gpr[9] = UINT64_C(0xffffffff80002000);
+
+  status = t64_machine_advance(machine, &request, &result);
+  cause = (uint32_t)machine->cpu.cp0[13];
+  status_register = (uint32_t)machine->cpu.cp0[12];
+  stored_value = ((uint32_t)machine->ram[0x2000u] << 24) |
+                 ((uint32_t)machine->ram[0x2001u] << 16) |
+                 ((uint32_t)machine->ram[0x2002u] << 8) |
+                 (uint32_t)machine->ram[0x2003u];
+  if (status != T64_STATUS_OK || result.reason != T64_STOP_REASON_BOUND ||
+      result.tick != UINT64_C(2) ||
+      machine->cpu.retired_instructions != UINT64_C(1) ||
+      machine->cpu.pc != handler_pc + UINT32_C(4) ||
+      machine->cpu.cp0[14] != t64_cpu_canonical_address(break_pc) ||
+      (cause & UINT32_C(0x8000007c)) != (UINT32_C(9) << 2) ||
+      (status_register & UINT32_C(2)) == 0u ||
+      stored_value != store_value) {
+    (void)printf("# BREAK handler status=%u reason=%u tick=%llu retired=%llu "
+                 "pc=%016llx cause=%08x epc=%016llx status=%08x "
+                 "store=%08x\n",
+                 (unsigned)status, result.reason,
+                 (unsigned long long)result.tick,
+                 (unsigned long long)machine->cpu.retired_instructions,
+                 (unsigned long long)machine->cpu.pc_full, cause,
+                 (unsigned long long)machine->cpu.cp0[14], status_register,
+                 stored_value);
+    return false;
   }
   return true;
 }
@@ -809,8 +872,12 @@ int main(int argc, char **argv) {
   };
   const cpu_test_case *cases;
   size_t case_count;
+  size_t existing_case_count;
+  bool run_vr4300_exception;
   const t64_profile_descriptor *profile = NULL;
+  const t64_profile_descriptor *vr4300_profile = NULL;
   t64_machine *machine = NULL;
+  t64_machine *vr4300_machine = NULL;
   uint8_t asset[IPL3_ASSET_BYTES];
   size_t i;
   size_t failure_count = 0u;
@@ -825,9 +892,15 @@ int main(int argc, char **argv) {
   if (strcmp(argv[1], "--cp0-cache") == 0) {
     cases = cp0_cache_cases;
     case_count = sizeof cp0_cache_cases / sizeof cp0_cache_cases[0];
+    run_vr4300_exception = false;
   } else {
     cases = cpu_path_cases;
     case_count = sizeof cpu_path_cases / sizeof cpu_path_cases[0];
+    run_vr4300_exception = true;
+  }
+  existing_case_count = case_count;
+  if (run_vr4300_exception) {
+    case_count++;
   }
   if (!read_qualified_asset(asset) ||
       t64_profile_lookup("ntsc-cart-4m-openipl3-warm-v1", &profile) !=
@@ -843,7 +916,7 @@ int main(int argc, char **argv) {
     return 1;
   }
   (void)printf("1..%zu\n", case_count);
-  for (i = 0u; i < case_count; i++) {
+  for (i = 0u; i < existing_case_count; i++) {
     bool okay = cases[i].run(machine, asset);
 
     (void)printf("%s %zu - %s\n", okay ? "ok" : "not ok", i + 1u,
@@ -853,6 +926,29 @@ int main(int argc, char **argv) {
     }
   }
   t64_machine_destroy(machine);
+  if (run_vr4300_exception) {
+    bool okay = t64_profile_lookup(
+                    "ntsc-cart-4m-openipl3-vr4300-v1", &vr4300_profile) ==
+                    T64_STATUS_OK &&
+                vr4300_profile != NULL &&
+                t64_machine_create(&allocator, vr4300_profile,
+                                   &vr4300_machine) == T64_STATUS_OK &&
+                vr4300_machine != NULL;
+
+    if (okay) {
+      okay = test_vr4300_break_enters_rdram_handler(vr4300_machine, asset);
+    } else {
+      (void)puts("# new-profile exception machine setup failed");
+    }
+    (void)printf("%s %zu - new-profile BREAK schedules a nonretiring RDRAM handler\n",
+                 okay ? "ok" : "not ok", existing_case_count + 1u);
+    if (!okay) {
+      failure_count++;
+    }
+    if (vr4300_machine != NULL) {
+      t64_machine_destroy(vr4300_machine);
+    }
+  }
   if (allocator_state_value.outstanding != 0u) {
     (void)printf("# allocator leak: %zu allocations remain\n",
                  allocator_state_value.outstanding);
