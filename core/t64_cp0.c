@@ -494,7 +494,7 @@ uint32_t t64_cp0_random_tlb_index(const t64_machine *machine) {
 
 void t64_cp0_instruction_retired(t64_machine *machine) {
   uint32_t wired;
-  uint32_t random;
+  uint32_t random_index;
   uint32_t software_bit;
 
   if (!is_vr4300_profile(machine)) {
@@ -502,13 +502,13 @@ void t64_cp0_instruction_retired(t64_machine *machine) {
   }
   wired = (uint32_t)machine->cpu.cp0[T64_CP0_WIRED] &
           T64_RANDOM_INDEX_MASK;
-  random = t64_cp0_random_tlb_index(machine);
+  random_index = t64_cp0_random_tlb_index(machine);
   software_bit = (uint32_t)machine->cpu.cp0[T64_CP0_RANDOM] &
                  T64_RANDOM_SOFTWARE_BIT;
-  if (random <= wired) {
-    random = T64_RANDOM_INDEX_MASK;
+  if (random_index <= wired) {
+    random_index = T64_RANDOM_INDEX_MASK;
   } else {
-    random--;
+    random_index--;
   }
-  machine->cpu.cp0[T64_CP0_RANDOM] = software_bit | random;
+  machine->cpu.cp0[T64_CP0_RANDOM] = software_bit | random_index;
 }
