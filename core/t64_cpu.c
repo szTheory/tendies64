@@ -19,7 +19,10 @@
 
 #define T64_CP0_COUNT UINT32_C(9)
 #define T64_CP0_COMPARE UINT32_C(11)
+#define T64_CP0_STATUS UINT32_C(12)
 #define T64_CP0_CAUSE UINT32_C(13)
+#define T64_CP0_EPC UINT32_C(14)
+#define T64_CP0_ERROR_EPC UINT32_C(30)
 #define T64_CP0_WATCHLO UINT32_C(18)
 #define T64_CP0_TAGLO UINT32_C(28)
 #define T64_CP0_TAGHI UINT32_C(29)
@@ -27,6 +30,10 @@
 #define T64_CP0_CAUSE_TIMER_MASK UINT32_C(0x00008000)
 #define T64_CP0_WATCHLO_MASK UINT32_C(0xfffffffb)
 #define T64_CP0_TAGLO_MASK UINT32_C(0x0fffffc0)
+
+#define T64_STATUS_ERL UINT32_C(0x00000004)
+#define T64_STATUS_EXL UINT32_C(0x00000002)
+#define T64_STATUS_KSU UINT32_C(0x00000018)
 
 #define T64_CACHE_INDEX_STORE_TAG_I UINT32_C(0x08)
 #define T64_CACHE_INDEX_STORE_TAG_D UINT32_C(0x09)
@@ -925,6 +932,345 @@ static void cpu_stop_completion(t64_machine *machine, uint32_t pc,
                  ((uint64_t)pc << 32) | (uint64_t)opcode);
 }
 
+static bool virtual_address_is_canonical(uint64_t address) {
+  uint64_t high = address >> 40;
+  bool sign = ((address >> 39) & UINT64_C(1)) != 0u;
+
+  return sign ? high == UINT64_C(0xffffff) : high == UINT64_C(0);
+}
+
+static bool memory_access_info(uint32_t opcode, uint32_t *width_out,
+                               bool *store_out, bool *partial_out) {
+  uint32_t operation = opcode >> 26;
+
+  *store_out = false;
+  *partial_out = false;
+  switch (operation) {
+  case 0x1au: *width_out = 8u; *partial_out = true; return true;
+  case 0x1bu: *width_out = 8u; *partial_out = true; return true;
+  case 0x20u: *width_out = 1u; return true;
+  case 0x21u: *width_out = 2u; return true;
+  case 0x22u: *width_out = 4u; *partial_out = true; return true;
+  case 0x23u: *width_out = 4u; return true;
+  case 0x24u: *width_out = 1u; return true;
+  case 0x25u: *width_out = 2u; return true;
+  case 0x26u: *width_out = 4u; *partial_out = true; return true;
+  case 0x27u: *width_out = 4u; return true;
+  case 0x28u: *width_out = 1u; *store_out = true; return true;
+  case 0x29u: *width_out = 2u; *store_out = true; return true;
+  case 0x2au:
+    *width_out = 4u;
+    *store_out = true;
+    *partial_out = true;
+    return true;
+  case 0x2bu: *width_out = 4u; *store_out = true; return true;
+  case 0x2cu:
+  case 0x2du:
+    *width_out = 8u;
+    *store_out = true;
+    *partial_out = true;
+    return true;
+  case 0x2eu:
+    *width_out = 4u;
+    *store_out = true;
+    *partial_out = true;
+    return true;
+  case 0x37u: *width_out = 8u; return true;
+  case 0x3fu: *width_out = 8u; *store_out = true; return true;
+  default: return false;
+  }
+}
+
+static bool watch_matches(const t64_machine *machine, uint32_t physical,
+                          bool store) {
+  uint32_t watchlo = (uint32_t)machine->cpu.cp0[T64_CP0_WATCHLO];
+  uint32_t status = (uint32_t)machine->cpu.cp0[T64_CP0_STATUS];
+  uint32_t enabled = store ? UINT32_C(2) : UINT32_C(1);
+
+  return (status & T64_STATUS_EXL) == 0u && (watchlo & enabled) != 0u &&
+         (physical & UINT32_C(0xfffffff8)) ==
+             (watchlo & UINT32_C(0xfffffff8));
+}
+
+static t64_status cpu_preflight_memory(t64_machine *machine, uint32_t opcode,
+                                       bool in_delay_slot, bool *handled_out) {
+  uint32_t width = 0u;
+  uint32_t physical = 0u;
+  bool store = false;
+  bool partial = false;
+  uint64_t address;
+  t64_status status;
+  uint32_t offset;
+
+  *handled_out = false;
+  if (!memory_access_info(opcode, &width, &store, &partial)) {
+    return T64_STATUS_OK;
+  }
+  address = effective_address(&machine->cpu,
+                              (opcode >> 21) & UINT32_C(0x1f),
+                              (uint16_t)opcode);
+  if (!partial && width > 1u &&
+      (address & ((uint64_t)width - UINT64_C(1))) != 0u) {
+    *handled_out = true;
+    return cpu_enter_exception(machine, store ? UINT32_C(5) : UINT32_C(4),
+                               address, in_delay_slot, false, 0u);
+  }
+  if (!t64_cpu_translate(address, &physical)) {
+    uint32_t code = virtual_address_is_canonical(address)
+                        ? (store ? UINT32_C(3) : UINT32_C(2))
+                        : (store ? UINT32_C(5) : UINT32_C(4));
+
+    *handled_out = true;
+    return cpu_enter_exception(machine, code, address, in_delay_slot, false,
+                               0u);
+  }
+
+  if (watch_matches(machine, physical, store)) {
+    *handled_out = true;
+    return cpu_enter_exception(machine, UINT32_C(23), address, in_delay_slot,
+                               false, 0u);
+  }
+
+  if (partial) {
+    physical &= ~(width - 1u);
+  }
+  for (offset = 0u; offset < width; offset++) {
+    status = t64_bus_probe_access(machine, physical + offset, UINT32_C(1));
+    if (status == T64_STATUS_BUS_UNMAPPED || status == T64_STATUS_BUS_RANGE) {
+      *handled_out = true;
+      return cpu_enter_exception(machine, UINT32_C(7), address,
+                                 in_delay_slot, false, 0u);
+    }
+    if (status == T64_STATUS_BUS_UNSUPPORTED) {
+      return T64_STATUS_OK;
+    }
+    if (status != T64_STATUS_OK) {
+      *handled_out = true;
+      machine->cpu.attempt_outcome = T64_CPU_ATTEMPT_HOST_ERROR;
+      return status;
+    }
+  }
+  return T64_STATUS_OK;
+}
+
+static bool trap_condition(uint32_t operation, uint64_t left,
+                           uint64_t right) {
+  switch (operation) {
+  case 0x30u: /* TGE */ return !signed_less_64(left, right);
+  case 0x31u: /* TGEU */ return left >= right;
+  case 0x32u: /* TLT */ return signed_less_64(left, right);
+  case 0x33u: /* TLTU */ return left < right;
+  case 0x34u: /* TEQ */ return left == right;
+  case 0x36u: /* TNE */ return left != right;
+  default: return false;
+  }
+}
+
+static bool cpu_test_trap(const t64_cpu_state *cpu, uint32_t opcode,
+                          bool *is_trap_out) {
+  uint32_t operation = opcode >> 26;
+  uint32_t function = opcode & UINT32_C(0x3f);
+  uint32_t rs = (opcode >> 21) & UINT32_C(0x1f);
+  uint32_t rt = (opcode >> 16) & UINT32_C(0x1f);
+  uint64_t left = cpu->gpr[rs];
+  uint64_t right = cpu->gpr[rt];
+  uint32_t trap_operation = function;
+
+  *is_trap_out = false;
+  if (operation == 0u &&
+      (function == 0x30u || function == 0x31u || function == 0x32u ||
+       function == 0x33u || function == 0x34u || function == 0x36u)) {
+    *is_trap_out = true;
+    return trap_condition(trap_operation, left, right);
+  }
+  if (operation != T64_CPU_REGIMM) {
+    return false;
+  }
+  switch (rt) {
+  case 8u: trap_operation = 0x30u; break; /* TGEI */
+  case 9u: trap_operation = 0x31u; break; /* TGEIU */
+  case 10u: trap_operation = 0x32u; break; /* TLTI */
+  case 11u: trap_operation = 0x33u; break; /* TLTIU */
+  case 12u: trap_operation = 0x34u; break; /* TEQI */
+  case 14u: trap_operation = 0x36u; break; /* TNEI */
+  default: return false;
+  }
+  *is_trap_out = true;
+  right = sign_extend_16((uint16_t)opcode);
+  return trap_condition(trap_operation, left, right);
+}
+
+static bool cpu_instruction_overflows(const t64_machine *machine,
+                                      uint32_t opcode) {
+  uint32_t operation = opcode >> 26;
+  uint32_t rs = (opcode >> 21) & UINT32_C(0x1f);
+  uint32_t rt = (opcode >> 16) & UINT32_C(0x1f);
+  uint32_t function = opcode & UINT32_C(0x3f);
+  uint32_t left32 = (uint32_t)machine->cpu.gpr[rs];
+  uint32_t right32 = (uint32_t)machine->cpu.gpr[rt];
+  uint32_t result32;
+  uint64_t left64 = machine->cpu.gpr[rs];
+  uint64_t right64 = machine->cpu.gpr[rt];
+  uint64_t result64;
+
+  if (operation == 0x08u) {
+    right32 = sign_extend_16_32((uint16_t)opcode);
+    result32 = left32 + right32;
+    return add_overflow_32(left32, right32, result32);
+  }
+  if (operation == 0x18u) {
+    right64 = sign_extend_16((uint16_t)opcode);
+    result64 = left64 + right64;
+    return add_overflow_64(left64, right64, result64);
+  }
+  if (operation != 0u) {
+    return false;
+  }
+  switch (function) {
+  case 0x20u:
+    result32 = left32 + right32;
+    return add_overflow_32(left32, right32, result32);
+  case 0x22u:
+    result32 = left32 - right32;
+    return subtract_overflow_32(left32, right32, result32);
+  case 0x2cu:
+    result64 = left64 + right64;
+    return add_overflow_64(left64, right64, result64);
+  case 0x2eu:
+    result64 = left64 - right64;
+    return subtract_overflow_64(left64, right64, result64);
+  default: return false;
+  }
+}
+
+static bool special_function_is_defined(uint32_t function) {
+  switch (function) {
+  case 0x00u: case 0x02u: case 0x03u: case 0x04u: case 0x06u: case 0x07u:
+  case 0x08u: case 0x09u: case 0x0cu: case 0x0du: case 0x0fu:
+  case 0x10u: case 0x11u: case 0x12u: case 0x13u: case 0x14u: case 0x16u:
+  case 0x17u: case 0x18u: case 0x19u: case 0x1au: case 0x1bu:
+  case 0x20u: case 0x21u: case 0x22u: case 0x23u: case 0x24u: case 0x25u:
+  case 0x26u: case 0x27u: case 0x2au: case 0x2bu: case 0x2cu: case 0x2du:
+  case 0x2eu: case 0x2fu: case 0x30u: case 0x31u: case 0x32u: case 0x33u:
+  case 0x34u: case 0x36u: case 0x38u: case 0x3au: case 0x3bu: case 0x3cu:
+  case 0x3eu: case 0x3fu:
+    return true;
+  default: return false;
+  }
+}
+
+static bool cpu_instruction_is_reserved(uint32_t opcode) {
+  uint32_t operation = opcode >> 26;
+  uint32_t suboperation;
+
+  if (operation == 0u) {
+    return !special_function_is_defined(opcode & UINT32_C(0x3f));
+  }
+  if (operation == T64_CPU_REGIMM) {
+    suboperation = (opcode >> 16) & UINT32_C(0x1f);
+    return !((suboperation <= 3u) ||
+             (suboperation >= 8u && suboperation <= 12u) ||
+             suboperation == 14u ||
+             (suboperation >= 16u && suboperation <= 19u));
+  }
+  return operation == 0x1cu || operation == 0x1du ||
+         operation == 0x1eu || operation == 0x1fu;
+}
+
+static bool cpu_coprocessor_unusable(const t64_machine *machine,
+                                    uint32_t opcode, uint32_t *coprocessor_out) {
+  uint32_t operation = opcode >> 26;
+  uint32_t coprocessor = 0u;
+  uint32_t status;
+  uint32_t usable_mask;
+
+  if (operation >= T64_CPU_COP0 && operation <= UINT32_C(0x13)) {
+    coprocessor = operation - T64_CPU_COP0;
+  } else {
+    switch (operation) {
+    case 0x31u: case 0x35u: case 0x39u: case 0x3du:
+      coprocessor = 1u;
+      break;
+    case 0x32u: case 0x36u: case 0x3au: case 0x3eu:
+      coprocessor = 2u;
+      break;
+    default: return false;
+    }
+  }
+  status = (uint32_t)machine->cpu.cp0[T64_CP0_STATUS];
+  usable_mask = UINT32_C(1) << (28u + coprocessor);
+  if (coprocessor == 0u) {
+    bool kernel = (status & (T64_STATUS_EXL | T64_STATUS_ERL)) != 0u ||
+                  (status & T64_STATUS_KSU) == 0u;
+
+    if (kernel || (status & usable_mask) != 0u) {
+      return false;
+    }
+  } else if ((status & usable_mask) != 0u) {
+    return false;
+  }
+  *coprocessor_out = coprocessor;
+  return true;
+}
+
+static bool cpu_is_syscall(uint32_t opcode) {
+  return (opcode >> 26) == 0u &&
+         (opcode & UINT32_C(0x3f)) == UINT32_C(0x0c);
+}
+
+static bool cpu_is_break(uint32_t opcode) {
+  return (opcode >> 26) == 0u &&
+         (opcode & UINT32_C(0x3f)) == UINT32_C(0x0d);
+}
+
+static bool cpu_is_eret(uint32_t opcode) {
+  return opcode == UINT32_C(0x42000018);
+}
+
+static bool cpu_instruction_exception(t64_machine *machine, uint32_t opcode,
+                                      bool in_delay_slot,
+                                      bool *trap_noop_out,
+                                      t64_status *status_out) {
+  uint32_t coprocessor = 0u;
+  bool is_trap = false;
+
+  *trap_noop_out = false;
+  if (cpu_is_syscall(opcode)) {
+    *status_out = cpu_enter_exception(machine, UINT32_C(8), 0u,
+                                       in_delay_slot, false, 0u);
+    return true;
+  }
+  if (cpu_is_break(opcode)) {
+    *status_out = cpu_enter_exception(machine, UINT32_C(9), 0u,
+                                       in_delay_slot, false, 0u);
+    return true;
+  }
+  if (cpu_coprocessor_unusable(machine, opcode, &coprocessor)) {
+    *status_out = cpu_enter_exception(machine, UINT32_C(11), 0u,
+                                       in_delay_slot, true, coprocessor);
+    return true;
+  }
+  if (cpu_instruction_is_reserved(opcode)) {
+    *status_out = cpu_enter_exception(machine, UINT32_C(10), 0u,
+                                       in_delay_slot, false, 0u);
+    return true;
+  }
+  if (cpu_test_trap(&machine->cpu, opcode, &is_trap)) {
+    if (is_trap) {
+      *status_out = cpu_enter_exception(machine, UINT32_C(13), 0u,
+                                         in_delay_slot, false, 0u);
+      return true;
+    }
+    *trap_noop_out = true;
+  }
+  if (cpu_instruction_overflows(machine, opcode)) {
+    *status_out = cpu_enter_exception(machine, UINT32_C(12), 0u,
+                                       in_delay_slot, false, 0u);
+    return true;
+  }
+  return false;
+}
+
 t64_status t64_cpu_schedule(t64_machine *machine) {
   t64_event_reservation reservation;
   t64_status status;
@@ -957,7 +1303,12 @@ t64_status t64_cpu_step(t64_machine *machine, const t64_event *event) {
   bool branch_likely = false;
   bool link = false;
   bool write_gpr = false;
+  bool new_profile;
+  bool trap_noop = false;
+  bool memory_handled = false;
+  bool is_eret = false;
   bool supported;
+  uint64_t eret_target = 0u;
   t64_status status;
 
   (void)event;
@@ -967,28 +1318,55 @@ t64_status t64_cpu_step(t64_machine *machine, const t64_event *event) {
   if (machine->cpu.stopped) {
     return T64_STATUS_RESOURCE_EXHAUSTED;
   }
-  pc_full = has_vr4300_cpu_state(machine)
+  new_profile = has_vr4300_cpu_state(machine);
+  pc_full = new_profile
                 ? machine->cpu.pc_full
                 : (uint64_t)machine->cpu.pc;
   pc = (uint32_t)pc_full;
   machine->cpu.pc = pc;
   in_delay_slot = machine->cpu.delay_slot_pending;
   machine->cpu.last_pc = pc;
-  if (has_vr4300_cpu_state(machine)) {
+  if (new_profile) {
     machine->cpu.last_pc_full = pc_full;
     if ((pc_full & UINT64_C(3)) != 0u) {
+      machine->cpu.last_opcode = 0u;
       return cpu_enter_exception(machine, UINT32_C(4), pc_full,
                                  in_delay_slot, false, 0u);
     }
   }
-  if (!t64_cpu_translate(has_vr4300_cpu_state(machine)
-                            ? pc_full
-                            : sign_extend_32(pc),
-                        &physical_pc) ||
-      t64_bus_read(machine, physical_pc, 4u, &opcode) != T64_STATUS_OK) {
+  if (!t64_cpu_translate(new_profile ? pc_full : sign_extend_32(pc),
+                         &physical_pc)) {
     machine->cpu.last_opcode = 0u;
+    if (new_profile) {
+      uint32_t code = virtual_address_is_canonical(pc_full)
+                          ? UINT32_C(2)
+                          : UINT32_C(4);
+      return cpu_enter_exception(machine, code, pc_full, in_delay_slot,
+                                 false, 0u);
+    }
     cpu_stop_unsupported(machine, pc, 0u);
     return T64_STATUS_RESOURCE_EXHAUSTED;
+  }
+  status = t64_bus_read(machine, physical_pc, 4u, &opcode);
+  if (status != T64_STATUS_OK) {
+    machine->cpu.last_opcode = 0u;
+    if (new_profile && (status == T64_STATUS_BUS_UNMAPPED ||
+                        status == T64_STATUS_BUS_RANGE)) {
+      return cpu_enter_exception(machine, UINT32_C(6), pc_full,
+                                 in_delay_slot, false, 0u);
+    }
+    if (new_profile && status == T64_STATUS_BUS_ALIGNMENT) {
+      return cpu_enter_exception(machine, UINT32_C(4), pc_full,
+                                 in_delay_slot, false, 0u);
+    }
+    if (status == T64_STATUS_BUS_UNSUPPORTED) {
+      cpu_stop_unsupported(machine, pc, 0u);
+      return T64_STATUS_RESOURCE_EXHAUSTED;
+    }
+    if (new_profile) {
+      machine->cpu.attempt_outcome = T64_CPU_ATTEMPT_HOST_ERROR;
+    }
+    return status;
   }
   machine->cpu.last_opcode = opcode;
   if (machine->cpu.retired_instructions == UINT64_MAX ||
@@ -997,19 +1375,47 @@ t64_status t64_cpu_step(t64_machine *machine, const t64_event *event) {
     return T64_STATUS_RESOURCE_EXHAUSTED;
   }
 
-  /* The new profile treats BREAK as an architectural exception. Warm-v1
-   * retains its already qualified, exact-encoding software stop. */
-  if (opcode == T64_CPU_SOFTWARE_DEBUG_STOP_BREAK) {
-    if (has_vr4300_cpu_state(machine)) {
-      return cpu_enter_exception(machine, UINT32_C(9), 0u, in_delay_slot,
-                                 false, 0u);
-    }
+  /* Warm-v1 retains its qualified exact-encoding software stop. */
+  if (!new_profile && opcode == T64_CPU_SOFTWARE_DEBUG_STOP_BREAK) {
     if (in_delay_slot) {
       cpu_stop_unsupported(machine, pc, opcode);
     } else {
       cpu_stop_completion(machine, pc, opcode);
     }
     return T64_STATUS_RESOURCE_EXHAUSTED;
+  }
+
+  if (new_profile) {
+    if (cpu_instruction_exception(machine, opcode, in_delay_slot,
+                                  &trap_noop, &status)) {
+      return status;
+    }
+    if (cpu_is_eret(opcode)) {
+      uint32_t cp0_status = (uint32_t)machine->cpu.cp0[T64_CP0_STATUS];
+
+      if (in_delay_slot) {
+        cpu_stop_unsupported(machine, pc, opcode);
+        return T64_STATUS_RESOURCE_EXHAUSTED;
+      }
+      if ((cp0_status & T64_STATUS_ERL) != 0u) {
+        eret_target = machine->cpu.cp0[T64_CP0_ERROR_EPC];
+        machine->cpu.cp0[T64_CP0_STATUS] = cp0_status & ~T64_STATUS_ERL;
+      } else {
+        eret_target = machine->cpu.cp0[T64_CP0_EPC];
+        machine->cpu.cp0[T64_CP0_STATUS] = cp0_status & ~T64_STATUS_EXL;
+      }
+      machine->cpu.linked_valid = false;
+      machine->cpu.linked_width = 0u;
+      machine->cpu.linked_physical_address = 0u;
+      machine->cpu.pending_exception_valid = false;
+      is_eret = true;
+    } else {
+      status = cpu_preflight_memory(machine, opcode, in_delay_slot,
+                                    &memory_handled);
+      if (memory_handled) {
+        return status;
+      }
+    }
   }
 
   is_branch = is_branch_instruction(opcode);
@@ -1025,6 +1431,10 @@ t64_status t64_cpu_step(t64_machine *machine, const t64_event *event) {
       cpu_stop_unsupported(machine, pc, opcode);
       return T64_STATUS_RESOURCE_EXHAUSTED;
     }
+  } else if (trap_noop) {
+    supported = true;
+  } else if (is_eret) {
+    supported = true;
   } else if ((opcode >> 26) == T64_CPU_COP0) {
     supported = execute_cp0(machine, opcode, &write_gpr, &destination,
                             &value);
@@ -1071,7 +1481,7 @@ t64_status t64_cpu_step(t64_machine *machine, const t64_event *event) {
     machine->cpu.delay_slot_pc = next_pc;
     machine->cpu.delay_target = target;
   } else {
-    next_pc = pc + UINT32_C(4);
+    next_pc = is_eret ? (uint32_t)eret_target : pc + UINT32_C(4);
     machine->cpu.delay_slot_pending = false;
     machine->cpu.delay_slot_pc = 0u;
     machine->cpu.delay_target = 0u;
@@ -1084,6 +1494,9 @@ t64_status t64_cpu_step(t64_machine *machine, const t64_event *event) {
   if (has_vr4300_cpu_state(machine)) {
     machine->cpu.attempt_outcome = T64_CPU_ATTEMPT_RETIRED;
     sync_vr4300_full_addresses(&machine->cpu);
+    if (is_eret) {
+      machine->cpu.pc_full = eret_target;
+    }
   }
   t64_trace_emit(machine, machine->tick, T64_TRACE_DEVICE_MACHINE,
                  T64_TRACE_KIND_CPU_RETIREMENT,

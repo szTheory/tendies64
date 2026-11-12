@@ -203,6 +203,46 @@ static const uint8_t *region_bytes(const t64_machine *machine,
   return NULL;
 }
 
+/* Side-effect-free address classification for precise CPU preflight. This
+ * reports only address-map/range faults; device-specific refusals remain the
+ * owning bus operation's responsibility. */
+t64_status t64_bus_probe_access(const t64_machine *machine,
+                                uint32_t physical_address, uint32_t width) {
+  t64_bus_region region;
+  const uint8_t *bytes;
+  size_t remaining = 0u;
+  t64_status status;
+
+  if (machine == NULL) {
+    return T64_STATUS_INVALID_ARGUMENT;
+  }
+  status = validate_access(physical_address, width);
+  if (status != T64_STATUS_OK) {
+    return status;
+  }
+  region = decode_region(machine, physical_address);
+  if (region == T64_BUS_REGION_UNMAPPED) {
+    return T64_STATUS_BUS_UNMAPPED;
+  }
+  if (region == T64_BUS_REGION_UNSUPPORTED) {
+    return T64_STATUS_BUS_UNSUPPORTED;
+  }
+  bytes = region_bytes(machine, region, physical_address, &remaining);
+  if (bytes != NULL) {
+    return (size_t)width <= remaining ? T64_STATUS_OK : T64_STATUS_BUS_RANGE;
+  }
+  /* Mapped device windows are addressable even where the current profile has
+   * no operation implementation. Do not turn that model limitation into a
+   * guest bus exception. */
+  return region == T64_BUS_REGION_MI || region == T64_BUS_REGION_PI ||
+                 region == T64_BUS_REGION_SP_REG ||
+                 region == T64_BUS_REGION_WARM ||
+                 region == T64_BUS_REGION_ISVIEWER ||
+                 region == T64_BUS_REGION_ABSENT_RDRAM_PROBE
+             ? T64_STATUS_OK
+             : T64_STATUS_BUS_UNMAPPED;
+}
+
 static void trace_bus(t64_machine *machine, uint32_t address, uint32_t width,
                       uint32_t value, bool is_write) {
   uint32_t kind;

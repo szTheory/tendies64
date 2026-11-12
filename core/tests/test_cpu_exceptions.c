@@ -274,6 +274,21 @@ static bool test_coprocessor_unusable_ce(
              UINT32_C(1);
 }
 
+static bool test_coprocessor_load_unusable_ce(
+    t64_machine *machine, const uint8_t asset[IPL3_ASSET_BYTES]) {
+  static const uint32_t program[] = {UINT32_C(0xc5200000)};
+
+  if (!prepare_program(machine, asset, TEST_PC, program, 1u)) {
+    return false;
+  }
+  machine->cpu.gpr[9] = UINT64_C(0xffffffff80002000);
+  machine->cpu.cp0[T64_CP0_STATUS] &= ~T64_STATUS_CU1;
+  return expect_exception(machine, UINT64_C(1), UINT32_C(11), TEST_PC, false,
+                          false, 0u) &&
+         (((uint32_t)machine->cpu.cp0[T64_CP0_CAUSE] & T64_CAUSE_CE) >> 28) ==
+             UINT32_C(1);
+}
+
 static bool test_watch_exception(
     t64_machine *machine, const uint8_t asset[IPL3_ASSET_BYTES]) {
   static const uint32_t program[] = {UINT32_C(0x8d280000)};
@@ -477,6 +492,21 @@ static bool test_data_tlb_miss(
          machine->cpu.retired_instructions == 0u;
 }
 
+static bool test_data_store_tlb_miss(
+    t64_machine *machine, const uint8_t asset[IPL3_ASSET_BYTES]) {
+  static const uint32_t program[] = {UINT32_C(0xad280000)};
+  const uint64_t kuseg_address = UINT64_C(0x00001000);
+
+  if (!prepare_program(machine, asset, TEST_PC, program, 1u)) {
+    return false;
+  }
+  machine->cpu.gpr[8] = UINT64_C(0xdeadbeef);
+  machine->cpu.gpr[9] = kuseg_address;
+  return expect_exception(machine, UINT64_C(1), UINT32_C(3), TEST_PC, false,
+                          true, kuseg_address) &&
+         machine->cpu.retired_instructions == 0u;
+}
+
 static bool test_scheduler_exhaustion_is_host_error(
     t64_machine *machine, const uint8_t asset[IPL3_ASSET_BYTES]) {
   static const uint32_t program[] = {UINT32_C(0x0000000d)};
@@ -518,6 +548,7 @@ int main(void) {
       {"ADD overflow raises Ov without a destination write",
        test_integer_overflow_exception},
       {"unusable COP1 records CE=1", test_coprocessor_unusable_ce},
+      {"unusable COP1 load records CE=1", test_coprocessor_load_unusable_ce},
       {"WatchLo read match raises Watch before a load commit",
        test_watch_exception},
       {"ERET uses EPC, clears EXL, and resumes full-width execution",
@@ -537,6 +568,8 @@ int main(void) {
       {"unmapped instruction translation raises TLBL",
        test_instruction_tlb_miss},
       {"unmapped data translation raises TLBL", test_data_tlb_miss},
+      {"unmapped data store translation raises TLBS",
+       test_data_store_tlb_miss},
       {"scheduler exhaustion remains a host error with no guest commit",
        test_scheduler_exhaustion_is_host_error},
   };

@@ -384,6 +384,8 @@ t64_status t64_cpu_exception_enter(
     t64_machine *machine, const t64_cpu_exception_result *exception);
 bool t64_cpu_translate(uint64_t virtual_address,
                        uint32_t *physical_address_out);
+t64_status t64_bus_probe_access(const t64_machine *machine,
+                                uint32_t physical_address, uint32_t width);
 t64_status t64_test_schedule_synthetic(t64_machine *machine, uint64_t tick,
                                        uint32_t kind, uint64_t value);
 t64_status t64_test_schedule_synthetic_after(t64_machine *machine,
