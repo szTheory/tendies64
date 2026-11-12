@@ -108,6 +108,8 @@ unit.core.cpu-memory
 unit.core.cpu-integer
 unit.core.cpu-control
 unit.core.cop1-state
+unit.core.cop1-arithmetic
+unit.core.cop1-exceptions
 unit.core.cpu-cp0
 unit.core.cpu-time
 unit.core.cpu-link

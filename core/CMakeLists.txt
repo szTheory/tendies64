@@ -344,6 +344,14 @@ add_test(NAME unit.core.cop1-state COMMAND test_cop1)
 set_tests_properties(unit.core.cop1-state PROPERTIES
   LABELS unit
   ENVIRONMENT "T64_TEST_IPL3_PATH=${T64_BOOT_FIXTURE_DIR}/ipl3_compat.z64")
+add_test(NAME unit.core.cop1-arithmetic COMMAND test_cop1 --arithmetic)
+set_tests_properties(unit.core.cop1-arithmetic PROPERTIES
+  LABELS unit
+  ENVIRONMENT "T64_TEST_IPL3_PATH=${T64_BOOT_FIXTURE_DIR}/ipl3_compat.z64")
+add_test(NAME unit.core.cop1-exceptions COMMAND test_cop1 --exceptions)
+set_tests_properties(unit.core.cop1-exceptions PROPERTIES
+  LABELS unit
+  ENVIRONMENT "T64_TEST_IPL3_PATH=${T64_BOOT_FIXTURE_DIR}/ipl3_compat.z64")
 
 add_executable(test_warm_devices tests/test_warm_devices.c)
 target_include_directories(test_warm_devices PRIVATE

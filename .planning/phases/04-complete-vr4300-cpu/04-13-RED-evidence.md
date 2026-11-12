@@ -10,3 +10,19 @@
 - **Classifier:** `RED_EVIDENCE_OK` (`target_test_failed`). The unchanged JUnit report and full classifier record remain local and ignored.
 
 An earlier draft ran several arithmetic instructions before checking the target and reached the exception handler first. That run was invalid RED evidence. The fixture was corrected to stop immediately after the intended `ADD.S`; the result above is the verified RED record.
+
+## Task 2: arithmetic and exception edge matrix
+
+- **Exception target:** `unit.core.cop1-exceptions`; test case “invalid W-format conversion raises E and suppresses its destination” in `core/tests/test_cop1.c`.
+- **Command:** `ctest --preset gate --no-tests=error -R '^(unit\.core\.cop1-exceptions)$' --output-on-failure`.
+- **Expected:** The fetched invalid `CVT.W.W` opcode `0x468008e4` at canonical PC `0xffffffff80001000` raises FPE Cause 15, sets only E in the FCR31 Cause field, preserves prior sticky flags, and leaves f3 unchanged.
+- **Observed:** The instruction retired with CP0 Cause `0x00000000`; FCR31 became `0x0000107c`, clearing the prior Cause without setting E; f3 changed from `0x1122334455667788` to `0x1122334400000000`.
+- **Assessment:** Valid behavioral RED. The full gate build succeeded, the named CTest executed the guest opcode at the expected canonical PC, and the failure came from the planned exception and destination assertions.
+- **Classifier:** `RED_EVIDENCE_OK` (`target_test_failed`). The unchanged JUnit report and full classifier record remain local and ignored.
+
+- **Arithmetic target:** `unit.core.cop1-arithmetic`; binary32 and binary64 `ADD` exact halfway vectors in `core/tests/test_cop1.c`.
+- **Command:** `ctest --preset gate --no-tests=error -R '^(unit\.core\.cop1-arithmetic)$' --output-on-failure`.
+- **Expected:** For positive exact ties `1 + 2^-24` and `1 + 2^-53`, FCR31 RM=RP yields the next representable value, while RM=RM rounds to 1.0; nearest-even and toward-zero results also match their hand-derived bit patterns.
+- **Observed:** Both precisions reverse the directed modes: RM=RP returns 1.0 and RM=RM returns the next representable value. Nearest-even and toward-zero pass; FCR31 retains the selected architectural RM value.
+- **Assessment:** Valid behavioral RED. The target CTest executed both formats and failed the planned exact-result assertions; there was no setup or fixture failure.
+- **Classifier:** `RED_EVIDENCE_OK` (`target_test_failed`). The unchanged JUnit report and full classifier record remain local and ignored.

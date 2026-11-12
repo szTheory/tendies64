@@ -71,6 +71,14 @@ static uint32_t encode_cvt_d_w(uint32_t fs, uint32_t fd) {
          UINT32_C(0x21);
 }
 
+static uint32_t encode_cop1_operation(uint32_t format, uint32_t ft,
+                                      uint32_t fs, uint32_t fd,
+                                      uint32_t function) {
+  return (UINT32_C(0x11) << 26) | ((format & UINT32_C(0x1f)) << 21) |
+         ((ft & UINT32_C(0x1f)) << 16) | ((fs & UINT32_C(0x1f)) << 11) |
+         ((fd & UINT32_C(0x1f)) << 6) | (function & UINT32_C(0x3f));
+}
+
 static t64_machine *make_machine(const t64_host_allocator *allocator,
                                  const t64_profile_descriptor *profile,
                                  const uint8_t *asset) {
@@ -662,7 +670,105 @@ static void test_cause_and_sticky_flag_ownership(
   t64_machine_destroy(machine);
 }
 
-int main(void) {
+static void test_arithmetic_tie_rounding(
+    const t64_host_allocator *allocator,
+    const t64_profile_descriptor *profile, const uint8_t *asset) {
+  static const uint64_t expected_f32[4] = {
+      UINT64_C(0x3f800000), UINT64_C(0x3f800000),
+      UINT64_C(0x3f800001), UINT64_C(0x3f800000)};
+  static const uint64_t expected_f64[4] = {
+      UINT64_C(0x3ff0000000000000), UINT64_C(0x3ff0000000000000),
+      UINT64_C(0x3ff0000000000001), UINT64_C(0x3ff0000000000000)};
+  uint32_t format_index;
+  uint32_t rounding_mode;
+
+  for (format_index = 0u; format_index < 2u; format_index++) {
+    uint32_t format = format_index == 0u ? UINT32_C(16) : UINT32_C(17);
+    uint32_t width = format_index == 0u ? 32u : 64u;
+    uint64_t one = format_index == 0u ? UINT64_C(0x3f800000)
+                                     : UINT64_C(0x3ff0000000000000);
+    uint64_t half_ulp = format_index == 0u ? UINT64_C(0x33800000)
+                                           : UINT64_C(0x3ca0000000000000);
+    const uint64_t *expected = format_index == 0u ? expected_f32 : expected_f64;
+
+    for (rounding_mode = 0u; rounding_mode < 4u; rounding_mode++) {
+      t64_machine *machine = make_machine(allocator, profile, asset);
+
+      T64_CHECK(machine != NULL);
+      if (machine == NULL) continue;
+      machine->cpu.cp0[12] |= UINT64_C(0x04000000); /* independent FR=1 lanes */
+      machine->cpu.fcr31 = rounding_mode;
+      t64_cop1_commit_fpr(machine, 1u, width, one);
+      t64_cop1_commit_fpr(machine, 2u, width, half_ulp);
+      t64_cop1_commit_fpr(machine, 3u, width, UINT64_C(0x1122334455667788));
+      write_instruction(machine, UINT32_C(0x1000),
+                        encode_cop1_operation(format, 2u, 1u, 3u, 0u));
+      T64_CHECK(advance_tick(machine, UINT64_C(1)));
+      T64_CHECK(machine->cpu.attempt_outcome == T64_CPU_ATTEMPT_RETIRED);
+      if (machine->cpu.fpr[3] != expected[rounding_mode]) {
+        fprintf(stderr,
+                "tie mismatch fmt=%u rm=%u opcode=%08x got=%016llx want=%016llx fcr31=%08x\n",
+                format, rounding_mode,
+                encode_cop1_operation(format, 2u, 1u, 3u, 0u),
+                (unsigned long long)machine->cpu.fpr[3],
+                (unsigned long long)expected[rounding_mode],
+                machine->cpu.fcr31);
+      }
+      T64_CHECK(machine->cpu.fpr[3] == expected[rounding_mode]);
+      T64_CHECK((machine->cpu.fcr31 & UINT32_C(0x0003f07f)) ==
+                (UINT32_C(0x00001004) | rounding_mode));
+      t64_machine_destroy(machine);
+    }
+  }
+}
+
+static void test_invalid_integer_source_format(
+    const t64_host_allocator *allocator,
+    const t64_profile_descriptor *profile, const uint8_t *asset) {
+  t64_machine *machine = make_machine(allocator, profile, asset);
+  const uint32_t opcode = encode_cop1_operation(20u, 0u, 1u, 3u, 0x24u);
+  const uint64_t destination = UINT64_C(0x1122334455667788);
+
+  T64_CHECK(machine != NULL);
+  if (machine == NULL) return;
+  machine->cpu.cp0[12] |= UINT64_C(0x04000000); /* independent FR=1 lanes */
+  machine->cpu.fcr31 = UINT32_C(0x0001007c); /* prior V Cause and sticky flags */
+  t64_cop1_commit_fpr(machine, 1u, 32u, UINT32_C(0x3f800000));
+  t64_cop1_commit_fpr(machine, 3u, 64u, destination);
+  write_instruction(machine, UINT32_C(0x1000), opcode);
+  T64_CHECK(advance_tick(machine, UINT64_C(1)));
+  if (((uint32_t)machine->cpu.cp0[13] & UINT32_C(0x7c)) != UINT32_C(0x3c) ||
+      machine->cpu.cp0[14] != TEST_PC ||
+      (machine->cpu.fcr31 & UINT32_C(0x0003f000)) != UINT32_C(0x00020000) ||
+      (machine->cpu.fcr31 & UINT32_C(0x0000007c)) != UINT32_C(0x0000007c) ||
+      machine->cpu.fpr[3] != destination) {
+    fprintf(stderr,
+            "invalid-format expected opcode=%08x pc=%016llx FPE/E, "
+            "FCR31 cause=00020000 flags=7c dest=%016llx; observed "
+            "opcode=%08x pc=%016llx cp0-cause=%08x epc=%016llx "
+            "fcr31=%08x dest=%016llx outcome=%u\n",
+            opcode, (unsigned long long)TEST_PC,
+            (unsigned long long)destination,
+            machine->cpu.last_opcode,
+            (unsigned long long)machine->cpu.last_pc_full,
+            (uint32_t)machine->cpu.cp0[13],
+            (unsigned long long)machine->cpu.cp0[14], machine->cpu.fcr31,
+            (unsigned long long)machine->cpu.fpr[3],
+            (unsigned)machine->cpu.attempt_outcome);
+  }
+  T64_CHECK(((uint32_t)machine->cpu.cp0[13] & UINT32_C(0x7c)) ==
+            UINT32_C(0x3c)); /* FPE, not a retired conversion */
+  T64_CHECK(machine->cpu.cp0[14] == TEST_PC);
+  T64_CHECK((machine->cpu.fcr31 & UINT32_C(0x0003f000)) ==
+            UINT32_C(0x00020000)); /* E replaces only the last Cause */
+  T64_CHECK((machine->cpu.fcr31 & UINT32_C(0x0000007c)) ==
+            UINT32_C(0x0000007c)); /* sticky flags survive */
+  T64_CHECK(machine->cpu.fpr[3] == destination);
+  T64_CHECK(machine->cpu.attempt_outcome == T64_CPU_ATTEMPT_GUEST_EXCEPTION);
+  t64_machine_destroy(machine);
+}
+
+int main(int argc, char **argv) {
   allocator_state allocation = {0u};
   const t64_host_allocator allocator = {allocate, release, &allocation};
   const t64_profile_descriptor *profile = NULL;
@@ -674,6 +780,20 @@ int main(void) {
           T64_STATUS_OK || profile == NULL) {
     puts("1..1\nnot ok 1 - qualified IPL3 and VR4300 profile setup");
     return 1;
+  }
+  if (argc == 2 && strcmp(argv[1], "--arithmetic") == 0) {
+    test_arithmetic_tie_rounding(&allocator, profile, asset);
+    T64_CHECK(allocation.outstanding == 0u);
+    return T64_TEST_FINISH("unit.core.cop1-arithmetic");
+  }
+  if (argc == 2 && strcmp(argv[1], "--exceptions") == 0) {
+    test_invalid_integer_source_format(&allocator, profile, asset);
+    T64_CHECK(allocation.outstanding == 0u);
+    return T64_TEST_FINISH("unit.core.cop1-exceptions");
+  }
+  if (argc != 1) {
+    fprintf(stderr, "usage: %s [--arithmetic|--exceptions]\n", argv[0]);
+    return 2;
   }
   machine = make_machine(&allocator, profile, asset);
   T64_CHECK(machine != NULL);
