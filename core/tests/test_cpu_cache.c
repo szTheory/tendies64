@@ -17,6 +17,7 @@
 #define ENTRYLO_DIRTY UINT32_C(0x4)
 #define ENTRYLO_CACHE_SHIFT 3u
 #define CACHE_HIT_INVALIDATE_I UINT32_C(0x10)
+#define CACHE_HIT_WRITEBACK_I UINT32_C(0x18)
 
 typedef struct {
   size_t outstanding;
@@ -429,6 +430,68 @@ static uint32_t cache_instruction(uint32_t operation, uint32_t base) {
          ((operation & UINT32_C(0x1f)) << 16);
 }
 
+/* NEC VR4300 User's Manual, 7th ed., §16, printed p.404, op 6/I row:
+ * when the matching I-cache block contains the address, Hit_Write_Back writes
+ * the block to main memory unconditionally. Independent expectation: copy all
+ * 32 selected bytes to the physical tag address; retain I-cache valid/tag/data
+ * and do not change the unrelated [0x1004,0x1008) LL reservation. */
+static bool test_hit_writeback_i_unconditional(fixture *value) {
+  const uint32_t target_va = UINT32_C(0x80001000);
+  const uint32_t target_pa = UINT32_C(0x00001000);
+  const uint32_t code_va = UINT32_C(0x80003000);
+  const uint32_t code_pa = UINT32_C(0x00003000);
+  const uint32_t target_index = cache_index(target_va);
+  uint8_t expected[T64_VR4300_ICACHE_LINE_BYTES];
+  t64_vr4300_icache_line *line = &value->machine->cpu.icache[target_index];
+  uint32_t ignored_opcode = 0u;
+  t64_status status;
+  size_t index;
+
+  for (index = 0u; index < sizeof expected; index++) {
+    value->machine->ram[target_pa + (uint32_t)index] =
+        (uint8_t)(UINT8_C(0x10) + (uint8_t)index);
+    expected[index] = (uint8_t)(UINT8_C(0xa0) + (uint8_t)index);
+  }
+  if (t64_cpu_icache_fetch(value->machine, target_va, target_pa,
+                           &ignored_opcode) != T64_STATUS_OK) {
+    (void)puts("# I Hit_Write_Back matching line setup failed");
+    return false;
+  }
+  (void)memcpy(line->data, expected, sizeof expected);
+  write_ram_instruction(value->machine, code_pa,
+                        cache_instruction(CACHE_HIT_WRITEBACK_I, 5u));
+  value->machine->cpu.gpr[5] =
+      t64_cpu_canonical_address(target_va);
+  value->machine->cpu.linked_valid = true;
+  value->machine->cpu.linked_physical_address = UINT32_C(0x1004);
+  value->machine->cpu.linked_width = UINT32_C(4);
+  set_pc(value->machine, code_va);
+
+  status = t64_cpu_step(value->machine, NULL);
+  if (status != T64_STATUS_OK ||
+      memcmp(value->machine->ram + target_pa, expected, sizeof expected) != 0 ||
+      !line->valid || line->physical_tag != target_pa ||
+      memcmp(line->data, expected, sizeof expected) != 0 ||
+      !value->machine->cpu.linked_valid ||
+      value->machine->cpu.linked_physical_address != UINT32_C(0x1004) ||
+      value->machine->cpu.linked_width != UINT32_C(4) ||
+      !value->machine->cache.operation_seen ||
+      value->machine->cache.last_operation != CACHE_HIT_WRITEBACK_I) {
+    (void)printf("# p.404 op6/I expected status=0 backing=%08x valid=1 "
+                 "tag=%08x link=1/00001004/4; observed status=%u "
+                 "backing=%08x valid=%u tag=%08x link=%u/%08x/%u op=%u\n",
+                 read_be32(expected), target_pa, (unsigned)status,
+                 read_be32(value->machine->ram + target_pa),
+                 line->valid ? 1u : 0u, line->physical_tag,
+                 value->machine->cpu.linked_valid ? 1u : 0u,
+                 value->machine->cpu.linked_physical_address,
+                 value->machine->cpu.linked_width,
+                 value->machine->cache.last_operation);
+    return false;
+  }
+  return true;
+}
+
 static bool test_hit_invalidate_does_not_clear_link(
     fixture *value) {
   const uint32_t target_index = cache_index(UINT32_C(0x80001000));
@@ -772,8 +835,8 @@ static bool test_cache_digest_sensitivity_and_machine_isolation(
   return fixture_close(&other, okay);
 }
 
-int main(void) {
-  static const cache_test_case cases[] = {
+int main(int argc, char **argv) {
+  static const cache_test_case icache_cases[] = {
       {"index 511/0 boundary, final word and same-index physical tag replacement",
        test_index_wrap_and_same_index_replacement},
       {"TLB synonyms, C=2, and Config.K0=2 preserve cacheable lines",
@@ -797,17 +860,31 @@ int main(void) {
       {"prepared I-cache is invalid; v9 hashes line fields and isolates machines",
        test_cache_digest_sensitivity_and_machine_isolation},
   };
+  static const cache_test_case cache_ops_cases[] = {
+      {"CACHE p.404 op6/I writes a matching I-line unconditionally",
+       test_hit_writeback_i_unconditional},
+  };
+  const cache_test_case *cases = icache_cases;
+  size_t case_count = sizeof icache_cases / sizeof icache_cases[0];
   uint8_t asset[IPL3_ASSET_BYTES];
   size_t failure_count = 0u;
   size_t index;
+
+  if (argc == 2 && strcmp(argv[1], "--cache-ops") == 0) {
+    cases = cache_ops_cases;
+    case_count = sizeof cache_ops_cases / sizeof cache_ops_cases[0];
+  } else if (argc != 1) {
+    (void)fprintf(stderr, "usage: %s [--cache-ops]\n", argv[0]);
+    return 2;
+  }
 
   if (!read_seed_asset(asset)) {
     (void)puts("1..1");
     (void)puts("not ok 1 - qualified IPL3 fixture setup");
     return 1;
   }
-  (void)printf("1..%zu\n", sizeof cases / sizeof cases[0]);
-  for (index = 0u; index < sizeof cases / sizeof cases[0]; index++) {
+  (void)printf("1..%zu\n", case_count);
+  for (index = 0u; index < case_count; index++) {
     fixture value = {0};
     bool okay = fixture_open(&value, asset);
 

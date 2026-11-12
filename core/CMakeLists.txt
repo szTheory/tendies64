@@ -228,6 +228,10 @@ add_test(NAME unit.core.cpu-icache COMMAND test_cpu_cache)
 set_tests_properties(unit.core.cpu-icache PROPERTIES
   LABELS unit
   ENVIRONMENT "T64_TEST_IPL3_PATH=${T64_BOOT_FIXTURE_DIR}/ipl3_compat.z64")
+add_test(NAME unit.core.cpu-cache-ops COMMAND test_cpu_cache --cache-ops)
+set_tests_properties(unit.core.cpu-cache-ops PROPERTIES
+  LABELS unit
+  ENVIRONMENT "T64_TEST_IPL3_PATH=${T64_BOOT_FIXTURE_DIR}/ipl3_compat.z64")
 
 add_test(NAME unit.core.cp0-cache COMMAND test_cpu_path --cp0-cache)
 set_tests_properties(unit.core.cp0-cache PROPERTIES
