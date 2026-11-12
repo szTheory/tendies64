@@ -30,6 +30,22 @@ The unchanged JUnit report and full console output remain in ignored local
 build storage. This portable record contains only the command, target, expected
 behavior, and observed guest values; it contains no raw report or checkout path.
 
+## Task 2: descriptor-v3 exact flat-image limit
+
+**Target:** `runner.cpu-diagnostic` in `runner/tests/test_cpu_diagnostic.c`
+
+**Command:** `cmake --build --preset gate --target test_cpu_diagnostic && ctest --preset gate --no-tests=error -R '^runner\.cpu-diagnostic$' --output-failure --output-junit <private JUnit report>`
+
+**Classifier:** `RED_EVIDENCE_OK` (`target_test_failed`, one target test executed)
+
+The actual canonical CPU-profile machine evaluated the authored image at the
+planned boundary: image length `0x00401000`, payload/load length `0x00400000`,
+and aligned canonical KSEG0 entry `0x80000000`. It returned
+`T64_STATUS_INVALID_ROM` (status 5), where admission should succeed with the
+exact cleared IPL3 payload. The unchanged JUnit report was classified before
+loader-policy changes. Raw reports remain in ignored build storage; this entry
+contains no raw report or private path.
+
 ## Task 1 contract correction: member-bound patched-ROM identities
 
 **Target:** `runner.cpu-diagnostic` in `runner/tests/test_cpu_diagnostic.c`

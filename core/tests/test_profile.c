@@ -542,7 +542,7 @@ static void test_vr4300_profile_contract(void) {
   static const char payload_sha256[] =
       "f716a90b1d36ec4253d096790791256d3543455e54473a755ff8c3d1199b15d5";
   static const char policy_sha256[] =
-      "faa54438c8b0cdd60e1e388b61566a963ad3d1feb05c23cbf207b4645157064c";
+      "8ff4eb70b307f974982a1a499b3db1cdb2709e50cacaff75fb10666b4c5fca49";
   const t64_profile_descriptor *profile = NULL;
   t64_profile_descriptor changed;
   uint8_t expected_asset[T64_DIGEST_SIZE];
@@ -566,6 +566,9 @@ static void test_vr4300_profile_contract(void) {
   T64_CHECK_INT(profile->machine_model_version, 3u);
   T64_CHECK_INT(profile->state_serialization_version, 9u);
   T64_CHECK_INT(profile->hle_seed_reset_version, 2u);
+  T64_CHECK_INT(profile->rom_max_bytes, UINT32_C(0x00401000));
+  T64_CHECK_STR(profile->rom_order_policy,
+                "exact-source-or-flat-payload-z64-cpu-4m-v1");
   T64_CHECK_STR(profile->boot_route, "hle-pif+open-ipl3");
   T64_CHECK_STR(profile->boot_status, "prepared-vr4300-entry-partial");
   T64_CHECK(hex_decode(asset_sha256, expected_asset, sizeof expected_asset));
@@ -599,7 +602,7 @@ static void test_vr4300_profile_contract(void) {
   T64_CHECK_INT(t64_profile_hash(profile, profile_hash), T64_STATUS_OK);
   digest_to_hex(profile_hash, profile_hash_hex);
   T64_CHECK_STR(profile_hash_hex,
-                "d1f620cfef32824759c40c4e22a7e9f6cab3796981f34ac1e1dfd55c78f197a1");
+                "f37861d8911ad9d3c0e54b070514f79dffb9ecb3a52f3f345e3aaf0dfc0083c4");
 
 #define CHECK_VR4300_PROFILE_MUTATION(statement)                              \
   do {                                                                         \

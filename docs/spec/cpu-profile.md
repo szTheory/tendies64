@@ -34,7 +34,7 @@ descriptor pins asset SHA-256
 SHA-256
 `f716a90b1d36ec4253d096790791256d3543455e54473a755ff8c3d1199b15d5`, and boot
 policy SHA-256
-`faa54438c8b0cdd60e1e388b61566a963ad3d1feb05c23cbf207b4645157064c`.
+`8ff4eb70b307f974982a1a499b3db1cdb2709e50cacaff75fb10666b4c5fca49`.
 Descriptor v3 serializes all three hashes and the seed-reset version.
 
 | State | Prepared value | Basis |
@@ -99,9 +99,9 @@ The prepared v9 CPU fields are:
 8. Thirty-two 64-bit FPR values, FCR0, and FCR31.
 
 The initial v9 digest is
-`dfd84ba75420a9cf7f0883c18b78fbf8999cf13f41dd79d28879a5d724b6720e` for the
+`1e9cab87de3581578e4f5f49b1bcf6d8114046f910814b4af4f3f2e6ec42f906` for the
 pinned fixture and prepared seed. The profile test pins descriptor hash
-`d1f620cfef32824759c40c4e22a7e9f6cab3796981f34ac1e1dfd55c78f197a1`.
+`f37861d8911ad9d3c0e54b070514f79dffb9ecb3a52f3f345e3aaf0dfc0083c4`.
 Both vectors are checked against independent test-side serialization or
 fixed-golden assertions.
 
@@ -123,6 +123,35 @@ v9 CPU-state field for digest sensitivity, reset to the prepared digest, and
 independent mutable state across two machines.
 
 ## Limits and unresolved evidence
+
+The descriptor-v3 CPU profile alone accepts the authored flat-image policy
+`exact-source-or-flat-payload-z64-cpu-4m-v1`. A flat image is at most
+`0x00401000` bytes, with a payload of exactly `image_length - 0x1000`. Header
+field `0x10` must equal that payload length. The embedded `0x40..0x1000`
+cleared IPL3 bytes must match the pinned payload digest. Entry `0x08` must be
+an aligned, sign-extended KSEG0 address, and its physical address plus payload
+length must fit within the 4 MiB base RDRAM. The bound and loader rules are
+included in the descriptor hash and v9 boot-policy metadata; the policy SHA-256
+is `8ff4eb70b307f974982a1a499b3db1cdb2709e50cacaff75fb10666b4c5fca49`.
+Its canonical ASCII digest input, without a trailing NUL or newline, is
+`t64.openipl3.vr4300-loader.v1;image=0x00401000;payload=image-0x1000;entry=aligned-sign-extended-kseg0;physical-entry+payload<=0x00400000`.
+`scripts/build-cpu-diagnostic.sh --selftest` checks the packer bounds offline;
+`--qualify` uses the already audited MIPS binutils and existing cleared IPL3
+asset to assemble and pack an authored guest. It does not fetch assets or tools.
+This checks only the authored loader path; it does not qualify external assets,
+tools, or diagnostic results for use.
+
+The registered native startup vector also runs a `0x00100004`-byte image
+through the cleared IPL3. Before its first ISViewer store, the authored entry
+checks the aligned prepared stack at `0xFFFFFFFF803FFEE0` with a stack
+write/read, reads a zero-filled 16-byte BSS reservation at physical
+`0x00200000`, and relies on its linked code bytes at physical `0x400`. These
+checks establish this software-seed path and its authored image layout; they do
+not establish a hardware reset stack or general C runtime startup.
+
+The warm-v1 profile remains capped at `0x00100000` bytes and keeps its existing
+flat-packer defaults and seven fixture hashes. The 4 MiB CPU-profile policy is
+specific to descriptor v3 and does not broaden warm-v1 admission.
 
 The VR4300 profile implements paired TLB translation and management across
 the selected 32-bit and extended address modes, with precise refill, invalid,

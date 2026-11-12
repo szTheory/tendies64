@@ -201,7 +201,7 @@ static void test_vr4300_profile_entry(
     const uint8_t asset[IPL3_ASSET_BYTES]) {
   static const char profile_id[] = "ntsc-cart-4m-openipl3-vr4300-v1";
   static const char expected_v9_prepared_state_sha256[] =
-      "dfd84ba75420a9cf7f0883c18b78fbf8999cf13f41dd79d28879a5d724b6720e";
+      "1e9cab87de3581578e4f5f49b1bcf6d8114046f910814b4af4f3f2e6ec42f906";
   allocator_state allocator_state_value = {0u};
   const t64_host_allocator allocator = {
       test_allocate, test_release, &allocator_state_value};

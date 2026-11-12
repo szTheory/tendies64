@@ -78,6 +78,7 @@ static const t64_profile_descriptor ntsc_cart_4m_profile = {
   }
 #define T64_OPENIPL3_FLAT_ENTRY_POLICY "exact-source-or-flat-payload-z64-v2"
 #define T64_OPENIPL3_ROM_LIMIT UINT32_C(0x00100000)
+#define T64_VR4300_OPENIPL3_ROM_LIMIT UINT32_C(0x00401000)
 #define T64_OPENIPL3_AUTHORED_PAYLOAD_OFFSET UINT32_C(0x00001000)
 #define T64_OPENIPL3_POLICY_SHA256_BYTES                                     \
   {                                                                          \
@@ -88,13 +89,13 @@ static const t64_profile_descriptor ntsc_cart_4m_profile = {
   }
 #define T64_VR4300_OPENIPL3_POLICY_SHA256_BYTES                              \
   {                                                                          \
-    0xfau, 0xa5u, 0x44u, 0x38u, 0xc8u, 0xb0u, 0xcdu, 0xd6u,                  \
-        0x0eu, 0x1eu, 0x38u, 0x8bu, 0x61u, 0x56u, 0x6au, 0x96u,              \
-        0x3au, 0xd3u, 0xd1u, 0xfeu, 0xb0u, 0x5cu, 0x23u, 0xcbu,              \
-        0xf2u, 0x07u, 0xb4u, 0x64u, 0x51u, 0x57u, 0x06u, 0x4cu               \
+    0x8fu, 0xf4u, 0xebu, 0x70u, 0xb3u, 0x07u, 0xf9u, 0x74u,                  \
+        0x98u, 0x2au, 0x1au, 0x49u, 0x9bu, 0x3du, 0xb1u, 0xcdu,              \
+        0xb2u, 0x70u, 0x9eu, 0x50u, 0xcau, 0xcau, 0xffu, 0x75u,              \
+        0xfbu, 0x10u, 0x66u, 0x6bu, 0x4cu, 0x5fu, 0xcau, 0x49u               \
   }
 #define T64_VR4300_OPENIPL3_FLAT_ENTRY_POLICY \
-  "exact-source-or-flat-payload-z64-v3"
+  "exact-source-or-flat-payload-z64-cpu-4m-v1"
 
 static const t64_profile_descriptor ntsc_cart_4m_openipl3_warm_profile = {
     .profile_id = "ntsc-cart-4m-openipl3-warm-v1",
@@ -169,7 +170,7 @@ static const t64_profile_descriptor ntsc_cart_4m_openipl3_vr4300_profile = {
     .pi_model_version = "pi_dma_bounded_cart_v1",
     .sp_model_version = "sp_dma_bounded_warm_v1",
     .rom_min_bytes = 4096u,
-    .rom_max_bytes = T64_OPENIPL3_ROM_LIMIT,
+    .rom_max_bytes = T64_VR4300_OPENIPL3_ROM_LIMIT,
     .event_queue_capacity = 256u,
     .sequence_width_bits = 64u,
     .advance_event_budget = 4096u,
@@ -311,18 +312,27 @@ static bool openipl3_source_asset_matches(const uint8_t *bytes,
   return memcmp(digest, openipl3_asset_sha256, sizeof digest) == 0;
 }
 
-static bool openipl3_authored_flat_rom_matches(const uint8_t *bytes,
-                                               size_t length) {
+static bool openipl3_authored_flat_rom_matches(
+    const t64_profile_descriptor *profile, const uint8_t *bytes,
+    size_t length) {
   static const uint8_t z64_magic[4] = {0x80u, 0x37u, 0x12u, 0x40u};
   t64_sha256_ctx context;
   uint8_t digest[T64_DIGEST_SIZE];
   uint32_t entry_pc;
   uint32_t load_bytes;
   uint32_t physical_entry;
+  uint32_t rom_limit;
   size_t flat_length;
 
+  if (profile == NULL) {
+    return false;
+  }
+  rom_limit = is_vr4300_openipl3_profile(profile)
+                  ? T64_VR4300_OPENIPL3_ROM_LIMIT
+                  : T64_OPENIPL3_ROM_LIMIT;
+
   if (bytes == NULL || length <= T64_OPENIPL3_AUTHORED_PAYLOAD_OFFSET ||
-      length > (size_t)T64_OPENIPL3_ROM_LIMIT || (length & 3u) != 0u ||
+      length > (size_t)rom_limit || (length & 3u) != 0u ||
       memcmp(bytes, z64_magic, sizeof z64_magic) != 0) {
     return false;
   }
@@ -345,9 +355,10 @@ static bool openipl3_authored_flat_rom_matches(const uint8_t *bytes,
              (uint64_t)T64_BASE_RAM_BYTES;
 }
 
-static bool openipl3_asset_matches(const uint8_t *bytes, size_t length) {
+static bool openipl3_asset_matches(const t64_profile_descriptor *profile,
+                                  const uint8_t *bytes, size_t length) {
   return openipl3_source_asset_matches(bytes, length) ||
-         openipl3_authored_flat_rom_matches(bytes, length);
+         openipl3_authored_flat_rom_matches(profile, bytes, length);
 }
 
 typedef struct {
@@ -905,7 +916,7 @@ t64_status t64_machine_admit_rom(t64_machine *machine, const uint8_t *bytes,
     if (status != T64_STATUS_OK) {
       return status;
     }
-    if (!openipl3_asset_matches(bytes, length)) {
+    if (!openipl3_asset_matches(&machine->profile, bytes, length)) {
       return T64_STATUS_INVALID_ROM;
     }
   }

@@ -19,13 +19,23 @@
 #include "t64_verified_input.h"
 #include "tendies64/t64_machine.h"
 
+#ifndef __has_feature
+#define __has_feature(feature) 0
+#endif
+#if defined(__SANITIZE_ADDRESS__) || __has_feature(address_sanitizer)
+#define T64_CPU_DIAG_SANITIZED_TEST 1
+#else
+#define T64_CPU_DIAG_SANITIZED_TEST 0
+#endif
+
 #define IPL3_BYTES 4096u
 #define IMAGE_PAYLOAD_OFFSET 0x1000u
-#define TEST_PAYLOAD_BYTES 40u
-#define TEST_ROM_BYTES (IMAGE_PAYLOAD_OFFSET + TEST_PAYLOAD_BYTES)
-#define TEST_TICK_BOUND UINT64_C(531000)
-#define PARK_PC UINT32_C(0x80000420)
-#define PARK_OPCODE UINT32_C(0x08000108)
+#define TEST_PAYLOAD_BYTES 88u
+#define TEST_ROM_BYTES 0x00100004u
+#define TEST_TICK_BOUND UINT64_C(1100000)
+#define TEST_BSS_PHYSICAL UINT32_C(0x00200000)
+#define PARK_PC UINT32_C(0x80000448)
+#define PARK_OPCODE UINT32_C(0x08000112)
 
 static unsigned failures;
 
@@ -89,8 +99,18 @@ static void release_machine(void *context, t64_host_storage storage) {
   free(storage.data);
 }
 
-static void make_authored_rom(uint8_t image[TEST_ROM_BYTES]) {
+static void make_authored_rom(uint8_t *image, size_t image_length) {
   static const uint32_t program[TEST_PAYLOAD_BYTES / 4u] = {
+      UINT32_C(0x27a8fffc), /* addiu t0,sp,-4: authored stack local */
+      UINT32_C(0x24091234), /* addiu t1,zero,0x1234 */
+      UINT32_C(0xad090000), /* sw t1,0(t0): stack write */
+      UINT32_C(0x8d0a0000), /* lw t2,0(t0): stack readback */
+      UINT32_C(0x152a000f), /* bne t1,t2,fail */
+      UINT32_C(0x00000000),
+      UINT32_C(0x3c088020), /* lui t0,0x8020: authored BSS reservation */
+      UINT32_C(0x8d090000), /* lw t1,0(t0): BSS must start zero */
+      UINT32_C(0x1520000b), /* bne t1,zero,fail */
+      UINT32_C(0x00000000),
       UINT32_C(0x3c08b3ff), /* lui t0,0xb3ff */
       UINT32_C(0x3c091234), /* lui t1,0x1234 */
       UINT32_C(0x35295678), /* ori t1,t1,0x5678 */
@@ -99,12 +119,14 @@ static void make_authored_rom(uint8_t image[TEST_ROM_BYTES]) {
       UINT32_C(0xad0a0020), /* sw t2,0x20(t0): authored output */
       UINT32_C(0x240b0002), /* addiu t3,zero,2 */
       UINT32_C(0xa50b0016), /* sh t3,0x16(t0): flush two bytes */
-      PARK_OPCODE,           /* j 0x80000420: traced park loop */
+      PARK_OPCODE,           /* j 0x80000448: traced park loop */
+      UINT32_C(0x00000000), /* nop */
+      UINT32_C(0x0000000d), /* break: stack/BSS validation failure */
       UINT32_C(0x00000000)  /* nop */
   };
   uint8_t asset[IPL3_BYTES];
   size_t i;
-  (void)memset(image, 0, TEST_ROM_BYTES);
+  (void)memset(image, 0, image_length);
   (void)memset(asset, 0, sizeof asset);
   if (!read_ipl3_asset(asset)) {
     check(false, "read exact cleared IPL3 asset");
@@ -113,7 +135,8 @@ static void make_authored_rom(uint8_t image[TEST_ROM_BYTES]) {
   put_be32(image + 0x00u, UINT32_C(0x80371240));
   put_be32(image + 0x04u, UINT32_C(0x0000000f));
   put_be32(image + 0x08u, UINT32_C(0x80000400));
-  put_be32(image + 0x10u, TEST_PAYLOAD_BYTES);
+  put_be32(image + 0x10u,
+           (uint32_t)(image_length - IMAGE_PAYLOAD_OFFSET));
   image[0x3au] = (uint8_t)'E';
   (void)memcpy(image + 0x40u, asset + 0x40u, IPL3_BYTES - 0x40u);
   for (i = 0u; i < sizeof program / sizeof program[0]; i++) {
@@ -121,14 +144,16 @@ static void make_authored_rom(uint8_t image[TEST_ROM_BYTES]) {
   }
 }
 
-static bool make_protocol_guest_rom(const char *transcript,
-                                    uint8_t **image_out, size_t *image_length) {
+static bool make_protocol_guest_rom_sized(const char *transcript,
+                                          size_t minimum_image_length,
+                                          uint8_t **image_out,
+                                          size_t *image_length) {
   const size_t transcript_length = strlen(transcript);
   const size_t code_offset = 0x100u;
   const size_t chunk_count = (transcript_length + 511u) / 512u;
-  const size_t payload_length = code_offset + transcript_length * 8u +
-                                chunk_count * 8u + 8u;
-  const size_t rom_length = IMAGE_PAYLOAD_OFFSET + payload_length;
+  size_t payload_length = code_offset + transcript_length * 8u +
+                          chunk_count * 8u + 8u;
+  size_t rom_length;
   uint8_t *image;
   uint8_t asset[IPL3_BYTES];
   size_t output_offset = code_offset;
@@ -148,6 +173,13 @@ static bool make_protocol_guest_rom(const char *transcript,
   if (image_out == NULL || image_length == NULL || transcript == NULL ||
       transcript_length == 0u || transcript_length > 32767u ||
       !read_ipl3_asset(asset)) return false;
+  if (minimum_image_length > IMAGE_PAYLOAD_OFFSET + payload_length) {
+    if (minimum_image_length > UINT32_C(0x00401000) ||
+        (minimum_image_length & 3u) != 0u) return false;
+    payload_length = minimum_image_length - IMAGE_PAYLOAD_OFFSET;
+  }
+  rom_length = IMAGE_PAYLOAD_OFFSET + payload_length;
+  if (payload_length > UINT32_MAX) return false;
   image = (uint8_t *)calloc(rom_length, 1u);
   if (image == NULL) return false;
   put_be32(image + 0x00u, UINT32_C(0x80371240));
@@ -184,6 +216,13 @@ static bool make_protocol_guest_rom(const char *transcript,
   return true;
 }
 
+static bool make_protocol_guest_rom(const char *transcript,
+                                    uint8_t **image_out,
+                                    size_t *image_length) {
+  return make_protocol_guest_rom_sized(transcript, 0u, image_out,
+                                       image_length);
+}
+
 static bool observe_machine(t64_machine *machine, bool *saw_entry,
                             bool *saw_park, uint32_t *last_pc,
                             uint32_t *last_opcode) {
@@ -214,14 +253,21 @@ static bool observe_machine(t64_machine *machine, bool *saw_entry,
 static void test_cpu_profile_authored_guest(void) {
   t64_host_allocator allocator = {allocate_machine, release_machine, NULL};
   const t64_profile_descriptor *profile = NULL;
+  const t64_profile_descriptor *warm_profile = NULL;
   t64_machine *machine = NULL;
-  uint8_t image[TEST_ROM_BYTES];
+  t64_machine *warm_machine = NULL;
+  uint8_t *image = (uint8_t *)calloc(TEST_ROM_BYTES, 1u);
   uint8_t output[16];
   size_t output_length = 0u;
   uint64_t output_total = 0u;
   bool output_lost = false;
   bool output_exact = false;
   bool saw_entry = false;
+  bool entry_before_output = false;
+  bool entry_code_layout = false;
+  bool entry_bss_zero = false;
+  bool guest_stack_and_bss_passed = false;
+  uint64_t entry_stack_pointer = UINT64_MAX;
   bool saw_park = false;
   uint32_t last_pc = 0u;
   uint32_t last_opcode = 0u;
@@ -236,24 +282,49 @@ static void test_cpu_profile_authored_guest(void) {
   uint64_t first_store_vector = 0u;
   t64_status status;
 
-  make_authored_rom(image);
+  check(image != NULL, "allocate above-warm-limit startup ROM");
+  if (image == NULL) return;
+  make_authored_rom(image, TEST_ROM_BYTES);
   check(t64_profile_lookup("ntsc-cart-4m-openipl3-vr4300-v1", &profile) ==
             T64_STATUS_OK,
         "lookup CPU profile");
   check(profile != NULL && profile->descriptor_version == 3u &&
             profile->state_serialization_version == 9u,
         "select descriptor-v3 CPU profile");
-  if (profile == NULL) return;
+  check(t64_profile_lookup("ntsc-cart-4m-openipl3-warm-v1", &warm_profile) ==
+                T64_STATUS_OK &&
+            warm_profile != NULL &&
+            warm_profile->rom_max_bytes == UINT32_C(0x00100000),
+        "warm-v1 keeps its one-MiB image ceiling");
+  if (profile == NULL) {
+    free(image);
+    return;
+  }
+  if (warm_profile != NULL &&
+      t64_machine_create(&allocator, warm_profile, &warm_machine) ==
+          T64_STATUS_OK &&
+      warm_machine != NULL) {
+    check(t64_machine_admit_rom(warm_machine, image, TEST_ROM_BYTES) !=
+                  T64_STATUS_OK &&
+              !warm_machine->has_image,
+          "warm-v1 refuses the CPU-only above-one-MiB image");
+    t64_machine_destroy(warm_machine);
+  } else {
+    check(false, "create warm-v1 machine for expansion refusal control");
+  }
   status = t64_machine_create(&allocator, profile, &machine);
   check(status == T64_STATUS_OK && machine != NULL, "create CPU machine");
-  if (machine == NULL) return;
+  if (machine == NULL) {
+    free(image);
+    return;
+  }
   check(t64_machine_trace_set_enabled(machine, true) == T64_STATUS_OK,
         "enable bounded execution trace");
-  status = t64_machine_admit_rom(machine, image, sizeof image);
+  status = t64_machine_admit_rom(machine, image, TEST_ROM_BYTES);
   if (status != T64_STATUS_OK) {
     (void)fprintf(stderr,
                   "authored ROM admission status=%u length=%zu entry=%08x load=%u\n",
-                  status, sizeof image, (unsigned)image[8] << 24 |
+                  status, (size_t)TEST_ROM_BYTES, (unsigned)image[8] << 24 |
                   (unsigned)image[9] << 16 | (unsigned)image[10] << 8 |
                   (unsigned)image[11],
                   (unsigned)image[0x10] << 24 | (unsigned)image[0x11] << 16 |
@@ -282,6 +353,19 @@ static void test_cpu_profile_authored_guest(void) {
       check(false, "drain complete trace without loss");
       break;
     }
+    if (saw_entry && entry_stack_pointer == UINT64_MAX) {
+      static const uint8_t zero_bss[16] = {0u};
+      entry_stack_pointer = machine->cpu.gpr[29];
+      entry_before_output = machine->output.total_attempted_bytes == 0u &&
+                            machine->output.captured_bytes == 0u &&
+                            machine->output.magic_register == 0u;
+      guest_stack_and_bss_passed = true;
+      entry_code_layout =
+          memcmp(machine->ram + UINT32_C(0x400),
+                 image + IMAGE_PAYLOAD_OFFSET, TEST_PAYLOAD_BYTES) == 0;
+      entry_bss_zero = memcmp(machine->ram + TEST_BSS_PHYSICAL, zero_bss,
+                              sizeof zero_bss) == 0;
+    }
     if (t64_machine_output_drain(machine, output + output_length,
                                  sizeof output - output_length,
                                  &drained) != T64_STATUS_OK ||
@@ -295,7 +379,7 @@ static void test_cpu_profile_authored_guest(void) {
     output_exact = drained.total_attempted_bytes_exact;
     if (!saw_first_store_fault && machine->cpu.pending_exception_valid &&
         machine->cpu.pending_exception_epc ==
-            UINT64_C(0xffffffff8000040c)) {
+            UINT64_C(0xffffffff80000434)) {
       saw_first_store_fault = true;
       first_store_cause = (uint32_t)machine->cpu.cp0[13];
       first_store_opcode = machine->cpu.last_opcode;
@@ -322,6 +406,17 @@ static void test_cpu_profile_authored_guest(void) {
   check(stop_reason == T64_STOP_REASON_BOUND && current_tick == TEST_TICK_BOUND,
         "guest reaches finite guest-tick bound");
   check(saw_entry, "trace observes authored image entry");
+  check(entry_stack_pointer == UINT64_C(0xffffffff803ffee0) &&
+            (entry_stack_pointer & UINT64_C(0xf)) == 0u,
+        "cleared IPL3 establishes the aligned authored entry stack");
+  check(entry_code_layout,
+        "large flat image loads authored code at the linked app address");
+  check(entry_bss_zero,
+        "reserved BSS bytes remain zero at the authored entry boundary");
+  check(guest_stack_and_bss_passed,
+        "authored guest validates stack write/read and zero BSS before output");
+  check(entry_before_output,
+        "startup stack and memory layout are visible before first output");
   if (!saw_park) {
     (void)fprintf(stderr,
                   "guest trace park-miss full_pc=%016llx opcode=%08x tick=%llu stop=%u\n",
@@ -354,6 +449,128 @@ static void test_cpu_profile_authored_guest(void) {
             output[1] == (uint8_t)'B',
         "capture contains exactly the authored AB output");
   t64_machine_destroy(machine);
+  free(image);
+}
+
+static void test_cpu_profile_exact_image_limit(void) {
+  const size_t image_length = 0x00401000u;
+  const uint32_t payload_length = 0x00400000u;
+  t64_host_allocator allocator = {allocate_machine, release_machine, NULL};
+  const t64_profile_descriptor *profile = NULL;
+  t64_machine *machine = NULL;
+  uint8_t *image = (uint8_t *)calloc(image_length, 1u);
+  uint8_t asset[IPL3_BYTES];
+  t64_status status;
+  bool asset_ready;
+
+  check(image != NULL, "allocate exact four-MiB authored flat image");
+  asset_ready = image != NULL && read_ipl3_asset(asset);
+  check(asset_ready, "load exact cleared IPL3 bytes for flat admission");
+  if (image == NULL || !asset_ready) goto cleanup;
+  put_be32(image + 0x00u, UINT32_C(0x80371240));
+  put_be32(image + 0x04u, UINT32_C(0x0000000f));
+  put_be32(image + 0x08u, UINT32_C(0x80000000));
+  put_be32(image + 0x10u, payload_length);
+  image[0x3au] = (uint8_t)'E';
+  (void)memcpy(image + 0x40u, asset + 0x40u, IPL3_BYTES - 0x40u);
+  check(t64_profile_lookup("ntsc-cart-4m-openipl3-vr4300-v1", &profile) ==
+            T64_STATUS_OK &&
+            profile != NULL && profile->descriptor_version == 3u &&
+            profile->rom_max_bytes == UINT32_C(0x00401000) &&
+            profile->state_serialization_version == 9u,
+        "select the descriptor-v3 CPU profile for its flat-loader boundary");
+  if (profile == NULL) goto cleanup;
+  status = t64_machine_create(&allocator, profile, &machine);
+  check(status == T64_STATUS_OK && machine != NULL,
+        "create canonical machine for exact-limit flat admission");
+  if (machine == NULL) goto cleanup;
+  status = t64_machine_admit_rom(machine, image, image_length);
+  if (status != T64_STATUS_OK) {
+    (void)fprintf(stderr,
+                  "exact-limit admission expected status=0 observed=%u image=%zu entry=%08x payload=%u\n",
+                  status, image_length,
+                  (unsigned)image[8] << 24 | (unsigned)image[9] << 16 |
+                      (unsigned)image[10] << 8 | (unsigned)image[11],
+                  (unsigned)image[0x10] << 24 |
+                      (unsigned)image[0x11] << 16 |
+                      (unsigned)image[0x12] << 8 | (unsigned)image[0x13]);
+  }
+  check(status == T64_STATUS_OK,
+        "admits exact 0x00401000 image with a 4 MiB KSEG0 payload");
+cleanup:
+  if (machine != NULL) t64_machine_destroy(machine);
+  free(image);
+}
+
+static void check_cpu_profile_rejects_transactionally(
+    const t64_profile_descriptor *profile, const uint8_t *image,
+    size_t image_length, const char *name) {
+  t64_host_allocator allocator = {allocate_machine, release_machine, NULL};
+  t64_machine *machine = NULL;
+  uint8_t boot_asset[IPL3_BYTES];
+  uint8_t before[T64_DIGEST_SIZE];
+  uint8_t after[T64_DIGEST_SIZE];
+  t64_status status;
+
+  status = t64_machine_create(&allocator, profile, &machine);
+  check(status == T64_STATUS_OK && machine != NULL,
+        "create machine for malformed flat image control");
+  if (machine == NULL) return;
+  if (!read_ipl3_asset(boot_asset)) {
+    check(false, "read pinned source asset for transactional baseline");
+    t64_machine_destroy(machine);
+    return;
+  }
+  status = t64_machine_admit_rom(machine, boot_asset, sizeof boot_asset);
+  check(status == T64_STATUS_OK,
+        "admit pinned source asset for transactional baseline");
+  status = t64_machine_digest(machine, before);
+  check(status == T64_STATUS_OK, "digest machine before flat refusal");
+  status = t64_machine_admit_rom(machine, image, image_length);
+  check(status != T64_STATUS_OK, name);
+  status = t64_machine_digest(machine, after);
+  check(status == T64_STATUS_OK && memcmp(before, after, sizeof before) == 0,
+        "malformed flat image refusal leaves canonical state unchanged");
+  t64_machine_destroy(machine);
+}
+
+static void test_cpu_profile_malformed_flat_images(void) {
+  const size_t image_length = 0x00401000u;
+  const t64_profile_descriptor *profile = NULL;
+  uint8_t *image = (uint8_t *)calloc(image_length + 4u, 1u);
+  uint8_t asset[IPL3_BYTES];
+  if (image == NULL || !read_ipl3_asset(asset) ||
+      t64_profile_lookup("ntsc-cart-4m-openipl3-vr4300-v1", &profile) !=
+          T64_STATUS_OK || profile == NULL) {
+    check(false, "prepare malformed large flat-image controls");
+    free(image);
+    return;
+  }
+  put_be32(image + 0x00u, UINT32_C(0x80371240));
+  put_be32(image + 0x04u, UINT32_C(0x0000000f));
+  put_be32(image + 0x08u, UINT32_C(0x80000000));
+  put_be32(image + 0x10u, UINT32_C(0x00400000));
+  image[0x3au] = (uint8_t)'E';
+  (void)memcpy(image + 0x40u, asset + 0x40u, IPL3_BYTES - 0x40u);
+
+  image[0] = UINT8_C(0x37);
+  check_cpu_profile_rejects_transactionally(
+      profile, image, image_length, "rejects byte-swapped flat image");
+  image[0] = UINT8_C(0x80);
+
+  put_be32(image + 0x08u, UINT32_C(0x80001000));
+  check_cpu_profile_rejects_transactionally(
+      profile, image, image_length, "rejects entry-plus-payload overflow");
+  put_be32(image + 0x08u, UINT32_C(0x80000000));
+
+  image[0x50u] ^= UINT8_C(1);
+  check_cpu_profile_rejects_transactionally(
+      profile, image, image_length, "rejects malformed embedded IPL3 bytes");
+  image[0x50u] ^= UINT8_C(1);
+
+  check_cpu_profile_rejects_transactionally(
+      profile, image, image_length + 4u, "rejects image above CPU profile max");
+  free(image);
 }
 
 static bool write_file(const char *path, const void *bytes, size_t length) {
@@ -648,7 +865,9 @@ static int run_tool_with_snapshot_replacement(
 
 static void test_guest_record_case(const char *production_executable,
                                    const char *test_executable,
-                                   const char *transcript, const char *ticks,
+                                   const char *transcript,
+                                   size_t minimum_image_length,
+                                   const char *ticks,
                                    const char *classification,
                                    const char *status_text, int expected_exit,
                                    bool replace_source) {
@@ -666,7 +885,8 @@ static void test_guest_record_case(const char *production_executable,
   const char *run_argv[11];
   int result;
   output[0] = '\0';
-  bool built = make_protocol_guest_rom(transcript, &rom, &rom_length) &&
+  bool built = make_protocol_guest_rom_sized(
+                   transcript, minimum_image_length, &rom, &rom_length) &&
                build_inventory(rom, rom_length, inventory, sizeof inventory);
   check(built, "build actual guest record control ROM and canonical inventory");
   if (!built) goto cleanup;
@@ -758,16 +978,17 @@ static void test_guest_record_controls(const char *production_executable,
   memset(overflow_output, 'A', 4097u);
   overflow_output[4097] = '\0';
   test_guest_record_case(production_executable, test_executable, missing_done,
-                         "600000", "classification=incomplete",
+                         0u, "600000", "classification=incomplete",
                          "status=incomplete", 3, false);
   test_guest_record_case(production_executable, test_executable,
-                         wrong_registration, "600000",
+                         wrong_registration, 0u, "600000",
                          "classification=harness-error",
                          "status=identity-mismatch", 4, false);
   test_guest_record_case(production_executable, test_executable, guest_fail,
-                         "600000", "classification=fail", NULL, 2, false);
+                         0u, "600000", "classification=fail", NULL, 2,
+                         false);
   test_guest_record_case(production_executable, test_executable,
-                         overflow_output, "1000000",
+                         overflow_output, 0u, "1000000",
                          "classification=harness-error", "status=size-limit",
                          4, false);
   test_guest_record_case(production_executable, test_executable,
@@ -777,7 +998,19 @@ static void test_guest_record_controls(const char *production_executable,
                          "{\"complete\":true,\"event\":\"done\","
                          "\"record_count\":\"3\"}],\"schema\":"
                          "\"t64.cpu-run\",\"schema_version\":1}\n",
-                         "600000", "classification=pass", NULL, 0, true);
+                         0u, "600000", "classification=pass", NULL, 0,
+                         true);
+#if !T64_CPU_DIAG_SANITIZED_TEST
+  test_guest_record_case(
+      production_executable, test_executable,
+      "{\"records\":[{\"event\":\"start\","
+      "\"registration_index\":0,\"value_index\":0},"
+      "{\"event\":\"outcome\",\"status\":\"pass\"},"
+      "{\"complete\":true,\"event\":\"done\","
+      "\"record_count\":\"3\"}],\"schema\":"
+      "\"t64.cpu-run\",\"schema_version\":1}\n",
+      0x00100004u, "10000000", "classification=pass", NULL, 0, false);
+#endif
   free(overflow_output);
 }
 
@@ -1099,6 +1332,8 @@ cleanup:
 
 int main(int argc, char **argv) {
   test_cpu_profile_authored_guest();
+  test_cpu_profile_exact_image_limit();
+  test_cpu_profile_malformed_flat_images();
   if (argc == 3) test_production_adapter(argv[1], argv[2]);
   else check(false, "production and replacement-control executable paths");
   if (failures != 0u) {
