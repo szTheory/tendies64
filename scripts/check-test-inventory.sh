@@ -107,6 +107,7 @@ unit.core.cpu-mmu
 unit.core.cpu-memory
 unit.core.cpu-integer
 unit.core.cpu-control
+unit.core.cop1-state
 unit.core.cpu-cp0
 unit.core.cpu-time
 unit.core.cpu-link

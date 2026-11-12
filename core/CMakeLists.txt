@@ -333,6 +333,18 @@ set_tests_properties(unit.core.cpu-control PROPERTIES
   LABELS unit
   ENVIRONMENT "T64_TEST_IPL3_PATH=${T64_BOOT_FIXTURE_DIR}/ipl3_compat.z64")
 
+add_executable(test_cop1 tests/test_cop1.c)
+target_include_directories(test_cop1 PRIVATE
+  "${CMAKE_CURRENT_SOURCE_DIR}"
+  "${CMAKE_SOURCE_DIR}/tests")
+target_link_libraries(test_cop1 PRIVATE t64_core)
+t64_target_warnings(test_cop1)
+add_dependencies(test_cop1 t64-boot-fixtures)
+add_test(NAME unit.core.cop1-state COMMAND test_cop1)
+set_tests_properties(unit.core.cop1-state PROPERTIES
+  LABELS unit
+  ENVIRONMENT "T64_TEST_IPL3_PATH=${T64_BOOT_FIXTURE_DIR}/ipl3_compat.z64")
+
 add_executable(test_warm_devices tests/test_warm_devices.c)
 target_include_directories(test_warm_devices PRIVATE
   "${CMAKE_CURRENT_SOURCE_DIR}"
