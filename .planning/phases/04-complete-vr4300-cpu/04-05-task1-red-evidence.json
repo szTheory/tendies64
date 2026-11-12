@@ -1,0 +1,13 @@
+{
+  "test": "unit.core.cpu-path",
+  "command": "cmake --preset gate && cmake --build --preset gate && ctest --test-dir build/gate --no-tests=error -R '^unit.core.cpu-path$' --output-on-failure --output-junit <private temporary report>",
+  "exitCode": 8,
+  "reportFormat": "JUnit XML",
+  "reportPath": "private temporary report; raw JUnit remains uncommitted",
+  "reportTimestamp": "2026-11-11T23:59:59-0500",
+  "classifierVerdict": "RED_EVIDENCE_OK",
+  "classifierTarget": "unit.core.cpu-path#unit.core.cpu-path",
+  "expected": "Count increments once per two guest ticks. Compare equality at tick 4 asserts IP7 before the CPU instruction, the handler clears IP7 by Compare commit, and ERET resumes the interrupted instruction by tick 8. Count is 4.",
+  "observed": "The named CTest target ran its full 14-case executable and failed the new timer assertion. At tick 8: Cause.IP7=0x00008000, EPC=0, Count=8, Compare=2, and handler marker t4=0. This shows retirement-based Count with no timer interrupt entry.",
+  "semanticAssessment": "Valid behavioral RED: the target compiled, was discovered and executed, then failed on the intended guest-time timer behavior. JUnit classification returned RED_EVIDENCE_OK with no report errors. No setup, compile, load, discovery or unrelated assertion failure occurred."
+}

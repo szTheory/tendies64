@@ -236,6 +236,82 @@ static bool test_vr4300_protected_cp0_guest_handler(
   return true;
 }
 
+static bool test_vr4300_timer_interrupt_handler(
+    t64_machine *machine, const uint8_t asset[IPL3_ASSET_BYTES]) {
+  static const uint32_t main_program[] = {
+      UINT32_C(0x40885800), /* mtc0 t0,c0_compare */
+      UINT32_C(0x240a0066), /* addiu t2,zero,0x66 */
+      UINT32_C(0x240b0077), /* addiu t3,zero,0x77 */
+      UINT32_C(0x240d0055), /* interrupted then resumed */
+  };
+  static const uint32_t handler_program[] = {
+      UINT32_C(0x40895800), /* mtc0 t1,c0_compare: clear IP7 */
+      UINT32_C(0x240c004a), /* addiu t4,zero,0x4a */
+      UINT32_C(0x42000018), /* eret */
+  };
+  t64_stop_request request = {T64_STOP_GUEST_TICK, UINT64_C(8)};
+  t64_stop_result result = {UINT32_MAX, UINT64_MAX};
+  t64_status status;
+  uint32_t cause;
+  uint32_t status_register;
+  size_t i;
+
+  if (machine == NULL || asset == NULL ||
+      t64_machine_admit_rom(machine, asset, IPL3_ASSET_BYTES) !=
+          T64_STATUS_OK) {
+    (void)puts("# timer interrupt fixture setup failed");
+    return false;
+  }
+  for (i = 0u; i < sizeof main_program / sizeof main_program[0]; i++) {
+    write_rdram_instruction(machine, UINT32_C(0x1000) + (uint32_t)(i * 4u),
+                            main_program[i]);
+  }
+  for (i = 0u; i < sizeof handler_program / sizeof handler_program[0]; i++) {
+    write_rdram_instruction(machine, UINT32_C(0x0180) + (uint32_t)(i * 4u),
+                            handler_program[i]);
+  }
+  machine->cpu.pc = UINT32_C(0x80001000);
+  machine->cpu.pc_full = t64_cpu_canonical_address(machine->cpu.pc);
+  machine->cpu.gpr[8] = UINT64_C(2);
+  machine->cpu.gpr[9] = UINT64_C(100);
+  machine->cpu.cp0[12] = UINT32_C(0x00008001); /* IE and timer IM7. */
+
+  status = t64_machine_advance(machine, &request, &result);
+  cause = (uint32_t)machine->cpu.cp0[13];
+  status_register = (uint32_t)machine->cpu.cp0[12];
+  if (status != T64_STATUS_OK ||
+      result.reason != T64_STOP_REASON_BOUND ||
+      result.tick != UINT64_C(8) || machine->cpu.gpr[10] != UINT64_C(0x66) ||
+      machine->cpu.gpr[11] != UINT64_C(0x77) ||
+      machine->cpu.gpr[12] != UINT64_C(0x4a) ||
+      machine->cpu.gpr[13] != UINT64_C(0x55) ||
+      machine->cpu.cp0[14] != t64_cpu_canonical_address(
+                                  UINT32_C(0x8000100c)) ||
+      ((cause >> 2) & UINT32_C(0x1f)) != 0u ||
+      (cause & T64_CP0_CAUSE_TIMER_MASK) != 0u ||
+      (status_register & UINT32_C(2)) != 0u ||
+      (uint32_t)machine->cpu.cp0[9] != UINT32_C(4) ||
+      (uint32_t)machine->cpu.cp0[11] != UINT32_C(100)) {
+    (void)printf("# timer handler status=%u reason=%u tick=%llu "
+                 "retired=%llu pc=%016llx cause=%08x epc=%016llx "
+                 "status=%08x count=%08x compare=%08x t2=%016llx "
+                 "t3=%016llx t4=%016llx t5=%016llx\n",
+                 (unsigned)status, result.reason,
+                 (unsigned long long)result.tick,
+                 (unsigned long long)machine->cpu.retired_instructions,
+                 (unsigned long long)machine->cpu.pc_full, cause,
+                 (unsigned long long)machine->cpu.cp0[14], status_register,
+                 (uint32_t)machine->cpu.cp0[9],
+                 (uint32_t)machine->cpu.cp0[11],
+                 (unsigned long long)machine->cpu.gpr[10],
+                 (unsigned long long)machine->cpu.gpr[11],
+                 (unsigned long long)machine->cpu.gpr[12],
+                 (unsigned long long)machine->cpu.gpr[13]);
+    return false;
+  }
+  return true;
+}
+
 static bool test_vr4300_integer_delay_fault_and_full_width_jalr(
     t64_machine *machine, const uint8_t asset[IPL3_ASSET_BYTES]) {
   static const uint32_t program[] = {
@@ -1077,6 +1153,8 @@ int main(int argc, char **argv) {
   static const cpu_test_case vr4300_cases[] = {
       {"new-profile BREAK schedules a nonretiring RDRAM handler",
        test_vr4300_break_enters_rdram_handler},
+      {"guest-time Count equality interrupts then resumes after Compare commit",
+       test_vr4300_timer_interrupt_handler},
       {"protected CP0 transfers resume a guest handler without destination writes",
        test_vr4300_protected_cp0_guest_handler},
       {"DADDU/ADDU branch fault resumes handler and JALR keeps full target",
