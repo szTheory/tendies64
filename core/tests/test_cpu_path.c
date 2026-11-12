@@ -211,6 +211,7 @@ static bool test_vr4300_cvt_d_w_is_machine_local(
   const uint32_t coprocessor_usable = UINT32_C(1) << 29;
   const uint32_t instruction_a = encode_cvt_d_w(1u, 2u);
   const uint32_t instruction_b = encode_cvt_d_w(3u, 4u);
+  const uint32_t instruction_fr0 = encode_cvt_d_w(0u, 2u);
   const uint64_t expected_a = UINT64_C(0xc1e0000000000000);
   const uint64_t expected_b = UINT64_C(0x405ec00000000000);
   allocator_state other_allocator_state = {0u};
@@ -296,21 +297,29 @@ static bool test_vr4300_cvt_d_w_is_machine_local(
   machine->cpu.pc = (uint32_t)cvt_pc;
   machine->cpu.pc_full = cvt_pc;
   machine->cpu.cp0[12] &= ~status_fr;
+  write_rdram_instruction(machine, UINT32_C(0x1000), instruction_fr0);
+  clear_instruction_index(machine, cvt_pc);
+  machine->cpu.fpr[0] = UINT32_C(0x80000000);
   machine->cpu.fpr[2] = destination_sentinel;
+  machine->cpu.fpr[3] = UINT64_C(0x99aabbccddeeff00);
   retired_before = machine->cpu.retired_instructions;
   status = t64_cpu_step(machine, NULL);
-  if (status != T64_STATUS_RESOURCE_EXHAUSTED ||
-      machine->cpu.fpr[2] != destination_sentinel ||
-      machine->cpu.fcr31 != 0u || machine->cpu.last_opcode != instruction_a ||
-      machine->cpu.retired_instructions != retired_before ||
-      machine->cpu.attempt_outcome != T64_CPU_ATTEMPT_MODEL_UNSUPPORTED) {
-    (void)printf("# FR=0 CVT.D.W expected unsupported/no-write observed "
-                 "status=%u destination=%016llx fcr31=%08x "
-                 "last_opcode=%08x outcome=%u retired=%llu/%llu\n",
-                 (unsigned)status,
+  if (status != T64_STATUS_OK ||
+      machine->cpu.fpr[2] != UINT64_C(0x1122334400000000) ||
+      machine->cpu.fpr[3] != UINT64_C(0x99aabbccc1e00000) ||
+      machine->cpu.fcr31 != 0u ||
+      machine->cpu.last_opcode != instruction_fr0 ||
+      machine->cpu.retired_instructions != retired_before + UINT64_C(1) ||
+      machine->cpu.attempt_outcome != T64_CPU_ATTEMPT_RETIRED) {
+    (void)printf("# FR=0 CVT.D.W expected paired FPR2/FPR3="
+                 "1122334400000000/99aabbccc1e00000 observed "
+                 "%016llx/%016llx fcr31=%08x opcode=%08x status=%u "
+                 "outcome=%u retired=%llu/%llu\n",
                  (unsigned long long)machine->cpu.fpr[2],
+                 (unsigned long long)machine->cpu.fpr[3],
                  (unsigned)machine->cpu.fcr31,
                  (unsigned)machine->cpu.last_opcode,
+                 (unsigned)status,
                  (unsigned)machine->cpu.attempt_outcome,
                  (unsigned long long)machine->cpu.retired_instructions,
                  (unsigned long long)retired_before);
@@ -373,6 +382,9 @@ static bool test_vr4300_cop1_transfer_conversion_memory_tracer(
   t64_machine *handler_machine = NULL;
   const t64_vr4300_dcache_line *data_line;
   t64_status status;
+  uint8_t digest_before[T64_DIGEST_SIZE];
+  uint8_t digest_mutated[T64_DIGEST_SIZE];
+  uint8_t digest_restored[T64_DIGEST_SIZE];
   uint32_t stored_high;
   uint32_t stored_low;
   uint64_t retired_before;
@@ -434,6 +446,20 @@ static bool test_vr4300_cop1_transfer_conversion_memory_tracer(
                  stored_high, stored_low,
                  data_line->valid ? 1u : 0u,
                  data_line->dirty ? 1u : 0u, data_line->physical_tag);
+    return false;
+  }
+  if (t64_machine_digest(machine, digest_before) != T64_STATUS_OK) {
+    (void)puts("# COP1 digest baseline failed");
+    return false;
+  }
+  machine->cpu.fpr[20] ^= UINT64_C(1);
+  status = t64_machine_digest(machine, digest_mutated);
+  machine->cpu.fpr[20] ^= UINT64_C(1);
+  if (status != T64_STATUS_OK ||
+      t64_machine_digest(machine, digest_restored) != T64_STATUS_OK ||
+      memcmp(digest_before, digest_mutated, sizeof digest_before) == 0 ||
+      memcmp(digest_before, digest_restored, sizeof digest_before) != 0) {
+    (void)puts("# COP1 FPR digest change/restore was not deterministic");
     return false;
   }
 

@@ -1355,9 +1355,13 @@ static bool memory_access_info(uint32_t opcode, uint32_t *width_out,
     *partial_out = true;
     return true;
   case 0x30u: *width_out = 4u; return true;
+  case 0x31u: *width_out = 4u; return true;
+  case 0x35u: *width_out = 8u; return true;
   case 0x34u: *width_out = 8u; return true;
   case 0x38u: *width_out = 4u; *store_out = true; return true;
+  case 0x39u: *width_out = 4u; *store_out = true; return true;
   case 0x3cu: *width_out = 8u; *store_out = true; return true;
+  case 0x3du: *width_out = 8u; *store_out = true; return true;
   case 0x37u: *width_out = 8u; return true;
   case 0x3fu: *width_out = 8u; *store_out = true; return true;
   default: return false;
@@ -1505,6 +1509,16 @@ static t64_status cpu_preflight_memory(t64_machine *machine, uint32_t opcode,
   address = effective_address(&machine->cpu,
                               (opcode >> 21) & UINT32_C(0x1f),
                               (uint16_t)opcode);
+  if ((opcode >> 26) == UINT32_C(0x31) ||
+      (opcode >> 26) == UINT32_C(0x35) ||
+      (opcode >> 26) == UINT32_C(0x39) ||
+      (opcode >> 26) == UINT32_C(0x3d)) {
+    if ((address & ((uint64_t)width - UINT64_C(1))) != 0u) {
+      *handled_out = true;
+      return cpu_enter_exception(machine, store ? UINT32_C(5) : UINT32_C(4),
+                                 address, in_delay_slot, false, 0u);
+    }
+  }
   request.virtual_address = address;
   request.width = partial ? UINT32_C(1) : width;
   request.kind = store ? T64_MMU_ACCESS_WRITE : T64_MMU_ACCESS_READ;
@@ -1876,6 +1890,7 @@ t64_status t64_cpu_step(t64_machine *machine, const t64_event *event) {
   uint32_t link_register = 0u;
   uint32_t destination = 0u;
   uint32_t fpr_destination = 0u;
+  uint32_t fpr_width = 0u;
   uint64_t value = 0u;
   uint64_t fpr_value = 0u;
   t64_cp0_effect cp0_effect = {0};
@@ -2083,41 +2098,61 @@ t64_status t64_cpu_step(t64_machine *machine, const t64_event *event) {
       cpu_stop_unsupported(machine, pc, opcode);
       return T64_STATUS_RESOURCE_EXHAUSTED;
     }
-  } else if (new_profile && (opcode >> 26) == T64_CPU_COP1) {
-    uint32_t format = (opcode >> 21) & UINT32_C(0x1f);
-    uint32_t ft = (opcode >> 16) & UINT32_C(0x1f);
-    uint32_t fs = (opcode >> 11) & UINT32_C(0x1f);
-    uint32_t function = opcode & UINT32_C(0x3f);
-    uint32_t source_bits;
-    int32_t source_value;
-    t64_softfloat_context context = {
-        (uint8_t)(machine->cpu.fcr31 & UINT32_C(3)),
-        T64_SOFTFLOAT_TININESS_AFTER_ROUNDING, 0u};
-    t64_softfloat_result result = {0u, 0u};
+  } else if (new_profile &&
+             ((opcode >> 26) == T64_CPU_COP1 ||
+              (opcode >> 26) == UINT32_C(0x31) ||
+              (opcode >> 26) == UINT32_C(0x35) ||
+              (opcode >> 26) == UINT32_C(0x39) ||
+              (opcode >> 26) == UINT32_C(0x3d))) {
+    t64_cpu_cop1_result cop1_result = {0};
 
-    if (format != UINT32_C(0x14) || ft != 0u ||
-        function != UINT32_C(0x21)) {
-      cpu_stop_unsupported(machine, pc, opcode);
-      return T64_STATUS_RESOURCE_EXHAUSTED;
-    }
-    if (((uint32_t)machine->cpu.cp0[T64_CP0_STATUS] & T64_STATUS_FR) == 0u) {
-      cpu_stop_unsupported(machine, pc, opcode);
-      return T64_STATUS_RESOURCE_EXHAUSTED;
-    }
-    source_bits = (uint32_t)machine->cpu.fpr[fs];
-    if ((source_bits & UINT32_C(0x80000000)) != 0u) {
-      source_value = -1 - (int32_t)(~source_bits);
-    } else {
-      source_value = (int32_t)source_bits;
-    }
-    status = t64_softfloat_i32_to_f64(source_value, &context, &result);
+    status = t64_cop1_execute(machine, opcode, in_delay_slot,
+                              &cop1_result);
     if (status != T64_STATUS_OK) {
+      uint32_t operation = opcode >> 26;
+      bool store = operation == UINT32_C(0x39) ||
+                   operation == UINT32_C(0x3d);
+
+      if (status == T64_STATUS_BUS_ALIGNMENT) {
+        uint64_t address = effective_address(
+            &machine->cpu, (opcode >> 21) & UINT32_C(0x1f),
+            (uint16_t)opcode);
+        return cpu_enter_exception(machine, store ? UINT32_C(5) : UINT32_C(4),
+                                   address, in_delay_slot, false, 0u);
+      }
+      if (status == T64_STATUS_BUS_UNMAPPED ||
+          status == T64_STATUS_BUS_RANGE) {
+        uint64_t address = effective_address(
+            &machine->cpu, (opcode >> 21) & UINT32_C(0x1f),
+            (uint16_t)opcode);
+        return cpu_enter_exception(machine, UINT32_C(7), address,
+                                   in_delay_slot, false, 0u);
+      }
+      if (status == T64_STATUS_BUS_UNSUPPORTED) {
+        cpu_stop_unsupported(machine, pc, opcode);
+        return T64_STATUS_RESOURCE_EXHAUSTED;
+      }
       machine->cpu.attempt_outcome = T64_CPU_ATTEMPT_HOST_ERROR;
       return status;
     }
-    fpr_destination = (opcode >> 6) & UINT32_C(0x1f);
-    fpr_value = result.bits;
-    write_fpr = true;
+    if (cop1_result.trapped) {
+      return T64_STATUS_OK;
+    }
+    if (!cop1_result.supported) {
+      cpu_stop_unsupported(machine, pc, opcode);
+      return T64_STATUS_RESOURCE_EXHAUSTED;
+    }
+    if (cop1_result.write_gpr) {
+      write_gpr = true;
+      destination = cop1_result.destination_gpr;
+      value = cop1_result.gpr_value;
+    }
+    if (cop1_result.write_fpr) {
+      write_fpr = true;
+      fpr_destination = cop1_result.destination_fpr;
+      fpr_width = cop1_result.fpr_width;
+      fpr_value = cop1_result.result_bits;
+    }
     supported = true;
   } else if ((opcode >> 26) == T64_CPU_CACHE) {
     t64_status cache_status = T64_STATUS_BUS_UNSUPPORTED;
@@ -2154,7 +2189,7 @@ t64_status t64_cpu_step(t64_machine *machine, const t64_event *event) {
     machine->cpu.gpr[destination] = value;
   }
   if (write_fpr) {
-    machine->cpu.fpr[fpr_destination] = fpr_value;
+    t64_cop1_commit_fpr(machine, fpr_destination, fpr_width, fpr_value);
   }
   if (link && (new_profile || !branch_likely || branch_taken) &&
       link_register != 0u) {

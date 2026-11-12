@@ -289,7 +289,13 @@ typedef struct {
 
 typedef struct {
   bool supported;
+  bool trapped;
+  bool write_gpr;
+  uint32_t destination_gpr;
+  uint64_t gpr_value;
+  bool write_fpr;
   uint32_t destination_fpr;
+  uint32_t fpr_width;
   uint64_t result_bits;
   uint32_t fcr31_flags;
 } t64_cpu_cop1_result;
@@ -481,6 +487,14 @@ t64_status t64_scheduler_advance(t64_machine *machine,
                                  t64_stop_result *result_out);
 t64_status t64_cpu_schedule(t64_machine *machine);
 t64_status t64_cpu_step(t64_machine *machine, const t64_event *event);
+t64_status t64_cop1_execute(t64_machine *machine, uint32_t opcode,
+                            bool in_delay_slot,
+                            t64_cpu_cop1_result *result_out);
+void t64_cop1_commit_fpr(t64_machine *machine, uint32_t reg,
+                         uint32_t width, uint64_t bits);
+t64_status t64_memory_execute_cop1_status(
+    t64_machine *machine, uint32_t opcode, uint64_t store_value,
+    bool *supported_out, uint64_t *value_out);
 t64_status t64_softfloat_i32_to_f64(int32_t input,
                                     t64_softfloat_context *context,
                                     t64_softfloat_result *result_out);

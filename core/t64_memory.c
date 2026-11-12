@@ -315,7 +315,8 @@ static uint64_t merge_store_value(uint64_t source, uint32_t width,
 
 static t64_status stage_memory_effect(t64_machine *machine, uint32_t opcode,
                                       t64_staged_memory_effect *effect,
-                                      bool *supported_out) {
+                                      bool *supported_out,
+                                      const uint64_t *store_source) {
   uint32_t rt = (opcode >> 16) & UINT32_C(0x1f);
   t64_status status;
 
@@ -386,7 +387,8 @@ static t64_status stage_memory_effect(t64_machine *machine, uint32_t opcode,
   }
 
   if (effect->store) {
-    uint64_t source = machine->cpu.gpr[rt];
+    uint64_t source = store_source != NULL ? *store_source
+                                           : machine->cpu.gpr[rt];
     uint32_t offset =
         (uint32_t)effect->virtual_address & (effect->width - 1u);
 
@@ -600,7 +602,7 @@ t64_status t64_memory_execute_status(
     return execute_linked_memory(machine, opcode, supported_out,
                                  write_gpr_out, destination_out, value_out);
   }
-  status = stage_memory_effect(machine, opcode, &effect, supported_out);
+  status = stage_memory_effect(machine, opcode, &effect, supported_out, NULL);
   if (status != T64_STATUS_OK || !*supported_out) {
     return status;
   }
@@ -614,6 +616,48 @@ t64_status t64_memory_execute_status(
     *value_out = effect.result_value;
   }
   return T64_STATUS_OK;
+}
+
+t64_status t64_memory_execute_cop1_status(
+    t64_machine *machine, uint32_t opcode, uint64_t store_value,
+    bool *supported_out, uint64_t *value_out) {
+  uint32_t operation = opcode >> 26;
+  uint32_t scalar_operation;
+  uint32_t scalar_opcode;
+  bool load;
+  t64_staged_memory_effect effect;
+  t64_status status;
+
+  if (supported_out != NULL) {
+    *supported_out = false;
+  }
+  if (value_out != NULL) {
+    *value_out = 0u;
+  }
+  if (machine == NULL || supported_out == NULL || value_out == NULL) {
+    return T64_STATUS_INVALID_ARGUMENT;
+  }
+  switch (operation) {
+  case 0x31u: scalar_operation = UINT32_C(0x23); load = true; break;
+  case 0x35u: scalar_operation = UINT32_C(0x37); load = true; break;
+  case 0x39u: scalar_operation = UINT32_C(0x2b); load = false; break;
+  case 0x3du: scalar_operation = UINT32_C(0x3f); load = false; break;
+  default: return T64_STATUS_OK;
+  }
+  scalar_opcode = (scalar_operation << 26) |
+                  (opcode & UINT32_C(0x03ffffff));
+  status = stage_memory_effect(machine, scalar_opcode, &effect,
+                               supported_out, load ? NULL : &store_value);
+  if (status != T64_STATUS_OK || !*supported_out) {
+    return status;
+  }
+  status = commit_memory_effect(machine, &effect);
+  if (status == T64_STATUS_OK && load) {
+    *value_out = operation == UINT32_C(0x31)
+                     ? (uint64_t)(uint32_t)effect.bus_value
+                     : effect.bus_value;
+  }
+  return status;
 }
 
 bool t64_memory_execute(t64_machine *machine, uint32_t opcode,
