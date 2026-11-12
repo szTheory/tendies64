@@ -219,6 +219,15 @@ t64_target_warnings(test_cpu_cp0)
 add_test(NAME unit.core.cpu-cp0 COMMAND test_cpu_cp0)
 set_tests_properties(unit.core.cpu-cp0 PROPERTIES LABELS unit)
 
+add_executable(test_cpu_time tests/test_cpu_time.c)
+target_include_directories(test_cpu_time PRIVATE
+  "${CMAKE_CURRENT_SOURCE_DIR}"
+  "${CMAKE_SOURCE_DIR}/tests")
+target_link_libraries(test_cpu_time PRIVATE t64_core)
+t64_target_warnings(test_cpu_time)
+add_test(NAME unit.core.cpu-time COMMAND test_cpu_time)
+set_tests_properties(unit.core.cpu-time PROPERTIES LABELS unit)
+
 add_executable(test_cpu_exceptions tests/test_cpu_exceptions.c)
 target_include_directories(test_cpu_exceptions PRIVATE
   "${CMAKE_CURRENT_SOURCE_DIR}"

@@ -105,7 +105,8 @@ runner.cpu-diagnostic-inventory
 unit.core.cpu-exceptions
 unit.core.cpu-integer
 unit.core.cpu-control
-unit.core.cpu-cp0'
+unit.core.cpu-cp0
+unit.core.cpu-time'
 
 CPU_COVERAGE_OPCODES='ADD
 ADDU

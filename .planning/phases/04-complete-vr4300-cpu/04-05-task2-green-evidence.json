@@ -1,0 +1,9 @@
+{
+  "test": "unit.core.cpu-time",
+  "command": "ctest --preset gate --no-tests=error -R '^unit\\.core\\.cpu-time$' -V --output-junit <private temporary report>",
+  "exitCode": 0,
+  "reportFormat": "JUnit XML",
+  "reportPath": "Private temporary report; raw JUnit remains uncommitted.",
+  "observed": "CTest discovered and executed unit.core.cpu-time. Its unchanged test output reported checks=121 failures=0. The assertions observe Count 2 and IP7 at tick 4; Compare clear leaves the unchanged equality suppressed; Count writes retain phase and assert equality; MI, software and timer pending bits preserve their owners; the delayed-slot CP0 write is preempted with EPC at the branch and BD set; and equal-tick MI/CPU ordering samples a new pending line at the following eligible boundary. A single jump to UINT64_MAX and the partition ending at UINT64_MAX match with Count 0xfffffffe, phase 0, deadline UINT64_MAX, timer pending, and equality generation 2147483648.",
+  "semanticAssessment": "This task adds broader checks for timer behavior already implemented and exercised by the task 1 tracer. The first corrected run is GREEN, so no RED is claimed or fabricated. The earlier setup-invalid run is excluded."
+}
