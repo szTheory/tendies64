@@ -75,10 +75,8 @@ and parent closeout. This is elapsed workflow time, not emulator throughput.
 
 ## Task Commits
 
-| Task | Commits | Evidence |
-|---|---|---|
-| 1: protocol tracer | 9674468, 6b9b744 | Compiled interface-stub RED, then production round-trip GREEN |
-| 2: complete inventory | aa53552, 76241f8 | Missing-group RED, then exact-set/order/boundary GREEN |
+1. **Task 1: protocol tracer** - `9674468` (test), `6b9b744` (feat): compiled interface-stub RED, then production round-trip GREEN.
+2. **Task 2: complete inventory** - `aa53552` (test), `76241f8` (feat): missing-group RED, then exact-set/order/boundary GREEN.
 
 ## Automated Checks
 

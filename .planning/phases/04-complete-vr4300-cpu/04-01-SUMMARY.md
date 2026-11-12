@@ -75,10 +75,8 @@ and parent closeout. This is elapsed workflow time, not emulator throughput.
 
 ## Task Commits
 
-| Task | Commits | Evidence |
-|---|---|---|
-| 1: profile/entry | b9d547b, 95d84d4 | Observed unknown-profile RED, then actual entry GREEN |
-| 2: state identity | 85da4e1, 71bccef | Observed prepared-state digest RED, then explicit v9 GREEN |
+1. **Task 1: profile/entry** - `b9d547b` (test), `95d84d4` (feat): observed unknown-profile RED, then actual entry GREEN.
+2. **Task 2: state identity** - `85da4e1` (test), `71bccef` (feat): observed prepared-state digest RED, then explicit v9 GREEN.
 
 ## Automated Checks
 
