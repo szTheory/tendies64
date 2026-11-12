@@ -161,6 +161,135 @@ static bool test_vr4300_break_enters_rdram_handler(
   return true;
 }
 
+static bool test_vr4300_integer_delay_fault_and_full_width_jalr(
+    t64_machine *machine, const uint8_t asset[IPL3_ASSET_BYTES]) {
+  static const uint32_t program[] = {
+      UINT32_C(0x012a402d), /* daddu t0,t1,t2 -> 0x00000001fffffffe */
+      UINT32_C(0x010c5821), /* addu t3,t0,t4 -> sign-extended 0xffffffff */
+      UINT32_C(0x10000002), /* beq zero,zero,target */
+      UINT32_C(0x01ae7820), /* delay slot: add t7,t5,t6 overflows */
+      UINT32_C(0x00000000), /* skipped */
+      UINT32_C(0x7000003f), /* branch target */
+  };
+  const uint64_t branch_pc = UINT64_C(0xffffffff80001008);
+  const uint64_t target = UINT64_C(0x00000001fffffffe);
+  t64_stop_request request = {T64_STOP_GUEST_TICK, UINT64_C(6)};
+  t64_stop_result result = {UINT32_MAX, UINT64_MAX};
+  t64_status status;
+  uint32_t cause;
+  uint32_t stored;
+  size_t i;
+
+  if (machine == NULL || asset == NULL ||
+      t64_machine_admit_rom(machine, asset, IPL3_ASSET_BYTES) !=
+          T64_STATUS_OK) {
+    (void)puts("# integer-delay fixture setup failed");
+    return false;
+  }
+  for (i = 0u; i < sizeof program / sizeof program[0]; i++) {
+    write_rdram_instruction(machine, UINT32_C(0x1000) + (uint32_t)(i * 4u),
+                            program[i]);
+  }
+  write_rdram_instruction(machine, UINT32_C(0x0180), UINT32_C(0xae0b0000));
+  write_rdram_instruction(machine, UINT32_C(0x0184), UINT32_C(0x01004009));
+  write_rdram_instruction(machine, UINT32_C(0x0188), UINT32_C(0x00000000));
+  machine->cpu.pc = UINT32_C(0x80001000);
+  machine->cpu.pc_full = UINT64_C(0xffffffff80001000);
+  machine->cpu.gpr[9] = UINT64_C(0x00000001fffffff0);
+  machine->cpu.gpr[10] = UINT64_C(0x000000000000000e);
+  machine->cpu.gpr[12] = UINT64_C(1);
+  machine->cpu.gpr[13] = UINT64_C(0x7fffffff);
+  machine->cpu.gpr[14] = UINT64_C(1);
+  machine->cpu.gpr[16] = UINT64_C(0xffffffff80002000);
+
+  status = t64_machine_advance(machine, &request, &result);
+  cause = (uint32_t)machine->cpu.cp0[13];
+  stored = ((uint32_t)machine->ram[0x2000u] << 24) |
+           ((uint32_t)machine->ram[0x2001u] << 16) |
+           ((uint32_t)machine->ram[0x2002u] << 8) |
+           (uint32_t)machine->ram[0x2003u];
+  if (status != T64_STATUS_OK || result.reason != T64_STOP_REASON_BOUND ||
+      result.tick != UINT64_C(6) ||
+      machine->cpu.retired_instructions != UINT64_C(5) ||
+      machine->cpu.gpr[8] != UINT64_C(0xffffffff8000018c) ||
+      machine->cpu.gpr[11] != UINT64_C(0xffffffffffffffff) ||
+      machine->cpu.cp0[14] != branch_pc ||
+      (cause & UINT32_C(0x8000007c)) != UINT32_C(0x80000030) ||
+      stored != UINT32_MAX || machine->cpu.pc_full !=
+                                  UINT64_C(0xffffffff80000188)) {
+    (void)printf("# integer-delay status=%u reason=%u tick=%llu retired=%llu "
+                 "t0=%016llx t3=%016llx pc=%016llx cause=%08x "
+                 "epc=%016llx store=%08x\n",
+                 (unsigned)status, result.reason,
+                 (unsigned long long)result.tick,
+                 (unsigned long long)machine->cpu.retired_instructions,
+                 (unsigned long long)machine->cpu.gpr[8],
+                 (unsigned long long)machine->cpu.gpr[11],
+                 (unsigned long long)machine->cpu.pc_full, cause,
+                 (unsigned long long)machine->cpu.cp0[14], stored);
+    return false;
+  }
+  if (machine->cpu.delay_target_full != target) {
+    (void)printf("# jalr source==destination target expected=%016llx "
+                 "observed=%016llx link=%016llx slot=%016llx\n",
+                 (unsigned long long)target,
+                 (unsigned long long)machine->cpu.delay_target_full,
+                 (unsigned long long)machine->cpu.gpr[8],
+                 (unsigned long long)machine->cpu.pc_full);
+    return false;
+  }
+  return true;
+}
+
+static bool test_vr4300_not_taken_likely_annuls_faulting_slot(
+    t64_machine *machine, const uint8_t asset[IPL3_ASSET_BYTES]) {
+  static const uint32_t program[] = {
+      UINT32_C(0x50080002), /* beql zero,t0,target (not taken) */
+      UINT32_C(0x8d4b0000), /* annulled lw t3,0(t2) from unmapped KUSEG */
+      UINT32_C(0x240c0007), /* addiu t4,zero,7 */
+      UINT32_C(0x7000003f), /* explicit unsupported stop */
+  };
+  t64_stop_request request = {T64_STOP_GUEST_TICK, UINT64_C(2)};
+  t64_stop_result result = {UINT32_MAX, UINT64_MAX};
+  size_t i;
+
+  if (machine == NULL || asset == NULL ||
+      t64_machine_admit_rom(machine, asset, IPL3_ASSET_BYTES) !=
+          T64_STATUS_OK) {
+    (void)puts("# branch-likely fixture setup failed");
+    return false;
+  }
+  for (i = 0u; i < sizeof program / sizeof program[0]; i++) {
+    write_rdram_instruction(machine, UINT32_C(0x3000) + (uint32_t)(i * 4u),
+                            program[i]);
+  }
+  machine->cpu.pc = UINT32_C(0x80003000);
+  machine->cpu.pc_full = UINT64_C(0xffffffff80003000);
+  machine->cpu.gpr[8] = UINT64_C(1);
+  machine->cpu.gpr[10] = UINT64_C(0x100);
+  machine->cpu.gpr[11] = UINT64_C(0x1234);
+
+  if (t64_machine_advance(machine, &request, &result) != T64_STATUS_OK ||
+      result.reason != T64_STOP_REASON_BOUND || result.tick != UINT64_C(2) ||
+      machine->cpu.retired_instructions != UINT64_C(2) ||
+      machine->cpu.gpr[11] != UINT64_C(0x1234) ||
+      machine->cpu.gpr[12] != UINT64_C(7) ||
+      machine->cpu.pc_full != UINT64_C(0xffffffff8000300c) ||
+      machine->cpu.attempt_outcome != T64_CPU_ATTEMPT_RETIRED ||
+      ((uint32_t)machine->cpu.cp0[13] & UINT32_C(0x8000007c)) != 0u) {
+    (void)printf("# likely-annul reason=%u tick=%llu retired=%llu "
+                 "pc=%016llx t3=%016llx t4=%016llx cause=%08x outcome=%u\n",
+                 result.reason, (unsigned long long)result.tick,
+                 (unsigned long long)machine->cpu.retired_instructions,
+                 (unsigned long long)machine->cpu.pc_full,
+                 (unsigned long long)machine->cpu.gpr[11],
+                 (unsigned long long)machine->cpu.gpr[12],
+                 (uint32_t)machine->cpu.cp0[13], machine->cpu.attempt_outcome);
+    return false;
+  }
+  return true;
+}
+
 static bool stop_at_unsupported(t64_machine *machine,
                                 t64_stop_result *result_out,
                                 t64_cpu_stop_detail *detail_out) {
@@ -870,6 +999,14 @@ int main(int argc, char **argv) {
       {"CP0 and cache state participate in the v6 digest",
        test_cp0_cache_state_is_in_digest},
   };
+  static const cpu_test_case vr4300_cases[] = {
+      {"new-profile BREAK schedules a nonretiring RDRAM handler",
+       test_vr4300_break_enters_rdram_handler},
+      {"DADDU/ADDU branch fault resumes handler and JALR keeps full target",
+       test_vr4300_integer_delay_fault_and_full_width_jalr},
+      {"not-taken branch-likely annuls a faulting delay slot",
+       test_vr4300_not_taken_likely_annuls_faulting_slot},
+  };
   const cpu_test_case *cases;
   size_t case_count;
   size_t existing_case_count;
@@ -877,7 +1014,6 @@ int main(int argc, char **argv) {
   const t64_profile_descriptor *profile = NULL;
   const t64_profile_descriptor *vr4300_profile = NULL;
   t64_machine *machine = NULL;
-  t64_machine *vr4300_machine = NULL;
   uint8_t asset[IPL3_ASSET_BYTES];
   size_t i;
   size_t failure_count = 0u;
@@ -900,7 +1036,7 @@ int main(int argc, char **argv) {
   }
   existing_case_count = case_count;
   if (run_vr4300_exception) {
-    case_count++;
+    case_count += sizeof vr4300_cases / sizeof vr4300_cases[0];
   }
   if (!read_qualified_asset(asset) ||
       t64_profile_lookup("ntsc-cart-4m-openipl3-warm-v1", &profile) !=
@@ -927,26 +1063,29 @@ int main(int argc, char **argv) {
   }
   t64_machine_destroy(machine);
   if (run_vr4300_exception) {
-    bool okay = t64_profile_lookup(
-                    "ntsc-cart-4m-openipl3-vr4300-v1", &vr4300_profile) ==
-                    T64_STATUS_OK &&
-                vr4300_profile != NULL &&
-                t64_machine_create(&allocator, vr4300_profile,
-                                   &vr4300_machine) == T64_STATUS_OK &&
-                vr4300_machine != NULL;
+    for (i = 0u; i < sizeof vr4300_cases / sizeof vr4300_cases[0]; i++) {
+      t64_machine *vr4300_machine = NULL;
+      bool okay = t64_profile_lookup(
+                      "ntsc-cart-4m-openipl3-vr4300-v1", &vr4300_profile) ==
+                      T64_STATUS_OK &&
+                  vr4300_profile != NULL &&
+                  t64_machine_create(&allocator, vr4300_profile,
+                                     &vr4300_machine) == T64_STATUS_OK &&
+                  vr4300_machine != NULL;
 
-    if (okay) {
-      okay = test_vr4300_break_enters_rdram_handler(vr4300_machine, asset);
-    } else {
-      (void)puts("# new-profile exception machine setup failed");
-    }
-    (void)printf("%s %zu - new-profile BREAK schedules a nonretiring RDRAM handler\n",
-                 okay ? "ok" : "not ok", existing_case_count + 1u);
-    if (!okay) {
-      failure_count++;
-    }
-    if (vr4300_machine != NULL) {
-      t64_machine_destroy(vr4300_machine);
+      if (okay) {
+        okay = vr4300_cases[i].run(vr4300_machine, asset);
+      } else {
+        (void)puts("# new-profile CPU machine setup failed");
+      }
+      (void)printf("%s %zu - %s\n", okay ? "ok" : "not ok",
+                   existing_case_count + i + 1u, vr4300_cases[i].name);
+      if (!okay) {
+        failure_count++;
+      }
+      if (vr4300_machine != NULL) {
+        t64_machine_destroy(vr4300_machine);
+      }
     }
   }
   if (allocator_state_value.outstanding != 0u) {

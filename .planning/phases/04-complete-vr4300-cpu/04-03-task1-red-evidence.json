@@ -1,0 +1,18 @@
+{
+  "task": "04-03.1",
+  "command": "ctest --preset gate --no-tests=error -R '^(unit.core.cpu-path|unit.core.cpu-exceptions)$' --output-on-failure --output-junit 04-03-task1-red.xml",
+  "targetTest": "unit.core.cpu-path",
+  "targetFile": "core/tests/test_cpu_path.c",
+  "expected": "The DADDU/ADDU branch-delay overflow enters the handler with exact intermediate registers, EPC/BD and retirement; a handler JALR r8->r8 preserves the full 64-bit source target 0x00000001fffffffe while writing PC+8.",
+  "observed": "The registered CPU path target compiled and executed all 12 internal assertions. The arithmetic, overflow-slot handler, store, link and retirement assertions passed. The full-width JALR assertion observed delay_target_full=0xfffffffffffffffe instead of 0x00000001fffffffe; link=0xffffffff8000018c and slot PC=0xffffffff80000188. The not-taken likely load-slot control also passed.",
+  "result": {
+    "exitCode": 8,
+    "tests": 2,
+    "passed": 1,
+    "failed": 1,
+    "classifier": "RED_EVIDENCE_OK",
+    "classifierReason": "target_test_failed",
+    "matchedTest": "unit.core.cpu-path#unit.core.cpu-path"
+  },
+  "semanticAssessment": "This is the expected pre-fix behavior: the actual registered CTest target ran the authored DADDU -> ADDU -> branch -> overflowing delay-slot -> handler path successfully, then reached the source/destination-aliasing JALR assertion before any target fetch. The observed delay_target_full has the low 32-bit target sign-extended instead of preserving the 64-bit register value. Existing warm-v1 path checks, precise handler values and the annulled likely-slot control passed. Raw JUnit and console output remain ignored in local build output."
+}
