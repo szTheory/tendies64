@@ -217,6 +217,15 @@ set_tests_properties(unit.core.cpu-link PROPERTIES
   LABELS unit
   ENVIRONMENT "T64_TEST_IPL3_PATH=${T64_BOOT_FIXTURE_DIR}/ipl3_compat.z64")
 
+add_executable(test_softfloat tests/test_softfloat.c)
+target_include_directories(test_softfloat PRIVATE
+  "${CMAKE_CURRENT_SOURCE_DIR}"
+  "${CMAKE_SOURCE_DIR}/tests")
+target_link_libraries(test_softfloat PRIVATE t64_core)
+t64_target_warnings(test_softfloat)
+add_test(NAME unit.core.softfloat32 COMMAND test_softfloat --softfloat32)
+set_tests_properties(unit.core.softfloat32 PROPERTIES LABELS unit)
+
 add_executable(test_cpu_cache tests/test_cpu_cache.c)
 target_include_directories(test_cpu_cache PRIVATE
   "${CMAKE_CURRENT_SOURCE_DIR}"

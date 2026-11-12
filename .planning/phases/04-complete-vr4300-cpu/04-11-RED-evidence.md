@@ -67,3 +67,29 @@ destination sentinel, and retired. The new test requires a model-unsupported
 stop with no destination write and no retirement until Plan12 provides paired
 mapping. Its exact `unit.core.cpu-path` JUnit record was classified
 `RED_EVIDENCE_OK`; no source guard was present during that run.
+
+## Task 2: selected arithmetic closure
+
+An initial test-only attempt used a temporary f32-add placeholder without
+checking the already implemented conversion. It was discarded and is not RED
+evidence. The corrected pre-feature test exercises both operations through a
+real production raw dispatch: the existing signed conversion must continue to
+work, then binary32 addition must produce the exact sum of `1` and `2`.
+
+The RED command was `cmake --preset gate && cmake --build --preset gate &&
+ctest --preset gate --no-tests=error -R
+'^(unit\.core\.softfloat32)$' --output-on-failure --output-junit <ignored
+private JUnit report>`. Configure and all-target gate build passed; CTest ran
+exactly one test and exited 8. The report was fresh at `2026-11-12T13:08:52Z`.
+The target `unit.core.softfloat32` in `core/tests/test_softfloat.c` was
+classified `RED_EVIDENCE_OK` (`target_test_failed`).
+
+The existing `-2^31` to binary64 operation passed with status 0, bits
+`0xc1e0000000000000`, and no flags. The new `1.0 + 2.0` case failed its
+behavior assertions: dispatch returned `T64_STATUS_NOT_READY` (7), and the
+result and flag sentinels remained `0x55667788` and `0xff`. The exact sum is
+`3 = 1.5 × 2^1`, binary32 bits `0x40400000`, with no flags. The operation
+reached the production dispatch after the existing conversion passed, so the
+failure is missing arithmetic behavior rather than test setup. The complete
+JUnit report, unchanged console output, command, and classifier record remain
+under ignored `build/private-cpu-diagnostic`.

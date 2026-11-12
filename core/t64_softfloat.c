@@ -78,3 +78,28 @@ t64_status t64_softfloat_i32_to_f64(int32_t input,
   *result_out = result;
   return T64_STATUS_OK;
 }
+
+t64_status t64_softfloat_execute(t64_softfloat_operation operation,
+                                 t64_softfloat_context *context,
+                                 uint64_t a_bits, uint64_t b_bits,
+                                 t64_softfloat_result *result_out) {
+  int32_t signed_word;
+
+  (void)b_bits;
+  if (context == NULL || result_out == NULL || context->rounding_mode > 3u ||
+      context->tininess_mode > 1u) {
+    return T64_STATUS_INVALID_ARGUMENT;
+  }
+  switch (operation) {
+    case T64_SOFTFLOAT_OP_I32_TO_F64:
+      if ((uint32_t)a_bits < UINT32_C(0x80000000)) {
+        signed_word = (int32_t)(uint32_t)a_bits;
+      } else {
+        signed_word = -1 - (int32_t)~(uint32_t)a_bits;
+      }
+      return t64_softfloat_i32_to_f64(signed_word, context, result_out);
+    case T64_SOFTFLOAT_OP_F32_ADD:
+      return T64_STATUS_NOT_READY;
+  }
+  return T64_STATUS_NOT_READY;
+}

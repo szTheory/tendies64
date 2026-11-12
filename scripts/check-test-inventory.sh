@@ -112,7 +112,8 @@ unit.core.cpu-time
 unit.core.cpu-link
 unit.core.cpu-icache
 unit.core.cpu-cache-ops
-unit.core.cpu-dcache'
+unit.core.cpu-dcache
+unit.core.softfloat32'
 
 CPU_COVERAGE_OPCODES='ADD
 ADDU

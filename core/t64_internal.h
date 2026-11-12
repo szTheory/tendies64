@@ -175,6 +175,11 @@ typedef struct {
   uint8_t exception_flags;
 } t64_softfloat_result;
 
+typedef enum {
+  T64_SOFTFLOAT_OP_I32_TO_F64 = 1,
+  T64_SOFTFLOAT_OP_F32_ADD = 2
+} t64_softfloat_operation;
+
 typedef struct {
   bool valid;
   uint32_t code;
@@ -463,6 +468,10 @@ t64_status t64_cpu_step(t64_machine *machine, const t64_event *event);
 t64_status t64_softfloat_i32_to_f64(int32_t input,
                                     t64_softfloat_context *context,
                                     t64_softfloat_result *result_out);
+t64_status t64_softfloat_execute(t64_softfloat_operation operation,
+                                 t64_softfloat_context *context,
+                                 uint64_t a_bits, uint64_t b_bits,
+                                 t64_softfloat_result *result_out);
 t64_status t64_cpu_exception_enter(
     t64_machine *machine, const t64_cpu_exception_result *exception);
 t64_cp0_transfer_result t64_cp0_prepare_transfer(
