@@ -98,8 +98,10 @@ and refusal boundaries. Warm-v1 retains its separate coherent-functional path.
 - After the fixture correction, final full all-target ASan build succeeded and
   all4 affected instrumented targets passed. Inventory controls passed with
   102 gate/104 ASan names and all84 integer opcode rows.
-- Unwaived PII tree/history scans pass. Fresh full hosted verification of
-  final source is tracked separately in docs/ci-reviews/LOG.md.
+- Unwaived PII tree/history scans pass. Final source6b096e7 then passed both
+  Linux and macOS full hosted gates:102 tests, zero lint violations, guest
+  evidence and publication checks. Timings and review are tracked in
+  docs/ci-reviews/LOG.md.
 
 ## Deviations and Evidence Limits
 
