@@ -102,7 +102,94 @@ integration.open-ipl3-determinism'
 
 PHASE04_TESTS='runner.cpu-diagnostic-protocol
 runner.cpu-diagnostic-inventory
-unit.core.cpu-exceptions'
+unit.core.cpu-exceptions
+unit.core.cpu-integer
+unit.core.cpu-control'
+
+CPU_COVERAGE_OPCODES='ADD
+ADDU
+SUB
+SUBU
+ADDI
+ADDIU
+DADD
+DADDU
+DSUB
+DSUBU
+DADDI
+DADDIU
+AND
+OR
+XOR
+NOR
+ANDI
+ORI
+XORI
+LUI
+SLT
+SLTU
+SLTI
+SLTIU
+SLL
+SRL
+SRA
+SLLV
+SRLV
+SRAV
+DSLLV
+DSRLV
+DSRAV
+DSLL
+DSRL
+DSRA
+DSLL32
+DSRL32
+DSRA32
+MULT
+MULTU
+DIV
+DIVU
+DMULT
+DMULTU
+DDIV
+DDIVU
+MFHI
+MFLO
+MTHI
+MTLO
+SYNC
+TEQ
+TNE
+TGE
+TGEU
+TLT
+TLTU
+TGEI
+TGEIU
+TLTI
+TLTIU
+TEQI
+TNEI
+J
+JAL
+JR
+JALR
+BEQ
+BNE
+BLEZ
+BGTZ
+BEQL
+BNEL
+BLEZL
+BGTZL
+BLTZ
+BGEZ
+BLTZL
+BGEZL
+BLTZAL
+BGEZAL
+BLTZALL
+BGEZALL'
 
 ASAN_ONLY='fuzz.rom-admission
 sanitizer.negative-control'
@@ -128,11 +215,144 @@ count_names() {
   printf '%s\n' "$1" | awk 'NF { count++ } END { print count+0 }'
 }
 
+check_cpu_coverage() {
+  _coverage_file=$1
+  _parsed="$TMP_ROOT/cpu-coverage.parsed"
+  _cpu_cov_expected="$TMP_ROOT/cpu-coverage.expected"
+  _cpu_cov_actual="$TMP_ROOT/cpu-coverage.actual"
+  if ! awk '
+    /<!-- CPU-COVERAGE-START -->/ { if (inside || started) bad=1; inside=1; started=1; next }
+    /<!-- CPU-COVERAGE-END -->/ { if (!inside || ended) bad=1; inside=0; ended=1; next }
+    inside && /^\|/ {
+      row=$0
+      sub(/^\|/, "", row)
+      sub(/\|$/, "", row)
+      count=split(row, field, "|")
+      for (i=1; i<=count; i++) gsub(/^[[:space:]]+|[[:space:]]+$/, "", field[i])
+      if (field[1] == "Opcode") next
+      if (count != 4) { print "malformed CPU coverage row"; bad=1; next }
+      if (field[1] == "---") next
+      for (i=1; i<=4; i++) {
+        if (field[i] == "") { print "blank CPU coverage field: " field[1]; bad=1 }
+      }
+      print field[1] "|" field[2] "|" field[3] "|" field[4]
+    }
+    END {
+      if (!started || !ended || inside) { print "missing CPU coverage markers"; bad=1 }
+      if (bad) exit 1
+    }
+  ' "$_coverage_file" >"$_parsed"; then
+    cat "$_parsed"
+    echo "CPU coverage table invalid: $_coverage_file"
+    return 1
+  fi
+
+  _cpu_cov_duplicates=$(cut -d '|' -f 1 "$_parsed" | sort | uniq -d)
+  if [ "$_cpu_cov_duplicates" ]; then
+    echo "duplicate CPU coverage row: $(printf '%s\n' "$_cpu_cov_duplicates" | sed -n '1p')"
+    return 1
+  fi
+  printf '%s\n' "$CPU_COVERAGE_OPCODES" | sort >"$_cpu_cov_expected"
+  cut -d '|' -f 1 "$_parsed" | sort >"$_cpu_cov_actual"
+  _cpu_cov_missing=$(comm -23 "$_cpu_cov_expected" "$_cpu_cov_actual" | sed -n '1p')
+  if [ "$_cpu_cov_missing" ]; then
+    echo "missing required CPU opcode row: $_cpu_cov_missing"
+    return 1
+  fi
+  _cpu_cov_unexpected=$(comm -13 "$_cpu_cov_expected" "$_cpu_cov_actual" | sed -n '1p')
+  if [ "$_cpu_cov_unexpected" ]; then
+    echo "unexpected CPU opcode row: $_cpu_cov_unexpected"
+    return 1
+  fi
+
+  while IFS='|' read -r _opcode _encoding _case _cpu_cov_source; do
+    case $_encoding in
+      SPECIAL*)
+        _encoding_token=$(printf '%s\n' "$_encoding" | sed -n 's/.*\(0x[0-9a-f][0-9a-f]*\).*/\1/p')
+        _encoding_token="${_encoding_token}u"
+        if ! grep -F "$_encoding_token" core/tests/test_cpu_integer.c >/dev/null 2>&1; then
+          echo "CPU encoding missing from test source: $_opcode ($_encoding)"
+          return 1
+        fi
+        ;;
+      opcode*)
+        _encoding_token=$(printf '%s\n' "$_encoding" | sed -n 's/.*\(0x[0-9a-f][0-9a-f]*\).*/\1/p')
+        _encoding_token="${_encoding_token}u"
+        if ! grep -F "$_encoding_token" core/tests/test_cpu_integer.c >/dev/null 2>&1; then
+          echo "CPU encoding missing from test source: $_opcode ($_encoding)"
+          return 1
+        fi
+        ;;
+      REGIMM*)
+        _suboperation=$(printf '%s\n' "$_encoding" | sed -n 's/.*\(0x[0-9a-f][0-9a-f]*\).*/\1/p')
+        _suboperation_decimal=$(( _suboperation ))
+        if ! grep -E "ENCODE_I\\(0x01u, [0-9]+u, ${_suboperation_decimal}u," core/tests/test_cpu_integer.c >/dev/null 2>&1; then
+          echo "CPU REGIMM encoding missing from test source: $_opcode ($_encoding)"
+          return 1
+        fi
+        ;;
+      *)
+        echo "unsupported CPU encoding format: $_opcode ($_encoding)"
+        return 1
+        ;;
+    esac
+    if ! grep -F "${_case}}," core/tests/test_cpu_integer.c >/dev/null 2>&1; then
+      echo "CPU test case is not registered: $_opcode ($_case)"
+      return 1
+    fi
+  done <"$_parsed"
+  _cpu_cov_count=$(awk 'NF { count++ } END { print count+0 }' "$_cpu_cov_actual")
+  echo "CPU instruction coverage PASS opcodes=$_cpu_cov_count"
+}
+
+cpu_coverage_selftest() {
+  _source="docs/spec/cpu-instruction-coverage.md"
+  _missing_row="$TMP_ROOT/cpu-missing-row.md"
+  _missing_encoding="$TMP_ROOT/cpu-missing-encoding.md"
+  _missing_case="$TMP_ROOT/cpu-missing-case.md"
+  _missing_source="$TMP_ROOT/cpu-missing-source.md"
+  cp "$_source" "$_missing_row"
+  awk '!/^\| ADD \|/' "$_source" >"$_missing_row"
+  if check_cpu_coverage "$_missing_row" >"$TMP_ROOT/coverage.out" 2>&1 ||
+     ! grep -F 'missing required CPU opcode row: ADD' "$TMP_ROOT/coverage.out" >/dev/null 2>&1; then
+    echo "CPU coverage selftest failed: missing opcode row was accepted" >&2
+    cat "$TMP_ROOT/coverage.out" >&2
+    return 1
+  fi
+  awk -F '|' -v OFS='|' '/^\| ADD \|/ { $3=" " } { print }' "$_source" >"$_missing_encoding"
+  if check_cpu_coverage "$_missing_encoding" >"$TMP_ROOT/coverage.out" 2>&1 ||
+     ! grep -F 'blank CPU coverage field: ADD' "$TMP_ROOT/coverage.out" >/dev/null 2>&1; then
+    echo "CPU coverage selftest failed: blank encoding was accepted" >&2
+    cat "$TMP_ROOT/coverage.out" >&2
+    return 1
+  fi
+  awk -F '|' -v OFS='|' '/^\| ADD \|/ { $4=" test_missing_case " } { print }' "$_source" >"$_missing_case"
+  if check_cpu_coverage "$_missing_case" >"$TMP_ROOT/coverage.out" 2>&1 ||
+     ! grep -F 'CPU test case is not registered: ADD' "$TMP_ROOT/coverage.out" >/dev/null 2>&1; then
+    echo "CPU coverage selftest failed: missing test case was accepted" >&2
+    cat "$TMP_ROOT/coverage.out" >&2
+    return 1
+  fi
+  awk -F '|' -v OFS='|' '/^\| ADD \|/ { $5=" " } { print }' "$_source" >"$_missing_source"
+  if check_cpu_coverage "$_missing_source" >"$TMP_ROOT/coverage.out" 2>&1 ||
+     ! grep -F 'blank CPU coverage field: ADD' "$TMP_ROOT/coverage.out" >/dev/null 2>&1; then
+    echo "CPU coverage selftest failed: missing expected source was accepted" >&2
+    cat "$TMP_ROOT/coverage.out" >&2
+    return 1
+  fi
+  echo "CPU coverage selftest PASS missing-row missing-encoding missing-case missing-source"
+}
+
 compare_inventory() {
   _preset=$1
   _test_dir=$2
   _expected=$(expected_names "$_preset") || return 1
   _expected_count=$(count_names "$_expected")
+  if [ "${CPU_COVERAGE_CHECKED:-0}" != 1 ]; then
+    if ! check_cpu_coverage docs/spec/cpu-instruction-coverage.md; then
+      return 1
+    fi
+  fi
   if [ "$_test_dir" ]; then
     if ! ctest --test-dir "$_test_dir" -N >"$TMP_ROOT/ctest.out" 2>&1; then
       echo "inventory enumeration error: ctest failed for $_test_dir"
@@ -258,6 +478,9 @@ run_mode_selftest() {
 
 selftest() {
   _TOTAL_REMOVED=0
+  check_cpu_coverage docs/spec/cpu-instruction-coverage.md
+  CPU_COVERAGE_CHECKED=1
+  cpu_coverage_selftest
   run_mode_selftest gate
   run_mode_selftest asan
 

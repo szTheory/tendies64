@@ -1,0 +1,27 @@
+{
+  "schema": "t64-cpu-red-evidence-v1",
+  "plan": "04-03",
+  "task": 2,
+  "command": "ctest --preset gate --no-tests=error -R '^(unit\\.core\\.cpu-integer|unit\\.core\\.cpu-control|unit\\.core\\.cpu-path)$' --output-on-failure --output-junit build/gate/04-03-task2-red-corrected.xml",
+  "exit_code": 8,
+  "target_test": "unit.core.cpu-integer",
+  "failing_test": "unit.core.cpu-integer#unit.core.cpu-integer",
+  "report_format": "junit",
+  "report_counts": {
+    "discovered": 3,
+    "passed": 1,
+    "failed": 2,
+    "report_errors": []
+  },
+  "expected": "For unsigned 32-bit operands 0xffffffff and 2, MULTU writes HI=1 and sign-extended LO=0xfffffffffffffffe, then continues to the MFLO/MFHI assertions.",
+  "actual": "The unmodified CPU stopped at MULTU; the test observed LO=0 and HI=0, and the HI/LO completion assertion failed. The preceding ALU and shift cases passed.",
+  "classifier": {
+    "verdict": "RED_EVIDENCE_OK",
+    "reason": "target_test_failed",
+    "matched_test": "unit.core.cpu-integer#unit.core.cpu-integer"
+  },
+  "semantic_assessment": "The selected native test executed and failed on the missing MULTU HI/LO result. The result values were hand-derived from the unsigned 32-bit product and the manual's word-result extension rule. No fixture, compile, or discovery failure was reported.",
+  "hardware_source": "NEC U10504EJ7V0UMJ1, 7th edition, August 2000, MULTU entry §16 / pp. 481–482; verified PDF SHA-256 b7c1900f1707a4b238ebd82af1669e9628e4df4875ceabfa012a9d95b4716b75",
+  "raw_report": "build/gate/04-03-task2-red-corrected.xml (ignored local build output; unchanged)",
+  "human_validation": false
+}

@@ -222,6 +222,22 @@ set_tests_properties(unit.core.cpu-exceptions PROPERTIES
   LABELS unit
   ENVIRONMENT "T64_TEST_IPL3_PATH=${T64_BOOT_FIXTURE_DIR}/ipl3_compat.z64")
 
+add_executable(test_cpu_integer tests/test_cpu_integer.c)
+target_include_directories(test_cpu_integer PRIVATE
+  "${CMAKE_CURRENT_SOURCE_DIR}"
+  "${CMAKE_SOURCE_DIR}/tests")
+target_link_libraries(test_cpu_integer PRIVATE t64_core)
+t64_target_warnings(test_cpu_integer)
+add_dependencies(test_cpu_integer t64-boot-fixtures)
+add_test(NAME unit.core.cpu-integer COMMAND test_cpu_integer --integer)
+set_tests_properties(unit.core.cpu-integer PROPERTIES
+  LABELS unit
+  ENVIRONMENT "T64_TEST_IPL3_PATH=${T64_BOOT_FIXTURE_DIR}/ipl3_compat.z64")
+add_test(NAME unit.core.cpu-control COMMAND test_cpu_integer --control)
+set_tests_properties(unit.core.cpu-control PROPERTIES
+  LABELS unit
+  ENVIRONMENT "T64_TEST_IPL3_PATH=${T64_BOOT_FIXTURE_DIR}/ipl3_compat.z64")
+
 add_executable(test_warm_devices tests/test_warm_devices.c)
 target_include_directories(test_warm_devices PRIVATE
   "${CMAKE_CURRENT_SOURCE_DIR}"
