@@ -217,6 +217,18 @@ set_tests_properties(unit.core.cpu-link PROPERTIES
   LABELS unit
   ENVIRONMENT "T64_TEST_IPL3_PATH=${T64_BOOT_FIXTURE_DIR}/ipl3_compat.z64")
 
+add_executable(test_cpu_cache tests/test_cpu_cache.c)
+target_include_directories(test_cpu_cache PRIVATE
+  "${CMAKE_CURRENT_SOURCE_DIR}"
+  "${CMAKE_SOURCE_DIR}/tests")
+target_link_libraries(test_cpu_cache PRIVATE t64_core)
+t64_target_warnings(test_cpu_cache)
+add_dependencies(test_cpu_cache t64-boot-fixtures)
+add_test(NAME unit.core.cpu-icache COMMAND test_cpu_cache)
+set_tests_properties(unit.core.cpu-icache PROPERTIES
+  LABELS unit
+  ENVIRONMENT "T64_TEST_IPL3_PATH=${T64_BOOT_FIXTURE_DIR}/ipl3_compat.z64")
+
 add_test(NAME unit.core.cp0-cache COMMAND test_cpu_path --cp0-cache)
 set_tests_properties(unit.core.cp0-cache PROPERTIES
   LABELS unit

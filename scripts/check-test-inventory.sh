@@ -109,7 +109,8 @@ unit.core.cpu-integer
 unit.core.cpu-control
 unit.core.cpu-cp0
 unit.core.cpu-time
-unit.core.cpu-link'
+unit.core.cpu-link
+unit.core.cpu-icache'
 
 CPU_COVERAGE_OPCODES='ADD
 ADDU

@@ -182,6 +182,8 @@ static void write_word(t64_machine *machine, uint32_t physical,
 
 static void write_instruction(t64_machine *machine, uint32_t opcode) {
   write_word(machine, UINT32_C(0x1000), opcode);
+  /* Each run_one call installs a fresh synthetic instruction directly in RAM. */
+  t64_cpu_icache_hit_invalidate(machine, UINT64_C(0), UINT32_C(0x1000));
 }
 
 static t64_status run_one(t64_machine *machine, uint32_t opcode,
@@ -676,6 +678,8 @@ static bool test_zero_register_and_address_wrap(fixture *value) {
   uint32_t opcode;
 
   write_word(value->machine, UINT32_C(0x1000), UINT32_C(0x8c880001));
+  t64_cpu_icache_hit_invalidate(value->machine, UINT64_C(0),
+                                UINT32_C(0x1000));
   value->machine->cpu.pc_full = 0u;
   value->machine->cpu.pc = 0u;
   value->machine->cpu.cp0[12] = 0u;
@@ -730,6 +734,7 @@ static bool test_watch_permissions_and_deferred_context(fixture *value) {
 
   write_word(machine, UINT32_C(0x1000), UINT32_C(0x10000001));
   write_word(machine, UINT32_C(0x1004), encode_i(0x28u, 8u, 0u));
+  t64_cpu_icache_hit_invalidate(machine, UINT64_C(0), UINT32_C(0x1000));
   machine->cpu.pc = 0u;
   machine->cpu.pc_full = 0u;
   machine->cpu.cp0[12] = 0u;
@@ -811,6 +816,7 @@ static bool test_fault_priority_and_store_preflight(fixture *value) {
   machine->cpu.cp0[18] = UINT32_C(0x2000) | WATCH_W;
   write_word(machine, UINT32_C(0x1000), UINT32_C(0x10000001));
   write_word(machine, UINT32_C(0x1004), encode_i(0x2bu, 8u, 0u));
+  t64_cpu_icache_hit_invalidate(machine, UINT64_C(0), UINT32_C(0x1000));
   machine->cpu.pc = 0u;
   machine->cpu.pc_full = 0u;
   machine->cpu.cp0[12] = 0u;

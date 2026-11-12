@@ -1164,10 +1164,9 @@ static bool execute_cache(t64_machine *machine, uint32_t pc,
   }
 
   /*
-   * The qualified profile uses coherent-functional memory: guest writes and
-   * instruction fetches already see the same backing bytes. Cache operations
-   * do not flush hidden line data, but a targeted D-line invalidation clears an
-   * overlapping linked reservation.
+   * The I-cache is independent of direct backing writes. Hit_Invalidate I
+   * changes only its matching line and never touches an LL/SC reservation.
+   * D-cache data and writeback semantics remain outside this slice.
    */
   machine->cache.last_operation = operation;
   machine->cache.last_pc = pc;

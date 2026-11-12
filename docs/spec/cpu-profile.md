@@ -126,8 +126,10 @@ independent mutable state across two machines.
 
 The VR4300 profile implements paired TLB translation and management across
 the selected 32-bit and extended address modes, with precise refill, invalid,
-modified, and address faults. Cache attributes are carried by translation;
-cache hit/refill/writeback behavior and COP1 arithmetic remain later work.
+modified, and address faults. Cache attributes are carried by translation.
+The functional I-cache fetch, fill, stale-code, and targeted invalidation
+policy is documented in the [cache model](cpu-cache.md). D-cache
+hit/refill/writeback behavior and COP1 arithmetic remain later work.
 LL/SC follows the tested selected physical-address-and-width reservation policy
 in the [memory contract](cpu-memory.md); that model behavior remains separate
 from hardware qualification. Integer scalar and merge accesses, user
