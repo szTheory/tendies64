@@ -31,6 +31,9 @@ applies that direction; update it when the owner changes policy.
   Once implementation checks pass, close the summary and state promptly; do
   not repeat broad tests or scans solely for bookkeeping changes. Report the
   specific remaining command if a handoff stalls.
+  After fixing a failed stage, also execute required later stages that the
+  failure prevented from running. An aborted gate provides no evidence for
+  its unreached tail; those first executions are not duplicate verification.
   Keep routine summary/state closeout with the orchestrator when execution
   evidence is already saved. A slow bookkeeping handoff is not a reason to
   redispatch implementation or repeatedly recheck a passing hosted pair.

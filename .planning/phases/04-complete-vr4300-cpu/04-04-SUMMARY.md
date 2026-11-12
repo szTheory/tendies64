@@ -12,9 +12,9 @@ provides:
 affects: [phase-04-timer, phase-04-mmu, phase-04-cache]
 actuals:
   tasks: 2
-  commits: 5
+  commits: 6
 plan_head_before: b578ba4b5ab61f5fb29bd971967ce4d512e0008e
-plan_head_after: 18feb8a
+plan_head_after: 2867031af9e058b8521de0659036e91074d86137
 tech-stack:
   added: []
   patterns: [Central staged register effects, independent field-level expected values]
@@ -44,6 +44,9 @@ coverage:
       - kind: integration
         ref: Full ASan build with affected selections; gate 96 unaffected cases plus corrected boot-entry check
         status: pass
+      - kind: integration
+        ref: GitHub run43157984293 at2867031; both full97-test gates and core lint pass
+        status: pass
     human_judgment: false
 duration: 50min
 completed: 2026-11-12
@@ -62,6 +65,7 @@ Two tasks; eleven implementation/specification/registration files and two
 portable RED records. The observed first-RED-to-final-implementation commit
 span was 50 minutes (2026-11-12T03:56:47Z to 2026-11-12T04:46:53Z), excluding
 pre-commit preparation and parent closeout. This is elapsed workflow time.
+The separate hosted-lint repair below followed at04:55:28Z.
 
 ## Accomplishments
 
@@ -76,7 +80,7 @@ pre-commit preparation and parent closeout. This is elapsed workflow time.
 ## Task Commits
 
 1. **Task 1: protected transfer tracer** - `6b76020` (test), `1cf8d4d` (feat), `1100371` (fix).
-2. **Task 2: register matrix** - `3010473` (test), `18feb8a` (feat).
+2. **Task 2: register matrix** - `3010473` (test), `18feb8a` (feat), `2867031` (fix).
 
 ## Automated Checks
 
@@ -99,6 +103,13 @@ pre-commit preparation and parent closeout. This is elapsed workflow time.
   failed. After the bounded reference/specification fix, unit.core.boot-entry
   passes normally and instrumented. No second local full-gate result is claimed.
   Parent's fresh unwaived gov.pii.repo also passes before publication.
+- Hosted follow-up at18feb8a passed all97 tests on both hosts, then exposed
+  core lint's rejection of a new local identifier named random. The earlier
+  local test failure had prevented this later gate stage from running. The
+  isolated rename2867031 passes local lint/build and the affected CP0/path pair.
+  Exact successful run43157984293 then passes both full97-test gates, core lint
+  with21 files/zero violations, guest evidence and publication scans. No lint
+  exception was added; docs/ci-reviews/LOG.md preserves both runs.
 
 ## Deviations and Issues
 
@@ -128,12 +139,12 @@ The masks, revision/RP choices and prepared Config-window policy are documented
 with their evidence and version triggers. This is native model evidence, not
 silicon qualification. Guest-time Count/Compare ordering belongs to Plan05;
 complete TLB/cache operations remain later slices. Shared requirement IDs stay
-pending their unfinished sibling summaries. Fresh full hosted verification is
-tracked separately for source18feb8a. Ready for Plan04-05.
+pending their unfinished sibling summaries. Full hosted verification passes
+for exact source2867031 as recorded above. Ready for Plan04-05.
 
 ## Self-Check: PASSED
 
-All five task commits, both portable RED records, the CP0 specification and
+All six task commits, both portable RED records, the CP0 specification and
 exact test registration exist. All local checks are accounted for with their
 actual scope. Owner instruction/configuration and parent CI-log edits remain
 unstaged; no new waiver or protected input was introduced.
