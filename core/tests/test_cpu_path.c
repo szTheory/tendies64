@@ -254,6 +254,87 @@ static bool test_vr4300_instruction_cache_stale_then_invalidated(
   return true;
 }
 
+static bool test_vr4300_cached_store_waits_for_hit_writeback(
+    t64_machine *machine, const uint8_t asset[IPL3_ASSET_BYTES]) {
+  const uint32_t data_physical = UINT32_C(0x00002000);
+  const uint32_t data_virtual = UINT32_C(0x80002000);
+  const uint32_t index = (data_physical >> 4) &
+                         (T64_VR4300_DCACHE_LINE_COUNT - 1u);
+  const uint32_t expected = UINT32_C(0x12345678);
+  const uint32_t writeback_instruction =
+      UINT32_C(0xbc000000) | (UINT32_C(5) << 21) |
+      (UINT32_C(0x19) << 16);
+  t64_vr4300_dcache_line *line;
+  uint32_t backing;
+  t64_status status;
+
+  if (machine == NULL || asset == NULL ||
+      t64_machine_admit_rom(machine, asset, IPL3_ASSET_BYTES) !=
+          T64_STATUS_OK) {
+    (void)puts("# D-cache tracer fixture setup failed");
+    return false;
+  }
+  write_rdram_instruction(machine, UINT32_C(0x1000), UINT32_C(0xac880000));
+  write_rdram_instruction(machine, UINT32_C(0x1004), writeback_instruction);
+  machine->cpu.gpr[4] = t64_cpu_canonical_address(data_virtual);
+  machine->cpu.gpr[5] = t64_cpu_canonical_address(data_virtual);
+  machine->cpu.gpr[8] = expected;
+  machine->cpu.pc = UINT32_C(0x80001000);
+  machine->cpu.pc_full = t64_cpu_canonical_address(machine->cpu.pc);
+
+  status = t64_cpu_step(machine, NULL);
+  line = &machine->cpu.dcache[index];
+  backing = ((uint32_t)machine->ram[data_physical] << 24) |
+            ((uint32_t)machine->ram[data_physical + 1u] << 16) |
+            ((uint32_t)machine->ram[data_physical + 2u] << 8) |
+            (uint32_t)machine->ram[data_physical + 3u];
+  if (status != T64_STATUS_OK || backing != 0u || !line->valid ||
+      !line->dirty || line->physical_tag != data_physical ||
+      (((uint32_t)line->data[0] << 24) |
+       ((uint32_t)line->data[1] << 16) |
+       ((uint32_t)line->data[2] << 8) |
+       (uint32_t)line->data[3]) != expected) {
+    (void)printf("# cached-store expected backing=00000000 dirty-line="
+                 "valid:1 dirty:1 tag:%08x data:%08x; observed status=%u "
+                 "backing=%08x valid=%u dirty=%u tag=%08x data=%08x "
+                 "pc=%016llx last_pc=%016llx opcode=%08x outcome=%u "
+                 "retired=%llu stopped=%u gpr4=%016llx gpr8=%016llx "
+                 "cause=%08x badvaddr=%016llx\n",
+                 data_physical, expected, (unsigned)status, backing,
+                 line->valid ? 1u : 0u, line->dirty ? 1u : 0u,
+                 line->physical_tag,
+                 ((uint32_t)line->data[0] << 24) |
+                     ((uint32_t)line->data[1] << 16) |
+                     ((uint32_t)line->data[2] << 8) |
+                     (uint32_t)line->data[3],
+                 (unsigned long long)machine->cpu.pc_full,
+                 (unsigned long long)machine->cpu.last_pc_full,
+                 machine->cpu.last_opcode, machine->cpu.attempt_outcome,
+                 (unsigned long long)machine->cpu.retired_instructions,
+                 machine->cpu.stopped ? 1u : 0u,
+                 (unsigned long long)machine->cpu.gpr[4],
+                 (unsigned long long)machine->cpu.gpr[8],
+                 (uint32_t)machine->cpu.cp0[13],
+                 (unsigned long long)machine->cpu.cp0[8]);
+    return false;
+  }
+
+  status = t64_cpu_step(machine, NULL);
+  backing = ((uint32_t)machine->ram[data_physical] << 24) |
+            ((uint32_t)machine->ram[data_physical + 1u] << 16) |
+            ((uint32_t)machine->ram[data_physical + 2u] << 8) |
+            (uint32_t)machine->ram[data_physical + 3u];
+  if (status != T64_STATUS_OK || backing != expected || !line->valid ||
+      line->dirty) {
+    (void)printf("# hit-writeback expected backing=%08x valid=1 dirty=0; "
+                 "observed status=%u backing=%08x valid=%u dirty=%u\n",
+                 expected, (unsigned)status, backing,
+                 line->valid ? 1u : 0u, line->dirty ? 1u : 0u);
+    return false;
+  }
+  return true;
+}
+
 static bool test_vr4300_instruction_cache_failed_fill_preserves_line(
     t64_machine *machine, const uint8_t asset[IPL3_ASSET_BYTES]) {
   const uint32_t first_pc = UINT32_C(0x80001000);
@@ -1754,6 +1835,8 @@ int main(int argc, char **argv) {
   static const cpu_test_case vr4300_cases[] = {
       {"uncached code update stays stale until targeted I-cache invalidation",
        test_vr4300_instruction_cache_stale_then_invalidated},
+      {"cached data store stays private until hit writeback",
+       test_vr4300_cached_store_waits_for_hit_writeback},
       {"failed I-cache fill preserves prior line and does not publish an opcode",
        test_vr4300_instruction_cache_failed_fill_preserves_line},
       {"new-profile BREAK schedules a nonretiring RDRAM handler",
