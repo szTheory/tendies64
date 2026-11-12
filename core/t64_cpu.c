@@ -15,6 +15,7 @@
 #define T64_CPU_BLEZL UINT32_C(0x16)
 #define T64_CPU_BGTZL UINT32_C(0x17)
 #define T64_CPU_COP0 UINT32_C(0x10)
+#define T64_CPU_COP1 UINT32_C(0x11)
 #define T64_CPU_CACHE UINT32_C(0x2f)
 
 #define T64_CP0_COUNT UINT32_C(9)
@@ -1873,7 +1874,9 @@ t64_status t64_cpu_step(t64_machine *machine, const t64_event *event) {
   uint64_t target = 0u;
   uint32_t link_register = 0u;
   uint32_t destination = 0u;
+  uint32_t fpr_destination = 0u;
   uint64_t value = 0u;
+  uint64_t fpr_value = 0u;
   t64_cp0_effect cp0_effect = {0};
   bool in_delay_slot;
   bool is_branch;
@@ -1881,6 +1884,7 @@ t64_status t64_cpu_step(t64_machine *machine, const t64_event *event) {
   bool branch_likely = false;
   bool link = false;
   bool write_gpr = false;
+  bool write_fpr = false;
   bool new_profile;
   bool trap_noop = false;
   bool memory_handled = false;
@@ -2078,6 +2082,38 @@ t64_status t64_cpu_step(t64_machine *machine, const t64_event *event) {
       cpu_stop_unsupported(machine, pc, opcode);
       return T64_STATUS_RESOURCE_EXHAUSTED;
     }
+  } else if (new_profile && (opcode >> 26) == T64_CPU_COP1) {
+    uint32_t format = (opcode >> 21) & UINT32_C(0x1f);
+    uint32_t ft = (opcode >> 16) & UINT32_C(0x1f);
+    uint32_t fs = (opcode >> 11) & UINT32_C(0x1f);
+    uint32_t function = opcode & UINT32_C(0x3f);
+    uint32_t source_bits;
+    int32_t source_value;
+    t64_softfloat_context context = {
+        (uint8_t)(machine->cpu.fcr31 & UINT32_C(3)),
+        T64_SOFTFLOAT_TININESS_AFTER_ROUNDING, 0u};
+    t64_softfloat_result result = {0u, 0u};
+
+    if (format != UINT32_C(0x14) || ft != 0u ||
+        function != UINT32_C(0x21)) {
+      cpu_stop_unsupported(machine, pc, opcode);
+      return T64_STATUS_RESOURCE_EXHAUSTED;
+    }
+    source_bits = (uint32_t)machine->cpu.fpr[fs];
+    if ((source_bits & UINT32_C(0x80000000)) != 0u) {
+      source_value = -1 - (int32_t)(~source_bits);
+    } else {
+      source_value = (int32_t)source_bits;
+    }
+    status = t64_softfloat_i32_to_f64(source_value, &context, &result);
+    if (status != T64_STATUS_OK) {
+      machine->cpu.attempt_outcome = T64_CPU_ATTEMPT_HOST_ERROR;
+      return status;
+    }
+    fpr_destination = (opcode >> 6) & UINT32_C(0x1f);
+    fpr_value = result.bits;
+    write_fpr = true;
+    supported = true;
   } else if ((opcode >> 26) == T64_CPU_CACHE) {
     t64_status cache_status = T64_STATUS_BUS_UNSUPPORTED;
     supported = execute_cache(machine, pc, opcode, &cache_status);
@@ -2111,6 +2147,9 @@ t64_status t64_cpu_step(t64_machine *machine, const t64_event *event) {
 
   if (write_gpr && destination != 0u) {
     machine->cpu.gpr[destination] = value;
+  }
+  if (write_fpr) {
+    machine->cpu.fpr[fpr_destination] = fpr_value;
   }
   if (link && (new_profile || !branch_likely || branch_taken) &&
       link_register != 0u) {

@@ -162,6 +162,20 @@ typedef struct {
 } t64_cpu_raw_context;
 
 typedef struct {
+  uint8_t rounding_mode;
+  uint8_t tininess_mode;
+  uint8_t exception_flags;
+} t64_softfloat_context;
+
+#define T64_SOFTFLOAT_TININESS_BEFORE_ROUNDING UINT8_C(0)
+#define T64_SOFTFLOAT_TININESS_AFTER_ROUNDING UINT8_C(1)
+
+typedef struct {
+  uint64_t bits;
+  uint8_t exception_flags;
+} t64_softfloat_result;
+
+typedef struct {
   bool valid;
   uint32_t code;
   uint64_t bad_virtual_address;
@@ -446,6 +460,9 @@ t64_status t64_scheduler_advance(t64_machine *machine,
                                  t64_stop_result *result_out);
 t64_status t64_cpu_schedule(t64_machine *machine);
 t64_status t64_cpu_step(t64_machine *machine, const t64_event *event);
+t64_status t64_softfloat_i32_to_f64(int32_t input,
+                                    t64_softfloat_context *context,
+                                    t64_softfloat_result *result_out);
 t64_status t64_cpu_exception_enter(
     t64_machine *machine, const t64_cpu_exception_result *exception);
 t64_cp0_transfer_result t64_cp0_prepare_transfer(
