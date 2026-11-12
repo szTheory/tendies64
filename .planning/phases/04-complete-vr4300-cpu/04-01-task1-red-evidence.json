@@ -1,0 +1,16 @@
+{
+  "task": "04-01.1",
+  "command": "cmake --preset gate && cmake --build --preset gate --target test_boot_entry && ctest --preset gate --no-tests=error -R '^(unit.core.boot-entry)$' --output-on-failure --output-junit build/private-cpu-red/04-01-task1-red.xml",
+  "targetTest": "unit.core.boot-entry",
+  "targetFile": "core/tests/test_boot_entry.c",
+  "expected": "Lookup of ntsc-cart-4m-openipl3-vr4300-v1 returns T64_STATUS_OK (0) with a non-null descriptor.",
+  "observed": "The registered target compiled and executed; lookup returned T64_STATUS_UNKNOWN_PROFILE (2) and profile_out was NULL. The intended lookup assertion failed.",
+  "result": {
+    "exitCode": 8,
+    "tests": 1,
+    "passed": 0,
+    "failed": 1,
+    "classifier": "RED_EVIDENCE_OK"
+  },
+  "semanticAssessment": "This is the expected pre-feature behavior. The failure occurred at the new-profile lookup assertion after test discovery, compilation, fixture loading, and the existing warm-profile assertions succeeded; it is not a setup or addressing failure. Raw JUnit remains in ignored local build output."
+}

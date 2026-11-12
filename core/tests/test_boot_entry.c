@@ -81,6 +81,136 @@ static void check_refused_admission_unchanged(
   T64_CHECK_INT(allocator->outstanding, outstanding_before);
 }
 
+static void test_vr4300_profile_entry(
+    const uint8_t asset[IPL3_ASSET_BYTES]) {
+  static const char profile_id[] = "ntsc-cart-4m-openipl3-vr4300-v1";
+  allocator_state allocator_state_value = {0u};
+  const t64_host_allocator allocator = {
+      test_allocate, test_release, &allocator_state_value};
+  const t64_profile_descriptor *profile = NULL;
+  t64_profile_descriptor altered_profile;
+  t64_machine *machine = NULL;
+  t64_machine *rejected_machine = NULL;
+  uint8_t altered_asset[IPL3_ASSET_BYTES];
+  uint8_t state_before[T64_DIGEST_SIZE];
+  uint8_t state_after[T64_DIGEST_SIZE];
+  uint8_t content_before[T64_DIGEST_SIZE];
+  uint8_t content_after[T64_DIGEST_SIZE];
+  t64_stop_request request = {T64_STOP_GUEST_TICK, UINT64_C(1)};
+  t64_stop_result result = {UINT32_MAX, UINT64_MAX};
+  t64_status status;
+
+  status = t64_profile_lookup(profile_id, &profile);
+  if (status != T64_STATUS_OK) {
+    (void)fprintf(stderr,
+                  "RED observation: new profile lookup expected status 0, "
+                  "observed status %u and profile %s\n",
+                  (unsigned)status, profile == NULL ? "NULL" : "non-NULL");
+  }
+  T64_CHECK_INT(status, T64_STATUS_OK);
+  T64_CHECK(profile != NULL);
+  if (profile == NULL) {
+    return;
+  }
+
+  T64_CHECK_STR(profile->profile_id, profile_id);
+  T64_CHECK_INT(profile->descriptor_version, 3u);
+  T64_CHECK_INT(profile->machine_model_version, 3u);
+  T64_CHECK_INT(profile->state_serialization_version, 9u);
+  T64_CHECK_INT(profile->hle_seed_reset_version, 2u);
+
+  T64_CHECK_INT(t64_machine_create(&allocator, profile, &machine),
+                T64_STATUS_OK);
+  T64_CHECK(machine != NULL);
+  if (machine == NULL) {
+    goto done;
+  }
+  T64_CHECK_INT(t64_machine_admit_rom(machine, asset, IPL3_ASSET_BYTES),
+                T64_STATUS_OK);
+  T64_CHECK(machine->has_image);
+  T64_CHECK(machine->boot.prepared);
+  T64_CHECK_INT(machine->boot.source_offset, IPL3_PAYLOAD_SOURCE_OFFSET);
+  T64_CHECK_INT(machine->boot.payload_length, IPL3_PAYLOAD_BYTES);
+  T64_CHECK_INT(machine->boot.dmem_offset, IPL3_DMEM_OFFSET);
+  T64_CHECK_INT(machine->boot.entry_pc, IPL3_ENTRY_PC);
+  T64_CHECK_INT(machine->cpu.pc, IPL3_ENTRY_PC);
+  T64_CHECK_INT(machine->cpu.gpr[19], 0u);
+  T64_CHECK_INT(machine->cpu.gpr[20], 1u);
+  T64_CHECK_INT(machine->cpu.gpr[21], 1u);
+  T64_CHECK_INT(machine->cpu.gpr[22], 0u);
+  T64_CHECK_INT(machine->cpu.gpr[23], 1u);
+  T64_CHECK_INT(machine->cpu.cp0[1], 31u);
+  T64_CHECK_INT(machine->cpu.cp0[6], 0u);
+  T64_CHECK_INT(machine->cpu.cp0[9], 0u);
+  T64_CHECK_INT(machine->cpu.cp0[11], 0u);
+  T64_CHECK_INT(machine->cpu.cp0[12], UINT32_C(0x34000000));
+  T64_CHECK_INT(machine->cpu.cp0[15], UINT32_C(0x00000b00));
+  T64_CHECK_INT(machine->cpu.cp0[16], UINT32_C(0x7006e463));
+
+  T64_CHECK_INT(t64_machine_advance(machine, &request, &result),
+                T64_STATUS_OK);
+  T64_CHECK_INT(result.reason, T64_STOP_REASON_BOUND);
+  T64_CHECK_INT(result.tick, 1u);
+  T64_CHECK_INT(machine->cpu.last_pc, IPL3_ENTRY_PC);
+  T64_CHECK_INT(machine->cpu.last_opcode, UINT32_C(0x3044d236));
+  /* 0x3044d236 is ANDI a0,v0,0xd236; seeded v0 is zero. */
+  T64_CHECK_INT(machine->cpu.gpr[4], 0u);
+  T64_CHECK_INT(machine->cpu.pc, IPL3_ENTRY_PC + 4u);
+  T64_CHECK_INT(machine->cpu.retired_instructions, 1u);
+  T64_CHECK_INT(machine->instruction_count, 1u);
+  T64_CHECK(!machine->cpu.stopped);
+
+  /* Re-admission resets the selected profile to its prepared CPU seed. */
+  T64_CHECK_INT(t64_machine_admit_rom(machine, asset, IPL3_ASSET_BYTES),
+                T64_STATUS_OK);
+  T64_CHECK_INT(machine->tick, 0u);
+  T64_CHECK_INT(machine->cpu.pc, IPL3_ENTRY_PC);
+  T64_CHECK_INT(machine->cpu.retired_instructions, 0u);
+  T64_CHECK_INT(machine->cpu.cp0[16], UINT32_C(0x7006e463));
+
+  (void)memcpy(altered_asset, asset, sizeof altered_asset);
+  altered_asset[0x100u] ^= UINT8_C(1);
+  T64_CHECK_INT(t64_machine_content_digest(machine, content_before),
+                T64_STATUS_OK);
+  T64_CHECK_INT(t64_machine_digest(machine, state_before), T64_STATUS_OK);
+  check_refused_admission_unchanged(machine, &allocator_state_value,
+                                    altered_asset, sizeof altered_asset);
+  T64_CHECK_INT(t64_machine_content_digest(machine, content_after),
+                T64_STATUS_OK);
+  T64_CHECK_INT(t64_machine_digest(machine, state_after), T64_STATUS_OK);
+  T64_CHECK(memcmp(content_before, content_after, sizeof content_before) == 0);
+  T64_CHECK(memcmp(state_before, state_after, sizeof state_before) == 0);
+  T64_CHECK(machine->has_image);
+  T64_CHECK(machine->boot.prepared);
+
+  /* A non-canonical boot descriptor must not replace the admitted image. */
+  altered_profile = *profile;
+  altered_profile.boot_policy_sha256[0] ^= UINT8_C(1);
+  T64_CHECK_INT(t64_machine_create(&allocator, &altered_profile,
+                                  &rejected_machine),
+                T64_STATUS_INVALID_ARGUMENT);
+  T64_CHECK(rejected_machine == NULL);
+  T64_CHECK_INT(allocator_state_value.outstanding, 1u);
+
+  /* Exercise a corrupted in-machine descriptor as a transactional refusal. */
+  machine->profile.boot_policy_sha256[0] ^= UINT8_C(1);
+  hash_machine_storage(machine, state_before);
+  T64_CHECK_INT(t64_machine_admit_rom(machine, asset, IPL3_ASSET_BYTES),
+                T64_STATUS_INVALID_ARGUMENT);
+  hash_machine_storage(machine, state_after);
+  T64_CHECK(memcmp(state_before, state_after, sizeof state_before) == 0);
+  machine->profile.boot_policy_sha256[0] ^= UINT8_C(1);
+  T64_CHECK(machine->has_image);
+  T64_CHECK_INT(t64_machine_content_digest(machine, content_after),
+                T64_STATUS_OK);
+  T64_CHECK(memcmp(content_before, content_after, sizeof content_before) == 0);
+
+done:
+  t64_machine_destroy(rejected_machine);
+  t64_machine_destroy(machine);
+  T64_CHECK_INT(allocator_state_value.outstanding, 0u);
+}
+
 static bool read_qualified_asset(uint8_t bytes[IPL3_ASSET_BYTES]) {
   const char *path = getenv("T64_TEST_IPL3_PATH");
   FILE *file;
@@ -718,6 +848,8 @@ int main(void) {
                 T64_STATUS_OK);
   T64_CHECK_INT(repeated_result.reason, T64_STOP_REASON_BOUND);
   T64_CHECK_INT(repeated_result.tick, 100u);
+
+  test_vr4300_profile_entry(asset);
 
 done:
   t64_machine_destroy(machine);
