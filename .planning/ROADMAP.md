@@ -186,7 +186,7 @@ Plans:
   2. COP1 soft-float tests pass for single and double precision in all four rounding modes, including FCR31 cause and flag bits and unimplemented-operation exceptions. The lint shows that the canonical path uses no host floating point
   3. The maintainer can read the written cache-scope decision (which cache behavior is guest-visible), and the functional cache-model tests pass
   4. The maintainer builds `nemu64-test` from its pinned commit, runs it headlessly and gets per-group status for the CPU groups, with inventories pinned by exact count; a missing or reduced test set fails. Until D2 is resolved this runs locally only, and no derived ROM or output is uploaded
-**Plans**: 7/18 plans executed
+**Plans**: 8/18 plans executed
 **Wave 1**
 - [x] 04-01-PLAN.md
 - [x] 04-14-PLAN.md
@@ -207,7 +207,7 @@ Plans:
 - [x] 04-06-PLAN.md
 
 **Wave 7** *(blocked on Wave 6 completion)*
-- [ ] 04-07-PLAN.md
+- [x] 04-07-PLAN.md
 
 **Wave 8** *(blocked on Wave 7 completion)*
 - [ ] 04-08-PLAN.md
@@ -374,7 +374,7 @@ Phase 7 may run in parallel with Phases 5 and 6 once Phase 4 is complete.
 | 1. Governance, Rights and Harness Foundation | v1.0 | 13/13 | Complete | 2026-11-10 |
 | 2. Deterministic Machine Skeleton | v1.0 | 8/8 | In Progress | - |
 | 3. First Headless ROM Through Open IPL3 | v1.0 | 13/13 | In Progress | - |
-| 4. Complete VR4300 CPU | v1.0 | 7/18 | In Progress | - |
+| 4. Complete VR4300 CPU | v1.0 | 8/18 | In Progress | - |
 | 5. RSP Low-Level Emulation | v1.0 | 0/TBD | Not started | - |
 | 6. Cold Boot, CPU Timing and Full Base Suite | v1.0 | 0/TBD | Not started | - |
 | 7. RDP Reference Renderer and VI Scanout | v1.1 | 0/TBD | Not started | - |
