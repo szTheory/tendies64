@@ -34,3 +34,21 @@ test failed on these behavior assertions and was accepted by the RED evidence
 classifier as `RED_EVIDENCE_OK`. It used only authored native protocol data;
 no external diagnostic or guest execution was involved. The raw JUnit and
 record remain private.
+
+## Authored qualification-gate controls
+
+The registered `runner.cpu-diagnostic` control uses self-contained temporary
+files. It accepts an authored compiler and target-tool hash baseline, then
+checks individual hash and selected-path refusals, registry versus Git-source
+lock handling, missing-receipt refusal, and symlink-ancestor confinement. These
+controls exercise the production validation seams without private source,
+archive, or diagnostic data.
+
+A separate local-only integration control runs the production pre-use verifier
+with an authored synthetic receipt and fake compiler/binutils over audited
+private inputs. It does not invoke Rust, build the external diagnostic, or run a
+guest. Its detailed report remains in ignored private storage.
+
+The gate build and focused authored controls passed. The all-target ASan build
+and the three diagnostic CTest controls also passed. No private receipt, ROM,
+capture, inventory, batch, or diagnostic-derived status is included here.

@@ -5,6 +5,7 @@ ROOT=$(CDPATH= cd "$(dirname "$0")/.." && pwd)
 cd "$ROOT"
 
 PACKER=build/private-cpu-diagnostic/t64_rom_pack
+QUALIFIED_CC=
 BOOT=build/fixtures/ipl3_compat.z64
 AS=${T64_MIPS_AS:-build/tools/install/bin/mips64-elf-as}
 LD=${T64_MIPS_LD:-build/tools/install/bin/mips64-elf-ld}
@@ -36,9 +37,10 @@ sha256_file()
 
 compile_packer()
 {
-    require_command "${CC:-cc}"
+    compiler=${QUALIFIED_CC:-${CC:-cc}}
+    require_command "$compiler"
     mkdir -p build/private-cpu-diagnostic
-    "${CC:-cc}" -std=c17 -Wall -Wextra -Werror -Wconversion -Wshadow \
+    "$compiler" -std=c17 -Wall -Wextra -Werror -Wconversion -Wshadow \
         -Wstrict-prototypes -pedantic -Itools/common \
         tools/fixture/t64_rom_pack.c tools/common/t64_sha256.c -o "$PACKER"
 }
@@ -51,8 +53,16 @@ verify_preuse_qualification()
         printf '%s\n' 'pre-use qualification refused: private qualification root is missing' >&2
         exit 4
     }
-    python3 scripts/verify-cpu-diagnostic-qualification.py \
-        "$qualification_root/qualification.json" "$ROOT" 2>&1 || exit 4
+    QUALIFIED_CC=$(python3 scripts/verify-cpu-diagnostic-qualification.py \
+        --compiler-path "$qualification_root/qualification.json" "$ROOT" 2>&1) || {
+        printf '%s\n' "$QUALIFIED_CC" >&2
+        exit 4
+    }
+    [ -x "$QUALIFIED_CC" ] || {
+        printf '%s\n' 'pre-use qualification refused: reviewed host compiler is unavailable' >&2
+        exit 4
+    }
+    printf '%s\n' 'pre-use qualification accepted'
 }
 
 run_selftest()

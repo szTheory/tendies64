@@ -590,29 +590,6 @@ static bool write_file(const char *path, const void *bytes, size_t length) {
   return close(fd) == 0;
 }
 
-static bool create_file(const char *path, const void *bytes, size_t length,
-                        mode_t mode) {
-  size_t offset = 0u;
-  int fd = open(path, O_WRONLY | O_CREAT | O_EXCL | O_CLOEXEC, mode);
-  if (fd < 0) return false;
-  while (offset < length) {
-    ssize_t count = write(fd, (const uint8_t *)bytes + offset,
-                          length - offset);
-    if (count < 0 && errno == EINTR) continue;
-    if (count <= 0) {
-      close(fd);
-      unlink(path);
-      return false;
-    }
-    offset += (size_t)count;
-  }
-  if (close(fd) != 0) {
-    unlink(path);
-    return false;
-  }
-  return true;
-}
-
 static bool replace_test_text(char *bytes, size_t *length, size_t capacity,
                               const char *from, const char *to) {
   char *match = strstr(bytes, from);
@@ -690,6 +667,7 @@ static int run_tool(const char *executable, const char *const argv[], size_t arg
     if (argc >= sizeof child_argv / sizeof child_argv[0]) _exit(126);
     close(output_pipe[0]);
     (void)dup2(output_pipe[1], STDOUT_FILENO);
+    (void)dup2(output_pipe[1], STDERR_FILENO);
     close(output_pipe[1]);
     if (setenv("CI", "", 1) != 0 ||
         setenv("T64_REQUIRE_FIXTURES", "0", 1) != 0) _exit(126);
@@ -1060,307 +1038,29 @@ static void test_guest_record_controls(const char *production_executable,
 }
 
 static void test_build_script_preuse_refusal(const char *source_root) {
-  static const char fake_compiler[] =
-      "#!/bin/sh\n"
-      "printf '%s\\n' FAKE_CC_INVOKED\n"
-      ": > \"$T64_PREUSE_MARKER\"\n"
-      "exit 73\n";
-  static const char cargo_toml[] =
-      "[package]\nname = \"authored-check\"\nversion = \"1.0.0\"\nedition = \"2021\"\n";
-  static const char crate_bytes[] = "authored registry archive bytes\n";
-  static const char closure_report[] =
-      "{\"excluded_before_compile\":[\"font\",\"framebuffer\",\"graphics\",\"non_cpu_rsp_startup\"],"
-      "\"source_revision\":\"9a8b9f7d94ee2f6f57d7feed70c98c22cdc30e6c\","
-      "\"status\":\"PASS_PREBUILD\"}\n";
-  static const char projection_report[] =
-      "{\"prebuild_gate\":\"ready-for-qualified-build\","
-      "\"projection_sha256\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\","
-      "\"schema\":\"t64.cpu-source-projection\",\"schema_version\":2,"
-      "\"source_revision\":\"9a8b9f7d94ee2f6f57d7feed70c98c22cdc30e6c\"}\n";
-  static const char overlay_bytes[] = "authored overlay directives\n";
-  static const char *const case_names[] = {
-      "qualification status", "wrong Rust archive SHA", "missing Cargo.lock",
-      "changed Cargo resolution", "unreviewed build hook", "uncleared font"};
-  static const char *const reasons[] = {
-      "status is not qualified",
-      "rustc archive SHA-256 differs from the dated manifest",
-      "packaged Cargo.lock is missing",
-      "resolved dependency graph differs from the packaged Cargo.lock",
-      "a registry dependency is unverified or has an unreviewed hook",
-      "uncleared font, graphics, framebuffer, or non-CPU RSP startup remains"};
-  static const char *const rustc_sha =
-      "bd38aa1f0248f66a5682366b6deea6247f3d6c4bdd4024195a4bf37a17e2b45a";
-  static const char *const cargo_sha =
-      "2aef38157428f63fe9bde388f27baf79336fcffc0c6e4683035e43e6b0ca26df";
-  static const char *const host_std_sha =
-      "1fa77a688ee001c791401416019ee58c4470825d753030321247e8752c0a3239";
-  static const char *const rust_src_sha =
-      "b8bb98533e65cb2468548b20b3575518d01b44e7738045a12de2dbb71a0d6cc2";
-  static const char *const manifest_sha =
-      "808b3fb16540d28b08fc8f9db812a129a13129d5413cdb30607a12ec7fa09632";
-  char private_template[4096] = {0};
-  char private_root[4096] = {0};
-  char receipt_path[4096] = {0};
-  char compiler_path[4096] = {0};
-  char marker_path[4096] = {0};
-  char script_path[4096] = {0};
-  char manifest_path[4096] = {0};
-  char rustc_path[4096] = {0};
-  char cargo_path[4096] = {0};
-  char host_std_path[4096] = {0};
-  char rust_src_path[4096] = {0};
-  char cargo_manifest_path[4096] = {0};
-  char lock_path[4096] = {0};
-  char missing_lock_path[4096] = {0};
-  char crate_path[4096] = {0};
-  char closure_path[4096] = {0};
-  char projection_path[4096] = {0};
-  char overlay_path[4096] = {0};
+  char control_path[4096] = {0};
   char output[8192] = {0};
-  char lock_bytes[1024] = {0};
-  char receipt[20000] = {0};
-  char variant[20000] = {0};
-  char cargo_manifest_sha[65] = {0};
-  char lock_sha[65] = {0};
-  char crate_sha[65] = {0};
-  char closure_sha[65] = {0};
-  char projection_sha[65] = {0};
-  char overlay_sha[65] = {0};
-  char *saved_cc = NULL;
-  char *saved_marker = NULL;
-  const char *old_cc = getenv("CC");
-  const char *old_marker = getenv("T64_PREUSE_MARKER");
-  const char *argv[4];
-  const char *fault;
-  const char *replacement;
-  bool had_cc = old_cc != NULL;
-  bool had_marker = old_marker != NULL;
+  const char *argv[6];
+  int count = snprintf(control_path, sizeof control_path,
+                       "%s/scripts/tests/test_cpu_diagnostic_qualification_controls.py",
+                       source_root);
   int result;
-  int count;
-  int length;
-  size_t lock_length;
-  size_t index;
-  const uint8_t *lock_bytes_ptr;
-
-  hex_digest((const uint8_t *)crate_bytes, sizeof crate_bytes - 1u, crate_sha);
-  count = snprintf(lock_bytes, sizeof lock_bytes,
-                   "version = 4\n\n[[package]]\nname = \"authored-dep\"\n"
-                   "version = \"1.0.0\"\n"
-                   "source = \"registry+https://github.com/rust-lang/crates.io-index\"\n"
-                   "checksum = \"%s\"\n",
-                   crate_sha);
-  if (count <= 0 || (size_t)count >= sizeof lock_bytes) {
-    check(false, "construct authored locked dependency control");
+  if (count <= 0 || (size_t)count >= sizeof control_path) {
+    check(false, "construct portable qualification control path");
     return;
   }
-  lock_length = (size_t)count;
-  lock_bytes_ptr = (const uint8_t *)lock_bytes;
-  hex_digest((const uint8_t *)cargo_toml, sizeof cargo_toml - 1u,
-             cargo_manifest_sha);
-  hex_digest(lock_bytes_ptr, (size_t)count, lock_sha);
-  hex_digest((const uint8_t *)closure_report, sizeof closure_report - 1u,
-             closure_sha);
-  hex_digest((const uint8_t *)projection_report, sizeof projection_report - 1u,
-             projection_sha);
-  hex_digest((const uint8_t *)overlay_bytes, sizeof overlay_bytes - 1u,
-             overlay_sha);
-
-  if (had_cc) saved_cc = strdup(old_cc);
-  if (had_marker) saved_marker = strdup(old_marker);
-  count = snprintf(private_template, sizeof private_template,
-                   "%s/build/private-cpu-diagnostic/preuse-control.XXXXXX",
-                   source_root);
-  if (saved_cc == NULL && had_cc) goto cleanup;
-  if (saved_marker == NULL && had_marker) goto cleanup;
-  if (count <= 0 || (size_t)count >= sizeof private_template ||
-      mkdtemp(private_template) == NULL) goto cleanup;
-  count = snprintf(private_root, sizeof private_root, "%s", private_template);
-  if (count <= 0 || (size_t)count >= sizeof private_root) goto cleanup;
-  count = snprintf(receipt_path, sizeof receipt_path, "%s/qualification.json",
-                   private_root);
-  if (count <= 0 || (size_t)count >= sizeof receipt_path) goto cleanup;
-  count = snprintf(compiler_path, sizeof compiler_path, "%s/fake-cc",
-                   private_root);
-  if (count <= 0 || (size_t)count >= sizeof compiler_path ||
-      !create_file(compiler_path, fake_compiler, sizeof fake_compiler - 1u,
-                   S_IRUSR | S_IWUSR | S_IXUSR))
-    goto cleanup;
-  count = snprintf(marker_path, sizeof marker_path, "%s/compiler-ran",
-                   private_root);
-  if (count <= 0 || (size_t)count >= sizeof marker_path) goto cleanup;
-  count = snprintf(script_path, sizeof script_path,
-                   "%s/scripts/build-cpu-diagnostic.sh", source_root);
-  if (count <= 0 || (size_t)count >= sizeof script_path) goto cleanup;
-  count = snprintf(manifest_path, sizeof manifest_path,
-                   "%s/build/private-cpu-diagnostic/rust-channel/channel-rust-nightly.toml",
-                   source_root);
-  if (count <= 0 || (size_t)count >= sizeof manifest_path) goto cleanup;
-  count = snprintf(rustc_path, sizeof rustc_path,
-                   "%s/build/private-cpu-diagnostic/root-host-tool-audit/rustc-nightly-aarch64-apple-darwin.tar.xz",
-                   source_root);
-  if (count <= 0 || (size_t)count >= sizeof rustc_path) goto cleanup;
-  count = snprintf(cargo_path, sizeof cargo_path,
-                   "%s/build/private-cpu-diagnostic/root-host-tool-audit/cargo-nightly-aarch64-apple-darwin.tar.xz",
-                   source_root);
-  if (count <= 0 || (size_t)count >= sizeof cargo_path) goto cleanup;
-  count = snprintf(host_std_path, sizeof host_std_path,
-                   "%s/build/private-cpu-diagnostic/root-host-tool-audit/rust-std-nightly-aarch64-apple-darwin.tar.xz",
-                   source_root);
-  if (count <= 0 || (size_t)count >= sizeof host_std_path) goto cleanup;
-  count = snprintf(rust_src_path, sizeof rust_src_path,
-                   "%s/build/private-cpu-diagnostic/root-rust-src-audit/rust-src-nightly.tar.xz",
-                   source_root);
-  if (count <= 0 || (size_t)count >= sizeof rust_src_path) goto cleanup;
-  count = snprintf(cargo_manifest_path, sizeof cargo_manifest_path,
-                   "%s/Cargo.toml", private_root);
-  if (count <= 0 || (size_t)count >= sizeof cargo_manifest_path) goto cleanup;
-  count = snprintf(lock_path, sizeof lock_path, "%s/Cargo.lock", private_root);
-  if (count <= 0 || (size_t)count >= sizeof lock_path) goto cleanup;
-  count = snprintf(missing_lock_path, sizeof missing_lock_path,
-                   "%s/Missing.lock", private_root);
-  if (count <= 0 || (size_t)count >= sizeof missing_lock_path) goto cleanup;
-  count = snprintf(crate_path, sizeof crate_path, "%s/authored-dep.crate",
-                   private_root);
-  if (count <= 0 || (size_t)count >= sizeof crate_path) goto cleanup;
-  count = snprintf(closure_path, sizeof closure_path, "%s/closure.json",
-                   private_root);
-  if (count <= 0 || (size_t)count >= sizeof closure_path) goto cleanup;
-  count = snprintf(projection_path, sizeof projection_path, "%s/projection.json",
-                   private_root);
-  if (count <= 0 || (size_t)count >= sizeof projection_path) goto cleanup;
-  count = snprintf(overlay_path, sizeof overlay_path, "%s/overlay.patch",
-                   private_root);
-  if (count <= 0 || (size_t)count >= sizeof overlay_path) goto cleanup;
-  if (!create_file(cargo_manifest_path, cargo_toml, sizeof cargo_toml - 1u,
-                   S_IRUSR | S_IWUSR) ||
-      !create_file(lock_path, lock_bytes, lock_length, S_IRUSR | S_IWUSR) ||
-      !create_file(crate_path, crate_bytes, sizeof crate_bytes - 1u,
-                   S_IRUSR | S_IWUSR) ||
-      !create_file(closure_path, closure_report, sizeof closure_report - 1u,
-                   S_IRUSR | S_IWUSR) ||
-      !create_file(projection_path, projection_report,
-                   sizeof projection_report - 1u, S_IRUSR | S_IWUSR) ||
-      !create_file(overlay_path, overlay_bytes, sizeof overlay_bytes - 1u,
-                   S_IRUSR | S_IWUSR))
-    goto cleanup;
-  if (setenv("CC", compiler_path, 1) != 0 ||
-      setenv("T64_PREUSE_MARKER", marker_path, 1) != 0)
-    goto cleanup;
-
-  length = snprintf(
-      receipt, sizeof receipt,
-      "{\"assets\":{\"closure_report\":{\"path\":\"%s\",\"sha256\":\"%s\"},"
-      "\"excluded_before_compile\":[\"font\",\"framebuffer\",\"graphics\",\"non_cpu_rsp_startup\"],"
-      "\"prebuild_closure_reviewed\":true},"
-      "\"checks\":{\"build_hooks\":\"pass\",\"host_toolchain\":\"pass\","
-      "\"prebuild_asset_closure\":\"pass\",\"project_lock\":\"pass\","
-      "\"registry_dependencies\":\"pass\",\"rust_source\":\"pass\","
-      "\"source_membership\":\"pass\",\"target_tools\":\"pass\"},"
-      "\"dependencies\":[{\"archive\":{\"path\":\"%s\",\"sha256\":\"%s\"},"
-      "\"build_hook_reviewed\":true,\"checksum\":\"%s\",\"legitimacy\":\"verified\","
-      "\"license_reviewed\":true,\"name\":\"authored-dep\",\"proc_macro_reviewed\":true,"
-      "\"source_reviewed\":true,\"version\":\"1.0.0\"}],"
-      "\"project\":{\"locked\":true,\"lockfile\":{\"path\":\"%s\",\"sha256\":\"%s\"},"
-      "\"manifest\":{\"path\":\"%s\",\"sha256\":\"%s\"},\"resolution_sha256\":\"%s\"},"
-      "\"schema\":\"t64.cpu-qualification\",\"schema_version\":1,"
-      "\"source\":{\"membership_sealed\":true,\"overlay\":{\"path\":\"%s\",\"sha256\":\"%s\"},"
-      "\"overlay_sha256\":\"%s\",\"projection\":{\"path\":\"%s\",\"projection_sha256\":"
-      "\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"sha256\":\"%s\"}},"
-      "\"source_revision\":\"9a8b9f7d94ee2f6f57d7feed70c98c22cdc30e6c\","
-      "\"status\":\"qualified\",\"toolchain\":{\"archives\":["
-      "{\"archive\":{\"path\":\"%s\",\"sha256\":\"%s\"},\"manifest_sha256\":\"%s\",\"name\":\"rustc\",\"target\":\"aarch64-apple-darwin\"},"
-      "{\"archive\":{\"path\":\"%s\",\"sha256\":\"%s\"},\"manifest_sha256\":\"%s\",\"name\":\"cargo\",\"target\":\"aarch64-apple-darwin\"},"
-      "{\"archive\":{\"path\":\"%s\",\"sha256\":\"%s\"},\"manifest_sha256\":\"%s\",\"name\":\"rust-std\",\"target\":\"aarch64-apple-darwin\"},"
-      "{\"archive\":{\"path\":\"%s\",\"sha256\":\"%s\"},\"manifest_sha256\":\"%s\",\"name\":\"rust-src\",\"target\":\"*\"}],"
-      "\"channel\":\"nightly-2026-07-16\",\"host_target\":\"aarch64-apple-darwin\","
-      "\"manifest\":{\"path\":\"%s\",\"sha256\":\"%s\"}}}\n",
-      closure_path, closure_sha, crate_path, crate_sha, crate_sha, lock_path,
-      lock_sha, cargo_manifest_path, cargo_manifest_sha, lock_sha, overlay_path,
-      overlay_sha, overlay_sha, projection_path, projection_sha, rustc_path,
-      rustc_sha, rustc_sha, cargo_path, cargo_sha, cargo_sha, host_std_path,
-      host_std_sha, host_std_sha, rust_src_path, rust_src_sha, rust_src_sha,
-      manifest_path, manifest_sha);
-  if (length <= 0 || (size_t)length >= sizeof receipt) goto cleanup;
-
   argv[0] = "/bin/sh";
-  argv[1] = script_path;
-  argv[2] = "--qualify";
-  argv[3] = NULL;
-  for (index = 0u; index < sizeof case_names / sizeof case_names[0]; index++) {
-    size_t variant_length;
-    memcpy(variant, receipt, (size_t)length + 1u);
-    variant_length = (size_t)length;
-    fault = NULL;
-    replacement = NULL;
-    switch (index) {
-      case 0u:
-        fault = "\"status\":\"qualified\"";
-        replacement = "\"status\":\"unqualified\"";
-        break;
-      case 1u:
-        fault = "\"manifest_sha256\":\"bd38aa1f0248f66a5682366b6deea6247f3d6c4bdd4024195a4bf37a17e2b45a\"";
-        replacement = "\"manifest_sha256\":\"0000000000000000000000000000000000000000000000000000000000000000\"";
-        break;
-      case 2u:
-        fault = lock_path;
-        replacement = missing_lock_path;
-        break;
-      case 3u:
-        fault = NULL;
-        break;
-      case 4u:
-        fault = "\"build_hook_reviewed\":true";
-        replacement = "\"build_hook_reviewed\":false";
-        break;
-      default:
-        fault = "[\"font\",\"framebuffer\",\"graphics\",\"non_cpu_rsp_startup\"]";
-        replacement = "[\"framebuffer\",\"graphics\",\"non_cpu_rsp_startup\"]";
-        break;
-    }
-    if (index == 3u) {
-      char needle[160];
-      char changed[160];
-      count = snprintf(needle, sizeof needle, "\"resolution_sha256\":\"%s\"", lock_sha);
-      if (count <= 0 || (size_t)count >= sizeof needle) goto cleanup;
-      count = snprintf(changed, sizeof changed,
-                       "\"resolution_sha256\":\"0000000000000000000000000000000000000000000000000000000000000000\"");
-      if (count <= 0 || (size_t)count >= sizeof changed ||
-          !replace_test_text(variant, &variant_length, sizeof variant, needle,
-                             changed))
-        goto cleanup;
-    } else if (fault == NULL || replacement == NULL ||
-               !replace_test_text(variant, &variant_length, sizeof variant,
-                                  fault, replacement)) {
-      goto cleanup;
-    }
-    if (!write_file(receipt_path, variant, variant_length)) goto cleanup;
-    (void)unlink(marker_path);
-    output[0] = '\0';
-    result = run_tool("/bin/sh", argv, 3u,
-                      "T64_CPU_DIAGNOSTIC_QUALIFICATION_ROOT", private_root,
-                      output, sizeof output);
-    check(result == 4 && access(marker_path, F_OK) != 0 &&
-              strstr(output, "pre-use qualification refused") != NULL &&
-              strstr(output, reasons[index]) != NULL,
-          case_names[index]);
-  }
-
-cleanup:
-  if (had_cc) (void)setenv("CC", saved_cc, 1);
-  else (void)unsetenv("CC");
-  if (had_marker) (void)setenv("T64_PREUSE_MARKER", saved_marker, 1);
-  else (void)unsetenv("T64_PREUSE_MARKER");
-  if (compiler_path[0] != '\0') (void)unlink(compiler_path);
-  if (receipt_path[0] != '\0') (void)unlink(receipt_path);
-  if (cargo_manifest_path[0] != '\0') (void)unlink(cargo_manifest_path);
-  if (lock_path[0] != '\0') (void)unlink(lock_path);
-  if (crate_path[0] != '\0') (void)unlink(crate_path);
-  if (closure_path[0] != '\0') (void)unlink(closure_path);
-  if (projection_path[0] != '\0') (void)unlink(projection_path);
-  if (overlay_path[0] != '\0') (void)unlink(overlay_path);
-  if (private_root[0] != '\0') (void)rmdir(private_root);
-  free(saved_cc);
-  free(saved_marker);
+  argv[1] = "-c";
+  argv[2] = "exec python3 -B \"$1\" \"$2\"";
+  argv[3] = "t64-qualification-control";
+  argv[4] = control_path;
+  argv[5] = source_root;
+  result = run_tool("/bin/sh", argv, 6u, NULL, NULL, output, sizeof output);
+  check(result == 0 &&
+            strstr(output, "accepted authored compiler and target-tool hash baseline") != NULL &&
+            strstr(output, "registry lock, missing receipt and symlink controls") != NULL &&
+            strstr(output, "all 11 portable qualification-control assertions were reached") != NULL,
+        "portable qualification controls accept the tool baseline and reach every refusal");
 }
 
 static void test_production_adapter(char *executable, char *test_executable,
