@@ -162,6 +162,98 @@ static bool test_vr4300_break_enters_rdram_handler(
   return true;
 }
 
+static bool test_vr4300_instruction_cache_stale_then_invalidated(
+    t64_machine *machine, const uint8_t asset[IPL3_ASSET_BYTES]) {
+  static const uint32_t program[] = {
+      UINT32_C(0x24080001), /* addiu t0,zero,1; backing changes to 2 */
+      UINT32_C(0xac890000), /* sw t1,0(a0): KSEG1 uncached alias */
+      UINT32_C(0x254a0001), /* addiu t2,t2,1 */
+      UINT32_C(0x114bfffc), /* beq t2,t3,first instruction */
+      UINT32_C(0x00000000), /* delay slot */
+      UINT32_C(0xbcb00000), /* CACHE Hit_Invalidate I,0(a1) */
+      UINT32_C(0x08000400), /* j 0x80001000 */
+      UINT32_C(0x00000000), /* delay slot */
+  };
+  const uint32_t virtual_pc = UINT32_C(0x80001000);
+  const uint32_t changed_instruction = UINT32_C(0x24080002);
+  t64_status status = T64_STATUS_OK;
+  size_t index;
+
+  if (machine == NULL || asset == NULL ||
+      t64_machine_admit_rom(machine, asset, IPL3_ASSET_BYTES) !=
+          T64_STATUS_OK) {
+    (void)puts("# I-cache tracer fixture setup failed");
+    return false;
+  }
+  for (index = 0u; index < sizeof program / sizeof program[0]; index++) {
+    write_rdram_instruction(machine, UINT32_C(0x1000) +
+                                        (uint32_t)(index * 4u),
+                            program[index]);
+  }
+  machine->cpu.pc = virtual_pc;
+  machine->cpu.pc_full = t64_cpu_canonical_address(virtual_pc);
+  machine->cpu.gpr[4] = t64_cpu_canonical_address(UINT32_C(0xa0001000));
+  machine->cpu.gpr[9] = (uint64_t)changed_instruction;
+  machine->cpu.gpr[11] = UINT64_C(1);
+  machine->cpu.gpr[13] = t64_cpu_canonical_address(virtual_pc);
+
+  /* Retire the original instruction, uncached guest store, loop counter,
+   * branch, delay slot, and second execution of the now-stale instruction. */
+  for (index = 0u; index < 6u; index++) {
+    status = t64_cpu_step(machine, NULL);
+    if (status != T64_STATUS_OK) {
+      (void)printf("# I-cache tracer stopped before stale assertion at step=%zu "
+                   "status=%u pc=%016llx last_pc=%016llx outcome=%u\n",
+                   index + 1u, (unsigned)status,
+                   (unsigned long long)machine->cpu.pc_full,
+                   (unsigned long long)machine->cpu.last_pc_full,
+                   machine->cpu.attempt_outcome);
+      return false;
+    }
+  }
+  if (machine->cpu.gpr[8] != UINT64_C(1) ||
+      machine->ram[0x1000u] != UINT8_C(0x24) ||
+      machine->ram[0x1001u] != UINT8_C(0x08) ||
+      machine->ram[0x1002u] != UINT8_C(0x00) ||
+      machine->ram[0x1003u] != UINT8_C(0x02)) {
+    (void)printf("# I-cache stale assertion expected gpr8=0000000000000001 "
+                 "backing=24080002; observed gpr8=%016llx "
+                 "backing=%02x%02x%02x%02x last_pc=%016llx "
+                 "outcome=%u\n",
+                 (unsigned long long)machine->cpu.gpr[8],
+                 machine->ram[0x1000u], machine->ram[0x1001u],
+                 machine->ram[0x1002u], machine->ram[0x1003u],
+                 (unsigned long long)machine->cpu.last_pc_full,
+                 machine->cpu.attempt_outcome);
+    return false;
+  }
+
+  for (index = 0u; index < 8u; index++) {
+    status = t64_cpu_step(machine, NULL);
+    if (status != T64_STATUS_OK) {
+      (void)printf("# I-cache invalidation/reload stopped at step=%zu "
+                   "status=%u pc=%016llx last_pc=%016llx outcome=%u\n",
+                   index + 7u, (unsigned)status,
+                   (unsigned long long)machine->cpu.pc_full,
+                   (unsigned long long)machine->cpu.last_pc_full,
+                   machine->cpu.attempt_outcome);
+      return false;
+    }
+  }
+  if (machine->cpu.gpr[8] != UINT64_C(2) ||
+      machine->cpu.last_pc_full != t64_cpu_canonical_address(virtual_pc)) {
+    (void)printf("# I-cache reload expected gpr8=2 from opcode=%08x "
+                 "last_pc=%016llx; observed gpr8=%016llx "
+                 "last_pc=%016llx\n",
+                 changed_instruction,
+                 (unsigned long long)t64_cpu_canonical_address(virtual_pc),
+                 (unsigned long long)machine->cpu.gpr[8],
+                 (unsigned long long)machine->cpu.last_pc_full);
+    return false;
+  }
+  return true;
+}
+
 static bool test_vr4300_tlb_refill_and_retry(
     t64_machine *machine, const uint8_t asset[IPL3_ASSET_BYTES]) {
   const uint32_t load_pc = UINT32_C(0x80001000);
@@ -1597,6 +1689,8 @@ int main(int argc, char **argv) {
        test_cp0_cache_state_is_in_digest},
   };
   static const cpu_test_case vr4300_cases[] = {
+      {"uncached code update stays stale until targeted I-cache invalidation",
+       test_vr4300_instruction_cache_stale_then_invalidated},
       {"new-profile BREAK schedules a nonretiring RDRAM handler",
        test_vr4300_break_enters_rdram_handler},
       {"mapped load miss is repaired by a guest TLBWI handler and retried",
