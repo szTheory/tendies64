@@ -325,6 +325,45 @@ def test_public_manifest_replacement_hashes_match(repo: pathlib.Path, applier: p
     )
 
 
+def test_exception_storm_park_directive_is_exact_and_fail_closed(repo: pathlib.Path, applier: pathlib.Path) -> None:
+    manifest = json.loads((repo / "tests/cpu-diagnostic/overlay.patch").read_text(encoding="utf-8"))
+    edits = [
+        edit for edit in manifest.get("edits", [])
+        if isinstance(edit, dict) and edit.get("path") == "src/exception_handler.rs"
+        and edit.get("offset") == 11179
+    ]
+    assert len(edits) == 1, (
+        "the pinned exception-storm emulator exit must have exactly one guarded overlay edit"
+    )
+    edit = edits[0]
+    assert (
+        edit.get("file_sha256") == "55e323fbc7407930ef6f0caed2fd97de8337002fcfb77a5e029a6f4a73bc47d2"
+        and edit.get("length") == 37
+        and edit.get("range_sha256") == "eeb7ed4517e01dd552c6a5948e01fd609b088f9babf0e10f420bad4f3d452270"
+        and edit.get("replacement_utf8") == ""
+    ), "emulator exit removal is not bound to the exact reviewed byte range or does not preserve the following park"
+    module = load_applier(applier)
+    with tempfile.TemporaryDirectory() as temporary:
+        root = pathlib.Path(temporary) / "checkout"
+        (root / "src").mkdir(parents=True)
+        target = root / "src/exception_handler.rs"
+        source = b"before\n    emux::xioctl_exit();\n    loop {}\nafter\n"
+        target.write_bytes(source)
+        patch = pathlib.Path(temporary) / "overlay.json"
+        write_patch(
+            patch, source, len(b"before\n"), b"    emux::xioctl_exit();\n", b"",
+            target_path="src/exception_handler.rs",
+        )
+        result = subprocess.run(
+            [sys.executable, "-B", str(applier), "--apply", str(root), str(patch)],
+            check=False, text=True, capture_output=True,
+        )
+        assert result.returncode == 0, f"exact authored park edit was refused: {result.stderr.strip()}"
+        assert target.read_bytes() == b"before\n    loop {}\nafter\n", (
+            "exact line removal did not preserve the following fatal park loop"
+        )
+
+
 def test_cpu_profile_bss_guard_addresses(repo: pathlib.Path, applier: pathlib.Path) -> None:
     source = (repo / "tests/cpu-diagnostic/replacements/main.rs").read_text(encoding="utf-8")
     assert "const CPU_PROFILE_RDRAM_BASE: usize = 0xffff_ffff_8000_0000;" in source, (
@@ -957,6 +996,7 @@ def main() -> int:
         ("registration_expression_forms_preserved", test_registration_expression_forms_preserved),
         ("registration_expression_unknown_forms_refused", test_registration_expression_unknown_forms_refused),
         ("public_manifest_replacement_hashes_match", test_public_manifest_replacement_hashes_match),
+        ("exception_storm_park_directive_is_exact_and_fail_closed", test_exception_storm_park_directive_is_exact_and_fail_closed),
         ("cpu_profile_bss_guard_addresses", test_cpu_profile_bss_guard_addresses),
         ("frozen_unit_graph_acceptance_and_refusals", test_frozen_unit_graph_acceptance_and_refusals),
         ("prebuild_private_root_refusals_before_side_effects", test_prebuild_private_root_refusals_before_side_effects),

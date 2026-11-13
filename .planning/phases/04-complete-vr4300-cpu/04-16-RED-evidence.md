@@ -52,3 +52,19 @@ guest. Its detailed report remains in ignored private storage.
 The gate build and focused authored controls passed. The all-target ASan build
 and the three diagnostic CTest controls also passed. No private receipt, ROM,
 capture, inventory, batch, or diagnostic-derived status is included here.
+
+## Exact exception-park overlay manifest-control RED
+
+The self-contained overlay control requires one exact source-file/range-hash
+guarded deletion for the emulator-only exit instruction in the exception-storm
+path. It also applies the production overlay tool to an authored synthetic
+fixture and checks that the following permanent park loop remains. Before the
+overlay directive was added, the named assertion ran and failed because the
+manifest had no matching edit. The unchanged JUnit report was accepted by
+`gsd_run check tdd-red-evidence` as `RED_EVIDENCE_OK`.
+
+This control uses only the public authored manifest, its hash metadata, and a
+synthetic fixture. The raw JUnit, console output, and classifier record remain
+private; no pinned source text, build output, or guest result is included.
+This structural manifest-control RED is not evidence that the CPU startup path
+has run.
