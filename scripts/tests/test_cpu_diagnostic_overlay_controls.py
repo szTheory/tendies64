@@ -260,6 +260,67 @@ def test_later_publish_failure_rolls_back(repo: pathlib.Path, applier: pathlib.P
         assert not leftovers, f"failed transaction left temporary files: {leftovers}"
 
 
+def test_rollback_failure_preserves_recovery_copy(repo: pathlib.Path, applier: pathlib.Path) -> None:
+    spec = importlib.util.spec_from_file_location("t64_cpu_overlay_under_test", applier)
+    assert spec is not None and spec.loader is not None, "could not load production overlay module"
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    with tempfile.TemporaryDirectory() as temporary:
+        root = pathlib.Path(temporary) / "checkout"
+        (root / "src").mkdir(parents=True)
+        first = b"first old\n"
+        second = b"second old\n"
+        first_path = root / "src/first.rs"
+        second_path = root / "src/second.rs"
+        first_path.write_bytes(first)
+        second_path.write_bytes(second)
+        first_path.chmod(0o640)
+        second_path.chmod(0o600)
+        patch = pathlib.Path(temporary) / "overlay.json"
+        write_document(patch, [
+            {"path": "src/first.rs", "file_sha256": sha256(first), "offset": 6,
+             "length": 3, "range_sha256": sha256(b"old"), "replacement_utf8": "new"},
+            {"path": "src/second.rs", "file_sha256": sha256(second), "offset": 7,
+             "length": 3, "range_sha256": sha256(b"old"), "replacement_utf8": "new"},
+        ])
+        calls = 0
+
+        def fail_publish_and_rollback(source_path: pathlib.Path, target_path: pathlib.Path) -> None:
+            nonlocal calls
+            calls += 1
+            if calls == 2:
+                raise OSError("injected later-file publish failure")
+            if calls == 3:
+                raise OSError("injected rollback failure")
+            os.replace(source_path, target_path)
+
+        try:
+            module.apply_overlay(root, patch, replace_operation=fail_publish_and_rollback)
+        except ValueError as error:
+            assert "rollback was incomplete" in str(error), (
+                f"double failure was not reported as an incomplete rollback: {error}"
+            )
+            failure_message = str(error)
+        else:
+            raise AssertionError("injected publication and rollback failures were accepted")
+        assert calls == 3, f"expected two publish failures and one rollback attempt, observed {calls} operations"
+        recovery_copies = list((root / "src").glob(".cpu-overlay-recovery.*"))
+        assert len(recovery_copies) == 1, (
+            "rollback recovery copy was not retained after the restore failed; "
+            f"observed {len(recovery_copies)} recovery copies"
+        )
+        recovery_copy = recovery_copies[0]
+        assert recovery_copy.read_bytes() == first, "retained recovery copy does not contain the original bytes"
+        assert recovery_copy.stat().st_mode & 0o777 == 0o640, "retained recovery copy lost original mode"
+        assert recovery_copy.name in failure_message, "incomplete-rollback error omitted the recovery filename"
+        assert first_path.read_bytes() == b"first new\n" and second_path.read_bytes() == second, (
+            "double-failure control did not reach the expected patched/original target state"
+        )
+        assert first_path.stat().st_mode & 0o777 == 0o640, "failed rollback changed the target mode"
+        leftovers = list((root / "src").glob(".cpu-overlay.*"))
+        assert not leftovers, f"failed transaction left disposable staging files: {leftovers}"
+
+
 def main() -> int:
     repository = pathlib.Path(__file__).resolve().parents[2]
     applier = repository / "scripts/apply-cpu-diagnostic-overlay.py"
@@ -272,6 +333,7 @@ def main() -> int:
         ("git_metadata_target_refused", test_git_metadata_target_refused),
         ("schema_version_types_refused", test_schema_version_types_refused),
         ("later_publish_failure_rolls_back", test_later_publish_failure_rolls_back),
+        ("rollback_failure_preserves_recovery_copy", test_rollback_failure_preserves_recovery_copy),
     ]
     suite = ET.Element("testsuite", name="cpu-diagnostic-overlay", tests=str(len(cases)),
                        failures="0", errors="0")

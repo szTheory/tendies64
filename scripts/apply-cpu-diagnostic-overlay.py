@@ -300,9 +300,11 @@ def apply_overlay(
         rollback_errors: list[str] = []
         for path, original, mode in reversed(replaced):
             backup_path: pathlib.Path | None = None
+            recovery_ready = False
+            preserve_recovery = False
             try:
                 descriptor, backup_name = tempfile.mkstemp(
-                    prefix=".cpu-overlay-rollback.", dir=path.parent
+                    prefix=".cpu-overlay-recovery.", dir=path.parent
                 )
                 backup_path = pathlib.Path(backup_name)
                 with os.fdopen(descriptor, "wb") as stream:
@@ -310,11 +312,22 @@ def apply_overlay(
                     stream.flush()
                     os.fsync(stream.fileno())
                 backup_path.chmod(mode)
+                recovery_ready = True
                 replace_operation(backup_path, path)
             except OSError as rollback_error:
-                rollback_errors.append(f"{path}: {rollback_error}")
+                if recovery_ready and backup_path is not None and backup_path.exists():
+                    preserve_recovery = True
+                    rollback_errors.append(
+                        f"{path}: {rollback_error}; original recovery copy retained at {backup_path}"
+                    )
+                else:
+                    rollback_errors.append(f"{path}: {rollback_error}")
             finally:
-                if backup_path is not None and backup_path.exists():
+                if (
+                    backup_path is not None
+                    and backup_path.exists()
+                    and not preserve_recovery
+                ):
                     backup_path.unlink()
         if rollback_errors:
             raise ValueError(
