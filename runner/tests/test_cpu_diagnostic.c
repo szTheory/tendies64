@@ -893,7 +893,8 @@ static void test_guest_record_case(const char *production_executable,
                                    const char *ticks,
                                    const char *classification,
                                    const char *status_text, int expected_exit,
-                                   bool replace_source) {
+                                   bool replace_source, bool non_nop_park,
+                                   bool unreached_park) {
   uint8_t *rom = NULL;
   size_t rom_length = 0u;
   char inventory[8192];
@@ -915,6 +916,17 @@ static void test_guest_record_case(const char *production_executable,
     /* A known model refusal after one retirement distinguishes the refused
        instruction from the preceding retired entry instruction. */
     put_be32(rom + IMAGE_PAYLOAD_OFFSET + 4u, UINT32_C(0x0000001b));
+  }
+  if (built && non_nop_park) {
+    /* A harmless register mutation in the branch delay slot must prevent the
+       authenticated jump/NOP early exit, even with a complete transcript. */
+    put_be32(rom + IMAGE_PAYLOAD_OFFSET + 36u, UINT32_C(0x254a0001));
+  }
+  if (built && unreached_park) {
+    /* Complete output without the qualified terminal loop stays incomplete. */
+    put_be32(rom + IMAGE_PAYLOAD_OFFSET + 32u, UINT32_C(0x0800010a));
+    put_be32(rom + IMAGE_PAYLOAD_OFFSET + 40u, UINT32_C(0x0800010a));
+    put_be32(rom + IMAGE_PAYLOAD_OFFSET + 44u, 0u);
   }
   built = built && build_inventory(rom, rom_length, inventory, sizeof inventory);
   check(built, "build actual guest record control ROM and canonical inventory");
@@ -967,6 +979,17 @@ static void test_guest_record_case(const char *production_executable,
   check(result == expected_exit && strstr(output, classification) != NULL &&
             (status_text == NULL || strstr(output, status_text) != NULL),
         "actual adapter preserves the guest record control classification");
+  if (expected_exit == 0 || expected_exit == 2) {
+    const char *tick = strstr(output, "tick=");
+    unsigned long long observed = tick == NULL ? UINT64_MAX : strtoull(tick + 5u, NULL, 10);
+    unsigned long long bound = strtoull(ticks, NULL, 10);
+    if (tick == NULL || (non_nop_park ? observed != bound : observed >= bound))
+      (void)fprintf(stderr, "completion control observed=%llu bound=%llu non_nop=%u output=%s\n",
+                    observed, bound, non_nop_park ? 1u : 0u, output);
+    check(tick != NULL && (non_nop_park ? observed == bound : observed < bound),
+          non_nop_park ? "non-NOP park delay keeps the bounded execution path" :
+                         "authenticated completed park stops before the upper tick bound");
+  }
   if (expected_exit == 3) {
     check(strstr(output, "entry=") != NULL &&
               strstr(output, "park=") != NULL &&
@@ -1023,23 +1046,29 @@ static void test_guest_record_controls(const char *production_executable,
   }
   memset(overflow_output, 'A', 4097u);
   overflow_output[4097] = '\0';
+  test_guest_record_case(production_executable, test_executable, guest_fail,
+                         0u, "600000", "classification=fail",
+                         NULL, 2, false, true, false);
+  test_guest_record_case(production_executable, test_executable, guest_fail,
+                         0u, "600000", "classification=incomplete",
+                         "status=incomplete", 3, false, false, true);
   test_guest_record_case(production_executable, test_executable, missing_done,
                          0u, "600000", "classification=incomplete",
-                         "status=incomplete", 3, false);
+                         "status=incomplete", 3, false, false, false);
   test_guest_record_case(production_executable, test_executable, NULL,
                          0u, "600000", "classification=incomplete",
-                         "status=incomplete", 3, false);
+                         "status=incomplete", 3, false, false, false);
   test_guest_record_case(production_executable, test_executable,
                          wrong_registration, 0u, "600000",
                          "classification=harness-error",
-                         "status=identity-mismatch", 4, false);
+                         "status=identity-mismatch", 4, false, false, false);
   test_guest_record_case(production_executable, test_executable, guest_fail,
                          0u, "600000", "classification=fail", NULL, 2,
-                         false);
+                         false, false, false);
   test_guest_record_case(production_executable, test_executable,
                          overflow_output, 0u, "1000000",
                          "classification=harness-error", "status=size-limit",
-                         4, false);
+                         4, false, false, false);
   test_guest_record_case(production_executable, test_executable,
                          "{\"records\":[{\"event\":\"start\","
                          "\"registration_index\":0,\"value_index\":0},"
@@ -1048,7 +1077,7 @@ static void test_guest_record_controls(const char *production_executable,
                          "\"record_count\":\"3\"}],\"schema\":"
                          "\"t64.cpu-run\",\"schema_version\":1}\n",
                          0u, "600000", "classification=pass", NULL, 0,
-                         true);
+                         true, false, false);
 #if !T64_CPU_DIAG_SANITIZED_TEST
   test_guest_record_case(
       production_executable, test_executable,
@@ -1058,7 +1087,7 @@ static void test_guest_record_controls(const char *production_executable,
       "{\"complete\":true,\"event\":\"done\","
       "\"record_count\":\"3\"}],\"schema\":"
       "\"t64.cpu-run\",\"schema_version\":1}\n",
-      0x00100004u, "10000000", "classification=pass", NULL, 0, false);
+      0x00100004u, "10000000", "classification=pass", NULL, 0, false, false, false);
 #endif
   free(overflow_output);
 }
@@ -1408,6 +1437,13 @@ static void test_production_adapter(char *executable, char *test_executable,
   local_refusal_argv[5] = size_text;
   local_refusal_argv[6] = hash_text;
   local_refusal_argv[10] = batch_path;
+  (void)unlink(batch_path);
+  result = run_tool(executable, local_refusal_argv, 11u, NULL, NULL,
+                    tool_output, sizeof tool_output);
+  check(result == 4 &&
+            strstr(tool_output, "status=core-build-identity-mismatch") != NULL &&
+            access(batch_path, F_OK) != 0,
+        "local adapter refuses an inventory bound to a different core build");
   result = run_tool(executable, local_refusal_argv, 11u, "CI", "true",
                     tool_output, sizeof tool_output);
   check(result == 4 && strstr(tool_output, "local-only-refused") != NULL,
@@ -1446,12 +1482,62 @@ cleanup:
     if (batch_paths[i][0] != '\0') unlink(batch_paths[i]);
 }
 
+static void test_cpu_diagnostic_run_controls(const char *executable,
+                                            const char *source_root) {
+  char control_path[4096] = {0};
+  char build_control_path[4096] = {0};
+  char output[8192] = {0};
+  char build_output[8192] = {0};
+  const char *argv[7];
+  const char *build_argv[5];
+  int count = snprintf(control_path, sizeof control_path,
+                       "%s/scripts/tests/test_cpu_diagnostic_run_controls.py",
+                       source_root);
+  int build_count = snprintf(
+      build_control_path, sizeof build_control_path,
+      "%s/scripts/tests/test_cpu_diagnostic_build_controls.py", source_root);
+  int result;
+  if (count <= 0 || (size_t)count >= sizeof control_path) {
+    check(false, "construct portable CPU run-control path");
+    return;
+  }
+  if (build_count <= 0 || (size_t)build_count >= sizeof build_control_path) {
+    check(false, "construct portable CPU build-control path");
+    return;
+  }
+  build_argv[0] = "/bin/sh";
+  build_argv[1] = "-c";
+  build_argv[2] = "exec python3 -B \"$1\"";
+  build_argv[3] = "t64-cpu-build-controls";
+  build_argv[4] = build_control_path;
+  result = run_tool("/bin/sh", build_argv, 5u, NULL, NULL, build_output,
+                    sizeof build_output);
+  check(result == 0 && strstr(build_output, "Ran 19 tests") != NULL &&
+            strstr(build_output, "OK") != NULL,
+        "existing private CPU build and composition controls run under runner cpu diagnostic");
+  argv[0] = "/bin/sh";
+  argv[1] = "-c";
+  argv[2] = "exec python3 -B \"$1\" --controls \"$2\" \"$3\"";
+  argv[3] = "t64-cpu-run-controls";
+  argv[4] = control_path;
+  argv[5] = source_root;
+  argv[6] = executable;
+  result = run_tool("/bin/sh", argv, 7u, NULL, NULL, output, sizeof output);
+  if (result != 0 || strstr(output, "Ran 11 tests") == NULL ||
+      strstr(output, "all 11 authored CPU batch-control assertions passed") == NULL)
+    (void)fprintf(stderr, "CPU batch controls exit=%d output=%s\n", result, output);
+  check(result == 0 && strstr(output, "Ran 11 tests") != NULL &&
+            strstr(output, "all 11 authored CPU batch-control assertions passed") != NULL,
+        "production CLI controls verify sealed adapter identity and batch classifications");
+}
+
 int main(int argc, char **argv) {
   test_cpu_profile_authored_guest();
   test_cpu_profile_exact_image_limit();
   test_cpu_profile_malformed_flat_images();
   if (argc == 4) {
     test_build_script_preuse_refusal(argv[3]);
+    test_cpu_diagnostic_run_controls(argv[1], argv[3]);
     test_production_adapter(argv[1], argv[2], argv[3]);
   }
   else check(false, "production and replacement-control executable paths");

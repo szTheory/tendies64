@@ -30,6 +30,35 @@ Plan 16 also owns source, tool, asset, and rights qualification. This public
 protocol and its controls use authored-only data. External diagnostic inputs,
 ROMs, captures, receipts, and derived results remain local and private.
 
+## Qualified production adapter binding
+
+The private `t64.cpu-qualified-build` v1 seal includes an `adapter` object with
+exactly `path` and `sha256`. The path is the canonical repository-relative
+`build/gate/runner/t64-cpu-diagnostic`; the digest is computed from that
+executable after the qualified build. A seal without this binding is refused
+and cannot be upgraded by selecting a different command-line adapter.
+
+Before trusting runtime identity, inventory validation, guest execution, or
+aggregation, the runner verifies the sealed path is the expected regular
+executable, contains no symlink component, and hashes to the sealed digest.
+It repeats that check after adapter subprocesses. Each private batch-run
+manifest and current-run pointer records the same adapter path and digest, so
+later verification cannot bind old transcripts to a newly selected binary.
+The adapter's self-reported core/profile identity is checked only after this
+file binding; matching identity JSON from another executable cannot establish
+the production adapter's identity or classify a batch set.
+
+The source overlay uses MFC0 for the exception handler's EntryLo0/1 snapshots.
+These registers have only 26 implemented bits in the selected profile, so
+MFC0's sign extension preserves their complete modeled values when stored in
+the existing 64-bit snapshot fields. DMFC0 on a 32-bit CP0 register is
+manual-undefined and remains model-unsupported; see the
+[CP0 transfer contract](cpu-cp0.md). This adaptation changes only the two
+handler snapshot mnemonics through source-file and byte-range digest guards.
+Required test instructions, assertions, membership, and the core policy are
+unchanged. A direct test of an unsupported operation still cannot produce a
+completed diagnostic result.
+
 ## `t64.cpu-inventory` v3
 
 The root has exactly `declared_counts`, `identity`, `registrations`, `schema`,
@@ -149,3 +178,21 @@ that may require unsigned 64-bit range are decimal strings; bounded array
 indices use integers. Batch identity and the exact inventory digest are
 validated before a member enters the aggregate. Invalid or duplicate batches
 poison that aggregate, so ignoring an error cannot leave it complete.
+
+The guest tick limit is an upper bound. The adapter may finish earlier after
+the shared parser accepts the complete identity-matched guest transcript and
+the retirement trace shows two consecutive cycles of the fixed park jump and
+its NOP delay slot. Any intervening instruction resets that observation.
+Entry must have retired, and capture accounting must be exact with no lost
+bytes. A park marker alone, a non-NOP delay slot, or an incomplete transcript
+does not enable early completion. The guest, wall, capture, and advance limits
+are unchanged.
+
+Reaching the tick bound before entry or the qualified park is `incomplete`.
+This also applies when a complete transcript was captured without the park;
+the adapter writes no authenticated batch. Capture loss and invalid accounting
+are harness errors. After entry and park, a malformed transcript is also a
+harness error. The
+batch runner records incomplete members and can continue with the next fresh
+machine, while whole-inventory completion still requires every required
+member's authenticated pass/fail result.

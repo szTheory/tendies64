@@ -1,6 +1,7 @@
 #define _POSIX_C_SOURCE 200809L
 
 #include <errno.h>
+#include <dirent.h>
 #include <fcntl.h>
 #include <limits.h>
 #include <poll.h>
@@ -17,6 +18,7 @@
 #include <unistd.h>
 
 #include "t64_cpu_diag_protocol.h"
+#include "t64_jsonw.h"
 #include "t64_sha256.h"
 #include "t64_verified_input.h"
 #include "tendies64/t64_machine.h"
@@ -38,6 +40,7 @@
 #define CPU_PARK_OPCODE UINT32_C(0x08000108)
 #define CPU_CAPTURE_CAPACITY 4096u
 #define CPU_FILE_PATH_CAPACITY 4096u
+#define CPU_GROUP_REPORT_LIMIT (64u * 1024u * 1024u)
 
 typedef struct {
   uint32_t outcome;
@@ -379,7 +382,8 @@ static bool read_owned_snapshot(int fd, size_t exact_size,
   return true;
 }
 
-static bool drain_guest_observers(t64_machine *machine, child_report *report) {
+static bool drain_guest_observers(t64_machine *machine, child_report *report,
+                                  uint32_t *park_sequence) {
   t64_trace_record trace[T64_TRACE_RECORD_CAPACITY];
   size_t count = 0u;
   uint64_t dropped = 0u;
@@ -411,6 +415,16 @@ static bool drain_guest_observers(t64_machine *machine, child_report *report) {
     if (pc == UINT32_C(0x80000400)) report->saw_entry = 1u;
     if (pc == CPU_PARK_PC && opcode == CPU_PARK_OPCODE)
       report->saw_park = 1u;
+    if (pc == CPU_PARK_PC && opcode == CPU_PARK_OPCODE) {
+      *park_sequence = *park_sequence >= 4u ? 5u :
+                         *park_sequence == 2u ? 3u : 1u;
+    } else if (pc == CPU_PARK_PC + 4u && opcode == 0u &&
+               (*park_sequence == 1u || *park_sequence == 3u ||
+                *park_sequence == 5u)) {
+      *park_sequence = *park_sequence == 5u ? 6u : *park_sequence + 1u;
+    } else {
+      *park_sequence = 0u;
+    }
   }
   if (report->capture_length > CPU_CAPTURE_CAPACITY) return false;
   if (t64_machine_output_drain(machine,
@@ -449,6 +463,7 @@ static void execute_guest(int snapshot_fd, size_t rom_size,
   uint8_t *rom = NULL;
   uint64_t current_tick = 0u;
   uint32_t resource_yields = 0u;
+  uint32_t park_sequence = 0u;
   uint64_t previous_resource_tick = UINT64_MAX;
   t64_status status;
   t64_cpu_diag_guest_result guest_result;
@@ -491,7 +506,8 @@ static void execute_guest(int snapshot_fd, size_t rom_size,
     status = t64_machine_advance(
         machine, &(t64_stop_request){T64_STOP_GUEST_TICK, target}, &stop);
     if (status != T64_STATUS_OK || stop.tick < current_tick ||
-        stop.tick > target || !drain_guest_observers(machine, report)) {
+        stop.tick > target ||
+        !drain_guest_observers(machine, report, &park_sequence)) {
       if (report->harness_error == 0u) {
         report->protocol_status = T64_CPU_DIAG_INVALID_BATCH;
         report->harness_error = 7u;
@@ -517,16 +533,30 @@ static void execute_guest(int snapshot_fd, size_t rom_size,
       goto cleanup;
     resource_yields = 0u;
     previous_resource_tick = UINT64_MAX;
+    /* Completion is the validated guest record plus two observed jump/NOP
+       cycles. The tick limit is an upper bound, not work after completion. */
+    if (park_sequence >= 4u && report->saw_entry != 0u &&
+        report->output_total == report->capture_length &&
+        report->output_exact != 0u && report->output_lost == 0u &&
+        t64_cpu_diag_guest_transcript_parse(
+            report->capture, report->capture_length, registration_index,
+            value_index, &guest_result) == T64_CPU_DIAG_OK) {
+      report->protocol_status = T64_CPU_DIAG_OK;
+      report->outcome = (uint32_t)guest_result.outcome;
+      goto cleanup;
+    }
   }
   report->reached_bound = 1u;
-  if (report->saw_entry == 0u || report->saw_park == 0u ||
-      report->output_total != report->capture_length ||
+  if (report->output_total != report->capture_length ||
       report->output_exact == 0u || report->output_lost != 0u) {
     report->protocol_status = T64_CPU_DIAG_INVALID_BATCH;
-    report->harness_error = report->saw_entry == 0u ? 8u :
-                            report->saw_park == 0u ? 9u :
-                            report->output_total != report->capture_length ? 10u :
+    report->harness_error = report->output_total != report->capture_length ? 10u :
                             11u;
+    goto cleanup;
+  }
+  if (report->saw_entry == 0u || report->saw_park == 0u) {
+    report->protocol_status = T64_CPU_DIAG_INCOMPLETE;
+    report->outcome = T64_CPU_DIAG_OUTCOME_INCOMPLETE;
     goto cleanup;
   }
   transcript_status = t64_cpu_diag_guest_transcript_parse(
@@ -751,6 +781,304 @@ static int command_aggregate(int argc, char **argv) {
   return 0;
 }
 
+static bool path_has_symlink_component(const char *path) {
+  char absolute_path[CPU_FILE_PATH_CAPACITY];
+  char cursor[CPU_FILE_PATH_CAPACITY];
+  char *scan;
+  size_t length;
+  struct stat info;
+  if (path == NULL || path[0] == '\0' || strlen(path) >= sizeof absolute_path)
+    return false;
+  if (path[0] == '/') {
+    memcpy(absolute_path, path, strlen(path) + 1u);
+  } else {
+    char working_directory[CPU_FILE_PATH_CAPACITY];
+    int count;
+    if (getcwd(working_directory, sizeof working_directory) == NULL) return false;
+    count = snprintf(absolute_path, sizeof absolute_path, "%s/%s",
+                     working_directory, path);
+    if (count <= 0 || (size_t)count >= sizeof absolute_path) return false;
+  }
+  length = strlen(absolute_path);
+  if (length == 0u || absolute_path[0] != '/') return false;
+  cursor[0] = '/';
+  cursor[1] = '\0';
+  scan = absolute_path + 1;
+  while (*scan != '\0') {
+    char *end = strchr(scan, '/');
+    size_t component_length = end == NULL ? strlen(scan) : (size_t)(end - scan);
+    size_t current_length = strlen(cursor);
+    if (component_length == 0u) {
+      scan = end == NULL ? scan + strlen(scan) : end + 1;
+      continue;
+    }
+    if ((component_length == 1u && scan[0] == '.') ||
+        (component_length == 2u && scan[0] == '.' && scan[1] == '.') ||
+        current_length + component_length + 2u > sizeof cursor) return false;
+    if (current_length > 1u) cursor[current_length++] = '/';
+    memcpy(cursor + current_length, scan, component_length);
+    cursor[current_length + component_length] = '\0';
+    if (lstat(cursor, &info) != 0 || S_ISLNK(info.st_mode)) return false;
+    scan = end == NULL ? scan + component_length : end + 1;
+  }
+  return true;
+}
+
+static bool private_batch_directory(const char *path, char *resolved,
+                                    size_t capacity) {
+  char probe[CPU_FILE_PATH_CAPACITY];
+  char checked_probe[CPU_FILE_PATH_CAPACITY];
+  char canonical_directory[CPU_FILE_PATH_CAPACITY];
+  struct stat info;
+  int length;
+  if (path == NULL || strlen(path) >= CPU_FILE_PATH_CAPACITY - 24u ||
+      !path_has_symlink_component(path) || realpath(path, canonical_directory) == NULL ||
+      stat(canonical_directory, &info) != 0 || !S_ISDIR(info.st_mode) ||
+      info.st_uid != geteuid() || (info.st_mode & (S_IWGRP | S_IWOTH)) != 0)
+    return false;
+  length = snprintf(probe, sizeof probe, "%s/.t64-private-probe", path);
+  if (length <= 0 || (size_t)length >= sizeof probe ||
+      !private_batch_path(probe, checked_probe, sizeof checked_probe))
+    return false;
+  length = snprintf(resolved, capacity, "%s", canonical_directory);
+  return length > 0 && (size_t)length < capacity;
+}
+
+static const char *group_status_name(t64_cpu_diag_group_status status) {
+  switch (status) {
+    case T64_CPU_DIAG_GROUP_PASS: return "pass";
+    case T64_CPU_DIAG_GROUP_FAIL: return "fail";
+    case T64_CPU_DIAG_GROUP_INCOMPLETE: return "incomplete";
+  }
+  return "incomplete";
+}
+
+static int command_aggregate_json(int argc, char **argv) {
+  t64_cpu_diag_inventory *inventory = NULL;
+  t64_cpu_diag_aggregate *aggregate = NULL;
+  t64_jsonw writer;
+  t64_cpu_diag_identity identity;
+  char batch_directory[CPU_FILE_PATH_CAPACITY];
+  char *report_bytes = NULL;
+  size_t report_length = 0u;
+  DIR *directory = NULL;
+  struct dirent *entry;
+  size_t batch_count = 0u;
+  size_t member_count;
+  size_t i;
+  bool complete;
+  t64_cpu_diag_status status;
+  int result = 4;
+  if (argc != 4 || !local_execution_allowed() ||
+      !parse_inventory_file(argv[2], &inventory) ||
+      !t64_cpu_diag_inventory_identity(inventory, &identity) ||
+      !private_batch_directory(argv[3], batch_directory, sizeof batch_directory) ||
+      t64_cpu_diag_aggregate_create(inventory, &aggregate) != T64_CPU_DIAG_OK) {
+    (void)puts("classification=harness-error status=aggregate-json-refused");
+    goto cleanup;
+  }
+  report_bytes = (char *)malloc(CPU_GROUP_REPORT_LIMIT);
+  if (report_bytes == NULL) {
+    (void)puts("classification=harness-error status=group-report-allocation-failed");
+    goto cleanup;
+  }
+  t64_jsonw_init(&writer, report_bytes, CPU_GROUP_REPORT_LIMIT);
+  directory = opendir(batch_directory);
+  if (directory == NULL) {
+    (void)puts("classification=harness-error status=batch-directory-unreadable");
+    goto cleanup;
+  }
+  while ((entry = readdir(directory)) != NULL) {
+    char path[CPU_FILE_PATH_CAPACITY];
+    struct stat info;
+    uint8_t *bytes = NULL;
+    size_t length = 0u;
+    int count;
+    if (strcmp(entry->d_name, ".") == 0 || strcmp(entry->d_name, "..") == 0)
+      continue;
+    if (++batch_count > T64_CPU_DIAG_MAX_ROWS ||
+        strchr(entry->d_name, '/') != NULL ||
+        strcmp(entry->d_name, ".t64-private-probe") == 0) {
+      (void)puts("classification=harness-error status=batch-directory-invalid");
+      goto cleanup;
+    }
+    count = snprintf(path, sizeof path, "%s/%s", batch_directory,
+                     entry->d_name);
+    if (count <= 0 || (size_t)count >= sizeof path || lstat(path, &info) != 0 ||
+        !S_ISREG(info.st_mode) || S_ISLNK(info.st_mode) ||
+        !read_bounded_file(path, T64_CPU_DIAG_MAX_BATCH_BYTES, &bytes, &length)) {
+      free(bytes);
+      (void)puts("classification=harness-error status=batch-file-refused");
+      goto cleanup;
+    }
+    status = t64_cpu_diag_aggregate_add_batch(aggregate, bytes, length);
+    free(bytes);
+    if (status != T64_CPU_DIAG_OK) {
+      (void)printf("classification=harness-error status=%s\n",
+                   t64_cpu_diag_status_name(status));
+      goto cleanup;
+    }
+  }
+  if (closedir(directory) != 0) {
+    directory = NULL;
+    (void)puts("classification=harness-error status=batch-directory-close-failed");
+    goto cleanup;
+  }
+  directory = NULL;
+  complete = t64_cpu_diag_aggregate_is_complete(aggregate);
+  member_count = t64_cpu_diag_aggregate_member_count(aggregate);
+#define WKEY(key) t64_jsonw_key(&writer, key, sizeof(key) - 1u)
+#define WSTR(value) t64_jsonw_string(&writer, value, strlen(value))
+#define WINT(value) t64_jsonw_int(&writer, (int64_t)(value))
+#define WBOOL(value) t64_jsonw_bool(&writer, (value) ? 1 : 0)
+#define WREQUIRE(expression)                                                   \
+  do {                                                                         \
+    if ((expression) != T64_JSONW_OK) goto report_error;                       \
+  } while (0)
+  WREQUIRE(t64_jsonw_begin_object(&writer));
+  WREQUIRE(WKEY("classification"));
+  WREQUIRE(WSTR(complete ? "complete" : "incomplete"));
+  WREQUIRE(WKEY("groups"));
+  WREQUIRE(t64_jsonw_begin_array(&writer));
+  for (i = 0u; i < t64_cpu_diag_required_group_count(); i++) {
+    t64_cpu_diag_group_status group_status;
+    size_t expected = 0u, reached = 0u, passed = 0u, failed = 0u;
+    if (t64_cpu_diag_aggregate_group(
+            aggregate, t64_cpu_diag_required_group_name(i), &group_status,
+            &expected, &reached, &passed, &failed) != T64_CPU_DIAG_OK) {
+      goto report_error;
+    }
+    WREQUIRE(t64_jsonw_begin_object(&writer));
+    WREQUIRE(WKEY("expected")); WREQUIRE(WINT(expected));
+    WREQUIRE(WKEY("failed")); WREQUIRE(WINT(failed));
+    WREQUIRE(WKEY("group"));
+    WREQUIRE(WSTR(t64_cpu_diag_required_group_name(i)));
+    WREQUIRE(WKEY("passed")); WREQUIRE(WINT(passed));
+    WREQUIRE(WKEY("reached")); WREQUIRE(WINT(reached));
+    WREQUIRE(WKEY("status")); WREQUIRE(WSTR(group_status_name(group_status)));
+    WREQUIRE(t64_jsonw_end_object(&writer));
+  }
+  WREQUIRE(t64_jsonw_end_array(&writer));
+  WREQUIRE(WKEY("identity"));
+  WREQUIRE(t64_jsonw_begin_object(&writer));
+  WREQUIRE(WKEY("base_rom_sha256")); WREQUIRE(WSTR(identity.base_rom_sha256));
+  WREQUIRE(WKEY("core_build_sha256")); WREQUIRE(WSTR(identity.core_build_sha256));
+  WREQUIRE(WKEY("overlay_sha256")); WREQUIRE(WSTR(identity.overlay_sha256));
+  WREQUIRE(WKEY("profile_sha256")); WREQUIRE(WSTR(identity.profile_sha256));
+  WREQUIRE(WKEY("source_revision")); WREQUIRE(WSTR(identity.source_revision));
+  WREQUIRE(WKEY("tool_receipt_sha256")); WREQUIRE(WSTR(identity.tool_receipt_sha256));
+  WREQUIRE(t64_jsonw_end_object(&writer));
+  WREQUIRE(WKEY("inventory_sha256"));
+  WREQUIRE(WSTR(t64_cpu_diag_inventory_sha256(inventory)));
+  WREQUIRE(WKEY("members"));
+  WREQUIRE(t64_jsonw_begin_array(&writer));
+  for (i = 0u; i < member_count; i++) {
+    t64_cpu_diag_member_result member;
+    t64_cpu_diag_member_binding binding;
+    if (!t64_cpu_diag_aggregate_member_at(aggregate, i, &member) ||
+        !t64_cpu_diag_inventory_member_binding(
+            inventory, member.registration_index, member.value_index, &binding)) {
+      goto report_error;
+    }
+    WREQUIRE(t64_jsonw_begin_object(&writer));
+    WREQUIRE(WKEY("group")); WREQUIRE(WSTR(member.group));
+    WREQUIRE(WKEY("has_outcome")); WREQUIRE(WBOOL(member.has_outcome));
+    WREQUIRE(WKEY("outcome"));
+    WREQUIRE(WSTR(t64_cpu_diag_outcome_name(member.outcome)));
+    WREQUIRE(WKEY("registration_index"));
+    WREQUIRE(WINT(member.registration_index));
+    WREQUIRE(WKEY("registration_name"));
+    WREQUIRE(WSTR(member.registration_name));
+    WREQUIRE(WKEY("selected_rom_sha256"));
+    WREQUIRE(WSTR(binding.selected_rom_sha256));
+    WREQUIRE(WKEY("selector")); WREQUIRE(WSTR(binding.selector));
+    WREQUIRE(WKEY("value_id")); WREQUIRE(WSTR(member.value_id));
+    WREQUIRE(WKEY("value_index")); WREQUIRE(WINT(member.value_index));
+    WREQUIRE(t64_jsonw_end_object(&writer));
+  }
+  WREQUIRE(t64_jsonw_end_array(&writer));
+  WREQUIRE(WKEY("schema")); WREQUIRE(WSTR("t64.cpu-group-status"));
+  WREQUIRE(WKEY("schema_version")); WREQUIRE(WINT(1));
+  WREQUIRE(t64_jsonw_end_object(&writer));
+  WREQUIRE(t64_jsonw_finish(&writer, &report_length));
+#undef WKEY
+#undef WSTR
+#undef WINT
+#undef WBOOL
+#undef WREQUIRE
+  if (!write_all(STDOUT_FILENO, report_bytes, report_length)) {
+    (void)puts("classification=harness-error status=group-report-failed");
+    goto cleanup;
+  }
+  result = complete ? 0 : 3;
+  goto cleanup;
+report_error:
+  (void)puts("classification=harness-error status=group-report-failed");
+cleanup:
+  if (directory != NULL) (void)closedir(directory);
+  free(report_bytes);
+  t64_cpu_diag_aggregate_destroy(aggregate);
+  t64_cpu_diag_inventory_destroy(inventory);
+  return result;
+}
+
+static bool valid_lower_hex(const char *text, size_t length) {
+  size_t i;
+  if (text == NULL || strlen(text) != length) return false;
+  for (i = 0u; i < length; i++) {
+    if (!((text[i] >= '0' && text[i] <= '9') ||
+          (text[i] >= 'a' && text[i] <= 'f'))) return false;
+  }
+  return true;
+}
+
+static int command_runtime_identity_json(void) {
+  static const char build_prefix[] = "t64-build-v1-";
+  const char *build_identity = t64_build_identity();
+  const char *source_revision = t64_source_revision();
+  const t64_profile_descriptor *profile = NULL;
+  uint8_t profile_digest[T64_SHA256_DIGEST_SIZE];
+  char profile_hex[T64_SHA256_HEX_SIZE];
+  char report[512];
+  size_t report_length = 0u;
+  t64_jsonw writer;
+  if (build_identity == NULL ||
+      strncmp(build_identity, build_prefix, sizeof build_prefix - 1u) != 0 ||
+      !valid_lower_hex(build_identity + sizeof build_prefix - 1u, 64u) ||
+      source_revision == NULL || !valid_lower_hex(source_revision, 40u) ||
+      t64_profile_lookup(CPU_PROFILE_ID, &profile) != T64_STATUS_OK ||
+      profile == NULL || t64_profile_hash(profile, profile_digest) != T64_STATUS_OK) {
+    (void)puts("classification=harness-error status=runtime-identity-unavailable");
+    return 4;
+  }
+  t64_sha256_hex(profile_digest, profile_hex);
+  t64_jsonw_init(&writer, report, sizeof report);
+#define WKEY(key) t64_jsonw_key(&writer, key, sizeof(key) - 1u)
+#define WSTR(value) t64_jsonw_string(&writer, value, strlen(value))
+#define WREQUIRE(expression)                                                   \
+  do {                                                                         \
+    if ((expression) != T64_JSONW_OK) goto identity_error;                     \
+  } while (0)
+  WREQUIRE(t64_jsonw_begin_object(&writer));
+  WREQUIRE(WKEY("core_build_sha256"));
+  WREQUIRE(WSTR(build_identity + sizeof build_prefix - 1u));
+  WREQUIRE(WKEY("profile_sha256")); WREQUIRE(WSTR(profile_hex));
+  WREQUIRE(WKEY("source_revision")); WREQUIRE(WSTR(source_revision));
+  WREQUIRE(t64_jsonw_end_object(&writer));
+  WREQUIRE(t64_jsonw_finish(&writer, &report_length));
+#undef WKEY
+#undef WSTR
+#undef WREQUIRE
+  if (!write_all(STDOUT_FILENO, report, report_length)) {
+    (void)puts("classification=harness-error status=runtime-identity-write-failed");
+    return 4;
+  }
+  return 0;
+identity_error:
+  (void)puts("classification=harness-error status=runtime-identity-write-failed");
+  return 4;
+}
+
 static int command_run(int argc, char **argv, bool local_mode) {
   t64_cpu_diag_inventory *inventory = NULL;
   t64_cpu_diag_identity identity;
@@ -820,6 +1148,12 @@ static int command_run(int argc, char **argv, bool local_mode) {
   t64_sha256_hex(digest, profile_hex);
   if (strcmp(identity.profile_sha256, profile_hex) != 0) {
     (void)puts("classification=harness-error status=profile-identity-mismatch");
+    goto cleanup;
+  }
+  if (local_mode &&
+      (strncmp(t64_build_identity(), "t64-build-v1-", 13u) != 0 ||
+       strcmp(t64_build_identity() + 13u, identity.core_build_sha256) != 0)) {
+    (void)puts("classification=harness-error status=core-build-identity-mismatch");
     goto cleanup;
   }
   if (!t64_cpu_diag_inventory_member_binding(
@@ -910,6 +1244,8 @@ cleanup:
 }
 
 int main(int argc, char **argv) {
+  if (argc == 2 && strcmp(argv[1], "--runtime-identity-json") == 0)
+    return command_runtime_identity_json();
   if (argc == 3 && strcmp(argv[1], "--validate-inventory") == 0)
     return command_validate_inventory(argv[2]);
   if (argc == 6 && strcmp(argv[1], "--encode-inventory") == 0)
@@ -917,6 +1253,9 @@ int main(int argc, char **argv) {
   if (argc >= 3 && (strcmp(argv[1], "--aggregate") == 0 ||
                     strcmp(argv[1], "--verify-complete") == 0))
     return command_aggregate(argc, argv);
+  if (argc == 4 && (strcmp(argv[1], "--aggregate-json") == 0 ||
+                    strcmp(argv[1], "--verify-complete-json") == 0))
+    return command_aggregate_json(argc, argv);
   if (argc > 1 && strcmp(argv[1], "--run-authored") == 0)
     return command_run(argc, argv, false);
   if (argc > 1 && strcmp(argv[1], "--run-local") == 0)
@@ -924,6 +1263,7 @@ int main(int argc, char **argv) {
   (void)fprintf(stderr,
                 "usage: t64-cpu-diagnostic --validate-inventory FILE | "
                 "--encode-inventory FILE REG VALUE OUTCOME | "
-                "--aggregate INVENTORY BATCH... | --run-authored INVENTORY ROM SIZE SHA256 TICKS REG VALUE OUTPUT\n");
+                "--aggregate INVENTORY BATCH... | --aggregate-json INVENTORY PRIVATE_BATCH_DIR | "
+                "--run-authored INVENTORY ROM SIZE SHA256 TICKS REG VALUE OUTPUT\n");
   return 64;
 }

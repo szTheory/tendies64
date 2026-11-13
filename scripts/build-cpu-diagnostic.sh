@@ -543,5 +543,20 @@ case "${1:-}" in
     --install-toolchain) install_toolchain ;;
     --verify-toolchain) verify_installed_toolchain ;;
     --unit-graph) run_unit_graph ;;
-    *) printf '%s\n' 'usage: sh scripts/build-cpu-diagnostic.sh --prepare-source|--selftest|--qualify|--install-toolchain|--verify-toolchain|--unit-graph' >&2; exit 2 ;;
+    --build-qualified)
+        PYTHONDONTWRITEBYTECODE=1 python3 -B scripts/build-qualified-cpu-diagnostic.py
+        ;;
+    --qualify-startup)
+        PYTHONDONTWRITEBYTECODE=1 python3 -B scripts/build-qualified-cpu-diagnostic.py \
+            --qualify-startup
+        ;;
+    --run-all)
+        PYTHONDONTWRITEBYTECODE=1 python3 -B scripts/run-cpu-diagnostic.py \
+            --run-all --adapter build/gate/runner/t64-cpu-diagnostic
+        ;;
+    --verify-complete)
+        PYTHONDONTWRITEBYTECODE=1 python3 -B scripts/run-cpu-diagnostic.py \
+            --verify-complete --adapter build/gate/runner/t64-cpu-diagnostic
+        ;;
+    *) printf '%s\n' 'usage: sh scripts/build-cpu-diagnostic.sh --prepare-source|--selftest|--qualify|--install-toolchain|--verify-toolchain|--unit-graph|--build-qualified|--qualify-startup|--run-all|--verify-complete' >&2; exit 2 ;;
 esac

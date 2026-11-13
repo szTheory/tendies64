@@ -4,7 +4,10 @@ import importlib.util
 import json
 import os
 import pathlib
+import select
 import struct
+import subprocess
+import sys
 import tempfile
 import types
 import unittest
@@ -255,6 +258,104 @@ class CompositionControls(unittest.TestCase):
             self.assertEqual(result["objdump_sha256"], MODULE.digest(tool.read_bytes()))
             self.assertFalse(result["guest_execution_verified"])
             self.assertEqual(report.stat().st_mode & 0o777, 0o600)
+
+
+class BuildProcessControls(unittest.TestCase):
+    def test_successful_build_cleans_up_its_descendant(self):
+        spec = importlib.util.spec_from_file_location(
+            "build_driver", SCRIPT.with_name("build-qualified-cpu-diagnostic.py"))
+        driver = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(driver)
+        with tempfile.TemporaryDirectory() as temporary:
+            private = pathlib.Path(temporary).resolve()
+            work = private / "success"
+            work.mkdir(mode=0o700)
+            fifo, child_path = work / "child.fifo", work / "child.pid"
+            os.mkfifo(fifo, 0o600)
+            reader = os.open(fifo, os.O_RDONLY | os.O_NONBLOCK)
+            code = f'''import os,pathlib,time
+child=os.fork()
+if child == 0:
+    writer=os.open({str(fifo)!r},os.O_WRONLY)
+    os.write(writer,b'R')
+    pathlib.Path({str(child_path)!r}).write_text(str(os.getpid()))
+    time.sleep(5)
+else:
+    while not pathlib.Path({str(child_path)!r}).exists(): time.sleep(0.001)
+'''
+            cleaned = False
+            try:
+                with patch.object(driver, "PRIVATE", private), \
+                     patch.object(driver, "ROOT", private.parent):
+                    driver.run([sys.executable, "-c", code], work, "success", timeout=2)
+                self.assertTrue(child_path.is_file(), "descendant started before leader exit")
+                self.assertEqual(os.read(reader, 1), b"R")
+                self.assertTrue(select.select([reader], [], [], 1)[0],
+                                "successful build must terminate remaining descendants")
+                self.assertEqual(os.read(reader, 1), b"")
+                cleaned = True
+            finally:
+                os.close(reader)
+                if not cleaned and child_path.is_file():
+                    try:
+                        os.kill(int(child_path.read_text()), 9)
+                    except ProcessLookupError:
+                        pass
+
+    def test_local_only_before_private_build_work(self):
+        script = SCRIPT.with_name("build-qualified-cpu-diagnostic.py")
+        result = subprocess.run([sys.executable, "-B", str(script)],
+                                env={**os.environ, "CI": "true"},
+                                capture_output=True, timeout=5)
+        self.assertEqual(result.returncode, 4)
+        self.assertIn(b"local-only", result.stderr)
+
+    def test_bounded_build_cleans_up_its_descendant(self):
+        spec = importlib.util.spec_from_file_location(
+            "build_driver", SCRIPT.with_name("build-qualified-cpu-diagnostic.py"))
+        driver = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(driver)
+        with tempfile.TemporaryDirectory() as temporary:
+            private = pathlib.Path(temporary).resolve()
+            work = private / "attempt"
+            work.mkdir(mode=0o700)
+            child_path = work / "child.pid"
+            with patch.object(driver, "PRIVATE", private), \
+                 patch.object(driver, "ROOT", private.parent):
+                self.assertEqual(driver.run(
+                    [sys.executable, "-c", "print('accepted')"], work, "accepted"),
+                    b"accepted\n")
+                fifo = work / "child.fifo"
+                os.mkfifo(fifo, 0o600)
+                reader = os.open(fifo, os.O_RDONLY | os.O_NONBLOCK)
+                code = (
+                    "import os,pathlib,time; child=os.fork(); "
+                    "pathlib.Path(" + repr(str(child_path)) + ").write_text(str(os.getpid())) "
+                    "if child == 0 else None; "
+                    "writer=os.open(" + repr(str(fifo)) + ",os.O_WRONLY) if child == 0 else None; "
+                    "os.write(writer,b'R') if child == 0 else None; time.sleep(5)"
+                )
+                cleaned = False
+                try:
+                    with self.assertRaisesRegex(ValueError, "timed failed"):
+                        driver.run([sys.executable, "-c", code], work, "timed", timeout=1)
+                    self.assertTrue(child_path.is_file(), "descendant actually started")
+                    self.assertEqual(os.read(reader, 1), b"R", "descendant held its own writer")
+                    # EOF proves the descendant closed its writer even if its
+                    # killed process has not yet been reaped by the host init.
+                    self.assertTrue(select.select([reader], [], [], 1)[0],
+                                    "descendant writer closed within the cleanup bound")
+                    self.assertEqual(os.read(reader, 1), b"", "descendant was terminated")
+                    cleaned = True
+                    result = json.loads((work / "timed.command.json").read_text())
+                    self.assertTrue(result["timed_out"])
+                finally:
+                    os.close(reader)
+                    if not cleaned and child_path.is_file():
+                        try:
+                            os.kill(int(child_path.read_text()), 9)
+                        except ProcessLookupError:
+                            pass
 
 
 if __name__ == "__main__":
