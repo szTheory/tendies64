@@ -7,7 +7,7 @@ asvs_level: 1
 security_block_on: high
 created: "2026-11-12"
 scope:
-  included: ["04-01 through 04-15", "04-17", "04-18 native verification", "04-16 registered pipeline mitigations"]
+  included: ["04-01 through 04-15", "04-17", "04-18 native verification", "04-16 registered pipeline mitigations", "04-19 compatibility profile mitigations"]
   excluded: ["SC4 functional completion and hardware qualification"]
 ---
 
@@ -77,6 +77,8 @@ separately verifies its external tool/package/asset extension.
 | T-04-31 | Tampering | diagnostic tool/source/composition correspondence | high | mitigate | Qualify exact inputs and hooks before use; verify applied source, actual composition, complete source membership and sealed production adapter. | closed |
 | T-04-32 | Information disclosure | local diagnostic inputs and outputs | high | mitigate | Confine ignored private storage, refuse CI use and pass publication rights/PII checks; public uploads contain authored evidence only. | closed |
 | T-04-SC | Tampering | copied arithmetic and external supply chain | high | mitigate | Preserve native copy/provenance verification and the separately audited external source/tool/package/asset qualification. | closed |
+| T-04-38 | Tampering | strict/compatibility policy and identity isolation | high | mitigate | Canonical immutable profiles, per-machine policies, distinct v10 origin/state domain and strict vector/refusal controls. | closed |
+| T-04-39 | Tampering | sealed compatibility selection and result binding | high | mitigate | Closed profile selection, before/after immutable seal and executable checks, actual profile/core/inventory comparison and shared cross-profile aggregation controls. | closed |
 
 ## Accepted Risks Log
 
@@ -145,3 +147,14 @@ unmet, and the owner verification-target decision is still pending.
 | Threats found | 37 |
 | Closed | 37 |
 | Open | 0 |
+
+## Plan19 incremental security verification
+
+The owner approved the separate compatibility target on 2026-11-13, resolving
+the earlier pending target decision. The configured auditor returned SECURED
+for the two additional registered threats and bounded rechecks of changed
+arithmetic, CP0, reservation and runner mitigations. The register now contains
+39 closed threats and none open. [Plan19 security evidence](04-19-SECURITY.md)
+records the exact scope, supplied verification and limitations. No actual
+diagnostic result was inspected or published, and this verdict does not close
+SC4 or establish silicon behavior. Publication scans remain a separate gate.

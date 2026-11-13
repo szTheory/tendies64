@@ -89,9 +89,7 @@ static uint64_t sign_extend_word(uint32_t value) {
 }
 
 static bool is_vr4300_profile(const t64_machine *machine) {
-  return machine != NULL &&
-         machine->profile.machine_model_version == UINT32_C(3) &&
-         machine->profile.state_serialization_version == UINT32_C(9);
+  return t64_has_vr4300_cpu_state(machine);
 }
 
 static bool is_cp0_kernel_mode(const t64_machine *machine) {
@@ -444,7 +442,8 @@ t64_cp0_transfer_result t64_cp0_prepare_transfer(
   if (is_doubleword && doubleword_cp0_operation_is_reserved(machine)) {
     return T64_CP0_TRANSFER_RESERVED;
   }
-  if (is_doubleword && !cp0_register_is_64_bit(rd)) {
+  if (is_doubleword && !cp0_register_is_64_bit(rd) &&
+      !t64_has_cpu_compat_policy(machine)) {
     return T64_CP0_TRANSFER_UNSUPPORTED;
   }
 
@@ -457,7 +456,9 @@ t64_cp0_transfer_result t64_cp0_prepare_transfer(
     effect_out->write_gpr = true;
     effect_out->gpr_index = rt;
     effect_out->gpr_value = is_doubleword
-                                ? value
+                                ? (cp0_register_is_64_bit(rd)
+                                       ? value
+                                       : (uint64_t)(uint32_t)value)
                                 : sign_extend_word((uint32_t)value);
     return T64_CP0_TRANSFER_OK;
   }

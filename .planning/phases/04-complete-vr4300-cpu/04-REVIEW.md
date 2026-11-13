@@ -2,7 +2,7 @@
 phase: 04-complete-vr4300-cpu
 reviewed: 2026-11-13T09:05:58Z
 depth: standard
-files_reviewed: 130
+files_reviewed: 133
 files_reviewed_list:
   - core/CMakeLists.txt
   - core/softfloat/f32_add.c
@@ -93,7 +93,10 @@ files_reviewed_list:
   - core/tests/test_digest_trace.c
   - core/tests/test_profile.c
   - core/tests/test_softfloat.c
+  - docs/spec/cpu-compatibility.md
+  - docs/spec/cpu-cp0.md
   - docs/spec/cpu-diagnostic.md
+  - docs/spec/cpu-memory.md
   - fixtures/manifest.json
   - runner/CMakeLists.txt
   - runner/t64_cpu_diag_protocol.c
@@ -105,8 +108,8 @@ files_reviewed_list:
   - scripts/build-cpu-diagnostic.sh
   - scripts/build-qualified-cpu-diagnostic.py
   - scripts/check-test-inventory.sh
-  - scripts/private-tests/accepted-qualification-baseline.py
   - scripts/prepare-cpu-diagnostic-vendor.py
+  - scripts/private-tests/accepted-qualification-baseline.py
   - scripts/run-cpu-diagnostic.py
   - scripts/tests/test_cpu_diagnostic_build_controls.py
   - scripts/tests/test_cpu_diagnostic_overlay_controls.py
@@ -147,7 +150,7 @@ status: clean
 
 **Reviewed:** 2026-11-13T09:05:58Z
 **Depth:** standard  
-**Files Reviewed:** 130
+**Files Reviewed:** 133
 **Status:** clean
 
 ## Summary
@@ -733,3 +736,13 @@ _Incremental review: 2026-11-13T09:05:58Z_
 _Reviewer: the agent (gsd-code-reviewer)_
 _Depth: standard_
 
+
+## Plan19 compatibility delta
+
+The configured deep review and focused re-review cover the additional profile,
+state, CPU/memory and sealed-selection changes. Three new warning-level
+coverage findings were fixed; no runtime blocker was confirmed. The final
+annul side-effect assertion was verified by the orchestrator in normal and
+ASan CPU-control runs. [Review and dispositions](04-19-REVIEW.md) preserve
+the original findings and exact follow-up scope; current open findings are
+zero. The file list above is the union with the saved prior phase review.

@@ -194,3 +194,40 @@ artifact upload. The newly reached publication tail is verified separately
 from the preceding failed run. External diagnostic inputs and results were
 not used or uploaded. The CI log records measured timings and the fixture
 correction; these checks do not close SC4.
+
+## Approved software compatibility profile
+
+The owner approved the separate
+`ntsc-cart-4m-openipl3-vr4300-compat-v1` target, descriptor3/model4/state10 and
+semantic policy2. The strict target retains its descriptor, state bytes,
+fixed vectors and refusals. [The contract](../spec/cpu-compatibility.md)
+defines the separate software evidence boundary, including the v10-only
+branch origin for displaced delay-slot exceptions.
+
+The local production artifacts were built from the compatibility source delta
+with source annotation `5028c4ffa58055242c73218c3e09b251208f962a`; that annotation
+precedes committing the delta and is not a claim that the old commit contains
+it. Actual production content and compiler/build policy are bound separately:
+
+| Artifact | Core build SHA-256 |
+|---|---|
+| Normal | `af340176499a331f6da9de852e7aee52cdcc8ac3d1e71262ff3cd4a2693d2005` |
+| ASan/UBSan | `d1d07f7a04340736e76cf4206e01da1c732394499a45fa5c2e9b316f36ee9dc5` |
+
+Both report compatibility profile digest
+`5955f3556c0653602c7c2da9faaee49dd2a647f0692d46f823ccb152011fa8d7`.
+The complete native gate passed all 111 tests, inventory controls and core
+lint. All instrumented targets built and the 39-test owning core/profile,
+legacy determinism, protocol/inventory/adapter, admission fuzz and sanitizer
+negative-control selection passed. Review additions passed their owning normal
+and instrumented checks; the final annulled-register/retirement assertions
+also passed both CPU-control runs. No broad retest was repeated for those
+test-only follow-ups.
+
+The [portable validation record](../../.planning/phases/04-complete-vr4300-cpu/04-19-VALIDATION.md)
+preserves failed fixture attempts, original RED limits and follow-up scope.
+The configured review findings are dispositioned, and the incremental security
+audit closes both new mitigation threats. These are authored software checks.
+Private diagnostic outcomes do not enter this evidence record, hosted inputs
+or public uploads. The earlier hosted pair above covers its named earlier
+source; new-source hosted verification is separate and remains to be recorded.

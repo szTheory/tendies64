@@ -23,15 +23,22 @@ instruction is not evidence that a physical NUS-CPU-03 has been qualified.
 |---|---|
 | MFC0 | Reads the low 32 bits of the selected register and sign-extends bit 31 to the 64-bit GPR. This is a manual-defined rule (p.469). |
 | MTC0 | Writes the low 32-bit GPR word through that register's field contract. Read-only fields remain hardware-owned. |
-| DMFC0 | Returns the complete selected 64-bit register when the register is 64-bit. The manual defines it in 64-bit mode and 32-bit Kernel mode; it is Reserved Instruction in 32-bit User or Supervisor mode (p.419). |
-| DMTC0 | Writes a full 64-bit source through that register's field contract. The manual defines it in 64-bit mode and 32-bit Kernel mode; it is Reserved Instruction in 32-bit User or Supervisor mode (p.420). |
+| DMFC0 | Returns the complete selected 64-bit register when the register is 64-bit. On a 32-bit CP0 register, the version-4 compatibility profile returns its masked low word zero-extended to 64 bits; the version-3 native profile refuses the operation. The manual defines the instruction in 64-bit mode and 32-bit Kernel mode; it is Reserved Instruction in 32-bit User or Supervisor mode (p.419). |
+| DMTC0 | Writes a full 64-bit source through that register's field contract. On a 32-bit CP0 register, the version-4 compatibility profile applies the source low word through the MTC0 field contract; the version-3 native profile refuses the operation. The manual defines the instruction in 64-bit mode and 32-bit Kernel mode; it is Reserved Instruction in 32-bit User or Supervisor mode (p.420). |
 
 CP0 is usable in Kernel mode regardless of Status.CU0. User and Supervisor
 access requires CU0. A disabled CU0 access raises Coprocessor Unusable before
 the transfer. A nonzero reserved selector or an access to a CP0 register
 reserved for future use raises Reserved Instruction. DMFC0/DMTC0 applied to a
-32-bit CP0 register are undefined by the manual (pp.419–420); this profile
-reports model-unsupported before changing CP0 or the destination GPR.
+32-bit CP0 register are undefined by the manual (pp.419–420). The native
+version-3 profile reports model-unsupported before changing CP0 or the
+destination GPR. The version-4 compatibility profile makes this undefined case
+deterministic: DMFC0 exposes the register's existing field-masked low word with
+zero extension, while DMTC0 sends the source low word through the same field
+mask, validation, and staged side effects used by MTC0. These are software
+compatibility choices, not statements about physical VR4300 behavior. The
+documented privilege and reserved-selector checks remain in effect for both
+profiles.
 
 The MFC0 sign-extension and DMFC0 full-width behaviors are hardware facts.
 For 64-bit CP0 registers, MTC0 updates the low word and preserves the existing
@@ -77,9 +84,10 @@ bits select TLB entries; bit 5 is visible but ignored by TLB selection.
 
 The register numbers and field definitions come from the manual. The masks
 above follow those fields. Invalid PageMask rejection, post-preparation Config
-rejection, unsupported doubleword access to a 32-bit CP0 register, no-op writes
-to read-only registers, and the 32-bit MTC0 preservation policy for the upper
-word of a 64-bit CP0 register are explicit model choices.
+rejection, the native-profile refusal and compatibility-profile behavior for
+doubleword access to a 32-bit CP0 register, no-op writes to read-only registers,
+and the 32-bit MTC0 preservation policy for the upper word of a 64-bit CP0
+register are explicit model choices.
 
 ## Status and profile policy
 
@@ -136,9 +144,11 @@ their separate owners. Equal-tick device events keep scheduler FIFO order.
 ## Tests
 
 `unit.core.cpu-cp0` directly exercises independent expected field values,
-per-bit Status set/clear behavior, all seven PageMask encodings, register-width
-rules, Config refusal atomicity, Cause/Compare preservation, Random/Wired
-effects, and reserved selectors. `unit.core.cpu-path` executes guest MTC0/MFC0
+per-bit Status set/clear behavior, all seven PageMask encodings, strict and
+compatibility register-width rules, compatibility DMFC0 zero extension,
+DMTC0 field masking and refusal atomicity, Config refusal atomicity,
+Cause/Compare preservation, Random/Wired effects, and reserved selectors.
+`unit.core.cpu-path` executes guest MTC0/MFC0
 Status operations and verifies that CU0 removal faults the next transfer
 without changing its destination. Its timer-handler path verifies equality,
 interrupt entry, Compare clearing, ERET, and execution of the interrupted

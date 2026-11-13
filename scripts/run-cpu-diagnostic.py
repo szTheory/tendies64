@@ -36,6 +36,8 @@ HEX40 = re.compile(r"[0-9a-f]{40}\Z")
 HEX64 = re.compile(r"[0-9a-f]{64}\Z")
 SELECTOR = re.compile(r"r([0-9]{4})v([0-9]{5})\Z")
 ADAPTER_REPO_PATH = "build/gate/runner/t64-cpu-diagnostic"
+STRICT_PROFILE_ID = "ntsc-cart-4m-openipl3-vr4300-v1"
+COMPAT_PROFILE_ID = "ntsc-cart-4m-openipl3-vr4300-compat-v1"
 
 
 class Refusal(ValueError):
@@ -56,6 +58,24 @@ class Inputs:
     inventory: dict
     base_bytes: bytes
     selector_offset: int
+    profile_id: str = STRICT_PROFILE_ID
+
+
+def parse_qualified_seal(data: bytes) -> tuple[dict, str]:
+    seal = parse_json(data, "qualified build seal")
+    if not isinstance(seal, dict) or type(seal.get("schema_version")) is not int:
+        fail("qualified build seal version is not accepted")
+    version = seal["schema_version"]
+    fields = {"adapter", "artifacts", "schema", "schema_version", "selector", "status"}
+    if version == 2:
+        fields.add("profile_id")
+    closed_object(seal, fields, "qualified build seal")
+    if seal["schema"] != "t64.cpu-qualified-build" or version not in (1, 2) or seal["status"] != "qualified":
+        fail("qualified build seal is not accepted")
+    profile_id = seal.get("profile_id", STRICT_PROFILE_ID)
+    if profile_id not in (STRICT_PROFILE_ID, COMPAT_PROFILE_ID):
+        fail("qualified build profile selection is not accepted")
+    return seal, profile_id
 
 
 def fail(message: str) -> None:
@@ -151,11 +171,9 @@ def check_adapter(context: Inputs) -> None:
     seal_bytes = read_bounded(seal_path, context.private_root, 1_048_576)
     if digest(seal_bytes) != context.qualified_build_sha256:
         fail("qualified build seal changed after input loading")
-    seal = closed_object(
-        parse_json(seal_bytes, "qualified build seal"),
-        {"adapter", "artifacts", "schema", "schema_version", "selector", "status"},
-        "qualified build seal",
-    )
+    seal, profile_id = parse_qualified_seal(seal_bytes)
+    if profile_id != context.profile_id:
+        fail("qualified build profile binding changed after input loading")
     adapter_record = closed_object(seal["adapter"], {"path", "sha256"}, "sealed adapter")
     if adapter_record != {"path": context.adapter_path, "sha256": context.adapter_sha256}:
         fail("qualified build adapter binding changed after input loading")
@@ -336,7 +354,8 @@ def invoke_adapter(context: Inputs, *arguments: str, timeout: int = 10,
     check_adapter(context)
     try:
         return run_bounded(
-            [context.adapter, *arguments], cwd=ROOT, env=make_env(controls=controls),
+            [context.adapter, *(["--compat"] if context.profile_id == COMPAT_PROFILE_ID else []), *arguments],
+            cwd=ROOT, env=make_env(controls=controls),
             timeout=timeout, maximum=maximum,
         )
     finally:
@@ -431,13 +450,7 @@ def load_qualified_inputs(adapter: pathlib.Path) -> Inputs:
         fail("private diagnostic root is not ignored by Git")
     qualified_path = private_file(private_root / "qualified-build.json", private_root)
     qualified_bytes = read_bounded(qualified_path, private_root, 1_048_576)
-    qualified = closed_object(
-        parse_json(qualified_bytes, "qualified build seal"),
-        {"adapter", "artifacts", "schema", "schema_version", "selector", "status"},
-        "qualified build seal",
-    )
-    if qualified["schema"] != "t64.cpu-qualified-build" or qualified["schema_version"] != 1 or qualified["status"] != "qualified":
-        fail("qualified build seal is not accepted")
+    qualified, profile_id = parse_qualified_seal(qualified_bytes)
     adapter_record = closed_object(qualified["adapter"], {"path", "sha256"}, "sealed adapter")
     adapter_sha = check_hash(adapter_record["sha256"], "sealed adapter digest")
     adapter_path = adapter_record["path"]
@@ -531,6 +544,7 @@ def load_qualified_inputs(adapter: pathlib.Path) -> Inputs:
         inventory=inventory,
         base_bytes=base_bytes,
         selector_offset=selector["rom_offset"],
+        profile_id=profile_id,
     )
     code, _, _ = invoke_adapter(context, "--validate-inventory", str(resolved["inventory"][0]))
     if code != 0:

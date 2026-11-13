@@ -237,6 +237,131 @@ def main() -> int:
             self.assertEqual(identity["core_build_sha256"], self.inventory["identity"]["core_build_sha256"])
             self.assertEqual(identity["profile_sha256"], self.inventory["identity"]["profile_sha256"])
 
+        def test_compat_selection_is_explicit_and_sealed(self):
+            code, output, _ = module.run_bounded(
+                [self.adapter, "--compat", "--runtime-identity-json"], cwd=source_root,
+                env=module.make_env(controls=True), timeout=10, maximum=4096,
+            )
+            self.assertEqual(code, 0, "explicit compat runtime selection is accepted")
+            identity = json.loads(output)
+            self.assertEqual(identity["core_build_sha256"], self.inventory["identity"]["core_build_sha256"])
+            self.assertNotEqual(identity["profile_sha256"], self.inventory["identity"]["profile_sha256"])
+            seal = json.loads(self.qualified_bytes)
+            seal.update(schema_version=2, profile_id="ntsc-cart-4m-openipl3-vr4300-compat-v1")
+            seal_bytes = canonical(seal)
+            write_private(self.control_root / "compat-qualified.json", seal_bytes)
+            context = replace(self.context, qualified_build_path="compat-qualified.json",
+                              qualified_build_sha256=digest(seal_bytes), profile_id=seal["profile_id"])
+            self.assertEqual(module.adapter_json(context, "--runtime-identity-json"), identity)
+            with self.assertRaisesRegex(module.Refusal, "profile binding"):
+                module.invoke_adapter(replace(context, profile_id=module.STRICT_PROFILE_ID), "--runtime-identity-json")
+            with self.assertRaisesRegex(module.Refusal, "profile binding"):
+                module.invoke_adapter(replace(self.context, profile_id=seal["profile_id"]), "--runtime-identity-json")
+
+        def test_compat_loader_and_aggregator_bind_inventory_profile(self):
+            root = self.control_root / "compat-loader"
+            os.mkdir(root, 0o700)
+            projection = json.loads(self.inventory_bytes)
+            projection.update(projection_sha256="6" * 64, source_revision="4" * 40)
+            projection_bytes = canonical(projection)
+            qualification = {"source_revision": "4" * 40, "source": {
+                "overlay_sha256": "2" * 64, "projection": {
+                    "path": (root / "source_projection.json").relative_to(source_root).as_posix(),
+                    "sha256": digest(projection_bytes), "projection_sha256": "6" * 64}}}
+            qualification_bytes = canonical(qualification)
+            code, output, _ = module.invoke_adapter(
+                replace(self.context), "--runtime-identity-json", controls=True)
+            self.assertEqual(code, 0)
+            strict_identity = json.loads(output)
+            code, output, _ = module.run_bounded(
+                [self.adapter, "--compat", "--runtime-identity-json"], cwd=source_root,
+                env=module.make_env(controls=True), timeout=10, maximum=4096)
+            self.assertEqual(code, 0)
+            compat_identity = json.loads(output)
+            base = bytearray(self.base)
+            base[self.offset:self.offset + 4] = bytes(4)
+            inventory = json.loads(self.inventory_bytes)
+            inventory["identity"].update(base_rom_sha256=digest(base),
+                profile_sha256=compat_identity["profile_sha256"],
+                tool_receipt_sha256=digest(qualification_bytes))
+            for row in inventory["registrations"]:
+                variant = bytearray(base)
+                variant[self.offset:self.offset + 4] = row["index"].to_bytes(2, "big") + bytes(2)
+                row["values"][0]["selected_rom_sha256"] = digest(variant)
+            artifacts = {"base_rom": bytes(base), "inventory": canonical(inventory),
+                "qualification": qualification_bytes, "source_projection": projection_bytes,
+                "source_closure": canonical({"status": "PASS_PREBUILD_SOURCE",
+                    "source_projection_sha256": "6" * 64, "source_revision": "4" * 40}),
+                "composition": canonical({"schema": "t64.cpu-build-composition", "schema_version": 1,
+                    "status": "PASS_POSTBUILD_COMPOSITION", "guest_execution_verified": False,
+                    "rom_sha256": digest(base), "qualification_sha256": digest(qualification_bytes),
+                    "layout": {"selector_rom_offset": self.offset, "selector_bytes": 4}})}
+            composition = json.loads(artifacts["composition"])
+            composition["source_closure_sha256"] = digest(artifacts["source_closure"])
+            artifacts["composition"] = canonical(composition)
+            seal = json.loads(self.qualified_bytes)
+            seal.update(schema_version=2, profile_id=module.COMPAT_PROFILE_ID,
+                selector={"encoding": "registration-index-u16be:value-index-u16be",
+                          "rom_offset": self.offset, "width": 4}, artifacts={})
+            for key, data in artifacts.items():
+                name = key + (".z64" if key == "base_rom" else ".json")
+                write_private(root / name, data)
+                seal["artifacts"][key] = {"path": name, "sha256": digest(data)}
+            write_private(root / "qualified-build.json", canonical(seal))
+            real_run = module.run_bounded
+            qualification_calls = []
+
+            def authored_qualification(command, **kwargs):
+                # This test owns routing/identity, not upstream qualification.
+                # Only that separate verifier is stubbed; every adapter call is real.
+                if command[1:3] == ["-B", "scripts/verify-cpu-diagnostic-qualification.py"]:
+                    qualification_calls.append(command)
+                    return 0, b"", b""
+                return real_run(command, **kwargs)
+
+            with patch.object(module, "PRIVATE", root), \
+                    patch.object(module, "ADAPTER_REPO_PATH", self.adapter_path), \
+                    patch.object(module, "run_bounded", side_effect=authored_qualification):
+                context = module.load_qualified_inputs(self.adapter)
+                self.assertEqual(context.profile_id, module.COMPAT_PROFILE_ID)
+                self.assertEqual(context.inventory["identity"]["profile_sha256"], compat_identity["profile_sha256"])
+                run = module.create_run_directory(root)
+                module.create_manifest(context, run)
+                # Real C encoding and aggregation accept the complete compat set.
+                for row in inventory["registrations"]:
+                    code, encoded, _ = module.invoke_adapter(context, "--encode-inventory",
+                        str(root / "inventory.json"), str(row["index"]), "0", "pass", controls=True)
+                    self.assertEqual(code, 0)
+                    write_private(run / "batches" / f"batch-{row['index']:04d}.json", encoded)
+                self.assertEqual(module.verify_complete(context, explicit_run=run.name), 0)
+                strict = json.loads(canonical(inventory))
+                strict["identity"]["profile_sha256"] = strict_identity["profile_sha256"]
+                write_private(root / "strict-inventory.json", canonical(strict))
+                code, encoded, _ = module.invoke_adapter(self.context, "--encode-inventory",
+                    str(root / "strict-inventory.json"), "0", "0", "pass", controls=True)
+                self.assertEqual(code, 0)
+                cross = module.create_run_directory(root)
+                module.create_manifest(context, cross)
+                write_private(cross / "batches" / "strict-batch.json", encoded)
+                with self.assertRaisesRegex(module.Refusal, "identity-mismatch"):
+                    module.verify_complete(context, explicit_run=cross.name)
+                # Re-seal a structurally valid strict inventory under compat:
+                # the loader must compare the real selected runtime identity.
+                seal["artifacts"]["inventory"] = {"path": "strict-inventory.json", "sha256": digest(canonical(strict))}
+                (root / "qualified-build.json").write_bytes(canonical(seal))
+                with self.assertRaisesRegex(module.Refusal, "running adapter core or profile differs"):
+                    module.load_qualified_inputs(self.adapter)
+            self.assertEqual(len(qualification_calls), 2)
+
+        def test_unknown_profile_and_boolean_seal_version_are_refused(self):
+            seal = json.loads(self.qualified_bytes)
+            seal.update(schema_version=2, profile_id="unknown-profile")
+            with self.assertRaisesRegex(module.Refusal, "profile selection"):
+                module.parse_qualified_seal(canonical(seal))
+            seal.update(schema_version=True, profile_id="ntsc-cart-4m-openipl3-vr4300-compat-v1")
+            with self.assertRaises(module.Refusal):
+                module.parse_qualified_seal(canonical(seal))
+
         def test_fake_adapter_with_matching_identity_and_complete_report_is_rejected(self):
             fake_adapter = self.control_root / "fake-adapter.py"
             marker = self.control_root / "fake-adapter-was-run"
@@ -402,7 +527,7 @@ def main() -> int:
     suite = unittest.defaultTestLoader.loadTestsFromTestCase(RunControls)
     result = unittest.TextTestRunner(stream=sys.stdout, verbosity=1).run(suite)
     if result.wasSuccessful():
-        print("all 11 authored CPU batch-control assertions passed")
+        print("all 14 authored CPU batch-control assertions passed")
         return 0
     return 1
 

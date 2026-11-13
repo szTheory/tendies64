@@ -324,6 +324,7 @@ typedef struct {
   uint64_t last_pc_full;
   uint64_t delay_slot_pc_full;
   uint64_t delay_target_full;
+  uint64_t delay_origin_pc_full;
   uint64_t stop_pc_full;
   uint32_t attempt_outcome;
   uint32_t semantic_policy_version;
@@ -471,6 +472,29 @@ struct t64_machine {
   bool trace_drop_count_saturated;
   bool trace_enabled;
 };
+
+static inline bool t64_has_vr4300_cpu_state(const t64_machine *machine) {
+  return machine != NULL &&
+         ((machine->profile.machine_model_version == 3u &&
+           machine->profile.state_serialization_version == 9u) ||
+          (machine->profile.machine_model_version == 4u &&
+           machine->profile.state_serialization_version == 10u));
+}
+
+static inline bool t64_has_cpu_compat_policy(const t64_machine *machine) {
+  return machine != NULL && machine->profile.machine_model_version == 4u &&
+         machine->profile.state_serialization_version == 10u;
+}
+
+static inline uint64_t
+t64_cpu_delay_branch_epc(const t64_machine *machine) {
+  if (machine == NULL) {
+    return UINT64_C(0);
+  }
+  return t64_has_cpu_compat_policy(machine)
+             ? machine->cpu.delay_origin_pc_full
+             : machine->cpu.delay_slot_pc_full - UINT64_C(4);
+}
 
 t64_status t64_schedule_reserve(t64_machine *machine, uint64_t tick,
                                 uint32_t device, uint32_t kind,

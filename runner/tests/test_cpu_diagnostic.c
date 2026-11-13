@@ -1523,11 +1523,11 @@ static void test_cpu_diagnostic_run_controls(const char *executable,
   argv[5] = source_root;
   argv[6] = executable;
   result = run_tool("/bin/sh", argv, 7u, NULL, NULL, output, sizeof output);
-  if (result != 0 || strstr(output, "Ran 11 tests") == NULL ||
-      strstr(output, "all 11 authored CPU batch-control assertions passed") == NULL)
+  if (result != 0 || strstr(output, "Ran 14 tests") == NULL ||
+      strstr(output, "all 14 authored CPU batch-control assertions passed") == NULL)
     (void)fprintf(stderr, "CPU batch controls exit=%d output=%s\n", result, output);
-  check(result == 0 && strstr(output, "Ran 11 tests") != NULL &&
-            strstr(output, "all 11 authored CPU batch-control assertions passed") != NULL,
+  check(result == 0 && strstr(output, "Ran 14 tests") != NULL &&
+            strstr(output, "all 14 authored CPU batch-control assertions passed") != NULL,
         "production CLI controls verify sealed adapter identity and batch classifications");
 }
 

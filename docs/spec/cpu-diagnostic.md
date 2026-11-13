@@ -32,7 +32,7 @@ ROMs, captures, receipts, and derived results remain local and private.
 
 ## Qualified production adapter binding
 
-The private `t64.cpu-qualified-build` v1 seal includes an `adapter` object with
+The private `t64.cpu-qualified-build` seal includes an `adapter` object with
 exactly `path` and `sha256`. The path is the canonical repository-relative
 `build/gate/runner/t64-cpu-diagnostic`; the digest is computed from that
 executable after the qualified build. A seal without this binding is refused
@@ -48,16 +48,28 @@ The adapter's self-reported core/profile identity is checked only after this
 file binding; matching identity JSON from another executable cannot establish
 the production adapter's identity or classify a batch set.
 
+Seal v2 adds the required `profile_id`, restricted to the strict and software
+compatibility CPU profiles. The required CPU-suite completion target is
+`ntsc-cart-4m-openipl3-vr4300-compat-v1`; the build helper selects it explicitly
+through the adapter's leading `--compat` option. Calls without that option
+remain strict. Every subsequent invocation uses the sealed selection, checked
+before and after execution, and inventory acceptance checks its actual profile
+digest. Legacy v1 seals select strict only. Unknown profiles, boolean version
+numbers, context/selection drift and strict/compatibility identity mismatches
+are refused; old results cannot be rebound to a different profile.
+
 The source overlay uses MFC0 for the exception handler's EntryLo0/1 snapshots.
 These registers have only 26 implemented bits in the selected profile, so
 MFC0's sign extension preserves their complete modeled values when stored in
 the existing 64-bit snapshot fields. DMFC0 on a 32-bit CP0 register is
-manual-undefined and remains model-unsupported; see the
+manual-undefined and remains unsupported in the strict profile; the separate
+compatibility profile applies a versioned low-word transfer policy. See the
 [CP0 transfer contract](cpu-cp0.md). This adaptation changes only the two
 handler snapshot mnemonics through source-file and byte-range digest guards.
-Required test instructions, assertions, membership, and the core policy are
-unchanged. A direct test of an unsupported operation still cannot produce a
-completed diagnostic result.
+Required test instructions, assertions and membership are unchanged. A direct
+test of an unsupported operation still cannot produce a completed diagnostic
+result. Compatibility results are software expectations evidence and do not
+establish silicon behavior.
 
 ## `t64.cpu-inventory` v3
 

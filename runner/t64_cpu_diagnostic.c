@@ -30,7 +30,8 @@
 #define CPU_STICKY_DIRECTORY_MODE ((mode_t)01000)
 #endif
 
-#define CPU_PROFILE_ID "ntsc-cart-4m-openipl3-vr4300-v1"
+static const char *cpu_profile_id = "ntsc-cart-4m-openipl3-vr4300-v1";
+#define CPU_PROFILE_ID cpu_profile_id
 #define CPU_ROM_LIMIT UINT64_C(0x00401000)
 #define CPU_TICK_LIMIT UINT64_C(10000000)
 #define CPU_STEP_TICKS UINT64_C(16)
@@ -1244,6 +1245,13 @@ cleanup:
 }
 
 int main(int argc, char **argv) {
+  if (argc > 1 && strcmp(argv[1], "--compat") == 0) {
+    cpu_profile_id = "ntsc-cart-4m-openipl3-vr4300-compat-v1";
+    /* Keep each command's existing argument contract after explicit selection. */
+    argv[1] = argv[0];
+    argv++;
+    argc--;
+  }
   if (argc == 2 && strcmp(argv[1], "--runtime-identity-json") == 0)
     return command_runtime_identity_json();
   if (argc == 3 && strcmp(argv[1], "--validate-inventory") == 0)
@@ -1261,7 +1269,7 @@ int main(int argc, char **argv) {
   if (argc > 1 && strcmp(argv[1], "--run-local") == 0)
     return command_run(argc, argv, true);
   (void)fprintf(stderr,
-                "usage: t64-cpu-diagnostic --validate-inventory FILE | "
+                "usage: t64-cpu-diagnostic [--compat] --validate-inventory FILE | "
                 "--encode-inventory FILE REG VALUE OUTCOME | "
                 "--aggregate INVENTORY BATCH... | --aggregate-json INVENTORY PRIVATE_BATCH_DIR | "
                 "--run-authored INVENTORY ROM SIZE SHA256 TICKS REG VALUE OUTPUT\n");

@@ -623,6 +623,64 @@ static void test_vr4300_profile_contract(void) {
 #undef CHECK_VR4300_PROFILE_MUTATION
 }
 
+static void test_vr4300_compatibility_profile_contract(void) {
+  static const char expected_compat_hash[] =
+      "5955f3556c0653602c7c2da9faaee49dd2a647f0692d46f823ccb152011fa8d7";
+  const t64_profile_descriptor *strict_profile = NULL;
+  const t64_profile_descriptor *profile = NULL;
+  uint8_t profile_hash[T64_DIGEST_SIZE];
+  uint8_t strict_hash[T64_DIGEST_SIZE];
+  char profile_hash_hex[T64_DIGEST_SIZE * 2u + 1u];
+  t64_status status = t64_profile_lookup(
+      "ntsc-cart-4m-openipl3-vr4300-compat-v1", &profile);
+
+  if (status != T64_STATUS_OK) {
+    (void)fprintf(stderr,
+                  "RED observation: compatibility profile lookup expected "
+                  "status %u, observed status %u\n",
+                  (unsigned)T64_STATUS_OK, (unsigned)status);
+  }
+  T64_CHECK_INT(status, T64_STATUS_OK);
+  T64_CHECK(profile != NULL);
+  if (profile == NULL) {
+    return;
+  }
+  T64_CHECK_STR(profile->profile_id,
+                "ntsc-cart-4m-openipl3-vr4300-compat-v1");
+  T64_CHECK_INT(profile->descriptor_version, 3u);
+  T64_CHECK_INT(profile->machine_model_version, 4u);
+  T64_CHECK_INT(profile->state_serialization_version, 10u);
+  T64_CHECK_INT(profile->rom_min_bytes, 4096u);
+  T64_CHECK_INT(profile->rom_max_bytes, UINT32_C(0x00401000));
+  T64_CHECK_STR(profile->rom_order_policy,
+                "exact-source-or-flat-payload-z64-cpu-4m-v1");
+  T64_CHECK_STR(profile->boot_status,
+                "prepared-vr4300-compat-entry-partial");
+  T64_CHECK_STR(profile->timing_tier,
+                "versioned-vr4300-software-compatibility");
+  T64_CHECK_INT(t64_profile_lookup("ntsc-cart-4m-openipl3-vr4300-v1",
+                                   &strict_profile),
+                T64_STATUS_OK);
+  T64_CHECK(strict_profile != NULL);
+  if (strict_profile == NULL) {
+    return;
+  }
+  T64_CHECK(memcmp(profile->asset_sha256, strict_profile->asset_sha256,
+                   T64_DIGEST_SIZE) == 0);
+  T64_CHECK(memcmp(profile->payload_sha256, strict_profile->payload_sha256,
+                   T64_DIGEST_SIZE) == 0);
+  T64_CHECK(memcmp(profile->boot_policy_sha256,
+                   strict_profile->boot_policy_sha256,
+                   T64_DIGEST_SIZE) == 0);
+  T64_CHECK_INT(profile->hle_seed_reset_version,
+                strict_profile->hle_seed_reset_version);
+  T64_CHECK_INT(t64_profile_hash(profile, profile_hash), T64_STATUS_OK);
+  T64_CHECK_INT(t64_profile_hash(strict_profile, strict_hash), T64_STATUS_OK);
+  T64_CHECK(memcmp(profile_hash, strict_hash, sizeof profile_hash) != 0);
+  digest_to_hex(profile_hash, profile_hash_hex);
+  T64_CHECK_STR(profile_hash_hex, expected_compat_hash);
+}
+
 static void test_profile_contract(void) {
   const t64_profile_descriptor *profile = NULL;
   uint8_t profile_hash[T64_DIGEST_SIZE];
@@ -639,6 +697,7 @@ static void test_profile_contract(void) {
   test_rejected_descriptors(profile);
   test_country_metadata_and_test_contrast(profile, profile_hash);
   test_vr4300_profile_contract();
+  test_vr4300_compatibility_profile_contract();
   digest_to_hex(profile_hash, profile_hash_hex);
   T64_CHECK_STR(profile_hash_hex,
                 "b7d1600ad960b4e04fdc3ec372675edc47b26b15be8e9cd84cbab4fd75835647");

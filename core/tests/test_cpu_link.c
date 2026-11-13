@@ -73,19 +73,19 @@ static bool read_qualified_asset(uint8_t bytes[TEST_IPL3_BYTES]) {
          length == TEST_IPL3_BYTES && extra == EOF;
 }
 
-static bool fixture_init(fixture *value,
-                         const uint8_t asset[TEST_IPL3_BYTES]) {
+static bool fixture_init_profile(fixture *value,
+                                 const uint8_t asset[TEST_IPL3_BYTES],
+                                 const char *profile_id) {
   const t64_profile_descriptor *profile = NULL;
 
-  if (value == NULL || asset == NULL) {
+  if (value == NULL || asset == NULL || profile_id == NULL) {
     return false;
   }
   *value = (fixture){0};
   value->allocator.allocate = test_allocate;
   value->allocator.release = test_release;
   value->allocator.context = value;
-  if (t64_profile_lookup("ntsc-cart-4m-openipl3-vr4300-v1", &profile) !=
-          T64_STATUS_OK ||
+  if (t64_profile_lookup(profile_id, &profile) != T64_STATUS_OK ||
       profile == NULL ||
       t64_machine_create(&value->allocator, profile, &value->machine) !=
           T64_STATUS_OK ||
@@ -99,6 +99,18 @@ static bool fixture_init(fixture *value,
     return false;
   }
   return true;
+}
+
+static bool fixture_init(fixture *value,
+                         const uint8_t asset[TEST_IPL3_BYTES]) {
+  return fixture_init_profile(value, asset,
+                              "ntsc-cart-4m-openipl3-vr4300-v1");
+}
+
+static bool fixture_init_compat(fixture *value,
+                                const uint8_t asset[TEST_IPL3_BYTES]) {
+  return fixture_init_profile(
+      value, asset, "ntsc-cart-4m-openipl3-vr4300-compat-v1");
 }
 
 static void fixture_destroy(fixture *value) {
@@ -1010,6 +1022,136 @@ static void test_refused_sc_store_preserves_reservation(
   fixture_destroy(&value);
 }
 
+static void test_uncached_ll_sc_is_compat_only(
+    const uint8_t asset[TEST_IPL3_BYTES]) {
+  static const uint32_t program[] = {
+      UINT32_C(0xc0880000), /* ll t0,0(a0) */
+      UINT32_C(0xe0890000), /* sc t1,0(a0) */
+  };
+  const uint64_t uncached_address = UINT64_C(0xffffffffa0002000);
+  const uint32_t source = UINT32_C(0xa1b2c3d4);
+  fixture value;
+  t64_status status;
+
+  if (!fixture_init(&value, asset)) {
+    (void)puts("# strict uncached-LL fixture setup failed");
+    failure_count++;
+    return;
+  }
+  install_program(value.machine, program, sizeof program / sizeof program[0]);
+  value.machine->cpu.gpr[4] = uncached_address;
+  status = t64_cpu_step(value.machine, NULL);
+  check_status("strict profile still refuses uncached LL",
+               status, T64_STATUS_RESOURCE_EXHAUSTED);
+  check_bool("strict uncached LL does not create a reservation",
+             value.machine->cpu.linked_valid, false);
+  check_u64("strict uncached LL does not retire",
+            value.machine->cpu.retired_instructions, UINT64_C(0));
+  fixture_destroy(&value);
+
+  if (!fixture_init_compat(&value, asset)) {
+    (void)puts("# compat uncached-LL fixture setup failed");
+    failure_count++;
+    return;
+  }
+  install_program(value.machine, program, sizeof program / sizeof program[0]);
+  value.machine->cpu.gpr[4] = uncached_address;
+  value.machine->cpu.gpr[9] = source;
+  value.machine->ram[UINT32_C(0x2000)] = UINT8_C(0x11);
+  value.machine->ram[UINT32_C(0x2001)] = UINT8_C(0x22);
+  value.machine->ram[UINT32_C(0x2002)] = UINT8_C(0x33);
+  value.machine->ram[UINT32_C(0x2003)] = UINT8_C(0x44);
+
+  status = t64_cpu_step(value.machine, NULL);
+  check_status("compat uncached LL reads backing memory", status,
+               T64_STATUS_OK);
+  check_u64("compat uncached LL returns the word",
+            value.machine->cpu.gpr[8], UINT64_C(0x11223344));
+  check_bool("compat uncached LL records physical range",
+             value.machine->cpu.linked_valid &&
+                 value.machine->cpu.linked_physical_address ==
+                     UINT32_C(0x2000) &&
+                 value.machine->cpu.linked_width == UINT32_C(4),
+             true);
+  check_bool("compat uncached LL bypasses D-cache",
+             dcache_byte(value.machine, UINT32_C(0x2000)) == UINT8_MAX,
+             true);
+  status = t64_cpu_step(value.machine, NULL);
+  check_status("compat uncached SC commits matching reservation", status,
+               T64_STATUS_OK);
+  check_u64("compat uncached SC reports success",
+            value.machine->cpu.gpr[9], UINT64_C(1));
+  check_bool("compat uncached SC consumes the reservation once",
+             value.machine->cpu.linked_valid, false);
+  check_bool("compat uncached SC writes big-endian backing bytes",
+             value.machine->ram[UINT32_C(0x2000)] == UINT8_C(0xa1) &&
+                 value.machine->ram[UINT32_C(0x2001)] == UINT8_C(0xb2) &&
+                 value.machine->ram[UINT32_C(0x2002)] == UINT8_C(0xc3) &&
+                 value.machine->ram[UINT32_C(0x2003)] == UINT8_C(0xd4),
+             true);
+  fixture_destroy(&value);
+}
+
+static void test_uncached_refused_sc_preserves_compat_state(
+    const uint8_t asset[TEST_IPL3_BYTES]) {
+  static const uint32_t program[] = {
+      UINT32_C(0xc0880000), /* ll t0,0(a0) */
+      UINT32_C(0xe0890000), /* sc t1,0(a0) */
+  };
+  const uint64_t uncached_cartridge = UINT64_C(0xffffffffb0000100);
+  const uint32_t physical_cartridge = TEST_CART_BASE + UINT32_C(0x100);
+  const uint32_t source = UINT32_C(0xdeadbeef);
+  fixture value;
+  t64_status status;
+  uint32_t backing_before = 0u;
+  uint32_t backing_after = 0u;
+  uint64_t retired_before_sc;
+
+  if (!fixture_init_compat(&value, asset)) {
+    (void)puts("# compat uncached refused-SC fixture setup failed");
+    failure_count++;
+    return;
+  }
+  install_program(value.machine, program, sizeof program / sizeof program[0]);
+  value.machine->cpu.gpr[4] = uncached_cartridge;
+  value.machine->cpu.gpr[9] = source;
+  check_status("uncached cartridge backing is readable before LL",
+               t64_bus_read(value.machine, physical_cartridge, 4u,
+                            &backing_before),
+               T64_STATUS_OK);
+
+  status = t64_cpu_step(value.machine, NULL);
+  check_status("compat uncached cartridge LL establishes reservation", status,
+               T64_STATUS_OK);
+  check_bool("uncached cartridge LL links exact physical word",
+             value.machine->cpu.linked_valid &&
+                 value.machine->cpu.linked_physical_address ==
+                     physical_cartridge &&
+                 value.machine->cpu.linked_width == UINT32_C(4),
+             true);
+  retired_before_sc = value.machine->cpu.retired_instructions;
+  status = t64_cpu_step(value.machine, NULL);
+  check_status("refused uncached SC stops before completing", status,
+               T64_STATUS_RESOURCE_EXHAUSTED);
+  check_bool("refused uncached SC preserves reservation",
+             value.machine->cpu.linked_valid &&
+                 value.machine->cpu.linked_physical_address ==
+                     physical_cartridge &&
+                 value.machine->cpu.linked_width == UINT32_C(4),
+             true);
+  check_u64("refused uncached SC leaves source/result register",
+            value.machine->cpu.gpr[9], source);
+  check_u64("refused uncached SC does not retire",
+            value.machine->cpu.retired_instructions, retired_before_sc);
+  check_status("uncached cartridge backing remains readable after refusal",
+               t64_bus_read(value.machine, physical_cartridge, 4u,
+                            &backing_after),
+               T64_STATUS_OK);
+  check_u64("refused uncached SC leaves cartridge bytes unchanged",
+            backing_after, backing_before);
+  fixture_destroy(&value);
+}
+
 static void test_accepted_nonoverlap_dma_preserves_link(
     const uint8_t asset[TEST_IPL3_BYTES], bool sp_to_rdram) {
   uint32_t program[32] = {0};
@@ -1235,6 +1377,10 @@ int main(void) {
        test_sp_dma_to_imem},
       {"refused SC store preserves its uncompleted reservation",
        test_refused_sc_store_preserves_reservation},
+      {"uncached LL/SC uses deterministic compatibility reservation policy",
+       test_uncached_ll_sc_is_compat_only},
+      {"refused uncached SC preserves compatibility reservation and bytes",
+       test_uncached_refused_sc_preserves_compat_state},
       {"accepted nonoverlapping PI write preserves reservation",
        test_accepted_pi_nonoverlap},
       {"accepted nonoverlapping SP write preserves reservation",

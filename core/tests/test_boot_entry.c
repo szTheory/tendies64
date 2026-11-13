@@ -197,6 +197,73 @@ static void check_vr4300_cpu_state_hash_sensitivity(
 #undef CHECK_CPU_FIELD_MUTATION
 }
 
+static void check_vr4300_v10_state_hash_sensitivity(
+    const t64_machine *machine) {
+  t64_machine changed_machine;
+  uint8_t original_digest[T64_DIGEST_SIZE];
+  uint8_t changed_digest[T64_DIGEST_SIZE];
+
+  T64_CHECK_INT(t64_machine_digest(machine, original_digest), T64_STATUS_OK);
+#define CHECK_V10_FIELD_MUTATION(statement)                                  \
+  do {                                                                        \
+    changed_machine = *machine;                                               \
+    statement                                                                \
+    T64_CHECK_INT(t64_machine_digest(&changed_machine, changed_digest),       \
+                  T64_STATUS_OK);                                             \
+    T64_CHECK(memcmp(original_digest, changed_digest,                         \
+                     sizeof original_digest) != 0);                           \
+  } while (0)
+
+  CHECK_V10_FIELD_MUTATION(
+      changed_machine.cpu.delay_origin_pc_full ^= UINT64_C(4););
+#define CHECK_OUTPUT_FIELD_MUTATION(statement)                                \
+  do {                                                                        \
+    changed_machine = *machine;                                               \
+    statement                                                                \
+    T64_CHECK_INT(t64_machine_digest(&changed_machine, changed_digest),       \
+                  T64_STATUS_OK);                                             \
+    T64_CHECK(memcmp(original_digest, changed_digest,                         \
+                     sizeof original_digest) != 0);                           \
+  } while (0)
+
+  CHECK_OUTPUT_FIELD_MUTATION(changed_machine.output.policy_version++;);
+  CHECK_OUTPUT_FIELD_MUTATION(changed_machine.output.video_output_ready =
+                                  true;);
+  CHECK_OUTPUT_FIELD_MUTATION(changed_machine.output.audio_output_ready =
+                                  true;);
+  CHECK_OUTPUT_FIELD_MUTATION(changed_machine.output.magic_register++;);
+  CHECK_OUTPUT_FIELD_MUTATION(changed_machine.output.byte_count++;);
+  CHECK_OUTPUT_FIELD_MUTATION(
+      changed_machine.output.buffer[T64_ISVIEWER_BUFFER_BYTES - 1u] ^=
+      UINT8_C(1););
+  CHECK_OUTPUT_FIELD_MUTATION(changed_machine.output.captured_bytes++;);
+  CHECK_OUTPUT_FIELD_MUTATION(
+      changed_machine.output.captured[T64_ISVIEWER_CAPTURE_BYTES - 1u] ^=
+      UINT8_C(1););
+  CHECK_OUTPUT_FIELD_MUTATION(changed_machine.output.lost_output = true;);
+  CHECK_OUTPUT_FIELD_MUTATION(
+      changed_machine.output.total_attempted_bytes++;);
+  CHECK_OUTPUT_FIELD_MUTATION(
+      changed_machine.output.total_attempted_bytes_saturated = true;);
+
+#undef CHECK_OUTPUT_FIELD_MUTATION
+#undef CHECK_V10_FIELD_MUTATION
+}
+
+static void check_vr4300_v9_ignores_compat_branch_origin(
+    const t64_machine *machine) {
+  t64_machine changed_machine = *machine;
+  uint8_t original_digest[T64_DIGEST_SIZE];
+  uint8_t changed_digest[T64_DIGEST_SIZE];
+
+  T64_CHECK_INT(t64_machine_digest(machine, original_digest), T64_STATUS_OK);
+  changed_machine.cpu.delay_origin_pc_full ^= UINT64_C(4);
+  T64_CHECK_INT(t64_machine_digest(&changed_machine, changed_digest),
+                T64_STATUS_OK);
+  T64_CHECK(memcmp(original_digest, changed_digest,
+                   sizeof original_digest) == 0);
+}
+
 static void test_vr4300_profile_entry(
     const uint8_t asset[IPL3_ASSET_BYTES]) {
   static const char profile_id[] = "ntsc-cart-4m-openipl3-vr4300-v1";
@@ -278,6 +345,7 @@ static void test_vr4300_profile_entry(
   T64_CHECK_INT(machine->cpu.last_pc_full, 0u);
   T64_CHECK_INT(machine->cpu.delay_slot_pc_full, 0u);
   T64_CHECK_INT(machine->cpu.delay_target_full, 0u);
+  T64_CHECK_INT(machine->cpu.delay_origin_pc_full, 0u);
   T64_CHECK_INT(machine->cpu.stop_pc_full, 0u);
   T64_CHECK_INT(machine->cpu.attempt_outcome, T64_CPU_ATTEMPT_NONE);
   T64_CHECK_INT(machine->cpu.semantic_policy_version, 1u);
@@ -343,6 +411,7 @@ static void test_vr4300_profile_entry(
   T64_CHECK(memcmp(production_digest, reference_digest,
                    sizeof reference_digest) == 0);
   check_vr4300_cpu_state_hash_sensitivity(machine);
+  check_vr4300_v9_ignores_compat_branch_origin(machine);
 
   T64_CHECK_INT(t64_machine_create(&allocator, profile, &peer_machine),
                 T64_STATUS_OK);
@@ -742,17 +811,27 @@ static void reference_machine_digest(const t64_machine *machine,
       't', '6', '4', '.', 's', 't', 'a', 't', 'e', '.', 'v', '8'};
   static const uint8_t domain_v9[] = {
       't', '6', '4', '.', 's', 't', 'a', 't', 'e', '.', 'v', '9'};
+  static const uint8_t domain_v10[] = {
+      't', '6', '4', '.', 's', 't', 'a', 't', 'e', '.', 'v', '1', '0'};
   const bool v7 = machine->profile.state_serialization_version == 7u;
   const bool v8 = machine->profile.state_serialization_version == 8u;
   const bool v9 = machine->profile.state_serialization_version == 9u;
+  const bool v10 = machine->profile.state_serialization_version == 10u;
   t64_sha256_ctx context;
   size_t i;
 
   t64_sha256_init(&context);
-  t64_sha256_update(&context, v9 ? domain_v9
-                                : (v8 ? domain_v8
-                                      : (v7 ? domain_v7 : domain_v6)),
-                    sizeof domain_v6);
+  if (v10) {
+    t64_sha256_update(&context, domain_v10, sizeof domain_v10);
+  } else if (v9) {
+    t64_sha256_update(&context, domain_v9, sizeof domain_v9);
+  } else if (v8) {
+    t64_sha256_update(&context, domain_v8, sizeof domain_v8);
+  } else if (v7) {
+    t64_sha256_update(&context, domain_v7, sizeof domain_v7);
+  } else {
+    t64_sha256_update(&context, domain_v6, sizeof domain_v6);
+  }
   reference_hash_u32(&context, machine->profile.state_serialization_version);
   t64_sha256_update(&context, machine->profile_digest,
                     sizeof machine->profile_digest);
@@ -861,8 +940,11 @@ static void reference_machine_digest(const t64_machine *machine,
   reference_hash_u32(&context, machine->cpu.stop_reason);
   reference_hash_u32(&context, machine->cpu.stop_pc);
   reference_hash_u32(&context, machine->cpu.stop_opcode);
-  if (v9) {
+  if (v9 || v10) {
     reference_hash_v9_prepared_cpu_state(&context, machine);
+    if (v10) {
+      reference_hash_u64(&context, machine->cpu.delay_origin_pc_full);
+    }
   }
   reference_hash_u32(&context, machine->cache.policy_version);
   reference_hash_u32(&context, machine->cache.last_operation);
@@ -879,7 +961,7 @@ static void reference_machine_digest(const t64_machine *machine,
   reference_hash_u32(&context, machine->output.policy_version);
   reference_hash_u32(&context, machine->output.video_output_ready ? 1u : 0u);
   reference_hash_u32(&context, machine->output.audio_output_ready ? 1u : 0u);
-  if (v7 || v8 || v9) {
+  if (v7 || v8 || v9 || v10) {
     reference_hash_u32(&context, machine->output.magic_register);
     reference_hash_u32(&context, machine->output.byte_count);
     reference_hash_u32(&context, T64_ISVIEWER_BUFFER_BYTES);
@@ -890,7 +972,7 @@ static void reference_machine_digest(const t64_machine *machine,
     t64_sha256_update(&context, machine->output.captured,
                       sizeof machine->output.captured);
     reference_hash_u32(&context, machine->output.lost_output ? 1u : 0u);
-    if (v8 || v9) {
+    if (v8 || v9 || v10) {
       reference_hash_u64(&context, machine->output.total_attempted_bytes);
       reference_hash_u32(
           &context,
@@ -898,6 +980,90 @@ static void reference_machine_digest(const t64_machine *machine,
     }
   }
   t64_sha256_final(&context, digest);
+}
+
+static void test_vr4300_compat_profile_entry(
+    const uint8_t asset[IPL3_ASSET_BYTES]) {
+  static const char expected_v10_prepared_state_sha256[] =
+      "dd8a0509ecbd0211965618943e3657601f2a8de57dc3c4dfc6fd4f0495135628";
+  allocator_state allocator_state_value = {0u};
+  const t64_host_allocator allocator = {
+      test_allocate, test_release, &allocator_state_value};
+  const t64_profile_descriptor *profile = NULL;
+  t64_machine *machine = NULL;
+  uint8_t reference_digest[T64_DIGEST_SIZE];
+  uint8_t production_digest[T64_DIGEST_SIZE];
+  char reference_hex[T64_DIGEST_SIZE * 2u + 1u];
+  t64_stop_request request = {T64_STOP_GUEST_TICK, UINT64_C(1)};
+  t64_stop_result result = {UINT32_MAX, UINT64_MAX};
+  t64_status status;
+
+  status = t64_profile_lookup("ntsc-cart-4m-openipl3-vr4300-compat-v1",
+                              &profile);
+  T64_CHECK_INT(status, T64_STATUS_OK);
+  T64_CHECK(profile != NULL);
+  if (profile == NULL) {
+    return;
+  }
+  T64_CHECK_INT(profile->descriptor_version, 3u);
+  T64_CHECK_INT(profile->machine_model_version, 4u);
+  T64_CHECK_INT(profile->state_serialization_version, 10u);
+  T64_CHECK_INT(profile->rom_max_bytes, UINT32_C(0x00401000));
+  T64_CHECK_INT(profile->hle_seed_reset_version, 2u);
+
+  T64_CHECK_INT(t64_machine_create(&allocator, profile, &machine),
+                T64_STATUS_OK);
+  T64_CHECK(machine != NULL);
+  if (machine == NULL) {
+    goto done;
+  }
+  T64_CHECK_INT(t64_machine_admit_rom(machine, asset, IPL3_ASSET_BYTES),
+                T64_STATUS_OK);
+  T64_CHECK(t64_isviewer_active(machine));
+  T64_CHECK(machine->boot.prepared);
+  T64_CHECK_INT(machine->boot.source_offset, IPL3_PAYLOAD_SOURCE_OFFSET);
+  T64_CHECK_INT(machine->boot.payload_length, IPL3_PAYLOAD_BYTES);
+  T64_CHECK_INT(machine->boot.dmem_offset, IPL3_DMEM_OFFSET);
+  T64_CHECK_INT(machine->boot.entry_pc, IPL3_ENTRY_PC);
+  T64_CHECK_INT(machine->boot.seed_reset_version, 2u);
+  T64_CHECK_INT(machine->cpu.pc, IPL3_ENTRY_PC);
+  T64_CHECK_INT(machine->cpu.pc_full, UINT64_C(0xffffffffa4000040));
+  T64_CHECK_INT(machine->cpu.delay_origin_pc_full, 0u);
+  T64_CHECK_INT(machine->cpu.gpr[19], 0u);
+  T64_CHECK_INT(machine->cpu.gpr[20], 1u);
+  T64_CHECK_INT(machine->cpu.gpr[21], 1u);
+  T64_CHECK_INT(machine->cpu.gpr[22], 0u);
+  T64_CHECK_INT(machine->cpu.gpr[23], 1u);
+  T64_CHECK_INT(machine->cpu.cp0[12], UINT32_C(0x34000000));
+  T64_CHECK_INT(machine->cpu.cp0[15], UINT32_C(0x00000b00));
+  T64_CHECK_INT(machine->cpu.cp0[16], UINT32_C(0x7006e463));
+  T64_CHECK_INT(machine->cpu.semantic_policy_version, 2u);
+
+  T64_CHECK_INT(t64_machine_digest(machine, production_digest),
+                T64_STATUS_OK);
+  reference_machine_digest(machine, reference_digest);
+  T64_CHECK(memcmp(production_digest, reference_digest,
+                   sizeof reference_digest) == 0);
+  digest_to_hex(reference_digest, reference_hex);
+  T64_CHECK_STR(reference_hex, expected_v10_prepared_state_sha256);
+  check_vr4300_cpu_state_hash_sensitivity(machine);
+  check_vr4300_v10_state_hash_sensitivity(machine);
+
+  T64_CHECK_INT(t64_machine_advance(machine, &request, &result),
+                T64_STATUS_OK);
+  T64_CHECK_INT(result.reason, T64_STOP_REASON_BOUND);
+  T64_CHECK_INT(result.tick, 1u);
+  T64_CHECK_INT(machine->cpu.last_pc, IPL3_ENTRY_PC);
+  T64_CHECK_INT(machine->cpu.last_opcode, UINT32_C(0x3044d236));
+  T64_CHECK_INT(machine->cpu.gpr[4], 0u);
+  T64_CHECK_INT(machine->cpu.pc, IPL3_ENTRY_PC + 4u);
+  T64_CHECK_INT(machine->cpu.attempt_outcome, T64_CPU_ATTEMPT_RETIRED);
+  T64_CHECK_INT(machine->cpu.semantic_policy_version, 2u);
+  T64_CHECK_INT(machine->cpu.retired_instructions, 1u);
+
+done:
+  t64_machine_destroy(machine);
+  T64_CHECK_INT(allocator_state_value.outstanding, 0u);
 }
 
 int main(void) {
@@ -1152,6 +1318,7 @@ int main(void) {
   T64_CHECK_INT(repeated_result.tick, 100u);
 
   test_vr4300_profile_entry(asset);
+  test_vr4300_compat_profile_entry(asset);
 
 done:
   t64_machine_destroy(machine);

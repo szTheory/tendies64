@@ -115,6 +115,12 @@ applies that direction; update it when the owner changes policy.
   directories or inputs. Give synthetic fixtures their own restrictive temporary
   storage under the ignored build tree, and verify that clean setup explicitly;
   a populated developer workspace is not evidence of CI independence.
+  Keep long sanitizer/fuzz work separate from wall-capped actual diagnostic
+  runs on the shared host. A 2026-11-13 overlapping attempt hit a wall bound;
+  the same unchanged case completed in 0.21 seconds after those jobs finished.
+  Host contention is an inference, not proof of the cause. Preserve the failed
+  attempt and limits, diagnose one bounded case, then serialize the workloads
+  for the next justified attempt rather than widening deadlines.
 - At each discussion, enumerate actual decision points. Fan out one agent per
   independent decision cluster when it saves time/context. Apply relevant
   CPU/cache/virtual-memory, RSP/microcode, RDP/video, audio, memory/bus,
@@ -123,6 +129,17 @@ applies that direction; update it when the owner changes policy.
   research no longer changes the recommendation, risk or evidence plan.
 - “Another copy-paste is better than another dependency” is the default;
   document provenance and maintenance ownership for copied code.
+
+## Approved CPU compatibility target
+
+Owner direction, 2026-11-13: follow the recommendation to add a separate,
+versioned software-compatibility CPU profile and use it for the required CPU
+suite completion gate. Preserve the current strict profile, its identity and
+refusal behavior. This authorizes the associated fields, versioning, runner
+selection, tests, documentation, reviews and bounded diagnostic retests without
+per-slice approval. Software expectations and chosen undefined-operation
+policies do not establish silicon behavior. Required membership, authenticated
+pass/fail completion, resource caps, rights and publication stops remain intact.
 
 ## 2. Verification and CI
 

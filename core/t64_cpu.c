@@ -64,12 +64,6 @@ static uint64_t sign_extend_32(uint32_t value) {
   return t64_cpu_canonical_address(value);
 }
 
-static bool has_vr4300_cpu_state(const t64_machine *machine) {
-  return machine != NULL &&
-         machine->profile.machine_model_version == UINT32_C(3) &&
-         machine->profile.state_serialization_version == UINT32_C(9);
-}
-
 static bool vr4300_cache_operation_is_defined(uint32_t operation) {
   switch (operation) {
   case T64_CACHE_INDEX_INVALIDATE_I:
@@ -102,7 +96,7 @@ static t64_status cpu_enter_exception(t64_machine *machine, uint32_t code,
   exception.valid = true;
   exception.code = code;
   exception.bad_virtual_address = bad_virtual_address;
-  exception.epc = branch_delay ? machine->cpu.delay_slot_pc_full - 4u : pc;
+  exception.epc = branch_delay ? t64_cpu_delay_branch_epc(machine) : pc;
   exception.branch_delay = branch_delay;
   exception.sets_coprocessor = sets_coprocessor;
   exception.coprocessor = coprocessor;
@@ -242,7 +236,7 @@ static bool cpu_translate_access(const t64_machine *machine,
   if (machine == NULL || result_out == NULL) {
     return false;
   }
-  if (has_vr4300_cpu_state(machine)) {
+  if (t64_has_vr4300_cpu_state(machine)) {
     request.virtual_address = virtual_address;
     request.width = width;
     request.kind = kind;
@@ -647,7 +641,7 @@ static bool execute_memory(t64_machine *machine, uint32_t opcode,
   bool partial_left = false;
   bool partial_right = false;
 
-  if (has_vr4300_cpu_state(machine)) {
+  if (t64_has_vr4300_cpu_state(machine)) {
     bool supported = false;
     *memory_status_out = t64_memory_execute_status(
         machine, opcode, &supported, write_gpr_out, destination_out,
@@ -733,7 +727,8 @@ static void execute_word_multiply_unsigned(t64_machine *machine,
 }
 
 static bool execute_word_divide(t64_machine *machine, uint32_t dividend,
-                                uint32_t divisor, bool signed_operation) {
+                                uint32_t divisor, bool signed_operation,
+                                bool compat_policy) {
   uint32_t quotient;
   uint32_t remainder;
 
@@ -750,26 +745,36 @@ static bool execute_word_divide(t64_machine *machine, uint32_t dividend,
       return true;
     }
     if (dividend == UINT32_C(0x80000000) && divisor == UINT32_MAX) {
-      return false;
-    }
-    dividend_magnitude = dividend_negative ? ~dividend + UINT32_C(1)
-                                           : dividend;
-    divisor_magnitude = divisor_negative ? ~divisor + UINT32_C(1)
-                                         : divisor;
-    quotient = dividend_magnitude / divisor_magnitude;
-    remainder = dividend_magnitude % divisor_magnitude;
-    if (dividend_negative != divisor_negative) {
-      quotient = ~quotient + UINT32_C(1);
-    }
-    if (dividend_negative) {
-      remainder = ~remainder + UINT32_C(1);
+      if (!compat_policy) {
+        return false;
+      }
+      quotient = dividend;
+      remainder = 0u;
+    } else {
+      dividend_magnitude = dividend_negative ? ~dividend + UINT32_C(1)
+                                             : dividend;
+      divisor_magnitude = divisor_negative ? ~divisor + UINT32_C(1)
+                                           : divisor;
+      quotient = dividend_magnitude / divisor_magnitude;
+      remainder = dividend_magnitude % divisor_magnitude;
+      if (dividend_negative != divisor_negative) {
+        quotient = ~quotient + UINT32_C(1);
+      }
+      if (dividend_negative) {
+        remainder = ~remainder + UINT32_C(1);
+      }
     }
   } else {
     if (divisor == 0u) {
-      return false;
+      if (!compat_policy) {
+        return false;
+      }
+      quotient = UINT32_MAX;
+      remainder = dividend;
+    } else {
+      quotient = dividend / divisor;
+      remainder = dividend % divisor;
     }
-    quotient = dividend / divisor;
-    remainder = dividend % divisor;
   }
   machine->cpu.lo = sign_extend_32(quotient);
   machine->cpu.hi = sign_extend_32(remainder);
@@ -803,12 +808,23 @@ static void execute_doubleword_multiply(t64_machine *machine, uint64_t left,
 
 static bool execute_doubleword_divide(t64_machine *machine, uint64_t dividend,
                                       uint64_t divisor,
-                                      bool signed_operation) {
+                                      bool signed_operation,
+                                      bool compat_policy) {
   uint64_t quotient;
   uint64_t remainder;
 
   if (divisor == 0u) {
-    return false;
+    if (!compat_policy) {
+      return false;
+    }
+    quotient = signed_operation &&
+                       (dividend & UINT64_C(0x8000000000000000)) != 0u
+                   ? UINT64_C(1)
+                   : UINT64_MAX;
+    remainder = dividend;
+    machine->cpu.lo = quotient;
+    machine->cpu.hi = remainder;
+    return true;
   }
   if (signed_operation) {
     bool dividend_negative =
@@ -818,7 +834,8 @@ static bool execute_doubleword_divide(t64_machine *machine, uint64_t dividend,
     uint64_t dividend_magnitude;
     uint64_t divisor_magnitude;
 
-    if (dividend == UINT64_C(0x8000000000000000) && divisor == UINT64_MAX) {
+    if (dividend == UINT64_C(0x8000000000000000) &&
+        divisor == UINT64_MAX && !compat_policy) {
       return false;
     }
     dividend_magnitude = unsigned_magnitude_64(dividend);
@@ -914,8 +931,9 @@ static bool execute_special(t64_machine *machine, uint32_t pc,
   }
   case 0x1au:
   case 0x1bu:
-    return new_profile &&
-           execute_word_divide(machine, left32, right32, function == 0x1au);
+    return new_profile && execute_word_divide(
+                              machine, left32, right32, function == 0x1au,
+                              t64_has_cpu_compat_policy(machine));
   case 0x1cu:
   case 0x1du:
     if (!new_profile) {
@@ -926,7 +944,8 @@ static bool execute_special(t64_machine *machine, uint32_t pc,
   case 0x1eu:
   case 0x1fu:
     return new_profile && execute_doubleword_divide(
-                               machine, left64, right64, function == 0x1eu);
+                               machine, left64, right64, function == 0x1eu,
+                               t64_has_cpu_compat_policy(machine));
   case 0x10u:
     *value_out = machine->cpu.hi;
     break;
@@ -1184,7 +1203,7 @@ static bool execute_cache(t64_machine *machine, uint32_t pc,
   virtual_address =
       machine->cpu.gpr[base] + sign_extend_16((uint16_t)opcode);
 
-  if (!has_vr4300_cpu_state(machine)) {
+  if (!t64_has_vr4300_cpu_state(machine)) {
     /* Preserve the exact warm-v1 CACHE subset and effects. */
     if (operation != T64_CACHE_INDEX_STORE_TAG_I &&
         operation != T64_CACHE_INDEX_STORE_TAG_D &&
@@ -1257,7 +1276,7 @@ static void cpu_stop_unsupported(t64_machine *machine, uint32_t pc,
   machine->cpu.stop_reason = T64_STOP_REASON_CPU_UNSUPPORTED;
   machine->cpu.stop_pc = pc;
   machine->cpu.stop_opcode = opcode;
-  if (has_vr4300_cpu_state(machine)) {
+  if (t64_has_vr4300_cpu_state(machine)) {
     machine->cpu.attempt_outcome = T64_CPU_ATTEMPT_MODEL_UNSUPPORTED;
     sync_vr4300_full_addresses(&machine->cpu);
   }
@@ -1272,7 +1291,7 @@ static void cpu_stop_completion(t64_machine *machine, uint32_t pc,
   machine->cpu.stop_reason = T64_STOP_REASON_GUEST_COMPLETION;
   machine->cpu.stop_pc = pc;
   machine->cpu.stop_opcode = opcode;
-  if (has_vr4300_cpu_state(machine)) {
+  if (t64_has_vr4300_cpu_state(machine)) {
     machine->cpu.attempt_outcome = T64_CPU_ATTEMPT_SOFTWARE_STOP;
     sync_vr4300_full_addresses(&machine->cpu);
   }
@@ -1316,9 +1335,8 @@ static t64_status cpu_enter_mmu_fault(t64_machine *machine,
   exception.valid = true;
   exception.code = code;
   exception.bad_virtual_address = request->virtual_address;
-  exception.epc = in_delay_slot
-                      ? machine->cpu.delay_slot_pc_full - UINT64_C(4)
-                      : machine->cpu.pc_full;
+  exception.epc = in_delay_slot ? t64_cpu_delay_branch_epc(machine)
+                                 : machine->cpu.pc_full;
   exception.branch_delay = in_delay_slot;
   exception.sets_tlb_context = translation->tlb_context_valid;
   exception.tlb_refill = translation->tlb_refill_vector;
@@ -1475,7 +1493,7 @@ static t64_status cpu_preflight_memory(t64_machine *machine, uint32_t opcode,
           (opcode >> 16) & UINT32_C(0x1f);
 
       /* Warm-v1 retains its legacy direct-only CACHE subset. */
-      if (!has_vr4300_cpu_state(machine)) {
+      if (!t64_has_vr4300_cpu_state(machine)) {
         return T64_STATUS_OK;
       }
       if (!vr4300_cache_operation_is_defined(cache_operation)) {
@@ -1941,7 +1959,7 @@ t64_status t64_cpu_step(t64_machine *machine, const t64_event *event) {
                          machine->cpu.last_opcode);
     return T64_STATUS_RESOURCE_EXHAUSTED;
   }
-  new_profile = has_vr4300_cpu_state(machine);
+  new_profile = t64_has_vr4300_cpu_state(machine);
   status = t64_cp0_synchronize_guest_time(machine, machine->tick);
   if (status != T64_STATUS_OK) {
     machine->cpu.attempt_outcome = T64_CPU_ATTEMPT_HOST_ERROR;
@@ -2071,7 +2089,8 @@ t64_status t64_cpu_step(t64_machine *machine, const t64_event *event) {
     }
   }
 
-  if (in_delay_slot && is_branch) {
+  if (in_delay_slot && is_branch &&
+      !t64_has_cpu_compat_policy(machine)) {
     cpu_stop_unsupported(machine, pc, opcode);
     return T64_STATUS_RESOURCE_EXHAUSTED;
   }
@@ -2227,7 +2246,30 @@ t64_status t64_cpu_step(t64_machine *machine, const t64_event *event) {
                     : sign_extend_32(pc + UINT32_C(8));
   }
 
-  if (in_delay_slot) {
+  if (in_delay_slot && is_branch &&
+      t64_has_cpu_compat_policy(machine) && branch_likely &&
+      !branch_taken) {
+    /* Compatibility policy: a not-taken likely branch in a delay slot
+     * annuls the following instruction and replaces the pending target. */
+    next_pc_full = pc_full + UINT64_C(8);
+    machine->cpu.delay_slot_pending = false;
+    machine->cpu.delay_slot_pc = 0u;
+    machine->cpu.delay_target = 0u;
+    machine->cpu.delay_slot_pc_full = 0u;
+    machine->cpu.delay_target_full = 0u;
+    machine->cpu.delay_origin_pc_full = 0u;
+  } else if (in_delay_slot && is_branch &&
+             t64_has_cpu_compat_policy(machine)) {
+    /* Compatibility policy: the outer target becomes the inner branch's
+     * delay-slot instruction, after which the inner target takes effect. */
+    next_pc_full = machine->cpu.delay_target_full;
+    machine->cpu.delay_slot_pending = true;
+    machine->cpu.delay_slot_pc = (uint32_t)next_pc_full;
+    machine->cpu.delay_target = (uint32_t)target;
+    machine->cpu.delay_slot_pc_full = next_pc_full;
+    machine->cpu.delay_target_full = target;
+    machine->cpu.delay_origin_pc_full = pc_full;
+  } else if (in_delay_slot) {
     next_pc_full = new_profile ? machine->cpu.delay_target_full
                                : (uint64_t)machine->cpu.delay_target;
     machine->cpu.delay_slot_pending = false;
@@ -2235,6 +2277,7 @@ t64_status t64_cpu_step(t64_machine *machine, const t64_event *event) {
     machine->cpu.delay_target = 0u;
     machine->cpu.delay_slot_pc_full = 0u;
     machine->cpu.delay_target_full = 0u;
+    machine->cpu.delay_origin_pc_full = 0u;
   } else if (is_branch && branch_likely && !branch_taken) {
     next_pc_full = (new_profile ? pc_full : (uint64_t)pc) + UINT64_C(8);
     machine->cpu.delay_slot_pending = false;
@@ -2242,6 +2285,7 @@ t64_status t64_cpu_step(t64_machine *machine, const t64_event *event) {
     machine->cpu.delay_target = 0u;
     machine->cpu.delay_slot_pc_full = 0u;
     machine->cpu.delay_target_full = 0u;
+    machine->cpu.delay_origin_pc_full = 0u;
   } else if (is_branch) {
     next_pc_full = (new_profile ? pc_full : (uint64_t)pc) + UINT64_C(4);
     machine->cpu.delay_slot_pending = true;
@@ -2249,6 +2293,8 @@ t64_status t64_cpu_step(t64_machine *machine, const t64_event *event) {
     machine->cpu.delay_target = (uint32_t)target;
     machine->cpu.delay_slot_pc_full = next_pc_full;
     machine->cpu.delay_target_full = target;
+    machine->cpu.delay_origin_pc_full =
+        t64_has_cpu_compat_policy(machine) ? pc_full : 0u;
   } else {
     next_pc_full = is_eret ? eret_target
                            : (new_profile ? pc_full : (uint64_t)pc) +
@@ -2258,6 +2304,7 @@ t64_status t64_cpu_step(t64_machine *machine, const t64_event *event) {
     machine->cpu.delay_target = 0u;
     machine->cpu.delay_slot_pc_full = 0u;
     machine->cpu.delay_target_full = 0u;
+    machine->cpu.delay_origin_pc_full = 0u;
   }
   next_pc = (uint32_t)next_pc_full;
   machine->cpu.pc = next_pc;
@@ -2275,7 +2322,7 @@ t64_status t64_cpu_step(t64_machine *machine, const t64_event *event) {
   if (!new_profile) {
     cp0_retirement_tick(machine);
   }
-  if (has_vr4300_cpu_state(machine)) {
+  if (t64_has_vr4300_cpu_state(machine)) {
     machine->cpu.attempt_outcome = T64_CPU_ATTEMPT_RETIRED;
     machine->cpu.pc_full = next_pc_full;
     machine->cpu.last_pc_full = pc_full;

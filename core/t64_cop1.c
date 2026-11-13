@@ -145,7 +145,7 @@ static t64_status cop1_enter_exception(t64_machine *machine, uint32_t code,
   exception.valid = true;
   exception.code = code;
   exception.epc = in_delay_slot
-                      ? machine->cpu.delay_slot_pc_full - UINT64_C(4)
+                      ? t64_cpu_delay_branch_epc(machine)
                       : machine->cpu.pc_full;
   exception.branch_delay = in_delay_slot;
   return t64_cpu_exception_enter(machine, &exception);

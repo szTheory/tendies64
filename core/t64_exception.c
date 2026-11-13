@@ -134,6 +134,7 @@ t64_status t64_cpu_exception_enter(
   machine->cpu.delay_target = 0u;
   machine->cpu.delay_slot_pc_full = 0u;
   machine->cpu.delay_target_full = 0u;
+  machine->cpu.delay_origin_pc_full = 0u;
   machine->cpu.pending_exception_valid = true;
   machine->cpu.pending_exception_code = exception->code;
   machine->cpu.pending_exception_address = exception->bad_virtual_address;

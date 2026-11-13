@@ -29,12 +29,6 @@ typedef struct {
 #define T64_STATUS_RE UINT32_C(0x02000000)
 #define T64_CONFIG_BE UINT32_C(0x00008000)
 
-static bool vr4300_cache_profile(const t64_machine *machine) {
-  return machine != NULL &&
-         machine->profile.machine_model_version == UINT32_C(3) &&
-         machine->profile.state_serialization_version == UINT32_C(9);
-}
-
 static bool reverse_endian_active(const t64_machine *machine) {
   uint32_t status = (uint32_t)machine->cpu.cp0[12];
   uint32_t config = (uint32_t)machine->cpu.cp0[16];
@@ -344,7 +338,7 @@ static t64_status stage_memory_effect(t64_machine *machine, uint32_t opcode,
               : merge_store_mask(effect->width, offset,
                                  effect->partial_left, false);
 
-    if (vr4300_cache_profile(machine) && effect->cacheable) {
+    if (t64_has_vr4300_cpu_state(machine) && effect->cacheable) {
       uint64_t cached_value = 0u;
       status = t64_cpu_dcache_read(
           machine, effect->virtual_address, effect->physical_address,
@@ -422,7 +416,7 @@ static t64_status commit_memory_effect(t64_machine *machine,
   t64_status status;
 
   if (effect->store) {
-    if (vr4300_cache_profile(machine) && effect->cacheable) {
+    if (t64_has_vr4300_cpu_state(machine) && effect->cacheable) {
       status = t64_cpu_dcache_write(machine, effect->virtual_address,
                                     effect->physical_address,
                                     effect->bus_width, effect->byte_mask,
@@ -508,7 +502,9 @@ static t64_status execute_linked_memory(t64_machine *machine,
   request.kind = load ? T64_MMU_ACCESS_READ : T64_MMU_ACCESS_WRITE;
   if (!t64_mmu_translate(machine, &request, &translation) ||
       translation.fault != T64_MMU_FAULT_NONE || !translation.translated ||
-      !translation.cacheable || translation.physical_address > UINT32_MAX) {
+      (!translation.cacheable &&
+       !t64_has_cpu_compat_policy(machine)) ||
+      translation.physical_address > UINT32_MAX) {
     return T64_STATUS_OK;
   }
   *supported_out = true;
@@ -520,7 +516,7 @@ static t64_status execute_linked_memory(t64_machine *machine,
   }
 
   if (load) {
-    if (vr4300_cache_profile(machine) && translation.cacheable) {
+    if (t64_has_vr4300_cpu_state(machine) && translation.cacheable) {
       status = t64_cpu_dcache_read(
           machine, virtual_address, physical_address, width, value_out);
     } else {
@@ -549,7 +545,7 @@ static t64_status execute_linked_memory(t64_machine *machine,
 
     status = T64_STATUS_OK;
     if (success) {
-      if (vr4300_cache_profile(machine) && translation.cacheable) {
+      if (t64_has_vr4300_cpu_state(machine) && translation.cacheable) {
         status = t64_cpu_dcache_write(
             machine, virtual_address, physical_address, width,
             (uint8_t)((UINT32_C(1) << width) - 1u), source);

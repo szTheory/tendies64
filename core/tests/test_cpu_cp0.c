@@ -51,6 +51,12 @@ static void setup_vr4300_machine(t64_machine *machine) {
   machine->profile.state_serialization_version = UINT32_C(9);
 }
 
+static void setup_vr4300_compat_machine(t64_machine *machine) {
+  setup_vr4300_machine(machine);
+  machine->profile.machine_model_version = UINT32_C(4);
+  machine->profile.state_serialization_version = UINT32_C(10);
+}
+
 static uint32_t encode_cp0(uint32_t operation, uint32_t rt, uint32_t rd) {
   return (UINT32_C(0x10) << 26) | (operation << 21) | (rt << 16) |
          (rd << 11);
@@ -568,6 +574,41 @@ static void test_privilege_width_and_reserved_selects(void) {
             T64_CP0_TRANSFER_RESERVED);
 }
 
+static void test_compat_doubleword_transfers_to_narrow_registers(void) {
+  t64_machine machine;
+  setup_vr4300_compat_machine(&machine);
+
+  machine.cpu.cp0[CP0_COUNT] = UINT64_C(0xdeadbeef87654321);
+  T64_CHECK(apply_cp0(&machine, CP0_DMFC0, 9u, CP0_COUNT) ==
+            T64_CP0_TRANSFER_OK);
+  T64_CHECK(machine.cpu.gpr[9] == UINT64_C(0x0000000087654321));
+
+  machine.cpu.gpr[8] = UINT64_C(0xfeedbeef87654321);
+  T64_CHECK(apply_cp0(&machine, CP0_DMTC0, 8u, CP0_COUNT) ==
+            T64_CP0_TRANSFER_OK);
+  T64_CHECK(machine.cpu.cp0[CP0_COUNT] == UINT64_C(0x87654321));
+
+  machine.cpu.cp0[CP0_CAUSE] = CAUSE_SOFTWARE_IP | CAUSE_TIMER_IP;
+  machine.cpu.gpr[8] = UINT64_C(0xfeedbeef12345678);
+  T64_CHECK(apply_cp0(&machine, CP0_DMTC0, 8u, CP0_COMPARE) ==
+            T64_CP0_TRANSFER_OK);
+  T64_CHECK(machine.cpu.cp0[CP0_COMPARE] == UINT64_C(0x12345678));
+  T64_CHECK(machine.cpu.cp0[CP0_CAUSE] == CAUSE_SOFTWARE_IP);
+
+  machine.cpu.cp0[CP0_PAGEMASK] = UINT64_C(0x00006000);
+  machine.cpu.cp0[CP0_RANDOM] = UINT64_C(0x0000002b);
+  machine.cpu.gpr[8] = UINT64_C(0xffffffffffff2000);
+  T64_CHECK(apply_cp0(&machine, CP0_DMTC0, 8u, CP0_PAGEMASK) ==
+            T64_CP0_TRANSFER_UNSUPPORTED);
+  T64_CHECK(machine.cpu.cp0[CP0_PAGEMASK] == UINT64_C(0x00006000));
+  T64_CHECK(machine.cpu.cp0[CP0_RANDOM] == UINT64_C(0x0000002b));
+
+  machine.cpu.gpr[8] = UINT64_C(0xffffffff01ffe000);
+  T64_CHECK(apply_cp0(&machine, CP0_DMTC0, 8u, CP0_PAGEMASK) ==
+            T64_CP0_TRANSFER_OK);
+  T64_CHECK(machine.cpu.cp0[CP0_PAGEMASK] == UINT64_C(0x01ffe000));
+}
+
 int main(void) {
   test_status_each_bit_set_and_clear();
   test_index_random_and_wired_fields();
@@ -576,5 +617,6 @@ int main(void) {
   test_entryhi_cause_compare_and_return_pc();
   test_context_config_and_xcontext_policy();
   test_privilege_width_and_reserved_selects();
+  test_compat_doubleword_transfers_to_narrow_registers();
   return T64_TEST_FINISH("unit.core.cpu-cp0");
 }

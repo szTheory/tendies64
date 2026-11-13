@@ -1,8 +1,10 @@
 # VR4300 integer memory model
 
-This describes the native model in `ntsc-cart-4m-openipl3-vr4300-v1`.
-It is independently expected software evidence, not physical-console
-qualification. Warm-v1 retains its existing behavior.
+This describes the strict native model in
+`ntsc-cart-4m-openipl3-vr4300-v1` and the versioned software-compatibility
+policy in `ntsc-cart-4m-openipl3-vr4300-compat-v1`. These are independently
+expected software behaviors, not physical-console qualification. Warm-v1
+retains its existing behavior.
 
 ## Access and commit boundaries
 
@@ -121,6 +123,48 @@ invalidation behavior. That evidence must identify the tested processor and
 transfer widths and include the byte-level result; another emulator's output
 or an unlicensed source tree is not reversal evidence.
 
+## Versioned software-compatibility policy
+
+`ntsc-cart-4m-openipl3-vr4300-compat-v1` uses machine-model version 4 and
+state-serialization version 10. It shares the full VR4300 CPU state with the
+strict model, while selecting only the deterministic undefined-operation
+rules below. The strict model remains model 3/state 9 with its existing stops
+and digest behavior.
+
+The VR4300 manual says a branch in a delay slot is not detected and its result
+is undefined; it also says division by zero and LL/LLD in non-cacheable memory
+are undefined. Compatibility expectations select these deterministic software
+rules. They are not claims about silicon behavior:
+
+- A branch in a pending delay slot executes and retires. Its link, if any,
+  receives the branch instruction's PC+8. The outer branch's pending target
+  supplies the inner branch's one delay-slot instruction; after that
+  instruction commits, control transfers to the inner branch's selected
+  target. A not-taken likely branch annuls that displaced instruction and
+  continues at the inner branch's PC+8. A fault in the displaced slot sets
+  BD and records the inner branch as EPC. The branch origin is explicit in
+  v10 serialized CPU state.
+- Word and doubleword DIV/DIVU/DDIV/DDIVU with a zero divisor complete without
+  an exception. Signed word DIV keeps the existing sign-dependent quotient
+  (`0x7fffffff` for a nonnegative dividend, `0x80000001` for a negative one)
+  and the dividend as remainder. Unsigned word DIVU uses quotient
+  `0xffffffff` and the word dividend as remainder. Signed doubleword DDIV
+  uses quotient `-1` for a nonnegative dividend and `1` for a negative
+  dividend; DDIVU uses an all-one quotient. Both retain the dividend as the
+  remainder. Word results are sign-extended to 64 bits. Signed minimum-value
+  divided by `-1` wraps the quotient to that minimum value and produces zero
+  remainder. These results use unsigned host arithmetic and commit HI/LO
+  before normal retirement.
+- In model 4/state 10 only, translated uncached LL/LLD reads backing memory
+  and records the same physical start and width as cached operations. SC/SCD
+  succeeds only for that exact reservation, writes through the uncached bus
+  path, and consumes the reservation once. Strict model 3/state 9 continues to
+  stop on uncached LL/SC.
+
+The compatibility profile is intentionally narrow. Other undefined
+operations, unimplemented instructions, and unsupported device interactions
+remain model stops unless a separately reviewed policy and test add them.
+
 ## Source and evidence
 
 NEC, *VR4300/VR4305/VR4310 64-Bit Microprocessor User's Manual*, seventh
@@ -132,6 +176,8 @@ LBU/LD, pp.439–441; LHU, pp.450–451; SB/SD/SH, pp.486/491/501;
 LW/SW omissions, pp.458/515; LL/LWC/SWC, pp.453/460/516;
 LWR/SWR tables, pp.466/523; partial merges, pp.445–446/497/499–500;
 LLAddr, p.154; LL, pp.452–453; LLD, pp.454–455; Watch, pp.175/198.
+Branch-in-delay undefined behavior, p.369; DIV/DIVU and DDIV/DDIVU details,
+pp.410–416.
 
 The registered CPU-memory matrix and CPU-path integration tests contain
 independent expected bytes. The [04-07 portable RED record](../../.planning/phases/04-complete-vr4300-cpu/04-07-RED-evidence.md)

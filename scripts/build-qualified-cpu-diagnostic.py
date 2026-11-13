@@ -20,6 +20,7 @@ PRIVATE = ROOT / 'build/private-cpu-diagnostic'
 SOURCE = PRIVATE / 'overlay-checkout-8aa0921'
 PREFIX = PRIVATE / 'toolchain-prefix'
 ADAPTER = ROOT / 'build/gate/runner/t64-cpu-diagnostic'
+PROFILE_ID = 'ntsc-cart-4m-openipl3-vr4300-compat-v1'
 
 
 def digest(path):
@@ -161,7 +162,7 @@ def build():
     if ADAPTER.is_symlink() or not ADAPTER.is_file() or not os.access(ADAPTER, os.X_OK):
         raise ValueError('production adapter path is missing, linked, or not executable')
     adapter_sha = digest(ADAPTER)
-    runtime_identity = json.loads(run([str(ADAPTER), '--runtime-identity-json'], work, 'runtime'))
+    runtime_identity = json.loads(run([str(ADAPTER), '--compat', '--runtime-identity-json'], work, 'runtime'))
     if digest(ADAPTER) != adapter_sha:
         raise ValueError('production adapter changed during runtime identity inspection')
     if set(runtime_identity) != {'core_build_sha256', 'profile_sha256', 'source_revision'}:
@@ -194,12 +195,12 @@ def build():
                              'required_values': str(sum(len(r['values']) for r in registrations if r['lane'] == 'required-base'))}})
     if ADAPTER.is_symlink() or digest(ADAPTER) != adapter_sha:
         raise ValueError('production adapter changed before inventory validation')
-    run([str(ADAPTER), '--validate-inventory', str(inventory)], work, 'inventory')
+    run([str(ADAPTER), '--compat', '--validate-inventory', str(inventory)], work, 'inventory')
     if digest(ADAPTER) != adapter_sha:
         raise ValueError('production adapter changed during inventory validation')
     artifacts = {'base_rom': rom, 'composition': composition, 'inventory': inventory, 'qualification': PRIVATE / 'qualification.json',
                  'source_projection': PRIVATE / 'source-projection.json', 'source_closure': closure}
-    sealed = {'schema': 't64.cpu-qualified-build', 'schema_version': 1, 'status': 'qualified',
+    sealed = {'schema': 't64.cpu-qualified-build', 'schema_version': 2, 'status': 'qualified', 'profile_id': PROFILE_ID,
               'adapter': {'path': ADAPTER.relative_to(ROOT).as_posix(), 'sha256': adapter_sha},
               'artifacts': {key: {'path': path.relative_to(PRIVATE).as_posix(), 'sha256': digest(path)} for key, path in artifacts.items()},
               'selector': {'rom_offset': offset, 'width': 4, 'encoding': 'registration-index-u16be:value-index-u16be'}}
@@ -242,7 +243,8 @@ def startup():
         complete = code in (0, 2) and module.read_batch_if_present(batch, context.private_root) is not None
         write(work / 'startup-result.json', {'schema': 't64.cpu-startup-qualification', 'schema_version': 1,
               'qualified_build_sha256': context.qualified_build_sha256, 'inventory_sha256': context.inventory_sha256,
-              'member': member, 'command': command, 'exit': code, 'startup_complete': complete,
+              'member': member, 'command': [command[0], *(['--compat'] if context.profile_id == module.COMPAT_PROFILE_ID else []), *command[1:]],
+              'exit': code, 'startup_complete': complete,
               'seconds': round(time.monotonic() - start, 3), 'whole_inventory_complete': False})
         if not complete:
             raise ValueError('actual required startup did not complete; inspect the private attempt')
