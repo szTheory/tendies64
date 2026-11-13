@@ -397,8 +397,13 @@ static bool drain_guest_observers(t64_machine *machine, child_report *report) {
   for (i = 0u; i < count; i++) {
     uint32_t pc;
     uint32_t opcode;
-    if (trace[i].device != T64_TRACE_DEVICE_MACHINE ||
-        trace[i].kind != T64_TRACE_KIND_CPU_RETIREMENT) continue;
+    if (trace[i].device != T64_TRACE_DEVICE_MACHINE) continue;
+    if (trace[i].kind == T64_TRACE_KIND_CPU_UNSUPPORTED) {
+      report->last_pc = (uint32_t)(trace[i].value >> 32);
+      report->last_opcode = (uint32_t)trace[i].value;
+      continue;
+    }
+    if (trace[i].kind != T64_TRACE_KIND_CPU_RETIREMENT) continue;
     pc = (uint32_t)(trace[i].value >> 32);
     opcode = (uint32_t)trace[i].value;
     report->last_pc = pc;
@@ -850,8 +855,13 @@ static int command_run(int argc, char **argv, bool local_mode) {
     t64_cpu_diag_status guest_status =
         (t64_cpu_diag_status)report.protocol_status;
     if (guest_status == T64_CPU_DIAG_INCOMPLETE) {
-      (void)printf("classification=incomplete status=%s\n",
-                   t64_cpu_diag_status_name(guest_status));
+      (void)printf("classification=incomplete status=%s outcome=%s stage=%u entry=%u park=%u tick=%llu capture=%u total=%llu last_pc=%08x last_opcode=%08x\n",
+                   t64_cpu_diag_status_name(guest_status),
+                   t64_cpu_diag_outcome_name((t64_cpu_diag_outcome)report.outcome),
+                   report.harness_error, report.saw_entry, report.saw_park,
+                   (unsigned long long)report.tick, report.capture_length,
+                   (unsigned long long)report.output_total, report.last_pc,
+                   report.last_opcode);
       exit_code = 3;
     } else {
       (void)printf("classification=harness-error status=%s stage=%u entry=%u park=%u tick=%llu capture=%u total=%llu last_pc=%08x last_opcode=%08x\n",

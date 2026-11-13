@@ -909,8 +909,14 @@ static void test_guest_record_case(const char *production_executable,
   int result;
   output[0] = '\0';
   bool built = make_protocol_guest_rom_sized(
-                   transcript, minimum_image_length, &rom, &rom_length) &&
-               build_inventory(rom, rom_length, inventory, sizeof inventory);
+                   transcript == NULL ? "unreached" : transcript,
+                   minimum_image_length, &rom, &rom_length);
+  if (built && transcript == NULL) {
+    /* A known model refusal after one retirement distinguishes the refused
+       instruction from the preceding retired entry instruction. */
+    put_be32(rom + IMAGE_PAYLOAD_OFFSET + 4u, UINT32_C(0x0000001b));
+  }
+  built = built && build_inventory(rom, rom_length, inventory, sizeof inventory);
   check(built, "build actual guest record control ROM and canonical inventory");
   if (!built) goto cleanup;
   hex_digest(rom, rom_length, hash_text);
@@ -961,6 +967,23 @@ static void test_guest_record_case(const char *production_executable,
   check(result == expected_exit && strstr(output, classification) != NULL &&
             (status_text == NULL || strstr(output, status_text) != NULL),
         "actual adapter preserves the guest record control classification");
+  if (expected_exit == 3) {
+    check(strstr(output, "entry=") != NULL &&
+              strstr(output, "park=") != NULL &&
+              strstr(output, "tick=") != NULL &&
+              strstr(output, "capture=") != NULL &&
+              strstr(output, "last_pc=") != NULL &&
+              strstr(output, "last_opcode=") != NULL,
+          "incomplete guest retains actionable stop observations");
+    check(access(batch_path, F_OK) != 0,
+          "diagnostic context does not authenticate an incomplete batch");
+  }
+  if (transcript == NULL) {
+    check(strstr(output, "outcome=guest-stop") != NULL &&
+              strstr(output, "last_pc=80000404") != NULL &&
+              strstr(output, "last_opcode=0000001b") != NULL,
+          "model refusal reports its own instruction rather than last retirement");
+  }
   if (replace_source) {
     struct stat st;
     check(access(rom_path, F_OK) == 0 && stat(rom_path, &st) == 0 &&
@@ -1001,6 +1024,9 @@ static void test_guest_record_controls(const char *production_executable,
   memset(overflow_output, 'A', 4097u);
   overflow_output[4097] = '\0';
   test_guest_record_case(production_executable, test_executable, missing_done,
+                         0u, "600000", "classification=incomplete",
+                         "status=incomplete", 3, false);
+  test_guest_record_case(production_executable, test_executable, NULL,
                          0u, "600000", "classification=incomplete",
                          "status=incomplete", 3, false);
   test_guest_record_case(production_executable, test_executable,
