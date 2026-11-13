@@ -44,3 +44,31 @@ Graphics, *Nintendo Ultra64 RSP Programmer's Guide*, pp. 56-57, 67, 233-234:
 
 No ROM or external diagnostic asset was used; the test authors the IMEM words
 in a synthetic fixture.
+
+## Portable validation notes
+
+- Task 1 normal command: `cmake --preset gate && cmake --build --preset gate && ctest --test-dir build/gate --no-tests=error --output-on-failure -R '^unit.core.(sp-dma|profile|digest-trace|determinism|scheduler)$'`.
+  Result: all five focused tests passed after the all-target build.
+- Task 2 normal command: `cmake --preset gate && cmake --build --preset gate && ctest --test-dir build/gate --no-tests=error --output-on-failure -R '^unit.core.(rsp-tracer|sp-dma|profile)$'`.
+  Result: all three focused tests passed after the all-target build.
+- Task 2 sanitizer command: `cmake --preset asan && cmake --build --preset asan && env ASAN_OPTIONS=detect_leaks=0:halt_on_error=1 UBSAN_OPTIONS=halt_on_error=1:print_stacktrace=1 ctest --test-dir build/asan --no-tests=error --output-on-failure -R '^unit.core.(rsp-tracer|sp-dma|profile)$'`.
+  Result: all three focused tests passed after the all-target ASan/UBSan build.
+- Inventory checks: `sh scripts/check-test-inventory.sh --preset gate` measured
+  112 tests; `--preset asan` measured 114. The self-test passed all 112 gate
+  removals, 114 sanitizer removals, and five malformed-inventory controls.
+- Core source/object lint: `sh tools/lint/core-lint.sh` reported 84 files and
+  zero violations.
+- Normal build identity:
+  `t64-build-v1-d8ea08a68e12daf986dcaa8c5c94b4dc8959b9415edfd4a6786a79a15e7dfb28`.
+  ASan/UBSan build identity:
+  `t64-build-v1-5ef2b221877096960c2af57afa4c1ce308418ca3d4020806c5d1770b82571973`.
+  At configure time the revision macro was `9fa62ec68be8d4008611b932011dd8deaf27849f`;
+  the build identity fingerprints the production source and policy inputs used
+  by these builds.
+- The sanitizer build emitted a visible 3200-byte frame-size warning for
+  `t64_rsp_issue_event`; other existing core frame warnings were also visible.
+  The configured ASan preset treats these warnings as nonfatal. No warning was
+  suppressed or waived for the RSP file.
+
+The commands and summarized results above are the portable record. Build logs,
+JUnit output, and workstation-specific paths remain uncommitted build outputs.

@@ -121,6 +121,8 @@ unit.core.softfloat32
 unit.core.softfloat64
 unit.core.softfloat-isolation'
 
+PHASE05_TESTS='unit.core.rsp-tracer'
+
 CPU_COVERAGE_OPCODES='ADD
 ADDU
 SUB
@@ -222,7 +224,7 @@ expected_names() {
     *) echo "unsupported preset: $_preset" >&2; return 2 ;;
   esac
   {
-    printf '%s\n' "$BASELINE_CORE" "$BASELINE_CONTROLS" "$PHASE02_TESTS" "$PHASE03_TESTS" "$PHASE04_TESTS" "$_extra"
+    printf '%s\n' "$BASELINE_CORE" "$BASELINE_CONTROLS" "$PHASE02_TESTS" "$PHASE03_TESTS" "$PHASE04_TESTS" "$PHASE05_TESTS" "$_extra"
   } | awk 'NF' | sort
 }
 

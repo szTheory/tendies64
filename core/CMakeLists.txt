@@ -444,6 +444,8 @@ target_link_libraries(test_sp_dma PRIVATE t64_core)
 t64_target_warnings(test_sp_dma)
 add_test(NAME unit.core.sp-dma COMMAND test_sp_dma)
 set_tests_properties(unit.core.sp-dma PROPERTIES LABELS unit)
+add_test(NAME unit.core.rsp-tracer COMMAND test_sp_dma --rsp-tracer)
+set_tests_properties(unit.core.rsp-tracer PROPERTIES LABELS unit)
 
 # Long admission fuzzing and the intentional fault are only available from the
 # existing ASan/UBSan preset. They are deliberately absent from the fast gate.
