@@ -179,12 +179,14 @@ promotes it.
 
 ### Current state
 
-Phases 1 and 2 are implemented in the public Apache-2.0 repository. The
-canonical gate passes on Linux/GCC and macOS/Clang. The deterministic machine
-skeleton supports native model workloads, ROM admission and scheduled PI/SP DMA;
-it does not execute CPU/RSP instructions, boot a ROM, or implement VI/audio.
-Phase 3 opens primary-document verification and the rights-reviewed open IPL3
-headless hello-ROM slice. No software release has been published.
+Phases1–4 are implemented in the public Apache-2.0 repository. The canonical
+native gate passes on Linux/GCC and macOS/Clang. The core executes the authored
+hello through open IPL3 and has a scoped VR4300 integer/CP0/MMU/cache/COP1
+interpreter plus independently expected native tests. Strict and software
+compatibility CPU profiles retain distinct identities. Qualified local CPU
+reporting is available, without full-accuracy or silicon claims. RSP execution,
+VI/audio and cold boot remain unimplemented; Phase5 opens the RSP slice.
+No software release has been published.
 
 ## Constraints
 
