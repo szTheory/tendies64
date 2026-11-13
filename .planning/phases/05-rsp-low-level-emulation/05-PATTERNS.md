@@ -1,7 +1,7 @@
 # Phase 5: RSP Low-Level Emulation - Pattern Map
 
-**Mapped:** 2026-11-13  
-**Files analyzed:** 14 proposed file groups  
+**Mapped:** 2026-11-13
+**Files analyzed:** 14 proposed file groups
 **Analogs found:** 14 / 14 groups (role/data-flow analogs; no VU semantic oracle)
 
 ## File Classification
@@ -66,6 +66,6 @@ Reuse shared JSON parse/canonicalization/encoding and aggregation primitives whi
 
 ## Metadata
 
-**Analog search scope:** named `core`, `runner`, `scripts`, and `tools/lint` files identified by phase context/research; targeted reads only.  
-**Tracked-source gate:** every named analog is git-tracked; no runtime/install mirror path is used.  
+**Analog search scope:** named `core`, `runner`, `scripts`, and `tools/lint` files identified by phase context/research; targeted reads only.
+**Tracked-source gate:** every named analog is git-tracked; no runtime/install mirror path is used.
 **Pattern extraction date:** 2026-11-13
