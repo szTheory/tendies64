@@ -20,6 +20,7 @@
 #define T64_DEVICE_SP UINT32_C(0x00000004)
 #define T64_PI_EVENT_COMPLETE UINT32_C(1)
 #define T64_SP_EVENT_COMPLETE UINT32_C(1)
+#define T64_SP_EVENT_RSP_ISSUE UINT32_C(2)
 #define T64_WARM_DEVICE_POLICY_VERSION UINT32_C(3)
 #define T64_WARM_ABSENT_RDRAM_PROBE_ADDRESS UINT32_C(0x00400000)
 #define T64_WARM_ABSENT_RDRAM_PROBE_BYTES UINT32_C(4)
@@ -117,6 +118,42 @@ typedef struct {
   uint64_t next_token;
   bool token_exhausted;
 } t64_sp_state;
+
+/* Every field here can affect future behavior and belongs to state v12. */
+typedef struct {
+  uint32_t gpr[32];
+  uint8_t vector[32][16];
+  uint64_t accumulator[8];
+  uint16_t vco;
+  uint16_t vcc;
+  uint8_t vce;
+  uint32_t pc;
+  uint32_t delay_target;
+  bool delay_slot_pending;
+  uint32_t divider_input;
+  uint32_t divider_result;
+  bool divider_high_valid;
+  uint64_t scalar_ready_tick[32];
+  uint64_t vector_ready_tick[32];
+  uint64_t accumulator_ready_tick[8];
+  uint64_t next_issue_tick;
+  uint64_t issue_sequence;
+  uint64_t retired_instructions;
+  uint64_t stall_slots;
+  uint32_t sp_status;
+  bool sp_semaphore;
+  uint64_t dma_beat_cursor;
+  uint64_t dma_setup_remaining;
+  uint64_t active_dma_token;
+  uint64_t pending_dma_token;
+  uint64_t dma_event_sequence;
+} t64_rsp_state;
+
+typedef enum {
+  T64_RSP_ATTEMPT_NONE = 0,
+  T64_RSP_ATTEMPT_RETIRED = 1,
+  T64_RSP_ATTEMPT_REFUSED = 2
+} t64_rsp_attempt_outcome;
 
 typedef enum {
   T64_CPU_ATTEMPT_NONE = 0,
@@ -443,6 +480,7 @@ struct t64_machine {
   bool mi_irq_line;
   t64_pi_state pi;
   t64_sp_state sp;
+  t64_rsp_state rsp;
   t64_cpu_state cpu;
   t64_boot_state boot;
   t64_cache_state cache;
@@ -472,6 +510,11 @@ struct t64_machine {
   uint64_t trace_drop_count;
   bool trace_drop_count_saturated;
   bool trace_enabled;
+  /* Diagnostic observation only; excluded from canonical guest state. */
+  uint32_t rsp_observed_pc;
+  uint32_t rsp_observed_opcode;
+  uint32_t rsp_observed_outcome;
+  bool rsp_observation_valid;
 };
 
 static inline bool t64_has_vr4300_cpu_state(const t64_machine *machine) {
@@ -486,8 +529,17 @@ static inline bool t64_has_vr4300_cpu_state(const t64_machine *machine) {
 
 static inline bool t64_has_cpu_compat_extension_policy(
     const t64_machine *machine) {
-  return machine != NULL && machine->profile.machine_model_version == 5u &&
-         machine->profile.state_serialization_version == 11u;
+  return machine != NULL &&
+         ((machine->profile.machine_model_version == 5u &&
+           machine->profile.state_serialization_version == 11u) ||
+          (machine->profile.machine_model_version == 6u &&
+           machine->profile.state_serialization_version == 12u));
+}
+
+static inline bool t64_has_rsp_functional_profile(
+    const t64_machine *machine) {
+  return machine != NULL && machine->profile.machine_model_version == 6u &&
+         machine->profile.state_serialization_version == 12u;
 }
 
 static inline bool t64_has_cpu_compat_policy(const t64_machine *machine) {
@@ -671,6 +723,7 @@ t64_status t64_sp_write_register(t64_machine *machine, uint32_t address,
                                  uint32_t value);
 t64_status t64_sp_complete(t64_machine *machine, const t64_event *event);
 void t64_sp_reset_machine_state(t64_machine *machine);
+t64_status t64_rsp_start(t64_machine *machine);
 
 static inline bool t64_internal_make_range(const void *pointer, size_t length,
                                            t64_address_range *range_out) {

@@ -135,6 +135,8 @@ t64_status t64_machine_digest(const t64_machine *machine,
                                        't', 'e', '.', 'v', '1', '0'};
   static const uint8_t domain_v11[] = {'t', '6', '4', '.', 's', 't', 'a',
                                        't', 'e', '.', 'v', '1', '1'};
+  static const uint8_t domain_v12[] =
+      "t64.state.rsp.functional.12";
   t64_sha256_ctx context;
   t64_address_range output_range;
   const bool has_v6_state =
@@ -149,9 +151,10 @@ t64_status t64_machine_digest(const t64_machine *machine,
       machine != NULL && machine->profile.state_serialization_version == 10u;
   const bool has_v11_state =
       machine != NULL && machine->profile.state_serialization_version == 11u;
+  const bool has_v12_state = t64_has_rsp_functional_profile(machine);
   const bool has_warm_state =
       has_v6_state || has_v7_state || has_v8_state || has_v9_state ||
-      has_v10_state || has_v11_state;
+      has_v10_state || has_v11_state || has_v12_state;
   size_t i;
 
   if (machine == NULL || digest_out == NULL ||
@@ -164,7 +167,9 @@ t64_status t64_machine_digest(const t64_machine *machine,
   }
 
   t64_sha256_init(&context);
-  if (has_v11_state) {
+  if (has_v12_state) {
+    t64_sha256_update(&context, domain_v12, sizeof domain_v12 - 1u);
+  } else if (has_v11_state) {
     t64_sha256_update(&context, domain_v11, sizeof domain_v11);
   } else if (has_v10_state) {
     t64_sha256_update(&context, domain_v10, sizeof domain_v10);
@@ -289,12 +294,12 @@ t64_status t64_machine_digest(const t64_machine *machine,
     hash_u32(&context, machine->cpu.stop_reason);
     hash_u32(&context, machine->cpu.stop_pc);
     hash_u32(&context, machine->cpu.stop_opcode);
-    if (has_v9_state || has_v10_state || has_v11_state) {
+    if (has_v9_state || has_v10_state || has_v11_state || has_v12_state) {
       hash_vr4300_cpu_state(&context, &machine->cpu);
-      if (has_v10_state || has_v11_state) {
+      if (has_v10_state || has_v11_state || has_v12_state) {
         hash_u64(&context, machine->cpu.delay_origin_pc_full);
       }
-      if (has_v11_state) {
+      if (has_v11_state || has_v12_state) {
         hash_u64(&context, machine->cpu.cp2_transfer_latch);
       }
     }
@@ -318,7 +323,8 @@ t64_status t64_machine_digest(const t64_machine *machine,
                                                           : UINT32_C(0));
     hash_u32(&context, machine->output.audio_output_ready ? UINT32_C(1)
                                                           : UINT32_C(0));
-    if (has_v7_state || has_v8_state || has_v9_state || has_v10_state || has_v11_state) {
+    if (has_v7_state || has_v8_state || has_v9_state || has_v10_state ||
+        has_v11_state || has_v12_state) {
       /* Retained guest output is future state; the host drain cursor is not. */
       hash_u32(&context, machine->output.magic_register);
       hash_u32(&context, machine->output.byte_count);
@@ -331,13 +337,53 @@ t64_status t64_machine_digest(const t64_machine *machine,
                         sizeof machine->output.captured);
       hash_u32(&context,
                machine->output.lost_output ? UINT32_C(1) : UINT32_C(0));
-      if (has_v8_state || has_v9_state || has_v10_state || has_v11_state) {
+      if (has_v8_state || has_v9_state || has_v10_state || has_v11_state ||
+          has_v12_state) {
         hash_u64(&context, machine->output.total_attempted_bytes);
         hash_u32(&context,
                  machine->output.total_attempted_bytes_saturated
                      ? UINT32_C(1)
                      : UINT32_C(0));
       }
+    }
+    if (has_v12_state) {
+      const t64_rsp_state *rsp = &machine->rsp;
+
+      for (i = 0u; i < 32u; i++) {
+        hash_u32(&context, rsp->gpr[i]);
+      }
+      t64_sha256_update(&context, (const uint8_t *)rsp->vector,
+                        sizeof rsp->vector);
+      for (i = 0u; i < 8u; i++) {
+        hash_u64(&context, rsp->accumulator[i] & UINT64_C(0x0000ffffffffffff));
+      }
+      hash_u32(&context, rsp->vco);
+      hash_u32(&context, rsp->vcc);
+      hash_u32(&context, rsp->vce);
+      hash_u32(&context, rsp->pc);
+      hash_u32(&context, rsp->delay_target);
+      hash_u32(&context, rsp->delay_slot_pending ? 1u : 0u);
+      hash_u32(&context, rsp->divider_input);
+      hash_u32(&context, rsp->divider_result);
+      hash_u32(&context, rsp->divider_high_valid ? 1u : 0u);
+      for (i = 0u; i < 32u; i++) {
+        hash_u64(&context, rsp->scalar_ready_tick[i]);
+        hash_u64(&context, rsp->vector_ready_tick[i]);
+      }
+      for (i = 0u; i < 8u; i++) {
+        hash_u64(&context, rsp->accumulator_ready_tick[i]);
+      }
+      hash_u64(&context, rsp->next_issue_tick);
+      hash_u64(&context, rsp->issue_sequence);
+      hash_u64(&context, rsp->retired_instructions);
+      hash_u64(&context, rsp->stall_slots);
+      hash_u32(&context, rsp->sp_status);
+      hash_u32(&context, rsp->sp_semaphore ? 1u : 0u);
+      hash_u64(&context, rsp->dma_beat_cursor);
+      hash_u64(&context, rsp->dma_setup_remaining);
+      hash_u64(&context, rsp->active_dma_token);
+      hash_u64(&context, rsp->pending_dma_token);
+      hash_u64(&context, rsp->dma_event_sequence);
     }
   }
   t64_sha256_final(&context, digest_out);
