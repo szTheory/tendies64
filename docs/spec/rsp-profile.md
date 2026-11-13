@@ -29,7 +29,7 @@ The descriptor binds these selected policies:
 | SP model | `rsp-functional-issue-dma-v1` |
 | SP register policy | `rsp-issue-status-dma-policy-v1` |
 | DMA visibility policy | `rsp-one-beat-per-issue-v1` |
-| SP duration base / divisor | `6` cycles / `8` bytes |
+| SP duration base / divisor | `12` model cycles / `8` bytes |
 
 These values identify emulator policy. They are not measurements of hardware
 frequency or bus timing.

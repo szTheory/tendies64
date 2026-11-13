@@ -72,3 +72,49 @@ in a synthetic fixture.
 
 The commands and summarized results above are the portable record. Build logs,
 JUnit output, and workstation-specific paths remain uncommitted build outputs.
+
+## Source-review fix RED/GREEN
+
+- Pre-fix command: `build/gate/core/test_sp_dma --rsp-tracer`.
+  Exit: 1. The two newly added controls failed against the buggy source: queued
+  PI DMA had not completed at tick 1 because RSP BREAK globally halted the
+  machine, and overlapping seeded CPU link reservations remained valid after
+  SP DMEM SW. Output is retained as the ignored build artifact
+  `build/gate/build/05-01-review-red.txt`.
+- The PI control schedules a real PI DMA event and verifies its copied
+  synthetic bytes, completion, interrupt, and continued guest-tick advancement.
+  The reservation controls seed native fixture link state for widths 4 and 8;
+  they do not execute guest LL/LLD or claim LL/SC instruction-path coverage.
+- Fix: RSP BREAK now sets RSP HALT/BROKE and the optional interrupt without
+  halting the machine. Accepted SP DMEM SW invalidates overlapping CPU link
+  reservations through the existing physical-range helper. Pre-effect staging
+  and refusal behavior are unchanged. The existing fetched VADD tracer now
+  expects the reached guest-tick bound while retaining its SP HALT/BROKE and
+  interrupt assertions; the PI test claims device completion, not CPU opcode
+  execution.
+- Normal validation: `cmake --preset gate && cmake --build --preset gate`,
+  followed by
+  `ctest --test-dir build/gate --no-tests=error --output-on-failure --output-junit build/gate/build/05-01-review-green-normal.xml -R '^unit.core.(rsp-tracer|sp-dma|profile|cpu-link|scheduler|digest-trace)$'`.
+  The all-target build completed and all six tests passed. Console logs are
+  `build/gate/build/05-01-review-green-normal-build.log` and
+  `build/gate/build/05-01-review-green-normal-ctest.log`.
+- Sanitizer validation: `cmake --preset asan && cmake --build --preset asan`,
+  followed by
+  `env ASAN_OPTIONS=detect_leaks=0:halt_on_error=1 UBSAN_OPTIONS=halt_on_error=1:print_stacktrace=1 ctest --test-dir build/asan --no-tests=error --output-on-failure --output-junit build/asan/build/05-01-review-green-asan.xml -R '^unit.core.(rsp-tracer|sp-dma|profile|cpu-link|scheduler|digest-trace)$'`.
+  The all-target build completed and all six tests passed. Console logs are
+  `build/asan/build/05-01-review-green-asan-build.log` and
+  `build/asan/build/05-01-review-green-asan-ctest.log`.
+- These builds include the selected new-profile SP duration policy of 12 model
+  cycles; the five existing profile identities and policies remain unchanged.
+  Normal build identity:
+  `t64-build-v1-019d7175db451a975d80844d8c855f047d65b69b891f0e252875a879f34da625`.
+  ASan/UBSan build identity:
+  `t64-build-v1-505473c0e24df8c98ee70bca09c628f73b152246ef4e229e0dbdc3df1fb68ef3`.
+  Both configured revision macros name the prior HEAD
+  `f0ce649d9be11e8808b50d155e03dee659e6d58f`; build identities fingerprint the
+  current source and profile policy inputs.
+- `sh tools/lint/core-lint.sh` passed with 84 files and zero violations.
+  Inventory checks remain 112 tests for gate and 114 for ASan. The sanitizer
+  build reports a visible 3168-byte frame warning for `t64_rsp_issue_event`
+  (limit 2048), alongside existing core frame warnings; the preset treats it
+  as nonfatal and it was not suppressed.

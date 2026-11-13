@@ -5,6 +5,7 @@
 #define T64_RSP_STATUS_HALT UINT32_C(0x00000001)
 #define T64_RSP_STATUS_BROKE UINT32_C(0x00000002)
 #define T64_RSP_STATUS_INTR_BREAK UINT32_C(0x00000040)
+#define T64_RSP_DMEM_BASE UINT32_C(0x04000000)
 
 static t64_status t64_rsp_issue_event(t64_machine *machine,
                                       const t64_event *event);
@@ -248,13 +249,15 @@ static t64_status t64_rsp_issue_event(t64_machine *machine,
     bytes[1] = (uint8_t)(store_value >> 16);
     bytes[2] = (uint8_t)(store_value >> 8);
     bytes[3] = (uint8_t)store_value;
+    t64_cpu_link_invalidate_range(machine,
+                                  T64_RSP_DMEM_BASE + store_address,
+                                  UINT32_C(4));
   }
   if (is_break) {
     machine->rsp.sp_status |= T64_RSP_STATUS_HALT | T64_RSP_STATUS_BROKE;
     if ((machine->rsp.sp_status & T64_RSP_STATUS_INTR_BREAK) != 0u) {
       t64_mi_set_pending(machine, UINT32_C(1));
     }
-    machine->halted = true;
   } else {
     machine->rsp.pc = (pc + UINT32_C(4)) & UINT32_C(0x00000fff);
   }

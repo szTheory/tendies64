@@ -332,7 +332,7 @@ static const t64_profile_descriptor
         .advance_event_budget = 4096u,
         .pi_duration_base_ticks = 1u,
         .pi_duration_bytes_divisor = 2u,
-        .sp_duration_base_rsp_cycles = 6u,
+        .sp_duration_base_rsp_cycles = 12u,
         .sp_duration_bytes_divisor = 8u,
         .rom_order_policy = T64_VR4300_OPENIPL3_FLAT_ENTRY_POLICY,
         .event_order_policy = "tick-sequence-fifo-v1",
