@@ -1,5 +1,13 @@
-fn park() -> ! {
-    loop {}
+#[unsafe(naked)]
+#[no_mangle]
+#[link_section = ".t64_park"]
+pub(crate) extern "C" fn park() -> ! {
+    core::arch::naked_asm!(
+        ".set noat",
+        ".set noreorder",
+        "j 0x80000420",
+        "nop",
+    );
 }
 
 pub fn run() -> ! {

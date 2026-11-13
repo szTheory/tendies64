@@ -47,6 +47,7 @@ pub(crate) static T64_CPU_SELECTOR: u32 = 0;
 
 #[unsafe(naked)]
 #[no_mangle]
+#[link_section = ".t64_entrypoint"]
 extern "C" fn entrypoint() -> ! {
     naked_asm!(
         ".set noat",
