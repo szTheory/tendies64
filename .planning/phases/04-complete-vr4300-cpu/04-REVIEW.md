@@ -1,8 +1,8 @@
 ---
 phase: 04-complete-vr4300-cpu
-reviewed: 2026-11-12T19:46:52Z
+reviewed: 2026-11-13T00:42:14Z
 depth: standard
-files_reviewed: 101
+files_reviewed: 106
 files_reviewed_list:
   - core/CMakeLists.txt
   - core/softfloat/f32_add.c
@@ -100,8 +100,13 @@ files_reviewed_list:
   - runner/t64_cpu_diagnostic.c
   - runner/tests/test_cpu_diag_protocol.c
   - runner/tests/test_cpu_diagnostic.c
+  - scripts/apply-cpu-diagnostic-overlay.py
   - scripts/build-cpu-diagnostic.sh
   - scripts/check-test-inventory.sh
+  - scripts/private-tests/accepted-qualification-baseline.py
+  - scripts/tests/test_cpu_diagnostic_overlay_controls.py
+  - scripts/tests/test_cpu_diagnostic_qualification_controls.py
+  - scripts/verify-cpu-diagnostic-qualification.py
   - tools/fixture/t64_rom_pack.c
   - tools/lint/core-lint.sh
   - tools/lint/lint-objects.sh
@@ -116,22 +121,248 @@ status: clean
 
 # Phase 04: Code Review Report
 
-**Reviewed:** 2026-11-12T19:46:52Z  
+**Reviewed:** 2026-11-13T00:42:14Z
 **Depth:** standard  
-**Files Reviewed:** 101  
+**Files Reviewed:** 106
 **Status:** clean
 
 ## Summary
 
-Reviewed the explicit tracked native source and test scope for Phase 4 Plans 01–15 and 17. Re-reviewed the final `runner/t64_cpu_diagnostic.c`, `runner/tests/test_cpu_diagnostic.c`, and `runner/CMakeLists.txt` changes. The Git-unavailable fallback now checks canonical parent ancestors for `.git` markers and refuses repository destinations; the added regression covers this path with an empty `PATH`. The earlier missing-group concern remains a false positive: Plan 14 permits reduced inventories for group-level inspection while refusing whole-inventory completion. A supplemental review of the portability-only change in `runner/t64_cpu_diagnostic.c` confirmed that it uses `S_ISVTX` when visible and the POSIX sticky-bit mask `01000` otherwise; this preserves the existing sticky-directory predicate and its confinement behavior. No source-grounded findings remain. No dynamic tests were run as part of this review.
+The historical baseline and v3 correction supplement remain clean. The latest follow-up reviewed the same two overlay-applier paths at frozen revision `a02ade6`; both were already in the 106-path historical scope. It confirms CR-05 and WR-03 through WR-06 remain resolved, and found no new issues in the constrained registration renderer. The earlier invalid-control note is retained as history. No builds or tests were run by this reviewer.
+
+The historical baseline reviewed the explicit tracked native source and test scope for Phase 4 Plans 01–15 and 17. It re-reviewed the final `runner/t64_cpu_diagnostic.c`, `runner/tests/test_cpu_diagnostic.c`, and `runner/CMakeLists.txt` changes. The Git-unavailable fallback now checks canonical parent ancestors for `.git` markers and refuses repository destinations; the added regression covers this path with an empty `PATH`. The earlier missing-group concern remains a false positive: Plan 14 permits reduced inventories for group-level inspection while refusing whole-inventory completion. A supplemental review of the portability-only change in `runner/t64_cpu_diagnostic.c` confirmed that it uses `S_ISVTX` when visible and the POSIX sticky-bit mask `01000` otherwise; this preserves the existing sticky-directory predicate and its confinement behavior. No source-grounded findings remained in that historical baseline.
 
 ## Narrative Findings (AI reviewer)
 
-All reviewed files meet quality standards. No issues found.
+The historical baseline files meet quality standards. The later incremental findings are recorded below.
 
 ---
 
 _Reviewed: 2026-11-12T19:46:52Z_  
 _Reviewer: the agent (gsd-code-reviewer)_  
+_Depth: standard_
+
+## Incremental Review Supplement: Plan 16 Inventory v3 Correction
+
+**Reviewed:** 2026-11-12T21:54:44Z
+**Frozen source revision:** `c6f0b6a` (diff base `8ed6e14`)
+**Current incremental scope:** `runner/t64_cpu_diag_protocol.c`, `runner/t64_cpu_diag_protocol.h`, `runner/tests/test_cpu_diag_protocol.c`, and `runner/tests/test_cpu_diagnostic.c`
+
+The original 101-path baseline and its prior review notes above are retained as historical coverage; they were not counted as newly re-reviewed here. These four incremental paths already occur in that baseline list, so the frontmatter continues to report 101 unique paths. This supplement records the current review of those four paths for the v3 correction.
+
+The parser maps `Weird` only to `required-base` alongside `BasicFunctionality` and `RarelyUsed`; the other CPU lanes remain separate. Required values are counted from that lane, the aggregate still refuses whole-inventory completion when any required group is absent or any value is missing, and member iteration remains in registration/value order. Batch identity continues to bind the exact inventory digest, selector, and selected-ROM hash for each member. The header and serializers retain batch v2 and guest-run v1 while inventory parsing requires v3. The authored tests cover stale inventory-v2 refusal, v3 `Weird` membership, the full required-group/value path, and unchanged batch/guest wire versions. The authored inventory fixture's expected canonical digest was independently recomputed and matched.
+
+No source-grounded findings were found in this v3 correction. No native builds or tests were run by this reviewer; the executor owns those checks. The known fake-compiler receipt-refusal RED in the separate build-script gate remains outside this v3 finding scope and is not attributed to this correction. No external diagnostic run, SC4 result, or overall Plan 16 completion is claimed.
+
+_Incremental review: 2026-11-12T21:54:44Z_
+_Reviewer: the agent (gsd-code-reviewer)_
+_Depth: standard_
+
+## Incremental Review Supplement: Plan 16 Receipt Gate
+
+**Reviewed:** 2026-11-12T22:28:54Z
+**Frozen source revision:** `1f7f42d9ec611ed575bdb4d31ae0a6125b4899b9` (diff base `c6f0b6a`)
+**Current incremental scope:** `runner/tests/test_cpu_diagnostic.c`, `scripts/build-cpu-diagnostic.sh`, and `scripts/verify-cpu-diagnostic-qualification.py`
+
+The earlier 101-path baseline and v3 correction supplement are retained without re-reviewing unchanged CPU core or protocol code. The C test and shell script already occur in the baseline list; the new verifier adds one unique path, bringing the report's unique reviewed-path count to 102. The source inspection below is pinned to the frozen receipt-gate revision. No native build or test was run for this review.
+
+### Critical Issues
+
+#### CR-01: Receipt does not bind the executables that the gate runs
+
+**Severity:** BLOCKER
+**File:** `scripts/build-cpu-diagnostic.sh:9-12,37-43,75-89`; `scripts/verify-cpu-diagnostic-qualification.py:116-119`
+**Issue:** `CC` and the target-tool paths are environment-overridable. After receipt acceptance, `compile_packer` executes `CC` based only on `command -v`, and `verify_target_tools` executes the assembler, linker, objcopy, and objdump after checking only their self-reported version and format strings. The closed receipt schema records Rust archives but has no path or digest binding for these actual executables. A substituted compiler or target tool can therefore execute while the receipt's `host_toolchain`/`target_tools` flags say `pass`.
+**Fix:** Add resolved path and SHA-256 entries for each executable to the receipt, verify each executable's bytes before invocation, and use only the verified paths. Do not treat a version string or a caller-controlled environment override as tool identity.
+**Disposition:** Resolved at `79cc519`: the verifier checks the absolute host compiler path and digest and all four selected target-tool paths and digests before the shell invokes the compiler or probes binutils (`scripts/verify-cpu-diagnostic-qualification.py:175-254`; `scripts/build-cpu-diagnostic.sh:48-65,102-128`).
+
+#### CR-02: A symlinked build parent can move the private trust root outside the repository
+
+**Severity:** BLOCKER
+**File:** `scripts/build-cpu-diagnostic.sh:49-55`; `scripts/verify-cpu-diagnostic-qualification.py:73-80`
+**Issue:** The shell rejects a symlink only at the final `qualification_root` component. The verifier resolves `repository/build/private-cpu-diagnostic` and then treats that result as the trust root without checking that it remains beneath `repository` or that its ancestors are not symlinks. If `build` is a symlink, a receipt under the redirected directory can satisfy the receipt-relative check, and subsequent packer/temp outputs use the same redirected lexical path.
+**Fix:** Resolve and require the private root to be beneath the resolved repository, and reject symlinks in every existing component of the build/output path before accepting the receipt or writing files. Add a refusal control for a symlinked `build` ancestor.
+**Disposition:** Resolved at `79cc519`: validation walks each component of the canonical repository build/private path and refuses a symlink ancestor before loading the receipt; the public authored control asserts that refusal and checks the fake compiler marker remains absent (`scripts/verify-cpu-diagnostic-qualification.py:70-81,492-501`; `scripts/tests/test_cpu_diagnostic_qualification_controls.py:194-225`).
+
+#### CR-03: Git-sourced Cargo packages are omitted from the audited dependency set
+
+**Severity:** BLOCKER
+**File:** `scripts/verify-cpu-diagnostic-qualification.py:183-189,191-240`
+**Issue:** `locked_packages` includes only Cargo.lock rows whose source starts with `registry+`. A `git+` package is not added to either `locked_packages` or `reviewed_packages`, so the final equality check can pass without any source, revision, checksum, license, or build-hook review for that dependency. Cargo can later fetch and build this unreviewed code despite the receipt claiming the dependency check passed.
+**Fix:** Fail closed on unsupported non-registry remote sources, or extend the receipt and verifier to bind and review every remote source type and require exact equality with all external packages in Cargo.lock.
+**Disposition:** Resolved at `79cc519` for remote non-registry sources: every nonempty Cargo.lock `source` not beginning with `registry+` now refuses, and the public control specifically exercises the Git-source refusal (`scripts/verify-cpu-diagnostic-qualification.py:257-285`; `scripts/tests/test_cpu_diagnostic_qualification_controls.py:123-156`). A separate source-less path-package gap is recorded as the current CR-04 below.
+
+### Warnings
+
+#### WR-01: The six refusal controls exit before writing or checking any receipt
+
+**Severity:** WARNING
+**File:** `runner/tests/test_cpu_diagnostic.c:576-590,1179-1182,1336`
+**Issue:** `receipt_path` is only formatted; the new fixture no longer creates that file. `write_file` opens with `O_WRONLY | O_TRUNC` and no `O_CREAT`, so the first loop iteration fails to write and jumps to cleanup without recording a failed assertion. None of the six refusal cases run, and the missing fake-compiler marker is not evidence that the gate refused them.
+**Fix:** Create the initial receipt with `create_file` before the loop or use a test writer that creates the file with restrictive permissions. Convert every setup/write failure into a failed assertion so the control cannot silently skip.
+**Disposition:** Resolved at `79cc519`: the local-only integration helper creates its receipt with `write_json`, overwrites each mutation using the same checked writer, asserts each specific refusal, and fails if a tool log appears (`scripts/private-tests/accepted-qualification-baseline.py:254-255,361-399`). This repair does not rewrite the earlier invalid-coverage record. The public CTest uses a separate authored-only helper and does not invoke this local-only integration helper.
+
+#### WR-02: The synthetic receipt's Rust standard-library archive name disagrees with the verifier
+
+**Severity:** WARNING
+**File:** `runner/tests/test_cpu_diagnostic.c:1273`; `scripts/verify-cpu-diagnostic-qualification.py:25,145-163`
+**Issue:** The fixture emits the archive name `rust-std`, but the verifier requires `host-rust-std`. The archive-name set check refuses this otherwise synthetic receipt before project-lock, dependency-hook, or asset validation. After WR-01 is fixed, the later cases still cannot reach their expected refusal reasons.
+**Fix:** Align the required archive name and fixture with the exact component key in the pinned channel manifest. Add a positive receipt-acceptance check before mutating it into the six refusal variants, then assert each variant reaches its own reason.
+**Disposition:** Resolved at `79cc519`: both the verifier's required archive set and the local-only authored receipt use the manifest component key `rust-std`; the helper runs an accepted baseline before its isolated refusal mutations (`scripts/verify-cpu-diagnostic-qualification.py:35,569-595`; `scripts/private-tests/accepted-qualification-baseline.py:194-211,254-289`).
+
+No real toolchain install, Cargo discovery, diagnostic build/run, or private qualification was performed or inferred here. The review does not claim an external diagnostic result, SC4 completion, or overall Plan 16 completion; remaining projection, overlay, actual-resolution, and layout qualification stays outstanding.
+
+_Incremental review: 2026-11-12T22:28:54Z_
+_Reviewer: the agent (gsd-code-reviewer)_
+_Depth: standard_
+
+## Incremental Review Supplement: Plan 16 Receipt Controls and Source Bindings
+
+**Reviewed:** 2026-11-12T23:25:54Z
+**Frozen source revision:** `79cc519` (diff base `1f7f42d`)
+**Current incremental scope:** `runner/tests/test_cpu_diagnostic.c`, `scripts/build-cpu-diagnostic.sh`, `scripts/verify-cpu-diagnostic-qualification.py`, `scripts/tests/test_cpu_diagnostic_qualification_controls.py`, and `scripts/private-tests/accepted-qualification-baseline.py`
+
+This review reuses prior coverage for the C test, build script, and verifier; it newly reviews the public portable-control helper and the local-only receipt integration helper. The public `runner.cpu-diagnostic` path calls only the self-contained helper under `scripts/tests/`, whose fixtures are authored in temporary directories and whose direct production-verifier controls cover the accepted tool baseline, individual tool hash/path refusals, registry/Git lock behavior, missing receipt, and symlinked build ancestor. It does not call or read the helper under `scripts/private-tests/`. The latter remains explicitly local-only and depends on ignored audited inputs; it is not a public CTest prerequisite. No private qualification result or external diagnostic execution was reviewed or inferred.
+
+The five findings from the preceding receipt-gate supplement are resolved in this frozen source. The validator now binds the selected compiler and target tools to reviewed paths and SHA-256 values before the shell uses them; the private-root check rejects symlinked ancestors; Git and other non-registry lock sources refuse; the local-only receipt controls now create and rewrite their fixture with a checked writer and assert individual expected outcomes; and the `rust-std` archive key is aligned between verifier and synthetic baseline. These dispositions update current issue counts while preserving the earlier findings and their invalid-coverage history.
+
+The added source checks bind the source-projection file to its canonical digest, separately hash the pinned test-list file, verify the pinned HEAD for both source checkouts, require the packaged Cargo manifest and lockfile to be the exact files in the overlay checkout, hash each declared changed file, and compare the declared set with Git's reported working-tree changes. The shell/Python boundaries use argument arrays or quoted paths for tool invocation; no command interpolation issue was found in the reviewed paths.
+
+### Critical Issues
+
+#### CR-04: Cargo path packages are omitted from the reviewed dependency set
+
+**Severity:** BLOCKER
+**File:** `scripts/verify-cpu-diagnostic-qualification.py:257-285,621-670`
+**Issue:** `lock_registry_packages` skips every Cargo.lock package row with no `source` (`:264-266`), then compares only registry packages against the receipt's `dependencies` list. Cargo lockfiles omit `source` for path dependencies as well as the root package ([Cargo lockfile format](https://doc.rust-lang.org/stable/nightly-rustc/cargo/resolver/encode/index.html)). Consequently a local path package can be absent from `reviewed_packages` while the set equality still passes; its files, license, build script, and proc-macro effects are not required by this verifier. A path can also name a source tree outside the checked overlay, which the changed-file closure does not bind. Such code may be compiled and run as a build hook under a receipt that reports dependency checks passed.
+**Fix:** Resolve the exact root/workspace packages from the manifest and fail closed on any other source-less lock row unless the verifier recursively binds and reviews that path package's complete source tree, license, build script, and proc-macro inputs. Require any accepted path to remain inside the private qualified checkout and add a control for an omitted source-less package.
+**Disposition:** Resolved at `395131b`: the verifier derives the package identity from the hash-checked manifest, refuses workspaces, requires exactly one source-less row matching the root, and accepts only fully classified crates.io rows for the remaining entries. The public controls cover a valid root-plus-registry baseline and a source-less path-package refusal (`scripts/verify-cpu-diagnostic-qualification.py:257-312,627-663`; `scripts/tests/test_cpu_diagnostic_qualification_controls.py:123-180`).
+
+At the time of this supplement, the frontmatter counted this one open follow-up finding; the five preceding findings are retained with explicit resolved dispositions. No external toolchain installation, Cargo resolution/build, diagnostic build/run, private data inspection, native build, or test was performed by that reviewer. The implementation remains a pre-use receipt gate; the actual overlay/module closure, resolved Cargo graph/ELF-ROM layout/startup, and full private suite execution remain later qualification steps. This review does not claim an external diagnostic result, SC4 completion, or overall Plan 16 completion.
+
+_Incremental review: 2026-11-12T23:25:54Z_
+_Reviewer: the agent (gsd-code-reviewer)_
+_Depth: standard_
+
+## Incremental Review Supplement: Plan 16 Root Classification and Overlay Applier
+
+**Reviewed:** 2026-11-12T23:43:38Z
+**Frozen source revision:** `395131b` (diff base `79cc519`)
+**Current incremental scope:** `runner/tests/test_cpu_diagnostic.c`, `scripts/verify-cpu-diagnostic-qualification.py`, `scripts/apply-cpu-diagnostic-overlay.py`, `scripts/tests/test_cpu_diagnostic_qualification_controls.py`, and `scripts/tests/test_cpu_diagnostic_overlay_controls.py`
+
+This review reuses historical coverage for the C test, verifier, and qualification-control helper; the applier and its authored-control helper are newly reviewed paths. CR-04 is resolved: the verifier reads the hash-checked package identity from `Cargo.toml`, refuses workspace manifests, requires one source-less lock row matching that root, rejects any other source-less row, and admits only exact crates.io registry sources for the fully audited remaining packages. The public helper exercises the root-plus-registry baseline and a path-row refusal (`scripts/verify-cpu-diagnostic-qualification.py:257-312,627-663`; `scripts/tests/test_cpu_diagnostic_qualification_controls.py:123-180`).
+
+The public CTest path invokes the portable helper under `scripts/tests/`; that helper invokes the overlay control helper in a temporary report location. Neither helper references `scripts/private-tests/accepted-qualification-baseline.py` or reads private qualification data. The five overlay controls execute the production applier as a subprocess and check exact replacement, bad file hash, overlapping ranges, target symlink, and `..` traversal. No native builds or tests were run by this reviewer. The executor's supplied build and test evidence is not a claim of Cargo resolution, diagnostic build, or guest execution.
+
+### Critical Issues
+
+#### CR-05: Overlay targets can rewrite Git metadata
+
+**Severity:** BLOCKER
+**File:** `scripts/apply-cpu-diagnostic-overlay.py:100-115`; `scripts/verify-cpu-diagnostic-qualification.py:371-387,831-861`
+**Issue:** The applier rejects absolute and `..` paths, then only checks that the resolved target is a regular file beneath the source root. It does not reject `.git` paths. An overlay directive can therefore replace `.git/config`, `.git/info/exclude`, or another regular Git metadata file. The qualification verifier later trusts `git rev-parse` and `git status` output to establish the checkout revision and declared changed-file set, so the applier can alter metadata that those checks rely on.
+**Fix:** Restrict overlay targets to the explicitly approved upstream source paths and reject any path with a `.git` component. Add a control that targets a regular file under `.git` and asserts refusal before changing its bytes.
+**Disposition:** Resolved at `53dba86`: `safe_relative_path` rejects `.git` path components before target resolution, and the control targets `.git/config`, requires refusal, and verifies the bytes remain unchanged (`scripts/apply-cpu-diagnostic-overlay.py:81-91,232-240`; `scripts/tests/test_cpu_diagnostic_overlay_controls.py:176-193`).
+
+### Warnings
+
+#### WR-03: A later file-write failure leaves earlier overlay files replaced
+
+**Severity:** WARNING
+**File:** `scripts/apply-cpu-diagnostic-overlay.py:126-145`; `scripts/tests/test_cpu_diagnostic_overlay_controls.py:97-125`
+**Issue:** The applier validates every source/range before writes, but then replaces files sequentially. If creating, writing, or replacing a later file fails, the exception handler removes only that file's temporary path; it does not restore earlier targets already replaced. The overlap control only exercises a validation failure before this write loop, so it does not cover this partial-application path. The command can fail while leaving a checkout that no longer matches the patch's original file hashes, preventing a clean retry.
+**Fix:** Apply into a fresh private checkout and promote it only after all writes succeed, or keep rollback copies and restore every replaced target on failure. Add a deterministic injected failure after the first replacement and assert all original files remain unchanged.
+**Disposition:** Resolved at `53dba86` for a later ordinary publish failure: staged outputs retain each source's original bytes and permission bits, and the rollback path restores them; the control injects failure on the second publication and checks both source byte sequences and temporary-file cleanup (`scripts/apply-cpu-diagnostic-overlay.py:276-318,325-328`; `scripts/tests/test_cpu_diagnostic_overlay_controls.py:217-260`).
+
+#### WR-04: Boolean and floating schema versions pass the integer version check
+
+**Severity:** WARNING
+**File:** `scripts/apply-cpu-diagnostic-overlay.py:84-90`
+**Issue:** `patch["schema_version"] != 1` accepts JSON `true` and `1.0` because Python considers both equal to integer `1`. The overlay's closed schema therefore accepts malformed version types even though the byte-range validator explicitly excludes booleans from integer fields.
+**Fix:** Require `type(patch["schema_version"]) is int` and value `1` before processing edits. Add controls for `true` and `1.0` that refuse without modifying the checkout.
+**Disposition:** Resolved at `53dba86`: the schema check requires the exact `int` type, and the controls verify `true` and `1.0` are refused without changing source bytes (`scripts/apply-cpu-diagnostic-overlay.py:207-212`; `scripts/tests/test_cpu_diagnostic_overlay_controls.py:196-214`).
+
+No source-derived external diagnostic result, SC4 completion, or overall Plan 16 completion is claimed. Actual overlay/module closure, Cargo unitgraph, ELF/ROM composition and startup, and full private-suite execution remain later qualification steps.
+
+_Incremental review: 2026-11-12T23:43:38Z_
+_Reviewer: the agent (gsd-code-reviewer)_
+_Depth: standard_
+
+## Incremental Review Supplement: Plan 16 Overlay Rollback Failure Handling
+
+**Reviewed:** 2026-11-12T23:52:24Z
+**Frozen source revision:** `53dba86` (diff base `395131b`)
+**Current incremental scope:** `scripts/apply-cpu-diagnostic-overlay.py` and `scripts/tests/test_cpu_diagnostic_overlay_controls.py`
+
+This follow-up reuses historical coverage for both paths and rechecks only the frozen applier and its public control helper. The three prior overlay findings are resolved as described above. The helper covers `.git` target refusal, exact integer schema-version refusal, and a one-shot later-publish failure with byte restoration and staged-file cleanup. No tests or builds were run by this reviewer, and no private qualification inputs were inspected. No real toolchain installation, Cargo resolution/build, diagnostic execution, guest run, or Plan 16 completion is claimed.
+
+### Warnings
+
+#### WR-05: Failed rollback deletes the original recovery copy
+
+**Severity:** WARNING
+**File:** `scripts/apply-cpu-diagnostic-overlay.py:301-318`
+**Issue:** If a staged publication fails after earlier files were replaced and a subsequent rollback `replace_operation` also raises `OSError`, the handler records the rollback error but unconditionally unlinks `backup_path` in `finally`. The target remains patched and the only on-disk copy of its original bytes is discarded before the caller receives “rollback was incomplete.” The injected control fails only the second publication and allows the rollback operation, so it does not exercise this double-failure path (`scripts/tests/test_cpu_diagnostic_overlay_controls.py:238-260`).
+**Fix:** Do not delete a rollback backup when its replacement fails. Preserve it as a recovery file and include its path in the incomplete-rollback error (or use a verified fallback restore); add a control that injects both failures and asserts the original bytes remain recoverable and the error identifies the recovery artifact.
+**Disposition:** Resolved at `999681b` for the failed restore-publication path: after backup bytes are written, flushed, synced, and chmod succeeds, a failed replacement retains the recovery file and names it in the incomplete-rollback error. The deterministic control injects both publication and rollback failures and checks the retained bytes, mode, error path, and disposable staging cleanup (`scripts/apply-cpu-diagnostic-overlay.py:303-331`; `scripts/tests/test_cpu_diagnostic_overlay_controls.py:263-321`).
+
+No crash-atomicity guarantee is inferred. The finding concerns the explicitly handled ordinary `OSError` path when rollback cannot publish its saved original.
+
+_Incremental review: 2026-11-12T23:52:24Z_
+_Reviewer: the agent (gsd-code-reviewer)_
+_Depth: standard_
+
+## Incremental Review Supplement: Plan 16 Rollback Recovery Copy Follow-up
+
+**Reviewed:** 2026-11-13T00:18:19Z
+**Frozen source revision:** `999681b` (diff base `53dba86`)
+**Current incremental scope:** `scripts/apply-cpu-diagnostic-overlay.py` and `scripts/tests/test_cpu_diagnostic_overlay_controls.py`
+
+This follow-up reuses historical coverage for both paths and rechecks only the frozen rollback implementation and its control. WR-05 is resolved for the reported failed-rename case: the new control forces the later publication and recovery replacement to fail, then verifies the retained original bytes and mode, the error's recovery filename, and removal of disposable staged files. The fixer report records successful controls and native gate checks; this reviewer did not rerun them. No private qualification inputs were inspected. No real toolchain installation, Cargo resolution/build, diagnostic execution, guest run, or Plan 16 completion is claimed.
+
+### Warnings
+
+#### WR-06: A mode-setting failure still discards a complete recovery copy
+
+**Severity:** WARNING
+**File:** `scripts/apply-cpu-diagnostic-overlay.py:306-331`
+**Issue:** `recovery_ready` is set only after `backup_path.chmod(mode)` succeeds (`:314-315`). If creating and writing the backup, flushing, and `fsync` all succeed but `chmod` raises `OSError`, the exception branch treats the original copy as not ready, and `finally` unlinks it (`:317-331`). The target remains patched even though the temporary file already contains the complete original bytes; the caller receives an incomplete-rollback error without a recovery path. The new control injects failure at `replace_operation`, after `recovery_ready` is true, so it does not cover this preparation failure (`scripts/tests/test_cpu_diagnostic_overlay_controls.py:288-321`).
+**Fix:** Track successful completion of the original-byte write/flush/fsync separately from mode restoration. If mode application fails, preserve the complete recovery bytes and report both the recovery path and that its mode could not be restored; add a control that injects a recovery-file chmod failure after the write and verifies recoverability and the error details.
+**Disposition:** Resolved at `04be456`: byte readiness is marked only after write, flush, and `fsync`, before chmod. A chmod failure retains the recovery bytes and reports their path, the unverified mode, and that the target remains unrestored; the control injects that failure after confirming the bytes are complete and checks the retained copy and error (`scripts/apply-cpu-diagnostic-overlay.py:303-340`; `scripts/tests/test_cpu_diagnostic_overlay_controls.py:324-400`). The outer cleanup removes only staged `.cpu-overlay.*` files; recovery copies use the separate `.cpu-overlay-recovery.*` prefix (`scripts/apply-cpu-diagnostic-overlay.py:307-308,347-350`; `scripts/tests/test_cpu_diagnostic_overlay_controls.py:307-321`).
+
+No crash-atomicity guarantee is inferred. This finding concerns a caught ordinary `OSError` during rollback preparation.
+
+_Incremental review: 2026-11-13T00:18:19Z_
+_Reviewer: the agent (gsd-code-reviewer)_
+_Depth: standard_
+
+## Incremental Review Supplement: Plan 16 Recovery-Mode Failure Handling
+
+**Reviewed:** 2026-11-13T00:27:31Z
+**Frozen source revision:** `04be456` (diff base `999681b`)
+**Current incremental scope:** `scripts/apply-cpu-diagnostic-overlay.py` and `scripts/tests/test_cpu_diagnostic_overlay_controls.py`
+
+This follow-up reuses historical coverage for both paths and checks the frozen recovery-mode change and its control. WR-06 is resolved: the control confirms the original bytes have been written before injecting the chmod error; the applier retains that copy, reports that its mode is unverified and the target remains unrestored, and the outer `finally` cleans disposable staged files without deleting recovery-prefixed files. The fixer report records successful controls and native gate checks; this reviewer did not rerun them. No private inputs were inspected. No real toolchain installation, Cargo resolution/build, diagnostic execution, guest run, or Plan 16 completion is claimed.
+
+No new source-grounded findings were found in this bounded follow-up. No crash-atomicity guarantee is inferred.
+
+_Incremental review: 2026-11-13T00:27:31Z_
+_Reviewer: the agent (gsd-code-reviewer)_
+_Depth: standard_
+
+## Incremental Review Supplement: Plan 16 Registration Renderer
+
+**Reviewed:** 2026-11-13T00:42:14Z
+**Frozen source revision:** `a02ade6` (diff base `04be456`)
+**Current incremental scope:** `scripts/apply-cpu-diagnostic-overlay.py` and `scripts/tests/test_cpu_diagnostic_overlay_controls.py`
+
+This follow-up reuses historical coverage for both paths and reviews only the frozen source-registration renderer and its public controls. The renderer recognizes the source's two supported constructor shapes (empty-braced and unit), permits multiline formatting and trailing commas, and rejects field-bearing, tuple-style, mismatched, or otherwise unknown expressions. It compares projection and audit metadata for every registration, verifies the pinned registration/source digests, and requires the generated required-base indices to equal the projection's ordered required indices. Generation occurs while preparing the edit outputs, before any files are staged or replaced. The new public controls use synthetic `super::sample` constructor names and small authored snippets; they do not include upstream source excerpts, private files, or private fixture data.
+
+The executor reports successful local controls and native gate checks; this reviewer did not rerun them. This source-only review does not establish actual private-source closure, a qualified receipt, Cargo build, ROM composition, or guest execution. No private inputs or results were inspected, and no crash-atomicity guarantee is inferred.
+
+No new source-grounded findings were found in this bounded follow-up.
+
+_Incremental review: 2026-11-13T00:42:14Z_
+_Reviewer: the agent (gsd-code-reviewer)_
 _Depth: standard_
 

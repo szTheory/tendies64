@@ -65,6 +65,19 @@ applies that direction; update it when the owner changes policy.
   before the qualified build; scan actual ELF/ROM composition after building
   and before execution. Never require an output hash before its output exists,
   and never use that staging distinction to bypass a pre-use rights check.
+  Before freezing a diagnostic inventory contract, derive default feature and
+  level selection from the pinned executor, including aliases, repeated names
+  and zero-value semantics. Confirm the selected source can populate the
+  promised groups before implementing a completeness rule.
+  For changed refusal matrices, prove an accepted authored baseline, fail on
+  setup/write errors, and assert that every intended case reaches its specific
+  refusal. A green test process alone does not establish that its cases ran.
+  Preserve and withdraw invalid coverage claims rather than rewriting their
+  history; repair the cause before bounded retesting.
+  Qualify dependency inventories with a complete partition of every lock entry:
+  the exact pinned root and fully audited supported packages, with everything
+  else refused. Filtering one source kind at a time is not a complete audit;
+  absent source fields can represent external path packages too.
 - At each discussion, enumerate actual decision points. Fan out one agent per
   independent decision cluster when it saves time/context. Apply relevant
   CPU/cache/virtual-memory, RSP/microcode, RDP/video, audio, memory/bus,
