@@ -121,6 +121,13 @@ applies that direction; update it when the owner changes policy.
   Host contention is an inference, not proof of the cause. Preserve the failed
   attempt and limits, diagnose one bounded case, then serialize the workloads
   for the next justified attempt rather than widening deadlines.
+  For focused native CTest selections, use the already approved gate/asan
+  test presets and their four-job policy when no wall-capped diagnostic is
+  active. A bare --test-dir selection silently runs serially: Plan05-02's
+  final instrumented selection spent121s with a54s longest test. This does
+  not justify extra concurrency, caches or dependencies; reuse the existing
+  preset rather than accidentally overriding it. Keep owning test selection,
+  all-target builds, sanitizer environment and exact inventory checks intact.
   Foreground review correction (2026-11-13): if a handoff stays silent,
   request a concrete checkpoint and remaining action. If it is then stopped,
   reconcile the owning durable report/status before resuming, preserve any
