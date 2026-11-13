@@ -49,6 +49,33 @@ typedef enum {
   T64_BUS_REGION_ABSENT_RDRAM_PROBE
 } t64_bus_region;
 
+bool t64_cpu_compat_zero_data_range(const t64_machine *machine,
+                                   uint32_t address, size_t bytes) {
+  uint64_t end;
+  const uint64_t probe = T64_WARM_ABSENT_RDRAM_PROBE_ADDRESS;
+
+  if (!t64_has_cpu_compat_extension_policy(machine) || bytes == 0u ||
+      bytes > 32u) {
+    return false;
+  }
+  end = (uint64_t)address + (uint64_t)bytes;
+  if (end > UINT64_C(0x100000000)) {
+    return false;
+  }
+  /* CPU data policy only: do not change bus decoding, fetch, MMIO, DMA,
+   * other cartridge domains, or the modeled legacy absent-RDRAM probe. */
+  if ((uint64_t)address >= machine->profile.rdram_bytes &&
+      end <= T64_RDRAM_REG_BASE) {
+    if (machine->guest_devices.policy_version ==
+            T64_WARM_DEVICE_POLICY_VERSION &&
+        (uint64_t)address < probe + UINT64_C(4) && end > probe) {
+      return false;
+    }
+    return true;
+  }
+  return address >= T64_DOMAIN1_C_BASE && end <= T64_DOMAIN1_C_END;
+}
+
 static t64_bus_region decode_region(const t64_machine *machine,
                                    uint32_t address) {
   uint64_t ram_end = machine->profile.rdram_bytes;

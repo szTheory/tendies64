@@ -16,6 +16,7 @@
 #define T64_CPU_BGTZL UINT32_C(0x17)
 #define T64_CPU_COP0 UINT32_C(0x10)
 #define T64_CPU_COP1 UINT32_C(0x11)
+#define T64_CPU_COP2 UINT32_C(0x12)
 #define T64_CPU_CACHE UINT32_C(0x2f)
 
 #define T64_CP0_COUNT UINT32_C(9)
@@ -1241,7 +1242,8 @@ static bool execute_cache(t64_machine *machine, uint32_t pc,
       !translation.translated || translation.physical_address > UINT32_MAX) {
     return false;
   }
-  if (!translation.cacheable) {
+  if (!translation.cacheable &&
+      !t64_has_cpu_compat_extension_policy(machine)) {
     return false;
   }
   physical_address = (uint32_t)translation.physical_address;
@@ -1256,6 +1258,60 @@ static bool execute_cache(t64_machine *machine, uint32_t pc,
   machine->cache.last_address = physical_address;
   machine->cache.operation_seen = true;
   return true;
+}
+
+typedef enum {
+  T64_COP2_TRANSFER_OK = 0,
+  T64_COP2_TRANSFER_RESERVED,
+  T64_COP2_TRANSFER_UNSUPPORTED
+} t64_cop2_transfer_result;
+
+/* Compat-v2 models the tested COP2 transfer path as one latch. This is a
+ * software policy; the VR43XX manual's generic COPz model uses indexed CPRs. */
+static t64_cop2_transfer_result execute_compat_v2_cop2_transfer(
+    const t64_machine *machine, uint32_t opcode, bool *write_gpr_out,
+    uint32_t *destination_out, uint64_t *value_out,
+    bool *write_latch_out, uint64_t *latch_value_out) {
+  uint32_t format = (opcode >> 21) & UINT32_C(0x1f);
+  uint32_t rt = (opcode >> 16) & UINT32_C(0x1f);
+
+  *write_gpr_out = false;
+  *destination_out = 0u;
+  *value_out = UINT64_C(0);
+  *write_latch_out = false;
+  *latch_value_out = UINT64_C(0);
+  if ((opcode & UINT32_C(0x7ff)) != 0u) {
+    return format <= 7u ? T64_COP2_TRANSFER_RESERVED
+                        : T64_COP2_TRANSFER_UNSUPPORTED;
+  }
+
+  switch (format) {
+  case 0u: /* MFC2: the narrow view sign-extends the latch's low word. */
+    *write_gpr_out = true;
+    *destination_out = rt;
+    *value_out = sign_extend_32((uint32_t)machine->cpu.cp2_transfer_latch);
+    return T64_COP2_TRANSFER_OK;
+  case 1u: /* DMFC2 */
+    *write_gpr_out = true;
+    *destination_out = rt;
+    *value_out = machine->cpu.cp2_transfer_latch;
+    return T64_COP2_TRANSFER_OK;
+  case 2u: /* CFC2: the selected software model has no control state. */
+    return T64_COP2_TRANSFER_OK;
+  case 3u: /* DCFC2 is a reserved transfer form. */
+    return T64_COP2_TRANSFER_RESERVED;
+  case 4u: /* MTC2 */
+  case 5u: /* DMTC2 */
+    *write_latch_out = true;
+    *latch_value_out = machine->cpu.gpr[rt];
+    return T64_COP2_TRANSFER_OK;
+  case 6u: /* CTC2: the selected software model has no control state. */
+    return T64_COP2_TRANSFER_OK;
+  case 7u: /* DCTC2 is a reserved transfer form. */
+    return T64_COP2_TRANSFER_RESERVED;
+  default:
+    return T64_COP2_TRANSFER_UNSUPPORTED;
+  }
 }
 
 static void cp0_retirement_tick(t64_machine *machine) {
@@ -1848,6 +1904,7 @@ static bool cpu_instruction_exception(t64_machine *machine, uint32_t opcode,
                                       bool in_delay_slot,
                                       bool *trap_noop_out,
                                       t64_status *status_out) {
+  uint32_t operation = opcode >> 26;
   uint32_t coprocessor = 0u;
   bool is_trap = false;
 
@@ -1859,6 +1916,13 @@ static bool cpu_instruction_exception(t64_machine *machine, uint32_t opcode,
   }
   if (cpu_is_break(opcode)) {
     *status_out = cpu_enter_exception(machine, UINT32_C(9), 0u,
+                                       in_delay_slot, false, 0u);
+    return true;
+  }
+  if (t64_has_cpu_compat_extension_policy(machine) &&
+      (operation == UINT32_C(0x13) || operation == UINT32_C(0x33) ||
+       operation == UINT32_C(0x3b))) {
+    *status_out = cpu_enter_exception(machine, UINT32_C(10), 0u,
                                        in_delay_slot, false, 0u);
     return true;
   }
@@ -1924,6 +1988,7 @@ t64_status t64_cpu_step(t64_machine *machine, const t64_event *event) {
   uint32_t fcr31_causes = 0u;
   uint32_t fcr31_flags = 0u;
   uint64_t value = 0u;
+  uint64_t cp2_transfer_latch_value = 0u;
   uint64_t fpr_value = 0u;
   t64_cp0_effect cp0_effect = {0};
   bool in_delay_slot;
@@ -1932,6 +1997,7 @@ t64_status t64_cpu_step(t64_machine *machine, const t64_event *event) {
   bool branch_likely = false;
   bool link = false;
   bool write_gpr = false;
+  bool write_cp2_transfer_latch = false;
   bool write_fpr = false;
   bool clear_fcr31_causes = false;
   bool write_fcr31_condition = false;
@@ -2131,6 +2197,22 @@ t64_status t64_cpu_step(t64_machine *machine, const t64_event *event) {
       return T64_STATUS_RESOURCE_EXHAUSTED;
     }
   } else if (new_profile &&
+             t64_has_cpu_compat_extension_policy(machine) &&
+             (opcode >> 26) == T64_CPU_COP2) {
+    t64_cop2_transfer_result cop2_result = execute_compat_v2_cop2_transfer(
+        machine, opcode, &write_gpr, &destination, &value,
+        &write_cp2_transfer_latch, &cp2_transfer_latch_value);
+
+    if (cop2_result == T64_COP2_TRANSFER_RESERVED) {
+      return cpu_enter_exception(machine, UINT32_C(10), 0u,
+                                 in_delay_slot, true, UINT32_C(2));
+    }
+    if (cop2_result == T64_COP2_TRANSFER_UNSUPPORTED) {
+      cpu_stop_unsupported(machine, pc, opcode);
+      return T64_STATUS_RESOURCE_EXHAUSTED;
+    }
+    supported = true;
+  } else if (new_profile &&
              ((opcode >> 26) == T64_CPU_COP1 ||
               (opcode >> 26) == UINT32_C(0x31) ||
               (opcode >> 26) == UINT32_C(0x35) ||
@@ -2224,6 +2306,9 @@ t64_status t64_cpu_step(t64_machine *machine, const t64_event *event) {
 
   if (write_gpr && destination != 0u) {
     machine->cpu.gpr[destination] = value;
+  }
+  if (write_cp2_transfer_latch) {
+    machine->cpu.cp2_transfer_latch = cp2_transfer_latch_value;
   }
   if (write_fpr) {
     t64_cop1_commit_fpr(machine, fpr_destination, fpr_width, fpr_value);

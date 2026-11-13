@@ -142,3 +142,19 @@ current FCR0 revision identity, canonical NaN payloads, and undefined/reserved
 format handling remain explicit model policy pending independent hardware
 evidence. Native tests establish the listed software behavior only; they do
 not establish broad compatibility or hardware accuracy.
+
+
+## Compat-v2 FR0 alias policy
+
+The model5/state11 software profile aliases odd FR0 source indices to the even
+pair for its covered double-format arithmetic and conversion paths. Conversion
+source aliasing includes the selected scalar CVT.S.W and CVT.W.S forms. A
+destination is normalized only for a 64-bit pair result; a 32-bit conversion
+result retains its requested destination, even when that index is odd. Reads
+and writes use the existing FPR state; ordinary scalar transfers and
+strict/compat-v1 behavior are unchanged.
+This is software policy for manual-undefined operands, not physical evidence.
+Authored ADD.D, CVT.D.L and CVT.D.S controls check exact output bits, fetched
+PC/opcode and retained old-profile exceptions. Replay resets both full and
+low PC and invalidates the rewritten instruction's I-cache line before each
+attempt; a different fetched instruction cannot establish arithmetic results.

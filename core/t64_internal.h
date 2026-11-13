@@ -328,6 +328,7 @@ typedef struct {
   uint64_t stop_pc_full;
   uint32_t attempt_outcome;
   uint32_t semantic_policy_version;
+  uint64_t cp2_transfer_latch;
   /* Prepared CPU entry begins after Config EP/BE initialization is closed. */
   bool cp0_config_init_window;
   bool tlb_shutdown;
@@ -478,12 +479,22 @@ static inline bool t64_has_vr4300_cpu_state(const t64_machine *machine) {
          ((machine->profile.machine_model_version == 3u &&
            machine->profile.state_serialization_version == 9u) ||
           (machine->profile.machine_model_version == 4u &&
-           machine->profile.state_serialization_version == 10u));
+           machine->profile.state_serialization_version == 10u) ||
+          (machine->profile.machine_model_version == 5u &&
+           machine->profile.state_serialization_version == 11u));
+}
+
+static inline bool t64_has_cpu_compat_extension_policy(
+    const t64_machine *machine) {
+  return machine != NULL && machine->profile.machine_model_version == 5u &&
+         machine->profile.state_serialization_version == 11u;
 }
 
 static inline bool t64_has_cpu_compat_policy(const t64_machine *machine) {
-  return machine != NULL && machine->profile.machine_model_version == 4u &&
-         machine->profile.state_serialization_version == 10u;
+  return machine != NULL &&
+         ((machine->profile.machine_model_version == 4u &&
+           machine->profile.state_serialization_version == 10u) ||
+          t64_has_cpu_compat_extension_policy(machine));
 }
 
 static inline uint64_t
@@ -555,6 +566,9 @@ bool t64_mmu_translate(const t64_machine *machine,
 bool t64_mmu_probe(const t64_machine *machine, uint64_t entry_hi,
                    uint32_t *entry_index_out, bool *duplicate_out);
 bool t64_mmu_page_mask_is_defined(uint64_t page_mask);
+uint64_t t64_mmu_compat_normalize_page_mask(uint64_t page_mask);
+bool t64_cpu_compat_zero_data_range(const t64_machine *machine,
+                                   uint32_t address, size_t bytes);
 bool t64_cpu_translate(uint64_t virtual_address,
                        uint32_t *physical_address_out);
 t64_status t64_bus_probe_access(const t64_machine *machine,

@@ -21,6 +21,8 @@ bool t64_isviewer_active(const t64_machine *machine) {
   static const char cpu_profile_id[] = "ntsc-cart-4m-openipl3-vr4300-v1";
   static const char compat_profile_id[] =
       "ntsc-cart-4m-openipl3-vr4300-compat-v1";
+  static const char compat_v2_profile_id[] =
+      "ntsc-cart-4m-openipl3-vr4300-compat-v2";
   bool warm_profile;
   bool cpu_profile;
   bool compat_profile;
@@ -43,7 +45,11 @@ bool t64_isviewer_active(const t64_machine *machine) {
                    machine->profile.state_serialization_version == 10u &&
                    memcmp(machine->profile.profile_id, compat_profile_id,
                           sizeof compat_profile_id) == 0;
-  return warm_profile || cpu_profile || compat_profile;
+  return warm_profile || cpu_profile || compat_profile ||
+         (machine->profile.descriptor_version == 3u &&
+          t64_has_cpu_compat_extension_policy(machine) &&
+          memcmp(machine->profile.profile_id, compat_v2_profile_id,
+                 sizeof compat_v2_profile_id) == 0);
 }
 
 static t64_status validate_isviewer_access(const t64_machine *machine,

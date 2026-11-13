@@ -100,16 +100,20 @@ static void test_release(void *context, t64_host_storage storage) {
   }
 }
 
-static bool fixture_open(fixture *value,
-                         const uint8_t asset[IPL3_ASSET_BYTES]) {
+static bool fixture_open_profile(fixture *value,
+                                 const uint8_t asset[IPL3_ASSET_BYTES],
+                                 const char *profile_id,
+                                 uint32_t expected_model_version,
+                                 uint32_t expected_state_version) {
   const t64_host_allocator allocator = {
       test_allocate, test_release, &value->allocator};
   const t64_profile_descriptor *profile = NULL;
 
-  if (value == NULL || asset == NULL ||
-      t64_profile_lookup("ntsc-cart-4m-openipl3-vr4300-v1", &profile) !=
-          T64_STATUS_OK ||
+  if (value == NULL || asset == NULL || profile_id == NULL ||
+      t64_profile_lookup(profile_id, &profile) != T64_STATUS_OK ||
       profile == NULL ||
+      profile->machine_model_version != expected_model_version ||
+      profile->state_serialization_version != expected_state_version ||
       t64_machine_create(&allocator, profile, &value->machine) !=
           T64_STATUS_OK ||
       value->machine == NULL ||
@@ -119,6 +123,12 @@ static bool fixture_open(fixture *value,
   }
   value->asset = asset;
   return true;
+}
+
+static bool fixture_open(fixture *value,
+                         const uint8_t asset[IPL3_ASSET_BYTES]) {
+  return fixture_open_profile(value, asset,
+                              "ntsc-cart-4m-openipl3-vr4300-v1", 3u, 9u);
 }
 
 static bool fixture_close(fixture *value, bool okay) {
@@ -144,6 +154,29 @@ static void write_be32(uint8_t *bytes, uint32_t value) {
 static uint32_t read_be32(const uint8_t *bytes) {
   return ((uint32_t)bytes[0] << 24) | ((uint32_t)bytes[1] << 16) |
          ((uint32_t)bytes[2] << 8) | (uint32_t)bytes[3];
+}
+
+static bool find_compat_zero_data_line(const t64_machine *machine,
+                                       uint32_t line_bytes,
+                                       uint32_t *address_out) {
+  const uint64_t stride = UINT64_C(0x00010000);
+  uint64_t candidate;
+
+  if (machine == NULL || address_out == NULL || line_bytes == 0u ||
+      line_bytes > T64_VR4300_ICACHE_LINE_BYTES) {
+    return false;
+  }
+  candidate = ((uint64_t)machine->profile.rdram_bytes + stride - UINT64_C(1)) &
+              ~(stride - UINT64_C(1));
+  for (; candidate + line_bytes <= UINT64_C(0x100000000);
+       candidate += stride) {
+    if (t64_cpu_compat_zero_data_range(machine, (uint32_t)candidate,
+                                       line_bytes)) {
+      *address_out = (uint32_t)candidate;
+      return true;
+    }
+  }
+  return false;
 }
 
 static void write_ram_instruction(t64_machine *machine,
@@ -926,6 +959,275 @@ static bool test_undefined_tag_state_is_atomic(fixture *value) {
     return false;
   }
   return true;
+}
+
+static uint32_t taglo_for_physical_line(uint32_t physical_line,
+                                       uint32_t pstate) {
+  return ((physical_line >> 12) << 8) | ((pstate & UINT32_C(3)) << 6);
+}
+
+static bool test_compat_v2_tag_state_normalization(fixture *value) {
+  static const uint32_t instruction_pstates[] = {0u, 1u, 2u, 3u};
+  static const uint32_t normalized_instruction_pstates[] = {0u, 0u, 2u, 2u};
+  const uint32_t target_va = UINT32_C(0x80002ab4);
+  const uint32_t target_physical_line = UINT32_C(0x00004ab0);
+  const uint32_t instruction_physical_line = UINT32_C(0x00005aa0);
+  const uint32_t dindex = dcache_index(target_va);
+  const uint32_t iindex = cache_index(target_va);
+  fixture compat_v2 = {0};
+  fixture compat_v1 = {0};
+  t64_machine *machine;
+  t64_vr4300_dcache_line *dline;
+  t64_vr4300_icache_line *iline;
+  t64_vr4300_dcache_line compat_v1_before;
+  t64_cache_state compat_v1_cache_before;
+  uint8_t old_backing[T64_VR4300_DCACHE_LINE_BYTES];
+  uint8_t instruction_data_before[T64_VR4300_ICACHE_LINE_BYTES];
+  t64_status status;
+  size_t index;
+  bool okay = true;
+
+  if (!fixture_open_profile(&compat_v2, value->asset,
+                            "ntsc-cart-4m-openipl3-vr4300-compat-v2", 5u,
+                            11u)) {
+    (void)puts("# compatibility-v2 tag-state fixture setup failed");
+    return fixture_close(&compat_v2, false);
+  }
+  machine = compat_v2.machine;
+  dline = &machine->cpu.dcache[dindex];
+  memset(machine->ram + UINT32_C(0x2000), UINT8_C(0x22),
+         sizeof old_backing);
+  memcpy(old_backing, machine->ram + UINT32_C(0x2000),
+         sizeof old_backing);
+  memset(dline->data, UINT8_C(0xa5), sizeof dline->data);
+  dline->physical_tag = UINT32_C(0x2000);
+  dline->valid = true;
+  dline->dirty = true;
+  machine->cpu.cp0[CP0_TAGLO] = taglo_for_physical_line(
+      UINT32_C(0x00004000), UINT32_C(1));
+
+  status = t64_cpu_cache_operation(machine, CACHE_INDEX_STORE_TAG_D,
+                                   target_va, UINT32_C(0x2ab4));
+  if (status != T64_STATUS_OK || dline->valid || dline->dirty ||
+      dline->physical_tag != target_physical_line ||
+      memcmp(machine->ram + UINT32_C(0x2000), old_backing,
+             sizeof old_backing) != 0) {
+    (void)printf("# compatibility-v2 D PState=01 expected invalid/clean tag=%08x, "
+                 "status=%u valid/dirty/tag=%u/%u/%08x\n",
+                 target_physical_line, (unsigned)status,
+                 dline->valid ? 1u : 0u, dline->dirty ? 1u : 0u,
+                 dline->physical_tag);
+    okay = false;
+  }
+  if (okay &&
+      (t64_cpu_cache_operation(machine, CACHE_INDEX_LOAD_TAG_D, target_va,
+                                UINT32_C(0x2ab4)) != T64_STATUS_OK ||
+       machine->cpu.cp0[CP0_TAGLO] != UINT32_C(0x00000400) ||
+       machine->cpu.cp0[CP0_TAGHI] != 0u)) {
+    (void)printf("# compatibility-v2 D PState=01 readback expected 00000400/0 "
+                 "observed=%08x/%08x\n",
+                 (uint32_t)machine->cpu.cp0[CP0_TAGLO],
+                 (uint32_t)machine->cpu.cp0[CP0_TAGHI]);
+    okay = false;
+  }
+
+  iline = &machine->cpu.icache[iindex];
+  memset(iline->data, UINT8_C(0x73), sizeof iline->data);
+  memcpy(instruction_data_before, iline->data, sizeof instruction_data_before);
+  for (index = 0u;
+       okay && index < sizeof instruction_pstates / sizeof instruction_pstates[0];
+       index++) {
+    const uint32_t pstate = instruction_pstates[index];
+    const uint32_t normalized = normalized_instruction_pstates[index];
+    const uint32_t expected_taglo =
+        UINT32_C(0x00000500) | (normalized << 6);
+
+    machine->cpu.cp0[CP0_TAGLO] =
+        taglo_for_physical_line(UINT32_C(0x00005000), pstate);
+    status = t64_cpu_cache_operation(machine, CACHE_INDEX_STORE_TAG_I,
+                                     target_va, UINT32_C(0x2ab4));
+    if (status != T64_STATUS_OK || iline->valid != (normalized == 2u) ||
+        iline->physical_tag != instruction_physical_line ||
+        memcmp(iline->data, instruction_data_before,
+               sizeof instruction_data_before) != 0 ||
+        t64_cpu_cache_operation(machine, CACHE_INDEX_LOAD_TAG_I, target_va,
+                                UINT32_C(0x2ab4)) != T64_STATUS_OK ||
+        machine->cpu.cp0[CP0_TAGLO] != expected_taglo ||
+        machine->cpu.cp0[CP0_TAGHI] != 0u) {
+      (void)printf("# compatibility-v2 I PState=%u expected normalized=%u "
+                   "TagLo=%08x observed status=%u valid/tag=%u/%08x "
+                   "TagLo=%08x\n",
+                   pstate, normalized, expected_taglo, (unsigned)status,
+                   iline->valid ? 1u : 0u, iline->physical_tag,
+                   (uint32_t)machine->cpu.cp0[CP0_TAGLO]);
+      okay = false;
+    }
+  }
+
+  if (okay && !fixture_open_profile(
+                  &compat_v1, value->asset,
+                  "ntsc-cart-4m-openipl3-vr4300-compat-v1", 4u, 10u)) {
+    (void)puts("# compatibility-v1 tag-state control setup failed");
+    okay = false;
+  }
+  if (okay) {
+    t64_machine *compat_v1_machine = compat_v1.machine;
+    const uint32_t compat_v1_index = dcache_index(target_va);
+    t64_vr4300_dcache_line *compat_v1_line =
+        &compat_v1_machine->cpu.dcache[compat_v1_index];
+
+    compat_v1_line->physical_tag = UINT32_C(0x2000);
+    compat_v1_line->valid = true;
+    compat_v1_line->dirty = true;
+    memset(compat_v1_line->data, UINT8_C(0x5c),
+           sizeof compat_v1_line->data);
+    compat_v1_machine->cpu.cp0[CP0_TAGLO] = taglo_for_physical_line(
+        UINT32_C(0x00004000), UINT32_C(1));
+    compat_v1_before = *compat_v1_line;
+    compat_v1_machine->cache.last_operation = UINT32_C(0x1111);
+    compat_v1_machine->cache.last_pc = UINT32_C(0x2222);
+    compat_v1_machine->cache.last_address = UINT32_C(0x3333);
+    compat_v1_machine->cache.operation_seen = true;
+    compat_v1_cache_before = compat_v1_machine->cache;
+    status = t64_cpu_cache_operation(
+        compat_v1_machine, CACHE_INDEX_STORE_TAG_D, target_va,
+        UINT32_C(0x2ab4));
+    if (status != T64_STATUS_BUS_UNSUPPORTED ||
+        memcmp(compat_v1_line, &compat_v1_before,
+               sizeof compat_v1_before) != 0 ||
+        memcmp(&compat_v1_machine->cache, &compat_v1_cache_before,
+               sizeof compat_v1_cache_before) != 0 ||
+        compat_v1_machine->cpu.cp0[CP0_TAGLO] != UINT32_C(0x00000440)) {
+      (void)puts("# compatibility-v1 D PState=01 refusal was not atomic");
+      okay = false;
+    }
+  }
+
+  okay = fixture_close(&compat_v1, okay);
+  return fixture_close(&compat_v2, okay);
+}
+
+static bool dcache_zero_range_read_refuses_atomically(
+    t64_machine *machine, uint64_t virtual_address,
+    uint32_t physical_address) {
+  const uint32_t index = dcache_index((uint32_t)virtual_address);
+  t64_vr4300_dcache_line *line = &machine->cpu.dcache[index];
+  t64_vr4300_dcache_line before;
+  t64_cache_state cache_before;
+  uint8_t backing_before[T64_VR4300_DCACHE_LINE_BYTES];
+  uint64_t value = UINT64_C(0x1122334455667788);
+  t64_status status;
+
+  memset(machine->ram + UINT32_C(0x2000), UINT8_C(0x31),
+         sizeof backing_before);
+  memcpy(backing_before, machine->ram + UINT32_C(0x2000),
+         sizeof backing_before);
+  memset(line->data, UINT8_C(0xa6), sizeof line->data);
+  line->physical_tag = UINT32_C(0x2000);
+  line->valid = true;
+  line->dirty = true;
+  before = *line;
+  machine->cache.last_operation = UINT32_C(0x1111);
+  machine->cache.last_pc = UINT32_C(0x2222);
+  machine->cache.last_address = UINT32_C(0x3333);
+  machine->cache.operation_seen = true;
+  cache_before = machine->cache;
+
+  status = t64_cpu_dcache_read(machine, virtual_address, physical_address, 4u,
+                               &value);
+  return status == T64_STATUS_BUS_UNSUPPORTED &&
+         value == UINT64_C(0x1122334455667788) &&
+         memcmp(line, &before, sizeof before) == 0 &&
+         memcmp(&machine->cache, &cache_before, sizeof cache_before) == 0 &&
+         memcmp(machine->ram + UINT32_C(0x2000), backing_before,
+                sizeof backing_before) == 0;
+}
+
+static bool test_compat_v2_zero_data_fill_and_fetch_refusal(fixture *value) {
+  fixture compat_v1 = {0};
+  fixture compat_v2 = {0};
+  t64_machine *machine;
+  uint32_t open_bus_line;
+  uint64_t virtual_address;
+  uint64_t loaded_value = UINT64_MAX;
+  uint32_t fetched_opcode = UINT32_C(0xfeedface);
+  uint32_t dindex;
+  uint32_t iindex;
+  t64_vr4300_dcache_line *dline;
+  t64_vr4300_icache_line *iline;
+  t64_vr4300_icache_line icache_before;
+  t64_status status;
+  bool okay;
+
+  if (!fixture_open_profile(&compat_v2, value->asset,
+                            "ntsc-cart-4m-openipl3-vr4300-compat-v2", 5u,
+                            11u) ||
+      !find_compat_zero_data_line(compat_v2.machine,
+                                  T64_VR4300_ICACHE_LINE_BYTES,
+                                  &open_bus_line)) {
+    (void)puts("# no full compatibility zero-data range found");
+    return fixture_close(&compat_v2, false);
+  }
+  virtual_address = t64_cpu_canonical_address(
+      UINT32_C(0x80000000) | (open_bus_line & UINT32_C(0x00001ff0)));
+
+  if (!dcache_zero_range_read_refuses_atomically(value->machine,
+                                                  virtual_address,
+                                                  open_bus_line)) {
+    (void)puts("# strict profile did not atomically refuse an open-bus D fill");
+    return fixture_close(&compat_v2, false);
+  }
+  if (!fixture_open_profile(&compat_v1, value->asset,
+                            "ntsc-cart-4m-openipl3-vr4300-compat-v1", 4u,
+                            10u) ||
+      !dcache_zero_range_read_refuses_atomically(compat_v1.machine,
+                                                  virtual_address,
+                                                  open_bus_line)) {
+    (void)puts("# compatibility-v1 did not atomically refuse an open-bus D fill");
+    okay = false;
+  } else {
+    okay = true;
+  }
+  if (!okay) {
+    okay = fixture_close(&compat_v1, false);
+    return fixture_close(&compat_v2, okay);
+  }
+
+  machine = compat_v2.machine;
+  dindex = dcache_index((uint32_t)virtual_address);
+  dline = &machine->cpu.dcache[dindex];
+  status = t64_cpu_dcache_read(machine, virtual_address, open_bus_line, 4u,
+                               &loaded_value);
+  if (status != T64_STATUS_OK || loaded_value != 0u || !dline->valid ||
+      dline->dirty || dline->physical_tag != open_bus_line ||
+      memcmp(dline->data,
+             (const uint8_t[T64_VR4300_DCACHE_LINE_BYTES]){0},
+             sizeof dline->data) != 0) {
+    (void)printf("# compatibility-v2 open-bus D fill expected zero line at %08x; "
+                 "status=%u value=%016llx valid/dirty/tag=%u/%u/%08x\n",
+                 open_bus_line, (unsigned)status,
+                 (unsigned long long)loaded_value, dline->valid ? 1u : 0u,
+                 dline->dirty ? 1u : 0u, dline->physical_tag);
+    okay = false;
+  }
+
+  iindex = cache_index((uint32_t)virtual_address);
+  iline = &machine->cpu.icache[iindex];
+  memset(iline->data, UINT8_C(0x5a), sizeof iline->data);
+  iline->physical_tag = UINT32_C(0x2000);
+  iline->valid = true;
+  icache_before = *iline;
+  status = t64_cpu_icache_fetch(machine, virtual_address, open_bus_line,
+                                &fetched_opcode);
+  if (status != T64_STATUS_BUS_UNSUPPORTED ||
+      fetched_opcode != UINT32_C(0xfeedface) ||
+      memcmp(iline, &icache_before, sizeof icache_before) != 0) {
+    (void)puts("# compatibility-v2 zero-data policy leaked into I-cache fetch");
+    okay = false;
+  }
+
+  okay = fixture_close(&compat_v1, okay);
+  return fixture_close(&compat_v2, okay);
 }
 
 static bool test_cache_unmapped_writeback_raises_dbe_atomically(
@@ -1869,6 +2171,10 @@ int main(int argc, char **argv) {
        test_hit_writeback_d_clean_line_does_not_write},
       {"undefined TagLo PState 01 leaves D line and diagnostics unchanged",
        test_undefined_tag_state_is_atomic},
+      {"compat-v2 maps diagnostic TagLo PStates while compat-v1 still refuses 01",
+       test_compat_v2_tag_state_normalization},
+      {"compat-v2 zero-fills full open-bus data lines without zero-filling fetch",
+       test_compat_v2_zero_data_fill_and_fetch_refusal},
       {"mapped Index_Load_Tag reports TLB invalid before cache effects",
        test_cache_tlb_fault_precedes_index_operation},
       {"CACHE Bus error routes unmapped dirty writeback through precise DBE",

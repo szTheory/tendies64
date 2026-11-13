@@ -813,15 +813,20 @@ static void reference_machine_digest(const t64_machine *machine,
       't', '6', '4', '.', 's', 't', 'a', 't', 'e', '.', 'v', '9'};
   static const uint8_t domain_v10[] = {
       't', '6', '4', '.', 's', 't', 'a', 't', 'e', '.', 'v', '1', '0'};
+  static const uint8_t domain_v11[] = {
+      't', '6', '4', '.', 's', 't', 'a', 't', 'e', '.', 'v', '1', '1'};
   const bool v7 = machine->profile.state_serialization_version == 7u;
   const bool v8 = machine->profile.state_serialization_version == 8u;
   const bool v9 = machine->profile.state_serialization_version == 9u;
   const bool v10 = machine->profile.state_serialization_version == 10u;
+  const bool v11 = machine->profile.state_serialization_version == 11u;
   t64_sha256_ctx context;
   size_t i;
 
   t64_sha256_init(&context);
-  if (v10) {
+  if (v11) {
+    t64_sha256_update(&context, domain_v11, sizeof domain_v11);
+  } else if (v10) {
     t64_sha256_update(&context, domain_v10, sizeof domain_v10);
   } else if (v9) {
     t64_sha256_update(&context, domain_v9, sizeof domain_v9);
@@ -940,10 +945,13 @@ static void reference_machine_digest(const t64_machine *machine,
   reference_hash_u32(&context, machine->cpu.stop_reason);
   reference_hash_u32(&context, machine->cpu.stop_pc);
   reference_hash_u32(&context, machine->cpu.stop_opcode);
-  if (v9 || v10) {
+  if (v9 || v10 || v11) {
     reference_hash_v9_prepared_cpu_state(&context, machine);
-    if (v10) {
+    if (v10 || v11) {
       reference_hash_u64(&context, machine->cpu.delay_origin_pc_full);
+    }
+    if (v11) {
+      reference_hash_u64(&context, machine->cpu.cp2_transfer_latch);
     }
   }
   reference_hash_u32(&context, machine->cache.policy_version);
@@ -961,7 +969,7 @@ static void reference_machine_digest(const t64_machine *machine,
   reference_hash_u32(&context, machine->output.policy_version);
   reference_hash_u32(&context, machine->output.video_output_ready ? 1u : 0u);
   reference_hash_u32(&context, machine->output.audio_output_ready ? 1u : 0u);
-  if (v7 || v8 || v9 || v10) {
+  if (v7 || v8 || v9 || v10 || v11) {
     reference_hash_u32(&context, machine->output.magic_register);
     reference_hash_u32(&context, machine->output.byte_count);
     reference_hash_u32(&context, T64_ISVIEWER_BUFFER_BYTES);
@@ -972,7 +980,7 @@ static void reference_machine_digest(const t64_machine *machine,
     t64_sha256_update(&context, machine->output.captured,
                       sizeof machine->output.captured);
     reference_hash_u32(&context, machine->output.lost_output ? 1u : 0u);
-    if (v8 || v9 || v10) {
+    if (v8 || v9 || v10 || v11) {
       reference_hash_u64(&context, machine->output.total_attempted_bytes);
       reference_hash_u32(
           &context,
@@ -983,9 +991,11 @@ static void reference_machine_digest(const t64_machine *machine,
 }
 
 static void test_vr4300_compat_profile_entry(
-    const uint8_t asset[IPL3_ASSET_BYTES]) {
+    const uint8_t asset[IPL3_ASSET_BYTES], bool extended) {
   static const char expected_v10_prepared_state_sha256[] =
       "dd8a0509ecbd0211965618943e3657601f2a8de57dc3c4dfc6fd4f0495135628";
+  static const char expected_v11_prepared_state_sha256[] =
+      "f943e44778ae482f12798f681335608b0c57812874874b84583674495e70ce2e";
   allocator_state allocator_state_value = {0u};
   const t64_host_allocator allocator = {
       test_allocate, test_release, &allocator_state_value};
@@ -998,7 +1008,9 @@ static void test_vr4300_compat_profile_entry(
   t64_stop_result result = {UINT32_MAX, UINT64_MAX};
   t64_status status;
 
-  status = t64_profile_lookup("ntsc-cart-4m-openipl3-vr4300-compat-v1",
+  status = t64_profile_lookup(extended
+      ? "ntsc-cart-4m-openipl3-vr4300-compat-v2"
+      : "ntsc-cart-4m-openipl3-vr4300-compat-v1",
                               &profile);
   T64_CHECK_INT(status, T64_STATUS_OK);
   T64_CHECK(profile != NULL);
@@ -1006,8 +1018,8 @@ static void test_vr4300_compat_profile_entry(
     return;
   }
   T64_CHECK_INT(profile->descriptor_version, 3u);
-  T64_CHECK_INT(profile->machine_model_version, 4u);
-  T64_CHECK_INT(profile->state_serialization_version, 10u);
+  T64_CHECK_INT(profile->machine_model_version, extended ? 5u : 4u);
+  T64_CHECK_INT(profile->state_serialization_version, extended ? 11u : 10u);
   T64_CHECK_INT(profile->rom_max_bytes, UINT32_C(0x00401000));
   T64_CHECK_INT(profile->hle_seed_reset_version, 2u);
 
@@ -1037,7 +1049,33 @@ static void test_vr4300_compat_profile_entry(
   T64_CHECK_INT(machine->cpu.cp0[12], UINT32_C(0x34000000));
   T64_CHECK_INT(machine->cpu.cp0[15], UINT32_C(0x00000b00));
   T64_CHECK_INT(machine->cpu.cp0[16], UINT32_C(0x7006e463));
-  T64_CHECK_INT(machine->cpu.semantic_policy_version, 2u);
+  T64_CHECK_INT(machine->cpu.semantic_policy_version, extended ? 3u : 2u);
+
+  T64_CHECK(t64_cpu_compat_zero_data_range(
+      machine, UINT32_C(0x00400010), 16u) == extended);
+  T64_CHECK(t64_cpu_compat_zero_data_range(
+      machine, UINT32_C(0x1fd00000), 8u) == extended);
+  T64_CHECK(t64_cpu_compat_zero_data_range(
+      machine, UINT32_C(0x7ffffff8), 8u) == extended);
+  T64_CHECK(!t64_cpu_compat_zero_data_range(machine, 0u, 4u));
+  T64_CHECK(!t64_cpu_compat_zero_data_range(
+      machine, UINT32_C(0x00400000), 4u));
+  T64_CHECK(!t64_cpu_compat_zero_data_range(
+      machine, UINT32_C(0x03effff8), 16u));
+  T64_CHECK(!t64_cpu_compat_zero_data_range(
+      machine, UINT32_C(0x04400000), 4u));
+  T64_CHECK(!t64_cpu_compat_zero_data_range(
+      machine, UINT32_C(0x10000000), 4u));
+  T64_CHECK(!t64_cpu_compat_zero_data_range(
+      machine, UINT32_C(0x1fc00000), 4u));
+  T64_CHECK(!t64_cpu_compat_zero_data_range(
+      machine, UINT32_C(0x7ffffff8), 16u));
+  T64_CHECK(!t64_cpu_compat_zero_data_range(
+      machine, UINT32_C(0xfffffff8), 16u));
+  T64_CHECK(!t64_cpu_compat_zero_data_range(
+      machine, UINT32_C(0x00400010), 0u));
+  T64_CHECK(!t64_cpu_compat_zero_data_range(
+      machine, UINT32_C(0x00400010), 33u));
 
   T64_CHECK_INT(t64_machine_digest(machine, production_digest),
                 T64_STATUS_OK);
@@ -1045,7 +1083,16 @@ static void test_vr4300_compat_profile_entry(
   T64_CHECK(memcmp(production_digest, reference_digest,
                    sizeof reference_digest) == 0);
   digest_to_hex(reference_digest, reference_hex);
-  T64_CHECK_STR(reference_hex, expected_v10_prepared_state_sha256);
+  if (extended) {
+    T64_CHECK_STR(reference_hex, expected_v11_prepared_state_sha256);
+  } else {
+    T64_CHECK_STR(reference_hex, expected_v10_prepared_state_sha256);
+  }
+  machine->cpu.cp2_transfer_latch = UINT64_C(0x89abcdef12345678);
+  T64_CHECK_INT(t64_machine_digest(machine, reference_digest), T64_STATUS_OK);
+  T64_CHECK((memcmp(production_digest, reference_digest,
+                    sizeof reference_digest) != 0) == extended);
+  machine->cpu.cp2_transfer_latch = UINT64_C(0);
   check_vr4300_cpu_state_hash_sensitivity(machine);
   check_vr4300_v10_state_hash_sensitivity(machine);
 
@@ -1058,8 +1105,16 @@ static void test_vr4300_compat_profile_entry(
   T64_CHECK_INT(machine->cpu.gpr[4], 0u);
   T64_CHECK_INT(machine->cpu.pc, IPL3_ENTRY_PC + 4u);
   T64_CHECK_INT(machine->cpu.attempt_outcome, T64_CPU_ATTEMPT_RETIRED);
-  T64_CHECK_INT(machine->cpu.semantic_policy_version, 2u);
+  T64_CHECK_INT(machine->cpu.semantic_policy_version, extended ? 3u : 2u);
   T64_CHECK_INT(machine->cpu.retired_instructions, 1u);
+
+  if (extended) {
+    machine->cpu.cp2_transfer_latch = UINT64_MAX;
+    T64_CHECK_INT(t64_machine_admit_rom(machine, asset, IPL3_ASSET_BYTES),
+                  T64_STATUS_OK);
+    T64_CHECK_INT(machine->cpu.cp2_transfer_latch, UINT64_C(0));
+    T64_CHECK_INT(machine->cpu.semantic_policy_version, 3u);
+  }
 
 done:
   t64_machine_destroy(machine);
@@ -1318,7 +1373,8 @@ int main(void) {
   T64_CHECK_INT(repeated_result.tick, 100u);
 
   test_vr4300_profile_entry(asset);
-  test_vr4300_compat_profile_entry(asset);
+  test_vr4300_compat_profile_entry(asset, false);
+  test_vr4300_compat_profile_entry(asset, true);
 
 done:
   t64_machine_destroy(machine);

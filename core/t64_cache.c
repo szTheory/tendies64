@@ -251,6 +251,11 @@ static t64_status dcache_stage_line(
       icache_backing_kind_at(machine, line_address);
   uint32_t offset;
 
+  if (t64_cpu_compat_zero_data_range(
+          machine, line_address, T64_VR4300_DCACHE_LINE_BYTES)) {
+    (void)memset(staged, 0, T64_VR4300_DCACHE_LINE_BYTES);
+    return T64_STATUS_OK;
+  }
   if (backing_kind == T64_ICACHE_BACKING_UNSUPPORTED) {
     return T64_STATUS_BUS_UNSUPPORTED;
   }
@@ -446,12 +451,17 @@ static t64_status index_store_tag(t64_machine *machine,
   uint32_t state =
       (taglo & T64_CACHE_TAGLO_PSTATE_MASK) >>
       T64_CACHE_TAGLO_PSTATE_SHIFT;
+  const bool compat_extension =
+      t64_has_cpu_compat_extension_policy(machine);
 
   if (operation == T64_CACHE_INDEX_STORE_TAG_I) {
     t64_vr4300_icache_line *line =
         &machine->cpu.icache[icache_index(virtual_address)];
-    if (state != 0u && state != 2u) {
+    if (!compat_extension && state != 0u && state != 2u) {
       return T64_STATUS_BUS_UNSUPPORTED;
+    }
+    if (compat_extension) {
+      state &= UINT32_C(2);
     }
     line->physical_tag = cache_tag_from_taglo(
         virtual_address, taglo, T64_VR4300_ICACHE_LINE_BYTES);
@@ -461,8 +471,11 @@ static t64_status index_store_tag(t64_machine *machine,
   if (operation == T64_CACHE_INDEX_STORE_TAG_D) {
     t64_vr4300_dcache_line *line =
         &machine->cpu.dcache[dcache_index(virtual_address)];
-    if (state == 1u) {
+    if (state == 1u && !compat_extension) {
       return T64_STATUS_BUS_UNSUPPORTED;
+    }
+    if (state == 1u) {
+      state = 0u;
     }
     line->physical_tag = cache_tag_from_taglo(
         virtual_address, taglo, T64_VR4300_DCACHE_LINE_BYTES);

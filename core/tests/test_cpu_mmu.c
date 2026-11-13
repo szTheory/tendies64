@@ -77,15 +77,15 @@ static void test_release(void *context, t64_host_storage storage) {
   }
 }
 
-static bool fixture_open(fixture *value, uint32_t status, uint32_t asid) {
+static bool fixture_open_profile(fixture *value, const char *profile_id,
+                                 uint32_t status, uint32_t asid) {
   const t64_host_allocator allocator = {
       test_allocate, test_release, &value->allocator};
   const t64_profile_descriptor *profile = NULL;
   uint8_t asset[IPL3_ASSET_BYTES];
 
   if (value == NULL ||
-      t64_profile_lookup("ntsc-cart-4m-openipl3-vr4300-v1", &profile) !=
-          T64_STATUS_OK ||
+      t64_profile_lookup(profile_id, &profile) != T64_STATUS_OK ||
       profile == NULL ||
       t64_machine_create(&allocator, profile, &value->machine) !=
           T64_STATUS_OK ||
@@ -101,6 +101,11 @@ static bool fixture_open(fixture *value, uint32_t status, uint32_t asid) {
     value->machine->cpu.tlb[index].asid = UINT32_C(0xff);
   }
   return true;
+}
+
+static bool fixture_open(fixture *value, uint32_t status, uint32_t asid) {
+  return fixture_open_profile(value, "ntsc-cart-4m-openipl3-vr4300-v1",
+                              status, asid);
 }
 
 static bool fixture_close(fixture *value, bool okay) {
@@ -238,6 +243,46 @@ static bool test_all_page_masks_and_pair_boundaries(void) {
   }
   okay = true;
   return fixture_close(&value, okay);
+}
+
+static bool test_compat_v2_max_page_boundary_and_raw_invalid_mask(void) {
+  fixture value = {0};
+  const uint64_t virtual_base = UINT64_C(0x10000000);
+  const uint64_t page_bytes = UINT64_C(1) << 24;
+  const uint64_t physical_even = UINT64_C(0x02000000);
+  uint32_t lo0 = entry_lo(physical_even, 3u, true, true, false);
+  uint32_t lo1 = entry_lo(UINT64_C(0x03000000), 3u, false, false, false);
+
+  if (!fixture_open_profile(
+          &value, "ntsc-cart-4m-openipl3-vr4300-compat-v2", 0u, 1u)) {
+    return fixture_close(&value, false);
+  }
+  set_entry(value.machine, 3u, UINT64_C(0x01ffe000), virtual_base, 1u,
+            lo0, lo1);
+  if (!translate_matches(value.machine, virtual_base + page_bytes - 4u, 4u,
+                         T64_MMU_ACCESS_READ, T64_MMU_FAULT_NONE,
+                         physical_even + page_bytes - 4u, 3u) ||
+      !translate_matches(value.machine, virtual_base + page_bytes, 4u,
+                         T64_MMU_ACCESS_READ, T64_MMU_FAULT_TLB_INVALID,
+                         0u, UINT32_MAX)) {
+    return fixture_close(&value, false);
+  }
+
+  /* Preserve invalid-mask refusal for address translation. V2's PageMask
+   * readback normalization does not define an address mapping for raw masks. */
+  for (size_t index = 0u; index < T64_VR4300_TLB_ENTRY_COUNT; index++) {
+    value.machine->cpu.tlb[index] = (t64_vr4300_tlb_pair){0};
+    value.machine->cpu.tlb[index].asid = UINT32_C(0xff);
+  }
+  set_entry(value.machine, 3u, UINT64_C(0x00002000), UINT64_C(0x1000), 1u,
+            entry_lo(UINT64_C(0x1000), 3u, true, true, false),
+            entry_lo(UINT64_C(0x2000), 3u, true, true, false));
+  if (!translate_matches(value.machine, UINT64_C(0x1000), 4u,
+                         T64_MMU_ACCESS_READ, T64_MMU_FAULT_ADDRESS, 0u,
+                         UINT32_MAX)) {
+    return fixture_close(&value, false);
+  }
+  return fixture_close(&value, true);
 }
 
 static bool test_asid_global_and_access_priority(void) {
@@ -1064,6 +1109,8 @@ int main(void) {
   static const mmu_test_case cases[] = {
       {"all seven paired page sizes translate both halves and boundaries",
        test_all_page_masks_and_pair_boundaries},
+      {"compat-v2 keeps the 16 MB odd-page fault and refuses raw undefined masks",
+       test_compat_v2_max_page_boundary_and_raw_invalid_mask},
       {"ASID, both-half global, V-before-D and fetch permissions",
        test_asid_global_and_access_priority},
       {"32-bit and extended segment privilege boundaries and physical domains",

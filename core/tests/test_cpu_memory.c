@@ -10,6 +10,7 @@
 #define IPL3_ASSET_BYTES 4096u
 #define STATUS_USER UINT32_C(0x10)
 #define STATUS_EXL UINT32_C(0x02)
+#define STATUS_KX UINT32_C(0x80)
 #define STATUS_RE UINT32_C(0x02000000)
 #define STATUS_UX UINT32_C(0x20)
 #define CAUSE_EXCCODE_MASK UINT32_C(0x7c)
@@ -98,11 +99,11 @@ static bool read_asset(uint8_t bytes[IPL3_ASSET_BYTES]) {
          close_error == 0;
 }
 
-static uint32_t entry_lo(uint32_t physical_base, bool valid, bool dirty) {
-  /* These instruction-lane tests use uncached TLB windows so backing writes
-   * remain their independent memory oracle; D-cache behavior has its own
-   * cache-specific guest suite. */
-  uint32_t result = ((physical_base >> 12) << 6) | UINT32_C(0x10);
+static uint32_t entry_lo_with_cache(uint32_t physical_base,
+                                    uint32_t cache_algorithm, bool valid,
+                                    bool dirty) {
+  uint32_t result = ((physical_base >> 12) << 6) |
+                    ((cache_algorithm & UINT32_C(7)) << 3);
 
   if (valid) {
     result |= UINT32_C(0x2);
@@ -111,6 +112,12 @@ static uint32_t entry_lo(uint32_t physical_base, bool valid, bool dirty) {
     result |= UINT32_C(0x4);
   }
   return result;
+}
+
+static uint32_t entry_lo(uint32_t physical_base, bool valid, bool dirty) {
+  /* Existing instruction-lane tests use uncached windows so backing writes
+   * remain their independent memory oracle. */
+  return entry_lo_with_cache(physical_base, 2u, valid, dirty);
 }
 
 static void set_entry(t64_machine *machine, uint32_t index,
@@ -127,7 +134,7 @@ static void set_entry(t64_machine *machine, uint32_t index,
   entry->entry_lo1 = entry_lo(odd_physical, odd_valid, odd_dirty);
 }
 
-static bool fixture_open(fixture *value) {
+static bool fixture_open_profile(fixture *value, const char *profile_id) {
   const t64_host_allocator allocator = {
       test_allocate, test_release, &value->allocator};
   const t64_profile_descriptor *profile = NULL;
@@ -135,8 +142,7 @@ static bool fixture_open(fixture *value) {
   size_t index;
 
   if (value == NULL || !read_asset(asset) ||
-      t64_profile_lookup("ntsc-cart-4m-openipl3-vr4300-v1", &profile) !=
-          T64_STATUS_OK ||
+      t64_profile_lookup(profile_id, &profile) != T64_STATUS_OK ||
       profile == NULL ||
       t64_machine_create(&allocator, profile, &value->machine) !=
           T64_STATUS_OK ||
@@ -156,6 +162,10 @@ static bool fixture_open(fixture *value) {
   set_entry(value->machine, 1u, UINT64_C(0x2000), 1u, UINT32_C(0x3000),
             true, true, UINT32_C(0x4000), true, true);
   return true;
+}
+
+static bool fixture_open(fixture *value) {
+  return fixture_open_profile(value, "ntsc-cart-4m-openipl3-vr4300-v1");
 }
 
 static bool fixture_close(fixture *value, bool okay) {
@@ -189,9 +199,8 @@ static void write_instruction(t64_machine *machine, uint32_t opcode) {
   t64_cpu_icache_hit_invalidate(machine, UINT64_C(0), UINT32_C(0x1000));
 }
 
-static t64_status run_one(t64_machine *machine, uint32_t opcode,
-                          uint32_t status, uint64_t base,
-                          uint64_t value) {
+static void prepare_one(t64_machine *machine, uint32_t opcode,
+                        uint32_t status, uint64_t base, uint64_t value) {
   write_instruction(machine, opcode);
   machine->cpu.pc = 0u;
   machine->cpu.pc_full = 0u;
@@ -206,11 +215,67 @@ static t64_status run_one(t64_machine *machine, uint32_t opcode,
   machine->cpu.gpr[4] = base;
   machine->cpu.gpr[8] = value;
   machine->cpu.gpr[0] = 0u;
+}
+
+static t64_status run_one(t64_machine *machine, uint32_t opcode,
+                          uint32_t status, uint64_t base,
+                          uint64_t value) {
+  prepare_one(machine, opcode, status, base, value);
   return t64_cpu_step(machine, NULL);
 }
 
 static uint32_t cause_code(const t64_machine *machine) {
   return ((uint32_t)machine->cpu.cp0[13] & CAUSE_EXCCODE_MASK) >> 2;
+}
+
+static void report_compat_v2_attempt(const char *label,
+                                     const t64_machine *machine,
+                                     uint32_t expected_opcode,
+                                     t64_status result) {
+  (void)printf(
+      "# %s result=%u outcome=%u cause=%08x status=%08x expected-op=%08x fetched-op=%08x pc=%08x pc-full=%016llx last-pc-full=%016llx\n",
+      label, (unsigned)result, (unsigned)machine->cpu.attempt_outcome,
+      (uint32_t)machine->cpu.cp0[13], (uint32_t)machine->cpu.cp0[12],
+      expected_opcode, machine->cpu.last_opcode, machine->cpu.pc,
+      (unsigned long long)machine->cpu.pc_full,
+      (unsigned long long)machine->cpu.last_pc_full);
+}
+
+static t64_status run_one_with_fetch_checks(t64_machine *machine,
+                                            uint32_t opcode,
+                                            uint32_t status,
+                                            uint64_t base,
+                                            uint64_t value,
+                                            const char *label) {
+  const uint8_t expected_bytes[4] = {
+      (uint8_t)(opcode >> 24), (uint8_t)(opcode >> 16),
+      (uint8_t)(opcode >> 8), (uint8_t)opcode};
+  const t64_mmu_request fetch = {0u, 4u, T64_MMU_ACCESS_FETCH};
+  t64_mmu_result translation = {0};
+  t64_status result;
+
+  prepare_one(machine, opcode, status, base, value);
+  if (machine->cpu.pc != 0u || machine->cpu.pc_full != UINT64_C(0) ||
+      memcmp(machine->ram + UINT32_C(0x1000), expected_bytes,
+             sizeof expected_bytes) != 0 ||
+      !t64_mmu_translate(machine, &fetch, &translation) ||
+      translation.fault != T64_MMU_FAULT_NONE || !translation.translated ||
+      translation.physical_address != UINT64_C(0x1000)) {
+    report_compat_v2_attempt(label, machine, opcode,
+                             T64_STATUS_INVALID_ARGUMENT);
+    (void)printf("# %s instruction fetch setup did not resolve PC 0 to PA 0x1000\n",
+                 label);
+    return T64_STATUS_INVALID_ARGUMENT;
+  }
+
+  result = t64_cpu_step(machine, NULL);
+  if (machine->cpu.last_opcode != opcode ||
+      machine->cpu.last_pc_full != UINT64_C(0)) {
+    report_compat_v2_attempt(label, machine, opcode, result);
+    (void)printf("# %s fetched opcode or full PC differs from setup\n", label);
+    return T64_STATUS_INVALID_ARGUMENT;
+  }
+  return result;
 }
 
 static bool test_reverse_endian_user_lanes(fixture *value) {
@@ -910,6 +975,169 @@ static bool test_reverse_endian_scalar_cartridge_bounds(fixture *value) {
   return true;
 }
 
+static bool test_v1_uncached_unmapped_ll_refusal(fixture *value) {
+  const uint64_t address = UINT64_C(0x900000007fffffe0);
+  const uint64_t original = UINT64_C(0xfeedface);
+  uint64_t retired_before = value->machine->cpu.retired_instructions;
+  t64_status result = run_one(value->machine, encode_i(0x30u, 8u, 0u),
+                              STATUS_KX, address, original);
+
+  return result == T64_STATUS_RESOURCE_EXHAUSTED &&
+         value->machine->cpu.stopped &&
+         !value->machine->cpu.pending_exception_valid &&
+         value->machine->cpu.gpr[8] == original &&
+         !value->machine->cpu.linked_valid &&
+         value->machine->cpu.retired_instructions == retired_before;
+}
+
+static bool test_compat_v1_uncached_unmapped_ll_refusal(fixture *value) {
+  const uint64_t address = UINT64_C(0x900000007fffffe0);
+  const uint64_t original = UINT64_C(0xfeedface);
+  t64_machine *machine = value->machine;
+  uint64_t retired_before = machine->cpu.retired_instructions;
+  t64_status result = run_one(machine, encode_i(0x30u, 8u, 0u), STATUS_KX,
+                              address, original);
+
+  return result == T64_STATUS_RESOURCE_EXHAUSTED && machine->cpu.stopped &&
+         !machine->cpu.pending_exception_valid &&
+         machine->cpu.gpr[8] == original && !machine->cpu.linked_valid &&
+         machine->cpu.retired_instructions == retired_before;
+}
+
+static bool test_compat_v2_uncached_unmapped_ll_zero(fixture *value) {
+  const uint64_t address = UINT64_C(0x900000007fffffe0);
+  const uint32_t opcode = encode_i(0x30u, 8u, 0u);
+  t64_machine *machine = value->machine;
+  uint64_t retired_before = machine->cpu.retired_instructions;
+  t64_status result = run_one_with_fetch_checks(
+      machine, opcode, STATUS_KX, address, UINT64_C(0xfeedface),
+      "compat-v2 uncached LL");
+
+  if (result != T64_STATUS_OK || machine->cpu.pending_exception_valid ||
+      machine->cpu.gpr[8] != 0u || !machine->cpu.linked_valid ||
+      machine->cpu.retired_instructions != retired_before + UINT64_C(1) ||
+      machine->cpu.linked_width != 4u ||
+      machine->cpu.linked_physical_address != UINT32_C(0x7fffffe0) ||
+      machine->cpu.cp0[17] != UINT64_C(0x07fffffe)) {
+    report_compat_v2_attempt("compat-v2 uncached LL", machine, opcode,
+                             result);
+    (void)printf("# LL result=%016llx linked=%u pa=%08x width=%u lladdr=%016llx retired=%llu\n",
+                 (unsigned long long)machine->cpu.gpr[8],
+                 machine->cpu.linked_valid ? 1u : 0u,
+                 machine->cpu.linked_physical_address,
+                 machine->cpu.linked_width,
+                 (unsigned long long)machine->cpu.cp0[17],
+                 (unsigned long long)machine->cpu.retired_instructions);
+    return false;
+  }
+  return true;
+}
+
+static bool test_compat_v2_unmapped_uncached_store_stays_refused(
+    fixture *value) {
+  const uint64_t address = UINT64_C(0x900000007fffffe0);
+  t64_machine *machine = value->machine;
+  uint64_t retired_before = machine->cpu.retired_instructions;
+  uint64_t instruction_count_before = machine->instruction_count;
+  t64_status result;
+
+  machine->cpu.linked_valid = true;
+  machine->cpu.linked_width = 4u;
+  machine->cpu.linked_physical_address = UINT32_C(0x7fffffe0);
+  result = run_one(machine, encode_i(0x2bu, 8u, 0u), STATUS_KX, address,
+                   UINT64_C(0xaabbccdd));
+  return result == T64_STATUS_RESOURCE_EXHAUSTED && machine->cpu.stopped &&
+         !machine->cpu.pending_exception_valid &&
+         machine->cpu.attempt_outcome == T64_CPU_ATTEMPT_MODEL_UNSUPPORTED &&
+         machine->cpu.gpr[8] == UINT64_C(0xaabbccdd) &&
+         machine->cpu.linked_valid && machine->cpu.linked_width == 4u &&
+         machine->cpu.linked_physical_address == UINT32_C(0x7fffffe0) &&
+         machine->cpu.retired_instructions == retired_before &&
+         machine->instruction_count == instruction_count_before;
+}
+
+static bool test_compat_v2_mapped_mmio_doubleword_read_stays_refused(
+    fixture *value) {
+  const uint64_t address = UINT64_C(0x9000000004600000);
+  const uint64_t original = UINT64_C(0xfeedfacecafebeef);
+  t64_machine *machine = value->machine;
+  uint64_t retired_before = machine->cpu.retired_instructions;
+  uint64_t instruction_count_before = machine->instruction_count;
+  t64_status result;
+
+  machine->cpu.linked_valid = true;
+  machine->cpu.linked_width = 4u;
+  machine->cpu.linked_physical_address = UINT32_C(0x7fffffe0);
+  result = run_one(machine, encode_i(0x37u, 8u, 0u), STATUS_KX, address,
+                   original);
+
+  return result == T64_STATUS_RESOURCE_EXHAUSTED && machine->cpu.stopped &&
+         !machine->cpu.pending_exception_valid &&
+         machine->cpu.gpr[8] == original &&
+         machine->cpu.attempt_outcome == T64_CPU_ATTEMPT_MODEL_UNSUPPORTED &&
+         machine->cpu.linked_valid && machine->cpu.linked_width == 4u &&
+         machine->cpu.linked_physical_address == UINT32_C(0x7fffffe0) &&
+         machine->cpu.retired_instructions == retired_before &&
+         machine->instruction_count == instruction_count_before;
+}
+
+static bool test_compat_v2_xkphys_high_bits_fault_before_bus(fixture *value) {
+  const uint64_t address = UINT64_C(0x9000000100000000);
+  t64_machine *machine = value->machine;
+  const uint64_t original = UINT64_C(0xfeedface);
+  uint64_t retired_before = machine->cpu.retired_instructions;
+  t64_status result = run_one(machine, encode_i(0x30u, 8u, 0u), STATUS_KX,
+                              address, original);
+
+  return result == T64_STATUS_OK && machine->cpu.pending_exception_valid &&
+         cause_code(machine) == 4u && machine->cpu.cp0[8] == address &&
+         machine->cpu.gpr[8] == original &&
+         machine->cpu.retired_instructions == retired_before;
+}
+
+static bool test_compat_v2_cached_16mb_boundary_read_then_tlbl(
+    fixture *value) {
+  const uint64_t virtual_base = UINT64_C(0x10000000);
+  const uint64_t page_bytes = UINT64_C(1) << 24;
+  const uint32_t physical_even = UINT32_C(0x02000000);
+  t64_machine *machine = value->machine;
+  uint32_t even_lo = entry_lo_with_cache(physical_even, 3u, true, true);
+  uint32_t odd_lo = entry_lo_with_cache(UINT32_C(0x03000000), 3u, false,
+                                        false);
+  const uint32_t opcode = encode_i(0x23u, 8u, 0u);
+  uint64_t retired_before;
+  t64_status result;
+
+  set_entry(machine, 2u, virtual_base, 1u, physical_even, true, true,
+             UINT32_C(0x03000000), false, false);
+  machine->cpu.tlb[2].entry_lo0 = even_lo;
+  machine->cpu.tlb[2].entry_lo1 = odd_lo;
+  machine->cpu.tlb[2].page_mask = UINT64_C(0x01ffe000);
+  retired_before = machine->cpu.retired_instructions;
+  result = run_one_with_fetch_checks(
+      machine, opcode, STATUS_KX, virtual_base + page_bytes - 4u,
+      UINT64_C(0xfeedface), "compat-v2 cached 16 MB final word");
+  if (result != T64_STATUS_OK || machine->cpu.pending_exception_valid ||
+      machine->cpu.gpr[8] != 0u ||
+      machine->cpu.retired_instructions != retired_before + UINT64_C(1)) {
+    report_compat_v2_attempt("compat-v2 cached 16 MB final word", machine,
+                             opcode, result);
+    (void)printf("# final-word value=%016llx retired=%llu\n",
+                 (unsigned long long)machine->cpu.gpr[8],
+                 (unsigned long long)machine->cpu.retired_instructions);
+    return false;
+  }
+
+  retired_before = machine->cpu.retired_instructions;
+  result = run_one(machine, encode_i(0x23u, 8u, 0u), STATUS_KX,
+                   virtual_base + page_bytes, UINT64_C(0xfeedface));
+  return result == T64_STATUS_OK && machine->cpu.pending_exception_valid &&
+         cause_code(machine) == 2u &&
+         machine->cpu.cp0[8] == virtual_base + page_bytes &&
+         machine->cpu.gpr[8] == UINT64_C(0xfeedface) &&
+         machine->cpu.retired_instructions == retired_before;
+}
+
 int main(void) {
   static const memory_test_case tests[] = {
       {"user reverse endian selects physical lanes while kernel and fetch stay BE",
@@ -934,16 +1162,41 @@ int main(void) {
        test_user_double_merge_mode_refusal},
       {"user RE scalar widths preflight the selected cartridge lane",
        test_reverse_endian_scalar_cartridge_bounds},
+      {"strict v1 still refuses an uncached unsupported linked read",
+       test_v1_uncached_unmapped_ll_refusal},
+  };
+  static const memory_test_case compat_v1_tests[] = {
+      {"compat-v1 still refuses an uncached unsupported linked read",
+       test_compat_v1_uncached_unmapped_ll_refusal},
+  };
+  static const memory_test_case compat_v2_tests[] = {
+      {"compat-v2 zero-fills an uncached data LL in unbacked Domain1 C",
+       test_compat_v2_uncached_unmapped_ll_zero},
+      {"compat-v2 keeps uncached unbacked stores refused",
+       test_compat_v2_unmapped_uncached_store_stays_refused},
+      {"compat-v2 keeps unsupported mapped-MMIO doubleword reads refused",
+       test_compat_v2_mapped_mmio_doubleword_read_stays_refused},
+      {"compat-v2 faults high xkphys bits before bus handling",
+       test_compat_v2_xkphys_high_bits_fault_before_bus},
+      {"compat-v2 reads the cached 16 MB even-page end then raises TLBL",
+       test_compat_v2_cached_16mb_boundary_read_then_tlbl},
   };
   fixture value = {0};
+  fixture compat_v1 = {0};
+  fixture compat_v2 = {0};
   size_t index;
   size_t failures = 0u;
+  const size_t total_tests = sizeof tests / sizeof tests[0] +
+                             sizeof compat_v1_tests /
+                                 sizeof compat_v1_tests[0] +
+                             sizeof compat_v2_tests /
+                                 sizeof compat_v2_tests[0];
 
   if (!fixture_open(&value)) {
     (void)puts("1..1\nnot ok 1 - memory fixture setup");
     return 1;
   }
-  (void)printf("1..%zu\n", sizeof tests / sizeof tests[0]);
+  (void)printf("1..%zu\n", total_tests);
   for (index = 0u; index < sizeof tests / sizeof tests[0]; index++) {
     bool okay = tests[index].run(&value);
 
@@ -954,6 +1207,52 @@ int main(void) {
     }
   }
   if (!fixture_close(&value, failures == 0u)) {
+    failures++;
+  }
+  if (!fixture_open_profile(
+          &compat_v1,
+          "ntsc-cart-4m-openipl3-vr4300-compat-v1")) {
+    (void)printf("not ok %zu - compat-v1 memory fixture setup\n",
+                 sizeof tests / sizeof tests[0] + 1u);
+    return 1;
+  }
+  for (index = 0u; index < sizeof compat_v1_tests / sizeof compat_v1_tests[0];
+       index++) {
+    bool okay = compat_v1_tests[index].run(&compat_v1);
+
+    (void)printf("%s %zu - %s\n", okay ? "ok" : "not ok",
+                 sizeof tests / sizeof tests[0] + index + 1u,
+                 compat_v1_tests[index].name);
+    if (!okay) {
+      failures++;
+    }
+  }
+  if (!fixture_close(&compat_v1, failures == 0u)) {
+    failures++;
+  }
+  if (!fixture_open_profile(
+          &compat_v2,
+          "ntsc-cart-4m-openipl3-vr4300-compat-v2")) {
+    (void)printf("not ok %zu - compat-v2 memory fixture setup\n",
+                 sizeof tests / sizeof tests[0] +
+                     sizeof compat_v1_tests / sizeof compat_v1_tests[0] +
+                     1u);
+    return 1;
+  }
+  for (index = 0u; index < sizeof compat_v2_tests / sizeof compat_v2_tests[0];
+       index++) {
+    bool okay = compat_v2_tests[index].run(&compat_v2);
+
+    (void)printf("%s %zu - %s\n", okay ? "ok" : "not ok",
+                 sizeof tests / sizeof tests[0] +
+                     sizeof compat_v1_tests / sizeof compat_v1_tests[0] +
+                     index + 1u,
+                 compat_v2_tests[index].name);
+    if (!okay) {
+      failures++;
+    }
+  }
+  if (!fixture_close(&compat_v2, failures == 0u)) {
     failures++;
   }
   return failures == 0u ? 0 : 1;

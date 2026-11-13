@@ -251,6 +251,58 @@ static const t64_profile_descriptor
         .hle_seed_reset_version = 2u,
 };
 
+static const t64_profile_descriptor
+    ntsc_cart_4m_openipl3_vr4300_compat_v2_profile = {
+        .profile_id = "ntsc-cart-4m-openipl3-vr4300-compat-v2",
+        .console_target = "NUS-CPU-03",
+        .console_qualification = "unqualified-target-software-seed",
+        .tv_standard = T64_TV_NTSC,
+        .region = T64_REGION_US,
+        .media_kind = T64_MEDIA_CARTRIDGE,
+        .rdram_bytes = T64_BASE_RAM_BYTES,
+        .expansion_bytes = 0u,
+        .peripheral_flags = 0u,
+        .save_kind = T64_SAVE_NONE,
+        .boot_route = "hle-pif+open-ipl3",
+        .boot_status = "prepared-vr4300-compat-v2-entry-partial",
+        .guest_tick_unit = "model-rsp-cycle",
+        .cpu_rsp_ratio_numerator = 1u,
+        .cpu_rsp_ratio_denominator = 1u,
+        .synchronization_quantum = 1u,
+        .timing_tier = "versioned-vr4300-software-compatibility-v2",
+        .scheduler_version = "tick-sequence-fifo-v1",
+        .pi_model_version = "pi_dma_bounded_cart_v1",
+        .sp_model_version = "sp_dma_bounded_warm_v1",
+        .rom_min_bytes = 4096u,
+        .rom_max_bytes = T64_VR4300_OPENIPL3_ROM_LIMIT,
+        .event_queue_capacity = 256u,
+        .sequence_width_bits = 64u,
+        .advance_event_budget = 4096u,
+        .pi_duration_base_ticks = 1u,
+        .pi_duration_bytes_divisor = 2u,
+        .sp_duration_base_rsp_cycles = 12u,
+        .sp_duration_bytes_divisor = 8u,
+        .rom_order_policy = T64_VR4300_OPENIPL3_FLAT_ENTRY_POLICY,
+        .event_order_policy = "tick-sequence-fifo-v1",
+        .queue_exhaustion_policy = "reject-before-mutation-v1",
+        .sequence_exhaustion_policy = "reject-before-mutation-v1",
+        .advance_budget_policy = "bounded-4096-events-v1",
+        .guest_time_bound_policy = "inclusive-idle-advance-v1",
+        .halt_precedence_policy = "halt-at-bound-wins-v1",
+        .pi_register_policy = "bounded-pi-register-and-cart-dma-v1",
+        .sp_register_policy = "bounded-sp-register-reset-and-dma-v1",
+        .device_error_policy = "sticky-pi-error-v1",
+        .dma_cancel_policy = "token-match-complete-once-v1",
+        .dma_visibility_policy = "atomic-source-at-completion-v1",
+        .descriptor_version = 3u,
+        .machine_model_version = 5u,
+        .state_serialization_version = 11u,
+        .asset_sha256 = T64_OPENIPL3_ASSET_SHA256_BYTES,
+        .payload_sha256 = T64_OPENIPL3_PAYLOAD_SHA256_BYTES,
+        .boot_policy_sha256 = T64_VR4300_OPENIPL3_POLICY_SHA256_BYTES,
+        .hle_seed_reset_version = 2u,
+};
+
 static const uint8_t openipl3_asset_sha256[T64_DIGEST_SIZE] =
     T64_OPENIPL3_ASSET_SHA256_BYTES;
 static const uint8_t openipl3_payload_sha256[T64_DIGEST_SIZE] =
@@ -313,11 +365,23 @@ static bool has_vr4300_compat_profile_id(
                             profile_id, sizeof profile_id);
 }
 
+static bool has_vr4300_compat_v2_profile_id(
+    const t64_profile_descriptor *profile) {
+  static const char profile_id[] =
+      "ntsc-cart-4m-openipl3-vr4300-compat-v2";
+
+  return profile != NULL &&
+         bounded_text_equal(profile->profile_id,
+                            sizeof profile->profile_id,
+                            profile_id, sizeof profile_id);
+}
+
 static bool has_pinned_openipl3_profile_id(
     const t64_profile_descriptor *profile) {
   return has_openipl3_profile_id(profile) ||
          has_vr4300_openipl3_profile_id(profile) ||
-         has_vr4300_compat_profile_id(profile);
+         has_vr4300_compat_profile_id(profile) ||
+         has_vr4300_compat_v2_profile_id(profile);
 }
 
 static bool is_openipl3_profile(const t64_profile_descriptor *profile) {
@@ -353,14 +417,18 @@ static bool is_vr4300_openipl3_profile(
 
 static bool is_vr4300_compat_profile(
     const t64_profile_descriptor *profile) {
+  const t64_profile_descriptor *canonical =
+      has_vr4300_compat_v2_profile_id(profile)
+          ? &ntsc_cart_4m_openipl3_vr4300_compat_v2_profile
+          : &ntsc_cart_4m_openipl3_vr4300_compat_profile;
   uint8_t candidate_digest[T64_DIGEST_SIZE];
   uint8_t canonical_digest[T64_DIGEST_SIZE];
 
   if (profile == NULL || profile->descriptor_version != 3u ||
-      !has_vr4300_compat_profile_id(profile) ||
+      (!has_vr4300_compat_profile_id(profile) &&
+       !has_vr4300_compat_v2_profile_id(profile)) ||
       t64_profile_hash(profile, candidate_digest) != T64_STATUS_OK ||
-      t64_profile_hash(&ntsc_cart_4m_openipl3_vr4300_compat_profile,
-                       canonical_digest) != T64_STATUS_OK) {
+      t64_profile_hash(canonical, canonical_digest) != T64_STATUS_OK) {
     return false;
   }
   return memcmp(candidate_digest, canonical_digest,
@@ -771,7 +839,9 @@ static t64_status prepare_openipl3_vr4300_entry(t64_machine *machine) {
   machine->cpu.stop_pc_full = t64_cpu_canonical_address(0u);
   machine->cpu.attempt_outcome = T64_CPU_ATTEMPT_NONE;
   machine->cpu.semantic_policy_version =
-      t64_has_cpu_compat_policy(machine) ? UINT32_C(2) : UINT32_C(1);
+      t64_has_cpu_compat_extension_policy(machine) ? UINT32_C(3)
+      : t64_has_cpu_compat_policy(machine) ? UINT32_C(2) : UINT32_C(1);
+  machine->cpu.cp2_transfer_latch = UINT64_C(0);
   machine->cpu.count_sync_tick = machine->tick;
   machine->cpu.count_half_clock_phase = UINT32_C(0);
   machine->cpu.count_compare_deadline = UINT64_MAX;
@@ -832,6 +902,9 @@ t64_status t64_profile_lookup(const char *profile_id,
   static const char vr4300_compat_profile_id[] =
       "ntsc-cart-4m-openipl3-vr4300-compat-v1";
 
+  static const char vr4300_compat_v2_profile_id[] =
+      "ntsc-cart-4m-openipl3-vr4300-compat-v2";
+
   if (profile_out == NULL) {
     return T64_STATUS_INVALID_ARGUMENT;
   }
@@ -858,6 +931,12 @@ t64_status t64_profile_lookup(const char *profile_id,
                          vr4300_compat_profile_id,
                          sizeof vr4300_compat_profile_id)) {
     *profile_out = &ntsc_cart_4m_openipl3_vr4300_compat_profile;
+    return T64_STATUS_OK;
+  }
+  if (bounded_text_equal(profile_id, T64_PROFILE_TEXT_CAPACITY,
+                         vr4300_compat_v2_profile_id,
+                         sizeof vr4300_compat_v2_profile_id)) {
+    *profile_out = &ntsc_cart_4m_openipl3_vr4300_compat_v2_profile;
     return T64_STATUS_OK;
   }
   return T64_STATUS_UNKNOWN_PROFILE;

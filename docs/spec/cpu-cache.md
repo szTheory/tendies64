@@ -65,3 +65,24 @@ shows different stale-code or invalidation behavior. Revisit the internal key
 encoding only if an implemented architectural tag operation or an independent
 state contract requires the raw PA[31:12] representation; such a change must
 also review v9 digest identity.
+
+
+## Compat-v2 extensions
+
+The model5/state11 software profile accepts the existing defined CACHE
+operations on valid uncached translations after the same privilege and MMU
+checks. Index operations still select by virtual index and hit operations
+still compare the translated physical tag. Strict and compat-v1 keep their
+uncached CACHE refusal.
+
+For Index Store Tag, compat-v2 normalizes D PState01 to invalid/clean, I01 to
+invalid and I11 to clean/valid. These are selected software policies for
+undefined encodings, not silicon measurements; other profile behavior stays
+unchanged. Read/writeback failures still preserve line state and reservations.
+
+A compat-v2 data-line fill may synthesize zeros only when the entire aligned
+D-cache line satisfies the CPU zero-data range predicate. Instruction fetch
+fill never takes this path. Mapped device failures, register apertures,
+cartridge backing and crossed boundaries are excluded. CPU writes to these
+zero-data windows remain model-unsupported before cache mutation, including
+when a zero-filled line is already resident.

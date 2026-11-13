@@ -1245,8 +1245,11 @@ cleanup:
 }
 
 int main(int argc, char **argv) {
-  if (argc > 1 && strcmp(argv[1], "--compat") == 0) {
-    cpu_profile_id = "ntsc-cart-4m-openipl3-vr4300-compat-v1";
+  if (argc > 1 && (strcmp(argv[1], "--compat") == 0 ||
+                   strcmp(argv[1], "--compat-v2") == 0)) {
+    cpu_profile_id = strcmp(argv[1], "--compat-v2") == 0
+        ? "ntsc-cart-4m-openipl3-vr4300-compat-v2"
+        : "ntsc-cart-4m-openipl3-vr4300-compat-v1";
     /* Keep each command's existing argument contract after explicit selection. */
     argv[1] = argv[0];
     argv++;
@@ -1269,7 +1272,7 @@ int main(int argc, char **argv) {
   if (argc > 1 && strcmp(argv[1], "--run-local") == 0)
     return command_run(argc, argv, true);
   (void)fprintf(stderr,
-                "usage: t64-cpu-diagnostic [--compat] --validate-inventory FILE | "
+                "usage: t64-cpu-diagnostic [--compat|--compat-v2] --validate-inventory FILE | "
                 "--encode-inventory FILE REG VALUE OUTCOME | "
                 "--aggregate INVENTORY BATCH... | --aggregate-json INVENTORY PRIVATE_BATCH_DIR | "
                 "--run-authored INVENTORY ROM SIZE SHA256 TICKS REG VALUE OUTPUT\n");

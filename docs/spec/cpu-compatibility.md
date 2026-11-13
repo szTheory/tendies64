@@ -36,6 +36,30 @@ cartridge compatibility. Any support statement still needs to name the exact
 profile and cite evidence for the workload and behavior being claimed.
 
 The strict profile remains available for callers that require its existing
-refusal behavior. A compatibility completion gate should select the v1
-compatibility profile explicitly and record that selection with the tested
-profile and build identity.
+refusal behavior. A compatibility completion gate records its explicit selected
+version and tested profile/build identities. Plan19 established v1; the
+follow-up target is v2 below. Neither changes the strict profile.
+
+## V2 extension
+
+`ntsc-cart-4m-openipl3-vr4300-compat-v2` uses descriptor3/model5/state11 and
+semantic policy3. V1 remains available with unchanged identity and behavior.
+V2 reuses its cleared boot seed and image bounds, with a separate profile hash
+and `t64.state.v11` domain. State11 retains the complete v10 field sequence
+and appends the 64-bit per-machine `cp2_transfer_latch` after branch origin in
+the full CPU-state block. Earlier state formats exclude this new field.
+
+V2 selects additional software policies for uncached CACHE aliases and
+undefined TagLo states, covered FR0 odd-register aliases, selected COP2 transfer
+and reserved-instruction behavior, and out-of-range Wired/PageMask cases.
+It also defines zero-valued CPU data reads in its unpopulated RDRAM and
+unbacked Domain1C windows. This does not change global bus decoding: the
+modeled probe, mapped devices, instruction fetch and unsupported stores retain
+their earlier boundaries. Complete-range checks exclude crossings and
+overflow; access faults still precede the data policy.
+
+These rules are deliberately software-profile choices. The generic manual
+does not establish their physical results and conflicts with the selected
+single COP2 latch/full-width word-transfer model. No COP2 memory, branch or
+operation-space capability is inferred. The precise decisions, counterarguments
+and owning verification are recorded in the [Plan20 context](../../.planning/phases/04-complete-vr4300-cpu/04-20-CONTEXT.md).

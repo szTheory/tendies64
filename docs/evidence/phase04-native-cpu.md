@@ -239,3 +239,50 @@ Both jobs pass all111 checks, core lint83/0, authored evidence emission,
 publication scans and sanitized upload. No private diagnostic input or result
 is used or published. This pair closes the hosted part of Plan19, while
 Plan16 remains incomplete and Plan20 isolates the additional v2 policies.
+
+## Compatibility v2 implementation
+
+The separate `ntsc-cart-4m-openipl3-vr4300-compat-v2` profile is
+model5/state11/semantic3. It retains strict and published compat-v1 behavior,
+adds an explicitly serialized COP2 latch and selects the documented software
+policies in the [contract](../spec/cpu-compatibility.md). No physical-console
+qualification or external diagnostic outcome is claimed here.
+
+The full local native gate passed all111 tests, inventory and lint in139s;
+the all-target instrumented build and39-test owning selection passed, including
+fuzz and the sanitizer negative control. Those broad runs preceded a review
+correction and retain these actual build identities:
+
+| Pre-correction artifact | Core build SHA-256 |
+|---|---|
+| Normal | `7d884052d5d84a396fe4db1e443695796857aa3de23441470ee41d081ef2d315` |
+| Instrumented | `dbf18f85f9572316d3443bcc3674b3bc5b843b6c056e0356508f59b477fc67ed` |
+
+Review found that scalar conversion results could overwrite an even neighbor
+instead of the requested odd destination. A fetched-instruction regression
+fails before the correction and passes afterward. Conversion source aliases
+remain intentional software policy; destination normalization now requires a
+64-bit pair result. Complete target builds and the six owning COP1/three-
+diagnostic controls pass in both configurations after that change. Unchanged
+subsystem evidence is reused; the earlier broad runs are not relabeled.
+
+| Corrected artifact | Core build SHA-256 |
+|---|---|
+| Normal | `14cc6c38ae714fa1c92596f51b917b1a4e17e63746ece058150a7174ad7a5f9a` |
+| Instrumented | `fdd7246d62002cb9f776514cbba2f312971576928e2c452e483bbbf0a206fe77` |
+
+Both corrected artifacts carry source annotation
+`c3856d1e7613ad28a59ff5fd61c0ce415e8f6ebc` with the then-uncommitted v2 delta;
+actual content is bound by the build identities above. The fixed profile hash is
+`1086516cd466bf48133533a8edf33a12cc8fd9e27dcd2b493e92b2bcf21a7634`.
+The independent prepared-state reference agrees with the state11 production
+serializer and fixed vector, including old-version exclusion of the new latch.
+
+The configured source review and narrow follow-up resolve the conversion
+finding; the security auditor closes all three new mitigation threats and
+confirms the correction. [Validation](../../.planning/phases/04-complete-vr4300-cpu/04-20-VALIDATION.md),
+[RED limits](../../.planning/phases/04-complete-vr4300-cpu/04-20-RED-evidence.md)
+and [correction proof](../../.planning/phases/04-complete-vr4300-cpu/04-20-REVIEW-FIX.md)
+retain the actual scopes and fixture mistakes. Exact-source hosted verification
+and private Plan16 completion remain separate and are not asserted by these
+native results. No protected input/result enters this record or hosted uploads.

@@ -11,6 +11,17 @@
 #define IPL3_ENTRY_PC UINT32_C(0xa4000040)
 #define T64_CP0_CAUSE_SOFTWARE_MASK UINT32_C(0x00000300)
 #define T64_CP0_CAUSE_TIMER_MASK UINT32_C(0x00008000)
+#define T64_CP0_ENTRYHI UINT32_C(10)
+#define T64_CP0_STATUS UINT32_C(12)
+#define T64_CP0_TAGLO UINT32_C(28)
+#define T64_CP0_TAGHI UINT32_C(29)
+#define T64_CPU_CACHE_OPCODE UINT32_C(0x2f)
+#define T64_CACHE_INDEX_INVALIDATE_I UINT32_C(0x00)
+#define T64_CACHE_INDEX_WRITEBACK_INVALIDATE_D UINT32_C(0x01)
+#define T64_CACHE_INDEX_LOAD_TAG_I UINT32_C(0x04)
+#define T64_CACHE_INDEX_STORE_TAG_I UINT32_C(0x08)
+#define T64_CACHE_HIT_INVALIDATE_I UINT32_C(0x10)
+#define T64_CACHE_FILL_I UINT32_C(0x14)
 
 typedef struct {
   size_t outstanding;
@@ -130,6 +141,64 @@ static uint32_t encode_cop1_memory(uint32_t operation, uint32_t base,
 static uint32_t read_be32_bytes(const uint8_t *bytes) {
   return ((uint32_t)bytes[0] << 24) | ((uint32_t)bytes[1] << 16) |
          ((uint32_t)bytes[2] << 8) | (uint32_t)bytes[3];
+}
+
+static uint32_t encode_cache(uint32_t operation, uint32_t base,
+                             uint16_t offset) {
+  return (T64_CPU_CACHE_OPCODE << 26) | (base << 21) | (operation << 16) |
+         (uint32_t)offset;
+}
+
+static uint32_t cacheable_tlb_entry_lo(uint64_t physical_base,
+                                       uint32_t cache_algorithm) {
+  return (uint32_t)((((physical_base >> 12) << 6) &
+                     UINT64_C(0x03ffffc0))) |
+         ((cache_algorithm & UINT32_C(7)) << 3) | UINT32_C(0x6);
+}
+
+static void install_tlb_pair(t64_machine *machine, uint64_t virtual_base,
+                             uint64_t physical_base,
+                             uint32_t cache_algorithm) {
+  t64_vr4300_tlb_pair *entry;
+  size_t index;
+
+  machine->cpu.cp0[T64_CP0_ENTRYHI] = 0u;
+  for (index = 0u; index < T64_VR4300_TLB_ENTRY_COUNT; index++) {
+    machine->cpu.tlb[index] = (t64_vr4300_tlb_pair){0};
+    machine->cpu.tlb[index].asid = UINT32_C(0xff);
+  }
+  entry = &machine->cpu.tlb[0];
+  entry->page_mask = 0u;
+  entry->vpn2 = virtual_base & UINT64_C(0x000000ffffffe000);
+  entry->region = (virtual_base >> 62) & UINT64_C(3);
+  entry->asid = 0u;
+  entry->entry_lo0 =
+      cacheable_tlb_entry_lo(physical_base, cache_algorithm);
+  entry->entry_lo1 =
+      cacheable_tlb_entry_lo(physical_base, cache_algorithm);
+}
+
+static bool find_compat_zero_data_line(const t64_machine *machine,
+                                       uint32_t line_bytes,
+                                       uint32_t *address_out) {
+  const uint64_t stride = UINT64_C(0x00010000);
+  uint64_t candidate;
+
+  if (machine == NULL || address_out == NULL || line_bytes == 0u ||
+      line_bytes > T64_VR4300_ICACHE_LINE_BYTES) {
+    return false;
+  }
+  candidate = ((uint64_t)machine->profile.rdram_bytes + stride - UINT64_C(1)) &
+              ~(stride - UINT64_C(1));
+  for (; candidate + line_bytes <= UINT64_C(0x100000000);
+       candidate += stride) {
+    if (t64_cpu_compat_zero_data_range(machine, (uint32_t)candidate,
+                                       line_bytes)) {
+      *address_out = (uint32_t)candidate;
+      return true;
+    }
+  }
+  return false;
 }
 
 static bool install_program(t64_machine *machine,
@@ -1846,6 +1915,518 @@ static bool test_cache_operations_are_coherent(
   return true;
 }
 
+static bool create_profile_machine(
+    const t64_host_allocator *allocator, const char *profile_id,
+    uint32_t expected_model_version, uint32_t expected_state_version,
+    t64_machine **machine_out) {
+  const t64_profile_descriptor *profile = NULL;
+
+  return allocator != NULL && profile_id != NULL && machine_out != NULL &&
+         t64_profile_lookup(profile_id, &profile) == T64_STATUS_OK &&
+         profile != NULL &&
+         profile->machine_model_version == expected_model_version &&
+         profile->state_serialization_version == expected_state_version &&
+         t64_machine_create(allocator, profile, machine_out) ==
+             T64_STATUS_OK &&
+         *machine_out != NULL;
+}
+
+static bool run_uncached_cache_index_writeback_case(
+    t64_machine *machine, const uint8_t asset[IPL3_ASSET_BYTES],
+    bool should_retire) {
+  const uint32_t cache_opcode =
+      encode_cache(T64_CACHE_INDEX_WRITEBACK_INVALIDATE_D, 8u, 12u);
+  const uint32_t program[] = {cache_opcode};
+  const uint64_t uncached_base =
+      t64_cpu_canonical_address(UINT32_C(0xa0001000));
+  const uint64_t expected_pc_full =
+      t64_cpu_canonical_address(IPL3_ENTRY_PC);
+  const uint32_t index =
+      (uint32_t)((uncached_base + UINT64_C(12)) >> 4) &
+      (T64_VR4300_DCACHE_LINE_COUNT - UINT32_C(1));
+  t64_vr4300_dcache_line *line;
+  t64_vr4300_dcache_line line_before;
+  t64_cache_state cache_before;
+  uint8_t backing_before[T64_VR4300_DCACHE_LINE_BYTES];
+  uint64_t taglo_before;
+  uint64_t retired_before;
+  uint64_t cause_before;
+  uint64_t status_before;
+  t64_status status;
+  size_t offset;
+
+  if (!install_program(machine, asset, program,
+                       sizeof program / sizeof program[0])) {
+    return false;
+  }
+  machine->cpu.pc_full = expected_pc_full;
+  machine->cpu.gpr[8] = uncached_base;
+  line = &machine->cpu.dcache[index];
+  memset(machine->ram + UINT32_C(0x1000), UINT8_C(0x11),
+         sizeof backing_before);
+  memcpy(backing_before, machine->ram + UINT32_C(0x1000),
+         sizeof backing_before);
+  line->physical_tag = UINT32_C(0x1000);
+  line->valid = true;
+  line->dirty = true;
+  for (offset = 0u; offset < sizeof line->data; offset++) {
+    line->data[offset] = (uint8_t)(UINT8_C(0xa0) + (uint8_t)offset);
+  }
+  machine->cpu.cp0[T64_CP0_TAGLO] = UINT64_C(0x12345678);
+  machine->cache.last_operation = UINT32_C(0x1111);
+  machine->cache.last_pc = UINT32_C(0x2222);
+  machine->cache.last_address = UINT32_C(0x3333);
+  machine->cache.operation_seen = false;
+  line_before = *line;
+  cache_before = machine->cache;
+  taglo_before = machine->cpu.cp0[T64_CP0_TAGLO];
+  retired_before = machine->cpu.retired_instructions;
+  cause_before = machine->cpu.cp0[13];
+  status_before = machine->cpu.cp0[12];
+
+  status = t64_cpu_step(machine, NULL);
+  if (should_retire) {
+    if (status != T64_STATUS_OK ||
+        machine->cpu.attempt_outcome != T64_CPU_ATTEMPT_RETIRED ||
+        machine->cpu.last_opcode != cache_opcode ||
+        machine->cpu.last_pc_full != expected_pc_full ||
+        machine->cpu.cp0[13] != cause_before ||
+        machine->cpu.cp0[12] != status_before ||
+        machine->cpu.retired_instructions != retired_before + UINT64_C(1) ||
+        line->valid || line->dirty ||
+        memcmp(machine->ram + UINT32_C(0x1000), line_before.data,
+               sizeof line_before.data) != 0 ||
+        machine->cache.last_operation !=
+            T64_CACHE_INDEX_WRITEBACK_INVALIDATE_D ||
+        machine->cache.last_pc != IPL3_ENTRY_PC ||
+        machine->cache.last_address != UINT32_C(0x100c) ||
+        !machine->cache.operation_seen ||
+        machine->cpu.cp0[T64_CP0_TAGLO] != taglo_before) {
+      (void)printf("# compatibility-v2 uncached CACHE expected fetched "
+                   "writeback retirement; status=%u fetched=%08x/%016llx "
+                   "expected=%08x/%016llx cause=%016llx/%016llx "
+                   "status-cp0=%016llx/%016llx retired=%llu "
+                   "line=%u/%u/%08x op=%u address=%08x\n",
+                   (unsigned)status,
+                   machine->cpu.last_opcode,
+                   (unsigned long long)machine->cpu.last_pc_full,
+                   cache_opcode,
+                   (unsigned long long)expected_pc_full,
+                   (unsigned long long)machine->cpu.cp0[13],
+                   (unsigned long long)cause_before,
+                   (unsigned long long)machine->cpu.cp0[12],
+                   (unsigned long long)status_before,
+                   (unsigned long long)machine->cpu.retired_instructions,
+                   line->valid ? 1u : 0u, line->dirty ? 1u : 0u,
+                   line->physical_tag, machine->cache.last_operation,
+                   machine->cache.last_address);
+      return false;
+    }
+    return true;
+  }
+
+  if (status != T64_STATUS_RESOURCE_EXHAUSTED || !machine->cpu.stopped ||
+      machine->cpu.stop_opcode != cache_opcode ||
+      machine->cpu.stop_pc != IPL3_ENTRY_PC ||
+      machine->cpu.last_opcode != cache_opcode ||
+      machine->cpu.last_pc_full != expected_pc_full ||
+      machine->cpu.cp0[13] != cause_before ||
+      machine->cpu.cp0[12] != status_before ||
+      machine->cpu.retired_instructions != retired_before ||
+      memcmp(line, &line_before, sizeof line_before) != 0 ||
+      memcmp(&machine->cache, &cache_before, sizeof cache_before) != 0 ||
+      machine->cpu.cp0[T64_CP0_TAGLO] != taglo_before ||
+      memcmp(machine->ram + UINT32_C(0x1000), backing_before,
+             sizeof backing_before) != 0) {
+    (void)printf("# strict/compat-v1 uncached CACHE refusal was not atomic; "
+                 "fetched=%08x/%016llx expected=%08x/%016llx "
+                 "cause=%016llx/%016llx status-cp0=%016llx/%016llx\n",
+                 machine->cpu.last_opcode,
+                 (unsigned long long)machine->cpu.last_pc_full, cache_opcode,
+                 (unsigned long long)expected_pc_full,
+                 (unsigned long long)machine->cpu.cp0[13],
+                 (unsigned long long)cause_before,
+                 (unsigned long long)machine->cpu.cp0[12],
+                 (unsigned long long)status_before);
+    return false;
+  }
+  return true;
+}
+
+static bool test_compat_v2_uncached_cache_profile_boundary(
+    t64_machine *machine, const uint8_t asset[IPL3_ASSET_BYTES]) {
+  allocator_state nested_allocator_state = {0u};
+  const t64_host_allocator nested_allocator = {
+      test_allocate, test_release, &nested_allocator_state};
+  t64_machine *strict_machine = NULL;
+  t64_machine *compat_v1_machine = NULL;
+  bool okay;
+
+  okay = machine != NULL &&
+         machine->profile.machine_model_version == 5u &&
+         machine->profile.state_serialization_version == 11u &&
+         run_uncached_cache_index_writeback_case(machine, asset, true);
+  if (!create_profile_machine(
+          &nested_allocator, "ntsc-cart-4m-openipl3-vr4300-v1", 3u, 9u,
+          &strict_machine) ||
+      !run_uncached_cache_index_writeback_case(strict_machine, asset, false)) {
+    okay = false;
+  }
+  if (!create_profile_machine(
+          &nested_allocator,
+          "ntsc-cart-4m-openipl3-vr4300-compat-v1", 4u, 10u,
+          &compat_v1_machine) ||
+      !run_uncached_cache_index_writeback_case(compat_v1_machine, asset,
+                                               false)) {
+    okay = false;
+  }
+  if (strict_machine != NULL) {
+    t64_machine_destroy(strict_machine);
+  }
+  if (compat_v1_machine != NULL) {
+    t64_machine_destroy(compat_v1_machine);
+  }
+  if (nested_allocator_state.outstanding != 0u) {
+    (void)puts("# cache profile boundary fixture leaked allocations");
+    okay = false;
+  }
+  return okay;
+}
+
+static bool run_compat_v2_uncached_tlb_cache_case(
+    t64_machine *machine, const uint8_t asset[IPL3_ASSET_BYTES],
+    bool address64) {
+  const uint64_t virtual_base = address64
+                                    ? UINT64_C(0x0000000100400000)
+                                    : UINT64_C(0x00400000);
+  const uint64_t virtual_address = virtual_base + UINT64_C(12);
+  const uint64_t physical_base = UINT64_C(0x2000);
+  const uint32_t cache_opcode =
+      encode_cache(T64_CACHE_INDEX_WRITEBACK_INVALIDATE_D, 8u, 0u);
+  const uint32_t index =
+      (uint32_t)(virtual_address >> 4) &
+      (T64_VR4300_DCACHE_LINE_COUNT - UINT32_C(1));
+  const uint32_t program[] = {cache_opcode};
+  t64_vr4300_dcache_line *line;
+  t64_status status;
+  uint64_t retired_before;
+  size_t offset;
+
+  if (!install_program(machine, asset, program,
+                       sizeof program / sizeof program[0])) {
+    return false;
+  }
+  machine->cpu.pc_full = t64_cpu_canonical_address(IPL3_ENTRY_PC);
+  if (address64) {
+    machine->cpu.cp0[T64_CP0_STATUS] |= UINT64_C(1) << 7;
+  } else {
+    machine->cpu.cp0[T64_CP0_STATUS] &= ~(UINT64_C(1) << 7);
+  }
+  install_tlb_pair(machine, virtual_base, physical_base, 2u);
+  machine->cpu.gpr[8] = virtual_address;
+  line = &machine->cpu.dcache[index];
+  memset(machine->ram + physical_base, UINT8_C(0x11), sizeof line->data);
+  line->physical_tag = (uint32_t)physical_base;
+  line->valid = true;
+  line->dirty = true;
+  for (offset = 0u; offset < sizeof line->data; offset++) {
+    line->data[offset] = (uint8_t)(UINT8_C(0xc0) + (uint8_t)offset);
+  }
+  retired_before = machine->cpu.retired_instructions;
+  status = t64_cpu_step(machine, NULL);
+  if (status != T64_STATUS_OK ||
+      machine->cpu.attempt_outcome != T64_CPU_ATTEMPT_RETIRED ||
+      machine->cpu.retired_instructions != retired_before + UINT64_C(1) ||
+      line->valid || line->dirty ||
+      memcmp(machine->ram + physical_base, line->data,
+             sizeof line->data) != 0 ||
+      machine->cache.last_operation !=
+          T64_CACHE_INDEX_WRITEBACK_INVALIDATE_D ||
+      machine->cache.last_address != UINT32_C(0x200c) ||
+      !machine->cache.operation_seen) {
+    (void)printf("# compatibility-v2 %s TLB C=2 CACHE expected writeback; "
+                 "status=%u retired=%llu line=%u/%u op=%u address=%08x\n",
+                 address64 ? "64-bit" : "32-bit", (unsigned)status,
+                 (unsigned long long)machine->cpu.retired_instructions,
+                 line->valid ? 1u : 0u, line->dirty ? 1u : 0u,
+                 machine->cache.last_operation, machine->cache.last_address);
+    return false;
+  }
+  return true;
+}
+
+static bool test_compat_v2_uncached_tlb_cache_32bit(
+    t64_machine *machine, const uint8_t asset[IPL3_ASSET_BYTES]) {
+  return run_compat_v2_uncached_tlb_cache_case(machine, asset, false);
+}
+
+static bool test_compat_v2_uncached_tlb_cache_64bit(
+    t64_machine *machine, const uint8_t asset[IPL3_ASSET_BYTES]) {
+  return run_compat_v2_uncached_tlb_cache_case(machine, asset, true);
+}
+
+static bool test_compat_v2_uncached_instruction_cache_ops(
+    t64_machine *machine, const uint8_t asset[IPL3_ASSET_BYTES]) {
+  const uint64_t virtual_address =
+      t64_cpu_canonical_address(UINT32_C(0xa0002000));
+  const uint32_t cache_program[] = {
+      encode_cache(T64_CACHE_INDEX_LOAD_TAG_I, 8u, 0u),
+      encode_cache(T64_CACHE_INDEX_INVALIDATE_I, 8u, 0u),
+      encode_cache(T64_CACHE_INDEX_LOAD_TAG_I, 8u, 0u),
+      encode_cache(T64_CACHE_FILL_I, 8u, 0u),
+      encode_cache(T64_CACHE_HIT_INVALIDATE_I, 8u, 0u),
+      encode_cache(T64_CACHE_INDEX_LOAD_TAG_I, 8u, 0u),
+      encode_cache(T64_CACHE_INDEX_STORE_TAG_I, 8u, 0u),
+      encode_cache(T64_CACHE_INDEX_LOAD_TAG_I, 8u, 0u),
+  };
+  const uint32_t index =
+      (uint32_t)(virtual_address >> 5) &
+      (T64_VR4300_ICACHE_LINE_COUNT - UINT32_C(1));
+  t64_vr4300_icache_line *line;
+  size_t offset;
+  size_t instruction;
+
+  if (!install_program(machine, asset, cache_program,
+                       sizeof cache_program / sizeof cache_program[0])) {
+    return false;
+  }
+  machine->cpu.pc_full = t64_cpu_canonical_address(IPL3_ENTRY_PC);
+  machine->cpu.gpr[8] = virtual_address;
+  line = &machine->cpu.icache[index];
+  memset(machine->ram + UINT32_C(0x2000), UINT8_C(0x11), sizeof line->data);
+  line->physical_tag = UINT32_C(0x2000);
+  line->valid = true;
+  for (offset = 0u; offset < sizeof line->data; offset++) {
+    line->data[offset] = (uint8_t)(UINT8_C(0xa0) + (uint8_t)offset);
+  }
+
+  for (instruction = 0u; instruction < 8u; instruction++) {
+    if (t64_cpu_step(machine, NULL) != T64_STATUS_OK ||
+        machine->cpu.attempt_outcome != T64_CPU_ATTEMPT_RETIRED ||
+        machine->cpu.last_opcode != cache_program[instruction]) {
+      (void)printf("# compatibility-v2 uncached I-cache op step=%zu "
+                   "expected=%08x observed=%08x outcome=%u\n",
+                   instruction, cache_program[instruction],
+                   machine->cpu.last_opcode,
+                   (unsigned)machine->cpu.attempt_outcome);
+      return false;
+    }
+    if (instruction == 0u &&
+        (machine->cpu.cp0[T64_CP0_TAGLO] != UINT64_C(0x280) ||
+         machine->cpu.cp0[T64_CP0_TAGHI] != 0u)) {
+      (void)puts("# uncached Index_Load_Tag I did not expose the valid PTag");
+      return false;
+    }
+    if (instruction == 1u && line->valid) {
+      (void)puts("# uncached Index_Invalidate I left its selected line valid");
+      return false;
+    }
+    if (instruction == 2u &&
+        machine->cpu.cp0[T64_CP0_TAGLO] != UINT64_C(0x200)) {
+      (void)puts("# uncached Index_Load_Tag I did not expose invalid PState");
+      return false;
+    }
+    if (instruction == 3u &&
+        (!line->valid || line->physical_tag != UINT32_C(0x2000) ||
+         memcmp(line->data, machine->ram + UINT32_C(0x2000),
+                sizeof line->data) != 0)) {
+      (void)puts("# uncached I Fill did not populate the selected line");
+      return false;
+    }
+    if (instruction == 4u && line->valid) {
+      (void)puts("# uncached Hit_Invalidate I left its matching line valid");
+      return false;
+    }
+    if (instruction == 5u &&
+        machine->cpu.cp0[T64_CP0_TAGLO] != UINT64_C(0x200)) {
+      (void)puts("# uncached Index_Load_Tag I after hit invalidate mismatched");
+      return false;
+    }
+    if (instruction == 5u) {
+      machine->cpu.cp0[T64_CP0_TAGLO] = UINT64_C(0x340);
+    }
+    if (instruction == 6u &&
+        (line->valid || line->physical_tag != UINT32_C(0x3000))) {
+      (void)puts("# uncached Index_Store_Tag I PState=01 did not store invalid tag");
+      return false;
+    }
+    if (instruction == 7u &&
+        machine->cpu.cp0[T64_CP0_TAGLO] != UINT64_C(0x300)) {
+      (void)puts("# uncached Index_Load_Tag I did not normalize PState=01");
+      return false;
+    }
+  }
+  return true;
+}
+
+static bool test_compat_v2_zero_data_read_and_store_guard(
+    t64_machine *machine, const uint8_t asset[IPL3_ASSET_BYTES]) {
+  const uint32_t program[] = {
+      (UINT32_C(0x23) << 26) | (UINT32_C(4) << 21) | (UINT32_C(8) << 16),
+      (UINT32_C(0x2b) << 26) | (UINT32_C(4) << 21) | (UINT32_C(9) << 16),
+  };
+  const uint64_t virtual_base = UINT64_C(0x00400000);
+  uint32_t open_bus_line;
+  uint64_t virtual_address;
+  uint32_t index;
+  t64_vr4300_dcache_line *line;
+  t64_vr4300_dcache_line line_before_store;
+  uint64_t gpr8_before_store;
+  uint64_t gpr9_before_store;
+  uint64_t retired_before;
+  uint64_t cause_before_uncached_load;
+  uint64_t status_before_uncached_load;
+  uint64_t cause_before_store;
+  uint64_t epc_before_store;
+  uint64_t badvaddr_before_store;
+  bool linked_before_store;
+  uint32_t linked_address_before_store;
+  uint32_t linked_width_before_store;
+  uint32_t cause;
+  t64_status uncached_load_status;
+  t64_status cached_load_status;
+  t64_mmu_request cached_load_request = {
+      UINT64_C(0), UINT32_C(4), T64_MMU_ACCESS_READ};
+  t64_mmu_result cached_load_translation = {0};
+  bool cached_load_translated;
+  const uint64_t expected_load_pc_full =
+      t64_cpu_canonical_address(IPL3_ENTRY_PC);
+
+  if (!install_program(machine, asset, program,
+                       sizeof program / sizeof program[0]) ||
+      !find_compat_zero_data_line(machine, T64_VR4300_ICACHE_LINE_BYTES,
+                                  &open_bus_line)) {
+    (void)puts("# compatibility-v2 open-bus read fixture setup failed");
+    return false;
+  }
+  virtual_address = virtual_base + (uint64_t)(open_bus_line & UINT32_C(0xfff));
+  index = (uint32_t)(virtual_address >> 4) &
+          (T64_VR4300_DCACHE_LINE_COUNT - UINT32_C(1));
+  machine->cpu.pc_full = t64_cpu_canonical_address(IPL3_ENTRY_PC);
+  machine->cpu.gpr[4] = virtual_address;
+  machine->cpu.gpr[9] = UINT64_C(0xdeadbeef);
+  install_tlb_pair(machine, virtual_base,
+                   (uint64_t)(open_bus_line & UINT32_C(0xfffff000)), 2u);
+  cause_before_uncached_load = machine->cpu.cp0[13];
+  status_before_uncached_load = machine->cpu.cp0[12];
+  uncached_load_status = t64_cpu_step(machine, NULL);
+  if (uncached_load_status != T64_STATUS_OK ||
+      machine->cpu.last_opcode != program[0] ||
+      machine->cpu.last_pc_full != expected_load_pc_full ||
+      machine->cpu.cp0[13] != cause_before_uncached_load ||
+      machine->cpu.cp0[12] != status_before_uncached_load ||
+      machine->cpu.gpr[8] != 0u ||
+      machine->cpu.attempt_outcome != T64_CPU_ATTEMPT_RETIRED ||
+      machine->cpu.dcache[index].valid) {
+    (void)printf("# uncached open-bus LW expected fetched zero read without D "
+                 "fill; result=%u fetched=%08x/%016llx "
+                 "expected=%08x/%016llx cause=%016llx/%016llx "
+                 "status-cp0=%016llx/%016llx gpr=%016llx line=%u "
+                 "outcome=%u\n",
+                 (unsigned)uncached_load_status,
+                 machine->cpu.last_opcode,
+                 (unsigned long long)machine->cpu.last_pc_full, program[0],
+                 (unsigned long long)expected_load_pc_full,
+                 (unsigned long long)machine->cpu.cp0[13],
+                 (unsigned long long)cause_before_uncached_load,
+                 (unsigned long long)machine->cpu.cp0[12],
+                 (unsigned long long)status_before_uncached_load,
+                 (unsigned long long)machine->cpu.gpr[8],
+                 machine->cpu.dcache[index].valid ? 1u : 0u,
+                 (unsigned)machine->cpu.attempt_outcome);
+    return false;
+  }
+
+  machine->cpu.tlb[0].entry_lo0 = cacheable_tlb_entry_lo(
+      (uint64_t)(open_bus_line & UINT32_C(0xfffff000)), 3u);
+  machine->cpu.tlb[0].entry_lo1 = machine->cpu.tlb[0].entry_lo0;
+  machine->cpu.pc = IPL3_ENTRY_PC;
+  machine->cpu.pc_full = t64_cpu_canonical_address(IPL3_ENTRY_PC);
+  machine->cpu.gpr[8] = UINT64_C(0x1122334455667788);
+  cached_load_request.virtual_address = virtual_address;
+  cached_load_translated = t64_mmu_translate(
+      machine, &cached_load_request, &cached_load_translation);
+  cached_load_status = t64_cpu_step(machine, NULL);
+  if (cached_load_status != T64_STATUS_OK ||
+      machine->cpu.gpr[8] != 0u ||
+      machine->cpu.attempt_outcome != T64_CPU_ATTEMPT_RETIRED) {
+    (void)printf("# cached open-bus LW expected zero; va=%016llx "
+                 "translated=%u pa=%016llx cca=%u cacheable=%u "
+                 "tlb-entry=%u entrylo=%08x fetched=%08x/%016llx "
+                 "expected-fetch=%08x/%016llx result=%u gpr=%016llx "
+                 "outcome=%u cause=%016llx status-cp0=%016llx dline="
+                 "%u/%u/%08x\n",
+                 (unsigned long long)virtual_address,
+                 cached_load_translated ? 1u : 0u,
+                 (unsigned long long)cached_load_translation.physical_address,
+                 (unsigned)cached_load_translation.cache_algorithm,
+                 cached_load_translation.cacheable ? 1u : 0u,
+                 cached_load_translation.matched_entry,
+                 cached_load_translation.entry_lo,
+                 machine->cpu.last_opcode,
+                 (unsigned long long)machine->cpu.last_pc_full,
+                 program[0], (unsigned long long)expected_load_pc_full,
+                 (unsigned)cached_load_status,
+                 (unsigned long long)machine->cpu.gpr[8],
+                 (unsigned)machine->cpu.attempt_outcome,
+                 (unsigned long long)machine->cpu.cp0[13],
+                 (unsigned long long)machine->cpu.cp0[12],
+                 machine->cpu.dcache[index].valid ? 1u : 0u,
+                 machine->cpu.dcache[index].dirty ? 1u : 0u,
+                 machine->cpu.dcache[index].physical_tag);
+    return false;
+  }
+  line = &machine->cpu.dcache[index];
+  if (!line->valid || line->dirty ||
+      line->physical_tag != (open_bus_line & ~UINT32_C(0xf)) ||
+      memcmp(line->data,
+             (const uint8_t[T64_VR4300_DCACHE_LINE_BYTES]){0},
+             sizeof line->data) != 0) {
+    (void)puts("# cached open-bus LW did not retain a clean zero line");
+    return false;
+  }
+  line_before_store = *line;
+  machine->cpu.linked_valid = true;
+  machine->cpu.linked_physical_address = UINT32_C(0x00003004);
+  machine->cpu.linked_width = 4u;
+  line_before_store = *line;
+  gpr8_before_store = machine->cpu.gpr[8];
+  gpr9_before_store = machine->cpu.gpr[9];
+  cause_before_store = machine->cpu.cp0[13];
+  epc_before_store = machine->cpu.cp0[14];
+  badvaddr_before_store = machine->cpu.cp0[8];
+  linked_before_store = machine->cpu.linked_valid;
+  linked_address_before_store = machine->cpu.linked_physical_address;
+  linked_width_before_store = machine->cpu.linked_width;
+  retired_before = machine->cpu.retired_instructions;
+  if (t64_cpu_step(machine, NULL) != T64_STATUS_RESOURCE_EXHAUSTED ||
+      !machine->cpu.stopped ||
+      machine->cpu.stop_opcode != program[1] ||
+      machine->cpu.stop_pc != IPL3_ENTRY_PC + UINT32_C(4) ||
+      machine->cpu.attempt_outcome != T64_CPU_ATTEMPT_MODEL_UNSUPPORTED ||
+      machine->cpu.retired_instructions != retired_before ||
+      memcmp(line, &line_before_store, sizeof line_before_store) != 0 ||
+      machine->cpu.gpr[8] != gpr8_before_store ||
+      machine->cpu.gpr[9] != gpr9_before_store ||
+      machine->cpu.cp0[13] != cause_before_store ||
+      machine->cpu.cp0[14] != epc_before_store ||
+      machine->cpu.cp0[8] != badvaddr_before_store ||
+      machine->cpu.linked_valid != linked_before_store ||
+      machine->cpu.linked_physical_address != linked_address_before_store ||
+      machine->cpu.linked_width != linked_width_before_store) {
+    cause = (uint32_t)machine->cpu.cp0[13];
+    (void)printf("# resident zero-line SW expected atomic model stop; status, "
+                 "retirement, GPR/CP0/link or cache state changed; cause=%08x "
+                 "retired=%llu line=%u/%u/%08x\n",
+                 cause,
+                 (unsigned long long)machine->cpu.retired_instructions,
+                 line->valid ? 1u : 0u, line->dirty ? 1u : 0u,
+                 line->physical_tag);
+    return false;
+  }
+  return true;
+}
+
 static bool test_cp0_cache_unsupported_encodings(
     t64_machine *machine, const uint8_t asset[IPL3_ASSET_BYTES]) {
   static const uint32_t unsupported_cp0[] = {
@@ -2573,6 +3154,18 @@ int main(int argc, char **argv) {
       {"SP DMEM-to-DRAM DMA changes backing without snooping D-cache",
        test_vr4300_sp_dmem_to_dram_does_not_snoop_dcache},
   };
+  static const cpu_test_case compat_v2_cache_cases[] = {
+      {"uncached KSEG CACHE writeback retires only in compat-v2",
+       test_compat_v2_uncached_cache_profile_boundary},
+      {"uncached 32-bit TLB CACHE alias keeps index writeback semantics",
+       test_compat_v2_uncached_tlb_cache_32bit},
+      {"uncached 64-bit TLB CACHE alias keeps index writeback semantics",
+       test_compat_v2_uncached_tlb_cache_64bit},
+      {"uncached CACHE index, hit and fill operations use I-cache state",
+       test_compat_v2_uncached_instruction_cache_ops},
+      {"uncached and cached open-bus reads zero; resident-line store faults",
+       test_compat_v2_zero_data_read_and_store_guard},
+  };
   const cpu_test_case *cases;
   size_t case_count;
   size_t existing_case_count;
@@ -2603,6 +3196,8 @@ int main(int argc, char **argv) {
   existing_case_count = case_count;
   if (run_vr4300_exception) {
     case_count += sizeof vr4300_cases / sizeof vr4300_cases[0];
+    case_count += sizeof compat_v2_cache_cases /
+                  sizeof compat_v2_cache_cases[0];
   }
   if (!read_qualified_asset(asset) ||
       t64_profile_lookup("ntsc-cart-4m-openipl3-warm-v1", &profile) !=
@@ -2651,6 +3246,30 @@ int main(int argc, char **argv) {
       }
       if (vr4300_machine != NULL) {
         t64_machine_destroy(vr4300_machine);
+      }
+    }
+    for (i = 0u; i < sizeof compat_v2_cache_cases /
+                         sizeof compat_v2_cache_cases[0];
+         i++) {
+      t64_machine *compat_v2_machine = NULL;
+      bool okay = create_profile_machine(
+          &allocator, "ntsc-cart-4m-openipl3-vr4300-compat-v2", 5u, 11u,
+          &compat_v2_machine);
+
+      if (okay) {
+        okay = compat_v2_cache_cases[i].run(compat_v2_machine, asset);
+      } else {
+        (void)puts("# compatibility-v2 cache machine setup failed");
+      }
+      (void)printf("%s %zu - %s\n", okay ? "ok" : "not ok",
+                   existing_case_count +
+                       sizeof vr4300_cases / sizeof vr4300_cases[0] + i + 1u,
+                   compat_v2_cache_cases[i].name);
+      if (!okay) {
+        failure_count++;
+      }
+      if (compat_v2_machine != NULL) {
+        t64_machine_destroy(compat_v2_machine);
       }
     }
   }

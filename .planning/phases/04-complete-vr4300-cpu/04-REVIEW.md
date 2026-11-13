@@ -2,7 +2,7 @@
 phase: 04-complete-vr4300-cpu
 reviewed: 2026-11-13T09:05:58Z
 depth: standard
-files_reviewed: 133
+files_reviewed: 135
 files_reviewed_list:
   - core/CMakeLists.txt
   - core/softfloat/f32_add.c
@@ -93,7 +93,9 @@ files_reviewed_list:
   - core/tests/test_digest_trace.c
   - core/tests/test_profile.c
   - core/tests/test_softfloat.c
+  - docs/spec/cpu-cache.md
   - docs/spec/cpu-compatibility.md
+  - docs/spec/cpu-cop1.md
   - docs/spec/cpu-cp0.md
   - docs/spec/cpu-diagnostic.md
   - docs/spec/cpu-memory.md
@@ -150,7 +152,7 @@ status: clean
 
 **Reviewed:** 2026-11-13T09:05:58Z
 **Depth:** standard  
-**Files Reviewed:** 133
+**Files Reviewed:** 135
 **Status:** clean
 
 ## Summary
@@ -746,3 +748,13 @@ annul side-effect assertion was verified by the orchestrator in normal and
 ASan CPU-control runs. [Review and dispositions](04-19-REVIEW.md) preserve
 the original findings and exact follow-up scope; current open findings are
 zero. The file list above is the union with the saved prior phase review.
+
+## Plan20 compatibility v2 delta
+
+The configured review covers the added profile/state, coprocessor, CP0/MMU,
+cache/data and sealed-selector delta. It found one conversion destination
+scope defect. A real pre-fix regression, operand-specific correction, normal
+and instrumented owning checks, and focused independent re-review resolve it.
+[Plan20 review](04-20-REVIEW.md) and [correction evidence](04-20-REVIEW-FIX.md)
+preserve the initial finding and exact scope. Current open findings: zero.
+The union above retains all earlier phase review paths.

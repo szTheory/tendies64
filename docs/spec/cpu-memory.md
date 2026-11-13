@@ -183,3 +183,22 @@ The registered CPU-memory matrix and CPU-path integration tests contain
 independent expected bytes. The [04-07 portable RED record](../../.planning/phases/04-complete-vr4300-cpu/04-07-RED-evidence.md)
 and [04-08 portable RED record](../../.planning/phases/04-complete-vr4300-cpu/04-08-RED-evidence.md)
 distinguish valid behavioral failures from discarded vectors and setup errors.
+
+
+## Compat-v2 unpopulated data windows
+
+The separate model5/state11 profile selects zero-valued CPU data reads in
+unpopulated RDRAM from the configured RAM end to `0x03f00000`, excluding the
+modeled absent-RDRAM probe, and in unbacked Domain1C
+`[0x1fd00000,0x80000000)`. The complete read or D-cache line must fit one
+window; empty, excessive and overflowed ranges are rejected. The public bus
+decoder, DMA and other cartridge domains are unchanged.
+
+Uncached fallback requires an unsupported/unmapped bus status and the v2
+range predicate. Cached reads use the corresponding D-cache fill policy.
+Mapped MMIO failures and instruction fetches are never converted to zero.
+Corresponding stores keep the model-unsupported stop before bus/cache commit,
+with registers, reservations and resident lines preserved. Alignment,
+privilege, Watch, TLB and high-address faults retain priority over this policy.
+A valid large-page data read can complete with zero, while its adjacent invalid
+TLB page still faults. No system-bus hardware data value is established.

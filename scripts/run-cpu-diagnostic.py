@@ -38,6 +38,7 @@ SELECTOR = re.compile(r"r([0-9]{4})v([0-9]{5})\Z")
 ADAPTER_REPO_PATH = "build/gate/runner/t64-cpu-diagnostic"
 STRICT_PROFILE_ID = "ntsc-cart-4m-openipl3-vr4300-v1"
 COMPAT_PROFILE_ID = "ntsc-cart-4m-openipl3-vr4300-compat-v1"
+COMPAT_V2_PROFILE_ID = "ntsc-cart-4m-openipl3-vr4300-compat-v2"
 
 
 class Refusal(ValueError):
@@ -73,7 +74,7 @@ def parse_qualified_seal(data: bytes) -> tuple[dict, str]:
     if seal["schema"] != "t64.cpu-qualified-build" or version not in (1, 2) or seal["status"] != "qualified":
         fail("qualified build seal is not accepted")
     profile_id = seal.get("profile_id", STRICT_PROFILE_ID)
-    if profile_id not in (STRICT_PROFILE_ID, COMPAT_PROFILE_ID):
+    if profile_id not in (STRICT_PROFILE_ID, COMPAT_PROFILE_ID, COMPAT_V2_PROFILE_ID):
         fail("qualified build profile selection is not accepted")
     return seal, profile_id
 
@@ -354,12 +355,22 @@ def invoke_adapter(context: Inputs, *arguments: str, timeout: int = 10,
     check_adapter(context)
     try:
         return run_bounded(
-            [context.adapter, *(["--compat"] if context.profile_id == COMPAT_PROFILE_ID else []), *arguments],
+            [context.adapter, *adapter_profile_options(context.profile_id), *arguments],
             cwd=ROOT, env=make_env(controls=controls),
             timeout=timeout, maximum=maximum,
         )
     finally:
         check_adapter(context)
+
+
+def adapter_profile_options(profile_id: str) -> list[str]:
+    if profile_id == COMPAT_V2_PROFILE_ID:
+        return ["--compat-v2"]
+    if profile_id == COMPAT_PROFILE_ID:
+        return ["--compat"]
+    if profile_id == STRICT_PROFILE_ID:
+        return []
+    fail("adapter profile selection is not accepted")
 
 
 def make_env(*, controls: bool = False) -> dict[str, str]:

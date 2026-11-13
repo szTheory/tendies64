@@ -153,3 +153,19 @@ Status operations and verifies that CU0 removal faults the next transfer
 without changing its destination. Its timer-handler path verifies equality,
 interrupt entry, Compare clearing, ERET, and execution of the interrupted
 instruction after a non-retiring interrupt attempt.
+
+
+## Compat-v2 register policy
+
+Model5/state11 selects an additional software policy; strict model3/state9
+and compat-v1 model4/state10 remain unchanged. With Wired[5] set, visible
+Random counts down modulo64; TLBWR still selects its entry using the low5
+bits. With that bit clear, the existing bounded cycle remains in force.
+
+Compat-v2 PageMask writes retain the masked `0x01ffe000` field, including
+noncanonical patterns. TLB entries retain that raw field. TLBR projects each
+of its six two-bit pairs to both-set when the pair's high bit is set, otherwise
+both-clear. This register/readback policy does not add arbitrary page sizes:
+address translation with a raw undefined mask remains unsupported. Privilege,
+reserved selectors and staged no-partial-write checks still precede commit.
+These choices do not establish undocumented physical CP0 behavior.

@@ -13,6 +13,8 @@
 #define TEST_PHYSICAL_PC UINT32_C(0x00001000)
 #define TEST_CAUSE UINT32_C(13)
 #define TEST_STATUS_EXL UINT32_C(0x00000002)
+#define TEST_STATUS_CU2 UINT64_C(0x40000000)
+#define TEST_STATUS_CU3 UINT64_C(0x80000000)
 
 #define ENCODE_R(rs, rt, rd, sa, fn)                                           \
   ((((uint32_t)(rs) & UINT32_C(0x1f)) << 21) |                                \
@@ -30,6 +32,12 @@
 #define ENCODE_J(op, target)                                                   \
   ((((uint32_t)(op) & UINT32_C(0x3f)) << 26) |                               \
    ((uint32_t)(target) & UINT32_C(0x03ffffff)))
+
+#define ENCODE_COP_TRANSFER(op, format, rt, rd)                               \
+  ((((uint32_t)(op) & UINT32_C(0x3f)) << 26) |                               \
+   (((uint32_t)(format) & UINT32_C(0x1f)) << 21) |                           \
+   (((uint32_t)(rt) & UINT32_C(0x1f)) << 16) |                              \
+   (((uint32_t)(rd) & UINT32_C(0x1f)) << 11))
 
 typedef struct {
   size_t outstanding;
@@ -161,9 +169,9 @@ static t64_machine *prepare_program(const test_environment *environment,
   return machine;
 }
 
-static t64_machine *prepare_compat_program(
-    const test_environment *environment, uint64_t pc,
-    const uint32_t *program, size_t instruction_count) {
+static t64_machine *prepare_profile_program(
+    const test_environment *environment, const char *profile_id,
+    uint64_t pc, const uint32_t *program, size_t instruction_count) {
   const t64_profile_descriptor *profile = NULL;
   t64_machine *machine = NULL;
   uint32_t physical_pc = (uint32_t)pc & UINT32_C(0x1fffffff);
@@ -171,9 +179,8 @@ static t64_machine *prepare_compat_program(
 
   if (environment == NULL || environment->allocator == NULL ||
       environment->asset == NULL || program == NULL ||
-      instruction_count == 0u ||
-      t64_profile_lookup("ntsc-cart-4m-openipl3-vr4300-compat-v1",
-                         &profile) != T64_STATUS_OK ||
+      profile_id == NULL || instruction_count == 0u ||
+      t64_profile_lookup(profile_id, &profile) != T64_STATUS_OK ||
       profile == NULL ||
       t64_machine_create(environment->allocator, profile, &machine) !=
           T64_STATUS_OK ||
@@ -196,6 +203,22 @@ static t64_machine *prepare_compat_program(
                             program[index]);
   }
   return machine;
+}
+
+static t64_machine *prepare_compat_program(
+    const test_environment *environment, uint64_t pc,
+    const uint32_t *program, size_t instruction_count) {
+  return prepare_profile_program(
+      environment, "ntsc-cart-4m-openipl3-vr4300-compat-v1", pc, program,
+      instruction_count);
+}
+
+static t64_machine *prepare_compat_v2_program(
+    const test_environment *environment, uint64_t pc,
+    const uint32_t *program, size_t instruction_count) {
+  return prepare_profile_program(
+      environment, "ntsc-cart-4m-openipl3-vr4300-compat-v2", pc, program,
+      instruction_count);
 }
 
 static void destroy_machine(t64_machine *machine) {
@@ -244,6 +267,29 @@ static void check_unsupported(t64_machine *machine, uint64_t tick,
                         result.tick == tick && machine->cpu.stopped &&
                         machine->cpu.attempt_outcome ==
                             T64_CPU_ATTEMPT_MODEL_UNSUPPORTED);
+}
+
+static bool check_fetched_instruction(t64_machine *machine,
+                                      uint64_t expected_pc,
+                                      uint32_t expected_opcode,
+                                      const char *label) {
+  bool matched;
+
+  if (machine == NULL) return false;
+  matched = machine->cpu.last_pc_full == expected_pc &&
+            machine->cpu.last_opcode == expected_opcode;
+  check_u64(label, machine->cpu.last_pc_full, expected_pc);
+  check_u64("attempt fetched authored opcode", machine->cpu.last_opcode,
+            expected_opcode);
+  (void)fprintf(stderr,
+                "# %s attempt pc=0x%016llx opcode=0x%08x outcome=%u "
+                "cause=0x%016llx status=0x%016llx\n",
+                label, (unsigned long long)machine->cpu.last_pc_full,
+                (unsigned)machine->cpu.last_opcode,
+                (unsigned)machine->cpu.attempt_outcome,
+                (unsigned long long)machine->cpu.cp0[13],
+                (unsigned long long)machine->cpu.cp0[12]);
+  return matched;
 }
 
 static void test_alu_word_doubleword_and_immediate(
@@ -1290,6 +1336,172 @@ static void test_reserved_integer_encodings_raise_ri(
   }
 }
 
+static void check_compat_v2_exception(
+    const test_environment *environment, uint32_t opcode, uint64_t status_bits,
+    uint64_t exception_code, uint64_t expected_coprocessor_error,
+    const char *label) {
+  uint32_t program[] = {opcode};
+  t64_machine *machine = prepare_compat_v2_program(
+      environment, TEST_PC, program, sizeof program / sizeof program[0]);
+
+  check_bool("compat-v2 exception fixture admitted", machine != NULL);
+  if (machine == NULL) return;
+  machine->cpu.cp0[12] &= ~(TEST_STATUS_CU2 | TEST_STATUS_CU3);
+  machine->cpu.cp0[12] |= status_bits;
+  machine->cpu.gpr[8] = UINT64_C(0x123456789abcdef0);
+  machine->cpu.gpr[9] = UINT64_C(0x0badc0de76543210);
+  machine->cpu.cp2_transfer_latch = UINT64_C(0xaabbccdd11223344);
+  check_bounded_tick(machine, UINT64_C(1), label);
+  check_exception(machine, exception_code, TEST_PC, UINT64_C(0), label);
+  check_u64("compat-v2 exception CE", machine->cpu.cp0[13] &
+                                            UINT64_C(0x30000000),
+            expected_coprocessor_error);
+  check_u64("compat-v2 exception preserves source/destination GPR",
+            machine->cpu.gpr[9], UINT64_C(0x0badc0de76543210));
+  check_u64("compat-v2 exception preserves transfer latch",
+            machine->cpu.cp2_transfer_latch,
+            UINT64_C(0xaabbccdd11223344));
+  destroy_machine(machine);
+}
+
+static void test_compat_v2_coprocessor_transfer_policy(
+    const test_environment *environment) {
+  static const uint32_t transfer_program[] = {
+      ENCODE_COP_TRANSFER(0x12u, 4u, 8u, 5u),  /* MTC2 */
+      ENCODE_COP_TRANSFER(0x12u, 0u, 9u, 6u),  /* MFC2 */
+      ENCODE_COP_TRANSFER(0x12u, 1u, 10u, 31u), /* DMFC2 */
+      ENCODE_COP_TRANSFER(0x12u, 5u, 11u, 5u), /* DMTC2 */
+      ENCODE_COP_TRANSFER(0x12u, 0u, 12u, 30u), /* MFC2 */
+      ENCODE_COP_TRANSFER(0x12u, 1u, 13u, 0u), /* DMFC2 */
+      ENCODE_COP_TRANSFER(0x12u, 2u, 14u, 6u), /* CFC2 */
+      ENCODE_COP_TRANSFER(0x12u, 6u, 15u, 6u), /* CTC2 */
+      ENCODE_COP_TRANSFER(0x12u, 0u, 16u, 30u), /* MFC2 */
+  };
+  static const uint32_t reserved_cop2_formats[] = {3u, 7u};
+  static const uint32_t reserved_primary_opcodes[] = {0x33u, 0x3bu};
+  static const char *baseline_profiles[] = {
+      "ntsc-cart-4m-openipl3-vr4300-v1",
+      "ntsc-cart-4m-openipl3-vr4300-compat-v1",
+  };
+  t64_machine *machine = prepare_compat_v2_program(
+      environment, TEST_PC, transfer_program,
+      sizeof transfer_program / sizeof transfer_program[0]);
+  size_t index;
+
+  check_bool("compat-v2 transfer fixture admitted", machine != NULL);
+  if (machine == NULL) return;
+  machine->cpu.cp0[12] |= TEST_STATUS_CU2;
+  machine->cpu.gpr[8] = UINT64_C(0x0123456789abcdef);
+  machine->cpu.gpr[11] = UINT64_C(0xdeadbeef11223344);
+  machine->cpu.gpr[14] = UINT64_C(0xaaaa5555aaaa5555);
+  machine->cpu.gpr[15] = UINT64_C(0x5555aaaa5555aaaa);
+
+  check_bounded_tick(machine, UINT64_C(1), "compat-v2 MTC2 retires");
+  check_bool("compat-v2 first MTC2 retires",
+             machine->cpu.attempt_outcome == T64_CPU_ATTEMPT_RETIRED);
+  if (!check_fetched_instruction(machine, TEST_PC, transfer_program[0],
+                                 "compat-v2 first MTC2") ||
+      machine->cpu.attempt_outcome != T64_CPU_ATTEMPT_RETIRED) {
+    destroy_machine(machine);
+  } else {
+    check_u64("compat-v2 MTC2 writes full transfer latch",
+              machine->cpu.cp2_transfer_latch,
+              UINT64_C(0x0123456789abcdef));
+    check_bounded_tick(machine, UINT64_C(2), "compat-v2 MFC2 retires");
+    check_u64("compat-v2 MFC2 sign-extends the low word",
+              machine->cpu.gpr[9], UINT64_C(0xffffffff89abcdef));
+    check_bounded_tick(machine, UINT64_C(3), "compat-v2 DMFC2 retires");
+    check_u64("compat-v2 DMFC2 reads full latch through aliased rd",
+              machine->cpu.gpr[10], UINT64_C(0x0123456789abcdef));
+    check_bounded_tick(machine, UINT64_C(4), "compat-v2 DMTC2 retires");
+    check_u64("compat-v2 DMTC2 writes full transfer latch",
+              machine->cpu.cp2_transfer_latch,
+              UINT64_C(0xdeadbeef11223344));
+    check_bounded_tick(machine, UINT64_C(5), "compat-v2 MFC2 alias retires");
+    check_u64("compat-v2 MFC2 ignores rd selector",
+              machine->cpu.gpr[12], UINT64_C(0x0000000011223344));
+    check_bounded_tick(machine, UINT64_C(6), "compat-v2 DMFC2 alias retires");
+    check_u64("compat-v2 DMFC2 ignores rd selector",
+              machine->cpu.gpr[13], UINT64_C(0xdeadbeef11223344));
+    check_bounded_tick(machine, UINT64_C(7), "compat-v2 CFC2 retires");
+    check_u64("compat-v2 CFC2 is inert", machine->cpu.gpr[14],
+              UINT64_C(0xaaaa5555aaaa5555));
+    check_bounded_tick(machine, UINT64_C(8), "compat-v2 CTC2 retires");
+    check_u64("compat-v2 CTC2 leaves transfer latch unchanged",
+              machine->cpu.cp2_transfer_latch,
+              UINT64_C(0xdeadbeef11223344));
+    check_bounded_tick(machine, UINT64_C(9), "compat-v2 final MFC2 retires");
+    check_u64("compat-v2 latch survives inert controls",
+              machine->cpu.gpr[16], UINT64_C(0x0000000011223344));
+    destroy_machine(machine);
+  }
+
+  check_compat_v2_exception(
+      environment, ENCODE_COP_TRANSFER(0x12u, 0u, 9u, 6u), 0u,
+      UINT64_C(11), UINT64_C(0x20000000),
+      "compat-v2 disabled COP2 transfer raises CopUnusable");
+  for (index = 0u;
+       index < sizeof reserved_cop2_formats / sizeof reserved_cop2_formats[0];
+       index++) {
+    uint32_t format = reserved_cop2_formats[index];
+
+    check_compat_v2_exception(
+        environment, ENCODE_COP_TRANSFER(0x12u, format, 9u, 6u),
+        TEST_STATUS_CU2, UINT64_C(10), UINT64_C(0x20000000),
+        "compat-v2 reserved COP2 form raises CE=2 RI");
+    check_compat_v2_exception(
+        environment, ENCODE_COP_TRANSFER(0x12u, format, 9u, 6u), 0u,
+        UINT64_C(11), UINT64_C(0x20000000),
+        "compat-v2 disabled reserved COP2 form raises CE=2 CopUnusable");
+  }
+  check_compat_v2_exception(
+      environment, ENCODE_COP_TRANSFER(0x13u, 0u, 9u, 6u), 0u,
+      UINT64_C(10), UINT64_C(0),
+      "compat-v2 COP3 instruction raises RI with CU3 clear");
+  check_compat_v2_exception(
+      environment, ENCODE_COP_TRANSFER(0x13u, 0u, 9u, 6u), TEST_STATUS_CU3,
+      UINT64_C(10), UINT64_C(0),
+      "compat-v2 COP3 instruction raises RI with CU3 set");
+  for (index = 0u;
+       index < sizeof reserved_primary_opcodes /
+                   sizeof reserved_primary_opcodes[0];
+       index++) {
+    uint32_t opcode = reserved_primary_opcodes[index] << 26;
+
+    check_compat_v2_exception(
+        environment, opcode, 0u, UINT64_C(10), UINT64_C(0),
+        "compat-v2 reserved primary opcode raises RI");
+  }
+
+  for (index = 0u;
+       index < sizeof baseline_profiles / sizeof baseline_profiles[0];
+       index++) {
+    static const uint32_t baseline_opcodes[] = {
+        ENCODE_COP_TRANSFER(0x12u, 0u, 9u, 6u),
+        ENCODE_COP_TRANSFER(0x13u, 0u, 9u, 6u),
+        UINT32_C(0x33) << 26,
+        UINT32_C(0x3b) << 26,
+    };
+    size_t opcode_index;
+
+    for (opcode_index = 0u;
+         opcode_index < sizeof baseline_opcodes / sizeof baseline_opcodes[0];
+         opcode_index++) {
+      uint32_t program[] = {baseline_opcodes[opcode_index]};
+      t64_machine *baseline = prepare_profile_program(
+          environment, baseline_profiles[index], TEST_PC, program, 1u);
+
+      check_bool("strict/compat-v1 baseline fixture admitted",
+                 baseline != NULL);
+      if (baseline == NULL) continue;
+      baseline->cpu.cp0[12] |= TEST_STATUS_CU2 | TEST_STATUS_CU3;
+      check_unsupported(baseline, UINT64_C(1),
+                        "strict/compat-v1 retains unsupported outcome");
+      destroy_machine(baseline);
+    }
+  }
+}
+
 static const cpu_case integer_cases[] = {
     {"word/doubleword ALU, immediate, comparisons and zero register",
      test_alu_word_doubleword_and_immediate},
@@ -1309,6 +1521,8 @@ static const cpu_case integer_cases[] = {
      test_arithmetic_overflow_exceptions},
     {"reserved integer encodings raise RI before side effects",
      test_reserved_integer_encodings_raise_ri},
+    {"compat-v2 COP2 latch transfers, COP3 RI and reserved opcodes",
+     test_compat_v2_coprocessor_transfer_policy},
 };
 
 static const cpu_case control_cases[] = {

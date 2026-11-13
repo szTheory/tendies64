@@ -155,6 +155,33 @@ static uint64_t read_bus_value(t64_machine *machine, uint32_t address,
   return value;
 }
 
+static bool compat_zero_data_read_failure(const t64_machine *machine,
+                                          uint32_t address, uint32_t width,
+                                          t64_status status) {
+  return t64_has_cpu_compat_extension_policy(machine) &&
+         (status == T64_STATUS_BUS_UNMAPPED ||
+          status == T64_STATUS_BUS_UNSUPPORTED) &&
+         t64_cpu_compat_zero_data_range(machine, address, (size_t)width);
+}
+
+static bool compat_data_store_touches_zero_range(
+    const t64_machine *machine, uint32_t address, uint32_t width,
+    uint8_t byte_mask) {
+  if (!t64_has_cpu_compat_extension_policy(machine)) {
+    return false;
+  }
+  for (uint32_t offset = 0u; offset < width; offset++) {
+    uint64_t physical = (uint64_t)address + (uint64_t)offset;
+
+    if ((byte_mask & (uint8_t)(UINT32_C(1) << offset)) != 0u &&
+        physical <= UINT32_MAX &&
+        t64_cpu_compat_zero_data_range(machine, (uint32_t)physical, 1u)) {
+      return true;
+    }
+  }
+  return false;
+}
+
 static uint64_t byte_at(uint64_t value, uint32_t width, uint32_t index) {
   uint32_t shift = (width - index - 1u) * 8u;
   return (value >> shift) & UINT64_C(0xff);
@@ -351,7 +378,12 @@ static t64_status stage_memory_effect(t64_machine *machine, uint32_t opcode,
       effect->bus_value = read_bus_value(machine, effect->physical_address,
                                          effect->bus_width, &status);
       if (status != T64_STATUS_OK) {
-        return status;
+        if (!compat_zero_data_read_failure(
+                machine, effect->physical_address, effect->bus_width,
+                status)) {
+          return status;
+        }
+        effect->bus_value = UINT64_C(0);
       }
     }
     if (effect->partial_left || effect->partial_right) {
@@ -416,6 +448,11 @@ static t64_status commit_memory_effect(t64_machine *machine,
   t64_status status;
 
   if (effect->store) {
+    if (compat_data_store_touches_zero_range(
+            machine, effect->physical_address, effect->bus_width,
+            effect->byte_mask)) {
+      return T64_STATUS_BUS_UNSUPPORTED;
+    }
     if (t64_has_vr4300_cpu_state(machine) && effect->cacheable) {
       status = t64_cpu_dcache_write(machine, effect->virtual_address,
                                     effect->physical_address,
@@ -519,11 +556,18 @@ static t64_status execute_linked_memory(t64_machine *machine,
     if (t64_has_vr4300_cpu_state(machine) && translation.cacheable) {
       status = t64_cpu_dcache_read(
           machine, virtual_address, physical_address, width, value_out);
+      if (status != T64_STATUS_OK) {
+        return status;
+      }
     } else {
       *value_out = read_bus_value(machine, physical_address, width, &status);
-    }
-    if (status != T64_STATUS_OK) {
-      return status;
+      if (status != T64_STATUS_OK) {
+        if (!compat_zero_data_read_failure(machine, physical_address, width,
+                                           status)) {
+          return status;
+        }
+        *value_out = UINT64_C(0);
+      }
     }
     if (width == 4u) {
       *value_out = sign_extend_32((uint32_t)*value_out);
@@ -545,6 +589,11 @@ static t64_status execute_linked_memory(t64_machine *machine,
 
     status = T64_STATUS_OK;
     if (success) {
+      if (compat_data_store_touches_zero_range(
+              machine, physical_address, width,
+              (uint8_t)((UINT32_C(1) << width) - UINT32_C(1)))) {
+        return T64_STATUS_BUS_UNSUPPORTED;
+      }
       if (t64_has_vr4300_cpu_state(machine) && translation.cacheable) {
         status = t64_cpu_dcache_write(
             machine, virtual_address, physical_address, width,

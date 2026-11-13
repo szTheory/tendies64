@@ -258,8 +258,8 @@ def main() -> int:
             with self.assertRaisesRegex(module.Refusal, "profile binding"):
                 module.invoke_adapter(replace(self.context, profile_id=seal["profile_id"]), "--runtime-identity-json")
 
-        def test_compat_loader_and_aggregator_bind_inventory_profile(self):
-            root = self.control_root / "compat-loader"
+        def check_compat_loader_and_aggregation(self, profile_id, option):
+            root = self.control_root / ("compat-loader-" + option.removeprefix("--"))
             os.mkdir(root, 0o700)
             projection = json.loads(self.inventory_bytes)
             projection.update(projection_sha256="6" * 64, source_revision="4" * 40)
@@ -274,7 +274,7 @@ def main() -> int:
             self.assertEqual(code, 0)
             strict_identity = json.loads(output)
             code, output, _ = module.run_bounded(
-                [self.adapter, "--compat", "--runtime-identity-json"], cwd=source_root,
+                [self.adapter, option, "--runtime-identity-json"], cwd=source_root,
                 env=module.make_env(controls=True), timeout=10, maximum=4096)
             self.assertEqual(code, 0)
             compat_identity = json.loads(output)
@@ -300,7 +300,7 @@ def main() -> int:
             composition["source_closure_sha256"] = digest(artifacts["source_closure"])
             artifacts["composition"] = canonical(composition)
             seal = json.loads(self.qualified_bytes)
-            seal.update(schema_version=2, profile_id=module.COMPAT_PROFILE_ID,
+            seal.update(schema_version=2, profile_id=profile_id,
                 selector={"encoding": "registration-index-u16be:value-index-u16be",
                           "rom_offset": self.offset, "width": 4}, artifacts={})
             for key, data in artifacts.items():
@@ -323,7 +323,7 @@ def main() -> int:
                     patch.object(module, "ADAPTER_REPO_PATH", self.adapter_path), \
                     patch.object(module, "run_bounded", side_effect=authored_qualification):
                 context = module.load_qualified_inputs(self.adapter)
-                self.assertEqual(context.profile_id, module.COMPAT_PROFILE_ID)
+                self.assertEqual(context.profile_id, profile_id)
                 self.assertEqual(context.inventory["identity"]["profile_sha256"], compat_identity["profile_sha256"])
                 run = module.create_run_directory(root)
                 module.create_manifest(context, run)
@@ -352,6 +352,12 @@ def main() -> int:
                 with self.assertRaisesRegex(module.Refusal, "running adapter core or profile differs"):
                     module.load_qualified_inputs(self.adapter)
             self.assertEqual(len(qualification_calls), 2)
+
+        def test_compat_loader_and_aggregator_bind_inventory_profile(self):
+            self.check_compat_loader_and_aggregation(module.COMPAT_PROFILE_ID, "--compat")
+
+        def test_compat_v2_loader_and_aggregator_bind_inventory_profile(self):
+            self.check_compat_loader_and_aggregation(module.COMPAT_V2_PROFILE_ID, "--compat-v2")
 
         def test_unknown_profile_and_boolean_seal_version_are_refused(self):
             seal = json.loads(self.qualified_bytes)
@@ -527,7 +533,7 @@ def main() -> int:
     suite = unittest.defaultTestLoader.loadTestsFromTestCase(RunControls)
     result = unittest.TextTestRunner(stream=sys.stdout, verbosity=1).run(suite)
     if result.wasSuccessful():
-        print("all 14 authored CPU batch-control assertions passed")
+        print("all 15 authored CPU batch-control assertions passed")
         return 0
     return 1
 

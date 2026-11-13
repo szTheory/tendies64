@@ -88,10 +88,14 @@ static uint32_t cop1_fgr_word(const t64_machine *machine, uint32_t reg) {
 }
 
 static bool cop1_fpr_read(const t64_machine *machine, uint32_t reg,
-                          uint32_t width, uint64_t *bits_out) {
+                          uint32_t width, bool compat_fr0_odd_alias,
+                          uint64_t *bits_out) {
   if (machine == NULL || bits_out == NULL || reg >= 32u ||
       (width != 32u && width != 64u)) {
     return false;
+  }
+  if (compat_fr0_odd_alias && !cop1_fr(machine)) {
+    reg &= ~UINT32_C(1);
   }
   if (width == 32u) {
     *bits_out = (uint64_t)cop1_fgr_word(machine, reg);
@@ -370,10 +374,10 @@ static t64_status cop1_execute_compare(
 
   if (!cop1_fpr_read(machine, left_register, format == UINT32_C(16) ? 32u
                                                                     : 64u,
-                     &left) ||
+                     false, &left) ||
       !cop1_fpr_read(machine, right_register, format == UINT32_C(16) ? 32u
                                                                       : 64u,
-                     &right)) {
+                     false, &right)) {
     return cop1_raise_unimplemented_result(machine, in_delay_slot,
                                             result_out);
   }
@@ -405,14 +409,17 @@ static t64_status cop1_execute_compare(
 static bool cop1_floating_registers_valid(const t64_machine *machine,
                                           uint32_t source_format,
                                           uint32_t destination_width,
-                                          uint32_t fs, uint32_t fd) {
+                                          uint32_t fs, uint32_t fd,
+                                          bool compat_fr0_odd_alias) {
   uint64_t ignored;
 
   if (source_format == UINT32_C(17) || source_format == UINT32_C(21)) {
-    if (!cop1_fpr_read(machine, fs, 64u, &ignored)) return false;
+    if (!cop1_fpr_read(machine, fs, 64u, compat_fr0_odd_alias, &ignored)) {
+      return false;
+    }
   }
   if (destination_width == 64u && !cop1_fr(machine) &&
-      (((fd & 1u) != 0u) || fd >= 31u)) {
+      (((fd & 1u) != 0u) || fd >= 31u) && !compat_fr0_odd_alias) {
     return false;
   }
   return true;
@@ -444,6 +451,12 @@ static t64_status cop1_execute_floating(
                     function == UINT32_C(0x25) ||
                     (function >= UINT32_C(0x08) &&
                      function <= UINT32_C(0x0f));
+  /* The manual leaves odd FR=0 double operands undefined; compat-v2 follows
+   * the pinned software's even-pair alias for covered double ops/conversions. */
+  bool compat_fr0_odd_alias =
+      t64_has_cpu_compat_extension_policy(machine) && !cop1_fr(machine) &&
+      !comparison &&
+      (format == UINT32_C(17) || conversion);
   uint32_t source_format = format;
   bool explicit_rounding = function >= UINT32_C(0x08) &&
                            function <= UINT32_C(0x0f);
@@ -475,12 +488,16 @@ static t64_status cop1_execute_floating(
   }
   if (function == UINT32_C(0x06)) { /* MOV is a bit transfer. */
     if ((format != UINT32_C(16) && format != UINT32_C(17)) || rt != 0u ||
-        !cop1_fpr_read(machine, fs, source_width, &source_a)) {
+        !cop1_fpr_read(machine, fs, source_width, compat_fr0_odd_alias,
+                       &source_a)) {
       return cop1_raise_unimplemented_result(machine, in_delay_slot,
                                               result_out);
     }
     result_out->write_fpr = true;
-    result_out->destination_fpr = fd;
+    result_out->destination_fpr =
+        compat_fr0_odd_alias && source_width == 64u
+            ? fd & ~UINT32_C(1)
+            : fd;
     result_out->fpr_width = source_width;
     result_out->result_bits = source_a;
     return T64_STATUS_OK;
@@ -517,23 +534,27 @@ static t64_status cop1_execute_floating(
   }
   if (destination_width == 0u ||
       !cop1_floating_registers_valid(machine, source_format,
-                                     destination_width, fs, fd)) {
+                                     destination_width, fs, fd,
+                                     compat_fr0_odd_alias)) {
     return cop1_raise_unimplemented_result(machine, in_delay_slot,
                                             result_out);
   }
 
   if (format == UINT32_C(16) || format == UINT32_C(17)) {
-    if (!cop1_fpr_read(machine, fs, source_width, &source_a)) {
+    if (!cop1_fpr_read(machine, fs, source_width, compat_fr0_odd_alias,
+                       &source_a)) {
       return cop1_raise_unimplemented_result(machine, in_delay_slot,
                                               result_out);
     }
     if (arithmetic && !unary) {
-      if (!cop1_fpr_read(machine, rt, source_width, &source_b)) {
+      if (!cop1_fpr_read(machine, rt, source_width, compat_fr0_odd_alias,
+                         &source_b)) {
         return cop1_raise_unimplemented_result(machine, in_delay_slot,
                                                 result_out);
       }
     }
-  } else if (!cop1_fpr_read(machine, fs, source_width, &source_a)) {
+  } else if (!cop1_fpr_read(machine, fs, source_width,
+                            compat_fr0_odd_alias, &source_a)) {
     return cop1_raise_unimplemented_result(machine, in_delay_slot,
                                             result_out);
   }
@@ -691,7 +712,10 @@ static t64_status cop1_execute_floating(
     return status;
   }
   result_out->write_fpr = true;
-  result_out->destination_fpr = fd;
+  result_out->destination_fpr =
+      compat_fr0_odd_alias && destination_width == 64u
+          ? fd & ~UINT32_C(1)
+          : fd;
   result_out->fpr_width = destination_width;
   result_out->result_bits = raw_result.bits;
   return T64_STATUS_OK;
@@ -721,7 +745,7 @@ static t64_status cop1_execute_memory(t64_machine *machine, uint32_t opcode,
     result_out->trapped = true;
     return cop1_raise_unimplemented(machine, in_delay_slot);
   }
-  if (!load && !cop1_fpr_read(machine, reg, width, &store_value)) {
+  if (!load && !cop1_fpr_read(machine, reg, width, false, &store_value)) {
     result_out->supported = true;
     result_out->trapped = true;
     return cop1_raise_unimplemented(machine, in_delay_slot);
@@ -795,7 +819,7 @@ t64_status t64_cop1_execute(t64_machine *machine, uint32_t opcode,
         result_out->trapped = true;
         return cop1_raise_reserved(machine, in_delay_slot);
       }
-      if (!cop1_fpr_read(machine, fs, 64u, &fpr_value)) {
+      if (!cop1_fpr_read(machine, fs, 64u, false, &fpr_value)) {
         result_out->supported = true;
         result_out->trapped = true;
         return cop1_raise_unimplemented(machine, in_delay_slot);

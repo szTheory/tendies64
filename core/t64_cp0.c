@@ -244,7 +244,8 @@ static t64_cp0_transfer_result prepare_tlb_register_write(
     effect_out->write_cp0 = true;
     break;
   case T64_CP0_PAGEMASK:
-    if (!t64_mmu_page_mask_is_defined((uint64_t)word)) {
+    if (!t64_mmu_page_mask_is_defined((uint64_t)word) &&
+        !t64_has_cpu_compat_extension_policy(machine)) {
       return T64_CP0_TRANSFER_UNSUPPORTED;
     }
     effect_out->write_cp0 = true;
@@ -491,7 +492,8 @@ t64_cp0_transfer_result t64_cp0_prepare_tlb_instruction(
     return T64_CP0_TRANSFER_OK;
   case UINT32_C(0x02):
     if (!t64_mmu_page_mask_is_defined(
-            machine->cpu.cp0[T64_CP0_PAGEMASK])) {
+            machine->cpu.cp0[T64_CP0_PAGEMASK]) &&
+        !t64_has_cpu_compat_extension_policy(machine)) {
       return T64_CP0_TRANSFER_UNSUPPORTED;
     }
     effect_out->tlb_operation = T64_CP0_TLB_WRITE_INDEXED;
@@ -500,7 +502,8 @@ t64_cp0_transfer_result t64_cp0_prepare_tlb_instruction(
     return T64_CP0_TRANSFER_OK;
   case UINT32_C(0x06):
     if (!t64_mmu_page_mask_is_defined(
-            machine->cpu.cp0[T64_CP0_PAGEMASK])) {
+            machine->cpu.cp0[T64_CP0_PAGEMASK]) &&
+        !t64_has_cpu_compat_extension_policy(machine)) {
       return T64_CP0_TRANSFER_UNSUPPORTED;
     }
     effect_out->tlb_operation = T64_CP0_TLB_WRITE_RANDOM;
@@ -679,7 +682,10 @@ void t64_cp0_commit_transfer(t64_machine *machine,
     const t64_vr4300_tlb_pair *entry =
         &machine->cpu.tlb[effect->tlb_index & T64_RANDOM_INDEX_MASK];
 
-    machine->cpu.cp0[T64_CP0_PAGEMASK] = entry->page_mask;
+    machine->cpu.cp0[T64_CP0_PAGEMASK] =
+        t64_has_cpu_compat_extension_policy(machine)
+            ? t64_mmu_compat_normalize_page_mask(entry->page_mask)
+            : entry->page_mask;
     machine->cpu.cp0[T64_CP0_ENTRYHI] =
         ((entry->region << 62) & T64_ENTRYHI_REGION_MASK) |
         (entry->vpn2 & T64_ENTRYHI_VPN_MASK) |
@@ -726,9 +732,17 @@ void t64_cp0_instruction_retired(t64_machine *machine) {
   if (!is_vr4300_profile(machine)) {
     return;
   }
-  wired = (uint32_t)machine->cpu.cp0[T64_CP0_WIRED] &
-          T64_RANDOM_INDEX_MASK;
+  wired = (uint32_t)machine->cpu.cp0[T64_CP0_WIRED] & T64_INDEX_FIELD;
   random_index = t64_cp0_random_tlb_index(machine);
+  if (t64_has_cpu_compat_extension_policy(machine) &&
+      (wired & UINT32_C(0x20)) != 0u) {
+    random_index =
+        (((uint32_t)machine->cpu.cp0[T64_CP0_RANDOM] - UINT32_C(1)) &
+         T64_RANDOM_READ_MASK);
+    machine->cpu.cp0[T64_CP0_RANDOM] = (uint64_t)random_index;
+    return;
+  }
+  wired &= T64_RANDOM_INDEX_MASK;
   software_bit = (uint32_t)machine->cpu.cp0[T64_CP0_RANDOM] &
                  T64_RANDOM_SOFTWARE_BIT;
   if (random_index <= wired) {

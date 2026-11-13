@@ -57,6 +57,12 @@ static void setup_vr4300_compat_machine(t64_machine *machine) {
   machine->profile.state_serialization_version = UINT32_C(10);
 }
 
+static void setup_vr4300_compat_v2_machine(t64_machine *machine) {
+  setup_vr4300_machine(machine);
+  machine->profile.machine_model_version = UINT32_C(5);
+  machine->profile.state_serialization_version = UINT32_C(11);
+}
+
 static uint32_t encode_cp0(uint32_t operation, uint32_t rt, uint32_t rd) {
   return (UINT32_C(0x10) << 26) | (operation << 21) | (rt << 16) |
          (rd << 11);
@@ -74,6 +80,20 @@ static t64_cp0_transfer_result apply_cp0(t64_machine *machine,
     if (effect.write_gpr && effect.gpr_index != 0u) {
       machine->cpu.gpr[effect.gpr_index] = effect.gpr_value;
     }
+  }
+  return result;
+}
+
+static t64_cp0_transfer_result apply_tlb_instruction(t64_machine *machine,
+                                                     uint32_t function) {
+  t64_cp0_effect effect = {0};
+  uint32_t opcode = (UINT32_C(0x10) << 26) | (UINT32_C(0x10) << 21) |
+                    function;
+  t64_cp0_transfer_result result =
+      t64_cp0_prepare_tlb_instruction(machine, opcode, &effect);
+
+  if (result == T64_CP0_TRANSFER_OK) {
+    t64_cp0_commit_transfer(machine, &effect);
   }
   return result;
 }
@@ -609,6 +629,88 @@ static void test_compat_doubleword_transfers_to_narrow_registers(void) {
   T64_CHECK(machine.cpu.cp0[CP0_PAGEMASK] == UINT64_C(0x01ffe000));
 }
 
+static void test_compat_v2_wired_random_and_pagemask_policy(void) {
+  static const struct {
+    uint32_t source_mask;
+    uint32_t stored_entry_mask;
+    uint32_t tlbr_readback;
+  } page_masks[] = {
+      {UINT32_C(0x00002000), UINT32_C(0x00002000), UINT32_C(0x00000000)},
+      {UINT32_C(0x00004000), UINT32_C(0x00004000), UINT32_C(0x00006000)},
+      {UINT32_C(0x0000e000), UINT32_C(0x0000e000), UINT32_C(0x00006000)},
+      {UINT32_C(0x00010000), UINT32_C(0x00010000), UINT32_C(0x00018000)},
+      {UINT32_C(0x00006000), UINT32_C(0x00006000), UINT32_C(0x00006000)},
+      {UINT32_C(0x01ffe000), UINT32_C(0x01ffe000), UINT32_C(0x01ffe000)},
+  };
+  t64_machine machine;
+  setup_vr4300_compat_v2_machine(&machine);
+
+  machine.cpu.gpr[8] = UINT64_C(0xffffffffffffffff);
+  T64_CHECK(apply_cp0(&machine, CP0_MTC0, 8u, CP0_PAGEMASK) ==
+            T64_CP0_TRANSFER_OK);
+  T64_CHECK(machine.cpu.cp0[CP0_PAGEMASK] == UINT64_C(0x01ffe000));
+  machine.cpu.gpr[8] = UINT64_C(0x000000000000e000);
+  T64_CHECK(apply_cp0(&machine, CP0_MTC0, 8u, CP0_PAGEMASK) ==
+            T64_CP0_TRANSFER_OK);
+  T64_CHECK(machine.cpu.cp0[CP0_PAGEMASK] == UINT64_C(0x0000e000));
+
+  machine.cpu.gpr[8] = UINT64_C(32);
+  T64_CHECK(apply_cp0(&machine, CP0_MTC0, 8u, CP0_WIRED) ==
+            T64_CP0_TRANSFER_OK);
+  T64_CHECK(machine.cpu.cp0[CP0_WIRED] == UINT64_C(32));
+  T64_CHECK(machine.cpu.cp0[CP0_RANDOM] == UINT64_C(31));
+  {
+    bool seen[64] = {false};
+    for (unsigned step = 0u; step < 96u; step++) {
+      uint32_t random = (uint32_t)machine.cpu.cp0[CP0_RANDOM] &
+                        UINT32_C(0x3f);
+      seen[random] = true;
+      T64_CHECK(t64_cp0_random_tlb_index(&machine) <= UINT32_C(31));
+      t64_cp0_instruction_retired(&machine);
+    }
+    for (size_t index = 0u; index < sizeof seen / sizeof seen[0]; index++) {
+      T64_CHECK(seen[index]);
+    }
+  }
+
+  for (size_t index = 0u;
+       index < sizeof page_masks / sizeof page_masks[0]; index++) {
+    machine.cpu.gpr[8] = page_masks[index].source_mask;
+    T64_CHECK(apply_cp0(&machine, CP0_MTC0, 8u, CP0_PAGEMASK) ==
+              T64_CP0_TRANSFER_OK);
+    T64_CHECK(machine.cpu.cp0[CP0_PAGEMASK] ==
+              (uint64_t)(page_masks[index].source_mask &
+                         UINT32_C(0x01ffe000)));
+    machine.cpu.cp0[CP0_INDEX] = (uint64_t)index;
+    T64_CHECK(apply_tlb_instruction(&machine, UINT32_C(0x02)) ==
+              T64_CP0_TRANSFER_OK);
+    T64_CHECK(machine.cpu.tlb[index].page_mask ==
+              (uint64_t)page_masks[index].stored_entry_mask);
+
+    machine.cpu.cp0[CP0_PAGEMASK] = UINT64_C(0);
+    T64_CHECK(apply_tlb_instruction(&machine, UINT32_C(0x01)) ==
+              T64_CP0_TRANSFER_OK);
+    T64_CHECK(machine.cpu.cp0[CP0_PAGEMASK] ==
+              (uint64_t)page_masks[index].tlbr_readback);
+  }
+
+  /* The v1 profile keeps its published five-bit Random cycle. */
+  setup_vr4300_compat_machine(&machine);
+  machine.cpu.gpr[8] = UINT64_C(32);
+  T64_CHECK(apply_cp0(&machine, CP0_MTC0, 8u, CP0_WIRED) ==
+            T64_CP0_TRANSFER_OK);
+  T64_CHECK(machine.cpu.cp0[CP0_WIRED] == UINT64_C(32));
+  {
+    bool seen_upper_index = false;
+    for (unsigned step = 0u; step < 96u; step++) {
+      seen_upper_index |= machine.cpu.cp0[CP0_RANDOM] >= UINT64_C(32);
+      T64_CHECK(t64_cp0_random_tlb_index(&machine) <= UINT32_C(31));
+      t64_cp0_instruction_retired(&machine);
+    }
+    T64_CHECK(!seen_upper_index);
+  }
+}
+
 int main(void) {
   test_status_each_bit_set_and_clear();
   test_index_random_and_wired_fields();
@@ -618,5 +720,6 @@ int main(void) {
   test_context_config_and_xcontext_policy();
   test_privilege_width_and_reserved_selects();
   test_compat_doubleword_transfers_to_narrow_registers();
+  test_compat_v2_wired_random_and_pagemask_policy();
   return T64_TEST_FINISH("unit.core.cpu-cp0");
 }

@@ -7,7 +7,7 @@ asvs_level: 1
 security_block_on: high
 created: "2026-11-12"
 scope:
-  included: ["04-01 through 04-15", "04-17", "04-18 native verification", "04-16 registered pipeline mitigations", "04-19 compatibility profile mitigations"]
+  included: ["04-01 through 04-15", "04-17", "04-18 native verification", "04-16 registered pipeline mitigations", "04-19 compatibility profile mitigations", "04-20 compatibility v2 mitigations"]
   excluded: ["SC4 functional completion and hardware qualification"]
 ---
 
@@ -79,6 +79,9 @@ separately verifies its external tool/package/asset extension.
 | T-04-SC | Tampering | copied arithmetic and external supply chain | high | mitigate | Preserve native copy/provenance verification and the separately audited external source/tool/package/asset qualification. | closed |
 | T-04-38 | Tampering | strict/compatibility policy and identity isolation | high | mitigate | Canonical immutable profiles, per-machine policies, distinct v10 origin/state domain and strict vector/refusal controls. | closed |
 | T-04-39 | Tampering | sealed compatibility selection and result binding | high | mitigate | Closed profile selection, before/after immutable seal and executable checks, actual profile/core/inventory comparison and shared cross-profile aggregation controls. | closed |
+| T-04-40 | Tampering | v2 version/instance/state/fault isolation | high | mitigate | Immutable canonical profile, v11 latch domain, staged coprocessor effects and old-profile controls. | closed |
+| T-04-41 | Tampering | targeted evidence and v2 selector/full-set binding | high | mitigate | Preserve full source membership and shared aggregation; close profile mapping and immutable identity checks, with cross-profile controls. | closed |
+| T-04-42 | Tampering | zero-data exclusions and store atomicity | high | mitigate | Bound complete v2 data ranges, exclude probe/apertures/fetch/DMA, and reject writes before cache/register/reservation mutation. | closed |
 
 ## Accepted Risks Log
 
@@ -158,3 +161,12 @@ arithmetic, CP0, reservation and runner mitigations. The register now contains
 records the exact scope, supplied verification and limitations. No actual
 diagnostic result was inspected or published, and this verdict does not close
 SC4 or establish silicon behavior. Publication scans remain a separate gate.
+
+## Plan20 incremental security verification
+
+The configured auditor returned SECURED for three additional registered threats
+and the changed mitigation paths, then confirmed the narrow COP1 destination
+correction. The register now contains42 closed threats and none open.
+[Plan20 evidence](04-20-SECURITY.md) preserves source scope, test-evidence
+limits, the missing-SUMMARY flag-check limitation and the correction addendum.
+It does not close SC4, clear publication rights or establish silicon behavior.

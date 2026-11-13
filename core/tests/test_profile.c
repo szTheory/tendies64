@@ -710,7 +710,36 @@ static void test_profile_contract(void) {
   (void)printf("evidence=unit-tested synthetic counters; no guest execution\n");
 }
 
+static void test_compat_v2_profile_identity(void) {
+  const t64_profile_descriptor *profile = NULL;
+  const t64_profile_descriptor *v1 = NULL;
+  uint8_t digest[T64_DIGEST_SIZE];
+  uint8_t v1_digest[T64_DIGEST_SIZE];
+  char digest_hex[T64_DIGEST_SIZE * 2u + 1u];
+  t64_status status = t64_profile_lookup(
+      "ntsc-cart-4m-openipl3-vr4300-compat-v2", &profile);
+  T64_CHECK_INT(status, T64_STATUS_OK);
+  T64_CHECK(profile != NULL);
+  if (profile == NULL) return;
+  T64_CHECK_INT(profile->descriptor_version, 3u);
+  T64_CHECK_INT(profile->machine_model_version, 5u);
+  T64_CHECK_INT(profile->state_serialization_version, 11u);
+  T64_CHECK_INT(t64_profile_lookup(
+      "ntsc-cart-4m-openipl3-vr4300-compat-v1", &v1), T64_STATUS_OK);
+  if (v1 == NULL) return;
+  T64_CHECK_INT(t64_profile_hash(profile, digest), T64_STATUS_OK);
+  T64_CHECK_INT(t64_profile_hash(v1, v1_digest), T64_STATUS_OK);
+  T64_CHECK(memcmp(digest, v1_digest, sizeof digest) != 0);
+  digest_to_hex(digest, digest_hex);
+  T64_CHECK_STR(digest_hex,
+      "1086516cd466bf48133533a8edf33a12cc8fd9e27dcd2b493e92b2bcf21a7634");
+  T64_CHECK_INT(profile->rom_max_bytes, v1->rom_max_bytes);
+  T64_CHECK(memcmp(profile->asset_sha256, v1->asset_sha256,
+                   T64_DIGEST_SIZE) == 0);
+}
+
 int main(void) {
   test_profile_contract();
+  test_compat_v2_profile_identity();
   return T64_TEST_FINISH("unit.core.profile");
 }

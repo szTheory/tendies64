@@ -59,6 +59,26 @@ static void write_instruction(t64_machine *machine, uint32_t address,
   machine->ram[address + 3u] = (uint8_t)opcode;
 }
 
+static void replay_fpu_instruction(t64_machine *machine, uint32_t opcode) {
+  write_instruction(machine, UINT32_C(0x1000), opcode);
+  t64_cpu_icache_hit_invalidate(machine, TEST_PC, UINT32_C(0x1000));
+  machine->cpu.pc = (uint32_t)TEST_PC;
+  machine->cpu.pc_full = TEST_PC;
+  machine->cpu.delay_slot_pending = false;
+  machine->cpu.delay_slot_pc = 0u;
+  machine->cpu.delay_target = 0u;
+  machine->cpu.delay_slot_pc_full = 0u;
+  machine->cpu.delay_target_full = 0u;
+  machine->cpu.delay_origin_pc_full = 0u;
+  machine->cpu.pending_exception_valid = false;
+  machine->cpu.stopped = false;
+  machine->cpu.stop_reason = 0u;
+  machine->cpu.stop_pc = 0u;
+  machine->cpu.stop_pc_full = 0u;
+  machine->cpu.stop_opcode = 0u;
+  machine->cpu.attempt_outcome = T64_CPU_ATTEMPT_NONE;
+}
+
 static uint32_t encode_cop1_transfer(uint32_t format, uint32_t rt,
                                     uint32_t fs) {
   return (UINT32_C(0x11) << 26) | ((format & UINT32_C(0x1f)) << 21) |
@@ -692,6 +712,191 @@ static void test_cause_and_sticky_flag_ownership(
   T64_CHECK((uint32_t)machine->cpu.fpr[2] == UINT32_C(0x00000000));
   T64_CHECK((uint32_t)machine->cpu.fpr[3] == UINT32_C(0xc1e00000));
   t64_machine_destroy(machine);
+}
+
+static void test_compat_v2_fr0_odd_register_aliases(
+    const t64_host_allocator *allocator,
+    const uint8_t *asset) {
+  static const char *baseline_profile_ids[] = {
+      "ntsc-cart-4m-openipl3-vr4300-v1",
+      "ntsc-cart-4m-openipl3-vr4300-compat-v1",
+  };
+  static const uint32_t baseline_odd_opcodes[] = {
+      (UINT32_C(0x11) << 26) | (UINT32_C(1) << 21) |
+          (UINT32_C(3) << 16) | (UINT32_C(1) << 11), /* odd DMFC1 */
+      (UINT32_C(0x11) << 26) | (UINT32_C(17) << 21) |
+          (UINT32_C(30) << 16) | (UINT32_C(29) << 11) |
+          (UINT32_C(1) << 6), /* ADD.D with odd indices */
+      (UINT32_C(0x11) << 26) | (UINT32_C(21) << 21) |
+          (UINT32_C(25) << 11) | (UINT32_C(3) << 6) | UINT32_C(0x21),
+  };
+  const t64_profile_descriptor *v2_profile = NULL;
+  t64_machine *machine;
+  size_t index;
+  uint32_t odd_add_opcode =
+      encode_cop1_operation(17u, 30u, 29u, 1u, 0u);
+  uint32_t odd_cvt_d_l_opcode =
+      encode_cop1_operation(21u, 0u, 25u, 3u, 0x21u);
+  uint32_t odd_cvt_d_s_opcode =
+      encode_cop1_operation(16u, 0u, 27u, 5u, 0x21u);
+  uint32_t odd_cvt_s_w_opcode =
+      encode_cop1_operation(20u, 0u, 9u, 5u, 0x20u);
+
+  T64_CHECK(t64_profile_lookup("ntsc-cart-4m-openipl3-vr4300-compat-v2",
+                               &v2_profile) == T64_STATUS_OK);
+  T64_CHECK(v2_profile != NULL);
+  if (v2_profile == NULL) return;
+
+  machine = make_machine(allocator, v2_profile, asset);
+  T64_CHECK(machine != NULL);
+  if (machine == NULL) return;
+  machine->cpu.cp0[12] &= ~UINT64_C(0x04000000); /* FR=0 paired words */
+  machine->cpu.fpr[28] = UINT32_C(0x00000000);
+  machine->cpu.fpr[29] = UINT32_C(0xc0240000); /* high word of -10.0 */
+  machine->cpu.fpr[30] = UINT32_C(0x00000000);
+  machine->cpu.fpr[31] = UINT32_C(0x40300000); /* high word of 16.0 */
+  replay_fpu_instruction(machine, odd_add_opcode);
+  T64_CHECK(advance_tick(machine, UINT64_C(1)));
+  T64_CHECK(machine->cpu.last_pc_full == TEST_PC);
+  T64_CHECK(machine->cpu.last_opcode == odd_add_opcode);
+  (void)fprintf(stderr,
+                "# compat-v2 first odd ADD.D attempt pc=0x%016llx "
+                "opcode=0x%08x outcome=%u cause=0x%016llx "
+                "status=0x%016llx\n",
+                (unsigned long long)machine->cpu.last_pc_full,
+                (unsigned)machine->cpu.last_opcode,
+                (unsigned)machine->cpu.attempt_outcome,
+                (unsigned long long)machine->cpu.cp0[13],
+                (unsigned long long)machine->cpu.cp0[12]);
+  T64_CHECK(machine->cpu.attempt_outcome == T64_CPU_ATTEMPT_RETIRED);
+  if (machine->cpu.last_pc_full != TEST_PC ||
+      machine->cpu.last_opcode != odd_add_opcode ||
+      machine->cpu.attempt_outcome != T64_CPU_ATTEMPT_RETIRED) {
+    t64_machine_destroy(machine);
+  } else {
+    T64_CHECK((machine->cpu.cp0[13] & UINT64_C(0x8000007c)) == UINT64_C(0));
+    T64_CHECK((uint32_t)machine->cpu.fpr[0] == UINT32_C(0x00000000));
+    T64_CHECK((uint32_t)machine->cpu.fpr[1] == UINT32_C(0x40180000));
+
+    machine->cpu.fpr[24] = UINT32_C(42);
+    machine->cpu.fpr[25] = UINT32_C(0);
+    replay_fpu_instruction(machine, odd_cvt_d_l_opcode);
+    T64_CHECK(advance_tick(machine, UINT64_C(2)));
+    (void)fprintf(stderr,
+                  "# compat-v2 odd CVT.D.L pc=0x%016llx opcode=0x%08x "
+                  "outcome=%u cause=0x%016llx status=0x%016llx "
+                  "source=(0x%016llx,0x%016llx) "
+                  "destination=(0x%016llx,0x%016llx)\n",
+                  (unsigned long long)machine->cpu.last_pc_full,
+                  (unsigned)machine->cpu.last_opcode,
+                  (unsigned)machine->cpu.attempt_outcome,
+                  (unsigned long long)machine->cpu.cp0[13],
+                  (unsigned long long)machine->cpu.cp0[12],
+                  (unsigned long long)machine->cpu.fpr[24],
+                  (unsigned long long)machine->cpu.fpr[25],
+                  (unsigned long long)machine->cpu.fpr[2],
+                  (unsigned long long)machine->cpu.fpr[3]);
+    T64_CHECK(machine->cpu.last_pc_full == TEST_PC);
+    T64_CHECK(machine->cpu.last_opcode == odd_cvt_d_l_opcode);
+    T64_CHECK(machine->cpu.attempt_outcome == T64_CPU_ATTEMPT_RETIRED);
+    T64_CHECK((machine->cpu.cp0[13] & UINT64_C(0x8000007c)) == UINT64_C(0));
+    T64_CHECK((uint32_t)machine->cpu.fpr[2] == UINT32_C(0x00000000));
+    T64_CHECK((uint32_t)machine->cpu.fpr[3] == UINT32_C(0x40450000));
+
+    machine->cpu.fpr[26] = UINT32_C(0x40000000); /* +2.0f */
+    machine->cpu.fpr[27] = UINT32_C(0xc0000000); /* -2.0f */
+    replay_fpu_instruction(machine, odd_cvt_d_s_opcode);
+    T64_CHECK(advance_tick(machine, UINT64_C(3)));
+    (void)fprintf(stderr,
+                  "# compat-v2 odd CVT.D.S pc=0x%016llx opcode=0x%08x "
+                  "outcome=%u cause=0x%016llx status=0x%016llx "
+                  "source=(0x%016llx,0x%016llx) "
+                  "destination=(0x%016llx,0x%016llx)\n",
+                  (unsigned long long)machine->cpu.last_pc_full,
+                  (unsigned)machine->cpu.last_opcode,
+                  (unsigned)machine->cpu.attempt_outcome,
+                  (unsigned long long)machine->cpu.cp0[13],
+                  (unsigned long long)machine->cpu.cp0[12],
+                  (unsigned long long)machine->cpu.fpr[26],
+                  (unsigned long long)machine->cpu.fpr[27],
+                  (unsigned long long)machine->cpu.fpr[4],
+                  (unsigned long long)machine->cpu.fpr[5]);
+    T64_CHECK(machine->cpu.last_pc_full == TEST_PC);
+    T64_CHECK(machine->cpu.last_opcode == odd_cvt_d_s_opcode);
+    T64_CHECK(machine->cpu.attempt_outcome == T64_CPU_ATTEMPT_RETIRED);
+    T64_CHECK((machine->cpu.cp0[13] & UINT64_C(0x8000007c)) == UINT64_C(0));
+    T64_CHECK((uint32_t)machine->cpu.fpr[4] == UINT32_C(0x00000000));
+    T64_CHECK((uint32_t)machine->cpu.fpr[5] == UINT32_C(0x40000000));
+
+    machine->cpu.fpr[8] = UINT64_C(0x8899aabb00000007);
+    machine->cpu.fpr[9] = UINT64_C(0xccddeeff00000063);
+    machine->cpu.fpr[4] = UINT64_C(0x11223344a5a5a5a5);
+    machine->cpu.fpr[5] = UINT64_C(0x55667788deadbeef);
+    replay_fpu_instruction(machine, odd_cvt_s_w_opcode);
+    T64_CHECK(advance_tick(machine, UINT64_C(4)));
+    (void)fprintf(stderr,
+                  "# compat-v2 odd-source CVT.S.W pc=0x%016llx "
+                  "opcode=0x%08x outcome=%u cause=0x%016llx "
+                  "status=0x%016llx source=(0x%016llx,0x%016llx) "
+                  "destination=(0x%016llx,0x%016llx)\n",
+                  (unsigned long long)machine->cpu.last_pc_full,
+                  (unsigned)machine->cpu.last_opcode,
+                  (unsigned)machine->cpu.attempt_outcome,
+                  (unsigned long long)machine->cpu.cp0[13],
+                  (unsigned long long)machine->cpu.cp0[12],
+                  (unsigned long long)machine->cpu.fpr[8],
+                  (unsigned long long)machine->cpu.fpr[9],
+                  (unsigned long long)machine->cpu.fpr[4],
+                  (unsigned long long)machine->cpu.fpr[5]);
+    T64_CHECK(machine->cpu.last_pc_full == TEST_PC);
+    T64_CHECK(machine->cpu.last_opcode == odd_cvt_s_w_opcode);
+    T64_CHECK(machine->cpu.attempt_outcome == T64_CPU_ATTEMPT_RETIRED);
+    T64_CHECK((machine->cpu.cp0[13] & UINT64_C(0x8000007c)) == UINT64_C(0));
+    T64_CHECK(machine->cpu.fpr[4] == UINT64_C(0x11223344a5a5a5a5));
+    T64_CHECK(machine->cpu.fpr[5] == UINT64_C(0x5566778840e00000));
+    t64_machine_destroy(machine);
+  }
+
+  for (index = 0u;
+       index < sizeof baseline_profile_ids / sizeof baseline_profile_ids[0];
+       index++) {
+    const t64_profile_descriptor *baseline_profile = NULL;
+    size_t opcode_index;
+
+    T64_CHECK(t64_profile_lookup(baseline_profile_ids[index],
+                                 &baseline_profile) == T64_STATUS_OK);
+    T64_CHECK(baseline_profile != NULL);
+    if (baseline_profile == NULL) continue;
+    for (opcode_index = 0u;
+         opcode_index < sizeof baseline_odd_opcodes /
+                            sizeof baseline_odd_opcodes[0];
+         opcode_index++) {
+      machine = make_machine(allocator, baseline_profile, asset);
+      T64_CHECK(machine != NULL);
+      if (machine == NULL) continue;
+      machine->cpu.cp0[12] &= ~UINT64_C(0x04000000); /* FR=0 */
+      machine->cpu.gpr[3] = UINT64_C(0xdeadbeef12345678);
+      machine->cpu.fpr[0] = UINT32_C(0x00000000);
+      machine->cpu.fpr[1] = UINT32_C(0x3ff00000);
+      machine->cpu.fpr[2] = UINT32_C(0x11223344);
+      machine->cpu.fpr[3] = UINT32_C(0x55667788);
+      write_instruction(machine, UINT32_C(0x1000),
+                        baseline_odd_opcodes[opcode_index]);
+      T64_CHECK(advance_tick(machine, UINT64_C(1)));
+      T64_CHECK(machine->cpu.attempt_outcome ==
+                T64_CPU_ATTEMPT_GUEST_EXCEPTION);
+      T64_CHECK((machine->cpu.cp0[13] & UINT64_C(0x8000007c)) ==
+                UINT64_C(0x0000003c)); /* preserve unimplemented FPE */
+      T64_CHECK((machine->cpu.fcr31 & UINT32_C(0x00020000)) != 0u);
+      if (opcode_index == 0u) {
+        T64_CHECK(machine->cpu.gpr[3] == UINT64_C(0xdeadbeef12345678));
+      } else {
+        T64_CHECK((uint32_t)machine->cpu.fpr[2] == UINT32_C(0x11223344));
+        T64_CHECK((uint32_t)machine->cpu.fpr[3] == UINT32_C(0x55667788));
+      }
+      t64_machine_destroy(machine);
+    }
+  }
 }
 
 static void test_arithmetic_tie_rounding(
@@ -1840,6 +2045,7 @@ int main(int argc, char **argv) {
     test_exact_arithmetic_operations(&allocator, profile, asset);
     test_comparison_predicate_bits(&allocator, profile, asset);
     test_format_and_integer_conversions(&allocator, profile, asset);
+    test_compat_v2_fr0_odd_register_aliases(&allocator, asset);
     test_paired_registers_and_compare_branch(&allocator, profile, asset);
     test_interleaved_machine_rounding(&allocator, profile, asset);
     T64_CHECK(allocation.outstanding == 0u);

@@ -48,11 +48,12 @@ The adapter's self-reported core/profile identity is checked only after this
 file binding; matching identity JSON from another executable cannot establish
 the production adapter's identity or classify a batch set.
 
-Seal v2 adds the required `profile_id`, restricted to the strict and software
-compatibility CPU profiles. The required CPU-suite completion target is
-`ntsc-cart-4m-openipl3-vr4300-compat-v1`; the build helper selects it explicitly
-through the adapter's leading `--compat` option. Calls without that option
-remain strict. Every subsequent invocation uses the sealed selection, checked
+Seal v2 adds the required `profile_id`, restricted to the strict and versioned
+software compatibility CPU profiles. The required CPU-suite completion target
+is `ntsc-cart-4m-openipl3-vr4300-compat-v2`; the build helper selects it
+explicitly through the leading `--compat-v2` option. `--compat` continues to
+select compat-v1, and calls without a selector remain strict. Every subsequent
+invocation uses the sealed selection, checked
 before and after execution, and inventory acceptance checks its actual profile
 digest. Legacy v1 seals select strict only. Unknown profiles, boolean version
 numbers, context/selection drift and strict/compatibility identity mismatches

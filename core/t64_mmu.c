@@ -24,6 +24,7 @@
 #define T64_ENTRYHI_VPN_MASK UINT64_C(0x000000ffffffe000)
 #define T64_ADDRESS32_MASK UINT64_C(0x00000000ffffffff)
 #define T64_XKPHYS_PHYSICAL_HIGH_MASK UINT64_C(0x07ffffff00000000)
+#define T64_PAGEMASK_FIELD UINT32_C(0x01ffe000)
 
 typedef enum {
   T64_ADDRESS_MODE_USER = 0,
@@ -148,7 +149,7 @@ static t64_segment_kind segment_64(uint64_t address,
 }
 
 bool t64_mmu_page_mask_is_defined(uint64_t page_mask) {
-  switch ((uint32_t)page_mask & UINT32_C(0x01ffe000)) {
+  switch ((uint32_t)page_mask & T64_PAGEMASK_FIELD) {
   case UINT32_C(0x00000000):
   case UINT32_C(0x00006000):
   case UINT32_C(0x0001e000):
@@ -158,6 +159,21 @@ bool t64_mmu_page_mask_is_defined(uint64_t page_mask) {
   case UINT32_C(0x01ffe000): return true;
   default: return false;
   }
+}
+
+uint64_t t64_mmu_compat_normalize_page_mask(uint64_t page_mask) {
+  uint32_t field = (uint32_t)page_mask & T64_PAGEMASK_FIELD;
+  uint32_t normalized = 0u;
+
+  for (uint32_t pair = 0u; pair < 6u; pair++) {
+    uint32_t lower_bit = UINT32_C(1) << (13u + pair * 2u);
+    uint32_t upper_bit = UINT32_C(1) << (14u + pair * 2u);
+
+    if ((field & upper_bit) != 0u) {
+      normalized |= lower_bit | upper_bit;
+    }
+  }
+  return (uint64_t)normalized;
 }
 
 static uint32_t page_size_shift(uint64_t page_mask) {
