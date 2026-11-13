@@ -1,0 +1,10 @@
+{
+  "command": "build/gate/core/test_rsp_control --tdd-active-pc-imem-refusal",
+  "exitCode": 1,
+  "output": "TAP version 13\nnot ok 1 - CPU write to active RSP PC in IMEM refuses atomically\n# active PC=0x004 write_status=0 refusal=0 unchanged=0 word_before=0x24020009 word_after=0x0000000d\n1..1\n",
+  "targetTest": "CPU write to active RSP PC in IMEM refuses atomically",
+  "targetFile": "core/tests/test_rsp_control.c",
+  "expected": "With the functional RSP running at PC 0x004 and its authored ADDIU word present, a CPU bus write to SP_IMEM[0x004] returns BUS_DEVICE_REFUSED with ACTIVE_IMEM_WRITE and leaves the word and full future-state digest unchanged.",
+  "actual": "Fixture and synthetic image setup succeeded, NOP at PC 0x000 retired, and the next active RSP PC was 0x004. The CPU write returned status 0, changed the authored IMEM word from 0x24020009 to 0x0000000d, left refusal reason 0, and changed the full future-state digest.",
+  "semanticAssessment": "Valid behavioral RED: the test reached the intended active-PC boundary with an authored instruction and compared the exact write result, refusal reason, IMEM word, and full digest. It failed because bus writes to active IMEM are currently accepted; no setup or compile failure occurred."
+}

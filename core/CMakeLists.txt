@@ -447,6 +447,15 @@ set_tests_properties(unit.core.sp-dma PROPERTIES LABELS unit)
 add_test(NAME unit.core.rsp-tracer COMMAND test_sp_dma --rsp-tracer)
 set_tests_properties(unit.core.rsp-tracer PROPERTIES LABELS unit)
 
+add_executable(test_rsp_control tests/test_rsp_control.c)
+target_include_directories(test_rsp_control PRIVATE
+  "${CMAKE_CURRENT_SOURCE_DIR}"
+  "${CMAKE_SOURCE_DIR}/tests")
+target_link_libraries(test_rsp_control PRIVATE t64_core)
+t64_target_warnings(test_rsp_control)
+add_test(NAME unit.core.rsp-control COMMAND test_rsp_control)
+set_tests_properties(unit.core.rsp-control PROPERTIES LABELS unit)
+
 # Long admission fuzzing and the intentional fault are only available from the
 # existing ASan/UBSan preset. They are deliberately absent from the fast gate.
 set(T64_HAS_ADDRESS_AND_UNDEFINED_SANITIZERS FALSE)
