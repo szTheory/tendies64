@@ -1,6 +1,6 @@
 ---
 phase: 04-complete-vr4300-cpu
-reviewed: 2026-11-13T06:44:14Z
+reviewed: 2026-11-13T09:05:58Z
 depth: standard
 files_reviewed: 130
 files_reviewed_list:
@@ -145,14 +145,14 @@ status: clean
 
 # Phase 04: Code Review Report
 
-**Reviewed:** 2026-11-13T06:44:14Z
+**Reviewed:** 2026-11-13T09:05:58Z
 **Depth:** standard  
 **Files Reviewed:** 130
 **Status:** clean
 
 ## Summary
 
-The historical baseline and prior correction supplements remain intact; their reviewed union contained 126 paths and their recorded findings are resolved as documented. The diagnostic-pipeline supplement adds four paths to the union. CR-10, WR-13, and WR-14 are resolved. This bounded re-review verified the deadline guard refuses success after timeout even when cleanup observes exit code zero and an empty process group. Executor-reported controls and builds were not rerun by this reviewer. No package build hook, diagnostic ROM, or guest execution is established by this review.
+The historical baseline and prior correction supplements remain intact; their reviewed union contained 126 paths and their recorded findings are resolved as documented. The diagnostic-pipeline supplement adds four paths to the union. CR-10, WR-13, and WR-14 are resolved. This bounded re-review verified the deadline guard refuses success after timeout even when cleanup observes exit code zero and an empty process group. The hosted run-control fixture now uses an authored private directory under the ignored build root, so it no longer requires local qualification artifacts; no new findings were found. Executor-reported controls and builds were not rerun by this reviewer. No package build hook, diagnostic ROM, or guest execution is established by this review.
 
 The historical baseline reviewed the explicit tracked native source and test scope for Phase 4 Plans 01–15 and 17. It re-reviewed the final `runner/t64_cpu_diagnostic.c`, `runner/tests/test_cpu_diagnostic.c`, and `runner/CMakeLists.txt` changes. The Git-unavailable fallback now checks canonical parent ancestors for `.git` markers and refuses repository destinations; the added regression covers this path with an empty `PATH`. The earlier missing-group concern remains a false positive: Plan 14 permits reduced inventories for group-level inspection while refusing whole-inventory completion. A supplemental review of the portability-only change in `runner/t64_cpu_diagnostic.c` confirmed that it uses `S_ISVTX` when visible and the POSIX sticky-bit mask `01000` otherwise; this preserves the existing sticky-directory predicate and its confinement behavior. No source-grounded findings remained in that historical baseline.
 
@@ -718,6 +718,18 @@ _Depth: standard_
 This bounded follow-up reuses the exact 130-path union in the frontmatter. `run()` now fails when its deadline expires even if the process exits with status zero and process-group cleanup succeeds, closing WR-14. The deterministic authored control reaches all three conditions and asserts refusal; the saved pre-fix RED identified the intended assertion. I did not rerun tests or builds. No new source-grounded findings remain in this follow-up.
 
 _Incremental review: 2026-11-13T06:44:14Z_
+_Reviewer: the agent (gsd-code-reviewer)_
+_Depth: standard_
+
+## Incremental Review Supplement: Hosted Run-Control Fixture Root
+
+**Reviewed:** 2026-11-13T09:05:58Z
+**Comparison base:** `e69c41c`
+**Current incremental scope:** `scripts/tests/test_cpu_diagnostic_run_controls.py`
+
+This source change reuses the existing 130-path review union. The authored controls now require the existing `build` directory and refuse it if it is missing or a symlink, then create their unique fixture directory there with owner-only permissions. The fixture content remains synthetic, the existing class teardown removes the created directory, and no private qualification directory or external input is required. The diff leaves the authored control cases and production runner unchanged. No source-grounded findings were found. I did not rerun tests.
+
+_Incremental review: 2026-11-13T09:05:58Z_
 _Reviewer: the agent (gsd-code-reviewer)_
 _Depth: standard_
 

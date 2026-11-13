@@ -111,6 +111,10 @@ applies that direction; update it when the owner changes policy.
   next slice instead of postponing the first external integration until the
   subsystem's final plan. Keep expired deadlines authoritative even if a
   process exits successfully during cleanup.
+  Authored CI controls must work in a clean workspace without private diagnostic
+  directories or inputs. Give synthetic fixtures their own restrictive temporary
+  storage under the ignored build tree, and verify that clean setup explicitly;
+  a populated developer workspace is not evidence of CI independence.
 - At each discussion, enumerate actual decision points. Fan out one agent per
   independent decision cluster when it saves time/context. Apply relevant
   CPU/cache/virtual-memory, RSP/microcode, RDP/video, audio, memory/bus,

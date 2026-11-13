@@ -9,7 +9,6 @@ import os
 import pathlib
 import select
 import shutil
-import stat
 import subprocess
 import sys
 import tempfile
@@ -100,11 +99,12 @@ def main() -> int:
     class RunControls(unittest.TestCase):
         @classmethod
         def setUpClass(cls):
-            private_root = source_root / "build/private-cpu-diagnostic"
-            info = private_root.stat()
-            if not stat.S_ISDIR(info.st_mode) or stat.S_IMODE(info.st_mode) & 0o077:
-                raise RuntimeError("private diagnostic root is not owner-only")
-            cls.control_root = pathlib.Path(tempfile.mkdtemp(prefix="run-controls-", dir=private_root))
+            # Authored controls need no private diagnostic checkout or inputs.
+            build_root = source_root / "build"
+            if build_root.is_symlink() or not build_root.is_dir():
+                raise RuntimeError("authored fixture build root is missing or linked")
+            cls.control_root = pathlib.Path(tempfile.mkdtemp(
+                prefix="authored-run-controls-", dir=build_root))
             os.chmod(cls.control_root, 0o700)
             cls.adapter = adapter
             cls.fake_script = pathlib.Path(__file__).resolve()

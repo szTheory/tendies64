@@ -171,3 +171,16 @@ verifies the registered pipeline qualification and private-output mitigations.
 Those verdicts and authored checks do not establish SC4 or external diagnostic
 completion. External inputs, receipts, captures and derived results remain
 private and are not part of this public evidence record.
+
+
+### Clean-workspace fixture correction
+
+Hosted run `43391557506` exposed an authored-control setup dependency on an
+existing local diagnostic directory; both jobs stopped before the evidence
+emission/upload tail. The setup now creates its own owner-only temporary
+fixture under the ignored build tree. A minimal clean workspace containing
+only owned scripts, Git ignore metadata and the built C adapter reaches all
+11 routing controls in both normal and instrumented configurations without
+creating or consuming a private diagnostic directory. Production code, core
+policy, limits and CTest inventories are unchanged. The bounded source review
+is clean; the failed run and remedy are retained in the CI review log.
