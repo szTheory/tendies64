@@ -310,6 +310,7 @@ static bool rsp_issue_hazards_branch_test(void) {
   }
   t64_machine_reset_execution_state(value.machine);
   (void)memset(&value.machine->rsp, 0, sizeof value.machine->rsp);
+  value.machine->rsp.sp_status = T64_RSP_STATUS_HALT;
   if (t64_machine_bus_write(value.machine, TEST_DMEM_BASE, 4u,
                             UINT32_C(0x12345678)) != T64_STATUS_OK) {
     t64_machine_destroy(value.machine);
@@ -355,6 +356,7 @@ static bool rsp_issue_hazards_branch_test(void) {
   }
   t64_machine_reset_execution_state(value.machine);
   (void)memset(&value.machine->rsp, 0, sizeof value.machine->rsp);
+  value.machine->rsp.sp_status = T64_RSP_STATUS_HALT;
   for (i = 0u; i < sizeof branch_program / sizeof branch_program[0]; i++) {
     if (t64_machine_bus_write(value.machine,
                               TEST_IMEM_BASE + (uint32_t)(i * 4u), 4u,
@@ -436,10 +438,11 @@ static bool rsp_fetched_vadd_test(void) {
   }
   t64_machine_reset_execution_state(value.machine);
   (void)memset(&value.machine->rsp, 0, sizeof value.machine->rsp);
+  value.machine->rsp.sp_status = T64_RSP_STATUS_HALT;
   value.machine->rsp.vco = UINT16_C(1);
   value.machine->rsp.vcc = UINT16_C(0x5a5a);
   value.machine->rsp.vce = UINT8_C(0xa5);
-  value.machine->rsp.sp_status = UINT32_C(0x40);
+  value.machine->rsp.sp_status = T64_RSP_STATUS_HALT | UINT32_C(0x40);
   for (i = 0u; i < sizeof program / sizeof program[0]; i++) {
     if (t64_machine_bus_write(value.machine,
                               TEST_IMEM_BASE + (uint32_t)(i * 4u), 4u,
@@ -538,6 +541,7 @@ static bool rsp_break_allows_queued_pi_completion_test(void) {
   }
   t64_machine_reset_execution_state(value.machine);
   (void)memset(&value.machine->rsp, 0, sizeof value.machine->rsp);
+  value.machine->rsp.sp_status = T64_RSP_STATUS_HALT;
   if (t64_machine_bus_write(value.machine, TEST_IMEM_BASE, 4u, instruction) !=
           T64_STATUS_OK ||
       t64_machine_bus_write(value.machine, TEST_PI_BASE, 4u,
@@ -611,6 +615,7 @@ static bool rsp_store_preserves_only_nonoverlapping_seeded_links_test(void) {
     }
     t64_machine_reset_execution_state(value.machine);
     (void)memset(&value.machine->rsp, 0, sizeof value.machine->rsp);
+    value.machine->rsp.sp_status = T64_RSP_STATUS_HALT;
     for (instruction_index = 0u;
          instruction_index < sizeof program / sizeof program[0];
          instruction_index++) {
@@ -668,6 +673,7 @@ static bool rsp_refuses_unknown_opcode_atomically_test(void) {
   }
   t64_machine_reset_execution_state(value.machine);
   (void)memset(&value.machine->rsp, 0, sizeof value.machine->rsp);
+  value.machine->rsp.sp_status = T64_RSP_STATUS_HALT;
   if (t64_machine_bus_write(value.machine, TEST_IMEM_BASE, 4u, unsupported) !=
           T64_STATUS_OK ||
       t64_rsp_start(value.machine) != T64_STATUS_OK) {
@@ -1511,7 +1517,7 @@ static bool rsp_fields_participate_in_digest_test(void) {
   uint64_t *u64_fields[14];
   uint16_t *u16_fields[2];
   uint8_t *u8_fields[2];
-  bool *bool_fields[3];
+  bool *bool_fields[4];
   size_t u32_count = 0u;
   size_t u64_count = 0u;
   size_t u16_count = 0u;
@@ -1553,6 +1559,7 @@ static bool rsp_fields_participate_in_digest_test(void) {
   u8_fields[u8_count++] = &value.machine->rsp.vector[0][0];
   u8_fields[u8_count++] = &value.machine->rsp.vce;
   bool_fields[bool_count++] = &value.machine->rsp.delay_slot_pending;
+  bool_fields[bool_count++] = &value.machine->rsp.branch_bubble_pending;
   bool_fields[bool_count++] = &value.machine->rsp.divider_high_valid;
   bool_fields[bool_count++] = &value.machine->rsp.sp_semaphore;
   for (i = 0u; i < u32_count; i++) {
@@ -1672,6 +1679,9 @@ static int rsp_sp_pc_resume_tap_test(void) {
 
   if (setup_ok) {
     setup_ok = fixture_enable_synthetic_image(&value);
+  }
+  if (setup_ok) {
+    value.machine->rsp.sp_status = T64_RSP_STATUS_HALT;
   }
   for (i = 0u; setup_ok && i < sizeof program / sizeof program[0]; i++) {
     setup_ok = t64_machine_bus_write(

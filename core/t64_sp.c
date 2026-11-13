@@ -177,6 +177,8 @@ static t64_status start_rsp_dma(t64_machine *machine, bool dram_to_sp,
   bool pending_slot;
 
   if (dma_full(&machine->sp)) {
+    machine->rsp_observed_refusal_reason =
+        T64_RSP_REFUSAL_DMA_QUEUE_FULL;
     return refuse(machine, offset, T64_STATUS_BUS_DEVICE_REFUSED);
   }
   if (machine->sp.token_exhausted) {
@@ -186,6 +188,9 @@ static t64_status start_rsp_dma(t64_machine *machine, bool dram_to_sp,
   start_tick = pending_slot ? machine->sp.active.end_tick : machine->tick;
   if (!decode_descriptor(machine, dram_to_sp, raw_length, start_tick,
                          &descriptor, &status)) {
+    if (status == T64_STATUS_BUS_DEVICE_REFUSED) {
+      machine->rsp_observed_refusal_reason = T64_RSP_REFUSAL_DMA_SPAN;
+    }
     return refuse(machine, offset, status);
   }
   token = machine->sp.next_token;
@@ -215,6 +220,7 @@ static t64_status start_rsp_dma(t64_machine *machine, bool dram_to_sp,
   } else {
     machine->sp.next_token = token + UINT64_C(1);
   }
+  machine->rsp_observed_refusal_reason = T64_RSP_REFUSAL_NONE;
   t64_trace_emit(machine, machine->tick, T64_TRACE_DEVICE_SP,
                  T64_TRACE_KIND_SP_ISSUE, token);
   return T64_STATUS_OK;

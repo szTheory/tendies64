@@ -178,6 +178,35 @@ static uint32_t read_big_endian(const uint8_t *bytes, uint32_t width) {
   return value;
 }
 
+static bool rsp_imem_write_hits_active_pc(t64_machine *machine,
+                                          uint32_t address, uint32_t width,
+                                          uint8_t byte_mask) {
+  uint32_t active_start;
+  uint32_t index;
+
+  if (machine == NULL || !t64_has_rsp_functional_profile(machine) ||
+      (machine->rsp.sp_status & T64_RSP_STATUS_HALT) != 0u ||
+      address < T64_SP_IMEM_BASE || address >= T64_SP_MEMORY_END) {
+    return false;
+  }
+  active_start = T64_SP_IMEM_BASE |
+                 (machine->rsp.pc & UINT32_C(0x00000ffc));
+  for (index = 0u; index < width; index++) {
+    uint32_t byte_address;
+
+    if ((byte_mask & (uint8_t)(UINT8_C(1) << index)) == 0u) {
+      continue;
+    }
+    byte_address = address + index;
+    if (byte_address >= active_start && byte_address < active_start + 4u) {
+      machine->rsp_observed_refusal_reason =
+          T64_RSP_REFUSAL_ACTIVE_IMEM_WRITE;
+      return true;
+    }
+  }
+  return false;
+}
+
 static void write_big_endian(uint8_t *bytes, uint32_t width,
                              uint32_t value) {
   if (width == 1u) {
@@ -558,6 +587,12 @@ t64_status t64_bus_write(t64_machine *machine, uint32_t address,
   if (bytes == NULL || (size_t)width > remaining) {
     return T64_STATUS_BUS_RANGE;
   }
+  if (region == T64_BUS_REGION_SP_IMEM &&
+      rsp_imem_write_hits_active_pc(
+          machine, address, width,
+          (uint8_t)((UINT32_C(1) << width) - UINT32_C(1)))) {
+    return T64_STATUS_BUS_DEVICE_REFUSED;
+  }
   write_big_endian(bytes, width, value);
   if (region == T64_BUS_REGION_RDRAM ||
       region == T64_BUS_REGION_SP_DMEM ||
@@ -636,6 +671,10 @@ t64_status t64_bus_write_masked(t64_machine *machine, uint32_t address,
   }
   if ((size_t)width > remaining) {
     return T64_STATUS_BUS_RANGE;
+  }
+  if (region == T64_BUS_REGION_SP_IMEM &&
+      rsp_imem_write_hits_active_pc(machine, address, width, byte_mask)) {
+    return T64_STATUS_BUS_DEVICE_REFUSED;
   }
   for (index = 0u; index < byte_count; index++) {
     if (((uint32_t)byte_mask & (UINT32_C(1) << index)) != 0u) {
