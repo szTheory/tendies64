@@ -26,6 +26,20 @@ def refuse(message: str) -> None:
     raise Refusal(message)
 
 
+def require_private_root(repository: pathlib.Path) -> pathlib.Path:
+    expected = repository / "build/private-cpu-diagnostic"
+    cursor = repository
+    for part in pathlib.PurePosixPath("build/private-cpu-diagnostic").parts:
+        cursor = cursor / part
+        if cursor.is_symlink():
+            refuse("private qualification root traverses a symlink")
+    if not expected.is_dir() or expected.resolve(strict=True) != expected:
+        refuse("private qualification root is missing or noncanonical")
+    if expected.stat().st_mode & 0o077:
+        refuse("private qualification root is accessible to group or other users")
+    return expected
+
+
 def sha256(data: bytes) -> str:
     return hashlib.sha256(data).hexdigest()
 
@@ -371,6 +385,7 @@ def prepare_sysroot_union(repository: pathlib.Path, private_root: pathlib.Path) 
 
 
 def main() -> int:
+    os.umask(0o077)
     mode = "--prepare"
     if len(sys.argv) == 3 and sys.argv[1] in {"--prepare", "--verify-existing", "--prepare-sysroot-union"}:
         mode, repository_arg = sys.argv[1], sys.argv[2]
@@ -380,9 +395,7 @@ def main() -> int:
         print("usage: prepare-cpu-diagnostic-vendor.py [--prepare|--verify-existing] REPOSITORY", file=sys.stderr)
         return 2
     repository = pathlib.Path(repository_arg).resolve(strict=True)
-    private_root = repository / "build/private-cpu-diagnostic"
-    if private_root.is_symlink() or not private_root.is_dir():
-        refuse("private qualification root is missing or linked")
+    private_root = require_private_root(repository)
     receipt_path = private_root / "qualification.json"
     if receipt_path.is_symlink() or not receipt_path.is_file():
         refuse("pre-use qualification receipt is missing or linked")

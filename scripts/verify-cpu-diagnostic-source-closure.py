@@ -382,6 +382,20 @@ def private_path(project: pathlib.Path, private_root: pathlib.Path, value: str, 
     return resolved
 
 
+def require_private_root(project: pathlib.Path) -> pathlib.Path:
+    expected = project / "build/private-cpu-diagnostic"
+    cursor = project
+    for part in pathlib.PurePosixPath("build/private-cpu-diagnostic").parts:
+        cursor = cursor / part
+        if cursor.is_symlink():
+            raise ValueError("private diagnostic root traverses a symlink")
+    if not expected.is_dir() or expected.resolve(strict=True) != expected:
+        raise ValueError("private diagnostic root is missing or noncanonical")
+    if os.stat(expected).st_mode & 0o077:
+        raise ValueError("private diagnostic root is accessible to group or other users")
+    return expected
+
+
 def write_private_report(path: pathlib.Path, report: dict[str, object]) -> None:
     data = (json.dumps(report, sort_keys=True, separators=(",", ":")) + "\n").encode("utf-8")
     descriptor, temporary_name = tempfile.mkstemp(prefix=".source-closure.", dir=path.parent)
@@ -508,11 +522,9 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--output", required=True)
     args = parser.parse_args(argv)
     project = pathlib.Path(__file__).resolve().parents[1]
-    private_root_input = project / "build/private-cpu-diagnostic"
-    if private_root_input.is_symlink() or not private_root_input.is_dir():
-        parser.error("private diagnostic root is a symlink")
-    private_root = private_root_input.resolve(strict=True)
+    os.umask(0o077)
     try:
+        private_root = require_private_root(project)
         source_root = private_path(project, private_root, args.source_root, "source checkout")
         pinned_source = private_path(project, private_root, args.pinned_source, "pinned source base")
         overlay = pathlib.Path(args.overlay)
@@ -541,14 +553,7 @@ def main(argv: list[str] | None = None) -> int:
             project, source_root, pinned_source, overlay, projection, audit
         )
         write_private_report(output_parent / output.name, report)
-        print(json.dumps({
-            "status": report["status"],
-            "static_module_count": report["profile"]["static_module_count"],
-            "required_registration_count": report["profile"]["required_registration_count"],
-            "required_value_count": report["profile"]["required_value_count"],
-            "overlay_sha256": report["overlay_sha256"],
-            "report": "private source closure written",
-        }, sort_keys=True))
+        print("PASS: pinned source closure verified; private report written")
         return 0
     except (OSError, ValueError, subprocess.CalledProcessError, json.JSONDecodeError) as error:
         print(f"source closure refused: {error}", file=sys.stderr)

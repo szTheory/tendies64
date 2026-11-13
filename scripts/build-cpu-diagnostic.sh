@@ -1,7 +1,8 @@
 #!/bin/sh
 set -eu
+umask 077
 
-ROOT=$(CDPATH= cd "$(dirname "$0")/.." && pwd)
+ROOT=$(CDPATH= cd "$(dirname "$0")/.." && pwd -P)
 cd "$ROOT"
 
 PRIVATE_ROOT=build/private-cpu-diagnostic
@@ -52,8 +53,25 @@ require_command()
 verify_private_directory()
 {
     candidate=$1
-    [ -d "$candidate" ] && [ ! -L "$candidate" ] || \
-        die "required private directory is missing or linked: $candidate"
+    case "$candidate" in /*) ;; *) candidate=$ROOT/$candidate ;; esac
+    case "$candidate" in
+        "$ROOT"/*) relative=${candidate#"$ROOT"/} ;;
+        *) die "private directory escapes the canonical repository: $candidate" ;;
+    esac
+    cursor=$ROOT
+    rest=$relative
+    while [ -n "$rest" ]; do
+        component=${rest%%/*}
+        if [ "$component" = "$rest" ]; then rest=; else rest=${rest#*/}; fi
+        cursor=$cursor/$component
+        [ ! -L "$cursor" ] || die "private directory ancestor is linked: $cursor"
+        [ -d "$cursor" ] || die "required private directory is missing: $cursor"
+    done
+    [ "$cursor" = "$candidate" ] || die "private directory path is not canonical: $candidate"
+    if [ "$candidate" = "$ROOT/$PRIVATE_ROOT" ]; then
+        python3 -B -c 'import pathlib,stat,sys; p=pathlib.Path(sys.argv[1]); raise SystemExit(0 if stat.S_IMODE(p.stat().st_mode) & 0o077 == 0 else 1)' "$candidate" || \
+            die "private directory is accessible to group or other users: $candidate"
+    fi
 }
 
 prepare_source()

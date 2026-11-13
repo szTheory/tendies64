@@ -5,7 +5,9 @@ from __future__ import annotations
 
 import hashlib
 import copy
+import contextlib
 import importlib.util
+import io
 import json
 import os
 import pathlib
@@ -72,6 +74,15 @@ def load_unit_graph_verifier(project: pathlib.Path):
     script = project / "scripts/verify-cpu-diagnostic-unit-graph.py"
     spec = importlib.util.spec_from_file_location("t64_cpu_unit_graph_under_test", script)
     assert spec is not None and spec.loader is not None, "could not load Cargo unit-graph verifier"
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+def load_vendor_preparer(project: pathlib.Path):
+    script = project / "scripts/prepare-cpu-diagnostic-vendor.py"
+    spec = importlib.util.spec_from_file_location("t64_cpu_vendor_under_test", script)
+    assert spec is not None and spec.loader is not None, "could not load vendor preparer"
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)
     return module
@@ -462,6 +473,20 @@ def test_frozen_unit_graph_acceptance_and_refusals(repo: pathlib.Path, applier: 
     assert accepted["status"] == "PASS_FROZEN_OFFLINE_UNIT_GRAPH" and accepted["built"] is False, (
         "valid authored graph did not pass as graph-only evidence"
     )
+    for field, value, reason in (
+        ("version", True, "Cargo unit graph schema is unsupported"),
+        ("version", 1.0, "Cargo unit graph schema is unsupported"),
+        ("roots", [True], "Cargo unit graph root index is malformed or outside the graph"),
+        ("roots", [1.0], "Cargo unit graph root index is malformed or outside the graph"),
+    ):
+        malformed = copy.deepcopy(graph)
+        malformed[field] = value
+        try:
+            validate(malformed)
+        except verifier.Refusal as error:
+            assert reason in str(error), f"wrong type refusal for {field}: {error}"
+        else:
+            raise AssertionError(f"unit graph accepted invalid {field} type {value!r}")
     cases = []
     mismatch = copy.deepcopy(graph)
     mismatch["units"][0]["profile"]["panic"] = "unwind"
@@ -524,6 +549,216 @@ def test_static_module_closure_refuses_unknown_inclusion_forms(repo: pathlib.Pat
                 assert reason in str(error), f"unexpected source closure refusal: {error}"
             else:
                 raise AssertionError(f"unreviewed module inclusion form was accepted: {source!r}")
+
+
+def test_prebuild_private_root_refusals_before_side_effects(repo: pathlib.Path, applier: pathlib.Path) -> None:
+    with tempfile.TemporaryDirectory() as temporary:
+        root = pathlib.Path(temporary) / "checkout"
+        outside = pathlib.Path(temporary) / "outside"
+        (root / "scripts").mkdir(parents=True)
+        outside.mkdir()
+        build_script = repo / "scripts/build-cpu-diagnostic.sh"
+        (root / "scripts/build-cpu-diagnostic.sh").write_bytes(build_script.read_bytes())
+        fake_bin = root / "fake-bin"
+        fake_bin.mkdir()
+        marker = root / "git-invoked"
+        fake_git = fake_bin / "git"
+        fake_git.write_text(f"#!/bin/sh\nprintf called > '{marker}'\nexit 93\n", encoding="utf-8")
+        fake_git.chmod(0o755)
+        (root / "build").symlink_to(outside, target_is_directory=True)
+        result = subprocess.run(
+            ["sh", str(root / "scripts/build-cpu-diagnostic.sh"), "--prepare-source"],
+            check=False, text=True, capture_output=True,
+            env={"PATH": f"{fake_bin}:/usr/bin:/bin", "HOME": str(root)},
+        )
+        assert result.returncode != 0 and "private directory ancestor is linked" in result.stderr, (
+            f"symlinked build ancestor was not refused first: {result.stderr!r}"
+        )
+        assert not marker.exists(), "prepare-source invoked Git before private-root confinement"
+
+    with tempfile.TemporaryDirectory() as temporary:
+        root = pathlib.Path(temporary) / "checkout"
+        private = root / "build/private-cpu-diagnostic"
+        (root / "scripts").mkdir(parents=True)
+        private.mkdir(parents=True)
+        private.chmod(0o755)
+        (root / "scripts/build-cpu-diagnostic.sh").write_bytes(
+            (repo / "scripts/build-cpu-diagnostic.sh").read_bytes()
+        )
+        fake_bin = root / "fake-bin"
+        fake_bin.mkdir()
+        marker = root / "git-invoked"
+        fake_git = fake_bin / "git"
+        fake_git.write_text(f"#!/bin/sh\nprintf called > '{marker}'\nexit 93\n", encoding="utf-8")
+        fake_git.chmod(0o755)
+        result = subprocess.run(
+            ["sh", str(root / "scripts/build-cpu-diagnostic.sh"), "--prepare-source"],
+            check=False, text=True, capture_output=True,
+            env={"PATH": f"{fake_bin}:/usr/bin:/bin", "HOME": str(root)},
+        )
+        assert result.returncode != 0 and "accessible to group or other users" in result.stderr, (
+            f"exposed private root was not refused first: {result.stderr!r}"
+        )
+        assert not marker.exists(), "prepare-source invoked Git before checking private-root mode"
+
+
+def test_vendor_and_source_closure_root_refusals(repo: pathlib.Path, applier: pathlib.Path) -> None:
+    for exposure in ("symlink", "mode"):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = pathlib.Path(temporary) / "checkout"
+            scripts = root / "scripts"
+            scripts.mkdir(parents=True)
+            for filename in ("verify-cpu-diagnostic-source-closure.py", "prepare-cpu-diagnostic-vendor.py"):
+                (scripts / filename).write_bytes((repo / "scripts" / filename).read_bytes())
+            if exposure == "symlink":
+                outside = pathlib.Path(temporary) / "outside"
+                outside.mkdir()
+                (root / "build").symlink_to(outside, target_is_directory=True)
+            else:
+                private = root / "build/private-cpu-diagnostic"
+                private.mkdir(parents=True)
+                private.chmod(0o755)
+            closure = subprocess.run(
+                [sys.executable, "-B", str(scripts / "verify-cpu-diagnostic-source-closure.py"),
+                 "--source-root", "build/private-cpu-diagnostic/overlay",
+                 "--pinned-source", "build/private-cpu-diagnostic/nemu64-test",
+                 "--overlay", "tests/cpu-diagnostic/overlay.patch",
+                 "--source-projection", "build/private-cpu-diagnostic/source-projection.json",
+                 "--source-audit", "build/private-cpu-diagnostic/source-audit-full.json",
+                 "--output", "build/private-cpu-diagnostic/closure.json"],
+                cwd=root, check=False, text=True, capture_output=True,
+            )
+            reason = "traverses a symlink" if exposure == "symlink" else "accessible to group or other users"
+            assert closure.returncode == 4 and reason in closure.stderr, (
+                f"source-closure {exposure} root refusal was not reached: {closure.stderr!r}"
+            )
+            assert not (root / "build/private-cpu-diagnostic/closure.json").exists(), (
+                "source-closure refusal wrote a private report"
+            )
+            vendor = subprocess.run(
+                [sys.executable, "-B", str(scripts / "prepare-cpu-diagnostic-vendor.py"), "--prepare", str(root)],
+                cwd=root, check=False, text=True, capture_output=True,
+            )
+            assert vendor.returncode == 4 and reason in vendor.stderr, (
+                f"vendor-preparer {exposure} root refusal was not reached: {vendor.stderr!r}"
+            )
+            assert not (root / "build/private-cpu-diagnostic/cargo-vendor").exists(), (
+                "vendor-preparer refusal created a private tree"
+            )
+
+
+def test_source_closure_success_stdout_is_generic(repo: pathlib.Path, applier: pathlib.Path) -> None:
+    with tempfile.TemporaryDirectory() as temporary:
+        root = pathlib.Path(temporary) / "checkout"
+        scripts = root / "scripts"
+        private = root / "build/private-cpu-diagnostic"
+        scripts.mkdir(parents=True)
+        private.mkdir(parents=True)
+        root = root.resolve()
+        scripts = root / "scripts"
+        private = root / "build/private-cpu-diagnostic"
+        private.chmod(0o700)
+        script = scripts / "verify-cpu-diagnostic-source-closure.py"
+        script.write_bytes((repo / "scripts/verify-cpu-diagnostic-source-closure.py").read_bytes())
+        module = load_source_closure(root)
+        source_root = private / "overlay"
+        pinned = private / "nemu64-test"
+        source_root.mkdir()
+        pinned.mkdir()
+        projection = private / "projection.json"
+        audit = private / "audit.json"
+        projection.write_text("{}\n")
+        audit.write_text("{}\n")
+        overlay = root / "tests/cpu-diagnostic/overlay.patch"
+        overlay.parent.mkdir(parents=True)
+        overlay.write_text("authored-only\n")
+        module.audit_source_closure = lambda *args: {
+            "status": "PRIVATE_SENTINEL_STATUS", "overlay_sha256": "PRIVATE_SENTINEL_HASH",
+            "profile": {"static_module_count": 123456, "required_registration_count": 789,
+                        "required_value_count": 654321},
+        }
+        module.write_private_report = lambda *args: None
+        output = io.StringIO()
+        with contextlib.redirect_stdout(output):
+            code = module.main([
+                "--source-root", str(source_root), "--pinned-source", str(pinned),
+                "--overlay", str(overlay), "--source-projection", str(projection),
+                "--source-audit", str(audit), "--output", str(private / "closure.json"),
+            ])
+        assert code == 0 and output.getvalue() == "PASS: pinned source closure verified; private report written\n", (
+            f"source-closure success stdout was not generic: stdout={output.getvalue()!r}, stderr from guard is private"
+        )
+
+
+def test_unit_graph_private_path_traversal_refused(repo: pathlib.Path, applier: pathlib.Path) -> None:
+    verifier = load_unit_graph_verifier(repo)
+    with tempfile.TemporaryDirectory() as temporary:
+        root = pathlib.Path(temporary) / "private"
+        root.mkdir()
+        outside = pathlib.Path(temporary) / "outside.json"
+        outside.write_text("{}\n")
+        labels = [
+            "graph", "project manifest", "project lock", "sysroot lock", "target spec",
+            "Cargo config", "Cargo home config", "vendor report", "project review",
+            "rust-src audit", "qualification", "toolchain install", "source projection",
+            "source audit", "source closure", "unit graph review output",
+        ]
+        for label in labels:
+            traversal = root / ".." / "outside.json"
+            try:
+                if label == "unit graph review output":
+                    verifier.private_output(traversal, root, label)
+                else:
+                    verifier.private_file(traversal, root, label)
+            except verifier.Refusal as error:
+                assert "path traversal" in str(error), f"wrong path refusal for {label}: {error}"
+            else:
+                raise AssertionError(f"unit-graph verifier accepted traversal for {label}")
+
+
+def test_unit_graph_private_root_refusals_before_report(repo: pathlib.Path, applier: pathlib.Path) -> None:
+    input_flags = [
+        "graph", "project-manifest", "project-lock", "sysroot-lock", "target-spec",
+        "cargo-config", "cargo-home-config", "vendor-report", "project-review",
+        "rust-src-audit", "qualification", "toolchain-install", "source-projection",
+        "source-audit", "source-closure",
+    ]
+    for exposure in ("traversal", "outside", "symlink", "mode"):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = pathlib.Path(temporary) / "checkout"
+            scripts = root / "scripts"
+            scripts.mkdir(parents=True)
+            verifier = scripts / "verify-cpu-diagnostic-unit-graph.py"
+            verifier.write_bytes((repo / "scripts/verify-cpu-diagnostic-unit-graph.py").read_bytes())
+            private = root / "build/private-cpu-diagnostic"
+            outside = pathlib.Path(temporary) / "outside"
+            outside.mkdir()
+            if exposure == "symlink":
+                (root / "build").symlink_to(outside, target_is_directory=True)
+                private_arg = "build/private-cpu-diagnostic"
+            elif exposure == "mode":
+                private.mkdir(parents=True)
+                private.chmod(0o755)
+                private_arg = "build/private-cpu-diagnostic"
+            elif exposure == "traversal":
+                private_arg = "build/../outside"
+            else:
+                private_arg = str(outside)
+            argv = [sys.executable, "-B", str(verifier)]
+            for flag in input_flags:
+                argv.extend([f"--{flag}", f"build/private-cpu-diagnostic/{flag}.json"])
+            argv.extend(["--output", "build/private-cpu-diagnostic/result.json", "--private-root", private_arg])
+            result = subprocess.run(argv, cwd=root, check=False, text=True, capture_output=True)
+            expected = {
+                "traversal": "contains a path traversal",
+                "outside": "outside the checkout",
+                "symlink": "private diagnostic root is missing, linked, or exposed",
+                "mode": "private diagnostic root is missing, linked, or exposed",
+            }[exposure]
+            assert result.returncode == 4 and expected in result.stderr, (
+                f"unit-graph {exposure} root refusal was not reached: {result.stderr!r}"
+            )
+            assert not (private / "result.json").exists(), "unit-graph root refusal wrote a report"
 
 
 def test_later_publish_failure_rolls_back(repo: pathlib.Path, applier: pathlib.Path) -> None:
@@ -724,6 +959,11 @@ def main() -> int:
         ("public_manifest_replacement_hashes_match", test_public_manifest_replacement_hashes_match),
         ("cpu_profile_bss_guard_addresses", test_cpu_profile_bss_guard_addresses),
         ("frozen_unit_graph_acceptance_and_refusals", test_frozen_unit_graph_acceptance_and_refusals),
+        ("prebuild_private_root_refusals_before_side_effects", test_prebuild_private_root_refusals_before_side_effects),
+        ("vendor_and_source_closure_root_refusals", test_vendor_and_source_closure_root_refusals),
+        ("source_closure_success_stdout_is_generic", test_source_closure_success_stdout_is_generic),
+        ("unit_graph_private_path_traversal_refused", test_unit_graph_private_path_traversal_refused),
+        ("unit_graph_private_root_refusals_before_report", test_unit_graph_private_root_refusals_before_report),
         ("static_module_closure_follows_only_explicit_items", test_static_module_closure_follows_only_explicit_items),
         ("static_module_closure_refuses_unknown_inclusion_forms", test_static_module_closure_refuses_unknown_inclusion_forms),
         ("later_publish_failure_rolls_back", test_later_publish_failure_rolls_back),

@@ -182,7 +182,7 @@ def validate_graph(
     project_root: pathlib.Path,
     sysroot_root: pathlib.Path,
 ) -> dict:
-    if not isinstance(graph, dict) or set(graph) != {"version", "units", "roots"} or graph["version"] != 1:
+    if not isinstance(graph, dict) or set(graph) != {"version", "units", "roots"} or type(graph["version"]) is not int or graph["version"] != 1:
         refuse("Cargo unit graph schema is unsupported")
     if target_spec.get("panic-strategy") != "abort":
         refuse("custom target does not declare panic-strategy abort")
@@ -272,6 +272,8 @@ def validate_graph(
     roots = graph.get("roots")
     if not isinstance(units, list) or not units or not isinstance(roots, list) or len(roots) != 1:
         refuse("Cargo unit graph has no unique build root")
+    if any(type(index) is not int or index < 0 or index >= len(units) for index in roots):
+        refuse("Cargo unit graph root index is malformed or outside the graph")
     root_units: list[int] = []
     registry_units: set[tuple[str, str]] = set()
     project_path_units: set[tuple[str, str]] = set()
@@ -424,6 +426,8 @@ def private_file(path: pathlib.Path, root: pathlib.Path, label: str) -> pathlib.
         relative = path.relative_to(root)
     except ValueError:
         refuse(f"{label} is outside private diagnostic storage")
+    if ".." in relative.parts:
+        refuse(f"{label} contains a private path traversal")
     cursor = root
     if cursor.is_symlink():
         refuse("private diagnostic root is linked")
@@ -431,9 +435,38 @@ def private_file(path: pathlib.Path, root: pathlib.Path, label: str) -> pathlib.
         cursor = cursor / part
         if cursor.is_symlink():
             refuse(f"{label} traverses a symbolic link")
-    if not path.is_file():
+    try:
+        resolved = path.resolve(strict=True)
+        resolved.relative_to(root.resolve(strict=True))
+    except (OSError, ValueError):
+        refuse(f"{label} resolves outside private diagnostic storage")
+    if resolved != path or not resolved.is_file():
         refuse(f"{label} is missing or not a regular file")
-    return path
+    return resolved
+
+
+def private_output(path: pathlib.Path, root: pathlib.Path, label: str) -> pathlib.Path:
+    try:
+        relative = path.relative_to(root)
+    except ValueError:
+        refuse(f"{label} is outside private diagnostic storage")
+    if ".." in relative.parts:
+        refuse(f"{label} contains a private path traversal")
+    cursor = root
+    for part in relative.parts[:-1]:
+        cursor = cursor / part
+        if cursor.is_symlink():
+            refuse(f"{label} traverses a symbolic link")
+    if path.is_symlink():
+        refuse(f"{label} is a symbolic link")
+    try:
+        resolved_parent = path.parent.resolve(strict=True)
+        resolved_parent.relative_to(root.resolve(strict=True))
+    except (OSError, ValueError):
+        refuse(f"{label} parent is missing or outside private diagnostic storage")
+    if not resolved_parent.is_dir():
+        refuse(f"{label} parent is not a directory")
+    return resolved_parent / path.name
 
 
 def load_json(path: pathlib.Path, root: pathlib.Path, label: str) -> dict:
@@ -458,11 +491,18 @@ def main(argv: list[str]) -> int:
         parser.add_argument(f"--{name}", required=True)
     parser.add_argument("--private-root", default="build/private-cpu-diagnostic")
     args = parser.parse_args(argv)
+    os.umask(0o077)
     repository = pathlib.Path(__file__).resolve().parents[1]
     private_root = pathlib.Path(args.private_root)
+    if ".." in private_root.parts:
+        refuse("private diagnostic root contains a path traversal")
     if not private_root.is_absolute():
         private_root = repository / private_root
     private_root = pathlib.Path(os.path.abspath(private_root))
+    try:
+        private_root.relative_to(repository)
+    except ValueError:
+        refuse("private diagnostic root is outside the checkout")
     if (
         private_root.is_symlink()
         or not private_root.is_dir()
@@ -484,10 +524,7 @@ def main(argv: list[str]) -> int:
     output = pathlib.Path(args.output)
     if not output.is_absolute():
         output = repository / output
-    try:
-        output.relative_to(private_root)
-    except ValueError:
-        refuse("unit graph review output is outside private diagnostic storage")
+    output = private_output(output, private_root, "unit graph review output")
     if output.exists() or output.is_symlink():
         refuse("refusing to overwrite an existing private unit graph review")
 
@@ -585,9 +622,6 @@ def main(argv: list[str]) -> int:
         "output_path": str(output.relative_to(repository)),
     })
     output_parent = output.parent
-    if not output_parent.is_dir() or output_parent.is_symlink() or output_parent.resolve(strict=True) != output_parent:
-        refuse("unit graph review output parent is missing or linked")
-    output.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
     temporary = output.with_name(f"{output.name}.tmp.{os.getpid()}")
     with temporary.open("x", encoding="utf-8") as stream:
         json.dump(report, stream, sort_keys=True, indent=2)
