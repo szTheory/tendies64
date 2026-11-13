@@ -1,8 +1,8 @@
 ---
 phase: 04-complete-vr4300-cpu
-reviewed: 2026-11-13T03:13:41Z
+reviewed: 2026-11-13T06:44:14Z
 depth: standard
-files_reviewed: 126
+files_reviewed: 130
 files_reviewed_list:
   - core/CMakeLists.txt
   - core/softfloat/f32_add.c
@@ -93,6 +93,7 @@ files_reviewed_list:
   - core/tests/test_digest_trace.c
   - core/tests/test_profile.c
   - core/tests/test_softfloat.c
+  - docs/spec/cpu-diagnostic.md
   - fixtures/manifest.json
   - runner/CMakeLists.txt
   - runner/t64_cpu_diag_protocol.c
@@ -102,12 +103,15 @@ files_reviewed_list:
   - runner/tests/test_cpu_diagnostic.c
   - scripts/apply-cpu-diagnostic-overlay.py
   - scripts/build-cpu-diagnostic.sh
+  - scripts/build-qualified-cpu-diagnostic.py
   - scripts/check-test-inventory.sh
   - scripts/private-tests/accepted-qualification-baseline.py
   - scripts/prepare-cpu-diagnostic-vendor.py
+  - scripts/run-cpu-diagnostic.py
   - scripts/tests/test_cpu_diagnostic_build_controls.py
   - scripts/tests/test_cpu_diagnostic_overlay_controls.py
   - scripts/tests/test_cpu_diagnostic_qualification_controls.py
+  - scripts/tests/test_cpu_diagnostic_run_controls.py
   - scripts/verify-cpu-diagnostic-build.py
   - scripts/verify-cpu-diagnostic-qualification.py
   - scripts/verify-cpu-diagnostic-source-closure.py
@@ -141,14 +145,14 @@ status: clean
 
 # Phase 04: Code Review Report
 
-**Reviewed:** 2026-11-13T03:13:41Z
+**Reviewed:** 2026-11-13T06:44:14Z
 **Depth:** standard  
-**Files Reviewed:** 126
+**Files Reviewed:** 130
 **Status:** clean
 
 ## Summary
 
-The historical baseline and v3 correction supplement remain clean. The authored guest-overlay review added 15 paths to the retained 106-path history, and the canonical runtime-bounds follow-up resolved CR-06. The helper follow-ups resolved CR-07's missing-key failure and CR-08's receipt-to-invoked-objdump digest gap. The prior prebuild-gate review's CR-09 and WR-09 through WR-11 are resolved in the latest bounded follow-up. No new source-grounded findings were found; the reviewed union remains 126 paths. Executor-reported controls and builds were not rerun by this reviewer. No package build hook, diagnostic ROM, or guest execution is established by this review.
+The historical baseline and prior correction supplements remain intact; their reviewed union contained 126 paths and their recorded findings are resolved as documented. The diagnostic-pipeline supplement adds four paths to the union. CR-10, WR-13, and WR-14 are resolved. This bounded re-review verified the deadline guard refuses success after timeout even when cleanup observes exit code zero and an empty process group. Executor-reported controls and builds were not rerun by this reviewer. No package build hook, diagnostic ROM, or guest execution is established by this review.
 
 The historical baseline reviewed the explicit tracked native source and test scope for Phase 4 Plans 01–15 and 17. It re-reviewed the final `runner/t64_cpu_diagnostic.c`, `runner/tests/test_cpu_diagnostic.c`, and `runner/CMakeLists.txt` changes. The Git-unavailable fallback now checks canonical parent ancestors for `.git` markers and refuses repository destinations; the added regression covers this path with an empty `PATH`. The earlier missing-group concern remains a false positive: Plan 14 permits reduced inventories for group-level inspection while refusing whole-inventory completion. A supplemental review of the portability-only change in `runner/t64_cpu_diagnostic.c` confirmed that it uses `S_ISVTX` when visible and the POSIX sticky-bit mask `01000` otherwise; this preserves the existing sticky-directory predicate and its confinement behavior. No source-grounded findings remained in that historical baseline.
 
@@ -585,6 +589,135 @@ _Depth: standard_
 This supplement reuses prior coverage of all seven paths; the reviewed union remains 126 unique paths. It verifies the resolutions of CR-09 and WR-09 through WR-11, including that vendor/source-closure entry points check the private root before receipt reads and that the post-build helper checks the root before opening the qualification receipt or invoking the validator. Unit-graph inputs and outputs are confined to the canonical private root, graph versions and root and dependency indices reject non-integer values, and source-closure success output no longer carries private-derived fields. The new controls exercise these refusal and output boundaries using authored fixtures. No new source-grounded findings were found. Executor-reported controls and normal/ASan checks were not rerun by this reviewer. No real package build hook, diagnostic ROM, or guest execution is claimed.
 
 _Incremental review: 2026-11-13T03:13:41Z_
+_Reviewer: the agent (gsd-code-reviewer)_
+_Depth: standard_
+
+## Incremental Review Supplement: Plan 16 Exception-Park Overlay Correction
+
+**Reviewed:** 2026-11-13T03:37:33Z
+**Frozen source revision:** `5862cd3` (diff base `3e59240`)
+**Current incremental scope:** `scripts/build-cpu-diagnostic.sh`, `scripts/tests/test_cpu_diagnostic_overlay_controls.py`, and `tests/cpu-diagnostic/overlay.patch`
+
+This supplement reuses prior coverage for all three paths; the reviewed union remains 126 unique paths. The new manifest edit is bound to one exact source-file/range digest and has an empty replacement. Its authored control checks the manifest directive, applies a synthetic deletion through the production applier, and confirms that the following permanent park loop remains. The RED evidence labels this a manifest-control failure and explicitly does not establish CPU startup. No actual package compilation, ROM, or guest execution is claimed.
+
+### Warnings
+
+#### WR-12: Existing overlay checkout can bypass the new guarded deletion
+
+**Severity:** WARNING
+**File:** `scripts/build-cpu-diagnostic.sh:10,93-109`; `scripts/verify-cpu-diagnostic-source-closure.py:455-469,478-505`; `tests/cpu-diagnostic/overlay.patch:1`
+**Issue:** When `overlay-checkout-8aa0921` already exists, `prepare_source()` skips applying the current manifest. The new deletion edits `src/exception_handler.rs`, which is already one of that manifest's changed paths, so the old checkout has the same expected changed-path set. Source-closure validation compares only path membership and then records the current file hashes; it does not compare those bytes with the exact result of applying the current manifest to the pinned base. A stale checkout lacking the new park correction can therefore be sealed under the newly named closure report and proceed toward Cargo with source that does not match the current overlay.
+**Fix:** Before sealing a reused checkout, derive expected output bytes for every overlay target from the exact pinned base and current manifest, including generated files, and refuse any mismatch. Add an authored stale-checkout control whose changed-path set matches but whose target bytes omit the new deletion; require refusal before report creation or compilation.
+
+**Disposition:** Resolved in `212fc16`: the production applier now exposes a no-write planner, and source-closure validation derives all expected target bytes from the pinned base and current manifest, checks each applied target through the confined path resolver, and compares bytes before generating a closure report. The authored controls cover accepted bytes, stale content, one-byte drift, and a symlinked target (`scripts/apply-cpu-diagnostic-overlay.py:225-316`; `scripts/verify-cpu-diagnostic-source-closure.py:364-382,489-496`; `scripts/tests/test_cpu_diagnostic_overlay_controls.py:732-809`). File mode differences are intentionally excluded from that byte comparison; private-root and regular-file checks remain in place.
+
+_Incremental review: 2026-11-13T03:37:33Z_
+_Reviewer: the agent (gsd-code-reviewer)_
+_Depth: standard_
+
+## Incremental Review Supplement: WR-12 Exact Applied-Source Binding
+
+**Reviewed:** 2026-11-13T03:51:15Z
+**Frozen source revision:** `212fc16` (diff base `5862cd3`)
+**Current incremental scope:** `scripts/apply-cpu-diagnostic-overlay.py`, `scripts/verify-cpu-diagnostic-source-closure.py`, and `scripts/tests/test_cpu_diagnostic_overlay_controls.py`
+
+This supplement reuses prior coverage for all three paths; the reviewed union remains 126 unique paths. The extracted planner derives exact output bytes from the pinned base and guarded manifest without writing. The production source-closure path compares every derived target with the applied checkout using the existing confined, no-symlink path resolver and refuses mismatches before report creation. The authored controls cover matching bytes and stale, mutated, and symlinked targets. The report does not rely on file mode equality; the private root remains owner-only. WR-12 is resolved. Executor-reported controls were not rerun by this reviewer, and no actual package build or guest execution is claimed here.
+
+_Incremental review: 2026-11-13T03:51:15Z_
+_Reviewer: the agent (gsd-code-reviewer)_
+_Depth: standard_
+
+## Incremental Review Supplement: Plan 16 Volatile Selector Read
+
+**Reviewed:** 2026-11-13T04:25:50Z
+**Frozen source revision:** `03ab52b` (diff base `212fc16`)
+**Current incremental scope:** `tests/cpu-diagnostic/replacements/tests_runner.rs` and `tests/cpu-diagnostic/overlay.patch`
+
+This supplement reuses prior coverage for both paths; the reviewed union remains 126 unique paths. The runner now reads the selector through `read_volatile(addr_of!(...))`, which forces a memory read without first forming a reference to the immutable static. The selector remains a retained `u32` initialized to zero in `.t64_selector`; the linker still aligns and keeps that section, and the updated replacement digest matches the manifest. Selector decoding, bounds checks, test dispatch, transcript, and park lifecycle are unchanged. No source-grounded findings were found. The reported controls were not rerun; this source review does not establish the generated ELF's load instruction, final ROM composition, or guest startup.
+
+_Incremental review: 2026-11-13T04:25:50Z_
+_Reviewer: the agent (gsd-code-reviewer)_
+_Depth: standard_
+
+## Incremental Review Supplement: CPU Diagnostic Unsupported Stop Observations
+
+**Reviewed:** 2026-11-13T05:01:12Z
+**Frozen source revision:** `03ab52b` (diff base)
+**Current incremental scope:** `runner/t64_cpu_diagnostic.c` and `runner/tests/test_cpu_diagnostic.c`
+
+This supplement reviews only the current uncommitted changes in these two paths; both are already included in the retained 126-path review union. The observer now records the CPU unsupported trace event as the last attempted PC/opcode while continuing to mark entry and park only from retirement events. The incomplete stdout branch exposes the stop outcome and bounded execution observations, then exits before batch encoding or output creation. The authored control replaces the second guest instruction after one retirement and checks that the refusal instruction is reported and that no incomplete batch is written. The source-grounded review found no new issue. No tests were rerun by this reviewer, and no private guest input or execution result is reported here.
+
+_Incremental review: 2026-11-13T05:01:12Z_
+_Reviewer: the agent (gsd-code-reviewer)_
+_Depth: standard_
+
+## Incremental Review Supplement: Frozen Phase 04 Diagnostic Pipeline
+
+**Reviewed:** 2026-11-13T05:55:11Z
+**Frozen baseline:** `a3afef3`
+**Current incremental scope:** `runner/t64_cpu_diagnostic.c`, `runner/tests/test_cpu_diagnostic.c`, `scripts/build-cpu-diagnostic.sh`, `scripts/build-qualified-cpu-diagnostic.py`, `scripts/run-cpu-diagnostic.py`, `scripts/tests/test_cpu_diagnostic_build_controls.py`, `scripts/tests/test_cpu_diagnostic_run_controls.py`, `tests/cpu-diagnostic/overlay.patch`, and `docs/spec/cpu-diagnostic.md`
+
+This supplement reuses the historical 126-path review and adds four paths to the exact 130-path union in the frontmatter. I statically reviewed the changed runner and tests, both new orchestration scripts and their controls, the build-script dispatch, the overlay edit, and the specification update. Previously saved source, lock, tool, graph, and asset qualification was reused without reopening private inputs. The handler adaptation is limited to the two guarded CP0 snapshot mnemonics; required test bodies, assertions, membership, and core policy remain unchanged. The completion fast path requires a parsed complete transcript, entry retirement, exact capture accounting, and two observed park jump/NOP cycles; authored controls cover incomplete transcripts and a non-NOP delay slot. No build or test command was run by this reviewer, and no private diagnostic output or external corpus details are included here.
+
+### Critical Issues
+
+#### CR-10: Batch runner trusts an adapter that is not bound to the qualified build
+
+**Severity:** BLOCKER
+**File:** `scripts/run-cpu-diagnostic.py:334-336,426-433,718-727`; `scripts/build-qualified-cpu-diagnostic.py:148-159,178-190`
+**Issue:** The required `--adapter` argument is accepted if it names any non-symlink file. The loader then trusts that executable's self-reported core and profile identities, but the qualified-build seal does not record the adapter digest: the builder computes `adapter_sha` only to detect changes during its own inventory-sealing step, and omits the adapter from the sealed artifacts. During completion verification, the Python runner accepts the adapter's exit code and outer JSON framing without independently validating the report. A substituted executable can therefore return the expected runtime identity and validation responses, then emit a fabricated complete report with exit code zero; the CLI persists it as a successful whole-inventory result.
+**Fix:** Record the selected adapter's path and SHA-256 in the qualified-build seal, verify the digest before every adapter invocation, and refuse a substituted or changed binary. Add a control that replaces the adapter with one that reports matching core/profile fields but fabricates completion.
+**Disposition:** Resolved at `ce87869`: the qualified-build seal records the canonical adapter path and digest; the loader rejects alternate paths and mismatched bytes; and guarded invocation checks the seal and adapter before and after every real adapter call. Run manifests and the current-run pointer also bind the adapter identity. The authored controls exercise matching-identity fabricated completion, alternate-path refusal, and changed-binary refusal.
+
+### Warnings
+
+#### WR-13: Successful build commands can leave descendants running
+
+**Severity:** WARNING
+**File:** `scripts/build-qualified-cpu-diagnostic.py:59-83`
+**Issue:** `run()` waits only for the process leader. It kills the process group on timeout or nonzero exit, but returns normally when the leader exits zero without checking whether its process group still contains children. Because stdout and stderr are regular files, a forked child can inherit them without keeping `wait()` blocked, then continue running after the build step is recorded successful. This applies to the Cargo build and its build-script subprocesses, so a child can continue writing to the private build tree or logs while later steps copy and seal artifacts.
+**Fix:** Ensure the whole process group has exited before returning success, or terminate remaining descendants after the leader exits. Add a control where a successful parent leaves a child alive and assert that the child is gone before the helper reports success.
+**Disposition:** Resolved at `ce87869`: `run()` observes the leader without reaping it, signals its process group after leader exit on both success and failure paths, reaps the leader, and accepts success only after the group disappears. A saved authored control covers a successful parent with a surviving child; the existing timeout descendant control remains. These controls were not rerun by this reviewer.
+
+No source changes were made for this review.
+
+_Incremental review: 2026-11-13T05:55:11Z_
+_Reviewer: the agent (gsd-code-reviewer)_
+_Depth: standard_
+
+## Incremental Review Supplement: Diagnostic Pipeline Fixes and Completion Classification
+
+**Reviewed:** 2026-11-13T06:29:46Z
+**Frozen source revision:** `ce878697da543a64d7cf94ecb830118acdddca59`
+**Current incremental scope:** `scripts/build-qualified-cpu-diagnostic.py`, `scripts/run-cpu-diagnostic.py`, `scripts/tests/test_cpu_diagnostic_build_controls.py`, `scripts/tests/test_cpu_diagnostic_run_controls.py`, `runner/t64_cpu_diagnostic.c`, and `runner/tests/test_cpu_diagnostic.c`
+
+This follow-up reuses the existing 130-path union; all reviewed paths are already listed in the frontmatter. CR-10 is resolved: the qualified seal and per-run manifests bind the production adapter's path and digest, and the runner refuses a different path or changed bytes. `invoke_adapter()` checks that binding before and after each production adapter call, including the startup qualification path. WR-13 is resolved: the build helper now kills the command's process group after leader exit and refuses success until the group is gone. The authored controls include both a fake adapter that reports matching identities while fabricating completion and a successful command whose child outlives its leader. Those saved controls were not rerun by this reviewer.
+
+The bound-hit path now classifies missing entry or the expected park retirement as incomplete when the tick limit is reached. `command_run()` exits before batch encoding for that protocol status. The authored guest control emits a complete transcript while redirecting the park jump away from the required PC and asserts incomplete classification with no batch output. Output-accounting and loss failures still take the harness-error path before this incomplete classification. No new private inputs or diagnostic outputs were inspected.
+
+### Warnings
+
+#### WR-14: A command that crossed its deadline can still be reported successful
+
+**Severity:** WARNING
+**File:** `scripts/build-qualified-cpu-diagnostic.py:68-75,92-95`
+**Issue:** `run()` sets `timed_out = True` when the deadline expires, then signals the process group and waits for the leader. Its final success condition checks only `returncode` and `group_empty`; it ignores `timed_out`. If the leader exits with status zero after the deadline but before the signal takes effect, and the group is then empty, the helper records the expired command as successful and continues to copy or seal its output.
+**Fix:** Include `timed_out` in the failure condition so any expired command fails even if it exits zero during cleanup. Add a deterministic control for the deadline/exit race and assert that no success result is returned.
+**Disposition:** Resolved in the current worktree correction based on `ce87869`: the final success condition now rejects `timed_out` independently of exit status and process-group cleanup. The authored regression controls the OS outcome and clock, confirms timeout, exit-zero, and empty-group preconditions, and asserts the helper refuses success.
+
+_Incremental review: 2026-11-13T06:29:46Z_
+_Reviewer: the agent (gsd-code-reviewer)_
+_Depth: standard_
+
+## Incremental Review Supplement: WR-14 Deadline Race Correction
+
+**Reviewed:** 2026-11-13T06:44:14Z
+**Frozen baseline:** `ce878697da543a64d7cf94ecb830118acdddca59`
+**Current incremental scope:** `scripts/build-qualified-cpu-diagnostic.py` and `scripts/tests/test_cpu_diagnostic_build_controls.py`
+
+This bounded follow-up reuses the exact 130-path union in the frontmatter. `run()` now fails when its deadline expires even if the process exits with status zero and process-group cleanup succeeds, closing WR-14. The deterministic authored control reaches all three conditions and asserts refusal; the saved pre-fix RED identified the intended assertion. I did not rerun tests or builds. No new source-grounded findings remain in this follow-up.
+
+_Incremental review: 2026-11-13T06:44:14Z_
 _Reviewer: the agent (gsd-code-reviewer)_
 _Depth: standard_
 

@@ -83,9 +83,25 @@ findings:
     severity: warning
     disposition: fixed
     title: "Boolean values pass unit-graph integer checks"
+  - id: WR-12
+    severity: warning
+    disposition: fixed
+    title: "Reused overlay checkout is not checked against manifest-derived bytes"
+  - id: CR-10
+    severity: critical
+    disposition: fixed
+    title: "Production adapter is not bound to the qualified build"
+  - id: WR-13
+    severity: warning
+    disposition: fixed
+    title: "Successful build commands can leave descendants running"
+  - id: WR-14
+    severity: warning
+    disposition: fixed
+    title: "A zero exit during cleanup can hide an expired deadline"
 open: 0
-total: 20
-recorded: 2026-11-13T03:14:29Z
+total: 24
+recorded: 2026-11-13
 ---
 
 # Phase 04: Code Review Disposition
@@ -112,11 +128,15 @@ recorded: 2026-11-13T03:14:29Z
 | WR-09 | warning | fixed | Review at ec76c39 confirms strict resolved private-file containment and traversal/symlink refusal for each graph input class. |
 | WR-10 | warning | fixed | Review at ec76c39 confirms source-closure stdout is generic; private derived fields remain in restricted reports. |
 | WR-11 | warning | fixed | Review at ec76c39 confirms graph versions, root indices and dependency indices use exact integer type/range checks, with Boolean/float controls. |
+| WR-12 | warning | fixed | Review at 212fc16 confirms every applied output matches the production applier's pinned-base/manifest plan before sealing; matching, stale, mutated and symlinked cases are covered. |
 
-These findings concern the local receipt gate and its authored controls. The
-earlier native core and inventory-v3 reviews retain their documented scope.
-No external toolchain installation or diagnostic build/run is authorized by
-the withdrawn control result. The reviewed gate/applier findings are closed;
-the prebuild, overlay, composition-helper and renderer findings are closed.
-The executor proceeds to the first bounded qualified compile. These reviews and
-authored controls do not establish SC4 or overall Plan 16 completion.
+| CR-10 | critical | fixed | Qualified adapter path and digest are sealed and checked before and after every real invocation, including startup and aggregation; matching-identity substitution and in-place changes are refused. |
+| WR-13 | warning | fixed | An unreaped leader reserves the job identity while its process group is terminated and checked for disappearance, including successful leader exits. |
+| WR-14 | warning | fixed | An observed timeout independently forces refusal even when the leader exits zero and cleanup succeeds; the regression reaches those exact conditions. |
+
+The configured incremental review is clean across the retained 130-path union.
+The final normal and sanitizer diagnostic selections pass, including the
+registered authored build, routing, substitution and lifecycle controls.
+Historical findings and their evidence remain above and in the review report.
+No requirement or phase completion follows from these source reviews; Plan16
+and SC4 remain open pending the verification-target decision.

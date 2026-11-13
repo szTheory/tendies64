@@ -1,10 +1,10 @@
 ---
 phase: 04-complete-vr4300-cpu
-fixed_at: 2026-11-13T01:45:28Z
+fixed_at: 2026-11-13
 review_path: .planning/phases/04-complete-vr4300-cpu/04-REVIEW.md
 iteration: 3
-findings_in_scope: 4
-fixed: 4
+findings_in_scope: 24
+fixed: 24
 skipped: 0
 status: all_fixed
 ---
@@ -15,9 +15,9 @@ status: all_fixed
 **Source review:** `.planning/phases/04-complete-vr4300-cpu/04-REVIEW.md`
 **Iteration:** 3
 
-**Summary:**
-- Findings in scope: 4
-- Fixed: 4
+**Cumulative summary after the incremental pipeline fixes:**
+- Findings in scope: 24
+- Fixed: 24
 - Skipped: 0
 
 ## Fixed Issues
@@ -134,3 +134,57 @@ root-owned composition helper's 16 authored controls pass separately.
 The configured combined review at ec76c39 is clean. These are prebuild and
 authored-control facts; actual diagnostic compilation, ELF/ROM composition and
 guest startup remain separate required evidence.
+
+## WR-12: Verify reused checkout contents before sealing
+
+The applier now exposes its existing no-write output plan; source-closure
+validation compares every applied target with that exact plan through the
+confined path resolver. A matching path list alone cannot seal stale or edited
+bytes. File owner permission masks may differ under private creation permissions;
+the content and symlink checks remain strict.
+
+All 24 authored controls and the bounded registered normal diagnostic control
+pass. The actual prepared source, existing qualification receipt and saved graph
+pass the corrected checks. The configured review at 212fc16 is clean. Native C,
+CTest registration and core semantics are unchanged; their sanitizer/core/fuzz
+evidence is reused. This closes the source-fidelity finding, not guest execution.
+
+
+## Pipeline execution, adapter identity and command lifecycle
+
+The owned pipeline now uses the existing qualification, source-closure and
+composition checks before building or running. It derives inventory membership
+from the sealed projection and delegates all batch validation and group
+calculation to the production C implementation. The qualified seal binds the
+adapter's canonical path and binary digest before its self-reported identity is
+trusted; each invocation is checked before and after execution. Fresh private
+attempts preserve their own inputs, observations and canonical records.
+
+CR-10 is closed by accepted real-adapter baselines and refusals for a substitute
+that fabricates matching identities/completion and for a changed bound binary.
+WR-13 is closed by job-group cleanup even after a successful leader exit. Its
+regression first failed because the descendant retained its FIFO writer. The
+final helper retains the leader PID until cleanup and requires group
+disappearance. A transient signal error for an exited group is not treated as
+proof of cleanup. WR-14 is closed by independently refusing an observed timeout;
+its RED control reached timeout=true, exit=0 and completed cleanup before failing
+the intended acceptance assertion.
+
+The completion path accepts an early result only through the shared guest parser
+and retired jump/NOP loop observations. Missing entry/park at the tick bound is
+incomplete and produces no authenticated batch; capture loss and invalid output
+remain refused. A complete transcript with the wrong terminal loop first
+reached the intended pre-fix classification failure, then passed the incomplete
+control after the fix. Direct required test instructions and current CPU refusal
+policies are unchanged.
+
+Final owning checks: normal all-target build and the exact three diagnostic
+CTests passed in 14.88 seconds; ASan configure/all-target build and the same
+selection passed in 36.47 seconds with the inherited ASan/UBSan environment.
+The selection executes 20 authored build controls and 11 authored batch controls,
+plus the existing qualification/overlay and C protocol controls. The first
+instrumented substitution fixture hit an earlier target-path refusal; the
+fixture was corrected to prove an accepted instrumented target before reaching
+the intended substitute-path refusal. No control was weakened to accept an
+unreached case. The configured final review is clean. These are authored
+verification facts and contain no external diagnostic result.

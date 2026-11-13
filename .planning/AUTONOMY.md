@@ -90,6 +90,27 @@ applies that direction; update it when the owner changes policy.
   reusable wrapper from observed needs in cohesive reviewed slices. Required
   checks and explicit stops still apply. Recheck saved accepted inputs through
   corrected guards without reinstalling or regenerating unchanged inputs.
+  After an actual qualified tool startup fails, inspect its runtime search paths
+  and already-audited library closure before acquiring or reinstalling tools.
+  Prefer a command-scoped fix that preserves the audited binaries and libraries.
+  Reuse unchanged qualified build objects for a link-only retry while preserving
+  per-attempt logs, lock checks and final artifact identities; ordinary build-tool
+  reuse does not require a new cache system or a full dependency rebuild.
+  Completion-cost correction (owner's elapsed-time sanity check, 2026-11-13):
+  measure time spent after the guest has completed before adding concurrency.
+  Treat a run limit as an upper bound when the owning contract permits an
+  earlier authenticated completion. Preserve the shared result parser and
+  prove the terminal loop through retirement observations; test incomplete
+  transcripts and an altered delay slot before removing post-completion work.
+  Compare exact canonical result bytes and save before/after measurements.
+  Do not weaken refused CPU operations or required membership to improve
+  throughput or make qualification complete.
+  For subsequent subsystem phases, schedule the qualified tool/source seam and
+  a small actual guest attempt before a long native implementation sequence.
+  Preserve all pre-use checks, but use an observed startup/refusal to guide the
+  next slice instead of postponing the first external integration until the
+  subsystem's final plan. Keep expired deadlines authoritative even if a
+  process exits successfully during cleanup.
 - At each discussion, enumerate actual decision points. Fan out one agent per
   independent decision cluster when it saves time/context. Apply relevant
   CPU/cache/virtual-memory, RSP/microcode, RDP/video, audio, memory/bus,

@@ -7,8 +7,8 @@ asvs_level: 1
 security_block_on: high
 created: "2026-11-12"
 scope:
-  included: ["04-01 through 04-15", "04-17", "04-18 native verification"]
-  excluded: ["04-16 external-tool/asset qualification and private SC4 run"]
+  included: ["04-01 through 04-15", "04-17", "04-18 native verification", "04-16 registered pipeline mitigations"]
+  excluded: ["SC4 functional completion and hardware qualification"]
 ---
 
 # Phase 04 — Security
@@ -16,8 +16,9 @@ scope:
 This is the persisted security result for the executed native CPU scope. The
 saved audit verified 33 distinct threats from Plans 01–15 and 17; a bounded
 recheck closed the output-boundary finding after its fix. A first-time Plan18
-audit then closed its two native evidence threats. Plan16 remains pending and
-is not represented as secured here.
+audit then closed its two native evidence threats. The incremental Plan16
+audit closes the registered pipeline qualification and private-output
+mitigations. Plan16 functional completion and SC4 remain open.
 
 ## Trust Boundaries
 
@@ -26,7 +27,7 @@ is not represented as secured here.
 | Guest input to deterministic machine | ROM admission and CPU execution must validate bounded, identified input before machine state changes. | Authored fixture bytes and model state. |
 | Local diagnostic output to repository or host temp | Authored diagnostic execution and batch output are local-only and must not enter public evidence routes. | Local test output; no private results in this report. |
 | Tested source to hosted evidence | Local and hosted results must identify the same exact public source and build configuration. | Source revision, build identity, test outcomes. |
-| Rights-bearing external material to qualification | External test source, tools, and assets require a separate pre-use audit. | Excluded here; Plan16 remains pending. |
+| Rights-bearing external material to qualification | Source, tools, packages, hooks and composed assets are qualified before affected use. | Verified in the incremental Plan16 scope; private records remain local. |
 
 ## Threat Register
 
@@ -34,8 +35,8 @@ The 33-threat saved result covers Plans 01–15 and 17. Plan18's two additional
 threats were audited separately against final source
 `900833d85e23df2c8c02e68055f1b81e4a76f4f2`. Every listed disposition is
 `mitigate`; no risks were accepted or transferred. The `T-04-SC` closure is
-limited to incorporation within the executed native scope and does not close
-Plan16's external tool/package/asset qualification.
+retained for incorporation within the native scope. The incremental audit
+separately verifies its external tool/package/asset extension.
 
 | Threat ID | Category | Component | Severity | Disposition | Mitigation | Status |
 |-----------|----------|-----------|----------|-------------|------------|--------|
@@ -73,7 +74,9 @@ Plan16's external tool/package/asset qualification.
 | T-04-34 | Information disclosure | arithmetic context isolation | high | mitigate | Interleave rounding/flag cases and test explicit context isolation with source/object lint. | closed |
 | T-04-35 | Information disclosure | public native evidence | high | mitigate | Sanitize authored-only evidence and pass rights, PII, and provenance scans before publication. | closed |
 | T-04-36 | Tampering | current-source evidence binding | high | mitigate | Record local source/build identity and verify both hosted jobs against the final exact source. | closed |
-| T-04-SC | Tampering | copied arithmetic and external supply chain | high | mitigate | Close only the audited native copy/provenance scope; preserve the separate Plan16 pre-use audit gate. | closed |
+| T-04-31 | Tampering | diagnostic tool/source/composition correspondence | high | mitigate | Qualify exact inputs and hooks before use; verify applied source, actual composition, complete source membership and sealed production adapter. | closed |
+| T-04-32 | Information disclosure | local diagnostic inputs and outputs | high | mitigate | Confine ignored private storage, refuse CI use and pass publication rights/PII checks; public uploads contain authored evidence only. | closed |
+| T-04-SC | Tampering | copied arithmetic and external supply chain | high | mitigate | Preserve native copy/provenance verification and the separately audited external source/tool/package/asset qualification. | closed |
 
 ## Accepted Risks Log
 
@@ -81,9 +84,12 @@ No accepted risks.
 
 ## Scope Exclusions and Threat Flags
 
-- Plan16 and its T-04-31/T-04-32 external qualification were not audited here.
-  The closed native-scope T-04-SC row does not approve external tool, package,
-  asset, ROM, or result use.
+- The historical native audits excluded Plan16. The 2026-11-13 incremental
+  audit verifies its registered mitigation scope without retroactively upgrading
+  earlier unbound attempts or changing first-use history.
+- No Plan16 SUMMARY exists while its completion requirement is unresolved; an
+  executor Threat Flags section therefore could not be checked. This is an
+  explicit audit limitation, not an invented absence of flags.
 - The Plan18 summary contains no `## Threat Flags` section. The 16 prior
   summaries in the saved audit also contained no such flags.
 - No user approval or risk acceptance was inferred.
@@ -104,4 +110,38 @@ The Plan18 audit tied its findings to source `900833d85e23df2c8c02e68055f1b81e4a
 - [x] `threats_open: 0` for this executed native scope.
 - [x] `status: verified` set in frontmatter.
 
-**Approval:** verified 2026-11-12 for executed native scope. Plan16 remains pending.
+**Approval:** native scope verified 2026-11-12; registered Plan16 pipeline
+mitigations verified 2026-11-13. This is a security mitigation verdict, not phase
+completion, hardware evidence, or authority to change the verification target.
+
+## Plan16 Incremental Mitigation Verification
+
+The configured security auditor returned SECURED for T-04-31, T-04-32 and the
+external extension of T-04-SC. It inspected saved pre-use source/tool/package/
+hook/asset records, current source correspondence and actual composition
+receipts. Sealed artifact and adapter digests matched. Saved actual build
+receipts recorded successful commands, no deadline expiry and process-group
+cleanup. The final focused normal and ASan checks and current tree rights,
+PII and provenance scans passed. The auditor repeated no tests, installations
+or package audits.
+
+The implementation enforces qualification before Cargo, exact applied overlay
+bytes, complete reviewed package/hook closure, actual image composition and
+source-derived inventory membership. The adapter is selected by a sealed
+canonical path and binary digest checked before and after every real
+invocation; C also checks the selected core/profile identities. Ignored private
+storage, confined owner-only paths, CI refusal and restricted public evidence
+uploads enforce the disclosure boundary. Publication history scanning remains
+an orchestrator gate before a push.
+
+No external diagnostic names, denominators, statuses, images, captures or
+identities are reported here. No risk was accepted or transferred. SC4 remains
+unmet, and the owner verification-target decision is still pending.
+
+## Security Audit 2026-11-13
+
+| Metric | Count |
+|---|---|
+| Threats found | 37 |
+| Closed | 37 |
+| Open | 0 |

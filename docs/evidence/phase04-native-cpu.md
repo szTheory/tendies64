@@ -8,7 +8,7 @@ the physical console.
 
 | Item | Measured value |
 | --- | --- |
-| Final tested source revision | `900833d85e23df2c8c02e68055f1b81e4a76f4f2` |
+| Original full native closure source revision | `900833d85e23df2c8c02e68055f1b81e4a76f4f2` |
 | Host | Darwin arm64; Apple clang 21.0.0 (`clang-2100.1.1.101`) |
 | CMake / Ninja | 4.4.3 / 1.13.2 |
 | Gate build identity | `t64-build-v1-9cfb72dbf9f6e4cd81e57e46b6ced340abddcadac00a50338f5313ad91219f5a` |
@@ -16,7 +16,7 @@ the physical console.
 
 The build identities describe the production core inputs and build policy;
 the source revision separately binds the result to the complete repository
-revision. Both final local configurations embed the tested revision above.
+revision. Both original closure configurations embed the tested revision above.
 The build identities are unchanged by the runner-only source fixes; the full
 source revision is the separate identity binding.
 
@@ -144,3 +144,30 @@ profile and the tested source/build identities. It does not establish full
 IPL3 completion, broad game compatibility, cycle accuracy, physical-console
 behavior, or completion of the separate private SC4 qualification. No external
 ROM, source, capture, tool, or diagnostic result was used for this verification.
+
+
+## Authored pipeline controls — 2026-11-13
+
+Source content committed as `27d2177` adds the local pipeline, exact production
+adapter binding, authenticated early completion and bounded command cleanup.
+The owning all-target normal build and exact three diagnostic CTests passed in
+14.88 seconds. The all-target ASan build and the same selection passed in
+36.47 seconds with `ASAN_OPTIONS=detect_leaks=0:halt_on_error=1` and
+`UBSAN_OPTIONS=halt_on_error=1:print_stacktrace=1`. These selections include
+20 authored build controls and 11 authored routing/aggregation controls, plus
+the existing qualification, overlay and C protocol controls. No CTest name or
+inventory changed.
+
+The native core and profile policies are unchanged, so earlier full native
+and admission-fuzz evidence is retained. The current normal and instrumented
+adapter binaries embed source annotation `ce87869`; their semantic core build
+identities remain those recorded above. The final timeout fix affects the host
+build helper and its authored control, not those core binaries. This record
+preserves the actual tested identities and does not relabel a binary following
+a documentation or source-annotation change.
+
+The configured source review is clean, and the incremental security audit
+verifies the registered pipeline qualification and private-output mitigations.
+Those verdicts and authored checks do not establish SC4 or external diagnostic
+completion. External inputs, receipts, captures and derived results remain
+private and are not part of this public evidence record.

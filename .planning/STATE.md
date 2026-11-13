@@ -6,11 +6,11 @@ current_phase: 04
 current_phase_name: Complete VR4300 CPU
 current_plan: 18
 status: executing
-stopped_at: "Phase 4 Plan 16: prebuild review closed; first bounded qualified diagnostic compile is next"
-last_updated: "2026-11-13T03:16:01.081Z"
-last_activity: 2026-11-11
+stopped_at: Phase 4 Plan 16 pipeline implemented and reviewed; authored checks and registered security mitigations pass. SC4 remains unmet; awaiting owner verification-target decision in 04-16-EXECUTION-STATUS.md
+last_updated: "2026-11-13T07:33:34.060Z"
+last_activity: 2026-11-13
 last_activity_desc: Phase 3 complete, transitioned to Phase 4
-state_head: ec76c397adb4bd9d36838ff7121a4ee1fbe1b90e
+state_head: 27d2177313d22e352c5298018f7653f4105c292c
 progress:
   total_phases: 6
   completed_phases: 2
@@ -33,8 +33,8 @@ See: .planning/PROJECT.md (updated 2026-11-10)
 Phase: 04 (Complete VR4300 CPU) — EXECUTING
 Current Plan: 18
 Total Plans in Phase: 18
-Status: Ready to execute
-Last activity: 2026-11-11 — Phase 3 complete, transitioned to Phase 4
+Status: Executing
+Last activity: 2026-11-13 — Phase 4 private diagnostic integration; completion requirement remains open
 
 Progress: [███░░░░░░░] 33%
 
@@ -204,6 +204,7 @@ None yet.
 - D6: release channel and versioning (owner). Blocks releases only
 - D7: name not trademark-cleared. No branding
 - Hardware-behavior requirements are unverified against primary documents until the Phase 3/4 checks
+- Phase 4 completion remains stopped under the current strict CPU profile. Owner decision is pending on adding a separate versioned software compatibility profile and using it for the completion gate. Preserve current refusal rules and required membership until the owner answers; no risk acceptance has been inferred.
 
 ## Deferred Items
 
@@ -215,6 +216,6 @@ Items acknowledged and deferred at milestone close, most recent first:
 
 ## Session Continuity
 
-Last session: 2026-11-13T03:15:59.230Z
-Stopped at: Phase 4 Plan 16: prebuild review closed; first bounded qualified diagnostic compile is next
-Resume file: .planning/phases/04-complete-vr4300-cpu/04-16-PLAN.md
+Last session: 2026-11-13T07:33:33.762Z
+Stopped at: Phase 4 Plan 16 pipeline implemented and reviewed; authored checks and registered security mitigations pass. SC4 remains unmet; awaiting owner verification-target decision in 04-16-EXECUTION-STATUS.md
+Resume file: .planning/phases/04-complete-vr4300-cpu/04-16-EXECUTION-STATUS.md
