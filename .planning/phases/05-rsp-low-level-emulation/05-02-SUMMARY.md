@@ -65,7 +65,9 @@ serial instrumented selection121.37s; these are native verification costs,
 not emulator throughput. The canonical combined gate then passed all113 tests,
 inventory/negative controls and lint in52s on d7479bc. Its saved log is
 build/gate/05-02-canonical-gate.log. Hosted candidate verification is tracked
-separately; no result is inferred for an unfinished run.
+separately. Hosted run43521632823 subsequently passed both platform gates,
+all113 tests, lint84/0, authored evidence and its publication tail on exact
+source d7479bc. F-064 in docs/ci-reviews/LOG.md records measured costs.
 
 ## Scope, threats and next action
 
