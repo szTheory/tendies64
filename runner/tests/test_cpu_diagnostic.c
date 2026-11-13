@@ -1512,7 +1512,7 @@ static void test_cpu_diagnostic_run_controls(const char *executable,
   build_argv[4] = build_control_path;
   result = run_tool("/bin/sh", build_argv, 5u, NULL, NULL, build_output,
                     sizeof build_output);
-  check(result == 0 && strstr(build_output, "Ran 19 tests") != NULL &&
+  check(result == 0 && strstr(build_output, "Ran 20 tests") != NULL &&
             strstr(build_output, "OK") != NULL,
         "existing private CPU build and composition controls run under runner cpu diagnostic");
   argv[0] = "/bin/sh";

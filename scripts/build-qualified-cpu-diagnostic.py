@@ -91,7 +91,7 @@ def run(command, work, label, *, cwd=ROOT, env=None, timeout=30):
             time.sleep(0.01)
     write(work / (label + '.command.json'), {'argv': [str(x) for x in command], 'cwd': str(cwd), 'environment': env,
           'exit': returncode, 'timed_out': timed_out, 'process_group_empty': group_empty, 'seconds': round(time.monotonic() - start, 3)})
-    if returncode or not group_empty:
+    if timed_out or returncode or not group_empty:
         raise ValueError(label + ' failed; inspect its private log')
     return (work / (label + '.stdout.log')).read_bytes()
 

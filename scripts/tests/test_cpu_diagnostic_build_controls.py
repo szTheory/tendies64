@@ -261,6 +261,33 @@ class CompositionControls(unittest.TestCase):
 
 
 class BuildProcessControls(unittest.TestCase):
+    def test_successful_exit_cannot_clear_an_expired_deadline(self):
+        spec = importlib.util.spec_from_file_location(
+            "build_driver", SCRIPT.with_name("build-qualified-cpu-diagnostic.py"))
+        driver = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(driver)
+        with tempfile.TemporaryDirectory() as temporary:
+            private = pathlib.Path(temporary).resolve()
+            work = private / "deadline"
+            work.mkdir(mode=0o700)
+            process = types.SimpleNamespace(pid=123456, wait=lambda timeout: 0)
+            with patch.object(driver, "PRIVATE", private), \
+                 patch.object(driver, "ROOT", private.parent), \
+                 patch.object(driver.subprocess, "Popen", return_value=process), \
+                 patch.object(driver.os, "waitid", return_value=None), \
+                 patch.object(driver.os, "killpg", side_effect=ProcessLookupError), \
+                 patch.object(driver.time, "monotonic", side_effect=[0, 2, 2, 2, 2]):
+                rejected = False
+                try:
+                    driver.run(["authored-deadline-race"], work, "race", timeout=1)
+                except ValueError:
+                    rejected = True
+            report = json.loads((work / "race.command.json").read_text())
+            self.assertTrue(report["timed_out"], "the deadline was actually reached")
+            self.assertEqual(report["exit"], 0, "the leader exited in the cleanup race")
+            self.assertTrue(report["process_group_empty"], "cleanup itself succeeded")
+            self.assertTrue(rejected, "a zero leader exit must not clear an expired deadline")
+
     def test_successful_build_cleans_up_its_descendant(self):
         spec = importlib.util.spec_from_file_location(
             "build_driver", SCRIPT.with_name("build-qualified-cpu-diagnostic.py"))
