@@ -417,7 +417,7 @@ static bool rsp_fetched_vadd_test(void) {
       UINT32_C(0x0000000d)  /* BREAK */
   };
   fixture value;
-  t64_stop_request request = {T64_STOP_GUEST_TICK, UINT64_C(5)};
+  t64_stop_request request = {T64_STOP_GUEST_TICK, UINT64_C(6)};
   t64_stop_result result = {0u, 0u};
   static const uint8_t expected_dmem[] = {0u, 0u, 0x7fu, 0xffu};
   static const uint8_t expected_vector[] = {0x7fu, 0xffu, 0u, 0u,
@@ -453,7 +453,7 @@ static bool rsp_fetched_vadd_test(void) {
   }
   if (t64_rsp_start(value.machine) != T64_STATUS_OK ||
       t64_machine_advance(value.machine, &request, &result) != T64_STATUS_OK ||
-      result.tick != UINT64_C(5) || value.machine->rsp.pc != UINT32_C(0x18) ||
+      result.tick != UINT64_C(6) || value.machine->rsp.pc != UINT32_C(0x18) ||
       value.machine->rsp.gpr[1] != UINT32_C(0x7fff) ||
       value.machine->rsp.retired_instructions != UINT64_C(6)) {
     t64_machine_destroy(value.machine);
@@ -484,11 +484,11 @@ static bool rsp_fetched_vadd_test(void) {
            (unsigned long long)value.machine->rsp.retired_instructions,
            value.machine->rsp.pc);
   }
-  request.value = UINT64_C(13);
+  request.value = UINT64_C(14);
   passed = passed &&
            t64_machine_advance(value.machine, &request, &result) ==
                T64_STATUS_OK &&
-           result.tick == UINT64_C(13) &&
+           result.tick == UINT64_C(14) &&
            result.reason == T64_STOP_REASON_BOUND &&
            !value.machine->halted &&
            value.machine->rsp.pc == UINT32_C(0x34) &&

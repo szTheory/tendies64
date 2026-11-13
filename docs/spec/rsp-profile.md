@@ -29,8 +29,8 @@ integer ready ticks; it does not simulate the five pipeline stages.
 | Operation or dependency | Model timing | Source basis and boundary |
 | --- | --- | --- |
 | SU arithmetic result | Available at the next RSP opportunity | The guide says SU results are available in the next cycle. [Guide, p. 44](https://ultra64.ca/files/documentation/silicon-graphics/SGI_Nintendo_64_RSP_Programmers_Guide.pdf) |
-| SU load or COP move result | Ready at issue tick + 3; a consumer needs two intervening opportunities | The guide gives a three-cycle result delay for SU loads and COP moves. [Guide, p. 43](https://ultra64.ca/files/documentation/silicon-graphics/SGI_Nintendo_64_RSP_Programmers_Guide.pdf) |
-| VU result | Ready at issue tick + 4; a consumer needs three intervening opportunities | The guide gives a four-cycle VU destination delay. [Guide, p. 43](https://ultra64.ca/files/documentation/silicon-graphics/SGI_Nintendo_64_RSP_Programmers_Guide.pdf) |
+| SU load or move into an SU register (MFC2 here) | Ready at issue tick + 3; a consumer needs two intervening opportunities | The guide gives a three-cycle SU destination delay for SU loads and moves into SU registers. [Guide, p. 43](https://ultra64.ca/files/documentation/silicon-graphics/SGI_Nintendo_64_RSP_Programmers_Guide.pdf) |
+| VU result, including MTC2 | Ready at issue tick + 4; a consumer needs three intervening opportunities | The guide gives a four-cycle VU destination delay, including moves into VU registers. [Guide, p. 43](https://ultra64.ca/files/documentation/silicon-graphics/SGI_Nintendo_64_RSP_Programmers_Guide.pdf) |
 | Load or COP move followed by a store | A store waits until the recorded memory-access ready tick; the model produces the required one-opportunity bubble for the documented two-cycle case | The guide says a load followed by a store two cycles later causes one bubble and counts COP moves in that rule. [Guide, p. 43](https://ultra64.ca/files/documentation/silicon-graphics/SGI_Nintendo_64_RSP_Programmers_Guide.pdf) |
 | SU/VU pairing | At most one adjacent SU followed by one VU, in order, in one opportunity; this implementation pairs the supported VADD form only when register dependencies are clear | In-order issue and no reordering are documented. The current opcode subset and one-opportunity-per-tick rate are software policy. [Guide, p. 39](https://ultra64.ca/files/documentation/silicon-graphics/SGI_Nintendo_64_RSP_Programmers_Guide.pdf) |
 | Branch delay | One delay-slot instruction; a taken branch consumes one additional opportunity. Branches issue alone in this model. | The delay slot and taken-branch bubble are documented. The guide also describes branch pairing; this profile intentionally does not implement it yet. [Guide, p. 43](https://ultra64.ca/files/documentation/silicon-graphics/SGI_Nintendo_64_RSP_Programmers_Guide.pdf) |
@@ -52,6 +52,11 @@ the model raises the SP interrupt. [Guide, p. 170](https://ultra64.ca/files/docu
 Reading SP semaphore returns its prior value and sets it. Writing zero clears
 it; a nonzero write is refused. The guide documents read-to-set and zero-write
 release semantics. [Guide, p. 88](https://ultra64.ca/files/documentation/silicon-graphics/SGI_Nintendo_64_RSP_Programmers_Guide.pdf)
+
+At BREAK this functional profile leaves SP_PC on the BREAK instruction.
+Resuming a later instruction therefore requires an explicit halted SP_PC
+write before clearing HALT. This is the current software policy; the cited
+BREAK description alone does not establish the subsequent hardware PC.
 
 SP_PC is at `0x04080000`; the profile masks writes to the aligned 12-bit
 instruction address (`value & 0x0ffc`). Running PC writes are refused with

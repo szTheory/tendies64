@@ -1256,6 +1256,78 @@ static bool partitioned_advance_digest_test(void) {
   return passed;
 }
 
+static bool cop_move_hazard_test(void) {
+  rsp_control_fixture fixture;
+  uint32_t move;
+  bool passed = fixture_create(&fixture);
+
+  if (!passed) {
+    return false;
+  }
+  /* Guide p43: MTC2 writes a VU destination four cycles after issue. */
+  reset_rsp_fixture(&fixture, true);
+  fixture.machine->rsp.gpr[1] = UINT32_C(7);
+  passed = write_imem_word(fixture.machine, 0u, UINT32_C(0x48810800)) &&
+           write_imem_word(fixture.machine, 4u, 0u) &&
+           write_imem_word(fixture.machine, 8u, UINT32_C(0x4a010890)) &&
+           t64_rsp_start(fixture.machine) == T64_STATUS_OK &&
+           advance_to(fixture.machine, UINT64_C(4)) &&
+           fixture.machine->rsp.vector_ready_tick[1] == UINT64_C(5) &&
+           fixture.machine->rsp.retired_instructions == UINT64_C(1) &&
+           fixture.machine->rsp.stall_slots == UINT64_C(3) &&
+           fixture.machine->rsp.pc == UINT32_C(4) &&
+           advance_to(fixture.machine, UINT64_C(5)) &&
+           fixture.machine->rsp.retired_instructions == UINT64_C(3) &&
+           fixture.machine->rsp.vector[2][1] == UINT8_C(14);
+  if (!passed) {
+    printf("# MTC2 readiness actual tick=%llu ready=%llu pc=%u retired=%llu stalls=%llu\n",
+           (unsigned long long)fixture.machine->tick,
+           (unsigned long long)fixture.machine->rsp.vector_ready_tick[1],
+           fixture.machine->rsp.pc,
+           (unsigned long long)fixture.machine->rsp.retired_instructions,
+           (unsigned long long)fixture.machine->rsp.stall_slots);
+  }
+  /* Both MTC2 and MFC2 count as stores in the two-cycle load/store rule. */
+  for (move = 0u; move < 2u; move++) {
+    bool case_passed;
+
+    reset_rsp_fixture(&fixture, true);
+    fixture.machine->rsp.gpr[3] = UINT32_C(0x5678);
+    fixture.machine->rsp.vector[2][0] = UINT8_C(0x12);
+    fixture.machine->rsp.vector[2][1] = UINT8_C(0x34);
+    case_passed =
+        write_imem_word(fixture.machine, 0u, UINT32_C(0x8c010000)) &&
+        write_imem_word(fixture.machine, 4u, 0u) &&
+        write_imem_word(fixture.machine, 8u,
+                        move == 0u ? UINT32_C(0x48831000)
+                                   : UINT32_C(0x48031000)) &&
+        write_imem_word(fixture.machine, 12u, UINT32_C(0x0000000d)) &&
+        t64_rsp_start(fixture.machine) == T64_STATUS_OK &&
+        advance_to(fixture.machine, UINT64_C(3)) &&
+        fixture.machine->rsp.pc == UINT32_C(8) &&
+        fixture.machine->rsp.retired_instructions == UINT64_C(2) &&
+        fixture.machine->rsp.stall_slots == UINT64_C(1) &&
+        fixture.machine->rsp_observed_stall_reason ==
+            T64_RSP_STALL_LOAD_STORE &&
+        advance_to(fixture.machine, UINT64_C(4)) &&
+        fixture.machine->rsp.retired_instructions == UINT64_C(3) &&
+        (move == 0u
+             ? fixture.machine->rsp.vector[2][0] == UINT8_C(0x56) &&
+                   fixture.machine->rsp.vector[2][1] == UINT8_C(0x78)
+             : fixture.machine->rsp.gpr[3] == UINT32_C(0x1234));
+    if (!case_passed) {
+      printf("# COP move %u actual tick=%llu pc=%u retired=%llu stalls=%llu\n",
+             move, (unsigned long long)fixture.machine->tick,
+             fixture.machine->rsp.pc,
+             (unsigned long long)fixture.machine->rsp.retired_instructions,
+             (unsigned long long)fixture.machine->rsp.stall_slots);
+    }
+    passed = case_passed && passed;
+  }
+  t64_machine_destroy(fixture.machine);
+  return passed;
+}
+
 int main(int argc, char **argv) {
   active_pc_write_observation observation;
   bool status_passed;
@@ -1269,11 +1341,21 @@ int main(int argc, char **argv) {
   bool dma_links_passed;
   bool bank_conflict_passed;
   bool partitioned_passed;
+  bool cop_hazards_passed;
   bool active_pc_dma_passed;
   bool unsupported_dp_passed;
   bool load_store_passed;
   bool passed;
 
+  if (argc == 2 &&
+      strcmp(argv[1], "--review-cop-hazards") == 0) {
+    passed = cop_move_hazard_test();
+    puts("TAP version 13");
+    printf("%s 1 - COP moves obey VU destination and load-store delays\n",
+           passed ? "ok" : "not ok");
+    puts("1..1");
+    return passed ? 0 : 1;
+  }
   if (argc == 2 &&
       strcmp(argv[1], "--tdd-active-pc-imem-refusal") == 0) {
     passed = active_pc_imem_write_refusal_test(&observation);
@@ -1311,6 +1393,7 @@ int main(int argc, char **argv) {
   unsupported_dp_passed = unsupported_dp_cp0_refusal_test();
   load_store_passed = load_store_bubble_test();
   partitioned_passed = partitioned_advance_digest_test();
+  cop_hazards_passed = cop_move_hazard_test();
   passed = status_passed && sem_pc_passed && in_flight_passed &&
            active_pc_passed && active_pc_widths_passed &&
            dma_boundaries_passed && dma_span_passed && dma_queue_passed &&
@@ -1357,6 +1440,9 @@ int main(int argc, char **argv) {
       puts("# active-PC refusal fixture setup failed before the write assertion");
     }
   }
-  puts("1..14");
+  printf("%s 15 - COP moves obey VU destination and load-store delays\n",
+         cop_hazards_passed ? "ok" : "not ok");
+  passed = passed && cop_hazards_passed;
+  puts("1..15");
   return passed ? 0 : 1;
 }

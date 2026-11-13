@@ -265,6 +265,7 @@ static t64_status t64_rsp_issue_event(t64_machine *machine,
         machine->rsp_observed_refusal_reason = T64_RSP_REFUSAL_BANK_CONFLICT;
       }
       machine->rsp_observed_outcome = T64_RSP_ATTEMPT_REFUSED;
+      machine->rsp_observed_stall_reason = T64_RSP_STALL_BANK_CONFLICT;
       machine->rsp.stall_slots++;
       return T64_STATUS_OK;
     }
@@ -314,8 +315,9 @@ static t64_status t64_rsp_issue_event(t64_machine *machine,
     vector_element = element;
     vector_value = (uint16_t)machine->rsp.gpr[rt];
     scalar_read_mask |= UINT32_C(1) << rt;
-    vector_write_delay = UINT32_C(3);
+    vector_write_delay = UINT32_C(4);
     is_load_or_cop_move = true;
+    is_store = true;
     supported = true;
   } else if (operation == UINT32_C(0x12) && rs == 0u &&
              (element & UINT32_C(1)) == 0u && element <= UINT32_C(14) &&
@@ -329,6 +331,7 @@ static t64_status t64_rsp_issue_event(t64_machine *machine,
     vector_read_mask |= UINT32_C(1) << rd;
     scalar_write_delay = UINT32_C(3);
     is_load_or_cop_move = true;
+    is_store = true;
     supported = true;
   } else if (rsp_decode_vadd(machine, instruction, &vector_source,
                              &vector_target, &vector_result,
@@ -499,7 +502,7 @@ static t64_status t64_rsp_issue_event(t64_machine *machine,
       }
       machine->rsp_observed_ready_tick = ready_tick;
       machine->rsp_observed_stall_reason =
-          dma_conflict ? T64_RSP_STALL_VECTOR_READY : stall_reason;
+          dma_conflict ? T64_RSP_STALL_BANK_CONFLICT : stall_reason;
       machine->rsp.stall_slots++;
       return T64_STATUS_OK;
     }
@@ -524,6 +527,7 @@ static t64_status t64_rsp_issue_event(t64_machine *machine,
       machine->rsp_observed_refusal_reason = T64_RSP_REFUSAL_BANK_CONFLICT;
     }
     machine->rsp_observed_outcome = T64_RSP_ATTEMPT_REFUSED;
+    machine->rsp_observed_stall_reason = T64_RSP_STALL_BANK_CONFLICT;
     machine->rsp.stall_slots++;
     return T64_STATUS_OK;
   }
