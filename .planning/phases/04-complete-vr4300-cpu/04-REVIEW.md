@@ -1,8 +1,8 @@
 ---
 phase: 04-complete-vr4300-cpu
-reviewed: 2026-11-13T00:42:14Z
+reviewed: 2026-11-13T03:13:41Z
 depth: standard
-files_reviewed: 106
+files_reviewed: 126
 files_reviewed_list:
   - core/CMakeLists.txt
   - core/softfloat/f32_add.c
@@ -104,9 +104,29 @@ files_reviewed_list:
   - scripts/build-cpu-diagnostic.sh
   - scripts/check-test-inventory.sh
   - scripts/private-tests/accepted-qualification-baseline.py
+  - scripts/prepare-cpu-diagnostic-vendor.py
+  - scripts/tests/test_cpu_diagnostic_build_controls.py
   - scripts/tests/test_cpu_diagnostic_overlay_controls.py
   - scripts/tests/test_cpu_diagnostic_qualification_controls.py
+  - scripts/verify-cpu-diagnostic-build.py
   - scripts/verify-cpu-diagnostic-qualification.py
+  - scripts/verify-cpu-diagnostic-source-closure.py
+  - scripts/verify-cpu-diagnostic-unit-graph.py
+  - tests/cpu-diagnostic/overlay.patch
+  - tests/cpu-diagnostic/replacements/allocator.rs
+  - tests/cpu-diagnostic/replacements/exception_imports.rs
+  - tests/cpu-diagnostic/replacements/exception_park.rs
+  - tests/cpu-diagnostic/replacements/graphics_mod.rs
+  - tests/cpu-diagnostic/replacements/linker.ld
+  - tests/cpu-diagnostic/replacements/main.rs
+  - tests/cpu-diagnostic/replacements/panic.rs
+  - tests/cpu-diagnostic/replacements/print.rs
+  - tests/cpu-diagnostic/replacements/randomized_imports.rs
+  - tests/cpu-diagnostic/replacements/randomized_signature.rs
+  - tests/cpu-diagnostic/replacements/rsp_mod.rs
+  - tests/cpu-diagnostic/replacements/tests_prefix.rs
+  - tests/cpu-diagnostic/replacements/tests_runner.rs
+  - tests/cpu-diagnostic/replacements/text_out.rs
   - tools/fixture/t64_rom_pack.c
   - tools/lint/core-lint.sh
   - tools/lint/lint-objects.sh
@@ -121,14 +141,14 @@ status: clean
 
 # Phase 04: Code Review Report
 
-**Reviewed:** 2026-11-13T00:42:14Z
+**Reviewed:** 2026-11-13T03:13:41Z
 **Depth:** standard  
-**Files Reviewed:** 106
+**Files Reviewed:** 126
 **Status:** clean
 
 ## Summary
 
-The historical baseline and v3 correction supplement remain clean. The latest follow-up reviewed the same two overlay-applier paths at frozen revision `a02ade6`; both were already in the 106-path historical scope. It confirms CR-05 and WR-03 through WR-06 remain resolved, and found no new issues in the constrained registration renderer. The earlier invalid-control note is retained as history. No builds or tests were run by this reviewer.
+The historical baseline and v3 correction supplement remain clean. The authored guest-overlay review added 15 paths to the retained 106-path history, and the canonical runtime-bounds follow-up resolved CR-06. The helper follow-ups resolved CR-07's missing-key failure and CR-08's receipt-to-invoked-objdump digest gap. The prior prebuild-gate review's CR-09 and WR-09 through WR-11 are resolved in the latest bounded follow-up. No new source-grounded findings were found; the reviewed union remains 126 paths. Executor-reported controls and builds were not rerun by this reviewer. No package build hook, diagnostic ROM, or guest execution is established by this review.
 
 The historical baseline reviewed the explicit tracked native source and test scope for Phase 4 Plans 01–15 and 17. It re-reviewed the final `runner/t64_cpu_diagnostic.c`, `runner/tests/test_cpu_diagnostic.c`, and `runner/CMakeLists.txt` changes. The Git-unavailable fallback now checks canonical parent ancestors for `.git` markers and refuses repository destinations; the added regression covers this path with an empty `PATH`. The earlier missing-group concern remains a false positive: Plan 14 permits reduced inventories for group-level inspection while refusing whole-inventory completion. A supplemental review of the portability-only change in `runner/t64_cpu_diagnostic.c` confirmed that it uses `S_ISVTX` when visible and the POSIX sticky-bit mask `01000` otherwise; this preserves the existing sticky-directory predicate and its confinement behavior. No source-grounded findings remained in that historical baseline.
 
@@ -363,6 +383,208 @@ The executor reports successful local controls and native gate checks; this revi
 No new source-grounded findings were found in this bounded follow-up.
 
 _Incremental review: 2026-11-13T00:42:14Z_
+_Reviewer: the agent (gsd-code-reviewer)_
+_Depth: standard_
+
+## Incremental Review Supplement: Plan 16 Authored Guest Overlay
+
+**Reviewed:** 2026-11-13T01:26:43Z
+**Frozen source revision:** `6c8b4ef9cff79e27fafb34068c6870ebf5ac9d0e` (diff base `c71a5ca5f57f5ef63a993181baf177eacc12c107`)
+**Current incremental scope:** `tests/cpu-diagnostic/overlay.patch` and the 14 files under `tests/cpu-diagnostic/replacements/`
+
+This supplement adds 15 new unique paths to the existing 106-path historical review; the frontmatter lists the exact 121-path union. I reviewed the authored overlay directives and Rust/linker replacements, reusing prior coverage of the native protocol, runner, and applier contracts. The manifest's replacement-file digests, allowed relative paths, edit shapes, and non-overlapping byte ranges were checked statically. Source-side file and range digests remain enforced by the production applier; I did not inspect the excluded upstream checkout. The replacement snippets contain authored harness code and synthetic public controls, with no upstream source excerpts or private assets observed.
+
+The guest transcript matches the native `t64.cpu-run` v1 parser: root/record keys are canonical and closed, record order and status names match, indices are selector-derived, the completion marker is a string count of three, and the line ends in the canonical newline. The native runner captures output exactly and refuses missing entry, park, or transcript completion. Exception/panic paths park without emitting a completed transcript and remain bounded by the runner's tick/wall supervision. The actual Rust `isviewer::text_out` implementation and other upstream test semantics were not available for this public-slice review, so no claims about them are made. No new dependency is introduced.
+
+No private qualification inputs or results were inspected. The executor reports successful local controls and native gate checks; this reviewer did not rerun them. The report does not claim actual package/source qualification, a qualified receipt, Rust/Cargo build, final ELF/ROM layout, or guest execution.
+
+### Warnings
+
+#### WR-07: Entry and park sentinels are not pinned by the linker
+
+**Severity:** WARNING
+**File:** `tests/cpu-diagnostic/replacements/main.rs:48-60`; `tests/cpu-diagnostic/replacements/tests_runner.rs:1-3`; `tests/cpu-diagnostic/replacements/linker.ld:13-16`; `runner/t64_cpu_diagnostic.c:37-38,406-408`
+**Issue:** The native runner only accepts an observed entry retirement at `0x80000400` and a park retirement at `0x80000420` with a specific jump opcode. The linker script places broad `.text`/`.text.*` inputs in link order but does not assign or assert addresses for `entrypoint` or `park`. The Rust functions have no dedicated link sections; `park` is also eligible for inlining. Thus the runner's completion test depends on incidental compiler/linker layout and can reject an otherwise valid transcript as missing entry/park after a layout change.
+**Fix:** Give the entry and park routines dedicated retained linker sections at explicit addresses and add linker assertions, or make the runner consume and verify their actual addresses from the linked artifact instead of hard-coding them.
+
+#### WR-08: BSS is zeroed before the heap/stack boundary is checked
+
+**Severity:** WARNING
+**File:** `tests/cpu-diagnostic/replacements/main.rs:62-72`; `tests/cpu-diagnostic/replacements/linker.ld:38-47`; `tests/cpu-diagnostic/replacements/allocator.rs:15-36`
+**Issue:** `rust_entrypoint` clears the full linker-defined BSS range before calling `init_allocator`. The only check that BSS ends below the fixed heap boundary occurs later in `init_allocator`, and the linker has no assertion that `__bss_end` stays below `__cpu_heap_limit`/`__cpu_stack_bottom`. If added static storage crosses that boundary, startup first clears heap or reserved stack memory (and could clear beyond the 4 MiB RDRAM window) before the guard refuses allocator initialization.
+**Fix:** Add a link-time assertion that `__bss_end <= __cpu_heap_limit` (and that the stack bounds fit the profile's RDRAM), with a pre-clear runtime guard as defense in depth.
+
+No crash-atomicity, external-source semantics, package closure, final artifact layout, or guest execution is inferred by this review.
+
+_Incremental review: 2026-11-13T01:26:43Z_
+_Reviewer: the agent (gsd-code-reviewer)_
+_Depth: standard_
+
+## Incremental Review Supplement: Plan 16 Entrypoint and Pre-clear Bounds Follow-up
+
+**Reviewed:** 2026-11-13T01:51:00Z
+**Frozen source revision:** `c3c48440479a714f1b5d6458dee13a7a9fd92ba7` (diff base `6c8b4ef9cff79e27fafb34068c6870ebf5ac9d0e`)
+**Current incremental scope:** `tests/cpu-diagnostic/overlay.patch`, `tests/cpu-diagnostic/replacements/linker.ld`, `tests/cpu-diagnostic/replacements/main.rs`, and `tests/cpu-diagnostic/replacements/tests_runner.rs`
+
+This follow-up reuses historical coverage for all four paths; the reviewed union remains 121 unique paths. WR-07 is resolved: entrypoint and park are retained in dedicated sections at the native runner's required addresses, and linker assertions bind their symbols and instruction sizes. The authored park emits the expected jump opcode `0x08000108`. WR-08 is resolved at link time and before the BSS clear: linker assertions bound BSS and stack to profile RDRAM, and startup refuses invalid BSS/heap/stack ranges before writing memory. All 14 replacement-file digests in the corrected overlay manifest match the committed replacement bytes.
+
+The fix report records that a fully authored MIPS linker fixture confirmed the entry and park addresses/opcode and rejected oversized BSS. That does not verify the Rust startup guard or an actual Rust ELF. No Rust/Cargo build or guest execution was run or claimed here; no private inputs were inspected.
+
+### Critical Issues
+
+#### CR-06: Pre-clear guard compares different MIPS64 address representations
+
+**Severity:** BLOCKER
+**File:** `tests/cpu-diagnostic/replacements/main.rs:36-38,74-93`; `tests/cpu-diagnostic/replacements/linker.ld:53-57,72-91`
+**Issue:** The linker assigns BSS and profile addresses in canonical sign-extended MIPS64 form (`0xffffffff80000000` through `0xffffffff80400000`), while `CPU_PROFILE_RDRAM_BASE` and `CPU_PROFILE_RDRAM_END` are zero-extended `usize` constants (`0x80000000` and `0x80400000`). `bss_end_address` is cast from the 64-bit linker symbol, so the check `bss_end_address > CPU_PROFILE_RDRAM_END` is true for every normal linked BSS range. Startup therefore calls `park()` before clearing BSS or entering the tests, and the guest emits no completed transcript.
+**Fix:** Keep both operands in the same address representation: define the runtime RDRAM bounds as canonical sign-extended 64-bit addresses matching the linker symbols, or normalize the linker-derived addresses and bounds to 32-bit offsets before comparing them.
+**Disposition:** Resolved at `8aa0921`: `CPU_PROFILE_RDRAM_BASE` is now `0xffff_ffff_8000_0000`, and `CPU_PROFILE_RDRAM_END` is derived from it, so the runtime guard compares linker-derived canonical MIPS64 addresses against bounds in the same representation. The committed `main.rs` replacement digest matches `overlay.patch`.
+
+No actual Rust ELF, private source projection, qualification receipt, or guest result is inferred by this review.
+
+_Incremental review: 2026-11-13T01:51:00Z_
+_Reviewer: the agent (gsd-code-reviewer)_
+_Depth: standard_
+
+## Incremental Review Supplement: Plan 16 Canonical Runtime Bounds
+
+**Reviewed:** 2026-11-13T01:56:40Z
+**Frozen source revision:** `8aa0921` (diff base `c3c4844`)
+**Current incremental scope:** `tests/cpu-diagnostic/replacements/main.rs` and `tests/cpu-diagnostic/overlay.patch`
+
+This follow-up reuses historical coverage for both paths; the reviewed union remains 121 unique paths. The runtime RDRAM base and end are now canonical sign-extended `usize` addresses matching the linker-defined BSS, heap, stack, and RDRAM symbols. The pre-clear guard compares those addresses directly, without truncating or masking high bits. The `main.rs` replacement digest matches the manifest value in `overlay.patch`, resolving CR-06. WR-07 and WR-08 remain resolved as recorded above.
+
+This static review does not establish an actual Rust ELF or guest startup. No Rust/Cargo build, guest execution, or private input inspection was performed.
+
+No new source-grounded findings were found in this bounded follow-up.
+
+_Incremental review: 2026-11-13T01:56:40Z_
+_Reviewer: the agent (gsd-code-reviewer)_
+_Depth: standard_
+
+## Incremental Review Supplement: Plan 16 Post-build Composition Helper
+
+**Reviewed:** 2026-11-13T02:11:37Z
+**Frozen source revision:** `f7aa2fc` (diff base `8aa0921`)
+**Current incremental scope:** `scripts/verify-cpu-diagnostic-build.py` and `scripts/tests/test_cpu_diagnostic_build_controls.py`
+
+This supplement adds two new public paths to the retained 121-path review; the frontmatter lists the exact 123-path union. The helper checks the actual ELF header, section table and symbols, reconstructs the loaded flat payload from file-backed allocated sections and zero gaps, checks entry/park instructions, selector placement/initializer, and BSS/heap/stack/RDRAM bounds. It checks the ROM header, cleared boot bytes, payload, and excluded-font bytes without writing that asset. The controls use authored ELF-like byte arrays and text tables and patch the expected asset hashes only within their fixtures; they do not contain private assets. The helper invokes the receipt-validated objdump path and marks guest execution unverified.
+
+The successful orchestration path contains a result-shape mismatch: the production qualification validator returns tool paths but not the tool digest map later indexed by this helper. The controls exercise layout/composition functions directly and do not call `main()` through report creation. No builds or tests were run by this reviewer. No actual Rust ELF, ROM, private input, or guest startup is claimed.
+
+### Critical Issues
+
+#### CR-07: Composition success always fails while recording the objdump digest
+
+**Severity:** BLOCKER
+**File:** `scripts/verify-cpu-diagnostic-build.py:251-262`; `scripts/verify-cpu-diagnostic-qualification.py:175-254,869`; `scripts/tests/test_cpu_diagnostic_build_controls.py:132-160`
+**Issue:** `qualification.validate()` returns `build_tools` with only `host_c_compiler` and `target_binutils` keys (`check_tools()` at lines 175–254 constructs that shape; `validate()` returns it at line 869). After valid artifacts pass verification and objdump succeeds, the helper constructs its report using `tools["target_binutils_sha256"]["objdump"]` at line 256. That key is absent, so every successful composition reaches a caught `KeyError`, exits with refusal status, and writes no report. The current controls test the pure layout/composition functions but not this report-creation path.
+**Fix:** Make the returned validator result expose the validated objdump digest (and consume that documented key), or derive the digest from the already validated receipt data retained by `main()`. Add an authored orchestration control that drives a valid composition through report creation and asserts the report includes the bound digest.
+
+**Disposition:** RESOLVED in the `5f01201` follow-up. The helper now hashes the actual objdump path for report creation, and the added authored main-path control exercises report creation using the validator's committed two-key return shape.
+
+_Incremental review: 2026-11-13T02:11:37Z_
+_Reviewer: the agent (gsd-code-reviewer)_
+_Depth: standard_
+
+## Incremental Review Supplement: CR-07 Result-Shape Follow-up
+
+**Reviewed:** 2026-11-13T02:18:25Z
+**Frozen source revision:** `5f01201` (diff base `f7aa2fc`)
+**Current incremental scope:** `scripts/verify-cpu-diagnostic-build.py` and `scripts/tests/test_cpu_diagnostic_build_controls.py`
+
+This review reuses coverage for both paths; the reviewed union remains 123 unique paths. The missing digest-map lookup is gone, and the authored orchestration control reaches report creation using the validator's actual return shape. CR-07 is resolved. The new digest handling still does not establish that the executable invoked is the one whose digest the validator checked.
+
+### Critical Issues
+
+#### CR-08: The invoked objdump can differ from the receipt-qualified executable
+
+**Severity:** BLOCKER
+**File:** `scripts/verify-cpu-diagnostic-build.py:244-254`; `scripts/verify-cpu-diagnostic-qualification.py:233-254,869`
+**Issue:** `qualification.validate()` verifies each target tool's on-disk SHA-256 against the receipt at lines 233-250, then returns only its path at line 254. After that check and other file reads, the helper hashes the path at line 245, invokes that path, and only compares its post-invocation hash to this new local digest at lines 253-254. It never compares the local digest to the receipt-authenticated digest. If the executable is replaced after `validate()` checks it but before line 245, the replacement is invoked and a `PASS_POSTBUILD_COMPOSITION` report records the replacement's hash as though it were qualified. The new control checks successful report creation and digest formatting, but does not exercise this mismatch.
+**Fix:** Preserve the expected objdump SHA-256 from the exact validated receipt in the validator result, then require the pre-invocation digest to equal it. Keep the post-invocation comparison against the same expected digest; ensure the invoked executable is the same verified file (for example, run from an immutable verified snapshot or a verified open file descriptor where supported). Add an authored control that changes the objdump after validation and asserts refusal before invocation and no success report.
+
+**Disposition:** RESOLVED in `cb23a95`. The helper snapshots the receipt before validation, refuses if its bytes change during validation, binds the selected objdump path and expected SHA-256 from that validated receipt, and checks the executable hash before invocation and after inspection. The authored replacement control proves refusal occurs before invocation and without creating a report.
+
+_Incremental review: 2026-11-13T02:18:25Z_
+_Reviewer: the agent (gsd-code-reviewer)_
+_Depth: standard_
+
+## Incremental Review Supplement: CR-08 Digest-Binding Follow-up
+
+**Reviewed:** 2026-11-13T02:24:01Z
+**Frozen source revision:** `cb23a95` (diff base `5f01201`)
+**Current incremental scope:** `scripts/verify-cpu-diagnostic-build.py` and `scripts/tests/test_cpu_diagnostic_build_controls.py`
+
+This review reuses coverage for both paths; the reviewed union remains 123 unique paths. The helper now reads the qualification receipt before validation, rejects a receipt that changes during validation, and compares the receipt-approved objdump path and SHA-256 with the selected executable before invoking it. It rechecks the same approved SHA after inspection and reports that identity. The new authored control mutates the tool at the qualification seam and asserts refusal before subprocess invocation with no report; the success control still exercises the committed validator return shape. CR-08 is resolved. This bounded review found no new source-grounded findings. No builds or tests were run by this reviewer, and no actual Rust ELF, ROM, or guest startup is claimed.
+
+_Incremental review: 2026-11-13T02:24:01Z_
+_Reviewer: the agent (gsd-code-reviewer)_
+_Depth: standard_
+
+## Incremental Review Supplement: Plan 16 Prebuild Gate, Vendor Sources, and Unit Graph
+
+**Reviewed:** 2026-11-13T02:50:53Z
+**Frozen source revision:** `ad33214` (diff base `cb23a95`)
+**Current incremental scope:** `runner/tests/test_cpu_diagnostic.c`, `scripts/build-cpu-diagnostic.sh`, `scripts/prepare-cpu-diagnostic-vendor.py`, `scripts/tests/test_cpu_diagnostic_overlay_controls.py`, `scripts/tests/test_cpu_diagnostic_qualification_controls.py`, `scripts/verify-cpu-diagnostic-qualification.py`, `scripts/verify-cpu-diagnostic-source-closure.py`, and `scripts/verify-cpu-diagnostic-unit-graph.py`
+
+This supplement reuses prior coverage of the five already reviewed paths and adds three new public paths; the unique review union is 126 paths. The receipt gate rebinds the host compiler and target binutils to paths and hashes, and the toolchain install verifies the pinned component archives and fresh-prefix executables. The vendor preparer compares registry archives, source trees, lock checksums, and package identities before publishing the offline vendor tree. Source closure and unit-graph checks bind the pinned overlay, required CPU modules, reviewed package identities, target panic strategy, and build-hook roles. The authored public controls use temporary fixtures and exercise the baseline plus their intended refusals; private audit inputs and results were not inspected. This review does not claim a Cargo package build, build-hook execution, diagnostic ROM, or guest run.
+
+### Critical Issues
+
+#### CR-09: Source preparation follows a symlinked build ancestor outside the repository
+
+**Severity:** BLOCKER
+**File:** `scripts/build-cpu-diagnostic.sh:52-84`; `scripts/verify-cpu-diagnostic-source-closure.py:510-543`
+**Issue:** `verify_private_directory()` checks only whether the final private directory is a symlink. If `build` is a symlink to an external directory and its `private-cpu-diagnostic` child exists, `--prepare-source` accepts that path, then `git clone` writes the overlay checkout through it. The source-closure verifier repeats the gap: it rejects a symlink at the final `private_root_input`, but resolves that path without requiring the result to stay under the canonical repository or checking each ancestor. It then accepts the redirected root and writes the private closure report there. This pre-source step does not invoke the qualification verifier that separately rejects symlinked ancestors. The same checks also accept a group/world-readable private root, and source preparation does not set a restrictive umask before `git clone`; an exposed root can make the private checkout readable before the later qualification gate refuses it.
+**Fix:** Before cloning or reading/writing private artifacts, walk and reject symlinks from the canonical repository through `build/private-cpu-diagnostic`, require the resolved root to equal the expected in-repository path, reject group/world access, and set `umask 077` before creating private files. Add authored controls for a symlinked `build` ancestor and an exposed private root, asserting refusal before clone or report creation.
+
+**Disposition:** Resolved in `ec76c39`: the shell build gate walks each path component from canonical `ROOT`, rejects symlinks and missing directories, checks private-root mode, and sets `umask 077`; the vendor and source-closure entry points independently verify canonical, non-symlinked ancestors and private-root mode before reading receipts or writing reports (`scripts/build-cpu-diagnostic.sh:3-5,53-75,77-84`; `scripts/prepare-cpu-diagnostic-vendor.py:29-40,387-402`; `scripts/verify-cpu-diagnostic-source-closure.py:385-396,523-555`). The authored controls assert refusal before Git invocation or report/tree creation.
+
+### Warnings
+
+#### WR-09: Unit-graph input paths can escape the private root with `..`
+
+**Severity:** WARNING
+**File:** `scripts/verify-cpu-diagnostic-unit-graph.py:422-436,473-483`
+**Issue:** `private_file()` checks `path.relative_to(root)` before normalizing the path. A path lexically under the private root with `..` components therefore passes that check; the loop does not reject `..`, and `path.is_file()` follows the traversal. The subsequent JSON and TOML readers can consume files outside private diagnostic storage, despite the helper's stated private-input boundary.
+**Fix:** Resolve each input strictly, reject symlinks in every component, and require the resolved file to be beneath the canonical private root before reading it. Add a control passing a `..` path for each input class and assert refusal before parsing or writing a review report.
+
+**Disposition:** Resolved in `ec76c39`: unit-graph input/output paths reject `..`, resolve beneath the validated canonical private root, and reject symlink components; output additionally requires an existing contained parent. The public authored control exercises traversal for every graph-input label and the output (`scripts/verify-cpu-diagnostic-unit-graph.py:424-469,483-529`; `scripts/tests/test_cpu_diagnostic_overlay_controls.py:693-718`).
+
+#### WR-10: Source-closure stdout exposes private derived fields
+
+**Severity:** WARNING
+**File:** `scripts/verify-cpu-diagnostic-source-closure.py:544-551`
+**Issue:** After writing the mode-restricted report, the CLI prints the private closure status, projection-derived module/registration/value counts, and overlay digest to stdout. `--prepare-source` passes this output through, so callers that capture command output also capture private audit details outside the private report.
+**Fix:** Keep stdout to a generic success message and retain the detailed fields only in the private report. Add a control asserting the CLI output contains no private status, count, digest, or path fields.
+
+**Disposition:** Resolved in `ec76c39`: source-closure success prints only a fixed generic line, and the authored control injects sentinel private status, digest, and counts then checks the exact stdout (`scripts/verify-cpu-diagnostic-source-closure.py:552-557`; `scripts/tests/test_cpu_diagnostic_overlay_controls.py:650-692`).
+
+#### WR-11: Boolean values pass strict unit-graph integer checks
+
+**Severity:** WARNING
+**File:** `scripts/verify-cpu-diagnostic-unit-graph.py:185-186,273-274,388-389`
+**Issue:** Python treats `True == 1` and `False == 0`. The graph schema check therefore accepts `version: true`, and a `roots` list containing `false` compares equal to the collected root index `[0]`. A malformed graph can reach the success report despite the verifier's closed version/root contract.
+**Fix:** Require `type(graph["version"]) is int` before comparing it with `1`, and validate each root index with `type(index) is int` and an in-range check before comparing roots. Add Boolean-version and Boolean-root refusal controls.
+
+**Disposition:** Resolved in `ec76c39`: graph version and root indices require exact integer types, root indices are range-checked, and dependency indices also retain exact type/range checks. Authored controls reject Boolean and floating-point versions and roots (`scripts/verify-cpu-diagnostic-unit-graph.py:185-186,271-276,365-370`; `scripts/tests/test_cpu_diagnostic_overlay_controls.py:478-491`).
+
+No private source files, ignored audit artifacts, raw logs, or local result counts were inspected or copied into this report. No builds or tests were run by this reviewer.
+
+_Incremental review: 2026-11-13T02:50:53Z_
+_Reviewer: the agent (gsd-code-reviewer)_
+_Depth: standard_
+
+## Incremental Review Supplement: Plan 16 Private-Path and Pre-use Gate Follow-up
+
+**Reviewed:** 2026-11-13T03:13:41Z
+**Frozen source revision:** `ec76c39` (diff base `ad33214`)
+**Current incremental scope:** `scripts/build-cpu-diagnostic.sh`, `scripts/prepare-cpu-diagnostic-vendor.py`, `scripts/tests/test_cpu_diagnostic_overlay_controls.py`, `scripts/verify-cpu-diagnostic-source-closure.py`, `scripts/verify-cpu-diagnostic-unit-graph.py`, `scripts/verify-cpu-diagnostic-build.py`, and `scripts/tests/test_cpu_diagnostic_build_controls.py`
+
+This supplement reuses prior coverage of all seven paths; the reviewed union remains 126 unique paths. It verifies the resolutions of CR-09 and WR-09 through WR-11, including that vendor/source-closure entry points check the private root before receipt reads and that the post-build helper checks the root before opening the qualification receipt or invoking the validator. Unit-graph inputs and outputs are confined to the canonical private root, graph versions and root and dependency indices reject non-integer values, and source-closure success output no longer carries private-derived fields. The new controls exercise these refusal and output boundaries using authored fixtures. No new source-grounded findings were found. Executor-reported controls and normal/ASan checks were not rerun by this reviewer. No real package build hook, diagnostic ROM, or guest execution is claimed.
+
+_Incremental review: 2026-11-13T03:13:41Z_
 _Reviewer: the agent (gsd-code-reviewer)_
 _Depth: standard_
 

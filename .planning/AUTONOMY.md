@@ -78,6 +78,18 @@ applies that direction; update it when the owner changes policy.
   the exact pinned root and fully audited supported packages, with everything
   else refused. Filtering one source kind at a time is not a complete audit;
   absent source fields can represent external path packages too.
+  Persist acquisition URLs, digests, commands, observed results and reviewed
+  hook/license facts when an input is first audited. Adapt that saved record to
+  a consumer's receipt format later; do not defer evidence capture and then
+  repeat unchanged network/source audits to reconstruct it.
+  First-use correction (owner's repeated elapsed-time feedback): once concrete
+  pre-use source, tool, asset and dependency checks pass, prioritize one bounded
+  actual build, artifact check and startup before broadening integration
+  automation. Guard and record that exact command; do not make optional wrapper
+  abstractions or report prose an additional first-use gate. Integrate the
+  reusable wrapper from observed needs in cohesive reviewed slices. Required
+  checks and explicit stops still apply. Recheck saved accepted inputs through
+  corrected guards without reinstalling or regenerating unchanged inputs.
 - At each discussion, enumerate actual decision points. Fan out one agent per
   independent decision cluster when it saves time/context. Apply relevant
   CPU/cache/virtual-memory, RSP/microcode, RDP/video, audio, memory/bus,
