@@ -70,7 +70,7 @@ Decimal phases appear between their surrounding integers in numeric order.
 - [x] **Phase 1: Governance, Rights and Harness Foundation** - ADRs, provenance and fixture policies, the gate command, determinism lint and a six-outcome runner with negative controls, before any emulator code (completed 2026-11-10)
 - [x] **Phase 2: Deterministic Machine Skeleton** - Guest-time scheduler, named profile, memory map, RDRAM, MI, PI/SP DMA, ROM admission and digests equal across interleaved instances (completed 2026-11-10)
 - [x] **Phase 3: First Headless ROM Through Open IPL3** - Primary documents pinned; HLE-PIF plus pinned open IPL3 boots a hello ROM that prints through ISViewer, with digests matching across two operating systems and two compilers (completed 2026-11-11)
-- [ ] **Phase 4: Complete VR4300 CPU** - MIPS III integer, delay slots, CP0, TLB, unaligned access, LL/SC, cache scope and soft-float COP1, with per-group `nemu64-test` CPU status
+- [x] **Phase 4: Complete VR4300 CPU** - MIPS III integer, delay slots, CP0, TLB, unaligned access, LL/SC, cache scope and soft-float COP1, with per-group `nemu64-test` CPU status (completed 2026-11-13)
 - [ ] **Phase 5: RSP Low-Level Emulation** - Scalar and vector units, DMA and status semantics, checked against a permanent scalar VU oracle and the `nemu64-test` RSP groups
 - [ ] **Phase 6: Cold Boot, CPU Timing and Full Base Suite** - RDRAM register protocol, instruction-granular timing and the whole base suite classified by lane with pinned counts
 
@@ -186,7 +186,7 @@ Plans:
   2. COP1 soft-float tests pass for single and double precision in all four rounding modes, including FCR31 cause and flag bits and unimplemented-operation exceptions. The lint shows that the canonical path uses no host floating point
   3. The maintainer can read the written cache-scope decision (which cache behavior is guest-visible), and the functional cache-model tests pass
   4. The maintainer builds `nemu64-test` from its pinned commit, runs it headlessly and gets per-group status for the CPU groups, with inventories pinned by exact count; a missing or reduced test set fails. Until D2 is resolved this runs locally only, and no derived ROM or output is uploaded
-**Plans**: 18/20 plans executed
+**Plans**: 20/20 plans complete
 **Wave 1**
 - [x] 04-01-PLAN.md
 - [x] 04-14-PLAN.md
@@ -238,8 +238,8 @@ Plans:
 
 **Wave 17** *(blocked on Wave 16 completion)*
 - [x] 04-19-PLAN.md — approved separate software-compatibility profile and gate binding
-- [ ] 04-20-PLAN.md — resolve observed compatibility qualification gaps in isolated v2
-- [ ] 04-16-PLAN.md
+- [x] 04-20-PLAN.md — resolve observed compatibility qualification gaps in isolated v2
+- [x] 04-16-PLAN.md
 
 ### Phase 5: RSP Low-Level Emulation
 **Goal**: The RSP runs real microcode on its scalar and vector units from IMEM/DMEM, with DMA and status semantics, checked against a permanent scalar VU reference and the `nemu64-test` RSP groups
@@ -376,7 +376,7 @@ Phase 7 may run in parallel with Phases 5 and 6 once Phase 4 is complete.
 | 1. Governance, Rights and Harness Foundation | v1.0 | 13/13 | Complete | 2026-11-10 |
 | 2. Deterministic Machine Skeleton | v1.0 | 8/8 | Complete | 2026-11-10 |
 | 3. First Headless ROM Through Open IPL3 | v1.0 | 13/13 | Complete | 2026-11-11 |
-| 4. Complete VR4300 CPU | v1.0 | 18/20 | In Progress | - |
+| 4. Complete VR4300 CPU | v1.0 | 20/20 | Complete | 2026-11-13 |
 | 5. RSP Low-Level Emulation | v1.0 | 0/TBD | Not started | - |
 | 6. Cold Boot, CPU Timing and Full Base Suite | v1.0 | 0/TBD | Not started | - |
 | 7. RDP Reference Renderer and VI Scanout | v1.1 | 0/TBD | Not started | - |

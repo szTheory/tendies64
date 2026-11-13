@@ -35,6 +35,11 @@ breadth or polish.
   Linux/GCC and macOS/Clang records agree for the named prepared-warm profile;
   this is smoke evidence, not cold-boot or hardware-accuracy qualification.
 
+- ✓ Scoped VR4300 integer/CP0/MMU/cache/COP1 interpreter with independently
+  expected native tests, preserved strict profile and separately versioned
+  software-compatibility policies — Phase 4. Qualified local CPU reporting
+  is available; this is not full accuracy or hardware qualification.
+
 ### Active
 
 These are hypotheses until shipped and verified. They are scoped further in
@@ -43,9 +48,6 @@ These are hypotheses until shipped and verified. They are scoped further in
 - [ ] A narrow, explicitly named first machine profile (console revision, TV
       type, 4 MB RDRAM baseline, boot route, cartridge-only) with its deferred
       variants listed
-- [ ] A deterministic VR4300/MIPS III CPU core (CP0, exceptions, TLB/virtual
-      memory, caches as needed, alignment, 64-bit ops) with native component
-      tests that have independent expected values
 - [ ] A memory map, RDRAM, PI/cartridge DMA, SI/PIF, MI interrupts and a
       device scheduler that advances bounded guest work in guest time
 - [ ] A boot route that ships no Nintendo PIF/IPL bytes, such as a
@@ -225,6 +227,8 @@ headless hello-ROM slice. No software release has been published.
 | Cartridge-first vertical slice; 64DD as a separate later profile (recommended default from seed and DNA) | Verifiable first profile. 64DD adds disk media, RTC and expansion requirements. | — Pending |
 | Boot without Nintendo PIF/IPL bytes, starting with the open IPL3 route (recommended) | The rights stop applies to Nintendo boot data, and nemu64-test already uses Libdragon IPL3. | — Pending |
 | C17, CMake/Ninja; API/ABI freeze later | ADR-0002 accepted C17 with explicit spike evidence limits; real admission fuzzing added in Phase 2. | ✓ Scoped evidence |
+| Preserve strict CPU and version software compatibility separately | Owner-approved compat-v1/v2 policies use distinct profile/state domains; undefined choices are not silicon evidence. | ✓ Phase 4 scoped checks |
+| Exact local reporting before accuracy claims | Qualified source/tool/assets and shared complete-set gate remain separate from public native CI and hardware qualification. | ✓ Phase 4 reporting |
 | License: Apache-2.0 (owner, 2026-11-09; MIT was an acceptable alternative) | Owner preference. Permissive, with an explicit patent grant. Code copied from other projects must be license-compatible: ISC, MIT, BSD-3 and Unlicense sources are copyable with notices kept; GPL sources (Project64, Mupen64Plus-core) and the Angrylion-Plus legacy MAME license must not be copied. | ✓ Good |
 | Repository visibility: public under the szTheory GitHub account (owner, 2026-11-09) | Owner decision. No PII, credentials or private paths in any tracked file or commit. Commits use the GitHub noreply address. | ✓ Good |
 | Release channel and versioning | Still an open owner decision. Releases wait on it. | — Pending (owner) |
@@ -247,4 +251,4 @@ This document evolves at phase transitions and milestone boundaries.
 4. Update Context with current state
 
 ---
-*Last updated: 2026-11-10 after Phase 2*
+*Last updated: 2026-11-13 after Phase 4*

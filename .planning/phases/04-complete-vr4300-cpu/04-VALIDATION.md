@@ -1,15 +1,19 @@
 ---
 phase: "04"
 slug: complete-vr4300-cpu
-status: planned
-nyquist_compliant: false
+status: validated
+nyquist_compliant: true
 wave_0_complete: true
 created: "2026-11-11"
 ---
 
 # Phase 4 validation contract
 
-Planning is complete; implementation/execution is pending. No new test is represented as passing. nyquist_compliant stays false until actual phase evidence establishes every automated requirement. Wave0 is complete by non-applicability: existing infrastructure suffices and all new tests are implemented with their behavior, never in a setup-only wave.
+Execution is complete. All ten phase requirements have automated behavioral
+owners and passing evidence, including the separately qualified local
+completeness gate. Earlier planning statements below remain historical where
+superseded by the final audit. Wave0 is complete by non-applicability: existing
+infrastructure suffices; new tests arrived with their behavior.
 
 ## Infrastructure and inherited limits
 
@@ -141,7 +145,7 @@ Plan18 runs the full native gate, configures/builds the entire ASan tree, runs t
 - [x] Exact native inventory additions, private manifest semantics, waves and file conflicts are fixed.
 - [x] Every security threat has mitigation/test ownership; private/public boundaries remain explicit.
 - [x] No setup-only Wave0, no deferred umbrella tests, no new public CI or host-FP path.
-- [ ] Actual implementation, per-use qualifications, complete private suite and applicable checks/reviews pass.
+- [x] Actual implementation, per-use qualifications, complete private reporting and applicable checks/reviews pass.
 
 No human approval or risk acceptance is claimed. A concrete qualification failure blocks its affected use; native tests cannot substitute for SC4.
 
@@ -160,3 +164,67 @@ Plan16 follows Plan18 and modifies tracked adapter C/tests. Every Plan16 task no
 `cmake --preset asan && cmake --build --preset asan && ASAN_OPTIONS=detect_leaks=0:halt_on_error=1 UBSAN_OPTIONS=halt_on_error=1:print_stacktrace=1 ctest --preset asan --no-tests=error -R '^(runner\.cpu-diagnostic|runner\.cpu-diagnostic-protocol|runner\.cpu-diagnostic-inventory)$' --output-on-failure`
 
 These are public authored controls through the verified production CLI/shared protocol, never private ROM/results. Any changed code/test invalidates that portion of Plan18's earlier evidence; record the new owning run rather than relabeling old evidence. Core or other subsystem fixes additionally require affected subsystem checks/review and the already specified conditional broader regression/public-native evidence refresh. Reuse unaffected broad/hosted evidence and do not repeat checks solely for metadata. Plan18 remains before private qualification; 18 plans,17 waves,37 tasks and111/113 inventories are unchanged. No implementation, build, test, CI or package use was performed during this planning correction.
+
+## Compatibility validation extension
+
+Plans19/20 add no CTest names or dependencies. They extend the existing
+profile/boot/digest, integer/control/link, CP0/MMU/memory/cache, COP1 and three
+diagnostic owners. The exact native inventories remain111/113. Their portable
+RED/GREEN, review-fix and validation records distinguish actual behavior
+failures from fixture setup mistakes. Selected undefined-operation policies
+are software contracts, not independently measured hardware expectations.
+
+| Task cluster | Requirements | Existing automated owners | Registered threats |
+|---|---|---|---|
+| 04-19 profile/branch/CP0/link policies | CPU-09, VER-01, VER-03 | profile, boot-entry, digest-trace, cpu-integer/control/cp0/link, cop1-state and all three diagnostic controls | T-04-38, T-04-39 |
+| 04-20 cache/COP2/FR0/CP0/address policies | CPU-09, VER-01, VER-03 | profile, boot-entry, cpu-path/integer/cp0/mmu/memory/cache, cop1-arithmetic/state/exceptions and all three diagnostic controls | T-04-40, T-04-41, T-04-42 |
+
+The current diagnostic contract supersedes planning-era version references:
+inventory v3, batch v2 and qualified seal v2 select the immutable v2 profile;
+legacy seal v1 is strict and --compat retains the published v1 profile.
+The source-faithful default-base predicate includes BasicFunctionality,
+RarelyUsed and Weird. Raw undefined PageMask fields remain untranslated;
+TLBR projects them under v2 only. All execution limits and publication stops
+are retained. Historical planning counts/projections above are not current
+execution results.
+
+## Final validation coverage audit — 2026-11-13
+
+The task map above covers all original39 task rows and the two subsequent
+compatibility clusters. Every requirement has a registered behavioral owner,
+negative/edge controls and executed evidence. No missing automated coverage
+was found, so no test-only agent or duplicate gate was dispatched.
+
+| Requirement | Final evidence | Coverage |
+|---|---|---|
+| CPU-01 | cpu-integer/path; full final-source Linux/macOS native gate | COVERED |
+| CPU-02 | cpu-control/exceptions and COP1 branches; explicit nested annul side-effect/retirement regression | COVERED |
+| CPU-03 | cpu-cp0/time with independent masks, clock and fault-order assertions | COVERED |
+| CPU-04 | cpu-mmu/memory and fault/privilege/TLB matrices | COVERED |
+| CPU-05 | cpu-memory/link with width/merge/reservation/refused-effect controls | COVERED |
+| CPU-06 | cpu-icache/dcache/cache-ops plus written scope and v2 isolation | COVERED |
+| CPU-07 | softfloat32/64/isolation, cop1-state/arithmetic/exceptions, host-FP source/object lint | COVERED |
+| CPU-09 | Cited/derived native matrices, independent profile/state reference and explicit setup/RED provenance | COVERED |
+| VER-01 | Qualified pinned local build/startup and unchanged shared C complete-set verification | COVERED |
+| VER-03 | Exact111/113 native inventories/removal controls and separately sealed private exact membership/aggregation | COVERED |
+
+Final-source hosted run43476881467 passes both complete native gates and
+publication tails. Local final all-target normal/instrumented builds and six
+owning COP1/diagnostic checks pass after the conversion correction; earlier
+broader sanitizer/fuzz evidence is reused within its stated unchanged scope.
+Plan16's private authoritative gate succeeds with preserved limits. Its
+complete reporting is not an all-passing or hardware-accuracy claim.
+
+The four judgment-tier transparency prohibitions remain non-authoritative
+unverified flags, and the five unclassified probe flags remain visible in the
+probe ledger. They do not erase any automated obligation. No physical review,
+public diagnostic rights or human acceptance is invented. The explicit
+AUTONOMY soft gate governs routing with those disclosed flags.
+
+## Validation Audit 2026-11-13
+
+| Metric | Count |
+|---|---|
+| Gaps found | 0 |
+| Resolved | 0 |
+| Escalated | 0 |

@@ -118,7 +118,7 @@ status: complete
 
 - `sh scripts/check-test-inventory.sh --selftest` — passed; exact removal controls covered 108 gate and 110 ASan names.
 - `sh scripts/check-test-inventory.sh --preset gate` — passed; inventory count 108.
-- `sh tools/lint/core-lint.sh` — passed; 83 production files, zero violations.
+- `tools/lint/core-lint.sh` (invoked with sh) — passed; 83 production files, zero violations.
 - `cmake --preset gate && cmake --build --preset gate` — full gate all-target build passed.
 - `ctest --preset gate --no-tests=error -R '^(unit\.core\.cpu-path|unit\.core\.softfloat-isolation|unit\.core\.cop1-state|unit\.core\.cpu-control|unit\.core\.cpu-memory)$' --output-on-failure` — passed, 5/5.
 - `cmake --preset asan && cmake --build --preset asan` — full all-target ASan/UBSan build passed.

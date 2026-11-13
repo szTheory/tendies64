@@ -1,7 +1,7 @@
 # Compatibility v2 validation scope
 
-Status: local implementation, required checks and review dispositions pass;
-hosted verification and Plan16 completion remain separate gates.
+Status: local implementation, required checks, review dispositions and final-source
+hosted verification pass. Plan16 separately records its actual completion gate.
 No external diagnostic input, name, count, identity or outcome is published.
 
 - Canonical v2 admission and prepared-state checks pass. Profile digest is

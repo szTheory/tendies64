@@ -64,14 +64,14 @@ API and a playable rights-cleared homebrew. Each maps to a roadmap phase.
 ### VR4300 CPU (CPU)
 
 - [x] **CPU-01**: The VR4300 integer interpreter runs MIPS III 64-bit operations with correct 32-bit sign-extension behavior
-- [ ] **CPU-02**: Branches, branch-likely and delay slots behave correctly, including exceptions in delay slots
+- [x] **CPU-02**: Branches, branch-likely and delay slots behave correctly, including exceptions in delay slots
 - [x] **CPU-03**: CP0 (Count, Compare, Status, Cause, Random, writable masks), exceptions and interrupts behave per the primary manual
 - [x] **CPU-04**: Address translation includes the TLB (refill, invalid, modified, XTLB) and address errors
 - [x] **CPU-05**: Unaligned loads and stores, LL/SC and LLD/SCD behave correctly
 - [x] **CPU-06**: A functional cache model exists, with a written scope decision on what cache behavior is guest-visible
 - [x] **CPU-07**: COP1 uses integer soft-float with correct rounding modes, FCR31 and unimplemented-operation behavior; host floating point is never the canonical path
 - [ ] **CPU-08**: CPU timing at tier 1 (instruction-granular cost) is available, and the cycle-accurate tier is documented as deferred
-- [ ] **CPU-09**: Native component tests use independently sourced expected values, with edge and negative cases for each of the above
+- [x] **CPU-09**: Native component tests use independently sourced expected values, with edge and negative cases for each of the above
 
 ### Boot (BOOT)
 
@@ -82,9 +82,9 @@ API and a playable rights-cleared homebrew. Each maps to a roadmap phase.
 
 ### Fixtures and CI (VER)
 
-- [ ] **VER-01**: Maintainer can build and run the `nemu64-test` `base` suite headlessly from a pinned commit, with per-group status, once its rights are documented (owner stop D2); until then the run is local-only and nothing derived is uploaded
+- [x] **VER-01**: Maintainer can build and run the `nemu64-test` `base` suite headlessly from a pinned commit, with per-group status, once its rights are documented (owner stop D2); until then the run is local-only and nothing derived is uploaded
 - [ ] **VER-02**: Maintainer can see timing, cycle and cop0hazard groups reported as informational, experimental and stress groups kept out of required CI, and a scheduled lane for stress groups
-- [ ] **VER-03**: Maintainer can see test inventories pinned by exact counts, so a missing or reduced test set fails
+- [x] **VER-03**: Maintainer can see test inventories pinned by exact counts, so a missing or reduced test set fails
 - [x] **VER-04**: Maintainer can see CI use explicit runner labels, pinned action SHAs and a measured critical-path review recorded after each run
 - [ ] **VER-05**: Maintainer can see a clean installed package run the same permitted headless fixture through an independent consumer, with relocation and negative controls
 
@@ -216,21 +216,21 @@ re-sequenced at milestone close.
 | BUS-03 | Phase 6 | Pending |
 | BUS-04 | Phase 2 | Complete |
 | CPU-01 | Phase 4 | Complete |
-| CPU-02 | Phase 4 | Pending |
+| CPU-02 | Phase 4 | Complete |
 | CPU-03 | Phase 4 | Complete |
 | CPU-04 | Phase 4 | Complete |
 | CPU-05 | Phase 4 | Complete |
 | CPU-06 | Phase 4 | Complete |
 | CPU-07 | Phase 4 | Complete |
 | CPU-08 | Phase 6 | Pending |
-| CPU-09 | Phase 4 | Pending |
+| CPU-09 | Phase 4 | Complete |
 | BOOT-01 | Phase 3 | Complete |
 | BOOT-02 | Phase 3 | Complete |
 | BOOT-03 | Phase 3 | Complete |
 | BOOT-04 | Phase 3 | Complete |
-| VER-01 | Phase 4 | Pending |
+| VER-01 | Phase 4 | Complete |
 | VER-02 | Phase 6 | Pending |
-| VER-03 | Phase 4 | Pending |
+| VER-03 | Phase 4 | Complete |
 | VER-04 | Phase 1 | Complete |
 | VER-05 | Phase 10 | Pending |
 | RSP-01 | Phase 5 | Pending |

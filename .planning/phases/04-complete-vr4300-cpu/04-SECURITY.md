@@ -170,3 +170,13 @@ correction. The register now contains42 closed threats and none open.
 [Plan20 evidence](04-20-SECURITY.md) preserves source scope, test-evidence
 limits, the missing-SUMMARY flag-check limitation and the correction addendum.
 It does not close SC4, clear publication rights or establish silicon behavior.
+
+## Final summary reconciliation
+
+Plans16/20 now have completed summaries with explicit Threat Flags sections.
+They introduce no unregistered threat or accepted risk. The published source
+is the same reviewed implementation; final exact-source hosted checks and
+private gate observation add evidence without changing mitigation code. The
+saved42-threat closure remains the security scope; functional reporting and
+silicon qualification remain distinct. Earlier pending-plan statements above
+are historical checkpoints, not current open threats.

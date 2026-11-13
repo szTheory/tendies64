@@ -286,3 +286,14 @@ and [correction proof](../../.planning/phases/04-complete-vr4300-cpu/04-20-REVIE
 retain the actual scopes and fixture mistakes. Exact-source hosted verification
 and private Plan16 completion remain separate and are not asserted by these
 native results. No protected input/result enters this record or hosted uploads.
+
+## Final compat-v2 hosted verification
+
+Source `f702f0ca32069f0b9b30040727c3617eab85b786` passes the complete native gate
+on both existing platforms in [run43476881467](https://github.com/szTheory/tendies64/actions/runs/43476881467).
+Both jobs pass all111 tests, exact inventory/selftests, lint83 files/zero
+violations, authored evidence emission, scans and upload. Linux job184s/Gate177s;
+macOS380s/Gate362s. Qualification86/201s and CTest30.60/84.22s dominate work;
+queue is negligible. This adds final-source broad native regression evidence
+after the narrow conversion fix; local pre-correction artifacts stay historical.
+No external diagnostic input or result is used or uploaded by these checks.

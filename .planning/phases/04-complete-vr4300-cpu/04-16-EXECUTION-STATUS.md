@@ -1,6 +1,6 @@
 # Phase 4 Plan 16 execution status
 
-Status: incomplete; approved compatibility-target implementation underway.
+Status: complete; actual shared gate and exact-source hosted verification pass.
 
 The Plan19 native compatibility foundation is now committed and pushed in
 `61c9c17`, with both exact-source hosted jobs green. Plan19's SUMMARY covers
@@ -39,3 +39,26 @@ See [authored native evidence](../../../docs/evidence/phase04-native-cpu.md),
 [code review](04-REVIEW.md), [fix dispositions](04-REVIEW-DISPOSITION.md) and
 [security scope](04-SECURITY.md). These are mitigation and source checks, not
 substitutes for SC4.
+
+## Current execution checkpoint — 2026-11-13
+
+The Plan20 implementation is published at `f702f0c`. Its final normal and
+instrumented owning checks, configured source review and registered security
+checks pass. The complete local attempt finished within unchanged per-case
+limits; the unchanged shared C verifier accepted the exact sealed set.
+Authenticated diagnostic failures remain failures. This establishes complete
+per-group reporting only and does not establish full accuracy or silicon
+qualification. All external inputs, identities, denominators and results
+remain private. The saved private completion receipt binds the tested adapter
+and profile to the canonical records and authoritative group report.
+
+Hosted Linux/macOS native checks are running on the published source. The
+orchestrator owns their observation, summaries and phase verification; no user
+action is needed. Earlier incomplete checkpoints above remain historical.
+
+## Final closeout
+
+Both jobs in hosted run43476881467 pass, including the complete native gate
+and publication tail. Plan16 and Plan20 summaries now record their distinct
+completed scopes. Phase-level verification remains the next orchestrator step.
+No public diagnostic permission or hardware claim follows from this closeout.

@@ -99,8 +99,24 @@ findings:
     severity: warning
     disposition: fixed
     title: "A zero exit during cleanup can hide an expired deadline"
+  - id: P19-WR-01
+    severity: warning
+    disposition: fixed
+    title: "Nested likely-branch annul path has no regression control"
+  - id: P19-WR-02
+    severity: warning
+    disposition: fixed
+    title: "Compatibility uncached LL/SC fault atomicity is untested"
+  - id: P19-WR-03
+    severity: warning
+    disposition: fixed
+    title: "v2 compatibility seal control does not exercise inventory binding"
+  - id: P20-WR-01
+    severity: warning
+    disposition: fixed
+    title: "V2 FR0 aliasing applies to every conversion"
 open: 0
-total: 24
+total: 28
 recorded: 2026-11-13
 ---
 
@@ -140,3 +156,20 @@ registered authored build, routing, substitution and lifecycle controls.
 Historical findings and their evidence remain above and in the review report.
 No requirement or phase completion follows from these source reviews; Plan16
 and SC4 remain open pending the verification-target decision.
+
+## Compatibility review dispositions
+
+The earlier 24 pipeline findings remain above. Plan-local identifiers below
+are qualified to avoid replacing historical findings with reused IDs.
+
+| Finding | Severity | Disposition | Source |
+|---------|----------|-------------|--------|
+| P19-WR-01 | warning | fixed | Nested taken/annul controls plus explicit annulled-slot side-effect and retirement assertions pass normal/instrumented checks; see 04-19-REVIEW.md. |
+| P19-WR-02 | warning | fixed | Uncached read-only SC refusal preserves reservation, GPR, bytes and retirement; independent follow-up and owning tests confirm. |
+| P19-WR-03 | warning | fixed | Real loader/C encoder/shared aggregator cover compatibility inventory binding and cross-profile refusal. |
+| P20-WR-01 | warning | fixed | Scalar conversion destinations retain their requested register and upper word; meaningful RED, owning normal/instrumented GREEN and focused independent re-review are recorded in 04-20-REVIEW-FIX.md and 04-20-REVIEW.md. |
+
+Current canonical review coverage is 135 paths with zero open findings.
+The earlier statement that the target decision is pending is historical;
+the owner-approved policy is recorded in AUTONOMY.md. Source review does
+not itself establish actual diagnostic completion or hardware accuracy.

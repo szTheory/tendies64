@@ -121,6 +121,12 @@ applies that direction; update it when the owner changes policy.
   Host contention is an inference, not proof of the cause. Preserve the failed
   attempt and limits, diagnose one bounded case, then serialize the workloads
   for the next justified attempt rather than widening deadlines.
+  Foreground review correction (2026-11-13): if a handoff stays silent,
+  request a concrete checkpoint and remaining action. If it is then stopped,
+  reconcile the owning durable report/status before resuming, preserve any
+  partial evidence, and label an inline fallback as such. Do not redispatch
+  the same full review or repeat passing gates merely because no report was
+  returned. A timeout or interrupted reviewer never supplies a passing verdict.
 - At each discussion, enumerate actual decision points. Fan out one agent per
   independent decision cluster when it saves time/context. Apply relevant
   CPU/cache/virtual-memory, RSP/microcode, RDP/video, audio, memory/bus,

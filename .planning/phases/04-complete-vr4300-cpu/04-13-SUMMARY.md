@@ -113,8 +113,8 @@ status: complete
 - Focused gate configure/build and six-test selection passed: `unit.core.cop1-arithmetic`, `unit.core.cop1-exceptions`, `unit.core.cop1-state`, `unit.core.softfloat32`, `unit.core.softfloat64`, and `unit.core.softfloat-isolation` (6/6).
 - Full all-target ASan configure/build completed; the same six instrumented tests passed with the inherited ASan/UBSan options (6/6).
 - `sh scripts/check-test-inventory.sh --selftest` passed, including removal controls; exact inventories passed at 110 gate names and 112 ASan names.
-- `sh tools/lint/core-lint.sh` passed with 83 production files and zero violations.
-- One final `sh scripts/gate.sh` passed: all 110 CTests, fixture and boot-evidence checks, inventory checks, and core lint completed successfully.
+- `tools/lint/core-lint.sh` (invoked with sh) passed with 83 production files and zero violations.
+- One final `scripts/gate.sh` (invoked with sh) passed: all 110 CTests, fixture and boot-evidence checks, inventory checks, and core lint completed successfully.
 
 ## Deviations from Plan
 
