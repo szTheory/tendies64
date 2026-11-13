@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import hashlib
+import copy
 import importlib.util
 import json
 import os
@@ -53,6 +54,24 @@ def write_document(path: pathlib.Path, edits: list[dict[str, object]],
 def load_applier(applier: pathlib.Path):
     spec = importlib.util.spec_from_file_location("t64_cpu_overlay_under_test", applier)
     assert spec is not None and spec.loader is not None, "could not load production overlay module"
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+def load_source_closure(project: pathlib.Path):
+    script = project / "scripts/verify-cpu-diagnostic-source-closure.py"
+    spec = importlib.util.spec_from_file_location("t64_cpu_source_closure_under_test", script)
+    assert spec is not None and spec.loader is not None, "could not load source closure verifier"
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+def load_unit_graph_verifier(project: pathlib.Path):
+    script = project / "scripts/verify-cpu-diagnostic-unit-graph.py"
+    spec = importlib.util.spec_from_file_location("t64_cpu_unit_graph_under_test", script)
+    assert spec is not None and spec.loader is not None, "could not load Cargo unit-graph verifier"
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)
     return module
@@ -261,6 +280,252 @@ def test_registration_expression_unknown_forms_refused(repo: pathlib.Path, appli
             raise AssertionError(f"unrecognized registration form was accepted: {lines!r}")
 
 
+def test_public_manifest_replacement_hashes_match(repo: pathlib.Path, applier: pathlib.Path) -> None:
+    overlay_root = repo / "tests/cpu-diagnostic"
+    manifest_path = overlay_root / "overlay.patch"
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    assert manifest.get("schema") == "t64.cpu-source-overlay", "public overlay schema is wrong"
+    edits = manifest.get("edits")
+    assert isinstance(edits, list), "public overlay edits are missing"
+    replacements: dict[str, str] = {}
+    for edit in edits:
+        if "replacement_file" not in edit:
+            continue
+        relative = pathlib.PurePosixPath(edit["replacement_file"])
+        assert (
+            not relative.is_absolute()
+            and ".." not in relative.parts
+            and ".git" not in relative.parts
+        ), f"public replacement path escapes overlay root: {relative}"
+        path = overlay_root.joinpath(*relative.parts)
+        assert not path.is_symlink() and path.is_file(), f"public replacement is missing or linked: {relative}"
+        expected = edit.get("replacement_sha256")
+        assert isinstance(expected, str) and len(expected) == 64, (
+            f"public replacement hash is malformed: {relative}"
+        )
+        observed = sha256(path.read_bytes())
+        assert observed == expected, (
+            f"public replacement bytes differ from manifest: {relative}: "
+            f"expected {expected}, observed {observed}"
+        )
+        replacements[str(relative)] = expected
+    assert len(replacements) == 14, (
+        f"expected 14 authored replacement files, observed {len(replacements)}"
+    )
+
+
+def test_cpu_profile_bss_guard_addresses(repo: pathlib.Path, applier: pathlib.Path) -> None:
+    source = (repo / "tests/cpu-diagnostic/replacements/main.rs").read_text(encoding="utf-8")
+    assert "const CPU_PROFILE_RDRAM_BASE: usize = 0xffff_ffff_8000_0000;" in source, (
+        "RDRAM base is not represented as the canonical 64-bit MIPS address"
+    )
+    assert "const CPU_PROFILE_RDRAM_END: usize = CPU_PROFILE_RDRAM_BASE + CPU_PROFILE_RDRAM_BYTES;" in source, (
+        "RDRAM end does not preserve the canonical 64-bit address domain"
+    )
+    terms = [
+        "bss_start_address < CPU_PROFILE_RDRAM_BASE",
+        "bss_start_address > bss_end_address",
+        "bss_end_address > heap_limit",
+        "bss_end_address > CPU_PROFILE_RDRAM_END",
+        "heap_limit > stack_bottom",
+        "stack_bottom < CPU_PROFILE_RDRAM_BASE",
+        "stack_bottom > stack_top",
+        "stack_top > CPU_PROFILE_RDRAM_END",
+    ]
+    guard_start = source.index("if bss_start_address < CPU_PROFILE_RDRAM_BASE")
+    guard_end = source.index("\n    {", guard_start)
+    guard = source[guard_start:guard_end]
+    positions = [guard.find(term) for term in terms]
+    assert all(position >= 0 for position in positions) and positions == sorted(positions), (
+        "RDRAM layout guard does not retain the exact reviewed comparison order"
+    )
+    assert source.index("ptr::write_bytes(bss_start, 0, bss_length)") > guard_end, (
+        "BSS is cleared before the complete address/layout guard"
+    )
+
+    base = 0xFFFF_FFFF_8000_0000
+    end = base + 4 * 1024 * 1024
+
+    def failure(start: int, bss_end: int, heap: int, stack_bottom: int, stack_top: int) -> str | None:
+        predicates = [
+            (start < base, "bss_start_below_rdram"),
+            (start > bss_end, "bss_end_before_start"),
+            (bss_end > heap, "bss_end_above_heap"),
+            (bss_end > end, "bss_end_above_rdram"),
+            (heap > stack_bottom, "heap_overlaps_stack"),
+            (stack_bottom < base, "stack_below_rdram"),
+            (stack_bottom > stack_top, "stack_end_before_start"),
+            (stack_top > end, "stack_above_rdram"),
+        ]
+        return next((reason for rejected, reason in predicates if rejected), None)
+
+    assert failure(base + 0x1000, base + 0x2000, base + 0x300000,
+                   base + 0x3F0000, end) is None, "canonical in-range BSS/heap/stack was rejected"
+    assert failure(0x80001000, 0x80002000, 0x80300000,
+                   0x803F0000, 0x80400000) == "bss_start_below_rdram", (
+        "zero-extended MIPS addresses were accepted as canonical"
+    )
+    assert failure(base + 0x1000, base + 0x310000, base + 0x300000,
+                   base + 0x3F0000, end) == "bss_end_above_heap", (
+        "BSS overlap with the heap was accepted"
+    )
+    assert failure(base + 0x1000, end + 1, end + 2,
+                   end + 3, end + 4) == "bss_end_above_rdram", (
+        "BSS beyond the 4 MiB profile was accepted"
+    )
+    assert failure(base + 0x2000, base + 0x1000, base + 0x300000,
+                   base + 0x3F0000, end) == "bss_end_before_start", (
+        "end-before-start BSS symbols were accepted"
+    )
+    assert failure(base + 0x1000, base + 0x2000, base + 0x3F0001,
+                   base + 0x3F0000, end) == "heap_overlaps_stack", (
+        "heap/stack overlap was accepted"
+    )
+
+
+def test_frozen_unit_graph_acceptance_and_refusals(repo: pathlib.Path, applier: pathlib.Path) -> None:
+    verifier = load_unit_graph_verifier(repo)
+    target_path = "/tmp/t64-authored-target.json"
+    project_root = pathlib.Path("/tmp/t64-authored-project")
+    sysroot_root = pathlib.Path("/tmp/t64-authored-sysroot/library")
+    root_id = "path+file:///tmp/t64-authored-project#fixture-root@1.0.0"
+    core_id = "path+file:///tmp/t64-authored-sysroot/library/core#0.0.0"
+    alloc_id = "path+file:///tmp/t64-authored-sysroot/library/alloc#0.0.0"
+    builtins_id = "path+file:///tmp/t64-authored-sysroot/library/compiler-builtins/compiler-builtins#compiler_builtins@0.1.160"
+
+    def unit(package: str, name: str, kind: list[str], platform: str | None, panic: str,
+             *, mode: str = "build", features: list[str] | None = None, is_std: bool = False) -> dict:
+        return {
+            "dependencies": [], "features": features or [], "is_std": is_std, "mode": mode,
+            "pkg_id": package, "platform": platform,
+            "profile": {
+                "codegen_backend": None, "codegen_units": None, "debug_assertions": False,
+                "debuginfo": 0, "incremental": False, "lto": "fat", "name": "release",
+                "opt_level": "3", "overflow_checks": False, "panic": panic, "rpath": False,
+                "split_debuginfo": None, "strip": {"resolved": {"Named": "debuginfo"}},
+            },
+            "target": {
+                "crate_types": ["bin" if kind == ["bin"] else "lib"], "doc": True,
+                "doctest": False, "edition": "2021", "kind": kind,
+                "name": name, "src_path": f"/tmp/{name}.rs", "test": kind == ["bin"],
+            },
+        }
+
+    builtin_features = ["arch", "compiler-builtins", "default", "unmangled-names"]
+    graph = {
+        "version": 1, "roots": [0], "units": [
+            unit(root_id, "fixture-root", ["bin"], target_path, "abort", features=["base", "default", "quick"]),
+            unit(core_id, "core", ["lib"], target_path, "abort", is_std=True),
+            unit(alloc_id, "alloc", ["lib"], target_path, "abort", is_std=True),
+            unit(builtins_id, "compiler_builtins", ["lib"], target_path, "abort", features=builtin_features, is_std=True),
+            unit(builtins_id, "build-script-build", ["custom-build"], None, "unwind", mode="build", features=builtin_features, is_std=True),
+            unit(builtins_id, "build-script-build", ["custom-build"], target_path, "unwind", mode="run-custom-build", features=builtin_features, is_std=True),
+        ],
+    }
+    project_manifest = {
+        "package": {"name": "fixture-root", "version": "1.0.0"},
+        "features": {"default": ["base"], "base": ["quick"], "quick": []},
+    }
+    project_lock = {"package": [{"name": "fixture-root", "version": "1.0.0", "dependencies": []}]}
+    sysroot_lock = {"package": [
+        {"name": "core", "version": "0.0.0", "dependencies": []},
+        {"name": "alloc", "version": "0.0.0", "dependencies": ["core", "compiler_builtins"]},
+        {"name": "compiler_builtins", "version": "0.1.160", "dependencies": ["core"]},
+    ]}
+    target_spec = {"panic-strategy": "abort", "__path__": target_path}
+    cargo_config = {"unstable": {"build-std": ["core", "alloc"]}}
+    vendor = {
+        "status": "PASS_PROJECT_AND_SYSROOT_RESOLUTION_SOURCES_MATERIALIZED",
+        "project_packages": [], "sysroot_registry_packages": [],
+        "sysroot_path_packages": [
+            {"name": "core", "version": "0.0.0"},
+            {"name": "alloc", "version": "0.0.0"},
+            {"name": "compiler_builtins", "version": "0.1.160"},
+        ],
+    }
+    review = {"status": "PASS_INPUT_AUDIT_NO_USE", "external_code_executed": False, "packages": []}
+    rust_src = {
+        "build_std_requested": ["core", "alloc"],
+        "source_derived_expected_compile_packages": [
+            {"name": "core", "version": "0.0.0", "build_script_review": "No build.rs"},
+            {"name": "alloc", "version": "0.0.0", "build_script_review": "No build.rs"},
+            {"name": "compiler_builtins", "version": "0.1.160", "build_script_review": "Reviewed build.rs; c branch disabled"},
+        ],
+    }
+
+    def validate(graph_value: dict) -> dict:
+        return verifier.validate_graph(graph_value, project_manifest, project_lock, sysroot_lock,
+                                       target_spec, cargo_config, vendor, review, rust_src,
+                                       project_root, sysroot_root)
+
+    accepted = validate(graph)
+    assert accepted["status"] == "PASS_FROZEN_OFFLINE_UNIT_GRAPH" and accepted["built"] is False, (
+        "valid authored graph did not pass as graph-only evidence"
+    )
+    cases = []
+    mismatch = copy.deepcopy(graph)
+    mismatch["units"][0]["profile"]["panic"] = "unwind"
+    cases.append((mismatch, "target panic mismatch was accepted"))
+    enabled_c = copy.deepcopy(graph)
+    enabled_c["units"][3]["features"].append("c")
+    cases.append((enabled_c, "compiler_builtins C feature was accepted"))
+    extra_feature = copy.deepcopy(graph)
+    extra_feature["units"][0]["features"].append("cycle")
+    cases.append((extra_feature, "unapproved root feature was accepted"))
+    for candidate, message in cases:
+        refused = False
+        try:
+            validate(candidate)
+        except verifier.Refusal:
+            refused = True
+        assert refused, message
+
+
+def test_static_module_closure_follows_only_explicit_items(repo: pathlib.Path, applier: pathlib.Path) -> None:
+    module = load_source_closure(repo)
+    with tempfile.TemporaryDirectory() as temporary:
+        root = pathlib.Path(temporary)
+        (root / "src/alpha").mkdir(parents=True)
+        (root / "src/inline").mkdir(parents=True)
+        (root / "src/main.rs").write_text(
+            '// mod comment_only;\n'
+            'const TEXT: &str = "mod string_only;";\n'
+            'mod alpha;\n'
+            'mod inline { pub mod nested; }\n',
+            encoding="utf-8",
+        )
+        (root / "src/alpha.rs").write_text("pub mod leaf;\n", encoding="utf-8")
+        (root / "src/alpha/leaf.rs").write_text("pub const VALUE: u8 = 1;\n", encoding="utf-8")
+        (root / "src/inline/nested.rs").write_text("pub const VALUE: u8 = 2;\n", encoding="utf-8")
+        files, edges = module.discover_module_closure(root)
+        expected = {
+            "src/main.rs", "src/alpha.rs", "src/alpha/leaf.rs", "src/inline/nested.rs"
+        }
+        assert set(files) == expected, f"module closure differs: {sorted(files)}"
+        assert len(edges) == 3, f"expected three external modules, observed {len(edges)}"
+
+
+def test_static_module_closure_refuses_unknown_inclusion_forms(repo: pathlib.Path, applier: pathlib.Path) -> None:
+    module = load_source_closure(repo)
+    cases = [
+        ("mod missing;\n", "missing external module"),
+        ('#[path = "elsewhere.rs"] mod linked;\n', "unreviewed Rust path attribute"),
+        ('#[cfg(feature = "optional")] mod conditional;\n', "conditional source closure"),
+        ('include!("extra.rs");\n', "unreviewed source inclusion macro"),
+    ]
+    for source, reason in cases:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = pathlib.Path(temporary)
+            (root / "src").mkdir()
+            (root / "src/main.rs").write_text(source, encoding="utf-8")
+            try:
+                module.discover_module_closure(root)
+            except ValueError as error:
+                assert reason in str(error), f"unexpected source closure refusal: {error}"
+            else:
+                raise AssertionError(f"unreviewed module inclusion form was accepted: {source!r}")
+
+
 def test_later_publish_failure_rolls_back(repo: pathlib.Path, applier: pathlib.Path) -> None:
     module = load_applier(applier)
     with tempfile.TemporaryDirectory() as temporary:
@@ -456,6 +721,11 @@ def main() -> int:
         ("schema_version_types_refused", test_schema_version_types_refused),
         ("registration_expression_forms_preserved", test_registration_expression_forms_preserved),
         ("registration_expression_unknown_forms_refused", test_registration_expression_unknown_forms_refused),
+        ("public_manifest_replacement_hashes_match", test_public_manifest_replacement_hashes_match),
+        ("cpu_profile_bss_guard_addresses", test_cpu_profile_bss_guard_addresses),
+        ("frozen_unit_graph_acceptance_and_refusals", test_frozen_unit_graph_acceptance_and_refusals),
+        ("static_module_closure_follows_only_explicit_items", test_static_module_closure_follows_only_explicit_items),
+        ("static_module_closure_refuses_unknown_inclusion_forms", test_static_module_closure_refuses_unknown_inclusion_forms),
         ("later_publish_failure_rolls_back", test_later_publish_failure_rolls_back),
         ("rollback_failure_preserves_recovery_copy", test_rollback_failure_preserves_recovery_copy),
         ("recovery_mode_failure_preserves_original_bytes", test_recovery_mode_failure_preserves_original_bytes),

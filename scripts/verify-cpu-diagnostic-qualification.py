@@ -201,16 +201,23 @@ def check_tools(
         refuse("host C compiler SHA-256 is malformed")
     if sha256_path(compiler_path, "host C compiler") != compiler["sha256"]:
         refuse("host C compiler SHA-256 does not match the reviewed executable")
-    requested_compiler = executable_candidate(
-        repository, os.environ.get("CC", "cc"), "selected host C compiler"
-    )
-    if requested_compiler != compiler_path:
-        refuse("selected host C compiler path differs from the reviewed executable")
+    # The receipt's canonical path is the executable the builder will use. If
+    # the caller explicitly selects CC, require it to resolve to that exact
+    # file; when CC is absent, don't silently substitute PATH's `cc` for the
+    # receipt-bound compiler.
+    selected_compiler = os.environ.get("CC")
+    if selected_compiler is not None:
+        requested_compiler = executable_candidate(
+            repository, selected_compiler, "selected host C compiler"
+        )
+        if requested_compiler != compiler_path:
+            refuse("selected host C compiler path differs from the reviewed executable")
 
     binutils = tools["target_binutils"]
     if not isinstance(binutils, list):
         refuse("target binutils review is missing")
     records: dict[str, str] = {}
+    record_hashes: dict[str, str] = {}
     env_names = {
         "as": "T64_MIPS_AS",
         "ld": "T64_MIPS_LD",
@@ -249,9 +256,15 @@ def check_tools(
         if digest != row["sha256"]:
             refuse(f"target {name} SHA-256 differs from the reviewed executable")
         records[name] = str(recorded_path)
+        record_hashes[name] = digest
     if set(records) != REQUIRED_TARGET_TOOLS:
         refuse("target binutils review is incomplete")
-    return {"host_c_compiler": str(compiler_path), "target_binutils": records}
+    return {
+        "host_c_compiler": str(compiler_path),
+        "host_c_compiler_sha256": compiler["sha256"],
+        "target_binutils": records,
+        "target_binutils_sha256": record_hashes,
+    }
 
 
 def lock_registry_packages(
@@ -743,7 +756,7 @@ def validate(receipt_path: pathlib.Path, repository: pathlib.Path) -> dict:
     closure_exclusions = closure.get("excluded_before_compile", []) if isinstance(closure, dict) else None
     if (
         not isinstance(closure, dict)
-        or closure.get("status") != "PASS_PREBUILD"
+        or closure.get("status") != "PASS_PREBUILD_SOURCE"
         or closure.get("source_revision") != SOURCE_REVISION
         or not isinstance(closure_exclusions, list)
         or any(not isinstance(value, str) for value in closure_exclusions)
@@ -871,14 +884,15 @@ def validate(receipt_path: pathlib.Path, repository: pathlib.Path) -> dict:
 
 def main() -> int:
     compiler_path_mode = len(sys.argv) == 4 and sys.argv[1] == "--compiler-path"
-    if len(sys.argv) != (4 if compiler_path_mode else 3):
+    tool_paths_json_mode = len(sys.argv) == 4 and sys.argv[1] == "--tool-paths-json"
+    if len(sys.argv) != (4 if compiler_path_mode or tool_paths_json_mode else 3):
         print(
-            "usage: verify-cpu-diagnostic-qualification.py [--compiler-path] RECEIPT REPOSITORY",
+            "usage: verify-cpu-diagnostic-qualification.py [--compiler-path|--tool-paths-json] RECEIPT REPOSITORY",
             file=sys.stderr,
         )
         return 2
     try:
-        if compiler_path_mode:
+        if compiler_path_mode or tool_paths_json_mode:
             receipt_arg, repository_arg = sys.argv[2], sys.argv[3]
         else:
             receipt_arg, repository_arg = sys.argv[1], sys.argv[2]
@@ -890,6 +904,8 @@ def main() -> int:
         return 4
     if compiler_path_mode:
         print(tools["host_c_compiler"])
+    elif tool_paths_json_mode:
+        print(json.dumps(tools, sort_keys=True, separators=(",", ":")))
     else:
         print("pre-use qualification accepted")
     return 0

@@ -38,9 +38,13 @@ def executable(path: pathlib.Path, body: str = "#!/bin/sh\nexit 0\n") -> None:
     path.chmod(0o700)
 
 
-def call_build_script(repository: pathlib.Path, environment: dict[str, str]) -> subprocess.CompletedProcess[str]:
+def call_build_script(
+    repository: pathlib.Path,
+    environment: dict[str, str],
+    mode: str = "--qualify",
+) -> subprocess.CompletedProcess[str]:
     return subprocess.run(
-        ["/bin/sh", str(repository / "scripts/build-cpu-diagnostic.sh"), "--qualify"],
+        ["/bin/sh", str(repository / "scripts/build-cpu-diagnostic.sh"), mode],
         check=False,
         text=True,
         stdout=subprocess.PIPE,
@@ -242,10 +246,14 @@ def main() -> int:
                 (target_private_root / "qualification.json").chmod(0o600)
                 (scratch / "build").symlink_to(target_private_root.parent)
                 expected = "private qualification root traverses a symlink"
-            result = call_build_script(scratch, env)
-            reached += 1
-            require(result.returncode == 4 and expected in result.stdout, f"{kind} missed its refusal: {result.stdout}")
-            require(not marker.exists(), f"{kind} reached the fake compiler")
+            for mode in ("--qualify", "--install-toolchain"):
+                result = call_build_script(scratch, env, mode)
+                reached += 1
+                require(
+                    result.returncode == 4 and expected in result.stdout,
+                    f"{kind} missed its {mode} refusal: {result.stdout}",
+                )
+                require(not marker.exists(), f"{kind} {mode} reached the fake compiler")
 
         overlay_report = root / "overlay-controls.junit.xml"
         overlay_controls = source_root / "scripts/tests/test_cpu_diagnostic_overlay_controls.py"
@@ -265,9 +273,9 @@ def main() -> int:
         )
         reached += 1
 
-    require(reached == 1 + 4 + 3 + 1 + 1 + 2 + 1, "not every portable qualification control was reached")
+    require(reached == 1 + 4 + 3 + 1 + 1 + 4 + 1, "not every portable qualification control was reached")
     print("PASS: compiler/binutils hashes, selected path, exact root-plus-registry lock, Git/path refusals, overlay ranges, missing receipt and symlink controls")
-    print("PASS: all 13 portable qualification-control assertions were reached")
+    print("PASS: all 15 portable qualification-control assertions were reached")
     return 0
 
 

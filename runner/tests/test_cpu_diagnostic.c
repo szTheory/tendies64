@@ -1059,7 +1059,7 @@ static void test_build_script_preuse_refusal(const char *source_root) {
   check(result == 0 &&
             strstr(output, "accepted authored compiler and target-tool hash baseline") != NULL &&
             strstr(output, "exact root-plus-registry lock, Git/path refusals, overlay ranges, missing receipt and symlink controls") != NULL &&
-            strstr(output, "all 13 portable qualification-control assertions were reached") != NULL,
+            strstr(output, "all 15 portable qualification-control assertions were reached") != NULL,
         "portable qualification controls accept the tool baseline and reach every refusal");
 }
 
