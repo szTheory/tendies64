@@ -321,6 +321,84 @@ def test_rollback_failure_preserves_recovery_copy(repo: pathlib.Path, applier: p
         assert not leftovers, f"failed transaction left disposable staging files: {leftovers}"
 
 
+def test_recovery_mode_failure_preserves_original_bytes(repo: pathlib.Path, applier: pathlib.Path) -> None:
+    spec = importlib.util.spec_from_file_location("t64_cpu_overlay_under_test", applier)
+    assert spec is not None and spec.loader is not None, "could not load production overlay module"
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    with tempfile.TemporaryDirectory() as temporary:
+        root = pathlib.Path(temporary) / "checkout"
+        (root / "src").mkdir(parents=True)
+        first = b"first old\n"
+        second = b"second old\n"
+        first_path = root / "src/first.rs"
+        second_path = root / "src/second.rs"
+        first_path.write_bytes(first)
+        second_path.write_bytes(second)
+        first_path.chmod(0o640)
+        second_path.chmod(0o600)
+        patch = pathlib.Path(temporary) / "overlay.json"
+        write_document(patch, [
+            {"path": "src/first.rs", "file_sha256": sha256(first), "offset": 6,
+             "length": 3, "range_sha256": sha256(b"old"), "replacement_utf8": "new"},
+            {"path": "src/second.rs", "file_sha256": sha256(second), "offset": 7,
+             "length": 3, "range_sha256": sha256(b"old"), "replacement_utf8": "new"},
+        ])
+        original_chmod = pathlib.Path.chmod
+        bytes_seen_at_mode_failure: list[bytes] = []
+        publish_calls = 0
+
+        def fail_recovery_mode(path: pathlib.Path, mode: int, *args, **kwargs) -> None:
+            if path.name.startswith(".cpu-overlay-recovery."):
+                bytes_seen_at_mode_failure.append(path.read_bytes())
+                raise OSError("injected recovery-copy mode failure")
+            original_chmod(path, mode, *args, **kwargs)
+
+        def fail_later_publish(source_path: pathlib.Path, target_path: pathlib.Path) -> None:
+            nonlocal publish_calls
+            publish_calls += 1
+            if publish_calls == 2:
+                raise OSError("injected later-file publish failure")
+            os.replace(source_path, target_path)
+
+        pathlib.Path.chmod = fail_recovery_mode
+        try:
+            try:
+                module.apply_overlay(root, patch, replace_operation=fail_later_publish)
+            except ValueError as error:
+                assert "rollback was incomplete" in str(error), (
+                    f"mode failure was not reported as an incomplete rollback: {error}"
+                )
+                failure_message = str(error)
+            else:
+                raise AssertionError("injected publication and mode failures were accepted")
+        finally:
+            pathlib.Path.chmod = original_chmod
+
+        assert publish_calls == 2, f"expected one successful and one failed publication, observed {publish_calls}"
+        assert bytes_seen_at_mode_failure == [first], (
+            "mode failure was not injected after a complete original-byte recovery copy was written"
+        )
+        recovery_copies = list((root / "src").glob(".cpu-overlay-recovery.*"))
+        assert len(recovery_copies) == 1, (
+            "complete recovery bytes were discarded after recovery-copy mode failure; "
+            f"observed {len(recovery_copies)} recovery copies"
+        )
+        recovery_copy = recovery_copies[0]
+        assert recovery_copy.read_bytes() == first, "retained recovery copy does not contain the original bytes"
+        assert recovery_copy.name in failure_message, "incomplete-rollback error omitted the recovery filename"
+        assert "recovery-copy mode could not be restored" in failure_message, (
+            "incomplete-rollback error did not report the recovery metadata failure"
+        )
+        assert first_path.read_bytes() == b"first new\n" and second_path.read_bytes() == second, (
+            "mode-failure control did not reach the expected patched/original target state"
+        )
+        assert first_path.stat().st_mode & 0o777 == 0o640, "mode failure changed the target mode"
+        assert recovery_copy.stat().st_mode & 0o777 == 0o600, (
+            "injected mode failure unexpectedly restored the recovery-copy mode"
+        )
+
+
 def main() -> int:
     repository = pathlib.Path(__file__).resolve().parents[2]
     applier = repository / "scripts/apply-cpu-diagnostic-overlay.py"
@@ -334,6 +412,7 @@ def main() -> int:
         ("schema_version_types_refused", test_schema_version_types_refused),
         ("later_publish_failure_rolls_back", test_later_publish_failure_rolls_back),
         ("rollback_failure_preserves_recovery_copy", test_rollback_failure_preserves_recovery_copy),
+        ("recovery_mode_failure_preserves_original_bytes", test_recovery_mode_failure_preserves_original_bytes),
     ]
     suite = ET.Element("testsuite", name="cpu-diagnostic-overlay", tests=str(len(cases)),
                        failures="0", errors="0")

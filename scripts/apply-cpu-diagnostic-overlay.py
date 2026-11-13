@@ -300,7 +300,8 @@ def apply_overlay(
         rollback_errors: list[str] = []
         for path, original, mode in reversed(replaced):
             backup_path: pathlib.Path | None = None
-            recovery_ready = False
+            recovery_bytes_ready = False
+            recovery_mode_ready = False
             preserve_recovery = False
             try:
                 descriptor, backup_name = tempfile.mkstemp(
@@ -311,15 +312,23 @@ def apply_overlay(
                     stream.write(original)
                     stream.flush()
                     os.fsync(stream.fileno())
+                recovery_bytes_ready = True
                 backup_path.chmod(mode)
-                recovery_ready = True
+                recovery_mode_ready = True
                 replace_operation(backup_path, path)
             except OSError as rollback_error:
-                if recovery_ready and backup_path is not None and backup_path.exists():
+                if recovery_bytes_ready and backup_path is not None and backup_path.exists():
                     preserve_recovery = True
-                    rollback_errors.append(
-                        f"{path}: {rollback_error}; original recovery copy retained at {backup_path}"
-                    )
+                    if recovery_mode_ready:
+                        rollback_errors.append(
+                            f"{path}: {rollback_error}; original recovery copy retained at {backup_path}"
+                        )
+                    else:
+                        rollback_errors.append(
+                            f"{path}: recovery-copy mode could not be restored ({rollback_error}); "
+                            f"original bytes retained at {backup_path} with mode unverified; "
+                            "target remains unrestored"
+                        )
                 else:
                     rollback_errors.append(f"{path}: {rollback_error}")
             finally:
