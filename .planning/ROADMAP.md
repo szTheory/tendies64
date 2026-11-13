@@ -252,7 +252,36 @@ Plans:
   2. Per-opcode fuzzing finds zero differences between any optimized VU path and the scalar-portable reference. Long stress runs (vmulf through vrsq32) run in a scheduled lane, outside the required gate
   3. RSP DMA tests for alignment, bank wrap, stride and queue behavior pass
   4. The `nemu64-test` RSP groups pass or are classified individually with reasons (local-only until D2), and an automated check confirms the canonical core contains no HLE microcode path
-**Plans**: TBD
+**Plans**: 0/10 plans executed
+**Wave 1**
+- [ ] 05-01-PLAN.md
+
+**Wave 2** *(blocked on Wave 1 completion)*
+- [ ] 05-02-PLAN.md
+
+**Wave 3** *(blocked on Wave 2 completion)*
+- [ ] 05-03-PLAN.md
+
+**Wave 4** *(blocked on Wave 3 completion)*
+- [ ] 05-04-PLAN.md
+
+**Wave 5** *(blocked on Wave 4 completion)*
+- [ ] 05-05-PLAN.md
+
+**Wave 6** *(blocked on Wave 5 completion)*
+- [ ] 05-06-PLAN.md
+
+**Wave 7** *(blocked on Wave 6 completion)*
+- [ ] 05-07-PLAN.md
+
+**Wave 8** *(blocked on Wave 7 completion)*
+- [ ] 05-08-PLAN.md
+
+**Wave 9** *(blocked on Wave 8 completion)*
+- [ ] 05-09-PLAN.md
+
+**Wave 10** *(blocked on Wave 9 completion)*
+- [ ] 05-10-PLAN.md
 
 ### Phase 6: Cold Boot, CPU Timing and Full Base Suite
 **Goal**: The machine reaches IPL3 through the full RDRAM register protocol with instruction-granular CPU timing, and the complete `nemu64-test` base suite is classified per group, by lane, with pinned counts
@@ -377,7 +406,7 @@ Phase 7 may run in parallel with Phases 5 and 6 once Phase 4 is complete.
 | 2. Deterministic Machine Skeleton | v1.0 | 8/8 | Complete | 2026-11-10 |
 | 3. First Headless ROM Through Open IPL3 | v1.0 | 13/13 | Complete | 2026-11-11 |
 | 4. Complete VR4300 CPU | v1.0 | 20/20 | Complete | 2026-11-13 |
-| 5. RSP Low-Level Emulation | v1.0 | 0/TBD | Not started | - |
+| 5. RSP Low-Level Emulation | v1.0 | 0/10 | Planned     | - |
 | 6. Cold Boot, CPU Timing and Full Base Suite | v1.0 | 0/TBD | Not started | - |
 | 7. RDP Reference Renderer and VI Scanout | v1.1 | 0/TBD | Not started | - |
 | 8. Audio Interface and Raw Capture | v1.1 | 0/TBD | Not started | - |

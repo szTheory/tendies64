@@ -72,7 +72,9 @@ binding. Video/RDP execution, cold boot and physical console testing stay out.
   Apps/tests run headlessly in background; preserve exact current caps and
   specific no-retry instructions. New native work uses the canonical gate,
   all-target sanitizer build before owning tests, current fuzz bounds and the
-  existing two hosted platform/compiler jobs.
+  existing two required hosted platform/compiler jobs. Long stress is a separate
+  scheduled lane under the roadmap; external diagnostic material stays disabled
+  there until D2 rights permit it.
 - **D-08 — Cohesive slices and evidence.** Lead with an authored fetched IMEM
   scalar/vector-to-DMEM-to-BREAK program, independent expected bytes/flags and
   control transitions. Add SP scheduling/DMA and actual private integration
