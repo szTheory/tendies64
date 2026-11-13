@@ -50,6 +50,14 @@ def write_document(path: pathlib.Path, edits: list[dict[str, object]],
     path.write_text(json.dumps(patch, sort_keys=True, separators=(",", ":")) + "\n")
 
 
+def load_applier(applier: pathlib.Path):
+    spec = importlib.util.spec_from_file_location("t64_cpu_overlay_under_test", applier)
+    assert spec is not None and spec.loader is not None, "could not load production overlay module"
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
 def run_case(repo: pathlib.Path, applier: pathlib.Path, name: str,
              test_fn) -> tuple[str, str]:
     try:
@@ -214,11 +222,47 @@ def test_schema_version_types_refused(repo: pathlib.Path, applier: pathlib.Path)
             assert target.read_bytes() == source, "invalid schema version changed source bytes"
 
 
+def test_registration_expression_forms_preserved(repo: pathlib.Path, applier: pathlib.Path) -> None:
+    module = load_applier(applier)
+    cases = [
+        (
+            ["    Box::new(", "        super::sample::Braced {},", "    ),"],
+            "super::sample::Braced",
+            "Box::new(super::sample::Braced {})",
+        ),
+        (
+            ["    Box::new(", "        super::sample::Unit,", "    ),"],
+            "super::sample::Unit",
+            "Box::new(super::sample::Unit)",
+        ),
+    ]
+    for lines, constructor, expected in cases:
+        rendered = module.render_registration_expression(lines, 0, constructor)
+        assert rendered == expected, (
+            f"source registration form changed: expected {expected!r}, observed {rendered!r}"
+        )
+
+
+def test_registration_expression_unknown_forms_refused(repo: pathlib.Path, applier: pathlib.Path) -> None:
+    module = load_applier(applier)
+    cases = [
+        (["Box::new(super::sample::Other {})"], "super::sample::Expected"),
+        (["Box::new(super::sample::Expected { field: true })"], "super::sample::Expected"),
+        (["Box::new(super::sample::Expected(true))"], "super::sample::Expected"),
+    ]
+    for lines, constructor in cases:
+        try:
+            module.render_registration_expression(lines, 0, constructor)
+        except ValueError as error:
+            assert "pinned source expression" in str(error), (
+                f"unknown source form had an unexpected refusal: {error}"
+            )
+        else:
+            raise AssertionError(f"unrecognized registration form was accepted: {lines!r}")
+
+
 def test_later_publish_failure_rolls_back(repo: pathlib.Path, applier: pathlib.Path) -> None:
-    spec = importlib.util.spec_from_file_location("t64_cpu_overlay_under_test", applier)
-    assert spec is not None and spec.loader is not None, "could not load production overlay module"
-    module = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(module)
+    module = load_applier(applier)
     with tempfile.TemporaryDirectory() as temporary:
         root = pathlib.Path(temporary) / "checkout"
         (root / "src").mkdir(parents=True)
@@ -410,6 +454,8 @@ def main() -> int:
         ("path_escape_refused", test_path_escape_refused),
         ("git_metadata_target_refused", test_git_metadata_target_refused),
         ("schema_version_types_refused", test_schema_version_types_refused),
+        ("registration_expression_forms_preserved", test_registration_expression_forms_preserved),
+        ("registration_expression_unknown_forms_refused", test_registration_expression_unknown_forms_refused),
         ("later_publish_failure_rolls_back", test_later_publish_failure_rolls_back),
         ("rollback_failure_preserves_recovery_copy", test_rollback_failure_preserves_recovery_copy),
         ("recovery_mode_failure_preserves_original_bytes", test_recovery_mode_failure_preserves_original_bytes),

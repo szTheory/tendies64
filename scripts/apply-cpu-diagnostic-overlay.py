@@ -97,6 +97,33 @@ def checked_json(path: pathlib.Path, label: str) -> object:
     return json.loads(path.read_text(encoding="utf-8"), object_pairs_hook=reject_duplicate_keys)
 
 
+def render_registration_expression(
+    source_lines: list[str], source_anchor: int, constructor: str
+) -> str:
+    """Recognize only the pinned list's empty-braced and unit test constructors."""
+    if (
+        not isinstance(source_anchor, int)
+        or isinstance(source_anchor, bool)
+        or source_anchor < 0
+        or source_anchor >= len(source_lines)
+        or not isinstance(constructor, str)
+        or not constructor
+    ):
+        raise ValueError("registration source anchor or constructor is malformed")
+    expression = re.compile(
+        r"^\s*Box::new\s*\(\s*"
+        + re.escape(constructor)
+        + r"\s*(?P<fields>\{\s*\})?\s*,?\s*\)\s*,?\s*$",
+        re.DOTALL,
+    )
+    for end in range(source_anchor + 1, min(source_anchor + 8, len(source_lines)) + 1):
+        match = expression.fullmatch("\n".join(source_lines[source_anchor:end]))
+        if match is not None:
+            fields = " {}" if match.group("fields") is not None else ""
+            return f"Box::new({constructor}{fields})"
+    raise ValueError("registration constructor does not match its pinned source expression")
+
+
 def render_required_testlist(
     source_root: pathlib.Path, projection_path: pathlib.Path, source_audit_path: pathlib.Path
 ) -> bytes:
@@ -137,7 +164,11 @@ def render_required_testlist(
         "use super::Test;\n\n",
         "pub fn tests() -> Vec<(usize, Box<dyn Test>)> {\n    vec![\n",
     ]
-    required_count = 0
+    expected_required = [
+        index for index, row in enumerate(rows)
+        if isinstance(row, dict) and row.get("lane") == "required-base"
+    ]
+    generated_required: list[int] = []
     for index, (row, audited) in enumerate(zip(rows, audit_rows, strict=True)):
         if not isinstance(row, dict) or not isinstance(audited, dict):
             raise ValueError("source registration row is malformed")
@@ -171,17 +202,21 @@ def render_required_testlist(
         source_anchor = audited.get("line")
         if not isinstance(constructor, str) or not isinstance(source_anchor, int) or source_anchor < 0:
             raise ValueError(f"registration {index} has no source constructor anchor")
-        expression = re.compile(
-            r"^\s*Box::new\(\s*" + re.escape(constructor) + r"\s*\{\s*\}\s*\)\s*,?\s*$"
-        )
-        found = [line for line in source_lines[source_anchor : source_anchor + 4] if expression.fullmatch(line)]
-        if len(found) != 1:
+        try:
+            rendered_constructor = render_registration_expression(
+                source_lines, source_anchor, constructor
+            )
+        except ValueError:
             raise ValueError(f"registration {index} constructor does not match its pinned source expression")
         output.append(
-            f"        ({index}usize, Box::new({constructor} {{}}) as Box<dyn Test>),\n"
+            f"        ({index}usize, {rendered_constructor} as Box<dyn Test>),\n"
         )
-        required_count += 1
-    if required_count == 0 or projection.get("empty_required_groups") != []:
+        generated_required.append(index)
+    if (
+        not expected_required
+        or generated_required != expected_required
+        or projection.get("empty_required_groups") != []
+    ):
         raise ValueError("source projection has no complete required CPU set")
     output.append("    ]\n}\n")
     return "".join(output).encode("utf-8")
