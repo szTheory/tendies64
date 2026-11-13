@@ -222,13 +222,13 @@ def render_required_testlist(
     return "".join(output).encode("utf-8")
 
 
-def apply_overlay(
+def plan_overlay_outputs(
     source_root: pathlib.Path,
     patch_path: pathlib.Path,
     projection_path: pathlib.Path | None = None,
     source_audit_path: pathlib.Path | None = None,
-    replace_operation: Callable[[pathlib.Path, pathlib.Path], None] = os.replace,
-) -> int:
+) -> list[tuple[pathlib.Path, bytes, bytes, int]]:
+    """Derive the exact guarded output bytes without writing the checkout."""
     root = source_root.resolve(strict=True)
     if source_root.is_symlink() or not root.is_dir():
         raise ValueError("source root is missing, linked, or not a directory")
@@ -313,6 +313,19 @@ def apply_overlay(
         outputs.append(
             (path, apply_ranges(source, ranges), source, path.stat().st_mode & 0o777)
         )
+    return outputs
+
+
+def apply_overlay(
+    source_root: pathlib.Path,
+    patch_path: pathlib.Path,
+    projection_path: pathlib.Path | None = None,
+    source_audit_path: pathlib.Path | None = None,
+    replace_operation: Callable[[pathlib.Path, pathlib.Path], None] = os.replace,
+) -> int:
+    outputs = plan_overlay_outputs(
+        source_root, patch_path, projection_path, source_audit_path
+    )
 
     staged: list[tuple[pathlib.Path, pathlib.Path, bytes, int]] = []
     replaced: list[tuple[pathlib.Path, bytes, int]] = []

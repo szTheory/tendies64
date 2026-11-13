@@ -729,6 +729,86 @@ def test_source_closure_success_stdout_is_generic(repo: pathlib.Path, applier: p
         )
 
 
+def test_source_closure_compares_manifest_outputs_before_report(repo: pathlib.Path, applier: pathlib.Path) -> None:
+    with tempfile.TemporaryDirectory() as temporary:
+        root = pathlib.Path(temporary) / "checkout"
+        (root / "scripts").mkdir(parents=True)
+        private = root / "build/private-cpu-diagnostic"
+        private.mkdir(parents=True)
+        root = root.resolve()
+        private = root / "build/private-cpu-diagnostic"
+        private.chmod(0o700)
+        closure_script = root / "scripts/verify-cpu-diagnostic-source-closure.py"
+        applier_copy = root / "scripts/apply-cpu-diagnostic-overlay.py"
+        closure_script.write_bytes((repo / "scripts/verify-cpu-diagnostic-source-closure.py").read_bytes())
+        applier_copy.write_bytes(applier.read_bytes())
+        overlay = root / "tests/cpu-diagnostic/overlay.patch"
+        overlay.parent.mkdir(parents=True)
+        source = b"prefix OLD suffix\n"
+        write_patch(overlay, source, 7, b"OLD", b"NEW")
+        projection = private / "projection.json"
+        audit = private / "audit.json"
+        projection.write_text("{}\n")
+        audit.write_text("{}\n")
+        closure_module = load_source_closure(root)
+        applier_module = load_applier(applier_copy)
+
+        def fake_audit(project, source_root, pinned_source, overlay_path,
+                       projection_path, source_audit_path):
+            closure_module.verify_applied_overlay_outputs(
+                applier_module, pinned_source, source_root, overlay_path,
+                projection_path, source_audit_path,
+            )
+            return {"status": "PASS_SYNTHETIC_APPLIED_OVERLAY"}
+
+        closure_module.audit_source_closure = fake_audit
+
+        def invoke(name: str, mutation: str, expected_refusal: str | None) -> None:
+            case_root = private / name
+            pinned = case_root / "pinned"
+            applied = case_root / "applied"
+            (pinned / "src").mkdir(parents=True)
+            (applied / "src").mkdir(parents=True)
+            (pinned / "src/sample.rs").write_bytes(source)
+            (applied / "src/sample.rs").write_bytes(source)
+            (pinned / "src/sample.rs").chmod(0o644)
+            (applied / "src/sample.rs").chmod(0o600)
+            if mutation in {"apply", "one-byte"}:
+                applier_module.apply_overlay(applied, overlay)
+            if mutation == "one-byte":
+                target = applied / "src/sample.rs"
+                target.write_bytes(target.read_bytes().replace(b"NEW", b"XEW", 1))
+            if mutation == "symlink":
+                target = applied / "src/sample.rs"
+                outside = case_root / "outside.rs"
+                outside.write_bytes(b"prefix NEW suffix\n")
+                target.unlink()
+                target.symlink_to(outside)
+            report = case_root / "closure.json"
+            output = io.StringIO()
+            errors = io.StringIO()
+            with contextlib.redirect_stdout(output), contextlib.redirect_stderr(errors):
+                code = closure_module.main([
+                    "--source-root", str(applied), "--pinned-source", str(pinned),
+                    "--overlay", str(overlay), "--source-projection", str(projection),
+                    "--source-audit", str(audit), "--output", str(report),
+                ])
+            if expected_refusal is None:
+                assert code == 0 and report.is_file(), (
+                    f"accepted same-path/same-bytes checkout was refused: {errors.getvalue()!r}"
+                )
+            else:
+                assert code == 4 and expected_refusal in errors.getvalue(), (
+                    f"{name} refusal was not reached: {errors.getvalue()!r}"
+                )
+                assert not report.exists(), f"{name} refusal wrote a source-closure report"
+
+        invoke("accepted", "apply", None)
+        invoke("stale-same-path", "stale", "applied source bytes differ from manifest-derived output")
+        invoke("one-byte-mutation", "one-byte", "applied source bytes differ from manifest-derived output")
+        invoke("symlinked-target", "symlink", "traverses a symlink")
+
+
 def test_unit_graph_private_path_traversal_refused(repo: pathlib.Path, applier: pathlib.Path) -> None:
     verifier = load_unit_graph_verifier(repo)
     with tempfile.TemporaryDirectory() as temporary:
@@ -1002,6 +1082,7 @@ def main() -> int:
         ("prebuild_private_root_refusals_before_side_effects", test_prebuild_private_root_refusals_before_side_effects),
         ("vendor_and_source_closure_root_refusals", test_vendor_and_source_closure_root_refusals),
         ("source_closure_success_stdout_is_generic", test_source_closure_success_stdout_is_generic),
+        ("source_closure_compares_manifest_outputs_before_report", test_source_closure_compares_manifest_outputs_before_report),
         ("unit_graph_private_path_traversal_refused", test_unit_graph_private_path_traversal_refused),
         ("unit_graph_private_root_refusals_before_report", test_unit_graph_private_root_refusals_before_report),
         ("static_module_closure_follows_only_explicit_items", test_static_module_closure_follows_only_explicit_items),

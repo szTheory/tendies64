@@ -361,6 +361,27 @@ def load_overlay_module(project: pathlib.Path):
     return module
 
 
+def verify_applied_overlay_outputs(
+    overlay_module, pinned_source: pathlib.Path, source_root: pathlib.Path,
+    overlay_path: pathlib.Path, projection_path: pathlib.Path,
+    source_audit_path: pathlib.Path,
+) -> list[str]:
+    """Compare every applied target with the production applier's derived bytes."""
+    outputs = overlay_module.plan_overlay_outputs(
+        pinned_source, overlay_path, projection_path, source_audit_path
+    )
+    observed: list[str] = []
+    for base_path, expected_bytes, _original_bytes, _base_mode in outputs:
+        relative = pathlib.PurePosixPath(base_path.relative_to(pinned_source).as_posix())
+        applied_path = overlay_module.checked_source_path(source_root, relative)
+        if applied_path.read_bytes() != expected_bytes:
+            raise ValueError(
+                f"applied source bytes differ from manifest-derived output: {relative.as_posix()}"
+            )
+        observed.append(relative.as_posix())
+    return sorted(observed)
+
+
 def private_path(project: pathlib.Path, private_root: pathlib.Path, value: str, label: str) -> pathlib.Path:
     path = pathlib.Path(value)
     candidate = path if path.is_absolute() else project / path
@@ -467,13 +488,12 @@ def audit_source_closure(
     ).stdout.splitlines()
     if actual_changes != expected_changes or staged_changes or untracked:
         raise ValueError("applied source membership differs from the reviewed overlay path set")
-
-    expected_testlist = overlay_module.render_required_testlist(
-        pinned_source, projection_path, source_audit_path
+    planned_changes = verify_applied_overlay_outputs(
+        overlay_module, pinned_source, source_root, overlay_path,
+        projection_path, source_audit_path,
     )
-    testlist = source_root / "src/tests/testlist.rs"
-    if testlist.read_bytes() != expected_testlist:
-        raise ValueError("generated required testlist differs from the sealed source projection")
+    if planned_changes != expected_changes:
+        raise ValueError("manifest-derived output paths differ from the reviewed overlay path set")
 
     files, edges = discover_module_closure(source_root)
     profile = verify_cpu_profile_surface(source_root, project, files, edges, projection)
