@@ -184,3 +184,13 @@ only owned scripts, Git ignore metadata and the built C adapter reaches all
 creating or consuming a private diagnostic directory. Production code, core
 policy, limits and CTest inventories are unchanged. The bounded source review
 is clean; the failed run and remedy are retained in the CI review log.
+
+
+Hosted run [43398862644](https://github.com/szTheory/tendies64/actions/runs/43398862644)
+verifies source `81430005903cdc8e58100b5e5a6c29ee60f6d9bd` on Ubuntu 24.04 and
+macOS 26. Both jobs pass all 111 registered checks, core lint over 83 files with
+zero violations, authored evidence emission, rights/PII scans and sanitized
+artifact upload. The newly reached publication tail is verified separately
+from the preceding failed run. External diagnostic inputs and results were
+not used or uploaded. The CI log records measured timings and the fixture
+correction; these checks do not close SC4.

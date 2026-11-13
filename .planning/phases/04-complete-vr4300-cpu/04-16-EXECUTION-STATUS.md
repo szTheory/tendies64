@@ -7,7 +7,9 @@ configured source review and registered security mitigation audit pass. It
 qualifies inputs before use, checks actual composition, seals exact source
 membership and adapter identity, uses the shared C parser/aggregator and keeps
 all external inputs and results private. Code is in `ce87869` and the bounded
-host-deadline correction in `27d2177`.
+host-deadline correction in `27d2177`. The clean-workspace authored fixture
+repair is `8143000`; its complete Ubuntu/macOS CI pair is green in
+[run 43398862644](https://github.com/szTheory/tendies64/actions/runs/43398862644).
 
 The current strict CPU profile, its refusal rules, required membership and SC4
 completion rule remain binding. No CPU/profile policy was widened and no
