@@ -241,19 +241,23 @@ def main() -> int:
     require(match is not None, "audited excluded font array cannot be identified")
     font = bytes(int(item.strip(), 0) for item in match.group(1).split(",") if item.strip())
     verify_composition(elf, payload, rom, boot, font)
+    objdump = pathlib.Path(tools["target_binutils"]["objdump"])
+    objdump_sha256 = digest(read_bounded(objdump, 128 * 1024 * 1024))
     completed = subprocess.run(
-        [tools["target_binutils"]["objdump"], "-f", "-h", "-t", str(inputs["elf"])],
+        [str(objdump), "-f", "-h", "-t", str(inputs["elf"])],
         check=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=30,
         env={"PATH": "/usr/bin:/bin", "LC_ALL": "C"})
     layout = verify_layout(elf, payload, completed.stdout.decode("utf-8"))
     require(read_bounded(inputs["elf"], 64 * 1024 * 1024) == elf,
             "ELF changed during objdump inspection")
+    require(digest(read_bounded(objdump, 128 * 1024 * 1024)) == objdump_sha256,
+            "qualified objdump changed during inspection")
     report = {"schema": "t64.cpu-build-composition", "schema_version": 1,
               "status": "PASS_POSTBUILD_COMPOSITION", "layout": layout,
               "elf_sha256": digest(elf), "payload_sha256": digest(payload),
               "rom_sha256": digest(rom), "qualification_sha256": digest(receipt_bytes),
               "source_closure_sha256": digest(closure_bytes),
-              "objdump_sha256": tools["target_binutils_sha256"]["objdump"],
+              "objdump_sha256": objdump_sha256,
               "excluded_font_sha256": FONT_SHA, "guest_execution_verified": False}
     descriptor = os.open(inputs["report"], os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o600)
     with os.fdopen(descriptor, "w", encoding="utf-8") as output:

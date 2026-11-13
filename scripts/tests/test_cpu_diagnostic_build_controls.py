@@ -1,9 +1,12 @@
 #!/usr/bin/env python3
 """Authored, offline controls for post-build layout/composition checks."""
 import importlib.util
+import json
+import os
 import pathlib
 import struct
 import tempfile
+import types
 import unittest
 from unittest.mock import patch
 
@@ -162,6 +165,57 @@ class CompositionControls(unittest.TestCase):
                 MODULE.private_path(root, str(root / "alias"))
             with self.assertRaises(ValueError):
                 MODULE.private_path(root, str(root.parent / "outside"))
+
+    def test_main_writes_bound_private_report_with_committed_qualification_api(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            repository = pathlib.Path(temporary).resolve()
+            scripts = repository / "scripts"
+            scripts.mkdir()
+            private = repository / "build/private-cpu-diagnostic"
+            private.mkdir(parents=True)
+            fixtures = repository / "build/fixtures"
+            fixtures.mkdir()
+            (fixtures / "ipl3_compat.z64").write_bytes(self.boot)
+            _, _, dump, _ = authored_layout()
+            font_source = ("pub const FONT_GENEVA_9: [u8; 762] = ["
+                           + ",".join(str(value) for value in self.font) + "];\n").encode()
+            closure = json.dumps({"status": "PASS_PREBUILD_SOURCE",
+                                  "source_revision": MODULE.SOURCE_REVISION}).encode()
+            tool = private / "authored-objdump"
+            tool.write_bytes(b"authored tool identity; never executed")
+            receipt = {"assets": {"closure_report": {"sha256": MODULE.digest(closure)}}}
+            for name, data in {"elf": self.elf, "payload": self.payload,
+                               "rom": self.rom, "font-source": font_source,
+                               "closure": closure,
+                               "qualification.json": json.dumps(receipt).encode()}.items():
+                (private / name).write_bytes(data)
+            # The committed verifier returns only these two keys. The tool is
+            # not executed: the authored objdump response is injected below.
+            qualification = types.SimpleNamespace(validate=lambda *_: {
+                "host_c_compiler": "/unused", "target_binutils": {"objdump": str(tool)}})
+            spec = types.SimpleNamespace(loader=types.SimpleNamespace(exec_module=lambda _: None))
+            argv = ["verifier"]
+            for name in ("elf", "payload", "rom", "closure", "font-source"):
+                argv += ["--" + name, str(private / name)]
+            report = private / "report.json"
+            argv += ["--boot", str(fixtures / "ipl3_compat.z64"),
+                     "--report", str(report)]
+            previous_directory = pathlib.Path.cwd()
+            try:
+                with patch.object(MODULE, "__file__", str(scripts / "verifier.py")), \
+                     patch.object(MODULE, "FONT_SOURCE_SHA", MODULE.digest(font_source)), \
+                     patch.object(MODULE.sys, "argv", argv), \
+                     patch.object(MODULE.importlib.util, "spec_from_file_location", return_value=spec), \
+                     patch.object(MODULE.importlib.util, "module_from_spec", return_value=qualification), \
+                     patch.object(MODULE.subprocess, "run", return_value=types.SimpleNamespace(stdout=dump.encode())):
+                    self.assertEqual(MODULE.main(), 0)
+            finally:
+                os.chdir(previous_directory)
+            result = json.loads(report.read_text())
+            self.assertEqual(result["status"], "PASS_POSTBUILD_COMPOSITION")
+            self.assertEqual(result["objdump_sha256"], MODULE.digest(tool.read_bytes()))
+            self.assertFalse(result["guest_execution_verified"])
+            self.assertEqual(report.stat().st_mode & 0o777, 0o600)
 
 
 if __name__ == "__main__":
