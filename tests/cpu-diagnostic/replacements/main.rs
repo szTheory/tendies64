@@ -34,6 +34,8 @@ mod text_out;
 mod uncached_memory;
 
 const CPU_PROFILE_RDRAM_BYTES: usize = 4 * 1024 * 1024;
+const CPU_PROFILE_RDRAM_BASE: usize = 0x8000_0000;
+const CPU_PROFILE_RDRAM_END: usize = CPU_PROFILE_RDRAM_BASE + CPU_PROFILE_RDRAM_BYTES;
 const CPU_PROFILE_LOAD_ADDRESS: u32 = 0x8000_0400;
 const CPU_PROFILE_APP_ROM_OFFSET: u32 = 0x1000;
 const CPU_PROFILE_ELF_HEADER_OFFSET: usize =
@@ -64,11 +66,30 @@ extern "C" fn rust_entrypoint() -> ! {
     extern "C" {
         static mut __bss_start: u8;
         static __bss_end: u8;
+        static __cpu_heap_limit: u8;
+        static __cpu_stack_bottom: u8;
+        static __cpu_stack_top: u8;
     }
 
-    let bss_start = unsafe { &mut __bss_start as *mut u8 };
-    let bss_end = unsafe { &__bss_end as *const u8 };
-    let bss_length = (bss_end as usize).checked_sub(bss_start as usize).unwrap();
+    let bss_start = unsafe { ptr::addr_of_mut!(__bss_start) };
+    let bss_end = unsafe { ptr::addr_of!(__bss_end) };
+    let bss_start_address = bss_start as usize;
+    let bss_end_address = bss_end as usize;
+    let heap_limit = unsafe { ptr::addr_of!(__cpu_heap_limit) as usize };
+    let stack_bottom = unsafe { ptr::addr_of!(__cpu_stack_bottom) as usize };
+    let stack_top = unsafe { ptr::addr_of!(__cpu_stack_top) as usize };
+    if bss_start_address < CPU_PROFILE_RDRAM_BASE
+        || bss_start_address > bss_end_address
+        || bss_end_address > heap_limit
+        || bss_end_address > CPU_PROFILE_RDRAM_END
+        || heap_limit > stack_bottom
+        || stack_bottom < CPU_PROFILE_RDRAM_BASE
+        || stack_bottom > stack_top
+        || stack_top > CPU_PROFILE_RDRAM_END
+    {
+        crate::tests::park();
+    }
+    let bss_length = bss_end_address - bss_start_address;
     unsafe { ptr::write_bytes(bss_start, 0, bss_length) };
 
     unsafe {

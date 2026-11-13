@@ -53,6 +53,8 @@ SECTIONS {
     __cpu_heap_limit = 0xFFFFFFFF80300000;
     __cpu_stack_bottom = 0xFFFFFFFF80300000;
     __cpu_stack_top = 0xFFFFFFFF80400000;
+    __cpu_rdram_start = 0xFFFFFFFF80000000;
+    __cpu_rdram_end = 0xFFFFFFFF80400000;
     __rom_end = . - __boot_start + 0xB0001000;
 
     ASSERT(ADDR(.t64_entrypoint) == 0xFFFFFFFF80000400,
@@ -67,6 +69,26 @@ SECTIONS {
            "CPU diagnostic park symbol is outside its fixed section")
     ASSERT(SIZEOF(.t64_park) == 8,
            "CPU diagnostic park must remain a jump and delay-slot nop")
+    ASSERT(__bss_start >= __cpu_rdram_start,
+           "CPU diagnostic BSS starts outside profile RDRAM")
+    ASSERT(__bss_end >= __bss_start,
+           "CPU diagnostic BSS end precedes its start")
+    ASSERT(__bss_end <= __cpu_heap_limit,
+           "CPU diagnostic BSS overlaps the heap")
+    ASSERT(__bss_end <= __cpu_stack_bottom,
+           "CPU diagnostic BSS overlaps the reserved stack")
+    ASSERT(__bss_end <= __cpu_rdram_end,
+           "CPU diagnostic BSS exceeds profile RDRAM")
+    ASSERT(__cpu_heap_limit >= __cpu_rdram_start,
+           "CPU diagnostic heap begins outside profile RDRAM")
+    ASSERT(__cpu_heap_limit <= __cpu_stack_bottom,
+           "CPU diagnostic heap overlaps the reserved stack")
+    ASSERT(__cpu_stack_bottom >= __cpu_rdram_start,
+           "CPU diagnostic stack begins outside profile RDRAM")
+    ASSERT(__cpu_stack_bottom <= __cpu_stack_top,
+           "CPU diagnostic stack bounds are reversed")
+    ASSERT(__cpu_stack_top <= __cpu_rdram_end,
+           "CPU diagnostic stack exceeds profile RDRAM")
 
     /DISCARD/ : {
         *(.MIPS.*)
