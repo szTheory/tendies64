@@ -1,0 +1,10 @@
+{
+  "command": "build/gate/core/test_sp_dma --rsp-tdd-control",
+  "exitCode": 1,
+  "output": "TAP version 13\nnot ok 1 - SP_PC masks writes and resumes fetched IMEM after BREAK\n# expected status=0 pc=0x00000008 fetched=(pc=0x008 opcode=0x24020009) r2=9\n# actual status=16 pc=0x00000000 fetched=(pc=0x004 opcode=0x0000000d outcome=1) r2=0\n1..1\n",
+  "targetTest": "SP_PC masks writes and resumes fetched IMEM after BREAK",
+  "targetFile": "core/tests/test_sp_dma.c",
+  "expected": "An SP_PC write of 0x1008 while HALT is set succeeds and reads back masked 0x00000008; clearing HALT/BROKE schedules the authored ADDIU 0x24020009 at RSP PC 0x008, retiring it to set GPR2=9.",
+  "actual": "The setup executed the exact authored BREAK opcode 0x0000000d at RSP PC 0x004 and observed HALT|BROKE. The SP_PC bus write returned status 16, and no resume opcode retired.",
+  "semanticAssessment": "Valid behavioral RED: the fixture and synthetic image were admitted, all four IMEM writes and t64_rsp_start succeeded, the fetched BREAK assertion established the halted precondition, and the named target failed on the planned missing SP_PC control behavior. No setup or compile failure occurred."
+}

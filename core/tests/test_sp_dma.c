@@ -1467,6 +1467,83 @@ static bool sp_latches_participate_in_digest_test(void) {
   return passed;
 }
 
+static int rsp_sp_pc_resume_tap_test(void) {
+  static const uint32_t program[] = {
+      UINT32_C(0x24010007), /* ADDIU r1,r0,7 */
+      UINT32_C(0x0000000d), /* BREAK */
+      UINT32_C(0x24020009), /* ADDIU r2,r0,9 */
+      UINT32_C(0x0000000d)  /* BREAK */
+  };
+  fixture value;
+  t64_status status;
+  uint32_t pc = 0u;
+  size_t i;
+  bool setup_ok = fixture_create_profile(
+      &value, "ntsc-cart-4m-openipl3-rsp-functional-v1");
+
+  if (setup_ok) {
+    setup_ok = fixture_enable_synthetic_image(&value);
+  }
+  for (i = 0u; setup_ok && i < sizeof program / sizeof program[0]; i++) {
+    setup_ok = t64_machine_bus_write(
+                   value.machine, TEST_IMEM_BASE + (uint32_t)(i * 4u), 4u,
+                   program[i]) == T64_STATUS_OK;
+  }
+  if (!setup_ok || t64_rsp_start(value.machine) != T64_STATUS_OK ||
+      !advance_to(value.machine, UINT64_C(2)) ||
+      !value.machine->rsp_observation_valid ||
+      value.machine->rsp_observed_pc != UINT32_C(4) ||
+      value.machine->rsp_observed_opcode != UINT32_C(0x0000000d) ||
+      value.machine->rsp_observed_outcome != T64_RSP_ATTEMPT_RETIRED ||
+      (value.machine->rsp.sp_status & UINT32_C(3)) != UINT32_C(3)) {
+    if (value.machine != NULL) {
+      t64_machine_destroy(value.machine);
+    }
+    fputs("TAP version 13\nBail out! fetched BREAK precondition failed\n",
+          stdout);
+    return 2;
+  }
+
+  status = t64_machine_bus_write(value.machine, UINT32_C(0x04080000), 4u,
+                                 UINT32_C(0x00001008));
+  if (status == T64_STATUS_OK) {
+    status = t64_machine_bus_read(value.machine, UINT32_C(0x04080000), 4u,
+                                  &pc);
+  }
+  if (status == T64_STATUS_OK && pc == UINT32_C(8)) {
+    status = t64_machine_bus_write(value.machine,
+                                   TEST_SP_BASE + UINT32_C(0x10), 4u,
+                                   UINT32_C(0x5));
+  }
+  if (status == T64_STATUS_OK) {
+    setup_ok = advance_to(value.machine, UINT64_C(3)) &&
+               value.machine->rsp_observation_valid &&
+               value.machine->rsp_observed_pc == UINT32_C(8) &&
+               value.machine->rsp_observed_opcode == UINT32_C(0x24020009) &&
+               value.machine->rsp_observed_outcome ==
+                   T64_RSP_ATTEMPT_RETIRED &&
+               value.machine->rsp.gpr[2] == UINT32_C(9);
+  } else {
+    setup_ok = false;
+  }
+
+  fputs("TAP version 13\n", stdout);
+  if (setup_ok) {
+    fputs("ok 1 - SP_PC masks writes and resumes fetched IMEM after BREAK\n",
+          stdout);
+  } else {
+    printf("not ok 1 - SP_PC masks writes and resumes fetched IMEM after BREAK\n"
+           "# expected status=0 pc=0x00000008 fetched=(pc=0x008 opcode=0x24020009) r2=9\n"
+           "# actual status=%u pc=0x%08x fetched=(pc=0x%03x opcode=0x%08x outcome=%u) r2=%u\n",
+           (unsigned)status, pc, value.machine->rsp_observed_pc,
+           value.machine->rsp_observed_opcode,
+           value.machine->rsp_observed_outcome, value.machine->rsp.gpr[2]);
+  }
+  fputs("1..1\n", stdout);
+  t64_machine_destroy(value.machine);
+  return setup_ok ? 0 : 1;
+}
+
 int main(int argc, char **argv) {
   static const char *const names[] = {
       "SP source is read at the 13-tick completion deadline",
@@ -1490,6 +1567,9 @@ int main(int argc, char **argv) {
   bool results[sizeof names / sizeof names[0]];
   size_t i;
   bool all_passed = true;
+  if (argc == 2 && strcmp(argv[1], "--rsp-tdd-control") == 0) {
+    return rsp_sp_pc_resume_tap_test();
+  }
   bool rsp_only = argc == 2 && strcmp(argv[1], "--rsp-tracer") == 0;
   size_t test_count = sizeof names / sizeof names[0];
 
