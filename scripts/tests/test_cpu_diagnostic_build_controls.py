@@ -167,6 +167,12 @@ class CompositionControls(unittest.TestCase):
                 MODULE.private_path(root, str(root.parent / "outside"))
 
     def test_main_writes_bound_private_report_with_committed_qualification_api(self):
+        self.run_main_fixture(False)
+
+    def test_tool_replaced_after_qualification_refuses_before_invocation(self):
+        self.run_main_fixture(True)
+
+    def run_main_fixture(self, replace_tool):
         with tempfile.TemporaryDirectory() as temporary:
             repository = pathlib.Path(temporary).resolve()
             scripts = repository / "scripts"
@@ -183,7 +189,9 @@ class CompositionControls(unittest.TestCase):
                                   "source_revision": MODULE.SOURCE_REVISION}).encode()
             tool = private / "authored-objdump"
             tool.write_bytes(b"authored tool identity; never executed")
-            receipt = {"assets": {"closure_report": {"sha256": MODULE.digest(closure)}}}
+            receipt = {"assets": {"closure_report": {"sha256": MODULE.digest(closure)}},
+                       "tools": {"target_binutils": [{"name": "objdump", "path": str(tool),
+                                                       "sha256": MODULE.digest(tool.read_bytes())}]}}
             for name, data in {"elf": self.elf, "payload": self.payload,
                                "rom": self.rom, "font-source": font_source,
                                "closure": closure,
@@ -191,8 +199,11 @@ class CompositionControls(unittest.TestCase):
                 (private / name).write_bytes(data)
             # The committed verifier returns only these two keys. The tool is
             # not executed: the authored objdump response is injected below.
-            qualification = types.SimpleNamespace(validate=lambda *_: {
-                "host_c_compiler": "/unused", "target_binutils": {"objdump": str(tool)}})
+            def validate(*_):
+                if replace_tool:
+                    tool.write_bytes(b"changed after receipt verification")
+                return {"host_c_compiler": "/unused", "target_binutils": {"objdump": str(tool)}}
+            qualification = types.SimpleNamespace(validate=validate)
             spec = types.SimpleNamespace(loader=types.SimpleNamespace(exec_module=lambda _: None))
             argv = ["verifier"]
             for name in ("elf", "payload", "rom", "closure", "font-source"):
@@ -207,7 +218,13 @@ class CompositionControls(unittest.TestCase):
                      patch.object(MODULE.sys, "argv", argv), \
                      patch.object(MODULE.importlib.util, "spec_from_file_location", return_value=spec), \
                      patch.object(MODULE.importlib.util, "module_from_spec", return_value=qualification), \
-                     patch.object(MODULE.subprocess, "run", return_value=types.SimpleNamespace(stdout=dump.encode())):
+                     patch.object(MODULE.subprocess, "run", return_value=types.SimpleNamespace(stdout=dump.encode())) as invoke:
+                    if replace_tool:
+                        with self.assertRaisesRegex(ValueError, "objdump differs from the qualified receipt"):
+                            MODULE.main()
+                        invoke.assert_not_called()
+                        self.assertFalse(report.exists())
+                        return
                     self.assertEqual(MODULE.main(), 0)
             finally:
                 os.chdir(previous_directory)

@@ -216,7 +216,15 @@ def main() -> int:
     assert spec is not None and spec.loader is not None
     qualification = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(qualification)
-    tools = qualification.validate(pathlib.Path(args.qualification), repository)
+    receipt_path = private_path(root, args.qualification)
+    receipt_bytes = read_bounded(receipt_path, 1024 * 1024)
+    try:
+        tools = qualification.validate(receipt_path, repository)
+    except qualification.Refusal as exc:
+        raise ValueError(str(exc)) from None
+    require(read_bounded(receipt_path, 1024 * 1024) == receipt_bytes,
+            "qualification receipt changed during validation")
+    receipt = json.loads(receipt_bytes)
     inputs = {name: private_path(root, getattr(args, name.replace("-", "_")))
               for name in ("elf", "payload", "rom", "closure", "font-source", "report")}
     elf = read_bounded(inputs["elf"], 64 * 1024 * 1024)
@@ -228,8 +236,6 @@ def main() -> int:
     boot = read_bounded(boot_path, 4096)
     closure_bytes = read_bounded(inputs["closure"], 16 * 1024 * 1024)
     closure = json.loads(closure_bytes)
-    receipt_bytes = read_bounded(pathlib.Path(args.qualification), 1024 * 1024)
-    receipt = json.loads(receipt_bytes)
     require(closure.get("status") == "PASS_PREBUILD_SOURCE"
             and closure.get("source_revision") == SOURCE_REVISION
             and digest(closure_bytes) == receipt["assets"]["closure_report"]["sha256"],
@@ -242,7 +248,13 @@ def main() -> int:
     font = bytes(int(item.strip(), 0) for item in match.group(1).split(",") if item.strip())
     verify_composition(elf, payload, rom, boot, font)
     objdump = pathlib.Path(tools["target_binutils"]["objdump"])
+    approved = [row for row in receipt["tools"]["target_binutils"] if row["name"] == "objdump"]
+    require(len(approved) == 1 and pathlib.Path(approved[0]["path"]).resolve() == objdump,
+            "objdump path differs from the qualified receipt")
+    expected_objdump_sha256 = approved[0]["sha256"]
     objdump_sha256 = digest(read_bounded(objdump, 128 * 1024 * 1024))
+    require(objdump_sha256 == expected_objdump_sha256,
+            "objdump differs from the qualified receipt")
     completed = subprocess.run(
         [str(objdump), "-f", "-h", "-t", str(inputs["elf"])],
         check=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=30,
@@ -250,7 +262,7 @@ def main() -> int:
     layout = verify_layout(elf, payload, completed.stdout.decode("utf-8"))
     require(read_bounded(inputs["elf"], 64 * 1024 * 1024) == elf,
             "ELF changed during objdump inspection")
-    require(digest(read_bounded(objdump, 128 * 1024 * 1024)) == objdump_sha256,
+    require(digest(read_bounded(objdump, 128 * 1024 * 1024)) == expected_objdump_sha256,
             "qualified objdump changed during inspection")
     report = {"schema": "t64.cpu-build-composition", "schema_version": 1,
               "status": "PASS_POSTBUILD_COMPOSITION", "layout": layout,
