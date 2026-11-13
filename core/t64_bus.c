@@ -110,12 +110,16 @@ static t64_bus_region decode_region(const t64_machine *machine,
   if (address >= T64_SP_REGISTER_BASE && address < T64_SP_REGISTER_END) {
     return T64_BUS_REGION_SP_REG;
   }
+  if (address == T64_SP_PC_ADDRESS &&
+      t64_has_rsp_functional_profile(machine)) {
+    return T64_BUS_REGION_SP_REG;
+  }
   if (address >= T64_ISVIEWER_BASE &&
       address - T64_ISVIEWER_BASE < T64_ISVIEWER_DEVICE_BYTES &&
       t64_isviewer_active(machine)) {
     return T64_BUS_REGION_ISVIEWER;
   }
-  if (address == UINT32_C(0x04080000) ||
+  if (address == T64_SP_PC_ADDRESS ||
       (address >= T64_AI_BASE &&
        address < T64_AI_BASE + T64_DEVICE_WINDOW_BYTES) ||
       (address >= T64_RI_BASE &&

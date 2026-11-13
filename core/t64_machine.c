@@ -953,6 +953,9 @@ static t64_status reset_guest_state(t64_machine *machine) {
   (void)memset(machine->sp_imem, 0, sizeof machine->sp_imem);
   (void)memset(&machine->cpu, 0, sizeof machine->cpu);
   (void)memset(&machine->rsp, 0, sizeof machine->rsp);
+  if (t64_has_rsp_functional_profile(machine)) {
+    machine->rsp.sp_status = T64_RSP_STATUS_HALT;
+  }
   (void)memset(&machine->boot, 0, sizeof machine->boot);
   (void)memset(&machine->cache, 0, sizeof machine->cache);
   (void)memset(&machine->guest_devices, 0, sizeof machine->guest_devices);

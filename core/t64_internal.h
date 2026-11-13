@@ -21,6 +21,32 @@
 #define T64_PI_EVENT_COMPLETE UINT32_C(1)
 #define T64_SP_EVENT_COMPLETE UINT32_C(1)
 #define T64_SP_EVENT_RSP_ISSUE UINT32_C(2)
+#define T64_RSP_STATUS_HALT UINT32_C(0x00000001)
+#define T64_RSP_STATUS_BROKE UINT32_C(0x00000002)
+#define T64_RSP_STATUS_DMA_BUSY UINT32_C(0x00000004)
+#define T64_RSP_STATUS_DMA_FULL UINT32_C(0x00000008)
+#define T64_RSP_STATUS_SINGLE_STEP UINT32_C(0x00000020)
+#define T64_RSP_STATUS_INTR_BREAK UINT32_C(0x00000040)
+#define T64_RSP_STATUS_SIGNAL_MASK UINT32_C(0x00007f80)
+#define T64_RSP_STATUS_READ_MASK UINT32_C(0x00007fe3)
+#define T64_SP_REGISTER_BASE UINT32_C(0x04040000)
+#define T64_SP_REGISTER_END UINT32_C(0x04040020)
+#define T64_SP_PC_ADDRESS UINT32_C(0x04080000)
+#define T64_RSP_REFUSAL_NONE UINT32_C(0)
+#define T64_RSP_REFUSAL_RUNNING_PC_WRITE UINT32_C(1)
+#define T64_RSP_REFUSAL_ACTIVE_IMEM_WRITE UINT32_C(2)
+#define T64_RSP_REFUSAL_ASYNC_HALT UINT32_C(3)
+#define T64_RSP_REFUSAL_SINGLE_STEP_IN_FLIGHT UINT32_C(4)
+#define T64_RSP_REFUSAL_BANK_CONFLICT UINT32_C(5)
+#define T64_RSP_REFUSAL_UNSUPPORTED_OPCODE UINT32_C(6)
+#define T64_RSP_DMA_ACTION_SETUP UINT32_C(1)
+#define T64_RSP_DMA_ACTION_BEAT UINT32_C(2)
+#define T64_RSP_DMA_ACTION_COMPLETE UINT32_C(4)
+#define T64_RSP_DMA_ACTION_PROMOTE UINT32_C(8)
+#define T64_RSP_STALL_SCALAR_READY UINT32_C(1)
+#define T64_RSP_STALL_VECTOR_READY UINT32_C(2)
+#define T64_RSP_STALL_LOAD_STORE UINT32_C(3)
+#define T64_RSP_STALL_BRANCH_BUBBLE UINT32_C(4)
 #define T64_WARM_DEVICE_POLICY_VERSION UINT32_C(3)
 #define T64_WARM_ABSENT_RDRAM_PROBE_ADDRESS UINT32_C(0x00400000)
 #define T64_WARM_ABSENT_RDRAM_PROBE_BYTES UINT32_C(4)
@@ -119,6 +145,23 @@ typedef struct {
   bool token_exhausted;
 } t64_sp_state;
 
+typedef enum {
+  T64_RSP_DMA_STEP_NONE = 0,
+  T64_RSP_DMA_STEP_SETUP = 1,
+  T64_RSP_DMA_STEP_BEAT = 2
+} t64_rsp_dma_step_kind;
+
+typedef struct {
+  t64_rsp_dma_step_kind kind;
+  uint64_t token;
+  uint64_t expected_cursor;
+  uint64_t next_event_sequence;
+  uint32_t internal_offset;
+  uint32_t dram_offset;
+  bool dram_to_sp;
+  bool imem;
+} t64_rsp_dma_step;
+
 /* Every field here can affect future behavior and belongs to state v12. */
 typedef struct {
   uint32_t gpr[32];
@@ -130,12 +173,14 @@ typedef struct {
   uint32_t pc;
   uint32_t delay_target;
   bool delay_slot_pending;
+  bool branch_bubble_pending;
   uint32_t divider_input;
   uint32_t divider_result;
   bool divider_high_valid;
   uint64_t scalar_ready_tick[32];
   uint64_t vector_ready_tick[32];
   uint64_t accumulator_ready_tick[8];
+  uint64_t memory_access_ready_tick;
   uint64_t next_issue_tick;
   uint64_t issue_sequence;
   uint64_t retired_instructions;
@@ -513,6 +558,14 @@ struct t64_machine {
   /* Diagnostic observation only; excluded from canonical guest state. */
   uint32_t rsp_observed_pc;
   uint32_t rsp_observed_opcode;
+  uint32_t rsp_observed_second_pc;
+  uint32_t rsp_observed_second_opcode;
+  uint64_t rsp_observed_tick;
+  uint64_t rsp_observed_ready_tick;
+  uint64_t rsp_observed_dma_cursor;
+  uint32_t rsp_observed_stall_reason;
+  uint32_t rsp_observed_refusal_reason;
+  uint32_t rsp_observed_dma_action;
   uint32_t rsp_observed_outcome;
   bool rsp_observation_valid;
 };
@@ -717,10 +770,21 @@ t64_status t64_pi_write_register(t64_machine *machine, uint32_t address,
                                  uint32_t value);
 t64_status t64_pi_complete(t64_machine *machine, const t64_event *event);
 void t64_pi_reset_machine_state(t64_machine *machine);
-t64_status t64_sp_read_register(const t64_machine *machine, uint32_t address,
+t64_status t64_sp_read_register(t64_machine *machine, uint32_t address,
                                 uint32_t *value_out);
+t64_status t64_sp_peek_register(const t64_machine *machine,
+                                uint32_t address, uint32_t *value_out);
 t64_status t64_sp_write_register(t64_machine *machine, uint32_t address,
                                  uint32_t value);
+t64_status t64_rsp_ensure_opportunity(t64_machine *machine);
+t64_status t64_rsp_validate_status_command(const t64_machine *machine,
+                                           uint32_t command);
+t64_status t64_sp_rsp_dma_preflight(t64_machine *machine, bool rsp_fetches,
+                                    bool rsp_touches_dmem,
+                                    t64_rsp_dma_step *step_out);
+void t64_sp_rsp_dma_commit(t64_machine *machine,
+                           const t64_rsp_dma_step *step);
+bool t64_sp_rsp_dma_active(const t64_machine *machine);
 t64_status t64_sp_complete(t64_machine *machine, const t64_event *event);
 void t64_sp_reset_machine_state(t64_machine *machine);
 t64_status t64_rsp_start(t64_machine *machine);

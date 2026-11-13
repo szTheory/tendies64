@@ -204,6 +204,199 @@ static bool rsp_profile_admission_test(void) {
   return passed;
 }
 
+static bool rsp_halt_independent_dma_progress_test(void) {
+  static const uint8_t source[] = {0x10u, 0x32u, 0x54u, 0x76u,
+                                   0x98u, 0xbau, 0xdcu, 0xfeu};
+  fixture value;
+  uint32_t status_value = 0u;
+  size_t i;
+  bool setup_ok = fixture_create_profile(
+      &value, "ntsc-cart-4m-openipl3-rsp-functional-v1");
+  bool passed = false;
+
+  if (!setup_ok || !fixture_enable_synthetic_image(&value)) {
+    if (value.machine != NULL) {
+      t64_machine_destroy(value.machine);
+    }
+    return false;
+  }
+  t64_machine_reset_execution_state(value.machine);
+  value.machine->rsp.sp_status |= T64_RSP_STATUS_HALT;
+  for (i = 0u; i < sizeof source; i++) {
+    setup_ok = setup_ok &&
+               t64_machine_bus_write(value.machine,
+                                     UINT32_C(0x00001000) + (uint32_t)i, 1u,
+                                     source[i]) == T64_STATUS_OK;
+  }
+  setup_ok = setup_ok &&
+             t64_machine_bus_write(value.machine, TEST_SP_BASE, 4u, 0u) ==
+                 T64_STATUS_OK &&
+             t64_machine_bus_write(value.machine, TEST_SP_BASE + 4u, 4u,
+                                   UINT32_C(0x00001000)) == T64_STATUS_OK &&
+             t64_machine_bus_write(value.machine, TEST_SP_BASE + 8u, 4u,
+                                   UINT32_C(7)) == T64_STATUS_OK;
+  if (setup_ok) {
+    passed = value.machine->rsp.sp_status == T64_RSP_STATUS_HALT &&
+             value.machine->sp.active.valid &&
+             value.machine->rsp.dma_setup_remaining == UINT64_C(12) &&
+             t64_machine_bus_read(value.machine, TEST_SP_BASE + 0x10u, 4u,
+                                  &status_value) == T64_STATUS_OK &&
+             (status_value & (T64_RSP_STATUS_HALT |
+                              T64_RSP_STATUS_DMA_BUSY)) ==
+                 (T64_RSP_STATUS_HALT | T64_RSP_STATUS_DMA_BUSY);
+  }
+  if (passed) {
+    passed = advance_to(value.machine, UINT64_C(12)) &&
+             value.machine->sp.active.valid &&
+             value.machine->rsp.dma_setup_remaining == 0u &&
+             value.machine->rsp.dma_beat_cursor == 0u &&
+             bytes_are_zero(value.machine, TEST_DMEM_BASE, sizeof source);
+  }
+  if (passed) {
+    passed = advance_to(value.machine, UINT64_C(13)) &&
+             !value.machine->sp.active.valid &&
+             value.machine->rsp.sp_status == T64_RSP_STATUS_HALT &&
+             value.machine->rsp.dma_beat_cursor == 0u &&
+             value.machine->rsp_observed_dma_cursor == sizeof source &&
+             value.machine->rsp_observed_dma_action ==
+                 (T64_RSP_DMA_ACTION_BEAT | T64_RSP_DMA_ACTION_COMPLETE) &&
+             bytes_equal(value.machine, TEST_DMEM_BASE, source,
+                         sizeof source) &&
+             t64_machine_bus_read(value.machine, TEST_SP_BASE + 0x10u, 4u,
+                                  &status_value) == T64_STATUS_OK &&
+             (status_value & T64_RSP_STATUS_DMA_BUSY) == 0u;
+  }
+  if (!passed) {
+    fprintf(stderr,
+            "RSP HALT-independent DMA failed: setup=%u halt=%u active=%u "
+            "setup_left=%llu cursor=%llu observer_cursor=%llu action=%u "
+            "status=0x%08x\n",
+            setup_ok, (value.machine->rsp.sp_status & T64_RSP_STATUS_HALT) != 0u,
+            value.machine->sp.active.valid,
+            (unsigned long long)value.machine->rsp.dma_setup_remaining,
+            (unsigned long long)value.machine->rsp.dma_beat_cursor,
+            (unsigned long long)value.machine->rsp_observed_dma_cursor,
+            value.machine->rsp_observed_dma_action, status_value);
+  }
+  t64_machine_destroy(value.machine);
+  return passed;
+}
+
+static bool rsp_issue_hazards_branch_test(void) {
+  static const uint32_t load_program[] = {
+      UINT32_C(0x24010000), /* ADDIU r1,r0,0 */
+      UINT32_C(0x8c220000), /* LW r2,0(r1) */
+      UINT32_C(0x24430001), /* ADDIU r3,r2,1 */
+      UINT32_C(0x0000000d)  /* BREAK */
+  };
+  static const uint32_t branch_program[] = {
+      UINT32_C(0x24010001), /* ADDIU r1,r0,1 */
+      UINT32_C(0x10210001), /* BEQ r1,r1,+1 -> 0x00c */
+      UINT32_C(0x24020007), /* delay slot: ADDIU r2,r0,7 */
+      UINT32_C(0x24030009), /* taken target: ADDIU r3,r0,9 */
+      UINT32_C(0x0000000d)  /* BREAK */
+  };
+  fixture value;
+  size_t i;
+  bool setup_ok = fixture_create_profile(
+      &value, "ntsc-cart-4m-openipl3-rsp-functional-v1");
+  bool passed = false;
+
+  if (!setup_ok || !fixture_enable_synthetic_image(&value)) {
+    if (value.machine != NULL) {
+      t64_machine_destroy(value.machine);
+    }
+    return false;
+  }
+  t64_machine_reset_execution_state(value.machine);
+  (void)memset(&value.machine->rsp, 0, sizeof value.machine->rsp);
+  if (t64_machine_bus_write(value.machine, TEST_DMEM_BASE, 4u,
+                            UINT32_C(0x12345678)) != T64_STATUS_OK) {
+    t64_machine_destroy(value.machine);
+    return false;
+  }
+  for (i = 0u; i < sizeof load_program / sizeof load_program[0]; i++) {
+    if (t64_machine_bus_write(value.machine,
+                              TEST_IMEM_BASE + (uint32_t)(i * 4u), 4u,
+                              load_program[i]) != T64_STATUS_OK) {
+      t64_machine_destroy(value.machine);
+      return false;
+    }
+  }
+  if (t64_rsp_start(value.machine) != T64_STATUS_OK ||
+      !advance_to(value.machine, UINT64_C(4)) ||
+      value.machine->rsp.pc != UINT32_C(8) ||
+      value.machine->rsp.retired_instructions != UINT64_C(2) ||
+      value.machine->rsp.gpr[2] != UINT32_C(0x12345678) ||
+      value.machine->rsp.gpr[3] != 0u ||
+      value.machine->rsp.stall_slots != UINT64_C(2) ||
+      value.machine->rsp_observed_stall_reason !=
+          T64_RSP_STALL_SCALAR_READY ||
+      value.machine->rsp_observed_ready_tick != UINT64_C(5)) {
+    t64_machine_destroy(value.machine);
+    return false;
+  }
+  if (!advance_to(value.machine, UINT64_C(5)) ||
+      value.machine->rsp.pc != UINT32_C(12) ||
+      value.machine->rsp.retired_instructions != UINT64_C(3) ||
+      value.machine->rsp.gpr[3] != UINT32_C(0x12345679)) {
+    t64_machine_destroy(value.machine);
+    return false;
+  }
+  t64_machine_destroy(value.machine);
+
+  setup_ok = fixture_create_profile(
+      &value, "ntsc-cart-4m-openipl3-rsp-functional-v1");
+  if (!setup_ok || !fixture_enable_synthetic_image(&value)) {
+    if (value.machine != NULL) {
+      t64_machine_destroy(value.machine);
+    }
+    return false;
+  }
+  t64_machine_reset_execution_state(value.machine);
+  (void)memset(&value.machine->rsp, 0, sizeof value.machine->rsp);
+  for (i = 0u; i < sizeof branch_program / sizeof branch_program[0]; i++) {
+    if (t64_machine_bus_write(value.machine,
+                              TEST_IMEM_BASE + (uint32_t)(i * 4u), 4u,
+                              branch_program[i]) != T64_STATUS_OK) {
+      t64_machine_destroy(value.machine);
+      return false;
+    }
+  }
+  if (t64_rsp_start(value.machine) != T64_STATUS_OK ||
+      !advance_to(value.machine, UINT64_C(2)) ||
+      value.machine->rsp.pc != UINT32_C(8) ||
+      !value.machine->rsp.delay_slot_pending ||
+      !value.machine->rsp.branch_bubble_pending ||
+      value.machine->rsp.delay_target != UINT32_C(12)) {
+    t64_machine_destroy(value.machine);
+    return false;
+  }
+  if (!advance_to(value.machine, UINT64_C(3)) ||
+      value.machine->rsp.delay_slot_pending ||
+      !value.machine->rsp.branch_bubble_pending ||
+      value.machine->rsp.pc != UINT32_C(12) ||
+      value.machine->rsp.gpr[2] != UINT32_C(7) ||
+      value.machine->rsp.retired_instructions != UINT64_C(3)) {
+    t64_machine_destroy(value.machine);
+    return false;
+  }
+  passed = advance_to(value.machine, UINT64_C(4)) &&
+           !value.machine->rsp.branch_bubble_pending &&
+           value.machine->rsp.pc == UINT32_C(12) &&
+           value.machine->rsp.gpr[3] == 0u &&
+           value.machine->rsp.retired_instructions == UINT64_C(3) &&
+           value.machine->rsp.stall_slots == UINT64_C(1) &&
+           value.machine->rsp_observed_stall_reason ==
+               T64_RSP_STALL_BRANCH_BUBBLE;
+  passed = passed && advance_to(value.machine, UINT64_C(5)) &&
+           value.machine->rsp.pc == UINT32_C(16) &&
+           value.machine->rsp.gpr[3] == UINT32_C(9) &&
+           value.machine->rsp.retired_instructions == UINT64_C(4);
+  t64_machine_destroy(value.machine);
+  return passed;
+}
+
 static bool rsp_fetched_vadd_test(void) {
   static const uint32_t program[] = {
       UINT32_C(0x24017fff), /* ADDIU r1,r0,32767 */
@@ -222,7 +415,6 @@ static bool rsp_fetched_vadd_test(void) {
       UINT32_C(0x0000000d)  /* BREAK */
   };
   fixture value;
-  t64_rsp_state before_vadd;
   t64_stop_request request = {T64_STOP_GUEST_TICK, UINT64_C(5)};
   t64_stop_result result = {0u, 0u};
   static const uint8_t expected_dmem[] = {0u, 0u, 0x7fu, 0xffu};
@@ -258,46 +450,42 @@ static bool rsp_fetched_vadd_test(void) {
   }
   if (t64_rsp_start(value.machine) != T64_STATUS_OK ||
       t64_machine_advance(value.machine, &request, &result) != T64_STATUS_OK ||
-      result.tick != UINT64_C(5) || value.machine->rsp.pc != UINT32_C(0x14) ||
+      result.tick != UINT64_C(5) || value.machine->rsp.pc != UINT32_C(0x18) ||
       value.machine->rsp.gpr[1] != UINT32_C(0x7fff) ||
-      value.machine->rsp.retired_instructions != UINT64_C(5)) {
-    t64_machine_destroy(value.machine);
-    return false;
-  }
-  before_vadd = value.machine->rsp;
-  request.value = UINT64_C(6);
-  if (t64_machine_advance(value.machine, &request, &result) != T64_STATUS_OK ||
-      result.tick != UINT64_C(6)) {
+      value.machine->rsp.retired_instructions != UINT64_C(6)) {
     t64_machine_destroy(value.machine);
     return false;
   }
   passed = value.machine->rsp_observation_valid &&
-           value.machine->rsp_observed_pc == UINT32_C(0x14) &&
-           value.machine->rsp_observed_opcode == UINT32_C(0x4a0108d0) &&
+           value.machine->rsp_observed_pc == UINT32_C(0x10) &&
+           value.machine->rsp_observed_opcode == 0u &&
+           value.machine->rsp_observed_second_pc == UINT32_C(0x14) &&
+           value.machine->rsp_observed_second_opcode ==
+               UINT32_C(0x4a0108d0) &&
            value.machine->rsp_observed_outcome == T64_RSP_ATTEMPT_RETIRED &&
-           value.machine->rsp.retired_instructions ==
-               before_vadd.retired_instructions + UINT64_C(1) &&
-           value.machine->rsp.pc == UINT32_C(0x18);
+           value.machine->rsp.retired_instructions == UINT64_C(6) &&
+           value.machine->rsp.pc == UINT32_C(0x18) &&
+           value.machine->rsp.vector[3][0] == UINT8_C(0x7f) &&
+           value.machine->rsp.vector[3][1] == UINT8_C(0xff) &&
+           value.machine->rsp.accumulator[0] == UINT64_C(0xffff);
   if (!passed) {
-    printf("# fetched VADD expected pc=0x14 word=0x4a0108d0 retired; ");
-    printf("actual valid=%u pc=0x%03x word=0x%08x outcome=%u ",
+    printf("# paired NOP/VADD expected pc=0x10/0x14 word=0/0x4a0108d0; ");
+    printf("actual valid=%u pc=0x%03x word=0x%08x second=0x%03x/0x%08x outcome=%u ",
            value.machine->rsp_observation_valid ? 1u : 0u,
            value.machine->rsp_observed_pc,
            value.machine->rsp_observed_opcode,
+           value.machine->rsp_observed_second_pc,
+           value.machine->rsp_observed_second_opcode,
            value.machine->rsp_observed_outcome);
-    printf("retired=%llu pc_after=0x%03x state_unchanged=%u\n",
+    printf("retired=%llu pc_after=0x%03x\n",
            (unsigned long long)value.machine->rsp.retired_instructions,
-           value.machine->rsp.pc,
-           memcmp(&before_vadd, &value.machine->rsp,
-                  sizeof before_vadd) == 0
-               ? 1u
-               : 0u);
+           value.machine->rsp.pc);
   }
-  request.value = UINT64_C(14);
+  request.value = UINT64_C(13);
   passed = passed &&
            t64_machine_advance(value.machine, &request, &result) ==
                T64_STATUS_OK &&
-           result.tick == UINT64_C(14) &&
+           result.tick == UINT64_C(13) &&
            result.reason == T64_STOP_REASON_BOUND &&
            !value.machine->halted &&
            value.machine->rsp.pc == UINT32_C(0x34) &&
@@ -1320,7 +1508,7 @@ static bool digest_changes_after_u16(t64_machine *machine, uint16_t *field) {
 static bool rsp_fields_participate_in_digest_test(void) {
   fixture value;
   uint32_t *u32_fields[6];
-  uint64_t *u64_fields[13];
+  uint64_t *u64_fields[14];
   uint16_t *u16_fields[2];
   uint8_t *u8_fields[2];
   bool *bool_fields[3];
@@ -1352,6 +1540,7 @@ static bool rsp_fields_participate_in_digest_test(void) {
   u64_fields[u64_count++] = &value.machine->rsp.scalar_ready_tick[0];
   u64_fields[u64_count++] = &value.machine->rsp.vector_ready_tick[0];
   u64_fields[u64_count++] = &value.machine->rsp.accumulator_ready_tick[0];
+  u64_fields[u64_count++] = &value.machine->rsp.memory_access_ready_tick;
   u64_fields[u64_count++] = &value.machine->rsp.next_issue_tick;
   u64_fields[u64_count++] = &value.machine->rsp.issue_sequence;
   u64_fields[u64_count++] = &value.machine->rsp.retired_instructions;
@@ -1563,7 +1752,9 @@ int main(int argc, char **argv) {
       "unsupported fetched opcode refuses atomically with excluded diagnostics",
       "historical profile refuses RSP startup",
       "RSP BREAK leaves queued PI DMA and machine advancement running",
-      "SP DMEM SW invalidates overlapping seeded LL/LLD links only"};
+      "SP DMEM SW invalidates overlapping seeded LL/LLD links only",
+      "RSP DMA advances independently while HALT stays set",
+      "RSP load readiness and taken branch delay are observable"};
   bool results[sizeof names / sizeof names[0]];
   size_t i;
   bool all_passed = true;
@@ -1587,7 +1778,8 @@ int main(int argc, char **argv) {
     bool break_passed = rsp_break_allows_queued_pi_completion_test();
     bool link_passed =
         rsp_store_preserves_only_nonoverlapping_seeded_links_test();
-    puts("1..7");
+    bool hazard_passed = rsp_issue_hazards_branch_test();
+    puts("1..8");
     printf("%s 1 - %s\n", admission_passed ? "ok" : "not ok", names[11]);
     printf("%s 2 - %s\n", digest_passed ? "ok" : "not ok", names[12]);
     printf("%s 3 - %s\n", tracer_passed ? "ok" : "not ok", names[13]);
@@ -1595,9 +1787,10 @@ int main(int argc, char **argv) {
     printf("%s 5 - %s\n", old_profile_passed ? "ok" : "not ok", names[15]);
     printf("%s 6 - %s\n", break_passed ? "ok" : "not ok", names[16]);
     printf("%s 7 - %s\n", link_passed ? "ok" : "not ok", names[17]);
+    printf("%s 8 - %s\n", hazard_passed ? "ok" : "not ok", names[19]);
     all_passed = admission_passed && digest_passed && tracer_passed &&
                  refusal_passed && old_profile_passed && break_passed &&
-                 link_passed;
+                 link_passed && hazard_passed;
     return all_passed ? 0 : 1;
   }
 
@@ -1619,6 +1812,8 @@ int main(int argc, char **argv) {
   results[15] = rsp_old_profile_refusal_test();
   results[16] = rsp_break_allows_queued_pi_completion_test();
   results[17] = rsp_store_preserves_only_nonoverlapping_seeded_links_test();
+  results[18] = rsp_halt_independent_dma_progress_test();
+  results[19] = rsp_issue_hazards_branch_test();
   printf("1..%zu\n", test_count);
   for (i = 0u; i < test_count; i++) {
     printf("%s %zu - %s\n", results[i] ? "ok" : "not ok", i + 1u,

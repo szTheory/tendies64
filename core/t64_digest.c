@@ -363,6 +363,7 @@ t64_status t64_machine_digest(const t64_machine *machine,
       hash_u32(&context, rsp->pc);
       hash_u32(&context, rsp->delay_target);
       hash_u32(&context, rsp->delay_slot_pending ? 1u : 0u);
+      hash_u32(&context, rsp->branch_bubble_pending ? 1u : 0u);
       hash_u32(&context, rsp->divider_input);
       hash_u32(&context, rsp->divider_result);
       hash_u32(&context, rsp->divider_high_valid ? 1u : 0u);
@@ -373,6 +374,7 @@ t64_status t64_machine_digest(const t64_machine *machine,
       for (i = 0u; i < 8u; i++) {
         hash_u64(&context, rsp->accumulator_ready_tick[i]);
       }
+      hash_u64(&context, rsp->memory_access_ready_tick);
       hash_u64(&context, rsp->next_issue_tick);
       hash_u64(&context, rsp->issue_sequence);
       hash_u64(&context, rsp->retired_instructions);
