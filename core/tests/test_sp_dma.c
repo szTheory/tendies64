@@ -208,7 +208,7 @@ static bool rsp_fetched_vadd_test(void) {
       UINT32_C(0),           /* NOP: documented MTC2 destination latency */
       UINT32_C(0),
       UINT32_C(0),
-      UINT32_C(0x480108d0), /* VADD v3,v1,v1, vector operand */
+      UINT32_C(0x4a0108d0), /* VADD v3,v1,v1, vector operand */
       UINT32_C(0),
       UINT32_C(0),
       UINT32_C(0),
@@ -257,13 +257,13 @@ static bool rsp_fetched_vadd_test(void) {
   }
   passed = value.machine->rsp_observation_valid &&
            value.machine->rsp_observed_pc == UINT32_C(0x14) &&
-           value.machine->rsp_observed_opcode == UINT32_C(0x480108d0) &&
+           value.machine->rsp_observed_opcode == UINT32_C(0x4a0108d0) &&
            value.machine->rsp_observed_outcome == T64_RSP_ATTEMPT_RETIRED &&
            value.machine->rsp.retired_instructions ==
                before_vadd.retired_instructions + UINT64_C(1) &&
            value.machine->rsp.pc == UINT32_C(0x18);
   if (!passed) {
-    printf("# fetched VADD expected pc=0x14 word=0x480108d0 retired; ");
+    printf("# fetched VADD expected pc=0x14 word=0x4a0108d0 retired; ");
     printf("actual valid=%u pc=0x%03x word=0x%08x outcome=%u ",
            value.machine->rsp_observation_valid ? 1u : 0u,
            value.machine->rsp_observed_pc,
