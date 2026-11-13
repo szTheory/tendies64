@@ -91,7 +91,7 @@ static void test_release(void *context, t64_host_storage storage) {
   free(storage.data);
 }
 
-static bool fixture_init(fixture *value) {
+static bool fixture_init_profile(fixture *value, const char *profile_id) {
   const t64_profile_descriptor *profile = NULL;
   size_t i;
 
@@ -107,7 +107,7 @@ static bool fixture_init(fixture *value) {
   value->image[2] = 0x12u;
   value->image[3] = 0x40u;
   value->image[0x3eu] = (uint8_t)'E';
-  if (t64_profile_lookup("ntsc-cart-4m-skeleton", &profile) !=
+  if (t64_profile_lookup(profile_id, &profile) !=
           T64_STATUS_OK ||
       profile == NULL ||
       t64_machine_create(&value->allocator, profile, &value->machine) !=
@@ -122,6 +122,23 @@ static bool fixture_init(fixture *value) {
     return false;
   }
   return true;
+}
+
+static bool fixture_init(fixture *value) {
+  return fixture_init_profile(value, "ntsc-cart-4m-skeleton");
+}
+
+static bool rsp_profile_admission_test(void) {
+  fixture value;
+  bool passed = fixture_init_profile(
+      &value, "ntsc-cart-4m-openipl3-rsp-functional-v1");
+
+  if (passed) {
+    passed = value.machine->profile.machine_model_version == 6u &&
+             value.machine->profile.state_serialization_version == 12u;
+    t64_machine_destroy(value.machine);
+  }
+  return passed;
 }
 
 static bool source_at_completion_test(void) {
@@ -967,7 +984,7 @@ static bool sp_latches_participate_in_digest_test(void) {
   return passed;
 }
 
-int main(void) {
+int main(int argc, char **argv) {
   static const char *const names[] = {
       "SP source is read at the 13-tick completion deadline",
       "SP rectangular rows honor skip, alignment, and IMEM selection",
@@ -979,10 +996,25 @@ int main(void) {
       "SP refuses pending work without capacity or sequence reservation",
       "SP token, sequence, and deadline exhaustion refuse atomically",
       "ROM replacement invalidates active and pending SP completions",
-      "same-tick PI and SP completions retain scheduler FIFO order"};
+      "same-tick PI and SP completions retain scheduler FIFO order",
+      "new RSP profile is admitted with its distinct model and state domain"};
   bool results[sizeof names / sizeof names[0]];
   size_t i;
   bool all_passed = true;
+  bool rsp_only = argc == 2 && strcmp(argv[1], "--rsp-tracer") == 0;
+  size_t test_count = sizeof names / sizeof names[0];
+
+  if (argc > 1 && !rsp_only) {
+    fputs("usage: test_sp_dma [--rsp-tracer]\n", stderr);
+    return 2;
+  }
+
+  if (rsp_only) {
+    bool rsp_passed = rsp_profile_admission_test();
+    puts("1..1");
+    printf("%s 1 - %s\n", rsp_passed ? "ok" : "not ok", names[11]);
+    return rsp_passed ? 0 : 1;
+  }
 
   results[0] = source_at_completion_test();
   results[1] = rectangular_imem_rows_test();
@@ -995,8 +1027,9 @@ int main(void) {
   results[8] = token_sequence_and_deadline_refusal_test();
   results[9] = replacement_invalidates_pending_sp_events_test();
   results[10] = equal_tick_pi_sp_fifo_test();
-  puts("1..11");
-  for (i = 0u; i < sizeof names / sizeof names[0]; i++) {
+  results[11] = rsp_profile_admission_test();
+  printf("1..%zu\n", test_count);
+  for (i = 0u; i < test_count; i++) {
     printf("%s %zu - %s\n", results[i] ? "ok" : "not ok", i + 1u,
            names[i]);
     all_passed = all_passed && results[i];
