@@ -4,18 +4,18 @@ milestone: v1.0
 milestone_name: Verified Headless Core
 current_phase: 04
 current_phase_name: Complete VR4300 CPU
-current_plan: 19
+current_plan: 20
 status: executing
-stopped_at: Owner approved separate software compatibility profile; Plan19 implementation/tests underway, then bounded Plan16 qualification. No user action needed.
-last_updated: "2026-11-13T14:32:40.818Z"
+stopped_at: Approved compatibility foundation committed and pushed; native/review/security checks pass. Actual suite completion remains unmet; bounded cache, CPU/coprocessor and CP0/address gap investigations active. No user action needed.
+last_updated: "2026-11-13T15:51:39.375Z"
 last_activity: 2026-11-13
-last_activity_desc: Approved software compatibility profile implementation and bounded qualification in progress
-state_head: 5028c4ffa58055242c73218c3e09b251208f962a
+last_activity_desc: Compatibility foundation pushed; observed qualification gaps isolated for compat-v2, preserving strict and compat-v1
+state_head: 61c9c174428e55594f9d8cb45e4ef8de4f63507c
 progress:
   total_phases: 6
   completed_phases: 0
-  total_plans: 53
-  completed_plans: 51
+  total_plans: 54
+  completed_plans: 52
   percent: 0
 ---
 
@@ -31,12 +31,16 @@ See: .planning/PROJECT.md (updated 2026-11-10)
 ## Current Position
 
 Phase: 04 (Complete VR4300 CPU) — EXECUTING
-Current Plan: 19
-Total Plans in Phase: 19
+Current Plan: 20
+Total Plans in Phase: 20
 Status: Executing
-Last activity: 2026-11-13 — Approved software compatibility profile implementation and bounded qualification in progress
+Last activity: 2026-11-13 — Compatibility foundation pushed; observed qualification gaps isolated for compat-v2, preserving strict and compat-v1
 
 Progress: [░░░░░░░░░░] 0%
+
+Verified roadmap ledger: Phases 1–3 are complete; Phase 4 has 18/20 plans
+complete and its actual-suite gate remains open. The generated percentage
+currently disagrees with that checked ledger and is not used to advance work.
 
 ## Performance Metrics
 
@@ -215,6 +219,6 @@ Items acknowledged and deferred at milestone close, most recent first:
 
 ## Session Continuity
 
-Last session: 2026-11-13T14:32:39.806Z
-Stopped at: Owner approved separate software compatibility profile; Plan19 implementation/tests underway, then bounded Plan16 qualification. No user action needed.
+Last session: 2026-11-13T15:27:38.891Z
+Stopped at: Approved compatibility foundation committed and pushed; native/review/security checks pass. Actual suite completion remains unmet; bounded cache, CPU/coprocessor and CP0/address gap investigations active. No user action needed.
 Resume file: .planning/phases/04-complete-vr4300-cpu/04-16-EXECUTION-STATUS.md

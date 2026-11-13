@@ -231,3 +231,11 @@ audit closes both new mitigation threats. These are authored software checks.
 Private diagnostic outcomes do not enter this evidence record, hosted inputs
 or public uploads. The earlier hosted pair above covers its named earlier
 source; new-source hosted verification is separate and remains to be recorded.
+
+Hosted run [43452732705](https://github.com/szTheory/tendies64/actions/runs/43452732705)
+verifies the exact compatibility foundation source
+`61c9c174428e55594f9d8cb45e4ef8de4f63507c` on Ubuntu24.04 and macOS26.
+Both jobs pass all111 checks, core lint83/0, authored evidence emission,
+publication scans and sanitized upload. No private diagnostic input or result
+is used or published. This pair closes the hosted part of Plan19, while
+Plan16 remains incomplete and Plan20 isolates the additional v2 policies.

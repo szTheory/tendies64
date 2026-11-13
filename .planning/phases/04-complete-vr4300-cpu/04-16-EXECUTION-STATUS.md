@@ -2,6 +2,13 @@
 
 Status: incomplete; approved compatibility-target implementation underway.
 
+The Plan19 native compatibility foundation is now committed and pushed in
+`61c9c17`, with both exact-source hosted jobs green. Plan19's SUMMARY covers
+only that native/selection scope. Actual qualification still does not satisfy
+this plan. Plan20 isolates the observed additional cache, coprocessor and
+CP0/address policies in compat-v2, preserving strict and published compat-v1.
+No user action is needed; implementation and bounded targeted retests continue.
+
 The local pipeline is implemented and its authored normal/sanitizer controls,
 configured source review and registered security mitigation audit pass. It
 qualifies inputs before use, checks actual composition, seals exact source
