@@ -38,8 +38,9 @@ policy and distinguishes MTC2's VU timing from MFC2's SU timing.
 Native authored fixtures establish selected functional behavior. No external
 ROM, diagnostic run, hardware test, general RSP compatibility or full ISA
 qualification is claimed. The profile remains development coverage.
-The issue callback's measured normal stack frame is592 bytes; the instrumented
-frame warning is8064 bytes, on a bounded nonrecursive callback path. The
+Before the parent correction, the executor measured the issue callback's normal
+stack frame at592 bytes and its instrumented frame at8064 bytes, on a bounded
+nonrecursive callback path. The
 warning is retained without suppression or a general stack-safety claim.
 
 Repeated baseline digest optimization was deferred; no cache, dependency,
