@@ -11,7 +11,9 @@ pub(crate) extern "C" fn park() -> ! {
 }
 
 pub fn run() -> ! {
-    let selector = crate::T64_CPU_SELECTOR;
+    let selector = unsafe {
+        core::ptr::read_volatile(core::ptr::addr_of!(crate::T64_CPU_SELECTOR))
+    };
     let registration_index = (selector >> 16) as usize;
     let value_index = (selector & 0xffff) as usize;
     let tests = testlist::tests();
