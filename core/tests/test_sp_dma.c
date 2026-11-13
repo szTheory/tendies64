@@ -9,6 +9,7 @@
 
 #define TEST_SP_BASE UINT32_C(0x04040000)
 #define TEST_DMEM_BASE UINT32_C(0x04000000)
+#define TEST_IMEM_BASE UINT32_C(0x04001000)
 
 typedef struct {
   t64_host_allocator allocator;
@@ -128,16 +129,155 @@ static bool fixture_init(fixture *value) {
   return fixture_init_profile(value, "ntsc-cart-4m-skeleton");
 }
 
+static bool fixture_create_profile(fixture *value, const char *profile_id) {
+  const t64_profile_descriptor *profile = NULL;
+  t64_status lookup_status;
+  t64_status create_status;
+
+  memset(value, 0, sizeof *value);
+  value->allocator.allocate = test_allocate;
+  value->allocator.release = test_release;
+  value->allocator.context = value;
+  lookup_status = t64_profile_lookup(profile_id, &profile);
+  create_status = lookup_status == T64_STATUS_OK && profile != NULL
+                      ? t64_machine_create(&value->allocator, profile,
+                                           &value->machine)
+                      : lookup_status;
+  if (create_status != T64_STATUS_OK || value->machine == NULL) {
+    fprintf(stderr, "RSP profile setup failed: lookup=%u create=%u\n",
+            (unsigned)lookup_status, (unsigned)create_status);
+    return false;
+  }
+  return true;
+}
+
+static bool fixture_enable_synthetic_image(fixture *value) {
+  t64_host_storage storage = {NULL, 0u, 0u};
+
+  if (value == NULL || value->machine == NULL ||
+      !test_allocate(value, 1u, 1u, &storage)) {
+    return false;
+  }
+  value->machine->image_storage = storage;
+  value->machine->image_length = 1u;
+  value->machine->has_image = true;
+  return true;
+}
+
 static bool rsp_profile_admission_test(void) {
   fixture value;
-  bool passed = fixture_init_profile(
+  uint8_t before[T64_DIGEST_SIZE];
+  uint8_t changed[T64_DIGEST_SIZE];
+  uint32_t saved_gpr = 0u;
+  t64_status before_status;
+  t64_status changed_status;
+  bool passed = fixture_create_profile(
       &value, "ntsc-cart-4m-openipl3-rsp-functional-v1");
 
   if (passed) {
+    passed = fixture_enable_synthetic_image(&value);
+  }
+  if (passed) {
+    before_status = t64_machine_digest(value.machine, before);
     passed = value.machine->profile.machine_model_version == 6u &&
-             value.machine->profile.state_serialization_version == 12u;
+             value.machine->profile.state_serialization_version == 12u &&
+             before_status == T64_STATUS_OK;
+    saved_gpr = value.machine->rsp.gpr[1];
+    value.machine->rsp.gpr[1] ^= UINT32_C(1);
+    changed_status = t64_machine_digest(value.machine, changed);
+    passed = passed && changed_status == T64_STATUS_OK &&
+             memcmp(before, changed, sizeof before) != 0;
+    if (!passed) {
+      fprintf(stderr,
+              "RSP profile state check failed: model=%u state=%u digest=%u/%u changed=%d\n",
+              (unsigned)value.machine->profile.machine_model_version,
+              (unsigned)value.machine->profile.state_serialization_version,
+              (unsigned)before_status, (unsigned)changed_status,
+              memcmp(before, changed, sizeof before) != 0);
+    }
+    value.machine->rsp.gpr[1] = saved_gpr;
     t64_machine_destroy(value.machine);
   }
+  return passed;
+}
+
+static bool rsp_fetched_vadd_test(void) {
+  static const uint32_t program[] = {
+      UINT32_C(0x24017fff), /* ADDIU r1,r0,32767 */
+      UINT32_C(0x48810800), /* MTC2 r1,v1[0] */
+      UINT32_C(0),           /* NOP: documented MTC2 destination latency */
+      UINT32_C(0),
+      UINT32_C(0),
+      UINT32_C(0x480108d0), /* VADD v3,v1,v1, vector operand */
+      UINT32_C(0),
+      UINT32_C(0),
+      UINT32_C(0),
+      UINT32_C(0x48021800), /* MFC2 r2,v3[0] */
+      UINT32_C(0),
+      UINT32_C(0),
+      UINT32_C(0xac020000), /* SW r2,0(r0) */
+      UINT32_C(0x0000000d)  /* BREAK */
+  };
+  fixture value;
+  t64_rsp_state before_vadd;
+  t64_stop_request request = {T64_STOP_GUEST_TICK, UINT64_C(5)};
+  t64_stop_result result = {0u, 0u};
+  size_t i;
+  bool setup_ok = fixture_create_profile(
+      &value, "ntsc-cart-4m-openipl3-rsp-functional-v1");
+  bool passed = false;
+
+  if (!setup_ok || !fixture_enable_synthetic_image(&value)) {
+    return false;
+  }
+  t64_machine_reset_execution_state(value.machine);
+  (void)memset(&value.machine->rsp, 0, sizeof value.machine->rsp);
+  for (i = 0u; i < sizeof program / sizeof program[0]; i++) {
+    if (t64_machine_bus_write(value.machine,
+                              TEST_IMEM_BASE + (uint32_t)(i * 4u), 4u,
+                              program[i]) != T64_STATUS_OK) {
+      t64_machine_destroy(value.machine);
+      return false;
+    }
+  }
+  if (t64_rsp_start(value.machine) != T64_STATUS_OK ||
+      t64_machine_advance(value.machine, &request, &result) != T64_STATUS_OK ||
+      result.tick != UINT64_C(5) || value.machine->rsp.pc != UINT32_C(0x14) ||
+      value.machine->rsp.gpr[1] != UINT32_C(0x7fff) ||
+      value.machine->rsp.retired_instructions != UINT64_C(5)) {
+    t64_machine_destroy(value.machine);
+    return false;
+  }
+  before_vadd = value.machine->rsp;
+  request.value = UINT64_C(6);
+  if (t64_machine_advance(value.machine, &request, &result) != T64_STATUS_OK ||
+      result.tick != UINT64_C(6)) {
+    t64_machine_destroy(value.machine);
+    return false;
+  }
+  passed = value.machine->rsp_observation_valid &&
+           value.machine->rsp_observed_pc == UINT32_C(0x14) &&
+           value.machine->rsp_observed_opcode == UINT32_C(0x480108d0) &&
+           value.machine->rsp_observed_outcome == T64_RSP_ATTEMPT_RETIRED &&
+           value.machine->rsp.retired_instructions ==
+               before_vadd.retired_instructions + UINT64_C(1) &&
+           value.machine->rsp.pc == UINT32_C(0x18);
+  if (!passed) {
+    printf("# fetched VADD expected pc=0x14 word=0x480108d0 retired; ");
+    printf("actual valid=%u pc=0x%03x word=0x%08x outcome=%u ",
+           value.machine->rsp_observation_valid ? 1u : 0u,
+           value.machine->rsp_observed_pc,
+           value.machine->rsp_observed_opcode,
+           value.machine->rsp_observed_outcome);
+    printf("retired=%llu pc_after=0x%03x state_unchanged=%u\n",
+           (unsigned long long)value.machine->rsp.retired_instructions,
+           value.machine->rsp.pc,
+           memcmp(&before_vadd, &value.machine->rsp,
+                  sizeof before_vadd) == 0
+               ? 1u
+               : 0u);
+  }
+  t64_machine_destroy(value.machine);
   return passed;
 }
 
@@ -997,7 +1137,8 @@ int main(int argc, char **argv) {
       "SP token, sequence, and deadline exhaustion refuse atomically",
       "ROM replacement invalidates active and pending SP completions",
       "same-tick PI and SP completions retain scheduler FIFO order",
-      "new RSP profile is admitted with its distinct model and state domain"};
+      "new RSP profile is admitted with its distinct model and state domain",
+      "fetched VADD retires after the profile issue path reaches its opcode"};
   bool results[sizeof names / sizeof names[0]];
   size_t i;
   bool all_passed = true;
@@ -1010,10 +1151,13 @@ int main(int argc, char **argv) {
   }
 
   if (rsp_only) {
-    bool rsp_passed = rsp_profile_admission_test();
-    puts("1..1");
-    printf("%s 1 - %s\n", rsp_passed ? "ok" : "not ok", names[11]);
-    return rsp_passed ? 0 : 1;
+    bool admission_passed = rsp_profile_admission_test();
+    bool tracer_passed = rsp_fetched_vadd_test();
+    puts("1..2");
+    printf("%s 1 - %s\n", admission_passed ? "ok" : "not ok", names[11]);
+    printf("%s 2 - %s\n", tracer_passed ? "ok" : "not ok", names[12]);
+    all_passed = admission_passed && tracer_passed;
+    return all_passed ? 0 : 1;
   }
 
   results[0] = source_at_completion_test();
@@ -1028,6 +1172,7 @@ int main(int argc, char **argv) {
   results[9] = replacement_invalidates_pending_sp_events_test();
   results[10] = equal_tick_pi_sp_fifo_test();
   results[11] = rsp_profile_admission_test();
+  results[12] = rsp_fetched_vadd_test();
   printf("1..%zu\n", test_count);
   for (i = 0u; i < test_count; i++) {
     printf("%s %zu - %s\n", results[i] ? "ok" : "not ok", i + 1u,
