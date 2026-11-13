@@ -191,6 +191,10 @@ def read_bounded(path: pathlib.Path, limit: int) -> bytes:
 
 
 def private_path(root: pathlib.Path, value: str) -> pathlib.Path:
+    require(root.is_dir() and root.resolve(strict=True) == root,
+            "private root has a symlinked ancestor or is not canonical")
+    require(root.stat().st_mode & 0o077 == 0,
+            "private root permissions expose artifacts")
     candidate = pathlib.Path(os.path.abspath(value))
     candidate.relative_to(root)
     current = root

@@ -172,13 +172,19 @@ class CompositionControls(unittest.TestCase):
     def test_tool_replaced_after_qualification_refuses_before_invocation(self):
         self.run_main_fixture(True)
 
-    def run_main_fixture(self, replace_tool):
+    def test_symlinked_build_refuses_before_qualification_or_report(self):
+        self.run_main_fixture(False, "symlink")
+
+    def test_exposed_root_refuses_before_qualification_or_report(self):
+        self.run_main_fixture(False, "exposed")
+
+    def run_main_fixture(self, replace_tool, unsafe_root=None):
         with tempfile.TemporaryDirectory() as temporary:
             repository = pathlib.Path(temporary).resolve()
             scripts = repository / "scripts"
             scripts.mkdir()
             private = repository / "build/private-cpu-diagnostic"
-            private.mkdir(parents=True)
+            private.mkdir(mode=0o700, parents=True)
             fixtures = repository / "build/fixtures"
             fixtures.mkdir()
             (fixtures / "ipl3_compat.z64").write_bytes(self.boot)
@@ -199,11 +205,15 @@ class CompositionControls(unittest.TestCase):
                 (private / name).write_bytes(data)
             # The committed verifier returns only these two keys. The tool is
             # not executed: the authored objdump response is injected below.
+            qualification_calls = []
             def validate(*_):
+                qualification_calls.append(True)
+                if unsafe_root is not None:
+                    raise AssertionError("qualification invoked before private root refusal")
                 if replace_tool:
                     tool.write_bytes(b"changed after receipt verification")
                 return {"host_c_compiler": "/unused", "target_binutils": {"objdump": str(tool)}}
-            qualification = types.SimpleNamespace(validate=validate)
+            qualification = types.SimpleNamespace(validate=validate, Refusal=ValueError)
             spec = types.SimpleNamespace(loader=types.SimpleNamespace(exec_module=lambda _: None))
             argv = ["verifier"]
             for name in ("elf", "payload", "rom", "closure", "font-source"):
@@ -211,6 +221,11 @@ class CompositionControls(unittest.TestCase):
             report = private / "report.json"
             argv += ["--boot", str(fixtures / "ipl3_compat.z64"),
                      "--report", str(report)]
+            if unsafe_root == "symlink":
+                (repository / "build").rename(repository / "redirected-build")
+                (repository / "build").symlink_to(repository / "redirected-build", target_is_directory=True)
+            elif unsafe_root == "exposed":
+                private.chmod(0o755)
             previous_directory = pathlib.Path.cwd()
             try:
                 with patch.object(MODULE, "__file__", str(scripts / "verifier.py")), \
@@ -219,6 +234,13 @@ class CompositionControls(unittest.TestCase):
                      patch.object(MODULE.importlib.util, "spec_from_file_location", return_value=spec), \
                      patch.object(MODULE.importlib.util, "module_from_spec", return_value=qualification), \
                      patch.object(MODULE.subprocess, "run", return_value=types.SimpleNamespace(stdout=dump.encode())) as invoke:
+                    if unsafe_root is not None:
+                        with self.assertRaisesRegex(ValueError, "private root"):
+                            MODULE.main()
+                        self.assertEqual(qualification_calls, [])
+                        invoke.assert_not_called()
+                        self.assertFalse(report.exists())
+                        return
                     if replace_tool:
                         with self.assertRaisesRegex(ValueError, "objdump differs from the qualified receipt"):
                             MODULE.main()
