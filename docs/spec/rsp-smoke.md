@@ -97,7 +97,8 @@ measurement.
 Primary reference: *Nintendo Ultra64 RSP Programmer's Guide*, Version 1.1,
 Silicon Graphics Computer Systems, Inc.,
 [public PDF](https://ultra64.ca/files/documentation/silicon-graphics/SGI_Nintendo_64_RSP_Programmers_Guide.pdf),
-printed pages 34–43, 47–56, 60–79, and 84–97. SHA-256 of the referenced guide
+printed pages 34–43, 47–56, 58, 60–79, 84–97, 237, 271–272, 284,
+301–313, and 315. SHA-256 of the referenced guide
 is `6ec646ba9bd836af9aa30ae90099af55dbaf291fbd8b39ff8be5664ada3bd668`.
 The ledger in [rsp-instructions.md](rsp-instructions.md) records the specific
 operation-level source pages and profile policies.
