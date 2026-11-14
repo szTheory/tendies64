@@ -56,8 +56,11 @@ these are not physical-ROM or hardware-equivalence claims.
 copy-record ordering, ACC interpretation and absolute-tick harness corrections.
 [Provenance report](../../../docs/evidence/rsp-divider-provenance.md) records
 exact selected source, license, history, modifications and accuracy boundaries.
-Configured full phase code/security review remains Plan10 work. Hosted
-confirmation is pending for this checkpoint.
+Configured full phase code/security review remains Plan10 work. Both hosted gates pass repaired checkpoint5e89cb4 in run43575884934,
+including all124 checks, lint86/0 and authored evidence/publication tail.
+The first Linux run stopped at upstream tool-source transport; the bounded,
+hash-preserving official alternate and updated fixture-source pins are
+recorded separately in the review evidence and F-071/F-072.
 
 ## Next action
 
