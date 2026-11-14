@@ -53,7 +53,11 @@ revisited when qualified independent evidence contradicts them.
 
 [Review evidence](05-06-review-evidence.md) records exact controls, source limits
 and software-policy boundaries. Configured full phase code/security review
-remains Plan10 work. Hosted confirmation is pending for this source checkpoint.
+remains Plan10 work. Both hosted gates pass repaired checkpoint573250e in run43568746489,
+including all122 checks, lint84/0 and authored evidence/publication tail.
+The first Linux run exposed an older process-test readiness race; its
+controlled reproduction and narrow synchronization repair are retained in
+the review evidence. F-069/F-070 record failure and successful full retry.
 
 ## Next action
 
