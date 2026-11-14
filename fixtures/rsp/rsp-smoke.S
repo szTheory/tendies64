@@ -250,9 +250,9 @@ rsp_program:
   .word 0x4a0208d0             /* Saturating VADD v3, v1, v2. */
 .endif
   .word 0x2401ffff             /* ADDIU r1, r0, -1 */
-  .word 0x48c10800             /* MTC2 v1[1], r1 */
+  .word 0x48810900             /* MTC2 v1[1], r1 */
   .word 0x24020001             /* ADDIU r2, r0, 1 */
-  .word 0x48c21000             /* MTC2 v2[1], r2 */
+  .word 0x48821100             /* MTC2 v2[1], r2 */
   .word 0x4a0208d0             /* VADD v3, v1, v2; signed saturation */
   .word 0x4a020954             /* VADDC v5, v1, v2; lane 1 carry */
   .word 0x48450000             /* CFC2 r5, VCO */
@@ -263,7 +263,8 @@ rsp_program:
   .word 0x24060107             /* ADDIU r6, r0, 0x107 */
   .word 0xc8c42000             /* LQV v4, 0(r6): nine-byte partial load */
   .word 0x4b031133             /* VMOV v4[2], v3[0]; other lanes preserved */
-  .word 0xe8042000             /* SQV v4, 0(r0): aligned output block */
+  .word 0x24060080             /* ADDIU r6, r0, 0x80 */
+  .word 0xe8c42000             /* SQV v4, 0(r6): aligned output block */
   .word 0x24060099             /* ADDIU r6, r0, 0x99 */
   .word 0xe8c42000             /* SQV v4, 0(r6): seven-byte partial store */
   .word 0x4a020980             /* VMULF v6, v1, v2; 32767 * 1 */
