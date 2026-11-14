@@ -2,6 +2,8 @@
 
 import json
 import os
+import shlex
+import tempfile
 from pathlib import Path
 import subprocess
 import unittest
@@ -29,13 +31,17 @@ class RspSmokeTests(unittest.TestCase):
         for variant, name, manifest_id in VARIANTS:
             step_partitions = (16, 1) if variant == 0 else (16,)
             for step_max in step_partitions:
+                baseline_ok = False
                 with self.subTest(variant=variant, step_max=step_max, purpose=manifest_id):
                     receipt_path = OUT / f"{name}.build.json"
                     rom_path = OUT / f"{name}.z64"
                     receipt = json.loads(receipt_path.read_text(encoding="utf-8"))
                     fixture = receipt["fixture"]
                     entry = entries[manifest_id]
-                    expected_class = fixture["expected"]["classification"]
+                    expected_class = {0: "pass", 1: "guest-fail", 2: "refused",
+                                      3: "missing-break", 4: "completion-delay-mismatch",
+                                      5: "guest-fail"}[variant]
+                    self.assertEqual(expected_class, fixture["expected"]["classification"])
 
                     self.assertEqual("t64.rsp-smoke-build", receipt["schema"])
                     self.assertEqual(variant, fixture["variant"])
@@ -48,7 +54,7 @@ class RspSmokeTests(unittest.TestCase):
                     self.assertEqual(fixture["size_bytes"], entry["size"])
                     self.assertEqual("authored-here", entry["source_rights"])
                     self.assertEqual("cleared", entry["binary_rights"])
-                    self.assertIn("local-only", entry["distribution"])
+                    self.assertEqual(["build-only"], entry["distribution"])
                     self.assertIn("Unlicense", entry["rights_evidence"])
 
                     result = subprocess.run(
@@ -65,9 +71,14 @@ class RspSmokeTests(unittest.TestCase):
                     observed = next(
                         (line for line in lines if line.startswith("classification=")), ""
                     )
-                    self.assertIn(
-                        f"classification={expected_class}",
-                        observed,
+                    observed_fields = {}
+                    for field in observed.split():
+                        self.assertIn("=", field)
+                        key, value = field.split("=", 1)
+                        self.assertNotIn(key, observed_fields)
+                        observed_fields[key] = value
+                    self.assertEqual(
+                        expected_class, observed_fields.get("classification"),
                         f"variant={variant} exit={result.returncode}\n"
                         f"{result.stdout}{result.stderr}",
                     )
@@ -99,7 +110,12 @@ class RspSmokeTests(unittest.TestCase):
                             "vsar=0000,0001,7ffe",
                             "divider=0000,ffff",
                         ):
-                            self.assertIn(field, observed)
+                            key, value = field.split("=", 1)
+                            if value:
+                                self.assertEqual(value, observed_fields.get(key))
+                            else:
+                                self.assertIn(key, observed_fields)
+                        self.assertTrue(observed_fields.get("build_id", "").startswith("t64-build-v1-"))
                         stall_text = observed.split("rsp_stall_slots=", 1)[1].split()[0]
                         self.assertGreater(int(stall_text), 0)
                         semantic_state = {
@@ -122,6 +138,79 @@ class RspSmokeTests(unittest.TestCase):
                         self.assertIn("delay_pc=800006c4 delay_opcode=24170001", result.stdout)
                     elif variant == 5:
                         self.assertIn("guest_compare_expected=88", result.stdout)
+                    baseline_ok = True
+                if variant == 0 and not baseline_ok:
+                    return  # Subtest already failed; no dependent negative may run.
+
+
+    def test_changed_assembler_is_rejected_before_execution(self):
+        with tempfile.TemporaryDirectory(prefix="tool-control-", dir=OUT) as name:
+            directory = Path(name).resolve()
+            marker = directory / "executed"
+            fake = directory / "assembler"
+            fake.write_text(
+                "#!/bin/sh\n"
+                + "printf executed > " + shlex.quote(str(marker)) + "\n"
+                + "printf 'GNU assembler (GNU Binutils) 2.45\\nconfigured for mips64-elf\\n'\n",
+                encoding="utf-8",
+            )
+            fake.chmod(0o700)
+            environment = os.environ.copy()
+            environment["T64_MIPS_AS"] = str(fake)
+            result = subprocess.run(
+                ["sh", "scripts/build-rsp-smoke.sh", "--selftest"],
+                env=environment, capture_output=True, text=True, timeout=12,
+            )
+            self.assertNotEqual(0, result.returncode)
+            self.assertFalse(marker.exists(), "unqualified assembler executed before hash rejection")
+
+
+
+    def test_changed_packer_is_rejected_before_execution(self):
+        with tempfile.TemporaryDirectory(prefix="packer-control-", dir=OUT) as name:
+            directory = Path(name).resolve()
+            marker = directory / "executed"
+            fake = directory / "packer"
+            fake.write_text("#!/bin/sh\nprintf executed > " + shlex.quote(str(marker)) + "\n")
+            fake.chmod(0o700)
+            source = Path("scripts/build-rsp-smoke.sh").read_text()
+            source = source.replace(
+                'ROOT=$(CDPATH= cd "$(dirname "$0")/.." && pwd)',
+                "ROOT=" + shlex.quote(str(Path.cwd())), 1,
+            ).replace("PACKER=build/fixtures/t64_rom_pack", "PACKER=" + shlex.quote(str(fake)), 1)
+            script = directory / "builder.sh"
+            script.write_text(source)
+            result = subprocess.run(["sh", str(script), "--selftest"],
+                                    capture_output=True, text=True, timeout=12)
+            self.assertNotEqual(0, result.returncode)
+            self.assertIn("ROM packer differs", result.stderr)
+            self.assertFalse(marker.exists(), "unqualified saved packer was executed")
+
+    def test_refuses_unknown_changed_and_nonregular_roms_before_guest(self):
+        receipt = json.loads((OUT / "rsp-smoke.build.json").read_text())
+        known_sha = receipt["fixture"]["sha256"]
+        with tempfile.TemporaryDirectory(prefix="input-control-", dir=OUT) as name:
+            directory = Path(name)
+            cases = [(directory / "absent", "0" * 64, "unknown-authored-fixture")]
+            changed = directory / "changed.z64"
+            data = bytearray((OUT / "rsp-smoke.z64").read_bytes())
+            data[-1] ^= 1
+            changed.write_bytes(data)
+            cases.append((changed, known_sha, "rom-digest"))
+            fifo = directory / "fifo"
+            os.mkfifo(fifo, 0o600)
+            cases.append((fifo, known_sha, "rom-metadata"))
+            for path, digest, reason in cases:
+                with self.subTest(reason=reason):
+                    result = subprocess.run(
+                        [RUNNER, "--run", str(path), digest],
+                        capture_output=True, text=True, timeout=12,
+                    )
+                    self.assertEqual(4, result.returncode, result.stdout + result.stderr)
+                    self.assertEqual(
+                        f"classification=harness-error reason={reason}",
+                        result.stdout.strip(),
+                    )
 
 
 if __name__ == "__main__":

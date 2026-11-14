@@ -334,10 +334,9 @@
       "source_rights": "authored-here",
       "binary_rights": "cleared",
       "distribution": [
-        "build-only",
-        "local-only"
+        "build-only"
       ],
-      "rights_evidence": "The CPU and RSP assembly, linker script and guest assertions are original Tendies64 source under Apache-2.0 (LICENSE). The generated ROM embeds only the separately recorded 4032-byte Unlicense IPL3 payload from the exact pinned libdragon artifact. The complete source and binary composition is rights-cleared; generated ROMs remain local and are never committed or uploaded. Maintenance owner: Tendies64 maintainers.",
+      "rights_evidence": "The CPU and RSP assembly, linker script and guest assertions are original Tendies64 source under Apache-2.0 (LICENSE). The generated ROM embeds only the separately recorded 4032-byte Unlicense IPL3 payload from the exact pinned libdragon artifact. The complete source and binary composition is rights-cleared; generated ROMs may be used in local/CI checks and are never committed or uploaded. Maintenance owner: Tendies64 maintainers.",
       "notices": [
         "Authored guest source and linker input are Apache-2.0; see LICENSE.",
         "The embedded open IPL3 payload is Unlicense at the separately pinned n64brew/libdragon revision; see the boot contract."
@@ -351,50 +350,50 @@
     {
       "id": "t64-authored-rsp-smoke-wrong-result",
       "source": {"repo":"https://github.com/szTheory/tendies64","revision":"3b3e10c786f46002bc6a65b5193cf01633303828","path":"fixtures/rsp/rsp-smoke.S and rsp-smoke.ld"},
-      "build": {"recipe":"sh scripts/build-rsp-smoke.sh --build; VARIANT=1 writes VADD to v5; source revision 3b3e10c786f46002bc6a65b5193cf01633303828; GNU Binutils 2.45 and Tendies64 ROM packer 1; local-only output.","toolchain":["GNU Binutils 2.45","Tendies64 ROM packer 1"]},
+      "build": {"recipe":"sh scripts/build-rsp-smoke.sh --build; VARIANT=1 makes VMOV read v5 lane0 (0x8000) instead of v3 lane0 (0x7fff); source revision 3b3e10c786f46002bc6a65b5193cf01633303828; GNU Binutils 2.45 and Tendies64 ROM packer 1; generated build output; no binary commit or upload.","toolchain":["GNU Binutils 2.45","Tendies64 ROM packer 1"]},
       "sha256":"75b7e33b47d4587cd164209a5c3a65c9c77340edf4ac303995ce07288f5d2f5d","size":5056,
-      "profile":"ntsc-cart-4m-openipl3-rsp-functional-v1","source_rights":"authored-here","binary_rights":"cleared","distribution":["build-only","local-only"],
-      "rights_evidence":"Authored under Apache-2.0; the ROM contains only the separately pinned Unlicense openIPL3 payload. This negative variant remains local-only.",
+      "profile":"ntsc-cart-4m-openipl3-rsp-functional-v1","source_rights":"authored-here","binary_rights":"cleared","distribution":["build-only"],
+      "rights_evidence":"Authored under Apache-2.0; the ROM contains only the separately pinned Unlicense openIPL3 payload. This negative variant is generated for local/CI checks; no binary commit or upload.",
       "notices":["Tendies64 authored source uses Apache-2.0; embedded openIPL3 is Unlicense and separately pinned."],
-      "expected":{"kind":"self-checking","source":"VARIANT=1; CPU must reject the v3 result after VADD intentionally writes v5; expect guest-fail.","revision":"source:3b3e10c786f46002bc6a65b5193cf01633303828"}
+      "expected":{"kind":"self-checking","source":"VARIANT=1; VMOV copies known 0x8000 instead of 0x7fff; CPU must take its byte-check failure branch; expect guest-fail.","revision":"source:3b3e10c786f46002bc6a65b5193cf01633303828"}
     },
     {
       "id": "t64-authored-rsp-smoke-unsupported-opcode",
       "source": {"repo":"https://github.com/szTheory/tendies64","revision":"3b3e10c786f46002bc6a65b5193cf01633303828","path":"fixtures/rsp/rsp-smoke.S and rsp-smoke.ld"},
-      "build": {"recipe":"sh scripts/build-rsp-smoke.sh --build; VARIANT=2 fetches reserved vector function 0x38; source revision 3b3e10c786f46002bc6a65b5193cf01633303828; GNU Binutils 2.45 and Tendies64 ROM packer 1; local-only output.","toolchain":["GNU Binutils 2.45","Tendies64 ROM packer 1"]},
+      "build": {"recipe":"sh scripts/build-rsp-smoke.sh --build; VARIANT=2 fetches reserved vector function 0x38; source revision 3b3e10c786f46002bc6a65b5193cf01633303828; GNU Binutils 2.45 and Tendies64 ROM packer 1; generated build output; no binary commit or upload.","toolchain":["GNU Binutils 2.45","Tendies64 ROM packer 1"]},
       "sha256":"746da9236eb9b5f5814ce551fe8c261069cda8332bfc259a8db0d135a04fb895","size":5056,
-      "profile":"ntsc-cart-4m-openipl3-rsp-functional-v1","source_rights":"authored-here","binary_rights":"cleared","distribution":["build-only","local-only"],
-      "rights_evidence":"Authored under Apache-2.0; the ROM contains only the separately pinned Unlicense openIPL3 payload. This negative variant remains local-only.",
+      "profile":"ntsc-cart-4m-openipl3-rsp-functional-v1","source_rights":"authored-here","binary_rights":"cleared","distribution":["build-only"],
+      "rights_evidence":"Authored under Apache-2.0; the ROM contains only the separately pinned Unlicense openIPL3 payload. This negative variant is generated for local/CI checks; no binary commit or upload.",
       "notices":["Tendies64 authored source uses Apache-2.0; embedded openIPL3 is Unlicense and separately pinned."],
       "expected":{"kind":"self-checking","source":"VARIANT=2; fetched reserved function 0x38 must be refused at its exact RSP PC; expect refused.","revision":"source:3b3e10c786f46002bc6a65b5193cf01633303828"}
     },
     {
       "id": "t64-authored-rsp-smoke-missing-break",
       "source": {"repo":"https://github.com/szTheory/tendies64","revision":"3b3e10c786f46002bc6a65b5193cf01633303828","path":"fixtures/rsp/rsp-smoke.S and rsp-smoke.ld"},
-      "build": {"recipe":"sh scripts/build-rsp-smoke.sh --build; VARIANT=3 replaces BREAK with scalar NOP at RSP PC 0x09c; source revision 3b3e10c786f46002bc6a65b5193cf01633303828; GNU Binutils 2.45 and Tendies64 ROM packer 1; local-only output.","toolchain":["GNU Binutils 2.45","Tendies64 ROM packer 1"]},
+      "build": {"recipe":"sh scripts/build-rsp-smoke.sh --build; VARIANT=3 replaces BREAK with scalar NOP at RSP PC 0x09c; source revision 3b3e10c786f46002bc6a65b5193cf01633303828; GNU Binutils 2.45 and Tendies64 ROM packer 1; generated build output; no binary commit or upload.","toolchain":["GNU Binutils 2.45","Tendies64 ROM packer 1"]},
       "sha256":"bed368d793c42f7f37494ef5be2ec29b4e968ff5e738d5289228890954591715","size":5056,
-      "profile":"ntsc-cart-4m-openipl3-rsp-functional-v1","source_rights":"authored-here","binary_rights":"cleared","distribution":["build-only","local-only"],
-      "rights_evidence":"Authored under Apache-2.0; the ROM contains only the separately pinned Unlicense openIPL3 payload. This negative variant remains local-only.",
+      "profile":"ntsc-cart-4m-openipl3-rsp-functional-v1","source_rights":"authored-here","binary_rights":"cleared","distribution":["build-only"],
+      "rights_evidence":"Authored under Apache-2.0; the ROM contains only the separately pinned Unlicense openIPL3 payload. This negative variant is generated for local/CI checks; no binary commit or upload.",
       "notices":["Tendies64 authored source uses Apache-2.0; embedded openIPL3 is Unlicense and separately pinned."],
       "expected":{"kind":"self-checking","source":"VARIANT=3; the pinned BREAK PC retires scalar NOP; expect missing-break before the guest bound.","revision":"source:3b3e10c786f46002bc6a65b5193cf01633303828"}
     },
     {
       "id": "t64-authored-rsp-smoke-altered-delay",
       "source": {"repo":"https://github.com/szTheory/tendies64","revision":"3b3e10c786f46002bc6a65b5193cf01633303828","path":"fixtures/rsp/rsp-smoke.S and rsp-smoke.ld"},
-      "build": {"recipe":"sh scripts/build-rsp-smoke.sh --build; VARIANT=4 changes terminal CPU branch delay to ADDIU; source revision 3b3e10c786f46002bc6a65b5193cf01633303828; GNU Binutils 2.45 and Tendies64 ROM packer 1; local-only output.","toolchain":["GNU Binutils 2.45","Tendies64 ROM packer 1"]},
+      "build": {"recipe":"sh scripts/build-rsp-smoke.sh --build; VARIANT=4 changes terminal CPU branch delay to ADDIU; source revision 3b3e10c786f46002bc6a65b5193cf01633303828; GNU Binutils 2.45 and Tendies64 ROM packer 1; generated build output; no binary commit or upload.","toolchain":["GNU Binutils 2.45","Tendies64 ROM packer 1"]},
       "sha256":"26f23580fdacea86270b1967c363f40c1d486a0350a9efff33877975ab0ffc58","size":5056,
-      "profile":"ntsc-cart-4m-openipl3-rsp-functional-v1","source_rights":"authored-here","binary_rights":"cleared","distribution":["build-only","local-only"],
-      "rights_evidence":"Authored under Apache-2.0; the ROM contains only the separately pinned Unlicense openIPL3 payload. This negative variant remains local-only.",
+      "profile":"ntsc-cart-4m-openipl3-rsp-functional-v1","source_rights":"authored-here","binary_rights":"cleared","distribution":["build-only"],
+      "rights_evidence":"Authored under Apache-2.0; the ROM contains only the separately pinned Unlicense openIPL3 payload. This negative variant is generated for local/CI checks; no binary commit or upload.",
       "notices":["Tendies64 authored source uses Apache-2.0; embedded openIPL3 is Unlicense and separately pinned."],
       "expected":{"kind":"self-checking","source":"VARIANT=4; terminal CPU branch must retire altered delay opcode 0x24170001; expect completion-delay-mismatch.","revision":"source:3b3e10c786f46002bc6a65b5193cf01633303828"}
     },
     {
       "id": "t64-authored-rsp-smoke-same-bank-wrap",
       "source": {"repo":"https://github.com/szTheory/tendies64","revision":"3b3e10c786f46002bc6a65b5193cf01633303828","path":"fixtures/rsp/rsp-smoke.S and rsp-smoke.ld"},
-      "build": {"recipe":"sh scripts/build-rsp-smoke.sh --build; VARIANT=5 starts input DMA at DMEM 0xff8 to exercise selected-bank wrap; source revision 3b3e10c786f46002bc6a65b5193cf01633303828; GNU Binutils 2.45 and Tendies64 ROM packer 1; local-only output.","toolchain":["GNU Binutils 2.45","Tendies64 ROM packer 1"]},
+      "build": {"recipe":"sh scripts/build-rsp-smoke.sh --build; VARIANT=5 starts input DMA at DMEM 0xff8 to exercise selected-bank wrap; source revision 3b3e10c786f46002bc6a65b5193cf01633303828; GNU Binutils 2.45 and Tendies64 ROM packer 1; generated build output; no binary commit or upload.","toolchain":["GNU Binutils 2.45","Tendies64 ROM packer 1"]},
       "sha256":"bef1d150d9fbec4d0ac886b19945d034fdd67b105fa6956bd1d346ce8e6b41d1","size":5056,
-      "profile":"ntsc-cart-4m-openipl3-rsp-functional-v1","source_rights":"authored-here","binary_rights":"cleared","distribution":["build-only","local-only"],
-      "rights_evidence":"Authored under Apache-2.0; the ROM contains only the separately pinned Unlicense openIPL3 payload. This negative variant remains local-only.",
+      "profile":"ntsc-cart-4m-openipl3-rsp-functional-v1","source_rights":"authored-here","binary_rights":"cleared","distribution":["build-only"],
+      "rights_evidence":"Authored under Apache-2.0; the ROM contains only the separately pinned Unlicense openIPL3 payload. This negative variant is generated for local/CI checks; no binary commit or upload.",
       "notices":["Tendies64 authored source uses Apache-2.0; embedded openIPL3 is Unlicense and separately pinned."],
       "expected":{"kind":"self-checking","source":"VARIANT=5; 32-byte input DMA wraps within selected DMEM bank from 0xff8; expect CPU guest-fail.","revision":"source:3b3e10c786f46002bc6a65b5193cf01633303828"}
     },

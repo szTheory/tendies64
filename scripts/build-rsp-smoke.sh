@@ -40,10 +40,6 @@ verify_inputs() {
   [ "$(file_size "$BOOT")" = 4096 ] || die 'openIPL3 asset size differs from the admitted contract'
   [ "$(sha256_file "$BOOT")" = "$ASSET_SHA256" ] || die 'openIPL3 asset SHA-256 differs from the admitted contract'
   [ "$(sha256_file "$PAYLOAD")" = "$PAYLOAD_SHA256" ] || die 'openIPL3 payload SHA-256 differs from the admitted contract'
-  [ "$(tool_version "$AS")" = 'GNU assembler (GNU Binutils) 2.45' ] || die 'assembler version differs from the admitted toolchain'
-  [ "$(tool_version "$LD")" = 'GNU ld (GNU Binutils) 2.45' ] || die 'linker version differs from the admitted toolchain'
-  [ "$(tool_version "$OBJCOPY")" = 'GNU objcopy (GNU Binutils) 2.45' ] || die 'objcopy version differs from the admitted toolchain'
-  [ "$(tool_version "$OBJDUMP")" = 'GNU objdump (GNU Binutils) 2.45' ] || die 'objdump version differs from the admitted toolchain'
   [ -f "$STAMP" ] || die 'qualified host tool hash receipt is absent'
   jq -e --arg as "$(sha256_file "$AS")" --arg ld "$(sha256_file "$LD")" \
       --arg oc "$(sha256_file "$OBJCOPY")" --arg od "$(sha256_file "$OBJDUMP")" \
@@ -52,6 +48,13 @@ verify_inputs() {
        .tools.ld.sha256 == $ld and .tools.objcopy.sha256 == $oc and
        .tools.objdump.sha256 == $od' "$STAMP" >/dev/null ||
     die 'qualified host tool hashes differ from the saved receipt'
+  [ "$(sha256_file tools/fixture/t64_rom_pack.c)" = d91119ded68875c08342a088050c820ab47d885ea9f05b8e835de8fe0a6c2a93 ] || die 'ROM packer source differs from the audited helper'
+  [ "$(sha256_file tools/common/t64_sha256.c)" = de587155f2c10e3a5c8cc9814f9c14cbe485bc20554ea725bbe73b914e053940 ] || die 'ROM packer hash source differs from the audited helper'
+  [ "$(git show 8fe70268cdee62e5098e6805fb965a54847d2219:scripts/build-boot-fixtures.sh | sha256_stream)" = "$(sha256_file scripts/build-boot-fixtures.sh)" ] || die 'shared fixture qualifier differs from its audited source'
+  [ "$(tool_version "$AS")" = 'GNU assembler (GNU Binutils) 2.45' ] || die 'assembler version differs from the admitted toolchain'
+  [ "$(tool_version "$LD")" = 'GNU ld (GNU Binutils) 2.45' ] || die 'linker version differs from the admitted toolchain'
+  [ "$(tool_version "$OBJCOPY")" = 'GNU objcopy (GNU Binutils) 2.45' ] || die 'objcopy version differs from the admitted toolchain'
+  [ "$(tool_version "$OBJDUMP")" = 'GNU objdump (GNU Binutils) 2.45' ] || die 'objdump version differs from the admitted toolchain'
   git cat-file -e "$SOURCE_REVISION:fixtures/rsp/rsp-smoke.S" 2>/dev/null ||
     die 'pinned authored source revision does not contain rsp-smoke.S'
   git cat-file -e "$SOURCE_REVISION:fixtures/rsp/rsp-smoke.ld" 2>/dev/null ||
@@ -246,6 +249,7 @@ write_build_receipt() {
       --arg as "$(sha256_file "$AS")" --arg ld "$(sha256_file "$LD")" \
       --arg objcopy "$(sha256_file "$OBJCOPY")" \
       --arg objdump "$(sha256_file "$OBJDUMP")" \
+      --arg packer "$(sha256_file "$PACKER")" \
       --argjson variant "$receipt_variant" --arg classification "$receipt_class" \
       --arg purpose "$receipt_purpose" \
       '{schema:"t64.rsp-smoke-build",schema_version:1,
@@ -253,7 +257,8 @@ write_build_receipt() {
           assembly_sha256:$source,linker_sha256:$linker},
         recipe:{path:"scripts/build-rsp-smoke.sh",sha256:$recipe},
         toolchain:{name:"GNU Binutils",version:"2.45",assembler_sha256:$as,
-          linker_sha256:$ld,objcopy_sha256:$objcopy,objdump_sha256:$objdump},
+          linker_sha256:$ld,objcopy_sha256:$objcopy,objdump_sha256:$objdump,
+          packer_sha256:$packer},
         boot:{asset_sha256:$boot,payload_sha256:$payload},
         fixture:{variant:$variant,sha256:$rom,size_bytes:$size,
           profile:"ntsc-cart-4m-openipl3-rsp-functional-v1",model:6,state:12,
@@ -279,6 +284,7 @@ verify_build_receipt() {
       --arg as "$(sha256_file "$AS")" --arg ld "$(sha256_file "$LD")" \
       --arg objcopy "$(sha256_file "$OBJCOPY")" \
       --arg objdump "$(sha256_file "$OBJDUMP")" \
+      --arg packer "$(sha256_file "$PACKER")" \
       --argjson variant "$verify_variant" --arg classification "$verify_class" \
       --arg purpose "$verify_purpose" \
       '.schema == "t64.rsp-smoke-build" and .schema_version == 1 and
@@ -288,6 +294,7 @@ verify_build_receipt() {
        .boot.asset_sha256 == $boot and .boot.payload_sha256 == $payload and
        .toolchain.assembler_sha256 == $as and .toolchain.linker_sha256 == $ld and
        .toolchain.objcopy_sha256 == $objcopy and .toolchain.objdump_sha256 == $objdump and
+       .toolchain.packer_sha256 == $packer and
        .fixture.variant == $variant and
        .fixture.expected.classification == $classification and
        .fixture.expected.purpose == $purpose and
@@ -310,7 +317,9 @@ verify_manifest() {
      $rows[0].profile == "ntsc-cart-4m-openipl3-rsp-functional-v1" and
      $rows[0].source_rights == "authored-here" and
      $rows[0].binary_rights == "cleared" and
-     ($rows[0].distribution | index("local-only")) != null and
+     ($rows[0].distribution | index("build-only")) != null and
+     ($rows[0].distribution | index("artifact")) == null and
+     ($rows[0].distribution | index("commit")) == null and
      ($rows[0].rights_evidence | contains("Unlicense"))' \
     fixtures/manifest.json >/dev/null || die 'authored ROM manifest differs from the committed source/build/rights contract'
 
@@ -330,13 +339,24 @@ verify_manifest() {
          $rows[0].profile == "ntsc-cart-4m-openipl3-rsp-functional-v1" and
          $rows[0].source_rights == "authored-here" and
          $rows[0].binary_rights == "cleared" and
-         ($rows[0].distribution | index("local-only")) != null and
+         ($rows[0].distribution | index("build-only")) != null and
+     ($rows[0].distribution | index("artifact")) == null and
+     ($rows[0].distribution | index("commit")) == null and
          ($rows[0].rights_evidence | contains("Unlicense")) and
          $rows[0].expected.kind == "self-checking" and
          ($rows[0].expected.source | contains($classification))' \
         fixtures/manifest.json >/dev/null ||
       die "authored smoke variant manifest differs from its checked identity: $manifest_variant"
   done
+}
+
+verify_packer_identity() {
+  [ -f "$PACKER" ] && [ ! -L "$PACKER" ] || die 'qualified ROM packer is absent'
+  packer_current_sha=$(sha256_file "$PACKER")
+  jq -e --arg digest "$packer_current_sha" \
+    '.toolchain.packer_sha256 == $digest' \
+    "$OUT_DIR/rsp-smoke.build.json" >/dev/null ||
+    die 'ROM packer differs from the saved qualified build receipt'
 }
 
 verify_inputs
@@ -357,7 +377,7 @@ case "${1:-}" in
     verify_manifest
     ;;
   --selftest)
-    [ -f "$PACKER" ] || die 'qualified ROM packer is absent'
+    verify_packer_identity
     "$PACKER" --selftest >/dev/null || die 'ROM packer selftest failed'
     install_guard_selftest
     for selftest_variant in 0 1 2 3 4 5; do

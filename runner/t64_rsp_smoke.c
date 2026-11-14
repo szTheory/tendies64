@@ -2,6 +2,7 @@
 
 #include <errno.h>
 #include <fcntl.h>
+#include <signal.h>
 #include <stdbool.h>
 #include <stdint.h>
 #include <stdio.h>
@@ -114,13 +115,36 @@ static bool valid_sha256(const char *value) {
   return true;
 }
 
+/* Closed authored fixture identities, independently checked by the builder and
+ * manifest. A caller-supplied digest cannot authorize another ROM. */
+static bool known_fixture(const char *sha256) {
+  static const char *const digests[] = {
+      "5611f3b5c17c2d05408728fa2c9dfaedd193d3d6da83355be4c5ee61771651a0",
+      "75b7e33b47d4587cd164209a5c3a65c9c77340edf4ac303995ce07288f5d2f5d",
+      "746da9236eb9b5f5814ce551fe8c261069cda8332bfc259a8db0d135a04fb895",
+      "bed368d793c42f7f37494ef5be2ec29b4e968ff5e738d5289228890954591715",
+      "26f23580fdacea86270b1967c363f40c1d486a0350a9efff33877975ab0ffc58",
+      "bef1d150d9fbec4d0ac886b19945d034fdd67b105fa6956bd1d346ce8e6b41d1",
+  };
+  for (size_t index = 0u; index < sizeof digests / sizeof digests[0]; index++) {
+    if (strcmp(sha256, digests[index]) == 0) return true;
+  }
+  return false;
+}
+
+/* A zero clock is an acquisition failure, never a fresh deadline. */
+static bool child_deadline_ok(uint64_t start_ms, uint64_t now_ms) {
+  return start_ms != 0u && now_ms != 0u && now_ms >= start_ms &&
+         now_ms - start_ms < RSP_SMOKE_CHILD_LIMIT_MS;
+}
+
 static const char *read_rom(const char *path, rom_input *rom) {
   struct stat metadata;
   uint8_t digest[T64_SHA256_DIGEST_SIZE];
   size_t offset = 0u;
   int fd;
   if (path == NULL || rom == NULL) return "path";
-  fd = open(path, O_RDONLY | O_NOFOLLOW);
+  fd = open(path, O_RDONLY | O_NOFOLLOW | O_NONBLOCK);
   if (fd < 0) return "open";
   if (fstat(fd, &metadata) != 0 || !S_ISREG(metadata.st_mode) ||
       metadata.st_size < 4096 ||
@@ -332,6 +356,15 @@ static int run_smoke(const char *path, const char *expected_sha,
     }
     return 4;
   }
+  if (!known_fixture(expected_sha)) {
+    (void)puts("classification=harness-error reason=unknown-authored-fixture");
+    return 4;
+  }
+  if (signal(SIGALRM, SIG_DFL) == SIG_ERR) {
+    (void)puts("classification=harness-error reason=child-timer");
+    return 4;
+  }
+  (void)alarm(10u);
   rom_error = read_rom(path, &rom);
   if (rom_error != NULL) {
     (void)printf("classification=harness-error reason=rom-%s\n", rom_error);
@@ -340,6 +373,16 @@ static int run_smoke(const char *path, const char *expected_sha,
   if (strcmp(rom.sha256, expected_sha) != 0) {
     (void)puts("classification=harness-error reason=rom-digest");
     goto cleanup;
+  }
+  {
+    char payload_sha[T64_SHA256_HEX_SIZE];
+    digest_bytes(rom.bytes + 0x40u, 4032u, output);
+    t64_sha256_hex(output, payload_sha);
+    if (strcmp(payload_sha,
+               "f716a90b1d36ec4253d096790791256d3543455e54473a755ff8c3d1199b15d5") != 0) {
+      (void)puts("classification=harness-error reason=boot-payload");
+      goto cleanup;
+    }
   }
   if (t64_profile_lookup(RSP_SMOKE_PROFILE, &profile) != T64_STATUS_OK ||
       profile == NULL || profile->machine_model_version != 6u ||
@@ -372,14 +415,18 @@ static int run_smoke(const char *path, const char *expected_sha,
     uint64_t remaining = RSP_SMOKE_TICK_LIMIT - current_tick;
     uint64_t target = current_tick + (delta < remaining ? delta : remaining);
     uint64_t now_ms = monotonic_ms();
-    if (start_ms == 0u || now_ms < start_ms ||
-        now_ms - start_ms >= RSP_SMOKE_CHILD_LIMIT_MS) {
+    if (!child_deadline_ok(start_ms, now_ms)) {
       (void)puts("classification=timeout reason=child-wall-deadline");
       result = 3;
       goto cleanup;
     }
     t64_status status = t64_machine_advance(
         machine, &(t64_stop_request){T64_STOP_GUEST_TICK, target}, &stop);
+    if (!child_deadline_ok(start_ms, monotonic_ms())) {
+      (void)puts("classification=timeout reason=child-wall-deadline");
+      result = 3;
+      goto cleanup;
+    }
     if (!seen.cpu_pending_exception_seen &&
         machine->cpu.pending_exception_valid) {
       seen.cpu_pending_exception_seen = true;
@@ -499,6 +546,16 @@ static int run_smoke(const char *path, const char *expected_sha,
     result = 3;
     goto cleanup;
   }
+  if (!child_deadline_ok(start_ms, monotonic_ms())) {
+    (void)puts("classification=timeout reason=child-wall-deadline");
+    result = 3;
+    goto cleanup;
+  }
+  if (seen.cpu_pending_exception_seen || seen.cpu_unsupported) {
+    (void)puts("classification=incomplete reason=unexpected-cpu-fault");
+    result = 2;
+    goto cleanup;
+  }
   if (capture_length != sizeof expected_output - 1u ||
       memcmp(capture, expected_output, sizeof expected_output - 1u) != 0) {
     if (capture_length == sizeof expected_guest_failure - 1u &&
@@ -551,8 +608,8 @@ static int run_smoke(const char *path, const char *expected_sha,
                              (uint32_t)machine->sp_dmem[0x25] << 16 |
                              (uint32_t)machine->sp_dmem[0x26] << 8 |
                              (uint32_t)machine->sp_dmem[0x27];
-    (void)printf("classification=pass rom_sha256=%s profile=%s model=6 state=12 step_max=%llu rsp_branch_pc=%03x rsp_branch_opcode=10000001 rsp_delay_pc=%03x rsp_delay_opcode=24030009 rsp_pair_first_pc=%03x rsp_pair_second_pc=%03x rsp_load_use_stall=1 rsp_break_pc=%03x rsp_retired=%llu rsp_stall_slots=%llu rsp_status=%08x rsp_semaphore=%u cpu_retired=%llu cpu_terminal_pc=%08x cpu_terminal_opcode=%08x delay_pc=%08x delay_opcode=%08x guest_tick=%llu capture_bytes=%zu transcript_hex=",
-                 rom.sha256, RSP_SMOKE_PROFILE,
+    (void)printf("classification=pass rom_sha256=%s profile=%s build_id=%s model=6 state=12 step_max=%llu rsp_branch_pc=%03x rsp_branch_opcode=10000001 rsp_delay_pc=%03x rsp_delay_opcode=24030009 rsp_pair_first_pc=%03x rsp_pair_second_pc=%03x rsp_load_use_stall=1 rsp_break_pc=%03x rsp_retired=%llu rsp_stall_slots=%llu rsp_status=%08x rsp_semaphore=%u cpu_retired=%llu cpu_terminal_pc=%08x cpu_terminal_opcode=%08x delay_pc=%08x delay_opcode=%08x guest_tick=%llu capture_bytes=%zu transcript_hex=",
+                 rom.sha256, RSP_SMOKE_PROFILE, t64_build_identity(),
                  (unsigned long long)boot_step_max,
                  RSP_SMOKE_RSP_BRANCH_PC, RSP_SMOKE_RSP_DELAY_PC,
                  RSP_SMOKE_RSP_PAIR_PC, RSP_SMOKE_RSP_PAIR_SECOND_PC,
@@ -588,6 +645,7 @@ static int run_smoke(const char *path, const char *expected_sha,
 cleanup:
   if (machine != NULL) t64_machine_destroy(machine);
   free(rom.bytes);
+  (void)alarm(0u);
   return result;
 }
 

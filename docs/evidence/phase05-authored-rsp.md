@@ -1,6 +1,6 @@
 # Phase 05 authored RSP smoke evidence
 
-## Tested artifact and provenance
+## Executor checkpoint artifact and provenance
 
 This is local software evidence for the authored CPU→SP DMA→RSP→CPU path in
 profile `ntsc-cart-4m-openipl3-rsp-functional-v1` (machine model 6, state
@@ -51,8 +51,10 @@ exact embedded 4032-byte payload (source offset `0x40`) SHA-256 is
 source compiler and signer for that upstream generated asset are unknown; no
 source rebuild claim is made.
 
-All six generated ROMs are 5056 bytes and remain ignored, local-only build
-outputs. The exact image digests and required outcomes are:
+All six generated ROMs are 5056 bytes and remain ignored build outputs.
+Their documented authored/Unlicense rights permit local and generated CI checks
+through the existing `build-only` channel; binaries are neither committed nor
+uploaded. The exact image digests and required outcomes are:
 
 | Fixture | ROM SHA-256 | Expected authenticated result |
 | --- | --- | --- |
@@ -115,7 +117,7 @@ The formal Task 2 RED record was a real guest refusal at CPU PC `0x800004b4`
 while writing SP status (`0xae880010`) on the model-6/state-12 profile. The
 profile-specific production route fix resolved that failure and is covered by
 the focused bus, warm-device, and IsViewer regressions above. Earlier malformed
-digest/setup attempts were discarded and are not counted as behavioral RED.
+digest/setup attempts are retained separately and are not counted as behavioral RED.
 
 The successful baseline reports RSP BREAK PC `0x09c`, 40 RSP retirements, 38
 stall slots (including the scalar-ready load-use stall at PC `0x044`), SP
@@ -159,3 +161,13 @@ conflict are named software policies. This evidence proves only deterministic
 execution and checking in the stated Tendies64 software profile. It is not a
 silicon proof, full-ROM compatibility result, timing-accuracy result, or
 hardware equivalence claim.
+
+## Parent review follow-up
+
+The source, tool hashes and timings above describe the executor checkpoint.
+Subsequent [parent review](../../.planning/phases/05-rsp-low-level-emulation/05-09-review-evidence.md)
+seals the consumer to those same six ROMs, qualifies executables before use,
+hardens child deadlines and makes field/classification assertions exact. ROM
+bytes are unchanged. The final local combined gate passes127 checks and lint86/0;
+final owning/hosted results and tested source identity are recorded in the
+[plan summary](../../.planning/phases/05-rsp-low-level-emulation/05-09-SUMMARY.md).

@@ -167,6 +167,15 @@ applies that direction; update it when the owner changes policy.
   mutation controls for its command, permissions, uploads, action pin and bounds.
   State-preservation checks must snapshot and compare every named latch; comparison
   to a sentinel constant does not establish that an untouched field stayed equal.
+  Bind runner input to approved fixture identities, not a caller-nominated hash.
+  Validate saved executable hashes before even version/selftest commands.
+  For authored instruction formats, use small named-field packers with linked-word
+  anchors before guest runs. POSIX shell function variables are global: use distinct
+  helper prefixes and compare installed outputs to checked-candidate identity.
+  Load launch identities from checked receipts rather than retyping digest strings.
+  Separate per-case child/outer deadlines from a bounded aggregate test timeout;
+  one guest's deadline does not cover serial fixture setup and an entire matrix.
+  Check manifest distribution channels before wiring a fixture into hosted tests.
 - At each discussion, enumerate actual decision points. Fan out one agent per
   independent decision cluster when it saves time/context. Apply relevant
   CPU/cache/virtual-memory, RSP/microcode, RDP/video, audio, memory/bus,

@@ -119,3 +119,16 @@ identities. Each test starts a fresh machine and requires the baseline first.
 The runner rejects setup errors and incomplete trace evidence as harness errors
 or `incomplete`; an output transcript alone cannot qualify success or a guest
 failure.
+
+## Reviewed consumer boundary
+
+The consumer admits only the six authored image identities above, verifies the
+owned image and pinned boot payload before emulation, and reports its actual
+core build identity. The builder checks tool binary hashes before any version
+command, binds the reused packer to its audited source and saved binary receipt,
+and verifies installed bytes against its checked candidate. Tests use independent
+expected classifications and exact fields; a failed positive baseline stops
+negative execution. Each subprocess retains child10s/outer12s; the serial matrix
+has a separate bounded120s aggregate timeout. The generated fixtures use the
+manifest's build-only channel for local and hosted checks, with no binary commit
+or artifact upload. Hardware and external-diagnostic evidence remain separate.
