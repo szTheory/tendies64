@@ -15,6 +15,9 @@
 #define T64_RSP_DIAG_MAX_NAME_BYTES 256u
 #define T64_RSP_DIAG_MAX_TEXT_BYTES 512u
 #define T64_RSP_DIAG_MAX_SELECTOR_BYTES 128u
+#define T64_RSP_DIAG_TERMINAL_PC UINT32_C(0x80000420)
+#define T64_RSP_DIAG_TERMINAL_OPCODE UINT32_C(0x08000108)
+#define T64_RSP_DIAG_TERMINAL_DELAY_SLOT_OPCODE UINT32_C(0x00000000)
 
 typedef enum {
   T64_RSP_DIAG_OK = 0,
@@ -52,8 +55,9 @@ typedef struct {
   const char *closure_sha256;
   const char *overlay_sha256;
   const char *core_build_sha256;
+  const char *core_source_revision;
   const char *profile_descriptor_sha256;
-  const char *profile_sha256;
+  const char *qualification_profile_sha256;
   const char *profile_id;
   const char *rom_sha256;
   const char *boot_sha256;
@@ -74,11 +78,19 @@ typedef struct {
   uint32_t registration_index;
   uint32_t value_index;
   t64_rsp_diag_outcome outcome;
+} t64_rsp_diag_guest_result;
+
+typedef struct {
+  uint32_t registration_index;
+  uint32_t value_index;
+  t64_rsp_diag_outcome outcome;
   const char *operation;
   const char *reason;
   uint64_t retired_instructions;
   uint32_t terminal_pc;
   uint32_t terminal_opcode;
+  uint32_t terminal_delay_slot_pc;
+  uint32_t terminal_delay_slot_opcode;
   bool terminal_delay_slot_retired;
   const char *result_sha256;
   const char *capture_sha256;
@@ -99,6 +111,11 @@ bool t64_rsp_diag_inventory_identity(const t64_rsp_diag_inventory *inventory,
 bool t64_rsp_diag_inventory_member_at(const t64_rsp_diag_inventory *inventory,
                                       size_t required_ordinal,
                                       t64_rsp_diag_member *member_out);
+
+/* Parses the guest-authored, canonical t64.rsp-run v1 terminal transcript. */
+t64_rsp_diag_status t64_rsp_diag_guest_transcript_parse(
+    const uint8_t *bytes, size_t length, uint32_t expected_registration_index,
+    uint32_t expected_value_index, t64_rsp_diag_guest_result *result_out);
 
 t64_rsp_diag_status t64_rsp_diag_batch_encode(
     const t64_rsp_diag_inventory *inventory, uint32_t registration_index,

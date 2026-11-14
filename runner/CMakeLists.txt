@@ -130,6 +130,15 @@ t64_target_warnings(t64-cpu-diagnostic-test-hooks)
 add_dependencies(test_cpu_diagnostic
   t64-cpu-diagnostic t64-cpu-diagnostic-test-hooks)
 
+# Local RSP adapter shares the closed inventory/batch protocol and immutable
+# input snapshot path. The production target has no authored test hooks.
+add_executable(t64-rsp-diagnostic t64_rsp_diagnostic.c)
+target_compile_definitions(t64-rsp-diagnostic PRIVATE ${T64_HOST_DEFS})
+target_include_directories(t64-rsp-diagnostic PRIVATE ${CMAKE_SOURCE_DIR}/core)
+target_link_libraries(t64-rsp-diagnostic PRIVATE
+  t64_rsp_diag_protocol t64_verified_input t64_common t64_core)
+t64_target_warnings(t64-rsp-diagnostic)
+
 # Test-only fault injection stays out of the supervisor's production library.
 add_library(t64_verified_input_test STATIC t64_verified_input.c)
 target_compile_definitions(t64_verified_input_test PRIVATE
