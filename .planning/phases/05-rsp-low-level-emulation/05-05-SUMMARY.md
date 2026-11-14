@@ -53,7 +53,9 @@ refused rather than inventing the task brief's proposed LWV behavior.
 
 [Review evidence](05-05-review-evidence.md) records derivations, controls,
 corrections and superseded runs. Full configured phase code/security reviews
-remain Plan10 work. Hosted confirmation is pending for this checkpoint.
+remain Plan10 work. Both hosted gates pass exact source17c5103 in run43559776574, including
+all119 native checks, lint84/0 and the authored evidence/publication tail.
+F-068 in docs/ci-reviews/LOG.md records measured work.
 
 ## Next action and limits
 
