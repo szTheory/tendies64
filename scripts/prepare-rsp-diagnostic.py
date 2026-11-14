@@ -1049,6 +1049,7 @@ def bind_current_rsp_preuse() -> None:
     output_path = private_root / "current-core-identity-binding-v4.json"
     if output_path.exists() or output_path.is_symlink():
         refuse("refusing to overwrite the current RSP pre-use binding")
+    runner_fix = runner_safety_fix_record()
     qualification_path = private_root / "qualification.json"
     qualification_bytes = qualification_path.read_bytes()
     qualification = read_json(qualification_path, "original RSP qualification")
@@ -1193,10 +1194,14 @@ def bind_current_rsp_preuse() -> None:
         if current_bytes != committed_bytes:
             refuse(f"current pre-use source differs from its runtime revision: {relative}")
         if (relative in prior_by_path and relative not in
-                (changed_core_path, regression_path, extraction["path"]) and
+                (changed_core_path, regression_path, extraction["path"], "runner/t64_cpu_diagnostic.c") and
                 digest(current_bytes) != prior_by_path[relative]):
             refuse(f"production core source changed beyond the tested predicate fix: {relative}")
         source_rows.append({"path": relative, "sha256": digest(current_bytes)})
+    if (ROOT / "runner/t64_cpu_diagnostic.c").read_bytes() != subprocess.run(
+            ["git", "show", runner_fix["commit"] + ":runner/t64_cpu_diagnostic.c"],
+            cwd=ROOT, check=True, capture_output=True).stdout:
+        refuse("CPU runner differs from the tested process safety fix")
 
     evidence_paths = (
         "build/private-rsp-diagnostic/plan04/task2-core-regressions-gate.log",
@@ -1217,7 +1222,7 @@ def bind_current_rsp_preuse() -> None:
         if b"100% tests passed" not in content and b"test inventory PASS" not in content:
             refuse("current pre-use native evidence is not a passing saved report")
         evidence_rows.append({"path": relative, "sha256": digest(content)})
-    build_log_path = private_root / "plan04/task3-postcommit-gate-build.log"
+    build_log_path = private_root / "runner-safety-review/current-gate-build.log"
     build_log = build_log_path.read_bytes()
     if b"t64-rsp-diagnostic" not in build_log:
         refuse("current normal all-target build does not include the RSP adapter")
@@ -1246,6 +1251,7 @@ def bind_current_rsp_preuse() -> None:
 
     binding = {
         "schema": "t64.rsp-core-identity-binding.v4",
+        "runner_safety_fix": runner_fix,
         "status": "preuse-verified-current-core-for-qualified-rsp-image",
         "component": "rsp",
         "qualification_sha256": digest(qualification_bytes),
@@ -1311,6 +1317,34 @@ def bind_current_rsp_preuse() -> None:
     }
     write_private(output_path, binding)
     print("PASS: current model6/state12 core and adapter pre-use bound to the unchanged qualified RSP image; no guest replay performed")
+
+
+def runner_safety_fix_record() -> dict:
+    """Bind reviewed host-process changes without changing machine semantics."""
+    revision = "88274a0748e2bb38fd7a7d3477914c534d993791"
+    path = ROOT / "build/private-rsp-diagnostic/runner-safety-review.json"
+    record = read_json(path, "runner safety review")
+    if not isinstance(record, dict) or set(record) != {"commit", "files", "native_evidence", "schema"} or record["schema"] != "t64.runner-safety-review.v1" or record["commit"] != revision:
+        refuse("runner safety review does not identify the tested source fix")
+    expected = {"runner/t64_cpu_diagnostic.c", "runner/t64_rsp_diagnostic.c", "scripts/run-rsp-diagnostic.py", "scripts/tests/test_rsp_run.py"}
+    if not isinstance(record["files"], dict) or set(record["files"]) != expected:
+        refuse("runner safety source manifest is incomplete")
+    for relative, expected_sha in record["files"].items():
+        current = (ROOT / relative).read_bytes()
+        committed = subprocess.run(["git", "show", revision + ":" + relative], cwd=ROOT, check=True, capture_output=True).stdout
+        if current != committed or digest(current) != expected_sha:
+            refuse("runner source differs from its reviewed safety fix")
+    evidence = record["native_evidence"]
+    if not isinstance(evidence, dict) or set(evidence) != {"gate", "asan"}:
+        refuse("runner safety evidence lacks an owning configuration")
+    for preset, row in evidence.items():
+        expected_path = f"build/private-rsp-diagnostic/runner-safety-review/{preset}-ctest.log"
+        if not isinstance(row, dict) or set(row) != {"path", "sha256"} or row["path"] != expected_path:
+            refuse("runner safety evidence path differs")
+        data = (ROOT / expected_path).read_bytes()
+        if digest(data) != row["sha256"] or b"100% tests passed" not in data or b"out of 5" not in data:
+            refuse("runner safety evidence is not the saved passing test selection")
+    return {"path": path.relative_to(ROOT).as_posix(), "sha256": digest(path.read_bytes()), "commit": revision}
 
 
 def historical_attempt_path(run_root: pathlib.Path, receipt: dict) -> pathlib.Path:

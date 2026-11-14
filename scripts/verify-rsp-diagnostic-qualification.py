@@ -276,9 +276,15 @@ def verify_rsp_core_binding_v4(binding: dict[str, object], qualification_sha: st
         "profile_id", "qualified_build_sha256", "qualified_rom_sha256",
         "qualification_sha256", "rsp_adapter_identity", "rsp_runtime_identity",
         "schema", "status", "supersedes_binding_v3", "supersedes_interim_context",
-        "verification_scope",
+        "verification_scope", "runner_safety_fix",
     }
     binding = object_with_keys(binding, expected, "current RSP pre-use binding v4")
+    helper_spec = importlib.util.spec_from_file_location("rsp_runner_safety", ROOT / "scripts/prepare-rsp-diagnostic.py")
+    helper = importlib.util.module_from_spec(helper_spec)
+    helper_spec.loader.exec_module(helper)
+    if binding["runner_safety_fix"] != helper.runner_safety_fix_record():
+        refuse("current runner safety binding changed")
+    safety_revision = binding["runner_safety_fix"]["commit"]
     if (binding["schema"] != "t64.rsp-core-identity-binding.v4" or
             binding["status"] != "preuse-verified-current-core-for-qualified-rsp-image" or
             binding["component"] != "rsp" or
@@ -390,9 +396,13 @@ def verify_rsp_core_binding_v4(binding: dict[str, object], qualification_sha: st
         if source_bytes != committed:
             refuse("current core source differs from its annotated build revision")
         if (row["path"] in prior and
-                row["path"] not in (fix["path"], fix["regression_path"], extraction["path"]) and
+                row["path"] not in (fix["path"], fix["regression_path"], extraction["path"], "runner/t64_cpu_diagnostic.c") and
                 row["sha256"] != prior[row["path"]]):
             refuse("production core changed beyond the single CTC1 predicate fix")
+        if row["path"] == "runner/t64_cpu_diagnostic.c":
+            reviewed = subprocess.run(["git", "-C", str(ROOT), "show", safety_revision + ":" + row["path"]], check=True, capture_output=True).stdout
+            if source_bytes != reviewed:
+                refuse("CPU runner differs from its reviewed safety fix")
     if (fix["path"] not in seen or fix["regression_path"] not in seen or
             extraction["path"] not in seen or not set(prior).issubset(seen)):
         refuse("v4 source scope omits the CTC1 fix, regression, or shared protocol extraction")
@@ -434,7 +444,7 @@ def verify_rsp_core_binding_v4(binding: dict[str, object], qualification_sha: st
         if digest(content) != row["sha256"] or (b"100% tests passed" not in content and b"test inventory PASS" not in content):
             refuse("v4 pre-use native evidence is stale or nonpassing")
     normal_build = object_with_keys(binding["current_normal_build"], {"path", "sha256"}, "v4 all-target build evidence")
-    if normal_build["path"] != "build/private-rsp-diagnostic/plan04/task3-postcommit-gate-build.log":
+    if normal_build["path"] != "build/private-rsp-diagnostic/runner-safety-review/current-gate-build.log":
         refuse("v4 all-target build evidence path changed")
     normal_build_bytes = private_path(ROOT / normal_build["path"], "v4 all-target build log").read_bytes()
     if digest(normal_build_bytes) != normal_build["sha256"] or b"t64-rsp-diagnostic" not in normal_build_bytes:

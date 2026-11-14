@@ -134,6 +134,9 @@ applies that direction; update it when the owner changes policy.
   partial evidence, and label an inline fallback as such. Do not redispatch
   the same full review or repeat passing gates merely because no report was
   returned. A timeout or interrupted reviewer never supplies a passing verdict.
+  Check attributable artifact and commit progress before interrupting an
+  executor for chat silence; productive durable work is not a stall. Preserve
+  completed evidence and resume the remaining action after an interruption.
 - At each discussion, enumerate actual decision points. Fan out one agent per
   independent decision cluster when it saves time/context. Apply relevant
   CPU/cache/virtual-memory, RSP/microcode, RDP/video, audio, memory/bus,
