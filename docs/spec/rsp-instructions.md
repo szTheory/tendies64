@@ -213,11 +213,41 @@ changes. VMOV's evidence remains in `unit.core.rsp-transfers`.
 | `0x20–0x27` | VLT, VEQ, VNE, VGE, VCL, VCH, VCR, VMRG | Implemented and checked by `unit.core.rsp-compare`, including a fetched VCH→VCL flag chain. |
 | `0x28–0x2d` | VAND, VNAND, VOR, VNOR, VXOR, VNXOR | Implemented and checked by `unit.core.rsp-vector`. |
 | `0x2e–0x2f` | Reserved | Fetched pre-effect refusal in `unit.core.rsp-compare`. |
-| `0x30–0x32` | VRCP, VRCPL, VRCPH | Guide-defined reciprocal family, outside this integer profile; each function refuses transactionally in `unit.core.rsp-compare`. |
+| `0x30–0x32` | VRCP, VRCPL, VRCPH | Implemented with the named integer divider policy; fetched results and latch sequences are checked by `unit.core.rsp-divider`. |
 | `0x33` | VMOV | Implemented and checked across raw selector/destination fields by `unit.core.rsp-transfers`. |
-| `0x34–0x36` | VRSQ, VRSQL, VRSQH | Guide-defined reciprocal-square-root family, outside this integer profile; each function refuses transactionally in `unit.core.rsp-compare`. |
+| `0x34–0x36` | VRSQ, VRSQL, VRSQH | Implemented with the named integer divider policy; fetched results and latch sequences are checked by `unit.core.rsp-divider`. |
 | `0x37` | VNOP | Implemented and checked by `unit.core.rsp-compare`; it retires without vector-state changes. |
 | `0x38–0x3f` | Reserved | Every slot has a fetched pre-effect refusal case in `unit.core.rsp-compare`. |
+
+### Reciprocal and inverse-square-root software policy
+
+The functional profile binds this behavior with
+`sp_model_version=rsp-functional-issue-dma-divider-integer-v1`. The helper
+generates its reciprocal and inverse-square-root words from bounded integer
+equations. It uses unsigned 32-bit bit-carriers and no host floating point or
+mutable shared table. The independent test proves rational and squared-integer
+bounds for all 512 table indices.
+
+For each divide instruction, raw selector `e` chooses source lane `e & 7`, and
+the encoded destination element `de` selects one lane in `vd` (0 through 7).
+VRCPH/VRSQH write the high half of the previous result and latch the current
+source as the pending high input. VRCPL/VRSQL combine that pending input with
+the current low source when one is valid, then clear the pending flag. Without
+a pending high input, a low-form operation uses the signed 16-bit source.
+VRCP/VRSQ always use the signed 16-bit source and clear the pending flag.
+Reciprocal and inverse-square-root instructions share these per-machine latches,
+so mixed-family sequences use the family of the low-form operation. A high-form
+instruction replaces a prior pending high input. Zero, minimum-negative,
+negative-complement, and latch edge results are named software policy; the
+implementation does not claim physical divider-ROM or silicon qualification.
+
+The operation listing on printed guide page 301 assigns the selected scalar
+source to each of the eight ACC low slices. The ares functions express their
+side effect as `ACCL = vt(e)`; the selected lines do not define that expression's
+vector mapping. This specification follows the guide's explicit broadcast
+listing. `unit.core.rsp-divider` pins that policy with distinct lane values for
+raw selector 0 and a selector-8 broadcast case. This records the chosen
+software behavior without treating either source as a hardware measurement.
 
 ## Evidence boundary
 

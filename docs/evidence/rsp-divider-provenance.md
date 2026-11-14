@@ -7,6 +7,14 @@
 **Evidence type:** Permitted software algorithm input. This is not a hardware
 measurement, a physical divider-ROM dump, or proof of silicon edge behavior.
 
+The primary guide is Silicon Graphics Computer Systems, *Nintendo Ultra64 RSP
+Programmer's Guide*, version 1.1 (internal revision 1.0, 1996), available as
+the [public PDF](https://ultra64.ca/files/documentation/silicon-graphics/SGI_Nintendo_64_RSP_Programmers_Guide.pdf).
+The cached PDF SHA-256 is
+`6ec646ba9bd836af9aa30ae90099af55dbaf291fbd8b39ff8be5664ada3bd668`. The
+divider behavior uses printed pp. 74–79 and 301–313; printed page labels do not
+match the PDF page indices.
+
 ## Selected source and scope
 
 The audited repository is [ares](https://github.com/ares-emulator/ares) at
@@ -106,3 +114,17 @@ ACC broadcast listing corrected the first expectation. Advancing the stop
 target to the next absolute guest tick corrected the harness. The genuine
 pre-implementation fetched-opcode RED remains separately recorded in the
 ignored `build/gate/05-07-divider-red-*` evidence files.
+
+The exact final normal and instrumented owner selections, including the
+existing compare refusal regression and both provenance controls, passed 5/5
+in `build/gate/05-07-task3-final-owning-ctest.log` and
+`build/asan/05-07-task3-final-owning-ctest.log`; corresponding JUnit reports are
+`build/gate/05-07-task3-final-owning-junit.xml` and
+`build/asan/05-07-task3-final-owning-junit.xml`. The owning inventories passed
+with 124 normal and 126 ASan names. The inventory selftest passed 250 removal
+controls and five malformed controls. The final read-only, network-disabled
+GCC 13 optimized object compile with target-specific flags is recorded in
+`build/gate/05-07-task3-gcc13.log`. An initial attempt used an Ubuntu base image
+without a compiler; the check passed after switching to the cached `gcc:13`
+image. Core lint and its selftest passed with 86 files and 0 violations, and
+27/27 authored lint seeds.

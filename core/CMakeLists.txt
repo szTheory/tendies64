@@ -507,6 +507,13 @@ target_include_directories(test_rsp_divider PRIVATE
   "${CMAKE_SOURCE_DIR}/tests")
 target_link_libraries(test_rsp_divider PRIVATE t64_core)
 t64_target_warnings(test_rsp_divider)
+add_test(NAME unit.core.rsp-divider COMMAND test_rsp_divider)
+set_tests_properties(unit.core.rsp-divider PROPERTIES LABELS unit)
+add_test(NAME harness.rsp-divider-audit
+  COMMAND python3 -B ${CMAKE_SOURCE_DIR}/scripts/tests/test_rsp_divider_audit.py)
+set_tests_properties(harness.rsp-divider-audit PROPERTIES
+  LABELS runner TIMEOUT 60
+  ENVIRONMENT "PYTHONDONTWRITEBYTECODE=1")
 
 # Long admission fuzzing and the intentional fault are only available from the
 # existing ASan/UBSan preset. They are deliberately absent from the fast gate.
