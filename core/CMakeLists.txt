@@ -474,6 +474,15 @@ t64_target_warnings(test_rsp_transfers)
 add_test(NAME unit.core.rsp-transfers COMMAND test_rsp_transfers)
 set_tests_properties(unit.core.rsp-transfers PROPERTIES LABELS unit)
 
+add_executable(test_rsp_vector tests/test_rsp_vector.c)
+target_include_directories(test_rsp_vector PRIVATE
+  "${CMAKE_CURRENT_SOURCE_DIR}"
+  "${CMAKE_SOURCE_DIR}/tests")
+target_link_libraries(test_rsp_vector PRIVATE t64_core)
+t64_target_warnings(test_rsp_vector)
+add_test(NAME unit.core.rsp-vector COMMAND test_rsp_vector)
+set_tests_properties(unit.core.rsp-vector PROPERTIES LABELS unit)
+
 # Long admission fuzzing and the intentional fault are only available from the
 # existing ASan/UBSan preset. They are deliberately absent from the fast gate.
 set(T64_HAS_ADDRESS_AND_UNDEFINED_SANITIZERS FALSE)
