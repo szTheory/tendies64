@@ -130,6 +130,20 @@ enum {
   RSP_VECTOR_BYTE_ZERO = 4
 };
 
+typedef struct {
+  uint32_t source_a;
+  uint32_t source_b;
+  uint32_t destination;
+  uint16_t values[8];
+  uint64_t accumulators[8];
+  uint16_t vco;
+  uint16_t vcc;
+  uint8_t vce;
+  bool writes_vco;
+  bool writes_vcc;
+  bool writes_vce;
+} rsp_vector_effect;
+
 static bool rsp_select_vector_lane(uint32_t element, uint32_t lane,
                                    uint32_t *source_lane_out) {
   uint32_t source_lane;
@@ -556,6 +570,177 @@ static void rsp_commit_vadd(t64_machine *machine, uint32_t destination,
   machine->rsp.vco = 0u;
 }
 
+static bool rsp_decode_vector_basic(const t64_machine *machine,
+                                    uint32_t instruction,
+                                    rsp_vector_effect *effect) {
+  uint32_t operation = instruction >> 26;
+  uint32_t element = (instruction >> 21) & UINT32_C(0x1f);
+  uint32_t function = instruction & UINT32_C(0x3f);
+  uint32_t source_a = (instruction >> 11) & UINT32_C(0x1f);
+  uint32_t source_b = (instruction >> 16) & UINT32_C(0x1f);
+  uint32_t destination = (instruction >> 6) & UINT32_C(0x1f);
+  uint16_t vco;
+  uint32_t lane;
+
+  if (machine == NULL || effect == NULL || operation != UINT32_C(0x12) ||
+      (element & UINT32_C(0x10)) == 0u) {
+    return false;
+  }
+  vco = machine->rsp.vco;
+  element &= UINT32_C(0x0f);
+  switch (function) {
+  case UINT32_C(0x11): /* VSUB */
+  case UINT32_C(0x13): /* VABS */
+  case UINT32_C(0x14): /* VADDC */
+  case UINT32_C(0x15): /* VSUBC */
+  case UINT32_C(0x28): /* VAND */
+  case UINT32_C(0x29): /* VNAND */
+  case UINT32_C(0x2a): /* VOR */
+  case UINT32_C(0x2b): /* VNOR */
+  case UINT32_C(0x2c): /* VXOR */
+  case UINT32_C(0x2d): /* VNXOR */
+    break;
+  default:
+    return false;
+  }
+
+  (void)memset(effect, 0, sizeof *effect);
+  effect->source_a = source_a;
+  effect->source_b = source_b;
+  effect->destination = destination;
+  effect->vco = machine->rsp.vco;
+  effect->vcc = machine->rsp.vcc;
+  effect->vce = machine->rsp.vce;
+
+  for (lane = 0u; lane < 8u; lane++) {
+    uint32_t source_lane;
+    uint16_t a_bits;
+    uint16_t b_bits;
+    int32_t a_signed;
+    int32_t b_signed;
+    uint16_t result;
+    uint16_t accumulator_value;
+
+    if (!rsp_select_vector_lane(element, lane, &source_lane)) {
+      return false;
+    }
+    a_bits = rsp_read_vector_element(machine, source_a, lane);
+    b_bits = rsp_read_vector_element(machine, source_b, source_lane);
+    a_signed = rsp_signed16(a_bits);
+    b_signed = rsp_signed16(b_bits);
+    switch (function) {
+    case UINT32_C(0x11): { /* VSUB */
+      int32_t difference = a_signed - b_signed -
+                           (int32_t)((vco >> lane) & UINT16_C(1));
+      if (difference > INT32_C(32767)) {
+        result = UINT16_C(0x7fff);
+      } else if (difference < -INT32_C(32768)) {
+        result = UINT16_C(0x8000);
+      } else {
+        result = (uint16_t)difference;
+      }
+      accumulator_value = (uint16_t)difference;
+      effect->vco = 0u;
+      effect->writes_vco = true;
+      break;
+    }
+    case UINT32_C(0x13): { /* VABS */
+      int32_t magnitude = a_signed < 0 ? -b_signed :
+                          a_signed == 0 ? 0 : b_signed;
+      if (magnitude > INT32_C(32767)) {
+        result = UINT16_C(0x7fff);
+      } else if (magnitude < -INT32_C(32768)) {
+        result = UINT16_C(0x8000);
+      } else {
+        result = (uint16_t)magnitude;
+      }
+      break;
+    }
+    case UINT32_C(0x14): { /* VADDC */
+      uint32_t sum = (uint32_t)a_bits + (uint32_t)b_bits;
+      result = (uint16_t)sum;
+      if (sum > UINT32_C(0xffff)) {
+        effect->vco |= (uint16_t)(UINT16_C(1) << lane);
+      } else {
+        effect->vco &=
+            (uint16_t)~(uint16_t)(UINT16_C(1) << lane);
+      }
+      /* The operation listing on printed p.237 explicitly clears VCO's
+       * upper half.  This follows that instruction-specific listing despite
+       * the overview on printed p.37 describing upper bits as not-equal. */
+      effect->vco &= UINT16_C(0x00ff);
+      effect->writes_vco = true;
+      break;
+    }
+    case UINT32_C(0x15): { /* VSUBC */
+      result = (uint16_t)(a_bits - b_bits);
+      effect->vco &= (uint16_t)~(uint16_t)(UINT16_C(1) << lane);
+      effect->vco &=
+          (uint16_t)~(uint16_t)(UINT16_C(1) << (lane + 8u));
+      if (a_bits < b_bits) {
+        effect->vco |= (uint16_t)(UINT16_C(1) << lane);
+      }
+      if (a_bits != b_bits) {
+        effect->vco |= (uint16_t)(UINT16_C(1) << (lane + 8u));
+      }
+      effect->writes_vco = true;
+      break;
+    }
+    case UINT32_C(0x28):
+      result = (uint16_t)(a_bits & b_bits);
+      break;
+    case UINT32_C(0x29):
+      result = (uint16_t)~(uint16_t)(a_bits & b_bits);
+      break;
+    case UINT32_C(0x2a):
+      result = (uint16_t)(a_bits | b_bits);
+      break;
+    case UINT32_C(0x2b):
+      result = (uint16_t)~(uint16_t)(a_bits | b_bits);
+      break;
+    case UINT32_C(0x2c):
+      result = (uint16_t)(a_bits ^ b_bits);
+      break;
+    case UINT32_C(0x2d):
+      result = (uint16_t)~(uint16_t)(a_bits ^ b_bits);
+      break;
+    default:
+      return false;
+    }
+    if (function != UINT32_C(0x11)) {
+      accumulator_value = result;
+    }
+    effect->values[lane] = result;
+    effect->accumulators[lane] =
+        (machine->rsp.accumulator[lane] & ~UINT64_C(0xffff)) |
+        (uint64_t)accumulator_value;
+  }
+  return true;
+}
+
+static void rsp_commit_vector_effect(t64_machine *machine,
+                                     const rsp_vector_effect *effect,
+                                     uint64_t ready_tick) {
+  uint32_t lane;
+
+  for (lane = 0u; lane < 8u; lane++) {
+    rsp_write_vector_element(machine, effect->destination, lane,
+                             effect->values[lane]);
+    machine->rsp.accumulator[lane] = effect->accumulators[lane];
+    machine->rsp.accumulator_ready_tick[lane] = ready_tick;
+  }
+  machine->rsp.vector_ready_tick[effect->destination] = ready_tick;
+  if (effect->writes_vco) {
+    machine->rsp.vco = effect->vco;
+  }
+  if (effect->writes_vcc) {
+    machine->rsp.vcc = effect->vcc;
+  }
+  if (effect->writes_vce) {
+    machine->rsp.vce = effect->vce;
+  }
+}
+
 static t64_status t64_rsp_issue_event(t64_machine *machine,
                                       const t64_event *event) {
   uint32_t pc;
@@ -618,6 +803,8 @@ static t64_status t64_rsp_issue_event(t64_machine *machine,
   uint32_t pair_destination = 0u;
   uint16_t pair_vector_results[8];
   uint64_t pair_accumulator_results[8];
+  rsp_vector_effect vector_effect = {0};
+  bool vector_effect_valid = false;
   bool supported = false;
   bool dma_active;
   bool dma_conflict;
@@ -956,6 +1143,14 @@ static t64_status t64_rsp_issue_event(t64_machine *machine,
     vector_read_mask |= (UINT32_C(1) << vector_source) |
                         (UINT32_C(1) << vector_target);
     vector_destination = vector_result;
+    vector_write_delay = UINT32_C(4);
+    supported = true;
+  } else if (rsp_decode_vector_basic(machine, instruction, &vector_effect)) {
+    write_vector_result = true;
+    vector_effect_valid = true;
+    vector_read_mask |= (UINT32_C(1) << vector_effect.source_a) |
+                        (UINT32_C(1) << vector_effect.source_b);
+    vector_destination = vector_effect.destination;
     vector_write_delay = UINT32_C(4);
     supported = true;
   } else if ((operation == UINT32_C(0x32) ||
@@ -1418,9 +1613,14 @@ static t64_status t64_rsp_issue_event(t64_machine *machine,
     }
   }
   if (write_vector_result) {
-    rsp_commit_vadd(machine, vector_result, vector_results,
-                    accumulator_results,
-                    rsp_ready_tick_after(machine->tick, vector_write_delay));
+    uint64_t ready_tick =
+        rsp_ready_tick_after(machine->tick, vector_write_delay);
+    if (vector_effect_valid) {
+      rsp_commit_vector_effect(machine, &vector_effect, ready_tick);
+    } else {
+      rsp_commit_vadd(machine, vector_result, vector_results,
+                      accumulator_results, ready_tick);
+    }
   }
   if (pair_vadd) {
     rsp_commit_vadd(machine, pair_destination, pair_vector_results,

@@ -83,6 +83,36 @@ raw `e=8..15` selects one of lanes 0..7 for the single destination selected by
 `de`. The transfer test executes fixed raw words `0x4b031133` and
 `0x4be32933` and checks every e/de combination against this mapping.
 
+## Vector arithmetic and logical ledger
+
+These operations are fetched from IMEM and tested in `unit.core.rsp-vector`.
+The common vector element selector follows Table 3-3 (printed p.58): `e=0`
+selects matching lanes, `e=2..3` selects a quarter, `e=4..7` selects a half,
+and `e=8..15` broadcasts lane `e & 7`. `e=1` is refused before retirement.
+The VADD selector matrix uses the fixed input vectors
+`vs={0001,0002,0003,0004,0005,0006,0007,0008}` and
+`vt={0011,0012,0013,0014,0015,0016,0017,0018}`; the expected lane words are
+literal constants derived from Table 3-3 and the operation listing, not from
+the production lane-selection helper. The VADDC anchor is raw IMEM word
+`0x4a0208d4`; it checks the `ffff+1`, `8000+8000`, and `fffe+2` carry lanes.
+
+| Function | Result and accumulator low slice | Flag effect |
+| --- | --- | --- |
+| VADD `0x10` | Signed `VS + VT + VCO.carry`; signed-saturated destination, raw wrapped sum in `ACC[15:0]` | Clears all VCO bits; preserves VCC/VCE |
+| VSUB `0x11` | Signed `VS - VT - VCO.carry`; signed-saturated destination, raw wrapped difference in `ACC[15:0]` | Clears all VCO bits; preserves VCC/VCE |
+| VABS `0x13` | Selects `VT`, `-VT`, or zero according to signed `VS`; signed saturation applies to the negative minimum | Preserves VCO/VCC/VCE; ignores VCO |
+| VADDC `0x14` | Unsigned lane sum modulo 16 bits, without saturation | Low VCO bit is carry out; VCC/VCE preserved. The Appendix operation on printed p.237 explicitly clears VCO's upper half, while the overview on printed p.37 says VADDC sets its not-equal bits. The deterministic profile follows the operation-specific Appendix listing; this source conflict is not a hardware-equivalence claim. |
+| VSUBC `0x15` | Unsigned lane difference modulo 16 bits | Low VCO bit is borrow; upper VCO bit is set for unequal operands; VCC/VCE preserved |
+| VAND/VNAND `0x28/0x29` | `VS & VT`, or its 16-bit complement | Preserves all flags |
+| VOR/VNOR `0x2a/0x2b` | `VS | VT`, or its 16-bit complement | Preserves all flags |
+| VXOR/VNXOR `0x2c/0x2d` | `VS ^ VT`, or its 16-bit complement | Preserves all flags |
+
+Each accepted arithmetic/logical case checks the complete 32-register vector
+bank, all eight 48-bit accumulator values, VCO, VCC and VCE. The matrix also
+checks destination/source aliases, VADDC carry, VSUBC borrow/not-equal, signed
+minimum/maximum behavior, the VCO-consuming add/subtract path, and untouched
+state after selector refusal.
+
 ## Evidence boundary
 
 The authored native cases fetch instructions from IMEM and inspect resulting

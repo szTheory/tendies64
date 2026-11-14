@@ -660,7 +660,7 @@ static bool rsp_refuses_unknown_opcode_atomically_test(void) {
   t64_stop_result result = {0u, 0u};
   uint8_t before_digest[T64_DIGEST_SIZE];
   uint8_t after_digest[T64_DIGEST_SIZE];
-  uint32_t unsupported = UINT32_C(0x4a0108d1);
+  uint32_t unsupported = UINT32_C(0x4a0108df);
   bool passed = fixture_create_profile(
       &value, "ntsc-cart-4m-openipl3-rsp-functional-v1");
 
