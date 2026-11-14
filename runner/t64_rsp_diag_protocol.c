@@ -336,8 +336,10 @@ static bool rsp_diag_parse_batch(
     {
       /* Batch identity adds a closed inventory hash to the inventory identity. */
       const t64_json_node *f;
-#define BATCH_DIGEST(member, key) do { f = t64_json_get(identity_node, key); \
-  if (!t64_diag_json_lowercase_hex(f, 64u)) goto done; identity.member = f->str; \
+#define BATCH_DIGEST(member, key) do { \
+  f = t64_json_get(identity_node, key); \
+  if (!t64_diag_json_lowercase_hex(f, 64u)) { goto done; } \
+  identity.member = f->str; \
 } while (0)
       BATCH_DIGEST(boot_sha256, "boot_sha256");
       BATCH_DIGEST(closure_sha256, "closure_sha256");

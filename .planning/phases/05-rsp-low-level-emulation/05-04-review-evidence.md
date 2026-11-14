@@ -59,3 +59,21 @@ Qualification updates must bind changed host files explicitly, preserve old
 receipts and avoid rebuilding unchanged diagnostic source or repeating semantic
 checks merely because provenance annotations change. Full phase code/security
 reviews remain assigned to Plan10; this review does not substitute for them.
+
+## Hosted portability follow-up
+
+GCC rejected a compact macro guard/assignment that Clang accepted. Expanding
+the statements and bracing the guard preserves semantics. Fresh all-target
+normal and sanitizer builds and four owning protocol/wrapper checks pass.
+GCC13 compiles the new RSP/protocol closure with the hosted warning policy.
+The initial broader compiler probe also included the old CPU driver and hit
+a libc feature-declaration mismatch in that probe environment; the actual
+hosted Ubuntu job compiled that unchanged driver successfully. No unrelated
+CPU source or feature policy was changed. The logs are saved under
+build/{gate,asan}/05-04-portability-*.log.
+
+The earlier successful current-binding verification remains attached to its
+exact binaries. This later native rebuild changes artifact identity; the
+pre-use guard must reject stale bindings until the next justified guest use
+is rebound after subsequent core work. It does not require rebuilding the
+unchanged diagnostic ROM or replaying a guest during native ISA work.
