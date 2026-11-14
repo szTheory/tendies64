@@ -290,8 +290,7 @@ static void expected_direct_transfer(bool load, uint32_t subopcode,
         uint8_t source = dmem[memory_address];
         uint16_t value = subopcode == 6u
                              ? (uint16_t)((uint16_t)source << 8)
-                             : (uint16_t)(UINT16_C(0x4000) |
-                                          ((uint16_t)source << 6));
+                             : (uint16_t)((uint16_t)source << 7);
         write_expected_half(vectors[vector_register], lane, value);
       } else {
         uint16_t value = read_vector_half(vectors[vector_register], lane);
@@ -363,6 +362,12 @@ static bool transfer_case(rsp_transfer_fixture *fixture, bool load,
   expected_vce = machine->rsp.vce;
   effective_address =
       (base + ((uint32_t)encoded_offset << scale)) & UINT32_C(0x0fff);
+  /* Table3-1 defines narrower memory alignments for packed/transpose forms. */
+  if ((subopcode == 8u && (effective_address & 15u) > 1u) ||
+      (subopcode == 9u && (effective_address & 15u) > 3u) ||
+      (subopcode >= 10u && (effective_address & 15u) != 0u)) {
+    valid = false;
+  }
   if (valid) {
     expected_direct_transfer(load, subopcode, element, effective_address,
                              expected_vectors, expected_dmem);
@@ -411,6 +416,74 @@ static bool transfer_case(rsp_transfer_fixture *fixture, bool load,
     return false;
   }
   return true;
+}
+
+/* Fixed bit-pattern anchors independently decode 0_1 || byte_8 || 0_7.
+ * The suffixes in guide pp.182,186,195 are bit counts, not binary digits. */
+static bool unsigned_packed_bit_anchor_test(rsp_transfer_fixture *fixture) {
+  const uint8_t source[] = {0x00u, 0x01u, 0x80u, 0xffu};
+  const uint16_t expected[] = {0x0000u, 0x0080u, 0x4000u, 0x7f80u};
+  bool passed = true;
+  for (uint32_t sub = 7u; sub <= 9u; sub++) {
+    for (size_t i = 0u; i < sizeof source; i++) {
+      rsp_transfer_observation observed;
+      uint32_t word = encode_i(0x32u, 1u, 3u, sub, 0u, 0);
+      if (!prepare_instruction(fixture, word, 0x100u)) { return false; }
+      fixture->machine->sp_dmem[0x100u] = source[i];
+      if (!execute_prepared(fixture, &observed) ||
+          observed.outcome != T64_RSP_ATTEMPT_RETIRED ||
+          read_vector_half(fixture->machine->rsp.vector[3], 0u) != expected[i]) {
+        fprintf(stderr, "unsigned packed anchor mismatch: sub=%u byte=%02x expected=%04x actual=%04x\n",
+                sub, source[i], expected[i],
+                read_vector_half(fixture->machine->rsp.vector[3], 0u));
+        passed = false;
+      }
+    }
+  }
+  return passed;
+}
+
+/* A new transfer must not pair VADD using its pre-transfer vector/carry. */
+static bool transfer_vadd_dependency_test(rsp_transfer_fixture *fixture) {
+  const uint32_t words[] = {
+      0x4b030073u, /* VMOV v1[0], v3[e=8] */
+      0xc8210000u, /* LBV v1[0], 0(r1) */
+      0x48c20000u, /* CTC2 r2, VCO */
+      0x4b030173u  /* VMOV v5[0], v3[e=8], disjoint from following VADD */
+  };
+  bool passed = true;
+  for (size_t i = 0u; i < sizeof words / sizeof words[0]; i++) {
+    rsp_transfer_observation observed;
+    t64_machine *m = fixture->machine;
+    t64_stop_request request = {T64_STOP_GUEST_TICK, 5u};
+    t64_stop_result result = {0u, 0u};
+    uint16_t expected = i == 1u ? 0x1202u : (i == 3u ? 2u : 3u);
+    if (!prepare_instruction(fixture, words[i], 0x100u)) { return false; }
+    (void)memset(m->rsp.vector, 0, sizeof m->rsp.vector);
+    for (uint32_t lane = 0u; lane < 8u; lane++) {
+      m->rsp.vector[1][lane * 2u + 1u] = 1u;
+      m->rsp.vector[2][lane * 2u + 1u] = 1u;
+      m->rsp.vector[3][lane * 2u + 1u] = 2u;
+    }
+    m->rsp.vco = 0u;
+    m->rsp.gpr[2] = 1u;
+    m->sp_dmem[0x100u] = 0x12u;
+    /* VADD v4,v1,v2, e=0; source dependencies differ from destination. */
+    if (t64_machine_bus_write(m, TEST_IMEM_BASE + 4u, 4u, 0x4a020910u) != T64_STATUS_OK ||
+        !execute_prepared(fixture, &observed)) { return false; }
+    if (observed.retired != 1u) {
+      fprintf(stderr, "transfer/VADD paired across dependency: kind=%zu retired=%llu\n",
+              i, (unsigned long long)observed.retired);
+      passed = false;
+    }
+    if (t64_machine_advance(m, &request, &result) != T64_STATUS_OK ||
+        read_vector_half(m->rsp.vector[4], 0u) != expected) {
+      fprintf(stderr, "transfer/VADD stale value: kind=%zu expected=%04x actual=%04x\n",
+              i, expected, read_vector_half(m->rsp.vector[4], 0u));
+      passed = false;
+    }
+  }
+  return passed;
 }
 
 static bool cop2_move_matrix_test(rsp_transfer_fixture *fixture) {
@@ -478,7 +551,7 @@ static bool cop2_move_matrix_test(rsp_transfer_fixture *fixture) {
       uint32_t instruction =
           encode_cop2(2u, 4u, element, ignored_element << 7);
       rsp_transfer_observation observed;
-      uint32_t expected = element == 0u ? UINT32_C(0x935a) :
+      uint32_t expected = element == 0u ? UINT32_C(0xffff935a) :
                           element == 1u ? UINT32_C(0x6ac3) : UINT32_C(0xd7);
 
       if (!run_instruction(fixture, instruction, UINT32_C(0x100), &observed)) {
@@ -807,6 +880,8 @@ static bool cop2_transfer_matrix_test(rsp_transfer_fixture *fixture) {
   passed = expect_retired(fixture, "SBV element 0",
                           encode_i(UINT32_C(0x3a), 1u, 3u, 0u, 0u, 0)) &&
            passed;
+  passed = transfer_vadd_dependency_test(fixture) && passed;
+  passed = unsigned_packed_bit_anchor_test(fixture) && passed;
   passed = cop2_move_matrix_test(fixture) && passed;
   passed = cop2_reserved_refusal_test(fixture) && passed;
   passed = vmov_matrix_test(fixture) && passed;

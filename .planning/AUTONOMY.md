@@ -142,6 +142,14 @@ applies that direction; update it when the owner changes policy.
   read-only, network-disabled warning check before publication when its headers
   match the owning target. Keep hosted checks; do not install another compiler
   or expand a libc-mismatched probe to unrelated unchanged host code.
+  Before expanding an opcode matrix, anchor representative raw instruction
+  words and literal input/output bits against the primary encoding table or
+  diagram. Distinguish bit-count subscripts and assembler operand notation
+  from encoded fields. An expected-value helper that repeats the production
+  transform is not an independent oracle; Plan05-05 exposed this gap.
+  Finish source review before the combined gate and keep its build tree stable
+  until it exits. A new finding invalidates affected evidence; preserve that
+  attempt and rerun only after the correction, without rebuilding under CTest.
 - At each discussion, enumerate actual decision points. Fan out one agent per
   independent decision cluster when it saves time/context. Apply relevant
   CPU/cache/virtual-memory, RSP/microcode, RDP/video, audio, memory/bus,

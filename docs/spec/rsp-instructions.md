@@ -49,7 +49,7 @@ for an encoding whose nested-delay behavior is not modeled.
 | --- | --- | --- |
 | COP2 `rs=0`, `rd=0..31`, `e=0,2,...,14` | MFC2 | Sign-extends the selected vector halfword into the scalar GPR. The selected source byte pair and all legal element values are checked by `cop2_move_matrix_test`. Odd element values and nonzero undefined low bits refuse transactionally. |
 | COP2 `rs=4`, `rd=0..31`, `e=0,2,...,14` | MTC2 | Writes the low 16 scalar bits to the selected vector halfword and preserves every other byte. All legal element values are checked by `cop2_move_matrix_test`; invalid fields are in `cop2_reserved_refusal_test`. |
-| COP2 `rs=2` / `rs=6`, `vs=0,1,2` | CFC2 / CTC2 | Maps `vs=0` to VCO, `vs=1` to VCC, and `vs=2` to VCE. The element field is ignored as specified by the guide; all 16 element encodings are tested for reads and writes. The low 7 undefined bits and `vs` values outside 0..2 refuse. |
+| COP2 `rs=2` / `rs=6`, `vs=0,1,2` | CFC2 / CTC2 | Maps `vs=0` to VCO, `vs=1` to VCC, and `vs=2` to VCE. CFC2 sign-extends the 16-bit VU value into the scalar GPR; VCE has only eight populated bits. The element field is ignored as specified by the guide; all 16 element encodings are tested for reads and writes. The low 7 undefined bits and `vs` values outside 0..2 refuse. |
 | COP2 VMOV function `0x33` | VMOV | Raw `de` (the `vs`-position field) selects destination lane 0..7. Raw `e` uses the vector element selector: `0` selects lane `de`; `2/3` select a quarter with `(e & 1) + (de & 6)`; `4..7` select a half with `(e & 3) + (de & 4)`; `8..15` broadcast lane `e & 7`. Raw `e=1` and `de>7` refuse. The move writes one destination lane and that lane's accumulator low 16 bits, preserving other lanes and accumulator bits. The element selector follows Table 3-3 (printed p. 58); the divide-family `vs` lane description is on printed p. 75; the raw `e, vt, de, vd` format and VMOV operation are in Appendix A (printed pp. 271–272). Raw words `0x4b031133` (`e=8`, `de=2`, source lane 0) and `0x4be32933` (`e=15`, `de=5`, source lane 7) anchor the selector/field interpretation. `vmov_matrix_test` checks all raw e/de combinations and source/destination aliasing. |
 | LWC2 subopcode `0..3` | LBV, LSV, LLV, LDV | Normal byte/short/long/double transforms; offset scales are respectively `0,1,2,3`. Legal byte elements are every value for LBV, even 0..14 for LSV, multiples of 4 through 12 for LLV, and 0 or 8 for LDV. |
 | LWC2 subopcode `4,5` | LQV, LRV | Quad/rest transforms with offset scale 4 and element 0. LQV accesses through the next 16-byte boundary; LRV accesses from the aligned boundary up to the effective address, and is empty at an aligned address. |
@@ -90,3 +90,26 @@ machine state; no helper directly executes an opcode. Values are derived from
 the guide's operation descriptions and explicit byte/lane arithmetic. These
 tests establish the listed deterministic model behavior. They do not establish
 silicon behavior for undocumented arbitration, corruption, or timing cases.
+
+## Reviewed instruction-sequence and bit-pattern controls
+
+J/JAL target bits within IMEM come entirely from the shifted target field;
+source PC quadrant bits are discarded, following the guide's printed pp.173–174.
+Fetched jumps from every source quadrant exercise low and high target regions.
+Unsigned pack/half/fourth loads place a byte in bits14..7 with bit15 and
+bits6..0 zero (Figure3-4, printed p.54, and Appendix pp.182,186,195).
+In the appendix concatenation, `0_1` and `0_7` mean one and seven zero bits;
+they are not binary digits. Fixed input/output anchors are checked independently
+of the general transfer oracle, which originally repeated the same notation error.
+
+VMOV is a VU instruction and cannot share an issue slot with VADD, even when
+registers are disjoint (guide printed pp.39–40). Loads/moves executed by the SU
+may pair only without vector and VCO dependencies. Fetched VMOV/LBV/CTC2 then
+VADD sequences check both issue count and the resulting value after readiness.
+
+Table3-1 (printed pp.49–50) defines LHV/SHV memory alignment as quad+0/1,
+LFV/SFV as quad+0..3, and transpose/wrapped forms as quad-aligned.
+Other memory alignments refuse before effects in this profile. The guide
+explicitly leaves illegal alignment results unspecified; the refusal is a
+software boundary, not a claim about the silicon result. All16 alignment
+cases in the transfer matrix include these transactional refusals.

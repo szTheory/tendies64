@@ -304,6 +304,13 @@ static bool rsp_plan_vector_memory(const t64_machine *machine,
   }
   address = (machine->rsp.gpr[base_register] + (offset << offset_scale)) &
             UINT32_C(0x0fff);
+  /* Guide Table3-1 leaves other packed/transpose alignments undefined.
+   * This profile refuses them rather than inventing their memory effects. */
+  if ((subopcode == 8u && (address & UINT32_C(15)) > 1u) ||
+      (subopcode == 9u && (address & UINT32_C(15)) > 3u) ||
+      (subopcode >= 10u && (address & UINT32_C(15)) != 0u)) {
+    return false;
+  }
 
   if (subopcode <= 3u) {
     for (index = 0u; index < size; index++) {
@@ -467,9 +474,9 @@ static uint8_t rsp_vector_memory_loaded_byte(
   case RSP_VECTOR_BYTE_PACKED_HIGH:
     return (uint8_t)value;
   case RSP_VECTOR_BYTE_UNSIGNED_HIGH:
-    return (uint8_t)(UINT32_C(0x40) | (value >> 2));
+    return (uint8_t)(value >> 1);
   case RSP_VECTOR_BYTE_UNSIGNED_LOW:
-    return (uint8_t)((value & UINT32_C(3)) << 6);
+    return (uint8_t)((value & UINT32_C(1)) << 7);
   case RSP_VECTOR_BYTE_ZERO:
     return 0u;
   default:
@@ -895,6 +902,8 @@ static t64_status t64_rsp_issue_event(t64_machine *machine,
       } else {
         gpr_value = machine->rsp.vce;
       }
+      /* VU moves sign-extend their 16-bit result into the scalar GPR. */
+      gpr_value = rsp_sign_extend16((uint16_t)gpr_value);
       write_gpr = rt != 0u;
       gpr_destination = rt;
       scalar_write_delay = UINT32_C(3);
@@ -1075,8 +1084,8 @@ static t64_status t64_rsp_issue_event(t64_machine *machine,
 
     is_branch = true;
     branch_taken = true;
-    branch_target = ((pc + UINT32_C(4)) & UINT32_C(0x00000c00)) |
-                    ((target << 2) & UINT32_C(0x00000ffc));
+    /* MIPS high address bits are above the 12-bit IMEM PC domain. */
+    branch_target = (target << 2) & UINT32_C(0x00000ffc);
     if (operation == UINT32_C(0x03)) {
       write_gpr = true;
       gpr_destination = UINT32_C(31);
@@ -1143,7 +1152,7 @@ static t64_status t64_rsp_issue_event(t64_machine *machine,
     supported = true;
   }
   if (supported && !is_break && !is_branch && !write_vector_result &&
-      !was_delay_slot) {
+      !write_vmov && !was_delay_slot) {
     uint32_t pair_vector_mask;
     bool vector_register_conflict = false;
 
@@ -1160,6 +1169,14 @@ static t64_status t64_rsp_issue_event(t64_machine *machine,
         vector_register_conflict = true;
       }
       if ((vector_read_mask & (UINT32_C(1) << pair_destination)) != 0u) {
+        vector_register_conflict = true;
+      }
+      if (vector_memory_transfer && vector_memory_plan.load &&
+          (pair_vector_mask & vector_memory_plan.write_register_mask) != 0u) {
+        vector_register_conflict = true;
+      }
+      /* VADD consumes and clears VCO; do not pair it across a VCO write. */
+      if (write_vu_control && vu_control_register == 0u) {
         vector_register_conflict = true;
       }
       if (!vector_register_conflict) {

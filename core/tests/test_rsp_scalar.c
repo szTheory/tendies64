@@ -547,6 +547,38 @@ static bool scalar_jump_matrix_test(rsp_scalar_fixture *fixture) {
   return passed;
 }
 
+/* Jump targets retain no source-PC bits within the 12-bit IMEM domain.
+ * Guide pp.173-174; use each source quadrant to expose accidental PC ORs. */
+static bool jump_source_quadrant_test(rsp_scalar_fixture *fixture) {
+  const uint32_t starts[] = {0x3fcu, 0x400u, 0x800u, 0xc00u};
+  const uint32_t targets[] = {0x024u, 0x824u};
+  bool passed = true;
+  for (uint32_t op = 2u; op <= 3u; op++) {
+    for (size_t i = 0u; i < sizeof starts / sizeof starts[0]; i++) {
+      for (size_t j = 0u; j < sizeof targets / sizeof targets[0]; j++) {
+        uint32_t word = (op << 26) | (targets[j] >> 2);
+        uint32_t zero = 0u;
+        t64_stop_request request = {T64_STOP_GUEST_TICK, 2u};
+        t64_stop_result result = {0u, 0u};
+        t64_machine *m = fixture->machine;
+        if (!prepare_program(fixture, &zero, 1u, NULL) ||
+            t64_machine_bus_write(m, TEST_IMEM_BASE + starts[i], 4u, word) != T64_STATUS_OK) {
+          return false;
+        }
+        m->rsp.pc = starts[i];
+        if (t64_rsp_start(m) != T64_STATUS_OK ||
+            t64_machine_advance(m, &request, &result) != T64_STATUS_OK ||
+            m->rsp.retired_instructions != 2u || m->rsp.pc != targets[j]) {
+          fprintf(stderr, "J/JAL quadrant mismatch: op=%u source=%03x expected=%03x actual=%03x\n",
+                  op, starts[i], targets[j], m->rsp.pc);
+          passed = false;
+        }
+      }
+    }
+  }
+  return passed;
+}
+
 static bool cp0_matrix_test(rsp_scalar_fixture *fixture) {
   static const uint32_t expected_reads[8] = {
       UINT32_C(0x0abc), UINT32_C(0x123456), UINT32_C(0x000007),
@@ -887,6 +919,7 @@ int main(int argc, char **argv) {
   passed = scalar_branch_matrix_test(&fixture) && passed;
   passed = branch_in_delay_slot_refusal_test(&fixture) && passed;
   passed = scalar_jump_matrix_test(&fixture) && passed;
+  passed = jump_source_quadrant_test(&fixture) && passed;
   passed = cp0_matrix_test(&fixture) && passed;
   passed = unsupported_scalar_refusal_test(&fixture) && passed;
   fixture_destroy(&fixture);
