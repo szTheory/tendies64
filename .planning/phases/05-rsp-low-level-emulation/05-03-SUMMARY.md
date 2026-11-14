@@ -70,8 +70,11 @@ current-core-identity-binding-v2.json and parent-review-composition-command.json
 under build/private-rsp-diagnostic. These records preserve original and current
 identities separately; metadata annotation changes do not relabel old artifacts.
 
-Hosted verification of d37aa27 is tracked separately while running; no result
-is inferred from dispatch or from earlier source checkpoints.
+Hosted run43534252172 passed both platform gates on exact source d37aa27,
+including all115 checks, lint84/0, authored evidence and publication scans.
+The two harness tests use clean authored fixtures; they do not use private
+inputs or establish external RSP execution. F-065 in docs/ci-reviews/LOG.md
+records measured costs.
 
 ## Next action and limitations
 
@@ -89,4 +92,6 @@ runtime descriptor. Approved reporting extraction may require a deliberate
 tested artifact binding; do not trust replacements through self-report alone
 or turn metadata annotation changes into repeated build/rebinding loops.
 
-No user action is needed. Parent continues to Plan04 after the hosted checkpoint.
+The historical identity-reader executable and its binding were archived
+privately before the next native rebuild, preserving exact tested bytes.
+No user action is needed. Parent continues to Plan04.
