@@ -413,6 +413,8 @@ static bool arithmetic_signed_boundaries(void) {
       0x8000, 0x1234, 0x8000, 0x8000, 0x7fff, 0x0001, 0x8000, 0x7fff};
   static const uint16_t abs_expected[8] = {
       0x7fff, 0x0000, 0x8000, 0x7fff, 0x7fff, 0xffff, 0x0000, 0x8001};
+  static const uint16_t abs_accumulator_expected[8] = {
+      0x8000, 0x0000, 0x8000, 0x8000, 0x7fff, 0xffff, 0x0000, 0x8001};
   bool passed = true;
 
   passed = run_expected_vector_case_with_acc(
@@ -427,9 +429,10 @@ static bool arithmetic_signed_boundaries(void) {
                sub_accumulator_expected, 0u,
                UINT16_C(0x963c), UINT8_C(0xd5), true) &&
            passed;
-  passed = run_expected_vector_case(
+  passed = run_expected_vector_case_with_acc(
                "VABS negative minimum and zero sign", 0u, 0x13u, 1u, 2u, 3u,
-               abs_sign, abs_value, abs_expected, UINT16_C(0xa5a5),
+               abs_sign, abs_value, abs_expected, abs_accumulator_expected,
+               UINT16_C(0xa5a5),
                UINT16_C(0x963c), UINT8_C(0xd5), true) &&
            passed;
   return passed;

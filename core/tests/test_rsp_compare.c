@@ -615,6 +615,55 @@ static bool unsupported_function_dispositions(rsp_compare_fixture *fixture) {
   return true;
 }
 
+/* VNOP needs the vector-format bit and occupies the sole VU issue slot. */
+static bool vnop_encoding_and_issue_test(rsp_compare_fixture *fixture) {
+  t64_machine *m = fixture->machine;
+  bool passed = true;
+  for (uint32_t rs = 0u; rs < 16u; rs++) {
+    prepare_machine(m);
+    if (!run_fetched(m, UINT32_C(0x48000037) | (rs << 21), 1u, false)) {
+      fprintf(stderr, "non-vector COP2 accepted as VNOP: rs=%u\n", rs);
+      passed = false;
+    }
+  }
+  prepare_machine(m);
+  m->rsp.vco = 0u;
+  for (uint32_t lane = 0u; lane < 8u; lane++) {
+    write_lane(m->rsp.vector[1], lane, 1u);
+    write_lane(m->rsp.vector[2], lane, 2u);
+  }
+  /* Raw VNOP then VADD v3,v1,v2; both require the VU. */
+  if (t64_machine_bus_write(m, UINT32_C(0x04001000), 4u,
+                             UINT32_C(0x4a000037)) != T64_STATUS_OK ||
+      t64_machine_bus_write(m, UINT32_C(0x04001004), 4u,
+                             UINT32_C(0x4a0208d0)) != T64_STATUS_OK) {
+    return false;
+  }
+  {
+    uint8_t vectors[32][16];
+    uint64_t accumulators[8];
+    t64_stop_request request = {T64_STOP_GUEST_TICK, 1u};
+    t64_stop_result result = {0u, 0u};
+    memcpy(vectors, m->rsp.vector, sizeof vectors);
+    memcpy(accumulators, m->rsp.accumulator, sizeof accumulators);
+    if (t64_rsp_start(m) != T64_STATUS_OK ||
+        t64_machine_advance(m, &request, &result) != T64_STATUS_OK ||
+        m->rsp.retired_instructions != 1u || m->rsp.pc != 4u ||
+        memcmp(vectors, m->rsp.vector, sizeof vectors) != 0 ||
+        memcmp(accumulators, m->rsp.accumulator, sizeof accumulators) != 0) {
+      fprintf(stderr, "VNOP/VADD incorrectly shared a VU issue slot\n");
+      passed = false;
+    }
+    request.value = 2u;
+    if (t64_machine_advance(m, &request, &result) != T64_STATUS_OK ||
+        m->rsp.retired_instructions != 2u || read_lane(m->rsp.vector[3], 0u) != 3u) {
+      fprintf(stderr, "VNOP/VADD sequential result failed\n");
+      passed = false;
+    }
+  }
+  return passed;
+}
+
 int main(void) {
   rsp_compare_fixture fixture;
   bool passed;
@@ -627,7 +676,8 @@ int main(void) {
   passed = vlt_fetched_red(&fixture) && compare_flag_matrix(&fixture) &&
            clip_chain_and_vcr(&fixture) && merge_and_nop(&fixture) &&
            selector_refusal_matrix(&fixture) &&
-           unsupported_function_dispositions(&fixture);
+           unsupported_function_dispositions(&fixture) &&
+           vnop_encoding_and_issue_test(&fixture);
   fixture_destroy(&fixture);
   return passed ? EXIT_SUCCESS : EXIT_FAILURE;
 }

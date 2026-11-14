@@ -651,6 +651,7 @@ static bool rsp_decode_vector_basic(const t64_machine *machine,
     case UINT32_C(0x13): { /* VABS */
       int32_t magnitude = a_signed < 0 ? -b_signed :
                           a_signed == 0 ? 0 : b_signed;
+      accumulator_value = (uint16_t)magnitude;
       if (magnitude > INT32_C(32767)) {
         result = UINT16_C(0x7fff);
       } else if (magnitude < -INT32_C(32768)) {
@@ -711,7 +712,7 @@ static bool rsp_decode_vector_basic(const t64_machine *machine,
     default:
       return false;
     }
-    if (function != UINT32_C(0x11)) {
+    if (function != UINT32_C(0x11) && function != UINT32_C(0x13)) {
       accumulator_value = result;
     }
     effect->values[lane] = result;
@@ -1297,6 +1298,7 @@ static t64_status t64_rsp_issue_event(t64_machine *machine,
   bool write_vu_control = false;
   bool write_dmem_word = false;
   bool is_break = false;
+  bool is_vnop = false;
   bool is_branch = false;
   bool branch_taken = false;
   bool load_dmem_word = false;
@@ -1702,8 +1704,10 @@ static t64_status t64_rsp_issue_event(t64_machine *machine,
     vector_write_delay = UINT32_C(4);
     supported = true;
   } else if (operation == UINT32_C(0x12) &&
+             (rs & UINT32_C(0x10)) != 0u &&
              (instruction & UINT32_C(0x3f)) == UINT32_C(0x37)) {
     /* VNOP retires the fetched instruction without changing vector state. */
+    is_vnop = true;
     supported = true;
   } else if (rsp_decode_vector_compare(machine, instruction,
                                       &vector_effect)) {
@@ -1912,7 +1916,7 @@ static t64_status t64_rsp_issue_event(t64_machine *machine,
     supported = true;
   }
   if (supported && !is_break && !is_branch && !write_vector_result &&
-      !write_vmov && !was_delay_slot) {
+      !write_vmov && !is_vnop && !was_delay_slot) {
     uint32_t pair_vector_mask;
     bool vector_register_conflict = false;
 

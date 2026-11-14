@@ -100,7 +100,7 @@ the production lane-selection helper. The VADDC anchor is raw IMEM word
 | --- | --- | --- |
 | VADD `0x10` | Signed `VS + VT + VCO.carry`; signed-saturated destination, raw wrapped sum in `ACC[15:0]` | Clears all VCO bits; preserves VCC/VCE |
 | VSUB `0x11` | Signed `VS - VT - VCO.carry`; signed-saturated destination, raw wrapped difference in `ACC[15:0]` | Clears all VCO bits; preserves VCC/VCE |
-| VABS `0x13` | Selects `VT`, `-VT`, or zero according to signed `VS`; signed saturation applies to the negative minimum | Preserves VCO/VCC/VCE; ignores VCO |
+| VABS `0x13` | Selects `VT`, `-VT`, or zero according to signed `VS`; signed saturation applies to the negative minimum in VD, while ACC low retains the raw wrapped magnitude | Preserves VCO/VCC/VCE; ignores VCO |
 | VADDC `0x14` | Unsigned lane sum modulo 16 bits, without saturation | Low VCO bit is carry out; VCC/VCE preserved. The Appendix operation on printed p.237 explicitly clears VCO's upper half, while the overview on printed p.37 says VADDC sets its not-equal bits. The deterministic profile follows the operation-specific Appendix listing; this source conflict is not a hardware-equivalence claim. |
 | VSUBC `0x15` | Unsigned lane difference modulo 16 bits | Low VCO bit is borrow; upper VCO bit is set for unequal operands; VCC/VCE preserved |
 | VAND/VNAND `0x28/0x29` | `VS & VT`, or its 16-bit complement | Preserves all flags |
@@ -249,3 +249,9 @@ Other memory alignments refuse before effects in this profile. The guide
 explicitly leaves illegal alignment results unspecified; the refusal is a
 software boundary, not a claim about the silicon result. All16 alignment
 cases in the transfer matrix include these transactional refusals.
+
+Plan06 review anchors preserve VABS's raw accumulator magnitude independently
+of its saturated destination. VNOP requires the COP2 vector-format bit; low
+function bits alone cannot turn malformed scalar COP2 moves into no-ops.
+A fetched VNOP followed by VADD retires in separate VU issue slots, preserving
+VNOP's no-effect contract even with a useful following instruction.
