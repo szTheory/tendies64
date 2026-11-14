@@ -13,6 +13,35 @@
 .equ ISVIEWER_FLUSH, 0x16
 .equ ISVIEWER_MAGIC, 0x12345678
 
+/* Named field packers keep authored RSP memory and move words auditable. */
+.macro RSP_MTC2 vector_register, scalar_register, lane
+  .word ((0x12 << 26) | (4 << 21) | (\scalar_register << 16) | (\vector_register << 11) | ((\lane * 2) << 7))
+.endm
+.macro RSP_LQV vector_register, base_register, element, byte_offset
+  .if ((\byte_offset) & 0x0f) != 0
+    .error "LQV byte_offset must be 16-byte aligned"
+  .endif
+  .if (\byte_offset) < -1024 || (\byte_offset) > 1008
+    .error "LQV byte_offset is outside signed 7-bit scaled range"
+  .endif
+  .word ((0x32 << 26) | (\base_register << 21) | (\vector_register << 16) | (4 << 11) | ((\element & 0x0f) << 7) | ((\byte_offset >> 4) & 0x7f))
+.endm
+.macro RSP_SQV vector_register, base_register, element, byte_offset
+  .if ((\byte_offset) & 0x0f) != 0
+    .error "SQV byte_offset must be 16-byte aligned"
+  .endif
+  .if (\byte_offset) < -1024 || (\byte_offset) > 1008
+    .error "SQV byte_offset is outside signed 7-bit scaled range"
+  .endif
+  .word ((0x3a << 26) | (\base_register << 21) | (\vector_register << 16) | (4 << 11) | ((\element & 0x0f) << 7) | ((\byte_offset >> 4) & 0x7f))
+.endm
+.macro RSP_LW target_register, base_register, byte_offset
+  .word ((0x23 << 26) | (\base_register << 21) | (\target_register << 16) | (\byte_offset & 0xffff))
+.endm
+.macro RSP_SW source_register, base_register, byte_offset
+  .word ((0x2b << 26) | (\base_register << 21) | (\source_register << 16) | (\byte_offset & 0xffff))
+.endm
+
 .section .text.start,"ax",@progbits
 .globl _start
 _start:
@@ -236,9 +265,9 @@ terminal:
 .globl rsp_program
 rsp_program:
   .word 0x24017fff             /* ADDIU r1, r0, 0x7fff */
-  .word 0x48810800             /* MTC2 v1[0], r1 */
+  RSP_MTC2 1, 1, 0             /* MTC2 v1[0], r1 */
   .word 0x24020001             /* ADDIU r2, r0, 1 */
-  .word 0x48821000             /* MTC2 v2[0], r2 */
+  RSP_MTC2 2, 2, 0             /* MTC2 v2[0], r2 */
   .word 0x10000001             /* BEQ r0, r0, +1 */
   .word 0x24030009             /* Delay slot: ADDIU r3, r0, 9 */
   .word 0x24040007             /* Independent SU paired with VADD */
@@ -250,36 +279,36 @@ rsp_program:
   .word 0x4a0208d0             /* Saturating VADD v3, v1, v2. */
 .endif
   .word 0x2401ffff             /* ADDIU r1, r0, -1 */
-  .word 0x48810900             /* MTC2 v1[1], r1 */
+  RSP_MTC2 1, 1, 1             /* MTC2 v1[1], r1 */
   .word 0x24020001             /* ADDIU r2, r0, 1 */
-  .word 0x48821100             /* MTC2 v2[1], r2 */
+  RSP_MTC2 2, 2, 1             /* MTC2 v2[1], r2 */
   .word 0x4a0208d0             /* VADD v3, v1, v2; signed saturation */
   .word 0x4a020954             /* VADDC v5, v1, v2; lane 1 carry */
   .word 0x48450000             /* CFC2 r5, VCO */
-  .word 0xac050020             /* SW r5, 0x20(r0) */
-  .word 0x8c0a0100             /* LW r10, 0x100(r0) */
+  RSP_SW 5, 0, 0x20            /* SW r5, 0x20(r0) */
+  RSP_LW 10, 0, 0x100          /* LW r10, 0x100(r0) */
   .word 0x01405821             /* ADDU r11, r10, r0: immediate load use */
-  .word 0xac0b0024             /* SW r11, 0x24(r0) */
+  RSP_SW 11, 0, 0x24           /* SW r11, 0x24(r0) */
   .word 0x24060107             /* ADDIU r6, r0, 0x107 */
-  .word 0xc8c42000             /* LQV v4, 0(r6): nine-byte partial load */
+  RSP_LQV 4, 6, 0, 0           /* LQV v4, 0(r6): nine-byte partial load */
   .word 0x4b031133             /* VMOV v4[2], v3[0]; other lanes preserved */
   .word 0x24060080             /* ADDIU r6, r0, 0x80 */
-  .word 0xe8c42000             /* SQV v4, 0(r6): aligned output block */
+  RSP_SQV 4, 6, 0, 0           /* SQV v4, 0(r6): aligned output block */
   .word 0x24060099             /* ADDIU r6, r0, 0x99 */
-  .word 0xe8c42000             /* SQV v4, 0(r6): seven-byte partial store */
+  RSP_SQV 4, 6, 0, 0           /* SQV v4, 0(r6): seven-byte partial store */
   .word 0x4a020980             /* VMULF v6, v1, v2; 32767 * 1 */
   .word 0x4a02095d             /* VSAR e=0: ACC[47:32] */
-  .word 0xe8052000             /* SQV v5, 0xa0(r0) */
+  RSP_SQV 5, 0, 0, 0xa0        /* SQV v5, 0xa0(r0) */
   .word 0x4a22099d             /* VSAR e=1: ACC[31:16] to v6 */
-  .word 0xe8062000             /* SQV v6, 0xb0(r0) */
+  RSP_SQV 6, 0, 0, 0xb0        /* SQV v6, 0xb0(r0) */
   .word 0x4a4209dd             /* VSAR e=2: ACC[15:0] to v7 */
-  .word 0xe8072000             /* SQV v7, 0xc0(r0) */
+  RSP_SQV 7, 0, 0, 0xc0        /* SQV v7, 0xc0(r0) */
   .word 0x24090000             /* ADDIU r9, r0, 0 */
-  .word 0x48894800             /* MTC2 v9[0], r9 */
+  RSP_MTC2 9, 9, 0             /* MTC2 v9[0], r9 */
   .word 0x4a090232             /* VRCPH v8[0], v9[0]: previous high */
-  .word 0xe8082000             /* SQV v8, 0xd0(r0) */
+  RSP_SQV 8, 0, 0, 0xd0        /* SQV v8, 0xd0(r0) */
   .word 0x4a090231             /* VRCPL v8[0], v9[0]: zero special result */
-  .word 0xe8082000             /* SQV v8, 0xe0(r0) */
+  RSP_SQV 8, 0, 0, 0xe0        /* SQV v8, 0xe0(r0) */
 .if VARIANT == 3
 rsp_break:
   .word 0x00000000             /* Missing-BREAK control. */
