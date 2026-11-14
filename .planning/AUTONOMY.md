@@ -137,6 +137,11 @@ applies that direction; update it when the owner changes policy.
   Check attributable artifact and commit progress before interrupting an
   executor for chat silence; productive durable work is not a stall. Preserve
   completed evidence and resume the remaining action after an interruption.
+  A Plan05-04 Clang-clean macro failed GCC warnings-as-errors in hosted CI.
+  For changed C translation units, use the existing gcc:13 image for a bounded,
+  read-only, network-disabled warning check before publication when its headers
+  match the owning target. Keep hosted checks; do not install another compiler
+  or expand a libc-mismatched probe to unrelated unchanged host code.
 - At each discussion, enumerate actual decision points. Fan out one agent per
   independent decision cluster when it saves time/context. Apply relevant
   CPU/cache/virtual-memory, RSP/microcode, RDP/video, audio, memory/bus,

@@ -47,7 +47,9 @@ preserved without another Cargo build or guest replay.
   executing a guest. Earlier core/profile/COP1/RSP regressions pass in both
   configurations; their evidence remains attached to the tested predicate fix.
 - Docs, diff, rights and PII checks pass. Public CI uses authored fixtures only;
-  hosted confirmation is pending for this source checkpoint.
+  both hosted gates pass exact repaired source e4b8809 in run43552149917.
+  The initial Linux macro compile failure and unreached tail remain recorded
+  separately; the repaired run executes those later stages successfully.
 
 [Review evidence](05-04-review-evidence.md) retains failing controls, corrections,
 process limitations and private evidence locations. Full configured phase
