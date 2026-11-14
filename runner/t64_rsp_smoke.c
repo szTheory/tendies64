@@ -60,6 +60,7 @@ typedef struct {
   bool rsp_taken_branch_retired;
   bool rsp_branch_delay_retired;
   bool rsp_pair_retired;
+  bool rsp_load_use_stall;
   bool rsp_break_retired;
   bool cpu_unsupported;
   bool cpu_pending_exception_seen;
@@ -222,6 +223,11 @@ static bool drain_trace(t64_machine *machine, observations *seen) {
 static void observe_rsp(t64_machine *machine, observations *seen) {
   if (!machine->rsp_observation_valid ||
       machine->rsp_observed_tick != machine->tick) return;
+  if (machine->rsp_observed_outcome == T64_RSP_ATTEMPT_NONE &&
+      machine->rsp_observed_pc == UINT32_C(0x44) &&
+      machine->rsp_observed_stall_reason == T64_RSP_STALL_SCALAR_READY) {
+    seen->rsp_load_use_stall = true;
+  }
   if (machine->rsp_observed_outcome == T64_RSP_ATTEMPT_RETIRED) {
     seen->rsp_retired++;
     seen->last_rsp_pc = machine->rsp_observed_pc;
@@ -516,14 +522,16 @@ static int run_smoke(const char *path, const char *expected_sha,
     goto cleanup;
   }
   if (!seen.rsp_taken_branch_retired || !seen.rsp_branch_delay_retired ||
-      !seen.rsp_pair_retired || !seen.rsp_break_retired ||
+      !seen.rsp_pair_retired || !seen.rsp_load_use_stall ||
+      !seen.rsp_break_retired ||
       seen.rsp_retired < UINT64_C(40) || machine->rsp.stall_slots == 0u ||
       machine->rsp.pc != RSP_SMOKE_BREAK_PC ||
       (machine->rsp.sp_status & UINT32_C(3)) != UINT32_C(3)) {
-    (void)printf("classification=incomplete reason=retirement-evidence rsp_branch=%u rsp_delay=%u rsp_pair=%u rsp_break=%u rsp_retired=%llu rsp_stalls=%llu rsp_pc=%03x status=%08x cpu_retired=%llu tick=%llu\n",
+    (void)printf("classification=incomplete reason=retirement-evidence rsp_branch=%u rsp_delay=%u rsp_pair=%u rsp_load_use_stall=%u rsp_break=%u rsp_retired=%llu rsp_stalls=%llu rsp_pc=%03x status=%08x cpu_retired=%llu tick=%llu\n",
                  seen.rsp_taken_branch_retired ? 1u : 0u,
                  seen.rsp_branch_delay_retired ? 1u : 0u,
                  seen.rsp_pair_retired ? 1u : 0u,
+                 seen.rsp_load_use_stall ? 1u : 0u,
                  seen.rsp_break_retired ? 1u : 0u,
                  (unsigned long long)seen.rsp_retired,
                  (unsigned long long)machine->rsp.stall_slots,
@@ -543,7 +551,7 @@ static int run_smoke(const char *path, const char *expected_sha,
                              (uint32_t)machine->sp_dmem[0x25] << 16 |
                              (uint32_t)machine->sp_dmem[0x26] << 8 |
                              (uint32_t)machine->sp_dmem[0x27];
-    (void)printf("classification=pass rom_sha256=%s profile=%s model=6 state=12 step_max=%llu rsp_branch_pc=%03x rsp_branch_opcode=10000001 rsp_delay_pc=%03x rsp_delay_opcode=24030009 rsp_pair_first_pc=%03x rsp_pair_second_pc=%03x rsp_break_pc=%03x rsp_retired=%llu rsp_stall_slots=%llu rsp_status=%08x rsp_semaphore=%u cpu_retired=%llu cpu_terminal_pc=%08x cpu_terminal_opcode=%08x delay_pc=%08x delay_opcode=%08x guest_tick=%llu capture_bytes=%zu transcript_hex=",
+    (void)printf("classification=pass rom_sha256=%s profile=%s model=6 state=12 step_max=%llu rsp_branch_pc=%03x rsp_branch_opcode=10000001 rsp_delay_pc=%03x rsp_delay_opcode=24030009 rsp_pair_first_pc=%03x rsp_pair_second_pc=%03x rsp_load_use_stall=1 rsp_break_pc=%03x rsp_retired=%llu rsp_stall_slots=%llu rsp_status=%08x rsp_semaphore=%u cpu_retired=%llu cpu_terminal_pc=%08x cpu_terminal_opcode=%08x delay_pc=%08x delay_opcode=%08x guest_tick=%llu capture_bytes=%zu transcript_hex=",
                  rom.sha256, RSP_SMOKE_PROFILE,
                  (unsigned long long)boot_step_max,
                  RSP_SMOKE_RSP_BRANCH_PC, RSP_SMOKE_RSP_DELAY_PC,

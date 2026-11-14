@@ -80,6 +80,7 @@ class RspSmokeTests(unittest.TestCase):
                             "rsp_delay_pc=014",
                             "rsp_pair_first_pc=018",
                             "rsp_pair_second_pc=01c",
+                            "rsp_load_use_stall=1",
                             "rsp_break_pc=09c",
                             "rsp_retired=40",
                             "rsp_stall_slots=",
