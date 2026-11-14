@@ -234,25 +234,28 @@ def seal_existing_attempt(attempt_name: str) -> None:
     qualification = read_json(PRIVATE / "qualification.json")
     if digest(PRIVATE / "qualification.json") != preuse.get("qualification_sha256"):
         raise ValueError("pre-use qualification changed during the actual build")
-    composition_path = work / "composition.json"
-    if not composition_path.is_file() or composition_path.is_symlink():
-        raise ValueError("existing actual outputs have no completed composition report")
+    # Keep prior reports immutable; inspection must authenticate today's bytes.
+    composition_path = work / "composition-recovered.json"
+    target = PRIVATE / "cargo-target-rsp-attempt-01/mips-nintendo64-none/release/n64-systemtest"
+    payload, rom = work / "rsp.payload.bin", work / "rsp.z64"
+    locks = [SOURCE / "Cargo.lock", PREFIX / "lib/rustlib/src/rust/library/Cargo.lock"]
+    if [digest(path) for path in locks] != [preuse.get("project_lock_before"), preuse.get("sysroot_lock_before")]:
+        raise ValueError("locked resolution changed since the actual build began")
+    inspection = run(
+        [sys.executable, "-B", "scripts/verify-rsp-diagnostic-build.py", "--inspect",
+         "--elf", str(target), "--payload", str(payload), "--rom", str(rom),
+         "--boot", str(ROOT / "build/fixtures/ipl3_compat.z64"),
+         "--qualification", str(PRIVATE / "qualification.json"),
+         "--sections-log", str(work / "elf-sections.stdout.log"),
+         "--symbols-log", str(work / "elf-symbols.stdout.log"),
+         "--report", str(composition_path)], work, "composition-recovered", timeout=60)
     composition = read_json(composition_path)
     if composition.get("schema") != "t64.rsp-build-composition.v1" or composition.get("status") != "PASS_POSTBUILD_COMPOSITION" or composition.get("qualification_sha256") != preuse.get("qualification_sha256"):
         raise ValueError("existing actual output composition is not accepted")
-    target = PRIVATE / "cargo-target-rsp-attempt-01/mips-nintendo64-none/release/n64-systemtest"
-    payload, rom = work / "rsp.payload.bin", work / "rsp.z64"
     artifacts = {"elf": target, "payload": payload, "rom": rom, "composition": composition_path}
     encoded = {name: {"path": str(path.relative_to(ROOT)), "sha256": digest(path), "size": path.stat().st_size}
                for name, path in artifacts.items()}
-    successful_inspection = {
-        "argv": ["python3", "-B", "scripts/verify-rsp-diagnostic-build.py", "--inspect", "--elf", str(target.relative_to(ROOT)), "--payload", str(payload.relative_to(ROOT)), "--rom", str(rom.relative_to(ROOT)), "--boot", "build/fixtures/ipl3_compat.z64", "--qualification", "build/private-rsp-diagnostic/qualification.json", "--sections-log", str((work / "elf-sections.stdout.log").relative_to(ROOT)), "--symbols-log", str((work / "elf-symbols.stdout.log").relative_to(ROOT)), "--report", str(composition_path.relative_to(ROOT))],
-        "exit": 0,
-        "status": "PASS_POSTBUILD_COMPOSITION",
-        "stdout": "PASS: independent RSP source, assets, tools, locks, and build identity verified before use\nPASS: actual RSP ELF, payload, selector, boot bytes, and ROM composition verified; guest ROM not executed\n",
-        "source_attempted_inspector_failure": "composition.command.json",
-    }
-    write_json(work / "postbuild-inspection.json", successful_inspection)
+    write_json(work / "postbuild-inspection.json", inspection)
     build_receipt = {"schema": "t64.rsp-qualified-build.v1", "schema_version": 1, "status": "qualified-build-composed", "component": "rsp", "profile_id": PROFILE_ID, "source_revision": qualification["source_revision"], "qualification_sha256": preuse["qualification_sha256"], "preuse_closure_sha256": preuse["preuse_closure_sha256"], "core_build_sha256": preuse["core_build_sha256"], "attempt_id": attempt_name, "attempt_dir": str(work.relative_to(ROOT)), "cargo_argv": argv, "cargo_deadline_seconds": MAX_TIMEOUT, "cargo_exit": 0, "cargo_timed_out": False, "cargo_process_group_empty": True, "locks_unchanged": True, "artifacts": encoded, "guest_rom_executed": False, "composition_inspection_recovered_after_setup_failure": True}
     write_json(receipt_path, build_receipt)
     write_json(result_path, {"schema": "t64.rsp-build-attempt-result.v1", "status": "qualified-build-composed", "reached_stage": "composition", "artifacts": encoded, "qualification_sha256": preuse["qualification_sha256"], "initial_composition_setup_failure_preserved": True})

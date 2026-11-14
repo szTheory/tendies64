@@ -150,7 +150,7 @@ def private_digest(path: pathlib.Path, label: str) -> str:
     return digest(path.read_bytes())
 
 
-def verify_rebuilt_core_binding(binding_path: pathlib.Path, qualification_sha: str, build_identity: dict[str, object]) -> None:
+def verify_rebuilt_core_binding(binding_path: pathlib.Path, qualification_sha: str, build_identity: dict[str, object]) -> dict[str, object]:
     binding_path = private_path(binding_path, "current core identity binding")
     if stat.S_IMODE(binding_path.stat().st_mode) != 0o600:
         refuse("current core identity binding is not owner-only")
@@ -227,6 +227,26 @@ def verify_rebuilt_core_binding(binding_path: pathlib.Path, qualification_sha: s
     identity_json = json.loads(runtime.stdout)
     if identity_json.get("core_build_sha256") != current["core_build_sha256"] or identity_json.get("source_revision") != current["source_revision"]:
         refuse("rebuilt production identity reader no longer reports its bound artifact identity")
+    return identity_json
+
+
+def verify_current_core_identity(build_identity: dict[str, object], qualification_sha: str) -> None:
+    identity_exe = ROOT / "build/gate/runner/t64-cpu-diagnostic"
+    current_sha = private_digest(identity_exe, "current core identity executable")
+    if current_sha != build_identity.get("core_identity_executable_sha256"):
+        # The supplemental verifier checks exact executable bytes and provenance
+        # before invoking the replacement. Never query an unbound executable.
+        core_json = verify_rebuilt_core_binding(
+            ROOT / "build/private-rsp-diagnostic/current-core-identity-binding-v2.json",
+            qualification_sha, build_identity)
+    else:
+        identity = subprocess.run([str(identity_exe), "--compat-v2", "--runtime-identity-json"],
+                                  check=True, capture_output=True, text=True, timeout=10)
+        core_json = json.loads(identity.stdout)
+        if core_json.get("source_revision") != build_identity.get("core_identity_source_revision"):
+            refuse("unchanged production adapter reports a different source revision")
+    if core_json.get("core_build_sha256") != build_identity.get("core_build_sha256"):
+        refuse("current production core build identity differs from the qualified RSP core")
 
 
 def verify_preuse(path: pathlib.Path) -> None:
@@ -380,17 +400,7 @@ def verify_preuse(path: pathlib.Path) -> None:
     expected_profile = {"id": "ntsc-cart-4m-openipl3-rsp-functional-v1", "region": "NTSC", "media": "cartridge", "rdram_bytes": 4 * 1024 * 1024, "boot_asset_sha256": BOOT_SHA, "component": "rsp-functional-diagnostic", "expansion": "none", "peripherals": "none"}
     if build_identity.get("profile_sha256") != digest(canonical(expected_profile)):
         refuse("RSP profile digest does not match its private profile fields")
-    identity_exe = ROOT / "build/gate/runner/t64-cpu-diagnostic"
-    current_executable_sha = private_digest(identity_exe, "current core identity executable")
-    identity = subprocess.run([str(identity_exe), "--compat-v2", "--runtime-identity-json"], check=True, capture_output=True, text=True)
-    core_json = json.loads(identity.stdout)
-    if core_json.get("core_build_sha256") != build_identity.get("core_build_sha256") or not isinstance(core_json.get("source_revision"), str) or re.fullmatch(r"[0-9a-f]{40}", core_json["source_revision"]) is None:
-        refuse("current production core build identity differs from the qualified RSP core")
-    if current_executable_sha == build_identity.get("core_identity_executable_sha256"):
-        if core_json["source_revision"] != build_identity.get("core_identity_source_revision"):
-            refuse("unchanged production adapter reports a different source revision")
-    else:
-        verify_rebuilt_core_binding(ROOT / "build/private-rsp-diagnostic/current-core-identity-binding-v2.json", digest(qualification_path.read_bytes()), build_identity)
+    verify_current_core_identity(build_identity, digest(qualification_path.read_bytes()))
     print("PASS: independent RSP source, assets, tools, locks, and build identity verified before use")
 
 

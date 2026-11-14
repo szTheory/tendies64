@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import hashlib
+import importlib.util
 import json
 import os
 import pathlib
@@ -12,6 +13,7 @@ import subprocess
 import sys
 import tempfile
 import unittest
+from unittest.mock import patch
 
 ROOT = pathlib.Path(__file__).resolve().parents[2]
 TEST_ROOT = ROOT / "build/test-rsp-qualification"
@@ -195,6 +197,33 @@ class RspQualificationTests(unittest.TestCase):
         result = invoke(VERIFY, "--verify-closure-fixture", str(path), cwd=ROOT)
         self.assertNotEqual(result.returncode, 0, "authored closure accepted a changed boot asset")
         self.assertIn("asset closure digest changed", result.stdout)
+
+
+class IdentityReaderOrderTests(unittest.TestCase):
+    def test_unbound_replacement_is_refused_before_it_can_run(self) -> None:
+        spec = importlib.util.spec_from_file_location("rsp_identity_order", VERIFY)
+        module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(module)
+        owner_only_directory(TEST_ROOT)
+        with tempfile.TemporaryDirectory(prefix="identity.", dir=TEST_ROOT) as temporary:
+            root = pathlib.Path(temporary)
+            executable = root / "build/gate/runner/t64-cpu-diagnostic"
+            executable.parent.mkdir(parents=True)
+            executable.write_bytes(b"authored identity reader")
+            (root / "build/private-rsp-diagnostic").mkdir(mode=0o700)
+            identity = {"core_build_sha256": "b" * 64, "source_revision": "a" * 40}
+            expected = {"core_build_sha256": identity["core_build_sha256"],
+                        "core_identity_source_revision": identity["source_revision"],
+                        "core_identity_executable_sha256": hashlib.sha256(executable.read_bytes()).hexdigest()}
+            result = subprocess.CompletedProcess([], 0, json.dumps(identity), "")
+            with patch.object(module, "ROOT", root), patch.object(module.subprocess, "run", return_value=result) as run:
+                module.verify_current_core_identity(expected, "c" * 64)
+                run.assert_called_once()  # Accepted baseline actually queries its bound bytes.
+                run.reset_mock()
+                executable.write_bytes(b"replacement claiming the same identity")
+                with self.assertRaisesRegex(module.Refusal, "missing"):
+                    module.verify_current_core_identity(expected, "c" * 64)
+                run.assert_not_called()
 
 
 if __name__ == "__main__":
