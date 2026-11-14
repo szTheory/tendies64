@@ -60,6 +60,13 @@ set_tests_properties(harness.rsp-qualification harness.rsp-build harness.rsp-run
   LABELS runner TIMEOUT 120
   ENVIRONMENT "PYTHONDONTWRITEBYTECODE=1")
 
+add_test(NAME repo.rsp-no-hle
+  COMMAND python3 -B ${CMAKE_SOURCE_DIR}/scripts/tests/test_rsp_no_hle.py)
+set_tests_properties(repo.rsp-no-hle PROPERTIES
+  LABELS runner TIMEOUT 60
+  ENVIRONMENT
+    "PYTHONDONTWRITEBYTECODE=1;T64_RSP_NO_HLE_BUILD_DIR=${CMAKE_BINARY_DIR}")
+
 add_executable(test_cpu_diagnostic tests/test_cpu_diagnostic.c)
 target_compile_definitions(test_cpu_diagnostic PRIVATE ${T64_HOST_DEFS})
 target_include_directories(test_cpu_diagnostic PRIVATE ${CMAKE_SOURCE_DIR}/core)

@@ -129,11 +129,13 @@ unit.core.rsp-vector
 unit.core.rsp-multiply
 unit.core.rsp-compare
 unit.core.rsp-divider
+unit.core.rsp-fuzz
 unit.rsp-diag-protocol
 harness.rsp-qualification
 harness.rsp-build
 harness.rsp-run
-harness.rsp-divider-audit'
+harness.rsp-divider-audit
+repo.rsp-no-hle'
 
 CPU_COVERAGE_OPCODES='ADD
 ADDU

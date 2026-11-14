@@ -600,6 +600,7 @@ if [ $# -eq 0 ]; then
   INC_ROOT="$REPO/core"
   collect_default_core_files core
   lint_list -I tools/common -I core/softfloat -D SOFTFLOAT_FAST_INT64=1
+  python3 -B -c 'import ast,pathlib,sys; path=pathlib.Path(sys.argv[1]); ast.parse(path.read_text(encoding="utf-8"), filename=path.name); print("core-lint: Python RSP dispatch checker syntax ok")' "$LINT_DIR/../../scripts/check-rsp-no-hle.py"
   exit $?
 fi
 case "$1" in
