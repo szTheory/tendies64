@@ -280,11 +280,7 @@ rsp_program:
   RSP_MTC2 1, 1, 1             /* MTC2 v1[1], r1 */
   .word 0x24020001             /* ADDIU r2, r0, 1 */
   RSP_MTC2 2, 2, 1             /* MTC2 v2[1], r2 */
-.if VARIANT == 1
-  .word 0x4a020950             /* Wrong-result control: writes v5, not v3. */
-.else
   .word 0x4a0208d0             /* VADD v3, v1, v2; signed saturation */
-.endif
   .word 0x4a020954             /* VADDC v5, v1, v2; lane 1 carry */
   .word 0x48450000             /* CFC2 r5, VCO */
   RSP_SW 5, 0, 0x20            /* SW r5, 0x20(r0) */
@@ -293,7 +289,11 @@ rsp_program:
   RSP_SW 11, 0, 0x24           /* SW r11, 0x24(r0) */
   .word 0x24060107             /* ADDIU r6, r0, 0x107 */
   RSP_LQV 4, 6, 0, 0           /* LQV v4, 0(r6): nine-byte partial load */
+.if VARIANT == 1
+  .word 0x4b051133             /* Wrong result: VMOV copies v5[0] to v4[2]. */
+.else
   .word 0x4b031133             /* VMOV v4[2], v3[0]; other lanes preserved */
+.endif
   .word 0x24060080             /* ADDIU r6, r0, 0x80 */
   RSP_SQV 4, 6, 0, 0           /* SQV v4, 0(r6): aligned output block */
   .word 0x24060099             /* ADDIU r6, r0, 0x99 */
