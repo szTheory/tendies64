@@ -295,7 +295,8 @@ static bool rsp_diag_valid_member(const t64_rsp_diag_inventory *inventory,
 static bool rsp_diag_parse_batch(
     const t64_rsp_diag_inventory *inventory, const uint8_t *bytes,
     size_t length, size_t *flat_out, t64_rsp_diag_owned_result *result_out) {
-  t64_json_limits limits = {T64_RSP_DIAG_MAX_BATCH_BYTES, 6u, 64u, 256u};
+  t64_json_limits limits = {T64_RSP_DIAG_MAX_BATCH_BYTES, 6u,
+                            T64_RSP_DIAG_MAX_TEXT_BYTES, 256u};
   t64_json_doc document = {0};
   t64_json_error error = {T64_JSON_OK, 0u};
   t64_rsp_diag_identity identity = {0};

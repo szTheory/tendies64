@@ -32,10 +32,10 @@ static const char inventory_component_rsp[] =
 static const char registration_rsp_second[] =
     "{\"constructor\":\"rsp::authored.second\",\"execution\":\"once\","
     "\"group\":\"rsp\",\"index\":1,\"lane\":\"required-base\","
-    "\"level\":\"BasicFunctionality\",\"name\":\"authored.rsp.second\","
+    "\"level\":\"BasicFunctionality\",\"name\":\"authored.rsp.member-with-a-deliberately-long-synthetic-label-xxxxxxxxxxxxxxxxxxxx\","
     "\"source_file\":\"src/tests/rsp/authored.rs\","
     "\"source_file_sha256\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\","
-    "\"source_name\":\"authored.rsp.second\",\"source_value_count\":0,"
+    "\"source_name\":\"authored.rsp.source-with-a-deliberately-long-synthetic-label-xxxxxxxxxxxxxxxxxxxx\",\"source_value_count\":0,"
     "\"values\":[{\"id\":\"once\",\"index\":0,"
     "\"selected_rom_sha256\":\"dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd\","
     "\"selector\":\"r0001v00000\"}],"
@@ -316,11 +316,15 @@ static void test_batch_outcomes_and_partition(void) {
 static void test_single_member_at_nonzero_inventory_ordinal(void) {
   t64_rsp_diag_inventory *inventory = NULL;
   t64_rsp_diag_aggregate *aggregate = NULL;
+  t64_rsp_diag_member long_member = {0};
   t64_rsp_diag_member_result expected = sample_result(T64_RSP_DIAG_OUTCOME_GUEST_FAIL);
   t64_rsp_diag_member_result observed = {0};
   char batch[T64_RSP_DIAG_MAX_BATCH_BYTES];
   size_t length = 0u;
   if (!parse_two_member_inventory(&inventory) ||
+      !t64_rsp_diag_inventory_member_at(inventory, 1u, &long_member) ||
+      strlen(long_member.registration_name) <= 64u ||
+      strlen(long_member.source_name) <= 64u ||
       t64_rsp_diag_batch_encode(inventory, 1u, 0u, &expected, batch,
                                 sizeof batch, &length) != T64_RSP_DIAG_OK ||
       t64_rsp_diag_aggregate_create(inventory, &aggregate) != T64_RSP_DIAG_OK ||
@@ -337,6 +341,61 @@ static void test_single_member_at_nonzero_inventory_ordinal(void) {
       observed.registration_index != 1u || observed.value_index != 0u ||
       observed.outcome != T64_RSP_DIAG_OUTCOME_GUEST_FAIL) {
     (void)fprintf(stderr, "FAIL: single-member lookup lost a nonzero inventory ordinal\n");
+    failures++;
+  }
+cleanup:
+  t64_rsp_diag_aggregate_destroy(aggregate);
+  t64_rsp_diag_inventory_destroy(inventory);
+}
+
+static void test_registration_name_bound_plus_one_is_rejected(void) {
+  t64_rsp_diag_inventory *inventory = NULL;
+  char oversized_name[T64_RSP_DIAG_MAX_NAME_BYTES + 2u];
+  char replacement[sizeof oversized_name + 16u];
+  char mutated[sizeof inventory_component_rsp + sizeof oversized_name + 32u];
+  int written;
+  t64_rsp_diag_status status;
+  (void)memset(oversized_name, 'x', sizeof oversized_name - 1u);
+  oversized_name[sizeof oversized_name - 1u] = '\0';
+  written = snprintf(replacement, sizeof replacement, "\"name\":\"%s\"",
+                     oversized_name);
+  if (written < 0 || (size_t)written >= sizeof replacement ||
+      !replace_once(mutated, sizeof mutated, inventory_component_rsp,
+                    "\"name\":\"authored.rsp\"", replacement)) {
+    (void)fprintf(stderr, "FAIL: oversized authored label setup failed\n");
+    failures++;
+    return;
+  }
+  status = t64_rsp_diag_inventory_parse((const uint8_t *)mutated,
+      strlen(mutated), &inventory);
+  if (status != T64_RSP_DIAG_INVALID_INVENTORY || inventory != NULL) {
+    (void)fprintf(stderr, "FAIL: inventory accepted a label above its field bound\n");
+    failures++;
+  }
+  t64_rsp_diag_inventory_destroy(inventory);
+}
+
+static void test_batch_total_byte_limit_is_preserved(void) {
+  t64_rsp_diag_inventory *inventory = NULL;
+  t64_rsp_diag_aggregate *aggregate = NULL;
+  t64_rsp_diag_member_result result = sample_result(T64_RSP_DIAG_OUTCOME_PASS);
+  char batch[T64_RSP_DIAG_MAX_BATCH_BYTES];
+  uint8_t oversized[T64_RSP_DIAG_MAX_BATCH_BYTES + 1u];
+  size_t length = 0u;
+  if (!parse_authored_inventory(&inventory) ||
+      t64_rsp_diag_batch_encode(inventory, 0u, 0u, &result, batch,
+                                sizeof batch, &length) != T64_RSP_DIAG_OK ||
+      length >= sizeof oversized ||
+      t64_rsp_diag_aggregate_create(inventory, &aggregate) != T64_RSP_DIAG_OK) {
+    (void)fprintf(stderr, "FAIL: oversized batch setup failed\n");
+    failures++;
+    goto cleanup;
+  }
+  (void)memcpy(oversized, batch, length);
+  (void)memset(oversized + length, ' ', sizeof oversized - length);
+  if (t64_rsp_diag_aggregate_add_batch(aggregate, oversized,
+          sizeof oversized) != T64_RSP_DIAG_INVALID_BATCH) {
+    (void)fprintf(stderr, "FAIL: batch parser accepted input above its total byte cap\n");
     failures++;
   }
 cleanup:
@@ -538,6 +597,8 @@ int main(int argc, char **argv) {
   test_guest_run_transcript();
   test_batch_outcomes_and_partition();
   test_single_member_at_nonzero_inventory_ordinal();
+  test_registration_name_bound_plus_one_is_rejected();
+  test_batch_total_byte_limit_is_preserved();
   test_pass_requires_retired_delay_slot();
   test_missing_terminal_record_is_rejected();
   test_legacy_refusal_without_terminal_pair_is_accepted();
