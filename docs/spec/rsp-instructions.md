@@ -45,14 +45,43 @@ for an encoding whose nested-delay behavior is not modeled.
 
 ## COP2 scalar transfers and vector memory ledger
 
-The guide defines MFC2, MTC2, CFC2, CTC2, VMOV and the LWC2/SWC2 vector memory
-forms LBV, LSV, LLV, LDV, LQV, LRV, LPV, LUV, LHV, LFV, LWV, LTV, SBV, SSV,
-SLV, SDV, SQV, SRV, SPV, SUV, SHV, SFV, SWV and STV. This plan's second task
-owns these encodings and their independent byte/lane/element tests in
-`unit.core.rsp-transfers`; this section will receive the per-form status and
-test mapping with that implementation. Guide-reserved COP2 suboperations and
-reserved LWC2/SWC2 subopcode values must refuse rather than alias a defined
-transform.
+| Encoding family | Defined operations in scope | Disposition and evidence |
+| --- | --- | --- |
+| COP2 `rs=0`, `rd=0..31`, `e=0,2,...,14` | MFC2 | Sign-extends the selected vector halfword into the scalar GPR. The selected source byte pair and all legal element values are checked by `cop2_move_matrix_test`. Odd element values and nonzero undefined low bits refuse transactionally. |
+| COP2 `rs=4`, `rd=0..31`, `e=0,2,...,14` | MTC2 | Writes the low 16 scalar bits to the selected vector halfword and preserves every other byte. All legal element values are checked by `cop2_move_matrix_test`; invalid fields are in `cop2_reserved_refusal_test`. |
+| COP2 `rs=2` / `rs=6`, `vs=0,1,2` | CFC2 / CTC2 | Maps `vs=0` to VCO, `vs=1` to VCC, and `vs=2` to VCE. The element field is ignored as specified by the guide; all 16 element encodings are tested for reads and writes. The low 7 undefined bits and `vs` values outside 0..2 refuse. |
+| COP2 VMOV function `0x33` | VMOV | Raw `de` (the `vs`-position field) selects destination lane 0..7. Raw `e` uses the vector element selector: `0` selects lane `de`; `2/3` select a quarter with `(e & 1) + (de & 6)`; `4..7` select a half with `(e & 3) + (de & 4)`; `8..15` broadcast lane `e & 7`. Raw `e=1` and `de>7` refuse. The move writes one destination lane and that lane's accumulator low 16 bits, preserving other lanes and accumulator bits. The element selector follows Table 3-3 (printed p. 58); the divide-family `vs` lane description is on printed p. 75; the raw `e, vt, de, vd` format and VMOV operation are in Appendix A (printed pp. 271–272). Raw words `0x4b031133` (`e=8`, `de=2`, source lane 0) and `0x4be32933` (`e=15`, `de=5`, source lane 7) anchor the selector/field interpretation. `vmov_matrix_test` checks all raw e/de combinations and source/destination aliasing. |
+| LWC2 subopcode `0..3` | LBV, LSV, LLV, LDV | Normal byte/short/long/double transforms; offset scales are respectively `0,1,2,3`. Legal byte elements are every value for LBV, even 0..14 for LSV, multiples of 4 through 12 for LLV, and 0 or 8 for LDV. |
+| LWC2 subopcode `4,5` | LQV, LRV | Quad/rest transforms with offset scale 4 and element 0. LQV accesses through the next 16-byte boundary; LRV accesses from the aligned boundary up to the effective address, and is empty at an aligned address. |
+| LWC2 subopcode `6,7,8,9` | LPV, LUV, LHV, LFV | Packed transforms with offset scales `3,3,4,4`. LPV fills each lane's high byte; LUV uses bits 14..7; LHV selects every second byte; LFV selects every fourth byte into the low or high four lanes (`e=0` or `8`). |
+| LWC2 subopcode `10` | No guide-defined load | Refused as reserved. The task brief's name “LWV” has no corresponding entry in the pinned guide's load table or appendix; no behavior is invented for this encoding. |
+| LWC2 subopcode `11` | LTV | Transpose load with offset scale 4, an even element 0..14, and the guide's 8-register group `(VT & 0x18) | ((Slice + (Element >> 1)) & 7)`. Other element values refuse. |
+| SWC2 subopcode `0..3` | SBV, SSV, SLV, SDV | Normal byte/short/long/double transforms with offset scales `0,1,2,3` and the same legal element positions as their load partners. |
+| SWC2 subopcode `4,5` | SQV, SRV | Quad/rest stores with offset scale 4 and element 0. They write only the portion of the aligned 16-byte memory word selected by the effective address. |
+| SWC2 subopcode `6,7,8,9` | SPV, SUV, SHV, SFV | Packed stores with offset scales `3,3,4,4`, inverse to the corresponding loads: SPV extracts high bytes, SUV extracts bits 14..7, SHV stores every second byte, and SFV stores every fourth byte from lane group 0 or 4. |
+| SWC2 subopcode `10,11` | SWV, STV | Wrapped/transpose stores with offset scale 4 and an even element 0..14. They use the guide's eight-register group and preserve bytes outside the selected 16-byte transfer. |
+| LWC2/SWC2 subopcode `12..31` | Reserved | Refused before effects. Every reserved subopcode has a fetched refusal case in `vector_memory_matrix_test`. |
+
+The guide's signed 7-bit offset is scaled by each operation's shift and added
+to the scalar base register. Only low 12 bits address DMEM. The transfer test
+iterates all 16 effective-address alignments and all 16 element values for
+each load/store subopcode, including invalid values; it compares the complete
+vector-register bank and DMEM image, checks flags and accumulators remain
+unchanged for memory transfers, and includes negative offsets and low-12-bit
+wrap. Expected byte ordering is assembled explicitly in the test oracle.
+`unit.core.rsp-transfers` owns these cases along with CP2 moves and transactional
+reserved-field checks.
+
+For VMOV, Appendix A writes the operands as `vd[de], vt[e]`, with raw fields
+`e` at bits 24..21, `vt` at 20..16, `de` at 15..11, `vd` at 10..6, and the
+function at 5..0. The guide describes the divide-family source as one scalar
+element of `vt` and says destination `vs` encodes a lane 0..7 (printed p. 75);
+the Appendix names that destination field `de` (printed p. 271). The raw `e`
+field uses Table 3-3's vector/quarter/half/whole selector (printed p. 58),
+rather than the byte-offset convention used by MFC2/MTC2 and LWC2/SWC2. Thus
+raw `e=8..15` selects one of lanes 0..7 for the single destination selected by
+`de`. The transfer test executes fixed raw words `0x4b031133` and
+`0x4be32933` and checks every e/de combination against this mapping.
 
 ## Evidence boundary
 

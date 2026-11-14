@@ -124,6 +124,7 @@ unit.core.softfloat-isolation'
 PHASE05_TESTS='unit.core.rsp-tracer
 unit.core.rsp-control
 unit.core.rsp-scalar
+unit.core.rsp-transfers
 unit.rsp-diag-protocol
 harness.rsp-qualification
 harness.rsp-build

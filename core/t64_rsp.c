@@ -1,6 +1,7 @@
 #include "t64_internal.h"
 
 #include <limits.h>
+#include <string.h>
 
 #define T64_RSP_STATUS_HALT UINT32_C(0x00000001)
 #define T64_RSP_STATUS_BROKE UINT32_C(0x00000002)
@@ -106,6 +107,376 @@ static uint32_t rsp_arithmetic_shift_right32(uint32_t value,
   return shifted;
 }
 
+typedef struct {
+  bool valid;
+  bool load;
+  uint32_t memory_count;
+  uint16_t memory_address[16];
+  uint8_t memory_value[16];
+  uint32_t write_count;
+  uint8_t write_register[16];
+  uint8_t write_byte[16];
+  uint8_t write_memory_index[16];
+  uint8_t write_transform[16];
+  uint32_t write_register_mask;
+  uint32_t read_register_mask;
+} rsp_vector_memory_plan;
+
+enum {
+  RSP_VECTOR_BYTE_DIRECT = 0,
+  RSP_VECTOR_BYTE_PACKED_HIGH = 1,
+  RSP_VECTOR_BYTE_UNSIGNED_HIGH = 2,
+  RSP_VECTOR_BYTE_UNSIGNED_LOW = 3,
+  RSP_VECTOR_BYTE_ZERO = 4
+};
+
+static bool rsp_select_vector_lane(uint32_t element, uint32_t lane,
+                                   uint32_t *source_lane_out) {
+  uint32_t source_lane;
+
+  if (source_lane_out == NULL || element > UINT32_C(15) ||
+      lane > UINT32_C(7)) {
+    return false;
+  }
+  if (element == 0u) {
+    source_lane = lane;
+  } else if ((element & UINT32_C(0x0e)) == 2u) {
+    source_lane = (element & UINT32_C(1)) + (lane & UINT32_C(6));
+  } else if ((element & UINT32_C(0x0c)) == 4u) {
+    source_lane = (element & UINT32_C(3)) + (lane & UINT32_C(4));
+  } else if ((element & UINT32_C(0x08)) != 0u) {
+    source_lane = element & UINT32_C(7);
+  } else {
+    return false;
+  }
+  *source_lane_out = source_lane;
+  return true;
+}
+
+static bool rsp_vector_memory_add_address(rsp_vector_memory_plan *plan,
+                                          uint32_t address,
+                                          uint32_t *index_out) {
+  uint32_t index;
+
+  if (plan == NULL || index_out == NULL || plan->memory_count >= 16u) {
+    return false;
+  }
+  index = plan->memory_count++;
+  plan->memory_address[index] = (uint16_t)(address & UINT32_C(0x0fff));
+  *index_out = index;
+  return true;
+}
+
+static bool rsp_vector_memory_add_load_byte(rsp_vector_memory_plan *plan,
+                                            uint32_t reg, uint32_t byte,
+                                            uint32_t memory_index,
+                                            uint32_t transform) {
+  uint32_t index;
+
+  if (plan == NULL || reg >= 32u || byte >= 16u || memory_index >= 16u ||
+      transform > RSP_VECTOR_BYTE_ZERO || plan->write_count >= 16u) {
+    return false;
+  }
+  index = plan->write_count++;
+  plan->write_register[index] = (uint8_t)reg;
+  plan->write_byte[index] = (uint8_t)byte;
+  plan->write_memory_index[index] = (uint8_t)memory_index;
+  plan->write_transform[index] = (uint8_t)transform;
+  plan->write_register_mask |= UINT32_C(1) << reg;
+  return true;
+}
+
+static bool rsp_vector_memory_add_store_byte(rsp_vector_memory_plan *plan,
+                                             uint32_t address,
+                                             uint32_t value) {
+  uint32_t index;
+
+  if (!rsp_vector_memory_add_address(plan, address, &index)) {
+    return false;
+  }
+  plan->memory_value[index] = (uint8_t)value;
+  return true;
+}
+
+static bool rsp_plan_vector_memory(const t64_machine *machine,
+                                   uint32_t instruction,
+                                   rsp_vector_memory_plan *plan) {
+  uint32_t operation = instruction >> 26;
+  uint32_t base_register = (instruction >> 21) & UINT32_C(0x1f);
+  uint32_t vector_register = (instruction >> 16) & UINT32_C(0x1f);
+  uint32_t subopcode = (instruction >> 11) & UINT32_C(0x1f);
+  uint32_t element = (instruction >> 7) & UINT32_C(0x0f);
+  uint32_t raw_offset = instruction & UINT32_C(0x7f);
+  uint32_t offset = (raw_offset & UINT32_C(0x40)) != 0u
+                        ? raw_offset | UINT32_C(0xffffff80)
+                        : raw_offset;
+  uint32_t offset_scale;
+  uint32_t address;
+  uint32_t size;
+  uint32_t index;
+  uint32_t register_base;
+  uint32_t rotation;
+  bool load;
+
+  if (machine == NULL || plan == NULL ||
+      (operation != UINT32_C(0x32) && operation != UINT32_C(0x3a))) {
+    return false;
+  }
+  (void)memset(plan, 0, sizeof *plan);
+  load = operation == UINT32_C(0x32);
+  plan->load = load;
+  switch (subopcode) {
+  case 0u:
+    offset_scale = 0u;
+    size = 1u;
+    break;
+  case 1u:
+    offset_scale = 1u;
+    size = 2u;
+    if ((element & UINT32_C(1)) != 0u || element > 14u) {
+      return false;
+    }
+    break;
+  case 2u:
+    offset_scale = 2u;
+    size = 4u;
+    if ((element & UINT32_C(3)) != 0u || element > 12u) {
+      return false;
+    }
+    break;
+  case 3u:
+    offset_scale = 3u;
+    size = 8u;
+    if (element != 0u && element != 8u) {
+      return false;
+    }
+    break;
+  case 4u:
+  case 5u:
+    offset_scale = 4u;
+    size = 0u;
+    if (element != 0u) {
+      return false;
+    }
+    break;
+  case 6u:
+  case 7u:
+    offset_scale = 3u;
+    size = 8u;
+    if (element != 0u) {
+      return false;
+    }
+    break;
+  case 8u:
+    offset_scale = 4u;
+    size = 8u;
+    if (element != 0u) {
+      return false;
+    }
+    break;
+  case 9u:
+    offset_scale = 4u;
+    size = 4u;
+    if (element != 0u && element != 8u) {
+      return false;
+    }
+    break;
+  case 10u:
+    /* LWC2 subopcode 10 is reserved; SWC2 subopcode 10 is SWV. */
+    if (load) {
+      return false;
+    }
+    offset_scale = 4u;
+    size = 16u;
+    if ((element & UINT32_C(1)) != 0u || element > 14u) {
+      return false;
+    }
+    break;
+  case 11u:
+    offset_scale = 4u;
+    size = 16u;
+    if ((element & UINT32_C(1)) != 0u || element > 14u) {
+      return false;
+    }
+    break;
+  default:
+    return false;
+  }
+  address = (machine->rsp.gpr[base_register] + (offset << offset_scale)) &
+            UINT32_C(0x0fff);
+
+  if (subopcode <= 3u) {
+    for (index = 0u; index < size; index++) {
+      uint32_t memory_index;
+      uint32_t vector_byte = element + index;
+      uint32_t memory_address = address + index;
+
+      if (load) {
+        if (!rsp_vector_memory_add_address(plan, memory_address,
+                                          &memory_index) ||
+            !rsp_vector_memory_add_load_byte(
+                plan, vector_register, vector_byte, memory_index,
+                RSP_VECTOR_BYTE_DIRECT)) {
+          return false;
+        }
+      } else if (!rsp_vector_memory_add_store_byte(
+                     plan, memory_address,
+                     machine->rsp.vector[vector_register][vector_byte])) {
+        return false;
+      }
+    }
+    if (!load) {
+      plan->read_register_mask |= UINT32_C(1) << vector_register;
+    }
+  } else if (subopcode == 4u || subopcode == 5u) {
+    uint32_t count = subopcode == 4u
+                         ? UINT32_C(16) - (address & UINT32_C(15))
+                         : address & UINT32_C(15);
+    uint32_t aligned_address = address & UINT32_C(0x0ff0);
+    uint32_t vector_start = subopcode == 4u ? 0u : UINT32_C(16) - count;
+
+    for (index = 0u; index < count; index++) {
+      uint32_t memory_index;
+      uint32_t memory_address = subopcode == 4u
+                                    ? address + index
+                                    : aligned_address + index;
+      uint32_t vector_byte = vector_start + index;
+
+      if (load) {
+        if (!rsp_vector_memory_add_address(plan, memory_address,
+                                          &memory_index) ||
+            !rsp_vector_memory_add_load_byte(
+                plan, vector_register, vector_byte, memory_index,
+                RSP_VECTOR_BYTE_DIRECT)) {
+          return false;
+        }
+      } else if (!rsp_vector_memory_add_store_byte(
+                     plan, memory_address,
+                     machine->rsp.vector[vector_register][vector_byte])) {
+        return false;
+      }
+    }
+    if (!load) {
+      plan->read_register_mask |= UINT32_C(1) << vector_register;
+    }
+  } else if (subopcode >= 6u && subopcode <= 9u) {
+    uint32_t source_step = subopcode == 8u ? 2u :
+                           subopcode == 9u ? 4u : 1u;
+    uint32_t lane_count = subopcode == 9u ? 4u : 8u;
+    uint32_t destination_lane = subopcode == 9u ? element / 2u : 0u;
+    uint32_t transform = subopcode == 6u
+                             ? RSP_VECTOR_BYTE_PACKED_HIGH
+                             : RSP_VECTOR_BYTE_UNSIGNED_HIGH;
+
+    for (index = 0u; index < lane_count; index++) {
+      uint32_t memory_index;
+      uint32_t memory_address = address + index * source_step;
+      uint32_t lane = destination_lane + index;
+
+      if (load) {
+        if (!rsp_vector_memory_add_address(plan, memory_address,
+                                          &memory_index) ||
+            !rsp_vector_memory_add_load_byte(
+                plan, vector_register, lane * 2u, memory_index, transform) ||
+            !rsp_vector_memory_add_load_byte(
+                plan, vector_register, lane * 2u + 1u, memory_index,
+                subopcode == 6u ? RSP_VECTOR_BYTE_ZERO
+                                : RSP_VECTOR_BYTE_UNSIGNED_LOW)) {
+          return false;
+        }
+      } else {
+        uint16_t value = rsp_read_vector_element(machine, vector_register,
+                                                lane);
+        uint32_t byte_value;
+
+        if (subopcode == 6u) {
+          byte_value = value >> 8;
+        } else if (subopcode == 7u) {
+          byte_value = (value >> 7) & UINT32_C(0xff);
+        } else {
+          byte_value = (value >> 7) & UINT32_C(0xff);
+        }
+        if (!rsp_vector_memory_add_store_byte(plan, memory_address,
+                                             byte_value)) {
+          return false;
+        }
+      }
+    }
+    if (!load) {
+      plan->read_register_mask |= UINT32_C(1) << vector_register;
+    }
+  } else {
+    register_base = vector_register & UINT32_C(0x18);
+    rotation = element / 2u;
+    if (subopcode == 10u || subopcode == 11u) {
+      uint32_t aligned_address = address & UINT32_C(0x0ff0);
+
+      for (index = 0u; index < 8u; index++) {
+        uint32_t selected_register =
+            register_base | ((index + rotation) & UINT32_C(7));
+        uint32_t lane = subopcode == 10u
+                            ? (index + rotation) & UINT32_C(7)
+                            : index;
+
+        if (load) {
+          uint32_t high_index;
+          uint32_t low_index;
+
+          if (!rsp_vector_memory_add_address(plan,
+                                             aligned_address + index * 2u,
+                                             &high_index) ||
+              !rsp_vector_memory_add_address(plan,
+                                             aligned_address + index * 2u + 1u,
+                                             &low_index) ||
+              !rsp_vector_memory_add_load_byte(
+                  plan, selected_register, lane * 2u, high_index,
+                  RSP_VECTOR_BYTE_DIRECT) ||
+              !rsp_vector_memory_add_load_byte(
+                  plan, selected_register, lane * 2u + 1u, low_index,
+                  RSP_VECTOR_BYTE_DIRECT)) {
+            return false;
+          }
+        } else {
+          uint16_t value = rsp_read_vector_element(machine,
+                                                  selected_register, lane);
+
+          if (!rsp_vector_memory_add_store_byte(
+                  plan, aligned_address + index * 2u, value >> 8) ||
+              !rsp_vector_memory_add_store_byte(
+                  plan, aligned_address + index * 2u + 1u, value)) {
+            return false;
+          }
+        }
+        plan->read_register_mask |= UINT32_C(1) << selected_register;
+      }
+    }
+  }
+  if (load) {
+    plan->read_register_mask |= plan->write_register_mask;
+  }
+  plan->valid = true;
+  return true;
+}
+
+static uint8_t rsp_vector_memory_loaded_byte(
+    const rsp_vector_memory_plan *plan, uint32_t write_index) {
+  uint32_t memory_index = plan->write_memory_index[write_index];
+  uint32_t value = plan->memory_value[memory_index];
+
+  switch (plan->write_transform[write_index]) {
+  case RSP_VECTOR_BYTE_PACKED_HIGH:
+    return (uint8_t)value;
+  case RSP_VECTOR_BYTE_UNSIGNED_HIGH:
+    return (uint8_t)(UINT32_C(0x40) | (value >> 2));
+  case RSP_VECTOR_BYTE_UNSIGNED_LOW:
+    return (uint8_t)((value & UINT32_C(3)) << 6);
+  case RSP_VECTOR_BYTE_ZERO:
+    return 0u;
+  default:
+    return (uint8_t)value;
+  }
+}
+
 static uint64_t rsp_ready_tick_after(uint64_t tick, uint64_t delay) {
   return tick > UINT64_MAX - delay ? UINT64_MAX : tick + delay;
 }
@@ -132,21 +503,13 @@ static bool rsp_decode_vadd(const t64_machine *machine, uint32_t instruction,
     return false;
   }
   for (lane = 0u; lane < 8u; lane++) {
-    uint32_t source_lane = lane;
+    uint32_t source_lane;
     int32_t left;
     int32_t right;
     int32_t sum;
 
-    if (element_code != 0u) {
-      if ((element_code & UINT32_C(0x0e)) == 2u) {
-        source_lane = (element_code & UINT32_C(1)) + (lane & 6u);
-      } else if ((element_code & UINT32_C(0x0c)) == 4u) {
-        source_lane = (element_code & UINT32_C(3)) + (lane & 4u);
-      } else if ((element_code & UINT32_C(0x08)) != 0u) {
-        source_lane = element_code & UINT32_C(7);
-      } else {
-        return false;
-      }
+    if (!rsp_select_vector_lane(element_code, lane, &source_lane)) {
+      return false;
     }
     left = rsp_signed16(
         rsp_read_vector_element(machine, source_a, lane));
@@ -205,7 +568,10 @@ static t64_status t64_rsp_issue_event(t64_machine *machine,
   uint64_t accumulator_results[8];
   bool write_gpr = false;
   bool write_vector = false;
+  bool write_vmov = false;
   bool write_vector_result = false;
+  bool vector_memory_transfer = false;
+  bool write_vu_control = false;
   bool write_dmem_word = false;
   bool is_break = false;
   bool is_branch = false;
@@ -219,6 +585,9 @@ static t64_status t64_rsp_issue_event(t64_machine *machine,
   uint32_t gpr_value = 0u;
   uint32_t vector_destination = 0u;
   uint32_t vector_element = 0u;
+  uint32_t vmov_destination = 0u;
+  uint32_t vmov_destination_lane = 0u;
+  uint16_t vmov_value = 0u;
   uint16_t vector_value = 0u;
   uint32_t scalar_read_mask = 0u;
   uint32_t vector_read_mask = 0u;
@@ -229,6 +598,9 @@ static t64_status t64_rsp_issue_event(t64_machine *machine,
   uint32_t load_width = 0u;
   uint32_t cp0_register = 0u;
   uint32_t cp0_value = 0u;
+  uint32_t vu_control_register = 0u;
+  uint32_t vu_control_value = 0u;
+  rsp_vector_memory_plan vector_memory_plan = {0};
   bool read_cp0 = false;
   bool write_cp0 = false;
   uint32_t branch_target = 0u;
@@ -505,10 +877,36 @@ static t64_status t64_rsp_issue_event(t64_machine *machine,
     vector_destination = rd;
     vector_element = element;
     vector_value = (uint16_t)machine->rsp.gpr[rt];
+    vector_read_mask |= UINT32_C(1) << rd;
     scalar_read_mask |= UINT32_C(1) << rt;
     vector_write_delay = UINT32_C(4);
     is_load_or_cop_move = true;
     is_store = true;
+    supported = true;
+  } else if (operation == UINT32_C(0x12) &&
+             (rs == UINT32_C(2) || rs == UINT32_C(6)) &&
+             (instruction & UINT32_C(0x7f)) == 0u && rd <= 2u) {
+    vu_control_register = rd;
+    if (rs == UINT32_C(2)) {
+      if (rd == 0u) {
+        gpr_value = machine->rsp.vco;
+      } else if (rd == 1u) {
+        gpr_value = machine->rsp.vcc;
+      } else {
+        gpr_value = machine->rsp.vce;
+      }
+      write_gpr = rt != 0u;
+      gpr_destination = rt;
+      scalar_write_delay = UINT32_C(3);
+      is_load_or_cop_move = true;
+      is_store = true;
+    } else {
+      write_vu_control = true;
+      vu_control_value = machine->rsp.gpr[rt];
+      scalar_read_mask |= UINT32_C(1) << rt;
+      is_load_or_cop_move = true;
+      is_store = true;
+    }
     supported = true;
   } else if (operation == UINT32_C(0x12) && rs == 0u &&
              (element & UINT32_C(1)) == 0u && element <= UINT32_C(14) &&
@@ -524,6 +922,24 @@ static t64_status t64_rsp_issue_event(t64_machine *machine,
     is_load_or_cop_move = true;
     is_store = true;
     supported = true;
+  } else if (operation == UINT32_C(0x12) && (rs & UINT32_C(0x10)) != 0u &&
+             (instruction & UINT32_C(0x3f)) == UINT32_C(0x33)) {
+    uint32_t element_code = rs & UINT32_C(0x0f);
+    uint32_t selected_source_lane;
+    uint32_t destination_vector = (instruction >> 6) & UINT32_C(0x1f);
+
+    if (rd <= 7u && rsp_select_vector_lane(element_code, rd,
+                                           &selected_source_lane)) {
+      write_vmov = true;
+      vmov_destination = destination_vector;
+      vmov_destination_lane = rd;
+      vmov_value = rsp_read_vector_element(machine, rt, selected_source_lane);
+      vector_read_mask |= (UINT32_C(1) << rt) |
+                          (UINT32_C(1) << destination_vector);
+      vector_write_delay = UINT32_C(4);
+      is_store = true;
+      supported = true;
+    }
   } else if (rsp_decode_vadd(machine, instruction, &vector_source,
                              &vector_target, &vector_result,
                              vector_results, accumulator_results)) {
@@ -532,6 +948,16 @@ static t64_status t64_rsp_issue_event(t64_machine *machine,
                         (UINT32_C(1) << vector_target);
     vector_destination = vector_result;
     vector_write_delay = UINT32_C(4);
+    supported = true;
+  } else if ((operation == UINT32_C(0x32) ||
+              operation == UINT32_C(0x3a)) &&
+             rsp_plan_vector_memory(machine, instruction,
+                                    &vector_memory_plan)) {
+    vector_memory_transfer = true;
+    vector_read_mask |= vector_memory_plan.read_register_mask;
+    vector_write_delay = UINT32_C(4);
+    is_load_or_cop_move = true;
+    is_store = true;
     supported = true;
   } else if (operation == UINT32_C(0x10) &&
              (rs == UINT32_C(0) || rs == UINT32_C(4))) {
@@ -800,7 +1226,9 @@ static t64_status t64_rsp_issue_event(t64_machine *machine,
     }
     if (ready_tick > machine->tick) {
       dma_status = t64_sp_rsp_dma_preflight(
-          machine, true, write_dmem_word || load_dmem_word, &dma_step);
+          machine, true,
+          write_dmem_word || load_dmem_word || vector_memory_transfer,
+          &dma_step);
       if (dma_status != T64_STATUS_OK &&
           dma_status != T64_STATUS_BUS_DEVICE_REFUSED) {
         return dma_status;
@@ -826,7 +1254,9 @@ static t64_status t64_rsp_issue_event(t64_machine *machine,
   }
 
   dma_status = t64_sp_rsp_dma_preflight(
-      machine, true, write_dmem_word || load_dmem_word, &dma_step);
+      machine, true,
+      write_dmem_word || load_dmem_word || vector_memory_transfer,
+      &dma_step);
   if (dma_status != T64_STATUS_OK &&
       dma_status != T64_STATUS_BUS_DEVICE_REFUSED) {
     return dma_status;
@@ -859,6 +1289,24 @@ static t64_status t64_rsp_issue_event(t64_machine *machine,
       return status;
     }
     gpr_value = cp0_value;
+  }
+  if (vector_memory_transfer && vector_memory_plan.load) {
+    uint32_t byte;
+
+    for (byte = 0u; byte < vector_memory_plan.memory_count; byte++) {
+      uint32_t byte_value = 0u;
+
+      status = t64_machine_bus_read(
+          machine,
+          T64_RSP_DMEM_BASE +
+              (uint32_t)vector_memory_plan.memory_address[byte],
+          1u, &byte_value);
+      if (status != T64_STATUS_OK) {
+        machine->rsp_observed_outcome = T64_RSP_ATTEMPT_REFUSED;
+        return status;
+      }
+      vector_memory_plan.memory_value[byte] = (uint8_t)byte_value;
+    }
   }
   if (load_dmem_word) {
     load_value = 0u;
@@ -897,6 +1345,15 @@ static t64_status t64_rsp_issue_event(t64_machine *machine,
       return status == T64_STATUS_BUS_DEVICE_REFUSED ? T64_STATUS_OK : status;
     }
   }
+  if (write_vu_control) {
+    if (vu_control_register == 0u) {
+      machine->rsp.vco = (uint16_t)vu_control_value;
+    } else if (vu_control_register == 1u) {
+      machine->rsp.vcc = (uint16_t)vu_control_value;
+    } else {
+      machine->rsp.vce = (uint8_t)vu_control_value;
+    }
+  }
 
   if (write_gpr) {
     machine->rsp.gpr[gpr_destination] = gpr_value;
@@ -911,6 +1368,36 @@ static t64_status t64_rsp_issue_event(t64_machine *machine,
     if (vector_write_delay != 0u) {
       machine->rsp.vector_ready_tick[vector_destination] =
           rsp_ready_tick_after(machine->tick, vector_write_delay);
+    }
+  }
+  if (write_vmov) {
+    rsp_write_vector_element(machine, vmov_destination,
+                             vmov_destination_lane, vmov_value);
+    machine->rsp.vector_ready_tick[vmov_destination] =
+        rsp_ready_tick_after(machine->tick, vector_write_delay);
+    machine->rsp.accumulator[vmov_destination_lane] =
+        (machine->rsp.accumulator[vmov_destination_lane] &
+         ~UINT64_C(0xffff)) |
+        (uint64_t)vmov_value;
+    machine->rsp.accumulator_ready_tick[vmov_destination_lane] =
+        rsp_ready_tick_after(machine->tick, vector_write_delay);
+  }
+  if (vector_memory_transfer && vector_memory_plan.load) {
+    uint32_t index;
+
+    for (index = 0u; index < vector_memory_plan.write_count; index++) {
+      uint32_t reg = vector_memory_plan.write_register[index];
+      uint32_t byte = vector_memory_plan.write_byte[index];
+
+      machine->rsp.vector[reg][byte] =
+          rsp_vector_memory_loaded_byte(&vector_memory_plan, index);
+    }
+    for (index = 0u; index < 32u; index++) {
+      if ((vector_memory_plan.write_register_mask &
+           (UINT32_C(1) << index)) != 0u) {
+        machine->rsp.vector_ready_tick[index] =
+            rsp_ready_tick_after(machine->tick, vector_write_delay);
+      }
     }
   }
   if (write_vector_result) {
@@ -931,6 +1418,21 @@ static t64_status t64_rsp_issue_event(t64_machine *machine,
 
       status = t64_machine_bus_write(machine, T64_RSP_DMEM_BASE + address, 1u,
                                      byte_value);
+      if (status != T64_STATUS_OK) {
+        machine->rsp_observed_outcome = T64_RSP_ATTEMPT_REFUSED;
+        return status;
+      }
+    }
+  }
+  if (vector_memory_transfer && !vector_memory_plan.load) {
+    uint32_t byte;
+
+    for (byte = 0u; byte < vector_memory_plan.memory_count; byte++) {
+      status = t64_machine_bus_write(
+          machine,
+          T64_RSP_DMEM_BASE +
+              (uint32_t)vector_memory_plan.memory_address[byte],
+          1u, vector_memory_plan.memory_value[byte]);
       if (status != T64_STATUS_OK) {
         machine->rsp_observed_outcome = T64_RSP_ATTEMPT_REFUSED;
         return status;
