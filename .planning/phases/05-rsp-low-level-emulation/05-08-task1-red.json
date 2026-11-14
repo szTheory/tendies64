@@ -1,0 +1,10 @@
+{
+  "command": "./build/gate/core/test_rsp_fuzz",
+  "exitCode": 1,
+  "output": "1..1\nnot ok 1 - VAND has at least 256 deterministic fetched tuples (observed 1)\n",
+  "targetTest": "VAND has at least 256 deterministic fetched tuples (observed 1)",
+  "targetFile": "core/tests/test_rsp_fuzz.c",
+  "expected": "At least 256 distinct deterministic input-state tuples execute through fetched RSP VAND.",
+  "actual": "One fetched input-state tuple executed and passed its independent lane, accumulator-low, flags, and untouched-vector checks.",
+  "semanticAssessment": "Valid behavioral RED: the compiled native harness fetched and retired VAND and its independent scalar algebra/state checks passed for the observed case; the planned per-opcode coverage assertion failed because the corpus produced 1 tuple instead of the required 256."
+}
