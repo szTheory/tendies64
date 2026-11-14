@@ -76,6 +76,36 @@ static int32_t rsp_signed16(uint16_t value) {
              : (int32_t)value;
 }
 
+static uint32_t rsp_sign_extend16(uint16_t value) {
+  return (value & UINT16_C(0x8000)) != 0u
+             ? UINT32_C(0xffff0000) | (uint32_t)value
+             : (uint32_t)value;
+}
+
+static bool rsp_signed_less32(uint32_t left, uint32_t right) {
+  bool left_negative = (left & UINT32_C(0x80000000)) != 0u;
+  bool right_negative = (right & UINT32_C(0x80000000)) != 0u;
+
+  if (left_negative != right_negative) {
+    return left_negative;
+  }
+  return left < right;
+}
+
+static uint32_t rsp_arithmetic_shift_right32(uint32_t value,
+                                             uint32_t amount) {
+  uint32_t shifted;
+
+  if (amount == 0u) {
+    return value;
+  }
+  shifted = value >> amount;
+  if ((value & UINT32_C(0x80000000)) != 0u) {
+    shifted |= UINT32_MAX << (32u - amount);
+  }
+  return shifted;
+}
+
 static uint64_t rsp_ready_tick_after(uint64_t tick, uint64_t delay) {
   return tick > UINT64_MAX - delay ? UINT64_MAX : tick + delay;
 }
@@ -170,6 +200,7 @@ static t64_status t64_rsp_issue_event(t64_machine *machine,
   uint32_t vector_result;
   uint32_t store_address = 0u;
   uint32_t store_value = 0u;
+  uint32_t store_width = 0u;
   uint16_t vector_results[8];
   uint64_t accumulator_results[8];
   bool write_gpr = false;
@@ -195,6 +226,11 @@ static t64_status t64_rsp_issue_event(t64_machine *machine,
   uint32_t vector_write_delay = 0u;
   uint32_t load_address = 0u;
   uint32_t load_value = 0u;
+  uint32_t load_width = 0u;
+  uint32_t cp0_register = 0u;
+  uint32_t cp0_value = 0u;
+  bool read_cp0 = false;
+  bool write_cp0 = false;
   uint32_t branch_target = 0u;
   uint32_t pair_pc = 0u;
   uint32_t pair_instruction = 0u;
@@ -295,15 +331,170 @@ static t64_status t64_rsp_issue_event(t64_machine *machine,
 
   if (instruction == 0u) {
     supported = true;
-  } else if (operation == UINT32_C(0x09)) {
-    uint32_t immediate = instruction & UINT32_C(0xffff);
-    uint32_t signed_immediate = (immediate & UINT32_C(0x8000)) != 0u
-                                    ? immediate | UINT32_C(0xffff0000)
-                                    : immediate;
+  } else if (operation == UINT32_C(0x08) ||
+             operation == UINT32_C(0x09)) {
+    uint32_t immediate = rsp_sign_extend16((uint16_t)instruction);
 
     write_gpr = rt != 0u;
     gpr_destination = rt;
-    gpr_value = machine->rsp.gpr[rs] + signed_immediate;
+    gpr_value = machine->rsp.gpr[rs] + immediate;
+    scalar_read_mask |= UINT32_C(1) << rs;
+    scalar_write_delay = UINT32_C(1);
+    supported = true;
+  } else if (operation == UINT32_C(0x00)) {
+    uint32_t function = instruction & UINT32_C(0x3f);
+    uint32_t shift = (instruction >> 6) & UINT32_C(0x1f);
+    uint32_t left = machine->rsp.gpr[rs];
+    uint32_t right = machine->rsp.gpr[rt];
+    bool valid = false;
+
+    if (function == UINT32_C(0x0d)) {
+      is_break = true;
+      supported = true;
+    } else if (function == UINT32_C(0x08) ||
+               function == UINT32_C(0x09)) {
+      bool is_link = function == UINT32_C(0x09);
+
+      valid = rt == 0u && shift == 0u &&
+              (is_link || rd == 0u);
+      if (is_link && rd == rs) {
+        valid = false;
+      }
+      if ((left & UINT32_C(3)) != 0u) {
+        valid = false;
+      }
+      if (valid) {
+        is_branch = true;
+        branch_taken = true;
+        branch_target = left & UINT32_C(0x00000ffc);
+        scalar_read_mask |= UINT32_C(1) << rs;
+        if (is_link) {
+          write_gpr = rd != 0u;
+          gpr_destination = rd;
+          gpr_value = (pc + UINT32_C(8)) & UINT32_C(0x00000ffc);
+        }
+        supported = !was_delay_slot;
+      }
+    } else if (function == UINT32_C(0x00) ||
+               function == UINT32_C(0x02) ||
+               function == UINT32_C(0x03)) {
+      valid = rs == 0u;
+      if (valid) {
+        if (function == UINT32_C(0x00)) {
+          gpr_value = right << shift;
+        } else if (function == UINT32_C(0x02)) {
+          gpr_value = right >> shift;
+        } else {
+          gpr_value = rsp_arithmetic_shift_right32(right, shift);
+        }
+      }
+    } else if (function == UINT32_C(0x04) ||
+               function == UINT32_C(0x06) ||
+               function == UINT32_C(0x07)) {
+      valid = shift == 0u;
+      if (valid) {
+        uint32_t amount = left & UINT32_C(0x1f);
+
+        if (function == UINT32_C(0x04)) {
+          gpr_value = right << amount;
+        } else if (function == UINT32_C(0x06)) {
+          gpr_value = right >> amount;
+        } else {
+          gpr_value = rsp_arithmetic_shift_right32(right, amount);
+        }
+      }
+    } else if (function == UINT32_C(0x20) ||
+               function == UINT32_C(0x21) ||
+               function == UINT32_C(0x22) ||
+               function == UINT32_C(0x23) ||
+               function == UINT32_C(0x24) ||
+               function == UINT32_C(0x25) ||
+               function == UINT32_C(0x26) ||
+               function == UINT32_C(0x27) ||
+               function == UINT32_C(0x2a) ||
+               function == UINT32_C(0x2b)) {
+      valid = shift == 0u;
+      if (valid) {
+        switch (function) {
+        case UINT32_C(0x20):
+        case UINT32_C(0x21):
+          gpr_value = left + right;
+          break;
+        case UINT32_C(0x22):
+        case UINT32_C(0x23):
+          gpr_value = left - right;
+          break;
+        case UINT32_C(0x24):
+          gpr_value = left & right;
+          break;
+        case UINT32_C(0x25):
+          gpr_value = left | right;
+          break;
+        case UINT32_C(0x26):
+          gpr_value = left ^ right;
+          break;
+        case UINT32_C(0x27):
+          gpr_value = ~(left | right);
+          break;
+        case UINT32_C(0x2a):
+          gpr_value = rsp_signed_less32(left, right) ? 1u : 0u;
+          break;
+        case UINT32_C(0x2b):
+          gpr_value = left < right ? 1u : 0u;
+          break;
+        default:
+          break;
+        }
+      }
+    }
+    if (valid && function != UINT32_C(0x08) &&
+        function != UINT32_C(0x09) && function != UINT32_C(0x0d)) {
+      write_gpr = rd != 0u;
+      gpr_destination = rd;
+      scalar_read_mask |= UINT32_C(1) << rt;
+      if (function != UINT32_C(0x00) && function != UINT32_C(0x02) &&
+          function != UINT32_C(0x03)) {
+        scalar_read_mask |= UINT32_C(1) << rs;
+      }
+      scalar_write_delay = UINT32_C(1);
+      supported = true;
+    }
+  } else if (operation == UINT32_C(0x0c) ||
+             operation == UINT32_C(0x0d) ||
+             operation == UINT32_C(0x0e)) {
+    uint32_t immediate = instruction & UINT32_C(0xffff);
+    uint32_t left = machine->rsp.gpr[rs];
+
+    if (operation == UINT32_C(0x0c)) {
+      gpr_value = left & immediate;
+    } else if (operation == UINT32_C(0x0d)) {
+      gpr_value = left | immediate;
+    } else {
+      gpr_value = left ^ immediate;
+    }
+    write_gpr = rt != 0u;
+    gpr_destination = rt;
+    scalar_read_mask |= UINT32_C(1) << rs;
+    scalar_write_delay = UINT32_C(1);
+    supported = true;
+  } else if (operation == UINT32_C(0x0f) && rs == 0u) {
+    write_gpr = rt != 0u;
+    gpr_destination = rt;
+    gpr_value = (instruction & UINT32_C(0xffff)) << 16;
+    scalar_write_delay = UINT32_C(1);
+    supported = true;
+  } else if (operation == UINT32_C(0x0a) ||
+             operation == UINT32_C(0x0b)) {
+    uint32_t left = machine->rsp.gpr[rs];
+    uint32_t immediate = rsp_sign_extend16((uint16_t)instruction);
+
+    gpr_value = (operation == UINT32_C(0x0a)
+                     ? rsp_signed_less32(left, immediate)
+                     : left < immediate)
+                    ? 1u
+                    : 0u;
+    write_gpr = rt != 0u;
+    gpr_destination = rt;
     scalar_read_mask |= UINT32_C(1) << rs;
     scalar_write_delay = UINT32_C(1);
     supported = true;
@@ -342,63 +533,187 @@ static t64_status t64_rsp_issue_event(t64_machine *machine,
     vector_destination = vector_result;
     vector_write_delay = UINT32_C(4);
     supported = true;
+  } else if (operation == UINT32_C(0x10) &&
+             (rs == UINT32_C(0) || rs == UINT32_C(4))) {
+    uint32_t control_bits = instruction & UINT32_C(0x7ff);
+
+    cp0_register = rd;
+    if (control_bits == 0u && cp0_register >= UINT32_C(8) &&
+        cp0_register <= UINT32_C(15)) {
+      machine->rsp_observed_refusal_reason =
+          T64_RSP_REFUSAL_DP_UNAVAILABLE;
+    } else if (control_bits == 0u && cp0_register <= UINT32_C(7)) {
+      if (rs == UINT32_C(0)) {
+        status = t64_sp_peek_register(
+            machine, T64_SP_REGISTER_BASE + cp0_register * UINT32_C(4),
+            &cp0_value);
+        if (status == T64_STATUS_OK) {
+          read_cp0 = true;
+          write_gpr = rt != 0u;
+          gpr_destination = rt;
+          gpr_value = cp0_value;
+          scalar_write_delay = UINT32_C(3);
+          is_load_or_cop_move = true;
+          is_store = true;
+          supported = true;
+        }
+      } else if (cp0_register == UINT32_C(5) ||
+                 cp0_register == UINT32_C(6)) {
+        machine->rsp_observed_refusal_reason =
+            T64_RSP_REFUSAL_CP0_READ_ONLY;
+      } else if (cp0_register == UINT32_C(7) &&
+                 machine->rsp.gpr[rt] != 0u) {
+        machine->rsp_observed_refusal_reason =
+            T64_RSP_REFUSAL_CP0_INVALID_VALUE;
+      } else {
+        write_cp0 = true;
+        cp0_value = machine->rsp.gpr[rt];
+        if (cp0_register == UINT32_C(4) &&
+            t64_rsp_validate_status_command(machine, cp0_value) !=
+                T64_STATUS_OK) {
+          write_cp0 = false;
+          machine->rsp_observed_refusal_reason =
+              T64_RSP_REFUSAL_CP0_INVALID_VALUE;
+        } else {
+          scalar_read_mask |= UINT32_C(1) << rt;
+          is_load_or_cop_move = true;
+          is_store = true;
+          supported = true;
+        }
+      }
+    }
   } else if (operation == UINT32_C(0x04) ||
-             operation == UINT32_C(0x05)) {
+             operation == UINT32_C(0x05) ||
+             operation == UINT32_C(0x06) ||
+             operation == UINT32_C(0x07) ||
+             operation == UINT32_C(0x01)) {
     uint32_t immediate = instruction & UINT32_C(0xffff);
-    uint32_t signed_immediate = (immediate & UINT32_C(0x8000)) != 0u
-                                    ? immediate | UINT32_C(0xffff0000)
-                                    : immediate;
-    uint32_t offset = signed_immediate << 2;
+    uint32_t offset = rsp_sign_extend16((uint16_t)immediate) << 2;
+    uint32_t left = machine->rsp.gpr[rs];
+    uint32_t right = machine->rsp.gpr[rt];
+    bool valid = true;
 
     is_branch = true;
-    scalar_read_mask |= (UINT32_C(1) << rs) | (UINT32_C(1) << rt);
-    branch_taken = operation == UINT32_C(0x04)
-                       ? machine->rsp.gpr[rs] == machine->rsp.gpr[rt]
-                       : machine->rsp.gpr[rs] != machine->rsp.gpr[rt];
+    if (operation == UINT32_C(0x04)) {
+      branch_taken = left == right;
+      scalar_read_mask |= (UINT32_C(1) << rs) | (UINT32_C(1) << rt);
+    } else if (operation == UINT32_C(0x05)) {
+      branch_taken = left != right;
+      scalar_read_mask |= (UINT32_C(1) << rs) | (UINT32_C(1) << rt);
+    } else if (operation == UINT32_C(0x06)) {
+      valid = rt == 0u;
+      branch_taken = rsp_signed_less32(left, 0u) || left == 0u;
+      scalar_read_mask |= UINT32_C(1) << rs;
+    } else if (operation == UINT32_C(0x07)) {
+      valid = rt == 0u;
+      branch_taken = !rsp_signed_less32(left, 0u) && left != 0u;
+      scalar_read_mask |= UINT32_C(1) << rs;
+    } else {
+      switch (rt) {
+      case UINT32_C(0):
+        branch_taken = rsp_signed_less32(left, 0u);
+        break;
+      case UINT32_C(1):
+        branch_taken = !rsp_signed_less32(left, 0u);
+        break;
+      case UINT32_C(16):
+        branch_taken = rsp_signed_less32(left, 0u);
+        write_gpr = true;
+        gpr_destination = UINT32_C(31);
+        gpr_value = (pc + UINT32_C(8)) & UINT32_C(0x00000ffc);
+        break;
+      case UINT32_C(17):
+        branch_taken = !rsp_signed_less32(left, 0u);
+        write_gpr = true;
+        gpr_destination = UINT32_C(31);
+        gpr_value = (pc + UINT32_C(8)) & UINT32_C(0x00000ffc);
+        break;
+      default:
+        valid = false;
+        break;
+      }
+      if ((rt == UINT32_C(16) || rt == UINT32_C(17)) &&
+          rs == UINT32_C(31)) {
+        valid = false;
+      }
+      scalar_read_mask |= UINT32_C(1) << rs;
+    }
     branch_target = branch_taken
                         ? (pc + UINT32_C(4) + offset) &
                               UINT32_C(0x00000ffc)
                         : (pc + UINT32_C(8)) & UINT32_C(0x00000ffc);
+    supported = valid && !was_delay_slot;
+  } else if (operation == UINT32_C(0x02) ||
+             operation == UINT32_C(0x03)) {
+    uint32_t target = instruction & UINT32_C(0x03ffffff);
+
+    is_branch = true;
+    branch_taken = true;
+    branch_target = ((pc + UINT32_C(4)) & UINT32_C(0x00000c00)) |
+                    ((target << 2) & UINT32_C(0x00000ffc));
+    if (operation == UINT32_C(0x03)) {
+      write_gpr = true;
+      gpr_destination = UINT32_C(31);
+      gpr_value = (pc + UINT32_C(8)) & UINT32_C(0x00000ffc);
+    }
     supported = !was_delay_slot;
-  } else if (operation == UINT32_C(0x23)) {
-    uint32_t immediate = instruction & UINT32_C(0xffff);
-    uint32_t signed_immediate = (immediate & UINT32_C(0x8000)) != 0u
-                                    ? immediate | UINT32_C(0xffff0000)
-                                    : immediate;
-    uint32_t effective_address = machine->rsp.gpr[rs] + signed_immediate;
+  } else if (operation == UINT32_C(0x20) ||
+             operation == UINT32_C(0x21) ||
+             operation == UINT32_C(0x23) ||
+             operation == UINT32_C(0x24) ||
+             operation == UINT32_C(0x25)) {
+    uint32_t immediate = rsp_sign_extend16((uint16_t)instruction);
+    uint32_t effective_address = machine->rsp.gpr[rs] + immediate;
+    bool sign_extend = false;
 
+    if (operation == UINT32_C(0x20) || operation == UINT32_C(0x24)) {
+      load_width = 1u;
+      sign_extend = operation == UINT32_C(0x20);
+    } else if (operation == UINT32_C(0x21) ||
+               operation == UINT32_C(0x25)) {
+      load_width = 2u;
+      sign_extend = operation == UINT32_C(0x21);
+    } else {
+      load_width = 4u;
+    }
+    load_address = effective_address & UINT32_C(0x00000fff);
+    load_value = 0u;
+    for (uint32_t byte = 0u; byte < load_width; byte++) {
+      uint32_t address = (load_address + byte) & UINT32_C(0x00000fff);
+
+      load_value = (load_value << 8) | (uint32_t)machine->sp_dmem[address];
+    }
+    if (sign_extend && load_width == 1u &&
+        (load_value & UINT32_C(0x80)) != 0u) {
+      load_value |= UINT32_C(0xffffff00);
+    } else if (sign_extend && load_width == 2u &&
+               (load_value & UINT32_C(0x8000)) != 0u) {
+      load_value |= UINT32_C(0xffff0000);
+    }
+    write_gpr = rt != 0u;
+    gpr_destination = rt;
+    gpr_value = load_value;
     scalar_read_mask |= UINT32_C(1) << rs;
-    if ((effective_address & UINT32_C(3)) == 0u) {
-      load_address = effective_address & UINT32_C(0x00000fff);
-      load_value = ((uint32_t)machine->sp_dmem[load_address] << 24) |
-                   ((uint32_t)machine->sp_dmem[load_address + 1u] << 16) |
-                   ((uint32_t)machine->sp_dmem[load_address + 2u] << 8) |
-                   (uint32_t)machine->sp_dmem[load_address + 3u];
-      write_gpr = rt != 0u;
-      gpr_destination = rt;
-      gpr_value = load_value;
-      scalar_write_delay = UINT32_C(3);
-      load_dmem_word = true;
-      is_load_or_cop_move = true;
-      supported = true;
-    }
-  } else if (operation == UINT32_C(0x2b)) {
-    uint32_t immediate = instruction & UINT32_C(0xffff);
-    uint32_t signed_immediate = (immediate & UINT32_C(0x8000)) != 0u
-                                    ? immediate | UINT32_C(0xffff0000)
-                                    : immediate;
-    uint32_t effective_address = machine->rsp.gpr[rs] + signed_immediate;
+    scalar_write_delay = UINT32_C(3);
+    load_dmem_word = true;
+    is_load_or_cop_move = true;
+    is_store = true;
+    supported = true;
+  } else if (operation == UINT32_C(0x28) ||
+             operation == UINT32_C(0x29) ||
+             operation == UINT32_C(0x2b)) {
+    uint32_t immediate = rsp_sign_extend16((uint16_t)instruction);
+    uint32_t effective_address = machine->rsp.gpr[rs] + immediate;
 
-    if ((effective_address & UINT32_C(3)) == 0u) {
-      store_address = effective_address & UINT32_C(0x00000fff);
-      store_value = machine->rsp.gpr[rt];
-      write_dmem_word = true;
-      scalar_read_mask |= (UINT32_C(1) << rs) | (UINT32_C(1) << rt);
-      is_store = true;
-      supported = true;
-    }
-  } else if (instruction == UINT32_C(0x0000000d)) {
-    is_break = true;
+    store_width = operation == UINT32_C(0x28)
+                      ? 1u
+                      : (operation == UINT32_C(0x29) ? 2u : 4u);
+    store_address = effective_address & UINT32_C(0x00000fff);
+    store_value = machine->rsp.gpr[rt];
+    write_dmem_word = true;
+    scalar_read_mask |= (UINT32_C(1) << rs) | (UINT32_C(1) << rt);
+    is_store = true;
+    is_load_or_cop_move = true;
     supported = true;
   }
   if (supported && !is_break && !is_branch && !write_vector_result &&
@@ -430,8 +745,10 @@ static t64_status t64_rsp_issue_event(t64_machine *machine,
   }
   if (!supported) {
     machine->rsp_observed_outcome = T64_RSP_ATTEMPT_REFUSED;
-    machine->rsp_observed_refusal_reason =
-        T64_RSP_REFUSAL_UNSUPPORTED_OPCODE;
+    if (machine->rsp_observed_refusal_reason == T64_RSP_REFUSAL_NONE) {
+      machine->rsp_observed_refusal_reason =
+          T64_RSP_REFUSAL_UNSUPPORTED_OPCODE;
+    }
     if (!dma_active) {
       return T64_STATUS_OK;
     }
@@ -533,6 +850,54 @@ static t64_status t64_rsp_issue_event(t64_machine *machine,
   }
   t64_sp_rsp_dma_commit(machine, &dma_step);
 
+  if (read_cp0) {
+    status = t64_machine_bus_read(
+        machine, T64_SP_REGISTER_BASE + cp0_register * UINT32_C(4), 4u,
+        &cp0_value);
+    if (status != T64_STATUS_OK) {
+      machine->rsp_observed_outcome = T64_RSP_ATTEMPT_REFUSED;
+      return status;
+    }
+    gpr_value = cp0_value;
+  }
+  if (load_dmem_word) {
+    load_value = 0u;
+    for (uint32_t byte = 0u; byte < load_width; byte++) {
+      uint32_t address = (load_address + byte) & UINT32_C(0x00000fff);
+      uint32_t byte_value = 0u;
+
+      status = t64_machine_bus_read(machine, T64_RSP_DMEM_BASE + address, 1u,
+                                    &byte_value);
+      if (status != T64_STATUS_OK) {
+        machine->rsp_observed_outcome = T64_RSP_ATTEMPT_REFUSED;
+        return status;
+      }
+      load_value = (load_value << 8) | (byte_value & UINT32_C(0xff));
+    }
+    if (load_width == 1u && (load_value & UINT32_C(0x80)) != 0u &&
+        (operation == UINT32_C(0x20))) {
+      load_value |= UINT32_C(0xffffff00);
+    } else if (load_width == 2u &&
+               (load_value & UINT32_C(0x8000)) != 0u &&
+               operation == UINT32_C(0x21)) {
+      load_value |= UINT32_C(0xffff0000);
+    }
+    gpr_value = load_value;
+  }
+  if (write_cp0) {
+    status = t64_machine_bus_write(
+        machine, T64_SP_REGISTER_BASE + cp0_register * UINT32_C(4), 4u,
+        cp0_value);
+    if (status != T64_STATUS_OK) {
+      machine->rsp_observed_outcome = T64_RSP_ATTEMPT_REFUSED;
+      if (machine->rsp_observed_refusal_reason == T64_RSP_REFUSAL_NONE) {
+        machine->rsp_observed_refusal_reason =
+            T64_RSP_REFUSAL_UNSUPPORTED_OPCODE;
+      }
+      return status == T64_STATUS_BUS_DEVICE_REFUSED ? T64_STATUS_OK : status;
+    }
+  }
+
   if (write_gpr) {
     machine->rsp.gpr[gpr_destination] = gpr_value;
     if (scalar_write_delay != 0u) {
@@ -559,15 +924,18 @@ static t64_status t64_rsp_issue_event(t64_machine *machine,
                     rsp_ready_tick_after(machine->tick, UINT64_C(4)));
   }
   if (write_dmem_word) {
-    uint8_t *bytes = machine->sp_dmem + (size_t)store_address;
+    for (uint32_t byte = 0u; byte < store_width; byte++) {
+      uint32_t address = (store_address + byte) & UINT32_C(0x00000fff);
+      uint32_t shift = (store_width - byte - 1u) * 8u;
+      uint32_t byte_value = (store_value >> shift) & UINT32_C(0xff);
 
-    bytes[0] = (uint8_t)(store_value >> 24);
-    bytes[1] = (uint8_t)(store_value >> 16);
-    bytes[2] = (uint8_t)(store_value >> 8);
-    bytes[3] = (uint8_t)store_value;
-    t64_cpu_link_invalidate_range(machine,
-                                  T64_RSP_DMEM_BASE + store_address,
-                                  UINT32_C(4));
+      status = t64_machine_bus_write(machine, T64_RSP_DMEM_BASE + address, 1u,
+                                     byte_value);
+      if (status != T64_STATUS_OK) {
+        machine->rsp_observed_outcome = T64_RSP_ATTEMPT_REFUSED;
+        return status;
+      }
+    }
   }
   if (is_load_or_cop_move) {
     machine->rsp.memory_access_ready_tick =
