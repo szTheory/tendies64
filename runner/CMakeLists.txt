@@ -30,6 +30,15 @@ add_test(NAME runner.cpu-diagnostic-inventory
 set_tests_properties(runner.cpu-diagnostic-inventory PROPERTIES
   LABELS runner TIMEOUT 60)
 
+# Authored, headless controls for the local-only RSP qualification lifecycle.
+# Fixtures are created beneath owner-only build/test-rsp-* roots and never use
+# the private external source/toolchain receipts.
+add_test(NAME harness.rsp-qualification
+  COMMAND python3 -B ${CMAKE_SOURCE_DIR}/scripts/tests/test_rsp_qualification.py)
+set_tests_properties(harness.rsp-qualification PROPERTIES
+  LABELS runner TIMEOUT 120
+  ENVIRONMENT "PYTHONDONTWRITEBYTECODE=1")
+
 add_executable(test_cpu_diagnostic tests/test_cpu_diagnostic.c)
 target_compile_definitions(test_cpu_diagnostic PRIVATE ${T64_HOST_DEFS})
 target_include_directories(test_cpu_diagnostic PRIVATE ${CMAKE_SOURCE_DIR}/core)
