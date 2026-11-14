@@ -15,7 +15,7 @@ import unittest
 from unittest.mock import patch
 
 ROOT = pathlib.Path(__file__).resolve().parents[2]
-PRIVATE = ROOT / "build/private-rsp-diagnostic"
+TEST_ROOT = ROOT / "build/test-rsp-run"
 RUNNER = ROOT / "scripts/run-rsp-diagnostic.py"
 
 
@@ -29,11 +29,11 @@ def load_runner():
 
 
 def owner_only_private_root() -> None:
-    PRIVATE.mkdir(mode=0o700, parents=True, exist_ok=True)
-    if PRIVATE.is_symlink() or not PRIVATE.is_dir():
+    TEST_ROOT.mkdir(mode=0o700, parents=True, exist_ok=True)
+    if TEST_ROOT.is_symlink() or not TEST_ROOT.is_dir():
         raise AssertionError("private RSP test root is linked or not a directory")
-    PRIVATE.chmod(0o700)
-    if stat.S_IMODE(PRIVATE.stat().st_mode) != 0o700:
+    TEST_ROOT.chmod(0o700)
+    if stat.S_IMODE(TEST_ROOT.stat().st_mode) != 0o700:
         raise AssertionError("private RSP test root must be owner-only")
 
 
@@ -55,10 +55,11 @@ def sample_member() -> dict[str, object]:
 class RspRunControls(unittest.TestCase):
     def setUp(self) -> None:
         owner_only_private_root()
-        self.temporary = tempfile.TemporaryDirectory(prefix="rsp-run-control.", dir=PRIVATE)
+        self.temporary = tempfile.TemporaryDirectory(prefix="rsp-run-control.", dir=TEST_ROOT)
         self.workspace = pathlib.Path(self.temporary.name)
         self.workspace.chmod(0o700)
         self.module = load_runner()
+        self.module.PRIVATE = self.workspace
 
     def tearDown(self) -> None:
         self.temporary.cleanup()
@@ -99,12 +100,93 @@ class RspRunControls(unittest.TestCase):
     def test_output_overflow_is_retained_as_harness_failure(self) -> None:
         command_path = self.run_guest(
             "import os\n"
-            "os.write(1, b'x' * 5000)\n",
+            "os.write(1, b'classification=pass\\n' + b'x' * 5000)\n",
         )
         command = json.loads(command_path.read_text(encoding="utf-8"))
         self.assertTrue(command["output_overflow"])
         self.assertLessEqual(command["capture_bytes"], 4096)
         self.assertEqual(command["classification"], "harness-error")
+
+    def test_closed_pipes_do_not_end_the_outer_deadline(self) -> None:
+        command_path = self.run_guest(
+            "import os,pathlib,sys,time\n"
+            "pathlib.Path(sys.argv[-1]).write_text('{}')\n"
+            "os.write(1, b'classification=pass\\n')\n"
+            "os.close(1); os.close(2); time.sleep(0.6)\n",
+            outer_seconds=0.1,
+        )
+        command = json.loads(command_path.read_text())
+        self.assertTrue(command["outer_deadline_expired"])
+        self.assertEqual(command["classification"], "timeout")
+        self.assertIsNone(command["batch_path"])
+        self.assertIsNotNone(command["rejected_batch_path"])
+        self.assertFalse(any((self.workspace / "batches").iterdir()))
+
+    def test_existing_run_verification_does_not_recreate_inputs(self) -> None:
+        run_dir = self.workspace / "saved"
+        run_dir.mkdir(mode=0o700)
+        (run_dir / "batches").mkdir(mode=0o700)
+        inventory = run_dir / "rsp-inventory.json"
+        inventory.write_bytes(b"authored immutable inventory")
+        inventory.chmod(0o600)
+        original = run_dir / "runtime-identity.stdout.json"
+        original.write_bytes(b"authored historical identity")
+        original.chmod(0o600)
+        adapter = self.workspace / "adapter"
+        with patch.dict(os.environ, {}, clear=True), \
+                patch.object(self.module, "adapter_path", return_value=adapter), \
+                patch.object(self.module, "verify_before_adapter_use", return_value=(b"", b"")), \
+                patch.object(self.module, "invoke_adapter", return_value=(3, b"incomplete", b"")) as invoke:
+            self.assertEqual(self.module.run_mode("verify-complete", adapter, run_dir), 3)
+            self.assertEqual(self.module.run_mode("verify-complete", adapter, run_dir), 3)
+        self.assertEqual(invoke.call_count, 2)
+        self.assertTrue(all(call.args[1] == "--verify-complete-json" for call in invoke.call_args_list))
+        self.assertEqual(inventory.read_bytes(), b"authored immutable inventory")
+        self.assertEqual(original.read_bytes(), b"authored historical identity")
+
+    def test_successful_bounded_adapter_receipt_is_retained(self) -> None:
+        batch_dir = self.workspace / "batches"
+        batch_dir.mkdir(mode=0o700)
+        member = sample_member()
+        adapter = fake_adapter(self.workspace / "adapter.py",
+            "import pathlib,sys\n"
+            "pathlib.Path(sys.argv[-1]).write_text('{}')\n"
+            "print('classification=refused')\n"
+            "raise SystemExit(2)\n")
+        receipt = self.module.run_guest(adapter, self.workspace / "inventory.json",
+            self.workspace / "member.z64", 4096, member,
+            batch_dir / f"{member['selector']}.json", self.workspace)
+        self.assertEqual(receipt["classification"], "refused")
+        self.assertTrue(receipt["cleanup_group_empty"])
+        self.assertFalse(receipt["outer_deadline_expired"])
+        self.assertIsNotNone(receipt["batch_path"])
+
+    def test_bad_cleanup_cannot_be_promoted_by_classification_text(self) -> None:
+        real_killpg = os.killpg
+        def unresolved_group(pid, sig):
+            if sig == 0:
+                return None  # A process group remains after cleanup.
+            return real_killpg(pid, sig)
+        with patch.object(self.module.os, "killpg", side_effect=unresolved_group):
+            command_path = self.run_guest(
+                "import pathlib,sys\n"
+                "pathlib.Path(sys.argv[-1]).write_text('{}')\n"
+                "print('classification=pass')\n",
+            )
+        command = json.loads(command_path.read_text())
+        self.assertFalse(command["cleanup_group_empty"])
+        self.assertEqual(command["classification"], "harness-error")
+
+    def test_unverified_adapter_is_not_invoked_for_identity(self) -> None:
+        adapter = self.workspace / "unverified-adapter"
+        with patch.dict(os.environ, {}, clear=True), \
+                patch.object(self.module, "adapter_path", return_value=adapter), \
+                patch.object(self.module, "run_capture", return_value=(1, b"", b"refused")) as capture:
+            with self.assertRaises(self.module.Refusal):
+                self.module.run_mode("run-one", adapter, self.workspace / "attempt")
+        self.assertTrue(capture.call_args_list)
+        self.assertEqual(capture.call_args_list[0].args[0][0], sys.executable)
+        self.assertFalse(any(call.args[0][0] == str(adapter) for call in capture.call_args_list))
 
     def test_guest_execution_refuses_fixture_mode_before_adapter_use(self) -> None:
         with patch.dict(os.environ, {"CI": "true", "T64_REQUIRE_FIXTURES": "1"}):

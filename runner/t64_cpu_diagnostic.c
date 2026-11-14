@@ -606,7 +606,7 @@ static bool supervised_guest(t64_verified_input *snapshot, size_t rom_size,
   }
   if (child == 0) {
     child_report child_result;
-    (void)setpgid(0, 0);
+    /* Keep the guest inside the caller's independently bounded process group. */
     close(pipe_fds[0]);
     (void)memset(&child_result, 0, sizeof child_result);
     execute_guest(snapshot->fd, rom_size, rom_sha256, tick_bound,
@@ -616,13 +616,12 @@ static bool supervised_guest(t64_verified_input *snapshot, size_t rom_size,
     close(pipe_fds[1]);
     _exit(0);
   }
-  (void)setpgid(child, child);
   close(pipe_fds[1]);
   start = monotonic_ms();
   while (!child_done || received < sizeof *report) {
     struct pollfd fd = {pipe_closed ? -1 : pipe_fds[0], POLLIN | POLLHUP, 0};
     int poll_result = poll(&fd, 1u, 20);
-    pid_t waited;
+    siginfo_t observed = {0};
     if (!pipe_closed && poll_result > 0 &&
         (fd.revents & (POLLIN | POLLHUP)) != 0) {
       ssize_t count = read(pipe_fds[0], (uint8_t *)report + received,
@@ -634,15 +633,14 @@ static bool supervised_guest(t64_verified_input *snapshot, size_t rom_size,
       if (count == 0) pipe_closed = true;
       if (count > 0) received += (size_t)count;
     }
-    waited = waitpid(child, &child_status, WNOHANG);
-    if (waited == child) child_done = true;
-    if (waited < 0 && errno != EINTR) {
-      pipe_ok = false;
-      break;
+    if (waitid(P_PID, (id_t)child, &observed,
+               WEXITED | WNOHANG | WNOWAIT) != 0) {
+      if (errno != EINTR) { pipe_ok = false; break; }
+    } else if (observed.si_pid == child) {
+      child_done = true;
     }
-    if (monotonic_ms() - start > CPU_WALL_LIMIT_MS) {
+    if (monotonic_ms() - start >= CPU_WALL_LIMIT_MS) {
       timed_out = true;
-      (void)kill(-child, SIGKILL);
       break;
     }
     if (child_done && received < sizeof *report && pipe_closed) {
@@ -651,16 +649,13 @@ static bool supervised_guest(t64_verified_input *snapshot, size_t rom_size,
     }
   }
   close(pipe_fds[0]);
-  if (timed_out) {
-    while (waitpid(child, &child_status, 0) < 0 && errno == EINTR) {}
-    return false;
+  /* Core execution cannot fork: reserve and reap our child, leaving group
+   * cleanup to the outer wrapper. Never signal a PID after reaping it. */
+  if (!child_done && kill(child, SIGKILL) != 0 && errno != ESRCH) pipe_ok = false;
+  while (waitpid(child, &child_status, 0) < 0) {
+    if (errno != EINTR) return false;
   }
-  if (!child_done) {
-    while (waitpid(child, &child_status, 0) < 0) {
-      if (errno != EINTR) return false;
-    }
-  }
-  return pipe_ok && received == sizeof *report && WIFEXITED(child_status) &&
+  return !timed_out && pipe_ok && received == sizeof *report && WIFEXITED(child_status) &&
          WEXITSTATUS(child_status) == 0;
 }
 

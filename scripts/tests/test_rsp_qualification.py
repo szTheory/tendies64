@@ -200,6 +200,21 @@ class RspQualificationTests(unittest.TestCase):
 
 
 class IdentityReaderOrderTests(unittest.TestCase):
+    def test_historical_member_path_is_derived_from_private_receipt(self) -> None:
+        spec = importlib.util.spec_from_file_location("rsp_history_path", PREPARE)
+        module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(module)
+        owner_only_directory(TEST_ROOT)
+        with tempfile.TemporaryDirectory(prefix="history.", dir=TEST_ROOT) as temporary:
+            run_root = pathlib.Path(temporary)
+            expected = run_root / "attempt-r0007v00000.command.json"
+            receipt = {"selector": "r0007v00000",
+                       "attempt": {"path": expected.relative_to(ROOT).as_posix()}}
+            self.assertEqual(module.historical_attempt_path(run_root, receipt), expected)
+            receipt["attempt"]["path"] = "elsewhere/attempt-r0008v00000.command.json"
+            with self.assertRaisesRegex(module.Refusal, "differs"):
+                module.historical_attempt_path(run_root, receipt)
+
     def test_unbound_replacement_is_refused_before_it_can_run(self) -> None:
         spec = importlib.util.spec_from_file_location("rsp_identity_order", VERIFY)
         module = importlib.util.module_from_spec(spec)

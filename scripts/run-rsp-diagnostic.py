@@ -14,6 +14,7 @@ import stat
 import subprocess
 import sys
 import time
+import tempfile
 from datetime import datetime, timezone
 
 sys.dont_write_bytecode = True
@@ -396,7 +397,7 @@ def verify_future_execution_context(adapter: pathlib.Path,
     del context_bytes
 
 
-def verify_current_preuse_context(adapter: pathlib.Path, runtime: dict) -> None:
+def verify_current_preuse_context(adapter: pathlib.Path, runtime: dict | None) -> None:
     binding, binding_bytes = read_json_file(CORE_BINDING, 2 * 1024 * 1024,
                                             "current core identity binding",
                                             private_root=PRIVATE)
@@ -418,6 +419,14 @@ def verify_current_preuse_context(adapter: pathlib.Path, runtime: dict) -> None:
     if (current["path"] != "build/gate/runner/t64-cpu-diagnostic" or
             adapter_hash(ROOT / current["path"]) != current["executable_sha256"]):
         fail("current production identity reader differs from the verified v4 binding")
+    adapter_record = closed_object(binding.get("rsp_adapter_identity"),
+                                   {"executable_sha256", "path"},
+                                   "current RSP adapter identity")
+    if (adapter_record["path"] != adapter.relative_to(ROOT).as_posix() or
+            adapter_record["executable_sha256"] != adapter_hash(adapter)):
+        fail("current RSP adapter bytes differ from the verified v4 binding")
+    if runtime is None:
+        return
     runtime = closed_object(runtime, {
         "core_build_sha256", "core_source_revision",
         "profile_descriptor_sha256", "profile_id",
@@ -428,13 +437,18 @@ def verify_current_preuse_context(adapter: pathlib.Path, runtime: dict) -> None:
             runtime["core_source_revision"] != current["source_revision"] or
             not HEX64.fullmatch(runtime["profile_descriptor_sha256"])):
         fail("current RSP adapter runtime identity differs from the verified v4 binding")
-    adapter_record = closed_object(binding.get("rsp_adapter_identity"),
-                                   {"executable_sha256", "path"},
-                                   "current RSP adapter identity")
-    if (adapter_record["path"] != adapter.relative_to(ROOT).as_posix() or
-            adapter_record["executable_sha256"] != adapter_hash(adapter)):
-        fail("current RSP adapter bytes differ from the verified v4 binding")
     del binding_bytes, qualification
+
+
+def verify_before_adapter_use(adapter: pathlib.Path) -> tuple[bytes, bytes]:
+    code, stdout, stderr = run_capture(
+        [sys.executable, "-B", "scripts/verify-rsp-diagnostic-qualification.py",
+         "--verify", "build/private-rsp-diagnostic/qualification.json"],
+        timeout=120.0, maximum=65_536)
+    if code != 0:
+        fail("fresh RSP pre-use verification refused before adapter use")
+    verify_current_preuse_context(adapter, None)
+    return stdout, stderr
 
 
 def verify_runtime_binding(adapter: pathlib.Path, runtime: dict,
@@ -703,23 +717,25 @@ def run_guest(adapter: pathlib.Path, inventory_path: pathlib.Path,
                 current.extend(block)
             if overflow:
                 break
-    if expired or overflow:
-        try:
-            os.killpg(process.pid, signal.SIGKILL)
-        except ProcessLookupError:
-            pass
-        except PermissionError:
-            cleanup_signal_denied = True
+    # Pipe EOF is not process completion. Keep the leader unreaped so its PID
+    # cannot be reused while its process group is being cleaned up.
+    while not expired and not overflow:
+        exited = os.waitid(os.P_PID, process.pid,
+                           os.WEXITED | os.WNOHANG | os.WNOWAIT)
+        remaining = OUTER_SECONDS - (time.monotonic() - start)
+        if remaining <= 0:
+            expired = True
+            break
+        if exited is not None:
+            break
+        time.sleep(min(0.01, remaining))
     try:
-        exit_code = process.wait(timeout=2.0)
-    except subprocess.TimeoutExpired:
-        try:
-            os.killpg(process.pid, signal.SIGKILL)
-        except ProcessLookupError:
-            pass
-        except PermissionError:
-            cleanup_signal_denied = True
-        exit_code = process.wait(timeout=2.0)
+        os.killpg(process.pid, signal.SIGKILL)
+    except ProcessLookupError:
+        pass
+    except PermissionError:
+        cleanup_signal_denied = True
+    exit_code = process.wait(timeout=2.0)
     group_empty = False
     try:
         os.killpg(process.pid, 0)
@@ -741,20 +757,32 @@ def run_guest(adapter: pathlib.Path, inventory_path: pathlib.Path,
     write_new(error_path, stderr)
     classification = "timeout" if expired else "harness-error" if overflow or not group_empty else "harness-error"
     first_line = stdout.decode("ascii", errors="replace").splitlines()[:1]
-    if classification == "harness-error" and first_line:
+    if not expired and not overflow and group_empty and first_line:
         match = re.search(r"classification=(refused|incomplete|timeout|pass|guest-fail|harness-error)", first_line[0])
         if match:
-            classification = match.group(1)
+            claimed = match.group(1)
+            expected_exit = {"pass": 0, "guest-fail": 2, "refused": 2,
+                             "incomplete": 3, "timeout": 3, "harness-error": 4}
+            if exit_code == expected_exit[claimed]:
+                classification = claimed
     batch_sha = None
     if batch_path.exists() and not batch_path.is_symlink():
         batch_data = checked_file(batch_path, 4096, "RSP member batch",
                                   private_root=PRIVATE)
         batch_sha = digest(batch_data)
+    rejected_batch_path = None
+    if (expired or overflow or not group_empty or classification == "harness-error") and (batch_path.exists() or batch_path.is_symlink()):
+        rejected_batch_path = run_dir / f"rejected-{member['selector']}.json"
+        if rejected_batch_path.exists() or rejected_batch_path.is_symlink():
+            fail("refusing to overwrite a quarantined RSP batch")
+        batch_path.rename(rejected_batch_path)
     receipt = {
         "adapter_argv": command,
         "adapter_exit": exit_code,
         "batch_path": batch_path.relative_to(ROOT).as_posix() if batch_path.exists() else None,
         "batch_sha256": batch_sha,
+        "attempted_batch_path": batch_path.relative_to(ROOT).as_posix(),
+        "rejected_batch_path": rejected_batch_path.relative_to(ROOT).as_posix() if rejected_batch_path else None,
         "capture_bytes": len(stdout) + len(stderr),
         "capture_limit": CAPTURE_BYTES,
         "child_wall_seconds": CHILD_SECONDS,
@@ -772,7 +800,7 @@ def run_guest(adapter: pathlib.Path, inventory_path: pathlib.Path,
         "value_index": member["value_index"],
     }
     write_json(run_dir / f"attempt-{member['selector']}.command.json", receipt)
-    if classification == "harness-error" or batch_sha is None:
+    if expired or overflow or not group_empty or classification == "harness-error" or batch_sha is None:
         fail("bounded RSP attempt did not produce a classified authenticated adapter batch")
     return receipt
 
@@ -789,6 +817,22 @@ def run_mode(mode: str, adapter_arg: pathlib.Path,
     run_dir = private_directory(run_dir_arg, create=True)
     batch_dir = private_directory(run_dir / "batches", create=True)
 
+    qual_stdout, qual_stderr = verify_before_adapter_use(adapter)
+    if mode == "verify-complete":
+        # Validate existing immutable records, without recreating their inputs.
+        inventory_path = run_dir / "rsp-inventory.json"
+        checked_file(inventory_path, 16 * 1024 * 1024, "saved RSP inventory", private_root=PRIVATE)
+        evidence = pathlib.Path(tempfile.mkdtemp(prefix="verification-", dir=run_dir))
+        code, stdout, stderr = invoke_adapter(
+            adapter, "--verify-complete-json", str(inventory_path), str(batch_dir))
+        write_new(evidence / "preuse.stdout.log", qual_stdout)
+        write_new(evidence / "preuse.stderr.log", qual_stderr)
+        write_new(evidence / "complete-verification.stdout.log", stdout)
+        write_new(evidence / "complete-verification.stderr.log", stderr)
+        return 0 if code == 0 else 3
+    write_new(run_dir / "preuse.stdout.log", qual_stdout)
+    write_new(run_dir / "preuse.stderr.log", qual_stderr)
+
     code, identity_stdout, identity_stderr = run_capture(
         [str(adapter), "--runtime-identity-json"], timeout=10.0, maximum=4096)
     write_new(run_dir / "runtime-identity.stdout.json", identity_stdout)
@@ -796,15 +840,6 @@ def run_mode(mode: str, adapter_arg: pathlib.Path,
     if code != 0:
         fail("RSP adapter runtime identity refused before any guest use")
     runtime = parse_json(identity_stdout, "RSP runtime identity")
-    qual_code, qual_stdout, qual_stderr = run_capture(
-        [sys.executable, "-B", "scripts/verify-rsp-diagnostic-qualification.py",
-         "--verify", "build/private-rsp-diagnostic/qualification.json"],
-        timeout=120.0, maximum=65_536)
-    write_new(run_dir / "preuse.stdout.log", qual_stdout)
-    write_new(run_dir / "preuse.stderr.log", qual_stderr)
-    if qual_code != 0:
-        fail("fresh RSP pre-use verification refused before guest use")
-
     qualification, projection, build, base_rom, rom_path = verify_preuse(run_dir)
     verify_current_preuse_context(adapter, runtime)
     execution_binding = verify_runtime_binding(adapter, runtime, run_dir)
@@ -820,13 +855,6 @@ def run_mode(mode: str, adapter_arg: pathlib.Path,
     if validate_code != 0:
         fail("production RSP adapter rejected the sealed exact inventory")
     selector_offset = build["composition"]["layout"]["selector_rom_offset"]
-
-    if mode == "verify-complete":
-        code, stdout, stderr = invoke_adapter(
-            adapter, "--verify-complete-json", str(inventory_path), str(batch_dir))
-        write_new(run_dir / "complete-verification.stdout.log", stdout)
-        write_new(run_dir / "complete-verification.stderr.log", stderr)
-        return 0 if code == 0 else 3
 
     members = list(inventory_members(inventory))
     selected = members if mode == "run-all" else members[:1]
@@ -889,30 +917,27 @@ def main() -> int:
     try:
         if args.verify_current_context:
             adapter = adapter_path(args.adapter)
+            verify_before_adapter_use(adapter)
             code, stdout, stderr = run_capture(
                 [str(adapter), "--runtime-identity-json"], timeout=10.0,
                 maximum=4096)
             if code != 0:
                 fail("current RSP adapter refused future-context identity inspection")
             runtime = parse_json(stdout, "post-fix RSP runtime identity")
-            verify_code, verify_stdout, verify_stderr = run_capture(
-                [sys.executable, "-B", "scripts/verify-rsp-diagnostic-qualification.py",
-                 "--verify", "build/private-rsp-diagnostic/qualification.json"],
-                timeout=120.0, maximum=65_536)
-            if verify_code != 0:
-                fail("current RSP pre-use verification refused")
             verify_current_preuse_context(adapter, runtime)
+            private_directory(PRIVATE)
+            preflight = private_directory(args.run_dir, create=True) if args.run_dir is not None else pathlib.Path(tempfile.mkdtemp(prefix="current-preuse-v4-", dir=PRIVATE))
             qualification, projection, build, base_rom, _ = verify_preuse(
-                private_directory(PRIVATE / "current-preuse-v4", create=True))
+                preflight)
             inventory, inventory_bytes = build_inventory(
                 qualification, projection, build, base_rom, runtime)
-            inventory_path = PRIVATE / "current-preuse-v4/rsp-inventory.json"
+            inventory_path = preflight / "rsp-inventory.json"
             write_new(inventory_path, inventory_bytes)
             inventory_code, inventory_stdout, inventory_stderr = invoke_adapter(
                 adapter, "--validate-inventory", str(inventory_path))
-            write_new(PRIVATE / "current-preuse-v4/inventory-validation.stdout.log",
+            write_new(preflight / "inventory-validation.stdout.log",
                       inventory_stdout)
-            write_new(PRIVATE / "current-preuse-v4/inventory-validation.stderr.log",
+            write_new(preflight / "inventory-validation.stderr.log",
                       inventory_stderr)
             if inventory_code != 0:
                 fail("current production adapter rejected the exact qualified RSP inventory")

@@ -618,6 +618,7 @@ static bool supervised_guest(t64_verified_input *snapshot, size_t rom_size,
   size_t received = 0u;
   bool child_done = false;
   bool pipe_closed = false;
+  bool pipe_ok = true;
   uint64_t start;
   *timed_out = false;
   if (pipe(pipe_fds) != 0) return false;
@@ -625,7 +626,7 @@ static bool supervised_guest(t64_verified_input *snapshot, size_t rom_size,
   if (child < 0) { close(pipe_fds[0]); close(pipe_fds[1]); return false; }
   if (child == 0) {
     rsp_child_report child_report;
-    (void)setpgid(0, 0);
+    /* Inherit the adapter group so the independent outer deadline reaches us. */
     close(pipe_fds[0]);
     execute_guest(snapshot->fd, rom_size, rom_sha256, tick_bound,
                   registration_index, value_index, &child_report);
@@ -633,7 +634,6 @@ static bool supervised_guest(t64_verified_input *snapshot, size_t rom_size,
     close(pipe_fds[1]);
     _exit(0);
   }
-  (void)setpgid(child, child);
   close(pipe_fds[1]);
   start = monotonic_ms();
   while (!child_done || received < sizeof *report) {
@@ -643,29 +643,33 @@ static bool supervised_guest(t64_verified_input *snapshot, size_t rom_size,
         (event.revents & (POLLIN | POLLHUP)) != 0) {
       ssize_t count = read(pipe_fds[0], (uint8_t *)report + received,
                            sizeof *report - received);
-      if (count < 0 && errno != EINTR) break;
+      if (count < 0 && errno != EINTR) { pipe_ok = false; break; }
       if (count == 0) pipe_closed = true;
       if (count > 0) received += (size_t)count;
     }
-    if (waitpid(child, &child_status, WNOHANG) == child) child_done = true;
+    {
+      siginfo_t observed = {0};
+      if (waitid(P_PID, (id_t)child, &observed,
+                 WEXITED | WNOHANG | WNOWAIT) != 0) {
+        if (errno != EINTR) { pipe_ok = false; break; }
+      } else if (observed.si_pid == child) {
+        child_done = true;
+      }
+    }
     if (monotonic_ms() - start >= RSP_CHILD_LIMIT_MS) {
       *timed_out = true;
-      (void)kill(-child, SIGKILL);
       break;
     }
     if (child_done && pipe_closed && received < sizeof *report) break;
   }
   close(pipe_fds[0]);
-  if (*timed_out) {
-    while (waitpid(child, &child_status, 0) < 0 && errno == EINTR) {}
-    return false;
+  /* The deterministic core cannot fork. Kill only our reserved child PID;
+   * the outer wrapper owns cleanup of the shared adapter process group. */
+  if (!child_done && kill(child, SIGKILL) != 0 && errno != ESRCH) pipe_ok = false;
+  while (waitpid(child, &child_status, 0) < 0) {
+    if (errno != EINTR) return false;
   }
-  if (!child_done) {
-    while (waitpid(child, &child_status, 0) < 0) {
-      if (errno != EINTR) return false;
-    }
-  }
-  return received == sizeof *report && WIFEXITED(child_status) &&
+  return !*timed_out && pipe_ok && received == sizeof *report && WIFEXITED(child_status) &&
          WEXITSTATUS(child_status) == 0;
 }
 
