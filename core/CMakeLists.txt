@@ -515,6 +515,8 @@ target_include_directories(test_rsp_fuzz PRIVATE
   "${CMAKE_CURRENT_SOURCE_DIR}")
 target_link_libraries(test_rsp_fuzz PRIVATE t64_core)
 t64_target_warnings(test_rsp_fuzz)
+add_test(NAME unit.core.rsp-fuzz COMMAND test_rsp_fuzz)
+set_tests_properties(unit.core.rsp-fuzz PROPERTIES LABELS unit TIMEOUT 60)
 add_test(NAME harness.rsp-divider-audit
   COMMAND python3 -B ${CMAKE_SOURCE_DIR}/scripts/tests/test_rsp_divider_audit.py)
 set_tests_properties(harness.rsp-divider-audit PROPERTIES

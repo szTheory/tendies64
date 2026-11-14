@@ -1,0 +1,27 @@
+name: authored-rsp-stress
+
+on:
+  schedule:
+    - cron: '17 4 * * 1'
+  workflow_dispatch:
+
+permissions: {}
+
+jobs:
+  authored-rsp-stress:
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+    timeout-minutes: 15
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+      - name: Configure authored core target
+        run: cmake --preset gate
+      - name: Build authored fuzz target
+        run: cmake --build --preset gate --target test_rsp_fuzz --parallel 4
+      - name: Run bounded authored stress
+        run: sh scripts/rsp-stress.sh --authored --family vmulf-through-vrsq32
