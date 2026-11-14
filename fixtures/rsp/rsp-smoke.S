@@ -59,7 +59,8 @@ wait_imem_dma:
   bne $t1, $zero, wait_imem_dma
   nop
 
-  sw $zero, 0($s4)            /* SP_MEM_ADDR = DMEM */
+  addiu $t0, $zero, 0x100
+  sw $t0, 0($s4)              /* SP_MEM_ADDR = DMEM + input block offset */
   addiu $t0, $zero, 0x2000
   sw $t0, 4($s4)              /* SP_DRAM_ADDR = RDRAM 0x2000 */
   addiu $t0, $zero, (rsp_input_end - rsp_input) - 1
