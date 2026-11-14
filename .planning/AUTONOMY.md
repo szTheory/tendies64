@@ -157,6 +157,10 @@ applies that direction; update it when the owner changes policy.
   Process-test readiness must mean required child/descendant identity is already
   observable. Signal the existing barrier after publishing it; do not hide a
   scheduling race with sleeps, repeated CI attempts or relaxed cleanup checks.
+  Diagnose source-fetch failures before retrying CI. An upstream-listed HTTPS
+  alternate may supply the same pinned bytes after a bounded transport failure;
+  a successful download with a hash mismatch must still fail before use. Preserve
+  source/tool versions, fixture identities, rights and source-revision checks.
 - At each discussion, enumerate actual decision points. Fan out one agent per
   independent decision cluster when it saves time/context. Apply relevant
   CPU/cache/virtual-memory, RSP/microcode, RDP/video, audio, memory/bus,
