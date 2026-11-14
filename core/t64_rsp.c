@@ -1027,6 +1027,251 @@ static bool rsp_decode_vector_multiply(const t64_machine *machine,
   return true;
 }
 
+static bool rsp_decode_vector_compare(const t64_machine *machine,
+                                      uint32_t instruction,
+                                      rsp_vector_effect *effect) {
+  uint32_t operation = instruction >> 26;
+  uint32_t selector = (instruction >> 21) & UINT32_C(0x1f);
+  uint32_t element = selector & UINT32_C(0x0f);
+  uint32_t source_a = (instruction >> 11) & UINT32_C(0x1f);
+  uint32_t source_b = (instruction >> 16) & UINT32_C(0x1f);
+  uint32_t destination = (instruction >> 6) & UINT32_C(0x1f);
+  uint32_t function = instruction & UINT32_C(0x3f);
+  uint16_t old_vco;
+  uint16_t old_vcc;
+  uint8_t old_vce;
+  uint16_t vco;
+  uint16_t vcc;
+  uint8_t vce;
+  uint32_t lane;
+
+  if (machine == NULL || effect == NULL || operation != UINT32_C(0x12) ||
+      (selector & UINT32_C(0x10)) == 0u) {
+    return false;
+  }
+  switch (function) {
+  case UINT32_C(0x20): /* VLT */
+  case UINT32_C(0x21): /* VEQ */
+  case UINT32_C(0x22): /* VNE */
+  case UINT32_C(0x23): /* VGE */
+  case UINT32_C(0x24): /* VCL */
+  case UINT32_C(0x25): /* VCH */
+  case UINT32_C(0x26): /* VCR */
+  case UINT32_C(0x27): /* VMRG */
+    break;
+  default:
+    return false;
+  }
+  if (!rsp_select_vector_lane(element, 0u, &lane)) {
+    return false;
+  }
+
+  old_vco = machine->rsp.vco;
+  old_vcc = machine->rsp.vcc;
+  old_vce = machine->rsp.vce;
+  vco = function == UINT32_C(0x22) || function == UINT32_C(0x27)
+            ? old_vco
+            : 0u;
+  vcc = function == UINT32_C(0x27) ? old_vcc : 0u;
+  vce = function == UINT32_C(0x27) ? old_vce : 0u;
+  (void)memset(effect, 0, sizeof *effect);
+  effect->source_a = source_a;
+  effect->source_b = source_b;
+  effect->destination = destination;
+  effect->vco = old_vco;
+  effect->vcc = old_vcc;
+  effect->vce = old_vce;
+  effect->reads_source_a = true;
+  effect->reads_source_b = true;
+
+  for (lane = 0u; lane < 8u; lane++) {
+    uint32_t source_lane;
+    uint16_t a_bits;
+    uint16_t b_bits;
+    int32_t a_signed;
+    int32_t b_signed;
+    uint16_t result;
+    bool select_a = false;
+
+    if (!rsp_select_vector_lane(element, lane, &source_lane)) {
+      return false;
+    }
+    a_bits = rsp_read_vector_element(machine, source_a, lane);
+    b_bits = rsp_read_vector_element(machine, source_b, source_lane);
+    a_signed = rsp_signed16(a_bits);
+    b_signed = rsp_signed16(b_bits);
+
+    switch (function) {
+    case UINT32_C(0x20): /* VLT */
+      select_a = a_signed < b_signed ||
+                 (a_bits == b_bits && ((old_vco >> lane) & 1u) != 0u &&
+                  ((old_vce >> lane) & 1u) == 0u);
+      if (select_a) {
+        vcc |= (uint16_t)(UINT16_C(1) << lane);
+      }
+      vco = 0u;
+      vce = 0u;
+      break;
+    case UINT32_C(0x21): /* VEQ */
+      select_a = a_bits == b_bits && ((old_vce >> lane) & 1u) != 0u;
+      if (select_a) {
+        vcc |= (uint16_t)(UINT16_C(1) << lane);
+      }
+      vco = 0u;
+      vce = 0u;
+      break;
+    case UINT32_C(0x22): /* VNE */
+      select_a = a_bits != b_bits || ((old_vce >> lane) & 1u) == 0u;
+      if (select_a) {
+        vcc |= (uint16_t)(UINT16_C(1) << lane);
+      }
+      /* The operation-specific Appendix pseudocode clears VCO_i only. */
+      vco &= (uint16_t)~(uint16_t)(UINT16_C(1) << lane);
+      vce = 0u;
+      break;
+    case UINT32_C(0x23): /* VGE */
+      select_a = a_signed > b_signed ||
+                 (a_bits == b_bits &&
+                  ((((old_vco >> lane) & 1u) == 0u) ||
+                   ((old_vce >> lane) & 1u) != 0u));
+      if (select_a) {
+        vcc |= (uint16_t)(UINT16_C(1) << lane);
+      }
+      vco = 0u;
+      vce = 0u;
+      break;
+    case UINT32_C(0x24): { /* VCL: consume VCH's flags */
+      bool le = ((old_vcc >> lane) & 1u) != 0u;
+      bool ge = ((old_vcc >> (lane + 8u)) & 1u) != 0u;
+      bool clip_equal = ((old_vco >> (lane + 8u)) & 1u) == 0u;
+      bool sign = ((old_vco >> lane) & 1u) != 0u;
+
+      if (sign) {
+        uint32_t unsigned_sum = (uint32_t)a_bits + (uint32_t)b_bits;
+        uint16_t sum = (uint16_t)unsigned_sum;
+        bool carry = unsigned_sum > UINT32_C(0xffff);
+        bool lane_vce = ((old_vce >> lane) & 1u) != 0u;
+
+        if (clip_equal) {
+          le = (!lane_vce && sum == 0u && !carry) ||
+               (lane_vce && (sum == 0u || !carry));
+        }
+        result = le ? (uint16_t)(UINT16_C(0) - b_bits) : a_bits;
+      } else {
+        int32_t difference = a_signed - b_signed;
+        if (clip_equal) {
+          ge = difference >= 0;
+        }
+        result = ge ? b_bits : a_bits;
+      }
+      vcc &= (uint16_t)~(uint16_t)((UINT16_C(1) << lane) |
+                                   (UINT16_C(1) << (lane + 8u)));
+      if (le) {
+        vcc |= (uint16_t)(UINT16_C(1) << lane);
+      }
+      if (ge) {
+        vcc |= (uint16_t)(UINT16_C(1) << (lane + 8u));
+      }
+      effect->values[lane] = result;
+      effect->accumulators[lane] =
+          (machine->rsp.accumulator[lane] & ~UINT64_C(0xffff)) | result;
+      continue;
+    }
+    case UINT32_C(0x25): { /* VCH: produce clip-chain flags */
+      bool sign = ((a_bits ^ b_bits) & UINT16_C(0x8000)) != 0u;
+      bool le;
+      bool ge;
+      bool equal;
+      bool lane_vce = false;
+
+      if (sign) {
+        int32_t sum = a_signed + b_signed;
+        ge = b_signed < 0;
+        le = sum <= 0;
+        lane_vce = sum == -1;
+        equal = sum == 0;
+        result = le ? (uint16_t)(UINT16_C(0) - b_bits) : a_bits;
+      } else {
+        int32_t difference = a_signed - b_signed;
+        le = b_signed < 0;
+        ge = difference >= 0;
+        equal = difference == 0;
+        result = ge ? b_bits : a_bits;
+      }
+      if (le) {
+        vcc |= (uint16_t)(UINT16_C(1) << lane);
+      }
+      if (ge) {
+        vcc |= (uint16_t)(UINT16_C(1) << (lane + 8u));
+      }
+      if (!equal) {
+        vco |= (uint16_t)(UINT16_C(1) << (lane + 8u));
+      }
+      if (sign) {
+        vco |= (uint16_t)(UINT16_C(1) << lane);
+      }
+      if (lane_vce) {
+        vce |= (uint8_t)(UINT8_C(1) << lane);
+      }
+      effect->values[lane] = result;
+      effect->accumulators[lane] =
+          (machine->rsp.accumulator[lane] & ~UINT64_C(0xffff)) | result;
+      continue;
+    }
+    case UINT32_C(0x26): { /* VCR: one-complement low clip */
+      bool sign = ((a_bits ^ b_bits) & UINT16_C(0x8000)) != 0u;
+      bool le;
+      bool ge;
+
+      if (sign) {
+        int32_t sum = a_signed + b_signed + 1;
+        ge = b_signed < 0;
+        le = sum <= 0;
+        result = le ? (uint16_t)~b_bits : a_bits;
+      } else {
+        int32_t difference = a_signed - b_signed;
+        le = b_signed < 0;
+        ge = difference >= 0;
+        result = ge ? b_bits : a_bits;
+      }
+      if (le) {
+        vcc |= (uint16_t)(UINT16_C(1) << lane);
+      }
+      if (ge) {
+        vcc |= (uint16_t)(UINT16_C(1) << (lane + 8u));
+      }
+      effect->values[lane] = result;
+      effect->accumulators[lane] =
+          (machine->rsp.accumulator[lane] & ~UINT64_C(0xffff)) | result;
+      continue;
+    }
+    case UINT32_C(0x27): /* VMRG */
+      select_a = ((old_vcc >> lane) & 1u) != 0u;
+      result = select_a ? a_bits : b_bits;
+      effect->values[lane] = result;
+      effect->accumulators[lane] =
+          (machine->rsp.accumulator[lane] & ~UINT64_C(0xffff)) | result;
+      continue;
+    default:
+      return false;
+    }
+    result = select_a ? a_bits : b_bits;
+    effect->values[lane] = result;
+    effect->accumulators[lane] =
+        (machine->rsp.accumulator[lane] & ~UINT64_C(0xffff)) | result;
+  }
+
+  effect->vco = vco;
+  effect->vcc = vcc;
+  effect->vce = vce;
+  if (function != UINT32_C(0x27)) {
+    effect->writes_vco = true;
+    effect->writes_vcc = true;
+    effect->writes_vce = true;
+  }
+  return true;
+}
+
 static t64_status t64_rsp_issue_event(t64_machine *machine,
                                       const t64_event *event) {
   uint32_t pc;
@@ -1445,6 +1690,23 @@ static t64_status t64_rsp_issue_event(t64_machine *machine,
     supported = true;
   } else if (rsp_decode_vector_multiply(machine, instruction,
                                        &vector_effect)) {
+    write_vector_result = true;
+    vector_effect_valid = true;
+    if (vector_effect.reads_source_a) {
+      vector_read_mask |= UINT32_C(1) << vector_effect.source_a;
+    }
+    if (vector_effect.reads_source_b) {
+      vector_read_mask |= UINT32_C(1) << vector_effect.source_b;
+    }
+    vector_destination = vector_effect.destination;
+    vector_write_delay = UINT32_C(4);
+    supported = true;
+  } else if (operation == UINT32_C(0x12) &&
+             (instruction & UINT32_C(0x3f)) == UINT32_C(0x37)) {
+    /* VNOP retires the fetched instruction without changing vector state. */
+    supported = true;
+  } else if (rsp_decode_vector_compare(machine, instruction,
+                                      &vector_effect)) {
     write_vector_result = true;
     vector_effect_valid = true;
     if (vector_effect.reads_source_a) {

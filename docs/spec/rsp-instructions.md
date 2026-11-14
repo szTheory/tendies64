@@ -1,8 +1,8 @@
 # RSP instruction coverage ledger
 
-This ledger describes the authored scalar/control slice in the current RSP
-execution profile. It is an implementation and test-coverage statement, not a
-claim of cycle accuracy or complete RSP compatibility. The opcode facts follow
+This ledger describes the authored scalar, transfer, and vector-integer slice
+in the current RSP execution profile. It is an implementation and test-coverage
+statement, not a claim of cycle accuracy or complete RSP compatibility. The opcode facts follow
 the pinned SGI/Nintendo RSP Programmer's Guide recorded in
 `.planning/phases/05-rsp-low-level-emulation/05-RESEARCH.md` (guide revision
 1.0; acquired-file SHA-256 `6ec646ba9bd836af9aa30ae90099af55dbaf291fbd8b39ff8be5664ada3bd668`).
@@ -162,6 +162,62 @@ literal 48-bit values. These are deterministic integer software choices, not
 claims about undocumented silicon behavior. The VMUDL superscript on printed
 p. 278 denotes repeating product bit 31 sixteen times; it is a bit count, not
 the literal number `31` or `16`.
+
+## Vector comparison, clipping, merge, and no-op ledger
+
+These functions are fetched from IMEM and covered by `unit.core.rsp-compare`.
+The selector uses the Table 3-3 mapping above; `e=1` refuses transactionally.
+For comparison functions VLT/VEQ/VNE/VGE, VCC lane bits are rebuilt from the
+operation result. The tests cover signed extrema, equal and unequal lanes,
+prior VCO/VCE combinations, a destination/source alias, and `e=8` broadcast.
+All result cases check each destination lane, all eight accumulator low slices,
+and the resulting VCO/VCC/VCE fields.
+
+| Function | Result selection and flag effects | Guide operation listing |
+| --- | --- | --- |
+| VLT `0x20` | Select VS when signed VS < VT, or on equality when VCO_i is set and VCE_i is clear; set VCC_i accordingly; clear VCO and VCE. | pp. 255–256 |
+| VEQ `0x21` | Select VS only for equal lanes with VCE_i set; set VCC_i; clear VCO and VCE. | p. 250 |
+| VNE `0x22` | Select VS for unequal lanes or when VCE_i is clear; set VCC_i; clear VCO_i and VCE. Its Appendix pseudocode leaves VCO_i+8 untouched, so the profile preserves that half despite the prose summary saying VCO is cleared. | pp. 291–292 |
+| VGE `0x23` | Select VS when signed VS > VT, or on equality when VCO_i is clear or VCE_i is set; set VCC_i; clear VCO and VCE. | p. 253 |
+| VCL `0x24` | Consume VCH's VCC/VCO/VCE flags to resolve clip lanes; update the low/high VCC pair, clear VCO and VCE, and write the selected result to ACC low. | pp. 243–245 |
+| VCH `0x25` | Compute signed clip bounds, set low/high VCC, VCO sign/equality, and VCE; the fetched VCH→VCL sequence checks carry, equality, and prior-flag consumption. | pp. 240–242 |
+| VCR `0x26` | Compute the one-complement clip result and low/high VCC; clear VCO and VCE. Fixed lanes cover sign-different inputs and complement endpoints. | pp. 246–247 |
+| VMRG `0x27` | Select VS or VT from VCC_i (the low half only), write ACC low, and preserve VCO/VCC/VCE. | p. 273 |
+| VNOP `0x37` | Retire the fetched instruction without changing vector registers, accumulator slices, or flags. Selector bits are ignored. | p. 294 |
+
+Appendix A's VCH listing on printed p. 242 writes VCE at `i+8` into an
+eight-bit field, while the overview describes VCE per lane and VCL consumes
+VCE_i. This implementation uses the low eight lane bits for VCE_i. That
+explicit deterministic software policy resolves the guide's field-width
+inconsistency; it is not a hardware-equivalence claim. The VNE flag effect
+above follows its operation-specific Appendix pseudocode over the broader
+prose description.
+
+## COP2 vector-function disposition ledger
+
+This table closes all 64 function values in the COP2 vector format. Implemented
+entries have fetched functional coverage in the named tests; reserved values
+and guide-defined divide functions outside this profile are fetched and must
+refuse with `T64_RSP_REFUSAL_UNSUPPORTED_OPCODE` before retirement or state
+changes. VMOV's evidence remains in `unit.core.rsp-transfers`.
+
+| Function slots | Guide names or meaning | Disposition and evidence |
+| --- | --- | --- |
+| `0x00–0x0f` | VMULF/U, VRNDP, VMULQ, VMUDL/M/N/H, VMACF/U, VRNDN, VMACQ, VMADL/M/N/H | Implemented and checked by `unit.core.rsp-multiply`; the 16 operation forms and VSAR have per-operation ledger rows above. |
+| `0x10–0x11` | VADD, VSUB | Implemented and checked by `unit.core.rsp-vector`. |
+| `0x12` | Reserved | Fetched pre-effect refusal in `unit.core.rsp-compare`. |
+| `0x13–0x15` | VABS, VADDC, VSUBC | Implemented and checked by `unit.core.rsp-vector`. |
+| `0x16–0x1c` | Reserved | Fetched pre-effect refusal in `unit.core.rsp-compare`. |
+| `0x1d` | VSAR | Implemented for `e=0,1,2`; invalid selectors refuse; `unit.core.rsp-multiply`. |
+| `0x1e–0x1f` | Reserved | Fetched pre-effect refusal in `unit.core.rsp-compare`. |
+| `0x20–0x27` | VLT, VEQ, VNE, VGE, VCL, VCH, VCR, VMRG | Implemented and checked by `unit.core.rsp-compare`, including a fetched VCH→VCL flag chain. |
+| `0x28–0x2d` | VAND, VNAND, VOR, VNOR, VXOR, VNXOR | Implemented and checked by `unit.core.rsp-vector`. |
+| `0x2e–0x2f` | Reserved | Fetched pre-effect refusal in `unit.core.rsp-compare`. |
+| `0x30–0x32` | VRCP, VRCPL, VRCPH | Guide-defined reciprocal family, outside this integer profile; each function refuses transactionally in `unit.core.rsp-compare`. |
+| `0x33` | VMOV | Implemented and checked across raw selector/destination fields by `unit.core.rsp-transfers`. |
+| `0x34–0x36` | VRSQ, VRSQL, VRSQH | Guide-defined reciprocal-square-root family, outside this integer profile; each function refuses transactionally in `unit.core.rsp-compare`. |
+| `0x37` | VNOP | Implemented and checked by `unit.core.rsp-compare`; it retires without vector-state changes. |
+| `0x38–0x3f` | Reserved | Every slot has a fetched pre-effect refusal case in `unit.core.rsp-compare`. |
 
 ## Evidence boundary
 
