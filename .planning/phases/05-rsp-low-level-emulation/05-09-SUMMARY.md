@@ -12,7 +12,7 @@ provides:
 affects: [05-10, rsp-qualification]
 requirements-completed: []
 completed: 2026-11-14
-status: locally-verified-hosted-pending
+status: complete
 ---
 
 # Plan09 — Authored CPU/SP/RSP guest proof
@@ -67,14 +67,18 @@ negative and its persistent replacement, and the disclosed Task1 TDD process
 deviation. Task2's original formal RED is the actual pre-fix SP_STATUS refusal.
 No synthetic or setup-only result is relabeled as guest evidence.
 
-Required hosted Linux/macOS verification is pending on the reviewed checkpoint.
+Both hosted platforms pass reviewed source cefbba2 in
+[run43595370753](https://github.com/szTheory/tendies64/actions/runs/43595370753):
+all127 checks, lint86/0 and the authored evidence/rights/PII/upload tail. Linux
+gate123s (qualification64s, CTest31.35s); macOS gate337s (qualification192s,
+CTest79.77s).
 Full configured phase code/security review and current-core private qualification
 remain Plan10 work. No actual external diagnostic, Cargo rebuild, installation,
 physical test or binary publication ran in this plan.
 
 ## Next action
 
-Finish the hosted checkpoint, then execute Plan10 current-source qualification,
+Execute Plan10 current-source qualification,
 exact component completion/classification and configured final reviews under the
 original rights and resource limits. Existing private receipts keep their original
 identities until that deliberate requalification. No user action is needed.

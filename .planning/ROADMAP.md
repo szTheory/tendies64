@@ -252,7 +252,7 @@ Plans:
   2. Per-opcode fuzzing finds zero differences between any optimized VU path and the scalar-portable reference. Long stress runs (vmulf through vrsq32) run in a scheduled lane, outside the required gate
   3. RSP DMA tests for alignment, bank wrap, stride and queue behavior pass
   4. The `nemu64-test` RSP groups pass or are classified individually with reasons (local-only until D2), and an automated check confirms the canonical core contains no HLE microcode path
-**Plans**: 8/10 plans executed
+**Plans**: 9/10 plans executed
 **Wave 1**
 - [x] 05-01-PLAN.md
 
@@ -278,7 +278,7 @@ Plans:
 - [x] 05-08-PLAN.md
 
 **Wave 9** *(blocked on Wave 8 completion)*
-- [ ] 05-09-PLAN.md
+- [x] 05-09-PLAN.md
 
 **Wave 10** *(blocked on Wave 9 completion)*
 - [ ] 05-10-PLAN.md
@@ -406,7 +406,7 @@ Phase 7 may run in parallel with Phases 5 and 6 once Phase 4 is complete.
 | 2. Deterministic Machine Skeleton | v1.0 | 8/8 | Complete | 2026-11-10 |
 | 3. First Headless ROM Through Open IPL3 | v1.0 | 13/13 | Complete | 2026-11-11 |
 | 4. Complete VR4300 CPU | v1.0 | 20/20 | Complete | 2026-11-13 |
-| 5. RSP Low-Level Emulation | v1.0 | 8/10 | In Progress | - |
+| 5. RSP Low-Level Emulation | v1.0 | 9/10 | In Progress | - |
 | 6. Cold Boot, CPU Timing and Full Base Suite | v1.0 | 0/TBD | Not started | - |
 | 7. RDP Reference Renderer and VI Scanout | v1.1 | 0/TBD | Not started | - |
 | 8. Audio Interface and Raw Capture | v1.1 | 0/TBD | Not started | - |
