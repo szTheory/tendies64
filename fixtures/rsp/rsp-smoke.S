@@ -261,11 +261,11 @@ rsp_program:
   .word 0x01405821             /* ADDU r11, r10, r0: immediate load use */
   .word 0xac0b0024             /* SW r11, 0x24(r0) */
   .word 0x24060107             /* ADDIU r6, r0, 0x107 */
-  .word 0xc8262000             /* LQV v4, 0(r6): nine-byte partial load */
+  .word 0xc8c42000             /* LQV v4, 0(r6): nine-byte partial load */
   .word 0x4b031133             /* VMOV v4[2], v3[0]; other lanes preserved */
   .word 0xe8042000             /* SQV v4, 0(r0): aligned output block */
   .word 0x24060099             /* ADDIU r6, r0, 0x99 */
-  .word 0xe8442000             /* SQV v4, 0(r6): seven-byte partial store */
+  .word 0xe8c42000             /* SQV v4, 0(r6): seven-byte partial store */
   .word 0x4a020980             /* VMULF v6, v1, v2; 32767 * 1 */
   .word 0x4a02095d             /* VSAR e=0: ACC[47:32] */
   .word 0xe8052000             /* SQV v5, 0xa0(r0) */
