@@ -35,7 +35,9 @@ set_tests_properties(runner.cpu-diagnostic-inventory PROPERTIES
 # the private external source/toolchain receipts.
 add_test(NAME harness.rsp-qualification
   COMMAND python3 -B ${CMAKE_SOURCE_DIR}/scripts/tests/test_rsp_qualification.py)
-set_tests_properties(harness.rsp-qualification PROPERTIES
+add_test(NAME harness.rsp-build
+  COMMAND python3 -B ${CMAKE_SOURCE_DIR}/scripts/tests/test_rsp_build.py)
+set_tests_properties(harness.rsp-qualification harness.rsp-build PROPERTIES
   LABELS runner TIMEOUT 120
   ENVIRONMENT "PYTHONDONTWRITEBYTECODE=1")
 
