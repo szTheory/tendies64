@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+import hashlib
 import importlib.util
 import json
 import os
@@ -187,6 +188,153 @@ class RspRunControls(unittest.TestCase):
         self.assertTrue(capture.call_args_list)
         self.assertEqual(capture.call_args_list[0].args[0][0], sys.executable)
         self.assertFalse(any(call.args[0][0] == str(adapter) for call in capture.call_args_list))
+
+    def test_v5_runtime_binding_is_saved_in_the_current_private_run(self) -> None:
+        with tempfile.TemporaryDirectory(prefix="v5-binding.", dir=TEST_ROOT) as temporary:
+            root = pathlib.Path(temporary)
+            root.chmod(0o700)
+            private = root / "build/private-rsp-diagnostic"
+            private.mkdir(mode=0o700, parents=True)
+            run_dir = private / "run-authored"
+            run_dir.mkdir(mode=0o700)
+            adapter = root / "build/gate/runner/t64-rsp-diagnostic"
+            adapter.parent.mkdir(mode=0o700, parents=True)
+            adapter.write_bytes(b"authored RSP adapter bytes")
+            adapter.chmod(0o700)
+            runtime = {
+                "core_build_sha256": "a" * 64,
+                "core_source_revision": "b" * 40,
+                "profile_descriptor_sha256": "c" * 64,
+                "profile_id": "authored-rsp-profile",
+            }
+            qualification = {"profile_id": "authored-rsp-profile"}
+            qualification_bytes = json.dumps(qualification, sort_keys=True).encode()
+            (private / "qualification.json").write_bytes(qualification_bytes)
+            binding = {
+                "authorized_for_future_guest_use": True,
+                "component": "rsp",
+                "core_model": 6,
+                "core_state_schema": 12,
+                "guest_execution_performed": False,
+                "profile_id": "authored-rsp-profile",
+                "qualification_sha256": hashlib.sha256(qualification_bytes).hexdigest(),
+                "reviewed_source_delta": {
+                    "baseline_revision": "d" * 40,
+                    "tested_source_revision": "e" * 40,
+                },
+                "rsp_adapter_identity": {
+                    "executable_sha256": hashlib.sha256(adapter.read_bytes()).hexdigest(),
+                    "path": "build/gate/runner/t64-rsp-diagnostic",
+                },
+                "rsp_runtime_identity": runtime,
+                "schema": "t64.rsp-core-identity-binding.v5",
+                "status": "preuse-verified-current-core-for-qualified-rsp-image",
+            }
+            core_binding = private / "current-core-identity-binding-v5.json"
+            core_binding.write_text(json.dumps(binding, sort_keys=True), encoding="utf-8")
+            core_binding.chmod(0o600)
+            with patch.object(self.module, "ROOT", root), \
+                    patch.object(self.module, "PRIVATE", private), \
+                    patch.object(self.module, "CORE_BINDING", core_binding), \
+                    patch.object(self.module, "PROFILE_ID", "authored-rsp-profile"):
+                record = self.module.verify_runtime_binding(adapter, runtime, run_dir)
+            self.assertEqual(record["schema"], "t64.rsp-current-execution-binding.v3")
+            self.assertEqual(record["tested_source_revision"], "e" * 40)
+            self.assertTrue((run_dir / "runtime-adapter-binding.json").is_file())
+            self.assertFalse((private / "plan04" / "runtime-adapter-binding.json").exists())
+
+    def test_v5_run_all_reaches_simulated_member_and_completion_validation(self) -> None:
+        root = self.workspace
+        private = root
+        adapter = root / "build/gate/runner/t64-rsp-diagnostic"
+        core = root / "build/gate/runner/t64-cpu-diagnostic"
+        adapter.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
+        adapter.write_bytes(b"authored v5 RSP adapter")
+        adapter.chmod(0o700)
+        core.write_bytes(b"authored v5 CPU reader")
+        core.chmod(0o700)
+        profile_id = "authored-rsp-profile"
+        runtime = {
+            "core_build_sha256": "a" * 64,
+            "core_source_revision": "b" * 40,
+            "profile_descriptor_sha256": "c" * 64,
+            "profile_id": profile_id,
+        }
+        qualification = {"profile_id": profile_id}
+        qualification_bytes = json.dumps(qualification, sort_keys=True).encode()
+        qualification_path = private / "qualification.json"
+        qualification_path.write_bytes(qualification_bytes)
+        qualification_path.chmod(0o600)
+        binding = {
+            "authorized_for_future_guest_use": True,
+            "component": "rsp",
+            "core_model": 6,
+            "core_state_schema": 12,
+            "current_identity": {
+                "core_build_sha256": runtime["core_build_sha256"],
+                "executable_sha256": hashlib.sha256(core.read_bytes()).hexdigest(),
+                "path": "build/gate/runner/t64-cpu-diagnostic",
+                "source_revision": runtime["core_source_revision"],
+            },
+            "guest_execution_performed": False,
+            "profile_id": profile_id,
+            "qualification_sha256": hashlib.sha256(qualification_bytes).hexdigest(),
+            "reviewed_source_delta": {
+                "baseline_revision": "d" * 40,
+                "tested_source_revision": "e" * 40,
+            },
+            "rsp_adapter_identity": {
+                "executable_sha256": hashlib.sha256(adapter.read_bytes()).hexdigest(),
+                "path": "build/gate/runner/t64-rsp-diagnostic",
+            },
+            "rsp_runtime_identity": runtime,
+            "schema": "t64.rsp-core-identity-binding.v5",
+            "status": "preuse-verified-current-core-for-qualified-rsp-image",
+        }
+        binding_path = private / "current-core-identity-binding-v5.json"
+        binding_path.write_text(json.dumps(binding, sort_keys=True), encoding="utf-8")
+        binding_path.chmod(0o600)
+        inventory = {"component": "rsp", "members": [sample_member()]}
+        build = {"composition": {"layout": {"selector_rom_offset": 0}}}
+        canonical_runtime = json.dumps(runtime, sort_keys=True, separators=(",", ":")).encode()
+        canonical_inventory = json.dumps(inventory, sort_keys=True, separators=(",", ":")).encode()
+        run_dir = private / "run-all-v5"
+        adapter_results = []
+        capture_commands = []
+
+        def capture_preuse(command, **_kwargs):
+            capture_commands.append(command)
+            if command[0] == sys.executable:
+                return 0, b"authored closure verified", b""
+            return 0, canonical_runtime, b""
+
+        with patch.dict(os.environ, {}, clear=True), \
+                patch.object(self.module, "ROOT", root), \
+                patch.object(self.module, "PRIVATE", private), \
+                patch.object(self.module, "CORE_BINDING", binding_path), \
+                patch.object(self.module, "PROFILE_ID", profile_id), \
+                patch.object(self.module, "adapter_path", return_value=adapter), \
+                patch.object(self.module, "run_capture", side_effect=capture_preuse), \
+                patch.object(self.module, "verify_preuse", return_value=(qualification, {}, build, b"authored-rom", root / "authored-rom")), \
+                patch.object(self.module, "build_inventory", return_value=(inventory, canonical_inventory)), \
+                patch.object(self.module, "inventory_members", return_value=[sample_member()]), \
+                patch.object(self.module, "write_selector_rom", return_value=root / "selected-authored-rom"), \
+                patch.object(self.module, "run_guest", return_value={"classification": "refused", "selector": sample_member()["selector"]}) as run_guest, \
+                patch.object(self.module, "invoke_adapter", side_effect=lambda _adapter, *args: (adapter_results.append(args[0]) or (0, b"authored validation ok", b""))) as invoke:
+            result = self.module.run_mode("run-all", adapter, run_dir)
+        self.assertEqual(result, 0)
+        self.assertEqual(len(capture_commands), 2)
+        self.assertIn("verify-rsp-diagnostic-qualification.py", capture_commands[0][2])
+        self.assertEqual(capture_commands[1][0], str(adapter))
+        run_guest.assert_called_once()
+        self.assertIn("--validate-inventory", adapter_results)
+        self.assertIn("--validate-batch-json", adapter_results)
+        self.assertIn("--verify-complete-json", adapter_results)
+        self.assertEqual(adapter_results.count("--verify-complete-json"), 1)
+        self.assertEqual(invoke.call_count, 3)
+        self.assertTrue((run_dir / "execution-binding.json").is_file())
+        self.assertTrue((run_dir / "complete-verification.stdout.log").is_file())
+        self.assertFalse((private / "plan04" / "runtime-adapter-binding.json").exists())
 
     def test_guest_execution_refuses_fixture_mode_before_adapter_use(self) -> None:
         with patch.dict(os.environ, {"CI": "true", "T64_REQUIRE_FIXTURES": "1"}):

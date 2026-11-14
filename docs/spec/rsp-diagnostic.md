@@ -24,6 +24,14 @@ their source identities and are disambiguated by registration index. The exact
 source rows, names, counts, hashes, tool paths, and build results stay in
 owner-only ignored build evidence.
 
+The current-core pre-use receipt is versioned separately from the original
+qualification and build. It pins the reviewed production source delta, the
+current core and adapter bytes, and the existing native build evidence while
+preserving the original refusal record. Its verifier checks the independent
+source/tool/asset/lock closure before invoking either read-only identity
+command. The receipt authorizes only bounded local classification; it does not
+convert earlier failures into passes or make a hardware-accuracy claim.
+
 ## Asset and rights boundary
 
 The default selected RSP modules are checked independently from the CPU

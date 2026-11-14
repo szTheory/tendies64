@@ -18,6 +18,19 @@ sys.dont_write_bytecode = True
 ROOT = pathlib.Path(__file__).resolve().parents[1]
 BOOT_SHA = "f522db2e31a701f82597f399e76d55c9487760d015aff9d90176b463ae39a068"
 CORE_BASE_REVISION = "d7479bcc854348c1384cc199815954c662ffe9be"
+PLAN10_TESTED_SOURCE_REVISION = "cefbba2a35f0aa1e0ce9b1d64cfb5df3d41f44c5"
+PLAN10_BINDING_BASE_REVISION = "88274a0748e2bb38fd7a7d3477914c534d993791"
+PRODUCTION_SOURCE_PREFIXES = ("core", "runner", "tools/common")
+RSP_PROFILE_ID = "ntsc-cart-4m-openipl3-rsp-functional-v1"
+V5_ADAPTER_SOURCE_PROVENANCE = (
+    "t64.rsp.adapter-source-scope-hashes-distinct-from-core-build-annotation.v1"
+)
+V5_ADAPTER_SOURCE_PATHS = frozenset({
+    "runner/t64_rsp_diagnostic.c",
+    "runner/t64_rsp_diag_protocol.c",
+    "runner/t64_rsp_diag_protocol.h",
+    "runner/tests/test_rsp_diag_protocol.c",
+})
 
 
 class Refusal(ValueError):
@@ -26,6 +39,35 @@ class Refusal(ValueError):
 
 def refuse(message: str) -> None:
     raise Refusal(message)
+
+
+def verify_v5_adapter_source_provenance(refresh: dict[str, object],
+                                        source_annotation: str) -> None:
+    if (refresh.get("source_provenance") != V5_ADAPTER_SOURCE_PROVENANCE or
+            refresh.get("core_source_annotation") != source_annotation):
+        refuse("refreshed adapter source scope and core build annotation are not separately identified")
+
+
+def verify_v5_adapter_annotation_delta(paths: object,
+                                       refresh_enabled: bool) -> None:
+    if not isinstance(paths, (set, frozenset, list, tuple)) or any(not isinstance(path, str) for path in paths):
+        refuse("core/adapter annotation delta paths are malformed")
+    allowed = V5_ADAPTER_SOURCE_PATHS if refresh_enabled else frozenset()
+    if set(paths) - allowed:
+        refuse("core/compile-policy annotation delta exceeds the exact adapter source scope")
+
+
+def verify_v5_adapter_archive_receipt(value: object) -> dict[str, object]:
+    expected = {
+        "adapter_path", "adapter_sha256", "binding_matches_adapter",
+        "binding_path", "binding_sha256", "schema",
+    }
+    if not isinstance(value, dict) or set(value) != expected:
+        refuse("pre-rebuild adapter archive receipt fields do not match the closed schema")
+    if (value.get("schema") != "t64.rsp-plan10-pre-json-bound-validator-fix-adapter-archive.v1" or
+            value.get("binding_matches_adapter") is not True):
+        refuse("pre-rebuild adapter archive receipt does not bind the archived adapter")
+    return value
 
 
 def digest(data: bytes) -> str:
@@ -164,6 +206,403 @@ def private_digest(path: pathlib.Path, label: str) -> str:
     if path.is_symlink() or not path.is_file():
         refuse(f"{label} is missing or linked")
     return digest(path.read_bytes())
+
+
+def validate_scoped_source_rows(rows: object, expected_paths: set[str]) -> dict[str, str]:
+    if not isinstance(rows, list) or not rows:
+        refuse("current RSP source scope is empty")
+    found: dict[str, str] = {}
+    for row in rows:
+        row = object_with_keys(row, {"path", "sha256"}, "current RSP source row")
+        relative = pathlib.PurePosixPath(str(row["path"]))
+        if (relative.is_absolute() or any(part in ("", ".", "..", ".git") for part in relative.parts)
+                or relative.as_posix() != row["path"] or row["path"] in found
+                or not isinstance(row["sha256"], str)
+                or re.fullmatch(r"[0-9a-f]{64}", row["sha256"]) is None):
+            refuse("current RSP source scope path or digest is malformed")
+        found[row["path"]] = row["sha256"]
+    if set(found) != expected_paths:
+        refuse("current RSP source scope does not match the complete reviewed source delta")
+    return found
+
+
+def git_names(*arguments: str) -> list[str]:
+    result = subprocess.run(["git", "-C", str(ROOT), *arguments], check=True,
+                            capture_output=True, text=True, timeout=30)
+    return result.stdout.splitlines()
+
+
+def reviewed_plan10_source_delta(baseline: str, tested: str) -> list[str]:
+    if baseline != PLAN10_BINDING_BASE_REVISION or tested != PLAN10_TESTED_SOURCE_REVISION:
+        refuse("current RSP source delta does not use the reviewed Plan10 source range")
+    lines = git_names("diff", "--name-status", "--no-renames", baseline, tested,
+                      "--", *PRODUCTION_SOURCE_PREFIXES)
+    paths: list[str] = []
+    for line in lines:
+        fields = line.split("\t")
+        if len(fields) != 2 or fields[0] not in {"A", "M"}:
+            refuse("reviewed RSP source delta contains an unsupported file change")
+        relative = pathlib.PurePosixPath(fields[1])
+        if (relative.is_absolute() or relative.as_posix() != fields[1]
+                or not any(fields[1].startswith(prefix + "/") for prefix in PRODUCTION_SOURCE_PREFIXES)):
+            refuse("reviewed RSP source delta escapes the production source scope")
+        paths.append(fields[1])
+    if len(paths) != len(set(paths)):
+        refuse("reviewed RSP source delta contains duplicate paths")
+    return paths
+
+
+def verify_v5_identity_receipts(binding: dict[str, object],
+                                qualification_closure_sha: str,
+                                identity: dict[str, object], runtime: dict[str, object],
+                                source_annotation: str) -> dict[str, object]:
+    attempt_relative = pathlib.PurePosixPath(str(binding["identity_attempt_dir"]))
+    if (attempt_relative.is_absolute() or ".." in attempt_relative.parts or
+            not attempt_relative.as_posix().startswith("build/private-rsp-diagnostic/plan10-current-binding-v5-")):
+        refuse("v5 identity attempt escapes the private RSP root")
+    attempt_dir = ROOT / attempt_relative
+    if attempt_dir.is_symlink() or not attempt_dir.is_dir() or stat.S_IMODE(attempt_dir.stat().st_mode) != 0o700:
+        refuse("v5 identity attempt directory is missing or not owner-only")
+
+    closure_ref = object_with_keys(binding["preuse_source_closure"], {"path", "sha256"},
+                                   "v5 source/tool/asset pre-use closure record")
+    closure_command_path = private_path(ROOT / closure_ref["path"], "v5 source closure command")
+    if (closure_ref["path"] != (attempt_relative / "source-closure-command.json").as_posix() or
+            private_digest(closure_command_path, "v5 source closure command") != closure_ref["sha256"]):
+        refuse("v5 source closure command record changed")
+    closure_command = object_with_keys(read_json(closure_command_path),
+                                       {"argv", "exit", "source_closure_sha256", "stderr_path",
+                                        "stderr_sha256", "stdout_path", "stdout_sha256"},
+                                       "v5 source closure command")
+    closure_stdout_path = private_path(ROOT / closure_command["stdout_path"], "v5 source closure output")
+    closure_stderr_path = private_path(ROOT / closure_command["stderr_path"], "v5 source closure diagnostics")
+    closure_stdout = closure_stdout_path.read_bytes()
+    closure_stderr = closure_stderr_path.read_bytes()
+    if (closure_command["exit"] != 0 or
+            closure_command["source_closure_sha256"] != qualification_closure_sha or
+            closure_command["argv"] != ["python3", "-B", "scripts/verify-rsp-diagnostic-qualification.py",
+                                         "--verify-source-closure", "build/private-rsp-diagnostic/qualification.json"] or
+            closure_command["stdout_path"] != (attempt_relative / "source-closure.stdout.log").as_posix() or
+            closure_command["stderr_path"] != (attempt_relative / "source-closure.stderr.log").as_posix() or
+            digest(closure_stdout) != closure_command["stdout_sha256"] or
+            digest(closure_stderr) != closure_command["stderr_sha256"] or
+            b"PASS: independent RSP source, assets, tools, and locks verified" not in closure_stdout):
+        refuse("v5 source/tool/asset/lock closure did not pass before identity use")
+
+    hash_record_path = private_path(attempt_dir / "identity-executable-hashes.json",
+                                    "v5 pre-identity executable hashes")
+    hash_record = object_with_keys(read_json(hash_record_path),
+                                   {"adapter_path", "adapter_sha256_before_use", "core_reader_path",
+                                    "core_reader_sha256_before_use", "source_closure_command"},
+                                   "v5 pre-identity executable hashes")
+    receipts = binding["identity_command_receipts"]
+    if not isinstance(receipts, list) or len(receipts) != 2:
+        refuse("v5 identity command receipts are incomplete")
+    core_identity_json: dict[str, object] | None = None
+    for index, (executable, arguments) in enumerate((
+            ("build/gate/runner/t64-rsp-diagnostic", ["--runtime-identity-json"]),
+            ("build/gate/runner/t64-cpu-diagnostic", ["--compat-v2", "--runtime-identity-json"]))):
+        receipt = object_with_keys(receipts[index],
+                                   {"argv", "deadline_seconds", "elapsed_seconds", "exit",
+                                    "process_group_empty", "stderr", "stderr_sha256", "stdout",
+                                    "stdout_sha256", "timed_out"}, "v5 identity command receipt")
+        if (receipt["argv"] != [str(ROOT / executable), *arguments] or receipt["exit"] != 0 or
+                receipt["deadline_seconds"] != 10 or receipt["timed_out"] is not False or
+                receipt["process_group_empty"] is not True):
+            refuse("v5 current identity command was not bounded and reaped")
+        stdout_path = private_path(attempt_dir / receipt["stdout"], "v5 identity command output")
+        stderr_path = private_path(attempt_dir / receipt["stderr"], "v5 identity command diagnostics")
+        stdout = stdout_path.read_bytes()
+        stderr = stderr_path.read_bytes()
+        if (len(stdout) > 4096 or len(stderr) > 4096 or digest(stdout) != receipt["stdout_sha256"] or
+                digest(stderr) != receipt["stderr_sha256"]):
+            refuse("v5 identity output differs from its bounded command receipt")
+        command_identity = json.loads(stdout)
+        if index == 0:
+            if command_identity != runtime:
+                refuse("v5 adapter identity output differs from its sealed receipt")
+        else:
+            core_identity_json = command_identity
+
+    adapter_record = object_with_keys(binding["rsp_adapter_identity"],
+                                      {"executable_sha256", "path"}, "current RSP adapter")
+    adapter_path = project_path(ROOT / "build/gate/runner/t64-rsp-diagnostic",
+                                "current RSP adapter", 512 * 1024 * 1024)
+    core_path = project_path(ROOT / identity["path"], "current core identity reader",
+                             512 * 1024 * 1024)
+    if (adapter_record["path"] != adapter_path.relative_to(ROOT).as_posix() or
+            digest(adapter_path.read_bytes()) != adapter_record["executable_sha256"] or
+            digest(core_path.read_bytes()) != identity["executable_sha256"]):
+        refuse("current v5 executable bytes differ from the pre-use binding")
+    if (runtime["core_build_sha256"] != identity["core_build_sha256"] or
+            runtime["core_source_revision"] != source_annotation or
+            runtime["profile_id"] != binding["profile_id"] or
+            not isinstance(runtime["profile_descriptor_sha256"], str) or
+            re.fullmatch(r"[0-9a-f]{64}", runtime["profile_descriptor_sha256"]) is None):
+        refuse("current RSP runtime identity differs from the pre-use binding")
+
+    if (hash_record["adapter_path"] != adapter_path.relative_to(ROOT).as_posix() or
+            hash_record["core_reader_path"] != identity["path"] or
+            hash_record["adapter_sha256_before_use"] != adapter_record["executable_sha256"] or
+            hash_record["core_reader_sha256_before_use"] != identity["executable_sha256"] or
+            hash_record["source_closure_command"] != "passed-before-identity-use" or
+            core_identity_json is None or
+            core_identity_json.get("core_build_sha256") != runtime["core_build_sha256"] or
+            core_identity_json.get("source_revision") != source_annotation):
+        refuse("v5 executable hashes or CPU identity were not bound after source closure")
+    return core_identity_json
+
+
+def verify_v5_adapter_refresh(binding: dict[str, object],
+                              source_annotation: str) -> None:
+    refresh = object_with_keys(binding.get("adapter_refresh"), {
+        "adapter_source_scope", "archive_receipt", "asan_evidence",
+        "core_source_annotation", "normal_build_test_receipt",
+        "predecessor_binding", "source_provenance",
+        "source_files_differ_from_annotation",
+    }, "v5 refreshed adapter source binding")
+    verify_v5_adapter_source_provenance(refresh, source_annotation)
+
+    predecessor_ref = object_with_keys(refresh["predecessor_binding"], {"path", "sha256"},
+                                       "previous v5 adapter binding")
+    if predecessor_ref["path"] != "build/private-rsp-diagnostic/current-core-identity-binding-v5-refresh2.json":
+        refuse("refreshed binding does not identify its archived v5 predecessor")
+    predecessor_path = private_path(ROOT / predecessor_ref["path"], "previous v5 adapter binding")
+    predecessor_bytes = predecessor_path.read_bytes()
+    predecessor = read_json(predecessor_path)
+    if (digest(predecessor_bytes) != predecessor_ref["sha256"] or
+            predecessor.get("schema") != "t64.rsp-core-identity-binding.v5" or
+            predecessor.get("qualification_sha256") != binding["qualification_sha256"]):
+        refuse("previous v5 adapter binding changed or belongs to another qualification")
+
+    archive_ref = object_with_keys(refresh["archive_receipt"], {"path", "sha256"},
+                                   "pre-rebuild adapter archive receipt")
+    expected_archive_path = "build/private-rsp-diagnostic/plan10-pre-json-bound-validator-fix-adapter/archive-receipt.json"
+    if archive_ref["path"] != expected_archive_path:
+        refuse("refreshed adapter binding selects an unexpected predecessor archive")
+    archive_path = private_path(ROOT / archive_ref["path"], "pre-rebuild adapter archive receipt")
+    archive_bytes = archive_path.read_bytes()
+    archive = verify_v5_adapter_archive_receipt(read_json(archive_path))
+    archived_adapter_path = private_path(archive_path.parent / "adapter.bin",
+                                         "pre-rebuild adapter bytes")
+    archived_binding_path = private_path(archive_path.parent / "identity-binding.json",
+                                         "pre-rebuild adapter binding bytes")
+    if (digest(archive_bytes) != archive_ref["sha256"] or
+            archive["schema"] != "t64.rsp-plan10-pre-json-bound-validator-fix-adapter-archive.v1" or
+            archive["adapter_path"] != "build/gate/runner/t64-rsp-diagnostic" or
+            archive["binding_path"] != predecessor_ref["path"] or
+            archive["adapter_sha256"] != predecessor.get("rsp_adapter_identity", {}).get("executable_sha256") or
+            archive["binding_sha256"] != predecessor_ref["sha256"] or
+            digest(archived_adapter_path.read_bytes()) != archive["adapter_sha256"] or
+            archived_binding_path.read_bytes() != predecessor_bytes):
+        refuse("pre-rebuild adapter or its exact predecessor binding changed")
+
+    source_rows = refresh["adapter_source_scope"]
+    expected_sources = {
+        "runner/t64_rsp_diagnostic.c",
+        "runner/t64_rsp_diag_protocol.c",
+        "runner/t64_rsp_diag_protocol.h",
+        "runner/tests/test_rsp_diag_protocol.c",
+    }
+    if not isinstance(source_rows, list):
+        refuse("refreshed adapter source scope is not a list")
+    seen_sources: set[str] = set()
+    changed_from_annotation: list[str] = []
+    for row in source_rows:
+        row = object_with_keys(row, {"path", "sha256"}, "current adapter source row")
+        relative = row["path"]
+        if (relative not in expected_sources or relative in seen_sources or
+                re.fullmatch(r"[0-9a-f]{64}", str(row["sha256"])) is None):
+            refuse("refreshed adapter source scope is malformed or duplicated")
+        seen_sources.add(relative)
+        source_path = project_path(ROOT / relative, "current adapter source")
+        source_bytes = source_path.read_bytes()
+        if digest(source_bytes) != row["sha256"]:
+            refuse("current adapter bytes differ from their private source binding")
+        annotated_bytes = subprocess.run(
+            ["git", "-C", str(ROOT), "show", f"{source_annotation}:{relative}"],
+            check=True, capture_output=True, timeout=10).stdout
+        if source_bytes != annotated_bytes:
+            changed_from_annotation.append(relative)
+    if (seen_sources != expected_sources or
+            refresh["source_files_differ_from_annotation"] != sorted(changed_from_annotation) or
+            not changed_from_annotation):
+        refuse("refreshed adapter bytes do not explicitly distinguish adapter source from core annotation")
+
+    normal_ref = object_with_keys(refresh["normal_build_test_receipt"], {"path", "sha256"},
+                                  "validator-fix2 normal build and test receipt")
+    if normal_ref["path"] != "build/private-rsp-diagnostic/plan10-validator-fix2-build-test-receipt-v2.json":
+        refuse("refreshed adapter binding selects unexpected normal build evidence")
+    normal_path = private_path(ROOT / normal_ref["path"], "validator-fix2 normal build and test receipt")
+    normal_bytes = normal_path.read_bytes()
+    normal = object_with_keys(read_json(normal_path), {"commands", "schema"},
+                              "validator-fix2 normal build and test receipt")
+    if (digest(normal_bytes) != normal_ref["sha256"] or
+            normal["schema"] != "t64.rsp.validator-fix2-build-test-receipt.v1" or
+            set(normal["commands"]) != {"configure", "normal_build", "owning_ctest"}):
+        refuse("validator-fix2 normal build and test receipt changed")
+    normal_configure = object_with_keys(normal["commands"]["configure"],
+        {"argv", "exit", "output"}, "validator-fix2 normal configuration")
+    normal_configure_output_ref = object_with_keys(normal_configure["output"],
+        {"path", "sha256"}, "validator-fix2 normal configuration output")
+    normal_configure_path = private_path(ROOT / normal_configure_output_ref["path"],
+                                         "validator-fix2 normal configuration output")
+    normal_configure_output = normal_configure_path.read_bytes()
+    if (normal_configure["argv"] != ["cmake", "--preset", "gate"] or
+            normal_configure["exit"] != 0 or
+            normal_configure_output_ref["path"] != "build/private-rsp-diagnostic/plan10-validator-fix2-normal-configure.log" or
+            digest(normal_configure_output) != normal_configure_output_ref["sha256"]):
+        refuse("validator-fix2 normal configuration evidence changed")
+    normal_build = object_with_keys(normal["commands"]["normal_build"],
+        {"argv", "exit", "outputs", "scope"}, "validator-fix2 all-target normal build")
+    expected_normal_build_paths = [
+        "build/private-rsp-diagnostic/plan10-json-bound-validator-fix-normal-build.log",
+        "build/private-rsp-diagnostic/plan10-validator-fix2-normal-build.log",
+    ]
+    if (normal_build["argv"] != ["cmake", "--build", "--preset", "gate"] or
+            normal_build["exit"] != 0 or normal_build["scope"] != "all-targets" or
+            not isinstance(normal_build["outputs"], list) or
+            len(normal_build["outputs"]) != len(expected_normal_build_paths)):
+        refuse("validator-fix2 normal all-target build evidence is malformed")
+    normal_build_rows = [object_with_keys(row, {"path", "sha256"},
+        "validator-fix2 normal build output") for row in normal_build["outputs"]]
+    if [row["path"] for row in normal_build_rows] != expected_normal_build_paths:
+        refuse("validator-fix2 normal all-target build output paths changed")
+    for row, marker in zip(normal_build["outputs"], (
+            b"Linking C executable runner/t64-rsp-diagnostic",
+            b"Linking C executable runner/test_rsp_diag_protocol")):
+        row = object_with_keys(row, {"path", "sha256"}, "validator-fix2 normal build output")
+        output_path = private_path(ROOT / row["path"], "validator-fix2 normal build output")
+        output = output_path.read_bytes()
+        if digest(output) != row["sha256"] or marker not in output:
+            refuse("validator-fix2 normal all-target build output changed or omitted an owning target")
+    normal_test = object_with_keys(normal["commands"]["owning_ctest"],
+        {"argv", "exit", "output"}, "validator-fix2 owning normal CTest")
+    normal_test_output_ref = object_with_keys(normal_test["output"],
+        {"path", "sha256"}, "validator-fix2 owning normal CTest output")
+    normal_test_path = private_path(ROOT / normal_test_output_ref["path"],
+                                    "validator-fix2 owning normal CTest output")
+    normal_test_output = normal_test_path.read_bytes()
+    if (normal_test["argv"] != ["ctest", "--preset", "gate", "-R",
+            "^unit\\.rsp-diag-protocol$", "--output-on-failure"] or
+            normal_test["exit"] != 0 or
+            normal_test_output_ref["path"] != "build/private-rsp-diagnostic/plan10-validator-fix2-normal-ctest.log" or
+            digest(normal_test_output) != normal_test_output_ref["sha256"] or
+            b"100% tests passed" not in normal_test_output):
+        refuse("validator-fix2 owning normal CTest evidence changed")
+
+    asan_ref = object_with_keys(refresh["asan_evidence"], {"path", "sha256"},
+                                "validator-fix ASan evidence")
+    if asan_ref["path"] != "build/private-rsp-diagnostic/plan10-validator-fix2-asan-evidence-v2.json":
+        refuse("refreshed adapter binding selects unexpected ASan evidence")
+    asan_path = private_path(ROOT / asan_ref["path"], "validator-fix ASan evidence")
+    asan_bytes = asan_path.read_bytes()
+    asan = object_with_keys(read_json(asan_path), {"build", "configure", "schema", "test"},
+                            "validator-fix2 ASan evidence")
+    asan_test = object_with_keys(asan["test"],
+        {"argv", "environment", "exit", "output"},
+        "validator-fix2 ASan owning test")
+    asan_test_output_ref = object_with_keys(asan_test["output"],
+        {"path", "sha256"}, "validator-fix2 ASan owning test output")
+    asan_output_path = private_path(ROOT / asan_test_output_ref["path"],
+                                    "validator-fix2 ASan owning test output")
+    asan_output = asan_output_path.read_bytes()
+    if (digest(asan_bytes) != asan_ref["sha256"] or
+            asan["schema"] != "t64.rsp.validator-fix2-asan-evidence.v1"):
+        refuse("validator-fix2 ASan evidence receipt changed")
+    asan_configure = object_with_keys(asan["configure"], {"argv", "exit", "output"},
+                                     "validator-fix2 ASan configuration")
+    asan_configure_output_ref = object_with_keys(asan_configure["output"],
+        {"path", "sha256"}, "validator-fix2 ASan configuration output")
+    asan_configure_path = private_path(ROOT / asan_configure_output_ref["path"],
+                                       "validator-fix2 ASan configuration output")
+    asan_configure_output = asan_configure_path.read_bytes()
+    if (asan_configure["argv"] != ["cmake", "--preset", "asan"] or
+            asan_configure["exit"] != 0 or
+            asan_configure_output_ref["path"] != "build/private-rsp-diagnostic/plan10-validator-fix2-asan-configure.log" or
+            digest(asan_configure_output) != asan_configure_output_ref["sha256"]):
+        refuse("validator-fix2 ASan configuration evidence changed")
+    asan_build = object_with_keys(asan["build"], {"argv", "exit", "outputs", "scope"},
+                                 "validator-fix2 ASan all-target build")
+    expected_asan_build_paths = [
+        "build/private-rsp-diagnostic/plan10-json-bound-validator-fix-asan-build.log",
+        "build/private-rsp-diagnostic/plan10-validator-fix2-asan-build.log",
+    ]
+    if (asan_build["argv"] != ["cmake", "--build", "--preset", "asan"] or
+            asan_build["exit"] != 0 or asan_build["scope"] != "all-targets" or
+            not isinstance(asan_build["outputs"], list) or
+            len(asan_build["outputs"]) != len(expected_asan_build_paths)):
+        refuse("validator-fix2 ASan all-target build evidence is malformed")
+    asan_build_rows = [object_with_keys(row, {"path", "sha256"},
+        "validator-fix2 ASan build output") for row in asan_build["outputs"]]
+    if [row["path"] for row in asan_build_rows] != expected_asan_build_paths:
+        refuse("validator-fix2 ASan all-target build output paths changed")
+    for row, marker in zip(asan_build["outputs"], (
+            b"Linking C executable runner/t64-rsp-diagnostic",
+            b"Linking C executable runner/test_rsp_diag_protocol")):
+        row = object_with_keys(row, {"path", "sha256"}, "validator-fix2 ASan build output")
+        output_path = private_path(ROOT / row["path"], "validator-fix2 ASan build output")
+        output = output_path.read_bytes()
+        if digest(output) != row["sha256"] or marker not in output:
+            refuse("validator-fix2 ASan all-target output changed or omitted an owning target")
+    if (asan_test["argv"] != ["ctest", "--preset", "asan", "-R",
+            "^unit\\.rsp-diag-protocol$", "--output-on-failure"] or
+            asan_test["environment"] != {
+                "ASAN_OPTIONS": "detect_leaks=0:halt_on_error=1",
+                "UBSAN_OPTIONS": "halt_on_error=1:print_stacktrace=1"} or
+            asan_test["exit"] != 0 or
+            asan_test_output_ref["path"] != "build/private-rsp-diagnostic/plan10-validator-fix2-asan-ctest.log" or
+            digest(asan_output) != asan_test_output_ref["sha256"] or
+            b"100% tests passed" not in asan_output):
+        refuse("validator-fix2 all-target ASan build or owning regression did not pass")
+
+
+def git_is_ancestor(ancestor: str, descendant: str) -> bool:
+    result = subprocess.run(["git", "-C", str(ROOT), "merge-base", "--is-ancestor",
+                             ancestor, descendant], check=False, capture_output=True,
+                            timeout=10)
+    if result.returncode not in (0, 1):
+        refuse("reviewed source ancestry could not be verified")
+    return result.returncode == 0
+
+
+def verify_rsp_profile_policy(source_text: str, profile_id: str) -> None:
+    symbol = "ntsc_cart_4m_openipl3_rsp_functional_profile"
+    marker = symbol + " = {"
+    start = source_text.find(marker)
+    end = source_text.find("\n};", start)
+    if start < 0 or end < 0:
+        refuse("reviewed RSP functional profile descriptor is absent")
+    fields: dict[str, str] = {}
+    for line in source_text[start + len(marker):end].splitlines():
+        match = re.fullmatch(r"\s*\.([a-z_]+)\s*=\s*(.+?),\s*", line)
+        if match is None:
+            continue
+        if match.group(1) in fields:
+            refuse("reviewed RSP functional profile descriptor repeats a field")
+        fields[match.group(1)] = match.group(2)
+    expected = {
+        "profile_id": f'"{RSP_PROFILE_ID}"',
+        "console_qualification": '"unqualified-target-software-seed"',
+        "region": "T64_REGION_US",
+        "media_kind": "T64_MEDIA_CARTRIDGE",
+        "rdram_bytes": "T64_BASE_RAM_BYTES",
+        "expansion_bytes": "0u",
+        "peripheral_flags": "0u",
+        "save_kind": "T64_SAVE_NONE",
+        "boot_route": '"hle-pif+open-ipl3"',
+        "boot_status": '"prepared-rsp-functional-entry-unqualified"',
+        "guest_tick_unit": '"model-rsp-cycle"',
+        "timing_tier": '"functional-rsp-issue-model-policy-v1"',
+        "sp_model_version": '"rsp-functional-issue-dma-divider-integer-v1"',
+        "sp_register_policy": '"rsp-issue-status-dma-policy-v1"',
+        "dma_visibility_policy": '"rsp-one-beat-per-issue-v1"',
+        "descriptor_version": "3u",
+        "machine_model_version": "6u",
+        "state_serialization_version": "12u",
+    }
+    if profile_id != RSP_PROFILE_ID or any(fields.get(key) != value for key, value in expected.items()):
+        refuse("reviewed RSP profile identity, model, state, or execution policy changed")
 
 
 def verify_rsp_core_binding_v3(binding: dict[str, object], qualification_sha: str, build_identity: dict[str, object]) -> dict[str, object]:
@@ -469,11 +908,231 @@ def verify_rsp_core_binding_v4(binding: dict[str, object], qualification_sha: st
     return json.loads(current_runtime.stdout)
 
 
+def verify_rsp_core_binding_v5(binding: dict[str, object], qualification_sha: str,
+                               build_identity: dict[str, object]) -> dict[str, object]:
+    expected = {
+        "authorized_for_future_guest_use", "component", "core_model",
+        "core_source_scope", "core_state_schema", "current_identity",
+        "current_normal_evidence", "guest_execution_performed",
+        "historical_first_use", "identity_attempt_dir", "identity_command_receipts",
+        "original_identity", "preuse_source_closure", "profile_id",
+        "qualified_build_sha256", "qualified_rom_sha256",
+        "qualification_sha256", "reviewed_source_delta",
+        "rsp_adapter_identity", "rsp_runtime_identity", "schema", "status",
+        "supersedes_binding_v4", "verification_scope",
+    }
+    if isinstance(binding, dict) and "adapter_refresh" in binding:
+        expected.add("adapter_refresh")
+    binding = object_with_keys(binding, expected, "current RSP pre-use binding v5")
+    if (binding["schema"] != "t64.rsp-core-identity-binding.v5" or
+            binding["status"] != "preuse-verified-current-core-for-qualified-rsp-image" or
+            binding["component"] != "rsp" or
+            binding["qualification_sha256"] != qualification_sha or
+            binding["profile_id"] != build_identity.get("profile_id") or
+            binding["core_model"] != build_identity.get("core_model") or
+            binding["core_state_schema"] != build_identity.get("core_state_schema") or
+            binding["guest_execution_performed"] is not False or
+            binding["authorized_for_future_guest_use"] is not True):
+        refuse("current v5 RSP binding does not match the sealed qualification")
+
+    prior_ref = object_with_keys(binding["supersedes_binding_v4"], {"path", "sha256"},
+                                 "historical v4 RSP binding")
+    if prior_ref["path"] != "build/private-rsp-diagnostic/current-core-identity-binding-v4.json":
+        refuse("current v5 binding does not preserve the historical v4 receipt")
+    prior_path = private_path(ROOT / prior_ref["path"], "historical v4 RSP binding")
+    prior_bytes = prior_path.read_bytes()
+    if digest(prior_bytes) != prior_ref["sha256"]:
+        refuse("historical v4 RSP binding changed")
+    prior = read_json(prior_path)
+    if (prior.get("schema") != "t64.rsp-core-identity-binding.v4" or
+            prior.get("status") != "preuse-verified-current-core-for-qualified-rsp-image" or
+            prior.get("component") != "rsp" or
+            prior.get("qualification_sha256") != qualification_sha or
+            prior.get("original_identity") != binding["original_identity"]):
+        refuse("historical v4 RSP binding is not an intact predecessor")
+
+    qualification_path = private_path(ROOT / "build/private-rsp-diagnostic/qualification.json",
+                                      "original RSP qualification")
+    if private_digest(qualification_path, "original RSP qualification") != qualification_sha:
+        refuse("current v5 binding changed the original qualification")
+    v2_path = private_path(ROOT / "build/private-rsp-diagnostic/current-core-identity-binding-v2.json",
+                           "immutable v2 RSP identity binding")
+    v2 = read_json(v2_path)
+    if (v2.get("schema") != "t64.rsp-core-identity-binding.v2" or
+            binding["original_identity"] != v2.get("current_identity")):
+        refuse("current v5 binding changed the immutable v2 core identity")
+
+    qualified_build_path = private_path(ROOT / "build/private-rsp-diagnostic/qualified-build.json",
+                                        "original qualified RSP build")
+    qualified_build = read_json(qualified_build_path)
+    if (private_digest(qualified_build_path, "original qualified RSP build") !=
+            binding["qualified_build_sha256"] or
+            qualified_build.get("qualification_sha256") != qualification_sha or
+            qualified_build.get("guest_rom_executed") is not False):
+        refuse("current v5 binding changed the original unexecuted build")
+    rom_record = qualified_build.get("artifacts", {}).get("rom", {})
+    if rom_record.get("sha256") != binding["qualified_rom_sha256"]:
+        refuse("current v5 binding changed the qualified ROM identity")
+    rom_path = private_path(ROOT / str(rom_record.get("path", "")), "original qualified RSP ROM")
+    if private_digest(rom_path, "original qualified RSP ROM") != binding["qualified_rom_sha256"]:
+        refuse("original qualified RSP ROM bytes changed")
+
+    v4_identity = object_with_keys(prior.get("current_identity"),
+                                   {"core_build_sha256", "executable_sha256", "path", "source_revision"},
+                                   "historical v4 core identity")
+    baseline = v4_identity["source_revision"]
+    source_delta = object_with_keys(binding["reviewed_source_delta"],
+                                    {"baseline_revision", "changed_paths", "tested_source_revision"},
+                                    "reviewed RSP source delta")
+    if source_delta["baseline_revision"] != baseline or source_delta["tested_source_revision"] != PLAN10_TESTED_SOURCE_REVISION:
+        refuse("current v5 binding does not pin the reviewed Plan10 source interval")
+    changed_paths = reviewed_plan10_source_delta(baseline, source_delta["tested_source_revision"])
+    if source_delta["changed_paths"] != changed_paths:
+        refuse("current v5 source delta omits or adds reviewed source changes")
+
+    for row in prior.get("core_source_scope", []):
+        if not isinstance(row, dict) or set(row) != {"path", "sha256"}:
+            refuse("historical v4 source scope is malformed")
+        old_bytes = subprocess.run(["git", "-C", str(ROOT), "show",
+                                    f"{baseline}:{row['path']}"], check=True,
+                                   capture_output=True, timeout=10).stdout
+        if digest(old_bytes) != row["sha256"]:
+            refuse("historical v4 source row does not match its reviewed source revision")
+    prior_paths = {row["path"] for row in prior.get("core_source_scope", [])}
+    if len(prior_paths) != len(prior.get("core_source_scope", [])):
+        refuse("historical v4 source scope contains duplicate paths")
+    expected_paths = prior_paths | set(changed_paths)
+    if "adapter_refresh" in binding:
+        expected_paths -= {
+            "runner/t64_rsp_diagnostic.c",
+            "runner/t64_rsp_diag_protocol.c",
+            "runner/t64_rsp_diag_protocol.h",
+            "runner/tests/test_rsp_diag_protocol.c",
+        }
+    rows = validate_scoped_source_rows(binding["core_source_scope"], expected_paths)
+
+    tested = source_delta["tested_source_revision"]
+    if not git_is_ancestor(tested, "HEAD"):
+        refuse("reviewed source revision is not in the current checkout history")
+    identity = object_with_keys(binding["current_identity"],
+                                {"core_build_sha256", "executable_sha256", "path", "source_revision"},
+                                "current production core identity")
+    source_annotation = identity["source_revision"]
+    if (identity["path"] != "build/gate/runner/t64-cpu-diagnostic" or
+            not isinstance(source_annotation, str) or re.fullmatch(r"[0-9a-f]{40}", source_annotation) is None or
+            not isinstance(identity["core_build_sha256"], str) or
+            re.fullmatch(r"[0-9a-f]{64}", identity["core_build_sha256"]) is None):
+        refuse("current v5 core artifact identity is malformed")
+    if "adapter_refresh" in binding:
+        verify_v5_adapter_refresh(binding, source_annotation)
+    if not git_is_ancestor(source_annotation, "HEAD"):
+        refuse("current core source annotation is not in checkout history")
+    adapter_refresh_enabled = "adapter_refresh" in binding
+    allowed_adapter_paths = V5_ADAPTER_SOURCE_PATHS if adapter_refresh_enabled else frozenset()
+    annotation_paths = set(git_names("diff", "--name-only", tested, source_annotation,
+                                    "--", *PRODUCTION_SOURCE_PREFIXES))
+    verify_v5_adapter_annotation_delta(annotation_paths, adapter_refresh_enabled)
+    later_committed_paths = set(git_names("diff", "--name-only", tested, "HEAD",
+                                         "--", *PRODUCTION_SOURCE_PREFIXES))
+    worktree_status = subprocess.run(
+        ["git", "-C", str(ROOT), "status", "--porcelain=v1", "--untracked-files=all",
+         "--", *PRODUCTION_SOURCE_PREFIXES], check=True, capture_output=True,
+        text=True, timeout=10).stdout.splitlines()
+    worktree_paths = {line[3:] for line in worktree_status if len(line) >= 4}
+    verify_v5_adapter_annotation_delta(later_committed_paths | worktree_paths,
+                                       adapter_refresh_enabled)
+    for relative, expected_sha in rows.items():
+        source = project_path(ROOT / relative, "current reviewed RSP source").read_bytes()
+        tested_bytes = subprocess.run(["git", "-C", str(ROOT), "show", f"{tested}:{relative}"],
+                                      check=True, capture_output=True, timeout=10).stdout
+        annotated_bytes = subprocess.run(["git", "-C", str(ROOT), "show", f"{source_annotation}:{relative}"],
+                                         check=True, capture_output=True, timeout=10).stdout
+        if source != tested_bytes or source != annotated_bytes or digest(source) != expected_sha:
+            refuse("current RSP production source differs from the pinned reviewed bytes")
+
+    evidence_expected = {
+        "build/gate/05-09-final-normal-configure.log",
+        "build/gate/05-09-final-normal-build.log",
+        "build/gate/05-09-final-gate.log",
+        "build/gate/05-09-review-final-ctest.log",
+    }
+    evidence = binding["current_normal_evidence"]
+    if not isinstance(evidence, list) or {row.get("path") for row in evidence if isinstance(row, dict)} != evidence_expected:
+        refuse("current v5 normal build evidence is incomplete")
+    for row in evidence:
+        row = object_with_keys(row, {"path", "sha256"}, "current v5 normal build evidence")
+        path = project_path(ROOT / row["path"], "current v5 normal build evidence", 16 * 1024 * 1024)
+        content = path.read_bytes()
+        if digest(content) != row["sha256"]:
+            refuse("current v5 normal build evidence changed")
+        if row["path"].endswith("final-gate.log") and b"100% tests passed" not in content:
+            refuse("current v5 final native gate evidence is incomplete")
+        if row["path"].endswith("review-final-ctest.log") and b"100% tests passed" not in content:
+            refuse("current v5 owning native regression evidence is incomplete")
+
+    history = object_with_keys(binding["historical_first_use"],
+                               {"adapter_exit", "classification", "historical_files",
+                                "original_launcher_failure_preserved", "outcome", "status"},
+                               "preserved historical RSP first use")
+    if (history != prior.get("historical_first_use") or history["outcome"] != "refused" or
+            history["classification"] != "refused" or history["original_launcher_failure_preserved"] is not True):
+        refuse("v5 binding did not preserve the original refused first use")
+    for row in history["historical_files"]:
+        row = object_with_keys(row, {"path", "sha256"}, "historical RSP first-use file")
+        path = private_path(ROOT / row["path"], "historical RSP first-use file")
+        if private_digest(path, "historical RSP first-use file") != row["sha256"]:
+            refuse("historical RSP first-use evidence changed")
+
+    runtime = object_with_keys(binding["rsp_runtime_identity"],
+                               {"core_build_sha256", "core_source_revision",
+                                "profile_descriptor_sha256", "profile_id"},
+                               "current RSP runtime identity")
+    if (runtime["core_build_sha256"] != identity["core_build_sha256"] or
+            runtime["core_source_revision"] != source_annotation or
+            runtime["profile_id"] != build_identity.get("profile_id") or
+            not isinstance(runtime["profile_descriptor_sha256"], str) or
+            re.fullmatch(r"[0-9a-f]{64}", runtime["profile_descriptor_sha256"]) is None or
+            identity["core_build_sha256"] == build_identity.get("core_build_sha256")):
+        refuse("current RSP runtime identity differs from the pre-use binding")
+
+    core_identity_json = verify_v5_identity_receipts(
+        binding, read_json(qualification_path)["closure"]["sha256"],
+        identity, runtime, source_annotation)
+    adapter_record = object_with_keys(binding["rsp_adapter_identity"],
+                                      {"executable_sha256", "path"}, "current RSP adapter")
+    adapter_path = project_path(ROOT / "build/gate/runner/t64-rsp-diagnostic",
+                                "current RSP adapter", 512 * 1024 * 1024)
+    core_path = project_path(ROOT / identity["path"], "current core identity reader",
+                             512 * 1024 * 1024)
+
+    # Executable hashes and all source/input receipts have been checked above.
+    current_runtime = subprocess.run([str(adapter_path), "--runtime-identity-json"],
+                                     cwd=ROOT, stdin=subprocess.DEVNULL,
+                                     capture_output=True, timeout=10, check=True)
+    current_cpu = subprocess.run([str(core_path), "--compat-v2", "--runtime-identity-json"],
+                                 cwd=ROOT, stdin=subprocess.DEVNULL,
+                                 capture_output=True, timeout=10, check=True)
+    if len(current_runtime.stdout) > 4096 or len(current_runtime.stderr) > 4096 or len(current_cpu.stdout) > 4096 or len(current_cpu.stderr) > 4096:
+        refuse("current identity output exceeds its capture limit")
+    if (json.loads(current_runtime.stdout) != runtime or
+            json.loads(current_cpu.stdout).get("core_build_sha256") != runtime["core_build_sha256"] or
+            json.loads(current_cpu.stdout).get("source_revision") != source_annotation or
+            core_identity_json is None or
+            core_identity_json.get("core_build_sha256") != runtime["core_build_sha256"] or
+            core_identity_json.get("source_revision") != source_annotation or
+            digest(adapter_path.read_bytes()) != adapter_record["executable_sha256"] or
+            digest(core_path.read_bytes()) != identity["executable_sha256"]):
+        refuse("current RSP and CPU identity readers disagree with the verified v5 binding")
+    return runtime
+
+
 def verify_rebuilt_core_binding(binding_path: pathlib.Path, qualification_sha: str, build_identity: dict[str, object]) -> dict[str, object]:
     binding_path = private_path(binding_path, "current core identity binding")
     if stat.S_IMODE(binding_path.stat().st_mode) != 0o600:
         refuse("current core identity binding is not owner-only")
     binding = read_json(binding_path)
+    if isinstance(binding, dict) and binding.get("schema") == "t64.rsp-core-identity-binding.v5":
+        return verify_rsp_core_binding_v5(binding, qualification_sha, build_identity)
     if isinstance(binding, dict) and binding.get("schema") == "t64.rsp-core-identity-binding.v4":
         return verify_rsp_core_binding_v4(binding, qualification_sha, build_identity)
     if isinstance(binding, dict) and binding.get("schema") == "t64.rsp-core-identity-binding.v3":
@@ -556,9 +1215,17 @@ def verify_rebuilt_core_binding(binding_path: pathlib.Path, qualification_sha: s
 def verify_current_core_identity(build_identity: dict[str, object], qualification_sha: str) -> None:
     identity_exe = ROOT / "build/gate/runner/t64-cpu-diagnostic"
     current_sha = private_digest(identity_exe, "current core identity executable")
+    v5_refresh = ROOT / "build/private-rsp-diagnostic/current-core-identity-binding-v5-refresh3.json"
+    v5_binding = ROOT / "build/private-rsp-diagnostic/current-core-identity-binding-v5.json"
     v4_binding = ROOT / "build/private-rsp-diagnostic/current-core-identity-binding-v4.json"
     v3_binding = ROOT / "build/private-rsp-diagnostic/current-core-identity-binding-v3.json"
     v2_binding = ROOT / "build/private-rsp-diagnostic/current-core-identity-binding-v2.json"
+    if v5_refresh.is_file() and not v5_refresh.is_symlink():
+        verify_rebuilt_core_binding(v5_refresh, qualification_sha, build_identity)
+        return
+    if v5_binding.is_file() and not v5_binding.is_symlink():
+        verify_rebuilt_core_binding(v5_binding, qualification_sha, build_identity)
+        return
     if v4_binding.is_file() and not v4_binding.is_symlink():
         # The v4 verifier checks the reader hash and source provenance before
         # invoking it, then validates the intentional current-core rebind.
@@ -580,7 +1247,7 @@ def verify_current_core_identity(build_identity: dict[str, object], qualificatio
         refuse("current production core build identity differs from the qualified RSP core")
 
 
-def verify_preuse(path: pathlib.Path) -> None:
+def verify_preuse(path: pathlib.Path, *, verify_current_identity: bool = True) -> None:
     root = ROOT / "build/private-rsp-diagnostic"
     if root.is_symlink() or not root.is_dir() or stat.S_IMODE(root.stat().st_mode) != 0o700:
         refuse("private RSP root is missing or not owner-only")
@@ -726,13 +1393,18 @@ def verify_preuse(path: pathlib.Path) -> None:
         if private_digest(tool_path, "RSP build tool/runtime") != row["sha256"]:
             refuse("RSP build tool/runtime bytes changed")
     build_identity = closure.get("build_identity")
-    if not isinstance(build_identity, dict) or build_identity.get("profile_id") != "ntsc-cart-4m-openipl3-rsp-functional-v1" or build_identity.get("core_model") != 6 or build_identity.get("core_state_schema") != 12:
+    if not isinstance(build_identity, dict) or build_identity.get("profile_id") != RSP_PROFILE_ID or build_identity.get("core_model") != 6 or build_identity.get("core_state_schema") != 12:
         refuse("RSP build profile or core state identity differs")
     expected_profile = {"id": "ntsc-cart-4m-openipl3-rsp-functional-v1", "region": "NTSC", "media": "cartridge", "rdram_bytes": 4 * 1024 * 1024, "boot_asset_sha256": BOOT_SHA, "component": "rsp-functional-diagnostic", "expansion": "none", "peripherals": "none"}
     if build_identity.get("profile_sha256") != digest(canonical(expected_profile)):
         refuse("RSP profile digest does not match its private profile fields")
-    verify_current_core_identity(build_identity, digest(qualification_path.read_bytes()))
-    print("PASS: independent RSP source, assets, tools, locks, and build identity verified before use")
+    profile_source = project_path(ROOT / "core/t64_machine.c", "current RSP functional profile source")
+    verify_rsp_profile_policy(profile_source.read_text(encoding="utf-8"), build_identity["profile_id"])
+    if verify_current_identity:
+        verify_current_core_identity(build_identity, digest(qualification_path.read_bytes()))
+        print("PASS: independent RSP source, assets, tools, locks, and build identity verified before use")
+    else:
+        print("PASS: independent RSP source, assets, tools, and locks verified; no identity executable was invoked")
 
 
 def verify_fixture(path: pathlib.Path) -> None:
@@ -774,14 +1446,19 @@ def main() -> int:
     parser.add_argument("--verify-fixture", type=pathlib.Path)
     parser.add_argument("--verify-closure-fixture", type=pathlib.Path)
     parser.add_argument("--verify", type=pathlib.Path)
+    parser.add_argument("--verify-source-closure", type=pathlib.Path)
     parser.add_argument("--selftest", action="store_true")
     parser.add_argument("--workspace", type=pathlib.Path)
     args = parser.parse_args()
     try:
         if args.verify is not None:
-            if args.verify_fixture is not None or args.verify_closure_fixture is not None or args.selftest or args.workspace is not None:
+            if args.verify_source_closure is not None or args.verify_fixture is not None or args.verify_closure_fixture is not None or args.selftest or args.workspace is not None:
                 refuse("--verify cannot be combined with fixture or selftest options")
             verify_preuse(args.verify)
+        elif args.verify_source_closure is not None:
+            if args.verify_fixture is not None or args.verify_closure_fixture is not None or args.selftest or args.workspace is not None:
+                refuse("--verify-source-closure cannot be combined with fixture or selftest options")
+            verify_preuse(args.verify_source_closure, verify_current_identity=False)
         elif args.selftest:
             if args.workspace is None or args.verify_fixture is not None or args.verify_closure_fixture is not None:
                 refuse("authored selftest requires --workspace")
