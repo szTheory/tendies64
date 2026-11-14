@@ -580,7 +580,9 @@ static inline bool t64_has_vr4300_cpu_state(const t64_machine *machine) {
           (machine->profile.machine_model_version == 4u &&
            machine->profile.state_serialization_version == 10u) ||
           (machine->profile.machine_model_version == 5u &&
-           machine->profile.state_serialization_version == 11u));
+           machine->profile.state_serialization_version == 11u) ||
+          (machine->profile.machine_model_version == 6u &&
+           machine->profile.state_serialization_version == 12u));
 }
 
 static inline bool t64_has_cpu_compat_extension_policy(

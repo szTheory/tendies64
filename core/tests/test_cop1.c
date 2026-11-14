@@ -899,6 +899,33 @@ static void test_compat_v2_fr0_odd_register_aliases(
   }
 }
 
+static void test_rsp_functional_profile_cop1_transfer(
+    const t64_host_allocator *allocator, const uint8_t *asset) {
+  const t64_profile_descriptor *profile = NULL;
+  t64_machine *machine;
+  uint32_t opcode = encode_cop1_transfer(6u, 2u, 31u); /* CTC1 v0,FCR31 */
+
+  T64_CHECK(t64_profile_lookup("ntsc-cart-4m-openipl3-rsp-functional-v1",
+                               &profile) == T64_STATUS_OK);
+  T64_CHECK(profile != NULL);
+  if (profile == NULL) return;
+  T64_CHECK(profile->machine_model_version == 6u);
+  T64_CHECK(profile->state_serialization_version == 12u);
+  machine = make_machine(allocator, profile, asset);
+  T64_CHECK(machine != NULL);
+  if (machine == NULL) return;
+
+  machine->cpu.gpr[2] = FCR31_CONDITION;
+  replay_fpu_instruction(machine, opcode);
+  T64_CHECK(advance_tick(machine, UINT64_C(1)));
+  T64_CHECK(machine->cpu.last_pc_full == TEST_PC);
+  T64_CHECK(machine->cpu.last_opcode == opcode);
+  T64_CHECK(machine->cpu.attempt_outcome == T64_CPU_ATTEMPT_RETIRED);
+  T64_CHECK(machine->cpu.fcr31 == FCR31_CONDITION);
+  T64_CHECK((machine->cpu.cp0[13] & UINT64_C(0x8000007c)) == 0u);
+  t64_machine_destroy(machine);
+}
+
 static void test_arithmetic_tie_rounding(
     const t64_host_allocator *allocator,
     const t64_profile_descriptor *profile, const uint8_t *asset) {
@@ -2079,6 +2106,7 @@ int main(int argc, char **argv) {
   }
   test_branch_forms(&allocator, profile, asset);
   test_branch_exceptions(&allocator, profile, asset);
+  test_rsp_functional_profile_cop1_transfer(&allocator, asset);
   test_control_registers(&allocator, profile, asset);
   test_control_register_walking_bits(&allocator, profile, asset);
   test_register_lanes(&allocator, profile, asset);
