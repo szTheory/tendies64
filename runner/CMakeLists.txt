@@ -148,6 +148,22 @@ target_link_libraries(t64-rsp-diagnostic PRIVATE
   t64_rsp_diag_protocol t64_verified_input t64_common t64_core)
 t64_target_warnings(t64-rsp-diagnostic)
 
+# Rights-cleared authored CPU/SP/RSP smoke consumer. It takes only the exact
+# ROM digest produced by the local authored fixture builder.
+add_executable(t64-rsp-smoke t64_rsp_smoke.c)
+target_compile_definitions(t64-rsp-smoke PRIVATE ${T64_HOST_DEFS})
+target_include_directories(t64-rsp-smoke PRIVATE ${CMAKE_SOURCE_DIR}/core)
+target_link_libraries(t64-rsp-smoke PRIVATE t64_common t64_core)
+t64_target_warnings(t64-rsp-smoke)
+add_test(NAME integration.rsp-rom-smoke
+  COMMAND ${CMAKE_COMMAND} -E env
+    "T64_RSP_SMOKE_RUNNER=$<TARGET_FILE:t64-rsp-smoke>"
+    sh ${CMAKE_SOURCE_DIR}/scripts/test-rsp-smoke.sh)
+set_tests_properties(integration.rsp-rom-smoke PROPERTIES
+  LABELS integration TIMEOUT 120 RUN_SERIAL TRUE
+  WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}
+  ENVIRONMENT "PYTHONDONTWRITEBYTECODE=1")
+
 # Test-only fault injection stays out of the supervisor's production library.
 add_library(t64_verified_input_test STATIC t64_verified_input.c)
 target_compile_definitions(t64_verified_input_test PRIVATE

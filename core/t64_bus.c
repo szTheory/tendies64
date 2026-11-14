@@ -392,14 +392,16 @@ t64_status t64_bus_read(t64_machine *machine, uint32_t address,
     if (width != 4u) {
       return T64_STATUS_BUS_UNSUPPORTED;
     }
-    status = t64_warm_device_read(machine, address, width, &value);
-    if (status == T64_STATUS_OK) {
-      *value_out = value;
-      trace_bus(machine, address, width, value, false);
-      return T64_STATUS_OK;
-    }
-    if (status != T64_STATUS_BUS_UNSUPPORTED) {
-      return status;
+    if (!t64_has_rsp_functional_profile(machine)) {
+      status = t64_warm_device_read(machine, address, width, &value);
+      if (status == T64_STATUS_OK) {
+        *value_out = value;
+        trace_bus(machine, address, width, value, false);
+        return T64_STATUS_OK;
+      }
+      if (status != T64_STATUS_BUS_UNSUPPORTED) {
+        return status;
+      }
     }
     status = t64_sp_read_register(machine, address, &value);
     if (status != T64_STATUS_OK) {
@@ -536,12 +538,14 @@ t64_status t64_bus_write(t64_machine *machine, uint32_t address,
     if (width != 4u) {
       return T64_STATUS_BUS_UNSUPPORTED;
     }
-    status = t64_warm_device_write(machine, address, width, value);
-    if (status != T64_STATUS_BUS_UNSUPPORTED) {
-      if (status == T64_STATUS_OK) {
-        trace_bus(machine, address, width, value, true);
+    if (!t64_has_rsp_functional_profile(machine)) {
+      status = t64_warm_device_write(machine, address, width, value);
+      if (status != T64_STATUS_BUS_UNSUPPORTED) {
+        if (status == T64_STATUS_OK) {
+          trace_bus(machine, address, width, value, true);
+        }
+        return status;
       }
-      return status;
     }
     status = t64_sp_write_register(machine, address, value);
     if (status == T64_STATUS_OK) {

@@ -135,7 +135,8 @@ harness.rsp-qualification
 harness.rsp-build
 harness.rsp-run
 harness.rsp-divider-audit
-repo.rsp-no-hle'
+repo.rsp-no-hle
+integration.rsp-rom-smoke'
 
 CPU_COVERAGE_OPCODES='ADD
 ADDU
