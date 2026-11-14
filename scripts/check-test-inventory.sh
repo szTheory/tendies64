@@ -123,8 +123,10 @@ unit.core.softfloat-isolation'
 
 PHASE05_TESTS='unit.core.rsp-tracer
 unit.core.rsp-control
+unit.rsp-diag-protocol
 harness.rsp-qualification
-harness.rsp-build'
+harness.rsp-build
+harness.rsp-run'
 
 CPU_COVERAGE_OPCODES='ADD
 ADDU

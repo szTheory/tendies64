@@ -54,7 +54,9 @@ add_test(NAME harness.rsp-qualification
   COMMAND python3 -B ${CMAKE_SOURCE_DIR}/scripts/tests/test_rsp_qualification.py)
 add_test(NAME harness.rsp-build
   COMMAND python3 -B ${CMAKE_SOURCE_DIR}/scripts/tests/test_rsp_build.py)
-set_tests_properties(harness.rsp-qualification harness.rsp-build PROPERTIES
+add_test(NAME harness.rsp-run
+  COMMAND python3 -B ${CMAKE_SOURCE_DIR}/scripts/tests/test_rsp_run.py)
+set_tests_properties(harness.rsp-qualification harness.rsp-build harness.rsp-run PROPERTIES
   LABELS runner TIMEOUT 120
   ENVIRONMENT "PYTHONDONTWRITEBYTECODE=1")
 

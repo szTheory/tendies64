@@ -52,3 +52,32 @@ identity; it does not grant rights.
 The build and composition check do not execute the guest ROM. A successful
 composition record is not a startup result, an opcode score, or an accuracy
 claim. Private source-derived evidence is not uploaded by tests or CI.
+
+## Run and result contract
+
+The RSP adapter uses its own closed `t64.rsp.inventory` schema version 1 and
+`t64.rsp.batch` schema version 1. Each inventory and member result is bound to
+the RSP component, source projection, profile descriptor, core build, ROM,
+boot asset, registration, and exact selector. The RSP schemas do not change
+the frozen CPU inventory or result formats.
+
+Member outcomes are `pass`, `guest-fail`, `refused`, `incomplete`, `timeout`,
+and `harness-error`. A refusal preserves the operation and reason; it is not a
+passing result. A pass requires the C adapter's authenticated terminal
+retirement evidence, including a retired delay slot. The C adapter owns exact
+membership aggregation and rejects missing, duplicate, extra, cross-component,
+or identity-mismatched member records. Python orchestrates private local runs
+and delegates result completeness to that C adapter.
+
+`--run-local --local-only` runs one selector in a fresh headless machine. It
+uses a 10,000,000 guest-tick bound, 16-tick stepping, a 10-second child wall
+limit, a 12-second outer deadline, and a 4,096-byte output capture limit. If
+the outer deadline expires, the attempt remains a timeout even if process
+cleanup observes a zero exit. The private runner records actual reached stage
+and outcome; building or composing an image alone never counts as guest use.
+
+The local wrapper supports `--run-one`, `--run-all`, and
+`--verify-complete`, with explicit adapter and private run-directory paths.
+Guest execution is refused in CI or required-fixture mode. Qualified ROMs,
+selectors, identities, and per-member outcomes remain in owner-only ignored
+evidence.

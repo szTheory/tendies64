@@ -785,6 +785,276 @@ def bind_current_core() -> None:
     print("PASS: rebuilt current core identity bound to the original RSP qualification and verified all-target build evidence")
 
 
+def bind_current_rsp_execution() -> None:
+    """Create a new adapter binding from existing build and equivalence evidence."""
+    private_root = owner_only(ROOT / "build/private-rsp-diagnostic")
+    qualification_path = private_root / "qualification.json"
+    prior_path = private_root / "current-core-identity-binding-v2.json"
+    output_path = private_root / "current-core-identity-binding-v3.json"
+    if output_path.exists() or output_path.is_symlink():
+        refuse("refusing to overwrite current RSP execution binding")
+    qualification = read_json(qualification_path, "RSP qualification receipt")
+    prior = read_json(prior_path, "immutable prior core identity binding")
+    if qualification.get("status") != "qualified" or qualification.get("component") != "rsp" or prior.get("schema") != "t64.rsp-core-identity-binding.v2" or prior.get("qualification_sha256") != digest(qualification_path.read_bytes()):
+        refuse("prior core binding does not descend from this qualified RSP receipt")
+
+    cpu_exe = ROOT / "build/gate/runner/t64-cpu-diagnostic"
+    rsp_exe = ROOT / "build/gate/runner/t64-rsp-diagnostic"
+    if cpu_exe.is_symlink() or not cpu_exe.is_file() or rsp_exe.is_symlink() or not rsp_exe.is_file():
+        refuse("current core identity reader or RSP adapter is missing")
+    cpu_run = subprocess.run([str(cpu_exe), "--compat-v2", "--runtime-identity-json"], cwd=ROOT, check=True, capture_output=True, text=True, timeout=10)
+    rsp_run = subprocess.run([str(rsp_exe), "--runtime-identity-json"], cwd=ROOT, check=True, capture_output=True, text=True, timeout=10)
+    cpu_identity, rsp_identity = json.loads(cpu_run.stdout), json.loads(rsp_run.stdout)
+    head = subprocess.run(["git", "rev-parse", "HEAD"], cwd=ROOT, check=True, capture_output=True, text=True).stdout.strip()
+    if cpu_identity.get("source_revision") != head or rsp_identity.get("core_source_revision") != head:
+        refuse("current executable source annotation differs from HEAD")
+    expected_build = qualification.get("build_identity", {}).get("core_build_sha256")
+    if cpu_identity.get("core_build_sha256") != expected_build or rsp_identity.get("core_build_sha256") != expected_build:
+        refuse("current executable core build differs from the qualified build")
+    if rsp_identity.get("profile_id") != qualification.get("profile_id") or rsp_identity.get("profile_descriptor_sha256") != "7159783264cd704ecfd44344fbd68a9b292e953c5cadbe65926a5d3ae99b3281":
+        refuse("RSP adapter reports a different profile descriptor")
+
+    # Task 1 changed only the CPU protocol implementation through the tested
+    # shared helper. Keep that single, byte-pinned exception separate from the
+    # production-core scope, whose files must still match the reviewed baseline.
+    exception_path = "runner/t64_cpu_diag_protocol.c"
+    prior_rows = prior.get("core_source_scope")
+    if not isinstance(prior_rows, list) or not prior_rows:
+        refuse("prior production core scope is empty")
+    exception_rows = [row for row in prior_rows if row.get("path") == exception_path]
+    source_rows = [row for row in prior_rows if row.get("path") != exception_path]
+    if len(exception_rows) != 1:
+        refuse("prior scope does not contain exactly one CPU protocol extraction row")
+    for row in source_rows:
+        relative = pathlib.PurePosixPath(str(row.get("path", "")))
+        if relative.is_absolute() or ".." in relative.parts:
+            refuse("production source path is malformed")
+        current = (ROOT / relative).read_bytes()
+        baseline = subprocess.run(["git", "show", f"{CORE_BASE_REVISION}:{relative.as_posix()}"], cwd=ROOT, check=True, capture_output=True).stdout
+        if digest(current) != row.get("sha256") or digest(current) != digest(baseline):
+            refuse(f"reviewed production core source changed: {relative}")
+    baseline_file = private_root / "plan04/cpu-protocol-source-baseline.sha256"
+    baseline_rows = [line.split() for line in baseline_file.read_text(encoding="utf-8").splitlines() if line.endswith(" " + exception_path)]
+    if len(baseline_rows) != 1 or len(baseline_rows[0]) != 2:
+        refuse("saved CPU protocol baseline digest is missing")
+    extraction_commit = subprocess.run(["git", "rev-parse", "e6b5fd1^{commit}"], cwd=ROOT, check=True, capture_output=True, text=True).stdout.strip()
+    extracted = subprocess.run(["git", "show", f"{extraction_commit}:{exception_path}"], cwd=ROOT, check=True, capture_output=True).stdout
+    current_protocol = (ROOT / exception_path).read_bytes()
+    if current_protocol != extracted:
+        refuse("CPU protocol source differs from the tested shared-helper extraction commit")
+    evidence = []
+    for relative in ("build/private-rsp-diagnostic/plan04/task1-post-gate-ctest.log", "build/private-rsp-diagnostic/plan04/task1-post-asan-ctest.log"):
+        path = ROOT / relative
+        content = path.read_text(encoding="utf-8")
+        if "3/3 Test" not in content or "Total Test time" not in content:
+            refuse("CPU protocol extraction regression evidence is not a full 3/3 run")
+        evidence.append({"path": relative, "sha256": digest(path.read_bytes())})
+    old_reader = private_root / "archived-plan03-identity-reader"
+    old_reader_sha = digest(old_reader.read_bytes())
+    if old_reader_sha != prior.get("current_identity", {}).get("executable_sha256"):
+        refuse("archived Plan 03 reader differs from the immutable v2 binding")
+    cpu_sha = digest(cpu_exe.read_bytes())
+    if cpu_sha == old_reader_sha:
+        refuse("current identity reader unexpectedly equals its archived historical binary")
+    adapter_sha = digest(rsp_exe.read_bytes())
+
+    binding = {
+        "schema": "t64.rsp-core-identity-binding.v3",
+        "status": "verified-current-core-artifact",
+        "component": "rsp",
+        "qualification_sha256": digest(qualification_path.read_bytes()),
+        "supersedes_binding": {"path": prior_path.relative_to(ROOT).as_posix(), "sha256": digest(prior_path.read_bytes())},
+        "profile_id": qualification["build_identity"]["profile_id"],
+        "core_model": qualification["build_identity"]["core_model"],
+        "core_state_schema": qualification["build_identity"]["core_state_schema"],
+        "original_identity": prior["original_identity"],
+        "current_identity": {"path": cpu_exe.relative_to(ROOT).as_posix(), "executable_sha256": cpu_sha, "core_build_sha256": cpu_identity["core_build_sha256"], "source_revision": cpu_identity["source_revision"]},
+        "rsp_runtime_identity": rsp_identity,
+        "rsp_adapter_identity": {"path": rsp_exe.relative_to(ROOT).as_posix(), "executable_sha256": adapter_sha},
+        "production_core_baseline_revision": CORE_BASE_REVISION,
+        "core_source_scope": [{"path": row["path"], "sha256": row["sha256"]} for row in source_rows],
+        "cpu_protocol_extraction": {"path": exception_path, "baseline_sha256": baseline_rows[0][0], "current_sha256": digest(current_protocol), "commit": extraction_commit, "status": "tested-canonical-output-preserving-shared-helper-extraction", "equivalence_evidence": evidence},
+        "historical_reader": {"path": old_reader.relative_to(ROOT).as_posix(), "executable_sha256": old_reader_sha, "source_revision": prior["current_identity"]["source_revision"], "role": "historical-plan03-identity-snapshot-only"},
+        "source_delta": {"from_revision": prior["current_identity"]["source_revision"], "to_revision": head, "working_source_changes": "No uncommitted production core changes; the sole scoped source exception is the tested CPU diagnostic protocol shared-helper extraction."},
+        "reused_build_evidence": [{"path": "build/private-rsp-diagnostic/plan04/task1-postbuild.log", "sha256": digest((private_root / "plan04/task1-postbuild.log").read_bytes())}, {"path": "build/private-rsp-diagnostic/plan04/task1-postbuild-asan.log", "sha256": digest((private_root / "plan04/task1-postbuild-asan.log").read_bytes())}, {"path": "build/private-rsp-diagnostic/plan04/task2-adapter-build-03.log", "sha256": digest((private_root / "plan04/task2-adapter-build-03.log").read_bytes())}],
+        "verification_scope": "Binds the actual RSP adapter and profile descriptor to the qualified core; validates all production source rows against the reviewed baseline and the single tested CPU protocol extraction against exact commit bytes. No guest execution is implied.",
+    }
+    write_private(output_path, binding)
+    print("PASS: current RSP execution adapter explicitly bound to the qualified profile and unchanged production core")
+
+
+def record_future_rsp_execution_context() -> None:
+    """Record post-fix machine identity without authorizing another ROM run."""
+    private_root = owner_only(ROOT / "build/private-rsp-diagnostic")
+    output_path = private_root / "current-rsp-future-execution-context-v1.json"
+    if output_path.exists() or output_path.is_symlink():
+        refuse("refusing to overwrite the future RSP execution context")
+    qualification_path = private_root / "qualification.json"
+    qualification_bytes = qualification_path.read_bytes()
+    qualification = read_json(qualification_path, "original RSP qualification")
+    if qualification.get("status") != "qualified" or qualification.get("component") != "rsp":
+        refuse("original RSP qualification is not intact")
+
+    historical_binding_path = private_root / "current-core-identity-binding-v3.json"
+    historical_binding = read_json(historical_binding_path,
+                                   "historical first-use execution binding")
+    if historical_binding.get("schema") != "t64.rsp-core-identity-binding.v3":
+        refuse("historical first-use binding is not the expected v3 record")
+    run_root = private_root / "first-use-plan04-03"
+    first_use_path = run_root / "first-use-receipt.json"
+    addendum_path = run_root / "posthoc-validation-addendum.json"
+    original_launcher_path = run_root / "runner-error.json"
+    first_use = read_json(first_use_path, "historical first-use receipt")
+    attempt_path = historical_attempt_path(run_root, first_use)
+    attempt = read_json(attempt_path, "historical selector attempt receipt")
+    addendum = read_json(addendum_path, "historical post-hoc validation addendum")
+    original_launcher = read_json(original_launcher_path,
+                                  "historical original launcher error")
+    if (first_use.get("outcome") != "refused" or
+            first_use.get("status") != "selector-bound-refusal-authenticated" or
+            attempt.get("classification") != "refused" or
+            attempt.get("outer_deadline_expired") is not False or
+            addendum.get("status") !=
+                "original-refusal-and-launcher-failure-preserved-posthoc-batch-authenticated" or
+            original_launcher.get("schema") != "t64.rsp-runner-error.v1"):
+        refuse("historical pre-fix RSP refusal and launcher failure are not preserved")
+
+    expected_commit = "5a34dd4"
+    fix_commit = subprocess.run(
+        ["git", "rev-parse", f"{expected_commit}^{{commit}}"], cwd=ROOT,
+        check=True, capture_output=True, text=True).stdout.strip()
+    fix_subject = subprocess.run(
+        ["git", "show", "-s", "--format=%s", fix_commit], cwd=ROOT,
+        check=True, capture_output=True, text=True).stdout.strip()
+    if fix_subject != "fix(05-04): dispatch model6 CTC1 through VR4300 core":
+        refuse("bounded model6 CTC1 dispatch fix commit differs from the reviewed change")
+
+    rsp_exe = ROOT / "build/gate/runner/t64-rsp-diagnostic"
+    cpu_exe = ROOT / "build/gate/runner/t64-cpu-diagnostic"
+    if any(path.is_symlink() or not path.is_file() for path in (rsp_exe, cpu_exe)):
+        refuse("post-fix RSP adapter or current core identity reader is missing")
+    rsp_run = subprocess.run([str(rsp_exe), "--runtime-identity-json"],
+                             cwd=ROOT, check=True, capture_output=True,
+                             text=True, timeout=10)
+    cpu_run = subprocess.run([str(cpu_exe), "--compat-v2",
+                              "--runtime-identity-json"], cwd=ROOT,
+                             check=True, capture_output=True, text=True,
+                             timeout=10)
+    rsp_identity = json.loads(rsp_run.stdout)
+    cpu_identity = json.loads(cpu_run.stdout)
+    head = subprocess.run(["git", "rev-parse", "HEAD"], cwd=ROOT,
+                          check=True, capture_output=True,
+                          text=True).stdout.strip()
+    if (rsp_identity.get("core_source_revision") != head or
+            cpu_identity.get("source_revision") != head or
+            rsp_identity.get("core_build_sha256") !=
+                cpu_identity.get("core_build_sha256") or
+            rsp_identity.get("core_build_sha256") ==
+                qualification.get("build_identity", {}).get("core_build_sha256") or
+            rsp_identity.get("profile_id") != qualification.get("profile_id")):
+        refuse("post-fix runtime identity is stale or not distinct from the original qualified core")
+
+    source_paths = (
+        "core/t64_internal.h", "core/t64_cpu.c", "core/tests/test_cop1.c",
+        "runner/t64_diag_common.c", "runner/t64_diag_common.h",
+        "runner/t64_cpu_diag_protocol.c", "runner/t64_rsp_diag_protocol.c",
+        "runner/t64_rsp_diag_protocol.h", "runner/t64_rsp_diagnostic.c",
+        "runner/tests/test_rsp_diag_protocol.c", "runner/CMakeLists.txt",
+    )
+    source_rows = []
+    for relative in source_paths:
+        path = ROOT / relative
+        if path.is_symlink() or not path.is_file():
+            refuse("post-fix source file is missing or linked")
+        source_rows.append({"path": relative, "sha256": digest(path.read_bytes())})
+
+    evidence_paths = (
+        "build/private-rsp-diagnostic/plan04/task2-core-regressions-gate.log",
+        "build/private-rsp-diagnostic/plan04/task2-core-regressions-asan.log",
+        "build/private-rsp-diagnostic/plan04/task2-terminal-gate-tests.log",
+        "build/private-rsp-diagnostic/plan04/task2-terminal-asan-tests.log",
+        "build/private-rsp-diagnostic/plan04/task3-gate-inventory.log",
+        "build/private-rsp-diagnostic/plan04/task3-asan-inventory.log",
+    )
+    evidence_rows = []
+    for relative in evidence_paths:
+        path = ROOT / relative
+        content = path.read_bytes()
+        if b"100% tests passed" not in content and b"test inventory PASS" not in content:
+            refuse("post-fix focused test or inventory report is not a passing saved result")
+        evidence_rows.append({"path": relative, "sha256": digest(content)})
+    build_log_relative = "build/private-rsp-diagnostic/plan04/task3-postcommit-gate-build.log"
+    build_log = ROOT / build_log_relative
+    if build_log.is_symlink() or not build_log.is_file():
+        refuse("post-commit normal all-target build report is missing")
+    build_log_bytes = build_log.read_bytes()
+    if b"t64-rsp-diagnostic" not in build_log_bytes:
+        refuse("post-commit normal build report does not include the RSP adapter target")
+
+    historical_paths = (
+        "build/private-rsp-diagnostic/current-core-identity-binding-v2.json",
+        "build/private-rsp-diagnostic/current-core-identity-binding-v3.json",
+        "build/private-rsp-diagnostic/archived-plan03-identity-reader",
+        "build/private-rsp-diagnostic/first-use-plan04-03/first-use-receipt.json",
+        attempt_path.relative_to(ROOT).as_posix(),
+        "build/private-rsp-diagnostic/first-use-plan04-03/posthoc-validation-addendum.json",
+        "build/private-rsp-diagnostic/first-use-plan04-03/runner-error.json",
+        "build/private-rsp-diagnostic/first-use-plan04-03/execution-binding.json",
+    )
+    historical_rows = []
+    for relative in historical_paths:
+        path = ROOT / relative
+        if path.is_symlink() or not path.is_file():
+            refuse("immutable pre-fix RSP evidence is missing or linked")
+        historical_rows.append({"path": relative, "sha256": digest(path.read_bytes())})
+
+    context = {
+        "schema": "t64.rsp-future-execution-context.v1",
+        "status": "future-requalification-required",
+        "component": "rsp",
+        "authorized_for_guest_execution": False,
+        "guest_execution_performed": False,
+        "reason": "The model6/state12 CTC1 dispatch fix changes the current core build after the original RSP qualification; requalify before any later guest use.",
+        "qualification_sha256": digest(qualification_bytes),
+        "qualified_core_build_sha256": qualification["build_identity"]["core_build_sha256"],
+        "qualified_rom_sha256": first_use["base_rom"]["sha256"],
+        "model6_ctc1_fix": {"commit": fix_commit, "subject": fix_subject,
+                             "source_sha256": digest((ROOT / "core/t64_internal.h").read_bytes()),
+                             "regression_sha256": digest((ROOT / "core/tests/test_cop1.c").read_bytes())},
+        "current_runtime_identity": rsp_identity,
+        "current_normal_build": {"path": build_log_relative,
+                                 "sha256": digest(build_log_bytes)},
+        "current_cpu_identity_reader": {"path": cpu_exe.relative_to(ROOT).as_posix(), "executable_sha256": digest(cpu_exe.read_bytes())},
+        "current_rsp_adapter": {"path": rsp_exe.relative_to(ROOT).as_posix(), "executable_sha256": digest(rsp_exe.read_bytes())},
+        "source_artifacts": source_rows,
+        "historical_first_use": {
+            "status": first_use["status"],
+            "outcome": first_use["outcome"],
+            "classification": attempt["classification"],
+            "adapter_exit": attempt["adapter_exit"],
+            "original_launcher_failure_preserved": True,
+            "historical_files": historical_rows,
+            "historical_execution_identity": addendum.get("original_execution_identity"),
+        },
+        "verification_evidence": evidence_rows,
+        "verification_scope": "Binds the post-fix model6/state12 core and current RSP adapter while preserving the prior qualified build and actual pre-fix refusal. It does not qualify the old ROM for the new core or authorize another guest execution.",
+    }
+    write_private(output_path, context)
+    print("PASS: future RSP execution context recorded; original qualification preserved and guest use remains unauthorized")
+
+
+def historical_attempt_path(run_root: pathlib.Path, receipt: dict) -> pathlib.Path:
+    """Derive private member identity from its sealed receipt, never source code."""
+    selector = receipt.get("selector")
+    attempt = receipt.get("attempt")
+    if not isinstance(selector, str) or re.fullmatch(r"r[0-9]{4,10}v[0-9]{5,10}", selector) is None:
+        refuse("historical selector identity is malformed")
+    expected = run_root / f"attempt-{selector}.command.json"
+    if not isinstance(attempt, dict) or attempt.get("path") != expected.relative_to(ROOT).as_posix():
+        refuse("historical attempt path differs from its sealed selector")
+    return expected
+
+
 def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--selftest", action="store_true")
@@ -796,6 +1066,8 @@ def main() -> int:
     parser.add_argument("--overlay-receipt", type=pathlib.Path)
     parser.add_argument("--seal-preuse", action="store_true")
     parser.add_argument("--bind-current-core", action="store_true")
+    parser.add_argument("--bind-current-rsp-execution", action="store_true")
+    parser.add_argument("--record-future-rsp-execution-context", action="store_true")
     args = parser.parse_args()
     try:
         if args.selftest:
@@ -818,6 +1090,14 @@ def main() -> int:
             if args.workspace is not None or args.source_root is not None or args.output is not None or args.projection is not None or args.overlay_receipt is not None:
                 refuse("core identity rebinding requires no other arguments")
             bind_current_core()
+        elif args.bind_current_rsp_execution:
+            if args.workspace is not None or args.source_root is not None or args.output is not None or args.projection is not None or args.overlay_receipt is not None:
+                refuse("current RSP execution binding requires no other arguments")
+            bind_current_rsp_execution()
+        elif args.record_future_rsp_execution_context:
+            if args.workspace is not None or args.source_root is not None or args.output is not None or args.projection is not None or args.overlay_receipt is not None:
+                refuse("future RSP execution context requires no other arguments")
+            record_future_rsp_execution_context()
         else:
             refuse("select --selftest or --source-root")
     except (OSError, Refusal, subprocess.SubprocessError, tomllib.TOMLDecodeError, ValueError) as error:
