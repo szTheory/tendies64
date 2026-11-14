@@ -29,6 +29,18 @@ static const char inventory_component_rsp[] =
     "\"values_method_sha256\":\"cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc\"}],"
     "\"schema\":\"t64.rsp.inventory\",\"schema_version\":1}\n";
 
+static const char registration_rsp_second[] =
+    "{\"constructor\":\"rsp::authored.second\",\"execution\":\"once\","
+    "\"group\":\"rsp\",\"index\":1,\"lane\":\"required-base\","
+    "\"level\":\"BasicFunctionality\",\"name\":\"authored.rsp.second\","
+    "\"source_file\":\"src/tests/rsp/authored.rs\","
+    "\"source_file_sha256\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\","
+    "\"source_name\":\"authored.rsp.second\",\"source_value_count\":0,"
+    "\"values\":[{\"id\":\"once\",\"index\":0,"
+    "\"selected_rom_sha256\":\"dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd\","
+    "\"selector\":\"r0001v00000\"}],"
+    "\"values_method_sha256\":\"cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc\"}";
+
 static const char guest_run_pass[] =
     "{\"records\":[{\"event\":\"start\",\"registration_index\":0,"
     "\"value_index\":0},{\"event\":\"outcome\",\"status\":\"pass\"},"
@@ -91,6 +103,51 @@ static bool parse_authored_inventory(t64_rsp_diag_inventory **inventory) {
              (const uint8_t *)inventory_component_rsp,
              sizeof inventory_component_rsp - 1u, inventory) ==
          T64_RSP_DIAG_OK;
+}
+
+static bool replace_once(char *destination, size_t capacity,
+                         const char *source, const char *needle,
+                         const char *replacement) {
+  const char *found = strstr(source, needle);
+  size_t prefix, total;
+  if (found == NULL) return false;
+  prefix = (size_t)(found - source);
+  total = prefix + strlen(replacement) + strlen(found + strlen(needle));
+  if (total >= capacity) return false;
+  memcpy(destination, source, prefix);
+  memcpy(destination + prefix, replacement, strlen(replacement));
+  memcpy(destination + prefix + strlen(replacement), found + strlen(needle),
+         strlen(found + strlen(needle)) + 1u);
+  return true;
+}
+
+static bool parse_two_member_inventory(t64_rsp_diag_inventory **inventory) {
+  static const char *const counts_needle =
+      "\"declared_counts\":{\"registrations\":1,\"required_values\":1,\"values\":1}";
+  static const char *const counts_replacement =
+      "\"declared_counts\":{\"registrations\":2,\"required_values\":2,\"values\":2}";
+  static const char *const row_needle =
+      "\"values_method_sha256\":\"cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc\"}],"
+      "\"schema\":\"t64.rsp.inventory\"";
+  char with_two_counts[sizeof inventory_component_rsp + 64u];
+  char with_two_rows[sizeof inventory_component_rsp + sizeof registration_rsp_second + 64u];
+  char row_replacement[sizeof registration_rsp_second + 128u];
+  int written;
+  if (!replace_once(with_two_counts, sizeof with_two_counts,
+                    inventory_component_rsp, counts_needle,
+                    counts_replacement)) {
+    return false;
+  }
+  written = snprintf(row_replacement, sizeof row_replacement,
+      "\"values_method_sha256\":\"cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc\"},%s],"
+      "\"schema\":\"t64.rsp.inventory\"", registration_rsp_second);
+  if (written < 0 || (size_t)written >= sizeof row_replacement ||
+      !replace_once(with_two_rows, sizeof with_two_rows, with_two_counts,
+                    row_needle, row_replacement)) {
+    return false;
+  }
+  return t64_rsp_diag_inventory_parse((const uint8_t *)with_two_rows,
+      strlen(with_two_rows), inventory) == T64_RSP_DIAG_OK;
 }
 
 static t64_rsp_diag_member_result sample_result(t64_rsp_diag_outcome outcome) {
@@ -253,6 +310,37 @@ static void test_batch_outcomes_and_partition(void) {
     }
     t64_rsp_diag_aggregate_destroy(aggregate);
   }
+  t64_rsp_diag_inventory_destroy(inventory);
+}
+
+static void test_single_member_at_nonzero_inventory_ordinal(void) {
+  t64_rsp_diag_inventory *inventory = NULL;
+  t64_rsp_diag_aggregate *aggregate = NULL;
+  t64_rsp_diag_member_result expected = sample_result(T64_RSP_DIAG_OUTCOME_GUEST_FAIL);
+  t64_rsp_diag_member_result observed = {0};
+  char batch[T64_RSP_DIAG_MAX_BATCH_BYTES];
+  size_t length = 0u;
+  if (!parse_two_member_inventory(&inventory) ||
+      t64_rsp_diag_batch_encode(inventory, 1u, 0u, &expected, batch,
+                                sizeof batch, &length) != T64_RSP_DIAG_OK ||
+      t64_rsp_diag_aggregate_create(inventory, &aggregate) != T64_RSP_DIAG_OK ||
+      t64_rsp_diag_aggregate_add_batch(aggregate, (const uint8_t *)batch,
+                                      length) != T64_RSP_DIAG_OK) {
+    (void)fprintf(stderr, "FAIL: nonzero authored member setup failed\n");
+    failures++;
+    goto cleanup;
+  }
+  if (t64_rsp_diag_aggregate_member_count(aggregate) != 1u ||
+      t64_rsp_diag_aggregate_member_at(aggregate, 0u, &observed) ||
+      !t64_rsp_diag_aggregate_member_at(aggregate, 1u, &observed) ||
+      !t64_rsp_diag_aggregate_single_member(aggregate, &observed) ||
+      observed.registration_index != 1u || observed.value_index != 0u ||
+      observed.outcome != T64_RSP_DIAG_OUTCOME_GUEST_FAIL) {
+    (void)fprintf(stderr, "FAIL: single-member lookup lost a nonzero inventory ordinal\n");
+    failures++;
+  }
+cleanup:
+  t64_rsp_diag_aggregate_destroy(aggregate);
   t64_rsp_diag_inventory_destroy(inventory);
 }
 
@@ -449,6 +537,7 @@ int main(int argc, char **argv) {
   test_inventory_component_boundary();
   test_guest_run_transcript();
   test_batch_outcomes_and_partition();
+  test_single_member_at_nonzero_inventory_ordinal();
   test_pass_requires_retired_delay_slot();
   test_missing_terminal_record_is_rejected();
   test_legacy_refusal_without_terminal_pair_is_accepted();

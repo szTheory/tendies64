@@ -708,6 +708,22 @@ bool t64_rsp_diag_aggregate_member_at(
   return true;
 }
 
+bool t64_rsp_diag_aggregate_single_member(
+    const t64_rsp_diag_aggregate *aggregate,
+    t64_rsp_diag_member_result *result_out) {
+  size_t i;
+  if (aggregate == NULL || result_out == NULL || aggregate->inventory == NULL ||
+      aggregate->invalid || t64_rsp_diag_aggregate_member_count(aggregate) != 1u) {
+    return false;
+  }
+  for (i = 0u; i < aggregate->inventory->value_count; i++) {
+    if (t64_diag_partition_seen(aggregate->partition, i)) {
+      return t64_rsp_diag_aggregate_member_at(aggregate, i, result_out);
+    }
+  }
+  return false;
+}
+
 static bool rsp_diag_small_count(const t64_json_node *node, size_t *value_out) {
   if (node == NULL || node->type != T64_JSON_INT || node->num < 0 ||
       (uint64_t)node->num > (uint64_t)T64_RSP_DIAG_MAX_ROWS ||

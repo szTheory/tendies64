@@ -134,6 +134,9 @@ size_t t64_rsp_diag_aggregate_member_count(
 bool t64_rsp_diag_aggregate_member_at(
     const t64_rsp_diag_aggregate *aggregate, size_t required_ordinal,
     t64_rsp_diag_member_result *result_out);
+bool t64_rsp_diag_aggregate_single_member(
+    const t64_rsp_diag_aggregate *aggregate,
+    t64_rsp_diag_member_result *result_out);
 
 const char *t64_rsp_diag_status_name(t64_rsp_diag_status status);
 const char *t64_rsp_diag_outcome_name(t64_rsp_diag_outcome outcome);

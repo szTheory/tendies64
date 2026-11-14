@@ -274,8 +274,7 @@ static int command_validate_batch(const char *inventory_path,
           T64_RSP_DIAG_OK ||
       t64_rsp_diag_aggregate_add_batch(aggregate, bytes, length) !=
           T64_RSP_DIAG_OK ||
-      t64_rsp_diag_aggregate_member_count(aggregate) != 1u ||
-      !t64_rsp_diag_aggregate_member_at(aggregate, 0u, &member_result)) {
+      !t64_rsp_diag_aggregate_single_member(aggregate, &member_result)) {
     (void)puts("classification=harness-error status=invalid-or-unregistered-batch");
     goto cleanup;
   }
