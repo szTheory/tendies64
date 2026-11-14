@@ -161,6 +161,12 @@ applies that direction; update it when the owner changes policy.
   alternate may supply the same pinned bytes after a bounded transport failure;
   a successful download with a hash mismatch must still fail before use. Preserve
   source/tool versions, fixture identities, rights and source-revision checks.
+  Check a new standalone workflow against the repository workflow-policy scanner
+  before the combined gate; actionlint alone cannot validate that local contract.
+  Admit a planned separate lane through a narrowly reviewed contract and retain
+  mutation controls for its command, permissions, uploads, action pin and bounds.
+  State-preservation checks must snapshot and compare every named latch; comparison
+  to a sentinel constant does not establish that an untouched field stayed equal.
 - At each discussion, enumerate actual decision points. Fan out one agent per
   independent decision cluster when it saves time/context. Apply relevant
   CPU/cache/virtual-memory, RSP/microcode, RDP/video, audio, memory/bus,

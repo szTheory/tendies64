@@ -24,7 +24,9 @@
 #   CI-PERMISSIONS-JOB   each job grants exactly contents: read
 #   CI-PERSIST-CREDS     each checkout step sets persist-credentials: false
 #   CI-FETCH-DEPTH       each checkout step sets fetch-depth: 0 (full-history rights scan)
-#   CI-TIMEOUT           each job sets timeout-minutes from 1 to 10
+#   CI-TIMEOUT           required gate jobs set timeout-minutes from 1 to 10
+#   CI-STRESS-WORKFLOW   the separate authored-only stress workflow matches its reviewed
+#                        exact contract: weekly/dispatch, no uploads, 15-minute job
 #   CI-REQUIRED-STEP     jobs and steps cannot weaken required success semantics
 #   CI-SECRETS           no secrets reference in any spelling (secrets.X, secrets['X'], secrets[...],
 #                        toJSON(secrets)) and no token (github.token, github['token'], toJSON(github))
@@ -38,7 +40,7 @@ export LC_ALL
 
 SELF=$0
 ROOT=$(cd "$(dirname "$0")/.." && pwd -P)
-ALL_RULES="CI-RUN-LINE CI-USES-PIN CI-RUNNER-LABEL CI-LATEST-LABEL CI-PR-TARGET CI-TRIGGER CI-WORKFLOW-FILE CI-PERMISSIONS-TOP CI-PERMISSIONS-JOB CI-PERSIST-CREDS CI-FETCH-DEPTH CI-TIMEOUT CI-REQUIRED-STEP CI-SECRETS CI-UPLOAD-ARTIFACT CI-EXPR-IN-RUN CI-GATE-EXEC CI-ZERO-JOBS"
+ALL_RULES="CI-RUN-LINE CI-USES-PIN CI-RUNNER-LABEL CI-LATEST-LABEL CI-PR-TARGET CI-TRIGGER CI-WORKFLOW-FILE CI-PERMISSIONS-TOP CI-PERMISSIONS-JOB CI-PERSIST-CREDS CI-FETCH-DEPTH CI-TIMEOUT CI-REQUIRED-STEP CI-SECRETS CI-UPLOAD-ARTIFACT CI-EXPR-IN-RUN CI-GATE-EXEC CI-ZERO-JOBS CI-STRESS-WORKFLOW"
 
 usage() {
   echo "usage: check-ci-yml.sh [--file PATH | --dir DIR] [--gate PATH] [--selftest]" >&2
@@ -46,6 +48,19 @@ usage() {
 
 # scan_yml FILE: print violations from the line-pattern checks.
 scan_yml() {
+  # This is a separate, exact reviewed workflow contract rather than a relaxation
+  # of the two required gate jobs. Any byte change requires review and rebinding.
+  # In particular its commands cannot execute external assets or upload output.
+  case "${1##*/}" in
+    rsp-stress.yml)
+      _stress_sum=$(shasum -a 256 "$1") || return 2
+      _stress_sum=${_stress_sum%% *}
+      if [ "$_stress_sum" != "00a9e2303d10798fb407a92e79b9ce69bf6af71a87e64755c83ac89c3a1576c7" ]; then
+        echo "CI-STRESS-WORKFLOW $1: authored stress workflow differs from its reviewed contract"
+      fi
+      return 0
+      ;;
+  esac
   awk -v file="$1" '
     function viol(rule, msg) { printf "%s %s: line %d: %s\n", rule, file, NR, msg; nviol++ }
     function vjob(rule, msg) { printf "%s %s: job %s: %s\n", rule, file, job, msg; nviol++ }
@@ -326,6 +341,24 @@ selftest() {
   CASES=$((CASES + 1))
   if _out=$(sh "$SELF" --file "$W/clean.yml" 2>&1); then echo "ok clean: the unmodified copy passes"
   else echo "FAIL clean: the unmodified copy was rejected: $_out"; FAILS=$((FAILS + 1)); fi
+
+  # The independent lane is admitted only with its complete reviewed bytes.
+  STRESS=$ROOT/.github/workflows/rsp-stress.yml
+  cp "$STRESS" "$W/rsp-stress.yml"
+  CASES=$((CASES + 1))
+  if _out=$(sh "$SELF" --file "$W/rsp-stress.yml" 2>&1); then echo "ok stress-clean: reviewed authored stress passes"
+  else echo "FAIL stress-clean: $_out"; FAILS=$((FAILS + 1)); fi
+  for _mutation in timeout trigger command permission action upload; do
+    case "$_mutation" in
+      timeout) sed 's/timeout-minutes: 15/timeout-minutes: 16/' "$STRESS" > "$W/rsp-stress.yml" ;;
+      trigger) sed 's/workflow_dispatch:/pull_request_target:/' "$STRESS" > "$W/rsp-stress.yml" ;;
+      command) sed 's/--authored/--external/' "$STRESS" > "$W/rsp-stress.yml" ;;
+      permission) sed 's/contents: read/contents: write/' "$STRESS" > "$W/rsp-stress.yml" ;;
+      action) sed 's|actions/checkout@[0-9a-f]*|actions/checkout@main|' "$STRESS" > "$W/rsp-stress.yml" ;;
+      upload) { cat "$STRESS"; printf '\n      - uses: actions/upload-artifact@main\n'; } > "$W/rsp-stress.yml" ;;
+    esac
+    expect CI-STRESS-WORKFLOW "stress $_mutation mutation" "$W/rsp-stress.yml"
+  done
 
   mut run-extra 's|run: ./scripts/gate.sh|run: ./scripts/gate.sh \&\& echo extra|'
   expect CI-RUN-LINE "a run line with extra commands" "$W/run-extra.yml"

@@ -477,15 +477,15 @@ static bool reference_vu(uint32_t function, uint32_t element, uint32_t vs,
       uint32_t sum = (uint32_t)a + b;
       result = (uint16_t)sum;
       acc = (acc & ~UINT64_C(0xffff)) | result;
-      next_vco = (uint16_t)((next_vco & ~(UINT16_C(1) << lane)) |
+      next_vco = (uint16_t)((next_vco & ~(UINT32_C(1) << lane)) |
                             (((sum >> 16) & 1u) << lane));
       break;
     }
     case 0x15u:
       result = (uint16_t)(a - b);
       acc = (acc & ~UINT64_C(0xffff)) | result;
-      next_vco = (uint16_t)((next_vco & ~((UINT16_C(1) << lane) |
-                                           (UINT16_C(1) << (lane + 8u)))) |
+      next_vco = (uint16_t)((next_vco & ~((UINT32_C(1) << lane) |
+                                           (UINT32_C(1) << (lane + 8u)))) |
                             ((a < b ? 1u : 0u) << lane) |
                             ((a != b ? 1u : 0u) << (lane + 8u)));
       break;
@@ -907,6 +907,9 @@ static bool run_vmov_tuple(rsp_fuzz_fixture *fixture, uint32_t case_index,
   uint16_t expected_vcc;
   uint8_t expected_vce;
   uint32_t instruction;
+  uint32_t divider_input_before;
+  uint32_t divider_result_before;
+  bool divider_high_valid_before;
 
   seed_machine(fixture, &random_state);
   (void)vector_element_for_case(0x33u, case_index, &element);
@@ -924,6 +927,9 @@ static bool run_vmov_tuple(rsp_fuzz_fixture *fixture, uint32_t case_index,
   (void)memcpy(expected_acc, machine->rsp.accumulator, sizeof expected_acc);
   (void)memcpy(gpr_before, machine->rsp.gpr, sizeof gpr_before);
   (void)memcpy(dmem_before, machine->sp_dmem, sizeof dmem_before);
+  divider_input_before = machine->rsp.divider_input;
+  divider_result_before = machine->rsp.divider_result;
+  divider_high_valid_before = machine->rsp.divider_high_valid;
   expected_vco = machine->rsp.vco;
   expected_vcc = machine->rsp.vcc;
   expected_vce = machine->rsp.vce;
@@ -942,7 +948,9 @@ static bool run_vmov_tuple(rsp_fuzz_fixture *fixture, uint32_t case_index,
       machine->rsp.vce != expected_vce ||
       memcmp(machine->rsp.gpr, gpr_before, sizeof gpr_before) != 0 ||
       memcmp(machine->sp_dmem, dmem_before, sizeof dmem_before) != 0 ||
-      machine->rsp.divider_input == UINT32_MAX) {
+      machine->rsp.divider_input != divider_input_before ||
+      machine->rsp.divider_result != divider_result_before ||
+      machine->rsp.divider_high_valid != divider_high_valid_before) {
     (void)fprintf(stderr,
                   "FAIL: fetched VMOV case=%u seed=%08x e=%u lane=%u; complete-state invariant failed\n",
                   case_index, seed, element, destination_lane);
@@ -2346,14 +2354,18 @@ static bool no_hle_controls(rsp_fuzz_fixture *fixture) {
   uint32_t second_result;
 
   seed_machine(fixture, &random_state);
-  machine->rsp.gpr[1] = UINT32_C(0x10203040);
-  first_instruction = (UINT32_C(0x09) << 26u) | (UINT32_C(1) << 21u) |
-                      (UINT32_C(3) << 16u) | UINT32_C(1);
+  machine->rsp.gpr[1] = UINT32_C(0x100);
+  machine->sp_dmem[0x100] = 0x10u;
+  machine->sp_dmem[0x101] = 0x20u;
+  machine->sp_dmem[0x102] = 0x30u;
+  machine->sp_dmem[0x103] = 0x41u;
+  first_instruction = (UINT32_C(0x23) << 26u) | (UINT32_C(1) << 21u) |
+                      (UINT32_C(3) << 16u);
   if (!execute_fetched(machine, first_instruction) ||
       machine->rsp_observed_opcode != first_instruction ||
       machine->rsp.gpr[3] != UINT32_C(0x10203041)) {
     (void)fprintf(stderr,
-                  "FAIL: same-program/different-content control first fetched ADDIU result\n");
+                  "FAIL: same-program/different-content control first fetched LW result\n");
     return false;
   }
   first_result = machine->rsp.gpr[3];
@@ -2376,14 +2388,18 @@ static bool no_hle_controls(rsp_fuzz_fixture *fixture) {
 
   random_state = UINT32_C(0x05f80a11);
   seed_machine(fixture, &random_state);
-  machine->rsp.gpr[1] = UINT32_C(0x10203040);
-  second_instruction = (UINT32_C(0x09) << 26u) | (UINT32_C(1) << 21u) |
-                       (UINT32_C(3) << 16u) | UINT32_C(2);
+  machine->rsp.gpr[1] = UINT32_C(0x100);
+  machine->sp_dmem[0x100] = 0x10u;
+  machine->sp_dmem[0x101] = 0x20u;
+  machine->sp_dmem[0x102] = 0x30u;
+  machine->sp_dmem[0x103] = 0x42u;
+  second_instruction = first_instruction;
+  first_dmem[0x103] = 0x42u; /* Only the authored input byte differs. */
   if (!execute_fetched(machine, second_instruction) ||
       machine->rsp_observed_opcode != second_instruction ||
       machine->rsp.gpr[3] != UINT32_C(0x10203042)) {
     (void)fprintf(stderr,
-                  "FAIL: same-program/different-content control second fetched ADDIU result\n");
+                  "FAIL: same-program/different-content control second fetched LW result\n");
     return false;
   }
   second_result = machine->rsp.gpr[3];
@@ -2411,7 +2427,7 @@ static bool no_hle_controls(rsp_fuzz_fixture *fixture) {
                   "FAIL: same-program/different-content changed unrelated RSP state\n");
     return false;
   }
-  (void)printf("ok 1 - same fetched ADDIU opcode and initial state produced content-dependent results %08x/%08x\n",
+  (void)printf("ok 1 - same fetched LW program and initial RSP state produced data-dependent results %08x/%08x\n",
                first_result, second_result);
 
   random_state = UINT32_C(0x05f80a12);

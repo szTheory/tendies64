@@ -31,6 +31,7 @@ MUTATION_SEEDS = (
     "TASK_ID formatted selector",
     "HLE replacement callback",
     "content-digest selection",
+    "unnamed DMEM signature early return",
     "hidden production source",
     "hidden softfloat source",
     "hidden archive object",
@@ -113,6 +114,8 @@ def _check_mutation_suite(temp_root: pathlib.Path) -> int:
     seeds_run = 0
 
     for label, code in (
+        ("unnamed DMEM signature early return",
+         "  if (machine->sp_dmem[0] == 0x42u) { machine->rsp.gpr[1] = 7u; return status; }"),
         ("MicroCode_Signature task selector", "  if (MicroCode_Signature(machine)) return status;"),
         ("uCode_CRC case variation", "  if (uCode_CRC(machine) == 1u) return status;"),
         ("TASK_ID formatted selector", "  if (TASK_ID(machine) != 0u) return status;"),
@@ -140,9 +143,11 @@ def _check_mutation_suite(temp_root: pathlib.Path) -> int:
     seeds_run += 1
 
     # The checker strips prose and literals before inspecting code identifiers.
-    _mutate_source(
-        source_root,
-        '  (void)"microcode signature task id HLE are documentation text"; /* uCode_CRC */',
+    rsp_path.write_text(
+        '/* uCode_CRC microcode signature task id HLE */\n'
+        'static const char * const prose_only = "microcode signature task id HLE";\n'
+        + rsp_code,
+        encoding="utf-8",
     )
     findings, _, _ = CHECKER.inspect_tree(source_root, build_root)
     if findings:
@@ -258,7 +263,7 @@ def _check_guest_controls() -> None:
             + result.stderr[-1000:]
         )
     required = (
-        "same fetched ADDIU opcode and initial state produced content-dependent results",
+        "same fetched LW program and initial RSP state produced data-dependent results",
         "unsupported fetched opcode refused with complete RSP/SP state preserved",
     )
     for phrase in required:

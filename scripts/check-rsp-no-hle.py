@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import argparse
 import collections
+import hashlib
 import os
 import pathlib
 import re
@@ -61,6 +62,20 @@ CANONICAL_SOFTFLOAT_SOURCES = frozenset(
         "s_subMagsF32.c", "s_subMagsF64.c",
     }
 )
+
+
+# Reviewed normalized route bodies: require an explicit route review for semantic
+# edits, including unnamed data-signature early returns that token checks miss.
+# These guards cover the listed entry/dispatch functions, not arbitrary C behavior.
+REVIEWED_ROUTE_DIGESTS = {
+    "core/t64_rsp.c :: rsp_read_imem_word": "db7a2c1d21484afdd935008961692093d22515afe3bb383dbe19ec8fd68479e1",
+    "core/t64_rsp.c :: t64_rsp_schedule_next": "7bceb405fe698a622902fd136009ac272c585eb62288c1371db49b42fa1bc339",
+    "core/t64_rsp.c :: t64_rsp_ensure_opportunity": "d37ee11dced86400787fe5774fb85544f3eb2a625d0e9916e6a90f9de54c5bbb",
+    "core/t64_rsp.c :: t64_rsp_start": "844ab432a1a02296d0f0d768dab18a5c60d9ee167bc2959637214b304e6e1ef1",
+    "core/t64_rsp.c :: t64_rsp_issue_event": "95c86db28b880386cdaa381eb22e038bc3533ef42ba5e28416d8b2378c663917",
+    "core/t64_sp.c :: start_rsp_dma": "5c69e2b58f896246652478c8f3c17e6762c55da796fd0cc88e61459765e4e711",
+    "core/t64_sp.c :: write_rsp_status": "9d022dfff35ca2b3de5a8fe094528253c1265b159d0a4fb3ded0125db4c58ffb",
+}
 
 
 def strip_c_comments_and_literals(source: str) -> str:
@@ -226,6 +241,8 @@ def _check_source_route(root: pathlib.Path) -> tuple[list[str], list[str], int]:
     for label, body in routes.items():
         if body is None:
             findings.append(f"{label}: required canonical route function is missing")
+        elif hashlib.sha256(re.sub(r"\s+", "", body).encode()).hexdigest() != REVIEWED_ROUTE_DIGESTS[label]:
+            findings.append(f"{label}: executable route changed; fetched-path review is required")
 
     read_body = routes["core/t64_rsp.c :: rsp_read_imem_word"] or ""
     if "machine->sp_imem" not in read_body or "bytes[0]" not in read_body:
