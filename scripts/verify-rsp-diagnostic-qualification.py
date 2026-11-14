@@ -143,6 +143,22 @@ def private_path(path: pathlib.Path, label: str) -> pathlib.Path:
     return path
 
 
+def project_path(path: pathlib.Path, label: str, maximum: int = 64 * 1024 * 1024) -> pathlib.Path:
+    path = pathlib.Path(os.path.abspath(path))
+    try:
+        path.relative_to(ROOT)
+    except ValueError:
+        refuse(f"{label} escapes the project root")
+    cursor = ROOT
+    for part in path.relative_to(ROOT).parts:
+        cursor /= part
+        if cursor.is_symlink():
+            refuse(f"{label} traverses a symlink")
+    if not path.is_file() or path.stat().st_size > maximum:
+        refuse(f"{label} is missing or exceeds its size limit")
+    return path
+
+
 def private_digest(path: pathlib.Path, label: str) -> str:
     path = pathlib.Path(path)
     if path.is_symlink() or not path.is_file():
@@ -250,11 +266,206 @@ def verify_rsp_core_binding_v3(binding: dict[str, object], qualification_sha: st
     return current_json
 
 
+def verify_rsp_core_binding_v4(binding: dict[str, object], qualification_sha: str, build_identity: dict[str, object]) -> dict[str, object]:
+    expected = {
+        "authorized_for_future_guest_use", "component", "core_model",
+        "core_source_scope", "core_state_schema", "current_identity",
+        "current_normal_build", "guest_execution_performed",
+        "historical_batch_validation", "historical_first_use", "model6_ctc1_fix",
+        "native_evidence", "original_identity", "production_core_baseline_revision",
+        "profile_id", "qualified_build_sha256", "qualified_rom_sha256",
+        "qualification_sha256", "rsp_adapter_identity", "rsp_runtime_identity",
+        "schema", "status", "supersedes_binding_v3", "supersedes_interim_context",
+        "verification_scope",
+    }
+    binding = object_with_keys(binding, expected, "current RSP pre-use binding v4")
+    if (binding["schema"] != "t64.rsp-core-identity-binding.v4" or
+            binding["status"] != "preuse-verified-current-core-for-qualified-rsp-image" or
+            binding["component"] != "rsp" or
+            binding["qualification_sha256"] != qualification_sha or
+            binding["profile_id"] != build_identity.get("profile_id") or
+            binding["core_model"] != build_identity.get("core_model") or
+            binding["core_state_schema"] != build_identity.get("core_state_schema") or
+            binding["guest_execution_performed"] is not False or
+            binding["authorized_for_future_guest_use"] is not True or
+            binding["production_core_baseline_revision"] != CORE_BASE_REVISION):
+        refuse("current v4 RSP binding does not match the original qualification and approved profile")
+
+    supersedes_v3 = object_with_keys(binding["supersedes_binding_v3"], {"path", "sha256"}, "historical v3 execution binding")
+    supersedes_interim = object_with_keys(binding["supersedes_interim_context"], {"path", "sha256"}, "interim future context")
+    if (supersedes_v3["path"] != "build/private-rsp-diagnostic/current-core-identity-binding-v3.json" or
+            supersedes_interim["path"] != "build/private-rsp-diagnostic/current-rsp-future-execution-context-v1.json"):
+        refuse("current v4 binding does not preserve both prior execution contexts")
+    v3_path = private_path(ROOT / supersedes_v3["path"], "immutable v3 RSP execution binding")
+    interim_path = private_path(ROOT / supersedes_interim["path"], "immutable interim future context")
+    v3 = read_json(v3_path)
+    interim = read_json(interim_path)
+    if (private_digest(v3_path, "immutable v3 RSP execution binding") != supersedes_v3["sha256"] or
+            v3.get("schema") != "t64.rsp-core-identity-binding.v3" or
+            private_digest(interim_path, "immutable interim future context") != supersedes_interim["sha256"] or
+            interim.get("schema") != "t64.rsp-future-execution-context.v1" or
+            interim.get("status") != "future-requalification-required"):
+        refuse("historical v3 or interim context changed")
+    v2_path = private_path(ROOT / "build/private-rsp-diagnostic/current-core-identity-binding-v2.json", "immutable v2 RSP identity binding")
+    v2 = read_json(v2_path)
+    if v2.get("schema") != "t64.rsp-core-identity-binding.v2":
+        refuse("immutable v2 identity binding is malformed")
+    if binding["original_identity"] != v2.get("current_identity"):
+        refuse("v4 binding changed the exact original qualified core identity")
+
+    qualified_build_path = private_path(ROOT / "build/private-rsp-diagnostic/qualified-build.json", "original qualified RSP build")
+    qualified_build = read_json(qualified_build_path)
+    if private_digest(qualified_build_path, "original qualified RSP build") != binding["qualified_build_sha256"]:
+        refuse("original qualified RSP build receipt changed")
+    rom_record = qualified_build.get("artifacts", {}).get("rom", {})
+    if (qualified_build.get("qualification_sha256") != qualification_sha or
+            qualified_build.get("guest_rom_executed") is not False or
+            rom_record.get("sha256") != binding["qualified_rom_sha256"]):
+        refuse("current binding does not preserve the original unexecuted qualified ROM")
+    rom_path = private_path(ROOT / str(rom_record.get("path", "")), "original qualified RSP ROM")
+    if private_digest(rom_path, "original qualified RSP ROM") != binding["qualified_rom_sha256"]:
+        refuse("original qualified RSP ROM bytes changed")
+    if build_identity.get("core_build_sha256") == binding["rsp_runtime_identity"].get("core_build_sha256"):
+        refuse("v4 binding is not distinct from the original qualified core build")
+
+    fix = object_with_keys(binding["model6_ctc1_fix"], {
+        "baseline_sha256", "commit", "current_sha256", "path",
+        "regression_path", "regression_sha256", "subject",
+    }, "model6 CTC1 dispatch fix")
+    fix_commit = subprocess.run(["git", "-C", str(ROOT), "rev-parse", fix["commit"] + "^{commit}"], check=True, capture_output=True, text=True).stdout.strip()
+    subject = subprocess.run(["git", "-C", str(ROOT), "show", "-s", "--format=%s", fix_commit], check=True, capture_output=True, text=True).stdout.strip()
+    changed = subprocess.run(["git", "-C", str(ROOT), "diff-tree", "--no-commit-id", "--name-only", "-r", fix_commit], check=True, capture_output=True, text=True).stdout.splitlines()
+    if (subject != "fix(05-04): dispatch model6 CTC1 through VR4300 core" or
+            fix["subject"] != subject or
+            set(changed) != {"core/t64_internal.h", "core/tests/test_cop1.c"} or
+            fix["path"] != "core/t64_internal.h" or
+            fix["regression_path"] != "core/tests/test_cop1.c"):
+        refuse("current core deviation is not the bounded model6 CTC1 predicate fix")
+    baseline_core = subprocess.run(["git", "-C", str(ROOT), "show", f"{CORE_BASE_REVISION}:{fix['path']}"], check=True, capture_output=True).stdout
+    fixed_core = subprocess.run(["git", "-C", str(ROOT), "show", f"{fix_commit}:{fix['path']}"], check=True, capture_output=True).stdout
+    current_core = project_path(ROOT / fix["path"], "current model6 CTC1 predicate").read_bytes()
+    regression = project_path(ROOT / fix["regression_path"], "current model6 CTC1 regression").read_bytes()
+    if (digest(baseline_core) != fix["baseline_sha256"] or
+            digest(fixed_core) != fix["current_sha256"] or current_core != fixed_core or
+            digest(regression) != fix["regression_sha256"]):
+        refuse("model6 CTC1 fix source or regression differs from its tested commit")
+
+    current = object_with_keys(binding["current_identity"], {"core_build_sha256", "executable_sha256", "path", "source_revision"}, "current production core identity")
+    current_reader_path = project_path(ROOT / current["path"], "current production identity reader", 512 * 1024 * 1024)
+    if (current["path"] != "build/gate/runner/t64-cpu-diagnostic" or
+            current["core_build_sha256"] != binding["rsp_runtime_identity"].get("core_build_sha256") or
+            current["executable_sha256"] != digest(current_reader_path.read_bytes()) or
+            not isinstance(current["source_revision"], str) or re.fullmatch(r"[0-9a-f]{40}", current["source_revision"]) is None):
+        refuse("current production identity reader differs from the v4 binding")
+    source_revision = subprocess.run(["git", "-C", str(ROOT), "rev-parse", current["source_revision"] + "^{commit}"], check=True, capture_output=True, text=True).stdout.strip()
+    if source_revision != current["source_revision"] or subprocess.run(["git", "-C", str(ROOT), "merge-base", "--is-ancestor", current["source_revision"], "HEAD"], check=False).returncode != 0:
+        refuse("current source annotation is not in checkout history")
+    if subprocess.run(["git", "-C", str(ROOT), "merge-base", "--is-ancestor", CORE_BASE_REVISION, current["source_revision"]], check=False).returncode != 0:
+        refuse("current source annotation does not descend from the reviewed core baseline")
+
+    rows = binding["core_source_scope"]
+    if not isinstance(rows, list) or not rows:
+        refuse("v4 current core source scope is empty")
+    prior_rows = v3.get("core_source_scope")
+    if not isinstance(prior_rows, list) or not prior_rows:
+        refuse("historical v3 production source scope is empty")
+    prior = {row.get("path"): row.get("sha256") for row in prior_rows if isinstance(row, dict)}
+    if len(prior) != len(prior_rows):
+        refuse("historical v3 production source scope is malformed")
+    extraction = object_with_keys(v3.get("cpu_protocol_extraction"), {"baseline_sha256", "commit", "current_sha256", "equivalence_evidence", "path", "status"}, "tested CPU protocol extraction")
+    if extraction["path"] != "runner/t64_cpu_diag_protocol.c":
+        refuse("shared CPU protocol extraction path changed")
+    seen: set[str] = set()
+    for row in rows:
+        row = object_with_keys(row, {"path", "sha256"}, "v4 current core source row")
+        relative = pathlib.PurePosixPath(str(row["path"]))
+        if relative.is_absolute() or any(part in ("", ".", "..", ".git") for part in relative.parts) or row["path"] in seen:
+            refuse("v4 current core source path is malformed or duplicated")
+        seen.add(row["path"])
+        current_path = ROOT.joinpath(*relative.parts)
+        source_bytes = project_path(current_path, "v4 current core source").read_bytes()
+        if digest(source_bytes) != row["sha256"]:
+            refuse("current core source differs from its v4 binding")
+        committed = subprocess.run(["git", "-C", str(ROOT), "show", f"{current['source_revision']}:{relative.as_posix()}"], check=True, capture_output=True).stdout
+        if source_bytes != committed:
+            refuse("current core source differs from its annotated build revision")
+        if (row["path"] in prior and
+                row["path"] not in (fix["path"], fix["regression_path"], extraction["path"]) and
+                row["sha256"] != prior[row["path"]]):
+            refuse("production core changed beyond the single CTC1 predicate fix")
+    if (fix["path"] not in seen or fix["regression_path"] not in seen or
+            extraction["path"] not in seen or not set(prior).issubset(seen)):
+        refuse("v4 source scope omits the CTC1 fix, regression, or shared protocol extraction")
+    extraction_bytes = subprocess.run(
+        ["git", "-C", str(ROOT), "show", f"{extraction['commit']}^{{commit}}:{extraction['path']}"],
+        check=True, capture_output=True).stdout
+    if project_path(ROOT / extraction["path"], "current CPU protocol source").read_bytes() != extraction_bytes:
+        refuse("CPU protocol source differs from its exact shared-helper extraction commit")
+
+    adapter = object_with_keys(binding["rsp_adapter_identity"], {"executable_sha256", "path"}, "current RSP adapter identity")
+    adapter_path = project_path(ROOT / "build/gate/runner/t64-rsp-diagnostic", "current RSP adapter", 512 * 1024 * 1024)
+    if adapter["path"] != adapter_path.relative_to(ROOT).as_posix() or digest(adapter_path.read_bytes()) != adapter["executable_sha256"]:
+        refuse("current RSP adapter bytes differ from the v4 binding")
+    runtime = object_with_keys(binding["rsp_runtime_identity"], {"core_build_sha256", "core_source_revision", "profile_descriptor_sha256", "profile_id"}, "current RSP runtime identity")
+    if runtime["core_build_sha256"] != current["core_build_sha256"] or runtime["core_source_revision"] != current["source_revision"] or runtime["profile_id"] != build_identity.get("profile_id") or runtime["profile_descriptor_sha256"] != v3.get("rsp_runtime_identity", {}).get("profile_descriptor_sha256"):
+        refuse("current RSP runtime identity differs from the pre-use binding")
+    current_runtime = subprocess.run([str(adapter_path), "--runtime-identity-json"], check=True, capture_output=True, text=True, timeout=10)
+    current_cpu_runtime = subprocess.run([str(ROOT / current["path"]), "--compat-v2", "--runtime-identity-json"], check=True, capture_output=True, text=True, timeout=10)
+    if json.loads(current_runtime.stdout) != runtime or json.loads(current_cpu_runtime.stdout).get("core_build_sha256") != runtime["core_build_sha256"] or json.loads(current_cpu_runtime.stdout).get("source_revision") != runtime["core_source_revision"]:
+        refuse("current core and RSP runtime identity readers disagree with v4 binding")
+
+    evidence = binding["native_evidence"]
+    expected_evidence = {
+        "build/private-rsp-diagnostic/plan04/task2-core-regressions-gate.log",
+        "build/private-rsp-diagnostic/plan04/task2-core-regressions-asan.log",
+        "build/private-rsp-diagnostic/plan04/task2-terminal-gate-tests.log",
+        "build/private-rsp-diagnostic/plan04/task2-terminal-asan-tests.log",
+        "build/private-rsp-diagnostic/plan04/task2-legacycompat-gate-test.log",
+        "build/private-rsp-diagnostic/plan04/task2-legacycompat-asan-test.log",
+        "build/private-rsp-diagnostic/plan04/task3-gate-inventory.log",
+        "build/private-rsp-diagnostic/plan04/task3-asan-inventory.log",
+    }
+    if not isinstance(evidence, list) or {row.get("path") for row in evidence if isinstance(row, dict)} != expected_evidence:
+        refuse("v4 pre-use native evidence set is incomplete")
+    for row in evidence:
+        row = object_with_keys(row, {"path", "sha256"}, "v4 pre-use native evidence")
+        evidence_path = private_path(ROOT / row["path"], "v4 pre-use native evidence")
+        content = evidence_path.read_bytes()
+        if digest(content) != row["sha256"] or (b"100% tests passed" not in content and b"test inventory PASS" not in content):
+            refuse("v4 pre-use native evidence is stale or nonpassing")
+    normal_build = object_with_keys(binding["current_normal_build"], {"path", "sha256"}, "v4 all-target build evidence")
+    if normal_build["path"] != "build/private-rsp-diagnostic/plan04/task3-postcommit-gate-build.log":
+        refuse("v4 all-target build evidence path changed")
+    normal_build_bytes = private_path(ROOT / normal_build["path"], "v4 all-target build log").read_bytes()
+    if digest(normal_build_bytes) != normal_build["sha256"] or b"t64-rsp-diagnostic" not in normal_build_bytes:
+        refuse("v4 all-target normal build evidence is stale")
+    validator = object_with_keys(binding["historical_batch_validation"], {"classification", "members", "outcome", "path", "sha256"}, "current historical batch validation")
+    validator_path = private_path(ROOT / validator["path"], "current historical batch validator report")
+    validator_bytes = validator_path.read_bytes()
+    if validator["path"] != "build/private-rsp-diagnostic/plan04/task2-current-validator-original-batch-absolute.log" or digest(validator_bytes) != validator["sha256"] or b"classification=validated outcome=refused members=1" not in validator_bytes or (validator["classification"], validator["outcome"], validator["members"]) != ("validated", "refused", 1):
+        refuse("current C validator no longer retains the historical refused batch")
+
+    history = object_with_keys(binding["historical_first_use"], {"adapter_exit", "classification", "historical_files", "original_launcher_failure_preserved", "outcome", "status"}, "v4 historical first-use evidence")
+    if (history["status"] != "selector-bound-refusal-authenticated" or history["outcome"] != "refused" or history["classification"] != "refused" or history["adapter_exit"] != 2 or history["original_launcher_failure_preserved"] is not True):
+        refuse("v4 binding rewrites the original actual refusal or launcher failure")
+    historical = history["historical_files"]
+    if not isinstance(historical, list) or not historical:
+        refuse("v4 historical first-use evidence is empty")
+    for row in historical:
+        row = object_with_keys(row, {"path", "sha256"}, "v4 immutable historical evidence")
+        path = private_path(ROOT / row["path"], "v4 immutable historical evidence")
+        if private_digest(path, "v4 immutable historical evidence") != row["sha256"]:
+            refuse("v4 historical refusal or binding artifact changed")
+    return json.loads(current_runtime.stdout)
+
+
 def verify_rebuilt_core_binding(binding_path: pathlib.Path, qualification_sha: str, build_identity: dict[str, object]) -> dict[str, object]:
     binding_path = private_path(binding_path, "current core identity binding")
     if stat.S_IMODE(binding_path.stat().st_mode) != 0o600:
         refuse("current core identity binding is not owner-only")
     binding = read_json(binding_path)
+    if isinstance(binding, dict) and binding.get("schema") == "t64.rsp-core-identity-binding.v4":
+        return verify_rsp_core_binding_v4(binding, qualification_sha, build_identity)
     if isinstance(binding, dict) and binding.get("schema") == "t64.rsp-core-identity-binding.v3":
         return verify_rsp_core_binding_v3(binding, qualification_sha, build_identity)
     binding = object_with_keys(binding, {"cmake_cache_sha256", "command_receipt_sha256", "commands", "component", "core_model", "core_source_scope", "core_state_schema", "current_identity", "evidence_dir", "original_identity", "production_core_baseline_revision", "profile_id", "qualification_sha256", "schema", "status", "supersedes_binding", "verification_scope"}, "current core identity binding")
@@ -335,11 +546,17 @@ def verify_rebuilt_core_binding(binding_path: pathlib.Path, qualification_sha: s
 def verify_current_core_identity(build_identity: dict[str, object], qualification_sha: str) -> None:
     identity_exe = ROOT / "build/gate/runner/t64-cpu-diagnostic"
     current_sha = private_digest(identity_exe, "current core identity executable")
+    v4_binding = ROOT / "build/private-rsp-diagnostic/current-core-identity-binding-v4.json"
+    v3_binding = ROOT / "build/private-rsp-diagnostic/current-core-identity-binding-v3.json"
+    v2_binding = ROOT / "build/private-rsp-diagnostic/current-core-identity-binding-v2.json"
+    if v4_binding.is_file() and not v4_binding.is_symlink():
+        # The v4 verifier checks the reader hash and source provenance before
+        # invoking it, then validates the intentional current-core rebind.
+        verify_rebuilt_core_binding(v4_binding, qualification_sha, build_identity)
+        return
     if current_sha != build_identity.get("core_identity_executable_sha256"):
         # The supplemental verifier checks exact executable bytes and provenance
         # before invoking the replacement. Never query an unbound executable.
-        v3_binding = ROOT / "build/private-rsp-diagnostic/current-core-identity-binding-v3.json"
-        v2_binding = ROOT / "build/private-rsp-diagnostic/current-core-identity-binding-v2.json"
         core_json = verify_rebuilt_core_binding(
             v3_binding if v3_binding.is_file() and not v3_binding.is_symlink() else v2_binding,
             qualification_sha, build_identity)
