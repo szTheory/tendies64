@@ -1,4 +1,5 @@
 #include "t64_cpu_diag_protocol.h"
+#include "t64_diag_common.h"
 
 #include <stdarg.h>
 #include <stdio.h>
@@ -199,6 +200,44 @@ static void expect_status(const char *case_name, t64_cpu_diag_status actual,
                   t64_cpu_diag_status_name(actual));
     failures++;
   }
+}
+
+static void test_shared_partition_primitive(void) {
+  t64_diag_partition *partition = NULL;
+  uint8_t outcome = UINT8_MAX;
+  if (t64_diag_partition_create(3u, &partition) != T64_DIAG_PARTITION_OK ||
+      partition == NULL) {
+    (void)fprintf(stderr, "shared partition allocation failed\n");
+    failures++;
+    return;
+  }
+  if (t64_diag_partition_member_count(partition) != 0u ||
+      t64_diag_partition_seen(partition, 1u)) {
+    (void)fprintf(stderr, "shared partition started with a reached member\n");
+    failures++;
+  }
+  if (t64_diag_partition_add(partition, 1u, 4u) != T64_DIAG_PARTITION_OK ||
+      !t64_diag_partition_seen(partition, 1u) ||
+      !t64_diag_partition_outcome(partition, 1u, &outcome) || outcome != 4u ||
+      t64_diag_partition_member_count(partition) != 1u) {
+    (void)fprintf(stderr, "shared partition lost an accepted member result\n");
+    failures++;
+  }
+  if (t64_diag_partition_add(partition, 1u, 4u) !=
+      T64_DIAG_PARTITION_DUPLICATE) {
+    (void)fprintf(stderr, "shared partition accepted a duplicate member\n");
+    failures++;
+  }
+  if (t64_diag_partition_add(partition, 3u, 4u) !=
+      T64_DIAG_PARTITION_OUT_OF_RANGE) {
+    (void)fprintf(stderr, "shared partition accepted an out-of-range member\n");
+    failures++;
+  }
+  if (t64_diag_partition_outcome(partition, 2u, &outcome)) {
+    (void)fprintf(stderr, "shared partition reported a missing result\n");
+    failures++;
+  }
+  t64_diag_partition_destroy(partition);
 }
 
 static t64_cpu_diag_inventory *parse_authored_inventory(void) {
@@ -1224,6 +1263,7 @@ cleanup:
 
 int main(int argc, char **argv) {
   if (argc == 2 && strcmp(argv[1], "--inventory") == 0) {
+    test_shared_partition_primitive();
     test_inventory_v3_base_levels_and_stale_v2();
     test_single_group_does_not_complete_required_set();
     test_full_set_order_and_duplicate_seam();
@@ -1236,6 +1276,7 @@ int main(int argc, char **argv) {
     return 0;
   }
   if (argc != 1) return 2;
+  test_shared_partition_primitive();
   test_inventory_v3_base_levels_and_stale_v2();
   test_complete_batch_round_trip();
   test_incomplete_and_wrong_identity_batches();

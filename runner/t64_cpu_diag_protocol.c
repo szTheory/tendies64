@@ -8,6 +8,7 @@
 
 #include "t64_json.h"
 #include "t64_jsonw.h"
+#include "t64_diag_common.h"
 #include "t64_sha256.h"
 
 #define T64_CPU_DIAG_MAX_JSON_NODES 262144u
@@ -58,8 +59,7 @@ struct t64_cpu_diag_inventory {
 
 struct t64_cpu_diag_aggregate {
   const t64_cpu_diag_inventory *inventory;
-  uint8_t *seen;
-  uint8_t *outcomes;
+  t64_diag_partition *partition;
   bool invalid;
 };
 
@@ -100,72 +100,20 @@ static const char *const t64_cpu_diag_outcome_keys[] = {"event", "status"};
 static const char *const t64_cpu_diag_done_keys[] = {
     "complete", "event", "record_count"};
 
-static bool string_equals(const t64_json_node *node, const char *value) {
-  size_t length = strlen(value);
-  return node != NULL && node->type == T64_JSON_STRING &&
-         node->len == length && memcmp(node->str, value, length) == 0;
-}
-
-static bool object_has_exact_keys(const t64_json_node *object,
-                                  const char *const *keys, size_t count) {
-  return t64_json_check_keys(object, keys, count, keys, count, NULL) ==
-         T64_JSON_KEYS_OK;
-}
-
-static const t64_json_node *string_member(const t64_json_node *object,
-                                         const char *key) {
-  const t64_json_node *node = t64_json_get(object, key);
-  return node != NULL && node->type == T64_JSON_STRING ? node : NULL;
-}
-
-static bool printable_text(const t64_json_node *node, size_t maximum,
-                           bool allow_empty) {
-  size_t i;
-  if (node == NULL || node->type != T64_JSON_STRING ||
-      node->len > maximum || (!allow_empty && node->len == 0u) ||
-      memchr(node->str, '\0', node->len) != NULL) {
-    return false;
-  }
-  for (i = 0u; i < node->len; i++) {
-    unsigned char ch = (unsigned char)node->str[i];
-    if (ch < 0x20u || ch == 0x7fu) return false;
-  }
-  return true;
-}
-
-static bool lowercase_hex(const t64_json_node *node, size_t digits) {
-  size_t i;
-  if (node == NULL || node->type != T64_JSON_STRING || node->len != digits) {
-    return false;
-  }
-  for (i = 0u; i < digits; i++) {
-    char ch = node->str[i];
-    if (!((ch >= '0' && ch <= '9') || (ch >= 'a' && ch <= 'f'))) return false;
-  }
-  return true;
-}
+#define string_equals t64_diag_json_string_equals
+#define object_has_exact_keys t64_diag_json_object_has_exact_keys
+#define string_member t64_diag_json_string_member
+#define printable_text t64_diag_json_printable_text
+#define lowercase_hex t64_diag_json_lowercase_hex
+#define index_node t64_diag_json_index16
+#define canonical_document t64_diag_json_canonical_document
+#define write_key t64_diag_json_write_key
+#define write_string t64_diag_json_write_string
+#define write_u64_string t64_diag_json_write_u64_string
 
 static bool selector_text(const t64_json_node *node) {
-  size_t i;
-  if (!printable_text(node, T64_CPU_DIAG_MAX_SELECTOR_BYTES, false)) return false;
-  for (i = 0u; i < node->len; i++) {
-    char ch = node->str[i];
-    if (!((ch >= 'a' && ch <= 'z') || (ch >= 'A' && ch <= 'Z') ||
-          (ch >= '0' && ch <= '9') || ch == '.' || ch == '_' || ch == '+' ||
-          ch == '-')) {
-      return false;
-    }
-  }
-  return true;
-}
-
-static bool index_node(const t64_json_node *node, uint32_t *value_out) {
-  if (node == NULL || node->type != T64_JSON_INT || node->num < 0 ||
-      node->num > UINT16_MAX) {
-    return false;
-  }
-  *value_out = (uint32_t)node->num;
-  return true;
+  return t64_diag_json_selector_text(node,
+                                     T64_CPU_DIAG_MAX_SELECTOR_BYTES);
 }
 
 static bool declared_count(const t64_json_node *object, const char *key,
@@ -173,28 +121,6 @@ static bool declared_count(const t64_json_node *object, const char *key,
   const t64_json_node *node = t64_json_get(object, key);
   return t64_json_u64_string(node, value_out) != 0 &&
          *value_out <= T64_CPU_DIAG_MAX_ROWS;
-}
-
-static bool canonical_document(const t64_json_doc *document,
-                               const uint8_t *bytes, size_t length) {
-  char *canonical;
-  size_t canonical_length = 0u;
-  t64_jsonw writer;
-  bool matches = false;
-  if (document == NULL || document->root == NULL || bytes == NULL ||
-      length == 0u || length >= T64_CPU_DIAG_MAX_INVENTORY_BYTES + 1u) {
-    return false;
-  }
-  canonical = (char *)malloc(length + 1u);
-  if (canonical == NULL) return false;
-  t64_jsonw_init(&writer, canonical, length + 1u);
-  if (t64_jsonw_node(&writer, document->root) == T64_JSONW_OK &&
-      t64_jsonw_finish(&writer, &canonical_length) == T64_JSONW_OK &&
-      canonical_length == length && memcmp(canonical, bytes, length) == 0) {
-    matches = true;
-  }
-  free(canonical);
-  return matches;
 }
 
 static bool parse_schema_version(const t64_json_node *root,
@@ -855,22 +781,6 @@ const char *t64_cpu_diag_outcome_name(t64_cpu_diag_outcome outcome) {
   return t64_cpu_diag_outcomes[(size_t)outcome];
 }
 
-static bool write_key(t64_jsonw *writer, const char *key) {
-  return t64_jsonw_key(writer, key, strlen(key)) == T64_JSONW_OK;
-}
-
-static bool write_string(t64_jsonw *writer, const char *value) {
-  return value != NULL &&
-         t64_jsonw_string(writer, value, strlen(value)) == T64_JSONW_OK;
-}
-
-static bool write_u64_string(t64_jsonw *writer, uint64_t value) {
-  char text[20];
-  int length = snprintf(text, sizeof text, "%" PRIu64, value);
-  return length > 0 && (size_t)length < sizeof text &&
-         t64_jsonw_string(writer, text, (size_t)length) == T64_JSONW_OK;
-}
-
 static bool write_batch_identity(t64_jsonw *writer,
                                  const t64_cpu_diag_inventory *inventory,
                                  uint32_t registration_index,
@@ -1112,6 +1022,7 @@ t64_cpu_diag_status t64_cpu_diag_aggregate_create(
     const t64_cpu_diag_inventory *inventory,
     t64_cpu_diag_aggregate **aggregate_out) {
   t64_cpu_diag_aggregate *aggregate;
+  t64_diag_partition_status partition_status;
   if (inventory == NULL || aggregate_out == NULL) {
     return T64_CPU_DIAG_INVALID_ARGUMENT;
   }
@@ -1120,12 +1031,9 @@ t64_cpu_diag_status t64_cpu_diag_aggregate_create(
   }
   aggregate = (t64_cpu_diag_aggregate *)calloc(1u, sizeof *aggregate);
   if (aggregate == NULL) return T64_CPU_DIAG_ALLOCATION_FAILED;
-  aggregate->seen = (uint8_t *)calloc(inventory->value_count, sizeof *aggregate->seen);
-  aggregate->outcomes = (uint8_t *)calloc(inventory->value_count,
-                                          sizeof *aggregate->outcomes);
-  if (aggregate->seen == NULL || aggregate->outcomes == NULL) {
-    free(aggregate->seen);
-    free(aggregate->outcomes);
+  partition_status = t64_diag_partition_create(inventory->value_count,
+                                               &aggregate->partition);
+  if (partition_status != T64_DIAG_PARTITION_OK) {
     free(aggregate);
     return T64_CPU_DIAG_ALLOCATION_FAILED;
   }
@@ -1136,8 +1044,7 @@ t64_cpu_diag_status t64_cpu_diag_aggregate_create(
 
 void t64_cpu_diag_aggregate_destroy(t64_cpu_diag_aggregate *aggregate) {
   if (aggregate == NULL) return;
-  free(aggregate->seen);
-  free(aggregate->outcomes);
+  t64_diag_partition_destroy(aggregate->partition);
   free(aggregate);
 }
 
@@ -1148,6 +1055,7 @@ t64_cpu_diag_status t64_cpu_diag_aggregate_add_batch(
   size_t flat_index;
   t64_cpu_diag_outcome outcome;
   t64_cpu_diag_status status;
+  t64_diag_partition_status partition_status;
   if (aggregate == NULL) return T64_CPU_DIAG_INVALID_ARGUMENT;
   status = parse_batch(aggregate->inventory, bytes, length, &registration_index,
                        &value_index, &outcome);
@@ -1160,12 +1068,16 @@ t64_cpu_diag_status t64_cpu_diag_aggregate_add_batch(
     aggregate->invalid = true;
     return T64_CPU_DIAG_INVALID_BATCH;
   }
-  if (aggregate->seen[flat_index] != 0u) {
+  partition_status = t64_diag_partition_add(
+      aggregate->partition, flat_index, (uint8_t)outcome);
+  if (partition_status == T64_DIAG_PARTITION_DUPLICATE) {
     aggregate->invalid = true;
     return T64_CPU_DIAG_DUPLICATE_MEMBER;
   }
-  aggregate->seen[flat_index] = 1u;
-  aggregate->outcomes[flat_index] = (uint8_t)outcome;
+  if (partition_status != T64_DIAG_PARTITION_OK) {
+    aggregate->invalid = true;
+    return T64_CPU_DIAG_INVALID_BATCH;
+  }
   return T64_CPU_DIAG_OK;
 }
 
@@ -1194,8 +1106,10 @@ bool t64_cpu_diag_aggregate_is_complete(
   }
   for (i = 0u; i < aggregate->inventory->required_value_count; i++) {
     size_t flat_index = aggregate->inventory->required_members[i].flat_index;
-    if (aggregate->seen[flat_index] == 0u ||
-        aggregate->outcomes[flat_index] > T64_CPU_DIAG_OUTCOME_FAIL) {
+    uint8_t outcome;
+    if (!t64_diag_partition_outcome(aggregate->partition, flat_index,
+                                    &outcome) ||
+        outcome > T64_CPU_DIAG_OUTCOME_FAIL) {
       return false;
     }
   }
@@ -1226,11 +1140,14 @@ bool t64_cpu_diag_aggregate_member_at(
   result_out->group = registration->group;
   result_out->registration_name = registration->name;
   result_out->value_id = value->id;
-  result_out->has_outcome = aggregate->seen[member->flat_index] != 0u;
-  result_out->outcome = result_out->has_outcome
-                            ? (t64_cpu_diag_outcome)aggregate->outcomes[
-                                  member->flat_index]
-                            : T64_CPU_DIAG_OUTCOME_INCOMPLETE;
+  {
+    uint8_t outcome;
+    result_out->has_outcome = t64_diag_partition_outcome(
+        aggregate->partition, member->flat_index, &outcome);
+    result_out->outcome = result_out->has_outcome
+                              ? (t64_cpu_diag_outcome)outcome
+                              : T64_CPU_DIAG_OUTCOME_INCOMPLETE;
+  }
   return true;
 }
 
@@ -1259,12 +1176,14 @@ t64_cpu_diag_status t64_cpu_diag_aggregate_group(
     expected += registration->value_count;
     for (j = 0u; j < registration->value_count; j++) {
       size_t flat_index = registration->value_offset + j;
-      if (aggregate->seen[flat_index] == 0u) {
+      uint8_t outcome;
+      if (!t64_diag_partition_outcome(aggregate->partition, flat_index,
+                                      &outcome)) {
         complete = false;
-      } else if (aggregate->outcomes[flat_index] == T64_CPU_DIAG_OUTCOME_PASS) {
+      } else if (outcome == T64_CPU_DIAG_OUTCOME_PASS) {
         reached++;
         passed++;
-      } else if (aggregate->outcomes[flat_index] == T64_CPU_DIAG_OUTCOME_FAIL) {
+      } else if (outcome == T64_CPU_DIAG_OUTCOME_FAIL) {
         reached++;
         failed++;
       } else {

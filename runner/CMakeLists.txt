@@ -14,9 +14,14 @@ t64_target_warnings(t64_input)
 
 # Shared local CPU diagnostic protocol used by the production adapter and its
 # authored parser/aggregation controls.
+add_library(t64_diag_common STATIC t64_diag_common.c)
+target_include_directories(t64_diag_common PUBLIC ${CMAKE_CURRENT_SOURCE_DIR})
+target_link_libraries(t64_diag_common PUBLIC t64_common)
+t64_target_warnings(t64_diag_common)
+
 add_library(t64_cpu_diag_protocol STATIC t64_cpu_diag_protocol.c)
 target_include_directories(t64_cpu_diag_protocol PUBLIC ${CMAKE_CURRENT_SOURCE_DIR})
-target_link_libraries(t64_cpu_diag_protocol PUBLIC t64_common)
+target_link_libraries(t64_cpu_diag_protocol PUBLIC t64_diag_common)
 t64_target_warnings(t64_cpu_diag_protocol)
 
 add_executable(test_cpu_diag_protocol tests/test_cpu_diag_protocol.c)
