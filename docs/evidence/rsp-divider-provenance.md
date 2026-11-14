@@ -128,3 +128,20 @@ GCC 13 optimized object compile with target-specific flags is recorded in
 without a compiler; the check passed after switching to the cached `gcc:13`
 image. Core lint and its selftest passed with 86 files and 0 violations, and
 27/27 authored lint seeds.
+
+## Parent scope and oracle review
+
+All adapted integer-result and high/low latch equations are contained in the
+attributed core/t64_rsp_divider.c helper. Original interpreter code performs
+fetch/field validation, reads the selected source, stages the helper transition,
+and commits machine effects. This keeps the actual adaptation in the file named
+by the copy record without changing the license of the existing interpreter.
+The small state API stages value snapshots before the interpreter commits them.
+
+Reciprocal word verification uses cross-multiplied lower/upper rational bounds;
+it does not repeat production's division/shift expression. The squared-integer
+rsqrt bracket remains independent of production's search. The refactor starts
+from passing fetched tests; no semantic RED is invented for an unchanged
+transition. Earlier failed attempts and the documented ACC interpretation stay
+preserved. Final parent test and publication records are linked from the plan
+summary.

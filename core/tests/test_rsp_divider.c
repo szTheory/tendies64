@@ -154,12 +154,18 @@ static bool integer_table_bounds(void) {
       }
     } else {
       uint64_t denominator = (uint64_t)index + UINT64_C(512);
-      uint64_t target = reciprocal_numerator / denominator + UINT64_C(1);
       for (wrap = 0u; wrap < 3u; wrap++) {
         uint64_t candidate = (uint64_t)reciprocal +
                              ((uint64_t)wrap << 16);
-        if (UINT64_C(256) * candidate <= target &&
-            target < UINT64_C(256) * (candidate + UINT64_C(1))) {
+        /* Cross multiplication checks the rounded floor interval without
+         * repeating production's division or shift expression. */
+        bool lower = candidate == 0u ||
+            (UINT64_C(256) * candidate - UINT64_C(1)) * denominator <=
+                reciprocal_numerator;
+        uint64_t upper =
+            (UINT64_C(256) * (candidate + UINT64_C(1)) - UINT64_C(1)) *
+            denominator;
+        if (lower && reciprocal_numerator < upper) {
           reciprocal_matches++;
         }
       }

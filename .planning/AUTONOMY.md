@@ -147,6 +147,10 @@ applies that direction; update it when the owner changes policy.
   diagram. Distinguish bit-count subscripts and assembler operand notation
   from encoded fields. An expected-value helper that repeats the production
   transform is not an independent oracle; Plan05-05 exposed this gap.
+  T64_STOP_GUEST_TICK is an absolute target. Sequence tests must advance from
+  the current tick, then assert the intended opcode actually retired; repeated
+  requests for tick1 silently leave later instructions unexecuted. The clip and
+  divider test harnesses independently hit this error in Plan05-06/07.
   Finish source review before the combined gate and keep its build tree stable
   until it exits. A new finding invalidates affected evidence; preserve that
   attempt and rerun only after the correction, without rebuilding under CTest.

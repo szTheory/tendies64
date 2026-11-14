@@ -7,6 +7,8 @@
  */
 #include "t64_rsp_divider.h"
 
+#include <stddef.h>
+
 uint16_t t64_rsp_divider_reciprocal_word(uint32_t index) {
   uint64_t denominator;
   uint64_t quotient;
@@ -88,4 +90,44 @@ uint32_t t64_rsp_divider_result(bool inverse_square_root, uint32_t input) {
   result = (UINT32_C(0x10000) | (uint32_t)table_word) << 14;
   result >>= right_shift;
   return result ^ sign_mask;
+}
+
+bool t64_rsp_divider_step(uint32_t function, uint16_t scalar_input,
+                          const t64_rsp_divider_state *previous,
+                          t64_rsp_divider_state *next,
+                          uint16_t *destination_value) {
+  t64_rsp_divider_state staged;
+  uint16_t value;
+  bool high;
+
+  if (previous == NULL || next == NULL || destination_value == NULL ||
+      (function != UINT32_C(0x30) && function != UINT32_C(0x31) &&
+       function != UINT32_C(0x32) && function != UINT32_C(0x34) &&
+       function != UINT32_C(0x35) && function != UINT32_C(0x36))) {
+    return false;
+  }
+  staged = *previous;
+  high = function == UINT32_C(0x32) || function == UINT32_C(0x36);
+  if (high) {
+    value = (uint16_t)(staged.result >> 16);
+    staged.input = scalar_input;
+    staged.high_valid = true;
+  } else {
+    uint32_t input;
+    if ((function == UINT32_C(0x31) || function == UINT32_C(0x35)) &&
+        staged.high_valid) {
+      input = ((staged.input & UINT32_C(0xffff)) << 16) |
+              (uint32_t)scalar_input;
+    } else {
+      input = (scalar_input & UINT16_C(0x8000)) != 0u
+                  ? UINT32_C(0xffff0000) | (uint32_t)scalar_input
+                  : (uint32_t)scalar_input;
+    }
+    staged.result = t64_rsp_divider_result(function >= UINT32_C(0x34), input);
+    staged.high_valid = false;
+    value = (uint16_t)staged.result;
+  }
+  *next = staged;
+  *destination_value = value;
+  return true;
 }

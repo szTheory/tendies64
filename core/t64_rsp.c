@@ -769,10 +769,9 @@ static bool rsp_decode_divider(const t64_machine *machine,
   uint32_t function = instruction & UINT32_C(0x3f);
   uint32_t source_lane = element & UINT32_C(7);
   uint16_t scalar_input;
-  uint32_t input;
   uint32_t lane;
-  bool high;
-  bool inverse_square_root;
+  t64_rsp_divider_state previous;
+  t64_rsp_divider_state next;
 
   if (machine == NULL || effect == NULL || operation != UINT32_C(0x12) ||
       (selector & UINT32_C(0x10)) == 0u || destination_element > 7u) {
@@ -793,34 +792,17 @@ static bool rsp_decode_divider(const t64_machine *machine,
   (void)memset(effect, 0, sizeof *effect);
   effect->destination_vector = destination;
   effect->destination_lane = destination_element;
-  effect->divider_input = machine->rsp.divider_input;
-  effect->divider_result = machine->rsp.divider_result;
-  effect->divider_high_valid = machine->rsp.divider_high_valid;
+  previous.input = machine->rsp.divider_input;
+  previous.result = machine->rsp.divider_result;
+  previous.high_valid = machine->rsp.divider_high_valid;
   scalar_input = rsp_read_vector_element(machine, source, source_lane);
-  high = function == UINT32_C(0x32) || function == UINT32_C(0x36);
-  inverse_square_root = function == UINT32_C(0x34) ||
-                        function == UINT32_C(0x35) ||
-                        function == UINT32_C(0x36);
-
-  if (high) {
-    effect->destination_value =
-        (uint16_t)(machine->rsp.divider_result >> 16);
-    effect->divider_input = scalar_input;
-    effect->divider_high_valid = true;
-  } else {
-    if ((function == UINT32_C(0x31) || function == UINT32_C(0x35)) &&
-        machine->rsp.divider_high_valid) {
-      input = ((machine->rsp.divider_input & UINT32_C(0xffff)) << 16) |
-              (uint32_t)scalar_input;
-    } else {
-      input = rsp_sign_extend16(scalar_input);
-    }
-    effect->divider_result =
-        t64_rsp_divider_result(inverse_square_root, input);
-    effect->divider_high_valid = false;
-    effect->destination_value =
-        (uint16_t)effect->divider_result;
+  if (!t64_rsp_divider_step(function, scalar_input, &previous, &next,
+                            &effect->destination_value)) {
+    return false;
   }
+  effect->divider_input = next.input;
+  effect->divider_result = next.result;
+  effect->divider_high_valid = next.high_valid;
 
   for (lane = 0u; lane < 8u; lane++) {
     effect->accumulator_values[lane] = scalar_input;
