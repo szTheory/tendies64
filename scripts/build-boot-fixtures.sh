@@ -8,6 +8,7 @@ BOOT=build/fixtures/ipl3_compat.z64
 PAYLOAD=build/fixtures/ipl3_compat.payload.bin
 TOOL_DIR=build/tools/install/bin
 BINUTILS_URL=https://ftp.gnu.org/gnu/binutils/binutils-2.45.tar.xz
+BINUTILS_MIRROR_URL=https://sourceware.org/pub/binutils/releases/binutils-2.45.tar.xz
 BINUTILS_SHA256=c50c0e7f9cb188980e2cc97e4537626b1672441815587f1eab69d2a1bfbef5d2
 AS=${T64_MIPS_AS:-$TOOL_DIR/mips64-elf-as}
 LD=${T64_MIPS_LD:-$TOOL_DIR/mips64-elf-ld}
@@ -218,8 +219,17 @@ build_pinned_binutils()
     else
         download="${archive}.download.$$"
         trap 'rm -f "$download"' EXIT HUP INT TERM
-        curl --fail --location --silent --show-error --proto '=https' --tlsv1.2 \
-            --output "$download" "$BINUTILS_URL" || die 'failed to fetch pinned Binutils source'
+        binutils_fetched=false
+        for binutils_source_url in "$BINUTILS_URL" "$BINUTILS_MIRROR_URL"; do
+            if curl --fail --location --silent --show-error --proto '=https' --tlsv1.2 \
+                --connect-timeout 10 --max-time 60 \
+                --output "$download" "$binutils_source_url"; then
+                binutils_fetched=true
+                break
+            fi
+            printf 'pinned Binutils source unavailable from %s\n' "$binutils_source_url" >&2
+        done
+        [ "$binutils_fetched" = true ] || die 'failed to fetch pinned Binutils source'
         [ "$(sha256_file "$download")" = "$BINUTILS_SHA256" ] || \
             die 'downloaded Binutils source does not match its official release hash'
         mv "$download" "$archive"
