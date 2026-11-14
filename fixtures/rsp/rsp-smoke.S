@@ -16,7 +16,7 @@
 .section .text.start,"ax",@progbits
 .globl _start
 _start:
-  /* Copy ROM-resident RSP IMEM words to RDRAM through the cartridge bus. */
+  /* Copy the authored RSP program and input block through the cartridge bus. */
   lui $s0, %hi(rsp_program - PAYLOAD_BASE + CART_PAYLOAD_BASE)
   addiu $s0, $s0, %lo(rsp_program - PAYLOAD_BASE + CART_PAYLOAD_BASE)
   lui $s1, 0xa000
@@ -31,7 +31,6 @@ copy_imem:
   bne $s2, $zero, copy_imem
   nop
 
-  /* Copy one authored 32-byte input block, then DMA it into SP DMEM. */
   lui $s0, %hi(rsp_input - PAYLOAD_BASE + CART_PAYLOAD_BASE)
   addiu $s0, $s0, %lo(rsp_input - PAYLOAD_BASE + CART_PAYLOAD_BASE)
   lui $s1, 0xa000
@@ -59,8 +58,12 @@ wait_imem_dma:
   bne $t1, $zero, wait_imem_dma
   nop
 
-  addiu $t0, $zero, 0x100
-  sw $t0, 0($s4)              /* SP_MEM_ADDR = DMEM + input block offset */
+.if VARIANT == 5
+  addiu $t0, $zero, 0x0ff8    /* Negative: input DMA wraps within DMEM bank. */
+.else
+  addiu $t0, $zero, 0x0100
+.endif
+  sw $t0, 0($s4)              /* SP_MEM_ADDR = DMEM input destination */
   addiu $t0, $zero, 0x2000
   sw $t0, 4($s4)              /* SP_DRAM_ADDR = RDRAM 0x2000 */
   addiu $t0, $zero, (rsp_input_end - rsp_input) - 1
@@ -79,20 +82,60 @@ wait_rsp_halt:
   beq $t1, $zero, wait_rsp_halt
   nop
 
-  /* Check vector output, CFC2(VCO), DMA input, SP status and exact SP_PC. */
+  /* Compare all bytes touched by aligned and partial vector transfers. */
   lui $t0, 0xa400
-  lhu $t1, 0($t0)
-  addiu $t2, $zero, 7
+  addiu $t1, $t0, 0x80
+  lui $t2, %hi(expected_rsp_bytes - PAYLOAD_BASE + CART_PAYLOAD_BASE)
+  addiu $t2, $t2, %lo(expected_rsp_bytes - PAYLOAD_BASE + CART_PAYLOAD_BASE)
+  addiu $t3, $zero, expected_rsp_bytes_end - expected_rsp_bytes
+check_rsp_bytes:
+  lbu $t4, 0($t1)
+  lbu $t5, 0($t2)
+  bne $t4, $t5, guest_fail
+  nop
+  addiu $t1, $t1, 1
+  addiu $t2, $t2, 1
+  addiu $t3, $t3, -1
+  bne $t3, $zero, check_rsp_bytes
+  nop
+
+  /* VCO after VADDC, the SU load-use result, and original DMA input. */
+  lw $t1, 0x20($t0)
+  addiu $t2, $zero, 2
   bne $t1, $t2, guest_fail
   nop
-  lw $t1, 0x20($t0)
-  bne $t1, $zero, guest_fail
-  nop
-  lw $t1, 0x100($t0)
+  lw $t1, 0x24($t0)
   lui $t2, 0x1122
   ori $t2, $t2, 0x3344
   bne $t1, $t2, guest_fail
   nop
+  lw $t1, 0x100($t0)
+  bne $t1, $t2, guest_fail
+  nop
+
+  /* VMULF product slices: 32767*1 -> ACC=0x000000017ffe. */
+  lhu $t1, 0xa0($t0)
+  bne $t1, $zero, guest_fail
+  nop
+  lhu $t1, 0xb0($t0)
+  addiu $t2, $zero, 1
+  bne $t1, $t2, guest_fail
+  nop
+  lhu $t1, 0xc0($t0)
+  addiu $t2, $zero, 0x7ffe
+  bne $t1, $t2, guest_fail
+  nop
+
+  /* VRCPH/VRCPL high-low sequence uses the guide's zero-input policy. */
+  lhu $t1, 0xd0($t0)
+  bne $t1, $zero, guest_fail
+  nop
+  lhu $t1, 0xe0($t0)
+  ori $t2, $zero, 0xffff
+  bne $t1, $t2, guest_fail
+  nop
+
+  /* SP status, BREAK PC, and read-to-set semaphore are bus-visible. */
   lw $t1, 0x10($s4)
   andi $t1, $t1, 3
   addiu $t2, $zero, 3
@@ -100,7 +143,7 @@ wait_rsp_halt:
   nop
   lui $t0, 0xa408
   lw $t1, 0($t0)
-  addiu $t2, $zero, (rsp_break - rsp_program)
+  addiu $t2, $zero, rsp_break - rsp_program
   bne $t1, $t2, guest_fail
   nop
   lw $t1, 0x1c($s4)           /* First semaphore read returns zero. */
@@ -181,34 +224,64 @@ guest_pass:
 terminal:
 .if VARIANT == 4
   b terminal
-  addiu $s7, $zero, 1
+  addiu $s7, $zero, 1       /* Negative: changed terminal delay-slot word. */
 .else
   b terminal
   nop
 .endif
 
-/* CPU uses these exact raw fetched words after SP DMA; all values are literal. */
+/* Raw fetched RSP program; every expected value is derived independently. */
 .section .rodata.rsp,"a",@progbits
 .balign 8
 .globl rsp_program
 rsp_program:
-  .word 0x24010003             /* ADDIU r1, r0, 3 */
+  .word 0x24017fff             /* ADDIU r1, r0, 0x7fff */
   .word 0x48810800             /* MTC2 v1[0], r1 */
-  .word 0x24020004             /* ADDIU r2, r0, 4 */
+  .word 0x24020001             /* ADDIU r2, r0, 1 */
   .word 0x48821000             /* MTC2 v2[0], r2 */
   .word 0x10000001             /* BEQ r0, r0, +1 */
   .word 0x24030009             /* Delay slot: ADDIU r3, r0, 9 */
   .word 0x24040007             /* Independent SU paired with VADD */
-  .if VARIANT == 2
-    .word 0x4a0208f8           /* Reserved function 0x38: intentional refusal */
-  .else
-    .word 0x4a0208d0           /* VADD v3, v1, v2; lane 0 is 3 + 4 = 7 */
-  .endif
-  .word 0xe8032000             /* SQV v3, 0(r0) */
+.if VARIANT == 2
+  .word 0x4a0208f8             /* Reserved function 0x38: refusal control. */
+.elseif VARIANT == 1
+  .word 0x4a020950             /* Wrong-result control: writes v5, not v3. */
+.else
+  .word 0x4a0208d0             /* Saturating VADD v3, v1, v2. */
+.endif
+  .word 0x2401ffff             /* ADDIU r1, r0, -1 */
+  .word 0x48c10800             /* MTC2 v1[1], r1 */
+  .word 0x24020001             /* ADDIU r2, r0, 1 */
+  .word 0x48c21000             /* MTC2 v2[1], r2 */
+  .word 0x4a0208d0             /* VADD v3, v1, v2; signed saturation */
+  .word 0x4a020954             /* VADDC v5, v1, v2; lane 1 carry */
   .word 0x48450000             /* CFC2 r5, VCO */
   .word 0xac050020             /* SW r5, 0x20(r0) */
+  .word 0x8c0a0100             /* LW r10, 0x100(r0) */
+  .word 0x01405821             /* ADDU r11, r10, r0: immediate load use */
+  .word 0xac0b0024             /* SW r11, 0x24(r0) */
+  .word 0x24060107             /* ADDIU r6, r0, 0x107 */
+  .word 0xc8262000             /* LQV v4, 0(r6): nine-byte partial load */
+  .word 0x4b031133             /* VMOV v4[2], v3[0]; other lanes preserved */
+  .word 0xe8042000             /* SQV v4, 0(r0): aligned output block */
+  .word 0x24060099             /* ADDIU r6, r0, 0x99 */
+  .word 0xe8442000             /* SQV v4, 0(r6): seven-byte partial store */
+  .word 0x4a020980             /* VMULF v6, v1, v2; 32767 * 1 */
+  .word 0x4a02095d             /* VSAR e=0: ACC[47:32] */
+  .word 0xe8052000             /* SQV v5, 0xa0(r0) */
+  .word 0x4a22099d             /* VSAR e=1: ACC[31:16] to v6 */
+  .word 0xe8062000             /* SQV v6, 0xb0(r0) */
+  .word 0x4a4209dd             /* VSAR e=2: ACC[15:0] to v7 */
+  .word 0xe8072000             /* SQV v7, 0xc0(r0) */
+  .word 0x24090000             /* ADDIU r9, r0, 0 */
+  .word 0x48894800             /* MTC2 v9[0], r9 */
+  .word 0x4a090232             /* VRCPH v8[0], v9[0]: previous high */
+  .word 0xe8082000             /* SQV v8, 0xd0(r0) */
+  .word 0x4a090231             /* VRCPL v8[0], v9[0]: zero special result */
+  .word 0xe8082000             /* SQV v8, 0xe0(r0) */
 .if VARIANT == 3
-  .word 0x00000000             /* Missing BREAK negative variant */
+rsp_break:
+  .word 0x00000000             /* Missing-BREAK control. */
 .else
 rsp_break:
   .word 0x0000000d             /* BREAK */
@@ -222,6 +295,15 @@ rsp_input:
   .word 0x11223344, 0x55667788, 0x99aabbcc, 0xddeeff00
   .word 0x01234567, 0x89abcdef, 0x76543210, 0xfedcba98
 rsp_input_end:
+
+.section .rodata.expected,"a",@progbits
+.balign 4
+expected_rsp_bytes:
+  .byte 0x88,0x99,0xaa,0xbb,0x7f,0xff,0xee,0xff,0x00
+  .byte 0,0,0,0,0,0,0
+  .byte 0,0,0,0,0,0,0,0,0
+  .byte 0x88,0x99,0xaa,0xbb,0x7f,0xff,0xee
+expected_rsp_bytes_end:
 
 .globl rsp_break
 .globl terminal
