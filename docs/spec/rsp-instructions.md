@@ -113,6 +113,56 @@ checks destination/source aliases, VADDC carry, VSUBC borrow/not-equal, signed
 minimum/maximum behavior, the VCO-consuming add/subtract path, and untouched
 state after selector refusal.
 
+## Vector multiply and accumulator ledger
+
+These fetched operations are covered by `unit.core.rsp-multiply`. Unless a row
+states otherwise, the arithmetic uses signed 16-bit lane interpretation for
+`VS` and `VT`, the raw `e` selector follows Table 3-3 (printed p. 58), results
+are committed from an unsigned 48-bit carrier, and VCO/VCC/VCE are preserved.
+The appendix pages listed below are the per-operation source; printed page
+numbers are the guide's own numbers, not PDF indices.
+
+| Function | Product and accumulator update | Destination extraction | Appendix operation page |
+| --- | --- | --- | --- |
+| VMULF `0x00` | Signed×signed product; replace ACC with `(product × 2 + 0x8000) mod 2^48` | Signed clamp of ACC31..16 | p. 284 |
+| VMULU `0x01` | Same accumulator update as VMULF | Unsigned clamp of ACC31..16 | p. 288 |
+| VMACF `0x08` | Add `product[30:0] || 0` to ACC47..16 modulo 32 bits; preserve ACC15..0 | Signed clamp of ACC31..16 | p. 259 |
+| VMACU `0x09` | Same accumulator update as VMACF | Unsigned clamp of ACC31..16 | p. 263 |
+| VMUDL `0x04` | Unsigned product. Replace ACC31..0 with `{16{product[31]}} || product[31:16]`; preserve ACC47..32 | Signed clamp of ACC15..0 | p. 278 |
+| VMUDM `0x05` | Signed VS × unsigned VT. Replace ACC31..0 with product[31:0]; preserve ACC47..32 | Signed clamp of ACC31..16 | p. 280 |
+| VMUDN `0x06` | Unsigned VS × signed VT. Replace ACC31..0 with product[31:0]; preserve ACC47..32 | Signed clamp of ACC15..0 | p. 282 |
+| VMUDH `0x07` | Signed×signed product. Replace ACC31..0 with `product[31:16] || 0^16`; preserve ACC47..32 | Signed clamp of ACC31..16 | p. 276 |
+| VMADL `0x0c` | Add unsigned `product[31:16]` to ACC31..0 modulo 32 bits; preserve ACC47..32 | Signed clamp of ACC15..0 | p. 267 |
+| VMADM `0x0d` | Add signed VS × unsigned VT product[31:0] to ACC31..0 modulo 32 bits; preserve ACC47..32 | Signed clamp of ACC31..16 | p. 269 |
+| VMADN `0x0e` | Add unsigned VS × signed VT product[31:0] to ACC31..0 modulo 32 bits; preserve ACC47..32 | Signed clamp of ACC15..0 | p. 271 |
+| VMADH `0x0f` | Add `product[31:16] || 0^16` to ACC31..0 modulo 32 bits; preserve ACC47..32 | Signed clamp of ACC31..16 | p. 265 |
+| VRNDP `0x02`, VRNDN `0x0a` | Conditionally add sign-extended VT, or sign-extended `(VT << 16)`, to the masked 48-bit ACC. The `vs` instruction field bit 0 chooses the shift; VRNDP adds when signed ACC is nonnegative, VRNDN when it is negative. | Signed clamp of ACC31..16 | pp. 307, 309 |
+| VMACQ `0x0b` | Ignore VS/VT. Per the Appendix operation on printed p. 261, add `+2^21` when signed ACC is negative and ACC21 is zero; add `-2^21` when signed ACC is positive and ACC21 is zero; otherwise preserve ACC. Arithmetic wraps at 48 bits. | Signed clamp of ACC32..17, then `& 0xfff0` | p. 261 |
+| VMULQ `0x03` | Signed×signed product. Sign-extend product[15:0] to 32 bits, add `0x20` when the full product is negative, write that value to ACC47..16, and preserve ACC15..0. This explicitly names the software policy for the guide's narrower source slice assigned to a 32-bit accumulator slice. | Signed clamp of ACC32..17, then `& 0xfff0` | p. 286 |
+| VSAR `0x1d` | `e=0/1/2` reads ACC47..32/31..16/15..0 into VD and writes VS into that same ACC slice. Other `e` values refuse before effects. | Prior selected ACC slice | p. 315 |
+
+The handwritten vectors anchor `-32768 × -32768`, signed and unsigned
+endpoints, negative partial products, independent VMUDL sign extension, 48-bit
+wrap, repeated accumulation, signed/unsigned saturation, and the VMULQ
+low-slice preservation/negative-rounding cases. The VMULF selector table checks
+all legal `e` values against literal lane maps; `e=1` is a transactional
+unsupported-opcode refusal. Destination aliases with either multiply source
+are also fetched and checked against complete vector-bank, accumulator and
+flag snapshots.
+
+Two guide inconsistencies are made explicit software policies. First, the
+overview on printed p. 62 describes VMACQ as adding zero whenever ACC47..21
+are zero, while the per-operation pseudocode on p. 261 instead selects the
+positive/negative adjustment from signed ACC and ACC21; this implementation
+follows that operation-specific pseudocode. Second, the VMULQ operation on
+printed p. 286 assigns a 16-bit product slice into ACC47..16 without spelling
+out extension or low-slice preservation. This profile sign-extends the slice
+to 32 bits and preserves ACC15..0, as tested by fixed raw fetched words and
+literal 48-bit values. These are deterministic integer software choices, not
+claims about undocumented silicon behavior. The VMUDL superscript on printed
+p. 278 denotes repeating product bit 31 sixteen times; it is a bit count, not
+the literal number `31` or `16`.
+
 ## Evidence boundary
 
 The authored native cases fetch instructions from IMEM and inspect resulting

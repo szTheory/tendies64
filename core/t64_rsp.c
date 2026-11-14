@@ -139,6 +139,8 @@ typedef struct {
   uint16_t vco;
   uint16_t vcc;
   uint8_t vce;
+  bool reads_source_a;
+  bool reads_source_b;
   bool writes_vco;
   bool writes_vcc;
   bool writes_vce;
@@ -608,6 +610,8 @@ static bool rsp_decode_vector_basic(const t64_machine *machine,
   effect->source_a = source_a;
   effect->source_b = source_b;
   effect->destination = destination;
+  effect->reads_source_a = true;
+  effect->reads_source_b = true;
   effect->vco = machine->rsp.vco;
   effect->vcc = machine->rsp.vcc;
   effect->vce = machine->rsp.vce;
@@ -739,6 +743,288 @@ static void rsp_commit_vector_effect(t64_machine *machine,
   if (effect->writes_vce) {
     machine->rsp.vce = effect->vce;
   }
+}
+
+#define RSP_ACCUMULATOR_MASK UINT64_C(0x0000ffffffffffff)
+
+static int64_t rsp_signed48(uint64_t value) {
+  uint64_t magnitude;
+
+  value &= RSP_ACCUMULATOR_MASK;
+  if ((value & (UINT64_C(1) << 47)) == 0u) {
+    return (int64_t)value;
+  }
+  magnitude = ((~value) & RSP_ACCUMULATOR_MASK) + UINT64_C(1);
+  return -(int64_t)magnitude;
+}
+
+static uint16_t rsp_clamp_signed_accumulator(uint64_t value,
+                                             uint32_t field_shift) {
+  uint32_t field_sign_bit = field_shift + UINT32_C(15);
+  uint32_t upper_width = UINT32_C(48) - field_sign_bit;
+  uint64_t upper_mask = (UINT64_C(1) << upper_width) - UINT64_C(1);
+  uint64_t upper = (value & RSP_ACCUMULATOR_MASK) >> field_sign_bit;
+
+  if (upper == 0u || upper == upper_mask) {
+    return (uint16_t)(value >> field_shift);
+  }
+  return (value & (UINT64_C(1) << 47)) != 0u ? UINT16_C(0x8000)
+                                              : UINT16_C(0x7fff);
+}
+
+static uint16_t rsp_clamp_unsigned_accumulator(uint64_t value,
+                                               uint32_t field_shift) {
+  uint64_t upper =
+      (value & RSP_ACCUMULATOR_MASK) >> (field_shift + UINT32_C(16));
+
+  if ((value & (UINT64_C(1) << 47)) != 0u) {
+    return 0u;
+  }
+  return upper != 0u ? UINT16_C(0xffff)
+                     : (uint16_t)(value >> field_shift);
+}
+
+static bool rsp_decode_vector_multiply(const t64_machine *machine,
+                                       uint32_t instruction,
+                                       rsp_vector_effect *effect) {
+  uint32_t operation = instruction >> 26;
+  uint32_t selector = (instruction >> 21) & UINT32_C(0x1f);
+  uint32_t element = selector & UINT32_C(0x0f);
+  uint32_t source_a = (instruction >> 11) & UINT32_C(0x1f);
+  uint32_t source_b = (instruction >> 16) & UINT32_C(0x1f);
+  uint32_t destination = (instruction >> 6) & UINT32_C(0x1f);
+  uint32_t function = instruction & UINT32_C(0x3f);
+  uint32_t lane;
+
+  if (machine == NULL || effect == NULL || operation != UINT32_C(0x12) ||
+      (selector & UINT32_C(0x10)) == 0u) {
+    return false;
+  }
+  switch (function) {
+  case UINT32_C(0x00): /* VMULF */
+  case UINT32_C(0x01): /* VMULU */
+  case UINT32_C(0x02): /* VRNDP */
+  case UINT32_C(0x03): /* VMULQ */
+  case UINT32_C(0x04): /* VMUDL */
+  case UINT32_C(0x05): /* VMUDM */
+  case UINT32_C(0x06): /* VMUDN */
+  case UINT32_C(0x07): /* VMUDH */
+  case UINT32_C(0x08): /* VMACF */
+  case UINT32_C(0x09): /* VMACU */
+  case UINT32_C(0x0a): /* VRNDN */
+  case UINT32_C(0x0b): /* VMACQ */
+  case UINT32_C(0x0c): /* VMADL */
+  case UINT32_C(0x0d): /* VMADM */
+  case UINT32_C(0x0e): /* VMADN */
+  case UINT32_C(0x0f): /* VMADH */
+  case UINT32_C(0x1d): /* VSAR */
+    break;
+  default:
+    return false;
+  }
+
+  (void)memset(effect, 0, sizeof *effect);
+  effect->source_a = source_a;
+  effect->source_b = source_b;
+  effect->destination = destination;
+  effect->vco = machine->rsp.vco;
+  effect->vcc = machine->rsp.vcc;
+  effect->vce = machine->rsp.vce;
+  effect->reads_source_a = true;
+  effect->reads_source_b = true;
+
+  if (function == UINT32_C(0x1d)) {
+    uint32_t slice_shift;
+    if (element == 0u) {
+      slice_shift = 32u;
+    } else if (element == 1u) {
+      slice_shift = 16u;
+    } else if (element == 2u) {
+      slice_shift = 0u;
+    } else {
+      return false;
+    }
+    effect->reads_source_b = false;
+    for (lane = 0u; lane < 8u; lane++) {
+      uint64_t accumulator = machine->rsp.accumulator[lane] &
+                            RSP_ACCUMULATOR_MASK;
+      uint64_t slice_mask = UINT64_C(0xffff) << slice_shift;
+      effect->values[lane] = (uint16_t)(accumulator >> slice_shift);
+      effect->accumulators[lane] =
+          (accumulator & ~slice_mask) |
+          ((uint64_t)rsp_read_vector_element(machine, source_a, lane)
+           << slice_shift);
+    }
+    return true;
+  }
+
+  if (!rsp_select_vector_lane(element, 0u, &lane)) {
+    return false;
+  }
+  for (lane = 0u; lane < 8u; lane++) {
+    uint32_t source_lane;
+    uint16_t source_a_bits;
+    uint16_t source_b_bits;
+    int32_t signed_a;
+    int32_t signed_b;
+    int32_t signed_product;
+    uint32_t unsigned_product;
+    uint64_t accumulator = machine->rsp.accumulator[lane] &
+                           RSP_ACCUMULATOR_MASK;
+    uint64_t next_accumulator = accumulator;
+    uint16_t result = 0u;
+
+    if (!rsp_select_vector_lane(element, lane, &source_lane)) {
+      return false;
+    }
+    source_a_bits = rsp_read_vector_element(machine, source_a, lane);
+    source_b_bits = rsp_read_vector_element(machine, source_b, source_lane);
+    signed_a = rsp_signed16(source_a_bits);
+    signed_b = rsp_signed16(source_b_bits);
+    signed_product = signed_a * signed_b;
+    unsigned_product = (uint32_t)source_a_bits * (uint32_t)source_b_bits;
+
+    switch (function) {
+    case UINT32_C(0x00): /* VMULF */
+    case UINT32_C(0x01): { /* VMULU */
+      int64_t rounded_product =
+          (int64_t)signed_product * INT64_C(2) + INT64_C(0x8000);
+      next_accumulator = (uint64_t)rounded_product &
+                         RSP_ACCUMULATOR_MASK;
+      result = function == UINT32_C(0x00)
+                   ? rsp_clamp_signed_accumulator(next_accumulator, 16u)
+                   : rsp_clamp_unsigned_accumulator(next_accumulator, 16u);
+      break;
+    }
+    case UINT32_C(0x08): /* VMACF */
+    case UINT32_C(0x09): { /* VMACU */
+      uint32_t high = (uint32_t)(accumulator >> 16);
+      uint32_t product_doubled = (uint32_t)signed_product * UINT32_C(2);
+      high += product_doubled;
+      next_accumulator = ((uint64_t)high << 16) |
+                         (accumulator & UINT64_C(0xffff));
+      result = function == UINT32_C(0x08)
+                   ? rsp_clamp_signed_accumulator(next_accumulator, 16u)
+                   : rsp_clamp_unsigned_accumulator(next_accumulator, 16u);
+      break;
+    }
+    case UINT32_C(0x04): { /* VMUDL: unsigned low partial product */
+      uint32_t partial_high = unsigned_product >> 16;
+      uint32_t partial =
+          (partial_high & UINT32_C(0x8000)) != 0u
+              ? partial_high | UINT32_C(0xffff0000)
+              : partial_high;
+      next_accumulator = (accumulator & UINT64_C(0xffff00000000)) | partial;
+      result = rsp_clamp_signed_accumulator(next_accumulator, 0u);
+      break;
+    }
+    case UINT32_C(0x05): { /* VMUDM: signed x unsigned middle product */
+      int32_t product = signed_a * (int32_t)source_b_bits;
+      next_accumulator = (accumulator & UINT64_C(0xffff00000000)) |
+                         (uint64_t)(uint32_t)product;
+      result = rsp_clamp_signed_accumulator(next_accumulator, 16u);
+      break;
+    }
+    case UINT32_C(0x06): { /* VMUDN: unsigned x signed middle product */
+      int32_t product = (int32_t)source_a_bits * signed_b;
+      next_accumulator = (accumulator & UINT64_C(0xffff00000000)) |
+                         (uint64_t)(uint32_t)product;
+      result = rsp_clamp_signed_accumulator(next_accumulator, 0u);
+      break;
+    }
+    case UINT32_C(0x07): { /* VMUDH: signed high partial product */
+      uint32_t high_partial = (uint32_t)signed_product & UINT32_C(0xffff0000);
+      next_accumulator = (accumulator & UINT64_C(0xffff00000000)) |
+                         (uint64_t)high_partial;
+      result = rsp_clamp_signed_accumulator(next_accumulator, 16u);
+      break;
+    }
+    case UINT32_C(0x0c): { /* VMADL: unsigned low partial accumulate */
+      uint32_t low32 = (uint32_t)accumulator + (unsigned_product >> 16);
+      next_accumulator = (accumulator & UINT64_C(0xffff00000000)) | low32;
+      result = rsp_clamp_signed_accumulator(next_accumulator, 0u);
+      break;
+    }
+    case UINT32_C(0x0d): { /* VMADM: signed x unsigned middle accumulate */
+      int32_t product = signed_a * (int32_t)source_b_bits;
+      uint32_t low32 = (uint32_t)accumulator + (uint32_t)product;
+      next_accumulator = (accumulator & UINT64_C(0xffff00000000)) | low32;
+      result = rsp_clamp_signed_accumulator(next_accumulator, 16u);
+      break;
+    }
+    case UINT32_C(0x0e): { /* VMADN: unsigned x signed middle accumulate */
+      int32_t product = (int32_t)source_a_bits * signed_b;
+      uint32_t low32 = (uint32_t)accumulator + (uint32_t)product;
+      next_accumulator = (accumulator & UINT64_C(0xffff00000000)) | low32;
+      result = rsp_clamp_signed_accumulator(next_accumulator, 0u);
+      break;
+    }
+    case UINT32_C(0x0f): { /* VMADH: signed high partial accumulate */
+      uint32_t product_high =
+          (uint32_t)signed_product & UINT32_C(0xffff0000);
+      uint32_t low32 = (uint32_t)accumulator + product_high;
+      next_accumulator = (accumulator & UINT64_C(0xffff00000000)) | low32;
+      result = rsp_clamp_signed_accumulator(next_accumulator, 16u);
+      break;
+    }
+    case UINT32_C(0x02): /* VRNDP */
+    case UINT32_C(0x0a): { /* VRNDN */
+      int64_t signed_accumulator = rsp_signed48(accumulator);
+      bool should_add = function == UINT32_C(0x02)
+                            ? signed_accumulator >= INT64_C(0)
+                            : signed_accumulator < INT64_C(0);
+      int64_t rounding_term = (int64_t)signed_b;
+      if ((source_a & UINT32_C(1)) != 0u) {
+        rounding_term *= INT64_C(65536);
+      }
+      if (should_add) {
+        next_accumulator =
+            (accumulator + (uint64_t)rounding_term) &
+            RSP_ACCUMULATOR_MASK;
+      }
+      result = rsp_clamp_signed_accumulator(next_accumulator, 16u);
+      effect->reads_source_a = false;
+      break;
+    }
+    case UINT32_C(0x03): { /* VMULQ */
+      int32_t quantized = rsp_signed16((uint16_t)signed_product);
+      if (signed_product < 0) {
+        quantized += INT32_C(32);
+      }
+      next_accumulator =
+          (accumulator & UINT64_C(0xffff)) |
+          ((uint64_t)(uint32_t)quantized << 16);
+      result = (uint16_t)(rsp_clamp_signed_accumulator(
+                              next_accumulator, 17u) &
+                          UINT16_C(0xfff0));
+      break;
+    }
+    case UINT32_C(0x0b): { /* VMACQ */
+      int64_t signed_accumulator = rsp_signed48(accumulator);
+      bool bit21 = (accumulator & (UINT64_C(1) << 21)) != 0u;
+      if (!bit21 && signed_accumulator < INT64_C(0)) {
+        next_accumulator =
+            (accumulator + (UINT64_C(32) << 16)) &
+            RSP_ACCUMULATOR_MASK;
+      } else if (!bit21 && signed_accumulator > INT64_C(0)) {
+        next_accumulator =
+            (accumulator - (UINT64_C(32) << 16)) &
+            RSP_ACCUMULATOR_MASK;
+      }
+      result = (uint16_t)(rsp_clamp_signed_accumulator(
+                              next_accumulator, 17u) &
+                          UINT16_C(0xfff0));
+      effect->reads_source_a = false;
+      effect->reads_source_b = false;
+      break;
+    }
+    default:
+      return false;
+    }
+    effect->values[lane] = result;
+    effect->accumulators[lane] = next_accumulator & RSP_ACCUMULATOR_MASK;
+  }
+  return true;
 }
 
 static t64_status t64_rsp_issue_event(t64_machine *machine,
@@ -1148,8 +1434,25 @@ static t64_status t64_rsp_issue_event(t64_machine *machine,
   } else if (rsp_decode_vector_basic(machine, instruction, &vector_effect)) {
     write_vector_result = true;
     vector_effect_valid = true;
-    vector_read_mask |= (UINT32_C(1) << vector_effect.source_a) |
-                        (UINT32_C(1) << vector_effect.source_b);
+    if (vector_effect.reads_source_a) {
+      vector_read_mask |= UINT32_C(1) << vector_effect.source_a;
+    }
+    if (vector_effect.reads_source_b) {
+      vector_read_mask |= UINT32_C(1) << vector_effect.source_b;
+    }
+    vector_destination = vector_effect.destination;
+    vector_write_delay = UINT32_C(4);
+    supported = true;
+  } else if (rsp_decode_vector_multiply(machine, instruction,
+                                       &vector_effect)) {
+    write_vector_result = true;
+    vector_effect_valid = true;
+    if (vector_effect.reads_source_a) {
+      vector_read_mask |= UINT32_C(1) << vector_effect.source_a;
+    }
+    if (vector_effect.reads_source_b) {
+      vector_read_mask |= UINT32_C(1) << vector_effect.source_b;
+    }
     vector_destination = vector_effect.destination;
     vector_write_delay = UINT32_C(4);
     supported = true;
