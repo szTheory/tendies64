@@ -127,6 +127,7 @@ unit.core.rsp-scalar
 unit.core.rsp-transfers
 unit.core.rsp-vector
 unit.core.rsp-multiply
+unit.core.rsp-compare
 unit.rsp-diag-protocol
 harness.rsp-qualification
 harness.rsp-build
