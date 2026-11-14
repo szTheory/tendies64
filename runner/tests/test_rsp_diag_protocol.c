@@ -391,6 +391,59 @@ static void test_missing_terminal_record_is_rejected(void) {
   t64_rsp_diag_inventory_destroy(inventory);
 }
 
+static void test_legacy_refusal_without_terminal_pair_is_accepted(void) {
+  static const char terminal_pair_fields[] =
+      ",\"terminal_delay_slot_opcode\":0,\"terminal_delay_slot_pc\":0";
+  t64_rsp_diag_inventory *inventory = NULL;
+  t64_rsp_diag_member_result result =
+      sample_result(T64_RSP_DIAG_OUTCOME_REFUSED);
+  char batch[T64_RSP_DIAG_MAX_BATCH_BYTES];
+  char legacy[T64_RSP_DIAG_MAX_BATCH_BYTES];
+  size_t length = 0u;
+  size_t legacy_length;
+  char *field;
+  size_t prefix;
+  t64_rsp_diag_aggregate *aggregate = NULL;
+  result.terminal_pc = UINT32_C(0x1234);
+  result.terminal_opcode = UINT32_C(0x5678);
+  result.terminal_delay_slot_pc = 0u;
+  result.terminal_delay_slot_opcode = 0u;
+  if (!parse_authored_inventory(&inventory) ||
+      !encode_sample(inventory, &result, batch, sizeof batch, &length)) {
+    (void)fprintf(stderr, "FAIL: refused result baseline missing\n");
+    failures++;
+    t64_rsp_diag_inventory_destroy(inventory);
+    return;
+  }
+  batch[length] = '\0';
+  field = strstr(batch, terminal_pair_fields);
+  if (field == NULL) {
+    (void)fprintf(stderr, "FAIL: optional terminal pair control fields missing\n");
+    failures++;
+    t64_rsp_diag_inventory_destroy(inventory);
+    return;
+  }
+  prefix = (size_t)(field - batch);
+  legacy_length = length - (sizeof terminal_pair_fields - 1u);
+  memcpy(legacy, batch, prefix);
+  memcpy(legacy + prefix,
+         field + sizeof terminal_pair_fields - 1u,
+         length - prefix - (sizeof terminal_pair_fields - 1u));
+  legacy[legacy_length] = '\0';
+  if (t64_rsp_diag_aggregate_create(inventory, &aggregate) != T64_RSP_DIAG_OK ||
+      t64_rsp_diag_aggregate_add_batch(
+          aggregate, (const uint8_t *)legacy, legacy_length) !=
+          T64_RSP_DIAG_OK ||
+      t64_rsp_diag_aggregate_member_count(aggregate) != 1u ||
+      t64_rsp_diag_aggregate_is_complete(aggregate)) {
+    (void)fprintf(stderr,
+                  "FAIL: legacy refusal without terminal proof was not retained\n");
+    failures++;
+  }
+  t64_rsp_diag_aggregate_destroy(aggregate);
+  t64_rsp_diag_inventory_destroy(inventory);
+}
+
 int main(int argc, char **argv) {
   if (argc != 2 || strcmp(argv[1], "--protocol") != 0) return 2;
   test_inventory_component_boundary();
@@ -398,6 +451,7 @@ int main(int argc, char **argv) {
   test_batch_outcomes_and_partition();
   test_pass_requires_retired_delay_slot();
   test_missing_terminal_record_is_rejected();
+  test_legacy_refusal_without_terminal_pair_is_accepted();
   if (failures != 0u) return 1;
   (void)puts("RSP diagnostic protocol controls PASS");
   return 0;

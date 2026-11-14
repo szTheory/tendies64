@@ -86,6 +86,10 @@ static const char *const rsp_diag_batch_member_keys[] = {
     "selector", "source_name", "value_id", "value_index"};
 static const char *const rsp_diag_batch_result_keys[] = {
     "capture_sha256", "operation", "outcome", "reason", "result_sha256",
+    "retired_instructions", "terminal_delay_slot_retired", "terminal_opcode",
+    "terminal_pc"};
+static const char *const rsp_diag_batch_terminal_result_keys[] = {
+    "capture_sha256", "operation", "outcome", "reason", "result_sha256",
     "retired_instructions", "terminal_delay_slot_opcode",
     "terminal_delay_slot_pc", "terminal_delay_slot_retired",
     "terminal_opcode", "terminal_pc"};
@@ -380,9 +384,6 @@ static bool rsp_diag_parse_batch(
       !t64_diag_json_string_equals(t64_json_get(node, "selected_rom_sha256"),
                                    member.selected_rom_sha256)) goto done;
   node = t64_json_get(document.root, "result");
-  if (!t64_diag_json_object_has_exact_keys(
-          node, rsp_diag_batch_result_keys,
-          sizeof rsp_diag_batch_result_keys / sizeof rsp_diag_batch_result_keys[0])) goto done;
   field = t64_json_get(node, "outcome");
   outcome_text = field != NULL && field->type == T64_JSON_STRING ? field->str : NULL;
   for (i = 0u; i < sizeof rsp_diag_outcomes / sizeof rsp_diag_outcomes[0]; i++) {
@@ -392,6 +393,20 @@ static bool rsp_diag_parse_batch(
     }
   }
   if (i == sizeof rsp_diag_outcomes / sizeof rsp_diag_outcomes[0] ||
+      (result.outcome == T64_RSP_DIAG_OUTCOME_PASS ||
+       result.outcome == T64_RSP_DIAG_OUTCOME_GUEST_FAIL
+           ? !t64_diag_json_object_has_exact_keys(
+                 node, rsp_diag_batch_terminal_result_keys,
+                 sizeof rsp_diag_batch_terminal_result_keys /
+                     sizeof rsp_diag_batch_terminal_result_keys[0])
+           : (!t64_diag_json_object_has_exact_keys(
+                  node, rsp_diag_batch_result_keys,
+                  sizeof rsp_diag_batch_result_keys /
+                      sizeof rsp_diag_batch_result_keys[0]) &&
+              !t64_diag_json_object_has_exact_keys(
+                  node, rsp_diag_batch_terminal_result_keys,
+                  sizeof rsp_diag_batch_terminal_result_keys /
+                      sizeof rsp_diag_batch_terminal_result_keys[0]))) ||
       !t64_diag_json_lowercase_hex(t64_json_get(node, "result_sha256"), 64u) ||
       !t64_diag_json_lowercase_hex(t64_json_get(node, "capture_sha256"), 64u)) goto done;
   result.result_sha256 = t64_json_get(node, "result_sha256")->str;
@@ -410,13 +425,23 @@ static bool rsp_diag_parse_batch(
       (uint64_t)field->num > UINT32_MAX) goto done;
   result.terminal_pc = (uint32_t)field->num;
   field = t64_json_get(node, "terminal_delay_slot_pc");
-  if (field == NULL || field->type != T64_JSON_INT || field->num < 0 ||
-      (uint64_t)field->num > UINT32_MAX) goto done;
-  result.terminal_delay_slot_pc = (uint32_t)field->num;
+  if (field == NULL) {
+    if (result.outcome == T64_RSP_DIAG_OUTCOME_PASS ||
+        result.outcome == T64_RSP_DIAG_OUTCOME_GUEST_FAIL) goto done;
+  } else {
+    if (field->type != T64_JSON_INT || field->num < 0 ||
+        (uint64_t)field->num > UINT32_MAX) goto done;
+    result.terminal_delay_slot_pc = (uint32_t)field->num;
+  }
   field = t64_json_get(node, "terminal_delay_slot_opcode");
-  if (field == NULL || field->type != T64_JSON_INT || field->num < 0 ||
-      (uint64_t)field->num > UINT32_MAX) goto done;
-  result.terminal_delay_slot_opcode = (uint32_t)field->num;
+  if (field == NULL) {
+    if (result.outcome == T64_RSP_DIAG_OUTCOME_PASS ||
+        result.outcome == T64_RSP_DIAG_OUTCOME_GUEST_FAIL) goto done;
+  } else {
+    if (field->type != T64_JSON_INT || field->num < 0 ||
+        (uint64_t)field->num > UINT32_MAX) goto done;
+    result.terminal_delay_slot_opcode = (uint32_t)field->num;
+  }
   field = t64_json_get(node, "terminal_opcode");
   if (field == NULL || field->type != T64_JSON_INT || field->num < 0 ||
       (uint64_t)field->num > UINT32_MAX) goto done;
