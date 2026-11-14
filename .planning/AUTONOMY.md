@@ -150,6 +150,9 @@ applies that direction; update it when the owner changes policy.
   Finish source review before the combined gate and keep its build tree stable
   until it exits. A new finding invalidates affected evidence; preserve that
   attempt and rerun only after the correction, without rebuilding under CTest.
+  Process-test readiness must mean required child/descendant identity is already
+  observable. Signal the existing barrier after publishing it; do not hide a
+  scheduling race with sleeps, repeated CI attempts or relaxed cleanup checks.
 - At each discussion, enumerate actual decision points. Fan out one agent per
   independent decision cluster when it saves time/context. Apply relevant
   CPU/cache/virtual-memory, RSP/microcode, RDP/video, audio, memory/bus,

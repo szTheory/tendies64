@@ -58,3 +58,26 @@ ran in Plan06. Original private qualification and execution receipts retain
 exact tested identities; future actual use needs deliberate requalification
 of changed native bytes. Owner AGENTS/config edits remain untouched. Full
 configured phase code/security review remains Plan10 work.
+
+## Hosted cleanup-control follow-up
+
+Linux's full run failed the older source-replacement control because the helper
+could close its readiness pipe before publishing the descendant PID. Cleanup
+then legitimately killed the descendant before its PID write, and the test
+mistook that missing write for cleanup failure. This is a test-handshake race,
+not evidence of vector arithmetic failure or a leaked production guest.
+
+A local-only derived helper delayed that exact gap and reproduced missing-PID
+failure in build/gate/05-06-cleanup-race/before2.log. The first probe delayed
+before closing readiness and passed; it did not reproduce the failure and is
+not counted as RED. The corrected helper publishes its PID then signals the
+existing readiness barrier itself; no timing sleep, new retry, relaxed assertion
+or wider bound enters production tests. The same controlled gap passes in
+after.log. Original attempts remain separate.
+
+All-target normal and sanitizer builds precede the two owning controls, both
+passing in build/{gate,asan}/05-06-cleanup-ctest.log. Actual optimized GCC13
+compilation with test-target flags passes in build/gate/05-06-cleanup-gcc.log.
+Verification-scope confirms production inputs unchanged; previous core semantic
+evidence is reused. A fresh hosted pair must still execute the formerly
+unreached Linux lint/evidence/publication tail before closeout.

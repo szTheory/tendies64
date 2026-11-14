@@ -499,14 +499,25 @@ static int helper_fail_with_descendant(int argc, char **argv) {
   if (descendant < 0) return 3;
   if (descendant == 0) {
     pid_t self = getpid();
-    close(ready_fd);
+    uint8_t ready = 'B';
     close(gate_fd);
-    if (write_all(watch_fd, (const uint8_t *)&self, sizeof self) != 0)
+    /* Publish identity before releasing the existing readiness barrier.
+     * Closing ready_fd first allowed cleanup to kill us before this write. */
+    if (write_all(watch_fd, (const uint8_t *)&self, sizeof self) != 0 ||
+        write_all(ready_fd, &ready, 1u) != 0)
       _exit(5);
+    close(ready_fd);
     for (;;) pause();
   }
   close(watch_fd);
-  if (wait_for_release(ready_fd, gate_fd) != 0) return 4;
+  {
+    uint8_t release;
+    ssize_t count;
+    do {
+      count = read(gate_fd, &release, 1u);
+    } while (count < 0 && errno == EINTR);
+    if (count != 1 || release != 'R') return 4;
+  }
   return 9;
 }
 
