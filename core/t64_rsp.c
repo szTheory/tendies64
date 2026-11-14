@@ -1,4 +1,5 @@
 #include "t64_internal.h"
+#include "t64_rsp_divider.h"
 
 #include <limits.h>
 #include <string.h>
@@ -145,6 +146,16 @@ typedef struct {
   bool writes_vcc;
   bool writes_vce;
 } rsp_vector_effect;
+
+typedef struct {
+  uint32_t destination_vector;
+  uint32_t destination_lane;
+  uint16_t destination_value;
+  uint16_t accumulator_values[8];
+  uint32_t divider_input;
+  uint32_t divider_result;
+  bool divider_high_valid;
+} rsp_divider_effect;
 
 static bool rsp_select_vector_lane(uint32_t element, uint32_t lane,
                                    uint32_t *source_lane_out) {
@@ -746,6 +757,77 @@ static void rsp_commit_vector_effect(t64_machine *machine,
   }
 }
 
+static bool rsp_decode_divider(const t64_machine *machine,
+                               uint32_t instruction,
+                               rsp_divider_effect *effect) {
+  uint32_t operation = instruction >> 26;
+  uint32_t selector = (instruction >> 21) & UINT32_C(0x1f);
+  uint32_t element = selector & UINT32_C(0x0f);
+  uint32_t source = (instruction >> 16) & UINT32_C(0x1f);
+  uint32_t destination_element = (instruction >> 11) & UINT32_C(0x1f);
+  uint32_t destination = (instruction >> 6) & UINT32_C(0x1f);
+  uint32_t function = instruction & UINT32_C(0x3f);
+  uint32_t source_lane = element & UINT32_C(7);
+  uint16_t scalar_input;
+  uint32_t input;
+  uint32_t lane;
+  bool high;
+  bool inverse_square_root;
+
+  if (machine == NULL || effect == NULL || operation != UINT32_C(0x12) ||
+      (selector & UINT32_C(0x10)) == 0u || destination_element > 7u) {
+    return false;
+  }
+  switch (function) {
+  case UINT32_C(0x30): /* VRCP */
+  case UINT32_C(0x31): /* VRCPL */
+  case UINT32_C(0x32): /* VRCPH */
+  case UINT32_C(0x34): /* VRSQ */
+  case UINT32_C(0x35): /* VRSQL */
+  case UINT32_C(0x36): /* VRSQH */
+    break;
+  default:
+    return false;
+  }
+
+  (void)memset(effect, 0, sizeof *effect);
+  effect->destination_vector = destination;
+  effect->destination_lane = destination_element;
+  effect->divider_input = machine->rsp.divider_input;
+  effect->divider_result = machine->rsp.divider_result;
+  effect->divider_high_valid = machine->rsp.divider_high_valid;
+  scalar_input = rsp_read_vector_element(machine, source, source_lane);
+  high = function == UINT32_C(0x32) || function == UINT32_C(0x36);
+  inverse_square_root = function == UINT32_C(0x34) ||
+                        function == UINT32_C(0x35) ||
+                        function == UINT32_C(0x36);
+
+  if (high) {
+    effect->destination_value =
+        (uint16_t)(machine->rsp.divider_result >> 16);
+    effect->divider_input = scalar_input;
+    effect->divider_high_valid = true;
+  } else {
+    if ((function == UINT32_C(0x31) || function == UINT32_C(0x35)) &&
+        machine->rsp.divider_high_valid) {
+      input = ((machine->rsp.divider_input & UINT32_C(0xffff)) << 16) |
+              (uint32_t)scalar_input;
+    } else {
+      input = rsp_sign_extend16(scalar_input);
+    }
+    effect->divider_result =
+        t64_rsp_divider_result(inverse_square_root, input);
+    effect->divider_high_valid = false;
+    effect->destination_value =
+        (uint16_t)effect->divider_result;
+  }
+
+  for (lane = 0u; lane < 8u; lane++) {
+    effect->accumulator_values[lane] = scalar_input;
+  }
+  return true;
+}
+
 #define RSP_ACCUMULATOR_MASK UINT64_C(0x0000ffffffffffff)
 
 static int64_t rsp_signed48(uint64_t value) {
@@ -1294,6 +1376,7 @@ static t64_status t64_rsp_issue_event(t64_machine *machine,
   bool write_vector = false;
   bool write_vmov = false;
   bool write_vector_result = false;
+  bool write_divider_state = false;
   bool vector_memory_transfer = false;
   bool write_vu_control = false;
   bool write_dmem_word = false;
@@ -1337,6 +1420,7 @@ static t64_status t64_rsp_issue_event(t64_machine *machine,
   uint16_t pair_vector_results[8];
   uint64_t pair_accumulator_results[8];
   rsp_vector_effect vector_effect = {0};
+  rsp_divider_effect divider_effect = {0};
   bool vector_effect_valid = false;
   bool supported = false;
   bool dma_active;
@@ -1720,6 +1804,16 @@ static t64_status t64_rsp_issue_event(t64_machine *machine,
       vector_read_mask |= UINT32_C(1) << vector_effect.source_b;
     }
     vector_destination = vector_effect.destination;
+    vector_write_delay = UINT32_C(4);
+    supported = true;
+  } else if (rsp_decode_divider(machine, instruction, &divider_effect)) {
+    write_vector = true;
+    write_vector_result = true;
+    write_divider_state = true;
+    vector_destination = divider_effect.destination_vector;
+    vector_element = divider_effect.destination_lane * UINT32_C(2);
+    vector_value = divider_effect.destination_value;
+    vector_read_mask |= UINT32_C(1) << rt;
     vector_write_delay = UINT32_C(4);
     supported = true;
   } else if ((operation == UINT32_C(0x32) ||
@@ -2181,7 +2275,21 @@ static t64_status t64_rsp_issue_event(t64_machine *machine,
       }
     }
   }
-  if (write_vector_result) {
+  if (write_vector_result && write_divider_state) {
+    uint64_t ready_tick =
+        rsp_ready_tick_after(machine->tick, vector_write_delay);
+    uint32_t lane;
+
+    for (lane = 0u; lane < 8u; lane++) {
+      machine->rsp.accumulator[lane] =
+          (machine->rsp.accumulator[lane] & ~UINT64_C(0xffff)) |
+          (uint64_t)divider_effect.accumulator_values[lane];
+      machine->rsp.accumulator_ready_tick[lane] = ready_tick;
+    }
+    machine->rsp.divider_input = divider_effect.divider_input;
+    machine->rsp.divider_result = divider_effect.divider_result;
+    machine->rsp.divider_high_valid = divider_effect.divider_high_valid;
+  } else if (write_vector_result) {
     uint64_t ready_tick =
         rsp_ready_tick_after(machine->tick, vector_write_delay);
     if (vector_effect_valid) {

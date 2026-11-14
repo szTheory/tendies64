@@ -42,15 +42,15 @@ reviewed subjects and path history show ordinary ares N64 RSP maintenance; no
 moved-in third-party source or conflicting license signal was found. The full
 bounded history receipt is checked by the local audit command.
 
-The copied file will carry SPDX ISC and copyright ares team, Near et al.
-The complete verbatim ISC text will be stored in LICENSES/ISC.txt. The copy
-record will name both upstream paths, the pinned revision, this retrieval date,
-the exact modifications, szTheory as maintenance owner, active upstream
-status, and this allowed-source exposure.
+The adapted file carries SPDX ISC and the upstream copyright notice. The full
+saved ISC notice is in LICENSES/ISC.txt. provenance/copies.json records both
+upstream paths, the pinned revision, this retrieval date, the modifications,
+szTheory as maintenance owner, active upstream status, and the allowed-source
+exposure.
 
-## Prospective adaptation envelope
+## Adaptation boundary and result
 
-This audit authorizes only these source-derived software equations:
+The implementation adapts only these source-derived software equations:
 
 - Generate each 9-bit reciprocal word with integer division and the source's
   increment/shift rule.
@@ -60,20 +60,26 @@ This audit authorizes only these source-derived software equations:
   high/low latch formulas from VRCP/VRCPH and VRSQ/VRSQH into small standalone
   C17 functions.
 
-The adaptation will use explicit unsigned bit carriers, no host floating point,
-no process-global mutable table, no literal table dump, no new dependency, and
-no ares execution. Any separate edge outcomes chosen for zero, negative values,
-minimum signed values, or latch sequencing are named software policy. Their
-software tests cannot qualify physical ROM contents or exact hardware behavior.
-Independent rational/integer inequalities, guide-supported anchors, fetched
-instruction sequences, and per-instance latch tests provide the implementation
-evidence; agreement with ares is not an oracle.
+The C17 helper uses explicit unsigned bit carriers, no host floating point, no
+process-global mutable table, no literal table, no new dependency, and no ares
+execution. It generates each word on demand. Edge outcomes for zero, negative
+values, minimum signed values, and latch sequencing are named software policy;
+they do not qualify physical ROM contents or exact hardware behavior.
 
-No helper has been copied at this pre-copy stage. The existing provenance
-checker requires a real path and matching header before it can register a
-per-copy entry, so provenance/copies.json and LICENSES/ISC.txt will be added
-with the actual adapted file. The scoped audit and local receipt verification
-are already complete; no checker rule is weakened.
+The guide's operation listings explicitly assign the selected scalar input to
+each of the eight ACC low slices. The selected ares functions express this as
+`ACCL = vt(e)`. Since the selected source range does not define that vector
+expression's mapping, this is an evidence tension, not a resolved source-level
+contradiction. The implementation follows the guide's explicit scalar
+broadcast as its software policy. Tests use distinct vector lanes with raw
+selector 0 and the selector-8 broadcast form to pin that policy. They establish
+the implemented behavior only; they do not show that the guide or emulator
+matches silicon.
+
+The helper is tested with independent rational and squared-integer bounds for
+all 512 indices, hand-derived guide-supported powers and sign/zero/minimum
+anchors, fetched instruction sequences, and per-instance latch checks. Those
+checks do not use ares agreement as an oracle.
 
 ## Verification controls
 
@@ -85,5 +91,18 @@ scripts/tests/test_rsp_divider_audit.py use only authored synthetic fixtures
 under the ignored build tree and reject changed/missing source, foreign license,
 altered notice, and history outside the selected path/revision.
 
-No source has yet been copied or executed. After adaptation, the production
-tests will independently prove table bounds and fetched opcode/latch effects.
+The audited source bytes were adapted as recorded above. The saved
+`build/gate/05-07-task1-check.log` records the actual saved-byte/notice/history
+check. `build/gate/05-07-task1-tests.log` records the authored synthetic audit
+tests. The integer table and edge-vector run is recorded in
+`build/gate/05-07-task2-integer-vectors.log`; the fetched opcode and latch suite
+is recorded in `build/gate/05-07-task2-sequence2.log`. These local logs are not
+part of the public source tree.
+
+Retained local test-authoring failures include the initial ACC expectation
+`build/gate/05-07-task2-green-vrcph.log` and the sequence harness's absolute
+tick-target mistake in `build/gate/05-07-task2-debug2.log`. The guide's explicit
+ACC broadcast listing corrected the first expectation. Advancing the stop
+target to the next absolute guest tick corrected the harness. The genuine
+pre-implementation fetched-opcode RED remains separately recorded in the
+ignored `build/gate/05-07-divider-red-*` evidence files.

@@ -324,7 +324,7 @@ static const t64_profile_descriptor
         .timing_tier = "functional-rsp-issue-model-policy-v1",
         .scheduler_version = "tick-sequence-fifo-v1",
         .pi_model_version = "pi_dma_bounded_cart_v1",
-        .sp_model_version = "rsp-functional-issue-dma-v1",
+        .sp_model_version = "rsp-functional-issue-dma-divider-integer-v1",
         .rom_min_bytes = 4096u,
         .rom_max_bytes = T64_VR4300_OPENIPL3_ROM_LIMIT,
         .event_queue_capacity = 256u,

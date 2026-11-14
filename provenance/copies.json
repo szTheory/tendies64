@@ -1177,6 +1177,35 @@
       "maintenance_owner": "szTheory",
       "upstream_status": "active",
       "exposure": []
+    },
+    {
+      "id": "ares-rsp-divider-integer",
+      "paths": [
+        "core/t64_rsp_divider.c"
+      ],
+      "upstream": {
+        "repo": "https://github.com/ares-emulator/ares",
+        "path": "ares/n64/rsp/rsp.cpp:152-169; ares/n64/rsp/interpreter-vpu.cpp:1334-1363,1385-1415",
+        "revision": "0b928930af4cc59ed99e942996f0d3c815379388"
+      },
+      "retrieved": "2026-11-14",
+      "spdx": "ISC",
+      "license_text": "LICENSES/ISC.txt",
+      "notice": "Copyright (c) 2004-2025 ares team, Near et al",
+      "mode": "adapted",
+      "modifications": "Adapt only integer reciprocal and inverse-square-root word generation and the selected divider normalization/result/latch equations into pure C17 bit-carrier functions. Generate words on demand with bounded integer arithmetic rather than a mutable table; integrate six fetched opcodes and instance-owned latches. Preserve the upstream scalar ACCL expression as provenance context; the software ACCL broadcast policy follows the guide's explicit per-lane listing. No ares execution, literal table, host floating point, broad VU code, or physical ROM claim. Source file SHA-256: d475d3f891710750123fbde27f4064913b3d9f5e7f8a0d1ca8fc10854f489390 (rsp.cpp); 563e7d8a65fe2e4fc2312ee9e439ba0507ac92608f65af08bb4fa0bcc2ba82cf (interpreter-vpu.cpp).",
+      "verification_test": "build/gate/core/test_rsp_divider --integer-vectors and fetched divider suite",
+      "maintenance_owner": "szTheory",
+      "upstream_status": "active",
+      "exposure": [
+        {
+          "date": "2026-11-14",
+          "who": "Codex gsd-executor",
+          "source": "ares RSP source slices at 0b928930af4cc59ed99e942996f0d3c815379388",
+          "license": "ISC",
+          "action": "Read and adapted only the listed integer table generation and divider normalization/result/latch slices; did not execute ares or copy broad VU code."
+        }
+      ]
     }
   ],
   "exposure": []
