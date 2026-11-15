@@ -586,6 +586,27 @@ def run_private_command(command: list[str], work: pathlib.Path, label: str,
     return stdout_path.read_bytes()
 
 
+def excluded_font_bytes(source: bytes, verifier) -> bytes:
+    """Decode only the independently audited absence-scan input, never compile it.
+
+    Same bounded extraction as the existing CPU composition verifier; the BASE
+    builder owns this adaptation while the component qualifier stays unchanged.
+    """
+    if len(source) > 1024 * 1024 or digest(source) != verifier.FONT_SOURCE_SHA:
+        refuse("excluded font source differs from its audited identity")
+    text = re.sub(r"//[^\n]*|/\*.*?\*/", "", source.decode("utf-8"), flags=re.S)
+    match = re.search(r"FONT_GENEVA_9\s*:\s*\[u8;\s*762\]\s*=\s*\[(.*?)\]\s*;", text, re.S)
+    if match is None:
+        refuse("audited absence-scan array cannot be identified")
+    try:
+        font = bytes(int(item.strip(), 0) for item in match.group(1).split(",") if item.strip())
+    except ValueError:
+        refuse("audited absence-scan array contains invalid bytes")
+    if len(font) != 762 or digest(font) != verifier.FONT_SHA:
+        refuse("excluded font bytes differ from the audited absence-scan identity")
+    return font
+
+
 def build_combined_image(cpu_qualification: dict, projection: dict,
                          projection_bytes: bytes, source_closure: dict,
                          source_audit: dict, rsp_projection: dict,
@@ -717,7 +738,7 @@ def build_combined_image(cpu_qualification: dict, projection: dict,
     font = combined_source / "src/graphics/system_font.rs"
     if font.is_symlink() or not font.is_file():
         refuse("combined BASE asset exclusion baseline is missing")
-    font_bytes = font.read_bytes()
+    font_bytes = excluded_font_bytes(font.read_bytes(), cpu_build_verifier)
     layout = cpu_build_verifier.verify_layout(elf_bytes, payload_bytes, objdump_text)
     cpu_build_verifier.verify_composition(
         elf_bytes, payload_bytes, rom_bytes, boot_bytes, font_bytes)

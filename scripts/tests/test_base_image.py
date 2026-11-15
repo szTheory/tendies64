@@ -153,6 +153,18 @@ def fixture_inputs(root: pathlib.Path):
 
 
 class BaseImageControls(unittest.TestCase):
+    def test_absence_scan_decodes_payload_after_source_identity_check(self) -> None:
+        from types import SimpleNamespace
+        builder = load_module(ROOT / "scripts/build-qualified-base-diagnostic.py", "base_font_guard")
+        source = ("// authored zero array, not an external font\nconst FONT_GENEVA_9: [u8; 762] = [" +
+                  ",".join("0" for _ in range(762)) + "];\n").encode()
+        verifier = SimpleNamespace(FONT_SOURCE_SHA=sha(source), FONT_SHA=sha(bytes(762)))
+        self.assertEqual(builder.excluded_font_bytes(source, verifier), bytes(762))
+        with self.assertRaisesRegex(builder.Refusal, "source differs"):
+            builder.excluded_font_bytes(source + b" ", verifier)
+        with self.assertRaisesRegex(builder.Refusal, "bytes differ"):
+            builder.excluded_font_bytes(source, SimpleNamespace(FONT_SOURCE_SHA=sha(source), FONT_SHA="0" * 64))
+
     def test_partial_qualification_inputs_are_archived_before_rederivation(self) -> None:
         from unittest.mock import patch
         with tempfile.TemporaryDirectory(prefix="base-stage-history-") as temporary:
