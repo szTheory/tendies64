@@ -197,6 +197,13 @@ class BaseImageControls(unittest.TestCase):
         rendered = OVERLAY.render_testlist(rows)
         self.assertEqual(rendered.count(b"(7usize,"), 1)
 
+    def test_existing_module_visibility_does_not_duplicate_declarations(self) -> None:
+        existing = b"mod soft_asserts;\npub(crate) mod rsp;\n"
+        self.assertEqual(OVERLAY.merge_test_modules(existing), existing)
+        missing = OVERLAY.merge_test_modules(b"pub mod rsp;\n")
+        self.assertEqual(missing.count(b"mod rsp;"), 1)
+        self.assertEqual(missing.count(b"mod soft_asserts;"), 1)
+
     def test_build_command_starts_and_enforces_its_deadline(self) -> None:
         builder = load_module(ROOT / "scripts/build-qualified-base-diagnostic.py",
                               "t64_base_build_startup_test")

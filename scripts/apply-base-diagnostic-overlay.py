@@ -303,9 +303,11 @@ def merge_test_modules(cpu_modules: bytes) -> bytes:
         text = cpu_modules.decode("utf-8")
     except UnicodeDecodeError:
         refuse("CPU test module root is not UTF-8")
-    for declaration in ("pub mod rsp;", "pub mod soft_asserts;"):
-        if declaration not in text:
-            text = text.rstrip() + "\n" + declaration + "\n"
+    for name in ("rsp", "soft_asserts"):
+        declaration = re.compile(r"(?m)^\s*(?:pub(?:\([^\n)]+\))?\s+)?mod\s+" +
+                                 re.escape(name) + r"\s*;")
+        if declaration.search(text) is None:
+            text = text.rstrip() + "\npub mod " + name + ";\n"
     return text.encode("utf-8")
 
 
