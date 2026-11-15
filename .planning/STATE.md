@@ -2,20 +2,20 @@
 gsd_state_version: "1.0"
 milestone: v1.0
 milestone_name: Verified Headless Core
-current_phase: 5
-current_phase_name: RSP Low-Level Emulation
-current_plan: 10
-status: executing
-stopped_at: Plan05-09 complete with local, sanitizer and hosted Linux/macOS green. Continuing Plan10 current-core private classification, configured reviews and final artifact gates.
-last_updated: "2026-11-14T12:40:58.536Z"
-last_activity: 2026-11-13
-last_activity_desc: Phase 4 complete, transitioned to Phase 5
-state_head: cefbba2a35f0aa1e0ce9b1d64cfb5df3d41f44c5
+current_phase: 6
+current_phase_name: Cold Boot, CPU Timing and Full Base Suite
+current_plan: Not started
+status: planning
+stopped_at: Phase 5 complete, ready to plan Phase 6
+last_updated: "2026-11-15T02:53:00.689Z"
+last_activity: 2026-11-14
+last_activity_desc: Phase 5 complete, transitioned to Phase 6
+state_head: 61542f9b2c3aff9483045cf60195ecc0da300caa
 progress:
   total_phases: 6
   completed_phases: 1
   total_plans: 64
-  completed_plans: 63
+  completed_plans: 64
   percent: 17
 ---
 
@@ -26,27 +26,30 @@ progress:
 See: .planning/PROJECT.md (updated 2026-11-13)
 
 **Core value:** Every Tendies64 support claim is backed by evidence: a named profile, a pinned build and a reproducible, rights-cleared guest result.
-**Current focus:** Phase 5 — RSP Low-Level Emulation
+**Current focus:** Phase 6 — Cold Boot, CPU Timing and Full Base Suite
 
 ## Current Position
 
-Phase: 5 (RSP Low-Level Emulation) — EXECUTING
-Current Plan: 10
-Total Plans in Phase: 10
-Status: Ready to execute
-Last activity: 2026-11-13 — Phase 4 complete, transitioned to Phase 5
+Phase: 6 — Cold Boot, CPU Timing and Full Base Suite
+Current Plan: Not started
+Total Plans in Phase: 0
+Status: Ready to plan
+Last activity: 2026-11-14 — Phase 5 complete, transitioned to Phase 6
 
 Progress: [██░░░░░░░░] 17%
 
-Verified roadmap ledger: Phases1–4 are complete, including all20 Phase4 plans.
-Phase5 is planned with ten plans; Plans01–09 are implemented, locally verified and hosted on both platforms.
-The projection's generated percentage is advisory
-and does not override the checked roadmap ledger.
+Verified milestone ledger: Phases1–5 are complete; all64 currently planned
+plans are closed. Phase6 remains to be discussed and planned, so this is
+5/6 phase completion rather than milestone completion. The installed
+projection counts older reports as stale after later source changes and is
+not a historical completion counter. Its generated percentage is advisory;
+use the checked roadmap and each actual verified source/evidence record.
+Do not replay completed phases merely to refresh that projection.
 
 ## Performance Metrics
 
 **Velocity:**
-- Total plans completed: 54
+- Total plans completed: 64
 - Average duration: -
 - Total execution time: 0 hours
 
@@ -58,6 +61,7 @@ and does not override the checked roadmap ledger.
 | 2 | 8 | - | - |
 | 3 | 13 | - | - |
 | 4 | 20 | - | - |
+| 5 | 10 | - | - |
 
 **Recent Trend:**
 - Last 5 plans: -
@@ -222,5 +226,5 @@ Items acknowledged and deferred at milestone close, most recent first:
 ## Session Continuity
 
 Last session: 2026-11-14T12:40:58.283Z
-Stopped at: Plan05-09 complete with local, sanitizer and hosted Linux/macOS green. Continuing Plan10 current-core private classification, configured reviews and final artifact gates.
+Stopped at: Phase 5 complete, ready to plan Phase 6
 Resume file: .planning/phases/05-rsp-low-level-emulation/05-10-PLAN.md

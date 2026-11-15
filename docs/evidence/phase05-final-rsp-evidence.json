@@ -1,0 +1,153 @@
+{
+  "asan_gate": {
+    "sha256": "613d185c80b8d6309ea90747425aa1578f9839ab3255e82f5dae1c16a8ef5d80"
+  },
+  "builds": {
+    "asan": {
+      "artifact_path": "build/asan/runner/t64-rsp-diagnostic",
+      "artifact_sha256": "59e84ebbf7202199bbc03c7dc793d3aa814cf3233c36fdd72f1f0b59e4cdd7f4",
+      "build_id": "t64-build-v1-1e24436a9b740f34def97ecc927f61faf3818c75bde913270985905e1ebc92fd",
+      "content_sha256": "9ee667975e9284dcf401d40460c03212dc6232c26fc8f560f5f5c6352cd2f349",
+      "profile_id": "ntsc-cart-4m-openipl3-rsp-functional-v1",
+      "source_revision": "61542f9b2c3aff9483045cf60195ecc0da300caa"
+    },
+    "native": {
+      "artifact_path": "build/gate/runner/t64-rsp-diagnostic",
+      "artifact_sha256": "5c1133f5f61f9300e999b3f00b9be7234e8cff47d629dd9a42338618946ba806",
+      "build_id": "t64-build-v1-f9b271f87c2e59f186b6958747f5a93440443cfba5757249ab036c77b9880213",
+      "content_sha256": "9ee667975e9284dcf401d40460c03212dc6232c26fc8f560f5f5c6352cd2f349",
+      "profile_id": "ntsc-cart-4m-openipl3-rsp-functional-v1",
+      "source_revision": "61542f9b2c3aff9483045cf60195ecc0da300caa"
+    }
+  },
+  "composition": {
+    "build_receipt_sha256": "317c38c358d392b6eca08292c3f3a6ea2e390929dff704b7120fe0602bf534a0",
+    "rom_sha256": "5611f3b5c17c2d05408728fa2c9dfaedd193d3d6da83355be4c5ee61771651a0"
+  },
+  "content_sha256": "9ee667975e9284dcf401d40460c03212dc6232c26fc8f560f5f5c6352cd2f349",
+  "differential_claim": "none",
+  "hosted": {
+    "attempt": "1",
+    "content_sha256": "9ee667975e9284dcf401d40460c03212dc6232c26fc8f560f5f5c6352cd2f349",
+    "platforms": {
+      "gate-linux": {
+        "artifact_digest": "sha256:43294c857e7b352d068cde4115fdb793f0e980021e90f0a3c5125fdf815b4ae6",
+        "artifact_id": "14141288504",
+        "build_id": "t64-build-v1-7336ea9f6466a60e3a97d891079a3b8d684150da8386c2ef4c69724cd4c93836",
+        "record_path": "build/gate/05-10-hosted/gate-linux.json",
+        "record_sha256": "372c05520871c8ddfa420f6ee0e7ab2963c58e7e85dcb0240b36c03cb8c4f451",
+        "result_profile_digest": "d8c12cb2a00410a2153ca62da318166f3ca029dea8e3d6b9c841262cb8203c71",
+        "result_profile_id": "ntsc-cart-4m-openipl3-warm-v1"
+      },
+      "gate-macos": {
+        "artifact_digest": "sha256:4502e79da347447ea4735c7e81ff7f257d29b4c2cefc7f404bb1108ce9f52ee2",
+        "artifact_id": "14141498500",
+        "build_id": "t64-build-v1-cb15da3b4ab9a66b1aa246177a8ab55398ebb9fbab17028f01c641b15e5e1db8",
+        "record_path": "build/gate/05-10-hosted/gate-macos.json",
+        "record_sha256": "15d6803b4cc2b10dd2dd82266502cda7b29ae082e0c4bc6aa449bff782ed0c8f",
+        "result_profile_digest": "d8c12cb2a00410a2153ca62da318166f3ca029dea8e3d6b9c841262cb8203c71",
+        "result_profile_id": "ntsc-cart-4m-openipl3-warm-v1"
+      }
+    },
+    "run_id": "43665538190",
+    "source_revision": "61542f9b2c3aff9483045cf60195ecc0da300caa",
+    "source_sha": "61542f9b2c3a"
+  },
+  "native_gate": {
+    "sha256": "7e10b6ce8e5886c1b1ac4179dc5234e3cfa2a32317d33ce16895b674a36bf57c"
+  },
+  "opcode_ledger_sha256": "265a03319766893a3a1c493a16ee1117e69a712aa24b03b77c1869c7a202972b",
+  "opcode_owners": {
+    "scalar-control": [
+      "unit.core.rsp-control",
+      "unit.core.rsp-scalar"
+    ],
+    "scalar-transfers": [
+      "unit.core.rsp-scalar",
+      "unit.core.rsp-transfers"
+    ],
+    "vector-arithmetic": [
+      "unit.core.rsp-vector"
+    ],
+    "vector-compare-merge": [
+      "unit.core.rsp-compare"
+    ],
+    "vector-divider": [
+      "unit.core.rsp-divider"
+    ],
+    "vector-multiply": [
+      "unit.core.rsp-multiply"
+    ]
+  },
+  "profile_id": "ntsc-cart-4m-openipl3-rsp-functional-v1",
+  "reports": {
+    "authored_sha256": "63cb39c9ee7dc89201a36b6ea1cc7c239c09432b070c2f70ff3f82a2cd9a7dea",
+    "code_sha256": "ab460a0795ee7c39cb3a947c0e83a1294c4ff8a21dfa3faea40b095ccf530a0c",
+    "native_sha256": "9b518bce778ce05fb6c6ffbc1af249956420d2ec6db8efc64e1b831a6db479b2",
+    "security_sha256": "100f46ab65ba3fb56a982df88424c810c49fbd07da3486ec35ce96b81863805b"
+  },
+  "requirement_owners": {
+    "RSP-01": [
+      "unit.core.rsp-tracer",
+      "unit.core.rsp-control",
+      "unit.core.rsp-scalar",
+      "unit.core.rsp-transfers",
+      "unit.core.rsp-vector",
+      "unit.core.rsp-multiply",
+      "unit.core.rsp-compare",
+      "unit.core.rsp-divider"
+    ],
+    "RSP-02": [
+      "unit.core.rsp-vector",
+      "unit.core.rsp-multiply",
+      "unit.core.rsp-compare",
+      "unit.core.rsp-divider",
+      "unit.core.rsp-fuzz"
+    ],
+    "RSP-03": [
+      "unit.core.rsp-control",
+      "unit.core.rsp-transfers",
+      "unit.core.sp-dma"
+    ],
+    "RSP-04": [
+      "harness.rsp-qualification",
+      "harness.rsp-build",
+      "harness.rsp-run",
+      "integration.rsp-rom-smoke"
+    ],
+    "RSP-05": [
+      "repo.rsp-no-hle"
+    ]
+  },
+  "schema": "t64.phase05.final-evidence.v1",
+  "source_revision": "61542f9b2c3aff9483045cf60195ecc0da300caa",
+  "threat_owners": {
+    "T-05-01": "closed",
+    "T-05-02": "closed",
+    "T-05-03": "closed",
+    "T-05-04": "closed",
+    "T-05-05": "closed",
+    "T-05-06": "closed",
+    "T-05-07": "closed",
+    "T-05-08": "closed",
+    "T-05-09": "closed",
+    "T-05-10": "closed",
+    "T-05-11": "closed",
+    "T-05-12": "closed",
+    "T-05-13": "closed",
+    "T-05-14": "closed",
+    "T-05-15": "closed",
+    "T-05-16": "closed",
+    "T-05-17": "closed",
+    "T-05-18": "closed",
+    "T-05-19": "closed",
+    "T-05-20": "closed",
+    "T-05-21": "closed",
+    "T-05-22": "closed",
+    "T-05-23": "closed",
+    "T-05-24": "closed",
+    "T-05-25": "closed",
+    "T-05-SC": "closed"
+  },
+  "verification_sha256": "be5b9776677cf5ae9c9df651731957148bc620b7f7a87d341ab189331cb1d44d"
+}

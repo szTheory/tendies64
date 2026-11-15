@@ -82,6 +82,11 @@ applies that direction; update it when the owner changes policy.
   hook/license facts when an input is first audited. Adapt that saved record to
   a consumer's receipt format later; do not defer evidence capture and then
   repeat unchanged network/source audits to reconstruct it.
+  Before any later all-target rebuild can replace a qualified diagnostic
+  consumer, archive its exact executable and binding together and verify their
+  recorded hashes. A saved binding alone does not retain the executable. If
+  retention was missed, disclose that limit; never relabel a newer binary as
+  the historical artifact or replay guests merely to fill the archive.
   First-use correction (owner's repeated elapsed-time feedback): once concrete
   pre-use source, tool, asset and dependency checks pass, prioritize one bounded
   actual build, artifact check and startup before broadening integration
@@ -137,6 +142,24 @@ applies that direction; update it when the owner changes policy.
   Check attributable artifact and commit progress before interrupting an
   executor for chat silence; productive durable work is not a stall. Preserve
   completed evidence and resume the remaining action after an interruption.
+  Prepare planned evidence-validator code and authored mutation controls before
+  the final source-review snapshot where possible. In Phase05 the full review
+  preceded the new validator, leaving its source and real-record integration
+  for later review. Validate against actual saved output formats as well as
+  synthetic fixtures, and bind summaries to original records rather than to
+  another summary. Keep later re-review limited to changed code and open rows.
+  Anchor required membership to the existing pinned-source qualification
+  verifier, not merely two mutually consistent snapshots. An authored control
+  must shrink both snapshots and reseal their dependent summaries. Test privacy
+  fields from the actual private schemas, including selected-member identities;
+  recognizing one generic ROM-hash field does not cover its concrete aliases.
+  An accepted qualification fixture must call the complete verifier entry
+  through its final dispatch, not only selected helper validators. Phase05's
+  v6 helper-only control missed undefined names in the full pre-use verifier;
+  the actual runner stopped before guest use. Preserve that setup failure and
+  the immutable archive, fix the owning entry test, and use an explicitly
+  versioned fresh context for the justified next attempt. Run the independent
+  full pre-use verifier before creating a guest run directory.
   A Plan05-04 Clang-clean macro failed GCC warnings-as-errors in hosted CI.
   For changed C translation units, use the existing gcc:13 image for a bounded,
   read-only, network-disabled warning check before publication when its headers
@@ -264,6 +287,10 @@ pass/fail completion, resource caps, rights and publication stops remain intact.
   delays, duplicate setup/builds, fetches, cache behavior, concurrency and
   matrix cost. Take low-risk wins only when distinct evidence stays intact; log
   the finding so it is not rediscovered at every milestone.
+  Record the owning `ci-review.sh --append` Runs row as well as the finding;
+  a prose finding alone omits the tested source and completed-run ledger.
+  Before closeout, reconcile finding run IDs against Runs rows and recover
+  missing metadata from the actual completed run without relaunching CI.
 - Benchmark named workloads/builds with correct output held constant. Report
   emulator throughput and end-to-end latency separately from CI queue/setup/
   build/test time.

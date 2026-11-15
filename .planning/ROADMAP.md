@@ -71,7 +71,7 @@ Decimal phases appear between their surrounding integers in numeric order.
 - [x] **Phase 2: Deterministic Machine Skeleton** - Guest-time scheduler, named profile, memory map, RDRAM, MI, PI/SP DMA, ROM admission and digests equal across interleaved instances (completed 2026-11-10)
 - [x] **Phase 3: First Headless ROM Through Open IPL3** - Primary documents pinned; HLE-PIF plus pinned open IPL3 boots a hello ROM that prints through ISViewer, with digests matching across two operating systems and two compilers (completed 2026-11-11)
 - [x] **Phase 4: Complete VR4300 CPU** - MIPS III integer, delay slots, CP0, TLB, unaligned access, LL/SC, cache scope and soft-float COP1, with per-group `nemu64-test` CPU status (completed 2026-11-13)
-- [ ] **Phase 5: RSP Low-Level Emulation** - Scalar and vector units, DMA and status semantics, checked against a permanent scalar VU oracle and the `nemu64-test` RSP groups
+- [x] **Phase 5: RSP Low-Level Emulation** - Scalar and vector units, DMA and status semantics, checked against a permanent scalar VU oracle and the `nemu64-test` RSP groups (completed 2026-11-14)
 - [ ] **Phase 6: Cold Boot, CPU Timing and Full Base Suite** - RDRAM register protocol, instruction-granular timing and the whole base suite classified by lane with pinned counts
 
 ## Phase Details
@@ -252,7 +252,7 @@ Plans:
   2. Per-opcode fuzzing finds zero differences between any optimized VU path and the scalar-portable reference. Long stress runs (vmulf through vrsq32) run in a scheduled lane, outside the required gate
   3. RSP DMA tests for alignment, bank wrap, stride and queue behavior pass
   4. The `nemu64-test` RSP groups pass or are classified individually with reasons (local-only until D2), and an automated check confirms the canonical core contains no HLE microcode path
-**Plans**: 9/10 plans executed
+**Plans**: 10/10 plans complete
 **Wave 1**
 - [x] 05-01-PLAN.md
 
@@ -281,7 +281,7 @@ Plans:
 - [x] 05-09-PLAN.md
 
 **Wave 10** *(blocked on Wave 9 completion)*
-- [ ] 05-10-PLAN.md
+- [x] 05-10-PLAN.md
 
 ### Phase 6: Cold Boot, CPU Timing and Full Base Suite
 **Goal**: The machine reaches IPL3 through the full RDRAM register protocol with instruction-granular CPU timing, and the complete `nemu64-test` base suite is classified per group, by lane, with pinned counts
@@ -406,7 +406,7 @@ Phase 7 may run in parallel with Phases 5 and 6 once Phase 4 is complete.
 | 2. Deterministic Machine Skeleton | v1.0 | 8/8 | Complete | 2026-11-10 |
 | 3. First Headless ROM Through Open IPL3 | v1.0 | 13/13 | Complete | 2026-11-11 |
 | 4. Complete VR4300 CPU | v1.0 | 20/20 | Complete | 2026-11-13 |
-| 5. RSP Low-Level Emulation | v1.0 | 9/10 | In Progress | - |
+| 5. RSP Low-Level Emulation | v1.0 | 10/10 | Complete | 2026-11-14 |
 | 6. Cold Boot, CPU Timing and Full Base Suite | v1.0 | 0/TBD | Not started | - |
 | 7. RDP Reference Renderer and VI Scanout | v1.1 | 0/TBD | Not started | - |
 | 8. Audio Interface and Raw Capture | v1.1 | 0/TBD | Not started | - |

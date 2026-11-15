@@ -90,11 +90,11 @@ API and a playable rights-cleared homebrew. Each maps to a roadmap phase.
 
 ### RSP (RSP)
 
-- [ ] **RSP-01**: The RSP runs SU and VU (COP2) instructions from IMEM/DMEM, with SP_STATUS, semaphore, halt, break and SP_PC behavior
-- [ ] **RSP-02**: A scalar-portable VU reference implementation exists and is the permanent oracle for any optimized path; per-opcode fuzzing shows zero difference
-- [ ] **RSP-03**: RSP DMA follows its alignment, bank-wrap and queue rules
-- [ ] **RSP-04**: The `nemu64-test` RSP groups pass or are classified individually
-- [ ] **RSP-05**: No HLE microcode path exists in the canonical core
+- [x] **RSP-01**: The RSP runs SU and VU (COP2) instructions from IMEM/DMEM, with SP_STATUS, semaphore, halt, break and SP_PC behavior
+- [x] **RSP-02**: A scalar-portable VU reference implementation exists and is the permanent oracle for any optimized path; per-opcode fuzzing shows zero difference
+- [x] **RSP-03**: RSP DMA follows its alignment, bank-wrap and queue rules
+- [x] **RSP-04**: The `nemu64-test` RSP groups pass or are classified individually
+- [x] **RSP-05**: No HLE microcode path exists in the canonical core
 
 ### RDP and VI (VID)
 
@@ -233,11 +233,11 @@ re-sequenced at milestone close.
 | VER-03 | Phase 4 | Complete |
 | VER-04 | Phase 1 | Complete |
 | VER-05 | Phase 10 | Pending |
-| RSP-01 | Phase 5 | Pending |
-| RSP-02 | Phase 5 | Pending |
-| RSP-03 | Phase 5 | Pending |
-| RSP-04 | Phase 5 | Pending |
-| RSP-05 | Phase 5 | Pending |
+| RSP-01 | Phase 5 | Complete |
+| RSP-02 | Phase 5 | Complete |
+| RSP-03 | Phase 5 | Complete |
+| RSP-04 | Phase 5 | Complete |
+| RSP-05 | Phase 5 | Complete |
 | VID-01 | Phase 7 | Pending |
 | VID-02 | Phase 7 | Pending |
 | VID-03 | Phase 7 | Pending |

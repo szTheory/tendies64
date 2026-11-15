@@ -82,6 +82,24 @@ from.
 | 2026-11-13 | 43358093318 | 3e5924024b81 | push | success | 703 | 701 | 2/111 | 363/338 | gate-macos/Gate 322s |
 | 2026-11-13 | 43391557506 | e69c41c48eb8 | push | failure | 241 | 239 | 1/118 | 1/238 | gate-macos/Gate 230s |
 | 2026-11-13 | 43398862644 | 81430005903c | push | success | 410 | 408 | 2/151 | 3/405 | gate-macos/Gate 389s |
+| 2026-11-14 | 43595370753 | cefbba2a35f0 | push | success | 352 | 350 | 2/129 | 2/348 | gate-macos/Gate 337s |
+| 2026-11-13 | 43452732705 | 61c9c174428e | push | success | 308 | 306 | 2/150 | 2/304 | gate-macos/Gate 292s |
+| 2026-11-13 | 43476881467 | f702f0ca3206 | push | success | 386 | 384 | 2/184 | 4/380 | gate-macos/Gate 362s |
+| 2026-11-13 | 43500533418 | f8bbc96402b7 | push | success | 325 | 323 | 2/157 | 2/321 | gate-macos/Gate 306s |
+| 2026-11-13 | 43521632823 | d7479bcc8543 | push | success | 380 | 379 | 2/155 | 2/377 | gate-macos/Gate 358s |
+| 2026-11-14 | 43534252172 | d37aa274e5f7 | push | success | 377 | 376 | 2/156 | 3/373 | gate-macos/Gate 356s |
+| 2026-11-14 | 43551766481 | 4a6f8b428ed8 | push | failure | 361 | 360 | 2/90 | 2/358 | gate-macos/Gate 345s |
+| 2026-11-14 | 43552149917 | e4b880952dd1 | push | success | 355 | 259 | 1/131 | 3/256 | gate-macos/Gate 246s |
+| 2026-11-14 | 43559776574 | 17c5103e4799 | push | success | 279 | 278 | 2/149 | 2/276 | gate-macos/Gate 261s |
+| 2026-11-14 | 43568163416 | 575c36450b43 | push | failure | 409 | 407 | 1/103 | 2/405 | gate-macos/Gate 385s |
+| 2026-11-14 | 43568746489 | 573250e13834 | push | success | 255 | 253 | 2/144 | 2/251 | gate-macos/Gate 242s |
+| 2026-11-14 | 43574548278 | 4ff5fc4d9888 | push | failure | 336 | 334 | 2/141 | 3/331 | gate-macos/Gate 315s |
+| 2026-11-14 | 43575884934 | 5e89cb4e5031 | push | success | 375 | 373 | 1/130 | 3/370 | gate-macos/Gate 356s |
+| 2026-11-14 | 43583309676 | eac270ea1af9 | push | success | 332 | 332 | 2/171 | 3/329 | gate-macos/Gate 314s |
+| 2026-11-14 | 43583352101 | eac270ea1af9 | workflow_dispatch | success | 38 | 35 | -/- | -/- | authored-rsp-stress/Run bounded authored stress 25s |
+| 2026-11-15 | 43660845748 | 578e86a71752 | push | success | 308 | 307 | 2/139 | 48/259 | gate-macos/Gate 248s |
+| 2026-11-15 | 43663747138 | 3a3c8cae992a | push | success | 378 | 377 | 2/170 | 3/374 | gate-macos/Gate 361s |
+| 2026-11-15 | 43665538190 | 61542f9b2c3a | push | success | 381 | 380 | 2/142 | 2/378 | gate-macos/Gate 364s |
 
 ## Findings
 
@@ -176,3 +194,6 @@ from.
 | F-074 | 43583352101 | The first actual dispatch of the separate authored stress lane passes on a clean Ubuntu runner at eac270e:100000 iterations per operation and real32-bit reciprocal/rsqrt sequences,25.022s, owned process reaped inside600s; job limit900s. | taken | Keep this distinct longer authored failure class outside the required fast pair. The exact workflow contract rejects altered commands, privileges, uploads, action pins and bounds; no protected input or result upload is enabled. No cache, dependency, extra concurrency or additional lane is justified. |
 
 | F-075 | 43595370753 | Both hosts pass reviewed authored integration checkpoint cefbba2:127 native checks, lint86/0 and authored evidence/publication tail. Linux Gate123s, qualification64s, CTest31.35s; macOS Gate337s, qualification192s, CTest79.77s. | taken | The CPU/SP/RSP positive and five negative fixtures are generated with cleared rights through build-only distribution, with no binary upload. Preserve required platform lanes and per-case deadlines; a serial matrix has a separate aggregate bound. Qualification remains dominant; no cache, dependency or concurrency change is justified. Tool hashes precede execution, consumer inputs are sealed, exact output fields are asserted, and metadata closeout reuses unchanged semantic evidence. |
+| F-076 | 43660845748 | Both hosts pass on reviewed DMA and guest-HALT fixes plus final evidence checker:127 native checks and authored evidence/publication tail. Linux Gate128s and CTest30.50s; macOS Gate248s and CTest66.23s. Setup remains short and macOS Gate is the critical path. | declined | No duplicated job or repeated dependency setup demonstrated; retain the existing two jobs and four-job local test policy. Core semantic evidence is reusable for host-script-only qualification changes; refresh exact artifact provenance without broadening guest limits. |
+| F-077 | 43663747138 | Both hosts pass combined host qualification and evidence source3a3c8ca:127 native checks and authored evidence/publication tail. Linux Gate164s, fixture qualification86s, CTest42.13s; macOS Gate361s, qualification173s, CTest110.65s. Actual local pre-use later stops before guest dispatch on an undefined verifier name that helper-only fixtures missed. | taken | Add an accepted full-verifier entry test and independent pre-use preflight before creating a guest run directory. Preserve the failed setup and immutable archive, then use one explicitly versioned fresh context. Reuse unchanged core and instrumented semantic evidence for the host-only correction; no cache, dependency, concurrency or deadline change is justified. |
+| F-078 | 43665538190 | Both hosts pass exact host-verifier correction61542f9:127 native checks, full-entry and immutable-refresh authored controls, lint and authored evidence/publication tail. Linux Gate135s, qualification70s, CTest35.95s; macOS Gate364s, qualification192s, CTest91.95s. | taken | The accepted fixture now exercises full pre-use dispatch and undefined-global checks, and run-directory creation follows independent verification. Preserve failed setup and original sealed outputs. Local provenance refresh confirms unchanged core/compiler-policy build IDs, so reuse actual3a native and sanitizer semantics instead of repeating admission fuzz for a host-only fix. Both required platform lanes remain; no cache, dependency, concurrency or deadline change is justified. |

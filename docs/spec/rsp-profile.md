@@ -5,12 +5,16 @@ This contract applies to profile
 The profile uses a deterministic 1:1 CPU-tick/RSP-opportunity software model.
 It is a functional profile, not a cycle-accuracy claim.
 
-The profile is development coverage. Tests author IMEM instructions and DMA
-descriptors in synthetic machine fixtures; they do not run a ROM or diagnostic
-asset. Passing tests establish only this selected software behavior. They do
-not qualify physical hardware, all RSP instructions, general compatibility,
-or the broader boot route. Capabilities are selected by the exact profile
-identity and model/state tuple, not by numeric version ordering.
+Qualification is limited to the covered encodings and explicit policies in
+the [instruction ledger](rsp-instructions.md), on the exact artifacts linked
+from the [native evidence](../evidence/phase05-native-rsp.md). Native tests
+author IMEM instructions and DMA descriptors in synthetic fixtures; separate
+cleared ROM tests exercise CPU-to-SP-to-RSP execution and checking. Local
+diagnostic membership is classified separately under its qualified boundaries.
+This evidence establishes selected software behavior without physical-hardware,
+all-encoding, general-compatibility or broader-boot qualification. Capabilities
+are selected by the exact profile identity and model/state tuple, not by
+numeric version ordering.
 
 Canonical state domain `t64.state.rsp.functional.12` hashes the RSP registers,
 vector and accumulator state, PC and branch delay state, readiness ticks,

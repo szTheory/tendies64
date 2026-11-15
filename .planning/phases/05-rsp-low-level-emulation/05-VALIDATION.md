@@ -1,19 +1,19 @@
 ---
 phase: "05"
 slug: rsp-low-level-emulation
-status: planned
-nyquist_compliant: false
+status: validated
+nyquist_compliant: true
 wave_0_complete: true
 created: "2026-11-13"
 ---
 
 # Phase5 validation contract
 
-Planning contract only; no RSP implementation or test has passed. Existing
-C17/CMake/CTest infrastructure covers the phase, so no setup-only wave is
-needed. New tests are registered with their first production behavioral slice.
-The task/test/threat ownership and real additions below are the planned
-execution contract. No check or implementation has passed from this document.
+The original planning contract is reconciled below with actual execution
+evidence. Existing C17/CMake/CTest infrastructure covers the phase; behavioral
+tests were registered with their production slices. The source and test
+coverage audit finds no missing requirement test. Security signoff remains a
+separate configured review, not an inferred result of this coverage map.
 
 ## Infrastructure and inherited limits
 
@@ -38,11 +38,11 @@ execution contract. No check or implementation has passed from this document.
 
 | Requirement | Immediate assertions to plan | Current state |
 |---|---|---|
-| RSP-01 | Real fetched IMEM scalar/VU/DMEM/BREAK tracer, full scalar/control/vector transforms, flags/accumulators/latches, status/semaphore/PC and transactional refusal | pending |
-| RSP-02 | Independent expected vectors and bounded per-opcode edge/invariant fuzz; complete-state differential only for an actually separate optimized path | pending |
-| RSP-03 | Alignment, length/count/stride, bank wrap, active/pending queue, HALT-independent DMA, notifications/order and unsupported conflict atomicity | pending |
-| RSP-04 | Early qualified actual build/composition/startup/refusal and final exact component membership with individually reasoned classifications | pending |
-| RSP-05 | No HLE dispatch in canonical source/object inventory, executable negative control for hidden/task-specific shortcuts | pending |
+| RSP-01 | Real fetched IMEM scalar/VU/DMEM/BREAK tracer, full scalar/control/vector transforms, flags/accumulators/latches, status/semaphore/PC and transactional refusal | covered |
+| RSP-02 | Independent expected vectors and bounded per-opcode edge/invariant fuzz; complete-state differential only for an actually separate optimized path | covered |
+| RSP-03 | Alignment, length/count/stride, bank wrap, active/pending queue, HALT-independent DMA, notifications/order and unsupported conflict atomicity | covered |
+| RSP-04 | Early qualified actual build/composition/startup/refusal and final exact component membership with individually reasoned classifications | covered |
+| RSP-05 | No HLE dispatch in canonical source/object inventory, executable negative control for hidden/task-specific shortcuts | covered |
 
 A guide-backed result is distinct from selected undefined/timing policy.
 Legacy profile/hash/digest/refusals, advance partitioning/interleaving,
@@ -68,12 +68,12 @@ AUTONOMY soft-gate rule; no human validation or risk acceptance is recorded.
 - [x] First real component attempt precedes long native expansion in plan order.
 - [x] Final native, sanitizer, review, exact hosted and private evidence owners
   are explicit; no source/result artifact is relabeled after changes.
-- [ ] Actual implementation and checks establish nyquist_compliant.
+- [x] Actual implementation and saved checks establish coverage compliance.
 
 ## Exact new registrations
 
-Planning observation: `ctest --test-dir build/gate --show-only=json-v1` lists111
-tests and the same command for build/asan lists113. No test execution was run.
+Pre-implementation observation: `ctest --test-dir build/gate --show-only=json-v1` lists111
+tests and the same command for build/asan lists113. No execution was run for that initial observation.
 Preserve every existing name, label behavior and malformed/disabled/empty
 inventory control. Add exactly these16 registrations to both inventories for
 planned totals127 normal/129 ASan; no padding or rename of inherited tests.
@@ -112,30 +112,30 @@ the inherited ASAN/UBSAN environment before execution, not a build of one test.
 
 | Task | Immediate automated evidence | Threat refs | Status |
 |---|---|---|---|
-|01.1|Existing sp-dma/profile/digest/determinism/scheduler selection plus actual fetched behavioral RED→GREEN|T-05-01/02|Planned|
-|01.2|New tracer+old SP/profile normal and instrumented selection; exact inventory|T-05-01/02|Planned|
-|02.1|SP/status/DMA/issue route plus old profile/event/digest selection|T-05-03/04|Planned|
-|02.2|Control edge/refusal matrix, link notifications and partition/interleave selection|T-05-03/04|Planned|
-|03.1|Authored qualification/closed lock+asset/source tests; no private roots required|T-05-05/06|Planned|
-|03.2|Authored composition controls then actual qualified local build/composition attempt|T-05-05/06|Planned|
-|04.1|Existing runner.cpu-diagnostic-protocol/inventory/adapter canonical byte regression|T-05-09|Planned|
-|04.2|Direct RSP protocol executable: component/seal/completion/malformed exact partition controls|T-05-07|Planned|
-|04.3|Authored runner limits/negative controls then first actual qualified local startup/refusal|T-05-07/08|Planned|
-|05.1|Fetched full scalar/control/CP0 and legacy profile selection|T-05-10|Planned|
-|05.2|All transfer element/alignment/wrap/alias and VMOV matrix|T-05-11|Planned|
-|06.1|Add/sub/logical flags and selectors complete-state assertions|T-05-12|Planned|
-|06.2|Multiply/round/clamp/masked48 slices independent integer assertions|T-05-12|Planned|
-|06.3|Compare/clip/merge flags/chains/full64-function-slot ledger|T-05-13|Planned|
-|07.1|Exact pre-copy source/history/license/digest audit and authored contradiction controls|T-05-14|Planned|
-|07.2|Direct fetched divider integer/latch executable with independent math|T-05-15|Planned|
-|07.3|Registered divider/audit+provenance controls normal/ASan|T-05-14/15|Planned|
-|08.1|Nonempty per-opcode deterministic fuzz independent vectors/invariants; stress syntax/config controls|T-05-16/18|Planned|
-|08.2|Source/object route mutations and unsupported fetched-opcode refusal|T-05-17|Planned|
-|09.1|Authored build/rights/boot/source/composition selftest and actual fixture build|T-05-20|Planned|
-|09.2|Actual CPU→SP→RSP ROM and meaningful variants normal/ASan|T-05-19/21|Planned|
-|10.1|Exact private --run-all/--verify-complete partition; every outcome/reason retained|T-05-22/24|Planned|
-|10.2|Configured code/security review reports plus evidence mutation selftests and focused fix retests|T-05-23/24/25|Planned|
-|10.3|Final canonical native gate; ALL ASan build and owning selection including admission fuzz/negative control; final evidence/artifact checker; exact required hosted pair|T-05-23/24|Planned|
+|01.1|Existing sp-dma/profile/digest/determinism/scheduler selection plus actual fetched behavioral RED→GREEN|T-05-01/02|Verified|
+|01.2|New tracer+old SP/profile normal and instrumented selection; exact inventory|T-05-01/02|Verified|
+|02.1|SP/status/DMA/issue route plus old profile/event/digest selection|T-05-03/04|Verified|
+|02.2|Control edge/refusal matrix, link notifications and partition/interleave selection|T-05-03/04|Verified|
+|03.1|Authored qualification/closed lock+asset/source tests; no private roots required|T-05-05/06|Verified|
+|03.2|Authored composition controls then actual qualified local build/composition attempt|T-05-05/06|Verified|
+|04.1|Existing runner.cpu-diagnostic-protocol/inventory/adapter canonical byte regression|T-05-09|Verified|
+|04.2|Direct RSP protocol executable: component/seal/completion/malformed exact partition controls|T-05-07|Verified|
+|04.3|Authored runner limits/negative controls then first actual qualified local startup/refusal|T-05-07/08|Verified|
+|05.1|Fetched full scalar/control/CP0 and legacy profile selection|T-05-10|Verified|
+|05.2|All transfer element/alignment/wrap/alias and VMOV matrix|T-05-11|Verified|
+|06.1|Add/sub/logical flags and selectors complete-state assertions|T-05-12|Verified|
+|06.2|Multiply/round/clamp/masked48 slices independent integer assertions|T-05-12|Verified|
+|06.3|Compare/clip/merge flags/chains/full64-function-slot ledger|T-05-13|Verified|
+|07.1|Exact pre-copy source/history/license/digest audit and authored contradiction controls|T-05-14|Verified|
+|07.2|Direct fetched divider integer/latch executable with independent math|T-05-15|Verified|
+|07.3|Registered divider/audit+provenance controls normal/ASan|T-05-14/15|Verified|
+|08.1|Nonempty per-opcode deterministic fuzz independent vectors/invariants; stress syntax/config controls|T-05-16/18|Verified|
+|08.2|Source/object route mutations and unsupported fetched-opcode refusal|T-05-17|Verified|
+|09.1|Authored build/rights/boot/source/composition selftest and actual fixture build|T-05-20|Verified|
+|09.2|Actual CPU→SP→RSP ROM and meaningful variants normal/ASan|T-05-19/21|Verified|
+|10.1|Exact private --run-all/--verify-complete partition; every outcome/reason retained|T-05-22/24|Verified|
+|10.2|Configured code/security review reports plus evidence mutation selftests and focused fix retests|T-05-23/24/25|Verified|
+|10.3|Final canonical native gate; ALL ASan build and owning selection including admission fuzz/negative control; final evidence/artifact checker; exact required hosted pair|T-05-23/24|Verified|
 
 Reserved T-05-SC appears in every plan: no package installation is planned;
 any proposed package install first needs its legitimacy audit. ASVS1 high and
@@ -184,3 +184,44 @@ The five generic edge probes remain unresolved in raw saved JSON; explicit
 predicates/owners are in05-PROBE-LEDGER.md. Planned coverage is complete across
 the four source types in05-SOURCE-AUDIT.md. Execution must establish results
 before nyquist_compliant or hardware/software qualification claims change.
+
+
+## Executed coverage reconciliation
+
+- The canonical gate on core semantic baseline `3a3c8ca` passes the exact127
+  registrations and lint86/0. The all-target instrumented build passes its31
+  owning tests, admission fuzz and sanitizer negative control, with exact129
+  inventory. Original logs and exact binaries are archived together.
+- Host correction `61542f9` changes no core/build-policy input. Normal and
+  instrumented provenance-refresh builds retain the actual compiler-policy
+  build IDs and profile descriptors. Current focused qualification, runner
+  and evidence controls pass, including the complete verifier entry, dispatch,
+  context/collision and undefined-global cases. Isolated source setup passes
+  all three authored harness suites without private diagnostic roots.
+- Both final hosted jobs pass the full127-test gate on `61542f9`. Their exact
+  sanitized artifacts and measured review are in the CI ledger. No private
+  input or result enters those jobs.
+- Actual final source-derived membership and original C records validate
+  locally. Every member has an authenticated result or individually bound
+  reason; a complete classification is not a passing diagnostic suite.
+- `check-rsp-evidence.py --check` passes against the actual receipt, fixed
+  binaries, original private records, hosted artifacts and current reports
+  in `build/gate/05-10-final-evidence-pre-audit.log`. The security report's
+  current zero-known-high classification is preliminary until the configured
+  follow-up returns; coverage compliance is not that final auditor verdict.
+- Full entry setup failure, invalid RED setups, early incomplete checks and
+  historical artifacts remain distinguished from final evidence. The exact
+  old private executable retention limit is disclosed. No human validation,
+  optimized differential path or hardware result is invented.
+
+The native/reference/fuzz and no-HLE owners cover RSP-01/02/03/05. The isolated
+harness controls, bounded actual execution and independent source/C partition
+checks cover RSP-04. No additional tests or broad retest are justified by this
+metadata reconciliation. Final configured security follow-up and phase-goal
+verification remain required before phase completion.
+
+
+Configured scoped security follow-up returned SECURED with no remaining
+blocking predicate. The final receipt/report hashes are refreshed and checked
+after that verdict; security closure is the actual auditor result, not an
+inference from coverage compliance. Phase-goal verification remains separate.
