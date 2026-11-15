@@ -31,6 +31,37 @@ def load_runner():
 
 
 class BaseRunControls(unittest.TestCase):
+    def test_dispatch_consumes_verified_context_snapshot(self) -> None:
+        """Changing the pathname after verification cannot substitute its data."""
+        with tempfile.TemporaryDirectory(prefix="base-context-snapshot-") as temp:
+            repository = pathlib.Path(temp)
+            (repository / "build").mkdir(mode=0o700)
+            context_root = create_context(repository)
+            runner = load_runner()
+            original_loader = runner._load_module
+            def loader(path, name):
+                module = original_loader(path, name)
+                if name == "t64_base_preuse_verifier":
+                    original_check = module._verify_live_source_authority
+                    def replace_after_check(*args):
+                        original_check(*args)
+                        changed = json.loads((context_root / "context.json").read_bytes())
+                        changed["bindings"]["executable"][0]["sha256"] = "f" * 64
+                        write_private(context_root / "context.json", canonical(changed))
+                    module._verify_live_source_authority = replace_after_check
+                return module
+            adapter = context_root / "executable.evidence"
+            runner._load_module = loader
+            try:
+                result = runner.run_one(context_root, context_root / "run-snapshot",
+                    adapter, repository_root=repository,
+                    dispatch=lambda directory: {"cleanup_verified": True,
+                        "timed_out": False, "returncode": 0,
+                        "record_authenticated": True})
+            except Exception as exc:
+                self.fail(f"verified context was reopened and replaced at dispatch: {exc}")
+            self.assertEqual(result["status"], "pass")
+
     def test_full_cli_entry_retains_synthetic_c_result(self) -> None:
         """Exercise the full private entry with authored bytes; this is not a guest run."""
         with tempfile.TemporaryDirectory(prefix="base-full-entry-synthetic-") as temp:
