@@ -494,6 +494,9 @@ typedef struct {
 typedef struct {
   uint32_t ri_config;
   bool ri_config_known;
+  uint32_t ri_current_load;
+  bool ri_current_load_known;
+  uint64_t ri_config_retired_at;
 } t64_rdram_protocol_state;
 
 typedef struct {
