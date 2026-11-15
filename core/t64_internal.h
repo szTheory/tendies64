@@ -491,6 +491,23 @@ typedef struct {
   bool operation_seen;
 } t64_cache_state;
 
+#define T64_RDRAM_PROTOCOL_SLOT_COUNT 2u
+#define T64_RDRAM_PROTOCOL_REGISTER_COUNT 10u
+#define T64_RDRAM_PROTOCOL_SLOT_BYTES UINT32_C(0x00200000)
+
+#define T64_RDRAM_CALIBRATION_NONE UINT8_C(0)
+#define T64_RDRAM_CALIBRATION_MANUAL_COMMAND UINT8_C(1)
+#define T64_RDRAM_CALIBRATION_AUTO_COMMAND UINT8_C(2)
+
+typedef struct {
+  uint16_t device_id;
+  uint8_t calibration_state;
+  bool present;
+  bool device_id_known;
+  uint16_t registers_known;
+  uint32_t register_values[T64_RDRAM_PROTOCOL_REGISTER_COUNT];
+} t64_rdram_device_state;
+
 typedef struct {
   uint32_t ri_config;
   bool ri_config_known;
@@ -498,6 +515,21 @@ typedef struct {
   bool ri_current_load_known;
   uint64_t ri_config_tick;
   uint64_t ri_current_load_deadline_tick;
+  uint32_t ri_mode;
+  bool ri_mode_known;
+  uint64_t ri_mode_tick;
+  uint64_t ri_mode_deadline_tick;
+  uint32_t ri_refresh;
+  bool ri_refresh_known;
+  bool mi_repeat_enabled;
+  bool mi_repeat_known;
+  uint32_t mi_repeat_length;
+  uint16_t broadcast_registers_known;
+  uint32_t broadcast_register_values[T64_RDRAM_PROTOCOL_REGISTER_COUNT];
+  uint8_t logical_device_count;
+  bool capacity_scan_complete;
+  uint32_t logical_capacity_bytes;
+  t64_rdram_device_state devices[T64_RDRAM_PROTOCOL_SLOT_COUNT];
 } t64_rdram_protocol_state;
 
 typedef struct {

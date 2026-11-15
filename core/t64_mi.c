@@ -3,8 +3,14 @@
 #include <stdint.h>
 
 #define T64_MI_BASE UINT32_C(0x04300000)
+#define T64_MI_MODE_REG (T64_MI_BASE + UINT32_C(0x00))
 #define T64_MI_INTR_REG (T64_MI_BASE + UINT32_C(0x08))
 #define T64_MI_INTR_MASK_REG (T64_MI_BASE + UINT32_C(0x0c))
+#define T64_MI_WMODE_CLEAR_REPEAT UINT32_C(0x00000080)
+#define T64_MI_WMODE_SET_REPEAT UINT32_C(0x00000100)
+#define T64_MI_WMODE_REPEAT_LENGTH_16 UINT32_C(0x0000000f)
+#define T64_MI_WMODE_CLEAR_DP_INTR UINT32_C(0x00000800)
+#define T64_MI_INTERRUPT_DP UINT32_C(0x00000020)
 
 static void update_irq_line(t64_machine *machine) {
   machine->mi_irq_line =
@@ -88,7 +94,15 @@ bool t64_mi_register_read(const t64_machine *machine, uint32_t address,
   if (machine == NULL || value_out == NULL) {
     return false;
   }
-  if (address == T64_MI_INTR_REG) {
+  if (address == T64_MI_MODE_REG &&
+      t64_has_rdram_protocol_policy(machine)) {
+    const t64_rdram_protocol_state *protocol =
+        &machine->guest_devices.rdram_protocol;
+    value = protocol->mi_repeat_enabled
+                ? T64_MI_WMODE_SET_REPEAT |
+                      (protocol->mi_repeat_length - UINT32_C(1))
+                : 0u;
+  } else if (address == T64_MI_INTR_REG) {
     value = machine->mi_pending & T64_MI_INTERRUPT_BITS;
   } else if (address == T64_MI_INTR_MASK_REG) {
     value = machine->mi_mask & T64_MI_INTERRUPT_BITS;
@@ -103,6 +117,41 @@ t64_status t64_mi_register_write(t64_machine *machine, uint32_t address,
                                 uint32_t value) {
   if (machine == NULL) {
     return T64_STATUS_INVALID_ARGUMENT;
+  }
+  if (address == T64_MI_MODE_REG &&
+      t64_has_rdram_protocol_policy(machine)) {
+    t64_rdram_protocol_state *protocol =
+        &machine->guest_devices.rdram_protocol;
+
+    if (value == (T64_MI_WMODE_SET_REPEAT |
+                  T64_MI_WMODE_REPEAT_LENGTH_16)) {
+      if (!protocol->ri_mode_known || protocol->ri_mode != UINT32_C(0x0e) ||
+          machine->tick < protocol->ri_mode_deadline_tick) {
+        return T64_STATUS_BUS_DEVICE_REFUSED;
+      }
+      protocol->mi_repeat_enabled = true;
+      protocol->mi_repeat_known = true;
+      protocol->mi_repeat_length = UINT32_C(16);
+      return T64_STATUS_OK;
+    }
+    if (value == T64_MI_WMODE_CLEAR_REPEAT) {
+      if (!protocol->ri_mode_known || protocol->ri_mode != UINT32_C(0x0e) ||
+          machine->tick < protocol->ri_mode_deadline_tick) {
+        return T64_STATUS_BUS_DEVICE_REFUSED;
+      }
+      protocol->mi_repeat_enabled = false;
+      protocol->mi_repeat_known = true;
+      protocol->mi_repeat_length = 0u;
+      return T64_STATUS_OK;
+    }
+    if (value == 0u || value == 1u) {
+      return T64_STATUS_OK;
+    }
+    if (value == T64_MI_WMODE_CLEAR_DP_INTR) {
+      t64_mi_clear_pending(machine, T64_MI_INTERRUPT_DP);
+      return T64_STATUS_OK;
+    }
+    return T64_STATUS_BUS_DEVICE_REFUSED;
   }
   if (address == T64_MI_INTR_REG) {
     return T64_STATUS_BUS_DEVICE_REFUSED;

@@ -6,6 +6,7 @@
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
+#include <string.h>
 
 #define IPL3_ASSET_BYTES 4096u
 #define TEST_RI_BASE UINT32_C(0x04700000)
@@ -13,6 +14,13 @@
 #define TEST_RI_CONFIG (TEST_RI_BASE + UINT32_C(4))
 #define TEST_RI_CURRENT_LOAD (TEST_RI_BASE + UINT32_C(8))
 #define TEST_RI_SELECT (TEST_RI_BASE + UINT32_C(12))
+#define TEST_RI_REFRESH (TEST_RI_BASE + UINT32_C(16))
+#define TEST_MI_MODE UINT32_C(0x04300000)
+#define TEST_RDRAM_REGS UINT32_C(0x03f00000)
+#define TEST_RDRAM_BROADCAST UINT32_C(0x03f80000)
+#define TEST_RDRAM_ID511 (TEST_RDRAM_REGS + UINT32_C(0x7fc00))
+#define TEST_RDRAM_SLOT2 (TEST_RDRAM_REGS + UINT32_C(0x800))
+#define TEST_RDRAM_SLOT4 (TEST_RDRAM_REGS + UINT32_C(0x1000))
 
 typedef struct {
   t64_guest_device_state guest_devices;
@@ -148,6 +156,8 @@ static void check_latches_unchanged(const t64_machine *machine,
   T64_CHECK_INT(machine->mi_pending, before->mi_pending);
   T64_CHECK_INT(machine->mi_mask, before->mi_mask);
   T64_CHECK_INT(machine->mi_irq_line, before->mi_irq_line);
+  T64_CHECK(memcmp(&machine->guest_devices, &before->guest_devices,
+                   sizeof machine->guest_devices) == 0);
 }
 
 static void check_register_trace(t64_machine *machine) {
@@ -299,7 +309,9 @@ static void test_cold_ri_select_after_current_load(void) {
   t64_machine *machine = NULL;
   uint64_t deadline;
   uint32_t selected = UINT32_C(0xfeedface);
+  uint32_t mode = UINT32_C(0xfeedface);
   t64_status status;
+  rdram_latch_snapshot before;
 
   T64_CHECK(create_machine("ntsc-cart-4m-openipl3-rdram-b-t1-v1", &machine));
   if (machine == NULL) {
@@ -328,7 +340,226 @@ static void test_cold_ri_select_after_current_load(void) {
   T64_CHECK_INT(selected, UINT32_C(0x14));
   T64_CHECK_INT(t64_bus_write(machine, TEST_RI_MODE, 4u, 0u),
                 T64_STATUS_OK);
+  deadline = machine->guest_devices.rdram_protocol.ri_mode_deadline_tick;
+  before = capture_latches(machine);
+  T64_CHECK_INT(t64_bus_write(machine, TEST_RI_MODE, 4u, UINT32_C(0x0e)),
+                T64_STATUS_BUS_DEVICE_REFUSED);
+  check_latches_unchanged(machine, &before);
+  machine->queue_head = 0u;
+  machine->queue_count = 0u;
+  advance_to_guest_tick(machine, deadline);
+  T64_CHECK_INT(t64_bus_write(machine, TEST_RI_MODE, 4u, UINT32_C(0x0e)),
+                T64_STATUS_OK);
+  T64_CHECK_INT(t64_bus_read(machine, TEST_RI_MODE, 4u, &mode),
+                T64_STATUS_OK);
+  T64_CHECK_INT(mode, UINT32_C(0x0e));
+  deadline = machine->guest_devices.rdram_protocol.ri_mode_deadline_tick;
+  machine->queue_head = 0u;
+  machine->queue_count = 0u;
+  advance_to_guest_tick(machine, deadline);
 
+  t64_machine_destroy(machine);
+}
+
+static bool prepare_cold_rdram_register_access(t64_machine *machine) {
+  uint64_t deadline;
+
+  if (machine == NULL ||
+      t64_bus_write(machine, TEST_RI_CONFIG, 4u, UINT32_C(0x40)) !=
+          T64_STATUS_OK) {
+    return false;
+  }
+  deadline = machine->guest_devices.rdram_protocol.ri_current_load_deadline_tick;
+  machine->queue_head = 0u;
+  machine->queue_count = 0u;
+  advance_to_guest_tick(machine, deadline);
+  if (t64_bus_write(machine, TEST_RI_CURRENT_LOAD, 4u, 0u) !=
+          T64_STATUS_OK ||
+      t64_bus_write(machine, TEST_RI_SELECT, 4u, UINT32_C(0x14)) !=
+          T64_STATUS_OK ||
+      t64_bus_write(machine, TEST_RI_MODE, 4u, 0u) != T64_STATUS_OK) {
+    return false;
+  }
+  deadline = machine->guest_devices.rdram_protocol.ri_mode_deadline_tick;
+  advance_to_guest_tick(machine, deadline);
+  if (t64_bus_write(machine, TEST_RI_MODE, 4u, UINT32_C(0x0e)) !=
+      T64_STATUS_OK) {
+    return false;
+  }
+  deadline = machine->guest_devices.rdram_protocol.ri_mode_deadline_tick;
+  advance_to_guest_tick(machine, deadline);
+  return true;
+}
+
+static void test_rdram_broadcast_devices_calibration_and_capacity(void) {
+  t64_machine *machine = NULL;
+  rdram_latch_snapshot before;
+  uint32_t readback = UINT32_C(0xfeedface);
+
+  T64_CHECK(create_machine("ntsc-cart-4m-openipl3-rdram-b-t1-v1", &machine));
+  if (machine == NULL) {
+    return;
+  }
+  T64_CHECK(prepare_cold_rdram_register_access(machine));
+  before = capture_latches(machine);
+  T64_CHECK_INT(t64_rdram_write(machine, TEST_RDRAM_BROADCAST + UINT32_C(8),
+                                4u, UINT32_C(0xefbeadde)),
+                T64_STATUS_BUS_DEVICE_REFUSED);
+  check_latches_unchanged(machine, &before);
+
+  T64_CHECK_INT(t64_mi_register_write(machine, TEST_MI_MODE,
+                                      UINT32_C(0x10f)),
+                T64_STATUS_OK);
+  T64_CHECK(t64_mi_register_read(machine, TEST_MI_MODE, &readback));
+  T64_CHECK_INT(readback, UINT32_C(0x10f));
+  before = capture_latches(machine);
+  T64_CHECK_INT(t64_mi_register_write(machine, TEST_MI_MODE,
+                                      UINT32_C(0x10f)),
+                T64_STATUS_OK);
+  check_latches_unchanged(machine, &before);
+
+  /* These literal wire words come from the source's byteswapped RDRAM writes;
+     the selected delay/RAS payloads are opaque authored values, not
+     calibration constants or predictions about hardware. */
+  T64_CHECK_INT(t64_rdram_write(machine,
+                                TEST_RDRAM_BROADCAST + UINT32_C(8), 4u,
+                                UINT32_C(0xefbeadde)),
+                T64_STATUS_OK);
+  T64_CHECK_INT(t64_rdram_write(machine,
+                                TEST_RDRAM_BROADCAST + UINT32_C(4), 4u,
+                                UINT32_C(0xfc800300)),
+                T64_STATUS_OK);
+  T64_CHECK_INT(t64_rdram_write(machine,
+                                TEST_RDRAM_BROADCAST + UINT32_C(12), 4u,
+                                UINT32_C(0x44000000)),
+                T64_STATUS_OK);
+  T64_CHECK_INT(t64_rdram_write(machine,
+                                TEST_RDRAM_BROADCAST + UINT32_C(20), 4u, 0u),
+                T64_STATUS_OK);
+  T64_CHECK_INT(t64_rdram_read(machine, TEST_RDRAM_ID511 + UINT32_C(4), 4u,
+                               &readback),
+                T64_STATUS_OK);
+  T64_CHECK_INT(readback, UINT32_C(0xfc800300));
+  T64_CHECK_INT(t64_rdram_read(machine, TEST_RDRAM_ID511 + UINT32_C(8), 4u,
+                               &readback),
+                T64_STATUS_OK);
+  T64_CHECK_INT(readback, UINT32_C(0xefbeadde));
+  before = capture_latches(machine);
+  T64_CHECK_INT(t64_rdram_write(machine,
+                                TEST_RDRAM_BROADCAST + UINT32_C(8), 4u,
+                                UINT32_C(0xefbeadde)),
+                T64_STATUS_OK);
+  check_latches_unchanged(machine, &before);
+
+  readback = UINT32_C(0xfeedface);
+  before = capture_latches(machine);
+  T64_CHECK_INT(t64_rdram_read(machine, TEST_RDRAM_SLOT4 + UINT32_C(12), 4u,
+                               &readback),
+                T64_STATUS_BUS_DEVICE_REFUSED);
+  T64_CHECK_INT(readback, UINT32_C(0xfeedface));
+  check_latches_unchanged(machine, &before);
+
+  before = capture_latches(machine);
+  T64_CHECK_INT(t64_rdram_write(machine, TEST_RDRAM_ID511 + UINT32_C(4),
+                                4u, UINT32_C(0x00000400)),
+                T64_STATUS_BUS_DEVICE_REFUSED);
+  check_latches_unchanged(machine, &before);
+
+  T64_CHECK_INT(t64_rdram_write(machine, TEST_RDRAM_ID511 + UINT32_C(4),
+                                4u, 0u),
+                T64_STATUS_OK);
+  T64_CHECK_INT(t64_rdram_read(machine, TEST_RDRAM_REGS + UINT32_C(4), 4u,
+                               &readback),
+                T64_STATUS_OK);
+  T64_CHECK_INT(readback, 0u);
+  T64_CHECK_INT(t64_rdram_write(machine, TEST_RDRAM_REGS + UINT32_C(12),
+                                4u, UINT32_C(0x46000000)),
+                T64_STATUS_OK);
+  T64_CHECK_INT(t64_rdram_write(machine, TEST_RDRAM_REGS + UINT32_C(12),
+                                4u, UINT32_C(0xc6000000)),
+                T64_STATUS_OK);
+  T64_CHECK_INT(t64_rdram_read(machine, TEST_RDRAM_REGS + UINT32_C(12), 4u,
+                               &readback),
+                T64_STATUS_OK);
+  T64_CHECK_INT(readback, UINT32_C(0xc6000000));
+  T64_CHECK_INT(t64_rdram_read(machine, TEST_RDRAM_REGS, 4u, &readback),
+                T64_STATUS_OK);
+  T64_CHECK_INT(readback, UINT32_C(0xb4190000));
+  T64_CHECK_INT(t64_rdram_read(machine, TEST_RDRAM_REGS + UINT32_C(36), 4u,
+                               &readback),
+                T64_STATUS_OK);
+  T64_CHECK_INT(readback, 0u);
+  T64_CHECK_INT(t64_rdram_write(machine, TEST_RDRAM_REGS + UINT32_C(24), 4u,
+                                UINT32_C(0x78563412)),
+                T64_STATUS_OK);
+
+  T64_CHECK_INT(t64_rdram_write(machine, TEST_RDRAM_ID511 + UINT32_C(4),
+                                4u, UINT32_C(0x08000000)),
+                T64_STATUS_OK);
+  T64_CHECK_INT(t64_rdram_read(machine, TEST_RDRAM_SLOT2 + UINT32_C(4), 4u,
+                               &readback),
+                T64_STATUS_OK);
+  T64_CHECK_INT(readback, UINT32_C(0x08000000));
+  T64_CHECK_INT(t64_rdram_write(machine,
+                                TEST_RDRAM_SLOT2 + UINT32_C(12), 4u,
+                                UINT32_C(0x46000000)),
+                T64_STATUS_OK);
+  T64_CHECK_INT(t64_rdram_write(machine,
+                                TEST_RDRAM_SLOT2 + UINT32_C(12), 4u,
+                                UINT32_C(0xc6000000)),
+                T64_STATUS_OK);
+  T64_CHECK_INT(t64_rdram_read(machine,
+                               TEST_RDRAM_SLOT2 + UINT32_C(12), 4u,
+                               &readback),
+                T64_STATUS_OK);
+  T64_CHECK_INT(readback, UINT32_C(0xc6000000));
+  before = capture_latches(machine);
+  T64_CHECK_INT(t64_rdram_write(machine,
+                                TEST_RDRAM_SLOT2 + UINT32_C(12), 2u,
+                                UINT32_C(0xc6000000)),
+                T64_STATUS_BUS_UNSUPPORTED);
+  check_latches_unchanged(machine, &before);
+
+  T64_CHECK_INT(t64_rdram_write(machine, TEST_RDRAM_ID511 + UINT32_C(4),
+                                4u, UINT32_C(0x10000000)),
+                T64_STATUS_OK);
+  T64_CHECK_INT(t64_rdram_write(machine,
+                                TEST_RDRAM_SLOT4 + UINT32_C(12), 4u,
+                                UINT32_C(0x46000000)),
+                T64_STATUS_OK);
+  T64_CHECK(machine->guest_devices.rdram_protocol.capacity_scan_complete);
+  T64_CHECK_INT(machine->guest_devices.rdram_protocol.logical_capacity_bytes,
+                UINT32_C(0x00400000));
+  T64_CHECK_INT(t64_rdram_read(machine,
+                               TEST_RDRAM_SLOT4 + UINT32_C(12), 4u,
+                               &readback),
+                T64_STATUS_OK);
+  T64_CHECK_INT(readback, 0u);
+
+  T64_CHECK_INT(t64_bus_write(machine, TEST_RI_REFRESH, 4u,
+                              UINT32_C(0x12345678)),
+                T64_STATUS_OK);
+  T64_CHECK_INT(t64_bus_read(machine, TEST_RI_REFRESH, 4u, &readback),
+                T64_STATUS_OK);
+  T64_CHECK_INT(readback, UINT32_C(0x12345678));
+
+  before = capture_latches(machine);
+  T64_CHECK_INT(t64_mi_register_write(machine, TEST_MI_MODE,
+                                      UINT32_C(0x110)),
+                T64_STATUS_BUS_DEVICE_REFUSED);
+  check_latches_unchanged(machine, &before);
+
+  /* RI reset deliberately interrupts enumeration and resets model-only
+     device/MI state while retaining the already-applied load. */
+  T64_CHECK_INT(t64_bus_write(machine, TEST_RI_MODE, 4u, 0u), T64_STATUS_OK);
+  T64_CHECK(!machine->guest_devices.rdram_protocol.capacity_scan_complete);
+  T64_CHECK_INT(machine->guest_devices.rdram_protocol.logical_capacity_bytes,
+                0u);
+  T64_CHECK(!machine->guest_devices.rdram_protocol.mi_repeat_enabled);
+  T64_CHECK(!machine->guest_devices.rdram_protocol.mi_repeat_known);
+  T64_CHECK_INT(t64_rdram_write(machine, TEST_RDRAM_BROADCAST + UINT32_C(8),
+                                4u, UINT32_C(0xefbeadde)),
+                T64_STATUS_BUS_DEVICE_REFUSED);
   t64_machine_destroy(machine);
 }
 
@@ -356,6 +587,7 @@ static void test_current_load_uses_guest_ticks_and_is_partition_invariant(
   t64_machine *idle = NULL;
   t64_machine *one_shot = NULL;
   t64_machine *partitioned = NULL;
+  t64_machine *overflow = NULL;
   uint64_t deadline;
   uint64_t retired_before;
   rdram_latch_snapshot before;
@@ -364,12 +596,23 @@ static void test_current_load_uses_guest_ticks_and_is_partition_invariant(
   T64_CHECK(create_machine("ntsc-cart-4m-openipl3-rdram-b-t1-v1", &one_shot));
   T64_CHECK(create_machine("ntsc-cart-4m-openipl3-rdram-b-t1-v1",
                            &partitioned));
-  if (idle == NULL || one_shot == NULL || partitioned == NULL) {
+  T64_CHECK(create_machine("ntsc-cart-4m-openipl3-rdram-b-t1-v1",
+                           &overflow));
+  if (idle == NULL || one_shot == NULL || partitioned == NULL ||
+      overflow == NULL) {
     t64_machine_destroy(idle);
     t64_machine_destroy(one_shot);
     t64_machine_destroy(partitioned);
+    t64_machine_destroy(overflow);
     return;
   }
+
+  overflow->tick = UINT64_MAX - UINT64_C(255);
+  before = capture_latches(overflow);
+  T64_CHECK_INT(t64_bus_write(overflow, TEST_RI_CONFIG, 4u,
+                              UINT32_C(0x40)),
+                T64_STATUS_BUS_DEVICE_REFUSED);
+  check_latches_unchanged(overflow, &before);
 
   T64_CHECK_INT(t64_bus_write(idle, TEST_RI_CONFIG, 4u, UINT32_C(0x40)),
                 T64_STATUS_OK);
@@ -421,6 +664,7 @@ static void test_current_load_uses_guest_ticks_and_is_partition_invariant(
   t64_machine_destroy(idle);
   t64_machine_destroy(one_shot);
   t64_machine_destroy(partitioned);
+  t64_machine_destroy(overflow);
 }
 
 static void test_first_cold_register_instruction(void) {
@@ -522,6 +766,7 @@ int main(void) {
   test_current_load_after_source_wait();
   test_cold_ri_select_after_current_load();
   test_current_load_uses_guest_ticks_and_is_partition_invariant();
+  test_rdram_broadcast_devices_calibration_and_capacity();
   test_first_cold_register_instruction();
   return T64_TEST_FINISH("unit.core.rdram-protocol");
 }

@@ -56,6 +56,9 @@ t64_status t64_warm_device_read(const t64_machine *machine, uint32_t address,
   }
   switch (address) {
   case T64_MI_INIT_MODE:
+    if (t64_has_rdram_protocol_policy(machine)) {
+      return T64_STATUS_BUS_UNSUPPORTED;
+    }
     value = 0u;
     break;
   case T64_MI_VERSION:
@@ -112,6 +115,9 @@ t64_status t64_warm_device_write(t64_machine *machine, uint32_t address,
   }
   switch (address) {
   case T64_MI_INIT_MODE:
+    if (t64_has_rdram_protocol_policy(machine)) {
+      return T64_STATUS_BUS_UNSUPPORTED;
+    }
     if (value == T64_MI_INIT_CLEAR_DP_INTR) {
       t64_mi_clear_pending(machine, T64_MI_INTERRUPT_DP);
       return T64_STATUS_OK;
