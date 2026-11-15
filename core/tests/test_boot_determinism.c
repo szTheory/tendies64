@@ -774,11 +774,190 @@ static void test_warm_future_field_audit(
   T64_CHECK_INT(state.outstanding, 0u);
 }
 
-int main(void) {
+static bool cold_advance(t64_machine *machine, uint64_t target) {
+  t64_stop_result stop;
+  return advance_one_request(machine, target, &stop) &&
+         stop.reason == T64_STOP_REASON_BOUND && stop.tick == target;
+}
+
+static int compare_ticks(const void *left, const void *right) {
+  uint64_t a = *(const uint64_t *)left;
+  uint64_t b = *(const uint64_t *)right;
+  return (a > b) - (a < b);
+}
+
+static bool cold_mdu_cuts(const t64_profile_descriptor *profile,
+                           const t64_host_allocator *allocator,
+                           const fixture_bundle *bundle, uint64_t terminal,
+                           uint64_t cuts[2], uint32_t *opcode_out) {
+  static const uint64_t costs[] = {6u, 38u, 9u, 70u};
+  t64_machine *machine = NULL;
+  bool found = false;
+  if (!make_machine(profile, allocator, bundle->hello, bundle->hello_length,
+                    true, false, &machine)) return false;
+  while (machine->tick < terminal && !found) {
+    t64_trace_record records[T64_TRACE_RECORD_CAPACITY];
+    uint64_t target = machine->tick + 16u;
+    uint64_t dropped = 0u;
+    bool saturated = false;
+    size_t count = 0u;
+    size_t index;
+    if (target > terminal) target = terminal;
+    if (!cold_advance(machine, target) ||
+        t64_machine_trace_drain(machine, records, T64_TRACE_RECORD_CAPACITY,
+                                &count, &dropped, &saturated) != T64_STATUS_OK ||
+        dropped != 0u || saturated) break;
+    for (index = 0u; index < count; index++) {
+      uint32_t opcode = (uint32_t)records[index].value;
+      uint32_t function = opcode & 63u;
+      if (records[index].device == T64_TRACE_DEVICE_MACHINE &&
+          records[index].kind == T64_TRACE_KIND_CPU_RETIREMENT &&
+          (opcode >> 26) == 0u && function >= 0x18u && function <= 0x1fu) {
+        uint64_t cost = costs[(function - 0x18u) / 2u];
+        cuts[0] = records[index].tick + 1u;
+        cuts[1] = records[index].tick + cost - 1u;
+        *opcode_out = opcode;
+        found = cuts[1] < terminal;
+        break;
+      }
+    }
+  }
+  t64_machine_destroy(machine);
+  return found;
+}
+
+static void cold_check_final(t64_machine *machine, uint64_t terminal,
+                              uint64_t retired,
+                              const uint8_t expected[T64_DIGEST_SIZE]) {
+  uint8_t digest[T64_DIGEST_SIZE];
+  machine_run output = {0};
+  output.machine = machine;
+  T64_CHECK_INT(machine->tick, terminal);
+  T64_CHECK_INT(machine->cpu.retired_instructions, retired);
+  T64_CHECK_INT(machine->cpu.last_pc, UINT32_C(0x80000478));
+  T64_CHECK_INT(machine->cpu.last_opcode, UINT32_C(0x0000000d));
+  T64_CHECK_INT(machine->cpu.attempt_outcome, T64_CPU_ATTEMPT_GUEST_EXCEPTION);
+  T64_CHECK_INT(machine->cpu.pending_exception_code, 9u);
+  T64_CHECK_INT(machine->cpu.pending_exception_epc,
+                UINT64_C(0xffffffff80000478));
+  T64_CHECK(!machine->cpu.pending_exception_bd);
+  T64_CHECK(finish_output(&output, true));
+  T64_CHECK_INT(t64_machine_digest(machine, digest), T64_STATUS_OK);
+  T64_CHECK(memcmp(digest, expected, sizeof digest) == 0);
+  if (t64_has_rdram_protocol_policy(machine)) {
+    T64_CHECK(machine->guest_devices.rdram_protocol.capacity_scan_complete);
+    T64_CHECK_INT(machine->guest_devices.rdram_protocol.logical_capacity_bytes,
+                  UINT32_C(0x00400000));
+    T64_CHECK_INT(machine->guest_devices.rdram_protocol.devices[1].device_id, 2u);
+  }
+}
+
+static void test_cold_profile(const fixture_bundle *bundle, size_t profile_index) {
+  static const char *const ids[] = {
+      "ntsc-cart-4m-openipl3-rdram-a-t1-v1",
+      "ntsc-cart-4m-openipl3-rdram-b-t1-v1"};
+  /* Exact software-policy observations from the retained actual comparison;
+   * timing-class expectations have separate primary-table native tests. */
+  static const uint64_t terminal_ticks[] = {530448u, 538871u};
+  static const uint64_t retired_counts[] = {530437u, 538840u};
+  const uint64_t terminal = terminal_ticks[profile_index];
+  allocator_state allocations = {0u};
+  const t64_host_allocator allocator = {test_allocate, test_release, &allocations};
+  const t64_profile_descriptor *profile = NULL;
+  t64_machine *machines[4] = {NULL, NULL, NULL, NULL};
+  uint8_t initial[T64_DIGEST_SIZE];
+  uint8_t reference[T64_DIGEST_SIZE];
+  uint8_t before[T64_DIGEST_SIZE];
+  uint8_t after[T64_DIGEST_SIZE];
+  uint8_t *changed_rom = NULL;
+  uint64_t mdu[2];
+  uint32_t mdu_opcode = 0u;
+  uint64_t cuts[] = {1u, 53u, 75u, 331u, 590u, 1000u, 2048u, 4096u,
+                     0u, 0u, terminal - 1u, terminal};
+  size_t index;
+  T64_CHECK_INT(t64_profile_lookup(ids[profile_index], &profile), T64_STATUS_OK);
+  if (profile == NULL) return;
+  for (index = 0u; index < 4u; index++) {
+    bool created = make_machine(profile, &allocator, bundle->hello,
+                                bundle->hello_length, false, false,
+                                &machines[index]);
+    T64_CHECK(created);
+    if (!created) goto cleanup;
+  }
+  T64_CHECK_INT(t64_machine_digest(machines[0], initial), T64_STATUS_OK);
+  if (!cold_advance(machines[0], terminal)) { T64_CHECK(false); goto cleanup; }
+  T64_CHECK_INT(t64_machine_digest(machines[0], reference), T64_STATUS_OK);
+  cold_check_final(machines[0], terminal, retired_counts[profile_index], reference);
+  if (!cold_mdu_cuts(profile, &allocator, bundle, terminal, mdu, &mdu_opcode)) {
+    T64_CHECK(false);
+    goto cleanup;
+  }
+  cuts[8] = mdu[0];
+  cuts[9] = mdu[1];
+  qsort(cuts, sizeof cuts / sizeof cuts[0], sizeof cuts[0], compare_ticks);
+  for (index = 0u; index < sizeof cuts / sizeof cuts[0]; index++) {
+    if (!cold_advance(machines[1], cuts[index])) { T64_CHECK(false); goto cleanup; }
+    if (cuts[index] == mdu[0] || cuts[index] == mdu[1]) {
+      T64_CHECK_INT(machines[1]->cpu.last_opcode, mdu_opcode);
+    }
+    if (cuts[index] == terminal - 1u) {
+      T64_CHECK_INT(machines[1]->cpu.last_pc, UINT32_C(0x80000474));
+    }
+  }
+  cold_check_final(machines[1], terminal, retired_counts[profile_index], reference);
+  while (machines[2]->tick < terminal || machines[3]->tick < terminal) {
+    for (index = 2u; index < 4u; index++) {
+      uint64_t target = machines[index]->tick + (index == 2u ? 4093u : 8191u);
+      if (target > terminal) target = terminal;
+      if (!cold_advance(machines[index], target)) { T64_CHECK(false); goto cleanup; }
+    }
+  }
+  cold_check_final(machines[2], terminal, retired_counts[profile_index], reference);
+  cold_check_final(machines[3], terminal, retired_counts[profile_index], reference);
+
+  changed_rom = (uint8_t *)malloc(bundle->hello_length);
+  T64_CHECK(changed_rom != NULL);
+  if (changed_rom == NULL) goto cleanup;
+  memcpy(changed_rom, bundle->hello, bundle->hello_length);
+  changed_rom[0x40] ^= UINT8_C(1);
+  T64_CHECK_INT(t64_machine_digest(machines[0], before), T64_STATUS_OK);
+  T64_CHECK_INT(t64_machine_admit_rom(machines[0], changed_rom,
+                                      bundle->hello_length), T64_STATUS_INVALID_ROM);
+  T64_CHECK_INT(t64_machine_digest(machines[0], after), T64_STATUS_OK);
+  T64_CHECK(memcmp(before, after, sizeof before) == 0);
+  T64_CHECK_INT(t64_machine_admit_rom(machines[3], bundle->hello,
+                                      bundle->hello_length), T64_STATUS_OK);
+  if (!cold_advance(machines[3], 1000u)) { T64_CHECK(false); goto cleanup; }
+  if (profile_index == 1u) {
+    T64_CHECK(machines[3]->guest_devices.rdram_protocol.ri_config_known);
+    T64_CHECK(!machines[3]->guest_devices.rdram_protocol.capacity_scan_complete);
+  }
+  T64_CHECK_INT(t64_machine_admit_rom(machines[3], bundle->hello,
+                                      bundle->hello_length), T64_STATUS_OK);
+  T64_CHECK_INT(t64_machine_digest(machines[3], after), T64_STATUS_OK);
+  T64_CHECK(memcmp(initial, after, sizeof initial) == 0);
+  if (!cold_advance(machines[3], terminal)) { T64_CHECK(false); goto cleanup; }
+  cold_check_final(machines[3], terminal, retired_counts[profile_index], reference);
+cleanup:
+  free(changed_rom);
+  for (index = 0u; index < 4u; index++) t64_machine_destroy(machines[index]);
+  T64_CHECK_INT(allocations.outstanding, 0u);
+}
+
+int main(int argc, char **argv) {
   fixture_bundle bundle = {0};
   const t64_profile_descriptor *profile = NULL;
 
   T64_CHECK(load_fixtures(&bundle));
+  if (argc == 2 && strcmp(argv[1], "--cold") == 0) {
+    if (bundle.hello != NULL) {
+      test_cold_profile(&bundle, 0u);
+      test_cold_profile(&bundle, 1u);
+    }
+    free(bundle.hello);
+    return T64_TEST_FINISH("integration.cold-determinism");
+  }
+  if (argc != 1) { free(bundle.hello); return 2; }
   T64_CHECK_INT(t64_profile_lookup(PROFILE_ID, &profile), T64_STATUS_OK);
   T64_CHECK(profile != NULL);
   if (bundle.hello != NULL && profile != NULL) {

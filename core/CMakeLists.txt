@@ -185,6 +185,11 @@ target_link_libraries(test_boot_determinism PRIVATE t64_core t64_sha256)
 t64_target_warnings(test_boot_determinism)
 add_dependencies(test_boot_determinism t64-boot-fixtures)
 add_test(NAME integration.open-ipl3-determinism COMMAND test_boot_determinism)
+add_test(NAME integration.cold-determinism COMMAND test_boot_determinism --cold)
+set_tests_properties(integration.cold-determinism PROPERTIES
+  LABELS integration TIMEOUT 180 RUN_SERIAL TRUE
+  ENVIRONMENT
+    "T64_TEST_IPL3_PATH=${T64_BOOT_FIXTURE_DIR}/ipl3_compat.z64;T64_TEST_INPUT_PATH=${T64_BOOT_FIXTURE_DIR}/hello.input.json;T64_BOOT_FIXTURES_DIR=${T64_BOOT_FIXTURE_DIR}")
 set_tests_properties(integration.open-ipl3-determinism PROPERTIES
   LABELS integration TIMEOUT 180
   ENVIRONMENT

@@ -19,6 +19,7 @@ static char arg_probe[] = "--probe";
 static char arg_profile[] = "--profile";
 static char arg_fixture[] = "--fixture";
 static char arg_compare[] = "--compare";
+static char arg_terminal_controls[] = "--terminal-controls";
 static char arg_profile_a[] = "--profile-a";
 static char arg_profile_b[] = "--profile-b";
 #define FIXTURE_BYTES 4280u
@@ -70,7 +71,10 @@ static bool run_child(char *runner, char *const args[],
   return true;
 }
 
+static unsigned assertion_count;
+
 static bool expect(const char *name, bool condition) {
+  assertion_count++;
   (void)printf("%s %s\n", condition ? "ok" : "not ok", name);
   return condition;
 }
@@ -117,21 +121,31 @@ static bool write_text(const char *path, const char *text) {
   return ok;
 }
 
-static bool make_evidence_dir(const char *root, char *directory,
+static bool make_evidence_dir(const char *root, bool compare, char *directory,
                               size_t capacity) {
-  int count = snprintf(directory, capacity, "%s/build/gate/06-cold-startup",
-                       root);
-  if (count <= 0 || (size_t)count >= capacity) return false;
+  unsigned attempt;
+  int count;
   if (mkdir("build", 0700) != 0 && errno != EEXIST) return false;
   if (mkdir("build/gate", 0700) != 0 && errno != EEXIST) return false;
-  if (mkdir(directory, 0700) != 0 && errno != EEXIST) return false;
-  return true;
+  for (attempt = 1u; attempt <= 99u; attempt++) {
+    count = snprintf(directory, capacity,
+                     "%s/build/gate/06-05-cold-%s-attempt-%02u",
+                     root, compare ? "hello" : "startup", attempt);
+    if (count <= 0 || (size_t)count >= capacity) return false;
+    if (mkdir(directory, 0700) == 0) return true;
+    if (errno != EEXIST) return false;
+  }
+  return false;
 }
 
 static int controls(char *runner) {
   char *fixture = getenv("T64_TEST_HELLO_PATH");
   child_result child = {{0}, 0u, -1};
   char *compare_args[9];
+  char *compare_usage_args[] = {runner, arg_compare, NULL};
+  char *compare_wrong_profile_args[] = {
+      runner, arg_compare, arg_profile_a, warm_profile,
+      arg_profile_b, profile_b, arg_fixture, NULL, NULL};
   char *missing_args[] = {runner, arg_probe, arg_profile, profile_a, NULL};
   char *warm_args[7];
   char temporary[] = "/tmp/t64-cold-controls-XXXXXX";
@@ -139,35 +153,25 @@ static int controls(char *runner) {
   uint8_t bytes[FIXTURE_BYTES];
   bool ok = true;
   int temporary_fd;
-
   (void)puts("TAP version 13");
-  (void)puts("1..6");
-  if (!expect("test fixture is supplied", fixture != NULL)) return 1;
-  compare_args[0] = runner;
-  compare_args[1] = arg_compare;
-  compare_args[2] = arg_profile_a;
-  compare_args[3] = profile_a;
-  compare_args[4] = arg_profile_b;
-  compare_args[5] = profile_b;
-  compare_args[6] = arg_fixture;
-  compare_args[7] = fixture;
-  compare_args[8] = NULL;
   {
-    bool compare_pass = run_child(runner, compare_args, &child) &&
-        child.exit_code == 0 &&
-        strstr(child.output, "classification=compare-pass") != NULL &&
-        strstr(child.output, "comparison=equal") != NULL &&
-        strstr(child.output, "terminal=0x80000478/0x0000000d") != NULL &&
-        strstr(child.output, "last-retired=0x80000474/0xa50e0016") != NULL &&
-        strstr(child.output, "terminal-in-delay-slot=0") != NULL &&
-        strstr(child.output,
-               "hello-hex=54656e6469657336342068656c6c6f20766961206f70656e2049504c330a") != NULL;
-    if (!compare_pass) {
-      (void)printf("# production compare response: %s", child.output);
-    }
-    ok &= expect("compare authenticates both terminal paths and literal output",
-                 compare_pass);
+    char *terminal_args[] = {runner, arg_terminal_controls, NULL};
+    ok &= expect("architectural terminal requires exact exception and retirement",
+                 run_child(runner, terminal_args, &child) &&
+                 child.exit_code == 0 &&
+                 strstr(child.output,
+                        "classification=terminal-controls-pass") != NULL);
   }
+  if (!expect("test fixture is supplied", fixture != NULL)) return 1;
+  compare_wrong_profile_args[7] = fixture;
+  ok &= expect("compare requires complete profile and fixture bindings",
+               run_child(runner, compare_usage_args, &child) &&
+               child.exit_code == 2 &&
+               strstr(child.output, "reason=usage") != NULL);
+  ok &= expect("compare refuses a profile outside the exact A/B pair",
+               run_child(runner, compare_wrong_profile_args, &child) &&
+               child.exit_code == 2 &&
+               strstr(child.output, "reason=profile-identity") != NULL);
   ok &= expect("missing setup is refused before launch",
                run_child(runner, missing_args, &child) && child.exit_code == 2 &&
                strstr(child.output, "reason=usage") != NULL);
@@ -210,6 +214,19 @@ static int controls(char *runner) {
                  child.exit_code == 2 &&
                  strstr(child.output, "reason=fixture-identity") != NULL);
   }
+  compare_args[0] = runner;
+  compare_args[1] = arg_compare;
+  compare_args[2] = arg_profile_a;
+  compare_args[3] = profile_a;
+  compare_args[4] = arg_profile_b;
+  compare_args[5] = profile_b;
+  compare_args[6] = arg_fixture;
+  compare_args[7] = mutation_path;
+  compare_args[8] = NULL;
+  ok &= expect("compare refuses altered fixture bytes before machine admission",
+               run_child(runner, compare_args, &child) &&
+               child.exit_code == 2 &&
+               strstr(child.output, "reason=fixture-identity") != NULL);
   (void)unlink(mutation_path);
   (void)rmdir(temporary);
 
@@ -228,10 +245,11 @@ static int controls(char *runner) {
     ok &= expect("profile A runs canonical IPL3 and reports exact RI read",
                  exact);
   }
+  (void)printf("1..%u\n", assertion_count);
   return ok ? 0 : 1;
 }
 
-static int integration(char *runner, char *root) {
+static int integration(char *runner, char *root, bool compare) {
   char *fixture = getenv("T64_TEST_HELLO_PATH");
   char command[2048];
   char evidence_dir[1024];
@@ -239,18 +257,21 @@ static int integration(char *runner, char *root) {
   char outcome_path[1200];
   char saved_outcome[CAPTURE_BYTES + 128u];
   child_result child = {{0}, 0u, -1};
-  char *args[7];
+  char *args[9];
   int count;
   bool saved;
   if (fixture == NULL || root == NULL) {
     (void)puts("not ok cold startup inputs supplied");
     return 1;
   }
-  count = snprintf(command, sizeof command,
-                   "%s --probe --profile %s --fixture %s\n", runner,
-                   profile_b, fixture);
+  count = compare ? snprintf(command, sizeof command,
+                   "%s --compare --profile-a %s --profile-b %s --fixture %s\n",
+                   runner, profile_a, profile_b, fixture)
+                  : snprintf(command, sizeof command,
+                    "%s --probe --profile %s --fixture %s\n",
+                    runner, profile_b, fixture);
   if (count <= 0 || (size_t)count >= sizeof command ||
-      !make_evidence_dir(root, evidence_dir, sizeof evidence_dir)) {
+      !make_evidence_dir(root, compare, evidence_dir, sizeof evidence_dir)) {
     (void)puts("not ok cold startup evidence directory prepared");
     return 1;
   }
@@ -262,12 +283,22 @@ static int integration(char *runner, char *root) {
     return 1;
   }
   args[0] = runner;
-  args[1] = arg_probe;
-  args[2] = arg_profile;
-  args[3] = profile_b;
-  args[4] = arg_fixture;
-  args[5] = fixture;
-  args[6] = NULL;
+  args[1] = arg_compare;
+  args[2] = arg_profile_a;
+  args[3] = profile_a;
+  args[4] = arg_profile_b;
+  args[5] = profile_b;
+  args[6] = arg_fixture;
+  args[7] = fixture;
+  args[8] = NULL;
+  if (!compare) {
+    args[1] = arg_probe;
+    args[2] = arg_profile;
+    args[3] = profile_b;
+    args[4] = arg_fixture;
+    args[5] = fixture;
+    args[6] = NULL;
+  }
   if (!run_child(runner, args, &child)) {
     (void)puts("not ok single cold startup invocation completed");
     return 1;
@@ -282,11 +313,41 @@ static int integration(char *runner, char *root) {
   (void)fputs(child.output, stdout);
   if (!expect("original bounded probe result retained before evaluation", saved))
     return 1;
-  if (!expect("Tier B cold operation reached once",
+  if (!compare) {
+    return expect("cold startup observes the exact seeded RI selector",
+                  child.exit_code == 0 &&
+                  strstr(child.output, "classification=observed") != NULL &&
+                  strstr(child.output,
+                         "operation=read address=0x0470000c width=4") != NULL &&
+                  strstr(child.output,
+                         "value=0x00000000 pc=0xa4000094 opcode=0x8c42000c") != NULL)
+               ? 0 : 1;
+  }
+  if (!expect("both profiles complete with exact authored output",
               child.exit_code == 0 &&
-              strstr(child.output, "classification=observed") != NULL &&
-              strstr(child.output, "address=0x0470000c") != NULL &&
-              strstr(child.output, "value=0x00000000") != NULL)) {
+              strstr(child.output, "classification=compare-pass") != NULL &&
+              strstr(child.output, "comparison=equal") != NULL &&
+              strstr(child.output, "terminal=0x80000478/0x0000000d") != NULL &&
+              strstr(child.output, "last-retired=0x80000474/0xa50e0016") != NULL &&
+              strstr(child.output, "terminal-in-delay-slot=0") != NULL &&
+              strstr(child.output,
+                     "hello-hex=54656e6469657336342068656c6c6f20766961206f70656e2049504c330a") != NULL)) {
+    return 1;
+  }
+  if (!expect("both profiles retire the authored header entry",
+              strstr(child.output,
+                     "boot-observation profile=ntsc-cart-4m-openipl3-rdram-a-t1-v1 header-entry-retired=1") != NULL &&
+              strstr(child.output,
+                     "boot-observation profile=ntsc-cart-4m-openipl3-rdram-b-t1-v1 header-entry-retired=1") != NULL)) {
+    return 1;
+  }
+  if (!expect("both profiles reach the exact terminal BREAK",
+              strstr(child.output,
+                     "profile=ntsc-cart-4m-openipl3-rdram-a-t1-v1 stop=qualified-terminal") != NULL &&
+              strstr(child.output,
+                     "profile=ntsc-cart-4m-openipl3-rdram-b-t1-v1 stop=qualified-terminal") != NULL &&
+              strstr(child.output,
+                     "terminal=0x80000478/0x0000000d completion-seen=1") != NULL)) {
     return 1;
   }
   return 0;
@@ -297,7 +358,10 @@ int main(int argc, char **argv) {
     return controls(argv[2]);
   }
   if (argc == 4 && strcmp(argv[1], "--integration") == 0) {
-    return integration(argv[2], argv[3]);
+    return integration(argv[2], argv[3], true);
+  }
+  if (argc == 4 && strcmp(argv[1], "--startup") == 0) {
+    return integration(argv[2], argv[3], false);
   }
   (void)puts("not ok test invocation is valid");
   return 2;

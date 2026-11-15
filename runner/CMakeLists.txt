@@ -347,9 +347,16 @@ set_tests_properties(runner.cold-boot-controls PROPERTIES
   WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}
   ENVIRONMENT "T64_TEST_HELLO_PATH=${CMAKE_SOURCE_DIR}/build/fixtures/hello.z64")
 add_test(NAME integration.cold-startup
-  COMMAND test_cold_boot --integration $<TARGET_FILE:t64-cold-boot-probe>
+  COMMAND test_cold_boot --startup $<TARGET_FILE:t64-cold-boot-probe>
           ${CMAKE_SOURCE_DIR})
 set_tests_properties(integration.cold-startup PROPERTIES
+  LABELS integration TIMEOUT 120 RUN_SERIAL TRUE
+  WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}
+  ENVIRONMENT "T64_TEST_HELLO_PATH=${CMAKE_SOURCE_DIR}/build/fixtures/hello.z64")
+add_test(NAME integration.cold-hello
+  COMMAND test_cold_boot --integration $<TARGET_FILE:t64-cold-boot-probe>
+          ${CMAKE_SOURCE_DIR})
+set_tests_properties(integration.cold-hello PROPERTIES
   LABELS integration TIMEOUT 120 RUN_SERIAL TRUE
   WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}
   ENVIRONMENT "T64_TEST_HELLO_PATH=${CMAKE_SOURCE_DIR}/build/fixtures/hello.z64")
