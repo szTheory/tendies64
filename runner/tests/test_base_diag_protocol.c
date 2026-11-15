@@ -191,6 +191,24 @@ int main(void) {
   }
 
   t64_base_diag_aggregate_destroy(aggregate);
+  {
+    static const uint8_t forged_pass[] = "not an authenticated guest verdict\n";
+    t64_base_diag_aggregate *forged = NULL;
+    size_t forged_length = 0u;
+    failures += expect_status("aggregate available for forged-pass control",
+        t64_base_diag_aggregate_create(parsed, &forged), T64_BASE_DIAG_OK);
+    failures += expect_status("forged-pass record has a matching original hash",
+        t64_base_diag_encode_member_record(parsed, 0u, 0u,
+            T64_BASE_DIAG_OUTCOME_PASS, forged_pass, sizeof forged_pass - 1u,
+            (uint8_t *)record, sizeof record, &forged_length), T64_BASE_DIAG_OK);
+    if (forged != NULL && forged_length != 0u) {
+      failures += expect_status("matching bytes alone cannot authenticate a pass",
+          t64_base_diag_aggregate_add_original(forged,
+              (const uint8_t *)record, forged_length,
+              forged_pass, sizeof forged_pass - 1u), T64_BASE_DIAG_INVALID_RECORD);
+    }
+    t64_base_diag_aggregate_destroy(forged);
+  }
   t64_base_diag_inventory_destroy(parsed);
   if (failures != 0) return failures;
   (void)printf("BASE source authority and original-record controls PASS\n");
