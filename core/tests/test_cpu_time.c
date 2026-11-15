@@ -665,6 +665,8 @@ static void test_cold_t1_preflight_before_mutation(void) {
   const char *profile_id = "ntsc-cart-4m-openipl3-rdram-a-t1-v1";
   const uint32_t pi_store = UINT32_C(0xac22000c);
   const uint32_t mtc0_count = UINT32_C(0x40884800);
+  const uint32_t fetched_line_index = UINT32_C(0x80);
+  t64_vr4300_icache_line fetched_line_before;
   t64_status status;
 
   T64_CHECK(setup_t1_machine(&machine, profile_id));
@@ -677,6 +679,9 @@ static void test_cold_t1_preflight_before_mutation(void) {
   machine.cpu.count_sync_tick = machine.tick;
   machine.cpu.hi = UINT64_C(0x1111);
   machine.cpu.lo = UINT64_C(0x2222);
+  (void)memcpy(&fetched_line_before,
+               &machine.cpu.icache[fetched_line_index],
+               sizeof fetched_line_before);
   status = t64_cpu_step(&machine, NULL);
   T64_CHECK_INT(status, T64_STATUS_TICK_OVERFLOW);
   T64_CHECK_INT(machine.cpu.hi, UINT64_C(0x1111));
@@ -684,12 +689,22 @@ static void test_cold_t1_preflight_before_mutation(void) {
   T64_CHECK_INT(machine.cpu.retired_instructions, 0u);
   T64_CHECK_INT(machine.instruction_count, 0u);
   T64_CHECK_INT(machine.queue_count, 0u);
+  T64_CHECK(machine.cpu.icache[fetched_line_index].valid ==
+            fetched_line_before.valid);
+  T64_CHECK_INT(machine.cpu.icache[fetched_line_index].physical_tag,
+                fetched_line_before.physical_tag);
+  T64_CHECK(memcmp(machine.cpu.icache[fetched_line_index].data,
+                   fetched_line_before.data,
+                   sizeof fetched_line_before.data) == 0);
 
   reset_t1_cpu(&machine, pi_store);
   machine.cpu.gpr[1] = t64_cpu_canonical_address(UINT32_C(0xa4600000));
   machine.cpu.gpr[2] = UINT64_C(0x100);
   fill_t1_cpu_queue(&machine,
                     (size_t)machine.profile.event_queue_capacity - 1u);
+  (void)memcpy(&fetched_line_before,
+               &machine.cpu.icache[fetched_line_index],
+               sizeof fetched_line_before);
   status = t64_cpu_step(&machine, NULL);
   T64_CHECK_INT(status, T64_STATUS_QUEUE_FULL);
   T64_CHECK_INT(machine.pi.dram_address, 0u);
@@ -697,16 +712,33 @@ static void test_cold_t1_preflight_before_mutation(void) {
   T64_CHECK_INT(machine.cpu.retired_instructions, 0u);
   T64_CHECK_INT(machine.queue_count,
                 (size_t)machine.profile.event_queue_capacity - 1u);
+  T64_CHECK(machine.cpu.icache[fetched_line_index].valid ==
+            fetched_line_before.valid);
+  T64_CHECK_INT(machine.cpu.icache[fetched_line_index].physical_tag,
+                fetched_line_before.physical_tag);
+  T64_CHECK(memcmp(machine.cpu.icache[fetched_line_index].data,
+                   fetched_line_before.data,
+                   sizeof fetched_line_before.data) == 0);
 
   reset_t1_cpu(&machine, pi_store);
   machine.cpu.gpr[1] = t64_cpu_canonical_address(UINT32_C(0xa4600000));
   machine.cpu.gpr[2] = UINT64_C(0x100);
   machine.next_sequence = UINT64_MAX;
+  (void)memcpy(&fetched_line_before,
+               &machine.cpu.icache[fetched_line_index],
+               sizeof fetched_line_before);
   status = t64_cpu_step(&machine, NULL);
   T64_CHECK_INT(status, T64_STATUS_SEQUENCE_EXHAUSTED);
   T64_CHECK_INT(machine.pi.dram_address, 0u);
   T64_CHECK_INT(machine.pi.cart_address, 0u);
   T64_CHECK_INT(machine.cpu.retired_instructions, 0u);
+  T64_CHECK(machine.cpu.icache[fetched_line_index].valid ==
+            fetched_line_before.valid);
+  T64_CHECK_INT(machine.cpu.icache[fetched_line_index].physical_tag,
+                fetched_line_before.physical_tag);
+  T64_CHECK(memcmp(machine.cpu.icache[fetched_line_index].data,
+                   fetched_line_before.data,
+                   sizeof fetched_line_before.data) == 0);
 
   reset_t1_cpu(&machine, mtc0_count);
   machine.cpu.gpr[8] = UINT64_C(123);
