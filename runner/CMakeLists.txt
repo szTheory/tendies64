@@ -29,6 +29,18 @@ target_include_directories(t64_rsp_diag_protocol PUBLIC ${CMAKE_CURRENT_SOURCE_D
 target_link_libraries(t64_rsp_diag_protocol PUBLIC t64_diag_common)
 t64_target_warnings(t64_rsp_diag_protocol)
 
+add_library(t64_base_diag_protocol STATIC t64_base_diag_protocol.c)
+target_include_directories(t64_base_diag_protocol PUBLIC ${CMAKE_CURRENT_SOURCE_DIR})
+target_link_libraries(t64_base_diag_protocol PUBLIC t64_diag_common)
+t64_target_warnings(t64_base_diag_protocol)
+
+add_executable(test_base_diag_protocol tests/test_base_diag_protocol.c)
+target_link_libraries(test_base_diag_protocol PRIVATE t64_base_diag_protocol)
+t64_target_warnings(test_base_diag_protocol)
+add_test(NAME runner.base-diagnostic-protocol COMMAND test_base_diag_protocol)
+set_tests_properties(runner.base-diagnostic-protocol PROPERTIES
+  LABELS runner TIMEOUT 60)
+
 add_executable(test_cpu_diag_protocol tests/test_cpu_diag_protocol.c)
 target_link_libraries(test_cpu_diag_protocol PRIVATE t64_cpu_diag_protocol)
 t64_target_warnings(test_cpu_diag_protocol)
