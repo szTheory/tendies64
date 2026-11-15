@@ -538,9 +538,6 @@ t64_status t64_rdram_write(t64_machine *machine, uint32_t address,
     return T64_STATUS_BUS_DEVICE_REFUSED;
   }
   if (address == T64_RI_REFRESH_ADDRESS) {
-    if (!protocol->capacity_scan_complete) {
-      return T64_STATUS_BUS_DEVICE_REFUSED;
-    }
     protocol->ri_refresh = value;
     protocol->ri_refresh_known = true;
     return T64_STATUS_OK;
