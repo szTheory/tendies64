@@ -13,12 +13,17 @@ schemas and component contracts; neither is used to infer the whole-BASE
 member set. A member is identified by its source registration index and value
 index. Display names are descriptive and may repeat.
 
-The private source derivation uses the accepted CPU source projection. Required
-default CPU members preserve their source value order. Non-CPU members remain
-in the denominator as required blocked entries until their source and asset
-closure is authorized for execution. A zero-value registration has one
+The private source derivation uses the independently accepted global CPU
+projection and the accepted RSP partition of those same source ordinals.
+Required members preserve source value order. Non-CPU members remain
+in the denominator, with execution gated by their exact accepted component
+module/asset closure. Missing device or asset closure remains an individual
+blocked reason. A zero-value registration has one
 `once` member with an empty value identifier. Optional CPU lanes outside the
-default BASE dispatch are not promoted into the required denominator.
+default BASE dispatch are not promoted into the required denominator. Supported
+timing/cycle/CP0-hazard and stress rows retain separate non-required lanes.
+One compiled constructor represents each registration; its value ordinals use
+the shared four-byte selector rather than duplicate constructor instances.
 
 The canonical `t64.base-source-authority` v1 document contains the complete
 ordered `members` array and `source_revision`. The canonical
@@ -119,8 +124,67 @@ never repaired or overwritten.
 The callback can receive the already verified context and exact input bytes,
 so dispatch need not reopen a pathname after verification. The caller supplies
 a fixed in-process dispatch path; context data cannot name
-an arbitrary command. Executable bytes are hashed before use. Refusal and
-setup failure occur before a guest run directory exists.
+an arbitrary command. Executable bytes are hashed before use. Pre-use refusal
+occurs before a case directory exists. Later preparation/write failures launch
+no guest and retain any partial private inputs as a harness error.
+
+Context version 2 adds the independently verified RSP source projection and
+fixed RSP qualification, source-closure and overlay roles. Its source provider
+re-derives the RSP partition from the fixed CPU authority and verifies the
+existing component's source/assets/tools/locks without invoking its old identity
+consumer. A new combined image is a separate Tier B/T1 artifact; the component
+qualifiers and their historical results are not relabeled.
+
+Before re-derivation, original pre-combined state remains immutable. Later
+partially staged or qualified control inputs are retained in content-addressed
+private history with a `forensics-only` purpose. This permits a corrected
+qualification to preserve failed intermediate inputs without overwriting or
+repairing historical evidence. Each activated context retains its exact
+executable/context/binding pair before first use.
+
+## Serial dispatch and lanes
+
+`run-base-diagnostic.py --run-all --local-only --adapter
+build/gate/runner/t64-base-diagnostic` performs one serial required sweep.
+Each fresh case passes the full independent pre-use gate, then consumes frozen
+authority/inventory bytes and a verified exact copy of the retained consumer.
+The guest image must match its independent selector identity before launch.
+The native worker has the existing ten-second wall limit inside the
+twelve-second host deadline, with ten million guest ticks and 4,096 capture
+bytes. Native worker reaping is observed explicitly. A timeout remains a
+timeout even if cleanup returns zero; uncertain cleanup is a harness error.
+
+An immutable context/lane marker prevents a repeated invocation from silently
+retrying or overwriting cases. Stops preserve completed and partial original
+files, and remaining source rows receive explicit dispositions. A launched but
+uncertain case is not relabeled as unexecuted. `--verify-complete --local-only`
+re-authenticates the original records through C and reports source completeness,
+not passing execution. Source, tool or target changes require a distinct
+qualified context; historical results are never pooled into it.
+
+The fixed operator commands are:
+
+```
+python3 -B scripts/base-diagnostic-lanes.py --run-required --local-only
+python3 -B scripts/base-diagnostic-lanes.py --run-informational --local-only
+python3 -B scripts/base-diagnostic-lanes.py --run-stress --local-only
+```
+
+The wrapper supplies only a fixed lane enum to the normal qualified runner.
+It exposes no selector, profile, tick, capture or command override. CI and
+required-fixture environments refuse before dispatch. Its private invocation
+receipt references the C report and records the observed operator identity;
+it does not calculate completeness or copy diagnostic counts. An
+`authenticated_terminal_observed` flag requires a bound C pass/fail from the
+selected lane, which already requires actual guest entry and terminal-loop
+observations. Definitions, blocked/setup receipts and other lanes cannot set
+that flag. Partial guest progress without a terminal remains in original records.
+
+The stress command is the explicit local scheduled entry: the owner invokes it
+under the existing limits. It installs no recurring host service or external
+CI job. Existing authored hosted stress is separate evidence. Defining this
+command, or retaining a blocked/unexecuted receipt, establishes no external
+stress execution.
 
 ## Scope and evidence
 
