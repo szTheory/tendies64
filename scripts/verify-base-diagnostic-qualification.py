@@ -21,6 +21,9 @@ HEX40 = re.compile(r"^[0-9a-f]{40}$")
 PROJECTION_RELATIVE = "build/private-cpu-diagnostic/source-projection.json"
 AUTHORITY_RELATIVE = "build/private-base-diagnostic/source-authority.json"
 INVENTORY_RELATIVE = "build/private-base-diagnostic/inventory.json"
+RETENTION_DIRECTORY = "execution-snapshots"
+RETENTION_FILES = {"binding.json", "context.json", "executable"}
+MAX_RETAINED_EXECUTABLE_BYTES = 512 * 1024 * 1024
 CONTEXT_KEYS = {
     "bindings", "inventory", "profile", "schema", "schema_version",
     "source_authority", "source_projection", "source_revision",
@@ -172,6 +175,107 @@ def _verify_bindings(context: dict, repository_root: pathlib.Path,
         refuse("reviewed source verifier binding does not name the accepted entry")
 
 
+def _verify_retained_execution_pair(context_root: pathlib.Path,
+                                    context: dict, context_bytes: bytes,
+                                    binding_bytes: bytes) -> None:
+    context_sha256 = sha256(context_bytes)
+    directory_flags = (os.O_RDONLY | getattr(os, "O_DIRECTORY", 0) |
+                       getattr(os, "O_NOFOLLOW", 0))
+    file_flags = os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0)
+
+    def check_directory(descriptor: int, label: str) -> None:
+        info = os.fstat(descriptor)
+        if (not stat.S_ISDIR(info.st_mode) or
+                stat.S_IMODE(info.st_mode) != 0o700 or
+                info.st_uid != os.geteuid()):
+            refuse(f"{label} is not an owner-only directory")
+
+    def read_private_entry(directory_fd: int, name: str, label: str) -> bytes:
+        try:
+            descriptor = os.open(name, file_flags, dir_fd=directory_fd)
+        except OSError as exc:
+            refuse(f"{label} is missing or linked: {exc}")
+        try:
+            before = os.fstat(descriptor)
+            if (not stat.S_ISREG(before.st_mode) or
+                    stat.S_IMODE(before.st_mode) != 0o600 or
+                    before.st_uid != os.geteuid() or
+                    before.st_size <= 0 or
+                    before.st_size > MAX_RETAINED_EXECUTABLE_BYTES):
+                refuse(f"{label} is not a bounded owner-only regular file")
+            pieces = []
+            total = 0
+            while True:
+                block = os.read(descriptor, 1024 * 1024)
+                if not block:
+                    break
+                total += len(block)
+                if total > MAX_RETAINED_EXECUTABLE_BYTES:
+                    refuse(f"{label} exceeds its retention size bound")
+                pieces.append(block)
+            after = os.fstat(descriptor)
+            if ((after.st_dev, after.st_ino, after.st_size, after.st_mtime_ns) !=
+                    (before.st_dev, before.st_ino, before.st_size, before.st_mtime_ns) or
+                    total != before.st_size):
+                refuse(f"{label} changed while being read")
+            return b"".join(pieces)
+        finally:
+            os.close(descriptor)
+
+    root_fd = os.open(context_root, directory_flags)
+    try:
+        check_directory(root_fd, "private BASE root")
+        try:
+            snapshots_fd = os.open(
+                RETENTION_DIRECTORY, directory_flags, dir_fd=root_fd
+            )
+        except OSError as exc:
+            refuse(f"retained BASE execution snapshot collection is missing or linked: {exc}")
+        try:
+            check_directory(snapshots_fd, "retained BASE snapshot collection")
+            try:
+                snapshot_fd = os.open(
+                    context_sha256, directory_flags, dir_fd=snapshots_fd
+                )
+            except OSError as exc:
+                refuse(f"retained BASE execution snapshot is missing or linked: {exc}")
+            try:
+                check_directory(snapshot_fd, "retained BASE execution snapshot")
+                retained_names = set(os.listdir(snapshot_fd))
+                missing_names = RETENTION_FILES - retained_names
+                if missing_names:
+                    name = sorted(missing_names)[0]
+                    refuse(f"retained BASE {name} is missing or linked")
+                if retained_names != RETENTION_FILES:
+                    refuse("retained BASE execution snapshot has an unexpected file set")
+                snapshot = {
+                    name: read_private_entry(
+                        snapshot_fd, name, f"retained BASE {name}"
+                    )
+                    for name in sorted(RETENTION_FILES)
+                }
+            finally:
+                os.close(snapshot_fd)
+        finally:
+            os.close(snapshots_fd)
+    finally:
+        os.close(root_fd)
+
+    if (snapshot["context.json"] != context_bytes or
+            snapshot["binding.json"] != binding_bytes):
+        refuse("retained BASE context/binding pair differs from the active pair")
+    executable_rows = context.get("bindings", {}).get("executable")
+    if not isinstance(executable_rows, list) or len(executable_rows) != 1:
+        refuse("active BASE executable binding is not singular")
+    executable_binding = executable_rows[0]
+    if (not isinstance(executable_binding, dict) or
+            not isinstance(executable_binding.get("sha256"), str) or
+            HEX64.fullmatch(executable_binding["sha256"]) is None):
+        refuse("active BASE executable binding is malformed")
+    if sha256(snapshot["executable"]) != executable_binding["sha256"]:
+        refuse("retained BASE executable digest differs from the active binding")
+
+
 def _verify_live_source_authority(repository_root: pathlib.Path,
                                   projection: dict) -> None:
     if repository_root == ROOT.resolve(strict=True):
@@ -286,6 +390,9 @@ def verify_and_dispatch(context_root: pathlib.Path, run_directory: pathlib.Path,
             or binding.get("source_projection_sha256") != sha256(projection_bytes)):
         refuse("independent source binding does not match the reviewed projection")
     _verify_bindings(context, repository_root, projection)
+    _verify_retained_execution_pair(
+        context_root, context, context_bytes, binding_bytes
+    )
     _verify_live_source_authority(repository_root, projection)
 
     run_directory = run_directory.absolute()

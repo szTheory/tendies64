@@ -62,6 +62,16 @@ build, compiler, asset, executable, and verifier file bindings. Missing files,
 symlinks, unsafe write permissions, changed bytes, an unapproved profile, or an
 already-created run directory stop dispatch.
 
+Before activating a context, the builder retains an immutable owner-only pair
+under `build/private-base-diagnostic/execution-snapshots/<context-sha256>/`:
+the exact executable bytes and
+the exact context and binding bytes. The verifier derives that location from
+the active context bytes, checks the pair against the active binding, and
+requires the retained executable to match the active executable hash before
+dispatch. Retention preserves build evidence; it does not authorize an older
+context or executable after the live binding changes. Existing snapshots are
+never repaired or overwritten.
+
 `verify_and_dispatch` completes every check before invoking normal dispatch.
 The caller supplies a fixed in-process dispatch path; context data cannot name
 an arbitrary command. Executable bytes are hashed before use. Refusal and

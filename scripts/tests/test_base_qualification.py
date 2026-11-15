@@ -50,6 +50,16 @@ def load_deriver():
     return module
 
 
+def load_builder():
+    path = ROOT / "scripts/build-qualified-base-diagnostic.py"
+    spec = importlib.util.spec_from_file_location("t64_base_qualification_builder", path)
+    if spec is None or spec.loader is None:
+        raise RuntimeError("cannot load production BASE qualification builder")
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
 def create_context(repository: pathlib.Path) -> pathlib.Path:
     context_root = repository / "build/private-base-diagnostic"
     context_root.mkdir(mode=0o700, parents=True)
@@ -158,6 +168,8 @@ def create_context(repository: pathlib.Path) -> pathlib.Path:
         path = context_root / f"{role}.evidence"
         content = f"authored {role} evidence\n".encode()
         write_private(path, content)
+        if role == "executable":
+            path.chmod(0o700)
         bindings[role] = [{"path": path.relative_to(repository).as_posix(),
                            "sha256": digest(content)}]
 
@@ -191,11 +203,103 @@ def create_context(repository: pathlib.Path) -> pathlib.Path:
         "source_authority_sha256": authority_sha,
         "source_projection_sha256": digest(projection_bytes),
     }
-    write_private(context_root / "binding.json", canonical(binding))
+    binding_bytes = canonical(binding)
+    write_private(context_root / "binding.json", binding_bytes)
+    load_builder().retain_execution_snapshot(
+        repository, context_root, context_bytes, binding_bytes
+    )
     return context_root
 
 
 class BaseQualificationControls(unittest.TestCase):
+    def test_retained_executable_pair_survives_live_build_overwrite(self) -> None:
+        with tempfile.TemporaryDirectory(prefix="base-retained-pair-") as temp:
+            repository = pathlib.Path(temp)
+            (repository / "build").mkdir(mode=0o700)
+            context_root = create_context(repository)
+            context_bytes = (context_root / "context.json").read_bytes()
+            binding_bytes = (context_root / "binding.json").read_bytes()
+            context = json.loads(context_bytes)
+            executable_binding = context["bindings"]["executable"][0]
+            live_executable = repository / executable_binding["path"]
+            snapshot = context_root / "execution-snapshots" / digest(context_bytes)
+
+            self.assertTrue(snapshot.is_dir())
+            retained_executable = snapshot / "executable"
+            self.assertEqual(retained_executable.read_bytes(), live_executable.read_bytes())
+            self.assertEqual((snapshot / "context.json").read_bytes(), context_bytes)
+            self.assertEqual((snapshot / "binding.json").read_bytes(), binding_bytes)
+            self.assertEqual(retained_executable.stat().st_mode & 0o777, 0o600)
+            self.assertEqual(snapshot.stat().st_mode & 0o777, 0o700)
+
+            original = retained_executable.read_bytes()
+            write_private(live_executable, b"overwritten live BASE build\n")
+            self.assertEqual(retained_executable.read_bytes(), original)
+            self.assertEqual(digest(original), executable_binding["sha256"])
+
+            reached: list[str] = []
+            run_directory = context_root / "run-stale-live-executable"
+            verifier = load_verifier()
+            with self.assertRaisesRegex(verifier.Refusal, "executable closure digest changed"):
+                verifier.verify_and_dispatch(
+                    context_root, run_directory,
+                    lambda: reached.append("unexpected") or "reached",
+                    repository_root=repository,
+                )
+            self.assertEqual(reached, [])
+            self.assertFalse(run_directory.exists())
+
+    def test_retention_producer_never_repairs_an_existing_snapshot(self) -> None:
+        with tempfile.TemporaryDirectory(prefix="base-retained-immutable-") as temp:
+            repository = pathlib.Path(temp)
+            (repository / "build").mkdir(mode=0o700)
+            context_root = create_context(repository)
+            context_bytes = (context_root / "context.json").read_bytes()
+            binding_bytes = (context_root / "binding.json").read_bytes()
+            snapshot = context_root / "execution-snapshots" / digest(context_bytes)
+            executable = snapshot / "executable"
+            tampered = b"tampered retained copy\n"
+            write_private(executable, tampered)
+            builder = load_builder()
+            with self.assertRaisesRegex(builder.Refusal, "immutable retained execution snapshot"):
+                builder.retain_execution_snapshot(
+                    repository, context_root, context_bytes, binding_bytes
+                )
+            self.assertEqual(executable.read_bytes(), tampered)
+
+    def test_missing_or_tampered_retention_pair_refuses_before_dispatch(self) -> None:
+        cases = (
+            ("missing executable", "missing or linked"),
+            ("tampered executable", "executable digest differs from the active binding"),
+            ("missing binding", "binding.json is missing or linked"),
+            ("tampered binding", "context/binding pair differs from the active pair"),
+        )
+        for case, expected in cases:
+            with self.subTest(case=case), tempfile.TemporaryDirectory(
+                prefix="base-retained-refusal-"
+            ) as temp:
+                repository = pathlib.Path(temp)
+                (repository / "build").mkdir(mode=0o700)
+                context_root = create_context(repository)
+                context_bytes = (context_root / "context.json").read_bytes()
+                snapshot = context_root / "execution-snapshots" / digest(context_bytes)
+                target = snapshot / ("binding.json" if "binding" in case else "executable")
+                if case.startswith("missing"):
+                    target.unlink()
+                else:
+                    write_private(target, b"changed retained bytes\n")
+                run_directory = context_root / "run-retention-refused"
+                reached: list[str] = []
+                verifier = load_verifier()
+                with self.assertRaisesRegex(verifier.Refusal, expected):
+                    verifier.verify_and_dispatch(
+                        context_root, run_directory,
+                        lambda: reached.append("unexpected") or "reached",
+                        repository_root=repository,
+                    )
+                self.assertEqual(reached, [])
+                self.assertFalse(run_directory.exists())
+
     def test_accepted_authored_context_reaches_normal_dispatch(self) -> None:
         with tempfile.TemporaryDirectory(prefix="base-qualification-") as temp:
             repository = pathlib.Path(temp)

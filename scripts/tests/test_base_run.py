@@ -13,7 +13,9 @@ import tempfile
 import unittest
 from unittest.mock import patch
 
-from test_base_qualification import canonical, create_context, digest, write_private
+from test_base_qualification import (
+    canonical, create_context, digest, load_builder, write_private,
+)
 
 ROOT = pathlib.Path(__file__).resolve().parents[2]
 RUNNER = ROOT / "scripts/run-base-diagnostic.py"
@@ -172,6 +174,7 @@ class BaseRunControls(unittest.TestCase):
             bind("profile", identity_path)
             bind("image", image_path)
             bind("composition", composition_path)
+            context["bindings"]["executable"] = []
             bind("executable", fake_adapter)
             context_bytes = canonical(context)
             context_path = context_root / "context.json"
@@ -180,8 +183,12 @@ class BaseRunControls(unittest.TestCase):
             binding_path = context_root / "binding.json"
             binding = json.loads(binding_path.read_bytes())
             binding["context_sha256"] = digest(context_bytes)
-            binding_path.write_bytes(canonical(binding))
+            binding_bytes = canonical(binding)
+            binding_path.write_bytes(binding_bytes)
             binding_path.chmod(0o600)
+            load_builder().retain_execution_snapshot(
+                repository, context_root, context_bytes, binding_bytes
+            )
 
             run = load_runner()
             original_root = run.ROOT

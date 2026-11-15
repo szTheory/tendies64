@@ -43,6 +43,200 @@ def digest(data: bytes) -> str:
     return hashlib.sha256(data).hexdigest()
 
 
+def retain_execution_snapshot(repository_root: pathlib.Path,
+                               private_root: pathlib.Path,
+                               context_bytes: bytes,
+                               binding_bytes: bytes) -> pathlib.Path:
+    repository_root = repository_root.resolve(strict=True)
+    private_root = private_root.absolute()
+    if private_root.is_symlink():
+        refuse("retained execution snapshot root is linked")
+    private_root = private_root.resolve(strict=True)
+    expected_private = repository_root / "build/private-base-diagnostic"
+    if private_root != expected_private:
+        refuse("retained execution snapshot root is outside the fixed private root")
+    if private_root.is_symlink() or not private_root.is_dir():
+        refuse("retained execution snapshot root is missing or linked")
+    private_info = private_root.stat(follow_symlinks=False)
+    if (stat.S_IMODE(private_info.st_mode) != 0o700 or
+            private_info.st_uid != os.geteuid()):
+        refuse("retained execution snapshot root is not owner-only")
+
+    try:
+        context = json.loads(context_bytes)
+        binding = json.loads(binding_bytes)
+    except (UnicodeError, json.JSONDecodeError) as exc:
+        refuse(f"retained context pair is invalid JSON: {exc}")
+    context_sha256 = digest(context_bytes)
+    if (not isinstance(context, dict) or canonical(context) != context_bytes or
+            not isinstance(binding, dict) or canonical(binding) != binding_bytes or
+            set(binding) != {
+                "context_sha256", "inventory_sha256", "schema", "schema_version",
+                "source_authority_sha256", "source_projection_sha256",
+            } or binding.get("context_sha256") != context_sha256 or
+            binding.get("schema") != "t64.base-qualification-binding" or
+            binding.get("schema_version") != 1):
+        refuse("retained context pair is not a canonical bound pair")
+    bindings = context.get("bindings")
+    executable_rows = bindings.get("executable") if isinstance(bindings, dict) else None
+    if (not isinstance(executable_rows, list) or len(executable_rows) != 1 or
+            not isinstance(executable_rows[0], dict) or
+            set(executable_rows[0]) != {"path", "sha256"} or
+            not isinstance(executable_rows[0].get("path"), str) or
+            not isinstance(executable_rows[0].get("sha256"), str) or
+            HEX64.fullmatch(executable_rows[0]["sha256"]) is None):
+        refuse("retained BASE executable binding is malformed")
+
+    relative = pathlib.PurePosixPath(executable_rows[0]["path"])
+    if (relative.is_absolute() or "\\" in executable_rows[0]["path"] or
+            any(part in {"", ".", ".."} for part in relative.parts)):
+        refuse("retained BASE executable path escapes the repository")
+    executable_path = repository_root.joinpath(*relative.parts)
+    cursor = repository_root
+    for part in relative.parts:
+        cursor = cursor / part
+        if cursor.is_symlink():
+            refuse("retained BASE executable path traverses a symlink")
+
+    def read_stable_file(path: pathlib.Path, label: str, maximum: int,
+                         owner_only: bool = False) -> bytes:
+        try:
+            before = path.lstat()
+        except OSError as exc:
+            refuse(f"{label} cannot be inspected: {exc}")
+        if (not stat.S_ISREG(before.st_mode) or before.st_size <= 0 or
+                before.st_size > maximum or before.st_mode & 0o022 or
+                before.st_uid != os.geteuid() or
+                (owner_only and stat.S_IMODE(before.st_mode) != 0o600)):
+            refuse(f"{label} is not a bounded owned regular file")
+        try:
+            descriptor = os.open(path, os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0))
+        except OSError as exc:
+            refuse(f"{label} cannot be opened without following links: {exc}")
+        try:
+            opened = os.fstat(descriptor)
+            if ((opened.st_dev, opened.st_ino, opened.st_size) !=
+                    (before.st_dev, before.st_ino, before.st_size) or
+                    not stat.S_ISREG(opened.st_mode)):
+                refuse(f"{label} changed while opening")
+            pieces = []
+            total = 0
+            while True:
+                block = os.read(descriptor, 1024 * 1024)
+                if not block:
+                    break
+                total += len(block)
+                if total > maximum:
+                    refuse(f"{label} exceeds its retention size bound")
+                pieces.append(block)
+            after = os.fstat(descriptor)
+            after_path = path.lstat()
+            if ((after.st_dev, after.st_ino, after.st_size, after.st_mtime_ns) !=
+                    (opened.st_dev, opened.st_ino, opened.st_size, opened.st_mtime_ns) or
+                    (after_path.st_dev, after_path.st_ino, after_path.st_size) !=
+                    (opened.st_dev, opened.st_ino, opened.st_size) or
+                    total != before.st_size):
+                refuse(f"{label} changed while being copied")
+            return b"".join(pieces)
+        finally:
+            os.close(descriptor)
+
+    executable_bytes = read_stable_file(
+        executable_path, "qualified BASE executable", 512 * 1024 * 1024
+    )
+    executable_info = executable_path.stat(follow_symlinks=False)
+    if not executable_info.st_mode & 0o111:
+        refuse("qualified BASE executable is not executable")
+    executable_sha256 = digest(executable_bytes)
+    if executable_sha256 != executable_rows[0]["sha256"]:
+        refuse("qualified BASE executable changed before retention")
+
+    snapshots = private_root / "execution-snapshots"
+    created_snapshots = False
+    if snapshots.exists() or snapshots.is_symlink():
+        if snapshots.is_symlink() or not snapshots.is_dir():
+            refuse("retained execution snapshot collection is linked or invalid")
+        info = snapshots.stat(follow_symlinks=False)
+        if stat.S_IMODE(info.st_mode) != 0o700 or info.st_uid != os.geteuid():
+            refuse("retained execution snapshot collection is not owner-only")
+    else:
+        os.mkdir(snapshots, 0o700)
+        created_snapshots = True
+    snapshot = snapshots / context_sha256
+    expected_files = {
+        "binding.json": binding_bytes,
+        "context.json": context_bytes,
+        "executable": executable_bytes,
+    }
+    if snapshot.exists() or snapshot.is_symlink():
+        if snapshot.is_symlink() or not snapshot.is_dir():
+            refuse("retained execution snapshot is linked or invalid")
+        info = snapshot.stat(follow_symlinks=False)
+        if stat.S_IMODE(info.st_mode) != 0o700 or info.st_uid != os.geteuid():
+            refuse("retained execution snapshot is not owner-only")
+        if {path.name for path in snapshot.iterdir()} != set(expected_files):
+            refuse("existing retained execution snapshot is incomplete")
+        for name, expected in expected_files.items():
+            path = snapshot / name
+            actual = read_stable_file(
+                path, f"retained {name}", 512 * 1024 * 1024, owner_only=True
+            )
+            mode = stat.S_IMODE(path.stat(follow_symlinks=False).st_mode)
+            if mode != 0o600 or actual != expected:
+                refuse("immutable retained execution snapshot differs from its bound pair")
+        if read_stable_file(
+                executable_path, "qualified BASE executable", 512 * 1024 * 1024
+        ) != executable_bytes:
+            refuse("qualified BASE executable changed after retention")
+        return snapshot
+
+    os.mkdir(snapshot, 0o700)
+    for name, data in expected_files.items():
+        path = snapshot / name
+        descriptor = os.open(
+            path, os.O_WRONLY | os.O_CREAT | os.O_EXCL |
+            getattr(os, "O_NOFOLLOW", 0), 0o600
+        )
+        try:
+            with os.fdopen(descriptor, "wb") as output:
+                if output.write(data) != len(data):
+                    refuse("retained execution snapshot copy was incomplete")
+                output.flush()
+                os.fsync(output.fileno())
+        except Exception:
+            path.unlink(missing_ok=True)
+            raise
+    directory_fd = os.open(snapshot, os.O_RDONLY)
+    try:
+        os.fsync(directory_fd)
+    finally:
+        os.close(directory_fd)
+    parent_fd = os.open(snapshots, os.O_RDONLY)
+    try:
+        os.fsync(parent_fd)
+    finally:
+        os.close(parent_fd)
+    if created_snapshots:
+        private_fd = os.open(private_root, os.O_RDONLY)
+        try:
+            os.fsync(private_fd)
+        finally:
+            os.close(private_fd)
+    for name, expected in expected_files.items():
+        actual = read_stable_file(
+            snapshot / name, f"retained {name}", 512 * 1024 * 1024,
+            owner_only=True,
+        )
+        if actual != expected:
+            refuse("retained execution snapshot copy differs from its source")
+    source_after = read_stable_file(
+        executable_path, "qualified BASE executable", 512 * 1024 * 1024
+    )
+    if source_after != executable_bytes or digest(source_after) != executable_sha256:
+        refuse("qualified BASE executable changed after retention")
+    return snapshot
+
+
 def file_digest(path: pathlib.Path) -> str:
     if path.is_symlink() or not path.is_file():
         refuse("qualified BASE input is missing or linked")
@@ -419,7 +613,9 @@ def qualify() -> None:
         "source_authority_sha256": authority_sha,
         "source_projection_sha256": context["source_projection"]["sha256"],
     }
-    install_context_pair(context_bytes, canonical(binding))
+    binding_bytes = canonical(binding)
+    retain_execution_snapshot(ROOT, PRIVATE, context_bytes, binding_bytes)
+    install_context_pair(context_bytes, binding_bytes)
 
 
 def main() -> int:
