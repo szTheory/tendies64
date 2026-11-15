@@ -162,6 +162,26 @@ re-authenticates the original records through C and reports source completeness,
 not passing execution. Source, tool or target changes require a distinct
 qualified context; historical results are never pooled into it.
 
+## Phase 06 evidence verification
+
+`scripts/check-base-evidence.py --check-current` verifies retained local BASE
+records without starting a guest. The execution-summary index is used only to
+locate the separate required, informational and stress batches. For each batch,
+the checker authenticates the copied context and binding against the immutable
+execution snapshot, checks the bound source-authority and inventory bytes, and
+passes the retained member records and captures back through that batch's exact
+archived C consumer. It compares the regenerated C classification with the
+retained C report. Python does not derive membership, totals, or completeness.
+The C report remains the sole source for those fields; the command prints only a
+sanitized verification status.
+
+`--check-artifacts` performs the same context, binding and snapshot checks for
+the active qualified artifact and also checks the live executable against its
+bound digest. It does not rebuild or dispatch a guest. Both modes reject missing
+or changed archive components. A matching hash establishes byte identity within
+the saved binding; it does not establish legal rights or same-user execution
+attestation.
+
 The fixed operator commands are:
 
 ```

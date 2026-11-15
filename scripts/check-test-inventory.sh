@@ -148,7 +148,8 @@ harness.base-classification
 harness.base-qualification
 harness.base-image
 harness.base-lanes
-harness.base-run'
+harness.base-run
+harness.base-evidence'
 
 CPU_COVERAGE_OPCODES='ADD
 ADDU

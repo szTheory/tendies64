@@ -90,6 +90,12 @@ set_tests_properties(harness.base-run PROPERTIES
   LABELS runner TIMEOUT 180
   ENVIRONMENT "PYTHONDONTWRITEBYTECODE=1;T64_BASE_CONTROL_ADAPTER=$<TARGET_FILE:t64-base-diagnostic-controls>")
 
+add_test(NAME harness.base-evidence
+  COMMAND python3 -B ${CMAKE_SOURCE_DIR}/scripts/tests/test_base_evidence.py)
+set_tests_properties(harness.base-evidence PROPERTIES
+  LABELS runner TIMEOUT 60
+  ENVIRONMENT "PYTHONDONTWRITEBYTECODE=1")
+
 add_executable(test_cpu_diag_protocol tests/test_cpu_diag_protocol.c)
 target_link_libraries(test_cpu_diag_protocol PRIVATE t64_cpu_diag_protocol)
 t64_target_warnings(test_cpu_diag_protocol)
