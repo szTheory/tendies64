@@ -7,7 +7,11 @@
 #include <string.h>
 
 #define CP0_RANDOM UINT32_C(1)
+#define CP0_ENTRYLO0 UINT32_C(2)
+#define CP0_ENTRYLO1 UINT32_C(3)
+#define CP0_WIRED UINT32_C(6)
 #define CP0_COUNT UINT32_C(9)
+#define CP0_ENTRYHI UINT32_C(10)
 #define CP0_COMPARE UINT32_C(11)
 #define CP0_STATUS UINT32_C(12)
 #define CP0_CAUSE UINT32_C(13)
@@ -485,6 +489,8 @@ static void test_cold_t1_cost_table_for_profile(const char *profile_id) {
       {UINT32_C(0x0022001f), UINT64_C(70), 21u, 3u},
   };
   t64_machine machine;
+  t64_stop_request request = {T64_STOP_GUEST_TICK, UINT64_C(0)};
+  t64_stop_result result = {UINT32_MAX, UINT64_MAX};
   size_t index;
 
   T64_CHECK(setup_t1_machine(&machine, profile_id));
@@ -495,8 +501,17 @@ static void test_cold_t1_cost_table_for_profile(const char *profile_id) {
     reset_t1_cpu(&machine, costs[index].opcode);
     machine.cpu.gpr[1] = costs[index].left;
     machine.cpu.gpr[2] = costs[index].right;
-    T64_CHECK_INT(t64_cpu_step(&machine, NULL), T64_STATUS_OK);
+    T64_CHECK_INT(t64_cpu_schedule(&machine), T64_STATUS_OK);
+    request.value = machine.tick + costs[index].interval;
+    T64_CHECK_INT(t64_machine_advance(&machine, &request, &result),
+                  T64_STATUS_OK);
+    T64_CHECK_INT(result.reason, T64_STOP_REASON_BOUND);
+    T64_CHECK_INT(result.tick, request.value);
     T64_CHECK_INT(machine.cpu.retired_instructions, 1u);
+    T64_CHECK_INT(machine.instruction_count, 1u);
+    T64_CHECK_INT(machine.cpu.last_pc_full,
+                  UINT64_C(0xffffffff80001000));
+    T64_CHECK_INT(machine.cpu.last_opcode, costs[index].opcode);
     T64_CHECK_INT(machine.cpu.cp0[CP0_RANDOM], 16u);
     T64_CHECK_INT(machine.queue_count, 1u);
     if (machine.queue_count == 1u) {
@@ -504,7 +519,7 @@ static void test_cold_t1_cost_table_for_profile(const char *profile_id) {
          MDU pairs. T1 adds the issue interval; funct values 18-1f in
          these literal SPECIAL words are anchored in the same manual. */
       T64_CHECK_INT(machine.events[machine.queue_head].tick,
-                    costs[index].interval);
+                    costs[index].interval + UINT64_C(1));
     }
     if (index == 1u) {
       T64_CHECK_INT(machine.cpu.hi, 0u);
@@ -615,10 +630,223 @@ static void test_cold_t1_count_random_follow_elapsed_ticks(void) {
       "ntsc-cart-4m-openipl3-rdram-b-t1-v1");
 }
 
+static void test_cold_t1_fetched_compare_clear_for_profile(
+    const char *profile_id) {
+  const uint32_t mtc0_compare = UINT32_C(0x40885800);
+  t64_machine machine;
+  t64_stop_request request = {T64_STOP_GUEST_TICK, UINT64_C(1)};
+  t64_stop_result result = {UINT32_MAX, UINT64_MAX};
+
+  T64_CHECK(setup_t1_machine(&machine, profile_id));
+  if (machine.ram == NULL) {
+    return;
+  }
+  reset_t1_cpu(&machine, 0u);
+  write_be32(machine.ram + UINT32_C(0x1004), mtc0_compare);
+  machine.cpu.cp0[CP0_COMPARE] = UINT32_C(1);
+  machine.cpu.gpr[8] = UINT64_C(1);
+  T64_CHECK_INT(t64_cpu_schedule(&machine), T64_STATUS_OK);
+
+  T64_CHECK_INT(t64_machine_advance(&machine, &request, &result),
+                T64_STATUS_OK);
+  T64_CHECK_INT(result.reason, T64_STOP_REASON_BOUND);
+  T64_CHECK_INT(result.tick, UINT64_C(1));
+  T64_CHECK_INT(machine.cpu.last_pc_full,
+                UINT64_C(0xffffffff80001000));
+  T64_CHECK_INT(machine.cpu.last_opcode, 0u);
+  T64_CHECK_INT(machine.cpu.retired_instructions, 1u);
+  T64_CHECK_INT(machine.cpu.cp0[CP0_COUNT], 0u);
+  T64_CHECK_INT(machine.cpu.count_half_clock_phase, 1u);
+  T64_CHECK(((uint32_t)machine.cpu.cp0[CP0_CAUSE] & CAUSE_IP7) == 0u);
+
+  request.value = machine.tick + UINT64_C(1);
+  T64_CHECK_INT(t64_machine_advance(&machine, &request, &result),
+                T64_STATUS_OK);
+  T64_CHECK_INT(result.reason, T64_STOP_REASON_BOUND);
+  T64_CHECK_INT(result.tick, UINT64_C(2));
+  T64_CHECK_INT(machine.cpu.last_pc_full,
+                UINT64_C(0xffffffff80001004));
+  T64_CHECK_INT(machine.cpu.last_opcode, mtc0_compare);
+  T64_CHECK_INT(machine.cpu.retired_instructions, 2u);
+  T64_CHECK_INT(machine.cpu.cp0[CP0_COUNT], 1u);
+  T64_CHECK_INT(machine.cpu.cp0[CP0_COMPARE], 1u);
+  T64_CHECK_INT(machine.cpu.count_half_clock_phase, 0u);
+  T64_CHECK_INT(machine.cpu.count_equality_latch_generation, 1u);
+  T64_CHECK(machine.cpu.count_equality_latched);
+  T64_CHECK(((uint32_t)machine.cpu.cp0[CP0_CAUSE] & CAUSE_IP7) == 0u);
+  T64_CHECK_INT(machine.queue_count, 1u);
+  if (machine.queue_count == 1u) {
+    T64_CHECK_INT(machine.events[machine.queue_head].tick, 3u);
+  }
+  destroy_machine(&machine);
+}
+
+static void test_cold_t1_fetched_compare_clear(void) {
+  test_cold_t1_fetched_compare_clear_for_profile(
+      "ntsc-cart-4m-openipl3-rdram-a-t1-v1");
+  test_cold_t1_fetched_compare_clear_for_profile(
+      "ntsc-cart-4m-openipl3-rdram-b-t1-v1");
+}
+
+static void test_cold_t1_fetched_wired_random_tlbwr_sequence_for_profile(
+    const char *profile_id) {
+  const uint32_t mtc0_wired = UINT32_C(0x40883000);
+  const uint32_t mfc0_random = UINT32_C(0x40090800);
+  const uint32_t tlbwr = UINT32_C(0x42000006);
+  t64_machine machine;
+  t64_stop_request request = {T64_STOP_GUEST_TICK, UINT64_C(1)};
+  t64_stop_result result = {UINT32_MAX, UINT64_MAX};
+
+  T64_CHECK(setup_t1_machine(&machine, profile_id));
+  if (machine.ram == NULL) {
+    return;
+  }
+  reset_t1_cpu(&machine, mtc0_wired);
+  write_be32(machine.ram + UINT32_C(0x1004), mfc0_random);
+  write_be32(machine.ram + UINT32_C(0x1008), tlbwr);
+  machine.cpu.gpr[8] = UINT64_C(2);
+  machine.cpu.cp0[CP0_ENTRYHI] = UINT64_C(0x000000000000a009);
+  machine.cpu.cp0[CP0_ENTRYLO0] = UINT64_C(0x0000000000012345);
+  machine.cpu.cp0[CP0_ENTRYLO1] = UINT64_C(0x0000000000056789);
+  T64_CHECK_INT(t64_cpu_schedule(&machine), T64_STATUS_OK);
+
+  T64_CHECK_INT(t64_machine_advance(&machine, &request, &result),
+                T64_STATUS_OK);
+  T64_CHECK_INT(result.reason, T64_STOP_REASON_BOUND);
+  T64_CHECK_INT(result.tick, UINT64_C(1));
+  T64_CHECK_INT(machine.cpu.retired_instructions, 1u);
+  T64_CHECK_INT(machine.cpu.last_pc_full,
+                UINT64_C(0xffffffff80001000));
+  T64_CHECK_INT(machine.cpu.last_opcode, mtc0_wired);
+  T64_CHECK_INT(machine.cpu.cp0[CP0_WIRED], 2u);
+  T64_CHECK_INT(machine.cpu.cp0[CP0_RANDOM], 30u);
+  T64_CHECK_INT(machine.queue_count, 1u);
+  if (machine.queue_count == 1u) {
+    T64_CHECK_INT(machine.events[machine.queue_head].tick, 2u);
+  }
+
+  request.value = machine.tick + UINT64_C(1);
+  T64_CHECK_INT(t64_machine_advance(&machine, &request, &result),
+                T64_STATUS_OK);
+  T64_CHECK_INT(result.reason, T64_STOP_REASON_BOUND);
+  T64_CHECK_INT(result.tick, UINT64_C(2));
+  T64_CHECK_INT(machine.cpu.retired_instructions, 2u);
+  T64_CHECK_INT(machine.cpu.last_pc_full,
+                UINT64_C(0xffffffff80001004));
+  T64_CHECK_INT(machine.cpu.last_opcode, mfc0_random);
+  T64_CHECK_INT(machine.cpu.gpr[9], 30u);
+  T64_CHECK_INT(machine.cpu.cp0[CP0_RANDOM], 29u);
+  T64_CHECK_INT(machine.queue_count, 1u);
+  if (machine.queue_count == 1u) {
+    T64_CHECK_INT(machine.events[machine.queue_head].tick, 3u);
+  }
+
+  request.value = machine.tick + UINT64_C(1);
+  T64_CHECK_INT(t64_machine_advance(&machine, &request, &result),
+                T64_STATUS_OK);
+  T64_CHECK_INT(result.reason, T64_STOP_REASON_BOUND);
+  T64_CHECK_INT(result.tick, UINT64_C(3));
+  T64_CHECK_INT(machine.cpu.retired_instructions, 3u);
+  T64_CHECK_INT(machine.cpu.last_pc_full,
+                UINT64_C(0xffffffff80001008));
+  T64_CHECK_INT(machine.cpu.last_opcode, tlbwr);
+  T64_CHECK_INT(machine.cpu.cp0[CP0_RANDOM], 28u);
+  T64_CHECK_INT(machine.cpu.tlb[29].vpn2, UINT64_C(0xa000));
+  T64_CHECK_INT(machine.cpu.tlb[29].asid, 9u);
+  T64_CHECK_INT(machine.cpu.tlb[29].entry_lo0, UINT64_C(0x12345));
+  T64_CHECK_INT(machine.cpu.tlb[29].entry_lo1, UINT64_C(0x56789));
+  T64_CHECK_INT(machine.cpu.tlb[28].vpn2, 0u);
+  T64_CHECK_INT(machine.cpu.tlb[28].entry_lo0, 0u);
+  T64_CHECK_INT(machine.queue_count, 1u);
+  if (machine.queue_count == 1u) {
+    T64_CHECK_INT(machine.events[machine.queue_head].tick, 4u);
+  }
+  destroy_machine(&machine);
+}
+
+static void test_cold_t1_fetched_wired_random_tlbwr_sequence(void) {
+  test_cold_t1_fetched_wired_random_tlbwr_sequence_for_profile(
+      "ntsc-cart-4m-openipl3-rdram-a-t1-v1");
+  test_cold_t1_fetched_wired_random_tlbwr_sequence_for_profile(
+      "ntsc-cart-4m-openipl3-rdram-b-t1-v1");
+}
+
+static void test_cold_t1_high_wired_modulo_for_profile(
+    const char *profile_id, uint64_t expected_random) {
+  const uint32_t mtc0_wired = UINT32_C(0x40883000);
+  const uint32_t tlbwr = UINT32_C(0x42000006);
+  t64_machine machine;
+  t64_stop_request request = {T64_STOP_GUEST_TICK, UINT64_C(32)};
+  t64_stop_result result = {UINT32_MAX, UINT64_MAX};
+  size_t index;
+
+  T64_CHECK(setup_t1_machine(&machine, profile_id));
+  if (machine.ram == NULL) {
+    return;
+  }
+  reset_t1_cpu(&machine, mtc0_wired);
+  machine.cpu.gpr[8] = UINT64_C(32);
+  machine.cpu.cp0[CP0_ENTRYHI] = UINT64_C(0x000000000000a009);
+  machine.cpu.cp0[CP0_ENTRYLO0] = UINT64_C(0x0000000000012345);
+  machine.cpu.cp0[CP0_ENTRYLO1] = UINT64_C(0x0000000000056789);
+  for (index = 1u; index <= 31u; index++) {
+    write_be32(machine.ram + UINT32_C(0x1000) + (uint32_t)(index * 4u),
+               UINT32_C(0));
+  }
+  write_be32(machine.ram + UINT32_C(0x1080), tlbwr);
+  T64_CHECK_INT(t64_cpu_schedule(&machine), T64_STATUS_OK);
+  for (index = 0u; index < 32u; index++) {
+    request.value = machine.tick + UINT64_C(1);
+    T64_CHECK_INT(t64_machine_advance(&machine, &request, &result),
+                  T64_STATUS_OK);
+    T64_CHECK_INT(result.reason, T64_STOP_REASON_BOUND);
+    T64_CHECK_INT(result.tick, request.value);
+    T64_CHECK_INT(machine.cpu.retired_instructions, index + 1u);
+    T64_CHECK_INT(machine.cpu.last_pc_full,
+                  UINT64_C(0xffffffff80001000) + (uint64_t)index * 4u);
+    T64_CHECK_INT(machine.cpu.last_opcode,
+                  index == 0u ? mtc0_wired : UINT32_C(0));
+  }
+  T64_CHECK_INT(machine.tick, UINT64_C(32));
+  T64_CHECK_INT(machine.cpu.cp0[CP0_WIRED], 32u);
+  T64_CHECK_INT(machine.cpu.cp0[CP0_RANDOM], expected_random);
+  T64_CHECK_INT(machine.queue_count, 1u);
+  if (machine.queue_count == 1u) {
+    T64_CHECK_INT(machine.events[machine.queue_head].tick, 33u);
+  }
+
+  request.value = machine.tick + UINT64_C(1);
+  T64_CHECK_INT(t64_machine_advance(&machine, &request, &result),
+                T64_STATUS_OK);
+  T64_CHECK_INT(result.reason, T64_STOP_REASON_BOUND);
+  T64_CHECK_INT(result.tick, UINT64_C(33));
+  T64_CHECK_INT(machine.cpu.retired_instructions, 33u);
+  T64_CHECK_INT(machine.cpu.last_pc_full,
+                UINT64_C(0xffffffff80001080));
+  T64_CHECK_INT(machine.cpu.last_opcode, tlbwr);
+  T64_CHECK_INT(machine.cpu.cp0[CP0_RANDOM], UINT64_C(62));
+  T64_CHECK_INT(machine.cpu.tlb[31].vpn2, UINT64_C(0xa000));
+  T64_CHECK_INT(machine.cpu.tlb[31].asid, 9u);
+  T64_CHECK_INT(machine.cpu.tlb[31].entry_lo0, UINT64_C(0x12345));
+  T64_CHECK_INT(machine.cpu.tlb[30].vpn2, 0u);
+  T64_CHECK_INT(machine.queue_count, 1u);
+  if (machine.queue_count == 1u) {
+    T64_CHECK_INT(machine.events[machine.queue_head].tick, 34u);
+  }
+  destroy_machine(&machine);
+}
+
+static void test_cold_t1_high_wired_policy(void) {
+  test_cold_t1_high_wired_modulo_for_profile(
+      "ntsc-cart-4m-openipl3-rdram-a-t1-v1", UINT64_C(63));
+  test_cold_t1_high_wired_modulo_for_profile(
+      "ntsc-cart-4m-openipl3-rdram-b-t1-v1", UINT64_C(63));
+}
+
 static void check_t1_exception_boundary(t64_machine *machine) {
   T64_CHECK_INT(machine->queue_count, 1u);
   if (machine->queue_count == 1u) {
-    T64_CHECK_INT(machine->events[machine->queue_head].tick, 1u);
+    T64_CHECK_INT(machine->events[machine->queue_head].tick, 2u);
   }
   T64_CHECK_INT(machine->cpu.retired_instructions, 0u);
   T64_CHECK_INT(machine->cpu.cp0[CP0_RANDOM], 17u);
@@ -627,6 +855,8 @@ static void check_t1_exception_boundary(t64_machine *machine) {
 static void test_cold_t1_exception_and_interrupt_boundaries_for_profile(
     const char *profile_id) {
   t64_machine machine;
+  t64_stop_request request = {T64_STOP_GUEST_TICK, UINT64_C(1)};
+  t64_stop_result result = {UINT32_MAX, UINT64_MAX};
 
   T64_CHECK(setup_t1_machine(&machine, profile_id));
   if (machine.ram == NULL) {
@@ -635,15 +865,39 @@ static void test_cold_t1_exception_and_interrupt_boundaries_for_profile(
   reset_t1_cpu(&machine, 0u);
   machine.cpu.pc = UINT32_C(0x80001002);
   machine.cpu.pc_full = t64_cpu_canonical_address(machine.cpu.pc);
-  T64_CHECK_INT(t64_cpu_step(&machine, NULL), T64_STATUS_OK);
+  T64_CHECK_INT(t64_cpu_schedule(&machine), T64_STATUS_OK);
+  T64_CHECK_INT(t64_machine_advance(&machine, &request, &result),
+                T64_STATUS_OK);
+  T64_CHECK_INT(result.reason, T64_STOP_REASON_BOUND);
+  T64_CHECK_INT(result.tick, 1u);
   check_t1_exception_boundary(&machine);
+  T64_CHECK_INT(machine.cpu.last_opcode, 0u);
+  T64_CHECK(((uint32_t)machine.cpu.cp0[CP0_STATUS] & STATUS_EXL) != 0u);
+
+  reset_t1_cpu(&machine, UINT32_C(0x7000003f));
+  T64_CHECK_INT(t64_cpu_schedule(&machine), T64_STATUS_OK);
+  T64_CHECK_INT(t64_machine_advance(&machine, &request, &result),
+                T64_STATUS_OK);
+  T64_CHECK_INT(result.reason, T64_STOP_REASON_BOUND);
+  T64_CHECK_INT(result.tick, 1u);
+  check_t1_exception_boundary(&machine);
+  T64_CHECK_INT(machine.cpu.last_pc_full,
+                UINT64_C(0xffffffff80001000));
+  T64_CHECK_INT(machine.cpu.last_opcode, UINT32_C(0x7000003f));
+  T64_CHECK_INT((uint32_t)machine.cpu.cp0[CP0_CAUSE] & UINT32_C(0x7c),
+                UINT32_C(0x28));
   T64_CHECK(((uint32_t)machine.cpu.cp0[CP0_STATUS] & STATUS_EXL) != 0u);
 
   reset_t1_cpu(&machine, 0u);
   machine.cpu.cp0[CP0_STATUS] = STATUS_IE | STATUS_IM7;
   machine.cpu.cp0[CP0_CAUSE] = CAUSE_IP7;
-  T64_CHECK_INT(t64_cpu_step(&machine, NULL), T64_STATUS_OK);
+  T64_CHECK_INT(t64_cpu_schedule(&machine), T64_STATUS_OK);
+  T64_CHECK_INT(t64_machine_advance(&machine, &request, &result),
+                T64_STATUS_OK);
+  T64_CHECK_INT(result.reason, T64_STOP_REASON_BOUND);
+  T64_CHECK_INT(result.tick, 1u);
   check_t1_exception_boundary(&machine);
+  T64_CHECK_INT(machine.cpu.last_opcode, 0u);
   T64_CHECK(((uint32_t)machine.cpu.cp0[CP0_STATUS] & STATUS_EXL) != 0u);
   destroy_machine(&machine);
 }
@@ -684,6 +938,9 @@ static void test_cold_t1_preflight_before_mutation(void) {
                sizeof fetched_line_before);
   status = t64_cpu_step(&machine, NULL);
   T64_CHECK_INT(status, T64_STATUS_TICK_OVERFLOW);
+  T64_CHECK_INT(machine.cpu.last_pc_full,
+                UINT64_C(0xffffffff80001000));
+  T64_CHECK_INT(machine.cpu.last_opcode, UINT32_C(0x00220018));
   T64_CHECK_INT(machine.cpu.hi, UINT64_C(0x1111));
   T64_CHECK_INT(machine.cpu.lo, UINT64_C(0x2222));
   T64_CHECK_INT(machine.cpu.retired_instructions, 0u);
@@ -707,6 +964,9 @@ static void test_cold_t1_preflight_before_mutation(void) {
                sizeof fetched_line_before);
   status = t64_cpu_step(&machine, NULL);
   T64_CHECK_INT(status, T64_STATUS_QUEUE_FULL);
+  T64_CHECK_INT(machine.cpu.last_pc_full,
+                UINT64_C(0xffffffff80001000));
+  T64_CHECK_INT(machine.cpu.last_opcode, pi_store);
   T64_CHECK_INT(machine.pi.dram_address, 0u);
   T64_CHECK_INT(machine.pi.cart_address, 0u);
   T64_CHECK_INT(machine.cpu.retired_instructions, 0u);
@@ -729,6 +989,9 @@ static void test_cold_t1_preflight_before_mutation(void) {
                sizeof fetched_line_before);
   status = t64_cpu_step(&machine, NULL);
   T64_CHECK_INT(status, T64_STATUS_SEQUENCE_EXHAUSTED);
+  T64_CHECK_INT(machine.cpu.last_pc_full,
+                UINT64_C(0xffffffff80001000));
+  T64_CHECK_INT(machine.cpu.last_opcode, pi_store);
   T64_CHECK_INT(machine.pi.dram_address, 0u);
   T64_CHECK_INT(machine.pi.cart_address, 0u);
   T64_CHECK_INT(machine.cpu.retired_instructions, 0u);
@@ -776,6 +1039,9 @@ int main(void) {
   test_cold_t1_mult_interval();
   test_cold_t1_delay_slot_interval();
   test_cold_t1_count_random_follow_elapsed_ticks();
+  test_cold_t1_fetched_compare_clear();
+  test_cold_t1_fetched_wired_random_tlbwr_sequence();
+  test_cold_t1_high_wired_policy();
   test_cold_t1_exception_and_interrupt_boundaries();
   test_cold_t1_preflight_before_mutation();
   return T64_TEST_FINISH("unit.core.cpu-time");
