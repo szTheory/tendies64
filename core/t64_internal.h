@@ -492,11 +492,17 @@ typedef struct {
 } t64_cache_state;
 
 typedef struct {
+  uint32_t ri_config;
+  bool ri_config_known;
+} t64_rdram_protocol_state;
+
+typedef struct {
   uint32_t policy_version;
   uint32_t mi_version;
   uint32_t ri_select;
   bool mi_version_known;
   bool ri_select_known;
+  t64_rdram_protocol_state rdram_protocol;
 } t64_guest_device_state;
 
 typedef struct {
@@ -808,6 +814,10 @@ t64_status t64_warm_device_read(const t64_machine *machine, uint32_t address,
                                 uint32_t width, uint32_t *value_out);
 t64_status t64_warm_device_write(t64_machine *machine, uint32_t address,
                                  uint32_t width, uint32_t value);
+t64_status t64_rdram_read(const t64_machine *machine, uint32_t address,
+                          uint32_t width, uint32_t *value_out);
+t64_status t64_rdram_write(t64_machine *machine, uint32_t address,
+                           uint32_t width, uint32_t value);
 bool t64_isviewer_active(const t64_machine *machine);
 t64_status t64_isviewer_read(const t64_machine *machine, uint32_t address,
                              uint32_t width, uint32_t *value_out);

@@ -8,6 +8,15 @@
 #include <stdlib.h>
 
 #define IPL3_ASSET_BYTES 4096u
+#define TEST_RI_BASE UINT32_C(0x04700000)
+#define TEST_RI_CONFIG (TEST_RI_BASE + UINT32_C(4))
+
+typedef struct {
+  t64_guest_device_state guest_devices;
+  uint32_t mi_pending;
+  uint32_t mi_mask;
+  bool mi_irq_line;
+} rdram_latch_snapshot;
 
 static bool test_allocate(void *context, size_t size, size_t alignment,
                           t64_host_storage *storage_out) {
@@ -67,55 +76,186 @@ static bool read_ipl3_asset(uint8_t bytes[IPL3_ASSET_BYTES]) {
          close_error == 0;
 }
 
+static bool create_machine(const char *profile_id,
+                           t64_machine **machine_out) {
+  const t64_host_allocator allocator = {test_allocate, test_release, NULL};
+  const t64_profile_descriptor *profile = NULL;
+  uint8_t ipl3_asset[IPL3_ASSET_BYTES];
+  t64_status status;
+
+  if (profile_id == NULL || machine_out == NULL ||
+      !read_ipl3_asset(ipl3_asset) ||
+      t64_profile_lookup(profile_id, &profile) != T64_STATUS_OK ||
+      profile == NULL ||
+      t64_machine_create(&allocator, profile, machine_out) != T64_STATUS_OK ||
+      *machine_out == NULL) {
+    return false;
+  }
+  status = t64_machine_admit_rom(*machine_out, ipl3_asset,
+                                 sizeof ipl3_asset);
+  if (status != T64_STATUS_OK) {
+    t64_machine_destroy(*machine_out);
+    *machine_out = NULL;
+    return false;
+  }
+  return true;
+}
+
+static rdram_latch_snapshot capture_latches(const t64_machine *machine) {
+  rdram_latch_snapshot snapshot = {0};
+
+  if (machine != NULL) {
+    snapshot.guest_devices = machine->guest_devices;
+    snapshot.mi_pending = machine->mi_pending;
+    snapshot.mi_mask = machine->mi_mask;
+    snapshot.mi_irq_line = machine->mi_irq_line;
+  }
+  return snapshot;
+}
+
+static void check_latches_unchanged(const t64_machine *machine,
+                                   const rdram_latch_snapshot *before) {
+  T64_CHECK(before != NULL);
+  if (machine == NULL || before == NULL) {
+    return;
+  }
+  T64_CHECK_INT(machine->guest_devices.policy_version,
+                before->guest_devices.policy_version);
+  T64_CHECK_INT(machine->guest_devices.mi_version,
+                before->guest_devices.mi_version);
+  T64_CHECK_INT(machine->guest_devices.ri_select,
+                before->guest_devices.ri_select);
+  T64_CHECK_INT(machine->guest_devices.mi_version_known,
+                before->guest_devices.mi_version_known);
+  T64_CHECK_INT(machine->guest_devices.ri_select_known,
+                before->guest_devices.ri_select_known);
+  T64_CHECK_INT(machine->guest_devices.rdram_protocol.ri_config,
+                before->guest_devices.rdram_protocol.ri_config);
+  T64_CHECK_INT(machine->guest_devices.rdram_protocol.ri_config_known,
+                before->guest_devices.rdram_protocol.ri_config_known);
+  T64_CHECK_INT(machine->mi_pending, before->mi_pending);
+  T64_CHECK_INT(machine->mi_mask, before->mi_mask);
+  T64_CHECK_INT(machine->mi_irq_line, before->mi_irq_line);
+}
+
+static void check_register_trace(t64_machine *machine) {
+  static t64_trace_record records[T64_TRACE_RECORD_CAPACITY];
+  size_t record_count = 0u;
+  uint64_t dropped = 0u;
+  bool drop_count_saturated = false;
+  size_t index;
+  uint32_t selector_reads = 0u;
+  uint32_t config_writes = 0u;
+  uint32_t config_reads = 0u;
+
+  T64_CHECK_INT(t64_machine_trace_drain(machine, records,
+                                        T64_TRACE_RECORD_CAPACITY,
+                                        &record_count, &dropped,
+                                        &drop_count_saturated),
+                T64_STATUS_OK);
+  T64_CHECK_INT(dropped, 0u);
+  T64_CHECK(!drop_count_saturated);
+  for (index = 0u; index < record_count; index++) {
+    const t64_trace_record *record = &records[index];
+
+    if (record->device != T64_TRACE_DEVICE_BUS) {
+      continue;
+    }
+    if (record->kind == T64_TRACE_KIND_BUS_READ32 &&
+        record->value == ((uint64_t)UINT32_C(0x0470000c) << 32)) {
+      selector_reads++;
+    }
+    if (record->kind == T64_TRACE_KIND_BUS_WRITE32 &&
+        record->value == (((uint64_t)TEST_RI_CONFIG << 32) | UINT64_C(0x40))) {
+      config_writes++;
+    }
+    if (record->kind == T64_TRACE_KIND_BUS_READ32 &&
+        record->value == (((uint64_t)TEST_RI_CONFIG << 32) | UINT64_C(0x40))) {
+      config_reads++;
+    }
+  }
+  T64_CHECK_INT(selector_reads, 1u);
+  T64_CHECK_INT(config_writes, 1u);
+  T64_CHECK_INT(config_reads, 1u);
+}
+
+static void test_new_command_is_refused_by_legacy_profile(void) {
+  t64_machine *machine = NULL;
+  rdram_latch_snapshot before;
+
+  T64_CHECK(create_machine("ntsc-cart-4m-openipl3-vr4300-v1", &machine));
+  if (machine == NULL) {
+    return;
+  }
+  before = capture_latches(machine);
+  T64_CHECK_INT(t64_bus_write(machine, TEST_RI_CONFIG, 4u, UINT32_C(0x40)),
+                T64_STATUS_BUS_UNSUPPORTED);
+  check_latches_unchanged(machine, &before);
+  t64_machine_destroy(machine);
+}
+
+static void test_cold_command_requires_zero_selection(void) {
+  t64_machine *machine = NULL;
+  rdram_latch_snapshot before;
+
+  T64_CHECK(create_machine("ntsc-cart-4m-openipl3-rdram-b-t1-v1", &machine));
+  if (machine == NULL) {
+    return;
+  }
+  /* Native fixture injection seeds an out-of-order state, not a reset fact. */
+  machine->guest_devices.ri_select = 1u;
+  before = capture_latches(machine);
+  T64_CHECK_INT(t64_bus_write(machine, TEST_RI_CONFIG, 4u, UINT32_C(0x40)),
+                T64_STATUS_BUS_DEVICE_REFUSED);
+  check_latches_unchanged(machine, &before);
+  t64_machine_destroy(machine);
+}
+
+static void test_prepared_profile_does_not_admit_cold_registers(void) {
+  t64_machine *machine = NULL;
+  rdram_latch_snapshot before;
+
+  T64_CHECK(create_machine("ntsc-cart-4m-openipl3-rdram-a-t1-v1", &machine));
+  if (machine == NULL) {
+    return;
+  }
+  T64_CHECK_INT(machine->guest_devices.ri_select, 5u);
+  before = capture_latches(machine);
+  T64_CHECK_INT(t64_bus_write(machine, TEST_RI_CONFIG, 4u, UINT32_C(0x40)),
+                T64_STATUS_BUS_UNSUPPORTED);
+  check_latches_unchanged(machine, &before);
+  t64_machine_destroy(machine);
+}
+
 static void test_first_cold_register_instruction(void) {
   static const uint32_t instructions[] = {
       UINT32_C(0x8c42000c), /* lw v0,12(v0), the retained RI_SELECT word. */
       UINT32_C(0x3c08a470), /* lui t0,0xa470 */
       UINT32_C(0x34090040), /* ori t1,zero,0x0040 */
-      UINT32_C(0xad090004)  /* sw t1,4(t0): RI_CONFIG auto-calibration. */
+      UINT32_C(0xad090004), /* sw t1,4(t0): source-derived RI_CONFIG write. */
+      UINT32_C(0x8d0b0004)  /* lw t3,4(t0): versioned model readback. */
   };
   const uint32_t start_pc = UINT32_C(0xa4000080);
   const uint32_t start_offset = UINT32_C(0x80);
-  const t64_host_allocator allocator = {test_allocate, test_release, NULL};
-  const t64_profile_descriptor *profile = NULL;
-  uint8_t ipl3_asset[IPL3_ASSET_BYTES];
   t64_machine *machine = NULL;
-  bool asset_ok;
-  t64_status status;
+  rdram_latch_snapshot before;
+  uint32_t value32 = UINT32_C(0xfeedface);
+  uint64_t value64 = UINT64_C(0x1122334455667788);
   size_t index;
 
-  T64_CHECK_INT(t64_profile_lookup("ntsc-cart-4m-openipl3-rdram-b-t1-v1",
-                                   &profile),
-                T64_STATUS_OK);
-  T64_CHECK(profile != NULL);
-  if (profile == NULL) {
-    return;
-  }
-  T64_CHECK_INT(t64_machine_create(&allocator, profile, &machine),
-                T64_STATUS_OK);
-  T64_CHECK(machine != NULL);
+  T64_CHECK(create_machine("ntsc-cart-4m-openipl3-rdram-b-t1-v1", &machine));
   if (machine == NULL) {
     return;
   }
-  asset_ok = read_ipl3_asset(ipl3_asset);
-  T64_CHECK(asset_ok);
-  if (!asset_ok) {
-    t64_machine_destroy(machine);
-    return;
-  }
-  status = t64_machine_admit_rom(machine, ipl3_asset, sizeof ipl3_asset);
-  T64_CHECK_INT(status, T64_STATUS_OK);
-  if (status != T64_STATUS_OK) {
-    t64_machine_destroy(machine);
-    return;
-  }
 
-  /* Native Tier-B seed for this authored sequence; not a reset measurement. */
-  machine->guest_devices.policy_version = T64_WARM_DEVICE_POLICY_VERSION;
-  machine->guest_devices.mi_version = 0u;
-  machine->guest_devices.ri_select = 0u;
-  machine->guest_devices.mi_version_known = true;
-  machine->guest_devices.ri_select_known = true;
+  /* The admitted Tier-B value is a profile seed, not a reset measurement. */
+  T64_CHECK_INT(machine->guest_devices.ri_select, 0u);
+  T64_CHECK(machine->guest_devices.ri_select_known);
+  before = capture_latches(machine);
+  T64_CHECK_INT(t64_bus_read(machine, TEST_RI_CONFIG, 4u, &value32),
+                T64_STATUS_BUS_UNSUPPORTED);
+  T64_CHECK_INT(value32, UINT32_C(0xfeedface));
+  check_latches_unchanged(machine, &before);
   T64_CHECK_INT(t64_machine_trace_set_enabled(machine, true), T64_STATUS_OK);
   for (index = 0u; index < sizeof instructions / sizeof instructions[0];
        index++) {
@@ -144,23 +284,45 @@ static void test_first_cold_register_instruction(void) {
   T64_CHECK_INT(machine->cpu.gpr[8], UINT64_C(0xffffffffa4700000));
   T64_CHECK_INT(machine->cpu.gpr[9], UINT64_C(0x40));
 
-  /* RED target: RI_CONFIG=0x40 must be accepted through CPU -> bus -> RI. */
   T64_CHECK_INT(t64_cpu_step(machine, NULL), T64_STATUS_OK);
-  /* Confirm the pre-feature failure is at this exact authored store. */
-  T64_CHECK_INT(machine->cpu.stop_reason, T64_STOP_REASON_CPU_UNSUPPORTED);
-  T64_CHECK_INT(machine->cpu.stop_pc_full,
-                UINT64_C(0xffffffffa400008c));
-  T64_CHECK_INT(machine->cpu.stop_opcode, UINT32_C(0xad090004));
   T64_CHECK_INT(machine->cpu.last_pc_full,
                 UINT64_C(0xffffffffa400008c));
   T64_CHECK_INT(machine->cpu.last_opcode, UINT32_C(0xad090004));
   T64_CHECK_INT(machine->cpu.attempt_outcome, T64_CPU_ATTEMPT_RETIRED);
   T64_CHECK_INT(machine->cpu.retired_instructions, 4u);
+  T64_CHECK_INT(machine->guest_devices.rdram_protocol.ri_config, 0x40u);
+  T64_CHECK(machine->guest_devices.rdram_protocol.ri_config_known);
+
+  T64_CHECK_INT(t64_cpu_step(machine, NULL), T64_STATUS_OK);
+  T64_CHECK_INT(machine->cpu.last_pc_full,
+                UINT64_C(0xffffffffa4000090));
+  T64_CHECK_INT(machine->cpu.last_opcode, UINT32_C(0x8d0b0004));
+  T64_CHECK_INT(machine->cpu.gpr[11], UINT64_C(0x40));
+  T64_CHECK_INT(machine->cpu.attempt_outcome, T64_CPU_ATTEMPT_RETIRED);
+  T64_CHECK_INT(machine->cpu.retired_instructions, 5u);
+  check_register_trace(machine);
+
+  before = capture_latches(machine);
+  T64_CHECK_INT(t64_bus_write(machine, TEST_RI_CONFIG, 2u, UINT32_C(0x40)),
+                T64_STATUS_BUS_UNSUPPORTED);
+  check_latches_unchanged(machine, &before);
+
+  T64_CHECK_INT(t64_bus_write(machine, TEST_RI_CONFIG, 4u, UINT32_C(0x41)),
+                T64_STATUS_BUS_DEVICE_REFUSED);
+  check_latches_unchanged(machine, &before);
+
+  T64_CHECK_INT(t64_bus_read_wide(machine, TEST_RI_BASE, &value64),
+                T64_STATUS_BUS_DEVICE_REFUSED);
+  T64_CHECK_INT(value64, UINT64_C(0x1122334455667788));
+  check_latches_unchanged(machine, &before);
 
   t64_machine_destroy(machine);
 }
 
 int main(void) {
+  test_new_command_is_refused_by_legacy_profile();
+  test_cold_command_requires_zero_selection();
+  test_prepared_profile_does_not_admit_cold_registers();
   test_first_cold_register_instruction();
   return T64_TEST_FINISH("unit.core.rdram-protocol");
 }
