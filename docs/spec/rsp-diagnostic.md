@@ -43,6 +43,13 @@ executable hashes are checked before each query. A fresh exclusive archive
 retains the exact CPU identity reader, RSP adapter and matching binding before
 execution. Existing immutable records are never overwritten.
 
+The fixed `v6-refresh1` context preserves the original v6 binding, archive and
+pre-use setup failure. It shares the same validation logic and production
+baseline, with distinct closed schema names and fixed immutable output paths.
+Its full verifier entry and normal dispatch are exercised by authored controls.
+Independent pre-use verification runs before a fresh guest run directory is
+created; a metadata failure therefore cannot be mistaken for guest dispatch.
+
 ## Asset and rights boundary
 
 The default selected RSP modules are checked independently from the CPU

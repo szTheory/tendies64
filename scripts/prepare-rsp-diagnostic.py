@@ -45,6 +45,8 @@ V6_ASAN_EVIDENCE_PATHS = (
 )
 V6_ARCHIVE_RELATIVE = pathlib.Path(
     "build/private-rsp-diagnostic/plan10-v6-executable-archive")
+V6_REFRESH1_ARCHIVE_RELATIVE = pathlib.Path(
+    "build/private-rsp-diagnostic/plan10-v6-refresh1-executable-archive")
 V5_ADAPTER_SOURCE_PROVENANCE = (
     "t64.rsp.adapter-source-scope-hashes-distinct-from-core-build-annotation.v1"
 )
@@ -336,16 +338,20 @@ def v6_reviewed_core_rows(v4: dict[str, object]) -> tuple[list[str], list[dict[s
     return changed, rows
 
 
-def validate_v6_executable_archive_receipt(value: object) -> dict[str, object]:
+def validate_v6_executable_archive_receipt(value: object,
+                                          *, refresh1: bool = False) -> dict[str, object]:
+    archive_relative = (V6_REFRESH1_ARCHIVE_RELATIVE if refresh1 else V6_ARCHIVE_RELATIVE)
+    archive_schema = ("t64.rsp-plan10-v6-refresh1-executable-archive.v1" if refresh1 else
+                      "t64.rsp-plan10-v6-executable-archive.v1")
     expected = {"adapter_path", "adapter_sha256", "binding_path", "binding_sha256",
                 "core_reader_path", "core_reader_sha256", "schema"}
     if not isinstance(value, dict) or set(value) != expected:
         refuse("v6 executable archive receipt fields do not match the closed schema")
-    if value.get("schema") != "t64.rsp-plan10-v6-executable-archive.v1":
+    if value.get("schema") != archive_schema:
         refuse("v6 executable archive receipt has an unsupported version")
-    if (value.get("adapter_path") != (V6_ARCHIVE_RELATIVE / "adapter.bin").as_posix() or
-            value.get("core_reader_path") != (V6_ARCHIVE_RELATIVE / "core-reader.bin").as_posix() or
-            value.get("binding_path") != (V6_ARCHIVE_RELATIVE / "identity-binding.json").as_posix()):
+    if (value.get("adapter_path") != (archive_relative / "adapter.bin").as_posix() or
+            value.get("core_reader_path") != (archive_relative / "core-reader.bin").as_posix() or
+            value.get("binding_path") != (archive_relative / "identity-binding.json").as_posix()):
         refuse("v6 executable archive selects an unexpected private path")
     for field in ("adapter_sha256", "binding_sha256", "core_reader_sha256"):
         if not isinstance(value.get(field), str) or re.fullmatch(r"[0-9a-f]{64}", value[field]) is None:
@@ -353,9 +359,12 @@ def validate_v6_executable_archive_receipt(value: object) -> dict[str, object]:
     return value
 
 
-def ensure_v6_outputs_available(private_root: pathlib.Path) -> None:
-    output_path = private_root / "current-core-identity-binding-v6.json"
-    archive_root = ROOT / V6_ARCHIVE_RELATIVE
+def ensure_v6_outputs_available(private_root: pathlib.Path, *, refresh1: bool = False) -> None:
+    output_name = ("current-core-identity-binding-v6-refresh1.json" if refresh1 else
+                   "current-core-identity-binding-v6.json")
+    archive_relative = (V6_REFRESH1_ARCHIVE_RELATIVE if refresh1 else V6_ARCHIVE_RELATIVE)
+    output_path = private_root / output_name
+    archive_root = ROOT / archive_relative
     if (output_path.exists() or output_path.is_symlink() or
             archive_root.exists() or archive_root.is_symlink()):
         refuse("refusing to overwrite an immutable v6 binding or executable archive")
@@ -2052,12 +2061,21 @@ def bind_current_rsp_preuse_v5(*, refresh_after_validator_fix: bool = False) -> 
     print("PASS: unchanged private inputs and reviewed current core/adapter are pre-use bound; no guest was executed")
 
 
-def bind_current_rsp_preuse_v6() -> None:
+def bind_current_rsp_preuse_v6(*, refresh1: bool = False) -> None:
     """Bind only the reviewed 578 core and the bounded v6 host workflow."""
     private_root = owner_only(ROOT / "build/private-rsp-diagnostic")
-    output_path = private_root / "current-core-identity-binding-v6.json"
-    archive_root = ROOT / V6_ARCHIVE_RELATIVE
-    ensure_v6_outputs_available(private_root)
+    output_name = ("current-core-identity-binding-v6-refresh1.json" if refresh1 else
+                   "current-core-identity-binding-v6.json")
+    archive_relative = (V6_REFRESH1_ARCHIVE_RELATIVE if refresh1 else V6_ARCHIVE_RELATIVE)
+    archive_schema = ("t64.rsp-plan10-v6-refresh1-executable-archive.v1" if refresh1 else
+                      "t64.rsp-plan10-v6-executable-archive.v1")
+    binding_schema = ("t64.rsp-core-identity-binding.v6-refresh1" if refresh1 else
+                      "t64.rsp-core-identity-binding.v6")
+    attempt_prefix = ("plan10-current-binding-v6-refresh1-" if refresh1 else
+                      "plan10-current-binding-v6-")
+    output_path = private_root / output_name
+    archive_root = ROOT / archive_relative
+    ensure_v6_outputs_available(private_root, refresh1=refresh1)
 
     qualification_path = private_root / "qualification.json"
     qualification_bytes = qualification_path.read_bytes()
@@ -2075,8 +2093,7 @@ def bind_current_rsp_preuse_v6() -> None:
         check=False)
     if len(closure_check.stdout) + len(closure_check.stderr) > 65_536:
         refuse("source/tool/asset pre-use verification exceeded its capture limit")
-    attempt_root = pathlib.Path(tempfile.mkdtemp(
-        prefix="plan10-current-binding-v6-", dir=private_root))
+    attempt_root = pathlib.Path(tempfile.mkdtemp(prefix=attempt_prefix, dir=private_root))
     attempt_root.chmod(0o700)
     closure_stdout_path = attempt_root / "source-closure.stdout.log"
     closure_stderr_path = attempt_root / "source-closure.stderr.log"
@@ -2175,7 +2192,7 @@ def bind_current_rsp_preuse_v6() -> None:
         refuse("original refused first-use evidence is not preserved")
 
     binding = {
-        "schema": "t64.rsp-core-identity-binding.v6",
+        "schema": binding_schema,
         "status": "preuse-verified-current-core-for-qualified-rsp-image",
         "component": "rsp",
         "qualification_sha256": qualification_sha,
@@ -2219,7 +2236,7 @@ def bind_current_rsp_preuse_v6() -> None:
             "sha256": digest(closure_command_path.read_bytes()),
         },
         "identity_command_receipts": [rsp_command, cpu_command],
-        "binary_archive_path": V6_ARCHIVE_RELATIVE.as_posix(),
+        "binary_archive_path": archive_relative.as_posix(),
         "verification_scope": "Binds the unchanged accepted private inputs to the exact reviewed functional profile and production source, with saved normal and sanitizer proof. It authorizes bounded local classification and records no guest pass, hardware claim, or general compatibility result.",
     }
 
@@ -2235,15 +2252,15 @@ def bind_current_rsp_preuse_v6() -> None:
     write_private_bytes(archive_root / "core-reader.bin", archived_core)
     write_private_bytes(archive_root / "identity-binding.json", binding_bytes)
     receipt = {
-        "adapter_path": (V6_ARCHIVE_RELATIVE / "adapter.bin").as_posix(),
+        "adapter_path": (archive_relative / "adapter.bin").as_posix(),
         "adapter_sha256": digest(archived_adapter),
-        "binding_path": (V6_ARCHIVE_RELATIVE / "identity-binding.json").as_posix(),
+        "binding_path": (archive_relative / "identity-binding.json").as_posix(),
         "binding_sha256": digest(binding_bytes),
-        "core_reader_path": (V6_ARCHIVE_RELATIVE / "core-reader.bin").as_posix(),
+        "core_reader_path": (archive_relative / "core-reader.bin").as_posix(),
         "core_reader_sha256": digest(archived_core),
-        "schema": "t64.rsp-plan10-v6-executable-archive.v1",
+        "schema": archive_schema,
     }
-    validate_v6_executable_archive_receipt(receipt)
+    validate_v6_executable_archive_receipt(receipt, refresh1=refresh1)
     write_private(archive_root / "archive-receipt.json", receipt)
     if (digest(adapter.read_bytes()) != adapter_sha_before or
             digest(core_reader.read_bytes()) != core_sha_before):
@@ -2309,6 +2326,7 @@ def main() -> int:
     parser.add_argument("--bind-current-rsp-preuse-v5", action="store_true")
     parser.add_argument("--refresh-current-rsp-preuse-v5", action="store_true")
     parser.add_argument("--bind-current-rsp-preuse-v6", action="store_true")
+    parser.add_argument("--refresh-current-rsp-preuse-v6", action="store_true")
     args = parser.parse_args()
     try:
         if args.bind_current_rsp_preuse_v6:
@@ -2317,9 +2335,18 @@ def main() -> int:
                     args.prepare_overlay or args.seal_preuse or args.bind_current_core or
                     args.bind_current_rsp_execution or args.record_future_rsp_execution_context or
                     args.bind_current_rsp_preuse or args.bind_current_rsp_preuse_v5 or
-                    args.refresh_current_rsp_preuse_v5):
+                    args.refresh_current_rsp_preuse_v5 or args.refresh_current_rsp_preuse_v6):
                 refuse("current RSP v6 pre-use binding requires no other arguments")
             bind_current_rsp_preuse_v6()
+        elif args.refresh_current_rsp_preuse_v6:
+            if (args.workspace is not None or args.source_root is not None or args.output is not None or
+                    args.projection is not None or args.overlay_receipt is not None or args.selftest or
+                    args.prepare_overlay or args.seal_preuse or args.bind_current_core or
+                    args.bind_current_rsp_execution or args.record_future_rsp_execution_context or
+                    args.bind_current_rsp_preuse or args.bind_current_rsp_preuse_v5 or
+                    args.refresh_current_rsp_preuse_v5 or args.bind_current_rsp_preuse_v6):
+                refuse("current RSP v6 refresh binding requires no other arguments")
+            bind_current_rsp_preuse_v6(refresh1=True)
         elif args.selftest:
             if args.workspace is None or args.source_root is not None or args.output is not None:
                 refuse("authored selftest requires only --workspace")

@@ -13,6 +13,8 @@ import subprocess
 import sys
 import tempfile
 import copy
+import builtins
+import symtable
 import unittest
 from unittest.mock import patch
 
@@ -623,7 +625,7 @@ class V6SourceAndIdentityControls(unittest.TestCase):
                 with self.assertRaises(self.verifier.Refusal):
                     self.verifier.verify_v6_ctest_proofs(bad_normal, bad_asan)
 
-    def test_v6_accepted_receipts_reach_current_binding_after_closure(self) -> None:
+    def test_v6_identity_receipt_helpers_accept_and_reject_mutations(self) -> None:
         owner_only_directory(TEST_ROOT)
         temporary = tempfile.TemporaryDirectory(prefix="v6-receipts.", dir=TEST_ROOT)
         self.addCleanup(temporary.cleanup)
@@ -744,6 +746,238 @@ class V6SourceAndIdentityControls(unittest.TestCase):
                 self.verifier.verify_v6_identity_receipts(
                     binding, qualification, binding["current_identity"], runtime)
 
+    def test_v6_full_binding_verifier_accepts_and_dispatches_runtime_identity(self) -> None:
+        owner_only_directory(TEST_ROOT)
+        temporary = tempfile.TemporaryDirectory(prefix="v6-full-binding.", dir=TEST_ROOT)
+        self.addCleanup(temporary.cleanup)
+        workspace = pathlib.Path(temporary.name)
+        workspace.chmod(0o700)
+        private = workspace / "build/private-rsp-diagnostic"
+        owner_only_directory(private)
+        attempt = private / "plan10-current-binding-v6-refresh1-authored"
+        owner_only_directory(attempt)
+        binary_root = workspace / "build/gate/runner"
+        binary_root.mkdir(mode=0o700, parents=True)
+        adapter = binary_root / "t64-rsp-diagnostic"
+        core = binary_root / "t64-cpu-diagnostic"
+        adapter.write_bytes(b"authored v6-refresh1 adapter")
+        core.write_bytes(b"authored v6-refresh1 CPU reader")
+        adapter.chmod(0o700)
+        core.chmod(0o700)
+
+        profile = "ntsc-cart-4m-openipl3-rsp-functional-v1"
+        base_identity = "e" * 64
+        qualification = {
+            "schema": "t64.rsp-qualification.v1",
+            "status": "qualified",
+            "component": "rsp",
+            "profile_id": profile,
+            "closure": {"sha256": "d" * 64},
+            "build_identity": {
+                "profile_id": profile,
+                "core_model": 6,
+                "core_state_schema": 12,
+                "core_build_sha256": base_identity,
+            },
+        }
+        qualification_bytes = canonical(qualification)
+        qualification_sha = hashlib.sha256(qualification_bytes).hexdigest()
+
+        def write_private(path: pathlib.Path, data: bytes) -> None:
+            path.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
+            path.write_bytes(data)
+            path.chmod(0o600)
+
+        write_private(private / "qualification.json", qualification_bytes)
+        rom_path = private / "authored-rom.z64"
+        rom_bytes = b"authored unexecuted ROM fixture"
+        write_private(rom_path, rom_bytes)
+        qualified_build = {
+            "qualification_sha256": qualification_sha,
+            "guest_rom_executed": False,
+            "artifacts": {"rom": {
+                "path": rom_path.relative_to(workspace).as_posix(),
+                "sha256": hashlib.sha256(rom_bytes).hexdigest(),
+            }},
+        }
+        qualified_build_bytes = canonical(qualified_build)
+        write_private(private / "qualified-build.json", qualified_build_bytes)
+
+        runtime = {
+            "core_build_sha256": "a" * 64,
+            "core_source_revision": "b" * 40,
+            "profile_descriptor_sha256": "c" * 64,
+            "profile_id": profile,
+        }
+        cpu_identity = {
+            "core_build_sha256": runtime["core_build_sha256"],
+            "source_revision": runtime["core_source_revision"],
+        }
+        history = {
+            "adapter_exit": 1,
+            "classification": "refused",
+            "historical_files": [],
+            "original_launcher_failure_preserved": True,
+            "outcome": "refused",
+            "status": "retained",
+        }
+        original_identity = {"source_revision": "9" * 40}
+        prior = {
+            "schema": "t64.rsp-core-identity-binding.v4",
+            "qualification_sha256": qualification_sha,
+            "original_identity": original_identity,
+            "historical_first_use": history,
+        }
+        prior_path = private / "current-core-identity-binding-v4.json"
+        prior_bytes = canonical(prior)
+        write_private(prior_path, prior_bytes)
+
+        closure_stdout = b"PASS: independent RSP source, assets, tools, and locks verified\n"
+        closure_stderr = b""
+        stdout_path = attempt / "source-closure.stdout.log"
+        stderr_path = attempt / "source-closure.stderr.log"
+        write_private(stdout_path, closure_stdout)
+        write_private(stderr_path, closure_stderr)
+        closure_command = {
+            "argv": ["python3", "-B", "scripts/verify-rsp-diagnostic-qualification.py",
+                     "--verify-source-closure", "build/private-rsp-diagnostic/qualification.json"],
+            "exit": 0,
+            "source_closure_sha256": qualification["closure"]["sha256"],
+            "stdout_path": stdout_path.relative_to(workspace).as_posix(),
+            "stdout_sha256": hashlib.sha256(closure_stdout).hexdigest(),
+            "stderr_path": stderr_path.relative_to(workspace).as_posix(),
+            "stderr_sha256": hashlib.sha256(closure_stderr).hexdigest(),
+        }
+        closure_path = attempt / "source-closure-command.json"
+        closure_bytes = canonical(closure_command)
+        write_private(closure_path, closure_bytes)
+        adapter_sha = hashlib.sha256(adapter.read_bytes()).hexdigest()
+        core_sha = hashlib.sha256(core.read_bytes()).hexdigest()
+        write_private(attempt / "identity-executable-hashes.json", canonical({
+            "adapter_path": "build/gate/runner/t64-rsp-diagnostic",
+            "adapter_sha256_before_use": adapter_sha,
+            "core_reader_path": "build/gate/runner/t64-cpu-diagnostic",
+            "core_reader_sha256_before_use": core_sha,
+            "source_closure_command": "passed-before-identity-use",
+        }))
+        receipts = []
+        for label, executable, arguments, output in (
+                ("rsp-runtime-identity", adapter, ["--runtime-identity-json"], canonical(runtime)),
+                ("cpu-runtime-identity", core,
+                 ["--compat-v2", "--runtime-identity-json"], canonical(cpu_identity))):
+            stdout_name, stderr_name = f"{label}.stdout.log", f"{label}.stderr.log"
+            write_private(attempt / stdout_name, output)
+            write_private(attempt / stderr_name, b"")
+            receipts.append({
+                "argv": [str(executable), *arguments],
+                "deadline_seconds": 10,
+                "elapsed_seconds": 0.001,
+                "exit": 0,
+                "process_group_empty": True,
+                "stderr": stderr_name,
+                "stderr_sha256": hashlib.sha256(b"").hexdigest(),
+                "stdout": stdout_name,
+                "stdout_sha256": hashlib.sha256(output).hexdigest(),
+                "timed_out": False,
+            })
+
+        binding = {
+            "authorized_for_future_guest_use": True,
+            "binary_archive_path": "build/private-rsp-diagnostic/plan10-v6-refresh1-executable-archive",
+            "component": "rsp",
+            "core_model": 6,
+            "core_source_scope": [],
+            "core_state_schema": 12,
+            "current_identity": {
+                "core_build_sha256": runtime["core_build_sha256"],
+                "executable_sha256": core_sha,
+                "path": "build/gate/runner/t64-cpu-diagnostic",
+                "source_revision": runtime["core_source_revision"],
+            },
+            "guest_execution_performed": False,
+            "historical_first_use": history,
+            "host_source_scope": [],
+            "identity_attempt_dir": attempt.relative_to(workspace).as_posix(),
+            "identity_command_receipts": receipts,
+            "native_evidence": {},
+            "original_identity": original_identity,
+            "preuse_source_closure": {
+                "path": closure_path.relative_to(workspace).as_posix(),
+                "sha256": hashlib.sha256(closure_bytes).hexdigest(),
+            },
+            "profile_id": profile,
+            "qualified_build_sha256": hashlib.sha256(qualified_build_bytes).hexdigest(),
+            "qualified_rom_sha256": hashlib.sha256(rom_bytes).hexdigest(),
+            "qualification_sha256": qualification_sha,
+            "reviewed_source_delta": {},
+            "rsp_adapter_identity": {
+                "executable_sha256": adapter_sha,
+                "path": "build/gate/runner/t64-rsp-diagnostic",
+            },
+            "rsp_runtime_identity": runtime,
+            "schema": "t64.rsp-core-identity-binding.v6-refresh1",
+            "status": "preuse-verified-current-core-for-qualified-rsp-image",
+            "supersedes_binding_v4": {
+                "path": prior_path.relative_to(workspace).as_posix(),
+                "sha256": hashlib.sha256(prior_bytes).hexdigest(),
+            },
+            "verification_scope": "authored test fixture",
+        }
+        binding_bytes = canonical(binding)
+        binding_path = private / "current-core-identity-binding-v6-refresh1.json"
+        write_private(binding_path, binding_bytes)
+        archive_root = private / "plan10-v6-refresh1-executable-archive"
+        owner_only_directory(archive_root)
+        write_private(archive_root / "identity-binding.json", binding_bytes)
+        write_private(archive_root / "adapter.bin", adapter.read_bytes())
+        write_private(archive_root / "core-reader.bin", core.read_bytes())
+        archive_receipt = {
+            "adapter_path": "build/private-rsp-diagnostic/plan10-v6-refresh1-executable-archive/adapter.bin",
+            "adapter_sha256": adapter_sha,
+            "binding_path": "build/private-rsp-diagnostic/plan10-v6-refresh1-executable-archive/identity-binding.json",
+            "binding_sha256": hashlib.sha256(binding_bytes).hexdigest(),
+            "core_reader_path": "build/private-rsp-diagnostic/plan10-v6-refresh1-executable-archive/core-reader.bin",
+            "core_reader_sha256": core_sha,
+            "schema": "t64.rsp-plan10-v6-refresh1-executable-archive.v1",
+        }
+        write_private(archive_root / "archive-receipt.json", canonical(archive_receipt))
+
+        def identity_run(command, **_kwargs):
+            output = canonical(runtime if command[0] == str(adapter) else cpu_identity)
+            return subprocess.CompletedProcess(command, 0, output, b"")
+
+        with patch.object(self.verifier, "ROOT", workspace), \
+                patch.object(self.verifier, "verify_v6_source_scope", return_value=([], [])), \
+                patch.object(self.verifier, "verify_v6_native_evidence"), \
+                patch.object(self.verifier.subprocess, "run", side_effect=identity_run), \
+                patch.object(self.verifier, "verify_rsp_core_binding_v6",
+                             wraps=self.verifier.verify_rsp_core_binding_v6) as full_binding:
+            self.assertEqual(self.verifier.verify_rsp_core_binding_v6(
+                binding, qualification_sha, qualification["build_identity"], "v6-refresh1"), runtime)
+            self.verifier.verify_current_core_identity(
+                qualification["build_identity"], qualification_sha, "v6-refresh1")
+            self.assertEqual(full_binding.call_count, 2)
+            self.assertEqual(full_binding.call_args.args[3], "v6-refresh1")
+
+            bad_source = copy.deepcopy(binding)
+            bad_source["current_identity"]["source_revision"] = "malformed"
+            with self.assertRaisesRegex(self.verifier.Refusal, "artifact identity is malformed"):
+                self.verifier.verify_rsp_core_binding_v6(
+                    bad_source, qualification_sha, qualification["build_identity"], "v6-refresh1")
+            bad_profile = copy.deepcopy(binding)
+            bad_profile["rsp_runtime_identity"]["profile_descriptor_sha256"] = "malformed"
+            with self.assertRaisesRegex(self.verifier.Refusal, "runtime identity differs"):
+                self.verifier.verify_rsp_core_binding_v6(
+                    bad_profile, qualification_sha, qualification["build_identity"], "v6-refresh1")
+            bad_archive = copy.deepcopy(binding)
+            bad_archive["binary_archive_path"] = "build/private-rsp-diagnostic/plan10-v6-executable-archive"
+            with self.assertRaisesRegex(self.verifier.Refusal, "unexpected executable archive"):
+                self.verifier.verify_rsp_core_binding_v6(
+                    bad_archive, qualification_sha, qualification["build_identity"], "v6-refresh1")
+            with self.assertRaisesRegex(self.verifier.Refusal, "sealed functional profile"):
+                self.verifier.verify_rsp_core_binding_v6(
+                    binding, qualification_sha, qualification["build_identity"], "v6")
+
     def test_v6_closure_failure_precedes_any_identity_invocation(self) -> None:
         temporary = tempfile.TemporaryDirectory(prefix="v6-closure-order.", dir=TEST_ROOT)
         self.addCleanup(temporary.cleanup)
@@ -803,6 +1037,74 @@ class V6SourceAndIdentityControls(unittest.TestCase):
             with self.subTest(invalid=invalid):
                 with self.assertRaises(self.producer.Refusal):
                     self.producer.validate_v6_executable_archive_receipt(invalid)
+
+    def test_v6_refresh1_uses_separate_immutable_paths_and_archive_schema(self) -> None:
+        temporary = tempfile.TemporaryDirectory(prefix="v6-refresh1-paths.", dir=TEST_ROOT)
+        self.addCleanup(temporary.cleanup)
+        workspace = pathlib.Path(temporary.name)
+        workspace.chmod(0o700)
+        private = workspace / "build/private-rsp-diagnostic"
+        owner_only_directory(private)
+        with patch.object(self.producer, "ROOT", workspace):
+            old_binding = private / "current-core-identity-binding-v6.json"
+            old_binding.write_bytes(b"preserved original v6 binding")
+            old_archive = workspace / self.producer.V6_ARCHIVE_RELATIVE
+            old_archive.mkdir(mode=0o700, parents=True)
+            self.producer.ensure_v6_outputs_available(private, refresh1=True)
+            self.assertEqual(old_binding.read_bytes(), b"preserved original v6 binding")
+
+            refresh_archive = workspace / self.producer.V6_REFRESH1_ARCHIVE_RELATIVE
+            refresh_archive.mkdir(mode=0o700, parents=True)
+            with self.assertRaises(self.producer.Refusal):
+                self.producer.ensure_v6_outputs_available(private, refresh1=True)
+            refresh_archive.rmdir()
+            (private / "current-core-identity-binding-v6-refresh1.json").write_bytes(b"occupied")
+            with self.assertRaises(self.producer.Refusal):
+                self.producer.ensure_v6_outputs_available(private, refresh1=True)
+
+        refresh_receipt = {
+            "adapter_path": "build/private-rsp-diagnostic/plan10-v6-refresh1-executable-archive/adapter.bin",
+            "adapter_sha256": "a" * 64,
+            "binding_path": "build/private-rsp-diagnostic/plan10-v6-refresh1-executable-archive/identity-binding.json",
+            "binding_sha256": "b" * 64,
+            "core_reader_path": "build/private-rsp-diagnostic/plan10-v6-refresh1-executable-archive/core-reader.bin",
+            "core_reader_sha256": "c" * 64,
+            "schema": "t64.rsp-plan10-v6-refresh1-executable-archive.v1",
+        }
+        self.producer.validate_v6_executable_archive_receipt(refresh_receipt, refresh1=True)
+        with self.assertRaises(self.producer.Refusal):
+            self.producer.validate_v6_executable_archive_receipt(refresh_receipt)
+
+    def test_v6_refresh1_cli_selects_only_fixed_refresh_context(self) -> None:
+        with patch.object(self.producer.sys, "argv", [str(PREPARE), "--refresh-current-rsp-preuse-v6"]), \
+                patch.object(self.producer, "bind_current_rsp_preuse_v6") as bind:
+            self.assertEqual(self.producer.main(), 0)
+        bind.assert_called_once_with(refresh1=True)
+
+    def test_changed_python_modules_have_no_unbound_global_references(self) -> None:
+        special = {"__file__", "__name__", "__package__", "__spec__", "__loader__", "__cached__"}
+        allowed = set(dir(builtins)) | special
+        paths = (PREPARE, VERIFY, ROOT / "scripts/run-rsp-diagnostic.py",
+                 ROOT / "scripts/tests/test_rsp_qualification.py",
+                 ROOT / "scripts/tests/test_rsp_run.py")
+        unresolved: list[str] = []
+
+        def walk(table: symtable.SymbolTable, declared: set[str], relative: str) -> None:
+            for name in table.get_identifiers():
+                symbol = table.lookup(name)
+                if (symbol.is_global() and symbol.is_referenced() and
+                        name not in declared and name not in allowed):
+                    unresolved.append(f"{relative}:{table.get_name()}:{name}:{table.get_lineno()}")
+            for child in table.get_children():
+                walk(child, declared, relative)
+
+        for path in paths:
+            relative = path.relative_to(ROOT).as_posix()
+            module = symtable.symtable(path.read_text(encoding="utf-8"), relative, "exec")
+            declared = {name for name in module.get_identifiers()
+                        if module.lookup(name).is_assigned() or module.lookup(name).is_imported()}
+            walk(module, declared, relative)
+        self.assertEqual(unresolved, [])
 
 
 if __name__ == "__main__":

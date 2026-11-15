@@ -40,6 +40,28 @@ V6_ASAN_EVIDENCE_PATHS = (
 )
 V6_ARCHIVE_RELATIVE = pathlib.PurePosixPath(
     "build/private-rsp-diagnostic/plan10-v6-executable-archive")
+V6_REFRESH1_ARCHIVE_RELATIVE = pathlib.PurePosixPath(
+    "build/private-rsp-diagnostic/plan10-v6-refresh1-executable-archive")
+V6_BINDING_PATHS = {
+    "v6": pathlib.PurePosixPath(
+        "build/private-rsp-diagnostic/current-core-identity-binding-v6.json"),
+    "v6-refresh1": pathlib.PurePosixPath(
+        "build/private-rsp-diagnostic/current-core-identity-binding-v6-refresh1.json"),
+}
+V6_ARCHIVE_PATHS = {
+    "v6": V6_ARCHIVE_RELATIVE,
+    "v6-refresh1": V6_REFRESH1_ARCHIVE_RELATIVE,
+}
+V6_BINDING_SCHEMAS = {
+    "v6": "t64.rsp-core-identity-binding.v6",
+    "v6-refresh1": "t64.rsp-core-identity-binding.v6-refresh1",
+}
+V6_ARCHIVE_SCHEMAS = {
+    "v6": "t64.rsp-plan10-v6-executable-archive.v1",
+    "v6-refresh1": "t64.rsp-plan10-v6-refresh1-executable-archive.v1",
+}
+HEX40 = re.compile(r"[0-9a-f]{40}\Z")
+HEX64 = re.compile(r"[0-9a-f]{64}\Z")
 RSP_PROFILE_ID = "ntsc-cart-4m-openipl3-rsp-functional-v1"
 V5_ADAPTER_SOURCE_PROVENANCE = (
     "t64.rsp.adapter-source-scope-hashes-distinct-from-core-build-annotation.v1"
@@ -579,9 +601,13 @@ def verify_v6_source_scope(binding: dict[str, object], prior: dict[str, object],
 
 
 def verify_v6_executable_archive(binding: dict[str, object],
-                                 binding_bytes: bytes) -> None:
+                                 binding_bytes: bytes,
+                                 binding_version: str = "v6") -> None:
+    if binding_version not in V6_ARCHIVE_PATHS:
+        refuse("unsupported RSP v6 binding context")
+    expected_archive = V6_ARCHIVE_PATHS[binding_version]
     archive_relative = pathlib.PurePosixPath(str(binding.get("binary_archive_path", "")))
-    if archive_relative != V6_ARCHIVE_RELATIVE:
+    if archive_relative != expected_archive:
         refuse("v6 binding selects an unexpected executable archive")
     archive_root = private_path(ROOT / archive_relative / "archive-receipt.json",
                                 "v6 executable archive receipt").parent
@@ -597,10 +623,10 @@ def verify_v6_executable_archive(binding: dict[str, object],
         "adapter_path", "adapter_sha256", "binding_path", "binding_sha256",
         "core_reader_path", "core_reader_sha256", "schema",
     }, "v6 executable archive receipt")
-    if (receipt["schema"] != "t64.rsp-plan10-v6-executable-archive.v1" or
-            receipt["adapter_path"] != (V6_ARCHIVE_RELATIVE / "adapter.bin").as_posix() or
-            receipt["core_reader_path"] != (V6_ARCHIVE_RELATIVE / "core-reader.bin").as_posix() or
-            receipt["binding_path"] != (V6_ARCHIVE_RELATIVE / "identity-binding.json").as_posix()):
+    if (receipt["schema"] != V6_ARCHIVE_SCHEMAS[binding_version] or
+            receipt["adapter_path"] != (expected_archive / "adapter.bin").as_posix() or
+            receipt["core_reader_path"] != (expected_archive / "core-reader.bin").as_posix() or
+            receipt["binding_path"] != (expected_archive / "identity-binding.json").as_posix()):
         refuse("v6 executable archive receipt selects unexpected paths")
     for key in ("adapter_sha256", "binding_sha256", "core_reader_sha256"):
         if not isinstance(receipt[key], str) or not HEX64.fullmatch(receipt[key]):
@@ -618,10 +644,16 @@ def verify_v6_executable_archive(binding: dict[str, object],
 
 
 def verify_v6_identity_receipts(binding: dict[str, object], qualification: dict[str, object],
-                                identity: dict[str, object], runtime: dict[str, object]) -> None:
+                                identity: dict[str, object], runtime: dict[str, object],
+                                binding_version: str = "v6") -> None:
+    if binding_version not in V6_BINDING_PATHS:
+        refuse("unsupported RSP v6 binding context")
     attempt_relative = pathlib.PurePosixPath(str(binding.get("identity_attempt_dir", "")))
+    attempt_prefix = ("plan10-current-binding-v6-" if binding_version == "v6" else
+                      "plan10-current-binding-v6-refresh1-")
     if (attempt_relative.is_absolute() or ".." in attempt_relative.parts or
-            not attempt_relative.as_posix().startswith("build/private-rsp-diagnostic/plan10-current-binding-v6-")):
+            not attempt_relative.as_posix().startswith(
+                f"build/private-rsp-diagnostic/{attempt_prefix}")):
         refuse("v6 identity attempt escapes the private RSP root")
     attempt_dir = ROOT / attempt_relative
     if attempt_dir.is_symlink() or not attempt_dir.is_dir() or stat.S_IMODE(attempt_dir.stat().st_mode) != 0o700:
@@ -716,7 +748,10 @@ def verify_v6_identity_receipts(binding: dict[str, object], qualification: dict[
 
 
 def verify_rsp_core_binding_v6(binding: dict[str, object], qualification_sha: str,
-                               build_identity: dict[str, object]) -> dict[str, object]:
+                               build_identity: dict[str, object],
+                               binding_version: str = "v6") -> dict[str, object]:
+    if binding_version not in V6_BINDING_PATHS:
+        refuse("unsupported RSP v6 binding context")
     expected = {
         "authorized_for_future_guest_use", "binary_archive_path", "component",
         "core_model", "core_source_scope", "core_state_schema", "current_identity",
@@ -728,7 +763,7 @@ def verify_rsp_core_binding_v6(binding: dict[str, object], qualification_sha: st
         "supersedes_binding_v4", "verification_scope",
     }
     binding = object_with_keys(binding, expected, "current RSP pre-use binding v6")
-    if (binding["schema"] != "t64.rsp-core-identity-binding.v6" or
+    if (binding["schema"] != V6_BINDING_SCHEMAS[binding_version] or
             binding["status"] != "preuse-verified-current-core-for-qualified-rsp-image" or
             binding["component"] != "rsp" or binding["qualification_sha256"] != qualification_sha or
             binding["profile_id"] != RSP_PROFILE_ID or binding["core_model"] != 6 or
@@ -785,9 +820,9 @@ def verify_rsp_core_binding_v6(binding: dict[str, object], qualification_sha: st
         refuse("v6 current core artifact identity is malformed")
     core_rows, host_rows = verify_v6_source_scope(binding, prior, identity["source_revision"])
     verify_v6_native_evidence(binding["native_evidence"])
-    verify_v6_executable_archive(binding, private_path(
-        ROOT / "build/private-rsp-diagnostic/current-core-identity-binding-v6.json",
-        "current v6 binding").read_bytes())
+    binding_path = private_path(ROOT / V6_BINDING_PATHS[binding_version],
+                                "current v6 binding")
+    verify_v6_executable_archive(binding, binding_path.read_bytes(), binding_version)
 
     history = object_with_keys(binding["historical_first_use"], {
         "adapter_exit", "classification", "historical_files",
@@ -817,7 +852,7 @@ def verify_rsp_core_binding_v6(binding: dict[str, object], qualification_sha: st
     if (adapter_record["path"] != "build/gate/runner/t64-rsp-diagnostic" or
             not HEX64.fullmatch(str(adapter_record["executable_sha256"]))):
         refuse("v6 RSP adapter identity is malformed")
-    verify_v6_identity_receipts(binding, qualification, identity, runtime)
+    verify_v6_identity_receipts(binding, qualification, identity, runtime, binding_version)
 
     adapter_path = project_path(ROOT / adapter_record["path"], "current v6 RSP adapter", 512 * 1024 * 1024)
     core_path = project_path(ROOT / identity["path"], "current v6 core identity reader", 512 * 1024 * 1024)
@@ -1708,13 +1743,13 @@ def verify_current_core_identity(build_identity: dict[str, object], qualificatio
                                  binding_version: str = "v5") -> None:
     identity_exe = ROOT / "build/gate/runner/t64-cpu-diagnostic"
     current_sha = private_digest(identity_exe, "current core identity executable")
-    if binding_version == "v6":
-        v6_binding = ROOT / "build/private-rsp-diagnostic/current-core-identity-binding-v6.json"
+    if binding_version in V6_BINDING_PATHS:
+        v6_binding = ROOT / V6_BINDING_PATHS[binding_version]
         if (not v6_binding.is_file() or v6_binding.is_symlink() or
                 stat.S_IMODE(v6_binding.stat().st_mode) != 0o600):
             refuse("current v6 RSP source binding is missing")
         verify_rsp_core_binding_v6(read_json(v6_binding), qualification_sha,
-                                   build_identity)
+                                   build_identity, binding_version)
         return
     if binding_version != "v5":
         refuse("unsupported RSP binding version")
@@ -1952,7 +1987,7 @@ def main() -> int:
     parser.add_argument("--verify-closure-fixture", type=pathlib.Path)
     parser.add_argument("--verify", type=pathlib.Path)
     parser.add_argument("--verify-source-closure", type=pathlib.Path)
-    parser.add_argument("--binding-version", choices=("v5", "v6"), default="v5")
+    parser.add_argument("--binding-version", choices=("v5", "v6", "v6-refresh1"), default="v5")
     parser.add_argument("--selftest", action="store_true")
     parser.add_argument("--workspace", type=pathlib.Path)
     args = parser.parse_args()

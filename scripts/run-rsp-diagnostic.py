@@ -23,6 +23,13 @@ PRIVATE = ROOT / "build/private-rsp-diagnostic"
 PROFILE_ID = "ntsc-cart-4m-openipl3-rsp-functional-v1"
 CORE_BINDING = PRIVATE / "current-core-identity-binding-v5-refresh3.json"
 V6_CORE_BINDING = PRIVATE / "current-core-identity-binding-v6.json"
+V6_REFRESH1_CORE_BINDING = PRIVATE / "current-core-identity-binding-v6-refresh1.json"
+V6_BINDING_SCHEMAS = {
+    "v5": "t64.rsp-core-identity-binding.v5",
+    "v6": "t64.rsp-core-identity-binding.v6",
+    "v6-refresh1": "t64.rsp-core-identity-binding.v6-refresh1",
+}
+V6_BINDING_VERSIONS = frozenset(("v6", "v6-refresh1"))
 FUTURE_EXECUTION_CONTEXT = PRIVATE / "current-rsp-future-execution-context-v1.json"
 INVENTORY_LIMIT = 1_048_576
 ROM_LIMIT = 0x00401000
@@ -403,6 +410,8 @@ def selected_core_binding(binding_version: str) -> pathlib.Path:
         return CORE_BINDING
     if binding_version == "v6":
         return V6_CORE_BINDING
+    if binding_version == "v6-refresh1":
+        return V6_REFRESH1_CORE_BINDING
     fail("unsupported RSP binding version")
 
 
@@ -412,8 +421,7 @@ def verify_current_preuse_context(adapter: pathlib.Path, runtime: dict | None,
     binding, binding_bytes = read_json_file(binding_path, 2 * 1024 * 1024,
                                             "current core identity binding",
                                             private_root=PRIVATE)
-    expected_schema = ("t64.rsp-core-identity-binding.v5" if binding_version == "v5"
-                       else "t64.rsp-core-identity-binding.v6")
+    expected_schema = V6_BINDING_SCHEMAS.get(binding_version)
     if (binding.get("schema") != expected_schema or
             binding.get("status") != "preuse-verified-current-core-for-qualified-rsp-image" or
             binding.get("component") != "rsp" or
@@ -476,8 +484,7 @@ def verify_runtime_binding(adapter: pathlib.Path, runtime: dict,
     qualification, qualification_bytes = read_json_file(
         PRIVATE / "qualification.json", 1_048_576,
         "RSP qualification receipt", private_root=PRIVATE)
-    expected_schema = ("t64.rsp-core-identity-binding.v5" if binding_version == "v5"
-                       else "t64.rsp-core-identity-binding.v6")
+    expected_schema = V6_BINDING_SCHEMAS.get(binding_version)
     if (binding.get("schema") != expected_schema or
             binding.get("status") != "preuse-verified-current-core-for-qualified-rsp-image" or
             binding.get("component") != "rsp" or
@@ -519,7 +526,7 @@ def verify_runtime_binding(adapter: pathlib.Path, runtime: dict,
             "tested_source_revision",
             binding["reviewed_source_delta"].get("core_tested_revision")),
         **({"host_source_revision": binding["reviewed_source_delta"]["host_source_revision"]}
-           if binding_version == "v6" else {}),
+           if binding_version in V6_BINDING_VERSIONS else {}),
         "status": "verified-current-rsp-execution-adapter",
     }
     if not identity_path.exists():
@@ -840,9 +847,16 @@ def run_mode(mode: str, adapter_arg: pathlib.Path,
     if os.environ.get("CI", "").lower() in {"true", "1"} or os.environ.get("T64_REQUIRE_FIXTURES") == "1":
         fail("RSP guest execution is local-only")
     adapter = adapter_path(adapter_arg)
-    run_dir = private_directory(run_dir_arg, create=True)
-    batch_dir = private_directory(run_dir / "batches", create=True)
-
+    run_dir = private_directory(run_dir_arg)
+    batch_dir = run_dir / "batches"
+    if mode == "verify-complete":
+        if not run_dir.is_dir() or run_dir.is_symlink():
+            fail("verify-complete requires an existing immutable run directory")
+        private_directory(batch_dir)
+        if not batch_dir.is_dir() or batch_dir.is_symlink():
+            fail("verify-complete requires the saved batch directory")
+    elif run_dir.exists() or run_dir.is_symlink():
+        fail("run directory must be fresh before pre-use verification")
     qual_stdout, qual_stderr = verify_before_adapter_use(adapter, binding_version)
     if mode == "verify-complete":
         # Validate existing immutable records, without recreating their inputs.
@@ -856,6 +870,8 @@ def run_mode(mode: str, adapter_arg: pathlib.Path,
         write_new(evidence / "complete-verification.stdout.log", stdout)
         write_new(evidence / "complete-verification.stderr.log", stderr)
         return 0 if code == 0 else 3
+    run_dir = private_directory(run_dir_arg, create=True)
+    batch_dir = private_directory(run_dir / "batches", create=True)
     write_new(run_dir / "preuse.stdout.log", qual_stdout)
     write_new(run_dir / "preuse.stderr.log", qual_stderr)
 
@@ -953,7 +969,7 @@ def main() -> int:
     parser.add_argument("--adapter", type=pathlib.Path,
                         default=ROOT / "build/gate/runner/t64-rsp-diagnostic")
     parser.add_argument("--run-dir", type=pathlib.Path)
-    parser.add_argument("--binding-version", choices=("v5", "v6"), default="v5")
+    parser.add_argument("--binding-version", choices=("v5", "v6", "v6-refresh1"), default="v5")
     args = parser.parse_args()
     try:
         if args.verify_current_context:

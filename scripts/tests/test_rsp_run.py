@@ -336,7 +336,7 @@ class RspRunControls(unittest.TestCase):
         self.assertTrue((run_dir / "complete-verification.stdout.log").is_file())
         self.assertFalse((private / "plan04" / "runtime-adapter-binding.json").exists())
 
-    def test_v6_run_all_and_verify_complete_reach_simulated_member_dispatch(self) -> None:
+    def _assert_v6_runner_accepts(self, binding_version: str) -> None:
         root = self.workspace
         adapter = root / "build/gate/runner/t64-rsp-diagnostic"
         core = root / "build/gate/runner/t64-cpu-diagnostic"
@@ -381,30 +381,39 @@ class RspRunControls(unittest.TestCase):
                 "path": "build/gate/runner/t64-rsp-diagnostic",
             },
             "rsp_runtime_identity": runtime,
-            "schema": "t64.rsp-core-identity-binding.v6",
+            "schema": self.module.V6_BINDING_SCHEMAS[binding_version],
             "status": "preuse-verified-current-core-for-qualified-rsp-image",
         }
-        binding_path = root / "current-core-identity-binding-v6.json"
+        binding_name = ("current-core-identity-binding-v6.json" if binding_version == "v6" else
+                        "current-core-identity-binding-v6-refresh1.json")
+        binding_path = root / binding_name
         binding_path.write_text(json.dumps(binding, sort_keys=True), encoding="utf-8")
         binding_path.chmod(0o600)
         inventory = {"component": "rsp", "members": [sample_member()]}
         build = {"composition": {"layout": {"selector_rom_offset": 0}}}
         canonical_runtime = json.dumps(runtime, sort_keys=True, separators=(",", ":")).encode()
         canonical_inventory = json.dumps(inventory, sort_keys=True, separators=(",", ":")).encode()
-        run_dir = root / "run-all-v6"
+        run_dir = root / f"run-all-{binding_version}"
+        binding_constant = ("V6_CORE_BINDING" if binding_version == "v6" else
+                            "V6_REFRESH1_CORE_BINDING")
         adapter_results = []
         capture_commands = []
+        preuse_count = 0
 
         def capture_preuse(command, **_kwargs):
+            nonlocal preuse_count
             capture_commands.append(command)
             if command[0] == sys.executable:
+                preuse_count += 1
+                if preuse_count == 1:
+                    self.assertFalse(run_dir.exists())
                 return 0, b"authored closure verified", b""
             return 0, canonical_runtime, b""
 
         with patch.dict(os.environ, {}, clear=True), \
                 patch.object(self.module, "ROOT", root), \
                 patch.object(self.module, "PRIVATE", root), \
-                patch.object(self.module, "V6_CORE_BINDING", binding_path), \
+                patch.object(self.module, binding_constant, binding_path), \
                 patch.object(self.module, "PROFILE_ID", profile_id), \
                 patch.object(self.module, "adapter_path", return_value=adapter), \
                 patch.object(self.module, "run_capture", side_effect=capture_preuse), \
@@ -414,13 +423,13 @@ class RspRunControls(unittest.TestCase):
                 patch.object(self.module, "write_selector_rom", return_value=root / "selected-authored-rom"), \
                 patch.object(self.module, "run_guest", return_value={"classification": "executed", "selector": sample_member()["selector"]}) as run_guest, \
                 patch.object(self.module, "invoke_adapter", side_effect=lambda _adapter, *args: (adapter_results.append(args[0]) or (0, b"authored validation ok", b""))) as invoke:
-            result = self.module.run_mode("run-all", adapter, run_dir, "v6")
-            verify_result = self.module.run_mode("verify-complete", adapter, run_dir, "v6")
+            result = self.module.run_mode("run-all", adapter, run_dir, binding_version)
+            verify_result = self.module.run_mode("verify-complete", adapter, run_dir, binding_version)
 
         self.assertEqual(result, 0)
         self.assertEqual(verify_result, 0)
         self.assertEqual(len(capture_commands), 3)
-        self.assertTrue(all(command[-2:] == ["--binding-version", "v6"]
+        self.assertTrue(all(command[-2:] == ["--binding-version", binding_version]
                             for command in capture_commands if command[0] == sys.executable))
         run_guest.assert_called_once()
         self.assertIn("--validate-inventory", adapter_results)
@@ -429,17 +438,25 @@ class RspRunControls(unittest.TestCase):
         self.assertEqual(invoke.call_count, 4)
         execution = json.loads((run_dir / "execution-binding.json").read_text(encoding="utf-8"))
         self.assertEqual(execution["schema"], "t64.rsp-current-execution-binding.v4")
-        self.assertEqual(execution["core_binding_path"], "current-core-identity-binding-v6.json")
+        self.assertEqual(execution["core_binding_path"], binding_path.name)
         self.assertTrue(any(path.name.startswith("verification-") for path in run_dir.iterdir()))
-        bad_binding = dict(binding, schema="t64.rsp-core-identity-binding.v5")
+        bad_schema = ("t64.rsp-core-identity-binding.v6" if binding_version == "v6-refresh1" else
+                      "t64.rsp-core-identity-binding.v5")
+        bad_binding = dict(binding, schema=bad_schema)
         binding_path.write_text(json.dumps(bad_binding, sort_keys=True), encoding="utf-8")
         with patch.object(self.module, "ROOT", root), \
                 patch.object(self.module, "PRIVATE", root), \
-                patch.object(self.module, "V6_CORE_BINDING", binding_path), \
+                patch.object(self.module, binding_constant, binding_path), \
                 patch.object(self.module, "PROFILE_ID", profile_id), \
                 patch.object(self.module, "adapter_hash", side_effect=lambda path: hashlib.sha256(path.read_bytes()).hexdigest()):
-            with self.assertRaisesRegex(self.module.Refusal, "v6 RSP pre-use binding"):
-                self.module.verify_current_preuse_context(adapter, None, "v6")
+            with self.assertRaisesRegex(self.module.Refusal, f"{binding_version} RSP pre-use binding"):
+                self.module.verify_current_preuse_context(adapter, None, binding_version)
+
+    def test_v6_run_all_and_verify_complete_reach_simulated_member_dispatch(self) -> None:
+        self._assert_v6_runner_accepts("v6")
+
+    def test_v6_refresh1_run_all_and_verify_complete_reach_simulated_member_dispatch(self) -> None:
+        self._assert_v6_runner_accepts("v6-refresh1")
 
     def test_guest_execution_refuses_fixture_mode_before_adapter_use(self) -> None:
         with patch.dict(os.environ, {"CI": "true", "T64_REQUIRE_FIXTURES": "1"}):
