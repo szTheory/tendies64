@@ -32,6 +32,9 @@ applies that direction; update it when the owner changes policy.
   adding the remaining source-backed matrix. Retain intermediate failures,
   but do not create another GSD classifier/commit/build cycle for each register.
   Keep tests before the affected behavior and verify cohesive source changes.
+  Retain owning CTest logs before inventory discovery or another CTest command;
+  discovery also replaces LastTest.log. Capture command output directly and
+  verify retained hashes before relying on the archive at closeout.
   Once implementation checks pass, close the summary and state promptly; do
   not repeat broad tests or scans solely for bookkeeping changes. Report the
   specific remaining command if a handoff stalls.
