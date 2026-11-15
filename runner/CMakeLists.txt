@@ -289,6 +289,36 @@ set_tests_properties(integration.open-ipl3-hello PROPERTIES
   LABELS integration TIMEOUT 120
   ENVIRONMENT
     "T64_TEST_HELLO_PATH=${CMAKE_SOURCE_DIR}/build/fixtures/hello.z64;T64_TEST_INPUT_PATH=${CMAKE_SOURCE_DIR}/build/fixtures/hello.input.json")
+
+# Bounded cold/T1 startup consumer: this accepts only the cleared authored
+# hello and the two exact Phase 6 profile identities. Controls use Tier A;
+# the serialized integration probe uses Tier B once and retains its output.
+add_executable(t64-cold-boot-probe t64_cold_boot.c)
+target_compile_definitions(t64-cold-boot-probe PRIVATE ${T64_HOST_DEFS})
+target_include_directories(t64-cold-boot-probe PRIVATE ${CMAKE_SOURCE_DIR}/core)
+target_link_libraries(t64-cold-boot-probe PRIVATE t64_common t64_core)
+add_dependencies(t64-cold-boot-probe t64-boot-fixtures)
+t64_target_warnings(t64-cold-boot-probe)
+
+add_executable(test_cold_boot tests/test_cold_boot.c)
+target_compile_definitions(test_cold_boot PRIVATE ${T64_HOST_DEFS})
+target_link_libraries(test_cold_boot PRIVATE t64_common)
+add_dependencies(test_cold_boot t64-cold-boot-probe t64-boot-fixtures)
+t64_target_warnings(test_cold_boot)
+add_test(NAME runner.cold-boot-controls
+  COMMAND test_cold_boot --controls $<TARGET_FILE:t64-cold-boot-probe>)
+set_tests_properties(runner.cold-boot-controls PROPERTIES
+  LABELS runner TIMEOUT 120
+  WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}
+  ENVIRONMENT "T64_TEST_HELLO_PATH=${CMAKE_SOURCE_DIR}/build/fixtures/hello.z64")
+add_test(NAME integration.cold-startup
+  COMMAND test_cold_boot --integration $<TARGET_FILE:t64-cold-boot-probe>
+          ${CMAKE_SOURCE_DIR})
+set_tests_properties(integration.cold-startup PROPERTIES
+  LABELS integration TIMEOUT 120 RUN_SERIAL TRUE
+  WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}
+  ENVIRONMENT "T64_TEST_HELLO_PATH=${CMAKE_SOURCE_DIR}/build/fixtures/hello.z64")
+
 add_test(NAME controls.real.open-ipl3-source-replaced
   COMMAND test_real_runner --source-replacement
     $<TARGET_FILE:t64-result-check>

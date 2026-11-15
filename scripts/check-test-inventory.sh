@@ -138,6 +138,9 @@ harness.rsp-divider-audit
 repo.rsp-no-hle
 integration.rsp-rom-smoke'
 
+PHASE06_TESTS='runner.cold-boot-controls
+integration.cold-startup'
+
 CPU_COVERAGE_OPCODES='ADD
 ADDU
 SUB
@@ -239,7 +242,7 @@ expected_names() {
     *) echo "unsupported preset: $_preset" >&2; return 2 ;;
   esac
   {
-    printf '%s\n' "$BASELINE_CORE" "$BASELINE_CONTROLS" "$PHASE02_TESTS" "$PHASE03_TESTS" "$PHASE04_TESTS" "$PHASE05_TESTS" "$_extra"
+    printf '%s\n' "$BASELINE_CORE" "$BASELINE_CONTROLS" "$PHASE02_TESTS" "$PHASE03_TESTS" "$PHASE04_TESTS" "$PHASE05_TESTS" "$PHASE06_TESTS" "$_extra"
   } | awk 'NF' | sort
 }
 
