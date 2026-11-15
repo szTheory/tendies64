@@ -496,7 +496,8 @@ typedef struct {
   bool ri_config_known;
   uint32_t ri_current_load;
   bool ri_current_load_known;
-  uint64_t ri_config_retired_at;
+  uint64_t ri_config_tick;
+  uint64_t ri_current_load_deadline_tick;
 } t64_rdram_protocol_state;
 
 typedef struct {

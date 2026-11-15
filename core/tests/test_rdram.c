@@ -134,6 +134,15 @@ static void check_latches_unchanged(const t64_machine *machine,
                 before->guest_devices.rdram_protocol.ri_config);
   T64_CHECK_INT(machine->guest_devices.rdram_protocol.ri_config_known,
                 before->guest_devices.rdram_protocol.ri_config_known);
+  T64_CHECK_INT(machine->guest_devices.rdram_protocol.ri_current_load,
+                before->guest_devices.rdram_protocol.ri_current_load);
+  T64_CHECK_INT(machine->guest_devices.rdram_protocol.ri_current_load_known,
+                before->guest_devices.rdram_protocol.ri_current_load_known);
+  T64_CHECK_INT(machine->guest_devices.rdram_protocol.ri_config_tick,
+                before->guest_devices.rdram_protocol.ri_config_tick);
+  T64_CHECK_INT(
+      machine->guest_devices.rdram_protocol.ri_current_load_deadline_tick,
+      before->guest_devices.rdram_protocol.ri_current_load_deadline_tick);
   T64_CHECK_INT(machine->mi_pending, before->mi_pending);
   T64_CHECK_INT(machine->mi_mask, before->mi_mask);
   T64_CHECK_INT(machine->mi_irq_line, before->mi_irq_line);
@@ -249,8 +258,8 @@ static void test_current_load_after_source_wait(void) {
   machine->cpu.pc = start_pc;
   machine->cpu.pc_full = UINT64_C(0xffffffffa4000100);
 
-  /* The pinned source calls wait(0x100), implemented as 256 loop iterations.
-     This v1 native model uses 256 retired instructions as its named delay. */
+  /* The pinned source calls wait(0x100). The named v1 software model maps
+     that interval to 256 guest ticks; it is not a hardware timing claim. */
   for (index = 0u; index < delay_instructions; index++) {
     const uint64_t target_tick = machine->tick + UINT64_C(1);
     const t64_stop_request request = {T64_STOP_GUEST_TICK, target_tick};
@@ -272,6 +281,107 @@ static void test_current_load_after_source_wait(void) {
   T64_CHECK_INT(t64_bus_write(machine, TEST_RI_CURRENT_LOAD, 4u, 0u),
                 T64_STATUS_OK);
   t64_machine_destroy(machine);
+}
+
+static void advance_to_guest_tick(t64_machine *machine, uint64_t target_tick) {
+  const t64_stop_request request = {T64_STOP_GUEST_TICK, target_tick};
+  t64_stop_result result = {UINT32_MAX, UINT64_MAX};
+
+  T64_CHECK_INT(t64_machine_advance(machine, &request, &result),
+                T64_STATUS_OK);
+  T64_CHECK_INT(result.reason, T64_STOP_REASON_BOUND);
+  T64_CHECK_INT(result.tick, target_tick);
+}
+
+static void prepare_variable_cost_sequence(t64_machine *machine,
+                                          uint32_t instruction_count) {
+  uint32_t index;
+
+  machine->queue_head = 0u;
+  machine->queue_count = 0u;
+  machine->next_sequence = 0u;
+  machine->sequence_exhausted = false;
+  machine->cpu.pc = UINT32_C(0xa4000100);
+  machine->cpu.pc_full = UINT64_C(0xffffffffa4000100);
+  machine->cpu.gpr[1] = UINT64_C(21);
+  machine->cpu.gpr[2] = UINT64_C(3);
+  for (index = 0u; index < instruction_count; index++) {
+    write_instruction(machine, UINT32_C(0x100) + index * UINT32_C(4),
+                      index == 0u ? UINT32_C(0x0022001a) : 0u);
+  }
+  T64_CHECK_INT(t64_cpu_schedule(machine), T64_STATUS_OK);
+}
+
+static void test_current_load_uses_guest_ticks_and_is_partition_invariant(
+    void) {
+  t64_machine *idle = NULL;
+  t64_machine *one_shot = NULL;
+  t64_machine *partitioned = NULL;
+  uint64_t deadline;
+  uint64_t retired_before;
+  rdram_latch_snapshot before;
+
+  T64_CHECK(create_machine("ntsc-cart-4m-openipl3-rdram-b-t1-v1", &idle));
+  T64_CHECK(create_machine("ntsc-cart-4m-openipl3-rdram-b-t1-v1", &one_shot));
+  T64_CHECK(create_machine("ntsc-cart-4m-openipl3-rdram-b-t1-v1",
+                           &partitioned));
+  if (idle == NULL || one_shot == NULL || partitioned == NULL) {
+    t64_machine_destroy(idle);
+    t64_machine_destroy(one_shot);
+    t64_machine_destroy(partitioned);
+    return;
+  }
+
+  T64_CHECK_INT(t64_bus_write(idle, TEST_RI_CONFIG, 4u, UINT32_C(0x40)),
+                T64_STATUS_OK);
+  T64_CHECK_INT(t64_bus_write(one_shot, TEST_RI_CONFIG, 4u, UINT32_C(0x40)),
+                T64_STATUS_OK);
+  T64_CHECK_INT(t64_bus_write(partitioned, TEST_RI_CONFIG, 4u,
+                              UINT32_C(0x40)),
+                T64_STATUS_OK);
+  deadline = idle->guest_devices.rdram_protocol.ri_current_load_deadline_tick;
+  T64_CHECK_INT(deadline, idle->tick + UINT64_C(0x100));
+
+  /* Empty queues let guest time advance while the CPU is idle. The rejected
+     just-before-deadline write must preserve every captured device latch. */
+  idle->queue_head = 0u;
+  idle->queue_count = 0u;
+  advance_to_guest_tick(idle, deadline - UINT64_C(1));
+  before = capture_latches(idle);
+  T64_CHECK_INT(t64_bus_write(idle, TEST_RI_CURRENT_LOAD, 4u, 0u),
+                T64_STATUS_BUS_DEVICE_REFUSED);
+  check_latches_unchanged(idle, &before);
+  advance_to_guest_tick(idle, deadline);
+  T64_CHECK_INT(t64_bus_write(idle, TEST_RI_CURRENT_LOAD, 4u, 0u),
+                T64_STATUS_OK);
+  T64_CHECK_INT(idle->cpu.retired_instructions, 0u);
+
+  /* A variable-cost authored DIV delays retirement while guest ticks pass.
+     One-shot and partitioned advances must reach the same deadline state. */
+  retired_before = one_shot->cpu.retired_instructions;
+  prepare_variable_cost_sequence(one_shot, 256u);
+  prepare_variable_cost_sequence(partitioned, 256u);
+  advance_to_guest_tick(one_shot, deadline);
+  advance_to_guest_tick(partitioned, deadline - UINT64_C(73));
+  advance_to_guest_tick(partitioned, deadline);
+  T64_CHECK(one_shot->cpu.retired_instructions - retired_before < 256u);
+  T64_CHECK_INT(one_shot->tick, partitioned->tick);
+  T64_CHECK_INT(one_shot->cpu.retired_instructions,
+                partitioned->cpu.retired_instructions);
+  T64_CHECK_INT(one_shot->cpu.pc_full, partitioned->cpu.pc_full);
+  T64_CHECK_INT(one_shot->cpu.last_pc_full, partitioned->cpu.last_pc_full);
+  T64_CHECK_INT(one_shot->cpu.last_opcode, partitioned->cpu.last_opcode);
+  T64_CHECK_INT(one_shot->cpu.hi, partitioned->cpu.hi);
+  T64_CHECK_INT(one_shot->cpu.lo, partitioned->cpu.lo);
+  T64_CHECK_INT(one_shot->queue_count, partitioned->queue_count);
+  T64_CHECK_INT(t64_bus_write(one_shot, TEST_RI_CURRENT_LOAD, 4u, 0u),
+                T64_STATUS_OK);
+  T64_CHECK_INT(t64_bus_write(partitioned, TEST_RI_CURRENT_LOAD, 4u, 0u),
+                T64_STATUS_OK);
+
+  t64_machine_destroy(idle);
+  t64_machine_destroy(one_shot);
+  t64_machine_destroy(partitioned);
 }
 
 static void test_first_cold_register_instruction(void) {
@@ -371,6 +481,7 @@ int main(void) {
   test_cold_command_requires_zero_selection();
   test_prepared_profile_does_not_admit_cold_registers();
   test_current_load_after_source_wait();
+  test_current_load_uses_guest_ticks_and_is_partition_invariant();
   test_first_cold_register_instruction();
   return T64_TEST_FINISH("unit.core.rdram-protocol");
 }
