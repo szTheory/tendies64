@@ -294,7 +294,18 @@ Plans:
   2. Count and Random advance under the tier 1 instruction-granular cost model, and the tests cite their expectation sources. The cycle-accurate tier is documented as deferred, with the evidence needed to promote it
   3. The full base suite reports per-group status with its total count pinned. The timing, cycle and cop0hazard groups are reported as informational, experimental groups stay out of the required gate, and stress groups run in a scheduled lane
   4. The milestone's support statement for the first profile uses the claims template: profile, build identity, evidence tier and fixture-manifest entry for every reported result. It makes no claim beyond those results
-**Plans**: TBD
+**Plans**: 9 plans
+
+Plans:
+- [ ] 06-01-PLAN.md — Two cold profiles and real static T1 instruction intervals (wave 1)
+- [ ] 06-09-PLAN.md — Qualified cold runner and first bounded actual startup (wave 2)
+- [ ] 06-02-PLAN.md — Independent full BASE qualification and early actual member
+- [ ] 06-03-PLAN.md — Deterministic RDRAM protocol and exact access/state ownership
+- [ ] 06-04-PLAN.md — T1 Count/Random, failure atomicity and scheduler interleave
+- [ ] 06-05-PLAN.md — Actual Tier A/B hello output and per-profile determinism
+- [ ] 06-06-PLAN.md — Full C classification, permitted target execution and explicit lanes
+- [ ] 06-07-PLAN.md — Original-evidence validator and bounded first-profile claims
+- [ ] 06-08-PLAN.md — Complete reviews, scoped fixes and final exact-artifact gate
 
 ## v1.1 Observable Machine
 
