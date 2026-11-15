@@ -68,6 +68,10 @@ applies that direction; update it when the owner changes policy.
   `ast.parse` for Python syntax checks: explicit `py_compile` can write bytecode
   despite `-B`, and generated binary files in source directories correctly fail
   the rights scanner. Remove only attributable generated outputs, then recheck.
+  Before a diagnostic sweep, prove a successful ROM admission and a single
+  canonical tick with the real adapter and a cleared authored input. Refusal-only
+  controls missed its host allocator passing byte alignment directly to
+  `posix_memalign`; normalize valid core alignment requests to the host minimum.
 - Efficiency correction (owner feedback, 2026-11-12): before a broad retest,
   inspect `node scripts/verification-scope.mjs --base <last-tested-source>`.
   It includes staged, unstaged and new source changes, including ignored code

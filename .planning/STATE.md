@@ -6,8 +6,8 @@ current_phase: 6
 current_phase_name: Cold Boot, CPU Timing and Full Base Suite
 current_plan: 06
 status: executing
-stopped_at: Authored Tier A/B boot and determinism verified; continuing suite classification. Prior external attempt remains stopped.
-last_updated: "2026-11-15T16:07:03.203Z"
+stopped_at: Plan06 source classification and combined image implemented; successful admission control verified; preparing fresh local qualification after adapter allocation repair. Prior attempts retained.
+last_updated: "2026-11-15T18:40:46.000Z"
 last_activity: 2026-11-14
 last_activity_desc: Phase 6 execution started
 state_head: 2aa20c02f41855a09da19de4564d8cc4e4896948
@@ -226,6 +226,6 @@ Items acknowledged and deferred at milestone close, most recent first:
 
 ## Session Continuity
 
-Last session: 2026-11-15T16:07:02.646Z
-Stopped at: Authored Tier A/B boot and determinism verified; continuing suite classification. Prior external attempt remains stopped.
+Last session: 2026-11-15T18:40:46.000Z
+Stopped at: Plan06 allocation repair passed both owning presets; next fresh qualification and bounded required dispatch. Detailed checkpoint is build/gate/06-06-execution-checkpoint.md. Prior attempts remain immutable.
 Resume file: .planning/phases/06-cold-boot-cpu-timing-and-full-base-suite/06-06-PLAN.md

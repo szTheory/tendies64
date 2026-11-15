@@ -173,6 +173,33 @@ def create_combined_context(repository, control_adapter, *, missing_selector=Fal
 
 
 class BaseRunControls(unittest.TestCase):
+    def test_real_adapter_admits_cleared_boot_before_single_tick(self):
+        """Positive allocator/admission control, with no external diagnostic."""
+        adapter = pathlib.Path(os.environ.get("T64_BASE_CONTROL_ADAPTER",
+            ROOT / "build/gate/runner/t64-base-diagnostic-controls"))
+        boot = ROOT / "build/fixtures/ipl3_compat.z64"
+        boot_bytes = boot.read_bytes()
+        self.assertEqual(digest(boot_bytes),
+                         "f522db2e31a701f82597f399e76d55c9487760d015aff9d90176b463ae39a068")
+        with tempfile.TemporaryDirectory(prefix="base-positive-admission-") as temp:
+            repository = pathlib.Path(temp)
+            (repository / "build").mkdir(mode=0o700)
+            _, context, selected = create_combined_context(repository, adapter)
+            authority = (context / "source-authority.json").read_bytes()
+            env = {**os.environ, "CI": "", "T64_REQUIRE_FIXTURES": "0",
+                   "T64_BASE_CONTROL_ROOT": str(context)}
+            result = subprocess.run([str(selected), "--run-bound-local", "--local-only",
+                str(context / "source-authority.json"), digest(authority),
+                str(context / "inventory.json"), str(boot), str(len(boot_bytes)), digest(boot_bytes),
+                "1", "0", "0", str(context / "positive-record.json"),
+                str(context / "positive-capture.bin"), digest((context / "context.json").read_bytes())],
+                cwd=ROOT, env=env, capture_output=True, timeout=2)
+            self.assertEqual(result.returncode, 3, result.stdout)
+            self.assertIn(b"stage=guest-tick-bound", result.stdout)
+            record = json.loads((context / "positive-record.json").read_bytes())
+            self.assertEqual(record["tick"], "1")
+            self.assertEqual(record["reason"], "guest-tick-bound")
+
     def test_interrupted_batch_retains_honest_dispositions(self):
         adapter = pathlib.Path(os.environ.get("T64_BASE_CONTROL_ADAPTER",
             ROOT / "build/gate/runner/t64-base-diagnostic-controls"))

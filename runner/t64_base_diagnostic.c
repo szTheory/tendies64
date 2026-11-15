@@ -265,12 +265,13 @@ static bool write_private_file(const char *path, const uint8_t *bytes,
 static bool allocate_machine(void *context, size_t size, size_t alignment,
                              t64_host_storage *storage_out) {
   void *memory = NULL;
+  const size_t host_alignment = alignment < sizeof(void *) ? sizeof(void *) : alignment;
   (void)context;
-  if (storage_out == NULL || alignment == 0u ||
-      posix_memalign(&memory, alignment, size) != 0) return false;
+  if (storage_out == NULL || alignment == 0u || (alignment & (alignment - 1u)) != 0u ||
+      posix_memalign(&memory, host_alignment, size) != 0) return false;
   storage_out->data = memory;
   storage_out->capacity = size;
-  storage_out->alignment = alignment;
+  storage_out->alignment = host_alignment;
   return true;
 }
 
