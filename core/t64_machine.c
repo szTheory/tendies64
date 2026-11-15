@@ -96,6 +96,20 @@ static const t64_profile_descriptor ntsc_cart_4m_profile = {
   }
 #define T64_VR4300_OPENIPL3_FLAT_ENTRY_POLICY \
   "exact-source-or-flat-payload-z64-cpu-4m-v1"
+#define T64_RDRAM_A_T1_POLICY_SHA256_BYTES                                   \
+  {                                                                          \
+    0x2fu, 0xe0u, 0x00u, 0xd9u, 0x0du, 0x86u, 0x1cu, 0x77u,                  \
+        0xd5u, 0xaau, 0x6fu, 0xc8u, 0x45u, 0x02u, 0xdeu, 0xb4u,              \
+        0x84u, 0xadu, 0x4fu, 0x84u, 0x3au, 0x2eu, 0x08u, 0xefu,              \
+        0xe6u, 0xdeu, 0xa0u, 0x0bu, 0x2fu, 0x6bu, 0x29u, 0xe5u               \
+  }
+#define T64_RDRAM_B_T1_POLICY_SHA256_BYTES                                   \
+  {                                                                          \
+    0x58u, 0xa2u, 0xa1u, 0x4eu, 0x78u, 0xbeu, 0x81u, 0xabu,                  \
+        0x98u, 0xc4u, 0x38u, 0x7eu, 0x9bu, 0x26u, 0xabu, 0xa7u,              \
+        0x1du, 0xc8u, 0x7fu, 0x73u, 0x46u, 0x45u, 0x1bu, 0x30u,              \
+        0xb7u, 0x74u, 0xe2u, 0xeau, 0xe1u, 0xdcu, 0x5fu, 0x01u               \
+  }
 
 static const t64_profile_descriptor ntsc_cart_4m_openipl3_warm_profile = {
     .profile_id = "ntsc-cart-4m-openipl3-warm-v1",
@@ -355,6 +369,110 @@ static const t64_profile_descriptor
         .hle_seed_reset_version = 2u,
 };
 
+static const t64_profile_descriptor
+    ntsc_cart_4m_openipl3_rdram_a_t1_profile = {
+        .profile_id = "ntsc-cart-4m-openipl3-rdram-a-t1-v1",
+        .console_target = "NUS-CPU-03",
+        .console_qualification = "unqualified-target-software-seed",
+        .tv_standard = T64_TV_NTSC,
+        .region = T64_REGION_US,
+        .media_kind = T64_MEDIA_CARTRIDGE,
+        .rdram_bytes = T64_BASE_RAM_BYTES,
+        .expansion_bytes = 0u,
+        .peripheral_flags = 0u,
+        .save_kind = T64_SAVE_NONE,
+        .boot_route = "hle-pif+open-ipl3",
+        .boot_status = "prepared-rdram-a-t1-entry-partial",
+        .guest_tick_unit = "model-rsp-cycle",
+        .cpu_rsp_ratio_numerator = 1u,
+        .cpu_rsp_ratio_denominator = 1u,
+        .synchronization_quantum = 1u,
+        .timing_tier = "t1-instruction-cost-v1",
+        .scheduler_version = "tick-sequence-fifo-v1",
+        .pi_model_version = "pi_dma_bounded_cart_v1",
+        .sp_model_version = "rsp-functional-issue-dma-divider-integer-v1",
+        .rom_min_bytes = 4096u,
+        .rom_max_bytes = T64_VR4300_OPENIPL3_ROM_LIMIT,
+        .event_queue_capacity = 256u,
+        .sequence_width_bits = 64u,
+        .advance_event_budget = 4096u,
+        .pi_duration_base_ticks = 1u,
+        .pi_duration_bytes_divisor = 2u,
+        .sp_duration_base_rsp_cycles = 12u,
+        .sp_duration_bytes_divisor = 8u,
+        .rom_order_policy = T64_VR4300_OPENIPL3_FLAT_ENTRY_POLICY,
+        .event_order_policy = "tick-sequence-fifo-v1",
+        .queue_exhaustion_policy = "reject-before-mutation-v1",
+        .sequence_exhaustion_policy = "reject-before-mutation-v1",
+        .advance_budget_policy = "bounded-4096-events-v1",
+        .guest_time_bound_policy = "inclusive-idle-advance-v1",
+        .halt_precedence_policy = "halt-at-bound-wins-v1",
+        .pi_register_policy = "bounded-pi-register-and-cart-dma-v1",
+        .sp_register_policy = "rsp-issue-status-dma-policy-v1",
+        .device_error_policy = "sticky-pi-error-v1",
+        .dma_cancel_policy = "token-match-complete-once-v1",
+        .dma_visibility_policy = "rsp-one-beat-per-issue-v1",
+        .descriptor_version = 4u,
+        .machine_model_version = 7u,
+        .state_serialization_version = 13u,
+        .asset_sha256 = T64_OPENIPL3_ASSET_SHA256_BYTES,
+        .payload_sha256 = T64_OPENIPL3_PAYLOAD_SHA256_BYTES,
+        .boot_policy_sha256 = T64_RDRAM_A_T1_POLICY_SHA256_BYTES,
+        .hle_seed_reset_version = 3u,
+};
+
+static const t64_profile_descriptor
+    ntsc_cart_4m_openipl3_rdram_b_t1_profile = {
+        .profile_id = "ntsc-cart-4m-openipl3-rdram-b-t1-v1",
+        .console_target = "NUS-CPU-03",
+        .console_qualification = "unqualified-target-software-seed",
+        .tv_standard = T64_TV_NTSC,
+        .region = T64_REGION_US,
+        .media_kind = T64_MEDIA_CARTRIDGE,
+        .rdram_bytes = T64_BASE_RAM_BYTES,
+        .expansion_bytes = 0u,
+        .peripheral_flags = 0u,
+        .save_kind = T64_SAVE_NONE,
+        .boot_route = "hle-pif+open-ipl3",
+        .boot_status = "prepared-rdram-b-t1-entry-partial",
+        .guest_tick_unit = "model-rsp-cycle",
+        .cpu_rsp_ratio_numerator = 1u,
+        .cpu_rsp_ratio_denominator = 1u,
+        .synchronization_quantum = 1u,
+        .timing_tier = "t1-instruction-cost-v1",
+        .scheduler_version = "tick-sequence-fifo-v1",
+        .pi_model_version = "pi_dma_bounded_cart_v1",
+        .sp_model_version = "rsp-functional-issue-dma-divider-integer-v1",
+        .rom_min_bytes = 4096u,
+        .rom_max_bytes = T64_VR4300_OPENIPL3_ROM_LIMIT,
+        .event_queue_capacity = 256u,
+        .sequence_width_bits = 64u,
+        .advance_event_budget = 4096u,
+        .pi_duration_base_ticks = 1u,
+        .pi_duration_bytes_divisor = 2u,
+        .sp_duration_base_rsp_cycles = 12u,
+        .sp_duration_bytes_divisor = 8u,
+        .rom_order_policy = T64_VR4300_OPENIPL3_FLAT_ENTRY_POLICY,
+        .event_order_policy = "tick-sequence-fifo-v1",
+        .queue_exhaustion_policy = "reject-before-mutation-v1",
+        .sequence_exhaustion_policy = "reject-before-mutation-v1",
+        .advance_budget_policy = "bounded-4096-events-v1",
+        .guest_time_bound_policy = "inclusive-idle-advance-v1",
+        .halt_precedence_policy = "halt-at-bound-wins-v1",
+        .pi_register_policy = "bounded-pi-register-and-cart-dma-v1",
+        .sp_register_policy = "rsp-issue-status-dma-policy-v1",
+        .device_error_policy = "sticky-pi-error-v1",
+        .dma_cancel_policy = "token-match-complete-once-v1",
+        .dma_visibility_policy = "rsp-one-beat-per-issue-v1",
+        .descriptor_version = 4u,
+        .machine_model_version = 8u,
+        .state_serialization_version = 13u,
+        .asset_sha256 = T64_OPENIPL3_ASSET_SHA256_BYTES,
+        .payload_sha256 = T64_OPENIPL3_PAYLOAD_SHA256_BYTES,
+        .boot_policy_sha256 = T64_RDRAM_B_T1_POLICY_SHA256_BYTES,
+        .hle_seed_reset_version = 3u,
+};
+
 static const uint8_t openipl3_asset_sha256[T64_DIGEST_SIZE] =
     T64_OPENIPL3_ASSET_SHA256_BYTES;
 static const uint8_t openipl3_payload_sha256[T64_DIGEST_SIZE] =
@@ -439,13 +557,37 @@ static bool has_rsp_functional_profile_id(
                             profile_id, sizeof profile_id);
 }
 
+static bool has_rdram_a_t1_profile_id(
+    const t64_profile_descriptor *profile) {
+  static const char profile_id[] =
+      "ntsc-cart-4m-openipl3-rdram-a-t1-v1";
+
+  return profile != NULL &&
+         bounded_text_equal(profile->profile_id,
+                            sizeof profile->profile_id,
+                            profile_id, sizeof profile_id);
+}
+
+static bool has_rdram_b_t1_profile_id(
+    const t64_profile_descriptor *profile) {
+  static const char profile_id[] =
+      "ntsc-cart-4m-openipl3-rdram-b-t1-v1";
+
+  return profile != NULL &&
+         bounded_text_equal(profile->profile_id,
+                            sizeof profile->profile_id,
+                            profile_id, sizeof profile_id);
+}
+
 static bool has_pinned_openipl3_profile_id(
     const t64_profile_descriptor *profile) {
   return has_openipl3_profile_id(profile) ||
          has_vr4300_openipl3_profile_id(profile) ||
          has_vr4300_compat_profile_id(profile) ||
          has_vr4300_compat_v2_profile_id(profile) ||
-         has_rsp_functional_profile_id(profile);
+         has_rsp_functional_profile_id(profile) ||
+         has_rdram_a_t1_profile_id(profile) ||
+         has_rdram_b_t1_profile_id(profile);
 }
 
 static bool is_openipl3_profile(const t64_profile_descriptor *profile) {
@@ -515,10 +657,44 @@ static bool is_rsp_functional_profile(
                 sizeof candidate_digest) == 0;
 }
 
+static bool is_rdram_a_t1_profile(
+    const t64_profile_descriptor *profile) {
+  uint8_t candidate_digest[T64_DIGEST_SIZE];
+  uint8_t canonical_digest[T64_DIGEST_SIZE];
+
+  if (profile == NULL || profile->descriptor_version != 4u ||
+      !has_rdram_a_t1_profile_id(profile) ||
+      t64_profile_hash(profile, candidate_digest) != T64_STATUS_OK ||
+      t64_profile_hash(&ntsc_cart_4m_openipl3_rdram_a_t1_profile,
+                       canonical_digest) != T64_STATUS_OK) {
+    return false;
+  }
+  return memcmp(candidate_digest, canonical_digest,
+                sizeof candidate_digest) == 0;
+}
+
+static bool is_rdram_b_t1_profile(
+    const t64_profile_descriptor *profile) {
+  uint8_t candidate_digest[T64_DIGEST_SIZE];
+  uint8_t canonical_digest[T64_DIGEST_SIZE];
+
+  if (profile == NULL || profile->descriptor_version != 4u ||
+      !has_rdram_b_t1_profile_id(profile) ||
+      t64_profile_hash(profile, candidate_digest) != T64_STATUS_OK ||
+      t64_profile_hash(&ntsc_cart_4m_openipl3_rdram_b_t1_profile,
+                       canonical_digest) != T64_STATUS_OK) {
+    return false;
+  }
+  return memcmp(candidate_digest, canonical_digest,
+                sizeof candidate_digest) == 0;
+}
+
 static bool is_vr4300_cpu_profile(const t64_profile_descriptor *profile) {
   return is_vr4300_openipl3_profile(profile) ||
          is_vr4300_compat_profile(profile) ||
-         is_rsp_functional_profile(profile);
+         is_rsp_functional_profile(profile) ||
+         is_rdram_a_t1_profile(profile) ||
+         is_rdram_b_t1_profile(profile);
 }
 
 static bool is_pinned_openipl3_profile(
@@ -769,6 +945,9 @@ static void write_profile(profile_writer *writer,
   } else if (profile->descriptor_version == 3u) {
     /* Descriptor v3 explicitly carries all pinned boot metadata as well. */
     write_openipl3_boot_metadata(writer, profile);
+  } else if (profile->descriptor_version == 4u) {
+    /* Descriptor v4 binds the T1 boot-policy variants independently. */
+    write_openipl3_boot_metadata(writer, profile);
   }
 }
 
@@ -874,12 +1053,14 @@ static t64_status prepare_openipl3_warm_entry(t64_machine *machine) {
 
 static t64_status prepare_openipl3_vr4300_entry(t64_machine *machine) {
   const uint8_t *image = (const uint8_t *)machine->image_storage.data;
+  bool t1_policy = t64_has_t1_policy(machine);
+  bool rdram_protocol_policy = t64_has_rdram_protocol_policy(machine);
 
   machine->boot.source_offset = UINT32_C(0x40);
   machine->boot.payload_length = UINT32_C(0xfc0);
   machine->boot.dmem_offset = UINT32_C(0x40);
   machine->boot.entry_pc = UINT32_C(0xa4000040);
-  machine->boot.seed_reset_version = UINT32_C(2);
+  machine->boot.seed_reset_version = t1_policy ? UINT32_C(3) : UINT32_C(2);
   machine->boot.seed_s3_rom_type = UINT32_C(0);
   machine->boot.seed_s4_tv_type = UINT32_C(1);
   machine->boot.seed_s5_reset_type = UINT32_C(1);
@@ -889,8 +1070,14 @@ static t64_status prepare_openipl3_vr4300_entry(t64_machine *machine) {
                sizeof machine->boot.asset_sha256);
   (void)memcpy(machine->boot.payload_sha256, openipl3_payload_sha256,
                sizeof machine->boot.payload_sha256);
-  (void)memcpy(machine->boot.policy_sha256, vr4300_openipl3_policy_sha256,
-               sizeof machine->boot.policy_sha256);
+  if (t1_policy) {
+    (void)memcpy(machine->boot.policy_sha256,
+                 machine->profile.boot_policy_sha256,
+                 sizeof machine->boot.policy_sha256);
+  } else {
+    (void)memcpy(machine->boot.policy_sha256, vr4300_openipl3_policy_sha256,
+                 sizeof machine->boot.policy_sha256);
+  }
   (void)memcpy(machine->sp_dmem + machine->boot.dmem_offset,
                image + machine->boot.source_offset,
                machine->boot.payload_length);
@@ -936,7 +1123,8 @@ static t64_status prepare_openipl3_vr4300_entry(t64_machine *machine) {
   machine->cache.policy_version = UINT32_C(2);
   machine->guest_devices.policy_version = T64_WARM_DEVICE_POLICY_VERSION;
   machine->guest_devices.mi_version = 0u;
-  machine->guest_devices.ri_select = 1u;
+  machine->guest_devices.ri_select =
+      t1_policy ? (rdram_protocol_policy ? 0u : 5u) : 1u;
   machine->guest_devices.mi_version_known = true;
   machine->guest_devices.ri_select_known = true;
   machine->output.policy_version = T64_ISVIEWER_POLICY_VERSION;
@@ -991,6 +1179,10 @@ t64_status t64_profile_lookup(const char *profile_id,
       "ntsc-cart-4m-openipl3-vr4300-compat-v2";
   static const char rsp_functional_profile_id[] =
       "ntsc-cart-4m-openipl3-rsp-functional-v1";
+  static const char rdram_a_t1_profile_id[] =
+      "ntsc-cart-4m-openipl3-rdram-a-t1-v1";
+  static const char rdram_b_t1_profile_id[] =
+      "ntsc-cart-4m-openipl3-rdram-b-t1-v1";
 
   if (profile_out == NULL) {
     return T64_STATUS_INVALID_ARGUMENT;
@@ -1030,6 +1222,18 @@ t64_status t64_profile_lookup(const char *profile_id,
                          rsp_functional_profile_id,
                          sizeof rsp_functional_profile_id)) {
     *profile_out = &ntsc_cart_4m_openipl3_rsp_functional_profile;
+    return T64_STATUS_OK;
+  }
+  if (bounded_text_equal(profile_id, T64_PROFILE_TEXT_CAPACITY,
+                         rdram_a_t1_profile_id,
+                         sizeof rdram_a_t1_profile_id)) {
+    *profile_out = &ntsc_cart_4m_openipl3_rdram_a_t1_profile;
+    return T64_STATUS_OK;
+  }
+  if (bounded_text_equal(profile_id, T64_PROFILE_TEXT_CAPACITY,
+                         rdram_b_t1_profile_id,
+                         sizeof rdram_b_t1_profile_id)) {
+    *profile_out = &ntsc_cart_4m_openipl3_rdram_b_t1_profile;
     return T64_STATUS_OK;
   }
   return T64_STATUS_UNKNOWN_PROFILE;

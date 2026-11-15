@@ -137,6 +137,7 @@ t64_status t64_machine_digest(const t64_machine *machine,
                                        't', 'e', '.', 'v', '1', '1'};
   static const uint8_t domain_v12[] =
       "t64.state.rsp.functional.12";
+  static const uint8_t domain_v13[] = "t64.state.rdram.t1.13";
   t64_sha256_ctx context;
   t64_address_range output_range;
   const bool has_v6_state =
@@ -151,10 +152,13 @@ t64_status t64_machine_digest(const t64_machine *machine,
       machine != NULL && machine->profile.state_serialization_version == 10u;
   const bool has_v11_state =
       machine != NULL && machine->profile.state_serialization_version == 11u;
-  const bool has_v12_state = t64_has_rsp_functional_profile(machine);
+  const bool has_v12_state =
+      machine != NULL && machine->profile.state_serialization_version == 12u;
+  const bool has_v13_state = t64_has_t1_policy(machine);
+  const bool has_rsp_state = has_v12_state || has_v13_state;
   const bool has_warm_state =
       has_v6_state || has_v7_state || has_v8_state || has_v9_state ||
-      has_v10_state || has_v11_state || has_v12_state;
+      has_v10_state || has_v11_state || has_rsp_state;
   size_t i;
 
   if (machine == NULL || digest_out == NULL ||
@@ -167,7 +171,9 @@ t64_status t64_machine_digest(const t64_machine *machine,
   }
 
   t64_sha256_init(&context);
-  if (has_v12_state) {
+  if (has_v13_state) {
+    t64_sha256_update(&context, domain_v13, sizeof domain_v13 - 1u);
+  } else if (has_v12_state) {
     t64_sha256_update(&context, domain_v12, sizeof domain_v12 - 1u);
   } else if (has_v11_state) {
     t64_sha256_update(&context, domain_v11, sizeof domain_v11);
@@ -294,12 +300,12 @@ t64_status t64_machine_digest(const t64_machine *machine,
     hash_u32(&context, machine->cpu.stop_reason);
     hash_u32(&context, machine->cpu.stop_pc);
     hash_u32(&context, machine->cpu.stop_opcode);
-    if (has_v9_state || has_v10_state || has_v11_state || has_v12_state) {
+    if (has_v9_state || has_v10_state || has_v11_state || has_rsp_state) {
       hash_vr4300_cpu_state(&context, &machine->cpu);
-      if (has_v10_state || has_v11_state || has_v12_state) {
+      if (has_v10_state || has_v11_state || has_rsp_state) {
         hash_u64(&context, machine->cpu.delay_origin_pc_full);
       }
-      if (has_v11_state || has_v12_state) {
+      if (has_v11_state || has_rsp_state) {
         hash_u64(&context, machine->cpu.cp2_transfer_latch);
       }
     }
@@ -324,7 +330,7 @@ t64_status t64_machine_digest(const t64_machine *machine,
     hash_u32(&context, machine->output.audio_output_ready ? UINT32_C(1)
                                                           : UINT32_C(0));
     if (has_v7_state || has_v8_state || has_v9_state || has_v10_state ||
-        has_v11_state || has_v12_state) {
+        has_v11_state || has_rsp_state) {
       /* Retained guest output is future state; the host drain cursor is not. */
       hash_u32(&context, machine->output.magic_register);
       hash_u32(&context, machine->output.byte_count);
@@ -338,7 +344,7 @@ t64_status t64_machine_digest(const t64_machine *machine,
       hash_u32(&context,
                machine->output.lost_output ? UINT32_C(1) : UINT32_C(0));
       if (has_v8_state || has_v9_state || has_v10_state || has_v11_state ||
-          has_v12_state) {
+          has_rsp_state) {
         hash_u64(&context, machine->output.total_attempted_bytes);
         hash_u32(&context,
                  machine->output.total_attempted_bytes_saturated
@@ -346,7 +352,7 @@ t64_status t64_machine_digest(const t64_machine *machine,
                      : UINT32_C(0));
       }
     }
-    if (has_v12_state) {
+    if (has_rsp_state) {
       const t64_rsp_state *rsp = &machine->rsp;
 
       for (i = 0u; i < 32u; i++) {

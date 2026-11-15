@@ -603,7 +603,25 @@ static inline bool t64_has_vr4300_cpu_state(const t64_machine *machine) {
           (machine->profile.machine_model_version == 5u &&
            machine->profile.state_serialization_version == 11u) ||
           (machine->profile.machine_model_version == 6u &&
-           machine->profile.state_serialization_version == 12u));
+           machine->profile.state_serialization_version == 12u) ||
+          (machine->profile.machine_model_version == 7u &&
+           machine->profile.state_serialization_version == 13u) ||
+          (machine->profile.machine_model_version == 8u &&
+           machine->profile.state_serialization_version == 13u));
+}
+
+static inline bool t64_has_t1_policy(const t64_machine *machine) {
+  return machine != NULL &&
+         ((machine->profile.machine_model_version == 7u &&
+           machine->profile.state_serialization_version == 13u) ||
+          (machine->profile.machine_model_version == 8u &&
+           machine->profile.state_serialization_version == 13u));
+}
+
+static inline bool t64_has_rdram_protocol_policy(
+    const t64_machine *machine) {
+  return machine != NULL && machine->profile.machine_model_version == 8u &&
+         machine->profile.state_serialization_version == 13u;
 }
 
 static inline bool t64_has_cpu_compat_extension_policy(
@@ -612,13 +630,22 @@ static inline bool t64_has_cpu_compat_extension_policy(
          ((machine->profile.machine_model_version == 5u &&
            machine->profile.state_serialization_version == 11u) ||
           (machine->profile.machine_model_version == 6u &&
-           machine->profile.state_serialization_version == 12u));
+           machine->profile.state_serialization_version == 12u) ||
+          (machine->profile.machine_model_version == 7u &&
+           machine->profile.state_serialization_version == 13u) ||
+          (machine->profile.machine_model_version == 8u &&
+           machine->profile.state_serialization_version == 13u));
 }
 
 static inline bool t64_has_rsp_functional_profile(
     const t64_machine *machine) {
-  return machine != NULL && machine->profile.machine_model_version == 6u &&
-         machine->profile.state_serialization_version == 12u;
+  return machine != NULL &&
+         ((machine->profile.machine_model_version == 6u &&
+           machine->profile.state_serialization_version == 12u) ||
+          (machine->profile.machine_model_version == 7u &&
+           machine->profile.state_serialization_version == 13u) ||
+          (machine->profile.machine_model_version == 8u &&
+           machine->profile.state_serialization_version == 13u));
 }
 
 static inline bool t64_has_cpu_compat_policy(const t64_machine *machine) {
