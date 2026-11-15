@@ -701,6 +701,16 @@ static void test_source_invalid_device_id_refusal_preserves_protocol_state(
                     machine, TEST_RDRAM_ID509 + UINT32_C(4), &readback),
                 T64_STATUS_OK);
   T64_CHECK_INT(readback, UINT32_C(0xf4800300));
+  /* libdragon continues to RI_REFRESH after its zero-weighted calibration
+     branch invalidates this device ID; capacity enumeration has not run. */
+  T64_CHECK(!machine->guest_devices.rdram_protocol.capacity_scan_complete);
+  T64_CHECK_INT(t64_bus_write(machine, TEST_RI_REFRESH, 4u,
+                              UINT32_C(0x00063634)),
+                T64_STATUS_OK);
+  T64_CHECK_INT(t64_bus_read(machine, TEST_RI_REFRESH, 4u, &readback),
+                T64_STATUS_OK);
+  T64_CHECK_INT(readback, UINT32_C(0x00063634));
+  T64_CHECK(!machine->guest_devices.rdram_protocol.capacity_scan_complete);
   T64_CHECK_INT(read_upper_rdram_register(
                     machine, TEST_RDRAM_REGS + UINT32_C(4), &readback),
                 T64_STATUS_BUS_DEVICE_REFUSED);
