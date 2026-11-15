@@ -93,6 +93,7 @@ static void reset_device_protocol(t64_machine *machine) {
   protocol->mi_repeat_enabled = false;
   protocol->mi_repeat_known = false;
   protocol->mi_repeat_length = 0u;
+  protocol->mi_upper_mode = false;
   protocol->logical_device_count = T64_RDRAM_PROTOCOL_SLOT_COUNT;
   protocol->capacity_scan_complete = false;
   protocol->logical_capacity_bytes = 0u;
@@ -341,9 +342,16 @@ static t64_status write_device_register(t64_machine *machine, uint16_t id,
 static t64_status read_device_register(const t64_rdram_protocol_state *protocol,
                                        uint16_t id, uint32_t reg,
                                        uint32_t *value_out) {
-  const t64_rdram_device_state *device = find_const_device(protocol, id);
+  const t64_rdram_device_state *device;
   uint32_t value;
 
+  if (protocol == NULL || value_out == NULL) {
+    return T64_STATUS_INVALID_ARGUMENT;
+  }
+  if ((reg & UINT32_C(1)) != 0u && !protocol->mi_upper_mode) {
+    return T64_STATUS_BUS_DEVICE_REFUSED;
+  }
+  device = find_const_device(protocol, id);
   if (device == NULL) {
     if (id == T64_RDRAM_ABSENT_DEVICE_ID && reg == T64_RDRAM_REG_MODE &&
         device_scan_ready(protocol)) {

@@ -524,6 +524,7 @@ typedef struct {
   bool mi_repeat_enabled;
   bool mi_repeat_known;
   uint32_t mi_repeat_length;
+  bool mi_upper_mode;
   uint16_t broadcast_registers_known;
   uint32_t broadcast_register_values[T64_RDRAM_PROTOCOL_REGISTER_COUNT];
   uint8_t logical_device_count;

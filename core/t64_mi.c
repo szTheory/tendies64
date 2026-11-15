@@ -9,6 +9,8 @@
 #define T64_MI_WMODE_CLEAR_REPEAT UINT32_C(0x00000080)
 #define T64_MI_WMODE_SET_REPEAT UINT32_C(0x00000100)
 #define T64_MI_WMODE_REPEAT_LENGTH_16 UINT32_C(0x0000000f)
+#define T64_MI_WMODE_CLEAR_UPPER UINT32_C(0x00001000)
+#define T64_MI_WMODE_SET_UPPER UINT32_C(0x00002000)
 #define T64_MI_WMODE_CLEAR_DP_INTR UINT32_C(0x00000800)
 #define T64_MI_INTERRUPT_DP UINT32_C(0x00000020)
 
@@ -102,6 +104,9 @@ bool t64_mi_register_read(const t64_machine *machine, uint32_t address,
                 ? T64_MI_WMODE_SET_REPEAT |
                       (protocol->mi_repeat_length - UINT32_C(1))
                 : 0u;
+    if (protocol->mi_upper_mode) {
+      value |= T64_MI_WMODE_SET_UPPER;
+    }
   } else if (address == T64_MI_INTR_REG) {
     value = machine->mi_pending & T64_MI_INTERRUPT_BITS;
   } else if (address == T64_MI_INTR_MASK_REG) {
@@ -123,6 +128,14 @@ t64_status t64_mi_register_write(t64_machine *machine, uint32_t address,
     t64_rdram_protocol_state *protocol =
         &machine->guest_devices.rdram_protocol;
 
+    if (value == T64_MI_WMODE_SET_UPPER) {
+      protocol->mi_upper_mode = true;
+      return T64_STATUS_OK;
+    }
+    if (value == T64_MI_WMODE_CLEAR_UPPER) {
+      protocol->mi_upper_mode = false;
+      return T64_STATUS_OK;
+    }
     if (value == (T64_MI_WMODE_SET_REPEAT |
                   T64_MI_WMODE_REPEAT_LENGTH_16)) {
       if (!protocol->ri_mode_known || protocol->ri_mode != UINT32_C(0x0e) ||

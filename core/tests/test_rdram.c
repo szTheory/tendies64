@@ -391,6 +391,25 @@ static bool prepare_cold_rdram_register_access(t64_machine *machine) {
   return true;
 }
 
+static t64_status read_upper_rdram_register(t64_machine *machine,
+                                            uint32_t address,
+                                            uint32_t *value_out) {
+  t64_status read_status;
+  t64_status clear_status;
+
+  if (machine == NULL || value_out == NULL) {
+    return T64_STATUS_INVALID_ARGUMENT;
+  }
+  if (t64_mi_register_write(machine, TEST_MI_MODE, UINT32_C(0x2000)) !=
+      T64_STATUS_OK) {
+    return T64_STATUS_BUS_DEVICE_REFUSED;
+  }
+  read_status = t64_rdram_read(machine, address, 4u, value_out);
+  clear_status = t64_mi_register_write(machine, TEST_MI_MODE,
+                                       UINT32_C(0x1000));
+  return read_status != T64_STATUS_OK ? read_status : clear_status;
+}
+
 static void test_rdram_broadcast_devices_calibration_and_capacity(void) {
   t64_machine *machine = NULL;
   rdram_latch_snapshot before;
@@ -436,10 +455,25 @@ static void test_rdram_broadcast_devices_calibration_and_capacity(void) {
   T64_CHECK_INT(t64_rdram_write(machine,
                                 TEST_RDRAM_BROADCAST + UINT32_C(20), 4u, 0u),
                 T64_STATUS_OK);
+  readback = UINT32_C(0xfeedface);
+  before = capture_latches(machine);
+  T64_CHECK_INT(t64_rdram_read(machine, TEST_RDRAM_ID511 + UINT32_C(4),
+                               4u, &readback),
+                T64_STATUS_BUS_DEVICE_REFUSED);
+  T64_CHECK_INT(readback, UINT32_C(0xfeedface));
+  check_latches_unchanged(machine, &before);
+  T64_CHECK_INT(t64_mi_register_write(machine, TEST_MI_MODE,
+                                      UINT32_C(0x2000)),
+                T64_STATUS_OK);
+  T64_CHECK(machine->guest_devices.rdram_protocol.mi_upper_mode);
   T64_CHECK_INT(t64_rdram_read(machine, TEST_RDRAM_ID511 + UINT32_C(4), 4u,
                                &readback),
                 T64_STATUS_OK);
   T64_CHECK_INT(readback, UINT32_C(0xfc800300));
+  T64_CHECK_INT(t64_mi_register_write(machine, TEST_MI_MODE,
+                                      UINT32_C(0x1000)),
+                T64_STATUS_OK);
+  T64_CHECK(!machine->guest_devices.rdram_protocol.mi_upper_mode);
   T64_CHECK_INT(t64_rdram_read(machine, TEST_RDRAM_ID511 + UINT32_C(8), 4u,
                                &readback),
                 T64_STATUS_OK);
@@ -452,12 +486,18 @@ static void test_rdram_broadcast_devices_calibration_and_capacity(void) {
   check_latches_unchanged(machine, &before);
 
   readback = UINT32_C(0xfeedface);
+  T64_CHECK_INT(t64_mi_register_write(machine, TEST_MI_MODE,
+                                      UINT32_C(0x2000)),
+                T64_STATUS_OK);
   before = capture_latches(machine);
   T64_CHECK_INT(t64_rdram_read(machine, TEST_RDRAM_SLOT4 + UINT32_C(12), 4u,
                                &readback),
                 T64_STATUS_BUS_DEVICE_REFUSED);
   T64_CHECK_INT(readback, UINT32_C(0xfeedface));
   check_latches_unchanged(machine, &before);
+  T64_CHECK_INT(t64_mi_register_write(machine, TEST_MI_MODE,
+                                      UINT32_C(0x1000)),
+                T64_STATUS_OK);
 
   before = capture_latches(machine);
   T64_CHECK_INT(t64_rdram_write(machine, TEST_RDRAM_ID511 + UINT32_C(4),
@@ -468,8 +508,8 @@ static void test_rdram_broadcast_devices_calibration_and_capacity(void) {
   T64_CHECK_INT(t64_rdram_write(machine, TEST_RDRAM_ID511 + UINT32_C(4),
                                 4u, 0u),
                 T64_STATUS_OK);
-  T64_CHECK_INT(t64_rdram_read(machine, TEST_RDRAM_REGS + UINT32_C(4), 4u,
-                               &readback),
+  T64_CHECK_INT(read_upper_rdram_register(
+                    machine, TEST_RDRAM_REGS + UINT32_C(4), &readback),
                 T64_STATUS_OK);
   T64_CHECK_INT(readback, 0u);
   T64_CHECK_INT(t64_rdram_write(machine, TEST_RDRAM_REGS + UINT32_C(12),
@@ -478,15 +518,15 @@ static void test_rdram_broadcast_devices_calibration_and_capacity(void) {
   T64_CHECK_INT(t64_rdram_write(machine, TEST_RDRAM_REGS + UINT32_C(12),
                                 4u, UINT32_C(0xc6000000)),
                 T64_STATUS_OK);
-  T64_CHECK_INT(t64_rdram_read(machine, TEST_RDRAM_REGS + UINT32_C(12), 4u,
-                               &readback),
+  T64_CHECK_INT(read_upper_rdram_register(
+                    machine, TEST_RDRAM_REGS + UINT32_C(12), &readback),
                 T64_STATUS_OK);
   T64_CHECK_INT(readback, UINT32_C(0xc6000000));
   T64_CHECK_INT(t64_rdram_read(machine, TEST_RDRAM_REGS, 4u, &readback),
                 T64_STATUS_OK);
   T64_CHECK_INT(readback, UINT32_C(0xb4190000));
-  T64_CHECK_INT(t64_rdram_read(machine, TEST_RDRAM_REGS + UINT32_C(36), 4u,
-                               &readback),
+  T64_CHECK_INT(read_upper_rdram_register(
+                    machine, TEST_RDRAM_REGS + UINT32_C(36), &readback),
                 T64_STATUS_OK);
   T64_CHECK_INT(readback, 0u);
   T64_CHECK_INT(t64_rdram_write(machine, TEST_RDRAM_REGS + UINT32_C(24), 4u,
@@ -496,8 +536,8 @@ static void test_rdram_broadcast_devices_calibration_and_capacity(void) {
   T64_CHECK_INT(t64_rdram_write(machine, TEST_RDRAM_ID511 + UINT32_C(4),
                                 4u, UINT32_C(0x08000000)),
                 T64_STATUS_OK);
-  T64_CHECK_INT(t64_rdram_read(machine, TEST_RDRAM_SLOT2 + UINT32_C(4), 4u,
-                               &readback),
+  T64_CHECK_INT(read_upper_rdram_register(
+                    machine, TEST_RDRAM_SLOT2 + UINT32_C(4), &readback),
                 T64_STATUS_OK);
   T64_CHECK_INT(readback, UINT32_C(0x08000000));
   T64_CHECK_INT(t64_rdram_write(machine,
@@ -508,9 +548,8 @@ static void test_rdram_broadcast_devices_calibration_and_capacity(void) {
                                 TEST_RDRAM_SLOT2 + UINT32_C(12), 4u,
                                 UINT32_C(0xc6000000)),
                 T64_STATUS_OK);
-  T64_CHECK_INT(t64_rdram_read(machine,
-                               TEST_RDRAM_SLOT2 + UINT32_C(12), 4u,
-                               &readback),
+  T64_CHECK_INT(read_upper_rdram_register(
+                    machine, TEST_RDRAM_SLOT2 + UINT32_C(12), &readback),
                 T64_STATUS_OK);
   T64_CHECK_INT(readback, UINT32_C(0xc6000000));
   before = capture_latches(machine);
@@ -530,9 +569,8 @@ static void test_rdram_broadcast_devices_calibration_and_capacity(void) {
   T64_CHECK(machine->guest_devices.rdram_protocol.capacity_scan_complete);
   T64_CHECK_INT(machine->guest_devices.rdram_protocol.logical_capacity_bytes,
                 UINT32_C(0x00400000));
-  T64_CHECK_INT(t64_rdram_read(machine,
-                               TEST_RDRAM_SLOT4 + UINT32_C(12), 4u,
-                               &readback),
+  T64_CHECK_INT(read_upper_rdram_register(
+                    machine, TEST_RDRAM_SLOT4 + UINT32_C(12), &readback),
                 T64_STATUS_OK);
   T64_CHECK_INT(readback, 0u);
 
@@ -549,6 +587,10 @@ static void test_rdram_broadcast_devices_calibration_and_capacity(void) {
                 T64_STATUS_BUS_DEVICE_REFUSED);
   check_latches_unchanged(machine, &before);
 
+  T64_CHECK_INT(t64_mi_register_write(machine, TEST_MI_MODE,
+                                      UINT32_C(0x2000)),
+                T64_STATUS_OK);
+  T64_CHECK(machine->guest_devices.rdram_protocol.mi_upper_mode);
   /* RI reset deliberately interrupts enumeration and resets model-only
      device/MI state while retaining the already-applied load. */
   T64_CHECK_INT(t64_bus_write(machine, TEST_RI_MODE, 4u, 0u), T64_STATUS_OK);
@@ -557,9 +599,49 @@ static void test_rdram_broadcast_devices_calibration_and_capacity(void) {
                 0u);
   T64_CHECK(!machine->guest_devices.rdram_protocol.mi_repeat_enabled);
   T64_CHECK(!machine->guest_devices.rdram_protocol.mi_repeat_known);
+  T64_CHECK(!machine->guest_devices.rdram_protocol.mi_upper_mode);
   T64_CHECK_INT(t64_rdram_write(machine, TEST_RDRAM_BROADCAST + UINT32_C(8),
                                 4u, UINT32_C(0xefbeadde)),
                 T64_STATUS_BUS_DEVICE_REFUSED);
+  t64_machine_destroy(machine);
+}
+
+static void test_mi_upper_mode_commands_follow_pinned_source(void) {
+  t64_machine *machine = NULL;
+  uint32_t readback = UINT32_C(0xfeedface);
+
+  T64_CHECK(create_machine("ntsc-cart-4m-openipl3-rdram-b-t1-v1", &machine));
+  if (machine == NULL) {
+    return;
+  }
+
+  /* Pinned boot/minidragon.h wraps odd RDRAM register reads with these
+     source-defined MI_MODE commands. */
+  T64_CHECK_INT(t64_mi_register_write(machine, TEST_MI_MODE,
+                                      UINT32_C(0x2000)),
+                T64_STATUS_OK);
+  T64_CHECK(machine->guest_devices.rdram_protocol.mi_upper_mode);
+  T64_CHECK(t64_mi_register_read(machine, TEST_MI_MODE, &readback));
+  T64_CHECK_INT(readback, UINT32_C(0x2000));
+  T64_CHECK_INT(t64_mi_register_write(machine, TEST_MI_MODE,
+                                      UINT32_C(0x1000)),
+                T64_STATUS_OK);
+  T64_CHECK(!machine->guest_devices.rdram_protocol.mi_upper_mode);
+  T64_CHECK(t64_mi_register_read(machine, TEST_MI_MODE, &readback));
+  T64_CHECK_INT(readback, 0u);
+
+  t64_machine_destroy(machine);
+  machine = NULL;
+
+  /* Tier A and older profiles retain their existing MI_MODE refusal path. */
+  T64_CHECK(create_machine("ntsc-cart-4m-openipl3-rdram-a-t1-v1", &machine));
+  if (machine == NULL) {
+    return;
+  }
+  T64_CHECK_INT(t64_mi_register_write(machine, TEST_MI_MODE,
+                                      UINT32_C(0x2000)),
+                T64_STATUS_BUS_UNSUPPORTED);
+  T64_CHECK(!machine->guest_devices.rdram_protocol.mi_upper_mode);
   t64_machine_destroy(machine);
 }
 
@@ -752,6 +834,8 @@ static void test_rdram_protocol_state_changes_only_v13_digest(void) {
                               protocol->mi_repeat_known = false);
   CHECK_PROTOCOL_FIELD_CHANGE(protocol->mi_repeat_length = 16u,
                               protocol->mi_repeat_length = 0u);
+  CHECK_PROTOCOL_FIELD_CHANGE(protocol->mi_upper_mode = true,
+                              protocol->mi_upper_mode = false);
   CHECK_PROTOCOL_FIELD_CHANGE(protocol->broadcast_registers_known = 1u,
                               protocol->broadcast_registers_known = 0u);
   for (register_index = 0u;
@@ -1091,6 +1175,7 @@ int main(void) {
   test_cold_ri_select_after_current_load();
   test_current_load_uses_guest_ticks_and_is_partition_invariant();
   test_rdram_broadcast_devices_calibration_and_capacity();
+  test_mi_upper_mode_commands_follow_pinned_source();
   test_bus_routes_cold_rdram_device_registers();
   test_rdram_protocol_instances_are_independent();
   test_rdram_protocol_state_changes_only_v13_digest();

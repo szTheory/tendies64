@@ -74,6 +74,7 @@ static void hash_rdram_protocol_state(
   hash_u32(context, protocol->mi_repeat_enabled ? 1u : 0u);
   hash_u32(context, protocol->mi_repeat_known ? 1u : 0u);
   hash_u32(context, protocol->mi_repeat_length);
+  hash_u32(context, protocol->mi_upper_mode ? 1u : 0u);
   hash_u32(context, protocol->broadcast_registers_known);
   for (register_index = 0u;
        register_index < T64_RDRAM_PROTOCOL_REGISTER_COUNT;
