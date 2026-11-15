@@ -9,18 +9,28 @@ import json
 import os
 import pathlib
 import re
+import signal
 import stat
 import subprocess
 import sys
 import tempfile
+import time
 
 sys.dont_write_bytecode = True
 ROOT = pathlib.Path(__file__).resolve().parents[1]
 PRIVATE = ROOT / "build/private-base-diagnostic"
 CPU_PRIVATE = ROOT / "build/private-cpu-diagnostic"
+RSP_PRIVATE = ROOT / "build/private-rsp-diagnostic"
 CPU_ADAPTER_RELATIVE = "build/gate/runner/t64-cpu-diagnostic"
 BASE_ADAPTER = ROOT / "build/gate/runner/t64-base-diagnostic"
 PROJECTION = ROOT / "build/private-cpu-diagnostic/source-projection.json"
+RSP_PROJECTION = RSP_PRIVATE / "rsp-source-projection.json"
+RSP_QUALIFICATION = RSP_PRIVATE / "qualification.json"
+RSP_OVERLAY = RSP_PRIVATE / "rsp-overlay-preparation.json"
+CPU_SOURCE = CPU_PRIVATE / "overlay-checkout-8aa0921"
+BASE_SOURCE = CPU_PRIVATE / "nemu64-test"
+BASE_IMAGE = PRIVATE / "base.z64"
+BASE_COMPOSITION = PRIVATE / "combined-image.json"
 HEX64 = re.compile(r"^[0-9a-f]{64}$")
 HEX40 = re.compile(r"^[0-9a-f]{40}$")
 PROFILE_ID = "ntsc-cart-4m-openipl3-rdram-b-t1-v1"
@@ -446,6 +456,321 @@ def accepted_cpu_image() -> tuple[dict, dict, dict, pathlib.Path, bytes, pathlib
             resolved["composition"][0])
 
 
+def accepted_rsp_inputs(cpu_projection_bytes: bytes,
+                        source_revision: str) -> tuple[dict, dict, dict, pathlib.Path]:
+    for path in (RSP_PROJECTION, RSP_QUALIFICATION, RSP_OVERLAY):
+        if path.is_symlink() or not path.is_file() or path.stat().st_size > 32 * 1024 * 1024:
+            refuse("accepted RSP source inputs are missing, linked, or oversized")
+    qualification = json.loads(RSP_QUALIFICATION.read_bytes())
+    if (not isinstance(qualification, dict) or
+            qualification.get("schema") != "t64.rsp-qualification.v1" or
+            qualification.get("status") != "qualified" or
+            qualification.get("source_revision") != source_revision):
+        refuse("accepted RSP qualification targets a different source revision")
+    closure_ref = qualification.get("closure")
+    closure_path = row_path(closure_ref, "RSP source closure")
+    if closure_path != RSP_PRIVATE / "rsp-preuse-closure.json":
+        refuse("RSP qualification does not use the fixed reviewed source closure")
+    closure_bytes = closure_path.read_bytes()
+    if digest(closure_bytes) != closure_ref.get("sha256"):
+        refuse("accepted RSP source closure differs from its qualification")
+    closure = json.loads(closure_bytes)
+    projection_bytes = RSP_PROJECTION.read_bytes()
+    rsp_projection = json.loads(projection_bytes)
+    overlay = json.loads(RSP_OVERLAY.read_bytes())
+    membership = qualification.get("membership")
+    inputs = rsp_projection.get("inputs") if isinstance(rsp_projection, dict) else None
+    closure_membership = closure.get("membership") if isinstance(closure, dict) else None
+    closure_overlay = closure.get("overlay") if isinstance(closure, dict) else None
+    if (not isinstance(membership, dict) or
+            membership.get("path") != RSP_PROJECTION.relative_to(ROOT).as_posix() or
+            membership.get("sha256") != digest(projection_bytes) or
+            not isinstance(rsp_projection, dict) or
+            rsp_projection.get("source_revision") != source_revision or
+            not isinstance(inputs, dict) or
+            inputs.get("cpu_source_projection_sha256") !=
+                digest(cpu_projection_bytes) or
+            not isinstance(closure, dict) or
+            closure.get("status") != "PASS_PREBUILD_RSP" or
+            not isinstance(closure_membership, dict) or
+            closure_membership.get("path") != membership.get("path") or
+            closure_membership.get("sha256") != membership.get("sha256") or
+            not isinstance(overlay, dict) or
+            overlay.get("schema") != "t64.rsp-overlay-preparation.v1" or
+            overlay.get("source_revision") != source_revision or
+            not isinstance(closure_overlay, dict) or
+            closure_overlay.get("checkout") != overlay.get("checkout") or
+            closure_overlay.get("sha256") != overlay.get("overlay_sha256")):
+        refuse("RSP projection, overlay, and source closure do not form one accepted input set")
+    verifier = subprocess.run(
+        [sys.executable, "-B", "scripts/verify-rsp-diagnostic-qualification.py",
+         "--verify-source-closure", str(RSP_QUALIFICATION)],
+        cwd=ROOT, env={**os.environ, "CI": "", "T64_REQUIRE_FIXTURES": "0",
+                       "PYTHONDONTWRITEBYTECODE": "1"},
+        stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+        timeout=120, check=False,
+    )
+    if verifier.returncode != 0:
+        refuse("accepted RSP source/tool/asset closure no longer passes")
+    if (digest(RSP_PROJECTION.read_bytes()) != membership["sha256"] or
+            digest(RSP_QUALIFICATION.read_bytes()) != digest(canonical(qualification)) or
+            digest(closure_path.read_bytes()) != closure_ref["sha256"] or
+            digest(RSP_OVERLAY.read_bytes()) != digest(canonical(overlay))):
+        refuse("RSP source inputs changed during their pre-use verification")
+    overlay_root_text = overlay.get("checkout")
+    if not isinstance(overlay_root_text, str):
+        refuse("accepted RSP overlay checkout path is malformed")
+    overlay_root = ROOT / pathlib.PurePosixPath(overlay_root_text)
+    try:
+        overlay_root.relative_to(RSP_PRIVATE)
+    except ValueError:
+        refuse("accepted RSP overlay checkout escapes its private root")
+    if overlay_root.is_symlink() or not overlay_root.is_dir():
+        refuse("accepted RSP overlay checkout is missing or linked")
+    return rsp_projection, qualification, closure, overlay_root
+
+
+def run_private_command(command: list[str], work: pathlib.Path, label: str,
+                        *, cwd: pathlib.Path = ROOT,
+                        env: dict[str, str] | None = None,
+                        timeout: int = 60) -> bytes:
+    started = time.monotonic()
+    stdout_path, stderr_path = work / f"{label}.stdout.log", work / f"{label}.stderr.log"
+    out_fd = os.open(stdout_path, os.O_WRONLY | os.O_CREAT | os.O_EXCL |
+                     getattr(os, "O_NOFOLLOW", 0), 0o600)
+    try:
+        err_fd = os.open(stderr_path, os.O_WRONLY | os.O_CREAT | os.O_EXCL |
+                         getattr(os, "O_NOFOLLOW", 0), 0o600)
+    except BaseException:
+        os.close(out_fd)
+        raise
+    with os.fdopen(out_fd, "wb") as out, os.fdopen(err_fd, "wb") as err:
+        process = subprocess.Popen(
+            command, cwd=cwd, env=env, stdin=subprocess.DEVNULL,
+            stdout=out, stderr=err, start_new_session=True,
+        )
+        timed_out = False
+        deadline = started + timeout
+        try:
+            while os.waitid(os.P_PID, process.pid, os.WEXITED | os.WNOHANG | os.WNOWAIT) is None:
+                if time.monotonic() >= deadline:
+                    timed_out = True
+                    break
+                time.sleep(min(0.01, max(0.0, deadline - time.monotonic())))
+            timed_out = timed_out or time.monotonic() >= deadline
+        finally:
+            try:
+                os.killpg(process.pid, signal.SIGKILL)
+            except (ProcessLookupError, PermissionError):
+                pass
+            finally:
+                exit_code = process.wait(timeout=1)
+        group_empty = False
+        cleanup_deadline = time.monotonic() + 1
+        while time.monotonic() < cleanup_deadline:
+            try:
+                os.killpg(process.pid, 0)
+            except ProcessLookupError:
+                group_empty = True
+                break
+            except PermissionError:
+                pass
+            time.sleep(0.01)
+    private_write(work / f"{label}.command.json", canonical({
+        "argv": command, "cwd": str(cwd), "exit": exit_code,
+        "timed_out": timed_out, "process_group_empty": group_empty,
+        "seconds": round(time.monotonic() - started, 3),
+    }))
+    if timed_out or exit_code != 0 or not group_empty:
+        refuse(f"combined BASE {label} failed; inspect the private build attempt")
+    return stdout_path.read_bytes()
+
+
+def build_combined_image(cpu_qualification: dict, projection: dict,
+                         projection_bytes: bytes, source_closure: dict,
+                         source_audit: dict, rsp_projection: dict,
+                         rsp_qualification: dict, rsp_closure: dict,
+                         rsp_overlay_root: pathlib.Path,
+                         source_closure_sha256: str) -> tuple[pathlib.Path, pathlib.Path]:
+    overlay_builder = load_module(
+        ROOT / "scripts/apply-base-diagnostic-overlay.py", "t64_base_overlay")
+    projection = overlay_builder.checked_projection(projection)
+    cpu_revision = projection["source_revision"]
+    if rsp_projection.get("source_revision") != cpu_revision:
+        refuse("CPU and RSP source projections do not share a revision")
+    work = pathlib.Path(tempfile.mkdtemp(prefix="combined-build-", dir=PRIVATE))
+    os.chmod(work, 0o700)
+    combined_source = work / "source"
+    selected, overlay = overlay_builder.apply_combined_overlay(
+        CPU_SOURCE, rsp_overlay_root, source_closure, rsp_closure,
+        projection, rsp_projection, source_audit, BASE_SOURCE,
+        combined_source)
+
+    cpu_modules = source_closure.get("module_files")
+    rsp_files = rsp_closure.get("overlay", {}).get("files")
+    if not isinstance(cpu_modules, list) or not isinstance(rsp_files, list):
+        refuse("accepted CPU/RSP source module closures are incomplete")
+    cpu_file_hashes = {
+        row.get("path"): row.get("sha256") for row in cpu_modules
+        if isinstance(row, dict) and isinstance(row.get("path"), str)
+    }
+    rsp_file_hashes = {
+        row.get("path"): row.get("sha256") for row in rsp_files
+        if isinstance(row, dict) and isinstance(row.get("path"), str)
+    }
+    for member in selected:
+        source_path = str(member["source_file"])
+        expected = str(member["source_file_sha256"])
+        known = rsp_file_hashes.get(source_path) if member["group"] == "rsp" else cpu_file_hashes.get(source_path)
+        if known != expected:
+            refuse("selected BASE member source is absent from its accepted component closure")
+
+    tools = cpu_qualification["tools"]
+    compiler = tools["host_c_compiler"]
+    objcopy = next((row for row in tools["target_binutils"]
+                    if row.get("name") == "objcopy"), None)
+    objdump = next((row for row in tools["target_binutils"]
+                    if row.get("name") == "objdump"), None)
+    if not isinstance(objcopy, dict) or not isinstance(objdump, dict):
+        refuse("accepted BASE source closure has no audited object tools")
+    for row in (compiler, objcopy, objdump):
+        path = pathlib.Path(str(row.get("path", "")))
+        if file_digest(path) != row.get("sha256"):
+            refuse("an accepted CPU/RSP build tool changed")
+
+    prefix = CPU_PRIVATE / "toolchain-prefix"
+    runtime = (
+        (prefix / "lib/rustlib/aarch64-apple-darwin/bin/rust-lld",
+         "6f44b61e91d6d7b6ba80bb75391587bb4fa832b248281bd67d519516cde43f98"),
+        (prefix / "lib/libLLVM.dylib",
+         "216146d4f374dea0eb0df654049025f82454aaa147af6d8388e5b37ff54084e1"),
+    )
+    for path, expected in runtime:
+        if file_digest(path) != expected:
+            refuse("audited Rust compiler runtime changed before the combined build")
+
+    project_lock = combined_source / "Cargo.lock"
+    sysroot_lock = prefix / "lib/rustlib/src/rust/library/Cargo.lock"
+    lock_hashes = [file_digest(project_lock), file_digest(sysroot_lock)]
+    env = {
+        "PATH": str(prefix / "bin") + ":/usr/bin:/bin:/usr/sbin:/sbin",
+        "HOME": os.environ.get("HOME", ""),
+        "TMPDIR": str(work / "tmp"),
+        "CARGO_HOME": str(CPU_PRIVATE / "cargo-home-attempt-03"),
+        "CARGO_TARGET_DIR": str(work / "cargo-target"),
+        "RUSTC": str(prefix / "bin/rustc"), "LC_ALL": "C", "LANG": "C",
+        "DYLD_LIBRARY_PATH": str(prefix / "lib"),
+        "PYTHONDONTWRITEBYTECODE": "1",
+    }
+    for private_dir in (pathlib.Path(env["TMPDIR"]),):
+        private_dir.mkdir(mode=0o700, parents=True, exist_ok=False)
+    run_private_command(
+        ["sh", "scripts/build-cpu-diagnostic.sh", "--verify-toolchain"],
+        work, "toolchain", timeout=120,
+    )
+    cargo = prefix / "bin/cargo"
+    run_private_command(
+        [str(cargo), "--config", 'profile.release.panic="abort"', "build",
+         "--jobs", "4", "--release", "--target", "mips-nintendo64-none.json",
+         "--offline", "--locked", "--frozen"], work, "cargo",
+        cwd=combined_source, env=env, timeout=600,
+    )
+    if lock_hashes != [file_digest(project_lock), file_digest(sysroot_lock)]:
+        refuse("combined BASE build changed a locked resolution")
+    elf = pathlib.Path(env["CARGO_TARGET_DIR"]) / "mips-nintendo64-none/release/n64-systemtest"
+    if elf.is_symlink() or not elf.is_file():
+        refuse("combined BASE Cargo build produced no bounded target ELF")
+    elf_bytes = elf.read_bytes()
+    payload = work / "base.payload.bin"
+    rom = work / "base.z64"
+    run_private_command(
+        [str(objcopy["path"]), "-O", "binary", str(elf), str(payload)],
+        work, "objcopy", timeout=60,
+    )
+    if file_digest(pathlib.Path(objcopy["path"])) != objcopy["sha256"]:
+        refuse("accepted objcopy changed during the combined build")
+
+    packer = work / "packer"
+    run_private_command(
+        [str(compiler["path"]), "-std=c17", "-Wall", "-Wextra", "-Werror",
+         "-Wconversion", "-Wshadow", "-Wstrict-prototypes", "-pedantic",
+         "-Itools/common", "tools/fixture/t64_rom_pack.c",
+         "tools/common/t64_sha256.c", "-o", str(packer)],
+        work, "packer-build", timeout=60,
+    )
+    run_private_command([str(packer), "--selftest"], work, "packer-controls")
+    boot = ROOT / "build/fixtures/ipl3_compat.z64"
+    run_private_command(
+        [str(packer), "--pack", "--cpu-profile", "--boot", str(boot),
+         "--payload", str(payload), "--output", str(rom), "--entry",
+         "0x80000400", "--clock", "0x0000000f", "--crc2", "0x00000000"],
+        work, "pack", timeout=60,
+    )
+    objdump_text = run_private_command(
+        [str(objdump["path"]), "-f", "-h", "-t", str(elf)],
+        work, "objdump", timeout=60,
+    ).decode("utf-8", errors="strict")
+    cpu_build_verifier = load_module(
+        ROOT / "scripts/verify-cpu-diagnostic-build.py", "t64_base_cpu_composition")
+    payload_bytes, rom_bytes = payload.read_bytes(), rom.read_bytes()
+    boot_bytes = boot.read_bytes()
+    font = combined_source / "src/graphics/system_font.rs"
+    if font.is_symlink() or not font.is_file():
+        refuse("combined BASE asset exclusion baseline is missing")
+    font_bytes = font.read_bytes()
+    layout = cpu_build_verifier.verify_layout(elf_bytes, payload_bytes, objdump_text)
+    cpu_build_verifier.verify_composition(
+        elf_bytes, payload_bytes, rom_bytes, boot_bytes, font_bytes)
+    if lock_hashes != [file_digest(project_lock), file_digest(sysroot_lock)]:
+        refuse("combined BASE locks changed during composition inspection")
+
+    selector_offset = layout.get("selector_rom_offset")
+    if (type(selector_offset) is not int or selector_offset < 0 or
+            selector_offset + 4 > len(rom_bytes) or
+            rom_bytes[selector_offset:selector_offset + 4] != bytes(4)):
+        refuse("combined BASE ROM does not contain one zeroed four-byte selector")
+    selected_image_rows = []
+    for member in selected:
+        registration_index = int(member["registration_index"])
+        value_index = int(member["value_index"])
+        selector_bytes = overlay_builder.selector_value(registration_index, value_index)
+        selected_image_rows.append({
+            "group": member["group"], "lane": member["lane"],
+            "level": member["level"],
+            "registration_index": registration_index,
+            "value_index": value_index,
+            "selector_hex": selector_bytes.hex(),
+            "selected_rom_sha256": overlay_builder.selected_rom_sha256(
+                rom_bytes, selector_offset, registration_index, value_index),
+        })
+    composition = {
+        "schema": "t64.base-combined-image",
+        "schema_version": 1,
+        "status": "PASS_POSTBUILD_COMPOSITION",
+        "guest_execution_verified": False,
+        "source_revision": cpu_revision,
+        "base_rom": {"path": "build/private-base-diagnostic/base.z64",
+                     "sha256": digest(rom_bytes)},
+        "selector": {
+            "encoding": "registration-index-u16be:value-index-u16be",
+            "width": 4, "rom_offset": selector_offset,
+        },
+        "source_bindings": {
+            "cpu_source_projection_sha256": digest(projection_bytes),
+            "rsp_source_projection_sha256": digest(RSP_PROJECTION.read_bytes()),
+            "cpu_source_closure_sha256": source_closure_sha256,
+            "rsp_source_closure_sha256": rsp_qualification["closure"]["sha256"],
+            "combined_overlay_sha256": digest(canonical(overlay)),
+            "boot_sha256": digest(boot_bytes),
+        },
+        "combined_overlay": overlay,
+        "members": selected_image_rows,
+    }
+    private_write(BASE_IMAGE, rom_bytes)
+    private_write(BASE_COMPOSITION, canonical(composition))
+    return BASE_IMAGE, BASE_COMPOSITION
+
+
 def qualify() -> None:
     os.umask(0o077)
     if os.environ.get("CI", "").lower() in {"1", "true", "yes"} or os.environ.get("T64_REQUIRE_FIXTURES") == "1":
@@ -458,17 +783,20 @@ def qualify() -> None:
     if stat.S_IMODE(PRIVATE.stat(follow_symlinks=False).st_mode) != 0o700:
         refuse("private BASE root permissions are not owner-only")
 
-    (qualification, qualified, cpu_inventory, image_path, image_bytes,
-     composition_path) = accepted_cpu_image()
+    (qualification, qualified, cpu_inventory, _cpu_image_path, _cpu_image_bytes,
+     _cpu_composition_path) = accepted_cpu_image()
     qualification_path = CPU_PRIVATE / "qualification.json"
     qualified_path = CPU_PRIVATE / "qualified-build.json"
     cpu_runner = load_module(ROOT / "scripts/run-cpu-diagnostic.py", "t64_cpu_image_selector")
-    projection = json.loads(PROJECTION.read_bytes())
+    projection_bytes = PROJECTION.read_bytes()
+    projection = json.loads(projection_bytes)
     if (projection.get("schema") != "t64.cpu-source-projection" or
             projection.get("schema_version") != 2 or
             not HEX40.fullmatch(str(projection.get("source_revision", "")))):
         refuse("accepted CPU source projection is malformed")
     revision = projection["source_revision"]
+    rsp_projection, rsp_qualification, rsp_closure, rsp_overlay_root = accepted_rsp_inputs(
+        projection_bytes, revision)
 
     derive = subprocess.run(
         [sys.executable, "-B", "scripts/derive-base-diagnostic-source.py", "--derive"],
@@ -484,6 +812,14 @@ def qualify() -> None:
     inventory_bytes = inventory_path.read_bytes()
     source_closure_data = (CPU_PRIVATE / pathlib.PurePosixPath(
         qualified["artifacts"]["source_closure"]["path"])).read_bytes()
+    source_closure_sha256 = digest(source_closure_data)
+    if source_closure_sha256 != qualified["artifacts"]["source_closure"]["sha256"]:
+        refuse("accepted CPU source closure differs from its build seal")
+    source_closure = json.loads(source_closure_data)
+    source_audit_path = CPU_PRIVATE / "source-audit-full.json"
+    if source_audit_path.is_symlink() or not source_audit_path.is_file():
+        refuse("accepted CPU source audit is missing or linked")
+    source_audit = json.loads(source_audit_path.read_bytes())
     source_closure_copy = PRIVATE / f"source-image-source-closure-{digest(source_closure_data)[:16]}.json"
     private_write(source_closure_copy, source_closure_data)
     base_members = json.loads(authority_bytes).get("members")
@@ -500,6 +836,12 @@ def qualify() -> None:
     for path in (authority_path, inventory_path):
         if path.is_symlink() or stat.S_IMODE(path.stat(follow_symlinks=False).st_mode) != 0o600:
             refuse("derived BASE authority or inventory is not owner-only")
+
+    image_path, composition_path = build_combined_image(
+        qualification, projection, projection_bytes, source_closure,
+        source_audit, rsp_projection, rsp_qualification, rsp_closure,
+        rsp_overlay_root, source_closure_sha256,
+    )
 
     adapter_sha = file_digest(BASE_ADAPTER)
     identity_run = subprocess.run(
@@ -535,7 +877,8 @@ def qualify() -> None:
     bindings = {name: [] for name in (
         "asset", "boot", "build", "compiler", "composition", "executable",
         "image", "lock", "profile", "runtime", "source", "tool", "verifier",
-        "source_verifier",
+        "source_verifier", "rsp_qualification", "rsp_source_closure",
+        "rsp_overlay",
     )}
     seen: set[str] = set()
     add_binding(bindings, "executable", BASE_ADAPTER, seen)
@@ -546,6 +889,12 @@ def qualify() -> None:
     add_binding(bindings, "build", ROOT / "scripts/run-base-diagnostic.py", seen)
     add_binding(bindings, "build", ROOT / "scripts/run-cpu-diagnostic.py", seen)
     add_binding(bindings, "build", ROOT / "scripts/build-qualified-base-diagnostic.py", seen)
+    add_binding(bindings, "build", ROOT / "scripts/derive-base-diagnostic-source.py", seen)
+    add_binding(bindings, "build", ROOT / "scripts/apply-base-diagnostic-overlay.py", seen)
+    add_binding(bindings, "build", ROOT / "scripts/prepare-rsp-diagnostic.py", seen)
+    add_binding(bindings, "build", ROOT / "scripts/verify-rsp-diagnostic-qualification.py", seen)
+    add_binding(bindings, "build", ROOT / "scripts/build-cpu-diagnostic.sh", seen)
+    add_binding(bindings, "build", ROOT / "scripts/build-qualified-cpu-diagnostic.py", seen)
     add_binding(bindings, "build", ROOT / "runner/t64_base_diagnostic.c", seen)
     add_binding(bindings, "build", ROOT / "runner/CMakeLists.txt", seen)
     add_binding(bindings, "build", ROOT / "CMakePresets.json", seen)
@@ -575,6 +924,10 @@ def qualify() -> None:
         refuse("accepted CPU image artifacts are missing")
     add_binding(bindings, "image", image_path, seen)
     add_binding(bindings, "composition", composition_path, seen)
+    add_binding(bindings, "rsp_qualification", RSP_QUALIFICATION, seen)
+    add_binding(bindings, "rsp_source_closure", row_path(
+        rsp_qualification["closure"], "RSP source closure"), seen)
+    add_binding(bindings, "rsp_overlay", RSP_OVERLAY, seen)
     add_binding(bindings, "verifier", ROOT / "scripts/verify-base-diagnostic-qualification.py", seen)
     add_binding(bindings, "source_verifier", ROOT / "scripts/verify-cpu-diagnostic-qualification.py", seen)
 
@@ -597,11 +950,15 @@ def qualify() -> None:
                       "sha256": digest(inventory_bytes)},
         "profile": "tier-b-t1",
         "schema": "t64.base-qualification-context",
-        "schema_version": 1,
+        "schema_version": 2,
         "source_authority": {"path": "build/private-base-diagnostic/source-authority.json",
                              "sha256": authority_sha},
         "source_projection": {"path": "build/private-cpu-diagnostic/source-projection.json",
                               "sha256": file_digest(PROJECTION)},
+        "rsp_source_projection": {
+            "path": "build/private-rsp-diagnostic/rsp-source-projection.json",
+            "sha256": file_digest(RSP_PROJECTION),
+        },
         "source_revision": revision,
     }
     context_bytes = canonical(context)

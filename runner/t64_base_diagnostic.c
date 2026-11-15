@@ -9,9 +9,12 @@
 #include <stdbool.h>
 #include <stdint.h>
 #include <stdio.h>
+#include <signal.h>
 #include <stdlib.h>
 #include <string.h>
 #include <sys/stat.h>
+#include <sys/wait.h>
+#include <time.h>
 #include <unistd.h>
 
 #include "t64_cpu_diag_protocol.h"
@@ -178,14 +181,19 @@ static bool parse_u64(const char *text, uint64_t *value_out) {
 }
 
 static bool private_output_path(const char *path) {
-  const size_t root_length = sizeof T64_BASE_PRIVATE_ROOT - 1u;
+  const char *root = T64_BASE_PRIVATE_ROOT;
+#ifdef T64_BASE_DIAGNOSTIC_TESTING
+  const char *control_root = getenv("T64_BASE_CONTROL_ROOT");
+  if (control_root != NULL && control_root[0] == '/') root = control_root;
+#endif
+  const size_t root_length = strlen(root);
   const char *cursor;
   struct stat info;
-  if (lstat(T64_BASE_PRIVATE_ROOT, &info) != 0 || S_ISLNK(info.st_mode) ||
+  if (lstat(root, &info) != 0 || S_ISLNK(info.st_mode) ||
       !S_ISDIR(info.st_mode) || (info.st_mode & 0077) != 0) {
     return false;
   }
-  if (path == NULL || strncmp(path, T64_BASE_PRIVATE_ROOT, root_length) != 0 ||
+  if (path == NULL || strncmp(path, root, root_length) != 0 ||
       path[root_length] != '/') {
     return false;
   }
@@ -782,6 +790,11 @@ static int command_classify(int argc, char **argv) {
       else if (strcmp(outcome_name, "timeout") == 0) outcome = T64_BASE_DIAG_OUTCOME_TIMEOUT;
       else if (strcmp(outcome_name, "harness-error") == 0) outcome = T64_BASE_DIAG_OUTCOME_HARNESS_ERROR;
       else goto cleanup;
+      if (outcome == T64_BASE_DIAG_OUTCOME_TIMEOUT ||
+          outcome == T64_BASE_DIAG_OUTCOME_HARNESS_ERROR) {
+        proof.capture_exact = false;
+        proof.capture_lost = true;
+      }
       status = t64_base_diag_encode_bound_member_record(inventory, reg, val,
           outcome, &target, &proof, &empty, 0u, encoded, sizeof encoded,
           &encoded_length);
@@ -818,7 +831,88 @@ cleanup:
   return exit_code;
 }
 
+static uint64_t monotonic_ns(void) {
+  struct timespec now;
+  if (clock_gettime(CLOCK_MONOTONIC, &now) != 0 || now.tv_sec < 0 ||
+      (uint64_t)now.tv_sec > UINT64_MAX / UINT64_C(1000000000)) return 0u;
+  return (uint64_t)now.tv_sec * UINT64_C(1000000000) + (uint64_t)now.tv_nsec;
+}
+
+/* Match the existing CPU/RSP native ten-second limit inside the host's
+ * twelve-second bound. The guest worker calls only the canonical core. */
+static int supervised_run_local(int argc, char **argv) {
+  const uint64_t start = monotonic_ns();
+  uint64_t wall_limit = UINT64_C(10000000000);
+  const struct timespec interval = {0, 10000000};
+  pid_t child;
+  int status = 0;
+  bool expired = false;
+#ifdef T64_BASE_DIAGNOSTIC_TESTING
+  const bool deadline_control = argc == 2 &&
+      strcmp(argv[1], "--control-deadline") == 0;
+  if (deadline_control) wall_limit = UINT64_C(50000000);
+#endif
+  if (start == 0u || fflush(NULL) != 0) return 4;
+  child = fork();
+  if (child < 0) return 4;
+  if (child == 0) {
+#ifdef T64_BASE_DIAGNOSTIC_TESTING
+    if (deadline_control) {
+      const struct timespec delay = {0, 200000000};
+      (void)nanosleep(&delay, NULL);
+      _exit(0);
+    }
+#endif
+    const int result = command_run_local(argc, argv);
+    (void)fflush(NULL);
+    _exit(result);
+  }
+  for (;;) {
+    uint64_t now = monotonic_ns();
+    pid_t observed;
+    if (now == 0u || now < start ||
+        now - start >= wall_limit) {
+      expired = true;
+      break;
+    }
+    observed = waitpid(child, &status, WNOHANG);
+    if (observed == child) {
+      (void)puts("native_worker_reaped=yes");
+      now = monotonic_ns();
+      /* A deadline remains authoritative if exit races its observation. */
+      if (now == 0u || now < start ||
+          now - start >= wall_limit) {
+        (void)puts("classification=timeout status=native-wall-deadline");
+        return 124;
+      }
+      return WIFEXITED(status) ? WEXITSTATUS(status) : 4;
+    }
+    if (observed < 0 && errno != EINTR) break;
+    (void)nanosleep(&interval, NULL);
+  }
+  if (kill(child, SIGKILL) != 0 && errno != ESRCH) {
+    print_refusal("native-worker-cleanup-unverified");
+    return 4;
+  }
+  while (waitpid(child, &status, 0) < 0) {
+    if (errno != EINTR) {
+      print_refusal("native-worker-reap-unverified");
+      return 4;
+    }
+  }
+  if (expired) {
+    (void)puts("native_worker_reaped=yes");
+    (void)puts("classification=timeout status=native-wall-deadline");
+    return 124;
+  }
+  return 4;
+}
+
 int main(int argc, char **argv) {
+#ifdef T64_BASE_DIAGNOSTIC_TESTING
+  if (argc == 2 && strcmp(argv[1], "--control-deadline") == 0)
+    return supervised_run_local(argc, argv);
+#endif
   if (argc > 1 && strcmp(argv[1], "--identity") == 0 && argc == 2) {
     (void)puts("classification=BASE-member-adapter");
     return 0;
@@ -847,7 +941,7 @@ int main(int argc, char **argv) {
   if (argc > 1 && (strcmp(argv[1], "--run-local") == 0 ||
                   strcmp(argv[1], "--run-bound-local") == 0) && argc >= 3 &&
       strcmp(argv[2], "--local-only") == 0) {
-    return command_run_local(argc, argv);
+    return supervised_run_local(argc, argv);
   }
   (void)fprintf(stderr,
       "usage: t64-base-diagnostic --identity | --runtime-identity-json | "

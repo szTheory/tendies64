@@ -28,6 +28,8 @@ CONTEXT_KEYS = {
     "bindings", "inventory", "profile", "schema", "schema_version",
     "source_authority", "source_projection", "source_revision",
 }
+RSP_PROJECTION_RELATIVE = "build/private-rsp-diagnostic/rsp-source-projection.json"
+RSP_ROLES = {"rsp_qualification", "rsp_source_closure", "rsp_overlay"}
 BINDING_KEYS = {
     "context_sha256", "inventory_sha256", "schema", "schema_version",
     "source_authority_sha256", "source_projection_sha256",
@@ -81,13 +83,29 @@ def _project_path(repository_root: pathlib.Path, relative: object,
     return candidate
 
 
-def _private_file(path: pathlib.Path, label: str) -> bytes:
-    if path.is_symlink() or not path.is_file():
-        refuse(f"{label} is missing or linked")
-    if stat.S_IMODE(path.stat(follow_symlinks=False).st_mode) != 0o600:
-        refuse(f"{label} permissions are not owner-only")
+def _private_file(path: pathlib.Path, label: str,
+                  maximum: int = 4 * 1024 * 1024) -> bytes:
     try:
-        data = path.read_bytes()
+        before = path.lstat()
+        if (not stat.S_ISREG(before.st_mode) or
+                stat.S_IMODE(before.st_mode) != 0o600 or
+                not 0 < before.st_size <= maximum):
+            refuse(f"{label} is not a bounded owner-only regular file")
+        descriptor = os.open(path, os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0) |
+                             getattr(os, "O_NONBLOCK", 0))
+        with os.fdopen(descriptor, "rb") as stream:
+            opened = os.fstat(stream.fileno())
+            if (not stat.S_ISREG(opened.st_mode) or
+                    stat.S_IMODE(opened.st_mode) != 0o600 or
+                    (opened.st_dev, opened.st_ino, opened.st_size) !=
+                    (before.st_dev, before.st_ino, before.st_size)):
+                refuse(f"{label} changed while opening")
+            data = stream.read(maximum + 1)
+            after = os.fstat(stream.fileno())
+            if (len(data) != opened.st_size or len(data) > maximum or
+                    (after.st_size, after.st_mtime_ns, after.st_ctime_ns) !=
+                    (opened.st_size, opened.st_mtime_ns, opened.st_ctime_ns)):
+                refuse(f"{label} changed while reading")
     except OSError as exc:
         refuse(f"{label} cannot be read: {exc}")
     if not data:
@@ -123,10 +141,11 @@ def _load_deriver(repository_root: pathlib.Path):
 def _verify_bindings(context: dict, repository_root: pathlib.Path,
                      projection: dict) -> None:
     bindings = context.get("bindings")
-    if not isinstance(bindings, dict) or set(bindings) != ROLES:
+    roles = ROLES | RSP_ROLES if context.get("schema_version") == 2 else ROLES
+    if not isinstance(bindings, dict) or set(bindings) != roles:
         refuse("context bindings do not match the reviewed closed role set")
     seen_paths: set[str] = set()
-    for role in sorted(ROLES):
+    for role in sorted(roles):
         rows = bindings[role]
         if not isinstance(rows, list) or not rows:
             refuse(f"{role} binding is missing")
@@ -141,7 +160,7 @@ def _verify_bindings(context: dict, repository_root: pathlib.Path,
                 refuse("context contains duplicate file bindings")
             seen_paths.add(relative)
             path = _project_path(repository_root, relative, f"{role} binding")
-            if sha256(path.read_bytes()) != row["sha256"]:
+            if _regular_digest(path) != row["sha256"]:
                 refuse(f"{role} closure digest changed")
 
     reviewed = projection.get("reviewed_source_file_sha256")
@@ -173,6 +192,39 @@ def _verify_bindings(context: dict, repository_root: pathlib.Path,
     if (len(source_verifier_rows) != 1
             or source_verifier_rows[0]["path"] != "scripts/verify-cpu-diagnostic-qualification.py"):
         refuse("reviewed source verifier binding does not name the accepted entry")
+
+
+def _regular_digest(path: pathlib.Path) -> str:
+    """Hash bounded regular bytes without a pathname-to-FIFO blocking race."""
+    maximum = MAX_RETAINED_EXECUTABLE_BYTES
+    before = path.lstat()
+    if (not stat.S_ISREG(before.st_mode) or before.st_mode & 0o022 or
+            not 0 < before.st_size <= maximum):
+        refuse("bound input is not a bounded regular file")
+    descriptor = os.open(path, os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0) |
+                         getattr(os, "O_NONBLOCK", 0))
+    hasher = hashlib.sha256()
+    total = 0
+    with os.fdopen(descriptor, "rb") as stream:
+        opened = os.fstat(stream.fileno())
+        if (not stat.S_ISREG(opened.st_mode) or opened.st_mode & 0o022 or
+                (opened.st_dev, opened.st_ino, opened.st_size) !=
+                (before.st_dev, before.st_ino, before.st_size)):
+            refuse("bound input changed while opening")
+        while True:
+            block = stream.read(min(1024 * 1024, maximum + 1 - total))
+            if not block:
+                break
+            total += len(block)
+            if total > maximum:
+                refuse("bound input exceeded its size bound")
+            hasher.update(block)
+        after = os.fstat(stream.fileno())
+        if (total != opened.st_size or
+                (after.st_size, after.st_mtime_ns, after.st_ctime_ns) !=
+                (opened.st_size, opened.st_mtime_ns, opened.st_ctime_ns)):
+            refuse("bound input changed while reading")
+    return hasher.hexdigest()
 
 
 def _verify_retained_execution_pair(context_root: pathlib.Path,
@@ -305,8 +357,95 @@ def _verify_live_source_authority(repository_root: pathlib.Path,
         refuse("non-production qualification roots are restricted to isolated fixtures")
 
 
+def _verify_rsp_source_authority(repository_root: pathlib.Path, context: dict,
+                                 projection: dict, projection_bytes: bytes) -> dict:
+    reference = context.get("rsp_source_projection")
+    if (not isinstance(reference, dict) or set(reference) != {"path", "sha256"} or
+            reference.get("path") != RSP_PROJECTION_RELATIVE):
+        refuse("RSP source projection reference is malformed")
+    path = _project_path(repository_root, reference["path"], "RSP source projection")
+    data = _private_file(path, "RSP source projection", 16 * 1024 * 1024)
+    rsp = _canonical_json(data, "RSP source projection")
+    if (sha256(data) != reference.get("sha256") or
+            rsp.get("source_revision") != projection.get("source_revision") or
+            rsp.get("inputs", {}).get("cpu_source_projection_sha256") !=
+                sha256(projection_bytes)):
+        refuse("RSP source projection differs from the accepted CPU source context")
+    # This is a reviewed provider, not a membership function nominated by input.
+    provider_path = ROOT / "scripts/verify-rsp-diagnostic-qualification.py"
+    spec = importlib.util.spec_from_file_location("t64_base_rsp_source_provider", provider_path)
+    if spec is None or spec.loader is None:
+        refuse("reviewed RSP source verifier cannot be loaded")
+    provider = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(provider)
+    if rsp.get("registrations") != provider.derive_rsp_membership(projection.get("registrations")):
+        refuse("RSP projection differs from independently derived source membership")
+    expected_paths = {
+        "rsp_qualification": "build/private-rsp-diagnostic/qualification.json",
+        "rsp_source_closure": "build/private-rsp-diagnostic/rsp-preuse-closure.json",
+        "rsp_overlay": "build/private-rsp-diagnostic/rsp-overlay-preparation.json",
+    }
+    for role, relative in expected_paths.items():
+        rows = context["bindings"].get(role)
+        if not isinstance(rows, list) or len(rows) != 1 or rows[0].get("path") != relative:
+            refuse(f"{role} does not bind its fixed reviewed input")
+    qualification = _canonical_json(_private_file(
+        repository_root / expected_paths["rsp_qualification"], "RSP qualification"),
+        "RSP qualification")
+    membership = qualification.get("membership")
+    if (not isinstance(membership, dict) or membership.get("path") != reference["path"] or
+            membership.get("sha256") != sha256(data)):
+        refuse("RSP qualification does not authenticate the projected membership")
+    if repository_root == ROOT.resolve(strict=True):
+        for relative in ("scripts/prepare-rsp-diagnostic.py",
+                         "scripts/verify-rsp-diagnostic-qualification.py"):
+            if not any(row.get("path") == relative and
+                       row.get("sha256") == _regular_digest(repository_root / relative)
+                       for row in context["bindings"]["build"]):
+                refuse("RSP source provider is absent from the immutable build closure")
+        try:
+            provider.verify_preuse(repository_root / expected_paths["rsp_qualification"],
+                                   verify_current_identity=False)
+        except Exception as exc:
+            refuse(f"accepted RSP source closure refused current inputs: {exc}")
+    return rsp
+
+
+def _component_source_files(repository_root, context, deriver):
+    """Recover exact supported-module maps from the independently checked receipts."""
+    cpu_path = "build/private-cpu-diagnostic/qualification.json"
+    cpu_bytes = _private_file(_project_path(repository_root, cpu_path, "CPU qualification"),
+                              "CPU qualification", 16 * 1024 * 1024)
+    if not any(row.get("path") == cpu_path and row.get("sha256") == sha256(cpu_bytes)
+               for row in context["bindings"]["runtime"]):
+        refuse("accepted CPU source qualification is absent from the immutable runtime closure")
+    cpu = json.loads(cpu_bytes)
+    reference = cpu.get("assets", {}).get("closure_report")
+    if (not isinstance(reference, dict) or set(reference) != {"path", "sha256"}):
+        refuse("accepted CPU module closure reference is malformed")
+    closure_bytes = _private_file(_project_path(repository_root, reference["path"],
+        "CPU source closure"), "CPU source closure", 16 * 1024 * 1024)
+    if (sha256(closure_bytes) != reference["sha256"] or
+            not any(row.get("path") == reference["path"] and
+                    row.get("sha256") == reference["sha256"]
+                    for row in context["bindings"]["asset"])):
+        refuse("accepted CPU module closure differs from its immutable asset binding")
+    cpu_closure = json.loads(closure_bytes)
+    rsp_closure = json.loads(_private_file(repository_root /
+        "build/private-rsp-diagnostic/rsp-preuse-closure.json", "RSP source closure",
+        16 * 1024 * 1024))
+    if (cpu_closure.get("status") != "PASS_PREBUILD_SOURCE" or
+            rsp_closure.get("status") != "PASS_PREBUILD_RSP" or
+            cpu_closure.get("source_revision") != context["source_revision"] or
+            rsp_closure.get("source_revision") != context["source_revision"]):
+        refuse("component module closures target another source or lack qualification")
+    return (deriver._private_source_files(cpu_closure.get("module_files"), "CPU source"),
+            deriver._private_source_files(rsp_closure.get("overlay", {}).get("files"), "RSP overlay"))
+
+
 def verify_and_dispatch(context_root: pathlib.Path, run_directory: pathlib.Path,
-                        dispatch, repository_root: pathlib.Path = ROOT):
+                        dispatch, repository_root: pathlib.Path = ROOT,
+                        *, pass_verified_snapshot: bool = False):
     """Verify all bound inputs before creating a run directory or dispatching."""
     repository_root = repository_root.resolve(strict=True)
     context_root = context_root.absolute()
@@ -325,7 +464,10 @@ def verify_and_dispatch(context_root: pathlib.Path, run_directory: pathlib.Path,
     binding_bytes = _private_file(context_root / "binding.json", "binding")
     context = _canonical_json(context_bytes, "context")
     binding = _canonical_json(binding_bytes, "binding")
-    if set(context) != CONTEXT_KEYS or context.get("schema") != "t64.base-qualification-context" or context.get("schema_version") != 1:
+    version = context.get("schema_version")
+    context_keys = CONTEXT_KEYS | {"rsp_source_projection"} if version == 2 else CONTEXT_KEYS
+    if (set(context) != context_keys or context.get("schema") != "t64.base-qualification-context"
+            or type(version) is not int or version not in (1, 2)):
         refuse("context fields do not match the closed schema")
     if set(binding) != BINDING_KEYS or binding.get("schema") != "t64.base-qualification-binding" or binding.get("schema_version") != 1:
         refuse("binding fields do not match the closed schema")
@@ -343,7 +485,7 @@ def verify_and_dispatch(context_root: pathlib.Path, run_directory: pathlib.Path,
             or projection_ref.get("path") != PROJECTION_RELATIVE):
         refuse("source projection binding is malformed")
     projection_path = _project_path(repository_root, projection_ref["path"], "source projection")
-    projection_bytes = _private_file(projection_path, "source projection")
+    projection_bytes = _private_file(projection_path, "source projection", 16 * 1024 * 1024)
     projection = _canonical_json(projection_bytes, "source projection")
     projection_seal = projection.get("projection_sha256")
     projection_body = {key: value for key, value in projection.items() if key != "projection_sha256"}
@@ -353,9 +495,16 @@ def verify_and_dispatch(context_root: pathlib.Path, run_directory: pathlib.Path,
             or projection.get("source_revision") != source_revision):
         refuse("source projection identity or seal changed")
 
+    _verify_bindings(context, repository_root, projection)
+    rsp_projection = _verify_rsp_source_authority(
+        repository_root, context, projection, projection_bytes) if version == 2 else None
     deriver = _load_deriver(repository_root)
     try:
-        members = deriver.derive_members(projection)
+        if version == 2:
+            cpu_files, rsp_files = _component_source_files(repository_root, context, deriver)
+            members = deriver.derive_members(projection, rsp_projection, cpu_files, rsp_files)
+        else:
+            members = deriver.derive_members(projection)
     except Exception as exc:
         refuse(f"source projection cannot derive BASE membership: {exc}")
     authority_bytes = canonical({
@@ -389,7 +538,6 @@ def verify_and_dispatch(context_root: pathlib.Path, run_directory: pathlib.Path,
             or binding.get("inventory_sha256") != sha256(inventory_bytes)
             or binding.get("source_projection_sha256") != sha256(projection_bytes)):
         refuse("independent source binding does not match the reviewed projection")
-    _verify_bindings(context, repository_root, projection)
     _verify_retained_execution_pair(
         context_root, context, context_bytes, binding_bytes
     )
@@ -404,6 +552,11 @@ def verify_and_dispatch(context_root: pathlib.Path, run_directory: pathlib.Path,
         refuse("run directory must be a fresh child of the private context")
     if not callable(dispatch):
         refuse("normal dispatch callback is unavailable")
+    if pass_verified_snapshot:
+        return dispatch({"context": context, "context_bytes": context_bytes,
+                         "binding_bytes": binding_bytes,
+                         "authority_bytes": authority_bytes,
+                         "inventory_bytes": inventory_bytes})
     return dispatch()
 
 

@@ -62,6 +62,12 @@ applies that direction; update it when the owner changes policy.
   If a delegated investigation stops producing concrete changes, reconcile
   its saved evidence and continue the narrow remaining slice inline rather
   than extending a silent handoff or restarting the whole task.
+  Exercise each new subprocess/build helper with a cheap actual authored
+  startup and deadline control before the expensive command; syntax-only
+  checks missed a missing clock import in the combined BASE builder. Prefer
+  `ast.parse` for Python syntax checks: explicit `py_compile` can write bytecode
+  despite `-B`, and generated binary files in source directories correctly fail
+  the rights scanner. Remove only attributable generated outputs, then recheck.
 - Efficiency correction (owner feedback, 2026-11-12): before a broad retest,
   inspect `node scripts/verification-scope.mjs --base <last-tested-source>`.
   It includes staged, unstaged and new source changes, including ignored code

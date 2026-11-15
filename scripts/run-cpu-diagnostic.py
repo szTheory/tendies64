@@ -305,49 +305,64 @@ def run_bounded(command, *, cwd: pathlib.Path, env: dict[str, str], timeout: int
         )
     except OSError as error:
         fail(f"bounded subprocess could not start: {error}")
-    output = {process.stdout: bytearray(), process.stderr: bytearray()}
-    deadline = time.monotonic() + timeout
-    with selectors.DefaultSelector() as selector:
-        for stream in output:
-            os.set_blocking(stream.fileno(), False)
-            selector.register(stream, selectors.EVENT_READ)
-        while selector.get_map():
-            remaining = deadline - time.monotonic()
-            if remaining <= 0:
-                try:
-                    os.killpg(process.pid, signal.SIGKILL)
-                except ProcessLookupError:
-                    pass
-                process.wait()
-                fail("bounded subprocess timed out")
-            for key, _ in selector.select(min(remaining, 0.25)):
-                try:
-                    block = os.read(key.fd, 65536)
-                except BlockingIOError:
-                    continue
-                if not block:
-                    selector.unregister(key.fileobj)
-                    continue
-                captured = output[key.fileobj]
-                if len(captured) + len(block) > maximum:
+    try:
+        output = {process.stdout: bytearray(), process.stderr: bytearray()}
+        deadline = time.monotonic() + timeout
+        with selectors.DefaultSelector() as selector:
+            for stream in output:
+                os.set_blocking(stream.fileno(), False)
+                selector.register(stream, selectors.EVENT_READ)
+            while selector.get_map():
+                remaining = deadline - time.monotonic()
+                if remaining <= 0:
                     try:
                         os.killpg(process.pid, signal.SIGKILL)
                     except ProcessLookupError:
                         pass
                     process.wait()
-                    fail("bounded subprocess exceeded its capture limit")
-                captured.extend(block)
-    remaining = deadline - time.monotonic()
-    try:
-        code = process.wait(timeout=max(remaining, 0.0))
-    except subprocess.TimeoutExpired:
+                    fail("bounded subprocess timed out")
+                for key, _ in selector.select(min(remaining, 0.25)):
+                    try:
+                        block = os.read(key.fd, 65536)
+                    except BlockingIOError:
+                        continue
+                    if not block:
+                        selector.unregister(key.fileobj)
+                        continue
+                    captured = output[key.fileobj]
+                    if len(captured) + len(block) > maximum:
+                        try:
+                            os.killpg(process.pid, signal.SIGKILL)
+                        except ProcessLookupError:
+                            pass
+                        process.wait()
+                        fail("bounded subprocess exceeded its capture limit")
+                    captured.extend(block)
+        remaining = deadline - time.monotonic()
+        try:
+            code = process.wait(timeout=max(remaining, 0.0))
+        except subprocess.TimeoutExpired:
+            try:
+                os.killpg(process.pid, signal.SIGKILL)
+            except ProcessLookupError:
+                pass
+            process.wait()
+            fail("bounded subprocess timed out")
+        if time.monotonic() >= deadline:
+            fail("bounded subprocess timed out")
+        return code, bytes(output[process.stdout]), bytes(output[process.stderr])
+    except BaseException:
         try:
             os.killpg(process.pid, signal.SIGKILL)
         except ProcessLookupError:
             pass
         process.wait()
-        fail("bounded subprocess timed out")
-    return code, bytes(output[process.stdout]), bytes(output[process.stderr])
+        raise
+    finally:
+        if process.stdout is not None:
+            process.stdout.close()
+        if process.stderr is not None:
+            process.stderr.close()
 
 
 def invoke_adapter(context: Inputs, *arguments: str, timeout: int = 10,

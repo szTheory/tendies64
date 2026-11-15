@@ -212,6 +212,30 @@ def create_context(repository: pathlib.Path) -> pathlib.Path:
 
 
 class BaseQualificationControls(unittest.TestCase):
+    def test_private_input_size_and_fifo_replacement_are_bounded(self) -> None:
+        verifier = load_verifier()
+        with tempfile.TemporaryDirectory(prefix="base-input-bounds-") as temp:
+            path = pathlib.Path(temp) / "input.json"
+            write_private(path, b"{}\n")
+            with path.open("r+b") as stream:
+                stream.truncate(4 * 1024 * 1024 + 1)
+            with self.assertRaisesRegex(verifier.Refusal, "bounded owner-only"):
+                verifier._private_file(path, "authored input")
+            write_private(path, b"{}\n")
+            original_open = os.open
+            replaced = []
+            def replacing_open(name, flags, *args, **kwargs):
+                if pathlib.Path(name) == path and not replaced:
+                    replaced.append(True)
+                    path.unlink()
+                    os.mkfifo(path, 0o600)
+                return original_open(name, flags, *args, **kwargs)
+            from unittest.mock import patch
+            with patch.object(verifier.os, "open", side_effect=replacing_open):
+                with self.assertRaisesRegex(verifier.Refusal, "changed while opening"):
+                    verifier._private_file(path, "authored input")
+            self.assertEqual(replaced, [True])
+
     def test_base_derivation_filters_every_lane_by_pinned_levels(self) -> None:
         projection = {
             "registrations": [

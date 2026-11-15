@@ -311,6 +311,19 @@ static int test_bound_records(const t64_base_diag_inventory *parsed,
         failures += expect_status("each outcome class has a C classification",
             t64_base_diag_aggregate_report(aggregate, reports[0], 65536u,
                                            &report_lengths[0]), T64_BASE_DIAG_OK);
+        if (index == 0u) {
+          uint8_t oversized[T64_BASE_DIAG_MAX_ORIGINAL_BYTES + 1u] = {0};
+          failures += expect_status("oversized capture poisons a previously complete aggregate",
+              t64_base_diag_aggregate_add_original(aggregate, records[0],
+                  record_length, oversized, sizeof oversized), T64_BASE_DIAG_SIZE_LIMIT);
+          failures += expect_true("oversized input cannot leave a stale passing predicate",
+              !t64_base_diag_aggregate_is_complete(aggregate) &&
+              !t64_base_diag_aggregate_is_all_pass(aggregate));
+          failures += expect_status("oversized original is refused by the production encoder",
+              t64_base_diag_encode_bound_member_record(one, 0u, 0u, outcomes[index],
+                  &target, &proof, oversized, sizeof oversized, records[0],
+                  T64_BASE_DIAG_MAX_RECORD_BYTES, &record_length), T64_BASE_DIAG_SIZE_LIMIT);
+        }
       }
       t64_base_diag_aggregate_destroy(aggregate);
     }
