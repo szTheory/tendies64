@@ -22,6 +22,8 @@
 #define CAUSE_IP2 UINT32_C(0x00000400)
 #define CAUSE_IP7 UINT32_C(0x00008000)
 
+static void write_be32(uint8_t *bytes, uint32_t value);
+
 static bool setup_machine(t64_machine *machine, bool with_ram) {
   const t64_profile_descriptor *profile = NULL;
 
@@ -83,6 +85,21 @@ static void write_cp0(t64_machine *machine, uint32_t index, uint32_t value) {
 static void destroy_machine(t64_machine *machine) {
   free(machine->ram);
   machine->ram = NULL;
+}
+
+static void reset_t1_cpu(t64_machine *machine, uint32_t opcode) {
+  machine->tick = 0u;
+  machine->queue_head = 0u;
+  machine->queue_count = 0u;
+  machine->next_sequence = 0u;
+  machine->sequence_exhausted = false;
+  machine->instruction_count = 0u;
+  (void)memset(&machine->cpu, 0, sizeof machine->cpu);
+  machine->cpu.pc = UINT32_C(0x80001000);
+  machine->cpu.pc_full = t64_cpu_canonical_address(machine->cpu.pc);
+  machine->cpu.cp0[CP0_RANDOM] = UINT32_C(17);
+  machine->cpu.count_compare_deadline = UINT64_MAX;
+  write_be32(machine->ram + UINT32_C(0x1000), opcode);
 }
 
 static bool timer_state_equal(const t64_machine *left,
@@ -449,38 +466,59 @@ static void test_random_advances_only_on_retirement(void) {
   destroy_machine(&machine);
 }
 
-static void test_cold_t1_mult_interval_for_profile(const char *profile_id) {
+static void test_cold_t1_cost_table_for_profile(const char *profile_id) {
+  typedef struct {
+    uint32_t opcode;
+    uint64_t interval;
+    uint64_t left;
+    uint64_t right;
+  } expected_cost;
+  static const expected_cost costs[] = {
+      {UINT32_C(0x24030001), UINT64_C(1), 0u, 0u},
+      {UINT32_C(0x00220018), UINT64_C(6), 6u, 7u},
+      {UINT32_C(0x00220019), UINT64_C(6), 6u, 7u},
+      {UINT32_C(0x0022001a), UINT64_C(38), 21u, 3u},
+      {UINT32_C(0x0022001b), UINT64_C(38), 21u, 3u},
+      {UINT32_C(0x0022001c), UINT64_C(9), 6u, 7u},
+      {UINT32_C(0x0022001d), UINT64_C(9), 6u, 7u},
+      {UINT32_C(0x0022001e), UINT64_C(70), 21u, 3u},
+      {UINT32_C(0x0022001f), UINT64_C(70), 21u, 3u},
+  };
   t64_machine machine;
-  const uint32_t opcode = (UINT32_C(1) << 21) | (UINT32_C(2) << 16) |
-                          UINT32_C(0x18);
+  size_t index;
 
   T64_CHECK(setup_t1_machine(&machine, profile_id));
   if (machine.ram == NULL) {
     return;
   }
-  machine.cpu.pc = UINT32_C(0x80001000);
-  machine.cpu.pc_full = t64_cpu_canonical_address(machine.cpu.pc);
-  machine.cpu.gpr[1] = UINT64_C(6);
-  machine.cpu.gpr[2] = UINT64_C(7);
-  write_be32(machine.ram + UINT32_C(0x1000), opcode);
-
-  T64_CHECK_INT(t64_cpu_step(&machine, NULL), T64_STATUS_OK);
-  T64_CHECK_INT(machine.cpu.retired_instructions, 1u);
-  T64_CHECK_INT(machine.cpu.hi, 0u);
-  T64_CHECK_INT(machine.cpu.lo, 42u);
-  T64_CHECK_INT(machine.queue_count, 1u);
-  if (machine.queue_count == 1u) {
-    /* NEC VR43XX Table 3-12 gives MULT five stall cycles. This T1 policy
-       adds the issue interval, so the next boundary is tick six. */
-    T64_CHECK_INT(machine.events[machine.queue_head].tick, 6u);
+  for (index = 0u; index < sizeof costs / sizeof costs[0]; index++) {
+    reset_t1_cpu(&machine, costs[index].opcode);
+    machine.cpu.gpr[1] = costs[index].left;
+    machine.cpu.gpr[2] = costs[index].right;
+    T64_CHECK_INT(t64_cpu_step(&machine, NULL), T64_STATUS_OK);
+    T64_CHECK_INT(machine.cpu.retired_instructions, 1u);
+    T64_CHECK_INT(machine.queue_count, 1u);
+    if (machine.queue_count == 1u) {
+      /* NEC VR43XX Table 3-12 gives 5/37/8/69 stall cycles for the
+         MDU pairs. T1 adds the issue interval; funct values 18-1f in
+         these literal SPECIAL words are anchored in the same manual. */
+      T64_CHECK_INT(machine.events[machine.queue_head].tick,
+                    costs[index].interval);
+    }
+    if (index == 1u) {
+      T64_CHECK_INT(machine.cpu.hi, 0u);
+      T64_CHECK_INT(machine.cpu.lo, 42u);
+    } else if (index == 0u) {
+      T64_CHECK_INT(machine.cpu.gpr[3], 1u);
+    }
   }
   destroy_machine(&machine);
 }
 
 static void test_cold_t1_mult_interval(void) {
-  test_cold_t1_mult_interval_for_profile(
+  test_cold_t1_cost_table_for_profile(
       "ntsc-cart-4m-openipl3-rdram-a-t1-v1");
-  test_cold_t1_mult_interval_for_profile(
+  test_cold_t1_cost_table_for_profile(
       "ntsc-cart-4m-openipl3-rdram-b-t1-v1");
 }
 
