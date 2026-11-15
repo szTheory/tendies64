@@ -738,8 +738,38 @@ static void test_compat_v2_profile_identity(void) {
                    T64_DIGEST_SIZE) == 0);
 }
 
+static void test_cold_t1_profile_identities(void) {
+  static const char *const profile_ids[] = {
+      "ntsc-cart-4m-openipl3-rdram-a-t1-v1",
+      "ntsc-cart-4m-openipl3-rdram-b-t1-v1",
+  };
+  size_t index;
+
+  for (index = 0u; index < sizeof profile_ids / sizeof profile_ids[0];
+       index++) {
+    const t64_profile_descriptor *profile = NULL;
+    t64_status status = t64_profile_lookup(profile_ids[index], &profile);
+
+    if (status != T64_STATUS_OK) {
+      (void)fprintf(stderr,
+                    "RED observation: cold T1 profile %s lookup returned %u\n",
+                    profile_ids[index], (unsigned)status);
+    }
+    T64_CHECK_INT(status, T64_STATUS_OK);
+    T64_CHECK(profile != NULL);
+    if (profile == NULL) {
+      continue;
+    }
+    T64_CHECK_STR(profile->profile_id, profile_ids[index]);
+    T64_CHECK_INT(profile->descriptor_version, 4u);
+    T64_CHECK_INT(profile->machine_model_version, 7u + (uint32_t)index);
+    T64_CHECK_INT(profile->state_serialization_version, 13u);
+  }
+}
+
 int main(void) {
   test_profile_contract();
   test_compat_v2_profile_identity();
+  test_cold_t1_profile_identities();
   return T64_TEST_FINISH("unit.core.profile");
 }
