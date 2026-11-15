@@ -140,6 +140,7 @@ integration.rsp-rom-smoke'
 
 PHASE06_TESTS='runner.cold-boot-controls
 integration.cold-startup
+unit.core.rdram-protocol
 runner.base-diagnostic-protocol
 harness.base-qualification
 harness.base-run'

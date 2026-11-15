@@ -366,6 +366,18 @@ set_tests_properties(unit.core.warm-device-policy PROPERTIES
   ENVIRONMENT
     "T64_TEST_IPL3_PATH=${T64_BOOT_FIXTURE_DIR}/ipl3_compat.z64;T64_TEST_HELLO_PATH=${T64_BOOT_FIXTURE_DIR}/hello.z64;T64_BOOT_FIXTURES_DIR=${T64_BOOT_FIXTURE_DIR}")
 
+add_executable(test_rdram tests/test_rdram.c)
+target_include_directories(test_rdram PRIVATE
+  "${CMAKE_CURRENT_SOURCE_DIR}"
+  "${CMAKE_SOURCE_DIR}/tests")
+target_link_libraries(test_rdram PRIVATE t64_core)
+t64_target_warnings(test_rdram)
+add_dependencies(test_rdram t64-boot-fixtures)
+add_test(NAME unit.core.rdram-protocol COMMAND test_rdram)
+set_tests_properties(unit.core.rdram-protocol PROPERTIES LABELS unit)
+set_tests_properties(unit.core.rdram-protocol PROPERTIES
+  ENVIRONMENT "T64_TEST_IPL3_PATH=${T64_BOOT_FIXTURE_DIR}/ipl3_compat.z64")
+
 add_executable(test_profile tests/test_profile.c)
 target_include_directories(test_profile PRIVATE "${CMAKE_SOURCE_DIR}/tests")
 target_link_libraries(test_profile PRIVATE t64_core)
