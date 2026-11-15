@@ -354,16 +354,77 @@ t64_base_diag_status t64_base_diag_encode_member_record(
     uint32_t value_index, t64_base_diag_outcome outcome,
     const uint8_t *original_bytes, size_t original_length, uint8_t *record,
     size_t record_capacity, size_t *record_length) {
-  (void)inventory;
-  (void)registration_index;
-  (void)value_index;
-  (void)outcome;
-  (void)original_bytes;
-  (void)original_length;
-  (void)record;
-  (void)record_capacity;
+  static const uint8_t empty_bytes = 0u;
+  const char *inventory_sha256;
+  const char *outcome_name;
+  char original_sha256[T64_SHA256_HEX_SIZE];
+  uint8_t original_digest[T64_SHA256_DIGEST_SIZE];
+  t64_sha256_ctx hash;
+  t64_jsonw writer;
+  t64_jsonw_status writer_status;
   if (record_length != NULL) *record_length = 0u;
-  return T64_BASE_DIAG_OUTPUT_OVERFLOW;
+  if (inventory == NULL || record == NULL || record_length == NULL ||
+      (original_bytes == NULL && original_length != 0u)) {
+    return T64_BASE_DIAG_INVALID_ARGUMENT;
+  }
+  if (record_capacity == 0u) return T64_BASE_DIAG_OUTPUT_OVERFLOW;
+  inventory_sha256 = t64_base_diag_inventory_sha256(inventory);
+  outcome_name = t64_base_diag_outcome_name(outcome);
+  if (inventory_sha256 == NULL || outcome_name == NULL) {
+    return T64_BASE_DIAG_INVALID_ARGUMENT;
+  }
+  if (original_bytes == NULL) original_bytes = &empty_bytes;
+  t64_sha256_init(&hash);
+  t64_sha256_update(&hash, original_bytes, original_length);
+  t64_sha256_final(&hash, original_digest);
+  t64_sha256_hex(original_digest, original_sha256);
+
+  t64_jsonw_init(&writer, (char *)record, record_capacity);
+  writer_status = t64_jsonw_begin_object(&writer);
+#define BASE_RECORD_KEY(key) \
+  t64_jsonw_key(&writer, key, sizeof(key) - 1u)
+  if (writer_status == T64_JSONW_OK)
+    writer_status = BASE_RECORD_KEY("inventory_sha256");
+  if (writer_status == T64_JSONW_OK)
+    writer_status = t64_jsonw_string(&writer, inventory_sha256,
+                                     strlen(inventory_sha256));
+  if (writer_status == T64_JSONW_OK)
+    writer_status = BASE_RECORD_KEY("original_sha256");
+  if (writer_status == T64_JSONW_OK)
+    writer_status = t64_jsonw_string(&writer, original_sha256,
+                                     sizeof original_sha256 - 1u);
+  if (writer_status == T64_JSONW_OK)
+    writer_status = BASE_RECORD_KEY("outcome");
+  if (writer_status == T64_JSONW_OK)
+    writer_status = t64_jsonw_string(&writer, outcome_name,
+                                     strlen(outcome_name));
+  if (writer_status == T64_JSONW_OK)
+    writer_status = BASE_RECORD_KEY("registration_index");
+  if (writer_status == T64_JSONW_OK)
+    writer_status = t64_jsonw_int(&writer, (int64_t)registration_index);
+  if (writer_status == T64_JSONW_OK)
+    writer_status = BASE_RECORD_KEY("schema");
+  if (writer_status == T64_JSONW_OK)
+    writer_status = t64_jsonw_string(&writer, "t64.base-member-record",
+                                     sizeof "t64.base-member-record" - 1u);
+  if (writer_status == T64_JSONW_OK)
+    writer_status = BASE_RECORD_KEY("schema_version");
+  if (writer_status == T64_JSONW_OK)
+    writer_status = t64_jsonw_int(&writer, T64_BASE_DIAG_RECORD_VERSION);
+  if (writer_status == T64_JSONW_OK)
+    writer_status = BASE_RECORD_KEY("value_index");
+  if (writer_status == T64_JSONW_OK)
+    writer_status = t64_jsonw_int(&writer, (int64_t)value_index);
+  if (writer_status == T64_JSONW_OK)
+    writer_status = t64_jsonw_end_object(&writer);
+  if (writer_status == T64_JSONW_OK)
+    writer_status = t64_jsonw_finish(&writer, record_length);
+#undef BASE_RECORD_KEY
+  if (writer_status == T64_JSONW_E_OVERFLOW)
+    return T64_BASE_DIAG_OUTPUT_OVERFLOW;
+  if (writer_status != T64_JSONW_OK)
+    return T64_BASE_DIAG_CANONICALIZATION_FAILED;
+  return T64_BASE_DIAG_OK;
 }
 
 t64_base_diag_status t64_base_diag_aggregate_create(
