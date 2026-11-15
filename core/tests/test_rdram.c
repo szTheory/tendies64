@@ -10,6 +10,7 @@
 #define IPL3_ASSET_BYTES 4096u
 #define TEST_RI_BASE UINT32_C(0x04700000)
 #define TEST_RI_CONFIG (TEST_RI_BASE + UINT32_C(4))
+#define TEST_RI_CURRENT_LOAD (TEST_RI_BASE + UINT32_C(8))
 
 typedef struct {
   t64_guest_device_state guest_devices;
@@ -227,6 +228,52 @@ static void test_prepared_profile_does_not_admit_cold_registers(void) {
   t64_machine_destroy(machine);
 }
 
+static void test_current_load_after_source_wait(void) {
+  const uint32_t start_pc = UINT32_C(0xa4000100);
+  const uint32_t start_offset = UINT32_C(0x100);
+  const uint32_t delay_instructions = UINT32_C(0x100);
+  t64_machine *machine = NULL;
+  uint64_t retired_before;
+  uint32_t index;
+
+  T64_CHECK(create_machine("ntsc-cart-4m-openipl3-rdram-b-t1-v1", &machine));
+  if (machine == NULL) {
+    return;
+  }
+  T64_CHECK_INT(t64_bus_write(machine, TEST_RI_CONFIG, 4u, UINT32_C(0x40)),
+                T64_STATUS_OK);
+  retired_before = machine->cpu.retired_instructions;
+  for (index = 0u; index < delay_instructions; index++) {
+    write_instruction(machine, start_offset + index * UINT32_C(4), 0u);
+  }
+  machine->cpu.pc = start_pc;
+  machine->cpu.pc_full = UINT64_C(0xffffffffa4000100);
+
+  /* The pinned source calls wait(0x100), implemented as 256 loop iterations.
+     This v1 native model uses 256 retired instructions as its named delay. */
+  for (index = 0u; index < delay_instructions; index++) {
+    const uint64_t target_tick = machine->tick + UINT64_C(1);
+    const t64_stop_request request = {T64_STOP_GUEST_TICK, target_tick};
+    t64_stop_result result = {UINT32_MAX, UINT64_MAX};
+
+    T64_CHECK_INT(t64_machine_advance(machine, &request, &result),
+                  T64_STATUS_OK);
+    T64_CHECK_INT(result.reason, T64_STOP_REASON_BOUND);
+    T64_CHECK_INT(result.tick, target_tick);
+    T64_CHECK_INT(machine->cpu.last_pc_full,
+                  UINT64_C(0xffffffffa4000100) +
+                      (uint64_t)index * UINT64_C(4));
+    T64_CHECK_INT(machine->cpu.attempt_outcome, T64_CPU_ATTEMPT_RETIRED);
+    T64_CHECK_INT(machine->cpu.retired_instructions,
+                  retired_before + (uint64_t)index + UINT64_C(1));
+  }
+
+  /* Source algorithm's next register operation applies the completed load. */
+  T64_CHECK_INT(t64_bus_write(machine, TEST_RI_CURRENT_LOAD, 4u, 0u),
+                T64_STATUS_OK);
+  t64_machine_destroy(machine);
+}
+
 static void test_first_cold_register_instruction(void) {
   static const uint32_t instructions[] = {
       UINT32_C(0x8c42000c), /* lw v0,12(v0), the retained RI_SELECT word. */
@@ -323,6 +370,7 @@ int main(void) {
   test_new_command_is_refused_by_legacy_profile();
   test_cold_command_requires_zero_selection();
   test_prepared_profile_does_not_admit_cold_registers();
+  test_current_load_after_source_wait();
   test_first_cold_register_instruction();
   return T64_TEST_FINISH("unit.core.rdram-protocol");
 }
