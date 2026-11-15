@@ -94,7 +94,9 @@ static t64_bus_region decode_region(const t64_machine *machine,
     return T64_BUS_REGION_UNSUPPORTED;
   }
   if (address >= T64_RDRAM_REG_BASE && address < T64_RDRAM_REG_END) {
-    return T64_BUS_REGION_UNSUPPORTED;
+    return t64_has_rdram_protocol_policy(machine)
+               ? T64_BUS_REGION_RDRAM_PROTOCOL
+               : T64_BUS_REGION_UNSUPPORTED;
   }
   if ((address >= T64_DOMAIN2_A_BASE && address < T64_DOMAIN2_A_END) ||
       (address >= T64_DOMAIN1_B_BASE && address < T64_DOMAIN1_B_END) ||
@@ -153,6 +155,22 @@ static t64_bus_region decode_region(const t64_machine *machine,
     return T64_BUS_REGION_CARTRIDGE;
   }
   return T64_BUS_REGION_UNMAPPED;
+}
+
+static t64_status validate_protocol_span(const t64_machine *machine,
+                                         t64_bus_region region,
+                                         uint32_t address, uint32_t width) {
+  uint32_t offset;
+
+  if (region != T64_BUS_REGION_RDRAM_PROTOCOL) {
+    return T64_STATUS_OK;
+  }
+  for (offset = 1u; offset < width; offset++) {
+    if (decode_region(machine, address + offset) != region) {
+      return T64_STATUS_BUS_DEVICE_REFUSED;
+    }
+  }
+  return T64_STATUS_OK;
 }
 
 static t64_status validate_access(uint32_t address, uint32_t width) {
@@ -304,6 +322,10 @@ t64_status t64_bus_probe_access(const t64_machine *machine,
   if (region == T64_BUS_REGION_UNSUPPORTED) {
     return T64_STATUS_BUS_UNSUPPORTED;
   }
+  status = validate_protocol_span(machine, region, physical_address, width);
+  if (status != T64_STATUS_OK) {
+    return status;
+  }
   bytes = region_bytes(machine, region, physical_address, &remaining);
   if (bytes != NULL) {
     return (size_t)width <= remaining ? T64_STATUS_OK : T64_STATUS_BUS_RANGE;
@@ -358,6 +380,10 @@ t64_status t64_bus_read(t64_machine *machine, uint32_t address,
   }
   if (region == T64_BUS_REGION_UNSUPPORTED) {
     return T64_STATUS_BUS_UNSUPPORTED;
+  }
+  status = validate_protocol_span(machine, region, address, width);
+  if (status != T64_STATUS_OK) {
+    return status;
   }
   if (region == T64_BUS_REGION_ISVIEWER) {
     status = t64_isviewer_read(machine, address, width, &value);
@@ -523,6 +549,10 @@ t64_status t64_bus_write(t64_machine *machine, uint32_t address,
   }
   if (region == T64_BUS_REGION_UNSUPPORTED) {
     return T64_STATUS_BUS_UNSUPPORTED;
+  }
+  status = validate_protocol_span(machine, region, address, width);
+  if (status != T64_STATUS_OK) {
+    return status;
   }
   if (region == T64_BUS_REGION_MI) {
     if (width != 4u) {

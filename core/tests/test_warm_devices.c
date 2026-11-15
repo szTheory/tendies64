@@ -816,6 +816,15 @@ int main(void) {
   T64_CHECK_INT(t64_machine_bus_write(machine, UINT32_C(0x04300004), 4u, 1u),
                 T64_STATUS_BUS_DEVICE_REFUSED);
 
+  value = UINT32_C(0xdecafbad);
+  T64_CHECK_INT(t64_machine_bus_read(machine, UINT32_C(0x03f00000), 4u,
+                                     &value),
+                T64_STATUS_BUS_UNSUPPORTED);
+  T64_CHECK_INT(value, UINT32_C(0xdecafbad));
+  T64_CHECK_INT(t64_machine_bus_write(machine, UINT32_C(0x03f80008), 4u,
+                                      UINT32_C(0xefbeadde)),
+                T64_STATUS_BUS_UNSUPPORTED);
+
   T64_CHECK_INT(t64_machine_bus_write(machine, TEST_RDRAM_BYTES - 1u, 1u,
                                       UINT32_C(0xa5)),
                 T64_STATUS_OK);

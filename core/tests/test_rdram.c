@@ -584,6 +584,8 @@ static void prepare_variable_cost_sequence(t64_machine *machine,
 
 static void test_bus_routes_cold_rdram_device_registers(void) {
   t64_machine *machine = NULL;
+  rdram_latch_snapshot before;
+  uint64_t wide = UINT64_C(0x1122334455667788);
   uint32_t readback = UINT32_C(0xfeedface);
   t64_status status;
 
@@ -594,6 +596,8 @@ static void test_bus_routes_cold_rdram_device_registers(void) {
   T64_CHECK(prepare_cold_rdram_register_access(machine));
   T64_CHECK_INT(t64_bus_write(machine, TEST_MI_MODE, 4u, UINT32_C(0x10f)),
                 T64_STATUS_OK);
+  T64_CHECK_INT(t64_bus_probe_access(machine, TEST_RDRAM_BROADCAST, 4u),
+                T64_STATUS_OK);
   status = t64_bus_write(machine, TEST_RDRAM_BROADCAST + UINT32_C(8), 4u,
                          UINT32_C(0xefbeadde));
   T64_CHECK_INT(status, T64_STATUS_OK);
@@ -601,10 +605,304 @@ static void test_bus_routes_cold_rdram_device_registers(void) {
     t64_machine_destroy(machine);
     return;
   }
+  T64_CHECK_INT(t64_bus_write(machine, TEST_RDRAM_BROADCAST + UINT32_C(4),
+                              4u, UINT32_C(0xfc800300)),
+                T64_STATUS_OK);
+  T64_CHECK_INT(t64_bus_write(machine, TEST_RDRAM_BROADCAST + UINT32_C(12),
+                              4u, UINT32_C(0x44000000)),
+                T64_STATUS_OK);
+  T64_CHECK_INT(t64_bus_write(machine, TEST_RDRAM_BROADCAST + UINT32_C(20),
+                              4u, 0u),
+                T64_STATUS_OK);
   T64_CHECK_INT(t64_bus_read(machine, TEST_RDRAM_ID511 + UINT32_C(8), 4u,
                              &readback),
                 T64_STATUS_OK);
   T64_CHECK_INT(readback, UINT32_C(0xefbeadde));
+
+  before = capture_latches(machine);
+  T64_CHECK_INT(t64_bus_write(machine, TEST_RDRAM_BROADCAST + UINT32_C(8),
+                              2u, UINT32_C(0x1234)),
+                T64_STATUS_BUS_UNSUPPORTED);
+  check_latches_unchanged(machine, &before);
+  T64_CHECK_INT(t64_bus_write_masked(machine,
+                                     TEST_RDRAM_BROADCAST + UINT32_C(8), 4u,
+                                     UINT8_C(1), UINT64_C(0x12)),
+                T64_STATUS_BUS_DEVICE_REFUSED);
+  check_latches_unchanged(machine, &before);
+  T64_CHECK_INT(t64_bus_read_wide(machine, TEST_RDRAM_BROADCAST, &wide),
+                T64_STATUS_BUS_DEVICE_REFUSED);
+  T64_CHECK_INT(wide, UINT64_C(0x1122334455667788));
+  check_latches_unchanged(machine, &before);
+  T64_CHECK_INT(t64_bus_validate_cache_writeback(
+                    machine, TEST_RDRAM_BROADCAST, 16u),
+                T64_STATUS_BUS_DEVICE_REFUSED);
+  check_latches_unchanged(machine, &before);
+
+  T64_CHECK_INT(t64_bus_write(machine, 0u, 4u, UINT32_C(0x76543210)),
+                T64_STATUS_OK);
+  readback = UINT32_C(0xfeedface);
+  T64_CHECK_INT(t64_bus_read(machine, UINT32_C(0x00400000), 4u, &readback),
+                T64_STATUS_OK);
+  T64_CHECK_INT(readback, 0u);
+  T64_CHECK_INT(t64_bus_write(machine, UINT32_C(0x00400004), 4u,
+                              UINT32_C(0xffffffff)),
+                T64_STATUS_BUS_UNSUPPORTED);
+  T64_CHECK_INT(t64_bus_read(machine, 0u, 4u, &readback), T64_STATUS_OK);
+  T64_CHECK_INT(readback, UINT32_C(0x76543210));
+  t64_machine_destroy(machine);
+}
+
+static void test_rdram_protocol_instances_are_independent(void) {
+  t64_machine *first = NULL;
+  t64_machine *second = NULL;
+  uint64_t first_deadline;
+  uint64_t second_deadline;
+  rdram_latch_snapshot before;
+
+  T64_CHECK(create_machine("ntsc-cart-4m-openipl3-rdram-b-t1-v1", &first));
+  T64_CHECK(create_machine("ntsc-cart-4m-openipl3-rdram-b-t1-v1", &second));
+  if (first == NULL || second == NULL) {
+    t64_machine_destroy(first);
+    t64_machine_destroy(second);
+    return;
+  }
+
+  T64_CHECK_INT(t64_bus_write(first, TEST_RI_CONFIG, 4u, UINT32_C(0x40)),
+                T64_STATUS_OK);
+  T64_CHECK(first->guest_devices.rdram_protocol.ri_config_known);
+  T64_CHECK(!second->guest_devices.rdram_protocol.ri_config_known);
+  first_deadline =
+      first->guest_devices.rdram_protocol.ri_current_load_deadline_tick;
+  first->queue_head = 0u;
+  first->queue_count = 0u;
+  advance_to_guest_tick(first, first_deadline);
+  T64_CHECK_INT(t64_bus_write(first, TEST_RI_CURRENT_LOAD, 4u, 0u),
+                T64_STATUS_OK);
+  T64_CHECK(!second->guest_devices.rdram_protocol.ri_current_load_known);
+
+  T64_CHECK_INT(t64_bus_write(second, TEST_RI_CONFIG, 4u, UINT32_C(0x40)),
+                T64_STATUS_OK);
+  second_deadline =
+      second->guest_devices.rdram_protocol.ri_current_load_deadline_tick;
+  T64_CHECK_INT(second_deadline,
+                second->guest_devices.rdram_protocol.ri_config_tick +
+                    UINT64_C(0x100));
+  before = capture_latches(second);
+  T64_CHECK_INT(t64_bus_write(second, TEST_RI_CURRENT_LOAD, 4u, 0u),
+                T64_STATUS_BUS_DEVICE_REFUSED);
+  check_latches_unchanged(second, &before);
+  T64_CHECK(first->guest_devices.rdram_protocol.ri_current_load_known);
+  T64_CHECK(!second->guest_devices.rdram_protocol.ri_current_load_known);
+  t64_machine_destroy(first);
+  t64_machine_destroy(second);
+}
+
+static void test_rdram_protocol_state_changes_only_v13_digest(void) {
+  t64_machine *machine = NULL;
+  t64_rdram_protocol_state *protocol;
+  uint8_t baseline[T64_DIGEST_SIZE];
+  uint8_t changed[T64_DIGEST_SIZE];
+  uint8_t legacy_baseline[T64_DIGEST_SIZE];
+  uint8_t legacy_changed[T64_DIGEST_SIZE];
+  size_t device_index;
+  size_t register_index;
+  uint32_t saved_serialization_version;
+
+  T64_CHECK(create_machine("ntsc-cart-4m-openipl3-rdram-b-t1-v1", &machine));
+  if (machine == NULL) {
+    return;
+  }
+  protocol = &machine->guest_devices.rdram_protocol;
+  T64_CHECK_INT(t64_machine_digest(machine, baseline), T64_STATUS_OK);
+
+#define CHECK_PROTOCOL_FIELD_CHANGE(set_expression, reset_expression)         \
+  do {                                                                        \
+    set_expression;                                                           \
+    T64_CHECK_INT(t64_machine_digest(machine, changed), T64_STATUS_OK);       \
+    T64_CHECK(memcmp(baseline, changed, sizeof baseline) != 0);                \
+    reset_expression;                                                        \
+  } while (0)
+
+  CHECK_PROTOCOL_FIELD_CHANGE(protocol->ri_config = UINT32_C(0x40),
+                              protocol->ri_config = 0u);
+  CHECK_PROTOCOL_FIELD_CHANGE(protocol->ri_config_known = true,
+                              protocol->ri_config_known = false);
+  CHECK_PROTOCOL_FIELD_CHANGE(protocol->ri_current_load = 1u,
+                              protocol->ri_current_load = 0u);
+  CHECK_PROTOCOL_FIELD_CHANGE(protocol->ri_current_load_known = true,
+                              protocol->ri_current_load_known = false);
+  CHECK_PROTOCOL_FIELD_CHANGE(protocol->ri_config_tick = 1u,
+                              protocol->ri_config_tick = 0u);
+  CHECK_PROTOCOL_FIELD_CHANGE(protocol->ri_current_load_deadline_tick = 2u,
+                              protocol->ri_current_load_deadline_tick = 0u);
+  CHECK_PROTOCOL_FIELD_CHANGE(protocol->ri_mode = 1u, protocol->ri_mode = 0u);
+  CHECK_PROTOCOL_FIELD_CHANGE(protocol->ri_mode_known = true,
+                              protocol->ri_mode_known = false);
+  CHECK_PROTOCOL_FIELD_CHANGE(protocol->ri_mode_tick = 3u,
+                              protocol->ri_mode_tick = 0u);
+  CHECK_PROTOCOL_FIELD_CHANGE(protocol->ri_mode_deadline_tick = 4u,
+                              protocol->ri_mode_deadline_tick = 0u);
+  CHECK_PROTOCOL_FIELD_CHANGE(protocol->ri_refresh = 5u,
+                              protocol->ri_refresh = 0u);
+  CHECK_PROTOCOL_FIELD_CHANGE(protocol->ri_refresh_known = true,
+                              protocol->ri_refresh_known = false);
+  CHECK_PROTOCOL_FIELD_CHANGE(protocol->mi_repeat_enabled = true,
+                              protocol->mi_repeat_enabled = false);
+  CHECK_PROTOCOL_FIELD_CHANGE(protocol->mi_repeat_known = true,
+                              protocol->mi_repeat_known = false);
+  CHECK_PROTOCOL_FIELD_CHANGE(protocol->mi_repeat_length = 16u,
+                              protocol->mi_repeat_length = 0u);
+  CHECK_PROTOCOL_FIELD_CHANGE(protocol->broadcast_registers_known = 1u,
+                              protocol->broadcast_registers_known = 0u);
+  for (register_index = 0u;
+       register_index < T64_RDRAM_PROTOCOL_REGISTER_COUNT;
+       register_index++) {
+    protocol->broadcast_register_values[register_index] =
+        (uint32_t)register_index + 1u;
+    T64_CHECK_INT(t64_machine_digest(machine, changed), T64_STATUS_OK);
+    T64_CHECK(memcmp(baseline, changed, sizeof baseline) != 0);
+    protocol->broadcast_register_values[register_index] = 0u;
+  }
+  CHECK_PROTOCOL_FIELD_CHANGE(protocol->logical_device_count = 1u,
+                              protocol->logical_device_count = 0u);
+  CHECK_PROTOCOL_FIELD_CHANGE(protocol->capacity_scan_complete = true,
+                              protocol->capacity_scan_complete = false);
+  CHECK_PROTOCOL_FIELD_CHANGE(protocol->logical_capacity_bytes = 1u,
+                              protocol->logical_capacity_bytes = 0u);
+
+  for (device_index = 0u; device_index < T64_RDRAM_PROTOCOL_SLOT_COUNT;
+       device_index++) {
+    t64_rdram_device_state *device = &protocol->devices[device_index];
+
+    CHECK_PROTOCOL_FIELD_CHANGE(device->device_id = 1u,
+                                device->device_id = 0u);
+    CHECK_PROTOCOL_FIELD_CHANGE(device->calibration_state = 1u,
+                                device->calibration_state = 0u);
+    CHECK_PROTOCOL_FIELD_CHANGE(device->present = true, device->present = false);
+    CHECK_PROTOCOL_FIELD_CHANGE(device->device_id_known = true,
+                                device->device_id_known = false);
+    CHECK_PROTOCOL_FIELD_CHANGE(device->registers_known = 1u,
+                                device->registers_known = 0u);
+    for (register_index = 0u;
+         register_index < T64_RDRAM_PROTOCOL_REGISTER_COUNT;
+         register_index++) {
+      device->register_values[register_index] =
+          (uint32_t)register_index + 1u;
+      T64_CHECK_INT(t64_machine_digest(machine, changed), T64_STATUS_OK);
+      T64_CHECK(memcmp(baseline, changed, sizeof baseline) != 0);
+      device->register_values[register_index] = 0u;
+    }
+  }
+
+  saved_serialization_version = machine->profile.state_serialization_version;
+  machine->profile.state_serialization_version = 12u;
+  T64_CHECK_INT(t64_machine_digest(machine, legacy_baseline), T64_STATUS_OK);
+  protocol->ri_refresh = UINT32_C(0x12345678);
+  T64_CHECK_INT(t64_machine_digest(machine, legacy_changed), T64_STATUS_OK);
+  T64_CHECK(memcmp(legacy_baseline, legacy_changed,
+                   sizeof legacy_baseline) == 0);
+  protocol->ri_refresh = 0u;
+  machine->profile.state_serialization_version = saved_serialization_version;
+
+#undef CHECK_PROTOCOL_FIELD_CHANGE
+  t64_machine_destroy(machine);
+}
+
+static void test_cpu_fetch_data_and_store_keep_distinct_boundaries(void) {
+  t64_machine *machine = NULL;
+  uint32_t readback = UINT32_C(0xfeedface);
+  t64_status status;
+
+  T64_CHECK(create_machine("ntsc-cart-4m-openipl3-rdram-b-t1-v1", &machine));
+  if (machine == NULL) {
+    return;
+  }
+  machine->cpu.pc = UINT32_C(0xa0400010);
+  machine->cpu.pc_full = UINT64_C(0xffffffffa0400010);
+  status = t64_cpu_step(machine, NULL);
+  T64_CHECK_INT(status, T64_STATUS_RESOURCE_EXHAUSTED);
+  T64_CHECK_INT(machine->cpu.stop_reason, T64_STOP_REASON_CPU_UNSUPPORTED);
+  T64_CHECK_INT(machine->cpu.retired_instructions, 0u);
+  t64_machine_destroy(machine);
+
+  machine = NULL;
+  T64_CHECK(create_machine("ntsc-cart-4m-openipl3-rdram-b-t1-v1", &machine));
+  if (machine == NULL) {
+    return;
+  }
+  write_instruction(machine, UINT32_C(0x80), UINT32_C(0x8d090000));
+  machine->cpu.pc = UINT32_C(0xa4000080);
+  machine->cpu.pc_full = UINT64_C(0xffffffffa4000080);
+  machine->cpu.gpr[8] = UINT64_C(0xffffffffa0400010);
+  machine->cpu.gpr[9] = UINT64_C(0xfeedface);
+  T64_CHECK_INT(t64_cpu_step(machine, NULL), T64_STATUS_OK);
+  T64_CHECK_INT(machine->cpu.gpr[9], 0u);
+  T64_CHECK_INT(machine->cpu.attempt_outcome, T64_CPU_ATTEMPT_RETIRED);
+  T64_CHECK_INT(machine->cpu.retired_instructions, 1u);
+  t64_machine_destroy(machine);
+
+  machine = NULL;
+  T64_CHECK(create_machine("ntsc-cart-4m-openipl3-rdram-b-t1-v1", &machine));
+  if (machine == NULL) {
+    return;
+  }
+  T64_CHECK_INT(t64_bus_write(machine, 8u, 4u, UINT32_C(0x12345678)),
+                T64_STATUS_OK);
+  write_instruction(machine, UINT32_C(0x80), UINT32_C(0xad090000));
+  machine->cpu.pc = UINT32_C(0xa4000080);
+  machine->cpu.pc_full = UINT64_C(0xffffffffa4000080);
+  machine->cpu.gpr[8] = UINT64_C(0xffffffffa0400008);
+  machine->cpu.gpr[9] = UINT64_C(0xdeadbeef);
+  status = t64_cpu_step(machine, NULL);
+  T64_CHECK_INT(status, T64_STATUS_RESOURCE_EXHAUSTED);
+  T64_CHECK_INT(machine->cpu.stop_reason, T64_STOP_REASON_CPU_UNSUPPORTED);
+  T64_CHECK_INT(machine->cpu.attempt_outcome,
+                T64_CPU_ATTEMPT_MODEL_UNSUPPORTED);
+  T64_CHECK_INT(machine->cpu.retired_instructions, 0u);
+  T64_CHECK_INT(t64_bus_read(machine, 8u, 4u, &readback), T64_STATUS_OK);
+  T64_CHECK_INT(readback, UINT32_C(0x12345678));
+  t64_machine_destroy(machine);
+}
+
+static void test_pi_and_sp_dma_do_not_alias_past_rdram(void) {
+  const uint32_t pi_base = UINT32_C(0x04600000);
+  const uint32_t sp_reg_base = UINT32_C(0x04040000);
+  const uint32_t beyond_rdram = UINT32_C(0x00400008);
+  t64_machine *machine = NULL;
+  uint32_t readback = 0u;
+  size_t queue_count_before;
+
+  T64_CHECK(create_machine("ntsc-cart-4m-openipl3-rdram-b-t1-v1", &machine));
+  if (machine == NULL) {
+    return;
+  }
+  queue_count_before = machine->queue_count;
+  T64_CHECK_INT(t64_bus_write(machine, 0u, 4u, UINT32_C(0xcafebabe)),
+                T64_STATUS_OK);
+
+  T64_CHECK_INT(t64_bus_write(machine, pi_base, 4u, beyond_rdram),
+                T64_STATUS_OK);
+  T64_CHECK_INT(t64_bus_write(machine, pi_base + UINT32_C(4), 4u,
+                              UINT32_C(0x10000000)),
+                T64_STATUS_OK);
+  T64_CHECK_INT(t64_bus_write(machine, pi_base + UINT32_C(12), 4u, 7u),
+                T64_STATUS_BUS_DEVICE_REFUSED);
+  T64_CHECK(!machine->pi.active_valid);
+  T64_CHECK_INT(machine->queue_count, queue_count_before);
+
+  queue_count_before = machine->queue_count;
+  T64_CHECK_INT(t64_bus_write(machine, sp_reg_base, 4u, 0u), T64_STATUS_OK);
+  T64_CHECK_INT(t64_bus_write(machine, sp_reg_base + UINT32_C(4), 4u,
+                              beyond_rdram),
+                T64_STATUS_OK);
+  T64_CHECK_INT(t64_bus_write(machine, sp_reg_base + UINT32_C(8), 4u, 7u),
+                T64_STATUS_BUS_DEVICE_REFUSED);
+  T64_CHECK(!machine->sp.active.valid);
+  T64_CHECK(!machine->sp.pending.valid);
+  T64_CHECK_INT(machine->queue_count, queue_count_before);
+
+  T64_CHECK_INT(t64_bus_read(machine, 0u, 4u, &readback), T64_STATUS_OK);
+  T64_CHECK_INT(readback, UINT32_C(0xcafebabe));
   t64_machine_destroy(machine);
 }
 
@@ -794,6 +1092,10 @@ int main(void) {
   test_current_load_uses_guest_ticks_and_is_partition_invariant();
   test_rdram_broadcast_devices_calibration_and_capacity();
   test_bus_routes_cold_rdram_device_registers();
+  test_rdram_protocol_instances_are_independent();
+  test_rdram_protocol_state_changes_only_v13_digest();
+  test_cpu_fetch_data_and_store_keep_distinct_boundaries();
+  test_pi_and_sp_dma_do_not_alias_past_rdram();
   test_first_cold_register_instruction();
   return T64_TEST_FINISH("unit.core.rdram-protocol");
 }

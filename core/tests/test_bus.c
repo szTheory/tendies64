@@ -83,6 +83,7 @@ static void test_memory_boundaries(void) {
   const t64_profile_descriptor *profile = NULL;
   t64_machine *machine = NULL;
   uint32_t value = 0u;
+  uint32_t low_memory_before = 0u;
   size_t i;
 
   for (i = 0u; i < sizeof image; i++) {
@@ -136,6 +137,24 @@ static void test_memory_boundaries(void) {
                                      &value), T64_STATUS_BUS_UNSUPPORTED);
   T64_CHECK_INT(t64_machine_bus_read(machine, UINT32_C(0xdead0000), 1u,
                                      &value), T64_STATUS_BUS_UNMAPPED);
+  T64_CHECK_INT(t64_bus_probe_access(machine, UINT32_C(0x003ffffc), 4u),
+                T64_STATUS_OK);
+  T64_CHECK_INT(t64_bus_probe_access(machine, UINT32_C(0x00400000), 4u),
+                T64_STATUS_BUS_UNSUPPORTED);
+  T64_CHECK_INT(t64_bus_validate_cache_writeback(
+                    machine, UINT32_C(0x003ffff0), 16u),
+                T64_STATUS_OK);
+  T64_CHECK_INT(t64_bus_validate_cache_writeback(
+                    machine, UINT32_C(0x00400000), 16u),
+                T64_STATUS_BUS_UNSUPPORTED);
+  T64_CHECK_INT(t64_machine_bus_read(machine, 0u, 4u, &low_memory_before),
+                T64_STATUS_OK);
+  T64_CHECK_INT(t64_machine_bus_write(machine, UINT32_C(0x00400000), 4u,
+                                      UINT32_C(0xdeadbeef)),
+                T64_STATUS_BUS_UNSUPPORTED);
+  T64_CHECK_INT(t64_machine_bus_read(machine, 0u, 4u, &value),
+                T64_STATUS_OK);
+  T64_CHECK_INT(value, low_memory_before);
 
   /*
    * SP DMEM/IMEM are distinct adjacent banks per Decision B §Physical map

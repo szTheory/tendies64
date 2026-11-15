@@ -127,9 +127,10 @@ labels the source's logical value where it helps explain a transition.
 
 Native tests execute independent register sequences, check before/after state
 on reached refusals, and exercise idle, variable-cost, and partitioned guest-
-time advances. Bus mapping for the RDRAM window and complete-span CPU/DMA
-policy are verified separately by the next task; this table does not expand
-any historical compat-v2 absent-memory access window.
+time advances. The RDRAM bus window, CPU data/fetch/store ownership, PI/SP DMA
+range checks, and state-v13 digest sensitivity have separate native coverage.
+The compat-v2 CPU-only absent-memory zero-read windows and their exclusions
+remain unchanged; this table does not expand them.
 
 ## Limits
 

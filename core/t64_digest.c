@@ -54,6 +54,53 @@ static void hash_sp_descriptor(t64_sha256_ctx *context,
   hash_u64(context, descriptor->token);
 }
 
+static void hash_rdram_protocol_state(
+    t64_sha256_ctx *context, const t64_rdram_protocol_state *protocol) {
+  size_t device_index;
+  size_t register_index;
+
+  hash_u32(context, protocol->ri_config);
+  hash_u32(context, protocol->ri_config_known ? 1u : 0u);
+  hash_u32(context, protocol->ri_current_load);
+  hash_u32(context, protocol->ri_current_load_known ? 1u : 0u);
+  hash_u64(context, protocol->ri_config_tick);
+  hash_u64(context, protocol->ri_current_load_deadline_tick);
+  hash_u32(context, protocol->ri_mode);
+  hash_u32(context, protocol->ri_mode_known ? 1u : 0u);
+  hash_u64(context, protocol->ri_mode_tick);
+  hash_u64(context, protocol->ri_mode_deadline_tick);
+  hash_u32(context, protocol->ri_refresh);
+  hash_u32(context, protocol->ri_refresh_known ? 1u : 0u);
+  hash_u32(context, protocol->mi_repeat_enabled ? 1u : 0u);
+  hash_u32(context, protocol->mi_repeat_known ? 1u : 0u);
+  hash_u32(context, protocol->mi_repeat_length);
+  hash_u32(context, protocol->broadcast_registers_known);
+  for (register_index = 0u;
+       register_index < T64_RDRAM_PROTOCOL_REGISTER_COUNT;
+       register_index++) {
+    hash_u32(context, protocol->broadcast_register_values[register_index]);
+  }
+  hash_u32(context, protocol->logical_device_count);
+  hash_u32(context, protocol->capacity_scan_complete ? 1u : 0u);
+  hash_u32(context, protocol->logical_capacity_bytes);
+  for (device_index = 0u; device_index < T64_RDRAM_PROTOCOL_SLOT_COUNT;
+       device_index++) {
+    const t64_rdram_device_state *device =
+        &protocol->devices[device_index];
+
+    hash_u32(context, device->device_id);
+    hash_u32(context, device->calibration_state);
+    hash_u32(context, device->present ? 1u : 0u);
+    hash_u32(context, device->device_id_known ? 1u : 0u);
+    hash_u32(context, device->registers_known);
+    for (register_index = 0u;
+         register_index < T64_RDRAM_PROTOCOL_REGISTER_COUNT;
+         register_index++) {
+      hash_u32(context, device->register_values[register_index]);
+    }
+  }
+}
+
 static void hash_vr4300_cpu_state(t64_sha256_ctx *context,
                                   const t64_cpu_state *cpu) {
   size_t i;
@@ -392,6 +439,10 @@ t64_status t64_machine_digest(const t64_machine *machine,
       hash_u64(&context, rsp->active_dma_token);
       hash_u64(&context, rsp->pending_dma_token);
       hash_u64(&context, rsp->dma_event_sequence);
+    }
+    if (has_v13_state) {
+      hash_rdram_protocol_state(
+          &context, &machine->guest_devices.rdram_protocol);
     }
   }
   t64_sha256_final(&context, digest_out);
