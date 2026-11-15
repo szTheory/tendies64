@@ -6,7 +6,7 @@
 #include "t64_sha256.h"
 
 static const char source_authority_sha256[] =
-    "1ddce1bc2cc87c6da3418b438201604bdb0d6223218e572f314cf47d5322cfb0";
+    "794ee1efc617ec02bde6949bd855b1d830f46f0d0e59bc116c46baf01a184a02";
 
 static const uint8_t source_authority[] =
     "{\"members\":["
@@ -15,7 +15,7 @@ static const uint8_t source_authority[] =
     "{\"execution\":\"values\",\"group\":\"arithmetic\",\"index\":2,\"lane\":\"base-required\",\"level\":\"Weird\",\"name\":\"same display\",\"reason\":\"\",\"required\":true,\"value_id\":\"first\",\"value_index\":0},"
     "{\"execution\":\"values\",\"group\":\"arithmetic\",\"index\":3,\"lane\":\"base-required\",\"level\":\"Weird\",\"name\":\"same display\",\"reason\":\"\",\"required\":true,\"value_id\":\"second\",\"value_index\":0}],"
     "\"schema\":\"t64.base-source-authority\",\"schema_version\":1,"
-    "\"source_revision\":\"0000000000000000000000000000000000000000\"}";
+    "\"source_revision\":\"0000000000000000000000000000000000000000\"}\n";
 
 static const uint8_t inventory[] =
     "{\"members\":["
@@ -24,8 +24,8 @@ static const uint8_t inventory[] =
     "{\"execution\":\"values\",\"group\":\"arithmetic\",\"index\":2,\"lane\":\"base-required\",\"level\":\"Weird\",\"name\":\"same display\",\"reason\":\"\",\"required\":true,\"value_id\":\"first\",\"value_index\":0},"
     "{\"execution\":\"values\",\"group\":\"arithmetic\",\"index\":3,\"lane\":\"base-required\",\"level\":\"Weird\",\"name\":\"same display\",\"reason\":\"\",\"required\":true,\"value_id\":\"second\",\"value_index\":0}],"
     "\"schema\":\"t64.base-inventory\",\"schema_version\":1,"
-    "\"source_authority_sha256\":\"1ddce1bc2cc87c6da3418b438201604bdb0d6223218e572f314cf47d5322cfb0\","
-    "\"source_revision\":\"0000000000000000000000000000000000000000\"}";
+    "\"source_authority_sha256\":\"794ee1efc617ec02bde6949bd855b1d830f46f0d0e59bc116c46baf01a184a02\","
+    "\"source_revision\":\"0000000000000000000000000000000000000000\"}\n";
 
 static const uint8_t reduced_source_authority[] =
     "{\"members\":["
@@ -33,7 +33,7 @@ static const uint8_t reduced_source_authority[] =
     "{\"execution\":\"values\",\"group\":\"arithmetic\",\"index\":2,\"lane\":\"base-required\",\"level\":\"Weird\",\"name\":\"same display\",\"reason\":\"\",\"required\":true,\"value_id\":\"first\",\"value_index\":0},"
     "{\"execution\":\"values\",\"group\":\"arithmetic\",\"index\":3,\"lane\":\"base-required\",\"level\":\"Weird\",\"name\":\"same display\",\"reason\":\"\",\"required\":true,\"value_id\":\"second\",\"value_index\":0}],"
     "\"schema\":\"t64.base-source-authority\",\"schema_version\":1,"
-    "\"source_revision\":\"0000000000000000000000000000000000000000\"}";
+    "\"source_revision\":\"0000000000000000000000000000000000000000\"}\n";
 
 static const uint8_t reduced_inventory[] =
     "{\"members\":["
@@ -41,8 +41,8 @@ static const uint8_t reduced_inventory[] =
     "{\"execution\":\"values\",\"group\":\"arithmetic\",\"index\":2,\"lane\":\"base-required\",\"level\":\"Weird\",\"name\":\"same display\",\"reason\":\"\",\"required\":true,\"value_id\":\"first\",\"value_index\":0},"
     "{\"execution\":\"values\",\"group\":\"arithmetic\",\"index\":3,\"lane\":\"base-required\",\"level\":\"Weird\",\"name\":\"same display\",\"reason\":\"\",\"required\":true,\"value_id\":\"second\",\"value_index\":0}],"
     "\"schema\":\"t64.base-inventory\",\"schema_version\":1,"
-    "\"source_authority_sha256\":\"cc16d1b780ffe003e4d62babcb5521c4ab81f5bd2782933c47519c3e993f4d6c\","
-    "\"source_revision\":\"0000000000000000000000000000000000000000\"}";
+    "\"source_authority_sha256\":\"ea6829e21abfb31976bd999da2f3e6af79afbbbf5d8b5aba2bccfd909d3028c8\","
+    "\"source_revision\":\"0000000000000000000000000000000000000000\"}\n";
 
 static void print_hash(const uint8_t *bytes, size_t length, char output[65]) {
   static const char digits[] = "0123456789abcdef";
@@ -83,6 +83,7 @@ int main(void) {
   t64_base_diag_inventory *parsed = NULL;
   t64_base_diag_aggregate *aggregate = NULL;
   t64_base_diag_status status;
+  record[0] = '\0';
 
   status = t64_base_diag_inventory_parse(
       source_authority, sizeof source_authority - 1u,
@@ -137,7 +138,7 @@ int main(void) {
         "{\"inventory_sha256\":\"%s\",\"original_sha256\":\"%s\","
         "\"outcome\":\"pass\",\"registration_index\":0,"
         "\"schema\":\"t64.base-member-record\",\"schema_version\":1,"
-        "\"value_index\":0}",
+        "\"value_index\":0}\n",
         t64_base_diag_inventory_sha256(parsed), original_sha256);
     failures += expect_true("original record fits bounded buffer",
                             record_length > 0 &&
@@ -151,7 +152,43 @@ int main(void) {
           t64_base_diag_aggregate_member_count(aggregate) == 1u &&
           !t64_base_diag_aggregate_is_complete(aggregate) &&
           !t64_base_diag_aggregate_is_all_pass(aggregate));
+      {
+        t64_base_diag_member_result result;
+        failures += expect_true("aggregate retains the exact original digest",
+            t64_base_diag_aggregate_member_at(aggregate, 0u, &result) &&
+            result.registration_index == 0u && result.value_index == 0u &&
+            result.outcome == T64_BASE_DIAG_OUTCOME_PASS &&
+            result.original_sha256 != NULL &&
+            strcmp(result.original_sha256, original_sha256) == 0);
+      }
+      failures += expect_status("duplicate member poisons the aggregate",
+          t64_base_diag_aggregate_add_original(
+              aggregate, (const uint8_t *)record, (size_t)record_length,
+              original, sizeof original - 1u), T64_BASE_DIAG_DUPLICATE_MEMBER);
+      failures += expect_true("poisoned duplicate cannot complete BASE",
+          !t64_base_diag_aggregate_is_complete(aggregate) &&
+          !t64_base_diag_aggregate_is_all_pass(aggregate));
     }
+  }
+
+  {
+    static const uint8_t changed_original[] =
+        "PASS authored member output changed\n";
+    t64_base_diag_aggregate *tampered = NULL;
+    if (t64_base_diag_aggregate_create(parsed, &tampered) !=
+        T64_BASE_DIAG_OK) {
+      failures += expect_true("aggregate available for original-byte control",
+                              false);
+    } else if (record[0] != '\0') {
+      failures += expect_status("changed original bytes are rejected",
+          t64_base_diag_aggregate_add_original(
+              tampered, (const uint8_t *)record, (size_t)strlen(record),
+              changed_original, sizeof changed_original - 1u),
+          T64_BASE_DIAG_IDENTITY_MISMATCH);
+      failures += expect_true("tampered original cannot complete BASE",
+                              !t64_base_diag_aggregate_is_complete(tampered));
+    }
+    t64_base_diag_aggregate_destroy(tampered);
   }
 
   t64_base_diag_aggregate_destroy(aggregate);
