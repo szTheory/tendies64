@@ -1196,6 +1196,18 @@ static void test_cold_t1_profile_entry(
   T64_CHECK_INT(machine->cpu.retired_instructions, 0u);
   T64_CHECK_INT(machine->cpu.pc_full, UINT64_C(0xffffffffa4000040));
 
+  {
+    uint32_t magic = 0u;
+
+    T64_CHECK_INT(t64_machine_bus_write(machine, T64_ISVIEWER_BASE, 4u,
+                                        UINT32_C(0xedcba987)),
+                  T64_STATUS_OK);
+    T64_CHECK_INT(t64_machine_bus_read(machine, T64_ISVIEWER_BASE, 4u,
+                                       &magic),
+                  T64_STATUS_OK);
+    T64_CHECK_INT(magic, UINT32_C(0xedcba987));
+  }
+
 done:
   t64_machine_destroy(machine);
   T64_CHECK_INT(allocator_state_value.outstanding, 0u);
