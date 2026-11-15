@@ -15,6 +15,7 @@
 #include <unistd.h>
 
 #include "t64_cpu_diag_protocol.h"
+#include "t64_diag_common.h"
 #include "t64_jsonw.h"
 #include "t64_sha256.h"
 #include "t64_verified_input.h"
@@ -61,7 +62,7 @@ static bool read_file(const char *path, size_t maximum, file_bytes *file) {
       (uintmax_t)before.st_size > (uintmax_t)maximum) {
     return false;
   }
-  descriptor = open(path, O_RDONLY | O_NOFOLLOW);
+  descriptor = open(path, O_RDONLY | O_NOFOLLOW | O_NONBLOCK);
   if (descriptor < 0 || fstat(descriptor, &opened) != 0 ||
       !S_ISREG(opened.st_mode) ||
       opened.st_dev != before.st_dev || opened.st_ino != before.st_ino ||
@@ -105,7 +106,7 @@ static bool read_file_allow_empty(const char *path, size_t maximum,
       !S_ISREG(before.st_mode) || S_ISLNK(before.st_mode) ||
       (before.st_mode & (S_IWGRP | S_IWOTH)) != 0 || before.st_size < 0 ||
       (uintmax_t)before.st_size > (uintmax_t)maximum) return false;
-  descriptor = open(path, O_RDONLY | O_NOFOLLOW);
+  descriptor = open(path, O_RDONLY | O_NOFOLLOW | O_NONBLOCK);
   if (descriptor < 0 || fstat(descriptor, &opened) != 0 ||
       !S_ISREG(opened.st_mode) || opened.st_dev != before.st_dev ||
       opened.st_ino != before.st_ino || opened.st_size != before.st_size) {
@@ -211,6 +212,20 @@ static bool private_output_path(const char *path) {
   return false;
 }
 
+static bool current_target(const char *context_sha256,
+                           t64_base_diag_target *target,
+                           char profile_hex[T64_SHA256_HEX_SIZE]) {
+  const t64_profile_descriptor *profile = NULL;
+  uint8_t profile_hash[T64_DIGEST_SIZE];
+  if (t64_profile_lookup("ntsc-cart-4m-openipl3-rdram-b-t1-v1", &profile) !=
+          T64_STATUS_OK || profile == NULL ||
+      t64_profile_hash(profile, profile_hash) != T64_STATUS_OK) return false;
+  t64_sha256_hex(profile_hash, profile_hex);
+  *target = (t64_base_diag_target){context_sha256, profile->profile_id,
+                                  profile_hex, t64_build_identity()};
+  return target->core_build_id != NULL;
+}
+
 static bool write_private_file(const char *path, const uint8_t *bytes,
                                size_t length) {
   int descriptor;
@@ -293,7 +308,8 @@ static bool observe_machine(t64_machine *machine, uint8_t *capture,
                             size_t *capture_length, uint32_t *saw_entry,
                             uint32_t *saw_park, uint32_t *park_sequence,
                             uint32_t *last_pc, uint32_t *last_opcode,
-                            uint64_t *output_total) {
+                            uint64_t *output_total,
+                            t64_base_diag_execution *proof) {
   t64_trace_record trace[T64_TRACE_RECORD_CAPACITY];
   size_t count = 0u;
   uint64_t dropped = 0u;
@@ -334,8 +350,11 @@ static bool observe_machine(t64_machine *machine, uint8_t *capture,
   if (*capture_length > BASE_CAPTURE_CAPACITY) return false;
   if (t64_machine_output_drain(machine, capture + *capture_length,
                                BASE_CAPTURE_CAPACITY - *capture_length,
-                               &output) != T64_STATUS_OK ||
-      output.copied_bytes > BASE_CAPTURE_CAPACITY - *capture_length ||
+                               &output) != T64_STATUS_OK) return false;
+  proof->capture_exact = output.total_attempted_bytes_exact;
+  proof->capture_lost = output.lost_output;
+  proof->capture_total = output.total_attempted_bytes;
+  if (output.copied_bytes > BASE_CAPTURE_CAPACITY - *capture_length ||
       output.lost_output || !output.total_attempted_bytes_exact) return false;
   *capture_length += output.copied_bytes;
   *output_total = output.total_attempted_bytes;
@@ -347,7 +366,8 @@ static t64_base_diag_outcome execute_tier_b_t1(
     uint32_t registration_index, uint32_t value_index,
     uint8_t capture[BASE_CAPTURE_CAPACITY], size_t *capture_length,
     uint64_t *tick_out, uint32_t *saw_entry, uint32_t *saw_park,
-    uint32_t *last_pc, uint32_t *last_opcode, const char **stage_out) {
+    uint32_t *last_pc, uint32_t *last_opcode, const char **stage_out,
+    t64_base_diag_execution *proof) {
   const t64_profile_descriptor *profile = NULL;
   t64_host_allocator allocator = {allocate_machine, release_machine, NULL};
   t64_machine *machine = NULL;
@@ -390,7 +410,7 @@ static t64_base_diag_outcome execute_tier_b_t1(
         stop.tick > target ||
         !observe_machine(machine, capture, capture_length, saw_entry,
                          saw_park, &park_sequence, last_pc, last_opcode,
-                         &output_total)) goto cleanup;
+                         &output_total, proof)) goto cleanup;
     current_tick = stop.tick;
     *tick_out = current_tick;
     if (stop.reason == T64_STOP_REASON_RESOURCE_LIMIT) {
@@ -431,6 +451,15 @@ static t64_base_diag_outcome execute_tier_b_t1(
                 ? T64_BASE_DIAG_OUTCOME_INCOMPLETE
                 : T64_BASE_DIAG_OUTCOME_GUEST_STOP;
 cleanup:
+  proof->tick = *tick_out;
+  proof->entry_reached = *saw_entry != 0u;
+  proof->park_sequence = park_sequence;
+  /* The sequence recognizes both real jump and NOP retirements. */
+  if (park_sequence >= 4u) {
+    proof->terminal_pc = BASE_PARK_PC;
+    proof->terminal_opcode = BASE_PARK_OPCODE;
+    proof->terminal_delay_opcode = 0u;
+  }
   if (machine != NULL) t64_machine_destroy(machine);
   free(rom);
   return outcome;
@@ -535,8 +564,16 @@ static int command_run_local(int argc, char **argv) {
   uint32_t last_pc = 0u;
   uint32_t last_opcode = 0u;
   const char *stage = "argument-validation";
+  const bool bound = argc == 15 &&
+                     strcmp(argv[1], "--run-bound-local") == 0;
+  t64_base_diag_target target;
+  char profile_hex[T64_SHA256_HEX_SIZE];
+  t64_base_diag_execution proof = {
+      .selected_rom_sha256 = "", .reason = "adapter-harness-error",
+      .capture_exact = true};
   int exit_code = 4;
-  if (argc != 14 || strcmp(argv[2], "--local-only") != 0 ||
+  if ((!bound && (argc != 14 || strcmp(argv[1], "--run-local") != 0)) ||
+      strcmp(argv[2], "--local-only") != 0 ||
       !local_execution_allowed() || !parse_u64(argv[7], &rom_size) ||
       !parse_u64(argv[9], &tick_bound) ||
       !parse_u32(argv[10], &registration_index) ||
@@ -563,8 +600,8 @@ static int command_run_local(int argc, char **argv) {
       break;
     }
   }
-  if (!member_found || !member.required ||
-      strcmp(member.lane, "required-base") != 0 ||
+  if (!member_found ||
+      (!bound && (!member.required || strcmp(member.lane, "required-base") != 0)) ||
       (strcmp(member.execution, "once") != 0 &&
        strcmp(member.execution, "values") != 0) ||
       (strcmp(member.execution, "once") == 0 &&
@@ -578,28 +615,50 @@ static int command_run_local(int argc, char **argv) {
     print_refusal("source-image-snapshot-refused");
     goto cleanup;
   }
+  /* Validate the expected context before executing any guest instruction. */
+  if (bound && (!current_target(argv[14], &target, profile_hex) ||
+      t64_base_diag_aggregate_create_bound(inventory, &target, &aggregate) !=
+          T64_BASE_DIAG_OK ||
+      t64_base_diag_aggregate_bind_image(aggregate, registration_index,
+                                        value_index, argv[8]) != T64_BASE_DIAG_OK)) {
+    print_refusal("bound-target-refused");
+    goto cleanup;
+  }
+  proof.selected_rom_sha256 = argv[8];
   /* The command carries the selector and value ordinals; the independent
      pre-use host has already matched them to the source projection. */
   outcome = execute_tier_b_t1(&snapshot, tick_bound, registration_index,
                               value_index, capture, &capture_length, &tick,
                               &saw_entry, &saw_park, &last_pc, &last_opcode,
-                              &stage);
-  if (t64_base_diag_encode_member_record(
+                              &stage, &proof);
+  proof.reason = outcome == T64_BASE_DIAG_OUTCOME_PASS ||
+                         outcome == T64_BASE_DIAG_OUTCOME_FAIL ? "" :
+                 outcome == T64_BASE_DIAG_OUTCOME_INCOMPLETE ?
+                     "incomplete-transcript" :
+                 outcome == T64_BASE_DIAG_OUTCOME_GUEST_STOP ?
+                     (strcmp(stage, "canonical-core-cpu-unsupported") == 0 ?
+                         "cpu-unsupported" : "guest-tick-bound") :
+                     "adapter-harness-error";
+  protocol_status = bound ? t64_base_diag_encode_bound_member_record(
+          inventory, registration_index, value_index, outcome, &target,
+          &proof, capture, capture_length, record, sizeof record, &record_length) :
+      t64_base_diag_encode_member_record(
           inventory, registration_index, value_index, outcome, capture,
-          capture_length, record, sizeof record, &record_length) !=
-          T64_BASE_DIAG_OK ||
+          capture_length, record, sizeof record, &record_length);
+  if (protocol_status != T64_BASE_DIAG_OK ||
       !save_capture(argv[13], capture, capture_length) ||
       !write_private_file(argv[12], record, record_length)) {
     print_refusal("private-member-output-refused");
     goto cleanup;
   }
-  protocol_status = t64_base_diag_aggregate_create(inventory, &aggregate);
+  protocol_status = bound ? T64_BASE_DIAG_OK :
+      t64_base_diag_aggregate_create(inventory, &aggregate);
   if (protocol_status == T64_BASE_DIAG_OK)
     protocol_status = t64_base_diag_aggregate_add_original(
         aggregate, record, record_length, capture, capture_length);
   if (protocol_status != T64_BASE_DIAG_OK || aggregate == NULL ||
       t64_base_diag_aggregate_member_count(aggregate) != 1u ||
-      t64_base_diag_aggregate_is_complete(aggregate)) {
+      (!bound && t64_base_diag_aggregate_is_complete(aggregate))) {
     print_refusal("single-member-base-aggregate-refused");
     goto cleanup;
   }
@@ -621,6 +680,141 @@ cleanup:
   free_file(&authority);
   free_file(&inventory_bytes);
   t64_verified_input_release(&snapshot);
+  return exit_code;
+}
+
+static bool json_index(const t64_json_node *object, const char *key,
+                        uint32_t *index) {
+  const t64_json_node *node = t64_json_get(object, key);
+  if (node == NULL || node->type != T64_JSON_INT || node->num < 0 ||
+      (uint64_t)node->num > UINT32_MAX) return false;
+  *index = (uint32_t)node->num;
+  return true;
+}
+
+static const char *json_text(const t64_json_node *object, const char *key) {
+  const t64_json_node *node = t64_json_get(object, key);
+  return t64_diag_json_printable_text(node, PATH_MAX - 1u, true)
+             ? node->str : NULL;
+}
+
+/* The pre-use host supplies an independently qualified image digest for each
+ * selector. C owns membership, record validation and every completeness flag. */
+static int command_classify(int argc, char **argv) {
+  static const char *const root_keys[] = {"members", "schema", "schema_version"};
+  static const char *const row_keys[] = {
+      "expected_rom_sha256", "original", "outcome", "reason", "record",
+      "registration_index", "value_index"};
+  file_bytes authority = {0}, inventory_bytes = {0}, manifest = {0};
+  file_bytes record = {0}, original = {0};
+  t64_base_diag_inventory *inventory = NULL;
+  t64_base_diag_aggregate *aggregate = NULL;
+  t64_json_doc document = {0}, record_document = {0};
+  t64_json_limits limits;
+  t64_json_error error;
+  t64_base_diag_target target;
+  char profile_hex[T64_SHA256_HEX_SIZE];
+  uint8_t *report = NULL;
+  size_t report_length = 0u;
+  int exit_code = 4;
+  const t64_json_node *members, *row, *version;
+  if (argc != 8 || !local_execution_allowed() ||
+      !read_file(argv[2], BASE_FILE_LIMIT, &authority) ||
+      !read_file(argv[4], BASE_FILE_LIMIT, &inventory_bytes) ||
+      !read_file(argv[6], T64_BASE_DIAG_MAX_REPORT_BYTES, &manifest) ||
+      !private_output_path(argv[7]) ||
+      !current_target(argv[5], &target, profile_hex) ||
+      t64_base_diag_inventory_parse(authority.bytes, authority.length,
+          argv[3], inventory_bytes.bytes, inventory_bytes.length, &inventory) !=
+          T64_BASE_DIAG_OK ||
+      t64_base_diag_aggregate_create_bound(inventory, &target, &aggregate) !=
+          T64_BASE_DIAG_OK) goto cleanup;
+  t64_json_limits_default(&limits);
+  limits.max_input = T64_BASE_DIAG_MAX_REPORT_BYTES;
+  limits.max_nodes = T64_BASE_DIAG_MAX_MEMBERS * 9u + 8u;
+  limits.max_string = PATH_MAX - 1u;
+  if (t64_json_parse(manifest.bytes, manifest.length, &limits, &document, &error) != 0 ||
+      !t64_diag_json_canonical_document(&document, manifest.bytes, manifest.length) ||
+      !t64_diag_json_object_has_exact_keys(document.root, root_keys, 3u) ||
+      !t64_diag_json_string_equals(t64_json_get(document.root, "schema"),
+                                    "t64.base-classification-input") ||
+      (version = t64_json_get(document.root, "schema_version")) == NULL ||
+      version->type != T64_JSON_INT || version->num != 1 ||
+      (members = t64_json_get(document.root, "members")) == NULL ||
+      members->type != T64_JSON_ARRAY) goto cleanup;
+  for (row = members->first; row != NULL; row = row->next) {
+    uint32_t reg, val;
+    const char *image, *record_path, *original_path, *outcome_name, *reason;
+    t64_base_diag_status status;
+    if (!t64_diag_json_object_has_exact_keys(row, row_keys, 7u) ||
+        !json_index(row, "registration_index", &reg) ||
+        !json_index(row, "value_index", &val) ||
+        (image = json_text(row, "expected_rom_sha256")) == NULL ||
+        (record_path = json_text(row, "record")) == NULL ||
+        (original_path = json_text(row, "original")) == NULL ||
+        (outcome_name = json_text(row, "outcome")) == NULL ||
+        (reason = json_text(row, "reason")) == NULL) goto cleanup;
+    if (image[0] != '\0' && t64_base_diag_aggregate_bind_image(
+            aggregate, reg, val, image) != T64_BASE_DIAG_OK) goto cleanup;
+    if (strcmp(outcome_name, "record") == 0) {
+      uint32_t record_reg, record_val;
+      if (reason[0] != '\0' ||
+          !read_file(record_path, T64_BASE_DIAG_MAX_RECORD_BYTES, &record) ||
+          !read_file_allow_empty(original_path, BASE_CAPTURE_CAPACITY, &original))
+        goto cleanup;
+      limits.max_input = T64_BASE_DIAG_MAX_RECORD_BYTES;
+      limits.max_nodes = 64u;
+      if (t64_json_parse(record.bytes, record.length, &limits,
+                          &record_document, &error) != 0 ||
+          !json_index(record_document.root, "registration_index", &record_reg) ||
+          !json_index(record_document.root, "value_index", &record_val) ||
+          reg != record_reg || val != record_val) goto cleanup;
+      t64_json_free(&record_document);
+    } else {
+      uint8_t encoded[T64_BASE_DIAG_MAX_RECORD_BYTES];
+      static const uint8_t empty = 0u;
+      size_t encoded_length = 0u;
+      t64_base_diag_outcome outcome;
+      t64_base_diag_execution proof = {
+          .selected_rom_sha256 = image, .reason = reason, .capture_exact = true};
+      if (strcmp(outcome_name, "blocked") == 0) outcome = T64_BASE_DIAG_OUTCOME_BLOCKED;
+      else if (strcmp(outcome_name, "unexecuted") == 0) outcome = T64_BASE_DIAG_OUTCOME_UNEXECUTED;
+      else if (strcmp(outcome_name, "timeout") == 0) outcome = T64_BASE_DIAG_OUTCOME_TIMEOUT;
+      else if (strcmp(outcome_name, "harness-error") == 0) outcome = T64_BASE_DIAG_OUTCOME_HARNESS_ERROR;
+      else goto cleanup;
+      status = t64_base_diag_encode_bound_member_record(inventory, reg, val,
+          outcome, &target, &proof, &empty, 0u, encoded, sizeof encoded,
+          &encoded_length);
+      if (status != T64_BASE_DIAG_OK ||
+          t64_base_diag_aggregate_add_original(aggregate, encoded, encoded_length,
+                                               &empty, 0u) != T64_BASE_DIAG_OK ||
+          !save_capture(original_path, &empty, 0u) ||
+          !write_private_file(record_path, encoded, encoded_length)) goto cleanup;
+      continue;
+    }
+    status = t64_base_diag_aggregate_add_original(aggregate, record.bytes,
+        record.length, original.bytes, original.length);
+    free_file(&record);
+    free_file(&original);
+    if (status != T64_BASE_DIAG_OK) goto cleanup;
+  }
+  report = (uint8_t *)malloc(T64_BASE_DIAG_MAX_REPORT_BYTES);
+  if (report == NULL ||
+      t64_base_diag_aggregate_report(aggregate, report,
+          T64_BASE_DIAG_MAX_REPORT_BYTES, &report_length) != T64_BASE_DIAG_OK ||
+      !write_private_file(argv[7], report, report_length)) goto cleanup;
+  exit_code = t64_base_diag_aggregate_is_complete(aggregate) ? 0 : 3;
+  (void)printf("classification=%s\n", exit_code == 0 ?
+      "source-complete-see-private-report" : "source-incomplete-see-private-report");
+cleanup:
+  if (exit_code == 4) print_refusal("classification-input-refused");
+  free(report);
+  free_file(&authority); free_file(&inventory_bytes); free_file(&manifest);
+  free_file(&record); free_file(&original);
+  t64_json_free(&record_document);
+  t64_json_free(&document);
+  t64_base_diag_aggregate_destroy(aggregate);
+  t64_base_diag_inventory_destroy(inventory);
   return exit_code;
 }
 
@@ -648,7 +842,10 @@ int main(int argc, char **argv) {
     return command_inventory(argc, argv);
   if (argc > 1 && strcmp(argv[1], "--aggregate") == 0)
     return command_aggregate(argc, argv);
-  if (argc > 1 && strcmp(argv[1], "--run-local") == 0 && argc >= 3 &&
+  if (argc > 1 && strcmp(argv[1], "--classify-manifest") == 0)
+    return command_classify(argc, argv);
+  if (argc > 1 && (strcmp(argv[1], "--run-local") == 0 ||
+                  strcmp(argv[1], "--run-bound-local") == 0) && argc >= 3 &&
       strcmp(argv[2], "--local-only") == 0) {
     return command_run_local(argc, argv);
   }

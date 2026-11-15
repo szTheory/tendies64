@@ -144,6 +144,7 @@ integration.cold-hello
 integration.cold-determinism
 unit.core.rdram-protocol
 runner.base-diagnostic-protocol
+harness.base-classification
 harness.base-qualification
 harness.base-run'
 

@@ -36,18 +36,61 @@ bounded to 4 MiB, 131,072 members, and 512 bytes per text field.
 
 ## Original member records
 
-The canonical `t64.base-member-record` v1 document binds the inventory digest,
+The legacy canonical `t64.base-member-record` v1 document binds the inventory digest,
 source registration/value indices, one outcome (`pass`, `fail`, `incomplete`,
 `not-run`, `guest-stop`, or `harness-error`), and the SHA-256 of the original
 member bytes. Records are bounded to 8 KiB. The C aggregate verifies the exact
 original bytes before accepting a result, rejects unknown or duplicate
-members, and poisons itself after malformed or mismatched input.
+members, and poisons itself after malformed or mismatched input. A claimed pass
+or fail additionally requires the canonical shared guest transcript, matching
+source/value ordinals and verdict. Legacy records cannot establish a bound
+whole-suite pass.
 
-The aggregate reports completeness only when each required source member has
-one authenticated result. `all_pass` is a separate predicate: a complete
-denominator can contain blocked, failed, incomplete, or refused members and
-must not be described as passing. Python derives the source set and prepares
-private files; it does not calculate aggregate completeness.
+Version 2 binds the immutable context SHA-256, actual core build identity,
+profile ID and profile SHA-256, selected ROM SHA-256, original capture SHA-256,
+and execution observations. The expected selector image digest comes from the
+independently qualified image closure, separately from the record. Capture is
+bounded to 4,096 bytes. Tick and attempted capture total are canonical unsigned
+decimal strings; tick cannot exceed the existing ten-million-tick case limit.
+A pass/fail requires exact, lossless capture, observed guest entry, and at least
+two consecutive observed terminal jump/NOP pairs at the qualified park address.
+Changed delay-slot instructions and incomplete sequences are refused.
+
+The C aggregate exposes three independent predicates:
+
+- `source_complete`: every source row, including informational and blocked
+  members, has one valid identity-bound disposition.
+- `authenticated_execution_complete`: source-complete, with every required
+  member producing a genuine authenticated pass or fail.
+- `all_pass`: authenticated execution is complete and every required member passes.
+
+The closed version-2 outcomes add `timeout`, `blocked`, `unexecuted` and
+`refused`; legacy `not-run` is refused in version 2. Blocked receipts require
+the exact source-owned reason and no guest progress or selected image.
+Unexecuted receipts require a bounded reason (`not-selected`, `interrupted` or
+`window-exhausted`) and no guest progress. Attempted refusals, incomplete
+results, timeouts and harness errors retain their separate reasons and expected
+selected-image identity. Missing records remain missing; they are never silently
+converted into unexecuted results. Invalid, duplicate or foreign additions poison
+completion.
+
+`t64.base-classification` v1 is a C-produced canonical report with source-order
+member rows, group/lane counts, target identities and the three predicates.
+Arrival order cannot change its bytes. `reached` counts attempted records,
+excluding blocked/unexecuted receipts; it does not assert guest-entry execution.
+Metadata reports have a separate 64 MiB bound, without increasing guest capture.
+Python derives source membership and prepares private files; C alone calculates
+counts and completeness.
+
+`--classify-manifest SOURCE SHA INVENTORY CONTEXT_SHA INPUT REPORT` consumes
+canonical `t64.base-classification-input` v1. Each `members` row has exactly
+`expected_rom_sha256`, `original`, `outcome`, `reason`, `record`,
+`registration_index` and `value_index`. `record` authenticates existing v2 bytes;
+`blocked`, `unexecuted`, `timeout` and `harness-error` produce and retain C-encoded
+receipts plus empty original captures. Output paths must be fresh private files.
+Exit zero means source-complete classification, including honest blockers; the
+private report states execution completeness and passing separately. Exit three
+retains a source-incomplete report; malformed inputs exit four.
 
 ## Immutable context and pre-use ordering
 
@@ -73,16 +116,20 @@ context or executable after the live binding changes. Existing snapshots are
 never repaired or overwritten.
 
 `verify_and_dispatch` completes every check before invoking normal dispatch.
-The caller supplies a fixed in-process dispatch path; context data cannot name
+The callback can receive the already verified context and exact input bytes,
+so dispatch need not reopen a pathname after verification. The caller supplies
+a fixed in-process dispatch path; context data cannot name
 an arbitrary command. Executable bytes are hashed before use. Refusal and
 setup failure occur before a guest run directory exists.
 
 ## Scope and evidence
 
-The only external attempt authorized by this phase is one qualified member on
-the selected Tier B/T1 target, under the existing CPU/RSP bounds and local
-rights controls. Its original output, capture, source/tool bindings, and exact
-consumer artifact remain private. An unsupported target or blocked member is
-an honest retained observation, not a pass. This protocol does not expand
-execution to another tier, physical hardware, RDRAM, or any uncleared graphics
-asset, and it does not claim whole-suite completion or hardware accuracy.
+Phase 6 authorizes the permitted required partition on the selected Tier B/T1
+target and separate informational/stress selections, under the existing CPU/RSP
+bounds and local rights controls. Original output, captures, source/tool bindings,
+member identities/counts and exact consumer artifacts remain private. An
+unsupported target or blocked member is an honest retained observation. A lane
+definition or authored harness control does not establish external execution.
+This protocol does not authorize another tier, physical hardware, uncleared
+graphics assets or Phase 7 device implementation, and establishes no hardware
+accuracy claim.

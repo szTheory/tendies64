@@ -6,6 +6,7 @@
 #include <string.h>
 
 #include "t64_diag_common.h"
+#include "t64_cpu_diag_protocol.h"
 #include "t64_sha256.h"
 
 #define BASE_DIAG_MAX_JSON_NODES 262144u
@@ -25,6 +26,15 @@ struct t64_base_diag_aggregate {
   const t64_base_diag_inventory *inventory;
   t64_diag_partition *partition;
   char (*original_sha256)[T64_SHA256_HEX_SIZE];
+  char (*record_sha256)[T64_SHA256_HEX_SIZE];
+  char (*selected_rom_sha256)[T64_SHA256_HEX_SIZE];
+  char (*expected_rom_sha256)[T64_SHA256_HEX_SIZE];
+  const char **reasons;
+  bool bound;
+  char context_sha256[T64_SHA256_HEX_SIZE];
+  char profile_id[65];
+  char profile_sha256[T64_SHA256_HEX_SIZE];
+  char core_build_id[129];
   bool invalid;
 };
 
@@ -39,6 +49,25 @@ static const char *const member_keys[] = {
 static const char *const record_keys[] = {
     "inventory_sha256", "original_sha256", "outcome", "registration_index",
     "schema", "schema_version", "value_index"};
+static const char *const bound_record_keys[] = {
+    "capture_exact", "capture_lost", "capture_total", "context_sha256",
+    "core_build_id", "entry_reached", "inventory_sha256", "original_sha256",
+    "outcome", "park_sequence", "profile_id", "profile_sha256", "reason",
+    "registration_index", "schema", "schema_version", "selected_rom_sha256",
+    "terminal_delay_opcode", "terminal_opcode", "terminal_pc", "tick", "value_index"};
+
+static bool safe_text(const char *text, size_t maximum, bool empty) {
+  size_t index;
+  size_t length;
+  if (text == NULL) return false;
+  length = strlen(text);
+  if (length > maximum || (!empty && length == 0u)) return false;
+  for (index = 0u; index < length; index++) {
+    unsigned char byte = (unsigned char)text[index];
+    if (byte < 0x20u || byte > 0x7eu) return false;
+  }
+  return true;
+}
 
 static bool exact_keys(const t64_json_node *object, const char *const *keys,
                        size_t count) {
@@ -134,6 +163,42 @@ static bool lower_hex_digest(const char *text) {
       return false;
     }
   }
+  return true;
+}
+
+static bool valid_target(const t64_base_diag_target *target) {
+  static const char prefix[] = "t64-build-v1-";
+  return target != NULL && lower_hex_digest(target->context_sha256) &&
+         lower_hex_digest(target->profile_sha256) &&
+         safe_text(target->profile_id, 64u, false) &&
+         safe_text(target->core_build_id, 128u, false) &&
+         strlen(target->core_build_id) == sizeof prefix - 1u + 64u &&
+         memcmp(target->core_build_id, prefix, sizeof prefix - 1u) == 0 &&
+         lower_hex_digest(target->core_build_id + sizeof prefix - 1u);
+}
+
+static bool decimal_u64(const t64_json_node *root, const char *key,
+                         uint64_t *out) {
+  const t64_json_node *node = t64_json_get(root, key);
+  uint64_t value = 0u;
+  size_t index;
+  if (node == NULL || node->type != T64_JSON_STRING || node->len == 0u ||
+      node->len > 20u || (node->len > 1u && node->str[0] == '0')) return false;
+  for (index = 0u; index < node->len; index++) {
+    uint32_t digit;
+    if (node->str[index] < '0' || node->str[index] > '9') return false;
+    digit = (uint32_t)(node->str[index] - '0');
+    if (value > (UINT64_MAX - digit) / UINT64_C(10)) return false;
+    value = value * UINT64_C(10) + digit;
+  }
+  *out = value;
+  return true;
+}
+
+static bool bool_member(const t64_json_node *root, const char *key, bool *out) {
+  const t64_json_node *node = t64_json_get(root, key);
+  if (node == NULL || node->type != T64_JSON_BOOL) return false;
+  *out = node->num != 0;
   return true;
 }
 
@@ -367,6 +432,10 @@ t64_base_diag_status t64_base_diag_encode_member_record(
       (original_bytes == NULL && original_length != 0u)) {
     return T64_BASE_DIAG_INVALID_ARGUMENT;
   }
+  if (original_length > T64_BASE_DIAG_MAX_ORIGINAL_BYTES)
+    return T64_BASE_DIAG_SIZE_LIMIT;
+  if (outcome > T64_BASE_DIAG_OUTCOME_HARNESS_ERROR)
+    return T64_BASE_DIAG_INVALID_ARGUMENT;
   if (record_capacity == 0u) return T64_BASE_DIAG_OUTPUT_OVERFLOW;
   inventory_sha256 = t64_base_diag_inventory_sha256(inventory);
   outcome_name = t64_base_diag_outcome_name(outcome);
@@ -427,6 +496,73 @@ t64_base_diag_status t64_base_diag_encode_member_record(
   return T64_BASE_DIAG_OK;
 }
 
+t64_base_diag_status t64_base_diag_encode_bound_member_record(
+    const t64_base_diag_inventory *inventory, uint32_t registration_index,
+    uint32_t value_index, t64_base_diag_outcome outcome,
+    const t64_base_diag_target *target,
+    const t64_base_diag_execution *execution,
+    const uint8_t *original_bytes, size_t original_length,
+    uint8_t *record, size_t record_capacity, size_t *record_length) {
+  static const uint8_t empty = 0u;
+  char original_sha256[T64_SHA256_HEX_SIZE];
+  t64_jsonw writer;
+  const char *name = t64_base_diag_outcome_name(outcome);
+  bool ok;
+  if (record_length != NULL) *record_length = 0u;
+  if (inventory == NULL || !valid_target(target) || execution == NULL ||
+      record == NULL || record_length == NULL || name == NULL ||
+      !safe_text(execution->reason, T64_BASE_DIAG_MAX_TEXT_BYTES, true) ||
+      execution->selected_rom_sha256 == NULL ||
+      (execution->selected_rom_sha256[0] != '\0' &&
+       !lower_hex_digest(execution->selected_rom_sha256)) ||
+      (original_bytes == NULL && original_length != 0u))
+    return T64_BASE_DIAG_INVALID_ARGUMENT;
+  if (original_length > T64_BASE_DIAG_MAX_ORIGINAL_BYTES)
+    return T64_BASE_DIAG_SIZE_LIMIT;
+  sha256_hex(original_bytes == NULL ? &empty : original_bytes,
+               original_length, original_sha256);
+  t64_jsonw_init(&writer, (char *)record, record_capacity);
+  ok = t64_jsonw_begin_object(&writer) == T64_JSONW_OK;
+#define BKEY(key) (ok = ok && t64_diag_json_write_key(&writer, key))
+#define BSTR(key, value) do { BKEY(key); ok = ok && t64_diag_json_write_string(&writer, value); } while (0)
+#define BINT(key, value) do { BKEY(key); ok = ok && t64_jsonw_int(&writer, (int64_t)(value)) == T64_JSONW_OK; } while (0)
+#define BBOOL(key, value) do { BKEY(key); ok = ok && t64_jsonw_bool(&writer, value) == T64_JSONW_OK; } while (0)
+#define BU64(key, value) do { BKEY(key); ok = ok && t64_diag_json_write_u64_string(&writer, value); } while (0)
+  BBOOL("capture_exact", execution->capture_exact);
+  BBOOL("capture_lost", execution->capture_lost);
+  BU64("capture_total", execution->capture_total);
+  BSTR("context_sha256", target->context_sha256);
+  BSTR("core_build_id", target->core_build_id);
+  BBOOL("entry_reached", execution->entry_reached);
+  BSTR("inventory_sha256", inventory->sha256);
+  BSTR("original_sha256", original_sha256);
+  BSTR("outcome", name);
+  BINT("park_sequence", execution->park_sequence);
+  BSTR("profile_id", target->profile_id);
+  BSTR("profile_sha256", target->profile_sha256);
+  BSTR("reason", execution->reason);
+  BINT("registration_index", registration_index);
+  BSTR("schema", "t64.base-member-record");
+  BINT("schema_version", T64_BASE_DIAG_BOUND_RECORD_VERSION);
+  BSTR("selected_rom_sha256", execution->selected_rom_sha256);
+  BINT("terminal_delay_opcode", execution->terminal_delay_opcode);
+  BINT("terminal_opcode", execution->terminal_opcode);
+  BINT("terminal_pc", execution->terminal_pc);
+  BU64("tick", execution->tick);
+  BINT("value_index", value_index);
+  ok = ok && t64_jsonw_end_object(&writer) == T64_JSONW_OK &&
+       t64_jsonw_finish(&writer, record_length) == T64_JSONW_OK;
+#undef BKEY
+#undef BSTR
+#undef BINT
+#undef BBOOL
+#undef BU64
+  if (!ok) return writer.err == T64_JSONW_E_OVERFLOW
+                      ? T64_BASE_DIAG_OUTPUT_OVERFLOW
+                      : T64_BASE_DIAG_CANONICALIZATION_FAILED;
+  return T64_BASE_DIAG_OK;
+}
+
 t64_base_diag_status t64_base_diag_aggregate_create(
     const t64_base_diag_inventory *inventory,
     t64_base_diag_aggregate **aggregate_out) {
@@ -445,9 +581,18 @@ t64_base_diag_status t64_base_diag_aggregate_create(
   }
   aggregate->original_sha256 = (char (*)[T64_SHA256_HEX_SIZE])calloc(
       inventory->member_count, sizeof *aggregate->original_sha256);
-  if (aggregate->original_sha256 == NULL) {
-    t64_diag_partition_destroy(aggregate->partition);
-    free(aggregate);
+  aggregate->record_sha256 = (char (*)[T64_SHA256_HEX_SIZE])calloc(
+      inventory->member_count, sizeof *aggregate->record_sha256);
+  aggregate->selected_rom_sha256 = (char (*)[T64_SHA256_HEX_SIZE])calloc(
+      inventory->member_count, sizeof *aggregate->selected_rom_sha256);
+  aggregate->expected_rom_sha256 = (char (*)[T64_SHA256_HEX_SIZE])calloc(
+      inventory->member_count, sizeof *aggregate->expected_rom_sha256);
+  aggregate->reasons = (const char **)calloc(inventory->member_count,
+                                             sizeof *aggregate->reasons);
+  if (aggregate->original_sha256 == NULL || aggregate->record_sha256 == NULL ||
+      aggregate->selected_rom_sha256 == NULL ||
+      aggregate->expected_rom_sha256 == NULL || aggregate->reasons == NULL) {
+    t64_base_diag_aggregate_destroy(aggregate);
     return T64_BASE_DIAG_ALLOCATION_FAILED;
   }
   aggregate->inventory = inventory;
@@ -455,10 +600,35 @@ t64_base_diag_status t64_base_diag_aggregate_create(
   return T64_BASE_DIAG_OK;
 }
 
+t64_base_diag_status t64_base_diag_aggregate_create_bound(
+    const t64_base_diag_inventory *inventory,
+    const t64_base_diag_target *expected_target,
+    t64_base_diag_aggregate **aggregate_out) {
+  t64_base_diag_status status;
+  t64_base_diag_aggregate *aggregate;
+  if (aggregate_out != NULL) *aggregate_out = NULL;
+  if (!valid_target(expected_target)) return T64_BASE_DIAG_INVALID_ARGUMENT;
+  status = t64_base_diag_aggregate_create(inventory, aggregate_out);
+  if (status != T64_BASE_DIAG_OK) return status;
+  aggregate = *aggregate_out;
+  aggregate->bound = true;
+  memcpy(aggregate->context_sha256, expected_target->context_sha256, 65u);
+  memcpy(aggregate->profile_sha256, expected_target->profile_sha256, 65u);
+  memcpy(aggregate->profile_id, expected_target->profile_id,
+           strlen(expected_target->profile_id) + 1u);
+  memcpy(aggregate->core_build_id, expected_target->core_build_id,
+           strlen(expected_target->core_build_id) + 1u);
+  return T64_BASE_DIAG_OK;
+}
+
 void t64_base_diag_aggregate_destroy(t64_base_diag_aggregate *aggregate) {
   if (aggregate == NULL) return;
   t64_diag_partition_destroy(aggregate->partition);
   free(aggregate->original_sha256);
+  free(aggregate->record_sha256);
+  free(aggregate->selected_rom_sha256);
+  free(aggregate->expected_rom_sha256);
+  free(aggregate->reasons);
   free(aggregate);
 }
 
@@ -487,6 +657,127 @@ static bool find_member(const t64_base_diag_inventory *inventory,
   return true;
 }
 
+t64_base_diag_status t64_base_diag_aggregate_bind_image(
+    t64_base_diag_aggregate *aggregate, uint32_t registration_index,
+    uint32_t value_index, const char *expected_rom_sha256) {
+  size_t ordinal;
+  if (aggregate == NULL) return T64_BASE_DIAG_INVALID_ARGUMENT;
+  if (!aggregate->bound || aggregate->invalid ||
+      !lower_hex_digest(expected_rom_sha256)) {
+    aggregate->invalid = true;
+    return T64_BASE_DIAG_INVALID_ARGUMENT;
+  }
+  if (!find_member(aggregate->inventory, registration_index, value_index,
+                    &ordinal) ||
+      strcmp(aggregate->inventory->members[ordinal].public.execution,
+               "blocked") == 0) {
+    aggregate->invalid = true;
+    return T64_BASE_DIAG_IDENTITY_MISMATCH;
+  }
+  if (aggregate->expected_rom_sha256[ordinal][0] != '\0') {
+    aggregate->invalid = true;
+    return T64_BASE_DIAG_DUPLICATE_MEMBER;
+  }
+  memcpy(aggregate->expected_rom_sha256[ordinal], expected_rom_sha256,
+           T64_SHA256_HEX_SIZE);
+  return T64_BASE_DIAG_OK;
+}
+
+static bool bound_execution_valid(
+    const t64_base_diag_aggregate *aggregate, const t64_json_node *root,
+    const t64_base_diag_member *member, t64_base_diag_outcome outcome,
+    size_t original_length, const char *expected_rom_sha256,
+    t64_base_diag_execution *execution,
+    const char **owned_reason) {
+  static const char *const reasons[] = {
+      "not-selected", "interrupted", "window-exhausted", "host-timeout",
+      "guest-tick-bound", "incomplete-transcript", "cpu-unsupported",
+      "unsupported-device", "adapter-harness-error", "cleanup-unverified",
+      "output-overflow", "input-refused"};
+  const char *reason;
+  const char *rom;
+  size_t index;
+  if (!t64_diag_json_string_equals(t64_json_get(root, "context_sha256"),
+                                    aggregate->context_sha256) ||
+      !t64_diag_json_string_equals(t64_json_get(root, "profile_id"),
+                                    aggregate->profile_id) ||
+      !t64_diag_json_string_equals(t64_json_get(root, "profile_sha256"),
+                                    aggregate->profile_sha256) ||
+      !t64_diag_json_string_equals(t64_json_get(root, "core_build_id"),
+                                    aggregate->core_build_id) ||
+      !text_member(root, "selected_rom_sha256", 64u, true, &rom) ||
+      !text_member(root, "reason", T64_BASE_DIAG_MAX_TEXT_BYTES, true, &reason) ||
+      !decimal_u64(root, "tick", &execution->tick) ||
+      execution->tick > UINT64_C(10000000) ||
+      !decimal_u64(root, "capture_total", &execution->capture_total) ||
+      !bool_member(root, "capture_exact", &execution->capture_exact) ||
+      !bool_member(root, "capture_lost", &execution->capture_lost) ||
+      !bool_member(root, "entry_reached", &execution->entry_reached) ||
+      !u32_member(root, "park_sequence", &execution->park_sequence) ||
+      execution->park_sequence > 6u ||
+      !u32_member(root, "terminal_pc", &execution->terminal_pc) ||
+      !u32_member(root, "terminal_opcode", &execution->terminal_opcode) ||
+      !u32_member(root, "terminal_delay_opcode", &execution->terminal_delay_opcode))
+    return false;
+  execution->selected_rom_sha256 = rom;
+  execution->reason = reason;
+  if (outcome == T64_BASE_DIAG_OUTCOME_BLOCKED ||
+      outcome == T64_BASE_DIAG_OUTCOME_UNEXECUTED) {
+    if (rom[0] != '\0' || execution->tick != 0u || original_length != 0u ||
+        execution->capture_total != 0u || !execution->capture_exact ||
+        execution->capture_lost || execution->entry_reached ||
+        execution->park_sequence != 0u || execution->terminal_pc != 0u ||
+        execution->terminal_opcode != 0u || execution->terminal_delay_opcode != 0u)
+      return false;
+    if (outcome == T64_BASE_DIAG_OUTCOME_BLOCKED) {
+      if (strcmp(member->execution, "blocked") != 0 ||
+          strcmp(reason, member->reason) != 0) return false;
+      *owned_reason = member->reason;
+      return true;
+    }
+    if (strcmp(member->execution, "blocked") == 0) return false;
+    for (index = 0u; index < 3u; index++) {
+      if (strcmp(reason, reasons[index]) == 0) {
+        *owned_reason = reasons[index];
+        return true;
+      }
+    }
+    return false;
+  }
+  if (outcome == T64_BASE_DIAG_OUTCOME_NOT_RUN ||
+      strcmp(member->execution, "blocked") == 0 || !lower_hex_digest(rom) ||
+      strcmp(rom, expected_rom_sha256) != 0)
+    return false;
+  if (outcome == T64_BASE_DIAG_OUTCOME_PASS ||
+      outcome == T64_BASE_DIAG_OUTCOME_FAIL) {
+    if (!execution->capture_exact || execution->capture_lost ||
+        execution->capture_total != (uint64_t)original_length ||
+        !execution->entry_reached || execution->tick == 0u ||
+        execution->park_sequence < 4u ||
+        execution->terminal_pc != UINT32_C(0x80000420) ||
+        execution->terminal_opcode != UINT32_C(0x08000108) ||
+        execution->terminal_delay_opcode != 0u || reason[0] != '\0') return false;
+    *owned_reason = "";
+    return true;
+  }
+  for (index = 3u; index < sizeof reasons / sizeof reasons[0]; index++) {
+    if (strcmp(reason, reasons[index]) == 0) {
+      bool allowed =
+          (outcome == T64_BASE_DIAG_OUTCOME_TIMEOUT && index == 3u) ||
+          (outcome == T64_BASE_DIAG_OUTCOME_INCOMPLETE &&
+           (index == 4u || index == 5u)) ||
+          ((outcome == T64_BASE_DIAG_OUTCOME_GUEST_STOP ||
+            outcome == T64_BASE_DIAG_OUTCOME_REFUSED) &&
+           (index == 4u || index == 6u || index == 7u)) ||
+          (outcome == T64_BASE_DIAG_OUTCOME_HARNESS_ERROR && index >= 8u);
+      if (!allowed) return false;
+      *owned_reason = reasons[index];
+      return true;
+    }
+  }
+  return false;
+}
+
 t64_base_diag_status t64_base_diag_aggregate_add_original(
     t64_base_diag_aggregate *aggregate, const uint8_t *record,
     size_t record_length, const uint8_t *original_bytes,
@@ -500,9 +791,11 @@ t64_base_diag_status t64_base_diag_aggregate_add_original(
   char original_sha256[T64_SHA256_HEX_SIZE];
   t64_base_diag_outcome outcome;
   const char *outcome_name;
+  const char *owned_reason = "";
+  t64_base_diag_execution execution = {0};
   static const char *const outcome_names[] = {
       "pass", "fail", "incomplete", "not-run", "guest-stop",
-      "harness-error"};
+      "harness-error", "timeout", "blocked", "unexecuted", "refused"};
   size_t i;
   if (aggregate == NULL || record == NULL || original_bytes == NULL) {
     return T64_BASE_DIAG_INVALID_ARGUMENT;
@@ -511,14 +804,26 @@ t64_base_diag_status t64_base_diag_aggregate_add_original(
     aggregate->invalid = true;
     return T64_BASE_DIAG_SIZE_LIMIT;
   }
+  if (original_length > T64_BASE_DIAG_MAX_ORIGINAL_BYTES) {
+    aggregate->invalid = true;
+    return T64_BASE_DIAG_SIZE_LIMIT;
+  }
   if (!json_document(record, record_length, T64_BASE_DIAG_MAX_RECORD_BYTES,
                      64u, &document, &status)) {
     aggregate->invalid = true;
     goto cleanup;
   }
-  if (!exact_keys(document.root, record_keys,
-                  sizeof record_keys / sizeof record_keys[0]) ||
-      !schema_version(document.root, "t64.base-member-record") ||
+  if (!(aggregate->bound
+            ? (exact_keys(document.root, bound_record_keys,
+                            sizeof bound_record_keys / sizeof bound_record_keys[0]) &&
+               t64_diag_json_string_equals(t64_json_get(document.root, "schema"),
+                                           "t64.base-member-record") &&
+               t64_json_get(document.root, "schema_version") != NULL &&
+               t64_json_get(document.root, "schema_version")->type == T64_JSON_INT &&
+               t64_json_get(document.root, "schema_version")->num == 2)
+            : (exact_keys(document.root, record_keys,
+                            sizeof record_keys / sizeof record_keys[0]) &&
+               schema_version(document.root, "t64.base-member-record"))) ||
       !u32_member(document.root, "registration_index", &registration_index) ||
       !u32_member(document.root, "value_index", &value_index)) {
     status = T64_BASE_DIAG_INVALID_RECORD;
@@ -546,11 +851,11 @@ t64_base_diag_status t64_base_diag_aggregate_add_original(
   }
   node = t64_json_get(document.root, "outcome");
   outcome_name = node != NULL && node->type == T64_JSON_STRING ? node->str : NULL;
-  for (i = 0u; i < sizeof outcome_names / sizeof outcome_names[0]; i++) {
+  for (i = 0u; i < (aggregate->bound ? 10u : 6u); i++) {
     if (outcome_name != NULL && strcmp(outcome_name, outcome_names[i]) == 0)
       break;
   }
-  if (i == sizeof outcome_names / sizeof outcome_names[0]) {
+  if (i == (aggregate->bound ? 10u : 6u)) {
     status = T64_BASE_DIAG_INVALID_RECORD;
     aggregate->invalid = true;
     goto cleanup;
@@ -561,6 +866,29 @@ t64_base_diag_status t64_base_diag_aggregate_add_original(
     status = T64_BASE_DIAG_IDENTITY_MISMATCH;
     aggregate->invalid = true;
     goto cleanup;
+  }
+  if (aggregate->bound &&
+      !bound_execution_valid(aggregate, document.root,
+          &aggregate->inventory->members[ordinal].public, outcome,
+          original_length, aggregate->expected_rom_sha256[ordinal],
+          &execution, &owned_reason)) {
+    aggregate->invalid = true;
+    status = T64_BASE_DIAG_IDENTITY_MISMATCH;
+    goto cleanup;
+  }
+  if (outcome == T64_BASE_DIAG_OUTCOME_PASS ||
+      outcome == T64_BASE_DIAG_OUTCOME_FAIL) {
+    t64_cpu_diag_guest_result guest;
+    if (t64_cpu_diag_guest_transcript_parse(original_bytes, original_length,
+            registration_index, value_index, &guest) != T64_CPU_DIAG_OK ||
+        (outcome == T64_BASE_DIAG_OUTCOME_PASS &&
+         guest.outcome != T64_CPU_DIAG_OUTCOME_PASS) ||
+        (outcome == T64_BASE_DIAG_OUTCOME_FAIL &&
+         guest.outcome != T64_CPU_DIAG_OUTCOME_FAIL)) {
+      aggregate->invalid = true;
+      status = T64_BASE_DIAG_INVALID_RECORD;
+      goto cleanup;
+    }
   }
   {
     t64_diag_partition_status partition_status = t64_diag_partition_add(
@@ -578,6 +906,12 @@ t64_base_diag_status t64_base_diag_aggregate_add_original(
   }
   (void)memcpy(aggregate->original_sha256[ordinal], original_sha256,
                T64_SHA256_HEX_SIZE);
+  sha256_hex(record, record_length, aggregate->record_sha256[ordinal]);
+  aggregate->reasons[ordinal] = owned_reason;
+  if (aggregate->bound && execution.selected_rom_sha256[0] != '\0') {
+    memcpy(aggregate->selected_rom_sha256[ordinal],
+             execution.selected_rom_sha256, T64_SHA256_HEX_SIZE);
+  }
   status = T64_BASE_DIAG_OK;
 
 cleanup:
@@ -593,7 +927,8 @@ bool t64_base_diag_aggregate_is_complete(
   for (i = 0u; i < aggregate->inventory->member_count; i++) {
     const t64_base_diag_member *member =
         &aggregate->inventory->members[i].public;
-    if (member->required && !t64_diag_partition_seen(aggregate->partition, i))
+    if ((aggregate->bound || member->required) &&
+        !t64_diag_partition_seen(aggregate->partition, i))
       return false;
   }
   return true;
@@ -603,6 +938,8 @@ bool t64_base_diag_aggregate_is_all_pass(
     const t64_base_diag_aggregate *aggregate) {
   size_t i;
   if (!t64_base_diag_aggregate_is_complete(aggregate)) return false;
+  if (!t64_base_diag_aggregate_execution_complete(aggregate))
+    return false;
   for (i = 0u; i < aggregate->inventory->member_count; i++) {
     const t64_base_diag_member *member =
         &aggregate->inventory->members[i].public;
@@ -614,6 +951,23 @@ bool t64_base_diag_aggregate_is_all_pass(
     }
   }
   return true;
+}
+
+bool t64_base_diag_aggregate_execution_complete(
+    const t64_base_diag_aggregate *aggregate) {
+  size_t index;
+  size_t required = 0u;
+  if (aggregate == NULL || !aggregate->bound ||
+      !t64_base_diag_aggregate_is_complete(aggregate)) return false;
+  for (index = 0u; index < aggregate->inventory->member_count; index++) {
+    uint8_t outcome;
+    if (!aggregate->inventory->members[index].public.required) continue;
+    required++;
+    if (!t64_diag_partition_outcome(aggregate->partition, index, &outcome) ||
+        (outcome != T64_BASE_DIAG_OUTCOME_PASS &&
+         outcome != T64_BASE_DIAG_OUTCOME_FAIL)) return false;
+  }
+  return required != 0u;
 }
 
 size_t t64_base_diag_aggregate_member_count(
@@ -648,6 +1002,182 @@ bool t64_base_diag_aggregate_member_at(
   return false;
 }
 
+typedef struct {
+  size_t expected;
+  size_t classified;
+  size_t passed;
+  size_t failed;
+  size_t incomplete;
+  size_t refused;
+  size_t harness_error;
+  size_t timeout;
+  size_t blocked;
+  size_t unexecuted;
+} base_stats;
+
+typedef struct {
+  const char *group;
+  const char *lane;
+  size_t ordinal;
+} base_group_ref;
+
+static int compare_group_refs(const void *left, const void *right) {
+  const base_group_ref *a = (const base_group_ref *)left;
+  const base_group_ref *b = (const base_group_ref *)right;
+  int comparison = strcmp(a->group, b->group);
+  if (comparison == 0) comparison = strcmp(a->lane, b->lane);
+  if (comparison != 0) return comparison;
+  return (a->ordinal > b->ordinal) - (a->ordinal < b->ordinal);
+}
+
+static bool accumulate_stats(base_stats *stats,
+                              const t64_base_diag_aggregate *aggregate,
+                              size_t ordinal) {
+  uint8_t outcome;
+  stats->expected++;
+  if (!t64_diag_partition_outcome(aggregate->partition, ordinal, &outcome))
+    return true;
+  stats->classified++;
+  switch ((t64_base_diag_outcome)outcome) {
+  case T64_BASE_DIAG_OUTCOME_PASS: stats->passed++; break;
+  case T64_BASE_DIAG_OUTCOME_FAIL: stats->failed++; break;
+  case T64_BASE_DIAG_OUTCOME_INCOMPLETE: stats->incomplete++; break;
+  case T64_BASE_DIAG_OUTCOME_GUEST_STOP:
+  case T64_BASE_DIAG_OUTCOME_REFUSED: stats->refused++; break;
+  case T64_BASE_DIAG_OUTCOME_HARNESS_ERROR: stats->harness_error++; break;
+  case T64_BASE_DIAG_OUTCOME_TIMEOUT: stats->timeout++; break;
+  case T64_BASE_DIAG_OUTCOME_BLOCKED: stats->blocked++; break;
+  case T64_BASE_DIAG_OUTCOME_NOT_RUN:
+  case T64_BASE_DIAG_OUTCOME_UNEXECUTED: stats->unexecuted++; break;
+  default: return false;
+  }
+  return true;
+}
+
+static bool write_stats(t64_jsonw *writer, const base_stats *stats) {
+  bool ok = t64_jsonw_begin_object(writer) == T64_JSONW_OK;
+#define STAT(key, value) do { ok = ok && t64_diag_json_write_key(writer, key) && t64_jsonw_int(writer, (int64_t)(value)) == T64_JSONW_OK; } while (0)
+  STAT("blocked", stats->blocked);
+  STAT("classified", stats->classified);
+  STAT("expected", stats->expected);
+  STAT("failed", stats->failed);
+  STAT("harness_error", stats->harness_error);
+  STAT("incomplete", stats->incomplete);
+  STAT("missing", stats->expected - stats->classified);
+  STAT("passed", stats->passed);
+  STAT("reached", stats->classified - stats->blocked - stats->unexecuted);
+  STAT("refused", stats->refused);
+  STAT("timeout", stats->timeout);
+  STAT("unexecuted", stats->unexecuted);
+#undef STAT
+  return ok && t64_jsonw_end_object(writer) == T64_JSONW_OK;
+}
+
+t64_base_diag_status t64_base_diag_aggregate_report(
+    const t64_base_diag_aggregate *aggregate, uint8_t *output,
+    size_t capacity, size_t *length_out) {
+  t64_jsonw writer;
+  base_group_ref *groups;
+  base_stats totals = {0};
+  size_t count;
+  size_t index;
+  bool ok;
+  if (length_out != NULL) *length_out = 0u;
+  if (aggregate == NULL || !aggregate->bound || output == NULL ||
+      length_out == NULL) return T64_BASE_DIAG_INVALID_ARGUMENT;
+  if (aggregate->invalid) return T64_BASE_DIAG_INVALID_RECORD;
+  count = aggregate->inventory->member_count;
+  groups = (base_group_ref *)calloc(count, sizeof *groups);
+  if (groups == NULL) return T64_BASE_DIAG_ALLOCATION_FAILED;
+  for (index = 0u; index < count; index++) {
+    groups[index].group = aggregate->inventory->members[index].public.group;
+    groups[index].lane = aggregate->inventory->members[index].public.lane;
+    groups[index].ordinal = index;
+    if (!accumulate_stats(&totals, aggregate, index)) {
+      free(groups);
+      return T64_BASE_DIAG_INVALID_RECORD;
+    }
+  }
+  qsort(groups, count, sizeof *groups, compare_group_refs);
+  if (capacity > T64_BASE_DIAG_MAX_REPORT_BYTES)
+    capacity = T64_BASE_DIAG_MAX_REPORT_BYTES;
+  t64_jsonw_init(&writer, (char *)output, capacity);
+  ok = t64_jsonw_begin_object(&writer) == T64_JSONW_OK;
+#define RKEY(key) (ok = ok && t64_diag_json_write_key(&writer, key))
+#define RSTR(key, value) do { RKEY(key); ok = ok && t64_diag_json_write_string(&writer, value); } while (0)
+#define RINT(key, value) do { RKEY(key); ok = ok && t64_jsonw_int(&writer, (int64_t)(value)) == T64_JSONW_OK; } while (0)
+#define RBOOL(key, value) do { RKEY(key); ok = ok && t64_jsonw_bool(&writer, value) == T64_JSONW_OK; } while (0)
+  RBOOL("all_pass", t64_base_diag_aggregate_is_all_pass(aggregate));
+  RBOOL("authenticated_execution_complete",
+         t64_base_diag_aggregate_execution_complete(aggregate));
+  RSTR("context_sha256", aggregate->context_sha256);
+  RKEY("counts"); ok = ok && write_stats(&writer, &totals);
+  RKEY("groups"); ok = ok && t64_jsonw_begin_array(&writer) == T64_JSONW_OK;
+  index = 0u;
+  while (index < count && ok) {
+    size_t first = index;
+    base_stats stats = {0};
+    do {
+      if (!accumulate_stats(&stats, aggregate, groups[index].ordinal)) ok = false;
+      index++;
+    } while (index < count && strcmp(groups[first].group, groups[index].group) == 0 &&
+             strcmp(groups[first].lane, groups[index].lane) == 0);
+    ok = ok && t64_jsonw_begin_object(&writer) == T64_JSONW_OK;
+    RBOOL("all_pass", stats.expected != 0u && stats.passed == stats.expected);
+    RBOOL("authenticated_execution_complete", stats.expected != 0u &&
+          stats.passed + stats.failed == stats.expected);
+    RKEY("counts"); ok = ok && write_stats(&writer, &stats);
+    RSTR("group", groups[first].group);
+    RSTR("lane", groups[first].lane);
+    RBOOL("source_complete", stats.classified == stats.expected);
+    ok = ok && t64_jsonw_end_object(&writer) == T64_JSONW_OK;
+  }
+  ok = ok && t64_jsonw_end_array(&writer) == T64_JSONW_OK;
+  RSTR("inventory_sha256", aggregate->inventory->sha256);
+  RKEY("members"); ok = ok && t64_jsonw_begin_array(&writer) == T64_JSONW_OK;
+  for (index = 0u; index < count && ok; index++) {
+    const t64_base_diag_member *member = &aggregate->inventory->members[index].public;
+    uint8_t outcome = 0u;
+    bool seen = t64_diag_partition_outcome(aggregate->partition, index, &outcome);
+    ok = ok && t64_jsonw_begin_object(&writer) == T64_JSONW_OK;
+    RSTR("execution", member->execution);
+    RSTR("expected_rom_sha256", aggregate->expected_rom_sha256[index]);
+    RSTR("group", member->group);
+    RSTR("lane", member->lane);
+    RSTR("name", member->name);
+    RSTR("original_sha256", seen ? aggregate->original_sha256[index] : "");
+    RSTR("outcome", seen ? t64_base_diag_outcome_name((t64_base_diag_outcome)outcome) : "missing");
+    RSTR("reason", seen ? aggregate->reasons[index] : "");
+    RSTR("record_sha256", seen ? aggregate->record_sha256[index] : "");
+    RINT("registration_index", member->registration_index);
+    RBOOL("required", member->required);
+    RSTR("selected_rom_sha256", seen ? aggregate->selected_rom_sha256[index] : "");
+    RSTR("value_id", member->value_id);
+    RINT("value_index", member->value_index);
+    ok = ok && t64_jsonw_end_object(&writer) == T64_JSONW_OK;
+  }
+  ok = ok && t64_jsonw_end_array(&writer) == T64_JSONW_OK;
+  RSTR("schema", "t64.base-classification");
+  RINT("schema_version", 1u);
+  RBOOL("source_complete", t64_base_diag_aggregate_is_complete(aggregate));
+  RKEY("target"); ok = ok && t64_jsonw_begin_object(&writer) == T64_JSONW_OK;
+  RSTR("core_build_id", aggregate->core_build_id);
+  RSTR("profile_id", aggregate->profile_id);
+  RSTR("profile_sha256", aggregate->profile_sha256);
+  ok = ok && t64_jsonw_end_object(&writer) == T64_JSONW_OK &&
+       t64_jsonw_end_object(&writer) == T64_JSONW_OK &&
+       t64_jsonw_finish(&writer, length_out) == T64_JSONW_OK;
+#undef RKEY
+#undef RSTR
+#undef RINT
+#undef RBOOL
+  free(groups);
+  if (!ok) return writer.err == T64_JSONW_E_OVERFLOW
+                      ? T64_BASE_DIAG_OUTPUT_OVERFLOW
+                      : T64_BASE_DIAG_CANONICALIZATION_FAILED;
+  return T64_BASE_DIAG_OK;
+}
+
 const char *t64_base_diag_status_name(t64_base_diag_status status) {
   static const char *const names[] = {
       "ok", "invalid-argument", "size-limit", "invalid-json",
@@ -661,7 +1191,7 @@ const char *t64_base_diag_status_name(t64_base_diag_status status) {
 const char *t64_base_diag_outcome_name(t64_base_diag_outcome outcome) {
   static const char *const names[] = {
       "pass", "fail", "incomplete", "not-run", "guest-stop",
-      "harness-error"};
+      "harness-error", "timeout", "blocked", "unexecuted", "refused"};
   if ((size_t)outcome >= sizeof names / sizeof names[0]) return NULL;
   return names[(size_t)outcome];
 }

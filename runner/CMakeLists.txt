@@ -31,7 +31,7 @@ t64_target_warnings(t64_rsp_diag_protocol)
 
 add_library(t64_base_diag_protocol STATIC t64_base_diag_protocol.c)
 target_include_directories(t64_base_diag_protocol PUBLIC ${CMAKE_CURRENT_SOURCE_DIR})
-target_link_libraries(t64_base_diag_protocol PUBLIC t64_diag_common)
+target_link_libraries(t64_base_diag_protocol PUBLIC t64_diag_common t64_cpu_diag_protocol)
 t64_target_warnings(t64_base_diag_protocol)
 
 add_executable(test_base_diag_protocol tests/test_base_diag_protocol.c)
@@ -57,6 +57,12 @@ target_link_libraries(t64-base-diagnostic PRIVATE
   t64_base_diag_protocol t64_cpu_diag_protocol t64_verified_input
   t64_common t64_core)
 t64_target_warnings(t64-base-diagnostic)
+
+add_test(NAME harness.base-classification
+  COMMAND python3 -B ${CMAKE_SOURCE_DIR}/scripts/tests/test_base_classification.py)
+set_tests_properties(harness.base-classification PROPERTIES
+  LABELS runner TIMEOUT 60
+  ENVIRONMENT "PYTHONDONTWRITEBYTECODE=1;T64_BASE_TEST_ADAPTER=$<TARGET_FILE:t64-base-diagnostic>")
 
 add_test(NAME harness.base-run
   COMMAND python3 -B ${CMAKE_SOURCE_DIR}/scripts/tests/test_base_run.py)
