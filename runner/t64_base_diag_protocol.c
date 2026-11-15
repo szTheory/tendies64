@@ -349,6 +349,23 @@ bool t64_base_diag_inventory_member_at(
   return true;
 }
 
+t64_base_diag_status t64_base_diag_encode_member_record(
+    const t64_base_diag_inventory *inventory, uint32_t registration_index,
+    uint32_t value_index, t64_base_diag_outcome outcome,
+    const uint8_t *original_bytes, size_t original_length, uint8_t *record,
+    size_t record_capacity, size_t *record_length) {
+  (void)inventory;
+  (void)registration_index;
+  (void)value_index;
+  (void)outcome;
+  (void)original_bytes;
+  (void)original_length;
+  (void)record;
+  (void)record_capacity;
+  if (record_length != NULL) *record_length = 0u;
+  return T64_BASE_DIAG_OUTPUT_OVERFLOW;
+}
+
 t64_base_diag_status t64_base_diag_aggregate_create(
     const t64_base_diag_inventory *inventory,
     t64_base_diag_aggregate **aggregate_out) {

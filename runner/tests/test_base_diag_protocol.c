@@ -78,7 +78,7 @@ int main(void) {
   static const uint8_t original[] = "PASS authored member output\n";
   char original_sha256[65];
   char record[512];
-  int record_length;
+  size_t record_length = 0u;
   int failures = 0;
   t64_base_diag_inventory *parsed = NULL;
   t64_base_diag_aggregate *aggregate = NULL;
@@ -134,19 +134,18 @@ int main(void) {
       t64_base_diag_aggregate_create(parsed, &aggregate), T64_BASE_DIAG_OK);
   if (aggregate != NULL) {
     print_hash(original, sizeof original - 1u, original_sha256);
-    record_length = snprintf(record, sizeof record,
-        "{\"inventory_sha256\":\"%s\",\"original_sha256\":\"%s\","
-        "\"outcome\":\"pass\",\"registration_index\":0,"
-        "\"schema\":\"t64.base-member-record\",\"schema_version\":1,"
-        "\"value_index\":0}\n",
-        t64_base_diag_inventory_sha256(parsed), original_sha256);
-    failures += expect_true("original record fits bounded buffer",
-                            record_length > 0 &&
-                            (size_t)record_length < sizeof record);
-    if (record_length > 0 && (size_t)record_length < sizeof record) {
+    failures += expect_status("production record encoder emits a member",
+        t64_base_diag_encode_member_record(
+            parsed, 0u, 0u, T64_BASE_DIAG_OUTCOME_PASS, original,
+            sizeof original - 1u, (uint8_t *)record, sizeof record,
+            &record_length), T64_BASE_DIAG_OK);
+    failures += expect_true("production record uses the exact inventory key",
+        strstr(record, "\"inventory_sha256\":") != NULL &&
+        strstr(record, "\"inventory_sha25\":") == NULL);
+    if (record_length > 0u && record_length < sizeof record) {
       failures += expect_status("original member is authenticated and added",
           t64_base_diag_aggregate_add_original(
-              aggregate, (const uint8_t *)record, (size_t)record_length,
+              aggregate, (const uint8_t *)record, record_length,
               original, sizeof original - 1u), T64_BASE_DIAG_OK);
       failures += expect_true("one observed member does not complete BASE",
           t64_base_diag_aggregate_member_count(aggregate) == 1u &&
@@ -163,7 +162,7 @@ int main(void) {
       }
       failures += expect_status("duplicate member poisons the aggregate",
           t64_base_diag_aggregate_add_original(
-              aggregate, (const uint8_t *)record, (size_t)record_length,
+              aggregate, (const uint8_t *)record, record_length,
               original, sizeof original - 1u), T64_BASE_DIAG_DUPLICATE_MEMBER);
       failures += expect_true("poisoned duplicate cannot complete BASE",
           !t64_base_diag_aggregate_is_complete(aggregate) &&
@@ -182,7 +181,7 @@ int main(void) {
     } else if (record[0] != '\0') {
       failures += expect_status("changed original bytes are rejected",
           t64_base_diag_aggregate_add_original(
-              tampered, (const uint8_t *)record, (size_t)strlen(record),
+              tampered, (const uint8_t *)record, record_length,
               changed_original, sizeof changed_original - 1u),
           T64_BASE_DIAG_IDENTITY_MISMATCH);
       failures += expect_true("tampered original cannot complete BASE",

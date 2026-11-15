@@ -76,6 +76,13 @@ bool t64_base_diag_inventory_member_at(
     const t64_base_diag_inventory *inventory, size_t ordinal,
     t64_base_diag_member *member_out);
 
+/* Produce the canonical record consumed by the BASE aggregate. */
+t64_base_diag_status t64_base_diag_encode_member_record(
+    const t64_base_diag_inventory *inventory, uint32_t registration_index,
+    uint32_t value_index, t64_base_diag_outcome outcome,
+    const uint8_t *original_bytes, size_t original_length, uint8_t *record,
+    size_t record_capacity, size_t *record_length);
+
 t64_base_diag_status t64_base_diag_aggregate_create(
     const t64_base_diag_inventory *inventory,
     t64_base_diag_aggregate **aggregate_out);
