@@ -12,6 +12,7 @@
 #define T64_ROM_TITLE_BYTES 20u
 #define T64_ROM_GAME_CODE_BYTES 4u
 #define T64_EVENT_QUEUE_CAPACITY 256u
+#define T64_CPU_BASE_ISSUE_INTERVAL_TICKS UINT64_C(1)
 #define T64_SP_BANK_BYTES 4096u
 #define T64_MI_INTERRUPT_BITS UINT32_C(0x3f)
 #define T64_DEVICE_MI_TEST UINT32_C(0xffff0002)
@@ -684,6 +685,8 @@ t64_status t64_scheduler_advance(t64_machine *machine,
                                  t64_stop_result *result_out);
 t64_status t64_cpu_schedule(t64_machine *machine);
 t64_status t64_cpu_step(t64_machine *machine, const t64_event *event);
+uint64_t t64_cpu_instruction_cost(const t64_machine *machine,
+                                 uint32_t opcode);
 t64_status t64_cop1_execute(t64_machine *machine, uint32_t opcode,
                             bool in_delay_slot,
                             t64_cpu_cop1_result *result_out);

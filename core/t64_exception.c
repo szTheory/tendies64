@@ -89,8 +89,9 @@ t64_status t64_cpu_exception_enter(
 
   old_status = (uint32_t)machine->cpu.cp0[T64_CP0_STATUS];
   status = t64_schedule_reserve_after(
-      machine, UINT64_C(1), T64_DEVICE_CPU, T64_CPU_EVENT_STEP, UINT64_C(0),
-      UINT64_C(0), t64_cpu_step, &reservation);
+      machine, T64_CPU_BASE_ISSUE_INTERVAL_TICKS, T64_DEVICE_CPU,
+      T64_CPU_EVENT_STEP, UINT64_C(0), UINT64_C(0), t64_cpu_step,
+      &reservation);
   if (status != T64_STATUS_OK) {
     machine->cpu.attempt_outcome = T64_CPU_ATTEMPT_HOST_ERROR;
     return status;

@@ -2,6 +2,7 @@
 
 #include <stdbool.h>
 #include <stdint.h>
+#include <string.h>
 
 #define T64_CPU_REGIMM UINT32_C(0x01)
 #define T64_CPU_J UINT32_C(0x02)
@@ -1450,6 +1451,122 @@ static bool memory_access_info(uint32_t opcode, uint32_t *width_out,
   }
 }
 
+uint64_t t64_cpu_instruction_cost(const t64_machine *machine,
+                                 uint32_t opcode) {
+  uint32_t function;
+
+  if (!t64_has_t1_policy(machine) || (opcode >> 26) != 0u ||
+      (opcode & UINT32_C(0x0000ffc0)) != 0u) {
+    return T64_CPU_BASE_ISSUE_INTERVAL_TICKS;
+  }
+  function = opcode & UINT32_C(0x3f);
+  /* NEC VR43XX User's Manual Table 3-12 lists stall counts. This versioned
+     software policy adds one issue interval: 1+5, 1+37, 1+8, and 1+69. */
+  switch (function) {
+  case UINT32_C(0x18):
+  case UINT32_C(0x19):
+    return UINT64_C(6);
+  case UINT32_C(0x1a):
+  case UINT32_C(0x1b):
+    return UINT64_C(38);
+  case UINT32_C(0x1c):
+  case UINT32_C(0x1d):
+    return UINT64_C(9);
+  case UINT32_C(0x1e):
+  case UINT32_C(0x1f):
+    return UINT64_C(70);
+  default:
+    return T64_CPU_BASE_ISSUE_INTERVAL_TICKS;
+  }
+}
+
+static size_t cpu_successor_extra_event_budget(const t64_machine *machine,
+                                              uint32_t opcode) {
+  uint32_t width = 0u;
+  bool store = false;
+  bool partial = false;
+  t64_mmu_request request;
+  t64_mmu_result translation;
+
+  if (!memory_access_info(opcode, &width, &store, &partial) || !store ||
+      width != 4u) {
+    return 0u;
+  }
+  (void)partial;
+  request.virtual_address = effective_address(
+      &machine->cpu, (opcode >> 21) & UINT32_C(0x1f), (uint16_t)opcode);
+  request.width = width;
+  request.kind = T64_MMU_ACCESS_WRITE;
+  if (!cpu_translate_access(machine, request.virtual_address, request.width,
+                            request.kind, &translation) ||
+      translation.fault != T64_MMU_FAULT_NONE ||
+      !translation.translated ||
+      translation.physical_address > UINT32_MAX) {
+    /* The earlier CPU memory preflight handles this fault. Keeping one slot
+       spare here is conservative if a translation changes between checks. */
+    return 1u;
+  }
+  return translation.physical_address < machine->profile.rdram_bytes ? 0u
+                                                                     : 1u;
+}
+
+static t64_status cpu_preflight_successor(
+    t64_machine *machine, uint32_t opcode, uint64_t interval,
+    t64_event_reservation *reservation_out) {
+  size_t queue_limit;
+  size_t needed_events;
+  uint32_t sequence_bits;
+  uint64_t sequence_limit;
+
+  if (machine == NULL || reservation_out == NULL) {
+    return T64_STATUS_INVALID_ARGUMENT;
+  }
+  (void)memset(reservation_out, 0, sizeof *reservation_out);
+  queue_limit = (size_t)machine->profile.event_queue_capacity;
+  needed_events = 1u + cpu_successor_extra_event_budget(machine, opcode);
+  sequence_bits = machine->profile.sequence_width_bits;
+  if (queue_limit > T64_EVENT_QUEUE_CAPACITY) {
+    queue_limit = T64_EVENT_QUEUE_CAPACITY;
+  }
+  if (machine->queue_count > queue_limit ||
+      needed_events > queue_limit - machine->queue_count) {
+    return T64_STATUS_QUEUE_FULL;
+  }
+  if (sequence_bits == 0u || sequence_bits > 64u) {
+    return T64_STATUS_INVALID_ARGUMENT;
+  }
+  sequence_limit = sequence_bits == 64u
+                       ? UINT64_MAX
+                       : (UINT64_C(1) << sequence_bits) - UINT64_C(1);
+  if (machine->sequence_exhausted ||
+      machine->next_sequence > sequence_limit ||
+      (uint64_t)(needed_events - 1u) >
+          sequence_limit - machine->next_sequence) {
+    return T64_STATUS_SEQUENCE_EXHAUSTED;
+  }
+  return t64_schedule_reserve_after(
+      machine, interval, T64_DEVICE_CPU, T64_CPU_EVENT_STEP, UINT64_C(0),
+      UINT64_C(0), t64_cpu_step, reservation_out);
+}
+
+static t64_status cpu_commit_preflighted_successor(
+    t64_machine *machine, uint64_t interval,
+    t64_event_reservation *reservation) {
+  t64_status status;
+
+  if (!reservation->valid || reservation->machine != machine ||
+      reservation->expected_tick != machine->tick ||
+      reservation->expected_queue_count != machine->queue_count ||
+      reservation->event.sequence != machine->next_sequence) {
+    status = cpu_preflight_successor(machine, UINT32_C(0), interval,
+                                     reservation);
+    if (status != T64_STATUS_OK) {
+      return status;
+    }
+  }
+  return t64_schedule_commit(machine, reservation);
+}
+
 static bool watch_matches(const t64_machine *machine, uint32_t physical,
                           bool store) {
   uint32_t watchlo = (uint32_t)machine->cpu.cp0[T64_CP0_WATCHLO];
@@ -1965,8 +2082,9 @@ t64_status t64_cpu_schedule(t64_machine *machine) {
     return T64_STATUS_INVALID_ARGUMENT;
   }
   status = t64_schedule_reserve_after(
-      machine, UINT64_C(1), T64_DEVICE_CPU, T64_CPU_EVENT_STEP, UINT64_C(0),
-      UINT64_C(0), t64_cpu_step, &reservation);
+      machine, T64_CPU_BASE_ISSUE_INTERVAL_TICKS, T64_DEVICE_CPU,
+      T64_CPU_EVENT_STEP, UINT64_C(0), UINT64_C(0), t64_cpu_step,
+      &reservation);
   if (status != T64_STATUS_OK) {
     return status;
   }
@@ -2010,6 +2128,9 @@ t64_status t64_cpu_step(t64_machine *machine, const t64_event *event) {
   bool supported;
   bool instruction_cacheable = false;
   uint64_t eret_target = 0u;
+  uint64_t successor_interval = T64_CPU_BASE_ISSUE_INTERVAL_TICKS;
+  t64_event_reservation successor_reservation = {0};
+  bool t1_policy;
   t64_status status;
   t64_status memory_status = T64_STATUS_OK;
 
@@ -2026,6 +2147,16 @@ t64_status t64_cpu_step(t64_machine *machine, const t64_event *event) {
     return T64_STATUS_RESOURCE_EXHAUSTED;
   }
   new_profile = t64_has_vr4300_cpu_state(machine);
+  t1_policy = t64_has_t1_policy(machine);
+  if (t1_policy) {
+    status = cpu_preflight_successor(machine, UINT32_C(0),
+                                     T64_CPU_BASE_ISSUE_INTERVAL_TICKS,
+                                     &successor_reservation);
+    if (status != T64_STATUS_OK) {
+      machine->cpu.attempt_outcome = T64_CPU_ATTEMPT_HOST_ERROR;
+      return status;
+    }
+  }
   status = t64_cp0_synchronize_guest_time(machine, machine->tick);
   if (status != T64_STATUS_OK) {
     machine->cpu.attempt_outcome = T64_CPU_ATTEMPT_HOST_ERROR;
@@ -2136,15 +2267,9 @@ t64_status t64_cpu_step(t64_machine *machine, const t64_event *event) {
       }
       if ((cp0_status & T64_STATUS_ERL) != 0u) {
         eret_target = machine->cpu.cp0[T64_CP0_ERROR_EPC];
-        machine->cpu.cp0[T64_CP0_STATUS] = cp0_status & ~T64_STATUS_ERL;
       } else {
         eret_target = machine->cpu.cp0[T64_CP0_EPC];
-        machine->cpu.cp0[T64_CP0_STATUS] = cp0_status & ~T64_STATUS_EXL;
       }
-      machine->cpu.linked_valid = false;
-      machine->cpu.linked_width = 0u;
-      machine->cpu.linked_physical_address = 0u;
-      machine->cpu.pending_exception_valid = false;
       is_eret = true;
     } else {
       status = cpu_preflight_memory(machine, opcode, in_delay_slot,
@@ -2159,6 +2284,27 @@ t64_status t64_cpu_step(t64_machine *machine, const t64_event *event) {
       !t64_has_cpu_compat_policy(machine)) {
     cpu_stop_unsupported(machine, pc, opcode);
     return T64_STATUS_RESOURCE_EXHAUSTED;
+  }
+  if (t1_policy) {
+    successor_interval = t64_cpu_instruction_cost(machine, opcode);
+    status = cpu_preflight_successor(machine, opcode, successor_interval,
+                                     &successor_reservation);
+    if (status != T64_STATUS_OK) {
+      machine->cpu.attempt_outcome = T64_CPU_ATTEMPT_HOST_ERROR;
+      return status;
+    }
+  }
+  if (is_eret) {
+    uint32_t cp0_status = (uint32_t)machine->cpu.cp0[T64_CP0_STATUS];
+
+    machine->cpu.cp0[T64_CP0_STATUS] =
+        (cp0_status & T64_STATUS_ERL) != 0u
+            ? cp0_status & ~T64_STATUS_ERL
+            : cp0_status & ~T64_STATUS_EXL;
+    machine->cpu.linked_valid = false;
+    machine->cpu.linked_width = 0u;
+    machine->cpu.linked_physical_address = 0u;
+    machine->cpu.pending_exception_valid = false;
   }
   if (is_branch) {
     supported = execute_branch(pc_full, new_profile, opcode, &machine->cpu,
@@ -2415,7 +2561,11 @@ t64_status t64_cpu_step(t64_machine *machine, const t64_event *event) {
   t64_trace_emit(machine, machine->tick, T64_TRACE_DEVICE_MACHINE,
                  T64_TRACE_KIND_CPU_RETIREMENT,
                  ((uint64_t)pc << 32) | (uint64_t)opcode);
-  status = t64_cpu_schedule(machine);
+  status = t1_policy
+               ? cpu_commit_preflighted_successor(machine,
+                                                   successor_interval,
+                                                   &successor_reservation)
+               : t64_cpu_schedule(machine);
   if (status != T64_STATUS_OK) {
     return status;
   }
