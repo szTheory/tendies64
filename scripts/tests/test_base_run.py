@@ -173,6 +173,28 @@ def create_combined_context(repository, control_adapter, *, missing_selector=Fal
 
 
 class BaseRunControls(unittest.TestCase):
+    def test_informational_lane_runs_through_complete_entry(self):
+        adapter = pathlib.Path(os.environ.get("T64_BASE_CONTROL_ADAPTER",
+            ROOT / "build/gate/runner/t64-base-diagnostic-controls"))
+        spec = importlib.util.spec_from_file_location("base_lane_entry_control",
+            ROOT / "scripts/base-diagnostic-lanes.py")
+        wrapper = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(wrapper)
+        with tempfile.TemporaryDirectory(prefix="base-lane-entry-") as temp:
+            repository = pathlib.Path(temp)
+            (repository / "build").mkdir(mode=0o700)
+            runner, context, selected = create_combined_context(repository, adapter)
+            wrapper.ROOT, wrapper.PRIVATE = repository.resolve(), context
+            with patch.object(wrapper, "_load_runner", return_value=runner), patch.dict(os.environ,
+                {"CI": "", "T64_REQUIRE_FIXTURES": "0", "T64_BASE_CONTROL_ROOT": str(context)}):
+                self.assertEqual(wrapper.main(["--run-informational", "--local-only"]), 0)
+                marker = next(context.glob("informational-dispatch-*.json"))
+                batch = context / json.loads(marker.read_bytes())["batch"]
+                receipt = json.loads((batch / "lane-invocation.json").read_bytes())
+                self.assertEqual(receipt["lane"], "informational")
+                self.assertFalse(receipt["authenticated_terminal_observed"])
+                self.assertEqual(list(context.glob("case-*")), [])
+
     def test_real_adapter_admits_cleared_boot_before_single_tick(self):
         """Positive allocator/admission control, with no external diagnostic."""
         adapter = pathlib.Path(os.environ.get("T64_BASE_CONTROL_ADAPTER",
