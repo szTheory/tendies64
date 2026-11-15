@@ -8,6 +8,7 @@ import importlib.util
 import json
 import os
 import pathlib
+import shutil
 import tempfile
 import unittest
 
@@ -82,11 +83,20 @@ def create_context(repository: pathlib.Path) -> pathlib.Path:
             "values": [],
         },
     ]
+    source_root = projection_root / "nemu64-test/src/tests"
+    source_root.mkdir(mode=0o700, parents=True)
+    testlist = source_root / "testlist.rs"
+    testlist.write_bytes(b"authored source testlist\n")
+    testlist.chmod(0o600)
     projection_body = {
         "registrations": rows,
+        "reviewed_source_file_sha256": {
+            "src/tests/testlist.rs": digest(testlist.read_bytes()),
+        },
         "schema": "t64.cpu-source-projection",
         "schema_version": 2,
         "source_revision": "a" * 40,
+        "testlist_sha256": digest(testlist.read_bytes()),
     }
     projection = dict(projection_body)
     projection["projection_sha256"] = digest(canonical(projection_body))
@@ -114,12 +124,37 @@ def create_context(repository: pathlib.Path) -> pathlib.Path:
     write_private(authority_path, authority_bytes)
     write_private(inventory_path, inventory_bytes)
 
+    scripts = repository / "scripts"
+    scripts.mkdir(mode=0o700)
+    shutil.copyfile(ROOT / "scripts/derive-base-diagnostic-source.py",
+                    scripts / "derive-base-diagnostic-source.py")
+    shutil.copyfile(VERIFIER, scripts / "verify-base-diagnostic-qualification.py")
+    shutil.copyfile(ROOT / "scripts/verify-cpu-diagnostic-qualification.py",
+                    scripts / "verify-cpu-diagnostic-qualification.py")
+
     roles = (
         "source", "tool", "lock", "runtime", "boot", "image", "composition",
         "profile", "build", "compiler", "asset", "executable", "verifier",
+        "source_verifier",
     )
     bindings = {}
     for role in roles:
+        if role == "source":
+            source = projection_root / "nemu64-test/src/tests/testlist.rs"
+            bindings[role] = [{
+                "path": source.relative_to(repository).as_posix(),
+                "sha256": digest(source.read_bytes()),
+            }]
+            continue
+        if role in {"verifier", "source_verifier"}:
+            name = ("verify-base-diagnostic-qualification.py" if role == "verifier"
+                    else "verify-cpu-diagnostic-qualification.py")
+            verifier_path = scripts / name
+            bindings[role] = [{
+                "path": verifier_path.relative_to(repository).as_posix(),
+                "sha256": digest(verifier_path.read_bytes()),
+            }]
+            continue
         path = context_root / f"{role}.evidence"
         content = f"authored {role} evidence\n".encode()
         write_private(path, content)
@@ -185,6 +220,140 @@ class BaseQualificationControls(unittest.TestCase):
             self.assertEqual(result, "reached")
             self.assertEqual(reached, ["dispatch"])
             self.assertTrue((run_directory / "dispatch.marker").is_file())
+
+    def test_resealed_reduced_source_authority_is_rejected_before_dispatch(self) -> None:
+        with tempfile.TemporaryDirectory(prefix="base-reduced-") as temp:
+            repository = pathlib.Path(temp)
+            (repository / "build").mkdir(mode=0o700)
+            context_root = create_context(repository)
+            context_path = context_root / "context.json"
+            binding_path = context_root / "binding.json"
+            context = json.loads(context_path.read_bytes())
+            binding = json.loads(binding_path.read_bytes())
+            authority_path = repository / context["source_authority"]["path"]
+            inventory_path = repository / context["inventory"]["path"]
+            authority = json.loads(authority_path.read_bytes())
+            inventory = json.loads(inventory_path.read_bytes())
+            authority["members"].pop(1)
+            inventory["members"].pop(1)
+            authority_bytes = canonical(authority)
+            authority_sha = digest(authority_bytes)
+            inventory["source_authority_sha256"] = authority_sha
+            inventory_bytes = canonical(inventory)
+            write_private(authority_path, authority_bytes)
+            write_private(inventory_path, inventory_bytes)
+            context["source_authority"]["sha256"] = authority_sha
+            context["inventory"]["sha256"] = digest(inventory_bytes)
+            context_bytes = canonical(context)
+            write_private(context_path, context_bytes)
+            binding.update({
+                "context_sha256": digest(context_bytes),
+                "inventory_sha256": digest(inventory_bytes),
+                "source_authority_sha256": authority_sha,
+            })
+            write_private(binding_path, canonical(binding))
+
+            run_directory = context_root / "run-reduced"
+            reached: list[str] = []
+            verifier = load_verifier()
+            with self.assertRaises(verifier.Refusal) as raised:
+                verifier.verify_and_dispatch(
+                    context_root, run_directory,
+                    lambda: reached.append("unexpected") or "reached",
+                    repository_root=repository,
+                )
+            self.assertEqual(
+                str(raised.exception),
+                "source authority differs from the independently derived authority",
+            )
+            self.assertEqual(reached, [])
+            self.assertFalse(run_directory.exists())
+
+    def test_qualified_tool_lock_boot_image_and_profile_drift_refuse(self) -> None:
+        for role in ("tool", "lock", "runtime", "boot", "image", "profile",
+                     "build", "compiler", "asset", "executable", "composition",
+                     "source_verifier"):
+            with self.subTest(role=role), tempfile.TemporaryDirectory(
+                prefix="base-drift-"
+            ) as temp:
+                repository = pathlib.Path(temp)
+                (repository / "build").mkdir(mode=0o700)
+                context_root = create_context(repository)
+                context = json.loads((context_root / "context.json").read_bytes())
+                changed = repository / context["bindings"][role][0]["path"]
+                changed.write_bytes(b"changed after qualification\n")
+                changed.chmod(0o600)
+                run_directory = context_root / "run-drift"
+                reached: list[str] = []
+                verifier = load_verifier()
+                with self.assertRaises(verifier.Refusal) as raised:
+                    verifier.verify_and_dispatch(
+                        context_root, run_directory,
+                        lambda: reached.append("unexpected") or "reached",
+                        repository_root=repository,
+                    )
+                self.assertEqual(str(raised.exception), f"{role} closure digest changed")
+                self.assertEqual(reached, [])
+                self.assertFalse(run_directory.exists())
+
+    def test_symlinked_input_unsafe_permissions_and_setup_error_refuse(self) -> None:
+        verifier = load_verifier()
+        with tempfile.TemporaryDirectory(prefix="base-symlink-") as temp:
+            repository = pathlib.Path(temp)
+            (repository / "build").mkdir(mode=0o700)
+            context_root = create_context(repository)
+            context = json.loads((context_root / "context.json").read_bytes())
+            asset = repository / context["bindings"]["asset"][0]["path"]
+            target = context_root / "tool.evidence"
+            asset.unlink()
+            asset.symlink_to(target)
+            run_directory = context_root / "run-symlink"
+            reached: list[str] = []
+            with self.assertRaises(verifier.Refusal) as raised:
+                verifier.verify_and_dispatch(
+                    context_root, run_directory,
+                    lambda: reached.append("unexpected") or "reached",
+                    repository_root=repository,
+                )
+            self.assertEqual(str(raised.exception), "asset binding path traverses a symlink")
+            self.assertEqual(reached, [])
+            self.assertFalse(run_directory.exists())
+
+        with tempfile.TemporaryDirectory(prefix="base-permissions-") as temp:
+            repository = pathlib.Path(temp)
+            (repository / "build").mkdir(mode=0o700)
+            context_root = create_context(repository)
+            run_directory = context_root / "run-permissions"
+            context_root.chmod(0o755)
+            reached = []
+            with self.assertRaises(verifier.Refusal) as raised:
+                verifier.verify_and_dispatch(
+                    context_root, run_directory,
+                    lambda: reached.append("unexpected") or "reached",
+                    repository_root=repository,
+                )
+            self.assertEqual(str(raised.exception), "BASE qualification root permissions are not owner-only")
+            self.assertEqual(reached, [])
+            self.assertFalse(run_directory.exists())
+
+        with tempfile.TemporaryDirectory(prefix="base-setup-") as temp:
+            repository = pathlib.Path(temp)
+            (repository / "build").mkdir(mode=0o700)
+            context_root = create_context(repository)
+            run_directory = context_root / "run-setup"
+            run_directory.mkdir(mode=0o700)
+            reached = []
+            with self.assertRaises(verifier.Refusal) as raised:
+                verifier.verify_and_dispatch(
+                    context_root, run_directory,
+                    lambda: reached.append("unexpected") or "reached",
+                    repository_root=repository,
+                )
+            self.assertEqual(
+                str(raised.exception),
+                "run directory must be a fresh child of the private context",
+            )
+            self.assertEqual(reached, [])
 
 
 if __name__ == "__main__":

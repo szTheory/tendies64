@@ -41,6 +41,14 @@ add_test(NAME runner.base-diagnostic-protocol COMMAND test_base_diag_protocol)
 set_tests_properties(runner.base-diagnostic-protocol PROPERTIES
   LABELS runner TIMEOUT 60)
 
+# Full private BASE pre-use verification is exercised only with authored,
+# owner-only fixtures. It must pass before normal dispatch can create a run dir.
+add_test(NAME harness.base-qualification
+  COMMAND python3 -B ${CMAKE_SOURCE_DIR}/scripts/tests/test_base_qualification.py)
+set_tests_properties(harness.base-qualification PROPERTIES
+  LABELS runner TIMEOUT 180
+  ENVIRONMENT "PYTHONDONTWRITEBYTECODE=1")
+
 add_executable(test_cpu_diag_protocol tests/test_cpu_diag_protocol.c)
 target_link_libraries(test_cpu_diag_protocol PRIVATE t64_cpu_diag_protocol)
 t64_target_warnings(test_cpu_diag_protocol)
