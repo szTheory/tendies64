@@ -133,41 +133,6 @@ static bool is_target_operation(uint32_t address) {
          address == COLD_ABSENT_RDRAM_WORD;
 }
 
-static bool decode_terminal_memory(const t64_machine *machine,
-                                   const t64_cpu_stop_detail *detail,
-                                   cold_operation *operation) {
-  uint32_t kind = detail->opcode >> 26;
-  uint32_t width = 0u;
-  bool write = false;
-  uint32_t rs = (detail->opcode >> 21) & UINT32_C(0x1f);
-  uint64_t virtual_address;
-  uint32_t physical_address;
-  switch (kind) {
-  case 0x20u: case 0x24u: case 0x30u: width = 1u; break;
-  case 0x21u: case 0x25u: width = 2u; break;
-  case 0x23u: case 0x27u: case 0x31u: width = 4u; break;
-  case 0x37u: case 0x35u: width = 8u; break;
-  case 0x28u: case 0x2au: case 0x2cu: write = true; width = 1u; break;
-  case 0x29u: case 0x2du: write = true; width = 2u; break;
-  case 0x2bu: case 0x2eu: case 0x39u: write = true; width = 4u; break;
-  case 0x3fu: case 0x3du: write = true; width = 8u; break;
-  default: return false;
-  }
-  virtual_address = machine->cpu.gpr[rs] +
-      (uint64_t)(int64_t)(int16_t)(detail->opcode & UINT32_C(0xffff));
-  physical_address = (uint32_t)virtual_address & UINT32_C(0x1fffffff);
-  if (!is_target_operation(physical_address)) return false;
-  operation->found = true;
-  operation->write = write;
-  operation->address = physical_address;
-  operation->width = width;
-  operation->value = 0u;
-  operation->pc = detail->pc;
-  operation->opcode = detail->opcode;
-  operation->tick = machine->tick;
-  return true;
-}
-
 static bool collect_trace(t64_machine *machine, cold_operation *operation,
                           uint64_t *dropped_total) {
   t64_trace_record records[T64_TRACE_RECORD_CAPACITY];
@@ -327,12 +292,6 @@ static int run_probe(const char *profile_id, const char *fixture_path) {
         !drain_output(machine, &output)) {
       (void)puts("classification=harness-error reason=observation-overflow");
       goto cleanup;
-    }
-    if (!operation.found && stop.reason == T64_STOP_REASON_CPU_UNSUPPORTED) {
-      t64_cpu_stop_detail detail = {0u, 0u, 0u};
-      if (t64_machine_cpu_stop_detail(machine, &detail) == T64_STATUS_OK) {
-        (void)decode_terminal_memory(machine, &detail, &operation);
-      }
     }
     if (stop.reason != T64_STOP_REASON_BOUND &&
         stop.reason != T64_STOP_REASON_CPU_UNSUPPORTED &&
