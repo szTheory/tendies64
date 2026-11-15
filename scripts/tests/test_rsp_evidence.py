@@ -73,6 +73,11 @@ class RspEvidenceTests(unittest.TestCase):
         )
         with self.assertRaises(CHECKER.Refusal):
             CHECKER.privacy_scan(
+                ('{"selected_rom_sha256":"' + approved + '"}').encode(),
+                approved_rom_hash=approved,
+            )
+        with self.assertRaises(CHECKER.Refusal):
+            CHECKER.privacy_scan(
                 ('{"rom_sha256":"' + "b" * 64 + '"}').encode(),
                 approved_rom_hash=approved,
             )

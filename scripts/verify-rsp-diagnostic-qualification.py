@@ -20,7 +20,26 @@ BOOT_SHA = "f522db2e31a701f82597f399e76d55c9487760d015aff9d90176b463ae39a068"
 CORE_BASE_REVISION = "d7479bcc854348c1384cc199815954c662ffe9be"
 PLAN10_TESTED_SOURCE_REVISION = "cefbba2a35f0aa1e0ce9b1d64cfb5df3d41f44c5"
 PLAN10_BINDING_BASE_REVISION = "88274a0748e2bb38fd7a7d3477914c534d993791"
+PLAN10_V6_CORE_SOURCE_REVISION = "578e86a71752b74e65a4cb7dd9afbf545b0fc0fd"
 PRODUCTION_SOURCE_PREFIXES = ("core", "runner", "tools/common")
+V6_HOST_SOURCE_PATHS = frozenset({
+    "scripts/check-rsp-evidence.py",
+    "scripts/prepare-rsp-diagnostic.py",
+    "scripts/verify-rsp-diagnostic-qualification.py",
+    "scripts/run-rsp-diagnostic.py",
+    "scripts/tests/test_rsp_evidence.py",
+    "scripts/tests/test_rsp_qualification.py",
+    "scripts/tests/test_rsp_run.py",
+})
+V6_BUILD_POLICY_PATHS = ("CMakeLists.txt", "CMakePresets.json")
+V6_NORMAL_EVIDENCE_PATHS = ("build/gate/05-10-final-gate.log",)
+V6_ASAN_EVIDENCE_PATHS = (
+    "build/asan/05-10-final-build.log",
+    "build/asan/05-10-final-inventory.log",
+    "build/asan/05-10-final-ctest.log",
+)
+V6_ARCHIVE_RELATIVE = pathlib.PurePosixPath(
+    "build/private-rsp-diagnostic/plan10-v6-executable-archive")
 RSP_PROFILE_ID = "ntsc-cart-4m-openipl3-rsp-functional-v1"
 V5_ADAPTER_SOURCE_PROVENANCE = (
     "t64.rsp.adapter-source-scope-hashes-distinct-from-core-build-annotation.v1"
@@ -351,6 +370,479 @@ def verify_v5_identity_receipts(binding: dict[str, object],
             core_identity_json.get("source_revision") != source_annotation):
         refuse("v5 executable hashes or CPU identity were not bound after source closure")
     return core_identity_json
+
+
+def verify_v6_profile_identity(qualification: dict[str, object],
+                               rsp_identity: dict[str, object],
+                               cpu_identity: dict[str, object]) -> None:
+    build_identity = qualification.get("build_identity")
+    if (qualification.get("status") != "qualified" or
+            qualification.get("component") != "rsp" or
+            qualification.get("profile_id") != RSP_PROFILE_ID or
+            not isinstance(build_identity, dict) or
+            build_identity.get("profile_id") != RSP_PROFILE_ID or
+            build_identity.get("core_model") != 6 or
+            build_identity.get("core_state_schema") != 12 or
+            rsp_identity.get("profile_id") != RSP_PROFILE_ID or
+            not isinstance(rsp_identity.get("core_build_sha256"), str) or
+            re.fullmatch(r"[0-9a-f]{64}", rsp_identity["core_build_sha256"]) is None or
+            not isinstance(rsp_identity.get("profile_descriptor_sha256"), str) or
+            re.fullmatch(r"[0-9a-f]{64}", rsp_identity["profile_descriptor_sha256"]) is None or
+            cpu_identity.get("core_build_sha256") != rsp_identity.get("core_build_sha256") or
+            cpu_identity.get("source_revision") != rsp_identity.get("core_source_revision") or
+            rsp_identity.get("core_build_sha256") == build_identity.get("core_build_sha256")):
+        refuse("v6 current identity does not match the exact functional RSP profile and changed core")
+
+
+def verify_v6_host_source_paths(paths: object) -> None:
+    if (not isinstance(paths, (list, tuple, set, frozenset)) or
+            any(not isinstance(path, str) for path in paths) or
+            set(paths) != V6_HOST_SOURCE_PATHS):
+        refuse("v6 host-source delta differs from its exact allowlist")
+
+
+def verify_v6_no_production_delta(paths: object) -> None:
+    if not isinstance(paths, (list, tuple, set, frozenset)) or paths:
+        refuse("v6 core or build-policy source differs from the exact reviewed baseline")
+
+
+def verify_v6_ctest_proofs(normal_text: str, asan_text: str,
+                           source_root: pathlib.Path = ROOT) -> int:
+    helper_path = source_root / "scripts/check-rsp-evidence.py"
+    spec = importlib.util.spec_from_file_location("t64_v6_native_evidence_verifier", helper_path)
+    if spec is None or spec.loader is None:
+        refuse("v6 strict native evidence helper cannot be loaded")
+    helper = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(helper)
+    try:
+        native_required = helper.native_gate_tests(source_root)
+        helper.validate_ctest_log(normal_text, native_required)
+        _, phase_tests, _ = helper.owned_tables(source_root)
+        asan_required = (set(phase_tests) | {"runner.cpu-diagnostic-protocol",
+                                            "runner.cpu-diagnostic-inventory",
+                                            "fuzz.rom-admission",
+                                            "sanitizer.negative-control"})
+        allowed = native_required | {"fuzz.rom-admission", "sanitizer.negative-control"}
+        helper.validate_ctest_log(asan_text, asan_required, allowed=allowed)
+    except helper.Refusal:
+        refuse("v6 saved native or sanitizer CTest rows fail strict inventory validation")
+    return len(native_required)
+
+
+def verify_v6_native_evidence(value: object) -> dict[str, list[dict[str, str]]]:
+    evidence = object_with_keys(value, {"asan", "normal"}, "v6 saved native evidence")
+    checked: dict[str, list[dict[str, str]]] = {"normal": [], "asan": []}
+    normal_rows = evidence["normal"]
+    if not isinstance(normal_rows, list) or len(normal_rows) != len(V6_NORMAL_EVIDENCE_PATHS):
+        refuse("v6 canonical normal evidence set is incomplete")
+    normal_content: bytes | None = None
+    for row, expected_path in zip(normal_rows, V6_NORMAL_EVIDENCE_PATHS):
+        row = object_with_keys(row, {"path", "sha256"}, "v6 normal evidence row")
+        if row["path"] != expected_path:
+            refuse("v6 normal evidence selects an unexpected report")
+        path = project_path(ROOT / expected_path, "v6 normal evidence", 16 * 1024 * 1024)
+        content = path.read_bytes()
+        if digest(content) != row["sha256"]:
+            refuse("v6 canonical normal evidence changed")
+        normal_content = content
+        checked["normal"].append({"path": expected_path, "sha256": digest(content)})
+    if normal_content is None:
+        refuse("v6 canonical normal gate evidence is missing")
+    normal_inventory = re.search(rb"test inventory PASS preset=gate count=([0-9]+)", normal_content)
+    normal_ctest = re.search(rb"100% tests passed out of ([0-9]+)", normal_content)
+    normal_text = normal_content.decode("utf-8", errors="strict")
+
+    asan_rows = evidence["asan"]
+    if not isinstance(asan_rows, list) or len(asan_rows) != len(V6_ASAN_EVIDENCE_PATHS):
+        refuse("v6 sanitizer evidence set is incomplete")
+    asan_content: list[bytes] = []
+    for row, expected_path in zip(asan_rows, V6_ASAN_EVIDENCE_PATHS):
+        row = object_with_keys(row, {"path", "sha256"}, "v6 sanitizer evidence row")
+        if row["path"] != expected_path:
+            refuse("v6 sanitizer evidence selects an unexpected report")
+        path = project_path(ROOT / expected_path, "v6 sanitizer evidence", 16 * 1024 * 1024)
+        content = path.read_bytes()
+        if digest(content) != row["sha256"]:
+            refuse("v6 sanitizer evidence changed")
+        checked["asan"].append({"path": expected_path, "sha256": digest(content)})
+        asan_content.append(content)
+    build, inventory, ctest = asan_content
+    expected_native_count = verify_v6_ctest_proofs(
+        normal_text, ctest.decode("utf-8", errors="strict"))
+    if (normal_inventory is None or normal_ctest is None or
+            normal_inventory.group(1) != normal_ctest.group(1) or
+            int(normal_inventory.group(1)) != expected_native_count):
+        refuse("v6 saved normal gate does not prove its complete native inventory")
+    if (build.count(b"T64_ALL_TARGET_BUILD_EXIT=0\n") != 1 or
+            b"Linking C executable runner/t64-cpu-diagnostic" not in build or
+            b"Linking C executable runner/t64-rsp-diagnostic" not in build or
+            re.search(rb"test inventory PASS preset=asan count=[0-9]+", inventory) is None or
+            re.search(rb"100% tests passed out of [0-9]+", ctest) is None):
+        refuse("v6 saved sanitizer inventory, all-target build, or owning tests did not pass")
+    if re.search(rb"test inventory PASS preset=asan count=[0-9]+", inventory) is None:
+        refuse("v6 saved sanitizer inventory is missing")
+    return checked
+
+
+def verify_v6_source_scope(binding: dict[str, object], prior: dict[str, object],
+                           source_annotation: str) -> tuple[dict[str, str], dict[str, str]]:
+    delta = object_with_keys(binding["reviewed_source_delta"], {
+        "baseline_revision", "changed_paths", "core_tested_revision",
+        "host_paths", "host_source_revision",
+    }, "v6 reviewed source delta")
+    baseline = prior.get("current_identity", {}).get("source_revision")
+    host_revision = delta["host_source_revision"]
+    tested = delta["core_tested_revision"]
+    for revision in (baseline, host_revision, tested, source_annotation):
+        if not isinstance(revision, str) or not re.fullmatch(r"[0-9a-f]{40}", revision):
+            refuse("v6 reviewed source revision is malformed")
+    if (baseline != PLAN10_BINDING_BASE_REVISION or tested != PLAN10_V6_CORE_SOURCE_REVISION or
+            git_names("rev-parse", "--verify", f"{tested}^{{commit}}") != [tested] or
+            git_names("rev-parse", "--verify", f"{host_revision}^{{commit}}") != [host_revision] or
+            git_names("rev-parse", "--verify", f"{source_annotation}^{{commit}}") != [source_annotation] or
+            not git_is_ancestor(tested, host_revision) or
+            not git_is_ancestor(host_revision, source_annotation) or
+            not git_is_ancestor(source_annotation, "HEAD")):
+        refuse("v6 source binding does not pin its exact reviewed core and host revisions")
+
+    prior_rows = prior.get("core_source_scope")
+    if not isinstance(prior_rows, list) or not prior_rows:
+        refuse("historical v4 production source scope is empty")
+    prior_paths: set[str] = set()
+    for row in prior_rows:
+        row = object_with_keys(row, {"path", "sha256"}, "historical v4 production source row")
+        relative = row["path"]
+        if not isinstance(relative, str) or relative in prior_paths:
+            refuse("historical v4 production source scope contains duplicate paths")
+        old = subprocess.run(["git", "-C", str(ROOT), "show", f"{baseline}:{relative}"],
+                             check=True, capture_output=True, timeout=10).stdout
+        if digest(old) != row["sha256"]:
+            refuse("historical v4 source row differs from its reviewed baseline")
+        prior_paths.add(relative)
+
+    changed: list[str] = []
+    for line in git_names("diff", "--name-status", "--no-renames", baseline, tested,
+                          "--", *PRODUCTION_SOURCE_PREFIXES):
+        fields = line.split("\t")
+        if len(fields) != 2 or fields[0] not in {"A", "M"}:
+            refuse("v6 reviewed production delta contains an unsupported change")
+        relative = pathlib.PurePosixPath(fields[1])
+        if (relative.is_absolute() or relative.as_posix() != fields[1] or
+                not any(fields[1].startswith(prefix + "/") for prefix in PRODUCTION_SOURCE_PREFIXES)):
+            refuse("v6 reviewed production delta escapes the exact source scope")
+        changed.append(fields[1])
+    if len(changed) != len(set(changed)) or delta["changed_paths"] != changed:
+        refuse("v6 production source delta omits or adds reviewed paths")
+    expected_core_paths = prior_paths | set(changed)
+    core_rows = validate_scoped_source_rows(binding["core_source_scope"], expected_core_paths)
+    for relative, expected_sha in core_rows.items():
+        source = project_path(ROOT / relative, "v6 reviewed production source").read_bytes()
+        tested_bytes = subprocess.run(["git", "-C", str(ROOT), "show", f"{tested}:{relative}"],
+                                      check=True, capture_output=True, timeout=10).stdout
+        annotation_bytes = subprocess.run(["git", "-C", str(ROOT), "show", f"{source_annotation}:{relative}"],
+                                          check=True, capture_output=True, timeout=10).stdout
+        if source != tested_bytes or source != annotation_bytes or digest(source) != expected_sha:
+            refuse("v6 production source differs from the pinned reviewed bytes")
+
+    if delta["host_paths"] != sorted(V6_HOST_SOURCE_PATHS):
+        refuse("v6 host source path set differs from its exact allowlist")
+    source_scripts = git_names("diff", "--name-only", tested, host_revision,
+                               "--", "scripts")
+    head_scripts = git_names("diff", "--name-only", tested, "HEAD", "--", "scripts")
+    verify_v6_host_source_paths(source_scripts)
+    verify_v6_host_source_paths(head_scripts)
+    if (git_names("diff", "--name-only", host_revision, source_annotation, "--", "scripts") or
+            git_names("diff", "--name-only", host_revision, "HEAD", "--", "scripts")):
+        refuse("v6 host provenance contains an unexpected script change")
+    source_status = subprocess.run(
+        ["git", "-C", str(ROOT), "status", "--porcelain=v1", "--untracked-files=all",
+         "--", "core", "runner", "tools", *V6_BUILD_POLICY_PATHS, "scripts"],
+        check=True, capture_output=True, text=True, timeout=10).stdout.splitlines()
+    if source_status:
+        refuse("v6 source or host tools have uncommitted changes")
+    verify_v6_no_production_delta(git_names(
+        "diff", "--name-only", tested, "HEAD", "--",
+        "core", "runner", "tools", *V6_BUILD_POLICY_PATHS))
+    verify_v6_no_production_delta(git_names(
+        "diff", "--name-only", tested, source_annotation, "--",
+        "core", "runner", "tools", *V6_BUILD_POLICY_PATHS))
+
+    host_rows = validate_scoped_source_rows(
+        binding["host_source_scope"], set(V6_HOST_SOURCE_PATHS))
+    for relative, expected_sha in host_rows.items():
+        path = project_path(ROOT / relative, "v6 host source", 2 * 1024 * 1024)
+        committed = subprocess.run(["git", "-C", str(ROOT), "show", f"{host_revision}:{relative}"],
+                                   check=True, capture_output=True, timeout=10).stdout
+        if path.read_bytes() != committed or digest(committed) != expected_sha:
+            refuse("v6 host source differs from its exact committed bytes")
+    return core_rows, host_rows
+
+
+def verify_v6_executable_archive(binding: dict[str, object],
+                                 binding_bytes: bytes) -> None:
+    archive_relative = pathlib.PurePosixPath(str(binding.get("binary_archive_path", "")))
+    if archive_relative != V6_ARCHIVE_RELATIVE:
+        refuse("v6 binding selects an unexpected executable archive")
+    archive_root = private_path(ROOT / archive_relative / "archive-receipt.json",
+                                "v6 executable archive receipt").parent
+    if archive_root.is_symlink() or not archive_root.is_dir() or stat.S_IMODE(archive_root.stat().st_mode) != 0o700:
+        refuse("v6 executable archive is missing or not owner-only")
+    receipt_path = archive_root / "archive-receipt.json"
+    archived_paths = (receipt_path, archive_root / "identity-binding.json",
+                      archive_root / "adapter.bin", archive_root / "core-reader.bin")
+    if any(path.is_symlink() or not path.is_file() or stat.S_IMODE(path.stat().st_mode) != 0o600
+           for path in archived_paths):
+        refuse("v6 executable archive files are missing or not owner-only")
+    receipt = object_with_keys(read_json(receipt_path), {
+        "adapter_path", "adapter_sha256", "binding_path", "binding_sha256",
+        "core_reader_path", "core_reader_sha256", "schema",
+    }, "v6 executable archive receipt")
+    if (receipt["schema"] != "t64.rsp-plan10-v6-executable-archive.v1" or
+            receipt["adapter_path"] != (V6_ARCHIVE_RELATIVE / "adapter.bin").as_posix() or
+            receipt["core_reader_path"] != (V6_ARCHIVE_RELATIVE / "core-reader.bin").as_posix() or
+            receipt["binding_path"] != (V6_ARCHIVE_RELATIVE / "identity-binding.json").as_posix()):
+        refuse("v6 executable archive receipt selects unexpected paths")
+    for key in ("adapter_sha256", "binding_sha256", "core_reader_sha256"):
+        if not isinstance(receipt[key], str) or not HEX64.fullmatch(receipt[key]):
+            refuse("v6 executable archive digest is malformed")
+    archived_binding = private_path(archive_root / "identity-binding.json",
+                                    "archived v6 binding").read_bytes()
+    archived_adapter = private_path(archive_root / "adapter.bin", "archived v6 adapter").read_bytes()
+    archived_core = private_path(archive_root / "core-reader.bin", "archived v6 core reader").read_bytes()
+    if (archived_binding != binding_bytes or digest(archived_binding) != receipt["binding_sha256"] or
+            digest(archived_adapter) != receipt["adapter_sha256"] or
+            digest(archived_core) != receipt["core_reader_sha256"] or
+            receipt["adapter_sha256"] != binding["rsp_adapter_identity"].get("executable_sha256") or
+            receipt["core_reader_sha256"] != binding["current_identity"].get("executable_sha256")):
+        refuse("v6 executable archive does not preserve the exact bound binaries and binding")
+
+
+def verify_v6_identity_receipts(binding: dict[str, object], qualification: dict[str, object],
+                                identity: dict[str, object], runtime: dict[str, object]) -> None:
+    attempt_relative = pathlib.PurePosixPath(str(binding.get("identity_attempt_dir", "")))
+    if (attempt_relative.is_absolute() or ".." in attempt_relative.parts or
+            not attempt_relative.as_posix().startswith("build/private-rsp-diagnostic/plan10-current-binding-v6-")):
+        refuse("v6 identity attempt escapes the private RSP root")
+    attempt_dir = ROOT / attempt_relative
+    if attempt_dir.is_symlink() or not attempt_dir.is_dir() or stat.S_IMODE(attempt_dir.stat().st_mode) != 0o700:
+        refuse("v6 identity attempt is missing or not owner-only")
+    closure_ref = object_with_keys(binding["preuse_source_closure"], {"path", "sha256"},
+                                   "v6 source closure record")
+    closure_path = private_path(ROOT / closure_ref["path"], "v6 source closure command")
+    if (stat.S_IMODE(closure_path.stat().st_mode) != 0o600 or
+            closure_ref["path"] != (attempt_relative / "source-closure-command.json").as_posix() or
+            private_digest(closure_path, "v6 source closure command") != closure_ref["sha256"]):
+        refuse("v6 source closure command record changed")
+    closure_command = object_with_keys(read_json(closure_path), {
+        "argv", "exit", "source_closure_sha256", "stderr_path", "stderr_sha256",
+        "stdout_path", "stdout_sha256",
+    }, "v6 source closure command")
+    stdout_path = private_path(ROOT / closure_command["stdout_path"], "v6 source closure output")
+    stderr_path = private_path(ROOT / closure_command["stderr_path"], "v6 source closure diagnostics")
+    if any(stat.S_IMODE(path.stat().st_mode) != 0o600 for path in (stdout_path, stderr_path)):
+        refuse("v6 source closure logs are not owner-only")
+    stdout, stderr = stdout_path.read_bytes(), stderr_path.read_bytes()
+    closure_sha = qualification.get("closure", {}).get("sha256")
+    if (closure_command["exit"] != 0 or closure_command["source_closure_sha256"] != closure_sha or
+            closure_command["argv"] != ["python3", "-B", "scripts/verify-rsp-diagnostic-qualification.py",
+                                         "--verify-source-closure", "build/private-rsp-diagnostic/qualification.json"] or
+            closure_command["stdout_path"] != (attempt_relative / "source-closure.stdout.log").as_posix() or
+            closure_command["stderr_path"] != (attempt_relative / "source-closure.stderr.log").as_posix() or
+            digest(stdout) != closure_command["stdout_sha256"] or digest(stderr) != closure_command["stderr_sha256"] or
+            b"PASS: independent RSP source, assets, tools, and locks verified" not in stdout):
+        refuse("v6 source/tool/asset/lock closure did not pass before identity use")
+
+    hash_path = private_path(attempt_dir / "identity-executable-hashes.json",
+                             "v6 pre-identity executable hashes")
+    if stat.S_IMODE(hash_path.stat().st_mode) != 0o600:
+        refuse("v6 pre-identity executable hashes are not owner-only")
+    hash_record = object_with_keys(
+        read_json(hash_path),
+        {"adapter_path", "adapter_sha256_before_use", "core_reader_path",
+         "core_reader_sha256_before_use", "source_closure_command"},
+        "v6 pre-identity executable hashes")
+    receipts = binding["identity_command_receipts"]
+    if not isinstance(receipts, list) or len(receipts) != 2:
+        refuse("v6 identity command receipts are incomplete")
+    cpu_json: dict[str, object] | None = None
+    for index, (relative, arguments) in enumerate((
+            ("build/gate/runner/t64-rsp-diagnostic", ["--runtime-identity-json"]),
+            ("build/gate/runner/t64-cpu-diagnostic", ["--compat-v2", "--runtime-identity-json"]))):
+        receipt = object_with_keys(receipts[index], {
+            "argv", "deadline_seconds", "elapsed_seconds", "exit", "process_group_empty",
+            "stderr", "stderr_sha256", "stdout", "stdout_sha256", "timed_out",
+        }, "v6 identity command receipt")
+        if (receipt["argv"] != [str(ROOT / relative), *arguments] or
+                receipt["deadline_seconds"] != 10 or receipt["exit"] != 0 or
+                receipt["timed_out"] is not False or receipt["process_group_empty"] is not True):
+            refuse("v6 current identity command was not bounded and reaped")
+        label = "rsp-runtime-identity" if index == 0 else "cpu-runtime-identity"
+        if (receipt["stdout"] != f"{label}.stdout.log" or
+                receipt["stderr"] != f"{label}.stderr.log"):
+            refuse("v6 identity output paths differ from their fixed command labels")
+        out_path = private_path(attempt_dir / receipt["stdout"], "v6 identity output")
+        err_path = private_path(attempt_dir / receipt["stderr"], "v6 identity diagnostics")
+        if any(stat.S_IMODE(path.stat().st_mode) != 0o600 for path in (out_path, err_path)):
+            refuse("v6 identity command receipts are not owner-only")
+        out, err = out_path.read_bytes(), err_path.read_bytes()
+        if (len(out) > 4096 or len(err) > 4096 or digest(out) != receipt["stdout_sha256"] or
+                digest(err) != receipt["stderr_sha256"]):
+            refuse("v6 identity output differs from its bounded receipt")
+        command_identity = json.loads(out)
+        if index == 0:
+            if command_identity != runtime:
+                refuse("v6 RSP identity differs from its sealed receipt")
+        else:
+            cpu_json = command_identity
+
+    adapter = project_path(ROOT / "build/gate/runner/t64-rsp-diagnostic", "v6 RSP adapter", 512 * 1024 * 1024)
+    core = project_path(ROOT / str(identity.get("path", "")), "v6 CPU identity reader", 512 * 1024 * 1024)
+    adapter_sha = digest(adapter.read_bytes())
+    core_sha = digest(core.read_bytes())
+    adapter_record = object_with_keys(binding["rsp_adapter_identity"],
+                                      {"executable_sha256", "path"}, "v6 adapter identity")
+    if (adapter_record["path"] != adapter.relative_to(ROOT).as_posix() or
+            adapter_sha != adapter_record["executable_sha256"] or
+            core_sha != identity.get("executable_sha256") or
+            hash_record["adapter_path"] != adapter_record["path"] or
+            hash_record["adapter_sha256_before_use"] != adapter_sha or
+            hash_record["core_reader_path"] != identity.get("path") or
+            hash_record["core_reader_sha256_before_use"] != core_sha or
+            hash_record["source_closure_command"] != "passed-before-identity-use" or
+            cpu_json is None or cpu_json.get("core_build_sha256") != runtime.get("core_build_sha256") or
+            cpu_json.get("source_revision") != runtime.get("core_source_revision")):
+        refuse("v6 executable hashes or CPU identity were not bound after source closure")
+    verify_v6_profile_identity(qualification, runtime, cpu_json)
+
+
+def verify_rsp_core_binding_v6(binding: dict[str, object], qualification_sha: str,
+                               build_identity: dict[str, object]) -> dict[str, object]:
+    expected = {
+        "authorized_for_future_guest_use", "binary_archive_path", "component",
+        "core_model", "core_source_scope", "core_state_schema", "current_identity",
+        "guest_execution_performed", "historical_first_use", "host_source_scope",
+        "identity_attempt_dir", "identity_command_receipts", "native_evidence",
+        "original_identity", "preuse_source_closure", "profile_id", "qualified_build_sha256",
+        "qualified_rom_sha256", "qualification_sha256", "reviewed_source_delta",
+        "rsp_adapter_identity", "rsp_runtime_identity", "schema", "status",
+        "supersedes_binding_v4", "verification_scope",
+    }
+    binding = object_with_keys(binding, expected, "current RSP pre-use binding v6")
+    if (binding["schema"] != "t64.rsp-core-identity-binding.v6" or
+            binding["status"] != "preuse-verified-current-core-for-qualified-rsp-image" or
+            binding["component"] != "rsp" or binding["qualification_sha256"] != qualification_sha or
+            binding["profile_id"] != RSP_PROFILE_ID or binding["core_model"] != 6 or
+            binding["core_state_schema"] != 12 or binding["profile_id"] != build_identity.get("profile_id") or
+            binding["core_model"] != build_identity.get("core_model") or
+            binding["core_state_schema"] != build_identity.get("core_state_schema") or
+            binding["guest_execution_performed"] is not False or
+            binding["authorized_for_future_guest_use"] is not True):
+        refuse("current v6 RSP binding does not match the sealed functional profile")
+
+    qualification_path = private_path(ROOT / "build/private-rsp-diagnostic/qualification.json",
+                                      "original RSP qualification")
+    if private_digest(qualification_path, "original RSP qualification") != qualification_sha:
+        refuse("v6 binding changed the original qualification")
+    qualification = read_json(qualification_path)
+    build_path = private_path(ROOT / "build/private-rsp-diagnostic/qualified-build.json",
+                              "original qualified RSP build")
+    qualified_build = read_json(build_path)
+    if (private_digest(build_path, "original qualified RSP build") != binding["qualified_build_sha256"] or
+            qualified_build.get("qualification_sha256") != qualification_sha or
+            qualified_build.get("guest_rom_executed") is not False):
+        refuse("v6 binding changed the original unexecuted composed build")
+    rom_record = qualified_build.get("artifacts", {}).get("rom", {})
+    if rom_record.get("sha256") != binding["qualified_rom_sha256"]:
+        refuse("v6 binding changed the qualified ROM identity")
+    rom_path = private_path(ROOT / str(rom_record.get("path", "")), "original qualified RSP ROM")
+    if private_digest(rom_path, "original qualified RSP ROM") != binding["qualified_rom_sha256"]:
+        refuse("original qualified RSP ROM bytes changed")
+
+    prior_ref = object_with_keys(binding["supersedes_binding_v4"], {"path", "sha256"},
+                                 "historical v4 RSP binding")
+    expected_prior_path = "build/private-rsp-diagnostic/current-core-identity-binding-v4.json"
+    if prior_ref["path"] != expected_prior_path:
+        refuse("v6 binding does not preserve the historical v4 receipt")
+    prior_path = private_path(ROOT / prior_ref["path"], "historical v4 RSP binding")
+    prior_bytes = prior_path.read_bytes()
+    prior = read_json(prior_path)
+    if (digest(prior_bytes) != prior_ref["sha256"] or
+            prior.get("schema") != "t64.rsp-core-identity-binding.v4" or
+            prior.get("qualification_sha256") != qualification_sha or
+            prior.get("original_identity") != binding["original_identity"]):
+        refuse("historical v4 binding is not an intact predecessor")
+
+    identity = object_with_keys(binding["current_identity"], {
+        "core_build_sha256", "executable_sha256", "path", "source_revision",
+    }, "v6 current core identity")
+    if (identity["path"] != "build/gate/runner/t64-cpu-diagnostic" or
+            not isinstance(identity["core_build_sha256"], str) or
+            re.fullmatch(r"[0-9a-f]{64}", identity["core_build_sha256"]) is None or
+            not isinstance(identity["executable_sha256"], str) or
+            re.fullmatch(r"[0-9a-f]{64}", identity["executable_sha256"]) is None or
+            not isinstance(identity["source_revision"], str) or
+            not HEX40.fullmatch(str(identity["source_revision"]))):
+        refuse("v6 current core artifact identity is malformed")
+    core_rows, host_rows = verify_v6_source_scope(binding, prior, identity["source_revision"])
+    verify_v6_native_evidence(binding["native_evidence"])
+    verify_v6_executable_archive(binding, private_path(
+        ROOT / "build/private-rsp-diagnostic/current-core-identity-binding-v6.json",
+        "current v6 binding").read_bytes())
+
+    history = object_with_keys(binding["historical_first_use"], {
+        "adapter_exit", "classification", "historical_files",
+        "original_launcher_failure_preserved", "outcome", "status",
+    }, "preserved historical RSP first use")
+    if (history != prior.get("historical_first_use") or history.get("outcome") != "refused" or
+            history.get("classification") != "refused" or
+            history.get("original_launcher_failure_preserved") is not True):
+        refuse("v6 binding rewrote the historical refusal")
+    for row in history["historical_files"]:
+        row = object_with_keys(row, {"path", "sha256"}, "historical RSP first-use file")
+        path = private_path(ROOT / row["path"], "historical RSP first-use file")
+        if private_digest(path, "historical RSP first-use file") != row["sha256"]:
+            refuse("historical RSP first-use evidence changed")
+
+    runtime = object_with_keys(binding["rsp_runtime_identity"], {
+        "core_build_sha256", "core_source_revision", "profile_descriptor_sha256", "profile_id",
+    }, "v6 RSP runtime identity")
+    if (runtime["core_build_sha256"] != identity["core_build_sha256"] or
+            runtime["core_source_revision"] != identity["source_revision"] or
+            runtime["profile_id"] != RSP_PROFILE_ID or
+            not HEX64.fullmatch(str(runtime["profile_descriptor_sha256"])) or
+            runtime["core_build_sha256"] == build_identity.get("core_build_sha256")):
+        refuse("v6 RSP runtime identity differs from the exact current binding")
+    adapter_record = object_with_keys(binding["rsp_adapter_identity"],
+                                      {"executable_sha256", "path"}, "v6 current RSP adapter")
+    if (adapter_record["path"] != "build/gate/runner/t64-rsp-diagnostic" or
+            not HEX64.fullmatch(str(adapter_record["executable_sha256"]))):
+        refuse("v6 RSP adapter identity is malformed")
+    verify_v6_identity_receipts(binding, qualification, identity, runtime)
+
+    adapter_path = project_path(ROOT / adapter_record["path"], "current v6 RSP adapter", 512 * 1024 * 1024)
+    core_path = project_path(ROOT / identity["path"], "current v6 core identity reader", 512 * 1024 * 1024)
+    if (private_digest(adapter_path, "current v6 RSP adapter") != adapter_record["executable_sha256"] or
+            private_digest(core_path, "current v6 core identity reader") != identity["executable_sha256"]):
+        refuse("current v6 executable bytes differ from the pre-use binding")
+    if private_digest(adapter_path, "v6 adapter before runtime identity") != adapter_record["executable_sha256"]:
+        refuse("current v6 RSP adapter changed before its identity invocation")
+    current_runtime = subprocess.run([str(adapter_path), "--runtime-identity-json"],
+                                     cwd=ROOT, stdin=subprocess.DEVNULL,
+                                     capture_output=True, timeout=10, check=True)
+    if private_digest(core_path, "v6 core reader before runtime identity") != identity["executable_sha256"]:
+        refuse("current v6 core identity reader changed before its identity invocation")
+    current_cpu = subprocess.run([str(core_path), "--compat-v2", "--runtime-identity-json"],
+                                 cwd=ROOT, stdin=subprocess.DEVNULL,
+                                 capture_output=True, timeout=10, check=True)
+    if (len(current_runtime.stdout) > 4096 or len(current_runtime.stderr) > 4096 or
+            len(current_cpu.stdout) > 4096 or len(current_cpu.stderr) > 4096 or
+            json.loads(current_runtime.stdout) != runtime or
+            json.loads(current_cpu.stdout).get("core_build_sha256") != runtime["core_build_sha256"] or
+            json.loads(current_cpu.stdout).get("source_revision") != identity["source_revision"] or
+            private_digest(adapter_path, "current v6 RSP adapter after identity") != adapter_record["executable_sha256"] or
+            private_digest(core_path, "current v6 core after identity") != identity["executable_sha256"]):
+        refuse("current v6 core or adapter identity changed after its source and executable checks")
+    return json.loads(current_runtime.stdout)
 
 
 def verify_v5_adapter_refresh(binding: dict[str, object],
@@ -1212,9 +1704,20 @@ def verify_rebuilt_core_binding(binding_path: pathlib.Path, qualification_sha: s
     return identity_json
 
 
-def verify_current_core_identity(build_identity: dict[str, object], qualification_sha: str) -> None:
+def verify_current_core_identity(build_identity: dict[str, object], qualification_sha: str,
+                                 binding_version: str = "v5") -> None:
     identity_exe = ROOT / "build/gate/runner/t64-cpu-diagnostic"
     current_sha = private_digest(identity_exe, "current core identity executable")
+    if binding_version == "v6":
+        v6_binding = ROOT / "build/private-rsp-diagnostic/current-core-identity-binding-v6.json"
+        if (not v6_binding.is_file() or v6_binding.is_symlink() or
+                stat.S_IMODE(v6_binding.stat().st_mode) != 0o600):
+            refuse("current v6 RSP source binding is missing")
+        verify_rsp_core_binding_v6(read_json(v6_binding), qualification_sha,
+                                   build_identity)
+        return
+    if binding_version != "v5":
+        refuse("unsupported RSP binding version")
     v5_refresh = ROOT / "build/private-rsp-diagnostic/current-core-identity-binding-v5-refresh3.json"
     v5_binding = ROOT / "build/private-rsp-diagnostic/current-core-identity-binding-v5.json"
     v4_binding = ROOT / "build/private-rsp-diagnostic/current-core-identity-binding-v4.json"
@@ -1247,7 +1750,8 @@ def verify_current_core_identity(build_identity: dict[str, object], qualificatio
         refuse("current production core build identity differs from the qualified RSP core")
 
 
-def verify_preuse(path: pathlib.Path, *, verify_current_identity: bool = True) -> None:
+def verify_preuse(path: pathlib.Path, *, verify_current_identity: bool = True,
+                  binding_version: str = "v5") -> None:
     root = ROOT / "build/private-rsp-diagnostic"
     if root.is_symlink() or not root.is_dir() or stat.S_IMODE(root.stat().st_mode) != 0o700:
         refuse("private RSP root is missing or not owner-only")
@@ -1401,7 +1905,8 @@ def verify_preuse(path: pathlib.Path, *, verify_current_identity: bool = True) -
     profile_source = project_path(ROOT / "core/t64_machine.c", "current RSP functional profile source")
     verify_rsp_profile_policy(profile_source.read_text(encoding="utf-8"), build_identity["profile_id"])
     if verify_current_identity:
-        verify_current_core_identity(build_identity, digest(qualification_path.read_bytes()))
+        verify_current_core_identity(build_identity, digest(qualification_path.read_bytes()),
+                                     binding_version)
         print("PASS: independent RSP source, assets, tools, locks, and build identity verified before use")
     else:
         print("PASS: independent RSP source, assets, tools, and locks verified; no identity executable was invoked")
@@ -1447,6 +1952,7 @@ def main() -> int:
     parser.add_argument("--verify-closure-fixture", type=pathlib.Path)
     parser.add_argument("--verify", type=pathlib.Path)
     parser.add_argument("--verify-source-closure", type=pathlib.Path)
+    parser.add_argument("--binding-version", choices=("v5", "v6"), default="v5")
     parser.add_argument("--selftest", action="store_true")
     parser.add_argument("--workspace", type=pathlib.Path)
     args = parser.parse_args()
@@ -1454,9 +1960,10 @@ def main() -> int:
         if args.verify is not None:
             if args.verify_source_closure is not None or args.verify_fixture is not None or args.verify_closure_fixture is not None or args.selftest or args.workspace is not None:
                 refuse("--verify cannot be combined with fixture or selftest options")
-            verify_preuse(args.verify)
+            verify_preuse(args.verify, binding_version=args.binding_version)
         elif args.verify_source_closure is not None:
-            if args.verify_fixture is not None or args.verify_closure_fixture is not None or args.selftest or args.workspace is not None:
+            if (args.verify_fixture is not None or args.verify_closure_fixture is not None or
+                    args.selftest or args.workspace is not None or args.binding_version != "v5"):
                 refuse("--verify-source-closure cannot be combined with fixture or selftest options")
             verify_preuse(args.verify_source_closure, verify_current_identity=False)
         elif args.selftest:

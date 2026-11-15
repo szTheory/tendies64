@@ -510,5 +510,300 @@ class V5AdapterSourceProvenanceControls(unittest.TestCase):
                     self.verifier.verify_v5_adapter_archive_receipt(invalid)
 
 
+class V6SourceAndIdentityControls(unittest.TestCase):
+    def setUp(self) -> None:
+        prepare_spec = importlib.util.spec_from_file_location("rsp_v6_source_producer", PREPARE)
+        verify_spec = importlib.util.spec_from_file_location("rsp_v6_source_verifier", VERIFY)
+        if prepare_spec is None or prepare_spec.loader is None or verify_spec is None or verify_spec.loader is None:
+            raise AssertionError("RSP v6 source controls could not be loaded")
+        self.producer = importlib.util.module_from_spec(prepare_spec)
+        self.verifier = importlib.util.module_from_spec(verify_spec)
+        prepare_spec.loader.exec_module(self.producer)
+        verify_spec.loader.exec_module(self.verifier)
+
+    def test_v6_source_allowlist_and_production_build_policy_are_exact(self) -> None:
+        paths = self.producer.V6_HOST_SOURCE_PATHS
+        self.producer.validate_v6_host_source_paths(paths)
+        self.verifier.verify_v6_host_source_paths(sorted(paths))
+        for unexpected in ("scripts/verify-anything.py", "core/t64_rsp.c"):
+            with self.subTest(unexpected=unexpected):
+                with self.assertRaises(self.producer.Refusal):
+                    self.producer.validate_v6_host_source_paths({*paths, unexpected})
+                with self.assertRaises(self.verifier.Refusal):
+                    self.verifier.verify_v6_host_source_paths({*paths, unexpected})
+        self.producer.validate_v6_no_production_delta([])
+        self.verifier.verify_v6_no_production_delta([])
+        for changed in (["core/authored-core.c"], ["CMakePresets.json"]):
+            with self.subTest(changed=changed):
+                with self.assertRaises(self.producer.Refusal):
+                    self.producer.validate_v6_no_production_delta(changed)
+                with self.assertRaises(self.verifier.Refusal):
+                    self.verifier.verify_v6_no_production_delta(changed)
+
+    def test_v6_profile_identity_rejects_profile_and_build_mutations(self) -> None:
+        profile = "ntsc-cart-4m-openipl3-rsp-functional-v1"
+        qualification = {
+            "component": "rsp",
+            "status": "qualified",
+            "profile_id": profile,
+            "build_identity": {
+                "profile_id": profile,
+                "core_model": 6,
+                "core_state_schema": 12,
+                "core_build_sha256": "f" * 64,
+            },
+        }
+        runtime = {
+            "core_build_sha256": "a" * 64,
+            "core_source_revision": "b" * 40,
+            "profile_descriptor_sha256": "c" * 64,
+            "profile_id": profile,
+        }
+        cpu = {"core_build_sha256": runtime["core_build_sha256"],
+               "source_revision": runtime["core_source_revision"]}
+        self.producer.validate_v6_profile_identity(qualification, runtime, cpu)
+        self.verifier.verify_v6_profile_identity(qualification, runtime, cpu)
+        bad_profile = copy.deepcopy(runtime)
+        bad_profile["profile_id"] = "authored-other-profile"
+        bad_build = copy.deepcopy(cpu)
+        bad_build["core_build_sha256"] = "f" * 64
+        for changed_runtime, changed_cpu in ((bad_profile, cpu), (runtime, bad_build)):
+            with self.subTest(runtime=changed_runtime, cpu=changed_cpu):
+                with self.assertRaises(self.producer.Refusal):
+                    self.producer.validate_v6_profile_identity(
+                        qualification, changed_runtime, changed_cpu)
+                with self.assertRaises(self.verifier.Refusal):
+                    self.verifier.verify_v6_profile_identity(
+                        qualification, changed_runtime, changed_cpu)
+
+    def test_v6_native_proof_requires_exact_passing_test_rows(self) -> None:
+        helper_spec = importlib.util.spec_from_file_location(
+            "rsp_v6_evidence_rows", ROOT / "scripts/check-rsp-evidence.py")
+        if helper_spec is None or helper_spec.loader is None:
+            raise AssertionError("strict native evidence helper could not be loaded")
+        helper = importlib.util.module_from_spec(helper_spec)
+        helper_spec.loader.exec_module(helper)
+        native_required = helper.native_gate_tests(ROOT)
+        _, phase_tests, _ = helper.owned_tables(ROOT)
+        asan_required = (set(phase_tests) | {"runner.cpu-diagnostic-protocol",
+                                            "runner.cpu-diagnostic-inventory",
+                                            "fuzz.rom-admission",
+                                            "sanitizer.negative-control"})
+
+        def ctest_rows(names: set[str]) -> list[str]:
+            return [f"{index}/{len(names)} Test #{index}: {name} ........ Passed"
+                    for index, name in enumerate(sorted(names), start=1)]
+
+        normal_rows = ctest_rows(native_required)
+        asan_rows = ctest_rows(asan_required)
+        normal = (f"test inventory PASS preset=gate count={len(native_required)}\n" +
+                  "\n".join(normal_rows) +
+                  f"\n100% tests passed out of {len(native_required)}\n")
+        asan = "\n".join(asan_rows) + f"\n100% tests passed out of {len(asan_required)}\n"
+        self.assertEqual(self.producer.validate_v6_ctest_proofs(normal, asan),
+                         len(native_required))
+        self.assertEqual(self.verifier.verify_v6_ctest_proofs(normal, asan),
+                         len(native_required))
+
+        marker_only = (f"test inventory PASS preset=gate count={len(native_required)}\n"
+                       f"100% tests passed out of {len(native_required)}\n")
+        failed = normal.replace(" Passed", " Failed", 1)
+        duplicate = normal.replace(
+            f"100% tests passed out of {len(native_required)}",
+            f"100% tests passed out of {len(native_required) + 1}")
+        duplicate += normal_rows[0] + "\n"
+        unknown = ("\n".join(asan_rows + [
+            f"{len(asan_required) + 1}/{len(asan_required) + 1} Test #999: unit.invented.row .... Passed"
+        ]) + f"\n100% tests passed out of {len(asan_required) + 1}\n")
+        for bad_normal, bad_asan in (
+                (marker_only, asan), (failed, asan), (duplicate, asan), (normal, unknown)):
+            with self.subTest(normal=bad_normal[-80:], asan=bad_asan[-80:]):
+                with self.assertRaises(self.producer.Refusal):
+                    self.producer.validate_v6_ctest_proofs(bad_normal, bad_asan)
+                with self.assertRaises(self.verifier.Refusal):
+                    self.verifier.verify_v6_ctest_proofs(bad_normal, bad_asan)
+
+    def test_v6_accepted_receipts_reach_current_binding_after_closure(self) -> None:
+        owner_only_directory(TEST_ROOT)
+        temporary = tempfile.TemporaryDirectory(prefix="v6-receipts.", dir=TEST_ROOT)
+        self.addCleanup(temporary.cleanup)
+        workspace = pathlib.Path(temporary.name)
+        workspace.chmod(0o700)
+        private = workspace / "build/private-rsp-diagnostic"
+        attempt = private / "plan10-current-binding-v6-authored"
+        owner_only_directory(attempt)
+        binary_root = workspace / "build/gate/runner"
+        binary_root.mkdir(mode=0o700, parents=True)
+        adapter = binary_root / "t64-rsp-diagnostic"
+        core = binary_root / "t64-cpu-diagnostic"
+        adapter.write_bytes(b"authored v6 RSP adapter")
+        core.write_bytes(b"authored v6 CPU reader")
+        adapter.chmod(0o700)
+        core.chmod(0o700)
+
+        profile = "ntsc-cart-4m-openipl3-rsp-functional-v1"
+        qualification = {
+            "component": "rsp",
+            "status": "qualified",
+            "profile_id": profile,
+            "closure": {"sha256": "d" * 64},
+            "build_identity": {
+                "profile_id": profile,
+                "core_model": 6,
+                "core_state_schema": 12,
+                "core_build_sha256": "f" * 64,
+            },
+        }
+        runtime = {
+            "core_build_sha256": "a" * 64,
+            "core_source_revision": "b" * 40,
+            "profile_descriptor_sha256": "c" * 64,
+            "profile_id": profile,
+        }
+        cpu_identity = {"core_build_sha256": runtime["core_build_sha256"],
+                        "source_revision": runtime["core_source_revision"]}
+        closure_stdout = b"PASS: independent RSP source, assets, tools, and locks verified\n"
+        closure_stderr = b""
+        (attempt / "source-closure.stdout.log").write_bytes(closure_stdout)
+        (attempt / "source-closure.stderr.log").write_bytes(closure_stderr)
+        closure_command = {
+            "argv": ["python3", "-B", "scripts/verify-rsp-diagnostic-qualification.py",
+                     "--verify-source-closure", "build/private-rsp-diagnostic/qualification.json"],
+            "exit": 0,
+            "source_closure_sha256": qualification["closure"]["sha256"],
+            "stdout_path": (attempt / "source-closure.stdout.log").relative_to(workspace).as_posix(),
+            "stdout_sha256": hashlib.sha256(closure_stdout).hexdigest(),
+            "stderr_path": (attempt / "source-closure.stderr.log").relative_to(workspace).as_posix(),
+            "stderr_sha256": hashlib.sha256(closure_stderr).hexdigest(),
+        }
+        closure_path = attempt / "source-closure-command.json"
+        closure_path.write_bytes(canonical(closure_command))
+        (attempt / "identity-executable-hashes.json").write_bytes(canonical({
+            "adapter_path": "build/gate/runner/t64-rsp-diagnostic",
+            "adapter_sha256_before_use": hashlib.sha256(adapter.read_bytes()).hexdigest(),
+            "core_reader_path": "build/gate/runner/t64-cpu-diagnostic",
+            "core_reader_sha256_before_use": hashlib.sha256(core.read_bytes()).hexdigest(),
+            "source_closure_command": "passed-before-identity-use",
+        }))
+        receipts = []
+        for label, executable, arguments, output in (
+                ("rsp-runtime-identity", adapter, ["--runtime-identity-json"], canonical(runtime)),
+                ("cpu-runtime-identity", core,
+                 ["--compat-v2", "--runtime-identity-json"], canonical(cpu_identity))):
+            stdout_name, stderr_name = f"{label}.stdout.log", f"{label}.stderr.log"
+            (attempt / stdout_name).write_bytes(output)
+            (attempt / stderr_name).write_bytes(b"")
+            receipts.append({
+                "argv": [str(executable), *arguments],
+                "deadline_seconds": 10,
+                "elapsed_seconds": 0.001,
+                "exit": 0,
+                "process_group_empty": True,
+                "stderr": stderr_name,
+                "stderr_sha256": hashlib.sha256(b"").hexdigest(),
+                "stdout": stdout_name,
+                "stdout_sha256": hashlib.sha256(output).hexdigest(),
+                "timed_out": False,
+            })
+        binding = {
+            "identity_attempt_dir": attempt.relative_to(workspace).as_posix(),
+            "preuse_source_closure": {
+                "path": closure_path.relative_to(workspace).as_posix(),
+                "sha256": hashlib.sha256(closure_path.read_bytes()).hexdigest(),
+            },
+            "identity_command_receipts": receipts,
+            "rsp_adapter_identity": {
+                "path": "build/gate/runner/t64-rsp-diagnostic",
+                "executable_sha256": hashlib.sha256(adapter.read_bytes()).hexdigest(),
+            },
+            "current_identity": {
+                "path": "build/gate/runner/t64-cpu-diagnostic",
+                "executable_sha256": hashlib.sha256(core.read_bytes()).hexdigest(),
+                "core_build_sha256": runtime["core_build_sha256"],
+                "source_revision": runtime["core_source_revision"],
+            },
+            "rsp_runtime_identity": runtime,
+        }
+        for path in attempt.iterdir():
+            path.chmod(0o600)
+        with patch.object(self.verifier, "ROOT", workspace):
+            self.verifier.verify_v6_identity_receipts(
+                binding, qualification, binding["current_identity"], runtime)
+            self.verifier.verify_v6_profile_identity(qualification, runtime, cpu_identity)
+            bad_profile = copy.deepcopy(runtime)
+            bad_profile["profile_id"] = "authored-other-profile"
+            with self.assertRaises(self.verifier.Refusal):
+                self.verifier.verify_v6_profile_identity(qualification, bad_profile, cpu_identity)
+            bad_source = copy.deepcopy(binding)
+            bad_source["identity_attempt_dir"] = "build/private-rsp-diagnostic/other-attempt"
+            with self.assertRaises(self.verifier.Refusal):
+                self.verifier.verify_v6_identity_receipts(
+                    bad_source, qualification, binding["current_identity"], runtime)
+            adapter.write_bytes(b"mutated authored v6 adapter")
+            with self.assertRaises(self.verifier.Refusal):
+                self.verifier.verify_v6_identity_receipts(
+                    binding, qualification, binding["current_identity"], runtime)
+
+    def test_v6_closure_failure_precedes_any_identity_invocation(self) -> None:
+        temporary = tempfile.TemporaryDirectory(prefix="v6-closure-order.", dir=TEST_ROOT)
+        self.addCleanup(temporary.cleanup)
+        workspace = pathlib.Path(temporary.name)
+        workspace.chmod(0o700)
+        private = workspace / "build/private-rsp-diagnostic"
+        owner_only_directory(private)
+        qualification = {
+            "schema": "t64.rsp-qualification.v1",
+            "status": "qualified",
+            "component": "rsp",
+            "profile_id": "ntsc-cart-4m-openipl3-rsp-functional-v1",
+            "closure": {"sha256": "a" * 64},
+        }
+        qualification_path = private / "qualification.json"
+        qualification_path.write_bytes(canonical(qualification))
+        qualification_path.chmod(0o600)
+        fake = type("CommandResult", (), {"returncode": 1, "stdout": b"refused", "stderr": b""})()
+        with patch.object(self.producer, "ROOT", workspace), \
+                patch.object(self.producer.subprocess, "run", return_value=fake) as run:
+            with self.assertRaisesRegex(self.producer.Refusal, "closure did not pass"):
+                self.producer.bind_current_rsp_preuse_v6()
+        self.assertEqual(run.call_count, 1)
+        self.assertIn("--verify-source-closure", run.call_args.args[0])
+
+    def test_v6_fixed_outputs_refuse_collisions(self) -> None:
+        temporary = tempfile.TemporaryDirectory(prefix="v6-collision.", dir=TEST_ROOT)
+        self.addCleanup(temporary.cleanup)
+        workspace = pathlib.Path(temporary.name)
+        workspace.chmod(0o700)
+        private = workspace / "build/private-rsp-diagnostic"
+        owner_only_directory(private)
+        with patch.object(self.producer, "ROOT", workspace):
+            archive = workspace / self.producer.V6_ARCHIVE_RELATIVE
+            archive.mkdir(mode=0o700, parents=True)
+            with self.assertRaises(self.producer.Refusal):
+                self.producer.ensure_v6_outputs_available(private)
+            archive.rmdir()
+            (private / "current-core-identity-binding-v6.json").write_bytes(b"occupied")
+            with self.assertRaises(self.producer.Refusal):
+                self.producer.ensure_v6_outputs_available(private)
+        receipt = {
+            "adapter_path": (self.producer.V6_ARCHIVE_RELATIVE / "adapter.bin").as_posix(),
+            "adapter_sha256": "a" * 64,
+            "binding_path": (self.producer.V6_ARCHIVE_RELATIVE / "identity-binding.json").as_posix(),
+            "binding_sha256": "b" * 64,
+            "core_reader_path": (self.producer.V6_ARCHIVE_RELATIVE / "core-reader.bin").as_posix(),
+            "core_reader_sha256": "c" * 64,
+            "schema": "t64.rsp-plan10-v6-executable-archive.v1",
+        }
+        self.producer.validate_v6_executable_archive_receipt(receipt)
+        for invalid in (
+            dict(receipt, schema="t64.rsp-plan10-v5-executable-archive.v1"),
+            dict(receipt, adapter_path="build/private-rsp-diagnostic/other.bin"),
+            dict(receipt, core_reader_sha256="bad"),
+        ):
+            with self.subTest(invalid=invalid):
+                with self.assertRaises(self.producer.Refusal):
+                    self.producer.validate_v6_executable_archive_receipt(invalid)
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)

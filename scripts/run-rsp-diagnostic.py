@@ -22,6 +22,7 @@ ROOT = pathlib.Path(__file__).resolve().parents[1]
 PRIVATE = ROOT / "build/private-rsp-diagnostic"
 PROFILE_ID = "ntsc-cart-4m-openipl3-rsp-functional-v1"
 CORE_BINDING = PRIVATE / "current-core-identity-binding-v5-refresh3.json"
+V6_CORE_BINDING = PRIVATE / "current-core-identity-binding-v6.json"
 FUTURE_EXECUTION_CONTEXT = PRIVATE / "current-rsp-future-execution-context-v1.json"
 INVENTORY_LIMIT = 1_048_576
 ROM_LIMIT = 0x00401000
@@ -397,34 +398,46 @@ def verify_future_execution_context(adapter: pathlib.Path,
     del context_bytes
 
 
-def verify_current_preuse_context(adapter: pathlib.Path, runtime: dict | None) -> None:
-    binding, binding_bytes = read_json_file(CORE_BINDING, 2 * 1024 * 1024,
+def selected_core_binding(binding_version: str) -> pathlib.Path:
+    if binding_version == "v5":
+        return CORE_BINDING
+    if binding_version == "v6":
+        return V6_CORE_BINDING
+    fail("unsupported RSP binding version")
+
+
+def verify_current_preuse_context(adapter: pathlib.Path, runtime: dict | None,
+                                  binding_version: str = "v5") -> None:
+    binding_path = selected_core_binding(binding_version)
+    binding, binding_bytes = read_json_file(binding_path, 2 * 1024 * 1024,
                                             "current core identity binding",
                                             private_root=PRIVATE)
-    if (binding.get("schema") != "t64.rsp-core-identity-binding.v5" or
+    expected_schema = ("t64.rsp-core-identity-binding.v5" if binding_version == "v5"
+                       else "t64.rsp-core-identity-binding.v6")
+    if (binding.get("schema") != expected_schema or
             binding.get("status") != "preuse-verified-current-core-for-qualified-rsp-image" or
             binding.get("component") != "rsp" or
             binding.get("guest_execution_performed") is not False or
             binding.get("authorized_for_future_guest_use") is not True):
-        fail("a verified current v5 RSP pre-use binding is required before execution")
+        fail(f"a verified current {binding_version} RSP pre-use binding is required before execution")
     qualification, qualification_bytes = read_json_file(
         PRIVATE / "qualification.json", 1_048_576,
         "RSP qualification receipt", private_root=PRIVATE)
     if binding.get("qualification_sha256") != digest(qualification_bytes):
-        fail("current v5 core binding does not descend from this RSP qualification")
+        fail(f"current {binding_version} core binding does not descend from this RSP qualification")
     current = binding["current_identity"]
     current = closed_object(current, {
         "core_build_sha256", "executable_sha256", "path", "source_revision",
-    }, "current v5 production core identity")
+    }, f"current {binding_version} production core identity")
     if (current["path"] != "build/gate/runner/t64-cpu-diagnostic" or
             adapter_hash(ROOT / current["path"]) != current["executable_sha256"]):
-        fail("current production identity reader differs from the verified v5 binding")
+        fail(f"current production identity reader differs from the verified {binding_version} binding")
     adapter_record = closed_object(binding.get("rsp_adapter_identity"),
                                    {"executable_sha256", "path"},
                                    "current RSP adapter identity")
     if (adapter_record["path"] != adapter.relative_to(ROOT).as_posix() or
             adapter_record["executable_sha256"] != adapter_hash(adapter)):
-        fail("current RSP adapter bytes differ from the verified v5 binding")
+        fail(f"current RSP adapter bytes differ from the verified {binding_version} binding")
     if runtime is None:
         return
     runtime = closed_object(runtime, {
@@ -436,30 +449,36 @@ def verify_current_preuse_context(adapter: pathlib.Path, runtime: dict | None) -
             runtime["core_build_sha256"] != current["core_build_sha256"] or
             runtime["core_source_revision"] != current["source_revision"] or
             not HEX64.fullmatch(runtime["profile_descriptor_sha256"])):
-        fail("current RSP adapter runtime identity differs from the verified v5 binding")
+        fail(f"current RSP adapter runtime identity differs from the verified {binding_version} binding")
     del binding_bytes, qualification
 
 
-def verify_before_adapter_use(adapter: pathlib.Path) -> tuple[bytes, bytes]:
+def verify_before_adapter_use(adapter: pathlib.Path,
+                              binding_version: str = "v5") -> tuple[bytes, bytes]:
     code, stdout, stderr = run_capture(
         [sys.executable, "-B", "scripts/verify-rsp-diagnostic-qualification.py",
-         "--verify", "build/private-rsp-diagnostic/qualification.json"],
+         "--verify", "build/private-rsp-diagnostic/qualification.json",
+         "--binding-version", binding_version],
         timeout=120.0, maximum=65_536)
     if code != 0:
         fail("fresh RSP pre-use verification refused before adapter use")
-    verify_current_preuse_context(adapter, None)
+    verify_current_preuse_context(adapter, None, binding_version)
     return stdout, stderr
 
 
 def verify_runtime_binding(adapter: pathlib.Path, runtime: dict,
-                           run_dir: pathlib.Path) -> dict:
-    binding, binding_bytes = read_json_file(CORE_BINDING, 2 * 1024 * 1024,
+                           run_dir: pathlib.Path,
+                           binding_version: str = "v5") -> dict:
+    binding_path = selected_core_binding(binding_version)
+    binding, binding_bytes = read_json_file(binding_path, 2 * 1024 * 1024,
                                             "current core identity binding",
                                             private_root=PRIVATE)
     qualification, qualification_bytes = read_json_file(
         PRIVATE / "qualification.json", 1_048_576,
         "RSP qualification receipt", private_root=PRIVATE)
-    if (binding.get("schema") != "t64.rsp-core-identity-binding.v5" or
+    expected_schema = ("t64.rsp-core-identity-binding.v5" if binding_version == "v5"
+                       else "t64.rsp-core-identity-binding.v6")
+    if (binding.get("schema") != expected_schema or
             binding.get("status") != "preuse-verified-current-core-for-qualified-rsp-image" or
             binding.get("component") != "rsp" or
             binding.get("qualification_sha256") != digest(qualification_bytes) or
@@ -469,33 +488,38 @@ def verify_runtime_binding(adapter: pathlib.Path, runtime: dict,
             qualification.get("profile_id") != PROFILE_ID or
             binding.get("guest_execution_performed") is not False or
             binding.get("authorized_for_future_guest_use") is not True):
-        fail("current v5 RSP pre-use binding does not match the sealed qualification")
+        fail(f"current {binding_version} RSP pre-use binding does not match the sealed qualification")
     runtime = closed_object(runtime, {
         "core_build_sha256", "core_source_revision",
         "profile_descriptor_sha256", "profile_id",
     }, "RSP adapter runtime identity")
     if runtime != binding.get("rsp_runtime_identity"):
-        fail("RSP runtime identity differs from the verified v5 execution binding")
+        fail(f"RSP runtime identity differs from the verified {binding_version} execution binding")
     adapter_record = closed_object(binding.get("rsp_adapter_identity"),
                                    {"executable_sha256", "path"},
                                    "current RSP adapter identity")
     if (adapter_record["path"] != adapter.relative_to(ROOT).as_posix() or
             adapter_record["executable_sha256"] != adapter_hash(adapter)):
-        fail("current RSP adapter bytes differ from the v5 execution binding")
+        fail(f"current RSP adapter bytes differ from the {binding_version} execution binding")
 
     identity_path = run_dir / "runtime-adapter-binding.json"
     record = {
         "adapter_path": adapter.relative_to(ROOT).as_posix(),
         "adapter_sha256": adapter_hash(adapter),
-        "core_binding_path": CORE_BINDING.relative_to(ROOT).as_posix(),
+        "core_binding_path": binding_path.relative_to(ROOT).as_posix(),
         "core_binding_sha256": digest(binding_bytes),
         "core_build_sha256": runtime["core_build_sha256"],
         "core_source_revision": runtime["core_source_revision"],
         "profile_descriptor_sha256": runtime["profile_descriptor_sha256"],
         "profile_id": PROFILE_ID,
-        "schema": "t64.rsp-current-execution-binding.v3",
+        "schema": ("t64.rsp-current-execution-binding.v3" if binding_version == "v5"
+                   else "t64.rsp-current-execution-binding.v4"),
         "source_baseline_revision": binding["reviewed_source_delta"]["baseline_revision"],
-        "tested_source_revision": binding["reviewed_source_delta"]["tested_source_revision"],
+        "tested_source_revision": binding["reviewed_source_delta"].get(
+            "tested_source_revision",
+            binding["reviewed_source_delta"].get("core_tested_revision")),
+        **({"host_source_revision": binding["reviewed_source_delta"]["host_source_revision"]}
+           if binding_version == "v6" else {}),
         "status": "verified-current-rsp-execution-adapter",
     }
     if not identity_path.exists():
@@ -811,14 +835,15 @@ def invoke_adapter(adapter: pathlib.Path, *args: str) -> tuple[int, bytes, bytes
 
 
 def run_mode(mode: str, adapter_arg: pathlib.Path,
-             run_dir_arg: pathlib.Path) -> int:
+             run_dir_arg: pathlib.Path,
+             binding_version: str = "v5") -> int:
     if os.environ.get("CI", "").lower() in {"true", "1"} or os.environ.get("T64_REQUIRE_FIXTURES") == "1":
         fail("RSP guest execution is local-only")
     adapter = adapter_path(adapter_arg)
     run_dir = private_directory(run_dir_arg, create=True)
     batch_dir = private_directory(run_dir / "batches", create=True)
 
-    qual_stdout, qual_stderr = verify_before_adapter_use(adapter)
+    qual_stdout, qual_stderr = verify_before_adapter_use(adapter, binding_version)
     if mode == "verify-complete":
         # Validate existing immutable records, without recreating their inputs.
         inventory_path = run_dir / "rsp-inventory.json"
@@ -834,16 +859,30 @@ def run_mode(mode: str, adapter_arg: pathlib.Path,
     write_new(run_dir / "preuse.stdout.log", qual_stdout)
     write_new(run_dir / "preuse.stderr.log", qual_stderr)
 
+    verify_current_preuse_context(adapter, None, binding_version)
+    adapter_sha_before_identity = adapter_hash(adapter)
+    current_binding, _ = read_json_file(
+        selected_core_binding(binding_version), 2 * 1024 * 1024,
+        "current core identity binding", private_root=PRIVATE)
+    bound_adapter = closed_object(current_binding.get("rsp_adapter_identity"),
+                                  {"executable_sha256", "path"},
+                                  "bound RSP adapter identity")
+    if (bound_adapter["path"] != adapter.relative_to(ROOT).as_posix() or
+            bound_adapter["executable_sha256"] != adapter_sha_before_identity):
+        fail("RSP adapter bytes differ from the qualified identity before invocation")
     code, identity_stdout, identity_stderr = run_capture(
         [str(adapter), "--runtime-identity-json"], timeout=10.0, maximum=4096)
+    if adapter_hash(adapter) != adapter_sha_before_identity:
+        fail("RSP adapter bytes changed during its runtime identity invocation")
     write_new(run_dir / "runtime-identity.stdout.json", identity_stdout)
     write_new(run_dir / "runtime-identity.stderr.log", identity_stderr)
     if code != 0:
         fail("RSP adapter runtime identity refused before any guest use")
     runtime = parse_json(identity_stdout, "RSP runtime identity")
     qualification, projection, build, base_rom, rom_path = verify_preuse(run_dir)
-    verify_current_preuse_context(adapter, runtime)
-    execution_binding = verify_runtime_binding(adapter, runtime, run_dir)
+    verify_current_preuse_context(adapter, runtime, binding_version)
+    execution_binding = verify_runtime_binding(adapter, runtime, run_dir,
+                                               binding_version)
     write_json(run_dir / "execution-binding.json", execution_binding)
     inventory, inventory_bytes = build_inventory(qualification, projection,
                                                  build, base_rom, runtime)
@@ -914,18 +953,29 @@ def main() -> int:
     parser.add_argument("--adapter", type=pathlib.Path,
                         default=ROOT / "build/gate/runner/t64-rsp-diagnostic")
     parser.add_argument("--run-dir", type=pathlib.Path)
+    parser.add_argument("--binding-version", choices=("v5", "v6"), default="v5")
     args = parser.parse_args()
     try:
         if args.verify_current_context:
             adapter = adapter_path(args.adapter)
-            verify_before_adapter_use(adapter)
+            verify_before_adapter_use(adapter, args.binding_version)
+            verify_current_preuse_context(adapter, None, args.binding_version)
+            binding, _ = read_json_file(
+                selected_core_binding(args.binding_version), 2 * 1024 * 1024,
+                "current core identity binding", private_root=PRIVATE)
+            bound_adapter = closed_object(binding.get("rsp_adapter_identity"),
+                                          {"executable_sha256", "path"},
+                                          "bound RSP adapter identity")
+            if (bound_adapter["path"] != adapter.relative_to(ROOT).as_posix() or
+                    bound_adapter["executable_sha256"] != adapter_hash(adapter)):
+                fail("RSP adapter bytes differ from the qualified identity before invocation")
             code, stdout, stderr = run_capture(
                 [str(adapter), "--runtime-identity-json"], timeout=10.0,
                 maximum=4096)
             if code != 0:
                 fail("current RSP adapter refused future-context identity inspection")
             runtime = parse_json(stdout, "post-fix RSP runtime identity")
-            verify_current_preuse_context(adapter, runtime)
+            verify_current_preuse_context(adapter, runtime, args.binding_version)
             private_directory(PRIVATE)
             preflight = private_directory(args.run_dir, create=True) if args.run_dir is not None else pathlib.Path(tempfile.mkdtemp(prefix="current-preuse-v4-", dir=PRIVATE))
             qualification, projection, build, base_rom, _ = verify_preuse(
@@ -947,7 +997,7 @@ def main() -> int:
         if args.run_dir is None:
             fail("--run-dir is required for run-one, run-all, and verify-complete")
         mode = "run-one" if args.run_one else "run-all" if args.run_all else "verify-complete"
-        return run_mode(mode, args.adapter, args.run_dir)
+        return run_mode(mode, args.adapter, args.run_dir, args.binding_version)
     except (OSError, Refusal, subprocess.SubprocessError, ValueError, KeyError,
             TypeError, OverflowError) as error:
         print(f"refused: {error}", file=sys.stderr)

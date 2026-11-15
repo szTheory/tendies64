@@ -336,6 +336,111 @@ class RspRunControls(unittest.TestCase):
         self.assertTrue((run_dir / "complete-verification.stdout.log").is_file())
         self.assertFalse((private / "plan04" / "runtime-adapter-binding.json").exists())
 
+    def test_v6_run_all_and_verify_complete_reach_simulated_member_dispatch(self) -> None:
+        root = self.workspace
+        adapter = root / "build/gate/runner/t64-rsp-diagnostic"
+        core = root / "build/gate/runner/t64-cpu-diagnostic"
+        adapter.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
+        adapter.write_bytes(b"authored v6 RSP adapter")
+        adapter.chmod(0o700)
+        core.write_bytes(b"authored v6 CPU reader")
+        core.chmod(0o700)
+        profile_id = "ntsc-cart-4m-openipl3-rsp-functional-v1"
+        runtime = {
+            "core_build_sha256": "a" * 64,
+            "core_source_revision": "b" * 40,
+            "profile_descriptor_sha256": "c" * 64,
+            "profile_id": profile_id,
+        }
+        qualification = {"profile_id": profile_id}
+        qualification_bytes = json.dumps(qualification, sort_keys=True).encode()
+        qualification_path = root / "qualification.json"
+        qualification_path.write_bytes(qualification_bytes)
+        qualification_path.chmod(0o600)
+        binding = {
+            "authorized_for_future_guest_use": True,
+            "component": "rsp",
+            "core_model": 6,
+            "core_state_schema": 12,
+            "current_identity": {
+                "core_build_sha256": runtime["core_build_sha256"],
+                "executable_sha256": hashlib.sha256(core.read_bytes()).hexdigest(),
+                "path": "build/gate/runner/t64-cpu-diagnostic",
+                "source_revision": runtime["core_source_revision"],
+            },
+            "guest_execution_performed": False,
+            "profile_id": profile_id,
+            "qualification_sha256": hashlib.sha256(qualification_bytes).hexdigest(),
+            "reviewed_source_delta": {
+                "baseline_revision": "d" * 40,
+                "core_tested_revision": "e" * 40,
+                "host_source_revision": "f" * 40,
+            },
+            "rsp_adapter_identity": {
+                "executable_sha256": hashlib.sha256(adapter.read_bytes()).hexdigest(),
+                "path": "build/gate/runner/t64-rsp-diagnostic",
+            },
+            "rsp_runtime_identity": runtime,
+            "schema": "t64.rsp-core-identity-binding.v6",
+            "status": "preuse-verified-current-core-for-qualified-rsp-image",
+        }
+        binding_path = root / "current-core-identity-binding-v6.json"
+        binding_path.write_text(json.dumps(binding, sort_keys=True), encoding="utf-8")
+        binding_path.chmod(0o600)
+        inventory = {"component": "rsp", "members": [sample_member()]}
+        build = {"composition": {"layout": {"selector_rom_offset": 0}}}
+        canonical_runtime = json.dumps(runtime, sort_keys=True, separators=(",", ":")).encode()
+        canonical_inventory = json.dumps(inventory, sort_keys=True, separators=(",", ":")).encode()
+        run_dir = root / "run-all-v6"
+        adapter_results = []
+        capture_commands = []
+
+        def capture_preuse(command, **_kwargs):
+            capture_commands.append(command)
+            if command[0] == sys.executable:
+                return 0, b"authored closure verified", b""
+            return 0, canonical_runtime, b""
+
+        with patch.dict(os.environ, {}, clear=True), \
+                patch.object(self.module, "ROOT", root), \
+                patch.object(self.module, "PRIVATE", root), \
+                patch.object(self.module, "V6_CORE_BINDING", binding_path), \
+                patch.object(self.module, "PROFILE_ID", profile_id), \
+                patch.object(self.module, "adapter_path", return_value=adapter), \
+                patch.object(self.module, "run_capture", side_effect=capture_preuse), \
+                patch.object(self.module, "verify_preuse", return_value=(qualification, {}, build, b"authored-rom", root / "authored-rom")), \
+                patch.object(self.module, "build_inventory", return_value=(inventory, canonical_inventory)), \
+                patch.object(self.module, "inventory_members", return_value=[sample_member()]), \
+                patch.object(self.module, "write_selector_rom", return_value=root / "selected-authored-rom"), \
+                patch.object(self.module, "run_guest", return_value={"classification": "executed", "selector": sample_member()["selector"]}) as run_guest, \
+                patch.object(self.module, "invoke_adapter", side_effect=lambda _adapter, *args: (adapter_results.append(args[0]) or (0, b"authored validation ok", b""))) as invoke:
+            result = self.module.run_mode("run-all", adapter, run_dir, "v6")
+            verify_result = self.module.run_mode("verify-complete", adapter, run_dir, "v6")
+
+        self.assertEqual(result, 0)
+        self.assertEqual(verify_result, 0)
+        self.assertEqual(len(capture_commands), 3)
+        self.assertTrue(all(command[-2:] == ["--binding-version", "v6"]
+                            for command in capture_commands if command[0] == sys.executable))
+        run_guest.assert_called_once()
+        self.assertIn("--validate-inventory", adapter_results)
+        self.assertIn("--validate-batch-json", adapter_results)
+        self.assertEqual(adapter_results.count("--verify-complete-json"), 2)
+        self.assertEqual(invoke.call_count, 4)
+        execution = json.loads((run_dir / "execution-binding.json").read_text(encoding="utf-8"))
+        self.assertEqual(execution["schema"], "t64.rsp-current-execution-binding.v4")
+        self.assertEqual(execution["core_binding_path"], "current-core-identity-binding-v6.json")
+        self.assertTrue(any(path.name.startswith("verification-") for path in run_dir.iterdir()))
+        bad_binding = dict(binding, schema="t64.rsp-core-identity-binding.v5")
+        binding_path.write_text(json.dumps(bad_binding, sort_keys=True), encoding="utf-8")
+        with patch.object(self.module, "ROOT", root), \
+                patch.object(self.module, "PRIVATE", root), \
+                patch.object(self.module, "V6_CORE_BINDING", binding_path), \
+                patch.object(self.module, "PROFILE_ID", profile_id), \
+                patch.object(self.module, "adapter_hash", side_effect=lambda path: hashlib.sha256(path.read_bytes()).hexdigest()):
+            with self.assertRaisesRegex(self.module.Refusal, "v6 RSP pre-use binding"):
+                self.module.verify_current_preuse_context(adapter, None, "v6")
+
     def test_guest_execution_refuses_fixture_mode_before_adapter_use(self) -> None:
         with patch.dict(os.environ, {"CI": "true", "T64_REQUIRE_FIXTURES": "1"}):
             with self.assertRaisesRegex(self.module.Refusal, "local-only"):

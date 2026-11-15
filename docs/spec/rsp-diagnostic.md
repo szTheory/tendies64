@@ -32,6 +32,17 @@ source/tool/asset/lock closure before invoking either read-only identity
 command. The receipt authorizes only bounded local classification; it does not
 convert earlier failures into passes or make a hardware-accuracy claim.
 
+The additive v6 binding preserves the v4/v5 records and default commands. It
+pins the reviewed production baseline independently from the current Git
+provenance annotation, refuses changes to core/build policy, and permits only
+the explicitly enumerated qualification/runner scripts and their authored
+tests to differ. Unchanged accepted source, tools, dependencies and composed
+images are rechecked and reused. This does not authorize reacquisition or a
+new guest build. Source closure precedes read-only identity queries, and
+executable hashes are checked before each query. A fresh exclusive archive
+retains the exact CPU identity reader, RSP adapter and matching binding before
+execution. Existing immutable records are never overwritten.
+
 ## Asset and rights boundary
 
 The default selected RSP modules are checked independently from the CPU

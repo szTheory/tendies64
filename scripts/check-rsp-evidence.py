@@ -10,6 +10,7 @@ import pathlib
 import re
 import selectors
 import shutil
+import signal
 import stat
 import subprocess
 import sys
@@ -249,6 +250,114 @@ def runtime_identity(root: pathlib.Path, binary_relative: str) -> dict:
     return identity
 
 
+def _projection_member_keys(projection: dict) -> frozenset[tuple[int, int, str]]:
+    registrations = projection.get("registrations")
+    if not isinstance(registrations, list) or not registrations or len(registrations) > MAX_PRIVATE_MEMBERS:
+        refuse()
+    keys: set[tuple[int, int, str]] = set()
+    for registration in registrations:
+        if not isinstance(registration, dict):
+            refuse()
+        registration_index = registration.get("index")
+        values = registration.get("values")
+        if (type(registration_index) is not int or not 0 <= registration_index <= 0xffff
+                or not isinstance(values, list) or not values):
+            refuse()
+        for value in values:
+            if not isinstance(value, dict):
+                refuse()
+            value_index, selector = value.get("index"), value.get("selector")
+            if (type(value_index) is not int or not 0 <= value_index <= 0xffff
+                    or not isinstance(selector, str) or len(selector) > 32):
+                refuse()
+            key = (registration_index, value_index, selector)
+            if key in keys:
+                refuse()
+            keys.add(key)
+            if len(keys) > MAX_PRIVATE_MEMBERS:
+                refuse()
+    return frozenset(keys)
+
+
+def bounded_source_closure_run(project_root: pathlib.Path) -> tuple[int, bytes, bytes]:
+    script = project_root / "scripts/verify-rsp-diagnostic-qualification.py"
+    if script.is_symlink() or not script.is_file():
+        refuse()
+    checked_read(script, MAX_PRIVATE_JSON, root=project_root)
+    stdout = bytearray()
+    stderr = bytearray()
+    try:
+        process = subprocess.Popen(
+            [sys.executable, "-B", str(script), "--verify-source-closure",
+             "build/private-rsp-diagnostic/qualification.json"],
+            cwd=project_root, env={"PATH": "/usr/bin:/bin", "LC_ALL": "C", "LANG": "C",
+                                  "PYTHONDONTWRITEBYTECODE": "1"},
+            stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+            start_new_session=True,
+        )
+        assert process.stdout is not None and process.stderr is not None
+        streams = {process.stdout: stdout, process.stderr: stderr}
+        selector = selectors.DefaultSelector()
+        for stream in streams:
+            os.set_blocking(stream.fileno(), False)
+            selector.register(stream, selectors.EVENT_READ)
+        deadline = time.monotonic() + 30
+        while selector.get_map() or process.poll() is None:
+            if time.monotonic() >= deadline:
+                os.killpg(process.pid, signal.SIGKILL)
+                process.wait(timeout=1)
+                refuse()
+            for key, _ in selector.select(0.05):
+                try:
+                    block = os.read(key.fd, 4096)
+                except BlockingIOError:
+                    continue
+                if not block:
+                    selector.unregister(key.fileobj)
+                    continue
+                target = streams[key.fileobj]
+                if len(stdout) + len(stderr) + len(block) > 65536:
+                    os.killpg(process.pid, signal.SIGKILL)
+                    process.wait(timeout=1)
+                    refuse()
+                target.extend(block)
+        return process.wait(timeout=1), bytes(stdout), bytes(stderr)
+    except (OSError, subprocess.SubprocessError):
+        refuse()
+
+
+def verified_source_membership(project_root: pathlib.Path) -> tuple[str, frozenset[tuple[int, int, str]]]:
+    """Run the existing pinned-source closure verifier, then read its verified projection."""
+    status, stdout, stderr = bounded_source_closure_run(project_root)
+    expected_stdout = (
+        b"PASS: independent RSP source, assets, tools, and locks verified; "
+        b"no identity executable was invoked\n"
+    )
+    if status != 0 or stdout != expected_stdout or stderr:
+        refuse()
+
+    qualification_path = project_root / PRIVATE_ROOT / "qualification.json"
+    qualification_bytes = checked_read(qualification_path, MAX_PRIVATE_JSON, root=project_root)
+    qualification = parse_json(qualification_bytes)
+    closure_ref = exact_object(qualification.get("closure"), {"path", "sha256"})
+    closure_path = safe_relative(project_root, closure_ref["path"], ("build/private-rsp-diagnostic/",))
+    closure_bytes = checked_read(closure_path, MAX_PRIVATE_JSON, root=project_root)
+    if not isinstance(closure_ref["sha256"], str) or sha256(closure_bytes) != closure_ref["sha256"]:
+        refuse()
+    closure = parse_json(closure_bytes)
+    membership = closure.get("membership")
+    if not isinstance(membership, dict) or membership.get("path") != (
+            "build/private-rsp-diagnostic/rsp-source-projection.json"):
+        refuse()
+    projection_path = project_root / PRIVATE_ROOT / "rsp-source-projection.json"
+    projection_bytes = checked_read(projection_path, MAX_PRIVATE_JSON, root=project_root)
+    projection_sha = membership.get("sha256")
+    if not isinstance(projection_sha, str) or not HEX64.fullmatch(projection_sha) or sha256(projection_bytes) != projection_sha:
+        refuse()
+    projection = parse_json(projection_bytes)
+    return projection_sha, _projection_member_keys(projection)
+
+
 def checked_read(path: pathlib.Path, maximum: int, *, root: pathlib.Path | None = None,
                  allow_empty: bool = False) -> bytes:
     if path.is_symlink() or not path.is_file():
@@ -475,12 +584,13 @@ def frontmatter(text: str) -> dict[str, str]:
 
 def privacy_scan(data: bytes, *, approved_rom_hash: str | None = None) -> None:
     rom_fields = list(re.finditer(
-        rb"(?i)[\"']?(?:rom_sha256|rom_id|rom_hash|rom_identity)[\"']?\s*[:=]\s*[\"']?([0-9a-f]{64})[\"']?",
+        rb"(?i)[\"']?(rom_sha256|selected_rom_sha256|rom_id|rom_hash|rom_identity(?:_sha256)?|rom_digest|rom_fingerprint)[\"']?\s*[:=]\s*[\"']?([0-9a-fA-F]{64})[\"']?",
         data,
     ))
     if rom_fields:
         if (approved_rom_hash is None or not HEX64.fullmatch(approved_rom_hash)
-                or len(rom_fields) != 1 or rom_fields[0].group(1).decode("ascii") != approved_rom_hash):
+                or len(rom_fields) != 1 or rom_fields[0].group(1).lower() != b"rom_sha256"
+                or rom_fields[0].group(2).decode("ascii").lower() != approved_rom_hash):
             refuse()
         start, end = rom_fields[0].span()
         data = data[:start] + b" " * (end - start) + data[end:]
@@ -709,7 +819,9 @@ def _inventory_members(inventory: dict, source_revision: str,
 
 def _qualified_members(projection: dict, inventory: dict,
                        source_revision: str, profile_id: str,
-                       private_build_id: str, git_root: pathlib.Path) -> dict[tuple[int, int, str], str]:
+                       private_build_id: str, git_root: pathlib.Path,
+                       qualified_source_keys: frozenset[tuple[int, int, str]] | None = None
+                       ) -> dict[tuple[int, int, str], str]:
     inventory_members = _inventory_members(inventory, source_revision,
                                            profile_id, private_build_id, git_root)
     exact_object(projection, SOURCE_PROJECTION_KEYS)
@@ -752,6 +864,8 @@ def _qualified_members(projection: dict, inventory: dict,
     if (projection_counts["registrations"] != len(projection_rows)
             or projection_counts["values"] != value_total
             or set(expected) != set(inventory_members)):
+        refuse()
+    if qualified_source_keys is not None and set(expected) != set(qualified_source_keys):
         refuse()
     return expected
 
@@ -968,7 +1082,17 @@ def derive_private_partition(projection: dict, inventory: dict, audit: dict,
 
 def _check_private_c_outputs(private_root: pathlib.Path, evidence_root: pathlib.Path,
                              sidecar: dict, inventory: dict, inventory_bytes: bytes,
-                             audit: dict, git_root: pathlib.Path) -> tuple[pathlib.Path, pathlib.Path, dict]:
+                             audit: dict, git_root: pathlib.Path,
+                             qualified_source_anchor: tuple[str, frozenset[tuple[int, int, str]]] | None
+                             = None) -> tuple[pathlib.Path, pathlib.Path, dict, frozenset[tuple[int, int, str]]]:
+    if qualified_source_anchor is None:
+        qualified_source_anchor = verified_source_membership(git_root)
+    if (not isinstance(qualified_source_anchor, tuple) or len(qualified_source_anchor) != 2
+            or not isinstance(qualified_source_anchor[0], str)
+            or not HEX64.fullmatch(qualified_source_anchor[0])
+            or not isinstance(qualified_source_anchor[1], frozenset)):
+        refuse()
+    qualified_projection_sha, qualified_source_keys = qualified_source_anchor
     c_outputs = exact_object(sidecar["c_outputs"], C_OUTPUT_KEYS)
     run_dir = safe_private_reference(private_root, audit["current_run_path"])
     verify_dir = safe_private_reference(private_root, audit["explicit_verification_dir"])
@@ -1008,6 +1132,7 @@ def _check_private_c_outputs(private_root: pathlib.Path, evidence_root: pathlib.
     projection_bytes = checked_read(projection_path, MAX_PRIVATE_JSON, root=private_root)
     if (not isinstance(source_projection_digest, str)
             or sha256(projection_bytes) != source_projection_digest
+            or source_projection_digest != qualified_projection_sha
             or inventory["identity"]["source_projection_sha256"] != source_projection_digest
             or canonical_json(inventory) != inventory_bytes
             or canonical_json(parse_json(projection_bytes)) != projection_bytes):
@@ -1015,7 +1140,7 @@ def _check_private_c_outputs(private_root: pathlib.Path, evidence_root: pathlib.
     projection = parse_json(projection_bytes)
     expected_hashes = _qualified_members(
         projection, inventory, sidecar["run_source_revision"], sidecar["profile_id"],
-        sidecar["private_build_id"], git_root,
+        sidecar["private_build_id"], git_root, qualified_source_keys,
     )
     inventory_output = output_bytes["inventory_stdout_path"]
     validation_match = re.fullmatch(
@@ -1068,11 +1193,13 @@ def _check_private_c_outputs(private_root: pathlib.Path, evidence_root: pathlib.
             refuse()
     else:
         refuse()
-    return inventory_path, batches_dir, projection
+    return inventory_path, batches_dir, projection, qualified_source_keys
 
 
 def _check_private_sidecar(private_root: pathlib.Path, profile_id: str,
-                           git_root: pathlib.Path, evidence_root: pathlib.Path) -> None:
+                           git_root: pathlib.Path, evidence_root: pathlib.Path,
+                           qualified_source_anchor: tuple[str, frozenset[tuple[int, int, str]]] | None
+                           = None) -> None:
     if private_root.is_symlink() or not private_root.is_dir() or stat.S_IMODE(private_root.stat().st_mode) != 0o700:
         refuse()
     sidecar = parse_json(checked_read(private_root / "phase05-final-evidence.json", MAX_PRIVATE_JSON, root=private_root))
@@ -1097,13 +1224,16 @@ def _check_private_sidecar(private_root: pathlib.Path, profile_id: str,
     if not isinstance(sidecar["audit_sha256"], str) or sha256(audit_bytes) != sidecar["audit_sha256"]:
         refuse()
     audit = parse_json(audit_bytes)
-    inventory_path, _, projection = _check_private_c_outputs(
+    inventory_path, _, projection, qualified_source_keys = _check_private_c_outputs(
         private_root, evidence_root, sidecar, inventory, inventory_bytes, audit, git_root,
+        qualified_source_anchor,
     )
     derived = derive_private_partition(projection, inventory, audit, private_root,
                                        sidecar["run_source_revision"], profile_id,
                                        sidecar["private_build_id"], git_root,
                                        evidence_root, inventory_path)
+    if set(_projection_member_keys(projection)) != set(qualified_source_keys):
+        refuse()
     partition = exact_object(sidecar["partition"], PARTITION_KEYS)
     for key, value in partition.items():
         if key in {"expected_sha256", "classified_sha256"}:
@@ -1141,7 +1271,8 @@ def _check_private_sidecar(private_root: pathlib.Path, profile_id: str,
 
 
 def validate(evidence_root: pathlib.Path = ROOT, owner_root: pathlib.Path = ROOT,
-             private_root: pathlib.Path | None = None) -> None:
+             private_root: pathlib.Path | None = None,
+             qualified_source_anchor: tuple[str, frozenset[tuple[int, int, str]]] | None = None) -> None:
     evidence_root = evidence_root.resolve()
     owner_root = owner_root.resolve()
     private_root = private_root or (evidence_root / PRIVATE_ROOT)
@@ -1260,7 +1391,8 @@ def validate(evidence_root: pathlib.Path = ROOT, owner_root: pathlib.Path = ROOT
     if receipt["differential_claim"] != "none":
         refuse()
 
-    _check_private_sidecar(private_root, profile_id, owner_root, evidence_root)
+    _check_private_sidecar(private_root, profile_id, owner_root, evidence_root,
+                           qualified_source_anchor)
 
 
 def latest_tested_source(root: pathlib.Path = ROOT) -> str:
@@ -1618,7 +1750,8 @@ def _synthetic_workspace(workspace: pathlib.Path, owner_root: pathlib.Path):
         "differential_claim": "none",
     }
     _write_json(workspace / PUBLIC_RECEIPT, receipt)
-    return workspace, private_root, receipt
+    qualified_source_anchor = (projection_sha, _projection_member_keys(projection))
+    return workspace, private_root, receipt, qualified_source_anchor
 
 
 def _expect_refusal(action) -> None:
@@ -1630,20 +1763,24 @@ def _expect_refusal(action) -> None:
 
 
 def _mutate_receipt(workspace: pathlib.Path, private_root: pathlib.Path,
-                    owner_root: pathlib.Path, baseline: dict, mutate) -> None:
+                    owner_root: pathlib.Path, baseline: dict, mutate,
+                    qualified_source_anchor) -> None:
     candidate = json.loads(json.dumps(baseline))
     mutate(candidate)
     _write_json(workspace / PUBLIC_RECEIPT, candidate)
-    _expect_refusal(lambda: validate(workspace, owner_root, private_root))
+    _expect_refusal(lambda: validate(workspace, owner_root, private_root,
+                                     qualified_source_anchor))
     _write_json(workspace / PUBLIC_RECEIPT, baseline)
 
 
 def _mutate_private(workspace: pathlib.Path, private_root: pathlib.Path,
-                    owner_root: pathlib.Path, baseline: dict, mutate) -> None:
+                    owner_root: pathlib.Path, baseline: dict, mutate,
+                    qualified_source_anchor) -> None:
     candidate = json.loads(json.dumps(baseline))
     mutate(candidate)
     _write_json(private_root / "phase05-final-evidence.json", candidate)
-    _expect_refusal(lambda: validate(workspace, owner_root, private_root))
+    _expect_refusal(lambda: validate(workspace, owner_root, private_root,
+                                     qualified_source_anchor))
     _write_json(private_root / "phase05-final-evidence.json", baseline)
 
 
@@ -1654,8 +1791,9 @@ def run_selftest(owner_root: pathlib.Path = ROOT) -> None:
     with tempfile.TemporaryDirectory(prefix="05-10-evidence-selftest.", dir=build_root) as temporary:
         workspace = pathlib.Path(temporary)
         workspace.chmod(0o700)
-        workspace, private_root, baseline = _synthetic_workspace(workspace, owner_root)
-        validate(workspace, owner_root, private_root)  # Accepted baseline is mandatory.
+        workspace, private_root, baseline, qualified_source_anchor = _synthetic_workspace(workspace, owner_root)
+        check_fixture = lambda: validate(workspace, owner_root, private_root, qualified_source_anchor)
+        check_fixture()  # Accepted baseline is mandatory.
 
         for mutate in (
             lambda r: r.__setitem__("schema", "open-schema"),
@@ -1681,17 +1819,18 @@ def run_selftest(owner_root: pathlib.Path = ROOT) -> None:
             lambda r: r["reports"].__setitem__("code_sha256", "0" * 64),
             lambda r: r.__setitem__("differential_claim", "complete-state"),
         ):
-            _mutate_receipt(workspace, private_root, owner_root, baseline, mutate)
+            _mutate_receipt(workspace, private_root, owner_root, baseline, mutate,
+                            qualified_source_anchor)
 
         native_artifact = workspace / FIXED_BUILD_BINARIES["native"]
         saved_artifact = native_artifact.read_bytes()
         native_artifact.write_bytes(b"one byte changed after the test\n")
-        _expect_refusal(lambda: validate(workspace, owner_root, private_root))
+        _expect_refusal(check_fixture)
         native_artifact.write_bytes(saved_artifact)
         asan_log = workspace / "build/asan/05-10-final-ctest.log"
         saved_asan_log = asan_log.read_bytes()
         asan_log.write_bytes(b"")
-        _expect_refusal(lambda: validate(workspace, owner_root, private_root))
+        _expect_refusal(check_fixture)
         asan_log.write_bytes(saved_asan_log)
         lines = saved_asan_log.decode("utf-8").splitlines()
         required_test = sorted(set(owned_tables(owner_root)[1]) | {
@@ -1705,7 +1844,7 @@ def run_selftest(owner_root: pathlib.Path = ROOT) -> None:
         forged_receipt = json.loads(json.dumps(baseline))
         forged_receipt["asan_gate"]["sha256"] = sha256(forged_log)
         _write_json(workspace / PUBLIC_RECEIPT, forged_receipt)
-        _expect_refusal(lambda: validate(workspace, owner_root, private_root))
+        _expect_refusal(check_fixture)
         asan_log.write_bytes(saved_asan_log)
         _write_json(workspace / PUBLIC_RECEIPT, baseline)
         native_log = workspace / "build/gate/05-10-final-gate.log"
@@ -1719,14 +1858,14 @@ def run_selftest(owner_root: pathlib.Path = ROOT) -> None:
         marker_receipt = json.loads(json.dumps(baseline))
         marker_receipt["native_gate"]["sha256"] = sha256(marker_only)
         _write_json(workspace / PUBLIC_RECEIPT, marker_receipt)
-        _expect_refusal(lambda: validate(workspace, owner_root, private_root))
+        _expect_refusal(check_fixture)
         native_log.write_bytes(saved_native_log)
         _write_json(workspace / PUBLIC_RECEIPT, baseline)
 
         composed_rom = workspace / "build/fixtures/rsp-smoke/rsp-smoke.z64"
         saved_rom = composed_rom.read_bytes()
         composed_rom.unlink()
-        _expect_refusal(lambda: validate(workspace, owner_root, private_root))
+        _expect_refusal(check_fixture)
         composed_rom.write_bytes(saved_rom)
 
         private_path = private_root / "phase05-final-evidence.json"
@@ -1738,7 +1877,8 @@ def run_selftest(owner_root: pathlib.Path = ROOT) -> None:
             lambda p: p["partition"].__setitem__("classified_sha256", "0" * 64),
             lambda p: p["partition"].__setitem__("extra_rows", 1),
         ):
-            _mutate_private(workspace, private_root, owner_root, private_baseline, mutate)
+            _mutate_private(workspace, private_root, owner_root, private_baseline, mutate,
+                            qualified_source_anchor)
 
         inventory_path = safe_private_reference(private_root, private_baseline["inventory_path"])
         original_inventory_bytes = inventory_path.read_bytes()
@@ -1747,59 +1887,126 @@ def run_selftest(owner_root: pathlib.Path = ROOT) -> None:
         audit_path = safe_private_reference(private_root, private_baseline["audit_path"])
         original_audit_bytes = audit_path.read_bytes()
         audit = parse_json(original_audit_bytes)
+        inventory_validation_path = safe_private_reference(
+            private_root, private_baseline["c_outputs"]["inventory_stdout_path"]
+        )
+        inventory_stderr_path = safe_private_reference(
+            private_root, private_baseline["c_outputs"]["inventory_stderr_path"]
+        )
+        complete_path = safe_private_reference(
+            private_root, private_baseline["c_outputs"]["complete_stdout_path"]
+        )
+        complete_stderr_path = safe_private_reference(
+            private_root, private_baseline["c_outputs"]["complete_stderr_path"]
+        )
+        original_inventory_validation_bytes = inventory_validation_path.read_bytes()
+        original_inventory_stderr_bytes = inventory_stderr_path.read_bytes()
+        original_complete_bytes = complete_path.read_bytes()
+        original_complete_stderr_bytes = complete_stderr_path.read_bytes()
 
-        # Reseal a smaller inventory, audit, and partition claim while retaining the original
-        # qualified projection and C output artifacts. Membership must still fail against them.
+        projection_path = private_root / "rsp-source-projection.json"
+        original_projection_bytes = projection_path.read_bytes()
+        original_inventory = json.loads(json.dumps(inventory))
+        original_projection = json.loads(json.dumps(projection))
+
+        # Shrink the mutable projection and inventory together, then reseal the audit,
+        # batches, attempts, C metadata outputs, and summaries. The original injected
+        # source-closure anchor must still reject this internally consistent smaller set.
+        shrunk_projection = json.loads(json.dumps(projection))
+        shrunk_projection["registrations"][0]["source_value_count"] = 2
+        shrunk_projection["registrations"][0]["effective_value_count"] = 2
+        shrunk_projection["registrations"][0]["values"].pop()
+        shrunk_projection["declared_counts"]["values"] = 2
+        shrunk_projection_bytes = canonical_json(shrunk_projection)
+        shrunk_projection_sha = sha256(shrunk_projection_bytes)
         shrunk_inventory = json.loads(json.dumps(inventory))
+        shrunk_inventory["registrations"][0]["source_value_count"] = 2
         shrunk_inventory["registrations"][0]["values"].pop()
         shrunk_inventory["declared_counts"]["required_values"] = 2
         shrunk_inventory["declared_counts"]["values"] = 2
+        shrunk_inventory["identity"]["source_projection_sha256"] = shrunk_projection_sha
         shrunk_inventory_bytes = canonical_json(shrunk_inventory)
+        shrunk_inventory_sha = sha256(shrunk_inventory_bytes)
+        projection_path.write_bytes(shrunk_projection_bytes)
         inventory_path.write_bytes(shrunk_inventory_bytes)
         shrunk_audit = json.loads(json.dumps(audit))
         shrunk_audit["member_results"].pop()
+        changed_batches = {}
+        changed_attempts = {}
+        for row in shrunk_audit["member_results"]:
+            batch_path = safe_private_reference(private_root, row["batch_path"])
+            attempt_path = safe_private_reference(private_root, row["attempt_receipt_path"])
+            changed_batches[batch_path] = batch_path.read_bytes()
+            changed_attempts[attempt_path] = attempt_path.read_bytes()
+            batch = parse_json(changed_batches[batch_path])
+            batch["identity"]["inventory_sha256"] = shrunk_inventory_sha
+            batch["identity"]["source_projection_sha256"] = shrunk_projection_sha
+            batch_bytes = canonical_json(batch)
+            batch_path.write_bytes(batch_bytes)
+            attempt = parse_json(changed_attempts[attempt_path])
+            attempt["batch_sha256"] = sha256(batch_bytes)
+            attempt_bytes = canonical_json(attempt)
+            attempt_path.write_bytes(attempt_bytes)
+            row["batch_sha256"] = sha256(batch_bytes)
+            row["attempt_receipt_sha256"] = sha256(attempt_bytes)
+        deleted_batch = safe_private_reference(private_root, audit["member_results"][-1]["batch_path"])
+        deleted_batch_bytes = deleted_batch.read_bytes()
+        deleted_batch.unlink()
         shrunk_audit["outcomes"] = {name: sum(row["classification"] == name
                                                for row in shrunk_audit["member_results"])
                                     for name in ("guest-fail", "pass", "refused")}
         shrunk_audit["authenticated_batches"] = 2
         shrunk_audit["expected_members"] = 2
-        shrunk_audit["inventory_sha256"] = sha256(shrunk_inventory_bytes)
+        shrunk_audit["inventory_sha256"] = shrunk_inventory_sha
+
+        inventory_status, inventory_stdout, inventory_stderr = bounded_fixed_run(
+            workspace, FIXED_BUILD_BINARIES["native"],
+            ["--validate-inventory", str(inventory_path)],
+        )
+        complete_status, complete_stdout, complete_stderr = bounded_fixed_run(
+            workspace, FIXED_BUILD_BINARIES["native"],
+            ["--verify-complete-json", str(inventory_path), str(deleted_batch.parent)],
+        )
+        if inventory_status != 0 or inventory_stderr or complete_status != 3 or complete_stderr:
+            refuse()
+        inventory_validation_path.write_bytes(inventory_stdout)
+        inventory_stderr_path.write_bytes(inventory_stderr)
+        complete_path.write_bytes(complete_stdout)
+        complete_stderr_path.write_bytes(complete_stderr)
+        shrunk_audit["explicit_verify_complete"] = complete_stdout.decode("ascii").strip()
         shrunk_audit_bytes = canonical_json(shrunk_audit)
         audit_path.write_bytes(shrunk_audit_bytes)
         shrunk_summary = json.loads(json.dumps(private_baseline))
-        shrunk_summary["inventory_sha256"] = sha256(shrunk_inventory_bytes)
+        shrunk_summary["inventory_sha256"] = shrunk_inventory_sha
+        shrunk_summary["projection_sha256"] = shrunk_projection_sha
         shrunk_summary["audit_sha256"] = sha256(shrunk_audit_bytes)
-        remaining = shrunk_audit["member_results"]
-        expected_rows = sorted([
-            {"registration_index": row["registration_index"], "value_index": row["value_index"],
-             "selector": row["selector"]}
-            for row in remaining
-        ], key=lambda row: (row["registration_index"], row["value_index"], row["selector"]))
-        classified_rows = [{
-            "key": [row["registration_index"], row["value_index"], row["selector"]],
-            "classification": row["classification"], "owner": row["owner"],
-            "reason": row["reason"], "identity_sha256": row["identity_sha256"],
-            "attempt_receipt_sha256": row["attempt_receipt_sha256"],
-            "batch_sha256": row["batch_sha256"], "stdout_sha256": row["stdout_sha256"],
-            "stderr_sha256": row["stderr_sha256"],
-            "terminal_instruction_pair_retired": row["terminal_instruction_pair_retired"],
-        } for row in remaining]
-        classified_rows.sort(key=lambda row: tuple(row["key"]))
-        refused_count = sum(row["classification"] == "refused" for row in remaining)
-        nonpass_count = sum(row["classification"] != "pass" for row in remaining)
-        shrunk_summary["partition"] = {
-            "expected_sha256": sha256(canonical_json(expected_rows)),
-            "classified_sha256": sha256(canonical_json(classified_rows)),
-            "expected_rows": 2, "classified_rows": 2, "missing_rows": 0,
-            "duplicate_rows": 0, "extra_rows": 0, "unclassified_rows": 0,
-            "dropped_refusal_rows": 0, "refusal_rows": refused_count,
-            "reasoned_refusal_rows": refused_count, "nonpass_rows": nonpass_count,
-            "reasoned_nonpass_rows": nonpass_count,
-        }
+        shrunk_summary["c_outputs"]["inventory_stdout_sha256"] = sha256(inventory_stdout)
+        shrunk_summary["c_outputs"]["inventory_stderr_sha256"] = sha256(inventory_stderr)
+        shrunk_summary["c_outputs"]["complete_stdout_sha256"] = sha256(complete_stdout)
+        shrunk_summary["c_outputs"]["complete_stderr_sha256"] = sha256(complete_stderr)
+        shrunk_summary["partition"] = derive_private_partition(
+            shrunk_projection, shrunk_inventory, shrunk_audit, private_root,
+            shrunk_summary["run_source_revision"], shrunk_summary["profile_id"],
+            shrunk_summary["private_build_id"], owner_root, workspace, inventory_path,
+        )
         _write_json(private_path, shrunk_summary)
-        _expect_refusal(lambda: validate(workspace, owner_root, private_root))
+        _expect_refusal(check_fixture)
+        # With a deliberately replaced test anchor, the rest of the synthetic record is
+        # accepted. This proves the original qualified-membership anchor is the blocker.
+        validate(workspace, owner_root, private_root,
+                 (shrunk_projection_sha, _projection_member_keys(shrunk_projection)))
+        for path, data in changed_batches.items():
+            path.write_bytes(data)
+        for path, data in changed_attempts.items():
+            path.write_bytes(data)
+        deleted_batch.write_bytes(deleted_batch_bytes)
+        projection_path.write_bytes(original_projection_bytes)
         inventory_path.write_bytes(original_inventory_bytes)
         audit_path.write_bytes(original_audit_bytes)
+        inventory_validation_path.write_bytes(original_inventory_validation_bytes)
+        inventory_stderr_path.write_bytes(original_inventory_stderr_bytes)
+        complete_path.write_bytes(original_complete_bytes)
+        complete_stderr_path.write_bytes(original_complete_stderr_bytes)
         _write_json(private_path, private_baseline)
 
         dropped_audit = json.loads(json.dumps(audit))
@@ -1821,7 +2028,7 @@ def run_selftest(owner_root: pathlib.Path = ROOT) -> None:
         if dropped_summary["partition"]["missing_rows"] == 0:
             refuse()
         _write_json(private_path, dropped_summary)
-        _expect_refusal(lambda: validate(workspace, owner_root, private_root))
+        _expect_refusal(check_fixture)
         audit_path.write_bytes(original_audit_bytes)
         _write_json(private_path, private_baseline)
 
@@ -1864,7 +2071,7 @@ def run_selftest(owner_root: pathlib.Path = ROOT) -> None:
         relabeled_summary = json.loads(json.dumps(private_baseline))
         relabeled_summary["audit_sha256"] = sha256(refusal_bytes)
         _write_json(private_path, relabeled_summary)
-        _expect_refusal(lambda: validate(workspace, owner_root, private_root))
+        _expect_refusal(check_fixture)
         refusal_attempt_path.write_bytes(original_attempt_bytes)
         audit_path.write_bytes(original_audit_bytes)
         _write_json(private_path, private_baseline)
@@ -1883,7 +2090,7 @@ def run_selftest(owner_root: pathlib.Path = ROOT) -> None:
         completion_summary["audit_sha256"] = sha256(completion_audit_bytes)
         completion_summary["c_outputs"]["complete_stdout_sha256"] = sha256(claimed_complete)
         _write_json(private_path, completion_summary)
-        _expect_refusal(lambda: validate(workspace, owner_root, private_root))
+        _expect_refusal(check_fixture)
         complete_path.write_bytes(original_complete_bytes)
         audit_path.write_bytes(original_audit_bytes)
         _write_json(private_path, private_baseline)
@@ -1891,13 +2098,13 @@ def run_selftest(owner_root: pathlib.Path = ROOT) -> None:
         batch_path = safe_private_reference(private_root, audit["member_results"][0]["batch_path"])
         original_batch_bytes = batch_path.read_bytes()
         batch_path.write_bytes(original_batch_bytes + b"tampered")
-        _expect_refusal(lambda: validate(workspace, owner_root, private_root))
+        _expect_refusal(check_fixture)
         batch_path.write_bytes(original_batch_bytes)
 
         linux_record = workspace / baseline["hosted"]["platforms"]["gate-linux"]["record_path"]
         saved_linux_record = linux_record.read_bytes()
         linux_record.unlink()
-        _expect_refusal(lambda: validate(workspace, owner_root, private_root))
+        _expect_refusal(check_fixture)
         linux_record.write_bytes(saved_linux_record)
         false_outcome = parse_json(saved_linux_record)
         false_outcome["result"]["outcome"] = "guest-fail"
@@ -1906,13 +2113,13 @@ def run_selftest(owner_root: pathlib.Path = ROOT) -> None:
         candidate = json.loads(json.dumps(baseline))
         candidate["hosted"]["platforms"]["gate-linux"]["record_sha256"] = sha256(false_bytes)
         _write_json(workspace / PUBLIC_RECEIPT, candidate)
-        _expect_refusal(lambda: validate(workspace, owner_root, private_root))
+        _expect_refusal(check_fixture)
         linux_record.write_bytes(saved_linux_record)
         _write_json(workspace / PUBLIC_RECEIPT, baseline)
         bad_red = json.loads(json.dumps(private_baseline))
         bad_red["red_evidence"][0]["setup"] = "failed"
         _write_json(private_path, bad_red)
-        _expect_refusal(lambda: validate(workspace, owner_root, private_root))
+        _expect_refusal(check_fixture)
         _write_json(private_path, private_baseline)
 
         docs = workspace / "docs/evidence/phase05-native-rsp.md"
@@ -1921,13 +2128,14 @@ def run_selftest(owner_root: pathlib.Path = ROOT) -> None:
         for private_public_text in (
             '{"classification":"refused"}\n',
             '{"rom_sha256":"' + "0" * 64 + '"}\n',
+            '{"selected_rom_sha256":"' + authored_rom_hash + '"}\n',
             "private member r0001v00000\n",
         ):
             docs.write_text(private_public_text, encoding="utf-8")
             candidate = json.loads(json.dumps(baseline))
             candidate["reports"]["native_sha256"] = sha256(docs.read_bytes())
             _write_json(workspace / PUBLIC_RECEIPT, candidate)
-            _expect_refusal(lambda: validate(workspace, owner_root, private_root))
+            _expect_refusal(check_fixture)
         docs.write_bytes(old_report)
 
         unknown_field = json.loads(json.dumps(baseline))
@@ -1935,7 +2143,7 @@ def run_selftest(owner_root: pathlib.Path = ROOT) -> None:
             "classification": "refused", "rom_sha256": authored_rom_hash,
         }
         _write_json(workspace / PUBLIC_RECEIPT, unknown_field)
-        _expect_refusal(lambda: validate(workspace, owner_root, private_root))
+        _expect_refusal(check_fixture)
         _write_json(workspace / PUBLIC_RECEIPT, baseline)
 
 
