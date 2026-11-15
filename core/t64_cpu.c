@@ -2127,6 +2127,9 @@ t64_status t64_cpu_step(t64_machine *machine, const t64_event *event) {
   bool cp0_effect_prepared = false;
   bool supported;
   bool instruction_cacheable = false;
+  bool fetched_icache_saved = false;
+  uint32_t fetched_icache_index = 0u;
+  t64_vr4300_icache_line fetched_icache_before = {0};
   uint64_t eret_target = 0u;
   uint64_t successor_interval = T64_CPU_BASE_ISSUE_INTERVAL_TICKS;
   t64_event_reservation successor_reservation = {0};
@@ -2210,6 +2213,13 @@ t64_status t64_cpu_step(t64_machine *machine, const t64_event *event) {
     instruction_cacheable = translation.cacheable;
   }
   if (new_profile && instruction_cacheable) {
+    if (t1_policy) {
+      fetched_icache_index =
+          (uint32_t)((pc_full >> 5) &
+                     (T64_VR4300_ICACHE_LINE_COUNT - 1u));
+      fetched_icache_before = machine->cpu.icache[fetched_icache_index];
+      fetched_icache_saved = true;
+    }
     status = t64_cpu_icache_fetch(machine, pc_full, physical_pc, &opcode);
   } else {
     status = t64_bus_read(machine, physical_pc, 4u, &opcode);
@@ -2290,6 +2300,9 @@ t64_status t64_cpu_step(t64_machine *machine, const t64_event *event) {
     status = cpu_preflight_successor(machine, opcode, successor_interval,
                                      &successor_reservation);
     if (status != T64_STATUS_OK) {
+      if (fetched_icache_saved) {
+        machine->cpu.icache[fetched_icache_index] = fetched_icache_before;
+      }
       machine->cpu.attempt_outcome = T64_CPU_ATTEMPT_HOST_ERROR;
       return status;
     }
