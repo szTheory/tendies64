@@ -87,6 +87,10 @@ applies that direction; update it when the owner changes policy.
   recorded hashes. A saved binding alone does not retain the executable. If
   retention was missed, disclose that limit; never relabel a newer binary as
   the historical artifact or replay guests merely to fill the archive.
+  Capture that pair when qualification activates a context, before first guest
+  use, and require the retained pair at pre-use. Manual archiving at the next
+  repair rebuild was missed again in Phase06; existing failed-attempt gaps stay
+  explicit even after the forward guard is fixed.
   First-use correction (owner's repeated elapsed-time feedback): once concrete
   pre-use source, tool, asset and dependency checks pass, prioritize one bounded
   actual build, artifact check and startup before broadening integration
@@ -160,6 +164,13 @@ applies that direction; update it when the owner changes policy.
   the immutable archive, fix the owning entry test, and use an explicitly
   versioned fresh context for the justified next attempt. Run the independent
   full pre-use verifier before creating a guest run directory.
+  Exercise the complete run-wrapper CLI as well as the verifier, using the
+  actual context/role shape and normal result dispatch. Feed the production C
+  record encoder's output into the real aggregate in an authored control;
+  helper-only and replacement-producer fixtures missed Phase06 entry-order and
+  literal-key-length defects. Derive fixed JSON key lengths with sizeof, not
+  manually counted constants. Select whole-suite BASE levels from the pinned
+  global executor; a component's level subset cannot define the denominator.
   A Plan05-04 Clang-clean macro failed GCC warnings-as-errors in hosted CI.
   For changed C translation units, use the existing gcc:13 image for a bounded,
   read-only, network-disabled warning check before publication when its headers
