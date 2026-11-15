@@ -40,6 +40,13 @@ breadth or polish.
   software-compatibility policies — Phase 4. Qualified local CPU reporting
   is available; this is not full accuracy or hardware qualification.
 
+- ✓ Functional fetched RSP scalar/vector execution, SP control and queued DMA,
+  a permanent portable VU reference, authored ROM/native/instrumented evidence
+  and independently checked local classification — Phase 5. Exact artifacts,
+  authored-only hosted checks and configured review closure are recorded;
+  hardware accuracy, optimized differential execution and general microcode
+  compatibility remain unestablished.
+
 ### Active
 
 These are hypotheses until shipped and verified. They are scoped further in
@@ -53,8 +60,8 @@ These are hypotheses until shipped and verified. They are scoped further in
 - [ ] A boot route that ships no Nintendo PIF/IPL bytes, such as a
       clean-room/open IPL3 (for example Libdragon's) or a documented HLE boot,
       with its limits stated
-- [ ] RSP execution (scalar plus vector unit, IMEM/DMEM, DMA) good enough for
-      ROM-level RSP tests and later microcode tasks
+- [ ] Broader RSP microcode compatibility and later audio/video task evidence,
+      beyond the qualified functional profile's ROM-level tests
 - [ ] A headless runner with fixed reset, timed logical input, a guest-time or
       instruction limit, ISViewer-style result capture and machine-readable
       outcomes. It must distinguish pass, guest-fail, boot-fail, timeout,
