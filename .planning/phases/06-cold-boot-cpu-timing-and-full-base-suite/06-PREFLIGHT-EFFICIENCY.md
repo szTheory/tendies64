@@ -1,13 +1,15 @@
 # Pre-use efficiency follow-up
 
-The current qualified required sweep is advancing and must keep its exact
-context. Implement these changes after it finishes, before later lane contexts;
-do not interrupt or replay completed cases merely to benchmark host changes.
+Both changes were implemented after the required sweep completed and its
+original records re-verified. The original context and records remain intact;
+no completed case was replayed merely to benchmark host changes.
 
 Observed on this local run: median member-process time was 0.216 seconds,
 median full dispatch 1.023 seconds, and an independent full pre-use invocation
 took 0.615 seconds. These measure host work, not N64 timing or accuracy.
-Original logs and records remain in ignored local evidence directories.
+Original logs and records remain in ignored local evidence directories. Three
+optimized read-only pre-use invocations passed with a 0.497-second median.
+The baseline was a separate observation, not a controlled throughput study.
 
 ## Remove duplicate work within one full pre-use entry
 
