@@ -44,6 +44,23 @@ static bool setup_machine(t64_machine *machine, bool with_ram) {
   return true;
 }
 
+static bool setup_t1_machine(t64_machine *machine, const char *profile_id) {
+  const t64_profile_descriptor *profile = NULL;
+
+  (void)memset(machine, 0, sizeof *machine);
+  if (profile_id == NULL ||
+      t64_profile_lookup(profile_id, &profile) != T64_STATUS_OK ||
+      profile == NULL) {
+    return false;
+  }
+  machine->profile = *profile;
+  machine->has_image = true;
+  machine->cpu.cp0[CP0_RANDOM] = UINT32_C(17);
+  machine->cpu.count_compare_deadline = UINT64_MAX;
+  machine->ram = (uint8_t *)calloc(machine->profile.rdram_bytes, 1u);
+  return machine->ram != NULL;
+}
+
 static t64_status synchronize_to_tick(t64_machine *machine, uint64_t tick) {
   machine->tick = tick;
   return t64_cp0_synchronize_guest_time(machine, tick);
@@ -432,6 +449,41 @@ static void test_random_advances_only_on_retirement(void) {
   destroy_machine(&machine);
 }
 
+static void test_cold_t1_mult_interval_for_profile(const char *profile_id) {
+  t64_machine machine;
+  const uint32_t opcode = (UINT32_C(1) << 21) | (UINT32_C(2) << 16) |
+                          UINT32_C(0x18);
+
+  T64_CHECK(setup_t1_machine(&machine, profile_id));
+  if (machine.ram == NULL) {
+    return;
+  }
+  machine.cpu.pc = UINT32_C(0x80001000);
+  machine.cpu.pc_full = t64_cpu_canonical_address(machine.cpu.pc);
+  machine.cpu.gpr[1] = UINT64_C(6);
+  machine.cpu.gpr[2] = UINT64_C(7);
+  write_be32(machine.ram + UINT32_C(0x1000), opcode);
+
+  T64_CHECK_INT(t64_cpu_step(&machine, NULL), T64_STATUS_OK);
+  T64_CHECK_INT(machine.cpu.retired_instructions, 1u);
+  T64_CHECK_INT(machine.cpu.hi, 0u);
+  T64_CHECK_INT(machine.cpu.lo, 42u);
+  T64_CHECK_INT(machine.queue_count, 1u);
+  if (machine.queue_count == 1u) {
+    /* NEC VR43XX Table 3-12 gives MULT five stall cycles. This T1 policy
+       adds the issue interval, so the next boundary is tick six. */
+    T64_CHECK_INT(machine.events[machine.queue_head].tick, 6u);
+  }
+  destroy_machine(&machine);
+}
+
+static void test_cold_t1_mult_interval(void) {
+  test_cold_t1_mult_interval_for_profile(
+      "ntsc-cart-4m-openipl3-rdram-a-t1-v1");
+  test_cold_t1_mult_interval_for_profile(
+      "ntsc-cart-4m-openipl3-rdram-b-t1-v1");
+}
+
 int main(void) {
   test_two_tick_boundaries_and_compare_clear();
   test_count_write_preserves_phase_and_checks_equality();
@@ -441,5 +493,6 @@ int main(void) {
   test_interrupt_preempts_delay_slot_cp0_write();
   test_equal_tick_fifo_samples_new_irq_at_next_boundary();
   test_random_advances_only_on_retirement();
+  test_cold_t1_mult_interval();
   return T64_TEST_FINISH("unit.core.cpu-time");
 }
