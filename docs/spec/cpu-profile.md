@@ -196,3 +196,35 @@ This is a documented consequence of the software seed, not a claim about
 hardware reset contents. Unsupported masks or physical-width requests are
 refused before partial architectural effects. Warm-v1 keeps its separate
 direct-only translation and CACHE subset.
+
+## Phase 6 cold/RDRAM profiles
+
+Phase 6 adds two distinct 4 MiB, no-Expansion-Pak profile identities over the
+same cleared open IPL3 bytes:
+
+| Profile | Model | State | Descriptor | Timing policy | Prepared `RI_SELECT` |
+| --- | ---: | ---: | ---: | --- | ---: |
+| `ntsc-cart-4m-openipl3-rdram-a-t1-v1` | 7 | 13 | 4 | `t1-instruction-cost-v1` | `5` |
+| `ntsc-cart-4m-openipl3-rdram-b-t1-v1` | 8 | 13 | 4 | `t1-instruction-cost-v1` | `0` |
+
+Both profiles select `MI_VERSION=0`, NTSC cartridge media, 4 MiB installed
+RDRAM, and zero expansion memory. They use the existing deterministic HLE
+open-IPL3 entry and cleared payload; the differing RI selection is explicit
+software seed policy. The initial CPU and device preparation belongs to each
+canonical machine instance and is included in its profile/state identity. The
+values do not describe IPL2 output, a physical reset sample, or measured
+hardware configuration.
+
+The Tier B probe observed a width-4 `RI_SELECT` read at physical address
+`0x0470000c`, from PC `0xA4000094` with opcode `0x8c42000c`, at guest tick 53;
+the returned value was zero. The bounded run later stopped with
+`CPU_UNSUPPORTED` at tick 75 and retained no output bytes. This confirms the
+configured read value and the reported stop boundary only. It does not claim
+that the cold initialization completed, that the authored hello completed, or
+that physical console behavior was reproduced. The warm-v1 and
+`ntsc-cart-4m-openipl3-vr4300-v1` contracts, identities, and historical golden
+bytes remain separate and unchanged.
+
+The `t1-instruction-cost-v1` table and its evidence limits are specified in
+[CPU timing policy](cpu-timing.md). Promotion beyond T1 requires a new named
+policy and evidence; these profiles do not imply hardware cycle accuracy.
