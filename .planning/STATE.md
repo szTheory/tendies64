@@ -4,18 +4,18 @@ milestone: v1.0
 milestone_name: Verified Headless Core
 current_phase: 6
 current_phase_name: Cold Boot, CPU Timing and Full Base Suite
-current_plan: 05
+current_plan: 06
 status: executing
-stopped_at: CP0/T1 scheduler integration verified; continuing authored Tier A/B cold boot. Prior external attempt remains stopped.
-last_updated: "2026-11-15T13:06:46.858Z"
+stopped_at: Authored Tier A/B boot and determinism verified; continuing suite classification. Prior external attempt remains stopped.
+last_updated: "2026-11-15T16:07:03.203Z"
 last_activity: 2026-11-14
 last_activity_desc: Phase 6 execution started
-state_head: 643e590fc6f4d681d5d1b1d32b751c0668bfbe69
+state_head: 2aa20c02f41855a09da19de4564d8cc4e4896948
 progress:
   total_phases: 6
   completed_phases: 1
   total_plans: 73
-  completed_plans: 69
+  completed_plans: 70
   percent: 17
 ---
 
@@ -31,7 +31,7 @@ See: .planning/PROJECT.md (updated 2026-11-13)
 ## Current Position
 
 Phase: 6 (Cold Boot, CPU Timing and Full Base Suite) — EXECUTING
-Current Plan: 05
+Current Plan: 06
 Total Plans in Phase: 9
 Status: Executing Phase 6
 Last activity: 2026-11-14 — Phase 6 execution started
@@ -39,7 +39,7 @@ Last activity: 2026-11-14 — Phase 6 execution started
 Progress: [██░░░░░░░░] 17%
 
 Verified milestone ledger: Phases1–5 are complete (64 historical plans).
-Phase6 has five of nine source plans closed: 01,09,02,03,04. Its first external
+Phase6 has six of nine source plans closed: 01,09,02,03,04,05. Its first external
 invocation has no valid member result and a disclosed missing-executable
 retention gap; that attempt is stopped, while authorized native work continues.
 The generated percentage treats older verification fingerprints as stale; it
@@ -226,6 +226,6 @@ Items acknowledged and deferred at milestone close, most recent first:
 
 ## Session Continuity
 
-Last session: 2026-11-15T13:06:46.570Z
-Stopped at: CP0/T1 scheduler integration verified; continuing authored Tier A/B cold boot. Prior external attempt remains stopped.
-Resume file: .planning/phases/06-cold-boot-cpu-timing-and-full-base-suite/06-05-PLAN.md
+Last session: 2026-11-15T16:07:02.646Z
+Stopped at: Authored Tier A/B boot and determinism verified; continuing suite classification. Prior external attempt remains stopped.
+Resume file: .planning/phases/06-cold-boot-cpu-timing-and-full-base-suite/06-06-PLAN.md

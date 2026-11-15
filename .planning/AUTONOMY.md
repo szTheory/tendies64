@@ -47,6 +47,21 @@ applies that direction; update it when the owner changes policy.
   On a shared branch, a parent documentation commit can contain unfinished
   child RED commits in its ancestry. Defer its push until those source/test
   commits are verified; pin pushes to the intended verified commit.
+- Cheap consistency gates (owner feedback, 2026-11-15): before a long process
+  or suite, run fast checks of setup, identity, manifest schema/rights, active
+  profile/device wiring
+  and representative accepted operations through the actual consumer seam.
+  Negative refusals alone do not prove a newly added profile can use an
+  existing device. Run those cheap checks before instrumented/full suites;
+  retain required checks and limits rather than adding retries or concurrency.
+  Decode representative instruction fields from pinned bytes before using a
+  derived address as a diagnosis: LUI fills the upper half, and the Phase06
+  PI source-offset inference was wrong until checked against runtime values.
+  Capture the first exception and its preceding retirement; a later fault in
+  an empty exception vector can overwrite the diagnostic pending exception.
+  If a delegated investigation stops producing concrete changes, reconcile
+  its saved evidence and continue the narrow remaining slice inline rather
+  than extending a silent handoff or restarting the whole task.
 - Efficiency correction (owner feedback, 2026-11-12): before a broad retest,
   inspect `node scripts/verification-scope.mjs --base <last-tested-source>`.
   It includes staged, unstaged and new source changes, including ignored code
