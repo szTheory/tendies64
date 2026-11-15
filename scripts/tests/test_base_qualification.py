@@ -212,6 +212,52 @@ def create_context(repository: pathlib.Path) -> pathlib.Path:
 
 
 class BaseQualificationControls(unittest.TestCase):
+    def test_context_cannot_nominate_source_validation_skip(self) -> None:
+        verifier = load_verifier()
+        with tempfile.TemporaryDirectory(prefix="base-no-skip-field-") as temp:
+            root = pathlib.Path(temp).resolve()
+            (root / "build").mkdir(mode=0o700)
+            private = create_context(root)
+            context = json.loads((private / "context.json").read_bytes())
+            context["source_closure_checked_by_rsp"] = True
+            context_bytes = canonical(context)
+            write_private(private / "context.json", context_bytes)
+            binding = json.loads((private / "binding.json").read_bytes())
+            binding["context_sha256"] = digest(context_bytes)
+            write_private(private / "binding.json", canonical(binding))
+            called = []
+            with self.assertRaisesRegex(verifier.Refusal, "context fields"):
+                verifier.verify_and_dispatch(private, private / "run-refused",
+                    lambda: called.append(True), repository_root=root)
+            self.assertEqual(called, [])
+            self.assertFalse((private / "run-refused").exists())
+
+    def test_v2_duplicate_cpu_validation_keeps_independent_anchor(self) -> None:
+        from types import SimpleNamespace
+        from unittest.mock import Mock, patch
+        verifier = load_verifier()
+        with tempfile.TemporaryDirectory(prefix="base-independent-anchor-") as temp:
+            root = pathlib.Path(temp).resolve()
+            receipt = root / "build/private-cpu-diagnostic/qualification.json"
+            write_private(receipt, canonical({"authored": True}))
+            cpu = SimpleNamespace(SOURCE_REVISION="a" * 40,
+                SOURCE_PROJECTION_SHA256="b" * 64, validate=Mock())
+            spec = SimpleNamespace(loader=SimpleNamespace(exec_module=lambda module: None))
+            projection = {"source_revision": "a" * 40, "projection_sha256": "b" * 64}
+            with patch.object(verifier, "ROOT", root), patch.object(
+                    verifier.importlib.util, "spec_from_file_location", return_value=spec), patch.object(
+                    verifier.importlib.util, "module_from_spec", return_value=cpu):
+                verifier._verify_live_source_authority(root, projection)
+                cpu.validate.assert_called_once_with(receipt, root)
+                cpu.validate.reset_mock()
+                verifier._verify_live_source_authority(root, projection,
+                    source_closure_checked_by_rsp=True)
+                cpu.validate.assert_not_called()
+                with self.assertRaisesRegex(verifier.Refusal, "independently reviewed seal"):
+                    verifier._verify_live_source_authority(root, {**projection,
+                        "projection_sha256": "f" * 64}, source_closure_checked_by_rsp=True)
+                cpu.validate.assert_not_called()
+
     def test_private_input_size_and_fifo_replacement_are_bounded(self) -> None:
         verifier = load_verifier()
         with tempfile.TemporaryDirectory(prefix="base-input-bounds-") as temp:

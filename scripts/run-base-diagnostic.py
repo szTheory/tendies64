@@ -556,14 +556,15 @@ def _bound_member_attempt(directory, snapshot, adapter, image, member, cpu_runne
                                for key in ("group", "lane", "level"))):
         refuse("source member is absent from its qualified combined image")
     directory.mkdir(mode=0o700)
-    _write_private(directory / "source-authority.json", snapshot["authority_bytes"])
-    _write_private(directory / "inventory.json", snapshot["inventory_bytes"])
+    # The exact consumer and source documents were frozen together in its
+    # batch directory. C rechecks their independent authority digest itself.
+    source_directory = adapter.parent
     variant = directory / "member.z64"
     _write_variant(variant, image, selector)
     record, capture = directory / "member-record.json", directory / "guest-capture.bin"
     command = [str(adapter), "--run-bound-local", "--local-only",
-        str(directory / "source-authority.json"), context["source_authority"]["sha256"],
-        str(directory / "inventory.json"), str(variant), str(len(image.base_bytes)),
+        str(source_directory / "source-authority.json"), context["source_authority"]["sha256"],
+        str(source_directory / "inventory.json"), str(variant), str(len(image.base_bytes)),
         selector["selected_rom_sha256"], str(cpu_runner.TICK_LIMIT),
         str(member["index"]), str(member["value_index"]), str(record), str(capture),
         hashlib.sha256(snapshot["context_bytes"]).hexdigest()]

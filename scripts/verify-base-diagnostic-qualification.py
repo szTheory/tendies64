@@ -329,7 +329,8 @@ def _verify_retained_execution_pair(context_root: pathlib.Path,
 
 
 def _verify_live_source_authority(repository_root: pathlib.Path,
-                                  projection: dict) -> None:
+                                  projection: dict, *,
+                                  source_closure_checked_by_rsp: bool = False) -> None:
     if repository_root == ROOT.resolve(strict=True):
         path = repository_root / "scripts/verify-cpu-diagnostic-qualification.py"
         spec = importlib.util.spec_from_file_location("t64_reviewed_cpu_source", path)
@@ -341,10 +342,11 @@ def _verify_live_source_authority(repository_root: pathlib.Path,
             if (projection.get("source_revision") != module.SOURCE_REVISION
                     or projection.get("projection_sha256") != module.SOURCE_PROJECTION_SHA256):
                 refuse("source projection differs from the independently reviewed seal")
-            receipt = repository_root / "build/private-cpu-diagnostic/qualification.json"
-            if receipt.is_symlink() or not receipt.is_file():
-                refuse("accepted CPU source qualification receipt is missing or linked")
-            module.validate(receipt, repository_root)
+            if not source_closure_checked_by_rsp:
+                receipt = repository_root / "build/private-cpu-diagnostic/qualification.json"
+                if receipt.is_symlink() or not receipt.is_file():
+                    refuse("accepted CPU source qualification receipt is missing or linked")
+                module.validate(receipt, repository_root)
         except Refusal:
             raise
         except Exception as exc:
@@ -541,7 +543,14 @@ def verify_and_dispatch(context_root: pathlib.Path, run_directory: pathlib.Path,
     _verify_retained_execution_pair(
         context_root, context, context_bytes, binding_bytes
     )
-    _verify_live_source_authority(repository_root, projection)
+    if version == 2:
+        # The fixed RSP provider above already performs CPU.validate. Keep the
+        # independent CPU anchor check here without repeating that entire audit.
+        # This flag is internal control flow, never a context/CLI field.
+        _verify_live_source_authority(repository_root, projection,
+            source_closure_checked_by_rsp=repository_root == ROOT.resolve(strict=True))
+    else:
+        _verify_live_source_authority(repository_root, projection)
 
     run_directory = run_directory.absolute()
     try:

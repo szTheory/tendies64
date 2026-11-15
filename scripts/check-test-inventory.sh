@@ -147,6 +147,7 @@ runner.base-diagnostic-protocol
 harness.base-classification
 harness.base-qualification
 harness.base-image
+harness.base-lanes
 harness.base-run'
 
 CPU_COVERAGE_OPCODES='ADD

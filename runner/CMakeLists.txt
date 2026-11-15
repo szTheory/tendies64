@@ -54,6 +54,11 @@ add_test(NAME harness.base-image
 set_tests_properties(harness.base-image PROPERTIES
   LABELS runner TIMEOUT 60 ENVIRONMENT "PYTHONDONTWRITEBYTECODE=1")
 
+add_test(NAME harness.base-lanes
+  COMMAND python3 -B ${CMAKE_SOURCE_DIR}/scripts/tests/test_base_lanes.py)
+set_tests_properties(harness.base-lanes PROPERTIES
+  LABELS runner TIMEOUT 60 ENVIRONMENT "PYTHONDONTWRITEBYTECODE=1")
+
 add_executable(t64-base-diagnostic t64_base_diagnostic.c)
 target_compile_definitions(t64-base-diagnostic PRIVATE
   ${T64_HOST_DEFS}

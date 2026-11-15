@@ -295,6 +295,11 @@ class BaseRunControls(unittest.TestCase):
                 self.assertEqual(report["members"][1]["outcome"], "blocked")
                 cases = list(context_root.glob("case-*"))
                 self.assertEqual(len(cases), 1)
+                self.assertFalse((cases[0] / "source-authority.json").exists())
+                self.assertFalse((cases[0] / "inventory.json").exists())
+                command = json.loads((cases[0] / "command.json").read_bytes())["argv"]
+                self.assertEqual(command[3], str(batches[0] / "source-authority.json"))
+                self.assertEqual(command[5], str(batches[0] / "inventory.json"))
                 native_record = json.loads((cases[0] / "member-record.json").read_bytes())
                 self.assertEqual(native_record["schema_version"], 2)
                 self.assertEqual(native_record["reason"], "adapter-harness-error")

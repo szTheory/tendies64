@@ -908,6 +908,9 @@ def qualify() -> None:
     add_binding(bindings, "boot", ROOT / "core/t64_machine.c", seen)
     add_binding(bindings, "boot", ROOT / "runner/t64_cold_boot.c", seen)
     add_binding(bindings, "build", ROOT / "scripts/run-base-diagnostic.py", seen)
+    lane_operator = ROOT / "scripts/base-diagnostic-lanes.py"
+    if lane_operator.exists() or lane_operator.is_symlink():
+        add_binding(bindings, "build", lane_operator, seen)
     add_binding(bindings, "build", ROOT / "scripts/run-cpu-diagnostic.py", seen)
     add_binding(bindings, "build", ROOT / "scripts/build-qualified-base-diagnostic.py", seen)
     add_binding(bindings, "build", ROOT / "scripts/derive-base-diagnostic-source.py", seen)
