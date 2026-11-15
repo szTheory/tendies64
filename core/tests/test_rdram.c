@@ -9,8 +9,10 @@
 
 #define IPL3_ASSET_BYTES 4096u
 #define TEST_RI_BASE UINT32_C(0x04700000)
+#define TEST_RI_MODE TEST_RI_BASE
 #define TEST_RI_CONFIG (TEST_RI_BASE + UINT32_C(4))
 #define TEST_RI_CURRENT_LOAD (TEST_RI_BASE + UINT32_C(8))
+#define TEST_RI_SELECT (TEST_RI_BASE + UINT32_C(12))
 
 typedef struct {
   t64_guest_device_state guest_devices;
@@ -293,6 +295,43 @@ static void advance_to_guest_tick(t64_machine *machine, uint64_t target_tick) {
   T64_CHECK_INT(result.tick, target_tick);
 }
 
+static void test_cold_ri_select_after_current_load(void) {
+  t64_machine *machine = NULL;
+  uint64_t deadline;
+  uint32_t selected = UINT32_C(0xfeedface);
+  t64_status status;
+
+  T64_CHECK(create_machine("ntsc-cart-4m-openipl3-rdram-b-t1-v1", &machine));
+  if (machine == NULL) {
+    return;
+  }
+  T64_CHECK_INT(t64_bus_write(machine, TEST_RI_CONFIG, 4u, UINT32_C(0x40)),
+                T64_STATUS_OK);
+  deadline = machine->guest_devices.rdram_protocol.ri_current_load_deadline_tick;
+  machine->queue_head = 0u;
+  machine->queue_count = 0u;
+  advance_to_guest_tick(machine, deadline);
+  T64_CHECK_INT(t64_bus_write(machine, TEST_RI_CURRENT_LOAD, 4u, 0u),
+                T64_STATUS_OK);
+
+  /* The pinned source's next cold operation enables RX/TX after calibration. */
+  status = t64_bus_write(machine, TEST_RI_SELECT, 4u, UINT32_C(0x14));
+  T64_CHECK_INT(status, T64_STATUS_OK);
+  if (status != T64_STATUS_OK) {
+    t64_machine_destroy(machine);
+    return;
+  }
+  T64_CHECK_INT(machine->guest_devices.ri_select, UINT32_C(0x14));
+  T64_CHECK_INT(t64_bus_read(machine, TEST_RI_SELECT, 4u,
+                             &selected),
+                T64_STATUS_OK);
+  T64_CHECK_INT(selected, UINT32_C(0x14));
+  T64_CHECK_INT(t64_bus_write(machine, TEST_RI_MODE, 4u, 0u),
+                T64_STATUS_OK);
+
+  t64_machine_destroy(machine);
+}
+
 static void prepare_variable_cost_sequence(t64_machine *machine,
                                           uint32_t instruction_count) {
   uint32_t index;
@@ -481,6 +520,7 @@ int main(void) {
   test_cold_command_requires_zero_selection();
   test_prepared_profile_does_not_admit_cold_registers();
   test_current_load_after_source_wait();
+  test_cold_ri_select_after_current_load();
   test_current_load_uses_guest_ticks_and_is_partition_invariant();
   test_first_cold_register_instruction();
   return T64_TEST_FINISH("unit.core.rdram-protocol");
