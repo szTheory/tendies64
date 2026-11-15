@@ -4,18 +4,18 @@ milestone: v1.0
 milestone_name: Verified Headless Core
 current_phase: 6
 current_phase_name: Cold Boot, CPU Timing and Full Base Suite
-current_plan: 03
+current_plan: 04
 status: executing
-stopped_at: Plans 01,09,02 closed with explicit evidence limits; continuing native RDRAM protocol. Plan02 guest attempt remains stopped.
-last_updated: "2026-11-15T09:58:37.520Z"
+stopped_at: Native RDRAM protocol verified; continuing CP0/T1 scheduler integration. Prior external attempt remains stopped.
+last_updated: "2026-11-15T11:57:04.036Z"
 last_activity: 2026-11-14
 last_activity_desc: Phase 6 execution started
-state_head: 086f3ee92f8b2d77134c50c575f6849360b13aae
+state_head: 3644db655d2a408b91afff0c07bb32b65a87502f
 progress:
   total_phases: 6
   completed_phases: 1
   total_plans: 73
-  completed_plans: 67
+  completed_plans: 68
   percent: 17
 ---
 
@@ -31,7 +31,7 @@ See: .planning/PROJECT.md (updated 2026-11-13)
 ## Current Position
 
 Phase: 6 (Cold Boot, CPU Timing and Full Base Suite) — EXECUTING
-Current Plan: 03
+Current Plan: 04
 Total Plans in Phase: 9
 Status: Executing Phase 6
 Last activity: 2026-11-14 — Phase 6 execution started
@@ -39,7 +39,7 @@ Last activity: 2026-11-14 — Phase 6 execution started
 Progress: [██░░░░░░░░] 17%
 
 Verified milestone ledger: Phases1–5 are complete (64 historical plans).
-Phase6 has three of nine source plans closed: 01,09,02. Its first external
+Phase6 has four of nine source plans closed: 01,09,02,03. Its first external
 invocation has no valid member result and a disclosed missing-executable
 retention gap; that attempt is stopped, while authorized native work continues.
 The generated percentage treats older verification fingerprints as stale; it
@@ -226,6 +226,6 @@ Items acknowledged and deferred at milestone close, most recent first:
 
 ## Session Continuity
 
-Last session: 2026-11-15T09:58:37.223Z
-Stopped at: Plans 01,09,02 closed with explicit evidence limits; continuing native RDRAM protocol. Plan02 guest attempt remains stopped.
-Resume file: .planning/phases/06-cold-boot-cpu-timing-and-full-base-suite/06-03-PLAN.md
+Last session: 2026-11-15T11:57:03.748Z
+Stopped at: Native RDRAM protocol verified; continuing CP0/T1 scheduler integration. Prior external attempt remains stopped.
+Resume file: .planning/phases/06-cold-boot-cpu-timing-and-full-base-suite/06-04-PLAN.md

@@ -28,6 +28,10 @@ applies that direction; update it when the owner changes policy.
   repeat checks only after relevant changes or an unresolved failure warrants
   them. Base progress and elapsed-time claims on commits, test results and
   timestamps rather than perceived activity.
+  Within one planned behavior task, reuse its formal RED milestone while
+  adding the remaining source-backed matrix. Retain intermediate failures,
+  but do not create another GSD classifier/commit/build cycle for each register.
+  Keep tests before the affected behavior and verify cohesive source changes.
   Once implementation checks pass, close the summary and state promptly; do
   not repeat broad tests or scans solely for bookkeeping changes. Report the
   specific remaining command if a handoff stalls.
