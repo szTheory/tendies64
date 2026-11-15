@@ -1121,6 +1121,86 @@ done:
   T64_CHECK_INT(allocator_state_value.outstanding, 0u);
 }
 
+static void test_cold_t1_profile_entry(
+    const uint8_t asset[IPL3_ASSET_BYTES], bool protocol) {
+  static const char *const profile_ids[] = {
+      "ntsc-cart-4m-openipl3-rdram-a-t1-v1",
+      "ntsc-cart-4m-openipl3-rdram-b-t1-v1",
+  };
+  allocator_state allocator_state_value = {0u};
+  const t64_host_allocator allocator = {
+      test_allocate, test_release, &allocator_state_value};
+  const t64_profile_descriptor *profile = NULL;
+  t64_machine *machine = NULL;
+  uint8_t initial_digest[T64_DIGEST_SIZE];
+  uint8_t changed_digest[T64_DIGEST_SIZE];
+  t64_stop_request request = {T64_STOP_GUEST_TICK, UINT64_C(1)};
+  t64_stop_result result = {UINT32_MAX, UINT64_MAX};
+  t64_status status;
+
+  status = t64_profile_lookup(profile_ids[protocol ? 1u : 0u], &profile);
+  T64_CHECK_INT(status, T64_STATUS_OK);
+  T64_CHECK(profile != NULL);
+  if (profile == NULL) {
+    return;
+  }
+  T64_CHECK_INT(profile->descriptor_version, 4u);
+  T64_CHECK_INT(profile->machine_model_version, protocol ? 8u : 7u);
+  T64_CHECK_INT(profile->state_serialization_version, 13u);
+  T64_CHECK_INT(profile->rdram_bytes, UINT32_C(4194304));
+  T64_CHECK_INT(profile->expansion_bytes, 0u);
+  T64_CHECK_INT(profile->cpu_rsp_ratio_numerator, 1u);
+  T64_CHECK_INT(profile->cpu_rsp_ratio_denominator, 1u);
+  T64_CHECK_STR(profile->guest_tick_unit, "model-rsp-cycle");
+  T64_CHECK_INT(t64_machine_create(&allocator, profile, &machine),
+                T64_STATUS_OK);
+  T64_CHECK(machine != NULL);
+  if (machine == NULL) {
+    goto done;
+  }
+  T64_CHECK_INT(t64_machine_admit_rom(machine, asset, IPL3_ASSET_BYTES),
+                T64_STATUS_OK);
+  T64_CHECK(machine->boot.prepared);
+  T64_CHECK_INT(machine->cpu.pc_full, UINT64_C(0xffffffffa4000040));
+  T64_CHECK_INT(machine->cpu.semantic_policy_version, 3u);
+  T64_CHECK_INT(machine->guest_devices.ri_select, protocol ? 0u : 5u);
+  T64_CHECK_INT(machine->rsp.sp_status, T64_RSP_STATUS_HALT);
+  T64_CHECK(t64_cpu_compat_zero_data_range(
+      machine, UINT32_C(0x00400010), 16u));
+  T64_CHECK(!t64_cpu_compat_zero_data_range(
+      machine, UINT32_C(0x03effff8), 16u));
+
+  T64_CHECK_INT(t64_machine_digest(machine, initial_digest), T64_STATUS_OK);
+  machine->guest_devices.ri_select ^= UINT32_C(1);
+  T64_CHECK_INT(t64_machine_digest(machine, changed_digest), T64_STATUS_OK);
+  T64_CHECK(memcmp(initial_digest, changed_digest, sizeof initial_digest) !=
+            0);
+  machine->guest_devices.ri_select ^= UINT32_C(1);
+
+  T64_CHECK_INT(t64_machine_advance(machine, &request, &result),
+                T64_STATUS_OK);
+  T64_CHECK_INT(result.reason, T64_STOP_REASON_BOUND);
+  T64_CHECK_INT(result.tick, 1u);
+  T64_CHECK_INT(machine->cpu.last_pc_full,
+                UINT64_C(0xffffffffa4000040));
+  T64_CHECK_INT(machine->cpu.last_opcode, UINT32_C(0x3044d236));
+  T64_CHECK_INT(machine->cpu.attempt_outcome, T64_CPU_ATTEMPT_RETIRED);
+  T64_CHECK_INT(machine->cpu.retired_instructions, 1u);
+  T64_CHECK_INT(machine->instruction_count, 1u);
+  T64_CHECK_INT(machine->cpu.pc_full, UINT64_C(0xffffffffa4000044));
+
+  machine->guest_devices.ri_select ^= UINT32_C(7);
+  T64_CHECK_INT(t64_machine_admit_rom(machine, asset, IPL3_ASSET_BYTES),
+                T64_STATUS_OK);
+  T64_CHECK_INT(machine->guest_devices.ri_select, protocol ? 0u : 5u);
+  T64_CHECK_INT(machine->cpu.retired_instructions, 0u);
+  T64_CHECK_INT(machine->cpu.pc_full, UINT64_C(0xffffffffa4000040));
+
+done:
+  t64_machine_destroy(machine);
+  T64_CHECK_INT(allocator_state_value.outstanding, 0u);
+}
+
 int main(void) {
   static const char expected_v6_profile_sha256[] =
       "5775f19766dc0ae070178dc87f2e6b0f11a9e5dc587fa380588f3b82b7d768d2";
@@ -1375,6 +1455,8 @@ int main(void) {
   test_vr4300_profile_entry(asset);
   test_vr4300_compat_profile_entry(asset, false);
   test_vr4300_compat_profile_entry(asset, true);
+  test_cold_t1_profile_entry(asset, false);
+  test_cold_t1_profile_entry(asset, true);
 
 done:
   t64_machine_destroy(machine);
