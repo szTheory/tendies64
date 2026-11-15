@@ -49,6 +49,21 @@ set_tests_properties(harness.base-qualification PROPERTIES
   LABELS runner TIMEOUT 180
   ENVIRONMENT "PYTHONDONTWRITEBYTECODE=1")
 
+add_executable(t64-base-diagnostic t64_base_diagnostic.c)
+target_compile_definitions(t64-base-diagnostic PRIVATE
+  ${T64_HOST_DEFS}
+  T64_BASE_PRIVATE_ROOT=\"${CMAKE_SOURCE_DIR}/build/private-base-diagnostic\")
+target_link_libraries(t64-base-diagnostic PRIVATE
+  t64_base_diag_protocol t64_cpu_diag_protocol t64_verified_input
+  t64_common t64_core)
+t64_target_warnings(t64-base-diagnostic)
+
+add_test(NAME harness.base-run
+  COMMAND python3 -B ${CMAKE_SOURCE_DIR}/scripts/tests/test_base_run.py)
+set_tests_properties(harness.base-run PROPERTIES
+  LABELS runner TIMEOUT 180
+  ENVIRONMENT "PYTHONDONTWRITEBYTECODE=1")
+
 add_executable(test_cpu_diag_protocol tests/test_cpu_diag_protocol.c)
 target_link_libraries(test_cpu_diag_protocol PRIVATE t64_cpu_diag_protocol)
 t64_target_warnings(test_cpu_diag_protocol)
