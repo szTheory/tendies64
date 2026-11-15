@@ -86,6 +86,14 @@ def registration_expression(source_lines: list[str], audit_row: dict) -> str:
         refuse("CPU overlay constructor recognizer cannot be loaded")
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)
+    # The audited parser can anchor a registration at its adjacent comment.
+    # Skip only contiguous blank/line-comment text, never another expression.
+    limit = min(anchor + 8, len(source_lines))
+    while anchor < limit and (not source_lines[anchor].strip() or
+                              source_lines[anchor].lstrip().startswith("//")):
+        anchor += 1
+    if anchor == limit:
+        refuse("registration constructor anchor contains no expression")
     try:
         return module.render_registration_expression(source_lines, anchor, constructor)
     except ValueError:
@@ -254,7 +262,15 @@ def render_testlist(selected: list[dict[str, object]]) -> bytes:
         "use super::Test;\n\n",
         "pub fn tests() -> Vec<(usize, Box<dyn Test>)> {\n    vec![\n",
     ]
+    emitted: dict[int, str] = {}
     for row in selected:
+        index = int(row["registration_index"])
+        expression = str(row["expression"])
+        if index in emitted:
+            if emitted[index] != expression:
+                refuse("one registration has conflicting pinned constructors")
+            continue
+        emitted[index] = expression
         lines.append(
             f"        ({row['registration_index']}usize, {row['expression']} as Box<dyn Test>),\n"
         )

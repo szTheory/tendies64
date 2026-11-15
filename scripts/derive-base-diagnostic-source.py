@@ -9,6 +9,7 @@ import json
 import os
 import pathlib
 import re
+import shutil
 import stat
 import sys
 import tempfile
@@ -283,16 +284,69 @@ def _verify_historical_archive(private_root: pathlib.Path) -> None:
         archived[row["path"]] = row["sha256"]
     if private_root.exists():
         controls = ("source-authority.json", "inventory.json", "context.json",
-                    "binding.json", "qualification.json")
+                    "binding.json", "qualification.json", "combined-image.json", "base.z64")
+        current: dict[str, bytes] = {}
         for path in private_root.iterdir():
             if (path.name not in controls and not path.name.startswith("status")):
                 continue
             if path.is_symlink():
                 refuse("active BASE control state is linked")
-            if path.is_file():
-                relative = path.relative_to(private_root).as_posix()
-                if archived.get(relative) != hashlib.sha256(path.read_bytes()).hexdigest():
-                    refuse("active BASE control state differs from the archived history")
+            before = path.lstat()
+            if (not stat.S_ISREG(before.st_mode) or stat.S_IMODE(before.st_mode) != 0o600 or
+                    before.st_size > 64 * 1024 * 1024):
+                refuse("active BASE control state is not a bounded private file")
+            descriptor = os.open(path, os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0) |
+                                 getattr(os, "O_NONBLOCK", 0))
+            with os.fdopen(descriptor, "rb") as stream:
+                opened = os.fstat(stream.fileno())
+                if (not stat.S_ISREG(opened.st_mode) or
+                        (opened.st_dev, opened.st_ino, opened.st_size) !=
+                        (before.st_dev, before.st_ino, before.st_size)):
+                    refuse("active BASE control state changed while opening")
+                data = stream.read(64 * 1024 * 1024 + 1)
+                after = os.fstat(stream.fileno())
+                if (len(data) != opened.st_size or
+                        (after.st_mtime_ns, after.st_ctime_ns, after.st_size) !=
+                        (opened.st_mtime_ns, opened.st_ctime_ns, opened.st_size)):
+                    refuse("active BASE control state changed while reading")
+            current[path.name] = data
+        if any(archived.get(name) != hashlib.sha256(data).hexdigest()
+               for name, data in current.items()):
+            _retain_control_inputs(archive.parent, current)
+
+
+def _retain_control_inputs(history_root: pathlib.Path, current: dict[str, bytes]) -> None:
+    """Keep staged/failed inputs without relabeling them as qualified results."""
+    manifest = canonical_bytes({"schema": "t64.base-control-input-archive.v1",
+        "purpose": "forensics-only", "files": [
+            {"path": name, "sha256": hashlib.sha256(data).hexdigest()}
+            for name, data in sorted(current.items())]})
+    destination = history_root / ("inputs-" + hashlib.sha256(manifest).hexdigest())
+    expected = {**current, "archive-manifest.json": manifest}
+    if not destination.exists() and not destination.is_symlink():
+        temporary = pathlib.Path(tempfile.mkdtemp(prefix=".inputs-", dir=history_root))
+        try:
+            for name, data in expected.items():
+                descriptor = os.open(temporary / name, os.O_WRONLY | os.O_CREAT | os.O_EXCL |
+                                     getattr(os, "O_NOFOLLOW", 0), 0o600)
+                with os.fdopen(descriptor, "wb") as stream:
+                    stream.write(data)
+                    stream.flush()
+                    os.fsync(stream.fileno())
+            os.rename(temporary, destination)
+        finally:
+            if temporary.exists():
+                shutil.rmtree(temporary)
+    if (destination.is_symlink() or not destination.is_dir() or
+            stat.S_IMODE(destination.stat().st_mode) != 0o700):
+        refuse("staged BASE input archive is unsafe")
+    if {path.name for path in destination.iterdir()} != set(expected):
+        refuse("staged BASE input archive has missing or extra files")
+    for name, data in expected.items():
+        path = destination / name
+        if (path.is_symlink() or not path.is_file() or
+                stat.S_IMODE(path.stat().st_mode) != 0o600 or path.read_bytes() != data):
+            refuse("staged BASE input archive differs from its original bytes")
 
 
 def _private_source_files(rows: object, label: str) -> dict[str, str]:

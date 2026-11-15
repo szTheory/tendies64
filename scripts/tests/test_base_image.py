@@ -7,6 +7,7 @@ import hashlib
 import importlib.util
 import json
 import pathlib
+import os
 import sys
 import tempfile
 import unittest
@@ -152,6 +153,50 @@ def fixture_inputs(root: pathlib.Path):
 
 
 class BaseImageControls(unittest.TestCase):
+    def test_partial_qualification_inputs_are_archived_before_rederivation(self) -> None:
+        from unittest.mock import patch
+        with tempfile.TemporaryDirectory(prefix="base-stage-history-") as temporary:
+            root = pathlib.Path(temporary)
+            private, original = root / "active", root / "history/precombined-active"
+            private.mkdir(mode=0o700)
+            original.mkdir(mode=0o700, parents=True)
+            old, partial = b"authored original authority\n", b"authored partial derivation\n"
+            for path, data in ((private / "source-authority.json", old),
+                               (original / "source-authority.json", old)):
+                path.write_bytes(data)
+                path.chmod(0o600)
+            manifest = {"schema": "t64.base-precombined-active-archive.v1", "source_present": True,
+                        "files": [{"path": "source-authority.json", "sha256": sha(old)}]}
+            (original / "archive-manifest.json").write_bytes(canonical(manifest))
+            (original / "archive-manifest.json").chmod(0o600)
+            (private / "source-authority.json").write_bytes(partial)
+            with patch.object(DERIVER, "HISTORICAL_ARCHIVE", original):
+                DERIVER._verify_historical_archive(private)
+                snapshots = list(original.parent.glob("inputs-*"))
+                self.assertEqual(len(snapshots), 1)
+                self.assertEqual((snapshots[0] / "source-authority.json").read_bytes(), partial)
+                self.assertEqual((original / "source-authority.json").read_bytes(), old)
+                DERIVER._verify_historical_archive(private)
+                self.assertEqual(list(original.parent.glob("inputs-*")), snapshots)
+                (snapshots[0] / "source-authority.json").write_bytes(b"tampered archive")
+                with self.assertRaises(DERIVER.Refusal):
+                    DERIVER._verify_historical_archive(private)
+
+    def test_constructor_anchor_skips_only_adjacent_comment_lines(self) -> None:
+        anchor = {"line": 0, "path": "authored::Selector"}
+        self.assertEqual(OVERLAY.registration_expression(
+            ["// authored registration note", "", "Box::new(authored::Selector {}),"], anchor),
+            "Box::new(authored::Selector {})")
+        with self.assertRaises(OVERLAY.Refusal):
+            OVERLAY.registration_expression(["// authored note",
+                "Box::new(authored::Foreign {}),", "Box::new(authored::Selector {}),"], anchor)
+
+    def test_constructor_is_emitted_once_per_registration(self) -> None:
+        rows = [{"registration_index": 7, "value_index": value,
+                 "expression": "Box::new(authored::Selector {})"} for value in (0, 1)]
+        rendered = OVERLAY.render_testlist(rows)
+        self.assertEqual(rendered.count(b"(7usize,"), 1)
+
     def test_build_command_starts_and_enforces_its_deadline(self) -> None:
         builder = load_module(ROOT / "scripts/build-qualified-base-diagnostic.py",
                               "t64_base_build_startup_test")
