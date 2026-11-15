@@ -212,6 +212,137 @@ def create_context(repository: pathlib.Path) -> pathlib.Path:
 
 
 class BaseQualificationControls(unittest.TestCase):
+    def test_base_derivation_filters_every_lane_by_pinned_levels(self) -> None:
+        projection = {
+            "registrations": [
+                {
+                    "effective_value_count": 1,
+                    "group": "cpu",
+                    "index": 0,
+                    "lane": "required-base",
+                    "level": "BasicFunctionality",
+                    "name": "cpu empty selector",
+                    "source_value_count": 0,
+                    "source_value_ids": ["cpu-once"],
+                    "values": [{"id": "cpu-once"}],
+                },
+                {
+                    "effective_value_count": 2,
+                    "group": "rdp",
+                    "index": 1,
+                    "lane": "skipped-non-cpu",
+                    "level": "RarelyUsed",
+                    "name": "non-cpu base values",
+                    "source_group": "rdp",
+                    "source_value_count": 2,
+                    "source_value_ids": ["rdp-a", "rdp-b"],
+                },
+                {
+                    "effective_value_count": 1,
+                    "group": "rdp",
+                    "index": 2,
+                    "lane": "skipped-non-cpu",
+                    "level": "Weird",
+                    "name": "non-cpu empty selector",
+                    "source_group": "rdp",
+                    "source_value_count": 0,
+                    "source_value_ids": ["rdp-once"],
+                },
+                {
+                    "effective_value_count": 1,
+                    "group": "rdp",
+                    "index": 3,
+                    "lane": "skipped-non-cpu",
+                    "level": "RDPBasic",
+                    "name": "non-cpu base rdp",
+                    "source_group": "rdp",
+                    "source_value_count": 1,
+                    "source_value_ids": ["base-rdp"],
+                },
+                {
+                    "effective_value_count": 1,
+                    "group": "rdp",
+                    "index": 4,
+                    "lane": "skipped-non-cpu",
+                    "level": "RDPPrecise",
+                    "name": "non-cpu base precise",
+                    "source_group": "rdp",
+                    "source_value_count": 1,
+                    "source_value_ids": ["base-precise"],
+                },
+                {
+                    "effective_value_count": 1,
+                    "group": "timing",
+                    "index": 5,
+                    "lane": "skipped-non-cpu",
+                    "level": "Timing",
+                    "name": "outside base timing",
+                    "source_group": "timing",
+                    "source_value_count": 1,
+                    "source_value_ids": ["outside-timing"],
+                },
+                {
+                    "effective_value_count": 1,
+                    "group": "stress",
+                    "index": 6,
+                    "lane": "skipped-non-cpu",
+                    "level": "Cycle",
+                    "name": "outside base cycle",
+                    "source_group": "stress",
+                    "source_value_count": 1,
+                    "source_value_ids": ["outside-cycle"],
+                },
+                {
+                    "effective_value_count": 1,
+                    "group": "stress",
+                    "index": 7,
+                    "lane": "skipped-non-cpu",
+                    "level": "COP0Hazard",
+                    "name": "outside base cop0 hazard",
+                    "source_group": "stress",
+                    "source_value_count": 1,
+                    "source_value_ids": ["outside-cop0"],
+                },
+                {
+                    "effective_value_count": 1,
+                    "group": "stress",
+                    "index": 8,
+                    "lane": "skipped-non-cpu",
+                    "level": "PoorlyUnderstoodQuirk",
+                    "name": "outside base quirk",
+                    "source_group": "stress",
+                    "source_value_count": 1,
+                    "source_value_ids": ["outside-quirk"],
+                },
+                {
+                    "effective_value_count": 1,
+                    "group": "stress",
+                    "index": 9,
+                    "lane": "skipped-non-cpu",
+                    "level": "StressTest",
+                    "name": "outside base stress",
+                    "source_group": "stress",
+                    "source_value_count": 1,
+                    "source_value_ids": ["outside-stress"],
+                },
+            ],
+        }
+
+        members = load_deriver().derive_members(projection)
+        self.assertEqual(
+            [(member["index"], member["level"], member["name"],
+              member["value_id"], member["execution"], member["lane"])
+             for member in members],
+            [
+                (0, "BasicFunctionality", "cpu empty selector", "", "once", "required-base"),
+                (1, "RarelyUsed", "non-cpu base values", "rdp-a", "blocked", "blocked-non-cpu"),
+                (1, "RarelyUsed", "non-cpu base values", "rdp-b", "blocked", "blocked-non-cpu"),
+                (2, "Weird", "non-cpu empty selector", "", "blocked", "blocked-non-cpu"),
+                (3, "RDPBasic", "non-cpu base rdp", "base-rdp", "blocked", "blocked-non-cpu"),
+                (4, "RDPPrecise", "non-cpu base precise", "base-precise", "blocked", "blocked-non-cpu"),
+            ],
+        )
+
     def test_retained_executable_pair_survives_live_build_overwrite(self) -> None:
         with tempfile.TemporaryDirectory(prefix="base-retained-pair-") as temp:
             repository = pathlib.Path(temp)

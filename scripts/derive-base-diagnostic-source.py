@@ -18,6 +18,9 @@ ROOT = pathlib.Path(__file__).resolve().parents[1]
 DEFAULT_PRIVATE = ROOT / "build/private-base-diagnostic"
 PROJECTION = ROOT / "build/private-cpu-diagnostic/source-projection.json"
 HEX40 = re.compile(r"^[0-9a-f]{40}$")
+BASE_LEVELS = frozenset({
+    "BasicFunctionality", "RarelyUsed", "Weird", "RDPBasic", "RDPPrecise",
+})
 
 
 class Refusal(ValueError):
@@ -63,7 +66,8 @@ def derive_members(projection: dict) -> list[dict[str, object]]:
         if not isinstance(row, dict) or row.get("index") != ordinal:
             refuse("source projection registration order is malformed")
         lane = row.get("lane")
-        if lane not in {"required-base", "skipped-non-cpu"}:
+        if (lane not in {"required-base", "skipped-non-cpu"}
+                or row.get("level") not in BASE_LEVELS):
             continue
         source_count = row.get("source_value_count")
         effective_count = row.get("effective_value_count")
