@@ -94,8 +94,8 @@ capacity alone is not used to claim physical topology.
 
 The mode command with auto-current bit `0x80` records that the software sent
 its auto-current command. The model does not simulate the source's analog
-search or choose a numeric calibration current. Its mode-register readback is
-the last modeled command word. After that command, the modeled type-register
+search or choose a numeric calibration current. AUTO readback uses the
+functional feedback rule below. After that command, the modeled type-register
 word is `0x000019b4` (row bits 9, bank bits 1, column bits 11, ninth bit 1,
 other decoded fields zero), solely to make the source's 2 MiB geometry branch
 deterministic. Manufacturer value zero is an explicit unknown sentinel, not a
@@ -103,6 +103,27 @@ vendor identity. These values are model assumptions, not hardware
 measurements. The test's `0xdeadbeef` delay and `0x12345678` refresh/RAS words
 are authored opaque payloads used to check storage and byte order; they are
 not copied calibration or timing constants.
+
+### Functional calibration feedback v1
+
+The permitted routine's zero-origin sweep has deterministic software feedback:
+manual logical CCI zero hides read output, while nonzero manual codes and AUTO
+expose stored data. Writes and backing bytes remain intact. AUTO returns the
+requested logical CCI in the six source-defined current fields instead of
+echoing the complemented programming bits. This is a selected software
+handshake, not an analog threshold, measured current or hardware-accuracy
+claim. The guest's calibration/capacity loops remain intact. No PC, ROM,
+transcript or completion check selects this behavior.
+
+One pure visibility owner serves byte/word/wide bus reads, instruction/data
+cache hits and misses, and both SP DMA read paths. Cache storage keeps its
+ordinary contents; filtering at consumption avoids storing synthetic zeros in
+cache lines. A later manual-zero command hides output again. Controlling mode
+and state fields already belong to state v13; RI reset clears them. There is
+no read-side counter, host input or hidden state. Independent native sequences
+cover both logical slots, preserved backing, AUTO readback, cache hits, DMA,
+later mode changes and reset. Earlier raw-echo AUTO assertions describe the
+incomplete model and are replaced by literal logical-CCI expectations.
 
 ### Accepted words and refusals
 
@@ -120,7 +141,7 @@ labels the source's logical value where it helps explain a transition.
 | `0x04700000` RI_MODE | `0` after RI_SELECT, then `0x0e` after the first `tick + 0x100` deadline | Reads the last mode command; reset initializes the two logical slots and clears repeat/capacity progress; standard mode starts a second deadline | Wrong value/order or early standard-mode write; reset deliberately restarts the device sequence |
 | `0x04300000` MI_MODE | `0x10f` after standard mode's deadline; `0x80` clears repeat | Reads `0x10f` while repeat length 16 is enabled, otherwise `0`; repeated identical commands are idempotent | Other repeat encodings or before RI is ready; MI pending/mask state remains separately owned |
 | `0x03f80000 + reg*4` broadcast | `reg 2` opaque delay word after repeat; then `reg 1` logical ID 511, `reg 3` logical mode `0x44`, and `reg 5` logical row zero, in that order | Applies the modeled register word to both logical slots | Broadcast reads, wrong values/order, unsupported registers, or missing repeat mode |
-| `0x03f00000 + id*0x400 + reg*4` device register | ID register 1 remaps 511→0 then 511→2; mode register 3 accepts source enable word `0x46` and later mode commands retaining its device-enable bits; delay 2 and RAS interval 6 are opaque stored words | ID/mode/delay/RAS reads return the modeled word in wire byte order. After the auto-current command, type register 0 returns wire word `0xb4190000`; manufacturer register 9 returns unknown sentinel zero | Wrong ID/order, missing device, unmodeled register, mode without device-enable, or RAS before the auto-current command |
+| `0x03f00000 + id*0x400 + reg*4` device register | ID register 1 remaps 511→0 then 511→2, then valid packed IDs without collision; mode register 3 accepts source enable word `0x46` and later mode commands retaining its device-enable bits; delay 2 and RAS interval 6 are opaque stored words | ID/delay/RAS and manual-mode reads echo in wire byte order; AUTO current fields use functional feedback v1. After the auto-current command, type register 0 returns wire word `0xb4190000`; manufacturer register 9 returns unknown sentinel zero | Wrong ID/order, missing device, unmodeled register, mode without device-enable, or RAS before the auto-current command |
 | Device ID 4 / mode register 3 | The next source probe's ID assignment and enable write are accepted as an absent logical slot after IDs 0 and 2 complete the modeled auto-current command | Mode read returns zero and marks the scan complete; logical capacity becomes the profile's 4 MiB backing | The model does not expose an extra slot or alias above the installed extent |
 | `0x04700010` RI_REFRESH | Any aligned word, including after the source's zero-weighted calibration branch and before capacity enumeration | Reads back the same word; no refresh timing is simulated | Unsupported access widths |
 | `0x04700014` RI_LATENCY and all other unlisted registers | None | No modeled effect | `T64_STATUS_BUS_UNSUPPORTED` |

@@ -855,6 +855,8 @@ t64_status t64_rdram_read(const t64_machine *machine, uint32_t address,
                           uint32_t width, uint32_t *value_out);
 t64_status t64_rdram_write(t64_machine *machine, uint32_t address,
                            uint32_t width, uint32_t value);
+uint64_t t64_rdram_filter_read(const t64_machine *machine, uint32_t address,
+                               uint32_t width, uint64_t value);
 bool t64_isviewer_active(const t64_machine *machine);
 t64_status t64_isviewer_read(const t64_machine *machine, uint32_t address,
                              uint32_t width, uint32_t *value_out);

@@ -471,6 +471,9 @@ t64_status t64_bus_read(t64_machine *machine, uint32_t address,
     return T64_STATUS_BUS_RANGE;
   }
   value = read_big_endian(bytes, width);
+  if (region == T64_BUS_REGION_RDRAM) {
+    value = (uint32_t)t64_rdram_filter_read(machine, address, width, value);
+  }
   *value_out = value;
   trace_bus(machine, address, width, value, false);
   return T64_STATUS_OK;
@@ -515,6 +518,9 @@ t64_status t64_bus_read_wide(t64_machine *machine, uint32_t address,
     return T64_STATUS_BUS_RANGE;
   }
   *value_out = read_big_endian_64(bytes);
+  if (region == T64_BUS_REGION_RDRAM) {
+    *value_out = t64_rdram_filter_read(machine, address, 8u, *value_out);
+  }
   return T64_STATUS_OK;
 }
 

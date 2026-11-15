@@ -598,7 +598,8 @@ void t64_sp_rsp_dma_commit(t64_machine *machine,
 
       if (step->dram_to_sp) {
         sp_bank[internal_byte] =
-            warm_zero_source ? 0u : machine->ram[dram_byte];
+            warm_zero_source ? 0u : (uint8_t)t64_rdram_filter_read(
+                machine, dram_byte, 1u, machine->ram[dram_byte]);
         t64_cpu_link_invalidate_range(
             machine,
             (step->imem ? T64_SP_IMEM_BASE : T64_SP_DMEM_BASE) +
@@ -961,7 +962,8 @@ t64_status t64_sp_complete(t64_machine *machine, const t64_event *event) {
       }
       if (descriptor->dram_to_sp) {
         sp_bank[internal_offset] =
-            warm_zero_source ? 0u : machine->ram[dram_offset];
+            warm_zero_source ? 0u : (uint8_t)t64_rdram_filter_read(
+                machine, (uint32_t)dram_offset, 1u, machine->ram[dram_offset]);
         t64_cpu_link_invalidate_range(
             machine,
             (descriptor->imem ? T64_SP_IMEM_BASE : T64_SP_DMEM_BASE) +

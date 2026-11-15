@@ -25,6 +25,8 @@
 #define T64_RDRAM_BROADCAST_MODE UINT32_C(0x00000044)
 #define T64_RDRAM_DEVICE_MODE UINT32_C(0x00000046)
 #define T64_RDRAM_MODEL_DEVICE_TYPE_2M UINT32_C(0x000019b4)
+/* Functional feedback v1: source CCVALUE bit positions, not analog current. */
+#define T64_RDRAM_CURRENT_FIELDS UINT32_C(0xc0c0c000)
 
 #define T64_RI_MODE_ADDRESS UINT32_C(0x04700000)
 #define T64_RI_CONFIG_ADDRESS UINT32_C(0x04700004)
@@ -383,6 +385,11 @@ static t64_status read_device_register(const t64_rdram_protocol_state *protocol,
     }
     /* Zero is a versioned unknown-manufacturer sentinel, not a vendor ID. */
     value = 0u;
+  } else if (reg == T64_RDRAM_REG_MODE &&
+             device->calibration_state == T64_RDRAM_CALIBRATION_AUTO_COMMAND) {
+    /* Report logical requested CCI. The source writes its complement into
+     * these fields. This deterministic feedback is not a measured current. */
+    value = device->register_values[reg] ^ T64_RDRAM_CURRENT_FIELDS;
   } else if ((device->registers_known & register_bit(reg)) != 0u) {
     value = device->register_values[reg];
   } else {
@@ -390,6 +397,32 @@ static t64_status read_device_register(const t64_rdram_protocol_state *protocol,
   }
   *value_out = swap_u32(value);
   return T64_STATUS_OK;
+}
+
+uint64_t t64_rdram_filter_read(const t64_machine *machine, uint32_t address,
+                               uint32_t width, uint64_t value) {
+  uint32_t byte;
+  if (!t64_has_rdram_protocol_policy(machine) || width == 0u || width > 8u) {
+    return value;
+  }
+  for (byte = 0u; byte < width; byte++) {
+    uint64_t location = (uint64_t)address + byte;
+    uint64_t slot = location / T64_RDRAM_PROTOCOL_SLOT_BYTES;
+    const t64_rdram_device_state *device;
+    if (location >= machine->profile.rdram_bytes ||
+        slot >= T64_RDRAM_PROTOCOL_SLOT_COUNT) continue;
+    device = &machine->guest_devices.rdram_protocol.devices[(size_t)slot];
+    /* The permitted algorithm starts its manual sweep at logical CCI0.
+     * Versioned software feedback makes that origin unready, and nonzero
+     * codes ready. Backing/writes remain intact; no read-side counter or
+     * host state exists. Later mode changes obey the same rule. */
+    if (device->calibration_state == T64_RDRAM_CALIBRATION_MANUAL_COMMAND &&
+        (device->register_values[T64_RDRAM_REG_MODE] &
+         T64_RDRAM_CURRENT_FIELDS) == T64_RDRAM_CURRENT_FIELDS) {
+      value &= ~(UINT64_C(0xff) << ((width - 1u - byte) * 8u));
+    }
+  }
+  return value;
 }
 
 t64_status t64_rdram_read(const t64_machine *machine, uint32_t address,

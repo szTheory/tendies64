@@ -175,6 +175,8 @@ t64_status t64_cpu_icache_fetch(t64_machine *machine,
                   ((uint32_t)line->data[offset + 1u] << 16) |
                   ((uint32_t)line->data[offset + 2u] << 8) |
                   (uint32_t)line->data[offset + 3u];
+    *opcode_out = (uint32_t)t64_rdram_filter_read(
+        machine, physical_address, 4u, *opcode_out);
     return T64_STATUS_OK;
   }
 
@@ -190,6 +192,8 @@ t64_status t64_cpu_icache_fetch(t64_machine *machine,
                 ((uint32_t)line->data[offset + 1u] << 16) |
                 ((uint32_t)line->data[offset + 2u] << 8) |
                 (uint32_t)line->data[offset + 3u];
+  *opcode_out = (uint32_t)t64_rdram_filter_read(
+      machine, physical_address, 4u, *opcode_out);
   return T64_STATUS_OK;
 }
 
@@ -356,7 +360,7 @@ t64_status t64_cpu_dcache_read(t64_machine *machine,
   for (index = 0u; index < width; index++) {
     value = (value << 8) | line->data[offset + index];
   }
-  *value_out = value;
+  *value_out = t64_rdram_filter_read(machine, physical_address, width, value);
   return T64_STATUS_OK;
 }
 

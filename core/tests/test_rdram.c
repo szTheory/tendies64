@@ -523,7 +523,8 @@ static void test_rdram_broadcast_devices_calibration_and_capacity(void) {
   T64_CHECK_INT(read_upper_rdram_register(
                     machine, TEST_RDRAM_REGS + UINT32_C(12), &readback),
                 T64_STATUS_OK);
-  T64_CHECK_INT(readback, UINT32_C(0xc6000000));
+  /* AUTO command with raw CC0 requests logical CCI63 in feedback v1. */
+  T64_CHECK_INT(readback, UINT32_C(0xc6c0c0c0));
   T64_CHECK_INT(t64_rdram_read(machine, TEST_RDRAM_REGS, 4u, &readback),
                 T64_STATUS_OK);
   T64_CHECK_INT(readback, UINT32_C(0xb4190000));
@@ -553,7 +554,7 @@ static void test_rdram_broadcast_devices_calibration_and_capacity(void) {
   T64_CHECK_INT(read_upper_rdram_register(
                     machine, TEST_RDRAM_SLOT2 + UINT32_C(12), &readback),
                 T64_STATUS_OK);
-  T64_CHECK_INT(readback, UINT32_C(0xc6000000));
+  T64_CHECK_INT(readback, UINT32_C(0xc6c0c0c0));
   before = capture_latches(machine);
   T64_CHECK_INT(t64_rdram_write(machine,
                                 TEST_RDRAM_SLOT2 + UINT32_C(12), 2u,
@@ -1258,7 +1259,74 @@ static void test_first_cold_register_instruction(void) {
   t64_machine_destroy(machine);
 }
 
+static void test_versioned_calibration_feedback(void) {
+  t64_machine *machine = NULL;
+  uint32_t value = 0u;
+  uint64_t wide = 0u;
+  uint32_t slot;
+  T64_CHECK(create_machine("ntsc-cart-4m-openipl3-rdram-b-t1-v1", &machine));
+  if (machine == NULL) return;
+  T64_CHECK(prepare_cold_rdram_register_access(machine));
+  T64_CHECK_INT(t64_mi_register_write(machine, TEST_MI_MODE, 0x10fu), T64_STATUS_OK);
+  T64_CHECK_INT(t64_rdram_write(machine, TEST_RDRAM_BROADCAST + 8u, 4u, 0xefbeaddeu), T64_STATUS_OK);
+  T64_CHECK_INT(t64_rdram_write(machine, TEST_RDRAM_BROADCAST + 4u, 4u, 0xfc800300u), T64_STATUS_OK);
+  T64_CHECK_INT(t64_rdram_write(machine, TEST_RDRAM_BROADCAST + 12u, 4u, 0x44000000u), T64_STATUS_OK);
+  T64_CHECK_INT(t64_rdram_write(machine, TEST_RDRAM_BROADCAST + 20u, 4u, 0u), T64_STATUS_OK);
+  for (slot = 0u; slot < 2u; slot++) {
+    uint32_t reg = TEST_RDRAM_REGS + slot * 0x800u + 12u;
+    uint32_t address = slot * 0x200000u + 0x1000u;
+    uint64_t cached = UINT64_C(0xffffffff80000000) | address;
+    T64_CHECK_INT(t64_rdram_write(machine, TEST_RDRAM_ID511 + 4u, 4u,
+                                  slot == 0u ? 0u : 0x08000000u), T64_STATUS_OK);
+    T64_CHECK_INT(t64_rdram_write(machine, reg, 4u, 0x46000000u), T64_STATUS_OK);
+    T64_CHECK_INT(t64_bus_write(machine, address, 4u, UINT32_MAX), T64_STATUS_OK);
+    T64_CHECK_INT(t64_bus_write(machine, address + 4u, 4u, UINT32_MAX), T64_STATUS_OK);
+    /* Source loop origin CCI0: bits63 are packed at 30,22,14,31,23,15.
+     * These literal wire words are independent linked instruction fields. */
+    T64_CHECK_INT(t64_rdram_write(machine, reg, 4u, 0x46c0c0c0u), T64_STATUS_OK);
+    T64_CHECK_INT(t64_bus_read(machine, address + 5u, 1u, &value), T64_STATUS_OK);
+    T64_CHECK_INT(value, 0u);
+    T64_CHECK_INT(t64_bus_read_wide(machine, address, &wide), T64_STATUS_OK);
+    T64_CHECK_INT(wide, 0u);
+    T64_CHECK_INT(t64_cpu_dcache_read(machine, cached, address, 8u, &wide), T64_STATUS_OK);
+    T64_CHECK_INT(wide, 0u);
+    T64_CHECK_INT(t64_cpu_icache_fetch(machine, cached, address, &value), T64_STATUS_OK);
+    T64_CHECK_INT(value, 0u);
+    T64_CHECK_INT(machine->ram[address + 5u], 0xffu);
+    T64_CHECK_INT(t64_bus_write(machine, 0x04040000u, 4u, 0u), T64_STATUS_OK);
+    T64_CHECK_INT(t64_bus_write(machine, 0x04040004u, 4u, address), T64_STATUS_OK);
+    T64_CHECK_INT(t64_bus_write(machine, 0x04040008u, 4u, 7u), T64_STATUS_OK);
+    advance_to_guest_tick(machine, machine->tick + 64u);
+    T64_CHECK_INT(machine->sp_dmem[5], 0u);
+    /* Next manual code CCI1 makes data visible, including existing cache hits. */
+    T64_CHECK_INT(t64_rdram_write(machine, reg, 4u, 0x46c0c080u), T64_STATUS_OK);
+    T64_CHECK_INT(t64_bus_read(machine, address + 5u, 1u, &value), T64_STATUS_OK);
+    T64_CHECK_INT(value, 0xffu);
+    T64_CHECK_INT(t64_cpu_dcache_read(machine, cached, address, 8u, &wide), T64_STATUS_OK);
+    T64_CHECK_INT(wide, UINT64_MAX);
+    T64_CHECK_INT(t64_cpu_icache_fetch(machine, cached, address, &value), T64_STATUS_OK);
+    T64_CHECK_INT(value, UINT32_MAX);
+    T64_CHECK_INT(t64_bus_write(machine, 0x04040000u, 4u, 0u), T64_STATUS_OK);
+    T64_CHECK_INT(t64_bus_write(machine, 0x04040004u, 4u, address), T64_STATUS_OK);
+    T64_CHECK_INT(t64_bus_write(machine, 0x04040008u, 4u, 7u), T64_STATUS_OK);
+    advance_to_guest_tick(machine, machine->tick + 64u);
+    T64_CHECK_INT(machine->sp_dmem[5], 0xffu);
+    /* AUTO requested logical CCI2 reads back CCI2, not analog current. */
+    T64_CHECK_INT(t64_rdram_write(machine, reg, 4u, 0xc6c080c0u), T64_STATUS_OK);
+    T64_CHECK_INT(read_upper_rdram_register(machine, reg, &value), T64_STATUS_OK);
+    T64_CHECK_INT(value, 0xc6004000u);
+    T64_CHECK_INT(t64_rdram_write(machine, reg, 4u, 0x46c0c0c0u), T64_STATUS_OK);
+    T64_CHECK_INT(t64_cpu_dcache_read(machine, cached, address, 8u, &wide), T64_STATUS_OK);
+    T64_CHECK_INT(wide, 0u);
+  }
+  T64_CHECK_INT(t64_bus_write(machine, TEST_RI_MODE, 4u, 0u), T64_STATUS_OK);
+  T64_CHECK_INT(machine->guest_devices.rdram_protocol.devices[0].calibration_state,
+                T64_RDRAM_CALIBRATION_NONE);
+  t64_machine_destroy(machine);
+}
+
 int main(void) {
+  test_versioned_calibration_feedback();
   test_new_command_is_refused_by_legacy_profile();
   test_cold_command_requires_zero_selection();
   test_prepared_profile_does_not_admit_cold_registers();
