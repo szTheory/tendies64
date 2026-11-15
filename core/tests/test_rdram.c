@@ -19,6 +19,8 @@
 #define TEST_RDRAM_REGS UINT32_C(0x03f00000)
 #define TEST_RDRAM_BROADCAST UINT32_C(0x03f80000)
 #define TEST_RDRAM_ID511 (TEST_RDRAM_REGS + UINT32_C(0x7fc00))
+#define TEST_RDRAM_ID509 (TEST_RDRAM_REGS + UINT32_C(0x7f400))
+#define TEST_RDRAM_ID510 (TEST_RDRAM_REGS + UINT32_C(0x7f800))
 #define TEST_RDRAM_SLOT2 (TEST_RDRAM_REGS + UINT32_C(0x800))
 #define TEST_RDRAM_SLOT4 (TEST_RDRAM_REGS + UINT32_C(0x1000))
 
@@ -645,6 +647,80 @@ static void test_mi_upper_mode_commands_follow_pinned_source(void) {
   t64_machine_destroy(machine);
 }
 
+static void test_source_invalid_device_id_refusal_preserves_protocol_state(
+    void) {
+  t64_machine *machine = NULL;
+  rdram_latch_snapshot before;
+  uint32_t readback = UINT32_C(0xfeedface);
+
+  T64_CHECK(create_machine("ntsc-cart-4m-openipl3-rdram-b-t1-v1", &machine));
+  if (machine == NULL) {
+    return;
+  }
+  T64_CHECK(prepare_cold_rdram_register_access(machine));
+  T64_CHECK_INT(t64_mi_register_write(machine, TEST_MI_MODE,
+                                      UINT32_C(0x10f)),
+                T64_STATUS_OK);
+  T64_CHECK_INT(t64_rdram_write(machine, TEST_RDRAM_BROADCAST + UINT32_C(8),
+                                4u, UINT32_C(0xefbeadde)),
+                T64_STATUS_OK);
+  T64_CHECK_INT(t64_rdram_write(machine, TEST_RDRAM_BROADCAST + UINT32_C(4),
+                                4u, UINT32_C(0xfc800300)),
+                T64_STATUS_OK);
+  T64_CHECK_INT(t64_rdram_write(machine, TEST_RDRAM_BROADCAST + UINT32_C(12),
+                                4u, UINT32_C(0x44000000)),
+                T64_STATUS_OK);
+  T64_CHECK_INT(t64_rdram_write(machine, TEST_RDRAM_BROADCAST + UINT32_C(20),
+                                4u, 0u),
+                T64_STATUS_OK);
+  T64_CHECK_INT(t64_rdram_write(machine, TEST_RDRAM_ID511 + UINT32_C(4),
+                                4u, 0u),
+                T64_STATUS_OK);
+  T64_CHECK_INT(t64_rdram_write(machine, TEST_RDRAM_ID511 + UINT32_C(4),
+                                4u, UINT32_C(0x08000000)),
+                T64_STATUS_OK);
+  T64_CHECK_INT(t64_rdram_write(machine, TEST_RDRAM_REGS + UINT32_C(12),
+                                4u, UINT32_C(0x46000000)),
+                T64_STATUS_OK);
+
+  /* Pinned boot/rdram.c writes INVALID_ID=511-2 (509) after its
+     software calibration reports zero. The ID field encodes values through
+     511, so the mapped device accepts this source-reached remap. */
+  before = capture_latches(machine);
+  T64_CHECK_INT(t64_rdram_write(machine, TEST_RDRAM_REGS + UINT32_C(4),
+                                4u, UINT32_C(0xf4800300)),
+                T64_STATUS_OK);
+  before.guest_devices.rdram_protocol.devices[0].device_id = 509u;
+  before.guest_devices.rdram_protocol.devices[0]
+      .register_values[1] = UINT32_C(509);
+  check_latches_unchanged(machine, &before);
+  T64_CHECK_INT(machine->guest_devices.rdram_protocol.devices[0].device_id,
+                509u);
+  T64_CHECK(!machine->guest_devices.rdram_protocol.capacity_scan_complete);
+  T64_CHECK_INT(read_upper_rdram_register(
+                    machine, TEST_RDRAM_ID509 + UINT32_C(4), &readback),
+                T64_STATUS_OK);
+  T64_CHECK_INT(readback, UINT32_C(0xf4800300));
+  T64_CHECK_INT(read_upper_rdram_register(
+                    machine, TEST_RDRAM_REGS + UINT32_C(4), &readback),
+                T64_STATUS_BUS_DEVICE_REFUSED);
+  T64_CHECK_INT(t64_rdram_write(machine, TEST_RDRAM_ID509 + UINT32_C(4),
+                                4u, UINT32_C(0xF8800300)),
+                T64_STATUS_OK);
+  T64_CHECK_INT(machine->guest_devices.rdram_protocol.devices[0].device_id,
+                510u);
+  before = capture_latches(machine);
+  T64_CHECK_INT(t64_rdram_write(machine, TEST_RDRAM_ID510 + UINT32_C(4),
+                                4u, UINT32_C(0x08000000)),
+                T64_STATUS_BUS_DEVICE_REFUSED);
+  check_latches_unchanged(machine, &before);
+  T64_CHECK_INT(read_upper_rdram_register(
+                    machine, TEST_RDRAM_ID510 + UINT32_C(4), &readback),
+                T64_STATUS_OK);
+  T64_CHECK_INT(readback, UINT32_C(0xf8800300));
+  t64_machine_destroy(machine);
+}
+
 static void prepare_variable_cost_sequence(t64_machine *machine,
                                           uint32_t instruction_count) {
   uint32_t index;
@@ -1176,6 +1252,7 @@ int main(void) {
   test_current_load_uses_guest_ticks_and_is_partition_invariant();
   test_rdram_broadcast_devices_calibration_and_capacity();
   test_mi_upper_mode_commands_follow_pinned_source();
+  test_source_invalid_device_id_refusal_preserves_protocol_state();
   test_bus_routes_cold_rdram_device_registers();
   test_rdram_protocol_instances_are_independent();
   test_rdram_protocol_state_changes_only_v13_digest();

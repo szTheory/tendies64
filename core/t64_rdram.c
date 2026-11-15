@@ -263,6 +263,7 @@ static t64_status write_device_register(t64_machine *machine, uint16_t id,
 
   if (reg == T64_RDRAM_REG_DEVICE_ID) {
     uint16_t new_id = decode_device_id(value);
+    t64_rdram_device_state *existing;
 
     if (new_id == UINT16_MAX) {
       return T64_STATUS_BUS_DEVICE_REFUSED;
@@ -275,18 +276,24 @@ static t64_status write_device_register(t64_machine *machine, uint16_t id,
       }
       return T64_STATUS_BUS_DEVICE_REFUSED;
     }
-    if (id != T64_RDRAM_INITIAL_DEVICE_ID ||
-        (new_id != T64_RDRAM_FIRST_DEVICE_ID &&
-         new_id != T64_RDRAM_SECOND_DEVICE_ID)) {
-      return T64_STATUS_BUS_DEVICE_REFUSED;
-    }
-    if ((device == &protocol->devices[0] &&
-         new_id != T64_RDRAM_FIRST_DEVICE_ID) ||
-        (device == &protocol->devices[1] &&
-         new_id != T64_RDRAM_SECOND_DEVICE_ID) ||
-        (protocol->broadcast_registers_known &
+    if ((protocol->broadcast_registers_known &
          register_bit(T64_RDRAM_REG_REF_ROW)) == 0u) {
       return T64_STATUS_BUS_DEVICE_REFUSED;
+    }
+    if (id == T64_RDRAM_INITIAL_DEVICE_ID) {
+      if ((new_id != T64_RDRAM_FIRST_DEVICE_ID &&
+           new_id != T64_RDRAM_SECOND_DEVICE_ID) ||
+          (device == &protocol->devices[0] &&
+           new_id != T64_RDRAM_FIRST_DEVICE_ID) ||
+          (device == &protocol->devices[1] &&
+           new_id != T64_RDRAM_SECOND_DEVICE_ID)) {
+        return T64_STATUS_BUS_DEVICE_REFUSED;
+      }
+    } else {
+      existing = find_device(protocol, new_id);
+      if (existing != NULL && existing != device) {
+        return T64_STATUS_BUS_DEVICE_REFUSED;
+      }
     }
     device->device_id = new_id;
     device->device_id_known = true;
