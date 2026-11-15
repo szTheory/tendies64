@@ -141,7 +141,8 @@ integration.rsp-rom-smoke'
 PHASE06_TESTS='runner.cold-boot-controls
 integration.cold-startup
 runner.base-diagnostic-protocol
-harness.base-qualification'
+harness.base-qualification
+harness.base-run'
 
 CPU_COVERAGE_OPCODES='ADD
 ADDU
