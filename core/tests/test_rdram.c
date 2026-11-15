@@ -582,6 +582,32 @@ static void prepare_variable_cost_sequence(t64_machine *machine,
   T64_CHECK_INT(t64_cpu_schedule(machine), T64_STATUS_OK);
 }
 
+static void test_bus_routes_cold_rdram_device_registers(void) {
+  t64_machine *machine = NULL;
+  uint32_t readback = UINT32_C(0xfeedface);
+  t64_status status;
+
+  T64_CHECK(create_machine("ntsc-cart-4m-openipl3-rdram-b-t1-v1", &machine));
+  if (machine == NULL) {
+    return;
+  }
+  T64_CHECK(prepare_cold_rdram_register_access(machine));
+  T64_CHECK_INT(t64_bus_write(machine, TEST_MI_MODE, 4u, UINT32_C(0x10f)),
+                T64_STATUS_OK);
+  status = t64_bus_write(machine, TEST_RDRAM_BROADCAST + UINT32_C(8), 4u,
+                         UINT32_C(0xefbeadde));
+  T64_CHECK_INT(status, T64_STATUS_OK);
+  if (status != T64_STATUS_OK) {
+    t64_machine_destroy(machine);
+    return;
+  }
+  T64_CHECK_INT(t64_bus_read(machine, TEST_RDRAM_ID511 + UINT32_C(8), 4u,
+                             &readback),
+                T64_STATUS_OK);
+  T64_CHECK_INT(readback, UINT32_C(0xefbeadde));
+  t64_machine_destroy(machine);
+}
+
 static void test_current_load_uses_guest_ticks_and_is_partition_invariant(
     void) {
   t64_machine *idle = NULL;
@@ -767,6 +793,7 @@ int main(void) {
   test_cold_ri_select_after_current_load();
   test_current_load_uses_guest_ticks_and_is_partition_invariant();
   test_rdram_broadcast_devices_calibration_and_capacity();
+  test_bus_routes_cold_rdram_device_registers();
   test_first_cold_register_instruction();
   return T64_TEST_FINISH("unit.core.rdram-protocol");
 }
