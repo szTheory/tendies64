@@ -7,6 +7,7 @@ import collections
 import importlib.util
 import os
 import pathlib
+import re
 import shutil
 import subprocess
 import sys
@@ -26,6 +27,9 @@ SPEC.loader.exec_module(CHECKER)
 
 
 MUTATION_SEEDS = (
+    "host-start-dma-effect",
+    "host-sp-write-effect",
+    "unreviewed-host-helper",
     "MicroCode_Signature task selector",
     "uCode_CRC case variation",
     "TASK_ID formatted selector",
@@ -39,6 +43,12 @@ MUTATION_SEEDS = (
     "missing canonical archive object",
     "zero production sources",
     "comments and literals are not dispatch code",
+    "anonymous DMEM-dependent decode-helper effect",
+    "unreviewed static helper definition",
+    "removed static helper definition",
+    "anonymous DMEM-dependent SP admission-helper effect",
+    "unreviewed SP DMA helper definition",
+    "removed SP DMA helper definition",
 )
 
 
@@ -80,6 +90,27 @@ def _copy_clean_fixture(destination: pathlib.Path) -> tuple[pathlib.Path, pathli
     return source_root, build_root
 
 
+def _copy_source_only_fixture(destination: pathlib.Path) -> pathlib.Path:
+    """Build a minimal source fixture for helper-route controls, without native artifacts."""
+
+    source_root = destination / "source"
+    core = source_root / "core"
+    softfloat = core / "softfloat"
+    softfloat.mkdir(parents=True)
+    shutil.copy2(ROOT / "core" / "CMakeLists.txt", core / "CMakeLists.txt")
+    shutil.copy2(
+        ROOT / "core" / "softfloat" / "sources.cmake", softfloat / "sources.cmake"
+    )
+    for name in CHECKER.CANONICAL_CORE_SOURCES:
+        shutil.copy2(ROOT / "core" / name, core / name)
+    softfloat_names, findings = CHECKER._softfloat_sources(ROOT)
+    if findings or not softfloat_names:
+        raise AssertionError("repository softfloat source inventory is empty or invalid")
+    for name in softfloat_names:
+        shutil.copy2(ROOT / "core" / "softfloat" / name, softfloat / name)
+    return source_root
+
+
 def _assert_clean(source_root: pathlib.Path, build_root: pathlib.Path) -> None:
     findings, _, scanned = CHECKER.inspect_tree(source_root, build_root)
     require_nonzero_count(scanned, "scanned production source")
@@ -88,11 +119,133 @@ def _assert_clean(source_root: pathlib.Path, build_root: pathlib.Path) -> None:
 
 
 def _must_reject(label: str, source_root: pathlib.Path,
-                 build_root: pathlib.Path) -> None:
+                 build_root: pathlib.Path | None = None) -> None:
     findings, _, scanned = CHECKER.inspect_tree(source_root, build_root)
     require_nonzero_count(scanned, "scanned production source")
     if not findings:
         raise AssertionError(f"mutation accepted: {label}")
+
+
+def _function_definition_span(source: str, name: str) -> tuple[int, int] | None:
+    cleaned = CHECKER.strip_c_comments_and_literals(source)
+    pattern = r"\b" + re.escape(name) + r"\s*\("
+    for match in re.finditer(pattern, cleaned):
+        open_paren = cleaned.find("(", match.start())
+        paren_depth = 0
+        close_paren = None
+        for index in range(open_paren, len(cleaned)):
+            if cleaned[index] == "(":
+                paren_depth += 1
+            elif cleaned[index] == ")":
+                paren_depth -= 1
+                if paren_depth == 0:
+                    close_paren = index
+                    break
+        if close_paren is None:
+            continue
+        cursor = close_paren + 1
+        while cursor < len(cleaned) and cleaned[cursor].isspace():
+            cursor += 1
+        if cursor >= len(cleaned) or cleaned[cursor] != "{":
+            continue
+        brace_depth = 0
+        for index in range(cursor, len(cleaned)):
+            if cleaned[index] == "{":
+                brace_depth += 1
+            elif cleaned[index] == "}":
+                brace_depth -= 1
+                if brace_depth == 0:
+                    line_start = cleaned.rfind("\n", 0, match.start()) + 1
+                    return line_start, index + 1
+    return None
+
+
+def _check_helper_inventory_mutations(temp_root: pathlib.Path) -> int:
+    source_root = _copy_source_only_fixture(temp_root / "anonymous-effect")
+    findings, _, scanned = CHECKER.inspect_tree(source_root)
+    require_nonzero_count(scanned, "scanned production source")
+    if findings:
+        raise AssertionError("clean source-only fixture failed: " + " | ".join(findings))
+    path = source_root / "core" / "t64_rsp.c"
+    original = path.read_text(encoding="utf-8")
+    anchor = "  return true;\n}\n\nstatic void rsp_commit_vector_effect"
+    if anchor not in original:
+        raise AssertionError("vector decode helper mutation anchor no longer exists")
+    mutation = (
+        "  if (machine->sp_dmem[0] == UINT8_C(0x42)) {\n"
+        "    effect->values[0] ^= UINT16_C(1);\n"
+        "  }\n"
+    )
+    path.write_text(original.replace(anchor, mutation + anchor, 1), encoding="utf-8")
+    _must_reject("anonymous DMEM-dependent decode-helper effect", source_root)
+
+    source_root = _copy_source_only_fixture(temp_root / "added-helper")
+    path = source_root / "core" / "t64_rsp.c"
+    with path.open("a", encoding="utf-8") as source:
+        source.write("\nstatic uint32_t rsp_unreviewed_helper(void) { return 0u; }\n")
+    _must_reject("unreviewed static helper definition", source_root)
+
+    source_root = _copy_source_only_fixture(temp_root / "removed-helper")
+    path = source_root / "core" / "t64_rsp.c"
+    original = path.read_text(encoding="utf-8")
+    span = _function_definition_span(original, "rsp_decode_vector_basic")
+    if span is None:
+        raise AssertionError("vector decode helper definition no longer exists")
+    path.write_text(original[: span[0]] + original[span[1] :], encoding="utf-8")
+    _must_reject("removed static helper definition", source_root)
+
+    source_root = _copy_source_only_fixture(temp_root / "sp-admission-effect")
+    path = source_root / "core" / "t64_sp.c"
+    original = path.read_text(encoding="utf-8")
+    anchor = "  projected_active = &machine->sp.active;"
+    if anchor not in original:
+        raise AssertionError("SP DMA admission helper mutation anchor no longer exists")
+    mutation = (
+        "  if (machine->sp_dmem[0] == UINT8_C(0x42)) {\n"
+        "    admission_out->status = T64_STATUS_BUS_DEVICE_REFUSED;\n"
+        "    admission_out->refusal_reason = T64_RSP_REFUSAL_DMA_SPAN;\n"
+        "    return admission_out->status;\n"
+        "  }\n"
+    )
+    path.write_text(original.replace(anchor, mutation + anchor, 1), encoding="utf-8")
+    _must_reject("anonymous DMEM-dependent SP admission-helper effect", source_root)
+
+    for name in ("start_dma", "t64_sp_write_register"):
+        source_root = _copy_source_only_fixture(temp_root / ("host-entry-" + name))
+        path = source_root / "core" / "t64_sp.c"
+        original = path.read_text(encoding="utf-8")
+        span = _function_definition_span(original, name)
+        if span is None:
+            raise AssertionError("host SP entry mutation anchor no longer exists")
+        at = original.index("{", span[0]) + 1
+        mutation = (
+            "\n  if (machine != NULL && machine->sp_dmem[0] == UINT8_C(0x42)) {\n"
+            "    machine->sp_dmem[1] = UINT8_C(0x99);\n  }\n"
+        )
+        path.write_text(original[:at] + mutation + original[at:], encoding="utf-8")
+        _must_reject("anonymous DMEM-dependent host SP entry effect", source_root)
+
+    source_root = _copy_source_only_fixture(temp_root / "unreviewed-host-helper")
+    path = source_root / "core" / "t64_sp.c"
+    with path.open("a", encoding="utf-8") as source:
+        source.write("\nuint32_t t64_sp_unreviewed_host_helper(void) { return 0u; }\n")
+    _must_reject("unreviewed non-DMA-prefixed SP helper", source_root)
+
+    source_root = _copy_source_only_fixture(temp_root / "added-sp-helper")
+    path = source_root / "core" / "t64_sp.c"
+    with path.open("a", encoding="utf-8") as source:
+        source.write("\nbool t64_sp_rsp_dma_unreviewed(void) { return false; }\n")
+    _must_reject("unreviewed SP DMA helper definition", source_root)
+
+    source_root = _copy_source_only_fixture(temp_root / "removed-sp-helper")
+    path = source_root / "core" / "t64_sp.c"
+    original = path.read_text(encoding="utf-8")
+    span = _function_definition_span(original, "t64_sp_rsp_dma_admission_refuse")
+    if span is None:
+        raise AssertionError("SP DMA admission helper definition no longer exists")
+    path.write_text(original[: span[0]] + original[span[1] :], encoding="utf-8")
+    _must_reject("removed SP DMA helper definition", source_root)
+    return 9
 
 
 def _mutate_source(source_root: pathlib.Path, text: str) -> None:
@@ -231,6 +384,7 @@ def _check_mutation_suite(temp_root: pathlib.Path) -> int:
     seeds_run += 1
 
     require_nonzero_count(seeds_run, "mutation seed")
+    seeds_run += _check_helper_inventory_mutations(temp_root / "helper-inventory")
     if seeds_run != len(MUTATION_SEEDS):
         raise AssertionError(
             f"mutation seed count mismatch: ran={seeds_run} declared={len(MUTATION_SEEDS)}"

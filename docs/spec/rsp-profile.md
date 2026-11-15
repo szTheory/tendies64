@@ -63,11 +63,20 @@ instruction address (`value & 0x0ffc`). Running PC writes are refused with
 `RUNNING_PC_WRITE`. The guide identifies the CPU-visible PC address and its
 12-bit width. [Guide, p. 95](https://ultra64.ca/files/documentation/silicon-graphics/SGI_Nintendo_64_RSP_Programmers_Guide.pdf)
 
-The profile refuses asynchronous HALT and single-step requests while an RSP
-issue event is already in flight. CPU or DMA writes overlapping the active
-IMEM instruction are refused with `ACTIVE_IMEM_WRITE`. The guide calls loading
-microcode over the executing PC undefined; refusing it is this profile's
-transactional policy, not a claim about the hardware outcome. [Guide, p. 96](https://ultra64.ca/files/documentation/silicon-graphics/SGI_Nintendo_64_RSP_Programmers_Guide.pdf)
+The profile accepts a fetched RSP `MTC0` to SP_STATUS that sets HALT as a
+synchronous guest self-HALT. The fetched instruction retires alone, advances
+SP_PC, and cannot pair a following VU instruction into that same opportunity.
+Later RSP instructions do not retire until a valid resume; DMA continues on
+the opportunity stream while HALT is set. Solo retirement and this selected
+functional-profile policy are not hardware claims: the guide documents the SP
+status command but does not establish solo retirement, simultaneous SU/VU HALT
+arbitration, or the concurrent DMA result. CPU/host requests to set HALT
+asynchronously while an issue event is in flight remain refused, as do
+single-step requests during an in-flight opportunity. CPU or DMA writes
+overlapping the active IMEM instruction are refused with
+`ACTIVE_IMEM_WRITE`. The guide calls loading microcode over the executing PC
+undefined; refusing it is this profile's transactional policy, not a claim
+about the hardware outcome. [Guide, p. 96](https://ultra64.ca/files/documentation/silicon-graphics/SGI_Nintendo_64_RSP_Programmers_Guide.pdf)
 
 ## DMA model and conflict policy
 
@@ -105,6 +114,16 @@ Unsupported opcodes, including CP0 accesses to DPC registers, are refused and
 do not dispatch DP work. A full DMA queue and an invalid DRAM span are refused
 before descriptor, token, queue, or memory mutation. CPU reservation observers
 are notified for each committed DMA destination byte.
+
+Fetched MTC0 writes to SP read-length or write-length preflight admission
+against the queue projected after that opportunity's active DMA step. A setup
+step leaves queue occupancy unchanged; a final beat may complete the active
+descriptor and promote the pending one before the new request is assigned a
+slot. If the request is refused for a full queue, invalid span, or exhausted
+token, neither the active DMA step nor the request commits. The scheduled RSP
+tick, next-opportunity event, and refusal observation may still advance as
+described above. This is deterministic functional-profile refusal policy; the
+guide does not specify the simultaneous hardware arbitration result.
 
 ## Source
 

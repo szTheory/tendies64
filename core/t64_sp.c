@@ -182,6 +182,8 @@ static t64_status start_rsp_dma(t64_machine *machine, bool dram_to_sp,
     return refuse(machine, offset, T64_STATUS_BUS_DEVICE_REFUSED);
   }
   if (machine->sp.token_exhausted) {
+    machine->rsp_observed_refusal_reason =
+        T64_RSP_REFUSAL_DMA_TOKEN_EXHAUSTED;
     return refuse(machine, offset, T64_STATUS_RESOURCE_EXHAUSTED);
   }
   pending_slot = machine->sp.active.valid;
@@ -317,6 +319,138 @@ static bool rsp_pc_overlaps_dma_beat(uint32_t beat_start, uint32_t pc) {
 bool t64_sp_rsp_dma_active(const t64_machine *machine) {
   return machine != NULL && t64_has_rsp_functional_profile(machine) &&
          dma_busy(&machine->sp);
+}
+
+t64_status t64_sp_rsp_dma_admission_preflight(
+    const t64_machine *machine, bool dram_to_sp, uint32_t raw_length,
+    uint32_t offset, const t64_rsp_dma_step *step,
+    t64_rsp_dma_admission *admission_out) {
+  const t64_sp_dma_descriptor *projected_active;
+  t64_sp_dma_descriptor decoded;
+  t64_status status = T64_STATUS_OK;
+  uint64_t start_tick;
+  uint64_t token;
+  bool active_valid;
+  bool pending_valid;
+
+  if (machine == NULL || step == NULL || admission_out == NULL ||
+      !t64_has_rsp_functional_profile(machine)) {
+    return T64_STATUS_INVALID_ARGUMENT;
+  }
+  (void)memset(admission_out, 0, sizeof *admission_out);
+  admission_out->offset = offset;
+  admission_out->raw_length = raw_length;
+  admission_out->dram_to_sp = dram_to_sp;
+  admission_out->status = T64_STATUS_OK;
+  projected_active = &machine->sp.active;
+  active_valid = machine->sp.active.valid;
+  pending_valid = machine->sp.pending.valid;
+
+  if (step->kind == T64_RSP_DMA_STEP_BEAT) {
+    uint64_t next_cursor;
+
+    if (!active_valid || step->token != machine->sp.active.token ||
+        step->expected_cursor != machine->rsp.dma_beat_cursor ||
+        machine->rsp.dma_event_sequence == UINT64_MAX ||
+        step->next_event_sequence !=
+            machine->rsp.dma_event_sequence + UINT64_C(1) ||
+        step->expected_cursor > UINT64_MAX - UINT64_C(8)) {
+      admission_out->status = T64_STATUS_BUS_DEVICE_REFUSED;
+      return admission_out->status;
+    }
+    next_cursor = step->expected_cursor + UINT64_C(8);
+    if (next_cursor >= (uint64_t)machine->sp.active.payload_bytes) {
+      if (pending_valid) {
+        projected_active = &machine->sp.pending;
+        active_valid = true;
+        pending_valid = false;
+      } else {
+        active_valid = false;
+      }
+    }
+  } else if (step->kind != T64_RSP_DMA_STEP_NONE &&
+             step->kind != T64_RSP_DMA_STEP_SETUP) {
+    admission_out->status = T64_STATUS_BUS_DEVICE_REFUSED;
+    return admission_out->status;
+  }
+
+  if (active_valid && pending_valid) {
+    admission_out->status = T64_STATUS_BUS_DEVICE_REFUSED;
+    admission_out->refusal_reason = T64_RSP_REFUSAL_DMA_QUEUE_FULL;
+    return admission_out->status;
+  }
+  if (machine->sp.token_exhausted) {
+    admission_out->status = T64_STATUS_RESOURCE_EXHAUSTED;
+    admission_out->refusal_reason = T64_RSP_REFUSAL_DMA_TOKEN_EXHAUSTED;
+    return admission_out->status;
+  }
+
+  start_tick = active_valid ? projected_active->end_tick : machine->tick;
+  if (!decode_descriptor(machine, dram_to_sp, raw_length, start_tick,
+                         &decoded, &status)) {
+    admission_out->status = status;
+    if (status == T64_STATUS_BUS_DEVICE_REFUSED) {
+      admission_out->refusal_reason = T64_RSP_REFUSAL_DMA_SPAN;
+    }
+    return admission_out->status;
+  }
+  token = machine->sp.next_token;
+  decoded.token = token;
+  admission_out->descriptor = decoded;
+  admission_out->token = token;
+  admission_out->pending_slot = active_valid;
+  admission_out->valid = true;
+  return T64_STATUS_OK;
+}
+
+void t64_sp_rsp_dma_admission_commit(
+    t64_machine *machine, const t64_rsp_dma_admission *admission) {
+  if (machine == NULL || admission == NULL || !admission->valid ||
+      admission->token != machine->sp.next_token ||
+      machine->sp.token_exhausted ||
+      admission->pending_slot != machine->sp.active.valid ||
+      machine->sp.pending.valid) {
+    return;
+  }
+  if (admission->pending_slot) {
+    machine->sp.pending = admission->descriptor;
+    machine->rsp.pending_dma_token = admission->token;
+  } else {
+    machine->sp.active = admission->descriptor;
+    machine->rsp.dma_setup_remaining = UINT64_C(12);
+    machine->rsp.dma_beat_cursor = 0u;
+    machine->rsp.active_dma_token = admission->token;
+  }
+  if (admission->dram_to_sp) {
+    machine->sp.read_length = admission->raw_length;
+  } else {
+    machine->sp.write_length = admission->raw_length;
+  }
+  if (admission->token == UINT64_MAX) {
+    machine->sp.token_exhausted = true;
+  } else {
+    machine->sp.next_token = admission->token + UINT64_C(1);
+  }
+  machine->rsp_observed_refusal_reason = T64_RSP_REFUSAL_NONE;
+  t64_trace_emit(machine, machine->tick, T64_TRACE_DEVICE_SP,
+                 T64_TRACE_KIND_SP_ISSUE, admission->token);
+  t64_trace_emit(machine, machine->tick, T64_TRACE_DEVICE_BUS,
+                 T64_TRACE_KIND_BUS_WRITE32,
+                 ((uint64_t)(T64_SP_REGISTER_BASE + admission->offset) << 32) |
+                     (uint64_t)admission->raw_length);
+}
+
+void t64_sp_rsp_dma_admission_refuse(
+    t64_machine *machine, const t64_rsp_dma_admission *admission) {
+  if (machine == NULL || admission == NULL || admission->valid ||
+      admission->status == T64_STATUS_OK) {
+    return;
+  }
+  machine->rsp_observed_refusal_reason =
+      admission->refusal_reason == T64_RSP_REFUSAL_NONE
+          ? T64_RSP_REFUSAL_UNSUPPORTED_OPCODE
+          : admission->refusal_reason;
+  trace_refusal(machine, admission->offset, admission->status);
 }
 
 t64_status t64_sp_rsp_dma_preflight(t64_machine *machine, bool rsp_fetches,
@@ -599,7 +733,8 @@ t64_status t64_sp_read_register(t64_machine *machine, uint32_t address,
 }
 
 t64_status t64_rsp_validate_status_command(const t64_machine *machine,
-                                           uint32_t command) {
+                                           uint32_t command,
+                                           t64_rsp_status_origin origin) {
   const uint32_t command_mask = UINT32_C(0x01ffffff);
   bool set_halt = (command & UINT32_C(0x2)) != 0u;
   bool set_single_step = (command & UINT32_C(0x40)) != 0u;
@@ -610,26 +745,31 @@ t64_status t64_rsp_validate_status_command(const t64_machine *machine,
   if ((command & ~command_mask) != 0u) {
     return T64_STATUS_BUS_UNSUPPORTED;
   }
-  if (set_halt && (machine->rsp.sp_status & T64_RSP_STATUS_HALT) == 0u) {
+  if (set_halt && origin == T64_RSP_STATUS_ORIGIN_HOST &&
+      (machine->rsp.sp_status & T64_RSP_STATUS_HALT) == 0u) {
     return T64_STATUS_BUS_DEVICE_REFUSED;
   }
-  if (set_single_step && machine->rsp.next_issue_tick > machine->tick) {
+  if (set_single_step &&
+      (origin == T64_RSP_STATUS_ORIGIN_GUEST ||
+       machine->rsp.next_issue_tick > machine->tick)) {
     return T64_STATUS_BUS_DEVICE_REFUSED;
   }
   return T64_STATUS_OK;
 }
 
-static t64_status write_rsp_status(t64_machine *machine, uint32_t command) {
+static t64_status write_rsp_status(t64_machine *machine, uint32_t command,
+                                   t64_rsp_status_origin origin) {
   uint32_t bit;
   bool clear_halt = (command & UINT32_C(0x1)) != 0u;
   bool set_halt = (command & UINT32_C(0x2)) != 0u;
   bool start = clear_halt && !set_halt &&
                (machine->rsp.sp_status & T64_RSP_STATUS_HALT) != 0u;
-  t64_status status = t64_rsp_validate_status_command(machine, command);
+  t64_status status =
+      t64_rsp_validate_status_command(machine, command, origin);
 
   if (status != T64_STATUS_OK) {
     if (status == T64_STATUS_BUS_DEVICE_REFUSED) {
-      if (set_halt &&
+      if (origin == T64_RSP_STATUS_ORIGIN_HOST && set_halt &&
           (machine->rsp.sp_status & T64_RSP_STATUS_HALT) == 0u) {
         machine->rsp_observed_refusal_reason =
             T64_RSP_REFUSAL_ASYNC_HALT;
@@ -691,6 +831,23 @@ static t64_status write_rsp_status(t64_machine *machine, uint32_t command) {
   return T64_STATUS_OK;
 }
 
+t64_status t64_sp_rsp_guest_status_write(t64_machine *machine,
+                                         uint32_t command) {
+  t64_status status;
+
+  if (machine == NULL) {
+    return T64_STATUS_INVALID_ARGUMENT;
+  }
+  status = write_rsp_status(machine, command, T64_RSP_STATUS_ORIGIN_GUEST);
+  if (status == T64_STATUS_OK) {
+    t64_trace_emit(machine, machine->tick, T64_TRACE_DEVICE_BUS,
+                   T64_TRACE_KIND_BUS_WRITE32,
+                   ((uint64_t)(T64_SP_REGISTER_BASE + UINT32_C(0x10)) << 32) |
+                       (uint64_t)command);
+  }
+  return status;
+}
+
 t64_status t64_sp_write_register(t64_machine *machine, uint32_t address,
                                  uint32_t value) {
   uint32_t offset;
@@ -728,7 +885,7 @@ t64_status t64_sp_write_register(t64_machine *machine, uint32_t address,
     case UINT32_C(0x0c):
       return start_dma(machine, false, value, offset);
     case UINT32_C(0x10):
-      return write_rsp_status(machine, value);
+      return write_rsp_status(machine, value, T64_RSP_STATUS_ORIGIN_HOST);
     case UINT32_C(0x14):
     case UINT32_C(0x18):
       return refuse(machine, offset, T64_STATUS_BUS_DEVICE_REFUSED);

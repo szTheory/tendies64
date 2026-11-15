@@ -444,6 +444,9 @@ static bool in_flight_halt_and_single_step_refusal_test(void) {
   return passed;
 }
 
+static bool write_dma_descriptor(t64_machine *machine, uint32_t mem_address,
+                                 uint32_t dram_address, uint32_t length);
+
 static bool load_store_bubble_test(void) {
   static const uint32_t program[] = {
       UINT32_C(0x24010000), /* ADDIU r1,r0,0 */
@@ -876,6 +879,795 @@ static bool dma_queue_full_promotion_test(void) {
   }
   t64_machine_destroy(fixture.machine);
   return passed;
+}
+
+typedef struct {
+  t64_rsp_state rsp;
+  t64_sp_state sp;
+  t64_event queued_event;
+  uint8_t dmem[T64_SP_BANK_BYTES];
+  uint8_t imem[T64_SP_BANK_BYTES];
+  uint8_t dram_source[24];
+  bool linked_valid;
+  uint64_t linked_physical_address;
+  uint32_t linked_width;
+  size_t queue_count;
+  uint64_t next_sequence;
+  uint64_t observed_dma_cursor;
+} dma_mtc0_snapshot;
+
+static uint32_t encode_mtc0(uint32_t source, uint32_t cp0_register) {
+  return UINT32_C(0x40800000) | (source << 16) | (cp0_register << 11);
+}
+
+static bool guest_status_invalid_command_test(uint32_t command) {
+  rsp_control_fixture fixture;
+  t64_rsp_state rsp_before;
+  t64_sp_state sp_before;
+  uint8_t dmem_before[T64_SP_BANK_BYTES];
+  uint8_t imem_before[T64_SP_BANK_BYTES];
+  uint64_t link_address_before;
+  uint32_t link_width_before;
+  uint32_t mi_pending_before;
+  uint32_t mi_mask_before;
+  bool link_valid_before;
+  bool mi_irq_before;
+  uint64_t next_sequence_before;
+  t64_stop_request request = {T64_STOP_GUEST_TICK, UINT64_C(1)};
+  t64_stop_result result = {0u, 0u};
+  t64_status advance_status;
+  bool passed;
+
+  if (!fixture_create(&fixture)) {
+    puts("# setup-failure: guest SP_STATUS refusal fixture allocation");
+    return false;
+  }
+  reset_rsp_fixture(&fixture, true);
+  fixture.machine->rsp.gpr[1] = command;
+  fixture.machine->cpu.linked_valid = true;
+  fixture.machine->cpu.linked_physical_address = TEST_DMEM_BASE + 0x23u;
+  fixture.machine->cpu.linked_width = 1u;
+  passed = write_imem_word(fixture.machine, 0u, encode_mtc0(1u, 4u)) &&
+           write_imem_word(fixture.machine, 4u, UINT32_C(0x24020009)) &&
+           t64_rsp_start(fixture.machine) == T64_STATUS_OK &&
+           t64_machine_trace_set_enabled(fixture.machine, true) ==
+               T64_STATUS_OK;
+  t64_trace_reset(fixture.machine);
+  if (!passed) {
+    puts("# setup-failure: guest SP_STATUS refusal program or start");
+    t64_machine_destroy(fixture.machine);
+    return false;
+  }
+  rsp_before = fixture.machine->rsp;
+  sp_before = fixture.machine->sp;
+  (void)memcpy(dmem_before, fixture.machine->sp_dmem, sizeof dmem_before);
+  (void)memcpy(imem_before, fixture.machine->sp_imem, sizeof imem_before);
+  link_address_before = fixture.machine->cpu.linked_physical_address;
+  link_width_before = fixture.machine->cpu.linked_width;
+  link_valid_before = fixture.machine->cpu.linked_valid;
+  mi_pending_before = fixture.machine->mi_pending;
+  mi_mask_before = fixture.machine->mi_mask;
+  mi_irq_before = fixture.machine->mi_irq_line;
+  next_sequence_before = fixture.machine->next_sequence;
+  advance_status = t64_machine_advance(fixture.machine, &request, &result);
+  passed = advance_status == T64_STATUS_OK && result.tick == UINT64_C(1) &&
+           result.reason == T64_STOP_REASON_BOUND &&
+           memcmp(&rsp_before, &fixture.machine->rsp, sizeof rsp_before) ==
+               0 &&
+           memcmp(&sp_before, &fixture.machine->sp, sizeof sp_before) == 0 &&
+           memcmp(dmem_before, fixture.machine->sp_dmem,
+                  sizeof dmem_before) == 0 &&
+           memcmp(imem_before, fixture.machine->sp_imem,
+                  sizeof imem_before) == 0 &&
+           fixture.machine->cpu.linked_valid == link_valid_before &&
+           fixture.machine->cpu.linked_physical_address ==
+               link_address_before &&
+           fixture.machine->cpu.linked_width == link_width_before &&
+           fixture.machine->mi_pending == mi_pending_before &&
+           fixture.machine->mi_mask == mi_mask_before &&
+           fixture.machine->mi_irq_line == mi_irq_before &&
+           fixture.machine->queue_count == 0u &&
+           fixture.machine->next_sequence == next_sequence_before &&
+           fixture.machine->rsp_observation_valid &&
+           fixture.machine->rsp_observed_pc == 0u &&
+           fixture.machine->rsp_observed_opcode == encode_mtc0(1u, 4u) &&
+           fixture.machine->rsp_observed_outcome == T64_RSP_ATTEMPT_REFUSED &&
+           fixture.machine->rsp_observed_refusal_reason ==
+               T64_RSP_REFUSAL_CP0_INVALID_VALUE &&
+           fixture.machine->trace_count == 1u &&
+           fixture.machine->trace_records[fixture.machine->trace_head].device ==
+               T64_TRACE_DEVICE_SP &&
+           fixture.machine->trace_records[fixture.machine->trace_head].kind ==
+               T64_SP_EVENT_RSP_ISSUE;
+  if (!passed) {
+    fprintf(stderr,
+            "# semantic-failure: fetched MTC0 c4 command=0x%08x did not "
+            "refuse atomically; status=%u opcode=0x%08x outcome=%u "
+            "reason=%u halt=%u pc=%u retired=%llu queue=%zu trace=%zu\n",
+            command, (unsigned)advance_status,
+            fixture.machine->rsp_observed_opcode,
+            fixture.machine->rsp_observed_outcome,
+            fixture.machine->rsp_observed_refusal_reason,
+            (fixture.machine->rsp.sp_status & T64_RSP_STATUS_HALT) != 0u,
+            fixture.machine->rsp.pc,
+            (unsigned long long)fixture.machine->rsp.retired_instructions,
+            fixture.machine->queue_count, fixture.machine->trace_count);
+  }
+  t64_machine_destroy(fixture.machine);
+  return passed;
+}
+
+static bool guest_self_halt_dma_and_resume_test(void) {
+  rsp_control_fixture fixture;
+  uint64_t active_token;
+  size_t index;
+  bool host_halt_refused;
+  bool passed;
+
+  if (!fixture_create(&fixture)) {
+    puts("# setup-failure: fetched self-HALT fixture allocation");
+    return false;
+  }
+  reset_rsp_fixture(&fixture, true);
+  fixture.machine->rsp.gpr[1] = UINT32_C(2);
+  fixture.machine->rsp.vector[1][0] = 0u;
+  fixture.machine->rsp.vector[1][1] = 1u;
+  fixture.machine->cpu.linked_valid = true;
+  fixture.machine->cpu.linked_physical_address = TEST_DMEM_BASE + 0x23u;
+  fixture.machine->cpu.linked_width = 1u;
+  for (index = 0u; index < 8u; index++) {
+    fixture.machine->ram[UINT32_C(0x100) + index] =
+        (uint8_t)(UINT32_C(0xa0) + index);
+  }
+  passed = write_imem_word(fixture.machine, 0u, encode_mtc0(1u, 4u)) &&
+           write_imem_word(fixture.machine, 4u, UINT32_C(0x4a0108d0)) &&
+           write_imem_word(fixture.machine, 8u, UINT32_C(0x24020009)) &&
+           write_dma_descriptor(fixture.machine, UINT32_C(0x20),
+                                UINT32_C(0x100), UINT32_C(7)) &&
+           fixture.machine->sp.active.valid &&
+           fixture.machine->rsp.dma_setup_remaining == UINT64_C(12) &&
+           fixture.machine->rsp.active_dma_token != 0u;
+  active_token = fixture.machine->rsp.active_dma_token;
+  passed = passed &&
+           t64_machine_trace_set_enabled(fixture.machine, true) ==
+               T64_STATUS_OK &&
+           t64_rsp_start(fixture.machine) == T64_STATUS_OK;
+  if (!passed) {
+    puts("# setup-failure: fetched self-HALT program, DMA setup, or RSP start");
+    t64_machine_destroy(fixture.machine);
+    return false;
+  }
+  {
+    uint8_t digest_before[T64_DIGEST_SIZE];
+    t64_status host_status;
+
+    passed = t64_machine_digest(fixture.machine, digest_before) ==
+             T64_STATUS_OK;
+    host_status = t64_machine_bus_write(fixture.machine, TEST_SP_BASE + 0x10u,
+                                        4u, UINT32_C(2));
+    host_halt_refused = host_status == T64_STATUS_BUS_DEVICE_REFUSED &&
+                        fixture.machine->rsp_observed_refusal_reason ==
+                            T64_RSP_REFUSAL_ASYNC_HALT &&
+                        machine_digest_equal(fixture.machine,
+                                             digest_before);
+    passed = passed && host_halt_refused;
+  }
+  t64_trace_reset(fixture.machine);
+  if (!passed) {
+    fprintf(stderr,
+            "# semantic-failure: CPU/host running set-HALT changed behavior; "
+            "status=%u reason=%u\n",
+            (unsigned)T64_STATUS_BUS_DEVICE_REFUSED,
+            fixture.machine->rsp_observed_refusal_reason);
+    t64_machine_destroy(fixture.machine);
+    return false;
+  }
+
+  passed = advance_to(fixture.machine, UINT64_C(1)) &&
+           fixture.machine->rsp_observation_valid &&
+           fixture.machine->rsp_observed_pc == 0u &&
+           fixture.machine->rsp_observed_opcode == encode_mtc0(1u, 4u) &&
+           fixture.machine->rsp_observed_outcome == T64_RSP_ATTEMPT_RETIRED &&
+           fixture.machine->rsp_observed_refusal_reason ==
+               T64_RSP_REFUSAL_NONE &&
+           (fixture.machine->rsp.sp_status & T64_RSP_STATUS_HALT) != 0u &&
+           (fixture.machine->rsp.sp_status & T64_RSP_STATUS_BROKE) == 0u &&
+           fixture.machine->rsp.pc == UINT32_C(4) &&
+           fixture.machine->rsp.retired_instructions == UINT64_C(1) &&
+           fixture.machine->rsp.gpr[2] == 0u &&
+           fixture.machine->rsp.vector[3][1] == 0u &&
+           fixture.machine->rsp_observed_second_pc == 0u &&
+           fixture.machine->mi_pending == 0u &&
+           fixture.machine->rsp.dma_setup_remaining == UINT64_C(11) &&
+           fixture.machine->rsp.active_dma_token == active_token &&
+           fixture.machine->queue_count == 1u &&
+           fixture.machine->events[fixture.machine->queue_head].kind ==
+               T64_SP_EVENT_RSP_ISSUE &&
+           fixture.machine->events[fixture.machine->queue_head].tick ==
+               UINT64_C(2) &&
+           fixture.machine->trace_count == 2u &&
+           fixture.machine->trace_records[fixture.machine->trace_head].kind ==
+               T64_SP_EVENT_RSP_ISSUE &&
+           fixture.machine->trace_records[(fixture.machine->trace_head + 1u) %
+                                          T64_TRACE_RECORD_CAPACITY]
+                   .device == T64_TRACE_DEVICE_BUS &&
+           fixture.machine->trace_records[(fixture.machine->trace_head + 1u) %
+                                          T64_TRACE_RECORD_CAPACITY]
+                   .kind == T64_TRACE_KIND_BUS_WRITE32 &&
+           fixture.machine->trace_records[(fixture.machine->trace_head + 1u) %
+                                          T64_TRACE_RECORD_CAPACITY]
+                   .value ==
+               (((uint64_t)(TEST_SP_BASE + UINT32_C(0x10)) << 32) |
+                UINT64_C(2));
+  if (!passed) {
+    fprintf(stderr,
+            "# semantic-failure: fetched MTC0 c4 set-HALT did not retire "
+            "and halt; opcode=0x%08x outcome=%u reason=%u halt=%u broke=%u "
+            "pc=%u retired=%llu setup=%llu active=%llu queue=%zu traces=%zu\n",
+            fixture.machine->rsp_observed_opcode,
+            fixture.machine->rsp_observed_outcome,
+            fixture.machine->rsp_observed_refusal_reason,
+            (fixture.machine->rsp.sp_status & T64_RSP_STATUS_HALT) != 0u,
+            (fixture.machine->rsp.sp_status & T64_RSP_STATUS_BROKE) != 0u,
+            fixture.machine->rsp.pc,
+            (unsigned long long)fixture.machine->rsp.retired_instructions,
+            (unsigned long long)fixture.machine->rsp.dma_setup_remaining,
+            (unsigned long long)fixture.machine->rsp.active_dma_token,
+            fixture.machine->queue_count, fixture.machine->trace_count);
+    t64_machine_destroy(fixture.machine);
+    return false;
+  }
+
+  passed = advance_to(fixture.machine, UINT64_C(20)) &&
+           !fixture.machine->rsp_observation_valid &&
+           fixture.machine->rsp_observed_outcome == T64_RSP_ATTEMPT_NONE &&
+           (fixture.machine->rsp.sp_status & T64_RSP_STATUS_HALT) != 0u &&
+           fixture.machine->rsp.pc == UINT32_C(4) &&
+           fixture.machine->rsp.retired_instructions == UINT64_C(1) &&
+           fixture.machine->rsp.gpr[2] == 0u &&
+           !fixture.machine->sp.active.valid &&
+           !fixture.machine->sp.pending.valid &&
+           fixture.machine->rsp.active_dma_token == 0u &&
+           fixture.machine->rsp.pending_dma_token == 0u &&
+           fixture.machine->rsp.dma_setup_remaining == 0u &&
+           fixture.machine->rsp.dma_beat_cursor == 0u &&
+           !fixture.machine->cpu.linked_valid &&
+           fixture.machine->queue_count == 0u;
+  for (index = 0u; index < 8u && passed; index++) {
+    passed = fixture.machine->sp_dmem[UINT32_C(0x20) + index] ==
+             (uint8_t)(UINT32_C(0xa0) + index);
+  }
+  {
+    size_t complete_count = 0u;
+    size_t bus_write_count = 0u;
+    size_t trace_index;
+
+    for (trace_index = 0u; trace_index < fixture.machine->trace_count;
+         trace_index++) {
+      const t64_trace_record *record = &fixture.machine->trace_records[
+          (fixture.machine->trace_head + trace_index) %
+          T64_TRACE_RECORD_CAPACITY];
+
+      if (record->kind == T64_TRACE_KIND_SP_COMPLETE &&
+          record->value == active_token) {
+        complete_count++;
+      }
+      if (record->kind == T64_TRACE_KIND_BUS_WRITE32) {
+        bus_write_count++;
+      }
+    }
+    passed = passed && complete_count == 1u && bus_write_count == 1u;
+  }
+  if (!passed) {
+    fprintf(stderr,
+            "# semantic-failure: DMA did not finish during self-HALT or RSP "
+            "retired again; halt=%u pc=%u retired=%llu dmem=%02x link=%u "
+            "active=%llu queue=%zu trace=%zu\n",
+            (fixture.machine->rsp.sp_status & T64_RSP_STATUS_HALT) != 0u,
+            fixture.machine->rsp.pc,
+            (unsigned long long)fixture.machine->rsp.retired_instructions,
+            fixture.machine->sp_dmem[UINT32_C(0x20)],
+            fixture.machine->cpu.linked_valid,
+            (unsigned long long)fixture.machine->rsp.active_dma_token,
+            fixture.machine->queue_count, fixture.machine->trace_count);
+    t64_machine_destroy(fixture.machine);
+    return false;
+  }
+
+  passed = t64_machine_bus_write(fixture.machine, TEST_SP_BASE + 0x10u, 4u,
+                                 UINT32_C(1)) == T64_STATUS_OK &&
+           (fixture.machine->rsp.sp_status & T64_RSP_STATUS_HALT) == 0u &&
+           fixture.machine->rsp.pc == UINT32_C(4) &&
+           fixture.machine->queue_count == 1u &&
+           fixture.machine->events[fixture.machine->queue_head].tick ==
+               UINT64_C(21) &&
+           advance_to(fixture.machine, UINT64_C(21)) &&
+           fixture.machine->rsp_observed_opcode == UINT32_C(0x4a0108d0) &&
+           fixture.machine->rsp_observed_outcome == T64_RSP_ATTEMPT_RETIRED &&
+           fixture.machine->rsp.retired_instructions == UINT64_C(2) &&
+           fixture.machine->rsp.vector[3][1] == UINT8_C(2) &&
+           fixture.machine->rsp.gpr[2] == 0u &&
+           fixture.machine->rsp.pc == UINT32_C(8) &&
+           advance_to(fixture.machine, UINT64_C(22)) &&
+           fixture.machine->rsp_observed_opcode == UINT32_C(0x24020009) &&
+           fixture.machine->rsp.retired_instructions == UINT64_C(3) &&
+           fixture.machine->rsp.gpr[2] == UINT32_C(9) &&
+           fixture.machine->rsp.pc == UINT32_C(12) &&
+           (fixture.machine->rsp.sp_status & T64_RSP_STATUS_HALT) == 0u;
+  if (!passed) {
+    fprintf(stderr,
+            "# semantic-failure: valid host resume did not continue at saved "
+            "PC; status=%u pc=%u retired=%llu r2=%u\n",
+            (unsigned)T64_STATUS_OK, fixture.machine->rsp.pc,
+            (unsigned long long)fixture.machine->rsp.retired_instructions,
+            fixture.machine->rsp.gpr[2]);
+  }
+  t64_machine_destroy(fixture.machine);
+  return passed;
+}
+
+static bool write_dma_descriptor(t64_machine *machine, uint32_t mem_address,
+                                 uint32_t dram_address, uint32_t length) {
+  return t64_machine_bus_write(machine, TEST_SP_BASE, 4u, mem_address) ==
+             T64_STATUS_OK &&
+         t64_machine_bus_write(machine, TEST_SP_BASE + 4u, 4u,
+                               dram_address) == T64_STATUS_OK &&
+         t64_machine_bus_write(machine, TEST_SP_BASE + 8u, 4u, length) ==
+             T64_STATUS_OK;
+}
+
+static bool setup_dma_mtc0_program(rsp_control_fixture *fixture,
+                                   uint32_t mem_address,
+                                   uint32_t dram_address,
+                                   uint32_t length,
+                                   uint32_t cp0_register) {
+  if (!write_imem_word(fixture->machine, 0u,
+                       encode_mtc0(1u, cp0_register)) ||
+      t64_machine_bus_write(fixture->machine, TEST_SP_BASE, 4u,
+                            mem_address) != T64_STATUS_OK ||
+      t64_machine_bus_write(fixture->machine, TEST_SP_BASE + 4u, 4u,
+                            dram_address) != T64_STATUS_OK) {
+    return false;
+  }
+  fixture->machine->rsp.gpr[1] = length;
+  return t64_rsp_start(fixture->machine) == T64_STATUS_OK;
+}
+
+static void snapshot_dma_mtc0(t64_machine *machine,
+                              dma_mtc0_snapshot *snapshot) {
+  snapshot->rsp = machine->rsp;
+  snapshot->sp = machine->sp;
+  snapshot->queued_event = machine->events[machine->queue_head];
+  (void)memcpy(snapshot->dmem, machine->sp_dmem, sizeof snapshot->dmem);
+  (void)memcpy(snapshot->imem, machine->sp_imem, sizeof snapshot->imem);
+  (void)memcpy(snapshot->dram_source, machine->ram + UINT32_C(0x100),
+               sizeof snapshot->dram_source);
+  snapshot->linked_valid = machine->cpu.linked_valid;
+  snapshot->linked_physical_address =
+      machine->cpu.linked_physical_address;
+  snapshot->linked_width = machine->cpu.linked_width;
+  snapshot->queue_count = machine->queue_count;
+  snapshot->next_sequence = machine->next_sequence;
+  snapshot->observed_dma_cursor = machine->rsp_observed_dma_cursor;
+}
+
+static bool dma_mtc0_refusal_unchanged(
+    t64_machine *machine, const dma_mtc0_snapshot *snapshot,
+    uint64_t event_tick, t64_status expected_status,
+    uint32_t expected_refusal, uint32_t expected_trace_status,
+    uint32_t cp0_register,
+    uint32_t *actual_refusal_out, uint64_t *active_token_after_out) {
+  t64_rsp_state expected_rsp = snapshot->rsp;
+  t64_event expected_event = snapshot->queued_event;
+  t64_stop_request request = {T64_STOP_GUEST_TICK, event_tick};
+  t64_stop_result result = {0u, 0u};
+  t64_status advance_status;
+  const t64_event *next_event;
+  uint64_t expected_trace_value =
+      ((uint64_t)expected_trace_status << 32) |
+      (uint64_t)(cp0_register * UINT32_C(4));
+  bool result_ok;
+  bool rsp_ok;
+  bool sp_ok;
+  bool memory_ok;
+  bool latches_ok;
+  bool scheduler_ok;
+  bool observation_ok;
+  bool trace_ok;
+  bool event_ok;
+
+  advance_status = t64_machine_advance(machine, &request, &result);
+  expected_rsp.issue_sequence++;
+  expected_rsp.next_issue_tick = event_tick + UINT64_C(1);
+  expected_event.tick = event_tick + UINT64_C(1);
+  expected_event.sequence = snapshot->next_sequence;
+  expected_event.token = expected_rsp.issue_sequence;
+  next_event = &machine->events[machine->queue_head];
+  *actual_refusal_out = machine->rsp_observed_refusal_reason;
+  *active_token_after_out = machine->rsp.active_dma_token;
+  result_ok = advance_status == T64_STATUS_OK && result.tick == event_tick &&
+              result.reason ==
+                  (expected_status == T64_STATUS_RESOURCE_EXHAUSTED
+                       ? T64_STOP_REASON_RESOURCE_LIMIT
+                       : T64_STOP_REASON_BOUND);
+  rsp_ok = memcmp(&expected_rsp, &machine->rsp, sizeof expected_rsp) == 0;
+  sp_ok = memcmp(&snapshot->sp, &machine->sp, sizeof snapshot->sp) == 0;
+  memory_ok = memcmp(snapshot->dmem, machine->sp_dmem,
+                     sizeof snapshot->dmem) == 0 &&
+              memcmp(snapshot->imem, machine->sp_imem,
+                     sizeof snapshot->imem) == 0 &&
+              memcmp(snapshot->dram_source, machine->ram + UINT32_C(0x100),
+                     sizeof snapshot->dram_source) == 0;
+  latches_ok = snapshot->linked_valid == machine->cpu.linked_valid &&
+               snapshot->linked_physical_address ==
+                   machine->cpu.linked_physical_address &&
+               snapshot->linked_width == machine->cpu.linked_width;
+  scheduler_ok = snapshot->queue_count == machine->queue_count &&
+                 snapshot->next_sequence + UINT64_C(1) ==
+                     machine->next_sequence &&
+                 machine->queue_count == 1u;
+  observation_ok =
+      snapshot->observed_dma_cursor == machine->rsp_observed_dma_cursor &&
+      machine->rsp_observed_dma_action == 0u &&
+      machine->rsp_observation_valid && machine->rsp_observed_pc == 0u &&
+      machine->rsp_observed_opcode == encode_mtc0(1u, cp0_register) &&
+      machine->rsp_observed_outcome == T64_RSP_ATTEMPT_REFUSED &&
+      machine->rsp_observed_refusal_reason == expected_refusal;
+  trace_ok = machine->trace_count == 2u &&
+             machine->trace_records[machine->trace_head].device ==
+                 T64_TRACE_DEVICE_SP &&
+             machine->trace_records[machine->trace_head].kind ==
+                 T64_SP_EVENT_RSP_ISSUE &&
+             machine->trace_records[(machine->trace_head + 1u) %
+                                    T64_TRACE_RECORD_CAPACITY]
+                     .device == T64_TRACE_DEVICE_SP &&
+             machine->trace_records[(machine->trace_head + 1u) %
+                                    T64_TRACE_RECORD_CAPACITY]
+                     .kind == T64_TRACE_KIND_SP_REFUSED &&
+             machine->trace_records[(machine->trace_head + 1u) %
+                                    T64_TRACE_RECORD_CAPACITY]
+                     .value == expected_trace_value;
+  event_ok = next_event->device == T64_DEVICE_SP &&
+             next_event->kind == T64_SP_EVENT_RSP_ISSUE &&
+             next_event->tick == expected_event.tick &&
+             next_event->sequence == expected_event.sequence &&
+             next_event->value == expected_event.value &&
+             next_event->token == expected_event.token &&
+             next_event->handler == expected_event.handler;
+  if (!(result_ok && rsp_ok && sp_ok && memory_ok && latches_ok &&
+        scheduler_ok && observation_ok && trace_ok && event_ok)) {
+    fprintf(stderr,
+            "# refusal-checks: result=%u rsp=%u sp=%u memory=%u latches=%u "
+            "scheduler=%u observation=%u trace=%u event=%u "
+            "stop=%u tick=%llu trace-count=%zu queue=%zu next-seq=%llu "
+            "expected-next=%llu\n",
+            result_ok ? 1u : 0u, rsp_ok ? 1u : 0u, sp_ok ? 1u : 0u,
+            memory_ok ? 1u : 0u, latches_ok ? 1u : 0u,
+            scheduler_ok ? 1u : 0u, observation_ok ? 1u : 0u,
+            trace_ok ? 1u : 0u, event_ok ? 1u : 0u, result.reason,
+            (unsigned long long)result.tick, machine->trace_count,
+            machine->queue_count,
+            (unsigned long long)machine->next_sequence,
+            (unsigned long long)(snapshot->next_sequence + UINT64_C(1)));
+  }
+  return result_ok && rsp_ok && sp_ok && memory_ok && latches_ok &&
+         scheduler_ok && observation_ok && trace_ok && event_ok;
+}
+
+static bool dma_mtc0_accepted_promotion_test(uint32_t cp0_register) {
+  rsp_control_fixture fixture;
+  t64_sp_dma_descriptor old_pending;
+  uint64_t active_token;
+  uint64_t promoted_token;
+  uint64_t next_token;
+  uint32_t byte;
+  bool passed = fixture_create(&fixture);
+
+  if (!passed) {
+    puts("# setup-failure: MTC0 accepted-promotion fixture allocation");
+    return false;
+  }
+  reset_rsp_fixture(&fixture, true);
+  for (byte = 0u; byte < 24u; byte++) {
+    fixture.machine->ram[UINT32_C(0x100) + byte] =
+        (uint8_t)(UINT32_C(0x40) + byte);
+  }
+  passed = write_dma_descriptor(fixture.machine, UINT32_C(0x20),
+                                UINT32_C(0x100), UINT32_C(7)) &&
+           write_dma_descriptor(fixture.machine, UINT32_C(0x28),
+                                UINT32_C(0x108), UINT32_C(7)) &&
+           fixture.machine->sp.active.valid &&
+           fixture.machine->sp.pending.valid &&
+           advance_to(fixture.machine, UINT64_C(12));
+  if (!passed) {
+    puts("# setup-failure: MTC0 accepted-promotion DMA queue or setup");
+    t64_machine_destroy(fixture.machine);
+    return false;
+  }
+  active_token = fixture.machine->rsp.active_dma_token;
+  promoted_token = fixture.machine->rsp.pending_dma_token;
+  old_pending = fixture.machine->sp.pending;
+  next_token = fixture.machine->sp.next_token;
+  passed = active_token != 0u && promoted_token != 0u &&
+           setup_dma_mtc0_program(&fixture, UINT32_C(0x30),
+                                  UINT32_C(0x110), UINT32_C(7),
+                                  cp0_register) &&
+           t64_machine_trace_set_enabled(fixture.machine, true) ==
+               T64_STATUS_OK;
+  t64_trace_reset(fixture.machine);
+  if (passed) {
+    passed = advance_to(fixture.machine, UINT64_C(13)) &&
+             fixture.machine->rsp_observation_valid &&
+             fixture.machine->rsp_observed_pc == 0u &&
+             fixture.machine->rsp_observed_opcode ==
+                 encode_mtc0(1u, cp0_register) &&
+             fixture.machine->rsp_observed_outcome ==
+                 T64_RSP_ATTEMPT_RETIRED &&
+             fixture.machine->rsp_observed_refusal_reason ==
+                 T64_RSP_REFUSAL_NONE &&
+             fixture.machine->rsp.retired_instructions == UINT64_C(1) &&
+             fixture.machine->rsp.pc == UINT32_C(4) &&
+             fixture.machine->rsp.dma_setup_remaining == UINT64_C(12) &&
+             fixture.machine->rsp.dma_beat_cursor == 0u &&
+             fixture.machine->rsp.active_dma_token == promoted_token &&
+             fixture.machine->rsp.pending_dma_token == next_token &&
+             fixture.machine->sp.active.token == promoted_token &&
+             memcmp(&fixture.machine->sp.active, &old_pending,
+                    sizeof old_pending) == 0 &&
+             fixture.machine->sp.pending.valid &&
+             fixture.machine->sp.pending.token == next_token &&
+             fixture.machine->sp.pending.internal_start == UINT32_C(0x30) &&
+             fixture.machine->sp.pending.dram_to_sp ==
+                 (cp0_register == UINT32_C(2)) &&
+             fixture.machine->sp.pending.aligned_dram_start ==
+                 UINT32_C(0x110) &&
+             fixture.machine->sp.pending.start_tick == old_pending.end_tick &&
+             (cp0_register == UINT32_C(2)
+                  ? fixture.machine->sp.read_length == UINT32_C(7)
+                  : fixture.machine->sp.write_length == UINT32_C(7)) &&
+             fixture.machine->sp.next_token == next_token + UINT64_C(1) &&
+             fixture.machine->rsp_observed_dma_action ==
+                 (T64_RSP_DMA_ACTION_BEAT | T64_RSP_DMA_ACTION_COMPLETE |
+                  T64_RSP_DMA_ACTION_PROMOTE) &&
+             fixture.machine->trace_count == 5u &&
+             fixture.machine->trace_records[0].kind ==
+                 T64_SP_EVENT_RSP_ISSUE &&
+             fixture.machine->trace_records[1].kind ==
+                 T64_TRACE_KIND_SP_COMPLETE &&
+             fixture.machine->trace_records[1].value == active_token &&
+             fixture.machine->trace_records[2].kind ==
+                 T64_TRACE_KIND_SP_PROMOTE &&
+             fixture.machine->trace_records[2].value == promoted_token &&
+             fixture.machine->trace_records[3].kind ==
+                 T64_TRACE_KIND_SP_ISSUE &&
+             fixture.machine->trace_records[3].value == next_token &&
+             fixture.machine->trace_records[4].device ==
+                 T64_TRACE_DEVICE_BUS &&
+             fixture.machine->trace_records[4].kind ==
+                 T64_TRACE_KIND_BUS_WRITE32 &&
+             fixture.machine->trace_records[4].value ==
+                 (((uint64_t)(TEST_SP_BASE + cp0_register * UINT32_C(4))
+                   << 32) |
+                  UINT64_C(7));
+  }
+  for (byte = 0u; byte < 8u && passed; byte++) {
+    passed = fixture.machine->sp_dmem[UINT32_C(0x20) + byte] ==
+             (uint8_t)(UINT32_C(0x40) + byte);
+  }
+  if (!passed) {
+    fprintf(stderr,
+            "# semantic-failure: accepted fetched MTC0 c%u did not commit "
+            "final-beat/promotion/new-pending sequence; opcode=0x%08x "
+            "outcome=%u retired=%llu pc=%u setup=%llu cursor=%llu "
+            "active=%llu/%llu pending=%llu/%llu next=%llu start=%llu "
+            "expected-start=%llu read-length=%u action=%u traces=%zu "
+            "trace-kinds=%u,%u,%u,%u,%u dmem=%02x expected=%02x\n",
+            cp0_register, fixture.machine->rsp_observed_opcode,
+            fixture.machine->rsp_observed_outcome,
+            (unsigned long long)fixture.machine->rsp.retired_instructions,
+            fixture.machine->rsp.pc,
+            (unsigned long long)fixture.machine->rsp.dma_setup_remaining,
+            (unsigned long long)fixture.machine->rsp.dma_beat_cursor,
+            (unsigned long long)fixture.machine->rsp.active_dma_token,
+            (unsigned long long)fixture.machine->rsp.pending_dma_token,
+            (unsigned long long)fixture.machine->sp.active.token,
+            (unsigned long long)fixture.machine->sp.pending.token,
+            (unsigned long long)fixture.machine->sp.next_token,
+            (unsigned long long)fixture.machine->sp.pending.start_tick,
+            (unsigned long long)old_pending.end_tick,
+            fixture.machine->sp.read_length,
+            fixture.machine->rsp_observed_dma_action,
+            fixture.machine->trace_count,
+            fixture.machine->trace_records[0].kind,
+            fixture.machine->trace_records[1].kind,
+            fixture.machine->trace_records[2].kind,
+            fixture.machine->trace_records[3].kind,
+            fixture.machine->trace_records[4].kind,
+            fixture.machine->sp_dmem[UINT32_C(0x20)],
+            (uint8_t)UINT32_C(0x40));
+  }
+  t64_machine_destroy(fixture.machine);
+  return passed;
+}
+
+static bool dma_mtc0_invalid_span_refusal_test(void) {
+  rsp_control_fixture fixture;
+  dma_mtc0_snapshot before;
+  uint64_t active_token;
+  uint64_t pending_token;
+  uint64_t active_token_after = 0u;
+  uint32_t refusal = T64_RSP_REFUSAL_NONE;
+  uint32_t byte;
+  bool setup_ok;
+  bool unchanged;
+
+  if (!fixture_create(&fixture)) {
+    puts("# setup-failure: MTC0 invalid-span fixture allocation");
+    return false;
+  }
+  reset_rsp_fixture(&fixture, true);
+  for (byte = 0u; byte < 24u; byte++) {
+    fixture.machine->ram[UINT32_C(0x100) + byte] =
+        (uint8_t)(UINT32_C(0x70) + byte);
+  }
+  setup_ok = write_dma_descriptor(fixture.machine, UINT32_C(0x20),
+                                  UINT32_C(0x100), UINT32_C(7)) &&
+             write_dma_descriptor(fixture.machine, UINT32_C(0x28),
+                                  UINT32_C(0x108), UINT32_C(7)) &&
+             advance_to(fixture.machine, UINT64_C(12));
+  active_token = fixture.machine->rsp.active_dma_token;
+  pending_token = fixture.machine->rsp.pending_dma_token;
+  setup_ok = setup_ok && active_token != 0u && pending_token != 0u &&
+             setup_dma_mtc0_program(
+                 &fixture, UINT32_C(0x30), fixture.machine->profile.rdram_bytes,
+                 UINT32_C(7), UINT32_C(2)) &&
+             t64_machine_trace_set_enabled(fixture.machine, true) ==
+                 T64_STATUS_OK;
+  t64_trace_reset(fixture.machine);
+  if (!setup_ok) {
+    puts("# setup-failure: MTC0 invalid-span full queue/final beat");
+    t64_machine_destroy(fixture.machine);
+    return false;
+  }
+  snapshot_dma_mtc0(fixture.machine, &before);
+  unchanged = dma_mtc0_refusal_unchanged(
+      fixture.machine, &before, UINT64_C(13), T64_STATUS_BUS_DEVICE_REFUSED,
+      T64_RSP_REFUSAL_DMA_SPAN, T64_STATUS_BUS_DEVICE_REFUSED, UINT32_C(2),
+      &refusal, &active_token_after);
+  if (!unchanged) {
+    fprintf(stderr,
+            "# semantic-failure: invalid-span MTC0 expected refusal=%u; "
+            "actual=%u active-before=%llu active-after=%llu pending-before="
+            "%llu pending-after=%llu beat-before=%llu beat-after=%llu "
+            "action=%u dmem-before=%02x dmem-after=%02x\n",
+            T64_RSP_REFUSAL_DMA_SPAN, refusal,
+            (unsigned long long)active_token,
+            (unsigned long long)active_token_after,
+            (unsigned long long)before.rsp.pending_dma_token,
+            (unsigned long long)fixture.machine->rsp.pending_dma_token,
+            (unsigned long long)before.rsp.dma_beat_cursor,
+            (unsigned long long)fixture.machine->rsp.dma_beat_cursor,
+            fixture.machine->rsp_observed_dma_action, before.dmem[0x20],
+            fixture.machine->sp_dmem[0x20]);
+  }
+  t64_machine_destroy(fixture.machine);
+  return unchanged;
+}
+
+static bool dma_mtc0_full_queue_refusal_test(void) {
+  rsp_control_fixture fixture;
+  dma_mtc0_snapshot before;
+  uint64_t active_token;
+  uint64_t active_token_after = 0u;
+  uint32_t refusal = T64_RSP_REFUSAL_NONE;
+  bool setup_ok;
+  bool unchanged;
+
+  if (!fixture_create(&fixture)) {
+    puts("# setup-failure: MTC0 full-queue fixture allocation");
+    return false;
+  }
+  reset_rsp_fixture(&fixture, true);
+  setup_ok = write_dma_descriptor(fixture.machine, UINT32_C(0x20),
+                                  UINT32_C(0x100), UINT32_C(7)) &&
+             write_dma_descriptor(fixture.machine, UINT32_C(0x28),
+                                  UINT32_C(0x108), UINT32_C(7)) &&
+             fixture.machine->rsp.dma_setup_remaining == UINT64_C(12);
+  active_token = fixture.machine->rsp.active_dma_token;
+  setup_ok = setup_ok && active_token != 0u &&
+             setup_dma_mtc0_program(&fixture, UINT32_C(0x30),
+                                    UINT32_C(0x110), UINT32_C(7),
+                                    UINT32_C(2)) &&
+             t64_machine_trace_set_enabled(fixture.machine, true) ==
+                 T64_STATUS_OK;
+  t64_trace_reset(fixture.machine);
+  if (!setup_ok) {
+    puts("# setup-failure: MTC0 full-queue active-setup");
+    t64_machine_destroy(fixture.machine);
+    return false;
+  }
+  snapshot_dma_mtc0(fixture.machine, &before);
+  unchanged = dma_mtc0_refusal_unchanged(
+      fixture.machine, &before, UINT64_C(1), T64_STATUS_BUS_DEVICE_REFUSED,
+      T64_RSP_REFUSAL_DMA_QUEUE_FULL, T64_STATUS_BUS_DEVICE_REFUSED,
+      UINT32_C(2), &refusal, &active_token_after);
+  if (!unchanged) {
+    fprintf(stderr,
+            "# semantic-failure: full-queue MTC0 expected refusal=%u; "
+            "actual=%u setup-before=%llu setup-after=%llu active-before="
+            "%llu active-after=%llu action=%u\n",
+            T64_RSP_REFUSAL_DMA_QUEUE_FULL, refusal,
+            (unsigned long long)before.rsp.dma_setup_remaining,
+            (unsigned long long)fixture.machine->rsp.dma_setup_remaining,
+            (unsigned long long)active_token,
+            (unsigned long long)active_token_after,
+            fixture.machine->rsp_observed_dma_action);
+  }
+  t64_machine_destroy(fixture.machine);
+  return unchanged;
+}
+
+static bool dma_mtc0_token_exhaustion_refusal_test(void) {
+  rsp_control_fixture fixture;
+  dma_mtc0_snapshot before;
+  uint64_t active_token;
+  uint64_t active_token_after = 0u;
+  uint32_t refusal = T64_RSP_REFUSAL_NONE;
+  bool setup_ok;
+  bool unchanged;
+
+  if (!fixture_create(&fixture)) {
+    puts("# setup-failure: MTC0 token-exhaustion fixture allocation");
+    return false;
+  }
+  reset_rsp_fixture(&fixture, true);
+  setup_ok = write_dma_descriptor(fixture.machine, UINT32_C(0x20),
+                                  UINT32_C(0x100), UINT32_C(7));
+  active_token = fixture.machine->rsp.active_dma_token;
+  fixture.machine->sp.token_exhausted = true;
+  setup_ok = setup_ok && active_token != 0u &&
+             setup_dma_mtc0_program(&fixture, UINT32_C(0x30),
+                                    UINT32_C(0x110), UINT32_C(7),
+                                    UINT32_C(2)) &&
+             t64_machine_trace_set_enabled(fixture.machine, true) ==
+                 T64_STATUS_OK;
+  t64_trace_reset(fixture.machine);
+  if (!setup_ok) {
+    puts("# setup-failure: MTC0 token-exhaustion active-setup");
+    t64_machine_destroy(fixture.machine);
+    return false;
+  }
+  snapshot_dma_mtc0(fixture.machine, &before);
+  unchanged = dma_mtc0_refusal_unchanged(
+      fixture.machine, &before, UINT64_C(1), T64_STATUS_RESOURCE_EXHAUSTED,
+      T64_RSP_REFUSAL_DMA_TOKEN_EXHAUSTED,
+      T64_STATUS_RESOURCE_EXHAUSTED, UINT32_C(2), &refusal,
+      &active_token_after);
+  if (!unchanged) {
+    fprintf(stderr,
+            "# semantic-failure: token-exhaustion MTC0 expected refusal=%u; "
+            "actual=%u setup-before=%llu setup-after=%llu active-before="
+            "%llu active-after=%llu action=%u\n",
+            T64_RSP_REFUSAL_DMA_TOKEN_EXHAUSTED, refusal,
+            (unsigned long long)before.rsp.dma_setup_remaining,
+            (unsigned long long)fixture.machine->rsp.dma_setup_remaining,
+            (unsigned long long)active_token,
+            (unsigned long long)active_token_after,
+            fixture.machine->rsp_observed_dma_action);
+  }
+  t64_machine_destroy(fixture.machine);
+  return unchanged;
+}
+
+static bool dma_mtc0_atomic_refusal_test(void) {
+  bool accepted_c2 = dma_mtc0_accepted_promotion_test(UINT32_C(2));
+  bool accepted_c3 = dma_mtc0_accepted_promotion_test(UINT32_C(3));
+  bool invalid_span = dma_mtc0_invalid_span_refusal_test();
+  bool full_queue = dma_mtc0_full_queue_refusal_test();
+  bool token_exhausted = dma_mtc0_token_exhaustion_refusal_test();
+
+  return accepted_c2 && accepted_c3 && invalid_span && full_queue &&
+         token_exhausted;
 }
 
 static bool run_dma_link_notification_case(bool dram_to_sp,
@@ -1345,6 +2137,8 @@ int main(int argc, char **argv) {
   bool active_pc_dma_passed;
   bool unsupported_dp_passed;
   bool load_store_passed;
+  bool dma_mtc0_passed;
+  bool self_halt_passed;
   bool passed;
 
   if (argc == 2 &&
@@ -1354,6 +2148,52 @@ int main(int argc, char **argv) {
     printf("%s 1 - COP moves obey VU destination and load-store delays\n",
            passed ? "ok" : "not ok");
     puts("1..1");
+    return passed ? 0 : 1;
+  }
+  if (argc == 2 &&
+      strcmp(argv[1], "--tdd-dma-refusal-atomicity") == 0) {
+    bool accepted_c2 = dma_mtc0_accepted_promotion_test(UINT32_C(2));
+    bool accepted_c3 = dma_mtc0_accepted_promotion_test(UINT32_C(3));
+    bool invalid_span = dma_mtc0_invalid_span_refusal_test();
+    bool full_queue = dma_mtc0_full_queue_refusal_test();
+    bool token_exhausted = dma_mtc0_token_exhaustion_refusal_test();
+
+    passed = accepted_c2 && accepted_c3 && invalid_span && full_queue &&
+             token_exhausted;
+    puts("TAP version 13");
+    printf("%s 1 - fetched MTC0 c2 accepts after final-beat promotion\n",
+           accepted_c2 ? "ok" : "not ok");
+    printf("%s 2 - fetched MTC0 c3 accepts after final-beat promotion\n",
+           accepted_c3 ? "ok" : "not ok");
+    printf("%s 3 - invalid-span MTC0 refuses the whole final-beat promotion\n",
+           invalid_span ? "ok" : "not ok");
+    printf("%s 4 - full-queue MTC0 refuses the whole setup opportunity\n",
+           full_queue ? "ok" : "not ok");
+    printf("%s 5 - token exhaustion refuses the whole setup opportunity\n",
+           token_exhausted ? "ok" : "not ok");
+    puts("1..5");
+    return passed ? 0 : 1;
+  }
+  if (argc == 2 &&
+      strcmp(argv[1], "--tdd-rsp-guest-self-halt") == 0) {
+    bool accepted = guest_self_halt_dma_and_resume_test();
+    bool malformed = guest_status_invalid_command_test(UINT32_C(0x02000002));
+    bool guest_single_step =
+        guest_status_invalid_command_test(UINT32_C(0x40));
+    bool host_async_refusal =
+        in_flight_halt_and_single_step_refusal_test();
+
+    passed = accepted && malformed && guest_single_step && host_async_refusal;
+    puts("TAP version 13");
+    printf("%s 1 - fetched MTC0 c4 self-HALT retires, permits DMA, and resumes\n",
+           accepted ? "ok" : "not ok");
+    printf("%s 2 - malformed fetched SP_STATUS command refuses atomically\n",
+           malformed ? "ok" : "not ok");
+    printf("%s 3 - fetched in-flight single-step command remains refused\n",
+           guest_single_step ? "ok" : "not ok");
+    printf("%s 4 - CPU/host in-flight HALT and single-step still refuse\n",
+           host_async_refusal ? "ok" : "not ok");
+    puts("1..4");
     return passed ? 0 : 1;
   }
   if (argc == 2 &&
@@ -1375,7 +2215,9 @@ int main(int argc, char **argv) {
     return passed ? 0 : 1;
   }
   if (argc != 1) {
-    fputs("usage: test_rsp_control [--tdd-active-pc-imem-refusal]\n",
+    fputs("usage: test_rsp_control [--tdd-active-pc-imem-refusal] "
+          "[--tdd-dma-refusal-atomicity] "
+          "[--tdd-rsp-guest-self-halt]\n",
           stderr);
     return 2;
   }
@@ -1387,6 +2229,7 @@ int main(int argc, char **argv) {
   dma_boundaries_passed = dma_descriptor_boundary_matrix_test();
   dma_span_passed = dma_final_row_span_test();
   dma_queue_passed = dma_queue_full_promotion_test();
+  dma_mtc0_passed = dma_mtc0_atomic_refusal_test();
   dma_links_passed = dma_destination_link_notification_test();
   bank_conflict_passed = same_bank_conflict_atomicity_test();
   active_pc_dma_passed = active_pc_dma_destination_refusal_test();
@@ -1394,12 +2237,17 @@ int main(int argc, char **argv) {
   load_store_passed = load_store_bubble_test();
   partitioned_passed = partitioned_advance_digest_test();
   cop_hazards_passed = cop_move_hazard_test();
+  self_halt_passed = guest_self_halt_dma_and_resume_test() &&
+                     guest_status_invalid_command_test(
+                         UINT32_C(0x02000002)) &&
+                     guest_status_invalid_command_test(UINT32_C(0x40));
   passed = status_passed && sem_pc_passed && in_flight_passed &&
            active_pc_passed && active_pc_widths_passed &&
            dma_boundaries_passed && dma_span_passed && dma_queue_passed &&
+           dma_mtc0_passed &&
            dma_links_passed && bank_conflict_passed &&
            active_pc_dma_passed && unsupported_dp_passed &&
-           load_store_passed && partitioned_passed;
+           load_store_passed && partitioned_passed && self_halt_passed;
   puts("TAP version 13");
   printf("%s 1 - status command matrix and model clear/set precedence\n",
          status_passed ? "ok" : "not ok");
@@ -1442,7 +2290,11 @@ int main(int argc, char **argv) {
   }
   printf("%s 15 - COP moves obey VU destination and load-store delays\n",
          cop_hazards_passed ? "ok" : "not ok");
+  printf("%s 16 - fetched MTC0 DMA refusal preserves the whole opportunity\n",
+         dma_mtc0_passed ? "ok" : "not ok");
+  printf("%s 17 - fetched SP_STATUS self-HALT, invalid commands, and resume\n",
+         self_halt_passed ? "ok" : "not ok");
   passed = passed && cop_hazards_passed;
-  puts("1..15");
+  puts("1..17");
   return passed ? 0 : 1;
 }

@@ -64,17 +64,131 @@ CANONICAL_SOFTFLOAT_SOURCES = frozenset(
 )
 
 
-# Reviewed normalized route bodies: require an explicit route review for semantic
-# edits, including unnamed data-signature early returns that token checks miss.
-# These guards cover the listed entry/dispatch functions, not arbitrary C behavior.
-REVIEWED_ROUTE_DIGESTS = {
+# Every file-scope static helper in t64_rsp.c is part of the execution inventory,
+# including pure arithmetic and byte helpers whose outputs feed decode effects.
+# This is a bounded normalized-source guard, not proof of arbitrary C behavior.
+REVIEWED_RSP_STATIC_FUNCTIONS = frozenset(
+    {
+        "t64_rsp_issue_event",
+        "t64_rsp_schedule_next",
+        "rsp_read_imem_word",
+        "rsp_read_vector_element",
+        "rsp_write_vector_element",
+        "rsp_signed16",
+        "rsp_sign_extend16",
+        "rsp_signed_less32",
+        "rsp_arithmetic_shift_right32",
+        "rsp_select_vector_lane",
+        "rsp_vector_memory_add_address",
+        "rsp_vector_memory_add_load_byte",
+        "rsp_vector_memory_add_store_byte",
+        "rsp_plan_vector_memory",
+        "rsp_vector_memory_loaded_byte",
+        "rsp_ready_tick_after",
+        "rsp_decode_vadd",
+        "rsp_commit_vadd",
+        "rsp_decode_vector_basic",
+        "rsp_commit_vector_effect",
+        "rsp_decode_divider",
+        "rsp_signed48",
+        "rsp_clamp_signed_accumulator",
+        "rsp_clamp_unsigned_accumulator",
+        "rsp_decode_vector_multiply",
+        "rsp_decode_vector_compare",
+    }
+)
+REVIEWED_SP_DMA_API_FUNCTIONS = frozenset(
+    {
+        "t64_sp_rsp_dma_active",
+        "t64_sp_rsp_dma_admission_preflight",
+        "t64_sp_rsp_dma_admission_commit",
+        "t64_sp_rsp_dma_admission_refuse",
+        "t64_sp_rsp_dma_preflight",
+        "t64_sp_rsp_dma_commit",
+    }
+)
+REVIEWED_SP_DMA_HELPER_FUNCTIONS = frozenset(
+    {
+        "warm_zero_source_sp_transfer",
+        "dma_busy",
+        "dma_full",
+        "trace_refusal",
+        "refuse",
+        "decode_descriptor",
+        "rsp_pc_overlaps_dma_beat",
+    }
+)
+REVIEWED_SP_STATUS_FUNCTIONS = frozenset(
+    {"t64_rsp_validate_status_command", "t64_sp_rsp_guest_status_write"}
+)
+REVIEWED_SP_FUNCTIONS = (
+    REVIEWED_SP_DMA_API_FUNCTIONS
+    | REVIEWED_SP_DMA_HELPER_FUNCTIONS
+    | REVIEWED_SP_STATUS_FUNCTIONS
+    | frozenset(
+        {
+            "start_dma", "start_rsp_dma", "write_rsp_status",
+            "t64_sp_complete", "t64_sp_peek_register", "t64_sp_read_register",
+            "t64_sp_reset_machine_state", "t64_sp_write_register",
+        }
+    )
+)
+
+# Reviewed normalized function bodies. A changed body requires an explicit
+# review and digest refresh; static definition additions/removals also fail the
+# inventory check below.
+REVIEWED_BODY_DIGESTS = {
+    "core/t64_sp.c :: t64_sp_write_register": "3620ac7c6c379837ebdedcfcf21ca6c887e580880e314311633b08698f75ce09",
+    "core/t64_sp.c :: t64_sp_reset_machine_state": "f410fa77785c8b063cde69306ced58702d70dae4c5bca62af2b8adf08529670a",
+    "core/t64_sp.c :: t64_sp_read_register": "495be610b9df612b2637f74356824f1a4c6970981041d87dfb666a2f56946e5e",
+    "core/t64_sp.c :: t64_sp_peek_register": "8e061feec47e6809739915b64f8e832cba96a8705521eb7b6e2a0cea2d7d4e5d",
+    "core/t64_sp.c :: t64_sp_complete": "931b7e164ac314c2671e61bb5e77dfea2409c0106a9aa8bb54a7533471b94293",
+    "core/t64_sp.c :: start_dma": "e960624eb7510895ae8c1721620b8dc3aa948c0d1c4cc6298aa9c43f1f0f7fae",
+    "core/t64_sp.c :: t64_sp_rsp_guest_status_write": "aa575856b41e3be20241aee8db88efd7d2def2007cad2cb9cd0424c11417beb6",
+    "core/t64_sp.c :: t64_rsp_validate_status_command": "e750e5da69933b8e68350a243266836a41d259724c203e8e4b805dee49f2dc81",
+    "core/t64_rsp.c :: rsp_arithmetic_shift_right32": "2ffdbfc144cc0d544303a2c9d6544d4f8a507c7f95ce5c6fb5a2c5f6cbedc8b2",
+    "core/t64_rsp.c :: rsp_clamp_signed_accumulator": "5543a4680a99621460790929bbecd6338f6b0cb98f2ace605988b67dbbdb2faf",
+    "core/t64_rsp.c :: rsp_clamp_unsigned_accumulator": "d203d306b5bb83931666bbbe8565bf2be28b0b14637c65bdd9da7d616461a7f7",
+    "core/t64_rsp.c :: rsp_commit_vadd": "9fda6b6f2ec351237bb4f681a9e77cd0624e3ddf1f2dfae98315951a4d087025",
+    "core/t64_rsp.c :: rsp_commit_vector_effect": "493558efd0852f44c6eccc9c683702db375699ab50f3ae44e7e9a982711f50af",
+    "core/t64_rsp.c :: rsp_decode_divider": "a8cb7d31faaa548edba4be5cfc197bd557105f0b71809503215e21b35928ef0c",
+    "core/t64_rsp.c :: rsp_decode_vadd": "fe08db8d3d2e49994398ee7d76de1dde81c0d9bebda3fe40be75be501feff9a0",
+    "core/t64_rsp.c :: rsp_decode_vector_basic": "bc3f5a778d7ec0ebe7e0d81ca9e847f7f8f3febba8df3f28bd17d3aca65eb7b1",
+    "core/t64_rsp.c :: rsp_decode_vector_compare": "047454f1508577f5521c8b9a80bb9eefbad5059600ff0b948af3b3b488a91b7f",
+    "core/t64_rsp.c :: rsp_decode_vector_multiply": "a89194966324203bde8b8d30dee9c1843a9e31b21ecdbd3fe0e02c26afd7b2a1",
+    "core/t64_rsp.c :: rsp_plan_vector_memory": "2c45cef2220b904e3715d57e40cd35d10939d834e9b3d749ecd4f38e58b620fe",
     "core/t64_rsp.c :: rsp_read_imem_word": "db7a2c1d21484afdd935008961692093d22515afe3bb383dbe19ec8fd68479e1",
-    "core/t64_rsp.c :: t64_rsp_schedule_next": "7bceb405fe698a622902fd136009ac272c585eb62288c1371db49b42fa1bc339",
+    "core/t64_rsp.c :: rsp_read_vector_element": "44f09265b81c3e7d891389b338bf3869f05ed1c905ebbe2b813a58edf36622e7",
+    "core/t64_rsp.c :: rsp_ready_tick_after": "d920721d8f0e1ecf83be81d167fb79557f72f64fbb8f927890e99015661980cd",
+    "core/t64_rsp.c :: rsp_select_vector_lane": "702353a47c99b149e59087cc1dce99574b12fd3b30f2452383db133b38e0d193",
+    "core/t64_rsp.c :: rsp_sign_extend16": "57ef376a78778052585f55ec04ce962cbf9b260749cfec3892f3a70b5607a6d7",
+    "core/t64_rsp.c :: rsp_signed16": "2ad56dbb5f2ad65b4bac1e81206888862d6523d9e4717ed349549fa53407040b",
+    "core/t64_rsp.c :: rsp_signed48": "06efd07d2b91c580875b5d483b05e62337ea765c4d86a1b14aa8f71bad5669d9",
+    "core/t64_rsp.c :: rsp_signed_less32": "485d921a30b6b37fcba6602bb3980e1d4888620e9333f8e5195e389e4a2f0574",
+    "core/t64_rsp.c :: rsp_vector_memory_add_address": "8025f869af91a4bad6b448f6de94cbeb88e7a30502ab89b0c98d3ca0197ea93f",
+    "core/t64_rsp.c :: rsp_vector_memory_add_load_byte": "d44c46bff06098b1a67a15d94602a633b7443d8192e3da4aaa1e5feaee5e6970",
+    "core/t64_rsp.c :: rsp_vector_memory_add_store_byte": "e2833f80313951cbe5f61aad8a23afe2e29a8a4d21223e46cdf4b0f8d81bd7e8",
+    "core/t64_rsp.c :: rsp_vector_memory_loaded_byte": "530efea13ab67b3f5e92288e0ca372195613b5402593efaa0b57fd25af753073",
+    "core/t64_rsp.c :: rsp_write_vector_element": "3d6b40d7c541286102647e6241ce0b6466937797d8844cb676f2f220ec255b73",
     "core/t64_rsp.c :: t64_rsp_ensure_opportunity": "d37ee11dced86400787fe5774fb85544f3eb2a625d0e9916e6a90f9de54c5bbb",
+    "core/t64_rsp.c :: t64_rsp_issue_event": "6630326692dde41a1f34da8d002037245d518de15c88a166fff71bb4be092826",
+    "core/t64_rsp.c :: t64_rsp_schedule_next": "7bceb405fe698a622902fd136009ac272c585eb62288c1371db49b42fa1bc339",
     "core/t64_rsp.c :: t64_rsp_start": "844ab432a1a02296d0f0d768dab18a5c60d9ee167bc2959637214b304e6e1ef1",
-    "core/t64_rsp.c :: t64_rsp_issue_event": "95c86db28b880386cdaa381eb22e038bc3533ef42ba5e28416d8b2378c663917",
-    "core/t64_sp.c :: start_rsp_dma": "5c69e2b58f896246652478c8f3c17e6762c55da796fd0cc88e61459765e4e711",
-    "core/t64_sp.c :: write_rsp_status": "9d022dfff35ca2b3de5a8fe094528253c1265b159d0a4fb3ded0125db4c58ffb",
+    "core/t64_sp.c :: decode_descriptor": "bb8ebf0fa2a9c2161076806566f090449af9c20d7de8d74bba461d4503c53352",
+    "core/t64_sp.c :: dma_busy": "ef1efda4327bde7a879ae04b7d7947457b10c13263c0f5cb40547fd02b203cfe",
+    "core/t64_sp.c :: dma_full": "92dc417b13b19cfe01ce1c1bfdb61c35bb952b69f07950c34920518dddd50bba",
+    "core/t64_sp.c :: refuse": "14c52d2fb1695e35a264c9face6e0ee3fce0a62d44e8fbf621a75584904cf475",
+    "core/t64_sp.c :: rsp_pc_overlaps_dma_beat": "206b3bb9a2847981e36c6a146d64f34b10fe9cbb931a1b5b087ce1b49a8765ed",
+    "core/t64_sp.c :: start_rsp_dma": "a789536986e683cdf3efa0762c2ee0365c52fd7b0cc1f90291ae484838b1ac1a",
+    "core/t64_sp.c :: t64_sp_rsp_dma_active": "c5eb4df345f87ff3f73ac0f81b9a039dc3b6ca13e9a8bb4faf59ee26a4035bda",
+    "core/t64_sp.c :: t64_sp_rsp_dma_admission_commit": "8e52fa80dd6ae74fc13d8d7a46d64b802ce68aa8c3744cd10eb79e0d7fab4eff",
+    "core/t64_sp.c :: t64_sp_rsp_dma_admission_preflight": "63d6631c0e409082581aebb7778c0298ca12459b5e4f8e6fd71a8e829f6ba18e",
+    "core/t64_sp.c :: t64_sp_rsp_dma_admission_refuse": "1e014801570acaa111ae5e932ea0260840aa6fb5d37f27bcf3018759550a5c3c",
+    "core/t64_sp.c :: t64_sp_rsp_dma_commit": "d045e6d0dda1e7c0cd339b8bda7a0738439f230c2c680ed9adab80b7326bde4e",
+    "core/t64_sp.c :: t64_sp_rsp_dma_preflight": "e5b6d9024c565659e7b610795fd64dcea905238edc5f74b09b0495c401eb108f",
+    "core/t64_sp.c :: trace_refusal": "d142faecf8d4f78e427aa40e7454d0a24cc05c20ca433e225bed118982517dfc",
+    "core/t64_sp.c :: warm_zero_source_sp_transfer": "46b55d7252273228780a497b4f34180b53dc93676f6bac901aaff9fae6d86508",
+    "core/t64_sp.c :: write_rsp_status": "8d1f00710b955fc530864d080ae8d99733711e73749c75b6800d7cc590dbf74c",
 }
 
 
@@ -124,6 +238,39 @@ def function_body(source: str, name: str) -> str | None:
                 if depth == 0:
                     return source[cursor + 1 : index]
     return None
+
+
+def static_function_names(source: str) -> set[str]:
+    """Return file-scope static function definitions, not just declarations."""
+
+    pattern = re.compile(
+        r"(?m)^static\b[^;{}]*?\b([A-Za-z_]\w*)\s*\("
+    )
+    names = set()
+    for match in pattern.finditer(source):
+        name = match.group(1)
+        if function_body(source, name) is not None:
+            names.add(name)
+    return names
+
+
+def file_function_names(source: str) -> set[str]:
+    """Return file-scope function definitions regardless of storage class."""
+
+    pattern = re.compile(
+        r"(?m)^(?:static\s+)?[^;{}]*?\b([A-Za-z_]\w*)\s*\("
+    )
+    names = set()
+    cursor = 0
+    depth = 0
+    for match in pattern.finditer(source):
+        prefix = source[cursor:match.start()]
+        depth += prefix.count("{") - prefix.count("}")
+        cursor = match.start()
+        name = match.group(1)
+        if depth == 0 and name not in {"if", "for", "while", "switch"} and function_body(source, name) is not None:
+            names.add(name)
+    return names
 
 
 def _softfloat_sources(root: pathlib.Path) -> tuple[set[str], list[str]]:
@@ -223,6 +370,25 @@ def _check_source_route(root: pathlib.Path) -> tuple[list[str], list[str], int]:
 
     rsp = strip_c_comments_and_literals(rsp_path.read_text(encoding="utf-8"))
     sp = strip_c_comments_and_literals(sp_path.read_text(encoding="utf-8"))
+    sp_function_names = file_function_names(sp)
+    if sp_function_names != REVIEWED_SP_FUNCTIONS:
+        findings.append("core/t64_sp.c: complete SP function inventory changed; route review is required")
+    actual_sp_dma_apis = {
+        name for name in sp_function_names if name.startswith("t64_sp_rsp_dma_")
+    }
+    if actual_sp_dma_apis != REVIEWED_SP_DMA_API_FUNCTIONS:
+        missing = sorted(REVIEWED_SP_DMA_API_FUNCTIONS - actual_sp_dma_apis)
+        unexpected = sorted(actual_sp_dma_apis - REVIEWED_SP_DMA_API_FUNCTIONS)
+        if missing:
+            findings.append(
+                "core/t64_sp.c: reviewed RSP DMA helper definition(s) missing: "
+                + ", ".join(missing)
+            )
+        if unexpected:
+            findings.append(
+                "core/t64_sp.c: unreviewed RSP DMA helper definition(s): "
+                + ", ".join(unexpected)
+            )
     routes = {
         "core/t64_rsp.c :: rsp_read_imem_word": function_body(rsp, "rsp_read_imem_word"),
         "core/t64_rsp.c :: t64_rsp_schedule_next": function_body(
@@ -238,11 +404,35 @@ def _check_source_route(root: pathlib.Path) -> tuple[list[str], list[str], int]:
         "core/t64_sp.c :: start_rsp_dma": function_body(sp, "start_rsp_dma"),
         "core/t64_sp.c :: write_rsp_status": function_body(sp, "write_rsp_status"),
     }
+    static_names = static_function_names(rsp)
+    if static_names != REVIEWED_RSP_STATIC_FUNCTIONS:
+        missing = sorted(REVIEWED_RSP_STATIC_FUNCTIONS - static_names)
+        unexpected = sorted(static_names - REVIEWED_RSP_STATIC_FUNCTIONS)
+        if missing:
+            findings.append(
+                "core/t64_rsp.c: reviewed static helper definition(s) missing: "
+                + ", ".join(missing)
+            )
+        if unexpected:
+            findings.append(
+                "core/t64_rsp.c: unreviewed static helper definition(s): "
+                + ", ".join(unexpected)
+            )
+    for name in REVIEWED_RSP_STATIC_FUNCTIONS:
+        routes[f"core/t64_rsp.c :: {name}"] = function_body(rsp, name)
+    for name in REVIEWED_SP_FUNCTIONS:
+        routes[f"core/t64_sp.c :: {name}"] = function_body(sp, name)
     for label, body in routes.items():
         if body is None:
             findings.append(f"{label}: required canonical route function is missing")
-        elif hashlib.sha256(re.sub(r"\s+", "", body).encode()).hexdigest() != REVIEWED_ROUTE_DIGESTS[label]:
-            findings.append(f"{label}: executable route changed; fetched-path review is required")
+        else:
+            expected_digest = REVIEWED_BODY_DIGESTS.get(label)
+            if expected_digest is None:
+                findings.append(f"{label}: reviewed normalized body digest is missing")
+            elif hashlib.sha256(re.sub(r"\s+", "", body).encode()).hexdigest() != expected_digest:
+                findings.append(
+                    f"{label}: executable body changed; fetched-path review is required"
+                )
 
     read_body = routes["core/t64_rsp.c :: rsp_read_imem_word"] or ""
     if "machine->sp_imem" not in read_body or "bytes[0]" not in read_body:

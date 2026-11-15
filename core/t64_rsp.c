@@ -1388,11 +1388,15 @@ static t64_status t64_rsp_issue_event(t64_machine *machine,
   uint32_t load_width = 0u;
   uint32_t cp0_register = 0u;
   uint32_t cp0_value = 0u;
+  bool cp0_dma_write = false;
+  t64_rsp_dma_admission dma_admission = {0};
+  t64_status dma_admission_status = T64_STATUS_OK;
   uint32_t vu_control_register = 0u;
   uint32_t vu_control_value = 0u;
   rsp_vector_memory_plan vector_memory_plan = {0};
   bool read_cp0 = false;
   bool write_cp0 = false;
+  bool guest_self_halt = false;
   uint32_t branch_target = 0u;
   uint32_t pair_pc = 0u;
   uint32_t pair_instruction = 0u;
@@ -1844,12 +1848,17 @@ static t64_status t64_rsp_issue_event(t64_machine *machine,
         write_cp0 = true;
         cp0_value = machine->rsp.gpr[rt];
         if (cp0_register == UINT32_C(4) &&
-            t64_rsp_validate_status_command(machine, cp0_value) !=
+            t64_rsp_validate_status_command(
+                machine, cp0_value, T64_RSP_STATUS_ORIGIN_GUEST) !=
                 T64_STATUS_OK) {
           write_cp0 = false;
           machine->rsp_observed_refusal_reason =
               T64_RSP_REFUSAL_CP0_INVALID_VALUE;
         } else {
+          guest_self_halt = cp0_register == UINT32_C(4) &&
+                            (cp0_value & UINT32_C(0x2)) != 0u &&
+                            (machine->rsp.sp_status &
+                             T64_RSP_STATUS_HALT) == 0u;
           scalar_read_mask |= UINT32_C(1) << rt;
           is_load_or_cop_move = true;
           is_store = true;
@@ -1991,8 +2000,8 @@ static t64_status t64_rsp_issue_event(t64_machine *machine,
     is_load_or_cop_move = true;
     supported = true;
   }
-  if (supported && !is_break && !is_branch && !write_vector_result &&
-      !write_vmov && !is_vnop && !was_delay_slot) {
+  if (supported && !guest_self_halt && !is_break && !is_branch &&
+      !write_vector_result && !write_vmov && !is_vnop && !was_delay_slot) {
     uint32_t pair_vector_mask;
     bool vector_register_conflict = false;
 
@@ -2026,6 +2035,9 @@ static t64_status t64_rsp_issue_event(t64_machine *machine,
       }
     }
   }
+  cp0_dma_write = write_cp0 &&
+                  (cp0_register == UINT32_C(2) ||
+                   cp0_register == UINT32_C(3));
   if (!supported) {
     machine->rsp_observed_outcome = T64_RSP_ATTEMPT_REFUSED;
     if (machine->rsp_observed_refusal_reason == T64_RSP_REFUSAL_NONE) {
@@ -2119,6 +2131,11 @@ static t64_status t64_rsp_issue_event(t64_machine *machine,
     return dma_status;
   }
   dma_conflict = dma_status == T64_STATUS_BUS_DEVICE_REFUSED;
+  if (!dma_conflict && cp0_dma_write) {
+    dma_admission_status = t64_sp_rsp_dma_admission_preflight(
+        machine, cp0_register == UINT32_C(2), cp0_value,
+        cp0_register * UINT32_C(4), &dma_step, &dma_admission);
+  }
   if (!is_break || dma_active) {
     status = t64_rsp_schedule_next(machine);
     if (status != T64_STATUS_OK) {
@@ -2134,6 +2151,13 @@ static t64_status t64_rsp_issue_event(t64_machine *machine,
     machine->rsp_observed_stall_reason = T64_RSP_STALL_BANK_CONFLICT;
     machine->rsp.stall_slots++;
     return T64_STATUS_OK;
+  }
+  if (cp0_dma_write && dma_admission_status != T64_STATUS_OK) {
+    machine->rsp_observed_outcome = T64_RSP_ATTEMPT_REFUSED;
+    t64_sp_rsp_dma_admission_refuse(machine, &dma_admission);
+    return dma_admission_status == T64_STATUS_BUS_DEVICE_REFUSED
+               ? T64_STATUS_OK
+               : dma_admission_status;
   }
   t64_sp_rsp_dma_commit(machine, &dma_step);
 
@@ -2190,16 +2214,32 @@ static t64_status t64_rsp_issue_event(t64_machine *machine,
     gpr_value = load_value;
   }
   if (write_cp0) {
-    status = t64_machine_bus_write(
-        machine, T64_SP_REGISTER_BASE + cp0_register * UINT32_C(4), 4u,
-        cp0_value);
-    if (status != T64_STATUS_OK) {
-      machine->rsp_observed_outcome = T64_RSP_ATTEMPT_REFUSED;
-      if (machine->rsp_observed_refusal_reason == T64_RSP_REFUSAL_NONE) {
-        machine->rsp_observed_refusal_reason =
-            T64_RSP_REFUSAL_UNSUPPORTED_OPCODE;
+    if (cp0_dma_write) {
+      t64_sp_rsp_dma_admission_commit(machine, &dma_admission);
+    } else if (cp0_register == UINT32_C(4)) {
+      status = t64_sp_rsp_guest_status_write(machine, cp0_value);
+      if (status != T64_STATUS_OK) {
+        machine->rsp_observed_outcome = T64_RSP_ATTEMPT_REFUSED;
+        if (machine->rsp_observed_refusal_reason == T64_RSP_REFUSAL_NONE) {
+          machine->rsp_observed_refusal_reason =
+              T64_RSP_REFUSAL_CP0_INVALID_VALUE;
+        }
+        return status == T64_STATUS_BUS_DEVICE_REFUSED ? T64_STATUS_OK
+                                                       : status;
       }
-      return status == T64_STATUS_BUS_DEVICE_REFUSED ? T64_STATUS_OK : status;
+    } else {
+      status = t64_machine_bus_write(
+          machine, T64_SP_REGISTER_BASE + cp0_register * UINT32_C(4), 4u,
+          cp0_value);
+      if (status != T64_STATUS_OK) {
+        machine->rsp_observed_outcome = T64_RSP_ATTEMPT_REFUSED;
+        if (machine->rsp_observed_refusal_reason == T64_RSP_REFUSAL_NONE) {
+          machine->rsp_observed_refusal_reason =
+              T64_RSP_REFUSAL_UNSUPPORTED_OPCODE;
+        }
+        return status == T64_STATUS_BUS_DEVICE_REFUSED ? T64_STATUS_OK
+                                                       : status;
+      }
     }
   }
   if (write_vu_control) {

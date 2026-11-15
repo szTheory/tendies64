@@ -44,6 +44,7 @@
 #define T64_RSP_REFUSAL_DP_UNAVAILABLE UINT32_C(9)
 #define T64_RSP_REFUSAL_CP0_READ_ONLY UINT32_C(10)
 #define T64_RSP_REFUSAL_CP0_INVALID_VALUE UINT32_C(11)
+#define T64_RSP_REFUSAL_DMA_TOKEN_EXHAUSTED UINT32_C(12)
 #define T64_RSP_DMA_ACTION_SETUP UINT32_C(1)
 #define T64_RSP_DMA_ACTION_BEAT UINT32_C(2)
 #define T64_RSP_DMA_ACTION_COMPLETE UINT32_C(4)
@@ -167,6 +168,23 @@ typedef struct {
   bool dram_to_sp;
   bool imem;
 } t64_rsp_dma_step;
+
+typedef struct {
+  t64_sp_dma_descriptor descriptor;
+  uint64_t token;
+  uint32_t raw_length;
+  uint32_t offset;
+  t64_status status;
+  uint32_t refusal_reason;
+  bool dram_to_sp;
+  bool pending_slot;
+  bool valid;
+} t64_rsp_dma_admission;
+
+typedef enum {
+  T64_RSP_STATUS_ORIGIN_HOST = 0,
+  T64_RSP_STATUS_ORIGIN_GUEST = 1
+} t64_rsp_status_origin;
 
 /* Every field here can affect future behavior and belongs to state v12. */
 typedef struct {
@@ -784,14 +802,25 @@ t64_status t64_sp_peek_register(const t64_machine *machine,
                                 uint32_t address, uint32_t *value_out);
 t64_status t64_sp_write_register(t64_machine *machine, uint32_t address,
                                  uint32_t value);
+t64_status t64_sp_rsp_guest_status_write(t64_machine *machine,
+                                         uint32_t command);
 t64_status t64_rsp_ensure_opportunity(t64_machine *machine);
 t64_status t64_rsp_validate_status_command(const t64_machine *machine,
-                                           uint32_t command);
+                                           uint32_t command,
+                                           t64_rsp_status_origin origin);
 t64_status t64_sp_rsp_dma_preflight(t64_machine *machine, bool rsp_fetches,
                                     bool rsp_touches_dmem,
                                     t64_rsp_dma_step *step_out);
 void t64_sp_rsp_dma_commit(t64_machine *machine,
                            const t64_rsp_dma_step *step);
+t64_status t64_sp_rsp_dma_admission_preflight(
+    const t64_machine *machine, bool dram_to_sp, uint32_t raw_length,
+    uint32_t offset, const t64_rsp_dma_step *step,
+    t64_rsp_dma_admission *admission_out);
+void t64_sp_rsp_dma_admission_commit(
+    t64_machine *machine, const t64_rsp_dma_admission *admission);
+void t64_sp_rsp_dma_admission_refuse(
+    t64_machine *machine, const t64_rsp_dma_admission *admission);
 bool t64_sp_rsp_dma_active(const t64_machine *machine);
 t64_status t64_sp_complete(t64_machine *machine, const t64_event *event);
 void t64_sp_reset_machine_state(t64_machine *machine);
