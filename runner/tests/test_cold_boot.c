@@ -19,6 +19,8 @@ static char arg_probe[] = "--probe";
 static char arg_profile[] = "--profile";
 static char arg_fixture[] = "--fixture";
 static char arg_compare[] = "--compare";
+static char arg_profile_a[] = "--profile-a";
+static char arg_profile_b[] = "--profile-b";
 #define FIXTURE_BYTES 4280u
 #define CAPTURE_BYTES 16384u
 
@@ -129,7 +131,7 @@ static bool make_evidence_dir(const char *root, char *directory,
 static int controls(char *runner) {
   char *fixture = getenv("T64_TEST_HELLO_PATH");
   child_result child = {{0}, 0u, -1};
-  char *compare_args[] = {runner, arg_compare, NULL};
+  char *compare_args[9];
   char *missing_args[] = {runner, arg_probe, arg_profile, profile_a, NULL};
   char *warm_args[7];
   char temporary[] = "/tmp/t64-cold-controls-XXXXXX";
@@ -138,10 +140,34 @@ static int controls(char *runner) {
   bool ok = true;
   int temporary_fd;
 
+  (void)puts("TAP version 13");
+  (void)puts("1..6");
   if (!expect("test fixture is supplied", fixture != NULL)) return 1;
-  ok &= expect("compare mode is explicitly refused",
-               run_child(runner, compare_args, &child) && child.exit_code == 2 &&
-               strstr(child.output, "reason=compare-not-implemented") != NULL);
+  compare_args[0] = runner;
+  compare_args[1] = arg_compare;
+  compare_args[2] = arg_profile_a;
+  compare_args[3] = profile_a;
+  compare_args[4] = arg_profile_b;
+  compare_args[5] = profile_b;
+  compare_args[6] = arg_fixture;
+  compare_args[7] = fixture;
+  compare_args[8] = NULL;
+  {
+    bool compare_pass = run_child(runner, compare_args, &child) &&
+        child.exit_code == 0 &&
+        strstr(child.output, "classification=compare-pass") != NULL &&
+        strstr(child.output, "comparison=equal") != NULL &&
+        strstr(child.output, "terminal=0x80000478/0x0000000d") != NULL &&
+        strstr(child.output, "last-retired=0x80000474/0xa50e0016") != NULL &&
+        strstr(child.output, "terminal-in-delay-slot=0") != NULL &&
+        strstr(child.output,
+               "hello-hex=54656e6469657336342068656c6c6f20766961206f70656e2049504c330a") != NULL;
+    if (!compare_pass) {
+      (void)printf("# production compare response: %s", child.output);
+    }
+    ok &= expect("compare authenticates both terminal paths and literal output",
+                 compare_pass);
+  }
   ok &= expect("missing setup is refused before launch",
                run_child(runner, missing_args, &child) && child.exit_code == 2 &&
                strstr(child.output, "reason=usage") != NULL);
