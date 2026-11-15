@@ -278,8 +278,11 @@ target_include_directories(test_cpu_time PRIVATE
   "${CMAKE_SOURCE_DIR}/tests")
 target_link_libraries(test_cpu_time PRIVATE t64_core)
 t64_target_warnings(test_cpu_time)
+add_dependencies(test_cpu_time t64-boot-fixtures)
 add_test(NAME unit.core.cpu-time COMMAND test_cpu_time)
-set_tests_properties(unit.core.cpu-time PROPERTIES LABELS unit)
+set_tests_properties(unit.core.cpu-time PROPERTIES
+  LABELS unit
+  ENVIRONMENT "T64_TEST_IPL3_PATH=${T64_BOOT_FIXTURE_DIR}/ipl3_compat.z64")
 
 add_executable(test_cpu_exceptions tests/test_cpu_exceptions.c)
 target_include_directories(test_cpu_exceptions PRIVATE

@@ -80,6 +80,28 @@ instruction sequences, Count/Compare and Random ordering, delay slots,
 exceptions, and equal-tick CPU/device events. A changed table or deeper model
 gets a new profile identity; it does not rewrite existing profile behavior.
 
+### T2 evidence checklist
+
+Before specifying or implementing T2, retain a reviewable evidence packet with:
+
+- Exact emulator revision, build configuration, profile identity, target model,
+  state, boot/firmware inputs, and rights-cleared authored instruction streams.
+- Raw pipeline boundary observations for independent and dependent sequences,
+  including forwarding/interlocks, load-use, branch/delay-slot, and MDU cases.
+- Cache hit, miss, refill, bus/RDRAM wait, and arbitration observations, with
+  cache and memory state recorded at each boundary.
+- Exception and interrupt observations that identify the stage at which they
+  are recognized and their interaction with delay slots and architectural state.
+- Count/Compare, Random, and CPU/RSP equal-tick ordering, including DMA work
+  dispatched during an MDU interval and repeatable one-shot/partitioned runs.
+- Independent primary or hardware-derived support for each timing claim,
+  separated from emulator measurements and software-policy choices.
+- Reproducible raw traces, literal expected values, and a documented account of
+  each source, measurement method, uncertainty, and unresolved disagreement.
+
+This checklist records evidence required for a future decision. It does not
+assign T2 costs, add dynamic latency, or change current profile behavior.
+
 See [ADR-0003](../adr/0003-cpu-timing-tiers.md) for the tier definitions and
 the [Phase 6 CPU timing decision](../../.planning/phases/06-cold-boot-cpu-timing-and-full-base-suite/06-CPU-TIMING-DECISION.md)
 for the selected policy, evidence boundary, and reversal criteria.

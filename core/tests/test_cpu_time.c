@@ -25,6 +25,34 @@
 #define CAUSE_IP0 UINT32_C(0x00000100)
 #define CAUSE_IP2 UINT32_C(0x00000400)
 #define CAUSE_IP7 UINT32_C(0x00008000)
+#define T1_TEST_PI_BASE UINT32_C(0x04600000)
+#define T1_TEST_CART_BASE UINT32_C(0x10000000)
+#define T1_TEST_SP_BASE UINT32_C(0x04040000)
+#define T1_TEST_SP_DMA_COMPLETE UINT32_C(5)
+#define T1_TEST_RSP_STATUS_SINGLE_STEP UINT32_C(0x00000020)
+
+static bool read_t1_ipl3_asset(uint8_t image[4096]) {
+  const char *path = getenv("T64_TEST_IPL3_PATH");
+  FILE *file;
+  size_t count;
+  int extra;
+  int read_error;
+  int close_error;
+
+  if (path == NULL || path[0] == '\0') {
+    return false;
+  }
+  file = fopen(path, "rb");
+  if (file == NULL) {
+    return false;
+  }
+  count = fread(image, 1u, 4096u, file);
+  extra = fgetc(file);
+  read_error = ferror(file);
+  close_error = fclose(file);
+  return count == 4096u && extra == EOF && read_error == 0 &&
+         close_error == 0;
+}
 
 static void write_be32(uint8_t *bytes, uint32_t value);
 
@@ -909,6 +937,43 @@ static void test_cold_t1_exception_and_interrupt_boundaries(void) {
       "ntsc-cart-4m-openipl3-rdram-b-t1-v1");
 }
 
+static void test_cold_t1_idle_count_compare_for_profile(const char *profile_id) {
+  t64_machine machine;
+  t64_stop_request request = {T64_STOP_GUEST_TICK, UINT64_C(12)};
+  t64_stop_result result = {UINT32_MAX, UINT64_MAX};
+
+  T64_CHECK(setup_t1_machine(&machine, profile_id));
+  if (machine.ram == NULL) {
+    return;
+  }
+  reset_t1_cpu(&machine, 0u);
+  machine.cpu.cp0[CP0_COMPARE] = UINT32_C(6);
+  T64_CHECK_INT(t64_test_schedule_synthetic(&machine, UINT64_C(8),
+                                            T64_TEST_EVENT_NOOP, 1u),
+                T64_STATUS_OK);
+  T64_CHECK_INT(t64_machine_advance(&machine, &request, &result),
+                T64_STATUS_OK);
+  T64_CHECK_INT(result.reason, T64_STOP_REASON_BOUND);
+  T64_CHECK_INT(result.tick, UINT64_C(12));
+  T64_CHECK_INT(machine.tick, UINT64_C(12));
+  T64_CHECK_INT(machine.cpu.cp0[CP0_COUNT], UINT32_C(6));
+  T64_CHECK_INT(machine.cpu.count_half_clock_phase, 0u);
+  T64_CHECK(machine.cpu.count_equality_latched);
+  T64_CHECK_INT(machine.cpu.count_equality_latch_generation, 1u);
+  T64_CHECK(((uint32_t)machine.cpu.cp0[CP0_CAUSE] & CAUSE_IP7) != 0u);
+  T64_CHECK_INT(machine.instruction_count, 0u);
+  T64_CHECK_INT(machine.cpu.retired_instructions, 0u);
+  T64_CHECK_INT(machine.queue_count, 0u);
+  destroy_machine(&machine);
+}
+
+static void test_cold_t1_idle_count_compare(void) {
+  test_cold_t1_idle_count_compare_for_profile(
+      "ntsc-cart-4m-openipl3-rdram-a-t1-v1");
+  test_cold_t1_idle_count_compare_for_profile(
+      "ntsc-cart-4m-openipl3-rdram-b-t1-v1");
+}
+
 static void fill_t1_cpu_queue(t64_machine *machine, size_t count) {
   machine->queue_head = 0u;
   machine->queue_count = count;
@@ -1027,6 +1092,344 @@ static void test_cold_t1_preflight_before_mutation(void) {
   destroy_machine(&machine);
 }
 
+static bool t1_dma_machine_allocate(void *context, size_t size,
+                                   size_t alignment,
+                                   t64_host_storage *storage_out) {
+  void *memory;
+
+  (void)context;
+  if (storage_out == NULL || size == 0u || alignment == 0u) {
+    return false;
+  }
+  memory = malloc(size);
+  if (memory == NULL || (uintptr_t)memory % alignment != 0u) {
+    free(memory);
+    return false;
+  }
+  storage_out->data = memory;
+  storage_out->capacity = size;
+  storage_out->alignment = alignment;
+  return true;
+}
+
+static void t1_dma_machine_release(void *context, t64_host_storage storage) {
+  (void)context;
+  free(storage.data);
+}
+
+static bool setup_t1_dma_machine(t64_machine **machine_out,
+                                const char *profile_id, uint8_t image[4096],
+                                uint8_t dram_seed) {
+  t64_host_allocator allocator = {t1_dma_machine_allocate,
+                                  t1_dma_machine_release, NULL};
+  const t64_profile_descriptor *profile = NULL;
+  t64_machine *machine;
+  size_t index;
+
+  if (machine_out == NULL || profile_id == NULL || image == NULL) {
+    return false;
+  }
+  *machine_out = NULL;
+  if (!read_t1_ipl3_asset(image) ||
+      t64_profile_lookup(profile_id, &profile) != T64_STATUS_OK ||
+      profile == NULL ||
+      t64_machine_create(&allocator, profile, machine_out) != T64_STATUS_OK ||
+      *machine_out == NULL) {
+    return false;
+  }
+  machine = *machine_out;
+  if (t64_machine_admit_rom(machine, image, 4096u) != T64_STATUS_OK) {
+    t64_machine_destroy(machine);
+    *machine_out = NULL;
+    return false;
+  }
+  reset_t1_cpu(machine, UINT32_C(0x0022001e)); /* DDIV $zero,$1,$2 */
+  machine->cpu.gpr[1] = UINT64_C(21);
+  machine->cpu.gpr[2] = UINT64_C(3);
+  write_be32(machine->sp_imem, UINT32_C(0x24010007)); /* ADDIU r1,r0,7 */
+  machine->rsp.sp_status = T1_TEST_RSP_STATUS_SINGLE_STEP;
+  machine->pi.next_token = UINT64_C(1);
+  machine->sp.next_token = UINT64_C(1);
+  machine->cpu.cp0[CP0_COMPARE] = UINT32_C(4);
+  machine->cpu.cp0[CP0_STATUS] = STATUS_IE | STATUS_IM7;
+  for (index = 0u; index < 8u; index++) {
+    machine->ram[UINT32_C(0x200) + index] =
+        (uint8_t)(dram_seed + (uint8_t)index);
+  }
+  if (t64_machine_trace_set_enabled(machine, true) != T64_STATUS_OK ||
+      t64_machine_bus_write(machine, T1_TEST_PI_BASE, 4u,
+                            UINT32_C(0x100)) != T64_STATUS_OK ||
+      t64_machine_bus_write(machine, T1_TEST_PI_BASE + UINT32_C(4), 4u,
+                            T1_TEST_CART_BASE + UINT32_C(0x100)) !=
+          T64_STATUS_OK ||
+      t64_machine_bus_write(machine, T1_TEST_PI_BASE + UINT32_C(12), 4u,
+                            UINT32_C(13)) != T64_STATUS_OK ||
+      t64_machine_bus_write(machine, T1_TEST_SP_BASE, 4u, 0u) !=
+          T64_STATUS_OK ||
+      t64_machine_bus_write(machine, T1_TEST_SP_BASE + UINT32_C(4), 4u,
+                            UINT32_C(0x200)) != T64_STATUS_OK ||
+      t64_machine_bus_write(machine, T1_TEST_SP_BASE + UINT32_C(8), 4u,
+                            UINT32_C(7)) != T64_STATUS_OK ||
+      t64_cpu_schedule(machine) != T64_STATUS_OK) {
+    return false;
+  }
+  return true;
+}
+
+static void check_t1_dma_gap_state(const t64_machine *machine,
+                                  const uint8_t image[4096],
+                                  uint8_t dram_seed) {
+  size_t index;
+  bool cpu_successor_found = false;
+
+  T64_CHECK_INT(machine->tick, UINT64_C(14));
+  T64_CHECK_INT(machine->cpu.retired_instructions, 1u);
+  T64_CHECK_INT(machine->instruction_count, 1u);
+  T64_CHECK_INT(machine->cpu.last_pc_full,
+                UINT64_C(0xffffffff80001000));
+  T64_CHECK_INT(machine->cpu.last_opcode, UINT32_C(0x0022001e));
+  T64_CHECK_INT(machine->cpu.hi, 0u);
+  T64_CHECK_INT(machine->cpu.lo, 7u);
+  T64_CHECK_INT(machine->cpu.cp0[CP0_RANDOM], 16u);
+  T64_CHECK_INT(machine->rsp.pc, UINT32_C(4));
+  T64_CHECK_INT(machine->rsp.gpr[1], UINT32_C(7));
+  T64_CHECK_INT(machine->rsp.retired_instructions, UINT64_C(1));
+  T64_CHECK((machine->rsp.sp_status & UINT32_C(1)) != 0u);
+  T64_CHECK_INT(machine->cpu.cp0[CP0_COUNT], 7u);
+  T64_CHECK_INT(machine->cpu.count_half_clock_phase, 0u);
+  T64_CHECK_INT(machine->cpu.count_equality_latch_generation, 1u);
+  T64_CHECK(!machine->cpu.count_equality_latched);
+  T64_CHECK(((uint32_t)machine->cpu.cp0[CP0_CAUSE] & CAUSE_IP7) != 0u);
+  T64_CHECK(!machine->pi.active_valid);
+  T64_CHECK((machine->mi_pending & UINT32_C(0x10)) != 0u);
+  T64_CHECK(!machine->sp.active.valid);
+  T64_CHECK(!machine->sp.pending.valid);
+  for (index = 0u; index < 14u; index++) {
+    T64_CHECK_INT(machine->ram[UINT32_C(0x100) + index],
+                  image[UINT32_C(0x100) + index]);
+  }
+  for (index = 0u; index < 8u; index++) {
+    T64_CHECK_INT(machine->sp_dmem[index],
+                  (uint8_t)(dram_seed + (uint8_t)index));
+  }
+  for (index = 0u; index < machine->queue_count; index++) {
+    const size_t event_index =
+        (machine->queue_head + index) % T64_EVENT_QUEUE_CAPACITY;
+    const t64_event *event = &machine->events[event_index];
+
+    if (event->device == T64_DEVICE_CPU &&
+        event->kind == T64_CPU_EVENT_STEP) {
+      cpu_successor_found = true;
+      T64_CHECK_INT(event->tick, UINT64_C(71));
+    }
+  }
+  T64_CHECK(cpu_successor_found);
+}
+
+static void test_cold_t1_mdu_gap_dispatches_dma_and_compare(void) {
+  t64_machine *one_shot_a = NULL;
+  t64_machine *partitioned_a = NULL;
+  t64_machine *isolated_b = NULL;
+  t64_machine *interleaved_b = NULL;
+  uint8_t images[4][4096];
+  uint8_t digest_one_shot_a[T64_DIGEST_SIZE];
+  uint8_t digest_partitioned_a[T64_DIGEST_SIZE];
+  uint8_t digest_isolated_b[T64_DIGEST_SIZE];
+  uint8_t digest_interleaved_b[T64_DIGEST_SIZE];
+  t64_stop_request request = {T64_STOP_GUEST_TICK, UINT64_C(14)};
+  t64_stop_result result = {UINT32_MAX, UINT64_MAX};
+  size_t record_count;
+  size_t pi_at_eight = SIZE_MAX;
+  size_t rsp_at_eight = SIZE_MAX;
+  size_t sp_complete_at_thirteen = SIZE_MAX;
+  size_t index;
+
+  T64_CHECK(setup_t1_dma_machine(
+      &one_shot_a, "ntsc-cart-4m-openipl3-rdram-a-t1-v1", images[0],
+      UINT8_C(0x80)));
+  T64_CHECK(setup_t1_dma_machine(
+      &partitioned_a, "ntsc-cart-4m-openipl3-rdram-a-t1-v1", images[1],
+      UINT8_C(0x80)));
+  T64_CHECK(setup_t1_dma_machine(
+      &isolated_b, "ntsc-cart-4m-openipl3-rdram-b-t1-v1", images[2],
+      UINT8_C(0x90)));
+  T64_CHECK(setup_t1_dma_machine(
+      &interleaved_b, "ntsc-cart-4m-openipl3-rdram-b-t1-v1", images[3],
+      UINT8_C(0x90)));
+  if (one_shot_a == NULL || partitioned_a == NULL || isolated_b == NULL ||
+      interleaved_b == NULL || one_shot_a->ram == NULL ||
+      partitioned_a->ram == NULL ||
+      isolated_b->ram == NULL || interleaved_b->ram == NULL) {
+    t64_machine_destroy(one_shot_a);
+    t64_machine_destroy(partitioned_a);
+    t64_machine_destroy(isolated_b);
+    t64_machine_destroy(interleaved_b);
+    return;
+  }
+
+  T64_CHECK_INT(t64_machine_advance(one_shot_a, &request, &result),
+                T64_STATUS_OK);
+  T64_CHECK_INT(result.reason, T64_STOP_REASON_BOUND);
+  T64_CHECK_INT(result.tick, UINT64_C(14));
+  check_t1_dma_gap_state(one_shot_a, images[0], UINT8_C(0x80));
+  /* The single-step ADDIU halts RSP after tick 1. It reserves opportunities
+     through the SP DMA at tick 13 (12 + 8 / 8); completion leaves no tick-15
+     issue event. */
+  T64_CHECK_INT(one_shot_a->rsp.issue_sequence, UINT64_C(14));
+  T64_CHECK_INT(one_shot_a->rsp.next_issue_tick, UINT64_C(14));
+  T64_CHECK_INT(one_shot_a->rsp.dma_setup_remaining, 0u);
+  T64_CHECK_INT(one_shot_a->rsp.dma_beat_cursor, 0u);
+  T64_CHECK_INT(one_shot_a->rsp.active_dma_token, 0u);
+  record_count = one_shot_a->trace_count;
+  for (index = 0u; index < record_count; index++) {
+    const size_t trace_index =
+        (one_shot_a->trace_head + index) % T64_TRACE_RECORD_CAPACITY;
+    const t64_trace_record *record =
+        &one_shot_a->trace_records[trace_index];
+
+    if (record->tick == UINT64_C(8) &&
+        record->device == T64_DEVICE_PI &&
+        record->kind == T64_TRACE_KIND_PI_COMPLETE) {
+      pi_at_eight = index;
+    }
+    if (record->tick == UINT64_C(8) &&
+        record->device == T64_DEVICE_SP &&
+        record->kind == T64_SP_EVENT_RSP_ISSUE) {
+      rsp_at_eight = index;
+    }
+    if (record->tick == UINT64_C(13) &&
+        record->device == T64_DEVICE_SP &&
+        record->kind == T1_TEST_SP_DMA_COMPLETE) {
+      sp_complete_at_thirteen = index;
+    }
+  }
+  T64_CHECK(pi_at_eight != SIZE_MAX);
+  T64_CHECK(rsp_at_eight != SIZE_MAX);
+  T64_CHECK(pi_at_eight < rsp_at_eight);
+  T64_CHECK(sp_complete_at_thirteen != SIZE_MAX);
+
+  request.value = UINT64_C(1);
+  T64_CHECK_INT(t64_machine_advance(partitioned_a, &request, &result),
+                T64_STATUS_OK);
+  T64_CHECK_INT(result.reason, T64_STOP_REASON_BOUND);
+  T64_CHECK_INT(result.tick, UINT64_C(1));
+  T64_CHECK_INT(partitioned_a->cpu.last_pc_full,
+                UINT64_C(0xffffffff80001000));
+  T64_CHECK_INT(partitioned_a->cpu.last_opcode, UINT32_C(0x0022001e));
+  T64_CHECK_INT(partitioned_a->cpu.retired_instructions, UINT64_C(1));
+  T64_CHECK_INT(partitioned_a->rsp_observed_tick, UINT64_C(1));
+  T64_CHECK(partitioned_a->rsp_observation_valid);
+  T64_CHECK_INT(partitioned_a->rsp_observed_pc, 0u);
+  T64_CHECK_INT(partitioned_a->rsp_observed_opcode, UINT32_C(0x24010007));
+  T64_CHECK_INT(partitioned_a->rsp_observed_outcome,
+                T64_RSP_ATTEMPT_RETIRED);
+  T64_CHECK_INT(partitioned_a->rsp.retired_instructions, UINT64_C(1));
+  T64_CHECK_INT(partitioned_a->rsp.gpr[1], UINT32_C(7));
+  request.value = UINT64_C(4);
+  T64_CHECK_INT(t64_machine_advance(partitioned_a, &request, &result),
+                T64_STATUS_OK);
+  T64_CHECK_INT(result.reason, T64_STOP_REASON_BOUND);
+  T64_CHECK_INT(result.tick, UINT64_C(4));
+  request.value = UINT64_C(8);
+  T64_CHECK_INT(t64_machine_advance(partitioned_a, &request, &result),
+                T64_STATUS_OK);
+  T64_CHECK_INT(result.reason, T64_STOP_REASON_BOUND);
+  T64_CHECK_INT(result.tick, UINT64_C(8));
+  T64_CHECK_INT(partitioned_a->cpu.cp0[CP0_COUNT], UINT32_C(4));
+  T64_CHECK_INT(partitioned_a->cpu.count_half_clock_phase, 0u);
+  T64_CHECK(partitioned_a->cpu.count_equality_latched);
+  T64_CHECK_INT(partitioned_a->cpu.count_equality_latch_generation, 1u);
+  T64_CHECK(((uint32_t)partitioned_a->cpu.cp0[CP0_CAUSE] & CAUSE_IP7) != 0u);
+  T64_CHECK_INT(partitioned_a->pi.active_valid, false);
+  T64_CHECK_INT(partitioned_a->rsp.dma_beat_cursor, 0u);
+  request.value = UINT64_C(14);
+  T64_CHECK_INT(t64_machine_advance(partitioned_a, &request, &result),
+                T64_STATUS_OK);
+  T64_CHECK_INT(result.reason, T64_STOP_REASON_BOUND);
+  T64_CHECK_INT(result.tick, UINT64_C(14));
+  request.value = UINT64_C(14);
+  T64_CHECK_INT(t64_machine_advance(isolated_b, &request, &result),
+                T64_STATUS_OK);
+  T64_CHECK_INT(result.reason, T64_STOP_REASON_BOUND);
+  T64_CHECK_INT(result.tick, UINT64_C(14));
+  request.value = UINT64_C(1);
+  T64_CHECK_INT(t64_machine_advance(interleaved_b, &request, &result),
+                T64_STATUS_OK);
+  T64_CHECK_INT(result.reason, T64_STOP_REASON_BOUND);
+  T64_CHECK_INT(result.tick, UINT64_C(1));
+  T64_CHECK_INT(interleaved_b->rsp_observed_tick, UINT64_C(1));
+  T64_CHECK(interleaved_b->rsp_observation_valid);
+  T64_CHECK_INT(interleaved_b->rsp_observed_pc, 0u);
+  T64_CHECK_INT(interleaved_b->rsp_observed_opcode, UINT32_C(0x24010007));
+  T64_CHECK_INT(interleaved_b->rsp_observed_outcome,
+                T64_RSP_ATTEMPT_RETIRED);
+  T64_CHECK_INT(interleaved_b->rsp.retired_instructions, UINT64_C(1));
+  T64_CHECK_INT(interleaved_b->rsp.gpr[1], UINT32_C(7));
+  request.value = UINT64_C(5);
+  T64_CHECK_INT(t64_machine_advance(interleaved_b, &request, &result),
+                T64_STATUS_OK);
+  T64_CHECK_INT(result.reason, T64_STOP_REASON_BOUND);
+  T64_CHECK_INT(result.tick, UINT64_C(5));
+  request.value = UINT64_C(9);
+  T64_CHECK_INT(t64_machine_advance(interleaved_b, &request, &result),
+                T64_STATUS_OK);
+  T64_CHECK_INT(result.reason, T64_STOP_REASON_BOUND);
+  T64_CHECK_INT(result.tick, UINT64_C(9));
+  request.value = UINT64_C(14);
+  T64_CHECK_INT(t64_machine_advance(interleaved_b, &request, &result),
+                T64_STATUS_OK);
+  T64_CHECK_INT(result.reason, T64_STOP_REASON_BOUND);
+  T64_CHECK_INT(result.tick, UINT64_C(14));
+  check_t1_dma_gap_state(partitioned_a, images[1], UINT8_C(0x80));
+  check_t1_dma_gap_state(isolated_b, images[2], UINT8_C(0x90));
+  check_t1_dma_gap_state(interleaved_b, images[3], UINT8_C(0x90));
+  T64_CHECK_INT(t64_machine_digest(one_shot_a, digest_one_shot_a),
+                T64_STATUS_OK);
+  T64_CHECK_INT(t64_machine_digest(partitioned_a, digest_partitioned_a),
+                T64_STATUS_OK);
+  T64_CHECK_INT(t64_machine_digest(isolated_b, digest_isolated_b),
+                T64_STATUS_OK);
+  T64_CHECK_INT(t64_machine_digest(interleaved_b, digest_interleaved_b),
+                T64_STATUS_OK);
+  T64_CHECK(memcmp(digest_one_shot_a, digest_partitioned_a,
+                   T64_DIGEST_SIZE) == 0);
+  T64_CHECK(memcmp(digest_isolated_b, digest_interleaved_b,
+                   T64_DIGEST_SIZE) == 0);
+
+  request.value = one_shot_a->tick + UINT64_C(57);
+  T64_CHECK_INT(t64_machine_advance(one_shot_a, &request, &result),
+                T64_STATUS_OK);
+  T64_CHECK_INT(result.reason, T64_STOP_REASON_BOUND);
+  T64_CHECK_INT(result.tick, UINT64_C(71));
+  T64_CHECK_INT(one_shot_a->cpu.retired_instructions, 1u);
+  T64_CHECK_INT(one_shot_a->cpu.attempt_outcome,
+                T64_CPU_ATTEMPT_GUEST_EXCEPTION);
+  T64_CHECK_INT(one_shot_a->cpu.last_pc_full,
+                UINT64_C(0xffffffff80001004));
+  T64_CHECK_INT(one_shot_a->cpu.last_opcode, 0u);
+  T64_CHECK_INT(one_shot_a->cpu.cp0[CP0_EPC],
+                UINT64_C(0xffffffff80001004));
+  T64_CHECK(((uint32_t)one_shot_a->cpu.cp0[CP0_CAUSE] &
+             UINT32_C(0x7c)) == 0u);
+  T64_CHECK(((uint32_t)one_shot_a->cpu.cp0[CP0_STATUS] & STATUS_EXL) != 0u);
+  T64_CHECK_INT(one_shot_a->cpu.cp0[CP0_RANDOM], 16u);
+  /* RSP single-step is halted and both DMAs are complete; the sole queued
+     event is the next CPU exception boundary after this one. */
+  T64_CHECK_INT(one_shot_a->queue_count, 1u);
+  if (one_shot_a->queue_count == 1u) {
+    const t64_event *next = &one_shot_a->events[one_shot_a->queue_head];
+
+    T64_CHECK_INT(next->device, T64_DEVICE_CPU);
+    T64_CHECK_INT(next->kind, T64_CPU_EVENT_STEP);
+    T64_CHECK_INT(next->tick, UINT64_C(72));
+  }
+
+  t64_machine_destroy(one_shot_a);
+  t64_machine_destroy(partitioned_a);
+  t64_machine_destroy(isolated_b);
+  t64_machine_destroy(interleaved_b);
+}
+
 int main(void) {
   test_two_tick_boundaries_and_compare_clear();
   test_count_write_preserves_phase_and_checks_equality();
@@ -1043,6 +1446,8 @@ int main(void) {
   test_cold_t1_fetched_wired_random_tlbwr_sequence();
   test_cold_t1_high_wired_policy();
   test_cold_t1_exception_and_interrupt_boundaries();
+  test_cold_t1_idle_count_compare();
   test_cold_t1_preflight_before_mutation();
+  test_cold_t1_mdu_gap_dispatches_dma_and_compare();
   return T64_TEST_FINISH("unit.core.cpu-time");
 }
