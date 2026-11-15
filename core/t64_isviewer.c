@@ -25,10 +25,15 @@ bool t64_isviewer_active(const t64_machine *machine) {
       "ntsc-cart-4m-openipl3-vr4300-compat-v2";
   static const char rsp_profile_id[] =
       "ntsc-cart-4m-openipl3-rsp-functional-v1";
+  static const char rdram_a_t1_profile_id[] =
+      "ntsc-cart-4m-openipl3-rdram-a-t1-v1";
+  static const char rdram_b_t1_profile_id[] =
+      "ntsc-cart-4m-openipl3-rdram-b-t1-v1";
   bool warm_profile;
   bool cpu_profile;
   bool compat_profile;
   bool rsp_profile;
+  bool rdram_t1_profile;
 
   if (machine == NULL ||
       machine->output.policy_version != T64_ISVIEWER_POLICY_VERSION) {
@@ -53,8 +58,18 @@ bool t64_isviewer_active(const t64_machine *machine) {
                 machine->profile.state_serialization_version == 12u &&
                 memcmp(machine->profile.profile_id, rsp_profile_id,
                        sizeof rsp_profile_id) == 0;
+  rdram_t1_profile =
+      machine->profile.descriptor_version == 4u &&
+      machine->profile.state_serialization_version == 13u &&
+      t64_has_cpu_compat_extension_policy(machine) &&
+      ((machine->profile.machine_model_version == 7u &&
+        memcmp(machine->profile.profile_id, rdram_a_t1_profile_id,
+               sizeof rdram_a_t1_profile_id) == 0) ||
+       (machine->profile.machine_model_version == 8u &&
+        memcmp(machine->profile.profile_id, rdram_b_t1_profile_id,
+               sizeof rdram_b_t1_profile_id) == 0));
   return warm_profile || cpu_profile || compat_profile ||
-         rsp_profile ||
+         rsp_profile || rdram_t1_profile ||
          (machine->profile.descriptor_version == 3u &&
           t64_has_cpu_compat_extension_policy(machine) &&
           memcmp(machine->profile.profile_id, compat_v2_profile_id,
