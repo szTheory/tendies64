@@ -8,6 +8,7 @@
 #define T64_RSP_STATUS_BROKE UINT32_C(0x00000002)
 #define T64_RSP_STATUS_INTR_BREAK UINT32_C(0x00000040)
 #define T64_RSP_DMEM_BASE UINT32_C(0x04000000)
+#define T64_RSP_DP_REGISTER_BASE UINT32_C(0x04100000)
 
 static t64_status t64_rsp_issue_event(t64_machine *machine,
                                       const t64_event *event);
@@ -1388,6 +1389,8 @@ static t64_status t64_rsp_issue_event(t64_machine *machine,
   uint32_t load_width = 0u;
   uint32_t cp0_register = 0u;
   uint32_t cp0_value = 0u;
+  uint32_t cp0_dp_address = 0u;
+  bool cp0_dp_access = false;
   bool cp0_dma_write = false;
   t64_rsp_dma_admission dma_admission = {0};
   t64_status dma_admission_status = T64_STATUS_OK;
@@ -1819,8 +1822,38 @@ static t64_status t64_rsp_issue_event(t64_machine *machine,
     cp0_register = rd;
     if (control_bits == 0u && cp0_register >= UINT32_C(8) &&
         cp0_register <= UINT32_C(15)) {
-      machine->rsp_observed_refusal_reason =
-          T64_RSP_REFUSAL_DP_UNAVAILABLE;
+      if (!t64_has_rdp_vi_profile(machine)) {
+        machine->rsp_observed_refusal_reason =
+            T64_RSP_REFUSAL_DP_UNAVAILABLE;
+      } else {
+        cp0_dp_access = true;
+        cp0_dp_address = T64_RSP_DP_REGISTER_BASE +
+                         (cp0_register - UINT32_C(8)) * UINT32_C(4);
+        if (rs == UINT32_C(0)) {
+          status = t64_rdp_read_register(machine, cp0_dp_address,
+                                          &cp0_value);
+          if (status == T64_STATUS_OK) {
+            write_gpr = rt != 0u;
+            gpr_destination = rt;
+            gpr_value = cp0_value;
+            scalar_write_delay = UINT32_C(3);
+            is_load_or_cop_move = true;
+            is_store = true;
+            supported = true;
+          } else {
+            cp0_dp_access = false;
+            machine->rsp_observed_refusal_reason =
+                T64_RSP_REFUSAL_DP_UNAVAILABLE;
+          }
+        } else {
+          write_cp0 = true;
+          cp0_value = machine->rsp.gpr[rt];
+          scalar_read_mask |= UINT32_C(1) << rt;
+          is_load_or_cop_move = true;
+          is_store = true;
+          supported = true;
+        }
+      }
     } else if (control_bits == 0u && cp0_register <= UINT32_C(7)) {
       if (rs == UINT32_C(0)) {
         status = t64_sp_peek_register(
@@ -2216,6 +2249,27 @@ static t64_status t64_rsp_issue_event(t64_machine *machine,
   if (write_cp0) {
     if (cp0_dma_write) {
       t64_sp_rsp_dma_admission_commit(machine, &dma_admission);
+    } else if (cp0_dp_access) {
+      status = t64_rdp_write_register(machine, cp0_dp_address, cp0_value);
+      if (status != T64_STATUS_OK) {
+        machine->rsp_observed_outcome = T64_RSP_ATTEMPT_REFUSED;
+        if (machine->rsp_observed_refusal_reason == T64_RSP_REFUSAL_NONE) {
+          if (status == T64_STATUS_BUS_DEVICE_REFUSED &&
+              (cp0_register == UINT32_C(10) ||
+               cp0_register >= UINT32_C(12))) {
+            machine->rsp_observed_refusal_reason =
+                T64_RSP_REFUSAL_CP0_READ_ONLY;
+          } else if (status == T64_STATUS_BUS_DEVICE_REFUSED) {
+            machine->rsp_observed_refusal_reason =
+                T64_RSP_REFUSAL_CP0_INVALID_VALUE;
+          } else {
+            machine->rsp_observed_refusal_reason =
+                T64_RSP_REFUSAL_DP_UNAVAILABLE;
+          }
+        }
+        return status == T64_STATUS_BUS_DEVICE_REFUSED ? T64_STATUS_OK
+                                                       : status;
+      }
     } else if (cp0_register == UINT32_C(4)) {
       status = t64_sp_rsp_guest_status_write(machine, cp0_value);
       if (status != T64_STATUS_OK) {

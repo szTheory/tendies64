@@ -55,6 +55,7 @@ MUTATION_SEEDS = (
     "removed SP DMA helper definition",
     "RDP fill production body mutation",
     "DPC counter bus-window body mutation",
+    "DPC profile-gated injected effect",
 )
 
 
@@ -282,6 +283,13 @@ def _check_mutation_suite(temp_root: pathlib.Path) -> int:
         (
             "content-digest selection",
             "  if (machine->content_digest[0] != 0u) return status;",
+        ),
+        (
+            "DPC profile-gated injected effect",
+            "  if (machine->sp_dmem[0] == UINT8_C(0x42) &&\n"
+            "      !t64_has_rdp_vi_profile(machine)) {\n"
+            "    machine->rdp.dpc_start = UINT32_C(0x100);\n"
+            "  }",
         ),
     ):
         _mutate_source(source_root, code)

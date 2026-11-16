@@ -195,7 +195,7 @@ REVIEWED_BODY_DIGESTS = {
     "core/t64_rsp.c :: rsp_vector_memory_loaded_byte": "530efea13ab67b3f5e92288e0ca372195613b5402593efaa0b57fd25af753073",
     "core/t64_rsp.c :: rsp_write_vector_element": "3d6b40d7c541286102647e6241ce0b6466937797d8844cb676f2f220ec255b73",
     "core/t64_rsp.c :: t64_rsp_ensure_opportunity": "d37ee11dced86400787fe5774fb85544f3eb2a625d0e9916e6a90f9de54c5bbb",
-    "core/t64_rsp.c :: t64_rsp_issue_event": "6630326692dde41a1f34da8d002037245d518de15c88a166fff71bb4be092826",
+    "core/t64_rsp.c :: t64_rsp_issue_event": "a683dd23902b71f888b460f7954dd3420eb6ddea36d46efdf8a17fc437e61a57",
     "core/t64_rsp.c :: t64_rsp_schedule_next": "7bceb405fe698a622902fd136009ac272c585eb62288c1371db49b42fa1bc339",
     "core/t64_rsp.c :: t64_rsp_start": "844ab432a1a02296d0f0d768dab18a5c60d9ee167bc2959637214b304e6e1ef1",
     "core/t64_sp.c :: decode_descriptor": "bb8ebf0fa2a9c2161076806566f090449af9c20d7de8d74bba461d4503c53352",
@@ -560,6 +560,10 @@ def _check_source_route(root: pathlib.Path) -> tuple[list[str], list[str], int]:
         "T64_RSP_ATTEMPT_RETIRED",
         "T64_RSP_ATTEMPT_REFUSED",
         "T64_RSP_REFUSAL_UNSUPPORTED_OPCODE",
+        "T64_RSP_REFUSAL_DP_UNAVAILABLE",
+        "t64_has_rdp_vi_profile",
+        "t64_rdp_read_register",
+        "t64_rdp_write_register",
     )
     if fetch_match is None:
         findings.append(
@@ -617,6 +621,7 @@ def _check_source_route(root: pathlib.Path) -> tuple[list[str], list[str], int]:
                 "core/t64_rsp.c :: t64_rsp_start -> t64_rsp_ensure_opportunity -> t64_rsp_schedule_next",
                 "core/t64_rsp.c :: t64_rsp_schedule_next -> t64_schedule_reserve_after(T64_SP_EVENT_RSP_ISSUE, t64_rsp_issue_event)",
                 "core/t64_rsp.c :: t64_rsp_issue_event -> rsp_read_imem_word(machine, pc) -> operation = instruction >> 26 -> decode/refuse/retire",
+                "core/t64_rsp.c :: fetched COP0 DP registers 8-15 -> selected profile -> t64_rdp_read_register/t64_rdp_write_register",
                 "core/t64_sp.c :: start_rsp_dma and write_rsp_status -> t64_rsp_ensure_opportunity",
             ]
         )

@@ -963,7 +963,7 @@ static void case_append_end_resume(void) {
   T64_CHECK(install_rsp_program(machine, program,
                                 sizeof program / sizeof program[0]));
   T64_CHECK_INT(t64_rsp_start(machine), T64_STATUS_OK);
-  T64_CHECK(advance_to_tick(machine, UINT64_C(3)));
+  T64_CHECK(advance_to_tick(machine, UINT64_C(5)));
   T64_CHECK_INT(machine->rdp.dpc_current, UINT32_C(0x108));
   T64_CHECK(machine->rdp.command_pending);
   T64_CHECK(machine->rdp.busy);
@@ -992,16 +992,18 @@ static void case_truncated_packet_reached(void) {
   T64_CHECK(install_rsp_program(machine, program,
                                 sizeof program / sizeof program[0]));
   T64_CHECK_INT(t64_rsp_start(machine), T64_STATUS_OK);
-  T64_CHECK(advance_to_tick(machine, UINT64_C(2)));
+  T64_CHECK(advance_to_tick(machine, UINT64_C(4)));
+  T64_CHECK_INT(machine->rsp_observed_opcode, program[1]);
+  T64_CHECK_INT(machine->rsp_observed_outcome, T64_RSP_ATTEMPT_RETIRED);
   T64_CHECK_INT(machine->rdp.dpc_end, UINT32_C(0x108));
-  T64_CHECK(queued_sequence(machine, UINT64_C(3), T64_RDP_DEVICE,
+  T64_CHECK(queued_sequence(machine, UINT64_C(5), T64_RDP_DEVICE,
                             T64_RDP_EVENT_WORK, &rdp_sequence));
-  T64_CHECK(queued_sequence(machine, UINT64_C(3), T64_DEVICE_SP,
+  T64_CHECK(queued_sequence(machine, UINT64_C(5), T64_DEVICE_SP,
                             T64_SP_EVENT_RSP_ISSUE, &rsp_sequence));
   /* A half-command bound cannot be written through the aligned DPC END port;
      inject it after accepted RSP setup to exercise the fetch-time guard. */
   machine->rdp.dpc_end = UINT32_C(0x104);
-  T64_CHECK(advance_to_tick(machine, UINT64_C(3)));
+  T64_CHECK(advance_to_tick(machine, UINT64_C(5)));
   T64_CHECK_INT(machine->rdp.refusal_reason,
                 T64_RDP_REFUSAL_TRUNCATED_WORD);
   T64_CHECK_INT(machine->rdp.dpc_current, UINT32_C(0x100));
@@ -1056,13 +1058,15 @@ static void case_same_tick_sequence(void) {
   T64_CHECK(install_rsp_program(machine, program,
                                 sizeof program / sizeof program[0]));
   T64_CHECK_INT(t64_rsp_start(machine), T64_STATUS_OK);
-  T64_CHECK(advance_to_tick(machine, UINT64_C(2)));
-  T64_CHECK(queued_sequence(machine, UINT64_C(3), T64_DEVICE_SP,
+  T64_CHECK(advance_to_tick(machine, UINT64_C(4)));
+  T64_CHECK_INT(machine->rsp_observed_opcode, program[1]);
+  T64_CHECK_INT(machine->rsp_observed_outcome, T64_RSP_ATTEMPT_RETIRED);
+  T64_CHECK(queued_sequence(machine, UINT64_C(5), T64_DEVICE_SP,
                             T64_SP_EVENT_RSP_ISSUE, &rsp_sequence));
-  T64_CHECK(queued_sequence(machine, UINT64_C(3), T64_RDP_DEVICE,
+  T64_CHECK(queued_sequence(machine, UINT64_C(5), T64_RDP_DEVICE,
                             T64_RDP_EVENT_WORK, &rdp_sequence));
   T64_CHECK(rsp_sequence < rdp_sequence);
-  T64_CHECK(advance_to_tick(machine, UINT64_C(3)));
+  T64_CHECK(advance_to_tick(machine, UINT64_C(5)));
   T64_CHECK_INT(machine->rsp_observed_opcode, program[2]);
   T64_CHECK_INT(machine->rdp.dpc_current, UINT32_C(0x108));
   T64_CHECK(machine->rdp.command_pending);

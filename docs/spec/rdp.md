@@ -88,6 +88,14 @@ wrap a DPC packet across DMEM. An incomplete word at END is refused before
 that word has effects. Writing a counter register is refused; STATUS counter
 clear commands clear the corresponding 24-bit read-only counter.
 
+In machine model 10/state domain 15, fetched RSP MFC0/MTC0 instructions for
+COP0 registers 8 through 15 use these same DPC read/write handlers and offsets
+as CPU MMIO. MFC0 exposes START, END, CURRENT, STATUS and all four counters;
+MTC0 may write START, END or STATUS, while CURRENT and the counters remain
+read-only. Before this composite profile, fetched RSP accesses to COP0
+registers 8 through 15 retain the `DP_UNAVAILABLE` refusal and do not dispatch
+DP work.
+
 STATUS is composed from separately retained transport state. XBUS, freeze,
 flush and START/END valid reflect their DPC control state. START_GCLK is set
 while work is active and unpaused; CMD_BUSY reflects a pending command effect
