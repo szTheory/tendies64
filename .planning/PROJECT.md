@@ -272,3 +272,13 @@ This document evolves at phase transitions and milestone boundaries.
 
 ---
 *Last updated: 2026-11-15 after v1.0 milestone audit*
+
+
+## Next milestone goals
+
+Open v1.1 Observable Machine around Phase7 RDP reference rendering/VI,
+Phase8 raw audio and Phase9 controller/save/replay. Reconfirm the provisional
+contracts and scope against completed machine behavior through the installed
+new-milestone flow. Preserve the25 future open requirements and explicit
+rights/oracle/release stops. The v1.0 planning archive is complete; no software
+release or version tag is implied.

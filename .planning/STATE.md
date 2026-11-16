@@ -2,20 +2,19 @@
 gsd_state_version: "1.0"
 milestone: v1.0
 milestone_name: Verified Headless Core
-current_phase: 06
-current_plan: Not started
-status: completed
-stopped_at: Phase 06 complete — all phases complete
-last_updated: "2026-11-16T02:30:26.810Z"
+status: Awaiting next milestone
+stopped_at: v1.0 archived; next milestone initialization
+last_updated: "2026-11-16T04:38:47.465Z"
 last_activity: 2026-11-15
-last_activity_desc: Phase 06 complete
-state_head: 1c1f86def88886ef96fe0b4f0ca6056336148bc1
+last_activity_desc: Milestone v1.0 completed and archived
+state_head: 398742e38b76392a5069932347d8821afe4eb2cd
 progress:
   total_phases: 6
-  completed_phases: 1
+  completed_phases: 6
   total_plans: 73
   completed_plans: 73
-  percent: 17
+  percent: 100
+current_phase: null
 ---
 
 # Project State
@@ -25,27 +24,14 @@ progress:
 See: .planning/PROJECT.md (updated 2026-11-13)
 
 **Core value:** Every Tendies64 support claim is backed by evidence: a named profile, a pinned build and a reproducible, rights-cleared guest result.
-**Current focus:** Phase 6 — Cold Boot, CPU Timing and Full Base Suite
+**Current focus:** Open v1.1 Observable Machine; scope and research Phases7–9.
 
 ## Current Position
 
-Phase: 06
-Current Plan: Not started
-Total Plans in Phase: 9
-Status: All phases complete
-Last activity: 2026-11-15 — Phase 06 complete
-
-Progress: [██░░░░░░░░] 17%
-
-Verified milestone ledger: Phases1–5 are complete (64 historical plans).
-Phase6 has nine of nine source plans closed: 01,09,02,03,04,05,06,07,08. Its first external
-invocation has no valid member result and a disclosed missing-executable
-retention gap; that attempt remains stopped. Later, separately qualified local
-required and optional classifications are verified; private details stay local.
-The generated percentage treats older verification fingerprints as stale; it
-is advisory rather than a historical completion counter. Use the checked
-roadmap and original verified source/evidence. Never replay closed phases to
-refresh that projection.
+Phase: Milestone v1.0 complete
+Plan: —
+Status: Awaiting next milestone
+Last activity: 2026-11-15 — Milestone v1.0 completed and archived
 
 ## Performance Metrics
 
@@ -232,4 +218,8 @@ Items acknowledged and deferred at milestone close, most recent first:
 
 Last session: 2026-11-16T02:11:02.799Z
 Stopped at: Phase 06 complete — all phases complete
-Resume file: .planning/phases/06-cold-boot-cpu-timing-and-full-base-suite/06-08-SUMMARY.md
+Resume file: .planning/milestones/v1.0-phases/06-cold-boot-cpu-timing-and-full-base-suite/06-08-SUMMARY.md
+
+## Operator Next Steps
+
+- Start the next milestone with $gsd-new-milestone

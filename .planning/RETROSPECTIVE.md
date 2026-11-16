@@ -3,7 +3,7 @@
 ## Milestone: v1.0 — Verified Headless Core
 
 Planning completion, not a software release. Six phases and73 source plans
-cover48 current requirements;25 requirements remain for later milestones.
+cover48 current requirements;25 requirements remain open for later milestones.
 
 ### What was built
 
