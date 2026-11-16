@@ -2,6 +2,28 @@
   "schema": "t64.rdp-vi-case-inventory",
   "schema_version": 1,
   "suites": {
+    "dp": {
+      "ctest": [
+        "unit.core.dp.transport"
+      ],
+      "binaries": [
+        {
+          "path": "core/test_dp_transport",
+          "cases": [
+            "current-end-retains-busy-for-pipeline",
+            "fullsync-after-prior-render",
+            "dp-pending-mask-clear-independent",
+            "repeated-fullsync-fences",
+            "freeze-flush-controls",
+            "xbus-dmem-bounded",
+            "loadsync-raw-26",
+            "scheduler-time-sequence-exhaustion-atomic",
+            "reset-clears-pending-work",
+            "counter-registers-read-only-and-clearable"
+          ]
+        }
+      ]
+    },
     "fill": {
       "ctest": [
         "unit.core.rdp.fill",

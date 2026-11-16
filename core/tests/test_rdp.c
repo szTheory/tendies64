@@ -88,12 +88,15 @@ static void write_command(t64_machine *machine, uint32_t address,
     machine->ram[address + i] = (uint8_t)(word >> (56u - i * 8u));
 }
 
+#ifndef T64_TEST_DP_TRANSPORT
 static t64_status dispatch_rdp_at_current_tick(t64_machine *machine) {
   const t64_event event = {machine->tick, 0u, T64_RDP_DEVICE,
                            T64_RDP_EVENT_WORK, 0u, 0u, NULL};
   return t64_rdp_event(machine, &event);
 }
+#endif
 
+#ifndef T64_TEST_DP_TRANSPORT
 static void case_dpc_register_acceptance(void) {
   const t64_host_allocator allocator = {test_allocate, test_release, NULL};
   const t64_profile_descriptor *profile = NULL;
@@ -436,6 +439,322 @@ static void case_zero_area_fill_is_noop(void) {
     T64_CHECK_INT(machine->ram[UINT32_C(0x3000) + i], UINT8_C(0xcc));
   t64_machine_destroy(machine);
 }
+#else
+#define DPC_XBUS UINT32_C(0x00000001)
+#define DPC_FREEZE UINT32_C(0x00000002)
+#define DPC_FLUSH UINT32_C(0x00000004)
+#define DPC_CMD_BUSY UINT32_C(0x00000040)
+#define DPC_DMA_BUSY UINT32_C(0x00000100)
+#define DPC_END_VALID UINT32_C(0x00000200)
+#define DPC_START_VALID UINT32_C(0x00000400)
+#define MI_MODE UINT32_C(0x04300000)
+#define MI_INTR_MASK UINT32_C(0x0430000c)
+#define SP_DMEM UINT32_C(0x04000000)
+#define DPC_CLOCK_COUNTER UINT32_C(0x04100010)
+#define DPC_BUFFER_COUNTER UINT32_C(0x04100014)
+#define DPC_PIPE_COUNTER UINT32_C(0x04100018)
+#define DPC_TMEM_COUNTER UINT32_C(0x0410001c)
+
+static void clear_queued_events(t64_machine *machine) {
+  machine->queue_head = 0u;
+  machine->queue_count = 0u;
+}
+
+static t64_status dispatch_next_queued_event(t64_machine *machine) {
+  t64_event event;
+
+  if (machine->queue_count == 0u) return T64_STATUS_NOT_READY;
+  event = machine->events[machine->queue_head];
+  machine->queue_head = (machine->queue_head + 1u) % T64_EVENT_QUEUE_CAPACITY;
+  machine->queue_count--;
+  machine->tick = event.tick;
+  return event.handler == NULL ? T64_STATUS_INVALID_ARGUMENT
+                               : event.handler(machine, &event);
+}
+
+static bool seed_transport(t64_machine *machine, uint32_t start,
+                           uint32_t end) {
+  clear_queued_events(machine);
+  T64_CHECK_INT(t64_machine_bus_write(machine, DP_START, 4u, start),
+                T64_STATUS_OK);
+  T64_CHECK_INT(t64_machine_bus_write(machine, DP_END, 4u, end),
+                T64_STATUS_OK);
+  return machine->rdp.dpc_start == start && machine->rdp.dpc_current == start;
+}
+
+static void seed_fill_state_only(t64_machine *machine) {
+  machine->rdp.color_image_address = UINT32_C(0x3000);
+  machine->rdp.color_image_width = 4u;
+  machine->rdp.color_image_format = 0u;
+  machine->rdp.color_image_size = 2u;
+  machine->rdp.color_image_valid = true;
+  machine->rdp.scissor_xh = 0u;
+  machine->rdp.scissor_yh = 0u;
+  machine->rdp.scissor_xl = UINT32_C(12);
+  machine->rdp.scissor_yl = UINT32_C(8);
+  machine->rdp.scissor_valid = true;
+  machine->rdp.other_modes = UINT64_C(0x0030000000000000);
+  machine->rdp.other_modes_valid = true;
+  machine->rdp.fill_color = UINT32_C(0xf80107c1);
+  machine->rdp.fill_color_valid = true;
+  (void)memset(machine->ram + UINT32_C(0x3000), 0xcc, 24u);
+}
+
+static void case_current_end_retains_busy_for_pipeline(void) {
+  t64_machine *machine = create_test_machine();
+  uint32_t status = 0u;
+
+  if (machine == NULL) return;
+  seed_fill_state_only(machine);
+  write_command(machine, UINT32_C(0x100), UINT64_C(0x3600c00800000000));
+  (void)seed_transport(machine, UINT32_C(0x100), UINT32_C(0x108));
+  T64_CHECK_INT(dispatch_next_queued_event(machine), T64_STATUS_OK);
+  T64_CHECK_INT(t64_machine_bus_read(machine, DP_CURRENT, 4u, &status),
+                T64_STATUS_OK);
+  T64_CHECK_INT(status, UINT32_C(0x108));
+  T64_CHECK(machine->rdp.busy);
+  T64_CHECK(machine->rdp.render_active || machine->rdp.fence_pending ||
+            machine->rdp.busy);
+  T64_CHECK_INT(t64_machine_bus_read(machine, DP_STATUS, 4u, &status),
+                T64_STATUS_OK);
+  T64_CHECK((status & (DPC_CMD_BUSY | DPC_DMA_BUSY)) != 0u);
+  t64_machine_destroy(machine);
+}
+
+static void case_fullsync_after_prior_render(void) {
+  t64_machine *machine = create_test_machine();
+  bool saw_fence = false;
+  unsigned steps;
+
+  if (machine == NULL) return;
+  seed_fill_state_only(machine);
+  write_command(machine, UINT32_C(0x100), UINT64_C(0x3600c00800000000));
+  write_command(machine, UINT32_C(0x108), UINT64_C(0xe900000000000000));
+  machine->mi_mask = UINT32_C(0x20);
+  (void)seed_transport(machine, UINT32_C(0x100), UINT32_C(0x110));
+  for (steps = 0u; steps < 32u && machine->queue_count != 0u; steps++) {
+    T64_CHECK_INT(dispatch_next_queued_event(machine), T64_STATUS_OK);
+    if (machine->rdp.fence_pending) {
+      saw_fence = true;
+      T64_CHECK_INT(machine->rdp.fill_count, 1u);
+      T64_CHECK_INT(machine->mi_pending, 0u);
+      T64_CHECK(machine->rdp.busy);
+      break;
+    }
+  }
+  T64_CHECK(saw_fence);
+  T64_CHECK_INT(dispatch_next_queued_event(machine), T64_STATUS_OK);
+  T64_CHECK_INT(machine->mi_pending, UINT32_C(0x20));
+  T64_CHECK_INT(machine->rdp.fullsync_count, 1u);
+  t64_machine_destroy(machine);
+}
+
+static void case_dp_pending_mask_clear_independent(void) {
+  t64_machine *machine = create_test_machine();
+  uint32_t mask = 0u;
+
+  if (machine == NULL) return;
+  write_command(machine, UINT32_C(0x100), UINT64_C(0xe900000000000000));
+  machine->mi_mask = 0u;
+  (void)seed_transport(machine, UINT32_C(0x100), UINT32_C(0x108));
+  while (machine->queue_count != 0u)
+    T64_CHECK_INT(dispatch_next_queued_event(machine), T64_STATUS_OK);
+  T64_CHECK_INT(machine->mi_pending, UINT32_C(0x20));
+  T64_CHECK_INT(t64_machine_bus_write(machine, MI_INTR_MASK, 4u,
+                                      UINT32_C(0x0800)), T64_STATUS_OK);
+  T64_CHECK_INT(machine->mi_pending, UINT32_C(0x20));
+  T64_CHECK(machine->mi_irq_line);
+  T64_CHECK_INT(t64_machine_bus_write(machine, MI_INTR_MASK, 4u,
+                                      UINT32_C(0x0400)), T64_STATUS_OK);
+  T64_CHECK_INT(machine->mi_pending, UINT32_C(0x20));
+  T64_CHECK_INT(t64_machine_bus_read(machine, MI_INTR_MASK, 4u, &mask),
+                T64_STATUS_OK);
+  T64_CHECK((mask & UINT32_C(0x20)) == 0u);
+  T64_CHECK(!machine->mi_irq_line);
+  T64_CHECK_INT(t64_machine_bus_write(machine, MI_MODE, 4u,
+                                      UINT32_C(0x0800)), T64_STATUS_OK);
+  T64_CHECK_INT(machine->mi_pending, 0u);
+  T64_CHECK_INT(t64_machine_bus_read(machine, MI_INTR_MASK, 4u, &mask),
+                T64_STATUS_OK);
+  T64_CHECK((mask & UINT32_C(0x20)) == 0u);
+  t64_machine_destroy(machine);
+}
+
+static void case_repeated_fullsync_fences(void) {
+  t64_machine *machine = create_test_machine();
+  unsigned steps;
+
+  if (machine == NULL) return;
+  write_command(machine, UINT32_C(0x100), UINT64_C(0xe900000000000000));
+  write_command(machine, UINT32_C(0x108), UINT64_C(0xe900000000000000));
+  (void)seed_transport(machine, UINT32_C(0x100), UINT32_C(0x110));
+  for (steps = 0u; steps < 16u && machine->rdp.fullsync_count < 2u;
+       steps++) {
+    if (machine->queue_count == 0u) break;
+    T64_CHECK_INT(dispatch_next_queued_event(machine), T64_STATUS_OK);
+  }
+  T64_CHECK_INT(machine->rdp.fullsync_count, 2u);
+  T64_CHECK_INT(machine->rdp.command_count, 2u);
+  T64_CHECK_INT(machine->rdp.refusal_reason, T64_RDP_REFUSAL_NONE);
+  T64_CHECK_INT(machine->mi_pending, UINT32_C(0x20));
+  T64_CHECK(!machine->rdp.busy);
+  t64_machine_destroy(machine);
+}
+
+static void case_freeze_flush_controls(void) {
+  t64_machine *machine = create_test_machine();
+  uint32_t status = 0u;
+
+  if (machine == NULL) return;
+  clear_queued_events(machine);
+  T64_CHECK_INT(t64_machine_bus_write(machine, DP_START, 4u,
+                                      UINT32_C(0x100)), T64_STATUS_OK);
+  T64_CHECK_INT(t64_machine_bus_write(machine, DP_STATUS, 4u,
+                                      UINT32_C(0x0008)), T64_STATUS_OK);
+  write_command(machine, UINT32_C(0x100), UINT64_C(0xe900000000000000));
+  T64_CHECK_INT(t64_machine_bus_write(machine, DP_END, 4u,
+                                      UINT32_C(0x108)), T64_STATUS_OK);
+  T64_CHECK_INT(dispatch_next_queued_event(machine), T64_STATUS_OK);
+  T64_CHECK_INT(machine->rdp.dpc_current, UINT32_C(0x100));
+  T64_CHECK_INT(t64_machine_bus_read(machine, DP_STATUS, 4u, &status),
+                T64_STATUS_OK);
+  T64_CHECK((status & DPC_FREEZE) != 0u);
+  T64_CHECK_INT(t64_machine_bus_write(machine, DP_STATUS, 4u,
+                                      UINT32_C(0x0004)), T64_STATUS_OK);
+  T64_CHECK_INT(t64_machine_bus_write(machine, DP_STATUS, 4u,
+                                      UINT32_C(0x0020)), T64_STATUS_OK);
+  T64_CHECK_INT(t64_machine_bus_read(machine, DP_STATUS, 4u, &status),
+                T64_STATUS_OK);
+  T64_CHECK((status & DPC_FLUSH) != 0u);
+  T64_CHECK_INT(t64_machine_bus_write(machine, DP_STATUS, 4u,
+                                      UINT32_C(0x0010)), T64_STATUS_OK);
+  T64_CHECK_INT(t64_machine_bus_read(machine, DP_STATUS, 4u, &status),
+                T64_STATUS_OK);
+  T64_CHECK((status & DPC_FLUSH) == 0u);
+  t64_machine_destroy(machine);
+}
+
+static void case_xbus_dmem_bounded(void) {
+  t64_machine *machine = create_test_machine();
+
+  if (machine == NULL) return;
+  clear_queued_events(machine);
+  T64_CHECK_INT(t64_machine_bus_write(machine, DP_STATUS, 4u, DPC_XBUS),
+                T64_STATUS_OK);
+  write_command(machine, UINT32_C(0), UINT64_C(0xe600000000000000));
+  machine->sp_dmem[0] = UINT8_C(0xe6);
+  (void)memset(machine->sp_dmem + 1u, 0, 7u);
+  T64_CHECK_INT(t64_machine_bus_write(machine, DP_START, 4u, 0u),
+                T64_STATUS_OK);
+  T64_CHECK_INT(t64_machine_bus_write(machine, DP_END, 4u, 8u),
+                T64_STATUS_OK);
+  T64_CHECK_INT(dispatch_next_queued_event(machine), T64_STATUS_OK);
+  T64_CHECK_INT(machine->rdp.last_opcode_field, UINT32_C(0x26));
+  T64_CHECK_INT(machine->rdp.command_count, 1u);
+  T64_CHECK_INT(t64_machine_bus_write(machine, DP_START, 4u,
+                                      UINT32_C(0x1000)),
+                T64_STATUS_BUS_DEVICE_REFUSED);
+  T64_CHECK_INT(t64_machine_bus_write(machine, DP_END, 4u,
+                                      UINT32_C(0x1008)),
+                T64_STATUS_BUS_DEVICE_REFUSED);
+  t64_machine_destroy(machine);
+}
+
+static void case_loadsync_raw_26(void) {
+  t64_machine *machine = create_test_machine();
+
+  if (machine == NULL) return;
+  write_command(machine, UINT32_C(0x100), UINT64_C(0xe600000000000000));
+  (void)seed_transport(machine, UINT32_C(0x100), UINT32_C(0x108));
+  while (machine->queue_count != 0u)
+    T64_CHECK_INT(dispatch_next_queued_event(machine), T64_STATUS_OK);
+  T64_CHECK_INT(machine->rdp.last_command_byte, UINT32_C(0xe6));
+  T64_CHECK_INT(machine->rdp.last_opcode_field, UINT32_C(0x26));
+  T64_CHECK_INT(machine->rdp.command_count, 1u);
+  T64_CHECK_INT(machine->rdp.refusal_reason, T64_RDP_REFUSAL_NONE);
+  t64_machine_destroy(machine);
+}
+
+static void case_scheduler_time_sequence_exhaustion_atomic(void) {
+  t64_machine *machine = create_test_machine();
+  uint32_t end_before;
+  size_t queue_before;
+
+  if (machine == NULL) return;
+  clear_queued_events(machine);
+  T64_CHECK_INT(t64_machine_bus_write(machine, DP_START, 4u,
+                                      UINT32_C(0x100)), T64_STATUS_OK);
+  end_before = machine->rdp.dpc_end;
+  queue_before = machine->queue_count;
+  machine->tick = UINT64_MAX;
+  T64_CHECK_INT(t64_machine_bus_write(machine, DP_END, 4u,
+                                      UINT32_C(0x108)),
+                T64_STATUS_TICK_OVERFLOW);
+  T64_CHECK_INT(machine->rdp.dpc_end, end_before);
+  T64_CHECK_INT(machine->queue_count, queue_before);
+  machine->tick = 0u;
+  machine->profile.sequence_width_bits = 8u;
+  machine->next_sequence = UINT64_C(256);
+  T64_CHECK_INT(t64_machine_bus_write(machine, DP_END, 4u,
+                                      UINT32_C(0x108)),
+                T64_STATUS_SEQUENCE_EXHAUSTED);
+  T64_CHECK_INT(machine->rdp.dpc_end, end_before);
+  T64_CHECK_INT(machine->queue_count, queue_before);
+  t64_machine_destroy(machine);
+}
+
+static void case_reset_clears_pending_work(void) {
+  t64_machine *machine = create_test_machine();
+  uint8_t rom[TEST_ROM_CAPACITY];
+  size_t rom_length = 0u;
+  size_t i;
+  bool queued_rdp_event = false;
+  unsigned steps;
+
+  if (machine == NULL) return;
+  write_command(machine, UINT32_C(0x100), UINT64_C(0xe900000000000000));
+  (void)seed_transport(machine, UINT32_C(0x100), UINT32_C(0x108));
+  for (steps = 0u; steps < 4u && !machine->rdp.fence_pending; steps++) {
+    T64_CHECK_INT(dispatch_next_queued_event(machine), T64_STATUS_OK);
+  }
+  T64_CHECK(machine->rdp.fence_pending);
+  T64_CHECK(machine->queue_count != 0u);
+  T64_CHECK(load_authored_rom(rom, sizeof rom, &rom_length));
+  T64_CHECK_INT(t64_machine_admit_rom(machine, rom, rom_length),
+                T64_STATUS_OK);
+  for (i = 0u; i < machine->queue_count; i++) {
+    size_t event_index = (machine->queue_head + i) % T64_EVENT_QUEUE_CAPACITY;
+    if (machine->events[event_index].device == T64_RDP_DEVICE)
+      queued_rdp_event = true;
+  }
+  T64_CHECK(!queued_rdp_event);
+  T64_CHECK(!machine->rdp.fence_pending);
+  T64_CHECK(!machine->rdp.busy);
+  T64_CHECK_INT(machine->rdp.dpc_start, 0u);
+  T64_CHECK_INT(machine->mi_pending, 0u);
+  t64_machine_destroy(machine);
+}
+
+static void case_counter_registers_read_only_and_clearable(void) {
+  t64_machine *machine = create_test_machine();
+  const uint32_t counters[] = {DPC_CLOCK_COUNTER, DPC_BUFFER_COUNTER,
+                               DPC_PIPE_COUNTER, DPC_TMEM_COUNTER};
+  size_t i;
+
+  if (machine == NULL) return;
+  for (i = 0u; i < sizeof counters / sizeof counters[0]; i++) {
+    uint32_t value = UINT32_C(0xffffffff);
+    T64_CHECK_INT(t64_machine_bus_read(machine, counters[i], 4u, &value),
+                  T64_STATUS_OK);
+    T64_CHECK_INT(value, 0u);
+    T64_CHECK_INT(t64_machine_bus_write(machine, counters[i], 4u, 0u),
+                  T64_STATUS_BUS_DEVICE_REFUSED);
+  }
+  T64_CHECK_INT(t64_machine_bus_write(machine, DP_STATUS, 4u,
+                                      UINT32_C(0x03c0)), T64_STATUS_OK);
+  t64_machine_destroy(machine);
+}
+#endif
 
 typedef struct {
   const char *name;
@@ -443,6 +762,22 @@ typedef struct {
 } test_case;
 
 static const test_case cases[] = {
+#ifdef T64_TEST_DP_TRANSPORT
+    {"current-end-retains-busy-for-pipeline",
+     case_current_end_retains_busy_for_pipeline},
+    {"fullsync-after-prior-render", case_fullsync_after_prior_render},
+    {"dp-pending-mask-clear-independent",
+     case_dp_pending_mask_clear_independent},
+    {"repeated-fullsync-fences", case_repeated_fullsync_fences},
+    {"freeze-flush-controls", case_freeze_flush_controls},
+    {"xbus-dmem-bounded", case_xbus_dmem_bounded},
+    {"loadsync-raw-26", case_loadsync_raw_26},
+    {"scheduler-time-sequence-exhaustion-atomic",
+     case_scheduler_time_sequence_exhaustion_atomic},
+    {"reset-clears-pending-work", case_reset_clears_pending_work},
+    {"counter-registers-read-only-and-clearable",
+     case_counter_registers_read_only_and_clearable},
+#else
     {"dpc-register-acceptance", case_dpc_register_acceptance},
     {"direct-opcode-mask-preserves-original",
      case_direct_opcode_mask_preserves_original},
@@ -458,6 +793,7 @@ static const test_case cases[] = {
     {"single-fill-completes-without-fullsync",
      case_single_fill_completes_without_fullsync},
     {"zero-area-fill-is-noop", case_zero_area_fill_is_noop},
+#endif
 };
 
 int main(int argc, char **argv) {
@@ -471,5 +807,9 @@ int main(int argc, char **argv) {
   }
   if (argc != 1) return 2;
   for (i = 0u; i < sizeof cases / sizeof cases[0]; i++) cases[i].run();
+#ifdef T64_TEST_DP_TRANSPORT
+  return T64_TEST_FINISH("unit.core.dp.transport");
+#else
   return T64_TEST_FINISH("unit.core.rdp.fill");
+#endif
 }

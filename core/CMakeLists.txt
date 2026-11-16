@@ -198,6 +198,19 @@ set_tests_properties(unit.core.rdp.fill PROPERTIES
   LABELS unit
   ENVIRONMENT "T64_TEST_RDP_FILL_PATH=${T64_BOOT_FIXTURE_DIR}/rdp-fill.z64")
 
+add_executable(test_dp_transport tests/test_rdp.c)
+target_compile_definitions(test_dp_transport PRIVATE T64_TEST_DP_TRANSPORT=1)
+target_include_directories(test_dp_transport PRIVATE
+  "${CMAKE_CURRENT_SOURCE_DIR}"
+  "${CMAKE_SOURCE_DIR}/tests")
+target_link_libraries(test_dp_transport PRIVATE t64_core)
+t64_target_warnings(test_dp_transport)
+add_dependencies(test_dp_transport t64-rdp-fill-fixture)
+add_test(NAME unit.core.dp.transport COMMAND test_dp_transport)
+set_tests_properties(unit.core.dp.transport PROPERTIES
+  LABELS unit
+  ENVIRONMENT "T64_TEST_RDP_FILL_PATH=${T64_BOOT_FIXTURE_DIR}/rdp-fill.z64")
+
 add_executable(test_vi tests/test_vi.c)
 target_include_directories(test_vi PRIVATE "${CMAKE_SOURCE_DIR}/tests")
 target_link_libraries(test_vi PRIVATE t64_core)
