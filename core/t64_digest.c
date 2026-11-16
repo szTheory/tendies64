@@ -186,6 +186,7 @@ t64_status t64_machine_digest(const t64_machine *machine,
   static const uint8_t domain_v12[] =
       "t64.state.rsp.functional.12";
   static const uint8_t domain_v13[] = "t64.state.rdram.t1.13";
+  static const uint8_t domain_v14[] = "t64.state.rdp.vi.14";
   t64_sha256_ctx context;
   t64_address_range output_range;
   const bool has_v6_state =
@@ -203,6 +204,7 @@ t64_status t64_machine_digest(const t64_machine *machine,
   const bool has_v12_state =
       machine != NULL && machine->profile.state_serialization_version == 12u;
   const bool has_v13_state = t64_has_t1_policy(machine);
+  const bool has_v14_state = t64_has_rdp_vi_profile(machine);
   const bool has_rsp_state = has_v12_state || has_v13_state;
   const bool has_warm_state =
       has_v6_state || has_v7_state || has_v8_state || has_v9_state ||
@@ -219,7 +221,9 @@ t64_status t64_machine_digest(const t64_machine *machine,
   }
 
   t64_sha256_init(&context);
-  if (has_v13_state) {
+  if (has_v14_state) {
+    t64_sha256_update(&context, domain_v14, sizeof domain_v14 - 1u);
+  } else if (has_v13_state) {
     t64_sha256_update(&context, domain_v13, sizeof domain_v13 - 1u);
   } else if (has_v12_state) {
     t64_sha256_update(&context, domain_v12, sizeof domain_v12 - 1u);
@@ -444,6 +448,110 @@ t64_status t64_machine_digest(const t64_machine *machine,
     if (has_v13_state) {
       hash_rdram_protocol_state(
           &context, &machine->guest_devices.rdram_protocol);
+    }
+    if (has_v14_state) {
+      const t64_rdp_state *rdp = &machine->rdp;
+      const t64_vi_state *vi = &machine->vi;
+      size_t logical;
+
+      hash_u32(&context, rdp->dpc_start);
+      hash_u32(&context, rdp->dpc_end);
+      hash_u32(&context, rdp->dpc_current);
+      hash_u32(&context, rdp->dpc_status);
+      hash_u32(&context, rdp->color_image_address);
+      hash_u32(&context, rdp->color_image_width);
+      hash_u32(&context, rdp->color_image_format);
+      hash_u32(&context, rdp->color_image_size);
+      hash_u32(&context, rdp->scissor_xh);
+      hash_u32(&context, rdp->scissor_yh);
+      hash_u32(&context, rdp->scissor_xl);
+      hash_u32(&context, rdp->scissor_yl);
+      hash_u64(&context, rdp->other_modes);
+      hash_u32(&context, rdp->fill_color);
+      hash_u32(&context, rdp->work_policy_version);
+      hash_u32(&context, rdp->random_state);
+      hash_u32(&context, rdp->refusal_reason);
+      hash_u64(&context, rdp->command_count);
+      hash_u64(&context, rdp->fill_count);
+      hash_u64(&context, rdp->fullsync_count);
+      hash_u64(&context, rdp->last_original_word);
+      hash_u32(&context, rdp->last_command_byte);
+      hash_u32(&context, rdp->last_opcode_field);
+      hash_u32(&context, rdp->render_x_begin);
+      hash_u32(&context, rdp->render_x_end);
+      hash_u32(&context, rdp->render_y_begin);
+      hash_u32(&context, rdp->render_y_end);
+      hash_u32(&context, rdp->render_y);
+      hash_u32(&context, rdp->color_image_valid ? 1u : 0u);
+      hash_u32(&context, rdp->scissor_valid ? 1u : 0u);
+      hash_u32(&context, rdp->other_modes_valid ? 1u : 0u);
+      hash_u32(&context, rdp->fill_color_valid ? 1u : 0u);
+      hash_u32(&context, rdp->render_active ? 1u : 0u);
+      hash_u32(&context, rdp->fence_pending ? 1u : 0u);
+      hash_u32(&context, rdp->busy ? 1u : 0u);
+
+      for (i = 0u; i < sizeof vi->registers / sizeof vi->registers[0];
+           i++) {
+        hash_u32(&context, vi->registers[i]);
+      }
+      hash_u64(&context, vi->phase_remainder);
+      hash_u64(&context, vi->phase_cycles);
+      hash_u64(&context, vi->last_guest_tick);
+      hash_u64(&context, vi->next_sequence);
+      hash_u64(&context, vi->pending_tick);
+      hash_u64(&context, vi->event_generation);
+      hash_u32(&context, vi->field);
+      hash_u32(&context, vi->refusal_reason);
+      hash_u32(&context, vi->enabled ? 1u : 0u);
+      hash_u32(&context, vi->field_pending ? 1u : 0u);
+      hash_u32(&context, vi->field_resume_scheduled ? 1u : 0u);
+      hash_u32(&context, vi->sequence_exhausted ? 1u : 0u);
+      for (logical = 0u; logical < T64_VIDEO_QUEUE_CAPACITY; logical++) {
+        size_t slot = logical;
+        const t64_video_packet_info *info = &vi->packet_info[slot];
+        size_t length = vi->packet_lengths[slot];
+
+        hash_u64(&context, length);
+        if (machine->video_packets != NULL &&
+            length <= T64_VIDEO_MAX_PACKET_BYTES) {
+          t64_sha256_update(&context,
+                            machine->video_packets +
+                                slot * T64_VIDEO_MAX_PACKET_BYTES,
+                            length);
+        }
+        hash_u32(&context, info->width);
+        hash_u32(&context, info->height);
+        hash_u32(&context, info->stride_bytes);
+        hash_u32(&context, info->source_address);
+        hash_u32(&context, info->source_format);
+        hash_u32(&context, info->output_encoding);
+        hash_u32(&context, info->field);
+        hash_u32(&context, info->parity);
+        hash_u32(&context, info->control);
+        hash_u32(&context, info->burst);
+        hash_u32(&context, info->h_sync);
+        hash_u32(&context, info->v_sync);
+        hash_u32(&context, info->h_start);
+        hash_u32(&context, info->v_start);
+        hash_u32(&context, info->x_scale);
+        hash_u32(&context, info->y_scale);
+        hash_u64(&context, info->start_tick);
+        hash_u64(&context, info->end_tick);
+        hash_u64(&context, info->sequence);
+        hash_u64(&context, info->commands_completed);
+        hash_u64(&context, info->fullsync_completed);
+        hash_u64(&context, info->last_command_word);
+        hash_u32(&context, info->last_command_byte);
+        hash_u32(&context, info->last_opcode_field);
+        hash_u64(&context, info->source_bytes);
+        hash_u64(&context, info->packet_bytes);
+        t64_sha256_update(&context, (const uint8_t *)info->profile_id,
+                          sizeof info->profile_id);
+        t64_sha256_update(&context, (const uint8_t *)info->build_id,
+                          sizeof info->build_id);
+        t64_sha256_update(&context, (const uint8_t *)info->vi_clock_policy,
+                          sizeof info->vi_clock_policy);
+      }
     }
   }
   t64_sha256_final(&context, digest_out);

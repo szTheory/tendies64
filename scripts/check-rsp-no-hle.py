@@ -32,6 +32,7 @@ CANONICAL_CORE_SOURCES = frozenset(
         "t64_mmu.c",
         "t64_observe.c",
         "t64_pi.c",
+        "t64_rdp.c",
         "t64_rom.c",
         "t64_rdram.c",
         "t64_rsp.c",
@@ -40,6 +41,7 @@ CANONICAL_CORE_SOURCES = frozenset(
         "t64_softfloat.c",
         "t64_sp.c",
         "t64_trace.c",
+        "t64_vi.c",
         "t64_warm_devices.c",
     }
 )
@@ -135,6 +137,24 @@ REVIEWED_SP_FUNCTIONS = (
     )
 )
 
+REVIEWED_RDP_FUNCTIONS = frozenset(
+    {
+        "command_span_valid", "fill_bounds", "fill_one_row", "finish_if_idle",
+        "handle_row", "read_be64", "record_command", "schedule_next_committed",
+        "schedule_work_after_committed", "set_refusal", "t64_rdp_event",
+        "t64_rdp_read_register", "t64_rdp_reset_machine_state",
+        "t64_rdp_write_register", "validate_fill_store", "write_be16",
+    }
+)
+REVIEWED_VI_FUNCTIONS = frozenset(
+    {
+        "copy_text", "delay_for_cycles", "expand5", "geometry_for",
+        "phase_at_tick", "render_packet", "t64_vi_event",
+        "t64_vi_read_register", "t64_vi_reset_machine_state",
+        "t64_vi_write_register", "t64_video_copy", "t64_video_info",
+    }
+)
+
 # Reviewed normalized function bodies. A changed body requires an explicit
 # review and digest refresh; static definition additions/removals also fail the
 # inventory check below.
@@ -190,6 +210,34 @@ REVIEWED_BODY_DIGESTS = {
     "core/t64_sp.c :: trace_refusal": "d142faecf8d4f78e427aa40e7454d0a24cc05c20ca433e225bed118982517dfc",
     "core/t64_sp.c :: warm_zero_source_sp_transfer": "46b55d7252273228780a497b4f34180b53dc93676f6bac901aaff9fae6d86508",
     "core/t64_sp.c :: write_rsp_status": "8d1f00710b955fc530864d080ae8d99733711e73749c75b6800d7cc590dbf74c",
+    "core/t64_rdp.c :: command_span_valid": "1d55d575f1472564391b20651fc33a221390005e8ce54c4914746c94a1145749",
+    "core/t64_rdp.c :: fill_bounds": "05ce4e443ffa8fac9adc9503750953b1a9f8c0d7485c1c14a90601433d4c6540",
+    "core/t64_rdp.c :: fill_one_row": "472543c65709bbbfe33d591bd8073490846446d0c9e7c09f8a81db8a6d101e3a",
+    "core/t64_rdp.c :: finish_if_idle": "b84be187d524f16e3cd5d695a5a797d89b627b6679b08697c24a11de515c777a",
+    "core/t64_rdp.c :: handle_row": "36560c118bdd4cfee712a077ffd13310a6efca7267d90a574fe33006df44bb19",
+    "core/t64_rdp.c :: read_be64": "a3b364ca9b36969d9e21b3551356029e7a7956968b8a0191b964652f95d2f364",
+    "core/t64_rdp.c :: record_command": "21228fdb1466ec9758bca4b1facce045c2107160d9d33b51d4aeccd8b77bb860",
+    "core/t64_rdp.c :: schedule_next_committed": "a6201021b4e6d72278c6ee6717b26b4e904160d3001b514523cf7ccc9a54d5e9",
+    "core/t64_rdp.c :: schedule_work_after_committed": "dd9806898e39a57176c4bbe00dfa4c8b898ec0fa830c761700a2d17c55169be5",
+    "core/t64_rdp.c :: set_refusal": "18f7e121505620cd36c0b4c49ef33af57f43efbad8f0c23fb0c3a61fc1e682ec",
+    "core/t64_rdp.c :: t64_rdp_event": "8111a1774b9bd76dab197b9bd6c778ae1fc17e33289a1cb92d71b0b62cd973d0",
+    "core/t64_rdp.c :: t64_rdp_read_register": "1cc4e4a2cff46fa42a130f5fd82ef41d3456e9aa6e2d64a1646148442ae20684",
+    "core/t64_rdp.c :: t64_rdp_reset_machine_state": "c4b977e45a9b42fcc3b9591c5dfff6d5d98b2bfc9137a9dd8bff4cd6f064327f",
+    "core/t64_rdp.c :: t64_rdp_write_register": "41fc24859302eeecdf020b0fa03364d85425bcf139fd27189f465d2f2817f532",
+    "core/t64_rdp.c :: validate_fill_store": "9d61bf40eba5de3b1df97e6d60df96ecc1e20909d62a255e21a837dbbe43f0a0",
+    "core/t64_rdp.c :: write_be16": "145a18aff31ba9937039922fe81436defa1f931f61f369bba1ba557a9bd4772a",
+    "core/t64_vi.c :: copy_text": "2f10ff25b6593ac813ad6619ef1b6658fc199ad4fb78bce2ee098c3fcda8e600",
+    "core/t64_vi.c :: delay_for_cycles": "9c3dae70091562065968143a1a6a15e843905b6b5c675407e1204fa15714eab7",
+    "core/t64_vi.c :: expand5": "ceac39882b1c7c81ee50b7bedf89cce86e3908b8c5d02fd0186769a093699142",
+    "core/t64_vi.c :: geometry_for": "f4406152ed6b4d7902691d0b7b9d368817b6515d8336e7b15515dbec1b3d202f",
+    "core/t64_vi.c :: phase_at_tick": "47456dc6873e26bf86feacb2c6b777dbf8aacdd464507a24b441f2a16a36c523",
+    "core/t64_vi.c :: render_packet": "fda529594c485b9c6258f37ed17b52b94e961da2e6cfe3bf9df5b9cb1a231c13",
+    "core/t64_vi.c :: t64_vi_event": "caa4e0b206021966c87246054761cab48967dc50083be514751ab20390d838a9",
+    "core/t64_vi.c :: t64_vi_read_register": "d21a4ba36394f79f00dc0bf644120150e0d40bd2a8e6aeaa625946ea39b1826b",
+    "core/t64_vi.c :: t64_vi_reset_machine_state": "4aed279f94c4064aec968cf30f14f90f138e7b9fe736e8d4bac549829ea15982",
+    "core/t64_vi.c :: t64_vi_write_register": "c4c7a06d0279404d98325b02b0a53546f3b89e204c79dbe23a37bd795d78857b",
+    "core/t64_vi.c :: t64_video_copy": "342ee6c224e3f010adf56e5ec46f822d0fa11328151072f72db237b003e94c5b",
+    "core/t64_vi.c :: t64_video_info": "7552591d2934e6f2278089a9536d33e3aadba3ac2f6a3321f25d0be7dc76110c",
 }
 
 
@@ -365,12 +413,34 @@ def _check_source_route(root: pathlib.Path) -> tuple[list[str], list[str], int]:
 
     rsp_path = root / "core" / "t64_rsp.c"
     sp_path = root / "core" / "t64_sp.c"
-    if not rsp_path.is_file() or not sp_path.is_file():
-        findings.append("core/t64_rsp.c or core/t64_sp.c: canonical dispatch source is missing")
+    rdp_path = root / "core" / "t64_rdp.c"
+    vi_path = root / "core" / "t64_vi.c"
+    if not all(path.is_file() for path in (rsp_path, sp_path, rdp_path, vi_path)):
+        findings.append(
+            "canonical RSP/SP/RDP/VI source is missing from the reviewed production set"
+        )
         return findings, evidence, len(softfloat)
 
     rsp = strip_c_comments_and_literals(rsp_path.read_text(encoding="utf-8"))
     sp = strip_c_comments_and_literals(sp_path.read_text(encoding="utf-8"))
+    rdp = strip_c_comments_and_literals(rdp_path.read_text(encoding="utf-8"))
+    vi = strip_c_comments_and_literals(vi_path.read_text(encoding="utf-8"))
+    rdp_function_names = file_function_names(rdp)
+    vi_function_names = file_function_names(vi)
+    if rdp_function_names != REVIEWED_RDP_FUNCTIONS:
+        missing = sorted(REVIEWED_RDP_FUNCTIONS - rdp_function_names)
+        unexpected = sorted(rdp_function_names - REVIEWED_RDP_FUNCTIONS)
+        findings.append(
+            "core/t64_rdp.c: reviewed RDP function inventory changed; "
+            f"missing={missing!r} unexpected={unexpected!r}"
+        )
+    if vi_function_names != REVIEWED_VI_FUNCTIONS:
+        missing = sorted(REVIEWED_VI_FUNCTIONS - vi_function_names)
+        unexpected = sorted(vi_function_names - REVIEWED_VI_FUNCTIONS)
+        findings.append(
+            "core/t64_vi.c: reviewed VI function inventory changed; "
+            f"missing={missing!r} unexpected={unexpected!r}"
+        )
     sp_function_names = file_function_names(sp)
     if sp_function_names != REVIEWED_SP_FUNCTIONS:
         findings.append("core/t64_sp.c: complete SP function inventory changed; route review is required")
@@ -423,6 +493,10 @@ def _check_source_route(root: pathlib.Path) -> tuple[list[str], list[str], int]:
         routes[f"core/t64_rsp.c :: {name}"] = function_body(rsp, name)
     for name in REVIEWED_SP_FUNCTIONS:
         routes[f"core/t64_sp.c :: {name}"] = function_body(sp, name)
+    for name in REVIEWED_RDP_FUNCTIONS:
+        routes[f"core/t64_rdp.c :: {name}"] = function_body(rdp, name)
+    for name in REVIEWED_VI_FUNCTIONS:
+        routes[f"core/t64_vi.c :: {name}"] = function_body(vi, name)
     for label, body in routes.items():
         if body is None:
             findings.append(f"{label}: required canonical route function is missing")

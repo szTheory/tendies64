@@ -2251,8 +2251,11 @@ t64_status t64_cpu_step(t64_machine *machine, const t64_event *event) {
     return T64_STATUS_RESOURCE_EXHAUSTED;
   }
 
-  /* Warm-v1 retains its qualified exact-encoding software stop. */
-  if (!new_profile && opcode == T64_CPU_SOFTWARE_DEBUG_STOP_BREAK) {
+  /* Warm-v1 and the RDP/VI diagnostic profile use the exact zero-code BREAK
+   * as a software completion marker. Other VR4300 profiles retain architectural
+   * BREAK exception behavior. */
+  if ((!new_profile || t64_has_rdp_vi_profile(machine)) &&
+      opcode == T64_CPU_SOFTWARE_DEBUG_STOP_BREAK) {
     if (in_delay_slot) {
       cpu_stop_unsupported(machine, pc, opcode);
     } else {

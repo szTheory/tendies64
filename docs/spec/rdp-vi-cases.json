@@ -1,0 +1,46 @@
+{
+  "schema": "t64.rdp-vi-case-inventory",
+  "schema_version": 1,
+  "suites": {
+    "fill": {
+      "ctest": [
+        "unit.core.rdp.fill",
+        "unit.core.vi.fill",
+        "runner.rdp-fill",
+        "controls.real.rdp-wrong-pixel",
+        "controls.real.rdp-replacement-fixture"
+      ],
+      "binaries": [
+        {
+          "path": "core/test_rdp",
+          "cases": [
+            "dpc-register-acceptance",
+            "direct-opcode-mask-preserves-original",
+            "bad-span-admission-preserves-state",
+            "truncated-word-refuses-without-execution",
+            "unsupported-after-fill-preserves-completed-work",
+            "scheduler-full-leaves-end-unlatched",
+            "empty-list-has-no-work",
+            "single-fill-completes-without-fullsync",
+            "zero-area-fill-is-noop"
+          ]
+        },
+        {
+          "path": "core/test_vi",
+          "cases": [
+            "cpu-authored-fill-packet-and-dp-lifecycle",
+            "copy-refusal-is-atomic"
+          ]
+        },
+        {
+          "path": "runner/test_rdp_video",
+          "cases": [
+            "accepted-cpu-fill-to-raw-frame",
+            "same-setup-wrong-pixel",
+            "replacement-fixture-refused"
+          ]
+        }
+      ]
+    }
+  }
+}

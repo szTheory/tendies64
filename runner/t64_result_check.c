@@ -95,16 +95,10 @@ static const char *const real_detail_names[] = {
 static const char *const milestone_names[] = {
     "ipl3-entry", "loader-dma", "hello-entry", "hello-completion"};
 
-static const char expected_profile_id[] = "ntsc-cart-4m-openipl3-warm-v1";
-static const char expected_profile_digest[] =
-    "d8c12cb2a00410a2153ca62da318166f3ca029dea8e3d6b9c841262cb8203c71";
 static const char expected_ipl3_sha256[] =
     "f522db2e31a701f82597f399e76d55c9487760d015aff9d90176b463ae39a068";
 static const char expected_ipl3_payload_sha256[] =
     "f716a90b1d36ec4253d096790791256d3543455e54473a755ff8c3d1199b15d5";
-static const char expected_fixture_id[] = "hello-openipl3";
-static const char expected_fixture_sha256[] =
-    "fa276cc175a4e764b6fd5413193c44b51f38fd8135e33e400032827e02f27c7c";
 static const char expected_log_sha256[] =
     "86594505bea53c9843f9eaf07e4cf0121cbe0055670324674fd8385c88ffd18e";
 static const char expected_empty_sha256[] =
@@ -791,6 +785,42 @@ typedef struct {
   uint64_t tick[4];
 } real_milestone_summary;
 
+static int real_pass_matches_registered_fixture(
+    const t64_json_node *root, const t64_json_node *milestones_node,
+    const real_milestone_summary *milestones, uint64_t instruction_count,
+    uint64_t log_bytes, uint64_t log_bytes_total) {
+  const t64_real_fixture *fixture;
+  const t64_json_node *completion;
+  char expected_pc[17];
+
+  if (root == NULL || milestones_node == NULL || milestones == NULL ||
+      milestones->count != 4u || milestones->index[3] != 3 ||
+      instruction_count == 0u || log_bytes != expected_log_bytes ||
+      log_bytes_total != expected_log_bytes) {
+    return 0;
+  }
+  fixture = t64_real_fixture_find_identity(
+      t64_json_get(root, "fixture_id") == NULL
+          ? NULL
+          : t64_json_get(root, "fixture_id")->str,
+      t64_json_get(root, "fixture_sha256") == NULL
+          ? NULL
+          : t64_json_get(root, "fixture_sha256")->str);
+  if (fixture == NULL || !fixture->pass_eligible ||
+      fixture->completion_pc == 0u) {
+    return 0;
+  }
+  (void)snprintf(expected_pc, sizeof expected_pc, "ffffffff%08x",
+                 fixture->completion_pc);
+  completion = milestones_node->first;
+  if (completion != NULL) completion = completion->next;
+  if (completion != NULL) completion = completion->next;
+  if (completion != NULL) completion = completion->next;
+  return completion != NULL &&
+         str_is(t64_json_get(root, "log_sha256"), expected_log_sha256) &&
+         str_is(t64_json_get(completion, "pc"), expected_pc);
+}
+
 static int validate_real_milestones(const t64_json_node *array,
                                     uint64_t guest_tick,
                                     real_milestone_summary *summary,
@@ -926,6 +956,7 @@ static int validate_real_result(const t64_json_node *root, rec *r, diag *d) {
     const t64_json_node *fixture_id = t64_json_get(root, "fixture_id");
     const t64_json_node *fixture_sha = t64_json_get(root, "fixture_sha256");
     const t64_json_node *source_revision = t64_json_get(root, "source_revision");
+    const t64_real_fixture *fixture_identity;
 
     if (!is_build_id(t64_json_get(root, "build_id")) ||
         !is_lower_hex(source_revision, 40u) ||
@@ -943,14 +974,17 @@ static int validate_real_result(const t64_json_node *root, rec *r, diag *d) {
       set_diag(d, "R-TYPE", "real identities must use their closed name and SHA-256 forms");
       return 0;
     }
-    if (t64_real_fixture_find_identity(fixture_id->str,
-                                       fixture_sha->str) == NULL) {
+    fixture_identity = t64_real_fixture_find_identity(fixture_id->str,
+                                                       fixture_sha->str);
+    if (fixture_identity == NULL) {
       set_diag(d, "R-IDENTITY",
                "fixture id and SHA-256 pair is not in the real smoke allowlist");
       return 0;
     }
-    if (!str_is(t64_json_get(root, "profile_id"), expected_profile_id) ||
-        !str_is(t64_json_get(root, "profile_digest"), expected_profile_digest) ||
+    if (!str_is(t64_json_get(root, "profile_id"),
+                fixture_identity->profile_id) ||
+        !str_is(t64_json_get(root, "profile_digest"),
+                fixture_identity->profile_sha256) ||
         !str_is(t64_json_get(root, "ipl3_sha256"), expected_ipl3_sha256) ||
         !str_is(t64_json_get(root, "ipl3_payload_sha256"),
                 expected_ipl3_payload_sha256)) {
@@ -1110,12 +1144,10 @@ static int validate_real_result(const t64_json_node *root, rec *r, diag *d) {
     } else if (str_is(t64_json_get(root, "log_sha256"), expected_log_sha256) &&
                log_bytes == expected_log_bytes &&
                log_bytes_total == expected_log_bytes) {
-      if (instruction_count == 0u ||
-          !str_is(t64_json_get(root, "fixture_id"), expected_fixture_id) ||
-          !str_is(t64_json_get(root, "fixture_sha256"), expected_fixture_sha256) ||
-          !str_is(detail, "positive-match") || !str_is(outcome, "pass") ||
-          !str_is(t64_json_get(milestones_node->first->next->next->next, "pc"),
-                  "ffffffff80000478")) {
+      if (!real_pass_matches_registered_fixture(
+              root, milestones_node, &milestones, instruction_count,
+              log_bytes, log_bytes_total) ||
+          !str_is(detail, "positive-match") || !str_is(outcome, "pass")) {
         set_diag(d, "R-CONSISTENCY",
                  "pass requires the exact fixture, transcript, nonzero retirement and completion PC");
         return 0;

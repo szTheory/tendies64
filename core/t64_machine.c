@@ -473,6 +473,63 @@ static const t64_profile_descriptor
         .hle_seed_reset_version = 3u,
 };
 
+static const t64_profile_descriptor
+    ntsc_cart_4m_openipl3_rdram_b_t1_rdp_vi_profile = {
+        .profile_id = "ntsc-cart-4m-openipl3-rdram-b-t1-rdp-vi-v1",
+        .console_target = "NUS-CPU-03",
+        .console_qualification = "unqualified-target-software-seed",
+        .tv_standard = T64_TV_NTSC,
+        .region = T64_REGION_US,
+        .media_kind = T64_MEDIA_CARTRIDGE,
+        .rdram_bytes = T64_BASE_RAM_BYTES,
+        .expansion_bytes = 0u,
+        .peripheral_flags = 0u,
+        .save_kind = T64_SAVE_NONE,
+        .boot_route = "hle-pif+open-ipl3",
+        .boot_status = "prepared-rdram-b-t1-rdp-vi-v1",
+        .guest_tick_unit = "model-rsp-cycle",
+        .cpu_rsp_ratio_numerator = 1u,
+        .cpu_rsp_ratio_denominator = 1u,
+        .synchronization_quantum = 1u,
+        .timing_tier = "t1-instruction-cost-v1",
+        .scheduler_version = "tick-sequence-fifo-v1",
+        .pi_model_version = "pi_dma_bounded_cart_v1",
+        .sp_model_version = "rsp-functional-issue-dma-divider-integer-v1",
+        .rom_min_bytes = 4096u,
+        .rom_max_bytes = T64_VR4300_OPENIPL3_ROM_LIMIT,
+        .event_queue_capacity = 256u,
+        .sequence_width_bits = 64u,
+        .advance_event_budget = 4096u,
+        .pi_duration_base_ticks = 1u,
+        .pi_duration_bytes_divisor = 2u,
+        .sp_duration_base_rsp_cycles = 12u,
+        .sp_duration_bytes_divisor = 8u,
+        .rom_order_policy = T64_VR4300_OPENIPL3_FLAT_ENTRY_POLICY,
+        .event_order_policy = "tick-sequence-fifo-v1",
+        .queue_exhaustion_policy = "reject-before-mutation-v1",
+        .sequence_exhaustion_policy = "reject-before-mutation-v1",
+        .advance_budget_policy = "bounded-4096-events-v1",
+        .guest_time_bound_policy = "inclusive-idle-advance-v1",
+        .halt_precedence_policy = "halt-at-bound-wins-v1",
+        .pi_register_policy = "bounded-pi-register-and-cart-dma-v1",
+        .sp_register_policy = "rsp-issue-status-dma-policy-v1",
+        .device_error_policy = "sticky-pi-error-v1",
+        .dma_cancel_policy = "token-match-complete-once-v1",
+        .dma_visibility_policy = "rsp-one-beat-per-issue-v1",
+        .rdp_work_policy = "fill16-row-event-1tick-v1",
+        .vi_clock_policy = "rsp62500000-ntsc48681812-rational-v1",
+        .rdp_noise_policy = "xorshift32-seed-1-v1",
+        .rdp_undefined_color_policy = "zero-color-v1",
+        .vi_output_policy = "rgba5551-nearest-no-filter-rgba8-two-packet-v1",
+        .descriptor_version = 5u,
+        .machine_model_version = 9u,
+        .state_serialization_version = 14u,
+        .asset_sha256 = T64_OPENIPL3_ASSET_SHA256_BYTES,
+        .payload_sha256 = T64_OPENIPL3_PAYLOAD_SHA256_BYTES,
+        .boot_policy_sha256 = T64_RDRAM_B_T1_POLICY_SHA256_BYTES,
+        .hle_seed_reset_version = 3u,
+};
+
 static const uint8_t openipl3_asset_sha256[T64_DIGEST_SIZE] =
     T64_OPENIPL3_ASSET_SHA256_BYTES;
 static const uint8_t openipl3_payload_sha256[T64_DIGEST_SIZE] =
@@ -579,6 +636,16 @@ static bool has_rdram_b_t1_profile_id(
                             profile_id, sizeof profile_id);
 }
 
+static bool has_rdp_vi_profile_id(const t64_profile_descriptor *profile) {
+  static const char profile_id[] =
+      "ntsc-cart-4m-openipl3-rdram-b-t1-rdp-vi-v1";
+
+  return profile != NULL &&
+         bounded_text_equal(profile->profile_id,
+                            sizeof profile->profile_id,
+                            profile_id, sizeof profile_id);
+}
+
 static bool has_pinned_openipl3_profile_id(
     const t64_profile_descriptor *profile) {
   return has_openipl3_profile_id(profile) ||
@@ -587,7 +654,8 @@ static bool has_pinned_openipl3_profile_id(
          has_vr4300_compat_v2_profile_id(profile) ||
          has_rsp_functional_profile_id(profile) ||
          has_rdram_a_t1_profile_id(profile) ||
-         has_rdram_b_t1_profile_id(profile);
+         has_rdram_b_t1_profile_id(profile) ||
+         has_rdp_vi_profile_id(profile);
 }
 
 static bool is_openipl3_profile(const t64_profile_descriptor *profile) {
@@ -677,12 +745,21 @@ static bool is_rdram_b_t1_profile(
     const t64_profile_descriptor *profile) {
   uint8_t candidate_digest[T64_DIGEST_SIZE];
   uint8_t canonical_digest[T64_DIGEST_SIZE];
+  const t64_profile_descriptor *canonical;
 
-  if (profile == NULL || profile->descriptor_version != 4u ||
-      !has_rdram_b_t1_profile_id(profile) ||
+  if (profile == NULL ||
+      ((!has_rdram_b_t1_profile_id(profile) ||
+        profile->descriptor_version != 4u) &&
+       (!has_rdp_vi_profile_id(profile) ||
+        profile->descriptor_version != 5u))) {
+    return false;
+  }
+  canonical = has_rdp_vi_profile_id(profile)
+                  ? &ntsc_cart_4m_openipl3_rdram_b_t1_rdp_vi_profile
+                  : &ntsc_cart_4m_openipl3_rdram_b_t1_profile;
+  if (
       t64_profile_hash(profile, candidate_digest) != T64_STATUS_OK ||
-      t64_profile_hash(&ntsc_cart_4m_openipl3_rdram_b_t1_profile,
-                       canonical_digest) != T64_STATUS_OK) {
+      t64_profile_hash(canonical, canonical_digest) != T64_STATUS_OK) {
     return false;
   }
   return memcmp(candidate_digest, canonical_digest,
@@ -807,6 +884,12 @@ static bool profile_fields_are_valid(const t64_profile_descriptor *profile) {
          T64_PROFILE_TEXT_OK(device_error_policy) &&
          T64_PROFILE_TEXT_OK(dma_cancel_policy) &&
          T64_PROFILE_TEXT_OK(dma_visibility_policy) &&
+         (profile->descriptor_version < 5u ||
+          (T64_PROFILE_TEXT_OK(rdp_work_policy) &&
+           T64_PROFILE_TEXT_OK(vi_clock_policy) &&
+           T64_PROFILE_TEXT_OK(rdp_noise_policy) &&
+           T64_PROFILE_TEXT_OK(rdp_undefined_color_policy) &&
+           T64_PROFILE_TEXT_OK(vi_output_policy))) &&
          (profile->tv_standard == T64_TV_NTSC ||
           profile->tv_standard == T64_TV_PAL) &&
          (profile->region == T64_REGION_US ||
@@ -948,6 +1031,19 @@ static void write_profile(profile_writer *writer,
   } else if (profile->descriptor_version == 4u) {
     /* Descriptor v4 binds the T1 boot-policy variants independently. */
     write_openipl3_boot_metadata(writer, profile);
+  } else if (profile->descriptor_version == 5u) {
+    /* Descriptor v5 binds the RDP/VI software model and output policies. */
+    write_openipl3_boot_metadata(writer, profile);
+    profile_writer_text(writer, profile->rdp_work_policy,
+                        sizeof profile->rdp_work_policy);
+    profile_writer_text(writer, profile->vi_clock_policy,
+                        sizeof profile->vi_clock_policy);
+    profile_writer_text(writer, profile->rdp_noise_policy,
+                        sizeof profile->rdp_noise_policy);
+    profile_writer_text(writer, profile->rdp_undefined_color_policy,
+                        sizeof profile->rdp_undefined_color_policy);
+    profile_writer_text(writer, profile->vi_output_policy,
+                        sizeof profile->vi_output_policy);
   }
 }
 
@@ -1148,6 +1244,8 @@ static t64_status reset_guest_state(t64_machine *machine) {
   (void)memset(&machine->cache, 0, sizeof machine->cache);
   (void)memset(&machine->guest_devices, 0, sizeof machine->guest_devices);
   (void)memset(&machine->output, 0, sizeof machine->output);
+  t64_rdp_reset_machine_state(machine);
+  t64_vi_reset_machine_state(machine);
   machine->output_drain_cursor = 0u;
   machine->mi_pending = 0u;
   machine->mi_mask = 0u;
@@ -1183,6 +1281,8 @@ t64_status t64_profile_lookup(const char *profile_id,
       "ntsc-cart-4m-openipl3-rdram-a-t1-v1";
   static const char rdram_b_t1_profile_id[] =
       "ntsc-cart-4m-openipl3-rdram-b-t1-v1";
+  static const char rdp_vi_profile_id[] =
+      "ntsc-cart-4m-openipl3-rdram-b-t1-rdp-vi-v1";
 
   if (profile_out == NULL) {
     return T64_STATUS_INVALID_ARGUMENT;
@@ -1234,6 +1334,12 @@ t64_status t64_profile_lookup(const char *profile_id,
                          rdram_b_t1_profile_id,
                          sizeof rdram_b_t1_profile_id)) {
     *profile_out = &ntsc_cart_4m_openipl3_rdram_b_t1_profile;
+    return T64_STATUS_OK;
+  }
+  if (bounded_text_equal(profile_id, T64_PROFILE_TEXT_CAPACITY,
+                         rdp_vi_profile_id,
+                         sizeof rdp_vi_profile_id)) {
+    *profile_out = &ntsc_cart_4m_openipl3_rdram_b_t1_rdp_vi_profile;
     return T64_STATUS_OK;
   }
   return T64_STATUS_UNKNOWN_PROFILE;
@@ -1296,7 +1402,9 @@ t64_status t64_machine_create(const t64_host_allocator *allocator,
                               const t64_profile_descriptor *profile,
                               t64_machine **machine_out) {
   t64_host_storage storage = {NULL, 0u, 0u};
+  t64_host_storage video_storage = {NULL, 0u, 0u};
   t64_address_range allocation_range;
+  t64_address_range video_range;
   uint8_t profile_digest[T64_DIGEST_SIZE];
   size_t total_size;
   size_t alignment = _Alignof(max_align_t);
@@ -1335,6 +1443,31 @@ t64_status t64_machine_create(const t64_host_allocator *allocator,
   }
   machine = (t64_machine *)storage.data;
   (void)memset(machine, 0, sizeof *machine);
+  if (profile->machine_model_version == 9u &&
+      profile->state_serialization_version == 14u) {
+    if (!allocator->allocate(allocator->context,
+                             T64_VIDEO_QUEUE_STORAGE_BYTES, alignment,
+                             &video_storage)) {
+      allocator->release(allocator->context, storage);
+      return T64_STATUS_ALLOCATION_FAILED;
+    }
+    if (!t64_internal_storage_range(video_storage,
+                                   T64_VIDEO_QUEUE_STORAGE_BYTES, alignment,
+                                   &video_range) ||
+        !range_disjoint_from_object(video_range, storage.data, total_size) ||
+        !range_disjoint_from_object(video_range, allocator,
+                                    sizeof *allocator) ||
+        !range_disjoint_from_object(video_range, profile, sizeof *profile) ||
+        !range_disjoint_from_object(video_range, machine_out,
+                                    sizeof *machine_out)) {
+      allocator->release(allocator->context, video_storage);
+      allocator->release(allocator->context, storage);
+      return T64_STATUS_BAD_STORAGE;
+    }
+    (void)memset(video_storage.data, 0, T64_VIDEO_QUEUE_STORAGE_BYTES);
+    machine->video_storage = video_storage;
+    machine->video_packets = (uint8_t *)video_storage.data;
+  }
   machine->allocator = *allocator;
   machine->machine_storage = storage;
   (void)memcpy(&machine->profile, profile, sizeof machine->profile);
@@ -1349,14 +1482,19 @@ t64_status t64_machine_create(const t64_host_allocator *allocator,
 void t64_machine_destroy(t64_machine *machine) {
   t64_host_allocator allocator;
   t64_host_storage machine_storage;
+  t64_host_storage video_storage;
 
   if (machine == NULL) {
     return;
   }
   allocator = machine->allocator;
   machine_storage = machine->machine_storage;
+  video_storage = machine->video_storage;
   if (machine->has_image) {
     allocator.release(allocator.context, machine->image_storage);
+  }
+  if (video_storage.data != NULL) {
+    allocator.release(allocator.context, video_storage);
   }
   allocator.release(allocator.context, machine_storage);
 }

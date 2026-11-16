@@ -8,25 +8,44 @@
 static const t64_real_fixture fixtures[] = {
     {"hello-openipl3",
      "fa276cc175a4e764b6fd5413193c44b51f38fd8135e33e400032827e02f27c7c",
-     4280u, UINT32_C(0x80000478), true},
+     4280u, "ntsc-cart-4m-openipl3-warm-v1",
+     "d8c12cb2a00410a2153ca62da318166f3ca029dea8e3d6b9c841262cb8203c71",
+     UINT32_C(0x80000478), true},
     {"hello-empty-break",
      "5ae986bb263cafa28e2b06a17e3d3f3ee229c55f75cd1ab91df7a9698e35a652",
-     4128u, UINT32_C(0x80000400), false},
+     4128u, "ntsc-cart-4m-openipl3-warm-v1",
+     "d8c12cb2a00410a2153ca62da318166f3ca029dea8e3d6b9c841262cb8203c71",
+     UINT32_C(0x80000400), false},
     {"hello-wrong-text",
      "7626a661296fd8f5a5939ceb3b1fa3321f96e23be0e0bbf6b06b7e57871d86b8",
-     4272u, UINT32_C(0x80000478), false},
+     4272u, "ntsc-cart-4m-openipl3-warm-v1",
+     "d8c12cb2a00410a2153ca62da318166f3ca029dea8e3d6b9c841262cb8203c71",
+     UINT32_C(0x80000478), false},
     {"hello-empty-loop",
      "88edd612852e36897a979182db53bf7cb184c31d56128c74e9544ec797f3c815",
-     4128u, 0u, false},
+     4128u, "ntsc-cart-4m-openipl3-warm-v1",
+     "d8c12cb2a00410a2153ca62da318166f3ca029dea8e3d6b9c841262cb8203c71",
+     0u, false},
     {"hello-incomplete-loop",
      "ba62967b56a7317d9ca4e4c8ffa3acfce5856b3307f6ca67da1739ba394b1054",
-     4272u, 0u, false},
+     4272u, "ntsc-cart-4m-openipl3-warm-v1",
+     "d8c12cb2a00410a2153ca62da318166f3ca029dea8e3d6b9c841262cb8203c71",
+     0u, false},
     {"hello-unsupported",
      "7c89481f15137f24a7c7067a67ccd6929dad6a5f982ec459bf39114d2f9926e9",
-     4128u, 0u, false},
+     4128u, "ntsc-cart-4m-openipl3-warm-v1",
+     "d8c12cb2a00410a2153ca62da318166f3ca029dea8e3d6b9c841262cb8203c71",
+     0u, false},
     {"hello-output-overflow",
      "4ae73021dbdc2465944887a356c8f9154b7f1b3109487b82c808e9b3cccde18e",
-     4264u, 0u, false},
+     4264u, "ntsc-cart-4m-openipl3-warm-v1",
+     "d8c12cb2a00410a2153ca62da318166f3ca029dea8e3d6b9c841262cb8203c71",
+     0u, false},
+    {"rdp-vi-fill-diagnostic",
+     "b469340e7caa0ac341a2a5b525aa7e3b39c8a47f295ecd10710ae695e46dfc3d",
+     4552u, "ntsc-cart-4m-openipl3-rdram-b-t1-rdp-vi-v1",
+     "01f01e8874e0e62fe6075e98254fecce69781bd5447b50c69732b8aedb2ae222",
+     UINT32_C(0x80000558), true},
 };
 
 const t64_real_fixture *t64_real_fixture_find_bytes(
@@ -54,4 +73,13 @@ const t64_real_fixture *t64_real_fixture_find_identity(
     }
   }
   return NULL;
+}
+
+bool t64_real_fixture_profile_allowed(const char *profile_id) {
+  size_t i;
+  if (profile_id == NULL) return false;
+  for (i = 0u; i < sizeof fixtures / sizeof fixtures[0]; i++) {
+    if (strcmp(fixtures[i].profile_id, profile_id) == 0) return true;
+  }
+  return false;
 }

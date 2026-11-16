@@ -25,6 +25,8 @@
 #define T64_TRACE_DEVICE_PI UINT32_C(3)
 #define T64_TRACE_DEVICE_SP UINT32_C(4)
 #define T64_TRACE_DEVICE_INPUT UINT32_C(6)
+#define T64_TRACE_DEVICE_RDP UINT32_C(7)
+#define T64_TRACE_DEVICE_VI UINT32_C(8)
 #define T64_TRACE_KIND_ROM_ADMITTED UINT32_C(1)
 #define T64_TRACE_KIND_CPU_ENTRY UINT32_C(2)
 #define T64_TRACE_KIND_CPU_RETIREMENT UINT32_C(3)
@@ -46,6 +48,11 @@
 #define T64_TRACE_KIND_SP_DROP UINT32_C(4)
 #define T64_TRACE_KIND_SP_COMPLETE UINT32_C(5)
 #define T64_TRACE_KIND_INPUT_SUBMITTED UINT32_C(1)
+#define T64_TRACE_KIND_RDP_COMMAND UINT32_C(1)
+#define T64_TRACE_KIND_RDP_COMPLETE UINT32_C(2)
+#define T64_TRACE_KIND_VI_FRAME UINT32_C(1)
+#define T64_VIDEO_SOURCE_RGBA5551 UINT32_C(2)
+#define T64_VIDEO_ENCODING_RGBA8 UINT32_C(1)
 
 #define T64_STATUS_OK UINT32_C(0)
 #define T64_STATUS_INVALID_ARGUMENT UINT32_C(1)
@@ -155,6 +162,12 @@ typedef struct {
   char device_error_policy[T64_PROFILE_TEXT_CAPACITY];
   char dma_cancel_policy[T64_PROFILE_TEXT_CAPACITY];
   char dma_visibility_policy[T64_PROFILE_TEXT_CAPACITY];
+  /* Descriptor v5 fields. Legacy descriptor hashes ignore these fields. */
+  char rdp_work_policy[T64_PROFILE_TEXT_CAPACITY];
+  char vi_clock_policy[T64_PROFILE_TEXT_CAPACITY];
+  char rdp_noise_policy[T64_PROFILE_TEXT_CAPACITY];
+  char rdp_undefined_color_policy[T64_PROFILE_TEXT_CAPACITY];
+  char vi_output_policy[T64_PROFILE_TEXT_CAPACITY];
   uint32_t descriptor_version;
   uint32_t machine_model_version;
   uint32_t state_serialization_version;
@@ -197,6 +210,40 @@ typedef struct {
   bool lost_output;
   bool total_attempted_bytes_exact;
 } t64_output_drain_result;
+
+/* One queued raw VI packet. Strings and numeric policy fields are part of the
+ * packet observation, not a claim about measured hardware behavior. */
+typedef struct {
+  uint32_t width;
+  uint32_t height;
+  uint32_t stride_bytes;
+  uint32_t source_address;
+  uint32_t source_format;
+  uint32_t output_encoding;
+  uint32_t field;
+  uint32_t parity;
+  uint32_t control;
+  uint32_t burst;
+  uint32_t h_sync;
+  uint32_t v_sync;
+  uint32_t h_start;
+  uint32_t v_start;
+  uint32_t x_scale;
+  uint32_t y_scale;
+  uint64_t start_tick;
+  uint64_t end_tick;
+  uint64_t sequence;
+  uint64_t commands_completed;
+  uint64_t fullsync_completed;
+  uint64_t last_command_word;
+  uint32_t last_command_byte;
+  uint32_t last_opcode_field;
+  size_t source_bytes;
+  size_t packet_bytes;
+  char profile_id[T64_PROFILE_TEXT_CAPACITY];
+  char build_id[128];
+  char vi_clock_policy[T64_PROFILE_TEXT_CAPACITY];
+} t64_video_packet_info;
 
 /* The returned descriptor is immutable and remains valid for program life. */
 t64_status t64_profile_lookup(const char *profile_id,
@@ -259,6 +306,17 @@ t64_status t64_machine_cpu_stop_detail(
 t64_status t64_machine_output_drain(t64_machine *machine, uint8_t *bytes_out,
                                    size_t capacity,
                                    t64_output_drain_result *result_out);
+
+/*
+ * Raw video is a bounded, lossless, two-packet queue on the RDP/VI profile.
+ * info reports the oldest packet. copy with NULL/zero queries its size and
+ * leaves the queue untouched; a successful full copy dequeues that packet.
+ * Refused or undersized copies leave both output bytes and queue unchanged.
+ */
+t64_status t64_video_info(const t64_machine *machine,
+                          t64_video_packet_info *info_out);
+t64_status t64_video_copy(t64_machine *machine, uint8_t *bytes_out,
+                          size_t capacity, size_t *length_out);
 
 /*
  * Submit a deterministic port-0 observation event. Buttons are bits 0..15;

@@ -133,6 +133,9 @@ set(T64_BOOT_FIXTURE_OUTPUTS
   "${T64_BOOT_FIXTURE_DIR}/hello-unsupported.z64"
   "${T64_BOOT_FIXTURE_DIR}/hello-output-overflow.z64"
   "${T64_BOOT_FIXTURE_DIR}/hello.payload.bin"
+  "${T64_BOOT_FIXTURE_DIR}/rdp-fill.z64"
+  "${T64_BOOT_FIXTURE_DIR}/rdp-fill.payload.bin"
+  "${T64_BOOT_FIXTURE_DIR}/rdp-fill.build.json"
   "${T64_BOOT_FIXTURE_DIR}/hello.expected.txt"
   "${T64_BOOT_FIXTURE_DIR}/hello.input.json"
   "${T64_BOOT_FIXTURE_DIR}/hello.build.json")
@@ -145,6 +148,8 @@ add_custom_command(
     "${CMAKE_SOURCE_DIR}/fixtures/manifest.json"
     "${CMAKE_SOURCE_DIR}/fixtures/hello/hello.S"
     "${CMAKE_SOURCE_DIR}/fixtures/hello/hello.ld"
+    "${CMAKE_SOURCE_DIR}/fixtures/rdp/fill.S"
+    "${CMAKE_SOURCE_DIR}/fixtures/rdp/fill.ld"
     "${CMAKE_SOURCE_DIR}/scripts/build-boot-fixtures.sh"
     "${CMAKE_SOURCE_DIR}/tools/fixture/t64_rom_pack.c"
     "${CMAKE_SOURCE_DIR}/tools/common/t64_sha256.c"
@@ -161,6 +166,27 @@ t64_target_warnings(test_tracer)
 add_dependencies(test_tracer t64-boot-fixtures)
 add_test(NAME unit.core.tracer COMMAND test_tracer)
 set_tests_properties(unit.core.tracer PROPERTIES LABELS unit)
+
+add_executable(test_rdp tests/test_rdp.c)
+target_include_directories(test_rdp PRIVATE
+  "${CMAKE_CURRENT_SOURCE_DIR}"
+  "${CMAKE_SOURCE_DIR}/tests")
+target_link_libraries(test_rdp PRIVATE t64_core)
+t64_target_warnings(test_rdp)
+add_test(NAME unit.core.rdp.fill COMMAND test_rdp)
+set_tests_properties(unit.core.rdp.fill PROPERTIES
+  LABELS unit
+  ENVIRONMENT "T64_TEST_RDP_FILL_PATH=${T64_BOOT_FIXTURE_DIR}/rdp-fill.z64")
+
+add_executable(test_vi tests/test_vi.c)
+target_include_directories(test_vi PRIVATE "${CMAKE_SOURCE_DIR}/tests")
+target_link_libraries(test_vi PRIVATE t64_core)
+t64_target_warnings(test_vi)
+add_dependencies(test_vi t64-boot-fixtures)
+add_test(NAME unit.core.vi.fill COMMAND test_vi)
+set_tests_properties(unit.core.vi.fill PROPERTIES
+  LABELS unit
+  ENVIRONMENT "T64_TEST_RDP_FILL_PATH=${T64_BOOT_FIXTURE_DIR}/rdp-fill.z64")
 
 add_executable(test_boot_entry tests/test_boot_entry.c)
 target_include_directories(test_boot_entry PRIVATE

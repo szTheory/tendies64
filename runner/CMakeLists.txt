@@ -344,6 +344,35 @@ set_tests_properties(
   ENVIRONMENT
     "T64_TEST_FIXTURE_DIR=${CMAKE_SOURCE_DIR}/build/fixtures;T64_TEST_INPUT_PATH=${CMAKE_SOURCE_DIR}/build/fixtures/hello.input.json")
 
+# Actual supervised CPU-authored DPC fill and raw VI packet, with a same-setup
+# pixel negative control and a replacement-fixture admission refusal.
+add_executable(test_rdp_video tests/test_rdp_video.c)
+target_compile_definitions(test_rdp_video PRIVATE ${T64_HOST_DEFS})
+target_include_directories(test_rdp_video PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
+target_link_libraries(test_rdp_video PRIVATE t64_common)
+t64_target_warnings(test_rdp_video)
+add_dependencies(test_rdp_video t64-supervisor t64-result-check t64-boot-fixtures)
+add_test(NAME runner.rdp-fill
+  COMMAND test_rdp_video accepted-cpu-fill-to-raw-frame
+    $<TARGET_FILE:t64-supervisor> $<TARGET_FILE:t64-result-check>
+    ${CMAKE_SOURCE_DIR}/build/fixtures/rdp-fill.z64
+    ${CMAKE_SOURCE_DIR}/build/fixtures/hello.input.json)
+add_test(NAME controls.real.rdp-wrong-pixel
+  COMMAND test_rdp_video same-setup-wrong-pixel
+    $<TARGET_FILE:t64-supervisor> $<TARGET_FILE:t64-result-check>
+    ${CMAKE_SOURCE_DIR}/build/fixtures/rdp-fill.z64
+    ${CMAKE_SOURCE_DIR}/build/fixtures/hello.input.json)
+add_test(NAME controls.real.rdp-replacement-fixture
+  COMMAND test_rdp_video replacement-fixture-refused
+    $<TARGET_FILE:t64-supervisor> $<TARGET_FILE:t64-result-check>
+    ${CMAKE_SOURCE_DIR}/build/fixtures/rdp-fill.z64
+    ${CMAKE_SOURCE_DIR}/build/fixtures/hello.input.json)
+set_tests_properties(
+  runner.rdp-fill
+  controls.real.rdp-wrong-pixel
+  controls.real.rdp-replacement-fixture PROPERTIES
+  LABELS "runner;controls" TIMEOUT 120)
+
 # Descriptor-attested actual IPL3/hello positive integration.
 add_executable(test_real_runner tests/test_real_runner.c)
 target_compile_definitions(test_real_runner PRIVATE ${T64_HOST_DEFS})

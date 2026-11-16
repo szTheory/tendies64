@@ -71,6 +71,31 @@
 #define T64_VR4300_DCACHE_LINE_COUNT 512u
 #define T64_VR4300_ICACHE_LINE_BYTES 32u
 #define T64_VR4300_DCACHE_LINE_BYTES 16u
+#define T64_VIDEO_QUEUE_CAPACITY 2u
+#define T64_VIDEO_MAX_WIDTH 320u
+#define T64_VIDEO_MAX_HEIGHT 240u
+#define T64_VIDEO_MAX_PACKET_BYTES \
+  ((size_t)T64_VIDEO_MAX_WIDTH * (size_t)T64_VIDEO_MAX_HEIGHT * 4u)
+#define T64_VIDEO_QUEUE_STORAGE_BYTES \
+  ((size_t)T64_VIDEO_QUEUE_CAPACITY * T64_VIDEO_MAX_PACKET_BYTES)
+#define T64_RDP_DEVICE UINT32_C(7)
+#define T64_VI_DEVICE UINT32_C(8)
+#define T64_RDP_EVENT_WORK UINT32_C(1)
+#define T64_VI_EVENT_FIELD UINT32_C(1)
+#define T64_RDP_STATUS_BUSY UINT32_C(0x00000001)
+#define T64_RDP_STATUS_ERROR UINT32_C(0x00000002)
+#define T64_RDP_REFUSAL_NONE UINT32_C(0)
+#define T64_RDP_REFUSAL_SPAN UINT32_C(1)
+#define T64_RDP_REFUSAL_TRUNCATED_WORD UINT32_C(2)
+#define T64_RDP_REFUSAL_UNSUPPORTED_OPCODE UINT32_C(3)
+#define T64_RDP_REFUSAL_INVALID_IMAGE UINT32_C(4)
+#define T64_RDP_REFUSAL_RENDER_RANGE UINT32_C(5)
+#define T64_VI_REFUSAL_NONE UINT32_C(0)
+#define T64_VI_REFUSAL_FORMAT UINT32_C(1)
+#define T64_VI_REFUSAL_GEOMETRY UINT32_C(2)
+#define T64_VI_REFUSAL_SOURCE_RANGE UINT32_C(3)
+#define T64_VI_REFUSAL_PHASE_OVERFLOW UINT32_C(4)
+#define T64_VI_REFUSAL_SEQUENCE_EXHAUSTED UINT32_C(5)
 
 #define T64_DEVICE_SYNTHETIC_TEST UINT32_C(0xffff0001)
 #define T64_TEST_EVENT_NOOP UINT32_C(1)
@@ -556,6 +581,64 @@ typedef struct {
   bool total_attempted_bytes_saturated;
 } t64_output_state;
 
+typedef struct {
+  uint32_t dpc_start;
+  uint32_t dpc_end;
+  uint32_t dpc_current;
+  uint32_t dpc_status;
+  uint32_t color_image_address;
+  uint32_t color_image_width;
+  uint32_t color_image_format;
+  uint32_t color_image_size;
+  uint32_t scissor_xh;
+  uint32_t scissor_yh;
+  uint32_t scissor_xl;
+  uint32_t scissor_yl;
+  uint64_t other_modes;
+  uint32_t fill_color;
+  uint32_t work_policy_version;
+  uint32_t random_state;
+  uint32_t refusal_reason;
+  uint64_t command_count;
+  uint64_t fill_count;
+  uint64_t fullsync_count;
+  uint64_t last_original_word;
+  uint32_t last_command_byte;
+  uint32_t last_opcode_field;
+  uint32_t render_x_begin;
+  uint32_t render_x_end;
+  uint32_t render_y_begin;
+  uint32_t render_y_end;
+  uint32_t render_y;
+  bool color_image_valid;
+  bool scissor_valid;
+  bool other_modes_valid;
+  bool fill_color_valid;
+  bool render_active;
+  bool fence_pending;
+  bool busy;
+} t64_rdp_state;
+
+typedef struct {
+  uint32_t registers[14];
+  uint64_t phase_remainder;
+  uint64_t phase_cycles;
+  uint64_t last_guest_tick;
+  uint64_t next_sequence;
+  uint64_t pending_tick;
+  uint64_t event_generation;
+  uint32_t field;
+  uint32_t refusal_reason;
+  size_t packet_lengths[T64_VIDEO_QUEUE_CAPACITY];
+  t64_video_packet_info packet_info[T64_VIDEO_QUEUE_CAPACITY];
+  size_t packet_head;
+  size_t packet_count;
+  bool enabled;
+  bool field_pending;
+  bool field_resume_scheduled;
+  bool sequence_exhausted;
+} t64_vi_state;
+
 typedef struct t64_event t64_event;
 typedef t64_status (*t64_event_handler_fn)(t64_machine *machine,
                                            const t64_event *event);
@@ -599,6 +682,10 @@ struct t64_machine {
   t64_cache_state cache;
   t64_guest_device_state guest_devices;
   t64_output_state output;
+  t64_rdp_state rdp;
+  t64_vi_state vi;
+  t64_host_storage video_storage;
+  uint8_t *video_packets;
   /* Host observer cursor; never contributes to guest identity. */
   size_t output_drain_cursor;
   size_t image_length;
@@ -638,6 +725,11 @@ struct t64_machine {
   bool rsp_observation_valid;
 };
 
+static inline bool t64_has_rdp_vi_profile(const t64_machine *machine) {
+  return machine != NULL && machine->profile.machine_model_version == 9u &&
+         machine->profile.state_serialization_version == 14u;
+}
+
 static inline bool t64_has_vr4300_cpu_state(const t64_machine *machine) {
   return machine != NULL &&
          ((machine->profile.machine_model_version == 3u &&
@@ -651,7 +743,8 @@ static inline bool t64_has_vr4300_cpu_state(const t64_machine *machine) {
           (machine->profile.machine_model_version == 7u &&
            machine->profile.state_serialization_version == 13u) ||
           (machine->profile.machine_model_version == 8u &&
-           machine->profile.state_serialization_version == 13u));
+           machine->profile.state_serialization_version == 13u) ||
+          t64_has_rdp_vi_profile(machine));
 }
 
 static inline bool t64_has_t1_policy(const t64_machine *machine) {
@@ -659,13 +752,16 @@ static inline bool t64_has_t1_policy(const t64_machine *machine) {
          ((machine->profile.machine_model_version == 7u &&
            machine->profile.state_serialization_version == 13u) ||
           (machine->profile.machine_model_version == 8u &&
-           machine->profile.state_serialization_version == 13u));
+           machine->profile.state_serialization_version == 13u) ||
+          t64_has_rdp_vi_profile(machine));
 }
 
 static inline bool t64_has_rdram_protocol_policy(
     const t64_machine *machine) {
-  return machine != NULL && machine->profile.machine_model_version == 8u &&
-         machine->profile.state_serialization_version == 13u;
+  return machine != NULL &&
+         ((machine->profile.machine_model_version == 8u &&
+           machine->profile.state_serialization_version == 13u) ||
+          t64_has_rdp_vi_profile(machine));
 }
 
 static inline bool t64_has_cpu_compat_extension_policy(
@@ -678,7 +774,8 @@ static inline bool t64_has_cpu_compat_extension_policy(
           (machine->profile.machine_model_version == 7u &&
            machine->profile.state_serialization_version == 13u) ||
           (machine->profile.machine_model_version == 8u &&
-           machine->profile.state_serialization_version == 13u));
+           machine->profile.state_serialization_version == 13u) ||
+          t64_has_rdp_vi_profile(machine));
 }
 
 static inline bool t64_has_rsp_functional_profile(
@@ -689,7 +786,8 @@ static inline bool t64_has_rsp_functional_profile(
           (machine->profile.machine_model_version == 7u &&
            machine->profile.state_serialization_version == 13u) ||
           (machine->profile.machine_model_version == 8u &&
-           machine->profile.state_serialization_version == 13u));
+           machine->profile.state_serialization_version == 13u) ||
+          t64_has_rdp_vi_profile(machine));
 }
 
 static inline bool t64_has_cpu_compat_policy(const t64_machine *machine) {
@@ -869,6 +967,18 @@ bool t64_mi_register_read(const t64_machine *machine, uint32_t address,
                           uint32_t *value_out);
 t64_status t64_mi_register_write(t64_machine *machine, uint32_t address,
                                 uint32_t value);
+t64_status t64_rdp_read_register(const t64_machine *machine,
+                                 uint32_t address, uint32_t *value_out);
+t64_status t64_rdp_write_register(t64_machine *machine, uint32_t address,
+                                  uint32_t value);
+t64_status t64_rdp_event(t64_machine *machine, const t64_event *event);
+t64_status t64_vi_read_register(const t64_machine *machine,
+                                uint32_t address, uint32_t *value_out);
+t64_status t64_vi_write_register(t64_machine *machine, uint32_t address,
+                                 uint32_t value);
+t64_status t64_vi_event(t64_machine *machine, const t64_event *event);
+void t64_rdp_reset_machine_state(t64_machine *machine);
+void t64_vi_reset_machine_state(t64_machine *machine);
 t64_status t64_pi_read_register(const t64_machine *machine, uint32_t address,
                                 uint32_t *value_out);
 t64_status t64_pi_write_register(t64_machine *machine, uint32_t address,
@@ -938,6 +1048,13 @@ static inline bool t64_internal_observation_range_is_disjoint(
   if (machine->has_image &&
       (!t64_internal_make_range(machine->image_storage.data,
                                 machine->image_storage.capacity,
+                                &owned_range) ||
+       t64_internal_ranges_overlap(output_range, owned_range))) {
+    return false;
+  }
+  if (machine->video_storage.data != NULL &&
+      (!t64_internal_make_range(machine->video_storage.data,
+                                machine->video_storage.capacity,
                                 &owned_range) ||
        t64_internal_ranges_overlap(output_range, owned_range))) {
     return false;

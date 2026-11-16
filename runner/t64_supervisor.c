@@ -44,11 +44,8 @@
 #define REAL_INPUT_SIZE 54u
 #define REAL_INPUT_MAX_BYTES T64_VERIFIED_SCHEDULE_MAX_BYTES
 #define REAL_GUEST_TICKS UINT64_C(530500)
-#define REAL_PROFILE_ID "ntsc-cart-4m-openipl3-warm-v1"
 #define REAL_INPUT_SHA256 \
   "6d5593bc2d95465b44ec7ce7785e5ff7d7d53605de9b039a021bc697d226186d"
-#define REAL_PROFILE_SHA256 \
-  "d8c12cb2a00410a2153ca62da318166f3ca029dea8e3d6b9c841262cb8203c71"
 #define REAL_ASSET_SHA256 \
   "f522db2e31a701f82597f399e76d55c9487760d015aff9d90176b463ae39a068"
 #define REAL_PAYLOAD_SHA256 \
@@ -418,6 +415,7 @@ typedef struct {
   uint64_t bound;
   uint64_t log_limit;
   uint64_t expect_pass;
+  uint64_t video_observation_fd;
   int real_mode;
   int input_options_seen;
 #ifdef T64_SUPERVISOR_TESTING
@@ -459,6 +457,7 @@ static int parse_args(int argc, char **argv, sup_args *a) {
 #endif
       {"--expect-pass", NULL, &a->expect_pass, 1, 0},
       {"--capture-out", &a->capture_out, NULL, 0, 0},
+      {"--video-observation-fd", NULL, &a->video_observation_fd, 0, 0},
   };
   size_t nopt = sizeof opts / sizeof opts[0];
   int i = 1;
@@ -514,6 +513,23 @@ static int parse_args(int argc, char **argv, sup_args *a) {
         a->runner_argc != 0) {
       bad = 1;
     }
+    if (!bad && a->video_observation_fd != 0u) {
+      struct stat observation_stat;
+      int observation_fd = (int)a->video_observation_fd;
+      int observation_flags;
+      if (a->video_observation_fd > (uint64_t)INT_MAX ||
+          a->video_observation_fd <= (uint64_t)STDERR_FILENO ||
+          fstat(observation_fd, &observation_stat) != 0 ||
+          !S_ISFIFO(observation_stat.st_mode)) {
+        bad = 1;
+      } else {
+        observation_flags = fcntl(observation_fd, F_GETFL);
+        if (observation_flags < 0 ||
+            (observation_flags & O_ACCMODE) != O_WRONLY) {
+          bad = 1;
+        }
+      }
+    }
     if (!bad && a->input_options_seen) {
       if (a->input_size == 0u || a->input_size > REAL_INPUT_MAX_BYTES ||
           !is_hex64(a->input_sha256)) {
@@ -559,7 +575,8 @@ static int parse_args(int argc, char **argv, sup_args *a) {
          a->wall_ms == 0u || a->log_limit > LOG_LIMIT_MAX ||
          a->fixture_id == NULL || !valid_fixture_id(a->fixture_id) ||
          a->fixture_sha == NULL || !is_hex64(a->fixture_sha) ||
-         a->input != NULL || a->input_options_seen)) {
+         a->input != NULL || a->input_options_seen ||
+         a->video_observation_fd != 0u)) {
       bad = 1;
     }
   }
@@ -736,6 +753,27 @@ static int real_checker_accepts(char *checker, char *report) {
   return WIFEXITED(status) && WEXITSTATUS(status) == 0;
 }
 
+static int real_profile_identity(const t64_real_fixture *fixture,
+                                 char profile_hex[T64_SHA256_HEX_SIZE],
+                                 char asset_hex[T64_SHA256_HEX_SIZE],
+                                 char payload_hex[T64_SHA256_HEX_SIZE]) {
+  const t64_profile_descriptor *profile = NULL;
+  uint8_t profile_digest[T64_DIGEST_SIZE];
+  if (fixture == NULL ||
+      t64_profile_lookup(fixture->profile_id, &profile) != T64_STATUS_OK ||
+      profile == NULL || t64_profile_hash(profile, profile_digest) !=
+                             T64_STATUS_OK ||
+      strcmp(profile->profile_id, fixture->profile_id) != 0) {
+    return 0;
+  }
+  t64_sha256_hex(profile_digest, profile_hex);
+  t64_sha256_hex(profile->asset_sha256, asset_hex);
+  t64_sha256_hex(profile->payload_sha256, payload_hex);
+  return strcmp(profile_hex, fixture->profile_sha256) == 0 &&
+         strcmp(asset_hex, REAL_ASSET_SHA256) == 0 &&
+         strcmp(payload_hex, REAL_PAYLOAD_SHA256) == 0;
+}
+
 static int real_report_matches_capture(const uint8_t *bytes, size_t length,
                                        const uint8_t *capture,
                                        size_t capture_length,
@@ -753,10 +791,14 @@ static int real_report_matches_capture(const uint8_t *bytes, size_t length,
   uint64_t log_total = 0u;
   uint8_t digest[T64_SHA256_DIGEST_SIZE];
   char digest_hex[T64_SHA256_HEX_SIZE];
+  char profile_hex[T64_SHA256_HEX_SIZE];
+  char asset_hex[T64_SHA256_HEX_SIZE];
+  char payload_hex[T64_SHA256_HEX_SIZE];
   int valid = 0;
 
   if (bytes == NULL || length == 0u || build_id == NULL ||
       source_revision == NULL || fixture == NULL || input_digest == NULL ||
+      !real_profile_identity(fixture, profile_hex, asset_hex, payload_hex) ||
       t64_json_parse(bytes, length, NULL, &document, NULL) != 0) {
     return 0;
   }
@@ -767,13 +809,13 @@ static int real_report_matches_capture(const uint8_t *bytes, size_t length,
   if (counts == NULL || counts->type != T64_JSON_OBJECT ||
       !real_json_string_equals(root, "build_id", build_id) ||
       !real_json_string_equals(root, "source_revision", source_revision) ||
-      !real_json_string_equals(root, "profile_id", REAL_PROFILE_ID) ||
-      !real_json_string_equals(root, "profile_digest", REAL_PROFILE_SHA256) ||
+      !real_json_string_equals(root, "profile_id", fixture->profile_id) ||
+      !real_json_string_equals(root, "profile_digest", profile_hex) ||
       !real_json_string_equals(root, "fixture_id", fixture->id) ||
       !real_json_string_equals(root, "fixture_sha256", fixture->sha256) ||
-      !real_json_string_equals(root, "ipl3_sha256", REAL_ASSET_SHA256) ||
+      !real_json_string_equals(root, "ipl3_sha256", asset_hex) ||
       !real_json_string_equals(root, "ipl3_payload_sha256",
-                               REAL_PAYLOAD_SHA256) ||
+                               payload_hex) ||
       !real_json_string_equals(root, "input_digest", input_digest) ||
       !real_json_u64(counts, "log_bytes", &log_bytes) ||
       !real_json_u64(counts, "log_bytes_total", &log_total) ||
@@ -1039,10 +1081,8 @@ static int real_fixture_identify_path(const char *path,
 static int real_result_initialize(t64_real_result *result,
                                   const t64_real_fixture *fixture,
                                   const char *input_digest) {
-  const t64_profile_descriptor *profile = NULL;
   const char *build_id = t64_build_identity();
   const char *source_revision = t64_source_revision();
-  uint8_t profile_digest[T64_DIGEST_SIZE];
   char profile_hex[T64_SHA256_HEX_SIZE];
   char asset_hex[T64_SHA256_HEX_SIZE];
   char payload_hex[T64_SHA256_HEX_SIZE];
@@ -1051,17 +1091,7 @@ static int real_result_initialize(t64_real_result *result,
       input_digest == NULL ||
       strlen(build_id) >= sizeof result->build_id ||
       strlen(source_revision) >= sizeof result->source_revision ||
-      t64_profile_lookup(REAL_PROFILE_ID, &profile) != T64_STATUS_OK ||
-      profile == NULL || t64_profile_hash(profile, profile_digest) !=
-                             T64_STATUS_OK) {
-    return -1;
-  }
-  t64_sha256_hex(profile_digest, profile_hex);
-  t64_sha256_hex(profile->asset_sha256, asset_hex);
-  t64_sha256_hex(profile->payload_sha256, payload_hex);
-  if (strcmp(profile_hex, REAL_PROFILE_SHA256) != 0 ||
-      strcmp(asset_hex, REAL_ASSET_SHA256) != 0 ||
-      strcmp(payload_hex, REAL_PAYLOAD_SHA256) != 0) {
+      !real_profile_identity(fixture, profile_hex, asset_hex, payload_hex)) {
     return -1;
   }
   memset(result, 0, sizeof *result);
@@ -1069,7 +1099,7 @@ static int real_result_initialize(t64_real_result *result,
   (void)snprintf(result->source_revision, sizeof result->source_revision,
                  "%s", source_revision);
   (void)snprintf(result->profile_id, sizeof result->profile_id, "%s",
-                 REAL_PROFILE_ID);
+                 fixture->profile_id);
   (void)snprintf(result->profile_digest, sizeof result->profile_digest, "%s",
                  profile_hex);
   (void)snprintf(result->fixture_id, sizeof result->fixture_id, "%s",
@@ -1199,6 +1229,8 @@ static int real_run_mode(const sup_args *args, const char *self_path) {
   char checker_path[4096];
   char fixture_fd_text[24];
   char input_fd_text[24];
+  char video_observation_fd_text[24];
+  char profile_id[64];
   char guest_ticks_text[24];
   char report_bytes[T64_REAL_RESULT_MAX_BYTES + 1u];
   uint8_t *capture = NULL;
@@ -1322,6 +1354,11 @@ static int real_run_mode(const sup_args *args, const char *self_path) {
   }
   (void)snprintf(fixture_fd_text, sizeof fixture_fd_text, "%d", fixture.fd);
   (void)snprintf(input_fd_text, sizeof input_fd_text, "%d", input.fd);
+  (void)snprintf(video_observation_fd_text,
+                 sizeof video_observation_fd_text, "%llu",
+                 (unsigned long long)args->video_observation_fd);
+  (void)snprintf(profile_id, sizeof profile_id, "%s",
+                 fixture_identity->profile_id);
   (void)snprintf(guest_ticks_text, sizeof guest_ticks_text, "%llu",
                  (unsigned long long)args->bound);
   deadline = args->wall_ms > UINT64_MAX - start_ms
@@ -1335,11 +1372,23 @@ static int real_run_mode(const sup_args *args, const char *self_path) {
     char option_input[] = "--input-fd";
     char option_profile[] = "--profile";
     char option_ticks[] = "--guest-ticks";
-    char profile_id[] = REAL_PROFILE_ID;
-    char *const child_args[] = {
-        runner_path, option_fixture, fixture_fd_text, option_input,
-        input_fd_text, option_profile, profile_id, option_ticks,
-        guest_ticks_text, NULL};
+    char option_video_observation[] = "--video-observation-fd";
+    char *child_args[16];
+    size_t child_argc = 0u;
+    child_args[child_argc++] = runner_path;
+    child_args[child_argc++] = option_fixture;
+    child_args[child_argc++] = fixture_fd_text;
+    child_args[child_argc++] = option_input;
+    child_args[child_argc++] = input_fd_text;
+    child_args[child_argc++] = option_profile;
+    child_args[child_argc++] = profile_id;
+    child_args[child_argc++] = option_ticks;
+    child_args[child_argc++] = guest_ticks_text;
+    if (args->video_observation_fd != 0u) {
+      child_args[child_argc++] = option_video_observation;
+      child_args[child_argc++] = video_observation_fd_text;
+    }
+    child_args[child_argc] = NULL;
     setpgid(0, 0);
     limit.rlim_cur = 0;
     limit.rlim_max = 0;
@@ -1353,6 +1402,8 @@ static int real_run_mode(const sup_args *args, const char *self_path) {
     capture_fd = open(ws.capture, O_WRONLY | O_TRUNC | O_NOFOLLOW);
     if (report_fd < 0 || capture_fd < 0 ||
         !real_clear_cloexec(fixture.fd) || !real_clear_cloexec(input.fd) ||
+        (args->video_observation_fd != 0u &&
+         !real_clear_cloexec((int)args->video_observation_fd)) ||
         dup2(report_fd, STDOUT_FILENO) < 0 ||
         dup2(capture_fd, STDERR_FILENO) < 0) {
       _exit(126);

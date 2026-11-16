@@ -17,6 +17,7 @@
 #include "t64_real_fixture.h"
 #include "t64_real_result.h"
 #include "t64_sha256.h"
+#include "t64_video_observation.h"
 #include "tendies64/t64_machine.h"
 
 #define T64_REAL_FIXTURE_MAX_BYTES (1u << 20)
@@ -24,10 +25,9 @@
 #define T64_REAL_EXPECTED_LOG_BYTES 30u
 #define T64_REAL_TRACE_STEP UINT64_C(16)
 #define T64_REAL_MAX_RESOURCE_YIELDS 64u
-#define T64_REAL_EXPECTED_PROFILE_ID "ntsc-cart-4m-openipl3-warm-v1"
-#define T64_REAL_EXPECTED_FIXTURE_ID "hello-openipl3"
-#define T64_REAL_EXPECTED_PROFILE_SHA256 \
-  "d8c12cb2a00410a2153ca62da318166f3ca029dea8e3d6b9c841262cb8203c71"
+#define T64_REAL_VIDEO_MAX_BYTES (320u * 240u * 4u)
+_Static_assert(sizeof(t64_video_observation) <= PIPE_BUF,
+               "bounded VI observation must fit one atomic pipe write");
 #define T64_REAL_EXPECTED_ASSET_SHA256 \
   "f522db2e31a701f82597f399e76d55c9487760d015aff9d90176b463ae39a068"
 #define T64_REAL_EXPECTED_PAYLOAD_SHA256 \
@@ -71,6 +71,8 @@ typedef struct {
   uint64_t completion_tick;
   uint32_t completion_pc;
   uint32_t completion_opcode;
+  bool have_video_packet;
+  t64_video_observation video;
 } trace_observation;
 
 static bool parse_u64(const char *text, uint64_t *value_out) {
@@ -308,6 +310,39 @@ static bool observe_trace_record(trace_observation *observation,
     observation->completion_pc = pc;
     observation->completion_opcode = opcode;
   }
+  if (record->device == T64_TRACE_DEVICE_RDP &&
+      record->kind == T64_TRACE_KIND_RDP_COMMAND) {
+    uint8_t command_byte = (uint8_t)(record->value >> 56);
+    uint32_t decoded_opcode =
+        (uint32_t)(command_byte & UINT8_C(0x3f));
+    if (decoded_opcode == UINT32_C(0x37)) {
+      observation->video.fill_command_word = record->value;
+      observation->video.fill_command_byte = command_byte;
+      observation->video.fill_opcode_field = decoded_opcode;
+    }
+  }
+  if (record->device == T64_TRACE_DEVICE_MI) {
+    uint32_t pending = (uint32_t)record->value & UINT32_C(0xff);
+    uint32_t mask = (uint32_t)(record->value >> 8) & UINT32_C(0xff);
+    if (record->kind == T64_TRACE_KIND_MI_MASK &&
+        (mask & UINT32_C(0x20)) != 0u) {
+      observation->video.semantic_flags |=
+          T64_VIDEO_OBSERVATION_FLAG_DP_MASK;
+      observation->video.mi_mask_before_clear = mask;
+    } else if (record->kind == T64_TRACE_KIND_MI_PENDING) {
+      if ((pending & UINT32_C(0x20)) != 0u) {
+        observation->video.semantic_flags |=
+            T64_VIDEO_OBSERVATION_FLAG_DP_PENDING;
+        observation->video.mi_pending_before_clear = pending;
+        observation->video.mi_mask_before_clear = mask;
+      } else if ((observation->video.semantic_flags &
+                  T64_VIDEO_OBSERVATION_FLAG_DP_PENDING) != 0u) {
+        observation->video.semantic_flags |=
+            T64_VIDEO_OBSERVATION_FLAG_DP_CLEARED;
+        observation->video.mi_pending_after_clear = pending;
+      }
+    }
+  }
   return true;
 }
 
@@ -331,6 +366,134 @@ static bool drain_trace(t64_machine *machine,
     }
   }
   return true;
+}
+
+static bool copy_observation_text(char *destination, size_t capacity,
+                                  const char *source) {
+  int length;
+  if (destination == NULL || capacity == 0u || source == NULL) return false;
+  length = snprintf(destination, capacity, "%s", source);
+  return length >= 0 && (size_t)length < capacity;
+}
+
+static bool drain_video(t64_machine *machine,
+                        trace_observation *observation,
+                        uint8_t *packet_scratch, size_t packet_capacity) {
+  for (;;) {
+    t64_video_packet_info info;
+    size_t copied = 0u;
+    t64_status status = t64_video_info(machine, &info);
+    if (status == T64_STATUS_NOT_READY) return true;
+    if (status != T64_STATUS_OK || packet_scratch == NULL ||
+        info.packet_bytes > packet_capacity ||
+        info.packet_bytes > T64_VIDEO_OBSERVATION_PACKET_BYTES ||
+        info.source_bytes != T64_VIDEO_OBSERVATION_SOURCE_BYTES ||
+        info.width != UINT32_C(4) || info.height != UINT32_C(3) ||
+        info.packet_bytes != T64_VIDEO_OBSERVATION_PACKET_BYTES ||
+        info.source_bytes > UINT32_MAX) {
+      return false;
+    }
+    status = t64_video_copy(machine, packet_scratch, packet_capacity,
+                            &copied);
+    if (status != T64_STATUS_OK || copied != info.packet_bytes) return false;
+    if (!observation->have_video_packet) {
+      t64_video_observation *video = &observation->video;
+      uint32_t offset;
+      uint32_t value;
+      video->magic = T64_VIDEO_OBSERVATION_MAGIC;
+      video->version = T64_VIDEO_OBSERVATION_VERSION;
+      video->width = info.width;
+      video->height = info.height;
+      video->stride_bytes = info.stride_bytes;
+      video->source_address = info.source_address;
+      video->source_format = info.source_format;
+      video->output_encoding = info.output_encoding;
+      video->field = info.field;
+      video->parity = info.parity;
+      video->control = info.control;
+      video->burst = info.burst;
+      video->h_sync = info.h_sync;
+      video->v_sync = info.v_sync;
+      video->h_start = info.h_start;
+      video->v_start = info.v_start;
+      video->x_scale = info.x_scale;
+      video->y_scale = info.y_scale;
+      video->source_bytes = (uint32_t)info.source_bytes;
+      video->packet_bytes = (uint32_t)info.packet_bytes;
+      video->start_tick = info.start_tick;
+      video->end_tick = info.end_tick;
+      video->sequence = info.sequence;
+      video->commands_completed = info.commands_completed;
+      video->fullsync_completed = info.fullsync_completed;
+      video->last_command_word = info.last_command_word;
+      video->last_command_byte = info.last_command_byte;
+      video->last_opcode_field = info.last_opcode_field;
+      if (!copy_observation_text(video->profile_id,
+                                 sizeof video->profile_id, info.profile_id) ||
+          !copy_observation_text(video->build_id,
+                                 sizeof video->build_id, info.build_id) ||
+          !copy_observation_text(video->vi_clock_policy,
+                                 sizeof video->vi_clock_policy,
+                                 info.vi_clock_policy)) {
+        return false;
+      }
+      memcpy(video->packet, packet_scratch, copied);
+      for (offset = 0u; offset < video->source_bytes; offset += 2u) {
+        if (t64_machine_bus_read(machine,
+                                 video->source_address + offset, 2u,
+                                 &value) != T64_STATUS_OK) {
+          return false;
+        }
+        video->source[offset] = (uint8_t)(value >> 8);
+        video->source[offset + 1u] = (uint8_t)value;
+      }
+      observation->have_video_packet = true;
+    }
+  }
+}
+
+static bool finish_video_observation(t64_machine *machine,
+                                    trace_observation *observation) {
+  t64_video_observation *video = &observation->video;
+  uint32_t value;
+  if (!observation->have_video_packet) return true;
+  if (t64_machine_bus_read(machine, UINT32_C(0x04100008), 4u, &value) !=
+      T64_STATUS_OK) {
+    return false;
+  }
+  video->dpc_current = value;
+  if (t64_machine_bus_read(machine, UINT32_C(0x04100004), 4u, &value) !=
+      T64_STATUS_OK) {
+    return false;
+  }
+  video->dpc_end = value;
+  return true;
+}
+
+static bool video_observation_valid(const trace_observation *observation) {
+  const t64_video_observation *video = &observation->video;
+  const uint32_t all_dp_flags = T64_VIDEO_OBSERVATION_FLAG_DP_MASK |
+                                T64_VIDEO_OBSERVATION_FLAG_DP_PENDING |
+                                T64_VIDEO_OBSERVATION_FLAG_DP_CLEARED;
+  return observation->have_video_packet && video->width == 4u &&
+         video->height == 3u && video->stride_bytes == 16u &&
+         video->source_address == UINT32_C(0x3000) &&
+         video->source_bytes == T64_VIDEO_OBSERVATION_SOURCE_BYTES &&
+         video->packet_bytes == T64_VIDEO_OBSERVATION_PACKET_BYTES &&
+         video->source_format == T64_VIDEO_SOURCE_RGBA5551 &&
+         video->output_encoding == T64_VIDEO_ENCODING_RGBA8 &&
+         video->end_tick - video->start_tick == UINT64_C(20) &&
+         video->commands_completed == UINT64_C(6) &&
+         video->fullsync_completed == UINT64_C(1) &&
+         video->fill_command_word == UINT64_C(0x37000000f80107c1) &&
+         video->fill_command_byte == UINT32_C(0x37) &&
+         video->fill_opcode_field == UINT32_C(0x37) &&
+         video->dpc_current == UINT32_C(0x3130) &&
+         video->dpc_end == UINT32_C(0x3130) &&
+         (video->semantic_flags & all_dp_flags) == all_dp_flags &&
+         video->mi_pending_before_clear == UINT32_C(0x20) &&
+         video->mi_mask_before_clear == UINT32_C(0x20) &&
+         video->mi_pending_after_clear == 0u;
 }
 
 static bool drain_output(t64_machine *machine, uint8_t output[4096],
@@ -482,7 +645,8 @@ static bool initialize_launched_result(t64_real_result *result,
   t64_sha256_hex(profile_digest, profile_hex);
   t64_sha256_hex(profile->asset_sha256, asset_hex);
   t64_sha256_hex(profile->payload_sha256, payload_hex);
-  if (strcmp(profile_hex, T64_REAL_EXPECTED_PROFILE_SHA256) != 0 ||
+  if (strcmp(profile->profile_id, fixture->profile_id) != 0 ||
+      strcmp(profile_hex, fixture->profile_sha256) != 0 ||
       strcmp(asset_hex, T64_REAL_EXPECTED_ASSET_SHA256) != 0 ||
       strcmp(payload_hex, T64_REAL_EXPECTED_PAYLOAD_SHA256) != 0) {
     return false;
@@ -522,7 +686,8 @@ static void set_digest(char output[T64_REAL_RESULT_HEX_SIZE],
   t64_sha256_hex(digest, output);
 }
 
-static int run_real(int fixture_fd, int input_fd, uint64_t guest_ticks) {
+static int run_real(int fixture_fd, int input_fd, const char *requested_profile,
+                    uint64_t guest_ticks, int video_observation_fd) {
   static const t64_host_allocator allocator = {
       allocator_allocate, allocator_release, NULL};
   owned_bytes fixture = {0};
@@ -535,6 +700,7 @@ static int run_real(int fixture_fd, int input_fd, uint64_t guest_ticks) {
   t64_real_result result;
   trace_observation observations = {0};
   uint8_t output[T64_REAL_OUTPUT_CAPACITY] = {0};
+  uint8_t *video_scratch = NULL;
   size_t output_length = 0u;
   uint64_t output_total = 0u;
   bool output_lost = false;
@@ -582,7 +748,8 @@ static int run_real(int fixture_fd, int input_fd, uint64_t guest_ticks) {
       goto cleanup;
     }
   }
-  if (t64_profile_lookup(T64_REAL_EXPECTED_PROFILE_ID, &profile) !=
+  if (strcmp(requested_profile, fixture_identity->profile_id) != 0 ||
+      t64_profile_lookup(fixture_identity->profile_id, &profile) !=
           T64_STATUS_OK ||
       profile == NULL ||
       !bytes_equal_hex(fixture.bytes + 0x40u, 4032u,
@@ -615,6 +782,11 @@ static int run_real(int fixture_fd, int input_fd, uint64_t guest_ticks) {
   }
   status = t64_machine_trace_set_enabled(machine, true);
   if (status != T64_STATUS_OK) {
+    exit_code = emit_prelaunch("refusal", "refused", guest_ticks, 0);
+    goto cleanup;
+  }
+  video_scratch = (uint8_t *)malloc(T64_REAL_VIDEO_MAX_BYTES);
+  if (video_scratch == NULL) {
     exit_code = emit_prelaunch("refusal", "refused", guest_ticks, 0);
     goto cleanup;
   }
@@ -677,7 +849,9 @@ static int run_real(int fixture_fd, int input_fd, uint64_t guest_ticks) {
       if (status != T64_STATUS_OK || stop.tick < current_tick ||
           stop.tick > target || !drain_trace(machine, &observations) ||
           !drain_output(machine, output, &output_length, &output_total,
-                        &output_lost, &output_total_exact)) {
+                        &output_lost, &output_total_exact) ||
+          !drain_video(machine, &observations, video_scratch,
+                       T64_REAL_VIDEO_MAX_BYTES)) {
         (void)snprintf(result.guest_stop_kind, sizeof result.guest_stop_kind,
                        "host-error");
         (void)snprintf(result.outcome, sizeof result.outcome,
@@ -762,6 +936,15 @@ static int run_real(int fixture_fd, int input_fd, uint64_t guest_ticks) {
     goto finalize;
   }
 
+  if (observations.have_video_packet &&
+      !finish_video_observation(machine, &observations)) {
+    (void)snprintf(result.guest_stop_kind, sizeof result.guest_stop_kind,
+                   "host-error");
+    (void)snprintf(result.outcome, sizeof result.outcome, "harness-error");
+    (void)snprintf(result.detail, sizeof result.detail, "host-error");
+    goto finalize;
+  }
+
   if ((stop.reason == T64_STOP_REASON_GUEST_COMPLETION ||
        stop.reason == T64_STOP_REASON_CPU_UNSUPPORTED) &&
       !observations.saw_hello_entry &&
@@ -804,8 +987,9 @@ static int run_real(int fixture_fd, int input_fd, uint64_t guest_ticks) {
         (void)snprintf(result.outcome, sizeof result.outcome, "boot-fail");
         (void)snprintf(result.detail, sizeof result.detail, "empty-output");
       } else if (fixture_identity->pass_eligible &&
-                 strcmp(fixture_identity->id,
-                        T64_REAL_EXPECTED_FIXTURE_ID) == 0 &&
+                 fixture_identity->pass_eligible &&
+                 (profile->machine_model_version != 9u ||
+                  video_observation_valid(&observations)) &&
                  fixture.sha256_hex[0] != '\0' &&
                  output_length == sizeof expected_log - 1u &&
                  memcmp(output, expected_log, sizeof expected_log - 1u) == 0 &&
@@ -833,6 +1017,13 @@ static int run_real(int fixture_fd, int input_fd, uint64_t guest_ticks) {
   }
 
 finalize:
+  if (observations.have_video_packet &&
+      !finish_video_observation(machine, &observations)) {
+    (void)snprintf(result.guest_stop_kind, sizeof result.guest_stop_kind,
+                   "host-error");
+    (void)snprintf(result.outcome, sizeof result.outcome, "harness-error");
+    (void)snprintf(result.detail, sizeof result.detail, "host-error");
+  }
   result.guest_tick = stop.tick <= guest_ticks ? stop.tick : current_tick;
   result.instruction_count = observations.retired;
   if (!output_total_exact) {
@@ -870,6 +1061,18 @@ finalize:
     set_digest(result.state_digest, state_digest);
     result.has_state_digest = true;
   }
+  if (video_observation_fd >= 0) {
+    if (!video_observation_valid(&observations) ||
+        !write_all(video_observation_fd,
+                   (const uint8_t *)&observations.video,
+                   sizeof observations.video)) {
+      (void)snprintf(result.guest_stop_kind, sizeof result.guest_stop_kind,
+                     "host-error");
+      (void)snprintf(result.outcome, sizeof result.outcome, "harness-error");
+      (void)snprintf(result.detail, sizeof result.detail, "host-error");
+      result.has_state_digest = false;
+    }
+  }
 #ifdef T64_REAL_RUNNER_TESTING
   if (test_fault_is("capture-closed")) {
     (void)close(STDERR_FILENO);
@@ -900,6 +1103,7 @@ cleanup:
   if (machine != NULL) {
     t64_machine_destroy(machine);
   }
+  free(video_scratch);
   t64_input_schedule_destroy(schedule);
   free(fixture.bytes);
   free(input.bytes);
@@ -909,14 +1113,17 @@ cleanup:
 int main(int argc, char **argv) {
   int fixture_fd = -1;
   int input_fd = -1;
+  int video_observation_fd = -1;
+  const char *profile_id = NULL;
   uint64_t guest_ticks = 0u;
   bool seen_fixture = false;
   bool seen_input = false;
   bool seen_profile = false;
   bool seen_ticks = false;
+  bool seen_video_observation = false;
   int i;
 
-  if (argc != 9) {
+  if (argc != 9 && argc != 11) {
     return emit_prelaunch("usage", "not-started", 0u, 2);
   }
   for (i = 1; i < argc; i += 2) {
@@ -929,12 +1136,24 @@ int main(int argc, char **argv) {
                parse_fd(value, &input_fd)) {
       seen_input = true;
     } else if (strcmp(option, "--profile") == 0 && !seen_profile &&
-               strcmp(value, T64_REAL_EXPECTED_PROFILE_ID) == 0) {
+               t64_real_fixture_profile_allowed(value)) {
       seen_profile = true;
+      profile_id = value;
     } else if (strcmp(option, "--guest-ticks") == 0 && !seen_ticks &&
                parse_u64(value, &guest_ticks) && guest_ticks > 0u &&
                guest_ticks <= UINT64_C(600000)) {
       seen_ticks = true;
+    } else if (strcmp(option, "--video-observation-fd") == 0 &&
+               !seen_video_observation && parse_fd(value,
+                                                   &video_observation_fd)) {
+      struct stat observation_stat;
+      int observation_flags = fcntl(video_observation_fd, F_GETFL);
+      if (fstat(video_observation_fd, &observation_stat) != 0 ||
+          !S_ISFIFO(observation_stat.st_mode) || observation_flags < 0 ||
+          (observation_flags & O_ACCMODE) != O_WRONLY) {
+        return emit_prelaunch("usage", "not-started", guest_ticks, 2);
+      }
+      seen_video_observation = true;
     } else {
       return emit_prelaunch("usage", "not-started", guest_ticks, 2);
     }
@@ -959,7 +1178,8 @@ int main(int argc, char **argv) {
   }
 #endif
   {
-    int status = run_real(fixture_fd, input_fd, guest_ticks);
+    int status = run_real(fixture_fd, input_fd, profile_id, guest_ticks,
+                          video_observation_fd);
 #ifdef T64_REAL_RUNNER_TESTING
     if (status == 0 && test_fault_is("exit-nonzero")) return 7;
     if (status == 0 && test_fault_is("crash-after-output")) {

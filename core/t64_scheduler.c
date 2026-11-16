@@ -367,6 +367,11 @@ static t64_status advance_time_bound(t64_machine *machine,
       return T64_STATUS_OK;
     }
   }
+  if (machine->vi.field_pending) {
+    set_stop_result(result_out, T64_STOP_REASON_RESOURCE_LIMIT,
+                    machine->tick);
+    return T64_STATUS_OK;
+  }
   status = t64_cp0_synchronize_guest_time(machine, request->value);
   if (status != T64_STATUS_OK) {
     return status;

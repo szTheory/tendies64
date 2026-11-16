@@ -37,6 +37,8 @@
 typedef enum {
   T64_BUS_REGION_UNMAPPED = 0,
   T64_BUS_REGION_RDRAM,
+  T64_BUS_REGION_DP,
+  T64_BUS_REGION_VI,
   T64_BUS_REGION_SP_DMEM,
   T64_BUS_REGION_SP_IMEM,
   T64_BUS_REGION_CARTRIDGE,
@@ -141,6 +143,14 @@ static t64_bus_region decode_region(const t64_machine *machine,
   if (address >= T64_PI_BASE &&
       address < T64_PI_BASE + T64_DEVICE_WINDOW_BYTES) {
     return T64_BUS_REGION_PI;
+  }
+  if (t64_has_rdp_vi_profile(machine) && address >= T64_DP_BASE &&
+      address < T64_DP_BASE + UINT32_C(0x10)) {
+    return T64_BUS_REGION_DP;
+  }
+  if (t64_has_rdp_vi_profile(machine) && address >= T64_VI_BASE &&
+      address < T64_VI_BASE + UINT32_C(0x38)) {
+    return T64_BUS_REGION_VI;
   }
   if ((address >= T64_DP_BASE && address < T64_MI_BASE) ||
       (address >= T64_VI_BASE &&
@@ -285,6 +295,8 @@ static const uint8_t *region_bytes(const t64_machine *machine,
     return (const uint8_t *)machine->image_storage.data + offset;
   case T64_BUS_REGION_UNMAPPED:
   case T64_BUS_REGION_UNSUPPORTED:
+  case T64_BUS_REGION_DP:
+  case T64_BUS_REGION_VI:
   case T64_BUS_REGION_MI:
   case T64_BUS_REGION_PI:
   case T64_BUS_REGION_SP_REG:
@@ -333,7 +345,8 @@ t64_status t64_bus_probe_access(const t64_machine *machine,
   /* Mapped device windows are addressable even where the current profile has
    * no operation implementation. Do not turn that model limitation into a
    * guest bus exception. */
-  return region == T64_BUS_REGION_MI || region == T64_BUS_REGION_PI ||
+  return region == T64_BUS_REGION_DP || region == T64_BUS_REGION_VI ||
+                 region == T64_BUS_REGION_MI || region == T64_BUS_REGION_PI ||
                  region == T64_BUS_REGION_SP_REG ||
                  region == T64_BUS_REGION_WARM ||
                  region == T64_BUS_REGION_RDRAM_PROTOCOL ||
@@ -390,6 +403,16 @@ t64_status t64_bus_read(t64_machine *machine, uint32_t address,
     if (status != T64_STATUS_OK) {
       return status;
     }
+    *value_out = value;
+    trace_bus(machine, address, width, value, false);
+    return T64_STATUS_OK;
+  }
+  if (region == T64_BUS_REGION_DP || region == T64_BUS_REGION_VI) {
+    if (width != 4u) return T64_STATUS_BUS_UNSUPPORTED;
+    status = region == T64_BUS_REGION_DP
+                 ? t64_rdp_read_register(machine, address, &value)
+                 : t64_vi_read_register(machine, address, &value);
+    if (status != T64_STATUS_OK) return status;
     *value_out = value;
     trace_bus(machine, address, width, value, false);
     return T64_STATUS_OK;
@@ -550,6 +573,14 @@ t64_status t64_bus_write(t64_machine *machine, uint32_t address,
     }
     return status;
   }
+  if (region == T64_BUS_REGION_DP || region == T64_BUS_REGION_VI) {
+    if (width != 4u) return T64_STATUS_BUS_UNSUPPORTED;
+    status = region == T64_BUS_REGION_DP
+                 ? t64_rdp_write_register(machine, address, value)
+                 : t64_vi_write_register(machine, address, value);
+    if (status == T64_STATUS_OK) trace_bus(machine, address, width, value, true);
+    return status;
+  }
   if (region == T64_BUS_REGION_CARTRIDGE) {
     return T64_STATUS_BUS_DEVICE_REFUSED;
   }
@@ -640,6 +671,8 @@ t64_status t64_bus_write(t64_machine *machine, uint32_t address,
   case T64_BUS_REGION_CARTRIDGE:
   case T64_BUS_REGION_UNMAPPED:
   case T64_BUS_REGION_UNSUPPORTED:
+  case T64_BUS_REGION_DP:
+  case T64_BUS_REGION_VI:
   case T64_BUS_REGION_MI:
   case T64_BUS_REGION_PI:
   case T64_BUS_REGION_SP_REG:
@@ -723,6 +756,8 @@ t64_status t64_bus_write_masked(t64_machine *machine, uint32_t address,
   case T64_BUS_REGION_CARTRIDGE:
   case T64_BUS_REGION_UNMAPPED:
   case T64_BUS_REGION_UNSUPPORTED:
+  case T64_BUS_REGION_DP:
+  case T64_BUS_REGION_VI:
   case T64_BUS_REGION_MI:
   case T64_BUS_REGION_PI:
   case T64_BUS_REGION_SP_REG:
@@ -805,6 +840,9 @@ static t64_status cache_writeback_destination(
   case T64_BUS_REGION_CARTRIDGE:
     return T64_STATUS_BUS_DEVICE_REFUSED;
   case T64_BUS_REGION_RDRAM_PROTOCOL:
+    return T64_STATUS_BUS_DEVICE_REFUSED;
+  case T64_BUS_REGION_DP:
+  case T64_BUS_REGION_VI:
     return T64_STATUS_BUS_DEVICE_REFUSED;
   case T64_BUS_REGION_UNMAPPED:
     return T64_STATUS_BUS_UNMAPPED;

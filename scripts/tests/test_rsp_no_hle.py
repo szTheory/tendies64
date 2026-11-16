@@ -39,6 +39,7 @@ MUTATION_SEEDS = (
     "content-digest selection",
     "unnamed DMEM signature early return",
     "hidden production source",
+    "hidden RDP/VI source roster entry",
     "hidden softfloat source",
     "hidden archive object",
     "hidden object file",
@@ -51,6 +52,7 @@ MUTATION_SEEDS = (
     "anonymous DMEM-dependent SP admission-helper effect",
     "unreviewed SP DMA helper definition",
     "removed SP DMA helper definition",
+    "RDP fill production body mutation",
 )
 
 
@@ -315,6 +317,28 @@ def _check_mutation_suite(temp_root: pathlib.Path) -> int:
     hidden_source.write_text("int hidden_hle_source;\n", encoding="utf-8")
     _must_reject("hidden production source", source_root, build_root)
     hidden_source.unlink()
+    seeds_run += 1
+
+    hidden_rdp_source = source_root / "core" / "t64_rdp_unreviewed.c"
+    hidden_rdp_source.write_text(
+        "int hidden_rdp_source;\n", encoding="utf-8"
+    )
+    _must_reject("hidden RDP/VI source roster entry", source_root, build_root)
+    hidden_rdp_source.unlink()
+    seeds_run += 1
+
+    rdp_path = source_root / "core" / "t64_rdp.c"
+    original_rdp = rdp_path.read_text(encoding="utf-8")
+    rdp_anchor = "rdp->fill_color = (uint32_t)word;"
+    if rdp_anchor not in original_rdp:
+        raise AssertionError("RDP fill-color body mutation anchor no longer exists")
+    rdp_path.write_text(
+        original_rdp.replace(
+            rdp_anchor, "rdp->fill_color = (uint32_t)word ^ UINT32_C(1);", 1
+        ),
+        encoding="utf-8",
+    )
+    _must_reject("RDP fill production body mutation", source_root, build_root)
     seeds_run += 1
 
     softfloat_sources = source_root / "core" / "softfloat" / "sources.cmake"

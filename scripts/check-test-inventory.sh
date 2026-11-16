@@ -152,6 +152,12 @@ harness.base-run
 harness.base-evidence
 harness.rsp-evidence-ownership'
 
+PHASE07_TESTS='unit.core.rdp.fill
+unit.core.vi.fill
+runner.rdp-fill
+controls.real.rdp-wrong-pixel
+controls.real.rdp-replacement-fixture'
+
 CPU_COVERAGE_OPCODES='ADD
 ADDU
 SUB
@@ -253,7 +259,7 @@ expected_names() {
     *) echo "unsupported preset: $_preset" >&2; return 2 ;;
   esac
   {
-    printf '%s\n' "$BASELINE_CORE" "$BASELINE_CONTROLS" "$PHASE02_TESTS" "$PHASE03_TESTS" "$PHASE04_TESTS" "$PHASE05_TESTS" "$PHASE06_TESTS" "$_extra"
+    printf '%s\n' "$BASELINE_CORE" "$BASELINE_CONTROLS" "$PHASE02_TESTS" "$PHASE03_TESTS" "$PHASE04_TESTS" "$PHASE05_TESTS" "$PHASE06_TESTS" "$PHASE07_TESTS" "$_extra"
   } | awk 'NF' | sort
 }
 
