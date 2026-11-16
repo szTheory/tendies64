@@ -593,11 +593,11 @@
       "id": "rdp-fill",
       "source": {
         "repo": "https://github.com/szTheory/tendies64",
-        "revision": "18dcaa0c4849f4c2841d1fb4c14959600e42b257",
+        "revision": "0a1248031ebadabe6bd595eb59f2493cf2355f6a",
         "path": "fixtures/rdp/fill.S"
       },
       "build": {
-        "recipe": "Assemble fixtures/rdp/fill.S with GNU Binutils 2.45 and fixtures/rdp/fill.ld; package with sh scripts/build-boot-fixtures.sh --build and the t64_rom_pack.c source. Authored flat payload: 456 bytes SHA-256 e2fc24f79cbd9649cac8cd460a5f24a40a58a372bf564acea0bf19955418edd6. Whole cartridge: 4552 bytes SHA-256 b469340e7caa0ac341a2a5b525aa7e3b39c8a47f295ecd10710ae695e46dfc3d. Embedded IPL3 is the separately recorded 4096-byte Unlicense source asset; exact copied payload is 4032 bytes from source offset 0x40 with SHA-256 f716a90b1d36ec4253d096790791256d3543455e54473a755ff8c3d1199b15d5. source-content-sha256:45cd05d957f8bedbcae914c6206e8a38ce40d988c96ce50980bf11b47c1e5b6d. Host tool hashes and build metadata are retained locally; generated cartridge is build-only.",
+        "recipe": "Assemble fixtures/rdp/fill.S with GNU Binutils 2.45 and fixtures/rdp/fill.ld; package with sh scripts/build-rdp-fill-fixture.sh --build and the t64_rom_pack.c source. Authored flat payload: 456 bytes SHA-256 e2fc24f79cbd9649cac8cd460a5f24a40a58a372bf564acea0bf19955418edd6. Whole cartridge: 4552 bytes SHA-256 b469340e7caa0ac341a2a5b525aa7e3b39c8a47f295ecd10710ae695e46dfc3d. Embedded IPL3 is the separately recorded 4096-byte Unlicense source asset; exact copied payload is 4032 bytes from source offset 0x40 with SHA-256 f716a90b1d36ec4253d096790791256d3543455e54473a755ff8c3d1199b15d5. source-content-sha256:e632ee126906dee23db09b42167fef5cf0b3d7925a3859ae6e9f8364db560b34. Host tool hashes and build metadata are retained locally; generated cartridge is build-only.",
         "toolchain": [
           "GNU Binutils 2.45"
         ]
@@ -619,18 +619,18 @@
       "expected": {
         "kind": "self-checking",
         "source": "Independent RDRAM words, VI pixels and timing literal in the Phase 07-01 authored fill tests.",
-        "revision": "source-content-sha256:45cd05d957f8bedbcae914c6206e8a38ce40d988c96ce50980bf11b47c1e5b6d"
+        "revision": "source-content-sha256:e632ee126906dee23db09b42167fef5cf0b3d7925a3859ae6e9f8364db560b34"
       }
     },
     {
       "id": "rdp-fill-payload",
       "source": {
         "repo": "https://github.com/szTheory/tendies64",
-        "revision": "18dcaa0c4849f4c2841d1fb4c14959600e42b257",
+        "revision": "0a1248031ebadabe6bd595eb59f2493cf2355f6a",
         "path": "fixtures/rdp/fill.S"
       },
       "build": {
-        "recipe": "Assemble the authored fill guest with GNU Binutils 2.45 and fixtures/rdp/fill.ld. The 456-byte flat payload SHA-256 is e2fc24f79cbd9649cac8cd460a5f24a40a58a372bf564acea0bf19955418edd6; source-content-sha256:45cd05d957f8bedbcae914c6206e8a38ce40d988c96ce50980bf11b47c1e5b6d. It is embedded at cartridge offset 0x1000 after the authored header and does not include the separately recorded IPL3 payload.",
+        "recipe": "Assemble the authored fill guest with GNU Binutils 2.45 and fixtures/rdp/fill.ld. The 456-byte flat payload SHA-256 is e2fc24f79cbd9649cac8cd460a5f24a40a58a372bf564acea0bf19955418edd6; source-content-sha256:e632ee126906dee23db09b42167fef5cf0b3d7925a3859ae6e9f8364db560b34. It is embedded at cartridge offset 0x1000 after the authored header and does not include the separately recorded IPL3 payload.",
         "toolchain": [
           "GNU Binutils 2.45"
         ]
@@ -651,7 +651,7 @@
       "expected": {
         "kind": "self-checking",
         "source": "Independent authored fill command and transcript source in fixtures/rdp/fill.S.",
-        "revision": "source-content-sha256:45cd05d957f8bedbcae914c6206e8a38ce40d988c96ce50980bf11b47c1e5b6d"
+        "revision": "source-content-sha256:e632ee126906dee23db09b42167fef5cf0b3d7925a3859ae6e9f8364db560b34"
       }
     }
   ]
