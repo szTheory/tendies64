@@ -11,7 +11,7 @@ provides:
   - Input-pinned production cold probe and process controls
   - One retained Tier B zero-RI_SELECT startup observation
 affects: [06-02, 06-03, 06-05]
-requirements-completed: []
+requirements-completed: [BUS-03, CPU-08]
 actuals:
   tokens: 8083
   tasks: 2

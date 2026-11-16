@@ -12,7 +12,7 @@ provides:
   - Fetched CP0, MDU and cross-device scheduler contract checks
   - Named deferred T2 evidence checklist
 affects: [06-05, 06-08]
-requirements-completed: []
+requirements-completed: [CPU-08]
 actuals:
   tokens: 10441
   tasks: 2

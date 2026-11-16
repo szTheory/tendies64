@@ -12,7 +12,7 @@ provides:
   - Capability-scoped bus routing and complete state-v13 binding
   - Independent native command, clock, refusal and access-owner controls
 affects: [06-04, 06-05, 06-08]
-requirements-completed: []
+requirements-completed: [BUS-03]
 actuals:
   tokens: 23837
   tasks: 3

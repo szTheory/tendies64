@@ -2,9 +2,9 @@
 phase: 06
 asvs_level: 1
 block_on: high
-verdict: OPEN_THREATS
+verdict: SECURED
 threats_total: 33
-threats_open: 1
+threats_open: 0
 ---
 
 # Phase 06 security mitigation audit
@@ -66,8 +66,8 @@ The auditor used source and bounded read-only evidence, not a final full suite.
 | 07 | T-06-19 | CLOSED | scripts/check-base-evidence.py:38,76,181,685; scripts/tests/test_base_evidence.py PublicEvidenceControls |
 | 07 | T-06-20 | CLOSED | scripts/check-base-evidence.py original CTest/attempt/artifact reconstruction and bounded claim equality; scripts/tests/test_base_evidence.py PublicEvidenceControls |
 | 08 | T-06-21 | CLOSED | Conclusive code review docs/evidence/phase06-review.md plus this complete security register |
-| 08 | T-06-22 | CLOSED | Pending correction/re-review and stable final gate/artifact qualification |
-| 08 | T-06-23 | OPEN | Pending exact authored-only hosted pair, artifacts/readback, publication scans |
+| 08 | T-06-22 | CLOSED | Reviewed corrections and stable normal/instrumented gate, exact archives and final private qualification; see closure below |
+| 08 | T-06-23 | CLOSED | Exact hosted pair43788405776 attempt1 on aa1e531; original artifacts validated/compared, scans passed; docs/ci-reviews/LOG.md records measured review. |
 | 09 | T-06-24 | CLOSED | runner/t64_cold_boot.c:899,1178; runner/tests/test_cold_boot.c:161; runner/CMakeLists.txt:377,384 |
 | 09 | T-06-03 | CLOSED | runner/t64_cold_boot.c first successful bus observation plus retirement; runner/tests/test_cold_boot.c:254,306 |
 | 01 | T-06-SC | CLOSED | In-tree code and existing tools only; offline locked/frozen qualified build at scripts/build-qualified-base-diagnostic.py:696; no added dependency/installer. |
@@ -138,3 +138,16 @@ compiler and build inputs are unchanged by this host parser slice; its focused
 evidence is retained separately rather than relabeling the native executable.
 T-06-22 is closed by that combined scoped evidence. Only T-06-23 awaits the
 exact authored hosted pair and artifact readback.
+
+## Hosted closure
+
+Both existing authored-only jobs passed for source
+aa1e531e05b9c66f0c57d5066c9c367cb1e82c23, run43788405776 attempt1. The canonical
+collector checked the exact successful run/job/artifact identities and schemas;
+the comparator confirmed guest identities, bounds, state and literal transcript
+agree across hosts. Collection/comparison receipts remain under
+build/gate/06-08-hosted-*; measured Runs and Findings are in docs/ci-reviews/LOG.md.
+No external diagnostic input/result was uploaded. T-06-23 is closed; all33
+declared mitigation rows are closed and no accepted risk is recorded. The
+completed reviewed code, scoped fixes, final local gates and hosted readback
+provide phase closure evidence; release/physical/rights stops remain separate.

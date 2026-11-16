@@ -1,9 +1,9 @@
 ---
 phase: "06"
 slug: "cold-boot-cpu-timing-and-full-base-suite"
-status: draft
-nyquist_compliant: false
-wave_0_complete: false
+status: validated
+nyquist_compliant: true
+wave_0_complete: true
 created: "2026-11-15"
 ---
 
@@ -31,33 +31,34 @@ Every plan must supply executable owning commands and explicit failure cases.
 
 Task ordinals below are the exact order in each PLAN. Every automated command
 is copied from that task, assumes repository-root cwd, and is paired with its
-observable failure below. This is a plan, not executed evidence: all statuses
-remain planned. ASVS level 1 applies; unresolved high/critical threats block.
+observable failure below. The commands below retain their original planning contracts. Current owning
+checks and saved execution evidence are reconciled in the audit below; historical
+failed attempts and versioned CLI changes are not replayed or relabeled. ASVS level 1 applies; unresolved high/critical threats block.
 
 | Task | Wave | Requirement | Threat ref | Owning check | Status |
 |---|---|---|---|---|---|
-| 06-01-T1 | 1 | BUS-03, CPU-08 | T-06-01 | Fetch one authored instruction through both permanent cold profile identities | planned |
-| 06-01-T2 | 1 | CPU-08 | T-06-02 | Charge a real static T1 instruction interval before cold use | planned |
-| 06-09-T1 | 2 | BUS-03, CPU-08 | T-06-24 | Wire the bounded cold probe through production admission and canonical execution | planned |
-| 06-09-T2 | 2 | BUS-03, CPU-08 | T-06-03 | Observe the first actual bounded cold startup and retain its command | planned |
-| 06-02-T1 | 3 | VER-02 | T-06-04 | Authenticate one authored member against the complete source denominator in C | planned |
-| 06-02-T2 | 3 | VER-02 | T-06-05, T-06-07 | Qualify immutable target contexts through the complete pre-use entry | planned |
-| 06-02-T3 | 3 | BUS-03, CPU-08, VER-02 | T-06-06, T-06-07 | Build and run one qualified real member before broader expansion | planned |
-| 06-03-T1 | 4 | BUS-03 | T-06-08 | Execute the first observed cold register sequence through the production bus | planned |
-| 06-03-T2 | 4 | BUS-03 | T-06-09 | Complete deterministic device, broadcast, repeat and calibration transitions | planned |
-| 06-03-T3 | 4 | BUS-03 | T-06-10 | Bind all future state and prove exact installed/absent access ownership | planned |
-| 06-04-T1 | 5 | CPU-08 | T-06-11 | Run fetched Wired, MDU, Random and TLBWR through real CP0 boundaries | planned |
-| 06-04-T2 | 5 | CPU-08 | T-06-12 | Prove variable-interval FIFO, idle, DMA/RSP and partition invariants | planned |
-| 06-05-T1 | 6 | BUS-03, CPU-08 | T-06-13 | Complete both admitted hello paths and compare exact output bytes | planned |
-| 06-05-T2 | 6 | BUS-03, CPU-08 | T-06-14 | Prove per-profile boot determinism and publish only cleared evidence | planned |
-| 06-06-T1 | 7 | VER-02 | T-06-15 | Aggregate one real saved target record into an independently complete classification | planned |
-| 06-06-T2 | 7 | BUS-03, CPU-08, VER-02 | T-06-16 | Execute and retain every permitted required target member under immutable contexts | planned |
-| 06-06-T3 | 7 | VER-02 | T-06-17 | Separate informational, experimental and scheduled stress lanes | planned |
-| 06-07-T1 | 8 | VER-02 | T-06-18, T-06-19 | Validate one actual saved record through the complete evidence entry | planned |
-| 06-07-T2 | 8 | VER-02 | T-06-20 | Bind the first-profile support statement to cleared exact evidence | planned |
-| 06-08-T1 | 9 | BUS-03, CPU-08, VER-02 | T-06-21 | Review the complete source and original-evidence path before final gating | planned |
-| 06-08-T2 | 9 | BUS-03, CPU-08, VER-02 | T-06-22 | Close accepted findings through their owning bounded source slices | planned |
-| 06-08-T3 | 9 | BUS-03, CPU-08, VER-02 | T-06-22, T-06-23 | Qualify the final stable artifact and reconcile bounded support evidence | planned |
+| 06-01-T1 | 1 | BUS-03, CPU-08 | T-06-01 | Fetch one authored instruction through both permanent cold profile identities | verified |
+| 06-01-T2 | 1 | CPU-08 | T-06-02 | Charge a real static T1 instruction interval before cold use | verified |
+| 06-09-T1 | 2 | BUS-03, CPU-08 | T-06-24 | Wire the bounded cold probe through production admission and canonical execution | verified |
+| 06-09-T2 | 2 | BUS-03, CPU-08 | T-06-03 | Observe the first actual bounded cold startup and retain its command | verified |
+| 06-02-T1 | 3 | VER-02 | T-06-04 | Authenticate one authored member against the complete source denominator in C | verified |
+| 06-02-T2 | 3 | VER-02 | T-06-05, T-06-07 | Qualify immutable target contexts through the complete pre-use entry | verified |
+| 06-02-T3 | 3 | BUS-03, CPU-08, VER-02 | T-06-06, T-06-07 | Build and run one qualified real member before broader expansion | original unusable; corrected later in06 |
+| 06-03-T1 | 4 | BUS-03 | T-06-08 | Execute the first observed cold register sequence through the production bus | verified |
+| 06-03-T2 | 4 | BUS-03 | T-06-09 | Complete deterministic device, broadcast, repeat and calibration transitions | verified |
+| 06-03-T3 | 4 | BUS-03 | T-06-10 | Bind all future state and prove exact installed/absent access ownership | verified |
+| 06-04-T1 | 5 | CPU-08 | T-06-11 | Run fetched Wired, MDU, Random and TLBWR through real CP0 boundaries | verified |
+| 06-04-T2 | 5 | CPU-08 | T-06-12 | Prove variable-interval FIFO, idle, DMA/RSP and partition invariants | verified |
+| 06-05-T1 | 6 | BUS-03, CPU-08 | T-06-13 | Complete both admitted hello paths and compare exact output bytes | verified |
+| 06-05-T2 | 6 | BUS-03, CPU-08 | T-06-14 | Prove per-profile boot determinism and publish only cleared evidence | verified |
+| 06-06-T1 | 7 | VER-02 | T-06-15 | Aggregate one real saved target record into an independently complete classification | verified |
+| 06-06-T2 | 7 | BUS-03, CPU-08, VER-02 | T-06-16 | Execute and retain every permitted required target member under immutable contexts | verified |
+| 06-06-T3 | 7 | VER-02 | T-06-17 | Separate informational, experimental and scheduled stress lanes | verified |
+| 06-07-T1 | 8 | VER-02 | T-06-18, T-06-19 | Validate one actual saved record through the complete evidence entry | verified |
+| 06-07-T2 | 8 | VER-02 | T-06-20 | Bind the first-profile support statement to cleared exact evidence | verified |
+| 06-08-T1 | 9 | BUS-03, CPU-08, VER-02 | T-06-21 | Review the complete source and original-evidence path before final gating | verified |
+| 06-08-T2 | 9 | BUS-03, CPU-08, VER-02 | T-06-22 | Close accepted findings through their owning bounded source slices | verified |
+| 06-08-T3 | 9 | BUS-03, CPU-08, VER-02 | T-06-22, T-06-23 | Qualify the final stable artifact and reconcile bounded support evidence | verified |
 
 ## Exact Automated Commands and Failure Contracts
 
@@ -240,8 +241,9 @@ cost without relaxing any membership, state, lane, test or authority contract.
 
 ## Multi-Source Coverage Audit
 
-Every in-scope source item is planned; no private inventory/count/result is
-copied here. COVERED means assigned executable work, not a claim it passed.
+Every in-scope source item has owning executable coverage and retained passing
+current checks; no private inventory/count/result is copied here. Historical
+failed first-use attempts remain explicitly unusable and are not inferred passes.
 
 | Source | ID / item | Planned coverage | Status |
 |---|---|---|---|
@@ -323,9 +325,42 @@ storage. No new foreground or human-only verification is required.
 - [x] Every goal, requirement, research constraint and locked decision mapped
 - [x] New owner/registration ordering and inherited inventories specified
 - [x] Full-entry controls, early uses, review/fix/final gate ordering specified
-- [ ] Actual native/guest/hosted commands executed and retained
-- [ ] Final exact artifacts and all source/threat claims reconciled
-- [ ] `nyquist_compliant: true` after actual validation
+- [x] Actual native/guest/hosted commands executed and retained
+- [x] Final exact artifacts and all source/threat claims reconciled
+- [x] `nyquist_compliant: true` after actual validation
 
-**Status:** Planning coverage complete; execution evidence pending. No owner
-approval is requested. Parent continues plan checking and authorized execution.
+**Status:** Automated coverage validated against retained owning checks and final
+artifact evidence. Independent phase goal verification follows.
+
+## Execution coverage reconciliation
+
+| Requirement | Current owning evidence | Coverage |
+| --- | --- | --- |
+| BUS-03 | unit.core.rdram-protocol/bus/warm-device-policy/profile; integration.cold-startup/cold-hello; original authored A/B observations and deterministic boot controls | COVERED |
+| CPU-08 | unit.core.cpu-time/cpu-cp0/cpu-exceptions and partition/FIFO controls; docs/spec/cpu-timing.md literal T1 source anchors and T2 evidence limits | COVERED |
+| VER-02 | runner.base-diagnostic-protocol; harness.base-classification/qualification/image/run/lanes/evidence; retained separate lane originals, pinned complete source authority, closed claims | COVERED |
+
+All inherited and added registered tests passed the full normal gate and
+instrumented suite, including admission fuzz/negative control. Source freeze
+and exact archived consumers/bindings were verified; host-only parser repairs
+ran both owning presets and scoped re-review, with unchanged native semantics
+retained honestly. Both authored hosted jobs and exact artifact comparison
+passed for aa1e531, run43788405776 attempt1. Detailed evidence is in the nine
+plan summaries and docs/evidence/phase06-{native,review,security}.md.
+
+The original Plan02 invocation has no valid member result and lacks its
+executed binary. Its planned early-success chronology was not achieved and
+cannot be reconstructed. Later independently qualified real target execution
+and original-record classification in Plan06 cover the capability; they do not
+retroactively turn the failed early attempt into a pass. Initial masked RED,
+missed separate RED commit and undiscovered mutation-function deviations are
+retained in Plan07 and corrected controls. No manual-only requirement is added
+for deferred hardware, private publication or release decisions outside scope.
+
+## Validation Audit 2026-11-16
+
+| Metric | Count |
+|---|---|
+| Gaps found | 0 |
+| Resolved | 0 |
+| Escalated | 0 |

@@ -15,7 +15,7 @@ provides:
   - Complete-boot partition, interleave, refusal and reset checks
   - Cheap consistency gates and immutable per-attempt artifact retention
 affects: [06-06, 06-07, 06-08]
-requirements-completed: []
+requirements-completed: [BUS-03, CPU-08]
 actuals:
   tokens: 34925
   tasks: 2

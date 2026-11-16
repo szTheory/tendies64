@@ -11,7 +11,7 @@ provides:
   - Two explicit cold/T1 profile identities and state13 domain
   - Versioned static instruction-class timing and transactional successor preflight
 affects: [06-09, 06-03, 06-04]
-requirements-completed: []
+requirements-completed: [BUS-03, CPU-08]
 actuals:
   tokens: 13788
   tasks: 2

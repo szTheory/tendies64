@@ -65,3 +65,10 @@ Measured normal critical-path checks include the CPU diagnostic control (about
 fuzz is a separate cost. No additional cache, dependency or concurrency was
 introduced; the source-seal and bytecode preflights prevent avoidable full-suite
 retries. Hosted evidence is reconciled separately after the tested source push.
+
+Both authored hosted jobs passed for aa1e531, with exact run/job/artifact
+readback and cross-host comparison in run43788405776 attempt1. This adds hosted
+evidence for that source and those cleared fixtures only. It does not replace
+the original local A/B receipt or publish private suite results. Measured CI
+review is recorded in docs/ci-reviews/LOG.md; macOS fixture qualification is the
+largest stage, with no demonstrated duplicate job setup to remove.

@@ -12,7 +12,7 @@ provides:
   - Independent pre-use, complete CLI controls and qualification-owned artifact retention
   - One retained failed bounded external invocation with explicit evidence limits
 affects: [06-03, 06-06, 06-07, 06-08]
-requirements-completed: []
+requirements-completed: [BUS-03, CPU-08, VER-02]
 actuals:
   tokens: 51023
   tasks: 3
