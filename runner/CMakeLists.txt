@@ -127,6 +127,13 @@ set_tests_properties(harness.rsp-qualification harness.rsp-build harness.rsp-run
   LABELS runner TIMEOUT 120
   ENVIRONMENT "PYTHONDONTWRITEBYTECODE=1")
 
+# The evidence contract remains readable after GSD moves completed phase data.
+add_test(NAME harness.rsp-evidence-ownership
+  COMMAND python3 -B ${CMAKE_SOURCE_DIR}/scripts/tests/test_rsp_evidence.py
+    RspEvidenceTests.test_owned_tables_survive_milestone_archive)
+set_tests_properties(harness.rsp-evidence-ownership PROPERTIES
+  LABELS runner TIMEOUT 60 ENVIRONMENT "PYTHONDONTWRITEBYTECODE=1")
+
 add_test(NAME repo.rsp-no-hle
   COMMAND python3 -B ${CMAKE_SOURCE_DIR}/scripts/tests/test_rsp_no_hle.py)
 set_tests_properties(repo.rsp-no-hle PROPERTIES

@@ -492,8 +492,32 @@ def hash_paths(root: pathlib.Path, paths: set[pathlib.Path]) -> str:
     return digest.hexdigest()
 
 
+def phase05_metadata_directory(root: pathlib.Path) -> pathlib.Path:
+    """Locate the one approved phase contract across its lifecycle move."""
+    root = root.resolve(strict=True)
+    matches = []
+    for relative in (
+        ".planning/phases/05-rsp-low-level-emulation",
+        ".planning/milestones/v1.0-phases/05-rsp-low-level-emulation",
+    ):
+        path = root
+        for part in pathlib.PurePosixPath(relative).parts:
+            path = path / part
+            if path.is_symlink():
+                refuse()
+        if path.exists():
+            if not path.is_dir():
+                refuse()
+            matches.append(path)
+    if len(matches) != 1:
+        refuse()
+    return matches[0]
+
+
 def owned_tables(root: pathlib.Path):
-    validation = checked_read(root / ".planning/phases/05-rsp-low-level-emulation/05-VALIDATION.md", 2_000_000, root=root).decode("utf-8")
+    root = root.resolve(strict=True)
+    phase_directory = phase05_metadata_directory(root)
+    validation = checked_read(phase_directory / "05-VALIDATION.md", 2_000_000, root=root).decode("utf-8")
     requirements = set(re.findall(r"(?m)^\|\s*(RSP-\d{2})\s*\|", validation))
     if requirements != set(REQUIREMENT_OWNERS):
         refuse()
@@ -520,7 +544,7 @@ def owned_tables(root: pathlib.Path):
 
     threat_severity: dict[str, str] = {}
     rank = {"low": 0, "medium": 1, "high": 2, "critical": 3}
-    plans = root / ".planning/phases/05-rsp-low-level-emulation"
+    plans = phase_directory
     for path in sorted(plans.glob("05-*-PLAN.md")):
         data = checked_read(path, 2_000_000, root=root).decode("utf-8")
         block = re.search(r"(?s)<threat_model>(.*?)</threat_model>", data)

@@ -6,6 +6,7 @@ import importlib.util
 import os
 import pathlib
 import re
+import shutil
 import subprocess
 import sys
 import tempfile
@@ -37,6 +38,42 @@ def invoke(*args: str) -> subprocess.CompletedProcess[str]:
 
 
 class RspEvidenceTests(unittest.TestCase):
+    def test_owned_tables_survive_milestone_archive(self) -> None:
+        phase_name = "05-rsp-low-level-emulation"
+        active_relative = pathlib.Path(".planning/phases") / phase_name
+        archived_relative = pathlib.Path(".planning/milestones/v1.0-phases") / phase_name
+        source = ROOT / active_relative
+        if not source.is_dir():
+            source = ROOT / archived_relative
+        self.assertTrue(source.is_dir(), "phase ownership fixture is available")
+        with tempfile.TemporaryDirectory(prefix="rsp-evidence-archive-") as temporary:
+            root = pathlib.Path(temporary)
+            active = root / active_relative
+            active.mkdir(parents=True)
+            for path in [source / "05-VALIDATION.md", *source.glob("05-*-PLAN.md")]:
+                shutil.copyfile(path, active / path.name)
+            for relative in ("scripts/check-test-inventory.sh", "docs/spec/rsp-instructions.md"):
+                path = root / relative
+                path.parent.mkdir(parents=True, exist_ok=True)
+                shutil.copyfile(ROOT / relative, path)
+            baseline = CHECKER.owned_tables(root)
+            self.assertEqual(set(baseline[1]), set(CHECKER.owned_tables(ROOT)[1]))
+            archived = root / archived_relative
+            archived.parent.mkdir(parents=True)
+            active.rename(archived)
+            self.assertEqual(CHECKER.owned_tables(root), baseline)
+            active.mkdir(parents=True)
+            with self.assertRaises(CHECKER.Refusal):
+                CHECKER.owned_tables(root)
+            active.rmdir()
+            archived.rename(active)
+            active.rename(root / "held-source")
+            with self.assertRaises(CHECKER.Refusal):
+                CHECKER.owned_tables(root)
+            active.symlink_to(root / "held-source", target_is_directory=True)
+            with self.assertRaises(CHECKER.Refusal):
+                CHECKER.owned_tables(root)
+
     def test_additional_registered_sanitizer_regressions_must_pass(self) -> None:
         log = (
             "1/2 Test   #1: required.case .... Passed 0.01 sec\n"

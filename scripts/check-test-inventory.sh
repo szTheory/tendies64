@@ -149,7 +149,8 @@ harness.base-qualification
 harness.base-image
 harness.base-lanes
 harness.base-run
-harness.base-evidence'
+harness.base-evidence
+harness.rsp-evidence-ownership'
 
 CPU_COVERAGE_OPCODES='ADD
 ADDU
