@@ -8,7 +8,7 @@
 #include "t64_internal.h"
 #include "tendies64/t64_machine.h"
 
-#define RDP_VI_PROFILE_ID "ntsc-cart-4m-openipl3-rdram-b-t1-rdp-vi-v1"
+#define RDP_VI_PROFILE_ID "ntsc-cart-4m-openipl3-rdram-b-t1-rdp-vi-v2"
 #define DP_START UINT32_C(0x04100000)
 #define DP_END (DP_START + UINT32_C(4))
 #define DP_CURRENT (DP_START + UINT32_C(8))
@@ -283,10 +283,10 @@ static void begin_fill_transport(t64_machine *machine, uint32_t end) {
   machine->rdp.dpc_end = 0u;
   machine->rdp.dpc_status = 0u;
   machine->rdp.busy = false;
-  machine->rdp.dpc_dma_active = false;
   machine->rdp.dpc_start_valid = false;
   machine->rdp.dpc_end_valid = false;
   machine->rdp.command_pending = false;
+  machine->rdp.texrect_pending = false;
   machine->rdp.render_active = false;
   machine->rdp.fence_pending = false;
   T64_CHECK_INT(t64_machine_bus_write(machine, DP_START, 4u,

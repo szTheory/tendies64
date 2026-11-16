@@ -43,8 +43,8 @@ static const t64_real_fixture fixtures[] = {
      0u, false},
     {"rdp-vi-fill-diagnostic",
      "b469340e7caa0ac341a2a5b525aa7e3b39c8a47f295ecd10710ae695e46dfc3d",
-     4552u, "ntsc-cart-4m-openipl3-rdram-b-t1-rdp-vi-v1",
-     "db5f196c1721b57db149ed1ffd34bea155196c278a8092363bc7345468fb69b3",
+     4552u, "ntsc-cart-4m-openipl3-rdram-b-t1-rdp-vi-v2",
+     "5612696247abb5dae1c2abb6c15d7fd6c5632136210be7b21a1085590af1c94e",
      UINT32_C(0x80000558), true},
 };
 

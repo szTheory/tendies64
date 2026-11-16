@@ -1,7 +1,7 @@
 # VI diagnostic scanout contract
 
 This document describes the first bounded raw scanout path for profile
-`ntsc-cart-4m-openipl3-rdram-b-t1-rdp-vi-v1`. Output is a canonical machine
+`ntsc-cart-4m-openipl3-rdram-b-t1-rdp-vi-v2`. Output is a canonical machine
 packet, separate from host scaling, filtering, files and display APIs.
 
 ## Source facts and model policy

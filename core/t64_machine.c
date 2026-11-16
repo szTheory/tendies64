@@ -475,7 +475,7 @@ static const t64_profile_descriptor
 
 static const t64_profile_descriptor
     ntsc_cart_4m_openipl3_rdram_b_t1_rdp_vi_profile = {
-        .profile_id = "ntsc-cart-4m-openipl3-rdram-b-t1-rdp-vi-v1",
+        .profile_id = "ntsc-cart-4m-openipl3-rdram-b-t1-rdp-vi-v2",
         .console_target = "NUS-CPU-03",
         .console_qualification = "unqualified-target-software-seed",
         .tv_standard = T64_TV_NTSC,
@@ -486,7 +486,7 @@ static const t64_profile_descriptor
         .peripheral_flags = 0u,
         .save_kind = T64_SAVE_NONE,
         .boot_route = "hle-pif+open-ipl3",
-        .boot_status = "prepared-rdram-b-t1-rdp-vi-v1",
+        .boot_status = "prepared-rdram-b-t1-rdp-vi-v2",
         .guest_tick_unit = "model-rsp-cycle",
         .cpu_rsp_ratio_numerator = 1u,
         .cpu_rsp_ratio_denominator = 1u,
@@ -516,14 +516,14 @@ static const t64_profile_descriptor
         .device_error_policy = "sticky-pi-error-v1",
         .dma_cancel_policy = "token-match-complete-once-v1",
         .dma_visibility_policy = "rsp-one-beat-per-issue-v1",
-        .rdp_work_policy = "dpc-fetch-effect-fill-row-event-1tick-v2",
+        .rdp_work_policy = "dpc-fetch-effect-tmem-copy-row-event-1tick-v3",
         .vi_clock_policy = "rsp62500000-ntsc48681812-rational-v1",
         .rdp_noise_policy = "xorshift32-seed-1-v1",
         .rdp_undefined_color_policy = "zero-color-v1",
         .vi_output_policy = "rgba5551-nearest-no-filter-rgba8-two-packet-v1",
-        .descriptor_version = 5u,
-        .machine_model_version = 10u,
-        .state_serialization_version = 15u,
+        .descriptor_version = 6u,
+        .machine_model_version = 11u,
+        .state_serialization_version = 16u,
         .asset_sha256 = T64_OPENIPL3_ASSET_SHA256_BYTES,
         .payload_sha256 = T64_OPENIPL3_PAYLOAD_SHA256_BYTES,
         .boot_policy_sha256 = T64_RDRAM_B_T1_POLICY_SHA256_BYTES,
@@ -638,7 +638,7 @@ static bool has_rdram_b_t1_profile_id(
 
 static bool has_rdp_vi_profile_id(const t64_profile_descriptor *profile) {
   static const char profile_id[] =
-      "ntsc-cart-4m-openipl3-rdram-b-t1-rdp-vi-v1";
+      "ntsc-cart-4m-openipl3-rdram-b-t1-rdp-vi-v2";
 
   return profile != NULL &&
          bounded_text_equal(profile->profile_id,
@@ -750,8 +750,8 @@ static bool is_rdram_b_t1_profile(
   if (profile == NULL ||
       ((!has_rdram_b_t1_profile_id(profile) ||
         profile->descriptor_version != 4u) &&
-       (!has_rdp_vi_profile_id(profile) ||
-        profile->descriptor_version != 5u))) {
+        (!has_rdp_vi_profile_id(profile) ||
+        profile->descriptor_version != 6u))) {
     return false;
   }
   canonical = has_rdp_vi_profile_id(profile)
@@ -884,9 +884,10 @@ static bool profile_fields_are_valid(const t64_profile_descriptor *profile) {
          T64_PROFILE_TEXT_OK(device_error_policy) &&
          T64_PROFILE_TEXT_OK(dma_cancel_policy) &&
          T64_PROFILE_TEXT_OK(dma_visibility_policy) &&
-         /* Only descriptor v5 serializes the new RDP/VI policy fields. Keep
+         /* Descriptors v5-v6 serialize the RDP/VI policy fields. Keep
           * the pre-v5 and unknown-version legacy byte layout unchanged. */
-         (profile->descriptor_version != 5u ||
+         ((profile->descriptor_version != 5u &&
+           profile->descriptor_version != 6u) ||
           (T64_PROFILE_TEXT_OK(rdp_work_policy) &&
            T64_PROFILE_TEXT_OK(vi_clock_policy) &&
            T64_PROFILE_TEXT_OK(rdp_noise_policy) &&
@@ -1033,8 +1034,9 @@ static void write_profile(profile_writer *writer,
   } else if (profile->descriptor_version == 4u) {
     /* Descriptor v4 binds the T1 boot-policy variants independently. */
     write_openipl3_boot_metadata(writer, profile);
-  } else if (profile->descriptor_version == 5u) {
-    /* Descriptor v5 binds the RDP/VI software model and output policies. */
+  } else if (profile->descriptor_version == 5u ||
+             profile->descriptor_version == 6u) {
+    /* Descriptors v5-v6 bind the RDP/VI software model and output policies. */
     write_openipl3_boot_metadata(writer, profile);
     profile_writer_text(writer, profile->rdp_work_policy,
                         sizeof profile->rdp_work_policy);
@@ -1284,7 +1286,7 @@ t64_status t64_profile_lookup(const char *profile_id,
   static const char rdram_b_t1_profile_id[] =
       "ntsc-cart-4m-openipl3-rdram-b-t1-v1";
   static const char rdp_vi_profile_id[] =
-      "ntsc-cart-4m-openipl3-rdram-b-t1-rdp-vi-v1";
+      "ntsc-cart-4m-openipl3-rdram-b-t1-rdp-vi-v2";
 
   if (profile_out == NULL) {
     return T64_STATUS_INVALID_ARGUMENT;
@@ -1445,8 +1447,8 @@ t64_status t64_machine_create(const t64_host_allocator *allocator,
   }
   machine = (t64_machine *)storage.data;
   (void)memset(machine, 0, sizeof *machine);
-  if (profile->machine_model_version == 10u &&
-      profile->state_serialization_version == 15u) {
+  if (profile->machine_model_version == 11u &&
+      profile->state_serialization_version == 16u) {
     if (!allocator->allocate(allocator->context,
                              T64_VIDEO_QUEUE_STORAGE_BYTES, alignment,
                              &video_storage)) {

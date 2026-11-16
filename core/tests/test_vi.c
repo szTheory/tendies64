@@ -8,7 +8,7 @@
 
 #define TEST_ROM_CAPACITY 65536u
 #define TEST_SOURCE_BYTES 24u
-#define TEST_PROFILE_ID "ntsc-cart-4m-openipl3-rdram-b-t1-rdp-vi-v1"
+#define TEST_PROFILE_ID "ntsc-cart-4m-openipl3-rdram-b-t1-rdp-vi-v2"
 #define TEST_COMPLETION_TICK UINT64_C(600000)
 
 static const uint8_t expected_packet[] = {
@@ -396,9 +396,11 @@ static void case_copy_refusal_is_atomic(void) {
   t64_machine_destroy(machine);
 }
 
-static void case_v15_digest_covers_vi_and_inherited_state(void) {
+static void case_v16_digest_covers_rdp_tmem_and_inherited_state(void) {
   t64_machine *machine = create_authored_machine();
   uint8_t before[T64_DIGEST_SIZE];
+  uint8_t after_tmem[T64_DIGEST_SIZE];
+  uint8_t after_tile[T64_DIGEST_SIZE];
   uint8_t after_vi[T64_DIGEST_SIZE];
   uint8_t after_warm[T64_DIGEST_SIZE];
   t64_status status;
@@ -406,11 +408,20 @@ static void case_v15_digest_covers_vi_and_inherited_state(void) {
   if (machine == NULL) return;
   T64_CHECK(t64_has_rdp_vi_profile(machine));
   T64_CHECK(t64_has_t1_policy(machine));
-  T64_CHECK_INT(machine->profile.machine_model_version, 10u);
-  T64_CHECK_INT(machine->profile.state_serialization_version, 15u);
+  T64_CHECK_INT(machine->profile.descriptor_version, 6u);
+  T64_CHECK_INT(machine->profile.machine_model_version, 11u);
+  T64_CHECK_INT(machine->profile.state_serialization_version, 16u);
   T64_CHECK_STR(machine->profile.rdp_work_policy,
-                "dpc-fetch-effect-fill-row-event-1tick-v2");
+                "dpc-fetch-effect-tmem-copy-row-event-1tick-v3");
   T64_CHECK_INT(t64_machine_digest(machine, before), T64_STATUS_OK);
+  machine->rdp.tmem[0] = UINT8_C(0x5a);
+  T64_CHECK_INT(t64_machine_digest(machine, after_tmem), T64_STATUS_OK);
+  T64_CHECK(memcmp(before, after_tmem, sizeof before) != 0);
+  machine->rdp.tmem[0] = 0u;
+  machine->rdp.tiles[0].line_words++;
+  T64_CHECK_INT(t64_machine_digest(machine, after_tile), T64_STATUS_OK);
+  T64_CHECK(memcmp(before, after_tile, sizeof before) != 0);
+  machine->rdp.tiles[0].line_words--;
   status = t64_machine_bus_write(machine, UINT32_C(0x04400004), 4u,
                                  UINT32_C(0x3000));
   T64_CHECK_INT(status, T64_STATUS_OK);
@@ -585,8 +596,8 @@ static const test_case cases[] = {
     {"cpu-authored-fill-packet-and-dp-lifecycle",
      case_cpu_authored_fill_packet_and_dp_lifecycle},
     {"copy-refusal-is-atomic", case_copy_refusal_is_atomic},
-    {"v15-digest-covers-vi-and-inherited-state",
-     case_v15_digest_covers_vi_and_inherited_state},
+    {"v16-digest-covers-rdp-tmem-and-inherited-state",
+     case_v16_digest_covers_rdp_tmem_and_inherited_state},
     {"drain-cadence-preserves-digest-and-packet-history",
      case_drain_cadence_preserves_digest_and_packet_history},
     {"full-queue-copy-preserves-event-order",

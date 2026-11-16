@@ -31,7 +31,16 @@
 #define RDP_OP_SET_FILL_COLOR UINT32_C(0x37)
 #define RDP_OP_SET_OTHER_MODES UINT32_C(0x2f)
 #define RDP_OP_SET_SCISSOR UINT32_C(0x2d)
+#define RDP_OP_LOAD_TLUT UINT32_C(0x30)
+#define RDP_OP_SET_TILE_SIZE UINT32_C(0x32)
+#define RDP_OP_LOAD_BLOCK UINT32_C(0x33)
+#define RDP_OP_LOAD_TILE UINT32_C(0x34)
+#define RDP_OP_SET_TILE UINT32_C(0x35)
 #define RDP_OP_SET_COLOR_IMAGE UINT32_C(0x3f)
+#define RDP_OP_TEX_RECT UINT32_C(0x24)
+#define RDP_OP_TEX_RECT_FLIP UINT32_C(0x25)
+#define RDP_OP_SET_CONVERT UINT32_C(0x2c)
+#define RDP_OP_SET_TEXTURE_IMAGE UINT32_C(0x3d)
 #define RDP_OP_SYNC_LOAD UINT32_C(0x26)
 #define RDP_OP_SYNC_PIPE UINT32_C(0x27)
 #define RDP_OP_SYNC_TILE UINT32_C(0x28)
@@ -55,23 +64,24 @@ static void set_refusal(t64_machine *machine, uint32_t reason) {
   machine->rdp.dpc_status |= T64_RDP_STATUS_ERROR;
   machine->rdp.dpc_status &= ~T64_RDP_STATUS_BUSY;
   machine->rdp.busy = false;
-  machine->rdp.dpc_dma_active = false;
   machine->rdp.dpc_start_valid = false;
   machine->rdp.dpc_end_valid = false;
   machine->rdp.render_active = false;
   machine->rdp.fence_pending = false;
   machine->rdp.command_pending = false;
+  machine->rdp.texrect_pending = false;
+  machine->rdp.render_texture_flip = false;
   machine->rdp.pending_command_address = 0u;
   machine->rdp.pending_command_byte = 0u;
   machine->rdp.pending_opcode_field = 0u;
   machine->rdp.pending_command_word = 0u;
+  machine->rdp.pending_texrect_word = 0u;
 }
 
 static void finish_if_idle(t64_rdp_state *rdp, uint32_t next) {
   if (next >= rdp->dpc_end && !rdp->render_active && !rdp->fence_pending &&
-      !rdp->command_pending) {
+      !rdp->command_pending && !rdp->texrect_pending) {
     rdp->busy = false;
-    rdp->dpc_dma_active = false;
     rdp->dpc_start_valid = false;
     rdp->dpc_end_valid = false;
     rdp->dpc_status &= ~T64_RDP_STATUS_BUSY;
@@ -188,6 +198,55 @@ static bool fill_bounds(const t64_rdp_state *rdp, uint64_t word,
   return true;
 }
 
+static bool texture_rect_bounds(const t64_rdp_state *rdp, uint64_t word,
+                                uint32_t *x0_out, uint32_t *y0_out,
+                                uint32_t *x1_out, uint32_t *y1_out) {
+  uint32_t xh_raw = (uint32_t)((word >> 44) & UINT64_C(0xfff));
+  uint32_t yh_raw = (uint32_t)((word >> 32) & UINT64_C(0xfff));
+  uint32_t xl_raw = (uint32_t)((word >> 12) & UINT64_C(0xfff));
+  uint32_t yl_raw = (uint32_t)(word & UINT64_C(0xfff));
+  uint32_t xh = xh_raw >> 2;
+  uint32_t yh = yh_raw >> 2;
+  uint32_t xl = xl_raw == 0u ? 0u : (xl_raw - 1u) >> 2;
+  uint32_t yl = yl_raw == 0u ? 0u : (yl_raw - 1u) >> 2;
+  uint32_t sx0 = rdp->scissor_xh >> 2;
+  uint32_t sy0 = rdp->scissor_yh >> 2;
+  uint32_t sx1 = rdp->scissor_xl == 0u
+                     ? 0u
+                     : (rdp->scissor_xl - 1u) >> 2;
+  uint32_t sy1 = rdp->scissor_yl == 0u
+                     ? 0u
+                     : (rdp->scissor_yl - 1u) >> 2;
+  bool empty_x = xl_raw <= xh_raw;
+  bool empty_y = yl_raw <= yh_raw;
+
+  if (xl_raw < xh_raw || yl_raw < yh_raw ||
+      rdp->color_image_width == 0u) return false;
+  if (empty_x) {
+    xh = 1u;
+    xl = 0u;
+  }
+  if (empty_y) {
+    yh = 1u;
+    yl = 0u;
+  }
+  if (sx0 > xh) xh = sx0;
+  if (sy0 > yh) yh = sy0;
+  if (sx1 < xl) xl = sx1;
+  if (sy1 < yl) yl = sy1;
+  if (xh >= rdp->color_image_width) {
+    xl = 0u;
+    xh = 1u;
+  } else if (xl >= rdp->color_image_width) {
+    xl = rdp->color_image_width - 1u;
+  }
+  *x0_out = xh;
+  *x1_out = xl;
+  *y0_out = yh;
+  *y1_out = yl;
+  return true;
+}
+
 static bool validate_fill_store(const t64_machine *machine, uint32_t x0,
                                 uint32_t y0, uint32_t x1, uint32_t y1) {
   const t64_rdp_state *rdp = &machine->rdp;
@@ -230,10 +289,24 @@ static t64_status handle_row(t64_machine *machine) {
 
   if (status != T64_STATUS_OK) return status;
   increment_counter(&rdp->dpc_pipe_busy_counter);
-  fill_one_row(machine);
+  if (rdp->render_kind == 2u) {
+    uint32_t x;
+    for (x = rdp->render_x_begin; x <= rdp->render_x_end; x++) {
+      uint64_t pixel = (uint64_t)rdp->render_y * rdp->color_image_width + x;
+      uint64_t address = (uint64_t)rdp->color_image_address + pixel * 2u;
+      uint16_t color = 0u;
+      (void)t64_rdp_tmem_copy_pixel(machine, x, rdp->render_y, &color);
+      write_be16(machine->ram + (size_t)address, color);
+    }
+  } else {
+    fill_one_row(machine);
+  }
   if (last_row) {
     rdp->render_active = false;
-    rdp->fill_count++;
+    if (rdp->render_kind == 2u)
+      rdp->copy_count++;
+    else
+      rdp->fill_count++;
     finish_if_idle(rdp, next_command);
   } else {
     rdp->render_y++;
@@ -259,6 +332,15 @@ static bool supported_opcode(uint32_t opcode) {
   case RDP_OP_SET_OTHER_MODES:
   case RDP_OP_SET_SCISSOR:
   case RDP_OP_SET_COLOR_IMAGE:
+  case RDP_OP_SET_TEXTURE_IMAGE:
+  case RDP_OP_SET_TILE:
+  case RDP_OP_SET_TILE_SIZE:
+  case RDP_OP_LOAD_TILE:
+  case RDP_OP_LOAD_BLOCK:
+  case RDP_OP_LOAD_TLUT:
+  case RDP_OP_SET_CONVERT:
+  case RDP_OP_TEX_RECT:
+  case RDP_OP_TEX_RECT_FLIP:
   case RDP_OP_SYNC_LOAD:
   case RDP_OP_SYNC_PIPE:
   case RDP_OP_SYNC_TILE:
@@ -280,7 +362,11 @@ static t64_status apply_pending_command(t64_machine *machine) {
   uint8_t command_byte = (uint8_t)rdp->pending_command_byte;
   bool valid_fill = true;
   bool draw_fill = false;
+  bool texture_command;
+  uint32_t reason = T64_RDP_REFUSAL_INVALID_TEXTURE;
   t64_status status;
+
+  texture_command = t64_rdp_tmem_handles_opcode(opcode);
 
   if (opcode == RDP_OP_SET_COLOR_IMAGE) {
     format = (uint32_t)((word >> 53) & UINT64_C(7));
@@ -310,6 +396,14 @@ static t64_status apply_pending_command(t64_machine *machine) {
     draw_fill = x0 <= x1 && y0 <= y1;
   }
 
+  if (texture_command &&
+      !t64_rdp_tmem_validate_command(machine, opcode, word, &reason)) {
+    rdp->dpc_current = address;
+    record_command(machine, word, command_byte, opcode);
+    set_refusal(machine, reason);
+    return T64_STATUS_OK;
+  }
+
   if ((opcode == RDP_OP_SYNC_FULL) || draw_fill) {
     status = schedule_work_after_committed(machine);
   } else {
@@ -318,6 +412,16 @@ static t64_status apply_pending_command(t64_machine *machine) {
   if (status != T64_STATUS_OK) return status;
 
   increment_counter(&rdp->dpc_clock_counter);
+  if (opcode == RDP_OP_TEX_RECT || opcode == RDP_OP_TEX_RECT_FLIP) {
+    rdp->pending_texrect_word = word;
+    rdp->texrect_pending = true;
+    rdp->command_pending = false;
+    rdp->pending_command_byte = 0u;
+    rdp->pending_opcode_field = 0u;
+    rdp->pending_command_word = 0u;
+    record_command(machine, word, command_byte, opcode);
+    return T64_STATUS_OK;
+  }
   if (opcode == RDP_OP_SET_COLOR_IMAGE) {
     rdp->color_image_format = format;
     rdp->color_image_size = size;
@@ -332,11 +436,13 @@ static t64_status apply_pending_command(t64_machine *machine) {
     rdp->scissor_valid = true;
   } else if (opcode == RDP_OP_SET_OTHER_MODES) {
     rdp->other_modes = word;
+    rdp->tlut_format = (uint32_t)((word >> 14) & UINT64_C(3));
     rdp->other_modes_valid = true;
   } else if (opcode == RDP_OP_SET_FILL_COLOR) {
     rdp->fill_color = (uint32_t)word;
     rdp->fill_color_valid = true;
   } else if (opcode == RDP_OP_FILL_RECT && draw_fill) {
+    rdp->render_kind = 1u;
     rdp->render_active = true;
     rdp->render_x_begin = x0;
     rdp->render_x_end = x1;
@@ -347,6 +453,8 @@ static t64_status apply_pending_command(t64_machine *machine) {
     rdp->fence_pending = true;
     rdp->fence_generation++;
   }
+
+  if (texture_command) t64_rdp_tmem_apply_command(machine, opcode, word);
 
   record_command(machine, word, command_byte, opcode);
   rdp->command_pending = false;
@@ -433,12 +541,10 @@ t64_status t64_rdp_write_register(t64_machine *machine, uint32_t address,
     rdp->refusal_reason = T64_RDP_REFUSAL_NONE;
     if (value > rdp->dpc_current) {
       rdp->busy = true;
-      rdp->dpc_dma_active = true;
       rdp->dpc_status |= T64_RDP_STATUS_BUSY;
     } else if (!rdp->render_active && !rdp->fence_pending &&
                !rdp->command_pending) {
       rdp->busy = false;
-      rdp->dpc_dma_active = false;
       rdp->dpc_start_valid = false;
       rdp->dpc_status &= ~T64_RDP_STATUS_BUSY;
     }
@@ -480,6 +586,7 @@ t64_status t64_rdp_event(t64_machine *machine, const t64_event *event) {
   uint32_t opcode;
   uint64_t word;
   uint8_t command_byte;
+  uint32_t x0 = 0u, y0 = 0u, x1 = 0u, y1 = 0u;
   t64_status status;
 
   if (machine == NULL || event == NULL || event->device != T64_RDP_DEVICE ||
@@ -501,6 +608,49 @@ t64_status t64_rdp_event(t64_machine *machine, const t64_event *event) {
     return T64_STATUS_OK;
   }
   if (rdp->command_pending) return apply_pending_command(machine);
+
+  if (rdp->texrect_pending) {
+    uint32_t first_address = rdp->pending_command_address;
+    uint64_t first_word = rdp->pending_texrect_word;
+    uint64_t second_word;
+    uint32_t rect_opcode = (uint32_t)((first_word >> 56) & UINT64_C(0x3f));
+    uint32_t copy_reason = T64_RDP_REFUSAL_RENDER_RANGE;
+
+    address = rdp->dpc_current;
+    if (!command_span_valid(machine, address, &reason)) {
+      rdp->dpc_current = first_address;
+      increment_counter(&rdp->dpc_clock_counter);
+      set_refusal(machine, reason);
+      return T64_STATUS_OK;
+    }
+    second_word = read_be64(rdp->dpc_xbus ? machine->sp_dmem + address
+                                         : machine->ram + address);
+    if (!texture_rect_bounds(rdp, first_word, &x0, &y0, &x1, &y1) ||
+        !t64_rdp_tmem_validate_copy(machine, first_word, second_word,
+                                    x0, y0, x1, y1, &copy_reason)) {
+      rdp->dpc_current = first_address;
+      record_command(machine, first_word, (uint8_t)(first_word >> 56),
+                     rect_opcode);
+      set_refusal(machine, copy_reason);
+      return T64_STATUS_OK;
+    }
+    status = (x0 <= x1 && y0 <= y1)
+                 ? schedule_work_after_committed(machine)
+                 : schedule_next_committed(machine, address + UINT32_C(8));
+    if (status != T64_STATUS_OK) return status;
+    increment_counter(&rdp->dpc_clock_counter);
+    rdp->dpc_current = address + UINT32_C(8);
+    rdp->texrect_pending = false;
+    rdp->pending_texrect_word = 0u;
+    rdp->pending_command_address = 0u;
+    t64_rdp_tmem_begin_copy(machine, first_word, second_word, x0, y0, x1,
+                            y1);
+    record_command(machine, first_word, (uint8_t)(first_word >> 56),
+                   rect_opcode);
+    rdp->command_count++;
+    finish_if_idle(rdp, rdp->dpc_current);
+    return T64_STATUS_OK;
+  }
   address = rdp->dpc_current;
   if (address >= rdp->dpc_end) {
     finish_if_idle(rdp, address);
@@ -520,6 +670,13 @@ t64_status t64_rdp_event(t64_machine *machine, const t64_event *event) {
     increment_counter(&rdp->dpc_buffer_busy_counter);
     record_command(machine, word, command_byte, opcode);
     set_refusal(machine, T64_RDP_REFUSAL_UNSUPPORTED_OPCODE);
+    return T64_STATUS_OK;
+  }
+  if ((opcode == RDP_OP_TEX_RECT || opcode == RDP_OP_TEX_RECT_FLIP) &&
+      (uint64_t)address + UINT64_C(16) > rdp->dpc_end) {
+    increment_counter(&rdp->dpc_clock_counter);
+    record_command(machine, word, command_byte, opcode);
+    set_refusal(machine, T64_RDP_REFUSAL_TRUNCATED_WORD);
     return T64_STATUS_OK;
   }
   status = schedule_work_after_committed(machine);

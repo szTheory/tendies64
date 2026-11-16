@@ -1,141 +1,140 @@
-# RDP fill tracer contract
+# RDP fill, TMEM and copy tracer contract
 
-This document describes the first bounded RDP path for Tendies64's
-`ntsc-cart-4m-openipl3-rdram-b-t1-rdp-vi-v1` profile. It is a named software
-model and authored regression vector. It does not claim full RDP support,
-hardware timing, or hardware accuracy.
+This document describes the bounded RDP software model in profile
+`ntsc-cart-4m-openipl3-rdram-b-t1-rdp-vi-v2` (descriptor 6, machine model 11,
+state serialization 16). It covers fetched DPC commands, texture loads, and
+point-sampled copy rectangles. It does not claim full RDP support, hardware
+timing, or hardware accuracy.
 
-## Source facts
+## Primary source facts
 
-The retained SGI RDP Command Summary v2.0 is an ignored local research input at
-`build/research/07-primary/SGI_RDP_Command_Summary.pdf`. Its command field is
-bits 61–56 (pp. 2 and 21). Table 16 (p. 21) gives Fill Rectangle's `XL` and
-`YL` in bits 55–44 and 43–32 and `XH` and `YH` in bits 23–12 and 11–0; all four
-coordinates are 10.2 values, with `XL/YL` described as the bottom-right corner
-and `XH/YH` as the top-left corner. That table does not specify fractional
-sample rounding or endpoint inclusion. Table 25 (p. 34) defines Set Fill
-Color's packed bits 31–0 and says that for a 16-bit RGBA color image those bits
-represent two horizontally adjacent 16-bit pixels. Table 27 (p. 36) documents
-the scissor box's 10.2 fields. The Full Sync description (p. 41) waits for
-preceding primitive buffers to be read and written.
+Nintendo's [tile descriptor section](https://ultra64.ca/files/documentation/online-manuals/man/pro-man/pro13/13-05.html)
+defines SetTile's format, size, line, TMEM address, palette, clamp, mirror,
+mask, and shift fields. SetTileSize and each load command also set the tile's
+SL/TL/SH/TH bounds; LoadTile's bounds describe the loaded tile, while
+LoadBlock and LoadTLUT bounds may need a later SetTileSize.
 
-Nintendo's `gbi.h` names the full GBI command byte `G_SETFILLCOLOR` as `0xF7`
-and documents the lower-six-bit direct operation field. Thus `0xF7 & 0x3f`
-and direct field `0x37` select Set Fill Color. Tendies64 retains the original
-word and command byte for observation; it does not rewrite fixture bytes to
-normalize the opcode.
+The [TMEM organization section](https://ultra64.ca/files/documentation/online-manuals/man/pro-man/pro13/13-08.html)
+describes a 4 KiB texture store, split into low and high 2 KiB halves. CI
+indices use the lower half and TLUT entries use the upper half; CI4 prepends a
+tile palette number, and the palette is replicated across four banks. YUV16
+loads contain paired Y samples with shared U/V. The manual also shows
+big-endian texel layouts and separate layouts for 4-, 8-, 16-, and 32-bit
+formats.
 
-Nintendo SDK `rcp.h` revision 1.21 lists DPC START, END, CURRENT, STATUS and
-the four read-only counters at `0x04100000` through `0x0410001c`. It defines
-the STATUS write commands for XBUS, freeze, flush and counter clears, plus the
-read bits for XBUS, freeze, flush, GCLK, TMEM, pipe, command, command-buffer,
-DMA and START/END valid state. These are register definitions; they do not
-specify Tendies64's per-event guest-time costs. See [`rcp.h`, DP Command
-Registers](https://ultra64.ca/files/documentation/online-manuals/man/header/rcp.htm).
+The [texture loading section](https://ultra64.ca/files/documentation/online-manuals/man/pro-man/pro13/13-09.html)
+describes LoadTile row padding to 64-bit TMEM words, LoadBlock as a linear
+stream whose DXT accumulator advances the line count, and LoadTLUT's expansion
+of each 16-bit entry into four copies in one 64-bit word. It identifies both
+RGBA16 and IA16 TLUT values and a maximum LoadBlock size of 2048 texels.
 
-Nintendo's GBI header defines the full command bytes `0xE6` through `0xE9` for
-LoadSync, PipeSync, TileSync and FullSync, and says the RDP uses the command
-byte's low six bits. The resulting raw RDP fields are `0x26` through `0x29`.
-The SGI summary's Sync Load label `0x31` is retained as a source discrepancy;
-Tendies64 follows the Nintendo definition for the supported LoadSync path.
-FullSync's DP event indicates that the final RDP pipeline command completed.
-See [`gbi.h`](https://ultra64.ca/files/documentation/online-manuals/man/header/gbi.htm),
-[`gDPFullSync`](https://ultra64.ca/files/documentation/online-manuals/man-v5-1/n64man/gdp/gDPFullSync.htm)
-and [RDP synchronization §12.2](https://ultra64.ca/files/documentation/online-manuals/man-v5-2/allman52/pro-man/pro12/12-02.htm).
+Nintendo's [texture restrictions](https://ultra64.ca/files/documentation/online-manuals/man/pro-man/pro13/13-11.html)
+state that copy mode does not support direct 32-bit RGBA or YUV tiles, that
+copy mode implicitly disables clamp, and that wrap or mirror applies to 4-,
+8-, and 16-bit texels. The model refuses direct RGBA32/YUV copy tiles. A
+caller can describe RGBA32 or YUV source bytes as RGBA16 when intentionally
+copying their 16-bit halves, as the manual recommends.
 
-## Implemented software policy
+The [texture rectangle section](https://ultra64.ca/files/documentation/online-manuals/man/pro-man/pro14/14-01.html)
+defines a rectangle using screen-space bounds and start S/T plus DSDX/DTDY.
+Its 100-by-100 example uses lower-right bounds at `(200,200)` for an origin of
+`(100,100)`. The section says copy mode transfers four horizontal texels per
+clock and uses an S step of four. The [SetConvert reference](https://ultra64.ca/files/documentation/online-manuals/man-v5-1/n64man/gdp/gDPSetConvert.htm)
+defines six signed 9-bit coefficients and separates texture-filter YUV
+conversion from color-combiner postprocessing. The [texture filter section](https://ultra64.ca/files/documentation/online-manuals/man/pro-man/pro12/12-05.html)
+describes those pipeline stages.
 
-The fixture issues these original big-endian 64-bit words through ordinary
-CPU stores to uncached RDRAM and DPC START/END registers:
+The source command fields used here are pinned as follows. Values in the
+operation column are the raw six-bit RDP command fields retained from the
+original fetched word.
 
-| Word | Direct operation | Fields used by this tracer |
-| --- | --- | --- |
-| `3f10000300003000` | Set Color Image (`0x3f`) | RGBA, 16-bit, width 4, address `0x3000` |
-| `2d0000000000c00c` | Set Scissor (`0x2d`) | top-left `(0,0)`, bottom-right `(3,3)` in 10.2 |
-| `2f30000000000000` | Set Other Modes (`0x2f`) | fill cycle selector |
-| `37000000f80107c1` | Set Fill Color (`0x37`) | packed halfwords `0xf801`, `0x07c1` |
-| `3600c00800000000` | Fill Rectangle (`0x36`) | bottom-right `(3,2)`, top-left `(0,0)` |
-| `2900000000000000` | Full Sync (`0x29`) | completion fence after prior fill rows |
+| Command | Raw operation | Fields consumed by this model |
+| --- | ---: | --- |
+| SetTextureImage | `0x3d` | format, size, width minus one, RDRAM address |
+| SetTile | `0x35` | format, size, line words, TMEM word, tile, palette, clamp/mirror/mask/shift |
+| SetTileSize | `0x32` | tile and 10.2 `ULS/ULT/LRS/LRT` bounds |
+| LoadTile | `0x34` | tile and rectangular 10.2 source bounds |
+| LoadBlock | `0x33` | tile, source start, texel count, DXT |
+| LoadTLUT | `0x30` | tile and palette source bounds |
+| SetConvert | `0x2c` | signed 9-bit `K0..K5` fields |
+| TextureRectangle / Flip | `0x24` / `0x25` | screen bounds in the first word; S/T/DSDX/DTDY in the second word |
 
-The current model interprets whole-pixel 10.2 rectangle endpoints as inclusive
-for this fill command. Its authored `(0,0)` through `(3,2)` vector therefore
-writes 4 × 3 16-bit pixels. The model writes high halfword `0xf801` at even
-horizontal positions and low halfword `0x07c1` at odd positions, in
-big-endian RDRAM byte order. These endpoint and byte-order statements describe
-the implementation policy tested here; the cited SGI tables alone do not
-specify fractional rounding or endpoint inclusion.
+## Per-machine texture state
 
-The implementation admits only this command subset. Each DPC work event
-fetches one complete 64-bit word and advances CURRENT; a later event applies
-that command's effects. A Fill Rectangle then schedules one row per guest
-tick, and a FullSync fence completes on its own later event after earlier
-fill rows. DPC CURRENT reaching END therefore does not imply command effect or
-fill completion. PipeSync, TileSync and LoadSync retain distinct decoded
-commands and ordered fetch/effect boundaries. Since this path implements no
-TMEM loads, tile state or other primitive classes, these sync commands have no
-additional modeled drain effect. MI owns the DP pending bit, mask and guest
-clear. Unknown opcodes stop at their encountered word without applying its
-effects or synthesizing a FullSync.
+Each machine owns 4096 bytes of TMEM, eight tile descriptors, the texture
+image descriptor, TLUT format/validity, conversion coefficients, and any
+pending two-word texture rectangle. Loads and sampling use bounded integer
+arithmetic. A malformed or truncated packet is refused before its load or
+rectangle writes TMEM or framebuffer pixels. LoadTile validates the complete
+RDRAM source and padded TMEM rows before copying any texel. LoadBlock validates
+each DXT-selected 64-bit destination word before changing TMEM. LoadTLUT
+validates the complete source span and high-half destination range before
+replicating any entry.
 
-## DPC transport and status policy
+The model stores 4-bit values as high/low nibbles, 8-bit values as bytes, and
+16-/32-bit values in big-endian byte order. LoadTile rows use the tile's 64-bit
+line stride and swap the two 32-bit halves on odd rows. LoadBlock advances its
+DXT accumulator once per 64-bit source word and maps each word into the
+selected tile line; odd-line half swapping is applied after the destination
+line is selected. TLUT loads accept RGBA16 and IA16 sources, replicate each
+entry four times, and retain the source interpretation for CI copy sampling.
 
-The selected composite profile maps DPC `+0x00` through `+0x1c` as eight
-32-bit registers. START and END must be 8-byte aligned and within the selected
-command source. With XBUS clear, a complete word must fit in RDRAM; with XBUS
-set, the command source is the profile's 4 KiB SP DMEM bank. This software
-model refuses a command word that crosses the end of that bank; it does not
-wrap a DPC packet across DMEM. An incomplete word at END is refused before
-that word has effects. Writing a counter register is refused; STATUS counter
-clear commands clear the corresponding 24-bit read-only counter.
+Supported load formats are RGBA16/32, YUV16, CI4/8, IA4/8/16, and I4/8. Copy
+sampling accepts RGBA16, CI4/8, IA4/8/16, and I4/8; direct RGBA32 and YUV
+copies are refused. Copy rectangles require the documented DSDX step of
+`4 << 10`, use point sampling, apply S/T mask, mirror, or clamp before TMEM
+addressing, clip to the scissor and color-image bounds, and write RGBA16
+pixels to RDRAM. Texture S coordinates are relative to the selected tile's
+ULS bound after wrapping/clamping. The copy path does not implement filtering,
+combining, alpha compare, depth, coverage, or the rest of the RDP pipeline.
 
-In machine model 10/state domain 15, fetched RSP MFC0/MTC0 instructions for
-COP0 registers 8 through 15 use these same DPC read/write handlers and offsets
-as CPU MMIO. MFC0 exposes START, END, CURRENT, STATUS and all four counters;
-MTC0 may write START, END or STATUS, while CURRENT and the counters remain
-read-only. Before this composite profile, fetched RSP accesses to COP0
-registers 8 through 15 retain the `DP_UNAVAILABLE` refusal and do not dispatch
-DP work.
+YUV16 bytes are loaded and retained in the paired source layout. The small
+`t64_rdp_tmem_convert_yuv` helper exercises the texture-filter stage only: it
+centers U/V at 128, applies signed `K0..K3` with integer division by 128, and
+clamps each output channel to 0–255. This is the named deterministic software
+policy used by the authored vector; it does not implement the color-combiner
+`K4/K5` stage and is not used to make YUV legal in copy mode. The authored
+YUV vector is therefore load-plus-conversion-state evidence, not a rendered
+YUV pixel claim.
 
-STATUS is composed from separately retained transport state. XBUS, freeze,
-flush and START/END valid reflect their DPC control state. START_GCLK is set
-while work is active and unpaused; CMD_BUSY reflects a pending command effect
-or unfetched command; DMA_BUSY reflects remaining command input; PIPE_BUSY
-reflects raster rows in progress. CBUF_READY is always reported by this
-bounded model, while TMEM_BUSY remains clear because no TMEM operations are
-implemented. Freeze and flush pause queued RDP callbacks without consuming
-the pending command, raster row or fence; clearing both resumes the retained
-work through the scheduler.
+## RDP transport and profile identity
 
-The four counter values wrap at 24 bits. The software increments CLOCK for
-fetch, effect, raster-row and FullSync events, BUFBUSY for command fetches,
-PIPEBUSY for fill rows and leaves TMEM at zero. These units are deterministic
-model accounting, not measured RDP hardware clocks. Event reservations occur
-before each committed state or pixel effect; the existing scheduler orders
-same-tick callbacks by sequence.
+The composite profile maps DPC START, END, CURRENT, STATUS, and the four
+read-only counters at `0x04100000..0x0410001c`. START/END must be 8-byte
+aligned. With XBUS clear, complete command words must fit in RDRAM; with XBUS
+set, they must fit in the selected 4 KiB SP DMEM bank. A two-word texture
+rectangle is prevalidated as a whole before its first word starts a copy.
+DPC fetch, command effect, raster rows, and FullSync completion are separate
+scheduled events. Counter writes are refused; STATUS clear commands clear
+24-bit counters.
 
-Profile-bound policy fields are:
+Fetched RSP MFC0/MTC0 instructions for COP0 registers 8 through 15 use the
+same DPC accessors as CPU MMIO on this composite profile. Earlier profiles
+retain the `DP_UNAVAILABLE` refusal. The profile version and
+`rdp_work_policy` (`dpc-fetch-effect-tmem-copy-row-event-1tick-v3`) identify
+the new TMEM/copy state and its event ordering. All future-affecting RDP,
+TMEM, tile, TLUT, conversion, VI, and inherited machine state is serialized
+into the v16 digest. Host output cursors and buffers remain outside canonical
+guest state.
 
-- `rdp_work_policy`: `dpc-fetch-effect-fill-row-event-1tick-v2`.
-- `rdp_noise_policy`: `xorshift32-seed-1-v1`.
-- `rdp_undefined_color_policy`: `zero-color-v1`.
+## Authored evidence and limits
 
-These are versioned software choices. The composite profile uses machine model
-version 10 and state serialization version 15 for the added fetch/effect
-stages, DPC controls, counters and fence generation. State that can affect
-future RDP output, including command progress, the pending word, fill bounds,
-policy state and fences, is included in the versioned machine digest. Host
-runner cursors and file output are not guest state. Pre-composite profiles
-retain their earlier DP-unavailable RSP behavior.
+The registered `unit.core.rdp.copy` matrix reaches these cases through fetched
+DPC commands:
 
-The focused tests separately compare the six RDRAM words and the raw VI
-packet. The supervised positive fixture runs through the ordinary CPU, bus,
-machine scheduler and actual headless runner. Its same-setup wrong-pixel
-control changes one expected byte and must reach the pixel comparator.
+- `load-tile-layout`, `load-block-dxt`, `load-tlut-ci`, `load-tlut-boundary`
+- `rgba-16-32`, `ia-i-4-8-16`, `truncated-load`, `yuv-conversion`
+- `copy-rect-flip`, `copy-tile-origin`, `tile-wrap-mirror-clamp`
+- `tmem-first-last`, `adjacent-tile-no-alias`, `scissor-touch`, `single-texel`,
+  `zero-area`, `bad-format`, `truncated-copy`, `overflow-rejected`,
+  `copy-first-difference`
 
-## Limits and evidence
-
-Only the six listed direct commands and the one RGBA16 fill path are covered.
-Copy, texture, triangle, combiner, blender, coverage and depth behavior remain
-for later plans. The implementation is not differential-tested against an
-external renderer. VID-04 remains blocked; this tracer does not satisfy it.
-The retained SGI PDF is a local research locator and is not redistributed.
+The expected TMEM bytes, RGBA16 RDRAM values, raw VI packet and rejection
+effects are authored literals derived from the cited layouts and equations;
+they are not produced by the implementation under test. The accepted fill
+fixture remains a separate RDP/VI path. The implementation is not
+differential-tested against an external renderer. No protected guest, oracle,
+console test, or VID-04 qualification evidence is used here. This slice
+contributes implementation and authored evidence to VID-01 and VID-05 but
+completes neither requirement. The D2 external-rights and D6 release stops
+remain active.

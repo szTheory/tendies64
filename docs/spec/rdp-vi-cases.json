@@ -58,7 +58,7 @@
           "cases": [
             "cpu-authored-fill-packet-and-dp-lifecycle",
             "copy-refusal-is-atomic",
-            "v15-digest-covers-vi-and-inherited-state",
+            "v16-digest-covers-rdp-tmem-and-inherited-state",
             "drain-cadence-preserves-digest-and-packet-history",
             "full-queue-copy-preserves-event-order"
           ]
@@ -81,7 +81,26 @@
         {
           "path": "core/test_rdp_copy",
           "cases": [
-            "load-tile-layout"
+            "load-tile-layout",
+            "load-block-dxt",
+            "load-tlut-ci",
+            "load-tlut-boundary",
+            "rgba-16-32",
+            "ia-i-4-8-16",
+            "truncated-load",
+            "yuv-conversion",
+            "copy-rect-flip",
+            "copy-tile-origin",
+            "tile-wrap-mirror-clamp",
+            "tmem-first-last",
+            "adjacent-tile-no-alias",
+            "scissor-touch",
+            "single-texel",
+            "zero-area",
+            "bad-format",
+            "truncated-copy",
+            "overflow-rejected",
+            "copy-first-difference"
           ]
         }
       ]

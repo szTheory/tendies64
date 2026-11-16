@@ -101,6 +101,10 @@
 #define T64_RDP_REFUSAL_UNSUPPORTED_OPCODE UINT32_C(3)
 #define T64_RDP_REFUSAL_INVALID_IMAGE UINT32_C(4)
 #define T64_RDP_REFUSAL_RENDER_RANGE UINT32_C(5)
+#define T64_RDP_REFUSAL_INVALID_TEXTURE UINT32_C(6)
+#define T64_RDP_REFUSAL_TEXTURE_RANGE UINT32_C(7)
+#define T64_RDP_TMEM_BYTES 4096u
+#define T64_RDP_TILE_COUNT 8u
 #define T64_VI_REFUSAL_NONE UINT32_C(0)
 #define T64_VI_REFUSAL_FORMAT UINT32_C(1)
 #define T64_VI_REFUSAL_GEOMETRY UINT32_C(2)
@@ -119,6 +123,28 @@
 #define T64_CPU_SOFTWARE_DEBUG_STOP_BREAK UINT32_C(0x0000000d)
 #define T64_TRACE_KIND_BUS_READ16 UINT32_C(5)
 #define T64_TRACE_KIND_BUS_WRITE16 UINT32_C(6)
+
+typedef struct {
+  uint32_t format;
+  uint32_t size;
+  uint32_t line_words;
+  uint32_t tmem_word;
+  uint32_t palette;
+  uint32_t mask_s;
+  uint32_t mask_t;
+  uint32_t shift_s;
+  uint32_t shift_t;
+  uint32_t uls;
+  uint32_t ult;
+  uint32_t lrs;
+  uint32_t lrt;
+  bool clamp_s;
+  bool mirror_s;
+  bool clamp_t;
+  bool mirror_t;
+  bool valid;
+  bool size_valid;
+} t64_rdp_tile;
 
 typedef struct {
   uintptr_t begin;
@@ -616,6 +642,23 @@ typedef struct {
   uint32_t scissor_yl;
   uint64_t other_modes;
   uint32_t fill_color;
+  uint32_t texture_image_address;
+  uint32_t texture_image_width;
+  uint32_t texture_image_format;
+  uint32_t texture_image_size;
+  uint32_t texture_image_valid;
+  uint32_t tlut_format;
+  uint32_t render_kind;
+  uint32_t render_texture_tile;
+  uint32_t render_texture_s;
+  uint32_t render_texture_t;
+  uint32_t render_texture_dsdx;
+  uint32_t render_texture_dtdy;
+  uint64_t copy_count;
+  uint32_t convert_coefficients[6];
+  uint64_t pending_texrect_word;
+  uint8_t tmem[T64_RDP_TMEM_BYTES];
+  t64_rdp_tile tiles[T64_RDP_TILE_COUNT];
   uint32_t work_policy_version;
   uint32_t random_state;
   uint32_t refusal_reason;
@@ -634,6 +677,7 @@ typedef struct {
   bool scissor_valid;
   bool other_modes_valid;
   bool fill_color_valid;
+  bool tlut_valid;
   bool render_active;
   bool fence_pending;
   bool busy;
@@ -642,8 +686,9 @@ typedef struct {
   bool dpc_flush;
   bool dpc_start_valid;
   bool dpc_end_valid;
-  bool dpc_dma_active;
   bool command_pending;
+  bool texrect_pending;
+  bool render_texture_flip;
 } t64_rdp_state;
 
 typedef struct {
@@ -751,8 +796,8 @@ struct t64_machine {
 };
 
 static inline bool t64_has_rdp_vi_profile(const t64_machine *machine) {
-  return machine != NULL && machine->profile.machine_model_version == 10u &&
-         machine->profile.state_serialization_version == 15u;
+  return machine != NULL && machine->profile.machine_model_version == 11u &&
+         machine->profile.state_serialization_version == 16u;
 }
 
 static inline bool t64_has_vr4300_cpu_state(const t64_machine *machine) {
@@ -997,6 +1042,23 @@ t64_status t64_rdp_read_register(const t64_machine *machine,
 t64_status t64_rdp_write_register(t64_machine *machine, uint32_t address,
                                   uint32_t value);
 t64_status t64_rdp_event(t64_machine *machine, const t64_event *event);
+bool t64_rdp_tmem_handles_opcode(uint32_t opcode);
+bool t64_rdp_tmem_validate_command(const t64_machine *machine,
+                                   uint32_t opcode, uint64_t word,
+                                   uint32_t *reason_out);
+void t64_rdp_tmem_apply_command(t64_machine *machine, uint32_t opcode,
+                                uint64_t word);
+bool t64_rdp_tmem_validate_copy(const t64_machine *machine, uint64_t first,
+                                uint64_t second, uint32_t x0, uint32_t y0,
+                                uint32_t x1, uint32_t y1,
+                                uint32_t *reason_out);
+void t64_rdp_tmem_begin_copy(t64_machine *machine, uint64_t first,
+                             uint64_t second, uint32_t x0, uint32_t y0,
+                             uint32_t x1, uint32_t y1);
+bool t64_rdp_tmem_copy_pixel(const t64_machine *machine, uint32_t x,
+                             uint32_t y, uint16_t *pixel_out);
+void t64_rdp_tmem_convert_yuv(const t64_rdp_state *rdp, uint8_t y,
+                              uint8_t u, uint8_t v, uint8_t rgb_out[3]);
 t64_status t64_vi_read_register(const t64_machine *machine,
                                 uint32_t address, uint32_t *value_out);
 t64_status t64_vi_write_register(t64_machine *machine, uint32_t address,

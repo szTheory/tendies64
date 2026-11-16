@@ -17,9 +17,9 @@
 #define FILL_FIXTURE_ID "rdp-vi-fill-diagnostic"
 #define FILL_FIXTURE_SHA256 \
   "b469340e7caa0ac341a2a5b525aa7e3b39c8a47f295ecd10710ae695e46dfc3d"
-#define FILL_PROFILE_ID "ntsc-cart-4m-openipl3-rdram-b-t1-rdp-vi-v1"
+#define FILL_PROFILE_ID "ntsc-cart-4m-openipl3-rdram-b-t1-rdp-vi-v2"
 #define FILL_PROFILE_SHA256 \
-  "db5f196c1721b57db149ed1ffd34bea155196c278a8092363bc7345468fb69b3"
+  "5612696247abb5dae1c2abb6c15d7fd6c5632136210be7b21a1085590af1c94e"
 #define INPUT_SHA256 \
   "6d5593bc2d95465b44ec7ce7785e5ff7d7d53605de9b039a021bc697d226186d"
 #define FILL_PROFILE_CLOCK_POLICY "rsp62500000-ntsc48681812-rational-v1"
