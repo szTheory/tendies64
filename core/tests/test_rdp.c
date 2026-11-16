@@ -949,25 +949,122 @@ static void case_append_end_resume(void) {
       encode_rsp_cop0(true, 1u, 8u),
       encode_rsp_cop0(true, 2u, 9u),
       0u,
-      encode_rsp_cop0(true, 2u, 9u),
+      encode_rsp_cop0(true, 4u, 9u),
       encode_rsp_cop0(false, 3u, 10u),
       UINT32_C(0x0000000d)};
   t64_machine *machine = create_test_machine();
+  uint64_t first_end_tick = 0u;
+  uint64_t first_fetch_tick = 0u;
+  uint64_t extension_tick = 0u;
+  uint64_t progress_deadline = 0u;
+  uint64_t next_tick = 0u;
+  uint64_t rsp_sequence = 0u;
+  uint64_t rdp_sequence = 0u;
+  bool fill_completed = false;
+  bool fullsync_fetched = false;
+  bool fullsync_effect_started = false;
+  bool fullsync_completed = false;
 
+  T64_CHECK(machine != NULL);
   if (machine == NULL) return;
   seed_fill_state_only(machine);
   write_command(machine, UINT32_C(0x100), UINT64_C(0x3600c00800000000));
   write_command(machine, UINT32_C(0x108), UINT64_C(0xe900000000000000));
   machine->rsp.gpr[1] = UINT32_C(0x100);
-  machine->rsp.gpr[2] = UINT32_C(0x110);
+  machine->rsp.gpr[2] = UINT32_C(0x108);
+  machine->rsp.gpr[4] = UINT32_C(0x110);
   T64_CHECK(install_rsp_program(machine, program,
                                 sizeof program / sizeof program[0]));
   T64_CHECK_INT(t64_rsp_start(machine), T64_STATUS_OK);
-  T64_CHECK(advance_to_tick(machine, UINT64_C(5)));
+  T64_CHECK(advance_to_tick(machine, UINT64_C(1)));
+  T64_CHECK_INT(machine->rsp_observed_opcode, program[0]);
+  T64_CHECK_INT(machine->rsp_observed_outcome, T64_RSP_ATTEMPT_RETIRED);
+  first_end_tick = machine->rsp.memory_access_ready_tick;
+  T64_CHECK_INT(first_end_tick, machine->tick + UINT64_C(3));
+  T64_CHECK(advance_to_tick(machine, first_end_tick));
+  T64_CHECK_INT(machine->rsp_observed_opcode, program[1]);
+  T64_CHECK_INT(machine->rsp_observed_outcome, T64_RSP_ATTEMPT_RETIRED);
+  T64_CHECK_INT(machine->rdp.dpc_end, UINT32_C(0x108));
+
+  first_fetch_tick = machine->tick + UINT64_C(1);
+  T64_CHECK(queued_sequence(machine, first_fetch_tick, T64_DEVICE_SP,
+                            T64_SP_EVENT_RSP_ISSUE, &rsp_sequence));
+  T64_CHECK(queued_sequence(machine, first_fetch_tick, T64_RDP_DEVICE,
+                            T64_RDP_EVENT_WORK, &rdp_sequence));
+  T64_CHECK(rsp_sequence < rdp_sequence);
+  T64_CHECK(advance_to_tick(machine, first_fetch_tick));
+  T64_CHECK_INT(machine->rdp.dpc_end, UINT32_C(0x108));
   T64_CHECK_INT(machine->rdp.dpc_current, UINT32_C(0x108));
   T64_CHECK(machine->rdp.command_pending);
   T64_CHECK(machine->rdp.busy);
-  T64_CHECK(advance_to_tick(machine, UINT64_C(32)));
+  T64_CHECK_INT(machine->rdp.fullsync_count, 0u);
+  T64_CHECK((machine->mi_pending & UINT32_C(0x20)) == 0u);
+
+  extension_tick = machine->rsp.memory_access_ready_tick;
+  T64_CHECK_INT(extension_tick, first_end_tick + UINT64_C(3));
+  T64_CHECK(advance_to_tick(machine, extension_tick - UINT64_C(1)));
+  T64_CHECK(machine->rdp.render_active);
+  T64_CHECK_INT(machine->rdp.fill_count, 0u);
+  T64_CHECK(queued_sequence(machine, extension_tick, T64_DEVICE_SP,
+                            T64_SP_EVENT_RSP_ISSUE, &rsp_sequence));
+  T64_CHECK(queued_sequence(machine, extension_tick, T64_RDP_DEVICE,
+                            T64_RDP_EVENT_WORK, &rdp_sequence));
+  T64_CHECK(rsp_sequence < rdp_sequence);
+  T64_CHECK(advance_to_tick(machine, extension_tick));
+  T64_CHECK_INT(machine->rsp_observed_opcode, program[3]);
+  T64_CHECK_INT(machine->rsp_observed_outcome, T64_RSP_ATTEMPT_RETIRED);
+  T64_CHECK_INT(machine->rdp.dpc_end, UINT32_C(0x110));
+  T64_CHECK_INT(machine->rdp.dpc_current, UINT32_C(0x108));
+  T64_CHECK_INT(machine->rdp.command_count, 1u);
+  T64_CHECK(machine->rdp.render_active);
+  T64_CHECK(machine->rdp.busy);
+  T64_CHECK(machine->rdp.render_y < machine->rdp.render_y_end);
+  T64_CHECK((machine->mi_pending & UINT32_C(0x20)) == 0u);
+
+  progress_deadline = machine->tick + UINT64_C(64);
+  for (next_tick = machine->tick + UINT64_C(1);
+       next_tick <= progress_deadline; next_tick++) {
+    if (!advance_to_tick(machine, next_tick)) {
+      T64_CHECK(false);
+      break;
+    }
+    if (!fill_completed && machine->rdp.fill_count == 1u) {
+      fill_completed = true;
+      T64_CHECK(!machine->rdp.render_active);
+      T64_CHECK_INT(machine->rdp.dpc_current, UINT32_C(0x108));
+      T64_CHECK(machine->rdp.busy);
+      T64_CHECK((machine->mi_pending & UINT32_C(0x20)) == 0u);
+    }
+    if (!fullsync_fetched && machine->rdp.command_pending &&
+        machine->rdp.pending_opcode_field == UINT32_C(0x29)) {
+      fullsync_fetched = true;
+      T64_CHECK_INT(machine->rdp.dpc_current, UINT32_C(0x110));
+      T64_CHECK_INT(machine->rdp.pending_command_address,
+                    UINT32_C(0x108));
+      T64_CHECK_INT(machine->rdp.command_count, 1u);
+      T64_CHECK_INT(machine->rdp.fullsync_count, 0u);
+      T64_CHECK((machine->mi_pending & UINT32_C(0x20)) == 0u);
+    }
+    if (fullsync_fetched && !fullsync_effect_started &&
+        machine->rdp.fence_pending) {
+      fullsync_effect_started = true;
+      T64_CHECK(!machine->rdp.command_pending);
+      T64_CHECK_INT(machine->rdp.command_count, 2u);
+      T64_CHECK_INT(machine->rdp.fullsync_count, 0u);
+      T64_CHECK((machine->mi_pending & UINT32_C(0x20)) == 0u);
+    }
+    if (fullsync_effect_started && machine->rdp.fullsync_count == 1u) {
+      fullsync_completed = true;
+      T64_CHECK(!machine->rdp.fence_pending);
+      T64_CHECK((machine->mi_pending & UINT32_C(0x20)) != 0u);
+      T64_CHECK(!machine->rdp.busy);
+      break;
+    }
+  }
+  T64_CHECK(fill_completed);
+  T64_CHECK(fullsync_fetched);
+  T64_CHECK(fullsync_effect_started);
+  T64_CHECK(fullsync_completed);
   T64_CHECK_INT(machine->rdp.refusal_reason, T64_RDP_REFUSAL_NONE);
   T64_CHECK_INT(machine->rdp.dpc_end, UINT32_C(0x110));
   T64_CHECK_INT(machine->rdp.dpc_current, UINT32_C(0x110));
