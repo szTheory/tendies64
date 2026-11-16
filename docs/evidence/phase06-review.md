@@ -153,6 +153,19 @@ I independently recomputed both new whitespace-normalized function-body hashes f
 
 The added mutations target exactly those two reviewed functions through the existing host-entry mutation loop at `scripts/tests/test_rsp_no_hle.py:29-34,215-230`; each inserts an anonymous DMEM-dependent effect and must be rejected. The mutation count remains checked against the declared seed list at `scripts/tests/test_rsp_no_hle.py:389-394`. No weakening or specific regression was found. The parent reports the bounded normal and ASan archive controls passed (`build/{gate,asan}/06-08-no-hle-control.log`); I did not rerun tests or builds in this source-only re-review.
 
+## Scoped re-review: bf7046f27cc6671ed332dcad875b568ef5130d09
+
+**Comparison:** `acde6e3e9bc328789f27206c742100acf35d3481..bf7046f27cc6671ed332dcad875b568ef5130d09`
+**Scope:** `scripts/check-base-evidence.py` and `scripts/tests/test_base_evidence.py` only. The diff also updates the Plan07 correction queue in this report. Reviewed exact original-attempt resolution, receipt order and hash checks, and the repeated-output control.
+
+### Verdict — PASS; no new findings
+
+The parser now consumes the two `execution_record.attempts` references in the known test order and checks that the list has exactly those two ordered references (`scripts/check-base-evidence.py:410-435`). Each reference is closed to an expected test name and bounded attempt-path format; command and outcome digests must match the exact files, the recorded outcome must be successful, child output must appear in the corresponding original CTest section, and the command must match the original normal-gate shape (`scripts/check-base-evidence.py:306-334, 279-303`). The prior directory-wide search and equal-output fallback are removed, so later normal or instrumented runs cannot substitute for the receipt-pinned original. Missing or changed pinned files refuse.
+
+The private-free control adds an identical later copy, changes its command to the ASan runner, verifies the pinned original remains accepted, then removes the pinned outcome and requires refusal (`scripts/tests/test_base_evidence.py:470-485`). This covers both the historical ambiguity and missing-original boundary without mutating retained production records. No specific regression or new actionable finding was proven.
+
+The parent reports the authored controls, normal and ASan checks, qualification and artifact/current/pre-use checks, and rights/privacy scan passed; I performed source inspection only and did not run tests or builds. The final hosted gate remains parent-owned.
+
 ## Correction slice 3 queue: original attempt lookup after later tests
 
 The complete normal gate and instrumented suite passed at 7554ef0, including
@@ -169,3 +182,8 @@ and reject missing/changed/foreign references. Add an accepted repeated-output
 control. No record is deleted or relabeled. Re-review only this parser slice;
 reuse unaffected full native/sanitizer semantics and run the changed owner in
 both presets. Final hosted gate covers the published source.
+
+Parser-slice re-review is complete: **PASS; no new findings**. The exact-reference
+checks and repeated-output/missing-original control are documented above. The
+parent reports the changed-owner checks passed; the hosted gate remains pending
+with the parent.

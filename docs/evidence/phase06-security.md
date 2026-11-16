@@ -4,7 +4,7 @@ asvs_level: 1
 block_on: high
 verdict: OPEN_THREATS
 threats_total: 33
-threats_open: 2
+threats_open: 1
 ---
 
 # Phase 06 security mitigation audit
@@ -66,7 +66,7 @@ The auditor used source and bounded read-only evidence, not a final full suite.
 | 07 | T-06-19 | CLOSED | scripts/check-base-evidence.py:38,76,181,685; scripts/tests/test_base_evidence.py PublicEvidenceControls |
 | 07 | T-06-20 | CLOSED | scripts/check-base-evidence.py original CTest/attempt/artifact reconstruction and bounded claim equality; scripts/tests/test_base_evidence.py PublicEvidenceControls |
 | 08 | T-06-21 | CLOSED | Conclusive code review docs/evidence/phase06-review.md plus this complete security register |
-| 08 | T-06-22 | OPEN | Pending correction/re-review and stable final gate/artifact qualification |
+| 08 | T-06-22 | CLOSED | Pending correction/re-review and stable final gate/artifact qualification |
 | 08 | T-06-23 | OPEN | Pending exact authored-only hosted pair, artifacts/readback, publication scans |
 | 09 | T-06-24 | CLOSED | runner/t64_cold_boot.c:899,1178; runner/tests/test_cold_boot.c:161; runner/CMakeLists.txt:377,384 |
 | 09 | T-06-03 | CLOSED | runner/t64_cold_boot.c first successful bus observation plus retirement; runner/tests/test_cold_boot.c:254,306 |
@@ -116,3 +116,25 @@ cover those same functions. Unknown sources/objects and body changes remain
 rejected. No C source changed, no regression/unregistered threat was found.
 Direct controls passed against normal/instrumented archives. T-06-22/23 still
 require the stable final gates and hosted readback.
+
+## Final local artifact closure and original-reference re-audit
+
+The complete canonical normal gate passed on 7554ef0; the all-target ASan/UBSan
+suite, exact inventory, admission fuzz and sanitizer negative control also
+passed. Source/diff freeze and retained log hashes were checked. Exact tested
+executables are copied and hashed in build/gate/06-08-final/inputs/binding.json.
+The existing local GCC13 image passed the network-disabled, read-only warnings
+check. Final private source/tool/lock/asset/image composition qualification and
+exact consumer/binding retention passed; no diagnostic guest was replayed.
+
+Final readback found that later identical authored startup outputs made a
+glob-based historical lookup ambiguous. Slice3 at bf7046f resolves the receipt's
+exact closed path and command/outcome hashes, verifies the original CTest
+embedding and normal command, and has no fallback to later attempts. Both
+configured scoped reviews closed T-06-20 without regression. The private-free
+repeat-output control and normal/instrumented owning CTests passed; saved
+artifact/original-record/live pre-use checks pass. The full native suite's C,
+compiler and build inputs are unchanged by this host parser slice; its focused
+evidence is retained separately rather than relabeling the native executable.
+T-06-22 is closed by that combined scoped evidence. Only T-06-23 awaits the
+exact authored hosted pair and artifact readback.
