@@ -72,7 +72,7 @@ Decimal phases appear between their surrounding integers in numeric order.
 - [x] **Phase 3: First Headless ROM Through Open IPL3** - Primary documents pinned; HLE-PIF plus pinned open IPL3 boots a hello ROM that prints through ISViewer, with digests matching across two operating systems and two compilers (completed 2026-11-11)
 - [x] **Phase 4: Complete VR4300 CPU** - MIPS III integer, delay slots, CP0, TLB, unaligned access, LL/SC, cache scope and soft-float COP1, with per-group `nemu64-test` CPU status (completed 2026-11-13)
 - [x] **Phase 5: RSP Low-Level Emulation** - Scalar and vector units, DMA and status semantics, checked against a permanent scalar VU oracle and the `nemu64-test` RSP groups (completed 2026-11-14)
-- [ ] **Phase 6: Cold Boot, CPU Timing and Full Base Suite** - RDRAM register protocol, instruction-granular timing and the whole base suite classified by lane with pinned counts
+- [x] **Phase 6: Cold Boot, CPU Timing and Full Base Suite** - RDRAM register protocol, instruction-granular timing and the whole base suite classified by lane with pinned counts (completed 2026-11-15)
 
 ## Phase Details
 
@@ -294,7 +294,7 @@ Plans:
   2. Count and Random advance under the tier 1 instruction-granular cost model, and the tests cite their expectation sources. The cycle-accurate tier is documented as deferred, with the evidence needed to promote it
   3. The full base suite reports per-group status with its total count pinned. The timing, cycle and cop0hazard groups are reported as informational, experimental groups stay out of the required gate, and stress groups run in a scheduled lane
   4. The milestone's support statement for the first profile uses the claims template: profile, build identity, evidence tier and fixture-manifest entry for every reported result. It makes no claim beyond those results
-**Plans**: 8/9 plans executed
+**Plans**: 9/9 plans complete
 
 Plans:
 - [x] 06-01-PLAN.md — Two cold profiles and real static T1 instruction intervals (wave 1)
@@ -305,7 +305,7 @@ Plans:
 - [x] 06-05-PLAN.md — Actual Tier A/B hello output and per-profile determinism
 - [x] 06-06-PLAN.md — Full C classification, permitted target execution and explicit lanes
 - [x] 06-07-PLAN.md — Original-evidence validator and bounded first-profile claims
-- [ ] 06-08-PLAN.md — Complete reviews, scoped fixes and final exact-artifact gate
+- [x] 06-08-PLAN.md — Complete reviews, scoped fixes and final exact-artifact gate
 
 ## v1.1 Observable Machine
 
