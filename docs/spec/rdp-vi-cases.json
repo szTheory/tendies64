@@ -19,7 +19,13 @@
             "loadsync-raw-26",
             "scheduler-time-sequence-exhaustion-atomic",
             "reset-clears-pending-work",
-            "counter-registers-read-only-and-clearable"
+            "counter-registers-read-only-and-clearable",
+            "fetched-rsp-dp-fill",
+            "older-profile-dp-refuses",
+            "append-end-resume",
+            "truncated-packet-reached",
+            "unsupported-preserves-prior-work",
+            "same-tick-sequence"
           ]
         }
       ]

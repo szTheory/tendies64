@@ -16,6 +16,8 @@
 #define DP_BUSY UINT32_C(1)
 #define DP_ERROR UINT32_C(2)
 #define TEST_ROM_CAPACITY 65536u
+#define RSP_IMEM_BASE UINT32_C(0x04001000)
+#define RSP_FUNCTIONAL_PROFILE_ID "ntsc-cart-4m-openipl3-rsp-functional-v1"
 
 static bool test_allocate(void *context, size_t size, size_t alignment,
                           t64_host_storage *storage_out) {
@@ -478,6 +480,92 @@ static void case_zero_area_fill_is_noop(void) {
 #define DPC_PIPE_COUNTER UINT32_C(0x04100018)
 #define DPC_TMEM_COUNTER UINT32_C(0x0410001c)
 
+static t64_machine *create_rsp_only_test_machine(void) {
+  const t64_host_allocator allocator = {test_allocate, test_release, NULL};
+  const t64_profile_descriptor *profile = NULL;
+  t64_host_storage image = {NULL, 0u, 0u};
+  t64_machine *machine = NULL;
+
+  if (t64_profile_lookup(RSP_FUNCTIONAL_PROFILE_ID, &profile) !=
+          T64_STATUS_OK ||
+      profile == NULL ||
+      t64_machine_create(&allocator, profile, &machine) != T64_STATUS_OK ||
+      machine == NULL) {
+    return NULL;
+  }
+  if (!test_allocate(NULL, 2u, 1u, &image)) {
+    t64_machine_destroy(machine);
+    return NULL;
+  }
+  ((uint8_t *)image.data)[0] = UINT8_C(0x5a);
+  ((uint8_t *)image.data)[1] = UINT8_C(0xa5);
+  machine->image_storage = image;
+  machine->image_length = 2u;
+  machine->has_image = true;
+  return machine;
+}
+
+static uint32_t encode_rsp_cop0(bool write, uint32_t rt, uint32_t rd) {
+  return (UINT32_C(0x10) << 26) |
+         ((write ? UINT32_C(4) : UINT32_C(0)) << 21) | (rt << 16) |
+         (rd << 11);
+}
+
+static bool install_rsp_program(t64_machine *machine,
+                                const uint32_t *instructions,
+                                size_t instruction_count) {
+  size_t index;
+
+  if (machine == NULL || instructions == NULL || instruction_count == 0u ||
+      instruction_count > 1024u) {
+    return false;
+  }
+  machine->rsp.pc = 0u;
+  machine->rsp.sp_status |= UINT32_C(1);
+  for (index = 0u; index < instruction_count; index++) {
+    if (t64_machine_bus_write(machine,
+                              RSP_IMEM_BASE + (uint32_t)(index * 4u), 4u,
+                              instructions[index]) != T64_STATUS_OK) {
+      return false;
+    }
+  }
+  return true;
+}
+
+static bool advance_to_tick(t64_machine *machine, uint64_t target_tick) {
+  while (machine != NULL && machine->tick < target_tick) {
+    t64_stop_request request = {T64_STOP_GUEST_TICK,
+                                machine->tick + UINT64_C(1)};
+    t64_stop_result result = {0u, 0u};
+
+    if (t64_machine_advance(machine, &request, &result) != T64_STATUS_OK ||
+        result.tick != request.value) {
+      return false;
+    }
+  }
+  return machine != NULL && machine->tick == target_tick;
+}
+
+static bool queued_sequence(const t64_machine *machine, uint64_t tick,
+                            uint32_t device, uint32_t kind,
+                            uint64_t *sequence_out) {
+  size_t index;
+
+  if (machine == NULL || sequence_out == NULL) return false;
+  for (index = 0u; index < machine->queue_count; index++) {
+    size_t event_index =
+        (machine->queue_head + index) % T64_EVENT_QUEUE_CAPACITY;
+    const t64_event *event = &machine->events[event_index];
+
+    if (event->tick == tick && event->device == device &&
+        event->kind == kind) {
+      *sequence_out = event->sequence;
+      return true;
+    }
+  }
+  return false;
+}
+
 static bool seed_transport(t64_machine *machine, uint32_t start,
                            uint32_t end) {
   clear_queued_events(machine);
@@ -791,6 +879,196 @@ static void case_counter_registers_read_only_and_clearable(void) {
   }
   t64_machine_destroy(machine);
 }
+
+static void case_fetched_rsp_dp_fill(void) {
+  const uint32_t program[] = {
+      encode_rsp_cop0(true, 1u, 8u),
+      encode_rsp_cop0(true, 2u, 9u),
+      0u,
+      0u,
+      0u,
+      encode_rsp_cop0(false, 3u, 10u),
+      UINT32_C(0x0000000d)};
+  t64_machine *machine = create_test_machine();
+
+  if (machine == NULL) return;
+  T64_CHECK(t64_has_rsp_functional_profile(machine));
+  seed_fill_state_only(machine);
+  write_command(machine, UINT32_C(0x100), UINT64_C(0x3600c00800000000));
+  write_command(machine, UINT32_C(0x108), UINT64_C(0xe900000000000000));
+  machine->rsp.gpr[1] = UINT32_C(0x100);
+  machine->rsp.gpr[2] = UINT32_C(0x110);
+  T64_CHECK(install_rsp_program(machine, program,
+                                sizeof program / sizeof program[0]));
+  T64_CHECK_INT(t64_rsp_start(machine), T64_STATUS_OK);
+  T64_CHECK(advance_to_tick(machine, UINT64_C(1)));
+  T64_CHECK_INT(machine->rsp_observed_outcome, T64_RSP_ATTEMPT_RETIRED);
+  T64_CHECK_INT(machine->rsp_observed_opcode, program[0]);
+  T64_CHECK(advance_to_tick(machine, UINT64_C(32)));
+  T64_CHECK_INT(machine->rdp.refusal_reason, T64_RDP_REFUSAL_NONE);
+  T64_CHECK_INT(machine->rdp.dpc_start, UINT32_C(0x100));
+  T64_CHECK_INT(machine->rdp.dpc_end, UINT32_C(0x110));
+  T64_CHECK_INT(machine->rdp.dpc_current, UINT32_C(0x110));
+  T64_CHECK_INT(machine->rdp.command_count, 2u);
+  T64_CHECK_INT(machine->rdp.fill_count, 1u);
+  T64_CHECK_INT(machine->rdp.fullsync_count, 1u);
+  T64_CHECK_INT(machine->mi_pending, UINT32_C(0x20));
+  T64_CHECK_INT(machine->rsp.gpr[3], UINT32_C(0x108));
+  T64_CHECK_INT(machine->ram[UINT32_C(0x3000)], UINT8_C(0xf8));
+  T64_CHECK_INT(machine->ram[UINT32_C(0x3001)], UINT8_C(0x01));
+  T64_CHECK_INT(machine->ram[UINT32_C(0x3002)], UINT8_C(0x07));
+  T64_CHECK_INT(machine->ram[UINT32_C(0x3003)], UINT8_C(0xc1));
+  t64_machine_destroy(machine);
+}
+
+static void case_older_profile_dp_refuses(void) {
+  const uint32_t program[] = {encode_rsp_cop0(false, 3u, 8u),
+                              UINT32_C(0x0000000d)};
+  t64_machine *machine = create_rsp_only_test_machine();
+
+  if (machine == NULL) return;
+  T64_CHECK(!t64_has_rdp_vi_profile(machine));
+  T64_CHECK(t64_has_rsp_functional_profile(machine));
+  T64_CHECK(install_rsp_program(machine, program,
+                                sizeof program / sizeof program[0]));
+  T64_CHECK_INT(t64_rsp_start(machine), T64_STATUS_OK);
+  T64_CHECK(advance_to_tick(machine, UINT64_C(1)));
+  T64_CHECK_INT(machine->rsp_observed_outcome, T64_RSP_ATTEMPT_REFUSED);
+  T64_CHECK_INT(machine->rsp_observed_refusal_reason,
+                T64_RSP_REFUSAL_DP_UNAVAILABLE);
+  T64_CHECK_INT(machine->rsp.pc, 0u);
+  T64_CHECK_INT(machine->rsp.retired_instructions, 0u);
+  T64_CHECK_INT(machine->rdp.dpc_start, 0u);
+  T64_CHECK_INT(machine->rdp.dpc_end, 0u);
+  T64_CHECK_INT(machine->rdp.dpc_current, 0u);
+  t64_machine_destroy(machine);
+}
+
+static void case_append_end_resume(void) {
+  const uint32_t program[] = {
+      encode_rsp_cop0(true, 1u, 8u),
+      encode_rsp_cop0(true, 2u, 9u),
+      0u,
+      encode_rsp_cop0(true, 2u, 9u),
+      encode_rsp_cop0(false, 3u, 10u),
+      UINT32_C(0x0000000d)};
+  t64_machine *machine = create_test_machine();
+
+  if (machine == NULL) return;
+  seed_fill_state_only(machine);
+  write_command(machine, UINT32_C(0x100), UINT64_C(0x3600c00800000000));
+  write_command(machine, UINT32_C(0x108), UINT64_C(0xe900000000000000));
+  machine->rsp.gpr[1] = UINT32_C(0x100);
+  machine->rsp.gpr[2] = UINT32_C(0x110);
+  T64_CHECK(install_rsp_program(machine, program,
+                                sizeof program / sizeof program[0]));
+  T64_CHECK_INT(t64_rsp_start(machine), T64_STATUS_OK);
+  T64_CHECK(advance_to_tick(machine, UINT64_C(3)));
+  T64_CHECK_INT(machine->rdp.dpc_current, UINT32_C(0x108));
+  T64_CHECK(machine->rdp.command_pending);
+  T64_CHECK(machine->rdp.busy);
+  T64_CHECK(advance_to_tick(machine, UINT64_C(32)));
+  T64_CHECK_INT(machine->rdp.refusal_reason, T64_RDP_REFUSAL_NONE);
+  T64_CHECK_INT(machine->rdp.dpc_end, UINT32_C(0x110));
+  T64_CHECK_INT(machine->rdp.dpc_current, UINT32_C(0x110));
+  T64_CHECK_INT(machine->rdp.command_count, 2u);
+  T64_CHECK_INT(machine->rdp.fill_count, 1u);
+  T64_CHECK_INT(machine->rdp.fullsync_count, 1u);
+  T64_CHECK_INT(machine->mi_pending, UINT32_C(0x20));
+  T64_CHECK_INT(machine->rsp.gpr[3], UINT32_C(0x108));
+  t64_machine_destroy(machine);
+}
+
+static void case_truncated_packet_reached(void) {
+  const uint32_t program[] = {encode_rsp_cop0(true, 1u, 8u),
+                              encode_rsp_cop0(true, 2u, 9u), 0u};
+  t64_machine *machine = create_test_machine();
+  uint64_t rsp_sequence = 0u;
+  uint64_t rdp_sequence = 0u;
+
+  if (machine == NULL) return;
+  machine->rsp.gpr[1] = UINT32_C(0x100);
+  machine->rsp.gpr[2] = UINT32_C(0x108);
+  T64_CHECK(install_rsp_program(machine, program,
+                                sizeof program / sizeof program[0]));
+  T64_CHECK_INT(t64_rsp_start(machine), T64_STATUS_OK);
+  T64_CHECK(advance_to_tick(machine, UINT64_C(2)));
+  T64_CHECK_INT(machine->rdp.dpc_end, UINT32_C(0x108));
+  T64_CHECK(queued_sequence(machine, UINT64_C(3), T64_RDP_DEVICE,
+                            T64_RDP_EVENT_WORK, &rdp_sequence));
+  T64_CHECK(queued_sequence(machine, UINT64_C(3), T64_DEVICE_SP,
+                            T64_SP_EVENT_RSP_ISSUE, &rsp_sequence));
+  /* A half-command bound cannot be written through the aligned DPC END port;
+     inject it after accepted RSP setup to exercise the fetch-time guard. */
+  machine->rdp.dpc_end = UINT32_C(0x104);
+  T64_CHECK(advance_to_tick(machine, UINT64_C(3)));
+  T64_CHECK_INT(machine->rdp.refusal_reason,
+                T64_RDP_REFUSAL_TRUNCATED_WORD);
+  T64_CHECK_INT(machine->rdp.dpc_current, UINT32_C(0x100));
+  T64_CHECK_INT(machine->rdp.command_count, 0u);
+  T64_CHECK_INT(machine->rdp.fill_count, 0u);
+  T64_CHECK(!machine->rdp.busy);
+  T64_CHECK(!machine->rdp.command_pending);
+  T64_CHECK(rsp_sequence < rdp_sequence);
+  t64_machine_destroy(machine);
+}
+
+static void case_unsupported_preserves_prior_work(void) {
+  const uint32_t program[] = {encode_rsp_cop0(true, 1u, 8u),
+                              encode_rsp_cop0(true, 2u, 9u),
+                              UINT32_C(0x0000000d)};
+  t64_machine *machine = create_test_machine();
+
+  if (machine == NULL) return;
+  seed_fill_state_only(machine);
+  write_command(machine, UINT32_C(0x100), UINT64_C(0x3600c00800000000));
+  write_command(machine, UINT32_C(0x108), UINT64_C(0x3e00000000000000));
+  machine->rsp.gpr[1] = UINT32_C(0x100);
+  machine->rsp.gpr[2] = UINT32_C(0x110);
+  T64_CHECK(install_rsp_program(machine, program,
+                                sizeof program / sizeof program[0]));
+  T64_CHECK_INT(t64_rsp_start(machine), T64_STATUS_OK);
+  T64_CHECK(advance_to_tick(machine, UINT64_C(32)));
+  T64_CHECK_INT(machine->rdp.refusal_reason,
+                T64_RDP_REFUSAL_UNSUPPORTED_OPCODE);
+  T64_CHECK_INT(machine->rdp.dpc_current, UINT32_C(0x108));
+  T64_CHECK_INT(machine->rdp.fill_count, 1u);
+  T64_CHECK_INT(machine->rdp.fullsync_count, 0u);
+  T64_CHECK_INT(machine->mi_pending, 0u);
+  T64_CHECK_INT(machine->ram[UINT32_C(0x3000)], UINT8_C(0xf8));
+  T64_CHECK_INT(machine->ram[UINT32_C(0x3001)], UINT8_C(0x01));
+  T64_CHECK_INT(machine->ram[UINT32_C(0x3002)], UINT8_C(0x07));
+  T64_CHECK_INT(machine->ram[UINT32_C(0x3003)], UINT8_C(0xc1));
+  t64_machine_destroy(machine);
+}
+
+static void case_same_tick_sequence(void) {
+  const uint32_t program[] = {encode_rsp_cop0(true, 1u, 8u),
+                              encode_rsp_cop0(true, 2u, 9u), 0u};
+  t64_machine *machine = create_test_machine();
+  uint64_t rsp_sequence = 0u;
+  uint64_t rdp_sequence = 0u;
+
+  if (machine == NULL) return;
+  write_command(machine, UINT32_C(0x100), UINT64_C(0xe600000000000000));
+  machine->rsp.gpr[1] = UINT32_C(0x100);
+  machine->rsp.gpr[2] = UINT32_C(0x108);
+  T64_CHECK(install_rsp_program(machine, program,
+                                sizeof program / sizeof program[0]));
+  T64_CHECK_INT(t64_rsp_start(machine), T64_STATUS_OK);
+  T64_CHECK(advance_to_tick(machine, UINT64_C(2)));
+  T64_CHECK(queued_sequence(machine, UINT64_C(3), T64_DEVICE_SP,
+                            T64_SP_EVENT_RSP_ISSUE, &rsp_sequence));
+  T64_CHECK(queued_sequence(machine, UINT64_C(3), T64_RDP_DEVICE,
+                            T64_RDP_EVENT_WORK, &rdp_sequence));
+  T64_CHECK(rsp_sequence < rdp_sequence);
+  T64_CHECK(advance_to_tick(machine, UINT64_C(3)));
+  T64_CHECK_INT(machine->rsp_observed_opcode, program[2]);
+  T64_CHECK_INT(machine->rdp.dpc_current, UINT32_C(0x108));
+  T64_CHECK(machine->rdp.command_pending);
+  T64_CHECK_INT(machine->rdp.last_command_byte, 0u);
+  t64_machine_destroy(machine);
+}
 #endif
 
 typedef struct {
@@ -814,6 +1092,13 @@ static const test_case cases[] = {
     {"reset-clears-pending-work", case_reset_clears_pending_work},
     {"counter-registers-read-only-and-clearable",
      case_counter_registers_read_only_and_clearable},
+    {"fetched-rsp-dp-fill", case_fetched_rsp_dp_fill},
+    {"older-profile-dp-refuses", case_older_profile_dp_refuses},
+    {"append-end-resume", case_append_end_resume},
+    {"truncated-packet-reached", case_truncated_packet_reached},
+    {"unsupported-preserves-prior-work",
+     case_unsupported_preserves_prior_work},
+    {"same-tick-sequence", case_same_tick_sequence},
 #else
     {"dpc-register-acceptance", case_dpc_register_acceptance},
     {"direct-opcode-mask-preserves-original",
