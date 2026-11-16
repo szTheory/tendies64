@@ -107,9 +107,9 @@ is delegated by routine implementation discretion.
 - `.planning/AUTONOMY.md` and `AGENTS.md` — authority, limits and efficiency.
 - `.planning/ROADMAP.md` Phase7 and `.planning/REQUIREMENTS.md` VID-01–06.
 - `.planning/research/SUMMARY.md` — scoped milestone synthesis.
-- `.planning/phases/07-rdp-reference-renderer-and-vi-scanout/07-COMMAND-DECISION-RESEARCH.md` — primary DP/register/FullSync locators and options.
-- `.planning/phases/07-rdp-reference-renderer-and-vi-scanout/07-OUTPUT-DECISION-RESEARCH.md` — primary VI locators, output/time alternatives.
-- `.planning/phases/07-rdp-reference-renderer-and-vi-scanout/07-ADVERSARIAL-RESEARCH.md` — independent counterexamples and discriminating controls.
+- `.planning/phases/07-rdp-reference-renderer-and-vi-scanout/07-COMMAND-OPTIONS.md` — primary DP/register/FullSync locators and options.
+- `.planning/phases/07-rdp-reference-renderer-and-vi-scanout/07-OUTPUT-OPTIONS.md` — primary VI locators, output/time alternatives.
+- `.planning/phases/07-rdp-reference-renderer-and-vi-scanout/07-ADVERSARIAL-CHECK.md` — independent counterexamples and discriminating controls.
 - `docs/spec/machine-contract.md` — lifetime, tick, refusal and bus contracts.
 - `docs/spec/cpu-compatibility.md` — approved versioned behavior pattern.
 - `docs/spec/cpu-timing.md` — existing guest-time domain.

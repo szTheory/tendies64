@@ -78,3 +78,12 @@ or risk acceptance. Physical measurements, protected inputs/public external CI,
 Angrylion authority, copy permissions and release channel/versioning retain their
 owner stops. The original Phase06 Plan02 binary gap is irrecoverable and excluded
 from current support evidence. No tag or software release is implied by v1.0.
+
+## v1.1 planning discovery lesson
+
+The plan initializer treated advisory `*-RESEARCH.md` notes as complete phase
+research and selected the adversarial memo before the canonical implementation
+research existed. Use `*-OPTIONS.md`/`*-CHECK.md` for decision notes, reserve
+`NN-RESEARCH.md` for the implementation research, and inspect the initializer's
+resolved artifact path before reusing it. This cheap discovery check caught
+the false reuse before planning or a long suite.
