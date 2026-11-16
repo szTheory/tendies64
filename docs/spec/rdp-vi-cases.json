@@ -72,6 +72,19 @@
           ]
         }
       ]
+    },
+    "copy": {
+      "ctest": [
+        "unit.core.rdp.copy"
+      ],
+      "binaries": [
+        {
+          "path": "core/test_rdp_copy",
+          "cases": [
+            "load-tile-layout"
+          ]
+        }
+      ]
     }
   }
 }
