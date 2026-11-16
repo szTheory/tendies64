@@ -4,74 +4,67 @@ verified: 2026-11-16T03:42:57Z
 status: passed
 score: 36/36 must-haves verified
 covered_files:
-  - ".planning/phases/05-rsp-low-level-emulation/05-01-PLAN.md"
-  - ".planning/phases/05-rsp-low-level-emulation/05-01-SUMMARY.md"
-  - ".planning/phases/05-rsp-low-level-emulation/05-02-PLAN.md"
-  - ".planning/phases/05-rsp-low-level-emulation/05-02-SUMMARY.md"
-  - ".planning/phases/05-rsp-low-level-emulation/05-03-PLAN.md"
-  - ".planning/phases/05-rsp-low-level-emulation/05-03-SUMMARY.md"
-  - ".planning/phases/05-rsp-low-level-emulation/05-04-PLAN.md"
-  - ".planning/phases/05-rsp-low-level-emulation/05-04-SUMMARY.md"
-  - ".planning/phases/05-rsp-low-level-emulation/05-05-PLAN.md"
-  - ".planning/phases/05-rsp-low-level-emulation/05-05-SUMMARY.md"
-  - ".planning/phases/05-rsp-low-level-emulation/05-06-PLAN.md"
-  - ".planning/phases/05-rsp-low-level-emulation/05-06-SUMMARY.md"
-  - ".planning/phases/05-rsp-low-level-emulation/05-07-PLAN.md"
-  - ".planning/phases/05-rsp-low-level-emulation/05-07-SUMMARY.md"
-  - ".planning/phases/05-rsp-low-level-emulation/05-08-PLAN.md"
-  - ".planning/phases/05-rsp-low-level-emulation/05-08-SUMMARY.md"
-  - ".planning/phases/05-rsp-low-level-emulation/05-09-PLAN.md"
-  - ".planning/phases/05-rsp-low-level-emulation/05-09-SUMMARY.md"
-  - ".planning/phases/05-rsp-low-level-emulation/05-10-PLAN.md"
-  - ".planning/phases/05-rsp-low-level-emulation/05-10-SUMMARY.md"
-  - "build/asan/06-08-final/ctest.log"
-  - "build/asan/06-08-no-hle-control.log"
-  - "build/gate/06-08-final/gate-attempt03.log"
-  - "build/gate/06-08-final/inputs/binding.json"
-  - "build/gate/06-08-no-hle-control.log"
-  - "build/gate/v1.0-audit-scope.json"
-  - "build/gate/v1.0-integration-check.md"
-  - "build/gate/v1.0-stale-verification-scope.json"
-  - "build/gate/v1.0-verification-refresh-contract.json"
-  - "core/CMakeLists.txt"
-  - "core/t64_bus.c"
-  - "core/t64_digest.c"
-  - "core/t64_internal.h"
-  - "core/t64_machine.c"
-  - "core/t64_rdram.c"
-  - "core/t64_rsp.c"
-  - "core/t64_rsp_divider.c"
-  - "core/t64_rsp_divider.h"
-  - "core/t64_sp.c"
-  - "core/tests/test_boot_determinism.c"
-  - "core/tests/test_bus.c"
-  - "core/tests/test_profile.c"
-  - "core/tests/test_rdram.c"
-  - "core/tests/test_rsp_compare.c"
-  - "core/tests/test_rsp_control.c"
-  - "core/tests/test_rsp_divider.c"
-  - "core/tests/test_rsp_fuzz.c"
-  - "core/tests/test_rsp_multiply.c"
-  - "core/tests/test_rsp_scalar.c"
-  - "core/tests/test_rsp_transfers.c"
-  - "core/tests/test_rsp_vector.c"
-  - "core/tests/test_sp_dma.c"
-  - "core/tests/test_warm_devices.c"
-  - "docs/ci-reviews/LOG.md"
-  - "docs/evidence/phase05-final-rsp-evidence.json"
-  - "docs/evidence/phase05-native-rsp.md"
-  - "docs/evidence/phase06-native.md"
-  - "docs/evidence/phase06-review.md"
-  - "docs/spec/rdram-boot.md"
-  - "docs/spec/rsp-profile.md"
-  - "fixtures/rsp/rsp-smoke.S"
-  - "runner/CMakeLists.txt"
-  - "runner/t64_rsp_smoke.c"
-  - "scripts/check-rsp-evidence.py"
-  - "scripts/check-rsp-no-hle.py"
-  - "scripts/tests/test_rsp_no_hle.py"
-  - "tests/test_rsp_smoke.py"
-covered_digest: "v4:sha256:6fc2e5fa6ce870e4571576341b23831550ed2c385568284f79de15c4cf9defb1"
+  - .planning/phases/05-rsp-low-level-emulation/05-01-PLAN.md
+  - .planning/phases/05-rsp-low-level-emulation/05-01-SUMMARY.md
+  - .planning/phases/05-rsp-low-level-emulation/05-02-PLAN.md
+  - .planning/phases/05-rsp-low-level-emulation/05-02-SUMMARY.md
+  - .planning/phases/05-rsp-low-level-emulation/05-03-PLAN.md
+  - .planning/phases/05-rsp-low-level-emulation/05-03-SUMMARY.md
+  - .planning/phases/05-rsp-low-level-emulation/05-04-PLAN.md
+  - .planning/phases/05-rsp-low-level-emulation/05-04-SUMMARY.md
+  - .planning/phases/05-rsp-low-level-emulation/05-05-PLAN.md
+  - .planning/phases/05-rsp-low-level-emulation/05-05-SUMMARY.md
+  - .planning/phases/05-rsp-low-level-emulation/05-06-PLAN.md
+  - .planning/phases/05-rsp-low-level-emulation/05-06-SUMMARY.md
+  - .planning/phases/05-rsp-low-level-emulation/05-07-PLAN.md
+  - .planning/phases/05-rsp-low-level-emulation/05-07-SUMMARY.md
+  - .planning/phases/05-rsp-low-level-emulation/05-08-PLAN.md
+  - .planning/phases/05-rsp-low-level-emulation/05-08-SUMMARY.md
+  - .planning/phases/05-rsp-low-level-emulation/05-09-PLAN.md
+  - .planning/phases/05-rsp-low-level-emulation/05-09-SUMMARY.md
+  - .planning/phases/05-rsp-low-level-emulation/05-10-PLAN.md
+  - .planning/phases/05-rsp-low-level-emulation/05-10-SUMMARY.md
+  - core/CMakeLists.txt
+  - core/t64_bus.c
+  - core/t64_digest.c
+  - core/t64_internal.h
+  - core/t64_machine.c
+  - core/t64_rdram.c
+  - core/t64_rsp.c
+  - core/t64_rsp_divider.c
+  - core/t64_rsp_divider.h
+  - core/t64_sp.c
+  - core/tests/test_boot_determinism.c
+  - core/tests/test_bus.c
+  - core/tests/test_profile.c
+  - core/tests/test_rdram.c
+  - core/tests/test_rsp_compare.c
+  - core/tests/test_rsp_control.c
+  - core/tests/test_rsp_divider.c
+  - core/tests/test_rsp_fuzz.c
+  - core/tests/test_rsp_multiply.c
+  - core/tests/test_rsp_scalar.c
+  - core/tests/test_rsp_transfers.c
+  - core/tests/test_rsp_vector.c
+  - core/tests/test_sp_dma.c
+  - core/tests/test_warm_devices.c
+  - docs/ci-reviews/LOG.md
+  - docs/evidence/phase05-final-rsp-evidence.json
+  - docs/evidence/phase05-native-rsp.md
+  - docs/evidence/phase06-native.md
+  - docs/evidence/phase06-review.md
+  - docs/spec/rdram-boot.md
+  - docs/spec/rsp-profile.md
+  - fixtures/rsp/rsp-smoke.S
+  - runner/CMakeLists.txt
+  - runner/t64_rsp_smoke.c
+  - scripts/check-rsp-evidence.py
+  - scripts/check-rsp-no-hle.py
+  - scripts/check-test-inventory.sh
+  - scripts/tests/test_rsp_evidence.py
+  - scripts/tests/test_rsp_no_hle.py
+  - tests/test_rsp_smoke.py
+covered_digest: "v4:sha256:334bd10ba9eaae6cb85749688af72085c9e90d1b727706ffeb1c49ef5a40dbfa"
 behavior_unverified: 0
 overrides_applied: 0
 decision_coverage:
@@ -248,3 +241,20 @@ No must-have or requirement gap remains. The software implementation is wired in
 _Verified: 2026-11-16T03:42:57Z_
 
 _Verifier: the agent (gsd-verifier)_
+
+
+## Final archive-continuity delta reconciliation
+
+The four-file metadata lookup correction committed as cf4dfa8 preserves the
+Phase05 ownership tables through the fixed v1.0 archival move. The resolver
+refuses missing, duplicate and symlinked metadata. Its authored control passed
+in normal and instrumented builds; inventory/removal controls retain inherited
+test ownership. Scoped code and security review examined the working-tree
+correction based on 0fbcf90 before it was committed. Both hosted gates and exact
+artifact comparison passed for cf4dfa8 in run 43802632589. Source/runtime
+semantics and original guest evidence cohorts remain unchanged; this is no
+new guest execution or hardware qualification. Detailed retained evidence is
+in build/gate/v1.0-archive-*, build/asan/v1.0-archive-* and
+build/gate/v1.0-hosted-*; public run/timing ownership is in docs/ci-reviews/LOG.md.
+CLI fingerprints below cover durable source/evidence and this phase's
+plans/summaries; ignored local logs and mutable lifecycle trackers are excluded.

@@ -58,6 +58,7 @@ covered_files:
   - core/tests/test_scheduler.c
   - core/tests/test_sp_dma.c
   - core/tests/test_tracer.c
+  - docs/ci-reviews/LOG.md
   - docs/evidence/phase02-core.md
   - docs/profile-limits.md
   - docs/spec/machine-contract.md
@@ -67,12 +68,14 @@ covered_files:
   - runner/t64_skeleton_probe.c
   - runner/tests/test_model_result.c
   - runner/tests/test_skeleton_probe.c
+  - scripts/check-rsp-evidence.py
   - scripts/check-test-inventory.sh
   - scripts/expect-sanitizer.sh
   - scripts/gate.sh
+  - scripts/tests/test_rsp_evidence.py
   - tools/common/CMakeLists.txt
   - tools/lint/core-lint.sh
-covered_digest: "v4:sha256:2a10c98eb0ffff5a076ab9b0c8f544b57fcc64ef4d8533e7b4134a5fd1598abc"
+covered_digest: "v4:sha256:0d65a029fd2a28c1a8ca92a6fe32c33ea047e361f0b8d8030556591fa32ecc77"
 behavior_unverified: 0
 overrides_applied: 0
 re_verification:
@@ -277,3 +280,20 @@ Current cross-phase integration independently reports all four end-to-end flows 
 ### Current autonomous prohibition routing
 
 `02-VERIFICATION-TYPED-ROUTING.md` preserves its initial `human_needed` verdict and the three original judgment-tier recommendations as historical routing. The current disposition follows `.planning/AUTONOMY.md` section 2: the canonical report is `passed` with `completion_with_flags: 3`, and the same three non-authoritative flags remain prominent. No concrete violation or rights, authority, physical-testing, publication, or evidence-integrity stop was found in this refresh. This does not claim human review, human validation, owner approval, or risk acceptance. The auxiliary report's new resolution records this supersession explicitly.
+
+
+## Final archive-continuity delta reconciliation
+
+The four-file metadata lookup correction committed as cf4dfa8 preserves the
+Phase05 ownership tables through the fixed v1.0 archival move. The resolver
+refuses missing, duplicate and symlinked metadata. Its authored control passed
+in normal and instrumented builds; inventory/removal controls retain inherited
+test ownership. Scoped code and security review examined the working-tree
+correction based on 0fbcf90 before it was committed. Both hosted gates and exact
+artifact comparison passed for cf4dfa8 in run 43802632589. Source/runtime
+semantics and original guest evidence cohorts remain unchanged; this is no
+new guest execution or hardware qualification. Detailed retained evidence is
+in build/gate/v1.0-archive-*, build/asan/v1.0-archive-* and
+build/gate/v1.0-hosted-*; public run/timing ownership is in docs/ci-reviews/LOG.md.
+CLI fingerprints below cover durable source/evidence and this phase's
+plans/summaries; ignored local logs and mutable lifecycle trackers are excluded.

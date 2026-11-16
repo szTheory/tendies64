@@ -65,6 +65,7 @@ covered_files:
   - scripts/base-diagnostic-lanes.py
   - scripts/build-qualified-base-diagnostic.py
   - scripts/check-base-evidence.py
+  - scripts/check-rsp-evidence.py
   - scripts/check-test-inventory.sh
   - scripts/derive-base-diagnostic-source.py
   - scripts/run-base-diagnostic.py
@@ -75,8 +76,9 @@ covered_files:
   - scripts/tests/test_base_lanes.py
   - scripts/tests/test_base_qualification.py
   - scripts/tests/test_base_run.py
+  - scripts/tests/test_rsp_evidence.py
   - scripts/verify-base-diagnostic-qualification.py
-covered_digest: "v4:sha256:e7720e299737ecb9bfe1ef134b3a5c0a5cff847737a04adf63174b8cb013d6e0"
+covered_digest: "v4:sha256:e038c07163089207f2ef1c55cb55ac4145178e3e7c2d76adf7e2d581f519dd28"
 behavior_unverified: 0
 overrides_applied: 0
 decision_coverage:
@@ -219,3 +221,20 @@ No gaps found in the roadmap goal or plan must-haves. The historical Plan02 laun
 ---
 _Verified: 2026-11-16T02:24:14Z_  
 _Verifier: the agent (gsd-verifier)_
+
+
+## Final archive-continuity delta reconciliation
+
+The four-file metadata lookup correction committed as cf4dfa8 preserves the
+Phase05 ownership tables through the fixed v1.0 archival move. The resolver
+refuses missing, duplicate and symlinked metadata. Its authored control passed
+in normal and instrumented builds; inventory/removal controls retain inherited
+test ownership. Scoped code and security review examined the working-tree
+correction based on 0fbcf90 before it was committed. Both hosted gates and exact
+artifact comparison passed for cf4dfa8 in run 43802632589. Source/runtime
+semantics and original guest evidence cohorts remain unchanged; this is no
+new guest execution or hardware qualification. Detailed retained evidence is
+in build/gate/v1.0-archive-*, build/asan/v1.0-archive-* and
+build/gate/v1.0-hosted-*; public run/timing ownership is in docs/ci-reviews/LOG.md.
+CLI fingerprints below cover durable source/evidence and this phase's
+plans/summaries; ignored local logs and mutable lifecycle trackers are excluded.

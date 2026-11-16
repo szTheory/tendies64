@@ -32,12 +32,17 @@ covered_files:
   - .planning/phases/01-governance-rights-and-harness-foundation/01-13-PLAN.md
   - .planning/phases/01-governance-rights-and-harness-foundation/01-13-SUMMARY.md
   - .planning/phases/01-governance-rights-and-harness-foundation/01-REGRESSION-EVIDENCE.md
+  - docs/ci-reviews/LOG.md
+  - runner/CMakeLists.txt
   - runner/t64_classify.c
   - scripts/check-ci-yml.sh
+  - scripts/check-rsp-evidence.py
+  - scripts/check-test-inventory.sh
   - scripts/gate.sh
   - scripts/rights-scan.sh
+  - scripts/tests/test_rsp_evidence.py
   - tools/lint/core-lint.sh
-covered_digest: "v4:sha256:8e286dce765b5bcd27c206d584bcf3d0b0a737fa3b3e94d86f61e0c003666590"
+covered_digest: "v4:sha256:98c88c3d4cf4a3c79a35cefb5ab6b7a296ec6ca8f6cdc4158407250c49b1fed2"
 behavior_unverified: 0
 overrides_applied: 0
 gaps: []
@@ -239,3 +244,20 @@ The historical verification and its run identities above remain unchanged. I che
 The exact current hosted pair is run 43788405776, attempt 1, for tested source `aa1e531e05b9c66f0c57d5066c9c367cb1e82c23`. The collector read back the exact job artifacts and the comparator confirmed the authored results match; the completed run and F-079 timing entry are recorded in `docs/ci-reviews/LOG.md`. This is current authored-fixture evidence only. It does not change or relabel the earlier Phase 1/2 run records, and no private diagnostic result was uploaded or used for the claim.
 
 The current integration audit independently reports 4/4 priority flows WIRED, all 48 in-scope requirements WIRED, and no broken, blocking, or warning connection. Phase 1's 11 requirement dispositions remain satisfied. The older W1 hosted-run gap is historical and superseded by the exact current hosted pair; W3 was already recorded as added to Phase 3; branch protection and D2/D6/D7 remain the previously disclosed owner or repository settings, not new Phase 1 implementation gaps. No suite or guest replay was run for this refresh.
+
+
+## Final archive-continuity delta reconciliation
+
+The four-file metadata lookup correction committed as cf4dfa8 preserves the
+Phase05 ownership tables through the fixed v1.0 archival move. The resolver
+refuses missing, duplicate and symlinked metadata. Its authored control passed
+in normal and instrumented builds; inventory/removal controls retain inherited
+test ownership. Scoped code and security review examined the working-tree
+correction based on 0fbcf90 before it was committed. Both hosted gates and exact
+artifact comparison passed for cf4dfa8 in run 43802632589. Source/runtime
+semantics and original guest evidence cohorts remain unchanged; this is no
+new guest execution or hardware qualification. Detailed retained evidence is
+in build/gate/v1.0-archive-*, build/asan/v1.0-archive-* and
+build/gate/v1.0-hosted-*; public run/timing ownership is in docs/ci-reviews/LOG.md.
+CLI fingerprints below cover durable source/evidence and this phase's
+plans/summaries; ignored local logs and mutable lifecycle trackers are excluded.

@@ -27,7 +27,8 @@ breadth or polish.
   six-outcome synthetic harness — Phase 1; source regressions remain in the gate.
 - ✓ Named NTSC cartridge/4 MB machine skeleton, per-instance scheduler, checked
   physical map, MI, delayed PI/SP DMA, canonical digest and observational trace
-  — Phase 2. Its intended boot route is identified; boot is unimplemented.
+  — Phase 2. The original skeleton retains its capability limits; later profiles
+  below provide bounded guest boot.
 - ✓ Transactional production ROM admission with authored-byte tests and bounded
   ASan/UBSan mutation coverage — Phase 2. This does not prove memory safety.
 - ✓ Authored hello through pinned Unlicense IPL3, exact bounded ISViewer output,
@@ -47,28 +48,34 @@ breadth or polish.
   hardware accuracy, optimized differential execution and general microcode
   compatibility remain unestablished.
 
+- ✓ Named NTSC cartridge/4 MiB profiles, timed logical input, bounded
+  machine-readable headless outcomes, and a rights-cleared HLE-PIF/open-IPL3
+  route — v1.0. Older profile identities and refusal behavior remain stable.
+- ✓ Two separate A/B cold software profiles run the same authored hello through
+  preset RDRAM or the modeled register protocol and produce identical literal
+  output. Count/Random use an explicit T1 cost policy; T2 and physical accuracy
+  remain unqualified — Phase 6.
+- ✓ Full pinned source classification with required, informational and local
+  stress lanes, independent membership/image authority, immutable producer
+  archives and original-record validation — Phase 6. Classification completeness
+  is distinct from execution completion and all-pass; private results stay local.
+- ✓ Rolling milestone v1.0 has48 assigned requirements and six verified phases;
+  later outlines retain25 future requirements. This is planning completion,
+  not a software release or market-demand claim.
+
 ### Active
 
 These are hypotheses until shipped and verified. They are scoped further in
 `REQUIREMENTS.md`.
 
-- [ ] A narrow, explicitly named first machine profile (console revision, TV
-      type, 4 MB RDRAM baseline, boot route, cartridge-only) with its deferred
-      variants listed
-- [ ] A memory map, RDRAM, PI/cartridge DMA, SI/PIF, MI interrupts and a
-      device scheduler that advances bounded guest work in guest time
-- [ ] A boot route that ships no Nintendo PIF/IPL bytes, such as a
-      clean-room/open IPL3 (for example Libdragon's) or a documented HLE boot,
-      with its limits stated
+- [ ] Complete SI/PIF and later video/audio device integration through the
+      canonical scheduler; current memory, MI, PI, SP and RDRAM paths retain
+      their tested profile limits
 - [ ] Broader RSP microcode compatibility and later audio/video task evidence,
       beyond the qualified functional profile's ROM-level tests
-- [ ] A headless runner with fixed reset, timed logical input, a guest-time or
-      instruction limit, ISViewer-style result capture and machine-readable
-      outcomes. It must distinguish pass, guest-fail, boot-fail, timeout,
-      missing-fixture and harness-error.
-- [ ] A pinned, rights-audited ROM-level suite (candidate: `nemu64-test`)
-      that runs in CI with a fixture manifest covering source/revision, build
-      recipe, digest, profile, rights and expected-result provenance
+- [ ] Public external diagnostic CI only after D2 rights permission; keep
+      qualified external diagnostics local and preserve the cleared authored
+      hello as the permanent public smoke lane
 - [ ] RDP command processing and VI scanout that produce raw framebuffer
       output, kept separate from host scaling and presentation
 - [ ] An AI path (DMA, sample cadence, interrupts) that produces raw audio,
@@ -89,8 +96,6 @@ These are hypotheses until shipped and verified. They are scoped further in
 - [ ] Named performance benchmarks, run only after a repeatable correctness
       baseline exists, with throughput and latency reported separately from CI
       time
-- [ ] A rolling roadmap that keeps the ambitious long-term goal (broad
-      accurate N64 coverage) while delivering verifiable slices
 
 ### Out of Scope
 
@@ -186,14 +191,20 @@ promotes it.
 
 ### Current state
 
-Phases1–4 are implemented in the public Apache-2.0 repository. The canonical
-native gate passes on Linux/GCC and macOS/Clang. The core executes the authored
-hello through open IPL3 and has a scoped VR4300 integer/CP0/MMU/cache/COP1
-interpreter plus independently expected native tests. Strict and software
-compatibility CPU profiles retain distinct identities. Qualified local CPU
-reporting is available, without full-accuracy or silicon claims. RSP execution,
-VI/audio and cold boot remain unimplemented; Phase5 opens the RSP slice.
-No software release has been published.
+Planning milestone v1.0 delivers a verified deterministic headless core in the
+public Apache-2.0 repository: bounded ROM admission, CPU/CP0/MMU/cache/COP1,
+fetched scalar/vector RSP, queued DMA, observable state, and the separate
+RDRAM/T1 A/B boot profiles. Exact authored hello evidence passes on Linux/GCC
+and macOS/Clang. Support is limited to the named profiles, builds and fixtures.
+Source/model tests and private diagnostic classification are not silicon or
+broad compatibility proof. Original historical failures and evidence limits
+remain disclosed; current artifacts have immutable consumer/binding retention.
+
+RDP/VI rendering, AI audio, SI/PIF/controller/save integration, an installed
+consumer and a playable cleared homebrew remain later milestone work. The
+milestone audit covers48 requirements;25 future requirements remain pending.
+No software release or release-version tag has been published. The working
+name remains uncleared; D2/D5/D6 and physical/rights stops remain unchanged.
 
 ## Constraints
 
@@ -230,14 +241,14 @@ No software release has been published.
 | Decision | Rationale | Outcome |
 |----------|-----------|---------|
 | Working name "Tendies64" (owner) | Owner selection. Not trademark clearance. | ✓ Good |
-| Autonomous GSD workflow per AUTONOMY.md (owner) | The owner wants a rolling roadmap with autonomous milestones and explicit hard stops. | — Pending |
-| One canonical machine core; host owns clocks, files, input mapping, presentation and storage (owner) | Determinism, testability and multiple hosts without forking behavior. | — Pending |
-| Small, flat dependency tree; copy-with-provenance preferred (owner) | Supply-chain and maintenance cost. | — Pending |
-| Cartridge-first vertical slice; 64DD as a separate later profile (recommended default from seed and DNA) | Verifiable first profile. 64DD adds disk media, RTC and expansion requirements. | — Pending |
-| Boot without Nintendo PIF/IPL bytes, starting with the open IPL3 route (recommended) | The rights stop applies to Nintendo boot data, and nemu64-test already uses Libdragon IPL3. | — Pending |
+| Autonomous GSD workflow per AUTONOMY.md (owner) | Rolling milestones with explicit rights, authority and physical stops. | ✓ v1.0 applied |
+| One canonical machine core; host owns clocks, files, input mapping, presentation and storage (owner) | Determinism and multiple observable hosts without forking machine behavior. | ✓ v1.0 bounded checks |
+| Small, flat dependency tree; copy-with-provenance preferred (owner) | Supply-chain and maintenance cost. | ✓ v1.0; no new dependency for evidence fixes |
+| Cartridge-first vertical slice; 64DD as a separate later profile | Verifiable first profile; disk media, RTC and expansion remain separate. | ✓ v1.0 scoped cartridge model |
+| Boot without Nintendo PIF/IPL bytes, starting with the open IPL3 route | Cleared source and exact manifest identity; HLE-PIF seed is not physical IPL2. | ✓ Authored warm/A/B cold evidence |
 | C17, CMake/Ninja; API/ABI freeze later | ADR-0002 accepted C17 with explicit spike evidence limits; real admission fuzzing added in Phase 2. | ✓ Scoped evidence |
 | Preserve strict CPU and version software compatibility separately | Owner-approved compat-v1/v2 policies use distinct profile/state domains; undefined choices are not silicon evidence. | ✓ Phase 4 scoped checks |
-| Exact local reporting before accuracy claims | Qualified source/tool/assets and shared complete-set gate remain separate from public native CI and hardware qualification. | ✓ Phase 4 reporting |
+| Exact local reporting before accuracy claims | Independent source/image denominator and C-owned original-record classification stay separate from public authored CI and hardware qualification. | ✓ Phases 4–6, bounded evidence |
 | License: Apache-2.0 (owner, 2026-11-09; MIT was an acceptable alternative) | Owner preference. Permissive, with an explicit patent grant. Code copied from other projects must be license-compatible: ISC, MIT, BSD-3 and Unlicense sources are copyable with notices kept; GPL sources (Project64, Mupen64Plus-core) and the Angrylion-Plus legacy MAME license must not be copied. | ✓ Good |
 | Repository visibility: public under the szTheory GitHub account (owner, 2026-11-09) | Owner decision. No PII, credentials or private paths in any tracked file or commit. Commits use the GitHub noreply address. | ✓ Good |
 | Release channel and versioning | Still an open owner decision. Releases wait on it. | — Pending (owner) |
@@ -260,4 +271,4 @@ This document evolves at phase transitions and milestone boundaries.
 4. Update Context with current state
 
 ---
-*Last updated: 2026-11-13 after Phase 4*
+*Last updated: 2026-11-15 after v1.0 milestone audit*

@@ -6,8 +6,196 @@ score: 4/4 success criteria verified
 behavior_unverified: 0
 human_verification: []
 decision_coverage: {honored: 13, total: 13, not_honored: []}
-covered_files: [".planning/phases/04-complete-vr4300-cpu/04-01-PLAN.md",".planning/phases/04-complete-vr4300-cpu/04-01-SUMMARY.md",".planning/phases/04-complete-vr4300-cpu/04-02-PLAN.md",".planning/phases/04-complete-vr4300-cpu/04-02-SUMMARY.md",".planning/phases/04-complete-vr4300-cpu/04-03-PLAN.md",".planning/phases/04-complete-vr4300-cpu/04-03-SUMMARY.md",".planning/phases/04-complete-vr4300-cpu/04-04-PLAN.md",".planning/phases/04-complete-vr4300-cpu/04-04-SUMMARY.md",".planning/phases/04-complete-vr4300-cpu/04-05-PLAN.md",".planning/phases/04-complete-vr4300-cpu/04-05-SUMMARY.md",".planning/phases/04-complete-vr4300-cpu/04-06-PLAN.md",".planning/phases/04-complete-vr4300-cpu/04-06-SUMMARY.md",".planning/phases/04-complete-vr4300-cpu/04-07-PLAN.md",".planning/phases/04-complete-vr4300-cpu/04-07-SUMMARY.md",".planning/phases/04-complete-vr4300-cpu/04-08-PLAN.md",".planning/phases/04-complete-vr4300-cpu/04-08-SUMMARY.md",".planning/phases/04-complete-vr4300-cpu/04-09-PLAN.md",".planning/phases/04-complete-vr4300-cpu/04-09-SUMMARY.md",".planning/phases/04-complete-vr4300-cpu/04-10-PLAN.md",".planning/phases/04-complete-vr4300-cpu/04-10-SUMMARY.md",".planning/phases/04-complete-vr4300-cpu/04-11-PLAN.md",".planning/phases/04-complete-vr4300-cpu/04-11-SUMMARY.md",".planning/phases/04-complete-vr4300-cpu/04-12-PLAN.md",".planning/phases/04-complete-vr4300-cpu/04-12-SUMMARY.md",".planning/phases/04-complete-vr4300-cpu/04-13-PLAN.md",".planning/phases/04-complete-vr4300-cpu/04-13-SUMMARY.md",".planning/phases/04-complete-vr4300-cpu/04-14-PLAN.md",".planning/phases/04-complete-vr4300-cpu/04-14-SUMMARY.md",".planning/phases/04-complete-vr4300-cpu/04-15-PLAN.md",".planning/phases/04-complete-vr4300-cpu/04-15-SUMMARY.md",".planning/phases/04-complete-vr4300-cpu/04-16-PLAN.md",".planning/phases/04-complete-vr4300-cpu/04-16-SUMMARY.md",".planning/phases/04-complete-vr4300-cpu/04-17-PLAN.md",".planning/phases/04-complete-vr4300-cpu/04-17-SUMMARY.md",".planning/phases/04-complete-vr4300-cpu/04-18-PLAN.md",".planning/phases/04-complete-vr4300-cpu/04-18-SUMMARY.md",".planning/phases/04-complete-vr4300-cpu/04-19-PLAN.md",".planning/phases/04-complete-vr4300-cpu/04-19-SUMMARY.md",".planning/phases/04-complete-vr4300-cpu/04-20-PLAN.md",".planning/phases/04-complete-vr4300-cpu/04-20-SUMMARY.md","build/asan/06-08-final/ctest.log","build/gate/06-08-final/gate-attempt03.log","build/gate/06-08-final/inputs/binding.json","build/gate/06-08-hosted-aa1e531/gate-linux.json","build/gate/06-08-hosted-aa1e531/gate-macos.json","build/gate/06-08-hosted-comparison.log","build/gate/v1.0-audit-scope.json","build/gate/v1.0-integration-check.md","build/gate/v1.0-stale-verification-scope.json","build/gate/v1.0-verification-refresh-contract.json","core/CMakeLists.txt","core/softfloat/f32_add.c","core/softfloat/f32_div.c","core/softfloat/f32_eq.c","core/softfloat/f32_le.c","core/softfloat/f32_lt.c","core/softfloat/f32_mul.c","core/softfloat/f32_sqrt.c","core/softfloat/f32_sub.c","core/softfloat/f32_to_f64.c","core/softfloat/f32_to_i32.c","core/softfloat/f32_to_i64.c","core/softfloat/f64_add.c","core/softfloat/f64_div.c","core/softfloat/f64_eq.c","core/softfloat/f64_le.c","core/softfloat/f64_lt.c","core/softfloat/f64_mul.c","core/softfloat/f64_sqrt.c","core/softfloat/f64_sub.c","core/softfloat/f64_to_f32.c","core/softfloat/f64_to_i32.c","core/softfloat/f64_to_i64.c","core/softfloat/i32_to_f32.c","core/softfloat/i32_to_f64.c","core/softfloat/i64_to_f32.c","core/softfloat/i64_to_f64.c","core/softfloat/internals.h","core/softfloat/platform.h","core/softfloat/primitiveTypes.h","core/softfloat/primitives.h","core/softfloat/s_addMagsF32.c","core/softfloat/s_addMagsF64.c","core/softfloat/s_approxRecip32_1.c","core/softfloat/s_approxRecipSqrt32_1.c","core/softfloat/s_approxRecipSqrt_1Ks.c","core/softfloat/s_approxRecip_1Ks.c","core/softfloat/s_countLeadingZeros32.c","core/softfloat/s_countLeadingZeros64.c","core/softfloat/s_countLeadingZeros8.c","core/softfloat/s_mul64To128.c","core/softfloat/s_normRoundPackToF32.c","core/softfloat/s_normRoundPackToF64.c","core/softfloat/s_normSubnormalF32Sig.c","core/softfloat/s_normSubnormalF64Sig.c","core/softfloat/s_roundPackToF32.c","core/softfloat/s_roundPackToF64.c","core/softfloat/s_roundToI32.c","core/softfloat/s_roundToI64.c","core/softfloat/s_shiftRightJam32.c","core/softfloat/s_shiftRightJam64.c","core/softfloat/s_shiftRightJam64Extra.c","core/softfloat/s_shortShiftRightJam64.c","core/softfloat/s_subMagsF32.c","core/softfloat/s_subMagsF64.c","core/softfloat/softfloat.h","core/softfloat/softfloat_types.h","core/softfloat/sources.cmake","core/softfloat/specialize.h","core/t64_bus.c","core/t64_cache.c","core/t64_cop1.c","core/t64_cp0.c","core/t64_cpu.c","core/t64_digest.c","core/t64_exception.c","core/t64_internal.h","core/t64_isviewer.c","core/t64_machine.c","core/t64_memory.c","core/t64_mmu.c","core/t64_pi.c","core/t64_rdram.c","core/t64_scheduler.c","core/t64_softfloat.c","core/t64_sp.c","core/tests/test_boot_entry.c","core/tests/test_cop1.c","core/tests/test_cpu_cache.c","core/tests/test_cpu_cp0.c","core/tests/test_cpu_exceptions.c","core/tests/test_cpu_integer.c","core/tests/test_cpu_link.c","core/tests/test_cpu_memory.c","core/tests/test_cpu_mmu.c","core/tests/test_cpu_path.c","core/tests/test_cpu_time.c","core/tests/test_digest_trace.c","core/tests/test_profile.c","core/tests/test_rdram.c","core/tests/test_softfloat.c","docs/ci-reviews/LOG.md","docs/evidence/phase04-native-cpu.md","docs/evidence/phase06-native.md","docs/evidence/phase06-review.md","docs/evidence/phase06-security.md","docs/spec/cpu-cache.md","docs/spec/cpu-compatibility.md","docs/spec/cpu-cop1.md","docs/spec/cpu-cp0.md","docs/spec/cpu-diagnostic.md","docs/spec/cpu-memory.md","docs/spec/cpu-timing.md","docs/spec/rdram-boot.md","fixtures/manifest.json","runner/CMakeLists.txt","runner/t64_cpu_diag_protocol.c","runner/t64_cpu_diag_protocol.h","runner/t64_cpu_diagnostic.c","runner/tests/test_cpu_diag_protocol.c","runner/tests/test_cpu_diagnostic.c","scripts/apply-cpu-diagnostic-overlay.py","scripts/build-cpu-diagnostic.sh","scripts/build-qualified-cpu-diagnostic.py","scripts/check-base-evidence.py","scripts/check-test-inventory.sh","scripts/prepare-cpu-diagnostic-vendor.py","scripts/private-tests/accepted-qualification-baseline.py","scripts/run-cpu-diagnostic.py","scripts/tests/test_base_evidence.py","scripts/tests/test_cpu_diagnostic_build_controls.py","scripts/tests/test_cpu_diagnostic_overlay_controls.py","scripts/tests/test_cpu_diagnostic_qualification_controls.py","scripts/tests/test_cpu_diagnostic_run_controls.py","scripts/verify-cpu-diagnostic-build.py","scripts/verify-cpu-diagnostic-qualification.py","scripts/verify-cpu-diagnostic-source-closure.py","scripts/verify-cpu-diagnostic-unit-graph.py","tests/cpu-diagnostic/overlay.patch","tests/cpu-diagnostic/replacements/allocator.rs","tests/cpu-diagnostic/replacements/exception_imports.rs","tests/cpu-diagnostic/replacements/exception_park.rs","tests/cpu-diagnostic/replacements/graphics_mod.rs","tests/cpu-diagnostic/replacements/linker.ld","tests/cpu-diagnostic/replacements/main.rs","tests/cpu-diagnostic/replacements/panic.rs","tests/cpu-diagnostic/replacements/print.rs","tests/cpu-diagnostic/replacements/randomized_imports.rs","tests/cpu-diagnostic/replacements/randomized_signature.rs","tests/cpu-diagnostic/replacements/rsp_mod.rs","tests/cpu-diagnostic/replacements/tests_prefix.rs","tests/cpu-diagnostic/replacements/tests_runner.rs","tests/cpu-diagnostic/replacements/text_out.rs","tools/fixture/t64_rom_pack.c","tools/lint/core-lint.sh","tools/lint/lint-objects.sh"]
-covered_digest: "v4:sha256:3eb0faff9b47e308fc47d562c2a8ba11102e2924fcc4fe243dba032c62297c3f"
+covered_files:
+  - .planning/phases/04-complete-vr4300-cpu/04-01-PLAN.md
+  - .planning/phases/04-complete-vr4300-cpu/04-01-SUMMARY.md
+  - .planning/phases/04-complete-vr4300-cpu/04-02-PLAN.md
+  - .planning/phases/04-complete-vr4300-cpu/04-02-SUMMARY.md
+  - .planning/phases/04-complete-vr4300-cpu/04-03-PLAN.md
+  - .planning/phases/04-complete-vr4300-cpu/04-03-SUMMARY.md
+  - .planning/phases/04-complete-vr4300-cpu/04-04-PLAN.md
+  - .planning/phases/04-complete-vr4300-cpu/04-04-SUMMARY.md
+  - .planning/phases/04-complete-vr4300-cpu/04-05-PLAN.md
+  - .planning/phases/04-complete-vr4300-cpu/04-05-SUMMARY.md
+  - .planning/phases/04-complete-vr4300-cpu/04-06-PLAN.md
+  - .planning/phases/04-complete-vr4300-cpu/04-06-SUMMARY.md
+  - .planning/phases/04-complete-vr4300-cpu/04-07-PLAN.md
+  - .planning/phases/04-complete-vr4300-cpu/04-07-SUMMARY.md
+  - .planning/phases/04-complete-vr4300-cpu/04-08-PLAN.md
+  - .planning/phases/04-complete-vr4300-cpu/04-08-SUMMARY.md
+  - .planning/phases/04-complete-vr4300-cpu/04-09-PLAN.md
+  - .planning/phases/04-complete-vr4300-cpu/04-09-SUMMARY.md
+  - .planning/phases/04-complete-vr4300-cpu/04-10-PLAN.md
+  - .planning/phases/04-complete-vr4300-cpu/04-10-SUMMARY.md
+  - .planning/phases/04-complete-vr4300-cpu/04-11-PLAN.md
+  - .planning/phases/04-complete-vr4300-cpu/04-11-SUMMARY.md
+  - .planning/phases/04-complete-vr4300-cpu/04-12-PLAN.md
+  - .planning/phases/04-complete-vr4300-cpu/04-12-SUMMARY.md
+  - .planning/phases/04-complete-vr4300-cpu/04-13-PLAN.md
+  - .planning/phases/04-complete-vr4300-cpu/04-13-SUMMARY.md
+  - .planning/phases/04-complete-vr4300-cpu/04-14-PLAN.md
+  - .planning/phases/04-complete-vr4300-cpu/04-14-SUMMARY.md
+  - .planning/phases/04-complete-vr4300-cpu/04-15-PLAN.md
+  - .planning/phases/04-complete-vr4300-cpu/04-15-SUMMARY.md
+  - .planning/phases/04-complete-vr4300-cpu/04-16-PLAN.md
+  - .planning/phases/04-complete-vr4300-cpu/04-16-SUMMARY.md
+  - .planning/phases/04-complete-vr4300-cpu/04-17-PLAN.md
+  - .planning/phases/04-complete-vr4300-cpu/04-17-SUMMARY.md
+  - .planning/phases/04-complete-vr4300-cpu/04-18-PLAN.md
+  - .planning/phases/04-complete-vr4300-cpu/04-18-SUMMARY.md
+  - .planning/phases/04-complete-vr4300-cpu/04-19-PLAN.md
+  - .planning/phases/04-complete-vr4300-cpu/04-19-SUMMARY.md
+  - .planning/phases/04-complete-vr4300-cpu/04-20-PLAN.md
+  - .planning/phases/04-complete-vr4300-cpu/04-20-SUMMARY.md
+  - core/CMakeLists.txt
+  - core/softfloat/f32_add.c
+  - core/softfloat/f32_div.c
+  - core/softfloat/f32_eq.c
+  - core/softfloat/f32_le.c
+  - core/softfloat/f32_lt.c
+  - core/softfloat/f32_mul.c
+  - core/softfloat/f32_sqrt.c
+  - core/softfloat/f32_sub.c
+  - core/softfloat/f32_to_f64.c
+  - core/softfloat/f32_to_i32.c
+  - core/softfloat/f32_to_i64.c
+  - core/softfloat/f64_add.c
+  - core/softfloat/f64_div.c
+  - core/softfloat/f64_eq.c
+  - core/softfloat/f64_le.c
+  - core/softfloat/f64_lt.c
+  - core/softfloat/f64_mul.c
+  - core/softfloat/f64_sqrt.c
+  - core/softfloat/f64_sub.c
+  - core/softfloat/f64_to_f32.c
+  - core/softfloat/f64_to_i32.c
+  - core/softfloat/f64_to_i64.c
+  - core/softfloat/i32_to_f32.c
+  - core/softfloat/i32_to_f64.c
+  - core/softfloat/i64_to_f32.c
+  - core/softfloat/i64_to_f64.c
+  - core/softfloat/internals.h
+  - core/softfloat/platform.h
+  - core/softfloat/primitiveTypes.h
+  - core/softfloat/primitives.h
+  - core/softfloat/s_addMagsF32.c
+  - core/softfloat/s_addMagsF64.c
+  - core/softfloat/s_approxRecip32_1.c
+  - core/softfloat/s_approxRecipSqrt32_1.c
+  - core/softfloat/s_approxRecipSqrt_1Ks.c
+  - core/softfloat/s_approxRecip_1Ks.c
+  - core/softfloat/s_countLeadingZeros32.c
+  - core/softfloat/s_countLeadingZeros64.c
+  - core/softfloat/s_countLeadingZeros8.c
+  - core/softfloat/s_mul64To128.c
+  - core/softfloat/s_normRoundPackToF32.c
+  - core/softfloat/s_normRoundPackToF64.c
+  - core/softfloat/s_normSubnormalF32Sig.c
+  - core/softfloat/s_normSubnormalF64Sig.c
+  - core/softfloat/s_roundPackToF32.c
+  - core/softfloat/s_roundPackToF64.c
+  - core/softfloat/s_roundToI32.c
+  - core/softfloat/s_roundToI64.c
+  - core/softfloat/s_shiftRightJam32.c
+  - core/softfloat/s_shiftRightJam64.c
+  - core/softfloat/s_shiftRightJam64Extra.c
+  - core/softfloat/s_shortShiftRightJam64.c
+  - core/softfloat/s_subMagsF32.c
+  - core/softfloat/s_subMagsF64.c
+  - core/softfloat/softfloat.h
+  - core/softfloat/softfloat_types.h
+  - core/softfloat/sources.cmake
+  - core/softfloat/specialize.h
+  - core/t64_bus.c
+  - core/t64_cache.c
+  - core/t64_cop1.c
+  - core/t64_cp0.c
+  - core/t64_cpu.c
+  - core/t64_digest.c
+  - core/t64_exception.c
+  - core/t64_internal.h
+  - core/t64_isviewer.c
+  - core/t64_machine.c
+  - core/t64_memory.c
+  - core/t64_mmu.c
+  - core/t64_pi.c
+  - core/t64_rdram.c
+  - core/t64_scheduler.c
+  - core/t64_softfloat.c
+  - core/t64_sp.c
+  - core/tests/test_boot_entry.c
+  - core/tests/test_cop1.c
+  - core/tests/test_cpu_cache.c
+  - core/tests/test_cpu_cp0.c
+  - core/tests/test_cpu_exceptions.c
+  - core/tests/test_cpu_integer.c
+  - core/tests/test_cpu_link.c
+  - core/tests/test_cpu_memory.c
+  - core/tests/test_cpu_mmu.c
+  - core/tests/test_cpu_path.c
+  - core/tests/test_cpu_time.c
+  - core/tests/test_digest_trace.c
+  - core/tests/test_profile.c
+  - core/tests/test_rdram.c
+  - core/tests/test_softfloat.c
+  - docs/ci-reviews/LOG.md
+  - docs/evidence/phase04-native-cpu.md
+  - docs/evidence/phase06-native.md
+  - docs/evidence/phase06-review.md
+  - docs/evidence/phase06-security.md
+  - docs/spec/cpu-cache.md
+  - docs/spec/cpu-compatibility.md
+  - docs/spec/cpu-cop1.md
+  - docs/spec/cpu-cp0.md
+  - docs/spec/cpu-diagnostic.md
+  - docs/spec/cpu-memory.md
+  - docs/spec/cpu-timing.md
+  - docs/spec/rdram-boot.md
+  - fixtures/manifest.json
+  - runner/CMakeLists.txt
+  - runner/t64_cpu_diag_protocol.c
+  - runner/t64_cpu_diag_protocol.h
+  - runner/t64_cpu_diagnostic.c
+  - runner/tests/test_cpu_diag_protocol.c
+  - runner/tests/test_cpu_diagnostic.c
+  - scripts/apply-cpu-diagnostic-overlay.py
+  - scripts/build-cpu-diagnostic.sh
+  - scripts/build-qualified-cpu-diagnostic.py
+  - scripts/check-base-evidence.py
+  - scripts/check-rsp-evidence.py
+  - scripts/check-test-inventory.sh
+  - scripts/prepare-cpu-diagnostic-vendor.py
+  - scripts/private-tests/accepted-qualification-baseline.py
+  - scripts/run-cpu-diagnostic.py
+  - scripts/tests/test_base_evidence.py
+  - scripts/tests/test_cpu_diagnostic_build_controls.py
+  - scripts/tests/test_cpu_diagnostic_overlay_controls.py
+  - scripts/tests/test_cpu_diagnostic_qualification_controls.py
+  - scripts/tests/test_cpu_diagnostic_run_controls.py
+  - scripts/tests/test_rsp_evidence.py
+  - scripts/verify-cpu-diagnostic-build.py
+  - scripts/verify-cpu-diagnostic-qualification.py
+  - scripts/verify-cpu-diagnostic-source-closure.py
+  - scripts/verify-cpu-diagnostic-unit-graph.py
+  - tests/cpu-diagnostic/overlay.patch
+  - tests/cpu-diagnostic/replacements/allocator.rs
+  - tests/cpu-diagnostic/replacements/exception_imports.rs
+  - tests/cpu-diagnostic/replacements/exception_park.rs
+  - tests/cpu-diagnostic/replacements/graphics_mod.rs
+  - tests/cpu-diagnostic/replacements/linker.ld
+  - tests/cpu-diagnostic/replacements/main.rs
+  - tests/cpu-diagnostic/replacements/panic.rs
+  - tests/cpu-diagnostic/replacements/print.rs
+  - tests/cpu-diagnostic/replacements/randomized_imports.rs
+  - tests/cpu-diagnostic/replacements/randomized_signature.rs
+  - tests/cpu-diagnostic/replacements/rsp_mod.rs
+  - tests/cpu-diagnostic/replacements/tests_prefix.rs
+  - tests/cpu-diagnostic/replacements/tests_runner.rs
+  - tests/cpu-diagnostic/replacements/text_out.rs
+  - tools/fixture/t64_rom_pack.c
+  - tools/lint/core-lint.sh
+  - tools/lint/lint-objects.sh
+covered_digest: "v4:sha256:b5092e57caafc8f36911132c7e20823a2a9d581f4ba073782aa110e1a8463ae4"
 ---
 
 # Phase4 — VR4300 CPU goal verification
@@ -150,3 +338,20 @@ The current canonical descriptors preserve strict VR4300 as model v3/state v9 an
 | VER-03 | SATISFIED for this phase | Exact native inventory and refusal/removal controls pass in the retained normal and instrumented gates. |
 
 This report does not extend Phase 4 to cold boot, RDP/audio/frontend behavior, broad game compatibility, physical hardware accuracy, or public diagnostic use. The 25 future requirement IDs remain future scope in the audit bundle; no later subsystem requirement is treated as a Phase 4 failure or completion claim.
+
+
+## Final archive-continuity delta reconciliation
+
+The four-file metadata lookup correction committed as cf4dfa8 preserves the
+Phase05 ownership tables through the fixed v1.0 archival move. The resolver
+refuses missing, duplicate and symlinked metadata. Its authored control passed
+in normal and instrumented builds; inventory/removal controls retain inherited
+test ownership. Scoped code and security review examined the working-tree
+correction based on 0fbcf90 before it was committed. Both hosted gates and exact
+artifact comparison passed for cf4dfa8 in run 43802632589. Source/runtime
+semantics and original guest evidence cohorts remain unchanged; this is no
+new guest execution or hardware qualification. Detailed retained evidence is
+in build/gate/v1.0-archive-*, build/asan/v1.0-archive-* and
+build/gate/v1.0-hosted-*; public run/timing ownership is in docs/ci-reviews/LOG.md.
+CLI fingerprints below cover durable source/evidence and this phase's
+plans/summaries; ignored local logs and mutable lifecycle trackers are excluded.

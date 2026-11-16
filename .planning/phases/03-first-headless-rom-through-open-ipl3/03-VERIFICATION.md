@@ -3,8 +3,89 @@ phase: 03-first-headless-rom-through-open-ipl3
 verified: 2026-11-16T03:39:28Z
 status: passed
 score: 6/6 roadmap truths verified
-covered_files: [".github/workflows/ci.yml",".planning/phases/03-first-headless-rom-through-open-ipl3/03-01-PLAN.md",".planning/phases/03-first-headless-rom-through-open-ipl3/03-01-SUMMARY.md",".planning/phases/03-first-headless-rom-through-open-ipl3/03-02-PLAN.md",".planning/phases/03-first-headless-rom-through-open-ipl3/03-02-SUMMARY.md",".planning/phases/03-first-headless-rom-through-open-ipl3/03-03-PLAN.md",".planning/phases/03-first-headless-rom-through-open-ipl3/03-03-SUMMARY.md",".planning/phases/03-first-headless-rom-through-open-ipl3/03-04-PLAN.md",".planning/phases/03-first-headless-rom-through-open-ipl3/03-04-SUMMARY.md",".planning/phases/03-first-headless-rom-through-open-ipl3/03-05-PLAN.md",".planning/phases/03-first-headless-rom-through-open-ipl3/03-05-SUMMARY.md",".planning/phases/03-first-headless-rom-through-open-ipl3/03-06-PLAN.md",".planning/phases/03-first-headless-rom-through-open-ipl3/03-06-SUMMARY.md",".planning/phases/03-first-headless-rom-through-open-ipl3/03-07-PLAN.md",".planning/phases/03-first-headless-rom-through-open-ipl3/03-07-SUMMARY.md",".planning/phases/03-first-headless-rom-through-open-ipl3/03-08-PLAN.md",".planning/phases/03-first-headless-rom-through-open-ipl3/03-08-SUMMARY.md",".planning/phases/03-first-headless-rom-through-open-ipl3/03-09-PLAN.md",".planning/phases/03-first-headless-rom-through-open-ipl3/03-09-SUMMARY.md",".planning/phases/03-first-headless-rom-through-open-ipl3/03-10-PLAN.md",".planning/phases/03-first-headless-rom-through-open-ipl3/03-10-SUMMARY.md",".planning/phases/03-first-headless-rom-through-open-ipl3/03-11-PLAN.md",".planning/phases/03-first-headless-rom-through-open-ipl3/03-11-SUMMARY.md",".planning/phases/03-first-headless-rom-through-open-ipl3/03-12-PLAN.md",".planning/phases/03-first-headless-rom-through-open-ipl3/03-12-SUMMARY.md",".planning/phases/03-first-headless-rom-through-open-ipl3/03-13-PLAN.md",".planning/phases/03-first-headless-rom-through-open-ipl3/03-13-SUMMARY.md","build/asan/06-08-final/ctest.log","build/evidence-run-43103669084/gate-linux.json","build/evidence-run-43103669084/gate-macos.json","build/gate/06-08-final/gate-attempt03.log","build/gate/06-08-final/inputs/binding.json","build/gate/06-08-hosted-aa1e531/gate-linux.json","build/gate/06-08-hosted-aa1e531/gate-macos.json","build/gate/06-08-hosted-comparison.log","build/gate/v1.0-audit-scope.json","build/gate/v1.0-integration-check.md","build/gate/v1.0-stale-verification-scope.json","build/gate/v1.0-verification-refresh-contract.json","core/CMakeLists.txt","core/include/tendies64/t64_machine.h","core/t64_bus.c","core/t64_cpu.c","core/t64_digest.c","core/t64_internal.h","core/t64_isviewer.c","core/t64_machine.c","core/t64_observe.c","core/t64_rom.c","core/t64_scheduler.c","core/t64_sp.c","core/t64_warm_devices.c","core/tests/test_boot_determinism.c","core/tests/test_boot_entry.c","core/tests/test_cpu_path.c","core/tests/test_isviewer.c","core/tests/test_tracer.c","core/tests/test_warm_devices.c","docs/ci-reviews/LOG.md","docs/evidence/phase3-ci.md","docs/evidence/zlib-host-prerequisite-audit.md","docs/spec/boot-limits.md","docs/spec/result-protocol.md","fixtures/boot-contract.json","fixtures/hello/hello.S","fixtures/hello/hello.ld","fixtures/manifest.json","runner/CMakeLists.txt","runner/t64_input.c","runner/t64_input.h","runner/t64_real.c","runner/t64_real_fixture.c","runner/t64_real_fixture.h","runner/t64_real_result.c","runner/t64_real_result.h","runner/t64_result_check.c","runner/t64_supervisor.c","runner/t64_verified_input.c","runner/t64_verified_input.h","runner/tests/test_fixture_descriptor.c","runner/tests/test_input.c","runner/tests/test_real_controls.c","runner/tests/test_real_runner.c","runner/tests/test_result_v2.c","scripts/build-boot-fixtures.sh","scripts/check-ci-yml.sh","scripts/check-test-inventory.sh","scripts/collect-boot-evidence.sh","scripts/compare-boot-evidence.sh","scripts/gate.sh","tools/fixture/t64_rom_pack.c"]
-covered_digest: "v4:sha256:fcb3fed5b46115fc12ecc7acd0733341d60c2439d29e2730019eb6ac2564bf0f"
+covered_files:
+  - .github/workflows/ci.yml
+  - .planning/phases/03-first-headless-rom-through-open-ipl3/03-01-PLAN.md
+  - .planning/phases/03-first-headless-rom-through-open-ipl3/03-01-SUMMARY.md
+  - .planning/phases/03-first-headless-rom-through-open-ipl3/03-02-PLAN.md
+  - .planning/phases/03-first-headless-rom-through-open-ipl3/03-02-SUMMARY.md
+  - .planning/phases/03-first-headless-rom-through-open-ipl3/03-03-PLAN.md
+  - .planning/phases/03-first-headless-rom-through-open-ipl3/03-03-SUMMARY.md
+  - .planning/phases/03-first-headless-rom-through-open-ipl3/03-04-PLAN.md
+  - .planning/phases/03-first-headless-rom-through-open-ipl3/03-04-SUMMARY.md
+  - .planning/phases/03-first-headless-rom-through-open-ipl3/03-05-PLAN.md
+  - .planning/phases/03-first-headless-rom-through-open-ipl3/03-05-SUMMARY.md
+  - .planning/phases/03-first-headless-rom-through-open-ipl3/03-06-PLAN.md
+  - .planning/phases/03-first-headless-rom-through-open-ipl3/03-06-SUMMARY.md
+  - .planning/phases/03-first-headless-rom-through-open-ipl3/03-07-PLAN.md
+  - .planning/phases/03-first-headless-rom-through-open-ipl3/03-07-SUMMARY.md
+  - .planning/phases/03-first-headless-rom-through-open-ipl3/03-08-PLAN.md
+  - .planning/phases/03-first-headless-rom-through-open-ipl3/03-08-SUMMARY.md
+  - .planning/phases/03-first-headless-rom-through-open-ipl3/03-09-PLAN.md
+  - .planning/phases/03-first-headless-rom-through-open-ipl3/03-09-SUMMARY.md
+  - .planning/phases/03-first-headless-rom-through-open-ipl3/03-10-PLAN.md
+  - .planning/phases/03-first-headless-rom-through-open-ipl3/03-10-SUMMARY.md
+  - .planning/phases/03-first-headless-rom-through-open-ipl3/03-11-PLAN.md
+  - .planning/phases/03-first-headless-rom-through-open-ipl3/03-11-SUMMARY.md
+  - .planning/phases/03-first-headless-rom-through-open-ipl3/03-12-PLAN.md
+  - .planning/phases/03-first-headless-rom-through-open-ipl3/03-12-SUMMARY.md
+  - .planning/phases/03-first-headless-rom-through-open-ipl3/03-13-PLAN.md
+  - .planning/phases/03-first-headless-rom-through-open-ipl3/03-13-SUMMARY.md
+  - core/CMakeLists.txt
+  - core/include/tendies64/t64_machine.h
+  - core/t64_bus.c
+  - core/t64_cpu.c
+  - core/t64_digest.c
+  - core/t64_internal.h
+  - core/t64_isviewer.c
+  - core/t64_machine.c
+  - core/t64_observe.c
+  - core/t64_rom.c
+  - core/t64_scheduler.c
+  - core/t64_sp.c
+  - core/t64_warm_devices.c
+  - core/tests/test_boot_determinism.c
+  - core/tests/test_boot_entry.c
+  - core/tests/test_cpu_path.c
+  - core/tests/test_isviewer.c
+  - core/tests/test_tracer.c
+  - core/tests/test_warm_devices.c
+  - docs/ci-reviews/LOG.md
+  - docs/evidence/phase3-ci.md
+  - docs/evidence/zlib-host-prerequisite-audit.md
+  - docs/spec/boot-limits.md
+  - docs/spec/result-protocol.md
+  - fixtures/boot-contract.json
+  - fixtures/hello/hello.S
+  - fixtures/hello/hello.ld
+  - fixtures/manifest.json
+  - runner/CMakeLists.txt
+  - runner/t64_input.c
+  - runner/t64_input.h
+  - runner/t64_real.c
+  - runner/t64_real_fixture.c
+  - runner/t64_real_fixture.h
+  - runner/t64_real_result.c
+  - runner/t64_real_result.h
+  - runner/t64_result_check.c
+  - runner/t64_supervisor.c
+  - runner/t64_verified_input.c
+  - runner/t64_verified_input.h
+  - runner/tests/test_fixture_descriptor.c
+  - runner/tests/test_input.c
+  - runner/tests/test_real_controls.c
+  - runner/tests/test_real_runner.c
+  - runner/tests/test_result_v2.c
+  - scripts/build-boot-fixtures.sh
+  - scripts/check-ci-yml.sh
+  - scripts/check-rsp-evidence.py
+  - scripts/check-test-inventory.sh
+  - scripts/collect-boot-evidence.sh
+  - scripts/compare-boot-evidence.sh
+  - scripts/gate.sh
+  - scripts/tests/test_rsp_evidence.py
+  - tools/fixture/t64_rom_pack.c
+covered_digest: "v4:sha256:834d6a44bce7e978042852b44fe64ad7914549375cfdae1cb57b4e574496146b"
 behavior_unverified: 0
 overrides_applied: 0
 ---
@@ -110,3 +191,20 @@ This bounded refresh preserves the original findings and evidence above. The cur
 | PROF-05 | SATISFIED | The exact Linux/macOS pair has matching guest state and input/profile/content identities. |
 
 The claim remains the prepared warm-entry software profile. Input traces show scheduled event delivery, not guest controller consumption; this refresh does not claim authentic IPL2/cold boot, silicon accuracy, broad compatibility, or source regeneration. The current audit bundle keeps later-phase requirements separate; none is pulled into Phase 3 scope.
+
+
+## Final archive-continuity delta reconciliation
+
+The four-file metadata lookup correction committed as cf4dfa8 preserves the
+Phase05 ownership tables through the fixed v1.0 archival move. The resolver
+refuses missing, duplicate and symlinked metadata. Its authored control passed
+in normal and instrumented builds; inventory/removal controls retain inherited
+test ownership. Scoped code and security review examined the working-tree
+correction based on 0fbcf90 before it was committed. Both hosted gates and exact
+artifact comparison passed for cf4dfa8 in run 43802632589. Source/runtime
+semantics and original guest evidence cohorts remain unchanged; this is no
+new guest execution or hardware qualification. Detailed retained evidence is
+in build/gate/v1.0-archive-*, build/asan/v1.0-archive-* and
+build/gate/v1.0-hosted-*; public run/timing ownership is in docs/ci-reviews/LOG.md.
+CLI fingerprints below cover durable source/evidence and this phase's
+plans/summaries; ignored local logs and mutable lifecycle trackers are excluded.
