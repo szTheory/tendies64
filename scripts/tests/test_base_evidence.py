@@ -28,6 +28,10 @@ FIXTURES = load_file("t64_base_qualification_fixtures",
                      ROOT / "scripts/tests/test_base_qualification.py")
 CHECKER = load_file("t64_base_evidence_checker",
                     ROOT / "scripts/check-base-evidence.py")
+LEGACY_HELLO_ORACLE_REVISION = (
+    "source-content-sha256:14de53066a2b10089f99962c781396d660ce9c8a4b0054cd8d9f5f0b0364dae0"
+)
+LEGACY_HELLO_SOURCE_REVISION = "8fe70268cdee62e5098e6805fb965a54847d2219"
 
 
 class BaseEvidenceControls(unittest.TestCase):
@@ -402,6 +406,36 @@ if os.environ.get("T64_BASE_EVIDENCE_ACTUAL_TEST") == "1":
 
 class PublicEvidenceControls(unittest.TestCase):
     public_repository = BaseEvidenceControls.public_repository
+
+    def test_rdp_fixture_addition_keeps_legacy_hello_oracle_revisions(self) -> None:
+        manifest = json.loads((ROOT / "fixtures/manifest.json").read_bytes())
+        legacy_ids = {
+            "hello-openipl3",
+            "hello-empty-break",
+            "hello-wrong-text",
+            "hello-empty-loop",
+            "hello-incomplete-loop",
+            "hello-unsupported",
+            "hello-output-overflow",
+            "hello-openipl3-rdram-a-t1",
+            "hello-openipl3-rdram-b-t1",
+        }
+        rows = {
+            row.get("id"): row
+            for row in manifest.get("entries", [])
+            if isinstance(row, dict)
+        }
+        self.assertTrue(legacy_ids.issubset(rows))
+        for fixture_id in legacy_ids:
+            with self.subTest(fixture_id=fixture_id):
+                self.assertEqual(
+                    rows[fixture_id].get("expected", {}).get("revision"),
+                    LEGACY_HELLO_ORACLE_REVISION,
+                )
+                self.assertEqual(
+                    rows[fixture_id].get("source", {}).get("revision"),
+                    LEGACY_HELLO_SOURCE_REVISION,
+                )
 
     def test_bound_selector_bytes_are_the_expected_rom_authority(self) -> None:
         from types import SimpleNamespace

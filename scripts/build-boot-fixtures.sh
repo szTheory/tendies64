@@ -400,44 +400,11 @@ build_set()
             die "packer changed the admitted IPL3 payload bytes for $name"
         rm -f "$packed_payload" "$embedded_ipl3"
     done
-
-    object="$output_dir/rdp-fill.o"
-    elf="$output_dir/rdp-fill.elf"
-    flat="$output_dir/rdp-fill.payload.bin"
-    rom="$output_dir/rdp-fill.z64"
-    "$AS" -32 -mips3 -EB -o "$object" fixtures/rdp/fill.S
-    "$LD" -m elf32ebmip -EB -T fixtures/rdp/fill.ld -o "$elf" "$object"
-    "$OBJCOPY" -O binary "$elf" "$flat"
-    [ -s "$flat" ] || die 'linked fill payload is empty'
-    entry=$(linked_entry "$elf")
-    clock=$(linked_symbol __t64_rom_clock "$elf")
-    crc2=$(linked_symbol __t64_rom_crc2 "$elf")
-    [ "$entry" = 0x80000400 ] || die "unexpected linked fill entry: $entry"
-    [ "$clock" = 0x0000000f ] || die "unexpected linked fill clock: $clock"
-    [ "$crc2" = 0x00000000 ] || die "unexpected linked fill CRC2 policy: $crc2"
-    "$PACKER" --pack --boot "$BOOT" --payload "$flat" --output "$rom" \
-        --entry "$entry" --clock "$clock" --crc2 "$crc2"
-    packed_payload="$output_dir/rdp-fill.packed-payload.bin"
-    embedded_ipl3="$output_dir/rdp-fill.embedded-ipl3.bin"
-    dd if="$rom" of="$packed_payload" bs=1 skip=4096 \
-        count="$(file_size "$flat")" 2>/dev/null
-    dd if="$rom" of="$embedded_ipl3" bs=1 skip=64 count=4032 2>/dev/null
-    cmp "$flat" "$packed_payload" >/dev/null || \
-        die 'packer changed the authored fill payload bytes'
-    cmp "$PAYLOAD" "$embedded_ipl3" >/dev/null || \
-        die 'packer changed the admitted IPL3 payload bytes in fill fixture'
-    rm -f "$packed_payload" "$embedded_ipl3"
 }
 
 source_content_sha256()
 {
     cat fixtures/hello/hello.S fixtures/hello/hello.ld \
-        tools/fixture/t64_rom_pack.c scripts/build-boot-fixtures.sh | sha256_stream
-}
-
-rdp_source_content_sha256()
-{
-    cat fixtures/rdp/fill.S fixtures/rdp/fill.ld \
         tools/fixture/t64_rom_pack.c scripts/build-boot-fixtures.sh | sha256_stream
 }
 
@@ -448,7 +415,7 @@ write_build_metadata()
     compiler_version=$(tool_version "$CC")
     roms='[]'
     for name in hello hello-empty-break hello-wrong-text hello-empty-loop \
-        hello-incomplete-loop hello-unsupported hello-output-overflow rdp-fill; do
+        hello-incomplete-loop hello-unsupported hello-output-overflow; do
         rom="$output_dir/$name.z64"
         rom_hash=$(sha256_file "$rom")
         rom_size=$(file_size "$rom")
@@ -499,38 +466,6 @@ write_build_metadata()
           roms:$roms,
           metadata_scope:"Host tool hashes identify this host build and are excluded from guest/profile identity."}' \
         > "$output_dir/hello.build.json"
-
-    fill_rom="$output_dir/rdp-fill.z64"
-    fill_payload="$output_dir/rdp-fill.payload.bin"
-    fill_source_hash=$(rdp_source_content_sha256)
-    fill_rom_sha=$(sha256_file "$fill_rom")
-    fill_payload_sha=$(sha256_file "$fill_payload")
-    fill_rom_size=$(file_size "$fill_rom")
-    fill_payload_size=$(file_size "$fill_payload")
-    jq -n --arg source_hash "$fill_source_hash" \
-        --arg rom_sha "$fill_rom_sha" --arg payload_sha "$fill_payload_sha" \
-        --arg as_version "$AS_VERSION" --arg as_sha "$AS_SHA256" \
-        --arg ld_version "$LD_VERSION" --arg ld_sha "$LD_SHA256" \
-        --arg objcopy_version "$OBJCOPY_VERSION" --arg objcopy_sha "$OBJCOPY_SHA256" \
-        --arg objdump_version "$OBJDUMP_VERSION" --arg objdump_sha "$OBJDUMP_SHA256" \
-        --argjson rom_size "$fill_rom_size" --argjson payload_size "$fill_payload_size" \
-        --argjson asset_bytes 4096 --argjson embedded_bytes 4032 \
-        --arg asset_sha "$EXPECTED_ASSET_SHA256" --arg embedded_sha "$EXPECTED_PAYLOAD_SHA256" \
-        '{schema:"t64.rdp-fill-build-metadata",schema_version:1,
-          fixture_id:"rdp-vi-fill-diagnostic",
-          source_content_sha256:$source_hash,
-          authored_payload:{size_bytes:$payload_size,sha256:$payload_sha},
-          whole_rom:{size_bytes:$rom_size,sha256:$rom_sha},
-          embedded_ipl3:{source_asset_size_bytes:$asset_bytes,source_asset_sha256:$asset_sha,
-            source_offset:"0x40",size_bytes:$embedded_bytes,sha256:$embedded_sha,
-            destination_offset:"0x40",rights_scope:"separately recorded Unlicense asset"},
-          recipe:{assembler:"mips64-elf-as -32 -mips3 -EB",linker:"mips64-elf-ld -m elf32ebmip -EB",
-            linker_script:"fixtures/rdp/fill.ld",rom_packer:"tools/fixture/t64_rom_pack.c",
-            command:"sh scripts/build-boot-fixtures.sh --build"},
-          host_tools:{as:{version:$as_version,sha256:$as_sha},ld:{version:$ld_version,sha256:$ld_sha},
-            objcopy:{version:$objcopy_version,sha256:$objcopy_sha},objdump:{version:$objdump_version,sha256:$objdump_sha}},
-          metadata_scope:"Host tool hashes identify this host build and are excluded from guest/profile identity."}' \
-        > "$output_dir/rdp-fill.build.json"
 }
 
 install_file()
@@ -564,23 +499,10 @@ verify_manifest()
     hello_sha=$(sha256_file build/fixtures/hello.z64)
     hello_size=$(file_size build/fixtures/hello.z64)
     source_hash=$(source_content_sha256)
-    rdp_source_hash=$(rdp_source_content_sha256)
-    rdp_sha=$(sha256_file build/fixtures/rdp-fill.z64)
-    rdp_size=$(file_size build/fixtures/rdp-fill.z64)
-    rdp_payload_sha=$(sha256_file build/fixtures/rdp-fill.payload.bin)
-    rdp_payload_size=$(file_size build/fixtures/rdp-fill.payload.bin)
     source_revision=$(jq -er '.entries[] | select(.id == "hello-openipl3") | .source.revision' fixtures/manifest.json) || \
         die 'hello source revision is missing from fixture manifest'
     case "$source_revision" in *[!0-9a-f]*|'') die 'hello source revision is not a lowercase 40-hex commit' ;; esac
     [ "${#source_revision}" -eq 40 ] || die 'hello source revision is not a 40-hex commit'
-    rdp_source_revision=$(jq -er '.entries[] | select(.id == "rdp-fill") | .source.revision' fixtures/manifest.json) || \
-        die 'RDP fill source revision is missing from fixture manifest'
-    case "$rdp_source_revision" in *[!0-9a-f]*|'') die 'RDP fill source revision is not a lowercase 40-hex commit' ;; esac
-    [ "${#rdp_source_revision}" -eq 40 ] || die 'RDP fill source revision is not a 40-hex commit'
-    rdp_payload_revision=$(jq -er '.entries[] | select(.id == "rdp-fill-payload") | .source.revision' fixtures/manifest.json) || \
-        die 'RDP fill payload source revision is missing from fixture manifest'
-    [ "$rdp_payload_revision" = "$rdp_source_revision" ] || \
-        die 'RDP fill payload and whole-ROM source revisions differ'
     for file in fixtures/hello/hello.S fixtures/hello/hello.ld \
         tools/fixture/t64_rom_pack.c scripts/build-boot-fixtures.sh; do
         git cat-file -e "$source_revision:$file" 2>/dev/null || \
@@ -591,22 +513,9 @@ verify_manifest()
             die "manifest source revision content differs for $file"
     done
 
-    for file in fixtures/rdp/fill.S fixtures/rdp/fill.ld \
-        tools/fixture/t64_rom_pack.c scripts/build-boot-fixtures.sh; do
-        git cat-file -e "$rdp_source_revision:$file" 2>/dev/null || \
-            die "RDP fill source revision does not contain $file"
-        committed_sha=$(git show "$rdp_source_revision:$file" | sha256_stream)
-        current_sha=$(sha256_file "$file")
-        [ "$committed_sha" = "$current_sha" ] || \
-            die "RDP fill source revision content differs for $file"
-    done
-
     jq -e --arg asset "$asset_sha" --arg payload "$payload_sha" \
         --arg hello "$hello_sha" --arg source_hash "$source_hash" \
         --arg revision "$source_revision" --argjson size "$hello_size" \
-        --arg rdp "$rdp_sha" --arg rdp_source_hash "$rdp_source_hash" \
-        --arg rdp_revision "$rdp_source_revision" --arg rdp_payload "$rdp_payload_sha" \
-        --argjson rdp_size "$rdp_size" --argjson rdp_payload_size "$rdp_payload_size" \
         '([.entries[] | select(.id == "openipl3-compat-asset")][0] |
             .sha256 == $asset and .size == 4096 and .source.revision == "98154dafd5ac50e74ee09a5de1035d24a53f54f0") and
          ([.entries[] | select(.id == "openipl3-compat-payload")][0] |
@@ -614,22 +523,7 @@ verify_manifest()
          ([.entries[] | select(.id == "hello-openipl3")][0] |
             .sha256 == $hello and .size == $size and .source.revision == $revision and
             (.build.recipe | contains($source_hash)) and
-            .expected.revision == ("source-content-sha256:" + $source_hash)) and
-         ([.entries[] | select(.id == "rdp-fill")][0] |
-            .sha256 == $rdp and .size == $rdp_size and
-            .source.revision == $rdp_revision and
-            (.build.recipe | contains($rdp_source_hash)) and
-            (.build.recipe | contains($rdp_payload)) and
-            (.build.recipe | contains(($rdp_payload_size | tostring) + " bytes")) and
-            .expected.revision == ("source-content-sha256:" + $rdp_source_hash) and
-            .source_rights == "authored-here" and .binary_rights == "cleared" and
-            .distribution == ["build-only"]) and
-         ([.entries[] | select(.id == "rdp-fill-payload")][0] |
-            .sha256 == $rdp_payload and .size == $rdp_payload_size and
-            .source.revision == $rdp_revision and
-            (.build.recipe | contains($rdp_source_hash)) and
-            .source_rights == "authored-here" and .binary_rights == "cleared" and
-            .distribution == ["build-only"])' \
+            .expected.revision == ("source-content-sha256:" + $source_hash))' \
         fixtures/manifest.json >/dev/null || \
         die 'fixture manifest does not bind the source, payload, generated ROM and source-content pins'
 
@@ -641,8 +535,6 @@ verify_manifest()
         name=${spec#*:}
         assert_manifest_entry "$id" "build/fixtures/$name.z64"
     done
-    assert_manifest_entry rdp-fill build/fixtures/rdp-fill.z64
-    assert_manifest_entry rdp-fill-payload build/fixtures/rdp-fill.payload.bin
     jq -e --arg payload "$payload_sha" \
         '[.entries[] | select(.id == "openipl3-compat-payload")][0] |
          .sha256 == $payload and .size == 4032 and .binary_rights == "cleared" and
@@ -748,9 +640,6 @@ install_generated_outputs()
         install_file "$staging/$name.z64" "build/fixtures/$name.z64"
     done
     install_file "$staging/hello.payload.bin" build/fixtures/hello.payload.bin
-    install_file "$staging/rdp-fill.z64" build/fixtures/rdp-fill.z64
-    install_file "$staging/rdp-fill.payload.bin" build/fixtures/rdp-fill.payload.bin
-    install_file "$staging/rdp-fill.build.json" build/fixtures/rdp-fill.build.json
     install_file "$staging/ipl3_compat.payload.bin" build/fixtures/ipl3_compat.payload.bin
     install_file "$staging/hello.expected.txt" build/fixtures/hello.expected.txt
     install_file "$staging/hello.input.json" build/fixtures/hello.input.json

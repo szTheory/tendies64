@@ -351,7 +351,7 @@ target_compile_definitions(test_rdp_video PRIVATE ${T64_HOST_DEFS})
 target_include_directories(test_rdp_video PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
 target_link_libraries(test_rdp_video PRIVATE t64_common)
 t64_target_warnings(test_rdp_video)
-add_dependencies(test_rdp_video t64-supervisor t64-result-check t64-boot-fixtures)
+add_dependencies(test_rdp_video t64-supervisor t64-result-check t64-rdp-fill-fixture)
 add_test(NAME runner.rdp-fill
   COMMAND test_rdp_video accepted-cpu-fill-to-raw-frame
     $<TARGET_FILE:t64-supervisor> $<TARGET_FILE:t64-result-check>

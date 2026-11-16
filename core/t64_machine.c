@@ -884,7 +884,9 @@ static bool profile_fields_are_valid(const t64_profile_descriptor *profile) {
          T64_PROFILE_TEXT_OK(device_error_policy) &&
          T64_PROFILE_TEXT_OK(dma_cancel_policy) &&
          T64_PROFILE_TEXT_OK(dma_visibility_policy) &&
-         (profile->descriptor_version < 5u ||
+         /* Only descriptor v5 serializes the new RDP/VI policy fields. Keep
+          * the pre-v5 and unknown-version legacy byte layout unchanged. */
+         (profile->descriptor_version != 5u ||
           (T64_PROFILE_TEXT_OK(rdp_work_policy) &&
            T64_PROFILE_TEXT_OK(vi_clock_policy) &&
            T64_PROFILE_TEXT_OK(rdp_noise_policy) &&
