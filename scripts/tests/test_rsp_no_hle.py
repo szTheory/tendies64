@@ -40,6 +40,7 @@ MUTATION_SEEDS = (
     "unnamed DMEM signature early return",
     "hidden production source",
     "hidden RDP/VI source roster entry",
+    "t64_core omits RDP/VI source roster",
     "hidden softfloat source",
     "hidden archive object",
     "hidden object file",
@@ -325,6 +326,21 @@ def _check_mutation_suite(temp_root: pathlib.Path) -> int:
     )
     _must_reject("hidden RDP/VI source roster entry", source_root, build_root)
     hidden_rdp_source.unlink()
+    seeds_run += 1
+
+    roster_source = _copy_source_only_fixture(temp_root / "missing-rdp-roster")
+    cmake_path = roster_source / "core" / "CMakeLists.txt"
+    original_cmake = cmake_path.read_text(encoding="utf-8")
+    roster_anchor = "add_library(t64_core STATIC\n  ${T64_CORE_SOURCES}\n"
+    if roster_anchor not in original_cmake:
+        raise AssertionError("t64_core RDP/VI source-roster anchor no longer exists")
+    cmake_path.write_text(
+        original_cmake.replace(
+            roster_anchor, "add_library(t64_core STATIC\n", 1
+        ),
+        encoding="utf-8",
+    )
+    _must_reject("t64_core omits RDP/VI source roster", roster_source)
     seeds_run += 1
 
     rdp_path = source_root / "core" / "t64_rdp.c"
