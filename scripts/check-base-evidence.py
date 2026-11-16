@@ -1141,6 +1141,40 @@ def _file_sha256(path: pathlib.Path) -> str:
     return digest.hexdigest()
 
 
+def _historical_image(context: dict, authority: dict, repository_root: pathlib.Path):
+    """Reuse reviewed image binding/selector policy without live host pre-use."""
+    path = repository_root / "scripts/run-base-diagnostic.py"
+    spec = importlib.util.spec_from_file_location("t64_saved_base_image", path)
+    if spec is None or spec.loader is None:
+        refuse()
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    image = module._load_combined_source_image(context)
+    module._validate_dispatch_seam(authority, image)
+    return image
+
+
+def _check_selected_image(row: dict, record: dict, image) -> None:
+    """The expected ROM comes from bound bytes, never the submitted record."""
+    if record.get("outcome") in {"blocked", "unexecuted"}:
+        expected = ""
+    else:
+        key = (row["registration_index"], row["value_index"])
+        if any(type(value) is not int or not 0 <= value <= 0xffff for value in key):
+            refuse()
+        selected = image.members.get(key)
+        if selected is None:
+            raise Refusal("BASE selected image differs from independent qualification")
+        selector = key[0].to_bytes(2, "big") + key[1].to_bytes(2, "big")
+        offset = image.selector_offset
+        variant = image.base_bytes[:offset] + selector + image.base_bytes[offset + 4:]
+        expected = sha256(variant)
+        if selected["selected_rom_sha256"] != expected:
+            raise Refusal("BASE selected image differs from independent qualification")
+    if row["expected_rom_sha256"] != expected:
+        raise Refusal("BASE selected image differs from independent qualification")
+
+
 def _validate_batch(batch_root: pathlib.Path, repository_root: pathlib.Path,
                     expected_lane: str) -> None:
     batch_root = batch_root.resolve(strict=True)
@@ -1199,6 +1233,8 @@ def _validate_batch(batch_root: pathlib.Path, repository_root: pathlib.Path,
             manifest.get("schema_version") != 1 or
             not isinstance(manifest.get("members"), list)):
         refuse()
+    authority_object = parse_canonical(read_private(batch_root / "source-authority.json"))
+    image = _historical_image(context, authority_object, repository_root)
     record_root = (repository_root / PRIVATE_ROOT).resolve(strict=True)
     for row in manifest["members"]:
         if (not isinstance(row, dict) or set(row) != {
@@ -1208,7 +1244,8 @@ def _validate_batch(batch_root: pathlib.Path, repository_root: pathlib.Path,
         original = _private_path(record_root, row["original"])
         record = _private_path(record_root, row["record"])
         read_private(original, maximum=4096, minimum=0)
-        read_private(record, maximum=8192)
+        record_object = parse_json(read_private(record, maximum=8192))
+        _check_selected_image(row, record_object, image)
 
     authority = batch_root / "source-authority.json"
     inventory = batch_root / "inventory.json"

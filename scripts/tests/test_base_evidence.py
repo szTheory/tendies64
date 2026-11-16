@@ -353,8 +353,69 @@ if os.environ.get("T64_BASE_EVIDENCE_ACTUAL_TEST") == "1":
                     CHECKER._independent_source_authority = original_deriver
                 self.assertEqual(derived, [True])
 
+        def test_actual_resealed_selected_rom_is_independently_refused(self) -> None:
+            import subprocess
+            private = ROOT / CHECKER.PRIVATE_ROOT
+            index = CHECKER.parse_canonical(CHECKER.read_private(
+                private / "plan06-06-execution-summary.json"))
+            location = next(row["batch"] for row in index["lanes"] if row["lane"] == "required")
+            original = ROOT / location
+            CHECKER._validate_batch(original, ROOT, "required")
+            with tempfile.TemporaryDirectory(prefix="image-control-", dir=private) as temp:
+                copied = pathlib.Path(temp)
+                copied.chmod(0o700)
+                for name in ("context.json", "binding.json", "source-authority.json", "inventory.json", "batch.json", "consumer"):
+                    shutil.copyfile(original / name, copied / name)
+                    (copied / name).chmod(0o700 if name == "consumer" else 0o600)
+                receipt = CHECKER.parse_canonical(CHECKER.read_private(copied / "batch.json"))
+                manifest = CHECKER.parse_canonical(CHECKER.read_private(original / receipt["classification_input"]))
+                row = next(row for row in manifest["members"] if row["expected_rom_sha256"])
+                old_digest = row["expected_rom_sha256"]
+                changed_digest = "f" * 64
+                self.assertNotEqual(old_digest, changed_digest)
+                original_record = CHECKER.read_private(pathlib.Path(row["record"]), maximum=8192)
+                changed = original_record.replace(old_digest.encode(), changed_digest.encode())
+                self.assertNotEqual(original_record, changed)
+                record_path = copied / "changed-record.json"
+                record_path.write_bytes(changed)
+                record_path.chmod(0o600)
+                row.update(expected_rom_sha256=changed_digest, record=str(record_path))
+                # Recompute the report using original C, so a stale report hash
+                # cannot be the reason the new independent guard refuses.
+                for item in manifest["members"]:
+                    item.update(outcome="record", reason="")
+                input_path = copied / receipt["classification_input"]
+                input_path.write_bytes(CHECKER.canonical(manifest))
+                input_path.chmod(0o600)
+                binding = CHECKER.parse_canonical(CHECKER.read_private(copied / "binding.json"))
+                report_path = copied / receipt["classification_report"]
+                command = [str(copied / "consumer"), "--classify-manifest", str(copied / "source-authority.json"),
+                           binding["source_authority_sha256"], str(copied / "inventory.json"),
+                           binding["context_sha256"], str(input_path), str(report_path)]
+                completed = subprocess.run(command, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+                    timeout=60, check=False, env={"PATH": os.environ.get("PATH", ""), "LC_ALL": "C"})
+                if completed.returncode != receipt["classification_exit_code"] or not report_path.is_file():
+                    self.fail("authored mutation could not reach the original C classification seam")
+                with self.assertRaisesRegex(CHECKER.Refusal, "selected image differs"):
+                    CHECKER._validate_batch(copied, ROOT, "required")
+
+
 class PublicEvidenceControls(unittest.TestCase):
     public_repository = BaseEvidenceControls.public_repository
+
+    def test_bound_selector_bytes_are_the_expected_rom_authority(self) -> None:
+        from types import SimpleNamespace
+        base = b"authored-0000-ROM"
+        offset, key = 9, (3, 7)
+        selected = base[:offset] + b"\0\3\0\7" + base[offset + 4:]
+        digest = CHECKER.sha256(selected)
+        image = SimpleNamespace(base_bytes=base, selector_offset=offset,
+                                members={key: {"selected_rom_sha256": digest}})
+        row = {"registration_index": 3, "value_index": 7, "expected_rom_sha256": digest}
+        CHECKER._check_selected_image(row, {"outcome": "pass"}, image)
+        with self.assertRaisesRegex(CHECKER.Refusal, "selected image differs"):
+            CHECKER._check_selected_image(dict(row, expected_rom_sha256="f" * 64),
+                                          {"outcome": "pass", "selected_rom_sha256": "f" * 64}, image)
 
     def test_public_receipt_rejects_private_fields_and_quoted_aliases(self) -> None:
         receipt_path = ROOT / "docs/evidence/phase06-final.json"
