@@ -54,6 +54,8 @@ MUTATION_SEEDS = (
     "unreviewed SP DMA helper definition",
     "removed SP DMA helper definition",
     "RDP fill production body mutation",
+    "TMEM load production body mutation",
+    "missing TMEM object file",
     "DPC counter bus-window body mutation",
     "DPC profile-gated injected effect",
 )
@@ -364,6 +366,40 @@ def _check_mutation_suite(temp_root: pathlib.Path) -> int:
         encoding="utf-8",
     )
     _must_reject("RDP fill production body mutation", source_root, build_root)
+    seeds_run += 1
+
+    tmem_path = source_root / "core" / "t64_rdp_tmem.c"
+    original_tmem = tmem_path.read_text(encoding="utf-8")
+    tmem_anchor = "tmem[(size_t)address] = (uint8_t)value;"
+    if tmem_anchor not in original_tmem:
+        raise AssertionError("TMEM store mutation anchor no longer exists")
+    tmem_path.write_text(
+        original_tmem.replace(
+            tmem_anchor,
+            "tmem[(size_t)address] = (uint8_t)(value ^ UINT32_C(1));",
+            1,
+        ),
+        encoding="utf-8",
+    )
+    _must_reject("TMEM load production body mutation", source_root, build_root)
+    seeds_run += 1
+
+    missing_tmem_source, missing_tmem_build = _copy_clean_fixture(
+        temp_root / "missing-tmem-object"
+    )
+    tmem_object = (
+        missing_tmem_build
+        / "core"
+        / "CMakeFiles"
+        / "t64_core.dir"
+        / "t64_rdp_tmem.c.o"
+    )
+    if not tmem_object.is_file():
+        raise AssertionError("TMEM production object is missing from clean fixture")
+    tmem_object.unlink()
+    _must_reject(
+        "missing TMEM object file", missing_tmem_source, missing_tmem_build
+    )
     seeds_run += 1
 
     bus_path = source_root / "core" / "t64_bus.c"

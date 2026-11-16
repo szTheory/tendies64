@@ -33,6 +33,7 @@ CANONICAL_CORE_SOURCES = frozenset(
         "t64_observe.c",
         "t64_pi.c",
         "t64_rdp.c",
+        "t64_rdp_tmem.c",
         "t64_rom.c",
         "t64_rdram.c",
         "t64_rsp.c",
@@ -145,7 +146,20 @@ REVIEWED_RDP_FUNCTIONS = frozenset(
         "schedule_next_committed", "schedule_work_after_committed", "set_refusal",
         "supported_opcode", "t64_rdp_event", "t64_rdp_read_register",
         "t64_rdp_reset_machine_state", "t64_rdp_write_register",
-        "validate_fill_store", "write_be16",
+        "texture_rect_bounds", "validate_fill_store", "write_be16",
+    }
+)
+REVIEWED_RDP_TMEM_FUNCTIONS = frozenset(
+    {
+        "apply_load_block", "apply_load_tile", "apply_load_tlut",
+        "bits_per_texel", "clamp_u8", "coeff", "command_tile", "field12",
+        "format_size_supported", "load_source_span_valid", "rgba5551",
+        "sample_texel", "signed9", "source_byte_address", "source_texel",
+        "t64_rdp_tmem_apply_command", "t64_rdp_tmem_begin_copy",
+        "t64_rdp_tmem_convert_yuv", "t64_rdp_tmem_copy_pixel",
+        "t64_rdp_tmem_handles_opcode", "t64_rdp_tmem_validate_command",
+        "t64_rdp_tmem_validate_copy", "tmem_base", "tmem_read_bits",
+        "tmem_store", "wrap_coordinate",
     }
 )
 REVIEWED_VI_FUNCTIONS = frozenset(
@@ -213,27 +227,54 @@ REVIEWED_BODY_DIGESTS = {
     "core/t64_sp.c :: trace_refusal": "d142faecf8d4f78e427aa40e7454d0a24cc05c20ca433e225bed118982517dfc",
     "core/t64_sp.c :: warm_zero_source_sp_transfer": "46b55d7252273228780a497b4f34180b53dc93676f6bac901aaff9fae6d86508",
     "core/t64_sp.c :: write_rsp_status": "8d1f00710b955fc530864d080ae8d99733711e73749c75b6800d7cc590dbf74c",
-    "core/t64_rdp.c :: apply_pending_command": "debef4b84709f6cd0ba7fa0f9a4bee6743f3a7392dc021ab3e7174d48ec849c7",
+    "core/t64_rdp.c :: apply_pending_command": "781b1000932bbb147594670ed0110b968727218de77e83714087e2562097197e",
     "core/t64_rdp.c :: command_span_valid": "4f8a0ecc32f895ae4dfa8f6390d90e4e1a0c18477bbe8ebbb97d66136f882f3a",
     "core/t64_rdp.c :: dpc_status_value": "051e3e702318dd9975d0c0a41a990c733d78ca8e84c77aeeab67ef4da7d4be32",
     "core/t64_rdp.c :: fill_bounds": "05ce4e443ffa8fac9adc9503750953b1a9f8c0d7485c1c14a90601433d4c6540",
     "core/t64_rdp.c :: fill_one_row": "472543c65709bbbfe33d591bd8073490846446d0c9e7c09f8a81db8a6d101e3a",
-    "core/t64_rdp.c :: finish_if_idle": "7f731f3701511efc5d051a858266d836aa6ee4f59b5e5fe80621514f2f547005",
-    "core/t64_rdp.c :: handle_row": "890ba1edbf0e715ce0ccccc178f59e6da2672f5f3bdfd52cd6b569710f30e1a0",
+    "core/t64_rdp.c :: finish_if_idle": "c5f6f068c0c3622f8ca67750f53032f9b2c2ec6324cfda9991d7420e06277a1a",
+    "core/t64_rdp.c :: handle_row": "503223b6f76d8764fd132e870c051cad512c3bf1ade3d8e36831f4da1f6d2d95",
     "core/t64_rdp.c :: increment_counter": "c7b52a4723395d1f114dd6c485c36e3c08ca7338afcd527d8e9fd0929dc86911",
     "core/t64_rdp.c :: rdp_event_queued": "f91aa69f7a194595cf8cc54d2aedc64132d4b0052494e3873b6c751aec0b4f81",
     "core/t64_rdp.c :: read_be64": "a3b364ca9b36969d9e21b3551356029e7a7956968b8a0191b964652f95d2f364",
     "core/t64_rdp.c :: record_command": "21228fdb1466ec9758bca4b1facce045c2107160d9d33b51d4aeccd8b77bb860",
     "core/t64_rdp.c :: schedule_next_committed": "a6201021b4e6d72278c6ee6717b26b4e904160d3001b514523cf7ccc9a54d5e9",
     "core/t64_rdp.c :: schedule_work_after_committed": "dd9806898e39a57176c4bbe00dfa4c8b898ec0fa830c761700a2d17c55169be5",
-    "core/t64_rdp.c :: set_refusal": "36c521a4d0f78405f03a36d42213e73aeae4e370f121eae8c4b643f925376223",
-    "core/t64_rdp.c :: supported_opcode": "4125d93a79b58de683ec8e3dcdb1e615fe474a0892447d15833b56e02efd68ba",
-    "core/t64_rdp.c :: t64_rdp_event": "564aa143a67d3f7568db19a0022913b757e87cb6f8fc37680b828385235039ee",
+    "core/t64_rdp.c :: set_refusal": "939c977f69c8c25a38e8d3c7a5acf75ff7a8d93b2840a3ee5c3947170a4cfee7",
+    "core/t64_rdp.c :: supported_opcode": "d169be2cd887ad311ec1238b80b1b87b30a8b965f40db82cca97c85a0d97061d",
+    "core/t64_rdp.c :: t64_rdp_event": "37e863cf9d8e876c7f51173e16358b65336eb685928e855f92282377c5df3b7e",
     "core/t64_rdp.c :: t64_rdp_read_register": "1d362cac600402a9115d698c9373ac1823e13f7422711cd9ad0b80540a115fda",
     "core/t64_rdp.c :: t64_rdp_reset_machine_state": "b18b1126b2bddb74b4ba5d0162dda1742d897c06d397972ed62adda0472be8cb",
-    "core/t64_rdp.c :: t64_rdp_write_register": "093711013d611334665d1cb7374839188b497bc8538bb0587e92cbbfc0c0fe1c",
+    "core/t64_rdp.c :: t64_rdp_write_register": "53b44012b22a3f9e90d76a0b6794406375bde7f973f3ce3ea8cc894df24d8a8e",
+    "core/t64_rdp.c :: texture_rect_bounds": "7c9d5266d12c75573d110e67e2086f88a80e5664c69019125d4597603d871388",
     "core/t64_rdp.c :: validate_fill_store": "9d61bf40eba5de3b1df97e6d60df96ecc1e20909d62a255e21a837dbbe43f0a0",
     "core/t64_rdp.c :: write_be16": "145a18aff31ba9937039922fe81436defa1f931f61f369bba1ba557a9bd4772a",
+    "core/t64_rdp_tmem.c :: apply_load_block": "7a5347d417fdc295c99ff1c42634b3e499c3a1cec8cc5e24aebbbd6f8838f612",
+    "core/t64_rdp_tmem.c :: apply_load_tile": "92d546a7231010976364a0eedf4b1005493cb1030985a31707b723a5bb2c91b5",
+    "core/t64_rdp_tmem.c :: apply_load_tlut": "60fd5c460b216b64f4d04b36cb2960f33204c95398c04542a668948eb95f4ca7",
+    "core/t64_rdp_tmem.c :: bits_per_texel": "04908bfc768c99d1651c96692f85c23d63c5d9f3382f770b54d0172319ecd759",
+    "core/t64_rdp_tmem.c :: clamp_u8": "a493572d8171ac194592ee17ca5ef4b5b8952b7ee37fab26032d63dbee93340c",
+    "core/t64_rdp_tmem.c :: coeff": "76bebe5957b343cebe89e691598eadf9deec70619952d5b31681c62c2a8ff6ad",
+    "core/t64_rdp_tmem.c :: command_tile": "abde80deab4254c300124c4c3a050a910fa9b43201c860c2ecc4a6bdb3220709",
+    "core/t64_rdp_tmem.c :: field12": "ab67b691d417f175d1d94583c7301ad595d7e0579f16f1f59196ab1bf9f6edf4",
+    "core/t64_rdp_tmem.c :: format_size_supported": "71adacb26c4798ec6ccd53ea5c01a9ec53a85d85f4bc1f9fd34a98803effb456",
+    "core/t64_rdp_tmem.c :: load_source_span_valid": "b07270aa22debd52a133db1310902526aa3f17ac3a8a857d4fb4a35d06cee53c",
+    "core/t64_rdp_tmem.c :: rgba5551": "326cf3a732fa8e0127680cf563a68ffb1d2fc2de18060bd01ddd577ca08ba15f",
+    "core/t64_rdp_tmem.c :: sample_texel": "2a35b5cf703f759ae1163789d6264cdd089f30892eb8556e0790c2d29dd78969",
+    "core/t64_rdp_tmem.c :: signed9": "a662c63aecded78017f7e1e2742de56a458fc84ae7585ef8e52e59c8ae172038",
+    "core/t64_rdp_tmem.c :: source_byte_address": "7367926a15b13a1d4cee17396574c35685aeea71a10a5d86f394a65e4fd9fdba",
+    "core/t64_rdp_tmem.c :: source_texel": "9d778dcc3d805c53523841d5ce80ed33dec06e5527daead5ed21d3beacbb6cc2",
+    "core/t64_rdp_tmem.c :: t64_rdp_tmem_apply_command": "842ac4be4b28b37a80342a6dc8a20710e1b5b91e3667be7011633f4c559ccf7a",
+    "core/t64_rdp_tmem.c :: t64_rdp_tmem_begin_copy": "9bc67de163d1a1fe4d503f4c9e4d1fbebe1207264068f0dd089e4227c90f2abe",
+    "core/t64_rdp_tmem.c :: t64_rdp_tmem_convert_yuv": "a5fa69ef69feed89f418e2641c0f8ef5263e0bdb5b7c8e7cc095fb6593dde0c7",
+    "core/t64_rdp_tmem.c :: t64_rdp_tmem_copy_pixel": "ab14a2f57b392509c0565fd2024046328b9bf152d8a8f252fefd6d09cc1f4a3f",
+    "core/t64_rdp_tmem.c :: t64_rdp_tmem_handles_opcode": "ef56ea6f392c9004cd09c808c19849961ba16783cbfb5f052142a48432795fe6",
+    "core/t64_rdp_tmem.c :: t64_rdp_tmem_validate_command": "3ad447fbb744114cebbfbb85e840a62e9c7dc8f83beb8294161b177c3b0cf995",
+    "core/t64_rdp_tmem.c :: t64_rdp_tmem_validate_copy": "ef14a1a97146a2ac46178ba8bb5ad8fcee869c07159b0abc3f7db0416df4eb30",
+    "core/t64_rdp_tmem.c :: tmem_base": "641c94f472515a2c3dd210d23dc989fe5fcbf2ee8a3cc306895228c70f69a6bb",
+    "core/t64_rdp_tmem.c :: tmem_read_bits": "60ede2058b1483b54e7bcb9e87c5425ec698b84e2d9083fd8eee73ed11db4966",
+    "core/t64_rdp_tmem.c :: tmem_store": "bef2f9bcbd59a7dcede834b8438c9ee3f69786ba7ba6f78b6a94aac35bdf5364",
+    "core/t64_rdp_tmem.c :: wrap_coordinate": "6115cb4650cfdee1ebccbecec5a12583b00f66f07d647f7e405276965e1e3abe",
     "core/t64_vi.c :: copy_text": "2f10ff25b6593ac813ad6619ef1b6658fc199ad4fb78bce2ee098c3fcda8e600",
     "core/t64_vi.c :: delay_for_cycles": "9c3dae70091562065968143a1a6a15e843905b6b5c675407e1204fa15714eab7",
     "core/t64_vi.c :: expand5": "ceac39882b1c7c81ee50b7bedf89cce86e3908b8c5d02fd0186769a093699142",
@@ -422,17 +463,22 @@ def _check_source_route(root: pathlib.Path) -> tuple[list[str], list[str], int]:
     rsp_path = root / "core" / "t64_rsp.c"
     sp_path = root / "core" / "t64_sp.c"
     rdp_path = root / "core" / "t64_rdp.c"
+    tmem_path = root / "core" / "t64_rdp_tmem.c"
     vi_path = root / "core" / "t64_vi.c"
     bus_path = root / "core" / "t64_bus.c"
-    if not all(path.is_file() for path in (rsp_path, sp_path, rdp_path, vi_path, bus_path)):
+    if not all(
+        path.is_file()
+        for path in (rsp_path, sp_path, rdp_path, tmem_path, vi_path, bus_path)
+    ):
         findings.append(
-            "canonical RSP/SP/RDP/VI source is missing from the reviewed production set"
+            "canonical RSP/SP/RDP/TMEM/VI source is missing from the reviewed production set"
         )
         return findings, evidence, len(softfloat)
 
     rsp = strip_c_comments_and_literals(rsp_path.read_text(encoding="utf-8"))
     sp = strip_c_comments_and_literals(sp_path.read_text(encoding="utf-8"))
     rdp = strip_c_comments_and_literals(rdp_path.read_text(encoding="utf-8"))
+    tmem = strip_c_comments_and_literals(tmem_path.read_text(encoding="utf-8"))
     vi = strip_c_comments_and_literals(vi_path.read_text(encoding="utf-8"))
     bus = strip_c_comments_and_literals(bus_path.read_text(encoding="utf-8"))
     rdp_function_names = file_function_names(rdp)
@@ -442,6 +488,14 @@ def _check_source_route(root: pathlib.Path) -> tuple[list[str], list[str], int]:
         unexpected = sorted(rdp_function_names - REVIEWED_RDP_FUNCTIONS)
         findings.append(
             "core/t64_rdp.c: reviewed RDP function inventory changed; "
+            f"missing={missing!r} unexpected={unexpected!r}"
+        )
+    tmem_function_names = file_function_names(tmem)
+    if tmem_function_names != REVIEWED_RDP_TMEM_FUNCTIONS:
+        missing = sorted(REVIEWED_RDP_TMEM_FUNCTIONS - tmem_function_names)
+        unexpected = sorted(tmem_function_names - REVIEWED_RDP_TMEM_FUNCTIONS)
+        findings.append(
+            "core/t64_rdp_tmem.c: reviewed TMEM function inventory changed; "
             f"missing={missing!r} unexpected={unexpected!r}"
         )
     if vi_function_names != REVIEWED_VI_FUNCTIONS:
@@ -506,6 +560,8 @@ def _check_source_route(root: pathlib.Path) -> tuple[list[str], list[str], int]:
         routes[f"core/t64_sp.c :: {name}"] = function_body(sp, name)
     for name in REVIEWED_RDP_FUNCTIONS:
         routes[f"core/t64_rdp.c :: {name}"] = function_body(rdp, name)
+    for name in REVIEWED_RDP_TMEM_FUNCTIONS:
+        routes[f"core/t64_rdp_tmem.c :: {name}"] = function_body(tmem, name)
     for name in REVIEWED_VI_FUNCTIONS:
         routes[f"core/t64_vi.c :: {name}"] = function_body(vi, name)
     for label, body in routes.items():
@@ -583,6 +639,19 @@ def _check_source_route(root: pathlib.Path) -> tuple[list[str], list[str], int]:
                 f"core/t64_rsp.c :: t64_rsp_issue_event: required decode/refusal path {token} is absent"
             )
 
+    pending_body = routes["core/t64_rdp.c :: apply_pending_command"] or ""
+    if not all(
+        token in pending_body
+        for token in (
+            "t64_rdp_tmem_handles_opcode",
+            "t64_rdp_tmem_validate_command",
+            "t64_rdp_tmem_apply_command",
+        )
+    ):
+        findings.append(
+            "core/t64_rdp.c :: apply_pending_command: fetched texture commands bypass TMEM validation/effect route"
+        )
+
     for label in (
         "core/t64_sp.c :: start_rsp_dma",
         "core/t64_sp.c :: write_rsp_status",
@@ -622,6 +691,8 @@ def _check_source_route(root: pathlib.Path) -> tuple[list[str], list[str], int]:
                 "core/t64_rsp.c :: t64_rsp_schedule_next -> t64_schedule_reserve_after(T64_SP_EVENT_RSP_ISSUE, t64_rsp_issue_event)",
                 "core/t64_rsp.c :: t64_rsp_issue_event -> rsp_read_imem_word(machine, pc) -> operation = instruction >> 26 -> decode/refuse/retire",
                 "core/t64_rsp.c :: fetched COP0 DP registers 8-15 -> selected profile -> t64_rdp_read_register/t64_rdp_write_register",
+                "core/t64_rdp.c :: apply_pending_command -> t64_rdp_tmem_validate_command -> t64_rdp_tmem_apply_command",
+                "core/t64_rdp_tmem.c :: per-machine source validation -> bounded LoadTile/LoadBlock/LoadTLUT writes -> copy sampling",
                 "core/t64_sp.c :: start_rsp_dma and write_rsp_status -> t64_rsp_ensure_opportunity",
             ]
         )
