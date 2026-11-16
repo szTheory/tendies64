@@ -58,7 +58,7 @@ API and a playable rights-cleared homebrew. Each maps to a roadmap phase.
 
 - [x] **BUS-01**: The core implements the memory map, 4 MB RDRAM, cartridge ROM access through PI and the MI interrupt registers, with masked-versus-pending interrupt behavior per the references
 - [x] **BUS-02**: PI and SP DMA copy data with their documented length, alignment and timing rules, never as an instantaneous memory copy
-- [ ] **BUS-03**: RDRAM tier A (preset RI configuration) works first, and RDRAM tier B (register protocol, MI repeat mode, calibration read-back) follows for the full cold-boot path
+- [x] **BUS-03**: RDRAM tier A (preset RI configuration) works first, and RDRAM tier B (register protocol, MI repeat mode, calibration read-back) follows for the full cold-boot path
 - [x] **BUS-04**: A ROM is admitted through a documented, bounded procedure: size limits, header parse, byte-order handling, rejection of malformed media, and unchanged state on refusal
 
 ### VR4300 CPU (CPU)
@@ -70,7 +70,7 @@ API and a playable rights-cleared homebrew. Each maps to a roadmap phase.
 - [x] **CPU-05**: Unaligned loads and stores, LL/SC and LLD/SCD behave correctly
 - [x] **CPU-06**: A functional cache model exists, with a written scope decision on what cache behavior is guest-visible
 - [x] **CPU-07**: COP1 uses integer soft-float with correct rounding modes, FCR31 and unimplemented-operation behavior; host floating point is never the canonical path
-- [ ] **CPU-08**: CPU timing at tier 1 (instruction-granular cost) is available, and the cycle-accurate tier is documented as deferred
+- [x] **CPU-08**: CPU timing at tier 1 (instruction-granular cost) is available, and the cycle-accurate tier is documented as deferred
 - [x] **CPU-09**: Native component tests use independently sourced expected values, with edge and negative cases for each of the above
 
 ### Boot (BOOT)
@@ -83,7 +83,7 @@ API and a playable rights-cleared homebrew. Each maps to a roadmap phase.
 ### Fixtures and CI (VER)
 
 - [x] **VER-01**: Maintainer can build and run the `nemu64-test` `base` suite headlessly from a pinned commit, with per-group status, once its rights are documented (owner stop D2); until then the run is local-only and nothing derived is uploaded
-- [ ] **VER-02**: Maintainer can see timing, cycle and cop0hazard groups reported as informational, experimental and stress groups kept out of required CI, and a scheduled lane for stress groups
+- [x] **VER-02**: Maintainer can see timing, cycle and cop0hazard groups reported as informational, experimental and stress groups kept out of required CI, and a scheduled lane for stress groups
 - [x] **VER-03**: Maintainer can see test inventories pinned by exact counts, so a missing or reduced test set fails
 - [x] **VER-04**: Maintainer can see CI use explicit runner labels, pinned action SHAs and a measured critical-path review recorded after each run
 - [ ] **VER-05**: Maintainer can see a clean installed package run the same permitted headless fixture through an independent consumer, with relocation and negative controls
@@ -213,7 +213,7 @@ re-sequenced at milestone close.
 | CORE-06 | Phase 2 | Complete |
 | BUS-01 | Phase 2 | Complete |
 | BUS-02 | Phase 2 | Complete |
-| BUS-03 | Phase 6 | Pending |
+| BUS-03 | Phase 6 | Complete |
 | BUS-04 | Phase 2 | Complete |
 | CPU-01 | Phase 4 | Complete |
 | CPU-02 | Phase 4 | Complete |
@@ -222,14 +222,14 @@ re-sequenced at milestone close.
 | CPU-05 | Phase 4 | Complete |
 | CPU-06 | Phase 4 | Complete |
 | CPU-07 | Phase 4 | Complete |
-| CPU-08 | Phase 6 | Pending |
+| CPU-08 | Phase 6 | Complete |
 | CPU-09 | Phase 4 | Complete |
 | BOOT-01 | Phase 3 | Complete |
 | BOOT-02 | Phase 3 | Complete |
 | BOOT-03 | Phase 3 | Complete |
 | BOOT-04 | Phase 3 | Complete |
 | VER-01 | Phase 4 | Complete |
-| VER-02 | Phase 6 | Pending |
+| VER-02 | Phase 6 | Complete |
 | VER-03 | Phase 4 | Complete |
 | VER-04 | Phase 1 | Complete |
 | VER-05 | Phase 10 | Pending |
