@@ -577,6 +577,10 @@ verify_manifest()
         die 'RDP fill source revision is missing from fixture manifest'
     case "$rdp_source_revision" in *[!0-9a-f]*|'') die 'RDP fill source revision is not a lowercase 40-hex commit' ;; esac
     [ "${#rdp_source_revision}" -eq 40 ] || die 'RDP fill source revision is not a 40-hex commit'
+    rdp_payload_revision=$(jq -er '.entries[] | select(.id == "rdp-fill-payload") | .source.revision' fixtures/manifest.json) || \
+        die 'RDP fill payload source revision is missing from fixture manifest'
+    [ "$rdp_payload_revision" = "$rdp_source_revision" ] || \
+        die 'RDP fill payload and whole-ROM source revisions differ'
     for file in fixtures/hello/hello.S fixtures/hello/hello.ld \
         tools/fixture/t64_rom_pack.c scripts/build-boot-fixtures.sh; do
         git cat-file -e "$source_revision:$file" 2>/dev/null || \
@@ -619,6 +623,12 @@ verify_manifest()
             (.build.recipe | contains(($rdp_payload_size | tostring) + " bytes")) and
             .expected.revision == ("source-content-sha256:" + $rdp_source_hash) and
             .source_rights == "authored-here" and .binary_rights == "cleared" and
+            .distribution == ["build-only"]) and
+         ([.entries[] | select(.id == "rdp-fill-payload")][0] |
+            .sha256 == $rdp_payload and .size == $rdp_payload_size and
+            .source.revision == $rdp_revision and
+            (.build.recipe | contains($rdp_source_hash)) and
+            .source_rights == "authored-here" and .binary_rights == "cleared" and
             .distribution == ["build-only"])' \
         fixtures/manifest.json >/dev/null || \
         die 'fixture manifest does not bind the source, payload, generated ROM and source-content pins'
@@ -632,6 +642,7 @@ verify_manifest()
         assert_manifest_entry "$id" "build/fixtures/$name.z64"
     done
     assert_manifest_entry rdp-fill build/fixtures/rdp-fill.z64
+    assert_manifest_entry rdp-fill-payload build/fixtures/rdp-fill.payload.bin
     jq -e --arg payload "$payload_sha" \
         '[.entries[] | select(.id == "openipl3-compat-payload")][0] |
          .sha256 == $payload and .size == 4032 and .binary_rights == "cleared" and
