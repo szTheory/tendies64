@@ -1,101 +1,10 @@
 ---
 phase: 03-first-headless-rom-through-open-ipl3
-verified: 2026-11-11T22:09:52Z
+verified: 2026-11-16T03:39:28Z
 status: passed
 score: 6/6 roadmap truths verified
-covered_files:
-  - .github/workflows/ci.yml
-  - .planning/phases/03-first-headless-rom-through-open-ipl3/03-01-PLAN.md
-  - .planning/phases/03-first-headless-rom-through-open-ipl3/03-01-SUMMARY.md
-  - .planning/phases/03-first-headless-rom-through-open-ipl3/03-02-PLAN.md
-  - .planning/phases/03-first-headless-rom-through-open-ipl3/03-02-SUMMARY.md
-  - .planning/phases/03-first-headless-rom-through-open-ipl3/03-03-PLAN.md
-  - .planning/phases/03-first-headless-rom-through-open-ipl3/03-03-SUMMARY.md
-  - .planning/phases/03-first-headless-rom-through-open-ipl3/03-04-PLAN.md
-  - .planning/phases/03-first-headless-rom-through-open-ipl3/03-04-SUMMARY.md
-  - .planning/phases/03-first-headless-rom-through-open-ipl3/03-05-PLAN.md
-  - .planning/phases/03-first-headless-rom-through-open-ipl3/03-05-SUMMARY.md
-  - .planning/phases/03-first-headless-rom-through-open-ipl3/03-06-PLAN.md
-  - .planning/phases/03-first-headless-rom-through-open-ipl3/03-06-SUMMARY.md
-  - .planning/phases/03-first-headless-rom-through-open-ipl3/03-07-PLAN.md
-  - .planning/phases/03-first-headless-rom-through-open-ipl3/03-07-SUMMARY.md
-  - .planning/phases/03-first-headless-rom-through-open-ipl3/03-08-PLAN.md
-  - .planning/phases/03-first-headless-rom-through-open-ipl3/03-08-SUMMARY.md
-  - .planning/phases/03-first-headless-rom-through-open-ipl3/03-09-PLAN.md
-  - .planning/phases/03-first-headless-rom-through-open-ipl3/03-09-SUMMARY.md
-  - .planning/phases/03-first-headless-rom-through-open-ipl3/03-10-PLAN.md
-  - .planning/phases/03-first-headless-rom-through-open-ipl3/03-10-SUMMARY.md
-  - .planning/phases/03-first-headless-rom-through-open-ipl3/03-11-PLAN.md
-  - .planning/phases/03-first-headless-rom-through-open-ipl3/03-11-SUMMARY.md
-  - .planning/phases/03-first-headless-rom-through-open-ipl3/03-12-PLAN.md
-  - .planning/phases/03-first-headless-rom-through-open-ipl3/03-12-SUMMARY.md
-  - .planning/phases/03-first-headless-rom-through-open-ipl3/03-13-PLAN.md
-  - .planning/phases/03-first-headless-rom-through-open-ipl3/03-13-SUMMARY.md
-  - .planning/phases/03-first-headless-rom-through-open-ipl3/03-CI-REVIEW-SCOPE.json
-  - .planning/phases/03-first-headless-rom-through-open-ipl3/03-EDGE-COVERAGE.json
-  - .planning/phases/03-first-headless-rom-through-open-ipl3/03-PRECI-REVIEW-SCOPE.json
-  - .planning/phases/03-first-headless-rom-through-open-ipl3/03-PRIMARY-EVIDENCE-INDEX.md
-  - .planning/phases/03-first-headless-rom-through-open-ipl3/03-PROBE-LEDGER.md
-  - .planning/phases/03-first-headless-rom-through-open-ipl3/03-REGRESSION-EVIDENCE.md
-  - .planning/phases/03-first-headless-rom-through-open-ipl3/03-REVIEW-DISPOSITION.md
-  - .planning/phases/03-first-headless-rom-through-open-ipl3/03-REVIEW-FIX.md
-  - .planning/phases/03-first-headless-rom-through-open-ipl3/03-REVIEW.md
-  - .planning/phases/03-first-headless-rom-through-open-ipl3/03-SECURITY.md
-  - .planning/phases/03-first-headless-rom-through-open-ipl3/03-VALIDATION.md
-  - build/evidence-run-43103669084/gate-linux.json
-  - build/evidence-run-43103669084/gate-macos.json
-  - core/CMakeLists.txt
-  - core/include/tendies64/t64_machine.h
-  - core/t64_bus.c
-  - core/t64_cpu.c
-  - core/t64_digest.c
-  - core/t64_internal.h
-  - core/t64_isviewer.c
-  - core/t64_machine.c
-  - core/t64_observe.c
-  - core/t64_rom.c
-  - core/t64_scheduler.c
-  - core/t64_sp.c
-  - core/t64_warm_devices.c
-  - core/tests/test_boot_determinism.c
-  - core/tests/test_boot_entry.c
-  - core/tests/test_cpu_path.c
-  - core/tests/test_isviewer.c
-  - core/tests/test_tracer.c
-  - core/tests/test_warm_devices.c
-  - docs/evidence/phase3-ci.md
-  - docs/evidence/zlib-host-prerequisite-audit.md
-  - docs/spec/boot-limits.md
-  - docs/spec/result-protocol.md
-  - fixtures/boot-contract.json
-  - fixtures/hello/hello.S
-  - fixtures/hello/hello.ld
-  - fixtures/manifest.json
-  - runner/CMakeLists.txt
-  - runner/t64_input.c
-  - runner/t64_input.h
-  - runner/t64_real.c
-  - runner/t64_real_fixture.c
-  - runner/t64_real_fixture.h
-  - runner/t64_real_result.c
-  - runner/t64_real_result.h
-  - runner/t64_result_check.c
-  - runner/t64_supervisor.c
-  - runner/t64_verified_input.c
-  - runner/t64_verified_input.h
-  - runner/tests/test_fixture_descriptor.c
-  - runner/tests/test_input.c
-  - runner/tests/test_real_controls.c
-  - runner/tests/test_real_runner.c
-  - runner/tests/test_result_v2.c
-  - scripts/build-boot-fixtures.sh
-  - scripts/check-ci-yml.sh
-  - scripts/check-test-inventory.sh
-  - scripts/collect-boot-evidence.sh
-  - scripts/compare-boot-evidence.sh
-  - scripts/gate.sh
-  - tools/fixture/t64_rom_pack.c
-covered_digest: "v4:sha256:f78acaf9122d3550be1387c80bc3bf9d6e8f07ded32162c2d5e8d5e896a51901"
+covered_files: [".github/workflows/ci.yml",".planning/phases/03-first-headless-rom-through-open-ipl3/03-01-PLAN.md",".planning/phases/03-first-headless-rom-through-open-ipl3/03-01-SUMMARY.md",".planning/phases/03-first-headless-rom-through-open-ipl3/03-02-PLAN.md",".planning/phases/03-first-headless-rom-through-open-ipl3/03-02-SUMMARY.md",".planning/phases/03-first-headless-rom-through-open-ipl3/03-03-PLAN.md",".planning/phases/03-first-headless-rom-through-open-ipl3/03-03-SUMMARY.md",".planning/phases/03-first-headless-rom-through-open-ipl3/03-04-PLAN.md",".planning/phases/03-first-headless-rom-through-open-ipl3/03-04-SUMMARY.md",".planning/phases/03-first-headless-rom-through-open-ipl3/03-05-PLAN.md",".planning/phases/03-first-headless-rom-through-open-ipl3/03-05-SUMMARY.md",".planning/phases/03-first-headless-rom-through-open-ipl3/03-06-PLAN.md",".planning/phases/03-first-headless-rom-through-open-ipl3/03-06-SUMMARY.md",".planning/phases/03-first-headless-rom-through-open-ipl3/03-07-PLAN.md",".planning/phases/03-first-headless-rom-through-open-ipl3/03-07-SUMMARY.md",".planning/phases/03-first-headless-rom-through-open-ipl3/03-08-PLAN.md",".planning/phases/03-first-headless-rom-through-open-ipl3/03-08-SUMMARY.md",".planning/phases/03-first-headless-rom-through-open-ipl3/03-09-PLAN.md",".planning/phases/03-first-headless-rom-through-open-ipl3/03-09-SUMMARY.md",".planning/phases/03-first-headless-rom-through-open-ipl3/03-10-PLAN.md",".planning/phases/03-first-headless-rom-through-open-ipl3/03-10-SUMMARY.md",".planning/phases/03-first-headless-rom-through-open-ipl3/03-11-PLAN.md",".planning/phases/03-first-headless-rom-through-open-ipl3/03-11-SUMMARY.md",".planning/phases/03-first-headless-rom-through-open-ipl3/03-12-PLAN.md",".planning/phases/03-first-headless-rom-through-open-ipl3/03-12-SUMMARY.md",".planning/phases/03-first-headless-rom-through-open-ipl3/03-13-PLAN.md",".planning/phases/03-first-headless-rom-through-open-ipl3/03-13-SUMMARY.md","build/asan/06-08-final/ctest.log","build/evidence-run-43103669084/gate-linux.json","build/evidence-run-43103669084/gate-macos.json","build/gate/06-08-final/gate-attempt03.log","build/gate/06-08-final/inputs/binding.json","build/gate/06-08-hosted-aa1e531/gate-linux.json","build/gate/06-08-hosted-aa1e531/gate-macos.json","build/gate/06-08-hosted-comparison.log","build/gate/v1.0-audit-scope.json","build/gate/v1.0-integration-check.md","build/gate/v1.0-stale-verification-scope.json","build/gate/v1.0-verification-refresh-contract.json","core/CMakeLists.txt","core/include/tendies64/t64_machine.h","core/t64_bus.c","core/t64_cpu.c","core/t64_digest.c","core/t64_internal.h","core/t64_isviewer.c","core/t64_machine.c","core/t64_observe.c","core/t64_rom.c","core/t64_scheduler.c","core/t64_sp.c","core/t64_warm_devices.c","core/tests/test_boot_determinism.c","core/tests/test_boot_entry.c","core/tests/test_cpu_path.c","core/tests/test_isviewer.c","core/tests/test_tracer.c","core/tests/test_warm_devices.c","docs/ci-reviews/LOG.md","docs/evidence/phase3-ci.md","docs/evidence/zlib-host-prerequisite-audit.md","docs/spec/boot-limits.md","docs/spec/result-protocol.md","fixtures/boot-contract.json","fixtures/hello/hello.S","fixtures/hello/hello.ld","fixtures/manifest.json","runner/CMakeLists.txt","runner/t64_input.c","runner/t64_input.h","runner/t64_real.c","runner/t64_real_fixture.c","runner/t64_real_fixture.h","runner/t64_real_result.c","runner/t64_real_result.h","runner/t64_result_check.c","runner/t64_supervisor.c","runner/t64_verified_input.c","runner/t64_verified_input.h","runner/tests/test_fixture_descriptor.c","runner/tests/test_input.c","runner/tests/test_real_controls.c","runner/tests/test_real_runner.c","runner/tests/test_result_v2.c","scripts/build-boot-fixtures.sh","scripts/check-ci-yml.sh","scripts/check-test-inventory.sh","scripts/collect-boot-evidence.sh","scripts/compare-boot-evidence.sh","scripts/gate.sh","tools/fixture/t64_rom_pack.c"]
+covered_digest: "v4:sha256:fcb3fed5b46115fc12ecc7acd0733341d60c2439d29e2730019eb6ac2564bf0f"
 behavior_unverified: 0
 overrides_applied: 0
 ---
@@ -173,3 +82,31 @@ All four review findings are recorded fixed, and the security audit records 27/2
 ---
 
 _Verified: 2026-11-11T22:09:52Z — gsd-verifier_
+
+## Current-source delta reconciliation (2026-11-16)
+
+This bounded refresh preserves the original findings and evidence above. The current core and runner match the exact public hosted source `aa1e531e`; later commits did not alter those implementation paths. The retained local normal and ASan/UBSan logs are separately bound to source head `7554ef0` in `build/gate/06-08-final/inputs/binding.json`; they are not relabeled as hosted evidence. No phase execution, build, full suite, protected guest, or hosted CI run was started for this refresh.
+
+| # | Roadmap truth | Status | Current-source evidence |
+|---|---|---|---|
+| 1 | Primary source documents and hardware claims have indexed source/digest evidence. | VERIFIED | `03-PRIMARY-EVIDENCE-INDEX.md` retains exact source locators and byte hashes, describes what each document supports, and states that manuals remain outside the repository. The boot-contract separates manual facts from selected software policy. |
+| 2 | The authored hello runs in the named warm profile with bounded guest time, expected ISViewer bytes, and scheduled input trace. | VERIFIED | `runner/t64_real.c` verifies the fixture and schedule, selects the pinned warm profile, admits the verified snapshot, and applies the guest bound. `runner/tests/test_input.c` exercises real bounded hello boots, scheduled trace ordering, the event-at-bound rule, and identical state across trace/advance partitions. The retained normal and instrumented gate logs include these owners. |
+| 3 | The IPL3 identity, rights, maintenance owner, and no-Nintendo-boot-bytes gate remain explicit. | VERIFIED | `fixtures/boot-contract.json` pins asset/payload identity, source revision, Unlicense status and maintenance owner; `fixtures/manifest.json` distinguishes authored hello rights from the embedded asset. The retained gate passed its rights/publication stages; the hosted artifacts contain authored result JSON, not ROM bytes. |
+| 4 | Empty output cannot pass, and unmodeled boot behavior stays deferred. | VERIFIED | `runner/t64_result_check.c` classifies empty output as boot-fail and requires the exact authored completion/transcript for pass. `docs/spec/boot-limits.md` keeps PIF challenge/response, CIC variants and timeout limits explicit. The registered result/runner controls are in the retained passing gate logs. |
+| 5 | Linux/GCC and macOS/Clang hosted records agree on the same guest identity and state. | VERIFIED | The current authored pair under `build/gate/06-08-hosted-aa1e531/` binds both jobs to source `aa1e531e…`, run `43788405776`, attempt 1. The exact comparator was rerun read-only and passed; it validates the authored transcript and compares guest fields while allowing distinct host build IDs. |
+| 6 | Fixture identity covers the exact bytes admitted to the guest. | VERIFIED | `runner/t64_real.c` identifies bytes from the already-open verified snapshot and passes that snapshot to machine admission; `runner/t64_supervisor.c` checks result identity against capture and process status. The descriptor replacement/refusal controls remain registered in the retained passing logs. |
+
+### Requirement mapping
+
+| Requirement | Status | Current evidence |
+|---|---|---|
+| BOOT-01 | SATISFIED | Warm HLE seed and pinned open IPL3 path remain in `core/t64_machine.c`; only the prepared software entry is claimed. |
+| BOOT-02 | SATISFIED | `fixtures/boot-contract.json` records source, hashes, rights and maintenance owner. |
+| BOOT-03 | SATISFIED | Deferred behaviors remain in `docs/spec/boot-limits.md`; empty output is boot-fail. |
+| BOOT-04 | SATISFIED | The exact hosted authored pair reports the bounded hello pass and matching transcript. |
+| RUN-01 | SATISFIED | Real runner wires verified content, named profile, timed input, guest limit and machine-readable result. |
+| RUN-03 | SATISFIED | The result checker and controls reject empty output as pass. |
+| RUN-05 | SATISFIED | ISViewer count/buffer semantics remain specified and the exact authored transcript is captured. |
+| PROF-05 | SATISFIED | The exact Linux/macOS pair has matching guest state and input/profile/content identities. |
+
+The claim remains the prepared warm-entry software profile. Input traces show scheduled event delivery, not guest controller consumption; this refresh does not claim authentic IPL2/cold boot, silicon accuracy, broad compatibility, or source regeneration. The current audit bundle keeps later-phase requirements separate; none is pulled into Phase 3 scope.

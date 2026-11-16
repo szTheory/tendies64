@@ -1,6 +1,6 @@
 ---
 phase: 01-governance-rights-and-harness-foundation
-verified: 2026-11-11T00:03:21Z
+verified: 2026-11-16T03:28:24Z
 status: passed
 score: 4/4 must-haves verified
 covered_files:
@@ -37,7 +37,7 @@ covered_files:
   - scripts/gate.sh
   - scripts/rights-scan.sh
   - tools/lint/core-lint.sh
-covered_digest: "v4:sha256:f3c117c3b1ec0a151005d006bd081fe3016a18342c46839fe726316b6030ba07"
+covered_digest: "v4:sha256:8e286dce765b5bcd27c206d584bcf3d0b0a737fa3b3e94d86f61e0c003666590"
 behavior_unverified: 0
 overrides_applied: 0
 gaps: []
@@ -224,3 +224,18 @@ and initial measurements above are unchanged.
 current fingerprint replaces coverage of the shared append-only CI log with a
 snapshot of the exact run evidence; historical Phase 1 CI provenance links
 remain in this report.
+
+## Current-source reconciliation (2026-11-16)
+
+The historical verification and its run identities above remain unchanged. I checked the Phase 1 inputs whose coverage became stale (`.github/workflows/ci.yml`, `scripts/check-ci-yml.sh`, `scripts/gate.sh`, and `tools/lint/core-lint.sh`) against the current implementation and retained regression evidence.
+
+| Phase 1 truth | Current-source result |
+|---|---|
+| Governance, rights, provenance, and claims contracts | **Verified.** The policy and contract files remain in force. Unresolved third-party media rights remain pending and excluded from public CI; release and name-clearance decisions remain outside this phase. |
+| One canonical local gate and CI invocation | **Verified.** Both current hosted jobs invoke `./scripts/gate.sh` on pinned runner/action identities. The current checker enforces the exact gate/evidence command sequence and requires the single scoped artifact upload to follow rights and PII scans. Seeded upload mutations cover missing or weakened uploads. |
+| Runner outcome classification, exact inventory, and core lint | **Verified.** The classifier is unchanged; the current gate pins the inherited test inventory and runs the expanded production source/object lint. The retained normal gate passes 139/139 and the ASan/UBSan gate passes 141/141. |
+| Rights/manifest checks over tree and staged evidence | **Verified.** The current CI workflow scans the exact generated authored evidence before upload. The workflow policy checker now covers that upload path, closing the historical W2 capability gap; the current hosted source ran both jobs successfully. |
+
+The exact current hosted pair is run 43788405776, attempt 1, for tested source `aa1e531e05b9c66f0c57d5066c9c367cb1e82c23`. The collector read back the exact job artifacts and the comparator confirmed the authored results match; the completed run and F-079 timing entry are recorded in `docs/ci-reviews/LOG.md`. This is current authored-fixture evidence only. It does not change or relabel the earlier Phase 1/2 run records, and no private diagnostic result was uploaded or used for the claim.
+
+The current integration audit independently reports 4/4 priority flows WIRED, all 48 in-scope requirements WIRED, and no broken, blocking, or warning connection. Phase 1's 11 requirement dispositions remain satisfied. The older W1 hosted-run gap is historical and superseded by the exact current hosted pair; W3 was already recorded as added to Phase 3; branch protection and D2/D6/D7 remain the previously disclosed owner or repository settings, not new Phase 1 implementation gaps. No suite or guest replay was run for this refresh.

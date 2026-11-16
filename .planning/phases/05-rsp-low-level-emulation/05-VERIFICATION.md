@@ -1,127 +1,116 @@
 ---
 phase: 05-rsp-low-level-emulation
-verified: 2026-11-15T02:48:44Z
+verified: 2026-11-16T03:42:57Z
 status: passed
 score: 36/36 must-haves verified
 covered_files:
-  - .github/workflows/rsp-stress.yml
-  - .planning/phases/05-rsp-low-level-emulation/05-01-PLAN.md
-  - .planning/phases/05-rsp-low-level-emulation/05-01-SUMMARY.md
-  - .planning/phases/05-rsp-low-level-emulation/05-02-PLAN.md
-  - .planning/phases/05-rsp-low-level-emulation/05-02-SUMMARY.md
-  - .planning/phases/05-rsp-low-level-emulation/05-02-review-evidence.md
-  - .planning/phases/05-rsp-low-level-emulation/05-03-PLAN.md
-  - .planning/phases/05-rsp-low-level-emulation/05-03-SUMMARY.md
-  - .planning/phases/05-rsp-low-level-emulation/05-03-review-evidence.md
-  - .planning/phases/05-rsp-low-level-emulation/05-04-PLAN.md
-  - .planning/phases/05-rsp-low-level-emulation/05-04-SUMMARY.md
-  - .planning/phases/05-rsp-low-level-emulation/05-04-review-evidence.md
-  - .planning/phases/05-rsp-low-level-emulation/05-05-PLAN.md
-  - .planning/phases/05-rsp-low-level-emulation/05-05-SUMMARY.md
-  - .planning/phases/05-rsp-low-level-emulation/05-05-review-evidence.md
-  - .planning/phases/05-rsp-low-level-emulation/05-06-PLAN.md
-  - .planning/phases/05-rsp-low-level-emulation/05-06-SUMMARY.md
-  - .planning/phases/05-rsp-low-level-emulation/05-06-review-evidence.md
-  - .planning/phases/05-rsp-low-level-emulation/05-07-PLAN.md
-  - .planning/phases/05-rsp-low-level-emulation/05-07-SUMMARY.md
-  - .planning/phases/05-rsp-low-level-emulation/05-07-review-evidence.md
-  - .planning/phases/05-rsp-low-level-emulation/05-08-PLAN.md
-  - .planning/phases/05-rsp-low-level-emulation/05-08-SUMMARY.md
-  - .planning/phases/05-rsp-low-level-emulation/05-08-review-evidence.md
-  - .planning/phases/05-rsp-low-level-emulation/05-09-PLAN.md
-  - .planning/phases/05-rsp-low-level-emulation/05-09-SUMMARY.md
-  - .planning/phases/05-rsp-low-level-emulation/05-09-review-evidence.md
-  - .planning/phases/05-rsp-low-level-emulation/05-10-PLAN.md
-  - .planning/phases/05-rsp-low-level-emulation/05-10-REVIEW-CLOSURE.md
-  - .planning/phases/05-rsp-low-level-emulation/05-10-REVIEW-FOLLOWUP.md
-  - .planning/phases/05-rsp-low-level-emulation/05-10-SUMMARY.md
-  - .planning/phases/05-rsp-low-level-emulation/05-10-V6-REVIEW.md
-  - .planning/phases/05-rsp-low-level-emulation/05-REVIEW.md
-  - .planning/phases/05-rsp-low-level-emulation/05-SECURITY.md
-  - .planning/phases/05-rsp-low-level-emulation/05-VALIDATION.md
-  - LICENSES/ISC.txt
-  - core/CMakeLists.txt
-  - core/t64_bus.c
-  - core/t64_digest.c
-  - core/t64_internal.h
-  - core/t64_machine.c
-  - core/t64_rsp.c
-  - core/t64_rsp_divider.c
-  - core/t64_rsp_divider.h
-  - core/t64_sp.c
-  - core/tests/test_rsp_compare.c
-  - core/tests/test_rsp_control.c
-  - core/tests/test_rsp_divider.c
-  - core/tests/test_rsp_fuzz.c
-  - core/tests/test_rsp_multiply.c
-  - core/tests/test_rsp_scalar.c
-  - core/tests/test_rsp_transfers.c
-  - core/tests/test_rsp_vector.c
-  - core/tests/test_sp_dma.c
-  - docs/ci-reviews/LOG.md
-  - docs/evidence/phase05-authored-rsp.md
-  - docs/evidence/phase05-final-rsp-evidence.json
-  - docs/evidence/phase05-native-rsp.md
-  - docs/evidence/phase05-review.md
-  - docs/evidence/phase05-security.md
-  - docs/evidence/rsp-divider-provenance.md
-  - docs/spec/rsp-diagnostic.md
-  - docs/spec/rsp-instructions.md
-  - docs/spec/rsp-profile.md
-  - docs/spec/rsp-smoke.md
-  - fixtures/manifest.json
-  - fixtures/rsp/rsp-smoke.S
-  - fixtures/rsp/rsp-smoke.ld
-  - provenance/copies.json
-  - runner/CMakeLists.txt
-  - runner/t64_cpu_diag_protocol.c
-  - runner/t64_diag_common.c
-  - runner/t64_diag_common.h
-  - runner/t64_rsp_diag_protocol.c
-  - runner/t64_rsp_diag_protocol.h
-  - runner/t64_rsp_diagnostic.c
-  - runner/t64_rsp_smoke.c
-  - runner/tests/test_cpu_diag_protocol.c
-  - runner/tests/test_rsp_diag_protocol.c
-  - scripts/audit-rsp-divider.py
-  - scripts/build-qualified-rsp-diagnostic.py
-  - scripts/build-rsp-smoke.sh
-  - scripts/check-rsp-evidence.py
-  - scripts/check-rsp-no-hle.py
-  - scripts/check-test-inventory.sh
-  - scripts/prepare-rsp-diagnostic.py
-  - scripts/rsp-stress.sh
-  - scripts/run-rsp-diagnostic.py
-  - scripts/test-rsp-smoke.sh
-  - scripts/tests/test_rsp_build.py
-  - scripts/tests/test_rsp_divider_audit.py
-  - scripts/tests/test_rsp_evidence.py
-  - scripts/tests/test_rsp_no_hle.py
-  - scripts/tests/test_rsp_qualification.py
-  - scripts/tests/test_rsp_run.py
-  - scripts/verify-rsp-diagnostic-build.py
-  - scripts/verify-rsp-diagnostic-qualification.py
-  - tests/test_rsp_smoke.py
-  - tools/lint/core-lint.sh
-covered_digest: "v4:sha256:e17bf25507ad21ad6790e4a7ea7f85110c05254b19c32e4ba72df949fd2d6c03"
+  - ".planning/phases/05-rsp-low-level-emulation/05-01-PLAN.md"
+  - ".planning/phases/05-rsp-low-level-emulation/05-01-SUMMARY.md"
+  - ".planning/phases/05-rsp-low-level-emulation/05-02-PLAN.md"
+  - ".planning/phases/05-rsp-low-level-emulation/05-02-SUMMARY.md"
+  - ".planning/phases/05-rsp-low-level-emulation/05-03-PLAN.md"
+  - ".planning/phases/05-rsp-low-level-emulation/05-03-SUMMARY.md"
+  - ".planning/phases/05-rsp-low-level-emulation/05-04-PLAN.md"
+  - ".planning/phases/05-rsp-low-level-emulation/05-04-SUMMARY.md"
+  - ".planning/phases/05-rsp-low-level-emulation/05-05-PLAN.md"
+  - ".planning/phases/05-rsp-low-level-emulation/05-05-SUMMARY.md"
+  - ".planning/phases/05-rsp-low-level-emulation/05-06-PLAN.md"
+  - ".planning/phases/05-rsp-low-level-emulation/05-06-SUMMARY.md"
+  - ".planning/phases/05-rsp-low-level-emulation/05-07-PLAN.md"
+  - ".planning/phases/05-rsp-low-level-emulation/05-07-SUMMARY.md"
+  - ".planning/phases/05-rsp-low-level-emulation/05-08-PLAN.md"
+  - ".planning/phases/05-rsp-low-level-emulation/05-08-SUMMARY.md"
+  - ".planning/phases/05-rsp-low-level-emulation/05-09-PLAN.md"
+  - ".planning/phases/05-rsp-low-level-emulation/05-09-SUMMARY.md"
+  - ".planning/phases/05-rsp-low-level-emulation/05-10-PLAN.md"
+  - ".planning/phases/05-rsp-low-level-emulation/05-10-SUMMARY.md"
+  - "build/asan/06-08-final/ctest.log"
+  - "build/asan/06-08-no-hle-control.log"
+  - "build/gate/06-08-final/gate-attempt03.log"
+  - "build/gate/06-08-final/inputs/binding.json"
+  - "build/gate/06-08-no-hle-control.log"
+  - "build/gate/v1.0-audit-scope.json"
+  - "build/gate/v1.0-integration-check.md"
+  - "build/gate/v1.0-stale-verification-scope.json"
+  - "build/gate/v1.0-verification-refresh-contract.json"
+  - "core/CMakeLists.txt"
+  - "core/t64_bus.c"
+  - "core/t64_digest.c"
+  - "core/t64_internal.h"
+  - "core/t64_machine.c"
+  - "core/t64_rdram.c"
+  - "core/t64_rsp.c"
+  - "core/t64_rsp_divider.c"
+  - "core/t64_rsp_divider.h"
+  - "core/t64_sp.c"
+  - "core/tests/test_boot_determinism.c"
+  - "core/tests/test_bus.c"
+  - "core/tests/test_profile.c"
+  - "core/tests/test_rdram.c"
+  - "core/tests/test_rsp_compare.c"
+  - "core/tests/test_rsp_control.c"
+  - "core/tests/test_rsp_divider.c"
+  - "core/tests/test_rsp_fuzz.c"
+  - "core/tests/test_rsp_multiply.c"
+  - "core/tests/test_rsp_scalar.c"
+  - "core/tests/test_rsp_transfers.c"
+  - "core/tests/test_rsp_vector.c"
+  - "core/tests/test_sp_dma.c"
+  - "core/tests/test_warm_devices.c"
+  - "docs/ci-reviews/LOG.md"
+  - "docs/evidence/phase05-final-rsp-evidence.json"
+  - "docs/evidence/phase05-native-rsp.md"
+  - "docs/evidence/phase06-native.md"
+  - "docs/evidence/phase06-review.md"
+  - "docs/spec/rdram-boot.md"
+  - "docs/spec/rsp-profile.md"
+  - "fixtures/rsp/rsp-smoke.S"
+  - "runner/CMakeLists.txt"
+  - "runner/t64_rsp_smoke.c"
+  - "scripts/check-rsp-evidence.py"
+  - "scripts/check-rsp-no-hle.py"
+  - "scripts/tests/test_rsp_no_hle.py"
+  - "tests/test_rsp_smoke.py"
+covered_digest: "v4:sha256:6fc2e5fa6ce870e4571576341b23831550ed2c385568284f79de15c4cf9defb1"
 behavior_unverified: 0
 overrides_applied: 0
 decision_coverage:
   honored: 8
   total: 8
   not_honored: []
+source_refresh:
+  previous_verified: "2026-11-15T02:48:44Z"
+  previous_status: passed
+  previous_score: "36/36"
+  reason: "Reconciled the shared Phase06 SP DMA, RDRAM feedback, profile, and digest delta against Phase05 contracts."
+  normal_gate_source: "7554ef0"
+  latest_hosted_source: "aa1e531"
 ---
 
 # Phase 05: RSP Low-Level Emulation Verification Report
 
 **Phase Goal:** The RSP runs real microcode on its scalar and vector units from IMEM/DMEM, with DMA and status semantics, checked against a permanent scalar VU reference and the nemu64-test RSP groups.
-**Verified:** 2026-11-15T02:48:44Z
+**Verified:** 2026-11-16T03:42:57Z
 **Status:** passed
-**Re-verification:** No — initial verification
+**Source refresh:** Bounded current-source delta; the original Phase05 verification was the initial pass.
 
 ## Goal Achievement
 
 The four roadmap success criteria and all 32 plan truths are verified against the implementation and saved actual evidence. No prior verification report existed. The machine is wired through a distinct functional RSP profile; this verifies the documented software contract and its tests, not silicon timing or hardware accuracy.
+
+### Current-Source Reconciliation (Phase06 Shared-Code Delta)
+
+The original Phase05 verification passed 36/36. The prior fingerprint became stale after shared source changed through Phase06. This refresh reconciles the shared SP DMA, RDRAM feedback, profile, and digest changes against Phase05 contracts using saved current-source regression evidence.
+
+| Contract | Current source evidence | Saved regression evidence | Delta result |
+|---|---|---|---|
+| Functional RSP profile isolation (RSP-01–03) | RDRAM feedback is enabled only for model 8/state 13; the Phase05 functional RSP profile is model 6/state 12. The filter leaves its reads unchanged. SP DMA applies filtering only when consuming DRAM bytes into SP memory; backing bytes remain intact. | `unit.core.rdram-protocol` checks the cold profile's hidden and visible bus/cache/SP-DMA reads and backing-byte preservation. The normal and ASan/UBSan records also pass the existing RSP DMA, control, fetched scalar/vector, and authored-ROM owners. | VERIFIED |
+| Per-instance state and digest (RSP-02) | RDRAM protocol latches are owned by each machine. The digest includes those latches only for v13 profiles; RSP future state remains covered for the Phase05 v12 profile. | The RDRAM independent-instance and v13-only digest owners pass, together with the inherited RSP state-digest owner in the saved current-source logs. | VERIFIED |
+| Strict fetched no-HLE route (RSP-05) | The production roster now includes `core/t64_rdram.c`; reviewed seals cover `t64_sp_complete` and `t64_sp_rsp_dma_commit`. Injected-effect and unknown-source/object refusals remain in the owner controls. | `repo.rsp-no-hle` passes in both saved normal and instrumented runs. The scoped independent review in `docs/evidence/phase06-review.md` reports no weakening and a PASS for this correction. | VERIFIED |
+
+The normal gate at source `7554ef0` passed in 77 seconds. The retained all-target ASan/UBSan CTest log passed 141/141 in 211.81 seconds, including the RSP and RDRAM owners above. `build/gate/06-08-final/inputs/binding.json` binds the saved local artifacts and logs. Both authored-only hosted jobs passed at source `aa1e531`; `docs/evidence/phase06-native.md` and `docs/ci-reviews/LOG.md` retain the collector/comparator readback and timing record. The later `bf7046f` parser change is host-only; its owner checks passed under both presets, with no C, compiler, or build-policy change. No build, test, fuzz, guest replay, install, or CI job was launched for this refresh.
+
+The Phase05 private diagnostic classifications remain bound to their original tested build/archive; this refresh adds no diagnostic replay or relabeling. The current combined BASE source classification remains incomplete and supplies no full-suite pass claim. Rights, physical testing, release qualification, and later RDP/audio/hardware behavior remain outside this Phase05 source reconciliation.
 
 ### Observable Truths
 
@@ -256,5 +245,6 @@ No must-have or requirement gap remains. The software implementation is wired in
 
 ---
 
-_Verified: 2026-11-15T02:48:44Z_  
+_Verified: 2026-11-16T03:42:57Z_
+
 _Verifier: the agent (gsd-verifier)_

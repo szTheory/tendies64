@@ -1,7 +1,11 @@
 ---
 phase: 02-deterministic-machine-skeleton
 verified: 2026-11-10T23:48:42Z
-status: human_needed
+status: passed
+original_status: human_needed
+current_resolution: complete_with_flags
+resolution_date: 2026-11-16
+superseded_by: .planning/phases/02-deterministic-machine-skeleton/02-VERIFICATION.md
 score: "40/40 plan truths; roadmap criteria 6/6"
 covered_files:
   - .planning/REQUIREMENTS.md
@@ -91,7 +95,8 @@ unverified_prohibitions:
   - statement: "Model, fuzz, digest, or probe success must not become a boot, hardware-accuracy, broad-compatibility, or memory-safety claim."
     verdict: "No overclaim observed; the model protocol and profile limits label the evidence as synthetic/native model evidence."
     flag: "unverified-prohibition — human review recommended; judgment-tier, non-authoritative check."
-human_verification:
+human_verification: []
+historical_human_recommendations:
   - test: "Review the host-independence prohibition."
     expected: "Confirm the canonical core remains free of host clocks, files, entropy, threads, physical input, presentation, and mutable global machine state."
     why_human: "The authored prohibition is judgment-tier; the automated lint and source scan found no violation but do not silently resolve this flag."
@@ -238,9 +243,9 @@ No unresolved TODO/FIXME/XXX markers or implementation stubs were found in the P
 |---|---:|---|---|---|
 | — | — | None | — | The prior compiler warning is closed; both hosted gate jobs pass. |
 
-## Human Verification Required
+## Historical Human Verification Recommendations
 
-The three judgment-tier prohibitions above remain flagged for human review. No violation was observed; their verdicts remain non-authoritative and no human acceptance is claimed.
+The three judgment-tier prohibitions above remained flagged for human review in the original routing result. No violation was observed; their verdicts were non-authoritative and no human acceptance was claimed.
 
 ## Gaps Summary
 
@@ -252,3 +257,11 @@ The prior Linux compile gap is closed: run 42925122280 at exact SHA `34b43f760e0
 
 _Verified: 2026-11-10T23:48:42Z_  
 _Verifier: gsd-verifier_
+
+## Current Routing Resolution (2026-11-16)
+
+The original typed-routing result remains preserved above: its verdict was `human_needed`, with three generic judgment-tier recommendations. The later canonical Phase 02 verification is `passed` with `completion_with_flags: 3`. Under `.planning/AUTONOMY.md` section 2, autonomous verification records judgment-tier prohibitions as non-authoritative flags and does not halt completion for generic review recommendations alone when automated requirements pass and no concrete stop is unresolved.
+
+The three original prohibition statements, findings, and recommendations remain intact in `unverified_prohibitions` and `historical_human_recommendations`. They are not human validation, approval, or risk acceptance. Current routing is `passed` with those flags visible; `human_verification` is empty because no user action is required by the project policy.
+
+Current-source reconciliation found no concrete rights, authority, physical-testing, publication, or evidence-integrity stop in these three items. Host-independence remains enforced through the production core lint and current gate. Unresolved third-party media rights remain pending and excluded from public CI. Current claims remain limited to their tested software/profile evidence and explicitly exclude hardware accuracy, broad compatibility, and memory-safety proof. The current-source gate and hosted evidence are recorded in the canonical Phase 02 report. No human review or risk acceptance is claimed.

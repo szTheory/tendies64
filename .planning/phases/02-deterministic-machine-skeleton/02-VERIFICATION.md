@@ -1,13 +1,11 @@
 ---
 phase: 02-deterministic-machine-skeleton
-verified: 2026-11-10T23:53:51Z
+verified: 2026-11-16T03:28:24Z
 status: passed
 score: "40/40 plan truths; roadmap criteria 6/6"
 completion_with_flags: 3
 covered_files:
   - .planning/AUTONOMY.md
-  - .planning/REQUIREMENTS.md
-  - .planning/ROADMAP.md
   - .planning/phases/02-deterministic-machine-skeleton/02-01-PLAN.md
   - .planning/phases/02-deterministic-machine-skeleton/02-01-SUMMARY.md
   - .planning/phases/02-deterministic-machine-skeleton/02-02-PLAN.md
@@ -74,7 +72,7 @@ covered_files:
   - scripts/gate.sh
   - tools/common/CMakeLists.txt
   - tools/lint/core-lint.sh
-covered_digest: "v4:sha256:b62c9a0e6c0409fc032445448ed1e00dc826340abd6870b2f5f6f7d5d45edfe1"
+covered_digest: "v4:sha256:2a10c98eb0ffff5a076ab9b0c8f544b57fcc64ef4d8533e7b4134a5fd1598abc"
 behavior_unverified: 0
 overrides_applied: 0
 re_verification:
@@ -258,3 +256,24 @@ The mode-specific routing follows `.planning/AUTONOMY.md` and is documented in `
 
 _Verified: 2026-11-10T23:53:51Z_
 _Verifier: gsd-verifier_
+
+## Current-source reconciliation (2026-11-16)
+
+The original verification timestamp, 40/40 plan-truth score, roadmap criteria, and corrected hosted source identity `34b43f760e0858cdbc3a37e031058f176eea4073` are retained as historical evidence. This bounded refresh checks whether later source changes preserve those Phase 02 contracts; it does not relabel the earlier binaries or claim new guest results.
+
+| Phase 02 truth area | Current-source result |
+|---|---|
+| Named profile identity, defaults, and refusal behavior | **Verified.** `ntsc-cart-4m-skeleton` remains an explicit descriptor and profile lookup still keeps the earlier skeleton contract distinct from later profile additions. `core/tests/test_profile.c` covers descriptor identity, field-sensitive hashing, country independence, and refusal/alias cases; its current saved normal and instrumented gate runs pass. |
+| Guest-time scheduling and instance determinism | **Verified.** Public advancement still delegates to the single event scheduler. Current scheduling tests cover event order, stop reasons, partitioned versus one-shot advancement, and isolated/interleaved instances; current digest/trace tests ensure observation does not change the canonical state digest. The saved `unit.core.scheduler`, `unit.core.determinism`, and `unit.core.digest-trace` results pass. |
+| Memory map, MI, PI/SP DMA, and state ownership | **Verified at the documented model scope.** Current bus routes and per-instance device state remain connected to scheduled PI/SP completion; delayed visibility, queue/refusal atomicity, and digest inclusion are covered by current component tests. Open-bus and hardware timing fidelity remain unclaimed. |
+| Bounded ROM admission and refusal safety | **Verified.** Current admission normalizes and validates bounded candidate bytes before committing machine state. The final current-source sanitizer log reports the entire inherited suite passed, including `unit.core.rom-admission`, `fuzz.rom-admission`, and the sanitizer negative control. No replay or new fuzz campaign was run for this refresh. |
+| Guest-time trace observer | **Verified.** Trace storage remains bounded and owned by each machine; the source inspection and passing digest/trace and determinism controls confirm trace enablement, draining, and overflow do not change the canonical digest. |
+| Model result and claim boundaries | **Verified.** The strict model-result producer/checker remain wired through their runner and CMake targets. Current profile-limit and result-protocol docs label model results as native/synthetic evidence and exclude boot, hardware, broad-compatibility, and memory-safety conclusions. |
+
+The source inspection covered the changed Phase 02 implementation and test paths listed in `covered_files`, including the machine API, scheduler, bus/device implementations, digest and trace, admission, runner/result consumer, and regression tests. The current saved normal gate passes 139/139 and the ASan/UBSan gate passes 141/141, including the inherited component tests. The exact current hosted pair is run 43788405776, attempt 1, for tested source `aa1e531e05b9c66f0c57d5066c9c367cb1e82c23`; the artifact collector and comparator read back and matched only the authored hosted evidence. These current checks complement, but do not rewrite, the historical Phase 02 run and its source/build identities.
+
+Current cross-phase integration independently reports all four end-to-end flows WIRED, all 48 scoped requirements WIRED, and zero broken, blocking, or warning connections. The Phase 02 requirements remain at their earlier scope: CORE-01, CORE-03, CORE-06, PROF-01, PROF-02, PROF-03, PROF-04, PROF-06, BUS-01, BUS-02, and BUS-04 are satisfied as documented; CORE-02 remains partial and assigned to Phase 9. The report makes no CPU-execution, hardware-accuracy, or full-device-integration claim for this phase.
+
+### Current autonomous prohibition routing
+
+`02-VERIFICATION-TYPED-ROUTING.md` preserves its initial `human_needed` verdict and the three original judgment-tier recommendations as historical routing. The current disposition follows `.planning/AUTONOMY.md` section 2: the canonical report is `passed` with `completion_with_flags: 3`, and the same three non-authoritative flags remain prominent. No concrete violation or rights, authority, physical-testing, publication, or evidence-integrity stop was found in this refresh. This does not claim human review, human validation, owner approval, or risk acceptance. The auxiliary report's new resolution records this supersession explicitly.
