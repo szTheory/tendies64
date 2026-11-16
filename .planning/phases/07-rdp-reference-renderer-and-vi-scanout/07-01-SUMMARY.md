@@ -33,7 +33,6 @@ key-files:
     - core/t64_machine.c
     - core/t64_scheduler.c
     - core/t64_digest.c
-    - core/t64_observe.c
     - core/CMakeLists.txt
     - runner/t64_real.c
     - runner/t64_supervisor.c
@@ -49,7 +48,8 @@ key-decisions:
 patterns-established:
   - "Guest device effects advance through the scheduler; the runner reads raw packets without rendering into machine memory."
   - "Fixture source, composition, rights, and generated identities are independently qualified and build-only."
-requirements-completed: [VID-01, VID-02, VID-03, VID-05, VID-06]
+requirements-completed: []
+requirements-contributed: [VID-01, VID-02, VID-03, VID-05, VID-06]
 coverage:
   - id: D1
     description: "The authored CPU guest reaches scheduled RDP fill and the actual runner checks the raw VI frame."
@@ -179,3 +179,19 @@ The Phase 07-01 tracer is complete and verified. Broader RDP modes and standard 
 ---
 *Phase: 07-rdp-reference-renderer-and-vi-scanout*
 *Completed: 2026-11-16*
+
+## Orchestrator handoff check
+
+The nonempty fill suite was rerun successfully after handoff. Schema, codebase
+and UI post-wave checks reported no block. No merge or runtime source change
+followed the full passing native/instrumented cohorts, so those exact gates
+serve the serial-wave regression check; no broad suite was replayed for tracking.
+Current normal/instrumented consumers, authored ROM/build metadata, manifest
+and owning logs were retained with checked SHA-256 values under
+`build/gate/07-01-retained-artifacts/binding.json`. This is honest post-use
+retention, not a claim that pre-use archival occurred.
+
+Requirement fields record contribution only: this fill tracer does not complete
+all VID-01/02/03/05/06 obligations, remaining command/filter/timing work, or VID-04.
+All active requirement statuses remain pending until their full assigned work
+and evidence pass. No historical private campaign was replayed.

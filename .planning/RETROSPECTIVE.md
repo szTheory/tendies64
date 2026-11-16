@@ -93,3 +93,22 @@ containing the runtime's absolute home path. Normalize installed workflow and
 template references to `@$HOME/.codex/...` before commit, then run the actual
 privacy scanner. No waiver or public-history repair is needed when the cheap
 pre-commit check runs before staging/publishing the plans.
+
+## Phase7 first-tracer lessons
+
+- The cheap actual guest caught an insufficient initial diagnostic tick bound,
+  omitted VI active-window setup and a derived profile missing the inherited
+  ISViewer gate. Inspect actual instruction/progress/device refusal before
+  changing CPU behavior. Calibrate authored fixture bounds from the observed
+  path within existing wall/CPU limits; preserve stopped private budgets.
+- A new fixture must not rewrite unrelated hello source/oracle revisions or
+  widen a historical whole-script pin. Isolating the RDP helper preserved the
+  original builder bytes, existing qualification and original receipt authority.
+- Run the cheap affected-owner cohort before a broad gate: serialization/profile
+  compatibility after descriptor edits, legacy fixture/RSP qualification and
+  BASE receipt controls after shared build/manifest changes. Tracer-only positives
+  did not catch those inherited consumers before the first full normal run.
+- Retain exact source ownership and mutation controls; reuse full passing serial
+  wave gates when no merge/runtime source change followed them. Capture exact
+  consumers and inputs before the next build overwrites them; label post-use
+  retention honestly when earlier archival was not established.
