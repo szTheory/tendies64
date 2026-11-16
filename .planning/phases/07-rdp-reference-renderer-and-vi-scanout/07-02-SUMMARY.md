@@ -157,3 +157,7 @@ retention, not retroactive pre-use claims.
 
 The redundant `dpc_dma_active` flag is deferred to Plan03's owning state/digest
 change. No hardware timing or full-phase requirement claim is added.
+
+Hosted checkpoint `16f93de` passed Linux and macOS in run43897243313.
+The exact selected authored records were collected and compared successfully.
+The measured critical-path review is F-083 in `docs/ci-reviews/LOG.md`.

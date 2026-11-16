@@ -47,6 +47,13 @@ applies that direction; update it when the owner changes policy.
   On a shared branch, a parent documentation commit can contain unfinished
   child RED commits in its ancestry. Defer its push until those source/test
   commits are verified; pin pushes to the intended verified commit.
+- Sequential context reuse: a completed typed executor may be reused for the next
+  ready plan when the resolved role/model/effort and checkout remain appropriate.
+  Treat it as a fresh plan dispatch: recheck completion/readiness, capture the new
+  base, record plan-scoped isolation, supply new ownership, read current mutable
+  instructions and use the supplied-root guard before writes/commits. Never reuse
+  a working executor for a different task or infer completion from an interim
+  message. This reduces repeated setup without weakening verification.
 - Incremental review efficiency (owner's standing efficiency direction): verify
   the exact shared predicate and one accepted consumer operation before treating
   a static review allegation as a blocker. Distinguish publicly reachable cases
