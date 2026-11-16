@@ -29,6 +29,8 @@ SPEC.loader.exec_module(CHECKER)
 MUTATION_SEEDS = (
     "host-start-dma-effect",
     "host-sp-write-effect",
+    "sp-completion-effect",
+    "sp-dma-commit-effect",
     "unreviewed-host-helper",
     "MicroCode_Signature task selector",
     "uCode_CRC case variation",
@@ -210,7 +212,8 @@ def _check_helper_inventory_mutations(temp_root: pathlib.Path) -> int:
     path.write_text(original.replace(anchor, mutation + anchor, 1), encoding="utf-8")
     _must_reject("anonymous DMEM-dependent SP admission-helper effect", source_root)
 
-    for name in ("start_dma", "t64_sp_write_register"):
+    for name in ("start_dma", "t64_sp_write_register",
+                 "t64_sp_complete", "t64_sp_rsp_dma_commit"):
         source_root = _copy_source_only_fixture(temp_root / ("host-entry-" + name))
         path = source_root / "core" / "t64_sp.c"
         original = path.read_text(encoding="utf-8")
@@ -245,7 +248,7 @@ def _check_helper_inventory_mutations(temp_root: pathlib.Path) -> int:
         raise AssertionError("SP DMA admission helper definition no longer exists")
     path.write_text(original[: span[0]] + original[span[1] :], encoding="utf-8")
     _must_reject("removed SP DMA helper definition", source_root)
-    return 9
+    return 11
 
 
 def _mutate_source(source_root: pathlib.Path, text: str) -> None:

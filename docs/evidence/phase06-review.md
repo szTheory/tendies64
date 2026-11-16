@@ -115,3 +115,27 @@ The checker now loads the bound composed image and validates its dispatch seam a
 The controls include a synthetic selector-byte positive/negative test at `scripts/tests/test_base_evidence.py:406-418` and an actual resealed mutation control at `scripts/tests/test_base_evidence.py:356-400`. The latter copies retained inputs, changes both the saved record digest and manifest digest, regenerates the report through the retained C consumer, then asserts the independent guard refuses. This directly covers the original defect while preventing a stale-report hash from being the refusal reason.
 
 No new actionable defect was proven in this two-file correction. The source-level scoped verdict is **PASS; T06-18 closed**. The parent reports that the owning normal/ASan all-target builds, `harness.base-evidence`, and the actual resealed control passed, with the actual control completing in about 7.6 seconds; those executions were not rerun as part of this source-only re-review. No broad gate, guest replay, image build, network install, long suite, service, or private upload was run by this reviewer. The final stable-gate result remains parent-owned.
+
+## Correction slice 2 queue: stale no-HLE production seal
+
+The first final normal gate reached every test and failed only repo.rsp-no-hle.
+It retained the pre-Phase06 core production file/object inventory and hashes
+for t64_sp_complete/t64_sp_rsp_dma_commit, so it rejected the reviewed RDRAM
+source addition and pure RDRAM read-visibility filtering. This is a stale seal,
+not authorization to bypass scanning or weaken mutation detection.
+
+Owning earlier scope: Plan03 RDRAM and Plan05 feedback/SP-DMA wiring. Exact
+correction files: scripts/check-rsp-no-hle.py and scripts/tests/test_rsp_no_hle.py
+(two-file policy/test slice). Explicitly add the reviewed core file/object and
+update only the two reviewed normalized body seals; preserve all injected-HLE,
+unknown-file/object and changed-body negative controls. Owning test is
+repo.rsp-no-hle, run cheaply before long suites. Re-review this policy diff before
+the stable final gate; retain the failed gate/LastTest and execute core-lint and
+the previously unreached sanitizer/fuzz tail after the cause is fixed.
+
+Slice 2 implementation adds only t64_rdram.c to the canonical production
+source/object inventory and refreshes the two normalized SP function seals.
+Two new injected-effect mutations exercise exactly those functions; all earlier
+unknown-source/object and fetched-route controls remain. Direct owner controls
+pass against both normal and instrumented archives before the longer gate.
+Logs: build/{gate,asan}/06-08-no-hle-control.log. Scoped re-review pending.

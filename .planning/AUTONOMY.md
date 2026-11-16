@@ -81,6 +81,10 @@ applies that direction; update it when the owner changes policy.
   compact success summaries and the different Tier A/B protocol observations.
   When a handoff has identified enough evidence but produces no runnable patch,
   reconcile its exact diff and finish the narrow remaining slice inline.
+  After adding a production file or changing a sealed dispatch function, run
+  its exact source/object/body inventory checker before the full gate. Phase06's
+  final gate found a stale pre-RDRAM no-HLE roster and two SP seals; keep those
+  guards strict, review the concrete changes, and prove mutations still refuse.
 - Efficiency correction (owner feedback, 2026-11-12): before a broad retest,
   inspect `node scripts/verification-scope.mjs --base <last-tested-source>`.
   It includes staged, unstaged and new source changes, including ignored code
