@@ -304,43 +304,34 @@ def _attempt_command(command_bytes: bytes, test_name: str) -> None:
 
 
 def _find_original_attempt(repository_root: pathlib.Path, test_name: str,
-                           section: dict) -> dict:
+                           section: dict, reference: dict) -> dict:
+    """Resolve the exact retained receipt reference, not equal later outputs."""
+    exact(reference, PUBLIC_ATTEMPT_KEYS)
     mode = "hello" if test_name == "integration.cold-hello" else "startup"
-    pattern = re.compile(rf"06-05-cold-{mode}-attempt-[0-9]{{2}}\Z")
-    section_output = ("\n".join(section["output"]) + "\n").encode("utf-8")
-    matches = []
-    for directory in (repository_root / AUTHORED_RUN_ROOT).glob(
-            f"06-05-cold-{mode}-attempt-*"):
-        if (not pattern.fullmatch(directory.name) or directory.is_symlink() or
-                not directory.is_dir()):
-            continue
-        command_path, outcome_path = directory / "command.txt", directory / "outcome.txt"
-        try:
-            command_bytes = _public_file(command_path, maximum=16 * 1024)
-            outcome_bytes = _public_file(outcome_path, maximum=2 * 1024 * 1024)
-        except Refusal:
-            continue
-        if not outcome_bytes.startswith(b"exit_code=0\n"):
-            continue
-        child_output = outcome_bytes[len(b"exit_code=0\n"):]
-        if not child_output or child_output not in section_output:
-            continue
-        _attempt_command(command_bytes, test_name)
-        relative = directory.relative_to(repository_root).as_posix()
-        matches.append({
-            "command": command_bytes,
-            "outcome": outcome_bytes,
-            "receipt": {
-                "command_sha256": sha256(command_bytes),
-                "outcome_sha256": sha256(outcome_bytes),
-                "path": relative,
-                "test": test_name,
-            },
-            "child_output": child_output,
-        })
-    if len(matches) != 1:
+    relative = reference.get("path")
+    if (reference.get("test") != test_name or not isinstance(relative, str) or
+            not re.fullmatch(rf"build/gate/06-05-cold-{mode}-attempt-[0-9]{{2}}", relative)):
         refuse()
-    return matches[0]
+    for key in ("command_sha256", "outcome_sha256"):
+        if not isinstance(reference.get(key), str) or not HEX64.fullmatch(reference[key]):
+            refuse()
+    directory = repository_root / relative
+    for ancestor in (directory, directory.parent, directory.parent.parent):
+        if ancestor.is_symlink() or not ancestor.is_dir():
+            refuse()
+    command_bytes = _public_file(directory / "command.txt", maximum=16 * 1024)
+    outcome_bytes = _public_file(directory / "outcome.txt", maximum=2 * 1024 * 1024)
+    if (sha256(command_bytes) != reference["command_sha256"] or
+            sha256(outcome_bytes) != reference["outcome_sha256"] or
+            not outcome_bytes.startswith(b"exit_code=0\n")):
+        refuse()
+    child_output = outcome_bytes[len(b"exit_code=0\n"):]
+    section_output = ("\n".join(section["output"]) + "\n").encode("utf-8")
+    if not child_output or child_output not in section_output:
+        refuse()
+    _attempt_command(command_bytes, test_name)
+    return {"command": command_bytes, "outcome": outcome_bytes,
+            "receipt": dict(reference), "child_output": child_output}
 
 
 def _validate_original_coldboot_evidence(repository_root: pathlib.Path,
@@ -416,6 +407,12 @@ def _validate_original_coldboot_evidence(repository_root: pathlib.Path,
     sections = _last_test_sections(last_test_bytes)
     if set(sections) != expected_tests or not all(row["passed"] for row in sections.values()):
         refuse()
+    references = execution.get("attempts")
+    if (not isinstance(references, list) or len(references) != 2 or
+            any(not isinstance(row, dict) for row in references) or
+            [row.get("test") for row in references] !=
+                ["integration.cold-hello", "integration.cold-startup"]):
+        refuse()
     attempts = []
     original_attempts = {}
     for test_name in ("integration.cold-hello", "integration.cold-startup"):
@@ -433,7 +430,8 @@ def _validate_original_coldboot_evidence(repository_root: pathlib.Path,
         expected_mode = "--integration" if test_name.endswith("hello") else "--startup"
         if wrapper_argv[1] != expected_mode:
             refuse()
-        attempt = _find_original_attempt(repository_root, test_name, section)
+        attempt = _find_original_attempt(repository_root, test_name, section,
+                                         references[len(attempts)])
         attempts.append(attempt["receipt"])
         original_attempts[test_name] = attempt
     if execution.get("attempts") != attempts:

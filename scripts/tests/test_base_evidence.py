@@ -467,6 +467,23 @@ class PublicEvidenceControls(unittest.TestCase):
                 with self.assertRaises(CHECKER.Refusal):
                     CHECKER.validate_public_receipt(repository)
 
+    def test_equal_later_runs_do_not_replace_the_pinned_original(self) -> None:
+        with tempfile.TemporaryDirectory(prefix="base-original-repeat-") as temp:
+            repository, receipt = self.public_repository(temp)
+            self.assertEqual(CHECKER.validate_public_receipt(repository)["status"], "verified")
+            reference = receipt["execution_record"]["attempts"][1]
+            original = repository / reference["path"]
+            later = original.with_name("06-05-cold-startup-attempt-02")
+            shutil.copytree(original, later)
+            self.assertEqual(CHECKER.validate_public_receipt(repository)["status"], "verified")
+            # An unrelated later ASan command with identical output is ignored.
+            command = later / "command.txt"
+            command.write_text(command.read_text().replace("build/gate/runner", "build/asan/runner"))
+            self.assertEqual(CHECKER.validate_public_receipt(repository)["status"], "verified")
+            (original / "outcome.txt").unlink()
+            with self.assertRaises(CHECKER.Refusal):
+                CHECKER.validate_public_receipt(repository)
+
     def test_original_record_mutations_reach_runtime_validation(self) -> None:
         for mutation in ("terminal", "capture", "profile", "cleanup", "missing"):
             with self.subTest(mutation=mutation), tempfile.TemporaryDirectory(prefix="base-original-") as temp:

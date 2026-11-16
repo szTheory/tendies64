@@ -152,3 +152,20 @@ The canonical roster change is additive: `core/t64_rdram.c` is now included at `
 I independently recomputed both new whitespace-normalized function-body hashes from the current comment/literal-stripped C source using the checker’s extraction and normalization algorithm. The `t64_sp_complete` and `t64_sp_rsp_dma_commit` hashes match the refreshed entries at `scripts/check-rsp-no-hle.py:146,188`. The original inventory and digest mismatch behavior remains active.
 
 The added mutations target exactly those two reviewed functions through the existing host-entry mutation loop at `scripts/tests/test_rsp_no_hle.py:29-34,215-230`; each inserts an anonymous DMEM-dependent effect and must be rejected. The mutation count remains checked against the declared seed list at `scripts/tests/test_rsp_no_hle.py:389-394`. No weakening or specific regression was found. The parent reports the bounded normal and ASan archive controls passed (`build/{gate,asan}/06-08-no-hle-control.log`); I did not rerun tests or builds in this source-only re-review.
+
+## Correction slice 3 queue: original attempt lookup after later tests
+
+The complete normal gate and instrumented suite passed at 7554ef0, including
+admission fuzz/negative control. Final original-artifact readback then found an
+authored parser defect: searching every historical attempt by child output
+becomes ambiguous after legitimate later runs produce identical startup bytes;
+an instrumented command can also be considered before the original. The public
+receipt already pins exact attempt paths and command/outcome hashes.
+
+Owning Plan07 Task2 correction, two files: scripts/check-base-evidence.py and
+scripts/tests/test_base_evidence.py. Resolve only the closed receipt's exact
+attempt reference, verify command/outcome digests plus original CTest embedding,
+and reject missing/changed/foreign references. Add an accepted repeated-output
+control. No record is deleted or relabeled. Re-review only this parser slice;
+reuse unaffected full native/sanitizer semantics and run the changed owner in
+both presets. Final hosted gate covers the published source.
