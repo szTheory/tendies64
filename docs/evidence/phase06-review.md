@@ -138,4 +138,17 @@ source/object inventory and refreshes the two normalized SP function seals.
 Two new injected-effect mutations exercise exactly those functions; all earlier
 unknown-source/object and fetched-route controls remain. Direct owner controls
 pass against both normal and instrumented archives before the longer gate.
-Logs: build/{gate,asan}/06-08-no-hle-control.log. Scoped re-review pending.
+Logs: build/{gate,asan}/06-08-no-hle-control.log. Scoped re-review complete; see below.
+
+## Scoped re-review: acde6e3e9bc328789f27206c742100acf35d3481
+
+**Comparison:** `f537baf21c3a6de62851694f58d507f915f4f5c0..acde6e3e9bc328789f27206c742100acf35d3481`
+**Scope:** `scripts/check-rsp-no-hle.py` and `scripts/tests/test_rsp_no_hle.py` only. Reviewed the canonical production source/object roster addition, two refreshed normalized function-body digests, and two added host-entry mutation controls.
+
+### Verdict — PASS; no new findings
+
+The canonical roster change is additive: `core/t64_rdram.c` is now included at `scripts/check-rsp-no-hle.py:36`, and the current production build graph has its `t64_rdram.c.o` compile edge and archive membership. The checker uses that roster for source inventory and expected object construction (`scripts/check-rsp-no-hle.py:311-327, 541-551`), so the update closes the stale-roster rejection without weakening unreviewed-source or object checks.
+
+I independently recomputed both new whitespace-normalized function-body hashes from the current comment/literal-stripped C source using the checker’s extraction and normalization algorithm. The `t64_sp_complete` and `t64_sp_rsp_dma_commit` hashes match the refreshed entries at `scripts/check-rsp-no-hle.py:146,188`. The original inventory and digest mismatch behavior remains active.
+
+The added mutations target exactly those two reviewed functions through the existing host-entry mutation loop at `scripts/tests/test_rsp_no_hle.py:29-34,215-230`; each inserts an anonymous DMEM-dependent effect and must be rejected. The mutation count remains checked against the declared seed list at `scripts/tests/test_rsp_no_hle.py:389-394`. No weakening or specific regression was found. The parent reports the bounded normal and ASan archive controls passed (`build/{gate,asan}/06-08-no-hle-control.log`); I did not rerun tests or builds in this source-only re-review.

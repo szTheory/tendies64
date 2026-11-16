@@ -103,3 +103,16 @@ support the same guard. No specific scoped regression or unregistered flag was
 found. Code re-review also returned a conclusive closure of the same two-file
 slice; unaffected full-phase review is retained. Only T-06-22 and T-06-23 remain
 open for the planned final artifact gates and hosted readback.
+
+## Strict seal policy re-audit
+
+The first final gate reached all normal tests and rejected a stale pre-RDRAM
+no-HLE roster plus two old SP body seals. The failed gate is retained under
+build/gate/06-08-final/; its unreached core-lint and sanitizer tail cannot count
+as passed. At acde6e3 both configured reviewers verified the exact two-file
+policy correction: the reviewed RDRAM source/object is explicit, replacement
+SP hashes match independent normalization, and new injected-effect controls
+cover those same functions. Unknown sources/objects and body changes remain
+rejected. No C source changed, no regression/unregistered threat was found.
+Direct controls passed against normal/instrumented archives. T-06-22/23 still
+require the stable final gates and hosted readback.
