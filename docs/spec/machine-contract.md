@@ -119,7 +119,7 @@ RDRAM extent and refusal behavior are profile policy. See the
 [Nintendo 64 Introductory Manual §1.2.4](https://ultra64.ca/files/documentation/online-manuals/man/kantan/step1/2-4.html)
 and [Nintendo SDK `rcp.h` map and register definitions](https://ultra64.ca/files/documentation/online-manuals/man/header/rcp.htm).
 The exact retrieved hashes and locators are recorded in
-[02-DECISION-B.md](../../.planning/phases/02-deterministic-machine-skeleton/02-DECISION-B.md)
+[02-DECISION-B.md](../../.planning/milestones/v1.0-phases/02-deterministic-machine-skeleton/02-DECISION-B.md)
 and beside the independent expectations in
 `core/tests/test_bus.c`.
 
@@ -185,7 +185,7 @@ refusal, cancellation and completion at their model ticks; traces have no host
 sink and remain outside the canonical digest.
 
 The register definitions and alignment/count constraints are pinned in
-[Decision B](../../.planning/phases/02-deterministic-machine-skeleton/02-DECISION-B.md):
+[Decision B](../../.planning/milestones/v1.0-phases/02-deterministic-machine-skeleton/02-DECISION-B.md):
 Nintendo SDK `rcp.h`, PI lines 667-767, SHA-256
 `982f5ae01956783653d1085ef31c3d936f471f09bd1e65e27a578fae498f972f`, and
 `osPiRawStartDma`, SHA-256

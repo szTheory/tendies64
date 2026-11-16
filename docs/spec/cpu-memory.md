@@ -180,8 +180,8 @@ Branch-in-delay undefined behavior, p.369; DIV/DIVU and DDIV/DDIVU details,
 pp.410–416.
 
 The registered CPU-memory matrix and CPU-path integration tests contain
-independent expected bytes. The [04-07 portable RED record](../../.planning/phases/04-complete-vr4300-cpu/04-07-RED-evidence.md)
-and [04-08 portable RED record](../../.planning/phases/04-complete-vr4300-cpu/04-08-RED-evidence.md)
+independent expected bytes. The [04-07 portable RED record](../../.planning/milestones/v1.0-phases/04-complete-vr4300-cpu/04-07-RED-evidence.md)
+and [04-08 portable RED record](../../.planning/milestones/v1.0-phases/04-complete-vr4300-cpu/04-08-RED-evidence.md)
 distinguish valid behavioral failures from discarded vectors and setup errors.
 
 

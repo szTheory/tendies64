@@ -103,5 +103,5 @@ This checklist records evidence required for a future decision. It does not
 assign T2 costs, add dynamic latency, or change current profile behavior.
 
 See [ADR-0003](../adr/0003-cpu-timing-tiers.md) for the tier definitions and
-the [Phase 6 CPU timing decision](../../.planning/phases/06-cold-boot-cpu-timing-and-full-base-suite/06-CPU-TIMING-DECISION.md)
+the [Phase 6 CPU timing decision](../../.planning/milestones/v1.0-phases/06-cold-boot-cpu-timing-and-full-base-suite/06-CPU-TIMING-DECISION.md)
 for the selected policy, evidence boundary, and reversal criteria.

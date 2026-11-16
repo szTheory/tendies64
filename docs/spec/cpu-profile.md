@@ -21,7 +21,7 @@ SHA-256 `b7c1900f1707a4b238ebd82af1669e9628e4df4875ceabfa012a9d95b4716b75`
 fields are in §§5.4.5–5.4.6, pp.151–153; Count and Compare are in §6.3.3,
 p.164 and §6.3.4, p.165. Prepared values and emulator clock mapping remain
 software choices where noted. The project
-[CPU decision record](../../.planning/phases/04-complete-vr4300-cpu/04-DECISION-CPU.md)
+[CPU decision record](../../.planning/milestones/v1.0-phases/04-complete-vr4300-cpu/04-DECISION-CPU.md)
 records the manual evidence, unresolved alternatives, and reversal criteria.
 
 ## Prepared seed

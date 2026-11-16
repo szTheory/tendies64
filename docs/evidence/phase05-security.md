@@ -10,7 +10,7 @@ high-severity-blocking audit of all ten plans' authored threats and the
 validation contract against source through `0b8786b`. It used the
 project-resolved `gpt-6.1-sol` model with `high` effort. The parent persisted
 the actual returned verdict in the
-[security register](../../.planning/phases/05-rsp-low-level-emulation/05-SECURITY.md).
+[security register](../../.planning/milestones/v1.0-phases/05-rsp-low-level-emulation/05-SECURITY.md).
 The auditor inspected source, saved logs, permissions, hashes and private
 record consistency read-only; it ran no guest, build or installation.
 

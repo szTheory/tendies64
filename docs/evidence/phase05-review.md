@@ -9,7 +9,7 @@ The configured deep Codex code review completed against source through
 `0b8786b`, using the project-resolved `gsd-code-reviewer` model
 `gpt-6-luna` with `xhigh` effort. Its explicit scope was the 63 phase source,
 test, fixture, workflow and provenance paths listed in the
-[original report](../../.planning/phases/05-rsp-low-level-emulation/05-REVIEW.md).
+[original report](../../.planning/milestones/v1.0-phases/05-rsp-low-level-emulation/05-REVIEW.md).
 The review read implementation and call chains; it did not rerun broad tests.
 
 The initial verdict is **issues found**. It remains preserved rather than
@@ -56,7 +56,7 @@ refusal-to-pass relabeling, and requires explicit passing CTest rows. A parent
 synthetic RED additionally exposed JSON-quoted private identifiers escaping the
 privacy pattern; its correction and control are retained separately.
 
-The [configured scoped follow-up](../../.planning/phases/05-rsp-low-level-emulation/05-10-REVIEW-FOLLOWUP.md)
+The [configured scoped follow-up](../../.planning/milestones/v1.0-phases/05-rsp-low-level-emulation/05-10-REVIEW-FOLLOWUP.md)
 completed and its original findings remain preserved. The parent implemented
 the accepted corrections rather than rewriting that verdict:
 
@@ -75,7 +75,7 @@ and its negative control, and both required hosted jobs. Exact artifacts and
 logs are retained. The previous diagnostic binding intentionally pins older
 production source, requiring an additive host-only qualification update.
 That update is committed at `3a3c8ca`. Its
-[configured scoped review](../../.planning/phases/05-rsp-low-level-emulation/05-10-V6-REVIEW.md)
+[configured scoped review](../../.planning/milestones/v1.0-phases/05-rsp-low-level-emulation/05-10-V6-REVIEW.md)
 identified one evidence-log blocker. Both producer and independent verifier
 now reuse the existing strict registered-test parser; authored marker-only,
 failed, duplicate and unknown-name mutations reject. The parent verified the

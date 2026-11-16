@@ -165,9 +165,9 @@ hardware equivalence claim.
 ## Parent review follow-up
 
 The source, tool hashes and timings above describe the executor checkpoint.
-Subsequent [parent review](../../.planning/phases/05-rsp-low-level-emulation/05-09-review-evidence.md)
+Subsequent [parent review](../../.planning/milestones/v1.0-phases/05-rsp-low-level-emulation/05-09-review-evidence.md)
 seals the consumer to those same six ROMs, qualifies executables before use,
 hardens child deadlines and makes field/classification assertions exact. ROM
 bytes are unchanged. The final local combined gate passes127 checks and lint86/0;
 final owning/hosted results and tested source identity are recorded in the
-[plan summary](../../.planning/phases/05-rsp-low-level-emulation/05-09-SUMMARY.md).
+[plan summary](../../.planning/milestones/v1.0-phases/05-rsp-low-level-emulation/05-09-SUMMARY.md).

@@ -62,4 +62,4 @@ These rules are deliberately software-profile choices. The generic manual
 does not establish their physical results and conflicts with the selected
 single COP2 latch/full-width word-transfer model. No COP2 memory, branch or
 operation-space capability is inferred. The precise decisions, counterarguments
-and owning verification are recorded in the [Plan20 context](../../.planning/phases/04-complete-vr4300-cpu/04-20-CONTEXT.md).
+and owning verification are recorded in the [Plan20 context](../../.planning/milestones/v1.0-phases/04-complete-vr4300-cpu/04-20-CONTEXT.md).

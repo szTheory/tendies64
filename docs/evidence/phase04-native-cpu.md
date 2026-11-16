@@ -108,7 +108,7 @@ A final bounded security recheck confirmed the strict-POSIX sticky-bit
 fallback preserves the same directory acceptance predicate. No high-severity
 finding remains in the executed native scope; Plan16 is not included.
 
-The [review report](../../.planning/phases/04-complete-vr4300-cpu/04-REVIEW.md)
+The [review report](../../.planning/milestones/v1.0-phases/04-complete-vr4300-cpu/04-REVIEW.md)
 records the source scope and result. The audit covered executed native phase
 work only; Plan16's separate external-tool and private qualification remains
 unverified and outside this report.
@@ -224,7 +224,7 @@ and instrumented checks; the final annulled-register/retirement assertions
 also passed both CPU-control runs. No broad retest was repeated for those
 test-only follow-ups.
 
-The [portable validation record](../../.planning/phases/04-complete-vr4300-cpu/04-19-VALIDATION.md)
+The [portable validation record](../../.planning/milestones/v1.0-phases/04-complete-vr4300-cpu/04-19-VALIDATION.md)
 preserves failed fixture attempts, original RED limits and follow-up scope.
 The configured review findings are dispositioned, and the incremental security
 audit closes both new mitigation threats. These are authored software checks.
@@ -280,9 +280,9 @@ serializer and fixed vector, including old-version exclusion of the new latch.
 
 The configured source review and narrow follow-up resolve the conversion
 finding; the security auditor closes all three new mitigation threats and
-confirms the correction. [Validation](../../.planning/phases/04-complete-vr4300-cpu/04-20-VALIDATION.md),
-[RED limits](../../.planning/phases/04-complete-vr4300-cpu/04-20-RED-evidence.md)
-and [correction proof](../../.planning/phases/04-complete-vr4300-cpu/04-20-REVIEW-FIX.md)
+confirms the correction. [Validation](../../.planning/milestones/v1.0-phases/04-complete-vr4300-cpu/04-20-VALIDATION.md),
+[RED limits](../../.planning/milestones/v1.0-phases/04-complete-vr4300-cpu/04-20-RED-evidence.md)
+and [correction proof](../../.planning/milestones/v1.0-phases/04-complete-vr4300-cpu/04-20-REVIEW-FIX.md)
 retain the actual scopes and fixture mistakes. Exact-source hosted verification
 and private Plan16 completion remain separate and are not asserted by these
 native results. No protected input/result enters this record or hosted uploads.
