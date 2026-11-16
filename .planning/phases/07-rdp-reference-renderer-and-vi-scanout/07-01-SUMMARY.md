@@ -214,4 +214,6 @@ all its controls. The original failure and the unproven contention inference are
 retained in [the fix record](07-REVIEW-FIX.md). Independent re-review finds no new
 source defect. Exact repaired normal and instrumented consumers/bindings are
 retained under `build/gate/07-vi-repair-retained-artifacts/`. No original pre-use
-retention gap is relabeled. Hosted qualification of this repaired source follows.
+retention gap is relabeled. Hosted qualification of repaired source `69ed85c` passed on Linux and macOS
+(run43869199965). Exact selected authored artifacts were collected and compared;
+see the measured review in `docs/ci-reviews/LOG.md` (F-082).
