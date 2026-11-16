@@ -625,17 +625,15 @@ typedef struct {
   uint64_t phase_cycles;
   uint64_t last_guest_tick;
   uint64_t next_sequence;
-  uint64_t pending_tick;
   uint64_t event_generation;
   uint32_t field;
   uint32_t refusal_reason;
   size_t packet_lengths[T64_VIDEO_QUEUE_CAPACITY];
   t64_video_packet_info packet_info[T64_VIDEO_QUEUE_CAPACITY];
+  /* Host observer cursor and occupancy; neither is part of guest identity. */
   size_t packet_head;
   size_t packet_count;
   bool enabled;
-  bool field_pending;
-  bool field_resume_scheduled;
   bool sequence_exhausted;
 } t64_vi_state;
 

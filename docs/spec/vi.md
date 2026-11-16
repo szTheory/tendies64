@@ -53,10 +53,20 @@ size without consuming it, while a full successful copy dequeues exactly that
 packet. Invalid or undersized destinations do not partially copy or advance
 the queue.
 
-The queue, registers, exact phase remainder, event generation, field sequence
-and pending-resume state affect future guest output and are hashed in the
-per-instance machine state. Host cursors and writes are outside guest time and
-the digest.
+VI registers, exact phase remainder, the scheduled field event, event
+generation, field sequence and produced packet bytes/metadata are hashed in the
+per-instance machine state. The bounded packet ring uses the producer sequence
+to choose slots. Its observer head advances for every successful copy and is
+not reset when the ring becomes empty, so a given produced packet history has
+the same physical slots regardless of drain cadence. The observer head and
+queue occupancy are excluded from the digest.
+
+When the ring is full, the scheduler leaves the original VI field event at the
+front of the event queue. That event is not popped, traced or rescheduled, and
+guest time does not advance past it. A successful host copy only advances the
+observer head and frees one slot; the next advance dispatches the same pending
+event with its original tick and sequence. Host copy-out does not change the
+guest digest or scheduler sequence.
 
 ## Limits and evidence
 

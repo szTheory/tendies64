@@ -29,7 +29,10 @@
           "path": "core/test_vi",
           "cases": [
             "cpu-authored-fill-packet-and-dp-lifecycle",
-            "copy-refusal-is-atomic"
+            "copy-refusal-is-atomic",
+            "v14-digest-covers-vi-and-inherited-state",
+            "drain-cadence-preserves-digest-and-packet-history",
+            "full-queue-copy-preserves-event-order"
           ]
         },
         {

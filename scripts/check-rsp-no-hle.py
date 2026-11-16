@@ -232,11 +232,11 @@ REVIEWED_BODY_DIGESTS = {
     "core/t64_vi.c :: geometry_for": "f4406152ed6b4d7902691d0b7b9d368817b6515d8336e7b15515dbec1b3d202f",
     "core/t64_vi.c :: phase_at_tick": "47456dc6873e26bf86feacb2c6b777dbf8aacdd464507a24b441f2a16a36c523",
     "core/t64_vi.c :: render_packet": "fda529594c485b9c6258f37ed17b52b94e961da2e6cfe3bf9df5b9cb1a231c13",
-    "core/t64_vi.c :: t64_vi_event": "caa4e0b206021966c87246054761cab48967dc50083be514751ab20390d838a9",
+    "core/t64_vi.c :: t64_vi_event": "47c641c2a857eda0fa1372a02d6aed13111f24367f527eb13b43b1682f4a0707",
     "core/t64_vi.c :: t64_vi_read_register": "d21a4ba36394f79f00dc0bf644120150e0d40bd2a8e6aeaa625946ea39b1826b",
     "core/t64_vi.c :: t64_vi_reset_machine_state": "4aed279f94c4064aec968cf30f14f90f138e7b9fe736e8d4bac549829ea15982",
-    "core/t64_vi.c :: t64_vi_write_register": "c4c7a06d0279404d98325b02b0a53546f3b89e204c79dbe23a37bd795d78857b",
-    "core/t64_vi.c :: t64_video_copy": "342ee6c224e3f010adf56e5ec46f822d0fa11328151072f72db237b003e94c5b",
+    "core/t64_vi.c :: t64_vi_write_register": "c17eade05782b2c34b28f1ac1aaca597631cf6c1ff5e7ce204e925153bb52567",
+    "core/t64_vi.c :: t64_video_copy": "4de19a66521dee9c26a4e4598f4881aa45ab69a554669dc6320fd1cfe39d6a62",
     "core/t64_vi.c :: t64_video_info": "7552591d2934e6f2278089a9536d33e3aadba3ac2f6a3321f25d0be7dc76110c",
 }
 

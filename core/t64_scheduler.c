@@ -273,10 +273,20 @@ static bool event_counter_would_overflow(const t64_machine *machine,
   return false;
 }
 
+static bool vi_event_waits_for_output_capacity(const t64_machine *machine,
+                                               const t64_event *event) {
+  return event->device == T64_VI_DEVICE &&
+         event->kind == T64_VI_EVENT_FIELD &&
+         t64_has_rdp_vi_profile(machine) && machine->vi.enabled &&
+         event->token == machine->vi.event_generation &&
+         machine->vi.packet_count >= T64_VIDEO_QUEUE_CAPACITY;
+}
+
 static bool event_can_dispatch(const t64_machine *machine,
                                const t64_event *event) {
   return event->handler != NULL &&
-         !event_counter_would_overflow(machine, event);
+         !event_counter_would_overflow(machine, event) &&
+         !vi_event_waits_for_output_capacity(machine, event);
 }
 
 static t64_status dispatch_front(t64_machine *machine) {
@@ -366,11 +376,6 @@ static t64_status advance_time_bound(t64_machine *machine,
                       machine->tick);
       return T64_STATUS_OK;
     }
-  }
-  if (machine->vi.field_pending) {
-    set_stop_result(result_out, T64_STOP_REASON_RESOURCE_LIMIT,
-                    machine->tick);
-    return T64_STATUS_OK;
   }
   status = t64_cp0_synchronize_guest_time(machine, request->value);
   if (status != T64_STATUS_OK) {

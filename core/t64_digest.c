@@ -498,14 +498,18 @@ t64_status t64_machine_digest(const t64_machine *machine,
       hash_u64(&context, vi->phase_cycles);
       hash_u64(&context, vi->last_guest_tick);
       hash_u64(&context, vi->next_sequence);
-      hash_u64(&context, vi->pending_tick);
       hash_u64(&context, vi->event_generation);
       hash_u32(&context, vi->field);
       hash_u32(&context, vi->refusal_reason);
       hash_u32(&context, vi->enabled ? 1u : 0u);
-      hash_u32(&context, vi->field_pending ? 1u : 0u);
-      hash_u32(&context, vi->field_resume_scheduled ? 1u : 0u);
       hash_u32(&context, vi->sequence_exhausted ? 1u : 0u);
+      /*
+       * Packet bytes and metadata retain produced-output history in slots
+       * chosen from the producer sequence. packet_head/count are observer
+       * state and intentionally stay out of the digest; advancing the head
+       * even when the queue becomes empty keeps those physical slots stable
+       * across different host drain cadences.
+       */
       for (logical = 0u; logical < T64_VIDEO_QUEUE_CAPACITY; logical++) {
         size_t slot = logical;
         const t64_video_packet_info *info = &vi->packet_info[slot];

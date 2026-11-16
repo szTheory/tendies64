@@ -3,6 +3,7 @@
 #include <string.h>
 
 #include "t64_test.h"
+#include "../t64_internal.h"
 #include "tendies64/t64_machine.h"
 
 #define TEST_ROM_CAPACITY 65536u
@@ -37,6 +38,9 @@ static void test_release(void *context, t64_host_storage storage) {
   free(storage.data);
 }
 
+static const t64_host_allocator test_allocator = {test_allocate, test_release,
+                                                   NULL};
+
 static bool load_authored_rom(uint8_t *bytes, size_t capacity,
                               size_t *length_out) {
   const char *path = getenv("T64_TEST_RDP_FILL_PATH");
@@ -57,6 +61,123 @@ static bool load_authored_rom(uint8_t *bytes, size_t capacity,
   }
   *length_out = (size_t)length;
   return true;
+}
+
+static t64_machine *create_authored_machine(void) {
+  const t64_profile_descriptor *profile = NULL;
+  t64_machine *machine = NULL;
+  uint8_t rom[TEST_ROM_CAPACITY];
+  size_t rom_length = 0u;
+  t64_status status;
+
+  T64_CHECK(load_authored_rom(rom, sizeof rom, &rom_length));
+  if (rom_length == 0u) return NULL;
+  T64_CHECK_INT(t64_profile_lookup(TEST_PROFILE_ID, &profile), T64_STATUS_OK);
+  if (profile == NULL) return NULL;
+  T64_CHECK_INT(t64_machine_create(&test_allocator, profile, &machine),
+                T64_STATUS_OK);
+  if (machine == NULL) return NULL;
+  status = t64_machine_admit_rom(machine, rom, rom_length);
+  T64_CHECK_INT(status, T64_STATUS_OK);
+  if (status != T64_STATUS_OK) {
+    t64_machine_destroy(machine);
+    return NULL;
+  }
+  return machine;
+}
+
+static const t64_event *find_pending_vi_event(const t64_machine *machine) {
+  size_t offset;
+
+  for (offset = 0u; offset < machine->queue_count; offset++) {
+    size_t slot = (machine->queue_head + offset) % T64_EVENT_QUEUE_CAPACITY;
+    const t64_event *event = &machine->events[slot];
+
+    if (event->device == T64_VI_DEVICE &&
+        event->kind == T64_VI_EVENT_FIELD &&
+        event->token == machine->vi.event_generation) {
+      return event;
+    }
+  }
+  return NULL;
+}
+
+static bool advance_guest_to_tick(t64_machine *machine, uint64_t tick,
+                                  t64_stop_result *stop_out) {
+  size_t attempt;
+
+  for (attempt = 0u; attempt < 512u; attempt++) {
+    t64_status status = t64_machine_advance(
+        machine, &(t64_stop_request){T64_STOP_GUEST_TICK, tick}, stop_out);
+
+    T64_CHECK_INT(status, T64_STATUS_OK);
+    if (status != T64_STATUS_OK) return false;
+    if (stop_out->reason != T64_STOP_REASON_RESOURCE_LIMIT) {
+      return stop_out->reason == T64_STOP_REASON_BOUND;
+    }
+    if (machine->tick == tick && machine->vi.packet_count >=
+                                     T64_VIDEO_QUEUE_CAPACITY) {
+      return false;
+    }
+  }
+  T64_CHECK(false);
+  return false;
+}
+
+static bool advance_until_video_full(t64_machine *machine, uint64_t tick,
+                                     t64_stop_result *stop_out) {
+  size_t attempt;
+
+  for (attempt = 0u; attempt < 512u; attempt++) {
+    t64_status status = t64_machine_advance(
+        machine, &(t64_stop_request){T64_STOP_GUEST_TICK, tick}, stop_out);
+
+    T64_CHECK_INT(status, T64_STATUS_OK);
+    if (status != T64_STATUS_OK) return false;
+    if (machine->vi.packet_count >= T64_VIDEO_QUEUE_CAPACITY) {
+      return stop_out->reason == T64_STOP_REASON_RESOURCE_LIMIT;
+    }
+    if (stop_out->reason != T64_STOP_REASON_RESOURCE_LIMIT) return false;
+  }
+  T64_CHECK(false);
+  return false;
+}
+
+static bool advance_to_next_vi_field(t64_machine *machine) {
+  const t64_event *event = find_pending_vi_event(machine);
+  t64_stop_result stop = {UINT32_MAX, UINT64_MAX};
+  uint64_t tick;
+  uint32_t field;
+  size_t attempt;
+
+  if (event == NULL) return false;
+  tick = event->tick;
+  field = machine->vi.field;
+  for (attempt = 0u; attempt < 512u; attempt++) {
+    t64_status status = t64_machine_advance(
+        machine, &(t64_stop_request){T64_STOP_GUEST_TICK, tick}, &stop);
+
+    T64_CHECK_INT(status, T64_STATUS_OK);
+    if (status != T64_STATUS_OK) return false;
+    if (machine->vi.field != field) break;
+    if (stop.reason != T64_STOP_REASON_RESOURCE_LIMIT) return false;
+  }
+  if (attempt == 512u) T64_CHECK(false);
+  T64_CHECK_INT(machine->vi.field, field + 1u);
+  return machine->vi.field == field + 1u;
+}
+
+static bool copy_packet(t64_machine *machine, t64_video_packet_info *info_out,
+                        uint8_t *bytes_out, size_t capacity,
+                        size_t *length_out) {
+  t64_status status;
+
+  status = t64_video_info(machine, info_out);
+  T64_CHECK_INT(status, T64_STATUS_OK);
+  if (status != T64_STATUS_OK) return false;
+  status = t64_video_copy(machine, bytes_out, capacity, length_out);
+  T64_CHECK_INT(status, T64_STATUS_OK);
+  return status == T64_STATUS_OK;
 }
 
 static void check_video_copy_refusals(t64_machine *machine,
@@ -275,6 +396,182 @@ static void case_copy_refusal_is_atomic(void) {
   t64_machine_destroy(machine);
 }
 
+static void case_v14_digest_covers_vi_and_inherited_state(void) {
+  t64_machine *machine = create_authored_machine();
+  uint8_t before[T64_DIGEST_SIZE];
+  uint8_t after_vi[T64_DIGEST_SIZE];
+  uint8_t after_warm[T64_DIGEST_SIZE];
+  t64_status status;
+
+  if (machine == NULL) return;
+  T64_CHECK(t64_has_rdp_vi_profile(machine));
+  T64_CHECK(t64_has_t1_policy(machine));
+  T64_CHECK_INT(t64_machine_digest(machine, before), T64_STATUS_OK);
+  status = t64_machine_bus_write(machine, UINT32_C(0x04400004), 4u,
+                                 UINT32_C(0x3000));
+  T64_CHECK_INT(status, T64_STATUS_OK);
+  T64_CHECK_INT(t64_machine_digest(machine, after_vi), T64_STATUS_OK);
+  T64_CHECK(memcmp(before, after_vi, sizeof before) != 0);
+
+  machine->boot.seed_reset_version++;
+  T64_CHECK_INT(t64_machine_digest(machine, after_warm), T64_STATUS_OK);
+  T64_CHECK(memcmp(after_vi, after_warm, sizeof after_vi) != 0);
+  t64_machine_destroy(machine);
+}
+
+static void case_drain_cadence_preserves_digest_and_packet_history(void) {
+  t64_machine *early = create_authored_machine();
+  t64_machine *delayed = create_authored_machine();
+  t64_stop_result early_stop = {UINT32_MAX, UINT64_MAX};
+  t64_stop_result delayed_stop = {UINT32_MAX, UINT64_MAX};
+  t64_video_packet_info early_info[2] = {{0}};
+  t64_video_packet_info delayed_info[2] = {{0}};
+  uint8_t early_packets[2][sizeof expected_packet] = {{0}};
+  uint8_t delayed_packets[2][sizeof expected_packet] = {{0}};
+  uint8_t before_copy[T64_DIGEST_SIZE];
+  uint8_t after_copy[T64_DIGEST_SIZE];
+  uint8_t early_digest[T64_DIGEST_SIZE];
+  uint8_t delayed_digest[T64_DIGEST_SIZE];
+  size_t early_lengths[2] = {0u, 0u};
+  size_t delayed_lengths[2] = {0u, 0u};
+  size_t i;
+
+  if (early == NULL || delayed == NULL) {
+    t64_machine_destroy(early);
+    t64_machine_destroy(delayed);
+    return;
+  }
+  T64_CHECK(advance_guest_to_tick(early, UINT64_C(538881), &early_stop));
+  T64_CHECK(
+      advance_guest_to_tick(delayed, UINT64_C(538881), &delayed_stop));
+  T64_CHECK(early->vi.enabled);
+  T64_CHECK(delayed->vi.enabled);
+
+  T64_CHECK(advance_to_next_vi_field(early));
+  T64_CHECK_INT(t64_video_info(early, &early_info[0]), T64_STATUS_OK);
+  T64_CHECK_INT(t64_machine_digest(early, before_copy), T64_STATUS_OK);
+  T64_CHECK_INT(t64_video_copy(early, early_packets[0],
+                               sizeof early_packets[0], &early_lengths[0]),
+                T64_STATUS_OK);
+  T64_CHECK_INT(t64_machine_digest(early, after_copy), T64_STATUS_OK);
+  T64_CHECK(memcmp(before_copy, after_copy, sizeof before_copy) == 0);
+
+  T64_CHECK(advance_to_next_vi_field(delayed));
+  T64_CHECK(advance_to_next_vi_field(early));
+  T64_CHECK(copy_packet(early, &early_info[1], early_packets[1],
+                        sizeof early_packets[1], &early_lengths[1]));
+  T64_CHECK(advance_to_next_vi_field(delayed));
+
+  T64_CHECK_INT(early->tick, delayed->tick);
+  T64_CHECK_INT(early->vi.field, delayed->vi.field);
+  T64_CHECK_INT(early->vi.next_sequence, delayed->vi.next_sequence);
+  T64_CHECK_INT(early->vi.packet_count, 0u);
+  T64_CHECK_INT(delayed->vi.packet_count, 2u);
+  T64_CHECK_INT(t64_machine_digest(early, early_digest), T64_STATUS_OK);
+  T64_CHECK_INT(t64_machine_digest(delayed, delayed_digest), T64_STATUS_OK);
+  T64_CHECK(memcmp(early_digest, delayed_digest, sizeof early_digest) == 0);
+
+  for (i = 0u; i < 2u; i++) {
+    T64_CHECK(copy_packet(delayed, &delayed_info[i], delayed_packets[i],
+                          sizeof delayed_packets[i], &delayed_lengths[i]));
+    T64_CHECK_INT(delayed_info[i].sequence, early_info[i].sequence);
+    T64_CHECK_INT(delayed_lengths[i], early_lengths[i]);
+    T64_CHECK(memcmp(delayed_packets[i], early_packets[i],
+                     early_lengths[i]) == 0);
+  }
+  T64_CHECK_INT(t64_machine_digest(delayed, after_copy), T64_STATUS_OK);
+  T64_CHECK(memcmp(delayed_digest, after_copy, sizeof delayed_digest) == 0);
+  t64_machine_destroy(early);
+  t64_machine_destroy(delayed);
+}
+
+static void case_full_queue_copy_preserves_event_order(void) {
+  t64_machine *machine = create_authored_machine();
+  t64_stop_result stop = {UINT32_MAX, UINT64_MAX};
+  const t64_event *pending_event;
+  const t64_event *resumed_event;
+  uint64_t pending_tick;
+  uint64_t pending_sequence = UINT64_MAX;
+  uint64_t machine_sequence_before_copy;
+  uint64_t tick_before_copy;
+  uint64_t field_before_resume;
+  uint64_t frames_before_resume;
+  size_t scheduler_count_before_copy;
+  size_t length = 0u;
+  uint8_t packet[sizeof expected_packet];
+  uint8_t digest_before[T64_DIGEST_SIZE];
+  uint8_t digest_after[T64_DIGEST_SIZE];
+  size_t vi_trace_index = SIZE_MAX;
+  size_t synthetic_trace_index = SIZE_MAX;
+  size_t i;
+  t64_status status;
+
+  if (machine == NULL) return;
+  T64_CHECK(advance_until_video_full(machine, TEST_COMPLETION_TICK, &stop));
+  status = T64_STATUS_OK;
+  T64_CHECK_INT(stop.reason, T64_STOP_REASON_RESOURCE_LIMIT);
+  T64_CHECK_INT(machine->vi.packet_count, T64_VIDEO_QUEUE_CAPACITY);
+
+  pending_event = find_pending_vi_event(machine);
+  T64_CHECK(pending_event != NULL);
+  pending_tick = pending_event == NULL ? stop.tick : pending_event->tick;
+  if (pending_event != NULL) pending_sequence = pending_event->sequence;
+  T64_CHECK(machine->tick <= pending_tick);
+  T64_CHECK_INT(t64_test_schedule_synthetic(
+                    machine, pending_tick, T64_TEST_EVENT_FRAME, 1u),
+                T64_STATUS_OK);
+  machine_sequence_before_copy = machine->next_sequence;
+  scheduler_count_before_copy = machine->queue_count;
+  tick_before_copy = machine->tick;
+  T64_CHECK_INT(t64_machine_digest(machine, digest_before), T64_STATUS_OK);
+
+  machine->trace_enabled = true;
+  t64_trace_reset(machine);
+  T64_CHECK_INT(t64_video_copy(machine, packet, sizeof packet, &length),
+                T64_STATUS_OK);
+  T64_CHECK_INT(length, sizeof expected_packet);
+  T64_CHECK_INT(t64_machine_digest(machine, digest_after), T64_STATUS_OK);
+  T64_CHECK(memcmp(digest_before, digest_after, sizeof digest_before) == 0);
+  T64_CHECK_INT(machine->next_sequence, machine_sequence_before_copy);
+  T64_CHECK_INT(machine->queue_count, scheduler_count_before_copy);
+  T64_CHECK_INT(machine->tick, tick_before_copy);
+
+  resumed_event = find_pending_vi_event(machine);
+  T64_CHECK(resumed_event != NULL);
+  if (pending_sequence != UINT64_MAX && resumed_event != NULL) {
+    T64_CHECK_INT(resumed_event->tick, pending_tick);
+    T64_CHECK_INT(resumed_event->sequence, pending_sequence);
+  }
+
+  field_before_resume = machine->vi.field;
+  frames_before_resume = machine->frame_event_count;
+  status = t64_machine_advance(
+      machine, &(t64_stop_request){T64_STOP_GUEST_TICK, pending_tick}, &stop);
+  T64_CHECK_INT(status, T64_STATUS_OK);
+  T64_CHECK_INT(machine->vi.field, field_before_resume + 1u);
+  T64_CHECK_INT(machine->frame_event_count, frames_before_resume + 1u);
+  for (i = 0u; i < machine->trace_count; i++) {
+    size_t slot = (machine->trace_head + i) % T64_TRACE_RECORD_CAPACITY;
+    const t64_trace_record *record = &machine->trace_records[slot];
+
+    if (record->tick != pending_tick) continue;
+    if (record->device == T64_VI_DEVICE &&
+        record->kind == T64_VI_EVENT_FIELD && record->value == 0u &&
+        vi_trace_index == SIZE_MAX) {
+      vi_trace_index = i;
+    }
+    if (record->device == T64_DEVICE_SYNTHETIC_TEST &&
+        record->kind == T64_TEST_EVENT_FRAME &&
+        synthetic_trace_index == SIZE_MAX) {
+      synthetic_trace_index = i;
+    }
+  }
+  T64_CHECK(vi_trace_index != SIZE_MAX);
+  T64_CHECK(synthetic_trace_index != SIZE_MAX);
+  T64_CHECK(vi_trace_index < synthetic_trace_index);
+  t64_machine_destroy(machine);
+}
+
 typedef struct {
   const char *name;
   void (*run)(void);
@@ -284,6 +581,12 @@ static const test_case cases[] = {
     {"cpu-authored-fill-packet-and-dp-lifecycle",
      case_cpu_authored_fill_packet_and_dp_lifecycle},
     {"copy-refusal-is-atomic", case_copy_refusal_is_atomic},
+    {"v14-digest-covers-vi-and-inherited-state",
+     case_v14_digest_covers_vi_and_inherited_state},
+    {"drain-cadence-preserves-digest-and-packet-history",
+     case_drain_cadence_preserves_digest_and_packet_history},
+    {"full-queue-copy-preserves-event-order",
+     case_full_queue_copy_preserves_event_order},
 };
 
 int main(int argc, char **argv) {

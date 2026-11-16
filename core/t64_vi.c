@@ -276,9 +276,6 @@ t64_status t64_vi_write_register(t64_machine *machine, uint32_t address,
       vi->event_generation++;
       vi->registers[index] = 0u;
       vi->enabled = false;
-      vi->field_pending = false;
-      vi->field_resume_scheduled = false;
-      vi->pending_tick = 0u;
       return T64_STATUS_OK;
     }
     if (vi->enabled || !geometry_for(machine, value, &geometry) ||
@@ -304,9 +301,6 @@ t64_status t64_vi_write_register(t64_machine *machine, uint32_t address,
     vi->phase_cycles = 0u;
     vi->phase_remainder = 0u;
     vi->last_guest_tick = machine->tick;
-    vi->field_pending = false;
-    vi->field_resume_scheduled = false;
-    vi->pending_tick = 0u;
     vi->refusal_reason = T64_VI_REFUSAL_NONE;
     return T64_STATUS_OK;
   }
@@ -366,12 +360,8 @@ t64_status t64_vi_event(t64_machine *machine, const t64_event *event) {
   vi = &machine->vi;
   if (!vi->enabled || event->token != vi->event_generation)
     return T64_STATUS_OK;
-  if (vi->packet_count >= T64_VIDEO_QUEUE_CAPACITY) {
-    vi->field_pending = true;
-    vi->field_resume_scheduled = false;
-    vi->pending_tick = event->tick;
+  if (vi->packet_count >= T64_VIDEO_QUEUE_CAPACITY)
     return T64_STATUS_QUEUE_FULL;
-  }
   if (vi->sequence_exhausted || vi->field == UINT32_MAX) {
     vi->refusal_reason = T64_VI_REFUSAL_SEQUENCE_EXHAUSTED;
     vi->enabled = false;
@@ -443,9 +433,6 @@ t64_status t64_vi_event(t64_machine *machine, const t64_event *event) {
   vi->phase_remainder = phase_remainder;
   vi->last_guest_tick = event->tick;
   vi->field++;
-  vi->field_pending = false;
-  vi->field_resume_scheduled = false;
-  vi->pending_tick = 0u;
   vi->refusal_reason = T64_VI_REFUSAL_NONE;
   if (vi->next_sequence == UINT64_MAX) {
     vi->sequence_exhausted = true;
@@ -479,8 +466,6 @@ t64_status t64_video_copy(t64_machine *machine, uint8_t *bytes_out,
   t64_address_range bytes_range;
   size_t required;
   uint32_t slot;
-  t64_event_reservation reservation;
-  t64_status status;
 
   if (machine == NULL || length_out == NULL ||
       !t64_internal_make_range(length_out, sizeof *length_out, &length_range) ||
@@ -504,18 +489,6 @@ t64_status t64_video_copy(t64_machine *machine, uint8_t *bytes_out,
     return T64_STATUS_BUFFER_TOO_SMALL;
   }
   if (bytes_out == NULL && required != 0u) return T64_STATUS_INVALID_ARGUMENT;
-  if (machine->vi.field_pending &&
-      !machine->vi.field_resume_scheduled) {
-    if (machine->vi.pending_tick != machine->tick)
-      return T64_STATUS_NOT_READY;
-    status = t64_schedule_reserve(
-        machine, machine->vi.pending_tick, T64_VI_DEVICE, T64_VI_EVENT_FIELD,
-        0u, machine->vi.event_generation, t64_vi_event, &reservation);
-    if (status != T64_STATUS_OK) return status;
-    status = t64_schedule_commit(machine, &reservation);
-    if (status != T64_STATUS_OK) return status;
-    machine->vi.field_resume_scheduled = true;
-  }
   (void)memcpy(bytes_out,
                machine->video_packets +
                    (size_t)slot * T64_VIDEO_MAX_PACKET_BYTES,
@@ -524,6 +497,5 @@ t64_status t64_video_copy(t64_machine *machine, uint8_t *bytes_out,
   machine->vi.packet_head =
       (machine->vi.packet_head + 1u) % T64_VIDEO_QUEUE_CAPACITY;
   machine->vi.packet_count--;
-  if (machine->vi.packet_count == 0u) machine->vi.packet_head = 0u;
   return T64_STATUS_OK;
 }
