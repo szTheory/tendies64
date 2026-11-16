@@ -87,3 +87,9 @@ research existed. Use `*-OPTIONS.md`/`*-CHECK.md` for decision notes, reserve
 `NN-RESEARCH.md` for the implementation research, and inspect the initializer's
 resolved artifact path before reusing it. This cheap discovery check caught
 the false reuse before planning or a long suite.
+
+The pre-commit privacy scan caught generated plan execution-context references
+containing the runtime's absolute home path. Normalize installed workflow and
+template references to `@$HOME/.codex/...` before commit, then run the actual
+privacy scanner. No waiver or public-history repair is needed when the cheap
+pre-commit check runs before staging/publishing the plans.

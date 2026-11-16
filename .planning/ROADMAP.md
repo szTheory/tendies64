@@ -66,7 +66,47 @@ frontend, broad compatibility claim or software release.
   3. Raw frames follow the selected profile's TV timing, interlace, pixel format and filtering and carry resolution and guest-time metadata. Output does not assume 320×240; host scaling and presentation remain separate
   4. Noise seed and undefined memory color are visible as named deterministic policies bound to the affected profile behavior
   5. Once its gates resolve, VID-04 has conformance reports labeling each out-of-tree oracle's name, version and modifications as differential evidence, never hardware truth. Until then it remains explicitly blocked and incomplete
-**Plans**: TBD
+**Plans**: 13 plans
+
+Plans:
+**Wave 1**
+- [ ] 07-01-PLAN.md — Production fill-to-frame tracer through the actual runner
+
+**Wave 2** *(blocked on Wave 1 completion)*
+- [ ] 07-02-PLAN.md — Incremental DP command transport, RSP dispatch and completion fences
+
+**Wave 3** *(blocked on Wave 2 completion)*
+- [ ] 07-03-PLAN.md — TMEM loads and independently checked copy-mode pixels
+
+**Wave 4** *(blocked on Wave 3 completion)*
+- [ ] 07-04-PLAN.md — Source-reconciled triangle edges, coverage generation and shading
+
+**Wave 5** *(blocked on Wave 4 completion)*
+- [ ] 07-05-PLAN.md — Textured triangles with independently derived interpolation and sampling
+
+**Wave 6** *(blocked on Wave 5 completion)*
+- [ ] 07-06-PLAN.md — One-cycle and two-cycle combiner with named undefined policies
+
+**Wave 7** *(blocked on Wave 6 completion)*
+- [ ] 07-07-PLAN.md — Hidden coverage ownership and blender render modes
+
+**Wave 8** *(blocked on Wave 7 completion)*
+- [ ] 07-08-PLAN.md — Depth mapping, compare/update and Z-enabled triangle paths
+
+**Wave 9** *(blocked on Wave 8 completion)*
+- [ ] 07-09-PLAN.md — Profile-timed VI register geometry, fields and interrupts
+
+**Wave 10** *(blocked on Wave 9 completion)*
+- [ ] 07-10-PLAN.md — VI filtering and lossless raw-output backpressure
+
+**Wave 11** *(blocked on Wave 10 completion)*
+- [ ] 07-11-PLAN.md — Complete authored native, sanitizer, compiler and hosted qualification
+
+**Wave 12** *(blocked on Wave 11 completion)*
+- [ ] 07-12-PLAN.md — Prepare a concrete oracle authority record and preserve the existing stop
+
+**Wave 13** *(blocked on Wave 12 completion)*
+- [ ] 07-13-PLAN.md — Run authorized out-of-tree comparisons and label actual differential evidence
 
 ### Phase 8: Audio Interface and Raw Capture
 **Goal**: The AI turns guest DMA into raw audio buffers whose cadence comes only from guest time, and a headless run captures raw video and audio as files with metadata
