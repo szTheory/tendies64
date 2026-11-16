@@ -110,12 +110,15 @@ Deferred. Each item names the evidence that would promote it.
 
 ## Traceability
 
+Active v1.1 maps only to Phases 7–9. No acceptance is marked complete by
+roadmap activation; CORE-02 retains only its verified scheduler foundation.
+
 | Requirement | Phase | Status |
 |-------------|-------|--------|
 | VID-01 | Phase 7 | Pending |
 | VID-02 | Phase 7 | Pending |
 | VID-03 | Phase 7 | Pending |
-| VID-04 | Phase 7 | Pending — oracle authority/asset gate unresolved |
+| VID-04 | Phase 7 | Blocked acceptance — D5 oracle authority and parallel-rdp per-file/asset audit unresolved |
 | VID-05 | Phase 7 | Pending |
 | VID-06 | Phase 7 | Pending |
 | AUD-01 | Phase 8 | Pending |
@@ -130,4 +133,4 @@ Deferred. Each item names the evidence that would promote it.
 | CORE-04 | Phase 9 | Pending |
 | CORE-05 | Phase 9 | Pending |
 
-**Coverage:**17 active;17 mapped exactly once;0 unmapped. Eight future v1.2 requirements plus v2 outlines remain deferred.
+**Coverage:** 17 active; 17 mapped exactly once; 0 unmapped; 0 duplicate assignments. Phase 7: 6; Phase 8: 4; Phase 9: 7. Eight future v1.2 requirements plus v2 outlines remain deferred.

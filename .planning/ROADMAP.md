@@ -3,14 +3,15 @@
 ## Milestones
 
 - ✅ **v1.0 Verified Headless Core** — Phases1–6 complete; planning archive2026-11-15. [Verified scope and history](milestones/v1.0-ROADMAP.md). This is not a software release.
-- 📋 **v1.1 Observable Machine** — Phases7–9; next authorized milestone.
+- 🚧 **v1.1 Observable Machine** — Phases 7–9; active, awaiting Phase 7 discussion and planning.
 - 📋 **v1.2 Embeddable and Playable** — Phases10–11; provisional.
 - 📋 **v2.0 Breadth, Accuracy and Performance** — provisional future scope.
 
-The completed milestone covers48 assigned requirements. The25 remaining
-requirements are preserved pending in the [requirements archive](milestones/v1.0-REQUIREMENTS.md),
-for explicit scoping when the next milestone opens. No deferred requirement is
-marked complete by archival. Full historical plans, evidence and limitations
+The completed milestone covers 48 assigned requirements. Of the 25 remaining
+requirements in the [requirements archive](milestones/v1.0-REQUIREMENTS.md),
+17 are active in [v1.1 requirements](REQUIREMENTS.md) and eight remain deferred
+to v1.2. CORE-02 retains its partial scheduler foundation; no remaining
+requirement is marked complete by archival or milestone activation. Full historical plans, evidence and limitations
 remain in [v1.0 phase records](milestones/v1.0-phases/).
 
 ## Decision Gates
@@ -34,33 +35,46 @@ paid services.
 
 ## v1.1 Observable Machine
 
-**Milestone Goal (provisional):** The machine produces raw video, raw audio and controller-driven
-behavior, with save media and a replayable state, each verified by authored diagnostics with exact
-expectations. This outline is revised at the v1.0 close.
+**Milestone Goal:** The machine produces raw video, raw audio and controller-driven
+behavior, with explicit save devices, versioned machine state and reproducible input replay.
+Authored diagnostics establish exact software expectations; required RDP differential evidence
+remains separate and is blocked by its specific authority and asset gates.
+
+Scope and sequence follow the [v1.1 research synthesis](research/SUMMARY.md).
+Apply the approved [compatibility policy](../docs/spec/cpu-compatibility.md): preserve
+existing identities and bytes where semantics are unchanged, and version only concrete
+semantic changes. This milestone adds no public API/ABI freeze, installed consumer,
+frontend, broad compatibility claim or software release.
+
+## Phases
 
 - [ ] **Phase 7: RDP Reference Renderer and VI Scanout** - In-tree software RDP and VI produce raw frames, and conformance is reported as labeled differential evidence
 - [ ] **Phase 8: Audio Interface and Raw Capture** - AI DMA and cadence produce raw audio with exact-sample diagnostics; raw video and audio are captured as files
 - [ ] **Phase 9: Controller, Save Media and Replay** - Standard controller over SI/PIF, explicit EEPROM/SRAM devices, versioned state export and input replay
 
+## Phase Details
+
 ### Phase 7: RDP Reference Renderer and VI Scanout
 **Goal**: Command lists render into RDRAM through an in-tree software RDP, and the VI produces raw frames under the profile's TV timing. Conformance is reported as labeled differential evidence, never as hardware truth
-**Depends on**: Phase 4 (CPU-built command lists). Can run in parallel with Phases 5 and 6
+**Depends on**: Phase 6 (completed v1.0 machine; CPU command-list support from Phase 4 and fetched RSP from Phase 5)
 **Requirements**: VID-01, VID-02, VID-03, VID-04, VID-05, VID-06
-**Decision gates**: Entry gate: RDP/VI evidence check. D5 applies to any Angrylion-Plus-derived claim. The parallel-rdp suites need a per-file license audit before use
-**Research**: DEEP (command timing, TMEM and coverage, SYNC_FULL ordering, VI filtering, video-domain clocks)
+**Decision gates**: RDP/VI evidence check at discussion/planning. VID-04 acceptance remains blocked by unresolved D5 oracle authority and the parallel-rdp per-file/asset rights audit. No oracle execution/use/copying or derived-data publication before applicable gates resolve. Permitted authored/native implementation can continue; authored expectations and regression pins cannot replace labeled differential evidence
+**Research**: DEEP phase-level checks (command timing, TMEM and coverage, SYNC_FULL ordering, VI filtering, video-domain clocks); reuse existing milestone research
 **Success Criteria** (what must be TRUE):
-  1. Authored diagnostic ROMs that exercise fill, copy, textured and shaded triangles, combiner, blender, coverage and Z produce raw frames recorded as regression pins, and SYNC_FULL raises the DP interrupt per the cited references
-  2. Each raw frame carries the profile's resolution, interlace, pixel format and filter state as metadata. Nothing assumes 320x240, and no host scaling is applied
-  3. Conformance reports label each oracle (name, version, modifications) as differential evidence, and undefined-behavior choices (noise seed, undefined memory color) appear as named policies
+  1. Before the full suite, a cleared authored DP fill command list writes independently calculated pixels to RDRAM, VI scans them into a raw frame, and the actual headless runner retrieves that frame. RDRAM pixels and VI output each match their independent expectations, and a deliberately wrong expected pixel fails
+  2. Cleared authored diagnostics for the remaining required copy, textured and shaded triangle, combiner, blender, coverage and Z modes produce independently checked raw output; SYNC_FULL raises the DP interrupt per cited references. Regression pins retain the exact fixture/profile/build identity and do not imply hardware accuracy
+  3. Raw frames follow the selected profile's TV timing, interlace, pixel format and filtering and carry resolution and guest-time metadata. Output does not assume 320×240; host scaling and presentation remain separate
+  4. Noise seed and undefined memory color are visible as named deterministic policies bound to the affected profile behavior
+  5. Once its gates resolve, VID-04 has conformance reports labeling each out-of-tree oracle's name, version and modifications as differential evidence, never hardware truth. Until then it remains explicitly blocked and incomplete
 **Plans**: TBD
 
 ### Phase 8: Audio Interface and Raw Capture
 **Goal**: The AI turns guest DMA into raw audio buffers whose cadence comes only from guest time, and a headless run captures raw video and audio as files with metadata
-**Depends on**: Phase 5 (real audio needs RSP microcode), Phase 7 (video capture)
+**Depends on**: Phase 7 (guest-timed raw output and video capture source); Phase 5 is complete. Authored PCM verifies AI transport without requiring broader RSP audio-microcode compatibility
 **Requirements**: AUD-01, AUD-02, AUD-03, RUN-06
 **Research**: MODERATE (DACRATE values, cadence phase, 8 KiB carry vectors)
 **Success Criteria** (what must be TRUE):
-  1. An authored audio diagnostic produces raw sample buffers whose exact values match expectations across DMA boundaries, and tests cover the two-deep queue and the IRQ raised at DMA start
+  1. A cleared authored audio diagnostic produces raw sample buffers with sample index/rate metadata and exact expected values across DMA boundaries, including two-deep queue behavior and the interrupt at the documented `ai_full` 1→0 queue transition. A submission or DMA start alone does not imply a new interrupt
   2. Audio cadence follows DACRATE and guest time, so runs throttled differently on the host produce identical sample streams
   3. A headless run writes raw video frames and raw audio buffers as files whose metadata covers sample index, rate, frame timing and profile/build identity, separate from host presentation
 **Plans**: TBD
@@ -77,16 +91,27 @@ expectations. This outline is revised at the v1.0 close.
   4. CPU, RSP, RDP, VI, AI, PI, SI and MI activity is ordered by the same guest-time scheduler, including coincident-event and partition/interleave checks; the CPU-to-RSP quantum remains part of profile identity (CORE-02 completion).
 **Plans**: TBD
 
+## Progress
+
+Execution order: Phase 7 → Phase 8 → Phase 9. No active implementation or plan is complete.
+VID-04's specific acceptance gate does not prevent permitted authored/native work.
+
+| Phase | Plans Complete | Status | Completed |
+|-------|----------------|--------|-----------|
+| 7. RDP Reference Renderer and VI Scanout | 0/TBD | Not started | - |
+| 8. Audio Interface and Raw Capture | 0/TBD | Not started | - |
+| 9. Controller, Save Media and Replay | 0/TBD | Not started | - |
+
 ## v1.2 Embeddable and Playable
 
 **Milestone Goal (provisional):** A frozen C-ABI, proven through an independent installed consumer,
 and a rights-cleared homebrew that plays in a minimal host, so Tendies64 does not stay tests-only.
 This outline is revised at the v1.1 close.
 
-- [ ] **Phase 10: Frozen API and Installed Consumer** - C-ABI postconditions exercised through a clean installed package before the freeze
-- [ ] **Phase 11: Minimal Host and Playable Homebrew** - Optional SDL3 host, a rights-cleared playable title and a LibFuturo fit evaluation
+- **Provisional Phase 10: Frozen API and Installed Consumer** - C-ABI postconditions exercised through a clean installed package before the freeze
+- **Provisional Phase 11: Minimal Host and Playable Homebrew** - Optional SDL3 host, a rights-cleared playable title and a LibFuturo fit evaluation
 
-### Phase 10: Frozen API and Installed Consumer
+### Provisional Phase 10: Frozen API and Installed Consumer
 **Goal**: An independent consumer, using only a clean installed package, exercises every lifetime, admission, advance, output and failure postcondition, and only then is the C-ABI frozen
 **Depends on**: Phase 9
 **Requirements**: API-01, API-02, API-03, API-04, VER-05
@@ -97,7 +122,7 @@ This outline is revised at the v1.1 close.
   3. The C-ABI (lifetime, profile selection, transactional admission, timed input, bounded advance, output rings with backpressure, reset, unload) is frozen only after those tests pass, with the host supplying all files, clocks, entropy and threads
 **Plans**: TBD
 
-### Phase 11: Minimal Host and Playable Homebrew
+### Provisional Phase 11: Minimal Host and Playable Homebrew
 **Goal**: A rights-cleared homebrew title runs headlessly and plays in a minimal host window with a physical controller, without the core depending on the host
 **Depends on**: Phase 10
 **Requirements**: API-05, API-06, API-07
