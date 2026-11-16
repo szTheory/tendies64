@@ -516,14 +516,14 @@ static const t64_profile_descriptor
         .device_error_policy = "sticky-pi-error-v1",
         .dma_cancel_policy = "token-match-complete-once-v1",
         .dma_visibility_policy = "rsp-one-beat-per-issue-v1",
-        .rdp_work_policy = "fill16-row-event-1tick-v1",
+        .rdp_work_policy = "dpc-fetch-effect-fill-row-event-1tick-v2",
         .vi_clock_policy = "rsp62500000-ntsc48681812-rational-v1",
         .rdp_noise_policy = "xorshift32-seed-1-v1",
         .rdp_undefined_color_policy = "zero-color-v1",
         .vi_output_policy = "rgba5551-nearest-no-filter-rgba8-two-packet-v1",
         .descriptor_version = 5u,
-        .machine_model_version = 9u,
-        .state_serialization_version = 14u,
+        .machine_model_version = 10u,
+        .state_serialization_version = 15u,
         .asset_sha256 = T64_OPENIPL3_ASSET_SHA256_BYTES,
         .payload_sha256 = T64_OPENIPL3_PAYLOAD_SHA256_BYTES,
         .boot_policy_sha256 = T64_RDRAM_B_T1_POLICY_SHA256_BYTES,
@@ -1445,8 +1445,8 @@ t64_status t64_machine_create(const t64_host_allocator *allocator,
   }
   machine = (t64_machine *)storage.data;
   (void)memset(machine, 0, sizeof *machine);
-  if (profile->machine_model_version == 9u &&
-      profile->state_serialization_version == 14u) {
+  if (profile->machine_model_version == 10u &&
+      profile->state_serialization_version == 15u) {
     if (!allocator->allocate(allocator->context,
                              T64_VIDEO_QUEUE_STORAGE_BYTES, alignment,
                              &video_storage)) {

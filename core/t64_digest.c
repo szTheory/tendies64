@@ -186,7 +186,7 @@ t64_status t64_machine_digest(const t64_machine *machine,
   static const uint8_t domain_v12[] =
       "t64.state.rsp.functional.12";
   static const uint8_t domain_v13[] = "t64.state.rdram.t1.13";
-  static const uint8_t domain_v14[] = "t64.state.rdp.vi.14";
+  static const uint8_t domain_v15[] = "t64.state.rdp.vi.15";
   t64_sha256_ctx context;
   t64_address_range output_range;
   const bool has_v6_state =
@@ -204,7 +204,7 @@ t64_status t64_machine_digest(const t64_machine *machine,
   const bool has_v12_state =
       machine != NULL && machine->profile.state_serialization_version == 12u;
   const bool has_v13_state = t64_has_t1_policy(machine);
-  const bool has_v14_state = t64_has_rdp_vi_profile(machine);
+  const bool has_v15_state = t64_has_rdp_vi_profile(machine);
   const bool has_rsp_state = has_v12_state || has_v13_state;
   const bool has_warm_state =
       has_v6_state || has_v7_state || has_v8_state || has_v9_state ||
@@ -221,8 +221,8 @@ t64_status t64_machine_digest(const t64_machine *machine,
   }
 
   t64_sha256_init(&context);
-  if (has_v14_state) {
-    t64_sha256_update(&context, domain_v14, sizeof domain_v14 - 1u);
+  if (has_v15_state) {
+    t64_sha256_update(&context, domain_v15, sizeof domain_v15 - 1u);
   } else if (has_v13_state) {
     t64_sha256_update(&context, domain_v13, sizeof domain_v13 - 1u);
   } else if (has_v12_state) {
@@ -449,7 +449,7 @@ t64_status t64_machine_digest(const t64_machine *machine,
       hash_rdram_protocol_state(
           &context, &machine->guest_devices.rdram_protocol);
     }
-    if (has_v14_state) {
+    if (has_v15_state) {
       const t64_rdp_state *rdp = &machine->rdp;
       const t64_vi_state *vi = &machine->vi;
       size_t logical;
@@ -458,6 +458,15 @@ t64_status t64_machine_digest(const t64_machine *machine,
       hash_u32(&context, rdp->dpc_end);
       hash_u32(&context, rdp->dpc_current);
       hash_u32(&context, rdp->dpc_status);
+      hash_u32(&context, rdp->dpc_clock_counter);
+      hash_u32(&context, rdp->dpc_buffer_busy_counter);
+      hash_u32(&context, rdp->dpc_pipe_busy_counter);
+      hash_u32(&context, rdp->dpc_tmem_counter);
+      hash_u32(&context, rdp->pending_command_address);
+      hash_u32(&context, rdp->pending_command_byte);
+      hash_u32(&context, rdp->pending_opcode_field);
+      hash_u64(&context, rdp->pending_command_word);
+      hash_u64(&context, rdp->fence_generation);
       hash_u32(&context, rdp->color_image_address);
       hash_u32(&context, rdp->color_image_width);
       hash_u32(&context, rdp->color_image_format);
@@ -489,6 +498,13 @@ t64_status t64_machine_digest(const t64_machine *machine,
       hash_u32(&context, rdp->render_active ? 1u : 0u);
       hash_u32(&context, rdp->fence_pending ? 1u : 0u);
       hash_u32(&context, rdp->busy ? 1u : 0u);
+      hash_u32(&context, rdp->dpc_xbus ? 1u : 0u);
+      hash_u32(&context, rdp->dpc_freeze ? 1u : 0u);
+      hash_u32(&context, rdp->dpc_flush ? 1u : 0u);
+      hash_u32(&context, rdp->dpc_start_valid ? 1u : 0u);
+      hash_u32(&context, rdp->dpc_end_valid ? 1u : 0u);
+      hash_u32(&context, rdp->dpc_dma_active ? 1u : 0u);
+      hash_u32(&context, rdp->command_pending ? 1u : 0u);
 
       for (i = 0u; i < sizeof vi->registers / sizeof vi->registers[0];
            i++) {

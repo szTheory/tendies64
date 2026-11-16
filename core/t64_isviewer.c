@@ -72,8 +72,8 @@ bool t64_isviewer_active(const t64_machine *machine) {
         memcmp(machine->profile.profile_id, rdram_b_t1_profile_id,
                sizeof rdram_b_t1_profile_id) == 0));
   rdp_vi_profile = machine->profile.descriptor_version == 5u &&
-                   machine->profile.machine_model_version == 9u &&
-                   machine->profile.state_serialization_version == 14u &&
+                   machine->profile.machine_model_version == 10u &&
+                   machine->profile.state_serialization_version == 15u &&
                    memcmp(machine->profile.profile_id, rdp_vi_profile_id,
                           sizeof rdp_vi_profile_id) == 0;
   return warm_profile || cpu_profile || compat_profile ||

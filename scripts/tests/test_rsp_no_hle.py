@@ -54,6 +54,7 @@ MUTATION_SEEDS = (
     "unreviewed SP DMA helper definition",
     "removed SP DMA helper definition",
     "RDP fill production body mutation",
+    "DPC counter bus-window body mutation",
 )
 
 
@@ -355,6 +356,20 @@ def _check_mutation_suite(temp_root: pathlib.Path) -> int:
         encoding="utf-8",
     )
     _must_reject("RDP fill production body mutation", source_root, build_root)
+    seeds_run += 1
+
+    bus_path = source_root / "core" / "t64_bus.c"
+    original_bus = bus_path.read_text(encoding="utf-8")
+    bus_anchor = "address < T64_DP_BASE + UINT32_C(0x20)"
+    if bus_anchor not in original_bus:
+        raise AssertionError("DPC counter bus-window mutation anchor no longer exists")
+    bus_path.write_text(
+        original_bus.replace(
+            bus_anchor, "address < T64_DP_BASE + UINT32_C(0x10)", 1
+        ),
+        encoding="utf-8",
+    )
+    _must_reject("DPC counter bus-window body mutation", source_root, build_root)
     seeds_run += 1
 
     softfloat_sources = source_root / "core" / "softfloat" / "sources.cmake"

@@ -145,7 +145,7 @@ static t64_bus_region decode_region(const t64_machine *machine,
     return T64_BUS_REGION_PI;
   }
   if (t64_has_rdp_vi_profile(machine) && address >= T64_DP_BASE &&
-      address < T64_DP_BASE + UINT32_C(0x10)) {
+      address < T64_DP_BASE + UINT32_C(0x20)) {
     return T64_BUS_REGION_DP;
   }
   if (t64_has_rdp_vi_profile(machine) && address >= T64_VI_BASE &&

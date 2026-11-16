@@ -48,7 +48,19 @@ def main() -> int:
     parser.add_argument("--build", required=True, help="CMake build directory")
     parser.add_argument("--suite", required=True, help="registered suite name")
     parser.add_argument("--run", action="store_true", help="run this suite")
+    parser.add_argument(
+        "--artifact-prefix",
+        default="07-01",
+        help="prefix for preserved CTest and suite evidence (default: 07-01)",
+    )
     args = parser.parse_args()
+    artifact_prefix = args.artifact_prefix
+    if (
+        not artifact_prefix
+        or Path(artifact_prefix).name != artifact_prefix
+        or artifact_prefix in {".", ".."}
+    ):
+        return fail("artifact prefix must be a simple file-name prefix")
 
     build_dir = Path(args.build)
     if not build_dir.is_absolute():
@@ -93,7 +105,7 @@ def main() -> int:
 
     temporary = build_dir / "Testing/Temporary"
     last_test = temporary / "LastTest.log"
-    before_discovery = build_dir / "07-01-before-case-discovery.log"
+    before_discovery = build_dir / f"{artifact_prefix}-before-case-discovery.log"
     if last_test.is_file():
         shutil.copy2(last_test, before_discovery)
     else:
@@ -134,7 +146,7 @@ def main() -> int:
         print(f"validated nonempty {args.suite} case inventory")
         return 0
 
-    before_run = build_dir / f"07-01-before-{args.suite}-suite.log"
+    before_run = build_dir / f"{artifact_prefix}-before-{args.suite}-suite.log"
     if last_test.is_file():
         shutil.copy2(last_test, before_run)
     else:
@@ -149,16 +161,16 @@ def main() -> int:
         "-R",
         regex,
     ]
-    command_path = build_dir / f"07-01-{args.suite}-command.json"
+    command_path = build_dir / f"{artifact_prefix}-{args.suite}-command.json"
     command_path.write_text(json.dumps(command, indent=2) + "\n", encoding="utf-8")
     result = run(command)
     # Archive the owning output immediately after CTest returns, including failure.
-    archived_log = build_dir / f"07-01-{args.suite}-LastTest.log"
+    archived_log = build_dir / f"{artifact_prefix}-{args.suite}-LastTest.log"
     if last_test.is_file():
         shutil.copy2(last_test, archived_log)
     else:
         archived_log.write_text("LastTest.log missing after suite run\n", encoding="utf-8")
-    (build_dir / f"07-01-{args.suite}-exit-status.txt").write_text(
+    (build_dir / f"{artifact_prefix}-{args.suite}-exit-status.txt").write_text(
         f"{result.returncode}\n", encoding="utf-8"
     )
     output(result)

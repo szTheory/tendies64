@@ -396,7 +396,7 @@ static void case_copy_refusal_is_atomic(void) {
   t64_machine_destroy(machine);
 }
 
-static void case_v14_digest_covers_vi_and_inherited_state(void) {
+static void case_v15_digest_covers_vi_and_inherited_state(void) {
   t64_machine *machine = create_authored_machine();
   uint8_t before[T64_DIGEST_SIZE];
   uint8_t after_vi[T64_DIGEST_SIZE];
@@ -406,6 +406,10 @@ static void case_v14_digest_covers_vi_and_inherited_state(void) {
   if (machine == NULL) return;
   T64_CHECK(t64_has_rdp_vi_profile(machine));
   T64_CHECK(t64_has_t1_policy(machine));
+  T64_CHECK_INT(machine->profile.machine_model_version, 10u);
+  T64_CHECK_INT(machine->profile.state_serialization_version, 15u);
+  T64_CHECK_STR(machine->profile.rdp_work_policy,
+                "dpc-fetch-effect-fill-row-event-1tick-v2");
   T64_CHECK_INT(t64_machine_digest(machine, before), T64_STATUS_OK);
   status = t64_machine_bus_write(machine, UINT32_C(0x04400004), 4u,
                                  UINT32_C(0x3000));
@@ -581,8 +585,8 @@ static const test_case cases[] = {
     {"cpu-authored-fill-packet-and-dp-lifecycle",
      case_cpu_authored_fill_packet_and_dp_lifecycle},
     {"copy-refusal-is-atomic", case_copy_refusal_is_atomic},
-    {"v14-digest-covers-vi-and-inherited-state",
-     case_v14_digest_covers_vi_and_inherited_state},
+    {"v15-digest-covers-vi-and-inherited-state",
+     case_v15_digest_covers_vi_and_inherited_state},
     {"drain-cadence-preserves-digest-and-packet-history",
      case_drain_cadence_preserves_digest_and_packet_history},
     {"full-queue-copy-preserves-event-order",

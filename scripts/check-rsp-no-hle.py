@@ -139,11 +139,13 @@ REVIEWED_SP_FUNCTIONS = (
 
 REVIEWED_RDP_FUNCTIONS = frozenset(
     {
-        "command_span_valid", "fill_bounds", "fill_one_row", "finish_if_idle",
-        "handle_row", "read_be64", "record_command", "schedule_next_committed",
-        "schedule_work_after_committed", "set_refusal", "t64_rdp_event",
-        "t64_rdp_read_register", "t64_rdp_reset_machine_state",
-        "t64_rdp_write_register", "validate_fill_store", "write_be16",
+        "apply_pending_command", "command_span_valid", "dpc_status_value",
+        "fill_bounds", "fill_one_row", "finish_if_idle", "handle_row",
+        "increment_counter", "rdp_event_queued", "read_be64", "record_command",
+        "schedule_next_committed", "schedule_work_after_committed", "set_refusal",
+        "supported_opcode", "t64_rdp_event", "t64_rdp_read_register",
+        "t64_rdp_reset_machine_state", "t64_rdp_write_register",
+        "validate_fill_store", "write_be16",
     }
 )
 REVIEWED_VI_FUNCTIONS = frozenset(
@@ -159,6 +161,7 @@ REVIEWED_VI_FUNCTIONS = frozenset(
 # review and digest refresh; static definition additions/removals also fail the
 # inventory check below.
 REVIEWED_BODY_DIGESTS = {
+    "core/t64_bus.c :: decode_region": "a7d3761fa6daa231b11e82c1c78f8e0f3968d629f7c094f6b6f3446d5f31f916",
     "core/t64_sp.c :: t64_sp_write_register": "3620ac7c6c379837ebdedcfcf21ca6c887e580880e314311633b08698f75ce09",
     "core/t64_sp.c :: t64_sp_reset_machine_state": "f410fa77785c8b063cde69306ced58702d70dae4c5bca62af2b8adf08529670a",
     "core/t64_sp.c :: t64_sp_read_register": "495be610b9df612b2637f74356824f1a4c6970981041d87dfb666a2f56946e5e",
@@ -210,20 +213,25 @@ REVIEWED_BODY_DIGESTS = {
     "core/t64_sp.c :: trace_refusal": "d142faecf8d4f78e427aa40e7454d0a24cc05c20ca433e225bed118982517dfc",
     "core/t64_sp.c :: warm_zero_source_sp_transfer": "46b55d7252273228780a497b4f34180b53dc93676f6bac901aaff9fae6d86508",
     "core/t64_sp.c :: write_rsp_status": "8d1f00710b955fc530864d080ae8d99733711e73749c75b6800d7cc590dbf74c",
-    "core/t64_rdp.c :: command_span_valid": "1d55d575f1472564391b20651fc33a221390005e8ce54c4914746c94a1145749",
+    "core/t64_rdp.c :: apply_pending_command": "debef4b84709f6cd0ba7fa0f9a4bee6743f3a7392dc021ab3e7174d48ec849c7",
+    "core/t64_rdp.c :: command_span_valid": "4f8a0ecc32f895ae4dfa8f6390d90e4e1a0c18477bbe8ebbb97d66136f882f3a",
+    "core/t64_rdp.c :: dpc_status_value": "051e3e702318dd9975d0c0a41a990c733d78ca8e84c77aeeab67ef4da7d4be32",
     "core/t64_rdp.c :: fill_bounds": "05ce4e443ffa8fac9adc9503750953b1a9f8c0d7485c1c14a90601433d4c6540",
     "core/t64_rdp.c :: fill_one_row": "472543c65709bbbfe33d591bd8073490846446d0c9e7c09f8a81db8a6d101e3a",
-    "core/t64_rdp.c :: finish_if_idle": "b84be187d524f16e3cd5d695a5a797d89b627b6679b08697c24a11de515c777a",
-    "core/t64_rdp.c :: handle_row": "36560c118bdd4cfee712a077ffd13310a6efca7267d90a574fe33006df44bb19",
+    "core/t64_rdp.c :: finish_if_idle": "7f731f3701511efc5d051a858266d836aa6ee4f59b5e5fe80621514f2f547005",
+    "core/t64_rdp.c :: handle_row": "890ba1edbf0e715ce0ccccc178f59e6da2672f5f3bdfd52cd6b569710f30e1a0",
+    "core/t64_rdp.c :: increment_counter": "c7b52a4723395d1f114dd6c485c36e3c08ca7338afcd527d8e9fd0929dc86911",
+    "core/t64_rdp.c :: rdp_event_queued": "f91aa69f7a194595cf8cc54d2aedc64132d4b0052494e3873b6c751aec0b4f81",
     "core/t64_rdp.c :: read_be64": "a3b364ca9b36969d9e21b3551356029e7a7956968b8a0191b964652f95d2f364",
     "core/t64_rdp.c :: record_command": "21228fdb1466ec9758bca4b1facce045c2107160d9d33b51d4aeccd8b77bb860",
     "core/t64_rdp.c :: schedule_next_committed": "a6201021b4e6d72278c6ee6717b26b4e904160d3001b514523cf7ccc9a54d5e9",
     "core/t64_rdp.c :: schedule_work_after_committed": "dd9806898e39a57176c4bbe00dfa4c8b898ec0fa830c761700a2d17c55169be5",
-    "core/t64_rdp.c :: set_refusal": "18f7e121505620cd36c0b4c49ef33af57f43efbad8f0c23fb0c3a61fc1e682ec",
-    "core/t64_rdp.c :: t64_rdp_event": "8111a1774b9bd76dab197b9bd6c778ae1fc17e33289a1cb92d71b0b62cd973d0",
-    "core/t64_rdp.c :: t64_rdp_read_register": "1cc4e4a2cff46fa42a130f5fd82ef41d3456e9aa6e2d64a1646148442ae20684",
-    "core/t64_rdp.c :: t64_rdp_reset_machine_state": "c4b977e45a9b42fcc3b9591c5dfff6d5d98b2bfc9137a9dd8bff4cd6f064327f",
-    "core/t64_rdp.c :: t64_rdp_write_register": "41fc24859302eeecdf020b0fa03364d85425bcf139fd27189f465d2f2817f532",
+    "core/t64_rdp.c :: set_refusal": "36c521a4d0f78405f03a36d42213e73aeae4e370f121eae8c4b643f925376223",
+    "core/t64_rdp.c :: supported_opcode": "4125d93a79b58de683ec8e3dcdb1e615fe474a0892447d15833b56e02efd68ba",
+    "core/t64_rdp.c :: t64_rdp_event": "564aa143a67d3f7568db19a0022913b757e87cb6f8fc37680b828385235039ee",
+    "core/t64_rdp.c :: t64_rdp_read_register": "1d362cac600402a9115d698c9373ac1823e13f7422711cd9ad0b80540a115fda",
+    "core/t64_rdp.c :: t64_rdp_reset_machine_state": "b18b1126b2bddb74b4ba5d0162dda1742d897c06d397972ed62adda0472be8cb",
+    "core/t64_rdp.c :: t64_rdp_write_register": "093711013d611334665d1cb7374839188b497bc8538bb0587e92cbbfc0c0fe1c",
     "core/t64_rdp.c :: validate_fill_store": "9d61bf40eba5de3b1df97e6d60df96ecc1e20909d62a255e21a837dbbe43f0a0",
     "core/t64_rdp.c :: write_be16": "145a18aff31ba9937039922fe81436defa1f931f61f369bba1ba557a9bd4772a",
     "core/t64_vi.c :: copy_text": "2f10ff25b6593ac813ad6619ef1b6658fc199ad4fb78bce2ee098c3fcda8e600",
@@ -415,7 +423,8 @@ def _check_source_route(root: pathlib.Path) -> tuple[list[str], list[str], int]:
     sp_path = root / "core" / "t64_sp.c"
     rdp_path = root / "core" / "t64_rdp.c"
     vi_path = root / "core" / "t64_vi.c"
-    if not all(path.is_file() for path in (rsp_path, sp_path, rdp_path, vi_path)):
+    bus_path = root / "core" / "t64_bus.c"
+    if not all(path.is_file() for path in (rsp_path, sp_path, rdp_path, vi_path, bus_path)):
         findings.append(
             "canonical RSP/SP/RDP/VI source is missing from the reviewed production set"
         )
@@ -425,6 +434,7 @@ def _check_source_route(root: pathlib.Path) -> tuple[list[str], list[str], int]:
     sp = strip_c_comments_and_literals(sp_path.read_text(encoding="utf-8"))
     rdp = strip_c_comments_and_literals(rdp_path.read_text(encoding="utf-8"))
     vi = strip_c_comments_and_literals(vi_path.read_text(encoding="utf-8"))
+    bus = strip_c_comments_and_literals(bus_path.read_text(encoding="utf-8"))
     rdp_function_names = file_function_names(rdp)
     vi_function_names = file_function_names(vi)
     if rdp_function_names != REVIEWED_RDP_FUNCTIONS:
@@ -461,6 +471,7 @@ def _check_source_route(root: pathlib.Path) -> tuple[list[str], list[str], int]:
                 + ", ".join(unexpected)
             )
     routes = {
+        "core/t64_bus.c :: decode_region": function_body(bus, "decode_region"),
         "core/t64_rsp.c :: rsp_read_imem_word": function_body(rsp, "rsp_read_imem_word"),
         "core/t64_rsp.c :: t64_rsp_schedule_next": function_body(
             rsp, "t64_rsp_schedule_next"

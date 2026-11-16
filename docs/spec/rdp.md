@@ -25,6 +25,24 @@ and direct field `0x37` select Set Fill Color. Tendies64 retains the original
 word and command byte for observation; it does not rewrite fixture bytes to
 normalize the opcode.
 
+Nintendo SDK `rcp.h` revision 1.21 lists DPC START, END, CURRENT, STATUS and
+the four read-only counters at `0x04100000` through `0x0410001c`. It defines
+the STATUS write commands for XBUS, freeze, flush and counter clears, plus the
+read bits for XBUS, freeze, flush, GCLK, TMEM, pipe, command, command-buffer,
+DMA and START/END valid state. These are register definitions; they do not
+specify Tendies64's per-event guest-time costs. See [`rcp.h`, DP Command
+Registers](https://ultra64.ca/files/documentation/online-manuals/man/header/rcp.htm).
+
+Nintendo's GBI header defines the full command bytes `0xE6` through `0xE9` for
+LoadSync, PipeSync, TileSync and FullSync, and says the RDP uses the command
+byte's low six bits. The resulting raw RDP fields are `0x26` through `0x29`.
+The SGI summary's Sync Load label `0x31` is retained as a source discrepancy;
+Tendies64 follows the Nintendo definition for the supported LoadSync path.
+FullSync's DP event indicates that the final RDP pipeline command completed.
+See [`gbi.h`](https://ultra64.ca/files/documentation/online-manuals/man/header/gbi.htm),
+[`gDPFullSync`](https://ultra64.ca/files/documentation/online-manuals/man-v5-1/n64man/gdp/gDPFullSync.htm)
+and [RDP synchronization §12.2](https://ultra64.ca/files/documentation/online-manuals/man-v5-2/allman52/pro-man/pro12/12-02.htm).
+
 ## Implemented software policy
 
 The fixture issues these original big-endian 64-bit words through ordinary
@@ -47,22 +65,59 @@ big-endian RDRAM byte order. These endpoint and byte-order statements describe
 the implementation policy tested here; the cited SGI tables alone do not
 specify fractional rounding or endpoint inclusion.
 
-The implementation admits only this command subset. It fetches one complete
-64-bit word before applying that command's effects, schedules fill rows as
-bounded one-guest-tick work, and schedules Full Sync completion behind the
-fill. DPC CURRENT reaching END does not imply fill completion. MI owns the DP
-pending bit, mask and guest clear. Unknown opcodes refuse the command stream;
-they do not synthesize a frame or Full Sync.
+The implementation admits only this command subset. Each DPC work event
+fetches one complete 64-bit word and advances CURRENT; a later event applies
+that command's effects. A Fill Rectangle then schedules one row per guest
+tick, and a FullSync fence completes on its own later event after earlier
+fill rows. DPC CURRENT reaching END therefore does not imply command effect or
+fill completion. PipeSync, TileSync and LoadSync retain distinct decoded
+commands and ordered fetch/effect boundaries. Since this path implements no
+TMEM loads, tile state or other primitive classes, these sync commands have no
+additional modeled drain effect. MI owns the DP pending bit, mask and guest
+clear. Unknown opcodes stop at their encountered word without applying its
+effects or synthesizing a FullSync.
+
+## DPC transport and status policy
+
+The selected composite profile maps DPC `+0x00` through `+0x1c` as eight
+32-bit registers. START and END must be 8-byte aligned and within the selected
+command source. With XBUS clear, a complete word must fit in RDRAM; with XBUS
+set, the command source is the profile's 4 KiB SP DMEM bank. This software
+model refuses a command word that crosses the end of that bank; it does not
+wrap a DPC packet across DMEM. An incomplete word at END is refused before
+that word has effects. Writing a counter register is refused; STATUS counter
+clear commands clear the corresponding 24-bit read-only counter.
+
+STATUS is composed from separately retained transport state. XBUS, freeze,
+flush and START/END valid reflect their DPC control state. START_GCLK is set
+while work is active and unpaused; CMD_BUSY reflects a pending command effect
+or unfetched command; DMA_BUSY reflects remaining command input; PIPE_BUSY
+reflects raster rows in progress. CBUF_READY is always reported by this
+bounded model, while TMEM_BUSY remains clear because no TMEM operations are
+implemented. Freeze and flush pause queued RDP callbacks without consuming
+the pending command, raster row or fence; clearing both resumes the retained
+work through the scheduler.
+
+The four counter values wrap at 24 bits. The software increments CLOCK for
+fetch, effect, raster-row and FullSync events, BUFBUSY for command fetches,
+PIPEBUSY for fill rows and leaves TMEM at zero. These units are deterministic
+model accounting, not measured RDP hardware clocks. Event reservations occur
+before each committed state or pixel effect; the existing scheduler orders
+same-tick callbacks by sequence.
 
 Profile-bound policy fields are:
 
-- `rdp_work_policy`: `fill16-row-event-1tick-v1`.
+- `rdp_work_policy`: `dpc-fetch-effect-fill-row-event-1tick-v2`.
 - `rdp_noise_policy`: `xorshift32-seed-1-v1`.
 - `rdp_undefined_color_policy`: `zero-color-v1`.
 
-These are versioned software choices. State that can affect future RDP output,
-including command progress, fill bounds, policy state and fences, is included
-in the machine digest. Host runner cursors and file output are not guest state.
+These are versioned software choices. The composite profile uses machine model
+version 10 and state serialization version 15 for the added fetch/effect
+stages, DPC controls, counters and fence generation. State that can affect
+future RDP output, including command progress, the pending word, fill bounds,
+policy state and fences, is included in the versioned machine digest. Host
+runner cursors and file output are not guest state. Pre-composite profiles
+retain their earlier DP-unavailable RSP behavior.
 
 The focused tests separately compare the six RDRAM words and the raw VI
 packet. The supervised positive fixture runs through the ordinary CPU, bus,

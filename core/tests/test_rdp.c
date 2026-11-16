@@ -88,6 +88,23 @@ static void write_command(t64_machine *machine, uint32_t address,
     machine->ram[address + i] = (uint8_t)(word >> (56u - i * 8u));
 }
 
+static void clear_queued_events(t64_machine *machine) {
+  machine->queue_head = 0u;
+  machine->queue_count = 0u;
+}
+
+static t64_status dispatch_next_queued_event(t64_machine *machine) {
+  t64_event event;
+
+  if (machine->queue_count == 0u) return T64_STATUS_NOT_READY;
+  event = machine->events[machine->queue_head];
+  machine->queue_head = (machine->queue_head + 1u) % T64_EVENT_QUEUE_CAPACITY;
+  machine->queue_count--;
+  machine->tick = event.tick;
+  return event.handler == NULL ? T64_STATUS_INVALID_ARGUMENT
+                               : event.handler(machine, &event);
+}
+
 #ifndef T64_TEST_DP_TRANSPORT
 static t64_status dispatch_rdp_at_current_tick(t64_machine *machine) {
   const t64_event event = {machine->tick, 0u, T64_RDP_DEVICE,
@@ -119,32 +136,21 @@ static void case_dpc_register_acceptance(void) {
 }
 
 static void check_fill_command_byte(uint8_t byte) {
-  const t64_host_allocator allocator = {test_allocate, test_release, NULL};
   const uint64_t word = ((uint64_t)byte << 56) | UINT64_C(0x000000f80107c1);
-  const uint8_t command[8] = {
-      (uint8_t)(word >> 56), (uint8_t)(word >> 48),
-      (uint8_t)(word >> 40), (uint8_t)(word >> 32),
-      (uint8_t)(word >> 24), (uint8_t)(word >> 16),
-      (uint8_t)(word >> 8), (uint8_t)word};
-  const t64_event event = {0u, 1u, T64_RDP_DEVICE, T64_RDP_EVENT_WORK,
-                           0u, 0u, NULL};
-  const t64_profile_descriptor *profile = NULL;
-  t64_machine *machine = NULL;
-  t64_status status;
+  t64_machine *machine = create_test_machine();
 
-  T64_CHECK_INT(t64_profile_lookup(RDP_VI_PROFILE_ID, &profile),
-                T64_STATUS_OK);
-  if (profile == NULL) return;
-  T64_CHECK_INT(t64_machine_create(&allocator, profile, &machine),
-                T64_STATUS_OK);
   if (machine == NULL) return;
-  memcpy(machine->ram, command, sizeof command);
-  machine->rdp.dpc_end = sizeof command;
-  machine->rdp.busy = true;
-  machine->rdp.dpc_status = T64_RDP_STATUS_BUSY;
-  status = t64_rdp_event(machine, &event);
-  T64_CHECK_INT(status, T64_STATUS_OK);
-  T64_CHECK_INT(machine->rdp.dpc_current, sizeof command);
+  clear_queued_events(machine);
+  write_command(machine, UINT32_C(0x100), word);
+  T64_CHECK_INT(t64_machine_bus_write(machine, DP_START, 4u,
+                                      UINT32_C(0x100)), T64_STATUS_OK);
+  T64_CHECK_INT(t64_machine_bus_write(machine, DP_END, 4u,
+                                      UINT32_C(0x108)), T64_STATUS_OK);
+  T64_CHECK_INT(dispatch_next_queued_event(machine), T64_STATUS_OK);
+  T64_CHECK_INT(machine->rdp.dpc_current, UINT32_C(0x108));
+  T64_CHECK(machine->rdp.command_pending);
+  T64_CHECK_INT(dispatch_next_queued_event(machine), T64_STATUS_OK);
+  T64_CHECK_INT(machine->rdp.dpc_current, UINT32_C(0x108));
   T64_CHECK_INT(machine->rdp.command_count, 1u);
   T64_CHECK(machine->rdp.last_original_word == word);
   T64_CHECK_INT(machine->rdp.last_command_byte, byte);
@@ -268,6 +274,26 @@ static void seed_fill_context(t64_machine *machine, uint32_t end,
   write_command(machine, UINT32_C(0x100), UINT64_C(0x3600c00800000000));
 }
 
+static void begin_fill_transport(t64_machine *machine, uint32_t end) {
+  clear_queued_events(machine);
+  machine->rdp.dpc_start = 0u;
+  machine->rdp.dpc_current = 0u;
+  machine->rdp.dpc_end = 0u;
+  machine->rdp.dpc_status = 0u;
+  machine->rdp.busy = false;
+  machine->rdp.dpc_dma_active = false;
+  machine->rdp.dpc_start_valid = false;
+  machine->rdp.dpc_end_valid = false;
+  machine->rdp.command_pending = false;
+  machine->rdp.render_active = false;
+  machine->rdp.fence_pending = false;
+  T64_CHECK_INT(t64_machine_bus_write(machine, DP_START, 4u,
+                                      UINT32_C(0x100)), T64_STATUS_OK);
+  T64_CHECK_INT(t64_machine_bus_write(machine, DP_END, 4u, end),
+                T64_STATUS_OK);
+  T64_CHECK_INT(machine->queue_count, 1u);
+}
+
 static void case_unsupported_after_fill_preserves_completed_work(void) {
   t64_machine *machine = create_test_machine();
   uint32_t row;
@@ -275,11 +301,6 @@ static void case_unsupported_after_fill_preserves_completed_work(void) {
   size_t queued_before_refusal;
 
   if (machine == NULL) return;
-  machine->rdp.dpc_start = UINT32_C(0x100);
-  machine->rdp.dpc_current = UINT32_C(0x100);
-  machine->rdp.dpc_end = UINT32_C(0x130);
-  machine->rdp.dpc_status = DP_BUSY;
-  machine->rdp.busy = true;
   machine->mi_mask = UINT32_C(0x20);
   write_command(machine, UINT32_C(0x100), UINT64_C(0x3f10000300003000));
   write_command(machine, UINT32_C(0x108), UINT64_C(0x2d0000000000c00c));
@@ -288,11 +309,11 @@ static void case_unsupported_after_fill_preserves_completed_work(void) {
   write_command(machine, UINT32_C(0x120), UINT64_C(0x3600c00800000000));
   write_command(machine, UINT32_C(0x128), UINT64_C(0x3e00000000000000));
   memset(machine->ram + UINT32_C(0x3000), 0xcc, 24u);
+  begin_fill_transport(machine, UINT32_C(0x130));
 
   while (machine->rdp.dpc_current < UINT32_C(0x128) ||
-         machine->rdp.render_active) {
-    machine->tick++;
-    T64_CHECK_INT(dispatch_rdp_at_current_tick(machine), T64_STATUS_OK);
+         machine->rdp.render_active || machine->rdp.command_pending) {
+    T64_CHECK_INT(dispatch_next_queued_event(machine), T64_STATUS_OK);
   }
   T64_CHECK_INT(machine->rdp.dpc_current, UINT32_C(0x128));
   T64_CHECK_INT(machine->rdp.command_count, 5u);
@@ -392,10 +413,9 @@ static void case_single_fill_completes_without_fullsync(void) {
 
   if (machine == NULL) return;
   seed_fill_context(machine, UINT32_C(0x108), 0u, UINT32_C(12));
-  for (i = 0u; machine->rdp.busy && i < 8u; i++) {
-    machine->tick++;
-    T64_CHECK_INT(dispatch_rdp_at_current_tick(machine), T64_STATUS_OK);
-  }
+  begin_fill_transport(machine, UINT32_C(0x108));
+  for (i = 0u; machine->rdp.busy && i < 16u; i++)
+    T64_CHECK_INT(dispatch_next_queued_event(machine), T64_STATUS_OK);
   T64_CHECK_INT(machine->rdp.dpc_current, UINT32_C(0x108));
   T64_CHECK_INT(machine->rdp.command_count, 1u);
   T64_CHECK_INT(machine->rdp.fill_count, 1u);
@@ -417,13 +437,14 @@ static void case_single_fill_completes_without_fullsync(void) {
 
 static void case_zero_area_fill_is_noop(void) {
   t64_machine *machine = create_test_machine();
-  size_t queued_before;
+  unsigned steps;
   uint32_t i;
 
   if (machine == NULL) return;
   seed_fill_context(machine, UINT32_C(0x108), UINT32_C(12), UINT32_C(8));
-  queued_before = machine->queue_count;
-  T64_CHECK_INT(dispatch_rdp_at_current_tick(machine), T64_STATUS_OK);
+  begin_fill_transport(machine, UINT32_C(0x108));
+  for (steps = 0u; steps < 4u && machine->queue_count != 0u; steps++)
+    T64_CHECK_INT(dispatch_next_queued_event(machine), T64_STATUS_OK);
   T64_CHECK_INT(machine->rdp.dpc_current, UINT32_C(0x108));
   T64_CHECK_INT(machine->rdp.command_count, 1u);
   T64_CHECK_INT(machine->rdp.fill_count, 0u);
@@ -432,7 +453,7 @@ static void case_zero_area_fill_is_noop(void) {
   T64_CHECK(!machine->rdp.render_active);
   T64_CHECK(!machine->rdp.busy);
   T64_CHECK_INT(machine->rdp.dpc_status, 0u);
-  T64_CHECK_INT(machine->queue_count, queued_before);
+  T64_CHECK_INT(machine->queue_count, 0u);
   T64_CHECK_INT(machine->mi_pending, 0u);
   T64_CHECK_INT(machine->vi.packet_count, 0u);
   for (i = 0u; i < 24u; i++)
@@ -440,9 +461,11 @@ static void case_zero_area_fill_is_noop(void) {
   t64_machine_destroy(machine);
 }
 #else
-#define DPC_XBUS UINT32_C(0x00000001)
+#define DPC_XBUS_READ UINT32_C(0x00000001)
+#define DPC_SET_XBUS UINT32_C(0x00000002)
 #define DPC_FREEZE UINT32_C(0x00000002)
 #define DPC_FLUSH UINT32_C(0x00000004)
+#define DPC_PIPE_BUSY UINT32_C(0x00000020)
 #define DPC_CMD_BUSY UINT32_C(0x00000040)
 #define DPC_DMA_BUSY UINT32_C(0x00000100)
 #define DPC_END_VALID UINT32_C(0x00000200)
@@ -454,23 +477,6 @@ static void case_zero_area_fill_is_noop(void) {
 #define DPC_BUFFER_COUNTER UINT32_C(0x04100014)
 #define DPC_PIPE_COUNTER UINT32_C(0x04100018)
 #define DPC_TMEM_COUNTER UINT32_C(0x0410001c)
-
-static void clear_queued_events(t64_machine *machine) {
-  machine->queue_head = 0u;
-  machine->queue_count = 0u;
-}
-
-static t64_status dispatch_next_queued_event(t64_machine *machine) {
-  t64_event event;
-
-  if (machine->queue_count == 0u) return T64_STATUS_NOT_READY;
-  event = machine->events[machine->queue_head];
-  machine->queue_head = (machine->queue_head + 1u) % T64_EVENT_QUEUE_CAPACITY;
-  machine->queue_count--;
-  machine->tick = event.tick;
-  return event.handler == NULL ? T64_STATUS_INVALID_ARGUMENT
-                               : event.handler(machine, &event);
-}
 
 static bool seed_transport(t64_machine *machine, uint32_t start,
                            uint32_t end) {
@@ -512,12 +518,15 @@ static void case_current_end_retains_busy_for_pipeline(void) {
   T64_CHECK_INT(t64_machine_bus_read(machine, DP_CURRENT, 4u, &status),
                 T64_STATUS_OK);
   T64_CHECK_INT(status, UINT32_C(0x108));
+  T64_CHECK(machine->rdp.command_pending);
+  T64_CHECK_INT(dispatch_next_queued_event(machine), T64_STATUS_OK);
   T64_CHECK(machine->rdp.busy);
-  T64_CHECK(machine->rdp.render_active || machine->rdp.fence_pending ||
-            machine->rdp.busy);
+  T64_CHECK(machine->rdp.render_active);
+  T64_CHECK(!machine->rdp.command_pending);
   T64_CHECK_INT(t64_machine_bus_read(machine, DP_STATUS, 4u, &status),
                 T64_STATUS_OK);
-  T64_CHECK((status & (DPC_CMD_BUSY | DPC_DMA_BUSY)) != 0u);
+  T64_CHECK((status & DPC_PIPE_BUSY) != 0u);
+  T64_CHECK((status & (DPC_CMD_BUSY | DPC_DMA_BUSY)) == 0u);
   t64_machine_destroy(machine);
 }
 
@@ -614,23 +623,29 @@ static void case_freeze_flush_controls(void) {
   write_command(machine, UINT32_C(0x100), UINT64_C(0xe900000000000000));
   T64_CHECK_INT(t64_machine_bus_write(machine, DP_END, 4u,
                                       UINT32_C(0x108)), T64_STATUS_OK);
-  T64_CHECK_INT(dispatch_next_queued_event(machine), T64_STATUS_OK);
+  T64_CHECK_INT(machine->queue_count, 0u);
   T64_CHECK_INT(machine->rdp.dpc_current, UINT32_C(0x100));
   T64_CHECK_INT(t64_machine_bus_read(machine, DP_STATUS, 4u, &status),
                 T64_STATUS_OK);
   T64_CHECK((status & DPC_FREEZE) != 0u);
+  T64_CHECK((status & (DPC_START_VALID | DPC_END_VALID)) ==
+            (DPC_START_VALID | DPC_END_VALID));
   T64_CHECK_INT(t64_machine_bus_write(machine, DP_STATUS, 4u,
                                       UINT32_C(0x0004)), T64_STATUS_OK);
   T64_CHECK_INT(t64_machine_bus_write(machine, DP_STATUS, 4u,
                                       UINT32_C(0x0020)), T64_STATUS_OK);
+  T64_CHECK_INT(dispatch_next_queued_event(machine), T64_STATUS_OK);
+  T64_CHECK_INT(machine->rdp.dpc_current, UINT32_C(0x100));
   T64_CHECK_INT(t64_machine_bus_read(machine, DP_STATUS, 4u, &status),
                 T64_STATUS_OK);
   T64_CHECK((status & DPC_FLUSH) != 0u);
   T64_CHECK_INT(t64_machine_bus_write(machine, DP_STATUS, 4u,
                                       UINT32_C(0x0010)), T64_STATUS_OK);
+  T64_CHECK_INT(dispatch_next_queued_event(machine), T64_STATUS_OK);
   T64_CHECK_INT(t64_machine_bus_read(machine, DP_STATUS, 4u, &status),
                 T64_STATUS_OK);
   T64_CHECK((status & DPC_FLUSH) == 0u);
+  T64_CHECK((status & (DPC_START_VALID | DPC_END_VALID)) == 0u);
   t64_machine_destroy(machine);
 }
 
@@ -639,15 +654,22 @@ static void case_xbus_dmem_bounded(void) {
 
   if (machine == NULL) return;
   clear_queued_events(machine);
-  T64_CHECK_INT(t64_machine_bus_write(machine, DP_STATUS, 4u, DPC_XBUS),
+  T64_CHECK_INT(t64_machine_bus_write(machine, DP_STATUS, 4u, DPC_SET_XBUS),
                 T64_STATUS_OK);
-  write_command(machine, UINT32_C(0), UINT64_C(0xe600000000000000));
   machine->sp_dmem[0] = UINT8_C(0xe6);
   (void)memset(machine->sp_dmem + 1u, 0, 7u);
+  {
+    uint32_t status = 0u;
+    T64_CHECK_INT(t64_machine_bus_read(machine, DP_STATUS, 4u, &status),
+                  T64_STATUS_OK);
+    T64_CHECK((status & DPC_XBUS_READ) != 0u);
+  }
   T64_CHECK_INT(t64_machine_bus_write(machine, DP_START, 4u, 0u),
                 T64_STATUS_OK);
   T64_CHECK_INT(t64_machine_bus_write(machine, DP_END, 4u, 8u),
                 T64_STATUS_OK);
+  T64_CHECK_INT(dispatch_next_queued_event(machine), T64_STATUS_OK);
+  T64_CHECK(machine->rdp.command_pending);
   T64_CHECK_INT(dispatch_next_queued_event(machine), T64_STATUS_OK);
   T64_CHECK_INT(machine->rdp.last_opcode_field, UINT32_C(0x26));
   T64_CHECK_INT(machine->rdp.command_count, 1u);
@@ -739,19 +761,34 @@ static void case_counter_registers_read_only_and_clearable(void) {
   t64_machine *machine = create_test_machine();
   const uint32_t counters[] = {DPC_CLOCK_COUNTER, DPC_BUFFER_COUNTER,
                                DPC_PIPE_COUNTER, DPC_TMEM_COUNTER};
+  uint32_t value = 0u;
   size_t i;
 
   if (machine == NULL) return;
   for (i = 0u; i < sizeof counters / sizeof counters[0]; i++) {
-    uint32_t value = UINT32_C(0xffffffff);
-    T64_CHECK_INT(t64_machine_bus_read(machine, counters[i], 4u, &value),
+    uint32_t counter_value = UINT32_C(0xffffffff);
+    T64_CHECK_INT(t64_machine_bus_read(machine, counters[i], 4u,
+                                       &counter_value),
                   T64_STATUS_OK);
-    T64_CHECK_INT(value, 0u);
+    T64_CHECK_INT(counter_value, 0u);
     T64_CHECK_INT(t64_machine_bus_write(machine, counters[i], 4u, 0u),
                   T64_STATUS_BUS_DEVICE_REFUSED);
   }
+  seed_fill_state_only(machine);
+  write_command(machine, UINT32_C(0x100), UINT64_C(0x3600c00800000000));
+  (void)seed_transport(machine, UINT32_C(0x100), UINT32_C(0x108));
+  while (machine->queue_count != 0u)
+    T64_CHECK_INT(dispatch_next_queued_event(machine), T64_STATUS_OK);
+  T64_CHECK(machine->rdp.dpc_clock_counter > 0u);
+  T64_CHECK(machine->rdp.dpc_buffer_busy_counter > 0u);
+  T64_CHECK(machine->rdp.dpc_pipe_busy_counter > 0u);
   T64_CHECK_INT(t64_machine_bus_write(machine, DP_STATUS, 4u,
                                       UINT32_C(0x03c0)), T64_STATUS_OK);
+  for (i = 0u; i < sizeof counters / sizeof counters[0]; i++) {
+    T64_CHECK_INT(t64_machine_bus_read(machine, counters[i], 4u, &value),
+                  T64_STATUS_OK);
+    T64_CHECK_INT(value, 0u);
+  }
   t64_machine_destroy(machine);
 }
 #endif

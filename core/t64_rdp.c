@@ -9,12 +9,32 @@
 #define T64_DP_END (T64_DP_BASE + UINT32_C(0x04))
 #define T64_DP_CURRENT (T64_DP_BASE + UINT32_C(0x08))
 #define T64_DP_STATUS (T64_DP_BASE + UINT32_C(0x0c))
+#define T64_DP_CLOCK (T64_DP_BASE + UINT32_C(0x10))
+#define T64_DP_BUFFER_BUSY (T64_DP_BASE + UINT32_C(0x14))
+#define T64_DP_PIPE_BUSY (T64_DP_BASE + UINT32_C(0x18))
+#define T64_DP_TMEM (T64_DP_BASE + UINT32_C(0x1c))
+#define T64_SP_DMEM_BYTES UINT32_C(4096)
+#define T64_DPC_COUNTER_MASK UINT32_C(0x00ffffff)
+
+#define T64_DPC_CLR_XBUS UINT32_C(0x0001)
+#define T64_DPC_SET_XBUS UINT32_C(0x0002)
+#define T64_DPC_CLR_FREEZE UINT32_C(0x0004)
+#define T64_DPC_SET_FREEZE UINT32_C(0x0008)
+#define T64_DPC_CLR_FLUSH UINT32_C(0x0010)
+#define T64_DPC_SET_FLUSH UINT32_C(0x0020)
+#define T64_DPC_CLR_TMEM UINT32_C(0x0040)
+#define T64_DPC_CLR_PIPE UINT32_C(0x0080)
+#define T64_DPC_CLR_CMD UINT32_C(0x0100)
+#define T64_DPC_CLR_CLOCK UINT32_C(0x0200)
 
 #define RDP_OP_FILL_RECT UINT32_C(0x36)
 #define RDP_OP_SET_FILL_COLOR UINT32_C(0x37)
 #define RDP_OP_SET_OTHER_MODES UINT32_C(0x2f)
 #define RDP_OP_SET_SCISSOR UINT32_C(0x2d)
 #define RDP_OP_SET_COLOR_IMAGE UINT32_C(0x3f)
+#define RDP_OP_SYNC_LOAD UINT32_C(0x26)
+#define RDP_OP_SYNC_PIPE UINT32_C(0x27)
+#define RDP_OP_SYNC_TILE UINT32_C(0x28)
 #define RDP_OP_SYNC_FULL UINT32_C(0x29)
 
 static uint64_t read_be64(const uint8_t *bytes) {
@@ -35,15 +55,67 @@ static void set_refusal(t64_machine *machine, uint32_t reason) {
   machine->rdp.dpc_status |= T64_RDP_STATUS_ERROR;
   machine->rdp.dpc_status &= ~T64_RDP_STATUS_BUSY;
   machine->rdp.busy = false;
+  machine->rdp.dpc_dma_active = false;
+  machine->rdp.dpc_start_valid = false;
+  machine->rdp.dpc_end_valid = false;
   machine->rdp.render_active = false;
   machine->rdp.fence_pending = false;
+  machine->rdp.command_pending = false;
+  machine->rdp.pending_command_address = 0u;
+  machine->rdp.pending_command_byte = 0u;
+  machine->rdp.pending_opcode_field = 0u;
+  machine->rdp.pending_command_word = 0u;
 }
 
 static void finish_if_idle(t64_rdp_state *rdp, uint32_t next) {
-  if (next >= rdp->dpc_end && !rdp->render_active && !rdp->fence_pending) {
+  if (next >= rdp->dpc_end && !rdp->render_active && !rdp->fence_pending &&
+      !rdp->command_pending) {
     rdp->busy = false;
+    rdp->dpc_dma_active = false;
+    rdp->dpc_start_valid = false;
+    rdp->dpc_end_valid = false;
     rdp->dpc_status &= ~T64_RDP_STATUS_BUSY;
   }
+}
+
+static bool rdp_event_queued(const t64_machine *machine) {
+  size_t i;
+
+  for (i = 0u; i < machine->queue_count; i++) {
+    size_t index = (machine->queue_head + i) % T64_EVENT_QUEUE_CAPACITY;
+    const t64_event *event = &machine->events[index];
+    if (event->device == T64_RDP_DEVICE &&
+        event->kind == T64_RDP_EVENT_WORK) {
+      return true;
+    }
+  }
+  return false;
+}
+
+static uint32_t dpc_status_value(const t64_rdp_state *rdp) {
+  uint32_t value = T64_DPC_STATUS_CBUF_READY;
+
+  if (rdp->dpc_xbus) value |= T64_DPC_STATUS_XBUS;
+  if (rdp->dpc_freeze) value |= T64_DPC_STATUS_FREEZE;
+  if (rdp->dpc_flush) value |= T64_DPC_STATUS_FLUSH;
+  if (rdp->busy && !rdp->dpc_freeze && !rdp->dpc_flush)
+    value |= T64_DPC_STATUS_START_GCLK;
+  if (rdp->render_active) value |= T64_DPC_STATUS_PIPE_BUSY;
+  if (rdp->busy && (rdp->command_pending ||
+                    rdp->dpc_current < rdp->dpc_end) &&
+      !rdp->dpc_freeze && !rdp->dpc_flush) {
+    value |= T64_DPC_STATUS_CMD_BUSY;
+  }
+  if (rdp->busy && rdp->dpc_current < rdp->dpc_end && !rdp->dpc_freeze &&
+      !rdp->dpc_flush)
+    value |= T64_DPC_STATUS_DMA_BUSY;
+  if (rdp->dpc_end_valid) value |= T64_DPC_STATUS_END_VALID;
+  if (rdp->dpc_start_valid) value |= T64_DPC_STATUS_START_VALID;
+  return value;
+}
+
+static void increment_counter(uint32_t *counter) {
+  *counter = (*counter + UINT32_C(1)) & T64_DPC_COUNTER_MASK;
 }
 
 static t64_status schedule_next_committed(t64_machine *machine,
@@ -73,7 +145,9 @@ static bool command_span_valid(const t64_machine *machine, uint32_t address,
                                uint32_t *reason_out) {
   uint64_t end = (uint64_t)address + UINT64_C(8);
 
-  if ((address & UINT32_C(7)) != 0u || end > machine->profile.rdram_bytes) {
+  if ((address & UINT32_C(7)) != 0u ||
+      (machine->rdp.dpc_xbus ? end > T64_SP_DMEM_BYTES
+                             : end > machine->profile.rdram_bytes)) {
     *reason_out = T64_RDP_REFUSAL_SPAN;
     return false;
   }
@@ -150,9 +224,12 @@ static t64_status handle_row(t64_machine *machine) {
   t64_rdp_state *rdp = &machine->rdp;
   bool last_row = rdp->render_y >= rdp->render_y_end;
   uint32_t next_command = rdp->dpc_current;
-  t64_status status = schedule_next_committed(machine, next_command);
+  t64_status status = last_row
+                          ? schedule_next_committed(machine, next_command)
+                          : schedule_work_after_committed(machine);
 
   if (status != T64_STATUS_OK) return status;
+  increment_counter(&rdp->dpc_pipe_busy_counter);
   fill_one_row(machine);
   if (last_row) {
     rdp->render_active = false;
@@ -175,11 +252,118 @@ static void record_command(t64_machine *machine, uint64_t word,
                  T64_TRACE_KIND_RDP_COMMAND, word);
 }
 
+static bool supported_opcode(uint32_t opcode) {
+  switch (opcode) {
+  case RDP_OP_FILL_RECT:
+  case RDP_OP_SET_FILL_COLOR:
+  case RDP_OP_SET_OTHER_MODES:
+  case RDP_OP_SET_SCISSOR:
+  case RDP_OP_SET_COLOR_IMAGE:
+  case RDP_OP_SYNC_LOAD:
+  case RDP_OP_SYNC_PIPE:
+  case RDP_OP_SYNC_TILE:
+  case RDP_OP_SYNC_FULL:
+    return true;
+  default:
+    return false;
+  }
+}
+
+static t64_status apply_pending_command(t64_machine *machine) {
+  t64_rdp_state *rdp = &machine->rdp;
+  uint32_t address = rdp->pending_command_address;
+  uint32_t next = rdp->dpc_current;
+  uint32_t opcode = rdp->pending_opcode_field;
+  uint32_t x0 = 0u, x1 = 0u, y0 = 0u, y1 = 0u;
+  uint32_t format = 0u, size = 0u, width = 0u, base = 0u;
+  uint64_t word = rdp->pending_command_word;
+  uint8_t command_byte = (uint8_t)rdp->pending_command_byte;
+  bool valid_fill = true;
+  bool draw_fill = false;
+  t64_status status;
+
+  if (opcode == RDP_OP_SET_COLOR_IMAGE) {
+    format = (uint32_t)((word >> 53) & UINT64_C(7));
+    size = (uint32_t)((word >> 51) & UINT64_C(3));
+    width = (uint32_t)((word >> 32) & UINT64_C(0x3ff)) + 1u;
+    base = (uint32_t)(word & UINT64_C(0x03ffffff));
+    valid_fill = format == 0u && size == 2u && width <= 1024u &&
+                 (base & UINT32_C(1)) == 0u;
+    if (!valid_fill) {
+      rdp->dpc_current = address;
+      record_command(machine, word, command_byte, opcode);
+      set_refusal(machine, T64_RDP_REFUSAL_INVALID_IMAGE);
+      return T64_STATUS_OK;
+    }
+  } else if (opcode == RDP_OP_FILL_RECT) {
+    valid_fill = rdp->color_image_valid && rdp->scissor_valid &&
+                 rdp->other_modes_valid && rdp->fill_color_valid &&
+                 ((rdp->other_modes >> 52) & UINT64_C(3)) == UINT64_C(3) &&
+                 fill_bounds(rdp, word, &x0, &y0, &x1, &y1) &&
+                 validate_fill_store(machine, x0, y0, x1, y1);
+    if (!valid_fill) {
+      rdp->dpc_current = address;
+      record_command(machine, word, command_byte, opcode);
+      set_refusal(machine, T64_RDP_REFUSAL_RENDER_RANGE);
+      return T64_STATUS_OK;
+    }
+    draw_fill = x0 <= x1 && y0 <= y1;
+  }
+
+  if ((opcode == RDP_OP_SYNC_FULL) || draw_fill) {
+    status = schedule_work_after_committed(machine);
+  } else {
+    status = schedule_next_committed(machine, next);
+  }
+  if (status != T64_STATUS_OK) return status;
+
+  increment_counter(&rdp->dpc_clock_counter);
+  if (opcode == RDP_OP_SET_COLOR_IMAGE) {
+    rdp->color_image_format = format;
+    rdp->color_image_size = size;
+    rdp->color_image_width = width;
+    rdp->color_image_address = base;
+    rdp->color_image_valid = true;
+  } else if (opcode == RDP_OP_SET_SCISSOR) {
+    rdp->scissor_xh = (uint32_t)((word >> 44) & UINT64_C(0xfff));
+    rdp->scissor_yh = (uint32_t)((word >> 32) & UINT64_C(0xfff));
+    rdp->scissor_xl = (uint32_t)((word >> 12) & UINT64_C(0xfff));
+    rdp->scissor_yl = (uint32_t)(word & UINT64_C(0xfff));
+    rdp->scissor_valid = true;
+  } else if (opcode == RDP_OP_SET_OTHER_MODES) {
+    rdp->other_modes = word;
+    rdp->other_modes_valid = true;
+  } else if (opcode == RDP_OP_SET_FILL_COLOR) {
+    rdp->fill_color = (uint32_t)word;
+    rdp->fill_color_valid = true;
+  } else if (opcode == RDP_OP_FILL_RECT && draw_fill) {
+    rdp->render_active = true;
+    rdp->render_x_begin = x0;
+    rdp->render_x_end = x1;
+    rdp->render_y_begin = y0;
+    rdp->render_y_end = y1;
+    rdp->render_y = y0;
+  } else if (opcode == RDP_OP_SYNC_FULL) {
+    rdp->fence_pending = true;
+    rdp->fence_generation++;
+  }
+
+  record_command(machine, word, command_byte, opcode);
+  rdp->command_pending = false;
+  rdp->pending_command_address = 0u;
+  rdp->pending_command_byte = 0u;
+  rdp->pending_opcode_field = 0u;
+  rdp->pending_command_word = 0u;
+  rdp->command_count++;
+  finish_if_idle(rdp, next);
+  return T64_STATUS_OK;
+}
+
 void t64_rdp_reset_machine_state(t64_machine *machine) {
   if (machine == NULL) return;
   (void)memset(&machine->rdp, 0, sizeof machine->rdp);
   machine->rdp.random_state = UINT32_C(1);
-  machine->rdp.work_policy_version = UINT32_C(1);
+  machine->rdp.work_policy_version = UINT32_C(2);
 }
 
 t64_status t64_rdp_read_register(const t64_machine *machine,
@@ -192,7 +376,11 @@ t64_status t64_rdp_read_register(const t64_machine *machine,
   case T64_DP_START: value = machine->rdp.dpc_start; break;
   case T64_DP_END: value = machine->rdp.dpc_end; break;
   case T64_DP_CURRENT: value = machine->rdp.dpc_current; break;
-  case T64_DP_STATUS: value = machine->rdp.dpc_status; break;
+  case T64_DP_STATUS: value = dpc_status_value(&machine->rdp); break;
+  case T64_DP_CLOCK: value = machine->rdp.dpc_clock_counter; break;
+  case T64_DP_BUFFER_BUSY: value = machine->rdp.dpc_buffer_busy_counter; break;
+  case T64_DP_PIPE_BUSY: value = machine->rdp.dpc_pipe_busy_counter; break;
+  case T64_DP_TMEM: value = machine->rdp.dpc_tmem_counter; break;
   default: return T64_STATUS_BUS_UNSUPPORTED;
   }
   *value_out = value;
@@ -203,49 +391,82 @@ t64_status t64_rdp_write_register(t64_machine *machine, uint32_t address,
                                   uint32_t value) {
   t64_rdp_state *rdp;
   t64_status status;
+  bool xbus;
+  bool freeze_after;
+  bool flush_after;
 
   if (machine == NULL || !t64_has_rdp_vi_profile(machine))
     return T64_STATUS_BUS_UNSUPPORTED;
   if ((address & UINT32_C(3)) != 0u)
     return T64_STATUS_BUS_ALIGNMENT;
-  if (address < T64_DP_BASE || address >= T64_DP_BASE + UINT32_C(0x10))
+  if (address < T64_DP_BASE || address >= T64_DP_BASE + UINT32_C(0x20))
     return T64_STATUS_BUS_UNSUPPORTED;
   rdp = &machine->rdp;
+  if (address >= T64_DP_CLOCK) return T64_STATUS_BUS_DEVICE_REFUSED;
   switch (address) {
   case T64_DP_START:
+    xbus = rdp->dpc_xbus;
     if (rdp->busy || (value & UINT32_C(7)) != 0u ||
-        (uint64_t)value >= machine->profile.rdram_bytes)
+        (xbus ? value >= T64_SP_DMEM_BYTES
+              : (uint64_t)value >= machine->profile.rdram_bytes))
       return T64_STATUS_BUS_DEVICE_REFUSED;
     rdp->dpc_start = value;
     rdp->dpc_current = value;
+    rdp->dpc_start_valid = true;
+    rdp->refusal_reason = T64_RDP_REFUSAL_NONE;
+    rdp->dpc_status &= ~T64_RDP_STATUS_ERROR;
     return T64_STATUS_OK;
   case T64_DP_END:
-    if (rdp->busy || (value & UINT32_C(7)) != 0u || value < rdp->dpc_current ||
-        (uint64_t)value > machine->profile.rdram_bytes)
+    xbus = rdp->dpc_xbus;
+    if ((value & UINT32_C(7)) != 0u || value < rdp->dpc_current ||
+        (xbus ? value > T64_SP_DMEM_BYTES
+              : (uint64_t)value > machine->profile.rdram_bytes) ||
+        (!rdp->busy && !rdp->dpc_start_valid && value > rdp->dpc_current))
       return T64_STATUS_BUS_DEVICE_REFUSED;
-    if (value == rdp->dpc_current) {
-      rdp->dpc_end = value;
-      return T64_STATUS_OK;
-    }
-    {
-      t64_event_reservation reservation;
-      status = t64_schedule_reserve_after(
-          machine, UINT64_C(1), T64_RDP_DEVICE, T64_RDP_EVENT_WORK, 0u, 0u,
-          t64_rdp_event, &reservation);
-      if (status != T64_STATUS_OK) return status;
-      status = t64_schedule_commit(machine, &reservation);
+    if (value > rdp->dpc_current && !rdp->dpc_freeze && !rdp->dpc_flush &&
+        !rdp_event_queued(machine)) {
+      status = schedule_work_after_committed(machine);
       if (status != T64_STATUS_OK) return status;
     }
     rdp->dpc_end = value;
-    rdp->busy = true;
-    rdp->dpc_status |= T64_RDP_STATUS_BUSY;
+    rdp->dpc_end_valid = value > rdp->dpc_current;
     rdp->refusal_reason = T64_RDP_REFUSAL_NONE;
+    if (value > rdp->dpc_current) {
+      rdp->busy = true;
+      rdp->dpc_dma_active = true;
+      rdp->dpc_status |= T64_RDP_STATUS_BUSY;
+    } else if (!rdp->render_active && !rdp->fence_pending &&
+               !rdp->command_pending) {
+      rdp->busy = false;
+      rdp->dpc_dma_active = false;
+      rdp->dpc_start_valid = false;
+      rdp->dpc_status &= ~T64_RDP_STATUS_BUSY;
+    }
     return T64_STATUS_OK;
   case T64_DP_STATUS:
-    if ((value & UINT32_C(1)) != 0u) {
-      rdp->dpc_status &= ~T64_RDP_STATUS_ERROR;
-      rdp->refusal_reason = T64_RDP_REFUSAL_NONE;
+    freeze_after = rdp->dpc_freeze;
+    flush_after = rdp->dpc_flush;
+    if ((value & T64_DPC_CLR_FREEZE) != 0u) freeze_after = false;
+    if ((value & T64_DPC_SET_FREEZE) != 0u) freeze_after = true;
+    if ((value & T64_DPC_CLR_FLUSH) != 0u) flush_after = false;
+    if ((value & T64_DPC_SET_FLUSH) != 0u) flush_after = true;
+    if ((!freeze_after && !flush_after) &&
+        (rdp->dpc_freeze || rdp->dpc_flush) && rdp->busy &&
+        !rdp_event_queued(machine) &&
+        (rdp->command_pending || rdp->render_active || rdp->fence_pending ||
+         rdp->dpc_current < rdp->dpc_end)) {
+      status = schedule_work_after_committed(machine);
+      if (status != T64_STATUS_OK) return status;
     }
+    if ((value & T64_DPC_CLR_XBUS) != 0u) rdp->dpc_xbus = false;
+    if ((value & T64_DPC_SET_XBUS) != 0u) rdp->dpc_xbus = true;
+    rdp->dpc_freeze = freeze_after;
+    rdp->dpc_flush = flush_after;
+    if ((value & T64_DPC_CLR_TMEM) != 0u) rdp->dpc_tmem_counter = 0u;
+    if ((value & T64_DPC_CLR_PIPE) != 0u) rdp->dpc_pipe_busy_counter = 0u;
+    if ((value & T64_DPC_CLR_CMD) != 0u)
+      rdp->dpc_buffer_busy_counter = 0u;
+    if ((value & T64_DPC_CLR_CLOCK) != 0u) rdp->dpc_clock_counter = 0u;
     return T64_STATUS_OK;
   default:
     return T64_STATUS_BUS_UNSUPPORTED;
@@ -255,10 +476,8 @@ t64_status t64_rdp_write_register(t64_machine *machine, uint32_t address,
 t64_status t64_rdp_event(t64_machine *machine, const t64_event *event) {
   t64_rdp_state *rdp;
   uint32_t address;
-  uint32_t next;
   uint32_t reason = T64_RDP_REFUSAL_NONE;
   uint32_t opcode;
-  uint32_t x0, x1, y0, y1;
   uint64_t word;
   uint8_t command_byte;
   t64_status status;
@@ -267,106 +486,53 @@ t64_status t64_rdp_event(t64_machine *machine, const t64_event *event) {
       event->kind != T64_RDP_EVENT_WORK || !t64_has_rdp_vi_profile(machine))
     return T64_STATUS_INVALID_ARGUMENT;
   rdp = &machine->rdp;
+  if (rdp->dpc_freeze || rdp->dpc_flush) return T64_STATUS_OK;
   if (rdp->render_active) return handle_row(machine);
   if (rdp->fence_pending) {
+    status = schedule_next_committed(machine, rdp->dpc_current);
+    if (status != T64_STATUS_OK) return status;
+    increment_counter(&rdp->dpc_clock_counter);
     rdp->fence_pending = false;
     rdp->fullsync_count++;
-    rdp->busy = false;
-    rdp->dpc_status &= ~T64_RDP_STATUS_BUSY;
     t64_mi_set_pending(machine, UINT32_C(0x20));
     t64_trace_emit(machine, machine->tick, T64_TRACE_DEVICE_RDP,
                    T64_TRACE_KIND_RDP_COMPLETE, rdp->fullsync_count);
+    finish_if_idle(rdp, rdp->dpc_current);
     return T64_STATUS_OK;
   }
+  if (rdp->command_pending) return apply_pending_command(machine);
   address = rdp->dpc_current;
+  if (address >= rdp->dpc_end) {
+    finish_if_idle(rdp, address);
+    return T64_STATUS_OK;
+  }
   if (!command_span_valid(machine, address, &reason)) {
+    increment_counter(&rdp->dpc_clock_counter);
     set_refusal(machine, reason);
     return T64_STATUS_OK;
   }
-  word = read_be64(machine->ram + address);
+  word = read_be64(rdp->dpc_xbus ? machine->sp_dmem + address
+                                 : machine->ram + address);
   command_byte = (uint8_t)(word >> 56);
   opcode = (uint32_t)(command_byte & UINT8_C(0x3f));
-  next = address + UINT32_C(8);
-
-  if (opcode == RDP_OP_SET_COLOR_IMAGE) {
-    uint32_t format = (uint32_t)((word >> 53) & UINT64_C(7));
-    uint32_t size = (uint32_t)((word >> 51) & UINT64_C(3));
-    uint32_t width = (uint32_t)((word >> 32) & UINT64_C(0x3ff)) + 1u;
-    uint32_t base = (uint32_t)(word & UINT64_C(0x03ffffff));
-    if (format != 0u || size != 2u || width > 1024u ||
-        (base & UINT32_C(1)) != 0u) {
-      record_command(machine, word, command_byte, opcode);
-      set_refusal(machine, T64_RDP_REFUSAL_INVALID_IMAGE);
-      return T64_STATUS_OK;
-    }
-    status = schedule_next_committed(machine, next);
-    if (status != T64_STATUS_OK) return status;
-    rdp->color_image_format = format;
-    rdp->color_image_size = size;
-    rdp->color_image_width = width;
-    rdp->color_image_address = base;
-    rdp->color_image_valid = true;
-  } else if (opcode == RDP_OP_SET_SCISSOR) {
-    status = schedule_next_committed(machine, next);
-    if (status != T64_STATUS_OK) return status;
-    rdp->scissor_xh = (uint32_t)((word >> 44) & UINT64_C(0xfff));
-    rdp->scissor_yh = (uint32_t)((word >> 32) & UINT64_C(0xfff));
-    rdp->scissor_xl = (uint32_t)((word >> 12) & UINT64_C(0xfff));
-    rdp->scissor_yl = (uint32_t)(word & UINT64_C(0xfff));
-    rdp->scissor_valid = true;
-  } else if (opcode == RDP_OP_SET_OTHER_MODES) {
-    status = schedule_next_committed(machine, next);
-    if (status != T64_STATUS_OK) return status;
-    rdp->other_modes = word;
-    rdp->other_modes_valid = true;
-  } else if (opcode == RDP_OP_SET_FILL_COLOR) {
-    status = schedule_next_committed(machine, next);
-    if (status != T64_STATUS_OK) return status;
-    rdp->fill_color = (uint32_t)word;
-    rdp->fill_color_valid = true;
-  } else if (opcode == RDP_OP_FILL_RECT) {
-    if (!rdp->color_image_valid || !rdp->scissor_valid ||
-        !rdp->other_modes_valid || !rdp->fill_color_valid ||
-        ((rdp->other_modes >> 52) & UINT64_C(3)) != UINT64_C(3) ||
-        !fill_bounds(rdp, word, &x0, &y0, &x1, &y1) ||
-        !validate_fill_store(machine, x0, y0, x1, y1)) {
-      record_command(machine, word, command_byte, opcode);
-      set_refusal(machine, T64_RDP_REFUSAL_RENDER_RANGE);
-      return T64_STATUS_OK;
-    }
-    if (x0 <= x1 && y0 <= y1) {
-      status = schedule_work_after_committed(machine);
-      if (status != T64_STATUS_OK) return status;
-      rdp->render_active = true;
-      rdp->render_x_begin = x0;
-      rdp->render_x_end = x1;
-      rdp->render_y_begin = y0;
-      rdp->render_y_end = y1;
-      rdp->render_y = y0;
-    } else {
-      status = schedule_next_committed(machine, next);
-      if (status != T64_STATUS_OK) return status;
-    }
-  } else if (opcode == RDP_OP_SYNC_FULL) {
-    {
-      t64_event_reservation reservation;
-      status = t64_schedule_reserve_after(
-          machine, UINT64_C(1), T64_RDP_DEVICE, T64_RDP_EVENT_WORK, 0u, 0u,
-          t64_rdp_event, &reservation);
-      if (status != T64_STATUS_OK) return status;
-      status = t64_schedule_commit(machine, &reservation);
-      if (status != T64_STATUS_OK) return status;
-    }
-    rdp->fence_pending = true;
-  } else {
+  if (!supported_opcode(opcode)) {
+    increment_counter(&rdp->dpc_clock_counter);
+    increment_counter(&rdp->dpc_buffer_busy_counter);
     record_command(machine, word, command_byte, opcode);
     set_refusal(machine, T64_RDP_REFUSAL_UNSUPPORTED_OPCODE);
     return T64_STATUS_OK;
   }
-
-  record_command(machine, word, command_byte, opcode);
-  rdp->dpc_current = next;
-  rdp->command_count++;
-  finish_if_idle(rdp, next);
+  status = schedule_work_after_committed(machine);
+  if (status != T64_STATUS_OK) return status;
+  increment_counter(&rdp->dpc_clock_counter);
+  increment_counter(&rdp->dpc_buffer_busy_counter);
+  rdp->pending_command_address = address;
+  rdp->pending_command_byte = command_byte;
+  rdp->pending_opcode_field = opcode;
+  rdp->pending_command_word = word;
+  rdp->command_pending = true;
+  rdp->dpc_current = address + UINT32_C(8);
+  rdp->dpc_start_valid = false;
+  rdp->dpc_end_valid = false;
   return T64_STATUS_OK;
 }

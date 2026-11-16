@@ -84,6 +84,17 @@
 #define T64_VI_EVENT_FIELD UINT32_C(1)
 #define T64_RDP_STATUS_BUSY UINT32_C(0x00000001)
 #define T64_RDP_STATUS_ERROR UINT32_C(0x00000002)
+#define T64_DPC_STATUS_XBUS UINT32_C(0x00000001)
+#define T64_DPC_STATUS_FREEZE UINT32_C(0x00000002)
+#define T64_DPC_STATUS_FLUSH UINT32_C(0x00000004)
+#define T64_DPC_STATUS_START_GCLK UINT32_C(0x00000008)
+#define T64_DPC_STATUS_TMEM_BUSY UINT32_C(0x00000010)
+#define T64_DPC_STATUS_PIPE_BUSY UINT32_C(0x00000020)
+#define T64_DPC_STATUS_CMD_BUSY UINT32_C(0x00000040)
+#define T64_DPC_STATUS_CBUF_READY UINT32_C(0x00000080)
+#define T64_DPC_STATUS_DMA_BUSY UINT32_C(0x00000100)
+#define T64_DPC_STATUS_END_VALID UINT32_C(0x00000200)
+#define T64_DPC_STATUS_START_VALID UINT32_C(0x00000400)
 #define T64_RDP_REFUSAL_NONE UINT32_C(0)
 #define T64_RDP_REFUSAL_SPAN UINT32_C(1)
 #define T64_RDP_REFUSAL_TRUNCATED_WORD UINT32_C(2)
@@ -586,6 +597,15 @@ typedef struct {
   uint32_t dpc_end;
   uint32_t dpc_current;
   uint32_t dpc_status;
+  uint32_t dpc_clock_counter;
+  uint32_t dpc_buffer_busy_counter;
+  uint32_t dpc_pipe_busy_counter;
+  uint32_t dpc_tmem_counter;
+  uint32_t pending_command_address;
+  uint32_t pending_command_byte;
+  uint32_t pending_opcode_field;
+  uint64_t pending_command_word;
+  uint64_t fence_generation;
   uint32_t color_image_address;
   uint32_t color_image_width;
   uint32_t color_image_format;
@@ -617,6 +637,13 @@ typedef struct {
   bool render_active;
   bool fence_pending;
   bool busy;
+  bool dpc_xbus;
+  bool dpc_freeze;
+  bool dpc_flush;
+  bool dpc_start_valid;
+  bool dpc_end_valid;
+  bool dpc_dma_active;
+  bool command_pending;
 } t64_rdp_state;
 
 typedef struct {
@@ -724,8 +751,8 @@ struct t64_machine {
 };
 
 static inline bool t64_has_rdp_vi_profile(const t64_machine *machine) {
-  return machine != NULL && machine->profile.machine_model_version == 9u &&
-         machine->profile.state_serialization_version == 14u;
+  return machine != NULL && machine->profile.machine_model_version == 10u &&
+         machine->profile.state_serialization_version == 15u;
 }
 
 static inline bool t64_has_vr4300_cpu_state(const t64_machine *machine) {
