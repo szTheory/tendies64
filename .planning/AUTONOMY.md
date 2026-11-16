@@ -72,6 +72,15 @@ applies that direction; update it when the owner changes policy.
   canonical tick with the real adapter and a cleared authored input. Refusal-only
   controls missed its host allocator passing byte alignment directly to
   `posix_memalign`; normalize valid core alignment requests to the host minimum.
+  Evidence-checker correction: an authored acceptance test must exercise the new
+  checker, and test discovery must list every promised mutation. A reduced
+  inventory test must reseal context, binding and snapshot too before claiming
+  independent-denominator coverage. Bind public results to original command,
+  outcome and artifact bytes, never parse a report as result authority. Exercise
+  actual saved formats early; handwritten parsers missed unquoted CTest names,
+  compact success summaries and the different Tier A/B protocol observations.
+  When a handoff has identified enough evidence but produces no runnable patch,
+  reconcile its exact diff and finish the narrow remaining slice inline.
 - Efficiency correction (owner feedback, 2026-11-12): before a broad retest,
   inspect `node scripts/verification-scope.mjs --base <last-tested-source>`.
   It includes staged, unstaged and new source changes, including ignored code

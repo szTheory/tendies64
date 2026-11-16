@@ -171,13 +171,14 @@ the checker authenticates the copied context and binding against the immutable
 execution snapshot, checks the bound source-authority and inventory bytes, and
 passes the retained member records and captures back through that batch's exact
 archived C consumer. It compares the regenerated C classification with the
-retained C report. Python does not derive membership, totals, or completeness.
+retained C report. Python checks the source-derived member authority; it does not aggregate
+result totals or decide completeness.
 The C report remains the sole source for those fields; the command prints only a
 sanitized verification status.
 
-`--check-artifacts` performs the same context, binding and snapshot checks for
-the active qualified artifact and also checks the live executable against its
-bound digest. It does not rebuild or dispatch a guest. Both modes reject missing
+`--check-artifacts` performs the same saved context, binding and snapshot checks for
+the saved qualified artifact. The separate `--check-preuse` mode also checks
+the live executable against its bound digest. It does not rebuild or dispatch a guest. Both modes reject missing
 or changed archive components. A matching hash establishes byte identity within
 the saved binding; it does not establish legal rights or same-user execution
 attestation.
@@ -217,3 +218,19 @@ definition or authored harness control does not establish external execution.
 This protocol does not authorize another tier, physical hardware, uncleared
 graphics assets or Phase 7 device implementation, and establishes no hardware
 accuracy claim.
+
+The saved-artifact mode validates the immutable archive independently of the
+current build tree. `--check-preuse` additionally requires the live executable
+to match the saved binding, and refuses drift after a rebuild. Neither mode
+launches guests. Historical contexts retain their own host/tool identities;
+independently sealed CPU/RSP source derivation authenticates their full member
+authority before original records return to C for classification.
+
+The public authored receipt is checked against original CTest blocks, unique
+wrapper command/outcome records, their retained log digests, and the exact
+archived runner/test/ROM binding. Runtime profile hashes, terminal exceptions,
+retirement tails and transcript bytes come from those original observations.
+Model/state-version fields absent from those records are not receipt results.
+Reports and specifications cannot substitute for the original observations.
+These integrity checks assume the reviewed producer and a trusted local owner;
+they are not cryptographic execution attestation against that owner.

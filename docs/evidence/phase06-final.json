@@ -1,90 +1,132 @@
 {
-  "schema": "t64.phase06.final-evidence",
-  "schema_version": 1,
-  "project_version": "0.0.0",
-  "core_build_id": "t64-build-v1-fac0bdd94d9ce7835f5682efb199df9a1e0519703f7870f4fbb1d0f4898f8794",
-  "source_annotation": "292405fadaae9299991063717d3966799c520d26",
-  "source_annotation_dirty": true,
-  "fixture_manifest": {
-    "path": "fixtures/manifest.json",
-    "sha256": "9ed5d63f4928b340e8ceb8e5dd965c860b8adb80eb2f5bbe42a8322b6a2e0ad1",
-    "fixtures": [
+  "artifact_binding": {
+    "artifacts": [
       {
-        "id": "hello-openipl3-rdram-a-t1",
-        "profile_id": "ntsc-cart-4m-openipl3-rdram-a-t1-v1",
-        "rom_sha256": "fa276cc175a4e764b6fd5413193c44b51f38fd8135e33e400032827e02f27c7c",
-        "expected_kind": "self-checking",
-        "oracle_revision": "source-content-sha256:14de53066a2b10089f99962c781396d660ce9c8a4b0054cd8d9f5f0b0364dae0"
+        "name": "hello.z64",
+        "sha256": "fa276cc175a4e764b6fd5413193c44b51f38fd8135e33e400032827e02f27c7c"
       },
       {
-        "id": "hello-openipl3-rdram-b-t1",
-        "profile_id": "ntsc-cart-4m-openipl3-rdram-b-t1-v1",
-        "rom_sha256": "fa276cc175a4e764b6fd5413193c44b51f38fd8135e33e400032827e02f27c7c",
-        "expected_kind": "self-checking",
-        "oracle_revision": "source-content-sha256:14de53066a2b10089f99962c781396d660ce9c8a4b0054cd8d9f5f0b0364dae0"
+        "name": "t64-cold-boot-probe",
+        "sha256": "310b04818985852f1e58e88dbfea5a77253c10aa6785ec9f70e7140f621117ed"
+      },
+      {
+        "name": "test_boot_determinism",
+        "sha256": "a47d414316e23cee9d95845e23aa930c5d73d68ba4dbc3435699c0b0d1efbdf1"
+      },
+      {
+        "name": "test_cold_boot",
+        "sha256": "20787ba9b0687865e8f7f80e95ad2ce2e7229011c25c9041961c6e7f4b901aff"
       }
-    ]
-  },
-  "artifact_binding": {
+    ],
     "path": "build/gate/06-05-final-authored-comparisons/inputs/binding.json",
-    "sha256": "5285661c1cce3d418cc55eacde04a1f7a19b62bbb28dad8310c725da9087aaab",
-    "artifacts": [
-      {"name": "hello.z64", "sha256": "fa276cc175a4e764b6fd5413193c44b51f38fd8135e33e400032827e02f27c7c"},
-      {"name": "t64-cold-boot-probe", "sha256": "310b04818985852f1e58e88dbfea5a77253c10aa6785ec9f70e7140f621117ed"},
-      {"name": "test_boot_determinism", "sha256": "a47d414316e23cee9d95845e23aa930c5d73d68ba4dbc3435699c0b0d1efbdf1"},
-      {"name": "test_cold_boot", "sha256": "20787ba9b0687865e8f7f80e95ad2ce2e7229011c25c9041961c6e7f4b901aff"}
-    ]
+    "sha256": "5285661c1cce3d418cc55eacde04a1f7a19b62bbb28dad8310c725da9087aaab"
+  },
+  "core_build_id": "t64-build-v1-fac0bdd94d9ce7835f5682efb199df9a1e0519703f7870f4fbb1d0f4898f8794",
+  "execution_record": {
+    "attempts": [
+      {
+        "command_sha256": "f581341c3395e72799aa9ae6aa1f94e1c3a7103db94c8b0f92430c0841ab1919",
+        "outcome_sha256": "fad88040dbb1ee4994b5889e5778651cf895fe47c0fa63daeeb5f6303a135c08",
+        "path": "build/gate/06-05-cold-hello-attempt-07",
+        "test": "integration.cold-hello"
+      },
+      {
+        "command_sha256": "56ba36d6e841aaf002268bd9b3f4c1a0fcf85fda3a2e16ec9f7d1391ba9aa5ad",
+        "outcome_sha256": "935ecb3d053dee6449d9bb3d840a9920d36440968b9f781e0f160c1cb7b3f67f",
+        "path": "build/gate/06-05-cold-startup-attempt-01",
+        "test": "integration.cold-startup"
+      }
+    ],
+    "binding_sha256": "5285661c1cce3d418cc55eacde04a1f7a19b62bbb28dad8310c725da9087aaab",
+    "build_id": "t64-build-v1-fac0bdd94d9ce7835f5682efb199df9a1e0519703f7870f4fbb1d0f4898f8794",
+    "compiler_policy": "bound-by-build-id-v1",
+    "ctest_log_sha256": "d0be78ed8ca93f88797a68ce31304fcd3af37d25f15379fa6afe11534a5ed919",
+    "last_test_log_sha256": "65d3d7ae971da757126ecf9f0e4d9cd0f9a5ceaa99558f39ba9076c4b2c21141",
+    "log_manifest_sha256": "3e9a83b6768254b67aeb8c5308e210fe3fb16a99ca62745f2ed499d95f800414",
+    "path": "build/gate/06-05-final-authored-comparisons",
+    "source_revision": "292405fadaae9299991063717d3966799c520d26"
+  },
+  "fixture_manifest": {
+    "fixtures": [
+      {
+        "expected_kind": "self-checking",
+        "id": "hello-openipl3-rdram-a-t1",
+        "oracle_revision": "source-content-sha256:14de53066a2b10089f99962c781396d660ce9c8a4b0054cd8d9f5f0b0364dae0",
+        "profile_id": "ntsc-cart-4m-openipl3-rdram-a-t1-v1",
+        "rom_sha256": "fa276cc175a4e764b6fd5413193c44b51f38fd8135e33e400032827e02f27c7c"
+      },
+      {
+        "expected_kind": "self-checking",
+        "id": "hello-openipl3-rdram-b-t1",
+        "oracle_revision": "source-content-sha256:14de53066a2b10089f99962c781396d660ce9c8a4b0054cd8d9f5f0b0364dae0",
+        "profile_id": "ntsc-cart-4m-openipl3-rdram-b-t1-v1",
+        "rom_sha256": "fa276cc175a4e764b6fd5413193c44b51f38fd8135e33e400032827e02f27c7c"
+      }
+    ],
+    "path": "fixtures/manifest.json",
+    "sha256": "9ed5d63f4928b340e8ceb8e5dd965c860b8adb80eb2f5bbe42a8322b6a2e0ad1"
   },
   "profiles": [
     {
+      "boot_fail": 0,
+      "evidence_tier": "self-checking-fixture",
+      "fixture_id": "hello-openipl3-rdram-a-t1",
+      "guest_fail": 0,
+      "harness_error": 0,
+      "header_entry_tick": 530184,
+      "last_retired_opcode": 2769158166,
+      "last_retired_pc": 2147484788,
+      "missing": 0,
+      "not_claimed": "any other build, profile, ROM or fixture set; general ROM compatibility; hardware behavior or clock accuracy; RDP, audio, peripheral or 8 MiB behavior; T2 timing; external diagnostic results; commercial software",
+      "oracle_kind": "authored-literal-transcript",
+      "oracle_revision": "source-content-sha256:14de53066a2b10089f99962c781396d660ce9c8a4b0054cd8d9f5f0b0364dae0",
+      "output_bytes": 30,
+      "output_sha256": "86594505bea53c9843f9eaf07e4cf0121cbe0055670324674fd8385c88ffd18e",
+      "output_text": "Tendies64 hello via open IPL3\n",
+      "pass": 1,
       "profile_id": "ntsc-cart-4m-openipl3-rdram-a-t1-v1",
       "profile_sha256": "d59b5e9500acb56621f1995e2c816f73597dce9109b46a4008b12269e42c02a2",
-      "model": 7,
-      "state_version": 13,
-      "fixture_id": "hello-openipl3-rdram-a-t1",
-      "rom_sha256": "fa276cc175a4e764b6fd5413193c44b51f38fd8135e33e400032827e02f27c7c",
-      "evidence_tier": "self-checking-fixture",
-      "terminal_tick": 530448,
       "retired_instructions": 530437,
-      "output_bytes": 30,
-      "output_text": "Tendies64 hello via open IPL3\n",
-      "output_sha256": "86594505bea53c9843f9eaf07e4cf0121cbe0055670324674fd8385c88ffd18e",
-      "pass": 1,
-      "total": 1,
-      "guest_fail": 0,
-      "boot_fail": 0,
-      "timeout": 0,
-      "missing": 0,
-      "harness_error": 0,
+      "rom_sha256": "fa276cc175a4e764b6fd5413193c44b51f38fd8135e33e400032827e02f27c7c",
       "skipped": 0,
-      "oracle_kind": "authored-literal-transcript",
-      "oracle_revision": "source-content-sha256:14de53066a2b10089f99962c781396d660ce9c8a4b0054cd8d9f5f0b0364dae0",
-      "not_claimed": "any other build, profile, ROM or fixture set; general ROM compatibility; hardware behavior or clock accuracy; RDP, audio, peripheral or 8 MiB behavior; T2 timing; external diagnostic results; commercial software"
+      "terminal_opcode": 13,
+      "terminal_pc": 2147484792,
+      "terminal_tick": 530448,
+      "timeout": 0,
+      "total": 1
     },
     {
-      "profile_id": "ntsc-cart-4m-openipl3-rdram-b-t1-v1",
-      "profile_sha256": "4d807406f1e8ab897a8328cf9f205e8d8faf77dbf8892cb999156265403023fa",
-      "model": 8,
-      "state_version": 13,
-      "fixture_id": "hello-openipl3-rdram-b-t1",
-      "rom_sha256": "fa276cc175a4e764b6fd5413193c44b51f38fd8135e33e400032827e02f27c7c",
-      "evidence_tier": "self-checking-fixture",
-      "terminal_tick": 538871,
-      "retired_instructions": 538840,
-      "output_bytes": 30,
-      "output_text": "Tendies64 hello via open IPL3\n",
-      "output_sha256": "86594505bea53c9843f9eaf07e4cf0121cbe0055670324674fd8385c88ffd18e",
-      "pass": 1,
-      "total": 1,
-      "guest_fail": 0,
       "boot_fail": 0,
-      "timeout": 0,
-      "missing": 0,
+      "evidence_tier": "self-checking-fixture",
+      "fixture_id": "hello-openipl3-rdram-b-t1",
+      "guest_fail": 0,
       "harness_error": 0,
-      "skipped": 0,
+      "header_entry_tick": 538607,
+      "last_retired_opcode": 2769158166,
+      "last_retired_pc": 2147484788,
+      "missing": 0,
+      "not_claimed": "any other build, profile, ROM or fixture set; general ROM compatibility; hardware behavior or clock accuracy; RDP, audio, peripheral or 8 MiB behavior; T2 timing; external diagnostic results; commercial software",
       "oracle_kind": "authored-literal-transcript",
       "oracle_revision": "source-content-sha256:14de53066a2b10089f99962c781396d660ce9c8a4b0054cd8d9f5f0b0364dae0",
-      "not_claimed": "any other build, profile, ROM or fixture set; general ROM compatibility; hardware behavior or clock accuracy; RDP, audio, peripheral or 8 MiB behavior; T2 timing; external diagnostic results; commercial software"
+      "output_bytes": 30,
+      "output_sha256": "86594505bea53c9843f9eaf07e4cf0121cbe0055670324674fd8385c88ffd18e",
+      "output_text": "Tendies64 hello via open IPL3\n",
+      "pass": 1,
+      "profile_id": "ntsc-cart-4m-openipl3-rdram-b-t1-v1",
+      "profile_sha256": "4d807406f1e8ab897a8328cf9f205e8d8faf77dbf8892cb999156265403023fa",
+      "retired_instructions": 538840,
+      "rom_sha256": "fa276cc175a4e764b6fd5413193c44b51f38fd8135e33e400032827e02f27c7c",
+      "skipped": 0,
+      "terminal_opcode": 13,
+      "terminal_pc": 2147484792,
+      "terminal_tick": 538871,
+      "timeout": 0,
+      "total": 1
     }
-  ]
+  ],
+  "project_version": "0.0.0",
+  "schema": "t64.phase06.final-evidence",
+  "schema_version": 1,
+  "source_annotation": "292405fadaae9299991063717d3966799c520d26",
+  "source_annotation_dirty": true
 }

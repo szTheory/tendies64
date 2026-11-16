@@ -25,3 +25,11 @@ No claim is made for other ROMs or profiles, Expansion Pak, RDP, audio,
 peripherals, T2 pipeline timing, physical behavior, private diagnostic results,
 external suite execution, or commercial software. Release channel and version
 selection remain separate decisions.
+
+The local receipt validator reads original cold-hello and cold-startup command
+and outcome records selected by the saved CTest blocks, checks their log
+digests, and compares actual transcript, retirement and terminal observations.
+It does not infer results from this note. Saved-artifact verification is
+separate from the live pre-use identity check, so rebuilding does not relabel
+a historical executable. The initial validator's report-based comparisons and
+incomplete inventory mutation were corrected before final review.
