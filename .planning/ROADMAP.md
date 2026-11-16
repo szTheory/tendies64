@@ -294,7 +294,7 @@ Plans:
   2. Count and Random advance under the tier 1 instruction-granular cost model, and the tests cite their expectation sources. The cycle-accurate tier is documented as deferred, with the evidence needed to promote it
   3. The full base suite reports per-group status with its total count pinned. The timing, cycle and cop0hazard groups are reported as informational, experimental groups stay out of the required gate, and stress groups run in a scheduled lane
   4. The milestone's support statement for the first profile uses the claims template: profile, build identity, evidence tier and fixture-manifest entry for every reported result. It makes no claim beyond those results
-**Plans**: 7/9 plans executed
+**Plans**: 8/9 plans executed
 
 Plans:
 - [x] 06-01-PLAN.md — Two cold profiles and real static T1 instruction intervals (wave 1)
@@ -304,7 +304,7 @@ Plans:
 - [x] 06-04-PLAN.md — T1 Count/Random, failure atomicity and scheduler interleave
 - [x] 06-05-PLAN.md — Actual Tier A/B hello output and per-profile determinism
 - [x] 06-06-PLAN.md — Full C classification, permitted target execution and explicit lanes
-- [ ] 06-07-PLAN.md — Original-evidence validator and bounded first-profile claims
+- [x] 06-07-PLAN.md — Original-evidence validator and bounded first-profile claims
 - [ ] 06-08-PLAN.md — Complete reviews, scoped fixes and final exact-artifact gate
 
 ## v1.1 Observable Machine
@@ -418,7 +418,7 @@ Phase 7 may run in parallel with Phases 5 and 6 once Phase 4 is complete.
 | 3. First Headless ROM Through Open IPL3 | v1.0 | 13/13 | Complete | 2026-11-11 |
 | 4. Complete VR4300 CPU | v1.0 | 20/20 | Complete | 2026-11-13 |
 | 5. RSP Low-Level Emulation | v1.0 | 10/10 | Complete | 2026-11-14 |
-| 6. Cold Boot, CPU Timing and Full Base Suite | v1.0 | 7/9 | In Progress | - |
+| 6. Cold Boot, CPU Timing and Full Base Suite | v1.0 | 8/9 | In Progress | - |
 | 7. RDP Reference Renderer and VI Scanout | v1.1 | 0/TBD | Not started | - |
 | 8. Audio Interface and Raw Capture | v1.1 | 0/TBD | Not started | - |
 | 9. Controller, Save Media and Replay | v1.1 | 0/TBD | Not started | - |
