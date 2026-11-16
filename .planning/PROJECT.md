@@ -202,7 +202,7 @@ remain disclosed; current artifacts have immutable consumer/binding retention.
 
 RDP/VI rendering, AI audio, SI/PIF/controller/save integration, an installed
 consumer and a playable cleared homebrew remain later milestone work. The
-milestone audit covers48 requirements;25 future requirements remain pending.
+milestone audit covers48 requirements;25 future requirements remain open (24 pending and one partial).
 No software release or release-version tag has been published. The working
 name remains uncleared; D2/D5/D6 and physical/rights stops remain unchanged.
 
@@ -274,7 +274,7 @@ This document evolves at phase transitions and milestone boundaries.
 *Last updated: 2026-11-15 after v1.0 milestone audit*
 
 
-## Next milestone goals
+## Current Milestone: v1.1 Observable Machine
 
 Open v1.1 Observable Machine around Phase7 RDP reference rendering/VI,
 Phase8 raw audio and Phase9 controller/save/replay. Reconfirm the provisional

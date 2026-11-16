@@ -1,8 +1,8 @@
 # Milestones
 
-## v1.0 Verified Headless Core (Planning completed:2026-11-15)
+## v1.0 Verified Headless Core (Shipped: 2026-11-15)
 
-Six phases,73 source plans and48 assigned requirements complete. Verified
+Planning completion only. Six phases,73 source plans and48 assigned requirements complete. Verified
 closeout with zero acknowledged overrides. **No software release or tag:**
 release channel/versioning remains an owner decision.
 
