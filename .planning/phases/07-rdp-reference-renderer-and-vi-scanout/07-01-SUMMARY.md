@@ -195,3 +195,23 @@ Requirement fields record contribution only: this fill tracer does not complete
 all VID-01/02/03/05/06 obligations, remaining command/filter/timing work, or VID-04.
 All active requirement statuses remain pending until their full assigned work
 and evidence pass. No historical private campaign was replayed.
+
+## Post-tracer review repair
+
+Independent review allegations were checked with a cheap real authored consumer
+before changing production. The inherited digest allegation was disproven; a
+valid VI register write and inherited warm-state mutation both change the v14
+digest. The host-cursor hashing proposal conflicted with the approved observer
+boundary. A focused regression instead exposed copy-time event rescheduling,
+equal-tick reorder and drain-dependent producer-slot hashing. Commit `6752bba`
+retains blocked VI events before pop, removes copy-time scheduling and preserves
+the ring cursor across empty state. Existing produced packet bytes/metadata remain
+hashed; observer cursor/occupancy remain outside canonical identity.
+
+The full normal gate passes. The full instrumented run passed all rendering
+checks but timed out in one BASE harness; an isolated unchanged-limit rerun passed
+all its controls. The original failure and the unproven contention inference are
+retained in [the fix record](07-REVIEW-FIX.md). Independent re-review finds no new
+source defect. Exact repaired normal and instrumented consumers/bindings are
+retained under `build/gate/07-vi-repair-retained-artifacts/`. No original pre-use
+retention gap is relabeled. Hosted qualification of this repaired source follows.

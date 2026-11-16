@@ -112,3 +112,17 @@ pre-commit check runs before staging/publishing the plans.
   wave gates when no merge/runtime source change followed them. Capture exact
   consumers and inputs before the next build overwrites them; label post-use
   retention honestly when earlier archival was not established.
+
+### Phase07 first tracer review correction
+
+Before applying a static review finding, inspect the exact shared predicate and
+exercise one valid operation through the actual consumer. A v14 digest allegation
+was false because the inherited policy helper already included that profile; a
+valid VI write proved sensitivity. Hashing observer head/count would have broken
+the locked host-drain boundary. Cheap early/delayed drain and full-queue tests
+instead exposed the real scheduling and ring-reset defects before another long
+suite. Keeping the existing ring invariant avoided an unnecessary output hash
+chain and new state. Preserve reviewed source/body guards and their mutation
+controls after the narrow fix. A cleanup-time process-list denial does not prove
+the cause of a timeout; retain the full failure and isolate the failed case at
+unchanged limits before broader retries or resource-policy changes.
