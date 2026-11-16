@@ -143,3 +143,18 @@ and focused results without another whole-cohort review handoff. Retain the
 independent production review and clearly label that narrower parent recheck.
 Use ordinary sentences and exact artifact paths in dispatch; compact run-on
 prompts and an incorrect archive-root assumption create unnecessary handoff work.
+
+### Phase07 TMEM slice execution
+
+Cheap accepted-copy and fill consumers preceded broad tests and caught a stale
+profile digest pin. Exact case inventory caught duplicate names before full
+qualification; invalid SetTileSize exposed mutation before refusal. Separate
+TexRect bounds decoding was needed because its coordinate ordering differs from
+FillRect. Retain these concrete failures and independent expected bytes.
+
+Honor AUTONOMY's existing summary ownership in the initial dispatch: executors
+return implementation and substantive evidence; the orchestrator finalizes routine
+SUMMARY/state/roadmap in one batch. An oversized summary patch became unnecessary
+agent handoff work. Preserve a useful draft and reconcile existing commits instead
+of redispatching implementation. Compare hash values using the same named
+algorithm: Git blob SHA-1 and file SHA-256 differed for identical protected files.
