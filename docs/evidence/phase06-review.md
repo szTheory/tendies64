@@ -4,7 +4,7 @@
 **Depth:** deep, adversarial boundary review  
 **Snapshot:** `a80b82281b7aeffb32946b50f6fe11839516de8e..cc1e3f209fee1cc276bb01ecb26899ca6a3a853f`  
 **Scope source:** `build/gate/06-08-review-scope.json` (51 paths; exact list below)  
-**Verdict:** BLOCKED by one proven evidence-integrity defect (T06-18, also reported by the security auditor).
+**Verdict at original snapshot:** BLOCKED by one proven evidence-integrity defect (T06-18, also reported by the security auditor). The scoped correction re-review below closes T06-18; final phase disposition remains with the parent-owned gates.
 
 ## Review coverage and limits
 
@@ -86,7 +86,7 @@ scripts/verify-base-diagnostic-qualification.py
 
 The worktree still has pre-existing owner edits in `AGENTS.md` and `.planning/config.json`; this review did not modify them or any source file. No commit was created.
 
-## Correction slice 1 implementation (re-review pending)
+## Correction slice 1 implementation (scoped re-review complete)
 
 The two-file owning slice now loads the context-bound combined image through
 the existing reviewed loader, checks source/selector coverage, recomputes the
@@ -101,4 +101,17 @@ and regenerates a coherent report through original C. The new independent guard
 then refuses the copied evidence. Original archives are unchanged. Qualification
 and lifecycle controls, saved-record/artifact checks, documentation and rights/PII
 scans pass. Logs: build/{gate,asan}/06-08-fix-* and build/gate/06-08-image-*.
-Scoped code/security re-review and the final stable gate remain pending.
+Scoped code/security re-review and the final stable gate were pending when this section was first written; see the completed scoped re-review below.
+
+## Scoped re-review: f537baf21c3a6de62851694f58d507f915f4f5c0
+
+**Comparison:** `cc1e3f209fee1cc276bb01ecb26899ca6a3a853f..f537baf21c3a6de62851694f58d507f915f4f5c0`
+**Scope:** `scripts/check-base-evidence.py` and `scripts/tests/test_base_evidence.py` only. The review covered the new historical-image loader and selected-image check, their `_validate_batch` call path, and the new positive and resealed-negative controls. No unrelated Phase06 files were re-reviewed in this slice.
+
+### T06-18 — CLOSED
+
+The checker now loads the bound composed image and validates its dispatch seam against the saved source authority at `scripts/check-base-evidence.py:1144-1154`. It derives each dispatchable image digest by splicing the row’s bounded registration/value selector into the bound base bytes, checks the composition’s selected-image digest, and requires the manifest’s expected digest to equal that independently derived value at `scripts/check-base-evidence.py:1157-1175`. `_validate_batch` obtains the saved source authority and applies this check to each parsed record before reclassification at `scripts/check-base-evidence.py:1236-1248`. The existing C classifier also constrains blocked/unexecuted records to have empty selected-image identity and zero guest progress, and requires other records to match the supplied expected digest (`runner/t64_base_diag_protocol.c:724-750`). Together these checks remove the saved-manifest digest as an authority source.
+
+The controls include a synthetic selector-byte positive/negative test at `scripts/tests/test_base_evidence.py:406-418` and an actual resealed mutation control at `scripts/tests/test_base_evidence.py:356-400`. The latter copies retained inputs, changes both the saved record digest and manifest digest, regenerates the report through the retained C consumer, then asserts the independent guard refuses. This directly covers the original defect while preventing a stale-report hash from being the refusal reason.
+
+No new actionable defect was proven in this two-file correction. The source-level scoped verdict is **PASS; T06-18 closed**. The parent reports that the owning normal/ASan all-target builds, `harness.base-evidence`, and the actual resealed control passed, with the actual control completing in about 7.6 seconds; those executions were not rerun as part of this source-only re-review. No broad gate, guest replay, image build, network install, long suite, service, or private upload was run by this reviewer. The final stable-gate result remains parent-owned.

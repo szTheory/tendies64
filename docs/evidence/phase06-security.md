@@ -4,7 +4,7 @@ asvs_level: 1
 block_on: high
 verdict: OPEN_THREATS
 threats_total: 33
-threats_open: 3
+threats_open: 2
 ---
 
 # Phase 06 security mitigation audit
@@ -62,7 +62,7 @@ The auditor used source and bounded read-only evidence, not a final full suite.
 | 06 | T-06-15 | CLOSED | runner/t64_base_diag_protocol.c:660,687,781,922,937,956; scripts/run-base-diagnostic.py:794,825 |
 | 06 | T-06-16 | CLOSED | scripts/run-base-diagnostic.py:644,697; runner/t64_base_diagnostic.c:850; scripts/run-cpu-diagnostic.py:29,301 |
 | 06 | T-06-17 | CLOSED | scripts/base-diagnostic-lanes.py:25; scripts/run-base-diagnostic.py:598; scripts/tests/test_base_lanes.py:68,92,103 |
-| 07 | T-06-18 | OPEN | Historical checker forwarded caller expected_rom_sha256 without independent bound-image recomputation |
+| 07 | T-06-18 | CLOSED | Historical checker forwarded caller expected_rom_sha256 without independent bound-image recomputation |
 | 07 | T-06-19 | CLOSED | scripts/check-base-evidence.py:38,76,181,685; scripts/tests/test_base_evidence.py PublicEvidenceControls |
 | 07 | T-06-20 | CLOSED | scripts/check-base-evidence.py original CTest/attempt/artifact reconstruction and bounded claim equality; scripts/tests/test_base_evidence.py PublicEvidenceControls |
 | 08 | T-06-21 | CLOSED | Conclusive code review docs/evidence/phase06-review.md plus this complete security register |
@@ -90,3 +90,16 @@ flags. Private diagnostic identities, counts and results remain local. Integrity
 assumes a reviewed producer and trusted owner, not same-owner cryptographic
 execution attestation. No user action is needed; parent implements/re-reviews
 the queued correction and runs the already planned gates.
+
+## Scoped correction re-audit
+
+At f537baf the configured security auditor returned SECURED for T-06-18
+(1/1, zero scoped open threats). The context-bound image loader and full-source
+seam feed independent base-byte/selector hashing before C classification.
+The copied actual-record control coherently changes record/input/report while
+keeping context/image fixed, and reaches the named independent-image refusal.
+The default authored selector control and both normal/instrumented owner logs
+support the same guard. No specific scoped regression or unregistered flag was
+found. Code re-review also returned a conclusive closure of the same two-file
+slice; unaffected full-phase review is retained. Only T-06-22 and T-06-23 remain
+open for the planned final artifact gates and hosted readback.
