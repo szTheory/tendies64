@@ -47,6 +47,16 @@ applies that direction; update it when the owner changes policy.
   On a shared branch, a parent documentation commit can contain unfinished
   child RED commits in its ancestry. Defer its push until those source/test
   commits are verified; pin pushes to the intended verified commit.
+- Incremental review efficiency (owner's standing efficiency direction): verify
+  the exact shared predicate and one accepted consumer operation before treating
+  a static review allegation as a blocker. Distinguish publicly reachable cases
+  from explicitly injected defensive states. After independent production review,
+  a test-only correction may receive an orchestrator diff/evidence recheck and
+  focused normal/instrumented verification; do not repeat the whole source audit
+  by default. Preserve the original finding and identify who performed recheck.
+  A plan file list is an ownership estimate, not a reason to omit necessary
+  narrowly scoped wiring within an already approved behavior/policy. Record the
+  dependency correction and its actual accepted-consumer evidence.
 - Cheap consistency gates (owner feedback, 2026-11-15): before a long process
   or suite, run fast checks of setup, identity, manifest schema/rights, active
   profile/device wiring

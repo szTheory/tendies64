@@ -57,6 +57,7 @@ patterns-established:
   - "A continuation event is reserved before the current raster row mutates output."
 
 requirements-completed: []
+requirements-contributed: [VID-01, VID-02]
 
 duration: 67m
 completed: 2026-11-16
@@ -138,3 +139,21 @@ The summary file exists, all four task commit hashes are ancestors of the curren
 ---
 *Phase: 07-rdp-reference-renderer-and-vi-scanout*
 *Completed: 2026-11-16*
+
+## Review follow-up
+
+The 19-file independent review found no confirmed implementation/security defect.
+It found that the append case wrote the same END twice. The corrected fetched
+program first writes `0x108`, then `0x110` from a different register while the
+original fill is pending; explicit checks observe the appended FullSync and MI
+completion. The old program fails these assertions. The test-only fix `a534681`
+passes the normal and ASAN owning cases and exact inventories. The parent DP
+check passes with349checks/no failures; unaffected full normal/instrumented
+evidence is reused rather than repeating it. See [the current review](07-02-REVIEW.md)
+and [fix evidence](07-02-REVIEW-FIX.md). Fixed test consumers are retained in
+`build/gate/07-02-append-retained-artifacts/`; the earlier full-plan consumers
+remain in `build/gate/07-02-retained-artifacts/`. Both captures are post-verification
+retention, not retroactive pre-use claims.
+
+The redundant `dpc_dma_active` flag is deferred to Plan03's owning state/digest
+change. No hardware timing or full-phase requirement claim is added.

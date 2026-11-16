@@ -126,3 +126,20 @@ chain and new state. Preserve reviewed source/body guards and their mutation
 controls after the narrow fix. A cleanup-time process-list denial does not prove
 the cause of a timeout; retain the full failure and isolate the failed case at
 unchanged limits before broader retries or resource-policy changes.
+
+### Phase07 transport slice
+
+The first accepted runner exposed the stale composite-profile digest binding
+before the full gate. Applying the approved compatibility policy includes the
+core predicate, ISViewer, runner digest and observation gate, plus their positive
+consumers; changing the version fields alone is insufficient. A missing bus file
+in the plan inventory did not remove the intended counter-register behavior.
+
+A green append test used the same END value twice. Check the initial bound, the
+actual fetched extension while work is pending, and the appended fence separately.
+The old same-register program must fail the added assertions. Test-only fixes
+reuse unaffected production evidence; the orchestrator can recheck the exact diff
+and focused results without another whole-cohort review handoff. Retain the
+independent production review and clearly label that narrower parent recheck.
+Use ordinary sentences and exact artifact paths in dispatch; compact run-on
+prompts and an incorrect archive-root assumption create unnecessary handoff work.
