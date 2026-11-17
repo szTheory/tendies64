@@ -121,7 +121,16 @@
         {
           "path": "core/test_rdp_triangles",
           "cases": [
-            "triangle-edge-interior-outside"
+            "triangle-edge-interior-outside",
+            "triangle-shade-signed-dx",
+            "triangle-right-major-negative-x",
+            "triangle-degenerate-old-profile-refusal",
+            "triangle-composite-length-truncation",
+            "triangle-shared-edge-complementary-samples",
+            "triangle-single-sample-max-extent",
+            "triangle-extreme-coefficients-overlap-order",
+            "triangle-shade-overflow-preflight",
+            "triangle-coverage-state-digest-reset-isolation"
           ]
         }
       ]

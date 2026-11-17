@@ -54,9 +54,11 @@ MUTATION_SEEDS = (
     "unreviewed SP DMA helper definition",
     "removed SP DMA helper definition",
     "RDP fill production body mutation",
+    "triangle raster production body mutation",
     "TMEM load production body mutation",
     "RDP raw copy-cycle body mutation",
     "missing TMEM object file",
+    "missing triangle raster object file",
     "DPC counter bus-window body mutation",
     "DPC profile-gated injected effect",
 )
@@ -369,6 +371,23 @@ def _check_mutation_suite(temp_root: pathlib.Path) -> int:
     _must_reject("RDP fill production body mutation", source_root, build_root)
     seeds_run += 1
 
+    raster_path = source_root / "core" / "t64_rdp_raster.c"
+    original_raster = raster_path.read_text(encoding="utf-8")
+    raster_anchor = "machine->ram[(size_t)address] = (uint8_t)(color >> 8);"
+    if raster_anchor not in original_raster:
+        raise AssertionError("triangle raster store mutation anchor no longer exists")
+    raster_path.write_text(
+        original_raster.replace(
+            raster_anchor,
+            "machine->ram[(size_t)address] = (uint8_t)((color ^ UINT16_C(1)) >> 8);",
+            1,
+        ),
+        encoding="utf-8",
+    )
+    _must_reject("triangle raster production body mutation", source_root, build_root)
+    raster_path.write_text(original_raster, encoding="utf-8")
+    seeds_run += 1
+
     tmem_path = source_root / "core" / "t64_rdp_tmem.c"
     original_tmem = tmem_path.read_text(encoding="utf-8")
     tmem_anchor = "tmem[(size_t)address] = (uint8_t)value;"
@@ -415,6 +434,26 @@ def _check_mutation_suite(temp_root: pathlib.Path) -> int:
     tmem_object.unlink()
     _must_reject(
         "missing TMEM object file", missing_tmem_source, missing_tmem_build
+    )
+    seeds_run += 1
+
+    missing_raster_source, missing_raster_build = _copy_clean_fixture(
+        temp_root / "missing-triangle-raster-object"
+    )
+    raster_object = (
+        missing_raster_build
+        / "core"
+        / "CMakeFiles"
+        / "t64_core.dir"
+        / "t64_rdp_raster.c.o"
+    )
+    if not raster_object.is_file():
+        raise AssertionError("triangle raster production object is missing from clean fixture")
+    raster_object.unlink()
+    _must_reject(
+        "missing triangle raster object file",
+        missing_raster_source,
+        missing_raster_build,
     )
     seeds_run += 1
 

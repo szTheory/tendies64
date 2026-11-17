@@ -33,6 +33,7 @@ CANONICAL_CORE_SOURCES = frozenset(
         "t64_observe.c",
         "t64_pi.c",
         "t64_rdp.c",
+        "t64_rdp_raster.c",
         "t64_rdp_tmem.c",
         "t64_rom.c",
         "t64_rdram.c",
@@ -163,6 +164,15 @@ REVIEWED_RDP_TMEM_FUNCTIONS = frozenset(
         "tmem_store", "wrap_coordinate",
     }
 )
+REVIEWED_RDP_RASTER_FUNCTIONS = frozenset(
+    {
+        "decode_edges", "floor_div_i64", "magnitude_i64", "pair_q16",
+        "rgba5551", "shade_channel", "shade_products_are_bounded",
+        "sign_extend_u14", "signed_u32",
+        "t64_rdp_triangle_bounds", "t64_rdp_triangle_render_row",
+        "t64_rdp_triangle_word_count",
+    }
+)
 REVIEWED_VI_FUNCTIONS = frozenset(
     {
         "copy_text", "delay_for_cycles", "expand5", "geometry_for",
@@ -228,28 +238,40 @@ REVIEWED_BODY_DIGESTS = {
     "core/t64_sp.c :: trace_refusal": "d142faecf8d4f78e427aa40e7454d0a24cc05c20ca433e225bed118982517dfc",
     "core/t64_sp.c :: warm_zero_source_sp_transfer": "46b55d7252273228780a497b4f34180b53dc93676f6bac901aaff9fae6d86508",
     "core/t64_sp.c :: write_rsp_status": "8d1f00710b955fc530864d080ae8d99733711e73749c75b6800d7cc590dbf74c",
-    "core/t64_rdp.c :: apply_pending_command": "39dbc33d4e67b6a2044db7ebdb87d98863a6466e3a74516ad87adee929c53583",
+    "core/t64_rdp.c :: apply_pending_command": "5cd0ca2e45e6ae6814e59b4bb98608c719908da6559dc4670924199b662c4731",
     "core/t64_rdp.c :: command_span_valid": "4f8a0ecc32f895ae4dfa8f6390d90e4e1a0c18477bbe8ebbb97d66136f882f3a",
     "core/t64_rdp.c :: dpc_status_value": "051e3e702318dd9975d0c0a41a990c733d78ca8e84c77aeeab67ef4da7d4be32",
     "core/t64_rdp.c :: fill_bounds": "05ce4e443ffa8fac9adc9503750953b1a9f8c0d7485c1c14a90601433d4c6540",
     "core/t64_rdp.c :: fill_one_row": "472543c65709bbbfe33d591bd8073490846446d0c9e7c09f8a81db8a6d101e3a",
     "core/t64_rdp.c :: finish_if_idle": "c5f6f068c0c3622f8ca67750f53032f9b2c2ec6324cfda9991d7420e06277a1a",
-    "core/t64_rdp.c :: handle_row": "503223b6f76d8764fd132e870c051cad512c3bf1ade3d8e36831f4da1f6d2d95",
+    "core/t64_rdp.c :: handle_row": "cdc241a00fe6d1322b8eb54d7b1cc27b7b5d7f303ff464b0b62f3897877dc5ca",
     "core/t64_rdp.c :: increment_counter": "c7b52a4723395d1f114dd6c485c36e3c08ca7338afcd527d8e9fd0929dc86911",
     "core/t64_rdp.c :: rdp_event_queued": "f91aa69f7a194595cf8cc54d2aedc64132d4b0052494e3873b6c751aec0b4f81",
     "core/t64_rdp.c :: read_be64": "a3b364ca9b36969d9e21b3551356029e7a7956968b8a0191b964652f95d2f364",
     "core/t64_rdp.c :: record_command": "21228fdb1466ec9758bca4b1facce045c2107160d9d33b51d4aeccd8b77bb860",
     "core/t64_rdp.c :: schedule_next_committed": "a6201021b4e6d72278c6ee6717b26b4e904160d3001b514523cf7ccc9a54d5e9",
     "core/t64_rdp.c :: schedule_work_after_committed": "dd9806898e39a57176c4bbe00dfa4c8b898ec0fa830c761700a2d17c55169be5",
-    "core/t64_rdp.c :: set_refusal": "939c977f69c8c25a38e8d3c7a5acf75ff7a8d93b2840a3ee5c3947170a4cfee7",
-    "core/t64_rdp.c :: supported_opcode": "d169be2cd887ad311ec1238b80b1b87b30a8b965f40db82cca97c85a0d97061d",
-    "core/t64_rdp.c :: t64_rdp_event": "37e863cf9d8e876c7f51173e16358b65336eb685928e855f92282377c5df3b7e",
+    "core/t64_rdp.c :: set_refusal": "e7931da07d8dba661d964c820715536da479388feb50f9de9f2471c51a5c6e1f",
+    "core/t64_rdp.c :: supported_opcode": "6532ace041b847b57e318f4445c6f5beff372bf1b09ad38bdc259d6c5682d6c3",
+    "core/t64_rdp.c :: t64_rdp_event": "b67580981748efee09c489010721f4c55c98d76d2f821e07b624814f38f9f3c8",
     "core/t64_rdp.c :: t64_rdp_read_register": "1d362cac600402a9115d698c9373ac1823e13f7422711cd9ad0b80540a115fda",
     "core/t64_rdp.c :: t64_rdp_reset_machine_state": "b18b1126b2bddb74b4ba5d0162dda1742d897c06d397972ed62adda0472be8cb",
     "core/t64_rdp.c :: t64_rdp_write_register": "53b44012b22a3f9e90d76a0b6794406375bde7f973f3ce3ea8cc894df24d8a8e",
     "core/t64_rdp.c :: texture_rect_bounds": "3e8cf320ead70529f470b0ecd7e7ee304e49b7f78465a143e6ca0127e9d4087f",
     "core/t64_rdp.c :: validate_fill_store": "9d61bf40eba5de3b1df97e6d60df96ecc1e20909d62a255e21a837dbbe43f0a0",
     "core/t64_rdp.c :: write_be16": "145a18aff31ba9937039922fe81436defa1f931f61f369bba1ba557a9bd4772a",
+    "core/t64_rdp_raster.c :: decode_edges": "5c88d5401deeb0f45be0f9228397c9a53043f2f80494bd021a793c2799c26c23",
+    "core/t64_rdp_raster.c :: floor_div_i64": "7da65f0daca4a086ea1d8f889a0e006fc86a78dd674d556b735bafc8b2626ecd",
+    "core/t64_rdp_raster.c :: magnitude_i64": "c2c067fb88a91c3dbda8cea9f8f3199759de7d5737eef061e0bd2290489735d7",
+    "core/t64_rdp_raster.c :: pair_q16": "56024955567f7f18bb7163400af9d016d94c98ef3ee1757cbfc75ccca1ab0a5c",
+    "core/t64_rdp_raster.c :: rgba5551": "81db13760bb36f530b28c2a5740fc826f89a7abe4094bcd4cb98979cf21960cc",
+    "core/t64_rdp_raster.c :: shade_channel": "ffc805ab7a8a313f037ccecd916c12f6c05623fbe0904620a98824b218ce112d",
+    "core/t64_rdp_raster.c :: shade_products_are_bounded": "549ce18093aae7fa97bc8d2671b20f84a3af6fe7930d7d0fff32b914b4a421e7",
+    "core/t64_rdp_raster.c :: sign_extend_u14": "4c60f2c84b607ddec9ccfa10319406dd75b180450d224ac17cc6fedc1b45dadb",
+    "core/t64_rdp_raster.c :: signed_u32": "83179d57b15375b137c8e01de5374b4b027c396644745b06e8f4b984c817bebd",
+    "core/t64_rdp_raster.c :: t64_rdp_triangle_bounds": "75f9a09253ee0e8f2f0133f51c26445fb36876f4633f6a448c3501c45d1837dd",
+    "core/t64_rdp_raster.c :: t64_rdp_triangle_render_row": "79b98e24eb8147ec520cab06ba9cadeda9e35bbd20d989ca5c44576283547c5d",
+    "core/t64_rdp_raster.c :: t64_rdp_triangle_word_count": "9c4ba2233607144ba272f851462678760aae1ad6e24cd2b2fa635d24ebdf272c",
     "core/t64_rdp_tmem.c :: apply_load_block": "9a1e6035fe42bc1d6fe4fb9c98501d61b82894b6dc155fcc524c73f486547b7a",
     "core/t64_rdp_tmem.c :: apply_load_tile": "92d546a7231010976364a0eedf4b1005493cb1030985a31707b723a5bb2c91b5",
     "core/t64_rdp_tmem.c :: apply_load_tlut": "60fd5c460b216b64f4d04b36cb2960f33204c95398c04542a668948eb95f4ca7",
@@ -466,21 +488,25 @@ def _check_source_route(root: pathlib.Path) -> tuple[list[str], list[str], int]:
     rsp_path = root / "core" / "t64_rsp.c"
     sp_path = root / "core" / "t64_sp.c"
     rdp_path = root / "core" / "t64_rdp.c"
+    raster_path = root / "core" / "t64_rdp_raster.c"
     tmem_path = root / "core" / "t64_rdp_tmem.c"
     vi_path = root / "core" / "t64_vi.c"
     bus_path = root / "core" / "t64_bus.c"
     if not all(
         path.is_file()
-        for path in (rsp_path, sp_path, rdp_path, tmem_path, vi_path, bus_path)
+        for path in (
+            rsp_path, sp_path, rdp_path, raster_path, tmem_path, vi_path, bus_path
+        )
     ):
         findings.append(
-            "canonical RSP/SP/RDP/TMEM/VI source is missing from the reviewed production set"
+            "canonical RSP/SP/RDP/raster/TMEM/VI source is missing from the reviewed production set"
         )
         return findings, evidence, len(softfloat)
 
     rsp = strip_c_comments_and_literals(rsp_path.read_text(encoding="utf-8"))
     sp = strip_c_comments_and_literals(sp_path.read_text(encoding="utf-8"))
     rdp = strip_c_comments_and_literals(rdp_path.read_text(encoding="utf-8"))
+    raster = strip_c_comments_and_literals(raster_path.read_text(encoding="utf-8"))
     tmem = strip_c_comments_and_literals(tmem_path.read_text(encoding="utf-8"))
     vi = strip_c_comments_and_literals(vi_path.read_text(encoding="utf-8"))
     bus = strip_c_comments_and_literals(bus_path.read_text(encoding="utf-8"))
@@ -491,6 +517,14 @@ def _check_source_route(root: pathlib.Path) -> tuple[list[str], list[str], int]:
         unexpected = sorted(rdp_function_names - REVIEWED_RDP_FUNCTIONS)
         findings.append(
             "core/t64_rdp.c: reviewed RDP function inventory changed; "
+            f"missing={missing!r} unexpected={unexpected!r}"
+        )
+    raster_function_names = file_function_names(raster)
+    if raster_function_names != REVIEWED_RDP_RASTER_FUNCTIONS:
+        missing = sorted(REVIEWED_RDP_RASTER_FUNCTIONS - raster_function_names)
+        unexpected = sorted(raster_function_names - REVIEWED_RDP_RASTER_FUNCTIONS)
+        findings.append(
+            "core/t64_rdp_raster.c: reviewed triangle raster function inventory changed; "
             f"missing={missing!r} unexpected={unexpected!r}"
         )
     tmem_function_names = file_function_names(tmem)
@@ -563,6 +597,8 @@ def _check_source_route(root: pathlib.Path) -> tuple[list[str], list[str], int]:
         routes[f"core/t64_sp.c :: {name}"] = function_body(sp, name)
     for name in REVIEWED_RDP_FUNCTIONS:
         routes[f"core/t64_rdp.c :: {name}"] = function_body(rdp, name)
+    for name in REVIEWED_RDP_RASTER_FUNCTIONS:
+        routes[f"core/t64_rdp_raster.c :: {name}"] = function_body(raster, name)
     for name in REVIEWED_RDP_TMEM_FUNCTIONS:
         routes[f"core/t64_rdp_tmem.c :: {name}"] = function_body(tmem, name)
     for name in REVIEWED_VI_FUNCTIONS:
@@ -653,6 +689,20 @@ def _check_source_route(root: pathlib.Path) -> tuple[list[str], list[str], int]:
     ):
         findings.append(
             "core/t64_rdp.c :: apply_pending_command: fetched texture commands bypass TMEM validation/effect route"
+        )
+    if "t64_rdp_triangle_bounds" not in pending_body:
+        findings.append(
+            "core/t64_rdp.c :: apply_pending_command: triangle commands bypass preflight bounds"
+        )
+    row_body = routes["core/t64_rdp.c :: handle_row"] or ""
+    if "t64_rdp_triangle_render_row" not in row_body:
+        findings.append(
+            "core/t64_rdp.c :: handle_row: triangle row effects bypass the canonical raster module"
+        )
+    fetch_body = routes["core/t64_rdp.c :: t64_rdp_event"] or ""
+    if "t64_rdp_triangle_word_count" not in fetch_body:
+        findings.append(
+            "core/t64_rdp.c :: t64_rdp_event: triangle packets bypass full-length fetch validation"
         )
 
     for label in (
@@ -828,6 +878,9 @@ def _check_build_route(root: pathlib.Path, build: pathlib.Path) -> tuple[list[st
                     )
 
     rsp_object = build / "core" / "CMakeFiles" / "t64_core.dir" / "t64_rsp.c.o"
+    raster_object = (
+        build / "core" / "CMakeFiles" / "t64_core.dir" / "t64_rdp_raster.c.o"
+    )
     nm = shutil.which("nm")
     if not rsp_object.is_file():
         findings.append("build/core/CMakeFiles/t64_core.dir/t64_rsp.c.o: canonical RSP object is missing")
@@ -857,12 +910,50 @@ def _check_build_route(root: pathlib.Path, build: pathlib.Path) -> tuple[list[st
                 findings.append(
                     f"build/core/CMakeFiles/t64_core.dir/t64_rsp.c.o: required canonical symbol {symbol} is absent"
                 )
+    if not raster_object.is_file():
+        findings.append(
+            "build/core/CMakeFiles/t64_core.dir/t64_rdp_raster.c.o: canonical triangle raster object is missing"
+        )
+    elif nm is None:
+        findings.append("build route: `nm` unavailable for triangle raster object inspection")
+    else:
+        result = subprocess.run(
+            [nm, "-a", str(raster_object)],
+            check=False,
+            capture_output=True,
+            text=True,
+            timeout=10,
+        )
+        symbols = set()
+        if result.returncode == 0:
+            for line in result.stdout.splitlines():
+                pieces = line.split()
+                if pieces:
+                    symbol = pieces[-1]
+                    while symbol.startswith("_"):
+                        symbol = symbol[1:]
+                    symbols.add(symbol)
+        else:
+            findings.append(
+                "build/core/CMakeFiles/t64_core.dir/t64_rdp_raster.c.o: nm inspection failed"
+            )
+        for symbol in (
+            "t64_rdp_triangle_bounds",
+            "t64_rdp_triangle_render_row",
+            "t64_rdp_triangle_word_count",
+        ):
+            if symbol not in symbols:
+                findings.append(
+                    "build/core/CMakeFiles/t64_core.dir/t64_rdp_raster.c.o: "
+                    f"required canonical symbol {symbol} is absent"
+                )
     if not findings:
         evidence.extend(
             [
                 f"build/build.ninja :: core/libt64_core.a contains {len(expected)} reviewed source-object edges",
                 "build/core/libt64_core.a :: archive member list matches the source-object edges",
                 "build/core/CMakeFiles/t64_core.dir/t64_rsp.c.o :: nm contains t64_rsp_issue_event, t64_rsp_ensure_opportunity, t64_rsp_start",
+                "build/core/CMakeFiles/t64_core.dir/t64_rdp_raster.c.o :: nm contains triangle bounds, row and packet-length entry points",
             ]
         )
     return findings, evidence

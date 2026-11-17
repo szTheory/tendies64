@@ -8,7 +8,8 @@
 #include "t64_test.h"
 #include "tendies64/t64_machine.h"
 
-#define TRIANGLE_PROFILE_ID "ntsc-cart-4m-openipl3-rdram-b-t1-rdp-vi-v2"
+#define TRIANGLE_PROFILE_ID \
+  "ntsc-cart-4m-openipl3-rdram-b-t1-rdp-triangle-v3"
 #define TEST_ROM_CAPACITY 65536u
 #define COMMAND_ADDRESS UINT32_C(0x100)
 #define FRAMEBUFFER_ADDRESS UINT32_C(0x5000)
@@ -37,7 +38,7 @@ static void test_release(void *context, t64_host_storage storage) {
   free(storage.data);
 }
 
-static t64_machine *create_authored_machine(void) {
+static t64_machine *create_authored_machine_for(const char *profile_id) {
   const t64_host_allocator allocator = {test_allocate, test_release, NULL};
   const char *path = getenv("T64_TEST_RDP_FILL_PATH");
   const t64_profile_descriptor *profile = NULL;
@@ -59,7 +60,7 @@ static t64_machine *create_authored_machine(void) {
   }
   T64_CHECK(fread(rom, 1u, (size_t)length, file) == (size_t)length);
   T64_CHECK(fclose(file) == 0);
-  T64_CHECK_INT(t64_profile_lookup(TRIANGLE_PROFILE_ID, &profile),
+  T64_CHECK_INT(t64_profile_lookup(profile_id, &profile),
                 T64_STATUS_OK);
   T64_CHECK(profile != NULL);
   if (profile == NULL) return NULL;
@@ -69,6 +70,10 @@ static t64_machine *create_authored_machine(void) {
   T64_CHECK_INT(t64_machine_admit_rom(machine, rom, (size_t)length),
                 T64_STATUS_OK);
   return machine;
+}
+
+static t64_machine *create_authored_machine(void) {
+  return create_authored_machine_for(TRIANGLE_PROFILE_ID);
 }
 
 static void write_be64(uint8_t *bytes, uint64_t value) {
@@ -127,12 +132,13 @@ static void case_triangle_edge_interior_outside(void) {
       UINT64_C(0x2d00000000020020), /* scissor [0,8) x [0,8) */
       UINT64_C(0x2f00000000000000), /* explicitly select 1-cycle mode */
       UINT64_C(0x3700000007c107c1), /* nonzero green fill register control */
+      UINT64_C(0x3a00000000ff00ff), /* primitive green, alpha one */
       UINT64_C(0x08000014000c0004), /* Edge W0: YL=5, YM=3, YH=1 */
       UINT64_C(0x00010000fffe8000), /* W1: XL=1, DxLDy=-1.5 */
       UINT64_C(0x0001000000000000), /* W2: XH=1, DxHDy=0 */
       UINT64_C(0x0004000000018000), /* W3: XM=4, DxMDy=+1.5 */
   };
-  static const uint8_t primitive_default_pixel[] = {0x00u, 0x00u};
+  static const uint8_t primitive_pixel[] = {0x07u, 0xc1u};
   static const uint8_t untouched_pixel[] = {0xa5u, 0xa5u};
   const uint64_t raw_w0 = UINT64_C(0x08000014000c0004);
   const uint64_t raw_w1 = UINT64_C(0x00010000fffe8000);
@@ -157,11 +163,378 @@ static void case_triangle_edge_interior_outside(void) {
   T64_CHECK(machine->rdp.last_original_word == raw_w0);
   inside = framebuffer_pixel(1u, 2u);
   outside = framebuffer_pixel(5u, 2u);
-  T64_CHECK(memcmp(machine->ram + inside, primitive_default_pixel,
-                   sizeof primitive_default_pixel) == 0);
+  T64_CHECK(memcmp(machine->ram + inside, primitive_pixel,
+                   sizeof primitive_pixel) == 0);
   T64_CHECK(memcmp(machine->ram + outside, untouched_pixel,
                    sizeof untouched_pixel) == 0);
   t64_machine_destroy(machine);
+}
+
+static void case_triangle_shade_signed_dx(void) {
+  static const uint64_t commands[] = {
+      UINT64_C(0x3f10000700005000), UINT64_C(0x2d00000000020020),
+      UINT64_C(0x2f00000000000000), UINT64_C(0x0c000014000c0004),
+      UINT64_C(0x00010000fffe8000), UINT64_C(0x0001000000000000),
+      UINT64_C(0x0004000000018000), UINT64_C(0x00ff0000000000ff),
+      UINT64_C(0xffe0000000000000), UINT64_C(0), UINT64_C(0),
+      UINT64_C(0), UINT64_C(0), UINT64_C(0), UINT64_C(0),
+  };
+  static const uint8_t expected[] = {0xe8u, 0x01u};
+  t64_machine *machine = create_authored_machine();
+  uint32_t inside = framebuffer_pixel(1u, 2u);
+  if (machine == NULL) return;
+  T64_CHECK_INT((commands[3] >> 56) & UINT64_C(0x3f), UINT64_C(0x0c));
+  T64_CHECK_INT((commands[7] >> 48) & UINT64_C(0xffff), UINT64_C(0x00ff));
+  T64_CHECK_INT((commands[8] >> 48) & UINT64_C(0xffff), UINT64_C(0xffe0));
+  T64_CHECK(run_commands(machine, commands,
+                         sizeof commands / sizeof commands[0]));
+  T64_CHECK_INT(machine->rdp.refusal_reason, T64_RDP_REFUSAL_NONE);
+  T64_CHECK(memcmp(machine->ram + inside, expected, sizeof expected) == 0);
+  t64_machine_destroy(machine);
+}
+
+static void case_triangle_right_major_and_negative_x(void) {
+  static const uint64_t right_major[] = {
+      UINT64_C(0x3f10000700005000), UINT64_C(0x2d00000000020020),
+      UINT64_C(0x2f00000000000000), UINT64_C(0x3a00000000ff00ff),
+      UINT64_C(0x08800014000c0004), UINT64_C(0x0004000000018000),
+      UINT64_C(0x0004000000000000), UINT64_C(0x00010000fffe8000),
+  };
+  static const uint64_t negative_x[] = {
+      UINT64_C(0x3f10000700005000), UINT64_C(0x2d00000000020020),
+      UINT64_C(0x2f00000000000000), UINT64_C(0x3a00000000ff00ff),
+      UINT64_C(0x08000014000c0004), UINT64_C(0xffff000000018000),
+      UINT64_C(0xffff000000000000), UINT64_C(0x0002000000018000),
+  };
+  static const uint8_t green[] = {0x07u, 0xc1u};
+  t64_machine *machine = create_authored_machine();
+  if (machine == NULL) return;
+  T64_CHECK(run_commands(machine, right_major,
+                         sizeof right_major / sizeof right_major[0]));
+  T64_CHECK_INT(machine->rdp.refusal_reason, T64_RDP_REFUSAL_NONE);
+  T64_CHECK(memcmp(machine->ram + framebuffer_pixel(2u, 2u), green,
+                   sizeof green) == 0);
+  T64_CHECK(run_commands(machine, negative_x,
+                         sizeof negative_x / sizeof negative_x[0]));
+  T64_CHECK_INT(machine->rdp.refusal_reason, T64_RDP_REFUSAL_NONE);
+  T64_CHECK(memcmp(machine->ram + framebuffer_pixel(0u, 2u), green,
+                   sizeof green) == 0);
+  t64_machine_destroy(machine);
+}
+
+static void case_triangle_degenerate_and_old_profile_refusal(void) {
+  static const uint64_t degenerate[] = {
+      UINT64_C(0x3f10000700005000), UINT64_C(0x2d00000000020020),
+      UINT64_C(0x2f00000000000000), UINT64_C(0x3a00000000ff00ff),
+      UINT64_C(0x0800000400040004), UINT64_C(0x0001000000000000),
+      UINT64_C(0x0001000000000000), UINT64_C(0x0001000000000000),
+  };
+  static const uint64_t old_profile[] = {
+      UINT64_C(0x3f10000700005000), UINT64_C(0x2d00000000020020),
+      UINT64_C(0x2f00000000000000), UINT64_C(0x3700000007c107c1),
+      UINT64_C(0x08000014000c0004), UINT64_C(0x00010000fffe8000),
+      UINT64_C(0x0001000000000000), UINT64_C(0x0004000000018000),
+  };
+  static const uint8_t untouched[] = {0xa5u, 0xa5u};
+  t64_machine *machine = create_authored_machine();
+  if (machine == NULL) return;
+  T64_CHECK(run_commands(machine, degenerate,
+                         sizeof degenerate / sizeof degenerate[0]));
+  T64_CHECK_INT(machine->rdp.refusal_reason, T64_RDP_REFUSAL_NONE);
+  T64_CHECK(memcmp(machine->ram + framebuffer_pixel(1u, 2u), untouched,
+                   sizeof untouched) == 0);
+  t64_machine_destroy(machine);
+
+  machine = create_authored_machine_for(
+      "ntsc-cart-4m-openipl3-rdram-b-t1-rdp-vi-v2");
+  if (machine == NULL) return;
+  T64_CHECK(run_commands(machine, old_profile,
+                         sizeof old_profile / sizeof old_profile[0]));
+  T64_CHECK_INT(machine->rdp.refusal_reason,
+                T64_RDP_REFUSAL_UNSUPPORTED_OPCODE);
+  T64_CHECK_INT(machine->rdp.last_opcode_field, UINT32_C(0x08));
+  T64_CHECK(machine->rdp.last_original_word == old_profile[4]);
+  T64_CHECK_INT(machine->rdp.dpc_current, COMMAND_ADDRESS + UINT32_C(32));
+  T64_CHECK(memcmp(machine->ram + framebuffer_pixel(1u, 2u), untouched,
+                   sizeof untouched) == 0);
+  t64_machine_destroy(machine);
+}
+
+static void case_triangle_shared_edge_complementary_samples(void) {
+  static const uint64_t lower_right[] = {
+      UINT64_C(0x3f10000700005000), UINT64_C(0x2d0000000000c00c),
+      UINT64_C(0x2f00000000000000), UINT64_C(0x3a00000000ff00ff),
+      UINT64_C(0x0800001400040004), UINT64_C(0x0005000000000000),
+      UINT64_C(0x0001000000010000), UINT64_C(0x0005000000000000),
+  };
+  static const uint64_t upper_left[] = {
+      UINT64_C(0x3f10000700005000), UINT64_C(0x2d0000000000c00c),
+      UINT64_C(0x2f00000000000000), UINT64_C(0x3a00000000ff00ff),
+      UINT64_C(0x0880001400040004), UINT64_C(0x0001000000000000),
+      UINT64_C(0x0001000000010000), UINT64_C(0x0001000000000000),
+  };
+  t64_machine *machine = create_authored_machine();
+  uint16_t right_mask;
+  uint16_t left_mask;
+  if (machine == NULL) return;
+  T64_CHECK(run_commands(machine, lower_right,
+                         sizeof lower_right / sizeof lower_right[0]));
+  T64_CHECK_INT(machine->rdp.refusal_reason, T64_RDP_REFUSAL_NONE);
+  T64_CHECK_INT(machine->rdp.triangle_last_coverage_x, 2u);
+  T64_CHECK_INT(machine->rdp.triangle_last_coverage_y, 2u);
+  right_mask = machine->rdp.triangle_last_coverage_mask;
+  T64_CHECK(run_commands(machine, upper_left,
+                         sizeof upper_left / sizeof upper_left[0]));
+  T64_CHECK_INT(machine->rdp.refusal_reason, T64_RDP_REFUSAL_NONE);
+  left_mask = machine->rdp.triangle_last_coverage_mask;
+  T64_CHECK((right_mask & left_mask) == 0u);
+  T64_CHECK((uint16_t)(right_mask | left_mask) == UINT16_MAX);
+  T64_CHECK_INT(machine->rdp_triangle_coverage[
+                    2u * T64_RDP_TRIANGLE_COVERAGE_WIDTH + 2u],
+                UINT16_MAX);
+  t64_machine_destroy(machine);
+}
+
+static void case_triangle_single_sample_and_max_extent(void) {
+  static const uint64_t single_sample[] = {
+      UINT64_C(0x3f10000700005000), UINT64_C(0x2d00000000004004),
+      UINT64_C(0x2f00000000000000), UINT64_C(0x3a00000000ff00ff),
+      UINT64_C(0x0800000200020001), UINT64_C(0x0000800000000000),
+      UINT64_C(0x0000800000000000), UINT64_C(0x0000e00000018000),
+  };
+  static const uint8_t green[] = {0x07u, 0xc1u};
+  static const uint64_t max_extent[] = {
+      UINT64_C(0x3f1003ff00005000), UINT64_C(0x2d00000000ffc004),
+      UINT64_C(0x2f00000000000000), UINT64_C(0x3a00000000ff00ff),
+      UINT64_C(0x0800000400000000), UINT64_C(0x0400000000000000),
+      UINT64_C(0x0000000000000000), UINT64_C(0x0400000000000000),
+  };
+  t64_machine *machine = create_authored_machine();
+  if (machine == NULL) return;
+  T64_CHECK(run_commands(machine, single_sample,
+                         sizeof single_sample / sizeof single_sample[0]));
+  T64_CHECK_INT(machine->rdp.refusal_reason, T64_RDP_REFUSAL_NONE);
+  T64_CHECK_INT(machine->rdp.triangle_last_coverage_mask, UINT16_C(0x0040));
+  T64_CHECK_INT(machine->rdp_triangle_coverage[0], UINT16_C(0x0040));
+  T64_CHECK(memcmp(machine->ram + framebuffer_pixel(0u, 0u), green,
+                   sizeof green) == 0);
+  t64_machine_destroy(machine);
+
+  /* The widest legal color image is clipped by the largest representable
+   * scissor endpoint; the final visible pixel must stay inside RDRAM. */
+  machine = create_authored_machine();
+  if (machine == NULL) return;
+  T64_CHECK(run_commands(machine, max_extent,
+                         sizeof max_extent / sizeof max_extent[0]));
+  T64_CHECK_INT(machine->rdp.refusal_reason, T64_RDP_REFUSAL_NONE);
+  T64_CHECK(memcmp(machine->ram + UINT32_C(0x5000) + 1022u * 2u, green,
+                   sizeof green) == 0);
+  t64_machine_destroy(machine);
+}
+
+static void case_triangle_coverage_state_digest_reset_isolation(void) {
+  static const uint64_t single_sample[] = {
+      UINT64_C(0x3f10000700005000), UINT64_C(0x2d00000000004004),
+      UINT64_C(0x2f00000000000000), UINT64_C(0x3a00000000ff00ff),
+      UINT64_C(0x0800000200020001), UINT64_C(0x0000800000000000),
+      UINT64_C(0x0000800000000000), UINT64_C(0x0000e00000018000),
+  };
+  t64_machine *machine_a = create_authored_machine();
+  t64_machine *machine_b = create_authored_machine();
+  uint8_t digest_before[T64_DIGEST_SIZE];
+  uint8_t digest_after_render[T64_DIGEST_SIZE];
+  uint8_t digest_after_plane_edit[T64_DIGEST_SIZE];
+  uint8_t digest_b[T64_DIGEST_SIZE];
+  uint8_t *rom_copy = NULL;
+  size_t image_length;
+
+  if (machine_a == NULL || machine_b == NULL) {
+    t64_machine_destroy(machine_a);
+    t64_machine_destroy(machine_b);
+    return;
+  }
+  T64_CHECK(machine_a->rdp_triangle_coverage != NULL);
+  T64_CHECK(machine_b->rdp_triangle_coverage != NULL);
+  T64_CHECK(machine_a->rdp_triangle_coverage !=
+            machine_b->rdp_triangle_coverage);
+  T64_CHECK_INT(machine_a->rdp_triangle_coverage[0], 0u);
+  T64_CHECK_INT(machine_b->rdp_triangle_coverage[0], 0u);
+  T64_CHECK_INT(t64_machine_digest(machine_a, digest_before), T64_STATUS_OK);
+  T64_CHECK_INT(t64_machine_digest(machine_b, digest_b), T64_STATUS_OK);
+  T64_CHECK(memcmp(digest_before, digest_b, sizeof digest_before) == 0);
+
+  T64_CHECK(run_commands(machine_a, single_sample,
+                         sizeof single_sample / sizeof single_sample[0]));
+  T64_CHECK_INT(machine_a->rdp_triangle_coverage[0], UINT16_C(0x0040));
+  T64_CHECK_INT(machine_b->rdp_triangle_coverage[0], 0u);
+  T64_CHECK_INT(t64_machine_digest(machine_a, digest_after_render),
+                T64_STATUS_OK);
+  machine_a->rdp_triangle_coverage[1234u] = UINT16_C(0x8001);
+  T64_CHECK_INT(t64_machine_digest(machine_a, digest_after_plane_edit),
+                T64_STATUS_OK);
+  T64_CHECK(memcmp(digest_after_render, digest_after_plane_edit,
+                   sizeof digest_after_render) != 0);
+  T64_CHECK_INT(t64_machine_digest(machine_b, digest_b), T64_STATUS_OK);
+  T64_CHECK(memcmp(digest_before, digest_b, sizeof digest_before) == 0);
+
+  image_length = machine_a->image_length;
+  rom_copy = (uint8_t *)malloc(image_length);
+  T64_CHECK(rom_copy != NULL);
+  if (rom_copy != NULL) {
+    (void)memcpy(rom_copy, machine_a->image_storage.data, image_length);
+    T64_CHECK_INT(t64_machine_admit_rom(machine_a, rom_copy, image_length),
+                  T64_STATUS_OK);
+    T64_CHECK_INT(machine_a->rdp_triangle_coverage[0], 0u);
+    T64_CHECK_INT(machine_a->rdp_triangle_coverage[1234u], 0u);
+    T64_CHECK_INT(t64_machine_digest(machine_a, digest_after_plane_edit),
+                  T64_STATUS_OK);
+    T64_CHECK(memcmp(digest_before, digest_after_plane_edit,
+                     sizeof digest_before) == 0);
+    free(rom_copy);
+  }
+  t64_machine_destroy(machine_a);
+  t64_machine_destroy(machine_b);
+}
+
+static void case_triangle_extreme_coefficients_and_order(void) {
+  static const uint64_t extreme[] = {
+      UINT64_C(0x3f10000700005000), UINT64_C(0x2d00000000020020),
+      UINT64_C(0x2f00000000000000), UINT64_C(0x3a00000000ff00ff),
+      UINT64_C(0x0800000400003ffc), UINT64_C(0x7fffffff7fffffff),
+      UINT64_C(0x800000007fffffff), UINT64_C(0x7fffffff7fffffff),
+  };
+  static const uint64_t overlap[] = {
+      UINT64_C(0x3f10000700005000), UINT64_C(0x2d00000000020020),
+      UINT64_C(0x2f00000000000000), UINT64_C(0x3a00000000ff00ff),
+      UINT64_C(0x08000014000c0004), UINT64_C(0x00010000fffe8000),
+      UINT64_C(0x0001000000000000), UINT64_C(0x0004000000018000),
+      UINT64_C(0x3a000000ff0000ff),
+      UINT64_C(0x08000014000c0004), UINT64_C(0x00010000fffe8000),
+      UINT64_C(0x0001000000000000), UINT64_C(0x0004000000018000),
+  };
+  static const uint8_t red[] = {0xf8u, 0x01u};
+  static const uint8_t untouched[] = {0xa5u, 0xa5u};
+  t64_machine *machine = create_authored_machine();
+  if (machine == NULL) return;
+  T64_CHECK(run_commands(machine, extreme,
+                         sizeof extreme / sizeof extreme[0]));
+  T64_CHECK_INT(machine->rdp.refusal_reason, T64_RDP_REFUSAL_NONE);
+  T64_CHECK(memcmp(machine->ram + framebuffer_pixel(1u, 2u), untouched,
+                   sizeof untouched) == 0);
+  T64_CHECK(run_commands(machine, overlap,
+                         sizeof overlap / sizeof overlap[0]));
+  T64_CHECK_INT(machine->rdp.refusal_reason, T64_RDP_REFUSAL_NONE);
+  T64_CHECK(memcmp(machine->ram + framebuffer_pixel(1u, 2u), red,
+                   sizeof red) == 0);
+  t64_machine_destroy(machine);
+}
+
+static void case_triangle_shade_overflow_preflight(void) {
+  static const uint64_t commands[] = {
+      UINT64_C(0x3f10000700005000), UINT64_C(0x2d00000000020020),
+      UINT64_C(0x2f00000000000000), UINT64_C(0x0c000014000c0004),
+      UINT64_C(0x00010000fffe8000), UINT64_C(0x0001000000000000),
+      UINT64_C(0x0004000000018000), UINT64_C(0),
+      UINT64_C(0x8000000000000000), UINT64_C(0), UINT64_C(0),
+      UINT64_C(0), UINT64_C(0), UINT64_C(0), UINT64_C(0),
+  };
+  static const uint8_t untouched[] = {0xa5u, 0xa5u};
+  t64_machine *machine = create_authored_machine();
+  if (machine == NULL) return;
+  T64_CHECK(run_commands(machine, commands,
+                         sizeof commands / sizeof commands[0]));
+  T64_CHECK_INT(machine->rdp.refusal_reason, T64_RDP_REFUSAL_RENDER_RANGE);
+  T64_CHECK_INT(machine->rdp.dpc_current, COMMAND_ADDRESS + UINT32_C(24));
+  T64_CHECK(memcmp(machine->ram + framebuffer_pixel(1u, 2u), untouched,
+                   sizeof untouched) == 0);
+  t64_machine_destroy(machine);
+}
+
+static void case_triangle_composite_lengths_and_truncations(void) {
+  static const uint32_t opcodes[] = {0x08u, 0x09u, 0x0au, 0x0bu,
+                                     0x0cu, 0x0du, 0x0eu, 0x0fu};
+  static const size_t lengths[] = {4u, 6u, 12u, 14u, 12u, 14u, 20u, 22u};
+  static const size_t group_prefixes[8][4] = {
+      {3u, 0u, 0u, 0u}, {3u, 5u, 0u, 0u},
+      {3u, 11u, 0u, 0u}, {3u, 11u, 13u, 0u},
+      {3u, 11u, 0u, 0u}, {3u, 11u, 13u, 0u},
+      {3u, 11u, 19u, 0u}, {3u, 11u, 19u, 21u},
+  };
+  static const size_t group_counts[] = {1u, 2u, 2u, 3u, 2u, 3u, 3u, 4u};
+  size_t i;
+
+  for (i = 0u; i < sizeof opcodes / sizeof opcodes[0]; i++) {
+    size_t boundary;
+    T64_CHECK(lengths[i] == t64_rdp_triangle_word_count(opcodes[i]));
+    for (boundary = 0u; boundary < group_counts[i]; boundary++) {
+      uint64_t commands[3u + T64_RDP_TRIANGLE_MAX_WORDS] = {
+          UINT64_C(0x3f10000700005000), UINT64_C(0x2d00000000020020),
+          UINT64_C(0x2f00000000000000),
+      };
+      size_t j;
+      size_t packet_words = group_prefixes[i][boundary];
+      size_t count = 3u + packet_words;
+      t64_machine *machine;
+      commands[3] = ((uint64_t)opcodes[i] << 56) |
+                    UINT64_C(0x000014000c0004);
+      for (j = 4u; j < count; j++)
+        commands[j] = UINT64_C(0x1111111111111111) * (uint64_t)(j - 3u);
+      machine = create_authored_machine();
+      if (machine == NULL) return;
+      T64_CHECK(run_commands(machine, commands, count));
+      T64_CHECK_INT(machine->rdp.refusal_reason,
+                    T64_RDP_REFUSAL_TRUNCATED_WORD);
+      T64_CHECK_INT(machine->rdp.dpc_current,
+                    COMMAND_ADDRESS + UINT32_C(24));
+      T64_CHECK(memcmp(machine->ram + framebuffer_pixel(1u, 2u),
+                       (const uint8_t[]){0xa5u, 0xa5u}, 2u) == 0);
+      t64_machine_destroy(machine);
+    }
+  }
+
+  {
+    uint64_t commands[3u + T64_RDP_TRIANGLE_MAX_WORDS] = {
+        UINT64_C(0x3f10000700005000), UINT64_C(0x2d00000000020020),
+        UINT64_C(0x2f00000000000000),
+    };
+    t64_machine *machine;
+    commands[3] = UINT64_C(0x0e000014000c0004);
+    for (i = 4u; i < 3u + lengths[6]; i++)
+      commands[i] = UINT64_C(0x2222222222222222) * (uint64_t)(i - 3u);
+    machine = create_authored_machine();
+    if (machine == NULL) return;
+    T64_CHECK(run_commands(machine, commands, 3u + lengths[6]));
+    T64_CHECK_INT(machine->rdp.refusal_reason,
+                  T64_RDP_REFUSAL_UNSUPPORTED_OPCODE);
+    T64_CHECK_INT(machine->rdp.dpc_current,
+                  COMMAND_ADDRESS + UINT32_C(24));
+    T64_CHECK(memcmp(machine->ram + framebuffer_pixel(1u, 2u),
+                     (const uint8_t[]){0xa5u, 0xa5u}, 2u) == 0);
+    t64_machine_destroy(machine);
+  }
+
+  {
+    uint64_t commands[] = {
+        UINT64_C(0x3f10000700005000), UINT64_C(0x2d00000000020020),
+        UINT64_C(0x2f00000000000000), UINT64_C(0x3a00000000ff00ff),
+        UINT64_C(0x08000014000c0004), UINT64_C(0x00010000fffe8000),
+        UINT64_C(0x0001000000000000), UINT64_C(0x0004000000018000),
+        UINT64_C(0x0c000014000c0004), UINT64_C(0x00010000fffe8000),
+        UINT64_C(0x0001000000000000), UINT64_C(0x0004000000018000),
+        UINT64_C(0), UINT64_C(0), UINT64_C(0), UINT64_C(0),
+        UINT64_C(0), UINT64_C(0), UINT64_C(0),
+  };
+    t64_machine *machine = create_authored_machine();
+    if (machine == NULL) return;
+    T64_CHECK(run_commands(machine, commands,
+                           sizeof commands / sizeof commands[0]));
+    T64_CHECK_INT(machine->rdp.refusal_reason,
+                  T64_RDP_REFUSAL_TRUNCATED_WORD);
+    T64_CHECK_INT(machine->rdp.dpc_current, COMMAND_ADDRESS + UINT32_C(64));
+    T64_CHECK(memcmp(machine->ram + framebuffer_pixel(1u, 2u),
+                     (const uint8_t[]){0x07u, 0xc1u}, 2u) == 0);
+    t64_machine_destroy(machine);
+  }
 }
 
 typedef struct {
@@ -171,6 +544,23 @@ typedef struct {
 
 static const test_case cases[] = {
     {"triangle-edge-interior-outside", case_triangle_edge_interior_outside},
+    {"triangle-shade-signed-dx", case_triangle_shade_signed_dx},
+    {"triangle-right-major-negative-x",
+     case_triangle_right_major_and_negative_x},
+    {"triangle-degenerate-old-profile-refusal",
+     case_triangle_degenerate_and_old_profile_refusal},
+    {"triangle-composite-length-truncation",
+     case_triangle_composite_lengths_and_truncations},
+    {"triangle-shared-edge-complementary-samples",
+     case_triangle_shared_edge_complementary_samples},
+    {"triangle-single-sample-max-extent",
+     case_triangle_single_sample_and_max_extent},
+    {"triangle-extreme-coefficients-overlap-order",
+     case_triangle_extreme_coefficients_and_order},
+    {"triangle-shade-overflow-preflight",
+     case_triangle_shade_overflow_preflight},
+    {"triangle-coverage-state-digest-reset-isolation",
+     case_triangle_coverage_state_digest_reset_isolation},
 };
 
 int main(int argc, char **argv) {
