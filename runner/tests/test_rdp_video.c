@@ -448,6 +448,99 @@ static bool observation_baseline(const t64_video_observation *actual) {
   return true;
 }
 
+static bool write_export_file(const char *path, const uint8_t *bytes,
+                              size_t length) {
+  int fd;
+  size_t offset = 0u;
+  if (path == NULL || bytes == NULL || length == 0u) return false;
+  fd = open(path, O_WRONLY | O_CREAT | O_EXCL, 0600);
+  if (fd < 0) return false;
+  while (offset < length) {
+    ssize_t count = write(fd, bytes + offset, length - offset);
+    if (count < 0 && errno == EINTR) continue;
+    if (count <= 0) {
+      (void)close(fd);
+      return false;
+    }
+    offset += (size_t)count;
+  }
+  return close(fd) == 0;
+}
+
+/* This export is test-only and can only run after the normal accepted case has
+ * exercised the real supervisor, guest, bus reads, t64_video_copy and pixel
+ * comparator. Public output contains no local paths or private guest data. */
+static bool emit_actual_raw_export(const t64_video_observation *actual) {
+  const char *directory = getenv("T64_RDP_VI_EXPORT_DIR");
+  char source_path[1024];
+  char packet_path[1024];
+  char metadata_path[1024];
+  char metadata[4096];
+  int source_path_length;
+  int packet_path_length;
+  int metadata_path_length;
+  int metadata_length;
+  if (directory == NULL || directory[0] == '\0') return true;
+  source_path_length = snprintf(source_path, sizeof source_path,
+                                "%s/rdram.bin", directory);
+  packet_path_length = snprintf(packet_path, sizeof packet_path,
+                                "%s/vi-packet.bin", directory);
+  metadata_path_length = snprintf(metadata_path, sizeof metadata_path,
+                                  "%s/observation.json", directory);
+  if (source_path_length <= 0 || (size_t)source_path_length >= sizeof source_path ||
+      packet_path_length <= 0 || (size_t)packet_path_length >= sizeof packet_path ||
+      metadata_path_length <= 0 || (size_t)metadata_path_length >= sizeof metadata_path) {
+    return false;
+  }
+  metadata_length = snprintf(
+      metadata, sizeof metadata,
+      "{\"schema\":\"t64.rdp-vi-observation\",\"schema_version\":1,"
+      "\"fixture_id\":\"%s\",\"fixture_sha256\":\"%s\","
+      "\"input_sha256\":\"%s\",\"profile_id\":\"%s\","
+      "\"profile_sha256\":\"%s\",\"build_id\":\"%s\","
+      "\"vi_clock_policy\":\"%s\",\"width\":%u,\"height\":%u,"
+      "\"stride_bytes\":%u,\"source_address\":%u,\"source_format\":%u,"
+      "\"output_encoding\":%u,\"field\":%u,\"parity\":%u,"
+      "\"control\":%u,\"burst\":%u,\"h_sync\":%u,\"v_sync\":%u,"
+      "\"h_start\":%u,\"v_start\":%u,\"x_scale\":%u,\"y_scale\":%u,"
+      "\"source_bytes\":%u,\"packet_bytes\":%u,\"start_tick\":%llu,"
+      "\"end_tick\":%llu,\"sequence\":%llu,\"commands_completed\":%llu,"
+      "\"fullsync_completed\":%llu,\"last_command_word\":%llu,"
+      "\"fill_command_word\":%llu,\"last_command_byte\":%u,"
+      "\"last_opcode_field\":%u,\"fill_command_byte\":%u,"
+      "\"fill_opcode_field\":%u,\"dpc_current\":%u,\"dpc_end\":%u,"
+      "\"semantic_flags\":%u,\"mi_pending_before_clear\":%u,"
+      "\"mi_mask_before_clear\":%u,\"mi_pending_after_clear\":%u}\n",
+      FILL_FIXTURE_ID, FILL_FIXTURE_SHA256, INPUT_SHA256,
+      actual->profile_id, FILL_PROFILE_SHA256, actual->build_id,
+      actual->vi_clock_policy, actual->width, actual->height,
+      actual->stride_bytes, actual->source_address, actual->source_format,
+      actual->output_encoding, actual->field, actual->parity, actual->control,
+      actual->burst, actual->h_sync, actual->v_sync, actual->h_start,
+      actual->v_start, actual->x_scale, actual->y_scale,
+      actual->source_bytes, actual->packet_bytes,
+      (unsigned long long)actual->start_tick,
+      (unsigned long long)actual->end_tick,
+      (unsigned long long)actual->sequence,
+      (unsigned long long)actual->commands_completed,
+      (unsigned long long)actual->fullsync_completed,
+      (unsigned long long)actual->last_command_word,
+      (unsigned long long)actual->fill_command_word,
+      actual->last_command_byte, actual->last_opcode_field,
+      actual->fill_command_byte, actual->fill_opcode_field, actual->dpc_current,
+      actual->dpc_end, actual->semantic_flags,
+      actual->mi_pending_before_clear, actual->mi_mask_before_clear,
+      actual->mi_pending_after_clear);
+  if (metadata_length <= 0 || (size_t)metadata_length >= sizeof metadata ||
+      !write_export_file(source_path, actual->source, actual->source_bytes) ||
+      !write_export_file(packet_path, actual->packet, actual->packet_bytes) ||
+      !write_export_file(metadata_path, (const uint8_t *)metadata,
+                         (size_t)metadata_length)) {
+    return false;
+  }
+  return true;
+}
+
 static int run_case(test_case_id id, char *supervisor,
                     char *checker, char *fixture, char *input) {
   t64_video_observation actual = {0};
@@ -519,6 +612,10 @@ static int run_case(test_case_id id, char *supervisor,
                 actual.packet[i]);
         return 1;
       }
+    }
+    if (!emit_actual_raw_export(&actual)) {
+      fprintf(stderr, "could not export actual raw RDRAM/VI observation\n");
+      return 1;
     }
     return 0;
   }
