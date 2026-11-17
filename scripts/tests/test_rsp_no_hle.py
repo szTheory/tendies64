@@ -56,6 +56,7 @@ MUTATION_SEEDS = (
     "RDP fill production body mutation",
     "triangle raster production body mutation",
     "TMEM load production body mutation",
+    "triangle texture sample injected-effect mutation",
     "RDP raw copy-cycle body mutation",
     "missing TMEM object file",
     "missing triangle raster object file",
@@ -402,6 +403,28 @@ def _check_mutation_suite(temp_root: pathlib.Path) -> int:
         encoding="utf-8",
     )
     _must_reject("TMEM load production body mutation", source_root, build_root)
+    tmem_path.write_text(original_tmem, encoding="utf-8")
+    seeds_run += 1
+
+    sample_span = _function_definition_span(
+        original_tmem, "t64_rdp_tmem_triangle_pixel"
+    )
+    if sample_span is None:
+        raise AssertionError("triangle TMEM sampler mutation anchor no longer exists")
+    sample_at = original_tmem.index("{", sample_span[0]) + 1
+    sample_mutation = (
+        "\n  if (pixel_out != NULL) {\n"
+        "    *pixel_out = UINT16_C(0xffff);\n"
+        "    return true;\n"
+        "  }\n"
+    )
+    tmem_path.write_text(
+        original_tmem[:sample_at] + sample_mutation + original_tmem[sample_at:],
+        encoding="utf-8",
+    )
+    _must_reject(
+        "triangle texture sample injected-effect mutation", source_root, build_root
+    )
     tmem_path.write_text(original_tmem, encoding="utf-8")
     seeds_run += 1
 
