@@ -3,14 +3,14 @@ gsd_state_version: "1.0"
 milestone: v1.1
 milestone_name: Observable Machine
 current_phase: 07
-current_plan: "06"
+current_plan: "07"
 current_phase_name: RDP Reference Renderer and VI Scanout
 status: executing
-stopped_at: Plan06 implemented and reviewed; hosted qualification pending
-last_updated: "2026-11-17T13:14:51.886896+00:00"
+stopped_at: Plan06 qualified on both hosts; Plan07 coverage/blender preflight
+last_updated: "2026-11-17T13:26:24.495729+00:00"
 last_activity: 2026-11-17
-last_activity_desc: Plan06 reviewed and locally verified; hosted pair next
-state_head: 31a0b6e5cfe83d268ae25ed5d88117df9b1712b8
+last_activity_desc: Plan06 hosted evidence compared; Plan07 preflight
+state_head: 2e0c170f6aaca518e00da1e69622455b5a8b5834
 progress:
   total_phases: 3
   completed_phases: 0
@@ -26,14 +26,14 @@ progress:
 See: .planning/PROJECT.md (updated 2026-11-15)
 
 **Core value:** Every Tendies64 support claim is backed by evidence: a named profile, a pinned build and a reproducible, rights-cleared guest result.
-**Current focus:** Qualify reviewed Plan06 combiner; coverage/blender is next.
+**Current focus:** Implement Plan07 coverage/blender after the narrow contract preflight.
 
 ## Current Position
 
 Phase: 07 (RDP Reference Renderer and VI Scanout) — EXECUTING
-Plan: 06 of13 in current phase
-Status: Combiner review repairs and final local gate pass; hosted pair pending
-Last activity: 2026-11-17 — Texture review repairs pass both hosted jobs and exact artifact comparison
+Plan: 07 of13 in current phase
+Status: Combiner qualified on both hosts; coverage/blender preflight in progress
+Last activity: 2026-11-17 — Reviewed combiner passes both hosted jobs and exact selected artifact comparison
 
 Progress: [██░░░░░░░░] 46% of currently planned source plans
 
@@ -56,12 +56,11 @@ Progress: [██░░░░░░░░] 46% of currently planned source plans
 
 ### Pending Todos
 
-Plan06 source fixes and independent focused recheck are complete. Qualify its
-pinned checkpoint on both hosts before Plan07. Missing-mode admission, primitive
-LOD decoding, both-cycle selector coverage, native texture/noise wiring and
-conversion-policy controls pass final local gate, sanitizer and GCC checks.
-Exact consumers/logs are retained. Precision remains explicit software policy;
-no user action is needed for routine continuation.
+Plan06 source fixes, independent recheck, final local checks and both hosted
+jobs are complete. Exact selected authored boot records agree across hosts.
+Plan07 starts with primary blender/mode fields and complete RDRAM write-route
+ownership before implementation. No user action is needed; precision remains
+explicit software policy, and rights/oracle/release stops remain unchanged.
 
 The earlier full-ASAN BASE timeout is historical and retained; Plan03's affected
 instrumented checks and final combined normal gate pass. Do not relabel that
@@ -86,8 +85,8 @@ old full instrumented run as complete or renew private windows.
 ## Session Continuity
 
 Last session: 2026-11-16T05:13:26.082Z
-Stopped at: Plan06 implemented and reviewed; hosted qualification pending
-Resume file: .planning/phases/07-rdp-reference-renderer-and-vi-scanout/07-06-PLAN.md
+Stopped at: Plan06 qualified on both hosts; Plan07 coverage/blender preflight
+Resume file: .planning/phases/07-rdp-reference-renderer-and-vi-scanout/07-07-PLAN.md
 
 Historical closeout: [v1.0 roadmap](milestones/v1.0-ROADMAP.md), [audit](milestones/v1.0-MILESTONE-AUDIT.md), [lessons](RETROSPECTIVE.md).
 

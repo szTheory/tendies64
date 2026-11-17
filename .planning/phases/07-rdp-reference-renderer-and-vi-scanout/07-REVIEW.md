@@ -22,5 +22,5 @@ independent recheck and final local normal/instrumented checks; checkpoint9a39ab
 artifact comparison in run44054005627. These reviews do not establish full Phase07 or VID-04 acceptance.
 
 [Plan06](07-06-REVIEW.md) resolves its missing-mode/primitive-LOD defects and
-four evidence gaps through focused independent recheck. Final local checks pass;
-hosted qualification is pending.
+four evidence gaps through focused independent recheck. Final local checks and both hosted jobs pass; exact selected authored boot
+records compare in run44090997512. Coverage/blender preflight is next.

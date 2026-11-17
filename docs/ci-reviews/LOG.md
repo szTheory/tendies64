@@ -222,3 +222,5 @@ owner takes0.63s; the longest CTest is the existing authored diagnostic
 control48.16s, followed by rights24.30s and PII20.03s. These observations do
 not support attributing the longer hosted gate to texture raster work or
 weakening qualification. Log: `build/gate/07-05-hosted-macos.log`.
+
+| F-088 | 44090997512 | Both hosts pass reviewed combiner checkpoint2e0c170 and150 native checks; exact selected authored boot records compare. macOS job389s/Gate373s is critical; Linux job162s/Gate156s; queues3/2s. Local repaired full gate64s. | taken | Pin distinct adjacent raw fields against the primary producer before changing goldens. Cover both selector cycles and actual texture/register/noise raster wiring; prove missing-mode refusal and recovery through the shared helper. Keep initial invalid evidence explicitly withdrawn. Preserve required hosts/limits; no cache, dependency or concurrency change is justified by this cohort. |

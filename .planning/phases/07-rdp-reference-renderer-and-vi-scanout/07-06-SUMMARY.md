@@ -139,3 +139,7 @@ Capture labels remain post-verification worktree bindings, not retroactive
 pre-use qualification. Fixes implement the existing unshipped v5 contract;
 no extra profile version is minted per correction. Hosted qualification is next,
 with no user action needed and all rights/oracle/release stops preserved.
+
+## Hosted qualification
+
+Reviewed checkpoint `2e0c170` passes [both hosted jobs](https://github.com/szTheory/tendies64/actions/runs/44090997512). Exact successful run/attempt1 selected authored boot records were collected and compared: guest identities, bounds, state and transcript match. Retained records: `build/evidence/07-06-hosted-44090997512/`; status/collection/comparison logs: `build/gate/07-06-hosted-*`. Native RDP assertions run in each gate; the uploaded boot records do not independently establish RDP hardware accuracy. macOS job389s/Gate373s is critical; Linux job162s/Gate156s, queues3/2s. Both hosts pass150 native checks and required gate/publication tail. Plan07 is ready after its narrow preflight; no private/oracle/release authority changes.
