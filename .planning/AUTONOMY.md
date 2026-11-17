@@ -126,6 +126,16 @@ applies that direction; update it when the owner changes policy.
   canonical construction. Test empty/unterminated policy text and pin retained
   older-profile bytes. Lookup and accepted rendering alone missed descriptor9
   falling through branches that stopped at8; keep version membership explicit.
+  For latched device configuration, vary the actual timing and mode fields,
+  not only the framebuffer origin. Check consecutive events after the latch,
+  immediate-register exceptions, and sampled readback before the next line.
+  Keep output-packet capacity separate from addressed source dimensions;
+  interlaced rows and source offsets must be bounded by the actual RDRAM span.
+  Before committing public evidence/documentation, run the cheap tree PII
+  scan as well as rights/provenance checks. Express local commands with $PWD
+  or repo-relative paths. Plan09's evidence commit passed rights/provenance
+  but retained real workstation paths; the later history scan then required
+  an owner decision even though the commit had never been published.
 
 - Efficiency correction (owner feedback, 2026-11-12): before a broad retest,
   inspect `node scripts/verification-scope.mjs --base <last-tested-source>`.

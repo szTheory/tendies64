@@ -294,3 +294,20 @@ Use a unique aggregate JUnit output as backup plus immediate LastTest retention,
 and explicitly reset task-only build ownership when reusing an executor for a
 new full plan. These reduce evidence reconstruction and stale-scope handoffs
 without new caches, dependencies, jobs or resource limits.
+
+## Plan07-09: timing transitions and cheap privacy checks
+
+A framebuffer-origin latch test does not establish timing or mode transitions.
+Vary H_SYNC/V_SYNC and serrate while running; check consecutive deadlines and
+CURRENT before another line sample. Source row bounds come from RDRAM, not
+output allocation height. Give first/last rows distinct colors so repeating an
+early row cannot pass the geometry oracle. Keep raw register words separate
+from decoded packet endpoints, and test immediate-register exceptions.
+
+Run the cheap tree privacy scan before evidence/document commits alongside
+rights/provenance. Plan09 committed workstation paths despite clean rights
+checks; the full history gate caught them before publication and required the
+owner's explicit local-amendment approval. Preserve that failure and the
+original source/binary annotations, sanitize only the authorized unpublished
+commit, and never waive real private values or rewrite public history by
+inference. No cache, dependency or concurrency expansion was needed.

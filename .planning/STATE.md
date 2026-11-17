@@ -5,18 +5,18 @@ milestone_name: Observable Machine
 current_phase: 07
 current_plan: "09"
 current_phase_name: RDP Reference Renderer and VI Scanout
-status: executing
-stopped_at: Plan08 qualified on both hosts; Plan09 VI implementation next
-last_updated: "2026-11-17T18:31:13.963303+00:00"
+status: verifying
+stopped_at: Plan09 local verification complete; hosted qualification pending
+last_updated: "2026-11-17T20:57:01.123540+00:00"
 last_activity: 2026-11-17
-last_activity_desc: Plan08 hosted evidence compared; VI preflight and policy ready
-state_head: 455944062a37753b150bd9d49c2fc5cf750ba3ff
+last_activity_desc: Approved sanitation and complete VI gate pass; preparing qualified push
+state_head: c49b0a8864da522c3c36ebd076260b1d2b24a9a2
 progress:
   total_phases: 3
   completed_phases: 0
   total_plans: 13
-  completed_plans: 8
-  percent: 62
+  completed_plans: 9
+  percent: 69
 ---
 
 # Project State
@@ -32,14 +32,14 @@ See: .planning/PROJECT.md (updated 2026-11-15)
 
 Phase: 07 (RDP Reference Renderer and VI Scanout) — EXECUTING
 Plan: 09 of13 in current phase
-Status: Depth qualified on both hosts; VI is ready
-Last activity: 2026-11-17 — Depth reviewed checkpoint passes both hosts and exact artifact comparison
+Status: VI source reviewed and local gate green; hosted qualification pending
+Last activity: 2026-11-17 — VI repairs and approved privacy sanitation pass the complete local gate
 
-Progress: [██████░░░░] 62% of currently planned source plans
+Progress: [███████░░░] 69% of currently planned source plans
 
 ## Performance Metrics
 
-- Active milestone:0 completed phases and8 completed plans;13 Phase7 plans defined.
+- Active milestone:0 completed phases and9 completed plans;13 Phase7 plans defined.
 - Historical v1.0: 6 phases and 73 source plans complete. This is planning completion, not a software release.
 - Prior phase plan counts: 1: 13; 2: 8; 3: 13; 4: 20; 5: 10; 6: 9.
 - Execution timing: not established for v1.1. Historical evidence remains in [v1.0 phase records](milestones/v1.0-phases/).
@@ -56,16 +56,12 @@ Progress: [██████░░░░] 62% of currently planned source plans
 
 ### Pending Todos
 
-Plan08 review repairs, full local gate and both hosted jobs are complete;
-exact selected authored boot records match across hosts. Plan09 primary VI
-fields and explicit source/software clock, latch and sampler policies are ready.
-Proceed through cheap actual profile/hash/serialize/consumer checks and a literal
-packet/IRQ before expanding the matrix. No user action is needed, and rights,
-oracle, release and expired-window stops remain unchanged.
-
-The earlier full-ASAN BASE timeout is historical and retained; Plan03's affected
-instrumented checks and final combined normal gate pass. Do not relabel that
-old full instrumented run as complete or renew private windows.
+Plan09 implementation, independent review repairs, normal/instrumented/compiler
+owners and complete local gate pass. Sanitation of the unpublished evidence
+commit was explicitly approved and applied; full reachable-history privacy is
+clean. Push the exact reviewed checkpoint and qualify both hosted jobs plus
+selected authored boot evidence, then execute Plan10's ready filter/output plan.
+No user action is needed. Rights/oracle/release and expired-window stops persist.
 
 ### Blockers/Concerns
 
@@ -85,8 +81,8 @@ old full instrumented run as complete or renew private windows.
 
 ## Session Continuity
 
-Last session: 2026-11-16T05:13:26.082Z
-Stopped at: Plan08 qualified on both hosts; Plan09 VI implementation next
+Last session: 2026-11-17T20:57:01.123540+00:00
+Stopped at: Plan09 local complete; hosted qualification pending
 Resume file: .planning/phases/07-rdp-reference-renderer-and-vi-scanout/07-09-PLAN.md
 
 Historical closeout: [v1.0 roadmap](milestones/v1.0-ROADMAP.md), [audit](milestones/v1.0-MILESTONE-AUDIT.md), [lessons](RETROSPECTIVE.md).
@@ -94,3 +90,10 @@ Historical closeout: [v1.0 roadmap](milestones/v1.0-ROADMAP.md), [audit](milesto
 ## Operator Next Steps
 
 - Phase7 researched discussion and adversarial check are complete. Orchestrator executes the independently verified plans under existing autonomy. No routine owner acknowledgment is needed; VID-04 and release stops remain.
+
+## Resolved local privacy stop
+
+The owner approved sanitation of the single unpublished evidence commit.
+The document-only amendment preserved public history. Original failed gate and
+exact tested artifacts remain retained locally; full privacy and the final gate
+pass. This approval applies to that specific repair, not future private values.

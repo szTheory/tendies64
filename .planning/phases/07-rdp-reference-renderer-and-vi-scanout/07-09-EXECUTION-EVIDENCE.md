@@ -122,3 +122,11 @@ Changed source hashes at the tested point:
 Authored tests establish the named deterministic software contract only. No
 private guest, external emulator oracle, physical hardware, paid service or
 publication was used; VID-04 remains incomplete.
+
+## Approved unpublished-document sanitation
+
+The owner approved removing workstation-root paths from this unpublished
+evidence commit. The document-only amendment replaced local snapshotfd9d466
+with1860fa5; public history was unchanged. Original source behavior, failed
+runs, retained binaries and their provenance annotations are not relabeled.
+Subsequent review repairs have separate evidence and source commits.

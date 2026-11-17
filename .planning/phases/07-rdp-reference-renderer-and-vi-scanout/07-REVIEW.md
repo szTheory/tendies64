@@ -1,7 +1,7 @@
 ---
 phase: 07-rdp-reference-renderer-and-vi-scanout
-source_plan: "07-08"
-source_base: d64ccdd6b81f9c8bdbc47dde71335da0646cbb5e
+source_plan: "07-09"
+source_base: c49b0a8864da522c3c36ebd076260b1d2b24a9a2
 status: clean
 findings:
   critical: 0
@@ -34,3 +34,10 @@ run44119209396. No Phase07/VID04 completion is implied.
 and test-oracle gaps through independent production and orchestrator test-only
 rechecks. Focused normal/instrumented/GCC and final full gate pass. Both hosted jobs and exact selected authored boot comparison pass in
 run44146970240; no Phase07/VID04 completion is implied.
+
+[Plan09](07-09-REVIEW.md) resolves VI timing-latch, source-span, parity,
+endpoint and immediate-INTR defects, with retained old-library controls and
+predecessor goldens. Focused normal/instrumented/GCC owners and the complete
+local gate pass. Private evidence paths were removed from an unpublished
+commit with explicit owner approval; reachable-history privacy passes.
+Hosted qualification is pending; no Phase07/VID04 completion is implied.
