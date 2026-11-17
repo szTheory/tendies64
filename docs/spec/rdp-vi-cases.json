@@ -100,7 +100,15 @@
             "bad-format",
             "truncated-copy",
             "overflow-rejected",
-            "copy-first-difference"
+            "copy-first-difference",
+            "raw-copy-cycle-s-equal-endpoint",
+            "raw-copy-tlut-control",
+            "raw-copy-signed-stepping",
+            "raw-copy-negative-s-wrap",
+            "raw-copy-unsupported-dsdx",
+            "raw-copy-fraction-and-flip",
+            "raw-copy-clipped-origin",
+            "raw-copy-scissor-empty"
           ]
         }
       ]

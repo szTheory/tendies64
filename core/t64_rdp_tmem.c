@@ -22,6 +22,22 @@ static uint32_t field12(uint64_t word, uint32_t shift) {
   return (uint32_t)((word >> shift) & UINT64_C(0xfff));
 }
 
+static int32_t sign_extend16(uint32_t value) {
+  value &= UINT32_C(0xffff);
+  return (value & UINT32_C(0x8000)) != 0u
+             ? (int32_t)value - INT32_C(65536)
+             : (int32_t)value;
+}
+
+static int64_t floor_div_pow2(int64_t value, uint32_t shift) {
+  int64_t divisor = (int64_t)(UINT32_C(1) << shift);
+  int64_t quotient = value / divisor;
+  int64_t remainder = value % divisor;
+
+  if (value < 0 && remainder != 0) quotient--;
+  return quotient;
+}
+
 static uint32_t bits_per_texel(uint32_t size) {
   return UINT32_C(4) << size;
 }
@@ -536,7 +552,7 @@ bool t64_rdp_tmem_validate_copy(const t64_machine *machine, uint64_t first,
   if ((opcode != RDP_OP_TEX_RECT && opcode != RDP_OP_TEX_RECT_FLIP) ||
       !rdp->color_image_valid || !rdp->scissor_valid ||
       !rdp->other_modes_valid ||
-      ((rdp->other_modes >> 52) & UINT64_C(3)) != 3u ||
+      ((rdp->other_modes >> 52) & UINT64_C(3)) != 2u ||
       rdp->color_image_size != 2u || rdp->color_image_format != 0u ||
       tile_index >= T64_RDP_TILE_COUNT) return false;
   if (((second >> 16) & UINT64_C(0xffff)) != UINT64_C(4096)) return false;
@@ -591,6 +607,11 @@ void t64_rdp_tmem_begin_copy(t64_machine *machine, uint64_t first,
                              uint32_t x1, uint32_t y1) {
   t64_rdp_state *rdp = &machine->rdp;
   uint32_t opcode = (uint32_t)((first >> 56) & UINT64_C(0x3f));
+  int32_t start_s = sign_extend16((uint32_t)(second >> 48));
+  int32_t start_t = sign_extend16((uint32_t)(second >> 32));
+  int32_t dsdx = sign_extend16((uint32_t)(second >> 16));
+  int32_t dtdy = sign_extend16((uint32_t)second);
+
   rdp->render_active = x0 <= x1 && y0 <= y1;
   rdp->render_kind = 2u;
   rdp->render_x_begin = x0;
@@ -599,39 +620,56 @@ void t64_rdp_tmem_begin_copy(t64_machine *machine, uint64_t first,
   rdp->render_y_end = y1;
   rdp->render_y = y0;
   rdp->render_texture_tile = command_tile(first);
-  rdp->render_texture_s = field12(second, 44u);
-  rdp->render_texture_t = field12(second, 32u);
-  rdp->render_texture_dsdx = (uint32_t)((second >> 16) & UINT64_C(0xffff));
-  rdp->render_texture_dtdy = (uint32_t)(second & UINT64_C(0xffff));
-  if (opcode == RDP_OP_TEX_RECT_FLIP) {
-    rdp->render_texture_flip = true;
-  } else {
-    rdp->render_texture_flip = false;
+  rdp->render_texture_s = start_s;
+  rdp->render_texture_t = start_t;
+  rdp->render_texture_dsdx = dsdx;
+  rdp->render_texture_dtdy = dtdy;
+  rdp->render_texture_flip = opcode == RDP_OP_TEX_RECT_FLIP;
+  if (rdp->render_active) {
+    int64_t origin_x = (int64_t)(field12(first, 44u) >> 2);
+    int64_t origin_y = (int64_t)(field12(first, 32u) >> 2);
+    int64_t clipped_dx = (int64_t)x0 - origin_x;
+    int64_t clipped_dy = (int64_t)y0 - origin_y;
+    int64_t s_pixels = rdp->render_texture_flip ? clipped_dy : clipped_dx;
+    int64_t t_pixels = rdp->render_texture_flip ? clipped_dx : clipped_dy;
+    int64_t clipped_s = (int64_t)start_s +
+                         s_pixels * floor_div_pow2(dsdx, 7u);
+    int64_t clipped_t = (int64_t)start_t +
+                         t_pixels * floor_div_pow2(dtdy, 5u);
+
+    rdp->render_texture_s = (int32_t)clipped_s;
+    rdp->render_texture_t = (int32_t)clipped_t;
   }
 }
 
-static uint32_t wrap_coordinate(uint32_t fixed, uint32_t lo_fixed,
-                                uint32_t hi_fixed, uint32_t mask,
-                                uint32_t shift, bool clamp, bool mirror) {
-  uint32_t coord = fixed >> 5;
-  uint32_t lo = lo_fixed >> 2;
-  uint32_t hi = hi_fixed >> 2;
+static int32_t wrap_coordinate(int32_t fixed, uint32_t lo_fixed,
+                               uint32_t hi_fixed, uint32_t mask,
+                               uint32_t shift, bool clamp, bool mirror) {
+  int64_t coord = floor_div_pow2(fixed, 5u);
+  int64_t lo = (int64_t)(lo_fixed >> 2);
+  int64_t hi = (int64_t)(hi_fixed >> 2);
 
-  if (shift <= 10u) coord >>= shift;
-  else coord = (coord << (16u - shift)) & UINT32_C(0xffff);
+  if (shift <= 10u) {
+    coord = floor_div_pow2(coord, shift);
+  } else {
+    int64_t scale = (int64_t)(UINT32_C(1) << (16u - shift));
+    coord = (coord * scale) % INT64_C(65536);
+    if (coord < 0) coord += INT64_C(65536);
+  }
   if (clamp) {
     if (coord < lo) coord = lo;
     if (coord > hi) coord = hi;
-    return coord;
+    return (int32_t)coord;
   }
   if (mask != 0u) {
-    uint32_t period = UINT32_C(1) << mask;
-    uint32_t local = coord - lo;
-    uint32_t phase = local % (period * (mirror ? 2u : 1u));
-    if (mirror && phase >= period) phase = period * 2u - phase - 1u;
-    return lo + phase;
+    int64_t period = INT64_C(1) << mask;
+    int64_t span = period * (mirror ? INT64_C(2) : INT64_C(1));
+    int64_t phase = (coord - lo) % span;
+    if (phase < 0) phase += span;
+    if (mirror && phase >= period) phase = span - phase - 1;
+    coord = lo + phase;
   }
-  return coord;
+  return (int32_t)coord;
 }
 
 static uint16_t rgba5551(uint8_t r, uint8_t g, uint8_t b, uint8_t a) {
@@ -643,13 +681,20 @@ static uint16_t rgba5551(uint8_t r, uint8_t g, uint8_t b, uint8_t a) {
 }
 
 static bool sample_texel(const t64_machine *machine, const t64_rdp_tile *tile,
-                         uint32_t s, uint32_t t, uint16_t *pixel_out) {
-  uint32_t x = wrap_coordinate(s, tile->uls, tile->lrs, tile->mask_s,
-                               tile->shift_s, tile->clamp_s, tile->mirror_s);
-  uint32_t y = wrap_coordinate(t, tile->ult, tile->lrt, tile->mask_t,
-                               tile->shift_t, tile->clamp_t, tile->mirror_t);
-  x -= tile->uls >> 2;
-  y -= tile->ult >> 2;
+                         int32_t s, int32_t t, uint16_t *pixel_out) {
+  int32_t wrapped_x = wrap_coordinate(s, tile->uls, tile->lrs, tile->mask_s,
+                                      tile->shift_s, tile->clamp_s,
+                                      tile->mirror_s);
+  int32_t wrapped_y = wrap_coordinate(t, tile->ult, tile->lrt, tile->mask_t,
+                                      tile->shift_t, tile->clamp_t,
+                                      tile->mirror_t);
+  int32_t relative_x = wrapped_x - (int32_t)(tile->uls >> 2);
+  int32_t relative_y = wrapped_y - (int32_t)(tile->ult >> 2);
+  uint32_t x, y;
+
+  if (relative_x < 0 || relative_y < 0) return false;
+  x = (uint32_t)relative_x;
+  y = (uint32_t)relative_y;
   uint32_t bits = bits_per_texel(tile->size);
   uint64_t row = (uint64_t)y * tile->line_words * 8u;
   uint64_t offset = row + ((uint64_t)x * bits) / 8u;
@@ -729,22 +774,26 @@ bool t64_rdp_tmem_copy_pixel(const t64_machine *machine, uint32_t x,
                              uint32_t y, uint16_t *pixel_out) {
   const t64_rdp_state *rdp;
   const t64_rdp_tile *tile;
-  uint32_t dx, dy, s, t;
+  int64_t dx, dy, s, t;
 
   if (machine == NULL || pixel_out == NULL ||
       machine->rdp.render_texture_tile >= T64_RDP_TILE_COUNT) return false;
   rdp = &machine->rdp;
   tile = &rdp->tiles[rdp->render_texture_tile];
-  dx = x - rdp->render_x_begin;
-  dy = y - rdp->render_y_begin;
+  dx = (int64_t)x - (int64_t)rdp->render_x_begin;
+  dy = (int64_t)y - (int64_t)rdp->render_y_begin;
   if (rdp->render_texture_flip) {
-    s = rdp->render_texture_s +
-        ((dy * (rdp->render_texture_dsdx / 4u)) >> 5);
-    t = rdp->render_texture_t + ((dx * rdp->render_texture_dtdy) >> 5);
+    s = (int64_t)rdp->render_texture_s +
+        dy * floor_div_pow2(rdp->render_texture_dsdx, 7u);
+    t = (int64_t)rdp->render_texture_t +
+        dx * floor_div_pow2(rdp->render_texture_dtdy, 5u);
   } else {
-    s = rdp->render_texture_s +
-        ((dx * (rdp->render_texture_dsdx / 4u)) >> 5);
-    t = rdp->render_texture_t + ((dy * rdp->render_texture_dtdy) >> 5);
+    s = (int64_t)rdp->render_texture_s +
+        dx * floor_div_pow2(rdp->render_texture_dsdx, 7u);
+    t = (int64_t)rdp->render_texture_t +
+        dy * floor_div_pow2(rdp->render_texture_dtdy, 5u);
   }
-  return sample_texel(machine, tile, s, t, pixel_out);
+  if (s < INT32_MIN || s > INT32_MAX || t < INT32_MIN || t > INT32_MAX)
+    return false;
+  return sample_texel(machine, tile, (int32_t)s, (int32_t)t, pixel_out);
 }

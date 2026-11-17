@@ -207,8 +207,8 @@ static bool texture_rect_bounds(const t64_rdp_state *rdp, uint64_t word,
   uint32_t yl_raw = (uint32_t)(word & UINT64_C(0xfff));
   uint32_t xh = xh_raw >> 2;
   uint32_t yh = yh_raw >> 2;
-  uint32_t xl = xl_raw == 0u ? 0u : (xl_raw - 1u) >> 2;
-  uint32_t yl = yl_raw == 0u ? 0u : (yl_raw - 1u) >> 2;
+  uint32_t xl = xl_raw >> 2;
+  uint32_t yl = yl_raw >> 2;
   uint32_t sx0 = rdp->scissor_xh >> 2;
   uint32_t sy0 = rdp->scissor_yh >> 2;
   uint32_t sx1 = rdp->scissor_xl == 0u
@@ -217,19 +217,8 @@ static bool texture_rect_bounds(const t64_rdp_state *rdp, uint64_t word,
   uint32_t sy1 = rdp->scissor_yl == 0u
                      ? 0u
                      : (rdp->scissor_yl - 1u) >> 2;
-  bool empty_x = xl_raw <= xh_raw;
-  bool empty_y = yl_raw <= yh_raw;
-
   if (xl_raw < xh_raw || yl_raw < yh_raw ||
       rdp->color_image_width == 0u) return false;
-  if (empty_x) {
-    xh = 1u;
-    xl = 0u;
-  }
-  if (empty_y) {
-    yh = 1u;
-    yl = 0u;
-  }
   if (sx0 > xh) xh = sx0;
   if (sy0 > yh) yh = sy0;
   if (sx1 < xl) xl = sx1;
@@ -435,8 +424,12 @@ static t64_status apply_pending_command(t64_machine *machine) {
     rdp->scissor_yl = (uint32_t)(word & UINT64_C(0xfff));
     rdp->scissor_valid = true;
   } else if (opcode == RDP_OP_SET_OTHER_MODES) {
+    uint32_t tlut_enabled = (uint32_t)((word >> 47) & UINT64_C(1));
+    uint32_t tlut_type = (uint32_t)((word >> 46) & UINT64_C(1));
     rdp->other_modes = word;
-    rdp->tlut_format = (uint32_t)((word >> 14) & UINT64_C(3));
+    rdp->tlut_format = tlut_enabled != 0u
+                           ? (tlut_type != 0u ? 3u : 2u)
+                           : 0u;
     rdp->other_modes_valid = true;
   } else if (opcode == RDP_OP_SET_FILL_COLOR) {
     rdp->fill_color = (uint32_t)word;

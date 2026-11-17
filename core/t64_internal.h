@@ -650,10 +650,10 @@ typedef struct {
   uint32_t tlut_format;
   uint32_t render_kind;
   uint32_t render_texture_tile;
-  uint32_t render_texture_s;
-  uint32_t render_texture_t;
-  uint32_t render_texture_dsdx;
-  uint32_t render_texture_dtdy;
+  int32_t render_texture_s;
+  int32_t render_texture_t;
+  int32_t render_texture_dsdx;
+  int32_t render_texture_dtdy;
   uint64_t copy_count;
   uint32_t convert_coefficients[6];
   uint64_t pending_texrect_word;

@@ -57,7 +57,17 @@ original fetched word.
 | LoadBlock | `0x33` | tile, source start, texel count, DXT |
 | LoadTLUT | `0x30` | tile and palette source bounds |
 | SetConvert | `0x2c` | signed 9-bit `K0..K5` fields |
+| SetOtherModes | `0x2f` | cycle type and TLUT enable/type |
 | TextureRectangle / Flip | `0x24` / `0x25` | screen bounds in the first word; S/T/DSDX/DTDY in the second word |
+
+TextureRectangle word 0 carries 10.2 `XH/YH/XL/YL`; word 1 carries signed
+16-bit `S`, `T`, `DSDX`, and `DTDY` in bits 63:48, 47:32, 31:16, and 15:0.
+This copy profile accepts COPY cycle type 2 and the positive `DSDX = 4 << 10`
+step. Copy-mode lower-right screen endpoints are inclusive; each 10.2 endpoint
+is floored to a whole pixel, so equal endpoints select one pixel. Scissor
+lower-right bounds keep their existing exclusive behavior. SetOtherModes TLUT
+enable and type are bits 47 and 46; the type bit selects RGBA16 (0) or IA16
+(1) when enabled. Other low bits do not enable a TLUT.
 
 ## Per-machine texture state
 
@@ -81,11 +91,15 @@ entry four times, and retain the source interpretation for CI copy sampling.
 
 Supported load formats are RGBA16/32, YUV16, CI4/8, IA4/8/16, and I4/8. Copy
 sampling accepts RGBA16, CI4/8, IA4/8/16, and I4/8; direct RGBA32 and YUV
-copies are refused. Copy rectangles require the documented DSDX step of
-`4 << 10`, use point sampling, apply S/T mask, mirror, or clamp before TMEM
-addressing, clip to the scissor and color-image bounds, and write RGBA16
-pixels to RDRAM. Texture S coordinates are relative to the selected tile's
-ULS bound after wrapping/clamping. The copy path does not implement filtering,
+copies are refused. Copy rectangles require COPY cycle type 2 and the
+documented positive DSDX step of `4 << 10`; other DSDX values are refused
+before any rectangle pixel is written. S, T, and DTDY use signed 16-bit
+interpretation. Coordinate stepping and conversion from 10.5 fixed point use
+bounded signed arithmetic with explicit floor division, including negative
+steps. Starting S/T values advance with the rectangle when scissor clipping
+removes pixels from its left or top edge. Sampling is point-based, applies the
+selected tile's software mask, mirror, or clamp policy before TMEM addressing,
+and writes RGBA16 pixels to RDRAM. The copy path does not implement filtering,
 combining, alpha compare, depth, coverage, or the rest of the RDP pipeline.
 
 YUV16 bytes are loaded and retained in the paired source layout. The small
@@ -128,6 +142,10 @@ DPC commands:
 - `tmem-first-last`, `adjacent-tile-no-alias`, `scissor-touch`, `single-texel`,
   `zero-area`, `bad-format`, `truncated-copy`, `overflow-rejected`,
   `copy-first-difference`
+- Literal raw-command cases cover COPY-cycle admission, nonzero and negative
+  S/T, negative DTDY traversal, RGBA16/IA16/disabled TLUT modes, inclusive and
+  fractional screen endpoints, flipped stepping, empty scissor clipping, and
+  preservation of the source origin under left/top clipping.
 
 The expected TMEM bytes, RGBA16 RDRAM values, raw VI packet and rejection
 effects are authored literals derived from the cited layouts and equations;

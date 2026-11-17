@@ -55,6 +55,7 @@ MUTATION_SEEDS = (
     "removed SP DMA helper definition",
     "RDP fill production body mutation",
     "TMEM load production body mutation",
+    "RDP raw copy-cycle body mutation",
     "missing TMEM object file",
     "DPC counter bus-window body mutation",
     "DPC profile-gated injected effect",
@@ -382,6 +383,21 @@ def _check_mutation_suite(temp_root: pathlib.Path) -> int:
         encoding="utf-8",
     )
     _must_reject("TMEM load production body mutation", source_root, build_root)
+    tmem_path.write_text(original_tmem, encoding="utf-8")
+    seeds_run += 1
+
+    copy_cycle_anchor = "((rdp->other_modes >> 52) & UINT64_C(3)) != 2u"
+    if copy_cycle_anchor not in original_tmem:
+        raise AssertionError("RDP copy-cycle validation anchor no longer exists")
+    tmem_path.write_text(
+        original_tmem.replace(
+            copy_cycle_anchor,
+            "((rdp->other_modes >> 52) & UINT64_C(3)) != 3u",
+            1,
+        ),
+        encoding="utf-8",
+    )
+    _must_reject("RDP raw copy-cycle body mutation", source_root, build_root)
     seeds_run += 1
 
     missing_tmem_source, missing_tmem_build = _copy_clean_fixture(

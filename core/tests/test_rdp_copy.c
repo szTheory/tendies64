@@ -192,8 +192,12 @@ static bool execute_copy_scene_with_shift(
                       ((uint64_t)(output_width * 4u) << 12) |
                       ((uint64_t)(output_height * 4u));
   commands[count++] = (UINT64_C(0x2f) << 56) |
-                      (UINT64_C(3) << 52) |
-                      ((uint64_t)machine->rdp.tlut_format << 14);
+                      (UINT64_C(2) << 52) |
+                      ((uint64_t)(machine->rdp.tlut_format == 2u
+                                      ? 2u
+                                      : machine->rdp.tlut_format == 3u ? 3u
+                                                                        : 0u)
+                       << 46);
   commands[count++] = set_image(UINT32_C(0x3d), format, size, source_width,
                                 TEXTURE_ADDRESS);
   commands[count++] = set_tile(format, size, line_words, 0u, 0u, 0u,
@@ -203,9 +207,10 @@ static bool execute_copy_scene_with_shift(
   commands[count++] = tile_bounds(UINT32_C(0x32), 0u, source_width,
                                   source_height);
   texrect_first = ((uint64_t)(flip ? 0x25u : 0x24u) << 56) |
-                  ((uint64_t)(output_width * 4u) << 12) |
-                  ((uint64_t)(output_height * 4u));
-  texrect_second = ((uint64_t)start_s << 44) | ((uint64_t)start_t << 32) |
+                  ((uint64_t)((output_width - 1u) * 4u) << 12) |
+                  ((uint64_t)((output_height - 1u) * 4u));
+  texrect_second = ((uint64_t)(start_s & UINT32_C(0xffff)) << 48) |
+                   ((uint64_t)(start_t & UINT32_C(0xffff)) << 32) |
                    (UINT64_C(4096) << 16) | UINT64_C(1024);
   commands[count++] = texrect_first;
   commands[count++] = texrect_second;
@@ -249,6 +254,7 @@ static t64_machine *run_raw_rect(const uint8_t *source, uint32_t format,
                         8u;
   size_t output_bytes = (size_t)output_width * output_height * 2u;
 
+  T64_CHECK(machine != NULL);
   if (machine == NULL || source == NULL || source_bytes > 4096u) return machine;
   if (line_words == 0u) line_words = 1u;
   memcpy(machine->ram + TEXTURE_ADDRESS, source, source_bytes);
@@ -263,7 +269,7 @@ static t64_machine *run_raw_rect(const uint8_t *source, uint32_t format,
                       ((uint64_t)scissor_xh << 44) |
                       ((uint64_t)scissor_yh << 32) |
                       ((uint64_t)scissor_xl << 12) | scissor_yl;
-  commands[count++] = (UINT64_C(0x2f) << 56) | (UINT64_C(3) << 52);
+  commands[count++] = (UINT64_C(0x2f) << 56) | (UINT64_C(2) << 52);
   commands[count++] = set_image(UINT32_C(0x3d), format, size, source_width,
                                 TEXTURE_ADDRESS);
   commands[count++] = set_tile(format, size, line_words, 0u, 0u, 0u,
@@ -436,7 +442,7 @@ static void case_load_tlut_ci(void) {
       set_image(UINT32_C(0x3d), 0u, 2u, 2u, TEXTURE_ADDRESS),
       set_tile(0u, 2u, 1u, 256u, 7u, 0u, 0u, 0u, 0u, 0u, 0u, 0u),
       (UINT64_C(0x30) << 56) | (UINT64_C(7) << 24) | (UINT64_C(4) << 12),
-      (UINT64_C(0x2f) << 56) | (UINT64_C(2) << 14),
+      UINT64_C(0x2f20800000000000),
   };
   t64_machine *machine;
   uint8_t video[8];
@@ -471,7 +477,7 @@ static void case_load_tlut_ci(void) {
         set_image(UINT32_C(0x3d), 3u, 2u, 1u, TEXTURE_ADDRESS + 32u),
         set_tile(3u, 2u, 1u, 256u, 7u, 0u, 0u, 0u, 0u, 0u, 0u, 0u),
         (UINT64_C(0x30) << 56) | (UINT64_C(7) << 24),
-        (UINT64_C(0x2f) << 56) | (UINT64_C(3) << 14),
+        UINT64_C(0x2f20c00000000000),
     };
     T64_CHECK(run_commands(machine, ia_tlut_commands,
                            sizeof ia_tlut_commands /
@@ -642,13 +648,13 @@ static void case_copy_tile_origin(void) {
   const uint64_t commands[] = {
       set_image(UINT32_C(0x3f), 0u, 2u, 2u, FRAMEBUFFER_ADDRESS),
       (UINT64_C(0x2d) << 56) | (UINT64_C(8) << 12) | UINT64_C(4),
-      (UINT64_C(0x2f) << 56) | (UINT64_C(3) << 52),
+      (UINT64_C(0x2f) << 56) | (UINT64_C(2) << 52),
       set_image(UINT32_C(0x3d), 0u, 2u, 4u, TEXTURE_ADDRESS),
       set_tile(0u, 2u, 1u, 0u, 0u, 0u, 0u, 0u, 0u, 0u, 0u, 0u),
       tile_rect(UINT32_C(0x34), 0u, 1u, 0u, 2u, 0u),
       tile_rect(UINT32_C(0x32), 0u, 1u, 0u, 2u, 0u),
       (UINT64_C(0x24) << 56) | (UINT64_C(8) << 12) | UINT64_C(4),
-      (UINT64_C(32) << 44) | (UINT64_C(4096) << 16) | UINT64_C(1024),
+      (UINT64_C(32) << 48) | (UINT64_C(4096) << 16) | UINT64_C(1024),
       UINT64_C(0x2900000000000000),
   };
   t64_machine *machine = create_authored_machine();
@@ -747,7 +753,7 @@ static void case_scissor_touch(void) {
   const uint8_t texture[] = {0xf8, 0x01};
   t64_machine *machine = run_raw_rect(
       texture, 0u, 2u, 1u, 1u, 2u, 1u, 0u, 0u, 4u, 4u,
-      4u, 0u, 8u, 4u, FRAMEBUFFER_ADDRESS, true);
+      8u, 0u, 8u, 4u, FRAMEBUFFER_ADDRESS, true);
   const uint8_t untouched[] = {0xa5, 0xa5, 0xa5, 0xa5};
 
   if (machine == NULL) return;
@@ -773,7 +779,7 @@ static void case_zero_area(void) {
   const uint8_t untouched[] = {0xa5, 0xa5};
   t64_machine *machine = run_raw_rect(
       texture, 0u, 2u, 1u, 1u, 1u, 1u, 0u, 0u, 0u, 0u,
-      0u, 0u, 4u, 4u, FRAMEBUFFER_ADDRESS, true);
+      4u, 0u, 4u, 4u, FRAMEBUFFER_ADDRESS, true);
 
   if (machine == NULL) return;
   T64_CHECK_INT(machine->rdp.refusal_reason, T64_RDP_REFUSAL_NONE);
@@ -895,6 +901,359 @@ static void case_copy_first_difference(void) {
   t64_machine_destroy(machine);
 }
 
+static void case_raw_copy_cycle_s_equal_endpoint(void) {
+  static const uint8_t texture[] = {0xf8, 0x01, 0x07, 0xc1};
+  static const uint8_t expected_pixel[] = {0x07, 0xc1};
+  static const uint8_t untouched_pixel[] = {0xa5, 0xa5};
+  /* These are literal RDP words, independent of the packet helpers above.
+   * COPY cycle is 2; S=32 selects the second source texel. Equal screen
+   * endpoints denote a one-pixel rectangle in copy mode. */
+  static const uint64_t commands[] = {
+      UINT64_C(0x3f10000100005000), /* RGBA16 color image, width 2 */
+      UINT64_C(0x2d00000000004004), /* scissor [0,1) x [0,1) */
+      UINT64_C(0x2f20000000000000), /* COPY cycle */
+      UINT64_C(0x3d10000100004000), /* RGBA16 texture image, width 2 */
+      UINT64_C(0x3510020000000000), /* RGBA16 tile, line 1 */
+      UINT64_C(0x3400000000004000), /* load two texels */
+      UINT64_C(0x3200000000004000), /* tile bounds: x 0..1 */
+      UINT64_C(0x2400000000000000), /* equal endpoint: pixel (0,0) */
+      UINT64_C(0x0020000010000400), /* S=32,T=0,DSDX=4096,DTDY=1024 */
+      UINT64_C(0x2900000000000000), /* FullSync */
+  };
+  t64_machine *machine = create_authored_machine();
+
+  T64_CHECK(machine != NULL);
+  if (machine == NULL) return;
+  memcpy(machine->ram + TEXTURE_ADDRESS, texture, sizeof texture);
+  memset(machine->ram + FRAMEBUFFER_ADDRESS, 0xa5, 4u);
+  T64_CHECK(run_commands(machine, commands,
+                         sizeof commands / sizeof commands[0]));
+  T64_CHECK_INT(machine->rdp.refusal_reason, T64_RDP_REFUSAL_NONE);
+  T64_CHECK_INT(machine->rdp.copy_count, 1u);
+  T64_CHECK(memcmp(machine->ram + FRAMEBUFFER_ADDRESS, expected_pixel,
+                   sizeof expected_pixel) == 0);
+  T64_CHECK(memcmp(machine->ram + FRAMEBUFFER_ADDRESS + 2u, untouched_pixel,
+                   sizeof untouched_pixel) == 0);
+  T64_CHECK_INT(machine->rdp.dpc_current,
+                COMMAND_ADDRESS +
+                    (uint32_t)(sizeof commands / sizeof commands[0] * 8u));
+  t64_machine_destroy(machine);
+}
+
+static void case_raw_copy_tlut_control(void) {
+  static const uint8_t palette[] = {0x80, 0x40};
+  static const uint8_t index[] = {0x00};
+  static const uint8_t rgba16_expected[] = {0x80, 0x40};
+  static const uint8_t ia16_expected[] = {0x84, 0x20};
+  static const uint8_t unchanged[] = {0xa5, 0xa5};
+  static const uint64_t load_tlut[] = {
+      UINT64_C(0x3d10000000004000), /* RGBA16 palette source */
+      UINT64_C(0x3510030007000000), /* tile 7, TMEM word 256 */
+      UINT64_C(0x3000000007000000), /* load one palette entry */
+  };
+  static const uint64_t rgba16_copy[] = {
+      UINT64_C(0x3f10000000005000), /* RGBA16 color image, width 1 */
+      UINT64_C(0x2d00000000004004), /* one-pixel scissor */
+      UINT64_C(0x2f20800000000000), /* COPY, TLUT enabled, RGBA16 */
+      UINT64_C(0x3d40000000004010), /* CI4 index source */
+      UINT64_C(0x3540020000000000), /* CI4 tile */
+      UINT64_C(0x3400000000000000), /* load one CI4 index */
+      UINT64_C(0x3200000000000000), /* tile bounds */
+      UINT64_C(0x2400000000000000), /* one pixel */
+      UINT64_C(0x0000000010000400), /* S/T zero, ordinary steps */
+      UINT64_C(0x2900000000000000),
+  };
+  static const uint64_t ia16_copy[] = {
+      UINT64_C(0x3f10000000005000), UINT64_C(0x2d00000000004004),
+      UINT64_C(0x2f20c00000000000), /* COPY, TLUT enabled, IA16 */
+      UINT64_C(0x3d40000000004010), UINT64_C(0x3540020000000000),
+      UINT64_C(0x3400000000000000), UINT64_C(0x3200000000000000),
+      UINT64_C(0x2400000000000000), UINT64_C(0x0000000010000400),
+      UINT64_C(0x2900000000000000),
+  };
+  static const uint64_t disabled_but_low_bits_set[] = {
+      UINT64_C(0x3f10000000005000), UINT64_C(0x2d00000000004004),
+      UINT64_C(0x2f2000000000c000), /* TLUT disabled; unrelated low bits set */
+      UINT64_C(0x3d40000000004010), UINT64_C(0x3540020000000000),
+      UINT64_C(0x3400000000000000), UINT64_C(0x3200000000000000),
+      UINT64_C(0x2400000000000000), UINT64_C(0x0000000010000400),
+      UINT64_C(0x2900000000000000),
+  };
+  t64_machine *machine = create_authored_machine();
+
+  T64_CHECK(machine != NULL);
+  if (machine == NULL) return;
+  memcpy(machine->ram + TEXTURE_ADDRESS, palette, sizeof palette);
+  memcpy(machine->ram + TEXTURE_ADDRESS + 16u, index, sizeof index);
+  T64_CHECK(run_commands(machine, load_tlut,
+                         sizeof load_tlut / sizeof load_tlut[0]));
+  T64_CHECK(machine->rdp.tlut_valid);
+
+  memset(machine->ram + FRAMEBUFFER_ADDRESS, 0xa5, sizeof unchanged);
+  T64_CHECK(run_commands(machine, rgba16_copy,
+                         sizeof rgba16_copy / sizeof rgba16_copy[0]));
+  T64_CHECK_INT(machine->rdp.refusal_reason, T64_RDP_REFUSAL_NONE);
+  T64_CHECK_INT(machine->rdp.tlut_format, 2u);
+  T64_CHECK(memcmp(machine->ram + FRAMEBUFFER_ADDRESS, rgba16_expected,
+                   sizeof rgba16_expected) == 0);
+
+  memset(machine->ram + FRAMEBUFFER_ADDRESS, 0xa5, sizeof unchanged);
+  T64_CHECK(run_commands(machine, ia16_copy,
+                         sizeof ia16_copy / sizeof ia16_copy[0]));
+  T64_CHECK_INT(machine->rdp.refusal_reason, T64_RDP_REFUSAL_NONE);
+  T64_CHECK_INT(machine->rdp.tlut_format, 3u);
+  T64_CHECK(memcmp(machine->ram + FRAMEBUFFER_ADDRESS, ia16_expected,
+                   sizeof ia16_expected) == 0);
+
+  memset(machine->ram + FRAMEBUFFER_ADDRESS, 0xa5, sizeof unchanged);
+  T64_CHECK(run_commands(machine, disabled_but_low_bits_set,
+                         sizeof disabled_but_low_bits_set /
+                             sizeof disabled_but_low_bits_set[0]));
+  T64_CHECK_INT(machine->rdp.refusal_reason,
+                T64_RDP_REFUSAL_INVALID_TEXTURE);
+  T64_CHECK_INT(machine->rdp.tlut_format, 0u);
+  T64_CHECK_INT(machine->rdp.copy_count, 2u);
+  T64_CHECK(memcmp(machine->ram + FRAMEBUFFER_ADDRESS, unchanged,
+                   sizeof unchanged) == 0);
+  t64_machine_destroy(machine);
+}
+
+static void case_raw_copy_signed_stepping(void) {
+  static const uint8_t texture[] = {
+      0xf8, 0x01, 0x07, 0xc1,
+      0x00, 0x3f, 0xff, 0xff,
+  };
+  static const uint8_t expected[] = {0xff, 0xff, 0x07, 0xc1};
+  static const uint64_t commands[] = {
+      UINT64_C(0x3f10000000005000), /* RGBA16 color image, width 1 */
+      UINT64_C(0x2d00000000004008), /* one column, two rows */
+      UINT64_C(0x2f20000000000000),
+      UINT64_C(0x3d10000100004000), /* RGBA16 texture image, width 2 */
+      UINT64_C(0x3510020000000000),
+      UINT64_C(0x3400000000004004), /* load 2x2 */
+      UINT64_C(0x3200000000004004),
+      UINT64_C(0x2400000000000004), /* x 0, y 0..1 inclusive */
+      UINT64_C(0x002000201000fc00), /* S=T=1; DSDX=1; DTDY=-1 */
+      UINT64_C(0x2900000000000000),
+  };
+  t64_machine *machine = create_authored_machine();
+
+  T64_CHECK(machine != NULL);
+  if (machine == NULL) return;
+  memcpy(machine->ram + TEXTURE_ADDRESS, texture, sizeof texture);
+  memset(machine->ram + FRAMEBUFFER_ADDRESS, 0xa5, sizeof expected);
+  T64_CHECK(run_commands(machine, commands,
+                         sizeof commands / sizeof commands[0]));
+  T64_CHECK_INT(machine->rdp.refusal_reason, T64_RDP_REFUSAL_NONE);
+  T64_CHECK_INT(machine->rdp.copy_count, 1u);
+  T64_CHECK(memcmp(machine->ram + FRAMEBUFFER_ADDRESS, expected,
+                   sizeof expected) == 0);
+  t64_machine_destroy(machine);
+}
+
+static void case_raw_copy_negative_s_wrap(void) {
+  static const uint8_t texture[] = {
+      0xf8, 0x01, 0x07, 0xc1, 0x00, 0x3f, 0xff, 0xff,
+  };
+  static const uint8_t expected[] = {0xff, 0xff};
+  static const uint64_t commands[] = {
+      UINT64_C(0x3f10000000005000),
+      UINT64_C(0x2d00000000004004),
+      UINT64_C(0x2f20000000000000),
+      UINT64_C(0x3d10000300004000),
+      UINT64_C(0x3510020000000020), /* wrap S with mask 2 */
+      UINT64_C(0x340000000000c000), /* load four texels */
+      UINT64_C(0x320000000000c000),
+      UINT64_C(0x2400000000000000),
+      UINT64_C(0xffe0000010000400), /* S=-1 texel, wrapped to texel 3 */
+      UINT64_C(0x2900000000000000),
+  };
+  t64_machine *machine = create_authored_machine();
+
+  T64_CHECK(machine != NULL);
+  if (machine == NULL) return;
+  memcpy(machine->ram + TEXTURE_ADDRESS, texture, sizeof texture);
+  memset(machine->ram + FRAMEBUFFER_ADDRESS, 0xa5, sizeof expected);
+  T64_CHECK(run_commands(machine, commands,
+                         sizeof commands / sizeof commands[0]));
+  T64_CHECK_INT(machine->rdp.refusal_reason, T64_RDP_REFUSAL_NONE);
+  T64_CHECK(memcmp(machine->ram + FRAMEBUFFER_ADDRESS, expected,
+                   sizeof expected) == 0);
+  t64_machine_destroy(machine);
+}
+
+static void case_raw_copy_unsupported_dsdx(void) {
+  static const uint8_t texture[] = {0xf8, 0x01};
+  static const uint8_t unchanged[] = {0xa5, 0xa5};
+  static const uint64_t commands[] = {
+      UINT64_C(0x3f10000000005000),
+      UINT64_C(0x2d00000000004004),
+      UINT64_C(0x2f20000000000000),
+      UINT64_C(0x3d10000000004000),
+      UINT64_C(0x3510020000000000),
+      UINT64_C(0x3400000000000000),
+      UINT64_C(0x3200000000000000),
+      UINT64_C(0x2400000000000000),
+      UINT64_C(0x0000000008000400), /* DSDX=2<<10 is outside this profile */
+      UINT64_C(0x2900000000000000),
+  };
+  t64_machine *machine = create_authored_machine();
+
+  T64_CHECK(machine != NULL);
+  if (machine == NULL) return;
+  memcpy(machine->ram + TEXTURE_ADDRESS, texture, sizeof texture);
+  memset(machine->ram + FRAMEBUFFER_ADDRESS, 0xa5, sizeof unchanged);
+  T64_CHECK(run_commands(machine, commands,
+                         sizeof commands / sizeof commands[0]));
+  T64_CHECK_INT(machine->rdp.refusal_reason, T64_RDP_REFUSAL_RENDER_RANGE);
+  T64_CHECK_INT(machine->rdp.copy_count, 0u);
+  T64_CHECK_INT(machine->rdp.dpc_current, COMMAND_ADDRESS + 7u * 8u);
+  T64_CHECK(memcmp(machine->ram + FRAMEBUFFER_ADDRESS, unchanged,
+                   sizeof unchanged) == 0);
+  t64_machine_destroy(machine);
+}
+
+static void case_raw_copy_fraction_and_flip(void) {
+  static const uint8_t texture[] = {
+      0xf8, 0x01, 0x07, 0xc1,
+      0x00, 0x3f, 0xff, 0xff,
+  };
+  static const uint8_t flip_expected[] = {
+      0xf8, 0x01, 0x00, 0x3f,
+      0x07, 0xc1, 0xff, 0xff,
+  };
+  static const uint64_t flip_commands[] = {
+      UINT64_C(0x3f10000100005000),
+      UINT64_C(0x2d00000000008008),
+      UINT64_C(0x2f20000000000000),
+      UINT64_C(0x3d10000100004000),
+      UINT64_C(0x3510020000000000),
+      UINT64_C(0x3400000000004004),
+      UINT64_C(0x3200000000004004),
+      UINT64_C(0x2500000000004004), /* flip 2x2 */
+      UINT64_C(0x0000000010000400),
+      UINT64_C(0x2900000000000000),
+  };
+  static const uint64_t fractional_commands[] = {
+      UINT64_C(0x3f10000000005000),
+      UINT64_C(0x2d00000000004004),
+      UINT64_C(0x2f20000000000000),
+      UINT64_C(0x3d10000000004010),
+      UINT64_C(0x3510020000000000),
+      UINT64_C(0x3400000000000000),
+      UINT64_C(0x3200000000000000),
+      UINT64_C(0x2400100100003003), /* all endpoints floor to pixel zero */
+      UINT64_C(0x0000000010000400),
+      UINT64_C(0x2900000000000000),
+  };
+  static const uint8_t fractional_expected[] = {0xf8, 0x01};
+  static const uint8_t fractional_decoy[] = {0x07, 0xe0};
+  t64_machine *machine = create_authored_machine();
+
+  T64_CHECK(machine != NULL);
+  if (machine == NULL) return;
+  memcpy(machine->ram + TEXTURE_ADDRESS, texture, sizeof texture);
+  memset(machine->ram + FRAMEBUFFER_ADDRESS, 0xa5, sizeof flip_expected);
+  T64_CHECK(run_commands(machine, flip_commands,
+                         sizeof flip_commands / sizeof flip_commands[0]));
+  T64_CHECK_INT(machine->rdp.refusal_reason, T64_RDP_REFUSAL_NONE);
+  T64_CHECK_INT(machine->rdp.copy_count, 1u);
+  T64_CHECK(memcmp(machine->ram + FRAMEBUFFER_ADDRESS, flip_expected,
+                   sizeof flip_expected) == 0);
+
+  /* Reconfigure the same machine with a one-pixel literal rectangle whose
+   * screen fields have nonzero 10.2 fraction bits. */
+  memcpy(machine->ram + TEXTURE_ADDRESS, fractional_decoy,
+         sizeof fractional_decoy);
+  memcpy(machine->ram + TEXTURE_ADDRESS + 16u, texture, 2u);
+  T64_CHECK(memcmp(machine->ram + TEXTURE_ADDRESS, fractional_decoy,
+                   sizeof fractional_decoy) == 0);
+  T64_CHECK(memcmp(machine->ram + TEXTURE_ADDRESS + 16u, texture,
+                   sizeof fractional_expected) == 0);
+  memset(machine->ram + FRAMEBUFFER_ADDRESS, 0xa5,
+         sizeof fractional_expected);
+  T64_CHECK(run_commands(machine, fractional_commands,
+                         sizeof fractional_commands /
+                             sizeof fractional_commands[0]));
+  T64_CHECK_INT(machine->rdp.refusal_reason, T64_RDP_REFUSAL_NONE);
+  T64_CHECK_INT(machine->rdp.copy_count, 2u);
+  T64_CHECK(memcmp(machine->ram + FRAMEBUFFER_ADDRESS, fractional_expected,
+                   sizeof fractional_expected) == 0);
+  t64_machine_destroy(machine);
+}
+
+static void case_raw_copy_clipped_origin(void) {
+  static const uint8_t texture[] = {
+      0x00, 0x01, 0x00, 0x02, 0x00, 0x03, 0x00, 0x04,
+      0x00, 0x11, 0x00, 0x12, 0x00, 0x13, 0x00, 0x14,
+      0x00, 0x21, 0x00, 0x22, 0x00, 0x23, 0x00, 0x24,
+      0x00, 0x31, 0x00, 0x32, 0x00, 0x33, 0x00, 0x34,
+  };
+  static const uint8_t expected[] = {
+      0xa5, 0xa5, 0xa5, 0xa5, 0xa5, 0xa5,
+      0xa5, 0xa5, 0x00, 0x12, 0x00, 0x13,
+      0xa5, 0xa5, 0x00, 0x22, 0x00, 0x23,
+  };
+  static const uint64_t commands[] = {
+      UINT64_C(0x3f10000200005000), /* RGBA16 color image, width 3 */
+      UINT64_C(0x2d0040040000c00c), /* scissor starts at (1,1) */
+      UINT64_C(0x2f20000000000000),
+      UINT64_C(0x3d10000300004000), /* RGBA16 texture image, width 4 */
+      UINT64_C(0x3510020000000000),
+      UINT64_C(0x340000000000c00c), /* load 4x4 */
+      UINT64_C(0x320000000000c00c),
+      UINT64_C(0x240000000000c00c), /* full 4x4 rectangle */
+      UINT64_C(0x0000000010000400),
+      UINT64_C(0x2900000000000000),
+  };
+  t64_machine *machine = create_authored_machine();
+
+  T64_CHECK(machine != NULL);
+  if (machine == NULL) return;
+  memcpy(machine->ram + TEXTURE_ADDRESS, texture, sizeof texture);
+  memset(machine->ram + FRAMEBUFFER_ADDRESS, 0xa5, sizeof expected);
+  T64_CHECK(run_commands(machine, commands,
+                         sizeof commands / sizeof commands[0]));
+  T64_CHECK_INT(machine->rdp.refusal_reason, T64_RDP_REFUSAL_NONE);
+  T64_CHECK_INT(machine->rdp.copy_count, 1u);
+  T64_CHECK(memcmp(machine->ram + FRAMEBUFFER_ADDRESS, expected,
+                   sizeof expected) == 0);
+  t64_machine_destroy(machine);
+}
+
+static void case_raw_copy_scissor_empty(void) {
+  static const uint8_t texture[] = {0xf8, 0x01};
+  static const uint8_t expected[] = {0xa5, 0xa5};
+  static const uint64_t commands[] = {
+      UINT64_C(0x3f10000000005000),
+      UINT64_C(0x2d00400000004004), /* empty interval at x=1 */
+      UINT64_C(0x2f20000000000000),
+      UINT64_C(0x3d10000000004000),
+      UINT64_C(0x3510020000000000),
+      UINT64_C(0x3400000000000000),
+      UINT64_C(0x3200000000000000),
+      UINT64_C(0x2400000000000000),
+      UINT64_C(0x0000000010000400),
+      UINT64_C(0x2900000000000000),
+  };
+  t64_machine *machine = create_authored_machine();
+
+  T64_CHECK(machine != NULL);
+  if (machine == NULL) return;
+  memcpy(machine->ram + TEXTURE_ADDRESS, texture, sizeof texture);
+  memset(machine->ram + FRAMEBUFFER_ADDRESS, 0xa5, sizeof expected);
+  T64_CHECK(run_commands(machine, commands,
+                         sizeof commands / sizeof commands[0]));
+  T64_CHECK_INT(machine->rdp.refusal_reason, T64_RDP_REFUSAL_NONE);
+  T64_CHECK_INT(machine->rdp.copy_count, 0u);
+  T64_CHECK(memcmp(machine->ram + FRAMEBUFFER_ADDRESS, expected,
+                   sizeof expected) == 0);
+  T64_CHECK_INT(machine->rdp.dpc_current,
+                COMMAND_ADDRESS +
+                    (uint32_t)(sizeof commands / sizeof commands[0] * 8u));
+  t64_machine_destroy(machine);
+}
+
 typedef struct {
   const char *name;
   void (*run)(void);
@@ -921,6 +1280,15 @@ static const test_case cases[] = {
     {"truncated-copy", case_truncated_copy},
     {"overflow-rejected", case_overflow_rejected},
     {"copy-first-difference", case_copy_first_difference},
+    {"raw-copy-cycle-s-equal-endpoint",
+     case_raw_copy_cycle_s_equal_endpoint},
+    {"raw-copy-tlut-control", case_raw_copy_tlut_control},
+    {"raw-copy-signed-stepping", case_raw_copy_signed_stepping},
+    {"raw-copy-negative-s-wrap", case_raw_copy_negative_s_wrap},
+    {"raw-copy-unsupported-dsdx", case_raw_copy_unsupported_dsdx},
+    {"raw-copy-fraction-and-flip", case_raw_copy_fraction_and_flip},
+    {"raw-copy-clipped-origin", case_raw_copy_clipped_origin},
+    {"raw-copy-scissor-empty", case_raw_copy_scissor_empty},
 };
 
 int main(int argc, char **argv) {

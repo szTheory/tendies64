@@ -486,10 +486,10 @@ t64_status t64_machine_digest(const t64_machine *machine,
       hash_u32(&context, rdp->tlut_valid ? 1u : 0u);
       hash_u32(&context, rdp->render_kind);
       hash_u32(&context, rdp->render_texture_tile);
-      hash_u32(&context, rdp->render_texture_s);
-      hash_u32(&context, rdp->render_texture_t);
-      hash_u32(&context, rdp->render_texture_dsdx);
-      hash_u32(&context, rdp->render_texture_dtdy);
+      hash_u32(&context, (uint32_t)rdp->render_texture_s);
+      hash_u32(&context, (uint32_t)rdp->render_texture_t);
+      hash_u32(&context, (uint32_t)rdp->render_texture_dsdx);
+      hash_u32(&context, (uint32_t)rdp->render_texture_dtdy);
       hash_u64(&context, rdp->copy_count);
       for (i = 0u; i < 6u; i++)
         hash_u32(&context, rdp->convert_coefficients[i]);
