@@ -222,6 +222,18 @@ set_tests_properties(unit.core.rdp.triangles PROPERTIES
   LABELS unit
   ENVIRONMENT "T64_TEST_RDP_FILL_PATH=${T64_BOOT_FIXTURE_DIR}/rdp-fill.z64")
 
+add_executable(test_rdp_texture tests/test_rdp_texture.c)
+target_include_directories(test_rdp_texture PRIVATE
+  "${CMAKE_CURRENT_SOURCE_DIR}"
+  "${CMAKE_SOURCE_DIR}/tests")
+target_link_libraries(test_rdp_texture PRIVATE t64_core)
+t64_target_warnings(test_rdp_texture)
+add_dependencies(test_rdp_texture t64-rdp-fill-fixture)
+add_test(NAME unit.core.rdp.texture COMMAND test_rdp_texture)
+set_tests_properties(unit.core.rdp.texture PROPERTIES
+  LABELS unit
+  ENVIRONMENT "T64_TEST_RDP_FILL_PATH=${T64_BOOT_FIXTURE_DIR}/rdp-fill.z64")
+
 add_executable(test_dp_transport tests/test_rdp.c)
 target_compile_definitions(test_dp_transport PRIVATE T64_TEST_DP_TRANSPORT=1)
 target_include_directories(test_dp_transport PRIVATE

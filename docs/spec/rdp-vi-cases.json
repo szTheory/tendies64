@@ -136,6 +136,19 @@
           ]
         }
       ]
+    },
+    "texture": {
+      "ctest": [
+        "unit.core.rdp.texture"
+      ],
+      "binaries": [
+        {
+          "path": "core/test_rdp_texture",
+          "cases": [
+            "texture-perspective-nonzero-signed-q16"
+          ]
+        }
+      ]
     }
   }
 }
