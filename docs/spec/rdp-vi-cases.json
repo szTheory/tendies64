@@ -196,6 +196,27 @@
           ]
         }
       ]
+    },
+    "blender": {
+      "ctest": [
+        "unit.core.rdp.blender"
+      ],
+      "binaries": [
+        {
+          "path": "core/test_rdp_blender",
+          "cases": [
+            "blender-fetched-literal-packet-to-raw-vi",
+            "blender-rgba8888-alias-to-raw-vi",
+            "blender-all-selectors-both-cycles",
+            "blender-alpha-threshold-and-blend-enable",
+            "blender-fetched-dither-quantization-to-raw-vi",
+            "blender-coverage-alpha-and-destinations",
+            "blender-fetched-overlap-and-sidecar-edges",
+            "blender-cpu-pi-sp-write-ownership",
+            "blender-fill-copy-full-coverage"
+          ]
+        }
+      ]
     }
   }
 }

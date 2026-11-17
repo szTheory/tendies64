@@ -527,7 +527,12 @@ bool t64_rdp_tmem_validate_copy(const t64_machine *machine, uint64_t first,
       !rdp->color_image_valid || !rdp->scissor_valid ||
       !rdp->other_modes_valid ||
       ((rdp->other_modes >> 52) & UINT64_C(3)) != 2u ||
-      rdp->color_image_size != 2u || rdp->color_image_format != 0u ||
+      (rdp->color_image_size != 2u &&
+       !(t64_has_rdp_blender_profile(machine) &&
+         rdp->color_image_size == 3u)) ||
+      rdp->color_image_format != 0u ||
+      (rdp->color_image_address &
+       (rdp->color_image_size == 3u ? UINT32_C(3) : UINT32_C(1))) != 0u ||
       tile_index >= T64_RDP_TILE_COUNT) return false;
   if (((second >> 16) & UINT64_C(0xffff)) != UINT64_C(4096)) return false;
   tile = &rdp->tiles[tile_index];
@@ -570,7 +575,10 @@ bool t64_rdp_tmem_validate_copy(const t64_machine *machine, uint64_t first,
   if (x0 > x1 || y0 > y1) return true;
   if (x1 >= rdp->color_image_width) return false;
   last_pixel = (uint64_t)y1 * rdp->color_image_width + x1;
-  end = (uint64_t)rdp->color_image_address + (last_pixel + 1u) * 2u;
+  end = (uint64_t)rdp->color_image_address + (last_pixel + 1u) *
+                                                   (rdp->color_image_size == 3u
+                                                        ? 4u
+                                                        : 2u);
   if (end > machine->profile.rdram_bytes) return false;
   (void)second;
   return true;

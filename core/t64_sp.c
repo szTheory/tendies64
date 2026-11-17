@@ -607,6 +607,7 @@ void t64_sp_rsp_dma_commit(t64_machine *machine,
             1u);
       } else {
         machine->ram[dram_byte] = sp_bank[internal_byte];
+        t64_rdp_memory_coverage_invalidate(machine, dram_byte, 1u);
         t64_cpu_link_invalidate_range(machine, dram_byte, 1u);
       }
     }
@@ -971,6 +972,8 @@ t64_status t64_sp_complete(t64_machine *machine, const t64_event *event) {
             1u);
       } else {
         machine->ram[dram_offset] = sp_bank[internal_offset];
+        t64_rdp_memory_coverage_invalidate(machine, (uint32_t)dram_offset,
+                                           1u);
         t64_cpu_link_invalidate_range(machine, (uint32_t)dram_offset, 1u);
       }
       payload_offset++;

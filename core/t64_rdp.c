@@ -66,6 +66,17 @@ static void write_be16(uint8_t *bytes, uint16_t value) {
   bytes[1] = (uint8_t)value;
 }
 
+static void write_be32(uint8_t *bytes, uint32_t value) {
+  bytes[0] = (uint8_t)(value >> 24);
+  bytes[1] = (uint8_t)(value >> 16);
+  bytes[2] = (uint8_t)(value >> 8);
+  bytes[3] = (uint8_t)value;
+}
+
+static uint8_t expand5_u8(uint32_t value) {
+  return (uint8_t)((value << 3) | (value >> 2));
+}
+
 static void set_refusal(t64_machine *machine, uint32_t reason) {
   machine->rdp.refusal_reason = reason;
   machine->rdp.dpc_status |= T64_RDP_STATUS_ERROR;
@@ -254,12 +265,19 @@ static bool validate_fill_store(const t64_machine *machine, uint32_t x0,
 
   if (y0 > y1 || x0 > x1) return true;
   if (!rdp->color_image_valid || rdp->color_image_width == 0u ||
-      rdp->color_image_size != 2u || rdp->color_image_format != 0u ||
-      (rdp->color_image_address & UINT32_C(1)) != 0u) {
+      (rdp->color_image_size != 2u &&
+       !(t64_has_rdp_blender_profile(machine) &&
+         rdp->color_image_size == 3u)) ||
+      rdp->color_image_format != 0u ||
+      (rdp->color_image_address &
+       (rdp->color_image_size == 3u ? UINT32_C(3) : UINT32_C(1))) != 0u) {
     return false;
   }
   last_pixel = (uint64_t)y1 * rdp->color_image_width + x1;
-  end = (uint64_t)rdp->color_image_address + (last_pixel + 1u) * 2u;
+  end = (uint64_t)rdp->color_image_address + (last_pixel + 1u) *
+                                                   (rdp->color_image_size == 3u
+                                                        ? 4u
+                                                        : 2u);
   return end <= machine->profile.rdram_bytes;
 }
 
@@ -269,12 +287,21 @@ static void fill_one_row(t64_machine *machine) {
 
   for (x = rdp->render_x_begin; x <= rdp->render_x_end; x++) {
     uint64_t pixel = (uint64_t)rdp->render_y * rdp->color_image_width + x;
-    uint64_t address = (uint64_t)rdp->color_image_address + pixel * 2u;
+    uint32_t size_bytes = rdp->color_image_size == 3u ? 4u : 2u;
+    uint64_t address = (uint64_t)rdp->color_image_address +
+                       pixel * size_bytes;
     uint16_t value = (x & 1u) == 0u
                          ? (uint16_t)(rdp->fill_color >> 16)
                          : (uint16_t)rdp->fill_color;
-
-    write_be16(machine->ram + (size_t)address, value);
+    if (size_bytes == 4u) {
+      uint32_t color = (rdp->fill_color & UINT32_C(0xffffff00)) |
+                       UINT32_C(0xe0) | (rdp->fill_color & UINT32_C(0x1f));
+      write_be32(machine->ram + (size_t)address, color);
+      t64_rdp_memory_coverage_write(machine, (uint32_t)address, 4u, 8u);
+    } else {
+      write_be16(machine->ram + (size_t)address, value);
+      t64_rdp_memory_coverage_write(machine, (uint32_t)address, 2u, 8u);
+    }
   }
 }
 
@@ -294,10 +321,23 @@ static t64_status handle_row(t64_machine *machine) {
     uint32_t x;
     for (x = rdp->render_x_begin; x <= rdp->render_x_end; x++) {
       uint64_t pixel = (uint64_t)rdp->render_y * rdp->color_image_width + x;
-      uint64_t address = (uint64_t)rdp->color_image_address + pixel * 2u;
+      uint32_t size_bytes = rdp->color_image_size == 3u ? 4u : 2u;
+      uint64_t address = (uint64_t)rdp->color_image_address +
+                         pixel * size_bytes;
       uint16_t color = 0u;
       (void)t64_rdp_tmem_copy_pixel(machine, x, rdp->render_y, &color);
-      write_be16(machine->ram + (size_t)address, color);
+      if (size_bytes == 4u) {
+        uint32_t rgba =
+            ((uint32_t)expand5_u8((color >> 11) & 31u) << 24) |
+            ((uint32_t)expand5_u8((color >> 6) & 31u) << 16) |
+            ((uint32_t)expand5_u8((color >> 1) & 31u) << 8) |
+            UINT32_C(0xe0) | ((color & 1u) != 0u ? UINT32_C(31) : 0u);
+        write_be32(machine->ram + (size_t)address, rgba);
+        t64_rdp_memory_coverage_write(machine, (uint32_t)address, 4u, 8u);
+      } else {
+        write_be16(machine->ram + (size_t)address, color);
+        t64_rdp_memory_coverage_write(machine, (uint32_t)address, 2u, 8u);
+      }
     }
   } else {
     fill_one_row(machine);
@@ -418,8 +458,11 @@ static t64_status apply_pending_command(t64_machine *machine) {
     size = (uint32_t)((word >> 51) & UINT64_C(3));
     width = (uint32_t)((word >> 32) & UINT64_C(0x3ff)) + 1u;
     base = (uint32_t)(word & UINT64_C(0x03ffffff));
-    valid_fill = format == 0u && size == 2u && width <= 1024u &&
-                 (base & UINT32_C(1)) == 0u;
+    valid_fill = format == 0u && (size == 2u ||
+                                  (t64_has_rdp_blender_profile(machine) &&
+                                   size == 3u)) &&
+                 width <= 1024u &&
+                 (base & (size == 3u ? UINT32_C(3) : UINT32_C(1))) == 0u;
     if (!valid_fill) {
       rdp->dpc_current = address;
       record_command(machine, word, command_byte, opcode);

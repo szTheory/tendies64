@@ -352,3 +352,90 @@ DPC-to-triangle-to-RDRAM/VI consumer, independent one- and two-cycle arithmetic
 vectors, selector denominator checks, refusal-without-pixel-or-noise effects,
 and interleaved instance/digest controls. It establishes this software
 contract only; VID-04 hardware accuracy remains unproven.
+
+## V6 blender and logical coverage policy
+
+V6 uses descriptor 9, machine model 15, state 20 and the profile ID
+`ntsc-cart-4m-openipl3-rdram-b-t1-rdp-blender-v6`. It preserves v5 behavior
+for the older profile. The raw field positions and primary-source limits are
+captured in `07-07-BLENDER-FIELDS.md`; software choices below are versioned
+policy and are not hardware-accuracy claims.
+
+The existing 16-sample software mask remains a separate 1024×1024 plane. Its
+population `n` maps to logical coverage `floor((n+1)/2)`, giving values 0–8.
+This rounds half upward and does not claim the vendor's coverage-dither mask.
+A second per-machine sidecar has one byte per physical 16-bit RDRAM granule:
+bit 7 marks the entry valid, bits 3:0 hold logical coverage 0–8, and bits 6:4
+are zero. Invalid entries read as zero. RGBA16 reads one granule; RGBA32 reads
+the minimum of its two halfword entries and returns zero if either is invalid.
+An RDP output authors one entry for 16-bit pixels or both entries for 32-bit
+pixels. Partial byte writes invalidate only the touched granules, and masked
+writes invalidate only selected lanes. This is a logical software mapping;
+it does not assign a byte address or bit lane to the hardware's physical
+hidden RDRAM bits.
+
+V6 fill and copy pixels author full logical coverage. Guest-state reset during
+ROM admission clears the sidecar; `t64_machine_destroy` releases its enclosing
+RDRAM allocation. A checked allocation accounts for odd RDRAM lengths with
+ceiling division. The v20 digest hashes all sidecar bytes after
+RAM and the existing sample plane, under the domain
+`t64.state.rdp.vi.blender.20`. CPU scalar/masked writes, committed cache
+writeback, PI completion and both SP-to-RDRAM DMA paths invalidate only after
+the backing bytes are accepted. Cached stores remain invisible until writeback.
+
+Blender RGB selectors use pixel, memory, blend-register and fog-register
+colors. Alpha selectors use pixel alpha, fog alpha, shade alpha or zero.
+`alpha8 >> 3` gives the 5-bit A factor; B is `32-A`, memory alpha `>>3`, 32,
+or zero. Each cycle computes `floor((A*P+B*M)/(A+B))`, clamps to RGB8, and
+returns RGB zero when the denominator is zero. Cycle 1 P=0 feeds back the
+already normalized cycle-0 result. The selector fields are decoded separately
+for both cycles. These conversions and normalized feedback are software
+policy; primary text only describes the numerator feedback case with B=1-A.
+
+The rest of the v6 mode behavior is pinned as follows:
+
+- `image_read_en=0` supplies black memory color and zero old coverage;
+  `image_read_en=1` reads the selected color image and logical sidecar.
+- `force_blend` always enables blending. Otherwise antialias permits it for
+  nonzero partial coverage (1–7); full coverage passes pixel RGB directly.
+- `cvg_times_alpha` maps coverage to
+  `floor((coverage*pixel_alpha+127)/255)`. `alpha_cvg_select` maps that result
+  back to alpha8 with `floor((coverage*255+4)/8)` before alpha mux selection.
+- Alpha compare accepts equality. Its ordinary threshold is blend-register
+  alpha; when `dither_alpha_en` is set, it uses the low byte of the existing
+  per-pixel xorshift state without advancing the generator again. Rejection
+  suppresses color/alpha writes while coverage destination state still
+  updates.
+- Coverage destinations are clamp `min(8, old+new)`, wrap zero to zero and
+  otherwise `1+((sum-1)%8)`, full 8, and save old. Overflow means `sum>8`;
+  exact 8 is not overflow. `color_on_cvg` suppresses the color write when
+  overflow is false, while coverage still updates. A resulting coverage of
+  zero suppresses the write.
+- RGB dither uses these 4×4 matrices (magic-square and Bayer); noise uses the
+  current xorshift state's low three bits, and disabled contributes zero:
+
+  ```text
+  magic:       Bayer:
+  0 6 1 7      0 4 1 5
+  4 2 5 3      6 2 7 3
+  1 7 0 6      1 5 0 4
+  5 3 4 2      7 3 6 2
+  ```
+
+  RGB8 channels add that 0–7 bias, clamp to 255, then take the upper five
+  bits. Alpha dither uses the first matrix for pattern, its inverse for
+  inverted pattern, noise low three bits, or zero when disabled. RGBA5551
+  alpha compares against `128 + bias - 4` (or 128 when disabled); RGBA8888
+  alpha adds the same signed bias before taking five bits. These are explicit
+  deterministic costs/ties, not vendor dithering equivalence.
+- RGBA16 stores RGB5551 and logical coverage only in the sidecar. RGBA8888
+  stores RGB8, then alpha bits 7:5 as `coverage-1` and alpha bits 4:0 as the
+  v6 five-bit alpha; VI expands the low five alpha bits and ignores the
+  coverage code. No 16-bit hidden-bit packing is inferred.
+
+The literal two-cycle packet checks a five-sample pixel, hence logical
+coverage 3, with old coverage 6. Its wrap result is 1 and `color_on_cvg`
+allows the expected RGB output. Registered tests also cover the RGBA8888
+consumer path. The authored results establish this versioned software
+contract only; they do not complete VID-04 or replace the active D2/D5/D6
+stops.

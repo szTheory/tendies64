@@ -143,12 +143,13 @@ REVIEWED_SP_FUNCTIONS = (
 REVIEWED_RDP_FUNCTIONS = frozenset(
     {
         "apply_pending_command", "command_span_valid", "dpc_status_value",
+        "expand5_u8",
         "fill_bounds", "fill_one_row", "finish_if_idle", "handle_row",
         "increment_counter", "rdp_event_queued", "read_be64", "record_command",
         "schedule_next_committed", "schedule_work_after_committed", "set_refusal",
         "supported_opcode", "t64_rdp_event", "t64_rdp_read_register",
         "t64_rdp_reset_machine_state", "t64_rdp_write_register",
-        "texture_rect_bounds", "validate_fill_store", "write_be16",
+        "texture_rect_bounds", "validate_fill_store", "write_be16", "write_be32",
     }
 )
 REVIEWED_RDP_TMEM_FUNCTIONS = frozenset(
@@ -174,9 +175,11 @@ REVIEWED_RDP_TMEM_FUNCTIONS = frozenset(
 )
 REVIEWED_RDP_RASTER_FUNCTIONS = frozenset(
     {
-        "blend_texture_levels", "decode_edges", "floor_div_i64",
+        "alpha_dither_bias", "blend_texture_levels",
+        "color_dither_bias", "decode_edges", "floor_div_i64",
         "magnitude_i64", "modulate_texture_shade", "pair_q16",
         "project_texture_q16", "rgba5551", "select_texture_lod",
+        "t64_rdp_quantize_alpha5_v6", "t64_rdp_quantize_rgba5551_v6",
         "shade_channel", "shade_products_are_bounded", "texture_channel5",
         "texture_channel_q16", "texture_products_are_bounded",
         "texture_values_at",
@@ -187,9 +190,13 @@ REVIEWED_RDP_RASTER_FUNCTIONS = frozenset(
 )
 REVIEWED_RDP_PIPELINE_FUNCTIONS = frozenset(
     {
-        "alpha_source", "clamp_u8", "color_channel", "combine_channel",
-        "combine_cycle", "floor_div_255", "next_noise", "rgb_source",
-        "signed9", "t64_rdp_combine_pixel",
+        "alpha_source", "blend_alpha_factor", "blend_b_factor",
+        "blend_coverage_destination", "blend_rgb_source", "clamp_u8",
+        "color_channel", "combine_channel", "combine_cycle", "coverage_entry",
+        "floor_div_255", "next_noise", "read_blend_memory", "rgb_source",
+        "signed9", "t64_rdp_blend_pixel", "t64_rdp_combine_pixel",
+        "t64_rdp_memory_coverage_invalidate", "t64_rdp_memory_coverage_read",
+        "t64_rdp_memory_coverage_write",
     }
 )
 REVIEWED_VI_FUNCTIONS = frozenset(
@@ -206,11 +213,15 @@ REVIEWED_VI_FUNCTIONS = frozenset(
 # inventory check below.
 REVIEWED_BODY_DIGESTS = {
     "core/t64_bus.c :: decode_region": "a7d3761fa6daa231b11e82c1c78f8e0f3968d629f7c094f6b6f3446d5f31f916",
+    "core/t64_bus.c :: t64_bus_write": "c4981198e735c1125ced3607eaded936ace5919054d02834a52dee8881e98a1d",
+    "core/t64_bus.c :: t64_bus_write_masked": "2c219bc6f9131c133dabee4f60d9e5a18bbcda8c8443bb6b7418b423f6ae2f82",
+    "core/t64_bus.c :: t64_bus_writeback_cache_line": "00b198913012b79e8ff87fdc40822b2096e7d6f1ba9d9f8033f6e468e0621e80",
+    "core/t64_pi.c :: t64_pi_complete": "7edd3c4b64276a9b6698cb13f16b91a183f400cee26347b350b49bccb69e36af",
     "core/t64_sp.c :: t64_sp_write_register": "3620ac7c6c379837ebdedcfcf21ca6c887e580880e314311633b08698f75ce09",
     "core/t64_sp.c :: t64_sp_reset_machine_state": "f410fa77785c8b063cde69306ced58702d70dae4c5bca62af2b8adf08529670a",
     "core/t64_sp.c :: t64_sp_read_register": "495be610b9df612b2637f74356824f1a4c6970981041d87dfb666a2f56946e5e",
     "core/t64_sp.c :: t64_sp_peek_register": "8e061feec47e6809739915b64f8e832cba96a8705521eb7b6e2a0cea2d7d4e5d",
-    "core/t64_sp.c :: t64_sp_complete": "afd0e5fb93dcaa9d5870f89192625483894528ca37723a92d6c72d9239bbfb7f",
+    "core/t64_sp.c :: t64_sp_complete": "205cfdf05cdf127cbdf1a51c7dac2fc4a35972889260913a8b54768ef1ead9d9",
     "core/t64_sp.c :: start_dma": "e960624eb7510895ae8c1721620b8dc3aa948c0d1c4cc6298aa9c43f1f0f7fae",
     "core/t64_sp.c :: t64_sp_rsp_guest_status_write": "aa575856b41e3be20241aee8db88efd7d2def2007cad2cb9cd0424c11417beb6",
     "core/t64_sp.c :: t64_rsp_validate_status_command": "e750e5da69933b8e68350a243266836a41d259724c203e8e4b805dee49f2dc81",
@@ -252,18 +263,19 @@ REVIEWED_BODY_DIGESTS = {
     "core/t64_sp.c :: t64_sp_rsp_dma_admission_commit": "8e52fa80dd6ae74fc13d8d7a46d64b802ce68aa8c3744cd10eb79e0d7fab4eff",
     "core/t64_sp.c :: t64_sp_rsp_dma_admission_preflight": "63d6631c0e409082581aebb7778c0298ca12459b5e4f8e6fd71a8e829f6ba18e",
     "core/t64_sp.c :: t64_sp_rsp_dma_admission_refuse": "1e014801570acaa111ae5e932ea0260840aa6fb5d37f27bcf3018759550a5c3c",
-    "core/t64_sp.c :: t64_sp_rsp_dma_commit": "13fda7de60b393b1633adffd98f0a9e5ec865e2d52b130297c53ea8688791c21",
+    "core/t64_sp.c :: t64_sp_rsp_dma_commit": "c0b226ae170deb3c7ce4ab539b78d358165e3af447db5ca091e5945e96768231",
     "core/t64_sp.c :: t64_sp_rsp_dma_preflight": "e5b6d9024c565659e7b610795fd64dcea905238edc5f74b09b0495c401eb108f",
     "core/t64_sp.c :: trace_refusal": "d142faecf8d4f78e427aa40e7454d0a24cc05c20ca433e225bed118982517dfc",
     "core/t64_sp.c :: warm_zero_source_sp_transfer": "46b55d7252273228780a497b4f34180b53dc93676f6bac901aaff9fae6d86508",
     "core/t64_sp.c :: write_rsp_status": "8d1f00710b955fc530864d080ae8d99733711e73749c75b6800d7cc590dbf74c",
-    "core/t64_rdp.c :: apply_pending_command": "2e3efe5eebf882a9c9f73142928584794a9cc21835612fd1a1231a35301988bd",
+    "core/t64_rdp.c :: apply_pending_command": "bd20f31bb4d20b2b25f620b3f5063cafe88605116ed5f6b94dfd4d3e5cb0e43b",
+    "core/t64_rdp.c :: expand5_u8": "ceac39882b1c7c81ee50b7bedf89cce86e3908b8c5d02fd0186769a093699142",
     "core/t64_rdp.c :: command_span_valid": "4f8a0ecc32f895ae4dfa8f6390d90e4e1a0c18477bbe8ebbb97d66136f882f3a",
     "core/t64_rdp.c :: dpc_status_value": "051e3e702318dd9975d0c0a41a990c733d78ca8e84c77aeeab67ef4da7d4be32",
     "core/t64_rdp.c :: fill_bounds": "05ce4e443ffa8fac9adc9503750953b1a9f8c0d7485c1c14a90601433d4c6540",
-    "core/t64_rdp.c :: fill_one_row": "472543c65709bbbfe33d591bd8073490846446d0c9e7c09f8a81db8a6d101e3a",
+    "core/t64_rdp.c :: fill_one_row": "ce894991e1c65c82d02098edf163c7721fa5e191cc21a9b42ebb0a1660ed844a",
     "core/t64_rdp.c :: finish_if_idle": "c5f6f068c0c3622f8ca67750f53032f9b2c2ec6324cfda9991d7420e06277a1a",
-    "core/t64_rdp.c :: handle_row": "cdc241a00fe6d1322b8eb54d7b1cc27b7b5d7f303ff464b0b62f3897877dc5ca",
+    "core/t64_rdp.c :: handle_row": "c516da34e1e379b6c40ed02520680de82e9182fe869cc548e81b05f0887d12ef",
     "core/t64_rdp.c :: increment_counter": "c7b52a4723395d1f114dd6c485c36e3c08ca7338afcd527d8e9fd0929dc86911",
     "core/t64_rdp.c :: rdp_event_queued": "f91aa69f7a194595cf8cc54d2aedc64132d4b0052494e3873b6c751aec0b4f81",
     "core/t64_rdp.c :: read_be64": "a3b364ca9b36969d9e21b3551356029e7a7956968b8a0191b964652f95d2f364",
@@ -277,8 +289,11 @@ REVIEWED_BODY_DIGESTS = {
     "core/t64_rdp.c :: t64_rdp_reset_machine_state": "b18b1126b2bddb74b4ba5d0162dda1742d897c06d397972ed62adda0472be8cb",
     "core/t64_rdp.c :: t64_rdp_write_register": "53b44012b22a3f9e90d76a0b6794406375bde7f973f3ce3ea8cc894df24d8a8e",
     "core/t64_rdp.c :: texture_rect_bounds": "3e8cf320ead70529f470b0ecd7e7ee304e49b7f78465a143e6ca0127e9d4087f",
-    "core/t64_rdp.c :: validate_fill_store": "9d61bf40eba5de3b1df97e6d60df96ecc1e20909d62a255e21a837dbbe43f0a0",
+    "core/t64_rdp.c :: validate_fill_store": "646b842f994a7700d3d7b68bfd95c44a110fd43a613bfd070b07f3fb202a6910",
     "core/t64_rdp.c :: write_be16": "145a18aff31ba9937039922fe81436defa1f931f61f369bba1ba557a9bd4772a",
+    "core/t64_rdp.c :: write_be32": "6e02de3ff9551fb14c3b1ef9d80324a02d3b8d76023c742c622174374da0380c",
+    "core/t64_rdp_raster.c :: alpha_dither_bias": "b3625d1859f8dec2df039da3b9c72580613b1d248c4d7e6f6c0bf55aeb3edbfd",
+    "core/t64_rdp_raster.c :: color_dither_bias": "5fb9876a0aa607a0407172d7075f9587f9d3402a4ff54b3b8efda9f57679931e",
     "core/t64_rdp_raster.c :: decode_edges": "5c88d5401deeb0f45be0f9228397c9a53043f2f80494bd021a793c2799c26c23",
     "core/t64_rdp_raster.c :: blend_texture_levels": "b8e13e9b792ba75e35850124762e33a206a106af120c91f04da1c0c91c334c1b",
     "core/t64_rdp_raster.c :: floor_div_i64": "7da65f0daca4a086ea1d8f889a0e006fc86a78dd674d556b735bafc8b2626ecd",
@@ -287,28 +302,40 @@ REVIEWED_BODY_DIGESTS = {
     "core/t64_rdp_raster.c :: pair_q16": "56024955567f7f18bb7163400af9d016d94c98ef3ee1757cbfc75ccca1ab0a5c",
     "core/t64_rdp_raster.c :: project_texture_q16": "10e2632526925b46889ad6cfaa377b410969d63ed57d0fff24fdd8ef034f1b19",
     "core/t64_rdp_raster.c :: rgba5551": "81db13760bb36f530b28c2a5740fc826f89a7abe4094bcd4cb98979cf21960cc",
+    "core/t64_rdp_raster.c :: t64_rdp_quantize_alpha5_v6": "1b287c06c2af74b2fe197535cb39c57f9d6052a00d2e6ef1ee97f27648ce14ad",
+    "core/t64_rdp_raster.c :: t64_rdp_quantize_rgba5551_v6": "8de298af195ebd7d04b510892a300aab0737a385956fb99e23674266c0136d74",
     "core/t64_rdp_raster.c :: select_texture_lod": "69683e8c2fd7968142b8746ce7a67bf853086b3525f25f7d2c6c846a1ec77247",
     "core/t64_rdp_raster.c :: shade_channel": "ffc805ab7a8a313f037ccecd916c12f6c05623fbe0904620a98824b218ce112d",
     "core/t64_rdp_raster.c :: shade_products_are_bounded": "dc43aa44161b59e8e18a5ea5abd0977e58fa250b8158e13c4ce4cf4901aa0346",
     "core/t64_rdp_raster.c :: sign_extend_u14": "4c60f2c84b607ddec9ccfa10319406dd75b180450d224ac17cc6fedc1b45dadb",
     "core/t64_rdp_raster.c :: signed_u32": "83179d57b15375b137c8e01de5374b4b027c396644745b06e8f4b984c817bebd",
-    "core/t64_rdp_raster.c :: t64_rdp_triangle_bounds": "e0d26b4e19c907fcb3a54b49924af8e11a1178ed461f9b805f8c8eca5ffe09eb",
-    "core/t64_rdp_raster.c :: t64_rdp_triangle_render_row": "42025190e43c2859b60c0b9b7fafed91aabdc3b644f6791cab67274596847b10",
+    "core/t64_rdp_raster.c :: t64_rdp_triangle_bounds": "6694a7bcd906abe6d6bc8624a6263f707fdf323b187564cd40818917779c1026",
+    "core/t64_rdp_raster.c :: t64_rdp_triangle_render_row": "251c742509ae05569d441119b87023657b0a99a83c573e94bf4f52c425ea75ca",
     "core/t64_rdp_raster.c :: t64_rdp_triangle_word_count": "9c4ba2233607144ba272f851462678760aae1ad6e24cd2b2fa635d24ebdf272c",
     "core/t64_rdp_raster.c :: texture_channel5": "17a9184f0b0b54ee26aa50902b7d727c41f0bd05830b1713e519e3f8d4e8505a",
     "core/t64_rdp_raster.c :: texture_channel_q16": "658f89383ca8fd1b72b7a67b9ef541c848d8c1755d01a4f6733445ffca7d1b95",
     "core/t64_rdp_raster.c :: texture_products_are_bounded": "a7870293404666555f9535bdfc67824860480c0a4abded0a609fd8561ed26382",
     "core/t64_rdp_raster.c :: texture_values_at": "192537747cf88c057a5a0832d8a6126fa6321352c41347fbe65a62247d7e7632",
     "core/t64_rdp_pipeline.c :: alpha_source": "003b10ac38b9744bea2facbbf9ade2dac385961adda91ccdf5542c98a1f8c6e7",
+    "core/t64_rdp_pipeline.c :: blend_alpha_factor": "20de162bba725c37ab3fdf4167b80fa86dbde39657f3c767d926d43f0c90a56f",
+    "core/t64_rdp_pipeline.c :: blend_b_factor": "60a12d589b50a9ba7685cfadb051f87cf2b59d1abee3c872afb34f76118d009f",
+    "core/t64_rdp_pipeline.c :: blend_coverage_destination": "0f8e9cbd055cd02e894a54027214f8dc274bcfc8a6b1d905e4726798afc2c938",
+    "core/t64_rdp_pipeline.c :: blend_rgb_source": "e3a097010b908f137a802a972c5214c248126c580524be0d058e0bfe8bae337c",
     "core/t64_rdp_pipeline.c :: clamp_u8": "08dc4f5a1bb344129936543b0bf9c45941bcea865b568e10884ad5845006cdd8",
     "core/t64_rdp_pipeline.c :: color_channel": "66142787001041fc0a64049b3a8c38515a037fd823b9a2b59b08c6f7fc68224b",
     "core/t64_rdp_pipeline.c :: combine_channel": "ae37ee47401fcdbe53198602af5ff91a51dd173f1c772327caf8e81c5271ca97",
     "core/t64_rdp_pipeline.c :: combine_cycle": "cf5885b732dba7c76f439094094f54ab82b7593b29a50270cb907af38ded3562",
+    "core/t64_rdp_pipeline.c :: coverage_entry": "1452db6fd6e70af153e403bf19c0ed7814fa8bfae8a1acf3c6aa8718e4a6bfaf",
     "core/t64_rdp_pipeline.c :: floor_div_255": "467f7c61a7d7eb981204c52a5a5977f33cd729be4f593a877a21cf3ab6152a36",
     "core/t64_rdp_pipeline.c :: next_noise": "ac21af7970e2f4618315b2878bae66c88e93b2508546625d15831cfb17f445d6",
+    "core/t64_rdp_pipeline.c :: read_blend_memory": "3898501ea5bae18cbfffb0ff0c57d0d8bc098fdf6e58d3d0ccb1c7dbcf433dcd",
     "core/t64_rdp_pipeline.c :: rgb_source": "c23588569f95204ff49dfa9f6931b910df5880f3b22c3ad64e4efc983e968ec7",
     "core/t64_rdp_pipeline.c :: signed9": "9fe5122087d1b493f7380882126ce57c2cd0e1c94068dfad8d746452d87bb1e3",
+    "core/t64_rdp_pipeline.c :: t64_rdp_blend_pixel": "68c4a727113409916c5d0c872e981ebdc0135053540b0876dadd8f2b065a09ce",
     "core/t64_rdp_pipeline.c :: t64_rdp_combine_pixel": "656b8bb98dc169b8e7ec8db460af4cf47fd020c8b133243f641999f86f2641db",
+    "core/t64_rdp_pipeline.c :: t64_rdp_memory_coverage_invalidate": "d16b195c0d975a8b009d9cc5517add1cd67e2a5ec90f799fb3eb9f50528a6f83",
+    "core/t64_rdp_pipeline.c :: t64_rdp_memory_coverage_read": "18dab858d34f120f7755b801f980cb6907acbe336cacacb10e01849f672e432f",
+    "core/t64_rdp_pipeline.c :: t64_rdp_memory_coverage_write": "1840d1d9599a5003eb89ae9ea08cea862b19d18f193f2264a89ed463639b6f62",
     "core/t64_rdp_tmem.c :: apply_load_block": "9a1e6035fe42bc1d6fe4fb9c98501d61b82894b6dc155fcc524c73f486547b7a",
     "core/t64_rdp_tmem.c :: apply_load_tile": "92d546a7231010976364a0eedf4b1005493cb1030985a31707b723a5bb2c91b5",
     "core/t64_rdp_tmem.c :: apply_load_tlut": "60fd5c460b216b64f4d04b36cb2960f33204c95398c04542a668948eb95f4ca7",
@@ -346,7 +373,7 @@ REVIEWED_BODY_DIGESTS = {
     "core/t64_rdp_tmem.c :: t64_rdp_tmem_copy_pixel": "2d60a7974fa5e49840b500b235beb5cf6da5468cd8e99989eaeb797c48761b34",
     "core/t64_rdp_tmem.c :: t64_rdp_tmem_handles_opcode": "ef56ea6f392c9004cd09c808c19849961ba16783cbfb5f052142a48432795fe6",
     "core/t64_rdp_tmem.c :: t64_rdp_tmem_validate_command": "2de348419f36cbc140773f9bc8ac345271d611f1e69968f946ff92f3394c75f7",
-    "core/t64_rdp_tmem.c :: t64_rdp_tmem_validate_copy": "3a52b0812f075bc7e937ab36164847b4885cf05ee0f2f8bb4d4fa62e741cc06e",
+    "core/t64_rdp_tmem.c :: t64_rdp_tmem_validate_copy": "e2416dd2f5971012ec68721206e1286e45be3a69ca5335fbf536cee19f791581",
     "core/t64_rdp_tmem.c :: t64_rdp_tmem_triangle_pixel": "14bbcc1c091eb79eb7e8b149ff9aeaed21a51cec5eb99e0f0a3b9012709f4c8f",
     "core/t64_rdp_tmem.c :: t64_rdp_tmem_triangle_pixel_rgba8": "dc2ea2baf07afbf9fde6fe54807d9b4f1d57b16392b5579c34b830dc22e31ed5",
     "core/t64_rdp_tmem.c :: t64_rdp_tmem_validate_triangle": "344298b67c53f3e48f1519e1e0cf306f76aad68e7dc7046778517827dc98778c",
@@ -359,10 +386,10 @@ REVIEWED_BODY_DIGESTS = {
     "core/t64_vi.c :: copy_text": "2f10ff25b6593ac813ad6619ef1b6658fc199ad4fb78bce2ee098c3fcda8e600",
     "core/t64_vi.c :: delay_for_cycles": "9c3dae70091562065968143a1a6a15e843905b6b5c675407e1204fa15714eab7",
     "core/t64_vi.c :: expand5": "ceac39882b1c7c81ee50b7bedf89cce86e3908b8c5d02fd0186769a093699142",
-    "core/t64_vi.c :: geometry_for": "f4406152ed6b4d7902691d0b7b9d368817b6515d8336e7b15515dbec1b3d202f",
+    "core/t64_vi.c :: geometry_for": "9891d451f3d90e406519e74f102c7f26ccb010d2568231f13b12ad8e99d1cae4",
     "core/t64_vi.c :: phase_at_tick": "47456dc6873e26bf86feacb2c6b777dbf8aacdd464507a24b441f2a16a36c523",
-    "core/t64_vi.c :: render_packet": "fda529594c485b9c6258f37ed17b52b94e961da2e6cfe3bf9df5b9cb1a231c13",
-    "core/t64_vi.c :: t64_vi_event": "47c641c2a857eda0fa1372a02d6aed13111f24367f527eb13b43b1682f4a0707",
+    "core/t64_vi.c :: render_packet": "5f6ee526351f97887fe1622519b2438994f16c71d5e88b071ee8cc3afc358df2",
+    "core/t64_vi.c :: t64_vi_event": "7583f9e615285da4b97d102ee7816f249d9f698bbfc6be0b351a9368c91d28e2",
     "core/t64_vi.c :: t64_vi_read_register": "d21a4ba36394f79f00dc0bf644120150e0d40bd2a8e6aeaa625946ea39b1826b",
     "core/t64_vi.c :: t64_vi_reset_machine_state": "4aed279f94c4064aec968cf30f14f90f138e7b9fe736e8d4bac549829ea15982",
     "core/t64_vi.c :: t64_vi_write_register": "c17eade05782b2c34b28f1ac1aaca597631cf6c1ff5e7ce204e925153bb52567",
@@ -549,11 +576,12 @@ def _check_source_route(root: pathlib.Path) -> tuple[list[str], list[str], int]:
     tmem_path = root / "core" / "t64_rdp_tmem.c"
     vi_path = root / "core" / "t64_vi.c"
     bus_path = root / "core" / "t64_bus.c"
+    pi_path = root / "core" / "t64_pi.c"
     if not all(
         path.is_file()
         for path in (
             rsp_path, sp_path, rdp_path, pipeline_path, raster_path, tmem_path,
-            vi_path, bus_path
+            vi_path, bus_path, pi_path
         )
     ):
         findings.append(
@@ -571,6 +599,7 @@ def _check_source_route(root: pathlib.Path) -> tuple[list[str], list[str], int]:
     tmem = strip_c_comments_and_literals(tmem_path.read_text(encoding="utf-8"))
     vi = strip_c_comments_and_literals(vi_path.read_text(encoding="utf-8"))
     bus = strip_c_comments_and_literals(bus_path.read_text(encoding="utf-8"))
+    pi = strip_c_comments_and_literals(pi_path.read_text(encoding="utf-8"))
     rdp_function_names = file_function_names(rdp)
     pipeline_function_names = file_function_names(pipeline)
     vi_function_names = file_function_names(vi)
@@ -632,6 +661,10 @@ def _check_source_route(root: pathlib.Path) -> tuple[list[str], list[str], int]:
             )
     routes = {
         "core/t64_bus.c :: decode_region": function_body(bus, "decode_region"),
+        "core/t64_bus.c :: t64_bus_write": function_body(bus, "t64_bus_write"),
+        "core/t64_bus.c :: t64_bus_write_masked": function_body(bus, "t64_bus_write_masked"),
+        "core/t64_bus.c :: t64_bus_writeback_cache_line": function_body(bus, "t64_bus_writeback_cache_line"),
+        "core/t64_pi.c :: t64_pi_complete": function_body(pi, "t64_pi_complete"),
         "core/t64_rsp.c :: rsp_read_imem_word": function_body(rsp, "rsp_read_imem_word"),
         "core/t64_rsp.c :: t64_rsp_schedule_next": function_body(
             rsp, "t64_rsp_schedule_next"
@@ -786,6 +819,10 @@ def _check_source_route(root: pathlib.Path) -> tuple[list[str], list[str], int]:
         findings.append(
             "core/t64_rdp_raster.c :: t64_rdp_triangle_render_row: covered pixels bypass the versioned color combiner"
         )
+    if "t64_rdp_blend_pixel" not in raster_row_body or "t64_rdp_memory_coverage_write" not in raster_row_body:
+        findings.append(
+            "core/t64_rdp_raster.c :: t64_rdp_triangle_render_row: blender coverage/color ownership route is absent"
+        )
     fetch_body = routes["core/t64_rdp.c :: t64_rdp_event"] or ""
     if "t64_rdp_triangle_word_count" not in fetch_body:
         findings.append(
@@ -834,7 +871,8 @@ def _check_source_route(root: pathlib.Path) -> tuple[list[str], list[str], int]:
                 "core/t64_rdp.c :: apply_pending_command -> t64_rdp_tmem_validate_command -> t64_rdp_tmem_apply_command",
                 "core/t64_rdp_tmem.c :: per-machine source validation -> bounded LoadTile/LoadBlock/LoadTLUT writes -> copy sampling",
                 "core/t64_rdp.c :: texture triangle packet -> signed Q16 preflight -> row-event raster -> per-machine TMEM sampling",
-                "core/t64_rdp_raster.c :: covered triangle pixel -> t64_rdp_combine_pixel -> RGBA5551 RDRAM store",
+                "core/t64_rdp_raster.c :: covered triangle pixel -> t64_rdp_combine_pixel -> t64_rdp_blend_pixel -> versioned color/coverage RDRAM output",
+                "core/t64_bus.c / core/t64_pi.c / core/t64_sp.c :: accepted CPU/cache/PI/SP writes invalidate per-instance coverage sidecar",
                 "core/t64_sp.c :: start_rsp_dma and write_rsp_status -> t64_rsp_ensure_opportunity",
             ]
         )

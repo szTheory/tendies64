@@ -35,6 +35,7 @@ typedef struct {
   uint32_t v_start;
   uint32_t v_end;
   uint32_t period_cycles;
+  uint32_t source_bytes_per_pixel;
   uint64_t source_bytes;
 } t64_vi_geometry;
 
@@ -70,7 +71,13 @@ static bool geometry_for(const t64_machine *machine, uint32_t control,
     return false;
   }
   vi = &machine->vi;
-  if (control != UINT32_C(2)) return false;
+  if (control == UINT32_C(2)) {
+    geometry_out->source_bytes_per_pixel = 2u;
+  } else if (control == UINT32_C(3) && t64_has_rdp_blender_profile(machine)) {
+    geometry_out->source_bytes_per_pixel = 4u;
+  } else {
+    return false;
+  }
   h_register = vi->registers[T64_VI_H_START];
   v_register = vi->registers[T64_VI_V_START];
   x_register = vi->registers[T64_VI_X_SCALE];
@@ -80,7 +87,9 @@ static bool geometry_for(const t64_machine *machine, uint32_t control,
       (x_register & UINT32_C(0xf000f000)) != 0u ||
       (y_register & UINT32_C(0xf000f000)) != 0u ||
       (vi->registers[T64_VI_ORIGIN] & UINT32_C(0xfe000000)) != 0u ||
-      (vi->registers[T64_VI_ORIGIN] & UINT32_C(7)) != 0u) {
+      (vi->registers[T64_VI_ORIGIN] &
+       (geometry_out->source_bytes_per_pixel == 4u ? UINT32_C(3)
+                                                  : UINT32_C(7))) != 0u) {
     return false;
   }
   geometry_out->source_width = vi->registers[T64_VI_WIDTH];
@@ -117,8 +126,10 @@ static bool geometry_for(const t64_machine *machine, uint32_t control,
     return false;
   }
   pixels = last_y * geometry_out->source_width + last_x + 1u;
-  if (pixels > UINT64_MAX / UINT64_C(2)) return false;
-  geometry_out->source_bytes = pixels * UINT64_C(2);
+  if (pixels > UINT64_MAX / geometry_out->source_bytes_per_pixel)
+    return false;
+  geometry_out->source_bytes =
+      pixels * geometry_out->source_bytes_per_pixel;
   source_end = (uint64_t)vi->registers[T64_VI_ORIGIN] +
                geometry_out->source_bytes;
   if (source_end > machine->profile.rdram_bytes) return false;
@@ -200,17 +211,29 @@ static void render_packet(t64_machine *machine, uint32_t slot,
                                      geometry->x_scale);
       uint64_t source_index =
           (uint64_t)source_y * geometry->source_width + source_x;
-      uint64_t source_address = (uint64_t)origin + source_index * 2u;
-      uint16_t pixel = (uint16_t)(((uint16_t)machine->ram[source_address] << 8) |
-                                  (uint16_t)machine->ram[source_address + 1u]);
+      uint64_t source_address = (uint64_t)origin +
+                                source_index * geometry->source_bytes_per_pixel;
       size_t output_index = (size_t)y * info->stride_bytes + (size_t)x * 4u;
-
-      output[output_index] = expand5((uint32_t)(pixel >> 11) & UINT32_C(0x1f));
-      output[output_index + 1u] =
-          expand5((uint32_t)(pixel >> 6) & UINT32_C(0x1f));
-      output[output_index + 2u] =
-          expand5((uint32_t)(pixel >> 1) & UINT32_C(0x1f));
-      output[output_index + 3u] = (pixel & UINT16_C(1)) != 0u ? 255u : 0u;
+      if (geometry->source_bytes_per_pixel == 4u) {
+        uint8_t alpha5 = (uint8_t)(machine->ram[source_address + 3u] & 31u);
+        output[output_index] = machine->ram[source_address];
+        output[output_index + 1u] = machine->ram[source_address + 1u];
+        output[output_index + 2u] = machine->ram[source_address + 2u];
+        output[output_index + 3u] =
+            (uint8_t)((alpha5 << 3) | (alpha5 >> 2));
+      } else {
+        uint16_t pixel =
+            (uint16_t)(((uint16_t)machine->ram[source_address] << 8) |
+                       (uint16_t)machine->ram[source_address + 1u]);
+        output[output_index] =
+            expand5((uint32_t)(pixel >> 11) & UINT32_C(0x1f));
+        output[output_index + 1u] =
+            expand5((uint32_t)(pixel >> 6) & UINT32_C(0x1f));
+        output[output_index + 2u] =
+            expand5((uint32_t)(pixel >> 1) & UINT32_C(0x1f));
+        output[output_index + 3u] =
+            (pixel & UINT16_C(1)) != 0u ? 255u : 0u;
+      }
     }
   }
 }
@@ -397,7 +420,9 @@ t64_status t64_vi_event(t64_machine *machine, const t64_event *event) {
   info.height = geometry.height;
   info.stride_bytes = geometry.width * UINT32_C(4);
   info.source_address = vi->registers[T64_VI_ORIGIN];
-  info.source_format = T64_VIDEO_SOURCE_RGBA5551;
+  info.source_format = geometry.source_bytes_per_pixel == 4u
+                           ? T64_VIDEO_SOURCE_RGBA8888
+                           : T64_VIDEO_SOURCE_RGBA5551;
   info.output_encoding = T64_VIDEO_ENCODING_RGBA8;
   info.field = vi->field;
   info.parity = vi->field & UINT32_C(1);

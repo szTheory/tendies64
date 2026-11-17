@@ -183,11 +183,16 @@ bool t64_rdp_triangle_bounds(const t64_machine *machine, uint32_t opcode,
   rdp = &machine->rdp;
   if (!rdp->color_image_valid || !rdp->scissor_valid ||
       !rdp->other_modes_valid || rdp->color_image_format != 0u ||
-      rdp->color_image_size != 2u || rdp->color_image_width == 0u ||
+      (rdp->color_image_size != 2u &&
+       !(t64_has_rdp_blender_profile(machine) &&
+         rdp->color_image_size == 3u)) ||
+      rdp->color_image_width == 0u ||
       (((rdp->other_modes >> 52) & UINT64_C(3)) != 0u &&
        (!t64_has_rdp_combiner_profile(machine) ||
         ((rdp->other_modes >> 52) & UINT64_C(3)) != 1u)) ||
-      (rdp->color_image_address & UINT32_C(1)) != 0u) return false;
+      (rdp->color_image_address &
+       (rdp->color_image_size == 3u ? UINT32_C(3) : UINT32_C(1))) != 0u)
+    return false;
 
   yh16 = sign_extend_u14((uint32_t)(words[0] & UINT64_C(0x3fff))) *
          INT64_C(16384);
@@ -212,7 +217,7 @@ bool t64_rdp_triangle_bounds(const t64_machine *machine, uint32_t opcode,
   if (y0 > y1) return false;
   end = (uint64_t)rdp->color_image_address +
         (((uint64_t)(y1 - 1u) * rdp->color_image_width + (x1 - 1u)) + 1u) *
-            2u;
+            (rdp->color_image_size == 3u ? 4u : 2u);
   if (end > machine->profile.rdram_bytes) return false;
 
   first = floor_div_i64(yh16, INT64_C(65536));
@@ -287,6 +292,66 @@ static uint16_t rgba5551(uint32_t color) {
 
   return (uint16_t)(((red >> 3) << 11) | ((green >> 3) << 6) |
                     ((blue >> 3) << 1) | (alpha >= 128u ? 1u : 0u));
+}
+
+static uint8_t color_dither_bias(const t64_machine *machine, uint32_t x,
+                                uint32_t y) {
+  static const uint8_t magic[4][4] = {
+      {0u, 6u, 1u, 7u}, {4u, 2u, 5u, 3u},
+      {1u, 7u, 0u, 6u}, {5u, 3u, 4u, 2u}};
+  static const uint8_t bayer[4][4] = {
+      {0u, 8u, 2u, 10u}, {12u, 4u, 14u, 6u},
+      {3u, 11u, 1u, 9u}, {15u, 7u, 13u, 5u}};
+  unsigned selector = (unsigned)((machine->rdp.other_modes >> 38) & 3u);
+  switch (selector) {
+  case 0u: return magic[y & 3u][x & 3u];
+  case 1u: return (uint8_t)(bayer[y & 3u][x & 3u] >> 1);
+  case 2u: return (uint8_t)(machine->rdp.random_state & 7u);
+  default: return 0u;
+  }
+}
+
+static uint8_t alpha_dither_bias(const t64_machine *machine, uint32_t x,
+                                uint32_t y) {
+  static const uint8_t pattern[4][4] = {
+      {0u, 6u, 1u, 7u}, {4u, 2u, 5u, 3u},
+      {1u, 7u, 0u, 6u}, {5u, 3u, 4u, 2u}};
+  unsigned selector = (unsigned)((machine->rdp.other_modes >> 36) & 3u);
+  switch (selector) {
+  case 0u: return pattern[y & 3u][x & 3u];
+  case 1u: return (uint8_t)(7u - pattern[y & 3u][x & 3u]);
+  case 2u: return (uint8_t)(machine->rdp.random_state & 7u);
+  default: return 0u;
+  }
+}
+
+uint16_t t64_rdp_quantize_rgba5551_v6(const t64_machine *machine,
+                                      uint32_t color, uint32_t x,
+                                      uint32_t y) {
+  int r = (int)((color >> 24) & 255u) + color_dither_bias(machine, x, y);
+  int g = (int)((color >> 16) & 255u) + color_dither_bias(machine, x, y);
+  int b = (int)((color >> 8) & 255u) + color_dither_bias(machine, x, y);
+  int alpha_threshold = 128;
+  unsigned alpha_mode = (unsigned)((machine->rdp.other_modes >> 36) & 3u);
+  if (alpha_mode != 3u)
+    alpha_threshold += (int)alpha_dither_bias(machine, x, y) - 4;
+  if (r > 255) r = 255;
+  if (g > 255) g = 255;
+  if (b > 255) b = 255;
+  return (uint16_t)(((unsigned)(r >> 3) << 11) |
+                    ((unsigned)(g >> 3) << 6) |
+                    ((unsigned)(b >> 3) << 1) |
+                    (((int)(color & 255u) >= alpha_threshold) ? 1u : 0u));
+}
+
+uint8_t t64_rdp_quantize_alpha5_v6(const t64_machine *machine,
+                                   uint32_t color, uint32_t x, uint32_t y) {
+  int alpha = (int)(color & 255u);
+  if (((machine->rdp.other_modes >> 36) & 3u) != 3u)
+    alpha += (int)alpha_dither_bias(machine, x, y) - 4;
+  if (alpha < 0) alpha = 0;
+  if (alpha > 255) alpha = 255;
+  return (uint8_t)((unsigned)alpha >> 3);
 }
 
 static int64_t shade_channel(const t64_rdp_state *rdp, unsigned channel,
@@ -561,10 +626,13 @@ void t64_rdp_triangle_render_row(t64_machine *machine) {
       size_t coverage_index =
           (size_t)rdp->render_y * T64_RDP_TRIANGLE_COVERAGE_WIDTH + x;
       uint16_t color;
+      uint32_t rgba = 0u;
+      uint8_t logical_coverage = (uint8_t)((covered + 1u) / 2u);
+      uint8_t destination_coverage = logical_coverage;
+      bool write_color = true;
       int64_t xcenter = (int64_t)x * INT64_C(65536) + INT64_C(32768);
       if (t64_has_rdp_combiner_profile(machine)) {
         t64_rdp_combiner_inputs inputs = {{0u}, {0u}, {0u}, 0u};
-        uint32_t rgba;
         if (texture_triangle) {
           int64_t s = texture_channel_q16(rdp, 0u, xcenter, ycenter, xh16,
                                           yh16, major_center);
@@ -616,7 +684,25 @@ void t64_rdp_triangle_render_row(t64_machine *machine) {
           rdp->refusal_reason = T64_RDP_REFUSAL_UNSUPPORTED_OPCODE;
           continue;
         }
-        color = rgba5551(rgba);
+        if (t64_has_rdp_blender_profile(machine)) {
+          uint64_t pixel =
+              (uint64_t)rdp->render_y * rdp->color_image_width + x;
+          uint32_t size_bytes = rdp->color_image_size == 3u ? 4u : 2u;
+          uint32_t address = rdp->color_image_address +
+                             (uint32_t)(pixel * size_bytes);
+          if (!t64_rdp_blend_pixel(machine, &inputs, rgba, address, size_bytes,
+                                   logical_coverage, &rgba,
+                                   &destination_coverage, &write_color)) {
+            rdp->refusal_reason = T64_RDP_REFUSAL_RENDER_RANGE;
+            continue;
+          }
+          color = size_bytes == 2u
+                      ? t64_rdp_quantize_rgba5551_v6(machine, rgba, x,
+                                                     rdp->render_y)
+                      : 0u;
+        } else {
+          color = rgba5551(rgba);
+        }
       } else if (texture_triangle) {
         int64_t s = texture_channel_q16(rdp, 0u, xcenter, ycenter, xh16,
                                         yh16, major_center);
@@ -653,24 +739,49 @@ void t64_rdp_triangle_render_row(t64_machine *machine) {
                                          xh16, yh16, major_center);
       } else if (rdp->shade_triangle) {
         uint32_t channel;
-        uint32_t rgba = 0u;
+        uint32_t shade_rgba = 0u;
         for (channel = 0u; channel < 4u; channel++) {
           int64_t value = shade_channel(rdp, channel, xcenter, ycenter,
                                         xh16, yh16, major_center);
           if (value < 0) value = 0;
           if (value > 255) value = 255;
-          rgba |= (uint32_t)value << (24u - channel * 8u);
+          shade_rgba |= (uint32_t)value << (24u - channel * 8u);
         }
-        color = rgba5551(rgba);
+        color = rgba5551(shade_rgba);
       } else {
         color = rgba5551(rdp->primitive_color);
       }
       machine->rdp_triangle_coverage[coverage_index] |= coverage_mask;
       {
         uint64_t pixel = (uint64_t)rdp->render_y * rdp->color_image_width + x;
-        uint64_t address = (uint64_t)rdp->color_image_address + pixel * 2u;
-        machine->ram[(size_t)address] = (uint8_t)(color >> 8);
-        machine->ram[(size_t)address + 1u] = (uint8_t)color;
+        uint32_t size_bytes = t64_has_rdp_blender_profile(machine) &&
+                                      rdp->color_image_size == 3u
+                                  ? 4u
+                                  : 2u;
+        uint64_t address = (uint64_t)rdp->color_image_address +
+                           pixel * size_bytes;
+        if (t64_has_rdp_blender_profile(machine)) {
+          t64_rdp_memory_coverage_write(machine, (uint32_t)address,
+                                        size_bytes, destination_coverage);
+          if (write_color) {
+            if (size_bytes == 4u) {
+              unsigned alpha5 = t64_rdp_quantize_alpha5_v6(
+                  machine, rgba, x, rdp->render_y);
+              uint8_t alpha = (uint8_t)(((destination_coverage - 1u) << 5) |
+                                        (alpha5 & 31u));
+              machine->ram[(size_t)address] = (uint8_t)(rgba >> 24);
+              machine->ram[(size_t)address + 1u] = (uint8_t)(rgba >> 16);
+              machine->ram[(size_t)address + 2u] = (uint8_t)(rgba >> 8);
+              machine->ram[(size_t)address + 3u] = alpha;
+            } else {
+              machine->ram[(size_t)address] = (uint8_t)(color >> 8);
+              machine->ram[(size_t)address + 1u] = (uint8_t)color;
+            }
+          }
+        } else {
+          machine->ram[(size_t)address] = (uint8_t)(color >> 8);
+          machine->ram[(size_t)address + 1u] = (uint8_t)color;
+        }
       }
     }
   }

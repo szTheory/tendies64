@@ -63,6 +63,17 @@ MUTATION_SEEDS = (
     "DPC counter bus-window body mutation",
     "DPC profile-gated injected effect",
     "RDP combiner injected effect",
+    "RDP blender injected effect",
+    "RDP coverage invalidation injected effect",
+    "RDP alpha quantizer body mutation",
+    "RDP raster coverage route body mutation",
+    "CPU scalar coverage invalidation body mutation",
+    "CPU masked coverage invalidation body mutation",
+    "CPU cache writeback coverage invalidation body mutation",
+    "PI coverage invalidation body mutation",
+    "SP completion coverage invalidation body mutation",
+    "SP RSP DMA coverage invalidation body mutation",
+    "VI RGBA8888 scanout body mutation",
     "missing RDP combiner object file",
 )
 
@@ -506,6 +517,36 @@ def _check_mutation_suite(temp_root: pathlib.Path) -> int:
     _must_reject("RDP combiner injected effect", source_root, build_root)
     pipeline_path.write_text(original_pipeline, encoding="utf-8")
     seeds_run += 1
+
+    sealed_body_mutations = (
+        ("core/t64_rdp_pipeline.c", "t64_rdp_blend_pixel", "RDP blender injected effect"),
+        ("core/t64_rdp_pipeline.c", "t64_rdp_memory_coverage_invalidate", "RDP coverage invalidation injected effect"),
+        ("core/t64_rdp_raster.c", "t64_rdp_quantize_alpha5_v6", "RDP alpha quantizer body mutation"),
+        ("core/t64_rdp_raster.c", "t64_rdp_triangle_render_row", "RDP raster coverage route body mutation"),
+        ("core/t64_bus.c", "t64_bus_write", "CPU scalar coverage invalidation body mutation"),
+        ("core/t64_bus.c", "t64_bus_write_masked", "CPU masked coverage invalidation body mutation"),
+        ("core/t64_bus.c", "t64_bus_writeback_cache_line", "CPU cache writeback coverage invalidation body mutation"),
+        ("core/t64_pi.c", "t64_pi_complete", "PI coverage invalidation body mutation"),
+        ("core/t64_sp.c", "t64_sp_complete", "SP completion coverage invalidation body mutation"),
+        ("core/t64_sp.c", "t64_sp_rsp_dma_commit", "SP RSP DMA coverage invalidation body mutation"),
+        ("core/t64_vi.c", "t64_vi_event", "VI RGBA8888 scanout body mutation"),
+    )
+    for relative, function_name, label in sealed_body_mutations:
+        path = source_root / relative
+        original = path.read_text(encoding="utf-8")
+        span = _function_definition_span(original, function_name)
+        if span is None:
+            raise AssertionError(f"{label} anchor no longer exists")
+        body_at = original.index("{", span[0]) + 1
+        injection = (
+            "\n  if (machine != NULL && machine->rdp_memory_coverage != NULL) {\n"
+            "    machine->rdp_memory_coverage[0] ^= UINT8_C(1);\n"
+            "  }\n"
+        )
+        path.write_text(original[:body_at] + injection + original[body_at:], encoding="utf-8")
+        _must_reject(label, source_root, build_root)
+        path.write_text(original, encoding="utf-8")
+        seeds_run += 1
 
     missing_pipeline_source, missing_pipeline_build = _copy_clean_fixture(
         temp_root / "missing-rdp-combiner-object"
