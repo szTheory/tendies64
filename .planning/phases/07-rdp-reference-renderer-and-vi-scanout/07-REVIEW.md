@@ -40,4 +40,5 @@ endpoint and immediate-INTR defects, with retained old-library controls and
 predecessor goldens. Focused normal/instrumented/GCC owners and the complete
 local gate pass. Private evidence paths were removed from an unpublished
 commit with explicit owner approval; reachable-history privacy passes.
-Hosted qualification is pending; no Phase07/VID04 completion is implied.
+Both hosted jobs and exact selected authored boot comparison pass in
+run44174870063; no Phase07/VID04 completion is implied.

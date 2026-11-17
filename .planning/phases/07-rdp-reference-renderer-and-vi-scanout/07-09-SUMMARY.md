@@ -86,8 +86,13 @@ are not interchangeable binaries. Saved bindings identify actual source bytes,
 provenance annotations and executable hashes, including earlier uncommitted
 verified worktrees. Metadata-only closeout does not relabel those binaries.
 
-Hosted qualification for the exact pushed checkpoint is pending. Its selected
-uploaded boot records qualify that authored startup contract; native VI owners
-run in each hosted gate and are not an external RDP image differential.
+Both hosted jobs pass exact checkpointfc83c58 in run44174870063; collected
+attempt1 selected authored boot records match guest identities, bounds, state
+and transcript. macOS job385s/Gate367s, Linux174s/Gate167s, queues4/2s.
+Records and collector/comparator/metrics logs are retained under
+`build/evidence/07-09-hosted-44174870063/` and `build/gate/07-09-hosted-*`.
+These selected uploaded boot records qualify that authored startup contract;
+native VI owners run in each hosted gate and are not an external RDP image
+differential.
 Rights/oracle/release and expired-resource stops remain unchanged. Plan10's
 primary preflight and explicit integer software-filter contract are ready.

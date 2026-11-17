@@ -3,14 +3,14 @@ gsd_state_version: "1.0"
 milestone: v1.1
 milestone_name: Observable Machine
 current_phase: 07
-current_plan: "09"
+current_plan: "10"
 current_phase_name: RDP Reference Renderer and VI Scanout
-status: verifying
-stopped_at: Plan09 local verification complete; hosted qualification pending
-last_updated: "2026-11-17T20:57:01.123540+00:00"
+status: executing
+stopped_at: Plan09 qualified on both hosts; Plan10 filter/output implementation next
+last_updated: "2026-11-17T21:06:57.800817+00:00"
 last_activity: 2026-11-17
-last_activity_desc: Approved sanitation and complete VI gate pass; preparing qualified push
-state_head: c49b0a8864da522c3c36ebd076260b1d2b24a9a2
+last_activity_desc: VI hosted evidence compared; filter facts and software policy ready
+state_head: fc83c5858c26dd00a3caba03d74bd528cb3b2394
 progress:
   total_phases: 3
   completed_phases: 0
@@ -26,14 +26,14 @@ progress:
 See: .planning/PROJECT.md (updated 2026-11-15)
 
 **Core value:** Every Tendies64 support claim is backed by evidence: a named profile, a pinned build and a reproducible, rights-cleared guest result.
-**Current focus:** Execute Plan09 VI register, rational time and geometry behavior.
+**Current focus:** Execute Plan10 VI filters and lossless raw-output contracts.
 
 ## Current Position
 
 Phase: 07 (RDP Reference Renderer and VI Scanout) — EXECUTING
-Plan: 09 of13 in current phase
-Status: VI source reviewed and local gate green; hosted qualification pending
-Last activity: 2026-11-17 — VI repairs and approved privacy sanitation pass the complete local gate
+Plan: 10 of13 in current phase
+Status: VI qualified on both hosts; filters/output are ready
+Last activity: 2026-11-17 — VI passes both hosted jobs and exact selected authored evidence comparison
 
 Progress: [███████░░░] 69% of currently planned source plans
 
@@ -56,11 +56,11 @@ Progress: [███████░░░] 69% of currently planned source plans
 
 ### Pending Todos
 
-Plan09 implementation, independent review repairs, normal/instrumented/compiler
-owners and complete local gate pass. Sanitation of the unpublished evidence
-commit was explicitly approved and applied; full reachable-history privacy is
-clean. Push the exact reviewed checkpoint and qualify both hosted jobs plus
-selected authored boot evidence, then execute Plan10's ready filter/output plan.
+Plan09 source/review repairs, local normal/instrumented/compiler owners and
+both hosted gates pass; exact selected authored boot records compare. Execute
+Plan10 from its primary preflight and adversarially checked integer software
+policy. Prove accepted consumer and reached feature RED before behavior,
+then complete filters, actual output drain controls, reviews and qualification.
 No user action is needed. Rights/oracle/release and expired-window stops persist.
 
 ### Blockers/Concerns
@@ -81,9 +81,9 @@ No user action is needed. Rights/oracle/release and expired-window stops persist
 
 ## Session Continuity
 
-Last session: 2026-11-17T20:57:01.123540+00:00
-Stopped at: Plan09 local complete; hosted qualification pending
-Resume file: .planning/phases/07-rdp-reference-renderer-and-vi-scanout/07-09-PLAN.md
+Last session: 2026-11-17T21:06:57.800817+00:00
+Stopped at: Plan09 hosted qualified; Plan10 ready
+Resume file: .planning/phases/07-rdp-reference-renderer-and-vi-scanout/07-10-PLAN.md
 
 Historical closeout: [v1.0 roadmap](milestones/v1.0-ROADMAP.md), [audit](milestones/v1.0-MILESTONE-AUDIT.md), [lessons](RETROSPECTIVE.md).
 

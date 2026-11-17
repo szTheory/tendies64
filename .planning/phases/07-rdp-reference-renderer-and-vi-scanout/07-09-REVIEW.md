@@ -26,5 +26,6 @@ reviewed against that original snapshot remains applicable; no public history
 was rewritten. Final reviewed source repairs are c49b0a8864da522c3c36ebd076260b1d2b24a9a2.
 
 Final normal/instrumented/GCC owners, source guard/mutations and complete local
-gate pass. Hosted qualification is pending for the pushed checkpoint. This
+gate pass. Both hosted jobs pass checkpointfc83c58 and the exact selected authored boot
+evidence compares in run44174870063. This
 scoped review is not full Phase07 completion or hardware/VID-04 acceptance.

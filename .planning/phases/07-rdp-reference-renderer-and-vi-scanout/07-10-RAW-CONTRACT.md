@@ -79,6 +79,12 @@ center instead. Never read an invalid neighbor, fabricate source height from
 packet capacity, or refuse a valid center merely because a neighbor is beyond
 RDRAM. Bind this edge rule as software policy. Test first/last RAM samples,
 partial final rows, offsets and serrate independently under sanitizers.
+For the successor only, `source_bytes` reports the bounding span from ORIGIN
+through the highest valid source-color tap actually read for the packet,
+including enabled filter/resample neighbors. It must not silently retain a
+nearest-center-only span when additional source pixels are consumed. Invalid
+neighbors use the valid-center fallback and do not enlarge the span. This is
+metadata about the software sampler, not a hardware memory-fetch timing model.
 
 Packet filter metadata is a documented bitset of stages actually selected
 somewhere in that packet, rather than a raw STATUS echo. Define the public
