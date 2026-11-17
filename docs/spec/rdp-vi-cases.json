@@ -212,6 +212,7 @@
             "blender-fetched-dither-quantization-to-raw-vi",
             "blender-coverage-alpha-and-destinations",
             "blender-fetched-overlap-and-sidecar-edges",
+            "blender-shared-edge-complementary-coverage",
             "blender-cpu-pi-sp-write-ownership",
             "blender-fill-copy-full-coverage"
           ]

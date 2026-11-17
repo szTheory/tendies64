@@ -687,6 +687,41 @@ static void case_fetched_overlap_and_coverage_sidecar_edges(void) {
   t64_machine_destroy(machine);
 }
 
+static void case_shared_edge_complementary_coverage(void) {
+  static const uint64_t lower_right[4] = {
+      UINT64_C(0x0800001400040004), UINT64_C(0x0005000000000000),
+      UINT64_C(0x0001000000010000), UINT64_C(0x0005000000000000)};
+  static const uint64_t upper_left[4] = {
+      UINT64_C(0x0880001400040004), UINT64_C(0x0001000000000000),
+      UINT64_C(0x0001000000010000), UINT64_C(0x0001000000000000)};
+  const size_t pixel = 2u * 8u + 2u;
+  const size_t coverage_index =
+      2u * T64_RDP_TRIANGLE_COVERAGE_WIDTH + 2u;
+  const uint32_t address = FRAMEBUFFER_ADDRESS + (uint32_t)(pixel * 2u);
+  uint64_t commands[19];
+  uint16_t lower_mask;
+  uint16_t combined_mask;
+  t64_machine *machine = create_authored_machine();
+
+  if (machine == NULL) return;
+  (void)make_literal_commands(commands, false);
+  (void)memcpy(commands + 7u, lower_right, sizeof lower_right);
+  T64_CHECK(run_commands(machine, commands, 11u));
+  T64_CHECK_INT(machine->rdp.refusal_reason, T64_RDP_REFUSAL_NONE);
+  lower_mask = machine->rdp_triangle_coverage[coverage_index];
+  T64_CHECK_INT(population16(lower_mask), 10u);
+  T64_CHECK_INT(t64_rdp_memory_coverage_read(machine, address, 2u), 5u);
+
+  (void)memcpy(commands + 7u, upper_left, sizeof upper_left);
+  T64_CHECK(run_commands(machine, commands, 11u));
+  T64_CHECK_INT(machine->rdp.refusal_reason, T64_RDP_REFUSAL_NONE);
+  combined_mask = machine->rdp_triangle_coverage[coverage_index];
+  T64_CHECK_INT((uint16_t)(lower_mask | combined_mask), UINT16_MAX);
+  T64_CHECK_INT(combined_mask, UINT16_MAX);
+  T64_CHECK_INT(t64_rdp_memory_coverage_read(machine, address, 2u), 8u);
+  t64_machine_destroy(machine);
+}
+
 static void case_cpu_pi_and_sp_write_ownership(void) {
   static const uint32_t pi_base = UINT32_C(0x04600000);
   static const uint32_t sp_base = UINT32_C(0x04040000);
@@ -1025,6 +1060,8 @@ static const test_case cases[] = {
      case_coverage_alpha_and_destination_modes},
     {"blender-fetched-overlap-and-sidecar-edges",
      case_fetched_overlap_and_coverage_sidecar_edges},
+    {"blender-shared-edge-complementary-coverage",
+     case_shared_edge_complementary_coverage},
     {"blender-cpu-pi-sp-write-ownership",
      case_cpu_pi_and_sp_write_ownership},
     {"blender-fill-copy-full-coverage",
