@@ -187,6 +187,7 @@ t64_status t64_machine_digest(const t64_machine *machine,
       "t64.state.rsp.functional.12";
   static const uint8_t domain_v13[] = "t64.state.rdram.t1.13";
   static const uint8_t domain_v16[] = "t64.state.rdp.vi.tmem.16";
+  static const uint8_t domain_v17[] = "t64.state.rdp.vi.triangle.17";
   t64_sha256_ctx context;
   t64_address_range output_range;
   const bool has_v6_state =
@@ -204,7 +205,11 @@ t64_status t64_machine_digest(const t64_machine *machine,
   const bool has_v12_state =
       machine != NULL && machine->profile.state_serialization_version == 12u;
   const bool has_v13_state = t64_has_t1_policy(machine);
-  const bool has_v16_state = t64_has_rdp_vi_profile(machine);
+  const bool has_v16_state =
+      machine != NULL && machine->profile.machine_model_version == 11u &&
+      machine->profile.state_serialization_version == 16u;
+  const bool has_v17_state = t64_has_rdp_triangle_profile(machine);
+  const bool has_rdp_state = has_v16_state || has_v17_state;
   const bool has_rsp_state = has_v12_state || has_v13_state;
   const bool has_warm_state =
       has_v6_state || has_v7_state || has_v8_state || has_v9_state ||
@@ -221,7 +226,9 @@ t64_status t64_machine_digest(const t64_machine *machine,
   }
 
   t64_sha256_init(&context);
-  if (has_v16_state) {
+  if (has_v17_state) {
+    t64_sha256_update(&context, domain_v17, sizeof domain_v17 - 1u);
+  } else if (has_v16_state) {
     t64_sha256_update(&context, domain_v16, sizeof domain_v16 - 1u);
   } else if (has_v13_state) {
     t64_sha256_update(&context, domain_v13, sizeof domain_v13 - 1u);
@@ -449,7 +456,7 @@ t64_status t64_machine_digest(const t64_machine *machine,
       hash_rdram_protocol_state(
           &context, &machine->guest_devices.rdram_protocol);
     }
-    if (has_v16_state) {
+    if (has_rdp_state) {
       const t64_rdp_state *rdp = &machine->rdp;
       const t64_vi_state *vi = &machine->vi;
       size_t logical;
@@ -494,6 +501,25 @@ t64_status t64_machine_digest(const t64_machine *machine,
       for (i = 0u; i < 6u; i++)
         hash_u32(&context, rdp->convert_coefficients[i]);
       hash_u64(&context, rdp->pending_texrect_word);
+      if (has_v17_state) {
+        size_t packet_index;
+        hash_u32(&context, rdp->pending_triangle_word_count);
+        for (packet_index = 0u;
+             packet_index < rdp->pending_triangle_word_count &&
+             packet_index < T64_RDP_TRIANGLE_MAX_WORDS;
+             packet_index++) {
+          hash_u64(&context, rdp->pending_triangle_words[packet_index]);
+        }
+        hash_u32(&context, rdp->primitive_color);
+        hash_u32(&context, rdp->primitive_color_valid ? 1u : 0u);
+        hash_u32(&context, rdp->triangle_count);
+        hash_u32(&context, rdp->render_triangle ? 1u : 0u);
+        hash_u32(&context, rdp->shade_triangle ? 1u : 0u);
+        hash_u32(&context, T64_RDP_TRIANGLE_COVERAGE_WIDTH);
+        hash_u32(&context, T64_RDP_TRIANGLE_COVERAGE_HEIGHT);
+        t64_sha256_update(&context, machine->rdp_triangle_coverage,
+                          T64_RDP_TRIANGLE_COVERAGE_BYTES);
+      }
       hash_u32(&context, rdp->work_policy_version);
       hash_u32(&context, rdp->random_state);
       hash_u32(&context, rdp->refusal_reason);

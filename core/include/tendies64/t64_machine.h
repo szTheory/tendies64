@@ -168,6 +168,8 @@ typedef struct {
   char rdp_noise_policy[T64_PROFILE_TEXT_CAPACITY];
   char rdp_undefined_color_policy[T64_PROFILE_TEXT_CAPACITY];
   char vi_output_policy[T64_PROFILE_TEXT_CAPACITY];
+  /* Descriptor v7 field: raw triangle numeric/raster policy. */
+  char rdp_triangle_policy[T64_PROFILE_TEXT_CAPACITY];
   uint32_t descriptor_version;
   uint32_t machine_model_version;
   uint32_t state_serialization_version;

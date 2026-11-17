@@ -104,6 +104,13 @@
 #define T64_RDP_REFUSAL_INVALID_TEXTURE UINT32_C(6)
 #define T64_RDP_REFUSAL_TEXTURE_RANGE UINT32_C(7)
 #define T64_RDP_TMEM_BYTES 4096u
+#define T64_RDP_TRIANGLE_MAX_WORDS 22u
+#define T64_RDP_TRIANGLE_COVERAGE_WIDTH 1024u
+#define T64_RDP_TRIANGLE_COVERAGE_HEIGHT 1024u
+#define T64_RDP_TRIANGLE_COVERAGE_PIXELS \
+  (T64_RDP_TRIANGLE_COVERAGE_WIDTH * T64_RDP_TRIANGLE_COVERAGE_HEIGHT)
+#define T64_RDP_TRIANGLE_COVERAGE_BYTES \
+  (T64_RDP_TRIANGLE_COVERAGE_PIXELS * sizeof(uint16_t))
 #define T64_RDP_TILE_COUNT 8u
 #define T64_VI_REFUSAL_NONE UINT32_C(0)
 #define T64_VI_REFUSAL_FORMAT UINT32_C(1)
@@ -657,6 +664,13 @@ typedef struct {
   uint64_t copy_count;
   uint32_t convert_coefficients[6];
   uint64_t pending_texrect_word;
+  uint64_t pending_triangle_words[T64_RDP_TRIANGLE_MAX_WORDS];
+  uint32_t pending_triangle_word_count;
+  uint32_t primitive_color;
+  uint32_t triangle_count;
+  uint32_t triangle_last_coverage_x;
+  uint32_t triangle_last_coverage_y;
+  uint16_t triangle_last_coverage_mask;
   uint8_t tmem[T64_RDP_TMEM_BYTES];
   t64_rdp_tile tiles[T64_RDP_TILE_COUNT];
   uint32_t work_policy_version;
@@ -689,6 +703,9 @@ typedef struct {
   bool command_pending;
   bool texrect_pending;
   bool render_texture_flip;
+  bool primitive_color_valid;
+  bool render_triangle;
+  bool shade_triangle;
 } t64_rdp_state;
 
 typedef struct {
@@ -708,6 +725,13 @@ typedef struct {
   bool enabled;
   bool sequence_exhausted;
 } t64_vi_state;
+
+size_t t64_rdp_triangle_word_count(uint32_t opcode);
+bool t64_rdp_triangle_bounds(const t64_machine *machine, uint32_t opcode,
+                             const uint64_t *words, size_t word_count,
+                             uint32_t *y_begin_out,
+                             uint32_t *y_end_out);
+void t64_rdp_triangle_render_row(t64_machine *machine);
 
 typedef struct t64_event t64_event;
 typedef t64_status (*t64_event_handler_fn)(t64_machine *machine,
@@ -739,6 +763,7 @@ struct t64_machine {
   uint8_t profile_digest[T64_DIGEST_SIZE];
   uint8_t content_digest[T64_DIGEST_SIZE];
   uint8_t *ram;
+  uint16_t *rdp_triangle_coverage;
   uint8_t sp_dmem[T64_SP_BANK_BYTES];
   uint8_t sp_imem[T64_SP_BANK_BYTES];
   uint32_t mi_pending;
@@ -796,8 +821,16 @@ struct t64_machine {
 };
 
 static inline bool t64_has_rdp_vi_profile(const t64_machine *machine) {
-  return machine != NULL && machine->profile.machine_model_version == 11u &&
-         machine->profile.state_serialization_version == 16u;
+  return machine != NULL &&
+         ((machine->profile.machine_model_version == 11u &&
+           machine->profile.state_serialization_version == 16u) ||
+          (machine->profile.machine_model_version == 12u &&
+           machine->profile.state_serialization_version == 17u));
+}
+
+static inline bool t64_has_rdp_triangle_profile(const t64_machine *machine) {
+  return machine != NULL && machine->profile.machine_model_version == 12u &&
+         machine->profile.state_serialization_version == 17u;
 }
 
 static inline bool t64_has_vr4300_cpu_state(const t64_machine *machine) {

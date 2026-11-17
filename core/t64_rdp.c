@@ -29,6 +29,7 @@
 
 #define RDP_OP_FILL_RECT UINT32_C(0x36)
 #define RDP_OP_SET_FILL_COLOR UINT32_C(0x37)
+#define RDP_OP_SET_PRIM_COLOR UINT32_C(0x3a)
 #define RDP_OP_SET_OTHER_MODES UINT32_C(0x2f)
 #define RDP_OP_SET_SCISSOR UINT32_C(0x2d)
 #define RDP_OP_LOAD_TLUT UINT32_C(0x30)
@@ -76,6 +77,9 @@ static void set_refusal(t64_machine *machine, uint32_t reason) {
   machine->rdp.pending_opcode_field = 0u;
   machine->rdp.pending_command_word = 0u;
   machine->rdp.pending_texrect_word = 0u;
+  machine->rdp.pending_triangle_word_count = 0u;
+  machine->rdp.render_triangle = false;
+  machine->rdp.shade_triangle = false;
 }
 
 static void finish_if_idle(t64_rdp_state *rdp, uint32_t next) {
@@ -278,7 +282,9 @@ static t64_status handle_row(t64_machine *machine) {
 
   if (status != T64_STATUS_OK) return status;
   increment_counter(&rdp->dpc_pipe_busy_counter);
-  if (rdp->render_kind == 2u) {
+  if (rdp->render_triangle) {
+    t64_rdp_triangle_render_row(machine);
+  } else if (rdp->render_kind == 2u) {
     uint32_t x;
     for (x = rdp->render_x_begin; x <= rdp->render_x_end; x++) {
       uint64_t pixel = (uint64_t)rdp->render_y * rdp->color_image_width + x;
@@ -292,7 +298,12 @@ static t64_status handle_row(t64_machine *machine) {
   }
   if (last_row) {
     rdp->render_active = false;
-    if (rdp->render_kind == 2u)
+    if (rdp->render_triangle) {
+      rdp->render_triangle = false;
+      rdp->shade_triangle = false;
+      rdp->pending_triangle_word_count = 0u;
+      rdp->triangle_count++;
+    } else if (rdp->render_kind == 2u)
       rdp->copy_count++;
     else
       rdp->fill_count++;
@@ -314,7 +325,7 @@ static void record_command(t64_machine *machine, uint64_t word,
                  T64_TRACE_KIND_RDP_COMMAND, word);
 }
 
-static bool supported_opcode(uint32_t opcode) {
+static bool supported_opcode(const t64_machine *machine, uint32_t opcode) {
   switch (opcode) {
   case RDP_OP_FILL_RECT:
   case RDP_OP_SET_FILL_COLOR:
@@ -336,7 +347,9 @@ static bool supported_opcode(uint32_t opcode) {
   case RDP_OP_SYNC_FULL:
     return true;
   default:
-    return false;
+    return t64_has_rdp_triangle_profile(machine) &&
+           (t64_rdp_triangle_word_count(opcode) != 0u ||
+            opcode == RDP_OP_SET_PRIM_COLOR);
   }
 }
 
@@ -351,11 +364,36 @@ static t64_status apply_pending_command(t64_machine *machine) {
   uint8_t command_byte = (uint8_t)rdp->pending_command_byte;
   bool valid_fill = true;
   bool draw_fill = false;
+  bool draw_triangle = false;
   bool texture_command;
+  uint32_t triangle_y_begin = 1u, triangle_y_end = 0u;
+  size_t triangle_words;
   uint32_t reason = T64_RDP_REFUSAL_INVALID_TEXTURE;
   t64_status status;
 
   texture_command = t64_rdp_tmem_handles_opcode(opcode);
+  triangle_words = t64_rdp_triangle_word_count(opcode);
+
+  if (triangle_words != 0u) {
+    if (!t64_has_rdp_triangle_profile(machine) ||
+        (opcode != UINT32_C(0x08) && opcode != UINT32_C(0x0c))) {
+      rdp->dpc_current = address;
+      record_command(machine, word, command_byte, opcode);
+      set_refusal(machine, T64_RDP_REFUSAL_UNSUPPORTED_OPCODE);
+      return T64_STATUS_OK;
+    }
+    if (rdp->pending_triangle_word_count != triangle_words ||
+        !t64_rdp_triangle_bounds(machine, opcode,
+                                 rdp->pending_triangle_words,
+                                 rdp->pending_triangle_word_count,
+                                 &triangle_y_begin, &triangle_y_end)) {
+      rdp->dpc_current = address;
+      record_command(machine, word, command_byte, opcode);
+      set_refusal(machine, T64_RDP_REFUSAL_RENDER_RANGE);
+      return T64_STATUS_OK;
+    }
+    draw_triangle = triangle_y_begin <= triangle_y_end;
+  }
 
   if (opcode == RDP_OP_SET_COLOR_IMAGE) {
     format = (uint32_t)((word >> 53) & UINT64_C(7));
@@ -393,7 +431,8 @@ static t64_status apply_pending_command(t64_machine *machine) {
     return T64_STATUS_OK;
   }
 
-  if ((opcode == RDP_OP_SYNC_FULL) || draw_fill) {
+  if ((opcode == RDP_OP_SYNC_FULL) || draw_fill ||
+      (triangle_words != 0u && draw_triangle)) {
     status = schedule_work_after_committed(machine);
   } else {
     status = schedule_next_committed(machine, next);
@@ -434,6 +473,25 @@ static t64_status apply_pending_command(t64_machine *machine) {
   } else if (opcode == RDP_OP_SET_FILL_COLOR) {
     rdp->fill_color = (uint32_t)word;
     rdp->fill_color_valid = true;
+  } else if (opcode == RDP_OP_SET_PRIM_COLOR &&
+             t64_has_rdp_triangle_profile(machine)) {
+    rdp->primitive_color = (uint32_t)word;
+    rdp->primitive_color_valid = true;
+  } else if (triangle_words != 0u && draw_triangle) {
+    rdp->render_kind = 3u;
+    rdp->render_active = true;
+    rdp->render_triangle = true;
+    rdp->shade_triangle = opcode == UINT32_C(0x0c);
+    rdp->render_x_begin = rdp->scissor_xh >> 2;
+    rdp->render_x_end = (rdp->scissor_xl >> 2) - 1u;
+    if (rdp->render_x_end >= rdp->color_image_width)
+      rdp->render_x_end = rdp->color_image_width - 1u;
+    rdp->render_y_begin = triangle_y_begin;
+    rdp->render_y_end = triangle_y_end;
+    rdp->render_y = triangle_y_begin;
+  } else if (triangle_words != 0u) {
+    rdp->pending_triangle_word_count = 0u;
+    rdp->triangle_count++;
   } else if (opcode == RDP_OP_FILL_RECT && draw_fill) {
     rdp->render_kind = 1u;
     rdp->render_active = true;
@@ -578,6 +636,7 @@ t64_status t64_rdp_event(t64_machine *machine, const t64_event *event) {
   uint32_t reason = T64_RDP_REFUSAL_NONE;
   uint32_t opcode;
   uint64_t word;
+  uint64_t triangle_packet[T64_RDP_TRIANGLE_MAX_WORDS] = {0u};
   uint8_t command_byte;
   uint32_t x0 = 0u, y0 = 0u, x1 = 0u, y1 = 0u;
   t64_status status;
@@ -658,12 +717,39 @@ t64_status t64_rdp_event(t64_machine *machine, const t64_event *event) {
                                  : machine->ram + address);
   command_byte = (uint8_t)(word >> 56);
   opcode = (uint32_t)(command_byte & UINT8_C(0x3f));
-  if (!supported_opcode(opcode)) {
+  if (!supported_opcode(machine, opcode)) {
     increment_counter(&rdp->dpc_clock_counter);
     increment_counter(&rdp->dpc_buffer_busy_counter);
     record_command(machine, word, command_byte, opcode);
     set_refusal(machine, T64_RDP_REFUSAL_UNSUPPORTED_OPCODE);
     return T64_STATUS_OK;
+  }
+  {
+    size_t packet_words = t64_rdp_triangle_word_count(opcode);
+    if (packet_words != 0u) {
+      uint64_t packet_end = (uint64_t)address + (uint64_t)packet_words * 8u;
+      uint64_t memory_end = rdp->dpc_xbus ? T64_SP_DMEM_BYTES
+                                          : machine->profile.rdram_bytes;
+      size_t i;
+      if (packet_end > memory_end) {
+        increment_counter(&rdp->dpc_clock_counter);
+        record_command(machine, word, command_byte, opcode);
+        set_refusal(machine, T64_RDP_REFUSAL_SPAN);
+        return T64_STATUS_OK;
+      }
+      if (packet_end > rdp->dpc_end) {
+        increment_counter(&rdp->dpc_clock_counter);
+        record_command(machine, word, command_byte, opcode);
+        set_refusal(machine, T64_RDP_REFUSAL_TRUNCATED_WORD);
+        return T64_STATUS_OK;
+      }
+      for (i = 0u; i < packet_words; i++) {
+        const uint8_t *source = rdp->dpc_xbus
+                                    ? machine->sp_dmem + address + i * 8u
+                                    : machine->ram + address + i * 8u;
+        triangle_packet[i] = read_be64(source);
+      }
+    }
   }
   if ((opcode == RDP_OP_TEX_RECT || opcode == RDP_OP_TEX_RECT_FLIP) &&
       (uint64_t)address + UINT64_C(16) > rdp->dpc_end) {
@@ -676,12 +762,22 @@ t64_status t64_rdp_event(t64_machine *machine, const t64_event *event) {
   if (status != T64_STATUS_OK) return status;
   increment_counter(&rdp->dpc_clock_counter);
   increment_counter(&rdp->dpc_buffer_busy_counter);
+  if (t64_rdp_triangle_word_count(opcode) != 0u) {
+    size_t packet_words = t64_rdp_triangle_word_count(opcode);
+    (void)memcpy(rdp->pending_triangle_words, triangle_packet,
+                 packet_words * sizeof triangle_packet[0]);
+  }
   rdp->pending_command_address = address;
   rdp->pending_command_byte = command_byte;
   rdp->pending_opcode_field = opcode;
   rdp->pending_command_word = word;
+  rdp->pending_triangle_word_count =
+      (uint32_t)t64_rdp_triangle_word_count(opcode);
   rdp->command_pending = true;
-  rdp->dpc_current = address + UINT32_C(8);
+  rdp->dpc_current = address +
+      (uint32_t)(rdp->pending_triangle_word_count != 0u
+                     ? rdp->pending_triangle_word_count * 8u
+                     : 8u);
   rdp->dpc_start_valid = false;
   rdp->dpc_end_valid = false;
   return T64_STATUS_OK;

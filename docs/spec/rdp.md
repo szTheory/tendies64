@@ -147,6 +147,75 @@ TMEM, tile, TLUT, conversion, VI, and inherited machine state is serialized
 into the v16 digest. Host output cursors and buffers remain outside canonical
 guest state.
 
+## Triangle profile and software raster policy
+
+Triangle commands use the separately versioned
+`ntsc-cart-4m-openipl3-rdram-b-t1-rdp-triangle-v3` profile (descriptor 7,
+machine model 12, state serialization 17). Its descriptor binds
+`triangle-twos-complement-q16-logical-coverage-mask-v1`; v2 retains its prior command refusals,
+descriptor bytes, and v16 digest. The v3 state digest uses
+`t64.state.rdp.vi.triangle.17` and includes pending fetched packet words,
+primitive color, active triangle state, and a machine-owned 1024x1024 plane of
+16-bit sample masks (2,097,152 additional bytes per v3 machine instance). The
+plane is indexed by logical raster `(x,y)` at fixed stride 1024; nonempty
+triangle masks accumulate with bitwise OR until ROM admission resets the
+machine. It continues to include the version-16 RDP/VI and RDRAM protocol
+state. This is provisional software raster state, not a claim about hidden
+coverage-bit packing in RDRAM. Plan07-07 owns the address/format mapping and
+CPU, DMA, fill, copy, and raster write invalidation rules.
+
+SGI's [RDP command summary, Tables 12–15 and diagrams](https://ultra64.ca/files/documentation/silicon-graphics/SGI_RDP_Command_Summary.pdf)
+and [Patent 6,556,197, Figures 65–76](https://patents.google.com/patent/US6556197B1/en)
+reconcile the raw 0x08–0x0f layouts. In each present group the word counts are
+Edge 4, Shade 8, Texture 8, and Z 2, appended in that order. Therefore the
+full packet sizes are 4, 6, 12, 14, 12, 14, 20, and 22 64-bit words for
+opcodes 0x08 through 0x0f. Every packet is length-checked against both DPC_END
+and its selected RDRAM/DMEM bank before any triangle effect. This slice renders
+only edge-only 0x08 and edge-plus-shade 0x0c; the other six complete layouts
+are consumed as validated packets and refused without drawing. V2 refuses all
+triangle opcodes at the first word.
+
+Primary diagrams explicitly identify signed 14-bit s11.2 Y fields and the
+integer/fraction half positions. Their sign encoding for other coefficient
+fields is unstated. The v3 profile therefore applies the owner's software
+policy: all other edge and shade integer/fraction pairs are joined as signed
+32-bit two's-complement Q16 values. This is an implementation contract, not a
+vendor format claim. The SDK notes identify edge-only triangles as
+primitive-color operations and say they cannot render in fill cycle; the
+renderer requires one-cycle mode and never borrows the fill/copy rectangle
+path.
+
+The raster software policy samples each pixel at the sixteen centers whose X
+and Y offsets are 1/8, 3/8, 5/8, and 7/8. Y coverage is half-open
+`[YH,YL)`. The `lft` bit selects whether the major edge is left or right;
+horizontal coverage is left-inclusive and right-exclusive. A pixel is written
+when at least one sample is covered; partial coverage is not blended, and the
+sample mask is retained only as an internal test diagnostic. This grid and tie
+rule are Tendies64 policy because the inspected primary sources do not define
+sample positions or tie ownership. Each scheduled row checks at most
+1024 × 16 samples, clips to the scissor, validates the complete RDRAM target
+range before drawing, and advances only after reserving the next event.
+
+Shade fields are decoded from W4–W11 in the primary row order. For each pixel
+center, the software policy computes channel Q16 as the base plus `d/dx`
+times the displacement from the major edge, `d/de` times major-edge
+displacement from XH, and `d/dy` times Y displacement from YH. Each product
+uses signed 64-bit intermediates and explicit floor division; the resulting
+channel is floored to an integer, clamped to 0–255, and packed as RGBA5551
+(top five bits of RGB; alpha is one at 128 or above). This is a named software
+interpolation and packing rule, not a claim about RDP precision, dithering,
+coverage blending, or hardware output. The primary numeric gap remains open.
+The implementation bounds each shade product before any framebuffer write;
+an input whose required signed 64-bit intermediate would exceed that bound is
+refused before drawing.
+
+Authored literal raw cases exercise both edge orientations, negative X and
+slopes, degenerate/equal-Y and single-sample shapes, complementary masks on a
+shared diagonal, signed shade Dx, overlapping command order, a 1024-wide image,
+finite extreme coefficients, every coefficient-group truncation boundary,
+all complete composite packet lengths, and v2 refusal. These are software
+policy tests; they are not hardware qualification or oracle comparisons.
+
 ## Authored evidence and limits
 
 The registered `unit.core.rdp.copy` matrix reaches these cases through fetched
