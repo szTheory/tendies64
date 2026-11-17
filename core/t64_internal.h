@@ -825,12 +825,22 @@ static inline bool t64_has_rdp_vi_profile(const t64_machine *machine) {
          ((machine->profile.machine_model_version == 11u &&
            machine->profile.state_serialization_version == 16u) ||
           (machine->profile.machine_model_version == 12u &&
-           machine->profile.state_serialization_version == 17u));
+           machine->profile.state_serialization_version == 17u) ||
+          (machine->profile.machine_model_version == 13u &&
+           machine->profile.state_serialization_version == 18u));
 }
 
 static inline bool t64_has_rdp_triangle_profile(const t64_machine *machine) {
-  return machine != NULL && machine->profile.machine_model_version == 12u &&
-         machine->profile.state_serialization_version == 17u;
+  return machine != NULL &&
+         ((machine->profile.machine_model_version == 12u &&
+           machine->profile.state_serialization_version == 17u) ||
+          (machine->profile.machine_model_version == 13u &&
+           machine->profile.state_serialization_version == 18u));
+}
+
+static inline bool t64_has_rdp_texture_profile(const t64_machine *machine) {
+  return machine != NULL && machine->profile.machine_model_version == 13u &&
+         machine->profile.state_serialization_version == 18u;
 }
 
 static inline bool t64_has_vr4300_cpu_state(const t64_machine *machine) {
@@ -1085,11 +1095,17 @@ bool t64_rdp_tmem_validate_copy(const t64_machine *machine, uint64_t first,
                                 uint64_t second, uint32_t x0, uint32_t y0,
                                 uint32_t x1, uint32_t y1,
                                 uint32_t *reason_out);
+bool t64_rdp_tmem_validate_triangle(const t64_machine *machine,
+                                    uint32_t tile_index);
 void t64_rdp_tmem_begin_copy(t64_machine *machine, uint64_t first,
                              uint64_t second, uint32_t x0, uint32_t y0,
                              uint32_t x1, uint32_t y1);
 bool t64_rdp_tmem_copy_pixel(const t64_machine *machine, uint32_t x,
                              uint32_t y, uint16_t *pixel_out);
+bool t64_rdp_tmem_triangle_pixel(const t64_machine *machine,
+                                 uint32_t tile_index, int64_t s_q16,
+                                 int64_t t_q16, int64_t w_q16,
+                                 bool perspective, uint16_t *pixel_out);
 void t64_rdp_tmem_convert_yuv(const t64_rdp_state *rdp, uint8_t y,
                               uint8_t u, uint8_t v, uint8_t rgb_out[3]);
 t64_status t64_vi_read_register(const t64_machine *machine,

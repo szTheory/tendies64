@@ -145,7 +145,23 @@
         {
           "path": "core/test_rdp_texture",
           "cases": [
-            "texture-perspective-nonzero-signed-q16"
+            "texture-perspective-nonzero-signed-q16",
+            "texture-fetched-load-tile-to-vi",
+            "texture-affine-point",
+            "texture-filter-box",
+            "texture-filter-threepoint",
+            "texture-shade-gradient",
+            "texture-lod-detail-sharpen",
+            "texture-old-profile-refusal",
+            "texture-profile-v4-identity",
+            "texture-mask-mirror-boundary",
+            "texture-odd-tmem-row",
+            "texture-negative-gradient",
+            "texture-w-zero-sign-policy",
+            "texture-fractional-tie",
+            "texture-format-matrix",
+            "texture-truncated-group-preserves-pixels",
+            "texture-split-digest-interleave"
           ]
         }
       ]

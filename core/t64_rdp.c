@@ -375,8 +375,12 @@ static t64_status apply_pending_command(t64_machine *machine) {
   triangle_words = t64_rdp_triangle_word_count(opcode);
 
   if (triangle_words != 0u) {
+    bool texture_triangle = opcode == UINT32_C(0x0a) ||
+                            opcode == UINT32_C(0x0e);
     if (!t64_has_rdp_triangle_profile(machine) ||
-        (opcode != UINT32_C(0x08) && opcode != UINT32_C(0x0c))) {
+        (opcode != UINT32_C(0x08) && opcode != UINT32_C(0x0c) &&
+         (!texture_triangle ||
+          !t64_has_rdp_texture_profile(machine)))) {
       rdp->dpc_current = address;
       record_command(machine, word, command_byte, opcode);
       set_refusal(machine, T64_RDP_REFUSAL_UNSUPPORTED_OPCODE);
@@ -481,7 +485,8 @@ static t64_status apply_pending_command(t64_machine *machine) {
     rdp->render_kind = 3u;
     rdp->render_active = true;
     rdp->render_triangle = true;
-    rdp->shade_triangle = opcode == UINT32_C(0x0c);
+    rdp->shade_triangle = opcode == UINT32_C(0x0c) ||
+                          opcode == UINT32_C(0x0e);
     rdp->render_x_begin = rdp->scissor_xh >> 2;
     rdp->render_x_end = (rdp->scissor_xl >> 2) - 1u;
     if (rdp->render_x_end >= rdp->color_image_width)

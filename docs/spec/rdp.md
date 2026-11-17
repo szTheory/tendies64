@@ -1,9 +1,12 @@
-# RDP fill, TMEM and copy tracer contract
+# RDP fill, TMEM, copy and triangle software contract
 
-This document describes the bounded RDP software model in profile
-`ntsc-cart-4m-openipl3-rdram-b-t1-rdp-vi-v2` (descriptor 6, machine model 11,
-state serialization 16). It covers fetched DPC commands, texture loads, and
-point-sampled copy rectangles. It does not claim full RDP support, hardware
+This document describes the bounded RDP software model across three preserved
+composite profiles: `ntsc-cart-4m-openipl3-rdram-b-t1-rdp-vi-v2` (descriptor 6,
+model 11, state 16) for DPC/VI/TMEM/copy behavior,
+`ntsc-cart-4m-openipl3-rdram-b-t1-rdp-triangle-v3` (descriptor 7, model 12,
+state 17) for edge and shade triangles, and
+`ntsc-cart-4m-openipl3-rdram-b-t1-rdp-texture-v4` (descriptor 7, model 13,
+state 18) for textured triangles. It does not claim full RDP support, hardware
 timing, or hardware accuracy.
 
 ## Primary source facts
@@ -140,12 +143,12 @@ scheduled events. Counter writes are refused; STATUS clear commands clear
 
 Fetched RSP MFC0/MTC0 instructions for COP0 registers 8 through 15 use the
 same DPC accessors as CPU MMIO on this composite profile. Earlier profiles
-retain the `DP_UNAVAILABLE` refusal. The profile version and
-`rdp_work_policy` (`dpc-fetch-effect-tmem-copy-row-event-1tick-v3`) identify
-the new TMEM/copy state and its event ordering. All future-affecting RDP,
-TMEM, tile, TLUT, conversion, VI, and inherited machine state is serialized
-into the v16 digest. Host output cursors and buffers remain outside canonical
-guest state.
+retain the `DP_UNAVAILABLE` refusal. The v2 profile binds
+`dpc-fetch-effect-tmem-copy-row-event-1tick-v3`; its future-affecting RDP,
+TMEM, tile, TLUT, conversion, VI, and inherited state remains serialized in
+the v16 digest. The v3 and v4 profiles add versioned triangle state while
+preserving the older profile identities and state bytes. Host output cursors
+and buffers remain outside canonical guest state.
 
 ## Triangle profile and software raster policy
 
@@ -164,16 +167,67 @@ state. This is provisional software raster state, not a claim about hidden
 coverage-bit packing in RDRAM. Plan07-07 owns the address/format mapping and
 CPU, DMA, fill, copy, and raster write invalidation rules.
 
+Textured triangles use the v4 profile and bind
+`triangle-twos-complement-q16-logical-coverage-texture-policy-v1`. V4 keeps the
+same per-instance coverage plane and adds no per-device or host-global state;
+the plane costs 2,097,152 bytes per v4 machine. Its digest domain is
+`t64.state.rdp.vi.texture.18` and includes the fetched triangle packet, TMEM,
+tile descriptors, active raster state, and coverage plane. V3 remains the
+edge/shade profile and retains its previous identity and digest domain.
+
+V4 renders only edge-plus-texture `0x0a` and edge-plus-shade-plus-texture
+`0x0e`, in addition to the v3 `0x08` and `0x0c` cases. The four Z-bearing
+variants `0x09`, `0x0b`, `0x0d`, and `0x0f` remain refused. Texture coefficient
+lanes use the primary packet order: for `0x0a`, S/T/W bases and derivatives
+occupy W4–W11; for `0x0e`, the preceding shade group occupies W4–W11 and the
+texture group occupies W12–W19. The primary sources name the coefficients and
+derivative directions but do not settle raw coefficient signedness, Q16
+precision, anchor, accumulation order, division rounding, or W-zero/negative
+hardware behavior. D-11 supplies the provisional signed 32-bit two's-complement
+Q16 policy; these details remain software behavior, not vendor facts.
+
+For each covered pixel center, v4 evaluates S/T/W from the edge anchor using
+signed 64-bit products and explicit floor division. It refuses the whole
+triangle before writing if any bounded intermediate cannot be proven safe, if
+W is zero or its clipped range crosses zero, if a projected coordinate leaves
+signed Q16, or if the selected tile/TMEM span is invalid. Affine mode uses S/T
+directly. Perspective mode computes `floor(S*65536/W)` and the corresponding T
+value; negative W is accepted when the clipped W range stays negative.
+
+Tile shifts, SL/TL-relative coordinates, clamp, mask and mirror are applied
+before sampling. Point mode chooses the containing texel. Box mode averages
+four channels with floor division by four; use away from the documented
+four-texel center is a named software extension. Three-point mode uses the
+three nearest samples with the Figure 15-5 triangle weights and floors each
+channel; exact ties choose the first triangle. These weights, tie choice, and
+rounding are implementation policy rather than printed vendor equations.
+LOD uses the maximum absolute adjacent perspective-corrected S/T difference,
+with minimum 0.5, bounded integer log2 level selection, and Q0.8 fraction.
+Detail and sharpen use the two selected tile levels with floor-rounded channel
+blends; enabling both is refused. V4 supports RGBA16/32, YUV16, CI4/8 with a
+valid TLUT, IA4/8/16, and I4/8 triangle sampling. Shade-texture mode modulates
+5-bit RGB by interpolated 8-bit shade with floor division by 255; alpha is set
+when the texture alpha bit is set and shade alpha is at least 128. All of these
+rounding and combiner choices are deterministic software policy.
+
+The registered `unit.core.rdp.texture` cases independently cover fetched
+LoadTile input through raw VI, affine/perspective sampling, point/box/three-point
+filters, shade texture, LOD/detail/sharpen, tile mirror boundaries, odd TMEM
+rows, the supported format/size matrix, negative gradients, W-zero and signed
+negative-W policy, fractional ties, final-group truncation, old-profile
+refusal, and split/interleaved digest behavior. They establish software
+consistency only; hardware texture precision and output remain unqualified.
+
 SGI's [RDP command summary, Tables 12–15 and diagrams](https://ultra64.ca/files/documentation/silicon-graphics/SGI_RDP_Command_Summary.pdf)
 and [Patent 6,556,197, Figures 65–76](https://patents.google.com/patent/US6556197B1/en)
 reconcile the raw 0x08–0x0f layouts. In each present group the word counts are
 Edge 4, Shade 8, Texture 8, and Z 2, appended in that order. Therefore the
 full packet sizes are 4, 6, 12, 14, 12, 14, 20, and 22 64-bit words for
 opcodes 0x08 through 0x0f. Every packet is length-checked against both DPC_END
-and its selected RDRAM/DMEM bank before any triangle effect. This slice renders
-only edge-only 0x08 and edge-plus-shade 0x0c; the other six complete layouts
-are consumed as validated packets and refused without drawing. V2 refuses all
-triangle opcodes at the first word.
+and its selected RDRAM/DMEM bank before any triangle effect. V3 renders
+edge-only 0x08 and edge-plus-shade 0x0c. V4 adds edge-plus-texture 0x0a and
+edge-plus-shade-plus-texture 0x0e; the four Z-bearing variants remain refused
+without drawing. V2 refuses all triangle opcodes at the first word.
 
 Primary diagrams label the 14-bit Y fields s11.2 and identify the
 integer/fraction half positions. The inspected primary sources do not settle

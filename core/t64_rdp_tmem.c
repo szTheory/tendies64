@@ -654,24 +654,20 @@ static uint16_t rgba5551(uint8_t r, uint8_t g, uint8_t b, uint8_t a) {
   return (uint16_t)value;
 }
 
-static bool sample_texel(const t64_machine *machine, const t64_rdp_tile *tile,
-                         int32_t s, int32_t t, uint16_t *pixel_out) {
-  int32_t wrapped_x = wrap_coordinate(s, tile->uls, tile->lrs, tile->mask_s,
-                                      tile->shift_s, tile->clamp_s,
-                                      tile->mirror_s);
-  int32_t wrapped_y = wrap_coordinate(t, tile->ult, tile->lrt, tile->mask_t,
-                                      tile->shift_t, tile->clamp_t,
-                                      tile->mirror_t);
-  int32_t relative_x = wrapped_x - (int32_t)(tile->uls >> 2);
-  int32_t relative_y = wrapped_y - (int32_t)(tile->ult >> 2);
-  uint32_t x, y;
+static bool read_tile_texel(const t64_machine *machine,
+                            const t64_rdp_tile *tile, uint32_t x, uint32_t y,
+                            uint16_t *pixel_out) {
+  uint64_t width, height, row, offset;
+  uint32_t bits;
 
-  if (relative_x < 0 || relative_y < 0) return false;
-  x = (uint32_t)relative_x;
-  y = (uint32_t)relative_y;
-  uint32_t bits = bits_per_texel(tile->size);
-  uint64_t row = (uint64_t)y * tile->line_words * 8u;
-  uint64_t offset = row + ((uint64_t)x * bits) / 8u;
+  if (machine == NULL || tile == NULL || pixel_out == NULL ||
+      tile->lrs < tile->uls || tile->lrt < tile->ult) return false;
+  width = ((uint64_t)(tile->lrs - tile->uls) >> 2) + UINT64_C(1);
+  height = ((uint64_t)(tile->lrt - tile->ult) >> 2) + UINT64_C(1);
+  if ((uint64_t)x >= width || (uint64_t)y >= height) return false;
+  bits = bits_per_texel(tile->size);
+  row = (uint64_t)y * tile->line_words * 8u;
+  offset = row + ((uint64_t)x * bits) / 8u;
   if ((y & 1u) != 0u) offset ^= UINT64_C(4);
   offset += tmem_base(tile);
 
@@ -744,6 +740,22 @@ static bool sample_texel(const t64_machine *machine, const t64_rdp_tile *tile,
   return false;
 }
 
+static bool sample_texel(const t64_machine *machine, const t64_rdp_tile *tile,
+                         int32_t s, int32_t t, uint16_t *pixel_out) {
+  int32_t wrapped_x = wrap_coordinate(s, tile->uls, tile->lrs, tile->mask_s,
+                                      tile->shift_s, tile->clamp_s,
+                                      tile->mirror_s);
+  int32_t wrapped_y = wrap_coordinate(t, tile->ult, tile->lrt, tile->mask_t,
+                                      tile->shift_t, tile->clamp_t,
+                                      tile->mirror_t);
+  int32_t relative_x = wrapped_x - (int32_t)(tile->uls >> 2);
+  int32_t relative_y = wrapped_y - (int32_t)(tile->ult >> 2);
+
+  if (relative_x < 0 || relative_y < 0) return false;
+  return read_tile_texel(machine, tile, (uint32_t)relative_x,
+                         (uint32_t)relative_y, pixel_out);
+}
+
 bool t64_rdp_tmem_copy_pixel(const t64_machine *machine, uint32_t x,
                              uint32_t y, uint16_t *pixel_out) {
   const t64_rdp_state *rdp;
@@ -770,4 +782,243 @@ bool t64_rdp_tmem_copy_pixel(const t64_machine *machine, uint32_t x,
   if (s < INT32_MIN || s > INT32_MAX || t < INT32_MIN || t > INT32_MAX)
     return false;
   return sample_texel(machine, tile, (int32_t)s, (int32_t)t, pixel_out);
+}
+
+bool t64_rdp_tmem_validate_triangle(const t64_machine *machine,
+                                    uint32_t tile_index) {
+  const t64_rdp_state *rdp;
+  const t64_rdp_tile *tile;
+  uint64_t width, height, row_bytes, end;
+  uint32_t bits;
+
+  if (machine == NULL || !t64_has_rdp_texture_profile(machine) ||
+      tile_index >= T64_RDP_TILE_COUNT) return false;
+  rdp = &machine->rdp;
+  tile = &rdp->tiles[tile_index];
+  if (!tile->valid || !tile->size_valid ||
+      !format_size_supported(tile->format, tile->size) ||
+      tile->line_words == 0u || tile->lrs < tile->uls ||
+      tile->lrt < tile->ult) return false;
+  if (tile->format == 2u &&
+      (!rdp->tlut_valid ||
+       (rdp->tlut_format != 2u && rdp->tlut_format != 3u))) return false;
+
+  bits = bits_per_texel(tile->size);
+  width = ((uint64_t)(tile->lrs - tile->uls) >> 2) + UINT64_C(1);
+  height = ((uint64_t)(tile->lrt - tile->ult) >> 2) + UINT64_C(1);
+  row_bytes = (width * bits + UINT64_C(7)) / UINT64_C(8);
+  end = tmem_base(tile) + height * (uint64_t)tile->line_words * UINT64_C(8);
+  if (row_bytes > (uint64_t)tile->line_words * UINT64_C(8) ||
+      end > T64_RDP_TMEM_BYTES) return false;
+
+  /* An unclamped, unmasked axis has no bounded address transform. */
+  if ((!tile->clamp_s && tile->mask_s == 0u) ||
+      (!tile->clamp_t && tile->mask_t == 0u)) return false;
+  if ((!tile->clamp_s &&
+       (UINT64_C(1) << tile->mask_s) > width) ||
+      (!tile->clamp_t &&
+       (UINT64_C(1) << tile->mask_t) > height)) return false;
+  return true;
+}
+
+static int64_t floor_div_i64(int64_t numerator, int64_t denominator) {
+  int64_t quotient = numerator / denominator;
+  int64_t remainder = numerator % denominator;
+  if (remainder != 0 && numerator < 0) quotient--;
+  return quotient;
+}
+
+static int64_t positive_mod_i64(int64_t value, int64_t modulus) {
+  int64_t result = value % modulus;
+  if (result < 0) result += modulus;
+  return result;
+}
+
+static bool normalize_triangle_axis(int64_t fixed_q16, int64_t lower,
+                                    int64_t upper, uint32_t shift,
+                                    uint32_t mask, bool clamp, bool mirror,
+                                    int64_t *relative_q16_out) {
+  int64_t shifted;
+  int64_t relative;
+  int64_t maximum;
+
+  if (relative_q16_out == NULL || upper < lower) return false;
+  if (shift <= 10u) {
+    shifted = floor_div_pow2(fixed_q16, shift);
+  } else {
+    int64_t scale = (int64_t)(UINT32_C(1) << (16u - shift));
+    if (fixed_q16 > INT64_MAX / scale || fixed_q16 < INT64_MIN / scale)
+      return false;
+    shifted = fixed_q16 * scale;
+  }
+  relative = shifted - lower * INT64_C(65536);
+  maximum = (upper - lower) * INT64_C(65536);
+  if (clamp) {
+    if (relative < 0) relative = 0;
+    if (relative > maximum) relative = maximum;
+  } else {
+    int64_t period = (int64_t)(UINT32_C(1) << mask) * INT64_C(65536);
+    int64_t span = period * (mirror ? INT64_C(2) : INT64_C(1));
+    relative = positive_mod_i64(relative, span);
+    if (mirror && relative >= period) relative = span - relative;
+  }
+  *relative_q16_out = relative;
+  return true;
+}
+
+static bool map_triangle_index(int64_t index, uint32_t length,
+                               uint32_t mask, bool clamp, bool mirror,
+                               uint32_t *mapped_out) {
+  int64_t mapped = index;
+  if (mapped_out == NULL || length == 0u) return false;
+  if (clamp) {
+    if (mapped < 0) mapped = 0;
+    if (mapped >= (int64_t)length) mapped = (int64_t)length - 1;
+  } else {
+    int64_t period = INT64_C(1) << mask;
+    int64_t span = period * (mirror ? INT64_C(2) : INT64_C(1));
+    mapped = positive_mod_i64(mapped, span);
+    if (mirror && mapped >= period) mapped = span - mapped - 1;
+  }
+  if (mapped < 0 || mapped >= (int64_t)length) return false;
+  *mapped_out = (uint32_t)mapped;
+  return true;
+}
+
+static bool read_triangle_neighbor(const t64_machine *machine,
+                                   const t64_rdp_tile *tile,
+                                   int64_t x, int64_t y,
+                                   uint16_t *pixel_out) {
+  uint32_t width = ((tile->lrs - tile->uls) >> 2) + 1u;
+  uint32_t height = ((tile->lrt - tile->ult) >> 2) + 1u;
+  uint32_t mapped_x, mapped_y;
+  if (!map_triangle_index(x, width, tile->mask_s, tile->clamp_s,
+                          tile->mirror_s, &mapped_x) ||
+      !map_triangle_index(y, height, tile->mask_t, tile->clamp_t,
+                          tile->mirror_t, &mapped_y)) return false;
+  return read_tile_texel(machine, tile, mapped_x, mapped_y, pixel_out);
+}
+
+static uint32_t channel5(uint16_t pixel, unsigned channel) {
+  if (channel == 0u) return (pixel >> 11) & UINT16_C(0x1f);
+  if (channel == 1u) return (pixel >> 6) & UINT16_C(0x1f);
+  return (pixel >> 1) & UINT16_C(0x1f);
+}
+
+static uint16_t average_four_texels(const uint16_t texels[4]) {
+  uint32_t channels[3] = {0u, 0u, 0u};
+  unsigned texel, channel;
+  uint32_t alpha = 0u;
+  for (texel = 0u; texel < 4u; texel++) {
+    for (channel = 0u; channel < 3u; channel++)
+      channels[channel] += channel5(texels[texel], channel);
+    alpha += texels[texel] & UINT16_C(1);
+  }
+  return (uint16_t)(((channels[0] / 4u) << 11) |
+                    ((channels[1] / 4u) << 6) |
+                    ((channels[2] / 4u) << 1) | (alpha >= 2u ? 1u : 0u));
+}
+
+static uint16_t three_point_texels(const uint16_t texels[4], uint32_t fs,
+                                   uint32_t ft) {
+  uint32_t channels[3] = {0u, 0u, 0u};
+  uint32_t alpha = 0u;
+  unsigned channel;
+
+  for (channel = 0u; channel < 4u; channel++) {
+    uint32_t tl, tr, bl, br;
+    uint64_t value;
+    if (channel == 3u) {
+      tl = texels[0] & 1u;
+      tr = texels[1] & 1u;
+      bl = texels[2] & 1u;
+      br = texels[3] & 1u;
+    } else {
+      tl = channel5(texels[0], channel);
+      tr = channel5(texels[1], channel);
+      bl = channel5(texels[2], channel);
+      br = channel5(texels[3], channel);
+    }
+    if (fs >= ft) {
+      value = (uint64_t)tl * (UINT32_C(65536) - fs) +
+              (uint64_t)tr * (fs - ft) + (uint64_t)br * ft;
+    } else {
+      value = (uint64_t)tl * (UINT32_C(65536) - ft) +
+              (uint64_t)bl * (ft - fs) + (uint64_t)br * fs;
+    }
+    if (channel == 3u) alpha = (uint32_t)value;
+    else channels[channel] = (uint32_t)(value / UINT64_C(65536));
+  }
+  return (uint16_t)((channels[0] << 11) | (channels[1] << 6) |
+                    (channels[2] << 1) |
+                    (alpha >= UINT32_C(32768) ? 1u : 0u));
+}
+
+bool t64_rdp_tmem_triangle_pixel(const t64_machine *machine,
+                                 uint32_t tile_index, int64_t s_q16,
+                                 int64_t t_q16, int64_t w_q16,
+                                 bool perspective, uint16_t *pixel_out) {
+  const t64_rdp_tile *tile;
+  int64_t s, t, s_relative, t_relative;
+  int64_t s_index, t_index;
+  uint32_t s_fraction, t_fraction;
+
+  if (machine == NULL || pixel_out == NULL ||
+      tile_index >= T64_RDP_TILE_COUNT ||
+      !t64_rdp_tmem_validate_triangle(machine, tile_index) ||
+      s_q16 < INT32_MIN || s_q16 > INT32_MAX ||
+      t_q16 < INT32_MIN || t_q16 > INT32_MAX ||
+      w_q16 < INT32_MIN || w_q16 > INT32_MAX) return false;
+  s = s_q16;
+  t = t_q16;
+  if (perspective) {
+    int64_t s_numerator, t_numerator;
+    int64_t s_quotient, t_quotient;
+    int64_t s_remainder, t_remainder;
+    if (w_q16 == 0) return false;
+    s_numerator = s * INT64_C(65536);
+    t_numerator = t * INT64_C(65536);
+    s_quotient = s_numerator / w_q16;
+    t_quotient = t_numerator / w_q16;
+    s_remainder = s_numerator % w_q16;
+    t_remainder = t_numerator % w_q16;
+    if (s_remainder != 0 && ((s_numerator < 0) != (w_q16 < 0)))
+      s_quotient--;
+    if (t_remainder != 0 && ((t_numerator < 0) != (w_q16 < 0)))
+      t_quotient--;
+    s = s_quotient;
+    t = t_quotient;
+  }
+  if (s < INT32_MIN || s > INT32_MAX || t < INT32_MIN || t > INT32_MAX)
+    return false;
+  tile = &machine->rdp.tiles[tile_index];
+  if (!normalize_triangle_axis(s, (int64_t)(tile->uls >> 2),
+                               (int64_t)(tile->lrs >> 2), tile->shift_s,
+                               tile->mask_s, tile->clamp_s, tile->mirror_s,
+                               &s_relative) ||
+      !normalize_triangle_axis(t, (int64_t)(tile->ult >> 2),
+                               (int64_t)(tile->lrt >> 2), tile->shift_t,
+                               tile->mask_t, tile->clamp_t, tile->mirror_t,
+                               &t_relative)) return false;
+  s_index = floor_div_i64(s_relative, INT64_C(65536));
+  t_index = floor_div_i64(t_relative, INT64_C(65536));
+  s_fraction = (uint32_t)(s_relative - s_index * INT64_C(65536));
+  t_fraction = (uint32_t)(t_relative - t_index * INT64_C(65536));
+  if (((machine->rdp.other_modes >> 45) & UINT64_C(1)) == 0u) {
+    return read_triangle_neighbor(machine, tile, s_index, t_index, pixel_out);
+  }
+  {
+    uint16_t texels[4];
+    if (!read_triangle_neighbor(machine, tile, s_index, t_index, &texels[0]) ||
+        !read_triangle_neighbor(machine, tile, s_index + 1, t_index, &texels[1]) ||
+        !read_triangle_neighbor(machine, tile, s_index, t_index + 1, &texels[2]) ||
+        !read_triangle_neighbor(machine, tile, s_index + 1, t_index + 1,
+                                &texels[3])) return false;
+    if (((machine->rdp.other_modes >> 44) & UINT64_C(1)) != 0u) {
+      *pixel_out = average_four_texels(texels);
+    } else {
+      *pixel_out = three_point_texels(texels, s_fraction, t_fraction);
+    }
+  }
+  return true;
 }
