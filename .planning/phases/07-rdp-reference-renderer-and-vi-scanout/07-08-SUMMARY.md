@@ -103,3 +103,7 @@ Hosted qualification is next before VI implementation. The VI primary preflight
 is saved, with clock-unit/latch/geometry gaps explicitly separated from source
 facts. No requirement is closed by this slice alone. D2/D5/D6, expired windows,
 private/oracle/hardware and release stops remain; VID04 is unqualified.
+
+## Hosted qualification
+
+Reviewed checkpoint4559440 passes [both hosted jobs](https://github.com/szTheory/tendies64/actions/runs/44146970240). Exact successful run/attempt1 selected authored boot records were collected and compared: guest identities, bounds, state and transcript match. Records: `build/evidence/07-08-hosted-44146970240/`; status/collection/comparison/metrics: `build/gate/07-08-hosted-*`. Native RDP assertions execute in each gate; selected boot uploads are not an independent RDP hardware oracle. VI implementation may proceed under its checked primary/software contract. All existing stops remain unchanged.

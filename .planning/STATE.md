@@ -3,14 +3,14 @@ gsd_state_version: "1.0"
 milestone: v1.1
 milestone_name: Observable Machine
 current_phase: 07
-current_plan: "08"
+current_plan: "09"
 current_phase_name: RDP Reference Renderer and VI Scanout
 status: executing
-stopped_at: Plan08 reviewed and locally qualified; hosted pair pending
-last_updated: "2026-11-17T18:20:54.348342+00:00"
+stopped_at: Plan08 qualified on both hosts; Plan09 VI implementation next
+last_updated: "2026-11-17T18:31:13.963303+00:00"
 last_activity: 2026-11-17
-last_activity_desc: Plan08 review repairs and final full gate pass; hosted qualification next
-state_head: d64ccdd6b81f9c8bdbc47dde71335da0646cbb5e
+last_activity_desc: Plan08 hosted evidence compared; VI preflight and policy ready
+state_head: 455944062a37753b150bd9d49c2fc5cf750ba3ff
 progress:
   total_phases: 3
   completed_phases: 0
@@ -26,14 +26,14 @@ progress:
 See: .planning/PROJECT.md (updated 2026-11-15)
 
 **Core value:** Every Tendies64 support claim is backed by evidence: a named profile, a pinned build and a reproducible, rights-cleared guest result.
-**Current focus:** Qualify reviewed Plan08 on both hosts, then execute VI Plan09.
+**Current focus:** Execute Plan09 VI register, rational time and geometry behavior.
 
 ## Current Position
 
 Phase: 07 (RDP Reference Renderer and VI Scanout) — EXECUTING
-Plan: 08 of13 in current phase
-Status: Depth review repairs and final full gate pass; hosted pair pending
-Last activity: 2026-11-17 — Depth review repairs and final full gate pass; hosted pair pending
+Plan: 09 of13 in current phase
+Status: Depth qualified on both hosts; VI is ready
+Last activity: 2026-11-17 — Depth reviewed checkpoint passes both hosts and exact artifact comparison
 
 Progress: [██████░░░░] 62% of currently planned source plans
 
@@ -56,13 +56,12 @@ Progress: [██████░░░░] 62% of currently planned source plans
 
 ### Pending Todos
 
-Plan08 depth review repairs and final local gate are complete. Coverage-only
-alias preservation and correct0f group offsets have independent source rechecks;
-strengthened coefficient, mode and complete refusal/recovery oracles pass normal,
-instrumented and compiler checks. Exact final consumers/logs are retained.
-Qualify the reviewed checkpoint on both hosts before VI implementation. Plan09
-primary fields and source-vs-software timing/latch gaps are recorded. No user
-action is needed; all existing rights/oracle/release stops remain unchanged.
+Plan08 review repairs, full local gate and both hosted jobs are complete;
+exact selected authored boot records match across hosts. Plan09 primary VI
+fields and explicit source/software clock, latch and sampler policies are ready.
+Proceed through cheap actual profile/hash/serialize/consumer checks and a literal
+packet/IRQ before expanding the matrix. No user action is needed, and rights,
+oracle, release and expired-window stops remain unchanged.
 
 The earlier full-ASAN BASE timeout is historical and retained; Plan03's affected
 instrumented checks and final combined normal gate pass. Do not relabel that
@@ -87,8 +86,8 @@ old full instrumented run as complete or renew private windows.
 ## Session Continuity
 
 Last session: 2026-11-16T05:13:26.082Z
-Stopped at: Plan08 reviewed and locally qualified; hosted pair pending
-Resume file: .planning/phases/07-rdp-reference-renderer-and-vi-scanout/07-08-PLAN.md
+Stopped at: Plan08 qualified on both hosts; Plan09 VI implementation next
+Resume file: .planning/phases/07-rdp-reference-renderer-and-vi-scanout/07-09-PLAN.md
 
 Historical closeout: [v1.0 roadmap](milestones/v1.0-ROADMAP.md), [audit](milestones/v1.0-MILESTONE-AUDIT.md), [lessons](RETROSPECTIVE.md).
 

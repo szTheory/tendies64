@@ -32,5 +32,5 @@ run44119209396. No Phase07/VID04 completion is implied.
 
 [Plan08](07-08-REVIEW.md) resolves alias preservation, combined0f decoding
 and test-oracle gaps through independent production and orchestrator test-only
-rechecks. Focused normal/instrumented/GCC and final full gate pass. Hosted
-qualification remains pending; no Phase07/VID04 completion is implied.
+rechecks. Focused normal/instrumented/GCC and final full gate pass. Both hosted jobs and exact selected authored boot comparison pass in
+run44146970240; no Phase07/VID04 completion is implied.
