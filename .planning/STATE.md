@@ -6,17 +6,17 @@ current_phase: 07
 current_plan: "08"
 current_phase_name: RDP Reference Renderer and VI Scanout
 status: executing
-stopped_at: Plan07 qualified on both hosts; Plan08 depth implementation next
-last_updated: "2026-11-17T15:59:10.239747+00:00"
+stopped_at: Plan08 reviewed and locally qualified; hosted pair pending
+last_updated: "2026-11-17T18:20:54.348342+00:00"
 last_activity: 2026-11-17
-last_activity_desc: Plan07 hosted evidence compared; depth preflight ready
-state_head: 15cb0f64a11580605636cc696ade9eed788ce457
+last_activity_desc: Plan08 review repairs and final full gate pass; hosted qualification next
+state_head: d64ccdd6b81f9c8bdbc47dde71335da0646cbb5e
 progress:
   total_phases: 3
   completed_phases: 0
   total_plans: 13
-  completed_plans: 7
-  percent: 54
+  completed_plans: 8
+  percent: 62
 ---
 
 # Project State
@@ -26,20 +26,20 @@ progress:
 See: .planning/PROJECT.md (updated 2026-11-15)
 
 **Core value:** Every Tendies64 support claim is backed by evidence: a named profile, a pinned build and a reproducible, rights-cleared guest result.
-**Current focus:** Execute Plan08 depth mapping/comparison under the pinned contract.
+**Current focus:** Qualify reviewed Plan08 on both hosts, then execute VI Plan09.
 
 ## Current Position
 
 Phase: 07 (RDP Reference Renderer and VI Scanout) — EXECUTING
 Plan: 08 of13 in current phase
-Status: Blender qualified on both hosts; depth is ready
-Last activity: 2026-11-17 — Blender reviewed checkpoint passes both hosts and exact artifact comparison
+Status: Depth review repairs and final full gate pass; hosted pair pending
+Last activity: 2026-11-17 — Depth review repairs and final full gate pass; hosted pair pending
 
-Progress: [█████░░░░░] 54% of currently planned source plans
+Progress: [██████░░░░] 62% of currently planned source plans
 
 ## Performance Metrics
 
-- Active milestone:0 completed phases and7 completed plans;13 Phase7 plans defined.
+- Active milestone:0 completed phases and8 completed plans;13 Phase7 plans defined.
 - Historical v1.0: 6 phases and 73 source plans complete. This is planning completion, not a software release.
 - Prior phase plan counts: 1: 13; 2: 8; 3: 13; 4: 20; 5: 10; 6: 9.
 - Execution timing: not established for v1.1. Historical evidence remains in [v1.0 phase records](milestones/v1.0-phases/).
@@ -56,13 +56,13 @@ Progress: [█████░░░░░] 54% of currently planned source plans
 
 ### Pending Todos
 
-Plan07 review repairs, final local gate and both hosted jobs are complete.
-Exact selected authored boot records agree across hosts. Execute Plan08 under
-its pinned primary fields and explicit software numeric/hidden-state contract;
-its corrected primary table/literal preflight is ready. New descriptor binding
-must be checked through actual public hash/serialize/canonical consumers before
-long qualification. No user action is needed; rights/oracle/release stops and
-expired windows remain unchanged.
+Plan08 depth review repairs and final local gate are complete. Coverage-only
+alias preservation and correct0f group offsets have independent source rechecks;
+strengthened coefficient, mode and complete refusal/recovery oracles pass normal,
+instrumented and compiler checks. Exact final consumers/logs are retained.
+Qualify the reviewed checkpoint on both hosts before VI implementation. Plan09
+primary fields and source-vs-software timing/latch gaps are recorded. No user
+action is needed; all existing rights/oracle/release stops remain unchanged.
 
 The earlier full-ASAN BASE timeout is historical and retained; Plan03's affected
 instrumented checks and final combined normal gate pass. Do not relabel that
@@ -87,7 +87,7 @@ old full instrumented run as complete or renew private windows.
 ## Session Continuity
 
 Last session: 2026-11-16T05:13:26.082Z
-Stopped at: Plan07 qualified on both hosts; Plan08 depth implementation next
+Stopped at: Plan08 reviewed and locally qualified; hosted pair pending
 Resume file: .planning/phases/07-rdp-reference-renderer-and-vi-scanout/07-08-PLAN.md
 
 Historical closeout: [v1.0 roadmap](milestones/v1.0-ROADMAP.md), [audit](milestones/v1.0-MILESTONE-AUDIT.md), [lessons](RETROSPECTIVE.md).

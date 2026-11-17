@@ -1,7 +1,7 @@
 ---
 phase: 07-rdp-reference-renderer-and-vi-scanout
-source_plan: "07-07"
-source_base: a6e1c5765e26251d9218172580e78cdd87eaada2
+source_plan: "07-08"
+source_base: d64ccdd6b81f9c8bdbc47dde71335da0646cbb5e
 status: clean
 findings:
   critical: 0
@@ -29,3 +29,8 @@ records compare in run44090997512. Blender source and review repairs are complet
 through independent profile and orchestrator test-only rechecks. Final local
 normal/instrumented/GCC owners and combined gate pass. Both hosted jobs and exact selected authored artifact comparison pass in
 run44119209396. No Phase07/VID04 completion is implied.
+
+[Plan08](07-08-REVIEW.md) resolves alias preservation, combined0f decoding
+and test-oracle gaps through independent production and orchestrator test-only
+rechecks. Focused normal/instrumented/GCC and final full gate pass. Hosted
+qualification remains pending; no Phase07/VID04 completion is implied.
