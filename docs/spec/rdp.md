@@ -196,11 +196,16 @@ value; negative W is accepted when the clipped W range stays negative.
 
 Tile shifts, SL/TL-relative coordinates, clamp, mask and mirror are applied
 before sampling. Point mode chooses the containing texel. Box mode averages
-four channels with floor division by four; use away from the documented
+four channels with floor division by four (including its one-bit alpha); use away from the documented
 four-texel center is a named software extension. Three-point mode uses the
 three nearest samples with the Figure 15-5 triangle weights and floors each
 channel; exact ties choose the first triangle. These weights, tie choice, and
 rounding are implementation policy rather than printed vendor equations.
+Raw W0 bits50:48 select the primitive tile; bits53:51 select its maximum mip
+level (zero declares only the primitive tile). LOD-off uses that named tile.
+LOD-on validates the declared chain through primitive tile plus maximum level
+before effects; a chain outside descriptors0..7 is refused. Unrelated valid
+descriptors cannot extend the header limit.
 LOD uses the maximum absolute adjacent perspective-corrected S/T difference,
 with minimum 0.5, bounded integer log2 level selection, and Q0.8 fraction.
 Detail and sharpen use the two selected tile levels with floor-rounded channel

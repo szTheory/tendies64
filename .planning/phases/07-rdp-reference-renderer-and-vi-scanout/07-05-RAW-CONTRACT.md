@@ -31,6 +31,17 @@ base + floor(dx * (x_center - major_x(y_center)) / 65536)
 
 All values and products are signed Q16/Q32 with explicit floor division. This anchor and operation order are deterministic Tendies64 policy, following the already documented shade interpolation rule; the primary table names derivatives but does not specify the interpolation origin, product rounding, or accumulation order.
 
+## Primitive header controls
+
+SGI Table12 identifies W0 tile in bits50:48 and level in bits53:51. Tile names
+its primitive descriptor, and level caps the mip chain relative to that tile;
+zero means the primitive level only. The software profile validates the whole
+declared chain before drawing when LOD is enabled, refusing indices outside0..7.
+Other valid descriptors cannot supply a larger implicit maximum. Raw witness
+`0x0A89002000100000` selects tile1 and maximum level1 while retaining right-major
+and YL/YM/YH32/16/0. Box and three-point floor policy applies to each decoded
+channel, including one-bit alpha; mixed-alpha half ties therefore floor to zero.
+
 ## Perspective, tile, LOD, and filter controls
 
 The raw `Set Other Modes` command has six-bit opcode `0x2F` (GBI byte `0xEF`). SGI Table 20 places perspective at bit 51, detail at 50, sharpen at 49, LOD at 48, sample type at 45, midpoint at 44, and per-cycle filter/conversion controls at 43–41. The Nintendo SDK header defines `G_TP_PERSP`, `G_TL_TILE/LOD`, `G_TD_CLAMP/SHARPEN/DETAIL`, `G_TF_POINT/AVERAGE/BILERP`, and their mode shifts. [SGI Table 20, pp. 27–29](https://ultra64.ca/files/documentation/silicon-graphics/SGI_RDP_Command_Summary.pdf); [Nintendo SDK `gbi.h`, revision 1.138, “Set Other Modes” constants and `gDPSetOtherMode`](https://ultra64.ca/files/documentation/online-manuals/man/header/gbi.htm)

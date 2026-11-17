@@ -212,3 +212,23 @@ shade vectors need distinct channels and derivative rows. Malformed packet
 controls compare the entire affected framebuffer region and owned sidecar,
 including prior completed work. Focused review fixes use the existing review
 context and one required final gate; no repeated full source audit is needed.
+
+
+## Plan07-05: raw selectors and all-channel rounding
+
+A structurally correct packet and nonzero coefficients can still hide ignored
+header selectors. Exercise a nonzero primitive tile with a different tile0
+and with tile0 invalid, plus explicit maximum-level caps, before broad matrices.
+A list of valid descriptors cannot replace the packet's declared mip limit.
+Floor policy applies to encoded alpha as well as RGB; mixed-alpha patterns at
+ties and on both triangular halves discriminate threshold rounding. Complete
+arithmetic-refusal controls establish prior output and compare the full affected
+framebuffer and owned coverage plane; nonzero W prevents masking an overflow
+case. Write the minimum useful preflight table/literal first, leaving permitted
+unknown precision explicit rather than broadening research into an extra gate.
+
+Use task-specific shell return-code variables: zsh reserves status, so a capture
+can fail after the actual gate reaches PASS. Keep that failure distinct and
+verify every stage from original logs. HEAD updates T64_SOURCE_REVISION, not
+the content/compiler-derived T64_BUILD_ID; refresh provenance when needed,
+without repeating semantic cohorts solely for commit bookkeeping.

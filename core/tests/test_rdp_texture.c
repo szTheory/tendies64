@@ -424,7 +424,7 @@ static void case_texture_lod_detail_sharpen(void) {
       UINT64_C(0x3f10000700005000), UINT64_C(0x2d00000000020020),
       UINT64_C(0x2f010c0000000000), UINT64_C(0x3510040000080200),
       UINT64_C(0x320000000001c01c), UINT64_C(0x3510041001080200),
-      UINT64_C(0x320000000101c01c), UINT64_C(0x0a80002000100000),
+      UINT64_C(0x320000000101c01c), UINT64_C(0x0a88002000100000),
       UINT64_C(0), UINT64_C(0x0004000000000000),
       UINT64_C(0x00000000ffff0000), UINT64_C(0x0002000000010000),
       UINT64_C(0), UINT64_C(0), UINT64_C(0xc000000000000000),
@@ -443,7 +443,7 @@ static void case_texture_lod_detail_sharpen(void) {
       UINT64_C(0x3f10000700005000), UINT64_C(0x2d00000000020020),
       UINT64_C(0x2f010c0000000000), UINT64_C(0x3510040000080200),
       UINT64_C(0x320000000001c01c), UINT64_C(0x3510041001080200),
-      UINT64_C(0x320000000101c01c), UINT64_C(0x0a80002000100000),
+      UINT64_C(0x320000000101c01c), UINT64_C(0x0a88002000100000),
       UINT64_C(0), UINT64_C(0x0004000000000000),
       UINT64_C(0x00000000ffff0000), UINT64_C(0x0002000000010000),
       UINT64_C(0x0002000000000000), UINT64_C(0), UINT64_C(0),
@@ -611,6 +611,7 @@ static void case_texture_w_zero_sign_policy(void) {
                 sizeof perspective_texture_scene[0]];
   static const uint8_t red[] = {0xf8u, 0x01u};
   uint8_t prior_pixels[8u * 8u * 2u];
+  uint16_t *prior_coverage;
   t64_machine *machine = create_authored_machine();
   if (machine == NULL) return;
   memcpy(negative, perspective_texture_scene, sizeof negative);
@@ -627,13 +628,38 @@ static void case_texture_w_zero_sign_policy(void) {
 
   memcpy(prior_pixels, machine->ram + FRAMEBUFFER_ADDRESS,
          sizeof prior_pixels);
+  prior_coverage = malloc(T64_RDP_TRIANGLE_COVERAGE_BYTES);
+  T64_CHECK(prior_coverage != NULL);
+  if (prior_coverage == NULL) {
+    t64_machine_destroy(machine);
+    return;
+  }
+  memcpy(prior_coverage, machine->rdp_triangle_coverage,
+         T64_RDP_TRIANGLE_COVERAGE_BYTES);
   memcpy(zero, perspective_texture_scene, sizeof zero);
   zero[9] = UINT64_C(0x0006fffe00000000);
   zero[12] = 0u;
   T64_CHECK(run_commands(machine, zero, sizeof zero / sizeof zero[0]));
-  T64_CHECK(machine->rdp.refusal_reason != T64_RDP_REFUSAL_NONE);
+  T64_CHECK_INT(machine->rdp.refusal_reason, T64_RDP_REFUSAL_RENDER_RANGE);
+  T64_CHECK_INT(machine->rdp.dpc_current, COMMAND_ADDRESS + 40u);
   T64_CHECK(memcmp(machine->ram + FRAMEBUFFER_ADDRESS, prior_pixels,
                    sizeof prior_pixels) == 0);
+  T64_CHECK(memcmp(machine->rdp_triangle_coverage, prior_coverage,
+                   T64_RDP_TRIANGLE_COVERAGE_BYTES) == 0);
+  /* Complete packet with W=2 and no W derivatives: the excessive signed
+   * S derivative must reach arithmetic preflight, not a W-zero refusal. */
+  memcpy(zero, perspective_texture_scene, sizeof zero);
+  zero[10] = UINT64_C(0x8000000000000000);
+  zero[12] = 0u;
+  T64_CHECK_INT((zero[9] >> 16) & UINT64_C(0xffff), 2u);
+  T64_CHECK(run_commands(machine, zero, sizeof zero / sizeof zero[0]));
+  T64_CHECK_INT(machine->rdp.refusal_reason, T64_RDP_REFUSAL_RENDER_RANGE);
+  T64_CHECK_INT(machine->rdp.dpc_current, COMMAND_ADDRESS + 40u);
+  T64_CHECK(memcmp(machine->ram + FRAMEBUFFER_ADDRESS, prior_pixels,
+                   sizeof prior_pixels) == 0);
+  T64_CHECK(memcmp(machine->rdp_triangle_coverage, prior_coverage,
+                   T64_RDP_TRIANGLE_COVERAGE_BYTES) == 0);
+  free(prior_coverage);
   t64_machine_destroy(machine);
 }
 
@@ -845,12 +871,180 @@ static void case_texture_split_digest_interleave(void) {
   t64_machine_destroy(interleaved_b);
 }
 
+static void case_texture_header_tile_and_level(void) {
+  size_t variant;
+  /* SGI W0 tile=bits50:48, maximum mip level=bits53:51. A named tile
+   * must work even with no tile0, and tile0 must never be a fallback. */
+  for (variant = 0u; variant < 3u; variant++) {
+    uint64_t commands[sizeof perspective_texture_scene /
+                      sizeof perspective_texture_scene[0]];
+    t64_machine *machine = create_authored_machine();
+    uint32_t tile = variant == 2u ? 7u : 1u;
+    if (machine == NULL) return;
+    if (variant == 1u) {
+      T64_CHECK(run_commands(machine, perspective_texture_scene, 5u));
+      set_logical_texel16(machine, 3u, 0u, UINT16_C(0xf801));
+    }
+    memcpy(commands, perspective_texture_scene, sizeof commands);
+    commands[3] = UINT64_C(0x3510041000080200) | ((uint64_t)tile << 24);
+    commands[4] = UINT64_C(0x320000000001c01c) | ((uint64_t)tile << 24);
+    commands[5] = UINT64_C(0x0a80002000100000) | ((uint64_t)tile << 48);
+    set_logical_texel16_at_word(machine, 16u, 3u, 0u, UINT16_C(0x07c1));
+    T64_CHECK(run_commands(machine, commands,
+                           sizeof commands / sizeof commands[0]));
+    T64_CHECK_INT(machine->rdp.refusal_reason, T64_RDP_REFUSAL_NONE);
+    T64_CHECK_INT((machine->ram[framebuffer_pixel(1u, 4u)] << 8) |
+                      machine->ram[framebuffer_pixel(1u, 4u) + 1u],
+                  UINT16_C(0x07c1));
+    if (variant == 2u) {
+      uint8_t pixels[8u * 8u * 2u];
+      uint16_t *coverage = malloc(T64_RDP_TRIANGLE_COVERAGE_BYTES);
+      T64_CHECK(coverage != NULL);
+      if (coverage != NULL) {
+        memcpy(pixels, machine->ram + FRAMEBUFFER_ADDRESS, sizeof pixels);
+        memcpy(coverage, machine->rdp_triangle_coverage,
+               T64_RDP_TRIANGLE_COVERAGE_BYTES);
+        commands[2] = UINT64_C(0x2f090c0000000000);
+        commands[5] = UINT64_C(0x0a8f002000100000); /* tile7 + level1 =8 */
+        T64_CHECK(run_commands(machine, commands,
+                               sizeof commands / sizeof commands[0]));
+        T64_CHECK_INT(machine->rdp.refusal_reason, T64_RDP_REFUSAL_RENDER_RANGE);
+        T64_CHECK_INT(machine->rdp.dpc_current, COMMAND_ADDRESS + 40u);
+        T64_CHECK(memcmp(pixels, machine->ram + FRAMEBUFFER_ADDRESS,
+                         sizeof pixels) == 0);
+        T64_CHECK(memcmp(coverage, machine->rdp_triangle_coverage,
+                         T64_RDP_TRIANGLE_COVERAGE_BYTES) == 0);
+        free(coverage);
+      }
+    }
+    t64_machine_destroy(machine);
+  }
+  for (variant = 0u; variant < 2u; variant++) {
+    /* rho=2: header level0 caps the sample to tile1; level1 permits tile2.
+     * Tile0 and unrelated descriptors are deliberately unnecessary. */
+    uint64_t commands[] = {
+        UINT64_C(0x3f10000700005000), UINT64_C(0x2d00000000020020),
+        UINT64_C(0x2f010c0000000000), UINT64_C(0x3510041001080200),
+        UINT64_C(0x320000000101c01c), UINT64_C(0x3510042002080200),
+        UINT64_C(0x320000000201c01c), UINT64_C(0x0a81002000100000),
+        UINT64_C(0), UINT64_C(0x0004000000000000),
+        UINT64_C(0x00000000ffff0000), UINT64_C(0x0006000000010000),
+        UINT64_C(0x0002000000000000), UINT64_C(0), UINT64_C(0),
+        UINT64_C(0), UINT64_C(0), UINT64_C(0), UINT64_C(0),
+    };
+    t64_machine *machine = create_authored_machine();
+    uint32_t x, y;
+    if (machine == NULL) return;
+    if (variant != 0u) commands[7] = UINT64_C(0x0a89002000100000);
+    for (y = 0u; y < 8u; y++) for (x = 0u; x < 8u; x++) {
+      set_logical_texel16_at_word(machine, 16u, x, y, UINT16_C(0x07c1));
+      set_logical_texel16_at_word(machine, 32u, x, y, UINT16_C(0x003f));
+    }
+    T64_CHECK(run_commands(machine, commands,
+                           sizeof commands / sizeof commands[0]));
+    T64_CHECK_INT(machine->rdp.refusal_reason, T64_RDP_REFUSAL_NONE);
+    T64_CHECK_INT((machine->ram[framebuffer_pixel(1u, 4u)] << 8) |
+                      machine->ram[framebuffer_pixel(1u, 4u) + 1u],
+                  variant == 0u ? UINT16_C(0x07c1) : UINT16_C(0x003f));
+    t64_machine_destroy(machine);
+  }
+}
+
+static void case_texture_filter_alpha_floor(void) {
+  unsigned filter, mask;
+  for (filter = 0u; filter < 4u; filter++) for (mask = 0u; mask < 16u; mask++) {
+    uint64_t commands[sizeof affine_filter_scene / sizeof affine_filter_scene[0]];
+    t64_machine *machine = create_authored_machine();
+    uint16_t expected_alpha;
+    if (machine == NULL) return;
+    memcpy(commands, affine_filter_scene, sizeof commands);
+    commands[2] = filter == 0u ? UINT64_C(0x2f003c0000000000)
+                              : UINT64_C(0x2f002c0000000000);
+    commands[9] = UINT64_C(0x0003000000010000);
+    commands[11] = UINT64_C(0x8000800000000000);
+    if (filter == 2u) commands[11] = UINT64_C(0x4000c00000000000);
+    if (filter == 3u) commands[11] = UINT64_C(0xc000400000000000);
+    commands[12] = 0u;
+    set_logical_texel16(machine, 3u, 0u, (uint16_t)(0xfffeu | (mask & 1u)));
+    set_logical_texel16(machine, 4u, 0u, (uint16_t)(0xfffeu | ((mask >> 1) & 1u)));
+    set_logical_texel16(machine, 3u, 1u, (uint16_t)(0xfffeu | ((mask >> 2) & 1u)));
+    set_logical_texel16(machine, 4u, 1u, (uint16_t)(0xfffeu | ((mask >> 3) & 1u)));
+    /* At (.5,.5), box=floor(sum/4); diagonal filter=floor((TL+BR)/2).
+     * Include every mixed-alpha pattern and the exact-half ties. */
+    /* Unequal fractions cover both sides too: (.25,.75) uses TL/BL/BR,
+     * (.75,.25) uses TL/TR/BR, with middle sample weight exactly one half. */
+    expected_alpha = (uint16_t)(filter == 0u ? mask == 15u :
+        filter == 1u ? (mask & 9u) == 9u :
+        filter == 2u ? (mask & 13u) == 13u : (mask & 11u) == 11u);
+    T64_CHECK(run_commands(machine, commands,
+                           sizeof commands / sizeof commands[0]));
+    T64_CHECK_INT(machine->rdp.refusal_reason, T64_RDP_REFUSAL_NONE);
+    T64_CHECK_INT((machine->ram[framebuffer_pixel(1u, 4u)] << 8) |
+                      machine->ram[framebuffer_pixel(1u, 4u) + 1u],
+                  UINT16_C(0xfffe) | expected_alpha);
+    t64_machine_destroy(machine);
+  }
+}
+
+static void case_texture_all_coefficient_rows(void) {
+  /* Independent Q16 vectors: S/T/W bases=(5.25,6.5,2.25),
+   * Dx=(1.5,-.75,.125), De=(-.5,1.25,-.0625), Dy=(.75,-.5,.0625).
+   * Major slope=.5. At (2.5,2.5),(2.5,3.5),(1.5,2.5),(3.5,2.5),
+   * perspective S/T are (456/153,392/153),(440/151,424/151),
+   * (360/145,440/145),(552/161,344/161). Hence texels (2,2),(2,2),
+   * (2,3),(3,2); dropping any derivative lane changes a selected texel. */
+  static const uint64_t texture_group[] = {
+      UINT64_C(0x0005000600020000), UINT64_C(0x0001ffff00000000),
+      UINT64_C(0x4000800040000000), UINT64_C(0x8000400020000000),
+      UINT64_C(0xffff0001ffff0000), UINT64_C(0x0000ffff00000000),
+      UINT64_C(0x80004000f0000000), UINT64_C(0xc000800010000000),
+  };
+  static const uint32_t xs[] = {2u, 2u, 1u, 3u};
+  static const uint32_t ys[] = {2u, 3u, 2u, 2u};
+  static const uint16_t expected[] = {0x18cfu, 0x18cfu, 0x1913u, 0x20d1u};
+  unsigned shaded;
+  for (shaded = 0u; shaded < 2u; shaded++) {
+    uint64_t commands[5u + 20u] = {
+        UINT64_C(0x3f10000700005000), UINT64_C(0x2d00000000020020),
+        UINT64_C(0x2f080c0000000000), UINT64_C(0x3510040000080200),
+        UINT64_C(0x320000000001c01c), UINT64_C(0x0a000014000c0004),
+        UINT64_C(0x00010000fffe8000), UINT64_C(0x0001000000008000),
+        UINT64_C(0x0004000000018000),
+    };
+    t64_machine *machine = create_authored_machine();
+    size_t offset = shaded != 0u ? 17u : 9u;
+    uint32_t x, y;
+    size_t i;
+    if (machine == NULL) return;
+    if (shaded != 0u) {
+      commands[5] = UINT64_C(0x0e000014000c0004);
+      commands[9] = UINT64_C(0x00ff00ff00ff00ff);
+    }
+    memcpy(commands + offset, texture_group, sizeof texture_group);
+    for (y = 0u; y < 8u; y++) for (x = 0u; x < 8u; x++)
+      set_logical_texel16(machine, x, y,
+          (uint16_t)(((x + 1u) << 11) | ((y + 1u) << 6) |
+                     ((x + 2u * y + 1u) << 1) | 1u));
+    T64_CHECK(run_commands(machine, commands, offset + 8u));
+    T64_CHECK_INT(machine->rdp.refusal_reason, T64_RDP_REFUSAL_NONE);
+    for (i = 0u; i < sizeof xs / sizeof xs[0]; i++) {
+      uint32_t address = framebuffer_pixel(xs[i], ys[i]);
+      T64_CHECK_INT((machine->ram[address] << 8) | machine->ram[address + 1u],
+                    expected[i]);
+    }
+    t64_machine_destroy(machine);
+  }
+}
+
 typedef struct {
   const char *name;
   void (*run)(void);
 } test_case;
 
 static const test_case cases[] = {
+    {"texture-header-tile-level", case_texture_header_tile_and_level},
+    {"texture-filter-alpha-floor", case_texture_filter_alpha_floor},
+    {"texture-all-coefficient-rows", case_texture_all_coefficient_rows},
     {"texture-perspective-nonzero-signed-q16",
      case_texture_perspective_nonzero_signed_q16},
     {"texture-fetched-load-tile-to-vi",

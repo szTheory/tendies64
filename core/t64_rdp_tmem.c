@@ -916,7 +916,7 @@ static uint16_t average_four_texels(const uint16_t texels[4]) {
   }
   return (uint16_t)(((channels[0] / 4u) << 11) |
                     ((channels[1] / 4u) << 6) |
-                    ((channels[2] / 4u) << 1) | (alpha >= 2u ? 1u : 0u));
+                    ((channels[2] / 4u) << 1) | (alpha / 4u));
 }
 
 static uint16_t three_point_texels(const uint16_t texels[4], uint32_t fs,
@@ -951,7 +951,7 @@ static uint16_t three_point_texels(const uint16_t texels[4], uint32_t fs,
   }
   return (uint16_t)((channels[0] << 11) | (channels[1] << 6) |
                     (channels[2] << 1) |
-                    (alpha >= UINT32_C(32768) ? 1u : 0u));
+                    (alpha / UINT32_C(65536)));
 }
 
 bool t64_rdp_tmem_triangle_pixel(const t64_machine *machine,

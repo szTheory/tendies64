@@ -233,7 +233,8 @@ bool t64_rdp_triangle_bounds(const t64_machine *machine, uint32_t opcode,
       return false;
   }
   if (texture_triangle &&
-      (!t64_rdp_tmem_validate_triangle(machine, 0u) ||
+      (!t64_rdp_tmem_validate_triangle(
+           machine, (uint32_t)((words[0] >> 48) & UINT64_C(7))) ||
        !texture_products_are_bounded(machine, words, opcode, x0, x1,
                                      (uint32_t)first, (uint32_t)last,
                                      yh16))) return false;
@@ -241,12 +242,14 @@ bool t64_rdp_triangle_bounds(const t64_machine *machine, uint32_t opcode,
     uint32_t detail = (uint32_t)((rdp->other_modes >> 50) & UINT64_C(1));
     uint32_t sharpen = (uint32_t)((rdp->other_modes >> 49) & UINT64_C(1));
     uint32_t lod = (uint32_t)((rdp->other_modes >> 48) & UINT64_C(1));
+    uint32_t primitive_tile = (uint32_t)((words[0] >> 48) & UINT64_C(7));
+    uint32_t max_level = (uint32_t)((words[0] >> 51) & UINT64_C(7));
     uint32_t tile;
     if ((detail != 0u && sharpen != 0u) ||
         ((detail != 0u || sharpen != 0u) && lod == 0u)) return false;
     if (lod != 0u || detail != 0u || sharpen != 0u) {
-      for (tile = 0u; tile < T64_RDP_TILE_COUNT; tile++) {
-        if (!rdp->tiles[tile].valid || !rdp->tiles[tile].size_valid) break;
+      if (max_level >= T64_RDP_TILE_COUNT - primitive_tile) return false;
+      for (tile = primitive_tile; tile <= primitive_tile + max_level; tile++) {
         if (!t64_rdp_tmem_validate_triangle(machine, tile)) return false;
       }
     }
@@ -415,11 +418,15 @@ static bool select_texture_lod(const t64_rdp_state *rdp, int64_t s,
   int64_t s_now, t_now, s_x, t_x, s_y, t_y;
   int64_t next_major;
   uint64_t rho, candidate, lod;
-  uint32_t level = 0u, max_level = 0u, tile, fraction;
+  uint32_t level = 0u, fraction;
+  const uint32_t primitive_tile =
+      (uint32_t)((rdp->pending_triangle_words[0] >> 48) & UINT64_C(7));
+  const uint32_t max_level =
+      (uint32_t)((rdp->pending_triangle_words[0] >> 51) & UINT64_C(7));
 
   if (selection == NULL) return false;
-  selection->base_tile = 0u;
-  selection->next_tile = 0u;
+  selection->base_tile = primitive_tile;
+  selection->next_tile = primitive_tile;
   selection->blend_q8 = 0;
   if (lod_enabled == 0u) return true;
   if (!project_texture_q16(s, t, w, perspective, &s_now, &t_now) ||
@@ -442,27 +449,22 @@ static bool select_texture_lod(const t64_rdp_state *rdp, int64_t s,
     lod >>= 1;
     level++;
   }
-  for (tile = 0u; tile + 1u < T64_RDP_TILE_COUNT; tile++) {
-    if (!rdp->tiles[tile + 1u].valid ||
-        !rdp->tiles[tile + 1u].size_valid) break;
-    max_level = tile + 1u;
-  }
   if (level > max_level) {
     level = max_level;
     lod = rho >> level;
   }
   fraction = (uint32_t)((lod & UINT64_C(0xffff)) >> 8);
   if (sharpen != 0u) {
-    selection->base_tile = level;
-    selection->next_tile = level < max_level ? level + 1u : level;
+    selection->base_tile = primitive_tile + level;
+    selection->next_tile = primitive_tile + (level < max_level ? level + 1u : level);
     selection->blend_q8 = (int32_t)fraction - 256;
   } else if (detail != 0u) {
-    selection->base_tile = level < max_level ? level + 1u : level;
-    selection->next_tile = level;
+    selection->base_tile = primitive_tile + (level < max_level ? level + 1u : level);
+    selection->next_tile = primitive_tile + level;
     selection->blend_q8 = 256 - (int32_t)fraction;
   } else {
-    selection->base_tile = level;
-    selection->next_tile = level;
+    selection->base_tile = primitive_tile + level;
+    selection->next_tile = primitive_tile + level;
   }
   return true;
 }
@@ -563,16 +565,12 @@ void t64_rdp_triangle_render_row(t64_machine *machine) {
         int64_t w = texture_channel_q16(rdp, 2u, xcenter, ycenter, xh16,
                                         yh16, major_center);
         texture_lod_selection selection;
-        if (!t64_rdp_tmem_triangle_pixel(
-                machine, 0u, s, t, w,
-                ((rdp->other_modes >> 51) & UINT64_C(1)) != 0u, &color) ||
-            !select_texture_lod(rdp, s, t, w, xcenter, ycenter, xh16, yh16,
-                                major_center, dxh, &selection)) {
+        if (!select_texture_lod(rdp, s, t, w, xcenter, ycenter, xh16, yh16,
+                                 major_center, dxh, &selection)) {
           rdp->refusal_reason = T64_RDP_REFUSAL_INVALID_TEXTURE;
           continue;
         }
-        if (selection.base_tile != 0u &&
-            !t64_rdp_tmem_triangle_pixel(
+        if (!t64_rdp_tmem_triangle_pixel(
                 machine, selection.base_tile, s, t, w,
                 ((rdp->other_modes >> 51) & UINT64_C(1)) != 0u, &color)) {
           rdp->refusal_reason = T64_RDP_REFUSAL_INVALID_TEXTURE;

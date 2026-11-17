@@ -145,6 +145,9 @@
         {
           "path": "core/test_rdp_texture",
           "cases": [
+            "texture-header-tile-level",
+            "texture-filter-alpha-floor",
+            "texture-all-coefficient-rows",
             "texture-perspective-nonzero-signed-q16",
             "texture-fetched-load-tile-to-vi",
             "texture-affine-point",
