@@ -158,3 +158,20 @@ SUMMARY/state/roadmap in one batch. An oversized summary patch became unnecessar
 agent handoff work. Preserve a useful draft and reconcile existing commits instead
 of redispatching implementation. Compare hash values using the same named
 algorithm: Git blob SHA-1 and file SHA-256 differed for identical protected files.
+
+### Plan03 raw packet correction
+
+Independent raw words exposed five decoder/test-helper mistakes after an initial
+green cohort: wrong COPY cycle, wrong texture S/T layout, wrong TLUT control bits,
+unsigned negative stepping and exclusive copy endpoints. Correcting geometry also
+required preserving the source origin through left/top clipping. Fixed raw-word
+regressions, distinct source/decoy pixels, and primary field tables now precede
+broad qualification. Triangle packet ambiguities in Plan04 need that same
+preflight before its decoder. The initial qualified artifacts and findings remain
+preserved; they are not relabeled as standards-conformant.
+
+Use `python -B` or `PYTHONDONTWRITEBYTECODE=1` for source introspection. An import
+created a pyc that rightly failed governance scanners; its exact cleanup and
+initial failed log remain recorded. Verify the actual gate command/tail from
+logs: the preset cohort passed, and the omitted core-lint stage was completed
+separately without repeating passing semantic tests.

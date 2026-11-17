@@ -167,3 +167,38 @@ values; their recorded source hashes match the committed tree. Captures remain
 labeled post-verification retention, not retroactive pre-use qualification.
 Source review and hosted qualification follow; this summary does not complete
 Phase07 or mark any full VID requirement achieved.
+
+## Review qualification hold
+
+The independent [initial review](07-03-REVIEW-INITIAL.md) found five raw command
+contract defects. Tests shared incorrect mode/field encodings with the decoder.
+The parent independently reproduced the raw-word failures; the earlier green
+cohort therefore does not establish valid raw copy support. Its exact artifacts
+remain intact. Source publication and Plan04 stay on hold while the
+[raw contract](07-03-RAW-CONTRACT.md) is corrected and requalified.
+
+## Corrected raw-command qualification
+
+The initial qualification hold is resolved by source fix `4eeb32b` and independent
+[recheck](07-03-REVIEW-RECHECK.md). COPY mode, S/T packing, TLUT enable/type, signed
+stepping and inclusive endpoints now match the pinned primary input contract.
+Left/top clipping preserves texture origin. The corrected suite has28named cases
+including independent literal packets and expected pixels; parent execution
+passed2123checks/0failures. The final fractional case uses a distinct source
+pattern with a decoy at the old address.
+
+The full corrected normal preset CTest cohort passed147tests and affected
+ASAN/UBSan coverage passed11owners. A final test-data-only strengthening passed
+both copy owners afterward. The preset log was initially mislabeled a full
+`scripts/gate.sh` run; the parent separately executed the required core-lint tail
+(90files/0violations), reusing unchanged wrapper self-test and fixture evidence.
+The initial governance failure from generated Python bytecode remains preserved.
+The full149ASAN inventory remains unrun. See [fix evidence](07-03-REVIEW-FIX.md).
+Exact corrected consumers/logs are retained under
+`build/gate/07-03-raw-fix-retained-artifacts/{gate,asan}/binding.json`. No prior
+artifact or source identity is relabeled. Hosted qualification follows.
+
+The initial stack-usage analysis is tied to the initial source; the arithmetic
+correction adds no large buffers or recursion, but that analysis is not presented
+as a new runtime peak measurement. Hardware/scissor quad-lane behavior, rendered
+YUV and VID-04 remain unqualified.

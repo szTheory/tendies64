@@ -64,6 +64,16 @@ applies that direction; update it when the owner changes policy.
   A plan file list is an ownership estimate, not a reason to omit necessary
   narrowly scoped wiring within an already approved behavior/policy. Record the
   dependency correction and its actual accepted-consumer evidence.
+- Raw-command conformance preflight: before a decoder implementation expands,
+  pin its primary field table and at least one literal valid producer packet
+  independently of the new encoder/decoder helpers. Include mode controls and
+  nonzero/signed fields that discriminate plausible wrong layouts. Where a
+  primary table/diagram conflicts, resolve and record that before decoding.
+  A helper and sampler agreeing on pixel output does not validate the input
+  contract. Use fixed raw-word regressions before broad suites; retain and
+  withdraw invalid coverage claims when this check finds a shared mistake.
+  Report full CTest-preset results separately from the full gate wrapper; run
+  any required unreached lint/self-test tail rather than relabeling the preset.
 - Cheap consistency gates (owner feedback, 2026-11-15): before a long process
   or suite, run fast checks of setup, identity, manifest schema/rights, active
   profile/device wiring
