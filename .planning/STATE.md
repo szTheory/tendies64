@@ -3,13 +3,13 @@ gsd_state_version: "1.0"
 milestone: v1.1
 milestone_name: Observable Machine
 current_phase: 07
-current_plan: "04"
+current_plan: "05"
 current_phase_name: RDP Reference Renderer and VI Scanout
 status: executing
-stopped_at: Plan04 implemented and reviewed; hosted qualification pending
-last_updated: "2026-11-17T06:24:34.481637+00:00"
+stopped_at: Plan04 qualified; Plan05 raw contract preflight
+last_updated: "2026-11-17T06:33:17.108563+00:00"
 last_activity: 2026-11-17
-last_activity_desc: Plan04 reviewed and locally verified; hosted pair next
+last_activity_desc: Plan04 qualified on both hosts; Plan05 contract preflight
 state_head: 31a0b6e5cfe83d268ae25ed5d88117df9b1712b8
 progress:
   total_phases: 3
@@ -26,14 +26,14 @@ progress:
 See: .planning/PROJECT.md (updated 2026-11-15)
 
 **Core value:** Every Tendies64 support claim is backed by evidence: a named profile, a pinned build and a reproducible, rights-cleared guest result.
-**Current focus:** Qualify reviewed triangle edge/shade checkpoint, then execute Plan05.
+**Current focus:** Plan05 textured triangles; raw contract preflight before decoding.
 
 ## Current Position
 
 Phase: 07 (RDP Reference Renderer and VI Scanout) — EXECUTING
-Plan: 04 of13 in current phase
-Status: Triangle edge/shade local gate and review pass; hosted qualification pending
-Last activity: 2026-11-17 — Triangle source/review fixes pass local gate and focused sanitizer checks
+Plan: 05 of13 in current phase
+Status: Triangle edge/shade qualified on Linux/macOS; texture preflight active
+Last activity: 2026-11-17 — Triangle source/review fixes pass both hosted jobs and artifact comparison
 
 Progress: [██░░░░░░░░] 31% of currently planned source plans
 
@@ -56,8 +56,8 @@ Progress: [██░░░░░░░░] 31% of currently planned source plans
 
 ### Pending Todos
 
-Plan04 implementation and independent review are complete; qualify its pinned
-checkpoint on both hosts before Plan05. The coverage alignment defect and four
+Plan04 implementation, independent review and both hosted jobs are qualified.
+Execute Plan05 after its focused raw contract preflight. The coverage alignment defect and four
 documentation/test gaps are fixed and independently rechecked. Final local full
 gate and focused sanitizer checks pass; all retained artifacts remain bound.
 D-11 is explicit software numeric policy, with primary numeric proof and hardware
@@ -86,8 +86,8 @@ old full instrumented run as complete or renew private windows.
 ## Session Continuity
 
 Last session: 2026-11-16T05:13:26.082Z
-Stopped at: Plan04 implemented and reviewed; hosted qualification pending
-Resume file: .planning/phases/07-rdp-reference-renderer-and-vi-scanout/07-04-PLAN.md
+Stopped at: Plan04 qualified; Plan05 raw contract preflight
+Resume file: .planning/phases/07-rdp-reference-renderer-and-vi-scanout/07-05-PLAN.md
 
 Historical closeout: [v1.0 roadmap](milestones/v1.0-ROADMAP.md), [audit](milestones/v1.0-MILESTONE-AUDIT.md), [lessons](RETROSPECTIVE.md).
 

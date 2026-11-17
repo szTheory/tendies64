@@ -22,4 +22,5 @@ These incremental reviews do not establish full Phase07 or VID-04 acceptance.
 
 [Plan04](07-04-REVIEW.md) resolves its initial alignment, documentation and
 test-evidence findings through the independent focused recheck. Final local
-gate and affected instrumented evidence pass; hosted pair is pending.
+gate and affected instrumented evidence pass; checkpoint3e57235 passes both
+hosted jobs and exact selected authored artifact comparison in run44031076519.

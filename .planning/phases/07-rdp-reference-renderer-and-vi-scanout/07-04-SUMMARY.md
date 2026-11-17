@@ -112,3 +112,19 @@ The bounded GCC13 read-only/network-disabled compile check passes all seven
 changed C translation units using each target's core/test warning policy. The
 first attempt incorrectly applied the core stack-frame warning to a test ROM
 buffer; it is retained as a check-configuration failure, not a source defect.
+
+## Hosted qualification
+
+Reviewed checkpoint `3e5723527211b218378223f5b50a53530b4ee964` passes both jobs in
+[run44031076519](https://github.com/szTheory/tendies64/actions/runs/44031076519).
+The exact selected boot-evidence artifacts were collected and compared with
+source/run/attempt/job selectors. Guest identities, bounds, canonical state and
+authored transcript match; platform build IDs may differ. Collection and compare
+logs: `build/gate/07-04-hosted-{collect,compare}.log`; records:
+`build/evidence/07-04-hosted-44031076519/`. This is selected authored boot evidence,
+not uploaded triangle output or differential/hardware qualification. Native
+triangle assertions passed within both hosted gates.
+
+macOS job338s/Gate325s is the critical path; Linux job149s/Gate138s, queues3s.
+This is consistent with prior qualification; no cache/concurrency/dependency
+change is justified. Plan07-05 is next, after its focused raw contract preflight.

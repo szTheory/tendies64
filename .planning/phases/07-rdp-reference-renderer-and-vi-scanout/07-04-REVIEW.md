@@ -19,3 +19,7 @@ and complete framebuffer/coverage preservation checks. The independent
 [focused recheck](07-04-REVIEW-RECHECK.md) resolves all five findings. The original
 report and failing reproduction remain intact. Full normal gate and focused
 instrumented triangles pass after repair; hosted qualification follows.
+
+Hosted checkpoint3e57235 now passes both jobs and exact selected authored
+artifact comparison in run44031076519; source review scope remains the initial
+audit plus focused repair recheck.
