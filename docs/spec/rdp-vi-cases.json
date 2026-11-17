@@ -168,6 +168,19 @@
           ]
         }
       ]
+    },
+    "combiner": {
+      "ctest": [
+        "unit.core.rdp.combiner"
+      ],
+      "binaries": [
+        {
+          "path": "core/test_rdp_combiner",
+          "cases": [
+            "combiner-one-cycle-raw-dpc-vi"
+          ]
+        }
+      ]
     }
   }
 }

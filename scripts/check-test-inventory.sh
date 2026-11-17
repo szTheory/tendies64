@@ -158,6 +158,7 @@ unit.core.dp.transport
 unit.core.rdp.copy
 unit.core.rdp.triangles
 unit.core.rdp.texture
+unit.core.rdp.combiner
 runner.rdp-fill
 controls.real.rdp-wrong-pixel
 controls.real.rdp-replacement-fixture'
