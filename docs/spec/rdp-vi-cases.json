@@ -218,6 +218,19 @@
           ]
         }
       ]
+    },
+    "depth": {
+      "ctest": [
+        "unit.core.rdp.depth"
+      ],
+      "binaries": [
+        {
+          "path": "core/test_rdp_depth",
+          "cases": [
+            "z-depth-primitive-accepted-raw-vi"
+          ]
+        }
+      ]
     }
   }
 }

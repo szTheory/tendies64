@@ -439,3 +439,66 @@ allows the expected RGB output. Registered tests also cover the RGBA8888
 consumer path. The authored results establish this versioned software
 contract only; they do not complete VID-04 or replace the active D2/D5/D6
 stops.
+
+## V7 depth policy
+
+V7 is a new composite profile (`ntsc-cart-4m-openipl3-rdram-b-t1-rdp-depth-v7`,
+descriptor 10, machine model 16, state serialization 21). It keeps the v6
+combiner, blender, color sidecar, and VI rules while binding the following
+depth-specific software policy. Earlier profile identifiers, semantics, and
+serialized bytes remain unchanged.
+
+The raw Set Z Image address is an aligned byte address. A Z pixel has the same
+linear index as its color pixel, using the color image width; one 16-bit
+visible word is stored per pixel. The software hidden sidecar has one byte per
+RDRAM halfword: bit 7 means valid, bits 1:0 contain the low two logical dZ
+bits, and bits 6:2 are zero. Depth writes set this entry. Any accepted backing
+write by CPU, PI, SP, or RDP clears only entries overlapping its written
+halfwords, after the bytes commit. The sidecar is allocated with checked
+ceiling division, reset with guest state, and included in v21 canonical
+digests. This is a logical model; it makes no claim about physical hidden-bit
+packing.
+
+The software numeric policies are explicit and reversible:
+
+- Triangle Z and derivatives join each literal signed integer/fraction pair
+  as two's-complement Q16.16. At a pixel center, the plane is evaluated as
+  `base + floor(dx*(x-major)/65536) + floor(de*(major-xh)/65536) +
+  floor(dy*(y-yh)/65536)`. The 18-bit `0,15.3` conversion uses signed floor
+  division by 8192, then clamps to `0..0x3ffff` before any write.
+- Primitive Z is `min(raw16, 0x7fff) << 3`; its fractional three bits are
+  zero. Primitive DeltaZ is unsigned. Per-pixel delta is
+  `ceil((abs(dx)+abs(dy))/8192)`, clamped to 16 bits. The pixel delta and
+  stored delta are compared by their maximum.
+- The primary eight-row exponent/mantissa decode table is applied exactly.
+  Compression selects the containing exponent range, floors the mantissa,
+  and clamps at the 18-bit bounds. The visible word stores exponent, mantissa,
+  and the high two dZ bits. The low two bits go to the sidecar. There is no
+  guessed physical address mapping.
+- Opaque mode passes when `newZ <= oldZ + maxDZ`, saturating the right side at
+  `0x3ffff`; equality passes. Interpenetrating mode also passes when incoming
+  logical coverage exceeds stored color coverage. Transparent mode uses the
+  opaque comparison and never updates depth, even when `z_update_en=1`.
+  Decal mode passes only when `abs(newZ-oldZ) <= maxDZ` and never updates
+  depth, even when `z_update_en=1`. Compare disabled passes; update disabled
+  never writes. These mode rules and the update override are software policy,
+  not confirmed silicon behavior.
+- An alpha-comparison rejection suppresses color, coverage, and depth updates
+  together. A passing color-on-coverage or save-coverage result may suppress
+  color output while depth still updates when the depth comparison passes and
+  its mode/update policy allows it. Depth comparison occurs before committing
+  output writes; rejected or unselected output lanes do not alter depth.
+- An uninitialized visible word is read from RDRAM as stored and an invalid
+  hidden entry contributes low dZ zero. `0xfffc` therefore decodes to the
+  saturated far value under the documented table. No hidden value is inferred
+  from neighboring pixels.
+
+The authored depth matrix pins the exact raw words and independently expected
+values for every compression row and transition, zero/maximum delta and
+priority boundary, less/equal/greater comparison, four distinguishable depth
+modes, compare/update combinations, coverage and alpha interactions, all
+eight triangle packet lengths and their final Z-group words, atomic truncation
+and bounds refusals, 16/32-bit aliases, external-write invalidation, reset,
+split/interleaved state, digest sensitivity, and FullSync ordering. These
+results qualify only this v7 software contract; they are not VID-04 or
+hardware-accuracy evidence.

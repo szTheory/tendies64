@@ -160,6 +160,7 @@ unit.core.rdp.triangles
 unit.core.rdp.texture
 unit.core.rdp.combiner
 unit.core.rdp.blender
+unit.core.rdp.depth
 runner.rdp-fill
 controls.real.rdp-wrong-pixel
 controls.real.rdp-replacement-fixture'
