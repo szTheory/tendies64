@@ -131,6 +131,12 @@ applies that direction; update it when the owner changes policy.
   immediate-register exceptions, and sampled readback before the next line.
   Keep output-packet capacity separate from addressed source dimensions;
   interlaced rows and source offsets must be bounded by the actual RDRAM span.
+  Filter neighborhoods must also distinguish the visible source window from
+  valid backing RAM: include a positive one-row window whose only useful tap
+  is in the next in-RDRAM row, plus an actual out-of-RDRAM fallback. Equivalent
+  helper calls are not a whole/split advance test; make one side issue one
+  public bound across multiple fields. Every unexpected test-setup return must
+  record a failure before skipping pixel/metadata assertions.
   Before committing public evidence/documentation, run the cheap tree PII
   scan as well as rights/provenance checks. Express local commands with $PWD
   or repo-relative paths. Plan09's evidence commit passed rights/provenance
@@ -435,3 +441,10 @@ blocking unrelated authorized work.
 Never ask for a routine acknowledgment or approval already granted in this
 policy. Preserve hard stops and keep their concrete blocker, consequence, next
 step and responsible actor visible.
+
+## Coupled task commit boundaries
+
+When a plan's shared case/build registrations prevent independent coherent
+commits, use one verified plan-slice commit and retain per-task evidence.
+Do not spend a handoff cycle partially staging cosmetic boundaries or leave
+references to uncommitted test targets in an intermediate source commit.

@@ -1,7 +1,7 @@
 ---
 phase: 07-rdp-reference-renderer-and-vi-scanout
-source_plan: "07-09"
-source_base: c49b0a8864da522c3c36ebd076260b1d2b24a9a2
+source_plan: "07-10"
+source_base: ef6c8ae8a0df270b1d981aef5654f7d2005c9e1b
 status: clean
 findings:
   critical: 0
@@ -42,3 +42,8 @@ local gate pass. Private evidence paths were removed from an unpublished
 commit with explicit owner approval; reachable-history privacy passes.
 Both hosted jobs and exact selected authored boot comparison pass in
 run44174870063; no Phase07/VID04 completion is implied.
+
+[Plan10](07-10-REVIEW.md) resolves valid lower-row filter taps and test reliability
+gaps through independent production and orchestrator test-only rechecks. Final
+scoped normal/instrumented/GCC, guards/mutations and complete local gate pass.
+Hosted qualification is pending; no Phase07/VID04 completion is implied.

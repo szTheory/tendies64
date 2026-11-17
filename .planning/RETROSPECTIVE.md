@@ -311,3 +311,21 @@ owner's explicit local-amendment approval. Preserve that failure and the
 original source/binary annotations, sanitize only the authorized unpublished
 commit, and never waive real private values or rewrite public history by
 inference. No cache, dependency or concurrency expansion was needed.
+
+## Plan07-10: source neighborhoods and meaningful partition tests
+
+A visible-derived source-height cutoff still invents a bottom edge even after
+separating packet capacity from source dimensions. Use positive one-row windows
+whose useful AA/dither taps lie in the next valid RDRAM row, paired with a true
+RAM-end fallback. Assert actual consumed source spans. Derived24bytes for a
+3wide16-bit dither row3/column2 is an independently justified metadata repair,
+not moving a pixel golden to fit the implementation.
+
+Whole/split must issue different public bounds, not equivalent field helpers.
+Unexpected fixture failures must count before returning; use a forced valid
+setup control to prove failure dispatch. Diagnose combined runner errors at
+the exact failed call: the128tick attempt lost trace records before its
+suspected no-progress guard. Keep bounds and failed records, and do not promote
+an unproven static concern to a reachable blocker. Coupled case/build
+registrations justify one cohesive verified commit; avoid handoff delays over
+cosmetic partial staging. No cache/dependency/concurrency expansion was needed.

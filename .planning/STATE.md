@@ -5,18 +5,18 @@ milestone_name: Observable Machine
 current_phase: 07
 current_plan: "10"
 current_phase_name: RDP Reference Renderer and VI Scanout
-status: executing
-stopped_at: Plan09 qualified on both hosts; Plan10 filter/output implementation next
-last_updated: "2026-11-17T21:06:57.800817+00:00"
+status: verifying
+stopped_at: Plan10 local verification complete; hosted qualification pending
+last_updated: "2026-11-17T23:18:18.245553+00:00"
 last_activity: 2026-11-17
-last_activity_desc: VI hosted evidence compared; filter facts and software policy ready
-state_head: fc83c5858c26dd00a3caba03d74bd528cb3b2394
+last_activity_desc: Filters/output reviewed and locally qualified; preparing pinned push
+state_head: ef6c8ae8a0df270b1d981aef5654f7d2005c9e1b
 progress:
   total_phases: 3
   completed_phases: 0
   total_plans: 13
-  completed_plans: 9
-  percent: 69
+  completed_plans: 10
+  percent: 77
 ---
 
 # Project State
@@ -32,14 +32,14 @@ See: .planning/PROJECT.md (updated 2026-11-15)
 
 Phase: 07 (RDP Reference Renderer and VI Scanout) — EXECUTING
 Plan: 10 of13 in current phase
-Status: VI qualified on both hosts; filters/output are ready
-Last activity: 2026-11-17 — VI passes both hosted jobs and exact selected authored evidence comparison
+Status: Filters/output reviewed and local gate green; hosted qualification pending
+Last activity: 2026-11-17 — Filter bound and test repairs pass full local gate
 
-Progress: [███████░░░] 69% of currently planned source plans
+Progress: [████████░░] 77% of currently planned source plans
 
 ## Performance Metrics
 
-- Active milestone:0 completed phases and9 completed plans;13 Phase7 plans defined.
+- Active milestone:0 completed phases and10 completed plans;13 Phase7 plans defined.
 - Historical v1.0: 6 phases and 73 source plans complete. This is planning completion, not a software release.
 - Prior phase plan counts: 1: 13; 2: 8; 3: 13; 4: 20; 5: 10; 6: 9.
 - Execution timing: not established for v1.1. Historical evidence remains in [v1.0 phase records](milestones/v1.0-phases/).
@@ -56,11 +56,10 @@ Progress: [███████░░░] 69% of currently planned source plans
 
 ### Pending Todos
 
-Plan09 source/review repairs, local normal/instrumented/compiler owners and
-both hosted gates pass; exact selected authored boot records compare. Execute
-Plan10 from its primary preflight and adversarially checked integer software
-policy. Prove accepted consumer and reached feature RED before behavior,
-then complete filters, actual output drain controls, reviews and qualification.
+Plan10 implementation, independent review repairs, normal/instrumented/compiler
+owners and complete local gate pass. Push the exact checkpoint, qualify both
+hosted jobs and selected authored startup records, then execute Plan11's
+qualification harness/source-review segment before its coherent long matrix.
 No user action is needed. Rights/oracle/release and expired-window stops persist.
 
 ### Blockers/Concerns
@@ -81,8 +80,8 @@ No user action is needed. Rights/oracle/release and expired-window stops persist
 
 ## Session Continuity
 
-Last session: 2026-11-17T21:06:57.800817+00:00
-Stopped at: Plan09 hosted qualified; Plan10 ready
+Last session: 2026-11-17T23:18:18.245553+00:00
+Stopped at: Plan10 local complete; hosted qualification pending
 Resume file: .planning/phases/07-rdp-reference-renderer-and-vi-scanout/07-10-PLAN.md
 
 Historical closeout: [v1.0 roadmap](milestones/v1.0-ROADMAP.md), [audit](milestones/v1.0-MILESTONE-AUDIT.md), [lessons](RETROSPECTIVE.md).
