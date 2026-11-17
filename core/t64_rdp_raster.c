@@ -562,8 +562,7 @@ void t64_rdp_triangle_render_row(t64_machine *machine) {
           (size_t)rdp->render_y * T64_RDP_TRIANGLE_COVERAGE_WIDTH + x;
       uint16_t color;
       int64_t xcenter = (int64_t)x * INT64_C(65536) + INT64_C(32768);
-      if (t64_has_rdp_combiner_profile(machine) &&
-          rdp->combine_mode_valid) {
+      if (t64_has_rdp_combiner_profile(machine)) {
         t64_rdp_combiner_inputs inputs = {{0u}, {0u}, {0u}, 0u};
         uint32_t rgba;
         if (texture_triangle) {

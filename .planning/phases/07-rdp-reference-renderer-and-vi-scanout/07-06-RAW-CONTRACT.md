@@ -96,3 +96,17 @@ The cycle-0 output is the explicit one-cycle software-policy result `(110,67,92,
 The selector denominator, command fields, command-byte distinction, and two-cycle feedback relation are sufficiently specified for planning and a software implementation. Keep the one-cycle unequal-group choice and arithmetic rules above labeled as reversible policy. Exact hardware behavior for those policies, especially combiner alpha precision/rounding and noise cadence, remains unproven; VID-04 remains blocked. No protected manuals, diagrams, code, or assets are copied into this repository.
 
 **Preflight consistency correction:** Parent mechanical field extraction and integer arithmetic checks confirm both literal selector maps. The initial two-cycle arithmetic used a different Primitive D vector from the declared inputs; the corrected result is (45,0,25,73), with decoy (72,4,12,73). The initial draft is retained under build/gate/07-06-preflight-initial.md; no implementation or hardware claim depended on it.
+
+## Register and missing-state clarification
+
+The v5 software profile requires a fetched SetCombine before triangles;
+missing state is refused before scheduling with no own pixel, coverage or RNG
+effects. Fill/copy remain bypass operations. K4/K5 are decoded as signed9 and
+clamped to0..255 before use as byte-valued sources; this is explicit software
+policy pending hardware precision evidence.
+
+The SDK gDPSetPrimColor producer distinguishes minimum level in the upper
+command word's bits15:8 from primitive LOD fraction in bits7:0. Therefore the
+fraction is raw64 bits39:32. An independent witness FA0012A7636E7984 selects
+minimum18 and fraction167. Reading raw bits47:40 instead returns18. This source
+fact is not covered by the provisional arithmetic policy.

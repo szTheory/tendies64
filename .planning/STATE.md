@@ -6,17 +6,17 @@ current_phase: 07
 current_plan: "06"
 current_phase_name: RDP Reference Renderer and VI Scanout
 status: executing
-stopped_at: Plan05 qualified; Plan06 implementation with checked combiner contract
-last_updated: "2026-11-17T09:57:07.918380+00:00"
+stopped_at: Plan06 implemented and reviewed; hosted qualification pending
+last_updated: "2026-11-17T13:14:51.886896+00:00"
 last_activity: 2026-11-17
-last_activity_desc: Plan05 qualified; combiner selector/literal checks complete
+last_activity_desc: Plan06 reviewed and locally verified; hosted pair next
 state_head: 31a0b6e5cfe83d268ae25ed5d88117df9b1712b8
 progress:
   total_phases: 3
   completed_phases: 0
   total_plans: 13
-  completed_plans: 5
-  percent: 38
+  completed_plans: 6
+  percent: 46
 ---
 
 # Project State
@@ -26,20 +26,20 @@ progress:
 See: .planning/PROJECT.md (updated 2026-11-15)
 
 **Core value:** Every Tendies64 support claim is backed by evidence: a named profile, a pinned build and a reproducible, rights-cleared guest result.
-**Current focus:** Execute Plan06 color/alpha combiner from checked selector tables and literals.
+**Current focus:** Qualify reviewed Plan06 combiner; coverage/blender is next.
 
 ## Current Position
 
 Phase: 07 (RDP Reference Renderer and VI Scanout) — EXECUTING
 Plan: 06 of13 in current phase
-Status: Textured triangles qualified; combiner preflight complete and implementation starting
+Status: Combiner review repairs and final local gate pass; hosted pair pending
 Last activity: 2026-11-17 — Texture review repairs pass both hosted jobs and exact artifact comparison
 
-Progress: [██░░░░░░░░] 38% of currently planned source plans
+Progress: [██░░░░░░░░] 46% of currently planned source plans
 
 ## Performance Metrics
 
-- Active milestone:0 completed phases and5 completed plans;13 Phase7 plans defined.
+- Active milestone:0 completed phases and6 completed plans;13 Phase7 plans defined.
 - Historical v1.0: 6 phases and 73 source plans complete. This is planning completion, not a software release.
 - Prior phase plan counts: 1: 13; 2: 8; 3: 13; 4: 20; 5: 10; 6: 9.
 - Execution timing: not established for v1.1. Historical evidence remains in [v1.0 phase records](milestones/v1.0-phases/).
@@ -56,12 +56,12 @@ Progress: [██░░░░░░░░] 38% of currently planned source plans
 
 ### Pending Todos
 
-Plan05 implementation, repair recheck and both hosted jobs are qualified.
-Execute Plan06 using its completed raw selector/precision preflight. Header tile/mip selection,
-filtered alpha and two evidence gaps are fixed; final local gate and focused
-sanitizer/GCC checks pass. Exact consumers and bindings are retained. D-11 and
-all documented precision defaults remain software policy, not hardware proof.
-No user action is needed for routine continuation.
+Plan06 source fixes and independent focused recheck are complete. Qualify its
+pinned checkpoint on both hosts before Plan07. Missing-mode admission, primitive
+LOD decoding, both-cycle selector coverage, native texture/noise wiring and
+conversion-policy controls pass final local gate, sanitizer and GCC checks.
+Exact consumers/logs are retained. Precision remains explicit software policy;
+no user action is needed for routine continuation.
 
 The earlier full-ASAN BASE timeout is historical and retained; Plan03's affected
 instrumented checks and final combined normal gate pass. Do not relabel that
@@ -86,7 +86,7 @@ old full instrumented run as complete or renew private windows.
 ## Session Continuity
 
 Last session: 2026-11-16T05:13:26.082Z
-Stopped at: Plan05 qualified; Plan06 implementation with checked combiner contract
+Stopped at: Plan06 implemented and reviewed; hosted qualification pending
 Resume file: .planning/phases/07-rdp-reference-renderer-and-vi-scanout/07-06-PLAN.md
 
 Historical closeout: [v1.0 roadmap](milestones/v1.0-ROADMAP.md), [audit](milestones/v1.0-MILESTONE-AUDIT.md), [lessons](RETROSPECTIVE.md).

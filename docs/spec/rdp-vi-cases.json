@@ -182,11 +182,16 @@
             "combiner-two-cycle-feedback-literal",
             "combiner-rgb-selector-denominator",
             "combiner-alpha-selector-denominator",
+            "combiner-cycle1-selector-denominator",
             "combiner-signed-floor-clamp-and-saturation",
             "combiner-key-convert-lod-sources",
+            "combiner-fetched-convert-signed-boundaries",
+            "combiner-fetched-rgba32-texture-combiner",
+            "combiner-fetched-noise-triangle-cadence",
             "combiner-noise-seed-and-cadence",
             "combiner-noise-interleaved-instances",
             "combiner-refusal-noise-unchanged",
+            "combiner-missing-mode-refuses-after-prior-fill",
             "combiner-undefined-color-policy-digest"
           ]
         }

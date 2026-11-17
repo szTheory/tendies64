@@ -1,7 +1,7 @@
 ---
 phase: 07-rdp-reference-renderer-and-vi-scanout
-source_plan: "07-05"
-source_base: 2a04371943a25f3e6ec8985bc77caa76ed08e631
+source_plan: "07-06"
+source_base: 29bc425089f39b7f413ca599df9a5a36add4ae54
 status: clean
 findings:
   critical: 0
@@ -20,3 +20,7 @@ evidence fixes pass both hosts and exact selected authored artifact comparison
 in run44031076519. Plan05's header/alpha and evidence repairs pass focused
 independent recheck and final local normal/instrumented checks; checkpoint9a39ab4 passes both hosts and exact selected authored
 artifact comparison in run44054005627. These reviews do not establish full Phase07 or VID-04 acceptance.
+
+[Plan06](07-06-REVIEW.md) resolves its missing-mode/primitive-LOD defects and
+four evidence gaps through focused independent recheck. Final local checks pass;
+hosted qualification is pending.

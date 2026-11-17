@@ -232,3 +232,24 @@ can fail after the actual gate reaches PASS. Keep that failure distinct and
 verify every stage from original logs. HEAD updates T64_SOURCE_REVISION, not
 the content/compiler-derived T64_BUILD_ID; refresh provenance when needed,
 without repeating semantic cohorts solely for commit bookkeeping.
+
+
+## Plan07-06: fetched inputs, missing state and primary producer bytes
+
+A direct selector matrix does not qualify raw register or raster wiring. Cover
+both packed cycles, actual native8-bit texture channels/alpha, reached raster
+noise/clip cadence, and fetched signed coefficient boundaries before broad
+qualification. Test missing latched state explicitly; accepted work must not
+silently switch to an older renderer. Require a deliberate default or defined
+no-effect refusal with recovery effects traced through the shared helper.
+
+Do not move a literal to match a decoder without independently checking the
+primary producer. SetPrimColor's adjacent minimum-level and LOD-fraction bytes
+must differ in the test; the earlier moved-literal green result was invalid.
+Keep initial records, withdraw the incorrect claim, then prove the corrected
+field at the actual consumer. Check arithmetic comments against the declared
+input vector as well as the final packed pixel. Trace shared refusal/predicate
+helpers before fixing static allegations; set_refusal already cleared busy and
+pending state, so a proposed lockup was not real. Disjoint test repair and
+parent source/docs work used one stable source boundary, focused instrumented
+checks and one final full gate without duplicate production edits.

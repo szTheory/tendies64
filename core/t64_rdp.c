@@ -399,7 +399,8 @@ static t64_status apply_pending_command(t64_machine *machine) {
       set_refusal(machine, T64_RDP_REFUSAL_UNSUPPORTED_OPCODE);
       return T64_STATUS_OK;
     }
-    if (rdp->pending_triangle_word_count != triangle_words ||
+    if ((t64_has_rdp_combiner_profile(machine) && !rdp->combine_mode_valid) ||
+        rdp->pending_triangle_word_count != triangle_words ||
         !t64_rdp_triangle_bounds(machine, opcode,
                                  rdp->pending_triangle_words,
                                  rdp->pending_triangle_word_count,
@@ -494,7 +495,7 @@ static t64_status apply_pending_command(t64_machine *machine) {
              t64_has_rdp_triangle_profile(machine)) {
     rdp->primitive_color = (uint32_t)word;
     rdp->primitive_lod_fraction =
-        (uint32_t)((word >> 40) & UINT64_C(0xff));
+        (uint32_t)((word >> 32) & UINT64_C(0xff));
     rdp->primitive_color_valid = true;
   } else if (opcode == RDP_OP_SET_ENV_COLOR &&
              t64_has_rdp_combiner_profile(machine)) {

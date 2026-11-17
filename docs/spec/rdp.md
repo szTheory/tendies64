@@ -314,6 +314,10 @@ remain active.
 
 ## Color combiner profile and software policy
 
+V5 requires a latched SetCombine before any triangle; otherwise it refuses at
+that triangle with RENDER_RANGE before scheduling pixel, coverage or noise
+effects. Earlier fill/copy work remains, and fill/copy bypass this requirement.
+
 The v5 profile adds a bounded color-combiner implementation for supported edge
 and textured triangle pixels. It retains v4 texture sampling and the v3 edge
 and shade paths; fill and copy continue to bypass the combiner. Unsupported
@@ -333,7 +337,10 @@ the explicit software choice for the first profile, not a vendor guarantee.
 Noise uses per-instance xorshift32 seeded with 1. Each accepted covered pixel
 advances the generator once, and its low byte is reused for selected noise
 channels and both cycles. Refused commands consume no noise. Key and convert
-sources are decoded from their command fields; undefined color sources resolve
+sources are decoded from their command fields. K4/K5 are sign-extended from
+nine bits and clamped to0..255 before selection; this is v5 software policy,
+not a vendor precision claim. Primitive LOD fraction is SetPrimColor bits39:32,
+distinct from its adjacent minimum-level field. Undefined color sources resolve
 to zero under the profile's policy. These are deterministic software rules,
 not claims about exact hardware arithmetic, precision, or noise cadence.
 
