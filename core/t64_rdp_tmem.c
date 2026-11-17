@@ -309,10 +309,10 @@ bool t64_rdp_tmem_validate_command(const t64_machine *machine,
   if (opcode == RDP_OP_LOAD_BLOCK) {
     uint32_t uls = field12(word, 44u) >> 2;
     uint32_t ult = field12(word, 32u) >> 2;
-    uint32_t lrs = field12(word, 12u) >> 2;
+    uint32_t lrs = field12(word, 12u);
     uint32_t count = lrs >= uls ? lrs - uls + 1u : 0u;
     uint64_t bits = bits_per_texel(rdp->tiles[tile_index].size);
-    uint64_t end;
+    uint64_t end = UINT64_C(0);
     uint64_t first_pixel = (uint64_t)ult * rdp->texture_image_width + uls;
     uint64_t last_pixel = first_pixel + (count == 0u ? 0u : count - 1u);
     uint64_t last_y = last_pixel / rdp->texture_image_width;
@@ -326,8 +326,6 @@ bool t64_rdp_tmem_validate_command(const t64_machine *machine,
                               UINT64_C(8);
     uint32_t texels_per_word = UINT32_C(64) / (uint32_t)bits;
     uint32_t dxt = field12(word, 0u);
-    uint32_t line = 0u;
-    uint32_t line_start_word = 0u;
     uint32_t accumulator = 0u;
     uint32_t word_count = count == 0u ? 0u :
         (count + texels_per_word - 1u) / texels_per_word;
@@ -335,21 +333,9 @@ bool t64_rdp_tmem_validate_command(const t64_machine *machine,
     const t64_rdp_tile *tile = &rdp->tiles[tile_index];
 
     for (word_index = 0u; word_index < word_count; word_index++) {
-      uint32_t next_line = accumulator >> 11;
-      uint32_t column_word;
-      uint64_t word_address;
-      if (word_index == 0u || next_line != line) {
-        line = next_line;
-        line_start_word = word_index;
-      }
-      column_word = word_index - line_start_word;
-      if (column_word >= tile->line_words) {
-        end = T64_RDP_TMEM_BYTES + 1u;
-        break;
-      }
-      word_address = tmem_base(tile) +
-                     ((uint64_t)line * tile->line_words + column_word) * 8u;
-      if ((line & 1u) != 0u) word_address ^= UINT64_C(4);
+      uint32_t line = accumulator >> 11;
+      uint64_t word_address = tmem_base(tile) +
+          ((uint64_t)word_index + (uint64_t)line * tile->line_words) * 8u;
       end = word_address + UINT64_C(8);
       if (end > T64_RDP_TMEM_BYTES) break;
       accumulator += dxt;
@@ -357,8 +343,7 @@ bool t64_rdp_tmem_validate_command(const t64_machine *machine,
     if (count == 0u || count > 2048u ||
         uls >= rdp->texture_image_width ||
         source_end > machine->profile.rdram_bytes ||
-        end > T64_RDP_TMEM_BYTES ||
-        tile->line_words == 0u) {
+        end > T64_RDP_TMEM_BYTES) {
       *reason_out = T64_RDP_REFUSAL_TEXTURE_RANGE;
       return false;
     }
@@ -403,14 +388,12 @@ static void apply_load_block(t64_machine *machine, uint32_t tile_index,
   t64_rdp_tile *tile = &rdp->tiles[tile_index];
   uint32_t uls = field12(word, 44u) >> 2;
   uint32_t ult = field12(word, 32u) >> 2;
-  uint32_t lrs = field12(word, 12u) >> 2;
+  uint32_t lrs = field12(word, 12u);
   uint32_t count = lrs - uls + 1u;
   uint32_t dxt = field12(word, 0u);
   uint32_t bits = bits_per_texel(tile->size);
   uint32_t accumulator = 0u;
   uint32_t texels_per_word = UINT32_C(64) / bits;
-  uint32_t line_start_word = 0u;
-  uint32_t current_line = 0u;
   uint32_t x;
 
   for (x = 0u; x < count; x++) {
@@ -420,20 +403,11 @@ static void apply_load_block(t64_machine *machine, uint32_t tile_index,
     uint32_t source_x = (uls + x) % rdp->texture_image_width;
     uint32_t source_y = ult + (uls + x) / rdp->texture_image_width;
     uint32_t texel_in_word = x % texels_per_word;
-    uint32_t column_word;
     uint64_t byte_offset;
 
-    if (texel_in_word == 0u) {
-      uint32_t next_line = accumulator >> 11;
-      if (word_index == 0u || next_line != current_line) {
-        current_line = next_line;
-        line_start_word = word_index;
-      }
-    }
-    line = current_line;
-    column_word = word_index - line_start_word;
-    byte_offset = ((uint64_t)line * tile->line_words + column_word) * 8u +
-                           ((uint64_t)texel_in_word * bits) / 8u;
+    byte_offset = ((uint64_t)word_index +
+                   (uint64_t)line * tile->line_words) * 8u +
+                  ((uint64_t)texel_in_word * bits) / 8u;
     if (source_texel(machine, source_x, source_y, &value))
       (void)tmem_store(machine, tile, byte_offset, bits, value, line,
                        texel_in_word);

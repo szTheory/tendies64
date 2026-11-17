@@ -36,3 +36,14 @@ raw-word program and actual authored ROM at
 `build/gate/07-03-parent-raw-contract.log`. For the coordinate/palette cases the
 old reproduction uses cycle3 only to isolate those bugs behind the separate
 incorrect cycle predicate. Permanent regressions must use valid cycle2.
+
+## Hosted follow-up: LoadBlock producer
+
+A literal LRS=7 vector exposed the LoadTile-style endpoint shift in LoadBlock.
+The primary SDK producer packs the texel-count-minus-one directly, resolving the
+standard zero-origin path despite the low-level function page's generic10.2
+label. SGI page9 explicitly defines Tile Line as words to skip per T and zero
+for contiguous loading. The corrected vectors use literal SetTextureImage width1,
+SetTile line0 and LoadBlock words, check DXT swapping and a nonzero line skip,
+and preserve earlier bytes on an end-of-TMEM refusal. See the documented
+nonzero-origin source inconsistency in `docs/spec/rdp.md`.

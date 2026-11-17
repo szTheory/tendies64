@@ -387,10 +387,12 @@ static void case_load_tile_layout(void) {
 static void case_load_block_dxt(void) {
   const uint8_t source[] = {0xf8, 0x01, 0x07, 0xc1, 0x00, 0x3f, 0xff, 0xff,
                             0x12, 0x35, 0x45, 0x67, 0x89, 0xab, 0xcd, 0xef};
+  /* Raw LoadBlock LRS=7 requests eight texels; unlike LoadTile it is
+     not an endpoint shifted to 10.2. DXT=0x800 advances each word. */
   const uint64_t commands[] = {
       set_image(UINT32_C(0x3d), 0u, 2u, 4u, TEXTURE_ADDRESS),
-      set_tile(0u, 2u, 1u, 0u, 0u, 0u, 0u, 0u, 0u, 0u, 0u, 0u),
-      (UINT64_C(0x33) << 56) | (UINT64_C(28) << 12) | UINT64_C(0x800),
+      set_tile(0u, 2u, 0u, 0u, 0u, 0u, 0u, 0u, 0u, 0u, 0u, 0u),
+      UINT64_C(0x3300000000007800),
   };
   const uint8_t expected[16] = {0xf8, 0x01, 0x07, 0xc1, 0x00, 0x3f, 0xff, 0xff,
                                 0x89, 0xab, 0xcd, 0xef, 0x12, 0x35, 0x45, 0x67};
@@ -398,14 +400,23 @@ static void case_load_block_dxt(void) {
       0xf8, 0x01, 0x07, 0xc1, 0x00, 0x3f, 0xff, 0xff,
       0x12, 0x35, 0x45, 0x67, 0x89, 0xab, 0xcd, 0xef};
   const uint64_t linear_commands[] = {
-      set_image(UINT32_C(0x3d), 0u, 2u, 8u, TEXTURE_ADDRESS),
-      set_tile(0u, 2u, 2u, 0u, 0u, 0u, 0u, 0u, 0u, 0u, 0u, 0u),
-      (UINT64_C(0x33) << 56) | (UINT64_C(28) << 12),
+      UINT64_C(0x3d10000000004000),
+      UINT64_C(0x3510000000000000),
+      UINT64_C(0x3300000000007000),
   };
+  const uint64_t skip_commands[] = {
+      set_image(UINT32_C(0x3d), 0u, 2u, 4u, TEXTURE_ADDRESS),
+      set_tile(0u, 2u, 1u, 0u, 0u, 0u, 0u, 0u, 0u, 0u, 0u, 0u),
+      UINT64_C(0x3300000000007800),
+  };
+  const uint8_t expected_skip[24] = {
+      0xf8, 0x01, 0x07, 0xc1, 0x00, 0x3f, 0xff, 0xff,
+      0x12, 0x35, 0x45, 0x67, 0x89, 0xab, 0xcd, 0xef,
+      0x89, 0xab, 0xcd, 0xef, 0x12, 0x35, 0x45, 0x67};
   const uint64_t overflowing_commands[] = {
       set_image(UINT32_C(0x3d), 0u, 2u, 8u, TEXTURE_ADDRESS),
-      set_tile(0u, 2u, 1u, 0u, 0u, 0u, 0u, 0u, 0u, 0u, 0u, 0u),
-      (UINT64_C(0x33) << 56) | (UINT64_C(28) << 12),
+      set_tile(0u, 2u, 0u, 511u, 0u, 0u, 0u, 0u, 0u, 0u, 0u, 0u),
+      UINT64_C(0x3300000000007000),
   };
   t64_machine *machine = create_authored_machine();
 
@@ -420,6 +431,10 @@ static void case_load_block_dxt(void) {
   T64_CHECK_INT(machine->rdp.refusal_reason, T64_RDP_REFUSAL_NONE);
   T64_CHECK(memcmp(machine->rdp.tmem, expected_linear,
                    sizeof expected_linear) == 0);
+  T64_CHECK(run_commands(machine, skip_commands,
+                         sizeof skip_commands / sizeof skip_commands[0]));
+  T64_CHECK_INT(machine->rdp.refusal_reason, T64_RDP_REFUSAL_NONE);
+  T64_CHECK(memcmp(machine->rdp.tmem, expected_skip, sizeof expected_skip) == 0);
   T64_CHECK(run_commands(machine, overflowing_commands,
                          sizeof overflowing_commands /
                              sizeof overflowing_commands[0]));
@@ -427,6 +442,7 @@ static void case_load_block_dxt(void) {
                 T64_RDP_REFUSAL_TEXTURE_RANGE);
   T64_CHECK(memcmp(machine->rdp.tmem, expected_linear,
                    sizeof expected_linear) == 0);
+  T64_CHECK(memcmp(machine->rdp.tmem, expected_skip, sizeof expected_skip) == 0);
   t64_machine_destroy(machine);
 }
 

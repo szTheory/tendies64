@@ -28,6 +28,22 @@ stream whose DXT accumulator advances the line count, and LoadTLUT's expansion
 of each 16-bit entry into four copies in one 64-bit word. It identifies both
 RGBA16 and IA16 TLUT values and a maximum LoadBlock size of 2048 texels.
 
+LoadBlock's last-texel field is not scaled like LoadTile: the primary
+[SDK texture-block producer](https://ultra64.ca/files/documentation/online-manuals/man/header/gbi.htm)
+passes the final texel index directly. A zero-origin eight-texel transfer uses
+raw LRS=7. Tile Line is a per-T skip count for LoadBlock, with zero selecting
+contiguous words ([SGI usage notes, PDF page9](https://hcs64.com/files/RDP_COMMANDS.pdf#page=9)).
+The DXT accumulator selects odd-word half swapping; that swap stays within the
+word and does not enlarge its validated span.
+
+There is a primary-source inconsistency for the general coordinate description:
+SGI labels the LoadBlock coordinates12.0 while Nintendo's low-level function
+reference labels them10.2. The SDK's standard producer independently settles
+unshifted LRS for zero-origin blocks. This profile retains its existing10.2
+source-origin software policy; the zero-origin producer path is tested, and
+nonzero-origin hardware conformance is not established by that vector.
+
+
 Nintendo's [texture restrictions](https://ultra64.ca/files/documentation/online-manuals/man/pro-man/pro13/13-11.html)
 state that copy mode does not support direct 32-bit RGBA or YUV tiles, that
 copy mode implicitly disables clamp, and that wrap or mirror applies to 4-,
