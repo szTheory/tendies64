@@ -96,3 +96,7 @@ Hosted qualification of the reviewed checkpoint is next before depth
 implementation. The narrow depth primary preflight is saved independently.
 No requirement is closed by this slice alone. D2/D5/D6 and expired windows
 remain unchanged; no private/oracle/hardware use, VID04 or release is claimed.
+
+## Hosted qualification
+
+Reviewed checkpoint15cb0f6 passes [both hosted jobs](https://github.com/szTheory/tendies64/actions/runs/44119209396). Exact successful run/attempt1 selected authored boot records were collected and compared: guest identities, bounds, state and transcript match. Records: `build/evidence/07-07-hosted-44119209396/`; status/collection/comparison/metrics: `build/gate/07-07-hosted-*`. Native RDP assertions execute in each gate; the uploaded boot records do not establish RDP hardware accuracy. Depth implementation may now proceed under the checked primary/software contract. Rights/oracle/release stops remain unchanged.

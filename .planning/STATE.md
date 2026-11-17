@@ -3,14 +3,14 @@ gsd_state_version: "1.0"
 milestone: v1.1
 milestone_name: Observable Machine
 current_phase: 07
-current_plan: "07"
+current_plan: "08"
 current_phase_name: RDP Reference Renderer and VI Scanout
 status: executing
-stopped_at: Plan07 reviewed and locally qualified; hosted pair pending
-last_updated: "2026-11-17T15:51:12.593390+00:00"
+stopped_at: Plan07 qualified on both hosts; Plan08 depth implementation next
+last_updated: "2026-11-17T15:59:10.239747+00:00"
 last_activity: 2026-11-17
-last_activity_desc: Plan07 repaired review and final full gate pass; hosted qualification next
-state_head: a6e1c5765e26251d9218172580e78cdd87eaada2
+last_activity_desc: Plan07 hosted evidence compared; depth preflight ready
+state_head: 15cb0f64a11580605636cc696ade9eed788ce457
 progress:
   total_phases: 3
   completed_phases: 0
@@ -26,14 +26,14 @@ progress:
 See: .planning/PROJECT.md (updated 2026-11-15)
 
 **Core value:** Every Tendies64 support claim is backed by evidence: a named profile, a pinned build and a reproducible, rights-cleared guest result.
-**Current focus:** Qualify reviewed Plan07 on both hosts, then execute depth Plan08.
+**Current focus:** Execute Plan08 depth mapping/comparison under the pinned contract.
 
 ## Current Position
 
 Phase: 07 (RDP Reference Renderer and VI Scanout) — EXECUTING
-Plan: 07 of13 in current phase
-Status: Blender review repairs and final full gate pass; hosted pair pending
-Last activity: 2026-11-17 — Blender review repairs and final full gate pass; hosted pair pending
+Plan: 08 of13 in current phase
+Status: Blender qualified on both hosts; depth is ready
+Last activity: 2026-11-17 — Blender reviewed checkpoint passes both hosts and exact artifact comparison
 
 Progress: [█████░░░░░] 54% of currently planned source plans
 
@@ -56,13 +56,13 @@ Progress: [█████░░░░░] 54% of currently planned source plans
 
 ### Pending Todos
 
-Plan07 review repairs and full local gate are complete. Descriptor9 identity
-now binds every applicable policy/boot field; literal fetched selector and
-separate complementary-mask oracles pass normal/instrumented checks. Exact
-final artifacts are retained. Qualify the reviewed source checkpoint on both
-hosts before depth implementation. Plan08's primary field preflight is ready;
-precision/conversion gaps remain named software-policy decisions. No user
-action is needed, and rights/oracle/release stops remain unchanged.
+Plan07 review repairs, final local gate and both hosted jobs are complete.
+Exact selected authored boot records agree across hosts. Execute Plan08 under
+its pinned primary fields and explicit software numeric/hidden-state contract;
+its corrected primary table/literal preflight is ready. New descriptor binding
+must be checked through actual public hash/serialize/canonical consumers before
+long qualification. No user action is needed; rights/oracle/release stops and
+expired windows remain unchanged.
 
 The earlier full-ASAN BASE timeout is historical and retained; Plan03's affected
 instrumented checks and final combined normal gate pass. Do not relabel that
@@ -87,8 +87,8 @@ old full instrumented run as complete or renew private windows.
 ## Session Continuity
 
 Last session: 2026-11-16T05:13:26.082Z
-Stopped at: Plan07 reviewed and locally qualified; hosted pair pending
-Resume file: .planning/phases/07-rdp-reference-renderer-and-vi-scanout/07-07-PLAN.md
+Stopped at: Plan07 qualified on both hosts; Plan08 depth implementation next
+Resume file: .planning/phases/07-rdp-reference-renderer-and-vi-scanout/07-08-PLAN.md
 
 Historical closeout: [v1.0 roadmap](milestones/v1.0-ROADMAP.md), [audit](milestones/v1.0-MILESTONE-AUDIT.md), [lessons](RETROSPECTIVE.md).
 
