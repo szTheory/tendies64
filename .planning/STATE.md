@@ -6,17 +6,17 @@ current_phase: 07
 current_plan: "07"
 current_phase_name: RDP Reference Renderer and VI Scanout
 status: executing
-stopped_at: Plan06 qualified on both hosts; Plan07 coverage/blender preflight
-last_updated: "2026-11-17T13:26:24.495729+00:00"
+stopped_at: Plan07 reviewed and locally qualified; hosted pair pending
+last_updated: "2026-11-17T15:51:12.593390+00:00"
 last_activity: 2026-11-17
-last_activity_desc: Plan06 hosted evidence compared; Plan07 preflight
-state_head: 2e0c170f6aaca518e00da1e69622455b5a8b5834
+last_activity_desc: Plan07 repaired review and final full gate pass; hosted qualification next
+state_head: a6e1c5765e26251d9218172580e78cdd87eaada2
 progress:
   total_phases: 3
   completed_phases: 0
   total_plans: 13
-  completed_plans: 6
-  percent: 46
+  completed_plans: 7
+  percent: 54
 ---
 
 # Project State
@@ -26,20 +26,20 @@ progress:
 See: .planning/PROJECT.md (updated 2026-11-15)
 
 **Core value:** Every Tendies64 support claim is backed by evidence: a named profile, a pinned build and a reproducible, rights-cleared guest result.
-**Current focus:** Implement Plan07 coverage/blender after the narrow contract preflight.
+**Current focus:** Qualify reviewed Plan07 on both hosts, then execute depth Plan08.
 
 ## Current Position
 
 Phase: 07 (RDP Reference Renderer and VI Scanout) — EXECUTING
 Plan: 07 of13 in current phase
-Status: Combiner qualified on both hosts; coverage/blender preflight in progress
-Last activity: 2026-11-17 — Reviewed combiner passes both hosted jobs and exact selected artifact comparison
+Status: Blender review repairs and final full gate pass; hosted pair pending
+Last activity: 2026-11-17 — Blender review repairs and final full gate pass; hosted pair pending
 
-Progress: [██░░░░░░░░] 46% of currently planned source plans
+Progress: [█████░░░░░] 54% of currently planned source plans
 
 ## Performance Metrics
 
-- Active milestone:0 completed phases and6 completed plans;13 Phase7 plans defined.
+- Active milestone:0 completed phases and7 completed plans;13 Phase7 plans defined.
 - Historical v1.0: 6 phases and 73 source plans complete. This is planning completion, not a software release.
 - Prior phase plan counts: 1: 13; 2: 8; 3: 13; 4: 20; 5: 10; 6: 9.
 - Execution timing: not established for v1.1. Historical evidence remains in [v1.0 phase records](milestones/v1.0-phases/).
@@ -56,11 +56,13 @@ Progress: [██░░░░░░░░] 46% of currently planned source plans
 
 ### Pending Todos
 
-Plan06 source fixes, independent recheck, final local checks and both hosted
-jobs are complete. Exact selected authored boot records agree across hosts.
-Plan07 starts with primary blender/mode fields and complete RDRAM write-route
-ownership before implementation. No user action is needed; precision remains
-explicit software policy, and rights/oracle/release stops remain unchanged.
+Plan07 review repairs and full local gate are complete. Descriptor9 identity
+now binds every applicable policy/boot field; literal fetched selector and
+separate complementary-mask oracles pass normal/instrumented checks. Exact
+final artifacts are retained. Qualify the reviewed source checkpoint on both
+hosts before depth implementation. Plan08's primary field preflight is ready;
+precision/conversion gaps remain named software-policy decisions. No user
+action is needed, and rights/oracle/release stops remain unchanged.
 
 The earlier full-ASAN BASE timeout is historical and retained; Plan03's affected
 instrumented checks and final combined normal gate pass. Do not relabel that
@@ -85,7 +87,7 @@ old full instrumented run as complete or renew private windows.
 ## Session Continuity
 
 Last session: 2026-11-16T05:13:26.082Z
-Stopped at: Plan06 qualified on both hosts; Plan07 coverage/blender preflight
+Stopped at: Plan07 reviewed and locally qualified; hosted pair pending
 Resume file: .planning/phases/07-rdp-reference-renderer-and-vi-scanout/07-07-PLAN.md
 
 Historical closeout: [v1.0 roadmap](milestones/v1.0-ROADMAP.md), [audit](milestones/v1.0-MILESTONE-AUDIT.md), [lessons](RETROSPECTIVE.md).

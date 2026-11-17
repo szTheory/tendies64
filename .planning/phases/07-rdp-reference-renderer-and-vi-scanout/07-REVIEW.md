@@ -1,7 +1,7 @@
 ---
 phase: 07-rdp-reference-renderer-and-vi-scanout
-source_plan: "07-06"
-source_base: 29bc425089f39b7f413ca599df9a5a36add4ae54
+source_plan: "07-07"
+source_base: a6e1c5765e26251d9218172580e78cdd87eaada2
 status: clean
 findings:
   critical: 0
@@ -23,4 +23,9 @@ artifact comparison in run44054005627. These reviews do not establish full Phase
 
 [Plan06](07-06-REVIEW.md) resolves its missing-mode/primitive-LOD defects and
 four evidence gaps through focused independent recheck. Final local checks and both hosted jobs pass; exact selected authored boot
-records compare in run44090997512. Coverage/blender preflight is next.
+records compare in run44090997512. Blender source and review repairs are complete locally.
+
+[Plan07](07-07-REVIEW.md) resolves descriptor9 identity and test-oracle gaps
+through independent profile and orchestrator test-only rechecks. Final local
+normal/instrumented/GCC owners and combined gate pass. Hosted qualification
+is pending; no Phase07/VID04 completion is implied.
