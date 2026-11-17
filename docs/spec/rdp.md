@@ -483,11 +483,11 @@ The software numeric policies are explicit and reversible:
   depth, even when `z_update_en=1`. Compare disabled passes; update disabled
   never writes. These mode rules and the update override are software policy,
   not confirmed silicon behavior.
-- An alpha-comparison rejection suppresses color, coverage, and depth updates
-  together. A passing color-on-coverage or save-coverage result may suppress
-  color output while depth still updates when the depth comparison passes and
-  its mode/update policy allows it. Depth comparison occurs before committing
-  output writes; rejected or unselected output lanes do not alter depth.
+- Any v6 blender result that suppresses the color write, including alpha
+  rejection or color-on-coverage/save coverage, also suppresses depth update.
+  The existing v6 destination-coverage result remains observable. Depth
+  comparison occurs before committing output writes; rejected or unselected
+  output lanes do not alter depth.
 - An uninitialized visible word is read from RDRAM as stored and an invalid
   hidden entry contributes low dZ zero. `0xfffc` therefore decodes to the
   saturated far value under the documented table. No hidden value is inferred

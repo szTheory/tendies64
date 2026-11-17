@@ -115,6 +115,8 @@
 #define T64_RDP_MEMORY_COVERAGE_BYTES(rdram_bytes) \
   (((size_t)(rdram_bytes) + T64_RDP_MEMORY_COVERAGE_GRANULE_BYTES - 1u) / \
    T64_RDP_MEMORY_COVERAGE_GRANULE_BYTES)
+#define T64_RDP_DEPTH_HIDDEN_BYTES(rdram_bytes) \
+  T64_RDP_MEMORY_COVERAGE_BYTES(rdram_bytes)
 #define T64_RDP_TILE_COUNT 8u
 #define T64_VI_REFUSAL_NONE UINT32_C(0)
 #define T64_VI_REFUSAL_FORMAT UINT32_C(1)
@@ -644,6 +646,7 @@ typedef struct {
   uint64_t pending_command_word;
   uint64_t fence_generation;
   uint32_t color_image_address;
+  uint32_t depth_image_address;
   uint32_t color_image_width;
   uint32_t color_image_format;
   uint32_t color_image_size;
@@ -653,6 +656,8 @@ typedef struct {
   uint32_t scissor_yl;
   uint64_t other_modes;
   uint32_t fill_color;
+  uint16_t primitive_z;
+  uint16_t primitive_dz;
   uint32_t texture_image_address;
   uint32_t texture_image_width;
   uint32_t texture_image_format;
@@ -700,6 +705,8 @@ typedef struct {
   uint32_t render_y_end;
   uint32_t render_y;
   bool color_image_valid;
+  bool depth_image_valid;
+  bool primitive_depth_valid;
   bool scissor_valid;
   bool other_modes_valid;
   bool fill_color_valid;
@@ -733,6 +740,14 @@ typedef struct {
   uint8_t shade[4];
   uint8_t lod_fraction;
 } t64_rdp_combiner_inputs;
+
+typedef struct {
+  uint32_t address;
+  uint16_t visible_word;
+  uint8_t hidden_value;
+  bool passed;
+  bool update;
+} t64_rdp_depth_pixel_result;
 
 typedef struct {
   uint32_t registers[14];
@@ -791,6 +806,7 @@ struct t64_machine {
   uint8_t *ram;
   uint16_t *rdp_triangle_coverage;
   uint8_t *rdp_memory_coverage;
+  uint8_t *rdp_depth_hidden;
   uint8_t sp_dmem[T64_SP_BANK_BYTES];
   uint8_t sp_imem[T64_SP_BANK_BYTES];
   uint32_t mi_pending;
@@ -858,7 +874,9 @@ static inline bool t64_has_rdp_vi_profile(const t64_machine *machine) {
           (machine->profile.machine_model_version == 14u &&
            machine->profile.state_serialization_version == 19u) ||
           (machine->profile.machine_model_version == 15u &&
-           machine->profile.state_serialization_version == 20u));
+           machine->profile.state_serialization_version == 20u) ||
+          (machine->profile.machine_model_version == 16u &&
+           machine->profile.state_serialization_version == 21u));
 }
 
 static inline bool t64_has_rdp_triangle_profile(const t64_machine *machine) {
@@ -870,7 +888,9 @@ static inline bool t64_has_rdp_triangle_profile(const t64_machine *machine) {
           (machine->profile.machine_model_version == 14u &&
            machine->profile.state_serialization_version == 19u) ||
           (machine->profile.machine_model_version == 15u &&
-           machine->profile.state_serialization_version == 20u));
+           machine->profile.state_serialization_version == 20u) ||
+          (machine->profile.machine_model_version == 16u &&
+           machine->profile.state_serialization_version == 21u));
 }
 
 static inline bool t64_has_rdp_texture_profile(const t64_machine *machine) {
@@ -880,7 +900,9 @@ static inline bool t64_has_rdp_texture_profile(const t64_machine *machine) {
           (machine->profile.machine_model_version == 14u &&
            machine->profile.state_serialization_version == 19u) ||
           (machine->profile.machine_model_version == 15u &&
-           machine->profile.state_serialization_version == 20u));
+           machine->profile.state_serialization_version == 20u) ||
+          (machine->profile.machine_model_version == 16u &&
+           machine->profile.state_serialization_version == 21u));
 }
 
 static inline bool t64_has_rdp_combiner_profile(const t64_machine *machine) {
@@ -888,12 +910,23 @@ static inline bool t64_has_rdp_combiner_profile(const t64_machine *machine) {
          ((machine->profile.machine_model_version == 14u &&
            machine->profile.state_serialization_version == 19u) ||
           (machine->profile.machine_model_version == 15u &&
-           machine->profile.state_serialization_version == 20u));
+           machine->profile.state_serialization_version == 20u) ||
+          (machine->profile.machine_model_version == 16u &&
+           machine->profile.state_serialization_version == 21u));
 }
 
 static inline bool t64_has_rdp_blender_profile(const t64_machine *machine) {
-  return machine != NULL && machine->profile.machine_model_version == 15u &&
-         machine->profile.state_serialization_version == 20u;
+  return machine != NULL &&
+         ((machine->profile.machine_model_version == 15u &&
+           machine->profile.state_serialization_version == 20u) ||
+          (machine->profile.machine_model_version == 16u &&
+           machine->profile.state_serialization_version == 21u));
+}
+
+static inline bool t64_has_rdp_depth_profile(const t64_machine *machine) {
+  return machine != NULL && machine->profile.descriptor_version == 10u &&
+         machine->profile.machine_model_version == 16u &&
+         machine->profile.state_serialization_version == 21u;
 }
 
 static inline bool t64_has_vr4300_cpu_state(const t64_machine *machine) {
@@ -1174,6 +1207,19 @@ void t64_rdp_memory_coverage_write(t64_machine *machine, uint32_t address,
 void t64_rdp_memory_coverage_invalidate(t64_machine *machine,
                                         uint32_t address,
                                         uint32_t size_bytes);
+bool t64_rdp_depth_triangle_preflight(const t64_machine *machine,
+                                      uint32_t opcode, const uint64_t *words,
+                                      size_t word_count, uint32_t x0,
+                                      uint32_t x1, uint32_t y_begin,
+                                      uint32_t y_end);
+bool t64_rdp_depth_evaluate_pixel(
+    const t64_machine *machine, uint32_t opcode, const uint64_t *words,
+    int64_t xcenter, int64_t ycenter, int64_t xh16, int64_t yh16,
+    int64_t major_center, uint32_t x, uint32_t y, uint32_t color_address,
+    uint32_t color_size_bytes, uint8_t incoming_coverage, bool color_write,
+    t64_rdp_depth_pixel_result *result_out);
+void t64_rdp_depth_commit_pixel(t64_machine *machine,
+                                const t64_rdp_depth_pixel_result *result);
 bool t64_rdp_blend_pixel(t64_machine *machine,
                          const t64_rdp_combiner_inputs *inputs,
                          uint32_t pixel_rgba, uint32_t address,

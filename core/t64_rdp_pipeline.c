@@ -264,8 +264,12 @@ void t64_rdp_memory_coverage_invalidate(t64_machine *machine,
   if (end > machine->profile.rdram_bytes) end = machine->profile.rdram_bytes;
   first = (size_t)(address / 2u);
   last = (size_t)((end - 1u) / 2u);
-  for (granule = first; granule <= last; granule++)
+  for (granule = first; granule <= last; granule++) {
     machine->rdp_memory_coverage[granule] = 0u;
+    if (t64_has_rdp_depth_profile(machine) &&
+        machine->rdp_depth_hidden != NULL)
+      machine->rdp_depth_hidden[granule] = 0u;
+  }
 }
 
 static uint8_t blend_rgb_source(const t64_machine *machine,

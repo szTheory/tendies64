@@ -44,6 +44,8 @@
 #define RDP_OP_LOAD_TILE UINT32_C(0x34)
 #define RDP_OP_SET_TILE UINT32_C(0x35)
 #define RDP_OP_SET_COLOR_IMAGE UINT32_C(0x3f)
+#define RDP_OP_SET_Z_IMAGE UINT32_C(0x3e)
+#define RDP_OP_SET_PRIM_DEPTH UINT32_C(0x2e)
 #define RDP_OP_TEX_RECT UINT32_C(0x24)
 #define RDP_OP_TEX_RECT_FLIP UINT32_C(0x25)
 #define RDP_OP_SET_CONVERT UINT32_C(0x2c)
@@ -297,9 +299,11 @@ static void fill_one_row(t64_machine *machine) {
       uint32_t color = (rdp->fill_color & UINT32_C(0xffffff00)) |
                        UINT32_C(0xe0) | (rdp->fill_color & UINT32_C(0x1f));
       write_be32(machine->ram + (size_t)address, color);
+      t64_rdp_memory_coverage_invalidate(machine, (uint32_t)address, 4u);
       t64_rdp_memory_coverage_write(machine, (uint32_t)address, 4u, 8u);
     } else {
       write_be16(machine->ram + (size_t)address, value);
+      t64_rdp_memory_coverage_invalidate(machine, (uint32_t)address, 2u);
       t64_rdp_memory_coverage_write(machine, (uint32_t)address, 2u, 8u);
     }
   }
@@ -333,9 +337,11 @@ static t64_status handle_row(t64_machine *machine) {
             ((uint32_t)expand5_u8((color >> 1) & 31u) << 8) |
             UINT32_C(0xe0) | ((color & 1u) != 0u ? UINT32_C(31) : 0u);
         write_be32(machine->ram + (size_t)address, rgba);
+        t64_rdp_memory_coverage_invalidate(machine, (uint32_t)address, 4u);
         t64_rdp_memory_coverage_write(machine, (uint32_t)address, 4u, 8u);
       } else {
         write_be16(machine->ram + (size_t)address, color);
+        t64_rdp_memory_coverage_invalidate(machine, (uint32_t)address, 2u);
         t64_rdp_memory_coverage_write(machine, (uint32_t)address, 2u, 8u);
       }
     }
@@ -396,6 +402,9 @@ static bool supported_opcode(const t64_machine *machine, uint32_t opcode) {
     return (t64_has_rdp_triangle_profile(machine) &&
             (t64_rdp_triangle_word_count(opcode) != 0u ||
              opcode == RDP_OP_SET_PRIM_COLOR)) ||
+           (t64_has_rdp_depth_profile(machine) &&
+            (opcode == RDP_OP_SET_Z_IMAGE ||
+             opcode == RDP_OP_SET_PRIM_DEPTH)) ||
            (t64_has_rdp_combiner_profile(machine) &&
             (opcode == RDP_OP_SET_ENV_COLOR ||
              opcode == RDP_OP_SET_COMBINE ||
@@ -429,11 +438,17 @@ static t64_status apply_pending_command(t64_machine *machine) {
 
   if (triangle_words != 0u) {
     bool texture_triangle = opcode == UINT32_C(0x0a) ||
-                            opcode == UINT32_C(0x0e);
+                            opcode == UINT32_C(0x0b) ||
+                            opcode == UINT32_C(0x0e) ||
+                            opcode == UINT32_C(0x0f);
     if (!t64_has_rdp_triangle_profile(machine) ||
-        (opcode != UINT32_C(0x08) && opcode != UINT32_C(0x0c) &&
+        (opcode != UINT32_C(0x08) && opcode != UINT32_C(0x09) &&
+         opcode != UINT32_C(0x0c) && opcode != UINT32_C(0x0d) &&
          (!texture_triangle ||
-          !t64_has_rdp_texture_profile(machine)))) {
+          !t64_has_rdp_texture_profile(machine))) ||
+        ((opcode == UINT32_C(0x09) || opcode == UINT32_C(0x0b) ||
+          opcode == UINT32_C(0x0d) || opcode == UINT32_C(0x0f)) &&
+         !t64_has_rdp_depth_profile(machine))) {
       rdp->dpc_current = address;
       record_command(machine, word, command_byte, opcode);
       set_refusal(machine, T64_RDP_REFUSAL_UNSUPPORTED_OPCODE);
@@ -451,6 +466,26 @@ static t64_status apply_pending_command(t64_machine *machine) {
       return T64_STATUS_OK;
     }
     draw_triangle = triangle_y_begin <= triangle_y_end;
+  }
+
+  if (opcode == RDP_OP_SET_Z_IMAGE) {
+    uint32_t address_value = (uint32_t)(word & UINT64_C(0x03ffffff));
+    if (!t64_has_rdp_depth_profile(machine) ||
+        (word & UINT64_C(0x00fffffffc000000)) != 0u ||
+        (address_value & UINT32_C(7)) != 0u ||
+        address_value > machine->profile.rdram_bytes - 2u) {
+      rdp->dpc_current = address;
+      record_command(machine, word, command_byte, opcode);
+      set_refusal(machine, T64_RDP_REFUSAL_INVALID_IMAGE);
+      return T64_STATUS_OK;
+    }
+  } else if (opcode == RDP_OP_SET_PRIM_DEPTH &&
+             (!t64_has_rdp_depth_profile(machine) ||
+              (word & UINT64_C(0x00ffffff00000000)) != 0u)) {
+    rdp->dpc_current = address;
+    record_command(machine, word, command_byte, opcode);
+    set_refusal(machine, T64_RDP_REFUSAL_UNSUPPORTED_OPCODE);
+    return T64_STATUS_OK;
   }
 
   if (opcode == RDP_OP_SET_COLOR_IMAGE) {
@@ -517,6 +552,13 @@ static t64_status apply_pending_command(t64_machine *machine) {
     rdp->color_image_width = width;
     rdp->color_image_address = base;
     rdp->color_image_valid = true;
+  } else if (opcode == RDP_OP_SET_Z_IMAGE) {
+    rdp->depth_image_address = (uint32_t)(word & UINT64_C(0x03ffffff));
+    rdp->depth_image_valid = true;
+  } else if (opcode == RDP_OP_SET_PRIM_DEPTH) {
+    rdp->primitive_z = (uint16_t)(word >> 16);
+    rdp->primitive_dz = (uint16_t)word;
+    rdp->primitive_depth_valid = true;
   } else if (opcode == RDP_OP_SET_SCISSOR) {
     rdp->scissor_xh = (uint32_t)((word >> 44) & UINT64_C(0xfff));
     rdp->scissor_yh = (uint32_t)((word >> 32) & UINT64_C(0xfff));
@@ -580,7 +622,9 @@ static t64_status apply_pending_command(t64_machine *machine) {
     rdp->render_active = true;
     rdp->render_triangle = true;
     rdp->shade_triangle = opcode == UINT32_C(0x0c) ||
-                          opcode == UINT32_C(0x0e);
+                          opcode == UINT32_C(0x0d) ||
+                          opcode == UINT32_C(0x0e) ||
+                          opcode == UINT32_C(0x0f);
     rdp->render_x_begin = rdp->scissor_xh >> 2;
     rdp->render_x_end = (rdp->scissor_xl >> 2) - 1u;
     if (rdp->render_x_end >= rdp->color_image_width)
