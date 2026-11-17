@@ -156,6 +156,7 @@ PHASE07_TESTS='unit.core.rdp.fill
 unit.core.vi.fill
 unit.core.dp.transport
 unit.core.rdp.copy
+unit.core.rdp.triangles
 runner.rdp-fill
 controls.real.rdp-wrong-pixel
 controls.real.rdp-replacement-fixture'

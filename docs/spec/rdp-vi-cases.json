@@ -112,6 +112,19 @@
           ]
         }
       ]
+    },
+    "triangles": {
+      "ctest": [
+        "unit.core.rdp.triangles"
+      ],
+      "binaries": [
+        {
+          "path": "core/test_rdp_triangles",
+          "cases": [
+            "triangle-edge-interior-outside"
+          ]
+        }
+      ]
     }
   }
 }
