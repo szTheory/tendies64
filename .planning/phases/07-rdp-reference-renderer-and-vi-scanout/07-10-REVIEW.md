@@ -25,5 +25,6 @@ open. The trace-only runner retry concern has no accepted counterexample and
 is explicitly retained as unproven, not a reachable defect.
 
 Final scoped normal/instrumented/GCC, strict source/mutation and full local
-gate pass. Hosted qualification is pending. No Phase07 completion, full ASan
+gate pass. Both hosted jobs pass checkpoint8def244, and exact selected authored boot
+evidence compares in run44198383459. No Phase07 completion, full ASan
 inventory, hardware accuracy or VID-04 acceptance is implied.

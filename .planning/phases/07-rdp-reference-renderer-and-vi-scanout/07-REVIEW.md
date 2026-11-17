@@ -46,4 +46,5 @@ run44174870063; no Phase07/VID04 completion is implied.
 [Plan10](07-10-REVIEW.md) resolves valid lower-row filter taps and test reliability
 gaps through independent production and orchestrator test-only rechecks. Final
 scoped normal/instrumented/GCC, guards/mutations and complete local gate pass.
-Hosted qualification is pending; no Phase07/VID04 completion is implied.
+Both hosted jobs and exact selected authored boot comparison pass in
+run44198383459; no Phase07/VID04 completion is implied.

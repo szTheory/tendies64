@@ -3,14 +3,14 @@ gsd_state_version: "1.0"
 milestone: v1.1
 milestone_name: Observable Machine
 current_phase: 07
-current_plan: "10"
+current_plan: "11"
 current_phase_name: RDP Reference Renderer and VI Scanout
-status: verifying
-stopped_at: Plan10 local verification complete; hosted qualification pending
-last_updated: "2026-11-17T23:18:18.245553+00:00"
+status: executing
+stopped_at: Plan10 qualified on both hosts; Plan11 harness/source segment next
+last_updated: "2026-11-17T23:29:36.489273+00:00"
 last_activity: 2026-11-17
-last_activity_desc: Filters/output reviewed and locally qualified; preparing pinned push
-state_head: ef6c8ae8a0df270b1d981aef5654f7d2005c9e1b
+last_activity_desc: Filter/output hosted evidence compared; coherent qualification segment ready
+state_head: 8def2441e6fc096cab7317101be5550fd0bf7f56
 progress:
   total_phases: 3
   completed_phases: 0
@@ -26,14 +26,14 @@ progress:
 See: .planning/PROJECT.md (updated 2026-11-15)
 
 **Core value:** Every Tendies64 support claim is backed by evidence: a named profile, a pinned build and a reproducible, rights-cleared guest result.
-**Current focus:** Execute Plan10 VI filters and lossless raw-output contracts.
+**Current focus:** Plan11 authored qualification harness, original evidence and coherent matrix.
 
 ## Current Position
 
 Phase: 07 (RDP Reference Renderer and VI Scanout) — EXECUTING
-Plan: 10 of13 in current phase
-Status: Filters/output reviewed and local gate green; hosted qualification pending
-Last activity: 2026-11-17 — Filter bound and test repairs pass full local gate
+Plan: 11 of13 in current phase
+Status: Filters/output qualified on both hosts; qualification harness is ready
+Last activity: 2026-11-17 — Filter/output source passes both hosts and selected authored evidence comparison
 
 Progress: [████████░░] 77% of currently planned source plans
 
@@ -56,10 +56,12 @@ Progress: [████████░░] 77% of currently planned source plans
 
 ### Pending Todos
 
-Plan10 implementation, independent review repairs, normal/instrumented/compiler
-owners and complete local gate pass. Push the exact checkpoint, qualify both
-hosted jobs and selected authored startup records, then execute Plan11's
-qualification harness/source-review segment before its coherent long matrix.
+Plan10 reviewed source, normal/instrumented/compiler owners, full local gate
+and both hosted jobs pass; exact selected authored boot records compare.
+Execute Plan11 in two source/evidence segments: implement helper/selftests/
+cheap real controls and CI emission wiring, independently review that code,
+then run the coherent native/full-ASan/compiler and actual hosted raw-evidence
+qualification. This avoids discovering new verifier code after expensive runs.
 No user action is needed. Rights/oracle/release and expired-window stops persist.
 
 ### Blockers/Concerns
@@ -80,9 +82,9 @@ No user action is needed. Rights/oracle/release and expired-window stops persist
 
 ## Session Continuity
 
-Last session: 2026-11-17T23:18:18.245553+00:00
-Stopped at: Plan10 local complete; hosted qualification pending
-Resume file: .planning/phases/07-rdp-reference-renderer-and-vi-scanout/07-10-PLAN.md
+Last session: 2026-11-17T23:29:36.489273+00:00
+Stopped at: Plan10 hosted qualified; Plan11 harness/source segment ready
+Resume file: .planning/phases/07-rdp-reference-renderer-and-vi-scanout/07-11-PLAN.md
 
 Historical closeout: [v1.0 roadmap](milestones/v1.0-ROADMAP.md), [audit](milestones/v1.0-MILESTONE-AUDIT.md), [lessons](RETROSPECTIVE.md).
 

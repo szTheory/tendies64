@@ -91,8 +91,12 @@ instrumented is4e93628787d5e272fad1cbbbad8a36798c8bb6680820331b69255559a5c0a975
 preserved; verified worktree source hashes bind the later repair commit,
 without relabeling binaries or repeating tests merely for metadata.
 
-Both hosted jobs and exact selected authored boot comparison are pending for
-the pinned push. Those uploads qualify selected startup records; native VI
-owners execute in each gate, without an external image differential. D2/D5/D6,
+Both hosted jobs pass exact checkpoint8def244 in run44198383459; attempt1
+selected authored boot identities/bounds/state/transcript compare. macOS
+job443s/Gate428s, Linux188s/Gate181s; queues3/2s. Original records and
+collector/comparator/metrics are retained under
+`build/evidence/07-10-hosted-44198383459/` and `build/gate/07-10-hosted-*`.
+Those uploads qualify selected startup records; native VI owners execute in
+each gate, without an external image differential. D2/D5/D6,
 expired-resource and protected-asset stops remain unchanged. No user action is
 needed for the next authored qualification plan.
