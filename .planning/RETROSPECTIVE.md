@@ -199,3 +199,16 @@ CONTEXT, raw contract and action/expected-value rules together. Do not silently
 treat the policy as a new primary fact or repeat per-field approval questions.
 The positive W0 witness also needs a mechanical bit extraction check: a misplaced
 YL byte was corrected before any decoder was written.
+
+
+## Plan07-04: typed sidecars and early contract closure
+
+Check typed sidecar alignment against accepted custom descriptors, not only the
+aligned built-in RAM size. Include offset padding in checked allocation sizing;
+prove first and last sidecar entries under sanitizers. Before the full gate,
+reconcile planned canonical state with actual storage/reset/digest ownership;
+a diagnostic-only observation does not satisfy retained coverage. Literal
+shade vectors need distinct channels and derivative rows. Malformed packet
+controls compare the entire affected framebuffer region and owned sidecar,
+including prior completed work. Focused review fixes use the existing review
+context and one required final gate; no repeated full source audit is needed.

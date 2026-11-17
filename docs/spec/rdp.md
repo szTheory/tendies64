@@ -175,10 +175,11 @@ only edge-only 0x08 and edge-plus-shade 0x0c; the other six complete layouts
 are consumed as validated packets and refused without drawing. V2 refuses all
 triangle opcodes at the first word.
 
-Primary diagrams explicitly identify signed 14-bit s11.2 Y fields and the
-integer/fraction half positions. Their sign encoding for other coefficient
-fields is unstated. The v3 profile therefore applies the owner's software
-policy: all other edge and shade integer/fraction pairs are joined as signed
+Primary diagrams label the 14-bit Y fields s11.2 and identify the
+integer/fraction half positions. The inspected primary sources do not settle
+the bit encoding of signed Y or the other signed coefficients. D-11 therefore
+defines Y as 14-bit two's-complement divided by four, and the v3 software
+policy joins the other edge and shade integer/fraction pairs as signed
 32-bit two's-complement Q16 values. This is an implementation contract, not a
 vendor format claim. The SDK notes identify edge-only triangles as
 primitive-color operations and say they cannot render in fill cycle; the
@@ -190,7 +191,9 @@ and Y offsets are 1/8, 3/8, 5/8, and 7/8. Y coverage is half-open
 `[YH,YL)`. The `lft` bit selects whether the major edge is left or right;
 horizontal coverage is left-inclusive and right-exclusive. A pixel is written
 when at least one sample is covered; partial coverage is not blended, and the
-sample mask is retained only as an internal test diagnostic. This grid and tie
+sample mask is retained in the canonical, digest-covered logical coverage
+plane. The last-sample diagnostic fields are separate internal observations;
+the plane has no physical address/format mapping yet. This grid and tie
 rule are Tendies64 policy because the inspected primary sources do not define
 sample positions or tie ownership. Each scheduled row checks at most
 1024 × 16 samples, clips to the scissor, validates the complete RDRAM target

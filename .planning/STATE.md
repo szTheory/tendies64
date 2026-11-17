@@ -6,17 +6,17 @@ current_phase: 07
 current_plan: "04"
 current_phase_name: RDP Reference Renderer and VI Scanout
 status: executing
-stopped_at: Phase07 Plan03 qualified; execute Plan04 with owner-approved D-11
-last_updated: "2026-11-17T04:47:16.389291+00:00"
-last_activity: 2026-11-16
-last_activity_desc: Plan03 qualified on both hosts; triangle edge/shade implementation next
+stopped_at: Plan04 implemented and reviewed; hosted qualification pending
+last_updated: "2026-11-17T06:24:34.481637+00:00"
+last_activity: 2026-11-17
+last_activity_desc: Plan04 reviewed and locally verified; hosted pair next
 state_head: 31a0b6e5cfe83d268ae25ed5d88117df9b1712b8
 progress:
   total_phases: 3
   completed_phases: 0
   total_plans: 13
-  completed_plans: 3
-  percent: 23
+  completed_plans: 4
+  percent: 31
 ---
 
 # Project State
@@ -26,20 +26,20 @@ progress:
 See: .planning/PROJECT.md (updated 2026-11-15)
 
 **Core value:** Every Tendies64 support claim is backed by evidence: a named profile, a pinned build and a reproducible, rights-cleared guest result.
-**Current focus:** Phase7 triangle edge/shade implementation under D-11.
+**Current focus:** Qualify reviewed triangle edge/shade checkpoint, then execute Plan05.
 
 ## Current Position
 
-Phase: 07 (RDP Reference Renderer and VI Scanout) — READY TO EXECUTE
+Phase: 07 (RDP Reference Renderer and VI Scanout) — EXECUTING
 Plan: 04 of13 in current phase
-Status: TMEM/copy qualified; triangle edge/shade ready under D-11
-Last activity: 2026-11-16 — TMEM/copy normal and affected sanitizer checks passed; review pending
+Status: Triangle edge/shade local gate and review pass; hosted qualification pending
+Last activity: 2026-11-17 — Triangle source/review fixes pass local gate and focused sanitizer checks
 
-Progress: [██░░░░░░░░] 23% of currently planned source plans
+Progress: [██░░░░░░░░] 31% of currently planned source plans
 
 ## Performance Metrics
 
-- Active milestone:0 completed phases and3 completed plans;13 Phase7 plans defined.
+- Active milestone:0 completed phases and4 completed plans;13 Phase7 plans defined.
 - Historical v1.0: 6 phases and 73 source plans complete. This is planning completion, not a software release.
 - Prior phase plan counts: 1: 13; 2: 8; 3: 13; 4: 20; 5: 10; 6: 9.
 - Execution timing: not established for v1.1. Historical evidence remains in [v1.0 phase records](milestones/v1.0-phases/).
@@ -56,11 +56,12 @@ Progress: [██░░░░░░░░] 23% of currently planned source plans
 
 ### Pending Todos
 
-Execute Plan07-04. Plan03 and both hosted CI repairs are qualified on Linux and
-macOS, with exact selected artifact comparison. Owner-approved D-11 permits
-the named triangle numeric software policy; primary numeric proof and hardware
-accuracy remain unqualified. Current raw packet lengths/positions and corrected
-positive literal witnesses are pinned in07-04-RAW-CONTRACT.md.
+Plan04 implementation and independent review are complete; qualify its pinned
+checkpoint on both hosts before Plan05. The coverage alignment defect and four
+documentation/test gaps are fixed and independently rechecked. Final local full
+gate and focused sanitizer checks pass; all retained artifacts remain bound.
+D-11 is explicit software numeric policy, with primary numeric proof and hardware
+accuracy still unqualified. No user action is needed for routine continuation.
 
 The earlier full-ASAN BASE timeout is historical and retained; Plan03's affected
 instrumented checks and final combined normal gate pass. Do not relabel that
@@ -85,7 +86,7 @@ old full instrumented run as complete or renew private windows.
 ## Session Continuity
 
 Last session: 2026-11-16T05:13:26.082Z
-Stopped at: Phase07 Plan03 qualified; execute Plan04 with owner-approved D-11
+Stopped at: Plan04 implemented and reviewed; hosted qualification pending
 Resume file: .planning/phases/07-rdp-reference-renderer-and-vi-scanout/07-04-PLAN.md
 
 Historical closeout: [v1.0 roadmap](milestones/v1.0-ROADMAP.md), [audit](milestones/v1.0-MILESTONE-AUDIT.md), [lessons](RETROSPECTIVE.md).

@@ -123,6 +123,8 @@
           "cases": [
             "triangle-edge-interior-outside",
             "triangle-shade-signed-dx",
+            "triangle-shade-all-fields",
+            "triangle-custom-profile-alignment",
             "triangle-right-major-negative-x",
             "triangle-degenerate-old-profile-refusal",
             "triangle-composite-length-truncation",

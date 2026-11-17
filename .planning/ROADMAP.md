@@ -66,7 +66,7 @@ frontend, broad compatibility claim or software release.
   3. Raw frames follow the selected profile's TV timing, interlace, pixel format and filtering and carry resolution and guest-time metadata. Output does not assume 320×240; host scaling and presentation remain separate
   4. Noise seed and undefined memory color are visible as named deterministic policies bound to the affected profile behavior
   5. Once its gates resolve, VID-04 has conformance reports labeling each out-of-tree oracle's name, version and modifications as differential evidence, never hardware truth. Until then it remains explicitly blocked and incomplete
-**Plans**: 3/13 plans executed
+**Plans**: 4/13 plans executed
 
 Plans:
 **Wave 1**
@@ -79,7 +79,7 @@ Plans:
 - [x] 07-03-PLAN.md — TMEM loads and independently checked copy-mode pixels
 
 **Wave 4** *(ready under owner-approved D-11 software numeric policy)*
-- [ ] 07-04-PLAN.md — Source-reconciled triangle edges, coverage generation and shading
+- [x] 07-04-PLAN.md — Source-reconciled triangle edges, coverage generation and shading
 
 **Wave 5** *(blocked on Wave 4 completion)*
 - [ ] 07-05-PLAN.md — Textured triangles with independently derived interpolation and sampling
@@ -138,7 +138,7 @@ VID-04's specific acceptance gate does not prevent permitted authored/native wor
 
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
-| 7. RDP Reference Renderer and VI Scanout | 3/13 | In Progress | - |
+| 7. RDP Reference Renderer and VI Scanout | 4/13 | In Progress | - |
 | 8. Audio Interface and Raw Capture | 0/TBD | Not started | - |
 | 9. Controller, Save Media and Replay | 0/TBD | Not started | - |
 

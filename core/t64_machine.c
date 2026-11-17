@@ -1507,6 +1507,7 @@ t64_status t64_machine_create(const t64_host_allocator *allocator,
   t64_address_range video_range;
   uint8_t profile_digest[T64_DIGEST_SIZE];
   size_t total_size;
+  size_t coverage_offset = 0u;
   size_t alignment = _Alignof(max_align_t);
   t64_machine *machine;
 
@@ -1527,6 +1528,14 @@ t64_status t64_machine_create(const t64_host_allocator *allocator,
   total_size = (size_t)profile->rdram_bytes;
   if (profile->machine_model_version == 12u &&
       profile->state_serialization_version == 17u) {
+    const size_t coverage_alignment = _Alignof(uint16_t);
+    size_t padding = (coverage_alignment - total_size % coverage_alignment) %
+                     coverage_alignment;
+    if (total_size > SIZE_MAX - padding) {
+      return T64_STATUS_INVALID_ARGUMENT;
+    }
+    total_size += padding;
+    coverage_offset = total_size;
     if (total_size > SIZE_MAX - T64_RDP_TRIANGLE_COVERAGE_BYTES) {
       return T64_STATUS_INVALID_ARGUMENT;
     }
@@ -1587,7 +1596,7 @@ t64_status t64_machine_create(const t64_host_allocator *allocator,
   if (profile->machine_model_version == 12u &&
       profile->state_serialization_version == 17u) {
     machine->rdp_triangle_coverage =
-        (uint16_t *)(machine->ram + profile->rdram_bytes);
+        (uint16_t *)(machine->ram + coverage_offset);
     (void)memset(machine->rdp_triangle_coverage, 0,
                  T64_RDP_TRIANGLE_COVERAGE_BYTES);
   }
