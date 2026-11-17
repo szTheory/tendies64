@@ -178,7 +178,8 @@ static bool capture_raw_vi(t64_machine *machine, uint8_t *bytes,
   return true;
 }
 
-static void case_one_cycle_raw_dpc_vi(void) {
+static bool run_one_cycle_raw_dpc_vi(uint16_t *rdram_pixel_out,
+                                    uint8_t vi_pixel_out[4]) {
   static const uint64_t commands[] = {
       UINT64_C(0x3f10000700005000), /* RGBA16 color image, width 8 */
       UINT64_C(0x2d00000000020020), /* scissor [0,8) x [0,8) */
@@ -198,7 +199,7 @@ static void case_one_cycle_raw_dpc_vi(void) {
   const size_t pixel_address = FRAMEBUFFER_ADDRESS + (2u * 8u + 1u) * 2u;
   const size_t vi_pixel_offset = (2u * 8u + 1u) * 4u;
 
-  if (machine == NULL) return;
+  if (machine == NULL) return false;
   memset(machine->ram + FRAMEBUFFER_ADDRESS, 0xa5, 8u * 8u * 2u);
   T64_CHECK_INT((combine >> 56) & UINT64_C(0x3f), UINT64_C(0x3c));
   T64_CHECK(combine == commands[5]);
@@ -208,15 +209,449 @@ static void case_one_cycle_raw_dpc_vi(void) {
   T64_CHECK_INT(machine->rdp.last_opcode_field, UINT32_C(0x08));
   T64_CHECK(machine->rdp.last_original_word == commands[6]);
   T64_CHECK_INT(machine->rdp.triangle_count, 1u);
-  T64_CHECK_INT(((uint32_t)machine->ram[pixel_address] << 8) |
-                    machine->ram[pixel_address + 1u],
-                UINT32_C(0x5295));
-  T64_CHECK(capture_raw_vi(machine, raw_vi, sizeof raw_vi, &raw_vi_length));
+  if (rdram_pixel_out != NULL)
+    *rdram_pixel_out = (uint16_t)(((uint32_t)machine->ram[pixel_address] << 8) |
+                                  machine->ram[pixel_address + 1u]);
+  if (!capture_raw_vi(machine, raw_vi, sizeof raw_vi, &raw_vi_length)) {
+    t64_machine_destroy(machine);
+    return false;
+  }
   T64_CHECK_INT(raw_vi_length, sizeof raw_vi);
-  T64_CHECK_INT(raw_vi[vi_pixel_offset], 82u);
-  T64_CHECK_INT(raw_vi[vi_pixel_offset + 1u], 82u);
-  T64_CHECK_INT(raw_vi[vi_pixel_offset + 2u], 82u);
-  T64_CHECK_INT(raw_vi[vi_pixel_offset + 3u], 255u);
+  if (vi_pixel_out != NULL)
+    memcpy(vi_pixel_out, raw_vi + vi_pixel_offset, 4u);
+  t64_machine_destroy(machine);
+  return true;
+}
+
+static void case_one_cycle_raw_dpc_vi(void) {
+  uint16_t rdram_pixel = 0u;
+  uint8_t vi_pixel[4] = {0u, 0u, 0u, 0u};
+  T64_CHECK(run_one_cycle_raw_dpc_vi(&rdram_pixel, vi_pixel));
+  /* RGBA5551 stores RGB5=10; VI expands that field to 82 in RGBA8. */
+  T64_CHECK_INT(rdram_pixel, UINT16_C(0x5295));
+  T64_CHECK_INT(vi_pixel[0], 82u);
+  T64_CHECK_INT(vi_pixel[1], 82u);
+  T64_CHECK_INT(vi_pixel[2], 82u);
+  T64_CHECK_INT(vi_pixel[3], 255u);
+}
+
+static uint64_t cycle0_mode(unsigned rgb_a, unsigned rgb_b, unsigned rgb_c,
+                            unsigned rgb_d, unsigned alpha_a,
+                            unsigned alpha_b, unsigned alpha_c,
+                            unsigned alpha_d);
+static void initialize_pipeline_inputs(t64_machine *machine,
+                                       t64_rdp_combiner_inputs *inputs);
+
+static void case_literal_wrong_output_control(void) {
+  uint16_t rdram_pixel = 0u;
+  uint8_t vi_pixel[4] = {0u, 0u, 0u, 0u};
+  /* The wrong cycle-1/old primitive path is independently 0xCE73 / RGB 206. */
+  T64_CHECK(run_one_cycle_raw_dpc_vi(&rdram_pixel, vi_pixel));
+  T64_CHECK_INT(rdram_pixel, UINT16_C(0x5295));
+  T64_CHECK(rdram_pixel != UINT16_C(0xce73));
+  T64_CHECK_INT(vi_pixel[0], 82u);
+  T64_CHECK(vi_pixel[0] != 206u);
+}
+
+static void case_refusal_preserves_pixels_and_noise(void) {
+  static const uint64_t commands[] = {
+      UINT64_C(0x3f10000700005000), /* RGBA16 color image, width 8 */
+      UINT64_C(0x2d00000000020020), /* scissor [0,8) x [0,8) */
+      UINT64_C(0x2f20000000000000), /* copy cycle is refused for triangles */
+      UINT64_C(0x3a000000c8c8c8ff),
+      UINT64_C(0x3b000000505050ff),
+      UINT64_C(0xfc55566c8877ffff),
+      UINT64_C(0x08000014000c0004),
+      UINT64_C(0x00010000fffe8000),
+      UINT64_C(0x0001000000000000),
+      UINT64_C(0x0004000000018000),
+  };
+  uint8_t before[8u * 8u * 2u];
+  t64_machine *machine = create_authored_machine();
+  if (machine == NULL) return;
+  memset(machine->ram + FRAMEBUFFER_ADDRESS, 0xa5, sizeof before);
+  memcpy(before, machine->ram + FRAMEBUFFER_ADDRESS, sizeof before);
+  T64_CHECK(run_commands(machine, commands,
+                        sizeof commands / sizeof commands[0]));
+  T64_CHECK_INT(machine->rdp.last_opcode_field, UINT32_C(0x08));
+  T64_CHECK(machine->rdp.last_original_word == commands[6]);
+  T64_CHECK_INT(machine->rdp.refusal_reason, T64_RDP_REFUSAL_RENDER_RANGE);
+  T64_CHECK_INT(machine->rdp.random_state, 1u);
+  T64_CHECK(memcmp(before, machine->ram + FRAMEBUFFER_ADDRESS,
+                   sizeof before) == 0);
+  t64_machine_destroy(machine);
+}
+
+static void case_interleaved_instance_noise(void) {
+  t64_rdp_combiner_inputs inputs = {{0u}, {0u}, {0u}, 0u};
+  static const uint8_t expected[] = {33u, 1u, 197u, 79u};
+  t64_machine *a = create_authored_machine();
+  t64_machine *b = create_authored_machine();
+  uint32_t rgba_a = 0u, rgba_b = 0u;
+  unsigned i;
+  if (a == NULL || b == NULL) {
+    if (a != NULL) t64_machine_destroy(a);
+    if (b != NULL) t64_machine_destroy(b);
+    return;
+  }
+  initialize_pipeline_inputs(a, &inputs);
+  initialize_pipeline_inputs(b, &inputs);
+  inputs.texel0[3] = UINT8_MAX;
+  a->rdp.combine_mode =
+      cycle0_mode(7u, 0u, 8u, 0u, 7u, 7u, 7u, 7u);
+  b->rdp.combine_mode = a->rdp.combine_mode;
+  a->rdp.other_modes = UINT64_C(0xef00000000000000);
+  b->rdp.other_modes = a->rdp.other_modes;
+  a->rdp.random_state = 1u;
+  b->rdp.random_state = 1u;
+  for (i = 0u; i < sizeof expected; i++) {
+    T64_CHECK(t64_rdp_combine_pixel(a, &inputs, &rgba_a));
+    T64_CHECK_INT((rgba_a >> 24) & UINT32_C(0xff), expected[i]);
+    T64_CHECK(t64_rdp_combine_pixel(b, &inputs, &rgba_b));
+    T64_CHECK_INT(rgba_b, rgba_a);
+    T64_CHECK_INT(b->rdp.random_state, a->rdp.random_state);
+  }
+  {
+    uint8_t digest_a[T64_DIGEST_SIZE], digest_b[T64_DIGEST_SIZE];
+    T64_CHECK_INT(t64_machine_digest(a, digest_a), T64_STATUS_OK);
+    T64_CHECK_INT(t64_machine_digest(b, digest_b), T64_STATUS_OK);
+    T64_CHECK(memcmp(digest_a, digest_b, sizeof digest_a) == 0);
+  }
+  t64_machine_destroy(a);
+  t64_machine_destroy(b);
+}
+
+static void case_policy_identity_and_digest(void) {
+  const t64_profile_descriptor *profile = NULL;
+  t64_profile_descriptor altered;
+  uint8_t base_hash[T64_DIGEST_SIZE], altered_hash[T64_DIGEST_SIZE];
+  uint8_t digest_before[T64_DIGEST_SIZE], digest_after[T64_DIGEST_SIZE];
+  uint32_t original_seed;
+  t64_machine *machine = create_authored_machine();
+  if (machine == NULL) return;
+  T64_CHECK_INT(t64_profile_lookup(COMBINER_PROFILE_ID, &profile),
+                T64_STATUS_OK);
+  T64_CHECK(profile != NULL);
+  if (profile != NULL) {
+    altered = *profile;
+    T64_CHECK_INT(t64_profile_hash(profile, base_hash), T64_STATUS_OK);
+    (void)snprintf(altered.rdp_combiner_policy,
+                   sizeof altered.rdp_combiner_policy,
+                   "%s", "rgba8-floor256-clamp-feedback-noise1-v1");
+    T64_CHECK_INT(t64_profile_hash(&altered, altered_hash), T64_STATUS_OK);
+    T64_CHECK(memcmp(base_hash, altered_hash, sizeof base_hash) != 0);
+    altered = *profile;
+    (void)snprintf(altered.rdp_undefined_color_policy,
+                   sizeof altered.rdp_undefined_color_policy,
+                   "%s", "one-color-v1");
+    T64_CHECK_INT(t64_profile_hash(&altered, altered_hash), T64_STATUS_OK);
+    T64_CHECK(memcmp(base_hash, altered_hash, sizeof base_hash) != 0);
+  }
+  T64_CHECK_INT(t64_machine_digest(machine, digest_before), T64_STATUS_OK);
+  original_seed = machine->rdp.random_state;
+  machine->rdp.random_state ^= UINT32_C(1);
+  T64_CHECK_INT(t64_machine_digest(machine, digest_after), T64_STATUS_OK);
+  T64_CHECK(memcmp(digest_before, digest_after, sizeof digest_before) != 0);
+  machine->rdp.random_state = original_seed;
+  machine->rdp.combine_mode = UINT64_C(0xfc55566c8877ffff);
+  machine->rdp.combine_mode_valid = true;
+  machine->rdp.environment_color = UINT32_C(0x12345678);
+  machine->rdp.environment_color_valid = true;
+  machine->rdp.random_state = UINT32_C(0x00042021);
+  T64_CHECK_INT(t64_machine_digest(machine, digest_after), T64_STATUS_OK);
+  T64_CHECK(memcmp(digest_before, digest_after, sizeof digest_before) != 0);
+  t64_machine_destroy(machine);
+}
+
+static uint64_t cycle0_mode(unsigned rgb_a, unsigned rgb_b, unsigned rgb_c,
+                            unsigned rgb_d, unsigned alpha_a,
+                            unsigned alpha_b, unsigned alpha_c,
+                            unsigned alpha_d) {
+  return UINT64_C(0xfc00000000000000) |
+         ((uint64_t)(rgb_a & 15u) << 52) |
+         ((uint64_t)(rgb_c & 31u) << 47) |
+         ((uint64_t)(alpha_a & 7u) << 44) |
+         ((uint64_t)(alpha_c & 7u) << 41) |
+         ((uint64_t)(rgb_b & 15u) << 28) |
+         ((uint64_t)(rgb_d & 7u) << 15) |
+         ((uint64_t)(alpha_b & 7u) << 12) |
+         ((uint64_t)(alpha_d & 7u) << 9);
+}
+
+static void initialize_pipeline_inputs(t64_machine *machine,
+                                       t64_rdp_combiner_inputs *inputs) {
+  const uint8_t texel0[4] = {11u, 22u, 33u, 44u};
+  const uint8_t texel1[4] = {55u, 66u, 77u, 88u};
+  const uint8_t shade[4] = {143u, 154u, 165u, 176u};
+  memcpy(inputs->texel0, texel0, sizeof texel0);
+  memcpy(inputs->texel1, texel1, sizeof texel1);
+  memcpy(inputs->shade, shade, sizeof shade);
+  inputs->lod_fraction = 145u;
+  machine->rdp.primitive_color = UINT32_C(0x636e7984);
+  machine->rdp.primitive_lod_fraction = 167u;
+  machine->rdp.environment_color = UINT32_C(0xbbc6d1dc);
+  machine->rdp.key_center[0] = 12u;
+  machine->rdp.key_center[1] = 23u;
+  machine->rdp.key_center[2] = 34u;
+  machine->rdp.key_scale[0] = 45u;
+  machine->rdp.key_scale[1] = 56u;
+  machine->rdp.key_scale[2] = 67u;
+  machine->rdp.convert_coefficients[4] = UINT32_C(0x55);
+  machine->rdp.convert_coefficients[5] = UINT32_C(0x7b);
+  machine->rdp.other_modes = UINT64_C(0xef00000000000000);
+  machine->rdp.random_state = 1u;
+  machine->rdp.combine_mode_valid = true;
+}
+
+static bool run_pipeline(t64_machine *machine,
+                         t64_rdp_combiner_inputs *inputs, uint64_t mode,
+                         uint32_t cycle_type, uint32_t *rgba_out) {
+  machine->rdp.combine_mode = mode;
+  machine->rdp.other_modes = UINT64_C(0xef00000000000000) |
+                             ((uint64_t)(cycle_type & 3u) << 52);
+  machine->rdp.random_state = 1u;
+  return t64_rdp_combine_pixel(machine, inputs, rgba_out);
+}
+
+static void case_two_cycle_feedback_literal(void) {
+  t64_rdp_combiner_inputs inputs = {{0u}, {0u}, {0u}, 64u};
+  t64_machine *machine = create_authored_machine();
+  uint32_t rgba = 0u;
+  if (machine == NULL) return;
+  inputs.texel0[0] = 220u;
+  inputs.texel0[1] = 100u;
+  inputs.texel0[2] = 40u;
+  inputs.texel0[3] = 200u;
+  inputs.texel1[0] = 10u;
+  inputs.texel1[1] = 200u;
+  inputs.texel1[2] = 30u;
+  inputs.texel1[3] = 128u;
+  inputs.shade[0] = 128u;
+  inputs.shade[1] = 64u;
+  inputs.shade[2] = 192u;
+  inputs.shade[3] = 100u;
+  machine->rdp.primitive_color = UINT32_C(0x141e0a10);
+  machine->rdp.primitive_lod_fraction = 64u;
+  machine->rdp.environment_color = UINT32_C(0x0a324628);
+  machine->rdp.combine_mode = UINT64_C(0xfc12140d321ad6cc);
+  machine->rdp.combine_mode_valid = true;
+  machine->rdp.other_modes = UINT64_C(0xef10000000000000);
+  machine->rdp.random_state = 1u;
+  T64_CHECK_INT((machine->rdp.combine_mode >> 56) & UINT64_C(0x3f),
+                UINT64_C(0x3c));
+  T64_CHECK(t64_rdp_combine_pixel(machine, &inputs, &rgba));
+  T64_CHECK_INT(rgba, UINT32_C(0x2d001949));
+  T64_CHECK_INT(machine->rdp.random_state, UINT32_C(0x00042021));
+  t64_machine_destroy(machine);
+}
+
+static uint8_t expected_rgb_a(unsigned code, unsigned channel) {
+  static const uint8_t sources[8][3] = {
+      {0u, 0u, 0u}, {11u, 22u, 33u}, {55u, 66u, 77u},
+      {99u, 110u, 121u}, {143u, 154u, 165u}, {187u, 198u, 209u},
+      {255u, 255u, 255u}, {33u, 33u, 33u}};
+  return sources[code][channel];
+}
+
+static uint8_t expected_rgb_b(unsigned code, unsigned channel) {
+  static const uint8_t sources[16][3] = {
+      {0u, 0u, 0u}, {11u, 22u, 33u}, {55u, 66u, 77u},
+      {99u, 110u, 121u}, {143u, 154u, 165u}, {187u, 198u, 209u},
+      {12u, 23u, 34u}, {85u, 85u, 85u}, {0u, 0u, 0u},
+      {0u, 0u, 0u}, {0u, 0u, 0u}, {0u, 0u, 0u},
+      {0u, 0u, 0u}, {0u, 0u, 0u}, {0u, 0u, 0u},
+      {0u, 0u, 0u}};
+  return sources[code][channel];
+}
+
+static uint8_t expected_rgb_c(unsigned code, unsigned channel) {
+  static const uint8_t sources[32][3] = {
+      {0u, 0u, 0u}, {11u, 22u, 33u}, {55u, 66u, 77u},
+      {99u, 110u, 121u}, {143u, 154u, 165u}, {187u, 198u, 209u},
+      {45u, 56u, 67u}, {0u, 0u, 0u}, {44u, 44u, 44u},
+      {88u, 88u, 88u}, {132u, 132u, 132u}, {176u, 176u, 176u},
+      {220u, 220u, 220u}, {145u, 145u, 145u}, {167u, 167u, 167u},
+      {123u, 123u, 123u}, {0u, 0u, 0u}, {0u, 0u, 0u},
+      {0u, 0u, 0u}, {0u, 0u, 0u}, {0u, 0u, 0u}, {0u, 0u, 0u},
+      {0u, 0u, 0u}, {0u, 0u, 0u}, {0u, 0u, 0u}, {0u, 0u, 0u},
+      {0u, 0u, 0u}, {0u, 0u, 0u}, {0u, 0u, 0u}, {0u, 0u, 0u},
+      {0u, 0u, 0u}, {0u, 0u, 0u}};
+  return sources[code][channel];
+}
+
+static uint8_t expected_rgb_d(unsigned code, unsigned channel) {
+  static const uint8_t sources[8][3] = {
+      {0u, 0u, 0u}, {11u, 22u, 33u}, {55u, 66u, 77u},
+      {99u, 110u, 121u}, {143u, 154u, 165u}, {187u, 198u, 209u},
+      {255u, 255u, 255u}, {0u, 0u, 0u}};
+  return sources[code][channel];
+}
+
+static uint8_t expected_alpha(unsigned code) {
+  static const uint8_t sources[8] = {0u, 44u, 88u, 132u,
+                                     176u, 220u, 255u, 0u};
+  return sources[code];
+}
+
+static uint8_t expected_alpha_c(unsigned code) {
+  static const uint8_t sources[8] = {145u, 44u, 88u, 132u,
+                                     176u, 220u, 167u, 0u};
+  return sources[code];
+}
+
+static void case_rgb_selector_denominator(void) {
+  t64_rdp_combiner_inputs inputs = {{0u}, {0u}, {0u}, 0u};
+  t64_machine *machine = create_authored_machine();
+  uint32_t rgba;
+  unsigned code, channel;
+  if (machine == NULL) return;
+  initialize_pipeline_inputs(machine, &inputs);
+  for (code = 0u; code < 8u; code++) {
+    T64_CHECK(run_pipeline(machine, &inputs,
+                           cycle0_mode(code, 0u, 8u, 0u, 7u, 7u, 7u, 7u),
+                           0u, &rgba));
+    for (channel = 0u; channel < 3u; channel++) {
+      uint8_t expected = (uint8_t)(((uint32_t)expected_rgb_a(code, channel) *
+                                    UINT32_C(44)) / UINT32_C(255));
+      T64_CHECK_INT((rgba >> (24u - channel * 8u)) & UINT32_C(0xff),
+                    expected);
+    }
+  }
+  for (code = 8u; code < 16u; code++) {
+    T64_CHECK(run_pipeline(machine, &inputs,
+                           cycle0_mode(code, 0u, 8u, 0u, 7u, 7u, 7u, 7u),
+                           0u, &rgba));
+    for (channel = 0u; channel < 3u; channel++)
+      T64_CHECK_INT((rgba >> (24u - channel * 8u)) & UINT32_C(0xff), 0u);
+  }
+  for (code = 0u; code < 16u; code++) {
+    T64_CHECK(run_pipeline(machine, &inputs,
+                           cycle0_mode(6u, code, 8u, 0u, 7u, 7u, 7u, 7u),
+                           0u, &rgba));
+    for (channel = 0u; channel < 3u; channel++) {
+      uint8_t source = expected_rgb_b(code, channel);
+      uint8_t expected = (uint8_t)(((UINT32_C(255) - source) * 44u) / 255u);
+      T64_CHECK_INT((rgba >> (24u - channel * 8u)) & UINT32_C(0xff),
+                    expected);
+    }
+  }
+  for (code = 0u; code < 32u; code++) {
+    T64_CHECK(run_pipeline(machine, &inputs,
+                           cycle0_mode(6u, 0u, code, 0u, 7u, 7u, 7u, 7u),
+                           0u, &rgba));
+    for (channel = 0u; channel < 3u; channel++)
+      T64_CHECK_INT((rgba >> (24u - channel * 8u)) & UINT32_C(0xff),
+                    expected_rgb_c(code, channel));
+  }
+  for (code = 0u; code < 8u; code++) {
+    T64_CHECK(run_pipeline(machine, &inputs,
+                           cycle0_mode(0u, 0u, 8u, code, 7u, 7u, 7u, 7u),
+                           0u, &rgba));
+    for (channel = 0u; channel < 3u; channel++)
+      T64_CHECK_INT((rgba >> (24u - channel * 8u)) & UINT32_C(0xff),
+                    expected_rgb_d(code, channel));
+  }
+  t64_machine_destroy(machine);
+}
+
+static void case_alpha_selector_denominator(void) {
+  t64_rdp_combiner_inputs inputs = {{0u}, {0u}, {0u}, 145u};
+  t64_machine *machine = create_authored_machine();
+  uint32_t rgba;
+  unsigned code;
+  if (machine == NULL) return;
+  initialize_pipeline_inputs(machine, &inputs);
+  for (code = 0u; code < 8u; code++) {
+    T64_CHECK(run_pipeline(machine, &inputs,
+                           cycle0_mode(0u, 0u, 8u, 0u, code, 7u, 1u, 7u),
+                           0u, &rgba));
+    T64_CHECK_INT(rgba & UINT32_C(0xff),
+                  ((uint32_t)expected_alpha(code) * 44u) / 255u);
+    T64_CHECK(run_pipeline(machine, &inputs,
+                           cycle0_mode(0u, 0u, 8u, 0u, 6u, code, 1u, 7u),
+                           0u, &rgba));
+    T64_CHECK_INT(rgba & UINT32_C(0xff),
+                  ((UINT32_C(255) - expected_alpha(code)) * 44u) / 255u);
+    T64_CHECK(run_pipeline(machine, &inputs,
+                           cycle0_mode(0u, 0u, 8u, 0u, 6u, 7u, code, 7u),
+                           0u, &rgba));
+    T64_CHECK_INT(rgba & UINT32_C(0xff), expected_alpha_c(code));
+    T64_CHECK(run_pipeline(machine, &inputs,
+                           cycle0_mode(0u, 0u, 8u, 0u, 7u, 7u, 1u, code),
+                           0u, &rgba));
+    T64_CHECK_INT(rgba & UINT32_C(0xff), expected_alpha(code));
+  }
+  t64_machine_destroy(machine);
+}
+
+static void case_signed_floor_clamp_and_saturation(void) {
+  t64_rdp_combiner_inputs inputs = {{0u}, {0u}, {0u}, 0u};
+  t64_machine *machine = create_authored_machine();
+  uint32_t rgba;
+  if (machine == NULL) return;
+  initialize_pipeline_inputs(machine, &inputs);
+  inputs.texel0[3] = 128u;
+  inputs.texel0[0] = 1u;
+  T64_CHECK(run_pipeline(machine, &inputs,
+                         cycle0_mode(0u, 1u, 8u, 1u, 7u, 7u, 7u, 7u),
+                         0u, &rgba));
+  /* floor((-1*128)/255)+1 is zero; truncation toward zero would be one. */
+  T64_CHECK_INT((rgba >> 24) & UINT32_C(0xff), 0u);
+  T64_CHECK_INT(rgba & UINT32_C(0xff), 0u);
+  inputs.texel0[3] = UINT8_MAX;
+  T64_CHECK(run_pipeline(machine, &inputs,
+                         cycle0_mode(6u, 0u, 8u, 6u, 6u, 7u, 1u, 6u),
+                         0u, &rgba));
+  T64_CHECK_INT((rgba >> 24) & UINT32_C(0xff), 255u);
+  T64_CHECK_INT(rgba & UINT32_C(0xff), 255u);
+  T64_CHECK(run_pipeline(machine, &inputs,
+                         cycle0_mode(0u, 0u, 8u, 1u, 7u, 7u, 7u, 7u),
+                         0u, &rgba));
+  T64_CHECK_INT((rgba >> 24) & UINT32_C(0xff), 1u);
+  T64_CHECK_INT(rgba & UINT32_C(0xff), 0u);
+  t64_machine_destroy(machine);
+}
+
+static void case_key_convert_and_lod_sources(void) {
+  t64_rdp_combiner_inputs inputs = {{0u}, {0u}, {0u}, 145u};
+  t64_machine *machine = create_authored_machine();
+  uint32_t rgba;
+  if (machine == NULL) return;
+  initialize_pipeline_inputs(machine, &inputs);
+  T64_CHECK(run_pipeline(machine, &inputs,
+                         cycle0_mode(6u, 6u, 13u, 0u, 6u, 7u, 6u, 0u),
+                         0u, &rgba));
+  T64_CHECK_INT((rgba >> 24) & UINT32_C(0xff), 138u);
+  T64_CHECK_INT(rgba & UINT32_C(0xff), 167u);
+  T64_CHECK(run_pipeline(machine, &inputs,
+                         cycle0_mode(6u, 7u, 15u, 0u, 6u, 7u, 0u, 0u),
+                         0u, &rgba));
+  T64_CHECK_INT((rgba >> 24) & UINT32_C(0xff), 82u);
+  machine->rdp.convert_coefficients[5] = UINT32_C(0xff);
+  T64_CHECK(run_pipeline(machine, &inputs,
+                         cycle0_mode(6u, 7u, 15u, 0u, 6u, 7u, 0u, 0u),
+                         0u, &rgba));
+  T64_CHECK_INT((rgba >> 24) & UINT32_C(0xff), 170u);
+  t64_machine_destroy(machine);
+}
+
+static void case_noise_seed_and_cadence(void) {
+  t64_rdp_combiner_inputs inputs = {{0u}, {0u}, {0u}, 0u};
+  t64_machine *machine = create_authored_machine();
+  uint32_t rgba;
+  if (machine == NULL) return;
+  initialize_pipeline_inputs(machine, &inputs);
+  inputs.texel0[3] = UINT8_MAX;
+  T64_CHECK(run_pipeline(machine, &inputs,
+                         cycle0_mode(7u, 0u, 8u, 0u, 7u, 7u, 7u, 7u),
+                         0u, &rgba));
+  T64_CHECK_INT((rgba >> 24) & UINT32_C(0xff), 33u);
+  T64_CHECK_INT(machine->rdp.random_state, UINT32_C(0x00042021));
+  machine->rdp.random_state = 1u;
+  T64_CHECK(run_pipeline(machine, &inputs,
+                         cycle0_mode(1u, 0u, 8u, 0u, 7u, 7u, 7u, 7u),
+                         1u, &rgba));
+  T64_CHECK_INT(machine->rdp.random_state, UINT32_C(0x00042021));
   t64_machine_destroy(machine);
 }
 
@@ -227,6 +662,19 @@ typedef struct {
 
 static const test_case cases[] = {
     {"combiner-one-cycle-raw-dpc-vi", case_one_cycle_raw_dpc_vi},
+    {"combiner-literal-wrong-control", case_literal_wrong_output_control},
+    {"combiner-two-cycle-feedback-literal", case_two_cycle_feedback_literal},
+    {"combiner-rgb-selector-denominator", case_rgb_selector_denominator},
+    {"combiner-alpha-selector-denominator", case_alpha_selector_denominator},
+    {"combiner-signed-floor-clamp-and-saturation",
+     case_signed_floor_clamp_and_saturation},
+    {"combiner-key-convert-lod-sources", case_key_convert_and_lod_sources},
+    {"combiner-noise-seed-and-cadence", case_noise_seed_and_cadence},
+    {"combiner-noise-interleaved-instances", case_interleaved_instance_noise},
+    {"combiner-refusal-noise-unchanged",
+     case_refusal_preserves_pixels_and_noise},
+    {"combiner-undefined-color-policy-digest",
+     case_policy_identity_and_digest},
 };
 
 int main(int argc, char **argv) {

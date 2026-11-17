@@ -62,6 +62,8 @@ MUTATION_SEEDS = (
     "missing triangle raster object file",
     "DPC counter bus-window body mutation",
     "DPC profile-gated injected effect",
+    "RDP combiner injected effect",
+    "missing RDP combiner object file",
 )
 
 
@@ -440,6 +442,7 @@ def _check_mutation_suite(temp_root: pathlib.Path) -> int:
         encoding="utf-8",
     )
     _must_reject("RDP raw copy-cycle body mutation", source_root, build_root)
+    tmem_path.write_text(original_tmem, encoding="utf-8")
     seeds_run += 1
 
     missing_tmem_source, missing_tmem_build = _copy_clean_fixture(
@@ -477,6 +480,50 @@ def _check_mutation_suite(temp_root: pathlib.Path) -> int:
         "missing triangle raster object file",
         missing_raster_source,
         missing_raster_build,
+    )
+    seeds_run += 1
+
+    pipeline_path = source_root / "core" / "t64_rdp_pipeline.c"
+    original_pipeline = pipeline_path.read_text(encoding="utf-8")
+    pipeline_span = _function_definition_span(
+        original_pipeline, "t64_rdp_combine_pixel"
+    )
+    if pipeline_span is None:
+        raise AssertionError("RDP combiner production body mutation anchor is missing")
+    pipeline_body_at = original_pipeline.index("{", pipeline_span[0]) + 1
+    pipeline_mutation = (
+        "\n  if (rgba_out != NULL) {\n"
+        "    *rgba_out = UINT32_C(0xdeadbeef);\n"
+        "    return true;\n"
+        "  }\n"
+    )
+    pipeline_path.write_text(
+        original_pipeline[:pipeline_body_at]
+        + pipeline_mutation
+        + original_pipeline[pipeline_body_at:],
+        encoding="utf-8",
+    )
+    _must_reject("RDP combiner injected effect", source_root, build_root)
+    pipeline_path.write_text(original_pipeline, encoding="utf-8")
+    seeds_run += 1
+
+    missing_pipeline_source, missing_pipeline_build = _copy_clean_fixture(
+        temp_root / "missing-rdp-combiner-object"
+    )
+    pipeline_object = (
+        missing_pipeline_build
+        / "core"
+        / "CMakeFiles"
+        / "t64_core.dir"
+        / "t64_rdp_pipeline.c.o"
+    )
+    if not pipeline_object.is_file():
+        raise AssertionError("RDP combiner production object is missing from clean fixture")
+    pipeline_object.unlink()
+    _must_reject(
+        "missing RDP combiner object file",
+        missing_pipeline_source,
+        missing_pipeline_build,
     )
     seeds_run += 1
 

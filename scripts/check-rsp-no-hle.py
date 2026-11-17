@@ -33,6 +33,7 @@ CANONICAL_CORE_SOURCES = frozenset(
         "t64_observe.c",
         "t64_pi.c",
         "t64_rdp.c",
+        "t64_rdp_pipeline.c",
         "t64_rdp_raster.c",
         "t64_rdp_tmem.c",
         "t64_rom.c",
@@ -156,14 +157,17 @@ REVIEWED_RDP_TMEM_FUNCTIONS = frozenset(
         "average_four_texels", "bits_per_texel", "channel5", "clamp_u8",
         "coeff", "command_tile", "field12", "floor_div_i64",
         "floor_div_pow2", "format_size_supported", "load_source_span_valid",
-        "map_triangle_index", "normalize_triangle_axis", "positive_mod_i64",
-        "read_tile_texel", "read_triangle_neighbor", "rgba5551",
+        "average_four_rgba8", "expand5_rgba8", "map_triangle_index",
+        "normalize_triangle_axis", "pack_rgba8", "positive_mod_i64",
+        "read_tile_texel", "read_tile_texel_rgba8", "read_triangle_neighbor",
+        "read_triangle_neighbor_rgba8", "rgba5551", "rgba8_channel",
         "sample_texel", "sign_extend16", "signed9", "source_byte_address", "source_texel",
-        "three_point_texels",
+        "three_point_rgba8", "three_point_texels",
         "t64_rdp_tmem_apply_command", "t64_rdp_tmem_begin_copy",
         "t64_rdp_tmem_convert_yuv", "t64_rdp_tmem_copy_pixel",
         "t64_rdp_tmem_handles_opcode", "t64_rdp_tmem_validate_command",
-        "t64_rdp_tmem_triangle_pixel", "t64_rdp_tmem_validate_copy",
+        "t64_rdp_tmem_triangle_pixel", "t64_rdp_tmem_triangle_pixel_rgba8",
+        "t64_rdp_tmem_validate_copy",
         "t64_rdp_tmem_validate_triangle", "tmem_base", "tmem_read_bits",
         "tmem_store", "wrap_coordinate",
     }
@@ -179,6 +183,13 @@ REVIEWED_RDP_RASTER_FUNCTIONS = frozenset(
         "sign_extend_u14", "signed_u32",
         "t64_rdp_triangle_bounds", "t64_rdp_triangle_render_row",
         "t64_rdp_triangle_word_count",
+    }
+)
+REVIEWED_RDP_PIPELINE_FUNCTIONS = frozenset(
+    {
+        "alpha_source", "clamp_u8", "color_channel", "combine_channel",
+        "combine_cycle", "floor_div_255", "next_noise", "rgb_source",
+        "signed9", "t64_rdp_combine_pixel",
     }
 )
 REVIEWED_VI_FUNCTIONS = frozenset(
@@ -246,7 +257,7 @@ REVIEWED_BODY_DIGESTS = {
     "core/t64_sp.c :: trace_refusal": "d142faecf8d4f78e427aa40e7454d0a24cc05c20ca433e225bed118982517dfc",
     "core/t64_sp.c :: warm_zero_source_sp_transfer": "46b55d7252273228780a497b4f34180b53dc93676f6bac901aaff9fae6d86508",
     "core/t64_sp.c :: write_rsp_status": "8d1f00710b955fc530864d080ae8d99733711e73749c75b6800d7cc590dbf74c",
-    "core/t64_rdp.c :: apply_pending_command": "b8750032a9fefd239aaa6d529f852088577f7629afc6afbdf4c595069b20a58b",
+    "core/t64_rdp.c :: apply_pending_command": "547861fc6ff5fa998a1e70597db59f99193f3cd2c524a41d9c432a818e55e582",
     "core/t64_rdp.c :: command_span_valid": "4f8a0ecc32f895ae4dfa8f6390d90e4e1a0c18477bbe8ebbb97d66136f882f3a",
     "core/t64_rdp.c :: dpc_status_value": "051e3e702318dd9975d0c0a41a990c733d78ca8e84c77aeeab67ef4da7d4be32",
     "core/t64_rdp.c :: fill_bounds": "05ce4e443ffa8fac9adc9503750953b1a9f8c0d7485c1c14a90601433d4c6540",
@@ -260,7 +271,7 @@ REVIEWED_BODY_DIGESTS = {
     "core/t64_rdp.c :: schedule_next_committed": "a6201021b4e6d72278c6ee6717b26b4e904160d3001b514523cf7ccc9a54d5e9",
     "core/t64_rdp.c :: schedule_work_after_committed": "dd9806898e39a57176c4bbe00dfa4c8b898ec0fa830c761700a2d17c55169be5",
     "core/t64_rdp.c :: set_refusal": "e7931da07d8dba661d964c820715536da479388feb50f9de9f2471c51a5c6e1f",
-    "core/t64_rdp.c :: supported_opcode": "6532ace041b847b57e318f4445c6f5beff372bf1b09ad38bdc259d6c5682d6c3",
+    "core/t64_rdp.c :: supported_opcode": "9c50bb921be7eebd779b9b011e1590eec8de03b788528c10f37f33cde8efb510",
     "core/t64_rdp.c :: t64_rdp_event": "b67580981748efee09c489010721f4c55c98d76d2f821e07b624814f38f9f3c8",
     "core/t64_rdp.c :: t64_rdp_read_register": "1d362cac600402a9115d698c9373ac1823e13f7422711cd9ad0b80540a115fda",
     "core/t64_rdp.c :: t64_rdp_reset_machine_state": "b18b1126b2bddb74b4ba5d0162dda1742d897c06d397972ed62adda0472be8cb",
@@ -276,21 +287,32 @@ REVIEWED_BODY_DIGESTS = {
     "core/t64_rdp_raster.c :: pair_q16": "56024955567f7f18bb7163400af9d016d94c98ef3ee1757cbfc75ccca1ab0a5c",
     "core/t64_rdp_raster.c :: project_texture_q16": "10e2632526925b46889ad6cfaa377b410969d63ed57d0fff24fdd8ef034f1b19",
     "core/t64_rdp_raster.c :: rgba5551": "81db13760bb36f530b28c2a5740fc826f89a7abe4094bcd4cb98979cf21960cc",
-    "core/t64_rdp_raster.c :: select_texture_lod": "be96eacc0a72be08119267f37c7e7650b2be0495e6ae0d7fe1834514f7b0996d",
+    "core/t64_rdp_raster.c :: select_texture_lod": "69683e8c2fd7968142b8746ce7a67bf853086b3525f25f7d2c6c846a1ec77247",
     "core/t64_rdp_raster.c :: shade_channel": "ffc805ab7a8a313f037ccecd916c12f6c05623fbe0904620a98824b218ce112d",
     "core/t64_rdp_raster.c :: shade_products_are_bounded": "dc43aa44161b59e8e18a5ea5abd0977e58fa250b8158e13c4ce4cf4901aa0346",
     "core/t64_rdp_raster.c :: sign_extend_u14": "4c60f2c84b607ddec9ccfa10319406dd75b180450d224ac17cc6fedc1b45dadb",
     "core/t64_rdp_raster.c :: signed_u32": "83179d57b15375b137c8e01de5374b4b027c396644745b06e8f4b984c817bebd",
-    "core/t64_rdp_raster.c :: t64_rdp_triangle_bounds": "a8eb28172eabb1f693d39af71390d7f56ccef67d5e204e8f3e0298eef42fc689",
-    "core/t64_rdp_raster.c :: t64_rdp_triangle_render_row": "367d4822d12417c3f1fdb3d5c3f1628174b52c560d412b9d68b864e8ce5cb68d",
+    "core/t64_rdp_raster.c :: t64_rdp_triangle_bounds": "e0d26b4e19c907fcb3a54b49924af8e11a1178ed461f9b805f8c8eca5ffe09eb",
+    "core/t64_rdp_raster.c :: t64_rdp_triangle_render_row": "f11330a75466f28a4d628703c5efabe25c04fa77a558aa8e0696b0649bf9b46b",
     "core/t64_rdp_raster.c :: t64_rdp_triangle_word_count": "9c4ba2233607144ba272f851462678760aae1ad6e24cd2b2fa635d24ebdf272c",
     "core/t64_rdp_raster.c :: texture_channel5": "17a9184f0b0b54ee26aa50902b7d727c41f0bd05830b1713e519e3f8d4e8505a",
     "core/t64_rdp_raster.c :: texture_channel_q16": "658f89383ca8fd1b72b7a67b9ef541c848d8c1755d01a4f6733445ffca7d1b95",
     "core/t64_rdp_raster.c :: texture_products_are_bounded": "a7870293404666555f9535bdfc67824860480c0a4abded0a609fd8561ed26382",
     "core/t64_rdp_raster.c :: texture_values_at": "192537747cf88c057a5a0832d8a6126fa6321352c41347fbe65a62247d7e7632",
+    "core/t64_rdp_pipeline.c :: alpha_source": "003b10ac38b9744bea2facbbf9ade2dac385961adda91ccdf5542c98a1f8c6e7",
+    "core/t64_rdp_pipeline.c :: clamp_u8": "08dc4f5a1bb344129936543b0bf9c45941bcea865b568e10884ad5845006cdd8",
+    "core/t64_rdp_pipeline.c :: color_channel": "66142787001041fc0a64049b3a8c38515a037fd823b9a2b59b08c6f7fc68224b",
+    "core/t64_rdp_pipeline.c :: combine_channel": "ae37ee47401fcdbe53198602af5ff91a51dd173f1c772327caf8e81c5271ca97",
+    "core/t64_rdp_pipeline.c :: combine_cycle": "cf5885b732dba7c76f439094094f54ab82b7593b29a50270cb907af38ded3562",
+    "core/t64_rdp_pipeline.c :: floor_div_255": "467f7c61a7d7eb981204c52a5a5977f33cd729be4f593a877a21cf3ab6152a36",
+    "core/t64_rdp_pipeline.c :: next_noise": "ac21af7970e2f4618315b2878bae66c88e93b2508546625d15831cfb17f445d6",
+    "core/t64_rdp_pipeline.c :: rgb_source": "c23588569f95204ff49dfa9f6931b910df5880f3b22c3ad64e4efc983e968ec7",
+    "core/t64_rdp_pipeline.c :: signed9": "9fe5122087d1b493f7380882126ce57c2cd0e1c94068dfad8d746452d87bb1e3",
+    "core/t64_rdp_pipeline.c :: t64_rdp_combine_pixel": "656b8bb98dc169b8e7ec8db460af4cf47fd020c8b133243f641999f86f2641db",
     "core/t64_rdp_tmem.c :: apply_load_block": "9a1e6035fe42bc1d6fe4fb9c98501d61b82894b6dc155fcc524c73f486547b7a",
     "core/t64_rdp_tmem.c :: apply_load_tile": "92d546a7231010976364a0eedf4b1005493cb1030985a31707b723a5bb2c91b5",
     "core/t64_rdp_tmem.c :: apply_load_tlut": "60fd5c460b216b64f4d04b36cb2960f33204c95398c04542a668948eb95f4ca7",
+    "core/t64_rdp_tmem.c :: average_four_rgba8": "0dbdef464af27e23959e227141bf0ee37d81623bc7ec447773e7610b6a2bd891",
     "core/t64_rdp_tmem.c :: average_four_texels": "0545879b9d76c68b14a1f1e5a4bf89b86905ef5b437580757f539a5dcd7ed5d2",
     "core/t64_rdp_tmem.c :: bits_per_texel": "04908bfc768c99d1651c96692f85c23d63c5d9f3382f770b54d0172319ecd759",
     "core/t64_rdp_tmem.c :: channel5": "68eae710a4c3a4f4125bcba65a7e2c42a9dafde7050c8937a0014e8d1011fc3b",
@@ -300,13 +322,18 @@ REVIEWED_BODY_DIGESTS = {
     "core/t64_rdp_tmem.c :: field12": "ab67b691d417f175d1d94583c7301ad595d7e0579f16f1f59196ab1bf9f6edf4",
     "core/t64_rdp_tmem.c :: floor_div_i64": "7da65f0daca4a086ea1d8f889a0e006fc86a78dd674d556b735bafc8b2626ecd",
     "core/t64_rdp_tmem.c :: format_size_supported": "71adacb26c4798ec6ccd53ea5c01a9ec53a85d85f4bc1f9fd34a98803effb456",
+    "core/t64_rdp_tmem.c :: expand5_rgba8": "ceac39882b1c7c81ee50b7bedf89cce86e3908b8c5d02fd0186769a093699142",
     "core/t64_rdp_tmem.c :: load_source_span_valid": "b07270aa22debd52a133db1310902526aa3f17ac3a8a857d4fb4a35d06cee53c",
     "core/t64_rdp_tmem.c :: map_triangle_index": "b8b0d5587fdc055bf62be564dd562980f1b8bef840a3ccff53889b30c24528a6",
+    "core/t64_rdp_tmem.c :: pack_rgba8": "a719e6236847fd632cbfcc90b3373a2d01c25d5326a3b92df1ba93c0e263885d",
     "core/t64_rdp_tmem.c :: normalize_triangle_axis": "bccb7ced66128df66bd3d2c947c93d9bc3b8e6049bab7168f30c1cabb5eaf7e8",
     "core/t64_rdp_tmem.c :: positive_mod_i64": "98adfaab314ce936683310176359221c646ea5ebab1c1fe5c7b0b77ccfe02ed3",
     "core/t64_rdp_tmem.c :: read_tile_texel": "eef1214edce78c3d1694ba8a69450b86000d8505f6acfc5269688d86bd5c6471",
+    "core/t64_rdp_tmem.c :: read_tile_texel_rgba8": "12363c2ae15782908a221e02f866d905fc46e4757343b352147cb2095c244af2",
     "core/t64_rdp_tmem.c :: read_triangle_neighbor": "83f0c8e7a2613bc456cab84fa0a02cd6f45f34c66d294491f8c60e141c4efb28",
+    "core/t64_rdp_tmem.c :: read_triangle_neighbor_rgba8": "a0e65526145ef6c3c1dc6d9590eef27fb243b5da40376b0f95757ca70e068c45",
     "core/t64_rdp_tmem.c :: rgba5551": "326cf3a732fa8e0127680cf563a68ffb1d2fc2de18060bd01ddd577ca08ba15f",
+    "core/t64_rdp_tmem.c :: rgba8_channel": "de9e9e78f3e9b5f3b01c125cf99b5565d83f80fdfdf0f68a38280cf5991f9bd6",
     "core/t64_rdp_tmem.c :: floor_div_pow2": "cb42f091dfb0b8dd678305dca8d54cf5648870d0f1efdf62da02673497c0367e",
     "core/t64_rdp_tmem.c :: sample_texel": "99a9eae10ae328b568ad592693328216cfc66df38ab3e2c1c0f598d428f1726b",
     "core/t64_rdp_tmem.c :: sign_extend16": "53b62a6c4435c39870489b1c13c4633a77c8796023c6bb624beaa2108602fd6a",
@@ -321,8 +348,10 @@ REVIEWED_BODY_DIGESTS = {
     "core/t64_rdp_tmem.c :: t64_rdp_tmem_validate_command": "2de348419f36cbc140773f9bc8ac345271d611f1e69968f946ff92f3394c75f7",
     "core/t64_rdp_tmem.c :: t64_rdp_tmem_validate_copy": "3a52b0812f075bc7e937ab36164847b4885cf05ee0f2f8bb4d4fa62e741cc06e",
     "core/t64_rdp_tmem.c :: t64_rdp_tmem_triangle_pixel": "14bbcc1c091eb79eb7e8b149ff9aeaed21a51cec5eb99e0f0a3b9012709f4c8f",
+    "core/t64_rdp_tmem.c :: t64_rdp_tmem_triangle_pixel_rgba8": "dc2ea2baf07afbf9fde6fe54807d9b4f1d57b16392b5579c34b830dc22e31ed5",
     "core/t64_rdp_tmem.c :: t64_rdp_tmem_validate_triangle": "344298b67c53f3e48f1519e1e0cf306f76aad68e7dc7046778517827dc98778c",
     "core/t64_rdp_tmem.c :: three_point_texels": "8126e6a1d50620052e0a0c38f5afd5c7815619c3c13e9e162bd1452170cda32c",
+    "core/t64_rdp_tmem.c :: three_point_rgba8": "a4abfb4f4f16355ebd10a2bdcb4f5b5f8428e527825a743579a5a669725a5e5a",
     "core/t64_rdp_tmem.c :: tmem_base": "641c94f472515a2c3dd210d23dc989fe5fcbf2ee8a3cc306895228c70f69a6bb",
     "core/t64_rdp_tmem.c :: tmem_read_bits": "60ede2058b1483b54e7bcb9e87c5425ec698b84e2d9083fd8eee73ed11db4966",
     "core/t64_rdp_tmem.c :: tmem_store": "bef2f9bcbd59a7dcede834b8438c9ee3f69786ba7ba6f78b6a94aac35bdf5364",
@@ -515,6 +544,7 @@ def _check_source_route(root: pathlib.Path) -> tuple[list[str], list[str], int]:
     rsp_path = root / "core" / "t64_rsp.c"
     sp_path = root / "core" / "t64_sp.c"
     rdp_path = root / "core" / "t64_rdp.c"
+    pipeline_path = root / "core" / "t64_rdp_pipeline.c"
     raster_path = root / "core" / "t64_rdp_raster.c"
     tmem_path = root / "core" / "t64_rdp_tmem.c"
     vi_path = root / "core" / "t64_vi.c"
@@ -522,7 +552,8 @@ def _check_source_route(root: pathlib.Path) -> tuple[list[str], list[str], int]:
     if not all(
         path.is_file()
         for path in (
-            rsp_path, sp_path, rdp_path, raster_path, tmem_path, vi_path, bus_path
+            rsp_path, sp_path, rdp_path, pipeline_path, raster_path, tmem_path,
+            vi_path, bus_path
         )
     ):
         findings.append(
@@ -533,11 +564,15 @@ def _check_source_route(root: pathlib.Path) -> tuple[list[str], list[str], int]:
     rsp = strip_c_comments_and_literals(rsp_path.read_text(encoding="utf-8"))
     sp = strip_c_comments_and_literals(sp_path.read_text(encoding="utf-8"))
     rdp = strip_c_comments_and_literals(rdp_path.read_text(encoding="utf-8"))
+    pipeline = strip_c_comments_and_literals(
+        pipeline_path.read_text(encoding="utf-8")
+    )
     raster = strip_c_comments_and_literals(raster_path.read_text(encoding="utf-8"))
     tmem = strip_c_comments_and_literals(tmem_path.read_text(encoding="utf-8"))
     vi = strip_c_comments_and_literals(vi_path.read_text(encoding="utf-8"))
     bus = strip_c_comments_and_literals(bus_path.read_text(encoding="utf-8"))
     rdp_function_names = file_function_names(rdp)
+    pipeline_function_names = file_function_names(pipeline)
     vi_function_names = file_function_names(vi)
     if rdp_function_names != REVIEWED_RDP_FUNCTIONS:
         missing = sorted(REVIEWED_RDP_FUNCTIONS - rdp_function_names)
@@ -552,6 +587,13 @@ def _check_source_route(root: pathlib.Path) -> tuple[list[str], list[str], int]:
         unexpected = sorted(raster_function_names - REVIEWED_RDP_RASTER_FUNCTIONS)
         findings.append(
             "core/t64_rdp_raster.c: reviewed triangle raster function inventory changed; "
+            f"missing={missing!r} unexpected={unexpected!r}"
+        )
+    if pipeline_function_names != REVIEWED_RDP_PIPELINE_FUNCTIONS:
+        missing = sorted(REVIEWED_RDP_PIPELINE_FUNCTIONS - pipeline_function_names)
+        unexpected = sorted(pipeline_function_names - REVIEWED_RDP_PIPELINE_FUNCTIONS)
+        findings.append(
+            "core/t64_rdp_pipeline.c: reviewed combiner function inventory changed; "
             f"missing={missing!r} unexpected={unexpected!r}"
         )
     tmem_function_names = file_function_names(tmem)
@@ -624,6 +666,10 @@ def _check_source_route(root: pathlib.Path) -> tuple[list[str], list[str], int]:
         routes[f"core/t64_sp.c :: {name}"] = function_body(sp, name)
     for name in REVIEWED_RDP_FUNCTIONS:
         routes[f"core/t64_rdp.c :: {name}"] = function_body(rdp, name)
+    for name in REVIEWED_RDP_PIPELINE_FUNCTIONS:
+        routes[f"core/t64_rdp_pipeline.c :: {name}"] = function_body(
+            pipeline, name
+        )
     for name in REVIEWED_RDP_RASTER_FUNCTIONS:
         routes[f"core/t64_rdp_raster.c :: {name}"] = function_body(raster, name)
     for name in REVIEWED_RDP_TMEM_FUNCTIONS:
@@ -736,6 +782,10 @@ def _check_source_route(root: pathlib.Path) -> tuple[list[str], list[str], int]:
         findings.append(
             "core/t64_rdp_raster.c :: t64_rdp_triangle_render_row: textured pixels bypass canonical TMEM sampling"
         )
+    if "t64_rdp_combine_pixel" not in raster_row_body:
+        findings.append(
+            "core/t64_rdp_raster.c :: t64_rdp_triangle_render_row: covered pixels bypass the versioned color combiner"
+        )
     fetch_body = routes["core/t64_rdp.c :: t64_rdp_event"] or ""
     if "t64_rdp_triangle_word_count" not in fetch_body:
         findings.append(
@@ -784,6 +834,7 @@ def _check_source_route(root: pathlib.Path) -> tuple[list[str], list[str], int]:
                 "core/t64_rdp.c :: apply_pending_command -> t64_rdp_tmem_validate_command -> t64_rdp_tmem_apply_command",
                 "core/t64_rdp_tmem.c :: per-machine source validation -> bounded LoadTile/LoadBlock/LoadTLUT writes -> copy sampling",
                 "core/t64_rdp.c :: texture triangle packet -> signed Q16 preflight -> row-event raster -> per-machine TMEM sampling",
+                "core/t64_rdp_raster.c :: covered triangle pixel -> t64_rdp_combine_pixel -> RGBA5551 RDRAM store",
                 "core/t64_sp.c :: start_rsp_dma and write_rsp_status -> t64_rsp_ensure_opportunity",
             ]
         )
@@ -1022,6 +1073,41 @@ def _check_build_route(root: pathlib.Path, build: pathlib.Path) -> tuple[list[st
                     "build/core/CMakeFiles/t64_core.dir/t64_rdp_tmem.c.o: "
                     f"required canonical symbol {symbol} is absent"
                 )
+    pipeline_object = (
+        build / "core" / "CMakeFiles" / "t64_core.dir" / "t64_rdp_pipeline.c.o"
+    )
+    if not pipeline_object.is_file():
+        findings.append(
+            "build/core/CMakeFiles/t64_core.dir/t64_rdp_pipeline.c.o: canonical combiner object is missing"
+        )
+    elif nm is None:
+        findings.append("build route: `nm` unavailable for RDP combiner object inspection")
+    else:
+        result = subprocess.run(
+            [nm, "-a", str(pipeline_object)],
+            check=False,
+            capture_output=True,
+            text=True,
+            timeout=10,
+        )
+        symbols = set()
+        if result.returncode == 0:
+            for line in result.stdout.splitlines():
+                pieces = line.split()
+                if pieces:
+                    symbol = pieces[-1]
+                    while symbol.startswith("_"):
+                        symbol = symbol[1:]
+                    symbols.add(symbol)
+        else:
+            findings.append(
+                "build/core/CMakeFiles/t64_core.dir/t64_rdp_pipeline.c.o: nm inspection failed"
+            )
+        if "t64_rdp_combine_pixel" not in symbols:
+            findings.append(
+                "build/core/CMakeFiles/t64_core.dir/t64_rdp_pipeline.c.o: "
+                "required canonical symbol t64_rdp_combine_pixel is absent"
+            )
     if not findings:
         evidence.extend(
             [
@@ -1030,6 +1116,7 @@ def _check_build_route(root: pathlib.Path, build: pathlib.Path) -> tuple[list[st
                 "build/core/CMakeFiles/t64_core.dir/t64_rsp.c.o :: nm contains t64_rsp_issue_event, t64_rsp_ensure_opportunity, t64_rsp_start",
                 "build/core/CMakeFiles/t64_core.dir/t64_rdp_raster.c.o :: nm contains triangle bounds, row and packet-length entry points",
                 "build/core/CMakeFiles/t64_core.dir/t64_rdp_tmem.c.o :: nm contains triangle texture validation and pixel sampling entry points",
+                "build/core/CMakeFiles/t64_core.dir/t64_rdp_pipeline.c.o :: nm contains t64_rdp_combine_pixel",
             ]
         )
     return findings, evidence

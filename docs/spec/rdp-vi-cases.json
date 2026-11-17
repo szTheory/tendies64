@@ -177,7 +177,17 @@
         {
           "path": "core/test_rdp_combiner",
           "cases": [
-            "combiner-one-cycle-raw-dpc-vi"
+            "combiner-one-cycle-raw-dpc-vi",
+            "combiner-literal-wrong-control",
+            "combiner-two-cycle-feedback-literal",
+            "combiner-rgb-selector-denominator",
+            "combiner-alpha-selector-denominator",
+            "combiner-signed-floor-clamp-and-saturation",
+            "combiner-key-convert-lod-sources",
+            "combiner-noise-seed-and-cadence",
+            "combiner-noise-interleaved-instances",
+            "combiner-refusal-noise-unchanged",
+            "combiner-undefined-color-policy-digest"
           ]
         }
       ]
