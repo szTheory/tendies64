@@ -414,10 +414,16 @@ typedef struct {
   uint64_t wall_ms;
   uint64_t bound;
   uint64_t log_limit;
+#ifdef T64_SUPERVISOR_TESTING
+  uint64_t advance_step;
+#endif
   uint64_t expect_pass;
   uint64_t video_observation_fd;
   int real_mode;
   int input_options_seen;
+#ifdef T64_SUPERVISOR_TESTING
+  int advance_step_seen;
+#endif
 #ifdef T64_SUPERVISOR_TESTING
   uint64_t test_ready_fd;
   uint64_t test_gate_fd;
@@ -458,6 +464,9 @@ static int parse_args(int argc, char **argv, sup_args *a) {
       {"--expect-pass", NULL, &a->expect_pass, 1, 0},
       {"--capture-out", &a->capture_out, NULL, 0, 0},
       {"--video-observation-fd", NULL, &a->video_observation_fd, 0, 0},
+#ifdef T64_SUPERVISOR_TESTING
+      {"--advance-step", NULL, &a->advance_step, 0, 0},
+#endif
   };
   size_t nopt = sizeof opts / sizeof opts[0];
   int i = 1;
@@ -488,6 +497,11 @@ static int parse_args(int argc, char **argv, sup_args *a) {
         strcmp(argv[i], "--input-sha256") == 0) {
       a->input_options_seen = 1;
     }
+#ifdef T64_SUPERVISOR_TESTING
+    if (strcmp(argv[i], "--advance-step") == 0) {
+      a->advance_step_seen = 1;
+    }
+#endif
     opts[k].seen = 1;
     if (opts[k].sp != NULL) {
       *opts[k].sp = argv[i + 1];
@@ -545,6 +559,12 @@ static int parse_args(int argc, char **argv, sup_args *a) {
       bad = 1;
     }
 #ifdef T64_SUPERVISOR_TESTING
+    if (!bad && a->advance_step_seen &&
+        (a->advance_step == 0u || a->advance_step > UINT64_C(32))) {
+      bad = 1;
+    }
+#endif
+#ifdef T64_SUPERVISOR_TESTING
     if ((a->test_ready_fd == 0u) != (a->test_gate_fd == 0u) ||
         a->test_ready_fd > (uint64_t)INT_MAX ||
         a->test_gate_fd > (uint64_t)INT_MAX ||
@@ -576,7 +596,11 @@ static int parse_args(int argc, char **argv, sup_args *a) {
          a->fixture_id == NULL || !valid_fixture_id(a->fixture_id) ||
          a->fixture_sha == NULL || !is_hex64(a->fixture_sha) ||
          a->input != NULL || a->input_options_seen ||
-         a->video_observation_fd != 0u)) {
+         a->video_observation_fd != 0u
+#ifdef T64_SUPERVISOR_TESTING
+         || a->advance_step_seen
+#endif
+         )) {
       bad = 1;
     }
   }
@@ -1232,6 +1256,9 @@ static int real_run_mode(const sup_args *args, const char *self_path) {
   char video_observation_fd_text[24];
   char profile_id[64];
   char guest_ticks_text[24];
+#ifdef T64_SUPERVISOR_TESTING
+  char advance_step_text[24];
+#endif
   char report_bytes[T64_REAL_RESULT_MAX_BYTES + 1u];
   uint8_t *capture = NULL;
   size_t capture_length = 0u;
@@ -1361,6 +1388,10 @@ static int real_run_mode(const sup_args *args, const char *self_path) {
                  fixture_identity->profile_id);
   (void)snprintf(guest_ticks_text, sizeof guest_ticks_text, "%llu",
                  (unsigned long long)args->bound);
+#ifdef T64_SUPERVISOR_TESTING
+  (void)snprintf(advance_step_text, sizeof advance_step_text, "%llu",
+                 (unsigned long long)args->advance_step);
+#endif
   deadline = args->wall_ms > UINT64_MAX - start_ms
                  ? UINT64_MAX
                  : start_ms + args->wall_ms;
@@ -1372,8 +1403,11 @@ static int real_run_mode(const sup_args *args, const char *self_path) {
     char option_input[] = "--input-fd";
     char option_profile[] = "--profile";
     char option_ticks[] = "--guest-ticks";
+#ifdef T64_SUPERVISOR_TESTING
+    char option_advance_step[] = "--advance-step";
+#endif
     char option_video_observation[] = "--video-observation-fd";
-    char *child_args[16];
+    char *child_args[18];
     size_t child_argc = 0u;
     child_args[child_argc++] = runner_path;
     child_args[child_argc++] = option_fixture;
@@ -1384,6 +1418,12 @@ static int real_run_mode(const sup_args *args, const char *self_path) {
     child_args[child_argc++] = profile_id;
     child_args[child_argc++] = option_ticks;
     child_args[child_argc++] = guest_ticks_text;
+#ifdef T64_SUPERVISOR_TESTING
+    if (args->advance_step_seen) {
+      child_args[child_argc++] = option_advance_step;
+      child_args[child_argc++] = advance_step_text;
+    }
+#endif
     if (args->video_observation_fd != 0u) {
       child_args[child_argc++] = option_video_observation;
       child_args[child_argc++] = video_observation_fd_text;

@@ -351,10 +351,16 @@ target_compile_definitions(test_rdp_video PRIVATE ${T64_HOST_DEFS})
 target_include_directories(test_rdp_video PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
 target_link_libraries(test_rdp_video PRIVATE t64_common)
 t64_target_warnings(test_rdp_video)
-add_dependencies(test_rdp_video t64-supervisor t64-result-check t64-rdp-fill-fixture)
+add_dependencies(test_rdp_video t64-supervisor t64-supervisor-test
+  t64-result-check t64-rdp-fill-fixture)
 add_test(NAME runner.rdp-fill
   COMMAND test_rdp_video accepted-cpu-fill-to-raw-frame
     $<TARGET_FILE:t64-supervisor> $<TARGET_FILE:t64-result-check>
+    ${CMAKE_SOURCE_DIR}/build/fixtures/rdp-fill.z64
+    ${CMAKE_SOURCE_DIR}/build/fixtures/hello.input.json)
+add_test(NAME controls.real.rdp-drain-cadence
+  COMMAND test_rdp_video drain-cadence-real-runner
+    $<TARGET_FILE:t64-supervisor-test> $<TARGET_FILE:t64-result-check>
     ${CMAKE_SOURCE_DIR}/build/fixtures/rdp-fill.z64
     ${CMAKE_SOURCE_DIR}/build/fixtures/hello.input.json)
 add_test(NAME controls.real.rdp-wrong-pixel
@@ -369,6 +375,7 @@ add_test(NAME controls.real.rdp-replacement-fixture
     ${CMAKE_SOURCE_DIR}/build/fixtures/hello.input.json)
 set_tests_properties(
   runner.rdp-fill
+  controls.real.rdp-drain-cadence
   controls.real.rdp-wrong-pixel
   controls.real.rdp-replacement-fixture PROPERTIES
   LABELS "runner;controls" TIMEOUT 120)

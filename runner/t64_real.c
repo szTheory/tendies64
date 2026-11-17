@@ -24,6 +24,7 @@
 #define T64_REAL_OUTPUT_CAPACITY 4096u
 #define T64_REAL_EXPECTED_LOG_BYTES 30u
 #define T64_REAL_TRACE_STEP UINT64_C(16)
+#define T64_REAL_TEST_MAX_ADVANCE_STEP UINT64_C(32)
 #define T64_REAL_MAX_RESOURCE_YIELDS 64u
 #define T64_REAL_VIDEO_MAX_BYTES (320u * 240u * 4u)
 _Static_assert(sizeof(t64_video_observation) <= PIPE_BUF,
@@ -687,7 +688,8 @@ static void set_digest(char output[T64_REAL_RESULT_HEX_SIZE],
 }
 
 static int run_real(int fixture_fd, int input_fd, const char *requested_profile,
-                    uint64_t guest_ticks, int video_observation_fd) {
+                    uint64_t guest_ticks, uint64_t advance_step,
+                    int video_observation_fd) {
   static const t64_host_allocator allocator = {
       allocator_allocate, allocator_release, NULL};
   owned_bytes fixture = {0};
@@ -838,8 +840,8 @@ static int run_real(int fixture_fd, int input_fd, const char *requested_profile,
 
   while (current_tick < guest_ticks) {
     uint64_t target =
-        guest_ticks - current_tick > T64_REAL_TRACE_STEP
-            ? current_tick + T64_REAL_TRACE_STEP
+        guest_ticks - current_tick > advance_step
+            ? current_tick + advance_step
             : guest_ticks;
     for (;;) {
       uint64_t before_records = observations.trace_records;
@@ -1119,14 +1121,22 @@ int main(int argc, char **argv) {
   int video_observation_fd = -1;
   const char *profile_id = NULL;
   uint64_t guest_ticks = 0u;
+  uint64_t advance_step = T64_REAL_TRACE_STEP;
   bool seen_fixture = false;
   bool seen_input = false;
   bool seen_profile = false;
   bool seen_ticks = false;
   bool seen_video_observation = false;
+#ifdef T64_REAL_RUNNER_TESTING
+  bool seen_advance_step = false;
+#endif
   int i;
 
-  if (argc != 9 && argc != 11) {
+  if (argc != 9 && argc != 11
+#ifdef T64_REAL_RUNNER_TESTING
+      && argc != 13
+#endif
+  ) {
     return emit_prelaunch("usage", "not-started", 0u, 2);
   }
   for (i = 1; i < argc; i += 2) {
@@ -1157,6 +1167,13 @@ int main(int argc, char **argv) {
         return emit_prelaunch("usage", "not-started", guest_ticks, 2);
       }
       seen_video_observation = true;
+#ifdef T64_REAL_RUNNER_TESTING
+    } else if (strcmp(option, "--advance-step") == 0 &&
+               !seen_advance_step && parse_u64(value, &advance_step) &&
+               advance_step > 0u &&
+               advance_step <= T64_REAL_TEST_MAX_ADVANCE_STEP) {
+      seen_advance_step = true;
+#endif
     } else {
       return emit_prelaunch("usage", "not-started", guest_ticks, 2);
     }
@@ -1182,7 +1199,7 @@ int main(int argc, char **argv) {
 #endif
   {
     int status = run_real(fixture_fd, input_fd, profile_id, guest_ticks,
-                          video_observation_fd);
+                          advance_step, video_observation_fd);
 #ifdef T64_REAL_RUNNER_TESTING
     if (status == 0 && test_fault_is("exit-nonzero")) return 7;
     if (status == 0 && test_fault_is("crash-after-output")) {

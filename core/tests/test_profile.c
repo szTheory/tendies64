@@ -777,6 +777,7 @@ static void test_rdp_profile_metadata_binding(void) {
       "ntsc-cart-4m-openipl3-rdram-b-t1-rdp-blender-v6",
       "ntsc-cart-4m-openipl3-rdram-b-t1-rdp-depth-v7",
       "ntsc-cart-4m-openipl3-rdram-b-t1-rdp-vi-v8",
+      "ntsc-cart-4m-openipl3-rdram-b-t1-rdp-vi-filter-v9",
   };
   /* Earlier-profile bytes are pinned to the retained pre-repair artifact. */
   static const char *const legacy_hashes[] = {
@@ -785,9 +786,16 @@ static void test_rdp_profile_metadata_binding(void) {
       "0e9938d6b92159fe1f8c5dff0c03749979d5d10b11b458224f2dcca1a2345efa",
       "7f73b46e6c695fddb60d89d6351c1c099f56e76dbe109ab9f2cb9f372fc56d0e",
       "56f25e100d3c92792f836b0664e81697919487b4fdae49404476a85135ae5969",
+      "4f929a757bc6c257729918ccd92e632256fc5ad991dab2317a272cba1d22dc1d",
   };
   static const size_t legacy_lengths[] = {1116u, 1132u, 1172u, 1155u,
-                                          1231u};
+                                          1231u, 1243u};
+  static const uint32_t descriptor_versions[] = {7u, 7u, 8u, 9u,
+                                                  10u, 10u, 10u};
+  static const uint32_t model_versions[] = {12u, 13u, 14u, 15u,
+                                             16u, 17u, 18u};
+  static const uint32_t state_versions[] = {17u, 18u, 19u, 20u,
+                                             21u, 22u, 23u};
   static const size_t text_offsets[] = {
       offsetof(t64_profile_descriptor, rdp_work_policy),
       offsetof(t64_profile_descriptor, vi_clock_policy),
@@ -816,6 +824,14 @@ static void test_rdp_profile_metadata_binding(void) {
     t64_host_allocator allocator = {test_allocate, test_release, &state};
     T64_CHECK_INT(t64_profile_lookup(ids[index], &profile), T64_STATUS_OK);
     if (profile == NULL) continue;
+    T64_CHECK_STR(profile->profile_id, ids[index]);
+    T64_CHECK_INT(profile->descriptor_version, descriptor_versions[index]);
+    T64_CHECK_INT(profile->machine_model_version, model_versions[index]);
+    T64_CHECK_INT(profile->state_serialization_version, state_versions[index]);
+    if (index == 6u) {
+      T64_CHECK_STR(profile->vi_output_policy,
+                    "5551-8888-aa53mdtl-q8f-df3-dvmed-bq20f-gd16r8-sqrt255-pcspan-v3");
+    }
     T64_CHECK_INT(t64_profile_hash(profile, original_hash), T64_STATUS_OK);
     T64_CHECK_INT(t64_profile_serialize(profile, original_bytes,
                                         sizeof original_bytes,
@@ -829,7 +845,7 @@ static void test_rdp_profile_metadata_binding(void) {
         t64_machine_destroy(canonical_machine);
     }
     T64_CHECK(original_length > 0u);
-    if (index < 5u) {
+    if (index < 6u) {
       char original_hex[T64_DIGEST_SIZE * 2u + 1u];
       digest_to_hex(original_hash, original_hex);
       T64_CHECK_STR(original_hex, legacy_hashes[index]);

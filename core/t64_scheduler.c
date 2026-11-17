@@ -275,11 +275,21 @@ static bool event_counter_would_overflow(const t64_machine *machine,
 
 static bool vi_event_waits_for_output_capacity(const t64_machine *machine,
                                                const t64_event *event) {
-  return event->device == T64_VI_DEVICE &&
-         event->kind == T64_VI_EVENT_FIELD &&
-         t64_has_rdp_vi_profile(machine) && machine->vi.enabled &&
-         event->token == machine->vi.event_generation &&
-         machine->vi.packet_count >= T64_VIDEO_QUEUE_CAPACITY;
+  uint64_t hline;
+  uint64_t period;
+
+  if (event->device != T64_VI_DEVICE || event->kind != T64_VI_EVENT_FIELD ||
+      !t64_has_rdp_vi_profile(machine) || !machine->vi.enabled ||
+      event->token != machine->vi.event_generation ||
+      machine->vi.packet_count < T64_VIDEO_QUEUE_CAPACITY) {
+    return false;
+  }
+  if (!t64_has_vi_filter_v9_profile(machine)) return true;
+  hline =
+      (uint64_t)((machine->vi.active_registers[7] & UINT32_C(0x0fff)) + 1u);
+  period = hline *
+           (machine->vi.active_registers[6] & UINT32_C(0x03ff));
+  return period != 0u && machine->vi.next_boundary_units == period;
 }
 
 static bool event_can_dispatch(const t64_machine *machine,

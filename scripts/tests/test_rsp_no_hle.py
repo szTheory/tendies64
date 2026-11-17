@@ -74,6 +74,7 @@ MUTATION_SEEDS = (
     "SP completion coverage invalidation body mutation",
     "SP RSP DMA coverage invalidation body mutation",
     "VI RGBA8888 scanout body mutation",
+    "VI filtered renderer body mutation",
     "VI v8 field timing mutation",
     "missing RDP combiner object file",
     "RDP depth evaluate body mutation",
@@ -533,6 +534,7 @@ def _check_mutation_suite(temp_root: pathlib.Path) -> int:
         ("core/t64_sp.c", "t64_sp_complete", "SP completion coverage invalidation body mutation"),
         ("core/t64_sp.c", "t64_sp_rsp_dma_commit", "SP RSP DMA coverage invalidation body mutation"),
         ("core/t64_vi.c", "t64_vi_event", "VI RGBA8888 scanout body mutation"),
+        ("core/t64_vi.c", "render_filter_packet", "VI filtered renderer body mutation"),
         ("core/t64_vi.c", "vi_v8_event", "VI v8 field timing mutation"),
     )
     for relative, function_name, label in sealed_body_mutations:

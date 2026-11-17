@@ -283,6 +283,89 @@
           ]
         }
       ]
+    },
+    "vi-filters": {
+      "ctest": [
+        "unit.core.vi.filters"
+      ],
+      "binaries": [
+        {
+          "path": "core/test_vi",
+          "cases": [
+            "cpu-authored-fill-packet-and-dp-lifecycle",
+            "copy-refusal-is-atomic",
+            "v16-digest-covers-rdp-tmem-and-inherited-state",
+            "drain-cadence-preserves-digest-and-packet-history",
+            "full-queue-copy-preserves-event-order",
+            "vi-register-inventory-readback-reserved-policy",
+            "vi-ntsc-rational-field-timing",
+            "vi-diagnostic-vs-standard-timing",
+            "vi-geometry-rgba5551-rgba8888",
+            "vi-geometry-minimum-window",
+            "vi-scaled-offset-window-source-pitch",
+            "vi-serrate-interlace-parity-origin",
+            "vi-serrate-latch-current-boundaries",
+            "vi-intr-current-write-clear-mi",
+            "vi-active-intr-immediate-no-retroactive",
+            "vi-next-field-latch-before-on-after",
+            "vi-disabled-blank-empty-windows",
+            "vi-geometry-maximum-span",
+            "vi-image-span-overflow-refusal",
+            "vi-rational-whole-split-phase",
+            "vi-same-tick-dp-vi-mi-cpu-sp-order",
+            "vi-interleaved-machine-phase",
+            "vi-short-period-backpressure-resume",
+            "vi-old-profiles-unchanged",
+            "vi-hsync-latch-field-continuity",
+            "vi-vsync-latch-field-continuity",
+            "vi-decoded-geometry-endpoints",
+            "vi-interlace-full-height-source-span",
+            "vi-progressive-high-offset-source-span",
+            "vi-aa-modes",
+            "vi-resample-fraction",
+            "vi-divot",
+            "vi-gamma",
+            "vi-gamma-dither",
+            "vi-dither-filter",
+            "vi-aa-dither-precedence",
+            "vi-gamma-dither-requires-gamma",
+            "vi-filter-stage-order",
+            "vi-filter-wrong-expected",
+            "vi-rdp-fill-coverage-to-filtered-packet",
+            "vi-v8-filter-ignore"
+          ]
+        }
+      ]
+    },
+    "video-output": {
+      "ctest": [
+        "unit.core.vi.output",
+        "controls.real.rdp-drain-cadence"
+      ],
+      "binaries": [
+        {
+          "path": "core/test_video_output",
+          "cases": [
+            "output-full-pending-boundary",
+            "output-resume-exactly-once",
+            "output-no-overwrite-loss",
+            "output-required-size-no-partial-copy",
+            "output-invalid-overlap-span",
+            "output-drain-cadence-equal",
+            "output-whole-split",
+            "output-interleaved-instances"
+          ]
+        },
+        {
+          "path": "runner/test_rdp_video",
+          "cases": [
+            "accepted-cpu-fill-to-raw-frame",
+            "same-setup-wrong-pixel",
+            "replacement-fixture-refused",
+            "drain-cadence-real-runner"
+          ]
+        }
+      ]
     }
   }
 }

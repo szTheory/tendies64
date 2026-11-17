@@ -869,6 +869,13 @@ struct t64_machine {
   bool rsp_observation_valid;
 };
 
+static inline bool t64_has_vi_filter_v9_profile(
+    const t64_machine *machine) {
+  return machine != NULL && machine->profile.descriptor_version == 10u &&
+         machine->profile.machine_model_version == 18u &&
+         machine->profile.state_serialization_version == 23u;
+}
+
 static inline bool t64_has_rdp_vi_profile(const t64_machine *machine) {
   return machine != NULL &&
          ((machine->profile.machine_model_version == 11u &&
@@ -884,7 +891,8 @@ static inline bool t64_has_rdp_vi_profile(const t64_machine *machine) {
           (machine->profile.machine_model_version == 16u &&
            machine->profile.state_serialization_version == 21u) ||
           (machine->profile.machine_model_version == 17u &&
-           machine->profile.state_serialization_version == 22u));
+           machine->profile.state_serialization_version == 22u) ||
+          t64_has_vi_filter_v9_profile(machine));
 }
 
 static inline bool t64_has_vi_scanout_v8_profile(
@@ -892,6 +900,11 @@ static inline bool t64_has_vi_scanout_v8_profile(
   return machine != NULL && machine->profile.descriptor_version == 10u &&
          machine->profile.machine_model_version == 17u &&
          machine->profile.state_serialization_version == 22u;
+}
+
+static inline bool t64_has_vi_scanout_profile(const t64_machine *machine) {
+  return t64_has_vi_scanout_v8_profile(machine) ||
+         t64_has_vi_filter_v9_profile(machine);
 }
 
 static inline bool t64_has_rdp_triangle_profile(const t64_machine *machine) {
@@ -907,7 +920,8 @@ static inline bool t64_has_rdp_triangle_profile(const t64_machine *machine) {
           (machine->profile.machine_model_version == 16u &&
            machine->profile.state_serialization_version == 21u) ||
           (machine->profile.machine_model_version == 17u &&
-           machine->profile.state_serialization_version == 22u));
+           machine->profile.state_serialization_version == 22u) ||
+          t64_has_vi_filter_v9_profile(machine));
 }
 
 static inline bool t64_has_rdp_texture_profile(const t64_machine *machine) {
@@ -921,7 +935,8 @@ static inline bool t64_has_rdp_texture_profile(const t64_machine *machine) {
           (machine->profile.machine_model_version == 16u &&
            machine->profile.state_serialization_version == 21u) ||
           (machine->profile.machine_model_version == 17u &&
-           machine->profile.state_serialization_version == 22u));
+           machine->profile.state_serialization_version == 22u) ||
+          t64_has_vi_filter_v9_profile(machine));
 }
 
 static inline bool t64_has_rdp_combiner_profile(const t64_machine *machine) {
@@ -933,7 +948,8 @@ static inline bool t64_has_rdp_combiner_profile(const t64_machine *machine) {
           (machine->profile.machine_model_version == 16u &&
            machine->profile.state_serialization_version == 21u) ||
           (machine->profile.machine_model_version == 17u &&
-           machine->profile.state_serialization_version == 22u));
+           machine->profile.state_serialization_version == 22u) ||
+          t64_has_vi_filter_v9_profile(machine));
 }
 
 static inline bool t64_has_rdp_blender_profile(const t64_machine *machine) {
@@ -943,7 +959,8 @@ static inline bool t64_has_rdp_blender_profile(const t64_machine *machine) {
           (machine->profile.machine_model_version == 16u &&
            machine->profile.state_serialization_version == 21u) ||
           (machine->profile.machine_model_version == 17u &&
-           machine->profile.state_serialization_version == 22u));
+           machine->profile.state_serialization_version == 22u) ||
+          t64_has_vi_filter_v9_profile(machine));
 }
 
 static inline bool t64_has_rdp_depth_profile(const t64_machine *machine) {
@@ -951,7 +968,8 @@ static inline bool t64_has_rdp_depth_profile(const t64_machine *machine) {
          ((machine->profile.machine_model_version == 16u &&
            machine->profile.state_serialization_version == 21u) ||
           (machine->profile.machine_model_version == 17u &&
-           machine->profile.state_serialization_version == 22u));
+           machine->profile.state_serialization_version == 22u) ||
+          t64_has_vi_filter_v9_profile(machine));
 }
 
 static inline bool t64_has_vr4300_cpu_state(const t64_machine *machine) {

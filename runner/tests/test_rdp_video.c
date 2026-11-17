@@ -27,7 +27,8 @@
 typedef enum {
   TEST_ACCEPTED_FILL,
   TEST_WRONG_PIXEL,
-  TEST_REPLACED_FIXTURE
+  TEST_REPLACED_FIXTURE,
+  TEST_DRAIN_CADENCE
 } test_case_id;
 
 typedef struct {
@@ -39,6 +40,7 @@ static const test_case cases[] = {
     {"accepted-cpu-fill-to-raw-frame", TEST_ACCEPTED_FILL},
     {"same-setup-wrong-pixel", TEST_WRONG_PIXEL},
     {"replacement-fixture-refused", TEST_REPLACED_FIXTURE},
+    {"drain-cadence-real-runner", TEST_DRAIN_CADENCE},
 };
 
 static const uint8_t expected_source[T64_VIDEO_OBSERVATION_SOURCE_BYTES] = {
@@ -127,13 +129,15 @@ static bool checker_accepts(char *checker, char *result_path) {
   return WIFEXITED(status) && WEXITSTATUS(status) == 0;
 }
 
-static bool result_is_pass(const char *result_path) {
+static bool result_is_pass(const char *result_path,
+                           char state_digest_out[65]) {
   uint8_t bytes[4097];
   size_t length = 0u;
   t64_json_doc doc = {0};
   const t64_json_node *outcome;
   const t64_json_node *profile;
   const t64_json_node *profile_digest;
+  const t64_json_node *state_digest;
   bool pass = false;
   if (!read_file(result_path, bytes, sizeof bytes, &length) || length == 0u ||
       t64_json_parse(bytes, length, NULL, &doc, NULL) != 0) {
@@ -142,6 +146,7 @@ static bool result_is_pass(const char *result_path) {
   outcome = t64_json_get(doc.root, "outcome");
   profile = t64_json_get(doc.root, "profile_id");
   profile_digest = t64_json_get(doc.root, "profile_digest");
+  state_digest = t64_json_get(doc.root, "state_digest");
   if (outcome != NULL && outcome->type == T64_JSON_STRING &&
       outcome->len == 4u && memcmp(outcome->str, "pass", 4u) == 0) {
     pass = profile != NULL && profile->type == T64_JSON_STRING &&
@@ -150,7 +155,13 @@ static bool result_is_pass(const char *result_path) {
            profile_digest != NULL &&
            profile_digest->type == T64_JSON_STRING &&
            profile_digest->len == 64u &&
-           memcmp(profile_digest->str, FILL_PROFILE_SHA256, 64u) == 0;
+           memcmp(profile_digest->str, FILL_PROFILE_SHA256, 64u) == 0 &&
+           state_digest != NULL && state_digest->type == T64_JSON_STRING &&
+           state_digest->len == 64u;
+  }
+  if (pass && state_digest_out != NULL) {
+    memcpy(state_digest_out, state_digest->str, 64u);
+    state_digest_out[64] = '\0';
   }
   t64_json_free(&doc);
   return pass;
@@ -227,7 +238,8 @@ static bool write_replacement_fixture(const char *source_path,
 
 static bool run_supervised(char *supervisor, char *checker,
                            char *fixture, char *input,
-                           bool expect_refusal,
+                           bool expect_refusal, uint64_t advance_step,
+                           char state_digest_out[65],
                            t64_video_observation *record) {
   char directory[] = "/tmp/t64-rdp-video.XXXXXX";
   char result_path[512];
@@ -237,6 +249,7 @@ static bool run_supervised(char *supervisor, char *checker,
   char replacement_path[512];
   char *fixture_to_use = fixture;
   char fd_text[24];
+  char advance_step_text[24];
   int pipe_fds[2] = {-1, -1};
   int status = 0;
   pid_t pid;
@@ -269,6 +282,8 @@ static bool run_supervised(char *supervisor, char *checker,
     fixture_to_use = replacement_path;
   }
   (void)snprintf(fd_text, sizeof fd_text, "%d", pipe_fds[1]);
+  (void)snprintf(advance_step_text, sizeof advance_step_text, "%llu",
+                 (unsigned long long)advance_step);
 
   pid = fork();
   if (pid == 0) {
@@ -292,25 +307,50 @@ static bool run_supervised(char *supervisor, char *checker,
     char expect_pass_option[] = "--expect-pass";
     char expect_pass[] = "1";
     char capture_option[] = "--capture-out";
+    char advance_step_option[] = "--advance-step";
     char video_option[] = "--video-observation-fd";
     char fixture_id[] = FILL_FIXTURE_ID;
     char fixture_sha[] = FILL_FIXTURE_SHA256;
     char input_sha[] = INPUT_SHA256;
-    char *const args[] = {
-        supervisor, real_option,
-        result_option, result_path, meta_option, meta_path,
-        work_option, work_dir, wall_option, wall_limit,
-        bound_option, guest_bound, log_option, log_limit,
-        fixture_id_option, fixture_id,
-        fixture_option, fixture_to_use,
-        fixture_sha_option, fixture_sha,
-        input_option, input,
-        input_size_option, input_size,
-        input_sha_option, input_sha,
-        expect_pass_option, expect_pass,
-        capture_option, capture_path,
-        video_option, fd_text,
-        NULL};
+    char *args[40];
+    size_t arg_count = 0u;
+    args[arg_count++] = supervisor;
+    args[arg_count++] = real_option;
+    args[arg_count++] = result_option;
+    args[arg_count++] = result_path;
+    args[arg_count++] = meta_option;
+    args[arg_count++] = meta_path;
+    args[arg_count++] = work_option;
+    args[arg_count++] = work_dir;
+    args[arg_count++] = wall_option;
+    args[arg_count++] = wall_limit;
+    args[arg_count++] = bound_option;
+    args[arg_count++] = guest_bound;
+    args[arg_count++] = log_option;
+    args[arg_count++] = log_limit;
+    args[arg_count++] = fixture_id_option;
+    args[arg_count++] = fixture_id;
+    args[arg_count++] = fixture_option;
+    args[arg_count++] = fixture_to_use;
+    args[arg_count++] = fixture_sha_option;
+    args[arg_count++] = fixture_sha;
+    args[arg_count++] = input_option;
+    args[arg_count++] = input;
+    args[arg_count++] = input_size_option;
+    args[arg_count++] = input_size;
+    args[arg_count++] = input_sha_option;
+    args[arg_count++] = input_sha;
+    args[arg_count++] = expect_pass_option;
+    args[arg_count++] = expect_pass;
+    args[arg_count++] = capture_option;
+    args[arg_count++] = capture_path;
+    if (advance_step != 0u) {
+      args[arg_count++] = advance_step_option;
+      args[arg_count++] = advance_step_text;
+    }
+    args[arg_count++] = video_option;
+    args[arg_count++] = fd_text;
+    args[arg_count] = NULL;
     close(pipe_fds[0]);
     execv(supervisor, args);
     _exit(127);
@@ -345,7 +385,7 @@ static bool run_supervised(char *supervisor, char *checker,
   }
   record_ok = read_pipe_record(pipe_fds[0], record);
   check_ok = checker_accepts(checker, result_path);
-  result_pass = result_is_pass(result_path);
+  result_pass = result_is_pass(result_path, state_digest_out);
   if (!WIFEXITED(status) || WEXITSTATUS(status) != 0 || !record_ok ||
       !check_ok || !result_pass) {
     uint8_t report[4097];
@@ -410,18 +450,40 @@ static bool observation_baseline(const t64_video_observation *actual) {
 
 static int run_case(test_case_id id, char *supervisor,
                     char *checker, char *fixture, char *input) {
-  t64_video_observation actual;
+  t64_video_observation actual = {0};
   uint8_t expected[T64_VIDEO_OBSERVATION_PACKET_BYTES];
   uint32_t i;
   if (id == TEST_REPLACED_FIXTURE) {
-    if (!run_supervised(supervisor, checker, fixture, input, true, &actual)) {
+    if (!run_supervised(supervisor, checker, fixture, input, true, 0u,
+                        NULL, &actual)) {
       fprintf(stderr, "replacement fixture was accepted or reached the runner\n");
       return 1;
     }
     printf("replacement fixture refused before guest runner launch\n");
     return 0;
   }
-  if (!run_supervised(supervisor, checker, fixture, input, false, &actual) ||
+  if (id == TEST_DRAIN_CADENCE) {
+    t64_video_observation coarse = {0};
+    t64_video_observation fine = {0};
+    char coarse_digest[65] = {0};
+    char fine_digest[65] = {0};
+    if (!run_supervised(supervisor, checker, fixture, input, false, 16u,
+                        coarse_digest, &coarse) ||
+        !run_supervised(supervisor, checker, fixture, input, false, 32u,
+                        fine_digest, &fine) ||
+        !observation_baseline(&coarse) || !observation_baseline(&fine) ||
+        memcmp(&coarse, &fine, sizeof coarse) != 0 ||
+        strcmp(coarse_digest, fine_digest) != 0) {
+      fprintf(stderr,
+              "actual runner drain cadence changed packet bytes, metadata, or final state digest\n");
+      return 1;
+    }
+    printf("actual supervised runner: 16-tick and 32-tick advances produced identical packet record and state digest %s\n",
+           coarse_digest);
+    return 0;
+  }
+  if (!run_supervised(supervisor, checker, fixture, input, false, 0u,
+                      NULL, &actual) ||
       !observation_baseline(&actual)) {
     fprintf(stderr,
             "accepted fill setup/semantics failed: magic=%08x size=%ux%u stride=%u source=%u packet=%u tick=%llu..%llu sync=%u/%u start=%u/%u scale=%x/%x fmt=%u/%u commands=%llu fullsync=%llu mi=%x/%x/%x dpc=%x/%x fill=%016llx/%02x/%x\n",

@@ -290,10 +290,26 @@ t64_target_warnings(test_vi)
 add_dependencies(test_vi t64-rdp-fill-fixture)
 add_test(NAME unit.core.vi.fill COMMAND test_vi --suite fill)
 add_test(NAME unit.core.vi.timing COMMAND test_vi --suite vi-timing)
+add_test(NAME unit.core.vi.filters COMMAND test_vi --suite vi-filters)
 set_tests_properties(unit.core.vi.fill PROPERTIES
   LABELS unit
   ENVIRONMENT "T64_TEST_RDP_FILL_PATH=${T64_BOOT_FIXTURE_DIR}/rdp-fill.z64")
 set_tests_properties(unit.core.vi.timing PROPERTIES
+  LABELS unit
+  ENVIRONMENT "T64_TEST_RDP_FILL_PATH=${T64_BOOT_FIXTURE_DIR}/rdp-fill.z64")
+set_tests_properties(unit.core.vi.filters PROPERTIES
+  LABELS unit
+  ENVIRONMENT "T64_TEST_RDP_FILL_PATH=${T64_BOOT_FIXTURE_DIR}/rdp-fill.z64")
+
+add_executable(test_video_output tests/test_video_output.c)
+target_include_directories(test_video_output PRIVATE
+  "${CMAKE_CURRENT_SOURCE_DIR}"
+  "${CMAKE_SOURCE_DIR}/tests")
+target_link_libraries(test_video_output PRIVATE t64_core)
+t64_target_warnings(test_video_output)
+add_dependencies(test_video_output t64-rdp-fill-fixture)
+add_test(NAME unit.core.vi.output COMMAND test_video_output --suite video-output)
+set_tests_properties(unit.core.vi.output PROPERTIES
   LABELS unit
   ENVIRONMENT "T64_TEST_RDP_FILL_PATH=${T64_BOOT_FIXTURE_DIR}/rdp-fill.z64")
 

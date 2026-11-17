@@ -27,6 +27,7 @@ typedef struct {
   uint32_t width;
   uint32_t height;
   uint32_t source_width;
+  uint64_t source_height;
   uint32_t source_pitch_bytes;
   uint32_t source_x_offset;
   uint32_t source_y_offset;
@@ -75,7 +76,7 @@ static bool geometry_for(const t64_machine *machine, uint32_t control,
     return false;
   }
   vi = &machine->vi;
-  registers = t64_has_vi_scanout_v8_profile(machine) && vi->enabled
+  registers = t64_has_vi_scanout_profile(machine) && vi->enabled
                   ? vi->active_registers
                   : vi->registers;
   if ((control & UINT32_C(3)) == UINT32_C(2)) {
@@ -90,11 +91,12 @@ static bool geometry_for(const t64_machine *machine, uint32_t control,
   v_register = registers[T64_VI_V_START];
   x_register = registers[T64_VI_X_SCALE];
   y_register = registers[T64_VI_Y_SCALE];
-  if (t64_has_vi_scanout_v8_profile(machine)) {
+  if (t64_has_vi_scanout_profile(machine)) {
     uint64_t span;
     uint64_t source_index;
     uint64_t source_width;
     uint64_t source_height;
+    uint64_t source_extent_height;
     uint64_t scale_x = x_register & UINT32_C(0x0fff);
     uint64_t scale_y = y_register & UINT32_C(0x0fff);
     uint64_t offset_x = (x_register >> 16) & UINT32_C(0x0fff);
@@ -126,9 +128,14 @@ static bool geometry_for(const t64_machine *machine, uint32_t control,
     geometry_out->height = (uint32_t)height;
     source_width = (offset_x + (width - 1u) * scale_x) >> 10;
     source_height = (offset_y + (height - 1u) * scale_y) >> 10;
+    source_extent_height =
+        (offset_y + height * scale_y + UINT64_C(1023)) >> 10;
     if ((registers[T64_VI_CONTROL] & UINT32_C(0x40)) != 0u) {
       source_height = source_height * 2u + (vi->field & UINT32_C(1));
+      source_extent_height = (source_extent_height - 1u) * 2u +
+                             (vi->field & UINT32_C(1)) + 1u;
     }
+    geometry_out->source_height = source_extent_height;
     if (source_width >= geometry_out->source_width ||
         geometry_out->source_width >
             UINT32_MAX / geometry_out->source_bytes_per_pixel) {
@@ -194,6 +201,7 @@ static bool geometry_for(const t64_machine *machine, uint32_t control,
   if (last_x >= geometry_out->source_width || last_y >= T64_VIDEO_MAX_HEIGHT) {
     return false;
   }
+  geometry_out->source_height = last_y + 1u;
   pixels = last_y * geometry_out->source_width + last_x + 1u;
   if (pixels > UINT64_MAX / geometry_out->source_bytes_per_pixel)
     return false;
@@ -263,11 +271,381 @@ static uint8_t expand5(uint32_t value) {
   return (uint8_t)((value << 3) | (value >> 2));
 }
 
+typedef struct {
+  uint8_t red;
+  uint8_t green;
+  uint8_t blue;
+  uint8_t alpha;
+  uint8_t coverage;
+} t64_vi_sample;
+
+typedef struct {
+  size_t source_bytes;
+  uint32_t selected_filters;
+} t64_vi_filter_context;
+
+static bool vi_read_source_pixel(
+    const t64_machine *machine, const t64_vi_geometry *geometry,
+    uint32_t origin, uint32_t source_x, uint64_t source_y,
+    const t64_vi_sample *fallback, t64_vi_filter_context *context,
+    t64_vi_sample *sample_out) {
+  uint64_t source_index;
+  uint64_t source_address;
+  uint64_t source_end;
+  uint64_t consumed;
+  uint32_t bytes_per_pixel;
+
+  if (sample_out == NULL || machine == NULL || geometry == NULL ||
+      context == NULL || geometry->source_width == 0u) {
+    return false;
+  }
+  if (fallback != NULL) {
+    *sample_out = *fallback;
+  } else {
+    (void)memset(sample_out, 0, sizeof *sample_out);
+  }
+  if (source_x >= geometry->source_width)
+    source_x = geometry->source_width - 1u;
+  if (source_y >= geometry->source_height) return false;
+  bytes_per_pixel = geometry->source_bytes_per_pixel;
+  if (bytes_per_pixel == 0u ||
+      source_y > (UINT64_MAX - source_x) / geometry->source_width) {
+    return false;
+  }
+  source_index = source_y * geometry->source_width + source_x;
+  if (source_index > (UINT64_MAX - origin) / bytes_per_pixel) return false;
+  source_address = (uint64_t)origin + source_index * bytes_per_pixel;
+  if (source_address > UINT64_MAX - bytes_per_pixel) return false;
+  source_end = source_address + bytes_per_pixel;
+  if (source_end > machine->profile.rdram_bytes) return false;
+
+  if (bytes_per_pixel == 4u) {
+    const uint8_t alpha5 =
+        (uint8_t)(machine->ram[source_address + 3u] & UINT8_C(31));
+    sample_out->red = machine->ram[source_address];
+    sample_out->green = machine->ram[source_address + 1u];
+    sample_out->blue = machine->ram[source_address + 2u];
+    sample_out->alpha = expand5(alpha5);
+    sample_out->coverage = t64_rdp_memory_coverage_read(
+        machine, (uint32_t)source_address, bytes_per_pixel);
+  } else {
+    const uint16_t pixel =
+        (uint16_t)(((uint16_t)machine->ram[source_address] << 8) |
+                   machine->ram[source_address + 1u]);
+    sample_out->red = expand5((uint32_t)(pixel >> 11) & UINT32_C(31));
+    sample_out->green = expand5((uint32_t)(pixel >> 6) & UINT32_C(31));
+    sample_out->blue = expand5((uint32_t)(pixel >> 1) & UINT32_C(31));
+    sample_out->alpha = (pixel & UINT16_C(1)) != 0u ? 255u : 0u;
+    sample_out->coverage = t64_rdp_memory_coverage_read(
+        machine, (uint32_t)source_address, bytes_per_pixel);
+  }
+  consumed = (source_address - origin) + bytes_per_pixel;
+  if (consumed <= SIZE_MAX && (size_t)consumed > context->source_bytes)
+    context->source_bytes = (size_t)consumed;
+  return true;
+}
+
+static uint32_t vi_manhattan_distance(const t64_vi_sample *left,
+                                     const t64_vi_sample *right) {
+  const uint32_t red = left->red > right->red
+                           ? (uint32_t)left->red - right->red
+                           : (uint32_t)right->red - left->red;
+  const uint32_t green = left->green > right->green
+                             ? (uint32_t)left->green - right->green
+                             : (uint32_t)right->green - left->green;
+  const uint32_t blue = left->blue > right->blue
+                            ? (uint32_t)left->blue - right->blue
+                            : (uint32_t)right->blue - left->blue;
+  return red + green + blue;
+}
+
+static bool vi_filter_source_pixel(
+    const t64_machine *machine, const t64_vi_geometry *geometry,
+    const uint32_t *registers, uint32_t origin, uint32_t source_x,
+    uint64_t source_y, uint32_t parity, t64_vi_filter_context *context,
+    t64_vi_sample *sample_out) {
+  t64_vi_sample center = {0u, 0u, 0u, 0u, 0u};
+  uint32_t aa_mode = (registers[T64_VI_CONTROL] >> 8) & UINT32_C(3);
+  bool has_aa_background = false;
+  uint32_t best_distance = 0u;
+  t64_vi_sample background = {0u, 0u, 0u, 0u, 0u};
+  bool serrate = (registers[T64_VI_CONTROL] & UINT32_C(0x40)) != 0u;
+  uint32_t row_step = serrate ? 2u : 1u;
+
+  if (!vi_read_source_pixel(machine, geometry, origin, source_x, source_y,
+                            NULL, context, &center)) {
+    *sample_out = center;
+    return false;
+  }
+  *sample_out = center;
+  if (aa_mode < 2u && center.coverage < 8u) {
+    int32_t dy;
+    const uint64_t first_row = serrate ? (uint64_t)(parity & UINT32_C(1)) : 0u;
+    for (dy = -1; dy <= 1; dy++) {
+      int32_t dx;
+      int64_t candidate_y = (int64_t)source_y +
+                            (int64_t)dy * (int64_t)row_step;
+      if (candidate_y < (int64_t)first_row)
+        candidate_y = (int64_t)first_row;
+      for (dx = -2; dx <= 2; dx++) {
+        const int64_t candidate_x = (int64_t)source_x + (int64_t)dx;
+        uint32_t clamped_x;
+        t64_vi_sample candidate = center;
+        uint32_t distance;
+        if (candidate_x < 0) {
+          clamped_x = 0u;
+        } else if ((uint64_t)candidate_x >= geometry->source_width) {
+          clamped_x = geometry->source_width - 1u;
+        } else {
+          clamped_x = (uint32_t)candidate_x;
+        }
+        (void)vi_read_source_pixel(machine, geometry, origin, clamped_x,
+                                   (uint64_t)candidate_y, &center, context,
+                                   &candidate);
+        if (candidate.coverage != 8u) continue;
+        distance = vi_manhattan_distance(&center, &candidate);
+        if (!has_aa_background || distance > best_distance) {
+          background = candidate;
+          best_distance = distance;
+          has_aa_background = true;
+        }
+      }
+    }
+    if (has_aa_background) {
+      const uint32_t foreground_weight = center.coverage;
+      const uint32_t background_weight = 8u - foreground_weight;
+      sample_out->red = (uint8_t)((foreground_weight * center.red +
+                                   background_weight * background.red) /
+                                  8u);
+      sample_out->green = (uint8_t)((foreground_weight * center.green +
+                                     background_weight * background.green) /
+                                    8u);
+      sample_out->blue = (uint8_t)((foreground_weight * center.blue +
+                                    background_weight * background.blue) /
+                                   8u);
+    }
+    context->selected_filters |= T64_VIDEO_FILTER_AA;
+  } else if ((registers[T64_VI_CONTROL] & UINT32_C(0x00010000)) != 0u &&
+             geometry->source_bytes_per_pixel == 2u &&
+             (aa_mode == 2u || center.coverage == 8u)) {
+    uint32_t red_sum = 0u;
+    uint32_t green_sum = 0u;
+    uint32_t blue_sum = 0u;
+    int32_t dy;
+    const uint64_t first_row = serrate ? (uint64_t)(parity & UINT32_C(1)) : 0u;
+    for (dy = -1; dy <= 1; dy++) {
+      const int64_t candidate_y = (int64_t)source_y +
+                                  (int64_t)dy * (int64_t)row_step;
+      int32_t dx;
+      const uint64_t clamped_y = candidate_y < (int64_t)first_row
+                                     ? first_row
+                                     : (uint64_t)candidate_y;
+      for (dx = -1; dx <= 1; dx++) {
+        const int64_t candidate_x = (int64_t)source_x + (int64_t)dx;
+        uint32_t clamped_x;
+        t64_vi_sample candidate = center;
+        if (candidate_x < 0) {
+          clamped_x = 0u;
+        } else if ((uint64_t)candidate_x >= geometry->source_width) {
+          clamped_x = geometry->source_width - 1u;
+        } else {
+          clamped_x = (uint32_t)candidate_x;
+        }
+        (void)vi_read_source_pixel(machine, geometry, origin, clamped_x,
+                                   clamped_y, &center, context, &candidate);
+        red_sum += candidate.red;
+        green_sum += candidate.green;
+        blue_sum += candidate.blue;
+      }
+    }
+    sample_out->red = (uint8_t)(red_sum / 9u);
+    sample_out->green = (uint8_t)(green_sum / 9u);
+    sample_out->blue = (uint8_t)(blue_sum / 9u);
+    context->selected_filters |= T64_VIDEO_FILTER_DITHER_SMOOTH;
+  }
+  return true;
+}
+
+static uint8_t vi_median_channel(uint8_t first, uint8_t center,
+                                 uint8_t last) {
+  uint8_t low = first < center ? first : center;
+  uint8_t high = first > center ? first : center;
+  if (last < low) return low;
+  if (last > high) return high;
+  return last;
+}
+
+static bool vi_divot_sample(const t64_machine *machine,
+                            const t64_vi_geometry *geometry,
+                            const uint32_t *registers, uint32_t origin,
+                            uint32_t source_x, uint64_t source_y,
+                            uint32_t parity,
+                            t64_vi_filter_context *context,
+                            t64_vi_sample *sample_out) {
+  t64_vi_sample center;
+  uint32_t aa_mode = (registers[T64_VI_CONTROL] >> 8) & UINT32_C(3);
+  if (!vi_filter_source_pixel(machine, geometry, registers, origin, source_x,
+                              source_y, parity, context, &center)) {
+    *sample_out = center;
+    return false;
+  }
+  if ((registers[T64_VI_CONTROL] & UINT32_C(0x10)) != 0u && aa_mode < 2u &&
+      center.coverage < 8u) {
+    const uint32_t left_x = source_x == 0u ? 0u : source_x - 1u;
+    const uint32_t right_x = source_x + 1u >= geometry->source_width
+                                 ? geometry->source_width - 1u
+                                 : source_x + 1u;
+    t64_vi_sample left;
+    t64_vi_sample right;
+    (void)vi_filter_source_pixel(machine, geometry, registers, origin, left_x,
+                                 source_y, parity, context, &left);
+    (void)vi_filter_source_pixel(machine, geometry, registers, origin, right_x,
+                                 source_y, parity, context, &right);
+    center.red = vi_median_channel(left.red, center.red, right.red);
+    center.green = vi_median_channel(left.green, center.green, right.green);
+    center.blue = vi_median_channel(left.blue, center.blue, right.blue);
+    context->selected_filters |= T64_VIDEO_FILTER_DIVOT_MEDIAN;
+  }
+  *sample_out = center;
+  return true;
+}
+
+static uint8_t vi_gamma_channel(uint8_t channel) {
+  const uint32_t value = UINT32_C(255) * channel;
+  uint32_t low = 0u;
+  uint32_t high = 256u;
+  while (high - low > 1u) {
+    const uint32_t middle = (low + high) / 2u;
+    if (middle * middle <= value)
+      low = middle;
+    else
+      high = middle;
+  }
+  return (uint8_t)low;
+}
+
+static uint8_t vi_gamma_adjust(uint8_t channel, bool round_up) {
+  if (round_up) return channel == UINT8_MAX ? UINT8_MAX : (uint8_t)(channel + 1u);
+  return channel == 0u ? 0u : (uint8_t)(channel - 1u);
+}
+
+static void render_filter_packet(t64_machine *machine, uint32_t slot,
+                                 const t64_vi_geometry *geometry,
+                                 t64_video_packet_info *info) {
+  static const uint8_t gamma_dither[4][4] = {
+      {0u, 8u, 2u, 10u}, {12u, 4u, 14u, 6u},
+      {3u, 11u, 1u, 9u}, {15u, 7u, 13u, 5u},
+  };
+  t64_vi_state *vi = &machine->vi;
+  const uint32_t *registers = vi->active_registers;
+  const uint32_t origin = registers[T64_VI_ORIGIN] & UINT32_C(0x00ffffff);
+  const uint32_t control = registers[T64_VI_CONTROL];
+  const uint32_t aa_mode = (control >> 8) & UINT32_C(3);
+  const bool serrate = (control & UINT32_C(0x40)) != 0u;
+  uint8_t *output = machine->video_packets +
+                    (size_t)slot * T64_VIDEO_MAX_PACKET_BYTES;
+  t64_vi_filter_context context = {0u, 0u};
+  uint32_t y;
+
+  for (y = 0u; y < geometry->height; y++) {
+    uint32_t x;
+    for (x = 0u; x < geometry->width; x++) {
+      const uint64_t x_coordinate =
+          (uint64_t)geometry->source_x_offset + (uint64_t)x * geometry->x_scale;
+      const uint64_t y_coordinate =
+          (uint64_t)geometry->source_y_offset + (uint64_t)y * geometry->y_scale;
+      const uint32_t source_x0 = (uint32_t)(x_coordinate >> 10);
+      const uint32_t fraction_x = (uint32_t)(x_coordinate & UINT64_C(1023));
+      const uint64_t source_y_index = y_coordinate >> 10;
+      const uint32_t fraction_y = (uint32_t)(y_coordinate & UINT64_C(1023));
+      const uint64_t source_y0 = serrate
+                                     ? source_y_index * 2u + (vi->field & 1u)
+                                     : source_y_index;
+      const uint64_t source_y1 = serrate ? source_y0 + 2u : source_y0 + 1u;
+      const uint32_t source_x1 = source_x0 + 1u >= geometry->source_width
+                                     ? geometry->source_width - 1u
+                                     : source_x0 + 1u;
+      const uint32_t nearest_x = source_x0 >= geometry->source_width
+                                     ? geometry->source_width - 1u
+                                     : source_x0;
+      t64_vi_sample center = {0u, 0u, 0u, 0u, 0u};
+      t64_vi_sample sampled = {0u, 0u, 0u, 0u, 0u};
+      const size_t output_index =
+          (size_t)y * info->stride_bytes + (size_t)x * 4u;
+      uint32_t channel_values[3];
+      uint32_t channel;
+
+      (void)vi_read_source_pixel(machine, geometry, origin, nearest_x,
+                                 source_y0, NULL, &context, &center);
+      if (aa_mode == 3u) {
+        (void)vi_divot_sample(machine, geometry, registers, origin, nearest_x,
+                              source_y0, vi->field & UINT32_C(1), &context,
+                              &sampled);
+      } else {
+        const uint32_t inverse_x = 1024u - fraction_x;
+        const uint32_t inverse_y = 1024u - fraction_y;
+        const uint32_t weights[4] = {
+            inverse_x * inverse_y, fraction_x * inverse_y,
+            inverse_x * fraction_y, fraction_x * fraction_y,
+        };
+        const uint32_t tap_x[4] = {nearest_x, source_x1, nearest_x, source_x1};
+        const uint64_t tap_y[4] = {source_y0, source_y0, source_y1, source_y1};
+        uint32_t sums[3] = {0u, 0u, 0u};
+        size_t tap;
+        context.selected_filters |= T64_VIDEO_FILTER_RESAMPLE_Q20;
+        for (tap = 0u; tap < 4u; tap++) {
+          t64_vi_sample sample;
+          if (weights[tap] == 0u) continue;
+          if (!vi_divot_sample(machine, geometry, registers, origin,
+                               tap_x[tap], tap_y[tap],
+                               vi->field & UINT32_C(1), &context, &sample)) {
+            sample = center;
+          }
+          sums[0] += (uint32_t)sample.red * weights[tap];
+          sums[1] += (uint32_t)sample.green * weights[tap];
+          sums[2] += (uint32_t)sample.blue * weights[tap];
+        }
+        sampled.red = (uint8_t)(sums[0] >> 20);
+        sampled.green = (uint8_t)(sums[1] >> 20);
+        sampled.blue = (uint8_t)(sums[2] >> 20);
+        sampled.alpha = center.alpha;
+        sampled.coverage = center.coverage;
+      }
+      if ((control & UINT32_C(8)) != 0u) {
+        if ((control & UINT32_C(4)) != 0u) {
+          const bool round_up =
+              gamma_dither[y & UINT32_C(3)][x & UINT32_C(3)] >= 8u;
+          sampled.red = vi_gamma_adjust(sampled.red, round_up);
+          sampled.green = vi_gamma_adjust(sampled.green, round_up);
+          sampled.blue = vi_gamma_adjust(sampled.blue, round_up);
+          context.selected_filters |= T64_VIDEO_FILTER_GAMMA_DITHER;
+        }
+        sampled.red = vi_gamma_channel(sampled.red);
+        sampled.green = vi_gamma_channel(sampled.green);
+        sampled.blue = vi_gamma_channel(sampled.blue);
+        context.selected_filters |= T64_VIDEO_FILTER_GAMMA_SQRT255;
+      }
+      channel_values[0] = sampled.red;
+      channel_values[1] = sampled.green;
+      channel_values[2] = sampled.blue;
+      for (channel = 0u; channel < 3u; channel++)
+        output[output_index + channel] = (uint8_t)channel_values[channel];
+      output[output_index + 3u] = center.alpha;
+    }
+  }
+  info->filter = context.selected_filters;
+  info->source_bytes = context.source_bytes;
+}
+
 static void render_packet(t64_machine *machine, uint32_t slot,
                           const t64_vi_geometry *geometry,
                           t64_video_packet_info *info) {
+  if (t64_has_vi_filter_v9_profile(machine)) {
+    render_filter_packet(machine, slot, geometry, info);
+    return;
+  }
   t64_vi_state *vi = &machine->vi;
-  const uint32_t *registers = t64_has_vi_scanout_v8_profile(machine)
+  const uint32_t *registers = t64_has_vi_scanout_profile(machine)
                                   ? vi->active_registers
                                   : vi->registers;
   uint8_t *output = machine->video_packets +
@@ -277,7 +655,7 @@ static void render_packet(t64_machine *machine, uint32_t slot,
 
   for (y = 0u; y < geometry->height; y++) {
     uint32_t source_y;
-    if (t64_has_vi_scanout_v8_profile(machine)) {
+    if (t64_has_vi_scanout_profile(machine)) {
       source_y = (geometry->source_y_offset + y * geometry->y_scale) >> 10;
       if ((registers[T64_VI_CONTROL] & UINT32_C(0x40)) != 0u)
         source_y = source_y * 2u + (vi->field & UINT32_C(1));
@@ -288,7 +666,7 @@ static void render_packet(t64_machine *machine, uint32_t slot,
     }
     uint32_t x;
     for (x = 0u; x < geometry->width; x++) {
-      uint32_t source_x = t64_has_vi_scanout_v8_profile(machine)
+      uint32_t source_x = t64_has_vi_scanout_profile(machine)
                               ? (geometry->source_x_offset +
                                  x * geometry->x_scale) >> 10
                               : geometry->source_x_offset +
@@ -350,7 +728,7 @@ t64_status t64_vi_read_register(const t64_machine *machine,
   if (index >= T64_VI_REG_COUNT) return T64_STATUS_BUS_UNSUPPORTED;
   value = machine->vi.registers[index];
   if (index == T64_VI_CURRENT) {
-    if (t64_has_vi_scanout_v8_profile(machine)) {
+    if (t64_has_vi_scanout_profile(machine)) {
       value = machine->vi.current_readback;
     } else {
       uint32_t position =
@@ -376,7 +754,7 @@ t64_status t64_vi_write_register(t64_machine *machine, uint32_t address,
   index = (address - T64_VI_BASE) / UINT32_C(4);
   if (index >= T64_VI_REG_COUNT) return T64_STATUS_BUS_UNSUPPORTED;
   vi = &machine->vi;
-  if (t64_has_vi_scanout_v8_profile(machine)) {
+  if (t64_has_vi_scanout_profile(machine)) {
     if (index == T64_VI_CURRENT) {
       vi->registers[index] = value;
       t64_mi_clear_pending(machine, T64_MI_INTERRUPT_VI);
@@ -811,7 +1189,7 @@ t64_status t64_vi_event(t64_machine *machine, const t64_event *event) {
   vi = &machine->vi;
   if (!vi->enabled || event->token != vi->event_generation)
     return T64_STATUS_OK;
-  if (t64_has_vi_scanout_v8_profile(machine))
+  if (t64_has_vi_scanout_profile(machine))
     return vi_v8_event(machine, event);
   if (vi->packet_count >= T64_VIDEO_QUEUE_CAPACITY)
     return T64_STATUS_QUEUE_FULL;

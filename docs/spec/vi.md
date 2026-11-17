@@ -1,9 +1,59 @@
 # VI scanout contracts
 
-This document covers the legacy v2 diagnostic profile and the later v8
-composite VI profile. Both emit canonical machine packets, separate from host
-scaling, filtering, files and display APIs. Authored software behavior is not
-hardware qualification, and VID-04 remains blocked.
+This document covers the legacy v2 diagnostic profile, the later v8 composite
+VI profile, and the v9 filtered VI profile. All emit canonical machine packets,
+separate from host scaling, filtering, files and display APIs. Authored software
+behavior is not hardware qualification, and VID-04 remains blocked.
+
+## Composite v9 filtered profile
+
+Profile `ntsc-cart-4m-openipl3-rdram-b-t1-rdp-vi-filter-v9` inherits v8's
+clock, register, latch, geometry, interrupt and queue behavior. It uses
+descriptor version 10, machine model version 18 and state serialization
+version 23. Profiles v2 through v8 retain their prior identity and output
+behavior. The new `vi_output_policy` is
+`5551-8888-aa53mdtl-q8f-df3-dvmed-bq20f-gd16r8-sqrt255-pcspan-v3`; its filter
+choices are deterministic integer software approximations, not recovered
+hardware kernels or VID-04 evidence.
+
+STATUS bits 0–1 select the inherited mode. Bits 8–9 select anti-alias behavior;
+bit 16 selects the 5551 smoothing approximation; bit 4 selects divot median;
+bit 3 enables integer gamma; bit 2 enables gamma dither only when gamma is
+enabled. Modes 0 and 1 use the same partial-coverage color policy. Mode 2
+treats coverage as full; mode 3 uses the nearest sample and bypasses
+fractional resampling. Partial coverage selects AA before smoothing, so AA and
+the dither filter are mutually exclusive for that sample. 8888 bypasses the
+dither filter. Source alpha remains the nearest center's decoded alpha.
+
+AA searches a 5×3 neighborhood for full-coverage colors. It selects the
+candidate with greatest RGB Manhattan distance from the foreground, breaking
+ties in top-to-bottom, left-to-right order. If none exists, foreground is its
+own background. For coverage `c` in 0..7, each output channel is
+`floor((c*foreground + (8-c)*background)/8)`. Coverage is the RDP logical
+sidecar; alpha is not used to guess coverage. The 5551 dither approximation
+averages expanded RGB over a 3×3 neighborhood, rounding down. Divot applies to
+partial-coverage mode 0/1 samples after the backend choice, using the
+component-wise median of left, center and right.
+
+The selected software stage order is AA-or-smoothing, optional divot,
+fractional resampling, optional gamma dither, then gamma. Modes 0–2 use
+bilinear RGB resampling at the existing Q10 coordinate. The implementation
+retains both fractional coordinates through four-tap selection and floors the
+weighted Q20 sum once. Serrate uses the selected parity and same-parity next
+row. Mode 3 uses the nearest floor sample. Gamma maps each channel to
+`floor(sqrt(255*channel))` through bounded integer square root. Gamma dither
+uses the fixed 4×4 rank matrix
+`[0,8,2,10;12,4,14,6;3,11,1,9;15,7,13,5]`: ranks below 8 subtract one, the
+others add one, with saturation before gamma. It consumes no RDP RNG.
+
+Horizontal taps clamp to the source row. Top taps clamp to the first row of
+the selected parity. When another tap would exceed RDRAM, the sampler reuses
+the valid center and does not reject the packet. The v9 `source_bytes` field
+reports the bounding span from ORIGIN through the highest valid source-color
+tap actually read, including filter and resample neighbors. The `filter`
+packet field reports selected stages: bit 0 AA, bit 1 smoothing, bit 2 divot,
+bit 3 Q20 resampling, bit 4 gamma dither, and bit 5 gamma. These are v9 packet
+semantics; v8 packet bytes and metadata remain unchanged.
 
 ## Composite v8 profile
 

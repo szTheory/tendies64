@@ -14,6 +14,8 @@
 static bool advance_guest_to_tick(t64_machine *machine, uint64_t tick,
                                   t64_stop_result *stop_out);
 static bool advance_to_next_vi_field(t64_machine *machine);
+static bool advance_until_video_full(t64_machine *machine, uint64_t tick,
+                                     t64_stop_result *stop_out);
 
 static const uint8_t expected_packet[] = {
     255, 0, 0, 255, 0, 255, 0, 255, 255, 0, 0, 255, 0, 255, 0, 255,
@@ -100,9 +102,15 @@ static t64_machine *create_authored_machine(void) {
 #define MI_INTR_MASK UINT32_C(0x0430000c)
 #define VI_V8_PROFILE_ID \
   "ntsc-cart-4m-openipl3-rdram-b-t1-rdp-vi-v8"
+#define VI_FILTER_PROFILE_ID \
+  "ntsc-cart-4m-openipl3-rdram-b-t1-rdp-vi-filter-v9"
 
 static t64_machine *create_vi_v8_machine(void) {
   return create_authored_machine_for_profile(VI_V8_PROFILE_ID);
+}
+
+static t64_machine *create_vi_filter_machine(void) {
+  return create_authored_machine_for_profile(VI_FILTER_PROFILE_ID);
 }
 
 static bool vi_write(t64_machine *machine, uint32_t offset, uint32_t value) {
@@ -205,6 +213,474 @@ static bool configure_vi(t64_machine *machine, uint32_t control,
          vi_write(machine, UINT32_C(0x30), x_scale) &&
          vi_write(machine, UINT32_C(0x34), y_scale) &&
          vi_write(machine, UINT32_C(0x00), control);
+}
+
+static uint8_t *render_filter_fixture(
+    const char *profile_id, uint32_t status, uint32_t source_width,
+    uint32_t source_height,
+    uint32_t output_width, uint32_t output_height, uint32_t source_format,
+    uint32_t x_offset, uint32_t y_offset, const uint32_t *rgba8888,
+    const uint16_t *rgba5551, const uint8_t *coverage,
+    t64_video_packet_info *info_out, size_t *length_out) {
+  const uint32_t origin = UINT32_C(0x3000);
+  const size_t source_pixels = (size_t)source_width * source_height;
+  const size_t pixel_bytes = source_format == T64_VIDEO_SOURCE_RGBA8888 ? 4u : 2u;
+  const size_t packet_bytes =
+      (size_t)output_width * output_height * (size_t)4u;
+  t64_machine *machine =
+      strcmp(profile_id, VI_FILTER_PROFILE_ID) == 0
+          ? create_vi_filter_machine()
+          : create_authored_machine_for_profile(profile_id);
+  t64_stop_result stop = {UINT32_MAX, UINT64_MAX};
+  uint8_t *packet = NULL;
+  size_t i;
+  t64_status status_code;
+
+  if (machine == NULL || info_out == NULL || length_out == NULL ||
+      source_width == 0u || source_height == 0u || output_width == 0u ||
+      output_height == 0u ||
+      (source_format == T64_VIDEO_SOURCE_RGBA8888 && rgba8888 == NULL) ||
+      (source_format == T64_VIDEO_SOURCE_RGBA5551 && rgba5551 == NULL)) {
+    if (machine != NULL) t64_machine_destroy(machine);
+    return NULL;
+  }
+  packet = (uint8_t *)malloc(packet_bytes);
+  if (packet == NULL) {
+    t64_machine_destroy(machine);
+    return NULL;
+  }
+  for (i = 0u; i < source_pixels; i++) {
+    const uint32_t address = origin + (uint32_t)(i * pixel_bytes);
+    if (pixel_bytes == 4u) {
+      status_code = t64_machine_bus_write(machine, address, 4u, rgba8888[i]);
+    } else {
+      status_code = t64_machine_bus_write(machine, address, 2u, rgba5551[i]);
+    }
+    if (status_code != T64_STATUS_OK) {
+      T64_CHECK_INT(status_code, T64_STATUS_OK);
+      free(packet);
+      t64_machine_destroy(machine);
+      return NULL;
+    }
+    t64_rdp_memory_coverage_write(machine, address, (uint32_t)pixel_bytes,
+                                  coverage == NULL ? 8u : coverage[i]);
+  }
+  if (!configure_vi(machine, status, origin, source_width, 0u, 8u, 15u,
+                    output_width, output_height * 2u,
+                    (x_offset << 16) | UINT32_C(0x400),
+                    (y_offset << 16) | UINT32_C(0x400))) {
+    free(packet);
+    t64_machine_destroy(machine);
+    return NULL;
+  }
+  if (!advance_guest_to_tick(machine, UINT64_C(83), &stop)) {
+    free(packet);
+    t64_machine_destroy(machine);
+    return NULL;
+  }
+  status_code = t64_video_info(machine, info_out);
+  if (status_code != T64_STATUS_OK) {
+    T64_CHECK_INT(status_code, T64_STATUS_OK);
+    free(packet);
+    t64_machine_destroy(machine);
+    return NULL;
+  }
+  if (info_out->packet_bytes != packet_bytes) {
+    T64_CHECK_INT(info_out->packet_bytes, packet_bytes);
+    free(packet);
+    t64_machine_destroy(machine);
+    return NULL;
+  }
+  status_code = t64_video_copy(machine, packet, packet_bytes, length_out);
+  if (status_code != T64_STATUS_OK || *length_out != packet_bytes) {
+    T64_CHECK_INT(status_code, T64_STATUS_OK);
+    T64_CHECK_INT(*length_out, packet_bytes);
+    free(packet);
+    t64_machine_destroy(machine);
+    return NULL;
+  }
+  t64_machine_destroy(machine);
+  return packet;
+}
+
+static void case_vi_aa_modes(void) {
+  static const uint32_t rgba[15] = {
+      UINT32_C(0x2878c81f), UINT32_C(0x2878c81f), UINT32_C(0x2878c81f),
+      UINT32_C(0x2878c81f), UINT32_C(0x2878c81f), UINT32_C(0x2878c81f),
+      UINT32_C(0x2878c81f), UINT32_C(0xc8502807), UINT32_C(0x2878c81f),
+      UINT32_C(0x2878c81f), UINT32_C(0x2878c81f), UINT32_C(0x2878c81f),
+      UINT32_C(0x2878c81f), UINT32_C(0x2878c81f), UINT32_C(0x2878c81f),
+  };
+  static const uint8_t coverage[15] = {
+      8u, 8u, 8u, 8u, 8u, 8u, 8u, 2u, 8u, 8u, 8u, 8u, 8u, 8u, 8u,
+  };
+  static const uint8_t expected_aa[4] = {80u, 110u, 160u, 57u};
+  static const uint8_t expected_unfiltered[4] = {200u, 80u, 40u, 57u};
+  static const uint32_t modes[4] = {
+      UINT32_C(0x00000003), UINT32_C(0x00000103),
+      UINT32_C(0x00000203), UINT32_C(0x00000303),
+  };
+  size_t mode;
+  for (mode = 0u; mode < sizeof modes / sizeof modes[0]; mode++) {
+    t64_video_packet_info info = {0};
+    size_t length = 0u;
+    uint8_t *packet = render_filter_fixture(
+        VI_FILTER_PROFILE_ID, modes[mode], 5u, 3u, 5u, 3u,
+        T64_VIDEO_SOURCE_RGBA8888, 0u, 0u,
+        rgba, NULL, coverage, &info, &length);
+    const uint8_t *expected = mode < 2u ? expected_aa : expected_unfiltered;
+    const uint32_t expected_filter =
+        mode < 2u ? (T64_VIDEO_FILTER_AA | T64_VIDEO_FILTER_RESAMPLE_Q20)
+                  : mode == 2u ? T64_VIDEO_FILTER_RESAMPLE_Q20 : 0u;
+    if (packet == NULL) return;
+    T64_CHECK_INT(info.source_format, T64_VIDEO_SOURCE_RGBA8888);
+    T64_CHECK_INT(info.width, 5u);
+    T64_CHECK_INT(info.height, 3u);
+    T64_CHECK_INT(info.source_bytes, 60u);
+    T64_CHECK_INT(length, 60u);
+    T64_CHECK_INT(info.field, 0u);
+    T64_CHECK_INT(info.parity, 0u);
+    T64_CHECK_INT(info.end_tick, 83u);
+    T64_CHECK_INT(info.filter, expected_filter);
+    T64_CHECK_STR(info.profile_id, VI_FILTER_PROFILE_ID);
+    T64_CHECK_STR(info.vi_output_policy,
+                  "5551-8888-aa53mdtl-q8f-df3-dvmed-bq20f-gd16r8-sqrt255-pcspan-v3");
+    T64_CHECK_STR(info.build_id, t64_build_identity());
+    T64_CHECK_INT(packet[28u], expected[0]);
+    T64_CHECK_INT(packet[29u], expected[1]);
+    T64_CHECK_INT(packet[30u], expected[2]);
+    T64_CHECK_INT(packet[31u], expected[3]);
+    free(packet);
+  }
+}
+
+static void case_vi_resample_fraction(void) {
+  static const uint32_t rgba[4] = {
+      UINT32_C(0x0000001f), UINT32_C(0x01010a1f),
+      UINT32_C(0x01010a1f), UINT32_C(0x0202141f),
+  };
+  t64_video_packet_info info = {0};
+  size_t length = 0u;
+  uint8_t *packet = render_filter_fixture(
+      VI_FILTER_PROFILE_ID, UINT32_C(0x00000203), 2u, 2u, 1u, 1u,
+      T64_VIDEO_SOURCE_RGBA8888,
+      512u, 512u, rgba, NULL, NULL, &info, &length);
+  if (packet == NULL) return;
+  T64_CHECK_INT(packet[0], 1u);
+  T64_CHECK_INT(packet[1], 1u);
+  T64_CHECK_INT(packet[2], 10u);
+  T64_CHECK_INT(packet[3], 255u);
+  T64_CHECK_INT(info.source_bytes, 16u);
+  T64_CHECK_INT(info.filter, T64_VIDEO_FILTER_RESAMPLE_Q20);
+  T64_CHECK_INT(length, 4u);
+  free(packet);
+}
+
+static void case_vi_divot(void) {
+  static const uint32_t rgba[15] = {
+      UINT32_C(0x0000001f), UINT32_C(0x0000001f), UINT32_C(0x0000001f),
+      UINT32_C(0x0000001f), UINT32_C(0x0000001f), UINT32_C(0x0000001f),
+      UINT32_C(0x50140a1f), UINT32_C(0xc850281f), UINT32_C(0x5a140a1f),
+      UINT32_C(0x0000001f), UINT32_C(0x0000001f), UINT32_C(0x0000001f),
+      UINT32_C(0x0000001f), UINT32_C(0x0000001f), UINT32_C(0x0000001f),
+  };
+  static const uint8_t coverage[15] = {
+      8u, 8u, 8u, 8u, 8u, 8u, 8u, 2u, 8u, 8u, 8u, 8u, 8u, 8u, 8u,
+  };
+  t64_video_packet_info info = {0};
+  size_t length = 0u;
+  uint8_t *packet = render_filter_fixture(
+      VI_FILTER_PROFILE_ID, UINT32_C(0x00000013), 5u, 3u, 5u, 3u,
+      T64_VIDEO_SOURCE_RGBA8888,
+      0u, 0u, rgba, NULL, coverage, &info, &length);
+  if (packet == NULL) return;
+  T64_CHECK_INT(packet[28u], 80u);
+  T64_CHECK_INT(packet[29u], 20u);
+  T64_CHECK_INT(packet[30u], 10u);
+  T64_CHECK_INT(packet[31u], 255u);
+  T64_CHECK_INT(info.filter,
+                T64_VIDEO_FILTER_AA | T64_VIDEO_FILTER_DIVOT_MEDIAN |
+                    T64_VIDEO_FILTER_RESAMPLE_Q20);
+  free(packet);
+}
+
+static void case_vi_gamma(void) {
+  static const uint32_t rgba[1] = {UINT32_C(0x0464fa1f)};
+  t64_video_packet_info info = {0};
+  size_t length = 0u;
+  uint8_t *packet = render_filter_fixture(
+      VI_FILTER_PROFILE_ID, UINT32_C(0x0000000b), 1u, 1u, 1u, 1u,
+      T64_VIDEO_SOURCE_RGBA8888,
+      0u, 0u, rgba, NULL, NULL, &info, &length);
+  if (packet == NULL) return;
+  T64_CHECK_INT(packet[0], 31u);
+  T64_CHECK_INT(packet[1], 159u);
+  T64_CHECK_INT(packet[2], 252u);
+  T64_CHECK_INT(packet[3], 255u);
+  T64_CHECK_INT(info.filter,
+                T64_VIDEO_FILTER_RESAMPLE_Q20 |
+                    T64_VIDEO_FILTER_GAMMA_SQRT255);
+  T64_CHECK_INT(info.source_bytes, 4u);
+  free(packet);
+}
+
+static void case_vi_gamma_dither(void) {
+  static const uint32_t rgba[4] = {
+      UINT32_C(0x6464641f), UINT32_C(0x6464641f),
+      UINT32_C(0x6464641f), UINT32_C(0x6464641f),
+  };
+  t64_video_packet_info info = {0};
+  size_t length = 0u;
+  uint8_t *packet = render_filter_fixture(
+      VI_FILTER_PROFILE_ID, UINT32_C(0x0000000f), 4u, 1u, 2u, 1u,
+      T64_VIDEO_SOURCE_RGBA8888,
+      0u, 0u, rgba, NULL, NULL, &info, &length);
+  if (packet == NULL) return;
+  T64_CHECK_INT(packet[0], 158u);
+  T64_CHECK_INT(packet[4], 160u);
+  T64_CHECK_INT(packet[3], 255u);
+  T64_CHECK_INT(info.filter,
+                T64_VIDEO_FILTER_RESAMPLE_Q20 |
+                    T64_VIDEO_FILTER_GAMMA_DITHER |
+                    T64_VIDEO_FILTER_GAMMA_SQRT255);
+  free(packet);
+}
+
+static void case_vi_dither_filter(void) {
+  static const uint16_t rgba[9] = {
+      0u, 0u, 0u, 0u, UINT16_C(0xffff), 0u, 0u, 0u, 0u,
+  };
+  t64_video_packet_info info = {0};
+  size_t length = 0u;
+  uint8_t *packet = render_filter_fixture(
+      VI_FILTER_PROFILE_ID, UINT32_C(0x00010002), 3u, 3u, 3u, 3u,
+      T64_VIDEO_SOURCE_RGBA5551,
+      0u, 0u, NULL, rgba, NULL, &info, &length);
+  if (packet == NULL) return;
+  T64_CHECK_INT(packet[16u], 28u);
+  T64_CHECK_INT(packet[17u], 28u);
+  T64_CHECK_INT(packet[18u], 28u);
+  T64_CHECK_INT(packet[19u], 255u);
+  T64_CHECK_INT(info.filter,
+                T64_VIDEO_FILTER_RESAMPLE_Q20 |
+                    T64_VIDEO_FILTER_DITHER_SMOOTH);
+  T64_CHECK_INT(info.source_bytes, 18u);
+  free(packet);
+}
+
+static void case_vi_aa_dither_precedence(void) {
+  static const uint16_t rgba[9] = {
+      0u, 0u, 0u, 0u, UINT16_C(0xffff), 0u, 0u, 0u, 0u,
+  };
+  static const uint8_t coverage[9] = {8u, 8u, 8u, 8u, 2u, 8u, 8u, 8u, 8u};
+  t64_video_packet_info info = {0};
+  size_t length = 0u;
+  uint8_t *packet = render_filter_fixture(
+      VI_FILTER_PROFILE_ID, UINT32_C(0x00010102), 3u, 3u, 3u, 3u,
+      T64_VIDEO_SOURCE_RGBA5551, 0u, 0u, NULL, rgba, coverage, &info,
+      &length);
+  if (packet == NULL) return;
+  T64_CHECK_INT(packet[16u], 63u);
+  T64_CHECK_INT(packet[17u], 63u);
+  T64_CHECK_INT(packet[18u], 63u);
+  T64_CHECK_INT(packet[19u], 255u);
+  T64_CHECK_INT(info.filter,
+                T64_VIDEO_FILTER_AA | T64_VIDEO_FILTER_DITHER_SMOOTH |
+                    T64_VIDEO_FILTER_RESAMPLE_Q20);
+  T64_CHECK_INT(length, 36u);
+  free(packet);
+}
+
+static void case_vi_gamma_dither_requires_gamma(void) {
+  static const uint32_t rgba[1] = {UINT32_C(0x2850781f)};
+  t64_video_packet_info info = {0};
+  size_t length = 0u;
+  uint8_t *packet = render_filter_fixture(
+      VI_FILTER_PROFILE_ID, UINT32_C(0x00000007), 1u, 1u, 1u, 1u,
+      T64_VIDEO_SOURCE_RGBA8888, 0u, 0u, rgba, NULL, NULL, &info, &length);
+  if (packet == NULL) return;
+  T64_CHECK_INT(packet[0], 40u);
+  T64_CHECK_INT(packet[1], 80u);
+  T64_CHECK_INT(packet[2], 120u);
+  T64_CHECK_INT(packet[3], 255u);
+  T64_CHECK_INT(info.filter, T64_VIDEO_FILTER_RESAMPLE_Q20);
+  free(packet);
+}
+
+static void case_vi_filter_stage_order(void) {
+  static const uint32_t rgba[4] = {
+      UINT32_C(0x0000001f), UINT32_C(0x01010a1f),
+      UINT32_C(0x01010a1f), UINT32_C(0x0202141f),
+  };
+  t64_video_packet_info info = {0};
+  size_t length = 0u;
+  uint8_t *packet = render_filter_fixture(
+      VI_FILTER_PROFILE_ID, UINT32_C(0x0000020b), 2u, 2u, 1u, 1u,
+      T64_VIDEO_SOURCE_RGBA8888,
+      512u, 512u, rgba, NULL, NULL, &info, &length);
+  if (packet == NULL) return;
+  T64_CHECK_INT(packet[0], 15u);
+  T64_CHECK_INT(packet[1], 15u);
+  T64_CHECK_INT(packet[2], 50u);
+  T64_CHECK_INT(info.filter,
+                T64_VIDEO_FILTER_RESAMPLE_Q20 |
+                    T64_VIDEO_FILTER_GAMMA_SQRT255);
+  free(packet);
+}
+
+static size_t first_difference(const uint8_t *left, const uint8_t *right,
+                               size_t length) {
+  size_t i;
+  for (i = 0u; i < length; i++)
+    if (left[i] != right[i]) return i;
+  return SIZE_MAX;
+}
+
+static void case_vi_filter_wrong_expected(void) {
+  static const uint8_t expected[60] = {
+      40u, 120u, 200u, 255u, 40u, 120u, 200u, 255u,
+      40u, 120u, 200u, 255u, 40u, 120u, 200u, 255u,
+      40u, 120u, 200u, 255u, 40u, 120u, 200u, 255u,
+      40u, 120u, 200u, 255u, 80u, 110u, 160u, 255u,
+      40u, 120u, 200u, 255u, 40u, 120u, 200u, 255u,
+      40u, 120u, 200u, 255u, 40u, 120u, 200u, 255u,
+      40u, 120u, 200u, 255u, 40u, 120u, 200u, 255u,
+      40u, 120u, 200u, 255u,
+  };
+  static const uint32_t rgba[15] = {
+      UINT32_C(0x2878c81f), UINT32_C(0x2878c81f), UINT32_C(0x2878c81f),
+      UINT32_C(0x2878c81f), UINT32_C(0x2878c81f), UINT32_C(0x2878c81f),
+      UINT32_C(0x2878c81f), UINT32_C(0xc850281f), UINT32_C(0x2878c81f),
+      UINT32_C(0x2878c81f), UINT32_C(0x2878c81f), UINT32_C(0x2878c81f),
+      UINT32_C(0x2878c81f), UINT32_C(0x2878c81f), UINT32_C(0x2878c81f),
+  };
+  static const uint8_t coverage[15] = {
+      8u, 8u, 8u, 8u, 8u, 8u, 8u, 2u, 8u, 8u, 8u, 8u, 8u, 8u, 8u,
+  };
+  t64_video_packet_info info = {0};
+  size_t length = 0u;
+  uint8_t *packet = render_filter_fixture(
+      VI_FILTER_PROFILE_ID, UINT32_C(0x00000003), 5u, 3u, 5u, 3u,
+      T64_VIDEO_SOURCE_RGBA8888,
+      0u, 0u, rgba, NULL, coverage, &info, &length);
+  uint8_t *wrong;
+  if (packet == NULL) return;
+  wrong = (uint8_t *)malloc(length);
+  if (wrong == NULL) {
+    free(packet);
+    T64_CHECK(false);
+    return;
+  }
+  T64_CHECK_INT(first_difference(packet, expected, sizeof expected),
+                SIZE_MAX);
+  (void)memcpy(wrong, expected, sizeof expected);
+  wrong[28u] = (uint8_t)(wrong[28u] - 1u);
+  T64_CHECK_INT(first_difference(packet, wrong, length), 28u);
+  free(wrong);
+  free(packet);
+}
+
+static void case_vi_rdp_fill_coverage_to_filtered_packet(void) {
+  const t64_host_allocator allocator = {test_allocate, test_release, NULL};
+  const t64_profile_descriptor *profile = NULL;
+  t64_machine *machine = NULL;
+  uint8_t rom[TEST_ROM_CAPACITY];
+  uint8_t packet[sizeof expected_packet];
+  size_t rom_length = 0u;
+  size_t packet_length = 0u;
+  t64_stop_result stop = {UINT32_MAX, UINT64_MAX};
+  t64_video_packet_info info = {0};
+  size_t attempt;
+  bool captured = false;
+
+  T64_CHECK(load_authored_rom(rom, sizeof rom, &rom_length));
+  if (rom_length == 0u) return;
+  T64_CHECK_INT(t64_profile_lookup(VI_FILTER_PROFILE_ID, &profile),
+                T64_STATUS_OK);
+  if (profile == NULL) return;
+  T64_CHECK_INT(t64_machine_create(&allocator, profile, &machine),
+                T64_STATUS_OK);
+  if (machine == NULL) return;
+  T64_CHECK_INT(t64_machine_admit_rom(machine, rom, rom_length),
+                T64_STATUS_OK);
+  for (attempt = 0u; attempt < 512u && !captured; attempt++) {
+    t64_status status = t64_machine_advance(
+        machine,
+        &(t64_stop_request){T64_STOP_GUEST_TICK, TEST_COMPLETION_TICK},
+        &stop);
+    t64_video_packet_info queued;
+    T64_CHECK_INT(status, T64_STATUS_OK);
+    if (status != T64_STATUS_OK) break;
+    while (t64_video_info(machine, &queued) == T64_STATUS_OK) {
+      uint8_t candidate[sizeof expected_packet];
+      size_t candidate_length = 0u;
+      t64_status copy_status = t64_video_copy(
+          machine, candidate, sizeof candidate, &candidate_length);
+      T64_CHECK_INT(copy_status, T64_STATUS_OK);
+      if (copy_status != T64_STATUS_OK) break;
+      if (queued.commands_completed == 6u &&
+          queued.fullsync_completed == 1u) {
+        info = queued;
+        packet_length = candidate_length;
+        (void)memcpy(packet, candidate, candidate_length);
+        captured = true;
+        break;
+      }
+    }
+    if (captured) break;
+    if (stop.reason != T64_STOP_REASON_RESOURCE_LIMIT) break;
+  }
+  T64_CHECK(captured);
+  if (!captured) {
+    t64_machine_destroy(machine);
+    return;
+  }
+  T64_CHECK_INT(info.field, 0u);
+  T64_CHECK_INT(info.source_format, T64_VIDEO_SOURCE_RGBA5551);
+  T64_CHECK_INT(info.width, 4u);
+  T64_CHECK_INT(info.height, 1u);
+  T64_CHECK_INT(info.source_bytes, (size_t)8u);
+  T64_CHECK_INT(info.packet_bytes, (size_t)16u);
+  T64_CHECK_INT(info.commands_completed, 6u);
+  T64_CHECK_INT(info.fullsync_completed, 1u);
+  T64_CHECK_INT(info.filter, T64_VIDEO_FILTER_RESAMPLE_Q20);
+  T64_CHECK_INT(t64_rdp_memory_coverage_read(machine, UINT32_C(0x3000), 2u),
+                8u);
+  T64_CHECK_INT(packet_length, (size_t)16u);
+  T64_CHECK(memcmp(packet, expected_packet, (size_t)16u) == 0);
+  t64_machine_destroy(machine);
+}
+
+static void case_vi_v8_filter_ignore(void) {
+  static const uint32_t rgba[15] = {
+      UINT32_C(0x2878c81f), UINT32_C(0x2878c81f), UINT32_C(0x2878c81f),
+      UINT32_C(0x2878c81f), UINT32_C(0x2878c81f), UINT32_C(0x2878c81f),
+      UINT32_C(0x2878c81f), UINT32_C(0xc850281f), UINT32_C(0x2878c81f),
+      UINT32_C(0x2878c81f), UINT32_C(0x2878c81f), UINT32_C(0x2878c81f),
+      UINT32_C(0x2878c81f), UINT32_C(0x2878c81f), UINT32_C(0x2878c81f),
+  };
+  static const uint8_t coverage[15] = {
+      8u, 8u, 8u, 8u, 8u, 8u, 8u, 2u, 8u, 8u, 8u, 8u, 8u, 8u, 8u,
+  };
+  const uint32_t status_values[2] = {
+      UINT32_C(0x00000003), UINT32_C(0x0000031f),
+  };
+  size_t i;
+  for (i = 0u; i < sizeof status_values / sizeof status_values[0]; i++) {
+    t64_video_packet_info info = {0};
+    size_t length = 0u;
+    uint8_t *packet = render_filter_fixture(
+        VI_V8_PROFILE_ID, status_values[i], 5u, 3u, 5u, 3u,
+        T64_VIDEO_SOURCE_RGBA8888, 0u, 0u, rgba, NULL, coverage, &info,
+        &length);
+    if (packet == NULL) return;
+    T64_CHECK_INT(packet[28u], 200u);
+    T64_CHECK_INT(packet[29u], 80u);
+    T64_CHECK_INT(packet[30u], 40u);
+    T64_CHECK_INT(packet[31u], 255u);
+    T64_CHECK_INT(info.filter, 0u);
+    free(packet);
+  }
 }
 
 static void case_vi_ntsc_rational_field_timing(void) {
@@ -1850,6 +2326,18 @@ static void case_vi_decoded_geometry_endpoints(void);
 static void case_vi_interlace_full_height_source_span(void);
 static void case_vi_progressive_high_offset_source_span(void);
 static void case_vi_active_intr_immediate_no_retroactive(void);
+static void case_vi_aa_modes(void);
+static void case_vi_resample_fraction(void);
+static void case_vi_divot(void);
+static void case_vi_gamma(void);
+static void case_vi_gamma_dither(void);
+static void case_vi_dither_filter(void);
+static void case_vi_aa_dither_precedence(void);
+static void case_vi_gamma_dither_requires_gamma(void);
+static void case_vi_filter_stage_order(void);
+static void case_vi_filter_wrong_expected(void);
+static void case_vi_rdp_fill_coverage_to_filtered_packet(void);
+static void case_vi_v8_filter_ignore(void);
 
 typedef struct {
   const char *name;
@@ -1914,6 +2402,22 @@ static const test_case cases[] = {
      case_vi_interlace_full_height_source_span, "vi-timing"},
     {"vi-progressive-high-offset-source-span",
      case_vi_progressive_high_offset_source_span, "vi-timing"},
+    {"vi-aa-modes", case_vi_aa_modes, "vi-filters"},
+    {"vi-resample-fraction", case_vi_resample_fraction, "vi-filters"},
+    {"vi-divot", case_vi_divot, "vi-filters"},
+    {"vi-gamma", case_vi_gamma, "vi-filters"},
+    {"vi-gamma-dither", case_vi_gamma_dither, "vi-filters"},
+    {"vi-dither-filter", case_vi_dither_filter, "vi-filters"},
+    {"vi-aa-dither-precedence", case_vi_aa_dither_precedence,
+     "vi-filters"},
+    {"vi-gamma-dither-requires-gamma",
+     case_vi_gamma_dither_requires_gamma, "vi-filters"},
+    {"vi-filter-stage-order", case_vi_filter_stage_order, "vi-filters"},
+    {"vi-filter-wrong-expected", case_vi_filter_wrong_expected,
+     "vi-filters"},
+    {"vi-rdp-fill-coverage-to-filtered-packet",
+     case_vi_rdp_fill_coverage_to_filtered_packet, "vi-filters"},
+    {"vi-v8-filter-ignore", case_vi_v8_filter_ignore, "vi-filters"},
 };
 
 int main(int argc, char **argv) {

@@ -155,6 +155,8 @@ harness.rsp-evidence-ownership'
 PHASE07_TESTS='unit.core.rdp.fill
 unit.core.vi.fill
 unit.core.vi.timing
+unit.core.vi.filters
+unit.core.vi.output
 unit.core.dp.transport
 unit.core.rdp.copy
 unit.core.rdp.triangles
@@ -164,7 +166,8 @@ unit.core.rdp.blender
 unit.core.rdp.depth
 runner.rdp-fill
 controls.real.rdp-wrong-pixel
-controls.real.rdp-replacement-fixture'
+controls.real.rdp-replacement-fixture
+controls.real.rdp-drain-cadence'
 
 CPU_COVERAGE_OPCODES='ADD
 ADDU
