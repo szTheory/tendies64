@@ -1,0 +1,13 @@
+# Plan07-08 test-oracle recheck
+
+Orchestrator recheck of test-only repairs after independent initial production review and focused independent alias/offset production rechecks. No second full source audit was repeated.
+
+WR01 is resolved: all8 opcode lengths are literal table values;0f has ShadeW4..11, TextureW12..19 and ZW20..21. Its combiner actually consumes texture and shade. Parent strengthened the tile to white at(0,0), black elsewhere: incorrect W4 texture coordinates then produce black, while correct W12 gives independently expected0x8231 and rawVI(132,66,198,255). The corrected per-lane base/Dx/De/Dy cases use exponent6 precision, paired zero-lane controls and signed/nonzero fractions that each change stored visible or hidden state. Independent integer calculations verify all8 expected vectors (`build/gate/07-08-review-independent-arithmetic.json`).
+
+WR02 is resolved: accepted compare-off/update-off0x04 completes the four combinations with separate exact color/visibleZ/hiddenZ expectations.
+
+WR03 is resolved: all52 incomplete prefixes of09/0b/0d/0f follow an accepted draw, compare complete relevant color/visibleZ/hiddenZ/memory-coverage/logical-mask/RNG snapshots, then recover by a valid draw on the same instance with incremented FullSync. Image alignment/bounds and extreme coefficients use the same pattern. Parent moved the bad Z span to RAMend-32 so its first covered row is in bounds and a later row is not, and added seeded RAM-tail/depth-hidden/coverage snapshots to detect partial prefix writes. The first integrated repair compared color to0x09a8 (the depth word); its214 failing assertions are retained. Correct color is0x07c1. No production change was made for that oracle typo.
+
+The alias case covers16-bit coverage-only and32-bit alpha rejection plus following depth-sensitive draws and actual-write invalidation. Fresh execution against the retained PRE-FIX core fails10 assertions specifically at0f RDRAM/VI and alias metadata/future-color outputs (`build/gate/07-08-review-repro/depth-before.log`). Repaired normal suite passes; final ten affected ASAN/UBSan owners pass and their aggregate XML+LastTest+exit are retained. Initial GCC detects possible uninitialized result after fallible setup; explicit initialized result and reached guard repair test failure handling. Final core/test GCC warnings-as-errors compiles pass with original target policies.
+
+Original91-entry source/artifact archive remains verified; overwritten initial normal aggregate and unsaved early compiler output are retained evidence limitations, not retroactively reconstructed passes. Final combined gate and hosted qualification remain separate pending checks. No hardware/VID04 conclusion follows.

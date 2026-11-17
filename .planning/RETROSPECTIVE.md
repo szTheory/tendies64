@@ -271,3 +271,26 @@ OR-accumulated sample plane proves a union, not complementary edge ownership:
 obtain each primitive's exact mask separately and check disjointness first.
 After test-only additions, rerun the owning normal/instrumented test and its
 warning compile; preserve passing unchanged production-owner evidence.
+
+
+## Plan07-08: backing writes, aliases and combined packet groups
+
+Coverage metadata can change without a color RAM write. A common RAM-write
+invalidator acquired depth-sidecar effects, so calling it for coverage-only
+output erased aliased dZ. An actual same-address packet plus a following draw
+whose depth tolerance needed those bits reproduced the future visible effect.
+Call backing-write invalidation only for accepted byte writes; independently
+assert metadata-only and true-write effects.
+
+The0f fixture and both texture offset helpers shared a wrong W4 group. Correct
+primary order is Edge/Shade/Texture/Z, with texture atW12. A primitive-only
+combiner hid the bad payload. Combined-format tests must make every group
+affect the output, and fraction/derivative perturbations must survive output
+quantization. Metadata/log evidence and test registration alone do not prove
+that discrimination. Keep corrected per-lane and full refusal/recovery oracles
+independent of production length/packing helpers.
+
+Use a unique aggregate JUnit output as backup plus immediate LastTest retention,
+and explicitly reset task-only build ownership when reusing an executor for a
+new full plan. These reduce evidence reconstruction and stale-scope handoffs
+without new caches, dependencies, jobs or resource limits.

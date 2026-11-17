@@ -485,7 +485,10 @@ The software numeric policies are explicit and reversible:
   not confirmed silicon behavior.
 - Any v6 blender result that suppresses the color write, including alpha
   rejection or color-on-coverage/save coverage, also suppresses depth update.
-  The existing v6 destination-coverage result remains observable. Depth
+  The existing v6 destination-coverage result remains observable. Coverage-only
+  changes affect the logical sidecar without writing color/alpha RAM bytes
+  (including RGBA8888 coverage-code bits); they preserve aliased hidden depth.
+  Actual color writes invalidate depth metadata for the written granules. Depth
   comparison occurs before committing output writes; rejected or unselected
   output lanes do not alter depth.
 - An uninitialized visible word is read from RDRAM as stored and an invalid

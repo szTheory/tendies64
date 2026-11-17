@@ -236,6 +236,7 @@
             "z-depth-compression-exponent-transitions",
             "z-depth-compare-update-coverage-modes",
             "z-depth-alpha-reject-output-precedence",
+            "z-depth-aliased-coverage-and-alpha-preserve-hidden",
             "z-depth-refusal-truncation-recovery",
             "z-depth-sidecar-invalidation-reset-digest"
           ]

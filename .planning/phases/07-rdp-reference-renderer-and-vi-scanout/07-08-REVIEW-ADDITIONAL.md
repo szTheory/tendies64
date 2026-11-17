@@ -1,0 +1,9 @@
+# Additional Plan07-08 production finding
+
+The test-only repair of initial WR01 exposed a second production defect, so that portion is elevated to a blocker rather than dismissed as fixture quality. Primary order for0f is Edge0..3, Shade4..11, Texture12..19, Z20..21. Both `texture_products_are_bounded` and `texture_channel_q16` selected texture offset12 only for0e;0f incorrectly selected4. The old fixture put texture before shade and mirrored that defect. Primitive-passthrough combining also hid the wrong group layout.
+
+Orchestrator reproduced the actual production decoder with independent literals: nonzero shade64/128/192 and correct textureS/T/W0/0/1 atW12. Opcode0e decoded correctly;0f returned64/128/192Q16 instead of0/0/1Q16. Logs: `build/gate/07-08-review-repro/texture-offset-before.log`. Both preflight and sampling now select offset12 for0e OR0f. The same literal helper reproduction passes both opcodes: `texture-offset-after.log`, build log and exit0 retained. This is an actual decoder probe, not yet the full fetched-color/VI regression, which the disjoint test repair adds.
+
+Only the two reviewed helper seals were refreshed, alongside the separately reviewed coverage-only raster-row repair. Old0e and0b offsets retain their behavior; original unsupported old-profile0f refusal remains. The first parent after-probe compile used an incorrect relative include path; that setup failure and subsequent exit127 are retained in tool transcript/path-failed log and are not GREEN evidence. The corrected include/build/run exits0. No source semantic check was repeated solely for commit annotation.
+
+The independent initial report and its original severity remain unchanged. Final test-oracle recheck and focused production recheck must close this newly established defect before qualification. No hardware/VID04 claim follows.

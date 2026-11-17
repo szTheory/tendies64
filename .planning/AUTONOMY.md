@@ -35,6 +35,11 @@ applies that direction; update it when the owner changes policy.
   Retain owning CTest logs before inventory discovery or another CTest command;
   discovery also replaces LastTest.log. Capture command output directly and
   verify retained hashes before relying on the archive at closeout.
+  Give each manually dispatched aggregate owner CTest batch a unique --output-junit path as a persistent
+  backup, and still copy LastTest.log immediately on both success and failure
+  before any later CTest/discovery. Plan08 lost a normal aggregate despite
+  manual-copy instructions. Preserve that historical gap; the required final
+  integrated gate supplies new evidence, not a reconstructed old pass.
   Once implementation checks pass, close the summary and state promptly; do
   not repeat broad tests or scans solely for bookkeeping changes. Report the
   specific remaining command if a handoff stalls.
@@ -53,7 +58,11 @@ applies that direction; update it when the owner changes policy.
   base, record plan-scoped isolation, supply new ownership, read current mutable
   instructions and use the supplied-root guard before writes/commits. Never reuse
   a working executor for a different task or infer completion from an interim
-  message. This reduces repeated setup without weakening verification.
+  message. Explicitly retire task-only restrictions when moving from a
+  background test repair to a foreground full-plan executor: state the new file
+  and shared-build ownership and that the orchestrator is waiting. A stale
+  no-shared-build restriction caused an unnecessary stable-point request in
+  Plan08 despite the new full-plan authorization. This reduces repeated setup without weakening verification.
 - Incremental review efficiency (owner's standing efficiency direction): verify
   the exact shared predicate and one accepted consumer operation before treating
   a static review allegation as a blocker. Distinguish publicly reachable cases

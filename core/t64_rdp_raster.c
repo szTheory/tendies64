@@ -68,7 +68,8 @@ static bool texture_products_are_bounded(const t64_machine *machine,
                                          uint32_t first_y,
                                          uint32_t last_y,
                                          int64_t yh16) {
-  const unsigned texture_offset = opcode == UINT32_C(0x0e) ? 12u : 4u;
+  const unsigned texture_offset =
+      (opcode == UINT32_C(0x0e) || opcode == UINT32_C(0x0f)) ? 12u : 4u;
   const int64_t xh16 = signed_u32((uint32_t)(words[2] >> 32));
   const int64_t dxh = signed_u32((uint32_t)words[2]);
   const int64_t y0 = (int64_t)first_y * INT64_C(65536) + INT64_C(32768);
@@ -406,7 +407,8 @@ static int64_t texture_channel_q16(const t64_rdp_state *rdp, unsigned lane,
                                    int64_t yh16, int64_t major_x16) {
   const uint64_t *words = rdp->pending_triangle_words;
   uint32_t opcode = (uint32_t)((words[0] >> 56) & UINT64_C(0x3f));
-  unsigned offset = opcode == UINT32_C(0x0e) ? 12u : 4u;
+  unsigned offset =
+      (opcode == UINT32_C(0x0e) || opcode == UINT32_C(0x0f)) ? 12u : 4u;
   unsigned shift = 48u - lane * 16u;
   int64_t base = pair_q16(words[offset], words[offset + 2u], shift);
   int64_t dx = pair_q16(words[offset + 1u], words[offset + 3u], shift);
@@ -808,8 +810,9 @@ void t64_rdp_triangle_render_row(t64_machine *machine) {
         }
         machine->rdp_triangle_coverage[coverage_index] |= coverage_mask;
         if (t64_has_rdp_blender_profile(machine)) {
-          t64_rdp_memory_coverage_invalidate(machine, (uint32_t)address,
-                                             size_bytes);
+          if (write_color)
+            t64_rdp_memory_coverage_invalidate(machine, (uint32_t)address,
+                                               size_bytes);
           t64_rdp_memory_coverage_write(machine, (uint32_t)address,
                                         size_bytes, destination_coverage);
           if (write_color) {
