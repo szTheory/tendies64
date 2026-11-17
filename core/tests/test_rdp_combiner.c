@@ -613,15 +613,47 @@ static void case_signed_floor_clamp_and_saturation(void) {
 }
 
 static void case_key_convert_and_lod_sources(void) {
+  static const uint64_t key_commands[] = {
+      UINT64_C(0xfa00a700636e7984),
+      UINT64_C(0xaa12345617382243),
+      UINT64_C(0xab00000007890c2d),
+  };
   t64_rdp_combiner_inputs inputs = {{0u}, {0u}, {0u}, 145u};
   t64_machine *machine = create_authored_machine();
   uint32_t rgba;
   if (machine == NULL) return;
   initialize_pipeline_inputs(machine, &inputs);
+  T64_CHECK(run_commands(machine, key_commands,
+                         sizeof key_commands / sizeof key_commands[0]));
+  T64_CHECK_INT(machine->rdp.command_count, 3u);
+  T64_CHECK_INT(machine->rdp.key_width[0], UINT32_C(0x789));
+  T64_CHECK_INT(machine->rdp.key_width[1], UINT32_C(0x123));
+  T64_CHECK_INT(machine->rdp.key_width[2], UINT32_C(0x456));
+  T64_CHECK_INT(machine->rdp.key_center[0], 12u);
+  T64_CHECK_INT(machine->rdp.key_center[1], 23u);
+  T64_CHECK_INT(machine->rdp.key_center[2], 34u);
+  T64_CHECK_INT(machine->rdp.key_scale[0], 45u);
+  T64_CHECK_INT(machine->rdp.key_scale[1], 56u);
+  T64_CHECK_INT(machine->rdp.key_scale[2], 67u);
+  T64_CHECK_INT(machine->rdp.primitive_lod_fraction, 167u);
   T64_CHECK(run_pipeline(machine, &inputs,
                          cycle0_mode(6u, 6u, 13u, 0u, 6u, 7u, 6u, 0u),
                          0u, &rgba));
   T64_CHECK_INT((rgba >> 24) & UINT32_C(0xff), 138u);
+  T64_CHECK_INT((rgba >> 16) & UINT32_C(0xff), 131u);
+  T64_CHECK_INT((rgba >> 8) & UINT32_C(0xff), 125u);
+  T64_CHECK_INT(rgba & UINT32_C(0xff), 167u);
+  T64_CHECK(run_pipeline(machine, &inputs,
+                         cycle0_mode(6u, 6u, 6u, 0u, 6u, 7u, 6u, 0u),
+                         0u, &rgba));
+  T64_CHECK_INT((rgba >> 24) & UINT32_C(0xff), 42u);
+  T64_CHECK_INT((rgba >> 16) & UINT32_C(0xff), 50u);
+  T64_CHECK_INT((rgba >> 8) & UINT32_C(0xff), 58u);
+  T64_CHECK_INT(rgba & UINT32_C(0xff), 167u);
+  T64_CHECK(run_pipeline(machine, &inputs,
+                         cycle0_mode(6u, 6u, 14u, 0u, 6u, 7u, 6u, 0u),
+                         0u, &rgba));
+  T64_CHECK_INT((rgba >> 24) & UINT32_C(0xff), 159u);
   T64_CHECK_INT(rgba & UINT32_C(0xff), 167u);
   T64_CHECK(run_pipeline(machine, &inputs,
                          cycle0_mode(6u, 7u, 15u, 0u, 6u, 7u, 0u, 0u),
