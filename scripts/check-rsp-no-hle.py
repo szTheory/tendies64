@@ -33,6 +33,7 @@ CANONICAL_CORE_SOURCES = frozenset(
         "t64_observe.c",
         "t64_pi.c",
         "t64_rdp.c",
+        "t64_rdp_depth.c",
         "t64_rdp_pipeline.c",
         "t64_rdp_raster.c",
         "t64_rdp_tmem.c",
@@ -199,6 +200,15 @@ REVIEWED_RDP_PIPELINE_FUNCTIONS = frozenset(
         "t64_rdp_memory_coverage_write",
     }
 )
+REVIEWED_RDP_DEPTH_FUNCTIONS = frozenset(
+    {
+        "depth_word_read", "floor_div_i64", "is_z_triangle", "magnitude_i64",
+        "pair_from_word", "signed_i32", "signed_pair_q16", "z_compress",
+        "z_decompress", "z_delta_decode", "z_delta_priority_code",
+        "t64_rdp_depth_commit_pixel", "t64_rdp_depth_evaluate_pixel",
+        "t64_rdp_depth_triangle_preflight",
+    }
+)
 REVIEWED_VI_FUNCTIONS = frozenset(
     {
         "copy_text", "delay_for_cycles", "expand5", "geometry_for",
@@ -268,14 +278,14 @@ REVIEWED_BODY_DIGESTS = {
     "core/t64_sp.c :: trace_refusal": "d142faecf8d4f78e427aa40e7454d0a24cc05c20ca433e225bed118982517dfc",
     "core/t64_sp.c :: warm_zero_source_sp_transfer": "46b55d7252273228780a497b4f34180b53dc93676f6bac901aaff9fae6d86508",
     "core/t64_sp.c :: write_rsp_status": "8d1f00710b955fc530864d080ae8d99733711e73749c75b6800d7cc590dbf74c",
-    "core/t64_rdp.c :: apply_pending_command": "bd20f31bb4d20b2b25f620b3f5063cafe88605116ed5f6b94dfd4d3e5cb0e43b",
+    "core/t64_rdp.c :: apply_pending_command": "dbd536261c345239cdc1887b05f54e848038fc5505339f0d69e6f063dab9295c",
     "core/t64_rdp.c :: expand5_u8": "ceac39882b1c7c81ee50b7bedf89cce86e3908b8c5d02fd0186769a093699142",
     "core/t64_rdp.c :: command_span_valid": "4f8a0ecc32f895ae4dfa8f6390d90e4e1a0c18477bbe8ebbb97d66136f882f3a",
     "core/t64_rdp.c :: dpc_status_value": "051e3e702318dd9975d0c0a41a990c733d78ca8e84c77aeeab67ef4da7d4be32",
     "core/t64_rdp.c :: fill_bounds": "05ce4e443ffa8fac9adc9503750953b1a9f8c0d7485c1c14a90601433d4c6540",
-    "core/t64_rdp.c :: fill_one_row": "ce894991e1c65c82d02098edf163c7721fa5e191cc21a9b42ebb0a1660ed844a",
+    "core/t64_rdp.c :: fill_one_row": "6673a9b4afcb8d884a8cde2c7d0117a638ec240a28db20d7416b517832896a4e",
     "core/t64_rdp.c :: finish_if_idle": "c5f6f068c0c3622f8ca67750f53032f9b2c2ec6324cfda9991d7420e06277a1a",
-    "core/t64_rdp.c :: handle_row": "c516da34e1e379b6c40ed02520680de82e9182fe869cc548e81b05f0887d12ef",
+    "core/t64_rdp.c :: handle_row": "db4e661d1899a3b47aaa9e8eed28e7a4a6d9fc44fcaaf0c98cc49ad641074703",
     "core/t64_rdp.c :: increment_counter": "c7b52a4723395d1f114dd6c485c36e3c08ca7338afcd527d8e9fd0929dc86911",
     "core/t64_rdp.c :: rdp_event_queued": "f91aa69f7a194595cf8cc54d2aedc64132d4b0052494e3873b6c751aec0b4f81",
     "core/t64_rdp.c :: read_be64": "a3b364ca9b36969d9e21b3551356029e7a7956968b8a0191b964652f95d2f364",
@@ -283,7 +293,7 @@ REVIEWED_BODY_DIGESTS = {
     "core/t64_rdp.c :: schedule_next_committed": "a6201021b4e6d72278c6ee6717b26b4e904160d3001b514523cf7ccc9a54d5e9",
     "core/t64_rdp.c :: schedule_work_after_committed": "dd9806898e39a57176c4bbe00dfa4c8b898ec0fa830c761700a2d17c55169be5",
     "core/t64_rdp.c :: set_refusal": "e7931da07d8dba661d964c820715536da479388feb50f9de9f2471c51a5c6e1f",
-    "core/t64_rdp.c :: supported_opcode": "9c50bb921be7eebd779b9b011e1590eec8de03b788528c10f37f33cde8efb510",
+    "core/t64_rdp.c :: supported_opcode": "6cb0de550773784a8160b84fc0646a9b0cea8edb4d8e667a634f3f569d680039",
     "core/t64_rdp.c :: t64_rdp_event": "b67580981748efee09c489010721f4c55c98d76d2f821e07b624814f38f9f3c8",
     "core/t64_rdp.c :: t64_rdp_read_register": "1d362cac600402a9115d698c9373ac1823e13f7422711cd9ad0b80540a115fda",
     "core/t64_rdp.c :: t64_rdp_reset_machine_state": "b18b1126b2bddb74b4ba5d0162dda1742d897c06d397972ed62adda0472be8cb",
@@ -309,8 +319,8 @@ REVIEWED_BODY_DIGESTS = {
     "core/t64_rdp_raster.c :: shade_products_are_bounded": "dc43aa44161b59e8e18a5ea5abd0977e58fa250b8158e13c4ce4cf4901aa0346",
     "core/t64_rdp_raster.c :: sign_extend_u14": "4c60f2c84b607ddec9ccfa10319406dd75b180450d224ac17cc6fedc1b45dadb",
     "core/t64_rdp_raster.c :: signed_u32": "83179d57b15375b137c8e01de5374b4b027c396644745b06e8f4b984c817bebd",
-    "core/t64_rdp_raster.c :: t64_rdp_triangle_bounds": "6694a7bcd906abe6d6bc8624a6263f707fdf323b187564cd40818917779c1026",
-    "core/t64_rdp_raster.c :: t64_rdp_triangle_render_row": "251c742509ae05569d441119b87023657b0a99a83c573e94bf4f52c425ea75ca",
+    "core/t64_rdp_raster.c :: t64_rdp_triangle_bounds": "189c18cb74f4228f0e1223e8a927b0d82db36e0d32342c0e0916988d74844404",
+    "core/t64_rdp_raster.c :: t64_rdp_triangle_render_row": "70d9e9a8699406ca4f7f78058592fed5f3aecdc1f2ab5ef0ccc56a757c052a5a",
     "core/t64_rdp_raster.c :: t64_rdp_triangle_word_count": "9c4ba2233607144ba272f851462678760aae1ad6e24cd2b2fa635d24ebdf272c",
     "core/t64_rdp_raster.c :: texture_channel5": "17a9184f0b0b54ee26aa50902b7d727c41f0bd05830b1713e519e3f8d4e8505a",
     "core/t64_rdp_raster.c :: texture_channel_q16": "658f89383ca8fd1b72b7a67b9ef541c848d8c1755d01a4f6733445ffca7d1b95",
@@ -333,9 +343,23 @@ REVIEWED_BODY_DIGESTS = {
     "core/t64_rdp_pipeline.c :: signed9": "9fe5122087d1b493f7380882126ce57c2cd0e1c94068dfad8d746452d87bb1e3",
     "core/t64_rdp_pipeline.c :: t64_rdp_blend_pixel": "68c4a727113409916c5d0c872e981ebdc0135053540b0876dadd8f2b065a09ce",
     "core/t64_rdp_pipeline.c :: t64_rdp_combine_pixel": "656b8bb98dc169b8e7ec8db460af4cf47fd020c8b133243f641999f86f2641db",
-    "core/t64_rdp_pipeline.c :: t64_rdp_memory_coverage_invalidate": "d16b195c0d975a8b009d9cc5517add1cd67e2a5ec90f799fb3eb9f50528a6f83",
+    "core/t64_rdp_pipeline.c :: t64_rdp_memory_coverage_invalidate": "b017ad6833a66247fb1ca2f15b6f52868fe76b046c0b5184c54b327dada0448a",
     "core/t64_rdp_pipeline.c :: t64_rdp_memory_coverage_read": "18dab858d34f120f7755b801f980cb6907acbe336cacacb10e01849f672e432f",
     "core/t64_rdp_pipeline.c :: t64_rdp_memory_coverage_write": "1840d1d9599a5003eb89ae9ea08cea862b19d18f193f2264a89ed463639b6f62",
+    "core/t64_rdp_depth.c :: depth_word_read": "cd1981e4e38cc9c36ac9b0f2713e5250bf2f9437b56e02340a37633464fd9b9d",
+    "core/t64_rdp_depth.c :: floor_div_i64": "e23d0cd59f6ef6dfc7c2fdade098af1f8f28edf649d362422bd99e320f4a6a17",
+    "core/t64_rdp_depth.c :: is_z_triangle": "66e34a30e2d3b8a114224d67356fddf6aeca8aacfeb6f6574539bba4c84f5d68",
+    "core/t64_rdp_depth.c :: magnitude_i64": "c2c067fb88a91c3dbda8cea9f8f3199759de7d5737eef061e0bd2290489735d7",
+    "core/t64_rdp_depth.c :: pair_from_word": "2a47eefaca71b518ffa30ae70e39e022a94e93947a26f8c9c18c3b90e728231d",
+    "core/t64_rdp_depth.c :: signed_i32": "83179d57b15375b137c8e01de5374b4b027c396644745b06e8f4b984c817bebd",
+    "core/t64_rdp_depth.c :: signed_pair_q16": "2747147c9a0d25bd2897e28d76597370ead177fe5eec80b2a8b79401aa40e5ee",
+    "core/t64_rdp_depth.c :: z_compress": "3194ade08fa753dfb0a6b3fe89b1b1b543fcc475353573de7440ab4f164eb1be",
+    "core/t64_rdp_depth.c :: z_decompress": "d88a75f6014bb875c37c037e1a90b7956d0da34257649b50c63dff65cedffaf3",
+    "core/t64_rdp_depth.c :: z_delta_decode": "16069d69e67a93c6e988a4d5dd7446f0843dd133a277ec248277ccf0cf1e0d5b",
+    "core/t64_rdp_depth.c :: z_delta_priority_code": "a3f05bf184d69818975b5bbca317d31a03dc541a08381ac8397ad9180502c377",
+    "core/t64_rdp_depth.c :: t64_rdp_depth_commit_pixel": "2dcd03e02e974b1cd918907419683f1ca8e86e1af6bf2094de45d80b9897b059",
+    "core/t64_rdp_depth.c :: t64_rdp_depth_evaluate_pixel": "922895d516b4e36fbd0b54b6f7eff3222c567e527d4af6c7fa5cc82eb2258942",
+    "core/t64_rdp_depth.c :: t64_rdp_depth_triangle_preflight": "d12436fa67cb53aaa3e019e287b6aa98200bd011efc7c98962f48058302ffaa3",
     "core/t64_rdp_tmem.c :: apply_load_block": "9a1e6035fe42bc1d6fe4fb9c98501d61b82894b6dc155fcc524c73f486547b7a",
     "core/t64_rdp_tmem.c :: apply_load_tile": "92d546a7231010976364a0eedf4b1005493cb1030985a31707b723a5bb2c91b5",
     "core/t64_rdp_tmem.c :: apply_load_tlut": "60fd5c460b216b64f4d04b36cb2960f33204c95398c04542a668948eb95f4ca7",
@@ -574,6 +598,7 @@ def _check_source_route(root: pathlib.Path) -> tuple[list[str], list[str], int]:
     pipeline_path = root / "core" / "t64_rdp_pipeline.c"
     raster_path = root / "core" / "t64_rdp_raster.c"
     tmem_path = root / "core" / "t64_rdp_tmem.c"
+    depth_path = root / "core" / "t64_rdp_depth.c"
     vi_path = root / "core" / "t64_vi.c"
     bus_path = root / "core" / "t64_bus.c"
     pi_path = root / "core" / "t64_pi.c"
@@ -581,11 +606,11 @@ def _check_source_route(root: pathlib.Path) -> tuple[list[str], list[str], int]:
         path.is_file()
         for path in (
             rsp_path, sp_path, rdp_path, pipeline_path, raster_path, tmem_path,
-            vi_path, bus_path, pi_path
+            depth_path, vi_path, bus_path, pi_path
         )
     ):
         findings.append(
-            "canonical RSP/SP/RDP/raster/TMEM/VI source is missing from the reviewed production set"
+            "canonical RSP/SP/RDP/depth/raster/TMEM/VI source is missing from the reviewed production set"
         )
         return findings, evidence, len(softfloat)
 
@@ -597,6 +622,7 @@ def _check_source_route(root: pathlib.Path) -> tuple[list[str], list[str], int]:
     )
     raster = strip_c_comments_and_literals(raster_path.read_text(encoding="utf-8"))
     tmem = strip_c_comments_and_literals(tmem_path.read_text(encoding="utf-8"))
+    depth = strip_c_comments_and_literals(depth_path.read_text(encoding="utf-8"))
     vi = strip_c_comments_and_literals(vi_path.read_text(encoding="utf-8"))
     bus = strip_c_comments_and_literals(bus_path.read_text(encoding="utf-8"))
     pi = strip_c_comments_and_literals(pi_path.read_text(encoding="utf-8"))
@@ -631,6 +657,14 @@ def _check_source_route(root: pathlib.Path) -> tuple[list[str], list[str], int]:
         unexpected = sorted(tmem_function_names - REVIEWED_RDP_TMEM_FUNCTIONS)
         findings.append(
             "core/t64_rdp_tmem.c: reviewed TMEM function inventory changed; "
+            f"missing={missing!r} unexpected={unexpected!r}"
+        )
+    depth_function_names = file_function_names(depth)
+    if depth_function_names != REVIEWED_RDP_DEPTH_FUNCTIONS:
+        missing = sorted(REVIEWED_RDP_DEPTH_FUNCTIONS - depth_function_names)
+        unexpected = sorted(depth_function_names - REVIEWED_RDP_DEPTH_FUNCTIONS)
+        findings.append(
+            "core/t64_rdp_depth.c: reviewed depth function inventory changed; "
             f"missing={missing!r} unexpected={unexpected!r}"
         )
     if vi_function_names != REVIEWED_VI_FUNCTIONS:
@@ -707,6 +741,8 @@ def _check_source_route(root: pathlib.Path) -> tuple[list[str], list[str], int]:
         routes[f"core/t64_rdp_raster.c :: {name}"] = function_body(raster, name)
     for name in REVIEWED_RDP_TMEM_FUNCTIONS:
         routes[f"core/t64_rdp_tmem.c :: {name}"] = function_body(tmem, name)
+    for name in REVIEWED_RDP_DEPTH_FUNCTIONS:
+        routes[f"core/t64_rdp_depth.c :: {name}"] = function_body(depth, name)
     for name in REVIEWED_VI_FUNCTIONS:
         routes[f"core/t64_vi.c :: {name}"] = function_body(vi, name)
     for label, body in routes.items():
@@ -805,6 +841,13 @@ def _check_source_route(root: pathlib.Path) -> tuple[list[str], list[str], int]:
         findings.append(
             "core/t64_rdp_raster.c :: t64_rdp_triangle_bounds: textured triangles bypass tile/TMEM preflight"
         )
+    depth_preflight_body = routes[
+        "core/t64_rdp_depth.c :: t64_rdp_depth_triangle_preflight"
+    ] or ""
+    if "t64_rdp_depth_triangle_preflight" not in triangle_bounds_body or not depth_preflight_body:
+        findings.append(
+            "core/t64_rdp_raster.c :: t64_rdp_triangle_bounds: Z triangles bypass depth preflight"
+        )
     row_body = routes["core/t64_rdp.c :: handle_row"] or ""
     if "t64_rdp_triangle_render_row" not in row_body:
         findings.append(
@@ -822,6 +865,23 @@ def _check_source_route(root: pathlib.Path) -> tuple[list[str], list[str], int]:
     if "t64_rdp_blend_pixel" not in raster_row_body or "t64_rdp_memory_coverage_write" not in raster_row_body:
         findings.append(
             "core/t64_rdp_raster.c :: t64_rdp_triangle_render_row: blender coverage/color ownership route is absent"
+        )
+    if not all(
+        token in raster_row_body
+        for token in (
+            "t64_rdp_depth_evaluate_pixel",
+            "t64_rdp_depth_commit_pixel",
+        )
+    ):
+        findings.append(
+            "core/t64_rdp_raster.c :: t64_rdp_triangle_render_row: depth comparison/update route is absent"
+        )
+    depth_commit_body = routes[
+        "core/t64_rdp_depth.c :: t64_rdp_depth_commit_pixel"
+    ] or ""
+    if "t64_rdp_memory_coverage_invalidate" not in depth_commit_body:
+        findings.append(
+            "core/t64_rdp_depth.c :: t64_rdp_depth_commit_pixel: accepted depth write bypasses overlapping sidecar invalidation"
         )
     fetch_body = routes["core/t64_rdp.c :: t64_rdp_event"] or ""
     if "t64_rdp_triangle_word_count" not in fetch_body:
@@ -872,6 +932,7 @@ def _check_source_route(root: pathlib.Path) -> tuple[list[str], list[str], int]:
                 "core/t64_rdp_tmem.c :: per-machine source validation -> bounded LoadTile/LoadBlock/LoadTLUT writes -> copy sampling",
                 "core/t64_rdp.c :: texture triangle packet -> signed Q16 preflight -> row-event raster -> per-machine TMEM sampling",
                 "core/t64_rdp_raster.c :: covered triangle pixel -> t64_rdp_combine_pixel -> t64_rdp_blend_pixel -> versioned color/coverage RDRAM output",
+                "core/t64_rdp_raster.c :: Z triangle preflight -> pixel compare -> accepted color write -> visible depth plus logical hidden sidecar",
                 "core/t64_bus.c / core/t64_pi.c / core/t64_sp.c :: accepted CPU/cache/PI/SP writes invalidate per-instance coverage sidecar",
                 "core/t64_sp.c :: start_rsp_dma and write_rsp_status -> t64_rsp_ensure_opportunity",
             ]
@@ -1146,6 +1207,44 @@ def _check_build_route(root: pathlib.Path, build: pathlib.Path) -> tuple[list[st
                 "build/core/CMakeFiles/t64_core.dir/t64_rdp_pipeline.c.o: "
                 "required canonical symbol t64_rdp_combine_pixel is absent"
             )
+    depth_object = build / "core" / "CMakeFiles" / "t64_core.dir" / "t64_rdp_depth.c.o"
+    if not depth_object.is_file():
+        findings.append(
+            "build/core/CMakeFiles/t64_core.dir/t64_rdp_depth.c.o: canonical depth object is missing"
+        )
+    elif nm is None:
+        findings.append("build route: `nm` unavailable for RDP depth object inspection")
+    else:
+        result = subprocess.run(
+            [nm, "-a", str(depth_object)],
+            check=False,
+            capture_output=True,
+            text=True,
+            timeout=10,
+        )
+        symbols = set()
+        if result.returncode == 0:
+            for line in result.stdout.splitlines():
+                pieces = line.split()
+                if pieces:
+                    symbol = pieces[-1]
+                    while symbol.startswith("_"):
+                        symbol = symbol[1:]
+                    symbols.add(symbol)
+        else:
+            findings.append(
+                "build/core/CMakeFiles/t64_core.dir/t64_rdp_depth.c.o: nm inspection failed"
+            )
+        for symbol in (
+            "t64_rdp_depth_triangle_preflight",
+            "t64_rdp_depth_evaluate_pixel",
+            "t64_rdp_depth_commit_pixel",
+        ):
+            if symbol not in symbols:
+                findings.append(
+                    "build/core/CMakeFiles/t64_core.dir/t64_rdp_depth.c.o: "
+                    f"required canonical symbol {symbol} is absent"
+                )
     if not findings:
         evidence.extend(
             [
@@ -1155,6 +1254,7 @@ def _check_build_route(root: pathlib.Path, build: pathlib.Path) -> tuple[list[st
                 "build/core/CMakeFiles/t64_core.dir/t64_rdp_raster.c.o :: nm contains triangle bounds, row and packet-length entry points",
                 "build/core/CMakeFiles/t64_core.dir/t64_rdp_tmem.c.o :: nm contains triangle texture validation and pixel sampling entry points",
                 "build/core/CMakeFiles/t64_core.dir/t64_rdp_pipeline.c.o :: nm contains t64_rdp_combine_pixel",
+                "build/core/CMakeFiles/t64_core.dir/t64_rdp_depth.c.o :: nm contains depth preflight, compare, and commit entry points",
             ]
         )
     return findings, evidence

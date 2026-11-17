@@ -227,7 +227,17 @@
         {
           "path": "core/test_rdp_depth",
           "cases": [
-            "z-depth-primitive-accepted-raw-vi"
+            "z-depth-primitive-accepted-raw-vi",
+            "z-depth-rgba8888-vi",
+            "z-depth-all-packet-opcodes",
+            "z-depth-split-interleaved-equality",
+            "z-depth-signed-fractional-q16",
+            "z-depth-delta-priority-boundaries",
+            "z-depth-compression-exponent-transitions",
+            "z-depth-compare-update-coverage-modes",
+            "z-depth-alpha-reject-output-precedence",
+            "z-depth-refusal-truncation-recovery",
+            "z-depth-sidecar-invalidation-reset-digest"
           ]
         }
       ]

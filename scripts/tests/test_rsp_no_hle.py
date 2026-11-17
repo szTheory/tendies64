@@ -75,6 +75,8 @@ MUTATION_SEEDS = (
     "SP RSP DMA coverage invalidation body mutation",
     "VI RGBA8888 scanout body mutation",
     "missing RDP combiner object file",
+    "RDP depth evaluate body mutation",
+    "missing RDP depth object file",
 )
 
 
@@ -548,6 +550,23 @@ def _check_mutation_suite(temp_root: pathlib.Path) -> int:
         path.write_text(original, encoding="utf-8")
         seeds_run += 1
 
+    depth_path = source_root / "core" / "t64_rdp_depth.c"
+    original_depth = depth_path.read_text(encoding="utf-8")
+    depth_anchor = "result_out->visible_word = z_compress(linear_z, delta_code);"
+    if depth_anchor not in original_depth:
+        raise AssertionError("RDP depth evaluate mutation anchor no longer exists")
+    depth_path.write_text(
+        original_depth.replace(
+            depth_anchor,
+            "result_out->visible_word = (uint16_t)(z_compress(linear_z, delta_code) ^ 1u);",
+            1,
+        ),
+        encoding="utf-8",
+    )
+    _must_reject("RDP depth evaluate body mutation", source_root, build_root)
+    depth_path.write_text(original_depth, encoding="utf-8")
+    seeds_run += 1
+
     missing_pipeline_source, missing_pipeline_build = _copy_clean_fixture(
         temp_root / "missing-rdp-combiner-object"
     )
@@ -566,6 +585,23 @@ def _check_mutation_suite(temp_root: pathlib.Path) -> int:
         missing_pipeline_source,
         missing_pipeline_build,
     )
+    seeds_run += 1
+
+    missing_depth_source, missing_depth_build = _copy_clean_fixture(
+        temp_root / "missing-rdp-depth-object"
+    )
+    depth_object = (
+        missing_depth_build
+        / "core"
+        / "CMakeFiles"
+        / "t64_core.dir"
+        / "t64_rdp_depth.c.o"
+    )
+    if not depth_object.is_file():
+        raise AssertionError("RDP depth production object is missing from clean fixture")
+    depth_object.unlink()
+    _must_reject("missing RDP depth object file", missing_depth_source,
+                 missing_depth_build)
     seeds_run += 1
 
     bus_path = source_root / "core" / "t64_bus.c"

@@ -775,14 +775,16 @@ static void test_rdp_profile_metadata_binding(void) {
       "ntsc-cart-4m-openipl3-rdram-b-t1-rdp-texture-v4",
       "ntsc-cart-4m-openipl3-rdram-b-t1-rdp-combiner-v5",
       "ntsc-cart-4m-openipl3-rdram-b-t1-rdp-blender-v6",
+      "ntsc-cart-4m-openipl3-rdram-b-t1-rdp-depth-v7",
   };
   /* Earlier-profile bytes are pinned to the retained pre-repair artifact. */
   static const char *const legacy_hashes[] = {
       "794710f767fce5f1bd37d1116a6067bac10026aa4c7d77fc9cfe7c3636d5830f",
       "3ce5b6c75ba85a8b1d5ed333820d70736c26c003ec16c76a7cd9f8ee686f3e18",
       "0e9938d6b92159fe1f8c5dff0c03749979d5d10b11b458224f2dcca1a2345efa",
+      "7f73b46e6c695fddb60d89d6351c1c099f56e76dbe109ab9f2cb9f372fc56d0e",
   };
-  static const size_t legacy_lengths[] = {1116u, 1132u, 1172u};
+  static const size_t legacy_lengths[] = {1116u, 1132u, 1172u, 1155u};
   static const size_t text_offsets[] = {
       offsetof(t64_profile_descriptor, rdp_work_policy),
       offsetof(t64_profile_descriptor, vi_clock_policy),
@@ -791,6 +793,7 @@ static void test_rdp_profile_metadata_binding(void) {
       offsetof(t64_profile_descriptor, vi_output_policy),
       offsetof(t64_profile_descriptor, rdp_triangle_policy),
       offsetof(t64_profile_descriptor, rdp_combiner_policy),
+      offsetof(t64_profile_descriptor, rdp_depth_policy),
   };
   static const size_t boot_offsets[] = {
       offsetof(t64_profile_descriptor, asset_sha256),
@@ -805,7 +808,7 @@ static void test_rdp_profile_metadata_binding(void) {
     uint8_t original_bytes[8192];
     size_t original_length = 0u;
     size_t field;
-    size_t text_count = index < 2u ? 6u : 7u;
+    size_t text_count = index < 2u ? 6u : (index < 4u ? 7u : 8u);
     allocator_state state = {0};
     t64_host_allocator allocator = {test_allocate, test_release, &state};
     T64_CHECK_INT(t64_profile_lookup(ids[index], &profile), T64_STATUS_OK);
@@ -814,8 +817,16 @@ static void test_rdp_profile_metadata_binding(void) {
     T64_CHECK_INT(t64_profile_serialize(profile, original_bytes,
                                         sizeof original_bytes,
                                         &original_length), T64_STATUS_OK);
+    {
+      t64_machine *canonical_machine = NULL;
+      T64_CHECK_INT(t64_machine_create(&allocator, profile,
+                                       &canonical_machine), T64_STATUS_OK);
+      T64_CHECK(canonical_machine != NULL);
+      if (canonical_machine != NULL)
+        t64_machine_destroy(canonical_machine);
+    }
     T64_CHECK(original_length > 0u);
-    if (index < 3u) {
+    if (index < 4u) {
       char original_hex[T64_DIGEST_SIZE * 2u + 1u];
       digest_to_hex(original_hash, original_hex);
       T64_CHECK_STR(original_hex, legacy_hashes[index]);

@@ -48,6 +48,8 @@ static unsigned population16(uint16_t value) {
 
 #define BLENDER_PROFILE_ID \
   "ntsc-cart-4m-openipl3-rdram-b-t1-rdp-blender-v6"
+#define DEPTH_PROFILE_ID \
+  "ntsc-cart-4m-openipl3-rdram-b-t1-rdp-depth-v7"
 #define TEST_ROM_CAPACITY 65536u
 #define COMMAND_ADDRESS UINT32_C(0x100)
 #define FRAMEBUFFER_ADDRESS UINT32_C(0x5000)
@@ -74,7 +76,7 @@ static void test_release(void *context, t64_host_storage storage) {
   free(storage.data);
 }
 
-static t64_machine *create_authored_machine(void) {
+static t64_machine *create_authored_machine_for(const char *profile_id) {
   const t64_host_allocator allocator = {test_allocate, test_release, NULL};
   const char *path = getenv("T64_TEST_RDP_FILL_PATH");
   const t64_profile_descriptor *profile = NULL;
@@ -96,8 +98,7 @@ static t64_machine *create_authored_machine(void) {
   }
   T64_CHECK(fread(rom, 1u, (size_t)length, file) == (size_t)length);
   T64_CHECK(fclose(file) == 0);
-  T64_CHECK_INT(t64_profile_lookup(BLENDER_PROFILE_ID, &profile),
-                T64_STATUS_OK);
+  T64_CHECK_INT(t64_profile_lookup(profile_id, &profile), T64_STATUS_OK);
   T64_CHECK(profile != NULL);
   if (profile == NULL) return NULL;
   T64_CHECK_INT(t64_machine_create(&allocator, profile, &machine),
@@ -106,6 +107,10 @@ static t64_machine *create_authored_machine(void) {
   T64_CHECK_INT(t64_machine_admit_rom(machine, rom, (size_t)length),
                 T64_STATUS_OK);
   return machine;
+}
+
+static t64_machine *create_authored_machine(void) {
+  return create_authored_machine_for(BLENDER_PROFILE_ID);
 }
 
 static bool read_test_rom(uint8_t *rom, size_t capacity, size_t *length_out) {
@@ -768,7 +773,7 @@ static void case_cpu_pi_and_sp_write_ownership(void) {
   static const uint32_t sp_base = UINT32_C(0x04040000);
   static const uint32_t dmem_base = UINT32_C(0x04000000);
   static const uint32_t cart_base = UINT32_C(0x10000000);
-  t64_machine *machine = create_authored_machine();
+  t64_machine *machine = create_authored_machine_for(DEPTH_PROFILE_ID);
   uint8_t cache_line[T64_VR4300_DCACHE_LINE_BYTES];
   uint8_t rom[TEST_ROM_CAPACITY];
   size_t rom_length = 0u;
@@ -779,36 +784,50 @@ static void case_cpu_pi_and_sp_write_ownership(void) {
   t64_rsp_dma_step no_step = {T64_RSP_DMA_STEP_NONE, 0u, 0u, 0u,
                               0u, 0u, false, false};
   uint32_t address = UINT32_C(0x6100);
+  uint32_t granule;
 
   if (machine == NULL) return;
   t64_rdp_memory_coverage_write(machine, address, 2u, 7u);
+  machine->rdp_depth_hidden[address / 2u] = UINT8_C(0x83);
   T64_CHECK_INT(t64_machine_bus_write(machine, address, 1u, UINT32_C(0xaa)),
                 T64_STATUS_OK);
   T64_CHECK_INT(t64_rdp_memory_coverage_read(machine, address, 2u), 0u);
+  T64_CHECK_INT(machine->rdp_depth_hidden[address / 2u], 0u);
 
   address = UINT32_C(0x6200);
   t64_rdp_memory_coverage_write(machine, address, 2u, 7u);
   t64_rdp_memory_coverage_write(machine, address + 2u, 2u, 6u);
   t64_rdp_memory_coverage_write(machine, address + 4u, 2u, 5u);
   t64_rdp_memory_coverage_write(machine, address + 6u, 2u, 4u);
+  for (granule = 0u; granule < 4u; granule++)
+    machine->rdp_depth_hidden[address / 2u + granule] = UINT8_C(0x83);
   T64_CHECK_INT(t64_bus_write_masked(machine, address, 4u, UINT8_C(0x01),
                                      UINT64_C(0x11223344)), T64_STATUS_OK);
   T64_CHECK_INT(t64_rdp_memory_coverage_read(machine, address, 2u), 0u);
   T64_CHECK_INT(t64_rdp_memory_coverage_read(machine, address + 2u, 2u), 6u);
+  T64_CHECK_INT(machine->rdp_depth_hidden[address / 2u], 0u);
+  T64_CHECK_INT(machine->rdp_depth_hidden[address / 2u + 1u], 0x83u);
   T64_CHECK_INT(t64_bus_write_masked(machine, address + 4u, 4u,
                                      UINT8_C(0x04), UINT64_C(0x55667788)),
                 T64_STATUS_OK);
   T64_CHECK_INT(t64_rdp_memory_coverage_read(machine, address + 4u, 2u), 5u);
   T64_CHECK_INT(t64_rdp_memory_coverage_read(machine, address + 6u, 2u), 0u);
+  T64_CHECK_INT(machine->rdp_depth_hidden[address / 2u + 2u], 0x83u);
+  T64_CHECK_INT(machine->rdp_depth_hidden[address / 2u + 3u], 0u);
   t64_rdp_memory_coverage_write(machine, address + 0x40u, 2u, 4u);
+  machine->rdp_depth_hidden[(address + 0x40u) / 2u] = UINT8_C(0x83);
   T64_CHECK_INT(t64_bus_write_masked(machine, address + 0x40u, 4u, 0u, 0u),
                 T64_STATUS_INVALID_ARGUMENT);
   T64_CHECK_INT(t64_rdp_memory_coverage_read(machine, address + 0x40u, 2u), 4u);
+  T64_CHECK_INT(machine->rdp_depth_hidden[(address + 0x40u) / 2u], 0x83u);
 
   for (i = 0u; i < sizeof cache_line; i++) cache_line[i] = (uint8_t)i;
   for (i = 0u; i < T64_VR4300_DCACHE_LINE_BYTES; i += 2u)
     t64_rdp_memory_coverage_write(machine, UINT32_C(0x6300) + i, 2u, 5u);
   t64_rdp_memory_coverage_write(machine, UINT32_C(0x6310), 2u, 7u);
+  for (i = 0u; i < T64_VR4300_DCACHE_LINE_BYTES; i += 2u)
+    machine->rdp_depth_hidden[(UINT32_C(0x6300) + i) / 2u] = UINT8_C(0x83);
+  machine->rdp_depth_hidden[UINT32_C(0x6310) / 2u] = UINT8_C(0x82);
   T64_CHECK_INT(t64_bus_writeback_cache_line(
                     machine, UINT32_C(0x6300), cache_line,
                     T64_VR4300_DCACHE_LINE_BYTES), T64_STATUS_OK);
@@ -817,6 +836,10 @@ static void case_cpu_pi_and_sp_write_ownership(void) {
                                                2u), 0u);
   T64_CHECK_INT(t64_rdp_memory_coverage_read(machine, UINT32_C(0x6310), 2u),
                 7u);
+  for (i = 0u; i < T64_VR4300_DCACHE_LINE_BYTES; i += 2u)
+    T64_CHECK_INT(machine->rdp_depth_hidden[(UINT32_C(0x6300) + i) / 2u],
+                  0u);
+  T64_CHECK_INT(machine->rdp_depth_hidden[UINT32_C(0x6310) / 2u], 0x82u);
 
   machine->queue_head = 0u;
   machine->queue_count = 0u;
@@ -824,6 +847,8 @@ static void case_cpu_pi_and_sp_write_ownership(void) {
     T64_CHECK_INT(t64_machine_bus_write(machine, dmem_base + i, 1u,
                                         UINT32_C(0xa0) + i), T64_STATUS_OK);
   t64_rdp_memory_coverage_write(machine, UINT32_C(0x6400), 4u, 7u);
+  for (i = 0u; i < 4u; i++)
+    machine->rdp_depth_hidden[UINT32_C(0x6400) / 2u + i] = UINT8_C(0x83);
   T64_CHECK_INT(t64_machine_bus_write(machine, sp_base, 4u, 0u),
                 T64_STATUS_OK);
   T64_CHECK_INT(t64_machine_bus_write(machine, sp_base + 4u, 4u,
@@ -835,8 +860,11 @@ static void case_cpu_pi_and_sp_write_ownership(void) {
   T64_CHECK_INT(machine->ram[UINT32_C(0x6407)], UINT8_C(0xa7));
   T64_CHECK_INT(t64_rdp_memory_coverage_read(machine, UINT32_C(0x6400), 4u),
                 0u);
+  for (i = 0u; i < 4u; i++)
+    T64_CHECK_INT(machine->rdp_depth_hidden[UINT32_C(0x6400) / 2u + i], 0u);
 
   t64_rdp_memory_coverage_write(machine, UINT32_C(0x6500), 2u, 5u);
+  machine->rdp_depth_hidden[UINT32_C(0x6500) / 2u] = UINT8_C(0x83);
   T64_CHECK_INT(t64_machine_bus_write(machine, pi_base, 4u,
                                       UINT32_C(0x6500)), T64_STATUS_OK);
   T64_CHECK_INT(t64_machine_bus_write(machine, pi_base + 4u, 4u,
@@ -846,6 +874,7 @@ static void case_cpu_pi_and_sp_write_ownership(void) {
   T64_CHECK(drain_events(machine));
   T64_CHECK_INT(t64_rdp_memory_coverage_read(machine, UINT32_C(0x6500), 2u),
                 0u);
+  T64_CHECK_INT(machine->rdp_depth_hidden[UINT32_C(0x6500) / 2u], 0u);
 
   /* The functional RSP path uses admitted descriptor, preflight and commit. */
   for (i = 0u; i < 8u; i++)
@@ -859,6 +888,8 @@ static void case_cpu_pi_and_sp_write_ownership(void) {
   t64_sp_rsp_dma_admission_commit(machine, &admission);
   T64_CHECK(machine->sp.active.valid);
   t64_rdp_memory_coverage_write(machine, UINT32_C(0x6600), 4u, 6u);
+  for (i = 0u; i < 4u; i++)
+    machine->rdp_depth_hidden[UINT32_C(0x6600) / 2u + i] = UINT8_C(0x83);
   while (machine->rsp.dma_setup_remaining != 0u) {
     T64_CHECK_INT(t64_sp_rsp_dma_preflight(machine, false, false, &step),
                   T64_STATUS_OK);
@@ -869,6 +900,7 @@ static void case_cpu_pi_and_sp_write_ownership(void) {
                 T64_STATUS_BUS_DEVICE_REFUSED);
   T64_CHECK_INT(t64_rdp_memory_coverage_read(machine, UINT32_C(0x6600), 4u),
                 6u);
+  T64_CHECK_INT(machine->rdp_depth_hidden[UINT32_C(0x6600) / 2u], 0x83u);
   T64_CHECK_INT(t64_sp_rsp_dma_preflight(machine, false, false, &step),
                 T64_STATUS_OK);
   T64_CHECK_INT(step.kind, T64_RSP_DMA_STEP_BEAT);
@@ -877,11 +909,14 @@ static void case_cpu_pi_and_sp_write_ownership(void) {
   t64_sp_rsp_dma_commit(machine, &stale);
   T64_CHECK_INT(t64_rdp_memory_coverage_read(machine, UINT32_C(0x6600), 4u),
                 6u);
+  T64_CHECK_INT(machine->rdp_depth_hidden[UINT32_C(0x6600) / 2u], 0x83u);
   t64_sp_rsp_dma_commit(machine, &step);
   T64_CHECK_INT(machine->ram[UINT32_C(0x6600)], UINT8_C(0xb0));
   T64_CHECK_INT(machine->ram[UINT32_C(0x6607)], UINT8_C(0xb7));
   T64_CHECK_INT(t64_rdp_memory_coverage_read(machine, UINT32_C(0x6600), 4u),
                 0u);
+  for (i = 0u; i < 4u; i++)
+    T64_CHECK_INT(machine->rdp_depth_hidden[UINT32_C(0x6600) / 2u + i], 0u);
 
   T64_CHECK(read_test_rom(rom, sizeof rom, &rom_length));
   t64_machine_destroy(machine);
@@ -898,12 +933,13 @@ static void case_fill_and_copy_author_full_coverage(void) {
   const uint8_t source[] = {UINT8_C(0xf8), UINT8_C(0x01),
                              UINT8_C(0x07), UINT8_C(0xc1)};
   uint64_t copy_commands[11];
-  t64_machine *machine = create_authored_machine();
+  t64_machine *machine = create_authored_machine_for(DEPTH_PROFILE_ID);
   const uint32_t fill_address = FRAMEBUFFER_ADDRESS;
   const uint32_t copy_address = UINT32_C(0x7000);
   size_t count = 0u;
 
   if (machine == NULL) return;
+  machine->rdp_depth_hidden[fill_address / 2u] = UINT8_C(0x83);
   T64_CHECK(run_commands(machine, fill_commands,
                          sizeof fill_commands / sizeof fill_commands[0]));
   T64_CHECK_INT(machine->rdp.refusal_reason, T64_RDP_REFUSAL_NONE);
@@ -913,6 +949,7 @@ static void case_fill_and_copy_author_full_coverage(void) {
   T64_CHECK_INT(machine->ram[fill_address + 1u], UINT8_C(0x34));
   T64_CHECK_INT(machine->ram[fill_address + 2u], UINT8_C(0x56));
   T64_CHECK_INT(machine->ram[fill_address + 3u], UINT8_C(0xf8));
+  T64_CHECK_INT(machine->rdp_depth_hidden[fill_address / 2u], 0u);
 
   (void)memcpy(machine->ram + UINT32_C(0x4000), source, sizeof source);
   copy_commands[count++] = image_command(0x3fu, 0u, 3u, 2u, copy_address);
@@ -927,6 +964,7 @@ static void case_fill_and_copy_author_full_coverage(void) {
   copy_commands[count++] = UINT64_C(0x0000000010000400);
   copy_commands[count++] = UINT64_C(0x2900000000000000);
   T64_CHECK_INT(count, sizeof copy_commands / sizeof copy_commands[0] - 1u);
+  machine->rdp_depth_hidden[copy_address / 2u] = UINT8_C(0x82);
   T64_CHECK(run_commands(machine, copy_commands, count));
   T64_CHECK_INT(machine->rdp.refusal_reason, T64_RDP_REFUSAL_NONE);
   T64_CHECK_INT(machine->rdp.copy_count, 1u);
@@ -935,6 +973,7 @@ static void case_fill_and_copy_author_full_coverage(void) {
   T64_CHECK_INT(machine->ram[copy_address + 1u], 0u);
   T64_CHECK_INT(machine->ram[copy_address + 2u], 0u);
   T64_CHECK_INT(machine->ram[copy_address + 3u], UINT8_C(0xff));
+  T64_CHECK_INT(machine->rdp_depth_hidden[copy_address / 2u], 0u);
   t64_machine_destroy(machine);
 }
 
