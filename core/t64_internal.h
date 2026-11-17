@@ -667,6 +667,14 @@ typedef struct {
   uint64_t pending_triangle_words[T64_RDP_TRIANGLE_MAX_WORDS];
   uint32_t pending_triangle_word_count;
   uint32_t primitive_color;
+  uint32_t primitive_lod_fraction;
+  uint32_t environment_color;
+  uint32_t fog_color;
+  uint32_t blend_color;
+  uint64_t combine_mode;
+  uint32_t key_center[3];
+  uint32_t key_scale[3];
+  uint32_t key_width[3];
   uint32_t triangle_count;
   uint32_t triangle_last_coverage_x;
   uint32_t triangle_last_coverage_y;
@@ -704,9 +712,23 @@ typedef struct {
   bool texrect_pending;
   bool render_texture_flip;
   bool primitive_color_valid;
+  bool environment_color_valid;
+  bool fog_color_valid;
+  bool blend_color_valid;
+  bool key_center_valid;
+  bool key_scale_valid;
+  bool key_width_valid;
+  bool combine_mode_valid;
   bool render_triangle;
   bool shade_triangle;
 } t64_rdp_state;
+
+typedef struct {
+  uint8_t texel0[4];
+  uint8_t texel1[4];
+  uint8_t shade[4];
+  uint8_t lod_fraction;
+} t64_rdp_combiner_inputs;
 
 typedef struct {
   uint32_t registers[14];
@@ -827,7 +849,9 @@ static inline bool t64_has_rdp_vi_profile(const t64_machine *machine) {
           (machine->profile.machine_model_version == 12u &&
            machine->profile.state_serialization_version == 17u) ||
           (machine->profile.machine_model_version == 13u &&
-           machine->profile.state_serialization_version == 18u));
+           machine->profile.state_serialization_version == 18u) ||
+          (machine->profile.machine_model_version == 14u &&
+           machine->profile.state_serialization_version == 19u));
 }
 
 static inline bool t64_has_rdp_triangle_profile(const t64_machine *machine) {
@@ -835,12 +859,22 @@ static inline bool t64_has_rdp_triangle_profile(const t64_machine *machine) {
          ((machine->profile.machine_model_version == 12u &&
            machine->profile.state_serialization_version == 17u) ||
           (machine->profile.machine_model_version == 13u &&
-           machine->profile.state_serialization_version == 18u));
+           machine->profile.state_serialization_version == 18u) ||
+          (machine->profile.machine_model_version == 14u &&
+           machine->profile.state_serialization_version == 19u));
 }
 
 static inline bool t64_has_rdp_texture_profile(const t64_machine *machine) {
-  return machine != NULL && machine->profile.machine_model_version == 13u &&
-         machine->profile.state_serialization_version == 18u;
+  return machine != NULL &&
+         ((machine->profile.machine_model_version == 13u &&
+           machine->profile.state_serialization_version == 18u) ||
+          (machine->profile.machine_model_version == 14u &&
+           machine->profile.state_serialization_version == 19u));
+}
+
+static inline bool t64_has_rdp_combiner_profile(const t64_machine *machine) {
+  return machine != NULL && machine->profile.machine_model_version == 14u &&
+         machine->profile.state_serialization_version == 19u;
 }
 
 static inline bool t64_has_vr4300_cpu_state(const t64_machine *machine) {
@@ -1106,6 +1140,14 @@ bool t64_rdp_tmem_triangle_pixel(const t64_machine *machine,
                                  uint32_t tile_index, int64_t s_q16,
                                  int64_t t_q16, int64_t w_q16,
                                  bool perspective, uint16_t *pixel_out);
+bool t64_rdp_tmem_triangle_pixel_rgba8(const t64_machine *machine,
+                                       uint32_t tile_index, int64_t s_q16,
+                                       int64_t t_q16, int64_t w_q16,
+                                       bool perspective,
+                                       uint32_t *rgba_out);
+bool t64_rdp_combine_pixel(t64_machine *machine,
+                           const t64_rdp_combiner_inputs *inputs,
+                           uint32_t *rgba_out);
 void t64_rdp_tmem_convert_yuv(const t64_rdp_state *rdp, uint8_t y,
                               uint8_t u, uint8_t v, uint8_t rgb_out[3]);
 t64_status t64_vi_read_register(const t64_machine *machine,

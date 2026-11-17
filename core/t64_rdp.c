@@ -30,6 +30,12 @@
 #define RDP_OP_FILL_RECT UINT32_C(0x36)
 #define RDP_OP_SET_FILL_COLOR UINT32_C(0x37)
 #define RDP_OP_SET_PRIM_COLOR UINT32_C(0x3a)
+#define RDP_OP_SET_ENV_COLOR UINT32_C(0x3b)
+#define RDP_OP_SET_COMBINE UINT32_C(0x3c)
+#define RDP_OP_SET_FOG_COLOR UINT32_C(0x38)
+#define RDP_OP_SET_BLEND_COLOR UINT32_C(0x39)
+#define RDP_OP_SET_KEY_GB UINT32_C(0x2a)
+#define RDP_OP_SET_KEY_R UINT32_C(0x2b)
 #define RDP_OP_SET_OTHER_MODES UINT32_C(0x2f)
 #define RDP_OP_SET_SCISSOR UINT32_C(0x2d)
 #define RDP_OP_LOAD_TLUT UINT32_C(0x30)
@@ -347,9 +353,16 @@ static bool supported_opcode(const t64_machine *machine, uint32_t opcode) {
   case RDP_OP_SYNC_FULL:
     return true;
   default:
-    return t64_has_rdp_triangle_profile(machine) &&
-           (t64_rdp_triangle_word_count(opcode) != 0u ||
-            opcode == RDP_OP_SET_PRIM_COLOR);
+    return (t64_has_rdp_triangle_profile(machine) &&
+            (t64_rdp_triangle_word_count(opcode) != 0u ||
+             opcode == RDP_OP_SET_PRIM_COLOR)) ||
+           (t64_has_rdp_combiner_profile(machine) &&
+            (opcode == RDP_OP_SET_ENV_COLOR ||
+             opcode == RDP_OP_SET_COMBINE ||
+             opcode == RDP_OP_SET_FOG_COLOR ||
+             opcode == RDP_OP_SET_BLEND_COLOR ||
+             opcode == RDP_OP_SET_KEY_GB ||
+             opcode == RDP_OP_SET_KEY_R));
   }
 }
 
@@ -480,7 +493,44 @@ static t64_status apply_pending_command(t64_machine *machine) {
   } else if (opcode == RDP_OP_SET_PRIM_COLOR &&
              t64_has_rdp_triangle_profile(machine)) {
     rdp->primitive_color = (uint32_t)word;
+    rdp->primitive_lod_fraction =
+        (uint32_t)((word >> 40) & UINT64_C(0xff));
     rdp->primitive_color_valid = true;
+  } else if (opcode == RDP_OP_SET_ENV_COLOR &&
+             t64_has_rdp_combiner_profile(machine)) {
+    rdp->environment_color = (uint32_t)word;
+    rdp->environment_color_valid = true;
+  } else if (opcode == RDP_OP_SET_COMBINE &&
+             t64_has_rdp_combiner_profile(machine)) {
+    rdp->combine_mode = word;
+    rdp->combine_mode_valid = true;
+  } else if (opcode == RDP_OP_SET_FOG_COLOR &&
+             t64_has_rdp_combiner_profile(machine)) {
+    rdp->fog_color = (uint32_t)word;
+    rdp->fog_color_valid = true;
+  } else if (opcode == RDP_OP_SET_BLEND_COLOR &&
+             t64_has_rdp_combiner_profile(machine)) {
+    rdp->blend_color = (uint32_t)word;
+    rdp->blend_color_valid = true;
+  } else if (opcode == RDP_OP_SET_KEY_GB &&
+             t64_has_rdp_combiner_profile(machine)) {
+    rdp->key_width[1] = (uint32_t)((word >> 44) & UINT64_C(0xfff));
+    rdp->key_width[2] = (uint32_t)((word >> 32) & UINT64_C(0xfff));
+    rdp->key_center[1] = (uint32_t)((word >> 24) & UINT64_C(0xff));
+    rdp->key_scale[1] = (uint32_t)((word >> 16) & UINT64_C(0xff));
+    rdp->key_center[2] = (uint32_t)((word >> 8) & UINT64_C(0xff));
+    rdp->key_scale[2] = (uint32_t)(word & UINT64_C(0xff));
+    rdp->key_center_valid = true;
+    rdp->key_scale_valid = true;
+    rdp->key_width_valid = true;
+  } else if (opcode == RDP_OP_SET_KEY_R &&
+             t64_has_rdp_combiner_profile(machine)) {
+    rdp->key_width[0] = (uint32_t)((word >> 16) & UINT64_C(0xfff));
+    rdp->key_center[0] = (uint32_t)((word >> 8) & UINT64_C(0xff));
+    rdp->key_scale[0] = (uint32_t)(word & UINT64_C(0xff));
+    rdp->key_center_valid = true;
+    rdp->key_scale_valid = true;
+    rdp->key_width_valid = true;
   } else if (triangle_words != 0u && draw_triangle) {
     rdp->render_kind = 3u;
     rdp->render_active = true;

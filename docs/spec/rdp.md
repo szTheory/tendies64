@@ -6,8 +6,10 @@ model 11, state 16) for DPC/VI/TMEM/copy behavior,
 `ntsc-cart-4m-openipl3-rdram-b-t1-rdp-triangle-v3` (descriptor 7, model 12,
 state 17) for edge and shade triangles, and
 `ntsc-cart-4m-openipl3-rdram-b-t1-rdp-texture-v4` (descriptor 7, model 13,
-state 18) for textured triangles. It does not claim full RDP support, hardware
-timing, or hardware accuracy.
+state 18) for textured triangles, and
+`ntsc-cart-4m-openipl3-rdram-b-t1-rdp-combiner-v5` (descriptor 8, model 14,
+state 19) for the first color-combiner path. It does not claim full RDP
+support, hardware timing, or hardware accuracy.
 
 ## Primary source facts
 
@@ -70,6 +72,12 @@ original fetched word.
 | Command | Raw operation | Fields consumed by this model |
 | --- | ---: | --- |
 | SetTextureImage | `0x3d` | format, size, width minus one, RDRAM address |
+| SetPrimColor | `0x3a` | primitive RGBA and primitive LOD fraction |
+| SetEnvColor | `0x3b` | environment RGBA |
+| SetCombine | `0x3c` | raw cycle-0/cycle-1 RGB and alpha selector groups |
+| SetFogColor | `0x38` | fog RGBA |
+| SetBlendColor | `0x39` | blend RGBA |
+| SetKeyGB / SetKeyR | `0x2a` / `0x2b` | key center, scale, and width parameters |
 | SetTile | `0x35` | format, size, line words, TMEM word, tile, palette, clamp/mirror/mask/shift |
 | SetTileSize | `0x32` | tile and 10.2 `ULS/ULT/LRS/LRT` bounds |
 | LoadTile | `0x34` | tile and rectangular 10.2 source bounds |
@@ -303,3 +311,37 @@ console test, or VID-04 qualification evidence is used here. This slice
 contributes implementation and authored evidence to VID-01 and VID-05 but
 completes neither requirement. The D2 external-rights and D6 release stops
 remain active.
+
+## Color combiner profile and software policy
+
+The v5 profile adds a bounded color-combiner implementation for supported edge
+and textured triangle pixels. It retains v4 texture sampling and the v3 edge
+and shade paths; fill and copy continue to bypass the combiner. Unsupported
+cycle types and unimplemented triangle packet forms are refused before
+framebuffer writes. The implementation accepts cycle 0 (one-cycle) and cycle
+0 followed by cycle 1 (two-cycle), with the first clamped RGBA result available
+as `Combined` feedback in cycle 1.
+
+The primary selector table and raw SetCombine bit positions are recorded in
+`07-06-RAW-CONTRACT.md`. This profile binds the reversible software policy
+`rgba8-floor255-clamp-feedback-noise1-pixel-zero-v1`: sources and intermediate
+results use 8-bit RGBA; C uses denominator 255; signed products are divided
+with floor rounding; each evaluated cycle clamps to 0–255. One-cycle mode uses
+the cycle-0 group once, even when the two packed groups differ. This follows
+the explicit software choice for the first profile, not a vendor guarantee.
+
+Noise uses per-instance xorshift32 seeded with 1. Each accepted covered pixel
+advances the generator once, and its low byte is reused for selected noise
+channels and both cycles. Refused commands consume no noise. Key and convert
+sources are decoded from their command fields; undefined color sources resolve
+to zero under the profile's policy. These are deterministic software rules,
+not claims about exact hardware arithmetic, precision, or noise cadence.
+
+Combiner registers, selectors, key parameters, and RNG state are included in
+the v19 digest domain `t64.state.rdp.vi.combiner.19`; the descriptor hashes the
+combiner policy. Older profiles keep their existing descriptor bytes and
+digest domains. The `unit.core.rdp.combiner` suite includes a literal fetched
+DPC-to-triangle-to-RDRAM/VI consumer, independent one- and two-cycle arithmetic
+vectors, selector denominator checks, refusal-without-pixel-or-noise effects,
+and interleaved instance/digest controls. It establishes this software
+contract only; VID-04 hardware accuracy remains unproven.

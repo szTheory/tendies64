@@ -990,7 +990,8 @@ static int run_real(int fixture_fd, int input_fd, const char *requested_profile,
                  fixture_identity->pass_eligible &&
                  ((profile->machine_model_version != 11u &&
                    profile->machine_model_version != 12u &&
-                   profile->machine_model_version != 13u) ||
+                   profile->machine_model_version != 13u &&
+                   profile->machine_model_version != 14u) ||
                   video_observation_valid(&observations)) &&
                  fixture.sha256_hex[0] != '\0' &&
                  output_length == sizeof expected_log - 1u &&

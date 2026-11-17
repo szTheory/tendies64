@@ -35,6 +35,8 @@ bool t64_isviewer_active(const t64_machine *machine) {
       "ntsc-cart-4m-openipl3-rdram-b-t1-rdp-triangle-v3";
   static const char rdp_texture_profile_id[] =
       "ntsc-cart-4m-openipl3-rdram-b-t1-rdp-texture-v4";
+  static const char rdp_combiner_profile_id[] =
+      "ntsc-cart-4m-openipl3-rdram-b-t1-rdp-combiner-v5";
   bool warm_profile;
   bool cpu_profile;
   bool compat_profile;
@@ -43,6 +45,7 @@ bool t64_isviewer_active(const t64_machine *machine) {
   bool rdp_vi_profile;
   bool rdp_triangle_profile;
   bool rdp_texture_profile;
+  bool rdp_combiner_profile;
 
   if (machine == NULL ||
       machine->output.policy_version != T64_ISVIEWER_POLICY_VERSION) {
@@ -94,9 +97,16 @@ bool t64_isviewer_active(const t64_machine *machine) {
                         memcmp(machine->profile.profile_id,
                                rdp_texture_profile_id,
                                sizeof rdp_texture_profile_id) == 0;
+  rdp_combiner_profile = machine->profile.descriptor_version == 8u &&
+                         machine->profile.machine_model_version == 14u &&
+                         machine->profile.state_serialization_version == 19u &&
+                         memcmp(machine->profile.profile_id,
+                                rdp_combiner_profile_id,
+                                sizeof rdp_combiner_profile_id) == 0;
   return warm_profile || cpu_profile || compat_profile ||
          rsp_profile || rdram_t1_profile || rdp_vi_profile ||
          rdp_triangle_profile || rdp_texture_profile ||
+         rdp_combiner_profile ||
          (machine->profile.descriptor_version == 3u &&
           t64_has_cpu_compat_extension_policy(machine) &&
           memcmp(machine->profile.profile_id, compat_v2_profile_id,

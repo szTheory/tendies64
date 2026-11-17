@@ -184,7 +184,9 @@ bool t64_rdp_triangle_bounds(const t64_machine *machine, uint32_t opcode,
   if (!rdp->color_image_valid || !rdp->scissor_valid ||
       !rdp->other_modes_valid || rdp->color_image_format != 0u ||
       rdp->color_image_size != 2u || rdp->color_image_width == 0u ||
-      ((rdp->other_modes >> 52) & UINT64_C(3)) != 0u ||
+      (((rdp->other_modes >> 52) & UINT64_C(3)) != 0u &&
+       (!t64_has_rdp_combiner_profile(machine) ||
+        ((rdp->other_modes >> 52) & UINT64_C(3)) != 1u)) ||
       (rdp->color_image_address & UINT32_C(1)) != 0u) return false;
 
   yh16 = sign_extend_u14((uint32_t)(words[0] & UINT64_C(0x3fff))) *
@@ -359,6 +361,7 @@ typedef struct {
   uint32_t base_tile;
   uint32_t next_tile;
   int32_t blend_q8;
+  uint32_t lod_fraction;
 } texture_lod_selection;
 
 static bool project_texture_q16(int64_t s, int64_t t, int64_t w,
@@ -428,6 +431,7 @@ static bool select_texture_lod(const t64_rdp_state *rdp, int64_t s,
   selection->base_tile = primitive_tile;
   selection->next_tile = primitive_tile;
   selection->blend_q8 = 0;
+  selection->lod_fraction = 0u;
   if (lod_enabled == 0u) return true;
   if (!project_texture_q16(s, t, w, perspective, &s_now, &t_now) ||
       !texture_values_at(rdp, xcenter + INT64_C(65536), ycenter, xh16, yh16,
@@ -454,6 +458,7 @@ static bool select_texture_lod(const t64_rdp_state *rdp, int64_t s,
     lod = rho >> level;
   }
   fraction = (uint32_t)((lod & UINT64_C(0xffff)) >> 8);
+  selection->lod_fraction = fraction;
   if (sharpen != 0u) {
     selection->base_tile = primitive_tile + level;
     selection->next_tile = primitive_tile + (level < max_level ? level + 1u : level);
@@ -557,7 +562,63 @@ void t64_rdp_triangle_render_row(t64_machine *machine) {
           (size_t)rdp->render_y * T64_RDP_TRIANGLE_COVERAGE_WIDTH + x;
       uint16_t color;
       int64_t xcenter = (int64_t)x * INT64_C(65536) + INT64_C(32768);
-      if (texture_triangle) {
+      if (t64_has_rdp_combiner_profile(machine) &&
+          rdp->combine_mode_valid) {
+        t64_rdp_combiner_inputs inputs = {{0u}, {0u}, {0u}, 0u};
+        uint32_t rgba;
+        if (texture_triangle) {
+          int64_t s = texture_channel_q16(rdp, 0u, xcenter, ycenter, xh16,
+                                          yh16, major_center);
+          int64_t t = texture_channel_q16(rdp, 1u, xcenter, ycenter, xh16,
+                                          yh16, major_center);
+          int64_t w = texture_channel_q16(rdp, 2u, xcenter, ycenter, xh16,
+                                          yh16, major_center);
+          texture_lod_selection selection;
+          uint32_t texel0, texel1;
+          if (!select_texture_lod(rdp, s, t, w, xcenter, ycenter, xh16, yh16,
+                                  major_center, dxh, &selection) ||
+              !t64_rdp_tmem_triangle_pixel_rgba8(
+                  machine, selection.base_tile, s, t, w,
+                  ((rdp->other_modes >> 51) & UINT64_C(1)) != 0u,
+                  &texel0)) {
+            rdp->refusal_reason = T64_RDP_REFUSAL_INVALID_TEXTURE;
+            continue;
+          }
+          texel1 = texel0;
+          if (selection.next_tile != selection.base_tile &&
+              !t64_rdp_tmem_triangle_pixel_rgba8(
+                  machine, selection.next_tile, s, t, w,
+                  ((rdp->other_modes >> 51) & UINT64_C(1)) != 0u,
+                  &texel1)) {
+            rdp->refusal_reason = T64_RDP_REFUSAL_INVALID_TEXTURE;
+            continue;
+          }
+          inputs.texel0[0] = (uint8_t)(texel0 >> 24);
+          inputs.texel0[1] = (uint8_t)(texel0 >> 16);
+          inputs.texel0[2] = (uint8_t)(texel0 >> 8);
+          inputs.texel0[3] = (uint8_t)texel0;
+          inputs.texel1[0] = (uint8_t)(texel1 >> 24);
+          inputs.texel1[1] = (uint8_t)(texel1 >> 16);
+          inputs.texel1[2] = (uint8_t)(texel1 >> 8);
+          inputs.texel1[3] = (uint8_t)texel1;
+          inputs.lod_fraction = (uint8_t)selection.lod_fraction;
+        }
+        if (rdp->shade_triangle) {
+          uint32_t channel;
+          for (channel = 0u; channel < 4u; channel++) {
+            int64_t value = shade_channel(rdp, channel, xcenter, ycenter,
+                                          xh16, yh16, major_center);
+            if (value < 0) value = 0;
+            if (value > 255) value = 255;
+            inputs.shade[channel] = (uint8_t)value;
+          }
+        }
+        if (!t64_rdp_combine_pixel(machine, &inputs, &rgba)) {
+          rdp->refusal_reason = T64_RDP_REFUSAL_UNSUPPORTED_OPCODE;
+          continue;
+        }
+        color = rgba5551(rgba);
+      } else if (texture_triangle) {
         int64_t s = texture_channel_q16(rdp, 0u, xcenter, ycenter, xh16,
                                         yh16, major_center);
         int64_t t = texture_channel_q16(rdp, 1u, xcenter, ycenter, xh16,
