@@ -10,6 +10,7 @@
 #define T64_VI_CONTROL 0u
 #define T64_VI_ORIGIN 1u
 #define T64_VI_WIDTH 2u
+#define T64_VI_INTR 3u
 #define T64_VI_CURRENT 4u
 #define T64_VI_BURST 5u
 #define T64_VI_V_SYNC 6u
@@ -26,6 +27,7 @@ typedef struct {
   uint32_t width;
   uint32_t height;
   uint32_t source_width;
+  uint32_t source_pitch_bytes;
   uint32_t source_x_offset;
   uint32_t source_y_offset;
   uint32_t x_scale;
@@ -35,6 +37,7 @@ typedef struct {
   uint32_t v_start;
   uint32_t v_end;
   uint32_t period_cycles;
+  uint64_t period_units;
   uint32_t source_bytes_per_pixel;
   uint64_t source_bytes;
 } t64_vi_geometry;
@@ -53,6 +56,7 @@ static void copy_text(char *out, size_t capacity, const char *text) {
 static bool geometry_for(const t64_machine *machine, uint32_t control,
                          t64_vi_geometry *geometry_out) {
   const t64_vi_state *vi;
+  const uint32_t *registers;
   uint32_t h_register;
   uint32_t v_register;
   uint32_t x_register;
@@ -71,17 +75,83 @@ static bool geometry_for(const t64_machine *machine, uint32_t control,
     return false;
   }
   vi = &machine->vi;
-  if (control == UINT32_C(2)) {
+  registers = t64_has_vi_scanout_v8_profile(machine) && vi->enabled
+                  ? vi->active_registers
+                  : vi->registers;
+  if ((control & UINT32_C(3)) == UINT32_C(2)) {
     geometry_out->source_bytes_per_pixel = 2u;
-  } else if (control == UINT32_C(3) && t64_has_rdp_blender_profile(machine)) {
+  } else if ((control & UINT32_C(3)) == UINT32_C(3) &&
+             t64_has_rdp_blender_profile(machine)) {
     geometry_out->source_bytes_per_pixel = 4u;
   } else {
     return false;
   }
-  h_register = vi->registers[T64_VI_H_START];
-  v_register = vi->registers[T64_VI_V_START];
-  x_register = vi->registers[T64_VI_X_SCALE];
-  y_register = vi->registers[T64_VI_Y_SCALE];
+  h_register = registers[T64_VI_H_START];
+  v_register = registers[T64_VI_V_START];
+  x_register = registers[T64_VI_X_SCALE];
+  y_register = registers[T64_VI_Y_SCALE];
+  if (t64_has_vi_scanout_v8_profile(machine)) {
+    uint64_t span;
+    uint64_t source_index;
+    uint64_t source_width;
+    uint64_t source_height;
+    uint64_t scale_x = x_register & UINT32_C(0x0fff);
+    uint64_t scale_y = y_register & UINT32_C(0x0fff);
+    uint64_t offset_x = (x_register >> 16) & UINT32_C(0x0fff);
+    uint64_t offset_y = (y_register >> 16) & UINT32_C(0x0fff);
+
+    geometry_out->source_width = registers[T64_VI_WIDTH] & UINT32_C(0x0fff);
+    geometry_out->h_start = (h_register >> 16) & UINT32_C(0x03ff);
+    geometry_out->h_end = h_register & UINT32_C(0x03ff);
+    geometry_out->v_start = (v_register >> 16) & UINT32_C(0x03ff);
+    geometry_out->v_end = v_register & UINT32_C(0x03ff);
+    geometry_out->x_scale = (uint32_t)scale_x;
+    geometry_out->y_scale = (uint32_t)scale_y;
+    geometry_out->source_x_offset = (uint32_t)offset_x;
+    geometry_out->source_y_offset = (uint32_t)offset_y;
+    if (geometry_out->h_end <= geometry_out->h_start ||
+        geometry_out->v_end <= geometry_out->v_start ||
+        geometry_out->source_width == 0u || scale_x == 0u || scale_y == 0u) {
+      return false;
+    }
+    span = (uint64_t)geometry_out->h_end - geometry_out->h_start;
+    width = (span * UINT64_C(1024)) / scale_x;
+    span = ((uint64_t)geometry_out->v_end - geometry_out->v_start) / 2u;
+    height = (span * UINT64_C(1024)) / scale_y;
+    if (width == 0u || height == 0u || width > T64_VIDEO_MAX_WIDTH ||
+        height > T64_VIDEO_MAX_HEIGHT) {
+      return false;
+    }
+    geometry_out->width = (uint32_t)width;
+    geometry_out->height = (uint32_t)height;
+    source_width = (offset_x + (width - 1u) * scale_x) >> 10;
+    source_height = (offset_y + (height - 1u) * scale_y) >> 10;
+    if ((registers[T64_VI_CONTROL] & UINT32_C(0x40)) != 0u) {
+      source_height = source_height * 2u + (vi->field & UINT32_C(1));
+    }
+    if (source_width >= geometry_out->source_width ||
+        source_height >= T64_VIDEO_MAX_HEIGHT ||
+        geometry_out->source_width >
+            UINT32_MAX / geometry_out->source_bytes_per_pixel) {
+      return false;
+    }
+    geometry_out->source_pitch_bytes =
+        geometry_out->source_width * geometry_out->source_bytes_per_pixel;
+    if (source_height > UINT64_MAX / geometry_out->source_width) return false;
+    source_index = source_height * geometry_out->source_width + source_width + 1u;
+    if (source_index > UINT64_MAX / geometry_out->source_bytes_per_pixel)
+      return false;
+    geometry_out->source_bytes =
+        source_index * geometry_out->source_bytes_per_pixel;
+    source_end = (uint64_t)(registers[T64_VI_ORIGIN] & UINT32_C(0x00ffffff)) +
+                 geometry_out->source_bytes;
+    if (source_end > machine->profile.rdram_bytes) return false;
+    geometry_out->period_cycles = 0u;
+    geometry_out->period_units =
+        (uint64_t)((registers[T64_VI_H_SYNC] & UINT32_C(0x0fff)) + 1u) *
+        (registers[T64_VI_V_SYNC] & UINT32_C(0x03ff));
+    return true;
+  }
   if ((h_register & UINT32_C(0xfc00fc00)) != 0u ||
       (v_register & UINT32_C(0xfc00fc00)) != 0u ||
       (x_register & UINT32_C(0xf000f000)) != 0u ||
@@ -130,6 +200,8 @@ static bool geometry_for(const t64_machine *machine, uint32_t control,
     return false;
   geometry_out->source_bytes =
       pixels * geometry_out->source_bytes_per_pixel;
+  geometry_out->source_pitch_bytes =
+      geometry_out->source_width * geometry_out->source_bytes_per_pixel;
   source_end = (uint64_t)vi->registers[T64_VI_ORIGIN] +
                geometry_out->source_bytes;
   if (source_end > machine->profile.rdram_bytes) return false;
@@ -140,6 +212,7 @@ static bool geometry_for(const t64_machine *machine, uint32_t control,
   geometry_out->period_cycles =
       (vi->registers[T64_VI_H_SYNC] + 1u) *
       (vi->registers[T64_VI_V_SYNC] + 1u);
+  geometry_out->period_units = geometry_out->period_cycles;
   return geometry_out->period_cycles != 0u;
 }
 
@@ -195,20 +268,33 @@ static void render_packet(t64_machine *machine, uint32_t slot,
                           const t64_vi_geometry *geometry,
                           t64_video_packet_info *info) {
   t64_vi_state *vi = &machine->vi;
+  const uint32_t *registers = t64_has_vi_scanout_v8_profile(machine)
+                                  ? vi->active_registers
+                                  : vi->registers;
   uint8_t *output = machine->video_packets +
                     (size_t)slot * T64_VIDEO_MAX_PACKET_BYTES;
-  uint32_t origin = vi->registers[T64_VI_ORIGIN];
+  uint32_t origin = registers[T64_VI_ORIGIN] & UINT32_C(0x00ffffff);
   uint32_t y;
 
   for (y = 0u; y < geometry->height; y++) {
-    uint32_t source_y = geometry->source_y_offset +
-                        (uint32_t)(((uint64_t)y * UINT64_C(1024)) /
-                                   geometry->y_scale);
+    uint32_t source_y;
+    if (t64_has_vi_scanout_v8_profile(machine)) {
+      source_y = (geometry->source_y_offset + y * geometry->y_scale) >> 10;
+      if ((registers[T64_VI_CONTROL] & UINT32_C(0x40)) != 0u)
+        source_y = source_y * 2u + (vi->field & UINT32_C(1));
+    } else {
+      source_y = geometry->source_y_offset +
+                 (uint32_t)(((uint64_t)y * UINT64_C(1024)) /
+                            geometry->y_scale);
+    }
     uint32_t x;
     for (x = 0u; x < geometry->width; x++) {
-      uint32_t source_x = geometry->source_x_offset +
-                          (uint32_t)(((uint64_t)x * UINT64_C(1024)) /
-                                     geometry->x_scale);
+      uint32_t source_x = t64_has_vi_scanout_v8_profile(machine)
+                              ? (geometry->source_x_offset +
+                                 x * geometry->x_scale) >> 10
+                              : geometry->source_x_offset +
+                                    (uint32_t)(((uint64_t)x * UINT64_C(1024)) /
+                                               geometry->x_scale);
       uint64_t source_index =
           (uint64_t)source_y * geometry->source_width + source_x;
       uint64_t source_address = (uint64_t)origin +
@@ -265,8 +351,13 @@ t64_status t64_vi_read_register(const t64_machine *machine,
   if (index >= T64_VI_REG_COUNT) return T64_STATUS_BUS_UNSUPPORTED;
   value = machine->vi.registers[index];
   if (index == T64_VI_CURRENT) {
-    uint32_t position = (uint32_t)(machine->vi.phase_cycles & UINT64_C(0x3ff));
-    value = (position << 1) | (machine->vi.field & UINT32_C(1));
+    if (t64_has_vi_scanout_v8_profile(machine)) {
+      value = machine->vi.current_readback;
+    } else {
+      uint32_t position =
+          (uint32_t)(machine->vi.phase_cycles & UINT64_C(0x3ff));
+      value = (position << 1) | (machine->vi.field & UINT32_C(1));
+    }
   }
   *value_out = value;
   return T64_STATUS_OK;
@@ -286,6 +377,96 @@ t64_status t64_vi_write_register(t64_machine *machine, uint32_t address,
   index = (address - T64_VI_BASE) / UINT32_C(4);
   if (index >= T64_VI_REG_COUNT) return T64_STATUS_BUS_UNSUPPORTED;
   vi = &machine->vi;
+  if (t64_has_vi_scanout_v8_profile(machine)) {
+    if (index == T64_VI_CURRENT) {
+      vi->registers[index] = value;
+      t64_mi_clear_pending(machine, T64_MI_INTERRUPT_VI);
+      return T64_STATUS_OK;
+    }
+    if (index == T64_VI_CONTROL) {
+      uint32_t mode = value & UINT32_C(3);
+      uint32_t prior_control = vi->registers[index];
+      uint64_t generation;
+      uint64_t delay = 0u;
+      t64_vi_geometry geometry;
+
+      if (mode == 1u) return T64_STATUS_BUS_DEVICE_REFUSED;
+      if (vi->enabled) {
+        vi->registers[index] = value;
+        vi->latch_pending = true;
+        return T64_STATUS_OK;
+      }
+      if (mode == 0u) {
+        if (vi->event_generation == UINT64_MAX)
+          return T64_STATUS_RESOURCE_EXHAUSTED;
+        vi->event_generation++;
+        vi->registers[index] = value;
+        vi->active_registers[index] = value;
+        vi->latch_pending = false;
+        return T64_STATUS_OK;
+      }
+      vi->registers[index] = value;
+      if (!geometry_for(machine, value, &geometry)) {
+        vi->registers[index] = prior_control;
+        return T64_STATUS_BUS_DEVICE_REFUSED;
+      }
+      if (vi->event_generation == UINT64_MAX) {
+        vi->registers[index] = prior_control;
+        return T64_STATUS_RESOURCE_EXHAUSTED;
+      }
+      if (geometry.period_units != 0u) {
+        uint64_t halfline_units =
+            (uint64_t)((vi->registers[T64_VI_H_SYNC] & UINT32_C(0x0fff)) +
+                       1u);
+        uint64_t scaled = halfline_units * T64_VI_GUEST_CLOCK;
+        uint64_t denominator = UINT64_C(2) * T64_VI_SOURCE_CLOCK;
+        delay = scaled / denominator;
+        if (scaled % denominator != 0u) delay++;
+        if (delay == 0u) delay = 1u;
+        generation = vi->event_generation + UINT64_C(1);
+        {
+          t64_event_reservation reservation;
+          status = t64_schedule_reserve_after(
+              machine, delay, T64_VI_DEVICE, T64_VI_EVENT_FIELD, 0u,
+              generation, t64_vi_event, &reservation);
+          if (status != T64_STATUS_OK) {
+            vi->registers[index] = prior_control;
+            return status;
+          }
+          status = t64_schedule_commit(machine, &reservation);
+          if (status != T64_STATUS_OK) {
+            vi->registers[index] = prior_control;
+            return status;
+          }
+        }
+      }
+      vi->active_registers[index] = value;
+      (void)memcpy(vi->active_registers, vi->registers,
+                   sizeof vi->active_registers);
+      vi->enabled = geometry.period_units != 0u;
+      vi->event_generation++;
+      vi->field = 0u;
+      vi->current_readback = 0u;
+      vi->phase_units = 0u;
+      vi->phase_cycles = 0u;
+      vi->phase_remainder = 0u;
+      vi->next_boundary_units =
+          (uint64_t)((vi->active_registers[T64_VI_H_SYNC] &
+                      UINT32_C(0x0fff)) + 1u);
+      vi->last_guest_tick = machine->tick;
+      vi->field_start_tick = machine->tick;
+      vi->latch_pending = false;
+      vi->refusal_reason = T64_VI_REFUSAL_NONE;
+      return T64_STATUS_OK;
+    }
+    vi->registers[index] = value;
+    if (vi->enabled) {
+      vi->latch_pending = true;
+    } else {
+      vi->active_registers[index] = value;
+    }
+    return T64_STATUS_OK;
+  }
   if (index == T64_VI_CONTROL) {
     uint64_t delay;
     uint64_t generation;
@@ -364,6 +545,247 @@ t64_status t64_vi_write_register(t64_machine *machine, uint32_t address,
   return T64_STATUS_OK;
 }
 
+static t64_status vi_v8_event(t64_machine *machine, const t64_event *event) {
+  const uint64_t numerator = UINT64_C(2) * T64_VI_SOURCE_CLOCK;
+  const uint64_t denominator = T64_VI_GUEST_CLOCK;
+  t64_vi_state *vi = &machine->vi;
+  const uint32_t *active = vi->active_registers;
+  uint64_t hline =
+      (uint64_t)((active[T64_VI_H_SYNC] & UINT32_C(0x0fff)) + 1u);
+  uint64_t period = hline *
+                    (active[T64_VI_V_SYNC] & UINT32_C(0x03ff));
+  uint64_t elapsed;
+  uint64_t quotient;
+  uint64_t tick_remainder;
+  uint64_t scaled;
+  uint64_t tail;
+  uint64_t added_units;
+  uint64_t phase;
+  uint64_t remainder;
+  uint64_t boundary = vi->next_boundary_units;
+  uint64_t delay = 0u;
+  uint32_t boundary_index;
+  uint32_t current_value = vi->current_readback;
+  uint32_t field_parity =
+      (active[T64_VI_CONTROL] & UINT32_C(0x40)) != 0u
+          ? (vi->field & UINT32_C(1))
+          : 0u;
+  bool line_sample;
+  bool field_boundary;
+  bool set_interrupt = false;
+  t64_vi_geometry geometry;
+  t64_event_reservation reservation;
+  t64_status status;
+
+  if (period == 0u || hline == 0u || boundary == 0u || boundary > period ||
+      event->tick < vi->last_guest_tick ||
+      vi->phase_remainder >= denominator) {
+    vi->refusal_reason = T64_VI_REFUSAL_PHASE_OVERFLOW;
+    vi->enabled = false;
+    return T64_STATUS_RESOURCE_EXHAUSTED;
+  }
+  elapsed = event->tick - vi->last_guest_tick;
+  quotient = elapsed / denominator;
+  tick_remainder = elapsed % denominator;
+  if (quotient > UINT64_MAX / numerator) {
+    vi->refusal_reason = T64_VI_REFUSAL_PHASE_OVERFLOW;
+    vi->enabled = false;
+    return T64_STATUS_RESOURCE_EXHAUSTED;
+  }
+  scaled = quotient * numerator;
+  tail = tick_remainder * numerator + vi->phase_remainder;
+  if (scaled > UINT64_MAX - tail / denominator) {
+    vi->refusal_reason = T64_VI_REFUSAL_PHASE_OVERFLOW;
+    vi->enabled = false;
+    return T64_STATUS_RESOURCE_EXHAUSTED;
+  }
+  added_units = scaled + tail / denominator;
+  if (vi->phase_units > UINT64_MAX - added_units) {
+    vi->refusal_reason = T64_VI_REFUSAL_PHASE_OVERFLOW;
+    vi->enabled = false;
+    return T64_STATUS_RESOURCE_EXHAUSTED;
+  }
+  phase = vi->phase_units + added_units;
+  remainder = tail % denominator;
+  if (phase < boundary) {
+    vi->refusal_reason = T64_VI_REFUSAL_PHASE_OVERFLOW;
+    vi->enabled = false;
+    return T64_STATUS_RESOURCE_EXHAUSTED;
+  }
+  field_boundary = boundary == period;
+  if (field_boundary && vi->packet_count >= T64_VIDEO_QUEUE_CAPACITY)
+    return T64_STATUS_QUEUE_FULL;
+  if (field_boundary && vi->field == UINT32_MAX) {
+    vi->refusal_reason = T64_VI_REFUSAL_SEQUENCE_EXHAUSTED;
+    vi->enabled = false;
+    return T64_STATUS_RESOURCE_EXHAUSTED;
+  }
+  if (field_boundary && vi->sequence_exhausted) {
+    vi->refusal_reason = T64_VI_REFUSAL_SEQUENCE_EXHAUSTED;
+    vi->enabled = false;
+    return T64_STATUS_RESOURCE_EXHAUSTED;
+  }
+
+  boundary_index = (uint32_t)(boundary / hline);
+  line_sample = (boundary_index & UINT32_C(1)) == 0u;
+  if (line_sample) {
+    current_value = (boundary_index & UINT32_C(0x03fe)) |
+                    field_parity;
+    set_interrupt =
+        current_value == (active[T64_VI_INTR] & UINT32_C(0x03ff));
+  }
+  if (field_boundary) {
+    if (!geometry_for(machine, active[T64_VI_CONTROL], &geometry)) {
+      vi->refusal_reason = T64_VI_REFUSAL_GEOMETRY;
+      vi->enabled = false;
+      return T64_STATUS_BUS_DEVICE_REFUSED;
+    }
+  }
+
+  vi->phase_units = phase;
+  vi->phase_remainder = remainder;
+  vi->last_guest_tick = event->tick;
+  if (line_sample) {
+    vi->current_readback = current_value;
+    if (set_interrupt) t64_mi_set_pending(machine, T64_MI_INTERRUPT_VI);
+  }
+  if (field_boundary) {
+    t64_video_packet_info info;
+    uint32_t slot;
+    (void)memset(&info, 0, sizeof info);
+    info.width = geometry.width;
+    info.height = geometry.height;
+    info.stride_bytes = geometry.width * UINT32_C(4);
+    info.source_address = active[T64_VI_ORIGIN] & UINT32_C(0x00ffffff);
+    info.source_format = geometry.source_bytes_per_pixel == 4u
+                             ? T64_VIDEO_SOURCE_RGBA8888
+                             : T64_VIDEO_SOURCE_RGBA5551;
+    info.output_encoding = T64_VIDEO_ENCODING_RGBA8;
+    info.field = vi->field;
+    info.parity = field_parity;
+    info.control = active[T64_VI_CONTROL];
+    info.burst = active[T64_VI_BURST];
+    info.h_sync = active[T64_VI_H_SYNC];
+    info.v_sync = active[T64_VI_V_SYNC];
+    info.h_start = active[T64_VI_H_START];
+    info.h_end = geometry.h_end;
+    info.v_start = active[T64_VI_V_START];
+    info.v_end = geometry.v_end;
+    info.source_width = geometry.source_width;
+    info.source_pitch_bytes = geometry.source_pitch_bytes;
+    info.source_x_offset = geometry.source_x_offset;
+    info.source_y_offset = geometry.source_y_offset;
+    info.x_scale = geometry.x_scale;
+    info.y_scale = geometry.y_scale;
+    info.filter = 0u;
+    info.start_tick = vi->field_start_tick;
+    info.end_tick = event->tick;
+    info.sequence = vi->next_sequence;
+    info.commands_completed = machine->rdp.command_count;
+    info.fullsync_completed = machine->rdp.fullsync_count;
+    info.last_command_word = machine->rdp.last_original_word;
+    info.last_command_byte = machine->rdp.last_command_byte;
+    info.last_opcode_field = machine->rdp.last_opcode_field;
+    info.source_bytes = (size_t)geometry.source_bytes;
+    info.packet_bytes = (size_t)geometry.width *
+                        (size_t)geometry.height * 4u;
+    copy_text(info.profile_id, sizeof info.profile_id,
+              machine->profile.profile_id);
+    copy_text(info.build_id, sizeof info.build_id, t64_build_identity());
+    copy_text(info.vi_clock_policy, sizeof info.vi_clock_policy,
+              machine->profile.vi_clock_policy);
+    copy_text(info.vi_output_policy, sizeof info.vi_output_policy,
+              machine->profile.vi_output_policy);
+    slot = (uint32_t)((vi->packet_head + vi->packet_count) %
+                      T64_VIDEO_QUEUE_CAPACITY);
+    render_packet(machine, slot, &geometry, &info);
+    vi->packet_lengths[slot] = info.packet_bytes;
+    vi->packet_info[slot] = info;
+    vi->packet_count++;
+    if (vi->next_sequence == UINT64_MAX) {
+      vi->sequence_exhausted = true;
+    } else {
+      vi->next_sequence++;
+    }
+    t64_trace_emit(machine, machine->tick, T64_TRACE_DEVICE_VI,
+                   T64_TRACE_KIND_VI_FRAME, info.sequence);
+
+    vi->phase_units -= period;
+    vi->field++;
+    vi->field_start_tick = event->tick;
+    vi->current_readback =
+        (active[T64_VI_CONTROL] & UINT32_C(0x40)) != 0u
+            ? (vi->field & UINT32_C(1))
+            : 0u;
+    vi->next_boundary_units = hline;
+    if (vi->latch_pending) {
+      (void)memcpy(vi->active_registers, vi->registers,
+                   sizeof vi->active_registers);
+      vi->latch_pending = false;
+      active = vi->active_registers;
+      if ((active[T64_VI_CONTROL] & UINT32_C(3)) == 0u) {
+        if (vi->event_generation == UINT64_MAX) {
+          vi->refusal_reason = T64_VI_REFUSAL_SEQUENCE_EXHAUSTED;
+          vi->enabled = false;
+          return T64_STATUS_RESOURCE_EXHAUSTED;
+        }
+        vi->event_generation++;
+        vi->enabled = false;
+        vi->refusal_reason = T64_VI_REFUSAL_NONE;
+        return T64_STATUS_OK;
+      }
+      if (!geometry_for(machine, active[T64_VI_CONTROL], &geometry)) {
+        vi->refusal_reason = T64_VI_REFUSAL_GEOMETRY;
+        vi->enabled = false;
+        return T64_STATUS_OK;
+      }
+      hline = (uint64_t)((active[T64_VI_H_SYNC] & UINT32_C(0x0fff)) + 1u);
+      period = hline * (active[T64_VI_V_SYNC] & UINT32_C(0x03ff));
+    }
+    if ((active[T64_VI_CONTROL] & UINT32_C(3)) < UINT32_C(2) ||
+        period == 0u) {
+      vi->enabled = false;
+      vi->event_generation++;
+      vi->refusal_reason = T64_VI_REFUSAL_NONE;
+      return T64_STATUS_OK;
+    }
+    boundary = vi->next_boundary_units;
+  } else {
+    vi->next_boundary_units = boundary + hline;
+    boundary = vi->next_boundary_units;
+  }
+
+  if (vi->sequence_exhausted || vi->next_sequence == UINT64_MAX) {
+    vi->sequence_exhausted = true;
+    vi->enabled = false;
+    return T64_STATUS_OK;
+  }
+  if (vi->phase_units < boundary) {
+    uint64_t needed = (boundary - vi->phase_units) * denominator;
+    if (needed < vi->phase_remainder) {
+      vi->refusal_reason = T64_VI_REFUSAL_PHASE_OVERFLOW;
+      vi->enabled = false;
+      return T64_STATUS_RESOURCE_EXHAUSTED;
+    }
+    needed -= vi->phase_remainder;
+    delay = needed / numerator;
+    if (needed % numerator != 0u) delay++;
+    if (delay == 0u) delay = 1u;
+  }
+  status = t64_schedule_reserve_after(
+      machine, delay, T64_VI_DEVICE, T64_VI_EVENT_FIELD, 0u,
+      vi->event_generation, t64_vi_event, &reservation);
+  if (status == T64_STATUS_OK)
+    status = t64_schedule_commit(machine, &reservation);
+  if (status != T64_STATUS_OK) {
+    vi->refusal_reason = T64_VI_REFUSAL_PHASE_OVERFLOW;
+    vi->enabled = false;
+    return status;
+  }
+  vi->refusal_reason = T64_VI_REFUSAL_NONE;
+  return T64_STATUS_OK;
+}
+
 t64_status t64_vi_event(t64_machine *machine, const t64_event *event) {
   t64_vi_state *vi;
   t64_vi_geometry geometry;
@@ -383,6 +805,8 @@ t64_status t64_vi_event(t64_machine *machine, const t64_event *event) {
   vi = &machine->vi;
   if (!vi->enabled || event->token != vi->event_generation)
     return T64_STATUS_OK;
+  if (t64_has_vi_scanout_v8_profile(machine))
+    return vi_v8_event(machine, event);
   if (vi->packet_count >= T64_VIDEO_QUEUE_CAPACITY)
     return T64_STATUS_QUEUE_FULL;
   if (vi->sequence_exhausted || vi->field == UINT32_MAX) {

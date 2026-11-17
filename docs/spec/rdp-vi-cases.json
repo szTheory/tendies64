@@ -242,6 +242,40 @@
           ]
         }
       ]
+    },
+    "vi-timing": {
+      "ctest": [
+        "unit.core.vi.timing"
+      ],
+      "binaries": [
+        {
+          "path": "core/test_vi",
+          "cases": [
+            "cpu-authored-fill-packet-and-dp-lifecycle",
+            "copy-refusal-is-atomic",
+            "v16-digest-covers-rdp-tmem-and-inherited-state",
+            "drain-cadence-preserves-digest-and-packet-history",
+            "full-queue-copy-preserves-event-order",
+            "vi-register-inventory-readback-reserved-policy",
+            "vi-ntsc-rational-field-timing",
+            "vi-diagnostic-vs-standard-timing",
+            "vi-geometry-rgba5551-rgba8888",
+            "vi-geometry-minimum-window",
+            "vi-scaled-offset-window-source-pitch",
+            "vi-serrate-interlace-parity-origin",
+            "vi-intr-current-write-clear-mi",
+            "vi-next-field-latch-before-on-after",
+            "vi-disabled-blank-empty-windows",
+            "vi-geometry-maximum-span",
+            "vi-image-span-overflow-refusal",
+            "vi-rational-whole-split-phase",
+            "vi-same-tick-dp-vi-mi-cpu-sp-order",
+            "vi-interleaved-machine-phase",
+            "vi-short-period-backpressure-resume",
+            "vi-old-profiles-unchanged"
+          ]
+        }
+      ]
     }
   }
 }

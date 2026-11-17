@@ -154,6 +154,7 @@ harness.rsp-evidence-ownership'
 
 PHASE07_TESTS='unit.core.rdp.fill
 unit.core.vi.fill
+unit.core.vi.timing
 unit.core.dp.transport
 unit.core.rdp.copy
 unit.core.rdp.triangles

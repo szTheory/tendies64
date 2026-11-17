@@ -234,9 +234,16 @@ typedef struct {
   uint32_t h_sync;
   uint32_t v_sync;
   uint32_t h_start;
+  uint32_t h_end;
   uint32_t v_start;
+  uint32_t v_end;
+  uint32_t source_width;
+  uint32_t source_pitch_bytes;
+  uint32_t source_x_offset;
+  uint32_t source_y_offset;
   uint32_t x_scale;
   uint32_t y_scale;
+  uint32_t filter;
   uint64_t start_tick;
   uint64_t end_tick;
   uint64_t sequence;
@@ -250,6 +257,7 @@ typedef struct {
   char profile_id[T64_PROFILE_TEXT_CAPACITY];
   char build_id[128];
   char vi_clock_policy[T64_PROFILE_TEXT_CAPACITY];
+  char vi_output_policy[T64_PROFILE_TEXT_CAPACITY];
 } t64_video_packet_info;
 
 /* The returned descriptor is immutable and remains valid for program life. */

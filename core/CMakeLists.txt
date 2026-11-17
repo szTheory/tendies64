@@ -288,8 +288,12 @@ target_include_directories(test_vi PRIVATE "${CMAKE_SOURCE_DIR}/tests")
 target_link_libraries(test_vi PRIVATE t64_core)
 t64_target_warnings(test_vi)
 add_dependencies(test_vi t64-rdp-fill-fixture)
-add_test(NAME unit.core.vi.fill COMMAND test_vi)
+add_test(NAME unit.core.vi.fill COMMAND test_vi --suite fill)
+add_test(NAME unit.core.vi.timing COMMAND test_vi --suite vi-timing)
 set_tests_properties(unit.core.vi.fill PROPERTIES
+  LABELS unit
+  ENVIRONMENT "T64_TEST_RDP_FILL_PATH=${T64_BOOT_FIXTURE_DIR}/rdp-fill.z64")
+set_tests_properties(unit.core.vi.timing PROPERTIES
   LABELS unit
   ENVIRONMENT "T64_TEST_RDP_FILL_PATH=${T64_BOOT_FIXTURE_DIR}/rdp-fill.z64")
 

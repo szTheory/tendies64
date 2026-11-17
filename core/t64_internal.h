@@ -751,12 +751,17 @@ typedef struct {
 
 typedef struct {
   uint32_t registers[14];
+  uint32_t active_registers[14];
   uint64_t phase_remainder;
   uint64_t phase_cycles;
+  uint64_t phase_units;
+  uint64_t next_boundary_units;
   uint64_t last_guest_tick;
+  uint64_t field_start_tick;
   uint64_t next_sequence;
   uint64_t event_generation;
   uint32_t field;
+  uint32_t current_readback;
   uint32_t refusal_reason;
   size_t packet_lengths[T64_VIDEO_QUEUE_CAPACITY];
   t64_video_packet_info packet_info[T64_VIDEO_QUEUE_CAPACITY];
@@ -765,6 +770,7 @@ typedef struct {
   size_t packet_count;
   bool enabled;
   bool sequence_exhausted;
+  bool latch_pending;
 } t64_vi_state;
 
 size_t t64_rdp_triangle_word_count(uint32_t opcode);
@@ -876,7 +882,16 @@ static inline bool t64_has_rdp_vi_profile(const t64_machine *machine) {
           (machine->profile.machine_model_version == 15u &&
            machine->profile.state_serialization_version == 20u) ||
           (machine->profile.machine_model_version == 16u &&
-           machine->profile.state_serialization_version == 21u));
+           machine->profile.state_serialization_version == 21u) ||
+          (machine->profile.machine_model_version == 17u &&
+           machine->profile.state_serialization_version == 22u));
+}
+
+static inline bool t64_has_vi_scanout_v8_profile(
+    const t64_machine *machine) {
+  return machine != NULL && machine->profile.descriptor_version == 10u &&
+         machine->profile.machine_model_version == 17u &&
+         machine->profile.state_serialization_version == 22u;
 }
 
 static inline bool t64_has_rdp_triangle_profile(const t64_machine *machine) {
@@ -890,7 +905,9 @@ static inline bool t64_has_rdp_triangle_profile(const t64_machine *machine) {
           (machine->profile.machine_model_version == 15u &&
            machine->profile.state_serialization_version == 20u) ||
           (machine->profile.machine_model_version == 16u &&
-           machine->profile.state_serialization_version == 21u));
+           machine->profile.state_serialization_version == 21u) ||
+          (machine->profile.machine_model_version == 17u &&
+           machine->profile.state_serialization_version == 22u));
 }
 
 static inline bool t64_has_rdp_texture_profile(const t64_machine *machine) {
@@ -902,7 +919,9 @@ static inline bool t64_has_rdp_texture_profile(const t64_machine *machine) {
           (machine->profile.machine_model_version == 15u &&
            machine->profile.state_serialization_version == 20u) ||
           (machine->profile.machine_model_version == 16u &&
-           machine->profile.state_serialization_version == 21u));
+           machine->profile.state_serialization_version == 21u) ||
+          (machine->profile.machine_model_version == 17u &&
+           machine->profile.state_serialization_version == 22u));
 }
 
 static inline bool t64_has_rdp_combiner_profile(const t64_machine *machine) {
@@ -912,7 +931,9 @@ static inline bool t64_has_rdp_combiner_profile(const t64_machine *machine) {
           (machine->profile.machine_model_version == 15u &&
            machine->profile.state_serialization_version == 20u) ||
           (machine->profile.machine_model_version == 16u &&
-           machine->profile.state_serialization_version == 21u));
+           machine->profile.state_serialization_version == 21u) ||
+          (machine->profile.machine_model_version == 17u &&
+           machine->profile.state_serialization_version == 22u));
 }
 
 static inline bool t64_has_rdp_blender_profile(const t64_machine *machine) {
@@ -920,13 +941,17 @@ static inline bool t64_has_rdp_blender_profile(const t64_machine *machine) {
          ((machine->profile.machine_model_version == 15u &&
            machine->profile.state_serialization_version == 20u) ||
           (machine->profile.machine_model_version == 16u &&
-           machine->profile.state_serialization_version == 21u));
+           machine->profile.state_serialization_version == 21u) ||
+          (machine->profile.machine_model_version == 17u &&
+           machine->profile.state_serialization_version == 22u));
 }
 
 static inline bool t64_has_rdp_depth_profile(const t64_machine *machine) {
   return machine != NULL && machine->profile.descriptor_version == 10u &&
-         machine->profile.machine_model_version == 16u &&
-         machine->profile.state_serialization_version == 21u;
+         ((machine->profile.machine_model_version == 16u &&
+           machine->profile.state_serialization_version == 21u) ||
+          (machine->profile.machine_model_version == 17u &&
+           machine->profile.state_serialization_version == 22u));
 }
 
 static inline bool t64_has_vr4300_cpu_state(const t64_machine *machine) {

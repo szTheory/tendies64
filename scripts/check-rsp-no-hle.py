@@ -212,7 +212,7 @@ REVIEWED_RDP_DEPTH_FUNCTIONS = frozenset(
 REVIEWED_VI_FUNCTIONS = frozenset(
     {
         "copy_text", "delay_for_cycles", "expand5", "geometry_for",
-        "phase_at_tick", "render_packet", "t64_vi_event",
+        "phase_at_tick", "render_packet", "t64_vi_event", "vi_v8_event",
         "t64_vi_read_register", "t64_vi_reset_machine_state",
         "t64_vi_write_register", "t64_video_copy", "t64_video_info",
     }
@@ -410,13 +410,14 @@ REVIEWED_BODY_DIGESTS = {
     "core/t64_vi.c :: copy_text": "2f10ff25b6593ac813ad6619ef1b6658fc199ad4fb78bce2ee098c3fcda8e600",
     "core/t64_vi.c :: delay_for_cycles": "9c3dae70091562065968143a1a6a15e843905b6b5c675407e1204fa15714eab7",
     "core/t64_vi.c :: expand5": "ceac39882b1c7c81ee50b7bedf89cce86e3908b8c5d02fd0186769a093699142",
-    "core/t64_vi.c :: geometry_for": "9891d451f3d90e406519e74f102c7f26ccb010d2568231f13b12ad8e99d1cae4",
+    "core/t64_vi.c :: geometry_for": "8efbc12de830d34aee5c9189eeb7dfb5f5568843bfc7515a94eed18655f55027",
     "core/t64_vi.c :: phase_at_tick": "47456dc6873e26bf86feacb2c6b777dbf8aacdd464507a24b441f2a16a36c523",
-    "core/t64_vi.c :: render_packet": "5f6ee526351f97887fe1622519b2438994f16c71d5e88b071ee8cc3afc358df2",
-    "core/t64_vi.c :: t64_vi_event": "7583f9e615285da4b97d102ee7816f249d9f698bbfc6be0b351a9368c91d28e2",
-    "core/t64_vi.c :: t64_vi_read_register": "d21a4ba36394f79f00dc0bf644120150e0d40bd2a8e6aeaa625946ea39b1826b",
+    "core/t64_vi.c :: render_packet": "df679bf51bb3270bf290b234c8b7d46bb10055d61219a511737fd1ff76f6972a",
+    "core/t64_vi.c :: t64_vi_event": "85d91bebf563e4069bc85e389cbc2f3a29715ace5c1658fb86f52229ba97d277",
+    "core/t64_vi.c :: vi_v8_event": "e458a371c37666f11dbac3aaaedb9cd5a535af74f54e734b7469231a25821aac",
+    "core/t64_vi.c :: t64_vi_read_register": "ac2e4ebd3af59613becffc9fb24e285aeff11cbc952bfec141b4d25ed85b38a2",
     "core/t64_vi.c :: t64_vi_reset_machine_state": "4aed279f94c4064aec968cf30f14f90f138e7b9fe736e8d4bac549829ea15982",
-    "core/t64_vi.c :: t64_vi_write_register": "c17eade05782b2c34b28f1ac1aaca597631cf6c1ff5e7ce204e925153bb52567",
+    "core/t64_vi.c :: t64_vi_write_register": "a0a427f545bc8ca2eb917d64bb5c6d9f369b735755a5327961d229380d292057",
     "core/t64_vi.c :: t64_video_copy": "4de19a66521dee9c26a4e4598f4881aa45ab69a554669dc6320fd1cfe39d6a62",
     "core/t64_vi.c :: t64_video_info": "7552591d2934e6f2278089a9536d33e3aadba3ac2f6a3321f25d0be7dc76110c",
 }

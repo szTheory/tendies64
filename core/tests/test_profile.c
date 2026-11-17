@@ -776,6 +776,7 @@ static void test_rdp_profile_metadata_binding(void) {
       "ntsc-cart-4m-openipl3-rdram-b-t1-rdp-combiner-v5",
       "ntsc-cart-4m-openipl3-rdram-b-t1-rdp-blender-v6",
       "ntsc-cart-4m-openipl3-rdram-b-t1-rdp-depth-v7",
+      "ntsc-cart-4m-openipl3-rdram-b-t1-rdp-vi-v8",
   };
   /* Earlier-profile bytes are pinned to the retained pre-repair artifact. */
   static const char *const legacy_hashes[] = {

@@ -1,8 +1,115 @@
-# VI diagnostic scanout contract
+# VI scanout contracts
 
-This document describes the first bounded raw scanout path for profile
-`ntsc-cart-4m-openipl3-rdram-b-t1-rdp-vi-v2`. Output is a canonical machine
-packet, separate from host scaling, filtering, files and display APIs.
+This document covers the legacy v2 diagnostic profile and the later v8
+composite VI profile. Both emit canonical machine packets, separate from host
+scaling, filtering, files and display APIs. Authored software behavior is not
+hardware qualification, and VID-04 remains blocked.
+
+## Composite v8 profile
+
+Profile `ntsc-cart-4m-openipl3-rdram-b-t1-rdp-vi-v8` adds timed scanout while
+retaining the inherited RDP policies. It uses descriptor version 10, machine
+model version 17 and state serialization version 22. The earlier v2 through v7
+profile IDs and state domains retain their existing meanings.
+
+The documented register fields follow Nintendo SDK `rcp.h` at VI base
+`0x04400000`. The offsets from `0x00` through `0x34`, in four-byte steps, are
+STATUS, ORIGIN, WIDTH, INTR, CURRENT, BURST, V_SYNC, H_SYNC, LEAP, H_START,
+V_START, V_BURST, X_SCALE and Y_SCALE. The source documents STATUS bits 0–4,
+6, 8–9 and 16; ORIGIN bits 0–23; WIDTH bits 0–11; INTR and CURRENT bits 0–9;
+BURST bits 0–29; V_SYNC bits 0–9; H_SYNC bits 0–11 and 16–20; LEAP bits 0–11
+and 16–27; H_START, V_START and V_BURST bits 0–9 and 16–25; and X_SCALE and
+Y_SCALE bits 0–11 and 16–27. These are known-field unions, not verified bus
+write masks. STATUS bit 16 is retained despite the SDK header's conflicting
+16-bit comment. Unselected raw bits remain readable as written and take no
+scanout effect. STATUS mode 1 is refused; modes 0, 2 and 3 select blank,
+RGBA5551 and RGBA8888 behavior respectively.
+
+### Clock and boundary policy
+
+The profile binds
+`vi_clock_policy=rsp62500000-ntsc48681812-halfline-rational-v2`. Guest ticks
+run at the inherited 62,500,000 ticks per second. The VI source clock is
+48,681,812 Hz, the NTSC constant documented by the SDK. These rates are inputs
+to the software clock conversion; they do not establish a silicon timing
+measurement.
+
+For the selected model, one horizontal period is
+`(H_SYNC & 0x0fff) + 1`; `V_SYNC & 0x03ff` is the number of half-lines in a
+field. The field period is therefore `(H_SYNC.low12 + 1) * V_SYNC.low10 / 2`
+source-clock cycles. The implementation stores doubled source-phase units,
+so odd half-lines remain exact. Elapsed guest ticks, not CPU retirement or host
+time, advance VI phase. Quotient/remainder arithmetic carries fractional
+phase across split advances. Only the next bounded boundary is scheduled.
+Same-tick events use the scheduler's existing tick/sequence FIFO; a zero-delay
+VI event is allowed when accumulated phase has crossed multiple short
+boundaries, and the machine's event budget and output queue bound the work.
+
+The primary source says CURRENT is sampled once per full line and advances in
+half-line units; this profile samples at even half-line boundaries. INTR
+compares against that sampled half-line. Serrate alternates field parity,
+starting at field zero; progressive mode reports parity zero. CURRENT writes
+clear VI's MI pending interrupt immediately but do not change sampled
+CURRENT. The source documents the interrupt-line clear; clearing the MI
+pending latch and retaining the sampled readback are explicit software policy.
+
+### Register updates and scanout geometry
+
+When scanout is disabled, accepted register writes update raw readback and the
+active set. While enabled, geometry and timing writes update raw readback and
+become active at the next field boundary. The boundary emits the packet using
+the old active set, then latches pending writes. A write performed after the
+boundary at that same guest tick therefore affects the following field.
+STATUS mode 0 follows the same next-field rule: the current field completes,
+then scanout disables without emitting later fields. A zero V_SYNC starts no
+timer. Empty or invalid geometry refuses activation without changing the
+prior register or event state.
+
+The v8 geometry policy is
+`vi_output_policy=rgba5551-rgba8888-rawrw-q10step-serrate2-nextfield-nf-v2`:
+
+- H_START and V_START pack start in bits 16–25 and end in bits 0–9. Endpoints
+  are end-exclusive. Horizontal output span is the difference in pixels;
+  vertical half-line span is divided by two, rounding down.
+- WIDTH is source row pitch in pixels. X_SCALE and Y_SCALE low 12-bit fields
+  are Q10 source steps per output pixel/row; high 12-bit fields are Q10 source
+  offsets. Output width and height are the active spans multiplied by 1024
+  and divided by the corresponding nonzero step, rounding down. Sample
+  coordinate `i` is `floor((offset + i * step) / 1024)`.
+- Progressive scan uses those source rows directly. Serrate maps each output
+  row to source row `2 * sampled_row + field_parity`; first-field parity is
+  zero. No filter is applied (`filter=0`). The whole addressed source span is
+  checked against RDRAM before activation, with no clipping.
+- STATUS mode 2 reads big-endian 16-bit RGBA5551: each RGB5 channel expands as
+  `(value << 3) | (value >> 2)` and alpha bit 0 maps to 0/255. Mode 3 reads
+  RGBA8888 bytes: RGB bytes pass through and alpha expands the low five bits
+  of byte four using the same five-bit rule. The mode-3 alpha packing is a
+  retained software interpretation, not a claim about the ambiguous primary
+  16-bit STATUS comment.
+- BURST, LEAP, V_BURST, gamma, divot, anti-alias and dither control fields are
+  retained in raw register state but do not alter this no-filter output.
+
+Each packet reports its actual source format, address, width, pitch, source
+offsets, H/V endpoints, Q10 steps, field and parity, filter, timing and output
+policy, profile/build identity, and guest start/end ticks. Active and pending
+register banks, phase units and remainder, next event boundary, current/field
+state, latch state, event generation and produced packet metadata are included
+in the v8 canonical digest. Observer queue cursors and host buffers remain
+excluded. A full queue preserves the original scheduled field event; copying
+one packet frees capacity without advancing guest time or changing the digest.
+
+The small authored witness uses H_SYNC 15 and V_SYNC 8: one field is 64 source
+cycles and the first deadline is 83 guest ticks. CURRENT reaches half-line 2
+after 16 source cycles, at tick 21; INTR=2 raises the VI pending bit there. A
+separate H_SYNC 0, V_SYNC 1 stress vector exercises sub-tick field periods and
+lossless queue resumption. These are deterministic software expectations,
+not standard NTSC-mode or hardware-accuracy results.
+
+## Legacy v2 diagnostic profile
+
+The following section records the original bounded scanout path for profile
+`ntsc-cart-4m-openipl3-rdram-b-t1-rdp-vi-v2`; its v1 timing and output policies
+remain unchanged.
 
 ## Source facts and model policy
 
@@ -13,7 +120,7 @@ The constant is a sourced input; it does not establish how Tendies64's guest
 tick maps to physical scan lines or prove this implementation's timing is
 hardware-accurate.
 
-The new profile binds these model values:
+The v2 profile binds these model values:
 
 - `vi_clock_policy`: `rsp62500000-ntsc48681812-rational-v1`.
 - Guest tick unit: `model-rsp-cycle`; one CPU tick per modeled RSP cycle in

@@ -192,6 +192,7 @@ t64_status t64_machine_digest(const t64_machine *machine,
   static const uint8_t domain_v19[] = "t64.state.rdp.vi.combiner.19";
   static const uint8_t domain_v20[] = "t64.state.rdp.vi.blender.20";
   static const uint8_t domain_v21[] = "t64.state.rdp.vi.depth.21";
+  static const uint8_t domain_v22[] = "t64.state.rdp.vi.scanout.22";
   t64_sha256_ctx context;
   t64_address_range output_range;
   const bool has_v6_state =
@@ -223,9 +224,10 @@ t64_status t64_machine_digest(const t64_machine *machine,
       machine != NULL && machine->profile.machine_model_version == 15u &&
       machine->profile.state_serialization_version == 20u;
   const bool has_v21_state = t64_has_rdp_depth_profile(machine);
+  const bool has_v22_state = t64_has_vi_scanout_v8_profile(machine);
   const bool has_rdp_state = has_v16_state || has_v17_state ||
                              has_v18_state || has_v19_state || has_v20_state ||
-                             has_v21_state;
+                             has_v21_state || has_v22_state;
   const bool has_rsp_state = has_v12_state || has_v13_state;
   const bool has_warm_state =
       has_v6_state || has_v7_state || has_v8_state || has_v9_state ||
@@ -242,7 +244,9 @@ t64_status t64_machine_digest(const t64_machine *machine,
   }
 
   t64_sha256_init(&context);
-  if (has_v21_state) {
+  if (has_v22_state) {
+    t64_sha256_update(&context, domain_v22, sizeof domain_v22 - 1u);
+  } else if (has_v21_state) {
     t64_sha256_update(&context, domain_v21, sizeof domain_v21 - 1u);
   } else if (has_v20_state) {
     t64_sha256_update(&context, domain_v20, sizeof domain_v20 - 1u);
@@ -652,6 +656,18 @@ t64_status t64_machine_digest(const t64_machine *machine,
       hash_u32(&context, vi->refusal_reason);
       hash_u32(&context, vi->enabled ? 1u : 0u);
       hash_u32(&context, vi->sequence_exhausted ? 1u : 0u);
+      if (has_v22_state) {
+        for (i = 0u; i < sizeof vi->active_registers /
+                            sizeof vi->active_registers[0];
+             i++) {
+          hash_u32(&context, vi->active_registers[i]);
+        }
+        hash_u64(&context, vi->phase_units);
+        hash_u64(&context, vi->next_boundary_units);
+        hash_u64(&context, vi->field_start_tick);
+        hash_u32(&context, vi->current_readback);
+        hash_u32(&context, vi->latch_pending ? 1u : 0u);
+      }
       /*
        * Packet bytes and metadata retain produced-output history in slots
        * chosen from the producer sequence. packet_head/count are observer
@@ -704,6 +720,18 @@ t64_status t64_machine_digest(const t64_machine *machine,
                           sizeof info->build_id);
         t64_sha256_update(&context, (const uint8_t *)info->vi_clock_policy,
                           sizeof info->vi_clock_policy);
+        if (has_v22_state) {
+          hash_u32(&context, info->h_end);
+          hash_u32(&context, info->v_end);
+          hash_u32(&context, info->source_width);
+          hash_u32(&context, info->source_pitch_bytes);
+          hash_u32(&context, info->source_x_offset);
+          hash_u32(&context, info->source_y_offset);
+          hash_u32(&context, info->filter);
+          t64_sha256_update(&context,
+                            (const uint8_t *)info->vi_output_policy,
+                            sizeof info->vi_output_policy);
+        }
       }
     }
   }
