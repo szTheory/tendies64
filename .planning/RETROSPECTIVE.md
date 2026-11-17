@@ -175,3 +175,17 @@ created a pyc that rightly failed governance scanners; its exact cleanup and
 initial failed log remain recorded. Verify the actual gate command/tail from
 logs: the preset cohort passed, and the omitted core-lint stage was completed
 separately without repeating passing semantic tests.
+
+### Hosted cross-compiler / cleanup correction
+
+The GCC build caught an initialization proof missing from Clang's diagnostics.
+Explicitly initialized validation state and literal standard-producer LoadBlock
+words are now checked locally; source initialization does not substitute for a
+fresh GCC hosted result. The same primary producer facts showed zero-line means
+contiguous loading, not invalid input, and LRS is not LoadTile's scaled endpoint.
+
+Timeout/capture refusals must not enter cleanup twice. The new authored control
+forbids a second signal while retaining descendant FIFO closure and bounded
+return, catching the macOS EPERM mask without weakening permissions or limits.
+Triangle preflight resolved lengths but retains the numeric-format stop; a
+mechanical positive literal check caught a misplaced YL byte before decoding.

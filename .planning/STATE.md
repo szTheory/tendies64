@@ -6,10 +6,10 @@ current_phase: 07
 current_plan: "03"
 current_phase_name: RDP Reference Renderer and VI Scanout
 status: executing
-stopped_at: Phase07 Plan03 raw contract repaired/reviewed; hosted qualification pending
+stopped_at: Phase07 hosted failures repaired/reviewed; fresh qualification pending
 last_updated: "2026-11-17T03:55:10.030756+00:00"
 last_activity: 2026-11-16
-last_activity_desc: TMEM/copy raw contract repaired and independently rechecked; hosted qualification pending
+last_activity_desc: LoadBlock and owned-group cleanup repaired; combined gate and source reviews pass
 state_head: 31a0b6e5cfe83d268ae25ed5d88117df9b1712b8
 progress:
   total_phases: 3
@@ -58,7 +58,10 @@ Progress: [██░░░░░░░░] 23% of currently planned source plans
 
 The reviewed VI queue repair passed both hosted jobs, and exact authored artifact
 comparison passed. Plan07-03 implementation and local verification are complete. Source fixes and independent re-review are complete; finish exact hosted
-qualification before dispatching Plan07-04. The
+qualification before dispatching Plan07-04. Its raw triangle lengths/positions
+are reconciled, but numeric signed encoding remains a documented pre-decoder
+stop; an owner decision on an explicit software policy is pending. Keep that
+stop unless the owner authorizes the policy or primary evidence resolves it. The
 Plan02 redundant DPC flag was removed in this owning state/layout change.
 Local normal checks pass; the instrumented suite retains one BASE timeout with
 an unchanged-limit isolated pass. See the current [review](phases/07-rdp-reference-renderer-and-vi-scanout/07-REVIEW.md).
@@ -82,7 +85,7 @@ an unchanged-limit isolated pass. See the current [review](phases/07-rdp-referen
 ## Session Continuity
 
 Last session: 2026-11-16T05:13:26.082Z
-Stopped at: Phase07 Plan03 raw contract repaired/reviewed; hosted qualification pending
+Stopped at: Phase07 hosted failures repaired/reviewed; fresh qualification pending
 Resume file: .planning/phases/07-rdp-reference-renderer-and-vi-scanout/07-03-PLAN.md
 
 Historical closeout: [v1.0 roadmap](milestones/v1.0-ROADMAP.md), [audit](milestones/v1.0-MILESTONE-AUDIT.md), [lessons](RETROSPECTIVE.md).

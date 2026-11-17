@@ -202,3 +202,29 @@ The initial stack-usage analysis is tied to the initial source; the arithmetic
 correction adds no large buffers or recursion, but that analysis is not presented
 as a new runtime peak measurement. Hardware/scissor quad-lane behavior, rendered
 YUV and VID-04 remain unqualified.
+
+## Hosted failure and combined repairs
+
+Hosted run44013595697 failed on two independent paths. Linux GCC diagnosed
+possibly uninitialized LoadBlock validation state. macOS reached the native
+cohort but its timeout control exposed duplicate process-group cleanup masking
+the intended refusal. Initial logs remain in ignored build evidence and F-084.
+
+Root's literal LoadBlock regression also exposed an incorrectly scaled LRS and
+refusal of the standard zero-line contiguous producer. Commit9247fdb initializes
+validation state and corrects integer LRS, linear word progress, per-T skips and
+within-word odd swapping. Normal and instrumented copy pass2142checks; strict
+guards,32mutations and lint pass. Standard zero-origin producer words are pinned;
+nonzero-origin hardware semantics remain explicitly unqualified.
+
+The scoped debugger reproduced the macOS failure and committed55d298e, removing
+three duplicate cleanup blocks while preserving unconditional outer group cleanup
+and first-signal error propagation. Six controls and runner.cpu-diagnostic pass.
+See [debug evidence](../../debug/resolved/mac-owned-group-double-cleanup.md).
+Independent [CI repair review](07-03-CI-REVIEW.md) is clean.
+
+The parent executed the actual combined `scripts/gate.sh` wrapper after both
+repairs:147tests plus every wrapper stage pass,56seconds total. Exact final
+consumers/logs are retained at
+`build/gate/07-03-final-combined-retained-artifacts/binding.json`. Previous source
+and artifact records remain unchanged. A fresh hosted pair follows.
