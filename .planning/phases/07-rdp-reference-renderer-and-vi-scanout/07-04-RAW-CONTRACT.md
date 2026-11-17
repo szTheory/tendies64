@@ -50,7 +50,7 @@ Bit positions below are inclusive, with bit 63 the most significant bit. Source 
 | Z W20 | Z integer 63–48; Z fraction 47–32; DzDx integer 31–16; DzDx fraction 15–0 | Four 16-bit fields. |
 | Z W21 | DzDe integer 63–48; DzDe fraction 47–32; DzDy integer 31–16; DzDy fraction 15–0 | Four 16-bit fields; final fraction is in W21. |
 
-The source diagrams specify the split positions and integer/fraction labels, but do not explicitly state the signed encoding for XL/XH/XM, the edge slope pairs, or the shade/texture/Z derivative pairs. Only YL/YM/YH carry an explicit signed-format label in these layouts. Do not silently infer two’s-complement sign extension for those other fields from the diagram alone. A primary Nintendo/SGI producer specification or source that states their signed encoding is still needed before a numeric decoder or negative-coefficient fixture is authorized. [CITED: SGI Tables 12–15, pp. 13–20; Patent FIGS. 65–76]
+The source diagrams specify the split positions and integer/fraction labels, but do not explicitly state the signed encoding for XL/XH/XM, the edge slope pairs, or the shade/texture/Z derivative pairs. Only YL/YM/YH carry an explicit signed-format label in these layouts. Do not silently infer two’s-complement sign extension for those other fields from the diagram alone. A primary Nintendo/SGI producer specification or source that states their signed encoding is still needed for a source-backed numeric conformance claim. Owner decision D-11 separately authorizes the named software-policy decoder and authored negative cases below. [CITED: SGI Tables 12–15, pp. 13–20; Patent FIGS. 65–76]
 
 ## Literal layout witnesses
 
@@ -96,7 +96,7 @@ The manual's Z discussion is the closest related primary declaration: for z-buff
 
 ## Gate status
 
-**Structural packet lengths and bit-field positions: resolved. Signed numeric decoder contract: unresolved.** Keep the Plan07-04 pre-decoder stop for numeric triangle decoding and raster fixtures until a primary Nintendo/SGI raw-field declaration or producer specification settles the exact encodings above. No decoder or negative fixture is authorized by this note. No source code, ROM, emulator oracle, console, or test was used; no protected document or asset was added to the repository.
+**Structural packet lengths and bit-field positions: resolved. Primary numeric proof: unresolved. Owner-approved software numeric policy: authorized by D-11 (2026-11-17).** The former numeric pre-decoder stop is relaxed only for the explicitly named policy below. This does not turn an inference into a vendor fact or authorize hardware-conformance claims. No source code, ROM, emulator oracle, console, or test was used; no protected document or asset was added to the repository.
 
 ## Sources inspected
 
@@ -112,4 +112,35 @@ The orchestrator decoded the positive W0 witness directly from the pinned
 bit positions and caught a misplaced YL byte before any decoder implementation.
 Corrected W0 is `0x0800000C00080005`: YL=12, YM=8, YH=5. The corresponding
 shade word is `0x0C00000C00080005`. This arithmetic check settles no additional
-signed-format question; the numeric pre-decoder stop below remains in force.
+signed-format question; the primary numeric evidence gap remains unchanged; D-11 governs implementation authority.
+
+## Owner-approved software numeric policy — D-11
+
+Name the implementation policy `triangle-twos-complement-q16-v1` and bind it to
+the affected profile semantics. These rows are an owner-selected software
+contract, not newly discovered vendor facts:
+
+| Field class | Software interpretation |
+| --- | --- |
+| YL/YM/YH | Sign-extend the14-bit field as two's-complement; scale by1/4. |
+| XL/XM/XH and edge slopes | Combine the integer/fraction halves into32bits; sign-extend as two's-complement; scale by1/65536. |
+| Shade base/derivative pairs | Combine each documented pair into32bits and use the same signed1/65536 policy. Final channel range/clamp is explicitly documented software behavior. |
+| Texture and Z pairs, when their owning slices implement them | Use the same provisional32-bit two's-complement pair policy; preserve source gaps and state any further depth/perspective policy in that slice. |
+
+Use defined wide integer arithmetic and explicit floor/rounding rules; do not
+rely on C17 out-of-range signed casts or negative right shifts. Negative/extreme
+coefficient tests are authored software-policy tests. Positive layout witnesses
+above still test primary positions independently. This policy does not settle
+subpixel coverage, color/depth precision, overflow quirks or hardware timing.
+
+Primary SDK generated-triangle notes also say raw edge-only triangles use the
+primitive color and are not fill-cycle primitives. The first accepted triangle
+vector must set an appropriate non-fill cycle explicitly; COPY2/FILL3 may not
+be repurposed merely to share rectangle helpers. Pin the selected supported
+cycle/primitive-color behavior in the slice and exercise a literal valid mode
+before expanding its matrix. [Primary SDK generated-command notes](https://ultra64.ca/files/documentation/online-manuals/man/header/gbi.htm)
+
+D-11 policy consistency was adversarially checked after the owner decision:
+primary structure and corrected positive witnesses remain distinct from the
+software numeric table; no concrete inconsistency was found. The primary numeric
+gap and all rights/hardware qualification stops remain recorded.

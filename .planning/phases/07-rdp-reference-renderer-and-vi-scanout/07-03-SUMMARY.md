@@ -228,3 +228,9 @@ repairs:147tests plus every wrapper stage pass,56seconds total. Exact final
 consumers/logs are retained at
 `build/gate/07-03-final-combined-retained-artifacts/binding.json`. Previous source
 and artifact records remain unchanged. A fresh hosted pair follows.
+
+Final repaired hosted checkpoint `6f5ff26` passed both Linux and macOS in
+run44018490135. Exact selected authored artifacts were collected and compared;
+F-085 in `docs/ci-reviews/LOG.md` records timings and dispositions. This resolves
+the prior GCC and macOS owner-control failures. Plan03 is qualified at its
+authored/native evidence tier; no full VID or hardware claim is added.

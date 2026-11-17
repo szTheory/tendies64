@@ -16,5 +16,6 @@ findings:
 [Plan03](07-03-REVIEW.md) retain their exact scopes, initial findings and
 dispositions. Plan02's redundant DPC flag was removed in Plan03. Plan03's five
 raw-command defects and the clipped-origin issue are fixed and independently
-rechecked. Hosted qualification of the corrected checkpoint remains pending.
+rechecked. The subsequent [CI repair review](07-03-CI-REVIEW.md) is clean, and final
+checkpoint6f5ff26 passes both hosted jobs plus exact selected artifact comparison.
 These incremental reviews do not establish full Phase07 or VID-04 acceptance.

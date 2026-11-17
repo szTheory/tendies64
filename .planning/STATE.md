@@ -3,13 +3,13 @@ gsd_state_version: "1.0"
 milestone: v1.1
 milestone_name: Observable Machine
 current_phase: 07
-current_plan: "03"
+current_plan: "04"
 current_phase_name: RDP Reference Renderer and VI Scanout
 status: executing
-stopped_at: Phase07 hosted failures repaired/reviewed; fresh qualification pending
-last_updated: "2026-11-17T03:55:10.030756+00:00"
+stopped_at: Phase07 Plan03 qualified; execute Plan04 with owner-approved D-11
+last_updated: "2026-11-17T04:47:16.389291+00:00"
 last_activity: 2026-11-16
-last_activity_desc: LoadBlock and owned-group cleanup repaired; combined gate and source reviews pass
+last_activity_desc: Plan03 qualified on both hosts; triangle edge/shade implementation next
 state_head: 31a0b6e5cfe83d268ae25ed5d88117df9b1712b8
 progress:
   total_phases: 3
@@ -26,13 +26,13 @@ progress:
 See: .planning/PROJECT.md (updated 2026-11-15)
 
 **Core value:** Every Tendies64 support claim is backed by evidence: a named profile, a pinned build and a reproducible, rights-cleared guest result.
-**Current focus:** Phase7 TMEM/copy source review and hosted qualification.
+**Current focus:** Phase7 triangle edge/shade implementation under D-11.
 
 ## Current Position
 
 Phase: 07 (RDP Reference Renderer and VI Scanout) — READY TO EXECUTE
-Plan: 03 of13 in current phase
-Status: TMEM/copy implementation verified; source review and hosted qualification pending
+Plan: 04 of13 in current phase
+Status: TMEM/copy qualified; triangle edge/shade ready under D-11
 Last activity: 2026-11-16 — TMEM/copy normal and affected sanitizer checks passed; review pending
 
 Progress: [██░░░░░░░░] 23% of currently planned source plans
@@ -56,15 +56,15 @@ Progress: [██░░░░░░░░] 23% of currently planned source plans
 
 ### Pending Todos
 
-The reviewed VI queue repair passed both hosted jobs, and exact authored artifact
-comparison passed. Plan07-03 implementation and local verification are complete. Source fixes and independent re-review are complete; finish exact hosted
-qualification before dispatching Plan07-04. Its raw triangle lengths/positions
-are reconciled, but numeric signed encoding remains a documented pre-decoder
-stop; an owner decision on an explicit software policy is pending. Keep that
-stop unless the owner authorizes the policy or primary evidence resolves it. The
-Plan02 redundant DPC flag was removed in this owning state/layout change.
-Local normal checks pass; the instrumented suite retains one BASE timeout with
-an unchanged-limit isolated pass. See the current [review](phases/07-rdp-reference-renderer-and-vi-scanout/07-REVIEW.md).
+Execute Plan07-04. Plan03 and both hosted CI repairs are qualified on Linux and
+macOS, with exact selected artifact comparison. Owner-approved D-11 permits
+the named triangle numeric software policy; primary numeric proof and hardware
+accuracy remain unqualified. Current raw packet lengths/positions and corrected
+positive literal witnesses are pinned in07-04-RAW-CONTRACT.md.
+
+The earlier full-ASAN BASE timeout is historical and retained; Plan03's affected
+instrumented checks and final combined normal gate pass. Do not relabel that
+old full instrumented run as complete or renew private windows.
 
 ### Blockers/Concerns
 
@@ -85,8 +85,8 @@ an unchanged-limit isolated pass. See the current [review](phases/07-rdp-referen
 ## Session Continuity
 
 Last session: 2026-11-16T05:13:26.082Z
-Stopped at: Phase07 hosted failures repaired/reviewed; fresh qualification pending
-Resume file: .planning/phases/07-rdp-reference-renderer-and-vi-scanout/07-03-PLAN.md
+Stopped at: Phase07 Plan03 qualified; execute Plan04 with owner-approved D-11
+Resume file: .planning/phases/07-rdp-reference-renderer-and-vi-scanout/07-04-PLAN.md
 
 Historical closeout: [v1.0 roadmap](milestones/v1.0-ROADMAP.md), [audit](milestones/v1.0-MILESTONE-AUDIT.md), [lessons](RETROSPECTIVE.md).
 

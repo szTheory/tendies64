@@ -189,3 +189,13 @@ forbids a second signal while retaining descendant FIFO closure and bounded
 return, catching the macOS EPERM mask without weakening permissions or limits.
 Triangle preflight resolved lengths but retains the numeric-format stop; a
 mechanical positive literal check caught a misplaced YL byte before decoding.
+
+### Owner-approved numeric policy
+
+Primary triangle structure was resolved before decoding; numeric representation
+was not. The owner explicitly approved a named two's-complement software profile
+policy, preserving the source gap and hardware limits. Record that exception in
+CONTEXT, raw contract and action/expected-value rules together. Do not silently
+treat the policy as a new primary fact or repeat per-field approval questions.
+The positive W0 witness also needs a mechanical bit extraction check: a misplaced
+YL byte was corrected before any decoder was written.

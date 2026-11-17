@@ -1,5 +1,13 @@
 # Phase 7: RDP Reference Renderer and VI Scanout — Research
 
+> Follow-up2026-11-17: [the triangle raw contract](07-04-RAW-CONTRACT.md)
+> resolves structural packet counts/positions and records the remaining numeric
+> evidence gap. Owner D-11 in CONTEXT approves an explicit two's-complement
+> software policy; it does not establish vendor/hardware numeric semantics.
+> The working primary SGI PDF mirror is under `/documentation/silicon-graphics/`;
+> its hash matches the original ignored research artifact.
+
+
 **Researched:** 2026-11-16  
 **Domain:** Nintendo 64 RDP/VI reference implementation in a deterministic C17 machine  
 **Confidence:** MEDIUM overall; HIGH for repository seams and the cited documented fields; MEDIUM/LOW for undocumented layout details and software timing policy.

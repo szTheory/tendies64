@@ -151,3 +151,14 @@ GPU rendering, codecs, live preview loss policy, physical measurement, broad
 compatibility, new media/regions, ABI freeze and native presentation stay in
 later scope. Oracle-derived acceptance waits on its existing specific gates.
 </deferred>
+
+## Owner update — triangle numeric policy (2026-11-17)
+
+**D-11:** Owner approved proceeding with an explicit two's-complement
+software-profile policy for triangle coefficient encodings whose primary numeric
+representation remains unresolved. This relaxes only Plan04's primary-source-only
+numeric decoder stop. The reconciled primary packet lengths and field positions
+remain mandatory. Authored tests prove the chosen software behavior; they do not
+close the source gap, establish hardware accuracy, or discharge VID-04. Keep the
+policy named/versioned under D-08, and preserve all D2/D5/D6 and other authority
+stops. No further per-field confirmation is required within this decision.
