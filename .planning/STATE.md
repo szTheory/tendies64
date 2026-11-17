@@ -3,13 +3,13 @@ gsd_state_version: "1.0"
 milestone: v1.1
 milestone_name: Observable Machine
 current_phase: 07
-current_plan: "05"
+current_plan: "06"
 current_phase_name: RDP Reference Renderer and VI Scanout
 status: executing
-stopped_at: Plan05 implemented and reviewed; hosted qualification pending
-last_updated: "2026-11-17T09:15:22.136490+00:00"
+stopped_at: Plan05 qualified; Plan06 combiner preflight
+last_updated: "2026-11-17T09:57:07.918380+00:00"
 last_activity: 2026-11-17
-last_activity_desc: Plan05 reviewed and locally verified; hosted pair next
+last_activity_desc: Plan05 qualified on both hosts; Plan06 contract preflight
 state_head: 31a0b6e5cfe83d268ae25ed5d88117df9b1712b8
 progress:
   total_phases: 3
@@ -26,14 +26,14 @@ progress:
 See: .planning/PROJECT.md (updated 2026-11-15)
 
 **Core value:** Every Tendies64 support claim is backed by evidence: a named profile, a pinned build and a reproducible, rights-cleared guest result.
-**Current focus:** Qualify reviewed textured triangles, then Plan06 combiner.
+**Current focus:** Plan06 color/alpha combiner; source-table preflight active.
 
 ## Current Position
 
 Phase: 07 (RDP Reference Renderer and VI Scanout) — EXECUTING
-Plan: 05 of13 in current phase
-Status: Textured triangles and review repairs locally verified; hosted pair pending
-Last activity: 2026-11-17 — Texture review repairs pass final normal gate, focused ASAN and GCC checks
+Plan: 06 of13 in current phase
+Status: Textured triangles qualified on both hosts; combiner preflight active
+Last activity: 2026-11-17 — Texture review repairs pass both hosted jobs and exact artifact comparison
 
 Progress: [██░░░░░░░░] 38% of currently planned source plans
 
@@ -56,8 +56,8 @@ Progress: [██░░░░░░░░] 38% of currently planned source plans
 
 ### Pending Todos
 
-Plan05 implementation and independent repair recheck are complete. Qualify
-its pinned source on both hosts before Plan06. Header tile/mip selection,
+Plan05 implementation, repair recheck and both hosted jobs are qualified.
+Execute Plan06 after its focused raw selector/precision preflight. Header tile/mip selection,
 filtered alpha and two evidence gaps are fixed; final local gate and focused
 sanitizer/GCC checks pass. Exact consumers and bindings are retained. D-11 and
 all documented precision defaults remain software policy, not hardware proof.
@@ -86,8 +86,8 @@ old full instrumented run as complete or renew private windows.
 ## Session Continuity
 
 Last session: 2026-11-16T05:13:26.082Z
-Stopped at: Plan05 implemented and reviewed; hosted qualification pending
-Resume file: .planning/phases/07-rdp-reference-renderer-and-vi-scanout/07-05-PLAN.md
+Stopped at: Plan05 qualified; Plan06 combiner preflight
+Resume file: .planning/phases/07-rdp-reference-renderer-and-vi-scanout/07-06-PLAN.md
 
 Historical closeout: [v1.0 roadmap](milestones/v1.0-ROADMAP.md), [audit](milestones/v1.0-MILESTONE-AUDIT.md), [lessons](RETROSPECTIVE.md).
 

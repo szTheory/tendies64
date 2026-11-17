@@ -18,5 +18,5 @@ findings:
 Plan03's raw-command and hosted repairs are qualified. Plan04's alignment and
 evidence fixes pass both hosts and exact selected authored artifact comparison
 in run44031076519. Plan05's header/alpha and evidence repairs pass focused
-independent recheck and final local normal/instrumented checks; hosted pair
-is pending. These reviews do not establish full Phase07 or VID-04 acceptance.
+independent recheck and final local normal/instrumented checks; checkpoint9a39ab4 passes both hosts and exact selected authored
+artifact comparison in run44054005627. These reviews do not establish full Phase07 or VID-04 acceptance.

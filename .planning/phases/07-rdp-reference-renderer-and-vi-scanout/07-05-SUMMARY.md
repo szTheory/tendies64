@@ -134,3 +134,19 @@ post-verification worktree retention, with no retroactive pre-use claim. These
 fixes implement the existing unshipped profile contract without new persistent
 state or another version. Full ASAN inventory and hardware accuracy remain
 unqualified. Hosted qualification is the next action; no user action is needed.
+
+## Hosted qualification
+
+Reviewed repair checkpoint `9a39ab4c0cd3c872ce37440ccf66543e58026cb1` passes
+[both hosted jobs in run44054005627](https://github.com/szTheory/tendies64/actions/runs/44054005627).
+Exact selected authored boot artifacts were collected with source/run/attempt/job
+selectors and compared: guest identities, bounds, canonical state and transcript
+match. This is boot evidence, not uploaded texture images or hardware evidence;
+the native texture matrix passed within both gates. Records and logs:
+`build/evidence/07-05-hosted-44054005627/`,
+`build/gate/07-05-hosted-{collect,compare}.log`.
+
+macOS job421s/Gate405s is critical; Linux job168s/Gate156s, queues3/2s.
+The local final gate remains48s. Preserve the required jobs/limits; no cache,
+dependency or concurrency change is justified from this cohort alone. Plan06's
+focused combiner preflight is next. Full ASAN inventory/VID-04 remain open.

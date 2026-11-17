@@ -20,3 +20,7 @@ cover the missing cases. The independent [focused recheck](07-05-REVIEW-RECHECK.
 resolves all four findings without a new defect. Original findings and failed
 regressions remain intact. Final normal gate, focused ASAN and bounded GCC
 checks pass; hosted qualification follows.
+
+Checkpoint9a39ab4 now passes both hosted jobs and exact selected authored
+artifact comparison in run44054005627. Review scopes and original evidence stay
+unchanged; this does not complete the full Phase07 or a hardware claim.
