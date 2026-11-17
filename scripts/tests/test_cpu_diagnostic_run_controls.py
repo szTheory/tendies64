@@ -8,6 +8,7 @@ import json
 import os
 import pathlib
 import select
+import signal
 import shutil
 import subprocess
 import sys
@@ -15,7 +16,7 @@ import tempfile
 import time
 import unittest
 from dataclasses import replace
-from unittest.mock import patch
+from unittest.mock import Mock, patch
 
 
 def load_runner(source_root: pathlib.Path):
@@ -84,6 +85,106 @@ def fake_guest_main() -> int:
     # synthetic inventory before routing a fake guest result.
     write_private(output_path, batch)
     return 0
+
+
+class BoundedProcessControls(unittest.TestCase):
+    """Direct controls need only authored Python children, never an adapter."""
+
+    def setUp(self):
+        self.source_root = pathlib.Path(__file__).resolve().parents[2]
+        self.module = load_runner(self.source_root)
+        self.control_root = pathlib.Path(tempfile.mkdtemp(
+            prefix="authored-bounded-controls-", dir=self.source_root / "build"))
+        os.chmod(self.control_root, 0o700)
+
+    def tearDown(self):
+        shutil.rmtree(self.control_root)
+
+    def assert_cleanup_once(self, command, error_type, message, *, maximum=4096):
+        real_killpg = os.killpg
+        signals = []
+
+        def signal_owned_group(pid, sig):
+            signals.append((pid, sig))
+            if len(signals) > 1:
+                raise PermissionError(1, "forbidden second owned-group signal")
+            return real_killpg(pid, sig)
+
+        started = time.monotonic()
+        with patch.object(self.module.os, "killpg", side_effect=signal_owned_group):
+            with self.assertRaisesRegex(error_type, message):
+                self.module.run_bounded(
+                    command, cwd=self.source_root, env=self.module.make_env(controls=True),
+                    timeout=1, maximum=maximum)
+        self.assertEqual(len(signals), 1, "cleanup signals the owned group exactly once")
+        self.assertEqual(signals[0][1], signal.SIGKILL)
+        self.assertLess(time.monotonic() - started, 3, "cleanup returns within the existing bound")
+
+    def test_timeout_closes_descendant_after_leader_exit(self):
+        fifo = self.control_root / "child.fifo"
+        pid_path = self.control_root / "child.pid"
+        os.mkfifo(fifo, 0o600)
+        reader = os.open(fifo, os.O_RDONLY | os.O_NONBLOCK)
+        child_code = (
+            "import os,pathlib,signal; child=os.fork(); "
+            "os._exit(0) if child else None; "
+            f"pathlib.Path({str(pid_path)!r}).write_text(str(os.getpid())); "
+            f"writer=os.open({str(fifo)!r},os.O_WRONLY); "
+            "os.write(writer,b'R'); signal.pause()"
+        )
+        cleaned = False
+        try:
+            self.assert_cleanup_once([sys.executable, "-c", child_code],
+                                     self.module.Refusal, "timed out")
+            self.assertTrue(pid_path.is_file(), "owned descendant actually started")
+            self.assertEqual(os.read(reader, 1), b"R", "descendant held its FIFO writer")
+            self.assertTrue(select.select([reader], [], [], 1)[0],
+                            "descendant writer closed within the cleanup bound")
+            self.assertEqual(os.read(reader, 1), b"", "timeout terminated the descendant group")
+            cleaned = True
+        finally:
+            os.close(reader)
+            if not cleaned and pid_path.is_file():
+                try:
+                    os.kill(int(pid_path.read_text()), signal.SIGKILL)
+                except ProcessLookupError:
+                    pass
+
+    def test_closed_pipes_timeout_cleans_once(self):
+        self.assert_cleanup_once(
+            [sys.executable, "-c", "import os,signal; os.close(1); os.close(2); signal.pause()"],
+            self.module.Refusal, "timed out")
+
+    def test_capture_limit_cleans_once(self):
+        self.assert_cleanup_once(
+            [sys.executable, "-c", "import os,signal; os.write(1,b'XX'); signal.pause()"],
+            self.module.Refusal, "capture limit", maximum=1)
+
+    def test_unexpected_exception_still_cleans_owned_group(self):
+        with patch.object(self.module.selectors, "DefaultSelector", side_effect=RuntimeError("selector failed")):
+            self.assert_cleanup_once([sys.executable, "-c", "import signal; signal.pause()"],
+                                     RuntimeError, "selector failed")
+
+    def test_first_signal_permission_error_is_preserved(self):
+        process = Mock(pid=12345)
+        denied = PermissionError(1, "first owned-group signal denied")
+        with patch.object(self.module.subprocess, "Popen", return_value=process), \
+                patch.object(self.module.selectors, "DefaultSelector", side_effect=RuntimeError("selector failed")), \
+                patch.object(self.module.os, "killpg", side_effect=denied) as killpg:
+            with self.assertRaises(PermissionError) as caught:
+                self.module.run_bounded(["authored-placeholder"], cwd=self.source_root,
+                    env=self.module.make_env(controls=True), timeout=1, maximum=4096)
+        self.assertIs(caught.exception, denied)
+        killpg.assert_called_once_with(process.pid, signal.SIGKILL)
+        process.wait.assert_not_called()
+
+    def test_success_needs_no_group_signal(self):
+        with patch.object(self.module.os, "killpg") as killpg:
+            self.assertEqual(self.module.run_bounded(
+                [sys.executable, "-c", "print('ok')"], cwd=self.source_root,
+                env=self.module.make_env(controls=True), timeout=1, maximum=4096),
+                (0, b"ok\n", b""))
+        killpg.assert_not_called()
 
 
 def main() -> int:
@@ -530,6 +631,10 @@ def main() -> int:
                     except ProcessLookupError:
                         pass
 
+    bounded_suite = unittest.defaultTestLoader.loadTestsFromTestCase(BoundedProcessControls)
+    bounded_result = unittest.TextTestRunner(stream=sys.stdout, verbosity=1).run(bounded_suite)
+    if not bounded_result.wasSuccessful():
+        return 1
     suite = unittest.defaultTestLoader.loadTestsFromTestCase(RunControls)
     result = unittest.TextTestRunner(stream=sys.stdout, verbosity=1).run(suite)
     if result.wasSuccessful():

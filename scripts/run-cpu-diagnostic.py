@@ -315,11 +315,6 @@ def run_bounded(command, *, cwd: pathlib.Path, env: dict[str, str], timeout: int
             while selector.get_map():
                 remaining = deadline - time.monotonic()
                 if remaining <= 0:
-                    try:
-                        os.killpg(process.pid, signal.SIGKILL)
-                    except ProcessLookupError:
-                        pass
-                    process.wait()
                     fail("bounded subprocess timed out")
                 for key, _ in selector.select(min(remaining, 0.25)):
                     try:
@@ -331,22 +326,12 @@ def run_bounded(command, *, cwd: pathlib.Path, env: dict[str, str], timeout: int
                         continue
                     captured = output[key.fileobj]
                     if len(captured) + len(block) > maximum:
-                        try:
-                            os.killpg(process.pid, signal.SIGKILL)
-                        except ProcessLookupError:
-                            pass
-                        process.wait()
                         fail("bounded subprocess exceeded its capture limit")
                     captured.extend(block)
         remaining = deadline - time.monotonic()
         try:
             code = process.wait(timeout=max(remaining, 0.0))
         except subprocess.TimeoutExpired:
-            try:
-                os.killpg(process.pid, signal.SIGKILL)
-            except ProcessLookupError:
-                pass
-            process.wait()
             fail("bounded subprocess timed out")
         if time.monotonic() >= deadline:
             fail("bounded subprocess timed out")
