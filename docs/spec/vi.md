@@ -52,6 +52,10 @@ starting at field zero; progressive mode reports parity zero. CURRENT writes
 clear VI's MI pending interrupt immediately but do not change sampled
 CURRENT. The source documents the interrupt-line clear; clearing the MI
 pending latch and retaining the sampled readback are explicit software policy.
+INTR writes update the active comparison target immediately, without changing
+phase or retroactively comparing the already sampled CURRENT. The new target
+is used at the next full-line sample. A CURRENT acknowledgment followed by an
+INTR write at the same guest tick therefore does not itself retrigger VI.
 
 ### Register updates and scanout geometry
 

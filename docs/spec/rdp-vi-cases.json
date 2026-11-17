@@ -263,7 +263,9 @@
             "vi-geometry-minimum-window",
             "vi-scaled-offset-window-source-pitch",
             "vi-serrate-interlace-parity-origin",
+            "vi-serrate-latch-current-boundaries",
             "vi-intr-current-write-clear-mi",
+            "vi-active-intr-immediate-no-retroactive",
             "vi-next-field-latch-before-on-after",
             "vi-disabled-blank-empty-windows",
             "vi-geometry-maximum-span",
@@ -272,7 +274,12 @@
             "vi-same-tick-dp-vi-mi-cpu-sp-order",
             "vi-interleaved-machine-phase",
             "vi-short-period-backpressure-resume",
-            "vi-old-profiles-unchanged"
+            "vi-old-profiles-unchanged",
+            "vi-hsync-latch-field-continuity",
+            "vi-vsync-latch-field-continuity",
+            "vi-decoded-geometry-endpoints",
+            "vi-interlace-full-height-source-span",
+            "vi-progressive-high-offset-source-span"
           ]
         }
       ]

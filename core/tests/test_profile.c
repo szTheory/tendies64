@@ -784,8 +784,10 @@ static void test_rdp_profile_metadata_binding(void) {
       "3ce5b6c75ba85a8b1d5ed333820d70736c26c003ec16c76a7cd9f8ee686f3e18",
       "0e9938d6b92159fe1f8c5dff0c03749979d5d10b11b458224f2dcca1a2345efa",
       "7f73b46e6c695fddb60d89d6351c1c099f56e76dbe109ab9f2cb9f372fc56d0e",
+      "56f25e100d3c92792f836b0664e81697919487b4fdae49404476a85135ae5969",
   };
-  static const size_t legacy_lengths[] = {1116u, 1132u, 1172u, 1155u};
+  static const size_t legacy_lengths[] = {1116u, 1132u, 1172u, 1155u,
+                                          1231u};
   static const size_t text_offsets[] = {
       offsetof(t64_profile_descriptor, rdp_work_policy),
       offsetof(t64_profile_descriptor, vi_clock_policy),
@@ -827,7 +829,7 @@ static void test_rdp_profile_metadata_binding(void) {
         t64_machine_destroy(canonical_machine);
     }
     T64_CHECK(original_length > 0u);
-    if (index < 4u) {
+    if (index < 5u) {
       char original_hex[T64_DIGEST_SIZE * 2u + 1u];
       digest_to_hex(original_hash, original_hex);
       T64_CHECK_STR(original_hex, legacy_hashes[index]);
@@ -884,10 +886,32 @@ static void test_rdp_profile_metadata_binding(void) {
   }
 }
 
+static void test_legacy_vi_v2_profile_bytes(void) {
+  const t64_profile_descriptor *profile = NULL;
+  uint8_t digest[T64_DIGEST_SIZE];
+  uint8_t serialized[8192];
+  char digest_hex[T64_DIGEST_SIZE * 2u + 1u];
+  size_t serialized_length = 0u;
+  const t64_status lookup_status = t64_profile_lookup(
+      "ntsc-cart-4m-openipl3-rdram-b-t1-rdp-vi-v2", &profile);
+
+  T64_CHECK_INT(lookup_status, T64_STATUS_OK);
+  if (lookup_status != T64_STATUS_OK || profile == NULL) return;
+  T64_CHECK_INT(t64_profile_hash(profile, digest), T64_STATUS_OK);
+  digest_to_hex(digest, digest_hex);
+  T64_CHECK_STR(digest_hex,
+                "5612696247abb5dae1c2abb6c15d7fd6c5632136210be7b21a1085590af1c94e");
+  T64_CHECK_INT(t64_profile_serialize(profile, serialized,
+                                      sizeof serialized,
+                                      &serialized_length), T64_STATUS_OK);
+  T64_CHECK_INT(serialized_length, (size_t)1038u);
+}
+
 int main(void) {
   test_profile_contract();
   test_compat_v2_profile_identity();
   test_cold_t1_profile_identities();
   test_rdp_profile_metadata_binding();
+  test_legacy_vi_v2_profile_bytes();
   return T64_TEST_FINISH("unit.core.profile");
 }
