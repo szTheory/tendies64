@@ -27,7 +27,6 @@ typedef struct {
   uint32_t width;
   uint32_t height;
   uint32_t source_width;
-  uint64_t source_height;
   uint32_t source_pitch_bytes;
   uint32_t source_x_offset;
   uint32_t source_y_offset;
@@ -96,7 +95,6 @@ static bool geometry_for(const t64_machine *machine, uint32_t control,
     uint64_t source_index;
     uint64_t source_width;
     uint64_t source_height;
-    uint64_t source_extent_height;
     uint64_t scale_x = x_register & UINT32_C(0x0fff);
     uint64_t scale_y = y_register & UINT32_C(0x0fff);
     uint64_t offset_x = (x_register >> 16) & UINT32_C(0x0fff);
@@ -128,14 +126,9 @@ static bool geometry_for(const t64_machine *machine, uint32_t control,
     geometry_out->height = (uint32_t)height;
     source_width = (offset_x + (width - 1u) * scale_x) >> 10;
     source_height = (offset_y + (height - 1u) * scale_y) >> 10;
-    source_extent_height =
-        (offset_y + height * scale_y + UINT64_C(1023)) >> 10;
     if ((registers[T64_VI_CONTROL] & UINT32_C(0x40)) != 0u) {
       source_height = source_height * 2u + (vi->field & UINT32_C(1));
-      source_extent_height = (source_extent_height - 1u) * 2u +
-                             (vi->field & UINT32_C(1)) + 1u;
     }
-    geometry_out->source_height = source_extent_height;
     if (source_width >= geometry_out->source_width ||
         geometry_out->source_width >
             UINT32_MAX / geometry_out->source_bytes_per_pixel) {
@@ -201,7 +194,6 @@ static bool geometry_for(const t64_machine *machine, uint32_t control,
   if (last_x >= geometry_out->source_width || last_y >= T64_VIDEO_MAX_HEIGHT) {
     return false;
   }
-  geometry_out->source_height = last_y + 1u;
   pixels = last_y * geometry_out->source_width + last_x + 1u;
   if (pixels > UINT64_MAX / geometry_out->source_bytes_per_pixel)
     return false;
@@ -306,7 +298,6 @@ static bool vi_read_source_pixel(
   }
   if (source_x >= geometry->source_width)
     source_x = geometry->source_width - 1u;
-  if (source_y >= geometry->source_height) return false;
   bytes_per_pixel = geometry->source_bytes_per_pixel;
   if (bytes_per_pixel == 0u ||
       source_y > (UINT64_MAX - source_x) / geometry->source_width) {

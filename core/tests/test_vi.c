@@ -8,6 +8,7 @@
 
 #define TEST_ROM_CAPACITY 65536u
 #define TEST_SOURCE_BYTES 24u
+#define FILTER_TEST_ORIGIN UINT32_C(0x3000)
 #define TEST_PROFILE_ID "ntsc-cart-4m-openipl3-rdram-b-t1-rdp-vi-v2"
 #define TEST_COMPLETION_TICK UINT64_C(600000)
 
@@ -215,14 +216,14 @@ static bool configure_vi(t64_machine *machine, uint32_t control,
          vi_write(machine, UINT32_C(0x00), control);
 }
 
-static uint8_t *render_filter_fixture(
-    const char *profile_id, uint32_t status, uint32_t source_width,
+static uint8_t *render_filter_fixture_at_origin(
+    uint32_t origin, const char *profile_id, uint32_t status,
+    uint32_t source_width,
     uint32_t source_height,
     uint32_t output_width, uint32_t output_height, uint32_t source_format,
     uint32_t x_offset, uint32_t y_offset, const uint32_t *rgba8888,
     const uint16_t *rgba5551, const uint8_t *coverage,
     t64_video_packet_info *info_out, size_t *length_out) {
-  const uint32_t origin = UINT32_C(0x3000);
   const size_t source_pixels = (size_t)source_width * source_height;
   const size_t pixel_bytes = source_format == T64_VIDEO_SOURCE_RGBA8888 ? 4u : 2u;
   const size_t packet_bytes =
@@ -235,17 +236,21 @@ static uint8_t *render_filter_fixture(
   uint8_t *packet = NULL;
   size_t i;
   t64_status status_code;
+  const char *force_advance_failure;
+  bool advanced;
 
   if (machine == NULL || info_out == NULL || length_out == NULL ||
       source_width == 0u || source_height == 0u || output_width == 0u ||
       output_height == 0u ||
       (source_format == T64_VIDEO_SOURCE_RGBA8888 && rgba8888 == NULL) ||
       (source_format == T64_VIDEO_SOURCE_RGBA5551 && rgba5551 == NULL)) {
+    T64_CHECK(false);
     if (machine != NULL) t64_machine_destroy(machine);
     return NULL;
   }
   packet = (uint8_t *)malloc(packet_bytes);
   if (packet == NULL) {
+    T64_CHECK(false);
     t64_machine_destroy(machine);
     return NULL;
   }
@@ -269,11 +274,17 @@ static uint8_t *render_filter_fixture(
                     output_width, output_height * 2u,
                     (x_offset << 16) | UINT32_C(0x400),
                     (y_offset << 16) | UINT32_C(0x400))) {
+    T64_CHECK(false);
     free(packet);
     t64_machine_destroy(machine);
     return NULL;
   }
-  if (!advance_guest_to_tick(machine, UINT64_C(83), &stop)) {
+  force_advance_failure = getenv("T64_TEST_FORCE_FILTER_ADVANCE_FAILURE");
+  advanced = force_advance_failure == NULL || force_advance_failure[0] == '\0'
+                 ? advance_guest_to_tick(machine, UINT64_C(83), &stop)
+                 : false;
+  if (!advanced) {
+    T64_CHECK(false);
     free(packet);
     t64_machine_destroy(machine);
     return NULL;
@@ -301,6 +312,19 @@ static uint8_t *render_filter_fixture(
   }
   t64_machine_destroy(machine);
   return packet;
+}
+
+static uint8_t *render_filter_fixture(
+    const char *profile_id, uint32_t status, uint32_t source_width,
+    uint32_t source_height, uint32_t output_width, uint32_t output_height,
+    uint32_t source_format, uint32_t x_offset, uint32_t y_offset,
+    const uint32_t *rgba8888, const uint16_t *rgba5551,
+    const uint8_t *coverage, t64_video_packet_info *info_out,
+    size_t *length_out) {
+  return render_filter_fixture_at_origin(
+      FILTER_TEST_ORIGIN, profile_id, status, source_width, source_height,
+      output_width, output_height, source_format, x_offset, y_offset,
+      rgba8888, rgba5551, coverage, info_out, length_out);
 }
 
 static void case_vi_aa_modes(void) {
@@ -373,6 +397,85 @@ static void case_vi_resample_fraction(void) {
   T64_CHECK_INT(info.source_bytes, 16u);
   T64_CHECK_INT(info.filter, T64_VIDEO_FILTER_RESAMPLE_Q20);
   T64_CHECK_INT(length, 4u);
+  free(packet);
+}
+
+static void case_vi_aa_next_row_inside_rdram(void) {
+  static const uint32_t rgba[10] = {
+      UINT32_C(0xc850281f), UINT32_C(0xc850281f), UINT32_C(0xc850281f),
+      UINT32_C(0xc850281f), UINT32_C(0xc850281f), UINT32_C(0x2878c81f),
+      UINT32_C(0x2878c81f), UINT32_C(0x2878c81f), UINT32_C(0x2878c81f),
+      UINT32_C(0x2878c81f),
+  };
+  static const uint8_t coverage[10] = {
+      0u, 0u, 2u, 0u, 0u, 8u, 8u, 8u, 8u, 8u,
+  };
+  t64_video_packet_info info = {0};
+  size_t length = 0u;
+  uint8_t *packet = render_filter_fixture(
+      VI_FILTER_PROFILE_ID, UINT32_C(0x00000003), 5u, 2u, 1u, 1u,
+      T64_VIDEO_SOURCE_RGBA8888, 2048u, 0u, rgba, NULL, coverage, &info,
+      &length);
+  if (packet == NULL) return;
+  T64_CHECK_INT(length, 4u);
+  T64_CHECK_INT(info.width, 1u);
+  T64_CHECK_INT(info.height, 1u);
+  T64_CHECK_INT(info.end_tick, 83u);
+  T64_CHECK_INT(info.source_bytes, 40u);
+  T64_CHECK_INT(info.filter,
+                T64_VIDEO_FILTER_AA | T64_VIDEO_FILTER_RESAMPLE_Q20);
+  T64_CHECK_INT(packet[0], 80u);
+  T64_CHECK_INT(packet[1], 110u);
+  T64_CHECK_INT(packet[2], 160u);
+  T64_CHECK_INT(packet[3], 255u);
+  free(packet);
+}
+
+static void case_vi_aa_next_row_rdram_bound(void) {
+  static const uint32_t rgba[4] = {
+      UINT32_C(0xc850281f), UINT32_C(0xc850281f),
+      UINT32_C(0xc850281f), UINT32_C(0xc850281f),
+  };
+  static const uint8_t coverage[4] = {0u, 2u, 0u, 0u};
+  const uint32_t origin = UINT32_C(0x00400000) - UINT32_C(16);
+  t64_video_packet_info info = {0};
+  size_t length = 0u;
+  uint8_t *packet = render_filter_fixture_at_origin(
+      origin, VI_FILTER_PROFILE_ID, UINT32_C(0x00000003), 4u, 1u, 1u, 1u,
+      T64_VIDEO_SOURCE_RGBA8888, 1024u, 0u, rgba, NULL, coverage, &info,
+      &length);
+  if (packet == NULL) return;
+  T64_CHECK_INT(length, 4u);
+  T64_CHECK_INT(info.source_bytes, 16u);
+  T64_CHECK_INT(info.filter,
+                T64_VIDEO_FILTER_AA | T64_VIDEO_FILTER_RESAMPLE_Q20);
+  T64_CHECK_INT(packet[0], 200u);
+  T64_CHECK_INT(packet[1], 80u);
+  T64_CHECK_INT(packet[2], 40u);
+  T64_CHECK_INT(packet[3], 255u);
+  free(packet);
+}
+
+static void case_vi_dither_next_row_inside_rdram(void) {
+  static const uint16_t rgba5551[2] = {
+      UINT16_C(0xf801), UINT16_C(0x003f),
+  };
+  t64_video_packet_info info = {0};
+  size_t length = 0u;
+  uint8_t *packet = render_filter_fixture(
+      VI_FILTER_PROFILE_ID, UINT32_C(0x00010202), 1u, 2u, 1u, 1u,
+      T64_VIDEO_SOURCE_RGBA5551, 0u, 0u, NULL, rgba5551, NULL, &info,
+      &length);
+  if (packet == NULL) return;
+  T64_CHECK_INT(length, 4u);
+  T64_CHECK_INT(info.source_bytes, 4u);
+  T64_CHECK_INT(info.filter,
+                T64_VIDEO_FILTER_DITHER_SMOOTH |
+                    T64_VIDEO_FILTER_RESAMPLE_Q20);
+  T64_CHECK_INT(packet[0], 170u);
+  T64_CHECK_INT(packet[1], 0u);
+  T64_CHECK_INT(packet[2], 85u);
+  T64_CHECK_INT(packet[3], 255u);
   free(packet);
 }
 
@@ -464,7 +567,8 @@ static void case_vi_dither_filter(void) {
   T64_CHECK_INT(info.filter,
                 T64_VIDEO_FILTER_RESAMPLE_Q20 |
                     T64_VIDEO_FILTER_DITHER_SMOOTH);
-  T64_CHECK_INT(info.source_bytes, 18u);
+  /* Row 2 reads its valid +1 dither tap at row 3, column 2. */
+  T64_CHECK_INT(info.source_bytes, 24u);
   free(packet);
 }
 
@@ -2328,6 +2432,9 @@ static void case_vi_progressive_high_offset_source_span(void);
 static void case_vi_active_intr_immediate_no_retroactive(void);
 static void case_vi_aa_modes(void);
 static void case_vi_resample_fraction(void);
+static void case_vi_aa_next_row_inside_rdram(void);
+static void case_vi_aa_next_row_rdram_bound(void);
+static void case_vi_dither_next_row_inside_rdram(void);
 static void case_vi_divot(void);
 static void case_vi_gamma(void);
 static void case_vi_gamma_dither(void);
@@ -2404,6 +2511,12 @@ static const test_case cases[] = {
      case_vi_progressive_high_offset_source_span, "vi-timing"},
     {"vi-aa-modes", case_vi_aa_modes, "vi-filters"},
     {"vi-resample-fraction", case_vi_resample_fraction, "vi-filters"},
+    {"vi-aa-next-row-inside-rdram", case_vi_aa_next_row_inside_rdram,
+     "vi-filters"},
+    {"vi-aa-next-row-rdram-bound", case_vi_aa_next_row_rdram_bound,
+     "vi-filters"},
+    {"vi-dither-next-row-inside-rdram",
+     case_vi_dither_next_row_inside_rdram, "vi-filters"},
     {"vi-divot", case_vi_divot, "vi-filters"},
     {"vi-gamma", case_vi_gamma, "vi-filters"},
     {"vi-gamma-dither", case_vi_gamma_dither, "vi-filters"},

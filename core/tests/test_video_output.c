@@ -156,6 +156,22 @@ static bool advance_two_fields(t64_machine *machine) {
   return advance_one_field(machine) && advance_one_field(machine);
 }
 
+static bool advance_guest_bound(t64_machine *machine, uint64_t target) {
+  t64_stop_result stop = {UINT32_MAX, UINT64_MAX};
+  t64_status status;
+  if (machine == NULL) {
+    T64_CHECK(false);
+    return false;
+  }
+  status = t64_machine_advance(
+      machine, &(t64_stop_request){T64_STOP_GUEST_TICK, target}, &stop);
+  T64_CHECK_INT(status, T64_STATUS_OK);
+  T64_CHECK_INT(stop.reason, T64_STOP_REASON_BOUND);
+  T64_CHECK_INT(stop.tick, target);
+  return status == T64_STATUS_OK && stop.reason == T64_STOP_REASON_BOUND &&
+         stop.tick == target;
+}
+
 static bool copy_oldest(t64_machine *machine, t64_video_packet_info *info,
                         uint8_t packet[TEST_PACKET_BYTES]) {
   size_t length = 0u;
@@ -436,33 +452,98 @@ static void case_output_whole_split(void) {
   t64_machine *split = create_output_machine();
   uint8_t whole_digest[T64_DIGEST_SIZE];
   uint8_t split_digest[T64_DIGEST_SIZE];
-  t64_stop_result stop = {UINT32_MAX, UINT64_MAX};
-  if (whole == NULL || split == NULL) goto cleanup;
-  if (!advance_two_fields(whole) || !advance_one_field(split) ||
-      !advance_one_field(split)) {
+  uint8_t whole_after_copy[T64_DIGEST_SIZE];
+  uint8_t split_after_copy[T64_DIGEST_SIZE];
+  size_t i;
+  if (whole == NULL || split == NULL) {
     T64_CHECK(false);
     goto cleanup;
   }
+  /* The whole machine crosses both field deadlines in one public request. */
+  if (!advance_guest_bound(whole, UINT64_C(166))) goto cleanup;
+  /* The split machine stops at each deadline, then reaches the same tick. */
+  if (!advance_guest_bound(split, UINT64_C(83)) ||
+      !advance_guest_bound(split, UINT64_C(165)) ||
+      !advance_guest_bound(split, UINT64_C(166))) {
+    goto cleanup;
+  }
+  T64_CHECK_INT(whole->tick, UINT64_C(166));
+  T64_CHECK_INT(split->tick, UINT64_C(166));
   T64_CHECK_INT(whole->tick, split->tick);
   T64_CHECK_INT(whole->vi.field, split->vi.field);
+  T64_CHECK_INT(whole->vi.field, 2u);
   T64_CHECK_INT(whole->vi.next_sequence, split->vi.next_sequence);
-  T64_CHECK(digest_of(whole, whole_digest));
-  T64_CHECK(digest_of(split, split_digest));
+  T64_CHECK_INT(whole->vi.next_sequence, 2u);
+  T64_CHECK_INT(whole->vi.packet_count, 2u);
+  T64_CHECK_INT(split->vi.packet_count, 2u);
+  if (!digest_of(whole, whole_digest) || !digest_of(split, split_digest)) {
+    T64_CHECK(false);
+    goto cleanup;
+  }
   T64_CHECK(memcmp(whole_digest, split_digest, sizeof whole_digest) == 0);
-  T64_CHECK_INT(t64_machine_advance(
-                    whole, &(t64_stop_request){T64_STOP_GUEST_TICK,
-                                               whole->tick + UINT64_C(1)},
-                    &stop),
-                T64_STATUS_OK);
-  T64_CHECK_INT(t64_machine_advance(
-                    split, &(t64_stop_request){T64_STOP_GUEST_TICK,
-                                               split->tick + UINT64_C(1)},
-                    &stop),
-                T64_STATUS_OK);
-  T64_CHECK_INT(whole->tick, split->tick);
-  T64_CHECK(digest_of(whole, whole_digest));
-  T64_CHECK(digest_of(split, split_digest));
-  T64_CHECK(memcmp(whole_digest, split_digest, sizeof whole_digest) == 0);
+  for (i = 0u; i < 2u; i++) {
+    t64_video_packet_info whole_info = {0};
+    t64_video_packet_info split_info = {0};
+    uint8_t whole_packet[TEST_PACKET_BYTES];
+    uint8_t split_packet[TEST_PACKET_BYTES];
+    if (!copy_oldest(whole, &whole_info, whole_packet) ||
+        !copy_oldest(split, &split_info, split_packet)) {
+      T64_CHECK(false);
+      goto cleanup;
+    }
+    T64_CHECK_INT(whole_info.sequence, i);
+    T64_CHECK_INT(split_info.sequence, i);
+    T64_CHECK_INT(whole_info.field, i);
+    T64_CHECK_INT(split_info.field, i);
+    T64_CHECK_INT(whole_info.parity, 0u);
+    T64_CHECK_INT(split_info.parity, whole_info.parity);
+    T64_CHECK_INT(whole_info.start_tick, i == 0u ? 0u : 83u);
+    T64_CHECK_INT(split_info.start_tick, whole_info.start_tick);
+    T64_CHECK_INT(whole_info.end_tick, i == 0u ? 83u : 165u);
+    T64_CHECK_INT(split_info.end_tick, whole_info.end_tick);
+    T64_CHECK_INT(whole_info.width, 4u);
+    T64_CHECK_INT(split_info.width, whole_info.width);
+    T64_CHECK_INT(whole_info.height, 1u);
+    T64_CHECK_INT(split_info.height, whole_info.height);
+    T64_CHECK_INT(whole_info.stride_bytes, 16u);
+    T64_CHECK_INT(split_info.stride_bytes, whole_info.stride_bytes);
+    T64_CHECK_INT(whole_info.source_address, TEST_ORIGIN);
+    T64_CHECK_INT(split_info.source_address, whole_info.source_address);
+    T64_CHECK_INT(whole_info.source_format, T64_VIDEO_SOURCE_RGBA5551);
+    T64_CHECK_INT(split_info.source_format, whole_info.source_format);
+    T64_CHECK_INT(whole_info.output_encoding, T64_VIDEO_ENCODING_RGBA8);
+    T64_CHECK_INT(split_info.output_encoding, whole_info.output_encoding);
+    T64_CHECK_INT(whole_info.source_bytes, 8u);
+    T64_CHECK_INT(split_info.source_bytes, whole_info.source_bytes);
+    T64_CHECK_INT(whole_info.packet_bytes, TEST_PACKET_BYTES);
+    T64_CHECK_INT(split_info.packet_bytes, whole_info.packet_bytes);
+    T64_CHECK_INT(whole_info.filter, T64_VIDEO_FILTER_RESAMPLE_Q20);
+    T64_CHECK_INT(split_info.filter, whole_info.filter);
+    T64_CHECK_STR(whole_info.profile_id, TEST_PROFILE_ID);
+    T64_CHECK_STR(split_info.profile_id, whole_info.profile_id);
+    T64_CHECK_STR(split_info.build_id, whole_info.build_id);
+    T64_CHECK_STR(split_info.vi_clock_policy, whole_info.vi_clock_policy);
+    T64_CHECK_STR(split_info.vi_output_policy, whole_info.vi_output_policy);
+    T64_CHECK(memcmp(whole_packet, expected_packet,
+                     sizeof whole_packet) == 0);
+    T64_CHECK(memcmp(split_packet, whole_packet,
+                     sizeof whole_packet) == 0);
+  }
+  T64_CHECK_INT(whole->tick, UINT64_C(166));
+  T64_CHECK_INT(split->tick, UINT64_C(166));
+  T64_CHECK_INT(whole->vi.packet_count, 0u);
+  T64_CHECK_INT(split->vi.packet_count, 0u);
+  if (!digest_of(whole, whole_after_copy) ||
+      !digest_of(split, split_after_copy)) {
+    T64_CHECK(false);
+    goto cleanup;
+  }
+  T64_CHECK(memcmp(whole_digest, whole_after_copy,
+                   sizeof whole_digest) == 0);
+  T64_CHECK(memcmp(split_digest, split_after_copy,
+                   sizeof split_digest) == 0);
+  T64_CHECK(memcmp(whole_after_copy, split_after_copy,
+                   sizeof whole_after_copy) == 0);
 cleanup:
   if (whole != NULL) t64_machine_destroy(whole);
   if (split != NULL) t64_machine_destroy(split);

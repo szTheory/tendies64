@@ -2,7 +2,7 @@
 
 ## Delivered behavior
 
-Plan 10 adds the versioned VI filter profile `ntsc-cart-4m-openipl3-rdram-b-t1-rdp-vi-v9` while preserving the preceding profile identities and filter behavior. The selected path applies bounded integer AA, resampling, divot, gamma, gamma dither, and dither filtering to fetched VI output and records the selected filter and source metadata. The software policy and its limits are documented in `docs/spec/vi.md`.
+Plan 10 adds the versioned VI filter profile `ntsc-cart-4m-openipl3-rdram-b-t1-rdp-vi-filter-v9` while preserving the preceding profile identities and filter behavior. The selected path applies bounded integer AA, resampling, divot, gamma, gamma dither, and dither filtering to fetched VI output and records the selected filter and source metadata. The software policy and its limits are documented in `docs/spec/vi.md`.
 
 The video output queue reserves a complete packet before production. A full queue leaves the VI event pending at its original tick; draining an older packet permits one exact resume. Copy-out validates the full destination before writing, and output observer occupancy does not enter the guest digest. The supervised runner compares actual packet records and machine digests at 16-tick and 32-tick advance intervals.
 
