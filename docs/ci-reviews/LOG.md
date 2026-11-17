@@ -215,3 +215,10 @@ from.
 | F-086 | 44031076519 | Both hosts pass reviewed triangle checkpoint3e57235 and148 native checks; exact selected authored boot artifacts compare. macOS job338s/Gate325s is critical, Linux job149s/Gate138s; queues3s. | taken | Exercise typed sidecar offsets against accepted custom RAM sizes, not only built-in alignment. Pin distinct literal RGBA/derivative fields and compare the whole affected framebuffer/coverage region on malformed commands. Preserve initial findings, failed UBSan evidence and focused repair recheck. Keep required hosts/limits; observed qualification cost is stable, so no cache, dependency or concurrency change. D-11 remains software policy, not hardware proof. |
 
 | F-087 | 44054005627 | Both hosts pass reviewed texture checkpoint9a39ab4 and149 native checks; exact selected authored boot artifacts compare. macOS job421s/Gate405s is critical, Linux job168s/Gate156s; queues3/2s. Local final gate48s. | taken | Test nonzero primitive tile/header level against an invalid or different tile0, then validate the declared relative mip chain before effects. Mixed-alpha ties on both triangle halves enforce floor policy; all-row coefficient vectors and complete refusal snapshots close shared-zero-fixture gaps. Preserve initial review/RED evidence and focused recheck. Keep both required jobs/limits; no cache, dependency or concurrency change is justified by this cohort. |
+
+F-087 critical-path detail from the retained macOS job log: fixture qualification209s,
+CTest112s, inventory selftest29s, core lint18s and build13s. The new texture
+owner takes0.63s; the longest CTest is the existing authored diagnostic
+control48.16s, followed by rights24.30s and PII20.03s. These observations do
+not support attributing the longer hosted gate to texture raster work or
+weakening qualification. Log: `build/gate/07-05-hosted-macos.log`.

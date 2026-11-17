@@ -6,10 +6,10 @@ current_phase: 07
 current_plan: "06"
 current_phase_name: RDP Reference Renderer and VI Scanout
 status: executing
-stopped_at: Plan05 qualified; Plan06 combiner preflight
+stopped_at: Plan05 qualified; Plan06 implementation with checked combiner contract
 last_updated: "2026-11-17T09:57:07.918380+00:00"
 last_activity: 2026-11-17
-last_activity_desc: Plan05 qualified on both hosts; Plan06 contract preflight
+last_activity_desc: Plan05 qualified; combiner selector/literal checks complete
 state_head: 31a0b6e5cfe83d268ae25ed5d88117df9b1712b8
 progress:
   total_phases: 3
@@ -26,13 +26,13 @@ progress:
 See: .planning/PROJECT.md (updated 2026-11-15)
 
 **Core value:** Every Tendies64 support claim is backed by evidence: a named profile, a pinned build and a reproducible, rights-cleared guest result.
-**Current focus:** Plan06 color/alpha combiner; source-table preflight active.
+**Current focus:** Execute Plan06 color/alpha combiner from checked selector tables and literals.
 
 ## Current Position
 
 Phase: 07 (RDP Reference Renderer and VI Scanout) — EXECUTING
 Plan: 06 of13 in current phase
-Status: Textured triangles qualified on both hosts; combiner preflight active
+Status: Textured triangles qualified; combiner preflight complete and implementation starting
 Last activity: 2026-11-17 — Texture review repairs pass both hosted jobs and exact artifact comparison
 
 Progress: [██░░░░░░░░] 38% of currently planned source plans
@@ -57,7 +57,7 @@ Progress: [██░░░░░░░░] 38% of currently planned source plans
 ### Pending Todos
 
 Plan05 implementation, repair recheck and both hosted jobs are qualified.
-Execute Plan06 after its focused raw selector/precision preflight. Header tile/mip selection,
+Execute Plan06 using its completed raw selector/precision preflight. Header tile/mip selection,
 filtered alpha and two evidence gaps are fixed; final local gate and focused
 sanitizer/GCC checks pass. Exact consumers and bindings are retained. D-11 and
 all documented precision defaults remain software policy, not hardware proof.
@@ -86,7 +86,7 @@ old full instrumented run as complete or renew private windows.
 ## Session Continuity
 
 Last session: 2026-11-16T05:13:26.082Z
-Stopped at: Plan05 qualified; Plan06 combiner preflight
+Stopped at: Plan05 qualified; Plan06 implementation with checked combiner contract
 Resume file: .planning/phases/07-rdp-reference-renderer-and-vi-scanout/07-06-PLAN.md
 
 Historical closeout: [v1.0 roadmap](milestones/v1.0-ROADMAP.md), [audit](milestones/v1.0-MILESTONE-AUDIT.md), [lessons](RETROSPECTIVE.md).
