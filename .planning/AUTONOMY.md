@@ -112,6 +112,12 @@ applies that direction; update it when the owner changes policy.
   its exact source/object/body inventory checker before the full gate. Phase06's
   final gate found a stale pre-RDRAM no-HLE roster and two SP seals; keep those
   guards strict, review the concrete changes, and prove mutations still refuse.
+  New-descriptor identity check: before broad qualification, mutate every
+  applicable policy/boot field through public hash, serialization and known-ID
+  canonical construction. Test empty/unterminated policy text and pin retained
+  older-profile bytes. Lookup and accepted rendering alone missed descriptor9
+  falling through branches that stopped at8; keep version membership explicit.
+
 - Efficiency correction (owner feedback, 2026-11-12): before a broad retest,
   inspect `node scripts/verification-scope.mjs --base <last-tested-source>`.
   It includes staged, unstaged and new source changes, including ignored code

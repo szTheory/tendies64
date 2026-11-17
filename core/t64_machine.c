@@ -758,7 +758,7 @@ static const t64_profile_descriptor
         .vi_clock_policy = "rsp62500000-ntsc48681812-rational-v1",
         .rdp_noise_policy = "xorshift32-seed-1-v1",
         .rdp_undefined_color_policy = "zero-color-v1",
-        .vi_output_policy = "rgba5551-nearest-no-filter-rgba8-two-packet-v1",
+        .vi_output_policy = "rgba5551-rgba8888-nearest-no-filter-rgba8-two-packet-v1",
         .rdp_triangle_policy =
             "triangle-twos-complement-q16-logical-coverage-texture-policy-v1",
         .rdp_combiner_policy = "rgb8-a5-unity32-floor-sidecar-v1",
@@ -1191,21 +1191,24 @@ static bool profile_fields_are_valid(const t64_profile_descriptor *profile) {
          T64_PROFILE_TEXT_OK(device_error_policy) &&
          T64_PROFILE_TEXT_OK(dma_cancel_policy) &&
          T64_PROFILE_TEXT_OK(dma_visibility_policy) &&
-         /* Descriptors v5-v6 serialize the RDP/VI policy fields. Keep
+         /* Descriptors v5-v9 serialize the RDP/VI policy fields. Keep
           * the pre-v5 and unknown-version legacy byte layout unchanged. */
          ((profile->descriptor_version != 5u &&
            profile->descriptor_version != 6u &&
            profile->descriptor_version != 7u &&
-           profile->descriptor_version != 8u) ||
+           profile->descriptor_version != 8u &&
+           profile->descriptor_version != 9u) ||
           (T64_PROFILE_TEXT_OK(rdp_work_policy) &&
            T64_PROFILE_TEXT_OK(vi_clock_policy) &&
            T64_PROFILE_TEXT_OK(rdp_noise_policy) &&
            T64_PROFILE_TEXT_OK(rdp_undefined_color_policy) &&
            T64_PROFILE_TEXT_OK(vi_output_policy))) &&
          ((profile->descriptor_version != 7u &&
-           profile->descriptor_version != 8u) ||
+           profile->descriptor_version != 8u &&
+           profile->descriptor_version != 9u) ||
           T64_PROFILE_TEXT_OK(rdp_triangle_policy)) &&
-         (profile->descriptor_version != 8u ||
+         ((profile->descriptor_version != 8u &&
+           profile->descriptor_version != 9u) ||
           T64_PROFILE_TEXT_OK(rdp_combiner_policy)) &&
          (profile->tv_standard == T64_TV_NTSC ||
           profile->tv_standard == T64_TV_PAL) &&
@@ -1351,8 +1354,9 @@ static void write_profile(profile_writer *writer,
   } else if (profile->descriptor_version == 5u ||
              profile->descriptor_version == 6u ||
              profile->descriptor_version == 7u ||
-             profile->descriptor_version == 8u) {
-    /* Descriptors v5-v6 bind the RDP/VI software model and output policies. */
+             profile->descriptor_version == 8u ||
+        profile->descriptor_version == 9u) {
+    /* Descriptors v5-v9 bind the RDP/VI software model and output policies. */
     write_openipl3_boot_metadata(writer, profile);
     profile_writer_text(writer, profile->rdp_work_policy,
                         sizeof profile->rdp_work_policy);
@@ -1365,11 +1369,13 @@ static void write_profile(profile_writer *writer,
     profile_writer_text(writer, profile->vi_output_policy,
                         sizeof profile->vi_output_policy);
     if (profile->descriptor_version == 7u ||
-        profile->descriptor_version == 8u) {
+        profile->descriptor_version == 8u ||
+        profile->descriptor_version == 9u) {
       profile_writer_text(writer, profile->rdp_triangle_policy,
                           sizeof profile->rdp_triangle_policy);
     }
-    if (profile->descriptor_version == 8u) {
+    if (profile->descriptor_version == 8u ||
+        profile->descriptor_version == 9u) {
       profile_writer_text(writer, profile->rdp_combiner_policy,
                           sizeof profile->rdp_combiner_policy);
     }

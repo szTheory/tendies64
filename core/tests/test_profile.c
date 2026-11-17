@@ -767,9 +767,115 @@ static void test_cold_t1_profile_identities(void) {
   }
 }
 
+/* Test the complete modern descriptor contract, including accepted public
+ * serialization and known-ID canonical admission, rather than only lookup. */
+static void test_rdp_profile_metadata_binding(void) {
+  static const char *const ids[] = {
+      "ntsc-cart-4m-openipl3-rdram-b-t1-rdp-triangle-v3",
+      "ntsc-cart-4m-openipl3-rdram-b-t1-rdp-texture-v4",
+      "ntsc-cart-4m-openipl3-rdram-b-t1-rdp-combiner-v5",
+      "ntsc-cart-4m-openipl3-rdram-b-t1-rdp-blender-v6",
+  };
+  /* Earlier-profile bytes are pinned to the retained pre-repair artifact. */
+  static const char *const legacy_hashes[] = {
+      "794710f767fce5f1bd37d1116a6067bac10026aa4c7d77fc9cfe7c3636d5830f",
+      "3ce5b6c75ba85a8b1d5ed333820d70736c26c003ec16c76a7cd9f8ee686f3e18",
+      "0e9938d6b92159fe1f8c5dff0c03749979d5d10b11b458224f2dcca1a2345efa",
+  };
+  static const size_t legacy_lengths[] = {1116u, 1132u, 1172u};
+  static const size_t text_offsets[] = {
+      offsetof(t64_profile_descriptor, rdp_work_policy),
+      offsetof(t64_profile_descriptor, vi_clock_policy),
+      offsetof(t64_profile_descriptor, rdp_noise_policy),
+      offsetof(t64_profile_descriptor, rdp_undefined_color_policy),
+      offsetof(t64_profile_descriptor, vi_output_policy),
+      offsetof(t64_profile_descriptor, rdp_triangle_policy),
+      offsetof(t64_profile_descriptor, rdp_combiner_policy),
+  };
+  static const size_t boot_offsets[] = {
+      offsetof(t64_profile_descriptor, asset_sha256),
+      offsetof(t64_profile_descriptor, payload_sha256),
+      offsetof(t64_profile_descriptor, boot_policy_sha256),
+      offsetof(t64_profile_descriptor, hle_seed_reset_version),
+  };
+  size_t index;
+  for (index = 0u; index < sizeof ids / sizeof ids[0]; index++) {
+    const t64_profile_descriptor *profile = NULL;
+    uint8_t original_hash[T64_DIGEST_SIZE];
+    uint8_t original_bytes[8192];
+    size_t original_length = 0u;
+    size_t field;
+    size_t text_count = index < 2u ? 6u : 7u;
+    allocator_state state = {0};
+    t64_host_allocator allocator = {test_allocate, test_release, &state};
+    T64_CHECK_INT(t64_profile_lookup(ids[index], &profile), T64_STATUS_OK);
+    if (profile == NULL) continue;
+    T64_CHECK_INT(t64_profile_hash(profile, original_hash), T64_STATUS_OK);
+    T64_CHECK_INT(t64_profile_serialize(profile, original_bytes,
+                                        sizeof original_bytes,
+                                        &original_length), T64_STATUS_OK);
+    T64_CHECK(original_length > 0u);
+    if (index < 3u) {
+      char original_hex[T64_DIGEST_SIZE * 2u + 1u];
+      digest_to_hex(original_hash, original_hex);
+      T64_CHECK_STR(original_hex, legacy_hashes[index]);
+      T64_CHECK_INT(original_length, legacy_lengths[index]);
+    }
+    for (field = 0u; field < text_count + 4u; field++) {
+      t64_profile_descriptor changed = *profile;
+      state = (allocator_state){0};
+      uint8_t changed_hash[T64_DIGEST_SIZE];
+      uint8_t changed_bytes[8192];
+      size_t changed_length = 0u;
+      t64_machine *machine = NULL;
+      uint8_t *bytes = (uint8_t *)&changed;
+      size_t offset = field < text_count ? text_offsets[field]
+                                          : boot_offsets[field - text_count];
+      bytes[offset] ^= UINT8_C(1);
+      T64_CHECK_INT(t64_profile_hash(&changed, changed_hash), T64_STATUS_OK);
+      T64_CHECK(memcmp(original_hash, changed_hash, sizeof changed_hash) != 0);
+      T64_CHECK_INT(t64_profile_serialize(&changed, changed_bytes,
+                                          sizeof changed_bytes,
+                                          &changed_length), T64_STATUS_OK);
+      T64_CHECK_INT(changed_length, original_length);
+      T64_CHECK(memcmp(original_bytes, changed_bytes, original_length) != 0);
+      T64_CHECK_INT(t64_machine_create(&allocator, &changed, &machine),
+                    T64_STATUS_INVALID_ARGUMENT);
+      T64_CHECK(machine == NULL);
+      if (machine != NULL) t64_machine_destroy(machine);
+    }
+    for (field = 0u; field < text_count; field++) {
+      unsigned invalid_kind;
+      for (invalid_kind = 0u; invalid_kind < 2u; invalid_kind++) {
+        t64_profile_descriptor changed = *profile;
+        state = (allocator_state){0};
+        uint8_t digest[T64_DIGEST_SIZE];
+        uint8_t serialized[8192];
+        size_t length = 0u;
+        t64_machine *machine = NULL;
+        char *text = (char *)&changed + text_offsets[field];
+        (void)memset(text, invalid_kind == 0u ? 0 : 'x',
+                     T64_PROFILE_TEXT_CAPACITY);
+        T64_CHECK_INT(t64_profile_hash(&changed, digest),
+                      T64_STATUS_INVALID_ARGUMENT);
+        T64_CHECK_INT(t64_profile_serialize(&changed, serialized,
+                                            sizeof serialized, &length),
+                      T64_STATUS_INVALID_ARGUMENT);
+        T64_CHECK_INT(t64_machine_create(&allocator, &changed, &machine),
+                      T64_STATUS_INVALID_ARGUMENT);
+        T64_CHECK(machine == NULL);
+        if (machine != NULL) t64_machine_destroy(machine);
+      }
+    }
+    T64_CHECK_INT(state.outstanding_count, 0u);
+    T64_CHECK_INT(state.release_errors, 0u);
+  }
+}
+
 int main(void) {
   test_profile_contract();
   test_compat_v2_profile_identity();
   test_cold_t1_profile_identities();
+  test_rdp_profile_metadata_binding();
   return T64_TEST_FINISH("unit.core.profile");
 }

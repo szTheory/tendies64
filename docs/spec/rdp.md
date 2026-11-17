@@ -1,15 +1,15 @@
 # RDP fill, TMEM, copy and triangle software contract
 
-This document describes the bounded RDP software model across three preserved
-composite profiles: `ntsc-cart-4m-openipl3-rdram-b-t1-rdp-vi-v2` (descriptor 6,
-model 11, state 16) for DPC/VI/TMEM/copy behavior,
-`ntsc-cart-4m-openipl3-rdram-b-t1-rdp-triangle-v3` (descriptor 7, model 12,
-state 17) for edge and shade triangles, and
-`ntsc-cart-4m-openipl3-rdram-b-t1-rdp-texture-v4` (descriptor 7, model 13,
-state 18) for textured triangles, and
-`ntsc-cart-4m-openipl3-rdram-b-t1-rdp-combiner-v5` (descriptor 8, model 14,
-state 19) for the first color-combiner path. It does not claim full RDP
-support, hardware timing, or hardware accuracy.
+This document describes five registered composite profiles. V2
+`ntsc-cart-4m-openipl3-rdram-b-t1-rdp-vi-v2` (descriptor6/model11/state16)
+owns DPC/VI/TMEM/copy; v3 `ntsc-cart-4m-openipl3-rdram-b-t1-rdp-triangle-v3`
+(7/12/17) adds edges/shading; v4 `ntsc-cart-4m-openipl3-rdram-b-t1-rdp-texture-v4`
+(7/13/18) adds textures; v5 `ntsc-cart-4m-openipl3-rdram-b-t1-rdp-combiner-v5`
+(8/14/19) adds the combiner; v6 `ntsc-cart-4m-openipl3-rdram-b-t1-rdp-blender-v6`
+(9/15/20) adds blending, address-owned coverage and RGBA8888 scanout. Earlier
+registered profiles preserve their behavior. This is a bounded software
+contract; full RDP support, hardware timing and hardware accuracy remain
+unqualified.
 
 ## Primary source facts
 

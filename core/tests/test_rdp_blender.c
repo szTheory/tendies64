@@ -287,122 +287,138 @@ static uint64_t tile_bounds_command(uint32_t opcode, uint32_t width,
          (uint64_t)((height - 1u) * 4u);
 }
 
+typedef struct {
+  const char *field;
+  uint64_t raw_modes[4];
+  uint8_t expected_rgb[4][3];
+} raw_selector_vector;
+
 static void case_blender_selector_muxes_both_cycles(void) {
-  static const uint8_t p0_rgb[4][3] = {
-      {120u, 90u, 80u}, {40u, 80u, 120u}, {30u, 60u, 90u},
-      {130u, 130u, 130u}};
-  static const uint8_t a0_rgb[4][3] = {
-      {195u, 99u, 42u}, {120u, 90u, 80u}, {120u, 90u, 80u},
-      {40u, 80u, 120u}};
-  static const uint8_t m0_rgb[4][3] = {
-      {200u, 100u, 40u}, {120u, 90u, 80u}, {110u, 70u, 50u},
-      {210u, 140u, 90u}};
-  static const uint8_t b0_rgb[4][3] = {
-      {120u, 90u, 80u}, {146u, 93u, 66u}, {93u, 86u, 93u},
-      {200u, 100u, 40u}};
-  static const uint8_t p1_rgb[4][3] = {
-      {200u, 100u, 40u}, {40u, 80u, 120u}, {20u, 40u, 60u},
-      {220u, 180u, 140u}};
-  static const uint8_t a1_rgb[4][3] = {
-      {200u, 102u, 43u}, {210u, 140u, 90u}, {210u, 140u, 90u},
-      {220u, 180u, 140u}};
-  static const uint8_t m1_rgb[4][3] = {
-      {200u, 100u, 40u}, {120u, 90u, 80u}, {110u, 70u, 50u},
-      {210u, 140u, 90u}};
-  static const uint8_t b1_rgb[4][3] = {
-      {210u, 140u, 90u}, {206u, 126u, 73u}, {213u, 153u, 106u},
-      {200u, 100u, 40u}};
+  /* W0 is literal SetOtherModes data from the pinned primary field table in
+   * 07-07-BLENDER-FIELDS.md:
+   * EF command byte/opcode, cycle type, disabled RGB/alpha dither, reserved F.
+   * W1 literals below vary exactly one primary P/A/M/B slot across 0..3;
+   * force_blend and image_read_en are set in every vector. Cycle-0 baseline is
+   * (P,A,M,B)=(0,2,1,0); cycle-1 baseline is (0,2,3,0). */
+  /* Independent inputs: pixel=(200,100,40; alpha 255), memory=(49,99,148;
+   * alpha5 19), blend=(150,124,60), fog=(20,180,60; alpha 203), and shade
+   * alpha=140. Thus A selectors give 5-bit factors 31,25,17,0 and B gives
+   * 32-A,19,32,0. Expected channels use floor((A*P+B*M)/(A+B)); cycle-1
+   * P selector 0 uses the computed cycle-0 RGB. The separate dither case
+   * checks the quantized RGBA5551 RDRAM-to-raw-VI path. */
+  static const raw_selector_vector vectors[8] = {
+      {"cycle0 P", {UINT64_C(0xef0000ff08404040),
+                     UINT64_C(0xef0000ff48404040),
+                     UINT64_C(0xef0000ff88404040),
+                     UINT64_C(0xef0000ffc8404040)},
+       {{129u, 99u, 90u}, {49u, 99u, 148u}, {102u, 112u, 101u},
+        {33u, 142u, 101u}}},
+      {"cycle0 A", {UINT64_C(0xef0000ff00404040),
+                     UINT64_C(0xef0000ff04404040),
+                     UINT64_C(0xef0000ff08404040),
+                     UINT64_C(0xef0000ff0c404040)},
+       {{195u, 99u, 43u}, {166u, 99u, 63u}, {129u, 99u, 90u},
+        {49u, 99u, 148u}}},
+      {"cycle0 M", {UINT64_C(0xef0000ff08004040),
+                     UINT64_C(0xef0000ff08404040),
+                     UINT64_C(0xef0000ff08804040),
+                     UINT64_C(0xef0000ff08c04040)},
+       {{200u, 100u, 40u}, {129u, 99u, 90u}, {176u, 111u, 49u},
+        {115u, 137u, 49u}}},
+      {"cycle0 B", {UINT64_C(0xef0000ff08404040),
+                     UINT64_C(0xef0000ff08444040),
+                     UINT64_C(0xef0000ff08484040),
+                     UINT64_C(0xef0000ff084c4040)},
+       {{129u, 99u, 90u}, {120u, 99u, 97u}, {101u, 99u, 110u},
+        {200u, 100u, 40u}}},
+      {"cycle1 P", {UINT64_C(0xef1000ff0a704040),
+                     UINT64_C(0xef1000ff1a704040),
+                     UINT64_C(0xef1000ff2a704040),
+                     UINT64_C(0xef1000ff3a704040)},
+       {{77u, 136u, 75u}, {35u, 136u, 106u}, {89u, 150u, 60u},
+        {20u, 180u, 60u}}},
+      {"cycle1 A", {UINT64_C(0xef1000ff08704040),
+                     UINT64_C(0xef1000ff09704040),
+                     UINT64_C(0xef1000ff0a704040),
+                     UINT64_C(0xef1000ff0b704040)},
+       {{125u, 101u, 89u}, {105u, 116u, 83u}, {77u, 136u, 75u},
+        {20u, 180u, 60u}}},
+      {"cycle1 M", {UINT64_C(0xef1000ff0a404040),
+                     UINT64_C(0xef1000ff0a504040),
+                     UINT64_C(0xef1000ff0a604040),
+                     UINT64_C(0xef1000ff0a704040)},
+       {{162u, 99u, 66u}, {91u, 99u, 117u}, {138u, 110u, 75u},
+        {77u, 136u, 75u}}},
+      {"cycle1 B", {UINT64_C(0xef1000ff0a704040),
+                     UINT64_C(0xef1000ff0a714040),
+                     UINT64_C(0xef1000ff0a724040),
+                     UINT64_C(0xef1000ff0a734040)},
+       {{77u, 136u, 75u}, {71u, 141u, 74u}, {57u, 151u, 70u},
+        {129u, 99u, 90u}}},
+  };
+  static const uint64_t packet[19] = {
+      UINT64_C(0x3f18000700005000), UINT64_C(0x2d00000000020020),
+      UINT64_C(0xef0000ff08404040), UINT64_C(0xfa000000c86428ff),
+      UINT64_C(0xf800000014b43ccb), UINT64_C(0xf9000000967c3ce5),
+      UINT64_C(0xfc000000000186c3), UINT64_C(0x0c000014000c0004),
+      UINT64_C(0x00010000fffe8000), UINT64_C(0x0001000000000000),
+      UINT64_C(0x0004000000018000), UINT64_C(0x001e00d200aa008c),
+      UINT64_C(0x0000000000000000), UINT64_C(0x0000000000000000),
+      UINT64_C(0x0000000000000000), UINT64_C(0x0000000000000000),
+      UINT64_C(0x0000000000000000), UINT64_C(0x0000000000000000),
+      UINT64_C(0x0000000000000000),
+  };
+  const size_t target = FRAMEBUFFER_ADDRESS + (2u * 8u + 3u) * 4u;
+  const size_t vi_offset = (2u * 8u + 3u) * 4u;
+  uint8_t rom[TEST_ROM_CAPACITY];
+  uint8_t raw_vi[8u * 8u * 4u];
+  size_t rom_length = 0u;
+  size_t raw_length = 0u;
+  size_t iteration = 0u;
+  size_t row, selector;
   t64_machine *machine = create_authored_machine();
-  uint32_t rgba = 0u;
-  uint8_t coverage = 0u;
-  bool write_color = false;
-  unsigned selector, channel;
-  const uint32_t address = UINT32_C(0x6000);
 
   if (machine == NULL) return;
-  seed_blender_inputs(machine, address, 0u);
-  for (selector = 0u; selector < 4u; selector++) {
-    uint64_t modes = blender_modes(0u, selector, 2u, 1u, 0u, 0u, 2u,
-                                  1u, 0u, true, false, true, false, false,
-                                  false, false, 0u, false);
-    T64_CHECK(blend_direct(machine, modes, UINT32_C(0xc86428ff), address,
-                           4u, 8u, &rgba, &coverage, &write_color));
-    for (channel = 0u; channel < 3u; channel++)
-      T64_CHECK_INT((rgba >> (24u - channel * 8u)) & 255u,
-                    p0_rgb[selector][channel]);
+  T64_CHECK(read_test_rom(rom, sizeof rom, &rom_length));
+  if (rom_length == 0u) {
+    t64_machine_destroy(machine);
+    return;
   }
-  for (selector = 0u; selector < 4u; selector++) {
-    uint64_t modes = blender_modes(0u, 0u, selector, 1u, 0u, 0u, 2u,
-                                  1u, 0u, true, false, true, false, false,
-                                  false, false, 0u, false);
-    T64_CHECK(blend_direct(machine, modes, UINT32_C(0xc86428ff), address,
-                           4u, 8u, &rgba, &coverage, &write_color));
-    for (channel = 0u; channel < 3u; channel++)
-      T64_CHECK_INT((rgba >> (24u - channel * 8u)) & 255u,
-                    a0_rgb[selector][channel]);
+  for (row = 0u; row < sizeof vectors / sizeof vectors[0]; row++) {
+    for (selector = 0u; selector < 4u; selector++) {
+      uint64_t commands[19];
+      size_t channel;
+      T64_CHECK(vectors[row].field != NULL && vectors[row].field[0] != '\0');
+      if (iteration != 0u)
+        T64_CHECK_INT(t64_machine_admit_rom(machine, rom, rom_length),
+                      T64_STATUS_OK);
+      (void)memcpy(commands, packet, sizeof packet);
+      commands[2] = vectors[row].raw_modes[selector];
+      machine->ram[target] = 49u;
+      machine->ram[target + 1u] = 99u;
+      machine->ram[target + 2u] = 148u;
+      machine->ram[target + 3u] = UINT8_C(0x13); /* memory alpha5 = 19 */
+      t64_rdp_memory_coverage_write(machine, (uint32_t)target, 4u, 3u);
+      T64_CHECK(run_commands(machine, commands, 19u));
+      T64_CHECK_INT(machine->rdp.refusal_reason, T64_RDP_REFUSAL_NONE);
+      T64_CHECK_INT(machine->rdp.triangle_count, 1u);
+      T64_CHECK_INT(machine->rdp.last_opcode_field, UINT32_C(0x0c));
+      T64_CHECK(machine->rdp.other_modes == vectors[row].raw_modes[selector]);
+      for (channel = 0u; channel < 3u; channel++)
+        T64_CHECK_INT(machine->ram[target + channel],
+                      vectors[row].expected_rgb[selector][channel]);
+      T64_CHECK_INT(machine->ram[target + 3u], UINT8_C(0xbf));
+      T64_CHECK(capture_raw_vi(machine, raw_vi, sizeof raw_vi, &raw_length,
+                               3u));
+      T64_CHECK_INT(raw_length, sizeof raw_vi);
+      for (channel = 0u; channel < 3u; channel++)
+        T64_CHECK_INT(raw_vi[vi_offset + channel],
+                      vectors[row].expected_rgb[selector][channel]);
+      T64_CHECK_INT(raw_vi[vi_offset + 3u], UINT8_C(255));
+      iteration++;
+    }
   }
-  for (selector = 0u; selector < 4u; selector++) {
-    uint64_t modes = blender_modes(0u, 0u, 2u, selector, 0u, 0u, 2u,
-                                  1u, 0u, true, false, true, false, false,
-                                  false, false, 0u, false);
-    T64_CHECK(blend_direct(machine, modes, UINT32_C(0xc86428ff), address,
-                           4u, 8u, &rgba, &coverage, &write_color));
-    for (channel = 0u; channel < 3u; channel++)
-      T64_CHECK_INT((rgba >> (24u - channel * 8u)) & 255u,
-                    m0_rgb[selector][channel]);
-  }
-  for (selector = 0u; selector < 4u; selector++) {
-    uint64_t modes = blender_modes(0u, 0u, 2u, 1u, selector, 0u, 2u,
-                                  1u, 0u, true, false, true, false, false,
-                                  false, false, 0u, false);
-    T64_CHECK(blend_direct(machine, modes, UINT32_C(0xc86428ff), address,
-                           4u, 8u, &rgba, &coverage, &write_color));
-    for (channel = 0u; channel < 3u; channel++)
-      T64_CHECK_INT((rgba >> (24u - channel * 8u)) & 255u,
-                    b0_rgb[selector][channel]);
-  }
-  for (selector = 0u; selector < 4u; selector++) {
-    uint64_t modes = blender_modes(1u, 0u, 0u, 1u, 3u, selector, 2u,
-                                  3u, 3u, true, false, true, false, false,
-                                  false, false, 0u, false);
-    T64_CHECK(blend_direct(machine, modes, UINT32_C(0xc86428ff), address,
-                           4u, 8u, &rgba, &coverage, &write_color));
-    for (channel = 0u; channel < 3u; channel++)
-      T64_CHECK_INT((rgba >> (24u - channel * 8u)) & 255u,
-                    p1_rgb[selector][channel]);
-  }
-  for (selector = 0u; selector < 4u; selector++) {
-    uint64_t modes = blender_modes(1u, 0u, 0u, 1u, 3u, 0u, selector,
-                                  3u, 0u, true, false, true, false, false,
-                                  false, false, 0u, false);
-    T64_CHECK(blend_direct(machine, modes, UINT32_C(0xc86428ff), address,
-                           4u, 8u, &rgba, &coverage, &write_color));
-    for (channel = 0u; channel < 3u; channel++)
-      T64_CHECK_INT((rgba >> (24u - channel * 8u)) & 255u,
-                    a1_rgb[selector][channel]);
-  }
-  for (selector = 0u; selector < 4u; selector++) {
-    uint64_t modes = blender_modes(1u, 0u, 0u, 1u, 3u, 0u, 2u,
-                                  selector, 0u, true, false, true, false,
-                                  false, false, false, 0u, false);
-    T64_CHECK(blend_direct(machine, modes, UINT32_C(0xc86428ff), address,
-                           4u, 8u, &rgba, &coverage, &write_color));
-    for (channel = 0u; channel < 3u; channel++)
-      T64_CHECK_INT((rgba >> (24u - channel * 8u)) & 255u,
-                    m1_rgb[selector][channel]);
-  }
-  for (selector = 0u; selector < 4u; selector++) {
-    uint64_t modes = blender_modes(1u, 0u, 0u, 1u, 3u, 0u, 2u,
-                                  3u, selector, true, false, true, false,
-                                  false, false, false, 0u, false);
-    T64_CHECK(blend_direct(machine, modes, UINT32_C(0xc86428ff), address,
-                           4u, 8u, &rgba, &coverage, &write_color));
-    for (channel = 0u; channel < 3u; channel++)
-      T64_CHECK_INT((rgba >> (24u - channel * 8u)) & 255u,
-                    b1_rgb[selector][channel]);
-  }
-  T64_CHECK_INT(coverage, 8u);
-  T64_CHECK(write_color);
+  T64_CHECK_INT(iteration, 32u);
   t64_machine_destroy(machine);
 }
 
@@ -700,26 +716,51 @@ static void case_shared_edge_complementary_coverage(void) {
   const uint32_t address = FRAMEBUFFER_ADDRESS + (uint32_t)(pixel * 2u);
   uint64_t commands[19];
   uint16_t lower_mask;
+  uint16_t upper_mask;
   uint16_t combined_mask;
-  t64_machine *machine = create_authored_machine();
+  t64_machine *lower = create_authored_machine();
+  t64_machine *upper = create_authored_machine();
+  t64_machine *overlap = create_authored_machine();
 
-  if (machine == NULL) return;
+  if (lower == NULL || upper == NULL || overlap == NULL) {
+    if (lower != NULL) t64_machine_destroy(lower);
+    if (upper != NULL) t64_machine_destroy(upper);
+    if (overlap != NULL) t64_machine_destroy(overlap);
+    return;
+  }
   (void)make_literal_commands(commands, false);
   (void)memcpy(commands + 7u, lower_right, sizeof lower_right);
-  T64_CHECK(run_commands(machine, commands, 11u));
-  T64_CHECK_INT(machine->rdp.refusal_reason, T64_RDP_REFUSAL_NONE);
-  lower_mask = machine->rdp_triangle_coverage[coverage_index];
+  T64_CHECK(run_commands(lower, commands, 11u));
+  T64_CHECK_INT(lower->rdp.refusal_reason, T64_RDP_REFUSAL_NONE);
+  lower_mask = lower->rdp_triangle_coverage[coverage_index];
+  T64_CHECK_INT(lower_mask, UINT16_C(0x8cef));
   T64_CHECK_INT(population16(lower_mask), 10u);
-  T64_CHECK_INT(t64_rdp_memory_coverage_read(machine, address, 2u), 5u);
+  T64_CHECK_INT(t64_rdp_memory_coverage_read(lower, address, 2u), 5u);
 
   (void)memcpy(commands + 7u, upper_left, sizeof upper_left);
-  T64_CHECK(run_commands(machine, commands, 11u));
-  T64_CHECK_INT(machine->rdp.refusal_reason, T64_RDP_REFUSAL_NONE);
-  combined_mask = machine->rdp_triangle_coverage[coverage_index];
-  T64_CHECK_INT((uint16_t)(lower_mask | combined_mask), UINT16_MAX);
+  T64_CHECK(run_commands(upper, commands, 11u));
+  T64_CHECK_INT(upper->rdp.refusal_reason, T64_RDP_REFUSAL_NONE);
+  upper_mask = upper->rdp_triangle_coverage[coverage_index];
+  T64_CHECK_INT(upper_mask, UINT16_C(0x7310));
+  T64_CHECK_INT(population16(upper_mask), 6u);
+  T64_CHECK_INT(t64_rdp_memory_coverage_read(upper, address, 2u), 3u);
+  T64_CHECK_INT((uint16_t)(lower_mask & upper_mask), 0u);
+  T64_CHECK_INT((uint16_t)(lower_mask | upper_mask), UINT16_MAX);
+
+  (void)memcpy(commands + 7u, lower_right, sizeof lower_right);
+  T64_CHECK(run_commands(overlap, commands, 11u));
+  T64_CHECK_INT(overlap->rdp.refusal_reason, T64_RDP_REFUSAL_NONE);
+  T64_CHECK_INT(overlap->rdp_triangle_coverage[coverage_index], lower_mask);
+  T64_CHECK_INT(t64_rdp_memory_coverage_read(overlap, address, 2u), 5u);
+  (void)memcpy(commands + 7u, upper_left, sizeof upper_left);
+  T64_CHECK(run_commands(overlap, commands, 11u));
+  T64_CHECK_INT(overlap->rdp.refusal_reason, T64_RDP_REFUSAL_NONE);
+  combined_mask = overlap->rdp_triangle_coverage[coverage_index];
   T64_CHECK_INT(combined_mask, UINT16_MAX);
-  T64_CHECK_INT(t64_rdp_memory_coverage_read(machine, address, 2u), 8u);
-  t64_machine_destroy(machine);
+  T64_CHECK_INT(t64_rdp_memory_coverage_read(overlap, address, 2u), 8u);
+  t64_machine_destroy(overlap);
+  t64_machine_destroy(upper);
+  t64_machine_destroy(lower);
 }
 
 static void case_cpu_pi_and_sp_write_ownership(void) {
@@ -937,6 +978,9 @@ static bool capture_raw_vi(t64_machine *machine, uint8_t *bytes,
   T64_CHECK_INT(t64_video_info(machine, &info), T64_STATUS_OK);
   T64_CHECK_INT(info.width, 8u);
   T64_CHECK_INT(info.height, 8u);
+  T64_CHECK_INT(info.source_format,
+                control == 3u ? T64_VIDEO_SOURCE_RGBA8888
+                              : T64_VIDEO_SOURCE_RGBA5551);
   T64_CHECK(info.packet_bytes <= capacity);
   if (info.packet_bytes > capacity) return false;
   T64_CHECK_INT(t64_video_copy(machine, bytes, capacity, length_out),

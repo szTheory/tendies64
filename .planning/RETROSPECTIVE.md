@@ -253,3 +253,21 @@ helpers before fixing static allegations; set_refusal already cleared busy and
 pending state, so a proposed lockup was not real. Disjoint test repair and
 parent source/docs work used one stable source boundary, focused instrumented
 checks and one final full gate without duplicate production edits.
+
+
+## Plan07-07: new descriptor versions need actual identity consumers
+
+A successful new-profile lookup and renderer do not prove its metadata is
+bound. Descriptor9 reached the blender while explicit validation/serialization
+branches still ended at8, so changed policy and boot fields retained the same
+profile hash and could pass the known-profile admission comparison. Before
+long qualification, mutate every supported policy/boot field through public
+hash, serialization and canonical construction, including empty and
+unterminated text. Pin prior-profile hashes/lengths to retained consumers.
+
+Arithmetic selector matrices may keep encoders, but raw field claims require
+literal fetched words independent of those encoders for both cycles. An
+OR-accumulated sample plane proves a union, not complementary edge ownership:
+obtain each primitive's exact mask separately and check disjointness first.
+After test-only additions, rerun the owning normal/instrumented test and its
+warning compile; preserve passing unchanged production-owner evidence.
