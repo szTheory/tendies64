@@ -399,3 +399,10 @@ bookkeeping into repeated audits or full-suite reruns.
 Key-link checks need actual helper/field patterns for C module calls; filename
 substring defaults cannot prove a C call edge. Add concrete patterns and retain
 source-body/consumer evidence rather than inserting meaningless source comments.
+
+For genuine single-advance determinism, choose a valid cadence and guest bound
+that fits the unchanged event budget; assert actual reached tick before any
+comparison. A budget yield is not unequal emulation, and partitioning both sides
+identically defeats the witness. Snapshot a blocked producer only after earlier
+legal events; the machine tick need not equal the held event tick. Verify actual
+CLI forwarding to the test-enabled supervisor before running guest comparisons.

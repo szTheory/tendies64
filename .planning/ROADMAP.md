@@ -117,7 +117,7 @@ Plans:
   1. A cleared authored audio diagnostic produces raw sample buffers with sample index/rate metadata and exact expected values across DMA boundaries, including two-deep queue behavior and the interrupt at the documented `ai_full` 1→0 queue transition. A submission or DMA start alone does not imply a new interrupt
   2. Audio cadence follows DACRATE and guest time, so runs throttled differently on the host produce identical sample streams
   3. A headless run writes raw video frames and raw audio buffers as files whose metadata covers sample index, rate, frame timing and profile/build identity, separate from host presentation
-**Plans**: 2/5 plans executed
+**Plans**: 3/5 plans executed
 **Wave 1**
 - [x] 08-01-PLAN.md — Fetched PCM tracer and composite inheritance
 
@@ -125,7 +125,7 @@ Plans:
 - [x] 08-02-PLAN.md — Registers, DMA/MI and rational cadence
 
 **Wave 3** *(blocked on Wave 2 completion)*
-- [ ] 08-03-PLAN.md — Lossless observation and determinism
+- [x] 08-03-PLAN.md — Lossless observation and determinism
 
 **Wave 4** *(blocked on Wave 3 completion)*
 - [ ] 08-04-PLAN.md — General raw A/V capture and no-clobber transaction
@@ -153,7 +153,7 @@ VID-04's specific acceptance gate does not prevent permitted authored/native wor
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
 | 7. RDP Reference Renderer and VI Scanout | 12/13 | Blocked: oracle authority | - |
-| 8. Audio Interface and Raw Capture | 2/5 | Ready to execute | - |
+| 8. Audio Interface and Raw Capture | 3/5 | Ready to execute | - |
 | 9. Controller, Save Media and Replay | 0/TBD | Not started | - |
 
 ## v1.2 Embeddable and Playable
