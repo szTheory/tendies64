@@ -35,7 +35,7 @@ original archive/API records are also retained in the private repair directory.
 The correction changes only Python harness/test code. The original full
 ASan/UBSan and GCC C-source results remain bound to their actual artifacts;
 no C/build/fixture/spec input changed. Scoped helper tests and a required normal
-gate will qualify the harness delta before a new hosted source run. No private
+gate qualify the harness delta before a new hosted source run. No private
 guest replay, oracle use, widened limit, dependency or new CI job is involved.
 
 The [focused independent review](07-11-HOSTED-EMITTER-REVIEW.md) found no issue

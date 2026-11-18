@@ -12,8 +12,12 @@ software arithmetic, timing, noise and neighborhood choices are named in the
 is the earlier v2 fill profile; one exported frame is not evidence for every
 later renderer mode. Raw output remains distinct from host presentation.
 
-Hosted raw collection is pending. No VID-04, hardware, commercial ROM, release
-or broader compatibility result is claimed.
+Actual hosted raw collection and comparison passed in
+[run44228987686](https://github.com/szTheory/tendies64/actions/runs/44228987686),
+with distinct host identities in [the receipt](../evidence/phase07-hosted.json).
+The formal claim below remains the local unit-tested case; a shared frame does
+not extend it to other modes. No VID-04, hardware, commercial ROM, release or
+broader compatibility result is claimed.
 
 ```t64-claim
 build_id: 0.0.0+t64-build-v1-4f10a216af1f0564c70eeb58590dbb08fe534486f86afb7c64e06ff602daf5b9

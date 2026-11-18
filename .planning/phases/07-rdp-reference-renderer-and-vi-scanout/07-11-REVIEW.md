@@ -22,7 +22,7 @@ the complete changed C source set, using the existing pinned local image.
 The complete normal, ASan/UBSan and GCC qualification passed at this source.
 The parent independently rechecked all 188 current/retained final artifact pairs
 and the original source-binding hash. The public evidence and claims retain the
-exact authored scope. Live hosted raw-artifact collection remains pending.
+exact authored scope. Actual hosted qualification is recorded below.
 
 The independent security audit verified the implemented authored scope without
 reachable high/critical mitigation gaps. Its full phase register still has
@@ -35,3 +35,8 @@ closes the directory-lifecycle bug and verifies isolated real-entry coverage.
 The complete normal gate and owning sanitizer-preset harness pass after the
 Python-only correction; original full C-source instrumentation/compiler
 evidence and both generations of exact artifacts remain retained.
+
+Actual successful hosted raw artifacts are now qualified at e6f5466 in
+run44228987686 attempt1. API identity/digest, strict members, decoded bytes and
+observed semantic fields compare; downloaded rights/PII and selected boot
+checks pass. This completes Plan11's authored scope, not Phase07 or VID-04.

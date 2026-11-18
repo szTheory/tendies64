@@ -53,4 +53,10 @@ run44198383459; no Phase07/VID04 completion is implied.
 real ZIP identity/extraction, native source binding and streaming download
 bounds through independent rechecks and actual controls. Complete local normal,
 ASan/UBSan and GCC qualification passes. Live hosted raw-artifact qualification
-remains pending. Whole-phase security retains three open future oracle rows.
+was pending at that local checkpoint. Whole-phase security retains three open
+future oracle rows.
+
+The first hosted emission setup failure is repaired and independently rechecked.
+Both jobs pass checkpointe6f5466; exact actual ZIP collection and decoded raw/boot
+comparisons pass in run44228987686. Plan11 is complete; Plan12's authored
+authority preparation is next, with oracle use and VID-04 still stopped.

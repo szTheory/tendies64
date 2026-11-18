@@ -1,0 +1,131 @@
+{
+  "case_inventory_sha256": "c915cc38ce78aeccc0d6718351f4968368f35126366e4b353a90037abc98385b",
+  "fixture": {
+    "fixture_id": "rdp-vi-fill-diagnostic",
+    "fixture_sha256": "b469340e7caa0ac341a2a5b525aa7e3b39c8a47f295ecd10710ae695e46dfc3d",
+    "input_sha256": "6d5593bc2d95465b44ec7ce7785e5ff7d7d53605de9b039a021bc697d226186d"
+  },
+  "jobs": {
+    "gate-linux": {
+      "archive_bytes": 7107,
+      "archive_digest": "sha256:3080fc288962b349346f70a368cd42c2d2d855d87387397080ae1969f8203d2f",
+      "artifact_id": "14394183002",
+      "boot_record_sha256": "25318d695266c088cf45e72b058d88ef59cce58d66f43e1e1ba7c7ba21b5e46f",
+      "job_id": "134549094047",
+      "producer": {
+        "build_id": "t64-build-v1-2ba94ce5ab7f288eb38257e2481be206e40057b9e1dbbdeade7451b600d39d87",
+        "checker_sha256": "245c38a5abdf633db6ad631d56c1aca2509d96cc09f7285cda35c0093e128ecc",
+        "guest_runner_sha256": "47d3c31ff68e92b4b4e89e1bda6b339d8c4fd7c50f3d31440883e33c54eed4f1",
+        "runner_sha256": "973b2c24144623ba1674a54acf4115868c3c0d1234c3226c46830888345b58df",
+        "supervisor_sha256": "6cdd115753ac943b88c162def6e09921b9dedeaf165336e52113eef58ee3457b"
+      },
+      "public_serialization": {
+        "byte_length": 1294,
+        "path": "raw-export.json",
+        "sha256": "a020b2b826e2bc4dd89eab28c397222be5841b9ecd7f92122e61b76341aee49b"
+      }
+    },
+    "gate-macos": {
+      "archive_bytes": 7108,
+      "archive_digest": "sha256:40883c70b913ea7381764a90835378d13e7e030f20480682629a08acb3e68498",
+      "artifact_id": "14394158461",
+      "boot_record_sha256": "bb2418594789ff32bd51bb1509019cf20593db4b6cc3bfdfc5d14fb0e5002f67",
+      "job_id": "134549094335",
+      "producer": {
+        "build_id": "t64-build-v1-4beed7cbe997eedc81c333c41c9614d4f34977a744b96a5974f2d6b862af2e15",
+        "checker_sha256": "5be66967f8c7a1b9721b601192d2d3f4a59e46f66f7b4022182b11100f6ab610",
+        "guest_runner_sha256": "d1c6f2995fc8f798d0e6b56adecade55ff4000b0995bf9e8c5be2fa9e85ea130",
+        "runner_sha256": "07966c85d9a9c4ae9f969d86b90c65fca0fd3008a4e83eb4095e055408dadbe7",
+        "supervisor_sha256": "1a1aab73ec76f2adca88944f3a186dc36ba022cc2b5eed7f5f5a5bead6fd85ad"
+      },
+      "public_serialization": {
+        "byte_length": 1294,
+        "path": "raw-export.json",
+        "sha256": "c3af7ea03f1f4e910a7bfa1519e2ba6aaaf7269cbe19d17fd5751d26b9718320"
+      }
+    }
+  },
+  "not_claimed": [
+    "other profiles, builds, scenes or command combinations",
+    "hardware accuracy or timing",
+    "oracle-differential agreement or VID-04",
+    "private diagnostics or commercial software"
+  ],
+  "observed_dp_mi_vi_state": {
+    "burst": 0,
+    "commands_completed": 6,
+    "control": 2,
+    "dpc_current": 12592,
+    "dpc_end": 12592,
+    "end_tick": 538882,
+    "field": 0,
+    "fill_command_byte": 55,
+    "fill_command_word": 3963167676246853569,
+    "fill_opcode_field": 55,
+    "fixture_id": "rdp-vi-fill-diagnostic",
+    "fixture_sha256": "b469340e7caa0ac341a2a5b525aa7e3b39c8a47f295ecd10710ae695e46dfc3d",
+    "fullsync_completed": 1,
+    "h_start": 4,
+    "h_sync": 4,
+    "height": 3,
+    "input_sha256": "6d5593bc2d95465b44ec7ce7785e5ff7d7d53605de9b039a021bc697d226186d",
+    "last_command_byte": 41,
+    "last_command_word": 2954361355555045376,
+    "last_opcode_field": 41,
+    "mi_mask_before_clear": 32,
+    "mi_pending_after_clear": 0,
+    "mi_pending_before_clear": 32,
+    "output_encoding": 1,
+    "packet_bytes": 48,
+    "parity": 0,
+    "profile_id": "ntsc-cart-4m-openipl3-rdram-b-t1-rdp-vi-v2",
+    "profile_sha256": "5612696247abb5dae1c2abb6c15d7fd6c5632136210be7b21a1085590af1c94e",
+    "schema": "t64.rdp-vi-observation",
+    "schema_version": 1,
+    "semantic_flags": 7,
+    "sequence": 0,
+    "source_address": 12288,
+    "source_bytes": 24,
+    "source_format": 2,
+    "start_tick": 538862,
+    "stride_bytes": 16,
+    "v_start": 3,
+    "v_sync": 2,
+    "vi_clock_policy": "rsp62500000-ntsc48681812-rational-v1",
+    "width": 4,
+    "x_scale": 1024,
+    "y_scale": 1024
+  },
+  "oracle": "authored-fill-byte-contract",
+  "policy": {
+    "vi_clock_policy": "rsp62500000-ntsc48681812-rational-v1"
+  },
+  "post_collection_pii": "passed",
+  "post_collection_rights": "passed",
+  "profile": {
+    "profile_id": "ntsc-cart-4m-openipl3-rdram-b-t1-rdp-vi-v2",
+    "profile_sha256": "5612696247abb5dae1c2abb6c15d7fd6c5632136210be7b21a1085590af1c94e"
+  },
+  "raw_original_hashes": [
+    {
+      "path": "rdram.bin",
+      "sha256": "49214378ef19f01f7abc601f8286324fda7d8408d0742363fe3d619f7fb11799",
+      "size_bytes": 24
+    },
+    {
+      "path": "vi-packet.bin",
+      "sha256": "d2db6a0271e48877009fd7ee7abd5da3dc1bbc0e3e5a64355ee95aec7492e22b",
+      "size_bytes": 48
+    }
+  ],
+  "run_attempt": "1",
+  "run_id": "44228987686",
+  "run_url": "https://github.com/szTheory/tendies64/actions/runs/44228987686",
+  "schema": "t64.phase07.authored-hosted-qualification",
+  "schema_version": 1,
+  "selected_boot_semantics_equal": true,
+  "semantic_raw_exports_equal": true,
+  "source_sha": "e6f54668afec23e603f4ce61fc44fd9b91d216da",
+  "tier": "unit-tested",
+  "workflow": ".github/workflows/ci.yml"
+}

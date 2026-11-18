@@ -22,7 +22,7 @@ source drift, archive identity/path/type/size and failed downloader status.
 The final local collector control passed with 34 rejection cases. Its mock
 transport does not authenticate a hosted workflow or artifact.
 
-The [native qualification](phase07-native.md) passed after source review.
+The [native and actual hosted qualification](phase07-native.md) passed after source review.
 Future oracle implementation and whole-phase security sign-off remain blocked;
 this source review does not establish VID-04 or hardware accuracy.
 
@@ -33,3 +33,9 @@ closed this path after a reached old-entry refusal and passing actual-entry
 regression. Cheap preflight now runs that regression before a long matrix.
 The required normal gate and affected sanitizer-preset harness passed again;
 unchanged C-source compiler and full instrumented evidence was retained.
+
+The repaired checkpoint subsequently passed both hosted jobs. Exact actual ZIP
+identities/digests, decoded raw bytes, semantic metadata and selected boot
+comparison pass in [run44228987686](https://github.com/szTheory/tendies64/actions/runs/44228987686).
+The [receipt](phase07-hosted.json) binds that result to checkpointe6f5466; mock
+transport is not its authority. No implemented-scope source finding remains.

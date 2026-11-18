@@ -23,5 +23,8 @@ physical device, renewed diagnostic window, release or version tag is authorized
 by this qualification. VID-04 stays incomplete.
 
 The [normal/sanitizer/compiler qualification](phase07-native.md) passed locally.
-Live hosted raw-evidence qualification is pending; mock collection is not a
-substitute. The remaining authored hosted work needs no user action.
+The repaired hosted run subsequently passed both jobs, and its real downloaded
+raw/boot pair passed exact identity/digest/member/semantic and rights/privacy
+checks. The [receipt](phase07-hosted.json) binds the actual result; mock collection
+is not its authority. Plan12's authored request/checker preparation is next;
+the existing oracle authority stop remains without another acknowledgment.

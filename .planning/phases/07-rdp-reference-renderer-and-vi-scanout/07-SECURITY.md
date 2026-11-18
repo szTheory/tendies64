@@ -30,49 +30,49 @@ All rows retain their authored severity high and disposition mitigate. Supply-ch
 occurrences remain separate per plan. Source references below are audit observations;
 planned tests alone are not passing evidence.
 
-| Plan | Threat | Category | Component | Severity | Disposition | Actual mitigation / limit | Status |
-| --- | --- | --- | --- | --- | --- | --- | --- |
-| 01 | T-07-01 | Tampering | DPC spans and CPU fixture | high | mitigate | core/t64_rdp.c:177,871; malformed-span/truncation controls in core/tests/test_rdp.c:1207 | CLOSED |
-| 01 | T-07-02 | Information disclosure | video copy-out and packet allocation | high | mitigate | core/t64_vi.c:56,1287; atomic copy refusal at core/tests/test_vi.c:1987 | CLOSED |
-| 01 | T-07-03 | Tampering | fixture/provenance and production ownership | high | mitigate | scripts/build-rdp-fill-fixture.sh:37,216; runner/t64_real_fixture.c:51; strict source/composition mutation controls | CLOSED |
-| 01 | T-07-SC | Tampering | Package installs | high | mitigate | No new package/lock/dependency or install operation introduced; existing two jobs, action pins and ten-minute bounds retained; future acquisition remains unapproved | CLOSED |
-| 02 | T-07-04 | Tampering | DPC fetch and fence state | high | mitigate | core/t64_rdp.c:793,871,904; repeated-fence/prior-work controls at core/tests/test_rdp.c:680,1115 | CLOSED |
-| 02 | T-07-05 | Elevation of privilege | RSP profile dispatch | high | mitigate | core/t64_rsp.c:1827,2253; accepted/new and refused/old fetched transport controls | CLOSED |
-| 02 | T-07-SC | Tampering | Package installs | high | mitigate | No new package/lock/dependency or install operation introduced; existing two jobs, action pins and ten-minute bounds retained; future acquisition remains unapproved | CLOSED |
-| 03 | T-07-06 | Tampering | TMEM/TLUT loads | high | mitigate | core/t64_rdp_tmem.c:227; full span/format checks before apply; core/tests/test_rdp_copy.c:510,589 | CLOSED |
-| 03 | T-07-07 | Denial of service | copy raster coordinate arithmetic | high | mitigate | core/t64_rdp_tmem.c:511; bounded scheduled row at core/t64_rdp.c:312; overflow/zero-area controls | CLOSED |
-| 03 | T-07-SC | Tampering | Package installs | high | mitigate | No new package/lock/dependency or install operation introduced; existing two jobs, action pins and ten-minute bounds retained; future acquisition remains unapproved | CLOSED |
-| 04 | T-07-08 | Tampering | raw triangle parser | high | mitigate | core/t64_rdp_raster.c:150; complete packet at core/t64_rdp.c:871; all-group prefix controls | CLOSED |
-| 04 | T-07-09 | Denial of service | edge/shade fixed-point raster | high | mitigate | core/t64_rdp_raster.c:40,164,595; checked products/clips and bounded rows; negative/extreme controls | CLOSED |
-| 04 | T-07-SC | Tampering | Package installs | high | mitigate | No new package/lock/dependency or install operation introduced; existing two jobs, action pins and ten-minute bounds retained; future acquisition remains unapproved | CLOSED |
-| 05 | T-07-10 | Tampering | texture interpolation/TMEM | high | mitigate | core/t64_rdp_raster.c:64; W crossing refusal; TMEM format preflight at core/t64_rdp_tmem.c:898 | CLOSED |
-| 05 | T-07-11 | Denial of service | textured raster | high | mitigate | core/t64_rdp.c:312; core/t64_rdp_raster.c:595; partition/interleave regression in texture tests | CLOSED |
-| 05 | T-07-SC | Tampering | Package installs | high | mitigate | No new package/lock/dependency or install operation introduced; existing two jobs, action pins and ten-minute bounds retained; future acquisition remains unapproved | CLOSED |
-| 06 | T-07-12 | Tampering | combiner arithmetic/selectors | high | mitigate | core/t64_rdp_pipeline.c:132; independent selectors, signed floor/clamp and saturation controls | CLOSED |
-| 06 | T-07-13 | Information disclosure | noise/undefined memory | high | mitigate | core/t64_rdp.c:664; initialized per-instance RNG/temporaries, refusal and digest at core/t64_digest.c:597 | CLOSED |
-| 06 | T-07-SC | Tampering | Package installs | high | mitigate | No new package/lock/dependency or install operation introduced; existing two jobs, action pins and ten-minute bounds retained; future acquisition remains unapproved | CLOSED |
-| 07 | T-07-14 | Information disclosure | coverage sidecar | high | mitigate | core/t64_rdp_pipeline.c:209,252; machine reset/allocation and bounded backing-write invalidation; alias/lifecycle controls | CLOSED |
-| 07 | T-07-15 | Tampering | blend/coverage modes | high | mitigate | core/t64_rdp_pipeline.c:374; independent blender/coverage selector, destination and overlap controls | CLOSED |
-| 07 | T-07-SC | Tampering | Package installs | high | mitigate | No new package/lock/dependency or install operation introduced; existing two jobs, action pins and ten-minute bounds retained; future acquisition remains unapproved | CLOSED |
-| 08 | T-07-16 | Tampering | depth image/hidden state | high | mitigate | core/t64_rdp_depth.c:52,68,83,149; aligned complete spans; boundary/alias regressions | CLOSED |
-| 08 | T-07-17 | Denial of service | depth packet/interpolation | high | mitigate | core/t64_rdp_depth.c:96; preflight before effects at core/t64_rdp_raster.c:272; Z-prefix/recovery matrix | CLOSED |
-| 08 | T-07-SC | Tampering | Package installs | high | mitigate | No new package/lock/dependency or install operation introduced; existing two jobs, action pins and ten-minute bounds retained; future acquisition remains unapproved | CLOSED |
-| 09 | T-07-18 | Tampering | VI geometry/source spans | high | mitigate | core/t64_vi.c:56; checked source geometry/backing span distinct from output capacity; high-row/overflow controls | CLOSED |
-| 09 | T-07-19 | Denial of service | VI rational phase/events | high | mitigate | core/t64_vi.c:218,234,1150; checked rational phase and event reservation; whole/split/interleave controls | CLOSED |
-| 09 | T-07-SC | Tampering | Package installs | high | mitigate | No new package/lock/dependency or install operation introduced; existing two jobs, action pins and ten-minute bounds retained; future acquisition remains unapproved | CLOSED |
-| 10 | T-07-20 | Information disclosure | VI filter neighborhoods | high | mitigate | core/t64_vi.c:279; initialized fallback and checked RDRAM for each tap; positive next-row and actual RAM-end controls | CLOSED |
-| 10 | T-07-21 | Denial of service | raw packet backpressure | high | mitigate | core/t64_scheduler.c:276; core/t64_vi.c:989; producing-event hold before dispatch; full/resume/no-loss controls | CLOSED |
-| 10 | T-07-22 | Tampering | observer spans/cursor | high | mitigate | core/t64_vi.c:1287; disjoint spans/capacity validated before copy/drain; atomic invalid-span controls | CLOSED |
-| 10 | T-07-SC | Tampering | Package installs | high | mitigate | No new package/lock/dependency or install operation introduced; existing two jobs, action pins and ten-minute bounds retained; future acquisition remains unapproved | CLOSED |
-| 11 | T-07-23 | Spoofing | qualification originals and cases | high | mitigate | runner/tests/test_rdp_video.c:473; original command/outcome/executable binding, independent denominator and public bytes; native source/process-group controls | CLOSED |
-| 11 | T-07-24 | Information disclosure | public hosted artifacts | high | mitigate | private originals precede text projection; exact five-file upload whitelist; CI rights/PII before upload; no ROM or boot bytes exported | CLOSED |
-| 11 | T-07-25 | Repudiation | hosted artifact identity | high | mitigate | exact source/run/attempt/job and artifact-ID API checks; bounded ZIP, producer status, API digest before strict extraction; decoded host bytes compared | CLOSED |
-| 11 | T-07-SC | Tampering | Package installs | high | mitigate | No new package/lock/dependency or install operation introduced; existing two jobs, action pins and ten-minute bounds retained; future acquisition remains unapproved | CLOSED |
-| 12 | T-07-26 | Elevation of privilege | oracle authority admission | high | mitigate | Plan12 authority checker/tests/record absent: exact scope/revision/rights admission is not implemented; existing authority stop remains | OPEN — blocked future route |
-| 12 | T-07-SC | Tampering | Package installs | high | mitigate | No new package/lock/dependency or install operation introduced; existing two jobs, action pins and ten-minute bounds retained; future acquisition remains unapproved | CLOSED |
-| 13 | T-07-27 | Spoofing | oracle/input/output identity | high | mitigate | Plan13 differential runner/tests/evidence absent: oracle command/binary/output identity controls are not implemented or reached | OPEN — blocked future route |
-| 13 | T-07-28 | Information disclosure | oracle-derived output/publication | high | mitigate | Plan13 publication route absent: oracle pre-use rights and separate derived-data publication enforcement are not implemented | OPEN — blocked future route |
-| 13 | T-07-SC | Tampering | Package installs | high | mitigate | No new package/lock/dependency or install operation introduced; existing two jobs, action pins and ten-minute bounds retained; future acquisition remains unapproved | CLOSED |
+| Threat ID | Category | Component | Severity | Disposition | Mitigation | Status |
+| --- | --- | --- | --- | --- | --- | --- |
+| T-07-01 | Tampering | DPC spans and CPU fixture (plan01) | high | mitigate | core/t64_rdp.c:177,871; malformed-span/truncation controls in core/tests/test_rdp.c:1207 | closed |
+| T-07-02 | Information disclosure | video copy-out and packet allocation (plan01) | high | mitigate | core/t64_vi.c:56,1287; atomic copy refusal at core/tests/test_vi.c:1987 | closed |
+| T-07-03 | Tampering | fixture/provenance and production ownership (plan01) | high | mitigate | scripts/build-rdp-fill-fixture.sh:37,216; runner/t64_real_fixture.c:51; strict source/composition mutation controls | closed |
+| T-07-SC | Tampering | Package installs (plan01) | high | mitigate | No new package/lock/dependency or install operation introduced; existing two jobs, action pins and ten-minute bounds retained; future acquisition remains unapproved | closed |
+| T-07-04 | Tampering | DPC fetch and fence state (plan02) | high | mitigate | core/t64_rdp.c:793,871,904; repeated-fence/prior-work controls at core/tests/test_rdp.c:680,1115 | closed |
+| T-07-05 | Elevation of privilege | RSP profile dispatch (plan02) | high | mitigate | core/t64_rsp.c:1827,2253; accepted/new and refused/old fetched transport controls | closed |
+| T-07-SC | Tampering | Package installs (plan02) | high | mitigate | No new package/lock/dependency or install operation introduced; existing two jobs, action pins and ten-minute bounds retained; future acquisition remains unapproved | closed |
+| T-07-06 | Tampering | TMEM/TLUT loads (plan03) | high | mitigate | core/t64_rdp_tmem.c:227; full span/format checks before apply; core/tests/test_rdp_copy.c:510,589 | closed |
+| T-07-07 | Denial of service | copy raster coordinate arithmetic (plan03) | high | mitigate | core/t64_rdp_tmem.c:511; bounded scheduled row at core/t64_rdp.c:312; overflow/zero-area controls | closed |
+| T-07-SC | Tampering | Package installs (plan03) | high | mitigate | No new package/lock/dependency or install operation introduced; existing two jobs, action pins and ten-minute bounds retained; future acquisition remains unapproved | closed |
+| T-07-08 | Tampering | raw triangle parser (plan04) | high | mitigate | core/t64_rdp_raster.c:150; complete packet at core/t64_rdp.c:871; all-group prefix controls | closed |
+| T-07-09 | Denial of service | edge/shade fixed-point raster (plan04) | high | mitigate | core/t64_rdp_raster.c:40,164,595; checked products/clips and bounded rows; negative/extreme controls | closed |
+| T-07-SC | Tampering | Package installs (plan04) | high | mitigate | No new package/lock/dependency or install operation introduced; existing two jobs, action pins and ten-minute bounds retained; future acquisition remains unapproved | closed |
+| T-07-10 | Tampering | texture interpolation/TMEM (plan05) | high | mitigate | core/t64_rdp_raster.c:64; W crossing refusal; TMEM format preflight at core/t64_rdp_tmem.c:898 | closed |
+| T-07-11 | Denial of service | textured raster (plan05) | high | mitigate | core/t64_rdp.c:312; core/t64_rdp_raster.c:595; partition/interleave regression in texture tests | closed |
+| T-07-SC | Tampering | Package installs (plan05) | high | mitigate | No new package/lock/dependency or install operation introduced; existing two jobs, action pins and ten-minute bounds retained; future acquisition remains unapproved | closed |
+| T-07-12 | Tampering | combiner arithmetic/selectors (plan06) | high | mitigate | core/t64_rdp_pipeline.c:132; independent selectors, signed floor/clamp and saturation controls | closed |
+| T-07-13 | Information disclosure | noise/undefined memory (plan06) | high | mitigate | core/t64_rdp.c:664; initialized per-instance RNG/temporaries, refusal and digest at core/t64_digest.c:597 | closed |
+| T-07-SC | Tampering | Package installs (plan06) | high | mitigate | No new package/lock/dependency or install operation introduced; existing two jobs, action pins and ten-minute bounds retained; future acquisition remains unapproved | closed |
+| T-07-14 | Information disclosure | coverage sidecar (plan07) | high | mitigate | core/t64_rdp_pipeline.c:209,252; machine reset/allocation and bounded backing-write invalidation; alias/lifecycle controls | closed |
+| T-07-15 | Tampering | blend/coverage modes (plan07) | high | mitigate | core/t64_rdp_pipeline.c:374; independent blender/coverage selector, destination and overlap controls | closed |
+| T-07-SC | Tampering | Package installs (plan07) | high | mitigate | No new package/lock/dependency or install operation introduced; existing two jobs, action pins and ten-minute bounds retained; future acquisition remains unapproved | closed |
+| T-07-16 | Tampering | depth image/hidden state (plan08) | high | mitigate | core/t64_rdp_depth.c:52,68,83,149; aligned complete spans; boundary/alias regressions | closed |
+| T-07-17 | Denial of service | depth packet/interpolation (plan08) | high | mitigate | core/t64_rdp_depth.c:96; preflight before effects at core/t64_rdp_raster.c:272; Z-prefix/recovery matrix | closed |
+| T-07-SC | Tampering | Package installs (plan08) | high | mitigate | No new package/lock/dependency or install operation introduced; existing two jobs, action pins and ten-minute bounds retained; future acquisition remains unapproved | closed |
+| T-07-18 | Tampering | VI geometry/source spans (plan09) | high | mitigate | core/t64_vi.c:56; checked source geometry/backing span distinct from output capacity; high-row/overflow controls | closed |
+| T-07-19 | Denial of service | VI rational phase/events (plan09) | high | mitigate | core/t64_vi.c:218,234,1150; checked rational phase and event reservation; whole/split/interleave controls | closed |
+| T-07-SC | Tampering | Package installs (plan09) | high | mitigate | No new package/lock/dependency or install operation introduced; existing two jobs, action pins and ten-minute bounds retained; future acquisition remains unapproved | closed |
+| T-07-20 | Information disclosure | VI filter neighborhoods (plan10) | high | mitigate | core/t64_vi.c:279; initialized fallback and checked RDRAM for each tap; positive next-row and actual RAM-end controls | closed |
+| T-07-21 | Denial of service | raw packet backpressure (plan10) | high | mitigate | core/t64_scheduler.c:276; core/t64_vi.c:989; producing-event hold before dispatch; full/resume/no-loss controls | closed |
+| T-07-22 | Tampering | observer spans/cursor (plan10) | high | mitigate | core/t64_vi.c:1287; disjoint spans/capacity validated before copy/drain; atomic invalid-span controls | closed |
+| T-07-SC | Tampering | Package installs (plan10) | high | mitigate | No new package/lock/dependency or install operation introduced; existing two jobs, action pins and ten-minute bounds retained; future acquisition remains unapproved | closed |
+| T-07-23 | Spoofing | qualification originals and cases (plan11) | high | mitigate | runner/tests/test_rdp_video.c:473; original command/outcome/executable binding, independent denominator and public bytes; native source/process-group controls | closed |
+| T-07-24 | Information disclosure | public hosted artifacts (plan11) | high | mitigate | private originals precede text projection; exact five-file upload whitelist; CI rights/PII before upload; no ROM or boot bytes exported | closed |
+| T-07-25 | Repudiation | hosted artifact identity (plan11) | high | mitigate | exact source/run/attempt/job and artifact-ID API checks; bounded ZIP, producer status, API digest before strict extraction; decoded host bytes compared | closed |
+| T-07-SC | Tampering | Package installs (plan11) | high | mitigate | No new package/lock/dependency or install operation introduced; existing two jobs, action pins and ten-minute bounds retained; future acquisition remains unapproved | closed |
+| T-07-26 | Elevation of privilege | oracle authority admission (plan12) | high | mitigate | Plan12 authority checker/tests/record absent: exact scope/revision/rights admission is not implemented; existing authority stop remains | open — blocked future route |
+| T-07-SC | Tampering | Package installs (plan12) | high | mitigate | No new package/lock/dependency or install operation introduced; existing two jobs, action pins and ten-minute bounds retained; future acquisition remains unapproved | closed |
+| T-07-27 | Spoofing | oracle/input/output identity (plan13) | high | mitigate | Plan13 differential runner/tests/evidence absent: oracle command/binary/output identity controls are not implemented or reached | open — blocked future route |
+| T-07-28 | Information disclosure | oracle-derived output/publication (plan13) | high | mitigate | Plan13 publication route absent: oracle pre-use rights and separate derived-data publication enforcement are not implemented | open — blocked future route |
+| T-07-SC | Tampering | Package installs (plan13) | high | mitigate | No new package/lock/dependency or install operation introduced; existing two jobs, action pins and ten-minute bounds retained; future acquisition remains unapproved | closed |
 
 
 ## Evidence and limits

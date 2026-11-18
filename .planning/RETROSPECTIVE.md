@@ -329,3 +329,29 @@ suspected no-progress guard. Keep bounds and failed records, and do not promote
 an unproven static concern to a reachable blocker. Coupled case/build
 registrations justify one cohesive verified commit; avoid handoff delays over
 cosmetic partial staging. No cache/dependency/concurrency expansion was needed.
+
+## Plan07-11: evidence authority and real entrypoints
+
+Two host records agreeing after every hash is resealed still do not establish
+correct authored bytes. Validate against an independent contract and retain
+original process/binary/output authority. Run ZIP path/duplicate/type/expanded
+size checks before extraction, bind the raw archive to the API digest and cap
+the response while downloading. Check the downloader's exit separately from
+the bounded sink. Deadline tests need a writing grandchild, group cleanup and
+stopped output after return; native source labels need pinned input contents.
+
+The layout helper passed while the real CI emitter still handed an existing
+temporary directory to a fresh-directory constructor. Both hosted gates passed
+before that setup refusal. A reached actual emitter entry regression now runs
+in cheap preflight with isolated public storage and complete identity context.
+Authored workflow identity values and mocked transport are never hosted proof.
+Probe the real download API cheaply with an already-cleared public artifact.
+
+The repaired actual host pair passes, with distinct build identities and equal
+authored raw bytes/semantic observations. MacOS gate420s includes225s fixture
+qualification and94s CTest; its38s queue also contributes to476s wall time.
+No demonstrated duplicate in that largest required stage justified new caches,
+dependencies or concurrency. The concrete avoided cost is a late entry failure.
+Keep successful full C-source instrumentation/compiler evidence after a narrow
+Python-only repair, run affected checks and required unreached tails, and
+preserve formatter/setup failures without relabeling or repeating passed work.
