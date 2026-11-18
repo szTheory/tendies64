@@ -20,6 +20,8 @@ class RdpViQualificationTests(unittest.TestCase):
         self.assertIn("actual accepted producer", result.stdout)
         self.assertIn("reached wrong-pixel comparator", result.stdout)
         self.assertIn("subprocess deadline", result.stdout)
+        self.assertIn("child/grandchild", result.stdout)
+        self.assertIn("native source binding control", result.stdout)
         self.assertIn("forged original-record controls passed", result.stdout)
 
 

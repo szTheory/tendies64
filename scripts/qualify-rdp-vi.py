@@ -9,6 +9,7 @@ import json
 import os
 import re
 import shutil
+import signal
 import stat
 import subprocess
 import sys
@@ -58,6 +59,12 @@ BUILD_ID_RE = re.compile(r"t64-build-v1-[0-9a-f]{64}\Z")
 SHA256_RE = re.compile(r"[0-9a-f]{64}\Z")
 SHA1_RE = re.compile(r"[0-9a-f]{40}\Z")
 DECIMAL_RE = re.compile(r"[1-9][0-9]{0,18}\Z")
+PHASE07_SOURCE_BASE = "18dcaa0c4849f4c2841d1fb4c14959600e42b257"
+NATIVE_INPUT_PATHS = (
+    ".gitattributes", ".gitignore", "CMakeLists.txt", "CMakePresets.json",
+    "CMakeUserPresets.json",
+    "core", "runner", "scripts", "tools", "fixtures", "tests", "docs/spec",
+)
 MAX_JSON_BYTES = 4 * 1024 * 1024
 MAX_RAW_BYTES = 64 * 1024 * 1024
 MAX_UPLOAD_BYTES = 1024 * 1024
@@ -143,23 +150,48 @@ def _private_dir(prefix: str) -> Path:
 
 def _run_bounded(command: list[str], *, cwd: Path, environment: dict[str, str],
                  timeout_seconds: float) -> dict[str, object]:
+    if os.name != "posix":
+        raise Refusal("bounded process-group cleanup requires a POSIX host")
     started = time.monotonic()
     timed_out = False
     return_code: int | None = None
     stdout = b""
     stderr = b""
+    process_group_empty = True
+    process: subprocess.Popen[bytes] | None = None
     try:
-        result = subprocess.run(
-            command, cwd=cwd, env=environment, capture_output=True,
-            timeout=timeout_seconds, check=False,
+        process = subprocess.Popen(
+            command, cwd=cwd, env=environment, stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE, start_new_session=True,
         )
-        return_code = result.returncode
-        stdout = result.stdout
-        stderr = result.stderr
-    except subprocess.TimeoutExpired as error:
-        timed_out = True
-        stdout = error.stdout or b""
-        stderr = error.stderr or b""
+        try:
+            stdout, stderr = process.communicate(timeout=timeout_seconds)
+        except subprocess.TimeoutExpired:
+            timed_out = True
+            stdout, stderr, process_group_empty = _stop_process_group(process)
+        else:
+            return_code = process.returncode
+            if _process_group_exists(process.pid):
+                _send_group_signal(process.pid, signal.SIGTERM)
+                process_group_empty = _wait_process_group_empty(process.pid, 0.2)
+                if not process_group_empty:
+                    _send_group_signal(process.pid, signal.SIGKILL)
+                    process_group_empty = _wait_process_group_empty(process.pid, 1.0)
+    except OSError as error:
+        stderr = str(error).encode("utf-8", errors="replace")
+        return_code = 127
+    if process is not None:
+        try:
+            if process.poll() is None:
+                process.wait(timeout=0.1)
+        except subprocess.TimeoutExpired:
+            pass
+        if return_code is None:
+            return_code = process.returncode
+    if not process_group_empty:
+        stderr += b"process group remained after bounded termination\n"
+        if return_code in (None, 0):
+            return_code = 125
     elapsed_ms = int((time.monotonic() - started) * 1000)
     return {
         "return_code": return_code,
@@ -167,7 +199,58 @@ def _run_bounded(command: list[str], *, cwd: Path, environment: dict[str, str],
         "elapsed_ms": elapsed_ms,
         "stdout": stdout,
         "stderr": stderr,
+        "process_group_empty": process_group_empty,
     }
+
+
+def _process_group_exists(process_group: int) -> bool:
+    try:
+        os.killpg(process_group, 0)
+        return True
+    except ProcessLookupError:
+        return False
+    except PermissionError:
+        return True
+
+
+def _send_group_signal(process_group: int, selected_signal: int) -> None:
+    try:
+        os.killpg(process_group, selected_signal)
+    except ProcessLookupError:
+        pass
+
+
+def _wait_process_group_empty(process_group: int, timeout_seconds: float) -> bool:
+    deadline = time.monotonic() + timeout_seconds
+    while _process_group_exists(process_group):
+        if time.monotonic() >= deadline:
+            return False
+        time.sleep(0.01)
+    return True
+
+
+def _stop_process_group(process: subprocess.Popen[bytes]) -> tuple[bytes, bytes, bool]:
+    _send_group_signal(process.pid, signal.SIGTERM)
+    try:
+        stdout, stderr = process.communicate(timeout=0.2)
+    except subprocess.TimeoutExpired:
+        _send_group_signal(process.pid, signal.SIGKILL)
+        try:
+            stdout, stderr = process.communicate(timeout=1.0)
+        except subprocess.TimeoutExpired as error:
+            stdout = error.stdout or b""
+            stderr = error.stderr or b""
+    if process.poll() is None:
+        _send_group_signal(process.pid, signal.SIGKILL)
+        try:
+            process.wait(timeout=0.2)
+        except subprocess.TimeoutExpired:
+            pass
+    empty = _wait_process_group_empty(process.pid, 0.5)
+    if not empty:
+        _send_group_signal(process.pid, signal.SIGKILL)
+        empty = _wait_process_group_empty(process.pid, 0.5)
+    return stdout, stderr, empty
 
 
 def _save_process(directory: Path, command: list[str], cwd: Path,
@@ -206,6 +289,8 @@ def _run_recorded(directory: Path, command: list[str], *, cwd: Path,
         timeout_seconds=timeout_seconds,
     )
     _save_process(directory, command, cwd, environment, outcome, timeout_seconds)
+    if outcome.get("process_group_empty") is not True:
+        raise Refusal("bounded command descendants remained after process-group cleanup")
     return outcome
 
 
@@ -225,17 +310,47 @@ def _archive_last_test(build_dir: Path, destination: Path, label: str,
 
 def _run_native() -> tuple[Path, str]:
     source_sha = _git_head()
-    cheap_passed, cheap_message = _selftest()
-    if not cheap_passed:
-        raise Refusal("actual acceptance, comparator, deadline, and record controls failed before the full gate")
-    evidence = _private_dir(f"native-{source_sha[:12]}-")
-    normal_build = ROOT / "build/gate"
-    asan_build = ROOT / "build/asan"
-    gcc_script = ROOT / "build/gate/07-10-review-vi-gcc.sh"
+    source_binding = _native_source_snapshot(ROOT, source_sha)
+    changed_c_sources = _phase07_changed_c_sources(source_sha)
+    gcc_script = ROOT / "build/gate/07-10-gcc13-command.sh"
     if not gcc_script.is_file() or gcc_script.is_symlink():
         raise Refusal("previously qualified read-only GCC 13 command is unavailable")
     gcc_script_sha = _file_sha(gcc_script)
-    gcc_command = ["sh", str(gcc_script)]
+    gcc_image = _gcc13_image_identity()
+    gcc_command = _gcc13_closure_command(changed_c_sources, gcc_image["image_id"])
+    evidence = _private_dir(f"native-{source_sha[:12]}-")
+    native_record: dict[str, object] = {
+        "schema": "t64.phase07-native-source-binding",
+        "schema_version": 1,
+        "source_sha": source_sha,
+        "source_input_pathspecs": list(NATIVE_INPUT_PATHS),
+        "excluded_owner_paths": [
+            "AGENTS.md", ".planning/config.json", ".planning/AUTONOMY.md",
+        ],
+        "source_binding": source_binding,
+        "phase07_source_base": PHASE07_SOURCE_BASE,
+        "phase07_changed_c_sources": changed_c_sources,
+        "gcc13_reference_route": {
+            "path": str(gcc_script.relative_to(ROOT)),
+            "sha256": gcc_script_sha,
+            "flags": "Phase07 gcc13-command core, core-test, and runner groups",
+        },
+        "gcc13_image": gcc_image,
+        "gcc13_command": gcc_command,
+        "native_commands": [
+            ["sh", "scripts/gate.sh"],
+            ["cmake", "--preset", "asan"],
+            ["cmake", "--build", "--preset", "asan", "--parallel", "1"],
+            ["ctest", "--preset", "asan", "--no-tests=error"],
+        ],
+    }
+    _write_json(evidence / "source-binding.json", native_record)
+    cheap_passed, cheap_message = _selftest()
+    if not cheap_passed:
+        raise Refusal("actual acceptance, comparator, deadline, and record controls failed before the full gate")
+    _assert_native_source_snapshot(source_binding)
+    normal_build = ROOT / "build/gate"
+    asan_build = ROOT / "build/asan"
     normal_commands = [
         ("gate", ["sh", "scripts/gate.sh"], 600.0),
         ("asan-configure", ["cmake", "--preset", "asan"], 120.0),
@@ -243,9 +358,13 @@ def _run_native() -> tuple[Path, str]:
     ]
     _archive_last_test(normal_build, evidence / "normal", "before-gate", required=False)
     for label, command, timeout in normal_commands:
+        _assert_native_source_snapshot(source_binding)
+        if _file_sha(gcc_script) != gcc_script_sha:
+            raise Refusal("saved GCC 13 reference route changed during native qualification")
         result = _run_recorded(
             evidence / label, command, cwd=ROOT, environment={}, timeout_seconds=timeout,
         )
+        _assert_native_source_snapshot(source_binding)
         if label == "gate":
             _archive_last_test(
                 normal_build, evidence / "normal", "after-gate",
@@ -259,6 +378,7 @@ def _run_native() -> tuple[Path, str]:
     ctest_command = [
         "ctest", "--preset", "asan", "--no-tests=error", "--output-junit", str(junit),
     ]
+    _assert_native_source_snapshot(source_binding)
     asan_result = _run_recorded(
         evidence / "asan-full-ctest", ctest_command, cwd=ROOT,
         environment={
@@ -267,37 +387,89 @@ def _run_native() -> tuple[Path, str]:
         },
         timeout_seconds=600.0,
     )
+    _assert_native_source_snapshot(source_binding)
     _archive_last_test(asan_build, evidence / "asan", "after-full-ctest", required=True)
     if asan_result["timed_out"] or asan_result["return_code"] != 0 or not junit.is_file():
         raise Refusal("full ASan/UBSan CTest inventory failed, timed out, or lacks JUnit")
 
+    _assert_native_source_snapshot(source_binding)
+    if _file_sha(gcc_script) != gcc_script_sha or _gcc13_image_identity() != gcc_image:
+        raise Refusal("GCC 13 route or local image identity changed during native qualification")
     gcc = _run_recorded(
         evidence / "gcc13", gcc_command, cwd=ROOT, environment={}, timeout_seconds=120.0,
     )
+    _assert_native_source_snapshot(source_binding)
     if gcc["timed_out"] or gcc["return_code"] != 0:
         raise Refusal("previously qualified read-only network-disabled GCC 13 check failed")
-    _write_json(evidence / "source-binding.json", {
-        "source_sha": source_sha,
+    native_record.update({
         "cheap_preflight": cheap_message,
-        "gcc13_script_sha256": gcc_script_sha,
-        "gcc13_command": gcc_command,
         "normal_build_dir": str(normal_build),
         "asan_build_dir": str(asan_build),
+        "source_binding_verified_after_all_commands": True,
     })
+    _write_json(evidence / "source-binding.json", native_record)
     return evidence, source_sha
 
 
 def _deadline_control() -> tuple[bool, str]:
     record = _private_dir("deadline-control-")
-    command = [sys.executable, "-B", "-c", "import time; time.sleep(2)"]
+    grandchild_code = (
+        "import os,pathlib,sys,time\n"
+        "pathlib.Path(sys.argv[1]).write_text(str(os.getpid()))\n"
+        "marker=pathlib.Path(sys.argv[2])\n"
+        "while True:\n"
+        " with marker.open('a') as stream: stream.write('x')\n"
+        " time.sleep(0.02)\n"
+    )
+    parent_code = (
+        "import subprocess,sys,time\n"
+        "subprocess.Popen([sys.executable,'-B','-c',sys.argv[1],sys.argv[2],sys.argv[3]])\n"
+        "open(sys.argv[4],'w').write('started')\n"
+        "print('deadline parent started',flush=True)\n"
+        "time.sleep(20)\n"
+    )
+    pid_path = record / "grandchild.pid"
+    marker_path = record / "grandchild-writes.log"
+    ready_path = record / "grandchild.ready"
+    command = [sys.executable, "-B", "-c", parent_code, grandchild_code,
+               str(pid_path), str(marker_path), str(ready_path)]
     outcome = _run_bounded(command, cwd=ROOT, environment=os.environ.copy(),
-                            timeout_seconds=0.1)
-    _save_process(record, command, ROOT, {}, outcome, 0.1)
+                            timeout_seconds=0.5)
+    _save_process(record, command, ROOT, {}, outcome, 0.5)
+    if not ready_path.is_file() or not pid_path.is_file() or not marker_path.is_file():
+        _write_json(record / "deadline-control.json", {
+            "grandchild_started": False,
+            "process_group_empty": outcome.get("process_group_empty"),
+        })
+        return False, "deadline control failed before observing its child and grandchild"
+    try:
+        grandchild_pid = int(pid_path.read_text(encoding="ascii"))
+    except (OSError, ValueError):
+        return False, "deadline control grandchild PID record is malformed"
+    writes_at_return = marker_path.stat().st_size
+    time.sleep(0.12)
+    writes_after_wait = marker_path.stat().st_size
+    alive = True
+    try:
+        os.kill(grandchild_pid, 0)
+    except ProcessLookupError:
+        alive = False
+    except PermissionError:
+        alive = True
+    _write_json(record / "deadline-control.json", {
+        "grandchild_started": True,
+        "grandchild_pid": grandchild_pid,
+        "writes_at_return": writes_at_return,
+        "writes_after_wait": writes_after_wait,
+        "grandchild_pid_alive_after_wait": alive,
+        "process_group_empty": outcome.get("process_group_empty"),
+    })
     elapsed = outcome["elapsed_ms"]
-    passed = outcome["timed_out"] is True and isinstance(elapsed, int) and elapsed < 1500
+    passed = outcome["timed_out"] is True and isinstance(elapsed, int) and elapsed < 2000 and \
+        outcome.get("process_group_empty") is True and not alive and writes_after_wait == writes_at_return
     if passed:
-        return True, "actual subprocess deadline path killed and reaped its child"
-    return False, "deadline control failed to time out and reap the child"
+        return True, "actual deadline killed and reaped its child and grandchild before post-deadline writes"
+    return False, "deadline control left a descendant alive, writing, or outside its cleanup bound"
 
 
 def _load_case_source() -> dict[str, object]:
@@ -788,7 +960,10 @@ def verify_evidence(directory: Path, *, expected_sha: str | None = None,
             [record.get("path") for record in raw_records] != ["rdram.bin", "vi-packet.bin"]:
         raise Refusal("raw export records do not name the exact two private original byte members")
     if public:
-        _verify_public_serialization(directory, manifest)
+        originals = _verify_public_serialization(directory, manifest)
+        if originals["rdram.bin"] != EXPECTED_SOURCE or \
+                originals["vi-packet.bin"] != EXPECTED_PACKET:
+            raise Refusal("public raw bytes differ from the independently authored output contract")
     else:
         originals = {
             "rdram.bin": _read_file(directory / "rdram.bin"),
@@ -1002,7 +1177,7 @@ def _package_upload(directory: Path, archive_path: Path, *, job: str,
 
 def _mutate_upload_archive(source: Path, destination: Path, job: str,
                            mutation: str) -> None:
-    if mutation not in {"extra", "duplicate", "traversal", "raw-data"}:
+    if mutation not in {"extra", "duplicate", "traversal", "raw-data", "raw-resealed"}:
         raise Refusal("unsupported upload archive mutation")
     source_bytes = _read_file(source, MAX_UPLOAD_BYTES)
     expected_files, _expected_dirs = _upload_members(job)
@@ -1019,6 +1194,42 @@ def _mutate_upload_archive(source: Path, destination: Path, job: str,
         forged = (json.dumps(raw_value, ensure_ascii=True, sort_keys=True,
                              separators=(",", ":")) + "\n").encode("utf-8")
         entries = [(name, forged if name == raw_name else data) for name, data in entries]
+    elif mutation == "raw-resealed":
+        raw_name = f"rdp-vi/{job}/raw-export.json"
+        manifest_name = f"rdp-vi/{job}/manifest.json"
+        raw_value = json.loads(
+            next(data for name, data in entries if name == raw_name),
+            object_pairs_hook=_pairs_no_duplicates,
+        )
+        manifest = json.loads(
+            next(data for name, data in entries if name == manifest_name),
+            object_pairs_hook=_pairs_no_duplicates,
+        )
+        source_row = raw_value["rdram"]
+        forged_source = bytearray.fromhex(source_row["bytes_hex"])
+        forged_source[0] ^= 1
+        forged_bytes = bytes(forged_source)
+        source_row["bytes_hex"] = forged_bytes.hex()
+        source_row["byte_length"] = len(forged_bytes)
+        source_row["sha256"] = _sha(forged_bytes)
+        raw_bytes = _canonical(raw_value)
+        original_row = next(
+            record for record in manifest["private_originals"]
+            if record["path"] == "rdram.bin"
+        )
+        original_row["size_bytes"] = len(forged_bytes)
+        original_row["sha256"] = _sha(forged_bytes)
+        manifest["public_serialization"] = {
+            "path": "raw-export.json",
+            "byte_length": len(raw_bytes),
+            "sha256": _sha(raw_bytes),
+        }
+        manifest_bytes = _canonical(manifest)
+        entries = [
+            (name, raw_bytes if name == raw_name else
+             manifest_bytes if name == manifest_name else data)
+            for name, data in entries
+        ]
     with zipfile.ZipFile(destination, "x", compression=zipfile.ZIP_DEFLATED) as outgoing:
         for name, data in entries:
             outgoing.writestr(name, data)
@@ -1257,7 +1468,92 @@ def _save_refused_fixture_attempt(bundle: Path, failed: Path) -> None:
         raise Refusal("forged-report control did not produce an original failed process outcome")
 
 
+def _native_source_control() -> str:
+    control = _private_dir("native-source-control-")
+    repo = control / "repo"
+    repo.mkdir()
+    subprocess.run(["git", "init", "--quiet", str(repo)], check=True,
+                   capture_output=True, timeout=10)
+    subprocess.run(["git", "-C", str(repo), "config", "user.name", "Tendies64 source control"],
+                   check=True, capture_output=True, timeout=10)
+    subprocess.run(["git", "-C", str(repo), "config", "user.email", "source-control@example.invalid"],
+                   check=True, capture_output=True, timeout=10)
+    (repo / "core").mkdir()
+    (repo / ".planning").mkdir()
+    source = _read_file(ROOT / "core/t64_vi.c")
+    (repo / "core/t64_vi.c").write_bytes(source)
+    (repo / ".gitignore").write_text("core/ignored.c\n", encoding="utf-8")
+    (repo / "AGENTS.md").write_text("owner instructions\n", encoding="utf-8")
+    (repo / ".planning/config.json").write_text("owner config\n", encoding="utf-8")
+    (repo / ".planning/AUTONOMY.md").write_text("owner policy\n", encoding="utf-8")
+    subprocess.run(["git", "-C", str(repo), "add", "--", "."], check=True,
+                   capture_output=True, timeout=10)
+    subprocess.run(["git", "-C", str(repo), "commit", "--quiet", "-m", "source-control fixture"],
+                   check=True, capture_output=True, timeout=10)
+    baseline = _native_source_snapshot(repo)
+
+    def must_refuse(label: str) -> None:
+        try:
+            _native_source_snapshot(repo)
+        except Refusal:
+            return
+        raise Refusal(f"native source preflight accepted {label}")
+
+    source_path = repo / "core/t64_vi.c"
+    source_path.write_bytes(source + b"\n/* relevant tracked mutation */\n")
+    must_refuse("a modified relevant tracked input")
+    try:
+        _assert_native_source_snapshot(baseline)
+    except Refusal:
+        pass
+    else:
+        raise Refusal("native source post-run guard accepted a relevant tracked mutation")
+    source_path.write_bytes(source)
+    (repo / "AGENTS.md").write_text("changed owner instructions\n", encoding="utf-8")
+    (repo / ".planning/config.json").write_text("changed owner config\n", encoding="utf-8")
+    (repo / ".planning/AUTONOMY.md").write_text("changed owner policy\n", encoding="utf-8")
+    owner_edit_snapshot = _native_source_snapshot(repo)
+    if owner_edit_snapshot != baseline:
+        raise Refusal("native source binding included unrelated owner instruction or policy edits")
+    (repo / "core/untracked.c").write_text("int new_source;\n", encoding="utf-8")
+    must_refuse("an untracked relevant input")
+    (repo / "core/untracked.c").unlink()
+    (repo / "core/ignored.c").write_text("int ignored_source;\n", encoding="utf-8")
+    must_refuse("an ignored but newly created relevant input")
+    (repo / "core/ignored.c").unlink()
+    (repo / "core/alias.c").symlink_to("t64_vi.c")
+    subprocess.run(["git", "-C", str(repo), "add", "--", "core/alias.c"], check=True,
+                   capture_output=True, timeout=10)
+    subprocess.run(["git", "-C", str(repo), "commit", "--quiet", "-m", "symlink control"],
+                   check=True, capture_output=True, timeout=10)
+    must_refuse("a committed relevant symlink")
+    source_record = next(
+        item for item in baseline["input_paths"]
+        if isinstance(item, dict) and item.get("path") == "core/t64_vi.c"
+    )
+    _write_json(control / "control.json", {
+        "schema": "t64.native-source-drift-control",
+        "schema_version": 1,
+        "synthetic_repo_source_sha": baseline["source_sha"],
+        "relevant_source": source_record,
+        "input_manifest_sha256": baseline["input_manifest_sha256"],
+        "refused": [
+            "modified relevant tracked source at startup",
+            "modified relevant tracked source during a run",
+            "new untracked relevant source",
+            "new ignored relevant source",
+            "committed relevant symlink",
+        ],
+        "owner_edits_allowed": [
+            "AGENTS.md", ".planning/config.json", ".planning/AUTONOMY.md",
+        ],
+        "owner_edits_preserved_source_identity": owner_edit_snapshot == baseline,
+    })
+    return "relevant tracked/untracked/ignored/symlink drift refused; owner-file edits allowed"
+
+
 def _selftest() -> tuple[bool, str]:
+    source_control_message = _native_source_control()
     deadline_ok, deadline_message = _deadline_control()
     if not deadline_ok:
         raise Refusal(deadline_message)
@@ -1298,7 +1594,8 @@ def _selftest() -> tuple[bool, str]:
     if _verify_cli(forged, "forged-success-report", run_root):
         raise Refusal("final CLI verifier accepted a success report over an original refusal")
     return True, (
-        "actual accepted producer, reached wrong-pixel comparator, subprocess deadline, "
+        "actual accepted producer, reached wrong-pixel comparator, child/grandchild subprocess deadline, "
+        f"native source binding control ({source_control_message}), "
         "missing/swapped/zero/missing-v9/forged original-record controls passed"
     )
 
@@ -1310,8 +1607,8 @@ def _change_producer_binding(directory: Path) -> None:
     _write_json(directory / "manifest.json", manifest)
 
 
-def _git_head() -> str:
-    result = subprocess.run(["git", "rev-parse", "HEAD"], cwd=ROOT,
+def _git_head(root: Path = ROOT) -> str:
+    result = subprocess.run(["git", "rev-parse", "HEAD"], cwd=root,
                             capture_output=True, text=True, timeout=5, check=False)
     if result.returncode != 0:
         raise Refusal("cannot bind evidence to the current source revision")
@@ -1319,6 +1616,155 @@ def _git_head() -> str:
     if not SHA1_RE.fullmatch(value):
         raise Refusal("current source revision is malformed")
     return value
+
+
+def _git_bytes(root: Path, arguments: list[str]) -> bytes:
+    result = subprocess.run(
+        ["git", *arguments], cwd=root, capture_output=True, timeout=10, check=False,
+    )
+    if result.returncode != 0:
+        raise Refusal("cannot inspect the selected native source inputs")
+    return result.stdout
+
+
+def _native_source_snapshot(root: Path, source_sha: str | None = None) -> dict[str, object]:
+    root = root.resolve()
+    selected_sha = source_sha or _git_head(root)
+    if not SHA1_RE.fullmatch(selected_sha) or _git_head(root) != selected_sha:
+        raise Refusal("native source HEAD changed from the selected commit")
+    pathspecs = list(NATIVE_INPUT_PATHS)
+    status = _git_bytes(root, [
+        "status", "--porcelain=v1", "-z", "--untracked-files=all", "--ignored=matching",
+        "--", *pathspecs,
+    ])
+    if status:
+        raise Refusal("relevant native source, build, fixture, or test inputs differ from the selected commit")
+    tree = _git_bytes(root, ["ls-tree", "-r", "-z", selected_sha, "--", *pathspecs])
+    entries: list[dict[str, object]] = []
+    for record in tree.split(b"\0"):
+        if not record:
+            continue
+        try:
+            metadata, path_bytes = record.split(b"\t", 1)
+            mode_bytes, object_type, object_id = metadata.split(b" ", 2)
+            relative = path_bytes.decode("utf-8", errors="strict")
+            mode = mode_bytes.decode("ascii")
+            git_blob = object_id.decode("ascii")
+        except (ValueError, UnicodeError) as error:
+            raise Refusal("native source inventory contains an unparseable path") from error
+        if object_type != b"blob" or mode not in {"100644", "100755"} or \
+                not re.fullmatch(r"[0-9a-f]{40,64}", git_blob):
+            raise Refusal("native source inventory contains a symlink, gitlink, or special file")
+        path = root / relative
+        try:
+            metadata = path.lstat()
+        except OSError as error:
+            raise Refusal("a tracked native source input is absent") from error
+        if stat.S_ISLNK(metadata.st_mode) or not stat.S_ISREG(metadata.st_mode):
+            raise Refusal("a native source input is a symlink or special file")
+        executable = bool(metadata.st_mode & 0o111)
+        if executable != (mode == "100755"):
+            raise Refusal("native source executable mode differs from the selected commit")
+        content = _read_file(path)
+        actual_blob = subprocess.run(
+            ["git", "hash-object", "--no-filters", "--", relative], cwd=root,
+            capture_output=True, text=True, timeout=10, check=False,
+        )
+        if actual_blob.returncode != 0 or actual_blob.stdout.strip() != git_blob:
+            raise Refusal("native source bytes differ from the selected commit")
+        entries.append({
+            "path": relative,
+            "git_blob_id": git_blob,
+            "git_mode": mode,
+            "sha256": _sha(content),
+        })
+    entries.sort(key=lambda item: str(item["path"]))
+    if not entries:
+        raise Refusal("selected native source input inventory is empty")
+    return {
+        "source_sha": selected_sha,
+        "input_paths": entries,
+        "input_manifest_sha256": _sha(_canonical(entries)),
+    }
+
+
+def _assert_native_source_snapshot(expected: dict[str, object]) -> None:
+    source_sha = expected.get("source_sha")
+    if not isinstance(source_sha, str):
+        raise Refusal("native source binding is malformed")
+    current = _native_source_snapshot(ROOT, source_sha)
+    if current != expected:
+        raise Refusal("native source inputs changed while qualification was running")
+
+
+def _phase07_changed_c_sources(source_sha: str, root: Path = ROOT) -> list[str]:
+    base = PHASE07_SOURCE_BASE
+    ancestor = subprocess.run(
+        ["git", "merge-base", "--is-ancestor", base, source_sha], cwd=root,
+        capture_output=True, timeout=10, check=False,
+    )
+    if ancestor.returncode != 0:
+        raise Refusal("Phase07 GCC source baseline is not an ancestor of the selected revision")
+    output = _git_bytes(root, [
+        "diff", "--name-only", "-z", "--diff-filter=ACMR", f"{base}..{source_sha}",
+        "--", "core", "runner", "tools/common",
+    ])
+    paths = sorted({
+        item.decode("utf-8", errors="strict") for item in output.split(b"\0")
+        if item.endswith(b".c")
+    })
+    if "runner/tests/test_rdp_video.c" not in paths or not any(
+            path.startswith("core/") and "/tests/" not in path for path in paths):
+        raise Refusal("Phase07 GCC source closure misses production C or the owning RDP/VI consumer")
+    return paths
+
+
+def _gcc13_image_identity() -> dict[str, str]:
+    result = subprocess.run(
+        ["docker", "image", "inspect", "--format", "{{.Id}} {{.Os}}/{{.Architecture}}", "gcc:13"],
+        cwd=ROOT, capture_output=True, text=True, timeout=5, check=False,
+    )
+    fields = result.stdout.strip().split()
+    if result.returncode != 0 or len(fields) != 2 or \
+            not re.fullmatch(r"sha256:[0-9a-f]{64}", fields[0]) or fields[1] != "linux/amd64":
+        raise Refusal("the existing local read-only GCC 13 linux/amd64 image is unavailable")
+    return {"image_id": fields[0], "platform": fields[1]}
+
+
+def _gcc13_closure_command(source_paths: list[str], image_id: str) -> list[str]:
+    script = r'''set -eu
+set -f
+warnings="-Wall -Wextra -Wpedantic -Wshadow -Wconversion -Wstrict-prototypes -Wmissing-prototypes -Wundef -Wvla -Wcast-qual -Wformat=2 -Wwrite-strings -Werror -Wdouble-promotion"
+core_flags="-std=c17 -O3 -DNDEBUG -DSOFTFLOAT_FAST_INT64=1 -Icore/include -Itools/common -Icore/softfloat -Icore $warnings -Wframe-larger-than=2048"
+test_flags="-std=c17 -O3 -DNDEBUG -Icore/include -Icore -Itests $warnings"
+runner_flags="-std=c17 -O3 -DNDEBUG -D_DARWIN_C_SOURCE -D_POSIX_C_SOURCE=200809L -D_XOPEN_SOURCE=700 -Irunner -Itools/common -Icore/include $warnings"
+index=0
+for source_file in "$@"; do
+  index=$((index + 1))
+  case "$source_file" in
+    core/tests/*.c) gcc $test_flags -c "$source_file" -o "/tmp/phase07-$index.o" ;;
+    core/*.c) gcc $core_flags -c "$source_file" -o "/tmp/phase07-$index.o" ;;
+    runner/*.c|runner/tests/*.c) gcc $runner_flags -c "$source_file" -o "/tmp/phase07-$index.o" ;;
+    tools/common/*.c) gcc -std=c17 -O3 -DNDEBUG -Itools/common $warnings -c "$source_file" -o "/tmp/phase07-$index.o" ;;
+    *) echo "outside the Phase07 GCC closure: $source_file" >&2; exit 2 ;;
+  esac
+  echo "compiled $source_file"
+  if [ "$source_file" = runner/t64_real.c ]; then
+    gcc $runner_flags -DT64_REAL_RUNNER_TESTING -c "$source_file" -o "/tmp/phase07-$index-real-test.o"
+  elif [ "$source_file" = runner/t64_supervisor.c ]; then
+    gcc $runner_flags -DT64_SUPERVISOR_TESTING -c "$source_file" -o "/tmp/phase07-$index-supervisor-test.o"
+  fi
+done
+'''
+    if not source_paths or any(
+            not re.fullmatch(r"[A-Za-z0-9_./-]+\.c", path) for path in source_paths):
+        raise Refusal("Phase07 GCC source closure contains an unsafe path")
+    return [
+        "docker", "run", "--rm", "--pull=never", "--platform", "linux/amd64",
+        "--network", "none", "--read-only", "--tmpfs", "/tmp:size=64m",
+        "-v", f"{ROOT}:/src:ro", "-w", "/src", image_id,
+        "sh", "-ec", script, "phase07-gcc13", *source_paths,
+    ]
 
 
 def _emit_hosted(job: str, commit_sha: str) -> None:
@@ -1420,7 +1866,9 @@ def main() -> int:
     parser.add_argument("--run")
     parser.add_argument("--attempt")
     parser.add_argument("--out", type=Path)
-    parser.add_argument("--mutation", choices=("extra", "duplicate", "traversal", "raw-data"))
+    parser.add_argument("--mutation", choices=(
+        "extra", "duplicate", "traversal", "raw-data", "raw-resealed",
+    ))
     args = parser.parse_args()
     try:
         if args.deadline_selftest:
