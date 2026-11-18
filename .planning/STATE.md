@@ -5,18 +5,18 @@ milestone_name: Observable Machine
 current_phase: 08
 current_phase_name: Audio Interface and Raw Capture
 status: executing
-stopped_at: Phase8 plans verified; Wave1 PCM tracer starting
+stopped_at: Phase8 Plan01 committed and verified; Plan02 register and cadence matrix next
 last_updated: "2026-11-18T17:48:38.770Z"
 last_activity: 2026-11-18
-last_activity_desc: Phase8 five-plan coverage and independent verification passed; start PCM tracer
+last_activity_desc: PCM tracer and composite profile passed normal and instrumented suites; continue register and cadence cases
 state_head: 79e8ab5a9e020c5964f046c603501a63768f319b
 progress:
   total_phases: 3
   completed_phases: 0
   total_plans: 18
   completed_plans: 13
-  percent: 0
-current_plan: 01
+  percent: 72
+current_plan: "02"
 ---
 
 # Project State
@@ -30,16 +30,17 @@ See: .planning/PROJECT.md (updated 2026-11-15)
 
 ## Current Position
 
-Phase: 08 (Audio Interface and Raw Capture) — READY TO EXECUTE
-Plan: 1 of5 in Phase8; Phase7 remains12 of13 with an authority halt
-Status: Five independently checked plans ready; Wave1 execution starting; Phase7 oracle acceptance remains stopped
-Last activity: 2026-11-18 — Authority preparation reviewed and locally qualified; both final-batch hosted jobs and exact downloaded checks pass
+Phase: 08 (Audio Interface and Raw Capture) — EXECUTING
+Current Plan: 2
+Total Plans in Phase: 5
+Status: Plan01 complete; Plan02 ready. Phase7 remains12 of13 with an authority halt
+Last activity: 2026-11-18 — Fetched PCM, reached wrong-sample and historical profile controls pass in normal and sanitizer builds
 
-Progress: [░░░░░░░░░░] 0% of currently planned source plans
+Progress: [███████░░░] 72% of currently planned source plans
 
 ## Performance Metrics
 
-- Active milestone:0 completed phases and12 completed plans;18 plans defined across Phases7–8.
+- Active milestone:0 completed phases and13 completed plans;18 plans defined across Phases7–8.
 - Historical v1.0: 6 phases and 73 source plans complete. This is planning completion, not a software release.
 - Prior phase plan counts: 1: 13; 2: 8; 3: 13; 4: 20; 5: 10; 6: 9.
 - Execution timing: not established for v1.1. Historical evidence remains in [v1.0 phase records](milestones/v1.0-phases/).
@@ -61,7 +62,7 @@ request/checker is independently reviewed, locally qualified and fail-closed;
 production approval pins remain unset. Plan13 and VID-04 remain blocked by
 competent authority, per-file/build-input rights and missing exported replay
 inputs. Do not infer a grant from this preparation. Both final-batch hosted jobs and exact downloaded raw/boot, privacy and rights checks pass. Owner approved Phase8 from the qualified authored foundation on2026-11-18.
-Five plans passed independent checks. Execute08-01 through08-05 sequentially,
+Five plans passed independent checks. Plan08-01 is complete; execute08-02 through08-05 sequentially,
 including actual-consumer preflight, tests, review and cohesive qualification. Do not repeat the sequencing
 question. No oracle authority is part of this decision.
 
@@ -84,8 +85,8 @@ question. No oracle authority is part of this decision.
 ## Session Continuity
 
 Last session: 2026-11-18T07:22:46.107364+00:00
-Stopped at: Phase8 approved; implementation planning active
-Resume file: .planning/phases/08-audio-interface-and-raw-capture/08-01-PLAN.md
+Stopped at: Phase8 Plan01 complete; Plan02 ready
+Resume file: .planning/phases/08-audio-interface-and-raw-capture/08-02-PLAN.md
 
 Historical closeout: [v1.0 roadmap](milestones/v1.0-ROADMAP.md), [audit](milestones/v1.0-MILESTONE-AUDIT.md), [lessons](RETROSPECTIVE.md).
 

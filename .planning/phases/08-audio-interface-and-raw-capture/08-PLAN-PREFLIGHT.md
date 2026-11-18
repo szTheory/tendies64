@@ -20,3 +20,15 @@ HOME-based GSD path and removed ignored private planning-context includes from
 the executable plans. Their substantive decisions/edges remain in each plan;
 private generated hook/probe receipts are supplied to the independent checker,
 not required by a fresh checkout's executor. Tree privacy scans are clean.
+
+## Plan01 handoff parser correction
+
+Use the canonical `Current Plan: N` and `Total Plans in Phase: M` labels with
+spaces in STATE. The advance-plan query rejected `Plan: 1 of5` with an error
+object despite exit0; do not rely solely on subprocess success. Inspect JSON
+error/updated fields before dependent mutations. Milestone counts are13/18
+(72%); a phase-local percentage must not overwrite the milestone label.
+Upcoming Plan02 key-link filename probes do not recognize helper-symbol calls;
+both links originate in current-wave `core/t64_ai.c` and are skipped under the
+between-wave current-wave rule. Actual calls to schedule reserve/commit and MI
+set/clear are present; owning source-body checker and tracer pass.
