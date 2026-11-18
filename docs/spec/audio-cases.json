@@ -173,6 +173,30 @@
           ]
         }
       ]
+    },
+    "qualification": {
+      "ctest": [
+        "runner.raw-capture",
+        "controls.real.raw-capture-race",
+        "repo.rsp-no-hle",
+        "harness.audio-qualification"
+      ],
+      "binaries": [
+        {
+          "path": "runner/test_audio_qualification",
+          "cases": [
+            "accepted-original-binding",
+            "changed-sample-rejected",
+            "wrong-profile-build-input-rejected",
+            "missing-zero-truncated-rejected",
+            "zero-or-omitted-case-resealed-rejected",
+            "stale-or-missing-command-result-rejected",
+            "raw-upload-rejected",
+            "pii-projection-rejected",
+            "hosted-platform-witness-required"
+          ]
+        }
+      ]
     }
   }
 }

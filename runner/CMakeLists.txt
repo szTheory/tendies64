@@ -513,6 +513,22 @@ set_tests_properties(controls.real.raw-capture-race PROPERTIES
   LABELS "controls;runner" TIMEOUT 120
   ENVIRONMENT "T64_AUDIO_EVIDENCE_DIR=${CMAKE_BINARY_DIR}/08-04-evidence;T64_REAL_KEEP_WORKSET=1")
 
+# Original-record audio evidence controls. This selftest runs only isolated
+# verifier mutations; hosted emission remains a separate post-gate command.
+set(T64_AUDIO_QUALIFICATION_TEST
+  "${CMAKE_BINARY_DIR}/runner/test_audio_qualification")
+configure_file(
+  "${CMAKE_SOURCE_DIR}/scripts/tests/test_audio_qualification.py"
+  "${T64_AUDIO_QUALIFICATION_TEST}" COPYONLY)
+file(CHMOD "${T64_AUDIO_QUALIFICATION_TEST}"
+  PERMISSIONS OWNER_READ OWNER_WRITE OWNER_EXECUTE GROUP_READ GROUP_EXECUTE
+              WORLD_READ WORLD_EXECUTE)
+add_test(NAME harness.audio-qualification
+  COMMAND python3 -B ${CMAKE_SOURCE_DIR}/scripts/tests/test_audio_qualification.py
+    --selftest)
+set_tests_properties(harness.audio-qualification PROPERTIES
+  LABELS "harness;qualification" TIMEOUT 120)
+
 # Original-record and raw-byte qualification stays in the normal gate. Its
 # subprocess controls run the actual accepted consumer before mutation checks.
 add_test(NAME harness.rdp-vi-qualification

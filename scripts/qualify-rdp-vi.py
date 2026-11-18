@@ -1013,18 +1013,52 @@ def verify_evidence(directory: Path, *, expected_sha: str | None = None,
         raise Refusal("evidence directory contains unexpected files")
 
 
-def _upload_members(job: str) -> tuple[set[str], set[str]]:
+def _upload_members(job: str, *, include_audio: bool = False) -> tuple[set[str], set[str]]:
     if job not in {"gate-linux", "gate-macos"}:
         raise Refusal("upload job must be one of the two named CI jobs")
     files = {f"{job}.json"}
     raw_dir = f"rdp-vi/{job}"
     files.update(f"{raw_dir}/{name}" for name in (
         "manifest.json", "inventory.json", "observation.json", "raw-export.json"))
-    return files, {"rdp-vi", raw_dir}
+    directories = {"rdp-vi", raw_dir}
+    if include_audio:
+        files.add(f"audio/{job}/manifest.json")
+        directories.update({"audio", f"audio/{job}"})
+    return files, directories
+
+
+def _verify_audio_upload(directory: Path, *, expected_sha: str, expected_job: str,
+                         expected_run: str, expected_attempt: str) -> bool:
+    audio = directory / "audio" / expected_job
+    if not audio.exists() and not audio.is_symlink():
+        return False
+    if audio.is_symlink() or not audio.is_dir() or {path.name for path in audio.iterdir()} != {
+            "manifest.json"}:
+        raise Refusal("combined audio upload has missing, extra, or unsafe members")
+    if not isinstance(expected_sha, str) or not SHA1_RE.fullmatch(expected_sha) or \
+            not isinstance(expected_run, str) or not DECIMAL_RE.fullmatch(expected_run) or \
+            not isinstance(expected_attempt, str) or not DECIMAL_RE.fullmatch(expected_attempt):
+        raise Refusal("combined audio upload has malformed boot context")
+    command = [
+        sys.executable, "-B", str(ROOT / "scripts/qualify-audio.py"), "--scan-pii",
+        "--job", expected_job, "--sha", expected_sha, "--run", expected_run,
+        "--attempt", expected_attempt, "--out", str(audio.resolve()),
+    ]
+    try:
+        result = subprocess.run(command, cwd=ROOT, capture_output=True, text=True,
+                                timeout=15, check=False)
+    except (OSError, subprocess.TimeoutExpired) as error:
+        raise Refusal("combined audio privacy/context check could not complete") from error
+    if result.returncode != 0:
+        raise Refusal("combined audio manifest failed its exact hosted context and privacy checks")
+    return True
 
 
 def _safe_extract_upload(archive_bytes: bytes, destination: Path, job: str) -> None:
     expected_files, expected_dirs = _upload_members(job)
+    audio_files, audio_dirs = _upload_members(job, include_audio=True)
+    all_files = expected_files | audio_files
+    all_dirs = expected_dirs | audio_dirs
     if destination.is_symlink() or (destination.exists() and
                                     (not destination.is_dir() or any(destination.iterdir()))):
         raise Refusal("upload extraction destination is unsafe or not empty")
@@ -1053,17 +1087,23 @@ def _safe_extract_upload(archive_bytes: bytes, destination: Path, job: str) -> N
             if mode == stat.S_IFLNK or info.flag_bits & 1:
                 raise Refusal("hosted artifact contains a symlink or encrypted member")
             if info.is_dir():
-                if name not in {f"{directory}/" for directory in expected_dirs}:
+                if name not in {f"{directory}/" for directory in all_dirs}:
                     raise Refusal("hosted artifact contains an unexpected directory")
                 dirs.add(name[:-1])
                 continue
-            if name not in expected_files or mode not in {0, stat.S_IFREG}:
+            if name not in all_files or mode not in {0, stat.S_IFREG}:
                 raise Refusal("hosted artifact contains an unexpected or special file")
             files.add(name)
             total_size += info.file_size
             if total_size > MAX_UPLOAD_BYTES or info.file_size > MAX_UPLOAD_BYTES:
                 raise Refusal("hosted artifact exceeds the unpacked byte bound")
-        if files != expected_files or not dirs.issubset(expected_dirs):
+        if frozenset(files) == frozenset(expected_files):
+            selected_dirs = expected_dirs
+        elif frozenset(files) == frozenset(audio_files):
+            selected_dirs = audio_dirs
+        else:
+            selected_dirs = set()
+        if not selected_dirs or not dirs.issubset(selected_dirs):
             raise Refusal("hosted artifact members differ from the combined CI upload contract")
         try:
             for info in infos:
@@ -1084,6 +1124,17 @@ def _safe_extract_upload(archive_bytes: bytes, destination: Path, job: str) -> N
                 if total != info.file_size:
                     raise Refusal("hosted artifact member length differs from its ZIP record")
                 target.chmod(0o600)
+            if files == audio_files:
+                boot = _exact_keys(_read_json(destination / f"{job}.json"), {
+                    "schema", "schema_version", "commit_sha", "run_id", "run_attempt",
+                    "job_name", "result",
+                })
+                if boot.get("schema") != "t64.boot-evidence" or boot.get("job_name") != job:
+                    raise Refusal("audio sibling has no exact boot job context")
+                _verify_audio_upload(
+                    destination, expected_sha=boot.get("commit_sha"), expected_job=job,
+                    expected_run=boot.get("run_id"), expected_attempt=boot.get("run_attempt"),
+                )
         except (OSError, zipfile.BadZipFile, EOFError) as error:
             shutil.rmtree(destination, ignore_errors=True)
             raise Refusal("hosted artifact member could not be extracted safely") from error
@@ -1096,7 +1147,6 @@ def verify_upload(directory: Path, *, expected_sha: str, expected_job: str,
                   expected_run: str, expected_attempt: str) -> None:
     if directory.is_symlink() or not directory.is_dir():
         raise Refusal("combined upload directory is absent or unsafe")
-    expected_files, expected_dirs = _upload_members(expected_job)
     found_files: set[str] = set()
     found_dirs: set[str] = set()
     for path in directory.rglob("*"):
@@ -1109,7 +1159,11 @@ def verify_upload(directory: Path, *, expected_sha: str, expected_job: str,
             found_files.add(relative)
         else:
             raise Refusal("combined upload contains a special filesystem entry")
-    if found_files != expected_files or found_dirs != expected_dirs:
+    expected_files, expected_dirs = _upload_members(expected_job)
+    audio_files, audio_dirs = _upload_members(expected_job, include_audio=True)
+    has_audio = found_files == audio_files and found_dirs == audio_dirs
+    legacy_layout = found_files == expected_files and found_dirs == expected_dirs
+    if not legacy_layout and not has_audio:
         raise Refusal("combined upload contains missing, extra, duplicate, or nested members")
     boot = directory / f"{expected_job}.json"
     boot_record = _exact_keys(_read_json(boot), {
@@ -1131,6 +1185,11 @@ def verify_upload(directory: Path, *, expected_sha: str, expected_job: str,
         expected_job=expected_job, expected_run=expected_run, expected_attempt=expected_attempt,
         public=True,
     )
+    if has_audio:
+        _verify_audio_upload(
+            directory, expected_sha=expected_sha, expected_job=expected_job,
+            expected_run=expected_run, expected_attempt=expected_attempt,
+        )
 
 
 def _emit_layout_selftest(destination: Path, *, job: str, commit_sha: str,
@@ -1163,7 +1222,8 @@ def _package_upload(directory: Path, archive_path: Path, *, job: str,
     )
     if archive_path.is_symlink() or archive_path.exists():
         raise Refusal("upload archive destination already exists or is unsafe")
-    expected_files, expected_dirs = _upload_members(job)
+    has_audio = (directory / "audio" / job / "manifest.json").exists()
+    expected_files, expected_dirs = _upload_members(job, include_audio=has_audio)
     with zipfile.ZipFile(archive_path, "x", compression=zipfile.ZIP_DEFLATED) as archive:
         for relative in sorted(expected_dirs):
             archive.writestr(relative + "/", b"")

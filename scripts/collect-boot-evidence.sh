@@ -356,6 +356,13 @@ selftest() {
       die "actual raw producer failed the $job upload-layout selftest"
     layout=$TMP/layout/$job
     mkdir -p "$layout/rdp-vi/$job"
+    python3 -B "$ROOT/scripts/tests/test_audio_qualification.py" --layout-fixture \
+      --job "$job" --sha "$sha" --run 123 --attempt 1 \
+      --out "$layout/audio/$job" >/dev/null ||
+      die "cannot create the synthetic audio sibling for the $job upload-layout check"
+    python3 -B "$ROOT/scripts/qualify-audio.py" --scan-pii --job "$job" --sha "$sha" \
+      --run 123 --attempt 1 --out "$layout/audio/$job" >/dev/null ||
+      die "synthetic $job audio sibling failed its strict hosted context/privacy scan"
     boot_record=$TMP/linux.json
     [ "$job" = gate-linux ] || boot_record=$TMP/macos.json
     cp "$boot_record" "$layout/$job.json"
@@ -365,14 +372,28 @@ selftest() {
     python3 -B "$ROOT/scripts/qualify-rdp-vi.py" --package-upload "$layout" \
       --sha "$sha" --job "$job" --run 123 --attempt 1 --out "$TMP/$archive_name.zip" \
       >/dev/null || die "cannot package actual $job files with the upload action root layout"
+    legacy_layout=$TMP/layout-without-audio/$job
+    mkdir -p "$legacy_layout/rdp-vi/$job"
+    cp "$layout/$job.json" "$legacy_layout/$job.json"
+    cp "$layout/rdp-vi/$job"/* "$legacy_layout/rdp-vi/$job/"
+    python3 -B "$ROOT/scripts/qualify-rdp-vi.py" --package-upload "$legacy_layout" \
+      --sha "$sha" --job "$job" --run 123 --attempt 1 \
+      --out "$TMP/legacy-$archive_name.zip" >/dev/null ||
+      die "historical $job boot/raw upload without audio was no longer accepted"
   done
-  python3 -B "$ROOT/scripts/qualify-rdp-vi.py" --scan-pii "$TMP/layout" \
-    >"$TMP/upload-pii.stdout" 2>"$TMP/upload-pii.stderr" ||
+  if ! python3 -B "$ROOT/scripts/qualify-rdp-vi.py" --scan-pii "$TMP/layout" \
+      >"$TMP/upload-pii.stdout" 2>"$TMP/upload-pii.stderr"; then
+    cat "$TMP/upload-pii.stdout" >&2
+    cat "$TMP/upload-pii.stderr" >&2
     die "actual combined upload files failed the PII scan"
+  fi
   for job in gate-linux gate-macos; do
-    sh "$ROOT/scripts/rights-scan.sh" --staging "$TMP/layout/$job" \
-      >"$TMP/upload-rights-$job.stdout" 2>"$TMP/upload-rights-$job.stderr" ||
+    if ! sh "$ROOT/scripts/rights-scan.sh" --staging "$TMP/layout/$job" \
+        >"$TMP/upload-rights-$job.stdout" 2>"$TMP/upload-rights-$job.stderr"; then
+      cat "$TMP/upload-rights-$job.stdout" >&2
+      cat "$TMP/upload-rights-$job.stderr" >&2
       die "actual $job combined upload files failed the rights/provenance scan"
+    fi
   done
   linux_attempt2_name=t64-authored-evidence-$sha-123-2-gate-linux
   macos_attempt2_name=t64-authored-evidence-$sha-123-2-gate-macos
@@ -717,7 +738,7 @@ PY
     --argjson frame_width "$frame_width" --argjson frame_height "$frame_height" \
     --argjson frame_stride "$frame_stride" --argjson packet_bytes "$packet_bytes" \
     --argjson rejects "$rejects" \
-    '{schema:"t64.rdp-vi-upload-layout-control",schema_version:1,source_sha:$sha,transport:"mocked-only",hosted_proof:false,artifact_root:"build/evidence/combined/<job>",combined_upload_paths:["gate-linux.json","rdp-vi/gate-linux/manifest.json","rdp-vi/gate-linux/inventory.json","rdp-vi/gate-linux/observation.json","rdp-vi/gate-linux/raw-export.json"],actual_boot_records:{gate_linux_sha256:$boot_linux,gate_macos_sha256:$boot_macos},private_original_hashes:{gate_linux:{rdram_sha256:$linux_source,vi_packet_sha256:$linux_packet},gate_macos:{rdram_sha256:$macos_source,vi_packet_sha256:$macos_packet}},captured_span:{rdram:{address:$source_address,byte_length:$source_bytes},vi_packet:{width:$frame_width,height:$frame_height,stride_bytes:$frame_stride,byte_length:$packet_bytes}},public_serializations:{gate_linux:{sha256:$linux_serial,byte_length:$linux_serial_bytes},gate_macos:{sha256:$macos_serial,byte_length:$macos_serial_bytes},decoded_bytes_match_private_originals:true},combined_archive_sha256:{gate_linux:$linux_zip,gate_macos:$macos_zip},upload_scans:{pii:"passed",rights_provenance:"passed"},download_checks:{exact_artifact_id:true,api_digest_verified_before_extraction:true,original_zip_retained:true},rejected_archive_members:["extra","duplicate","traversal","expanded-size","special-mode"],rejected_archive_digest_mismatch:true,rejected_public_raw_mutation:true,rejection_case_count:$rejects}' \
+    '{schema:"t64.rdp-vi-upload-layout-control",schema_version:1,source_sha:$sha,transport:"mocked-only",hosted_proof:false,artifact_root:"build/evidence/combined/<job>",combined_upload_paths:["gate-linux.json","rdp-vi/gate-linux/manifest.json","rdp-vi/gate-linux/inventory.json","rdp-vi/gate-linux/observation.json","rdp-vi/gate-linux/raw-export.json","audio/gate-linux/manifest.json"],audio_upload_path_template:"audio/<job>/manifest.json",audio_scope:"exact-optional-sibling-validated-by-audio-qualifier",historical_boot_raw_layout_without_audio:"accepted",actual_boot_records:{gate_linux_sha256:$boot_linux,gate_macos_sha256:$boot_macos},private_original_hashes:{gate_linux:{rdram_sha256:$linux_source,vi_packet_sha256:$linux_packet},gate_macos:{rdram_sha256:$macos_source,vi_packet_sha256:$macos_packet}},captured_span:{rdram:{address:$source_address,byte_length:$source_bytes},vi_packet:{width:$frame_width,height:$frame_height,stride_bytes:$frame_stride,byte_length:$packet_bytes}},public_serializations:{gate_linux:{sha256:$linux_serial,byte_length:$linux_serial_bytes},gate_macos:{sha256:$macos_serial,byte_length:$macos_serial_bytes},decoded_bytes_match_private_originals:true},combined_archive_sha256:{gate_linux:$linux_zip,gate_macos:$macos_zip},upload_scans:{pii:"passed",rights_provenance:"passed"},download_checks:{exact_artifact_id:true,api_digest_verified_before_extraction:true,original_zip_retained:true},rejected_archive_members:["extra","duplicate","traversal","expanded-size","special-mode"],rejected_archive_digest_mismatch:true,rejected_public_raw_mutation:true,rejection_case_count:$rejects}' \
     > "$LAYOUT_CONTROL_DIR/control.json"
   echo "collect-boot-evidence: upload layout selftest passed (actual local boot/raw producers; mocked transport only; $rejects rejection cases; hosted proof=false; evidence=$LAYOUT_CONTROL_DIR)"
 }

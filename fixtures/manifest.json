@@ -658,7 +658,7 @@
       "id": "audio-pcm-literal",
       "source": {
         "repo": "https://github.com/szTheory/tendies64",
-        "revision": "source-content-sha256:94da3a930991179d7ce7a065771898dbd870d109c420d224a0848989107bbc29",
+        "revision": "fb1410892e05fd24a27a5d1b5d229e6bedc9218b",
         "path": "fixtures/audio/pcm.S"
       },
       "build": {
@@ -687,7 +687,7 @@
       "id": "audio-pcm-wrong-sample",
       "source": {
         "repo": "https://github.com/szTheory/tendies64",
-        "revision": "source-content-sha256:94da3a930991179d7ce7a065771898dbd870d109c420d224a0848989107bbc29",
+        "revision": "fb1410892e05fd24a27a5d1b5d229e6bedc9218b",
         "path": "fixtures/audio/pcm.S"
       },
       "build": {
@@ -706,8 +706,8 @@
         "Generated negative-control ROM and payload are build-only."
       ],
       "expected": {
-        "kind": "negative-control",
-        "source": "Same-run accepted setup and sample comparator in runner/tests/test_audio_capture.c.",
+        "kind": "self-checking",
+        "source": "Same-run accepted setup and sample comparator rejects the variant with sample 0 changed in runner/tests/test_audio_capture.c.",
         "revision": "source-content-sha256:94da3a930991179d7ce7a065771898dbd870d109c420d224a0848989107bbc29"
       }
     }
