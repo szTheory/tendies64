@@ -28,6 +28,7 @@
 #include "t64_num.h"
 #include "t64_real_result.h"
 #include "t64_real_fixture.h"
+#include "t64_raw_capture.h"
 #include "t64_sha256.h"
 #include "t64_verified_input.h"
 #include "tendies64/t64_facade.h"
@@ -410,10 +411,12 @@ typedef struct {
   const char *input;
   const char *input_sha256;
   const char *capture_out;
+  const char *raw_capture_dir;
   uint64_t input_size;
   uint64_t wall_ms;
   uint64_t bound;
   uint64_t log_limit;
+  uint64_t raw_capture_max_bytes;
 #ifdef T64_SUPERVISOR_TESTING
   uint64_t advance_step;
 #endif
@@ -422,6 +425,8 @@ typedef struct {
   uint64_t audio_observation_fd;
   int real_mode;
   int input_options_seen;
+  int raw_capture_dir_seen;
+  int raw_capture_max_bytes_seen;
 #ifdef T64_SUPERVISOR_TESTING
   int advance_step_seen;
 #endif
@@ -466,6 +471,8 @@ static int parse_args(int argc, char **argv, sup_args *a) {
       {"--capture-out", &a->capture_out, NULL, 0, 0},
       {"--video-observation-fd", NULL, &a->video_observation_fd, 0, 0},
       {"--audio-observation-fd", NULL, &a->audio_observation_fd, 0, 0},
+      {"--raw-capture-dir", &a->raw_capture_dir, NULL, 0, 0},
+      {"--raw-capture-max-bytes", NULL, &a->raw_capture_max_bytes, 0, 0},
 #ifdef T64_SUPERVISOR_TESTING
       {"--advance-step", NULL, &a->advance_step, 0, 0},
 #endif
@@ -498,6 +505,12 @@ static int parse_args(int argc, char **argv, sup_args *a) {
     if (strcmp(argv[i], "--input-size") == 0 ||
         strcmp(argv[i], "--input-sha256") == 0) {
       a->input_options_seen = 1;
+    }
+    if (strcmp(argv[i], "--raw-capture-dir") == 0) {
+      a->raw_capture_dir_seen = 1;
+    }
+    if (strcmp(argv[i], "--raw-capture-max-bytes") == 0) {
+      a->raw_capture_max_bytes_seen = 1;
     }
 #ifdef T64_SUPERVISOR_TESTING
     if (strcmp(argv[i], "--advance-step") == 0) {
@@ -576,6 +589,18 @@ static int parse_args(int argc, char **argv, sup_args *a) {
       a->input_size = REAL_INPUT_SIZE;
       a->input_sha256 = REAL_INPUT_SHA256;
     }
+    if (!bad && a->raw_capture_dir_seen) {
+      if (a->raw_capture_dir == NULL || a->raw_capture_dir[0] == '\0' ||
+          (a->raw_capture_max_bytes_seen &&
+           (a->raw_capture_max_bytes == 0u ||
+            a->raw_capture_max_bytes > T64_RAW_CAPTURE_MAX_BYTES))) {
+        bad = 1;
+      } else if (!a->raw_capture_max_bytes_seen) {
+        a->raw_capture_max_bytes = T64_RAW_CAPTURE_DEFAULT_MAX_BYTES;
+      }
+    } else if (!bad && a->raw_capture_max_bytes_seen) {
+      bad = 1;
+    }
     if (!bad && a->bound == 0u) {
       a->bound = REAL_GUEST_TICKS;
     } else if (!bad && a->bound > UINT64_C(600000)) {
@@ -605,7 +630,8 @@ static int parse_args(int argc, char **argv, sup_args *a) {
         strcmp(a->test_fault, "report-oversize") != 0 &&
         strcmp(a->test_fault, "report-malformed") != 0 &&
         strcmp(a->test_fault, "report-unknown") != 0 &&
-        strcmp(a->test_fault, "report-missing-log-sha256") != 0) {
+        strcmp(a->test_fault, "report-missing-log-sha256") != 0 &&
+        strcmp(a->test_fault, "capture-retain-incomplete-stage") != 0) {
       bad = 1;
     }
 #endif
@@ -619,7 +645,8 @@ static int parse_args(int argc, char **argv, sup_args *a) {
          a->fixture_id == NULL || !valid_fixture_id(a->fixture_id) ||
          a->fixture_sha == NULL || !is_hex64(a->fixture_sha) ||
          a->input != NULL || a->input_options_seen ||
-         a->video_observation_fd != 0u
+         a->video_observation_fd != 0u || a->raw_capture_dir_seen ||
+         a->raw_capture_max_bytes_seen
 #ifdef T64_SUPERVISOR_TESTING
          || a->advance_step_seen
 #endif
@@ -1285,6 +1312,8 @@ static int real_run_mode(const sup_args *args, const char *self_path) {
   char audio_observation_fd_text[24];
   char profile_id[64];
   char guest_ticks_text[24];
+  char raw_capture_max_bytes_text[24];
+  char raw_capture_dir_text[4096];
 #ifdef T64_SUPERVISOR_TESTING
   char advance_step_text[24];
 #endif
@@ -1321,6 +1350,16 @@ static int real_run_mode(const sup_args *args, const char *self_path) {
 #endif
 
   memset(&ws, 0, sizeof ws);
+  raw_capture_dir_text[0] = '\0';
+  if (args->raw_capture_dir_seen) {
+    int length = snprintf(raw_capture_dir_text, sizeof raw_capture_dir_text,
+                          "%s", args->raw_capture_dir);
+    if (length <= 0 || (size_t)length >= sizeof raw_capture_dir_text) {
+      (void)real_write_prelaunch(args->result, "harness-error", "usage",
+                                 "not-started", args->bound);
+      return 1;
+    }
+  }
   fixture_known = real_fixture_identify_path(args->fixture,
                                              &fixture_identity,
                                              &fixture_missing);
@@ -1420,6 +1459,11 @@ static int real_run_mode(const sup_args *args, const char *self_path) {
                  fixture_identity->profile_id);
   (void)snprintf(guest_ticks_text, sizeof guest_ticks_text, "%llu",
                  (unsigned long long)args->bound);
+  if (args->raw_capture_dir_seen) {
+    (void)snprintf(raw_capture_max_bytes_text,
+                   sizeof raw_capture_max_bytes_text, "%llu",
+                   (unsigned long long)args->raw_capture_max_bytes);
+  }
 #ifdef T64_SUPERVISOR_TESTING
   (void)snprintf(advance_step_text, sizeof advance_step_text, "%llu",
                  (unsigned long long)args->advance_step);
@@ -1440,7 +1484,9 @@ static int real_run_mode(const sup_args *args, const char *self_path) {
 #endif
     char option_video_observation[] = "--video-observation-fd";
     char option_audio_observation[] = "--audio-observation-fd";
-    char *child_args[18];
+    char option_raw_capture_dir[] = "--raw-capture-dir";
+    char option_raw_capture_max_bytes[] = "--raw-capture-max-bytes";
+    char *child_args[24];
     size_t child_argc = 0u;
     child_args[child_argc++] = runner_path;
     child_args[child_argc++] = option_fixture;
@@ -1464,6 +1510,12 @@ static int real_run_mode(const sup_args *args, const char *self_path) {
     if (args->audio_observation_fd != 0u) {
       child_args[child_argc++] = option_audio_observation;
       child_args[child_argc++] = audio_observation_fd_text;
+    }
+    if (args->raw_capture_dir_seen) {
+      child_args[child_argc++] = option_raw_capture_dir;
+      child_args[child_argc++] = raw_capture_dir_text;
+      child_args[child_argc++] = option_raw_capture_max_bytes;
+      child_args[child_argc++] = raw_capture_max_bytes_text;
     }
     child_args[child_argc] = NULL;
     setpgid(0, 0);

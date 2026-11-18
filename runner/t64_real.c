@@ -15,6 +15,7 @@
 
 #include "t64_input.h"
 #include "t64_audio_observation.h"
+#include "t64_raw_capture.h"
 #include "t64_real_fixture.h"
 #include "t64_real_result.h"
 #include "t64_sha256.h"
@@ -45,6 +46,9 @@ _Static_assert(sizeof(t64_audio_observation) <= 4096u,
 #define T64_REAL_HELLO_PC UINT32_C(0x80000478)
 #define T64_REAL_HELLO_ENTRY_PC UINT32_C(0x80000400)
 #define T64_REAL_BREAK_OPCODE UINT32_C(0x0000000d)
+#ifndef T64_RUNNER_BUILD_ID
+#define T64_RUNNER_BUILD_ID "t64-runner-v1-unavailable"
+#endif
 
 #ifdef T64_REAL_RUNNER_TESTING
 static const char *g_test_fault;
@@ -474,7 +478,8 @@ static bool copy_observation_text(char *destination, size_t capacity,
 
 static bool drain_video(t64_machine *machine,
                         trace_observation *observation,
-                        uint8_t *packet_scratch, size_t packet_capacity) {
+                        uint8_t *packet_scratch, size_t packet_capacity,
+                        t64_raw_capture *raw_capture) {
   for (;;) {
     t64_video_packet_info info;
     const bool audio_profile =
@@ -482,34 +487,70 @@ static bool drain_video(t64_machine *machine,
         strcmp(observation->result->profile_id,
                T64_REAL_AUDIO_PROFILE_ID) == 0;
     size_t copied = 0u;
+    uint8_t *dynamic_packet = NULL;
+    uint8_t *destination = packet_scratch;
+    size_t destination_capacity = packet_capacity;
     t64_status status = t64_video_info(machine, &info);
     if (status == T64_STATUS_NOT_READY) return true;
-    if (status != T64_STATUS_OK || packet_scratch == NULL ||
-        info.packet_bytes > packet_capacity ||
-        info.packet_bytes > T64_VIDEO_OBSERVATION_PACKET_CAPACITY ||
-        info.source_bytes > T64_VIDEO_OBSERVATION_SOURCE_CAPACITY ||
-        info.source_bytes > UINT32_MAX || info.width == 0u ||
-        info.height == 0u ||
+    if (status != T64_STATUS_OK || info.width == 0u || info.height == 0u) {
+      return false;
+    }
+    if (raw_capture == NULL &&
+        (packet_scratch == NULL || info.packet_bytes > packet_capacity ||
+         info.packet_bytes > T64_VIDEO_OBSERVATION_PACKET_CAPACITY ||
+         info.source_bytes > T64_VIDEO_OBSERVATION_SOURCE_CAPACITY ||
+         info.source_bytes > UINT32_MAX ||
         (!audio_profile &&
          (info.width != UINT32_C(4) || info.height != UINT32_C(3) ||
           info.packet_bytes != T64_VIDEO_OBSERVATION_PACKET_BYTES ||
           info.source_bytes != T64_VIDEO_OBSERVATION_SOURCE_BYTES)) ||
         (audio_profile &&
-         (info.width > UINT32_C(12) || info.height > UINT32_C(7)))) {
+         (info.width > UINT32_C(12) || info.height > UINT32_C(7))))) {
       return false;
     }
-    status = t64_video_copy(machine, packet_scratch, packet_capacity,
+    if (raw_capture != NULL) {
+      if (info.packet_bytes == 0u ||
+          (uint64_t)info.packet_bytes >
+              t64_raw_capture_remaining_bytes(raw_capture) ||
+          (uint64_t)info.packet_bytes > T64_RAW_CAPTURE_MAX_BYTES) {
+        return false;
+      }
+      dynamic_packet = (uint8_t *)malloc(info.packet_bytes);
+      if (dynamic_packet == NULL) return false;
+      destination = dynamic_packet;
+      destination_capacity = info.packet_bytes;
+    } else if (destination == NULL) {
+      return false;
+    }
+    status = t64_video_copy(machine, destination, destination_capacity,
                             &copied);
-    if (status != T64_STATUS_OK || copied != info.packet_bytes) return false;
+    if (status != T64_STATUS_OK || copied != info.packet_bytes) {
+      free(dynamic_packet);
+      return false;
+    }
+    if (raw_capture != NULL &&
+        !t64_raw_capture_write_video(raw_capture, &info, destination,
+                                     copied)) {
+      free(dynamic_packet);
+      return false;
+    }
     if (observation->video.packets_drained != UINT32_MAX) {
       observation->video.packets_drained++;
     } else {
+      free(dynamic_packet);
       return false;
     }
     if (!observation->have_video_packet) {
       t64_video_observation *video = &observation->video;
       uint32_t offset;
       uint32_t value;
+      bool can_observe = info.packet_bytes <= sizeof video->packet &&
+                         info.source_bytes <= sizeof video->source &&
+                         info.source_bytes <= UINT32_MAX;
+      if (raw_capture != NULL && !can_observe) {
+        free(dynamic_packet);
+        continue;
+      }
       video->magic = T64_VIDEO_OBSERVATION_MAGIC;
       video->version = T64_VIDEO_OBSERVATION_VERSION;
       video->width = info.width;
@@ -547,7 +588,7 @@ static bool drain_video(t64_machine *machine,
                                  info.vi_clock_policy)) {
         return false;
       }
-      memcpy(video->packet, packet_scratch, copied);
+      memcpy(video->packet, destination, copied);
       for (offset = 0u; offset < video->source_bytes; offset += 2u) {
         if (t64_machine_bus_read(machine,
                                  video->source_address + offset, 2u,
@@ -559,31 +600,61 @@ static bool drain_video(t64_machine *machine,
       }
       observation->have_video_packet = true;
     }
+    free(dynamic_packet);
   }
 }
 
 static bool drain_audio(t64_machine *machine,
-                        trace_observation *observation) {
+                        trace_observation *observation,
+                        t64_raw_capture *raw_capture) {
   for (;;) {
     t64_audio_packet_observation *packet;
     size_t copied = 0u;
+    uint8_t *dynamic_packet = NULL;
     t64_audio_packet_info info;
     t64_status status = t64_audio_info(machine, &info);
     if (status == T64_STATUS_NOT_READY) return true;
-    if (status != T64_STATUS_OK ||
-        observation->audio.packet_count >=
-            T64_AUDIO_OBSERVATION_PACKET_COUNT) {
+    if (status != T64_STATUS_OK || info.byte_length == 0u) {
       return false;
     }
-    if (info.struct_size != (uint32_t)sizeof info ||
-        info.byte_length != T64_AUDIO_OBSERVATION_PACKET_BYTES) {
+    if (raw_capture != NULL) {
+      if ((uint64_t)info.byte_length >
+              t64_raw_capture_remaining_bytes(raw_capture) ||
+          (uint64_t)info.byte_length > T64_RAW_CAPTURE_MAX_BYTES) {
+        return false;
+      }
+      dynamic_packet = (uint8_t *)malloc(info.byte_length);
+      if (dynamic_packet == NULL) return false;
+      status = t64_audio_copy(machine, dynamic_packet, info.byte_length,
+                              &copied);
+      if (status != T64_STATUS_OK || copied != info.byte_length ||
+          !t64_raw_capture_write_audio(raw_capture, &info, dynamic_packet,
+                                       copied)) {
+        free(dynamic_packet);
+        return false;
+      }
+      if (info.byte_length > T64_AUDIO_OBSERVATION_PACKET_BYTES ||
+          observation->audio.packet_count >=
+              T64_AUDIO_OBSERVATION_PACKET_COUNT) {
+        free(dynamic_packet);
+        continue;
+      }
+    } else if (observation->audio.packet_count >=
+               T64_AUDIO_OBSERVATION_PACKET_COUNT ||
+               info.struct_size != (uint32_t)sizeof info ||
+               info.byte_length != T64_AUDIO_OBSERVATION_PACKET_BYTES) {
       return false;
     }
     packet = &observation->audio.packets[observation->audio.packet_count];
     packet->info = info;
-    status = t64_audio_copy(machine, packet->bytes, sizeof packet->bytes,
-                            &copied);
-    if (status != T64_STATUS_OK || copied != info.byte_length) return false;
+    if (raw_capture == NULL) {
+      status = t64_audio_copy(machine, packet->bytes, sizeof packet->bytes,
+                              &copied);
+      if (status != T64_STATUS_OK || copied != info.byte_length) return false;
+    } else {
+      memcpy(packet->bytes, dynamic_packet, info.byte_length);
+      free(dynamic_packet);
+    }
     observation->audio.packet_count++;
   }
 }
@@ -892,7 +963,9 @@ static void set_digest(char output[T64_REAL_RESULT_HEX_SIZE],
 
 static int run_real(int fixture_fd, int input_fd, const char *requested_profile,
                     uint64_t guest_ticks, uint64_t advance_step,
-                    int video_observation_fd, int audio_observation_fd) {
+                    int video_observation_fd, int audio_observation_fd,
+                    const char *raw_capture_dir,
+                    uint64_t raw_capture_max_bytes) {
   static const t64_host_allocator allocator = {
       allocator_allocate, allocator_release, NULL};
   owned_bytes fixture = {0};
@@ -902,6 +975,7 @@ static int run_real(int fixture_fd, int input_fd, const char *requested_profile,
   const t64_profile_descriptor *profile = NULL;
   const t64_real_fixture *fixture_identity = NULL;
   t64_machine *machine = NULL;
+  t64_raw_capture *raw_capture = NULL;
   t64_real_result result;
   trace_observation observations = {0};
   uint8_t output[T64_REAL_OUTPUT_CAPACITY] = {0};
@@ -1014,6 +1088,47 @@ static int run_real(int fixture_fd, int input_fd, const char *requested_profile,
     (void)snprintf(result.detail, sizeof result.detail, "host-error");
     goto finalize;
   }
+  if (raw_capture_dir != NULL) {
+    t64_raw_capture_identity identity;
+    const char *capture_error = NULL;
+    size_t content_size = 0u;
+    memset(&identity, 0, sizeof identity);
+    if (t64_machine_rom_size(machine, &content_size) != T64_STATUS_OK) {
+      (void)snprintf(result.guest_stop_kind, sizeof result.guest_stop_kind,
+                     "host-error");
+      (void)snprintf(result.outcome, sizeof result.outcome, "harness-error");
+      (void)snprintf(result.detail, sizeof result.detail, "capture-content-size");
+      goto finalize;
+    }
+    identity.profile_id = profile->profile_id;
+    identity.profile_sha256 = result.profile_digest;
+    identity.descriptor_version = profile->descriptor_version;
+    identity.machine_model_version = profile->machine_model_version;
+    identity.state_serialization_version =
+        profile->state_serialization_version;
+    identity.core_build_id = t64_build_identity();
+    identity.runner_build_id = T64_RUNNER_BUILD_ID;
+    identity.source_revision = t64_source_revision();
+    identity.content_sha256 = content_digest_hex;
+    identity.content_size = (uint64_t)content_size;
+    identity.fixture_id = fixture_identity->id;
+    identity.fixture_sha256 = fixture.sha256_hex;
+    identity.fixture_size = (uint64_t)fixture.length;
+    identity.input_file_sha256 = input.sha256_hex;
+    identity.input_digest = input_digest;
+    identity.input_size = (uint64_t)input.length;
+    raw_capture = t64_raw_capture_open(raw_capture_dir,
+                                       raw_capture_max_bytes, &identity,
+                                       &capture_error);
+    if (raw_capture == NULL) {
+      (void)snprintf(result.guest_stop_kind, sizeof result.guest_stop_kind,
+                     "host-error");
+      (void)snprintf(result.outcome, sizeof result.outcome, "harness-error");
+      (void)snprintf(result.detail, sizeof result.detail, "%s",
+                     capture_error == NULL ? "capture-open" : capture_error);
+      goto finalize;
+    }
+  }
   observations.result = &result;
   observations.audio.magic = T64_AUDIO_OBSERVATION_MAGIC;
   observations.audio.version = T64_AUDIO_OBSERVATION_VERSION;
@@ -1050,7 +1165,10 @@ static int run_real(int fixture_fd, int input_fd, const char *requested_profile,
     for (;;) {
       uint64_t before_records = observations.trace_records;
       uint64_t before_tick = current_tick;
-      uint32_t before_audio_packets = observations.audio.packet_count;
+      uint32_t before_audio_packets =
+          raw_capture == NULL
+              ? observations.audio.packet_count
+              : (uint32_t)t64_raw_capture_audio_count(raw_capture);
       uint32_t before_video_packets = observations.video.packets_drained;
       status = t64_machine_advance(
           machine,
@@ -1082,21 +1200,27 @@ static int run_real(int fixture_fd, int input_fd, const char *requested_profile,
         (void)snprintf(result.detail, sizeof result.detail, "output-drain-error");
         goto finalize;
       }
-      if (!drain_audio(machine, &observations)) {
+      if (!drain_audio(machine, &observations, raw_capture)) {
         (void)snprintf(result.guest_stop_kind, sizeof result.guest_stop_kind,
                        "host-error");
         (void)snprintf(result.outcome, sizeof result.outcome,
                        "harness-error");
-        (void)snprintf(result.detail, sizeof result.detail, "audio-drain-error");
+        (void)snprintf(result.detail, sizeof result.detail, "%s",
+                       raw_capture == NULL
+                           ? "audio-drain-error"
+                           : t64_raw_capture_error(raw_capture));
         goto finalize;
       }
       if (!drain_video(machine, &observations, video_scratch,
-                       T64_REAL_VIDEO_MAX_BYTES)) {
+                       T64_REAL_VIDEO_MAX_BYTES, raw_capture)) {
         (void)snprintf(result.guest_stop_kind, sizeof result.guest_stop_kind,
                        "host-error");
         (void)snprintf(result.outcome, sizeof result.outcome,
                        "harness-error");
-        (void)snprintf(result.detail, sizeof result.detail, "video-drain-error");
+        (void)snprintf(result.detail, sizeof result.detail, "%s",
+                       raw_capture == NULL
+                           ? "video-drain-error"
+                           : t64_raw_capture_error(raw_capture));
         goto finalize;
       }
       current_tick = stop.tick;
@@ -1373,6 +1497,36 @@ finalize:
     (void)snprintf(result.outcome, sizeof result.outcome, "harness-error");
     (void)snprintf(result.detail, sizeof result.detail, "host-error");
   }
+  if (raw_capture != NULL) {
+    bool capture_ok = false;
+    if (stop.reason == T64_STOP_REASON_GUEST_COMPLETION &&
+        strcmp(result.guest_stop_kind, "host-error") != 0) {
+      capture_ok = t64_raw_capture_finalize(
+          raw_capture, result.guest_tick, result.outcome,
+          result.guest_stop_kind);
+    } else {
+      (void)snprintf(result.guest_stop_kind, sizeof result.guest_stop_kind,
+                     "host-error");
+      (void)snprintf(result.outcome, sizeof result.outcome, "harness-error");
+      (void)snprintf(result.detail, sizeof result.detail,
+                     "capture-incomplete-terminal");
+    }
+    if (!capture_ok) {
+      (void)snprintf(result.guest_stop_kind, sizeof result.guest_stop_kind,
+                     "host-error");
+      (void)snprintf(result.outcome, sizeof result.outcome, "harness-error");
+      (void)snprintf(result.detail, sizeof result.detail, "%s",
+                     t64_raw_capture_error(raw_capture));
+#ifdef T64_REAL_RUNNER_TESTING
+      if (test_fault_is("capture-retain-incomplete-stage") &&
+          strcmp(t64_raw_capture_error(raw_capture),
+                 "capture-incomplete-streams") == 0) {
+        t64_raw_capture_preserve_stage_for_test(raw_capture);
+      } else
+#endif
+      t64_raw_capture_abort(raw_capture);
+    }
+  }
 #ifdef T64_REAL_RUNNER_TESTING
   if (test_fault_is("report-missing-log-sha256")) {
     if (!write_report_missing_log_sha256(&result, STDOUT_FILENO)) {
@@ -1385,6 +1539,7 @@ finalize:
   }
 
 cleanup:
+  t64_raw_capture_destroy(raw_capture);
   if (machine != NULL) {
     t64_machine_destroy(machine);
   }
@@ -1401,24 +1556,24 @@ int main(int argc, char **argv) {
   int video_observation_fd = -1;
   int audio_observation_fd = -1;
   const char *profile_id = NULL;
+  const char *raw_capture_dir = NULL;
   uint64_t guest_ticks = 0u;
   uint64_t advance_step = T64_REAL_TRACE_STEP;
+  uint64_t raw_capture_max_bytes = 0u;
   bool seen_fixture = false;
   bool seen_input = false;
   bool seen_profile = false;
   bool seen_ticks = false;
   bool seen_video_observation = false;
   bool seen_audio_observation = false;
+  bool seen_raw_capture_dir = false;
+  bool seen_raw_capture_max_bytes = false;
 #ifdef T64_REAL_RUNNER_TESTING
   bool seen_advance_step = false;
 #endif
   int i;
 
-  if (argc != 9 && argc != 11 && argc != 13
-#ifdef T64_REAL_RUNNER_TESTING
-      && argc != 15
-#endif
-  ) {
+  if (argc < 9 || (argc % 2) == 0) {
     return emit_prelaunch("usage", "not-started", 0u, 2);
   }
   for (i = 1; i < argc; i += 2) {
@@ -1460,6 +1615,14 @@ int main(int argc, char **argv) {
         return emit_prelaunch("usage", "not-started", guest_ticks, 2);
       }
       seen_audio_observation = true;
+    } else if (strcmp(option, "--raw-capture-dir") == 0 &&
+               !seen_raw_capture_dir && value[0] != '\0') {
+      raw_capture_dir = value;
+      seen_raw_capture_dir = true;
+    } else if (strcmp(option, "--raw-capture-max-bytes") == 0 &&
+               !seen_raw_capture_max_bytes &&
+               parse_u64(value, &raw_capture_max_bytes)) {
+      seen_raw_capture_max_bytes = true;
 #ifdef T64_REAL_RUNNER_TESTING
     } else if (strcmp(option, "--advance-step") == 0 &&
                !seen_advance_step && parse_u64(value, &advance_step) &&
@@ -1474,6 +1637,15 @@ int main(int argc, char **argv) {
   if (!seen_fixture || !seen_input || !seen_profile || !seen_ticks) {
     return emit_prelaunch("usage", "not-started", guest_ticks, 2);
   }
+  if ((seen_raw_capture_max_bytes && !seen_raw_capture_dir) ||
+      (seen_raw_capture_dir && seen_raw_capture_max_bytes &&
+       (raw_capture_max_bytes == 0u ||
+        raw_capture_max_bytes > T64_RAW_CAPTURE_MAX_BYTES))) {
+    return emit_prelaunch("usage", "not-started", guest_ticks, 2);
+  }
+  if (seen_raw_capture_dir && !seen_raw_capture_max_bytes) {
+    raw_capture_max_bytes = T64_RAW_CAPTURE_DEFAULT_MAX_BYTES;
+  }
 #ifdef T64_REAL_RUNNER_TESTING
   g_test_fault = getenv("T64_REAL_RUNNER_TEST_FAULT");
   if (g_test_fault != NULL &&
@@ -1486,14 +1658,16 @@ int main(int argc, char **argv) {
       strcmp(g_test_fault, "report-oversize") != 0 &&
       strcmp(g_test_fault, "report-malformed") != 0 &&
       strcmp(g_test_fault, "report-unknown") != 0 &&
-      strcmp(g_test_fault, "report-missing-log-sha256") != 0) {
+      strcmp(g_test_fault, "report-missing-log-sha256") != 0 &&
+      strcmp(g_test_fault, "capture-retain-incomplete-stage") != 0) {
     return emit_prelaunch("usage", "not-started", guest_ticks, 2);
   }
 #endif
   {
     int status = run_real(fixture_fd, input_fd, profile_id, guest_ticks,
                           advance_step, video_observation_fd,
-                          audio_observation_fd);
+                          audio_observation_fd, raw_capture_dir,
+                          raw_capture_max_bytes);
 #ifdef T64_REAL_RUNNER_TESTING
     if (status == 0 && test_fault_is("exit-nonzero")) return 7;
     if (status == 0 && test_fault_is("crash-after-output")) {

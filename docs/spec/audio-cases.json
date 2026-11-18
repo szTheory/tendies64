@@ -125,6 +125,23 @@
           "cases": ["runner-drain-pacing"]
         }
       ]
+    },
+    "capture": {
+      "ctest": [
+        "runner.raw-capture"
+      ],
+      "binaries": [
+        {
+          "path": "runner/test_audio_capture",
+          "cases": [
+            "actual-av-bundle",
+            "general-frame-geometry",
+            "literal-pcm-files",
+            "manifest-exact-identities",
+            "capture-drain-resume"
+          ]
+        }
+      ]
     }
   }
 }

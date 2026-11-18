@@ -6,6 +6,39 @@ if(APPLE)
   list(APPEND T64_HOST_DEFS _DARWIN_C_SOURCE)
 endif()
 
+# Bind each real runner binary to its actual local source/build inputs. The
+# manifest is generated at configure time and refreshed whenever an input
+# changes; no absolute path or timestamp enters the identity.
+set(T64_RUNNER_BUILD_INPUTS
+  ${CMAKE_CURRENT_SOURCE_DIR}/t64_real.c
+  ${CMAKE_CURRENT_SOURCE_DIR}/t64_real_result.c
+  ${CMAKE_CURRENT_SOURCE_DIR}/t64_real_fixture.c
+  ${CMAKE_CURRENT_SOURCE_DIR}/t64_raw_capture.c
+  ${CMAKE_CURRENT_SOURCE_DIR}/t64_raw_capture.h
+  ${CMAKE_CURRENT_SOURCE_DIR}/CMakeLists.txt)
+set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS
+  ${T64_RUNNER_BUILD_INPUTS})
+string(CONCAT T64_RUNNER_BUILD_MANIFEST
+  "format=t64-runner-v1\n"
+  "project=${PROJECT_VERSION}\n"
+  "compiler=${CMAKE_C_COMPILER_ID}:${CMAKE_C_COMPILER_VERSION}\n"
+  "platform=${CMAKE_SYSTEM_NAME}:${CMAKE_SYSTEM_PROCESSOR}\n"
+  "build_type=${CMAKE_BUILD_TYPE}\n"
+  "c_standard=${CMAKE_C_STANDARD}:${CMAKE_C_STANDARD_REQUIRED}:${CMAKE_C_EXTENSIONS}\n"
+  "c_flags=${CMAKE_C_FLAGS}\n"
+  "warnings_as_errors=${T64_WERROR}\n")
+foreach(T64_RUNNER_INPUT IN LISTS T64_RUNNER_BUILD_INPUTS)
+  file(SHA256 "${T64_RUNNER_INPUT}" T64_RUNNER_INPUT_SHA256)
+  file(RELATIVE_PATH T64_RUNNER_INPUT_RELATIVE "${CMAKE_SOURCE_DIR}"
+    "${T64_RUNNER_INPUT}")
+  string(APPEND T64_RUNNER_BUILD_MANIFEST
+    "${T64_RUNNER_INPUT_RELATIVE}=${T64_RUNNER_INPUT_SHA256}\n")
+endforeach()
+string(SHA256 T64_RUNNER_PROD_BUILD_FINGERPRINT
+  "${T64_RUNNER_BUILD_MANIFEST}testing=0\n")
+string(SHA256 T64_RUNNER_TEST_BUILD_FINGERPRINT
+  "${T64_RUNNER_BUILD_MANIFEST}testing=1\n")
+
 # Host-side closed logical-input schedule parser.
 add_library(t64_input STATIC t64_input.c)
 target_include_directories(t64_input PUBLIC ${CMAKE_CURRENT_SOURCE_DIR})
@@ -257,17 +290,22 @@ t64_target_warnings(t64-supervisor)
 
 # First headless real guest producer. It consumes verified inherited snapshots
 # and emits a canonical t64.result v2 record.
-add_executable(t64-runner-real t64_real.c t64_real_result.c t64_real_fixture.c)
-target_compile_definitions(t64-runner-real PRIVATE ${T64_HOST_DEFS})
+add_executable(t64-runner-real t64_real.c t64_real_result.c t64_real_fixture.c
+  t64_raw_capture.c)
+target_compile_definitions(t64-runner-real PRIVATE ${T64_HOST_DEFS}
+  T64_RUNNER_BUILD_ID=\"t64-runner-v1-${T64_RUNNER_PROD_BUILD_FINGERPRINT}\")
 target_link_libraries(t64-runner-real PRIVATE
   t64_input t64_common t64_core)
 t64_target_warnings(t64-runner-real)
 add_dependencies(t64-supervisor t64-runner-real)
 
 # Test-only twin permits bounded post-guest report/process fault injection.
-add_executable(t64-runner-test t64_real.c t64_real_result.c t64_real_fixture.c)
+add_executable(t64-runner-test t64_real.c t64_real_result.c t64_real_fixture.c
+  t64_raw_capture.c)
 target_compile_definitions(t64-runner-test PRIVATE
-  ${T64_HOST_DEFS} T64_REAL_RUNNER_TESTING)
+  ${T64_HOST_DEFS}
+  T64_RUNNER_BUILD_ID=\"t64-runner-v1-${T64_RUNNER_TEST_BUILD_FINGERPRINT}\"
+  T64_REAL_RUNNER_TESTING)
 target_link_libraries(t64-runner-test PRIVATE
   t64_input t64_common t64_core)
 t64_target_warnings(t64-runner-test)
@@ -388,7 +426,7 @@ target_include_directories(test_audio_capture PRIVATE
 target_link_libraries(test_audio_capture PRIVATE t64_common)
 t64_target_warnings(test_audio_capture)
 add_dependencies(test_audio_capture t64-supervisor t64-supervisor-test
-  t64-result-check t64-audio-fixture)
+  t64-result-check t64-audio-fixture t64-rdp-fill-fixture)
 add_test(NAME runner.audio-pcm
   COMMAND test_audio_capture runner-literal-pcm
     $<TARGET_FILE:t64-supervisor> $<TARGET_FILE:t64-result-check>
@@ -404,10 +442,19 @@ add_test(NAME controls.real.audio-drain-cadence
     $<TARGET_FILE:t64-supervisor-test> $<TARGET_FILE:t64-result-check>
     ${CMAKE_SOURCE_DIR}/build/fixtures/audio-pcm.z64
     ${CMAKE_SOURCE_DIR}/build/fixtures/hello.input.json)
+add_test(NAME runner.raw-capture
+  COMMAND test_audio_capture actual-av-bundle
+    $<TARGET_FILE:t64-supervisor> $<TARGET_FILE:t64-supervisor-test>
+    $<TARGET_FILE:t64-result-check>
+    ${CMAKE_SOURCE_DIR}/build/fixtures/audio-pcm.z64
+    ${CMAKE_SOURCE_DIR}/build/fixtures/hello.input.json
+    ${CMAKE_SOURCE_DIR}/build/fixtures/rdp-fill.z64)
 set_tests_properties(runner.audio-pcm controls.real.audio-wrong-sample
-  controls.real.audio-drain-cadence
+  controls.real.audio-drain-cadence runner.raw-capture
   PROPERTIES LABELS "runner;controls" TIMEOUT 120
   ENVIRONMENT "T64_AUDIO_EVIDENCE_DIR=${CMAKE_BINARY_DIR}/08-01-evidence;T64_REAL_KEEP_WORKSET=1")
+set_tests_properties(runner.raw-capture PROPERTIES
+  ENVIRONMENT "T64_AUDIO_EVIDENCE_DIR=${CMAKE_BINARY_DIR}/08-04-evidence;T64_REAL_KEEP_WORKSET=1")
 
 # Original-record and raw-byte qualification stays in the normal gate. Its
 # subprocess controls run the actual accepted consumer before mutation checks.

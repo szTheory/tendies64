@@ -97,6 +97,30 @@ static const char *const real_detail_names[] = {
     "unsupported-execution", "usage", "video-drain-error",
     "video-observation-invalid", "video-observation-write-error",
     "wall-backstop", "wrong-transcript"};
+/* Closed host-error vocabulary emitted by the optional raw A/V transaction.
+ * Keep these exact strings in one table so an unknown capture-* value never
+ * inherits host-error semantics by prefix alone. */
+static const char *const raw_capture_detail_names[] = {
+    "capture-audio-incomplete", "capture-audio-metadata",
+    "capture-audio-name", "capture-audio-sequence", "capture-cap",
+    "capture-close", "capture-content-size", "capture-directory-flush",
+    "capture-file-create", "capture-file-flush", "capture-file-length",
+    "capture-file-open", "capture-identity", "capture-incomplete-streams",
+    "capture-incomplete-terminal", "capture-manifest-accounting",
+    "capture-manifest-create", "capture-manifest-length",
+    "capture-manifest-memory", "capture-manifest-open",
+    "capture-manifest-size", "capture-manifest-write", "capture-memory",
+    "capture-no-replace-commit", "capture-no-replace-unsupported",
+    "capture-probe-collision", "capture-probe-identity",
+    "capture-probe-name", "capture-stage-collision", "capture-stage-create",
+    "capture-stage-identity", "capture-stage-name", "capture-stage-open",
+    "capture-stage-replaced", "capture-stage-subdirectory",
+    "capture-target-exists", "capture-target-parent", "capture-target-stat",
+    "capture-video-build", "capture-video-incomplete",
+    "capture-video-length", "capture-video-metadata",
+    "capture-video-metadata-missing", "capture-video-metadata-shape",
+    "capture-video-name", "capture-video-overflow", "capture-video-profile",
+    "capture-video-sequence", "capture-write"};
 static const char *const milestone_names[] = {
     "ipl3-entry", "loader-dma", "hello-entry", "hello-completion"};
 
@@ -771,6 +795,10 @@ static int real_detail_outcome_ok(const t64_json_node *detail,
   if (str_is(detail, "positive-match")) {
     return str_is(outcome, "pass");
   }
+  if (in_list(detail, raw_capture_detail_names,
+              ARRAY_LEN(raw_capture_detail_names))) {
+    return str_is(outcome, "harness-error");
+  }
   return str_is(outcome, "harness-error");
 }
 
@@ -1043,7 +1071,9 @@ static int validate_real_result(const t64_json_node *root, rec *r, diag *d) {
     return 0;
   }
   if (!in_list(outcome, real_outcome_names, ARRAY_LEN(real_outcome_names)) ||
-      !in_list(detail, real_detail_names, ARRAY_LEN(real_detail_names))) {
+      (!in_list(detail, real_detail_names, ARRAY_LEN(real_detail_names)) &&
+       !in_list(detail, raw_capture_detail_names,
+                ARRAY_LEN(raw_capture_detail_names)))) {
     set_diag(d, "R-ENUM", "outcome or detail is outside the closed v2 enum");
     return 0;
   }
@@ -1195,7 +1225,9 @@ static int validate_real_result(const t64_json_node *root, rec *r, diag *d) {
           str_is(detail, "trace-drain-error") ||
           str_is(detail, "video-drain-error") ||
           str_is(detail, "video-observation-invalid") ||
-          str_is(detail, "video-observation-write-error"))) {
+          str_is(detail, "video-observation-write-error") ||
+          in_list(detail, raw_capture_detail_names,
+                  ARRAY_LEN(raw_capture_detail_names)))) {
       set_diag(d, "R-DETAIL-OUTCOME", "host-error stop requires a host harness-error detail");
       return 0;
     }
