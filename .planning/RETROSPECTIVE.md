@@ -416,3 +416,12 @@ Filter contender records by exact target so accepted baselines are not counted
 as winners. Exercise parent rename/symlink substitution against retained FDs,
 not only static dot-dot refusal. Keep second-geometry staged-byte evidence
 separate from a successful complete A/V bundle when one stream is absent.
+
+Run the actual fixture manifest validator after ledger edits, before long
+consumer tests: revision and expected.kind are closed schema fields. Do not
+substitute a content hash for a required reachable source revision. Extend
+strict upload layouts with one explicit validated member while preserving
+legacy positives and unknown-extra refusals. Fresh selftests must work without
+historical local evidence; entry-path smoke must never count as qualification.
+When required execution wrappers are still absent, finish their implementation
+before the cohesive independent review; keep full execution behind that review.

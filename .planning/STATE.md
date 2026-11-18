@@ -5,10 +5,10 @@ milestone_name: Observable Machine
 current_phase: 08
 current_phase_name: Audio Interface and Raw Capture
 status: executing
-stopped_at: Phase8 Plan04 verified and committed; Plan05 evidence then independent review
+stopped_at: Phase8 Plan05 Task1 committed; finish Task2 wrappers before independent review/full qualification
 last_updated: "2026-11-18T17:48:38.770Z"
 last_activity: 2026-11-18
-last_activity_desc: Actual raw capture/no-clobber passes normal and instrumentation; qualification pending
+last_activity_desc: Evidence verifier/control and archive integration pass; native/hosted/final modes pending
 state_head: 463d26f77b62d6c1d4469a7411c6e04492cf49a6
 progress:
   total_phases: 3
@@ -33,8 +33,8 @@ See: .planning/PROJECT.md (updated 2026-11-15)
 Phase: 08 (Audio Interface and Raw Capture) — EXECUTING
 Current Plan: 5
 Total Plans in Phase: 5
-Status: Plans01–04 complete; Plan05 evidence controls then review/qualification. Phase7 remains12 of13 with an authority halt
-Last activity: 2026-11-18 — Capture and actual macOS race/path/termination controls pass; full review/qualification pending
+Status: Plans01–04 complete; Plan05 Task1 committed; Task2 wrapper implementation then independent review and full qualification. Phase7 remains12 of13 with an authority halt
+Last activity: 2026-11-18 — Task1 evidence controls and strict combined archive checks pass; native/collector/final modes still pending
 
 Progress: [█████████░] 89% of currently planned source plans
 
@@ -85,8 +85,8 @@ question. No oracle authority is part of this decision.
 ## Session Continuity
 
 Last session: 2026-11-18T07:22:46.107364+00:00
-Stopped at: Phase8 Plan04 complete; Plan05 evidence then review/qualification
-Resume file: .planning/phases/08-audio-interface-and-raw-capture/08-05-PLAN.md
+Stopped at: Phase8 Plan05 Task1 complete; Task2 implementation then review/qualification
+Resume file: .planning/phases/08-audio-interface-and-raw-capture/continue.md
 
 Historical closeout: [v1.0 roadmap](milestones/v1.0-ROADMAP.md), [audit](milestones/v1.0-MILESTONE-AUDIT.md), [lessons](RETROSPECTIVE.md).
 
