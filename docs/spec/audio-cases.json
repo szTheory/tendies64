@@ -44,6 +44,27 @@
           "cases": ["runner-literal-pcm"]
         }
       ]
+    },
+    "registers": {
+      "ctest": [
+        "unit.core.ai.registers"
+      ],
+      "binaries": [
+        {
+          "path": "core/test_ai",
+          "cases": [
+            "register-fields-and-readback",
+            "address-before-length",
+            "length-zero-and-maximum",
+            "rdram-span-endpoints",
+            "dma-two-entry-full",
+            "mi-full-falling-edge",
+            "status-ack-isolation",
+            "control-disable-enable",
+            "documented-boundary-policy"
+          ]
+        }
+      ]
     }
   }
 }

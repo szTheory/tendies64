@@ -585,11 +585,14 @@ add_test(NAME unit.core.ai.profile
   COMMAND test_ai --case new-profile-inherited-devices)
 add_test(NAME unit.core.ai.old-profile-refusals
   COMMAND test_ai --case old-profile-ai-refusals)
+add_test(NAME unit.core.ai.registers
+  COMMAND test_ai --suite registers)
 add_test(NAME unit.core.ai.profile-pins
   COMMAND test_profile --case old-profile-pins)
 add_test(NAME unit.core.ai.profile-mutations
   COMMAND test_profile --case descriptor-policy-mutations)
 set_tests_properties(unit.core.ai.profile unit.core.ai.old-profile-refusals
+  unit.core.ai.registers
   PROPERTIES LABELS unit
   ENVIRONMENT "T64_TEST_IPL3_PATH=${T64_BOOT_FIXTURE_DIR}/ipl3_compat.z64")
 set_tests_properties(unit.core.ai.profile-pins
