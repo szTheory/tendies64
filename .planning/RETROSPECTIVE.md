@@ -377,3 +377,25 @@ Use the workflow's recognized `status: halted` for a completed preparation that
 preserves a genuine downstream stop. A custom completion status can leave the
 dependency index calling the stopped successor ready; check the actual index
 after closeout and retain the concrete blocker in both machine and prose state.
+
+
+## Phase08 early audio slices: cheap consistency before timing
+
+Before timing expectations, assert register constants fit their documented masks,
+DMA effective length equals the intended stereo frame count and meets alignment,
+and accepted setup/readback succeeds. Keep intentional masked-input cases
+separate. A31 bitrate literal and12-byte descriptor otherwise create misleading
+semantic failures. Assert actual guest progress and first reached event; earlier
+legal CPU work is not a failed transactional AI refusal. Use uncached CPU stores
+when testing event order independently from cache visibility.
+
+Run one concrete RED case early, then small groups; avoid drafting the whole
+matrix before feedback. Read-only dispatch admission must cover arithmetic and
+capacity before event removal. Retain failed originals and label test-design or
+compile failures honestly. Preserve normal/instrumented artifact bindings once
+before rebuilding. Parent owns routine summary/state writes; do not expand
+bookkeeping into repeated audits or full-suite reruns.
+
+Key-link checks need actual helper/field patterns for C module calls; filename
+substring defaults cannot prove a C call edge. Add concrete patterns and retain
+source-body/consumer evidence rather than inserting meaningless source comments.
