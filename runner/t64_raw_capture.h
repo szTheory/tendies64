@@ -54,6 +54,10 @@ void t64_raw_capture_abort(t64_raw_capture *capture);
 void t64_raw_capture_destroy(t64_raw_capture *capture);
 const char *t64_raw_capture_error(const t64_raw_capture *capture);
 uint64_t t64_raw_capture_remaining_bytes(const t64_raw_capture *capture);
+bool t64_raw_capture_check_video_packet_capacity(t64_raw_capture *capture,
+                                                  uint64_t packet_bytes);
+bool t64_raw_capture_check_audio_packet_capacity(t64_raw_capture *capture,
+                                                  uint64_t packet_bytes);
 size_t t64_raw_capture_audio_count(const t64_raw_capture *capture);
 
 #ifdef T64_REAL_RUNNER_TESTING

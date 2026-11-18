@@ -142,6 +142,35 @@
           ]
         }
       ]
+    },
+    "capture-errors": {
+      "ctest": [
+        "runner.raw-capture",
+        "controls.real.raw-capture-errors",
+        "controls.real.raw-capture-target-errors",
+        "controls.real.raw-capture-io-errors",
+        "controls.real.raw-capture-caps",
+        "controls.real.raw-capture-incomplete",
+        "controls.real.raw-capture-interrupted",
+        "controls.real.raw-capture-race"
+      ],
+      "binaries": [
+        {
+          "path": "runner/test_audio_capture",
+          "cases": [
+            "short-write-and-eintr",
+            "existing-targets-untouched",
+            "unsafe-target-parent",
+            "io-write-close-fsync-rename-failures",
+            "normal-cli-rejects-test-fault",
+            "output-cap-boundaries",
+            "closed-capture-error-vocabulary",
+            "missing-zero-truncated-output",
+            "interrupted-stage",
+            "racing-finalization"
+          ]
+        }
+      ]
     }
   }
 }

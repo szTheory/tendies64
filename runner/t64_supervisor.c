@@ -631,7 +631,16 @@ static int parse_args(int argc, char **argv, sup_args *a) {
         strcmp(a->test_fault, "report-malformed") != 0 &&
         strcmp(a->test_fault, "report-unknown") != 0 &&
         strcmp(a->test_fault, "report-missing-log-sha256") != 0 &&
-        strcmp(a->test_fault, "capture-retain-incomplete-stage") != 0) {
+        strcmp(a->test_fault, "capture-short-eintr") != 0 &&
+        strcmp(a->test_fault, "capture-retain-incomplete-stage") != 0 &&
+        strcmp(a->test_fault, "capture-fail-write") != 0 &&
+        strcmp(a->test_fault, "capture-fail-close") != 0 &&
+        strcmp(a->test_fault, "capture-fail-fsync") != 0 &&
+        strcmp(a->test_fault, "capture-fail-rename") != 0 &&
+        strcmp(a->test_fault, "capture-missing-video") != 0 &&
+        strcmp(a->test_fault, "capture-zero-video") != 0 &&
+        strcmp(a->test_fault, "capture-truncate-video") != 0 &&
+        strcmp(a->test_fault, "capture-precommit-barrier") != 0) {
       bad = 1;
     }
 #endif

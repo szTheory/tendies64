@@ -103,6 +103,75 @@ struct t64_raw_capture {
 #endif
 };
 
+#ifdef T64_REAL_RUNNER_TESTING
+static bool raw_test_eintr_injected;
+static bool raw_test_short_write_injected;
+static bool raw_test_write_error_injected;
+static bool raw_test_fsync_error_injected;
+static bool raw_test_close_error_injected;
+static bool raw_test_video_skipped;
+#endif
+
+#ifdef T64_REAL_RUNNER_TESTING
+static bool raw_test_fault_is(const char *name) {
+  const char *fault = getenv("T64_REAL_RUNNER_TEST_FAULT");
+  return fault != NULL && name != NULL && strcmp(fault, name) == 0;
+}
+
+static int raw_capture_fsync(int fd) {
+  if (raw_test_fault_is("capture-fail-fsync") &&
+      !raw_test_fsync_error_injected) {
+    raw_test_fsync_error_injected = true;
+    errno = EIO;
+    return -1;
+  }
+  return fsync(fd);
+}
+
+static int raw_capture_close(int fd) {
+  if (raw_test_fault_is("capture-fail-close") &&
+      !raw_test_close_error_injected) {
+    raw_test_close_error_injected = true;
+    (void)close(fd);
+    errno = EIO;
+    return -1;
+  }
+  return close(fd);
+}
+
+static bool wait_test_commit_barrier(void) {
+  const char *base = getenv("T64_RAW_CAPTURE_TEST_BARRIER");
+  char ready_path[PATH_MAX];
+  char go_path[PATH_MAX];
+  struct timespec delay = {0, 1000000L};
+  unsigned attempt;
+  int ready_length;
+  int go_length;
+  int ready_fd;
+  if (base == NULL || base[0] == '\0') return false;
+  ready_length = snprintf(ready_path, sizeof ready_path, "%s.ready.%ld",
+                          base, (long)getpid());
+  go_length = snprintf(go_path, sizeof go_path, "%s.go", base);
+  if (ready_length <= 0 || (size_t)ready_length >= sizeof ready_path ||
+      go_length <= 0 || (size_t)go_length >= sizeof go_path) {
+    return false;
+  }
+  ready_fd = open(ready_path, O_WRONLY | O_CREAT | O_EXCL | O_NOFOLLOW |
+                                  O_CLOEXEC,
+                  0600);
+  if (ready_fd < 0) return false;
+  if (close(ready_fd) != 0) return false;
+  for (attempt = 0u; attempt < 10000u; attempt++) {
+    struct stat status;
+    if (lstat(go_path, &status) == 0 && S_ISREG(status.st_mode)) return true;
+    if (errno != ENOENT) return false;
+    (void)nanosleep(&delay, NULL);
+  }
+  return false;
+}
+
+#endif
+
 static bool checked_add_u64(uint64_t left, uint64_t right,
                             uint64_t *sum_out) {
   if (sum_out == NULL || right > UINT64_MAX - left) return false;
@@ -392,7 +461,30 @@ static bool write_all(int fd, const uint8_t *bytes, size_t length) {
   size_t offset = 0u;
   while (offset < length) {
     size_t remaining = length - offset;
-    ssize_t count = write(fd, bytes + offset, remaining);
+    ssize_t count;
+#ifdef T64_REAL_RUNNER_TESTING
+    const char *test_fault = getenv("T64_REAL_RUNNER_TEST_FAULT");
+    if (raw_test_fault_is("capture-fail-write") &&
+        !raw_test_write_error_injected) {
+      raw_test_write_error_injected = true;
+      errno = EIO;
+      count = -1;
+    } else if (test_fault != NULL &&
+        strcmp(test_fault, "capture-short-eintr") == 0 &&
+        !raw_test_eintr_injected) {
+      raw_test_eintr_injected = true;
+      errno = EINTR;
+      count = -1;
+    } else if (test_fault != NULL &&
+               strcmp(test_fault, "capture-short-eintr") == 0 &&
+               !raw_test_short_write_injected && remaining > 1u) {
+      raw_test_short_write_injected = true;
+      count = write(fd, bytes + offset, remaining / 2u);
+    } else
+#endif
+    {
+      count = write(fd, bytes + offset, remaining);
+    }
     if (count < 0 && errno == EINTR) continue;
     if (count <= 0) return false;
     offset += (size_t)count;
@@ -439,12 +531,20 @@ static bool write_packet_file(t64_raw_capture *capture, int directory_fd,
   }
   if (fstat(fd, &status) != 0 || status.st_size < 0 ||
       (uint64_t)status.st_size != (uint64_t)length ||
+#ifdef T64_REAL_RUNNER_TESTING
+      raw_capture_fsync(fd) != 0) {
+#else
       fsync(fd) != 0) {
+#endif
     capture->error = "capture-file-flush";
     (void)close(fd);
     return false;
   }
+#ifdef T64_REAL_RUNNER_TESTING
+  if (raw_capture_close(fd) != 0) {
+#else
   if (close(fd) != 0) {
+#endif
     capture->error = "capture-close";
     return false;
   }
@@ -757,6 +857,27 @@ static bool validate_stream_files(t64_raw_capture *capture) {
     capture->error = "capture-incomplete-streams";
     return false;
   }
+#ifdef T64_REAL_RUNNER_TESTING
+  if (raw_test_fault_is("capture-zero-video") ||
+      raw_test_fault_is("capture-truncate-video")) {
+    raw_video_entry *entry = &capture->video[0];
+    struct stat status;
+    uint64_t new_length = raw_test_fault_is("capture-zero-video")
+                              ? 0u
+                              : entry->byte_length / 2u;
+    int fd = openat(capture->video_fd, entry->name,
+                    O_WRONLY | O_NOFOLLOW | O_CLOEXEC);
+    bool valid = fd >= 0 && fstat(fd, &status) == 0 &&
+                 S_ISREG(status.st_mode) && status.st_dev == entry->device &&
+                 status.st_ino == entry->inode &&
+                 ftruncate(fd, (off_t)new_length) == 0;
+    if (fd >= 0 && close(fd) != 0) valid = false;
+    if (!valid) {
+      capture->error = "capture-video-incomplete";
+      return false;
+    }
+  }
+#endif
   for (i = 0u; i < capture->video_count; i++) {
     const raw_video_entry *entry = &capture->video[i];
     if (entry->byte_length == 0u ||
@@ -865,6 +986,34 @@ uint64_t t64_raw_capture_remaining_bytes(const t64_raw_capture *capture) {
              : capture->byte_cap - capture->stream_bytes;
 }
 
+static bool check_packet_capacity(t64_raw_capture *capture,
+                                  uint64_t packet_bytes,
+                                  const char *empty_packet_error) {
+  if (capture == NULL) return false;
+  if (packet_bytes == 0u) {
+    capture->error = empty_packet_error;
+    return false;
+  }
+  if (packet_bytes > t64_raw_capture_remaining_bytes(capture) ||
+      packet_bytes > T64_RAW_CAPTURE_MAX_BYTES) {
+    capture->error = "capture-cap";
+    return false;
+  }
+  return true;
+}
+
+bool t64_raw_capture_check_video_packet_capacity(t64_raw_capture *capture,
+                                                  uint64_t packet_bytes) {
+  return check_packet_capacity(capture, packet_bytes,
+                               "capture-video-metadata");
+}
+
+bool t64_raw_capture_check_audio_packet_capacity(t64_raw_capture *capture,
+                                                  uint64_t packet_bytes) {
+  return check_packet_capacity(capture, packet_bytes,
+                               "capture-audio-metadata");
+}
+
 size_t t64_raw_capture_audio_count(const t64_raw_capture *capture) {
   return capture == NULL ? 0u : capture->audio_count;
 }
@@ -875,6 +1024,7 @@ void t64_raw_capture_preserve_stage_for_test(t64_raw_capture *capture) {
     capture->preserve_stage_for_test = true;
   }
 }
+
 #endif
 
 t64_raw_capture *t64_raw_capture_open(
@@ -982,6 +1132,12 @@ bool t64_raw_capture_write_video(t64_raw_capture *capture,
     }
     return false;
   }
+#ifdef T64_REAL_RUNNER_TESTING
+  if (raw_test_fault_is("capture-missing-video")) {
+    raw_test_video_skipped = true;
+    return true;
+  }
+#endif
   if (capture->video_count != 0u &&
       info->sequence <= capture->video[capture->video_count - 1u]
                             .info.sequence) {
@@ -1040,12 +1196,31 @@ bool t64_raw_capture_write_audio(t64_raw_capture *capture,
 bool t64_raw_capture_finalize(t64_raw_capture *capture, uint64_t guest_tick,
                               const char *outcome,
                               const char *guest_stop_kind) {
+#ifdef T64_REAL_RUNNER_TESTING
+  const char *test_fault = getenv("T64_REAL_RUNNER_TEST_FAULT");
+#endif
   if (capture == NULL || capture->committed || outcome == NULL ||
       guest_stop_kind == NULL || capture->video_count == 0u ||
       capture->audio_count == 0u) {
     if (capture != NULL) capture->error = "capture-incomplete-streams";
     return false;
   }
+#ifdef T64_REAL_RUNNER_TESTING
+  /* The injected control must have affected a real packet write; otherwise a
+   * test passing here would only prove that an unused option was accepted. */
+  if (test_fault != NULL && strcmp(test_fault, "capture-short-eintr") == 0) {
+    if (!raw_test_eintr_injected || !raw_test_short_write_injected) {
+      capture->error = "capture-test-fault-unreached";
+      return false;
+    }
+  }
+  if (test_fault != NULL &&
+      strcmp(test_fault, "capture-missing-video") == 0 &&
+      !raw_test_video_skipped) {
+    capture->error = "capture-test-fault-unreached";
+    return false;
+  }
+#endif
   if (!validate_stream_files(capture) ||
       !write_manifest_file(capture, guest_tick, outcome, guest_stop_kind) ||
       fsync(capture->video_fd) != 0 || fsync(capture->audio_fd) != 0 ||
@@ -1058,6 +1233,18 @@ bool t64_raw_capture_finalize(t64_raw_capture *capture, uint64_t guest_tick,
     capture->error = "capture-stage-replaced";
     return false;
   }
+#ifdef T64_REAL_RUNNER_TESTING
+  if (raw_test_fault_is("capture-fail-rename")) {
+    errno = EIO;
+    capture->error = "capture-no-replace-commit";
+    return false;
+  }
+  if (raw_test_fault_is("capture-precommit-barrier") &&
+      !wait_test_commit_barrier()) {
+    capture->error = "capture-test-barrier-timeout";
+    return false;
+  }
+#endif
   if (rename_noreplace(capture->parent_fd, capture->stage_name,
                        capture->parent_fd, capture->target_name) != 0) {
     capture->error = "capture-no-replace-commit";

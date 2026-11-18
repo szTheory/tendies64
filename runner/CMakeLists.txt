@@ -449,11 +449,68 @@ add_test(NAME runner.raw-capture
     ${CMAKE_SOURCE_DIR}/build/fixtures/audio-pcm.z64
     ${CMAKE_SOURCE_DIR}/build/fixtures/hello.input.json
     ${CMAKE_SOURCE_DIR}/build/fixtures/rdp-fill.z64)
+add_test(NAME controls.real.raw-capture-errors
+  COMMAND test_audio_capture short-write-and-eintr
+    $<TARGET_FILE:t64-supervisor-test> $<TARGET_FILE:t64-result-check>
+    ${CMAKE_SOURCE_DIR}/build/fixtures/audio-pcm.z64
+    ${CMAKE_SOURCE_DIR}/build/fixtures/hello.input.json)
+add_test(NAME controls.real.raw-capture-target-errors
+  COMMAND test_audio_capture capture-target-refusals
+    $<TARGET_FILE:t64-supervisor-test> $<TARGET_FILE:t64-result-check>
+    ${CMAKE_SOURCE_DIR}/build/fixtures/audio-pcm.z64
+    ${CMAKE_SOURCE_DIR}/build/fixtures/hello.input.json)
+add_test(NAME controls.real.raw-capture-io-errors
+  COMMAND test_audio_capture io-errors
+    $<TARGET_FILE:t64-supervisor> $<TARGET_FILE:t64-supervisor-test>
+    $<TARGET_FILE:t64-result-check>
+    ${CMAKE_SOURCE_DIR}/build/fixtures/audio-pcm.z64
+    ${CMAKE_SOURCE_DIR}/build/fixtures/hello.input.json)
+add_test(NAME controls.real.raw-capture-caps
+  COMMAND test_audio_capture cap-boundaries
+    $<TARGET_FILE:t64-supervisor-test> $<TARGET_FILE:t64-result-check>
+    ${CMAKE_SOURCE_DIR}/build/fixtures/audio-pcm.z64
+    ${CMAKE_SOURCE_DIR}/build/fixtures/hello.input.json)
+add_test(NAME controls.real.raw-capture-incomplete
+  COMMAND test_audio_capture capture-incomplete
+    $<TARGET_FILE:t64-supervisor-test> $<TARGET_FILE:t64-result-check>
+    ${CMAKE_SOURCE_DIR}/build/fixtures/audio-pcm.z64
+    ${CMAKE_SOURCE_DIR}/build/fixtures/hello.input.json)
+add_test(NAME controls.real.raw-capture-interrupted
+  COMMAND test_audio_capture capture-interrupted
+    $<TARGET_FILE:t64-supervisor-test> $<TARGET_FILE:t64-result-check>
+    ${CMAKE_SOURCE_DIR}/build/fixtures/audio-pcm.z64
+    ${CMAKE_SOURCE_DIR}/build/fixtures/hello.input.json)
+add_test(NAME controls.real.raw-capture-race
+  COMMAND test_audio_capture capture-race
+    $<TARGET_FILE:t64-supervisor-test> $<TARGET_FILE:t64-result-check>
+    ${CMAKE_SOURCE_DIR}/build/fixtures/audio-pcm.z64
+    ${CMAKE_SOURCE_DIR}/build/fixtures/hello.input.json)
 set_tests_properties(runner.audio-pcm controls.real.audio-wrong-sample
   controls.real.audio-drain-cadence runner.raw-capture
   PROPERTIES LABELS "runner;controls" TIMEOUT 120
   ENVIRONMENT "T64_AUDIO_EVIDENCE_DIR=${CMAKE_BINARY_DIR}/08-01-evidence;T64_REAL_KEEP_WORKSET=1")
 set_tests_properties(runner.raw-capture PROPERTIES
+  ENVIRONMENT "T64_AUDIO_EVIDENCE_DIR=${CMAKE_BINARY_DIR}/08-04-evidence;T64_REAL_KEEP_WORKSET=1")
+set_tests_properties(controls.real.raw-capture-errors PROPERTIES
+  LABELS "controls;runner" TIMEOUT 120
+  ENVIRONMENT "T64_AUDIO_EVIDENCE_DIR=${CMAKE_BINARY_DIR}/08-04-evidence;T64_REAL_KEEP_WORKSET=1")
+set_tests_properties(controls.real.raw-capture-target-errors PROPERTIES
+  LABELS "controls;runner" TIMEOUT 120
+  ENVIRONMENT "T64_AUDIO_EVIDENCE_DIR=${CMAKE_BINARY_DIR}/08-04-evidence;T64_REAL_KEEP_WORKSET=1")
+set_tests_properties(controls.real.raw-capture-io-errors PROPERTIES
+  LABELS "controls;runner" TIMEOUT 120
+  ENVIRONMENT "T64_AUDIO_EVIDENCE_DIR=${CMAKE_BINARY_DIR}/08-04-evidence;T64_REAL_KEEP_WORKSET=1")
+set_tests_properties(controls.real.raw-capture-caps PROPERTIES
+  LABELS "controls;runner" TIMEOUT 120
+  ENVIRONMENT "T64_AUDIO_EVIDENCE_DIR=${CMAKE_BINARY_DIR}/08-04-evidence;T64_REAL_KEEP_WORKSET=1")
+set_tests_properties(controls.real.raw-capture-incomplete PROPERTIES
+  LABELS "controls;runner" TIMEOUT 120
+  ENVIRONMENT "T64_AUDIO_EVIDENCE_DIR=${CMAKE_BINARY_DIR}/08-04-evidence;T64_REAL_KEEP_WORKSET=1")
+set_tests_properties(controls.real.raw-capture-interrupted PROPERTIES
+  LABELS "controls;runner" TIMEOUT 120
+  ENVIRONMENT "T64_AUDIO_EVIDENCE_DIR=${CMAKE_BINARY_DIR}/08-04-evidence;T64_REAL_KEEP_WORKSET=1")
+set_tests_properties(controls.real.raw-capture-race PROPERTIES
+  LABELS "controls;runner" TIMEOUT 120
   ENVIRONMENT "T64_AUDIO_EVIDENCE_DIR=${CMAKE_BINARY_DIR}/08-04-evidence;T64_REAL_KEEP_WORKSET=1")
 
 # Original-record and raw-byte qualification stays in the normal gate. Its

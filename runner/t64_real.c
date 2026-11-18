@@ -509,10 +509,8 @@ static bool drain_video(t64_machine *machine,
       return false;
     }
     if (raw_capture != NULL) {
-      if (info.packet_bytes == 0u ||
-          (uint64_t)info.packet_bytes >
-              t64_raw_capture_remaining_bytes(raw_capture) ||
-          (uint64_t)info.packet_bytes > T64_RAW_CAPTURE_MAX_BYTES) {
+      if (!t64_raw_capture_check_video_packet_capacity(
+              raw_capture, (uint64_t)info.packet_bytes)) {
         return false;
       }
       dynamic_packet = (uint8_t *)malloc(info.packet_bytes);
@@ -618,9 +616,8 @@ static bool drain_audio(t64_machine *machine,
       return false;
     }
     if (raw_capture != NULL) {
-      if ((uint64_t)info.byte_length >
-              t64_raw_capture_remaining_bytes(raw_capture) ||
-          (uint64_t)info.byte_length > T64_RAW_CAPTURE_MAX_BYTES) {
+      if (!t64_raw_capture_check_audio_packet_capacity(
+              raw_capture, (uint64_t)info.byte_length)) {
         return false;
       }
       dynamic_packet = (uint8_t *)malloc(info.byte_length);
@@ -1659,7 +1656,16 @@ int main(int argc, char **argv) {
       strcmp(g_test_fault, "report-malformed") != 0 &&
       strcmp(g_test_fault, "report-unknown") != 0 &&
       strcmp(g_test_fault, "report-missing-log-sha256") != 0 &&
-      strcmp(g_test_fault, "capture-retain-incomplete-stage") != 0) {
+      strcmp(g_test_fault, "capture-short-eintr") != 0 &&
+      strcmp(g_test_fault, "capture-retain-incomplete-stage") != 0 &&
+      strcmp(g_test_fault, "capture-fail-write") != 0 &&
+      strcmp(g_test_fault, "capture-fail-close") != 0 &&
+      strcmp(g_test_fault, "capture-fail-fsync") != 0 &&
+      strcmp(g_test_fault, "capture-fail-rename") != 0 &&
+      strcmp(g_test_fault, "capture-missing-video") != 0 &&
+      strcmp(g_test_fault, "capture-zero-video") != 0 &&
+      strcmp(g_test_fault, "capture-truncate-video") != 0 &&
+      strcmp(g_test_fault, "capture-precommit-barrier") != 0) {
     return emit_prelaunch("usage", "not-started", guest_ticks, 2);
   }
 #endif
