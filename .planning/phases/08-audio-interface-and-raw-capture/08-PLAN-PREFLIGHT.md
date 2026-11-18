@@ -14,3 +14,9 @@ interfaces. No visual UI/AI-SPEC workflow is applicable; don't add a frontend.
 No ORM/database schema is in scope. ASVS1/high blocking threat models apply to
 MMIO/span/arithmetic, queue/state/observer and host file/manifest boundaries.
 Owner AGENTS/config edits stay untouched. No branch/worktree/dependency change.
+
+Parent portability preflight normalized installation references to the standard
+HOME-based GSD path and removed ignored private planning-context includes from
+the executable plans. Their substantive decisions/edges remain in each plan;
+private generated hook/probe receipts are supplied to the independent checker,
+not required by a fresh checkout's executor. Tree privacy scans are clean.
