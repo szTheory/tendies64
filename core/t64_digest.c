@@ -765,6 +765,8 @@ t64_status t64_machine_digest(const t64_machine *machine,
     hash_u64(&context, (uint64_t)ai->packet_length);
     hash_u32(&context, (uint32_t)ai->descriptor_count);
     hash_u32(&context, ai->active ? 1u : 0u);
+    hash_u32(&context, ai->paused ? 1u : 0u);
+    hash_u64(&context, ai->paused_remaining_ticks);
     hash_u32(&context, ai->packet_reserved ? 1u : 0u);
     hash_u32(&context, (uint32_t)ai->output_reservation_slot);
     hash_u32(&context, ai->sequence_exhausted ? 1u : 0u);

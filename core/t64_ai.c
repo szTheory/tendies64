@@ -77,6 +77,15 @@ static bool sample_delay(uint32_t dacrate, uint64_t remainder,
   return *remainder_out < T64_AI_SOURCE_CLOCK;
 }
 
+static bool rate_pair_valid(uint32_t dacrate, uint32_t bitrate) {
+  const uint64_t minimum_divisor =
+      UINT64_C(66) * ((uint64_t)bitrate + UINT64_C(1));
+
+  return dacrate <= T64_AI_DACRATE_MASK && bitrate > 0u &&
+         bitrate <= T64_AI_BITRATE_MASK &&
+         (uint64_t)dacrate + UINT64_C(1) >= minimum_divisor;
+}
+
 static t64_status reserve_sample_event(t64_machine *machine, uint32_t dacrate,
                                       uint64_t token,
                                       uint64_t *remainder_out) {
@@ -106,6 +115,37 @@ static uint32_t dma_slot(const t64_ai_state *ai, size_t offset) {
 static uint32_t output_slot(uint64_t sequence) {
   return (uint32_t)((sequence - UINT64_C(1)) %
                     T64_AUDIO_QUEUE_CAPACITY);
+}
+
+static t64_status activate_queued_descriptor(t64_machine *machine) {
+  t64_ai_state *ai = &machine->ai;
+  t64_ai_dma_descriptor *descriptor;
+  uint64_t token;
+  uint64_t remainder = ai->phase_remainder;
+  uint32_t slot;
+  t64_status status;
+
+  if (ai->active || ai->descriptor_count == 0u) return T64_STATUS_OK;
+  if (ai->event_generation == UINT64_MAX) {
+    return T64_STATUS_SEQUENCE_EXHAUSTED;
+  }
+  slot = dma_slot(ai, 0u);
+  descriptor = &ai->descriptors[slot];
+  token = ai->event_generation + UINT64_C(1);
+  status = reserve_sample_event(machine, descriptor->dacrate, token,
+                                &remainder);
+  if (status != T64_STATUS_OK) return status;
+
+  ai->active = true;
+  ai->paused = false;
+  ai->paused_remaining_ticks = 0u;
+  ai->active_byte_cursor = 0u;
+  ai->latched_dacrate = descriptor->dacrate;
+  ai->latched_bitrate = descriptor->bitrate;
+  ai->event_generation = token;
+  ai->event_token = token;
+  ai->phase_remainder = remainder;
+  return T64_STATUS_OK;
 }
 
 static void hash_completed_packet(t64_machine *machine, uint32_t slot,
@@ -139,36 +179,42 @@ static t64_status submit_dma(t64_machine *machine, uint32_t raw_length) {
   t64_ai_state *ai = &machine->ai;
   t64_ai_dma_descriptor descriptor;
   uint32_t slot;
+  uint32_t length = raw_length & UINT32_C(0x0003fff8);
   uint64_t token = UINT64_C(0);
   uint64_t remainder = ai->phase_remainder;
+  bool activate;
   t64_status status;
 
+  if (length == 0u) return T64_STATUS_OK;
   if (!ai->address_staged || (ai->staged_address & UINT32_C(7)) != 0u ||
-      raw_length == 0u || raw_length > T64_AUDIO_MAX_PACKET_BYTES ||
-      (raw_length & UINT32_C(7)) != 0u ||
-      (uint64_t)ai->staged_address + (uint64_t)raw_length >
+      length > T64_AUDIO_MAX_PACKET_BYTES || (length & UINT32_C(7)) != 0u ||
+      (uint64_t)ai->staged_address + (uint64_t)length >
           (uint64_t)machine->profile.rdram_bytes ||
-      (ai->control & T64_AI_CONTROL_ENABLE) == 0u) {
+      !rate_pair_valid(ai->dacrate, ai->bitrate)) {
     return T64_STATUS_BUS_DEVICE_REFUSED;
   }
   if (ai->descriptor_count >= T64_AUDIO_QUEUE_CAPACITY) {
     return T64_STATUS_QUEUE_FULL;
   }
-  if (ai->descriptor_sequence == UINT64_MAX ||
-      (!ai->active && ai->event_generation == UINT64_MAX)) {
-    ai->sequence_exhausted = true;
+  if (ai->descriptor_sequence == UINT64_MAX) {
     return T64_STATUS_SEQUENCE_EXHAUSTED;
   }
-  if (!ai->active && ai->descriptor_count != 0u) {
+  if (!ai->active && ai->descriptor_count != 0u &&
+      (ai->control & T64_AI_CONTROL_ENABLE) != 0u) {
     return T64_STATUS_RESOURCE_EXHAUSTED;
   }
 
   descriptor.address = ai->staged_address;
-  descriptor.length = raw_length;
+  descriptor.length = length;
   descriptor.sequence = ai->descriptor_sequence + UINT64_C(1);
   descriptor.dacrate = ai->dacrate;
   descriptor.bitrate = ai->bitrate;
-  if (!ai->active) {
+  activate = !ai->active &&
+             (ai->control & T64_AI_CONTROL_ENABLE) != 0u;
+  if (activate) {
+    if (ai->event_generation == UINT64_MAX) {
+      return T64_STATUS_SEQUENCE_EXHAUSTED;
+    }
     token = ai->event_generation + UINT64_C(1);
     status = reserve_sample_event(machine, descriptor.dacrate, token,
                                   &remainder);
@@ -179,8 +225,10 @@ static t64_status submit_dma(t64_machine *machine, uint32_t raw_length) {
   ai->descriptor_count++;
   ai->descriptor_sequence = descriptor.sequence;
   ai->address_staged = false;
-  if (!ai->active) {
+  if (activate) {
     ai->active = true;
+    ai->paused = false;
+    ai->paused_remaining_ticks = 0u;
     ai->active_byte_cursor = 0u;
     ai->latched_dacrate = descriptor.dacrate;
     ai->latched_bitrate = descriptor.bitrate;
@@ -236,6 +284,11 @@ t64_status t64_ai_read_register(const t64_machine *machine, uint32_t address,
 t64_status t64_ai_write_register(t64_machine *machine, uint32_t address,
                                  uint32_t value) {
   t64_ai_state *ai;
+  uint32_t masked;
+  uint64_t event_tick;
+  uint64_t remaining_ticks;
+  t64_event_reservation reservation;
+  t64_status status;
 
   if (machine == NULL) return T64_STATUS_INVALID_ARGUMENT;
   if (!machine->has_image || !t64_has_ai_profile(machine)) {
@@ -244,11 +297,11 @@ t64_status t64_ai_write_register(t64_machine *machine, uint32_t address,
   ai = &machine->ai;
   switch (address) {
   case T64_AI_DRAM_ADDR:
-    if (value > T64_AI_ADDRESS_MASK || (value & UINT32_C(7)) != 0u ||
-        value >= machine->profile.rdram_bytes) {
+    masked = value & T64_AI_ADDRESS_MASK & UINT32_C(0x00fffff8);
+    if (masked >= machine->profile.rdram_bytes) {
       return T64_STATUS_BUS_DEVICE_REFUSED;
     }
-    ai->staged_address = value;
+    ai->staged_address = masked;
     ai->address_staged = true;
     return T64_STATUS_OK;
   case T64_AI_LEN:
@@ -257,23 +310,54 @@ t64_status t64_ai_write_register(t64_machine *machine, uint32_t address,
     if ((value & ~T64_AI_CONTROL_ENABLE) != 0u) {
       return T64_STATUS_BUS_DEVICE_REFUSED;
     }
-    ai->control = value;
+    if (value == 0u) {
+      if (ai->active && !ai->paused) {
+        status = t64_schedule_cancel(machine, T64_AI_DEVICE,
+                                     T64_AI_EVENT_SAMPLE, ai->event_token,
+                                     &event_tick);
+        if (status != T64_STATUS_OK) return status;
+        remaining_ticks = event_tick - machine->tick;
+        ai->paused = true;
+        ai->paused_remaining_ticks = remaining_ticks;
+      }
+      ai->control = 0u;
+      return T64_STATUS_OK;
+    }
+    if (ai->active && ai->paused) {
+      status = t64_schedule_reserve_after(
+          machine, ai->paused_remaining_ticks, T64_AI_DEVICE,
+          T64_AI_EVENT_SAMPLE, 0u, ai->event_token, t64_ai_event,
+          &reservation);
+      if (status != T64_STATUS_OK) return status;
+      status = t64_schedule_commit(machine, &reservation);
+      if (status != T64_STATUS_OK) return status;
+      ai->paused = false;
+      ai->paused_remaining_ticks = 0u;
+      ai->control = T64_AI_CONTROL_ENABLE;
+      return T64_STATUS_OK;
+    }
+    if (!ai->active && ai->descriptor_count > 0u) {
+      status = activate_queued_descriptor(machine);
+      if (status != T64_STATUS_OK) return status;
+    }
+    ai->control = T64_AI_CONTROL_ENABLE;
     return T64_STATUS_OK;
   case T64_AI_STATUS:
-    if (value != 0u) return T64_STATUS_BUS_DEVICE_REFUSED;
     t64_mi_clear_pending(machine, T64_MI_INTERRUPT_AI);
     return T64_STATUS_OK;
   case T64_AI_DACRATE:
-    if (value > T64_AI_DACRATE_MASK) {
+    masked = value & T64_AI_DACRATE_MASK;
+    if (ai->bitrate != 0u && !rate_pair_valid(masked, ai->bitrate)) {
       return T64_STATUS_BUS_DEVICE_REFUSED;
     }
-    ai->dacrate = value;
+    ai->dacrate = masked;
     return T64_STATUS_OK;
   case T64_AI_BITRATE:
-    if (value > T64_AI_BITRATE_MASK) {
+    masked = value & T64_AI_BITRATE_MASK;
+    if (!rate_pair_valid(ai->dacrate, masked)) {
       return T64_STATUS_BUS_DEVICE_REFUSED;
     }
-    ai->bitrate = value;
+    ai->bitrate = masked;
     return T64_STATUS_OK;
   default:
     return T64_STATUS_BUS_UNSUPPORTED;
@@ -285,7 +369,8 @@ bool t64_ai_event_waits_for_output_capacity(const t64_machine *machine,
   return machine != NULL && event != NULL &&
          event->device == T64_AI_DEVICE &&
          event->kind == T64_AI_EVENT_SAMPLE && t64_has_ai_profile(machine) &&
-         machine->ai.active && event->token == machine->ai.event_token &&
+         machine->ai.active && !machine->ai.paused &&
+         event->token == machine->ai.event_token &&
          !machine->ai.packet_reserved &&
          machine->ai.packet_count >= T64_AUDIO_QUEUE_CAPACITY;
 }
@@ -308,7 +393,7 @@ t64_status t64_ai_event(t64_machine *machine, const t64_event *event) {
     return T64_STATUS_INVALID_ARGUMENT;
   }
   ai = &machine->ai;
-  if (!ai->active || ai->descriptor_count == 0u ||
+  if (!ai->active || ai->paused || ai->descriptor_count == 0u ||
       event->token != ai->event_token) {
     return T64_STATUS_OK;
   }
@@ -407,6 +492,8 @@ t64_status t64_ai_event(t64_machine *machine, const t64_event *event) {
     }
     if (ai->descriptor_count == 0u) {
       ai->active = false;
+      ai->paused = false;
+      ai->paused_remaining_ticks = 0u;
     } else {
       descriptor = &ai->descriptors[ai->descriptor_head];
       ai->latched_dacrate = descriptor->dacrate;
@@ -422,7 +509,25 @@ t64_status t64_ai_event(t64_machine *machine, const t64_event *event) {
 }
 
 void t64_ai_reset_machine_state(t64_machine *machine) {
+  size_t offset;
+
   if (machine == NULL) return;
+  offset = 0u;
+  while (offset < machine->queue_count) {
+    const t64_event event =
+        machine->events[(machine->queue_head + offset) %
+                        T64_EVENT_QUEUE_CAPACITY];
+    if (event.device == T64_AI_DEVICE) {
+      uint64_t ignored_tick;
+      if (t64_schedule_cancel(machine, event.device, event.kind, event.token,
+                              &ignored_tick) != T64_STATUS_OK) {
+        offset++;
+      }
+    } else {
+      offset++;
+    }
+  }
+  t64_mi_clear_pending(machine, T64_MI_INTERRUPT_AI);
   (void)memset(&machine->ai, 0, sizeof machine->ai);
   if (machine->audio_packets != NULL) {
     (void)memset(machine->audio_packets, 0, T64_AUDIO_QUEUE_STORAGE_BYTES);

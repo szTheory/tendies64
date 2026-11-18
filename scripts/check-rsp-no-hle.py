@@ -225,7 +225,8 @@ REVIEWED_AI_FUNCTIONS = frozenset(
     {
         "copy_text", "dma_slot", "hash_completed_packet", "hash_u32",
         "hash_u64", "output_slot", "reserve_sample_event", "sample_delay",
-        "submit_dma", "t64_ai_event", "t64_ai_event_waits_for_output_capacity",
+        "rate_pair_valid", "activate_queued_descriptor", "submit_dma",
+        "t64_ai_event", "t64_ai_event_waits_for_output_capacity",
         "t64_ai_read_register", "t64_ai_reset_machine_state",
         "t64_ai_write_register", "t64_audio_copy", "t64_audio_info",
     }
@@ -240,6 +241,7 @@ REVIEWED_BODY_DIGESTS = {
     "core/t64_bus.c :: t64_bus_write_masked": "963205739dd3cc6d4b10f56fc4e31ed041a5a864f7ef90cdfc736fa842809506",
     "core/t64_bus.c :: t64_bus_writeback_cache_line": "00b198913012b79e8ff87fdc40822b2096e7d6f1ba9d9f8033f6e468e0621e80",
     "core/t64_scheduler.c :: event_can_dispatch": "f5431ca1ae2825a542aed2322e66690884daf473dac3503e0584d362807aaf81",
+    "core/t64_scheduler.c :: t64_schedule_cancel": "1be0f92eede2acb74e76498c87205e8c4cc9f99de742da23449a20a371eff2f5",
     "core/t64_ai.c :: copy_text": "2f10ff25b6593ac813ad6619ef1b6658fc199ad4fb78bce2ee098c3fcda8e600",
     "core/t64_ai.c :: dma_slot": "abcb84a0b8838cf092e198b6b5f9a558a1ba6c4b07469cb9061028bba087ec3a",
     "core/t64_ai.c :: hash_completed_packet": "82349ab87a068764bf386dc1d4d600fca9fd8d5ac19ac5d3968b706314299b3f",
@@ -248,12 +250,14 @@ REVIEWED_BODY_DIGESTS = {
     "core/t64_ai.c :: output_slot": "715e9ff0f74101c48f405619b8c61a929d561948437c2bc250ec0575b209f449",
     "core/t64_ai.c :: reserve_sample_event": "c5cb59837e043db61430dfc9a27e10dfca06adda9f3b7b7e21fc6bfe7a624c65",
     "core/t64_ai.c :: sample_delay": "88309f50efb4654b8ac780d5bd3c1e7161ee756743a900822ea5e1e80b6b3abf",
-    "core/t64_ai.c :: submit_dma": "cccbe142ec417ee2b0c33aa2a736ef7ce40679e08d7cbcc2d48d1284f8de6a3f",
-    "core/t64_ai.c :: t64_ai_event": "857a8a2821993d64e82ec6edb8a234152a9f24de7336139f5951b8d46c76f525",
-    "core/t64_ai.c :: t64_ai_event_waits_for_output_capacity": "acb0078dd2bb886b68acb23ac8c537eb352e1bc1d583c9a56289fa4a1774116c",
+    "core/t64_ai.c :: activate_queued_descriptor": "b427910f85a30276e28b0a238f68d5c9d37f6960e5de89141a06a66915494d27",
+    "core/t64_ai.c :: rate_pair_valid": "68cfa2fa8be2d17ba16ded00fe8f63559b7eb446a1db22d37d1f9affe4580dbc",
+    "core/t64_ai.c :: submit_dma": "99fdddb112b99e30846da27d12d03270c80cb666e24a644433635f11a126b063",
+    "core/t64_ai.c :: t64_ai_event": "8bb7aa9a72e7c9be3c1546112a18bfd4cbc9016f65bc57de3b5baffc69bc1739",
+    "core/t64_ai.c :: t64_ai_event_waits_for_output_capacity": "7dae7a9d89a0e47b14b2c2517f9b05a4b249bae1e4a4f1d598a0ba30983c8d56",
     "core/t64_ai.c :: t64_ai_read_register": "e2bd08a3af82759c4ba065ece2e11aa60848b0044a10fdf4e01f66af9cc02284",
-    "core/t64_ai.c :: t64_ai_reset_machine_state": "5356961eb340c491f97057c2c470d9094742545735195c816e714a2d9a32199e",
-    "core/t64_ai.c :: t64_ai_write_register": "f7e044fa3d26366fb970c62fadad3d8349168e6021283fbf8c34bfbdf95d4d1a",
+    "core/t64_ai.c :: t64_ai_reset_machine_state": "6fe0e4ae3f5203072e13c5bd94bdb62d08cb9ffaf0a19fdaffa07510f94a3c1c",
+    "core/t64_ai.c :: t64_ai_write_register": "b9e6112bb4bbe6f1e9a5f3da20e6a099e19547f59c68551ddf1fbc68a2d2c110",
     "core/t64_ai.c :: t64_audio_copy": "a655c179545c078317e5b95bde272153b6ff34b6c480aae7972a46d0223cc5f1",
     "core/t64_ai.c :: t64_audio_info": "8f30f9fb3670f82d509a67e499300cb7092f8f06f22df60ea8fdec0a1a977031",
     "core/t64_pi.c :: t64_pi_complete": "7edd3c4b64276a9b6698cb13f16b91a183f400cee26347b350b49bccb69e36af",
@@ -753,6 +757,9 @@ def _check_source_route(root: pathlib.Path) -> tuple[list[str], list[str], int]:
         "core/t64_bus.c :: t64_bus_writeback_cache_line": function_body(bus, "t64_bus_writeback_cache_line"),
         "core/t64_scheduler.c :: event_can_dispatch": function_body(
             scheduler, "event_can_dispatch"
+        ),
+        "core/t64_scheduler.c :: t64_schedule_cancel": function_body(
+            scheduler, "t64_schedule_cancel"
         ),
         "core/t64_pi.c :: t64_pi_complete": function_body(pi, "t64_pi_complete"),
         "core/t64_rsp.c :: rsp_read_imem_word": function_body(rsp, "rsp_read_imem_word"),

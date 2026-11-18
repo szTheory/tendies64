@@ -816,9 +816,11 @@ typedef struct {
   size_t packet_head;
   size_t packet_count;
   bool active;
+  bool paused;
   bool address_staged;
   bool packet_reserved;
   bool sequence_exhausted;
+  uint64_t paused_remaining_ticks;
   uint64_t packet_history_count;
   uint8_t packet_history_sha256[T64_DIGEST_SIZE];
 } t64_ai_state;
@@ -1121,6 +1123,9 @@ t64_status t64_schedule_reserve_after(t64_machine *machine, uint64_t delay,
                                       t64_event_reservation *reservation_out);
 t64_status t64_schedule_commit(t64_machine *machine,
                                t64_event_reservation *reservation);
+t64_status t64_schedule_cancel(t64_machine *machine, uint32_t device,
+                               uint32_t kind, uint64_t token,
+                               uint64_t *tick_out);
 t64_status t64_input_event_handler(t64_machine *machine,
                                    const t64_event *event);
 t64_status t64_scheduler_advance(t64_machine *machine,

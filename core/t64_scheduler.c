@@ -189,6 +189,40 @@ t64_status t64_schedule_commit(t64_machine *machine,
   return T64_STATUS_OK;
 }
 
+t64_status t64_schedule_cancel(t64_machine *machine, uint32_t device,
+                               uint32_t kind, uint64_t token,
+                               uint64_t *tick_out) {
+  size_t offset;
+  size_t match_offset = 0u;
+  uint64_t match_tick = 0u;
+  bool found = false;
+
+  if (machine == NULL || tick_out == NULL) {
+    return T64_STATUS_INVALID_ARGUMENT;
+  }
+  for (offset = 0u; offset < machine->queue_count; offset++) {
+    const t64_event *event = &machine->events[event_index(machine, offset)];
+    if (event->device == device && event->kind == kind &&
+        event->token == token) {
+      if (found) return T64_STATUS_RESOURCE_EXHAUSTED;
+      match_offset = offset;
+      match_tick = event->tick;
+      found = true;
+    }
+  }
+  if (!found) return T64_STATUS_NOT_READY;
+  if (match_tick < machine->tick) return T64_STATUS_TIME_REVERSED;
+
+  for (offset = match_offset; offset + 1u < machine->queue_count; offset++) {
+    machine->events[event_index(machine, offset)] =
+        machine->events[event_index(machine, offset + 1u)];
+  }
+  machine->queue_count--;
+  if (machine->queue_count == 0u) machine->queue_head = 0u;
+  *tick_out = match_tick;
+  return T64_STATUS_OK;
+}
+
 t64_status t64_test_schedule_synthetic(t64_machine *machine, uint64_t tick,
                                        uint32_t kind, uint64_t value) {
   t64_event_reservation reservation;
