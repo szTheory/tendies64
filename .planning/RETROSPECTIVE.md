@@ -372,3 +372,8 @@ record existing command receipts without expanding narrative or repeating tests.
 Distinguish active monotonic command time from wall time across laptop sleep.
 Inspect attributable old processes before cleanup, preserve unrelated jobs, and
 do not credit sleeping-orphan cleanup as a measured speedup.
+
+Use the workflow's recognized `status: halted` for a completed preparation that
+preserves a genuine downstream stop. A custom completion status can leave the
+dependency index calling the stopped successor ready; check the actual index
+after closeout and retain the concrete blocker in both machine and prose state.

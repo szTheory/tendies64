@@ -10,7 +10,9 @@ provides:
   - Reviewed fail-closed authority admission with separate publication permission
 requirements-completed: []
 requirements-contributed: [VID-04]
-status: complete-with-existing-stop
+status: halted
+authored_preparation: complete
+halt_reason: Actual oracle authority, rights and replay readiness unresolved
 completed: 2026-11-18
 plan_head_before: a0c63533cbb1addda91931773b2caa6839ef9752
 plan_head_after: d12125e21e69bf614344b105fa4abaa70f9ea9da
