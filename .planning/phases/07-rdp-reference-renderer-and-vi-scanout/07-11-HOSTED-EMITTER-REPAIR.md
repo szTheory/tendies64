@@ -37,3 +37,18 @@ ASan/UBSan and GCC C-source results remain bound to their actual artifacts;
 no C/build/fixture/spec input changed. Scoped helper tests and a required normal
 gate will qualify the harness delta before a new hosted source run. No private
 guest replay, oracle use, widened limit, dependency or new CI job is involved.
+
+The [focused independent review](07-11-HOSTED-EMITTER-REVIEW.md) found no issue
+in this changed path. The follow-up complete normal gate passed atbdf4948 in
+60.269s, and the owning ASan-preset harness passed in2.03s with unique JUnit and
+before/after LastTest retained. The gate receipt survived an orchestration
+formatter's wrong timing-key lookup; only the previously unreached ASan tail
+was then run. The successful normal gate was not repeated for that formatter.
+
+The final93 normal artifacts were copied and hash-verified; all95 original
+sanitizer artifact pairs were reverified unchanged. Source comparison confirms
+no C, build, fixture, spec or workflow input changed since the complete original
+native matrix. Binding, command/outcome/log and LastTest/JUnit originals are at
+`build/gate/07-11-hosted-emitter-repair/qualified-followup/`. An actual single-job
+combined upload also passed the final PII and rights entrypoints. This remains
+local authored evidence; a new successful hosted raw pair is still required.

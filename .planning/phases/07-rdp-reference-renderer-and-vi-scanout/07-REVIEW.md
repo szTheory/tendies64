@@ -1,7 +1,7 @@
 ---
 phase: 07-rdp-reference-renderer-and-vi-scanout
 source_plan: "07-11"
-source_base: 2c8e9ef487792970b588b14ea253f4a706d0a861
+source_base: bdf4948108792055848e6c8ac201b1def0adfedc
 status: clean
 findings:
   critical: 0

@@ -1,7 +1,7 @@
 ---
 phase: 07-rdp-reference-renderer-and-vi-scanout
 source_plan: "07-11"
-source_head: 2c8e9ef487792970b588b14ea253f4a706d0a861
+source_head: bdf4948108792055848e6c8ac201b1def0adfedc
 status: clean
 findings:
   critical: 0
@@ -28,3 +28,10 @@ The independent security audit verified the implemented authored scope without
 reachable high/critical mitigation gaps. Its full phase register still has
 three open, unimplemented future oracle rows. Phase07/VID-04 remain incomplete;
 no oracle or release authority follows from this review.
+
+The first hosted gates passed but the real emission entry failed before raw
+production. Its [independent repair review](07-11-HOSTED-EMITTER-REVIEW.md)
+closes the directory-lifecycle bug and verifies isolated real-entry coverage.
+The complete normal gate and owning sanitizer-preset harness pass after the
+Python-only correction; original full C-source instrumentation/compiler
+evidence and both generations of exact artifacts remain retained.

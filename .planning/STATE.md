@@ -6,11 +6,11 @@ current_phase: 07
 current_plan: "11"
 current_phase_name: RDP Reference Renderer and VI Scanout
 status: executing
-stopped_at: Plan11 reviewed and locally qualified; exact hosted raw evidence next
-last_updated: "2026-11-18T02:43:00.078954+00:00"
+stopped_at: Plan11 hosted emitter repaired and requalified; fresh hosted raw pair next
+last_updated: "2026-11-18T03:13:15.773413+00:00"
 last_activity: 2026-11-17
-last_activity_desc: Plan11 normal gate, full sanitizers and GCC passed; hosted collection pending
-state_head: 2c8e9ef487792970b588b14ea253f4a706d0a861
+last_activity_desc: Hosted gates passed but emitter setup failed; real-entry repair passed review and affected qualification
+state_head: bdf4948108792055848e6c8ac201b1def0adfedc
 progress:
   total_phases: 3
   completed_phases: 0
@@ -60,8 +60,10 @@ Plan11's independently reviewed source passed the complete normal gate, full
 ASan/UBSan inventory and pinned GCC13 changed-source check. Exact binaries and
 original stage records are retained and hash-verified. The implemented authored
 security scope has no reachable high/critical mitigation gaps; three future
-oracle rows remain open in the whole-phase register. Publish the qualification
-checkpoint, collect its exact successful hosted SHA/run/attempt/job ZIP bytes,
+oracle rows remain open in the whole-phase register. The first hosted gates passed but emission stopped before raw production.
+The reviewed emitter repair passed a fresh normal gate and owning sanitizer
+harness; original full C-source instrumentation/compiler evidence is retained.
+Publish the repaired checkpoint, collect its exact successful hosted SHA/run/attempt/job ZIP bytes,
 and verify decoded authored RDRAM/VI evidence. Then close Plan11 bookkeeping.
 No user action is needed for this remaining authored work. D2/D5/D6 and expired
 private windows remain stopped; Plan12/13 and VID-04 stay incomplete.

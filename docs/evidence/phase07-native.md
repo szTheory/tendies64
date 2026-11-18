@@ -30,7 +30,7 @@ The known authored color expectations are independent comparators. Public JSON
 contains a canonical hex projection of those actual bytes, never a copied
 expected frame or cartridge/boot bytes. Private originals remain retained.
 
-Live hosted raw-artifact collection is pending this checkpoint's push. Local
+Exact successful hosted raw-artifact collection remains pending. Local
 mock transport verifies layout and refusal behavior only. No oracle agreement,
 silicon behavior, broad ROM compatibility or VID-04 completion follows.
 
@@ -38,3 +38,10 @@ The first checkpoint's hosted gates passed, but its new emission entry stopped
 before raw production. The [setup repair](../../.planning/phases/07-rdp-reference-renderer-and-vi-scanout/07-11-HOSTED-EMITTER-REPAIR.md)
 adds a reached real-entry regression to cheap preflight. A fresh successful
 hosted raw pair remains required; this failure does not replace that evidence.
+
+The harness-only repair passed focused independent review, a fresh complete
+normal gate in60.269s and its owning sanitizer-preset harness in2.03s. C/build/
+fixture/spec/workflow inputs are unchanged; the original full instrumented and
+GCC evidence remains bound to its actual earlier artifacts. Updated normal
+binaries are retained separately. A single-job combined upload passed the
+actual privacy and rights entrypoints before the hosted retry.

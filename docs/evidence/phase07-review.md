@@ -25,3 +25,11 @@ transport does not authenticate a hosted workflow or artifact.
 The [native qualification](phase07-native.md) passed after source review.
 Future oracle implementation and whole-phase security sign-off remain blocked;
 this source review does not establish VID-04 or hardware accuracy.
+
+The first real hosted emission revealed a directory-lifecycle bug in the
+actual entry, distinct from the layout helper. The
+[entry repair review](../../.planning/phases/07-rdp-reference-renderer-and-vi-scanout/07-11-HOSTED-EMITTER-REVIEW.md)
+closed this path after a reached old-entry refusal and passing actual-entry
+regression. Cheap preflight now runs that regression before a long matrix.
+The required normal gate and affected sanitizer-preset harness passed again;
+unchanged C-source compiler and full instrumented evidence was retained.
