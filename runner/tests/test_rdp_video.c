@@ -480,7 +480,22 @@ static bool emit_actual_raw_export(const t64_video_observation *actual) {
   int packet_path_length;
   int metadata_path_length;
   int metadata_length;
+  size_t build_id_length;
+  size_t build_id_offset;
   if (directory == NULL || directory[0] == '\0') return true;
+  build_id_length = strlen(actual->build_id);
+  if (build_id_length != 77u ||
+      memcmp(actual->build_id, "t64-build-v1-", 13u) != 0) {
+    return false;
+  }
+  for (build_id_offset = 13u; build_id_offset < build_id_length;
+       build_id_offset++) {
+    char digit = actual->build_id[build_id_offset];
+    if (!((digit >= '0' && digit <= '9') ||
+          (digit >= 'a' && digit <= 'f'))) {
+      return false;
+    }
+  }
   source_path_length = snprintf(source_path, sizeof source_path,
                                 "%s/rdram.bin", directory);
   packet_path_length = snprintf(packet_path, sizeof packet_path,
@@ -613,6 +628,7 @@ static int run_case(test_case_id id, char *supervisor,
         return 1;
       }
     }
+    puts("accepted raw pixel comparator reached: authored bytes match t64_video_copy output");
     if (!emit_actual_raw_export(&actual)) {
       fprintf(stderr, "could not export actual raw RDRAM/VI observation\n");
       return 1;

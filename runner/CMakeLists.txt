@@ -380,6 +380,14 @@ set_tests_properties(
   controls.real.rdp-replacement-fixture PROPERTIES
   LABELS "runner;controls" TIMEOUT 120)
 
+# Original-record and raw-byte qualification stays in the normal gate. Its
+# subprocess controls run the actual accepted consumer before mutation checks.
+add_test(NAME harness.rdp-vi-qualification
+  COMMAND python3 -B ${CMAKE_SOURCE_DIR}/scripts/tests/test_rdp_vi_qualification.py)
+set_tests_properties(harness.rdp-vi-qualification PROPERTIES
+  LABELS runner TIMEOUT 120
+  ENVIRONMENT "PYTHONDONTWRITEBYTECODE=1")
+
 # Descriptor-attested actual IPL3/hello positive integration.
 add_executable(test_real_runner tests/test_real_runner.c)
 target_compile_definitions(test_real_runner PRIVATE ${T64_HOST_DEFS})

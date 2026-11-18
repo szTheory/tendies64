@@ -167,7 +167,8 @@ unit.core.rdp.depth
 runner.rdp-fill
 controls.real.rdp-wrong-pixel
 controls.real.rdp-replacement-fixture
-controls.real.rdp-drain-cadence'
+controls.real.rdp-drain-cadence
+harness.rdp-vi-qualification'
 
 CPU_COVERAGE_OPCODES='ADD
 ADDU

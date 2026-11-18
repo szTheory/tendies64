@@ -30,7 +30,7 @@
 #   CI-REQUIRED-STEP     jobs and steps cannot weaken required success semantics
 #   CI-SECRETS           no secrets reference in any spelling (secrets.X, secrets['X'], secrets[...],
 #                        toJSON(secrets)) and no token (github.token, github['token'], toJSON(github))
-#   CI-UPLOAD-ARTIFACT   both existing gate jobs upload one exact sanitized JSON after both scans
+#   CI-UPLOAD-ARTIFACT   both existing gate jobs upload one exact sanitized evidence directory after both scans
 #   CI-EXPR-IN-RUN       no expression in a run line
 #   CI-GATE-EXEC         the gate script is executable
 #   CI-ZERO-JOBS         the workflow defines no jobs
@@ -72,7 +72,7 @@ scan_yml() {
       ischeckout = 0; pc = 0; fd = 0
     }
     function expected_artifact_name() {
-      return "t64-boot-evidence-${{ github.sha }}-${{ github.run_id }}-${{ github.run_attempt }}-${{ github.job }}"
+      return "t64-authored-evidence-${{ github.sha }}-${{ github.run_id }}-${{ github.run_attempt }}-${{ github.job }}"
     }
     function closejob() {
       if (job != "") {
@@ -85,31 +85,35 @@ scan_yml() {
           vjob("CI-RUNNER-LABEL", "gate-linux must run on ubuntu-24.04")
         if (job == "gate-macos" && job_runs_on != "macos-26")
           vjob("CI-RUNNER-LABEL", "gate-macos must run on macos-26")
-        if (job_runs != 4 || gate_runs != 1 || emit_runs != 1 ||
-            rights_runs != 1 || pii_runs != 1)
+        if (job_runs != 6 || gate_runs != 1 || raw_emit_runs != 1 || emit_runs != 1 ||
+            rights_runs != 1 || pii_runs != 1 || raw_pii_runs != 1)
           vjob("CI-RUN-LINE", "job must run the gate and each exact evidence command once")
-        if (step_count != 6 || checkout_step_count != 1 || gate_step_count != 1 ||
-            emit_step_count != 1 || rights_step_count != 1 || pii_step_count != 1 ||
+        if (step_count != 8 || checkout_step_count != 1 || gate_step_count != 1 ||
+            raw_emit_step_count != 1 || emit_step_count != 1 || rights_step_count != 1 ||
+            pii_step_count != 1 || raw_pii_step_count != 1 ||
             upload_step_count != 1 ||
             !(checkout_step_line < gate_step_line && gate_step_line < emit_step_line &&
+              gate_step_line < raw_emit_step_line && raw_emit_step_line < emit_step_line &&
               emit_step_line < rights_step_line && rights_step_line < pii_step_line &&
-              pii_step_line < upload_step_line) ||
-            !(gate_run_line > gate_step_line && gate_run_line < emit_step_line &&
+              pii_step_line < raw_pii_step_line && raw_pii_step_line < upload_step_line) ||
+            !(gate_run_line > gate_step_line && gate_run_line < raw_emit_step_line &&
+              raw_emit_run_line > raw_emit_step_line && raw_emit_run_line < emit_step_line &&
               emit_run_line > emit_step_line && emit_run_line < rights_step_line &&
               rights_run_line > rights_step_line && rights_run_line < pii_step_line &&
-              pii_run_line > pii_step_line && pii_run_line < upload_step_line))
+              pii_run_line > pii_step_line && pii_run_line < raw_pii_step_line &&
+              raw_pii_run_line > raw_pii_step_line && raw_pii_run_line < upload_step_line))
           vjob("CI-UPLOAD-ARTIFACT", "gate, emitter, staged scans, and upload steps must be uniquely named and ordered")
         if (upload_actions != 1 || upload_name_count != 1 ||
             upload_path_count != 1 || upload_missing_count != 1)
           vjob("CI-UPLOAD-ARTIFACT", "job must upload exactly one scoped record with exact name, path, and error-on-missing")
         if (job == "gate-linux") {
           linux_jobs++
-          if (upload_path != "build/evidence/gate-linux.json")
-            vjob("CI-UPLOAD-ARTIFACT", "gate-linux may upload only build/evidence/gate-linux.json")
+          if (upload_path != "build/evidence/combined/gate-linux")
+            vjob("CI-UPLOAD-ARTIFACT", "gate-linux may upload only its exact combined authored evidence directory")
         } else if (job == "gate-macos") {
           macos_jobs++
-          if (upload_path != "build/evidence/gate-macos.json")
-            vjob("CI-UPLOAD-ARTIFACT", "gate-macos may upload only build/evidence/gate-macos.json")
+          if (upload_path != "build/evidence/combined/gate-macos")
+            vjob("CI-UPLOAD-ARTIFACT", "gate-macos may upload only its exact combined authored evidence directory")
         } else {
           vjob("CI-UPLOAD-ARTIFACT", "only gate-linux and gate-macos jobs are permitted")
         }
@@ -154,9 +158,11 @@ scan_yml() {
       if (body ~ /^run[ \t]*:/) {
         nruns++; job_runs++
         if (val == "./scripts/gate.sh") { gate_runs++; gate_run_line = NR }
+        else if (val == "python3 -B scripts/qualify-rdp-vi.py --emit-hosted --job \"$GITHUB_JOB\" --sha \"$GITHUB_SHA\"") { raw_emit_runs++; raw_emit_run_line = NR }
         else if (val == "sh scripts/collect-boot-evidence.sh --emit") { emit_runs++; emit_run_line = NR }
         else if (val == "sh scripts/rights-scan.sh --staging build/evidence") { rights_runs++; rights_run_line = NR }
         else if (val == "sh scripts/collect-boot-evidence.sh --scan-pii") { pii_runs++; pii_run_line = NR }
+        else if (val == "python3 -B scripts/qualify-rdp-vi.py --scan-pii") { raw_pii_runs++; raw_pii_run_line = NR }
         else viol("CI-RUN-LINE", "run lines must use the canonical gate and exact evidence commands")
         if (line ~ /\$\{\{/) viol("CI-EXPR-IN-RUN", "an expression in a run line is an injection path")
       }
@@ -192,16 +198,20 @@ scan_yml() {
         job = key; njobs++
         hascontents = 0; hastimeout = 0; hasruns = 0; inperm = 0
         job_control = 0; job_runs_on = ""
-        job_runs = 0; gate_runs = 0; emit_runs = 0; rights_runs = 0; pii_runs = 0
+        job_runs = 0; gate_runs = 0; raw_emit_runs = 0; emit_runs = 0
+        rights_runs = 0; pii_runs = 0; raw_pii_runs = 0
         step_count = 0; checkout_step_count = 0; gate_step_count = 0
-        emit_step_count = 0; rights_step_count = 0; pii_step_count = 0
+        raw_emit_step_count = 0; emit_step_count = 0; rights_step_count = 0
+        pii_step_count = 0; raw_pii_step_count = 0
         upload_step_count = 0; upload_actions = 0
         upload_name_count = 0; upload_path_count = 0; upload_missing_count = 0
         upload_name = ""; upload_path = ""; upload_action = 0; in_upload_with = 0
         current_step = ""
-        checkout_step_line = 0; gate_step_line = 0; emit_step_line = 0
-        rights_step_line = 0; pii_step_line = 0; upload_step_line = 0
-        gate_run_line = 0; emit_run_line = 0; rights_run_line = 0; pii_run_line = 0
+        checkout_step_line = 0; gate_step_line = 0; raw_emit_step_line = 0
+        emit_step_line = 0; rights_step_line = 0; pii_step_line = 0
+        raw_pii_step_line = 0; upload_step_line = 0
+        gate_run_line = 0; raw_emit_run_line = 0; emit_run_line = 0
+        rights_run_line = 0; pii_run_line = 0; raw_pii_run_line = 0
         next
       }
 
@@ -229,10 +239,12 @@ scan_yml() {
           upload_action = 0; in_upload_with = 0
           if (current_step == "Checkout") { checkout_step_count++; checkout_step_line = NR }
           else if (current_step == "Gate") { gate_step_count++; gate_step_line = NR }
+          else if (current_step == "Emit authored raw RDP VI evidence") { raw_emit_step_count++; raw_emit_step_line = NR }
           else if (current_step == "Emit guest evidence") { emit_step_count++; emit_step_line = NR }
           else if (current_step == "Rights scan sanitized output") { rights_step_count++; rights_step_line = NR }
           else if (current_step == "PII scan sanitized output") { pii_step_count++; pii_step_line = NR }
-          else if (current_step == "Upload sanitized guest evidence") { upload_step_count++; upload_step_line = NR }
+          else if (current_step == "PII scan authored raw RDP VI evidence") { raw_pii_step_count++; raw_pii_step_line = NR }
+          else if (current_step == "Upload sanitized authored evidence") { upload_step_count++; upload_step_line = NR }
         }
         if (ind == 8 && !isitem && (field == "if" || field == "continue-on-error"))
           vjob("CI-REQUIRED-STEP", "step-level if and continue-on-error controls are forbidden")
@@ -246,7 +258,7 @@ scan_yml() {
             upload_path_count++; upload_path = val
           } else if (key == "if-no-files-found") {
             upload_missing_count++
-            if (val != "error") vjob("CI-UPLOAD-ARTIFACT", "upload must fail when its JSON file is absent")
+            if (val != "error") vjob("CI-UPLOAD-ARTIFACT", "upload must fail when its evidence directory is absent")
           } else {
             vjob("CI-UPLOAD-ARTIFACT", "upload may contain only name, path, and if-no-files-found")
           }
@@ -263,7 +275,7 @@ scan_yml() {
           upload_action = 1
           if (val != "actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02")
             vjob("CI-UPLOAD-ARTIFACT", "upload-artifact must use the verified v4.6.2 full commit pin")
-          if (current_step != "Upload sanitized guest evidence")
+          if (current_step != "Upload sanitized authored evidence")
             vjob("CI-UPLOAD-ARTIFACT", "upload-artifact must be the final named job step")
         }
       }
@@ -278,8 +290,8 @@ scan_yml() {
         if (njobs != 2 || linux_jobs != 1 || macos_jobs != 1) {
           printf "CI-UPLOAD-ARTIFACT %s: exactly one gate-linux and one gate-macos job are required\n", file; nviol++
         }
-        if (nruns != 8) {
-          printf "CI-RUN-LINE %s: expected eight gate/evidence commands across two jobs, found %d\n", file, nruns; nviol++
+        if (nruns != 12) {
+          printf "CI-RUN-LINE %s: expected twelve gate/evidence commands across two jobs, found %d\n", file, nruns; nviol++
         }
       }
     }
@@ -394,8 +406,9 @@ selftest() {
   expect CI-TIMEOUT "a job without a timeout" "$W/timeout.yml"
 
   # Required jobs and steps cannot be skipped or have failures softened.
-  for _step in "Gate" "Emit guest evidence" "Rights scan sanitized output" \
-    "PII scan sanitized output" "Upload sanitized guest evidence"; do
+  for _step in "Gate" "Emit authored raw RDP VI evidence" "Emit guest evidence" \
+    "Rights scan sanitized output" "PII scan sanitized output" \
+    "PII scan authored raw RDP VI evidence" "Upload sanitized authored evidence"; do
     _label=$(printf '%s' "$_step" | tr '[:upper:] ' '[:lower:]-')
     inject_step_key "$_step" continue-on-error true "soft-$_label"
     expect CI-REQUIRED-STEP "$_step with continue-on-error enabled" "$W/soft-$_label.yml"
@@ -421,11 +434,11 @@ selftest() {
   expect CI-UPLOAD-ARTIFACT "an unverified upload-artifact pin" "$W/upload-pin.yml"
   mut upload-name 's|github.run_attempt|github.run_id|'
   expect CI-UPLOAD-ARTIFACT "an artifact name with the wrong run selector" "$W/upload-name.yml"
-  mut upload-path 's|build/evidence/gate-linux.json|build/evidence/other.json|'
-  expect CI-UPLOAD-ARTIFACT "an upload path outside the exact Linux evidence file" "$W/upload-path.yml"
+  mut upload-path 's|build/evidence/combined/gate-linux|build/evidence/combined/other|'
+  expect CI-UPLOAD-ARTIFACT "an upload path outside the exact Linux combined evidence directory" "$W/upload-path.yml"
   mut upload-missing-policy 's|if-no-files-found: error|if-no-files-found: warn|'
   expect CI-UPLOAD-ARTIFACT "an upload that succeeds when its file is missing" "$W/upload-missing-policy.yml"
-  sed '/^      - name: Upload sanitized guest evidence$/,/^          if-no-files-found: error$/d' "$REAL" > "$W/upload-missing.yml"
+  sed '/^      - name: Upload sanitized authored evidence$/,/^          if-no-files-found: error$/d' "$REAL" > "$W/upload-missing.yml"
   expect CI-UPLOAD-ARTIFACT "a job with its evidence upload removed" "$W/upload-missing.yml"
   mut expr 's|run: ./scripts/gate.sh|run: ./scripts/gate.sh ${{ github.head_ref }}|'
   expect CI-EXPR-IN-RUN "an expression in a run line" "$W/expr.yml"

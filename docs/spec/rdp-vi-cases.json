@@ -1,6 +1,7 @@
 {
   "schema": "t64.rdp-vi-case-inventory",
   "schema_version": 1,
+  "qualification_ctest": "harness.rdp-vi-qualification",
   "suites": {
     "dp": {
       "ctest": [

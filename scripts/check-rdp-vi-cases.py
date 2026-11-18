@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import re
 import shutil
 import subprocess
 import sys
@@ -84,6 +85,7 @@ def main() -> int:
         if not isinstance(binaries, list) or not binaries:
             raise ValueError("suite binaries must be a nonempty list")
         parsed_binaries: list[tuple[Path, list[str]]] = []
+        all_binary_cases: dict[str, list[str]] = {}
         paths: set[str] = set()
         for entry in binaries:
             if not isinstance(entry, dict) or not isinstance(entry.get("path"), str):
@@ -95,6 +97,27 @@ def main() -> int:
             parsed_binaries.append(
                 (build_dir / relative, unique_nonempty(entry.get("cases"), f"{relative} cases"))
             )
+        source_ctests: list[str] = []
+        for source_suite in suites.values():
+            if not isinstance(source_suite, dict):
+                raise ValueError("inventory suite entry must be an object")
+            for name in unique_nonempty(source_suite.get("ctest"), "source CTest names"):
+                if name not in source_ctests:
+                    source_ctests.append(name)
+            for binary_entry in source_suite.get("binaries", []):
+                if not isinstance(binary_entry, dict) or not isinstance(binary_entry.get("path"), str):
+                    raise ValueError("source binary entry must have a relative path")
+                relative = binary_entry["path"]
+                cases = unique_nonempty(binary_entry.get("cases"), f"{relative} source cases")
+                aggregate = all_binary_cases.setdefault(relative, [])
+                for case in cases:
+                    if case not in aggregate:
+                        aggregate.append(case)
+        qualification_ctest = inventory.get("qualification_ctest")
+        if qualification_ctest != "harness.rdp-vi-qualification":
+            raise ValueError("qualification harness CTest registration is missing")
+        if qualification_ctest not in source_ctests:
+            source_ctests.append(qualification_ctest)
     except (OSError, json.JSONDecodeError, ValueError, AttributeError) as error:
         return fail(str(error))
 
@@ -120,13 +143,18 @@ def main() -> int:
         names = [test["name"] for test in discovered.get("tests", [])]
         if len(names) != len(set(names)):
             raise ValueError("CTest discovery contains duplicate names")
-        missing = sorted(set(expected_ctest) - set(names))
+        missing = sorted(set(source_ctests) - set(names))
         if missing:
-            raise ValueError("registered CTest names are missing: " + ", ".join(missing))
+            raise ValueError("registered RDP/VI CTest names are missing: " + ", ".join(missing))
+        discovered_ctests = build_dir / f"{artifact_prefix}-after-case-discovery.log"
+        if last_test.is_file():
+            shutil.copy2(last_test, discovered_ctests)
+        else:
+            discovered_ctests.write_text("LastTest.log absent after discovery\n", encoding="utf-8")
     except (json.JSONDecodeError, KeyError, TypeError, ValueError) as error:
         return fail(str(error))
 
-    for binary, expected_cases in parsed_binaries:
+    for binary, _suite_cases in parsed_binaries:
         if not binary.is_file():
             return fail(f"case-list binary is missing after build: {binary}")
         listed = run([str(binary), "--list-cases"])
@@ -136,9 +164,10 @@ def main() -> int:
         actual_cases = listed.stdout.splitlines()
         if not actual_cases or len(actual_cases) != len(set(actual_cases)):
             return fail(f"{binary.relative_to(build_dir)} case list is empty or duplicated")
+        expected_cases = all_binary_cases[binary.relative_to(build_dir).as_posix()]
         if actual_cases != expected_cases:
             return fail(
-                f"{binary.relative_to(build_dir)} cases differ from inventory: "
+                f"{binary.relative_to(build_dir)} source-derived cases differ from inventory: "
                 f"expected {expected_cases!r}, got {actual_cases!r}"
             )
 
@@ -151,7 +180,8 @@ def main() -> int:
         shutil.copy2(last_test, before_run)
     else:
         before_run.write_text("LastTest.log absent before suite run\n", encoding="utf-8")
-    regex = "^(" + "|".join(expected_ctest) + ")$"
+    regex = "^(" + "|".join(re.escape(name) for name in expected_ctest) + ")$"
+    junit_path = build_dir / f"{artifact_prefix}-{args.suite}-junit.xml"
     command = [
         "ctest",
         "--test-dir",
@@ -160,6 +190,8 @@ def main() -> int:
         "--output-on-failure",
         "-R",
         regex,
+        "--output-junit",
+        str(junit_path),
     ]
     command_path = build_dir / f"{artifact_prefix}-{args.suite}-command.json"
     command_path.write_text(json.dumps(command, indent=2) + "\n", encoding="utf-8")
@@ -173,6 +205,14 @@ def main() -> int:
     (build_dir / f"{artifact_prefix}-{args.suite}-exit-status.txt").write_text(
         f"{result.returncode}\n", encoding="utf-8"
     )
+    (build_dir / f"{artifact_prefix}-{args.suite}-stdout.log").write_text(
+        result.stdout, encoding="utf-8"
+    )
+    (build_dir / f"{artifact_prefix}-{args.suite}-stderr.log").write_text(
+        result.stderr, encoding="utf-8"
+    )
+    if result.returncode == 0 and not junit_path.is_file():
+        return fail(f"{args.suite} suite passed without its unique JUnit archive")
     output(result)
     if result.returncode != 0:
         return fail(f"{args.suite} suite failed with exit status {result.returncode}")

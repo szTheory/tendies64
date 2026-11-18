@@ -26,17 +26,21 @@ jobs:
           fetch-depth: 0
       - name: Gate
         run: ./scripts/gate.sh
+      - name: Emit authored raw RDP VI evidence
+        run: python3 -B scripts/qualify-rdp-vi.py --emit-hosted --job "$GITHUB_JOB" --sha "$GITHUB_SHA"
       - name: Emit guest evidence
         run: sh scripts/collect-boot-evidence.sh --emit
       - name: Rights scan sanitized output
         run: sh scripts/rights-scan.sh --staging build/evidence
       - name: PII scan sanitized output
         run: sh scripts/collect-boot-evidence.sh --scan-pii
-      - name: Upload sanitized guest evidence
+      - name: PII scan authored raw RDP VI evidence
+        run: python3 -B scripts/qualify-rdp-vi.py --scan-pii
+      - name: Upload sanitized authored evidence
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02  # v4.6.2
         with:
-          name: t64-boot-evidence-${{ github.sha }}-${{ github.run_id }}-${{ github.run_attempt }}-${{ github.job }}
-          path: build/evidence/gate-linux.json
+          name: t64-authored-evidence-${{ github.sha }}-${{ github.run_id }}-${{ github.run_attempt }}-${{ github.job }}
+          path: build/evidence/combined/gate-linux
           if-no-files-found: error
 
   gate-macos:
@@ -52,15 +56,19 @@ jobs:
           fetch-depth: 0
       - name: Gate
         run: ./scripts/gate.sh
+      - name: Emit authored raw RDP VI evidence
+        run: python3 -B scripts/qualify-rdp-vi.py --emit-hosted --job "$GITHUB_JOB" --sha "$GITHUB_SHA"
       - name: Emit guest evidence
         run: sh scripts/collect-boot-evidence.sh --emit
       - name: Rights scan sanitized output
         run: sh scripts/rights-scan.sh --staging build/evidence
       - name: PII scan sanitized output
         run: sh scripts/collect-boot-evidence.sh --scan-pii
-      - name: Upload sanitized guest evidence
+      - name: PII scan authored raw RDP VI evidence
+        run: python3 -B scripts/qualify-rdp-vi.py --scan-pii
+      - name: Upload sanitized authored evidence
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02  # v4.6.2
         with:
-          name: t64-boot-evidence-${{ github.sha }}-${{ github.run_id }}-${{ github.run_attempt }}-${{ github.job }}
-          path: build/evidence/gate-macos.json
+          name: t64-authored-evidence-${{ github.sha }}-${{ github.run_id }}-${{ github.run_attempt }}-${{ github.job }}
+          path: build/evidence/combined/gate-macos
           if-no-files-found: error

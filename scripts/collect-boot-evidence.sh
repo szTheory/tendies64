@@ -87,6 +87,10 @@ emit() {
   OUT=$ROOT/build/evidence/$GITHUB_JOB.json
   mv "$TMP/evidence.json" "$OUT" ||
     die "cannot atomically publish $GITHUB_JOB evidence"
+  COMBINED=$ROOT/build/evidence/combined/$GITHUB_JOB
+  mkdir -p "$COMBINED" || die "cannot create the combined evidence upload directory"
+  cp "$OUT" "$COMBINED/$GITHUB_JOB.json" ||
+    die "cannot stage $GITHUB_JOB boot evidence in the combined upload directory"
 
   PII_STAGE=$ROOT/.t64-evidence-pii
   mkdir "$PII_STAGE" || die "stale PII scan staging directory already exists"
@@ -204,15 +208,15 @@ collect() {
     [ "$page" -le 100 ] || die "artifact pagination exceeded the safety bound"
   done
   jq -s '{total_count:.[0].total_count,artifacts:[.[].artifacts[]]}' "$artifacts_pages" > "$artifacts_file" || die "cannot combine artifact pages"
-  linux_name=t64-boot-evidence-$sha-$run-$attempt-gate-linux
-  macos_name=t64-boot-evidence-$sha-$run-$attempt-gate-macos
+  linux_name=t64-authored-evidence-$sha-$run-$attempt-gate-linux
+  macos_name=t64-authored-evidence-$sha-$run-$attempt-gate-macos
   jq -e --arg sha "$sha" --arg run "$run" --arg attempt "$attempt" --arg linux "$linux_name" --arg macos "$macos_name" '
     def prior_attempt($candidate; $selected):
       (($candidate | length) < ($selected | length)) or
       ((($candidate | length) == ($selected | length)) and ($candidate < $selected));
     (.total_count == (.artifacts | length)) and
     (
-      ([.artifacts[] | select((.name // "") | startswith("t64-boot-evidence-"))]) as $proof |
+      ([.artifacts[] | select((.name // "") | startswith("t64-authored-evidence-"))]) as $proof |
       ([$proof[] | select(.name == $linux or .name == $macos)]) as $current |
       ($proof | length) >= 2 and
       ($current | length) == 2 and
@@ -224,7 +228,7 @@ collect() {
         ($artifact.name | split("-")) as $parts |
         $parts[5] as $artifact_attempt |
         (($parts | length) == 8 and $parts[0] == "t64" and
-         $parts[1] == "boot" and $parts[2] == "evidence" and
+         $parts[1] == "authored" and $parts[2] == "evidence" and
          $parts[3] == $sha and $parts[4] == $run and
          ($artifact_attempt | test("^[1-9][0-9]*$")) and
          $parts[6] == "gate" and ($parts[7] == "linux" or $parts[7] == "macos") and
@@ -232,7 +236,7 @@ collect() {
          (($artifact.id | type) == "number") and $artifact.id > 0 and
          (($artifact.expired | type) == "boolean") and
          (($artifact.size_in_bytes | type) == "number") and
-         $artifact.size_in_bytes > 0 and $artifact.size_in_bytes <= 65536 and
+         $artifact.size_in_bytes > 0 and $artifact.size_in_bytes <= 1048576 and
          (($artifact.digest | type) == "string") and
          ($artifact.digest | test("^sha256:[0-9a-f]{64}$")) and
          (($artifact.workflow_run.id | tostring) == $run) and
@@ -249,16 +253,15 @@ collect() {
     slot=$TMP/$job
     expected=$slot/$job.json
     [ -d "$slot" ] && [ ! -L "$slot" ] || die "$job artifact directory is missing or unsafe"
-    [ -f "$expected" ] && [ ! -L "$expected" ] || die "$job artifact must contain its one regular JSON file"
-    [ "$(find "$slot" -type f | wc -l | tr -d ' ')" = 1 ] || die "$job artifact contains extra files"
-    [ "$(find "$slot" -type l | wc -l | tr -d ' ')" = 0 ] || die "$job artifact contains a symlink"
-    [ "$(find "$slot" -type d | wc -l | tr -d ' ')" = 1 ] || die "$job artifact contains nested directories"
-    [ "$(find "$slot" ! -type d ! -type f | wc -l | tr -d ' ')" = 0 ] || die "$job artifact contains a special filesystem entry"
-    [ "$(wc -c < "$expected" | tr -d ' ')" -le 65536 ] || die "$job JSON exceeds the 64 KiB bound"
-    "$ROOT/build/gate/runner/t64-result-check" boot-evidence \
-      --sha "$sha" --run "$run" --attempt "$attempt" --job "$job" "$expected" >/dev/null ||
-      die "$job record failed strict evidence validation"
+    python3 -B "$ROOT/scripts/qualify-rdp-vi.py" --verify-upload "$slot" \
+      --sha "$sha" --run "$run" --attempt "$attempt" --job "$job" >/dev/null ||
+      die "$job combined artifact failed its exact boot/raw evidence member checks"
     cp "$expected" "$TMP/publish/$job.json" || die "cannot stage validated $job record"
+    mkdir -p "$TMP/publish/rdp-vi/$job" || die "cannot stage $job raw evidence"
+    cp "$slot/rdp-vi/$job/manifest.json" "$slot/rdp-vi/$job/inventory.json" \
+      "$slot/rdp-vi/$job/observation.json" "$slot/rdp-vi/$job/raw-export.json" \
+      "$TMP/publish/rdp-vi/$job/" ||
+      die "cannot retain validated $job raw evidence"
   done
   linux_artifact_id=$(jq -er --arg name "$linux_name" '.artifacts[] | select(.name == $name) | .id | tostring' "$artifacts_file") || die "cannot read gate-linux artifact ID"
   linux_artifact_digest=$(jq -er --arg name "$linux_name" '.artifacts[] | select(.name == $name) | .digest' "$artifacts_file") || die "cannot read gate-linux artifact digest"
@@ -282,6 +285,10 @@ selftest() {
   TMP=$(mktemp -d "${TMPDIR:-/tmp}/t64-boot-collect-selftest.XXXXXX") || die "cannot create collector selftest directory"
   chmod 700 "$TMP" || die "cannot protect collector selftest directory"
   mkdir -p "$TMP/work" "$TMP/mockbin" "$TMP/download"
+  mkdir -p "$ROOT/build/gate/07-qualification"
+  LAYOUT_CONTROL_DIR=$(mktemp -d "$ROOT/build/gate/07-qualification/upload-layout-control.XXXXXX") ||
+    die "cannot create private upload-layout evidence directory"
+  chmod 700 "$LAYOUT_CONTROL_DIR"
   sha=$(git -C "$ROOT" rev-parse HEAD) || die "cannot determine selftest source revision"
   "$SUPERVISOR" --real --result "$TMP/result.json" --meta "$TMP/meta.json" \
     --work-dir "$TMP/work" --wall-ms 30000 --fixture "$FIXTURES/hello.z64" \
@@ -299,13 +306,35 @@ selftest() {
     > "$TMP/macos.json"
   "$CHECKER" boot-evidence --sha "$sha" --run 123 --attempt 1 --job gate-linux "$TMP/linux.json" >/dev/null || die "selftest Linux wrapper failed strict C validation"
   "$CHECKER" boot-evidence --sha "$sha" --run 123 --attempt 1 --job gate-macos "$TMP/macos.json" >/dev/null || die "selftest macOS wrapper failed strict C validation"
-  linux_name=t64-boot-evidence-$sha-123-1-gate-linux
-  macos_name=t64-boot-evidence-$sha-123-1-gate-macos
-  mkdir -p "$TMP/download/$linux_name" "$TMP/download/$macos_name"
-  cp "$TMP/linux.json" "$TMP/download/$linux_name/gate-linux.json"
-  cp "$TMP/macos.json" "$TMP/download/$macos_name/gate-macos.json"
-  linux_attempt2_name=t64-boot-evidence-$sha-123-2-gate-linux
-  macos_attempt2_name=t64-boot-evidence-$sha-123-2-gate-macos
+  linux_name=t64-authored-evidence-$sha-123-1-gate-linux
+  macos_name=t64-authored-evidence-$sha-123-1-gate-macos
+  for job in gate-linux gate-macos; do
+    raw_dir=$TMP/raw/$job
+    python3 -B "$ROOT/scripts/qualify-rdp-vi.py" --emit-layout-selftest "$raw_dir" \
+      --sha "$sha" --job "$job" --run 123 --attempt 1 >/dev/null ||
+      die "actual raw producer failed the $job upload-layout selftest"
+    layout=$TMP/layout/$job
+    mkdir -p "$layout/rdp-vi/$job"
+    boot_record=$TMP/linux.json
+    [ "$job" = gate-linux ] || boot_record=$TMP/macos.json
+    cp "$boot_record" "$layout/$job.json"
+    cp "$raw_dir"/* "$layout/rdp-vi/$job/"
+    archive_name=$linux_name
+    [ "$job" = gate-linux ] || archive_name=$macos_name
+    python3 -B "$ROOT/scripts/qualify-rdp-vi.py" --package-upload "$layout" \
+      --sha "$sha" --job "$job" --run 123 --attempt 1 --out "$TMP/$archive_name.zip" \
+      >/dev/null || die "cannot package actual $job files with the upload action root layout"
+  done
+  python3 -B "$ROOT/scripts/qualify-rdp-vi.py" --scan-pii "$TMP/layout" \
+    >"$TMP/upload-pii.stdout" 2>"$TMP/upload-pii.stderr" ||
+    die "actual combined upload files failed the PII scan"
+  for job in gate-linux gate-macos; do
+    sh "$ROOT/scripts/rights-scan.sh" --staging "$TMP/layout/$job" \
+      >"$TMP/upload-rights-$job.stdout" 2>"$TMP/upload-rights-$job.stderr" ||
+      die "actual $job combined upload files failed the rights/provenance scan"
+  done
+  linux_attempt2_name=t64-authored-evidence-$sha-123-2-gate-linux
+  macos_attempt2_name=t64-authored-evidence-$sha-123-2-gate-macos
   jq -cnS --arg commit "$sha" --arg run 123 --arg attempt 2 --arg job gate-linux \
     --slurpfile result "$TMP/result.json" \
     '{schema:"t64.boot-evidence",schema_version:1,commit_sha:$commit,run_id:$run,run_attempt:$attempt,job_name:$job,result:$result[0]}' \
@@ -314,21 +343,44 @@ selftest() {
     --slurpfile result "$TMP/result.json" \
     '{schema:"t64.boot-evidence",schema_version:1,commit_sha:$commit,run_id:$run,run_attempt:$attempt,job_name:$job,result:$result[0]}' \
     > "$TMP/macos-attempt2.json"
-  mkdir -p "$TMP/download/$linux_attempt2_name" "$TMP/download/$macos_attempt2_name"
-  cp "$TMP/linux-attempt2.json" "$TMP/download/$linux_attempt2_name/gate-linux.json"
-  cp "$TMP/macos-attempt2.json" "$TMP/download/$macos_attempt2_name/gate-macos.json"
-  linux_size=$(wc -c < "$TMP/linux.json" | tr -d ' ')
-  macos_size=$(wc -c < "$TMP/macos.json" | tr -d ' ')
-  linux_attempt2_size=$(wc -c < "$TMP/linux-attempt2.json" | tr -d ' ')
-  macos_attempt2_size=$(wc -c < "$TMP/macos-attempt2.json" | tr -d ' ')
+  for job in gate-linux gate-macos; do
+    raw_dir=$TMP/raw-attempt2/$job
+    python3 -B "$ROOT/scripts/qualify-rdp-vi.py" --emit-layout-selftest "$raw_dir" \
+      --sha "$sha" --job "$job" --run 123 --attempt 2 >/dev/null ||
+      die "actual raw producer failed the $job attempt-2 upload-layout selftest"
+    layout=$TMP/layout-attempt2/$job
+    mkdir -p "$layout/rdp-vi/$job"
+    boot_record=$TMP/linux-attempt2.json
+    [ "$job" = gate-linux ] || boot_record=$TMP/macos-attempt2.json
+    cp "$boot_record" "$layout/$job.json"
+    cp "$raw_dir"/* "$layout/rdp-vi/$job/"
+    archive_name=$linux_attempt2_name
+    [ "$job" = gate-linux ] || archive_name=$macos_attempt2_name
+    python3 -B "$ROOT/scripts/qualify-rdp-vi.py" --package-upload "$layout" \
+      --sha "$sha" --job "$job" --run 123 --attempt 2 --out "$TMP/$archive_name.zip" \
+      >/dev/null || die "cannot package actual $job attempt-2 files with the upload action root layout"
+  done
+  for mutation in extra duplicate traversal raw-data; do
+    python3 -B "$ROOT/scripts/qualify-rdp-vi.py" --mutate-upload-archive "$TMP/$linux_name.zip" \
+      --job gate-linux --mutation "$mutation" --out "$TMP/control-$mutation.zip" >/dev/null ||
+      die "cannot create the $mutation combined-artifact rejection control"
+  done
+  linux_size=$(wc -c < "$TMP/$linux_name.zip" | tr -d ' ')
+  macos_size=$(wc -c < "$TMP/$macos_name.zip" | tr -d ' ')
+  linux_attempt2_size=$(wc -c < "$TMP/$linux_attempt2_name.zip" | tr -d ' ')
+  macos_attempt2_size=$(wc -c < "$TMP/$macos_attempt2_name.zip" | tr -d ' ')
+  linux_digest=$(shasum -a 256 "$TMP/$linux_name.zip" | awk '{print $1}')
+  macos_digest=$(shasum -a 256 "$TMP/$macos_name.zip" | awk '{print $1}')
+  linux_attempt2_digest=$(shasum -a 256 "$TMP/$linux_attempt2_name.zip" | awk '{print $1}')
+  macos_attempt2_digest=$(shasum -a 256 "$TMP/$macos_attempt2_name.zip" | awk '{print $1}')
   jq -cn --arg sha "$sha" '{id:123,run_attempt:1,path:".github/workflows/ci.yml",event:"push",head_sha:$sha,status:"completed",conclusion:"success",repository:{full_name:"szTheory/tendies64"}}' > "$TMP/run.json"
   jq -cn --arg sha "$sha" '{id:123,run_attempt:2,path:".github/workflows/ci.yml",event:"push",head_sha:$sha,status:"completed",conclusion:"success",repository:{full_name:"szTheory/tendies64"}}' > "$TMP/run-attempt2.json"
   jq -cn --arg sha "$sha" '{id:123,run_attempt:1,path:".github/workflows/ci.yml",head_sha:$sha,status:"completed",conclusion:"success"}' > "$TMP/attempt.json"
   jq -cn --arg sha "$sha" '{id:123,run_attempt:2,path:".github/workflows/ci.yml",head_sha:$sha,status:"completed",conclusion:"success"}' > "$TMP/attempt2.json"
   jq -cn --arg sha "$sha" '[{id:301,run_id:123,run_attempt:1,head_sha:$sha,name:"gate-linux",status:"completed",conclusion:"success"},{id:302,run_id:123,run_attempt:1,head_sha:$sha,name:"gate-macos",status:"completed",conclusion:"success"}] | {total_count:length,jobs:.}' > "$TMP/jobs.json"
   jq -cn --arg sha "$sha" '[{id:303,run_id:123,run_attempt:2,head_sha:$sha,name:"gate-linux",status:"completed",conclusion:"success"},{id:304,run_id:123,run_attempt:2,head_sha:$sha,name:"gate-macos",status:"completed",conclusion:"success"}] | {total_count:length,jobs:.}' > "$TMP/jobs-attempt2.json"
-  jq -cn --arg sha "$sha" --arg linux "$linux_name" --arg macos "$macos_name" --argjson linux_size "$linux_size" --argjson macos_size "$macos_size" '[{id:401,name:$linux,size_in_bytes:$linux_size,expired:false,digest:"sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",workflow_run:{id:123,head_sha:$sha}},{id:402,name:$macos,size_in_bytes:$macos_size,expired:false,digest:"sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",workflow_run:{id:123,head_sha:$sha}}] | {total_count:length,artifacts:.}' > "$TMP/artifacts.json"
-  jq -cn --arg sha "$sha" --arg linux "$linux_attempt2_name" --arg macos "$macos_attempt2_name" --argjson old_size "$linux_size" --argjson linux_size "$linux_attempt2_size" --argjson macos_size "$macos_attempt2_size" '[{id:403,name:("t64-boot-evidence-"+$sha+"-123-1-gate-linux"),size_in_bytes:$old_size,expired:true,digest:"sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",workflow_run:{id:123,head_sha:$sha}},{id:404,name:$linux,size_in_bytes:$linux_size,expired:false,digest:"sha256:dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",workflow_run:{id:123,head_sha:$sha}},{id:405,name:$macos,size_in_bytes:$macos_size,expired:false,digest:"sha256:eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",workflow_run:{id:123,head_sha:$sha}}] | {total_count:length,artifacts:.}' > "$TMP/artifacts-attempt2.json"
+  jq -cn --arg sha "$sha" --arg linux "$linux_name" --arg macos "$macos_name" --arg ld "$linux_digest" --arg md "$macos_digest" --argjson linux_size "$linux_size" --argjson macos_size "$macos_size" '[{id:401,name:$linux,size_in_bytes:$linux_size,expired:false,digest:("sha256:"+$ld),workflow_run:{id:123,head_sha:$sha}},{id:402,name:$macos,size_in_bytes:$macos_size,expired:false,digest:("sha256:"+$md),workflow_run:{id:123,head_sha:$sha}}] | {total_count:length,artifacts:.}' > "$TMP/artifacts.json"
+  jq -cn --arg sha "$sha" --arg linux "$linux_attempt2_name" --arg macos "$macos_attempt2_name" --arg ld "$linux_digest" --arg md "$macos_digest" --arg ld2 "$linux_attempt2_digest" --arg md2 "$macos_attempt2_digest" --argjson old_size "$linux_size" --argjson linux_size "$linux_attempt2_size" --argjson macos_size "$macos_attempt2_size" '[{id:403,name:("t64-authored-evidence-"+$sha+"-123-1-gate-linux"),size_in_bytes:$old_size,expired:true,digest:("sha256:"+$ld),workflow_run:{id:123,head_sha:$sha}},{id:404,name:$linux,size_in_bytes:$linux_size,expired:false,digest:("sha256:"+$ld2),workflow_run:{id:123,head_sha:$sha}},{id:405,name:$macos,size_in_bytes:$macos_size,expired:false,digest:("sha256:"+$md2),workflow_run:{id:123,head_sha:$sha}}] | {total_count:length,artifacts:.}' > "$TMP/artifacts-attempt2.json"
   printf '%s\n' \
     '#!/bin/sh' \
     'set -eu' \
@@ -341,7 +393,7 @@ selftest() {
     '    repos/szTheory/tendies64/actions/runs/123/attempts/1/jobs?per_page=100\&page=1) case ${T64_MOCK_CASE:-} in failed-job) jq ".jobs[1].conclusion=\"failure\"" "$root/jobs.json" ;; incomplete-job) jq ".jobs[1].status=\"in_progress\"" "$root/jobs.json" ;; duplicate-job) jq ".jobs += [.jobs[0]] | .total_count=.jobs|length" "$root/jobs.json" ;; missing-job) jq ".jobs=[.jobs[0]] | .total_count=1" "$root/jobs.json" ;; wrong-job-sha) jq ".jobs[1].head_sha=\"0000000000000000000000000000000000000000\"" "$root/jobs.json" ;; *) cat "$root/jobs.json" ;; esac ;;' \
     '    repos/szTheory/tendies64/actions/runs/123/attempts/2) cat "$root/attempt2.json" ;;' \
     '    repos/szTheory/tendies64/actions/runs/123/attempts/2/jobs?per_page=100\&page=1) cat "$root/jobs-attempt2.json" ;;' \
-    '    repos/szTheory/tendies64/actions/runs/123/artifacts?per_page=100\&page=1) case ${T64_MOCK_CASE:-} in retained-old-attempt) cat "$root/artifacts-attempt2.json" ;; wrong-current-attempt) jq ".artifacts[2].name |= sub(\"-2-gate-macos$\";\"-1-gate-macos\")" "$root/artifacts-attempt2.json" ;; missing-artifact) jq ".artifacts=[.artifacts[0]] | .total_count=1" "$root/artifacts.json" ;; duplicate-artifact) jq ".artifacts += [.artifacts[0] | .id=499] | .total_count=.artifacts|length" "$root/artifacts.json" ;; wrong-artifact-attempt) jq ".artifacts |= map(.name |= sub(\"-1-gate-\";\"-2-gate-\"))" "$root/artifacts.json" ;; wrong-artifact-run) jq ".artifacts[0].workflow_run.id=999" "$root/artifacts.json" ;; wrong-artifact-source) jq ".artifacts[0].workflow_run.head_sha=\"0000000000000000000000000000000000000000\"" "$root/artifacts.json" ;; expired-artifact) jq ".artifacts[0].expired=true" "$root/artifacts.json" ;; large-artifact) jq ".artifacts[0].size_in_bytes=65537" "$root/artifacts.json" ;; wrong-artifact-sha) jq ".artifacts[0].name |= sub(\"[0-9a-f]{40}\";\"0000000000000000000000000000000000000000\")" "$root/artifacts.json" ;; *) cat "$root/artifacts.json" ;; esac ;;' \
+    '    repos/szTheory/tendies64/actions/runs/123/artifacts?per_page=100\&page=1) case ${T64_MOCK_CASE:-} in retained-old-attempt) cat "$root/artifacts-attempt2.json" ;; wrong-current-attempt) jq ".artifacts[2].name |= sub(\"-2-gate-macos$\";\"-1-gate-macos\")" "$root/artifacts-attempt2.json" ;; missing-artifact) jq ".artifacts=[.artifacts[0]] | .total_count=1" "$root/artifacts.json" ;; duplicate-artifact) jq ".artifacts += [.artifacts[0] | .id=499] | .total_count=.artifacts|length" "$root/artifacts.json" ;; wrong-artifact-attempt) jq ".artifacts |= map(.name |= sub(\"-1-gate-\";\"-2-gate-\"))" "$root/artifacts.json" ;; wrong-artifact-run) jq ".artifacts[0].workflow_run.id=999" "$root/artifacts.json" ;; wrong-artifact-source) jq ".artifacts[0].workflow_run.head_sha=\"0000000000000000000000000000000000000000\"" "$root/artifacts.json" ;; expired-artifact) jq ".artifacts[0].expired=true" "$root/artifacts.json" ;; large-artifact) jq ".artifacts[0].size_in_bytes=1048577" "$root/artifacts.json" ;; wrong-artifact-sha) jq ".artifacts[0].name |= sub(\"[0-9a-f]{40}\";\"0000000000000000000000000000000000000000\")" "$root/artifacts.json" ;; *) cat "$root/artifacts.json" ;; esac ;;' \
     '    *) echo "unexpected mock API endpoint: $endpoint" >&2; exit 2 ;;' \
     '  esac' \
     '  exit 0' \
@@ -350,27 +402,63 @@ selftest() {
     'shift 2; run=$1; shift; name=; dir=' \
     'while [ "$#" -gt 0 ]; do case $1 in --repo) shift 2 ;; --name) name=$2; shift 2 ;; --dir) dir=$2; shift 2 ;; *) exit 2 ;; esac; done' \
     '[ "$run" = 123 ] && [ -n "$name" ] && [ -n "$dir" ] || exit 2' \
-    'case $name in *-gate-linux) file=gate-linux.json ;; *-gate-macos) file=gate-macos.json ;; *) exit 2 ;; esac' \
-    'case ${T64_MOCK_CASE:-} in malformed-record) printf "{not-json" > "$dir/$file" ;; unknown-record-field) jq -cS ".unexpected=true" "$root/download/$name/$file" > "$dir/$file" ;; wrong-record-job) if [ "$file" = gate-linux.json ]; then cp "$root/macos.json" "$dir/$file"; else cp "$root/download/$name/$file" "$dir/$file"; fi ;; *) cp "$root/download/$name/$file" "$dir/$file" ;; esac' \
+    'case $name in *-gate-linux) job=gate-linux; file=gate-linux.json ;; *-gate-macos) job=gate-macos; file=gate-macos.json ;; *) exit 2 ;; esac' \
+    'archive=$root/$name.zip' \
+    'case ${T64_MOCK_CASE:-} in archive-extra) archive=$root/control-extra.zip ;; archive-duplicate) archive=$root/control-duplicate.zip ;; archive-traversal) archive=$root/control-traversal.zip ;; archive-raw-data) [ "$job" = gate-linux ] && archive=$root/control-raw-data.zip ;; esac' \
+    'python3 -B "${T64_QUALIFIER:?}" --extract-upload "$archive" --job "$job" --out "$dir" || exit 1' \
+    'case ${T64_MOCK_CASE:-} in malformed-record) printf "{not-json" > "$dir/$file" ;; unknown-record-field) jq -cS ".unexpected=true" "$dir/$file" > "$dir/$file.tmp"; mv "$dir/$file.tmp" "$dir/$file" ;; wrong-record-job) if [ "$file" = gate-linux.json ]; then cp "$root/macos.json" "$dir/$file"; else cp "$root/linux.json" "$dir/$file"; fi ;; esac' \
     'case ${T64_MOCK_CASE:-} in extra-file) printf "unexpected" > "$dir/unexpected.txt" ;; symlink) ln -s "$dir/$file" "$dir/unexpected-link" ;; esac' \
     > "$TMP/mockbin/gh"
   chmod 700 "$TMP/mockbin/gh"
-  PATH="$TMP/mockbin:$PATH" T64_EVIDENCE_MOCK_ROOT="$TMP" \
+  T64_QUALIFIER=$ROOT/scripts/qualify-rdp-vi.py
+  export T64_QUALIFIER
+  if ! PATH="$TMP/mockbin:$PATH" T64_EVIDENCE_MOCK_ROOT="$TMP" \
     sh "$ROOT/scripts/collect-boot-evidence.sh" --collect --repo szTheory/tendies64 \
-    --sha "$sha" --run 123 --attempt 1 --out "$TMP/collected" >/dev/null ||
-    die "mocked exact-run collection failed for a valid pair"
+    --sha "$sha" --run 123 --attempt 1 --out "$TMP/collected" \
+    >"$TMP/valid-collection.stdout" 2>"$TMP/valid-collection.stderr"; then
+    die "mocked exact-run collection failed for a valid combined artifact pair"
+  fi
   [ -f "$TMP/collected/gate-linux.json" ] && [ ! -L "$TMP/collected/gate-linux.json" ] || die "mocked collector did not publish Linux record"
   [ -f "$TMP/collected/gate-macos.json" ] && [ ! -L "$TMP/collected/gate-macos.json" ] || die "mocked collector did not publish macOS record"
-  [ "$(find "$TMP/collected" -type f | wc -l | tr -d ' ')" = 2 ] || die "mocked collector did not publish exactly two records"
+  [ "$(find "$TMP/collected" -type f | wc -l | tr -d ' ')" = 10 ] || die "mocked collector did not publish exactly two boot records and eight text evidence files"
   cmp -s "$TMP/linux.json" "$TMP/collected/gate-linux.json" || die "mocked Linux record changed during collection"
   cmp -s "$TMP/macos.json" "$TMP/collected/gate-macos.json" || die "mocked macOS record changed during collection"
+  for job in gate-linux gate-macos; do
+    for member in manifest.json inventory.json observation.json raw-export.json; do
+      cmp -s "$TMP/layout/$job/rdp-vi/$job/$member" "$TMP/collected/rdp-vi/$job/$member" ||
+        die "mocked collector changed $job raw member $member"
+    done
+  done
+  if ! PATH="$TMP/mockbin:$PATH" T64_EVIDENCE_MOCK_ROOT="$TMP" \
+    T64_QUALIFIER="$ROOT/scripts/qualify-rdp-vi.py" \
+    python3 -B "$ROOT/scripts/qualify-rdp-vi.py" --collect-hosted \
+      --sha "$sha" --run 123 --attempt 1 --out "$TMP/raw-collected" \
+      >"$TMP/raw-collector.stdout" 2>"$TMP/raw-collector.stderr"; then
+    cat "$TMP/raw-collector.stdout" >&2
+    cat "$TMP/raw-collector.stderr" >&2
+    die "new raw collector failed the exact mocked combined upload pair"
+  fi
+  [ "$(find "$TMP/raw-collected" -type f | wc -l | tr -d ' ')" = 10 ] ||
+    die "new raw collector did not retain both boot records and the exact text evidence files"
+  for job in gate-linux gate-macos; do
+    for member in manifest.json inventory.json observation.json raw-export.json; do
+      cmp -s "$TMP/layout/$job/rdp-vi/$job/$member" "$TMP/raw-collected/rdp-vi/$job/$member" ||
+        die "new raw collector changed $job member $member"
+    done
+  done
   PATH="$TMP/mockbin:$PATH" T64_EVIDENCE_MOCK_ROOT="$TMP" T64_MOCK_CASE=retained-old-attempt \
     sh "$ROOT/scripts/collect-boot-evidence.sh" --collect --repo szTheory/tendies64 \
     --sha "$sha" --run 123 --attempt 2 --out "$TMP/collected-attempt2" >/dev/null ||
     die "mocked exact-run collection rejected a valid attempt-2 pair with a retained attempt-1 artifact"
-  [ "$(find "$TMP/collected-attempt2" -type f | wc -l | tr -d ' ')" = 2 ] || die "attempt-2 collection did not publish exactly two current records"
+  [ "$(find "$TMP/collected-attempt2" -type f | wc -l | tr -d ' ')" = 10 ] || die "attempt-2 collection did not publish exactly two current boot records and eight text evidence files"
   cmp -s "$TMP/linux-attempt2.json" "$TMP/collected-attempt2/gate-linux.json" || die "attempt-2 Linux record changed during collection"
   cmp -s "$TMP/macos-attempt2.json" "$TMP/collected-attempt2/gate-macos.json" || die "attempt-2 macOS record changed during collection"
+  for job in gate-linux gate-macos; do
+    for member in manifest.json inventory.json observation.json raw-export.json; do
+      cmp -s "$TMP/layout-attempt2/$job/rdp-vi/$job/$member" "$TMP/collected-attempt2/rdp-vi/$job/$member" ||
+        die "attempt-2 mocked collector changed $job raw member $member"
+    done
+  done
   rejects=0
   expect_reject() {
     case_name=$1
@@ -396,6 +484,22 @@ selftest() {
     [ ! -e "$TMP/rejected-attempt2" ] && [ ! -L "$TMP/rejected-attempt2" ] || die "collector selftest partially published after rejecting $description"
     rejects=$((rejects + 1))
   }
+  expect_archive_reject() {
+    case_name=$1
+    mutation=$2
+    expected_error=$3
+    if PATH="$TMP/mockbin:$PATH" T64_EVIDENCE_MOCK_ROOT="$TMP" T64_MOCK_CASE="$case_name" \
+      sh "$ROOT/scripts/collect-boot-evidence.sh" --collect --repo szTheory/tendies64 \
+      --sha "$sha" --run 123 --attempt 1 --out "$TMP/rejected-$mutation" \
+      >"$TMP/$mutation.stdout" 2>"$TMP/$mutation.stderr"; then
+      die "collector selftest accepted an archive with a $mutation member"
+    fi
+    [ ! -e "$TMP/rejected-$mutation" ] && [ ! -L "$TMP/rejected-$mutation" ] ||
+      die "collector selftest partially published after rejecting the $mutation member"
+    grep -F "$expected_error" "$TMP/$mutation.stderr" >/dev/null ||
+      { cat "$TMP/$mutation.stdout" >&2; cat "$TMP/$mutation.stderr" >&2; die "archive $mutation control failed before its intended member check"; }
+    rejects=$((rejects + 1))
+  }
   expect_attempt2_reject wrong-current-attempt "a current macOS artifact mislabeled as retained attempt 1"
   expect_reject wrong-run-sha "a wrong run SHA"
   expect_reject wrong-run-id "a wrong run id"
@@ -419,6 +523,10 @@ selftest() {
   expect_reject wrong-record-job "a replayed record for the other job"
   expect_reject extra-file "an artifact with an extra file"
   expect_reject symlink "an artifact containing a symlink"
+  expect_archive_reject archive-extra extra "unexpected or special file"
+  expect_archive_reject archive-duplicate duplicate "duplicate or empty members"
+  expect_archive_reject archive-traversal traversal "traversal or empty path component"
+  expect_archive_reject archive-raw-data raw-data "public raw serialization bytes differ from their manifest binding"
   mkdir "$TMP/rejected"
   printf '%s\n' 'stale local bytes' > "$TMP/rejected/local.json"
   if PATH="$TMP/mockbin:$PATH" T64_EVIDENCE_MOCK_ROOT="$TMP" \
@@ -428,7 +536,69 @@ selftest() {
   fi
   [ -f "$TMP/rejected/local.json" ] || die "collector selftest altered pre-existing output"
   rejects=$((rejects + 1))
-  echo "collect-boot-evidence: selftest passed (valid mocked pair; $rejects rejection cases; local records are not hosted evidence)"
+  for job in gate-linux gate-macos; do
+    cp -R "$TMP/layout/$job" "$LAYOUT_CONTROL_DIR/$job"
+  done
+  cp "$TMP/$linux_name.zip" "$LAYOUT_CONTROL_DIR/$linux_name.zip"
+  cp "$TMP/$macos_name.zip" "$LAYOUT_CONTROL_DIR/$macos_name.zip"
+  cp "$TMP/control-extra.zip" "$LAYOUT_CONTROL_DIR/control-extra.zip"
+  cp "$TMP/control-duplicate.zip" "$LAYOUT_CONTROL_DIR/control-duplicate.zip"
+  cp "$TMP/control-traversal.zip" "$LAYOUT_CONTROL_DIR/control-traversal.zip"
+  cp "$TMP/control-raw-data.zip" "$LAYOUT_CONTROL_DIR/control-raw-data.zip"
+  cp "$TMP/valid-collection.stdout" "$LAYOUT_CONTROL_DIR/valid-collection.stdout"
+  cp "$TMP/valid-collection.stderr" "$LAYOUT_CONTROL_DIR/valid-collection.stderr"
+  cp "$TMP/extra.stderr" "$LAYOUT_CONTROL_DIR/extra.stderr"
+  cp "$TMP/duplicate.stderr" "$LAYOUT_CONTROL_DIR/duplicate.stderr"
+  cp "$TMP/traversal.stderr" "$LAYOUT_CONTROL_DIR/traversal.stderr"
+  cp "$TMP/raw-data.stderr" "$LAYOUT_CONTROL_DIR/raw-data.stderr"
+  cp -R "$TMP/collected" "$LAYOUT_CONTROL_DIR/collected"
+  cp -R "$TMP/raw-collected" "$LAYOUT_CONTROL_DIR/raw-collected"
+  cp "$TMP/raw-collector.stdout" "$LAYOUT_CONTROL_DIR/raw-collector.stdout"
+  cp "$TMP/raw-collector.stderr" "$LAYOUT_CONTROL_DIR/raw-collector.stderr"
+  cp "$TMP/upload-pii.stdout" "$LAYOUT_CONTROL_DIR/upload-pii.stdout"
+  cp "$TMP/upload-pii.stderr" "$LAYOUT_CONTROL_DIR/upload-pii.stderr"
+  for job in gate-linux gate-macos; do
+    cp "$TMP/upload-rights-$job.stdout" "$LAYOUT_CONTROL_DIR/upload-rights-$job.stdout"
+    cp "$TMP/upload-rights-$job.stderr" "$LAYOUT_CONTROL_DIR/upload-rights-$job.stderr"
+  done
+  jq -cnS --arg sha "$sha" \
+    '{argv:["sh","scripts/collect-boot-evidence.sh","--collect","--repo","szTheory/tendies64","--sha",$sha,"--run","123","--attempt","1","--out","<private-temp>/collected"],return_code:0,transport:"mocked-only"}' \
+    > "$LAYOUT_CONTROL_DIR/command.json"
+  linux_zip_sha=$(shasum -a 256 "$TMP/$linux_name.zip" | awk '{print $1}')
+  macos_zip_sha=$(shasum -a 256 "$TMP/$macos_name.zip" | awk '{print $1}')
+  boot_linux_sha=$(shasum -a 256 "$TMP/linux.json" | awk '{print $1}')
+  boot_macos_sha=$(shasum -a 256 "$TMP/macos.json" | awk '{print $1}')
+  linux_manifest=$TMP/layout/gate-linux/rdp-vi/gate-linux/manifest.json
+  macos_manifest=$TMP/layout/gate-macos/rdp-vi/gate-macos/manifest.json
+  linux_export=$TMP/layout/gate-linux/rdp-vi/gate-linux/raw-export.json
+  macos_export=$TMP/layout/gate-macos/rdp-vi/gate-macos/raw-export.json
+  linux_source_sha=$(jq -er '.private_originals[] | select(.path == "rdram.bin") | .sha256' "$linux_manifest")
+  linux_packet_sha=$(jq -er '.private_originals[] | select(.path == "vi-packet.bin") | .sha256' "$linux_manifest")
+  macos_source_sha=$(jq -er '.private_originals[] | select(.path == "rdram.bin") | .sha256' "$macos_manifest")
+  macos_packet_sha=$(jq -er '.private_originals[] | select(.path == "vi-packet.bin") | .sha256' "$macos_manifest")
+  linux_serial_sha=$(shasum -a 256 "$linux_export" | awk '{print $1}')
+  macos_serial_sha=$(shasum -a 256 "$macos_export" | awk '{print $1}')
+  linux_serial_bytes=$(wc -c < "$linux_export" | tr -d ' ')
+  macos_serial_bytes=$(wc -c < "$macos_export" | tr -d ' ')
+  source_address=$(jq -er '.rdram.address' "$linux_export")
+  source_bytes=$(jq -er '.rdram.byte_length' "$linux_export")
+  frame_width=$(jq -er '.vi_packet.width' "$linux_export")
+  frame_height=$(jq -er '.vi_packet.height' "$linux_export")
+  frame_stride=$(jq -er '.vi_packet.stride_bytes' "$linux_export")
+  packet_bytes=$(jq -er '.vi_packet.byte_length' "$linux_export")
+  jq -cnS --arg sha "$sha" --arg linux_zip "$linux_zip_sha" --arg macos_zip "$macos_zip_sha" \
+    --arg boot_linux "$boot_linux_sha" --arg boot_macos "$boot_macos_sha" \
+    --arg linux_source "$linux_source_sha" --arg linux_packet "$linux_packet_sha" \
+    --arg macos_source "$macos_source_sha" --arg macos_packet "$macos_packet_sha" \
+    --arg linux_serial "$linux_serial_sha" --arg macos_serial "$macos_serial_sha" \
+    --argjson linux_serial_bytes "$linux_serial_bytes" --argjson macos_serial_bytes "$macos_serial_bytes" \
+    --argjson source_address "$source_address" --argjson source_bytes "$source_bytes" \
+    --argjson frame_width "$frame_width" --argjson frame_height "$frame_height" \
+    --argjson frame_stride "$frame_stride" --argjson packet_bytes "$packet_bytes" \
+    --argjson rejects "$rejects" \
+    '{schema:"t64.rdp-vi-upload-layout-control",schema_version:1,source_sha:$sha,transport:"mocked-only",hosted_proof:false,artifact_root:"build/evidence/combined/<job>",combined_upload_paths:["gate-linux.json","rdp-vi/gate-linux/manifest.json","rdp-vi/gate-linux/inventory.json","rdp-vi/gate-linux/observation.json","rdp-vi/gate-linux/raw-export.json"],actual_boot_records:{gate_linux_sha256:$boot_linux,gate_macos_sha256:$boot_macos},private_original_hashes:{gate_linux:{rdram_sha256:$linux_source,vi_packet_sha256:$linux_packet},gate_macos:{rdram_sha256:$macos_source,vi_packet_sha256:$macos_packet}},captured_span:{rdram:{address:$source_address,byte_length:$source_bytes},vi_packet:{width:$frame_width,height:$frame_height,stride_bytes:$frame_stride,byte_length:$packet_bytes}},public_serializations:{gate_linux:{sha256:$linux_serial,byte_length:$linux_serial_bytes},gate_macos:{sha256:$macos_serial,byte_length:$macos_serial_bytes},decoded_bytes_match_private_originals:true},combined_archive_sha256:{gate_linux:$linux_zip,gate_macos:$macos_zip},upload_scans:{pii:"passed",rights_provenance:"passed"},rejected_archive_members:["extra","duplicate","traversal"],rejected_public_raw_mutation:true,rejection_case_count:$rejects}' \
+    > "$LAYOUT_CONTROL_DIR/control.json"
+  echo "collect-boot-evidence: upload layout selftest passed (actual local boot/raw producers; mocked transport only; $rejects rejection cases; hosted proof=false; evidence=$LAYOUT_CONTROL_DIR)"
 }
 
 case ${1:-} in
