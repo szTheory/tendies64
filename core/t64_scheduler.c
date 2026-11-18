@@ -331,7 +331,8 @@ static bool event_can_dispatch(const t64_machine *machine,
   return event->handler != NULL &&
          !event_counter_would_overflow(machine, event) &&
          !vi_event_waits_for_output_capacity(machine, event) &&
-         !t64_ai_event_waits_for_output_capacity(machine, event);
+         !t64_ai_event_waits_for_output_capacity(machine, event) &&
+         t64_ai_event_can_dispatch(machine, event);
 }
 
 static t64_status dispatch_front(t64_machine *machine) {

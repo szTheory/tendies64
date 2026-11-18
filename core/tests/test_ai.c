@@ -20,6 +20,8 @@
 #define AI_BITRATE UINT32_C(0x04500014)
 #define IPL3_ASSET_BYTES 4096u
 
+static bool cancel_boot_cpu_event(t64_machine *machine);
+
 static bool read_openipl3_asset(uint8_t bytes[IPL3_ASSET_BYTES]) {
   const char *path = getenv("T64_TEST_IPL3_PATH");
   FILE *file;
@@ -84,14 +86,24 @@ static t64_machine *create_admitted_profile(const char *profile_id,
 }
 
 static bool configure_ai_rate_pair(t64_machine *machine) {
+  uint32_t value = UINT32_MAX;
   t64_status status;
 
+  T64_CHECK_INT(UINT32_C(1103) & UINT32_C(0x3fff), UINT32_C(1103));
+  T64_CHECK_INT(UINT32_C(15) & UINT32_C(0x000f), UINT32_C(15));
   status = t64_machine_bus_write(machine, AI_DACRATE, 4u, 1103u);
   T64_CHECK_INT(status, T64_STATUS_OK);
   if (status != T64_STATUS_OK) return false;
   status = t64_machine_bus_write(machine, AI_BITRATE, 4u, 15u);
   T64_CHECK_INT(status, T64_STATUS_OK);
-  return status == T64_STATUS_OK;
+  if (status != T64_STATUS_OK) return false;
+  T64_CHECK_INT(t64_machine_bus_read(machine, AI_DACRATE, 4u, &value),
+                T64_STATUS_OK);
+  T64_CHECK_INT(value, 1103u);
+  T64_CHECK_INT(t64_machine_bus_read(machine, AI_BITRATE, 4u, &value),
+                T64_STATUS_OK);
+  T64_CHECK_INT(value, 15u);
+  return true;
 }
 
 static bool find_next_ai_sample_tick(const t64_machine *machine,
@@ -162,6 +174,30 @@ static bool submit_ai_dma(t64_machine *machine, uint32_t address,
   return status == T64_STATUS_OK;
 }
 
+static bool submit_ai_frames(t64_machine *machine, uint32_t address,
+                             uint32_t frame_count) {
+  uint64_t wide_length;
+  uint32_t length;
+
+  if (frame_count == 0u || frame_count > UINT32_MAX / UINT32_C(4)) {
+    T64_CHECK(false);
+    return false;
+  }
+  wide_length = (uint64_t)frame_count * UINT64_C(4);
+  if (wide_length > UINT32_MAX) {
+    T64_CHECK(false);
+    return false;
+  }
+  length = (uint32_t)wide_length;
+  T64_CHECK_INT(length & UINT32_C(0x0003fff8), length);
+  T64_CHECK_INT(length & UINT32_C(7), 0u);
+  if ((length & UINT32_C(0x0003fff8)) != length ||
+      (length & UINT32_C(7)) != 0u) {
+    return false;
+  }
+  return submit_ai_dma(machine, address, length);
+}
+
 static bool advance_ai_sample(t64_machine *machine) {
   uint64_t sample_tick = UINT64_MAX;
 
@@ -176,6 +212,7 @@ static uint64_t expected_audio_elapsed_ticks(uint64_t samples,
                              ((uint64_t)dacrate + UINT64_C(1));
   const uint64_t source_clock = UINT64_C(48681812);
 
+  T64_CHECK_INT(dacrate & UINT32_C(0x3fff), dacrate);
   return numerator / source_clock +
          (numerator % source_clock == 0u ? 0u : 1u);
 }
@@ -884,6 +921,119 @@ static void case_register_suite(void) {
   case_documented_boundary_policy();
 }
 
+static void run_rational_boundary_case(uint32_t dacrate) {
+  uint8_t ipl3_asset[IPL3_ASSET_BYTES];
+  t64_machine *machine = create_admitted_profile(AI_PROFILE_ID, ipl3_asset);
+  t64_audio_packet_info info;
+  uint64_t origin_tick;
+  uint64_t first_tick;
+  uint64_t second_tick;
+
+  T64_CHECK(machine != NULL);
+  if (machine == NULL) return;
+  if (!configure_ai_rate_pair(machine)) {
+    t64_machine_destroy(machine);
+    return;
+  }
+  if (dacrate != 1103u) {
+    T64_CHECK_INT(t64_machine_bus_write(machine, AI_DACRATE, 4u, dacrate),
+                  T64_STATUS_OK);
+  }
+  origin_tick = machine->tick;
+  start_ai_spin_loop(machine);
+  T64_CHECK_INT(t64_machine_bus_write(machine, AI_CONTROL, 4u, 1u),
+                T64_STATUS_OK);
+  T64_CHECK(submit_ai_frames(machine, UINT32_C(0x100), 2u));
+  first_tick = origin_tick + expected_audio_elapsed_ticks(1u, dacrate);
+  second_tick = origin_tick + expected_audio_elapsed_ticks(2u, dacrate);
+
+  T64_CHECK(advance_guest_to_in_slices(machine, first_tick - 1u));
+  T64_CHECK_INT(machine->ai.sample_index, 0u);
+  T64_CHECK(advance_guest_to_in_slices(machine, first_tick));
+  T64_CHECK_INT(machine->ai.sample_index, 1u);
+  T64_CHECK(advance_guest_to_in_slices(machine, first_tick + 1u));
+  T64_CHECK_INT(machine->ai.sample_index, 1u);
+  T64_CHECK(advance_guest_to_in_slices(machine, second_tick - 1u));
+  T64_CHECK_INT(machine->ai.sample_index, 1u);
+  T64_CHECK(advance_guest_to_in_slices(machine, second_tick));
+  T64_CHECK_INT(machine->ai.sample_index, 2u);
+  T64_CHECK(advance_guest_to_in_slices(machine, second_tick + 1u));
+  T64_CHECK_INT(machine->ai.sample_index, 2u);
+  T64_CHECK_INT(t64_audio_info(machine, &info), T64_STATUS_OK);
+  T64_CHECK_INT(info.first_tick, first_tick);
+  T64_CHECK_INT(info.last_tick, second_tick);
+  T64_CHECK_INT(info.rate_denominator, (uint64_t)dacrate + UINT64_C(1));
+  t64_machine_destroy(machine);
+}
+
+static void case_rational_before_on_after(void) {
+  run_rational_boundary_case(1103u);
+  run_rational_boundary_case(1104u);
+}
+
+static void case_partial_length_readback(void) {
+  uint8_t ipl3_asset[IPL3_ASSET_BYTES];
+  t64_machine *machine = create_admitted_profile(AI_PROFILE_ID, ipl3_asset);
+  uint32_t remaining = 0u;
+  uint32_t expected[] = {16u, 12u, 8u, 4u, 0u};
+  size_t i;
+
+  T64_CHECK(machine != NULL);
+  if (machine == NULL) return;
+  if (!configure_ai_rate_pair(machine)) {
+    t64_machine_destroy(machine);
+    return;
+  }
+  start_ai_spin_loop(machine);
+  T64_CHECK_INT(t64_machine_bus_write(machine, AI_CONTROL, 4u, 1u),
+                T64_STATUS_OK);
+  T64_CHECK(submit_ai_frames(machine, UINT32_C(0x100), 4u));
+  T64_CHECK_INT(t64_machine_bus_read(machine, AI_LEN, 4u, &remaining),
+                T64_STATUS_OK);
+  T64_CHECK_INT(remaining, expected[0]);
+  for (i = 1u; i < sizeof expected / sizeof expected[0]; i++) {
+    T64_CHECK(advance_ai_sample(machine));
+    T64_CHECK_INT(t64_machine_bus_read(machine, AI_LEN, 4u, &remaining),
+                  T64_STATUS_OK);
+    T64_CHECK_INT(remaining, expected[i]);
+  }
+  T64_CHECK_INT(machine->ai.descriptor_count, 0u);
+  t64_machine_destroy(machine);
+}
+
+static void case_inflight_source_mutation(void) {
+  const uint8_t original[8] = {0x10u, 0x21u, 0x32u, 0x43u,
+                               0x54u, 0x65u, 0x76u, 0x87u};
+  const uint8_t changed_tail[4] = {0x98u, 0xa9u, 0xbau, 0xcbu};
+  const uint8_t expected[8] = {0x10u, 0x21u, 0x32u, 0x43u,
+                               0x98u, 0xa9u, 0xbau, 0xcbu};
+  uint8_t ipl3_asset[IPL3_ASSET_BYTES];
+  uint8_t actual[sizeof expected];
+  t64_machine *machine = create_admitted_profile(AI_PROFILE_ID, ipl3_asset);
+  size_t copied = 0u;
+
+  T64_CHECK(machine != NULL);
+  if (machine == NULL) return;
+  if (!configure_ai_rate_pair(machine)) {
+    t64_machine_destroy(machine);
+    return;
+  }
+  (void)memcpy(machine->ram + UINT32_C(0x100), original, sizeof original);
+  start_ai_spin_loop(machine);
+  T64_CHECK_INT(t64_machine_bus_write(machine, AI_CONTROL, 4u, 1u),
+                T64_STATUS_OK);
+  T64_CHECK(submit_ai_frames(machine, UINT32_C(0x100), 2u));
+  T64_CHECK(advance_ai_sample(machine));
+  (void)memcpy(machine->ram + UINT32_C(0x104), changed_tail,
+               sizeof changed_tail);
+  T64_CHECK(advance_ai_sample(machine));
+  T64_CHECK_INT(t64_audio_copy(machine, actual, sizeof actual, &copied),
+                T64_STATUS_OK);
+  T64_CHECK_INT(copied, sizeof expected);
+  T64_CHECK(memcmp(actual, expected, sizeof expected) == 0);
+  t64_machine_destroy(machine);
+}
+
 static void case_active_rate_latch(void) {
   uint8_t ipl3_asset[IPL3_ASSET_BYTES];
   uint8_t packet[8];
@@ -896,6 +1046,7 @@ static void case_active_rate_latch(void) {
   uint64_t second_descriptor_first_tick;
   uint64_t second_descriptor_done_tick;
   uint64_t scheduled_tick = UINT64_MAX;
+  uint32_t register_value = UINT32_MAX;
 
   T64_CHECK(machine != NULL);
   if (machine == NULL) return;
@@ -903,14 +1054,21 @@ static void case_active_rate_latch(void) {
     t64_machine_destroy(machine);
     return;
   }
+  T64_CHECK_INT(UINT32_C(7) & UINT32_C(0x000f), UINT32_C(7));
+  T64_CHECK_INT(UINT32_C(15) & UINT32_C(0x000f), UINT32_C(15));
+  T64_CHECK_INT(UINT32_C(2207) & UINT32_C(0x3fff), UINT32_C(2207));
   T64_CHECK_INT(t64_machine_bus_write(machine, AI_BITRATE, 4u, 7u),
                 T64_STATUS_OK);
+  T64_CHECK_INT(t64_machine_bus_read(machine, AI_BITRATE, 4u,
+                                     &register_value),
+                T64_STATUS_OK);
+  T64_CHECK_INT(register_value, 7u);
   origin_tick = machine->tick;
   start_ai_spin_loop(machine);
   T64_CHECK_INT(t64_machine_bus_write(machine, AI_CONTROL, 4u, 1u),
                 T64_STATUS_OK);
-  T64_CHECK(submit_ai_dma(machine, UINT32_C(0x100), 8u));
-  T64_CHECK(submit_ai_dma(machine, UINT32_C(0x108), 8u));
+  T64_CHECK(submit_ai_frames(machine, UINT32_C(0x100), 2u));
+  T64_CHECK(submit_ai_frames(machine, UINT32_C(0x108), 2u));
 
   first_sample_tick = origin_tick + expected_audio_elapsed_ticks(1u, 1103u);
   first_descriptor_done_tick =
@@ -925,10 +1083,18 @@ static void case_active_rate_latch(void) {
 
   T64_CHECK_INT(t64_machine_bus_write(machine, AI_DACRATE, 4u, 2207u),
                 T64_STATUS_OK);
+  T64_CHECK_INT(t64_machine_bus_read(machine, AI_DACRATE, 4u,
+                                     &register_value),
+                T64_STATUS_OK);
+  T64_CHECK_INT(register_value, 2207u);
   T64_CHECK_INT(machine->ai.latched_dacrate, 1103u);
   T64_CHECK_INT(machine->ai.latched_bitrate, 7u);
   T64_CHECK_INT(t64_machine_bus_write(machine, AI_BITRATE, 4u, 15u),
                 T64_STATUS_OK);
+  T64_CHECK_INT(t64_machine_bus_read(machine, AI_BITRATE, 4u,
+                                     &register_value),
+                T64_STATUS_OK);
+  T64_CHECK_INT(register_value, 15u);
   T64_CHECK(find_next_ai_sample_tick(machine, &scheduled_tick));
   T64_CHECK_INT(scheduled_tick, first_descriptor_done_tick);
   if (!advance_guest_to_in_slices(machine, first_descriptor_done_tick)) {
@@ -960,9 +1126,520 @@ static void case_active_rate_latch(void) {
   t64_machine_destroy(machine);
 }
 
+static void case_bitrate_zero_and_ratio(void) {
+  uint8_t ipl3_asset[IPL3_ASSET_BYTES];
+  t64_machine *machine = create_admitted_profile(AI_PROFILE_ID, ipl3_asset);
+  uint8_t digest_before[T64_DIGEST_SIZE];
+  uint8_t digest_after[T64_DIGEST_SIZE];
+  uint32_t value = UINT32_MAX;
+
+  T64_CHECK(machine != NULL);
+  if (machine == NULL) return;
+  if (!configure_ai_rate_pair(machine)) {
+    t64_machine_destroy(machine);
+    return;
+  }
+  T64_CHECK_INT(t64_machine_digest(machine, digest_before), T64_STATUS_OK);
+  T64_CHECK_INT(t64_machine_bus_write(machine, AI_DACRATE, 4u, 1054u),
+                T64_STATUS_BUS_DEVICE_REFUSED);
+  T64_CHECK_INT(t64_machine_digest(machine, digest_after), T64_STATUS_OK);
+  T64_CHECK(memcmp(digest_before, digest_after, sizeof digest_before) == 0);
+  T64_CHECK_INT(UINT32_C(1055) & UINT32_C(0x3fff), UINT32_C(1055));
+  T64_CHECK_INT(t64_machine_bus_write(machine, AI_DACRATE, 4u, 1055u),
+                T64_STATUS_OK);
+  T64_CHECK_INT(t64_machine_bus_read(machine, AI_DACRATE, 4u, &value),
+                T64_STATUS_OK);
+  T64_CHECK_INT(value, 1055u);
+
+  T64_CHECK_INT(t64_machine_digest(machine, digest_before), T64_STATUS_OK);
+  T64_CHECK_INT(t64_machine_bus_write(machine, AI_BITRATE, 4u, 0u),
+                T64_STATUS_BUS_DEVICE_REFUSED);
+  T64_CHECK_INT(t64_machine_digest(machine, digest_after), T64_STATUS_OK);
+  T64_CHECK(memcmp(digest_before, digest_after, sizeof digest_before) == 0);
+  T64_CHECK_INT(UINT32_C(0xffff000f) & UINT32_C(0x000f), UINT32_C(15));
+  T64_CHECK_INT(t64_machine_bus_write(machine, AI_BITRATE, 4u,
+                                      UINT32_C(0xffff000f)),
+                T64_STATUS_OK);
+  T64_CHECK_INT(t64_machine_bus_read(machine, AI_BITRATE, 4u, &value),
+                T64_STATUS_OK);
+  T64_CHECK_INT(value, 15u);
+  T64_CHECK_INT(t64_machine_digest(machine, digest_before), T64_STATUS_OK);
+  T64_CHECK_INT(t64_machine_bus_write(machine, AI_BITRATE, 4u,
+                                      UINT32_C(0xffff0010)),
+                T64_STATUS_BUS_DEVICE_REFUSED);
+  T64_CHECK_INT(t64_machine_digest(machine, digest_after), T64_STATUS_OK);
+  T64_CHECK(memcmp(digest_before, digest_after, sizeof digest_before) == 0);
+  t64_machine_destroy(machine);
+}
+
+static void case_pause_phase_resume(void) {
+  uint8_t ipl3_asset[IPL3_ASSET_BYTES];
+  t64_machine *machine = create_admitted_profile(AI_PROFILE_ID, ipl3_asset);
+  uint64_t next_tick = UINT64_MAX;
+  uint64_t pause_tick;
+  uint64_t resumed_tick;
+  uint64_t phase_before;
+  const uint64_t remaining_ticks = UINT64_C(17);
+
+  T64_CHECK(machine != NULL);
+  if (machine == NULL) return;
+  if (!configure_ai_rate_pair(machine)) {
+    t64_machine_destroy(machine);
+    return;
+  }
+  start_ai_spin_loop(machine);
+  T64_CHECK_INT(t64_machine_bus_write(machine, AI_CONTROL, 4u, 1u),
+                T64_STATUS_OK);
+  T64_CHECK(submit_ai_frames(machine, UINT32_C(0x100), 4u));
+  T64_CHECK(advance_ai_sample(machine));
+  T64_CHECK_INT(machine->ai.sample_index, 1u);
+  T64_CHECK(find_next_ai_sample_tick(machine, &next_tick));
+  T64_CHECK(next_tick > machine->tick + remaining_ticks);
+  if (next_tick <= machine->tick + remaining_ticks) {
+    t64_machine_destroy(machine);
+    return;
+  }
+  pause_tick = next_tick - remaining_ticks;
+  T64_CHECK(advance_guest_to_in_slices(machine, pause_tick));
+  phase_before = machine->ai.phase_remainder;
+  T64_CHECK_INT(t64_machine_bus_write(machine, AI_CONTROL, 4u, 0u),
+                T64_STATUS_OK);
+  T64_CHECK(machine->ai.paused);
+  T64_CHECK_INT(machine->ai.paused_remaining_ticks, remaining_ticks);
+  T64_CHECK(!has_ai_sample_event(machine));
+  T64_CHECK_INT(machine->ai.phase_remainder, phase_before);
+  T64_CHECK(advance_guest_to_in_slices(machine,
+                                       machine->tick + UINT64_C(200)));
+  T64_CHECK_INT(machine->ai.sample_index, 1u);
+  T64_CHECK_INT(t64_machine_bus_write(machine, AI_CONTROL, 4u, 1u),
+                T64_STATUS_OK);
+  resumed_tick = machine->tick + remaining_ticks;
+  T64_CHECK(find_next_ai_sample_tick(machine, &next_tick));
+  T64_CHECK_INT(next_tick, resumed_tick);
+  T64_CHECK(advance_guest_to_in_slices(machine, resumed_tick - 1u));
+  T64_CHECK_INT(machine->ai.sample_index, 1u);
+  T64_CHECK(advance_guest_to_in_slices(machine, resumed_tick));
+  T64_CHECK_INT(machine->ai.sample_index, 2u);
+  T64_CHECK_INT(machine->ai.active_byte_cursor, 8u);
+  t64_machine_destroy(machine);
+}
+
+static void case_reset_owned_events(void) {
+  uint8_t ipl3_asset[IPL3_ASSET_BYTES];
+  t64_machine *machine = create_admitted_profile(AI_PROFILE_ID, ipl3_asset);
+  size_t queue_count_before;
+  size_t offset;
+  bool found_unrelated = false;
+
+  T64_CHECK(machine != NULL);
+  if (machine == NULL) return;
+  if (!configure_ai_rate_pair(machine)) {
+    t64_machine_destroy(machine);
+    return;
+  }
+  start_ai_spin_loop(machine);
+  T64_CHECK_INT(t64_machine_bus_write(machine, AI_CONTROL, 4u, 1u),
+                T64_STATUS_OK);
+  T64_CHECK(submit_ai_frames(machine, UINT32_C(0x100), 2u));
+  T64_CHECK_INT(t64_test_schedule_synthetic(
+                    machine, machine->tick + UINT64_C(1000),
+                    T64_TEST_EVENT_NOOP, UINT64_C(55)),
+                T64_STATUS_OK);
+  t64_mi_set_pending(machine, UINT32_C(0x34));
+  queue_count_before = machine->queue_count;
+  T64_CHECK(has_ai_sample_event(machine));
+  t64_ai_reset_machine_state(machine);
+  T64_CHECK_INT(machine->queue_count, queue_count_before - 1u);
+  T64_CHECK(!has_ai_sample_event(machine));
+  T64_CHECK_INT(machine->ai.descriptor_count, 0u);
+  T64_CHECK(!machine->ai.active);
+  T64_CHECK(!machine->ai.address_staged);
+  T64_CHECK_INT(machine->mi_pending, UINT32_C(0x30));
+  for (offset = 0u; offset < machine->queue_count; offset++) {
+    const size_t index =
+        (machine->queue_head + offset) % T64_EVENT_QUEUE_CAPACITY;
+    const t64_event *event = &machine->events[index];
+    if (event->device == T64_DEVICE_SYNTHETIC_TEST &&
+        event->kind == T64_TEST_EVENT_NOOP && event->value == 55u) {
+      found_unrelated = true;
+    }
+    T64_CHECK(event->device != T64_AI_DEVICE);
+  }
+  T64_CHECK(found_unrelated);
+  t64_machine_destroy(machine);
+}
+
+static bool cancel_boot_cpu_event(t64_machine *machine) {
+  uint64_t cancelled_tick = UINT64_MAX;
+  t64_status status = t64_schedule_cancel(
+      machine, T64_DEVICE_CPU, T64_CPU_EVENT_STEP, 0u, &cancelled_tick);
+
+  T64_CHECK_INT(status, T64_STATUS_OK);
+  T64_CHECK_INT(cancelled_tick, 1u);
+  return status == T64_STATUS_OK && cancelled_tick == 1u;
+}
+
+static bool schedule_cpu_step_at(t64_machine *machine, uint64_t tick) {
+  t64_event_reservation reservation;
+  t64_status status = t64_schedule_reserve(
+      machine, tick, T64_DEVICE_CPU, T64_CPU_EVENT_STEP, 0u, 0u,
+      t64_cpu_step, &reservation);
+
+  T64_CHECK_INT(status, T64_STATUS_OK);
+  if (status != T64_STATUS_OK) return false;
+  status = t64_schedule_commit(machine, &reservation);
+  T64_CHECK_INT(status, T64_STATUS_OK);
+  return status == T64_STATUS_OK;
+}
+
+static void prepare_cpu_sample_store(t64_machine *machine) {
+  const uint32_t instruction = UINT32_C(0xad090100);
+
+  machine->ram[UINT32_C(0x1000)] = (uint8_t)(instruction >> 24);
+  machine->ram[UINT32_C(0x1001)] = (uint8_t)(instruction >> 16);
+  machine->ram[UINT32_C(0x1002)] = (uint8_t)(instruction >> 8);
+  machine->ram[UINT32_C(0x1003)] = (uint8_t)instruction;
+  machine->cpu.pc = UINT32_C(0x80001000);
+  machine->cpu.pc_full = t64_cpu_canonical_address(machine->cpu.pc);
+  machine->cpu.gpr[8] = t64_cpu_canonical_address(UINT32_C(0xa0000000));
+  machine->cpu.gpr[9] = UINT64_C(0x55667788);
+}
+
+static void run_cpu_store_sample_order(bool cpu_store_first) {
+  const uint8_t original[4] = {0x11u, 0x22u, 0x33u, 0x44u};
+  const uint8_t changed[4] = {0x55u, 0x66u, 0x77u, 0x88u};
+  const uint8_t *expected = cpu_store_first ? changed : original;
+  uint8_t ipl3_asset[IPL3_ASSET_BYTES];
+  t64_machine *machine = create_admitted_profile(AI_PROFILE_ID, ipl3_asset);
+  uint64_t sample_tick;
+
+  T64_CHECK(machine != NULL);
+  if (machine == NULL) return;
+  if (!configure_ai_rate_pair(machine)) {
+    t64_machine_destroy(machine);
+    return;
+  }
+  (void)memcpy(machine->ram + UINT32_C(0x100), original, sizeof original);
+  if (!cancel_boot_cpu_event(machine)) {
+    t64_machine_destroy(machine);
+    return;
+  }
+  prepare_cpu_sample_store(machine);
+  sample_tick = machine->tick + expected_audio_elapsed_ticks(1u, 1103u);
+  T64_CHECK_INT(t64_machine_bus_write(machine, AI_CONTROL, 4u, 1u),
+                T64_STATUS_OK);
+  if (cpu_store_first) {
+    T64_CHECK(schedule_cpu_step_at(machine, sample_tick));
+    T64_CHECK(submit_ai_frames(machine, UINT32_C(0x100), 2u));
+  } else {
+    T64_CHECK(submit_ai_frames(machine, UINT32_C(0x100), 2u));
+    T64_CHECK(schedule_cpu_step_at(machine, sample_tick));
+  }
+  T64_CHECK(advance_guest_to_in_slices(machine, sample_tick));
+  T64_CHECK_INT(machine->cpu.retired_instructions, 1u);
+  T64_CHECK_INT(machine->ai.sample_index, 1u);
+  T64_CHECK_INT(machine->ai.packet_length, 4u);
+  T64_CHECK(memcmp(machine->audio_packets, expected, sizeof original) == 0);
+  T64_CHECK(memcmp(machine->ram + UINT32_C(0x100), changed, sizeof changed) ==
+            0);
+  t64_machine_destroy(machine);
+}
+
+static bool ai_profile_vi_write(t64_machine *machine, uint32_t offset,
+                                uint32_t value) {
+  t64_status status = t64_machine_bus_write(
+      machine, UINT32_C(0x04400000) + offset, 4u, value);
+
+  T64_CHECK_INT(status, T64_STATUS_OK);
+  return status == T64_STATUS_OK;
+}
+
+static bool configure_ai_profile_vi(t64_machine *machine) {
+  size_t pixel;
+
+  for (pixel = 0u; pixel < 12u; pixel++) {
+    t64_status status = t64_machine_bus_write(
+        machine, UINT32_C(0x3000) + (uint32_t)(pixel * 2u), 2u,
+        UINT32_C(0xf801));
+    T64_CHECK_INT(status, T64_STATUS_OK);
+    if (status != T64_STATUS_OK) return false;
+  }
+  return ai_profile_vi_write(machine, UINT32_C(0x04), UINT32_C(0x3000)) &&
+         ai_profile_vi_write(machine, UINT32_C(0x08), UINT32_C(4)) &&
+         ai_profile_vi_write(machine, UINT32_C(0x0c), UINT32_C(2)) &&
+         ai_profile_vi_write(machine, UINT32_C(0x14), UINT32_C(0)) &&
+         ai_profile_vi_write(machine, UINT32_C(0x18), UINT32_C(8)) &&
+         ai_profile_vi_write(machine, UINT32_C(0x1c), UINT32_C(2207)) &&
+         ai_profile_vi_write(machine, UINT32_C(0x24), UINT32_C(4)) &&
+         ai_profile_vi_write(machine, UINT32_C(0x28), UINT32_C(0x00020008)) &&
+         ai_profile_vi_write(machine, UINT32_C(0x30), UINT32_C(0x00000400)) &&
+         ai_profile_vi_write(machine, UINT32_C(0x34), UINT32_C(0x00000400)) &&
+         ai_profile_vi_write(machine, UINT32_C(0x00), UINT32_C(2));
+}
+
+static bool find_next_vi_field_tick(const t64_machine *machine,
+                                    uint64_t *tick_out) {
+  size_t offset;
+
+  if (machine == NULL || tick_out == NULL) return false;
+  for (offset = 0u; offset < machine->queue_count; offset++) {
+    const size_t index =
+        (machine->queue_head + offset) % T64_EVENT_QUEUE_CAPACITY;
+    const t64_event *event = &machine->events[index];
+    if (event->device == T64_VI_DEVICE &&
+        event->kind == T64_VI_EVENT_FIELD &&
+        event->token == machine->vi.event_generation) {
+      *tick_out = event->tick;
+      return true;
+    }
+  }
+  return false;
+}
+
+static void run_vi_ai_tie_order(bool ai_first) {
+  uint8_t ipl3_asset[IPL3_ASSET_BYTES];
+  t64_machine *machine = create_admitted_profile(AI_PROFILE_ID, ipl3_asset);
+  t64_trace_record records[16];
+  size_t count = 0u;
+  size_t i;
+  size_t ai_index = SIZE_MAX;
+  size_t vi_index = SIZE_MAX;
+  uint64_t dropped = 0u;
+  uint64_t sample_tick;
+  uint64_t vi_tick = UINT64_MAX;
+  bool saturated = false;
+
+  T64_CHECK(machine != NULL);
+  if (machine == NULL) return;
+  if (!configure_ai_rate_pair(machine)) {
+    t64_machine_destroy(machine);
+    return;
+  }
+  if (!cancel_boot_cpu_event(machine)) {
+    t64_machine_destroy(machine);
+    return;
+  }
+  sample_tick = machine->tick + expected_audio_elapsed_ticks(1u, 1103u);
+  T64_CHECK_INT(UINT32_C(2207) & UINT32_C(0x0fff), UINT32_C(2207));
+  if (ai_first) {
+    T64_CHECK_INT(t64_machine_bus_write(machine, AI_CONTROL, 4u, 1u),
+                  T64_STATUS_OK);
+    T64_CHECK(submit_ai_frames(machine, UINT32_C(0x100), 2u));
+    T64_CHECK(configure_ai_profile_vi(machine));
+  } else {
+    T64_CHECK(configure_ai_profile_vi(machine));
+    T64_CHECK_INT(t64_machine_bus_write(machine, AI_CONTROL, 4u, 1u),
+                  T64_STATUS_OK);
+    T64_CHECK(submit_ai_frames(machine, UINT32_C(0x100), 2u));
+  }
+  T64_CHECK(find_next_ai_sample_tick(machine, &vi_tick));
+  T64_CHECK_INT(vi_tick, sample_tick);
+  vi_tick = UINT64_MAX;
+  T64_CHECK(find_next_vi_field_tick(machine, &vi_tick));
+  T64_CHECK_INT(vi_tick, sample_tick);
+  T64_CHECK_INT(t64_machine_trace_set_enabled(machine, true), T64_STATUS_OK);
+  T64_CHECK(advance_guest_to_in_slices(machine, sample_tick));
+  T64_CHECK_INT(t64_machine_trace_drain(machine, records,
+                                        sizeof records / sizeof records[0],
+                                        &count, &dropped, &saturated),
+                T64_STATUS_OK);
+  T64_CHECK_INT(dropped, 0u);
+  T64_CHECK(!saturated);
+  for (i = 0u; i < count; i++) {
+    if (records[i].tick != sample_tick) continue;
+    if (records[i].device == T64_AI_DEVICE && ai_index == SIZE_MAX)
+      ai_index = i;
+    if (records[i].device == T64_VI_DEVICE && vi_index == SIZE_MAX)
+      vi_index = i;
+  }
+  T64_CHECK(ai_index != SIZE_MAX);
+  T64_CHECK(vi_index != SIZE_MAX);
+  if (ai_first) {
+    T64_CHECK(ai_index < vi_index);
+  } else {
+    T64_CHECK(vi_index < ai_index);
+  }
+  t64_machine_destroy(machine);
+}
+
+static void case_same_tick_store_sample(void) {
+  run_cpu_store_sample_order(true);
+  run_cpu_store_sample_order(false);
+  run_vi_ai_tie_order(true);
+  run_vi_ai_tie_order(false);
+}
+
+static void assert_ai_length_refusal(t64_machine *machine,
+                                     t64_status expected_status) {
+  uint8_t digest_before[T64_DIGEST_SIZE];
+  uint8_t digest_after[T64_DIGEST_SIZE];
+  t64_ai_state ai_before = machine->ai;
+  size_t queue_count_before = machine->queue_count;
+  uint64_t next_sequence_before = machine->next_sequence;
+
+  T64_CHECK_INT(t64_machine_digest(machine, digest_before), T64_STATUS_OK);
+  T64_CHECK_INT(t64_machine_bus_write(machine, AI_LEN, 4u, 8u),
+                expected_status);
+  T64_CHECK(memcmp(&machine->ai, &ai_before, sizeof ai_before) == 0);
+  T64_CHECK_INT(machine->queue_count, queue_count_before);
+  T64_CHECK_INT(machine->next_sequence, next_sequence_before);
+  T64_CHECK_INT(t64_machine_digest(machine, digest_after), T64_STATUS_OK);
+  T64_CHECK(memcmp(digest_before, digest_after, sizeof digest_before) == 0);
+}
+
+static void assert_ai_event_refusal_held(t64_machine *machine,
+                                         uint64_t event_tick) {
+  uint8_t digest_before[T64_DIGEST_SIZE];
+  uint8_t digest_after[T64_DIGEST_SIZE];
+  t64_ai_state ai_before = machine->ai;
+  t64_stop_request request = {T64_STOP_GUEST_TICK, event_tick};
+  t64_stop_result result = {UINT32_MAX, UINT64_MAX};
+  size_t queue_count_before = machine->queue_count;
+  uint64_t next_sequence_before = machine->next_sequence;
+  uint64_t tick_before = machine->tick;
+
+  T64_CHECK_INT(t64_machine_digest(machine, digest_before), T64_STATUS_OK);
+  T64_CHECK_INT(t64_machine_advance(machine, &request, &result),
+                T64_STATUS_OK);
+  T64_CHECK_INT(result.reason, T64_STOP_REASON_RESOURCE_LIMIT);
+  T64_CHECK_INT(result.tick, tick_before);
+  T64_CHECK_INT(machine->tick, tick_before);
+  T64_CHECK_INT(machine->queue_count, queue_count_before);
+  T64_CHECK_INT(machine->next_sequence, next_sequence_before);
+  T64_CHECK(memcmp(&machine->ai, &ai_before, sizeof ai_before) == 0);
+  T64_CHECK(has_ai_sample_event(machine));
+  T64_CHECK_INT(t64_machine_digest(machine, digest_after), T64_STATUS_OK);
+  T64_CHECK(memcmp(digest_before, digest_after, sizeof digest_before) == 0);
+}
+
+static void case_arithmetic_overflow_refusal(void) {
+  uint8_t ipl3_asset[IPL3_ASSET_BYTES];
+  t64_machine *machine = create_admitted_profile(AI_PROFILE_ID, ipl3_asset);
+  uint64_t event_tick = UINT64_MAX;
+
+  T64_CHECK(machine != NULL);
+  if (machine == NULL) return;
+  if (!configure_ai_rate_pair(machine)) {
+    t64_machine_destroy(machine);
+    return;
+  }
+  T64_CHECK_INT(t64_machine_bus_write(machine, AI_CONTROL, 4u, 1u),
+                T64_STATUS_OK);
+  T64_CHECK_INT(t64_machine_bus_write(machine, AI_DRAM_ADDR, 4u,
+                                      UINT32_C(0x100)),
+                T64_STATUS_OK);
+  /* Defensive injected guest-time boundary; ordinary register writes remain
+   * bounded and are covered by the adjacent accepted/refused pair cases. */
+  machine->tick = UINT64_MAX - UINT64_C(100);
+  assert_ai_length_refusal(machine, T64_STATUS_TICK_OVERFLOW);
+  t64_machine_destroy(machine);
+
+  machine = create_admitted_profile(AI_PROFILE_ID, ipl3_asset);
+  T64_CHECK(machine != NULL);
+  if (machine == NULL) return;
+  if (!configure_ai_rate_pair(machine)) {
+    t64_machine_destroy(machine);
+    return;
+  }
+  T64_CHECK_INT(t64_machine_bus_write(machine, AI_CONTROL, 4u, 1u),
+                T64_STATUS_OK);
+  T64_CHECK_INT(t64_machine_bus_write(machine, AI_DRAM_ADDR, 4u,
+                                      UINT32_C(0x100)),
+                T64_STATUS_OK);
+  machine->ai.descriptor_sequence = UINT64_MAX;
+  assert_ai_length_refusal(machine, T64_STATUS_SEQUENCE_EXHAUSTED);
+  t64_machine_destroy(machine);
+
+  machine = create_admitted_profile(AI_PROFILE_ID, ipl3_asset);
+  T64_CHECK(machine != NULL);
+  if (machine == NULL) return;
+  if (!configure_ai_rate_pair(machine)) {
+    t64_machine_destroy(machine);
+    return;
+  }
+  T64_CHECK_INT(t64_machine_bus_write(machine, AI_CONTROL, 4u, 1u),
+                T64_STATUS_OK);
+  T64_CHECK_INT(t64_machine_bus_write(machine, AI_DRAM_ADDR, 4u,
+                                      UINT32_C(0x100)),
+                T64_STATUS_OK);
+  machine->ai.event_generation = UINT64_MAX;
+  assert_ai_length_refusal(machine, T64_STATUS_SEQUENCE_EXHAUSTED);
+  t64_machine_destroy(machine);
+
+  machine = create_admitted_profile(AI_PROFILE_ID, ipl3_asset);
+  T64_CHECK(machine != NULL);
+  if (machine == NULL) return;
+  if (!configure_ai_rate_pair(machine)) {
+    t64_machine_destroy(machine);
+    return;
+  }
+  start_ai_spin_loop(machine);
+  T64_CHECK(cancel_boot_cpu_event(machine));
+  T64_CHECK_INT(t64_machine_bus_write(machine, AI_CONTROL, 4u, 1u),
+                T64_STATUS_OK);
+  T64_CHECK(submit_ai_frames(machine, UINT32_C(0x100), 2u));
+  T64_CHECK(find_next_ai_sample_tick(machine, &event_tick));
+  machine->ai.sample_index = UINT64_MAX;
+  assert_ai_event_refusal_held(machine, event_tick);
+  t64_machine_destroy(machine);
+
+  machine = create_admitted_profile(AI_PROFILE_ID, ipl3_asset);
+  T64_CHECK(machine != NULL);
+  if (machine == NULL) return;
+  if (!configure_ai_rate_pair(machine)) {
+    t64_machine_destroy(machine);
+    return;
+  }
+  start_ai_spin_loop(machine);
+  T64_CHECK(cancel_boot_cpu_event(machine));
+  T64_CHECK_INT(t64_machine_bus_write(machine, AI_CONTROL, 4u, 1u),
+                T64_STATUS_OK);
+  T64_CHECK(submit_ai_frames(machine, UINT32_C(0x100), 2u));
+  T64_CHECK(advance_ai_sample(machine));
+  T64_CHECK(find_next_ai_sample_tick(machine, &event_tick));
+  machine->ai.packet_history_count = UINT64_MAX;
+  assert_ai_event_refusal_held(machine, event_tick);
+  t64_machine_destroy(machine);
+
+  machine = create_admitted_profile(AI_PROFILE_ID, ipl3_asset);
+  T64_CHECK(machine != NULL);
+  if (machine == NULL) return;
+  if (!configure_ai_rate_pair(machine)) {
+    t64_machine_destroy(machine);
+    return;
+  }
+  start_ai_spin_loop(machine);
+  T64_CHECK(cancel_boot_cpu_event(machine));
+  T64_CHECK_INT(t64_machine_bus_write(machine, AI_CONTROL, 4u, 1u),
+                T64_STATUS_OK);
+  T64_CHECK(submit_ai_frames(machine, UINT32_C(0x100), 2u));
+  T64_CHECK(submit_ai_frames(machine, UINT32_C(0x108), 2u));
+  T64_CHECK(advance_ai_sample(machine));
+  T64_CHECK(find_next_ai_sample_tick(machine, &event_tick));
+  machine->ai.event_generation = UINT64_MAX;
+  assert_ai_event_refusal_held(machine, event_tick);
+  t64_machine_destroy(machine);
+}
+
 static void case_cadence_suite(void) {
+  puts("case rational-before-on-after");
+  case_rational_before_on_after();
+  puts("case partial-length-readback");
+  case_partial_length_readback();
+  puts("case inflight-source-mutation");
+  case_inflight_source_mutation();
+  puts("case bitrate-zero-and-ratio");
+  case_bitrate_zero_and_ratio();
   puts("case active-rate-latch");
   case_active_rate_latch();
+  puts("case pause-phase-resume");
+  case_pause_phase_resume();
+  puts("case reset-owned-events");
+  case_reset_owned_events();
+  puts("case same-tick-store-sample");
+  case_same_tick_store_sample();
+  puts("case arithmetic-overflow-refusal");
+  case_arithmetic_overflow_refusal();
 }
 
 int main(int argc, char **argv) {
@@ -979,7 +1656,15 @@ int main(int argc, char **argv) {
     puts("status-ack-isolation");
     puts("control-disable-enable");
     puts("documented-boundary-policy");
+    puts("rational-before-on-after");
+    puts("partial-length-readback");
+    puts("inflight-source-mutation");
+    puts("bitrate-zero-and-ratio");
     puts("active-rate-latch");
+    puts("pause-phase-resume");
+    puts("reset-owned-events");
+    puts("same-tick-store-sample");
+    puts("arithmetic-overflow-refusal");
     return 0;
   }
   if (argc == 3 && strcmp(argv[1], "--suite") == 0 &&
@@ -1043,6 +1728,38 @@ int main(int argc, char **argv) {
     }
     if (strcmp(argv[2], "active-rate-latch") == 0) {
       case_active_rate_latch();
+      return T64_TEST_FINISH("unit.core.ai.cadence");
+    }
+    if (strcmp(argv[2], "rational-before-on-after") == 0) {
+      case_rational_before_on_after();
+      return T64_TEST_FINISH("unit.core.ai.cadence");
+    }
+    if (strcmp(argv[2], "partial-length-readback") == 0) {
+      case_partial_length_readback();
+      return T64_TEST_FINISH("unit.core.ai.cadence");
+    }
+    if (strcmp(argv[2], "inflight-source-mutation") == 0) {
+      case_inflight_source_mutation();
+      return T64_TEST_FINISH("unit.core.ai.cadence");
+    }
+    if (strcmp(argv[2], "bitrate-zero-and-ratio") == 0) {
+      case_bitrate_zero_and_ratio();
+      return T64_TEST_FINISH("unit.core.ai.cadence");
+    }
+    if (strcmp(argv[2], "pause-phase-resume") == 0) {
+      case_pause_phase_resume();
+      return T64_TEST_FINISH("unit.core.ai.cadence");
+    }
+    if (strcmp(argv[2], "reset-owned-events") == 0) {
+      case_reset_owned_events();
+      return T64_TEST_FINISH("unit.core.ai.cadence");
+    }
+    if (strcmp(argv[2], "same-tick-store-sample") == 0) {
+      case_same_tick_store_sample();
+      return T64_TEST_FINISH("unit.core.ai.cadence");
+    }
+    if (strcmp(argv[2], "arithmetic-overflow-refusal") == 0) {
+      case_arithmetic_overflow_refusal();
       return T64_TEST_FINISH("unit.core.ai.cadence");
     }
     fprintf(stderr, "unknown AI case: %s\n", argv[2]);

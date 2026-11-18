@@ -87,6 +87,7 @@ static bool rate_pair_valid(uint32_t dacrate, uint32_t bitrate) {
 }
 
 static t64_status reserve_sample_event(t64_machine *machine, uint32_t dacrate,
+                                      uint64_t phase_remainder,
                                       uint64_t token,
                                       uint64_t *remainder_out) {
   t64_event_reservation reservation;
@@ -94,7 +95,7 @@ static t64_status reserve_sample_event(t64_machine *machine, uint32_t dacrate,
   uint64_t remainder;
   t64_status status;
 
-  if (!sample_delay(dacrate, machine->ai.phase_remainder, &delay,
+  if (!sample_delay(dacrate, phase_remainder, &delay,
                     &remainder)) {
     return T64_STATUS_TICK_OVERFLOW;
   }
@@ -121,7 +122,10 @@ static t64_status activate_queued_descriptor(t64_machine *machine) {
   t64_ai_state *ai = &machine->ai;
   t64_ai_dma_descriptor *descriptor;
   uint64_t token;
-  uint64_t remainder = ai->phase_remainder;
+  uint64_t phase_remainder = ai->latched_dacrate == ai->dacrate
+                                 ? ai->phase_remainder
+                                 : UINT64_C(0);
+  uint64_t remainder = phase_remainder;
   uint32_t slot;
   t64_status status;
 
@@ -132,16 +136,18 @@ static t64_status activate_queued_descriptor(t64_machine *machine) {
   slot = dma_slot(ai, 0u);
   descriptor = &ai->descriptors[slot];
   token = ai->event_generation + UINT64_C(1);
-  status = reserve_sample_event(machine, descriptor->dacrate, token,
+  status = reserve_sample_event(machine, ai->dacrate, phase_remainder, token,
                                 &remainder);
   if (status != T64_STATUS_OK) return status;
 
+  descriptor->dacrate = ai->dacrate;
+  descriptor->bitrate = ai->bitrate;
   ai->active = true;
   ai->paused = false;
   ai->paused_remaining_ticks = 0u;
   ai->active_byte_cursor = 0u;
-  ai->latched_dacrate = descriptor->dacrate;
-  ai->latched_bitrate = descriptor->bitrate;
+  ai->latched_dacrate = ai->dacrate;
+  ai->latched_bitrate = ai->bitrate;
   ai->event_generation = token;
   ai->event_token = token;
   ai->phase_remainder = remainder;
@@ -181,7 +187,10 @@ static t64_status submit_dma(t64_machine *machine, uint32_t raw_length) {
   uint32_t slot;
   uint32_t length = raw_length & UINT32_C(0x0003fff8);
   uint64_t token = UINT64_C(0);
-  uint64_t remainder = ai->phase_remainder;
+  uint64_t phase_remainder = ai->latched_dacrate == ai->dacrate
+                                 ? ai->phase_remainder
+                                 : UINT64_C(0);
+  uint64_t remainder = phase_remainder;
   bool activate;
   t64_status status;
 
@@ -216,8 +225,8 @@ static t64_status submit_dma(t64_machine *machine, uint32_t raw_length) {
       return T64_STATUS_SEQUENCE_EXHAUSTED;
     }
     token = ai->event_generation + UINT64_C(1);
-    status = reserve_sample_event(machine, descriptor.dacrate, token,
-                                  &remainder);
+    status = reserve_sample_event(machine, ai->dacrate, phase_remainder,
+                                  token, &remainder);
     if (status != T64_STATUS_OK) return status;
   }
   slot = dma_slot(ai, ai->descriptor_count);
@@ -375,6 +384,76 @@ bool t64_ai_event_waits_for_output_capacity(const t64_machine *machine,
          machine->ai.packet_count >= T64_AUDIO_QUEUE_CAPACITY;
 }
 
+bool t64_ai_event_can_dispatch(const t64_machine *machine,
+                               const t64_event *event) {
+  const t64_ai_state *ai;
+  const t64_ai_dma_descriptor *descriptor;
+  uint64_t delay;
+  uint64_t remainder;
+  uint64_t sequence_limit;
+  size_t queue_limit;
+  bool final_frame;
+  bool next_descriptor;
+  uint32_t next_dacrate;
+  uint64_t next_phase_remainder;
+  uint32_t sequence_width;
+
+  if (machine == NULL || event == NULL) return false;
+  if (event->device != T64_AI_DEVICE || event->kind != T64_AI_EVENT_SAMPLE ||
+      !t64_has_ai_profile(machine)) {
+    return true;
+  }
+  ai = &machine->ai;
+  if (!ai->active || ai->paused || ai->descriptor_count == 0u ||
+      event->token != ai->event_token) {
+    return true;
+  }
+  descriptor = &ai->descriptors[ai->descriptor_head];
+  if (machine->audio_packets == NULL || descriptor->length < 4u ||
+      ai->active_byte_cursor > descriptor->length - 4u ||
+      ai->sample_index == UINT64_MAX ||
+      (!ai->packet_reserved &&
+       ai->packet_count >= T64_AUDIO_QUEUE_CAPACITY)) {
+    return false;
+  }
+  final_frame = ai->active_byte_cursor + 4u == descriptor->length;
+  next_descriptor = final_frame && ai->descriptor_count > 1u;
+  if ((final_frame && ai->packet_history_count == UINT64_MAX) ||
+      (next_descriptor && ai->event_generation == UINT64_MAX)) {
+    return false;
+  }
+  if (final_frame && !next_descriptor) return true;
+
+  next_dacrate = ai->latched_dacrate;
+  next_phase_remainder = ai->phase_remainder;
+  if (next_descriptor) {
+    next_dacrate = ai->dacrate;
+    if (next_dacrate != ai->latched_dacrate) next_phase_remainder = 0u;
+  }
+  if (!sample_delay(next_dacrate, next_phase_remainder, &delay, &remainder) ||
+      delay > UINT64_MAX - event->tick) {
+    return false;
+  }
+
+  queue_limit = (size_t)machine->profile.event_queue_capacity;
+  if (queue_limit > T64_EVENT_QUEUE_CAPACITY) {
+    queue_limit = T64_EVENT_QUEUE_CAPACITY;
+  }
+  if (machine->queue_count == 0u ||
+      machine->queue_count - 1u >= queue_limit) {
+    return false;
+  }
+  sequence_width = machine->profile.sequence_width_bits;
+  if (sequence_width == 0u || sequence_width > 64u ||
+      machine->sequence_exhausted) {
+    return false;
+  }
+  sequence_limit = sequence_width == 64u
+                       ? UINT64_MAX
+                       : (UINT64_C(1) << sequence_width) - UINT64_C(1);
+  return machine->next_sequence <= sequence_limit;
+}
+
 t64_status t64_ai_event(t64_machine *machine, const t64_event *event) {
   t64_ai_state *ai;
   t64_ai_dma_descriptor *descriptor;
@@ -382,6 +461,7 @@ t64_status t64_ai_event(t64_machine *machine, const t64_event *event) {
   uint8_t *packet;
   uint64_t next_remainder = 0u;
   uint64_t next_token = UINT64_C(0);
+  uint64_t next_phase_remainder;
   uint32_t slot;
   uint32_t output;
   bool final_frame;
@@ -413,20 +493,24 @@ t64_status t64_ai_event(t64_machine *machine, const t64_event *event) {
     return T64_STATUS_SEQUENCE_EXHAUSTED;
   }
   if (!final_frame || next_descriptor) {
-    uint32_t next_dacrate = descriptor->dacrate;
+    uint32_t next_dacrate = ai->latched_dacrate;
+
+    next_phase_remainder = ai->phase_remainder;
 
     if (next_descriptor) {
-      const uint32_t next_slot = dma_slot(ai, 1u);
       if (ai->event_generation == UINT64_MAX) {
-        ai->sequence_exhausted = true;
         return T64_STATUS_SEQUENCE_EXHAUSTED;
       }
       next_token = ai->event_generation + UINT64_C(1);
-      next_dacrate = ai->descriptors[next_slot].dacrate;
+      next_dacrate = ai->dacrate;
+      if (next_dacrate != ai->latched_dacrate) {
+        next_phase_remainder = 0u;
+      }
     } else {
       next_token = ai->event_token;
     }
-    status = reserve_sample_event(machine, next_dacrate, next_token,
+    status = reserve_sample_event(machine, next_dacrate,
+                                  next_phase_remainder, next_token,
                                   &next_remainder);
     if (status != T64_STATUS_OK) return status;
   }
@@ -454,7 +538,7 @@ t64_status t64_ai_event(t64_machine *machine, const t64_event *event) {
     info.first_sample_index = ai->sample_index;
     info.first_tick = event->tick;
     info.rate_numerator = T64_AI_SOURCE_CLOCK;
-    info.rate_denominator = (uint64_t)descriptor->dacrate + UINT64_C(1);
+    info.rate_denominator = (uint64_t)ai->latched_dacrate + UINT64_C(1);
     info.channels = 2u;
     info.bits_per_sample = 16u;
     info.encoding = T64_AUDIO_ENCODING_S16BE;
@@ -496,8 +580,10 @@ t64_status t64_ai_event(t64_machine *machine, const t64_event *event) {
       ai->paused_remaining_ticks = 0u;
     } else {
       descriptor = &ai->descriptors[ai->descriptor_head];
-      ai->latched_dacrate = descriptor->dacrate;
-      ai->latched_bitrate = descriptor->bitrate;
+      descriptor->dacrate = ai->dacrate;
+      descriptor->bitrate = ai->bitrate;
+      ai->latched_dacrate = ai->dacrate;
+      ai->latched_bitrate = ai->bitrate;
       ai->event_generation = next_token;
       ai->event_token = next_token;
       ai->phase_remainder = next_remainder;

@@ -1355,6 +1355,8 @@ t64_status t64_ai_write_register(t64_machine *machine, uint32_t address,
 t64_status t64_ai_event(t64_machine *machine, const t64_event *event);
 bool t64_ai_event_waits_for_output_capacity(const t64_machine *machine,
                                             const t64_event *event);
+bool t64_ai_event_can_dispatch(const t64_machine *machine,
+                               const t64_event *event);
 t64_status t64_pi_read_register(const t64_machine *machine, uint32_t address,
                                 uint32_t *value_out);
 t64_status t64_pi_write_register(t64_machine *machine, uint32_t address,

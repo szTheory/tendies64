@@ -60,10 +60,18 @@ does not advance audio.
 
 Each sample event reads four current RDRAM bytes as one interleaved stereo
 frame. DACRATE and BITRATE are latched when a descriptor becomes active;
-subsequent setting writes apply to the next descriptor. The guest scheduler's
-existing tick/sequence ordering resolves same-tick events. These are named
-software policies because the cited register documentation does not settle
-source latching or live setting-write effects.
+subsequent setting writes apply when the next descriptor becomes active. The
+integer phase remainder carries across descriptors when DACRATE is unchanged;
+a changed DACRATE starts the next descriptor with a fresh interval. The guest
+scheduler's existing tick/sequence ordering resolves same-tick CPU writes and
+AI samples. These are named software policies because the cited register
+documentation does not settle source latching or live setting-write effects.
+
+Before dispatching an AI sample, the scheduler checks that the sample index,
+packet-history count, descriptor generation, next guest tick, queue slot and
+event sequence can all advance. If a bound is exhausted, the call reports a
+resource limit and leaves the AI event queued with its guest tick, cursor,
+packet data and digest unchanged.
 
 When the bounded output queue cannot accept the next packet, the producing
 sample event remains pending. The scheduler does not commit its source cursor,

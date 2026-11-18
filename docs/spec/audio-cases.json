@@ -73,7 +73,17 @@
       "binaries": [
         {
           "path": "core/test_ai",
-          "cases": ["active-rate-latch"]
+          "cases": [
+            "rational-before-on-after",
+            "partial-length-readback",
+            "inflight-source-mutation",
+            "bitrate-zero-and-ratio",
+            "active-rate-latch",
+            "pause-phase-resume",
+            "reset-owned-events",
+            "same-tick-store-sample",
+            "arithmetic-overflow-refusal"
+          ]
         }
       ]
     }
