@@ -1593,8 +1593,17 @@ def _selftest() -> tuple[bool, str]:
     _write_json(forged / "original/command.json", command)
     if _verify_cli(forged, "forged-success-report", run_root):
         raise Refusal("final CLI verifier accepted a success report over an original refusal")
+    emitter = _run_recorded(
+        run_root / "hosted-emitter-entry",
+        [sys.executable, "-B", str(ROOT / "scripts/tests/test_rdp_vi_qualification.py"),
+         "RdpViQualificationTests.test_actual_hosted_emitter_entrypoint"],
+        cwd=ROOT, environment={"PYTHONDONTWRITEBYTECODE": "1"}, timeout_seconds=30.0,
+    )
+    if emitter["timed_out"] or emitter["return_code"] != 0:
+        raise Refusal("actual hosted emitter entrypoint control failed before qualification")
     return True, (
         "actual accepted producer, reached wrong-pixel comparator, child/grandchild subprocess deadline, "
+        "actual hosted emitter entrypoint, "
         f"native source binding control ({source_control_message}), "
         "missing/swapped/zero/missing-v9/forged original-record controls passed"
     )
@@ -1779,7 +1788,7 @@ def _emit_hosted(job: str, commit_sha: str) -> None:
         raise Refusal("hosted emitter requires exact workflow run and attempt identities")
     if _git_head() != commit_sha:
         raise Refusal("checked-out source SHA differs from the hosted workflow SHA")
-    private = _private_dir(f"hosted-{job}-")
+    private = _private_dir(f"hosted-{job}-") / "original-run"
     _build_actual_bundle(
         private, job=job, commit_sha=commit_sha, run_id=run_id, run_attempt=run_attempt,
     )

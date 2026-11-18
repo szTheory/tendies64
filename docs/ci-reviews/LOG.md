@@ -107,6 +107,7 @@ from.
 | 2026-11-16 | 43897243313 | 16f93de300a7 | push | success | 467 | 465 | 2/167 | 3/462 | gate-macos/Gate 440s |
 | 2026-11-17 | 44013595697 | 2fd44ca8f4c3 | push | failure | 346 | 344 | 2/93 | 3/341 | gate-macos/Gate 328s |
 | 2026-11-17 | 44018490135 | 6f5ff26a99a3 | push | success | 341 | 341 | 2/156 | 3/338 | gate-macos/Gate 324s |
+| 2026-11-18 | 44225542279 | 385fd2a920a6 | push | failure | 460 | 458 | 1/151 | 3/455 | gate-macos/Gate 442s |
 
 ## Findings
 
@@ -232,3 +233,4 @@ weakening qualification. Log: `build/gate/07-05-hosted-macos.log`.
 | F-091 | 44174870063 | Both hosts pass reviewed VI checkpointfc83c58 and153 native checks; exact selected authored boot records compare. macOS job385s/Gate367s, Linux174s/Gate167s; queues4/2s. Local final gate109s (CTest64s, inventory selftest16s, lint15s). | taken | Exercise latched timing/mode changes through consecutive packets and sampled CURRENT, separate RDRAM source limits from output dimensions, and distinguish last-row pixels. Pin predecessor bytes and immediate-register exceptions. Run tree PII before evidence commits; the owner's specific unpublished sanitation preserved public history and failed originals. Keep both hosts/limits; no cache, dependency or concurrency change is justified. |
 
 | F-092 | 44198383459 | Both hosts pass reviewed filter checkpoint8def244 and156 native checks; exact selected authored boot records compare. macOS job443s/Gate428s, Linux188s/Gate181s; queues3/2s. Local reviewed gate61s. | taken | Positive filter taps outside a one-row visible window must be validated against backing RDRAM; pair them with a true RAM-end fallback and consumed-span checks. Whole/split calls must actually differ; failed setup must count before returning. Diagnose trace observer overflow at the failed call and retain bounds. Review the new qualification verifier before the expensive final matrix. Keep both jobs/limits; no cache/dependency/concurrency expansion. |
+| F-093 | 44225542279 | The ordinary hosted gates passed but the new emitter failed before producing records because an existing temporary directory was passed to a fresh-directory constructor. | taken | Use an uncreated child directory and run the actual emitter entrypoint in an isolated publication root during cheap preflight; preserve the failed run and do not rerun unchanged sanitizer/compiler matrices. |

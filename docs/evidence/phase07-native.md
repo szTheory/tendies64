@@ -33,3 +33,8 @@ expected frame or cartridge/boot bytes. Private originals remain retained.
 Live hosted raw-artifact collection is pending this checkpoint's push. Local
 mock transport verifies layout and refusal behavior only. No oracle agreement,
 silicon behavior, broad ROM compatibility or VID-04 completion follows.
+
+The first checkpoint's hosted gates passed, but its new emission entry stopped
+before raw production. The [setup repair](../../.planning/phases/07-rdp-reference-renderer-and-vi-scanout/07-11-HOSTED-EMITTER-REPAIR.md)
+adds a reached real-entry regression to cheap preflight. A fresh successful
+hosted raw pair remains required; this failure does not replace that evidence.

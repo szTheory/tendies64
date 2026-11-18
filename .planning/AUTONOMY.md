@@ -269,6 +269,13 @@ applies that direction; update it when the owner changes policy.
   process-group cleanup and stopped output after return, not just direct-child
   termination. Check source identity before expensive work and after execution;
   a commit annotation alone does not bind a dirty build to that commit.
+  Exercise the actual CI emitter entrypoint with isolated public output storage
+  before long qualification. A layout-only producer helper missed a distinct
+  temporary-directory lifecycle bug in the real emitter. Supply the complete
+  workflow identity environment before classifying a local control, and keep
+  authored identity values separate from actual server-authenticated hosted
+  proof. Probe a new downloader cheaply against an existing cleared artifact
+  before spending another CI run on it.
   Anchor required membership to the existing pinned-source qualification
   verifier, not merely two mutually consistent snapshots. An authored control
   must shrink both snapshots and reseal their dependent summaries. Test privacy
