@@ -5,8 +5,8 @@ milestone_name: Observable Machine
 current_phase: 08
 current_plan: null
 current_phase_name: Audio Interface and Raw Capture
-status: discussing
-stopped_at: Phase8 approved; decision-focused discussion/research active
+status: planning
+stopped_at: Phase8 approved; decision-focused implementation planning active
 last_updated: "2026-11-18T07:10:58.115357+00:00"
 last_activity: 2026-11-18
 last_activity_desc: Plan12 reviewed authority preparation and local gate pass; oracle stop preserved
@@ -26,13 +26,13 @@ progress:
 See: .planning/PROJECT.md (updated 2026-11-15)
 
 **Core value:** Every Tendies64 support claim is backed by evidence: a named profile, a pinned build and a reproducible, rights-cleared guest result.
-**Current focus:** Phase8 Audio Interface/raw capture discussion, planning and implementation; oracle stop preserved.
+**Current focus:** Phase8 Audio Interface/raw capture executable planning and implementation; oracle stop preserved.
 
 ## Current Position
 
-Phase: 08 (Audio Interface and Raw Capture) — DISCUSSING
+Phase: 08 (Audio Interface and Raw Capture) — PLANNING
 Plan: not yet planned; Phase7 has12 authored summaries and one stopped successor
-Status: Phase8 dependency change approved; research fan-out active; Phase7 oracle acceptance remains stopped
+Status: Phase8 dependency change approved; discussion/research complete; executable planning active; Phase7 oracle acceptance remains stopped
 Last activity: 2026-11-18 — Authority preparation reviewed and locally qualified; both final-batch hosted jobs and exact downloaded checks pass
 
 Progress: [█████████░] 92% of currently planned source plans
@@ -84,7 +84,7 @@ question. No oracle authority is part of this decision.
 ## Session Continuity
 
 Last session: 2026-11-18T07:22:46.107364+00:00
-Stopped at: Phase8 approved; discussion/research active
+Stopped at: Phase8 approved; implementation planning active
 Resume file: .planning/phases/08-audio-interface-and-raw-capture/08-SEQUENCING.md
 
 Historical closeout: [v1.0 roadmap](milestones/v1.0-ROADMAP.md), [audit](milestones/v1.0-MILESTONE-AUDIT.md), [lessons](RETROSPECTIVE.md).
