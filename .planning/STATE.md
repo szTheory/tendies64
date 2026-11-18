@@ -3,20 +3,20 @@ gsd_state_version: "1.0"
 milestone: v1.1
 milestone_name: Observable Machine
 current_phase: 07
-current_plan: "11"
+current_plan: "12"
 current_phase_name: RDP Reference Renderer and VI Scanout
 status: executing
-stopped_at: Plan11 hosted emitter repaired and requalified; fresh hosted raw pair next
-last_updated: "2026-11-18T03:13:15.773413+00:00"
+stopped_at: Plan11 complete; Plan12 authored request/checker preparation next; oracle use stopped
+last_updated: "2026-11-18T03:37:04.614942+00:00"
 last_activity: 2026-11-17
-last_activity_desc: Hosted gates passed but emitter setup failed; real-entry repair passed review and affected qualification
-state_head: bdf4948108792055848e6c8ac201b1def0adfedc
+last_activity_desc: Both hosted jobs and exact raw/boot collection passed; five authored video requirements complete
+state_head: e6f54668afec23e603f4ce61fc44fd9b91d216da
 progress:
   total_phases: 3
   completed_phases: 0
   total_plans: 13
-  completed_plans: 10
-  percent: 77
+  completed_plans: 11
+  percent: 85
 ---
 
 # Project State
@@ -26,20 +26,20 @@ progress:
 See: .planning/PROJECT.md (updated 2026-11-15)
 
 **Core value:** Every Tendies64 support claim is backed by evidence: a named profile, a pinned build and a reproducible, rights-cleared guest result.
-**Current focus:** Plan11 exact hosted authored raw-artifact qualification after completed local matrix.
+**Current focus:** Plan12 authored authority request/checker preparation; existing oracle stop remains.
 
 ## Current Position
 
 Phase: 07 (RDP Reference Renderer and VI Scanout) — EXECUTING
-Plan: 11 of13 in current phase
-Status: Plan11 reviewed and locally qualified; exact hosted raw artifacts pending
-Last activity: 2026-11-17 — Plan11 full normal/sanitizer/compiler qualification passed
+Plan: 12 of13 in current phase
+Status: Plan11 complete; Plan12 authored preparation ready, actual oracle authority unresolved
+Last activity: 2026-11-17 — Authored native/compiler/sanitizer and actual hosted raw qualification complete
 
-Progress: [████████░░] 77% of currently planned source plans
+Progress: [████████░░] 85% of currently planned source plans
 
 ## Performance Metrics
 
-- Active milestone:0 completed phases and10 completed plans;13 Phase7 plans defined.
+- Active milestone:0 completed phases and11 completed plans;13 Phase7 plans defined.
 - Historical v1.0: 6 phases and 73 source plans complete. This is planning completion, not a software release.
 - Prior phase plan counts: 1: 13; 2: 8; 3: 13; 4: 20; 5: 10; 6: 9.
 - Execution timing: not established for v1.1. Historical evidence remains in [v1.0 phase records](milestones/v1.0-phases/).
@@ -56,17 +56,15 @@ Progress: [████████░░] 77% of currently planned source plans
 
 ### Pending Todos
 
-Plan11's independently reviewed source passed the complete normal gate, full
-ASan/UBSan inventory and pinned GCC13 changed-source check. Exact binaries and
-original stage records are retained and hash-verified. The implemented authored
-security scope has no reachable high/critical mitigation gaps; three future
-oracle rows remain open in the whole-phase register. The first hosted gates passed but emission stopped before raw production.
-The reviewed emitter repair passed a fresh normal gate and owning sanitizer
-harness; original full C-source instrumentation/compiler evidence is retained.
-Publish the repaired checkpoint, collect its exact successful hosted SHA/run/attempt/job ZIP bytes,
-and verify decoded authored RDRAM/VI evidence. Then close Plan11 bookkeeping.
-No user action is needed for this remaining authored work. D2/D5/D6 and expired
-private windows remain stopped; Plan12/13 and VID-04 stay incomplete.
+Plan11 is complete. Normal gate, full ASan/UBSan, pinned GCC and actual exact
+hosted raw/boot checks pass; original binaries/records and public receipt are
+retained. VID-01/02/03/05/06 are complete within their documented authored scope.
+Execute Plan12 Task1: prepare the concrete bounded authority/rights request and
+fail-closed authored checker/tests without downloading, building, running or
+copying oracle material. Task2 preserves the existing unresolved stop automatically;
+no ceremonial acknowledgment is needed. Do not run Plan13 without genuine
+competent scope/rights authority passing the live gate. Phase07/VID-04 remain
+incomplete. No user action is needed for this authorized preparation.
 
 ### Blockers/Concerns
 
@@ -86,9 +84,9 @@ private windows remain stopped; Plan12/13 and VID-04 stay incomplete.
 
 ## Session Continuity
 
-Last session: 2026-11-18T02:43:00.078954+00:00
-Stopped at: Plan11 local qualification complete; hosted raw qualification pending
-Resume file: .planning/phases/07-rdp-reference-renderer-and-vi-scanout/07-11-PLAN.md
+Last session: 2026-11-18T03:37:04.614942+00:00
+Stopped at: Plan11 complete; Plan12 authored authority preparation next
+Resume file: .planning/phases/07-rdp-reference-renderer-and-vi-scanout/07-12-PLAN.md
 
 Historical closeout: [v1.0 roadmap](milestones/v1.0-ROADMAP.md), [audit](milestones/v1.0-MILESTONE-AUDIT.md), [lessons](RETROSPECTIVE.md).
 

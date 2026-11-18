@@ -3,7 +3,7 @@
 ## Milestones
 
 - ✅ **v1.0 Verified Headless Core** — Phases1–6 complete; planning archive2026-11-15. [Verified scope and history](milestones/v1.0-ROADMAP.md). This is not a software release.
-- 🚧 **v1.1 Observable Machine** — Phases 7–9; active; Phase7 authored qualification underway, oracle acceptance blocked.
+- 🚧 **v1.1 Observable Machine** — Phases 7–9; active; Phase7 authored qualification complete, oracle acceptance blocked.
 - 📋 **v1.2 Embeddable and Playable** — Phases10–11; provisional.
 - 📋 **v2.0 Breadth, Accuracy and Performance** — provisional future scope.
 
@@ -99,13 +99,13 @@ Plans:
 **Wave 10** *(blocked on Wave 9 completion)*
 - [x] 07-10-PLAN.md — VI filtering and lossless raw-output backpressure
 
-**Wave 11** *(blocked on Wave 10 completion)*
-- [ ] 07-11-PLAN.md — Complete authored native, sanitizer, compiler and hosted qualification
+**Wave 11** *(complete)*
+- [x] 07-11-PLAN.md — Complete authored native, sanitizer, compiler and hosted qualification
 
-**Wave 12** *(blocked on Wave 11 completion)*
+**Wave 12** *(authored preparation ready; owner/legal oracle checkpoint remains stopped)*
 - [ ] 07-12-PLAN.md — Prepare a concrete oracle authority record and preserve the existing stop
 
-**Wave 13** *(blocked on Wave 12 completion)*
+**Wave 13** *(blocked until genuine oracle authority and applicable rights pass the live gate)*
 - [ ] 07-13-PLAN.md — Run authorized out-of-tree comparisons and label actual differential evidence
 
 ### Phase 8: Audio Interface and Raw Capture
@@ -133,7 +133,7 @@ Plans:
 
 ## Progress
 
-Execution order: Phase 7 → Phase 8 → Phase 9. Plans01–10 are complete; Plan11 has passed local qualification and awaits hosted raw evidence. Phase7 is not complete.
+Execution order: Phase 7 → Phase 8 → Phase 9. Plans01–11 are complete; Plan12 authored authority preparation is next. Oracle use and VID-04 remain blocked; Phase7 is not complete.
 VID-04's specific acceptance gate does not prevent permitted authored/native work.
 
 | Phase | Plans Complete | Status | Completed |

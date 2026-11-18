@@ -12,12 +12,12 @@ its partial scheduler foundation; remaining device integration must be proved.
 
 ### RDP and VI
 
-- [ ] **VID-01**: An in-tree software RDP renders command lists (fill, copy, textured and shaded triangles, combiner, blender, coverage, Z) into RDRAM
-- [ ] **VID-02**: SYNC_FULL and the DP interrupt behave per the references
-- [ ] **VID-03**: A software VI produces raw frames from RDRAM using the profile's TV timing, interlace, pixel format and filtering, never assuming 320×240
+- [x] **VID-01**: An in-tree software RDP renders command lists (fill, copy, textured and shaded triangles, combiner, blender, coverage, Z) into RDRAM
+- [x] **VID-02**: SYNC_FULL and the DP interrupt behave per the references
+- [x] **VID-03**: A software VI produces raw frames from RDRAM using the profile's TV timing, interlace, pixel format and filtering, never assuming 320×240
 - [ ] **VID-04**: RDP conformance is reported as differential evidence with labeled oracle versions (Angrylion-Plus and parallel-rdp used out-of-tree only), never as hardware truth
-- [ ] **VID-05**: Undefined-behavior choices (noise seed, undefined memory color) are recorded as named policy choices
-- [ ] **VID-06**: Raw video output stays separate from host scaling and filtering
+- [x] **VID-05**: Undefined-behavior choices (noise seed, undefined memory color) are recorded as named policy choices
+- [x] **VID-06**: Raw video output stays separate from host scaling and filtering
 
 ### Audio and raw capture
 
@@ -37,6 +37,11 @@ its partial scheduler foundation; remaining device integration must be proved.
 - [ ] **CORE-05**: User can record and replay timed input as an artifact bound to profile, build and content hash
 
 ## Evidence and authority limits
+
+Plan11 completes VID-01/02/03/05/06 within its named authored software profiles,
+exact builds and fixture/case scope. [Native and actual hosted evidence](../docs/evidence/phase07-native.md)
+and [bounded claims](../docs/claims/phase07.md) retain their limits; this is not
+hardware qualification or a general ROM compatibility statement.
 
 VID-04 remains a specific blocked acceptance: D5 local-oracle authority is open
 and parallel-rdp needs a per-file/asset rights audit. Authored/native RDP/VI
@@ -115,12 +120,12 @@ roadmap activation; CORE-02 retains only its verified scheduler foundation.
 
 | Requirement | Phase | Status |
 |-------------|-------|--------|
-| VID-01 | Phase 7 | Pending |
-| VID-02 | Phase 7 | Pending |
-| VID-03 | Phase 7 | Pending |
+| VID-01 | Phase 7 | Complete |
+| VID-02 | Phase 7 | Complete |
+| VID-03 | Phase 7 | Complete |
 | VID-04 | Phase 7 | Blocked acceptance — D5 oracle authority and parallel-rdp per-file/asset audit unresolved |
-| VID-05 | Phase 7 | Pending |
-| VID-06 | Phase 7 | Pending |
+| VID-05 | Phase 7 | Complete |
+| VID-06 | Phase 7 | Complete |
 | AUD-01 | Phase 8 | Pending |
 | AUD-02 | Phase 8 | Pending |
 | AUD-03 | Phase 8 | Pending |
