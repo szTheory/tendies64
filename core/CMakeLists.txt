@@ -544,6 +544,13 @@ t64_target_warnings(test_profile)
 add_test(NAME unit.core.profile COMMAND test_profile)
 set_tests_properties(unit.core.profile PROPERTIES LABELS unit)
 
+add_executable(test_ai tests/test_ai.c)
+target_include_directories(test_ai PRIVATE "${CMAKE_SOURCE_DIR}/tests")
+target_link_libraries(test_ai PRIVATE t64_core)
+t64_target_warnings(test_ai)
+add_test(NAME unit.core.ai.tracer COMMAND test_ai)
+set_tests_properties(unit.core.ai.tracer PROPERTIES LABELS unit)
+
 add_executable(test_rom_admission tests/test_rom_admission.c)
 target_include_directories(test_rom_admission PRIVATE
   "${CMAKE_SOURCE_DIR}/tests"
