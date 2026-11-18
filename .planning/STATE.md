@@ -5,18 +5,18 @@ milestone_name: Observable Machine
 current_phase: 08
 current_phase_name: Audio Interface and Raw Capture
 status: executing
-stopped_at: Phase8 Plan03 verified and committed; Plan04 raw capture next
+stopped_at: Phase8 Plan04 verified and committed; Plan05 evidence then independent review
 last_updated: "2026-11-18T17:48:38.770Z"
 last_activity: 2026-11-18
-last_activity_desc: Lossless output and core/runner determinism pass normal and instrumentation; continue capture
-state_head: 6280d2aeec05e6f3ac8c784224ea2565b70dc36e
+last_activity_desc: Actual raw capture/no-clobber passes normal and instrumentation; qualification pending
+state_head: 463d26f77b62d6c1d4469a7411c6e04492cf49a6
 progress:
   total_phases: 3
   completed_phases: 0
   total_plans: 18
-  completed_plans: 15
-  percent: 83
-current_plan: "04"
+  completed_plans: 16
+  percent: 89
+current_plan: "05"
 ---
 
 # Project State
@@ -31,16 +31,16 @@ See: .planning/PROJECT.md (updated 2026-11-15)
 ## Current Position
 
 Phase: 08 (Audio Interface and Raw Capture) — EXECUTING
-Current Plan: 4
+Current Plan: 5
 Total Plans in Phase: 5
-Status: Plans01–03 complete; Plan04 ready. Phase7 remains12 of13 with an authority halt
-Last activity: 2026-11-18 — Packet capacity/copy and core/runner determinism pass; raw file capture next
+Status: Plans01–04 complete; Plan05 evidence controls then review/qualification. Phase7 remains12 of13 with an authority halt
+Last activity: 2026-11-18 — Capture and actual macOS race/path/termination controls pass; full review/qualification pending
 
-Progress: [████████░░] 83% of currently planned source plans
+Progress: [█████████░] 89% of currently planned source plans
 
 ## Performance Metrics
 
-- Active milestone:0 completed phases and15 completed plans;18 plans defined across Phases7–8.
+- Active milestone:0 completed phases and16 completed plans;18 plans defined across Phases7–8.
 - Historical v1.0: 6 phases and 73 source plans complete. This is planning completion, not a software release.
 - Prior phase plan counts: 1: 13; 2: 8; 3: 13; 4: 20; 5: 10; 6: 9.
 - Execution timing: not established for v1.1. Historical evidence remains in [v1.0 phase records](milestones/v1.0-phases/).
@@ -62,7 +62,7 @@ request/checker is independently reviewed, locally qualified and fail-closed;
 production approval pins remain unset. Plan13 and VID-04 remain blocked by
 competent authority, per-file/build-input rights and missing exported replay
 inputs. Do not infer a grant from this preparation. Both final-batch hosted jobs and exact downloaded raw/boot, privacy and rights checks pass. Owner approved Phase8 from the qualified authored foundation on2026-11-18.
-Five plans passed independent checks. Plans08-01–03 are complete; execute08-04 through08-05 sequentially,
+Five plans passed independent checks. Plans08-01–04 are complete; execute08-05 sequentially,
 including actual-consumer preflight, tests, review and cohesive qualification. Do not repeat the sequencing
 question. No oracle authority is part of this decision.
 
@@ -85,8 +85,8 @@ question. No oracle authority is part of this decision.
 ## Session Continuity
 
 Last session: 2026-11-18T07:22:46.107364+00:00
-Stopped at: Phase8 Plan03 complete; Plan04 ready
-Resume file: .planning/phases/08-audio-interface-and-raw-capture/08-04-PLAN.md
+Stopped at: Phase8 Plan04 complete; Plan05 evidence then review/qualification
+Resume file: .planning/phases/08-audio-interface-and-raw-capture/08-05-PLAN.md
 
 Historical closeout: [v1.0 roadmap](milestones/v1.0-ROADMAP.md), [audit](milestones/v1.0-MILESTONE-AUDIT.md), [lessons](RETROSPECTIVE.md).
 

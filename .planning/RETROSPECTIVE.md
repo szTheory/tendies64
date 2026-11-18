@@ -406,3 +406,13 @@ comparison. A budget yield is not unequal emulation, and partitioning both sides
 identically defeats the witness. Snapshot a blocked producer only after earlier
 legal events; the machine tick need not equal the held event tick. Verify actual
 CLI forwarding to the test-enabled supervisor before running guest comparisons.
+
+Raw capture tests must assert generated argv contains the intended target/cap/
+fault before launching the guest. Test the entire closed emitted-detail table
+early, including fallback literals, and preserve original producer reports before
+a supervisor rewrite. A synthetic error return is not abrupt-termination proof:
+use an actual bounded precommit barrier and signal the attributable process.
+Filter contender records by exact target so accepted baselines are not counted
+as winners. Exercise parent rename/symlink substitution against retained FDs,
+not only static dot-dot refusal. Keep second-geometry staged-byte evidence
+separate from a successful complete A/V bundle when one stream is absent.
