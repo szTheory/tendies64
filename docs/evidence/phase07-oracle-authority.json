@@ -1,0 +1,201 @@
+{
+  "schema": "t64.phase07.oracle-authority",
+  "schema_version": 1,
+  "record_id": "phase07-vid04-local-oracle-request-v1",
+  "metadata_observed_at_utc": "2026-11-18T04:00:40Z",
+  "request_sha256": "deeacb7ae7fe4b7699bc4c9d4d1a1618e9caea0d57a2c51d136ae9798c9debdd",
+  "request": {
+    "purpose": "Prepare a bounded local-only emulator comparison request for the Phase07 authored RDP/VI corpus.",
+    "evidence_label": "emulator-to-emulator differential only; never hardware truth",
+    "corpus": {
+      "id": "tendies64-phase07-authored-rdp-vi-v1",
+      "case_manifest": {
+        "path": "docs/spec/rdp-vi-cases.json",
+        "sha256": "c915cc38ce78aeccc0d6718351f4968368f35126366e4b353a90037abc98385b",
+        "git_blob_id_sha1": "b44250853f4d920c124b68efd0041de872c4a750",
+        "suites": 11,
+        "cases": 216
+      },
+      "authored_fixture_ids": ["rdp-fill", "rdp-fill-payload"],
+      "fixture_manifest": {
+        "path": "fixtures/manifest.json",
+        "sha256": "5e810cd53be877d643da36aa20184e55904177a63ac8d7c165b9af2cbb4a1f1e",
+        "git_blob_id_sha1": "9d9ab9d78066428f8a89dfe66ae625dba80043f8"
+      },
+      "fixture_rights": [
+        {
+          "id": "rdp-fill",
+          "source_path": "fixtures/rdp/fill.S",
+          "source_rights": "authored-here",
+          "binary_rights": "cleared",
+          "distribution": ["build-only"],
+          "built_fixture_sha256": "b469340e7caa0ac341a2a5b525aa7e3b39c8a47f295ecd10710ae695e46dfc3d",
+          "built_fixture_size_bytes": 4552
+        },
+        {
+          "id": "rdp-fill-payload",
+          "source_path": "fixtures/rdp/fill.S",
+          "source_rights": "authored-here",
+          "binary_rights": "cleared",
+          "distribution": ["build-only"],
+          "built_fixture_sha256": "e2fc24f79cbd9649cac8cd460a5f24a40a58a372bf564acea0bf19955418edd6",
+          "built_fixture_size_bytes": 456
+        }
+      ],
+      "bound_authored_inputs": [
+        {"path": "docs/spec/rdp-vi-cases.json", "sha256": "c915cc38ce78aeccc0d6718351f4968368f35126366e4b353a90037abc98385b", "git_blob_id_sha1": "b44250853f4d920c124b68efd0041de872c4a750"},
+        {"path": "fixtures/manifest.json", "sha256": "5e810cd53be877d643da36aa20184e55904177a63ac8d7c165b9af2cbb4a1f1e", "git_blob_id_sha1": "9d9ab9d78066428f8a89dfe66ae625dba80043f8"},
+        {"path": "fixtures/rdp/fill.S", "sha256": "812ac7ee08914fd3dc505bffb63443413e59109ae07a1664a941fa9503316f20", "git_blob_id_sha1": "403ac990aa679bbe9bce6af693930ac08b93280c"},
+        {"path": "scripts/check-rdp-vi-cases.py", "sha256": "07bd79e71de7389f346dd66d28dc7ad2fa6c2cdc6d30978794aa6c27f92ecb4e", "git_blob_id_sha1": "824882d093f8ef57d69920af28a728b50cad9a29"},
+        {"path": "core/tests/test_rdp.c", "sha256": "e272451ca0b6214512b19fb4d7b969e7c1264b13918169b60679df26ff6c6074", "git_blob_id_sha1": "8028616394e738fdc1f8265c1d4b107144439821"},
+        {"path": "core/tests/test_rdp_copy.c", "sha256": "dbf6ad6674df78b45155b87fee431206a6318fcb899f7e6ca90f3a44f41ebe1c", "git_blob_id_sha1": "1d70d24d4bb79844e8d028ab16a942b896a1a0e7"},
+        {"path": "core/tests/test_rdp_triangles.c", "sha256": "2df3e208390dd7b8c7f6b34eb06490bbbceab738df532338d613a1b40a19cdda", "git_blob_id_sha1": "ecf7db61129127dc38b07b0300d5ffd49272d27a"},
+        {"path": "core/tests/test_rdp_texture.c", "sha256": "b109815f8ef01cf45ff86a3463e1eed83d639a5ac36bc0888e87de241884c91d", "git_blob_id_sha1": "a928d46f00c7d4c3988fc89c000d0b9d1954a92f"},
+        {"path": "core/tests/test_rdp_combiner.c", "sha256": "734c74e56b28a4b45cb116bf9a3fb91ad30e09b085484adc7093fbc170cb64dd", "git_blob_id_sha1": "dd84b8893ac398311b38b819deb4efdb2e688516"},
+        {"path": "core/tests/test_rdp_blender.c", "sha256": "0bcde961a79a66b1e6f321065b78291a1cb6690daab8783cae5a175f3af8c57e", "git_blob_id_sha1": "1a964a9c6e706cd2151d3fa391fbff4de3f42ece"},
+        {"path": "core/tests/test_rdp_depth.c", "sha256": "67c3c8a81fed51f18537cf321bd079817e52d6372ddfc89409832c5fd504aafb", "git_blob_id_sha1": "44034f4e9207bcfd0112211c2ade49295b46cfdf"},
+        {"path": "core/tests/test_vi.c", "sha256": "a2230ee2280829a65c34edaff59ef98adb3d5d16aafe882811aea769f19fab7b", "git_blob_id_sha1": "d27fa29ba67816ca164e8f23a8605044e4cbe656"},
+        {"path": "core/tests/test_video_output.c", "sha256": "92e02d27aa7882749b833a499ba9d25afe7d81d8c963c3296ae83efb30bb4e85", "git_blob_id_sha1": "8dfe69213e77e0f230233d2e46a43185065bae72"},
+        {"path": "runner/tests/test_rdp_video.c", "sha256": "1d49ee49594481e3803dd055522f5b22a97c6628a64ff131bdb6042e182b160b", "git_blob_id_sha1": "0d68c3b16a35bad7cf98c655ad91f2923b0bae5e"}
+      ]
+    },
+    "oracles": [
+      {
+        "id": "angrylion-plus",
+        "role": "pinned local black-box comparison renderer",
+        "repository": "https://github.com/ata4/angrylion-rdp-plus.git",
+        "repository_web": "https://github.com/ata4/angrylion-rdp-plus",
+        "ref": "refs/tags/v1.6",
+        "revision_sha1": "3744ec766ed8d2c15fd5cbb4ac3c241b852b6e69",
+        "revision_kind": "lightweight tag resolving directly to a commit",
+        "build_recipe": {
+          "status": "proposed-but-not-authorized",
+          "documentation_url": "https://github.com/ata4/angrylion-rdp-plus/blob/3744ec766ed8d2c15fd5cbb4ac3c241b852b6e69/README.md",
+          "documentation_sha256": "af9291801cd423a9e046e48ad4f0c80b8c6583b5ec3f699af5419b6ce6e8b77e",
+          "commands": [["mkdir", "build"], ["cmake", ".."], ["make"]],
+          "working_directory": "private checkout/build",
+          "upstream_prerequisites": ["CMake", "freeglut/OpenGL development files"],
+          "package_install_authorized": false,
+          "install_target_authorized": false,
+          "parallel_build": false
+        },
+        "metadata": {
+          "repository_api": "https://api.github.com/repos/ata4/angrylion-rdp-plus",
+          "default_branch_at_observation": "master",
+          "default_branch_head_at_observation": "9c8b9ed3e7d7f00dff8bc872ccdd3fba1a3673fc",
+          "repository_license_spdx_from_api": null,
+          "revision_metadata_api": "https://api.github.com/repos/ata4/angrylion-rdp-plus/git/commits/3744ec766ed8d2c15fd5cbb4ac3c241b852b6e69",
+          "revision_tree_id_sha1": "a28c246120da11c55ead24ea45c92b75b31a0ef7",
+          "tree_entries": 80,
+          "tree_truncated": false,
+          "license_path": "MAME License.txt",
+          "license_blob_id_sha1": "622420419a88127f87c8ad8eadd96ce5c9293312",
+          "license_sha256": "455a30b92aba9a8e17702e6458dae6ca78b7e90b83800182fba9c4285ec2d385",
+          "license_size_bytes": 5716,
+          "license_metadata_observation": "Selected-revision license text contains non-commercial and source-condition terms; this is an upstream notice observation, not a legal conclusion about local use."
+        },
+        "proposed_operations": ["acquire-the-exact-tag-out-of-tree", "build-with-existing-local-toolchain-only", "execute-black-box-only-on-the-authored-corpus"]
+      },
+      {
+        "id": "parallel-rdp-standalone",
+        "role": "pinned standalone source bundle; no executable or test harness is identified",
+        "repository": "https://github.com/Themaister/parallel-rdp-standalone.git",
+        "repository_web": "https://github.com/Themaister/parallel-rdp-standalone",
+        "ref": "refs/heads/master",
+        "revision_sha1": "388d70f5835b352d841d9d9e5a08c5de01470f41",
+        "revision_kind": "branch commit pinned by SHA",
+        "upstream_parallel_rdp_revision_sha1_from_COMMIT_metadata": "1cecd042b2619bc505c12bfdc713808386f2b54d",
+        "build_recipe": {
+          "status": "blocked-no-self-contained-build-entrypoint-or-audited-closure",
+          "root_build_files": [],
+          "root_build_file_observation": "The complete pinned tree has 198 entries, 188 blobs and no gitlink; root files are COMMIT, LICENSE, README.md and config.mk. No root CMakeLists.txt or Makefile exists.",
+          "config_mk_sha256": "0793003f96f889a2a54a89cc8a1f078547266d1f5ba385d4d7c4d6fab051dc5f",
+          "readme_sha256": "ccb8e9d1eb6a5aec524a62e2bc1c7d4938ee4abcee8e6f7abae1dca2336cea67",
+          "blocked_reason": "config.mk is an integration source list. The README's generic parent-project CMake recipe recursively fetches Angrylion-Plus and Granite; that route is excluded. A standalone build wrapper and its compiler/include/license closure are not established by metadata alone."
+        },
+        "metadata": {
+          "repository_api": "https://api.github.com/repos/Themaister/parallel-rdp-standalone",
+          "api_full_name": "Themaister/parallel-rdp-standalone",
+          "default_branch_at_observation": "master",
+          "default_branch_head_at_observation": "388d70f5835b352d841d9d9e5a08c5de01470f41",
+          "repository_license_spdx_from_api": "MIT",
+          "tree_query_url": "https://api.github.com/repos/Themaister/parallel-rdp-standalone/git/trees/388d70f5835b352d841d9d9e5a08c5de01470f41?recursive=1",
+          "tree_entries": 198,
+          "blob_entries": 188,
+          "tree_entries_by_type": 10,
+          "tree_truncated": false,
+          "gitlink_paths": [],
+          "license_path": "LICENSE",
+          "license_blob_id_sha1": "c92e90094f7a058ada6a33c240405d9e56a0c0d5",
+          "license_size_bytes": 1054,
+          "readme_blob_id_sha1": "f153657aef95c096630c8f67b2e6f5d041192393",
+          "config_mk_blob_id_sha1": "6b8349b887f846f69f9bea94b4aba45ca9b77c0f",
+          "commit_file_blob_id_sha1": "98767587cb7dd9994a9a9e7210e0139bde0314bc",
+          "commit_file_sha256": "69dd148833fe1ad9083549fcbd502fb1d82940fe7cd3f17710e760390658026e"
+        },
+        "proposed_operations": ["per-file-and-transitive-rights-audit-required-before-any-acquisition-build-or-execution"]
+      }
+    ],
+    "local_operations": {
+      "proposed_only": ["out-of-tree-acquisition", "bounded-build", "black-box-execution-on-the-216-authored-cases"],
+      "authorized_now": ["public-repository-license-and-source-metadata-inspection-only"],
+      "forbidden_until_live_gate_passes": ["acquire-oracle-code", "build-oracle", "run-oracle", "copy-oracle-code-or-assets", "run-upstream-tests-or-data", "use-private-guest-or-boot-assets", "publish-oracle-derived-data", "install-packages", "use-physical-console-or-paid-service"]
+    },
+    "storage_and_output_limits": {
+      "private_root": "build/private/phase07-oracle/<oracle-id>/<revision>/<run-id>/",
+      "directory_mode": "0700",
+      "checkout_plus_build_max_bytes": 4294967296,
+      "outputs_max_bytes_total": 1073741824,
+      "output_max_bytes_per_case": 8388608,
+      "case_count_max": 216,
+      "retained_outputs": ["authored-case inputs by identity", "raw comparison bytes", "per-case metadata", "exact command/process records", "bounded logs"],
+      "overflow_behavior": "refuse the run before truncating or dropping a case",
+      "repository_or_ci_output": false
+    },
+    "publication_scope": {
+      "requested": false,
+      "status": "not-authorized",
+      "oracle_derived_bytes_or_expectations": "never publish under this request",
+      "separate_competent_decision_required": true
+    }
+  },
+  "rights_audit": {
+    "complete": false,
+    "items": [
+      {"oracle_id": "angrylion-plus", "path_scope": "MAME License.txt", "status": "notice-observed-owner-legal-decision-required", "evidence": "Pinned v1.6 license blob and digest are recorded; no local-use authority is inferred."},
+      {"oracle_id": "angrylion-plus", "path_scope": "src/**, msvc/**, and generated build inputs", "status": "blocked-not-inspected", "evidence": "No emulator implementation was fetched or inspected; D5/copy policy remains in force."},
+      {"oracle_id": "parallel-rdp-standalone", "path_scope": "root LICENSE", "status": "root-mit-metadata-only", "evidence": "Repository API reports MIT; that does not clear individual files, generated shader material, tests/data, or transitive build inputs."},
+      {"oracle_id": "parallel-rdp-standalone", "path_scope": "parallel-rdp/**", "status": "blocked-per-file-notice-and-provenance-audit", "evidence": "Only tree names and root metadata were inspected; implementation files were not acquired or read."},
+      {"oracle_id": "parallel-rdp-standalone", "path_scope": "parallel-rdp/shaders/** including slangmosh.hpp and slangmosh.json", "status": "blocked-generated-shader-and-generator-provenance", "evidence": "The tree identifies shader/generated paths, but per-file notices and generator/transitive rights are unresolved."},
+      {"oracle_id": "parallel-rdp-standalone", "path_scope": "vulkan/**, util/**, volk/**, vulkan-headers/** and all build/include closure", "status": "blocked-transitive-build-input-audit", "evidence": "config.mk names integration inputs; exact licensed source and tool closure is not established."},
+      {"oracle_id": "parallel-rdp-standalone", "path_scope": "upstream rdp-conformance, vi-conformance, fuzz vectors and expected data", "status": "excluded-and-unaudited", "evidence": "No upstream tests or data are requested or present in the pinned standalone tree metadata; README-described parent-project test assets remain excluded."}
+    ]
+  },
+  "local_decision": {
+    "status": "blocked",
+    "decision_domain": "none",
+    "authority_role": "none",
+    "reference": null,
+    "evidence_sha256": null,
+    "issued_at_utc": null,
+    "expires_at_utc": null,
+    "approved_oracles": [],
+    "approved_operations": [],
+    "corpus_sha256": null,
+    "rights_audit_sha256": null
+  },
+  "publication_decision": {
+    "status": "not-authorized",
+    "decision_domain": "none",
+    "authority_role": "none",
+    "reference": null,
+    "evidence_sha256": null,
+    "issued_at_utc": null,
+    "expires_at_utc": null,
+    "approved_oracles": [],
+    "approved_operations": [],
+    "corpus_sha256": null,
+    "rights_audit_sha256": null,
+    "publication_scope": null
+  }
+}
