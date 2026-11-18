@@ -13,12 +13,14 @@ from pathlib import Path
 import re
 import subprocess
 import sys
+import tempfile
 from typing import Any
+from unittest.mock import patch
 
 
 ROOT = Path(__file__).resolve().parents[1]
 RECORD_PATH = ROOT / "docs/evidence/phase07-oracle-authority.json"
-PINNED_REQUEST_SHA256 = "deeacb7ae7fe4b7699bc4c9d4d1a1618e9caea0d57a2c51d136ae9798c9debdd"
+PINNED_REQUEST_SHA256 = "ae787914b967cf102501ac17f9bec8f255fcc3b7deb074c4e618c60da2be3434"
 PINNED_RIGHTS_AUDIT_SHA256 = "7506efecad2511fc2c535ed93b2f65b99dfc2e013508ba8ef760242251f1ff37"
 
 # These are deliberately unset. A JSON field that says "approved" is not
@@ -55,7 +57,7 @@ EXPECTED_ORACLES = (
 EXPECTED_OPERATIONS = [
     "out-of-tree-acquisition",
     "bounded-build",
-    "black-box-execution-on-the-authored-corpus",
+    "black-box-execution-on-a-future-ready-exported-corpus",
 ]
 EXPECTED_AUDIT_IDS = [
     ("angrylion-plus", "MAME License.txt"),
@@ -70,12 +72,13 @@ EXPECTED_DECISION_KEYS = {
     "status", "decision_domain", "authority_role", "reference",
     "evidence_sha256", "issued_at_utc", "expires_at_utc", "approved_oracles",
     "approved_operations", "corpus_sha256", "rights_audit_sha256",
+    "request_sha256",
 }
 EXPECTED_PUBLICATION_KEYS = {
     "status", "decision_domain", "authority_role", "reference",
     "evidence_sha256", "issued_at_utc", "expires_at_utc",
     "approved_oracles", "approved_operations", "corpus_sha256",
-    "rights_audit_sha256", "publication_scope",
+    "rights_audit_sha256", "publication_scope", "request_sha256",
 }
 BLOCKED_PUBLICATION_DECISION = {
     "status": "not-authorized",
@@ -90,11 +93,16 @@ BLOCKED_PUBLICATION_DECISION = {
     "corpus_sha256": None,
     "rights_audit_sha256": None,
     "publication_scope": None,
+    "request_sha256": None,
 }
 EXPECTED_PUBLICATION_OPERATIONS = ["publish-oracle-derived-bytes-and-expectations"]
 EXPECTED_PUBLICATION_SCOPE = "oracle-derived-bytes-and-expectations"
 HEX_64 = re.compile(r"^[0-9a-f]{64}$")
 HEX_40 = re.compile(r"^[0-9a-f]{40}$")
+PRIVATE_PATH = re.compile(
+    r"(?i)(?:^|[^A-Z0-9])/(?:Users|home|private)(?:/|$)"
+    r"|(?:^|[^A-Z0-9])[A-Z]:[\\/](?:Users|Documents and Settings|home|private)(?:[\\/]|$)"
+)
 
 
 class Refusal(Exception):
@@ -126,7 +134,7 @@ def _exact_keys(value: Any, keys: set[str], label: str) -> dict[str, Any]:
 
 def _refuse_private_paths(value: Any) -> None:
     if isinstance(value, str):
-        if value.startswith(("/Users/", "/home/", "/private/")):
+        if PRIVATE_PATH.search(value):
             raise Refusal("authority record contains a workstation-specific path")
         return
     if isinstance(value, list):
@@ -137,6 +145,121 @@ def _refuse_private_paths(value: Any) -> None:
             _refuse_private_paths(item)
 
 
+def _ensure_outside_worktree(candidate: Path, worktree: Path, label: str) -> Path:
+    """Resolve existing symlinks without creating paths, and reject in-tree roots."""
+    resolved_candidate = candidate.resolve(strict=False)
+    resolved_worktree = worktree.resolve(strict=False)
+    if resolved_candidate == resolved_worktree or \
+            resolved_worktree in resolved_candidate.parents:
+        raise Refusal(f"{label} resolves inside the Tendies64 worktree")
+    return resolved_candidate
+
+
+def _current_temporary_root() -> Path:
+    configured = os.environ.get("TMPDIR")
+    temporary_root = Path(configured) if configured else Path(tempfile.gettempdir())
+    if not temporary_root.is_absolute():
+        raise Refusal("TMPDIR must resolve to an absolute private storage root")
+    return temporary_root.resolve(strict=False)
+
+
+def _validate_storage_proposal(request: dict[str, Any]) -> None:
+    storage = request.get("storage_and_output_limits")
+    if not isinstance(storage, dict):
+        raise Refusal("proposed private storage limits are missing")
+    if storage.get("directory_mode") != "0700":
+        raise Refusal("proposed private storage directory mode must be 0700")
+    template = storage.get("private_root_template")
+    prefix = "${TMPDIR}/"
+    if not isinstance(template, str) or not template.startswith(prefix):
+        raise Refusal("proposed private root must be relative to TMPDIR")
+    relative = template[len(prefix):].rstrip("/")
+    relative_path = Path(relative)
+    if not relative or relative_path.is_absolute() or ".." in relative_path.parts or \
+            "\\" in relative:
+        raise Refusal("proposed private root template is not a safe relative path")
+    if relative_path.parts[-3:] != ("<oracle-id>", "<revision>", "<run-id>"):
+        raise Refusal("proposed private root must bind oracle, revision, and run identity")
+    root_prefix = Path(*relative_path.parts[:-3])
+    temporary_root = _current_temporary_root()
+    for oracle_id, revision in EXPECTED_ORACLES:
+        _ensure_outside_worktree(
+            temporary_root / root_prefix / oracle_id / revision / "admission-check",
+            ROOT,
+            "proposed checkout/build root",
+        )
+
+    caps = (
+        "checkout_plus_build_max_bytes", "outputs_max_bytes_total",
+        "output_max_bytes_per_case", "case_count_max",
+    )
+    for cap in caps:
+        value = storage.get(cap)
+        if not isinstance(value, int) or isinstance(value, bool) or value <= 0:
+            raise Refusal(f"proposed storage cap is missing or invalid: {cap}")
+    wall_caps = storage.get("wall_clock_caps_seconds")
+    if not isinstance(wall_caps, dict) or set(wall_caps) != {
+        "acquisition", "build", "per_case", "aggregate",
+    } or any(not isinstance(value, int) or isinstance(value, bool) or value <= 0
+             for value in wall_caps.values()):
+        raise Refusal("proposed acquisition/build/case/aggregate wall caps are invalid")
+    cleanup = storage.get("process_group_cleanup")
+    if cleanup != {
+        "on_timeout": "SIGTERM the complete isolated process group",
+        "grace_period_seconds": 5,
+        "after_grace": "SIGKILL the complete process group and verify it exited",
+        "result": "record timeout and refuse without retry",
+    }:
+        raise Refusal("proposed process-group timeout cleanup policy is incomplete")
+    if storage.get("limits_status") != "proposed-only-no-window-authorized":
+        raise Refusal("proposed limits must not be represented as an active run window")
+
+
+def _validate_differential_preparation(request: dict[str, Any]) -> None:
+    preparation = request.get("differential_preparation")
+    if not isinstance(preparation, dict) or set(preparation) != {
+        "inventory_kind", "inventory_suites", "inventory_rows",
+        "case_classification", "case_mapping", "exported_corpus",
+        "replay_adapter", "execution_status",
+    }:
+        raise Refusal("differential preparation and replay readiness are missing")
+    if preparation.get("inventory_kind") != "suite-scoped-native-membership-rows" or \
+            preparation.get("inventory_suites") != 11 or \
+            preparation.get("inventory_rows") != 216:
+        raise Refusal("216-row inventory must remain identified as native membership")
+    if preparation.get("execution_status") not in {
+        "blocked-not-prepared", "ready",
+    }:
+        raise Refusal("differential execution readiness status is invalid")
+    for key in ("case_classification", "case_mapping", "exported_corpus", "replay_adapter"):
+        row = preparation.get(key)
+        if not isinstance(row, dict) or set(row) != {"status", "id", "sha256", "case_count"}:
+            raise Refusal(f"differential {key} identity is malformed")
+        if row["status"] not in {"blocked", "missing", "ready"}:
+            raise Refusal(f"differential {key} readiness is invalid")
+        if row["status"] == "ready":
+            if not isinstance(row["id"], str) or not row["id"].strip() or \
+                    not HEX_64.fullmatch(str(row["sha256"])):
+                raise Refusal(f"ready differential {key} lacks a pinned identity")
+            if row["case_count"] is not None and (
+                not isinstance(row["case_count"], int) or
+                isinstance(row["case_count"], bool) or
+                row["case_count"] <= 0 or row["case_count"] > 216
+            ):
+                raise Refusal(f"ready differential {key} has an invalid case count")
+        elif row["id"] is not None or row["sha256"] is not None or row["case_count"] is not None:
+            raise Refusal(f"blocked differential {key} must not claim an identity")
+    statuses = [preparation[key]["status"] for key in (
+        "case_classification", "case_mapping", "exported_corpus", "replay_adapter",
+    )]
+    if preparation["execution_status"] == "ready" and any(
+        status != "ready" for status in statuses
+    ):
+        raise Refusal("differential execution is marked ready with blocked inputs")
+    if preparation["execution_status"] == "blocked-not-prepared" and any(
+        status == "ready" for status in statuses
+    ):
+        raise Refusal("differential readiness summary disagrees with component rows")
 def _read_record() -> dict[str, Any]:
     if RECORD_PATH.is_symlink() or not RECORD_PATH.is_file():
         raise Refusal("versioned oracle authority record is missing or unsafe")
@@ -274,7 +397,9 @@ def _verify_corpus(request: dict[str, Any]) -> str:
     return _canonical_sha256(corpus)
 
 
-def _validate_record(record: dict[str, Any]) -> tuple[dict[str, Any], dict[str, Any], str]:
+def _validate_record(
+    record: dict[str, Any], *, test_only: bool = False,
+) -> tuple[dict[str, Any], dict[str, Any], str]:
     if record.get("schema") != "t64.phase07.oracle-authority" or \
             record.get("schema_version") != 1 or \
             record.get("record_id") != "phase07-vid04-local-oracle-request-v1":
@@ -292,9 +417,18 @@ def _validate_record(record: dict[str, Any]) -> tuple[dict[str, Any], dict[str, 
     if actual_audit_sha != PINNED_RIGHTS_AUDIT_SHA256:
         raise Refusal("rights audit does not match the reviewed source pin")
     _parse_utc(record.get("metadata_observed_at_utc"), "metadata observation time")
-    if request.get("purpose") != "Prepare a bounded local-only emulator comparison request for the Phase07 authored RDP/VI corpus." or \
+    if request.get("purpose") != "Prepare a bounded local-only comparison request pending a rights-cleared exported corpus and replay adapter." or \
             request.get("evidence_label") != "emulator-to-emulator differential only; never hardware truth":
         raise Refusal("authority request purpose or evidence label changed")
+    _validate_storage_proposal(request)
+    _validate_differential_preparation(request)
+    local_operations = request.get("local_operations")
+    if not isinstance(local_operations, dict) or \
+            local_operations.get("proposed_only") != EXPECTED_OPERATIONS or \
+            local_operations.get("authorized_now") != [
+                "public-repository-license-and-source-metadata-inspection-only",
+            ]:
+        raise Refusal("local oracle operation proposal or current authorization changed")
     oracles = request.get("oracles")
     if not isinstance(oracles, list) or len(oracles) != len(EXPECTED_ORACLES):
         raise Refusal("both pinned oracles are required")
@@ -310,8 +444,11 @@ def _validate_record(record: dict[str, Any]) -> tuple[dict[str, Any], dict[str, 
     )
     corpus_sha = _verify_corpus(request)
     audit_items = rights_audit.get("items")
-    if rights_audit.get("complete") is not False or not isinstance(audit_items, list):
-        raise Refusal("incomplete rights audit must remain explicitly blocked")
+    audit_complete = rights_audit.get("complete")
+    if not isinstance(audit_complete, bool) or \
+            (audit_complete and not test_only) or \
+            not isinstance(audit_items, list):
+        raise Refusal("complete rights audit is permitted only in authored test context")
     actual_audit_ids = [(item.get("oracle_id"), item.get("path_scope"))
                         for item in audit_items if isinstance(item, dict)]
     if actual_audit_ids != EXPECTED_AUDIT_IDS:
@@ -334,6 +471,7 @@ def _expect_blocked(record: dict[str, Any]) -> None:
         "approved_operations": [],
         "corpus_sha256": None,
         "rights_audit_sha256": None,
+        "request_sha256": None,
     }:
         raise Refusal("default local decision is not the exact no-authority blocked record")
     publication = record["publication_decision"]
@@ -369,6 +507,8 @@ def _validate_approved_decision(
     if decision.get("status") != "approved" or \
             decision.get("decision_domain") != allowed_domain:
         raise Refusal("decision is not an approval from the required authority domain")
+    if decision.get("request_sha256") != _canonical_sha256(request):
+        raise Refusal("decision is not bound to the complete authority request")
     allowed_roles = {"owner", "legal-counsel"}
     if test_only:
         allowed_roles = {"authored-test"}
@@ -408,6 +548,12 @@ def _validate_approved_decision(
     if any(oracle.get("build_recipe", {}).get("status") != "ready"
            for oracle in request["oracles"]):
         raise Refusal("a pinned oracle lacks a reviewed, exact build recipe")
+    _validate_differential_preparation(request)
+    if request["differential_preparation"]["execution_status"] != "ready":
+        raise Refusal(
+            "exported corpus, case mapping, classification, and replay adapter must be ready "
+            "before live execution approval"
+        )
     publication = request.get("publication_scope", {})
     if publication.get("requested") is not False or \
             publication.get("status") != "not-authorized" or \
@@ -429,6 +575,8 @@ def _validate_publication_decision(
     if decision.get("status") != "approved" or \
             decision.get("decision_domain") != expected_domain:
         raise Refusal("publication decision is not a grant from the required authority domain")
+    if decision.get("request_sha256") != _canonical_sha256(request):
+        raise Refusal("publication decision is not bound to the complete authority request")
     if decision.get("authority_role") not in expected_roles:
         raise Refusal("publication decision authority role is missing or not competent")
     reference = decision.get("reference")
@@ -473,7 +621,7 @@ def _require_local_approved(
     now: datetime | None = None,
     test_only: bool = False,
 ) -> None:
-    request, rights_audit, _corpus_sha = _validate_record(record)
+    request, rights_audit, _corpus_sha = _validate_record(record, test_only=test_only)
     if record["publication_decision"] != BLOCKED_PUBLICATION_DECISION:
         raise Refusal("a local authority grant cannot carry publication permission")
     pin = TRUSTED_LOCAL_DECISION_SHA256 if trusted_pin is None else trusted_pin
@@ -501,7 +649,7 @@ def _require_publication_approved(
     if pin is None:
         raise Refusal("no separate pinned publication decision; derived data stays local")
     decision = record["publication_decision"]
-    request, rights_audit, _corpus_sha = _validate_record(record)
+    request, rights_audit, _corpus_sha = _validate_record(record, test_only=test_only)
     if _canonical_sha256(decision) != pin:
         raise Refusal("publication decision does not match its separate trusted pin")
     _validate_publication_decision(
@@ -539,6 +687,7 @@ def _synthetic_decision(
         "approved_operations": list(EXPECTED_OPERATIONS),
         "corpus_sha256": _canonical_sha256(request["corpus"]),
         "rights_audit_sha256": _canonical_sha256(rights_audit),
+        "request_sha256": _canonical_sha256(request),
     }
     if overrides:
         decision.update(overrides)
@@ -549,6 +698,44 @@ def _run_selftests(record: dict[str, Any]) -> list[str]:
     request, rights_audit, _corpus_sha = _validate_record(record)
     _expect_blocked(record)
     passed = ["blocked-record"]
+
+    synthetic_worktree = Path(tempfile.gettempdir()) / "t64-synthetic-worktree"
+    _ensure_outside_worktree(
+        Path(tempfile.gettempdir()) / "t64-synthetic-oracle",
+        synthetic_worktree,
+        "synthetic sibling oracle root",
+    )
+    _expect_refusal(
+        lambda: _ensure_outside_worktree(
+            synthetic_worktree / "build/private/oracle",
+            synthetic_worktree,
+            "synthetic checkout/build root",
+        ),
+        "inside the Tendies64 worktree",
+    )
+    _validate_storage_proposal(request)
+    public_mode_request = deepcopy(request)
+    public_mode_request["storage_and_output_limits"]["directory_mode"] = "0777"
+    _expect_refusal(
+        lambda: _validate_storage_proposal(public_mode_request),
+        "directory mode must be 0700",
+    )
+    passed.append("out-of-tree-private-root")
+
+    # Build examples from fragments so the project PII scanner does not mistake
+    # authored test cases for workstation paths in the checked-in source.
+    slash = "/"
+    backslash = chr(92)
+    for private_text in (
+        {"reference": "Approval noted in " + slash + "Users/example/decision.pdf"},
+        {"nested": {"url": "file:" + slash * 3 + "private/var/approval.json"}},
+        {"list": ["See C:" + backslash + "Users" + backslash + "example" + backslash + "approval.pdf"]},
+    ):
+        _expect_refusal(
+            lambda private_text=private_text: _refuse_private_paths(private_text),
+            "workstation-specific path",
+        )
+    passed.append("nested-private-path-refusal")
 
     _expect_refusal(
         lambda: _no_duplicate_keys([("status", "blocked"), ("status", "approved")]),
@@ -570,14 +757,75 @@ def _run_selftests(record: dict[str, Any]) -> list[str]:
     synthetic_request = deepcopy(request)
     for oracle in synthetic_request["oracles"]:
         oracle["build_recipe"]["status"] = "ready"
+    for readiness_key in (
+        "case_classification", "case_mapping", "exported_corpus", "replay_adapter",
+    ):
+        synthetic_request["differential_preparation"][readiness_key] = {
+            "status": "ready",
+            "id": f"AUTHORED_TEST_ONLY:{readiness_key}",
+            "sha256": "e" * 64,
+            "case_count": 1,
+        }
+    synthetic_request["differential_preparation"]["execution_status"] = "ready"
     valid_test = _synthetic_decision(
         synthetic_request, synthetic_audit, expires_at=future,
     )
-    _validate_approved_decision(
-        valid_test, synthetic_request, synthetic_audit,
-        now=now, allowed_domain="authored-test", test_only=True,
-    )
+    synthetic_record = deepcopy(record)
+    synthetic_record["request"] = synthetic_request
+    synthetic_record["request_sha256"] = _canonical_sha256(synthetic_request)
+    synthetic_record["rights_audit"] = synthetic_audit
+    synthetic_record["local_decision"] = valid_test
+    with patch.multiple(
+        sys.modules[__name__],
+        PINNED_REQUEST_SHA256=synthetic_record["request_sha256"],
+        PINNED_RIGHTS_AUDIT_SHA256=_canonical_sha256(synthetic_audit),
+    ):
+        _require_local_approved(
+            synthetic_record,
+            trusted_pin=_canonical_sha256(valid_test),
+            now=now,
+            test_only=True,
+        )
     passed.append("approved-scoped-synthetic")
+
+    request_mutators = (
+        lambda value: value["storage_and_output_limits"].update({
+            "private_root_template": "${TMPDIR}/t64-oracle-private-alt/phase07/<oracle-id>/<revision>/<run-id>/",
+        }),
+        lambda value: value["storage_and_output_limits"].update({
+            "outputs_max_bytes_total": value["storage_and_output_limits"]["outputs_max_bytes_total"] + 1,
+        }),
+        lambda value: value["oracles"][0]["build_recipe"].update({
+            "commands": [["cmake", "--build", "build"]],
+        }),
+        lambda value: value["local_operations"]["forbidden_until_live_gate_passes"].append(
+            "additional-operation-restriction"
+        ),
+    )
+    for mutate_request in request_mutators:
+        changed_request = deepcopy(synthetic_request)
+        mutate_request(changed_request)
+        changed_sha = _canonical_sha256(changed_request)
+        changed_record = {
+            **synthetic_record,
+            "request": changed_request,
+            "request_sha256": changed_sha,
+        }
+        with patch.multiple(
+            sys.modules[__name__],
+            PINNED_REQUEST_SHA256=changed_sha,
+            PINNED_RIGHTS_AUDIT_SHA256=_canonical_sha256(synthetic_audit),
+        ):
+            _expect_refusal(
+                lambda changed_record=changed_record: _require_local_approved(
+                    changed_record,
+                    trusted_pin=_canonical_sha256(valid_test),
+                    now=now,
+                    test_only=True,
+                ),
+                "not bound to the complete authority request",
+            )
+    passed.append("local-request-revision-binding")
 
     partial = deepcopy(valid_test)
     partial["approved_oracles"] = partial["approved_oracles"][:1]
@@ -619,26 +867,34 @@ def _run_selftests(record: dict[str, Any]) -> list[str]:
         "issued_at_utc": "2026-11-17T00:00:00Z",
         "expires_at_utc": "2026-11-17T01:00:00Z",
     }
-    expired_local_record = {**record, "local_decision": trusted_expired_local}
+    expired_local_record = {
+        **synthetic_record,
+        "local_decision": trusted_expired_local,
+    }
     local_pin = _canonical_sha256(trusted_expired_local)
-    _expect_refusal(
-        lambda: _require_local_approved(
-            expired_local_record, trusted_pin=local_pin, now=now, test_only=True,
-        ),
-        "expired",
-    )
-    _expect_refusal(
-        lambda: _require_local_approved(
-            {**expired_local_record, "local_decision": {
-                **trusted_expired_local,
-                "expires_at_utc": "2026-12-01T00:00:00Z",
-            }},
-            trusted_pin=local_pin,
-            now=now,
-            test_only=True,
-        ),
-        "do not match the trusted owner/legal pin",
-    )
+    with patch.multiple(
+        sys.modules[__name__],
+        PINNED_REQUEST_SHA256=synthetic_record["request_sha256"],
+        PINNED_RIGHTS_AUDIT_SHA256=_canonical_sha256(synthetic_audit),
+    ):
+        _expect_refusal(
+            lambda: _require_local_approved(
+                expired_local_record, trusted_pin=local_pin, now=now, test_only=True,
+            ),
+            "expired",
+        )
+        _expect_refusal(
+            lambda: _require_local_approved(
+                {**expired_local_record, "local_decision": {
+                    **trusted_expired_local,
+                    "expires_at_utc": "2026-12-01T00:00:00Z",
+                }},
+                trusted_pin=local_pin,
+                now=now,
+                test_only=True,
+            ),
+            "do not match the trusted owner/legal pin",
+        )
     passed.extend(["trusted-expired-local-refusal", "altered-local-pin-refusal"])
 
     _expect_refusal(
@@ -648,8 +904,29 @@ def _run_selftests(record: dict[str, Any]) -> list[str]:
         ),
         "required authority domain",
     )
-    _expect_refusal(lambda: _require_local_approved({**record, "local_decision": valid_test}),
-                    "no pinned competent owner/legal decision")
+    live_context_decision = {
+        **valid_test,
+        "rights_audit_sha256": _canonical_sha256(rights_audit),
+    }
+    live_context_record = {
+        **synthetic_record,
+        "rights_audit": rights_audit,
+        "local_decision": live_context_decision,
+    }
+    with patch.multiple(
+        sys.modules[__name__],
+        PINNED_REQUEST_SHA256=synthetic_record["request_sha256"],
+        PINNED_RIGHTS_AUDIT_SHA256=_canonical_sha256(rights_audit),
+    ):
+        _expect_refusal(
+            lambda: _require_local_approved(
+                live_context_record,
+                trusted_pin=_canonical_sha256(live_context_decision),
+                now=now,
+                test_only=False,
+            ),
+            "required authority domain",
+        )
     passed.append("synthetic-live-refusal")
 
     publication_request = deepcopy(synthetic_request)
@@ -675,6 +952,7 @@ def _run_selftests(record: dict[str, Any]) -> list[str]:
         "corpus_sha256": _canonical_sha256(publication_request["corpus"]),
         "rights_audit_sha256": _canonical_sha256(synthetic_audit),
         "publication_scope": EXPECTED_PUBLICATION_SCOPE,
+        "request_sha256": _canonical_sha256(publication_request),
     }
     _validate_publication_decision(
         valid_publication, publication_request, synthetic_audit,
@@ -710,43 +988,55 @@ def _run_selftests(record: dict[str, Any]) -> list[str]:
         "issued_at_utc": "2026-11-17T00:00:00Z",
         "expires_at_utc": "2026-11-17T01:00:00Z",
     }
+    synthetic_publication_record = {
+        **synthetic_record,
+        "request": publication_request,
+        "request_sha256": _canonical_sha256(publication_request),
+        "local_decision": record["local_decision"],
+        "publication_decision": valid_publication,
+    }
     expired_publication_record = {
-        **record, "publication_decision": trusted_expired_publication,
+        **synthetic_publication_record,
+        "publication_decision": trusted_expired_publication,
     }
     publication_pin = _canonical_sha256(trusted_expired_publication)
-    _expect_refusal(
-        lambda: _require_publication_approved(
-            expired_publication_record, trusted_pin=publication_pin, now=now,
-            test_only=True,
-        ),
-        "expired",
-    )
-    _expect_refusal(
-        lambda: _require_publication_approved(
-            {**expired_publication_record, "publication_decision": {
-                **trusted_expired_publication,
-                "expires_at_utc": "2026-12-01T00:00:00Z",
-            }},
-            trusted_pin=publication_pin,
-            now=now,
-            test_only=True,
-        ),
-        "does not match its separate trusted pin",
-    )
-    _expect_refusal(
-        lambda: _require_publication_approved({
-            **record, "publication_decision": valid_publication,
-        }),
-        "no separate pinned publication decision",
-    )
-    _expect_refusal(
-        lambda: _require_local_approved({
-            **record,
-            "local_decision": valid_test,
-            "publication_decision": valid_publication,
-        }),
-        "cannot carry publication permission",
-    )
+    with patch.multiple(
+        sys.modules[__name__],
+        PINNED_REQUEST_SHA256=synthetic_publication_record["request_sha256"],
+        PINNED_RIGHTS_AUDIT_SHA256=_canonical_sha256(synthetic_audit),
+    ):
+        _expect_refusal(
+            lambda: _require_publication_approved(
+                expired_publication_record, trusted_pin=publication_pin, now=now,
+                test_only=True,
+            ),
+            "expired",
+        )
+        _expect_refusal(
+            lambda: _require_publication_approved(
+                {**expired_publication_record, "publication_decision": {
+                    **trusted_expired_publication,
+                    "expires_at_utc": "2026-12-01T00:00:00Z",
+                }},
+                trusted_pin=publication_pin,
+                now=now,
+                test_only=True,
+            ),
+            "does not match its separate trusted pin",
+        )
+        _expect_refusal(
+            lambda: _require_publication_approved(
+                synthetic_publication_record, now=now, test_only=True,
+            ),
+            "no separate pinned publication decision",
+        )
+        _expect_refusal(
+            lambda: _require_local_approved({
+                **synthetic_publication_record,
+                "publication_decision": valid_publication,
+            }, trusted_pin=_canonical_sha256(valid_test), now=now, test_only=True),
+            "cannot carry publication permission",
+        )
     passed.extend([
         "publication-separated",
         "publication-partial-scope",
@@ -756,12 +1046,44 @@ def _run_selftests(record: dict[str, Any]) -> list[str]:
         "publication-synthetic-live-refusal",
     ])
 
+    for mutate_request in request_mutators:
+        changed_request = deepcopy(publication_request)
+        mutate_request(changed_request)
+        changed_sha = _canonical_sha256(changed_request)
+        changed_publication_record = {
+            **synthetic_publication_record,
+            "request": changed_request,
+            "request_sha256": changed_sha,
+            "local_decision": record["local_decision"],
+            "publication_decision": valid_publication,
+        }
+        with patch.multiple(
+            sys.modules[__name__],
+            PINNED_REQUEST_SHA256=changed_sha,
+            PINNED_RIGHTS_AUDIT_SHA256=_canonical_sha256(synthetic_audit),
+        ):
+            _expect_refusal(
+                lambda changed_publication_record=changed_publication_record: \
+                    _require_publication_approved(
+                        changed_publication_record,
+                        trusted_pin=_canonical_sha256(valid_publication),
+                        now=now,
+                        test_only=True,
+                    ),
+                "not bound to the complete authority request",
+            )
+    passed.append("publication-request-revision-binding")
+
+    incomplete_rights_decision = _synthetic_decision(
+        synthetic_request, rights_audit, expires_at=future,
+    )
     _expect_refusal(
         lambda: _validate_approved_decision(
-            valid_test, synthetic_request, rights_audit,
+            incomplete_rights_decision, synthetic_request, rights_audit,
             now=now, allowed_domain="authored-test", test_only=True,
         ),
-        "rights audit")
+        "rights row remains unresolved",
+    )
     passed.append("incomplete-rights-audit-refusal")
 
     bad_request = deepcopy(record)

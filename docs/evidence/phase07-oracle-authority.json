@@ -3,9 +3,9 @@
   "schema_version": 1,
   "record_id": "phase07-vid04-local-oracle-request-v1",
   "metadata_observed_at_utc": "2026-11-18T04:00:40Z",
-  "request_sha256": "deeacb7ae7fe4b7699bc4c9d4d1a1618e9caea0d57a2c51d136ae9798c9debdd",
+  "request_sha256": "ae787914b967cf102501ac17f9bec8f255fcc3b7deb074c4e618c60da2be3434",
   "request": {
-    "purpose": "Prepare a bounded local-only emulator comparison request for the Phase07 authored RDP/VI corpus.",
+    "purpose": "Prepare a bounded local-only comparison request pending a rights-cleared exported corpus and replay adapter.",
     "evidence_label": "emulator-to-emulator differential only; never hardware truth",
     "corpus": {
       "id": "tendies64-phase07-authored-rdp-vi-v1",
@@ -59,6 +59,36 @@
         {"path": "runner/tests/test_rdp_video.c", "sha256": "1d49ee49594481e3803dd055522f5b22a97c6628a64ff131bdb6042e182b160b", "git_blob_id_sha1": "0d68c3b16a35bad7cf98c655ad91f2923b0bae5e"}
       ]
     },
+    "differential_preparation": {
+      "inventory_kind": "suite-scoped-native-membership-rows",
+      "inventory_suites": 11,
+      "inventory_rows": 216,
+      "case_classification": {
+        "status": "blocked",
+        "id": null,
+        "sha256": null,
+        "case_count": null
+      },
+      "case_mapping": {
+        "status": "blocked",
+        "id": null,
+        "sha256": null,
+        "case_count": null
+      },
+      "exported_corpus": {
+        "status": "missing",
+        "id": null,
+        "sha256": null,
+        "case_count": null
+      },
+      "replay_adapter": {
+        "status": "missing",
+        "id": null,
+        "sha256": null,
+        "case_count": null
+      },
+      "execution_status": "blocked-not-prepared"
+    },
     "oracles": [
       {
         "id": "angrylion-plus",
@@ -73,7 +103,7 @@
           "documentation_url": "https://github.com/ata4/angrylion-rdp-plus/blob/3744ec766ed8d2c15fd5cbb4ac3c241b852b6e69/README.md",
           "documentation_sha256": "af9291801cd423a9e046e48ad4f0c80b8c6583b5ec3f699af5419b6ce6e8b77e",
           "commands": [["mkdir", "build"], ["cmake", ".."], ["make"]],
-          "working_directory": "private checkout/build",
+          "working_directory": "proposed private-root/<oracle-id>/<revision>/<run-id>/checkout/build",
           "upstream_prerequisites": ["CMake", "freeglut/OpenGL development files"],
           "package_install_authorized": false,
           "install_target_authorized": false,
@@ -137,17 +167,31 @@
       }
     ],
     "local_operations": {
-      "proposed_only": ["out-of-tree-acquisition", "bounded-build", "black-box-execution-on-the-216-authored-cases"],
+      "proposed_only": ["out-of-tree-acquisition", "bounded-build", "black-box-execution-on-a-future-ready-exported-corpus"],
       "authorized_now": ["public-repository-license-and-source-metadata-inspection-only"],
       "forbidden_until_live_gate_passes": ["acquire-oracle-code", "build-oracle", "run-oracle", "copy-oracle-code-or-assets", "run-upstream-tests-or-data", "use-private-guest-or-boot-assets", "publish-oracle-derived-data", "install-packages", "use-physical-console-or-paid-service"]
     },
     "storage_and_output_limits": {
-      "private_root": "build/private/phase07-oracle/<oracle-id>/<revision>/<run-id>/",
+      "private_root_template": "${TMPDIR}/tendies64-oracle/phase07/<oracle-id>/<revision>/<run-id>/",
+      "root_validation": "Resolve the current TMPDIR-backed proposal without creating it; reject it if the canonical path is inside the Tendies64 worktree, including through existing symlinks.",
+      "limits_status": "proposed-only-no-window-authorized",
       "directory_mode": "0700",
       "checkout_plus_build_max_bytes": 4294967296,
       "outputs_max_bytes_total": 1073741824,
       "output_max_bytes_per_case": 8388608,
       "case_count_max": 216,
+      "wall_clock_caps_seconds": {
+        "acquisition": 900,
+        "build": 1800,
+        "per_case": 60,
+        "aggregate": 3600
+      },
+      "process_group_cleanup": {
+        "on_timeout": "SIGTERM the complete isolated process group",
+        "grace_period_seconds": 5,
+        "after_grace": "SIGKILL the complete process group and verify it exited",
+        "result": "record timeout and refuse without retry"
+      },
       "retained_outputs": ["authored-case inputs by identity", "raw comparison bytes", "per-case metadata", "exact command/process records", "bounded logs"],
       "overflow_behavior": "refuse the run before truncating or dropping a case",
       "repository_or_ci_output": false
@@ -182,7 +226,8 @@
     "approved_oracles": [],
     "approved_operations": [],
     "corpus_sha256": null,
-    "rights_audit_sha256": null
+    "rights_audit_sha256": null,
+    "request_sha256": null
   },
   "publication_decision": {
     "status": "not-authorized",
@@ -196,6 +241,7 @@
     "approved_operations": [],
     "corpus_sha256": null,
     "rights_audit_sha256": null,
-    "publication_scope": null
+    "publication_scope": null,
+    "request_sha256": null
   }
 }

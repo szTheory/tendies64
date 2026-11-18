@@ -4,10 +4,12 @@
 from __future__ import annotations
 
 import hashlib
+import importlib.util
 import json
 import os
 from pathlib import Path
 import shutil
+import stat
 import subprocess
 import sys
 import tempfile
@@ -16,6 +18,7 @@ from datetime import datetime, timedelta, timezone
 
 ROOT = Path(__file__).resolve().parents[2]
 CHECKER = ROOT / "scripts/check-rdp-oracle-authority.py"
+PRIVATE_TEST_ROOT = ROOT / "build/gate/07-12-task1/authority-repair-tests"
 BOUND_FILES = (
     "docs/spec/rdp-vi-cases.json",
     "fixtures/manifest.json",
@@ -61,9 +64,52 @@ def canonical_sha256(value: object) -> str:
     return hashlib.sha256(encoded).hexdigest()
 
 
+def ensure_private_test_root(root: Path = PRIVATE_TEST_ROOT) -> None:
+    # Never chmod an existing path: a symlink must not change an unrelated target.
+    relative = root.relative_to(ROOT)
+    if not relative.parts or relative.parts[0] != "build":
+        raise AssertionError("private test root must be beneath the ignored build directory")
+    current = ROOT
+    for component in relative.parts:
+        current = current / component
+        try:
+            current.mkdir(mode=0o700)
+        except FileExistsError:
+            pass
+        info = current.lstat()
+        if not stat.S_ISDIR(info.st_mode) or current.resolve() != current:
+            raise AssertionError("private test root contains a symlink or non-directory")
+    if stat.S_IMODE(info.st_mode) != 0o700:
+        raise AssertionError("private test root must already have mode 0700")
+
+
+def private_temporary_directory(prefix: str) -> tempfile.TemporaryDirectory[str]:
+    ensure_private_test_root()
+    return tempfile.TemporaryDirectory(prefix=prefix, dir=PRIVATE_TEST_ROOT)
+
+
+def verify_private_test_root() -> None:
+    with private_temporary_directory("t64-oracle-test-root-") as tmp:
+        scratch = Path(tmp)
+        target = scratch / "unrelated-target"
+        target.mkdir(mode=0o755)
+        before_mode = stat.S_IMODE(target.stat().st_mode)
+        link = scratch / "linked-root"
+        link.symlink_to(target, target_is_directory=True)
+        for candidate in (link, link / "child"):
+            try:
+                ensure_private_test_root(candidate)
+            except AssertionError:
+                pass
+            else:
+                raise AssertionError("symlink test root was accepted")
+        if stat.S_IMODE(target.stat().st_mode) != before_mode or (target / "child").exists():
+            raise AssertionError("refused test root changed its symlink target")
+
+
 def invoke_forged_approval(*, publication: bool = False) -> subprocess.CompletedProcess[str]:
     """Run the real CLI against a complete mirror with self-declared grants."""
-    with tempfile.TemporaryDirectory(prefix="t64-oracle-authority-test-") as tmp:
+    with private_temporary_directory("t64-oracle-authority-test-") as tmp:
         mirror = Path(tmp)
         copy_paths = (*BOUND_FILES, "docs/evidence/phase07-oracle-authority.json",
                       "scripts/check-rdp-oracle-authority.py")
@@ -91,10 +137,11 @@ def invoke_forged_approval(*, publication: bool = False) -> subprocess.Completed
             "approved_operations": [
                 "out-of-tree-acquisition",
                 "bounded-build",
-                "black-box-execution-on-the-authored-corpus",
+                "black-box-execution-on-a-future-ready-exported-corpus",
             ],
             "corpus_sha256": canonical_sha256(record["request"]["corpus"]),
             "rights_audit_sha256": canonical_sha256(record["rights_audit"]),
+            "request_sha256": canonical_sha256(record["request"]),
         }
         if publication:
             record["publication_decision"] = {
@@ -113,6 +160,7 @@ def invoke_forged_approval(*, publication: bool = False) -> subprocess.Completed
                 "corpus_sha256": canonical_sha256(record["request"]["corpus"]),
                 "rights_audit_sha256": canonical_sha256(record["rights_audit"]),
                 "publication_scope": "oracle-derived-bytes-and-expectations",
+                "request_sha256": canonical_sha256(record["request"]),
             }
         record_path.write_text(
             json.dumps(record, indent=2, ensure_ascii=True) + "\n",
@@ -132,15 +180,52 @@ def require(condition: bool, message: str, result: subprocess.CompletedProcess[s
     raise AssertionError(f"{message}; exit={result.returncode}; output={detail!r}")
 
 
+def verify_resolved_storage_root() -> None:
+    spec = importlib.util.spec_from_file_location(
+        "phase07_oracle_authority_checker", CHECKER,
+    )
+    if spec is None or spec.loader is None:
+        raise AssertionError("could not load the authority checker for path controls")
+    checker = importlib.util.module_from_spec(spec)
+    sys.modules[spec.name] = checker
+    spec.loader.exec_module(checker)
+    with private_temporary_directory("t64-oracle-path-control-") as scratch_name:
+        scratch = Path(scratch_name)
+        worktree = scratch / "synthetic-worktree"
+        inside = worktree / "private-oracle"
+        outside = scratch / "synthetic-external-root"
+        inside.mkdir(parents=True)
+        outside.mkdir()
+        link = outside / "redirect-to-worktree"
+        link.symlink_to(inside, target_is_directory=True)
+        resolved_sibling = checker._ensure_outside_worktree(
+            outside / "oracle-checkout", worktree, "synthetic sibling root",
+        )
+        if resolved_sibling == outside.resolve():
+            raise AssertionError("sibling checkout root was not resolved")
+        try:
+            checker._ensure_outside_worktree(
+                link / "oracle-checkout", worktree, "synthetic symlink root",
+            )
+        except checker.Refusal as error:
+            if "inside the Tendies64 worktree" not in str(error):
+                raise
+        else:
+            raise AssertionError("symlink resolving into synthetic worktree was admitted")
+
+
 def main() -> int:
     selftest = invoke("--selftest")
     self_output = selftest.stdout + selftest.stderr
     require(selftest.returncode == 0, "checker selftests did not pass", selftest)
-    for control in (
+    expected_controls = (
         "blocked-record",
+        "out-of-tree-private-root",
+        "nested-private-path-refusal",
         "duplicate-record-key",
-        "approved-scoped-synthetic",
         "missing-authority",
+        "approved-scoped-synthetic",
+        "local-request-revision-binding",
         "partial-scope",
         "revision-mismatch",
         "expired-decision",
@@ -153,8 +238,27 @@ def main() -> int:
         "trusted-expired-publication-refusal",
         "altered-publication-pin-refusal",
         "publication-synthetic-live-refusal",
-    ):
-        require(control in self_output, f"selftest omitted {control}", selftest)
+        "publication-request-revision-binding",
+        "incomplete-rights-audit-refusal",
+        "request-revision-pin",
+    )
+    actual_controls = tuple(
+        line.removeprefix("PASS ")
+        for line in self_output.splitlines()
+        if line.startswith("PASS ")
+    )
+    require(
+        actual_controls == expected_controls
+        and f"authority checker selftest passed ({len(expected_controls)} controls)" in self_output,
+        "checker control inventory differs from the exact required set/count",
+        selftest,
+    )
+
+    verify_private_test_root()
+    try:
+        verify_resolved_storage_root()
+    except Exception as error:
+        raise AssertionError(f"resolved checkout/build root control failed: {error}") from error
 
     blocked = invoke("--expect-blocked")
     require(

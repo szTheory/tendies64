@@ -1,5 +1,7 @@
 # Phase07 Plan12 Task1 Evidence
 
+> **Correction, 2026-11-18:** The 216 items are suite-scoped native membership rows, not 216 prepared black-box replays. The 18-control result below is historical and is superseded by [07-12-REPAIR-EVIDENCE.md](07-12-REPAIR-EVIDENCE.md), which records the corrected full-request binding and current 22-control set. The upstream `parallel-rdp` `COMMIT` identity shown below is 40 hexadecimal characters (`1cecd042b2619bc505c12bfdc713808386f2b54d`). Oracle authority remains blocked.
+
 **Task outcome:** bounded authority request prepared; live oracle authority remains blocked. VID-04 remains incomplete. No oracle code/assets were acquired, built, run, copied, or published.
 
 ## Prepared request and authority boundary

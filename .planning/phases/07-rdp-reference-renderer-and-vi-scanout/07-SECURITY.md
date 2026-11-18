@@ -2,7 +2,7 @@
 phase: "07"
 slug: rdp-reference-renderer-and-vi-scanout
 status: blocked
-threats_open: 3
+threats_open: 2
 implemented_authored_threats_open: 0
 asvs_level: 1
 audit_source: 2c8e9ef487792970b588b14ea253f4a706d0a861
@@ -11,9 +11,9 @@ audit_source: 2c8e9ef487792970b588b14ea253f4a706d0a861
 # Phase07 security audit
 
 The independent GSD security auditor verified all 41 authored plan rows (29
-unique IDs). Implemented authored scope is SECURED: 38 applicable rows closed,
+unique IDs). Implemented authored scope is SECURED: 39 applicable rows closed,
 with no reachable high/critical mitigation gap found. The whole-phase verdict
-is OPEN_THREATS: three high-severity future oracle rows remain open. They block
+is OPEN_THREATS: two high-severity future oracle rows remain open. They block
 whole-phase completion and oracle use, not the authorized authored qualification.
 These are not implemented mitigations or accepted risks.
 
@@ -68,7 +68,7 @@ planned tests alone are not passing evidence.
 | T-07-24 | Information disclosure | public hosted artifacts (plan11) | high | mitigate | private originals precede text projection; exact five-file upload whitelist; CI rights/PII before upload; no ROM or boot bytes exported | closed |
 | T-07-25 | Repudiation | hosted artifact identity (plan11) | high | mitigate | exact source/run/attempt/job and artifact-ID API checks; bounded ZIP, producer status, API digest before strict extraction; decoded host bytes compared | closed |
 | T-07-SC | Tampering | Package installs (plan11) | high | mitigate | No new package/lock/dependency or install operation introduced; existing two jobs, action pins and ten-minute bounds retained; future acquisition remains unapproved | closed |
-| T-07-26 | Elevation of privilege | oracle authority admission (plan12) | high | mitigate | Plan12 authority checker/tests/record absent: exact scope/revision/rights admission is not implemented; existing authority stop remains | open — blocked future route |
+| T-07-26 | Elevation of privilege | oracle authority admission (plan12) | high | mitigate | Reviewed complete request/audit/decision and exact scope/revision/expiry admission; real CLI refuses absent authority; build/corpus readiness remains blocked; see 07-12-SECURITY-DELTA.md | closed |
 | T-07-SC | Tampering | Package installs (plan12) | high | mitigate | No new package/lock/dependency or install operation introduced; existing two jobs, action pins and ten-minute bounds retained; future acquisition remains unapproved | closed |
 | T-07-27 | Spoofing | oracle/input/output identity (plan13) | high | mitigate | Plan13 differential runner/tests/evidence absent: oracle command/binary/output identity controls are not implemented or reached | open — blocked future route |
 | T-07-28 | Information disclosure | oracle-derived output/publication (plan13) | high | mitigate | Plan13 publication route absent: oracle pre-use rights and separate derived-data publication enforcement are not implemented | open — blocked future route |
@@ -89,14 +89,13 @@ issues. The final collector control has 34 rejection cases and explicitly
 reports mocked transport; it establishes no live hosted result.
 
 The later [native qualification](07-11-NATIVE-EVIDENCE.md) passed the complete
-normal gate, full ASan/UBSan inventory and pinned GCC route. Exact live hosted
-raw-artifact qualification remains pending. No private diagnostic, oracle,
+normal gate, full ASan/UBSan inventory and pinned GCC route. Exact live hosted raw/boot qualification also passed; see phase07-hosted.json. No private diagnostic, oracle,
 physical hardware, release, or dependency acquisition was performed.
 
 ## Accepted risks
 
 No accepted risks. Existing D2/D5/D6 stops and expired private windows remain
-unchanged. Plans12/13 and VID-04 remain incomplete.
+unchanged. Plan12 authored admission is implemented; Plan13 and VID-04 remain blocked by actual authority and readiness.
 
 ## Security audit trail
 
@@ -104,5 +103,4 @@ unchanged. Plans12/13 and VID-04 remain incomplete.
 | --- | ---: | ---: | ---: | ---: | --- |
 | 2c8e9ef | 41 | 38 | 3 | 0 | Independent gsd-security-auditor, ASVS1 |
 
-Whole-phase security sign-off remains blocked. No owner action is needed for
-the continuing authored hosted qualification.
+The [Plan12 delta](07-12-SECURITY-DELTA.md) closes authority admission after independent review and reached controls: 39/41 rows closed, two future high rows open. Whole-phase sign-off stays blocked; no acknowledgment is needed to preserve the stop.
