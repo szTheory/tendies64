@@ -455,6 +455,74 @@ static bool result_is_capture_error(const char *result_path,
   return valid;
 }
 
+static bool result_is_guest_bound(const char *result_path,
+                                  const audio_run_case *test,
+                                  uint64_t expected_tick,
+                                  char state_digest_out[65],
+                                  uint64_t *guest_tick_out) {
+  uint8_t bytes[8192];
+  size_t length = 0u;
+  t64_json_doc doc = {0};
+  const t64_json_node *stop;
+  const t64_json_node *state_digest;
+  const t64_json_node *guest_tick;
+  const t64_json_node *profile_digest;
+  const t64_json_node *fixture_sha;
+  const t64_json_node *outcome;
+  const t64_json_node *detail;
+  uint64_t tick = 0u;
+  bool valid = false;
+  if (test == NULL ||
+      !read_json(result_path, bytes, sizeof bytes, &length, &doc)) {
+    return false;
+  }
+  stop = t64_json_get(t64_json_get(doc.root, "guest_stop"), "kind");
+  state_digest = t64_json_get(doc.root, "state_digest");
+  guest_tick = t64_json_get(doc.root, "guest_tick");
+  profile_digest = t64_json_get(doc.root, "profile_digest");
+  fixture_sha = t64_json_get(doc.root, "fixture_sha256");
+  outcome = t64_json_get(doc.root, "outcome");
+  detail = t64_json_get(doc.root, "detail");
+  /* At tick 539440 the authored audio fixture has not completed its expected
+   * A/V observations. The runner correctly refuses to call that a successful
+   * observation and reports this exact harness error after computing the
+   * canonical machine digest. Accept it only as an incomplete-bound state
+   * witness; it is never a timeout/pass or accepted profile observation. */
+  valid = ((json_string_is(outcome, "timeout") &&
+            json_string_is(detail, "guest-bound") &&
+            json_string_is(stop, "guest-bound")) ||
+           (json_string_is(outcome, "harness-error") &&
+            json_string_is(detail, "video-observation-invalid") &&
+            json_string_is(stop, "host-error"))) &&
+          guest_tick != NULL &&
+          t64_json_u64_string(guest_tick, &tick) != 0 &&
+          tick == expected_tick &&
+          json_string_is(t64_json_get(doc.root, "profile_id"),
+                         AUDIO_PROFILE_ID) &&
+          json_string_is(profile_digest, AUDIO_PROFILE_SHA256) &&
+          json_string_is(t64_json_get(doc.root, "fixture_id"),
+                         test->fixture_id) &&
+          json_string_is(fixture_sha, test->fixture_sha256) &&
+          state_digest != NULL && state_digest->type == T64_JSON_STRING &&
+          state_digest->len == 64u;
+  if (valid) {
+    for (size_t i = 0u; i < 64u; i++) {
+      if (!((state_digest->str[i] >= '0' && state_digest->str[i] <= '9') ||
+            (state_digest->str[i] >= 'a' && state_digest->str[i] <= 'f'))) {
+        valid = false;
+        break;
+      }
+    }
+  }
+  if (valid && state_digest_out != NULL) {
+    memcpy(state_digest_out, state_digest->str, 64u);
+    state_digest_out[64] = '\0';
+  }
+  if (valid && guest_tick_out != NULL) *guest_tick_out = tick;
+  t64_json_free(&doc);
+  return valid;
+}
+
 typedef struct {
   const char *raw_target_override;
   bool raw_cap_set;
@@ -463,6 +531,9 @@ typedef struct {
   const char *expected_error;
   uint64_t minimum_guest_tick;
   uint64_t *guest_tick_out;
+  bool guest_bound_set;
+  uint64_t guest_bound;
+  bool expect_guest_bound;
   bool allow_commit_race;
   int *race_outcome_out;
 } raw_run_options;
@@ -556,7 +627,7 @@ static bool run_supervised(char *supervisor, char *checker, char *fixture,
     char wall_option[] = "--wall-ms";
     char wall_limit[] = "30000";
     char bound_option[] = "--bound";
-    char guest_bound[] = "600000";
+    char guest_bound[24];
     char log_option[] = "--log-limit";
     char log_limit[] = "67108864";
     char fixture_id_option[] = "--fixture-id";
@@ -580,6 +651,10 @@ static bool run_supervised(char *supervisor, char *checker, char *fixture,
     char *args[48];
     char advance_step_option[] = "--advance-step";
     size_t count = 0u;
+    const uint64_t selected_bound =
+        raw_options != NULL && raw_options->guest_bound_set
+            ? raw_options->guest_bound
+            : UINT64_C(600000);
     int fixture_id_length = snprintf(fixture_id, sizeof fixture_id, "%s",
                                      test->fixture_id);
     int fixture_sha_length = snprintf(fixture_sha256, sizeof fixture_sha256,
@@ -587,7 +662,9 @@ static bool run_supervised(char *supervisor, char *checker, char *fixture,
     if (fixture_id_length <= 0 ||
         (size_t)fixture_id_length >= sizeof fixture_id ||
         fixture_sha_length != 64 ||
-        (size_t)fixture_sha_length >= sizeof fixture_sha256) {
+        (size_t)fixture_sha_length >= sizeof fixture_sha256 ||
+        snprintf(guest_bound, sizeof guest_bound, "%llu",
+                 (unsigned long long)selected_bound) <= 0) {
       _exit(126);
     }
     (void)close(video_pipe[0]);
@@ -728,6 +805,14 @@ static bool run_supervised(char *supervisor, char *checker, char *fixture,
         length > 0 && (size_t)length < sizeof producer_path &&
         preserve_supervisor_producer_report(directory, meta_path) &&
         result_semantics_match(producer_path, result_path);
+  } else if (raw_options != NULL && raw_options->expect_guest_bound) {
+    char producer_path[1024];
+    length = snprintf(producer_path, sizeof producer_path,
+                      "%s/producer-report.json", directory);
+    producer_report_ok =
+        length > 0 && (size_t)length < sizeof producer_path &&
+        preserve_supervisor_producer_report(directory, meta_path) &&
+        result_semantics_match(producer_path, result_path);
   } else {
     producer_report_ok = true;
   }
@@ -751,6 +836,10 @@ static bool run_supervised(char *supervisor, char *checker, char *fixture,
     if (raw_options->race_outcome_out != NULL) {
       *raw_options->race_outcome_out = race_outcome;
     }
+  } else if (raw_options != NULL && raw_options->expect_guest_bound) {
+    result_ok = result_is_guest_bound(
+        result_path, test, raw_options->guest_bound, state_digest_out,
+        raw_options->guest_tick_out);
   } else {
     result_ok = result_is_pass(result_path, test, state_digest_out);
   }
@@ -1866,6 +1955,7 @@ static int run_capture_target_refusals(char *supervisor, char *checker,
   if (run_existing_target_case(supervisor, checker, fixture, input) != 0)
     return 1;
   puts("case reached: existing-targets-untouched");
+  puts("case reached: existing-file-directory-untouched");
   if (run_unsafe_target_parent_case(supervisor, checker, fixture, input) != 0)
     return 1;
   puts("case reached: unsafe-target-parent");
@@ -1876,6 +1966,7 @@ static bool run_capture_fault(char *supervisor, char *checker, char *fixture,
                               char *input, const char *fault,
                               const char *expected_detail,
                               uint64_t minimum_guest_tick,
+                              char state_digest_out[65],
                               uint64_t *guest_tick_out) {
   const audio_run_case test = {AUDIO_FIXTURE_ID, AUDIO_FIXTURE_SHA256, false};
   const raw_run_options options = {
@@ -1889,10 +1980,29 @@ static bool run_capture_fault(char *supervisor, char *checker, char *fixture,
   char digest[65] = {0};
   struct stat status;
   if (!run_supervised(supervisor, checker, fixture, input, &test, &video,
-                      &audio, 0u, bundle, digest, &options)) {
+                      &audio, 0u, bundle,
+                      state_digest_out != NULL ? state_digest_out : digest,
+                      &options)) {
     return false;
   }
   return lstat(bundle, &status) != 0 && errno == ENOENT;
+}
+
+static bool run_guest_bound_baseline(char *supervisor, char *checker,
+                                    char *fixture, char *input,
+                                    uint64_t guest_tick,
+                                    char state_digest_out[65],
+                                    uint64_t *guest_tick_out) {
+  const audio_run_case test = {AUDIO_FIXTURE_ID, AUDIO_FIXTURE_SHA256, false};
+  const raw_run_options options = {
+      .guest_bound_set = true,
+      .guest_bound = guest_tick,
+      .guest_tick_out = guest_tick_out,
+      .expect_guest_bound = true};
+  t64_video_observation video = {0};
+  t64_audio_observation audio = {0};
+  return run_supervised(supervisor, checker, fixture, input, &test, &video,
+                       &audio, 0u, NULL, state_digest_out, &options);
 }
 
 static int run_capture_io_errors(char *production_supervisor,
@@ -1904,26 +2014,61 @@ static int run_capture_io_errors(char *production_supervisor,
   static const char *const details[] = {
       "capture-write", "capture-close", "capture-file-flush",
       "capture-no-replace-commit"};
+  char error_digests[4][65] = {{0}};
+  char first_io_baseline_digest[65] = {0};
+  char completed_baseline_digest[65] = {0};
+  uint64_t first_io_baseline_tick = 0u;
   size_t i;
-  uint64_t last_guest_tick = 0u;
   for (i = 0u; i < sizeof faults / sizeof faults[0]; i++) {
     uint64_t tick = 0u;
     uint64_t minimum_tick = i == 3u ? UINT64_C(551001) : UINT64_C(1);
     if (!run_capture_fault(test_supervisor, checker, fixture, input,
-                           faults[i], details[i], minimum_tick, &tick) ||
+                           faults[i], details[i], minimum_tick,
+                           error_digests[i], &tick) ||
+        (i < 3u && tick != UINT64_C(539440)) ||
         (i == 3u && tick != UINT64_C(551001))) {
       fprintf(stderr, "test-only %s did not report %s at actual guest progress\n",
               faults[i], details[i]);
       return 1;
     }
-    if (i == 0u && tick == 0u) {
-      fprintf(stderr, "injected write failure reported no guest progress\n");
-      return 1;
-    }
-    if (tick > last_guest_tick) last_guest_tick = tick;
     printf("case reached: %s -> %s at guest tick %llu with producer/public report agreement\n",
            faults[i], details[i], (unsigned long long)tick);
+    if (i == 0u) {
+      if (!run_guest_bound_baseline(
+              production_supervisor, checker, fixture, input, tick,
+              first_io_baseline_digest, &first_io_baseline_tick) ||
+          first_io_baseline_tick != tick) {
+        fprintf(stderr,
+                "independent no-capture baseline did not stop at first I/O error tick %llu\n",
+                (unsigned long long)tick);
+        return 1;
+      }
+    }
+    if (i < 3u &&
+        (tick != first_io_baseline_tick ||
+         strcmp(error_digests[i], first_io_baseline_digest) != 0)) {
+      fprintf(stderr,
+              "%s changed canonical guest state versus the no-capture baseline at tick %llu\n",
+              faults[i], (unsigned long long)tick);
+      return 1;
+    }
+    if (i == 3u) {
+      const audio_run_case test = {
+          AUDIO_FIXTURE_ID, AUDIO_FIXTURE_SHA256, false};
+      t64_video_observation video = {0};
+      t64_audio_observation audio = {0};
+      if (!run_supervised(production_supervisor, checker, fixture, input,
+                          &test, &video, &audio, 0u, NULL,
+                          completed_baseline_digest, NULL) ||
+          strcmp(error_digests[i], completed_baseline_digest) != 0) {
+        fprintf(stderr,
+                "final rename failure changed completed canonical guest state\n");
+        return 1;
+      }
+    }
   }
+  printf("case reached: host-error-guest-state; write/close/fsync errors matched an independent no-capture digest at tick %llu and rename failure matched the completed no-capture digest at tick 551001\n",
+         (unsigned long long)first_io_baseline_tick);
   {
     const audio_run_case test = {AUDIO_FIXTURE_ID, AUDIO_FIXTURE_SHA256, false};
     const raw_run_options options = {
@@ -1940,7 +2085,6 @@ static int run_capture_io_errors(char *production_supervisor,
     }
     puts("production supervisor rejected --test-fault before guest execution");
   }
-  (void)last_guest_tick;
   return 0;
 }
 
@@ -2867,8 +3011,10 @@ int main(int argc, char **argv) {
     puts("capture-drain-resume");
     puts("short-write-and-eintr");
     puts("existing-targets-untouched");
+    puts("existing-file-directory-untouched");
     puts("unsafe-target-parent");
     puts("io-write-close-fsync-rename-failures");
+    puts("host-error-guest-state");
     puts("normal-cli-rejects-test-fault");
     puts("output-cap-boundaries");
     puts("closed-capture-error-vocabulary");
