@@ -95,6 +95,21 @@ destination bytes. Observer destination addresses and queue-drain position are
 host state, not canonical guest state. Producer state and packet contents are
 included in the machine's canonical digest.
 
+## Determinism checks
+
+The focused regression suite compares one advance across two descriptors with
+nonuniform partitions and an intermediate packet drain, interleaved machines
+against isolated runs, and both event orders for a tied AI/VI tick. It also
+fills the audio queue while VI has capacity, then fills VI while an AI sample
+is pending; draining the full observer queue retries the same blocked event
+without advancing guest time during the drain.
+
+The actual supervised `audio-pcm-literal` runner is exercised with test-only
+advance steps of 16 and 32 ticks. Both accepted runs must reach the same guest
+completion boundary and canonical digest, and return identical metadata and
+raw bytes for both packets. This establishes repeatability for the authored
+fixture and current software profile, not broad hardware compatibility.
+
 ## Authored tracer
 
 `fixtures/audio/pcm.S` performs fetched CPU writes to AI and ordinary RDP/VI

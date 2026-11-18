@@ -1354,7 +1354,9 @@ static bool ai_profile_vi_write(t64_machine *machine, uint32_t offset,
   return status == T64_STATUS_OK;
 }
 
-static bool configure_ai_profile_vi(t64_machine *machine) {
+static bool configure_ai_profile_vi_sync(t64_machine *machine,
+                                        uint32_t v_sync,
+                                        uint32_t h_sync) {
   size_t pixel;
 
   for (pixel = 0u; pixel < 12u; pixel++) {
@@ -1368,13 +1370,17 @@ static bool configure_ai_profile_vi(t64_machine *machine) {
          ai_profile_vi_write(machine, UINT32_C(0x08), UINT32_C(4)) &&
          ai_profile_vi_write(machine, UINT32_C(0x0c), UINT32_C(2)) &&
          ai_profile_vi_write(machine, UINT32_C(0x14), UINT32_C(0)) &&
-         ai_profile_vi_write(machine, UINT32_C(0x18), UINT32_C(8)) &&
-         ai_profile_vi_write(machine, UINT32_C(0x1c), UINT32_C(2207)) &&
+         ai_profile_vi_write(machine, UINT32_C(0x18), v_sync) &&
+         ai_profile_vi_write(machine, UINT32_C(0x1c), h_sync) &&
          ai_profile_vi_write(machine, UINT32_C(0x24), UINT32_C(4)) &&
          ai_profile_vi_write(machine, UINT32_C(0x28), UINT32_C(0x00020008)) &&
          ai_profile_vi_write(machine, UINT32_C(0x30), UINT32_C(0x00000400)) &&
          ai_profile_vi_write(machine, UINT32_C(0x34), UINT32_C(0x00000400)) &&
          ai_profile_vi_write(machine, UINT32_C(0x00), UINT32_C(2));
+}
+
+static bool configure_ai_profile_vi(t64_machine *machine) {
+  return configure_ai_profile_vi_sync(machine, UINT32_C(8), UINT32_C(2207));
 }
 
 static bool find_next_vi_field_tick(const t64_machine *machine,
@@ -2224,6 +2230,538 @@ static void case_output_suite(void) {
   case_canonical_producer_history();
 }
 
+static bool configure_ai_test_rate(t64_machine *machine, uint32_t dacrate,
+                                   uint32_t bitrate) {
+  uint32_t value = UINT32_MAX;
+  t64_status status;
+
+  T64_CHECK_INT(dacrate & UINT32_C(0x3fff), dacrate);
+  T64_CHECK_INT(bitrate & UINT32_C(0x000f), bitrate);
+  status = t64_machine_bus_write(machine, AI_DACRATE, 4u, dacrate);
+  T64_CHECK_INT(status, T64_STATUS_OK);
+  if (status != T64_STATUS_OK) return false;
+  status = t64_machine_bus_write(machine, AI_BITRATE, 4u, bitrate);
+  T64_CHECK_INT(status, T64_STATUS_OK);
+  if (status != T64_STATUS_OK) return false;
+  T64_CHECK_INT(t64_machine_bus_read(machine, AI_DACRATE, 4u, &value),
+                T64_STATUS_OK);
+  T64_CHECK_INT(value, dacrate);
+  T64_CHECK_INT(t64_machine_bus_read(machine, AI_BITRATE, 4u, &value),
+                T64_STATUS_OK);
+  T64_CHECK_INT(value, bitrate);
+  return true;
+}
+
+static bool prepare_two_descriptor_stream(t64_machine *machine,
+                                          const uint8_t pcm[16],
+                                          uint32_t dacrate,
+                                          uint32_t bitrate,
+                                          uint64_t *origin_tick_out) {
+  uint32_t remaining = UINT32_MAX;
+  t64_status status;
+
+  if (machine == NULL || pcm == NULL || origin_tick_out == NULL ||
+      !configure_ai_test_rate(machine, dacrate, bitrate)) {
+    return false;
+  }
+  (void)memcpy(machine->ram + UINT32_C(0x100), pcm, 16u);
+  start_ai_spin_loop(machine);
+  *origin_tick_out = machine->tick;
+  status = t64_machine_bus_write(machine, AI_CONTROL, 4u, 1u);
+  T64_CHECK_INT(status, T64_STATUS_OK);
+  if (status != T64_STATUS_OK ||
+      !submit_ai_frames(machine, UINT32_C(0x100), 2u) ||
+      !submit_ai_frames(machine, UINT32_C(0x108), 2u)) {
+    return false;
+  }
+  status = t64_machine_bus_read(machine, AI_LEN, 4u, &remaining);
+  T64_CHECK_INT(status, T64_STATUS_OK);
+  T64_CHECK_INT(remaining, 8u);
+  return status == T64_STATUS_OK && remaining == 8u;
+}
+
+static bool copy_audio_packet(t64_machine *machine,
+                              t64_audio_packet_info *info_out,
+                              uint8_t bytes_out[8]) {
+  size_t copied = 0u;
+  t64_status status = t64_audio_info(machine, info_out);
+
+  T64_CHECK_INT(status, T64_STATUS_OK);
+  if (status != T64_STATUS_OK) return false;
+  status = t64_audio_copy(machine, bytes_out, 8u, &copied);
+  T64_CHECK_INT(status, T64_STATUS_OK);
+  T64_CHECK_INT(copied, 8u);
+  return status == T64_STATUS_OK && copied == 8u;
+}
+
+static void case_whole_versus_split(void) {
+  static const uint8_t pcm[16] = {
+      0x01u, 0x02u, 0x03u, 0x04u, 0x05u, 0x06u, 0x07u, 0x08u,
+      0x11u, 0x12u, 0x13u, 0x14u, 0x15u, 0x16u, 0x17u, 0x18u};
+  uint8_t asset_whole[IPL3_ASSET_BYTES];
+  uint8_t asset_split[IPL3_ASSET_BYTES];
+  uint8_t whole_bytes[2][8];
+  uint8_t split_bytes[2][8];
+  uint8_t digest_whole[T64_DIGEST_SIZE];
+  uint8_t digest_split[T64_DIGEST_SIZE];
+  t64_machine *whole = create_admitted_profile(AI_PROFILE_ID, asset_whole);
+  t64_machine *split = create_admitted_profile(AI_PROFILE_ID, asset_split);
+  t64_audio_packet_info whole_info[2];
+  t64_audio_packet_info split_info[2];
+  uint64_t whole_origin = 0u;
+  uint64_t split_origin = 0u;
+  uint64_t first_tick;
+  uint64_t second_packet_first_tick;
+  uint64_t final_tick;
+  uint32_t packet;
+
+  T64_CHECK(whole != NULL);
+  T64_CHECK(split != NULL);
+  if (whole == NULL || split == NULL) {
+    if (whole != NULL) t64_machine_destroy(whole);
+    if (split != NULL) t64_machine_destroy(split);
+    return;
+  }
+  if (!prepare_two_descriptor_stream(whole, pcm, 131u, 1u, &whole_origin) ||
+      !prepare_two_descriptor_stream(split, pcm, 131u, 1u, &split_origin)) {
+    t64_machine_destroy(whole);
+    t64_machine_destroy(split);
+    return;
+  }
+  T64_CHECK_INT(whole_origin, split_origin);
+  T64_CHECK(find_next_ai_sample_tick(whole, &first_tick));
+  second_packet_first_tick = whole_origin + expected_audio_elapsed_ticks(3u, 131u);
+  final_tick = whole_origin + expected_audio_elapsed_ticks(4u, 131u);
+  T64_CHECK(advance_guest_to(whole, final_tick));
+
+  T64_CHECK(advance_guest_to(split, first_tick - 1u));
+  T64_CHECK(advance_guest_to(split, first_tick));
+  T64_CHECK(advance_guest_to(split, second_packet_first_tick));
+  T64_CHECK_INT(split->ai.packet_count, 1u);
+  T64_CHECK(copy_audio_packet(split, &split_info[0], split_bytes[0]));
+  T64_CHECK_INT(split_info[0].sequence, 1u);
+  T64_CHECK(advance_guest_to(split, final_tick));
+  T64_CHECK_INT(whole->tick, final_tick);
+  T64_CHECK_INT(split->tick, final_tick);
+  T64_CHECK_INT(whole->ai.sample_index, 4u);
+  T64_CHECK_INT(split->ai.sample_index, 4u);
+  T64_CHECK_INT(whole->ai.packet_count, 2u);
+  T64_CHECK_INT(split->ai.packet_count, 1u);
+  T64_CHECK_INT(t64_machine_digest(whole, digest_whole), T64_STATUS_OK);
+  T64_CHECK_INT(t64_machine_digest(split, digest_split), T64_STATUS_OK);
+  T64_CHECK(memcmp(digest_whole, digest_split, sizeof digest_whole) == 0);
+
+  for (packet = 0u; packet < 2u; packet++) {
+    T64_CHECK(copy_audio_packet(whole, &whole_info[packet],
+                                whole_bytes[packet]));
+  }
+  T64_CHECK(copy_audio_packet(split, &split_info[1], split_bytes[1]));
+  for (packet = 0u; packet < 2u; packet++) {
+    T64_CHECK(memcmp(&whole_info[packet], &split_info[packet],
+                     sizeof whole_info[packet]) == 0);
+    T64_CHECK(memcmp(whole_bytes[packet], split_bytes[packet], 8u) == 0);
+    T64_CHECK(memcmp(whole_bytes[packet], pcm + packet * 8u, 8u) == 0);
+  }
+  t64_machine_destroy(whole);
+  t64_machine_destroy(split);
+}
+
+static void case_interleaved_machine_isolation(void) {
+  static const uint8_t pcm_a[16] = {
+      0x10u, 0x11u, 0x12u, 0x13u, 0x14u, 0x15u, 0x16u, 0x17u,
+      0x18u, 0x19u, 0x1au, 0x1bu, 0x1cu, 0x1du, 0x1eu, 0x1fu};
+  static const uint8_t pcm_b[16] = {
+      0xa0u, 0xa1u, 0xa2u, 0xa3u, 0xa4u, 0xa5u, 0xa6u, 0xa7u,
+      0xa8u, 0xa9u, 0xaau, 0xabu, 0xacu, 0xadu, 0xaeu, 0xafu};
+  uint8_t assets[4][IPL3_ASSET_BYTES];
+  uint8_t interleaved_bytes[2][2][8];
+  uint8_t reference_bytes[2][2][8];
+  uint8_t interleaved_digest[T64_DIGEST_SIZE];
+  uint8_t reference_digest[T64_DIGEST_SIZE];
+  t64_audio_packet_info interleaved_info[2][2];
+  t64_audio_packet_info reference_info[2][2];
+  t64_machine *machines[4];
+  uint64_t origins[4] = {0u, 0u, 0u, 0u};
+  uint64_t *sample_origins[4] = {&origins[0], &origins[1], &origins[2],
+                                 &origins[3]};
+  uint32_t stream;
+  uint32_t sample;
+
+  for (stream = 0u; stream < 4u; stream++) {
+    machines[stream] = create_admitted_profile(AI_PROFILE_ID, assets[stream]);
+    T64_CHECK(machines[stream] != NULL);
+    if (machines[stream] == NULL) {
+      for (uint32_t cleanup = 0u; cleanup < stream; cleanup++)
+        t64_machine_destroy(machines[cleanup]);
+      return;
+    }
+  }
+  if (!prepare_two_descriptor_stream(machines[0], pcm_a, 1103u, 15u,
+                                     sample_origins[0]) ||
+      !prepare_two_descriptor_stream(machines[1], pcm_b, 2207u, 15u,
+                                     sample_origins[1]) ||
+      !prepare_two_descriptor_stream(machines[2], pcm_a, 1103u, 15u,
+                                     sample_origins[2]) ||
+      !prepare_two_descriptor_stream(machines[3], pcm_b, 2207u, 15u,
+                                     sample_origins[3])) {
+    for (stream = 0u; stream < 4u; stream++) t64_machine_destroy(machines[stream]);
+    return;
+  }
+  for (stream = 0u; stream < 4u; stream++)
+    T64_CHECK_INT(origins[stream], origins[stream % 2u]);
+  for (sample = 0u; sample < 4u; sample++) {
+    T64_CHECK(advance_ai_sample(machines[0]));
+    T64_CHECK(advance_ai_sample(machines[1]));
+    if (sample == 1u) {
+      T64_CHECK(copy_audio_packet(machines[0], &interleaved_info[0][0],
+                                  interleaved_bytes[0][0]));
+    }
+  }
+  for (sample = 0u; sample < 4u; sample++) {
+    T64_CHECK(advance_ai_sample(machines[2]));
+    T64_CHECK(advance_ai_sample(machines[3]));
+  }
+  T64_CHECK_INT(t64_machine_digest(machines[0], interleaved_digest),
+                T64_STATUS_OK);
+  T64_CHECK_INT(t64_machine_digest(machines[2], reference_digest),
+                T64_STATUS_OK);
+  T64_CHECK(memcmp(interleaved_digest, reference_digest,
+                   sizeof interleaved_digest) == 0);
+  T64_CHECK_INT(t64_machine_digest(machines[1], interleaved_digest),
+                T64_STATUS_OK);
+  T64_CHECK_INT(t64_machine_digest(machines[3], reference_digest),
+                T64_STATUS_OK);
+  T64_CHECK(memcmp(interleaved_digest, reference_digest,
+                   sizeof interleaved_digest) == 0);
+  for (stream = 0u; stream < 2u; stream++) {
+    t64_machine *interleaved = machines[stream];
+    t64_machine *reference = machines[stream + 2u];
+    for (sample = 0u; sample < 2u; sample++) {
+      T64_CHECK(copy_audio_packet(reference,
+                                  &reference_info[stream][sample],
+                                  reference_bytes[stream][sample]));
+      if (stream == 1u || sample == 1u) {
+        T64_CHECK(copy_audio_packet(interleaved,
+                                    &interleaved_info[stream][sample],
+                                    interleaved_bytes[stream][sample]));
+      }
+      T64_CHECK(memcmp(&interleaved_info[stream][sample],
+                       &reference_info[stream][sample],
+                       sizeof reference_info[stream][sample]) == 0);
+      T64_CHECK(memcmp(interleaved_bytes[stream][sample],
+                       reference_bytes[stream][sample], 8u) == 0);
+    }
+  }
+  for (stream = 0u; stream < 4u; stream++) t64_machine_destroy(machines[stream]);
+}
+
+static void case_equal_tick_ai_vi_order(void) {
+  run_vi_ai_tie_order(true);
+  run_vi_ai_tie_order(false);
+}
+
+static bool find_pending_ai_sample(const t64_machine *machine,
+                                   t64_event *event_out) {
+  size_t offset;
+  if (machine == NULL || event_out == NULL) return false;
+  for (offset = 0u; offset < machine->queue_count; offset++) {
+    const size_t index =
+        (machine->queue_head + offset) % T64_EVENT_QUEUE_CAPACITY;
+    const t64_event *event = &machine->events[index];
+    if (event->device == T64_AI_DEVICE &&
+        event->kind == T64_AI_EVENT_SAMPLE &&
+        event->token == machine->ai.event_token) {
+      *event_out = *event;
+      return true;
+    }
+  }
+  return false;
+}
+
+static bool find_pending_vi_field(const t64_machine *machine,
+                                  t64_event *event_out) {
+  size_t offset;
+  if (machine == NULL || event_out == NULL) return false;
+  for (offset = 0u; offset < machine->queue_count; offset++) {
+    const size_t index =
+        (machine->queue_head + offset) % T64_EVENT_QUEUE_CAPACITY;
+    const t64_event *event = &machine->events[index];
+    if (event->device == T64_VI_DEVICE &&
+        event->kind == T64_VI_EVENT_FIELD &&
+        event->token == machine->vi.event_generation) {
+      *event_out = *event;
+      return true;
+    }
+  }
+  return false;
+}
+
+static bool queue_front_matches(const t64_machine *machine,
+                                const t64_event *expected) {
+  const t64_event *front;
+  if (machine == NULL || expected == NULL || machine->queue_count == 0u)
+    return false;
+  front = &machine->events[machine->queue_head];
+  return front->device == expected->device &&
+         front->kind == expected->kind && front->tick == expected->tick &&
+         front->sequence == expected->sequence &&
+         front->token == expected->token;
+}
+
+static void case_independent_audio_video_full(void) {
+  static const uint8_t pcm[24] = {
+      0x01u, 0x02u, 0x03u, 0x04u, 0x05u, 0x06u, 0x07u, 0x08u,
+      0x11u, 0x12u, 0x13u, 0x14u, 0x15u, 0x16u, 0x17u, 0x18u,
+      0x21u, 0x22u, 0x23u, 0x24u, 0x25u, 0x26u, 0x27u, 0x28u};
+  uint8_t assets[2][IPL3_ASSET_BYTES];
+  uint8_t audio_copy[8];
+  uint8_t video_copy[64];
+  t64_machine *audio_full =
+      create_admitted_profile(AI_PROFILE_ID, assets[0]);
+  t64_machine *video_full =
+      create_admitted_profile(AI_PROFILE_ID, assets[1]);
+  t64_event blocked_audio_event;
+  t64_event next_vi_before_audio_block;
+  t64_event blocked_video_event;
+  t64_event next_audio_before_video_block;
+  t64_event pending;
+  t64_audio_packet_info audio_info;
+  t64_video_packet_info video_info;
+  t64_stop_request request;
+  t64_stop_result stop = {0u, 0u};
+  uint64_t origin = 0u;
+  uint64_t next_audio_tick = UINT64_MAX;
+  uint64_t audio_sample_before = 0u;
+  size_t copied = 0u;
+  uint32_t remaining = UINT32_MAX;
+  uint32_t video_field_before = 0u;
+  uint32_t sample;
+  uint32_t attempt;
+
+  T64_CHECK(audio_full != NULL);
+  T64_CHECK(video_full != NULL);
+  if (audio_full == NULL || video_full == NULL) {
+    if (audio_full != NULL) t64_machine_destroy(audio_full);
+    if (video_full != NULL) t64_machine_destroy(video_full);
+    return;
+  }
+
+  if (!configure_ai_profile_vi(audio_full)) {
+    t64_machine_destroy(audio_full);
+    t64_machine_destroy(video_full);
+    return;
+  }
+  if (!prepare_two_descriptor_stream(audio_full, pcm, 131u, 1u, &origin)) {
+    t64_machine_destroy(audio_full);
+    t64_machine_destroy(video_full);
+    return;
+  }
+  (void)memcpy(audio_full->ram + UINT32_C(0x110), pcm + 16u, 8u);
+  for (sample = 0u; sample < 4u; sample++)
+    T64_CHECK(advance_ai_sample(audio_full));
+  T64_CHECK_INT(audio_full->ai.packet_count, T64_AUDIO_QUEUE_CAPACITY);
+  T64_CHECK_INT(audio_full->vi.packet_count, 0u);
+  audio_sample_before = audio_full->ai.sample_index;
+  T64_CHECK(submit_ai_frames(audio_full, UINT32_C(0x110), 2u));
+  T64_CHECK_INT(t64_machine_bus_read(audio_full, AI_LEN, 4u, &remaining),
+                T64_STATUS_OK);
+  T64_CHECK_INT(remaining, 8u);
+  if (!find_pending_ai_sample(audio_full, &blocked_audio_event) ||
+      !find_pending_vi_field(audio_full, &next_vi_before_audio_block)) {
+    T64_CHECK(false);
+    t64_machine_destroy(audio_full);
+    t64_machine_destroy(video_full);
+    return;
+  }
+  T64_CHECK_INT(next_vi_before_audio_block.tick > blocked_audio_event.tick,
+                1);
+  request = (t64_stop_request){T64_STOP_GUEST_TICK,
+                               blocked_audio_event.tick};
+  T64_CHECK_INT(t64_machine_advance(audio_full, &request, &stop),
+                T64_STATUS_OK);
+  T64_CHECK_INT(stop.reason, T64_STOP_REASON_RESOURCE_LIMIT);
+  T64_CHECK(audio_full->tick < blocked_audio_event.tick);
+  T64_CHECK_INT(audio_full->ai.sample_index, audio_sample_before);
+  T64_CHECK_INT(audio_full->vi.packet_count, 0u);
+  T64_CHECK(queue_front_matches(audio_full, &blocked_audio_event));
+  if (!find_pending_ai_sample(audio_full, &pending)) {
+    T64_CHECK(false);
+    t64_machine_destroy(audio_full);
+    t64_machine_destroy(video_full);
+    return;
+  }
+  T64_CHECK_INT(pending.tick, blocked_audio_event.tick);
+  T64_CHECK_INT(pending.sequence, blocked_audio_event.sequence);
+  T64_CHECK_INT(pending.token, blocked_audio_event.token);
+  if (!find_pending_vi_field(audio_full, &pending)) {
+    T64_CHECK(false);
+    t64_machine_destroy(audio_full);
+    t64_machine_destroy(video_full);
+    return;
+  }
+  T64_CHECK_INT(pending.tick, next_vi_before_audio_block.tick);
+  T64_CHECK_INT(pending.sequence, next_vi_before_audio_block.sequence);
+  T64_CHECK_INT(pending.token, next_vi_before_audio_block.token);
+  T64_CHECK_INT(t64_audio_info(audio_full, &audio_info), T64_STATUS_OK);
+  T64_CHECK_INT(t64_audio_copy(audio_full, audio_copy, sizeof audio_copy,
+                               &copied),
+                T64_STATUS_OK);
+  T64_CHECK_INT(copied, sizeof audio_copy);
+  T64_CHECK_INT(audio_full->tick, stop.tick);
+  T64_CHECK_INT(audio_full->vi.packet_count, 0u);
+  stop.reason = 0u;
+  stop.tick = 0u;
+  T64_CHECK_INT(t64_machine_advance(audio_full, &request, &stop),
+                T64_STATUS_OK);
+  T64_CHECK_INT(stop.reason, T64_STOP_REASON_BOUND);
+  T64_CHECK_INT(audio_full->tick, blocked_audio_event.tick);
+  T64_CHECK_INT(audio_full->ai.sample_index, audio_sample_before + 1u);
+  T64_CHECK_INT(audio_full->vi.packet_count, 0u);
+  if (!find_pending_vi_field(audio_full, &pending)) {
+    T64_CHECK(false);
+    t64_machine_destroy(audio_full);
+    t64_machine_destroy(video_full);
+    return;
+  }
+  T64_CHECK_INT(pending.tick, next_vi_before_audio_block.tick);
+  T64_CHECK_INT(pending.sequence, next_vi_before_audio_block.sequence);
+  T64_CHECK_INT(pending.token, next_vi_before_audio_block.token);
+
+  if (!configure_ai_profile_vi_sync(video_full, 8u, 8u)) {
+    T64_CHECK(false);
+    t64_machine_destroy(audio_full);
+    t64_machine_destroy(video_full);
+    return;
+  }
+  if (!prepare_two_descriptor_stream(video_full, pcm, UINT32_C(16383), 1u,
+                                     &origin)) {
+    t64_machine_destroy(audio_full);
+    t64_machine_destroy(video_full);
+    return;
+  }
+  T64_CHECK_INT(video_full->ai.packet_count, 0u);
+  if (!find_next_ai_sample_tick(video_full, &next_audio_tick) ||
+      !find_pending_ai_sample(video_full, &next_audio_before_video_block)) {
+    T64_CHECK(false);
+    t64_machine_destroy(audio_full);
+    t64_machine_destroy(video_full);
+    return;
+  }
+  for (attempt = 0u;
+       attempt < 128u &&
+       video_full->vi.packet_count < T64_VIDEO_QUEUE_CAPACITY;
+       attempt++) {
+    uint64_t next_vi_tick = UINT64_MAX;
+    if (!find_next_vi_field_tick(video_full, &next_vi_tick)) {
+      T64_CHECK(false);
+      break;
+    }
+    if (!advance_guest_to_in_slices(video_full, next_vi_tick)) break;
+    T64_CHECK(video_full->vi.packet_count <= T64_VIDEO_QUEUE_CAPACITY);
+  }
+  T64_CHECK(video_full->vi.packet_count == T64_VIDEO_QUEUE_CAPACITY);
+  if (video_full->vi.packet_count != T64_VIDEO_QUEUE_CAPACITY) {
+    t64_machine_destroy(audio_full);
+    t64_machine_destroy(video_full);
+    return;
+  }
+  T64_CHECK_INT(next_audio_tick > video_full->tick, 1);
+  T64_CHECK_INT(video_full->ai.packet_count, 0u);
+  {
+    bool blocked = false;
+    for (attempt = 0u; attempt < 32u; attempt++) {
+      const uint32_t before_field = video_full->vi.field;
+      if (!find_pending_vi_field(video_full, &pending)) {
+        T64_CHECK(false);
+        break;
+      }
+      request = (t64_stop_request){T64_STOP_GUEST_TICK, pending.tick};
+      stop.reason = 0u;
+      stop.tick = 0u;
+      T64_CHECK_INT(t64_machine_advance(video_full, &request, &stop),
+                    T64_STATUS_OK);
+      if (stop.reason == T64_STOP_REASON_RESOURCE_LIMIT &&
+          video_full->vi.packet_count == T64_VIDEO_QUEUE_CAPACITY) {
+        blocked_video_event = pending;
+        video_field_before = before_field;
+        blocked = true;
+        break;
+      }
+      T64_CHECK_INT(stop.reason, T64_STOP_REASON_BOUND);
+    }
+    T64_CHECK(blocked);
+    if (!blocked) {
+      t64_machine_destroy(audio_full);
+      t64_machine_destroy(video_full);
+      return;
+    }
+  }
+  T64_CHECK(video_full->tick < blocked_video_event.tick);
+  T64_CHECK_INT(video_full->vi.field, video_field_before);
+  T64_CHECK_INT(video_full->ai.packet_count, 0u);
+  T64_CHECK(queue_front_matches(video_full, &blocked_video_event));
+  if (!find_pending_vi_field(video_full, &pending)) {
+    T64_CHECK(false);
+    t64_machine_destroy(audio_full);
+    t64_machine_destroy(video_full);
+    return;
+  }
+  T64_CHECK_INT(pending.tick, blocked_video_event.tick);
+  T64_CHECK_INT(pending.sequence, blocked_video_event.sequence);
+  T64_CHECK_INT(pending.token, blocked_video_event.token);
+  if (!find_pending_ai_sample(video_full, &pending)) {
+    T64_CHECK(false);
+    t64_machine_destroy(audio_full);
+    t64_machine_destroy(video_full);
+    return;
+  }
+  T64_CHECK_INT(pending.tick, next_audio_before_video_block.tick);
+  T64_CHECK_INT(pending.sequence, next_audio_before_video_block.sequence);
+  T64_CHECK_INT(pending.token, next_audio_before_video_block.token);
+  T64_CHECK_INT(t64_video_info(video_full, &video_info), T64_STATUS_OK);
+  T64_CHECK(video_info.packet_bytes > 0u);
+  T64_CHECK(video_info.packet_bytes <= sizeof video_copy);
+  T64_CHECK_INT(t64_video_copy(video_full, video_copy, sizeof video_copy,
+                               &copied),
+                T64_STATUS_OK);
+  T64_CHECK_INT(copied, video_info.packet_bytes);
+  T64_CHECK_INT(video_full->tick, stop.tick);
+  T64_CHECK_INT(video_full->ai.packet_count, 0u);
+  request.value = blocked_video_event.tick;
+  stop.reason = 0u;
+  stop.tick = 0u;
+  T64_CHECK_INT(t64_machine_advance(video_full, &request, &stop),
+                T64_STATUS_OK);
+  T64_CHECK_INT(stop.reason, T64_STOP_REASON_BOUND);
+  T64_CHECK_INT(video_full->tick, blocked_video_event.tick);
+  T64_CHECK_INT(video_full->vi.field, video_field_before + 1u);
+  T64_CHECK_INT(video_full->vi.packet_count, T64_VIDEO_QUEUE_CAPACITY);
+  T64_CHECK_INT(video_full->ai.packet_count, 0u);
+  if (!find_pending_ai_sample(video_full, &pending)) {
+    T64_CHECK(false);
+    t64_machine_destroy(audio_full);
+    t64_machine_destroy(video_full);
+    return;
+  }
+  T64_CHECK_INT(pending.tick, next_audio_before_video_block.tick);
+  T64_CHECK_INT(pending.sequence, next_audio_before_video_block.sequence);
+  T64_CHECK_INT(pending.token, next_audio_before_video_block.token);
+
+  t64_machine_destroy(audio_full);
+  t64_machine_destroy(video_full);
+}
+
+static void case_determinism_suite(void) {
+  puts("case whole-versus-split");
+  case_whole_versus_split();
+  puts("case interleaved-machine-isolation");
+  case_interleaved_machine_isolation();
+  puts("case equal-tick-ai-vi-order");
+  case_equal_tick_ai_vi_order();
+  puts("case independent-audio-video-full");
+  case_independent_audio_video_full();
+}
+
 static void case_cadence_suite(void) {
   puts("case rational-before-on-after");
   case_rational_before_on_after();
@@ -2274,6 +2812,10 @@ int main(int argc, char **argv) {
     puts("drain-resume-exactly-once");
     puts("copy-alias-and-overflow");
     puts("canonical-producer-history");
+    puts("whole-versus-split");
+    puts("interleaved-machine-isolation");
+    puts("equal-tick-ai-vi-order");
+    puts("independent-audio-video-full");
     return 0;
   }
   if (argc == 3 && strcmp(argv[1], "--suite") == 0 &&
@@ -2290,6 +2832,11 @@ int main(int argc, char **argv) {
       strcmp(argv[2], "output") == 0) {
     case_output_suite();
     return T64_TEST_FINISH("unit.core.ai.output");
+  }
+  if (argc == 3 && strcmp(argv[1], "--suite") == 0 &&
+      strcmp(argv[2], "determinism") == 0) {
+    case_determinism_suite();
+    return T64_TEST_FINISH("unit.core.ai.determinism");
   }
   if (argc == 3 && strcmp(argv[1], "--case") == 0) {
     if (strcmp(argv[2], "cpu-two-dma-literal-pcm") == 0) {
@@ -2399,6 +2946,14 @@ int main(int argc, char **argv) {
     if (strcmp(argv[2], "canonical-producer-history") == 0) {
       case_canonical_producer_history();
       return T64_TEST_FINISH("unit.core.ai.output");
+    }
+    if (strcmp(argv[2], "whole-versus-split") == 0) {
+      case_whole_versus_split();
+      return T64_TEST_FINISH("unit.core.ai.determinism");
+    }
+    if (strcmp(argv[2], "independent-audio-video-full") == 0) {
+      case_independent_audio_video_full();
+      return T64_TEST_FINISH("unit.core.ai.determinism");
     }
     fprintf(stderr, "unknown AI case: %s\n", argv[2]);
     return 2;

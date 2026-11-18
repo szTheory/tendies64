@@ -142,7 +142,8 @@ static bool checker_accepts(char *checker, const char *result_path) {
 }
 
 static bool result_is_pass(const char *result_path,
-                           const audio_run_case *test) {
+                           const audio_run_case *test,
+                           char state_digest_out[65]) {
   uint8_t bytes[8192];
   size_t length = 0u;
   t64_json_doc doc = {0};
@@ -179,6 +180,10 @@ static bool result_is_pass(const char *result_path,
          memcmp(fixture_sha->str, test->fixture_sha256, 64u) == 0 &&
          state_digest != NULL && state_digest->type == T64_JSON_STRING &&
          state_digest->len == 64u;
+  if (pass && state_digest_out != NULL) {
+    (void)memcpy(state_digest_out, state_digest->str, 64u);
+    state_digest_out[64] = '\0';
+  }
   t64_json_free(&doc);
   return pass;
 }
@@ -186,7 +191,9 @@ static bool result_is_pass(const char *result_path,
 static bool run_supervised(char *supervisor, char *checker, char *fixture,
                            char *input, const audio_run_case *test,
                            t64_video_observation *video,
-                           t64_audio_observation *audio) {
+                           t64_audio_observation *audio,
+                           uint64_t advance_step,
+                           char state_digest_out[65]) {
   char directory[4096];
   char result_path[512] = {0};
   char meta_path[512] = {0};
@@ -194,6 +201,7 @@ static bool run_supervised(char *supervisor, char *checker, char *fixture,
   char work_dir[512] = {0};
   char video_fd_text[24];
   char audio_fd_text[24];
+  char advance_step_text[24];
   int video_pipe[2] = {-1, -1};
   int audio_pipe[2] = {-1, -1};
   int status = 0;
@@ -239,6 +247,8 @@ static bool run_supervised(char *supervisor, char *checker, char *fixture,
   if (length <= 0 || (size_t)length >= sizeof work_dir) goto cleanup;
   (void)snprintf(video_fd_text, sizeof video_fd_text, "%d", video_pipe[1]);
   (void)snprintf(audio_fd_text, sizeof audio_fd_text, "%d", audio_pipe[1]);
+  (void)snprintf(advance_step_text, sizeof advance_step_text, "%llu",
+                 (unsigned long long)advance_step);
 
   child = fork();
   if (child == 0) {
@@ -268,6 +278,7 @@ static bool run_supervised(char *supervisor, char *checker, char *fixture,
     char fixture_id[64];
     char fixture_sha256[65];
     char *args[48];
+    char advance_step_option[] = "--advance-step";
     size_t count = 0u;
     int fixture_id_length = snprintf(fixture_id, sizeof fixture_id, "%s",
                                      test->fixture_id);
@@ -315,6 +326,10 @@ static bool run_supervised(char *supervisor, char *checker, char *fixture,
     args[count++] = video_fd_text;
     args[count++] = audio_option;
     args[count++] = audio_fd_text;
+    if (advance_step != 0u) {
+      args[count++] = advance_step_option;
+      args[count++] = advance_step_text;
+    }
     args[count] = NULL;
     if (!save_command(directory, args, count)) _exit(126);
     execv(supervisor, args);
@@ -330,7 +345,7 @@ static bool run_supervised(char *supervisor, char *checker, char *fixture,
   pipe_read_ok = t64_test_observation_pipes_wait(child, pipes, 2u, &status);
   child = -1;
   checker_ok = checker_accepts(checker, result_path);
-  result_ok = result_is_pass(result_path, test);
+  result_ok = result_is_pass(result_path, test, state_digest_out);
   if (!WIFEXITED(status) || WEXITSTATUS(status) != 0 || !pipe_read_ok ||
       !checker_ok || !result_ok) {
     uint8_t report[8192];
@@ -540,7 +555,7 @@ static int run_audio_case(const char *name, char *supervisor, char *checker,
   t64_video_observation video = {0};
   t64_audio_observation audio = {0};
   if (!run_supervised(supervisor, checker, fixture, input, &test, &video,
-                      &audio) ||
+                      &audio, 0u, NULL) ||
       !fixture_observations_match(&video, &audio, test.wrong_sample)) {
     fprintf(stderr, "actual CPU-to-AI-to-raw capture validation failed for %s\n",
             name);
@@ -554,17 +569,74 @@ static int run_audio_case(const char *name, char *supervisor, char *checker,
   return 0;
 }
 
+static int run_drain_pacing_case(char *supervisor, char *checker,
+                                char *fixture, char *input) {
+  const audio_run_case test = {AUDIO_FIXTURE_ID, AUDIO_FIXTURE_SHA256, false};
+  t64_video_observation video[2] = {{0}};
+  t64_audio_observation audio[2] = {{0}};
+  char digest[2][65] = {{0}};
+  uint64_t advance_steps[2] = {UINT64_C(16), UINT64_C(32)};
+  size_t packet;
+  size_t run;
+
+  for (run = 0u; run < 2u; run++) {
+    if (!run_supervised(supervisor, checker, fixture, input, &test,
+                        &video[run], &audio[run], advance_steps[run],
+                        digest[run]) ||
+        !fixture_observations_match(&video[run], &audio[run], false)) {
+      fprintf(stderr,
+              "accepted runner setup or literal packet validation failed at advance step %llu\n",
+              (unsigned long long)advance_steps[run]);
+      return 1;
+    }
+  }
+  if (audio[0].packet_count != T64_AUDIO_OBSERVATION_PACKET_COUNT ||
+      audio[1].packet_count != T64_AUDIO_OBSERVATION_PACKET_COUNT ||
+      audio[0].guest_stop_tick == 0u ||
+      audio[0].guest_stop_tick != audio[1].guest_stop_tick ||
+      audio[0].guest_stop_reason != T64_STOP_REASON_GUEST_COMPLETION ||
+      audio[1].guest_stop_reason != T64_STOP_REASON_GUEST_COMPLETION ||
+      audio[0].guest_last_cpu_tick != audio[1].guest_last_cpu_tick ||
+      strcmp(digest[0], digest[1]) != 0) {
+    fprintf(stderr,
+            "runner pacing changed guest completion boundary or canonical digest\n");
+    return 1;
+  }
+  for (packet = 0u; packet < T64_AUDIO_OBSERVATION_PACKET_COUNT; packet++) {
+    if (audio[0].packets[packet].info.byte_length == 0u ||
+        audio[1].packets[packet].info.byte_length == 0u ||
+        memcmp(&audio[0].packets[packet].info,
+               &audio[1].packets[packet].info,
+               sizeof audio[0].packets[packet].info) != 0 ||
+        memcmp(audio[0].packets[packet].bytes,
+               audio[1].packets[packet].bytes,
+               T64_AUDIO_OBSERVATION_PACKET_BYTES) != 0) {
+      fprintf(stderr,
+              "runner pacing changed packet %zu metadata or raw PCM bytes\n",
+              packet);
+      return 1;
+    }
+  }
+  printf("actual runner drain steps 16 and 32 matched two exact packets at guest tick %llu and the same canonical digest\n",
+         (unsigned long long)audio[0].guest_stop_tick);
+  return 0;
+}
+
 int main(int argc, char **argv) {
   if (argc == 2 && strcmp(argv[1], "--list-cases") == 0) {
     puts("runner-literal-pcm");
     puts("reached-wrong-sample");
+    puts("runner-drain-pacing");
     return 0;
+  }
+  if (argc == 6 && strcmp(argv[1], "runner-drain-pacing") == 0) {
+    return run_drain_pacing_case(argv[2], argv[3], argv[4], argv[5]);
   }
   if (argc != 6 ||
       (strcmp(argv[1], "runner-literal-pcm") != 0 &&
        strcmp(argv[1], "reached-wrong-sample") != 0)) {
     fprintf(stderr,
-            "usage: %s runner-literal-pcm|reached-wrong-sample <supervisor> <checker> <fixture> <input>\n",
+            "usage: %s runner-literal-pcm|reached-wrong-sample|runner-drain-pacing <supervisor> <checker> <fixture> <input>\n",
             argv[0]);
     return 2;
   }

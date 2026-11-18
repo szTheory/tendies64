@@ -591,12 +591,15 @@ add_test(NAME unit.core.ai.cadence
   COMMAND test_ai --suite cadence)
 add_test(NAME unit.core.ai.output
   COMMAND test_ai --suite output)
+add_test(NAME unit.core.ai.determinism
+  COMMAND test_ai --suite determinism)
 add_test(NAME unit.core.ai.profile-pins
   COMMAND test_profile --case old-profile-pins)
 add_test(NAME unit.core.ai.profile-mutations
   COMMAND test_profile --case descriptor-policy-mutations)
 set_tests_properties(unit.core.ai.profile unit.core.ai.old-profile-refusals
   unit.core.ai.registers unit.core.ai.cadence unit.core.ai.output
+  unit.core.ai.determinism
   PROPERTIES LABELS unit
   ENVIRONMENT "T64_TEST_IPL3_PATH=${T64_BOOT_FIXTURE_DIR}/ipl3_compat.z64")
 set_tests_properties(unit.core.ai.profile-pins

@@ -387,8 +387,8 @@ target_include_directories(test_audio_capture PRIVATE
   ${CMAKE_CURRENT_SOURCE_DIR} ${CMAKE_SOURCE_DIR}/core/include)
 target_link_libraries(test_audio_capture PRIVATE t64_common)
 t64_target_warnings(test_audio_capture)
-add_dependencies(test_audio_capture t64-supervisor t64-result-check
-  t64-audio-fixture)
+add_dependencies(test_audio_capture t64-supervisor t64-supervisor-test
+  t64-result-check t64-audio-fixture)
 add_test(NAME runner.audio-pcm
   COMMAND test_audio_capture runner-literal-pcm
     $<TARGET_FILE:t64-supervisor> $<TARGET_FILE:t64-result-check>
@@ -399,7 +399,13 @@ add_test(NAME controls.real.audio-wrong-sample
     $<TARGET_FILE:t64-supervisor> $<TARGET_FILE:t64-result-check>
     ${CMAKE_SOURCE_DIR}/build/fixtures/audio-pcm-wrong.z64
     ${CMAKE_SOURCE_DIR}/build/fixtures/hello.input.json)
+add_test(NAME controls.real.audio-drain-cadence
+  COMMAND test_audio_capture runner-drain-pacing
+    $<TARGET_FILE:t64-supervisor-test> $<TARGET_FILE:t64-result-check>
+    ${CMAKE_SOURCE_DIR}/build/fixtures/audio-pcm.z64
+    ${CMAKE_SOURCE_DIR}/build/fixtures/hello.input.json)
 set_tests_properties(runner.audio-pcm controls.real.audio-wrong-sample
+  controls.real.audio-drain-cadence
   PROPERTIES LABELS "runner;controls" TIMEOUT 120
   ENVIRONMENT "T64_AUDIO_EVIDENCE_DIR=${CMAKE_BINARY_DIR}/08-01-evidence;T64_REAL_KEEP_WORKSET=1")
 

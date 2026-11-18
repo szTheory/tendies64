@@ -104,6 +104,27 @@
           ]
         }
       ]
+    },
+    "determinism": {
+      "ctest": [
+        "unit.core.ai.determinism",
+        "controls.real.audio-drain-cadence"
+      ],
+      "binaries": [
+        {
+          "path": "core/test_ai",
+          "cases": [
+            "whole-versus-split",
+            "interleaved-machine-isolation",
+            "equal-tick-ai-vi-order",
+            "independent-audio-video-full"
+          ]
+        },
+        {
+          "path": "runner/test_audio_capture",
+          "cases": ["runner-drain-pacing"]
+        }
+      ]
     }
   }
 }
