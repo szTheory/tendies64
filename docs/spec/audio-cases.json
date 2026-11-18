@@ -86,6 +86,24 @@
           ]
         }
       ]
+    },
+    "output": {
+      "ctest": [
+        "unit.core.ai.output"
+      ],
+      "binaries": [
+        {
+          "path": "core/test_ai",
+          "cases": [
+            "audio-info-copy-atomic",
+            "reserve-before-first-sample",
+            "output-full-same-event",
+            "drain-resume-exactly-once",
+            "copy-alias-and-overflow",
+            "canonical-producer-history"
+          ]
+        }
+      ]
     }
   }
 }
