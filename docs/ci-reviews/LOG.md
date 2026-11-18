@@ -109,6 +109,7 @@ from.
 | 2026-11-17 | 44018490135 | 6f5ff26a99a3 | push | success | 341 | 341 | 2/156 | 3/338 | gate-macos/Gate 324s |
 | 2026-11-18 | 44225542279 | 385fd2a920a6 | push | failure | 460 | 458 | 1/151 | 3/455 | gate-macos/Gate 442s |
 | 2026-11-18 | 44228987686 | e6f54668afec | push | success | 476 | 475 | 2/242 | 38/437 | gate-macos/Gate 420s |
+| 2026-11-18 | 44257072608 | eea64b6fae3b | push | success | 347 | 345 | 2/166 | 3/342 | gate-macos/Gate 326s |
 
 ## Findings
 
@@ -236,3 +237,4 @@ weakening qualification. Log: `build/gate/07-05-hosted-macos.log`.
 | F-092 | 44198383459 | Both hosts pass reviewed filter checkpoint8def244 and156 native checks; exact selected authored boot records compare. macOS job443s/Gate428s, Linux188s/Gate181s; queues3/2s. Local reviewed gate61s. | taken | Positive filter taps outside a one-row visible window must be validated against backing RDRAM; pair them with a true RAM-end fallback and consumed-span checks. Whole/split calls must actually differ; failed setup must count before returning. Diagnose trace observer overflow at the failed call and retain bounds. Review the new qualification verifier before the expensive final matrix. Keep both jobs/limits; no cache/dependency/concurrency expansion. |
 | F-093 | 44225542279 | The ordinary hosted gates passed but the new emitter failed before producing records because an existing temporary directory was passed to a fresh-directory constructor. | taken | Use an uncreated child directory and run the actual emitter entrypoint in an isolated publication root during cheap preflight; preserve the failed run and do not rerun unchanged sanitizer/compiler matrices. |
 | F-094 | 44228987686 | Both repaired hosted jobs passed and exact SHA/run/attempt/job artifact ZIPs passed bounded download, API digest, strict member, decoded raw-byte and boot comparison checks. | taken | Keep the existing two jobs and limits. Put the actual emission entry in cheap preflight and retain failures. Reuse unchanged full C-source sanitizer/compiler evidence after the Python-only repair, with a fresh normal gate and owning harness test; no cache, dependency or concurrency expansion. |
+| F-095 | 44257072608 | Add caches dependencies or concurrency for the authority harness | declined | No measured need for new cache dependencies or concurrency; reuse unchanged C qualification and batch receipt publication with the next source push |

@@ -10,7 +10,7 @@ stopped_at: Plan12 authored preparation complete; oracle authority and Phase8 se
 last_updated: "2026-11-18T07:10:58.115357+00:00"
 last_activity: 2026-11-18
 last_activity_desc: Plan12 reviewed authority preparation and local gate pass; oracle stop preserved
-state_head: d12125e21e69bf614344b105fa4abaa70f9ea9da
+state_head: eea64b6fae3bde504cbe4658fd8e9213b5bcd3d6
 progress:
   total_phases: 3
   completed_phases: 0
@@ -33,7 +33,7 @@ See: .planning/PROJECT.md (updated 2026-11-15)
 Phase: 07 (RDP Reference Renderer and VI Scanout) — BLOCKED for differential acceptance
 Plan: 12 of13 in current phase
 Status: Plan12 authored preparation complete; actual oracle authority unresolved; Phase8 sequencing decision pending
-Last activity: 2026-11-18 — Authority preparation reviewed and locally qualified; final-batch hosted checks pending
+Last activity: 2026-11-18 — Authority preparation reviewed and locally qualified; both final-batch hosted jobs and exact downloaded checks pass
 
 Progress: [█████████░] 92% of currently planned source plans
 
@@ -60,8 +60,7 @@ Plans01–12 are complete within their authored scope. The concrete oracle
 request/checker is independently reviewed, locally qualified and fail-closed;
 production approval pins remain unset. Plan13 and VID-04 remain blocked by
 competent authority, per-file/build-input rights and missing exported replay
-inputs. Do not infer a grant from this preparation. Hosted final-batch checks
-are pending. The owner has a pending sequencing choice: start Phase8 Audio
+inputs. Do not infer a grant from this preparation. Both final-batch hosted jobs and exact downloaded raw/boot, privacy and rights checks pass. The owner has a pending sequencing choice: start Phase8 Audio
 Interface/raw capture from qualified authored output while keeping Phase7
 incomplete, or hold here. No oracle permission is part of that choice.
 
@@ -83,7 +82,7 @@ incomplete, or hold here. No oracle permission is part of that choice.
 
 ## Session Continuity
 
-Last session: 2026-11-18T03:37:04.614942+00:00
+Last session: 2026-11-18T07:22:46.107364+00:00
 Stopped at: Plan12 authored preparation complete; Phase8 sequencing pending
 Resume file: .planning/phases/07-rdp-reference-renderer-and-vi-scanout/07-12-PLAN.md
 

@@ -73,9 +73,18 @@ No C/header/fixture/build-flag change occurred; the only owning CMake change
 registers this Python harness. Full C sanitizer/GCC evidence is explicitly
 reused from Plan11; those long suites were not repeated for this slice.
 
-Hosted qualification of this final batch is pending when this summary is
-created; the original Plan11 qualified hosted receipt remains valid for its
-exact source. Do not infer a new hosted result from local tests.
+The exact published batch eea64b6 passes both hosted jobs in run44257072608
+attempt1. Both new authority harnesses reached and passed. Original downloaded
+ZIP/API identities and digests, strict member checks, raw semantic comparison,
+post-download privacy/rights and the selected boot comparator pass. The
+[receipt](../../../docs/evidence/phase07-authority-hosted.json) records the exact
+source and actual artifact identities. CI wall347s, macOS job342s/Gate326s and
+Linux166s fit the existing two-job/ten-minute policy; runner timing differences
+are not attributed to this source change. No cache/dependency/concurrency added.
+
+This receipt and final handoff are committed locally for the next useful push;
+the tested source batch is already public and green. Avoid another hosted run
+solely to publish the record of this preceding green run.
 
 ## Security and boundary
 
