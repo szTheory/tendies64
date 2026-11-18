@@ -469,3 +469,16 @@ When a plan's shared case/build registrations prevent independent coherent
 commits, use one verified plan-slice commit and retain per-task evidence.
 Do not spend a handoff cycle partially staging cosmetic boundaries or leave
 references to uncommitted test targets in an intermediate source commit.
+
+
+## Approved Phase8 sequencing
+
+Owner direction,2026-11-18: follow the recommendation to start Phase8 Audio
+Interface/raw capture from the tested authored Phase7 foundation. This changes
+Phase8's dependency from all of Phase7 to its qualified authored output path.
+Carry discussion, planning, implementation, review and qualification through
+within the approved phase without per-step acknowledgments. Phase7/VID-04 and
+Plan13 remain incomplete/stopped; this grants no oracle rights, acquisition,
+execution, publication, private-test window, package install or release scope.
+Continue cheap actual-consumer/setup checks before long suites and reuse
+unchanged evidence. Do not re-ask this sequencing question after a restart.

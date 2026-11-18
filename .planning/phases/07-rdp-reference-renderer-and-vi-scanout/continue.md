@@ -6,11 +6,9 @@ Plan12 summary. CI run44257072608 passed Linux/macOS and exact downloaded raw/bo
 rights checks; see docs/evidence/phase07-authority-hosted.json. Do not rerun a
 passed stage merely to recreate this handoff. Private command/binary receipts: build/gate/07-12-qualification/.
 
-Next: resolve the owner's pending sequencing choice to start Phase8 Audio
-Interface/raw capture from the qualified authored foundation or hold here.
-Proceeding changes the roadmap dependency; no answer is recorded yet. This is
-separate from actual oracle authority. If approved, record the dependency change
-and use GSD discuss/research/adversarial synthesis → plan → execute for Phase8.
+Next: Phase8 Audio Interface/raw capture was approved on2026-11-18. Resume its
+current STATE and phase directory; do not re-ask the sequencing choice. The
+qualified authored foundation is its dependency; Phase7/VID-04 stay incomplete.
 
 Do not run Plan13: Plan12 SUMMARY status halted mechanically blocks it.
 Both real authority pins remain unset; rights/build/corpus/replay readiness is

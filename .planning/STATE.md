@@ -2,11 +2,11 @@
 gsd_state_version: "1.0"
 milestone: v1.1
 milestone_name: Observable Machine
-current_phase: 07
-current_plan: "12"
-current_phase_name: RDP Reference Renderer and VI Scanout
-status: blocked
-stopped_at: Plan12 authored preparation complete; oracle authority and Phase8 sequencing unresolved
+current_phase: 08
+current_plan: null
+current_phase_name: Audio Interface and Raw Capture
+status: discussing
+stopped_at: Phase8 approved; decision-focused discussion/research active
 last_updated: "2026-11-18T07:10:58.115357+00:00"
 last_activity: 2026-11-18
 last_activity_desc: Plan12 reviewed authority preparation and local gate pass; oracle stop preserved
@@ -26,13 +26,13 @@ progress:
 See: .planning/PROJECT.md (updated 2026-11-15)
 
 **Core value:** Every Tendies64 support claim is backed by evidence: a named profile, a pinned build and a reproducible, rights-cleared guest result.
-**Current focus:** Plan12 authored preparation complete; preserve oracle stop and resolve Phase8 sequencing.
+**Current focus:** Phase8 Audio Interface/raw capture discussion, planning and implementation; oracle stop preserved.
 
 ## Current Position
 
-Phase: 07 (RDP Reference Renderer and VI Scanout) — BLOCKED for differential acceptance
-Plan: 12 of13 in current phase
-Status: Plan12 authored preparation complete; actual oracle authority unresolved; Phase8 sequencing decision pending
+Phase: 08 (Audio Interface and Raw Capture) — DISCUSSING
+Plan: not yet planned; Phase7 has12 authored summaries and one stopped successor
+Status: Phase8 dependency change approved; research fan-out active; Phase7 oracle acceptance remains stopped
 Last activity: 2026-11-18 — Authority preparation reviewed and locally qualified; both final-batch hosted jobs and exact downloaded checks pass
 
 Progress: [█████████░] 92% of currently planned source plans
@@ -60,9 +60,10 @@ Plans01–12 are complete within their authored scope. The concrete oracle
 request/checker is independently reviewed, locally qualified and fail-closed;
 production approval pins remain unset. Plan13 and VID-04 remain blocked by
 competent authority, per-file/build-input rights and missing exported replay
-inputs. Do not infer a grant from this preparation. Both final-batch hosted jobs and exact downloaded raw/boot, privacy and rights checks pass. The owner has a pending sequencing choice: start Phase8 Audio
-Interface/raw capture from qualified authored output while keeping Phase7
-incomplete, or hold here. No oracle permission is part of that choice.
+inputs. Do not infer a grant from this preparation. Both final-batch hosted jobs and exact downloaded raw/boot, privacy and rights checks pass. Owner approved Phase8 from the qualified authored foundation on2026-11-18.
+Complete decision-focused research, synthesize/adversarially check the contract,
+then plan and implement AUD-01/02/03 and RUN-06. Do not repeat the sequencing
+question. No oracle authority is part of this decision.
 
 ### Blockers/Concerns
 
@@ -83,14 +84,14 @@ incomplete, or hold here. No oracle permission is part of that choice.
 ## Session Continuity
 
 Last session: 2026-11-18T07:22:46.107364+00:00
-Stopped at: Plan12 authored preparation complete; Phase8 sequencing pending
-Resume file: .planning/phases/07-rdp-reference-renderer-and-vi-scanout/07-12-PLAN.md
+Stopped at: Phase8 approved; discussion/research active
+Resume file: .planning/phases/08-audio-interface-and-raw-capture/08-SEQUENCING.md
 
 Historical closeout: [v1.0 roadmap](milestones/v1.0-ROADMAP.md), [audit](milestones/v1.0-MILESTONE-AUDIT.md), [lessons](RETROSPECTIVE.md).
 
 ## Operator Next Steps
 
-- Phase7 researched discussion and adversarial check are complete. Orchestrator executes the independently verified plans under existing autonomy. No acknowledgment is needed to preserve the oracle stop; the pending Phase8 dependency change is a real sequencing decision.
+- Phase7 researched discussion and adversarial check are complete. Orchestrator executes the independently verified plans under existing autonomy. No acknowledgment is needed to preserve the oracle stop; Phase8 sequencing is approved; continue its authorized work.
 
 ## Resolved local privacy stop
 

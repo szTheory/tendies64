@@ -110,7 +110,7 @@ Plans:
 
 ### Phase 8: Audio Interface and Raw Capture
 **Goal**: The AI turns guest DMA into raw audio buffers whose cadence comes only from guest time, and a headless run captures raw video and audio as files with metadata
-**Depends on**: Phase 7 (guest-timed raw output and video capture source); Phase 5 is complete. Authored PCM verifies AI transport without requiring broader RSP audio-microcode compatibility
+**Depends on**: Qualified authored guest-timed raw output/video foundation from Phase7 Plans01–11; Phase5 is complete. Owner approved this dependency change on2026-11-18. Phase7/VID-04 remain incomplete and their oracle authority/rights stop persists. Authored PCM verifies AI transport without requiring broader RSP audio-microcode compatibility
 **Requirements**: AUD-01, AUD-02, AUD-03, RUN-06
 **Research**: MODERATE (DACRATE values, cadence phase, 8 KiB carry vectors)
 **Success Criteria** (what must be TRUE):
@@ -133,13 +133,13 @@ Plans:
 
 ## Progress
 
-Execution order: Phase 7 → Phase 8 → Phase 9. Plans01–12 are complete within their authored scope; the prepared checker preserves the existing authority stop. Phase8 dependency change awaits the owner sequencing decision. Oracle use and VID-04 remain blocked; Phase7 is not complete.
+Execution order: Phase 7 → Phase 8 → Phase 9. Plans01–12 are complete within their authored scope; the prepared checker preserves the existing authority stop. Owner approved beginning Phase8 from the qualified authored foundation; its discussion/research is active. Oracle use and VID-04 remain blocked; Phase7 is not complete.
 VID-04's specific acceptance gate does not prevent permitted authored/native work.
 
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
 | 7. RDP Reference Renderer and VI Scanout | 12/13 | Blocked: oracle authority | - |
-| 8. Audio Interface and Raw Capture | 0/TBD | Not started | - |
+| 8. Audio Interface and Raw Capture | 0/TBD | Discussion/research | - |
 | 9. Controller, Save Media and Replay | 0/TBD | Not started | - |
 
 ## v1.2 Embeddable and Playable
