@@ -124,6 +124,16 @@ t64_status t64_cpu_exception_enter(
     update_tlb_fault_context(machine, exception);
   }
   machine->cpu.cp0[T64_CP0_STATUS] = old_status | T64_STATUS_EXL;
+  t64_trace_emit(machine, machine->tick, T64_TRACE_DEVICE_MACHINE,
+                 T64_TRACE_KIND_CPU_EXCEPTION,
+                 machine->cpu.cp0[T64_CP0_EPC]);
+  t64_trace_emit(
+      machine, machine->tick, T64_TRACE_DEVICE_MACHINE,
+      T64_TRACE_KIND_CPU_EXCEPTION_STATE,
+      ((uint64_t)(uint32_t)machine->cpu.cp0[T64_CP0_STATUS] << 32) | cause);
+  t64_trace_emit(machine, machine->tick, T64_TRACE_DEVICE_MACHINE,
+                 T64_TRACE_KIND_CPU_EXCEPTION_MI,
+                 ((uint64_t)machine->mi_pending << 32) | machine->mi_mask);
 
   vector = exception->tlb_refill && (old_status & T64_STATUS_EXL) == 0u
                ? tlb_refill_vector(old_status, exception->tlb_extended)

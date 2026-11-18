@@ -107,13 +107,13 @@ static bool read_named_fixture(const char *name, uint8_t *bytes,
   return read_file(path, bytes, capacity, length_out);
 }
 
-static t64_machine *create_machine(const t64_host_allocator *allocator,
-                                   const uint8_t *image, size_t image_length) {
+static t64_machine *create_machine_for_profile(
+    const t64_host_allocator *allocator, const char *profile_id,
+    const uint8_t *image, size_t image_length) {
   const t64_profile_descriptor *profile = NULL;
   t64_machine *machine = NULL;
 
-  if (t64_profile_lookup("ntsc-cart-4m-openipl3-warm-v1", &profile) !=
-          T64_STATUS_OK ||
+  if (t64_profile_lookup(profile_id, &profile) != T64_STATUS_OK ||
       profile == NULL ||
       t64_machine_create(allocator, profile, &machine) != T64_STATUS_OK ||
       machine == NULL ||
@@ -122,6 +122,59 @@ static t64_machine *create_machine(const t64_host_allocator *allocator,
     return NULL;
   }
   return machine;
+}
+
+static t64_machine *create_machine(const t64_host_allocator *allocator,
+                                   const uint8_t *image, size_t image_length) {
+  return create_machine_for_profile(allocator,
+                                    "ntsc-cart-4m-openipl3-warm-v1", image,
+                                    image_length);
+}
+
+static void test_ai_profile_isviewer(const t64_host_allocator *allocator,
+                                     const uint8_t *image,
+                                     size_t image_length) {
+  static const char ai_profile_id[] =
+      "ntsc-cart-4m-openipl3-rdram-b-t1-rdp-vi-filter-v9-ai-v1";
+  t64_machine *machine = create_machine_for_profile(
+      allocator, ai_profile_id, image, image_length);
+  uint32_t value = 0u;
+
+  if (machine == NULL) {
+    check(false, "AI composite IsViewer test machine is admitted");
+    return;
+  }
+  check(t64_isviewer_active(machine),
+        "AI composite profile inherits the admitted IsViewer device");
+  check_status(t64_machine_bus_write(machine, T64_ISVIEWER_BASE, 4u,
+                                     UINT32_C(0x12345678)),
+               T64_STATUS_OK, "AI composite accepts IsViewer magic writes");
+  check_status(t64_machine_bus_read(machine, T64_ISVIEWER_BASE, 4u, &value),
+               T64_STATUS_OK, "AI composite reads back IsViewer magic");
+  check(value == UINT32_C(0x12345678),
+        "AI composite IsViewer magic readback is exact");
+  t64_machine_destroy(machine);
+}
+
+static void test_vi_filter_v9_keeps_isviewer_refusal(
+    const t64_host_allocator *allocator, const uint8_t *image,
+    size_t image_length) {
+  static const char vi_filter_profile_id[] =
+      "ntsc-cart-4m-openipl3-rdram-b-t1-rdp-vi-filter-v9";
+  t64_machine *machine = create_machine_for_profile(
+      allocator, vi_filter_profile_id, image, image_length);
+
+  if (machine == NULL) {
+    check(false, "legacy VI-filter v9 IsViewer test machine is admitted");
+    return;
+  }
+  check(!t64_isviewer_active(machine),
+        "legacy VI-filter v9 keeps its prior IsViewer refusal");
+  check_status(t64_machine_bus_write(machine, T64_ISVIEWER_BASE, 4u,
+                                     UINT32_C(0x12345678)),
+               T64_STATUS_BUS_DEVICE_REFUSED,
+               "legacy VI-filter v9 still refuses IsViewer writes");
+  t64_machine_destroy(machine);
 }
 
 static t64_machine *create_unadmitted_machine(
@@ -1286,6 +1339,8 @@ int main(void) {
     check(false, "qualified IPL3 and authored guest fixtures are available");
   } else {
     test_magic_register(&allocator, asset, asset_length);
+    test_ai_profile_isviewer(&allocator, hello, hello_length);
+    test_vi_filter_v9_keeps_isviewer_refusal(&allocator, hello, hello_length);
     test_buffer_endianness_and_refusals(&allocator, asset, asset_length);
     test_flush_boundaries(&allocator, asset, asset_length);
     test_count_lanes_and_repeat(&allocator, asset, asset_length);

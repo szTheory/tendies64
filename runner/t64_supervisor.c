@@ -419,6 +419,7 @@ typedef struct {
 #endif
   uint64_t expect_pass;
   uint64_t video_observation_fd;
+  uint64_t audio_observation_fd;
   int real_mode;
   int input_options_seen;
 #ifdef T64_SUPERVISOR_TESTING
@@ -464,6 +465,7 @@ static int parse_args(int argc, char **argv, sup_args *a) {
       {"--expect-pass", NULL, &a->expect_pass, 1, 0},
       {"--capture-out", &a->capture_out, NULL, 0, 0},
       {"--video-observation-fd", NULL, &a->video_observation_fd, 0, 0},
+      {"--audio-observation-fd", NULL, &a->audio_observation_fd, 0, 0},
 #ifdef T64_SUPERVISOR_TESTING
       {"--advance-step", NULL, &a->advance_step, 0, 0},
 #endif
@@ -541,6 +543,27 @@ static int parse_args(int argc, char **argv, sup_args *a) {
         if (observation_flags < 0 ||
             (observation_flags & O_ACCMODE) != O_WRONLY) {
           bad = 1;
+        }
+      }
+    }
+    if (!bad && a->audio_observation_fd != 0u) {
+      struct stat observation_stat;
+      int observation_fd;
+      int observation_flags;
+      if (a->audio_observation_fd > (uint64_t)INT_MAX ||
+          a->audio_observation_fd <= (uint64_t)STDERR_FILENO) {
+        bad = 1;
+      } else {
+        observation_fd = (int)a->audio_observation_fd;
+        if (fstat(observation_fd, &observation_stat) != 0 ||
+            !S_ISFIFO(observation_stat.st_mode)) {
+          bad = 1;
+        } else {
+          observation_flags = fcntl(observation_fd, F_GETFL);
+          if (observation_flags < 0 ||
+              (observation_flags & O_ACCMODE) != O_WRONLY) {
+            bad = 1;
+          }
         }
       }
     }
@@ -687,7 +710,12 @@ typedef struct {
 } workset;
 
 static void workset_cleanup(workset *ws) {
+  const char *retain = getenv("T64_REAL_KEEP_WORKSET");
   if (!ws->made_dir) {
+    return;
+  }
+  if (retain != NULL && strcmp(retain, "1") == 0) {
+    ws->made_dir = 0;
     return;
   }
   unlink(ws->report);
@@ -1254,6 +1282,7 @@ static int real_run_mode(const sup_args *args, const char *self_path) {
   char fixture_fd_text[24];
   char input_fd_text[24];
   char video_observation_fd_text[24];
+  char audio_observation_fd_text[24];
   char profile_id[64];
   char guest_ticks_text[24];
 #ifdef T64_SUPERVISOR_TESTING
@@ -1384,6 +1413,9 @@ static int real_run_mode(const sup_args *args, const char *self_path) {
   (void)snprintf(video_observation_fd_text,
                  sizeof video_observation_fd_text, "%llu",
                  (unsigned long long)args->video_observation_fd);
+  (void)snprintf(audio_observation_fd_text,
+                 sizeof audio_observation_fd_text, "%llu",
+                 (unsigned long long)args->audio_observation_fd);
   (void)snprintf(profile_id, sizeof profile_id, "%s",
                  fixture_identity->profile_id);
   (void)snprintf(guest_ticks_text, sizeof guest_ticks_text, "%llu",
@@ -1407,6 +1439,7 @@ static int real_run_mode(const sup_args *args, const char *self_path) {
     char option_advance_step[] = "--advance-step";
 #endif
     char option_video_observation[] = "--video-observation-fd";
+    char option_audio_observation[] = "--audio-observation-fd";
     char *child_args[18];
     size_t child_argc = 0u;
     child_args[child_argc++] = runner_path;
@@ -1428,6 +1461,10 @@ static int real_run_mode(const sup_args *args, const char *self_path) {
       child_args[child_argc++] = option_video_observation;
       child_args[child_argc++] = video_observation_fd_text;
     }
+    if (args->audio_observation_fd != 0u) {
+      child_args[child_argc++] = option_audio_observation;
+      child_args[child_argc++] = audio_observation_fd_text;
+    }
     child_args[child_argc] = NULL;
     setpgid(0, 0);
     limit.rlim_cur = 0;
@@ -1444,6 +1481,8 @@ static int real_run_mode(const sup_args *args, const char *self_path) {
         !real_clear_cloexec(fixture.fd) || !real_clear_cloexec(input.fd) ||
         (args->video_observation_fd != 0u &&
          !real_clear_cloexec((int)args->video_observation_fd)) ||
+        (args->audio_observation_fd != 0u &&
+         !real_clear_cloexec((int)args->audio_observation_fd)) ||
         dup2(report_fd, STDOUT_FILENO) < 0 ||
         dup2(capture_fd, STDERR_FILENO) < 0) {
       _exit(126);

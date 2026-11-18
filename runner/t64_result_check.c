@@ -87,11 +87,16 @@ static const char *const real_outcome_names[] = {
     "boot-fail", "guest-fail", "harness-error", "missing-fixture", "pass",
     "timeout"};
 static const char *const real_detail_names[] = {
-    "capture-invalid", "empty-output", "exec-failed", "fixture-absent",
-    "guest-bound", "host-error", "no-result", "output-overflow",
-    "positive-match", "refusal", "report-error", "report-invalid",
-    "runner-exit-nonzero", "runner-signalled", "supervisor-signalled",
-    "unsupported-execution", "usage", "wall-backstop", "wrong-transcript"};
+    "advance-invalid", "audio-drain-error", "audio-observation-invalid",
+    "audio-observation-write-error", "capture-invalid", "empty-output",
+    "exec-failed", "fixture-absent", "guest-bound", "host-error",
+    "no-result", "output-drain-error", "output-overflow", "positive-match",
+    "refusal", "report-error", "report-invalid", "resource-yield-limit",
+    "resource-yield-no-progress", "runner-exit-nonzero", "runner-signalled",
+    "stop-reason-unexpected", "supervisor-signalled", "trace-drain-error",
+    "unsupported-execution", "usage", "video-drain-error",
+    "video-observation-invalid", "video-observation-write-error",
+    "wall-backstop", "wrong-transcript"};
 static const char *const milestone_names[] = {
     "ipl3-entry", "loader-dma", "hello-entry", "hello-completion"};
 
@@ -1178,7 +1183,19 @@ static int validate_real_result(const t64_json_node *root, rec *r, diag *d) {
         !(str_is(detail, "host-error") || str_is(detail, "wall-backstop") ||
           str_is(detail, "supervisor-signalled") ||
           str_is(detail, "runner-signalled") ||
-          str_is(detail, "runner-exit-nonzero"))) {
+          str_is(detail, "runner-exit-nonzero") ||
+          str_is(detail, "advance-invalid") ||
+          str_is(detail, "audio-drain-error") ||
+          str_is(detail, "audio-observation-invalid") ||
+          str_is(detail, "audio-observation-write-error") ||
+          str_is(detail, "output-drain-error") ||
+          str_is(detail, "resource-yield-limit") ||
+          str_is(detail, "resource-yield-no-progress") ||
+          str_is(detail, "stop-reason-unexpected") ||
+          str_is(detail, "trace-drain-error") ||
+          str_is(detail, "video-drain-error") ||
+          str_is(detail, "video-observation-invalid") ||
+          str_is(detail, "video-observation-write-error"))) {
       set_diag(d, "R-DETAIL-OUTCOME", "host-error stop requires a host harness-error detail");
       return 0;
     }

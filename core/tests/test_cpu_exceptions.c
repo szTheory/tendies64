@@ -132,12 +132,32 @@ static bool expect_exception(t64_machine *machine, uint64_t ticks,
                              bool expect_bad_vaddr,
                              uint64_t bad_vaddr) {
   t64_stop_result result = {UINT32_MAX, UINT64_MAX};
-  t64_status status = advance_ticks(machine, ticks, &result);
+  t64_status status;
   uint32_t cause = (uint32_t)machine->cpu.cp0[T64_CP0_CAUSE];
   uint32_t expected_cause = code << 2;
   uint64_t observed_epc = machine->cpu.cp0[T64_CP0_EPC];
   uint32_t status_register = (uint32_t)machine->cpu.cp0[T64_CP0_STATUS];
+  t64_trace_record trace_records[16];
+  size_t trace_count = 0u;
+  uint64_t dropped = 0u;
+  bool drop_saturated = false;
+  bool trace_epc_seen = false;
+  bool trace_state_seen = false;
+  bool trace_mi_seen = false;
+  t64_status trace_status;
+  size_t i;
   bool okay;
+
+  if (t64_machine_trace_set_enabled(machine, true) != T64_STATUS_OK) {
+    return false;
+  }
+  status = advance_ticks(machine, ticks, &result);
+  trace_status = t64_machine_trace_drain(
+      machine, trace_records, sizeof trace_records / sizeof trace_records[0],
+      &trace_count, &dropped, &drop_saturated);
+  cause = (uint32_t)machine->cpu.cp0[T64_CP0_CAUSE];
+  observed_epc = machine->cpu.cp0[T64_CP0_EPC];
+  status_register = (uint32_t)machine->cpu.cp0[T64_CP0_STATUS];
 
   if (branch_delay) {
     expected_cause |= T64_CAUSE_BD;
@@ -148,6 +168,26 @@ static bool expect_exception(t64_machine *machine, uint64_t ticks,
          observed_epc == epc && (status_register & T64_STATUS_EXL) != 0u &&
          machine->cpu.attempt_outcome == T64_CPU_ATTEMPT_GUEST_EXCEPTION &&
          !machine->cpu.delay_slot_pending;
+  for (i = 0u; i < trace_count; i++) {
+    const t64_trace_record *record = &trace_records[i];
+    if (record->device != T64_TRACE_DEVICE_MACHINE) continue;
+    if (record->kind == T64_TRACE_KIND_CPU_EXCEPTION &&
+        record->value == epc) {
+      trace_epc_seen = true;
+    } else if (record->kind == T64_TRACE_KIND_CPU_EXCEPTION_STATE &&
+               record->value ==
+                   (((uint64_t)status_register << 32) | cause)) {
+      trace_state_seen = true;
+    } else if (record->kind == T64_TRACE_KIND_CPU_EXCEPTION_MI &&
+               record->value ==
+                   (((uint64_t)machine->mi_pending << 32) |
+                    machine->mi_mask)) {
+      trace_mi_seen = true;
+    }
+  }
+  okay = okay && trace_status == T64_STATUS_OK && dropped == 0u &&
+         !drop_saturated && trace_epc_seen && trace_state_seen &&
+         trace_mi_seen;
   if (expect_bad_vaddr) {
     okay = okay && machine->cpu.cp0[T64_CP0_BAD_VADDR] == bad_vaddr;
   }

@@ -246,6 +246,35 @@ static int make_variant(char *out, size_t capacity, const char *before,
   return replace_once(out, capacity, before, after);
 }
 
+static int make_resource_yield_failure(char *out, size_t capacity,
+                                       const char *detail) {
+  char detail_json[96];
+  if (snprintf(detail_json, sizeof detail_json, "\"detail\":\"%s\"",
+               detail) <= 0 || sizeof valid_pass_v2 > capacity) {
+    return 0;
+  }
+  memcpy(out, valid_pass_v2, sizeof valid_pass_v2);
+  if (
+      !replace_once(out, capacity, "\"detail\":\"positive-match\"",
+                    detail_json) ||
+      !replace_once(out, capacity, "\"outcome\":\"pass\"",
+                    "\"outcome\":\"harness-error\"") ||
+      !replace_once(out, capacity,
+                    "\"kind\":\"authored-completion\"",
+                    "\"kind\":\"host-error\"") ||
+      !replace_once(
+          out, capacity,
+          "\"log_sha256\":\"86594505bea53c9843f9eaf07e4cf0121cbe0055670324674fd8385c88ffd18e\"",
+          "\"log_sha256\":null") ||
+      !replace_once(out, capacity, "\"log_bytes\":\"30\"",
+                    "\"log_bytes\":\"0\"") ||
+      !replace_once(out, capacity, "\"log_bytes_total\":\"30\"",
+                    "\"log_bytes_total\":\"0\"")) {
+    return 0;
+  }
+  return 1;
+}
+
 static int make_evidence(char *out, size_t capacity, const char *sha,
                          const char *job, const char *run,
                          const char *attempt, const char *result) {
@@ -541,6 +570,35 @@ int main(int argc, char **argv) {
     (void)expect_case(argv[1],
                       "accepts host-error with unknown output total and no trusted capture",
                       changed, 0, NULL);
+  }
+  if (make_resource_yield_failure(changed, sizeof changed,
+                                  "resource-yield-limit")) {
+    (void)expect_case(argv[1],
+                      "accepts retained resource-yield-limit runner report",
+                      changed, 0, NULL);
+  }
+  if (make_resource_yield_failure(changed, sizeof changed,
+                                  "resource-yield-no-progress")) {
+    (void)expect_case(
+        argv[1], "accepts retained resource-yield-no-progress runner report",
+        changed, 0, NULL);
+  }
+  if (make_resource_yield_failure(changed, sizeof changed,
+                                  "resource-yield-limit") &&
+      replace_once(changed, sizeof changed,
+                   "\"detail\":\"resource-yield-limit\"",
+                   "\"detail\":\"resource-yield-surprise\"")) {
+    (void)expect_case(argv[1], "rejects unknown resource-yield detail",
+                      changed, 1, "R-ENUM");
+  }
+  if (make_resource_yield_failure(changed, sizeof changed,
+                                  "resource-yield-limit") &&
+      replace_once(changed, sizeof changed,
+                   "\"outcome\":\"harness-error\"",
+                   "\"outcome\":\"pass\"")) {
+    (void)expect_case(argv[1],
+                      "rejects resource-yield detail on a guest pass",
+                      changed, 1, "R-DETAIL-OUTCOME");
   }
   (void)expect_file_case(argv[1], "continues to accept legacy v1 positive golden",
                          argv[2], 0, NULL);

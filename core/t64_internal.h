@@ -72,6 +72,10 @@
 #define T64_VR4300_ICACHE_LINE_BYTES 32u
 #define T64_VR4300_DCACHE_LINE_BYTES 16u
 #define T64_VIDEO_QUEUE_CAPACITY 2u
+#define T64_AUDIO_QUEUE_CAPACITY 2u
+#define T64_AUDIO_MAX_PACKET_BYTES ((size_t)0x3fff8u)
+#define T64_AUDIO_QUEUE_STORAGE_BYTES \
+  ((size_t)T64_AUDIO_QUEUE_CAPACITY * T64_AUDIO_MAX_PACKET_BYTES)
 #define T64_VIDEO_MAX_WIDTH 320u
 #define T64_VIDEO_MAX_HEIGHT 240u
 #define T64_VIDEO_MAX_PACKET_BYTES \
@@ -80,6 +84,11 @@
   ((size_t)T64_VIDEO_QUEUE_CAPACITY * T64_VIDEO_MAX_PACKET_BYTES)
 #define T64_RDP_DEVICE UINT32_C(7)
 #define T64_VI_DEVICE UINT32_C(8)
+#define T64_AI_DEVICE UINT32_C(9)
+#define T64_MI_INTERRUPT_AI UINT32_C(0x04)
+#define T64_AI_EVENT_SAMPLE UINT32_C(1)
+#define T64_AI_REGISTER_BASE UINT32_C(0x04500000)
+#define T64_AI_REGISTER_END UINT32_C(0x04500018)
 #define T64_RDP_EVENT_WORK UINT32_C(1)
 #define T64_VI_EVENT_FIELD UINT32_C(1)
 #define T64_RDP_STATUS_BUSY UINT32_C(0x00000001)
@@ -773,6 +782,47 @@ typedef struct {
   bool latch_pending;
 } t64_vi_state;
 
+typedef struct {
+  uint32_t address;
+  uint32_t length;
+  uint64_t sequence;
+  uint32_t dacrate;
+  uint32_t bitrate;
+} t64_ai_dma_descriptor;
+
+typedef struct {
+  uint32_t staged_address;
+  uint32_t active_byte_cursor;
+  uint32_t control;
+  uint32_t dacrate;
+  uint32_t bitrate;
+  uint32_t latched_dacrate;
+  uint32_t latched_bitrate;
+  uint64_t phase_remainder;
+  uint64_t sample_index;
+  uint64_t descriptor_sequence;
+  uint64_t event_token;
+  uint64_t event_generation;
+  uint64_t packet_start_tick;
+  uint64_t packet_first_sample;
+  size_t packet_length;
+  size_t packet_lengths[T64_AUDIO_QUEUE_CAPACITY];
+  t64_audio_packet_info packet_info[T64_AUDIO_QUEUE_CAPACITY];
+  t64_ai_dma_descriptor descriptors[T64_AUDIO_QUEUE_CAPACITY];
+  size_t descriptor_head;
+  size_t descriptor_count;
+  size_t output_reservation_slot;
+  /* Host observer cursor and occupancy are excluded from guest identity. */
+  size_t packet_head;
+  size_t packet_count;
+  bool active;
+  bool address_staged;
+  bool packet_reserved;
+  bool sequence_exhausted;
+  uint64_t packet_history_count;
+  uint8_t packet_history_sha256[T64_DIGEST_SIZE];
+} t64_ai_state;
+
 size_t t64_rdp_triangle_word_count(uint32_t opcode);
 bool t64_rdp_triangle_bounds(const t64_machine *machine, uint32_t opcode,
                              const uint64_t *words, size_t word_count,
@@ -830,6 +880,9 @@ struct t64_machine {
   t64_vi_state vi;
   t64_host_storage video_storage;
   uint8_t *video_packets;
+  t64_ai_state ai;
+  t64_host_storage audio_storage;
+  uint8_t *audio_packets;
   /* Host observer cursor; never contributes to guest identity. */
   size_t output_drain_cursor;
   size_t image_length;
@@ -869,11 +922,18 @@ struct t64_machine {
   bool rsp_observation_valid;
 };
 
+static inline bool t64_has_ai_profile(const t64_machine *machine) {
+  return machine != NULL && machine->profile.descriptor_version == 11u &&
+         machine->profile.machine_model_version == 19u &&
+         machine->profile.state_serialization_version == 24u;
+}
+
 static inline bool t64_has_vi_filter_v9_profile(
     const t64_machine *machine) {
-  return machine != NULL && machine->profile.descriptor_version == 10u &&
-         machine->profile.machine_model_version == 18u &&
-         machine->profile.state_serialization_version == 23u;
+  return (machine != NULL && machine->profile.descriptor_version == 10u &&
+          machine->profile.machine_model_version == 18u &&
+          machine->profile.state_serialization_version == 23u) ||
+         t64_has_ai_profile(machine);
 }
 
 static inline bool t64_has_rdp_vi_profile(const t64_machine *machine) {
@@ -1282,6 +1342,14 @@ t64_status t64_vi_write_register(t64_machine *machine, uint32_t address,
 t64_status t64_vi_event(t64_machine *machine, const t64_event *event);
 void t64_rdp_reset_machine_state(t64_machine *machine);
 void t64_vi_reset_machine_state(t64_machine *machine);
+void t64_ai_reset_machine_state(t64_machine *machine);
+t64_status t64_ai_read_register(const t64_machine *machine,
+                               uint32_t address, uint32_t *value_out);
+t64_status t64_ai_write_register(t64_machine *machine, uint32_t address,
+                                 uint32_t value);
+t64_status t64_ai_event(t64_machine *machine, const t64_event *event);
+bool t64_ai_event_waits_for_output_capacity(const t64_machine *machine,
+                                            const t64_event *event);
 t64_status t64_pi_read_register(const t64_machine *machine, uint32_t address,
                                 uint32_t *value_out);
 t64_status t64_pi_write_register(t64_machine *machine, uint32_t address,
@@ -1358,6 +1426,13 @@ static inline bool t64_internal_observation_range_is_disjoint(
   if (machine->video_storage.data != NULL &&
       (!t64_internal_make_range(machine->video_storage.data,
                                 machine->video_storage.capacity,
+                                &owned_range) ||
+       t64_internal_ranges_overlap(output_range, owned_range))) {
+    return false;
+  }
+  if (machine->audio_storage.data != NULL &&
+      (!t64_internal_make_range(machine->audio_storage.data,
+                                machine->audio_storage.capacity,
                                 &owned_range) ||
        t64_internal_ranges_overlap(output_range, owned_range))) {
     return false;

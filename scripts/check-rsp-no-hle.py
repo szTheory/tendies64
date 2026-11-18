@@ -18,6 +18,7 @@ import sys
 CANONICAL_CORE_SOURCES = frozenset(
     {
         "t64_bus.c",
+        "t64_ai.c",
         "t64_cache.c",
         "t64_cop1.c",
         "t64_core_stub.c",
@@ -220,15 +221,41 @@ REVIEWED_VI_FUNCTIONS = frozenset(
         "t64_vi_write_register", "t64_video_copy", "t64_video_info",
     }
 )
+REVIEWED_AI_FUNCTIONS = frozenset(
+    {
+        "copy_text", "dma_slot", "hash_completed_packet", "hash_u32",
+        "hash_u64", "output_slot", "reserve_sample_event", "sample_delay",
+        "submit_dma", "t64_ai_event", "t64_ai_event_waits_for_output_capacity",
+        "t64_ai_read_register", "t64_ai_reset_machine_state",
+        "t64_ai_write_register", "t64_audio_copy", "t64_audio_info",
+    }
+)
 
 # Reviewed normalized function bodies. A changed body requires an explicit
 # review and digest refresh; static definition additions/removals also fail the
 # inventory check below.
 REVIEWED_BODY_DIGESTS = {
-    "core/t64_bus.c :: decode_region": "a7d3761fa6daa231b11e82c1c78f8e0f3968d629f7c094f6b6f3446d5f31f916",
-    "core/t64_bus.c :: t64_bus_write": "c4981198e735c1125ced3607eaded936ace5919054d02834a52dee8881e98a1d",
-    "core/t64_bus.c :: t64_bus_write_masked": "2c219bc6f9131c133dabee4f60d9e5a18bbcda8c8443bb6b7418b423f6ae2f82",
+    "core/t64_bus.c :: decode_region": "e72b14de8821c660fa08a293d3ee1479f8af8aaad3f83c442f2835938e939fa6",
+    "core/t64_bus.c :: t64_bus_write": "efca62b4fabbbca012e5ca5d6946092c87bf98b2b2fd06227ef61b14c61004d6",
+    "core/t64_bus.c :: t64_bus_write_masked": "963205739dd3cc6d4b10f56fc4e31ed041a5a864f7ef90cdfc736fa842809506",
     "core/t64_bus.c :: t64_bus_writeback_cache_line": "00b198913012b79e8ff87fdc40822b2096e7d6f1ba9d9f8033f6e468e0621e80",
+    "core/t64_scheduler.c :: event_can_dispatch": "f5431ca1ae2825a542aed2322e66690884daf473dac3503e0584d362807aaf81",
+    "core/t64_ai.c :: copy_text": "2f10ff25b6593ac813ad6619ef1b6658fc199ad4fb78bce2ee098c3fcda8e600",
+    "core/t64_ai.c :: dma_slot": "abcb84a0b8838cf092e198b6b5f9a558a1ba6c4b07469cb9061028bba087ec3a",
+    "core/t64_ai.c :: hash_completed_packet": "82349ab87a068764bf386dc1d4d600fca9fd8d5ac19ac5d3968b706314299b3f",
+    "core/t64_ai.c :: hash_u32": "7a625c760b29726ba5d3c84c9b3d2bd361607641eae18a8557052650d739df07",
+    "core/t64_ai.c :: hash_u64": "99f7f355ae350335578696265ae95eab666fd1c588e074a6e100f496c3790e69",
+    "core/t64_ai.c :: output_slot": "715e9ff0f74101c48f405619b8c61a929d561948437c2bc250ec0575b209f449",
+    "core/t64_ai.c :: reserve_sample_event": "c5cb59837e043db61430dfc9a27e10dfca06adda9f3b7b7e21fc6bfe7a624c65",
+    "core/t64_ai.c :: sample_delay": "88309f50efb4654b8ac780d5bd3c1e7161ee756743a900822ea5e1e80b6b3abf",
+    "core/t64_ai.c :: submit_dma": "cccbe142ec417ee2b0c33aa2a736ef7ce40679e08d7cbcc2d48d1284f8de6a3f",
+    "core/t64_ai.c :: t64_ai_event": "857a8a2821993d64e82ec6edb8a234152a9f24de7336139f5951b8d46c76f525",
+    "core/t64_ai.c :: t64_ai_event_waits_for_output_capacity": "acb0078dd2bb886b68acb23ac8c537eb352e1bc1d583c9a56289fa4a1774116c",
+    "core/t64_ai.c :: t64_ai_read_register": "e2bd08a3af82759c4ba065ece2e11aa60848b0044a10fdf4e01f66af9cc02284",
+    "core/t64_ai.c :: t64_ai_reset_machine_state": "5356961eb340c491f97057c2c470d9094742545735195c816e714a2d9a32199e",
+    "core/t64_ai.c :: t64_ai_write_register": "f7e044fa3d26366fb970c62fadad3d8349168e6021283fbf8c34bfbdf95d4d1a",
+    "core/t64_ai.c :: t64_audio_copy": "a655c179545c078317e5b95bde272153b6ff34b6c480aae7972a46d0223cc5f1",
+    "core/t64_ai.c :: t64_audio_info": "8f30f9fb3670f82d509a67e499300cb7092f8f06f22df60ea8fdec0a1a977031",
     "core/t64_pi.c :: t64_pi_complete": "7edd3c4b64276a9b6698cb13f16b91a183f400cee26347b350b49bccb69e36af",
     "core/t64_sp.c :: t64_sp_write_register": "3620ac7c6c379837ebdedcfcf21ca6c887e580880e314311633b08698f75ce09",
     "core/t64_sp.c :: t64_sp_reset_machine_state": "f410fa77785c8b063cde69306ced58702d70dae4c5bca62af2b8adf08529670a",
@@ -612,13 +639,15 @@ def _check_source_route(root: pathlib.Path) -> tuple[list[str], list[str], int]:
     tmem_path = root / "core" / "t64_rdp_tmem.c"
     depth_path = root / "core" / "t64_rdp_depth.c"
     vi_path = root / "core" / "t64_vi.c"
+    ai_path = root / "core" / "t64_ai.c"
+    scheduler_path = root / "core" / "t64_scheduler.c"
     bus_path = root / "core" / "t64_bus.c"
     pi_path = root / "core" / "t64_pi.c"
     if not all(
         path.is_file()
         for path in (
             rsp_path, sp_path, rdp_path, pipeline_path, raster_path, tmem_path,
-            depth_path, vi_path, bus_path, pi_path
+            depth_path, vi_path, ai_path, scheduler_path, bus_path, pi_path
         )
     ):
         findings.append(
@@ -636,11 +665,16 @@ def _check_source_route(root: pathlib.Path) -> tuple[list[str], list[str], int]:
     tmem = strip_c_comments_and_literals(tmem_path.read_text(encoding="utf-8"))
     depth = strip_c_comments_and_literals(depth_path.read_text(encoding="utf-8"))
     vi = strip_c_comments_and_literals(vi_path.read_text(encoding="utf-8"))
+    ai = strip_c_comments_and_literals(ai_path.read_text(encoding="utf-8"))
+    scheduler = strip_c_comments_and_literals(
+        scheduler_path.read_text(encoding="utf-8")
+    )
     bus = strip_c_comments_and_literals(bus_path.read_text(encoding="utf-8"))
     pi = strip_c_comments_and_literals(pi_path.read_text(encoding="utf-8"))
     rdp_function_names = file_function_names(rdp)
     pipeline_function_names = file_function_names(pipeline)
     vi_function_names = file_function_names(vi)
+    ai_function_names = file_function_names(ai)
     if rdp_function_names != REVIEWED_RDP_FUNCTIONS:
         missing = sorted(REVIEWED_RDP_FUNCTIONS - rdp_function_names)
         unexpected = sorted(rdp_function_names - REVIEWED_RDP_FUNCTIONS)
@@ -686,6 +720,13 @@ def _check_source_route(root: pathlib.Path) -> tuple[list[str], list[str], int]:
             "core/t64_vi.c: reviewed VI function inventory changed; "
             f"missing={missing!r} unexpected={unexpected!r}"
         )
+    if ai_function_names != REVIEWED_AI_FUNCTIONS:
+        missing = sorted(REVIEWED_AI_FUNCTIONS - ai_function_names)
+        unexpected = sorted(ai_function_names - REVIEWED_AI_FUNCTIONS)
+        findings.append(
+            "core/t64_ai.c: reviewed AI function inventory changed; "
+            f"missing={missing!r} unexpected={unexpected!r}"
+        )
     sp_function_names = file_function_names(sp)
     if sp_function_names != REVIEWED_SP_FUNCTIONS:
         findings.append("core/t64_sp.c: complete SP function inventory changed; route review is required")
@@ -710,6 +751,9 @@ def _check_source_route(root: pathlib.Path) -> tuple[list[str], list[str], int]:
         "core/t64_bus.c :: t64_bus_write": function_body(bus, "t64_bus_write"),
         "core/t64_bus.c :: t64_bus_write_masked": function_body(bus, "t64_bus_write_masked"),
         "core/t64_bus.c :: t64_bus_writeback_cache_line": function_body(bus, "t64_bus_writeback_cache_line"),
+        "core/t64_scheduler.c :: event_can_dispatch": function_body(
+            scheduler, "event_can_dispatch"
+        ),
         "core/t64_pi.c :: t64_pi_complete": function_body(pi, "t64_pi_complete"),
         "core/t64_rsp.c :: rsp_read_imem_word": function_body(rsp, "rsp_read_imem_word"),
         "core/t64_rsp.c :: t64_rsp_schedule_next": function_body(
@@ -757,6 +801,8 @@ def _check_source_route(root: pathlib.Path) -> tuple[list[str], list[str], int]:
         routes[f"core/t64_rdp_depth.c :: {name}"] = function_body(depth, name)
     for name in REVIEWED_VI_FUNCTIONS:
         routes[f"core/t64_vi.c :: {name}"] = function_body(vi, name)
+    for name in REVIEWED_AI_FUNCTIONS:
+        routes[f"core/t64_ai.c :: {name}"] = function_body(ai, name)
     for label, body in routes.items():
         if body is None:
             findings.append(f"{label}: required canonical route function is missing")

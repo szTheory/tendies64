@@ -1,0 +1,49 @@
+{
+  "schema": "t64.audio-case-inventory",
+  "schema_version": 1,
+  "suites": {
+    "tracer": {
+      "ctest": [
+        "unit.core.ai.tracer",
+        "runner.audio-pcm",
+        "controls.real.audio-wrong-sample"
+      ],
+      "binaries": [
+        {
+          "path": "core/test_ai",
+          "cases": ["cpu-two-dma-literal-pcm"]
+        },
+        {
+          "path": "runner/test_audio_capture",
+          "cases": ["runner-literal-pcm", "reached-wrong-sample"]
+        }
+      ]
+    },
+    "profile": {
+      "ctest": [
+        "unit.core.ai.profile",
+        "unit.core.ai.old-profile-refusals",
+        "unit.core.ai.profile-pins",
+        "unit.core.ai.profile-mutations",
+        "runner.audio-pcm"
+      ],
+      "binaries": [
+        {
+          "path": "core/test_ai",
+          "cases": [
+            "new-profile-inherited-devices",
+            "old-profile-ai-refusals"
+          ]
+        },
+        {
+          "path": "core/test_profile",
+          "cases": ["old-profile-pins", "descriptor-policy-mutations"]
+        },
+        {
+          "path": "runner/test_audio_capture",
+          "cases": ["runner-literal-pcm"]
+        }
+      ]
+    }
+  }
+}

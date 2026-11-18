@@ -76,6 +76,9 @@ MUTATION_SEEDS = (
     "VI RGBA8888 scanout body mutation",
     "VI filtered renderer body mutation",
     "VI v8 field timing mutation",
+    "AI write-only MMIO body mutation",
+    "AI sample producer body mutation",
+    "AI scheduler admission body mutation",
     "missing RDP combiner object file",
     "RDP depth evaluate body mutation",
     "missing RDP depth object file",
@@ -536,6 +539,9 @@ def _check_mutation_suite(temp_root: pathlib.Path) -> int:
         ("core/t64_vi.c", "t64_vi_event", "VI RGBA8888 scanout body mutation"),
         ("core/t64_vi.c", "render_filter_packet", "VI filtered renderer body mutation"),
         ("core/t64_vi.c", "vi_v8_event", "VI v8 field timing mutation"),
+        ("core/t64_ai.c", "t64_ai_read_register", "AI write-only MMIO body mutation"),
+        ("core/t64_ai.c", "t64_ai_event", "AI sample producer body mutation"),
+        ("core/t64_scheduler.c", "event_can_dispatch", "AI scheduler admission body mutation"),
     )
     for relative, function_name, label in sealed_body_mutations:
         path = source_root / relative

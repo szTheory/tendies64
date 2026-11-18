@@ -380,6 +380,29 @@ set_tests_properties(
   controls.real.rdp-replacement-fixture PROPERTIES
   LABELS "runner;controls" TIMEOUT 120)
 
+# Authored CPU PCM two-DMA trace through the supervised runner and raw APIs.
+add_executable(test_audio_capture tests/test_audio_capture.c)
+target_compile_definitions(test_audio_capture PRIVATE ${T64_HOST_DEFS})
+target_include_directories(test_audio_capture PRIVATE
+  ${CMAKE_CURRENT_SOURCE_DIR} ${CMAKE_SOURCE_DIR}/core/include)
+target_link_libraries(test_audio_capture PRIVATE t64_common)
+t64_target_warnings(test_audio_capture)
+add_dependencies(test_audio_capture t64-supervisor t64-result-check
+  t64-audio-fixture)
+add_test(NAME runner.audio-pcm
+  COMMAND test_audio_capture runner-literal-pcm
+    $<TARGET_FILE:t64-supervisor> $<TARGET_FILE:t64-result-check>
+    ${CMAKE_SOURCE_DIR}/build/fixtures/audio-pcm.z64
+    ${CMAKE_SOURCE_DIR}/build/fixtures/hello.input.json)
+add_test(NAME controls.real.audio-wrong-sample
+  COMMAND test_audio_capture reached-wrong-sample
+    $<TARGET_FILE:t64-supervisor> $<TARGET_FILE:t64-result-check>
+    ${CMAKE_SOURCE_DIR}/build/fixtures/audio-pcm-wrong.z64
+    ${CMAKE_SOURCE_DIR}/build/fixtures/hello.input.json)
+set_tests_properties(runner.audio-pcm controls.real.audio-wrong-sample
+  PROPERTIES LABELS "runner;controls" TIMEOUT 120
+  ENVIRONMENT "T64_AUDIO_EVIDENCE_DIR=${CMAKE_BINARY_DIR}/08-01-evidence;T64_REAL_KEEP_WORKSET=1")
+
 # Original-record and raw-byte qualification stays in the normal gate. Its
 # subprocess controls run the actual accepted consumer before mutation checks.
 add_test(NAME harness.rdp-vi-qualification

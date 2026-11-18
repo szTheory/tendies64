@@ -46,6 +46,16 @@ static const t64_real_fixture fixtures[] = {
      4552u, "ntsc-cart-4m-openipl3-rdram-b-t1-rdp-vi-v2",
      "5612696247abb5dae1c2abb6c15d7fd6c5632136210be7b21a1085590af1c94e",
      UINT32_C(0x80000558), true},
+    {"audio-pcm-literal",
+     "cd9556444480b8b02b043207013e7ce5bf5697a1c040058bcde1348e55e80b99",
+     4728u, "ntsc-cart-4m-openipl3-rdram-b-t1-rdp-vi-filter-v9-ai-v1",
+     "eaa400aa23bfa3d0c9ba6d475d8eba7a60302151e22b6278ff6a4991d08bb5bf",
+     UINT32_C(0x800005e8), true},
+    {"audio-pcm-wrong-sample",
+     "046f663adee4cb41dff2925cd8a62a938495798c2d6b7541da528afd5e1eeb46",
+     4728u, "ntsc-cart-4m-openipl3-rdram-b-t1-rdp-vi-filter-v9-ai-v1",
+     "eaa400aa23bfa3d0c9ba6d475d8eba7a60302151e22b6278ff6a4991d08bb5bf",
+     UINT32_C(0x800005e8), true},
 };
 
 const t64_real_fixture *t64_real_fixture_find_bytes(

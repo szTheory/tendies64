@@ -194,6 +194,7 @@ t64_status t64_machine_digest(const t64_machine *machine,
   static const uint8_t domain_v21[] = "t64.state.rdp.vi.depth.21";
   static const uint8_t domain_v22[] = "t64.state.rdp.vi.scanout.22";
   static const uint8_t domain_v23[] = "t64.state.rdp.vi.filter.23";
+  static const uint8_t domain_v24[] = "t64.state.audio.ai.24";
   t64_sha256_ctx context;
   t64_address_range output_range;
   const bool has_v6_state =
@@ -227,6 +228,7 @@ t64_status t64_machine_digest(const t64_machine *machine,
   const bool has_v21_state = t64_has_rdp_depth_profile(machine);
   const bool has_v22_state = t64_has_vi_scanout_v8_profile(machine);
   const bool has_v23_state = t64_has_vi_filter_v9_profile(machine);
+  const bool has_v24_state = t64_has_ai_profile(machine);
   const bool has_rdp_state = has_v16_state || has_v17_state ||
                              has_v18_state || has_v19_state || has_v20_state ||
                              has_v21_state || has_v22_state || has_v23_state;
@@ -246,7 +248,9 @@ t64_status t64_machine_digest(const t64_machine *machine,
   }
 
   t64_sha256_init(&context);
-  if (has_v23_state) {
+  if (has_v24_state) {
+    t64_sha256_update(&context, domain_v24, sizeof domain_v24 - 1u);
+  } else if (has_v23_state) {
     t64_sha256_update(&context, domain_v23, sizeof domain_v23 - 1u);
   } else if (has_v22_state) {
     t64_sha256_update(&context, domain_v22, sizeof domain_v22 - 1u);
@@ -737,6 +741,75 @@ t64_status t64_machine_digest(const t64_machine *machine,
                             sizeof info->vi_output_policy);
         }
       }
+    }
+  }
+  if (has_v24_state) {
+    const t64_ai_state *ai = &machine->ai;
+    size_t logical;
+
+    hash_u32(&context, ai->staged_address);
+    hash_u32(&context, ai->address_staged ? 1u : 0u);
+    hash_u32(&context, ai->control);
+    hash_u32(&context, ai->dacrate);
+    hash_u32(&context, ai->bitrate);
+    hash_u32(&context, ai->latched_dacrate);
+    hash_u32(&context, ai->latched_bitrate);
+    hash_u64(&context, ai->phase_remainder);
+    hash_u32(&context, ai->active_byte_cursor);
+    hash_u64(&context, ai->sample_index);
+    hash_u64(&context, ai->descriptor_sequence);
+    hash_u64(&context, ai->event_token);
+    hash_u64(&context, ai->event_generation);
+    hash_u64(&context, ai->packet_start_tick);
+    hash_u64(&context, ai->packet_first_sample);
+    hash_u64(&context, (uint64_t)ai->packet_length);
+    hash_u32(&context, (uint32_t)ai->descriptor_count);
+    hash_u32(&context, ai->active ? 1u : 0u);
+    hash_u32(&context, ai->packet_reserved ? 1u : 0u);
+    hash_u32(&context, (uint32_t)ai->output_reservation_slot);
+    hash_u32(&context, ai->sequence_exhausted ? 1u : 0u);
+    for (logical = 0u; logical < ai->descriptor_count; logical++) {
+      size_t slot = (ai->descriptor_head + logical) %
+                    T64_AUDIO_QUEUE_CAPACITY;
+      const t64_ai_dma_descriptor *descriptor = &ai->descriptors[slot];
+
+      hash_u32(&context, descriptor->address);
+      hash_u32(&context, descriptor->length);
+      hash_u64(&context, descriptor->sequence);
+      hash_u32(&context, descriptor->dacrate);
+      hash_u32(&context, descriptor->bitrate);
+    }
+    hash_u64(&context, ai->packet_history_count);
+    t64_sha256_update(&context, ai->packet_history_sha256,
+                      sizeof ai->packet_history_sha256);
+    for (logical = 0u; logical < T64_AUDIO_QUEUE_CAPACITY; logical++) {
+      const t64_audio_packet_info *info = &ai->packet_info[logical];
+      size_t length = ai->packet_lengths[logical];
+
+      hash_u64(&context, (uint64_t)length);
+      if (machine->audio_packets != NULL &&
+          length <= T64_AUDIO_MAX_PACKET_BYTES) {
+        t64_sha256_update(&context,
+                          machine->audio_packets +
+                              logical * T64_AUDIO_MAX_PACKET_BYTES,
+                          length);
+      }
+      hash_u32(&context, info->struct_size);
+      hash_u64(&context, info->sequence);
+      hash_u64(&context, info->first_sample_index);
+      hash_u64(&context, info->first_tick);
+      hash_u64(&context, info->last_tick);
+      hash_u32(&context, info->frame_count);
+      hash_u64(&context, info->rate_numerator);
+      hash_u64(&context, info->rate_denominator);
+      hash_u32(&context, info->channels);
+      hash_u32(&context, info->bits_per_sample);
+      hash_u32(&context, info->encoding);
+      hash_u64(&context, (uint64_t)info->byte_length);
+      t64_sha256_update(&context, (const uint8_t *)info->profile_id,
+                        sizeof info->profile_id);
+      t64_sha256_update(&context, (const uint8_t *)info->build_id,
+                        sizeof info->build_id);
     }
   }
   t64_sha256_final(&context, digest_out);

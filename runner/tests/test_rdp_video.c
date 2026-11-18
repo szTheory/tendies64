@@ -12,6 +12,7 @@
 #include <unistd.h>
 
 #include "t64_json.h"
+#include "t64_observation_pipe.h"
 #include "t64_video_observation.h"
 
 #define FILL_FIXTURE_ID "rdp-vi-fill-diagnostic"
@@ -86,25 +87,6 @@ static bool read_file(const char *path, uint8_t *bytes, size_t capacity,
   if (close(fd) != 0) return false;
   *length_out = total;
   return true;
-}
-
-static bool read_pipe_record(int fd, t64_video_observation *record) {
-  uint8_t *bytes = (uint8_t *)record;
-  size_t total = 0u;
-  while (total < sizeof *record) {
-    ssize_t count = read(fd, bytes + total, sizeof *record - total);
-    if (count < 0 && errno == EINTR) continue;
-    if (count <= 0) return false;
-    total += (size_t)count;
-  }
-  {
-    uint8_t extra;
-    ssize_t count;
-    do {
-      count = read(fd, &extra, 1u);
-    } while (count < 0 && errno == EINTR);
-    return count == 0;
-  }
 }
 
 static bool checker_accepts(char *checker, char *result_path) {
@@ -257,6 +239,7 @@ static bool run_supervised(char *supervisor, char *checker,
   bool record_ok;
   bool check_ok;
   bool result_pass;
+  bool observation_read = false;
   bool pass = false;
   bool replacement_written = false;
   if (mkdtemp(directory) == NULL || pipe(pipe_fds) != 0) return false;
@@ -358,11 +341,11 @@ static bool run_supervised(char *supervisor, char *checker,
   if (pid < 0) goto cleanup;
   close(pipe_fds[1]);
   pipe_fds[1] = -1;
-  while (waitpid(pid, &status, 0) < 0) {
-    if (errno == EINTR) continue;
-    goto cleanup;
-  }
   if (expect_refusal) {
+    while (waitpid(pid, &status, 0) < 0) {
+      if (errno == EINTR) continue;
+      goto cleanup;
+    }
     bool refused = result_is_fixture_refusal(result_path);
     bool not_launched = access(meta_path, F_OK) != 0;
     if (!WIFEXITED(status) || WEXITSTATUS(status) != 1 || !refused ||
@@ -383,7 +366,13 @@ static bool run_supervised(char *supervisor, char *checker,
     pass = true;
     goto cleanup;
   }
-  record_ok = read_pipe_record(pipe_fds[0], record);
+  {
+    t64_test_observation_pipe observation_pipe = {
+        pipe_fds[0], (uint8_t *)record, sizeof *record, 0u, false, false};
+    observation_read = t64_test_observation_pipes_wait(
+        pid, &observation_pipe, 1u, &status);
+  }
+  record_ok = observation_read;
   check_ok = checker_accepts(checker, result_path);
   result_pass = result_is_pass(result_path, state_digest_out);
   if (!WIFEXITED(status) || WEXITSTATUS(status) != 0 || !record_ok ||

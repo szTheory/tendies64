@@ -8,6 +8,8 @@
 #define T64_VIDEO_OBSERVATION_VERSION UINT32_C(1)
 #define T64_VIDEO_OBSERVATION_SOURCE_BYTES 24u
 #define T64_VIDEO_OBSERVATION_PACKET_BYTES 48u
+#define T64_VIDEO_OBSERVATION_SOURCE_CAPACITY (12u * 7u * 2u)
+#define T64_VIDEO_OBSERVATION_PACKET_CAPACITY (12u * 7u * 4u)
 #define T64_VIDEO_OBSERVATION_FLAG_DP_MASK UINT32_C(0x01)
 #define T64_VIDEO_OBSERVATION_FLAG_DP_PENDING UINT32_C(0x02)
 #define T64_VIDEO_OBSERVATION_FLAG_DP_CLEARED UINT32_C(0x04)
@@ -39,6 +41,7 @@ typedef struct {
   uint32_t mi_pending_after_clear;
   uint32_t dpc_current;
   uint32_t dpc_end;
+  uint32_t packets_drained;
   uint64_t start_tick;
   uint64_t end_tick;
   uint64_t sequence;
@@ -53,8 +56,8 @@ typedef struct {
   char profile_id[64];
   char build_id[96];
   char vi_clock_policy[64];
-  uint8_t source[T64_VIDEO_OBSERVATION_SOURCE_BYTES];
-  uint8_t packet[T64_VIDEO_OBSERVATION_PACKET_BYTES];
+  uint8_t source[T64_VIDEO_OBSERVATION_SOURCE_CAPACITY];
+  uint8_t packet[T64_VIDEO_OBSERVATION_PACKET_CAPACITY];
 } t64_video_observation;
 
 #endif

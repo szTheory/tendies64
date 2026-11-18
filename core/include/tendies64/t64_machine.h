@@ -32,6 +32,11 @@
 #define T64_TRACE_KIND_CPU_RETIREMENT UINT32_C(3)
 #define T64_TRACE_KIND_CPU_UNSUPPORTED UINT32_C(4)
 #define T64_TRACE_KIND_CPU_COMPLETION UINT32_C(5)
+#define T64_TRACE_KIND_CPU_EXCEPTION UINT32_C(6)
+#define T64_TRACE_KIND_CPU_EXCEPTION_STATE UINT32_C(7)
+#define T64_TRACE_KIND_CPU_EXCEPTION_MI UINT32_C(8)
+/* Exception value is EPC; STATE packs post-entry status/cause; MI packs
+ * pending/mask. The three records share the exception tick. */
 #define T64_TRACE_KIND_BUS_READ8 UINT32_C(1)
 #define T64_TRACE_KIND_BUS_WRITE8 UINT32_C(2)
 #define T64_TRACE_KIND_BUS_READ32 UINT32_C(3)
@@ -181,6 +186,8 @@ typedef struct {
   char rdp_combiner_policy[T64_PROFILE_TEXT_CAPACITY];
   /* Descriptor v10 field: depth mapping/comparison/update policy. */
   char rdp_depth_policy[T64_PROFILE_TEXT_CAPACITY];
+  /* Descriptor v11 field: deterministic AI DMA/sample policy. */
+  char ai_policy[T64_PROFILE_TEXT_CAPACITY];
   uint32_t descriptor_version;
   uint32_t machine_model_version;
   uint32_t state_serialization_version;
@@ -266,6 +273,26 @@ typedef struct {
   char vi_output_policy[T64_PROFILE_TEXT_CAPACITY];
 } t64_video_packet_info;
 
+/* One retained raw stereo PCM packet produced by AI DMA. */
+typedef struct {
+  uint32_t struct_size;
+  uint64_t sequence;
+  uint64_t first_sample_index;
+  uint64_t first_tick;
+  uint64_t last_tick;
+  uint32_t frame_count;
+  uint64_t rate_numerator;
+  uint64_t rate_denominator;
+  uint32_t channels;
+  uint32_t bits_per_sample;
+  uint32_t encoding;
+  size_t byte_length;
+  char profile_id[T64_PROFILE_TEXT_CAPACITY];
+  char build_id[128];
+} t64_audio_packet_info;
+
+#define T64_AUDIO_ENCODING_S16BE UINT32_C(1)
+
 /* The returned descriptor is immutable and remains valid for program life. */
 t64_status t64_profile_lookup(const char *profile_id,
                               const t64_profile_descriptor **profile_out);
@@ -337,6 +364,12 @@ t64_status t64_machine_output_drain(t64_machine *machine, uint8_t *bytes_out,
 t64_status t64_video_info(const t64_machine *machine,
                           t64_video_packet_info *info_out);
 t64_status t64_video_copy(t64_machine *machine, uint8_t *bytes_out,
+                          size_t capacity, size_t *length_out);
+
+/* Audio follows the same bounded, lossless two-packet copy/dequeue contract. */
+t64_status t64_audio_info(const t64_machine *machine,
+                          t64_audio_packet_info *info_out);
+t64_status t64_audio_copy(t64_machine *machine, uint8_t *bytes_out,
                           size_t capacity, size_t *length_out);
 
 /*

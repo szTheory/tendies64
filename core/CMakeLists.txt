@@ -178,6 +178,33 @@ add_custom_command(
 add_custom_target(t64-rdp-fill-fixture DEPENDS ${T64_RDP_FILL_FIXTURE_OUTPUTS})
 add_dependencies(t64-rdp-fill-fixture t64-boot-fixtures)
 
+set(T64_AUDIO_FIXTURE_OUTPUTS
+  "${T64_BOOT_FIXTURE_DIR}/audio-pcm.z64"
+  "${T64_BOOT_FIXTURE_DIR}/audio-pcm.elf"
+  "${T64_BOOT_FIXTURE_DIR}/audio-pcm.payload.bin"
+  "${T64_BOOT_FIXTURE_DIR}/audio-pcm.json"
+  "${T64_BOOT_FIXTURE_DIR}/audio-pcm-wrong.z64"
+  "${T64_BOOT_FIXTURE_DIR}/audio-pcm-wrong.elf"
+  "${T64_BOOT_FIXTURE_DIR}/audio-pcm-wrong.payload.bin"
+  "${T64_BOOT_FIXTURE_DIR}/audio-pcm-wrong.json")
+add_custom_command(
+  OUTPUT ${T64_AUDIO_FIXTURE_OUTPUTS}
+  COMMAND "${CMAKE_COMMAND}" -E env "CC=${CMAKE_C_COMPILER}"
+    sh "${CMAKE_SOURCE_DIR}/scripts/build-audio-fixture.sh" --build
+  DEPENDS
+    "${CMAKE_SOURCE_DIR}/fixtures/manifest.json"
+    "${CMAKE_SOURCE_DIR}/fixtures/audio/pcm.S"
+    "${CMAKE_SOURCE_DIR}/fixtures/audio/pcm.ld"
+    "${CMAKE_SOURCE_DIR}/scripts/build-audio-fixture.sh"
+    "${CMAKE_SOURCE_DIR}/tools/fixture/t64_rom_pack.c"
+    "${CMAKE_SOURCE_DIR}/tools/common/t64_sha256.c"
+    "${CMAKE_SOURCE_DIR}/tools/common/t64_sha256.h"
+  WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}"
+  COMMENT "Building authored CPU audio and VI fixtures"
+  VERBATIM)
+add_custom_target(t64-audio-fixture DEPENDS ${T64_AUDIO_FIXTURE_OUTPUTS})
+add_dependencies(t64-audio-fixture t64-boot-fixtures)
+
 add_executable(test_tracer tests/test_tracer.c)
 target_include_directories(test_tracer PRIVATE "${CMAKE_SOURCE_DIR}/tests")
 target_link_libraries(test_tracer PRIVATE t64_core)
@@ -548,8 +575,25 @@ add_executable(test_ai tests/test_ai.c)
 target_include_directories(test_ai PRIVATE "${CMAKE_SOURCE_DIR}/tests")
 target_link_libraries(test_ai PRIVATE t64_core)
 t64_target_warnings(test_ai)
-add_test(NAME unit.core.ai.tracer COMMAND test_ai)
-set_tests_properties(unit.core.ai.tracer PROPERTIES LABELS unit)
+add_dependencies(test_ai t64-boot-fixtures)
+add_test(NAME unit.core.ai.tracer
+  COMMAND test_ai --case cpu-two-dma-literal-pcm)
+set_tests_properties(unit.core.ai.tracer PROPERTIES
+  LABELS unit
+  ENVIRONMENT "T64_TEST_IPL3_PATH=${T64_BOOT_FIXTURE_DIR}/ipl3_compat.z64")
+add_test(NAME unit.core.ai.profile
+  COMMAND test_ai --case new-profile-inherited-devices)
+add_test(NAME unit.core.ai.old-profile-refusals
+  COMMAND test_ai --case old-profile-ai-refusals)
+add_test(NAME unit.core.ai.profile-pins
+  COMMAND test_profile --case old-profile-pins)
+add_test(NAME unit.core.ai.profile-mutations
+  COMMAND test_profile --case descriptor-policy-mutations)
+set_tests_properties(unit.core.ai.profile unit.core.ai.old-profile-refusals
+  PROPERTIES LABELS unit
+  ENVIRONMENT "T64_TEST_IPL3_PATH=${T64_BOOT_FIXTURE_DIR}/ipl3_compat.z64")
+set_tests_properties(unit.core.ai.profile-pins
+  unit.core.ai.profile-mutations PROPERTIES LABELS unit)
 
 add_executable(test_rom_admission tests/test_rom_admission.c)
 target_include_directories(test_rom_admission PRIVATE
