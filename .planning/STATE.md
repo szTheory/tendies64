@@ -5,18 +5,18 @@ milestone_name: Observable Machine
 current_phase: 07
 current_plan: "12"
 current_phase_name: RDP Reference Renderer and VI Scanout
-status: executing
-stopped_at: Plan11 complete; Plan12 authored request/checker preparation next; oracle use stopped
-last_updated: "2026-11-18T03:37:04.614942+00:00"
-last_activity: 2026-11-17
-last_activity_desc: Both hosted jobs and exact raw/boot collection passed; five authored video requirements complete
-state_head: e6f54668afec23e603f4ce61fc44fd9b91d216da
+status: blocked
+stopped_at: Plan12 authored preparation complete; oracle authority and Phase8 sequencing unresolved
+last_updated: "2026-11-18T07:10:58.115357+00:00"
+last_activity: 2026-11-18
+last_activity_desc: Plan12 reviewed authority preparation and local gate pass; oracle stop preserved
+state_head: d12125e21e69bf614344b105fa4abaa70f9ea9da
 progress:
   total_phases: 3
   completed_phases: 0
   total_plans: 13
-  completed_plans: 11
-  percent: 85
+  completed_plans: 12
+  percent: 92
 ---
 
 # Project State
@@ -26,20 +26,20 @@ progress:
 See: .planning/PROJECT.md (updated 2026-11-15)
 
 **Core value:** Every Tendies64 support claim is backed by evidence: a named profile, a pinned build and a reproducible, rights-cleared guest result.
-**Current focus:** Plan12 authored authority request/checker preparation; existing oracle stop remains.
+**Current focus:** Plan12 authored preparation complete; preserve oracle stop and resolve Phase8 sequencing.
 
 ## Current Position
 
-Phase: 07 (RDP Reference Renderer and VI Scanout) — EXECUTING
+Phase: 07 (RDP Reference Renderer and VI Scanout) — BLOCKED for differential acceptance
 Plan: 12 of13 in current phase
-Status: Plan11 complete; Plan12 authored preparation ready, actual oracle authority unresolved
-Last activity: 2026-11-17 — Authored native/compiler/sanitizer and actual hosted raw qualification complete
+Status: Plan12 authored preparation complete; actual oracle authority unresolved; Phase8 sequencing decision pending
+Last activity: 2026-11-18 — Authority preparation reviewed and locally qualified; final-batch hosted checks pending
 
-Progress: [████████░░] 85% of currently planned source plans
+Progress: [█████████░] 92% of currently planned source plans
 
 ## Performance Metrics
 
-- Active milestone:0 completed phases and11 completed plans;13 Phase7 plans defined.
+- Active milestone:0 completed phases and12 completed plans;13 Phase7 plans defined.
 - Historical v1.0: 6 phases and 73 source plans complete. This is planning completion, not a software release.
 - Prior phase plan counts: 1: 13; 2: 8; 3: 13; 4: 20; 5: 10; 6: 9.
 - Execution timing: not established for v1.1. Historical evidence remains in [v1.0 phase records](milestones/v1.0-phases/).
@@ -56,15 +56,14 @@ Progress: [████████░░] 85% of currently planned source plans
 
 ### Pending Todos
 
-Plan11 is complete. Normal gate, full ASan/UBSan, pinned GCC and actual exact
-hosted raw/boot checks pass; original binaries/records and public receipt are
-retained. VID-01/02/03/05/06 are complete within their documented authored scope.
-Execute Plan12 Task1: prepare the concrete bounded authority/rights request and
-fail-closed authored checker/tests without downloading, building, running or
-copying oracle material. Task2 preserves the existing unresolved stop automatically;
-no ceremonial acknowledgment is needed. Do not run Plan13 without genuine
-competent scope/rights authority passing the live gate. Phase07/VID-04 remain
-incomplete. No user action is needed for this authorized preparation.
+Plans01–12 are complete within their authored scope. The concrete oracle
+request/checker is independently reviewed, locally qualified and fail-closed;
+production approval pins remain unset. Plan13 and VID-04 remain blocked by
+competent authority, per-file/build-input rights and missing exported replay
+inputs. Do not infer a grant from this preparation. Hosted final-batch checks
+are pending. The owner has a pending sequencing choice: start Phase8 Audio
+Interface/raw capture from qualified authored output while keeping Phase7
+incomplete, or hold here. No oracle permission is part of that choice.
 
 ### Blockers/Concerns
 
@@ -85,14 +84,14 @@ incomplete. No user action is needed for this authorized preparation.
 ## Session Continuity
 
 Last session: 2026-11-18T03:37:04.614942+00:00
-Stopped at: Plan11 complete; Plan12 authored authority preparation next
+Stopped at: Plan12 authored preparation complete; Phase8 sequencing pending
 Resume file: .planning/phases/07-rdp-reference-renderer-and-vi-scanout/07-12-PLAN.md
 
 Historical closeout: [v1.0 roadmap](milestones/v1.0-ROADMAP.md), [audit](milestones/v1.0-MILESTONE-AUDIT.md), [lessons](RETROSPECTIVE.md).
 
 ## Operator Next Steps
 
-- Phase7 researched discussion and adversarial check are complete. Orchestrator executes the independently verified plans under existing autonomy. No routine owner acknowledgment is needed; VID-04 and release stops remain.
+- Phase7 researched discussion and adversarial check are complete. Orchestrator executes the independently verified plans under existing autonomy. No acknowledgment is needed to preserve the oracle stop; the pending Phase8 dependency change is a real sequencing decision.
 
 ## Resolved local privacy stop
 

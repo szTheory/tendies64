@@ -66,7 +66,7 @@ frontend, broad compatibility claim or software release.
   3. Raw frames follow the selected profile's TV timing, interlace, pixel format and filtering and carry resolution and guest-time metadata. Output does not assume 320×240; host scaling and presentation remain separate
   4. Noise seed and undefined memory color are visible as named deterministic policies bound to the affected profile behavior
   5. Once its gates resolve, VID-04 has conformance reports labeling each out-of-tree oracle's name, version and modifications as differential evidence, never hardware truth. Until then it remains explicitly blocked and incomplete
-**Plans**: 10/13 plans executed
+**Plans**: 12/13 plans executed (Plan12 preserves the existing authority stop)
 
 Plans:
 **Wave 1**
@@ -102,8 +102,8 @@ Plans:
 **Wave 11** *(complete)*
 - [x] 07-11-PLAN.md — Complete authored native, sanitizer, compiler and hosted qualification
 
-**Wave 12** *(authored preparation ready; owner/legal oracle checkpoint remains stopped)*
-- [ ] 07-12-PLAN.md — Prepare a concrete oracle authority record and preserve the existing stop
+**Wave 12** *(authored preparation complete; existing owner/legal stop preserved)*
+- [x] 07-12-PLAN.md — Prepare a concrete oracle authority record and preserve the existing stop
 
 **Wave 13** *(blocked until genuine oracle authority and applicable rights pass the live gate)*
 - [ ] 07-13-PLAN.md — Run authorized out-of-tree comparisons and label actual differential evidence
@@ -133,12 +133,12 @@ Plans:
 
 ## Progress
 
-Execution order: Phase 7 → Phase 8 → Phase 9. Plans01–11 are complete; Plan12 authored authority preparation is next. Oracle use and VID-04 remain blocked; Phase7 is not complete.
+Execution order: Phase 7 → Phase 8 → Phase 9. Plans01–12 are complete within their authored scope; the prepared checker preserves the existing authority stop. Phase8 dependency change awaits the owner sequencing decision. Oracle use and VID-04 remain blocked; Phase7 is not complete.
 VID-04's specific acceptance gate does not prevent permitted authored/native work.
 
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
-| 7. RDP Reference Renderer and VI Scanout | 10/13 | In Progress | - |
+| 7. RDP Reference Renderer and VI Scanout | 12/13 | Blocked: oracle authority | - |
 | 8. Audio Interface and Raw Capture | 0/TBD | Not started | - |
 | 9. Controller, Save Media and Replay | 0/TBD | Not started | - |
 

@@ -355,3 +355,20 @@ dependencies or concurrency. The concrete avoided cost is a late entry failure.
 Keep successful full C-source instrumentation/compiler evidence after a narrow
 Python-only repair, run affected checks and required unreached tails, and
 preserve formatter/setup failures without relabeling or repeating passed work.
+
+
+## Plan07-12: bounded approvals and compact review handoffs
+
+Bind an authority decision to the canonical whole request, not selected scope
+fields: storage, commands and limits can otherwise change beneath a stale grant.
+A native case-membership inventory is not an exported replay corpus. Keep input
+mapping/readiness and rights explicit; synthetic approved records exercise the
+full admission path only within an isolated test context.
+
+Cheap actual-consumer checks preceded the one required normal gate. Reuse
+unchanged full C instrumentation/compiler evidence after a Python-only change.
+Keep reviewer repair rechecks focused on open findings and compact handoffs;
+record existing command receipts without expanding narrative or repeating tests.
+Distinguish active monotonic command time from wall time across laptop sleep.
+Inspect attributable old processes before cleanup, preserve unrelated jobs, and
+do not credit sleeping-orphan cleanup as a measured speedup.
