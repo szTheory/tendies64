@@ -65,6 +65,17 @@
           ]
         }
       ]
+    },
+    "cadence": {
+      "ctest": [
+        "unit.core.ai.cadence"
+      ],
+      "binaries": [
+        {
+          "path": "core/test_ai",
+          "cases": ["active-rate-latch"]
+        }
+      ]
     }
   }
 }

@@ -125,6 +125,15 @@ static bool advance_guest_to(t64_machine *machine, uint64_t tick) {
   return result.reason == T64_STOP_REASON_BOUND && result.tick == tick;
 }
 
+static bool advance_guest_to_in_slices(t64_machine *machine, uint64_t tick) {
+  while (machine->tick < tick) {
+    uint64_t next_tick = machine->tick + UINT64_C(2048);
+    if (next_tick < machine->tick || next_tick > tick) next_tick = tick;
+    if (!advance_guest_to(machine, next_tick)) return false;
+  }
+  return machine->tick == tick;
+}
+
 static bool has_ai_sample_event(const t64_machine *machine) {
   uint64_t ignored_tick;
 
@@ -159,6 +168,16 @@ static bool advance_ai_sample(t64_machine *machine) {
   T64_CHECK(find_next_ai_sample_tick(machine, &sample_tick));
   if (!find_next_ai_sample_tick(machine, &sample_tick)) return false;
   return advance_guest_to(machine, sample_tick);
+}
+
+static uint64_t expected_audio_elapsed_ticks(uint64_t samples,
+                                             uint32_t dacrate) {
+  const uint64_t numerator = UINT64_C(62500000) * samples *
+                             ((uint64_t)dacrate + UINT64_C(1));
+  const uint64_t source_clock = UINT64_C(48681812);
+
+  return numerator / source_clock +
+         (numerator % source_clock == 0u ? 0u : 1u);
 }
 
 static void case_admitted_profile_dma_queue(void) {
@@ -865,6 +884,87 @@ static void case_register_suite(void) {
   case_documented_boundary_policy();
 }
 
+static void case_active_rate_latch(void) {
+  uint8_t ipl3_asset[IPL3_ASSET_BYTES];
+  uint8_t packet[8];
+  t64_machine *machine = create_admitted_profile(AI_PROFILE_ID, ipl3_asset);
+  t64_audio_packet_info info;
+  size_t copied = 0u;
+  uint64_t origin_tick;
+  uint64_t first_sample_tick;
+  uint64_t first_descriptor_done_tick;
+  uint64_t second_descriptor_first_tick;
+  uint64_t second_descriptor_done_tick;
+  uint64_t scheduled_tick = UINT64_MAX;
+
+  T64_CHECK(machine != NULL);
+  if (machine == NULL) return;
+  if (!configure_ai_rate_pair(machine)) {
+    t64_machine_destroy(machine);
+    return;
+  }
+  T64_CHECK_INT(t64_machine_bus_write(machine, AI_BITRATE, 4u, 7u),
+                T64_STATUS_OK);
+  origin_tick = machine->tick;
+  start_ai_spin_loop(machine);
+  T64_CHECK_INT(t64_machine_bus_write(machine, AI_CONTROL, 4u, 1u),
+                T64_STATUS_OK);
+  T64_CHECK(submit_ai_dma(machine, UINT32_C(0x100), 8u));
+  T64_CHECK(submit_ai_dma(machine, UINT32_C(0x108), 8u));
+
+  first_sample_tick = origin_tick + expected_audio_elapsed_ticks(1u, 1103u);
+  first_descriptor_done_tick =
+      origin_tick + expected_audio_elapsed_ticks(2u, 1103u);
+  T64_CHECK(find_next_ai_sample_tick(machine, &scheduled_tick));
+  T64_CHECK_INT(scheduled_tick, first_sample_tick);
+  if (!advance_guest_to_in_slices(machine, first_sample_tick)) {
+    t64_machine_destroy(machine);
+    return;
+  }
+  T64_CHECK_INT(machine->ai.active_byte_cursor, 4u);
+
+  T64_CHECK_INT(t64_machine_bus_write(machine, AI_DACRATE, 4u, 2207u),
+                T64_STATUS_OK);
+  T64_CHECK_INT(machine->ai.latched_dacrate, 1103u);
+  T64_CHECK_INT(machine->ai.latched_bitrate, 7u);
+  T64_CHECK_INT(t64_machine_bus_write(machine, AI_BITRATE, 4u, 15u),
+                T64_STATUS_OK);
+  T64_CHECK(find_next_ai_sample_tick(machine, &scheduled_tick));
+  T64_CHECK_INT(scheduled_tick, first_descriptor_done_tick);
+  if (!advance_guest_to_in_slices(machine, first_descriptor_done_tick)) {
+    t64_machine_destroy(machine);
+    return;
+  }
+
+  T64_CHECK_INT(machine->ai.descriptor_count, 1u);
+  T64_CHECK_INT(machine->ai.latched_dacrate, 2207u);
+  T64_CHECK_INT(machine->ai.latched_bitrate, 15u);
+  second_descriptor_first_tick =
+      first_descriptor_done_tick + expected_audio_elapsed_ticks(1u, 2207u);
+  second_descriptor_done_tick =
+      first_descriptor_done_tick + expected_audio_elapsed_ticks(2u, 2207u);
+  T64_CHECK(find_next_ai_sample_tick(machine, &scheduled_tick));
+  T64_CHECK_INT(scheduled_tick, second_descriptor_first_tick);
+  if (!advance_guest_to_in_slices(machine, second_descriptor_done_tick)) {
+    t64_machine_destroy(machine);
+    return;
+  }
+
+  T64_CHECK_INT(t64_audio_info(machine, &info), T64_STATUS_OK);
+  T64_CHECK_INT(info.rate_denominator, UINT64_C(1104));
+  T64_CHECK_INT(t64_audio_copy(machine, packet, sizeof packet, &copied),
+                T64_STATUS_OK);
+  T64_CHECK_INT(copied, sizeof packet);
+  T64_CHECK_INT(t64_audio_info(machine, &info), T64_STATUS_OK);
+  T64_CHECK_INT(info.rate_denominator, UINT64_C(2208));
+  t64_machine_destroy(machine);
+}
+
+static void case_cadence_suite(void) {
+  puts("case active-rate-latch");
+  case_active_rate_latch();
+}
+
 int main(int argc, char **argv) {
   if (argc == 2 && strcmp(argv[1], "--list-cases") == 0) {
     puts("cpu-two-dma-literal-pcm");
@@ -879,12 +979,18 @@ int main(int argc, char **argv) {
     puts("status-ack-isolation");
     puts("control-disable-enable");
     puts("documented-boundary-policy");
+    puts("active-rate-latch");
     return 0;
   }
   if (argc == 3 && strcmp(argv[1], "--suite") == 0 &&
       strcmp(argv[2], "registers") == 0) {
     case_register_suite();
     return T64_TEST_FINISH("unit.core.ai.registers");
+  }
+  if (argc == 3 && strcmp(argv[1], "--suite") == 0 &&
+      strcmp(argv[2], "cadence") == 0) {
+    case_cadence_suite();
+    return T64_TEST_FINISH("unit.core.ai.cadence");
   }
   if (argc == 3 && strcmp(argv[1], "--case") == 0) {
     if (strcmp(argv[2], "cpu-two-dma-literal-pcm") == 0) {
@@ -934,6 +1040,10 @@ int main(int argc, char **argv) {
     if (strcmp(argv[2], "documented-boundary-policy") == 0) {
       case_documented_boundary_policy();
       return T64_TEST_FINISH("unit.core.ai.registers");
+    }
+    if (strcmp(argv[2], "active-rate-latch") == 0) {
+      case_active_rate_latch();
+      return T64_TEST_FINISH("unit.core.ai.cadence");
     }
     fprintf(stderr, "unknown AI case: %s\n", argv[2]);
     return 2;
