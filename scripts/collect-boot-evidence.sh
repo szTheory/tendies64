@@ -253,6 +253,7 @@ collect() {
   chmod 700 "$downloads"
   cp "$run_file" "$attempt_file" "$jobs_file" "$artifacts_file" "$downloads/" ||
     die "cannot retain original artifact API records"
+  echo "collect-boot-evidence: original download records retained at $downloads"
   for job in gate-linux gate-macos; do
     artifact_name=$linux_name
     [ "$job" = gate-linux ] || artifact_name=$macos_name
@@ -260,11 +261,24 @@ collect() {
     artifact_digest=$(jq -er --arg name "$artifact_name" '.artifacts[] | select(.name == $name) | .digest' "$artifacts_file") || die "cannot read $job artifact digest"
     artifact_size=$(jq -er --arg name "$artifact_name" '.artifacts[] | select(.name == $name) | .size_in_bytes' "$artifacts_file") || die "cannot read $job artifact size"
     archive=$downloads/$job.zip
-    gh api "repos/$repo/actions/artifacts/$artifact_id/zip" > "$archive" ||
-      die "cannot download exact $job artifact archive by ID"
+    download_exit=$downloads/$job-download-exit.txt
+    # Read one byte beyond the allowed archive size to distinguish an exact
+    # limit from an oversized response. Keep both the sink and producer status:
+    # a truncated/failed API request must never look like a successful download.
+    if ! (
+      set +e
+      gh api "repos/$repo/actions/artifacts/$artifact_id/zip"
+      download_code=$?
+      printf '%s\n' "$download_code" > "$download_exit"
+      exit "$download_code"
+    ) | head -c 1048577 > "$archive"; then
+      die "cannot retain bounded $job artifact archive bytes"
+    fi
     downloaded_size=$(wc -c < "$archive" | tr -d ' ')
     [ "$downloaded_size" -le 1048576 ] && [ "$downloaded_size" = "$artifact_size" ] ||
       die "$job downloaded archive length differs from its bounded API identity"
+    [ -f "$download_exit" ] && [ "$(cat "$download_exit")" = 0 ] ||
+      die "cannot download exact $job artifact archive by ID"
     downloaded_digest=sha256:$(shasum -a 256 "$archive" | awk '{print $1}')
     [ "$downloaded_digest" = "$artifact_digest" ] ||
       die "$job downloaded archive digest differs from its API identity"
@@ -409,8 +423,10 @@ root = Path(sys.argv[1])
 with zipfile.ZipFile(root / (sys.argv[2] + ".zip")) as source:
     entries = [(info, source.read(info)) for info in source.infolist()]
 changed = bytearray((root / (sys.argv[2] + ".zip")).read_bytes())
+(root / "control-download-failed.zip").write_bytes(changed)
 changed[10] ^= 1
 (root / "control-digest-mismatch.zip").write_bytes(changed)
+(root / "control-download-overflow.zip").write_bytes(b"x" * 2097152)
 for case in ("malformed-record", "unknown-record-field", "wrong-record-job",
              "extra-file", "symlink", "expanded-size", "special-mode"):
     with zipfile.ZipFile(root / ("control-" + case + ".zip"), "w",
@@ -483,7 +499,8 @@ PY
     '      archive=$root/$name.zip' \
     '      if [ "$artifact_id" = 401 ] && [ -f "$root/control-$mutation.zip" ]; then archive=$root/control-$mutation.zip; fi' \
     '      if [ "$artifact_id" = 402 ] && [ "$mutation" = raw-resealed ]; then archive=$root/control-raw-resealed-macos.zip; fi' \
-    '      cat "$archive" ;;' \
+    '      cat "$archive"' \
+    '      if [ "${T64_MOCK_CASE:-}" = download-failed ]; then exit 1; fi ;;' \
     '    repos/szTheory/tendies64/actions/runs/123) case ${T64_MOCK_CASE:-} in retained-old-attempt|wrong-current-attempt) cat "$root/run-attempt2.json" ;; wrong-run-sha) jq ".head_sha=\"0000000000000000000000000000000000000000\"" "$root/run.json" ;; wrong-run-id) jq ".id=999" "$root/run.json" ;; wrong-run-attempt) jq ".run_attempt=2" "$root/run.json" ;; *) cat "$root/run.json" ;; esac ;;' \
     '    repos/szTheory/tendies64/actions/runs/123/attempts/1) case ${T64_MOCK_CASE:-} in wrong-attempt) jq ".run_attempt=2" "$root/attempt.json" ;; *) cat "$root/attempt.json" ;; esac ;;' \
     '    repos/szTheory/tendies64/actions/runs/123/attempts/1/jobs?per_page=100\&page=1) case ${T64_MOCK_CASE:-} in failed-job) jq ".jobs[1].conclusion=\"failure\"" "$root/jobs.json" ;; incomplete-job) jq ".jobs[1].status=\"in_progress\"" "$root/jobs.json" ;; duplicate-job) jq ".jobs += [.jobs[0]] | .total_count=.jobs|length" "$root/jobs.json" ;; missing-job) jq ".jobs=[.jobs[0]] | .total_count=1" "$root/jobs.json" ;; wrong-job-sha) jq ".jobs[1].head_sha=\"0000000000000000000000000000000000000000\"" "$root/jobs.json" ;; *) cat "$root/jobs.json" ;; esac ;;' \
@@ -606,6 +623,14 @@ PY
   expect_reject expired-artifact "an expired artifact"
   expect_reject large-artifact "an artifact exceeding its size bound"
   expect_archive_reject digest-mismatch digest-mismatch "downloaded archive digest differs from its API identity"
+  expect_archive_reject download-overflow download-overflow "downloaded archive length differs from its bounded API identity"
+  overflow_records=$(sed -n 's/^collect-boot-evidence: original download records retained at //p' "$TMP/download-overflow.stdout")
+  [ -d "$overflow_records" ] && [ ! -L "$overflow_records" ] || die "overflow control lost its original download records"
+  [ "$(wc -c < "$overflow_records/gate-linux.zip" | tr -d ' ')" = 1048577 ] ||
+    die "overflow control did not cap the actual download at one byte above the limit"
+  [ -f "$overflow_records/gate-linux-download-exit.txt" ] ||
+    die "overflow control returned without the downloader exit record"
+  expect_archive_reject download-failed download-failed "cannot download exact gate-linux artifact archive by ID"
   expect_reject malformed-record "malformed downloaded JSON"
   expect_reject unknown-record-field "a record with an unknown wrapper field"
   expect_reject wrong-record-job "a replayed record for the other job"
@@ -636,7 +661,7 @@ PY
   cp "$TMP/control-duplicate.zip" "$LAYOUT_CONTROL_DIR/control-duplicate.zip"
   cp "$TMP/control-traversal.zip" "$LAYOUT_CONTROL_DIR/control-traversal.zip"
   cp "$TMP/control-raw-data.zip" "$LAYOUT_CONTROL_DIR/control-raw-data.zip"
-  for mutation in digest-mismatch expanded-size special-mode raw-resealed; do
+  for mutation in digest-mismatch download-overflow download-failed expanded-size special-mode raw-resealed; do
     cp "$TMP/control-$mutation.zip" "$LAYOUT_CONTROL_DIR/control-$mutation.zip"
     cp "$TMP/$mutation.stderr" "$LAYOUT_CONTROL_DIR/$mutation.stderr"
   done

@@ -249,12 +249,26 @@ applies that direction; update it when the owner changes policy.
   Check attributable artifact and commit progress before interrupting an
   executor for chat silence; productive durable work is not a stall. Preserve
   completed evidence and resume the remaining action after an interruption.
+  Recovery checks must inspect recent commits and tracked file contents as well
+  as dirty/untracked paths; a clean status does not mean an executor's work is
+  absent. Label identity algorithms explicitly: `git hash-object` blob IDs and
+  SHA-256 artifact digests are different domains, not interchangeable pins.
   Prepare planned evidence-validator code and authored mutation controls before
   the final source-review snapshot where possible. In Phase05 the full review
   preceded the new validator, leaving its source and real-record integration
   for later review. Validate against actual saved output formats as well as
   synthetic fixtures, and bind summaries to original records rather than to
   another summary. Keep later re-review limited to changed code and open rows.
+  For public authored output, compare decoded bytes to the independent authored
+  contract even when both host records and every dependent hash are resealed.
+  Download original hosted ZIP bytes by the selected artifact ID, verify their
+  API digest before strict extraction, and retain the archive with its receipt.
+  A mock transport must exercise that same path; mock-only extraction checks
+  do not qualify a production downloader that already extracted the archive.
+  Deadline controls must include a real writing descendant and establish whole
+  process-group cleanup and stopped output after return, not just direct-child
+  termination. Check source identity before expensive work and after execution;
+  a commit annotation alone does not bind a dirty build to that commit.
   Anchor required membership to the existing pinned-source qualification
   verifier, not merely two mutually consistent snapshots. An authored control
   must shrink both snapshots and reseal their dependent summaries. Test privacy
