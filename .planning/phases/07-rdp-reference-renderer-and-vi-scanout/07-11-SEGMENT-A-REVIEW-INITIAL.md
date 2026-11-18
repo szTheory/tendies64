@@ -25,9 +25,9 @@ status: issues_found
 
 # Phase 07 Plan 11 Segment A: Code Review Report
 
-**Reviewed:** 2026-11-18T01:23:38Z  
-**Depth:** deep  
-**Files Reviewed:** 10  
+**Reviewed:** 2026-11-18T01:23:38Z
+**Depth:** deep
+**Files Reviewed:** 10
 **Status:** issues_found
 
 ## Summary
@@ -75,6 +75,6 @@ if decoded["rdram.bin"] != EXPECTED_SOURCE or decoded["vi-packet.bin"] != EXPECT
 
 ---
 
-_Reviewed: 2026-11-18T01:23:38Z_  
-_Reviewer: the agent (gsd-code-reviewer)_  
+_Reviewed: 2026-11-18T01:23:38Z_
+_Reviewer: the agent (gsd-code-reviewer)_
 _Depth: deep_

@@ -18,9 +18,9 @@ status: issues_found
 
 # Phase 07 Plan 11 Segment A: Repair Recheck
 
-**Reviewed:** 2026-11-18T02:05:42Z  
-**Depth:** deep  
-**Files Reviewed:** 3  
+**Reviewed:** 2026-11-18T02:05:42Z
+**Depth:** deep
+**Files Reviewed:** 3
 **Status:** issues_found
 
 ## Summary
@@ -42,7 +42,7 @@ One new warning remains: the collector enforces the archive byte limit only afte
 
 ### WR-01: WARNING — Artifact response is size-checked only after it is written
 
-**File:** `scripts/collect-boot-evidence.sh:262-267`  
+**File:** `scripts/collect-boot-evidence.sh:262-267`
 **Issue:** The metadata check caps the declared artifact size, but line 263 redirects the complete `gh api` response into a persistent archive before lines 265-267 measure it. If the endpoint returns a body larger than the declared size or the one-megabyte limit, the collector eventually refuses it but can first consume unbounded disk space. The existing `digest-mismatch` control uses a small archive and therefore does not exercise this over-limit response path.
 
 **Fix:** Stream the download through a byte counter capped at `MAX_UPLOAD_BYTES + 1`; terminate and reap the downloader as soon as it exceeds the cap, remove the partial archive, and retain the existing exact size and digest checks. Add a mock response larger than the cap while API metadata remains within the allowed limit.
@@ -57,6 +57,6 @@ One new warning remains: the collector enforces the archive byte limit only afte
 
 ---
 
-_Reviewed: 2026-11-18T02:05:42Z_  
-_Reviewer: the agent (gsd-code-reviewer)_  
+_Reviewed: 2026-11-18T02:05:42Z_
+_Reviewer: the agent (gsd-code-reviewer)_
 _Depth: deep_

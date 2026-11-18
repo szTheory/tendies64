@@ -6,11 +6,11 @@ current_phase: 07
 current_plan: "11"
 current_phase_name: RDP Reference Renderer and VI Scanout
 status: executing
-stopped_at: Plan10 qualified on both hosts; Plan11 harness/source segment next
-last_updated: "2026-11-17T23:29:36.489273+00:00"
+stopped_at: Plan11 reviewed and locally qualified; exact hosted raw evidence next
+last_updated: "2026-11-18T02:43:00.078954+00:00"
 last_activity: 2026-11-17
-last_activity_desc: Filter/output hosted evidence compared; coherent qualification segment ready
-state_head: 8def2441e6fc096cab7317101be5550fd0bf7f56
+last_activity_desc: Plan11 normal gate, full sanitizers and GCC passed; hosted collection pending
+state_head: 2c8e9ef487792970b588b14ea253f4a706d0a861
 progress:
   total_phases: 3
   completed_phases: 0
@@ -26,14 +26,14 @@ progress:
 See: .planning/PROJECT.md (updated 2026-11-15)
 
 **Core value:** Every Tendies64 support claim is backed by evidence: a named profile, a pinned build and a reproducible, rights-cleared guest result.
-**Current focus:** Plan11 authored qualification harness, original evidence and coherent matrix.
+**Current focus:** Plan11 exact hosted authored raw-artifact qualification after completed local matrix.
 
 ## Current Position
 
 Phase: 07 (RDP Reference Renderer and VI Scanout) — EXECUTING
 Plan: 11 of13 in current phase
-Status: Filters/output qualified on both hosts; qualification harness is ready
-Last activity: 2026-11-17 — Filter/output source passes both hosts and selected authored evidence comparison
+Status: Plan11 reviewed and locally qualified; exact hosted raw artifacts pending
+Last activity: 2026-11-17 — Plan11 full normal/sanitizer/compiler qualification passed
 
 Progress: [████████░░] 77% of currently planned source plans
 
@@ -56,13 +56,15 @@ Progress: [████████░░] 77% of currently planned source plans
 
 ### Pending Todos
 
-Plan10 reviewed source, normal/instrumented/compiler owners, full local gate
-and both hosted jobs pass; exact selected authored boot records compare.
-Execute Plan11 in two source/evidence segments: implement helper/selftests/
-cheap real controls and CI emission wiring, independently review that code,
-then run the coherent native/full-ASan/compiler and actual hosted raw-evidence
-qualification. This avoids discovering new verifier code after expensive runs.
-No user action is needed. Rights/oracle/release and expired-window stops persist.
+Plan11's independently reviewed source passed the complete normal gate, full
+ASan/UBSan inventory and pinned GCC13 changed-source check. Exact binaries and
+original stage records are retained and hash-verified. The implemented authored
+security scope has no reachable high/critical mitigation gaps; three future
+oracle rows remain open in the whole-phase register. Publish the qualification
+checkpoint, collect its exact successful hosted SHA/run/attempt/job ZIP bytes,
+and verify decoded authored RDRAM/VI evidence. Then close Plan11 bookkeeping.
+No user action is needed for this remaining authored work. D2/D5/D6 and expired
+private windows remain stopped; Plan12/13 and VID-04 stay incomplete.
 
 ### Blockers/Concerns
 
@@ -82,8 +84,8 @@ No user action is needed. Rights/oracle/release and expired-window stops persist
 
 ## Session Continuity
 
-Last session: 2026-11-17T23:29:36.489273+00:00
-Stopped at: Plan10 hosted qualified; Plan11 harness/source segment ready
+Last session: 2026-11-18T02:43:00.078954+00:00
+Stopped at: Plan11 local qualification complete; hosted raw qualification pending
 Resume file: .planning/phases/07-rdp-reference-renderer-and-vi-scanout/07-11-PLAN.md
 
 Historical closeout: [v1.0 roadmap](milestones/v1.0-ROADMAP.md), [audit](milestones/v1.0-MILESTONE-AUDIT.md), [lessons](RETROSPECTIVE.md).

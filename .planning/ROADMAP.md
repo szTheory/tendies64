@@ -3,7 +3,7 @@
 ## Milestones
 
 - ✅ **v1.0 Verified Headless Core** — Phases1–6 complete; planning archive2026-11-15. [Verified scope and history](milestones/v1.0-ROADMAP.md). This is not a software release.
-- 🚧 **v1.1 Observable Machine** — Phases 7–9; active, awaiting Phase 7 discussion and planning.
+- 🚧 **v1.1 Observable Machine** — Phases 7–9; active; Phase7 authored qualification underway, oracle acceptance blocked.
 - 📋 **v1.2 Embeddable and Playable** — Phases10–11; provisional.
 - 📋 **v2.0 Breadth, Accuracy and Performance** — provisional future scope.
 
@@ -133,7 +133,7 @@ Plans:
 
 ## Progress
 
-Execution order: Phase 7 → Phase 8 → Phase 9. No active implementation or plan is complete.
+Execution order: Phase 7 → Phase 8 → Phase 9. Plans01–10 are complete; Plan11 has passed local qualification and awaits hosted raw evidence. Phase7 is not complete.
 VID-04's specific acceptance gate does not prevent permitted authored/native work.
 
 | Phase | Plans Complete | Status | Completed |

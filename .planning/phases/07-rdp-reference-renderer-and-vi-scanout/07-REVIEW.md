@@ -1,7 +1,7 @@
 ---
 phase: 07-rdp-reference-renderer-and-vi-scanout
-source_plan: "07-10"
-source_base: ef6c8ae8a0df270b1d981aef5654f7d2005c9e1b
+source_plan: "07-11"
+source_base: 2c8e9ef487792970b588b14ea253f4a706d0a861
 status: clean
 findings:
   critical: 0
@@ -48,3 +48,9 @@ gaps through independent production and orchestrator test-only rechecks. Final
 scoped normal/instrumented/GCC, guards/mutations and complete local gate pass.
 Both hosted jobs and exact selected authored boot comparison pass in
 run44198383459; no Phase07/VID04 completion is implied.
+
+[Plan11](07-11-REVIEW.md) resolves public-byte forgery, process-tree cleanup,
+real ZIP identity/extraction, native source binding and streaming download
+bounds through independent rechecks and actual controls. Complete local normal,
+ASan/UBSan and GCC qualification passes. Live hosted raw-artifact qualification
+remains pending. Whole-phase security retains three open future oracle rows.
