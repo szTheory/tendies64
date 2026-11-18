@@ -769,7 +769,7 @@ static void test_cold_t1_profile_identities(void) {
 
 /* Test the complete modern descriptor contract, including accepted public
  * serialization and known-ID canonical admission, rather than only lookup. */
-static void test_rdp_profile_metadata_binding(void) {
+static void test_rdp_profile_metadata_binding(bool run_mutations) {
   static const char *const ids[] = {
       "ntsc-cart-4m-openipl3-rdram-b-t1-rdp-triangle-v3",
       "ntsc-cart-4m-openipl3-rdram-b-t1-rdp-texture-v4",
@@ -778,6 +778,7 @@ static void test_rdp_profile_metadata_binding(void) {
       "ntsc-cart-4m-openipl3-rdram-b-t1-rdp-depth-v7",
       "ntsc-cart-4m-openipl3-rdram-b-t1-rdp-vi-v8",
       "ntsc-cart-4m-openipl3-rdram-b-t1-rdp-vi-filter-v9",
+      "ntsc-cart-4m-openipl3-rdram-b-t1-rdp-vi-filter-v9-ai-v1",
   };
   /* Earlier-profile bytes are pinned to the retained pre-repair artifact. */
   static const char *const legacy_hashes[] = {
@@ -787,15 +788,17 @@ static void test_rdp_profile_metadata_binding(void) {
       "7f73b46e6c695fddb60d89d6351c1c099f56e76dbe109ab9f2cb9f372fc56d0e",
       "56f25e100d3c92792f836b0664e81697919487b4fdae49404476a85135ae5969",
       "4f929a757bc6c257729918ccd92e632256fc5ad991dab2317a272cba1d22dc1d",
+      "ebc4370b89cf52d0b2125bac2ab6b40b0fc9f5bef44c8bf9c28647c073514015",
+      "eaa400aa23bfa3d0c9ba6d475d8eba7a60302151e22b6278ff6a4991d08bb5bf",
   };
   static const size_t legacy_lengths[] = {1116u, 1132u, 1172u, 1155u,
-                                          1231u, 1243u};
+                                          1231u, 1243u, 1256u, 1319u};
   static const uint32_t descriptor_versions[] = {7u, 7u, 8u, 9u,
-                                                  10u, 10u, 10u};
+                                                  10u, 10u, 10u, 11u};
   static const uint32_t model_versions[] = {12u, 13u, 14u, 15u,
-                                             16u, 17u, 18u};
+                                             16u, 17u, 18u, 19u};
   static const uint32_t state_versions[] = {17u, 18u, 19u, 20u,
-                                             21u, 22u, 23u};
+                                             21u, 22u, 23u, 24u};
   static const size_t text_offsets[] = {
       offsetof(t64_profile_descriptor, rdp_work_policy),
       offsetof(t64_profile_descriptor, vi_clock_policy),
@@ -805,6 +808,7 @@ static void test_rdp_profile_metadata_binding(void) {
       offsetof(t64_profile_descriptor, rdp_triangle_policy),
       offsetof(t64_profile_descriptor, rdp_combiner_policy),
       offsetof(t64_profile_descriptor, rdp_depth_policy),
+      offsetof(t64_profile_descriptor, ai_policy),
   };
   static const size_t boot_offsets[] = {
       offsetof(t64_profile_descriptor, asset_sha256),
@@ -819,7 +823,8 @@ static void test_rdp_profile_metadata_binding(void) {
     uint8_t original_bytes[8192];
     size_t original_length = 0u;
     size_t field;
-    size_t text_count = index < 2u ? 6u : (index < 4u ? 7u : 8u);
+    size_t text_count = index < 2u ? 6u : (index < 4u ? 7u :
+                         (index < 7u ? 8u : 9u));
     allocator_state state = {0};
     t64_host_allocator allocator = {test_allocate, test_release, &state};
     T64_CHECK_INT(t64_profile_lookup(ids[index], &profile), T64_STATUS_OK);
@@ -831,6 +836,10 @@ static void test_rdp_profile_metadata_binding(void) {
     if (index == 6u) {
       T64_CHECK_STR(profile->vi_output_policy,
                     "5551-8888-aa53mdtl-q8f-df3-dvmed-bq20f-gd16r8-sqrt255-pcspan-v3");
+    }
+    if (index == 7u) {
+      T64_CHECK_STR(profile->ai_policy,
+                    "fetched-rdram-stereo-s16be-rational-62500000-v1");
     }
     T64_CHECK_INT(t64_profile_hash(profile, original_hash), T64_STATUS_OK);
     T64_CHECK_INT(t64_profile_serialize(profile, original_bytes,
@@ -845,12 +854,13 @@ static void test_rdp_profile_metadata_binding(void) {
         t64_machine_destroy(canonical_machine);
     }
     T64_CHECK(original_length > 0u);
-    if (index < 6u) {
+    {
       char original_hex[T64_DIGEST_SIZE * 2u + 1u];
       digest_to_hex(original_hash, original_hex);
       T64_CHECK_STR(original_hex, legacy_hashes[index]);
       T64_CHECK_INT(original_length, legacy_lengths[index]);
     }
+    if (run_mutations) {
     for (field = 0u; field < text_count + 4u; field++) {
       t64_profile_descriptor changed = *profile;
       state = (allocator_state){0};
@@ -897,6 +907,7 @@ static void test_rdp_profile_metadata_binding(void) {
         if (machine != NULL) t64_machine_destroy(machine);
       }
     }
+    }
     T64_CHECK_INT(state.outstanding_count, 0u);
     T64_CHECK_INT(state.release_errors, 0u);
   }
@@ -923,11 +934,34 @@ static void test_legacy_vi_v2_profile_bytes(void) {
   T64_CHECK_INT(serialized_length, (size_t)1038u);
 }
 
-int main(void) {
+int main(int argc, char **argv) {
+  if (argc == 2 && strcmp(argv[1], "--list-cases") == 0) {
+    puts("old-profile-pins");
+    puts("descriptor-policy-mutations");
+    return 0;
+  }
+  if (argc == 3 && strcmp(argv[1], "--case") == 0) {
+    if (strcmp(argv[2], "old-profile-pins") == 0) {
+      test_cold_t1_profile_identities();
+      test_rdp_profile_metadata_binding(false);
+      test_legacy_vi_v2_profile_bytes();
+      return T64_TEST_FINISH("unit.core.ai.profile.old-profile-pins");
+    }
+    if (strcmp(argv[2], "descriptor-policy-mutations") == 0) {
+      test_rdp_profile_metadata_binding(true);
+      return T64_TEST_FINISH("unit.core.ai.profile.descriptor-policy-mutations");
+    }
+    fprintf(stderr, "unknown profile case: %s\n", argv[2]);
+    return 2;
+  }
+  if (argc != 1) {
+    fprintf(stderr, "usage: %s [--list-cases|--case NAME]\n", argv[0]);
+    return 2;
+  }
   test_profile_contract();
   test_compat_v2_profile_identity();
   test_cold_t1_profile_identities();
-  test_rdp_profile_metadata_binding();
+  test_rdp_profile_metadata_binding(true);
   test_legacy_vi_v2_profile_bytes();
   return T64_TEST_FINISH("unit.core.profile");
 }
