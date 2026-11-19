@@ -66,15 +66,27 @@ pixels or a fixed observation record.
 
 ## Publication and errors
 
-The runner opens and retains the target parent directory FD, creates a unique
-mode-0700 sibling stage, and creates stream directories and files beneath
-verified stage FDs. Stream files and the manifest are mode 0600. Writes handle
-short writes and `EINTR`; files are validated and closed, the manifest is
-written last, and required file and directory flushes finish before commit.
-The stage is published with an atomic no-replace directory rename relative to
-the retained parent FD: macOS `renameatx_np(..., RENAME_EXCL)` or Linux
-`renameat2(..., RENAME_NOREPLACE)`. Unsupported platforms fail closed before
-guest startup.
+The runner opens and retains the target parent directory FD, then creates a
+unique mode-0700 staging parent on that same filesystem. It opens and validates
+the staging-parent FD's owner, mode, device and inode before using it, then
+creates the actual bundle as its `bundle` child. Stream directories and files
+are created beneath verified FDs. Stream files and the manifest are mode 0600.
+Writes handle short writes and `EINTR`; files are validated and closed, the
+manifest is written last, and required file and directory flushes finish
+before commit.
+
+The actual bundle is published with an atomic no-replace directory rename from
+the retained staging-parent FD into the retained target-parent FD: macOS
+`renameatx_np(..., RENAME_EXCL)` or Linux `renameat2(..., RENAME_NOREPLACE)`.
+The staging-parent entry is visible in the destination parent and may itself
+be renamed or replaced there, but that cannot redirect the source directory
+bound to the retained FD. Unsupported platforms fail closed before guest
+startup. After the target rename succeeds, removal of the now-empty staging
+parent is best-effort and cannot change the successful capture result. Cleanup
+removes only entries whose owner and recorded identity match this attempt; it
+never follows a replacement or searches for a renamed entry. If another
+principal can replace entries in a non-sticky destination parent, an empty
+mode-0700 staging parent may remain after completion or a host-side failure.
 
 Before the rename, failures return a host-side harness error and do not publish
 this attempt's final target. A competing writer cannot replace a completed

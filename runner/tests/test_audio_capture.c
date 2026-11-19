@@ -163,6 +163,8 @@ static bool files_equal(const char *left_path, const char *right_path) {
          memcmp(left, right, left_length) == 0;
 }
 
+static bool find_stage_container(const char *root, char path_out[1200]);
+
 static bool read_json(const char *path, uint8_t *bytes, size_t capacity,
                       size_t *length_out, t64_json_doc *doc_out) {
   if (!read_file(path, bytes, capacity, length_out) || *length_out == 0u ||
@@ -1578,44 +1580,31 @@ static int run_geometry_case(char *supervisor, char *checker, char *fixture,
     puts("result checker accepted every listed capture host-error detail and rejected unknown/wrong-outcome mutations");
   }
   {
-    DIR *entries = opendir(directory);
-    struct dirent *entry;
-    char stage_path[1024] = {0};
-    bool found_stage = false;
-    size_t stage_count = 0u;
-    if (entries != NULL) {
-      while ((entry = readdir(entries)) != NULL) {
-        if (strncmp(entry->d_name, ".t64-probe-", 11u) == 0) {
-          length = snprintf(stage_path, sizeof stage_path, "%s/%s", directory,
-                            entry->d_name);
-          if (length <= 0 || (size_t)length >= sizeof stage_path) {
-            stage_count = 2u;
-            break;
-          }
-          stage_count++;
-          found_stage = true;
-        }
-      }
-      (void)closedir(entries);
-    }
-    if (stage_count != 1u || !found_stage) {
+    char stage_path[1200] = {0};
+    char bundle_path[1200];
+    if (!find_stage_container(directory, stage_path)) {
       fprintf(stderr, "test-only pre-finalize stage was not retained exactly once\n");
       goto cleanup;
     }
     {
+      struct stat parent_stat;
+      struct stat stage_stat;
       char frame_path[1200];
       char manifest_path[1200];
       char audio_path[1200];
-      struct stat stage_stat;
       struct stat frame_stat;
       struct stat audio_stat;
+      int bundle_length = snprintf(bundle_path, sizeof bundle_path,
+                                   "%s/bundle", stage_path);
       int frame_length = snprintf(frame_path, sizeof frame_path,
-                                  "%s/video/frame-000000.rgba8", stage_path);
+                                  "%s/video/frame-000000.rgba8", bundle_path);
       int manifest_length = snprintf(manifest_path, sizeof manifest_path,
-                                     "%s/manifest.json", stage_path);
+                                     "%s/manifest.json", bundle_path);
       int audio_length = snprintf(audio_path, sizeof audio_path,
-                                  "%s/audio/packet-000000.s16be", stage_path);
-      if (frame_length <= 0 ||
+                                  "%s/audio/packet-000000.s16be", bundle_path);
+      if (bundle_length <= 0 ||
+          (size_t)bundle_length >= sizeof bundle_path ||
+          frame_length <= 0 ||
           (size_t)frame_length >= sizeof frame_path ||
           manifest_length <= 0 ||
           (size_t)manifest_length >= sizeof manifest_path ||
@@ -1623,6 +1612,9 @@ static int run_geometry_case(char *supervisor, char *checker, char *fixture,
           lstat(stage_path, &stage_stat) != 0 ||
           !S_ISDIR(stage_stat.st_mode) ||
           (stage_stat.st_mode & 0777) != 0700 ||
+          lstat(bundle_path, &parent_stat) != 0 ||
+          !S_ISDIR(parent_stat.st_mode) ||
+          (parent_stat.st_mode & 0777) != 0700 ||
           lstat(frame_path, &frame_stat) != 0 ||
           !S_ISREG(frame_stat.st_mode) || frame_stat.st_size != 48 ||
           (frame_stat.st_mode & 0777) != 0600 ||
@@ -2498,7 +2490,8 @@ static bool find_result_for_outcome(const char *root, const char *outcome,
 enum {
   CAPTURE_WORKER_INTERRUPT = 1,
   CAPTURE_WORKER_RACE = 2,
-  CAPTURE_WORKER_PARENT_REPLACE = 3
+  CAPTURE_WORKER_PARENT_REPLACE = 3,
+  CAPTURE_WORKER_STAGE_REPLACE = 4
 };
 
 static int capture_worker(char *supervisor, char *checker, char *fixture,
@@ -2526,7 +2519,8 @@ static int capture_worker(char *supervisor, char *checker, char *fixture,
   }
   if (race) _exit(race_outcome == 1 ? 20 : race_outcome == 2 ? 21 : 22);
   if (mode != CAPTURE_WORKER_INTERRUPT &&
-      mode != CAPTURE_WORKER_PARENT_REPLACE) _exit(22);
+      mode != CAPTURE_WORKER_PARENT_REPLACE &&
+      mode != CAPTURE_WORKER_STAGE_REPLACE) _exit(22);
   _exit(0);
 }
 
@@ -2724,11 +2718,8 @@ static int run_capture_interrupted_stage(char *supervisor, char *checker,
   pid_t ready[4];
   pid_t runner;
   int worker_status = 0;
-  size_t stage_count = 0u;
   size_t matching_results = 0u;
   struct stat status;
-  DIR *entries;
-  struct dirent *entry;
   if (!make_capture_test_root(root)) return 1;
   if (setenv("T64_AUDIO_EVIDENCE_DIR", root, 1) != 0) return 1;
   if (snprintf(baseline, sizeof baseline, "%s/accepted-baseline", root) <= 0 ||
@@ -2814,28 +2805,143 @@ static int run_capture_interrupted_stage(char *supervisor, char *checker,
     fprintf(stderr, "interrupted capture published a final target\n");
     return 1;
   }
-  entries = opendir(root);
-  if (entries == NULL) return 1;
-  while ((entry = readdir(entries)) != NULL) {
-    if (strncmp(entry->d_name, ".t64-probe-", 11u) == 0) {
-      int length = snprintf(stage, sizeof stage, "%s/%s", root, entry->d_name);
-      if (length <= 0 || (size_t)length >= sizeof stage) {
-        (void)closedir(entries);
-        return 1;
-      }
-      stage_count++;
+  if (!find_stage_container(root, stage)) return 1;
+  {
+    char bundle_path[1200];
+    int bundle_length = snprintf(bundle_path, sizeof bundle_path,
+                                 "%s/bundle", stage);
+    if (bundle_length <= 0 || (size_t)bundle_length >= sizeof bundle_path ||
+        !capture_bundles_equal(baseline, bundle_path,
+                               baseline_video.packets_drained,
+                               baseline_audio.packet_count)) {
+      fprintf(stderr, "killed process left no intact private precommit stage\n");
+      return 1;
     }
-  }
-  (void)closedir(entries);
-  if (stage_count != 1u ||
-      !capture_bundles_equal(baseline, stage,
-                             baseline_video.packets_drained,
-                             baseline_audio.packet_count)) {
-    fprintf(stderr, "killed process left no intact private precommit stage\n");
-    return 1;
   }
   printf("case reached: SIGKILL at the actual precommit barrier left an intact private stage and no final target; baseline tick 551001, digest %s\n",
          digest);
+  return 0;
+}
+
+static bool find_stage_container(const char *root, char path_out[1200]) {
+  DIR *entries = opendir(root);
+  struct dirent *entry;
+  size_t matches = 0u;
+  if (entries == NULL) return false;
+  while ((entry = readdir(entries)) != NULL) {
+    char path[1200];
+    struct stat status;
+    int length;
+    if (strncmp(entry->d_name, ".t64-stage-", 11u) != 0 &&
+        strncmp(entry->d_name, ".t64-probe-", 11u) != 0) {
+      continue;
+    }
+    length = snprintf(path, sizeof path, "%s/%s", root, entry->d_name);
+    if (length <= 0 || (size_t)length >= sizeof path ||
+        lstat(path, &status) != 0 || !S_ISDIR(status.st_mode) ||
+        status.st_uid != geteuid() || (status.st_mode & 0777) != 0700) {
+      (void)closedir(entries);
+      return false;
+    }
+    if (++matches != 1u) {
+      (void)closedir(entries);
+      return false;
+    }
+    memcpy(path_out, path, (size_t)length + 1u);
+  }
+  (void)closedir(entries);
+  return matches == 1u;
+}
+
+static int run_stage_entry_replacement(char *supervisor, char *checker,
+                                       char *fixture, char *input) {
+  const audio_run_case test = {AUDIO_FIXTURE_ID, AUDIO_FIXTURE_SHA256, false};
+  const uint8_t marker_bytes[] = {0x46u, 0x4fu, 0x52u, 0x45u, 0x49u, 0x47u,
+                                  0x4eu, 0x2du, 0x53u, 0x54u, 0x41u, 0x47u,
+                                  0x45u};
+  t64_video_observation baseline_video = {0};
+  t64_audio_observation baseline_audio = {0};
+  raw_run_options baseline_options = {0};
+  char root[512];
+  char baseline[512];
+  char barrier[1024];
+  char target[1024];
+  char stage[1200] = {0};
+  char moved_stage[1200];
+  char marker[1200];
+  char baseline_capture[512] = {0};
+  char digest[65] = {0};
+  pid_t worker;
+  pid_t ready[4];
+  int worker_status = 0;
+  int length;
+
+  if (!make_capture_test_root(root) ||
+      setenv("T64_AUDIO_EVIDENCE_DIR", root, 1) != 0) return 1;
+  length = snprintf(baseline, sizeof baseline, "%s/accepted-baseline", root);
+  if (length <= 0 || (size_t)length >= sizeof baseline ||
+      !make_barrier_paths(root, barrier, target)) return 1;
+  baseline_options.raw_target_override = baseline;
+  if (!run_supervised(supervisor, checker, fixture, input, &test,
+                      &baseline_video, &baseline_audio, 0u, baseline_capture,
+                      digest, &baseline_options) ||
+      !fixture_observations_match(&baseline_video, &baseline_audio, false)) {
+    fprintf(stderr, "stage replacement baseline was not a complete A/V bundle\n");
+    return 1;
+  }
+  if (setenv("T64_RAW_CAPTURE_TEST_BARRIER", barrier, 1) != 0) return 1;
+  worker = fork();
+  if (worker == 0) capture_worker(supervisor, checker, fixture, input, target,
+                                 CAPTURE_WORKER_STAGE_REPLACE);
+  if (worker < 0 || !wait_for_barrier_ready(barrier, 1u, ready) ||
+      !find_stage_container(root, stage)) {
+    (void)release_capture_barrier(barrier);
+    if (worker > 0) (void)wait_worker(worker, &worker_status);
+    fprintf(stderr, "source substitution did not reach a unique staged parent\n");
+    return 1;
+  }
+  length = snprintf(moved_stage, sizeof moved_stage, "%s/renamed-stage", root);
+  if (length <= 0 || (size_t)length >= sizeof moved_stage) return 1;
+  length = snprintf(marker, sizeof marker, "%s/adversary-marker.bin", stage);
+  if (length <= 0 || (size_t)length >= sizeof marker) return 1;
+  if (rename(stage, moved_stage) != 0 || mkdir(stage, 0700) != 0) {
+    (void)release_capture_barrier(barrier);
+    (void)wait_worker(worker, &worker_status);
+    fprintf(stderr, "could not replace only the destination-parent stage entry\n");
+    return 1;
+  }
+  {
+    int fd = open(marker, O_WRONLY | O_CREAT | O_EXCL | O_NOFOLLOW, 0600);
+    if (fd < 0 ||
+        write(fd, marker_bytes, sizeof marker_bytes) !=
+            (ssize_t)sizeof marker_bytes || close(fd) != 0) {
+      if (fd >= 0) (void)close(fd);
+      (void)release_capture_barrier(barrier);
+      (void)wait_worker(worker, &worker_status);
+      fprintf(stderr, "could not install the foreign stage marker\n");
+      return 1;
+    }
+  }
+  if (!release_capture_barrier(barrier) || !wait_worker(worker, &worker_status) ||
+      !WIFEXITED(worker_status) || WEXITSTATUS(worker_status) != 0) {
+    (void)release_capture_barrier(barrier);
+    fprintf(stderr, "staging substitution worker did not report its actual guest pass\n");
+    return 1;
+  }
+  if (!capture_bundles_equal(baseline, target,
+                             baseline_video.packets_drained,
+                             baseline_audio.packet_count)) {
+    fprintf(stderr,
+            "RED: after the precommit identity check, replacing the visible stage entry changed the published target; baseline=%s target=%s substituted=%s\n",
+            baseline, target, stage);
+    return 1;
+  }
+  if (!file_equals_bytes(marker, marker_bytes, sizeof marker_bytes)) {
+    fprintf(stderr, "foreign replacement marker was removed or changed\n");
+    return 1;
+  }
+  printf("case reached: source staging-container substitution preserved the accepted bundle; baseline=%s target=%s marker=%s moved=%s\n",
+         baseline, target, marker, moved_stage);
   return 0;
 }
 
@@ -2941,6 +3047,8 @@ static int run_capture_commit_race(char *supervisor, char *checker,
     fprintf(stderr, "race loser report or published bytes differ from the actual baseline\n");
     return 1;
   }
+  if (run_stage_entry_replacement(supervisor, checker, fixture, input) != 0)
+    return 1;
   printf("case reached: two actual runners crossed the shared precommit barrier; one published the baseline bundle and one reported capture-no-replace-commit at tick %llu with digest %s\n",
          (unsigned long long)guest_tick, digest);
   return 0;

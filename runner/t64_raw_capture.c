@@ -61,11 +61,15 @@ typedef struct {
 
 struct t64_raw_capture {
   int parent_fd;
+  int stage_parent_fd;
   int stage_fd;
   int video_fd;
   int audio_fd;
   char target_name[NAME_MAX + 1u];
+  char stage_parent_name[RAW_CAPTURE_STAGE_CAPACITY];
   char stage_name[RAW_CAPTURE_STAGE_CAPACITY];
+  dev_t stage_parent_device;
+  ino_t stage_parent_inode;
   dev_t stage_device;
   ino_t stage_inode;
   dev_t video_device;
@@ -337,12 +341,41 @@ static bool make_stage_name(t64_raw_capture *capture, const char *kind,
   return length > 0 && (size_t)length < RAW_CAPTURE_STAGE_CAPACITY;
 }
 
-static bool same_directory_entry(int directory_fd, const char *name,
-                                 dev_t device, ino_t inode) {
+static bool same_owned_directory_entry(int directory_fd, const char *name,
+                                       dev_t device, ino_t inode) {
   struct stat status;
   return fstatat(directory_fd, name, &status, AT_SYMLINK_NOFOLLOW) == 0 &&
          S_ISDIR(status.st_mode) && status.st_dev == device &&
-         status.st_ino == inode;
+         status.st_ino == inode && status.st_uid == geteuid();
+}
+
+static bool same_directory_entry(int directory_fd, const char *name,
+                                 dev_t device, ino_t inode) {
+  struct stat status;
+  return same_owned_directory_entry(directory_fd, name, device, inode) &&
+         fstatat(directory_fd, name, &status, AT_SYMLINK_NOFOLLOW) == 0 &&
+         (status.st_mode & 0777) == 0700;
+}
+
+static bool private_stage_parent_matches(const t64_raw_capture *capture) {
+  struct stat status;
+  return capture != NULL && capture->stage_parent_fd >= 0 &&
+         fstat(capture->stage_parent_fd, &status) == 0 &&
+         S_ISDIR(status.st_mode) && status.st_uid == geteuid() &&
+         status.st_dev == capture->stage_parent_device &&
+         status.st_ino == capture->stage_parent_inode &&
+         (status.st_mode & 0777) == 0700;
+}
+
+static bool destination_allows_safe_stage_cleanup(
+    const t64_raw_capture *capture) {
+  struct stat status;
+  if (capture == NULL || capture->parent_fd < 0 ||
+      fstat(capture->parent_fd, &status) != 0 || !S_ISDIR(status.st_mode)) {
+    return false;
+  }
+  return (status.st_mode & S_ISVTX) != 0 ||
+         (status.st_uid == geteuid() && (status.st_mode & 0022) == 0);
 }
 
 static bool create_stage(t64_raw_capture *capture) {
@@ -350,32 +383,44 @@ static bool create_stage(t64_raw_capture *capture) {
   for (attempt = 0u; attempt < 32u; attempt++) {
     struct stat created_status;
     struct stat opened_status;
-    if (!make_stage_name(capture, "stage", attempt, capture->stage_name)) {
+    struct stat target_parent_status;
+    if (!make_stage_name(capture, "stage", attempt,
+                         capture->stage_parent_name)) {
       capture->error = "capture-stage-name";
       return false;
     }
-    if (mkdirat(capture->parent_fd, capture->stage_name, 0700) != 0) {
+    if (mkdirat(capture->parent_fd, capture->stage_parent_name, 0700) != 0) {
       if (errno == EEXIST) continue;
       capture->error = "capture-stage-create";
       return false;
     }
-    if (fstatat(capture->parent_fd, capture->stage_name, &created_status,
+    if (fstat(capture->parent_fd, &target_parent_status) != 0 ||
+        fstatat(capture->parent_fd, capture->stage_parent_name, &created_status,
                 AT_SYMLINK_NOFOLLOW) != 0 || !S_ISDIR(created_status.st_mode) ||
-        created_status.st_uid != geteuid()) {
+        created_status.st_uid != geteuid() ||
+        created_status.st_dev != target_parent_status.st_dev) {
       capture->error = "capture-stage-identity";
       return false;
     }
-    capture->stage_device = created_status.st_dev;
-    capture->stage_inode = created_status.st_ino;
-    capture->stage_fd = open_directory_nofollow(capture->parent_fd,
-                                                 capture->stage_name);
-    if (capture->stage_fd < 0 || fchmod(capture->stage_fd, 0700) != 0 ||
-        fstat(capture->stage_fd, &opened_status) != 0 ||
+    capture->stage_parent_device = created_status.st_dev;
+    capture->stage_parent_inode = created_status.st_ino;
+    capture->stage_parent_fd = open_directory_nofollow(
+        capture->parent_fd, capture->stage_parent_name);
+    if (capture->stage_parent_fd < 0 ||
+        fstat(capture->stage_parent_fd, &opened_status) != 0 ||
         !S_ISDIR(opened_status.st_mode) ||
         opened_status.st_uid != geteuid() ||
-        opened_status.st_dev != capture->stage_device ||
-        opened_status.st_ino != capture->stage_inode ||
-        !same_directory_entry(capture->parent_fd, capture->stage_name,
+        opened_status.st_dev != capture->stage_parent_device ||
+        opened_status.st_ino != capture->stage_parent_inode ||
+        opened_status.st_dev != target_parent_status.st_dev ||
+        fchmod(capture->stage_parent_fd, 0700) != 0 ||
+        fstat(capture->stage_parent_fd, &opened_status) != 0 ||
+        !S_ISDIR(opened_status.st_mode) ||
+        opened_status.st_uid != geteuid() ||
+        opened_status.st_dev != capture->stage_parent_device ||
+        opened_status.st_ino != capture->stage_parent_inode ||
+        (opened_status.st_mode & 0777) != 0700 ||
+        !same_directory_entry(capture->parent_fd, capture->stage_parent_name,
                               opened_status.st_dev, opened_status.st_ino)) {
       capture->error = "capture-stage-open";
       return false;
@@ -390,17 +435,31 @@ static bool probe_noreplace(t64_raw_capture *capture) {
   unsigned attempt;
   for (attempt = 0u; attempt < 32u; attempt++) {
     char probe_name[RAW_CAPTURE_STAGE_CAPACITY];
+    int length;
     if (!make_stage_name(capture, "probe", attempt, probe_name)) {
       capture->error = "capture-probe-name";
       return false;
     }
-    if (rename_noreplace(capture->parent_fd, capture->stage_name,
-                         capture->parent_fd, probe_name) == 0) {
-      int length = snprintf(capture->stage_name, sizeof capture->stage_name,
-                            "%s", probe_name);
+    if (rename_noreplace(capture->stage_parent_fd, capture->stage_name,
+                         capture->stage_parent_fd, probe_name) == 0) {
+      length = snprintf(capture->stage_name, sizeof capture->stage_name,
+                        "%s", probe_name);
       if (length <= 0 || (size_t)length >= sizeof capture->stage_name ||
-          !same_directory_entry(capture->parent_fd, capture->stage_name,
-                                capture->stage_device,
+          !same_directory_entry(capture->stage_parent_fd,
+                                capture->stage_name, capture->stage_device,
+                                capture->stage_inode)) {
+        capture->error = "capture-probe-identity";
+        return false;
+      }
+      if (rename_noreplace(capture->stage_parent_fd, capture->stage_name,
+                           capture->stage_parent_fd, "bundle") != 0) {
+        capture->error = "capture-no-replace-unsupported";
+        return false;
+      }
+      (void)snprintf(capture->stage_name, sizeof capture->stage_name,
+                     "%s", "bundle");
+      if (!same_directory_entry(capture->stage_parent_fd,
+                                capture->stage_name, capture->stage_device,
                                 capture->stage_inode)) {
         capture->error = "capture-probe-identity";
         return false;
@@ -424,21 +483,26 @@ static bool create_child_directory(int parent_fd, const char *name,
   int child_fd;
   if (mkdirat(parent_fd, name, 0700) != 0) return false;
   if (fstatat(parent_fd, name, &created_status, AT_SYMLINK_NOFOLLOW) != 0 ||
-      !S_ISDIR(created_status.st_mode)) {
+      !S_ISDIR(created_status.st_mode) || created_status.st_uid != geteuid()) {
     return false;
   }
   *device_out = created_status.st_dev;
   *inode_out = created_status.st_ino;
   child_fd = open_directory_nofollow(parent_fd, name);
   if (child_fd < 0 || fstat(child_fd, &status) != 0 ||
-      !S_ISDIR(status.st_mode) || status.st_dev != *device_out ||
-      status.st_ino != *inode_out ||
-      !same_directory_entry(parent_fd, name, status.st_dev, status.st_ino)) {
+      !S_ISDIR(status.st_mode) || status.st_uid != geteuid() ||
+      status.st_dev != *device_out || status.st_ino != *inode_out) {
     if (child_fd >= 0) (void)close(child_fd);
     return false;
   }
+  if (fchmod(child_fd, 0700) != 0 || fstat(child_fd, &status) != 0 ||
+      !S_ISDIR(status.st_mode) || status.st_uid != geteuid() ||
+      (status.st_mode & 0777) != 0700 ||
+      !same_directory_entry(parent_fd, name, status.st_dev, status.st_ino)) {
+    (void)close(child_fd);
+    return false;
+  }
   *child_fd_out = child_fd;
-  if (fchmod(child_fd, 0700) != 0) return false;
   return true;
 }
 
@@ -917,7 +981,6 @@ static bool remove_owned_file(int directory_fd, const char *name,
 
 void t64_raw_capture_abort(t64_raw_capture *capture) {
   size_t i;
-  struct stat stage_status;
   if (capture == NULL || capture->committed) return;
   for (i = 0u; i < capture->video_count; i++) {
     (void)remove_owned_file(capture->video_fd, capture->video[i].name,
@@ -950,13 +1013,21 @@ void t64_raw_capture_abort(t64_raw_capture *capture) {
                               capture->manifest_device,
                               capture->manifest_inode);
   }
-  if (capture->parent_fd >= 0 && capture->stage_name[0] != '\0' &&
-      fstatat(capture->parent_fd, capture->stage_name, &stage_status,
-              AT_SYMLINK_NOFOLLOW) == 0 &&
-      S_ISDIR(stage_status.st_mode) &&
-      stage_status.st_dev == capture->stage_device &&
-      stage_status.st_ino == capture->stage_inode) {
-    (void)unlinkat(capture->parent_fd, capture->stage_name, AT_REMOVEDIR);
+  if (capture->stage_parent_fd >= 0 && capture->stage_name[0] != '\0' &&
+      same_owned_directory_entry(capture->stage_parent_fd,
+                                 capture->stage_name, capture->stage_device,
+                                 capture->stage_inode)) {
+    (void)unlinkat(capture->stage_parent_fd, capture->stage_name,
+                   AT_REMOVEDIR);
+  }
+  if (destination_allows_safe_stage_cleanup(capture) &&
+      capture->stage_parent_name[0] != '\0' &&
+      same_owned_directory_entry(capture->parent_fd,
+                                 capture->stage_parent_name,
+                                 capture->stage_parent_device,
+                                 capture->stage_parent_inode)) {
+    (void)unlinkat(capture->parent_fd, capture->stage_parent_name,
+                   AT_REMOVEDIR);
   }
 }
 
@@ -971,6 +1042,7 @@ void t64_raw_capture_destroy(t64_raw_capture *capture) {
   if (capture->video_fd >= 0) (void)close(capture->video_fd);
   if (capture->audio_fd >= 0) (void)close(capture->audio_fd);
   if (capture->stage_fd >= 0) (void)close(capture->stage_fd);
+  if (capture->stage_parent_fd >= 0) (void)close(capture->stage_parent_fd);
   if (capture->parent_fd >= 0) (void)close(capture->parent_fd);
   free(capture);
 }
@@ -1043,6 +1115,7 @@ t64_raw_capture *t64_raw_capture_open(
     return NULL;
   }
   capture->parent_fd = -1;
+  capture->stage_parent_fd = -1;
   capture->stage_fd = -1;
   capture->video_fd = -1;
   capture->audio_fd = -1;
@@ -1097,7 +1170,16 @@ t64_raw_capture *t64_raw_capture_open(
     capture->error = "capture-target-stat";
     goto fail;
   }
-  if (!create_stage(capture) || !probe_noreplace(capture)) goto fail;
+  if (!create_stage(capture)) goto fail;
+  if (snprintf(capture->stage_name, sizeof capture->stage_name,
+               "%s", "bundle") <= 0 ||
+      !create_child_directory(capture->stage_parent_fd, capture->stage_name,
+                              &capture->stage_fd, &capture->stage_device,
+                              &capture->stage_inode)) {
+    capture->error = "capture-stage-subdirectory";
+    goto fail;
+  }
+  if (!probe_noreplace(capture)) goto fail;
   if (!create_child_directory(capture->stage_fd, "video",
                               &capture->video_fd, &capture->video_device,
                               &capture->video_inode) ||
@@ -1224,11 +1306,14 @@ bool t64_raw_capture_finalize(t64_raw_capture *capture, uint64_t guest_tick,
   if (!validate_stream_files(capture) ||
       !write_manifest_file(capture, guest_tick, outcome, guest_stop_kind) ||
       fsync(capture->video_fd) != 0 || fsync(capture->audio_fd) != 0 ||
-      fsync(capture->stage_fd) != 0 || fsync(capture->parent_fd) != 0) {
+      fsync(capture->stage_fd) != 0 ||
+      fsync(capture->stage_parent_fd) != 0 ||
+      fsync(capture->parent_fd) != 0) {
     if (capture->error == NULL) capture->error = "capture-directory-flush";
     return false;
   }
-  if (!same_directory_entry(capture->parent_fd, capture->stage_name,
+  if (!private_stage_parent_matches(capture) ||
+      !same_directory_entry(capture->stage_parent_fd, capture->stage_name,
                             capture->stage_device, capture->stage_inode)) {
     capture->error = "capture-stage-replaced";
     return false;
@@ -1245,11 +1330,21 @@ bool t64_raw_capture_finalize(t64_raw_capture *capture, uint64_t guest_tick,
     return false;
   }
 #endif
-  if (rename_noreplace(capture->parent_fd, capture->stage_name,
+  if (rename_noreplace(capture->stage_parent_fd, capture->stage_name,
                        capture->parent_fd, capture->target_name) != 0) {
     capture->error = "capture-no-replace-commit";
     return false;
   }
   capture->committed = true;
+  /* The target is committed. Removing the now-empty staging container is
+   * best-effort and only attempted when other principals cannot replace its
+   * visible entry between the identity check and rmdir. */
+  if (destination_allows_safe_stage_cleanup(capture) &&
+      same_directory_entry(capture->parent_fd, capture->stage_parent_name,
+                           capture->stage_parent_device,
+                           capture->stage_parent_inode)) {
+    (void)unlinkat(capture->parent_fd, capture->stage_parent_name,
+                   AT_REMOVEDIR);
+  }
   return true;
 }

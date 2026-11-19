@@ -1415,20 +1415,96 @@ def _verify_race(build: Path, last_test: str, junit: Path,
         str((ROOT / "build/fixtures/hello.input.json").resolve()),
     ]
     _require(command == expected, "no-replace CTest argv differs from the authored race command")
+    stage_match = re.search(
+        r"^case reached: source staging-container substitution preserved the accepted bundle; "
+        r"baseline=(.+) target=(.+) marker=(.+) moved=(.+)$",
+        section, flags=re.MULTILINE,
+    )
+    _require(stage_match is not None,
+             "source staging-container substitution control was not reached")
+    stage_baseline_target = Path(stage_match.group(1)).resolve()
+    stage_target = Path(stage_match.group(2)).resolve()
+    stage_marker = Path(stage_match.group(3)).resolve()
+    moved_stage = Path(stage_match.group(4)).resolve()
     paths = re.findall(r"^private audio runner evidence retained at (.+)$", section,
                        flags=re.MULTILINE)
-    _require(len(paths) == 3, "race original does not retain its baseline and two contender records")
+    _require(len(paths) == 5,
+             "race original does not retain the finalization race and stage-substitution records")
     records = [Path(value).resolve() for value in paths]
-    _require(all(_under(path, build) for path in records),
+    _require(all(_under(path, build) for path in records) and
+             all(_under(path, build) for path in (
+                 stage_baseline_target, stage_target, stage_marker, moved_stage,
+             )),
              "race record escapes the explicit build directory")
-    contenders: list[tuple[Path, list[str], dict[str, Any]]] = []
-    baseline: tuple[Path, list[str], dict[str, Any]] | None = None
+    record_data: list[tuple[Path, list[str], dict[str, Any], Path]] = []
+    stage_data: dict[str, tuple[Path, list[str], dict[str, Any]]] = {}
+    race_records: list[Path] = []
     for record in records:
         argv = _read(record / "command.args", 16 * 1024).decode("utf-8").splitlines()
         result = _producer_result(record)
-        _require(argv and argv[0] == expected[2], "race record is not owned by the test supervisor")
-        _require(argv.count("--raw-capture-dir") == 1,
+        _require(argv and argv[0] == expected[2],
+                 "race record is not owned by the test supervisor")
+        _require(argv.count("--raw-capture-dir") == 1 and
+                 argv.index("--raw-capture-dir") + 1 < len(argv),
                  "race record does not identify one raw target")
+        target = Path(argv[argv.index("--raw-capture-dir") + 1]).resolve()
+        if target in {stage_baseline_target, stage_target}:
+            _require(str(target) not in stage_data,
+                     "stage-substitution original has a duplicate producer record")
+            stage_data[str(target)] = (record, argv, result)
+        else:
+            race_records.append(record)
+            record_data.append((record, argv, result, target))
+    _require(len(stage_data) == 2 and
+             set(stage_data) == {str(stage_baseline_target), str(stage_target)} and
+             len(race_records) == 3,
+             "race original does not partition into one stage-substitution pair and one finalization race")
+    stage_baseline = stage_data[str(stage_baseline_target)]
+    stage_publisher = stage_data[str(stage_target)]
+    _require(stage_baseline[1].count("--test-fault") == 0 and
+             stage_publisher[1].count("--test-fault") == 1 and
+             stage_publisher[1].index("--test-fault") + 1 < len(stage_publisher[1]) and
+             stage_publisher[1][stage_publisher[1].index("--test-fault") + 1] ==
+             "capture-precommit-barrier" and
+             all(item[2].get("outcome") == "pass" and
+                 item[2].get("detail") == "positive-match" and
+                 item[2].get("guest_tick") == "551001" and
+                 item[2].get("state_digest") == accepted_digest
+                 for item in (stage_baseline, stage_publisher)),
+             "stage-substitution records are not two accepted complete guest runs")
+
+    def bundle_files(bundle: Path) -> dict[str, bytes]:
+        _require(bundle.is_dir() and not bundle.is_symlink(),
+                 "stage-substitution bundle is missing or unsafe")
+        result: dict[str, bytes] = {}
+        total = 0
+        for path in sorted(bundle.rglob("*")):
+            metadata = path.lstat()
+            _require(not path.is_symlink() and (path.is_dir() or path.is_file()),
+                     "stage-substitution bundle contains a symlink or special file")
+            if not path.is_file():
+                continue
+            data = _read(path, 64 * 1024 * 1024)
+            total += len(data)
+            _require(total <= 64 * 1024 * 1024 and len(result) < 10000,
+                     "stage-substitution bundle exceeds its bounded file inventory")
+            result[path.relative_to(bundle).as_posix()] = data
+        return result
+
+    _require(bundle_files(stage_baseline_target) == bundle_files(stage_target),
+             "source stage-entry replacement did not publish the original accepted bundle")
+    marker_status = stage_marker.lstat()
+    _require(stage_marker.is_file() and not stage_marker.is_symlink() and
+             marker_status.st_mode & 0o777 == 0o600 and
+             _read(stage_marker, 64) == b"FOREIGN-STAGE",
+             "foreign stage replacement marker was removed or changed")
+    _require(moved_stage.is_dir() and not moved_stage.is_symlink() and
+             not any(moved_stage.iterdir()),
+             "renamed private staging parent did not remain empty after publication")
+
+    contenders: list[tuple[Path, list[str], dict[str, Any]]] = []
+    baseline: tuple[Path, list[str], dict[str, Any]] | None = None
+    for record, argv, result, _target in record_data:
         fault_count = argv.count("--test-fault")
         if fault_count == 0:
             baseline = (record, argv, result)
@@ -1490,7 +1566,14 @@ def _verify_race(build: Path, last_test: str, junit: Path,
         "checker_binary_sha256": binary_hashes["runner/t64-result-check"],
         "contender_command_sha256": contender_hashes,
         "outcomes": ["harness-error:capture-no-replace-commit", "pass:positive-match"],
-        "private_records": [str(path) for path in records],
+        "private_records": [str(path) for path in race_records],
+        "stage_replacement_records": [
+            str(stage_baseline[0]), str(stage_publisher[0]),
+        ],
+        "stage_replacement_baseline": str(stage_baseline_target),
+        "stage_replacement_target": str(stage_target),
+        "stage_replacement_marker": str(stage_marker),
+        "stage_replacement_moved_parent": str(moved_stage),
         "private_target": str(final_target),
     }
 
@@ -1826,6 +1909,16 @@ def _retain_originals(private: Path, build: Path, last_path: Path,
     for index, record_text in enumerate(race["private_records"]):
         _safe_copy(Path(record_text), originals / f"race-record-{index:02d}")
     _safe_copy(Path(race["private_target"]), originals / "race-winner")
+    for index, record_text in enumerate(race["stage_replacement_records"]):
+        _safe_copy(Path(record_text), originals / f"stage-replacement-record-{index:02d}")
+    _safe_copy(Path(race["stage_replacement_baseline"]),
+               originals / "stage-replacement-baseline")
+    _safe_copy(Path(race["stage_replacement_target"]),
+               originals / "stage-replacement-winner")
+    _safe_copy(Path(race["stage_replacement_marker"]),
+               originals / "stage-replacement-foreign-marker.bin")
+    _safe_copy(Path(race["stage_replacement_moved_parent"]),
+               originals / "stage-replacement-moved-parent")
     _safe_copy(build / "runner/test_audio_capture", originals / "bin/test_audio_capture")
     for name in (
         "t64-runner-real", "t64-runner-test", "t64-supervisor",
