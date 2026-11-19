@@ -1,3 +1,33 @@
+# Current checkpoint: source review fixes before qualification
+
+Task2 wrapper implementation is committed as9c5d0c8d77b780ad9f27c89f02f6bf9c620160f5.
+Native, exact hosted collection and cohesive final verification modes now exist.
+Focused controls, mocked collector, combined layout rights/privacy and syntax
+checks pass. No full current-source normal/ASAN/GCC qualification, live hosted
+collection or positive final verification has run.
+
+Independent deep review of all44 changed source files is complete in
+[08-REVIEW.md](08-REVIEW.md). CR-01 blocks publication: destination-parent stage
+name can be replaced between inode check and name-based no-replace rename.
+Fix with a trusted private staging parent and rename from its retained FD;
+another pre-rename check is insufficient. WR-01: observation save errors are
+ignored and verifier accepts any nonempty audio record; enforce checked saves
+and full schema/packet validation, with truncated/resealed controls.
+
+Next actor: Codex fixer, then independent focused source recheck. Full
+qualification remains stopped on these concrete findings; no user action is
+needed. Preserve original report and evidence, owner edits and all existing
+rights/oracle/expired-window/release stops. After fixes/recheck, run cheap
+actual prerequisite/source/consumer checks before one coherent full native
+normal/ASAN/pinned-GCC13 run and exact two-host CI/collection. Normal gate now
+supports unique T64_GATE_JUNIT_OUT; native wrapper reuses full suites and does
+not duplicate focused audio CTest execution.
+
+The previous Task1 checkpoint below is historical; its 'not implemented' mode
+status has been superseded by the implementation and review above.
+
+---
+
 # Phase08 continuation: qualification implementation
 
 The autonomous phase remains active; no user action is needed. Plans01–04 are

@@ -5,11 +5,11 @@ milestone_name: Observable Machine
 current_phase: 08
 current_phase_name: Audio Interface and Raw Capture
 status: executing
-stopped_at: Phase8 Plan05 Task1 committed; finish Task2 wrappers before independent review/full qualification
-last_updated: "2026-11-18T17:48:38.770Z"
+stopped_at: Phase8 source review found staging publication race and observer evidence gap; fix before qualification
+last_updated: "2026-11-19T00:25:37.142491+00:00"
 last_activity: 2026-11-18
 last_activity_desc: Evidence verifier/control and archive integration pass; native/hosted/final modes pending
-state_head: 463d26f77b62d6c1d4469a7411c6e04492cf49a6
+state_head: 9c5d0c8d77b780ad9f27c89f02f6bf9c620160f5
 progress:
   total_phases: 3
   completed_phases: 0
@@ -33,7 +33,7 @@ See: .planning/PROJECT.md (updated 2026-11-15)
 Phase: 08 (Audio Interface and Raw Capture) — EXECUTING
 Current Plan: 5
 Total Plans in Phase: 5
-Status: Plans01–04 complete; Plan05 Task1 committed; Task2 wrapper implementation then independent review and full qualification. Phase7 remains12 of13 with an authority halt
+Status: Plans01–04 complete; Plan05 Task1 committed; Task2 wrappers implemented; independent review has one blocker and one warning; fixes then qualification. Phase7 remains12 of13 with an authority halt
 Last activity: 2026-11-18 — Task1 evidence controls and strict combined archive checks pass; native/collector/final modes still pending
 
 Progress: [█████████░] 89% of currently planned source plans

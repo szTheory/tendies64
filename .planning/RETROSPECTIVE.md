@@ -425,3 +425,12 @@ legacy positives and unknown-extra refusals. Fresh selftests must work without
 historical local evidence; entry-path smoke must never count as qualification.
 When required execution wrappers are still absent, finish their implementation
 before the cohesive independent review; keep full execution behind that review.
+
+A checked directory inode does not bind a later name-based rename. Keep the
+rename source inside a private retained staging-parent FD; destination no-replace
+protects only the destination. Preserve/validate complete observer records and
+propagate evidence-save failures; a nonempty file/hash is not completeness.
+Review gates defer full qualification, not focused prerequisite builds needed to
+test current source identity. Emit required JUnit in the existing owning normal
+run and reuse its full logs, instead of planning a missing future report or
+duplicating the suite.
