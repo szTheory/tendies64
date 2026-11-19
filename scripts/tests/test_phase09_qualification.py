@@ -347,7 +347,7 @@ class Phase09Qualification(unittest.TestCase):
                     "--scan-pii", "--job", "local", "--out", str(root / "empty-public")),
             }
             needles = {"emit": "does not select exactly one",
-                       "verify-record": "required original file is unavailable",
+                       "verify-record": "retained run directory is missing or unsafe",
                        "scan": "no manifest.json"}
             for name, result in refused.items():
                 self.assertEqual(result.returncode, 1, (name, result.stdout, result.stderr))
