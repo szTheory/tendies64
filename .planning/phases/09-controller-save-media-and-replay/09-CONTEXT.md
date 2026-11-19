@@ -618,3 +618,60 @@ decision only for a concrete contradiction or failing witness.
 
 *Phase: 09-controller-save-media-and-replay*
 *Context gathered: 2026-11-19*
+
+## Amendments from planning research (2026-11-19)
+
+`09-RESEARCH.md` checked the locked decisions against the code and found sixteen
+facts (K1-K16, with file:line evidence) that contradict a locked sentence or add a
+hidden dependency. Where this section and an earlier sentence in this file differ,
+this section wins; the decision numbers above are unchanged and each amendment names
+the decision it corrects. These are routine reversible planning resolutions under the
+autonomy policy, not owner approvals. Planners and executors must cite the K-id.
+
+- **K1 (D-01, D-05):** the shipped Phase 8 descriptor 11 has RDP depth inactive (the
+  predicate is guarded by `descriptor_version == 10u`). Keep depth inactive on descriptor
+  12, make no depth claim, and capture a golden predicate matrix for every registered id
+  before editing any ladder. Record a STATE follow-up.
+- **K2 (D-01):** `t64_isviewer_active` is a per-id allow-list and is a membership site;
+  add it to the membership-site list.
+- **K3 (D-16, D-20, D-39):** the real runner refuses a guest bound above 600,000 ticks in
+  two places, and authored user code first retires near tick 538,800. Do not raise the
+  bound globally: add a per-fixture tick cap to the approved-fixture table, defaulting to
+  the current value, and give only the fixtures that must outlast the 375,000-tick EEPROM
+  busy window a named larger constant (4,000,000 suggested; probe cost about 0.06 s per
+  539,000 ticks). Decided and tested first in 09-02.
+- **K4 (D-16):** the runner reports `pass` only for the exact 30-byte hello transcript.
+  Add per-fixture expected-transcript pins (and result-check pins) to the fixture table,
+  decided first in 09-02 before any fixture is authored; the independent oracle remains a
+  Python transcript derived from literals held outside the ROM.
+- **K5 (D-36):** the first required mutant (handler reads `machine->tick` instead of
+  `event->tick`) is equivalent because dispatch sets the machine tick first. Replace it
+  with non-equivalent mutants: latch `visible_from` computed from the wrong tick and
+  EEPROM `busy_until` computed from the wrong tick.
+- **K6 (D-35):** the supervisor child argv is a fixed `child_args[24]` with no bound
+  check; 09-02 enlarges and bounds it before adding flags.
+- **K7 (D-12, D-15):** the shared `t64.input` v1 parser accepts port 0 only. Replay v1
+  keeps a `port` field restricted to 0; ports 1-3 stay a non-goal.
+- **K8 (D-30):** core builds with `-Wframe-larger-than=2048`; the 256-entry invariant
+  summary cannot live in one stack frame. Use machine-owned or staging storage.
+- **K9 (D-38):** the synthetic flood child runs under the generic-mode FSIZE limit, not
+  the real-mode line; test the artifact pair through a `t64-runner-test` fault.
+- **K10 (D-37):** the quantum is bound through `profile_digest`; add no key to
+  `t64.result`.
+- **K11 (D-42):** the claim skeleton uses `t64-claim-example` fences until 09-11 (the
+  checker requires the seven counts to sum and a byte-exact statement).
+- **K12 (D-38, D-39):** ROM bytes bind exactly one profile id and runner rows need a
+  literal profile hash; 09-02 authors tiny admit ROMs (`fixtures/phase09/admit.S`) and a
+  profile-hash print helper.
+- **K13 (D-40):** the inventory selftest cost scales per CTest name (about +15 s on macOS
+  for 78 names); budget 45 or fewer new CTest names, consolidating cases where a name adds
+  no isolation value.
+- **K14 (D-36):** the Count-wrap case uses the direct-state pattern of
+  `core/tests/test_cpu_time.c`.
+- **K15 (S-02, S-08):** new runner modules and flags join `T64_RUNNER_BUILD_INPUTS`.
+- **K16 (D-09, D-44):** `t64_schedule_commit` invalidates other outstanding reservations
+  and cancel does not restore `next_sequence`, so "reserve both SI events before busy is
+  visible" is impossible with the current API. Use a capacity pre-check (queue room and
+  sequence headroom for all events the operation needs), then reserve and commit
+  sequentially so a refusal leaves no partial state; the CPU store preflight reuses the
+  same rule.
