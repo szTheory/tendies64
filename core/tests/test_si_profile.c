@@ -939,26 +939,203 @@ static void case_quantum_identity(void) {
   }
 }
 
+/* ---- inherited devices and AI equivalence -------------------------------- */
+
+#define AI_DRAM_ADDR UINT32_C(0x04500000)
+#define AI_LEN UINT32_C(0x04500004)
+#define AI_CONTROL UINT32_C(0x04500008)
+#define AI_STATUS UINT32_C(0x0450000c)
+#define AI_DACRATE UINT32_C(0x04500010)
+#define AI_BITRATE UINT32_C(0x04500014)
+#define FILTER_V9_PROFILE_ID "ntsc-cart-4m-openipl3-rdram-b-t1-rdp-vi-filter-v9"
+#define AI_PCM_BYTES 16u
+
+static t64_machine *create_admitted(const t64_host_allocator *host,
+                                    const char *profile_id) {
+  const t64_profile_descriptor *profile = lookup_profile(profile_id);
+  t64_machine *machine = NULL;
+  uint8_t asset[IPL3_ASSET_BYTES];
+
+  if (profile == NULL) return NULL;
+  T64_CHECK_INT(t64_machine_create(host, profile, &machine), T64_STATUS_OK);
+  if (machine == NULL) return NULL;
+  T64_CHECK(read_openipl3_asset(asset));
+  T64_CHECK_INT(t64_machine_admit_rom(machine, asset, sizeof asset),
+                T64_STATUS_OK);
+  return machine;
+}
+
+/* Same operations as the AI profile's inherited-device case: a VR4300
+ * instruction from RDRAM, an RSP scalar instruction from IMEM and a PI
+ * cartridge DMA, each observed through machine state. */
+static void check_inherited_devices(const t64_host_allocator *host,
+                                    const char *profile_id) {
+  t64_machine *machine = create_admitted(host, profile_id);
+  t64_stop_request request;
+  t64_stop_result stop = {0u, 0u};
+  uint8_t asset[IPL3_ASSET_BYTES];
+  size_t index;
+
+  if (machine == NULL) return;
+  T64_CHECK(read_openipl3_asset(asset));
+  machine->ram[UINT32_C(0x1000)] = 0x24u;
+  machine->ram[UINT32_C(0x1001)] = 0x08u;
+  machine->ram[UINT32_C(0x1002)] = 0x00u;
+  machine->ram[UINT32_C(0x1003)] = 0x07u;
+  machine->cpu.pc = UINT32_C(0x80001000);
+  machine->cpu.pc_full = t64_cpu_canonical_address(machine->cpu.pc);
+  request = (t64_stop_request){T64_STOP_GUEST_TICK, machine->tick + 1u};
+  T64_CHECK_INT(t64_machine_advance(machine, &request, &stop), T64_STATUS_OK);
+  T64_CHECK_INT(machine->cpu.gpr[8], 7u);
+  T64_CHECK(machine->cpu.retired_instructions > 0u);
+
+  /* addiu v0, zero, 9 fetched from RSP IMEM. */
+  T64_CHECK_INT(t64_machine_bus_write(machine, UINT32_C(0x04001000), 4u,
+                                      UINT32_C(0x24020009)),
+                T64_STATUS_OK);
+  T64_CHECK_INT(t64_rsp_start(machine), T64_STATUS_OK);
+  request.value = machine->tick + 1u;
+  T64_CHECK_INT(t64_machine_advance(machine, &request, &stop), T64_STATUS_OK);
+  T64_CHECK(machine->rsp.retired_instructions > 0u);
+  T64_CHECK_INT(machine->rsp.gpr[2], 9u);
+
+  /* Cartridge to RDRAM DMA of eight bytes completes. */
+  T64_CHECK_INT(t64_machine_bus_write(machine, UINT32_C(0x04600000), 4u,
+                                      UINT32_C(0x200)),
+                T64_STATUS_OK);
+  T64_CHECK_INT(t64_machine_bus_write(machine, UINT32_C(0x04600004), 4u,
+                                      UINT32_C(0x10000000)),
+                T64_STATUS_OK);
+  T64_CHECK_INT(t64_machine_bus_write(machine, UINT32_C(0x0460000c), 4u, 7u),
+                T64_STATUS_OK);
+  request.value = machine->tick + 16u;
+  T64_CHECK_INT(t64_machine_advance(machine, &request, &stop), T64_STATUS_OK);
+  for (index = 0u; index < 8u; index++) {
+    T64_CHECK_INT(machine->ram[UINT32_C(0x200) + index], asset[index]);
+  }
+  t64_machine_destroy(machine);
+}
+
+typedef struct {
+  bool produced;
+  t64_audio_packet_info info;
+  uint8_t bytes[AI_PCM_BYTES];
+  size_t copied;
+  t64_status control_write;
+  t64_status dacrate_write;
+  t64_status length_write;
+  uint32_t status_after_submit;
+} ai_run;
+
+static bool next_ai_sample_tick(const t64_machine *machine, uint64_t *tick) {
+  size_t i;
+
+  for (i = 0u; i < machine->queue_count; i++) {
+    const size_t index = (machine->queue_head + i) % T64_EVENT_QUEUE_CAPACITY;
+    const t64_event *event = &machine->events[index];
+
+    if (event->device == T64_AI_DEVICE && event->kind == T64_AI_EVENT_SAMPLE) {
+      *tick = event->tick;
+      return true;
+    }
+  }
+  return false;
+}
+
+/* The same host-driven AI DMA on any profile id; every status is recorded so
+ * a profile without the AI window shows its refusals instead of crashing. */
+static void run_ai_dma(const t64_host_allocator *host, const char *profile_id,
+                       ai_run *run) {
+  static const uint8_t literal_pcm[AI_PCM_BYTES] = {
+      0x00u, 0x00u, 0x7fu, 0xffu, 0x80u, 0x00u, 0xffu, 0xffu,
+      0x12u, 0x34u, 0xedu, 0xccu, 0x00u, 0x01u, 0xffu, 0xfeu};
+  t64_machine *machine = create_admitted(host, profile_id);
+  uint32_t value = 0u;
+  size_t i;
+
+  (void)memset(run, 0, sizeof *run);
+  if (machine == NULL) return;
+  (void)memcpy(machine->ram + UINT32_C(0x100), literal_pcm, sizeof literal_pcm);
+  run->control_write = t64_machine_bus_write(machine, AI_CONTROL, 4u, 1u);
+  run->dacrate_write = t64_machine_bus_write(machine, AI_DACRATE, 4u, 1103u);
+  (void)t64_machine_bus_write(machine, AI_BITRATE, 4u, 15u);
+  (void)t64_machine_bus_write(machine, AI_DRAM_ADDR, 4u, 0x100u);
+  run->length_write = t64_machine_bus_write(machine, AI_LEN, 4u, AI_PCM_BYTES);
+  if (t64_machine_bus_read(machine, AI_STATUS, 4u, &value) == T64_STATUS_OK) {
+    run->status_after_submit = value;
+  }
+  /* Guest spin loop, then dispatch one AI sample event per frame. */
+  machine->ram[UINT32_C(0x1000)] = 0x08u;
+  machine->ram[UINT32_C(0x1001)] = 0x00u;
+  machine->ram[UINT32_C(0x1002)] = 0x04u;
+  machine->ram[UINT32_C(0x1003)] = 0x00u;
+  (void)memset(machine->ram + UINT32_C(0x1004), 0, 4u);
+  machine->cpu.pc = UINT32_C(0x80001000);
+  machine->cpu.pc_full = t64_cpu_canonical_address(machine->cpu.pc);
+  for (i = 0u; i < AI_PCM_BYTES / 4u; i++) {
+    uint64_t tick = 0u;
+    t64_stop_request request = {T64_STOP_GUEST_TICK, 0u};
+    t64_stop_result stop = {0u, 0u};
+
+    if (!next_ai_sample_tick(machine, &tick)) break;
+    request.value = tick;
+    if (t64_machine_advance(machine, &request, &stop) != T64_STATUS_OK) break;
+  }
+  if (t64_audio_info(machine, &run->info) == T64_STATUS_OK &&
+      t64_audio_copy(machine, run->bytes, sizeof run->bytes, &run->copied) ==
+          T64_STATUS_OK) {
+    run->produced = true;
+  }
+  t64_machine_destroy(machine);
+}
+
+static void check_ai_equivalence(const t64_host_allocator *host,
+                                 const char *profile_id,
+                                 const ai_run *reference) {
+  ai_run run;
+  char label[160];
+
+  run_ai_dma(host, profile_id, &run);
+  (void)snprintf(label, sizeof label, "%s AI control write", profile_id);
+  expect_status(label, run.control_write, T64_STATUS_OK);
+  (void)snprintf(label, sizeof label, "%s AI length write", profile_id);
+  expect_status(label, run.length_write, T64_STATUS_OK);
+  T64_CHECK_INT(run.status_after_submit, reference->status_after_submit);
+  T64_CHECK(run.produced);
+  if (!run.produced || !reference->produced) return;
+  T64_CHECK_INT(run.info.struct_size, reference->info.struct_size);
+  T64_CHECK_INT(run.info.sequence, reference->info.sequence);
+  T64_CHECK_INT(run.info.first_sample_index,
+                reference->info.first_sample_index);
+  T64_CHECK_INT(run.info.first_tick, reference->info.first_tick);
+  T64_CHECK_INT(run.info.last_tick, reference->info.last_tick);
+  T64_CHECK_INT(run.info.frame_count, reference->info.frame_count);
+  T64_CHECK_INT(run.info.rate_numerator, reference->info.rate_numerator);
+  T64_CHECK_INT(run.info.rate_denominator, reference->info.rate_denominator);
+  T64_CHECK_INT(run.info.channels, reference->info.channels);
+  T64_CHECK_INT(run.info.bits_per_sample, reference->info.bits_per_sample);
+  T64_CHECK_INT(run.info.encoding, reference->info.encoding);
+  T64_CHECK_INT(run.info.byte_length, reference->info.byte_length);
+  T64_CHECK_STR(run.info.profile_id, profile_id);
+  T64_CHECK_INT(run.copied, reference->copied);
+  T64_CHECK(memcmp(run.bytes, reference->bytes, sizeof run.bytes) == 0);
+}
+
 static void case_family_devices(void) {
   size_t index;
+  counting_state state = {0u, 0u, 0u};
+  const t64_host_allocator host = {counting_allocate, counting_release,
+                                   &state};
+  ai_run reference;
+  ai_run old_profile;
 
   /* ISViewer: every family id inherits the admitted ISViewer window. */
   for (index = 0u; index < SI_FAMILY_COUNT; index++) {
-    const t64_profile_descriptor *profile = lookup_profile(si_ids[index]);
-    counting_state state = {0u, 0u, 0u};
-    const t64_host_allocator host = {counting_allocate, counting_release,
-                                     &state};
-    t64_machine *machine = NULL;
-    uint8_t asset[IPL3_ASSET_BYTES];
+    t64_machine *machine = create_admitted(&host, si_ids[index]);
     uint32_t value = 0u;
 
-    if (profile == NULL) continue;
-    T64_CHECK_INT(t64_machine_create(&host, profile, &machine), T64_STATUS_OK);
     T64_CHECK(machine != NULL);
     if (machine == NULL) continue;
-    T64_CHECK(read_openipl3_asset(asset));
-    T64_CHECK_INT(t64_machine_admit_rom(machine, asset, sizeof asset),
-                  T64_STATUS_OK);
     expect_status("family ISViewer window active",
                   t64_isviewer_active(machine) ? T64_STATUS_OK
                                                : T64_STATUS_BUS_DEVICE_REFUSED,
@@ -970,8 +1147,34 @@ static void case_family_devices(void) {
                   T64_STATUS_OK);
     T64_CHECK_INT(value, UINT32_C(0x12345678));
     t64_machine_destroy(machine);
-    T64_CHECK_INT(state.outstanding, 0u);
   }
+
+  /* CPU, RSP and PI operations behave as on the Phase 8 profile. */
+  check_inherited_devices(&host, AI_PROFILE_ID);
+  for (index = 0u; index < SI_FAMILY_COUNT; index++) {
+    check_inherited_devices(&host, si_ids[index]);
+  }
+
+  /* The AI window: an identical host-driven DMA yields equal packet metadata
+   * (apart from the profile and build identity strings) and equal bytes. */
+  run_ai_dma(&host, AI_PROFILE_ID, &reference);
+  T64_CHECK(reference.produced);
+  T64_CHECK_INT(reference.info.frame_count, AI_PCM_BYTES / 4u);
+  T64_CHECK(memcmp(reference.bytes,
+                   "\x00\x00\x7f\xff\x80\x00\xff\xff"
+                   "\x12\x34\xed\xcc\x00\x01\xff\xfe",
+                   AI_PCM_BYTES) == 0);
+  for (index = 0u; index < SI_FAMILY_COUNT; index++) {
+    check_ai_equivalence(&host, si_ids[index], &reference);
+  }
+
+  /* Old-profile contrast: filter v9 still refuses the AI window. */
+  run_ai_dma(&host, FILTER_V9_PROFILE_ID, &old_profile);
+  T64_CHECK_INT(old_profile.control_write, T64_STATUS_BUS_DEVICE_REFUSED);
+  T64_CHECK_INT(old_profile.length_write, T64_STATUS_BUS_DEVICE_REFUSED);
+  T64_CHECK(!old_profile.produced);
+  T64_CHECK_INT(state.outstanding, 0u);
+  T64_CHECK_INT(state.release_errors, 0u);
 }
 
 int main(int argc, char **argv) {
