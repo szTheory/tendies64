@@ -104,7 +104,13 @@ addresses in the vendor RDRAM aperture `[0x00400000, 0x03f00000)` and the
 RDRAM-register window are recognized but unsupported for this profile. The
 SP aperture has separate 4 KiB DMEM and IMEM byte banks at
 `[0x04000000, 0x04001000)` and `[0x04001000, 0x04002000)`; other SP, DP
-command/span, VI, AI, RI, and SI addresses are explicit unsupported windows.
+command/span, VI, AI, RI, and SI addresses are explicit unsupported windows,
+except that the composite SI profile family decodes the SI window
+`[0x04800000, 0x04900000)` to the modeled serial interface described in
+[si-pif-controller.md](si-pif-controller.md): four 32-bit registers at offsets
+`0x00`, `0x04`, `0x10` and `0x18`, with every other offset unsupported. Every
+older profile keeps the warm status stub for that window, and the PIF window
+stays unsupported for every profile.
 PI's word registers at `0x04600000..0x04600030` implement the ROM DMA model
 below. MI interrupt-pending is read-only, and MI interrupt-mask supports
 the paired clear/set commands.
@@ -359,11 +365,12 @@ v25 is not comparable to v24 byte for byte but its shared sections are.
 | 7 | warm devices | boot, CPU, cache, guest-device, ISViewer, RSP and RDRAM protocol state |
 | 8 | rdp and vi | the RDP/VI block, including the retained video packet slots |
 | 9 | audio | the AI block, including the retained audio packet slots |
-| 10 | SI and PIF | reserved; emitted when the SI device exists |
+| 10 | SI and PIF | emitted by the composite family: SI registers and active descriptor, the 64-byte PIF RAM, the parsed joybus table and the four per-port input latches, every field in the new-span class; the field table is in [si-pif-controller.md](si-pif-controller.md) |
 | 11 | save media | reserved; emitted when the save devices exist |
 | 16 | observer continuity | reserved; outside the digest |
 
-Reserved ids emit nothing until their section exists. Stream bytes carry one of
+Reserved ids emit nothing until their section exists; section 10 is the only
+new-class section emitted so far. Stream bytes carry one of
 four span classes for comparison: body (ordinary state), identity (the domain,
 the serialization word and profile digest, and in v24 the retained packet
 profile and build ids), marker (a section id) and new (a section with no v24
@@ -442,9 +449,10 @@ an API or ABI freeze.
 Four registered profile ids form one family. All share descriptor version 12,
 machine model version 20 and state serialization version 25, and they extend
 the Phase 8 machine (descriptor 11, model 19, state 24) with identity for a
-standard controller on port 0 and an explicit save device. This slice adds
-identity, validation and the state-stream framing only; the SI/PIF, controller
-and save devices are separate, later work.
+standard controller on port 0 and an explicit save device. The family carries
+identity, validation and the state-stream framing, and the modeled SI/PIF and
+standard controller described in [si-pif-controller.md](si-pif-controller.md);
+the save devices are separate, later work.
 
 | Profile id | Id length | `save_kind` |
 | --- | --- | --- |
@@ -510,16 +518,17 @@ exists in `core/t64_*.c`, and a later state import refuses an unknown pair.
 | 8 | 1 | VI field | VI register write and field events |
 | 9 | 1 | AI sample | AI DMA start and sample scheduling |
 | `0xffff0001` | 1 to 5 | synthetic test events | test scheduling helpers: no-op, instruction, frame, halt, repeat |
-| 10 | 1 | SI execute | reserved: the constant exists, no reservation site yet |
-| 10 | 2 | SI complete | reserved: the constant exists, no reservation site yet |
+| 10 | 1 | SI execute | SI read start (RD64B), at the start tick plus the handshake total |
+| 10 | 2 | SI complete | SI read and write start, at the completion tick |
 
 Event order stays `tick-sequence-fifo-v1` for every device: events dispatch by
 guest tick and then by reservation sequence, and no device has a rank. Two
 events placed at one tick therefore dispatch in the order they were reserved.
 The ledger test compares an observed set against this table and rejects an
-unlisted pair, a missing row, and a reserved row that appears; a transposed
-copy of the table is rejected. The order test places two events at one tick in
-both insertion orders for every pair of non-reserved rows using label-only
+unlisted pair, a missing row and a reserved row that appears (no row is reserved
+since the SI start is a reservation site); a transposed copy of the table is
+rejected. The order test places two events at one tick in
+both insertion orders for every pair of ledger rows using label-only
 events through the real scheduler, and for the pairs an existing builder can
 place at one tick it also uses the real device events: PI with SP completion
 (legacy profile), VI with AI sample, and the CPU step with each of PI
@@ -585,8 +594,13 @@ value stores buttons in bits 0-15, X in bits 16-23, and Y in bits 24-31 using
 two's-complement octets. It uses the existing per-instance scheduler's
 reserve-then-commit path and sequence ordering. Its stable trace identity is
 device 6, kind 1; event kind numbers are interpreted with their device source.
-The event only records a deterministic timed input observation. It is not
-consumed by SI, PIF, or a controller model. Invalid port/axis values, past
+On the composite SI profile family the event value also carries the port in
+bits 32 and 33 and the dispatched event feeds a strictly-after per-port latch
+that the modeled SI samples: a poll sampled at tick `E` sees the last input
+stamped strictly before `E` (see [si-pif-controller.md](si-pif-controller.md));
+the public call keeps accepting port 0 only. On every other profile the event
+only records a deterministic timed input observation and no SI, PIF or
+controller model consumes it. Invalid port/axis values, past
 ticks, unready or terminal machines, a full queue, and sequence exhaustion
 refuse without partial queue or sequence mutation. Input records are
 observer-only; the pending event tuple is included in state-v8 identity until
@@ -612,6 +626,7 @@ introduced.
 | Scheduler queue, next sequence and exhaustion state | Yes | Empty queue, initial sequence and available sequence |
 | PI raw latches, error, active/canceled descriptor and token state | Yes | Clear latches and descriptor, clear active/error/exhaustion flags, reset next token to 1 |
 | Trace records, drop count and enablement | Yes | Clear records and drops; preserve enablement and emit a new admission record when enabled |
+| SI registers, active descriptor, PIF RAM, parsed table, sticky error, input latches and tokens (composite family) | Yes | Cancel the SI events, clear MI SI pending, clear all SI state and set the next token to 1 |
 | Output-drain cursor | Yes | Reset to zero with guest output; observer-only and excluded from the canonical digest |
 
 Refusal assertions compare every present machine observation, scheduler state,
