@@ -21,6 +21,7 @@
 #include <time.h>
 #include <unistd.h>
 
+#include "t64_artifact_publisher.h"
 #include "t64_classify.h"
 #include "t64_input.h"
 #include "t64_json.h"
@@ -452,11 +453,13 @@ typedef struct {
   const char *input_sha256;
   const char *capture_out;
   const char *raw_capture_dir;
+  const char *artifact_dir;
   uint64_t input_size;
   uint64_t wall_ms;
   uint64_t bound;
   uint64_t log_limit;
   uint64_t raw_capture_max_bytes;
+  uint64_t artifact_max_bytes;
 #ifdef T64_SUPERVISOR_TESTING
   uint64_t advance_step;
 #endif
@@ -467,6 +470,8 @@ typedef struct {
   int input_options_seen;
   int raw_capture_dir_seen;
   int raw_capture_max_bytes_seen;
+  int artifact_dir_seen;
+  int artifact_max_bytes_seen;
 #ifdef T64_SUPERVISOR_TESTING
   int advance_step_seen;
 #endif
@@ -513,6 +518,8 @@ static int parse_args(int argc, char **argv, sup_args *a) {
       {"--audio-observation-fd", NULL, &a->audio_observation_fd, 0, 0},
       {"--raw-capture-dir", &a->raw_capture_dir, NULL, 0, 0},
       {"--raw-capture-max-bytes", NULL, &a->raw_capture_max_bytes, 0, 0},
+      {"--artifact-dir", &a->artifact_dir, NULL, 0, 0},
+      {"--artifact-max-bytes", NULL, &a->artifact_max_bytes, 0, 0},
 #ifdef T64_SUPERVISOR_TESTING
       {"--advance-step", NULL, &a->advance_step, 0, 0},
 #endif
@@ -551,6 +558,12 @@ static int parse_args(int argc, char **argv, sup_args *a) {
     }
     if (strcmp(argv[i], "--raw-capture-max-bytes") == 0) {
       a->raw_capture_max_bytes_seen = 1;
+    }
+    if (strcmp(argv[i], "--artifact-dir") == 0) {
+      a->artifact_dir_seen = 1;
+    }
+    if (strcmp(argv[i], "--artifact-max-bytes") == 0) {
+      a->artifact_max_bytes_seen = 1;
     }
 #ifdef T64_SUPERVISOR_TESTING
     if (strcmp(argv[i], "--advance-step") == 0) {
@@ -641,6 +654,18 @@ static int parse_args(int argc, char **argv, sup_args *a) {
     } else if (!bad && a->raw_capture_max_bytes_seen) {
       bad = 1;
     }
+    /* The artifact pair is all or nothing, never defaulted, bounded, and
+     * mutually exclusive with raw capture. */
+    if (!bad && (a->artifact_dir_seen != a->artifact_max_bytes_seen)) {
+      bad = 1;
+    }
+    if (!bad && a->artifact_dir_seen &&
+        (a->artifact_dir == NULL || a->artifact_dir[0] == '\0' ||
+         a->artifact_max_bytes == 0u ||
+         a->artifact_max_bytes > T64_ARTIFACT_MAX_BYTES ||
+         a->raw_capture_dir_seen)) {
+      bad = 1;
+    }
     if (!bad && a->bound == 0u) {
       a->bound = REAL_GUEST_TICKS;
     } else if (!bad && a->bound > T64_REAL_GUEST_TICKS_CEILING) {
@@ -662,6 +687,7 @@ static int parse_args(int argc, char **argv, sup_args *a) {
     }
     if (a->test_fault != NULL &&
         strcmp(a->test_fault, "argv-capacity-exhausted") != 0 &&
+        strcmp(a->test_fault, "artifact-publish-probe") != 0 &&
         strcmp(a->test_fault, "exit-nonzero") != 0 &&
         strcmp(a->test_fault, "capture-closed") != 0 &&
         strcmp(a->test_fault, "crash-after-output") != 0 &&
@@ -696,7 +722,8 @@ static int parse_args(int argc, char **argv, sup_args *a) {
          a->fixture_sha == NULL || !is_hex64(a->fixture_sha) ||
          a->input != NULL || a->input_options_seen ||
          a->video_observation_fd != 0u || a->raw_capture_dir_seen ||
-         a->raw_capture_max_bytes_seen
+         a->raw_capture_max_bytes_seen || a->artifact_dir_seen ||
+         a->artifact_max_bytes_seen
 #ifdef T64_SUPERVISOR_TESTING
          || a->advance_step_seen
 #endif
@@ -1364,6 +1391,8 @@ static int real_run_mode(const sup_args *args, const char *self_path) {
   char guest_ticks_text[24];
   char raw_capture_max_bytes_text[24];
   char raw_capture_dir_text[4096];
+  char artifact_dir_text[4096];
+  char artifact_max_bytes_text[24];
 #ifdef T64_SUPERVISOR_TESTING
   char advance_step_text[24];
 #endif
@@ -1401,6 +1430,8 @@ static int real_run_mode(const sup_args *args, const char *self_path) {
 
   memset(&ws, 0, sizeof ws);
   raw_capture_dir_text[0] = '\0';
+  artifact_dir_text[0] = '\0';
+  artifact_max_bytes_text[0] = '\0';
   if (args->raw_capture_dir_seen) {
     int length = snprintf(raw_capture_dir_text, sizeof raw_capture_dir_text,
                           "%s", args->raw_capture_dir);
@@ -1409,6 +1440,17 @@ static int real_run_mode(const sup_args *args, const char *self_path) {
                                  "not-started", args->bound);
       return 1;
     }
+  }
+  if (args->artifact_dir_seen) {
+    int length = snprintf(artifact_dir_text, sizeof artifact_dir_text, "%s",
+                          args->artifact_dir);
+    if (length <= 0 || (size_t)length >= sizeof artifact_dir_text) {
+      (void)real_write_prelaunch(args->result, "harness-error", "usage",
+                                 "not-started", args->bound);
+      return 1;
+    }
+    (void)snprintf(artifact_max_bytes_text, sizeof artifact_max_bytes_text,
+                   "%llu", (unsigned long long)args->artifact_max_bytes);
   }
   fixture_known = real_fixture_identify_path(args->fixture,
                                              &fixture_identity,
@@ -1543,6 +1585,8 @@ static int real_run_mode(const sup_args *args, const char *self_path) {
     char option_audio_observation[] = "--audio-observation-fd";
     char option_raw_capture_dir[] = "--raw-capture-dir";
     char option_raw_capture_max_bytes[] = "--raw-capture-max-bytes";
+    char option_artifact_dir[] = "--artifact-dir";
+    char option_artifact_max_bytes[] = "--artifact-max-bytes";
     char *child_args[T64_SUP_CHILD_ARGS_CAPACITY];
     child_argv argv_builder = {child_args, 0u, T64_SUP_CHILD_ARGS_CAPACITY};
     bool argv_ok = true;
@@ -1590,6 +1634,14 @@ static int real_run_mode(const sup_args *args, const char *self_path) {
       argv_ok = argv_ok &&
                 child_argv_push(&argv_builder, raw_capture_max_bytes_text);
     }
+    if (args->artifact_dir_seen) {
+      argv_ok = argv_ok && child_argv_push(&argv_builder, option_artifact_dir);
+      argv_ok = argv_ok && child_argv_push(&argv_builder, artifact_dir_text);
+      argv_ok = argv_ok &&
+                child_argv_push(&argv_builder, option_artifact_max_bytes);
+      argv_ok = argv_ok &&
+                child_argv_push(&argv_builder, artifact_max_bytes_text);
+    }
     if (!argv_ok) {
       /* Exhausted capacity ends the child before exec with no guest run. */
       _exit(126);
@@ -1599,7 +1651,14 @@ static int real_run_mode(const sup_args *args, const char *self_path) {
     limit.rlim_cur = 0;
     limit.rlim_max = 0;
     (void)setrlimit(RLIMIT_CORE, &limit);
-    limit.rlim_cur = (rlim_t)(T64_REAL_RESULT_MAX_BYTES + FSIZE_SLACK);
+    /* Exact write backstop (K9): with the artifact pair the limit is the
+     * declared maximum plus the slack, nothing else; otherwise it stays at
+     * the report cap plus the slack. The report and the capture stay bounded
+     * by their own caps in either configuration. */
+    limit.rlim_cur =
+        args->artifact_dir_seen
+            ? (rlim_t)(args->artifact_max_bytes + FSIZE_SLACK)
+            : (rlim_t)(T64_REAL_RESULT_MAX_BYTES + FSIZE_SLACK);
     limit.rlim_max = limit.rlim_cur;
     (void)setrlimit(RLIMIT_FSIZE, &limit);
     devnull = open("/dev/null", O_RDONLY);

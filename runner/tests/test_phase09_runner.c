@@ -12,6 +12,7 @@
 #define _POSIX_C_SOURCE 200809L
 #endif
 
+#include <dirent.h>
 #include <errno.h>
 #include <fcntl.h>
 #include <limits.h>
@@ -90,10 +91,10 @@ static bool prepare_evidence(void) {
         (int)sizeof g_evidence) {
       return false;
     }
-    if (stat(g_evidence, &info) != 0 && mkdir(g_evidence, 0700) != 0) {
-      return false;
-    }
-    return true;
+    /* Concurrent CTest jobs share this directory: a racing mkdir that finds
+     * the directory already present is success. */
+    if (mkdir(g_evidence, 0700) != 0 && errno != EEXIST) return false;
+    return stat(g_evidence, &info) == 0 && S_ISDIR(info.st_mode);
   }
   if (temp == NULL || temp[0] == '\0') temp = "/tmp";
   if (snprintf(g_evidence, sizeof g_evidence, "%s/t64-phase09.XXXXXX",
@@ -243,6 +244,8 @@ typedef struct {
   int video_fd;           /* 0 leaves the option out */
   int audio_fd;           /* 0 leaves the option out */
   const char *test_fault; /* NULL leaves the option out (test twin only) */
+  const char *artifact_dir; /* NULL leaves the pair out */
+  uint64_t artifact_max;
 } run_spec;
 
 #define MAX_ARGS 48u
@@ -265,6 +268,7 @@ static bool run_supervised(const run_spec *spec, run_out *out) {
   char advance_text[24];
   char video_text[24];
   char audio_text[24];
+  char artifact_max_text[24];
   pid_t pid;
   int status = 0;
   memset(out, 0, sizeof *out);
@@ -282,6 +286,8 @@ static bool run_supervised(const run_spec *spec, run_out *out) {
                  (unsigned long long)spec->advance_step);
   (void)snprintf(video_text, sizeof video_text, "%d", spec->video_fd);
   (void)snprintf(audio_text, sizeof audio_text, "%d", spec->audio_fd);
+  (void)snprintf(artifact_max_text, sizeof artifact_max_text, "%llu",
+                 (unsigned long long)spec->artifact_max);
   pid = fork();
   if (pid < 0) return false;
   if (pid == 0) {
@@ -300,6 +306,8 @@ static bool run_supervised(const run_spec *spec, run_out *out) {
     char video_option[] = "--video-observation-fd";
     char audio_option[] = "--audio-observation-fd";
     char fault_option[] = "--test-fault";
+    char artifact_dir_option[] = "--artifact-dir";
+    char artifact_max_option[] = "--artifact-max-bytes";
     arg_add(&list, (char *)(uintptr_t)spec->supervisor);
     arg_add(&list, real_option);
     arg_add(&list, result_option);
@@ -336,6 +344,12 @@ static bool run_supervised(const run_spec *spec, run_out *out) {
       arg_add(&list, fault_option);
       arg_add(&list, (char *)(uintptr_t)spec->test_fault);
     }
+    if (spec->artifact_dir != NULL) {
+      arg_add(&list, artifact_dir_option);
+      arg_add(&list, (char *)(uintptr_t)spec->artifact_dir);
+      arg_add(&list, artifact_max_option);
+      arg_add(&list, artifact_max_text);
+    }
     list.items[list.count] = NULL;
     execv(spec->supervisor, list.items);
     _exit(127);
@@ -349,9 +363,42 @@ static bool run_supervised(const run_spec *spec, run_out *out) {
   return out->parsed;
 }
 
+/* The runner consumes verified inherited snapshots: read-only descriptors on
+ * unlinked regular files. This builds one from a source file. */
+static int open_snapshot(const char *source, const char *directory) {
+  uint8_t bytes[8192];
+  size_t length = 0u;
+  char name[PATH_MAX];
+  size_t written = 0u;
+  int fd;
+  if (!read_file(source, bytes, sizeof bytes, &length) || length == 0u ||
+      length >= sizeof bytes || !join_path(name, sizeof name, directory,
+                                           "snapshot.XXXXXX")) {
+    return -1;
+  }
+  fd = mkstemp(name);
+  if (fd < 0) return -1;
+  while (written < length) {
+    ssize_t count = write(fd, bytes + written, length - written);
+    if (count < 0 && errno == EINTR) continue;
+    if (count <= 0) {
+      (void)close(fd);
+      (void)unlink(name);
+      return -1;
+    }
+    written += (size_t)count;
+  }
+  (void)close(fd);
+  fd = open(name, O_RDONLY);
+  (void)unlink(name);
+  return fd;
+}
+
 /* The runner binary runs directly with inherited descriptors. */
 static bool run_runner_direct(const char *fixture, const char *profile,
-                              const char *ticks_text, run_out *out) {
+                              const char *ticks_text,
+                              const char *artifact_dir,
+                              const char *artifact_max_text, run_out *out) {
   char runner[PATH_MAX];
   char input[PATH_MAX];
   char stdout_path[PATH_MAX];
@@ -378,8 +425,8 @@ static bool run_runner_direct(const char *fixture, const char *profile,
       !join_path(stdout_path, sizeof stdout_path, out->dir, "runner.json")) {
     return false;
   }
-  fixture_fd = open(fixture, O_RDONLY);
-  input_fd = open(input, O_RDONLY);
+  fixture_fd = open_snapshot(fixture, out->dir);
+  input_fd = open_snapshot(input, out->dir);
   if (fixture_fd <= STDERR_FILENO || input_fd <= STDERR_FILENO) return false;
   (void)snprintf(fixture_fd_text, sizeof fixture_fd_text, "%d", fixture_fd);
   (void)snprintf(input_fd_text, sizeof input_fd_text, "%d", input_fd);
@@ -390,21 +437,30 @@ static bool run_runner_direct(const char *fixture, const char *profile,
     char input_option[] = "--input-fd";
     char profile_option[] = "--profile";
     char ticks_option[] = "--guest-ticks";
-    char *args[10];
+    char artifact_dir_option[] = "--artifact-dir";
+    char artifact_max_option[] = "--artifact-max-bytes";
+    char *args[14];
+    size_t count = 0u;
     int out_fd = open(stdout_path, O_WRONLY | O_CREAT | O_TRUNC, 0600);
     int null_fd = open("/dev/null", O_WRONLY);
     if (out_fd < 0 || dup2(out_fd, STDOUT_FILENO) < 0) _exit(126);
     if (null_fd >= 0) (void)dup2(null_fd, STDERR_FILENO);
-    args[0] = runner;
-    args[1] = fixture_option;
-    args[2] = fixture_fd_text;
-    args[3] = input_option;
-    args[4] = input_fd_text;
-    args[5] = profile_option;
-    args[6] = (char *)(uintptr_t)profile;
-    args[7] = ticks_option;
-    args[8] = (char *)(uintptr_t)ticks_text;
-    args[9] = NULL;
+    args[count++] = runner;
+    args[count++] = fixture_option;
+    args[count++] = fixture_fd_text;
+    args[count++] = input_option;
+    args[count++] = input_fd_text;
+    args[count++] = profile_option;
+    args[count++] = (char *)(uintptr_t)profile;
+    args[count++] = ticks_option;
+    args[count++] = (char *)(uintptr_t)ticks_text;
+    if (artifact_dir != NULL) {
+      args[count++] = artifact_dir_option;
+      args[count++] = (char *)(uintptr_t)artifact_dir;
+      args[count++] = artifact_max_option;
+      args[count++] = (char *)(uintptr_t)artifact_max_text;
+    }
+    args[count] = NULL;
     execv(runner, args);
     _exit(127);
   }
@@ -417,6 +473,65 @@ static bool run_runner_direct(const char *fixture, const char *profile,
   (void)snprintf(out->result_path, sizeof out->result_path, "%s", stdout_path);
   out->parsed = parse_record(stdout_path, out);
   return out->parsed;
+}
+
+/* ---- artifact directories ----------------------------------------------- */
+
+static bool make_artifact_dir(char out[PATH_MAX], mode_t mode) {
+  if (!make_run_dir(out)) return false;
+  return chmod(out, mode) == 0;
+}
+
+/* Number of directory entries, and the first name found. */
+static size_t list_directory(const char *path, char first[256]) {
+  DIR *dir = opendir(path);
+  struct dirent *entry;
+  size_t count = 0u;
+  first[0] = '\0';
+  if (dir == NULL) return (size_t)-1;
+  while ((entry = readdir(dir)) != NULL) {
+    if (strcmp(entry->d_name, ".") == 0 || strcmp(entry->d_name, "..") == 0) {
+      continue;
+    }
+    if (count == 0u) (void)snprintf(first, 256u, "%s", entry->d_name);
+    count++;
+  }
+  (void)closedir(dir);
+  return count;
+}
+
+/* The probe pattern is derived here from its definition: byte i equals
+ * (i * 7 + 3) modulo 256. */
+static bool file_matches_pattern(const char *path, uint64_t size) {
+  uint8_t chunk[4096];
+  uint64_t offset = 0u;
+  int fd = open(path, O_RDONLY);
+  struct stat info;
+  if (fd < 0) return false;
+  if (fstat(fd, &info) != 0 || !S_ISREG(info.st_mode) ||
+      (uint64_t)info.st_size != size || info.st_nlink != 1 ||
+      (info.st_mode & 0777) != 0600) {
+    (void)close(fd);
+    return false;
+  }
+  while (offset < size) {
+    ssize_t count = read(fd, chunk, sizeof chunk);
+    ssize_t i;
+    if (count < 0 && errno == EINTR) continue;
+    if (count <= 0) {
+      (void)close(fd);
+      return false;
+    }
+    for (i = 0; i < count; i++) {
+      if (chunk[i] != (uint8_t)(((offset + (uint64_t)i) * 7u + 3u) % 256u)) {
+        (void)close(fd);
+        return false;
+      }
+    }
+    offset += (uint64_t)count;
+  }
+  (void)close(fd);
+  return true;
 }
 
 /* ---- cases -------------------------------------------------------------- */
@@ -474,10 +589,17 @@ static int case_tick_cap(void) {
   CHECK(run_supervised(&spec, &run));
   expect_usage(&run);
 
-  /* The runner binary applies the same two checks on its own. */
-  CHECK(run_runner_direct(hello, LEGACY_HELLO_PROFILE, "600001", &run));
+  /* The runner binary applies the same two checks on its own, after its own
+   * accepted baseline in the same setup. */
+  CHECK(run_runner_direct(hello, LEGACY_HELLO_PROFILE, "600000", NULL, NULL,
+                          &run));
+  CHECK(run.parsed);
+  CHECK(strcmp(run.outcome, "pass") == 0);
+  CHECK(run_runner_direct(hello, LEGACY_HELLO_PROFILE, "600001", NULL, NULL,
+                          &run));
   expect_refusal(&run);
-  CHECK(run_runner_direct(hello, LEGACY_HELLO_PROFILE, "4000001", &run));
+  CHECK(run_runner_direct(hello, LEGACY_HELLO_PROFILE, "4000001", NULL, NULL,
+                          &run));
   expect_usage(&run);
   return g_failures == 0 ? 0 : 1;
 }
@@ -527,6 +649,7 @@ static int case_transcript_pin(void) {
  * harness error and no guest run. */
 static int case_argv_bound(void) {
   char audio[PATH_MAX];
+  char artifact[PATH_MAX];
   run_spec spec = {0};
   run_out run;
   int video_pipe[2] = {-1, -1};
@@ -540,8 +663,12 @@ static int case_argv_bound(void) {
   spec.advance_step = 16u;
   spec.video_fd = video_pipe[1];
   spec.audio_fd = audio_pipe[1];
+  CHECK(make_artifact_dir(artifact, 0700));
+  spec.artifact_dir = artifact;
+  spec.artifact_max = 4096u;
 
-  /* Accepted baseline with every option: advance step, video fd, audio fd. */
+  /* Accepted baseline with every option: advance step, video fd, audio fd and
+   * the artifact pair. */
   CHECK(run_supervised(&spec, &run));
   expect_pass(&run);
   CHECK(strcmp(run.fixture_id, "audio-pcm-literal") == 0);
@@ -563,6 +690,21 @@ static int case_argv_bound(void) {
   (void)close(audio_pipe[0]);
   (void)close(audio_pipe[1]);
   return g_failures == 0 ? 0 : 1;
+}
+
+/* A runner prelaunch refusal reaches the supervisor as a record that does not
+ * carry the identities the supervisor already holds, so the supervised result
+ * is its post-launch classification: harness-error, report-error stop, detail
+ * capture-invalid, guest tick 0 (no guest ran). The runner binary itself
+ * reports the refusal record, asserted separately. */
+static void expect_supervised_preflight_refusal(const run_out *run) {
+  CHECK(run->parsed);
+  CHECK(run->checker_ok);
+  CHECK(strcmp(run->outcome, "harness-error") == 0);
+  CHECK(strcmp(run->stop_kind, "report-error") == 0);
+  CHECK(strcmp(run->detail, "capture-invalid") == 0);
+  CHECK(run->guest_tick == 0u);
+  CHECK(run->log_bytes == 0u);
 }
 
 /* The four transcripts are pinned from literal text with an independent
@@ -589,6 +731,70 @@ static int case_tracer_artifact(void) {
   CHECK(strcmp(run.log_sha256, PIN_ADMIT_0) == 0);
   CHECK(run.milestone_count == 4u);
   CHECK(strcmp(run.completion_pc, ADMIT_STEM_COMPLETION_PC) == 0);
+
+  /* Part two: the artifact pair. The test twin with the probe fault publishes
+   * exactly one private file of the requested size. */
+  {
+    char dir[PATH_MAX];
+    char first[256];
+    char leaf_path[PATH_MAX];
+    const uint64_t size = 100000u;
+    CHECK(make_artifact_dir(dir, 0700));
+    spec.supervisor = g_test_supervisor;
+    spec.test_fault = "artifact-publish-probe";
+    spec.artifact_dir = dir;
+    spec.artifact_max = size;
+    CHECK(run_supervised(&spec, &run));
+    expect_pass(&run);
+    CHECK(list_directory(dir, first) == 1u);
+    CHECK(strcmp(first, "probe.sta") == 0);
+    CHECK(join_path(leaf_path, sizeof leaf_path, dir, "probe.sta"));
+    CHECK(file_matches_pattern(leaf_path, size));
+
+    /* The production runner with the pair only runs the preflight: nothing is
+     * published and the directory stays empty. */
+    CHECK(make_artifact_dir(dir, 0700));
+    spec.supervisor = g_supervisor;
+    spec.test_fault = NULL;
+    spec.artifact_dir = dir;
+    CHECK(run_supervised(&spec, &run));
+    expect_pass(&run);
+    CHECK(list_directory(dir, first) == 0u);
+
+    /* A missing and a group-writable directory are refused before the guest
+     * starts (guest tick 0, refusal). */
+    {
+      char missing[PATH_MAX];
+      char writable[PATH_MAX];
+      CHECK(make_artifact_dir(dir, 0700));
+      CHECK(join_path(missing, sizeof missing, dir, "absent"));
+      spec.artifact_dir = missing;
+      CHECK(run_supervised(&spec, &run));
+      expect_supervised_preflight_refusal(&run);
+      CHECK(make_artifact_dir(writable, 0770));
+      CHECK(chmod(writable, 0775) == 0);
+      spec.artifact_dir = writable;
+      CHECK(run_supervised(&spec, &run));
+      expect_supervised_preflight_refusal(&run);
+      CHECK(list_directory(writable, first) == 0u);
+      /* The runner binary reports the refusal record itself. Its accepted
+       * baseline in the same setup: an owner-only directory runs the
+       * preflight, the guest passes and nothing is left behind. */
+      CHECK(make_artifact_dir(dir, 0700));
+      CHECK(run_runner_direct(path, PROFILE_STEM, "600000", dir, "4096",
+                              &run));
+      CHECK(run.parsed);
+      CHECK(strcmp(run.outcome, "pass") == 0);
+      CHECK(list_directory(dir, first) == 0u);
+      CHECK(run_runner_direct(path, PROFILE_STEM, "600000", missing, "4096",
+                              &run));
+      expect_refusal(&run);
+      CHECK(run_runner_direct(path, PROFILE_STEM, "600000", writable, "4096",
+                              &run));
+      expect_refusal(&run);
+      CHECK(list_directory(writable, first) == 0u);
+    }
+  }
   return g_failures == 0 ? 0 : 1;
 }
 

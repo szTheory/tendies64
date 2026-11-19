@@ -13,6 +13,7 @@
 #include <sys/stat.h>
 #include <unistd.h>
 
+#include "t64_artifact_publisher.h"
 #include "t64_input.h"
 #include "t64_audio_observation.h"
 #include "t64_raw_capture.h"
@@ -970,11 +971,46 @@ static void set_digest(char output[T64_REAL_RESULT_HEX_SIZE],
   t64_sha256_hex(digest, output);
 }
 
+#ifdef T64_REAL_RUNNER_TESTING
+/* Test twin only (K9): after a guest pass, publish probe.sta of exactly the
+ * declared maximum with byte i equal to (i * 7 + 3) modulo 256. The production
+ * runner never publishes; with the pair it only runs the preflight. */
+static bool publish_probe_artifact(const char *directory,
+                                   uint64_t byte_cap) {
+  t64_artifact_publisher *publisher;
+  uint8_t chunk[4096];
+  uint64_t offset = 0u;
+  bool ok = true;
+  const char *error = NULL;
+  publisher = t64_artifact_publisher_open(directory, "probe.sta", byte_cap,
+                                          &error);
+  if (publisher == NULL) return false;
+  while (ok && offset < byte_cap) {
+    size_t length = sizeof chunk;
+    size_t i;
+    if ((uint64_t)length > byte_cap - offset) {
+      length = (size_t)(byte_cap - offset);
+    }
+    for (i = 0u; i < length; i++) {
+      chunk[i] = (uint8_t)(((offset + (uint64_t)i) * 7u + 3u) & 0xffu);
+    }
+    ok = t64_artifact_publisher_write(publisher, chunk, length);
+    offset += (uint64_t)length;
+  }
+  ok = ok && t64_artifact_publisher_finalize(publisher);
+  if (!ok) t64_artifact_publisher_abort(publisher);
+  t64_artifact_publisher_destroy(publisher);
+  return ok;
+}
+#endif
+
 static int run_real(int fixture_fd, int input_fd, const char *requested_profile,
                     uint64_t guest_ticks, uint64_t advance_step,
                     int video_observation_fd, int audio_observation_fd,
                     const char *raw_capture_dir,
-                    uint64_t raw_capture_max_bytes) {
+                    uint64_t raw_capture_max_bytes,
+                    const char *artifact_dir,
+                    uint64_t artifact_max_bytes) {
   static const t64_host_allocator allocator = {
       allocator_allocate, allocator_release, NULL};
   owned_bytes fixture = {0};
@@ -1056,6 +1092,16 @@ static int run_real(int fixture_fd, int input_fd, const char *requested_profile,
       }
     }
   }
+  if (artifact_dir != NULL) {
+    /* The directory is checked and the host's no-replace rename probed before
+     * the guest starts; a refusal here is the existing prelaunch refusal. */
+    const char *artifact_error = NULL;
+    if (!t64_artifact_preflight(artifact_dir, &artifact_error)) {
+      exit_code = emit_prelaunch("refusal", "refused", guest_ticks, 0);
+      goto cleanup;
+    }
+  }
+  (void)artifact_max_bytes;
   if (!initialize_launched_result(&result, profile, fixture_identity,
                                   fixture.sha256_hex,
                                   input_digest)) {
@@ -1536,6 +1582,14 @@ finalize:
     }
   }
 #ifdef T64_REAL_RUNNER_TESTING
+  if (test_fault_is("artifact-publish-probe") && artifact_dir != NULL &&
+      strcmp(result.outcome, "pass") == 0 &&
+      !publish_probe_artifact(artifact_dir, artifact_max_bytes)) {
+    (void)snprintf(result.guest_stop_kind, sizeof result.guest_stop_kind,
+                   "host-error");
+    (void)snprintf(result.outcome, sizeof result.outcome, "harness-error");
+    (void)snprintf(result.detail, sizeof result.detail, "host-error");
+  }
   if (test_fault_is("report-missing-log-sha256")) {
     if (!write_report_missing_log_sha256(&result, STDOUT_FILENO)) {
       exit_code = 2;
@@ -1565,6 +1619,8 @@ int main(int argc, char **argv) {
   int audio_observation_fd = -1;
   const char *profile_id = NULL;
   const char *raw_capture_dir = NULL;
+  const char *artifact_dir = NULL;
+  uint64_t artifact_max_bytes = 0u;
   uint64_t guest_ticks = 0u;
   uint64_t advance_step = T64_REAL_TRACE_STEP;
   uint64_t raw_capture_max_bytes = 0u;
@@ -1576,6 +1632,8 @@ int main(int argc, char **argv) {
   bool seen_audio_observation = false;
   bool seen_raw_capture_dir = false;
   bool seen_raw_capture_max_bytes = false;
+  bool seen_artifact_dir = false;
+  bool seen_artifact_max_bytes = false;
 #ifdef T64_REAL_RUNNER_TESTING
   bool seen_advance_step = false;
 #endif
@@ -1631,6 +1689,14 @@ int main(int argc, char **argv) {
                !seen_raw_capture_max_bytes &&
                parse_u64(value, &raw_capture_max_bytes)) {
       seen_raw_capture_max_bytes = true;
+    } else if (strcmp(option, "--artifact-dir") == 0 && !seen_artifact_dir &&
+               value[0] != '\0') {
+      artifact_dir = value;
+      seen_artifact_dir = true;
+    } else if (strcmp(option, "--artifact-max-bytes") == 0 &&
+               !seen_artifact_max_bytes &&
+               parse_u64(value, &artifact_max_bytes)) {
+      seen_artifact_max_bytes = true;
 #ifdef T64_REAL_RUNNER_TESTING
     } else if (strcmp(option, "--advance-step") == 0 &&
                !seen_advance_step && parse_u64(value, &advance_step) &&
@@ -1654,6 +1720,15 @@ int main(int argc, char **argv) {
   if (seen_raw_capture_dir && !seen_raw_capture_max_bytes) {
     raw_capture_max_bytes = T64_RAW_CAPTURE_DEFAULT_MAX_BYTES;
   }
+  /* The artifact pair is all or nothing, never defaulted, bounded, and
+   * mutually exclusive with raw capture. */
+  if (seen_artifact_dir != seen_artifact_max_bytes ||
+      (seen_artifact_dir &&
+       (artifact_max_bytes == 0u ||
+        artifact_max_bytes > T64_ARTIFACT_MAX_BYTES ||
+        seen_raw_capture_dir))) {
+    return emit_prelaunch("usage", "not-started", guest_ticks, 2);
+  }
 #ifdef T64_REAL_RUNNER_TESTING
   g_test_fault = getenv("T64_REAL_RUNNER_TEST_FAULT");
   if (g_test_fault != NULL &&
@@ -1676,7 +1751,11 @@ int main(int argc, char **argv) {
       strcmp(g_test_fault, "capture-missing-video") != 0 &&
       strcmp(g_test_fault, "capture-zero-video") != 0 &&
       strcmp(g_test_fault, "capture-truncate-video") != 0 &&
-      strcmp(g_test_fault, "capture-precommit-barrier") != 0) {
+      strcmp(g_test_fault, "capture-precommit-barrier") != 0 &&
+      strcmp(g_test_fault, "artifact-publish-probe") != 0) {
+    return emit_prelaunch("usage", "not-started", guest_ticks, 2);
+  }
+  if (test_fault_is("artifact-publish-probe") && !seen_artifact_dir) {
     return emit_prelaunch("usage", "not-started", guest_ticks, 2);
   }
 #endif
@@ -1684,7 +1763,8 @@ int main(int argc, char **argv) {
     int status = run_real(fixture_fd, input_fd, profile_id, guest_ticks,
                           advance_step, video_observation_fd,
                           audio_observation_fd, raw_capture_dir,
-                          raw_capture_max_bytes);
+                          raw_capture_max_bytes, artifact_dir,
+                          artifact_max_bytes);
 #ifdef T64_REAL_RUNNER_TESTING
     if (status == 0 && test_fault_is("exit-nonzero")) return 7;
     if (status == 0 && test_fault_is("crash-after-output")) {
