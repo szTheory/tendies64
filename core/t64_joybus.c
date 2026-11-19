@@ -105,14 +105,27 @@ void t64_joybus_parse(const uint8_t pif_ram[T64_PIF_RAM_BYTES],
 }
 
 /* The cartridge channel (channel 4) is dispatched through this one function.
- * In this plan no profile has a device there, so it answers absent for every
- * command; the save devices replace the body behind the same interface. */
-static bool cartridge_channel_response(const t64_joybus_entry *entry,
+ * The profile's save device classifies a transaction from the declared counts
+ * and the command byte alone (the handshake total cannot depend on dynamic
+ * busy state). Without a machine, or on a profile without an EEPROM, it
+ * answers absent for every command. The outcome of a VALID transaction is
+ * produced at the execute tick by t64_save_channel4_execute. */
+static bool cartridge_channel_response(const t64_machine *machine,
+                                       const t64_joybus_entry *entry,
                                        uint8_t command,
                                        joybus_response *response_out) {
-  (void)entry;
-  (void)command;
-  (void)response_out;
+  switch (t64_save_channel4_classify(machine, command, entry->tx_count,
+                                     entry->rx_count)) {
+  case T64_SAVE_CH4_VALID:
+    response_out->outcome = JOYBUS_OUTCOME_RESPONSE;
+    response_out->length = entry->rx_count;
+    return true;
+  case T64_SAVE_CH4_TIMEOUT:
+    response_out->outcome = JOYBUS_OUTCOME_TIMEOUT;
+    return true;
+  case T64_SAVE_CH4_ABSENT:
+    break;
+  }
   return false;
 }
 
@@ -120,13 +133,14 @@ static bool cartridge_channel_response(const t64_joybus_entry *entry,
  * info (0x00 and 0xFF) with 05 00 02 and state (0x01) with four bytes when
  * exactly one command byte was sent; every other command or command length
  * times out with no data; a channel without a device reports no device. */
-static void resolve_transaction(const t64_joybus_entry *entry,
+static void resolve_transaction(const t64_machine *machine,
+                                const t64_joybus_entry *entry,
                                 uint8_t command,
                                 const t64_joybus_controller *port0,
                                 joybus_response *response_out) {
   (void)memset(response_out, 0, sizeof *response_out);
   if (entry->channel == 4u) {
-    if (!cartridge_channel_response(entry, command, response_out)) {
+    if (!cartridge_channel_response(machine, entry, command, response_out)) {
       response_out->outcome = JOYBUS_OUTCOME_ABSENT;
     }
     return;
@@ -189,8 +203,10 @@ static uint64_t transaction_ticks(const t64_joybus_entry *entry,
   return sent + T64_JOYBUS_CONSOLE_STOP_TICKS + T64_JOYBUS_TIMEOUT_TICKS;
 }
 
-uint64_t t64_joybus_plan(const uint8_t pif_ram[T64_PIF_RAM_BYTES],
-                         const t64_joybus_table *table, bool port0_present) {
+static uint64_t plan_transactions(const t64_machine *machine,
+                                  const uint8_t pif_ram[T64_PIF_RAM_BYTES],
+                                  const t64_joybus_table *table,
+                                  bool port0_present) {
   t64_joybus_controller port0;
   uint64_t total = 0u;
   uint32_t index;
@@ -213,16 +229,29 @@ uint64_t t64_joybus_plan(const uint8_t pif_ram[T64_PIF_RAM_BYTES],
         (entry->flags & (uint32_t)JOYBUS_FLAG_SKIP) != 0u) {
       continue;
     }
-    resolve_transaction(entry, entry_command(pif_ram, entry), &port0,
-                        &response);
+    resolve_transaction(machine, entry, entry_command(pif_ram, entry),
+                        &port0, &response);
     total += transaction_ticks(entry, &response);
   }
   return total;
 }
 
-void t64_joybus_execute(uint8_t pif_ram[T64_PIF_RAM_BYTES],
-                        const t64_joybus_table *table,
-                        const t64_joybus_controller *port0) {
+uint64_t t64_joybus_plan(const uint8_t pif_ram[T64_PIF_RAM_BYTES],
+                         const t64_joybus_table *table, bool port0_present) {
+  return plan_transactions(NULL, pif_ram, table, port0_present);
+}
+
+uint64_t t64_joybus_plan_machine(const t64_machine *machine,
+                                 const uint8_t pif_ram[T64_PIF_RAM_BYTES],
+                                 const t64_joybus_table *table,
+                                 bool port0_present) {
+  return plan_transactions(machine, pif_ram, table, port0_present);
+}
+
+static void execute_transactions(t64_machine *machine, uint64_t tick,
+                                 uint8_t pif_ram[T64_PIF_RAM_BYTES],
+                                 const t64_joybus_table *table,
+                                 const t64_joybus_controller *port0) {
   uint32_t index;
 
   if (pif_ram == NULL || table == NULL || !table->parsed) {
@@ -239,8 +268,18 @@ void t64_joybus_execute(uint8_t pif_ram[T64_PIF_RAM_BYTES],
         (entry->flags & (uint32_t)JOYBUS_FLAG_SKIP) != 0u) {
       continue;
     }
-    resolve_transaction(entry, entry_command(pif_ram, entry), port0,
+    resolve_transaction(machine, entry, entry_command(pif_ram, entry), port0,
                         &response);
+    if (entry->channel == 4u && machine != NULL &&
+        response.outcome == JOYBUS_OUTCOME_RESPONSE) {
+      /* The save device answers at the execute tick; it writes only inside
+         the receive area the parsed table declares. */
+      flags = t64_save_channel4_execute(
+          machine, tick, pif_ram + entry->offset + 2u, entry->tx_count,
+          pif_ram + entry->offset + 2u + entry->tx_count, entry->rx_count);
+      pif_ram[entry->offset + 1u] = (uint8_t)(entry->rx_count | flags);
+      continue;
+    }
     if (response.outcome == JOYBUS_OUTCOME_ABSENT) {
       flags = JOYBUS_RX_NO_DEVICE;
     } else if (response.outcome == JOYBUS_OUTCOME_TIMEOUT) {
@@ -258,4 +297,17 @@ void t64_joybus_execute(uint8_t pif_ram[T64_PIF_RAM_BYTES],
        frame executed again never accumulates flag bits. */
     pif_ram[entry->offset + 1u] = (uint8_t)(entry->rx_count | flags);
   }
+}
+
+void t64_joybus_execute(uint8_t pif_ram[T64_PIF_RAM_BYTES],
+                        const t64_joybus_table *table,
+                        const t64_joybus_controller *port0) {
+  execute_transactions(NULL, 0u, pif_ram, table, port0);
+}
+
+void t64_joybus_execute_machine(t64_machine *machine, uint64_t tick,
+                                uint8_t pif_ram[T64_PIF_RAM_BYTES],
+                                const t64_joybus_table *table,
+                                const t64_joybus_controller *port0) {
+  execute_transactions(machine, tick, pif_ram, table, port0);
 }

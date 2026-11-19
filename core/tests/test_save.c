@@ -185,6 +185,109 @@ static void digest_of(const t64_machine *machine,
   T64_CHECK_INT(t64_machine_digest(machine, digest), T64_STATUS_OK);
 }
 
+/* ---- machine and host bus helpers ---------------------------------------- */
+
+/* A machine whose boot CPU event is cancelled so the devices are driven by
+ * host bus writes and guest-tick advances alone. */
+static t64_machine *make_idle_machine(const char *profile_id) {
+  t64_machine *machine = create_admitted(profile_id);
+  uint64_t cancelled_tick = UINT64_MAX;
+  t64_status status;
+
+  if (machine == NULL) return NULL;
+  status = t64_schedule_cancel(machine, T64_DEVICE_CPU, T64_CPU_EVENT_STEP,
+                               0u, &cancelled_tick);
+  T64_CHECK_INT(status, T64_STATUS_OK);
+  T64_CHECK_INT(cancelled_tick, 1u);
+  if (status != T64_STATUS_OK) {
+    t64_machine_destroy(machine);
+    return NULL;
+  }
+  return machine;
+}
+
+static bool advance_guest_to(t64_machine *machine, uint64_t tick) {
+  t64_stop_request request = {T64_STOP_GUEST_TICK, tick};
+  t64_stop_result result = {0u, 0u};
+  t64_status status = t64_machine_advance(machine, &request, &result);
+
+  T64_CHECK_INT(status, T64_STATUS_OK);
+  if (status != T64_STATUS_OK) return false;
+  T64_CHECK_INT(result.reason, T64_STOP_REASON_BOUND);
+  T64_CHECK_INT(result.tick, tick);
+  return result.reason == T64_STOP_REASON_BOUND && result.tick == tick;
+}
+
+#define SI_DRAM_ADDR UINT32_C(0x04800000)
+#define SI_RD64B UINT32_C(0x04800004)
+#define SI_WR64B UINT32_C(0x04800010)
+#define SI_STATUS UINT32_C(0x04800018)
+#define PIF_ADDRESS UINT32_C(0x1FC007C0)
+#define SEND_DRAM UINT32_C(0x3800)
+#define RECEIVE_DRAM UINT32_C(0x3900)
+
+/* ---- literal policy figures (written out here, never read from the core) -- */
+
+/* Handshake totals H of single-entry frames on channel 4 of an EEPROM id:
+ * 2000 n + 188 + 438 + 2000 m + 250 for the three exact triples. */
+#define H_INFO UINT64_C(8876)    /* n 1, m 3  */
+#define H_READ UINT64_C(20876)   /* n 2, m 8  */
+#define H_WRITE UINT64_C(22876)  /* n 10, m 1 */
+#define READ_TAIL UINT64_C(4096)
+#define WRITE_DMA_TICKS UINT64_C(2500)
+#define BUSY_WINDOW UINT64_C(375000)
+
+/* One joybus frame: four skip bytes (channels 0 to 3), the channel 4 counts,
+ * the transmit bytes, 0xFF receive fill, the end escape, zero fill and the
+ * parse request in byte 63. */
+static void build_frame(uint8_t frame[64], uint32_t tx_count,
+                        uint32_t rx_count, const uint8_t *tx) {
+  (void)memset(frame, 0, 64u);
+  frame[4] = (uint8_t)tx_count;
+  frame[5] = (uint8_t)rx_count;
+  (void)memcpy(frame + 6, tx, tx_count);
+  (void)memset(frame + 6 + tx_count, 0xFF, rx_count);
+  frame[6 + tx_count + rx_count] = 0xFE;
+  frame[63] = 0x01;
+}
+
+/* A complete accepted WR64B of the frame at the current tick: moves it into
+ * the PIF RAM, parses it, settles the 2,500-tick completion, acknowledges. */
+static void write_frame(t64_machine *machine, const uint8_t frame[64]) {
+  const uint64_t start = machine->tick;
+
+  (void)memcpy(machine->ram + SEND_DRAM, frame, 64u);
+  T64_CHECK_INT(t64_machine_bus_write(machine, SI_DRAM_ADDR, 4u, SEND_DRAM),
+                T64_STATUS_OK);
+  T64_CHECK_INT(t64_machine_bus_write(machine, SI_WR64B, 4u, PIF_ADDRESS),
+                T64_STATUS_OK);
+  T64_CHECK(advance_guest_to(machine, start + WRITE_DMA_TICKS));
+  T64_CHECK_INT(t64_machine_bus_write(machine, SI_STATUS, 4u, 0u),
+                T64_STATUS_OK);
+}
+
+/* An RD64B started at `start`, with the destination pre-filled with 0xAA so
+ * an untouched byte is visible; settles the completion and returns the image
+ * the guest would find. The execute and completion ticks are checked against
+ * the literal arithmetic start + handshake and execute + 4,096. */
+static void read_image(t64_machine *machine, uint64_t start,
+                       uint64_t handshake, uint8_t image[64]) {
+  T64_CHECK(advance_guest_to(machine, start));
+  (void)memset(machine->ram + RECEIVE_DRAM, 0xAA, 64u);
+  T64_CHECK_INT(t64_machine_bus_write(machine, SI_DRAM_ADDR, 4u, RECEIVE_DRAM),
+                T64_STATUS_OK);
+  T64_CHECK_INT(t64_machine_bus_write(machine, SI_RD64B, 4u, PIF_ADDRESS),
+                T64_STATUS_OK);
+  T64_CHECK_INT(machine->si.execute_tick, start + handshake);
+  T64_CHECK_INT(machine->si.complete_tick, start + handshake + READ_TAIL);
+  /* Settle at the completion tick the machine reports (asserted equal to the
+     literal above), so one wrong tick reports itself and does not cascade. */
+  T64_CHECK(advance_guest_to(machine, machine->si.complete_tick));
+  T64_CHECK_INT(t64_machine_bus_write(machine, SI_STATUS, 4u, 0u),
+                T64_STATUS_OK);
+  (void)memcpy(image, machine->ram + RECEIVE_DRAM, 64u);
+}
+
 /* ------------------------------------------------------------------------ */
 /* storage-blank                                                             */
 /* ------------------------------------------------------------------------ */
@@ -306,6 +409,72 @@ static void case_storage_blank(void) {
 }
 
 /* ------------------------------------------------------------------------ */
+/* eeprom-tracer                                                             */
+/* ------------------------------------------------------------------------ */
+
+/* The write frame of the tracer: block 1, data 11 to 18. */
+static const uint8_t tracer_write_tx[10] = {0x05, 0x01, 0x11, 0x12, 0x13,
+                                            0x14, 0x15, 0x16, 0x17, 0x18};
+static const uint8_t tracer_read_tx[2] = {0x04, 0x01};
+
+/* Writes block 1 at S1 = 10,000, then reads block 1 with the read executing
+ * `delta` ticks from the deadline (E2 = deadline + delta). */
+static void run_tracer(int64_t delta, uint8_t read_image_out[64],
+                       uint8_t write_image_out[64]) {
+  t64_machine *machine = make_idle_machine(E4K_ID);
+  uint8_t frame[64];
+  uint64_t deadline;
+  uint64_t e1;
+
+  if (machine == NULL) return;
+  advance_guest_to(machine, 3000u);
+  build_frame(frame, 10u, 1u, tracer_write_tx);
+  write_frame(machine, frame);
+  /* S1 = 10,000: E1 = S1 + 22,876, C1 = E1 + 4,096. */
+  read_image(machine, 10000u, H_WRITE, write_image_out);
+  e1 = UINT64_C(10000) + H_WRITE;
+  T64_CHECK_INT(e1, 32876u);
+  deadline = e1 + BUSY_WINDOW;
+  T64_CHECK_INT(deadline, 407876u);
+  T64_CHECK_INT(machine->save.busy_until, deadline);
+
+  build_frame(frame, 2u, 8u, tracer_read_tx);
+  write_frame(machine, frame);
+  /* E2 = S2 + 20,876, so S2 = deadline - 20,876 + delta. */
+  read_image(machine, (uint64_t)((int64_t)(deadline - H_READ) + delta), H_READ,
+             read_image_out);
+  t64_machine_destroy(machine);
+}
+
+static void case_eeprom_tracer(void) {
+  uint8_t read_image_out[64];
+  uint8_t write_image_out[64];
+  size_t index;
+
+  /* Write accepted: byte 5 is the receive count 1 with no flag, the data byte
+   * (offset 16) is 0x00. */
+  run_tracer(0, read_image_out, write_image_out);
+  T64_CHECK_INT(write_image_out[4], 10u);
+  T64_CHECK_INT(write_image_out[5], 0x01u);
+  T64_CHECK_INT(write_image_out[16], 0x00u);
+  /* A read whose E equals the deadline exactly is idle: bytes 11 to 18. */
+  T64_CHECK_INT(read_image_out[4], 2u);
+  T64_CHECK_INT(read_image_out[5], 0x08u);
+  for (index = 0u; index < 8u; index++) {
+    T64_CHECK_INT(read_image_out[8u + index], 0x11u + index);
+  }
+  /* One tick earlier it is busy: byte 5 carries the timeout flag with the
+   * receive count and the fill bytes are untouched (0xFF). */
+  run_tracer(-1, read_image_out, write_image_out);
+  T64_CHECK_INT(write_image_out[5], 0x01u);
+  T64_CHECK_INT(write_image_out[16], 0x00u);
+  T64_CHECK_INT(read_image_out[5], 0x48u);
+  for (index = 0u; index < 8u; index++) {
+    T64_CHECK_INT(read_image_out[8u + index], 0xFFu);
+  }
+}
+
+/* ------------------------------------------------------------------------ */
 /* Dispatch                                                                  */
 /* ------------------------------------------------------------------------ */
 
@@ -316,6 +485,7 @@ typedef struct {
 
 static const test_case cases[] = {
     {"storage-blank", case_storage_blank},
+    {"eeprom-tracer", case_eeprom_tracer},
 };
 
 int main(int argc, char **argv) {

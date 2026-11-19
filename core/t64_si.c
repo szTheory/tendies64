@@ -166,8 +166,9 @@ static t64_status start_dma(t64_machine *machine, uint32_t direction,
     complete_delay = T64_SI_WRITE_DMA_TICKS;
     status = t64_schedule_check_capacity(machine, 1u, complete_delay);
   } else {
-    handshake_ticks = t64_joybus_plan(si->pif_ram, &si->table,
-                                      port0_present(machine));
+    handshake_ticks = t64_joybus_plan_machine(machine, si->pif_ram,
+                                              &si->table,
+                                              port0_present(machine));
     execute_delay = handshake_ticks;
     complete_delay = handshake_ticks + T64_SI_READ_TAIL_TICKS;
     status = t64_schedule_check_capacity(machine, 2u, complete_delay);
@@ -281,7 +282,8 @@ t64_status t64_si_execute_event(t64_machine *machine, const t64_event *event) {
      at the machine tick of an advance request. */
   t64_si_latch_sample(machine, 0u, event->tick, &port0.buttons, &port0.x,
                       &port0.y);
-  t64_joybus_execute(si->pif_ram, &si->table, &port0);
+  t64_joybus_execute_machine(machine, event->tick, si->pif_ram, &si->table,
+                             &port0);
   si->execute_pending = false;
   return T64_STATUS_OK;
 }
