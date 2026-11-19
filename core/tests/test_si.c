@@ -208,6 +208,264 @@ static void case_capacity_rule(void) {
 }
 
 /* ------------------------------------------------------------------------ */
+/* cpu-store-budget                                                          */
+/* ------------------------------------------------------------------------ */
+
+#define AI_STEM_ID "ntsc-cart-4m-openipl3-rdram-b-t1-rdp-vi-filter-v9-ai-v1"
+#define LEGACY_T1_ID "ntsc-cart-4m-openipl3-rdram-b-t1-v1"
+
+/* Authored program at RDRAM 0x1000: build the SI base 0xA4800000 in $t0
+ * (lui $t0, 0xA480), the value 0x1FC007C0 in $t1 (lui $t1, 0x1FC0;
+ * ori $t1, $t1, 0x07C0), then one store. */
+#define OP_LUI_T0_SI UINT32_C(0x3C08A480)
+#define OP_LUI_T1 UINT32_C(0x3C091FC0)
+#define OP_ORI_T1 UINT32_C(0x352907C0)
+#define OP_SW_T1_RD64B UINT32_C(0xAD090004) /* sw $t1, 4($t0)  */
+#define OP_SW_T1_WR64B UINT32_C(0xAD090010) /* sw $t1, 16($t0) */
+#define OP_SW_ZERO_STATUS UINT32_C(0xAD000018) /* sw $zero, 24($t0) */
+#define OP_SD_T1_BASE UINT32_C(0xFD090000)  /* sd $t1, 0($t0)  */
+
+#define BUDGET_QUEUE_LIMIT 16u
+#define PROGRAM_ADDRESS UINT32_C(0x1000)
+
+static void put_be32(uint8_t *bytes, uint32_t value) {
+  bytes[0] = (uint8_t)(value >> 24);
+  bytes[1] = (uint8_t)(value >> 16);
+  bytes[2] = (uint8_t)(value >> 8);
+  bytes[3] = (uint8_t)value;
+}
+
+static bool cancel_boot_cpu_event(t64_machine *machine) {
+  uint64_t cancelled_tick = UINT64_MAX;
+  t64_status status = t64_schedule_cancel(
+      machine, T64_DEVICE_CPU, T64_CPU_EVENT_STEP, 0u, &cancelled_tick);
+
+  T64_CHECK_INT(status, T64_STATUS_OK);
+  T64_CHECK_INT(cancelled_tick, 1u);
+  return status == T64_STATUS_OK && cancelled_tick == 1u;
+}
+
+/* A machine that has run the three setup instructions and is positioned at
+ * the store, with the free queue room and sequence state set directly. */
+static t64_machine *make_store_machine(const char *profile_id,
+                                       uint32_t store_opcode, size_t room,
+                                       uint32_t width_bits,
+                                       uint64_t next_sequence) {
+  t64_machine *machine = create_admitted(profile_id);
+  const uint32_t program[4] = {OP_LUI_T0_SI, OP_LUI_T1, OP_ORI_T1,
+                               store_opcode};
+  size_t index;
+
+  if (machine == NULL) return NULL;
+  if (!cancel_boot_cpu_event(machine)) {
+    t64_machine_destroy(machine);
+    return NULL;
+  }
+  for (index = 0u; index < 4u; index++) {
+    put_be32(machine->ram + PROGRAM_ADDRESS + 4u * index, program[index]);
+  }
+  machine->cpu.pc = UINT32_C(0x80001000);
+  machine->cpu.pc_full = t64_cpu_canonical_address(machine->cpu.pc);
+  /* N6: edit the in-memory copy of the profile after create. */
+  machine->profile.event_queue_capacity = BUDGET_QUEUE_LIMIT;
+  for (index = 0u; index < 3u; index++) {
+    T64_CHECK_INT(t64_cpu_step(machine, NULL), T64_STATUS_OK);
+  }
+  T64_CHECK_INT(machine->cpu.retired_instructions, 3u);
+  T64_CHECK_INT(machine->cpu.gpr[8], UINT64_C(0xffffffffa4800000));
+  T64_CHECK_INT(machine->cpu.gpr[9], UINT64_C(0x1fc007c0));
+  machine->queue_head = 0u;
+  machine->queue_count = BUDGET_QUEUE_LIMIT - room;
+  machine->profile.sequence_width_bits = width_bits;
+  machine->next_sequence = next_sequence;
+  machine->sequence_exhausted = false;
+  return machine;
+}
+
+typedef struct {
+  t64_status status;
+  uint64_t retired;
+  size_t queue_count;
+  uint8_t digest_before[T64_DIGEST_SIZE];
+  uint8_t digest_after[T64_DIGEST_SIZE];
+  t64_si_state si_before;
+} store_result;
+
+/* A refused step still records the attempt (last PCs, last opcode and a host
+ * error outcome) by design; the expected pre-state carries that record so
+ * the digest comparison isolates every other effect. */
+static store_result run_store(t64_machine *machine, uint32_t store_opcode) {
+  store_result result;
+
+  (void)memset(&result, 0, sizeof result);
+  result.si_before = machine->si;
+  machine->cpu.last_pc = machine->cpu.pc;
+  machine->cpu.last_pc_full = machine->cpu.pc_full;
+  machine->cpu.last_opcode = store_opcode;
+  machine->cpu.attempt_outcome = T64_CPU_ATTEMPT_HOST_ERROR;
+  T64_CHECK_INT(t64_machine_digest(machine, result.digest_before),
+                T64_STATUS_OK);
+  result.status = t64_cpu_step(machine, NULL);
+  result.retired = machine->cpu.retired_instructions;
+  result.queue_count = machine->queue_count;
+  T64_CHECK_INT(t64_machine_digest(machine, result.digest_after),
+                T64_STATUS_OK);
+  return result;
+}
+
+/* A capacity refusal happens before any mutation: nothing retired beyond the
+ * three setup instructions, SI state untouched, digest bit-identical. */
+static void check_refused(const char *label, const store_result *result,
+                          t64_status expected, size_t room,
+                          const t64_machine *machine) {
+  if (result->status != expected) {
+    fprintf(stderr,
+            "budget row '%s': status %u (want %u), retired %llu, queue %zu\n",
+            label, (unsigned)result->status, (unsigned)expected,
+            (unsigned long long)result->retired, result->queue_count);
+  }
+  T64_CHECK_INT(result->status, expected);
+  T64_CHECK_INT(result->retired, 3u);
+  T64_CHECK_INT(result->queue_count, BUDGET_QUEUE_LIMIT - room);
+  T64_CHECK(memcmp(&result->si_before, &machine->si, sizeof machine->si) == 0);
+  T64_CHECK(memcmp(result->digest_before, result->digest_after,
+                   T64_DIGEST_SIZE) == 0);
+}
+
+static bool refused_for_capacity(t64_status status) {
+  return status == T64_STATUS_QUEUE_FULL ||
+         status == T64_STATUS_SEQUENCE_EXHAUSTED;
+}
+
+/* One refuse-then-accept pair on a fresh machine each: the refusing room has
+ * one event too few for the store, the accepting room has exactly enough. */
+static void budget_room_pair(const char *label, const char *profile_id,
+                             uint32_t store_opcode, size_t refuse_room,
+                             size_t accept_room) {
+  t64_machine *machine;
+  store_result result;
+
+  machine = make_store_machine(profile_id, store_opcode, accept_room, 64u, 0u);
+  if (machine == NULL) return;
+  result = run_store(machine, store_opcode);
+  /* Accepted baseline in the same setup: the capacity rule did not refuse. */
+  if (refused_for_capacity(result.status)) {
+    fprintf(stderr, "budget row '%s': accept room %zu refused with %u\n",
+            label, accept_room, (unsigned)result.status);
+  }
+  T64_CHECK(!refused_for_capacity(result.status));
+  t64_machine_destroy(machine);
+
+  machine = make_store_machine(profile_id, store_opcode, refuse_room, 64u, 0u);
+  if (machine == NULL) return;
+  result = run_store(machine, store_opcode);
+  check_refused(label, &result, T64_STATUS_QUEUE_FULL, refuse_room, machine);
+  t64_machine_destroy(machine);
+}
+
+/* Sequence analogue: width 8 gives a limit of 255. needed events need
+ * headroom needed - 1 above next_sequence. */
+static void budget_sequence_pair(const char *label, const char *profile_id,
+                                 uint32_t store_opcode,
+                                 uint64_t refuse_next,
+                                 uint64_t accept_next) {
+  t64_machine *machine;
+  store_result result;
+
+  machine = make_store_machine(profile_id, store_opcode, 8u, 8u, accept_next);
+  if (machine == NULL) return;
+  result = run_store(machine, store_opcode);
+  if (refused_for_capacity(result.status)) {
+    fprintf(stderr, "sequence row '%s': accept next %llu refused with %u\n",
+            label, (unsigned long long)accept_next, (unsigned)result.status);
+  }
+  T64_CHECK(!refused_for_capacity(result.status));
+  t64_machine_destroy(machine);
+
+  machine = make_store_machine(profile_id, store_opcode, 8u, 8u, refuse_next);
+  if (machine == NULL) return;
+  result = run_store(machine, store_opcode);
+  check_refused(label, &result, T64_STATUS_SEQUENCE_EXHAUSTED, 8u, machine);
+  t64_machine_destroy(machine);
+}
+
+static t64_si_state family_si_after;
+
+static t64_status eight_byte_store_status(const char *profile_id,
+                                          uint32_t window_address,
+                                          store_result *result_out,
+                                          bool *stopped_out) {
+  t64_machine *machine;
+  store_result result;
+  t64_status status;
+
+  machine = make_store_machine(profile_id, OP_SD_T1_BASE, 8u, 64u, 0u);
+  if (machine == NULL) return T64_STATUS_INVALID_ARGUMENT;
+  /* Re-aim $t0 at the requested window (the AI analog uses 0xA4500000). */
+  machine->cpu.gpr[8] = t64_cpu_canonical_address(window_address);
+  result = run_store(machine, OP_SD_T1_BASE);
+  status = result.status;
+  *result_out = result;
+  *stopped_out = machine->cpu.stopped;
+  family_si_after = machine->si;
+  t64_machine_destroy(machine);
+  return status;
+}
+
+static void case_cpu_store_budget(void) {
+  store_result result;
+  store_result analog;
+  t64_status analog_status;
+  t64_status family_status;
+  bool analog_stopped = false;
+  bool family_stopped = false;
+
+  /* D-44: on the family, RD64B needs three events (one successor, two SI
+     events) and WR64B needs two; the cap is the free room. */
+  budget_room_pair("family RD64B", SI_STEM_ID, OP_SW_T1_RD64B, 2u, 3u);
+  budget_room_pair("family WR64B", SI_STEM_ID, OP_SW_T1_WR64B, 1u, 2u);
+  /* Sequence analogue: next 254 leaves headroom 1 (RD64B needs 2), 253
+     leaves 2; WR64B needs 1, so next 255 (headroom 0) refuses and 254 does
+     not. */
+  budget_sequence_pair("family RD64B sequence", SI_STEM_ID, OP_SW_T1_RD64B,
+                       254u, 253u);
+  budget_sequence_pair("family WR64B sequence", SI_STEM_ID, OP_SW_T1_WR64B,
+                       255u, 254u);
+  /* Every other SI address and every legacy profile keep the legacy budget
+     of one extra event: refused at room 1, accepted at room 2. */
+  budget_room_pair("family STATUS store", SI_STEM_ID, OP_SW_ZERO_STATUS, 1u,
+                   2u);
+  budget_room_pair("ai profile RD64B address", AI_STEM_ID, OP_SW_T1_RD64B,
+                   1u, 2u);
+  budget_room_pair("legacy t1 profile RD64B address", LEGACY_T1_ID,
+                   OP_SW_T1_RD64B, 1u, 2u);
+  budget_room_pair("legacy t1 profile STATUS store", LEGACY_T1_ID,
+                   OP_SW_ZERO_STATUS, 1u, 2u);
+
+  /* An 8-byte store keeps budget 0: it needs room for the successor only, so
+     it is not refused for capacity at room 1; its outcome is the bus refusal
+     status, recorded from the equivalent 8-byte store to the AI window on
+     the AI profile as the independent analog. */
+  analog_status = eight_byte_store_status(AI_STEM_ID, UINT32_C(0xa4500000),
+                                          &analog, &analog_stopped);
+  T64_CHECK(!refused_for_capacity(analog_status));
+  T64_CHECK(analog_status != T64_STATUS_OK);
+  T64_CHECK(analog_stopped);
+  family_status = eight_byte_store_status(SI_STEM_ID, UINT32_C(0xa4800000),
+                                          &result, &family_stopped);
+  /* The SI window refuses the 8-byte store exactly as the AI window does:
+     the same status, nothing retired, no event queued and the SI registers
+     untouched (the CPU stops on the bus refusal in both, which is why the
+     digest is not compared for this row). */
+  T64_CHECK_INT(family_status, analog_status);
+  T64_CHECK(family_stopped);
+  T64_CHECK_INT(result.retired, analog.retired);
+  T64_CHECK_INT(result.queue_count, analog.queue_count);
+  T64_CHECK(memcmp(&result.si_before, &family_si_after, sizeof family_si_after) ==
+            0);
+}
+
+/* ------------------------------------------------------------------------ */
 /* Dispatch                                                                  */
 /* ------------------------------------------------------------------------ */
 
@@ -221,6 +479,8 @@ typedef struct {
 static const test_case cases[] = {
     {"capacity-rule", case_capacity_rule, "atomic",
      "unit.core.si.atomic-queue-full"},
+    {"cpu-store-budget", case_cpu_store_budget, NULL,
+     "unit.core.cpu.si-store-budget"},
 };
 
 static const char *suite_finish_name(const char *suite) {

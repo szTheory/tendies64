@@ -707,7 +707,10 @@ t64_target_warnings(test_si)
 add_dependencies(test_si t64-boot-fixtures)
 add_test(NAME unit.core.si.atomic-queue-full
   COMMAND test_si --suite atomic)
-set_tests_properties(unit.core.si.atomic-queue-full PROPERTIES
+add_test(NAME unit.core.cpu.si-store-budget
+  COMMAND test_si --case cpu-store-budget)
+set_tests_properties(unit.core.si.atomic-queue-full
+  unit.core.cpu.si-store-budget PROPERTIES
   LABELS unit
   ENVIRONMENT "T64_TEST_IPL3_PATH=${T64_BOOT_FIXTURE_DIR}/ipl3_compat.z64")
 

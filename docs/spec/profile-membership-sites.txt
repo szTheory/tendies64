@@ -11,6 +11,7 @@ core/t64_ai.c :: t64_ai_write_register :: t64_has_ai_device
 core/t64_ai.c :: t64_audio_copy :: t64_has_ai_device
 core/t64_ai.c :: t64_audio_info :: t64_has_ai_device
 core/t64_bus.c :: decode_region :: t64_has_ai_device
+core/t64_cpu.c :: cpu_successor_extra_event_budget :: t64_has_si_profile
 core/t64_digest.c :: t64_digest_stream :: machine_model_version,state_serialization_version,t64_has_ai_profile,t64_has_si_profile,t64_has_vi_filter_v9_profile
 core/t64_internal.h :: t64_has_ai_device :: t64_has_ai_profile,t64_has_si_profile
 core/t64_internal.h :: t64_has_ai_profile :: descriptor_version,machine_model_version,state_serialization_version

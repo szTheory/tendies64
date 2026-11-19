@@ -828,6 +828,99 @@ typedef struct {
   uint8_t packet_history_sha256[T64_DIGEST_SIZE];
 } t64_ai_state;
 
+/*
+ * Serial interface, PIF RAM and standard-controller latch (Phase 9, plan
+ * 09-03). Every figure below is a named software-profile policy value of the
+ * composite family; none is a hardware measurement.
+ */
+#define T64_SI_BASE UINT32_C(0x04800000)
+#define T64_MI_INTERRUPT_SI UINT32_C(0x00000002)
+#define T64_SI_REG_DRAM_ADDR UINT32_C(0x00)
+#define T64_SI_REG_RD64B UINT32_C(0x04)
+#define T64_SI_REG_WR64B UINT32_C(0x10)
+#define T64_SI_REG_STATUS UINT32_C(0x18)
+#define T64_SI_PIF_ADDRESS UINT32_C(0x1FC007C0)
+#define T64_PIF_RAM_BYTES 64u
+#define T64_SI_DRAM_ADDRESS_MASK UINT32_C(0x00FFFFFF)
+#define T64_SI_STATUS_DMA_BUSY UINT32_C(0x00000001)
+#define T64_SI_STATUS_DMA_ERROR UINT32_C(0x00000008)
+#define T64_SI_STATUS_INTERRUPT UINT32_C(0x00001000)
+#define T64_SI_WRITE_DMA_TICKS UINT64_C(2500)
+#define T64_SI_READ_TAIL_TICKS UINT64_C(4096)
+#define T64_JOYBUS_BYTE_TICKS UINT64_C(2000)
+#define T64_JOYBUS_CONSOLE_STOP_TICKS UINT64_C(188)
+#define T64_JOYBUS_TX_RX_GAP_TICKS UINT64_C(438)
+#define T64_JOYBUS_DEVICE_STOP_TICKS UINT64_C(250)
+#define T64_JOYBUS_TIMEOUT_TICKS UINT64_C(3907)
+#define T64_JOYBUS_RESET_TICKS UINT64_C(62500)
+#define T64_JOYBUS_CHANNELS 5u
+#define T64_SI_PORTS 4u
+#define T64_SI_DIRECTION_NONE UINT32_C(0)
+#define T64_SI_DIRECTION_WR64B UINT32_C(1)
+#define T64_SI_DIRECTION_RD64B UINT32_C(2)
+/* Internal trace kind for a refused SI register write; not a scheduled
+ * event kind, so it never appears in the event ledger. */
+#define T64_SI_TRACE_KIND_REFUSED UINT32_C(3)
+
+typedef enum {
+  T64_JOYBUS_ENTRY_UNUSED = 0,
+  T64_JOYBUS_ENTRY_TRANSACT = 1,
+  T64_JOYBUS_ENTRY_RESET = 2
+} t64_joybus_entry_kind;
+
+typedef struct {
+  uint32_t kind;
+  uint32_t channel;
+  uint32_t offset;
+  uint32_t tx_count;
+  uint32_t rx_count;
+  uint32_t flags;
+} t64_joybus_entry;
+
+typedef struct {
+  bool parsed;
+  uint32_t entry_count;
+  t64_joybus_entry entries[T64_JOYBUS_CHANNELS];
+} t64_joybus_table;
+
+/* The controller value the executor reports for channel 0; sampled from the
+ * input latch at the execute tick by the SI layer. */
+typedef struct {
+  bool present;
+  uint16_t buttons;
+  uint8_t x;
+  uint8_t y;
+} t64_joybus_controller;
+
+typedef struct {
+  uint16_t current_buttons;
+  uint8_t current_x;
+  uint8_t current_y;
+  uint16_t next_buttons;
+  uint8_t next_x;
+  uint8_t next_y;
+  uint64_t next_visible_from;
+  bool next_valid;
+} t64_si_port_latch;
+
+typedef struct {
+  uint32_t dram_address;
+  bool error;
+  bool active_valid;
+  uint32_t active_direction;
+  uint32_t active_dram_address;
+  uint64_t start_tick;
+  uint64_t execute_tick;
+  uint64_t complete_tick;
+  uint64_t active_token;
+  uint64_t next_token;
+  bool token_exhausted;
+  bool execute_pending;
+  uint8_t pif_ram[T64_PIF_RAM_BYTES];
+  t64_joybus_table table;
+  t64_si_port_latch latch[T64_SI_PORTS];
+} t64_si_state;
+
 size_t t64_rdp_triangle_word_count(uint32_t opcode);
 bool t64_rdp_triangle_bounds(const t64_machine *machine, uint32_t opcode,
                              const uint64_t *words, size_t word_count,
@@ -886,6 +979,7 @@ struct t64_machine {
   t64_host_storage video_storage;
   uint8_t *video_packets;
   t64_ai_state ai;
+  t64_si_state si;
   t64_host_storage audio_storage;
   uint8_t *audio_packets;
   /* Host observer cursor; never contributes to guest identity. */

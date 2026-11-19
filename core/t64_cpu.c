@@ -1506,6 +1506,18 @@ static size_t cpu_successor_extra_event_budget(const t64_machine *machine,
        spare here is conservative if a translation changes between checks. */
     return 1u;
   }
+  if (t64_has_si_profile(machine)) {
+    /* Profile policy (D-44): a 32-bit store that starts an SI DMA may
+       schedule up to two events beyond the successor (execute and complete
+       for the read start, completion only for the write start), so the
+       preflight must find room before the store is performed. */
+    if (translation.physical_address == T64_SI_BASE + T64_SI_REG_RD64B) {
+      return 2u;
+    }
+    if (translation.physical_address == T64_SI_BASE + T64_SI_REG_WR64B) {
+      return 1u;
+    }
+  }
   return translation.physical_address < machine->profile.rdram_bytes ? 0u
                                                                      : 1u;
 }
