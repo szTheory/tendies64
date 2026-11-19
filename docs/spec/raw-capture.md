@@ -128,3 +128,17 @@ the run with `SIGXFSZ`. It fails closed and publishes nothing, but a larger fram
 limit is raised for the capture directory. The accepted authored case is
 16,581 bytes in total and is unaffected; the current real runner accepts only
 that authored guest.
+
+Artifact pair (Phase 9, provisional until Phase 10): with `--artifact-dir` and
+`--artifact-max-bytes` (both required together, no default, at most 33,554,432
+bytes, refused together with `--raw-capture-dir`) the child limit is exactly the
+declared maximum plus 65,536 bytes; without the pair it stays at 69,632 bytes as
+described above, and the report and the capture stay bounded by their own caps in
+both configurations. A child ended at the limit leaves a private (mode 0700)
+stage directory inside the artifact directory and publishes nothing; the
+supervisor reports `runner-signalled`. The artifact publisher is a second,
+single-file copy of the transaction above (descriptor walk, private stage, real
+no-replace rename probe, identity-checked cleanup); `runner/t64_raw_capture.c` is
+unchanged. The evidence for the boundary is the test twin of the supervisor and
+runner, with a write of exactly the limit (not signalled) and one byte more
+(signalled) in each configuration; it is not a hardware or timing claim.

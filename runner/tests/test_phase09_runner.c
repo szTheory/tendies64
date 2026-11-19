@@ -1027,6 +1027,132 @@ static int case_profile_table(void) {
   return g_failures == 0 ? 0 : 1;
 }
 
+/* K9: the child write limit is exactly the declared artifact maximum plus
+ * 65,536 bytes when the pair is present; one byte more ends the child. */
+#define FSIZE_SLACK_BYTES 65536u
+
+static bool is_stage_name(const char *name) {
+  return strncmp(name, ".t64-art-stage-", 15u) == 0;
+}
+
+static int case_fsize_artifact(void) {
+  char stem[PATH_MAX];
+  char dir[PATH_MAX];
+  char first[256];
+  const uint64_t size = 100000u;
+  run_spec spec = {0};
+  run_out run;
+  CHECK(fixture_path(stem, "phase09-admit-si-v1"));
+  spec.supervisor = g_test_supervisor;
+  spec.fixture = stem;
+  spec.bound = 600000u;
+  spec.artifact_max = size;
+
+  /* Accepted baseline: the probe publishes exactly M bytes and passes. */
+  CHECK(make_artifact_dir(dir, 0700));
+  spec.artifact_dir = dir;
+  spec.test_fault = "artifact-publish-probe";
+  CHECK(run_supervised(&spec, &run));
+  expect_pass(&run);
+  CHECK(list_directory(dir, first) == 1u);
+  CHECK(strcmp(first, "probe.sta") == 0);
+
+  /* Exactly M plus 65,536 bytes written to the staged descriptor: the child
+   * is not signalled, the run still passes and nothing remains published. */
+  CHECK(make_artifact_dir(dir, 0700));
+  spec.test_fault = "artifact-write-limit-exact";
+  CHECK(run_supervised(&spec, &run));
+  expect_pass(&run);
+  CHECK(list_directory(dir, first) == 0u);
+
+  /* One more byte: the kernel ends the child, the supervisor reports
+   * runner-signalled, nothing is published and the stage stays private. */
+  CHECK(make_artifact_dir(dir, 0700));
+  spec.test_fault = "artifact-write-limit-over";
+  CHECK(run_supervised(&spec, &run));
+  CHECK(run.parsed);
+  CHECK(run.checker_ok);
+  CHECK(strcmp(run.outcome, "harness-error") == 0);
+  CHECK(strcmp(run.detail, "runner-signalled") == 0);
+  CHECK(strcmp(run.stop_kind, "host-error") == 0);
+  CHECK(list_directory(dir, first) == 1u);
+  CHECK(is_stage_name(first));
+  {
+    char stage_path[PATH_MAX];
+    char staged_file[PATH_MAX];
+    char inner[256];
+    struct stat info;
+    CHECK(join_path(stage_path, sizeof stage_path, dir, first));
+    CHECK(lstat(stage_path, &info) == 0);
+    CHECK(S_ISDIR(info.st_mode));
+    CHECK((info.st_mode & 0777) == 0700);
+    CHECK(list_directory(stage_path, inner) == 1u);
+    CHECK(strcmp(inner, "probe.sta") == 0);
+    CHECK(join_path(staged_file, sizeof staged_file, stage_path, inner));
+    CHECK(lstat(staged_file, &info) == 0);
+    /* The write that crossed the limit was cut at the limit exactly. */
+    CHECK((uint64_t)info.st_size == size + FSIZE_SLACK_BYTES);
+    CHECK((info.st_mode & 0777) == 0600);
+  }
+  return g_failures == 0 ? 0 : 1;
+}
+
+/* With the pair absent the limit is unchanged at the report cap plus the
+ * slack (69,632 bytes); the oversize report is still refused in both
+ * configurations. */
+static int case_fsize_report_capture(void) {
+  char stem[PATH_MAX];
+  char dir[PATH_MAX];
+  run_spec spec = {0};
+  run_out run;
+  run_out absent;
+  run_out present;
+  CHECK(fixture_path(stem, "phase09-admit-si-v1"));
+  spec.supervisor = g_test_supervisor;
+  spec.fixture = stem;
+  spec.bound = 600000u;
+
+  /* Accepted baseline in the same setup. */
+  CHECK(run_supervised(&spec, &run));
+  expect_pass(&run);
+
+  spec.test_fault = "capture-write-limit-exact";
+  CHECK(run_supervised(&spec, &run));
+  CHECK(run.parsed);
+  CHECK(strcmp(run.detail, "runner-signalled") != 0);
+  (void)fprintf(stderr, "capture-write-limit-exact record: outcome=%s "
+                "detail=%s stop=%s\n", run.outcome, run.detail,
+                run.stop_kind);
+  CHECK(strcmp(run.outcome, "harness-error") == 0);
+
+  spec.test_fault = "capture-write-limit-over";
+  CHECK(run_supervised(&spec, &run));
+  CHECK(run.parsed);
+  CHECK(strcmp(run.outcome, "harness-error") == 0);
+  CHECK(strcmp(run.detail, "runner-signalled") == 0);
+  CHECK(strcmp(run.stop_kind, "host-error") == 0);
+
+  /* The oversize report fault is refused the same way with and without the
+   * pair; the pair does not loosen the report bound. */
+  spec.test_fault = "report-oversize";
+  CHECK(run_supervised(&spec, &absent));
+  CHECK(absent.parsed);
+  CHECK(strcmp(absent.outcome, "harness-error") == 0);
+  CHECK(strcmp(absent.detail, "pass") != 0);
+  CHECK(make_artifact_dir(dir, 0700));
+  spec.artifact_dir = dir;
+  spec.artifact_max = 100000u;
+  CHECK(run_supervised(&spec, &present));
+  CHECK(present.parsed);
+  CHECK(strcmp(present.outcome, absent.outcome) == 0);
+  CHECK(strcmp(present.detail, absent.detail) == 0);
+  CHECK(strcmp(present.stop_kind, absent.stop_kind) == 0);
+  (void)fprintf(stderr, "report-oversize record: outcome=%s detail=%s "
+                "stop=%s\n", present.outcome, present.detail,
+                present.stop_kind);
+  return g_failures == 0 ? 0 : 1;
+}
+
 typedef struct {
   const char *name;
   int (*run)(void);
@@ -1039,6 +1165,8 @@ static const case_entry cases[] = {
     {"tick-cap", case_tick_cap},
     {"transcript-pin", case_transcript_pin},
     {"argv-bound", case_argv_bound},
+    {"fsize-artifact", case_fsize_artifact},
+    {"fsize-report-capture", case_fsize_report_capture},
     {"profile-table", case_profile_table},
 };
 

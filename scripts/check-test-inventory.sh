@@ -209,7 +209,11 @@ runner.supervisor-argv-bound
 runner.phase09-tracer
 runner.phase09-admit
 controls.real.phase09-admit-wrong-transcript
-runner.profile-table-id-length'
+runner.profile-table-id-length
+runner.artifact-publisher
+controls.artifact-substitution
+harness.fsize-artifact-real-fault
+harness.fsize-report-capture-still-bounded'
 
 CPU_COVERAGE_OPCODES='ADD
 ADDU

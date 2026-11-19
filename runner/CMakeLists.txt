@@ -551,7 +551,27 @@ t64_phase09_runner_case(controls.real.phase09-admit-wrong-transcript admit-wrong
 t64_phase09_runner_case(runner.guest-tick-cap tick-cap)
 t64_phase09_runner_case(runner.fixture-transcript-pin transcript-pin)
 t64_phase09_runner_case(runner.supervisor-argv-bound argv-bound)
+t64_phase09_runner_case(harness.fsize-artifact-real-fault fsize-artifact)
+t64_phase09_runner_case(harness.fsize-report-capture-still-bounded fsize-report-capture)
 t64_phase09_runner_case(runner.profile-table-id-length profile-table)
+
+# Publisher controls: the module is compiled with the testing hooks, like the
+# test twin of the runner, and never reaches the production runner.
+add_executable(test_artifact_publisher tests/test_artifact_publisher.c
+  t64_artifact_publisher.c)
+target_compile_definitions(test_artifact_publisher PRIVATE
+  ${T64_HOST_DEFS} T64_REAL_RUNNER_TESTING)
+target_include_directories(test_artifact_publisher PRIVATE
+  ${CMAKE_CURRENT_SOURCE_DIR})
+target_link_libraries(test_artifact_publisher PRIVATE t64_common)
+t64_target_warnings(test_artifact_publisher)
+add_test(NAME runner.artifact-publisher
+  COMMAND test_artifact_publisher publish-and-refusals)
+add_test(NAME controls.artifact-substitution
+  COMMAND test_artifact_publisher substitution)
+set_tests_properties(runner.artifact-publisher controls.artifact-substitution
+  PROPERTIES LABELS "runner;controls" TIMEOUT 120
+  ENVIRONMENT "T64_PHASE09_EVIDENCE_DIR=${CMAKE_BINARY_DIR}/09-02-evidence")
 
 # Original-record audio evidence controls. This selftest runs only isolated
 # verifier mutations; hosted emission remains a separate post-gate command.

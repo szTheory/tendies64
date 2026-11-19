@@ -688,6 +688,10 @@ static int parse_args(int argc, char **argv, sup_args *a) {
     if (a->test_fault != NULL &&
         strcmp(a->test_fault, "argv-capacity-exhausted") != 0 &&
         strcmp(a->test_fault, "artifact-publish-probe") != 0 &&
+        strcmp(a->test_fault, "artifact-write-limit-exact") != 0 &&
+        strcmp(a->test_fault, "artifact-write-limit-over") != 0 &&
+        strcmp(a->test_fault, "capture-write-limit-exact") != 0 &&
+        strcmp(a->test_fault, "capture-write-limit-over") != 0 &&
         strcmp(a->test_fault, "exit-nonzero") != 0 &&
         strcmp(a->test_fault, "capture-closed") != 0 &&
         strcmp(a->test_fault, "crash-after-output") != 0 &&

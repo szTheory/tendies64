@@ -972,6 +972,48 @@ static void set_digest(char output[T64_REAL_RESULT_HEX_SIZE],
 }
 
 #ifdef T64_REAL_RUNNER_TESTING
+/* The child write limit the supervisor sets is the declared maximum (or the
+ * report cap) plus this slack; the exact and over faults write to that limit
+ * and one byte beyond it (K9). */
+#define T64_REAL_TEST_FSIZE_SLACK UINT64_C(65536)
+
+static bool write_fill(int fd, uint64_t total) {
+  uint8_t chunk[4096];
+  (void)memset(chunk, 0xa5, sizeof chunk);
+  while (total > 0u) {
+    size_t length = total > sizeof chunk ? sizeof chunk : (size_t)total;
+    ssize_t count = write(fd, chunk, length);
+    if (count < 0 && errno == EINTR) continue;
+    if (count <= 0) return false;
+    total -= (uint64_t)count;
+  }
+  return true;
+}
+
+/* Writes raw bytes through the staged descriptor so the publisher's own cap
+ * cannot mask the kernel backstop. The exact fault stops at the limit and
+ * removes the stage; the over fault is ended by the kernel before it returns
+ * and leaves the private stage in place. */
+static bool artifact_write_limit_fault(const char *directory,
+                                       uint64_t byte_cap, uint64_t total) {
+  t64_artifact_publisher *publisher;
+  const char *error = NULL;
+  bool ok;
+  publisher = t64_artifact_publisher_open(directory, "probe.sta", byte_cap,
+                                          &error);
+  if (publisher == NULL) return false;
+  ok = write_fill(t64_artifact_publisher_stage_fd_for_test(publisher), total);
+  t64_artifact_publisher_abort(publisher);
+  t64_artifact_publisher_destroy(publisher);
+  return ok;
+}
+
+/* Rewrites the capture descriptor from the start with `total` bytes. */
+static bool capture_write_limit_fault(uint64_t total) {
+  if (lseek(STDERR_FILENO, 0, SEEK_SET) < 0) return false;
+  return write_fill(STDERR_FILENO, total);
+}
+
 /* Test twin only (K9): after a guest pass, publish probe.sta of exactly the
  * declared maximum with byte i equal to (i * 7 + 3) modulo 256. The production
  * runner never publishes; with the pair it only runs the preflight. */
@@ -1590,6 +1632,18 @@ finalize:
     (void)snprintf(result.outcome, sizeof result.outcome, "harness-error");
     (void)snprintf(result.detail, sizeof result.detail, "host-error");
   }
+  if ((test_fault_is("artifact-write-limit-exact") ||
+       test_fault_is("artifact-write-limit-over")) &&
+      artifact_dir != NULL && strcmp(result.outcome, "pass") == 0 &&
+      !artifact_write_limit_fault(
+          artifact_dir, artifact_max_bytes,
+          artifact_max_bytes + T64_REAL_TEST_FSIZE_SLACK +
+              (test_fault_is("artifact-write-limit-over") ? 1u : 0u))) {
+    (void)snprintf(result.guest_stop_kind, sizeof result.guest_stop_kind,
+                   "host-error");
+    (void)snprintf(result.outcome, sizeof result.outcome, "harness-error");
+    (void)snprintf(result.detail, sizeof result.detail, "host-error");
+  }
   if (test_fault_is("report-missing-log-sha256")) {
     if (!write_report_missing_log_sha256(&result, STDOUT_FILENO)) {
       exit_code = 2;
@@ -1752,10 +1806,17 @@ int main(int argc, char **argv) {
       strcmp(g_test_fault, "capture-zero-video") != 0 &&
       strcmp(g_test_fault, "capture-truncate-video") != 0 &&
       strcmp(g_test_fault, "capture-precommit-barrier") != 0 &&
-      strcmp(g_test_fault, "artifact-publish-probe") != 0) {
+      strcmp(g_test_fault, "artifact-publish-probe") != 0 &&
+      strcmp(g_test_fault, "artifact-write-limit-exact") != 0 &&
+      strcmp(g_test_fault, "artifact-write-limit-over") != 0 &&
+      strcmp(g_test_fault, "capture-write-limit-exact") != 0 &&
+      strcmp(g_test_fault, "capture-write-limit-over") != 0) {
     return emit_prelaunch("usage", "not-started", guest_ticks, 2);
   }
-  if (test_fault_is("artifact-publish-probe") && !seen_artifact_dir) {
+  if ((test_fault_is("artifact-publish-probe") ||
+       test_fault_is("artifact-write-limit-exact") ||
+       test_fault_is("artifact-write-limit-over")) &&
+      !seen_artifact_dir) {
     return emit_prelaunch("usage", "not-started", guest_ticks, 2);
   }
 #endif
@@ -1766,6 +1827,13 @@ int main(int argc, char **argv) {
                           raw_capture_max_bytes, artifact_dir,
                           artifact_max_bytes);
 #ifdef T64_REAL_RUNNER_TESTING
+    if (status == 0 && (test_fault_is("capture-write-limit-exact") ||
+                        test_fault_is("capture-write-limit-over")) &&
+        !capture_write_limit_fault(
+            T64_REAL_RESULT_MAX_BYTES + T64_REAL_TEST_FSIZE_SLACK +
+            (test_fault_is("capture-write-limit-over") ? 1u : 0u))) {
+      return 1;
+    }
     if (status == 0 && test_fault_is("exit-nonzero")) return 7;
     if (status == 0 && test_fault_is("crash-after-output")) {
       (void)raise(SIGKILL);
