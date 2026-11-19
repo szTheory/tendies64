@@ -73,6 +73,61 @@
           "cases": ["publish-and-refusals", "substitution"]
         }
       ]
+    },
+    "si-core": {
+      "ctest": [
+        "unit.core.cpu.si-store-budget",
+        "unit.core.si.atomic-queue-full",
+        "unit.core.si.device",
+        "unit.core.input.latch-partition",
+        "unit.core.joybus.parser"
+      ],
+      "binaries": [
+        {
+          "path": "core/test_si",
+          "cases": [
+            "cpu-store-budget",
+            "capacity-rule",
+            "atomic-queue-full",
+            "tracer-poll",
+            "registers",
+            "status",
+            "pif-command",
+            "dma-timing",
+            "refusals",
+            "reset-replace",
+            "digest-section",
+            "latch-strictly-after",
+            "latch-partition",
+            "latch-port-decode"
+          ]
+        },
+        {
+          "path": "core/test_joybus",
+          "cases": [
+            "frame-vectors",
+            "controller-responses",
+            "button-vectors",
+            "channels-and-ports",
+            "total-bounded"
+          ]
+        }
+      ]
+    },
+    "controller": {
+      "ctest": ["runner.pad-poll", "controls.real.pad-wrong-value"],
+      "binaries": [
+        {
+          "path": "runner/test_pad_poll",
+          "cases": [
+            "poll-timing",
+            "accepted-poll-sequence",
+            "same-setup-wrong-script",
+            "same-setup-wrong-rom",
+            "replacement-fixture-refused"
+          ]
+        }
+      ]
     }
   }
 }

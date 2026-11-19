@@ -911,6 +911,34 @@
         "source": "Independent 68-byte transcript from fixtures/pad/poll_oracle.py (baseline) and shasum, pinned in runner/t64_real_fixture.c and asserted in runner/tests/test_pad_poll.c. Policy self-consistency only.",
         "revision": "source-content-sha256:0e923ac3ca72a4d5d6f6ffb485c3b4803dba0bf12ad37776cde76b421aef3f46"
       }
+    },
+    {
+      "id": "phase09-pad-poll-wrong-si-v1",
+      "source": {
+        "repo": "https://github.com/szTheory/tendies64",
+        "revision": "44755ff0aea7b8cf299097a1fd4e886f23af51ce",
+        "path": "fixtures/pad/poll.S"
+      },
+      "build": {
+        "recipe": "Build the same authored source, linker script and toolchain as phase09-pad-poll-si-v1 with --defsym T64_PAD_WRONG=1. Only the port-1 count byte printed with its 0x80 bit cleared changes. Source-content SHA-256 0e923ac3ca72a4d5d6f6ffb485c3b4803dba0bf12ad37776cde76b421aef3f46; generated ROM SHA-256 84bacc101384d52b109a4c41e4b4fac340143a89ad79a4fc4460c5890923a8f6 (4688 bytes), payload SHA-256 ec376df6aad33b49e9b5e28dccaed94c6eb223281e2e350b57dc50acbff68dfa (592 bytes). Same rights-cleared IPL3 composition; local/build-only.",
+        "toolchain": ["GNU Binutils 2.45"]
+      },
+      "sha256": "84bacc101384d52b109a4c41e4b4fac340143a89ad79a4fc4460c5890923a8f6",
+      "size": 4688,
+      "profile": "ntsc-cart-4m-openipl3-rdram-b-t1-si-v1",
+      "source_rights": "authored-here",
+      "binary_rights": "cleared",
+      "distribution": ["build-only"],
+      "rights_evidence": "This variant is generated from the same Apache-2.0 authored source with a single explicit build definition. It embeds only the separately recorded pinned Unlicense IPL3 asset. The ROM and payload remain local/build-only and are not committed or uploaded.",
+      "notices": [
+        "Wrong-port-flag bytes exist only to prove the real comparator is reached.",
+        "Generated negative-control ROM and payload are build-only."
+      ],
+      "expected": {
+        "kind": "self-checking",
+        "source": "Same-run accepted baseline, then the pinned baseline digest rejects this variant (oracle scenario wrong-rom) in runner/tests/test_pad_poll.c.",
+        "revision": "source-content-sha256:0e923ac3ca72a4d5d6f6ffb485c3b4803dba0bf12ad37776cde76b421aef3f46"
+      }
     }
   ]
 }

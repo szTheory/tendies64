@@ -103,6 +103,12 @@ static const t64_real_fixture fixtures[] = {
      "661b161dfee9a10857efe3f98d840c09f05cbf0492dfde59e8ec44190dabb6d5",
      UINT32_C(0x800005a8), true, T64_REAL_GUEST_TICKS_LONG_CAP, 68u,
      "715aa3854b455dc9fd8e038e1aa27e5d200ea311acbfd032930cdc760498d3f6"},
+    {"phase09-pad-poll-wrong-si-v1",
+     "84bacc101384d52b109a4c41e4b4fac340143a89ad79a4fc4460c5890923a8f6",
+     4688u, "ntsc-cart-4m-openipl3-rdram-b-t1-si-v1",
+     "661b161dfee9a10857efe3f98d840c09f05cbf0492dfde59e8ec44190dabb6d5",
+     UINT32_C(0x800005ac), true, T64_REAL_GUEST_TICKS_LONG_CAP, 68u,
+     "715aa3854b455dc9fd8e038e1aa27e5d200ea311acbfd032930cdc760498d3f6"},
 };
 
 const t64_real_fixture *t64_real_fixture_find_bytes(

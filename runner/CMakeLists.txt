@@ -569,7 +569,11 @@ add_test(NAME runner.pad-poll
   COMMAND test_pad_poll --suite accepted
     $<TARGET_FILE:t64-supervisor> $<TARGET_FILE:t64-supervisor-test>
     $<TARGET_FILE:t64-result-check> ${CMAKE_SOURCE_DIR})
-set_tests_properties(runner.pad-poll PROPERTIES
+add_test(NAME controls.real.pad-wrong-value
+  COMMAND test_pad_poll --suite controls
+    $<TARGET_FILE:t64-supervisor> $<TARGET_FILE:t64-supervisor-test>
+    $<TARGET_FILE:t64-result-check> ${CMAKE_SOURCE_DIR})
+set_tests_properties(runner.pad-poll controls.real.pad-wrong-value PROPERTIES
   LABELS "runner;controls" TIMEOUT 120
   ENVIRONMENT "T64_PHASE09_EVIDENCE_DIR=${CMAKE_BINARY_DIR}/09-03-evidence")
 

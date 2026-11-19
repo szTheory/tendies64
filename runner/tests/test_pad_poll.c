@@ -649,6 +649,209 @@ static int case_accepted_poll_sequence(void) {
   return g_failures == 0 ? 0 : 1;
 }
 
+/* ---- controls (each runs the accepted baseline in the same setup) ----------- */
+
+#define WRONG_ROM "phase09-pad-poll-wrong-si-v1"
+/* Oracle scenarios, literals from fixtures/pad/poll_oracle.py: the transcript
+ * of the shifted script (state B stamped one tick below E2), the neutral
+ * script, and the wrong-port-flag ROM (byte 8 printed as 04). */
+static const char shifted_transcript[] =
+    "P1 800001ff 84 -\n"
+    "P2 40217f80 84 +\n"
+    "P3 40217f80 84 +\n"
+    "P4 1802ff01 84 +\n";
+#define SHIFTED_SHA256 \
+  "4c78899114ba1e1d4111c02a84a059e3943d6c3d00208c533bbc3e7faeb07910"
+#define NEUTRAL_SHA256 \
+  "caf55c819271e372f4e4185520a49ed74c36d79c870bfa30d1dbc064c9f9f137"
+static const char wrong_rom_transcript[] =
+    "P1 800001ff 04 -\n"
+    "P2 800001ff 04 +\n"
+    "P3 40217f80 04 +\n"
+    "P4 1802ff01 04 +\n";
+#define WRONG_ROM_SHA256 \
+  "07de0176dbe67a8c313b1871e019b588d00793e8a4002fae4ce3f6cecf333315"
+
+static void expect_wrong_transcript(const run_out *run) {
+  CHECK(run->parsed);
+  CHECK(run->checker_ok);
+  CHECK(strcmp(run->outcome, "guest-fail") == 0);
+  CHECK(strcmp(run->detail, "wrong-transcript") == 0);
+  CHECK(strcmp(run->stop_kind, "authored-completion") == 0);
+  CHECK(run->log_bytes == 68u);
+}
+
+static bool capture_equals(const run_out *run, const char *literal,
+                           size_t length) {
+  char path[PATH_MAX];
+  uint8_t bytes[256];
+  size_t got = 0u;
+  if (!join_path(path, sizeof path, run->dir, "capture.bin") ||
+      !read_file(path, bytes, sizeof bytes, &got)) {
+    return false;
+  }
+  return got == length && memcmp(bytes, literal, length) == 0;
+}
+
+/* Measures the poll starts and runs the accepted baseline; returns the rows
+ * of the baseline script through `rows`. */
+static bool accepted_baseline(const char *rom, poll_measure *measure,
+                              input_row rows[3], run_spec *spec,
+                              char script[PATH_MAX]) {
+  run_out run;
+  if (!measure_polls(rom, measure) || measure->start_count != POLL_COUNT) {
+    return false;
+  }
+  rows[0].tick = measure->starts[0] + HANDSHAKE_TICKS - 1u;
+  rows[0].buttons = 0x8000u;
+  rows[0].x = 1;
+  rows[0].y = -1;
+  rows[1].tick = measure->starts[1] + HANDSHAKE_TICKS;
+  rows[1].buttons = 0x4021u;
+  rows[1].x = 127;
+  rows[1].y = -128;
+  rows[2].tick = measure->starts[2] + HANDSHAKE_TICKS + 1u;
+  rows[2].buttons = 0x1802u;
+  rows[2].x = -1;
+  rows[2].y = 1;
+  if (!write_input_script(script, "pad-control-baseline.input.json", rows,
+                          3u)) {
+    return false;
+  }
+  memset(spec, 0, sizeof *spec);
+  spec->supervisor = g_supervisor;
+  spec->fixture = rom;
+  spec->input = script;
+  spec->bound = 1000000u;
+  if (!run_supervised(spec, &run)) return false;
+  expect_pass(&run);
+  CHECK(strcmp(run.log_sha256, BASELINE_SHA256) == 0);
+  return true;
+}
+
+/* The same ROM and row, a script that crosses E (state B stamped one tick
+ * below E2) and an all-neutral script each reach the transcript comparator
+ * and fail it with the oracle's own transcripts. */
+static int case_same_setup_wrong_script(void) {
+  char rom[PATH_MAX];
+  char script[PATH_MAX];
+  char shifted_path[PATH_MAX];
+  char neutral_path[PATH_MAX];
+  poll_measure measure;
+  input_row rows[3];
+  run_spec spec;
+  run_out run;
+  CHECK(fixture_path(rom, BASELINE_ROM));
+  CHECK(accepted_baseline(rom, &measure, rows, &spec, script));
+  if (measure.start_count != POLL_COUNT) return 1;
+
+  rows[1].tick = measure.starts[1] + HANDSHAKE_TICKS - 1u;
+  CHECK(write_input_script(shifted_path, "pad-shifted.input.json", rows, 3u));
+  spec.input = shifted_path;
+  CHECK(run_supervised(&spec, &run));
+  expect_wrong_transcript(&run);
+  CHECK(strcmp(run.fixture_id, BASELINE_ROM) == 0);
+  CHECK(strcmp(run.log_sha256, SHIFTED_SHA256) == 0);
+  CHECK(strcmp(run.log_sha256, BASELINE_SHA256) != 0);
+  CHECK(capture_equals(&run, shifted_transcript,
+                       sizeof shifted_transcript - 1u));
+
+  CHECK(write_input_script(neutral_path, "pad-neutral.input.json", rows, 0u));
+  spec.input = neutral_path;
+  CHECK(run_supervised(&spec, &run));
+  expect_wrong_transcript(&run);
+  CHECK(strcmp(run.log_sha256, NEUTRAL_SHA256) == 0);
+  CHECK(capture_equals(&run, neutral_transcript,
+                       sizeof neutral_transcript - 1u));
+  return g_failures == 0 ? 0 : 1;
+}
+
+/* The wrong-port-flag ROM on its own row (same pin as the baseline, so its
+ * text reaches the same comparator) fails with the oracle's wrong-rom
+ * transcript under the baseline script. */
+static int case_same_setup_wrong_rom(void) {
+  char rom[PATH_MAX];
+  char wrong[PATH_MAX];
+  char script[PATH_MAX];
+  poll_measure measure;
+  input_row rows[3];
+  run_spec spec;
+  run_out run;
+  CHECK(fixture_path(rom, BASELINE_ROM));
+  CHECK(fixture_path(wrong, WRONG_ROM));
+  CHECK(accepted_baseline(rom, &measure, rows, &spec, script));
+  /* The variant has one more instruction per poll, so its polls start a few
+     ticks later than the baseline's. Its inputs are stamped at E1 - 1, E2 and
+     E3 + 1 of its own polls, which is the oracle's wrong-rom scenario. */
+  CHECK(measure_polls(wrong, &measure));
+  CHECK(measure.start_count == POLL_COUNT);
+  if (measure.start_count != POLL_COUNT) return 1;
+  rows[0].tick = measure.starts[0] + HANDSHAKE_TICKS - 1u;
+  rows[1].tick = measure.starts[1] + HANDSHAKE_TICKS;
+  rows[2].tick = measure.starts[2] + HANDSHAKE_TICKS + 1u;
+  CHECK(write_input_script(script, "pad-wrong-rom.input.json", rows, 3u));
+  spec.fixture = wrong;
+  spec.input = script;
+  CHECK(run_supervised(&spec, &run));
+  expect_wrong_transcript(&run);
+  CHECK(strcmp(run.fixture_id, WRONG_ROM) == 0);
+  CHECK(strcmp(run.log_sha256, WRONG_ROM_SHA256) == 0);
+  CHECK(strcmp(run.log_sha256, BASELINE_SHA256) != 0);
+  CHECK(capture_equals(&run, wrong_rom_transcript,
+                       sizeof wrong_rom_transcript - 1u));
+  return g_failures == 0 ? 0 : 1;
+}
+
+static bool write_altered_copy(const char *source, const char *destination) {
+  uint8_t bytes[8192];
+  size_t length = 0u;
+  size_t offset = 0u;
+  int fd;
+  if (!read_file(source, bytes, sizeof bytes, &length) || length == 0u ||
+      length >= sizeof bytes) {
+    return false;
+  }
+  bytes[length - 1u] ^= UINT8_C(1);
+  fd = open(destination, O_WRONLY | O_CREAT | O_TRUNC, 0600);
+  if (fd < 0) return false;
+  while (offset < length) {
+    ssize_t written = write(fd, bytes + offset, length - offset);
+    if (written < 0 && errno == EINTR) continue;
+    if (written <= 0) {
+      (void)close(fd);
+      return false;
+    }
+    offset += (size_t)written;
+  }
+  return close(fd) == 0;
+}
+
+/* A one-byte altered copy of the baseline ROM is refused by the identity
+ * check before the guest starts. */
+static int case_replacement_fixture_refused(void) {
+  char rom[PATH_MAX];
+  char altered[PATH_MAX];
+  char script[PATH_MAX];
+  poll_measure measure;
+  input_row rows[3];
+  run_spec spec;
+  run_out run;
+  CHECK(fixture_path(rom, BASELINE_ROM));
+  CHECK(accepted_baseline(rom, &measure, rows, &spec, script));
+  CHECK(snprintf(altered, sizeof altered, "%s/pad-poll-altered.z64",
+                 g_evidence) < (int)sizeof altered);
+  CHECK(write_altered_copy(rom, altered));
+  spec.fixture = altered;
+  CHECK(run_supervised(&spec, &run));
+  CHECK(run.parsed);
+  CHECK(strcmp(run.outcome, "harness-error") == 0);
+  CHECK(strcmp(run.detail, "refusal") == 0);
+  CHECK(strcmp(run.stop_kind, "refused") == 0);
+  CHECK(run.guest_tick == 0u);
+  CHECK(run.fixture_id[0] == '\0');
+  return g_failures == 0 ? 0 : 1;
+}
+
 /* ---- dispatch --------------------------------------------------------------- */
 
 typedef struct {
@@ -660,6 +863,10 @@ typedef struct {
 static const case_entry cases[] = {
     {"poll-timing", case_poll_timing, "accepted"},
     {"accepted-poll-sequence", case_accepted_poll_sequence, "accepted"},
+    {"same-setup-wrong-script", case_same_setup_wrong_script, "controls"},
+    {"same-setup-wrong-rom", case_same_setup_wrong_rom, "controls"},
+    {"replacement-fixture-refused", case_replacement_fixture_refused,
+     "controls"},
 };
 
 int main(int argc, char **argv) {

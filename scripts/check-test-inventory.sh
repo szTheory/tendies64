@@ -222,7 +222,8 @@ unit.core.cpu.si-store-budget
 unit.core.si.device
 runner.pad-poll
 unit.core.joybus.parser
-unit.core.input.latch-partition'
+unit.core.input.latch-partition
+controls.real.pad-wrong-value'
 
 CPU_COVERAGE_OPCODES='ADD
 ADDU
