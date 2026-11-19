@@ -94,7 +94,7 @@ question. No oracle authority is part of this decision.
 - D6: releases wait for owner-selected channel/versioning. No software release or version tag is implied by this milestone.
 - D7: name remains uncleared; no branding, logos or store listings.
 - Protected inputs/publication and physical-console measurement retain the explicit stops in [AUTONOMY.md](AUTONOMY.md). No new hardware qualification or broad compatibility claim.
-- 09-02: harness.rdp-oracle-authority fails (fixture manifest SHA-256 changed) because Phase 9 manifest rows move the hash pinned by the Phase 7 oracle request; rebind values are in 09-02-SUMMARY.md and need an orchestrator or owner decision (precedent commit 15fd8d1)
+- Phase 9 oracle-request rebinds: owner approved in conversation on 2026-11-19 (answer "Yes, rebind per milestone") identity-only rebinds of the Phase 7 oracle request whenever Phase 9 manifest rows move the fixture manifest hash (same scope as 15fd8d1). Each rebind reproduces the old pinned hash first, changes only manifest identities, the derived request hash and PINNED_REQUEST_SHA256, and keeps local_decision blocked. This grants no oracle, rights or publication authority. First Phase 9 rebind: manifest sha256 23b34424...4972, request 4200bb02...5500.
 - 09-03: harness.rdp-oracle-authority still fails after two more manifest rows; recomputed rebind values (manifest sha 23b34424..., request 4200bb02...) are in 09-03-SUMMARY.md and need an orchestrator or owner decision before any push
 
 ## Deferred Items
