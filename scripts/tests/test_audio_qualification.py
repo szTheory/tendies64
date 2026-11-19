@@ -443,7 +443,57 @@ class AudioQualificationTests(unittest.TestCase):
                     sha="c" * 40, run="123", attempt="1", job="gate-linux",
                 )
 
+    def _assert_actual_capture_record_selection(self) -> None:
+        # runner.raw-capture really retains five records: three from the production
+        # t64-supervisor and the drain/resume pair from t64-supervisor-test. The first
+        # native verifier assumed exactly one and refused the real suite.
+        with tempfile.TemporaryDirectory(prefix="t64-audio-capture-select-") as temporary:
+            build = Path(temporary).resolve()
+            production = str(build / "runner/t64-supervisor")
+            test_runner = str(build / "runner/t64-supervisor-test")
+
+            def record(name: str, argv0: str, outcome: str = "pass") -> Path:
+                path = build / "08-04-evidence" / name
+                (path / "raw-bundle").mkdir(parents=True)
+                (path / "raw-bundle/manifest.json").write_text("{}", encoding="utf-8")
+                (path / "result.json").write_text(
+                    json.dumps({"outcome": outcome}), encoding="utf-8")
+                (path / "command.args").write_text(argv0 + "\nrest\n", encoding="utf-8")
+                return path
+
+            def section(*paths: Path) -> str:
+                return "".join(
+                    f"private audio runner evidence retained at {path}\n" for path in paths)
+
+            select = qualify._select_actual_capture_records
+            first, second = record("a", production), record("b", production)
+            drain = [record("c", test_runner), record("d", test_runner)]
+            actual, excluded = select(section(first, second, *drain), build)
+            self.assertEqual((actual, excluded), ([first, second], drain))
+            self.assertEqual(select(section(first), build), ([first], []))
+            for text in (
+                "",                                               # nothing retained
+                section(*drain),                                  # no production original
+                section(first, record("e", "/usr/bin/other")),    # unexplained record
+                section(first, first),                            # duplicated original
+                section(record("f", production, outcome="fail")), # production run that failed
+            ):
+                with self.assertRaises(qualify.Refusal):
+                    select(text, build)
+            outside = Path(tempfile.mkdtemp(prefix="t64-audio-outside-"))
+            try:
+                (outside / "raw-bundle").mkdir()
+                (outside / "raw-bundle/manifest.json").write_text("{}", encoding="utf-8")
+                (outside / "result.json").write_text('{"outcome":"pass"}', encoding="utf-8")
+                (outside / "command.args").write_text(production + "\n", encoding="utf-8")
+                with self.assertRaises(qualify.Refusal):
+                    select(section(first, outside), build)
+            finally:
+                import shutil
+                shutil.rmtree(outside, ignore_errors=True)
+
     def test_native_process_record_rejects_failed_or_truncated_tail(self) -> None:
+        self._assert_actual_capture_record_selection()
         import hashlib
 
         with tempfile.TemporaryDirectory(prefix="t64-audio-process-record-") as temporary:
@@ -706,6 +756,37 @@ class AudioQualificationTests(unittest.TestCase):
                          "qualification")
         self.assertNotIn("--run", plan[1]["command"])
         self.assertNotIn("--run", plan[2]["command"])
+        self._assert_discovery_last_test_retention()
+
+    def _assert_discovery_last_test_retention(self) -> None:
+        # The fourth/fifth native attempts showed that `ctest --show-only=json-v1`
+        # replaces LastTest.log with an empty start/end log (121 bytes in the real
+        # attempt), so the old equality check could never pass against real CTest.
+        owning = (
+            b"Start testing: Nov 19 08:38 EST\n"
+            b"----------------------------------------------------------\n"
+            b"1/2 Testing: unit.one\n1/2 Test: unit.one\nTest Passed.\n"
+            b"2/2 Testing: unit.two\n2/2 Test: unit.two\nTest Passed.\n"
+            b"End testing: Nov 19 08:39 EST\n"
+        )
+        discovery = (
+            b"Start testing: Nov 19 08:46 EST\n"
+            b"----------------------------------------------------------\n"
+            b"End testing: Nov 19 08:46 EST\n"
+        )
+        check = qualify._verify_discovery_last_test_retention
+        check(owning, owning, discovery)
+        check(owning, owning, owning)
+        for before, after in (
+            (owning.replace(b"unit.two", b"unit.xxx"), discovery),
+            (discovery, discovery),
+            (owning, b""),
+            (owning, b"not a ctest log\n"),
+            (owning, discovery.replace(b"End testing", b"1/1 Testing: sneaked\nEnd testing")),
+            (owning, owning + b"3/3 Testing: unit.three\n"),
+        ):
+            with self.assertRaises(qualify.Refusal):
+                check(owning, before, after)
 
     def test_gate_junit_hook_is_private_and_opt_in(self) -> None:
         gate = (ROOT / "scripts/gate.sh").read_text(encoding="utf-8")

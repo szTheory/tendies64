@@ -1155,6 +1155,62 @@ def _run_saved_stage(rdp: Any, directory: Path, command: list[str],
     return outcome
 
 
+def _select_actual_capture_records(capture_section: str,
+                                   build: Path) -> tuple[list[Path], list[Path]]:
+    """Split runner.raw-capture's retained records into production and test-runner originals.
+
+    The CTest retains one record per scenario: several run the production
+    t64-supervisor, and the drain/resume pair runs t64-supervisor-test. Every
+    production record is qualified; every other record must be positively
+    identified as a test-supervisor original so none is silently ignored.
+    """
+    retained = [Path(value).resolve() for value in re.findall(
+        r"^private audio runner evidence retained at (.+)$", capture_section,
+        flags=re.MULTILINE,
+    )]
+    _require(bool(retained) and len(retained) == len(set(retained)),
+             "full native suite does not retain distinct actual capture originals")
+    production = str((build / "runner/t64-supervisor").resolve())
+    test_runner = str((build / "runner/t64-supervisor-test").resolve())
+    actual: list[Path] = []
+    excluded: list[Path] = []
+    for path in retained:
+        _require(_under(path, build) and (path / "raw-bundle/manifest.json").is_file(),
+                 "retained capture original is missing or outside the owning build")
+        try:
+            result = _json(path / "result.json", 16 * 1024)
+            argv = _read(path / "command.args", 16 * 1024).decode("utf-8").splitlines()
+        except (OSError, UnicodeDecodeError, json.JSONDecodeError, Refusal) as error:
+            raise Refusal("retained capture original has no readable result or command") from error
+        _require(bool(argv), "retained capture original has an empty command")
+        if argv[0] == production and result.get("outcome") == "pass":
+            actual.append(path)
+        else:
+            _require(argv[0] == test_runner,
+                     "retained capture original is neither a production pass nor a test-runner record")
+            excluded.append(path)
+    _require(bool(actual), "original capture CTest has no accepted production-runner bundle")
+    return actual, excluded
+
+
+def _verify_discovery_last_test_retention(owning: bytes, before: bytes,
+                                          after: bytes) -> None:
+    """Require the full-suite log to survive discovery, which may replace LastTest.log.
+
+    `ctest --show-only=json-v1` rewrites LastTest.log with an empty start/end log,
+    so the after-discovery copy cannot equal the owning log. The owning log must be
+    retained byte-for-byte before discovery, and discovery must not have run tests:
+    the after copy is either that same log or a log with no test sections.
+    """
+    _require(before == owning,
+             "owning full-suite LastTest changed before inventory discovery")
+    text = after.decode("utf-8", errors="strict")
+    discovery_only = (text.startswith("Start testing:") and "End testing:" in text and
+                      re.search(r"^\d+/\d+ Testing: ", text, flags=re.MULTILINE) is None)
+    _require(after == owning or discovery_only,
+             "inventory discovery ran tests or left an unrecognized LastTest")
+
+
 def _native_suite_records(build: Path, *, prefix: str, last_path: Path,
                           junit_path: Path) -> dict[str, Any]:
     """Bind exact authored cases to the full normal/ASan suite originals."""
@@ -1201,10 +1257,12 @@ def _native_suite_records(build: Path, *, prefix: str, last_path: Path,
     expected_discovery_command = ["ctest", "--test-dir", str(build.resolve()),
                                   "--show-only=json-v1"]
     _require(_json(build_command_path, 16 * 1024) == expected_build_command and
-             _json(discovery_command_path, 16 * 1024) == expected_discovery_command and
-             _read(before_last, 32 * 1024 * 1024) == last_bytes and
-             _read(after_last, 32 * 1024 * 1024) == last_bytes,
-             "inventory command or retained CTest LastTest changed")
+             _json(discovery_command_path, 16 * 1024) == expected_discovery_command,
+             "inventory build or discovery command changed")
+    _verify_discovery_last_test_retention(
+        last_bytes, _read(before_last, 32 * 1024 * 1024),
+        _read(after_last, 32 * 1024 * 1024),
+    )
     discovery = _json(discovery_path, 16 * 1024 * 1024)
     _require(isinstance(discovery, dict) and isinstance(discovery.get("tests"), list),
              "full native CTest discovery record is malformed")
@@ -1216,14 +1274,22 @@ def _native_suite_records(build: Path, *, prefix: str, last_path: Path,
              "owning full suite and discovered test inventory differ")
 
     capture_section = _test_section(last_text, "runner.raw-capture")
-    capture_records = [Path(value).resolve() for value in re.findall(
-        r"^private audio runner evidence retained at (.+)$", capture_section,
-        flags=re.MULTILINE,
-    )]
-    _require(len(capture_records) == 1,
-             "full native suite does not retain one exact actual capture original")
-    summary = _capture_record(capture_records[0], build, last_path, junit_path)
+    capture_records, excluded_records = _select_actual_capture_records(
+        capture_section, build.resolve())
+    _require("case reached: actual-av-bundle" in capture_section and
+             "case reached: literal-pcm-files" in capture_section and
+             "case reached: capture-drain-resume" in capture_section,
+             "accepted consumer, independent sample, or drain assertions were not reached")
+    summaries = [_capture_record(path, build, last_path, junit_path)
+                 for path in capture_records]
+    _require(all(item["capture_manifest_sha256"] == summaries[0]["capture_manifest_sha256"] and
+                 item["result"].get("state_digest") == summaries[0]["result"].get("state_digest")
+                 for item in summaries),
+             "accepted production capture records disagree on packets or canonical state")
+    summary = summaries[0]
     summary.update({
+        "capture_records": [item["private_record"] for item in summaries],
+        "excluded_test_runner_records": [str(path) for path in excluded_records],
         "inventory": inventory,
         "suite": "qualification",
         "artifact_prefix": prefix,
@@ -1300,6 +1366,9 @@ def _native_qualify(source_sha: str, output_dir: Path) -> Path:
             junit_path=junit_path,
         )
         retained = output / artifact_suffix
+        _require(not retained.exists() and not retained.is_symlink(),
+                 "native retained originals destination already exists")
+        retained.mkdir(mode=0o700)
         _retain_originals(retained, build, last_path, junit_path, summary, source_before)
         _write_json_private(retained / "summary-binding.json", summary)
         suite_records[artifact_suffix] = {
@@ -1915,8 +1984,10 @@ def _capture_record(record: Path, build: Path, last_test_path: Path,
     record = record.resolve()
     build = build.resolve()
     _require(_under(record, build), "private original record is outside the explicit build directory")
-    _require(_under(last_test_path, build) and _under(junit_path, build),
-             "CTest originals are outside the explicit build directory")
+    # The shared native runner retains both suites' CTest originals under build/gate,
+    # so the ASan originals are not under build/asan; they must still be in the repo build tree.
+    _require(_under(last_test_path, ROOT / "build") and _under(junit_path, ROOT / "build"),
+             "CTest originals are outside the repository build directory")
     last_test_bytes = _read(last_test_path, 32 * 1024 * 1024)
     last_test = last_test_bytes.decode("utf-8", errors="strict")
     _junit_passed(junit_path, "runner.raw-capture")
