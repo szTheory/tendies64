@@ -3,7 +3,7 @@
   "schema_version": 1,
   "record_id": "phase07-vid04-local-oracle-request-v1",
   "metadata_observed_at_utc": "2026-11-18T04:00:40Z",
-  "request_sha256": "ae787914b967cf102501ac17f9bec8f255fcc3b7deb074c4e618c60da2be3434",
+  "request_sha256": "64b6f2608e820742d15df6e8baf40feecf2513a65eea1fef927c45ce653a9008",
   "request": {
     "purpose": "Prepare a bounded local-only comparison request pending a rights-cleared exported corpus and replay adapter.",
     "evidence_label": "emulator-to-emulator differential only; never hardware truth",
@@ -19,8 +19,8 @@
       "authored_fixture_ids": ["rdp-fill", "rdp-fill-payload"],
       "fixture_manifest": {
         "path": "fixtures/manifest.json",
-        "sha256": "5e810cd53be877d643da36aa20184e55904177a63ac8d7c165b9af2cbb4a1f1e",
-        "git_blob_id_sha1": "9d9ab9d78066428f8a89dfe66ae625dba80043f8"
+        "sha256": "f7c1953d651c77b5121ce8e454f6c0953ed3495a911bcbb883dfd8ff09917931",
+        "git_blob_id_sha1": "63097d1657d90315a635aa83a8d7cc7f30ffe12d"
       },
       "fixture_rights": [
         {
@@ -44,7 +44,7 @@
       ],
       "bound_authored_inputs": [
         {"path": "docs/spec/rdp-vi-cases.json", "sha256": "c915cc38ce78aeccc0d6718351f4968368f35126366e4b353a90037abc98385b", "git_blob_id_sha1": "b44250853f4d920c124b68efd0041de872c4a750"},
-        {"path": "fixtures/manifest.json", "sha256": "5e810cd53be877d643da36aa20184e55904177a63ac8d7c165b9af2cbb4a1f1e", "git_blob_id_sha1": "9d9ab9d78066428f8a89dfe66ae625dba80043f8"},
+        {"path": "fixtures/manifest.json", "sha256": "f7c1953d651c77b5121ce8e454f6c0953ed3495a911bcbb883dfd8ff09917931", "git_blob_id_sha1": "63097d1657d90315a635aa83a8d7cc7f30ffe12d"},
         {"path": "fixtures/rdp/fill.S", "sha256": "812ac7ee08914fd3dc505bffb63443413e59109ae07a1664a941fa9503316f20", "git_blob_id_sha1": "403ac990aa679bbe9bce6af693930ac08b93280c"},
         {"path": "scripts/check-rdp-vi-cases.py", "sha256": "07bd79e71de7389f346dd66d28dc7ad2fa6c2cdc6d30978794aa6c27f92ecb4e", "git_blob_id_sha1": "824882d093f8ef57d69920af28a728b50cad9a29"},
         {"path": "core/tests/test_rdp.c", "sha256": "e272451ca0b6214512b19fb4d7b969e7c1264b13918169b60679df26ff6c6074", "git_blob_id_sha1": "8028616394e738fdc1f8265c1d4b107144439821"},
@@ -56,7 +56,7 @@
         {"path": "core/tests/test_rdp_depth.c", "sha256": "67c3c8a81fed51f18537cf321bd079817e52d6372ddfc89409832c5fd504aafb", "git_blob_id_sha1": "44034f4e9207bcfd0112211c2ade49295b46cfdf"},
         {"path": "core/tests/test_vi.c", "sha256": "a2230ee2280829a65c34edaff59ef98adb3d5d16aafe882811aea769f19fab7b", "git_blob_id_sha1": "d27fa29ba67816ca164e8f23a8605044e4cbe656"},
         {"path": "core/tests/test_video_output.c", "sha256": "92e02d27aa7882749b833a499ba9d25afe7d81d8c963c3296ae83efb30bb4e85", "git_blob_id_sha1": "8dfe69213e77e0f230233d2e46a43185065bae72"},
-        {"path": "runner/tests/test_rdp_video.c", "sha256": "1d49ee49594481e3803dd055522f5b22a97c6628a64ff131bdb6042e182b160b", "git_blob_id_sha1": "0d68c3b16a35bad7cf98c655ad91f2923b0bae5e"}
+        {"path": "runner/tests/test_rdp_video.c", "sha256": "e23557d92c91d8a16c9d4da5b7ddea9ca0fffa866dab04bbbd9e8cc2f14e6381", "git_blob_id_sha1": "0f41e9d140add0cfca3eebfc501a0239db3833b5"}
       ]
     },
     "differential_preparation": {
