@@ -49,7 +49,7 @@ frontend, broad compatibility claim or software release.
 ## Phases
 
 - [ ] **Phase 7: RDP Reference Renderer and VI Scanout** - In-tree software RDP and VI produce raw frames, and conformance is reported as labeled differential evidence
-- [ ] **Phase 8: Audio Interface and Raw Capture** - AI DMA and cadence produce raw audio with exact-sample diagnostics; raw video and audio are captured as files
+- [x] **Phase 8: Audio Interface and Raw Capture** - AI DMA and cadence produce raw audio with exact-sample diagnostics; raw video and audio are captured as files (completed 2026-11-19)
 - [ ] **Phase 9: Controller, Save Media and Replay** - Standard controller over SI/PIF, explicit EEPROM/SRAM devices, versioned state export and input replay
 
 ## Phase Details
@@ -117,7 +117,7 @@ Plans:
   1. A cleared authored audio diagnostic produces raw sample buffers with sample index/rate metadata and exact expected values across DMA boundaries, including two-deep queue behavior and the interrupt at the documented `ai_full` 1→0 queue transition. A submission or DMA start alone does not imply a new interrupt
   2. Audio cadence follows DACRATE and guest time, so runs throttled differently on the host produce identical sample streams
   3. A headless run writes raw video frames and raw audio buffers as files whose metadata covers sample index, rate, frame timing and profile/build identity, separate from host presentation
-**Plans**: 4/5 plans executed
+**Plans**: 5/5 plans complete
 **Wave 1**
 - [x] 08-01-PLAN.md — Fetched PCM tracer and composite inheritance
 
@@ -131,7 +131,7 @@ Plans:
 - [x] 08-04-PLAN.md — General raw A/V capture and no-clobber transaction
 
 **Wave 5** *(blocked on Wave 4 completion)*
-- [ ] 08-05-PLAN.md — Evidence controls and final qualification
+- [x] 08-05-PLAN.md — Evidence controls and final qualification
 
 ### Phase 9: Controller, Save Media and Replay
 **Goal**: Timed logical input drives the standard controller, explicitly selected save devices behave with defined refusal postconditions, and machine state and input replays reproduce runs exactly
@@ -153,7 +153,7 @@ VID-04's specific acceptance gate does not prevent permitted authored/native wor
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
 | 7. RDP Reference Renderer and VI Scanout | 12/13 | Blocked: oracle authority | - |
-| 8. Audio Interface and Raw Capture | 4/5 | Ready to execute | - |
+| 8. Audio Interface and Raw Capture | 5/5 | Complete    | 2026-11-19 |
 | 9. Controller, Save Media and Replay | 0/TBD | Not started | - |
 
 ## v1.2 Embeddable and Playable

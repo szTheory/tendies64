@@ -2,21 +2,21 @@
 gsd_state_version: "1.0"
 milestone: v1.1
 milestone_name: Observable Machine
-current_phase: 08
-current_phase_name: Audio Interface and Raw Capture
+current_phase: 7
+current_phase_name: RDP Reference Renderer and VI Scanout
+current_plan: 13
 status: executing
-stopped_at: Phase8 source review found staging publication race and observer evidence gap; fix before qualification
-last_updated: "2026-11-19T00:25:37.142491+00:00"
-last_activity: 2026-11-18
-last_activity_desc: Evidence verifier/control and archive integration pass; native/hosted/final modes pending
-state_head: 9c5d0c8d77b780ad9f27c89f02f6bf9c620160f5
+stopped_at: Phase 8 complete; Phase 7 Plan 13 blocked on oracle authority; Phase 9 next
+last_updated: "2026-11-19T15:22:38.614Z"
+last_activity: 2026-11-19
+last_activity_desc: Phase 8 complete, transitioned to Phase 7
+state_head: 733880342afb3bcb13db0b1b9e891a1ff107c0a5
 progress:
   total_phases: 3
-  completed_phases: 0
+  completed_phases: 1
   total_plans: 18
-  completed_plans: 16
-  percent: 89
-current_plan: "05"
+  completed_plans: 17
+  percent: 33
 ---
 
 # Project State
@@ -26,17 +26,17 @@ current_plan: "05"
 See: .planning/PROJECT.md (updated 2026-11-15)
 
 **Core value:** Every Tendies64 support claim is backed by evidence: a named profile, a pinned build and a reproducible, rights-cleared guest result.
-**Current focus:** Phase8 Audio Interface/raw capture executable planning and implementation; oracle stop preserved.
+**Current focus:** Phase 8 is complete and qualified (authored scope). Next unblocked work is Phase 9 (depends on Phase 8); Phase 7 Plan 13 / VID-04 stays stopped on oracle authority.
 
 ## Current Position
 
-Phase: 08 (Audio Interface and Raw Capture) — EXECUTING
-Current Plan: 5
-Total Plans in Phase: 5
-Status: Plans01–04 complete; Plan05 Task1 committed; Task2 wrappers implemented; independent review has one blocker and one warning; fixes then qualification. Phase7 remains12 of13 with an authority halt
-Last activity: 2026-11-18 — Task1 evidence controls and strict combined archive checks pass; native/collector/final modes still pending
+Phase: 7 — RDP Reference Renderer and VI Scanout
+Current Plan: 13
+Total Plans in Phase: 13 (12 complete)
+Status: Blocked: oracle authority (VID-04 and Plan 13); not executable until the owner resolves the stop
+Last activity: 2026-11-19 — Phase 8 complete (native, ASan, GCC13 and both hosted jobs on 3a41734)
 
-Progress: [█████████░] 89% of currently planned source plans
+Progress: [███░░░░░░░] 33% of currently planned source plans
 
 ## Performance Metrics
 
@@ -54,6 +54,9 @@ Progress: [█████████░] 89% of currently planned source plans
 - AI interrupt acceptance follows the cited `ai_full` 1→0 queue transition, not an interrupt per submission/start. Authored PCM proves transport without a new RSP microcode promise.
 - Apply the approved [compatibility policy](../docs/spec/cpu-compatibility.md): preserve existing identities/bytes where semantics are unchanged; version concrete changes without a profile per device or version per fix.
 - CORE-02 remains partial from the verified scheduler foundation; Phase 9 owns completion across all in-scope devices. API/ABI freeze and installed independent consumer stay in Phase 10.
+
+- Phase 8 qualified 2026-11-19 on commit 3a41734 (run 44549490908): tier unit-tested, authored scope only; see docs/evidence/phase08-audio.md and docs/claims/phase08.md. The Phase 7 oracle-request re-pin (commit 15fd8d1) changed only identity hashes of authored inputs; after the automated oversight check denied it the work stopped, and the owner approved it in conversation on 2026-11-19 ("yes follow ur recs"). `local_decision` stays blocked and publication not-authorized; this note grants no oracle, rights or publication authority.
+- Post-Phase-8 follow-ups: cache the pinned Binutils build in CI (docs/ci-reviews/LOG.md F-096), the duplicate rsp-no-hle run (F-097), and the supervisor's ~68 KiB per-file capture limit before larger frames can be captured (docs/spec/raw-capture.md).
 
 ### Pending Todos
 
@@ -85,7 +88,7 @@ question. No oracle authority is part of this decision.
 ## Session Continuity
 
 Last session: 2026-11-18T07:22:46.107364+00:00
-Stopped at: Phase8 Plan05 Task1 complete; Task2 implementation then review/qualification
+Stopped at: Phase 8 complete; Phase 7 Plan 13 blocked on oracle authority; Phase 9 planning is next
 Resume file: .planning/phases/08-audio-interface-and-raw-capture/continue.md
 
 Historical closeout: [v1.0 roadmap](milestones/v1.0-ROADMAP.md), [audit](milestones/v1.0-MILESTONE-AUDIT.md), [lessons](RETROSPECTIVE.md).

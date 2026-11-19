@@ -1,9 +1,9 @@
 ---
 phase: "08"
 slug: "audio-interface-and-raw-capture"
-status: draft
-nyquist_compliant: false
-wave_0_complete: false
+status: complete
+nyquist_compliant: true
+wave_0_complete: true
 created: "2026-11-18"
 ---
 
@@ -121,13 +121,25 @@ rights, physical, publication or release stop remains outside this test strategy
 
 ## Validation Sign-Off
 
-- [ ] Every task has an exact owning automated command or grounded creation dependency.
-- [ ] No three consecutive behavior tasks lack automated feedback.
-- [ ] New references are created in their declared wave before execution.
-- [ ] No watch mode, silently empty discovery, or test over rebuilt owning binaries.
-- [ ] Exact original LastTest retained before CTest/discovery and immediately afterward.
-- [ ] Manual batches have unique absolute JUnit; return codes and failures retained.
-- [ ] Final source/artifact identities and required completed scopes verified.
-- [ ] nyquist_compliant becomes true only after reached execution evidence.
+- [x] Every task has an exact owning automated command or grounded creation dependency.
+- [x] No three consecutive behavior tasks lack automated feedback.
+- [x] New references are created in their declared wave before execution.
+- [x] No watch mode, silently empty discovery, or test over rebuilt owning binaries.
+- [x] Exact original LastTest retained before CTest/discovery and immediately afterward.
+- [x] Manual batches have unique absolute JUnit; return codes and failures retained.
+- [x] Final source/artifact identities and required completed scopes verified.
+- [x] nyquist_compliant becomes true only after reached execution evidence.
 
-Approval: delegated planning strategy; execution evidence pending, no hardware approval.
+Execution evidence (2026-11-19): every owning CTest above is registered in
+`scripts/check-test-inventory.sh` (`PHASE08_TESTS`, 21 tests including the
+`harness.audio-qualification` harness) and passed in the native normal gate (179),
+the full ASan/UBSan inventory (181) and both hosted jobs on commit `3a41734`;
+discovery used `--no-tests=error`, LastTest was retained before and after
+discovery, and each suite has a unique JUnit. `qualify-audio.py --verify-evidence`
+accepted the final source, build and artifact identities. The independent goal
+verification found the lone-descriptor interrupt rule unpinned; that gap is closed
+(`core/tests/test_ai.c`, both surviving mutants now fail). Evidence and bounds are
+in `docs/evidence/phase08-audio.md`; no hardware approval is implied.
+
+Approval: delegated planning strategy executed under owner-directed autonomy;
+authored software scope only, no hardware approval.

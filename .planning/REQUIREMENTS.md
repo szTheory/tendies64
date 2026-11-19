@@ -21,10 +21,10 @@ its partial scheduler foundation; remaining device integration must be proved.
 
 ### Audio and raw capture
 
-- [ ] **AUD-01**: AI DMA, the two-deep queue, DACRATE cadence and interrupt behavior produce raw audio buffers with sample index and rate metadata
-- [ ] **AUD-02**: An authored audio diagnostic checks exact sample values across DMA boundaries; "non-silent" is never accepted as evidence
-- [ ] **AUD-03**: Audio cadence is derived from guest time and never from a host clock
-- [ ] **RUN-06**: User can capture raw video frames and raw audio sample buffers from a headless run, as files with metadata, separately from host presentation
+- [x] **AUD-01**: AI DMA, the two-deep queue, DACRATE cadence and interrupt behavior produce raw audio buffers with sample index and rate metadata
+- [x] **AUD-02**: An authored audio diagnostic checks exact sample values across DMA boundaries; "non-silent" is never accepted as evidence
+- [x] **AUD-03**: Audio cadence is derived from guest time and never from a host clock
+- [x] **RUN-06**: User can capture raw video frames and raw audio sample buffers from a headless run, as files with metadata, separately from host presentation
 
 ### Controller, saves and reproducibility
 
@@ -126,10 +126,10 @@ roadmap activation; CORE-02 retains only its verified scheduler foundation.
 | VID-04 | Phase 7 | Blocked acceptance — D5 oracle authority and parallel-rdp per-file/asset audit unresolved |
 | VID-05 | Phase 7 | Complete |
 | VID-06 | Phase 7 | Complete |
-| AUD-01 | Phase 8 | Pending |
-| AUD-02 | Phase 8 | Pending |
-| AUD-03 | Phase 8 | Pending |
-| RUN-06 | Phase 8 | Pending |
+| AUD-01 | Phase 8 | Complete |
+| AUD-02 | Phase 8 | Complete |
+| AUD-03 | Phase 8 | Complete |
+| RUN-06 | Phase 8 | Complete |
 | SAVE-01 | Phase 9 | Pending |
 | SAVE-02 | Phase 9 | Pending |
 | SAVE-03 | Phase 9 | Pending |
