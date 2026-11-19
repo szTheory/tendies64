@@ -27,6 +27,7 @@ CANONICAL_CORE_SOURCES = frozenset(
         "t64_digest.c",
         "t64_exception.c",
         "t64_isviewer.c",
+        "t64_joybus.c",
         "t64_machine.c",
         "t64_memory.c",
         "t64_mi.c",
@@ -43,6 +44,7 @@ CANONICAL_CORE_SOURCES = frozenset(
         "t64_rsp.c",
         "t64_rsp_divider.c",
         "t64_scheduler.c",
+        "t64_si.c",
         "t64_softfloat.c",
         "t64_sp.c",
         "t64_trace.c",
@@ -237,9 +239,9 @@ REVIEWED_AI_FUNCTIONS = frozenset(
 # review and digest refresh; static definition additions/removals also fail the
 # inventory check below.
 REVIEWED_BODY_DIGESTS = {
-    "core/t64_bus.c :: decode_region": "69b17e64915f063c8605fd3f28dab8cf1b76beae62378df2633806a548c6a97c",
-    "core/t64_bus.c :: t64_bus_write": "efca62b4fabbbca012e5ca5d6946092c87bf98b2b2fd06227ef61b14c61004d6",
-    "core/t64_bus.c :: t64_bus_write_masked": "963205739dd3cc6d4b10f56fc4e31ed041a5a864f7ef90cdfc736fa842809506",
+    "core/t64_bus.c :: decode_region": "abee4eb6218517121a4a42c18bb969294d39fc1a8293436b095a853e147cda91",
+    "core/t64_bus.c :: t64_bus_write": "58d73a6eee953d098a7310e5605872100642a7b0e854faef883197a0448cee71",
+    "core/t64_bus.c :: t64_bus_write_masked": "bb9b5b266e3c6ebe8962c73539a13f6e85847cbea4ba63167919822cf3cd5b54",
     "core/t64_bus.c :: t64_bus_writeback_cache_line": "00b198913012b79e8ff87fdc40822b2096e7d6f1ba9d9f8033f6e468e0621e80",
     "core/t64_scheduler.c :: event_can_dispatch": "44dbeef3042a917d47eae797b5c005280573cc7adbada6331fdfab923939c711",
     "core/t64_scheduler.c :: t64_schedule_cancel": "1be0f92eede2acb74e76498c87205e8c4cc9f99de742da23449a20a371eff2f5",

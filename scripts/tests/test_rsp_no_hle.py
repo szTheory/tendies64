@@ -86,7 +86,20 @@ MUTATION_SEEDS = (
     "bus decode-region injected-effect mutation",
     "AI device gate revert in t64_audio_info",
     "AI device gate revert in decode_region",
+    "SI region bus write injected-effect mutation",
+    "SI region decode-region injected-effect mutation",
+    "SI region branch removed from decode_region",
+    "unreviewed extra core source file",
 )
+
+# Plan 09-03 pins: the bus bodies edited for the SI region and the two sources
+# added with the SI device. Deleting any one of them must fail the guard.
+NEW_SI_BODY_PINS = (
+    "core/t64_bus.c :: decode_region",
+    "core/t64_bus.c :: t64_bus_write",
+    "core/t64_bus.c :: t64_bus_write_masked",
+)
+NEW_SI_SOURCES = ("t64_si.c", "t64_joybus.c")
 
 
 def require_nonzero_count(count: int, label: str) -> None:
@@ -161,6 +174,43 @@ def _must_reject(label: str, source_root: pathlib.Path,
     require_nonzero_count(scanned, "scanned production source")
     if not findings:
         raise AssertionError(f"mutation accepted: {label}")
+
+
+def _check_si_pin_deletions(source_root: pathlib.Path,
+                            build_root: pathlib.Path) -> None:
+    """Delete each plan 09-03 pin or source name once: the clean tree is
+    accepted first, then the guard must fail with its own message."""
+
+    _assert_clean(source_root, build_root)
+    saved_digests = CHECKER.REVIEWED_BODY_DIGESTS
+    for label in NEW_SI_BODY_PINS:
+        if label not in saved_digests:
+            raise AssertionError(f"{label} has no reviewed pin to delete")
+        CHECKER.REVIEWED_BODY_DIGESTS = {
+            key: value for key, value in saved_digests.items() if key != label
+        }
+        try:
+            findings, _, _ = CHECKER.inspect_tree(source_root, build_root)
+        finally:
+            CHECKER.REVIEWED_BODY_DIGESTS = saved_digests
+        expected = f"{label}: reviewed normalized body digest is missing"
+        if not any(finding == expected for finding in findings):
+            raise AssertionError(f"deleting the pin for {label} was not reported: {findings}")
+    saved_sources = CHECKER.CANONICAL_CORE_SOURCES
+    for name in NEW_SI_SOURCES:
+        if name not in saved_sources:
+            raise AssertionError(f"{name} is not a reviewed source name")
+        CHECKER.CANONICAL_CORE_SOURCES = saved_sources - {name}
+        try:
+            findings, _, _ = CHECKER.inspect_tree(source_root, build_root)
+        finally:
+            CHECKER.CANONICAL_CORE_SOURCES = saved_sources
+        if not any(
+            finding.startswith("core: unreviewed t64_*.c production source(s): ")
+            and name in finding
+            for finding in findings
+        ):
+            raise AssertionError(f"deleting the source name {name} was not reported: {findings}")
 
 
 def _function_definition_span(source: str, name: str) -> tuple[int, int] | None:
@@ -592,6 +642,53 @@ def _check_mutation_suite(temp_root: pathlib.Path) -> int:
         path.write_text(original, encoding="utf-8")
         seeds_run += 1
 
+    # Plan 09-03: the three bus bodies edited for the SI region carry refreshed
+    # pins. An injected effect in two of them, the SI region branch removed
+    # from decode_region (the pre-SI body no longer equals the refreshed pin)
+    # and an unreviewed extra source must all still be rejected.
+    si_bus_mutations = (
+        ("core/t64_bus.c", "t64_bus_write", "SI region bus write injected-effect mutation"),
+        ("core/t64_bus.c", "decode_region", "SI region decode-region injected-effect mutation"),
+    )
+    for relative, function_name, label in si_bus_mutations:
+        path = source_root / relative
+        original = path.read_text(encoding="utf-8")
+        span = _function_definition_span(original, function_name)
+        if span is None:
+            raise AssertionError(f"{label} anchor no longer exists")
+        body_at = original.index("{", span[0]) + 1
+        injection = (
+            "\n  if (machine != NULL && machine->si.error) {\n"
+            "    machine->si.dram_address ^= UINT32_C(8);\n"
+            "  }\n"
+        )
+        path.write_text(original[:body_at] + injection + original[body_at:], encoding="utf-8")
+        _must_reject(label, source_root, build_root)
+        path.write_text(original, encoding="utf-8")
+        seeds_run += 1
+
+    bus_path = source_root / "core" / "t64_bus.c"
+    original_bus = bus_path.read_text(encoding="utf-8")
+    si_branch = (
+        "  if (address >= T64_SI_BASE &&\n"
+        "      address < T64_SI_BASE + T64_DEVICE_WINDOW_BYTES &&\n"
+        "      t64_has_si_profile(machine)) {\n"
+        "    return T64_BUS_REGION_SI;\n"
+        "  }\n"
+    )
+    if original_bus.count(si_branch) != 1:
+        raise AssertionError("SI region branch anchor no longer exists")
+    bus_path.write_text(original_bus.replace(si_branch, "", 1), encoding="utf-8")
+    _must_reject("SI region branch removed from decode_region", source_root, build_root)
+    bus_path.write_text(original_bus, encoding="utf-8")
+    seeds_run += 1
+
+    extra_source = source_root / "core" / "t64_extra.c"
+    extra_source.write_text("int unreviewed_extra_source;\n", encoding="utf-8")
+    _must_reject("unreviewed extra core source file", source_root, build_root)
+    extra_source.unlink()
+    seeds_run += 1
+
     depth_path = source_root / "core" / "t64_rdp_depth.c"
     original_depth = depth_path.read_text(encoding="utf-8")
     depth_anchor = "result_out->visible_word = z_compress(linear_z, delta_code);"
@@ -731,6 +828,8 @@ def _check_mutation_suite(temp_root: pathlib.Path) -> int:
 
     require_nonzero_count(seeds_run, "mutation seed")
     seeds_run += _check_helper_inventory_mutations(temp_root / "helper-inventory")
+    deletion_source, deletion_build = _copy_clean_fixture(temp_root / "si-pin-deletions")
+    _check_si_pin_deletions(deletion_source, deletion_build)
     if seeds_run != len(MUTATION_SEEDS):
         raise AssertionError(
             f"mutation seed count mismatch: ran={seeds_run} declared={len(MUTATION_SEEDS)}"
