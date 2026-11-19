@@ -56,7 +56,9 @@ guest ticks, width, height, stride, `rgba8` encoding, and byte length. Each
 `audio` entry records the relative file name, sequence, first sample index,
 frame count, sample-rate numerator and denominator, first and last guest
 ticks, `s16be-interleaved-stereo` encoding, channel count, bit depth, and byte
-length. JSON integer fields are exact integers; file names are generated from
+length. Counters, sizes, ticks and sample indexes are written as exact decimal
+strings (for example `"16581"`) so 64-bit values cannot lose precision in a JSON
+reader; only `schema_version` is a JSON number. File names are generated from
 bounded counters and are relative to the bundle.
 
 Both streams must contain nonzero actual data. Missing metadata, incomplete
@@ -112,6 +114,17 @@ with unknown guest state instead of inventing a rollback or success. Test-only
 I/O faults and the commit barrier are available only in test runner builds and
 are rejected by the production CLI.
 
-The macOS primitive and race are exercised by the local focused suite. Linux
-primitive execution remains pending the existing hosted Linux job; this
-document does not claim Linux runtime evidence or hardware compatibility.
+The macOS primitive and race are exercised by the local focused suite. The Linux
+primitive ran in the existing hosted Linux job of the Phase 08 qualification
+(see [the evidence](../evidence/phase08-audio.md)); this document does not claim
+hardware compatibility.
+
+Known limit: the supervisor starts the real runner under an `RLIMIT_FSIZE` of the
+result-size bound plus 64 KiB (about 68 KiB). The runner writes the capture
+files, so a single video or audio packet file, or the `manifest.json` itself
+(about 174 bytes per frame, so roughly 390 frames), larger than that limit ends
+the run with `SIGXFSZ`. It fails closed and publishes nothing, but a larger frame
+(for example a 320x240 RGBA frame is 307,200 bytes) is not capturable until that
+limit is raised for the capture directory. The accepted authored case is
+16,581 bytes in total and is unaffected; the current real runner accepts only
+that authored guest.

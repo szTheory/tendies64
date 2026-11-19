@@ -73,8 +73,9 @@ Cadence follows DACRATE and guest time only: the specification schedules each
 sample boundary with checked integer arithmetic and never reads host wall time
 ([audio interface](../spec/audio-interface.md)). The `unit.core.ai.cadence` and
 `unit.core.ai.determinism` tests and the `controls.real.audio-drain-cadence`
-control exercise that. The `controls.real.audio-wrong-sample` control rejects a
-wrong sample, and "non-silent" is never accepted. No run here compared different
+control exercise that. The `controls.real.audio-wrong-sample` control proves that wrong
+sample bytes reach the strict byte comparator, which refuses them; "non-silent"
+is never accepted. No run here compared different
 host throttle settings against each other.
 
 ## Review and repair history
@@ -97,6 +98,11 @@ the run above, on the commit whose native record it matches.
 - One authored case: sample rate, DMA lengths and queue patterns beyond it are
   covered only by the unit matrices in `docs/spec/audio-cases.json`, and no
   hardware or other-emulator sample stream was compared.
+- The real runner runs under a supervisor `RLIMIT_FSIZE` of about 68 KiB per
+  file, so a single capture file, or the manifest (roughly 390 frames), larger than
+  that ends the run with `SIGXFSZ` (fails closed, nothing published). The authored 12x7 case totals 16,581 bytes;
+  larger geometries need that limit raised for the capture directory before they
+  can be captured. See [raw capture](../spec/raw-capture.md).
 - No audio DAC, analog output, latency or host sound device is modeled or
   claimed; raw output stays separate from host presentation.
 - Descriptor-less prohibitions in the audio and raw-capture contracts are

@@ -444,7 +444,13 @@ pass/fail completion, resource caps, rights and publication stops remain intact.
   any hosted claim. In new designs, put cheap consistency checks ahead of long
   tests, processes and suites. This session's lessons: a stale pinned
   inventory, workflow/scanner drift and a missing include path were each found
-  only after a long gate; each had a seconds-long local check.
+  only after a long gate; each had a seconds-long local check. Replay every
+  verifier or collector tail against real retained artifacts before pushing
+  (two Phase 08 defects appeared only on real hosted data, each costing a native
+  plus hosted cycle), and build cross-platform comparison controls from real
+  two-platform data, not identical synthetic copies. Before accepting a long
+  fixed cost, read the per-step timings: the pinned Binutils source build is
+  about half of the macOS gate (docs/ci-reviews/LOG.md F-096).
 - Benchmark named workloads/builds with correct output held constant. Report
   emulator throughput and end-to-end latency separately from CI queue/setup/
   build/test time.
