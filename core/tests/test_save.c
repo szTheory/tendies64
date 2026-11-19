@@ -1045,6 +1045,594 @@ static void case_sram_dma(void) {
 }
 
 /* ------------------------------------------------------------------------ */
+/* Channel 4 matrices: shared helpers                                         */
+/* ------------------------------------------------------------------------ */
+
+/* The handshake total of a single channel 4 entry that is not one of the
+ * three exact triples (timeout on an EEPROM id, absent elsewhere):
+ * 2000 n + 188 + 3907. */
+#define TIMEOUT_BASE UINT64_C(4095)
+#define BYTE_COST UINT64_C(2000)
+
+static uint64_t unanswered_handshake(uint32_t tx_count) {
+  return BYTE_COST * tx_count + TIMEOUT_BASE;
+}
+
+/* One frame through the SI at the current tick: WR64B, then an RD64B started
+ * right after it settles; the execute and completion ticks are asserted
+ * against `handshake` inside read_image. */
+static void run_txn(t64_machine *machine, const uint8_t frame[64],
+                    uint64_t handshake, uint8_t image[64]) {
+  write_frame(machine, frame);
+  read_image(machine, machine->tick, handshake, image);
+}
+
+static const uint8_t *rx_at(const uint8_t image[64], uint32_t tx_count) {
+  return image + 6u + tx_count;
+}
+
+static bool rx_all(const uint8_t image[64], uint32_t tx_count,
+                   uint32_t rx_count, uint8_t value) {
+  uint32_t index;
+
+  for (index = 0u; index < rx_count; index++) {
+    if (rx_at(image, tx_count)[index] != value) return false;
+  }
+  return true;
+}
+
+/* ------------------------------------------------------------------------ */
+/* eeprom-commands                                                           */
+/* ------------------------------------------------------------------------ */
+
+typedef struct {
+  const char *label;
+  uint32_t tx_count;
+  uint32_t rx_count;
+  uint8_t tx[10];
+} command_row;
+
+/* Frames that are not one of the exact triples: command 0xFF, the 0x01 and
+ * 0x02 commands, the RTC commands (0x06, 0x07 and 0x08 with their own
+ * lengths) and every wrong length of the three valid commands. */
+static const command_row unanswered_rows[] = {
+    {"command 0xff", 1u, 3u, {0xFF}},
+    {"command 0x01", 1u, 3u, {0x01}},
+    {"command 0x02", 1u, 3u, {0x02}},
+    {"rtc status 0x06", 1u, 3u, {0x06}},
+    {"rtc read 0x07", 2u, 9u, {0x07, 0x00}},
+    {"rtc write 0x08", 10u, 1u,
+     {0x08, 0x00, 1, 2, 3, 4, 5, 6, 7, 8}},
+    {"info with rx 4", 1u, 4u, {0x00}},
+    {"info with rx 0", 1u, 0u, {0x00}},
+    {"info with tx 2", 2u, 3u, {0x00, 0x00}},
+    {"read with tx 3", 3u, 8u, {0x04, 0x01, 0x00}},
+    {"read with rx 7", 2u, 7u, {0x04, 0x01}},
+    {"write with tx 9", 9u, 1u, {0x05, 0x01, 1, 2, 3, 4, 5, 6, 7}},
+    {"write with rx 2", 10u, 2u, {0x05, 0x01, 1, 2, 3, 4, 5, 6, 7, 8}},
+};
+
+static const uint8_t block_a[8] = {0xA1, 0xA2, 0xA3, 0xA4,
+                                   0xA5, 0xA6, 0xA7, 0xA8};
+
+static void check_unanswered_rows(t64_machine *machine, uint8_t flag) {
+  size_t index;
+
+  for (index = 0u; index < sizeof unanswered_rows / sizeof unanswered_rows[0];
+       index++) {
+    const command_row *row = &unanswered_rows[index];
+    uint8_t frame[64];
+    uint8_t image[64];
+    uint8_t snapshot[T64_SAVE_SRAM_BYTES];
+    const uint64_t deadline = machine->save.busy_until;
+    const size_t size = machine->save.bytes == NULL
+                            ? 0u
+                            : t64_save_storage_bytes(machine->profile.save_kind);
+
+    if (size != 0u) (void)memcpy(snapshot, machine->save.bytes, size);
+    build_frame(frame, row->tx_count, row->rx_count, row->tx);
+    run_txn(machine, frame, unanswered_handshake(row->tx_count), image);
+    if (image[5] != (uint8_t)(row->rx_count | flag)) {
+      fprintf(stderr, "command row '%s': byte 5 is %02x\n", row->label,
+              (unsigned)image[5]);
+    }
+    T64_CHECK_INT(image[4], row->tx_count);
+    T64_CHECK_INT(image[5], row->rx_count | flag);
+    T64_CHECK(rx_all(image, row->tx_count, row->rx_count, 0xFFu));
+    T64_CHECK_INT(machine->save.busy_until, deadline);
+    if (size != 0u) {
+      T64_CHECK(memcmp(snapshot, machine->save.bytes, size) == 0);
+    }
+  }
+}
+
+static void case_eeprom_commands(void) {
+  static const char *const eeprom_ids[] = {E4K_ID, E16K_ID};
+  static const char *const no_eeprom_ids[] = {STEM_ID, S32K_ID};
+  uint8_t frame[64];
+  uint8_t image[64];
+  size_t index;
+
+  for (index = 0u; index < 2u; index++) {
+    t64_machine *machine = make_idle_machine(eeprom_ids[index]);
+    const uint8_t id_byte = index == 0u ? 0x80u : 0xC0u;
+    static const uint8_t info_tx[1] = {0x00};
+    static const uint8_t read_tx[2] = {0x04, 0x07};
+    static const uint8_t write_tx[10] = {0x05, 0x07, 0xA1, 0xA2, 0xA3,
+                                         0xA4, 0xA5, 0xA6, 0xA7, 0xA8};
+    uint64_t deadline;
+
+    if (machine == NULL) continue;
+    /* Info while idle: 00 id 00 and no flag. */
+    build_frame(frame, 1u, 3u, info_tx);
+    run_txn(machine, frame, H_INFO, image);
+    T64_CHECK_INT(image[5], 0x03u);
+    T64_CHECK_INT(rx_at(image, 1u)[0], 0x00u);
+    T64_CHECK_INT(rx_at(image, 1u)[1], id_byte);
+    T64_CHECK_INT(rx_at(image, 1u)[2], 0x00u);
+    /* An unwritten block reads eight 0xFF. */
+    build_frame(frame, 2u, 8u, read_tx);
+    run_txn(machine, frame, H_READ, image);
+    T64_CHECK_INT(image[5], 0x08u);
+    T64_CHECK(rx_all(image, 2u, 8u, 0xFFu));
+    /* Every frame that is not an exact triple answers the timeout flag (0x40)
+       with nothing written and the deadline untouched. */
+    check_unanswered_rows(machine, 0x40u);
+    /* Write then read round-trips eight literal bytes. */
+    build_frame(frame, 10u, 1u, write_tx);
+    run_txn(machine, frame, H_WRITE, image);
+    T64_CHECK_INT(image[5], 0x01u);
+    T64_CHECK_INT(rx_at(image, 10u)[0], 0x00u);
+    deadline = machine->save.busy_until;
+    T64_CHECK(deadline > machine->tick);
+    T64_CHECK(advance_guest_to(machine, deadline));
+    build_frame(frame, 2u, 8u, read_tx);
+    run_txn(machine, frame, H_READ, image);
+    T64_CHECK_INT(image[5], 0x08u);
+    T64_CHECK(memcmp(rx_at(image, 2u), block_a, 8u) == 0);
+    /* TX flag 0x80 on the channel 4 handshake skips the execution: channel 0
+       carries a controller state poll (10,876 ticks), channel 4 a flagged
+       write; nothing is written, byte 5 keeps its count with no flag. */
+    {
+      uint8_t flagged[64] = {0};
+      const uint64_t before_deadline = machine->save.busy_until;
+      uint8_t snapshot[T64_SAVE_EEPROM_16K_BYTES];
+
+      (void)memcpy(snapshot, machine->save.bytes,
+                   t64_save_storage_bytes(machine->profile.save_kind));
+      flagged[0] = 0x01; flagged[1] = 0x04; flagged[2] = 0x01;
+      flagged[3] = 0xFF; flagged[4] = 0xFF; flagged[5] = 0xFF;
+      flagged[6] = 0xFF;
+      flagged[7] = 0x00; flagged[8] = 0x00; flagged[9] = 0x00;
+      flagged[10] = 0x8A; /* TX flag 0x80 with a transmit count of 10 */
+      flagged[11] = 0x01;
+      (void)memcpy(flagged + 12, write_tx, 10u);
+      flagged[22] = 0xFF;
+      flagged[23] = 0xFE;
+      flagged[63] = 0x01;
+      run_txn(machine, flagged, UINT64_C(10876), image);
+      T64_CHECK_INT(image[11], 0x01u);
+      T64_CHECK_INT(image[22], 0xFFu);
+      T64_CHECK_INT(machine->save.busy_until, before_deadline);
+      T64_CHECK(memcmp(snapshot, machine->save.bytes,
+                       t64_save_storage_bytes(machine->profile.save_kind)) ==
+                0);
+    }
+    /* A valid triple never has a zero receive count: it is classified as a
+       timeout (the independent class rule). */
+    T64_CHECK_INT(t64_save_channel4_classify(machine, 0x00, 1u, 0u),
+                  T64_SAVE_CH4_TIMEOUT);
+    T64_CHECK_INT(t64_save_channel4_classify(machine, 0x04, 2u, 8u),
+                  T64_SAVE_CH4_VALID);
+    t64_machine_destroy(machine);
+  }
+
+  /* On the stem and the -s32k ids every one of these frames, including the
+     three valid triples, answers the no-device flag (0x80) with the data
+     untouched and the storage unchanged. */
+  for (index = 0u; index < 2u; index++) {
+    t64_machine *machine = make_idle_machine(no_eeprom_ids[index]);
+    static const uint8_t info_tx[1] = {0x00};
+    static const uint8_t read_tx[2] = {0x04, 0x07};
+    static const uint8_t write_tx[10] = {0x05, 0x07, 0xA1, 0xA2, 0xA3,
+                                         0xA4, 0xA5, 0xA6, 0xA7, 0xA8};
+    uint8_t snapshot[T64_SAVE_SRAM_BYTES];
+    const size_t size = machine == NULL || machine->save.bytes == NULL
+                            ? 0u
+                            : t64_save_storage_bytes(machine->profile.save_kind);
+
+    if (machine == NULL) continue;
+    if (size != 0u) (void)memcpy(snapshot, machine->save.bytes, size);
+    build_frame(frame, 1u, 3u, info_tx);
+    run_txn(machine, frame, unanswered_handshake(1u), image);
+    T64_CHECK_INT(image[5], 0x83u);
+    T64_CHECK(rx_all(image, 1u, 3u, 0xFFu));
+    build_frame(frame, 2u, 8u, read_tx);
+    run_txn(machine, frame, unanswered_handshake(2u), image);
+    T64_CHECK_INT(image[5], 0x88u);
+    T64_CHECK(rx_all(image, 2u, 8u, 0xFFu));
+    build_frame(frame, 10u, 1u, write_tx);
+    run_txn(machine, frame, unanswered_handshake(10u), image);
+    T64_CHECK_INT(image[5], 0x81u);
+    T64_CHECK_INT(rx_at(image, 10u)[0], 0xFFu);
+    check_unanswered_rows(machine, 0x80u);
+    T64_CHECK_INT(machine->save.busy_until, 0u);
+    if (size != 0u) {
+      T64_CHECK(memcmp(snapshot, machine->save.bytes, size) == 0);
+    }
+    T64_CHECK_INT(t64_save_channel4_classify(machine, 0x05, 10u, 1u),
+                  T64_SAVE_CH4_ABSENT);
+    t64_machine_destroy(machine);
+  }
+}
+
+/* ------------------------------------------------------------------------ */
+/* eeprom-blocks                                                             */
+/* ------------------------------------------------------------------------ */
+
+/* The pattern of block index i: i, i xor 0xFF, then i + 1 to i + 6, so every
+ * index embeds itself and a wrong mask shows at the alias rows. */
+static void block_pattern(unsigned index, uint8_t out[8]) {
+  unsigned k;
+
+  out[0] = (uint8_t)index;
+  out[1] = (uint8_t)(index ^ 0xFFu);
+  for (k = 0u; k < 6u; k++) out[2u + k] = (uint8_t)(index + 1u + k);
+}
+
+/* Direct calls of the execute function at increasing ticks; the deadline is
+ * cleared between writes through direct state (a test shortcut: timed
+ * behavior is eeprom-busy). */
+static uint8_t direct_write(t64_machine *machine, uint64_t tick,
+                            unsigned index, const uint8_t data[8]) {
+  uint8_t tx[10];
+  uint8_t rx[1] = {0xFF};
+  uint8_t flags;
+
+  tx[0] = 0x05;
+  tx[1] = (uint8_t)index;
+  (void)memcpy(tx + 2, data, 8u);
+  machine->save.busy_until = 0u;
+  flags = t64_save_channel4_execute(machine, tick, tx, 10u, rx, 1u);
+  T64_CHECK_INT(flags, 0u);
+  T64_CHECK_INT(rx[0], 0x00u);
+  return flags;
+}
+
+static void direct_read(t64_machine *machine, uint64_t tick, unsigned index,
+                        uint8_t out[8]) {
+  uint8_t tx[2] = {0x04, 0};
+  uint8_t flags;
+
+  tx[1] = (uint8_t)index;
+  machine->save.busy_until = 0u;
+  flags = t64_save_channel4_execute(machine, tick, tx, 2u, out, 8u);
+  T64_CHECK_INT(flags, 0u);
+}
+
+static void case_eeprom_blocks(void) {
+  unsigned index;
+
+  /* 4 Kbit: 64 blocks, indexes 64 to 255 mirror onto index and 0x3F. The
+     alias rows run first. */
+  {
+    t64_machine *machine = make_idle_machine(E4K_ID);
+    uint8_t pattern[8];
+    uint8_t out[8];
+    uint8_t before[T64_SAVE_EEPROM_4K_BYTES];
+    static const unsigned aliases[] = {0x01u, 0x41u, 0x81u, 0xC1u};
+    static const unsigned aliases_3f[] = {0x3Fu, 0x7Fu, 0xBFu, 0xFFu};
+    size_t k;
+
+    if (machine == NULL) return;
+    T64_CHECK_INT(t64_save_storage_bytes(machine->profile.save_kind), 512u);
+    block_pattern(0x41u, pattern);
+    direct_write(machine, 1000u, 0x41u, pattern);
+    for (k = 0u; k < 4u; k++) {
+      direct_read(machine, 2000u, aliases[k], out);
+      T64_CHECK(memcmp(out, pattern, 8u) == 0);
+    }
+    block_pattern(0xFFu, pattern);
+    (void)memcpy(before, machine->save.bytes, sizeof before);
+    direct_write(machine, 3000u, 0xFFu, pattern);
+    for (k = 0u; k < 4u; k++) {
+      direct_read(machine, 4000u, aliases_3f[k], out);
+      T64_CHECK(memcmp(out, pattern, 8u) == 0);
+    }
+    /* A write to block 0xFF changes only storage offset 0x1F8 to 0x1FF. */
+    for (index = 0u; index < sizeof before; index++) {
+      const bool inside = index >= 0x1F8u && index <= 0x1FFu;
+
+      if (inside) {
+        T64_CHECK_INT(machine->save.bytes[index], pattern[index - 0x1F8u]);
+      } else {
+        T64_CHECK_INT(machine->save.bytes[index], before[index]);
+      }
+    }
+    /* Indexes 0 to 63 read back their own pattern; 64 to 255 read the
+       pattern of the index and 0x3F. */
+    (void)memset(machine->save.bytes, 0xFF, T64_SAVE_EEPROM_4K_BYTES);
+    for (index = 0u; index < 64u; index++) {
+      block_pattern(index, pattern);
+      direct_write(machine, 5000u + index, index, pattern);
+    }
+    for (index = 0u; index < 256u; index++) {
+      block_pattern(index & 0x3Fu, pattern);
+      direct_read(machine, 6000u + index, index, out);
+      if (memcmp(out, pattern, 8u) != 0) {
+        fprintf(stderr, "4 Kbit block %u reads the wrong pattern\n", index);
+      }
+      T64_CHECK(memcmp(out, pattern, 8u) == 0);
+    }
+    t64_machine_destroy(machine);
+  }
+
+  /* 16 Kbit: all 256 blocks are distinct. */
+  {
+    t64_machine *machine = make_idle_machine(E16K_ID);
+    uint8_t pattern[8];
+    uint8_t out[8];
+
+    if (machine == NULL) return;
+    T64_CHECK_INT(t64_save_storage_bytes(machine->profile.save_kind), 2048u);
+    for (index = 0u; index < 256u; index++) {
+      block_pattern(index, pattern);
+      direct_write(machine, 1000u + index, index, pattern);
+    }
+    for (index = 0u; index < 256u; index++) {
+      block_pattern(index, pattern);
+      direct_read(machine, 5000u + index, index, out);
+      if (memcmp(out, pattern, 8u) != 0) {
+        fprintf(stderr, "16 Kbit block %u reads the wrong pattern\n", index);
+      }
+      T64_CHECK(memcmp(out, pattern, 8u) == 0);
+      T64_CHECK(memcmp(machine->save.bytes + 8u * index, pattern, 8u) == 0);
+    }
+    t64_machine_destroy(machine);
+  }
+}
+
+/* ------------------------------------------------------------------------ */
+/* eeprom-busy                                                               */
+/* ------------------------------------------------------------------------ */
+
+typedef enum { PROBE_INFO, PROBE_READ, PROBE_WRITE } probe_kind;
+
+static const uint8_t busy_write_tx[10] = {0x05, 0x01, 0x11, 0x12, 0x13,
+                                          0x14, 0x15, 0x16, 0x17, 0x18};
+static const uint8_t busy_other_tx[10] = {0x05, 0x02, 0x21, 0x22, 0x23,
+                                          0x24, 0x25, 0x26, 0x27, 0x28};
+
+/* A fresh e4k machine: block 1 written with an execute tick E1 = 10,000 +
+ * 22,876 = 32,876 (the deadline D = 407,876), then one probe whose execute
+ * tick is D + delta; returns the image and leaves the machine for checks. */
+static t64_machine *busy_probe(probe_kind kind, int64_t delta,
+                               uint8_t image[64]) {
+  static const uint8_t info_tx[1] = {0x00};
+  static const uint8_t read_tx[2] = {0x04, 0x01};
+  t64_machine *machine = make_idle_machine(E4K_ID);
+  uint8_t frame[64];
+  uint8_t ignored[64];
+  const uint64_t deadline = UINT64_C(10000) + H_WRITE + BUSY_WINDOW;
+  uint64_t handshake;
+
+  if (machine == NULL) return NULL;
+  T64_CHECK(advance_guest_to(machine, 3000u));
+  build_frame(frame, 10u, 1u, busy_write_tx);
+  write_frame(machine, frame);
+  read_image(machine, 10000u, H_WRITE, ignored);
+  T64_CHECK_INT(machine->save.busy_until, deadline);
+  if (kind == PROBE_INFO) {
+    build_frame(frame, 1u, 3u, info_tx);
+    handshake = H_INFO;
+  } else if (kind == PROBE_READ) {
+    build_frame(frame, 2u, 8u, read_tx);
+    handshake = H_READ;
+  } else {
+    build_frame(frame, 10u, 1u, busy_other_tx);
+    handshake = H_WRITE;
+  }
+  write_frame(machine, frame);
+  read_image(machine, (uint64_t)((int64_t)(deadline - handshake) + delta),
+             handshake, image);
+  return machine;
+}
+
+static void case_eeprom_busy(void) {
+  const uint64_t deadline = UINT64_C(10000) + H_WRITE + BUSY_WINDOW;
+  uint8_t image[64];
+  t64_machine *machine;
+
+  T64_CHECK_INT(deadline, 407876u);
+  /* Info: busy status 0x80 one tick before the deadline, idle at the
+     deadline and after; a stale deadline is kept as it is. */
+  machine = busy_probe(PROBE_INFO, -1, image);
+  if (machine != NULL) {
+    T64_CHECK_INT(image[5], 0x03u);
+    T64_CHECK_INT(rx_at(image, 1u)[2], 0x80u);
+    T64_CHECK_INT(machine->save.busy_until, deadline);
+    t64_machine_destroy(machine);
+  }
+  machine = busy_probe(PROBE_INFO, 0, image);
+  if (machine != NULL) {
+    T64_CHECK_INT(rx_at(image, 1u)[2], 0x00u);
+    T64_CHECK_INT(machine->save.busy_until, deadline);
+    t64_machine_destroy(machine);
+  }
+  machine = busy_probe(PROBE_INFO, 1000, image);
+  if (machine != NULL) {
+    T64_CHECK_INT(rx_at(image, 1u)[2], 0x00u);
+    T64_CHECK_INT(machine->save.busy_until, deadline); /* stale, kept */
+    t64_machine_destroy(machine);
+  }
+
+  /* Read: the timeout flag with no data one tick before; the block at the
+     deadline. */
+  machine = busy_probe(PROBE_READ, -1, image);
+  if (machine != NULL) {
+    T64_CHECK_INT(image[5], 0x48u);
+    T64_CHECK(rx_all(image, 2u, 8u, 0xFFu));
+    t64_machine_destroy(machine);
+  }
+  machine = busy_probe(PROBE_READ, 0, image);
+  if (machine != NULL) {
+    T64_CHECK_INT(image[5], 0x08u);
+    T64_CHECK_INT(rx_at(image, 2u)[0], 0x11u);
+    T64_CHECK_INT(rx_at(image, 2u)[7], 0x18u);
+    t64_machine_destroy(machine);
+  }
+
+  /* Write: already busy (0x80) one tick before, nothing written, the window
+     not extended; accepted at the deadline with a new deadline from its own
+     execute tick. */
+  machine = busy_probe(PROBE_WRITE, -1, image);
+  if (machine != NULL) {
+    T64_CHECK_INT(image[5], 0x01u);
+    T64_CHECK_INT(rx_at(image, 10u)[0], 0x80u);
+    T64_CHECK_INT(machine->save.busy_until, deadline);
+    T64_CHECK(machine->save.bytes != NULL &&
+              memcmp(machine->save.bytes + 16u, "\xFF\xFF\xFF\xFF\xFF\xFF\xFF\xFF",
+                     8u) == 0);
+    t64_machine_destroy(machine);
+  }
+  machine = busy_probe(PROBE_WRITE, 0, image);
+  if (machine != NULL) {
+    T64_CHECK_INT(image[5], 0x01u);
+    T64_CHECK_INT(rx_at(image, 10u)[0], 0x00u);
+    T64_CHECK_INT(machine->save.busy_until, deadline + BUSY_WINDOW);
+    T64_CHECK(machine->save.bytes != NULL &&
+              memcmp(machine->save.bytes + 16u, busy_other_tx + 2u, 8u) == 0);
+    t64_machine_destroy(machine);
+  }
+
+  /* A deadline that would overflow 64 bits is refused with the timeout flag:
+     nothing written, the deadline untouched. */
+  machine = make_idle_machine(E4K_ID);
+  if (machine != NULL) {
+    uint8_t rx[1] = {0xFF};
+    uint8_t flags = t64_save_channel4_execute(
+        machine, UINT64_MAX - 100u, busy_write_tx, 10u, rx, 1u);
+
+    T64_CHECK_INT(flags, 0x40u);
+    T64_CHECK_INT(rx[0], 0xFFu);
+    T64_CHECK_INT(machine->save.busy_until, 0u);
+    T64_CHECK(machine->save.bytes != NULL &&
+              memcmp(machine->save.bytes + 8u, "\xFF\xFF\xFF\xFF\xFF\xFF\xFF\xFF",
+                     8u) == 0);
+    t64_machine_destroy(machine);
+  }
+
+  /* A second machine of the same profile is not affected (no shared state). */
+  {
+    t64_machine *first = busy_probe(PROBE_INFO, 0, image);
+    t64_machine *second = make_idle_machine(E4K_ID);
+
+    if (first != NULL && second != NULL) {
+      T64_CHECK_INT(first->save.busy_until, deadline);
+      T64_CHECK_INT(second->save.busy_until, 0u);
+      T64_CHECK(second->save.bytes != NULL && first->save.bytes != NULL &&
+                second->save.bytes != first->save.bytes);
+      T64_CHECK_INT(second->save.bytes[8], 0xFFu);
+      T64_CHECK_INT(first->save.bytes[8], 0x11u);
+    }
+    if (first != NULL) t64_machine_destroy(first);
+    if (second != NULL) t64_machine_destroy(second);
+  }
+}
+
+/* ------------------------------------------------------------------------ */
+/* eeprom-timing                                                             */
+/* ------------------------------------------------------------------------ */
+
+/* The comparator of the execute tick: exact equality. */
+static bool tick_matches(uint64_t expected, uint64_t actual) {
+  return expected == actual;
+}
+
+typedef struct {
+  const char *label;
+  const char *profile_id;
+  uint32_t tx_count;
+  uint32_t rx_count;
+  uint8_t tx[10];
+  uint64_t handshake; /* independent literal */
+} timing_row;
+
+static const timing_row timing_rows[] = {
+    {"info", E4K_ID, 1u, 3u, {0x00}, 8876u},
+    {"read", E4K_ID, 2u, 8u, {0x04, 0x01}, 20876u},
+    {"write", E4K_ID, 10u, 1u, {0x05, 0x01, 1, 2, 3, 4, 5, 6, 7, 8}, 22876u},
+    {"read with tx 3 rx 8", E4K_ID, 3u, 8u, {0x04, 0x01, 0x00}, 10095u},
+    {"command 0xff tx 1", E4K_ID, 1u, 3u, {0xFF}, 6095u},
+    {"rtc command 0x06 tx 1 rx 3", E4K_ID, 1u, 3u, {0x06}, 6095u},
+    {"write with rx 2", E4K_ID, 10u, 2u,
+     {0x05, 0x01, 1, 2, 3, 4, 5, 6, 7, 8}, 24095u},
+    {"info with rx 4", E4K_ID, 1u, 4u, {0x00}, 6095u},
+    {"info on the stem id (absent)", STEM_ID, 1u, 3u, {0x00}, 6095u},
+};
+
+static void case_eeprom_timing(void) {
+  size_t index;
+
+  for (index = 0u; index < sizeof timing_rows / sizeof timing_rows[0];
+       index++) {
+    const timing_row *row = &timing_rows[index];
+    t64_machine *machine = make_idle_machine(row->profile_id);
+    uint8_t frame[64];
+    uint64_t start;
+
+    if (machine == NULL) continue;
+    build_frame(frame, row->tx_count, row->rx_count, row->tx);
+    write_frame(machine, frame);
+    start = machine->tick;
+    T64_CHECK_INT(bus_w32(machine, SI_DRAM_ADDR, RECEIVE_DRAM), T64_STATUS_OK);
+    T64_CHECK_INT(bus_w32(machine, SI_RD64B, PIF_ADDRESS), T64_STATUS_OK);
+    /* C = S + H + 4,096 and E = S + H, from the independent literal. */
+    T64_CHECK(tick_matches(start + row->handshake, machine->si.execute_tick));
+    T64_CHECK(tick_matches(start + row->handshake + READ_TAIL,
+                           machine->si.complete_tick));
+    if (!tick_matches(start + row->handshake, machine->si.execute_tick)) {
+      fprintf(stderr, "timing row '%s': execute tick %llu, start %llu\n",
+              row->label, (unsigned long long)machine->si.execute_tick,
+              (unsigned long long)start);
+    }
+    /* The comparator rejects a deliberately wrong expectation. */
+    T64_CHECK(!tick_matches(start + row->handshake + 1u,
+                            machine->si.execute_tick));
+    T64_CHECK(advance_guest_to(machine, machine->si.complete_tick));
+    /* A write row's deadline witnesses E: D = E + 375,000. */
+    if (row->tx_count == 10u && row->rx_count == 1u && row->tx[0] == 0x05) {
+      T64_CHECK_INT(machine->save.busy_until,
+                    start + row->handshake + BUSY_WINDOW);
+    }
+    t64_machine_destroy(machine);
+  }
+
+  /* The classification does not depend on the busy state: the same read
+     frame costs 20,876 when the part is idle and when it is busy. */
+  {
+    t64_machine *machine = make_idle_machine(E4K_ID);
+    static const uint8_t read_tx[2] = {0x04, 0x01};
+    uint8_t frame[64];
+    uint8_t image[64];
+    uint8_t ignored[64];
+
+    if (machine != NULL) {
+      build_frame(frame, 2u, 8u, read_tx);
+      run_txn(machine, frame, UINT64_C(20876), image); /* idle */
+      T64_CHECK_INT(image[5], 0x08u);
+      build_frame(frame, 10u, 1u, busy_write_tx);
+      run_txn(machine, frame, UINT64_C(22876), ignored);
+      T64_CHECK(machine->save.busy_until > machine->tick);
+      build_frame(frame, 2u, 8u, read_tx);
+      run_txn(machine, frame, UINT64_C(20876), image); /* busy */
+      T64_CHECK_INT(image[5], 0x48u);
+      t64_machine_destroy(machine);
+    }
+  }
+}
+
+/* ------------------------------------------------------------------------ */
 /* Dispatch                                                                  */
 /* ------------------------------------------------------------------------ */
 
@@ -1058,6 +1646,10 @@ static const test_case cases[] = {
     {"eeprom-tracer", case_eeprom_tracer},
     {"sram-window", case_sram_window},
     {"sram-dma", case_sram_dma},
+    {"eeprom-commands", case_eeprom_commands},
+    {"eeprom-blocks", case_eeprom_blocks},
+    {"eeprom-busy", case_eeprom_busy},
+    {"eeprom-timing", case_eeprom_timing},
 };
 
 int main(int argc, char **argv) {
