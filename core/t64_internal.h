@@ -1505,6 +1505,28 @@ typedef struct {
 } t64_digest_sink;
 
 /*
+ * State section ids of the v25 stream. Each section is a 32-bit big-endian id
+ * (marker class) followed by its body, in ascending id order. The v25 stream
+ * is not comparable to the v24 stream; stripping markers and identity spans
+ * from both makes the shared sections comparable.
+ */
+#define T64_STATE_SECTION_IDENTITY UINT32_C(1)
+#define T64_STATE_SECTION_MACHINE_CORE UINT32_C(2)
+#define T64_STATE_SECTION_RDRAM UINT32_C(3)
+#define T64_STATE_SECTION_SP_MEMORY UINT32_C(4)
+#define T64_STATE_SECTION_INTERRUPT_PI_SP UINT32_C(5)
+#define T64_STATE_SECTION_SCHEDULER UINT32_C(6)
+#define T64_STATE_SECTION_WARM_DEVICES UINT32_C(7)
+#define T64_STATE_SECTION_RDP_VI UINT32_C(8)
+#define T64_STATE_SECTION_AUDIO UINT32_C(9)
+/* Reserved: the SI/PIF section lands with the SI device (plan 09-03). */
+#define T64_STATE_SECTION_SI_PIF UINT32_C(10)
+/* Reserved: the save-media section lands with the save devices (plan 09-04). */
+#define T64_STATE_SECTION_SAVE_MEDIA UINT32_C(11)
+/* Reserved: observer continuity, outside the digest (plan 09-08). */
+#define T64_STATE_SECTION_OBSERVER_CONTINUITY UINT32_C(16)
+
+/*
  * Stream the canonical state of an admitted machine into the sink in the
  * order t64_machine_digest hashes it. NOT_READY before admission.
  */

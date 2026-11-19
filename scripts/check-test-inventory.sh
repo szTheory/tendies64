@@ -194,7 +194,8 @@ controls.real.raw-capture-target-errors
 harness.audio-qualification'
 
 PHASE09_TESTS='unit.core.profile.predicate-matrix
-unit.core.digest.sink-legacy-identity'
+unit.core.digest.sink-legacy-identity
+unit.core.digest.v25-strip-differential'
 
 CPU_COVERAGE_OPCODES='ADD
 ADDU

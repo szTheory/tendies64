@@ -79,6 +79,13 @@ static void hash_u64(t64_digest_sink *sink, uint64_t value) {
   digest_bytes(sink, bytes, sizeof bytes);
 }
 
+/* v25 framing: a section id (marker class) precedes each section body. */
+static void section_marker(t64_digest_sink *sink, bool framed, uint32_t id) {
+  if (framed) {
+    hash_u32_class(sink, id, T64_DIGEST_CLASS_MARKER);
+  }
+}
+
 static void hash_event(t64_digest_sink *sink, const t64_event *event) {
   hash_u64(sink, event->tick);
   hash_u64(sink, event->sequence);
@@ -248,6 +255,7 @@ t64_status t64_digest_stream(const t64_machine *machine,
   static const uint8_t domain_v22[] = "t64.state.rdp.vi.scanout.22";
   static const uint8_t domain_v23[] = "t64.state.rdp.vi.filter.23";
   static const uint8_t domain_v24[] = "t64.state.audio.ai.24";
+  static const uint8_t domain_v25[] = "t64.state.si.25";
   const bool has_v6_state =
       machine != NULL && machine->profile.state_serialization_version == 6u;
   const bool has_v7_state =
@@ -280,6 +288,8 @@ t64_status t64_digest_stream(const t64_machine *machine,
   const bool has_v22_state = t64_has_vi_scanout_v8_profile(machine);
   const bool has_v23_state = t64_has_vi_filter_v9_profile(machine);
   const bool has_v24_state = t64_has_ai_profile(machine);
+  const bool has_v25_state = t64_has_si_profile(machine);
+  const bool has_audio_state = has_v24_state || has_v25_state;
   const bool has_rdp_state = has_v16_state || has_v17_state ||
                              has_v18_state || has_v19_state || has_v20_state ||
                              has_v21_state || has_v22_state || has_v23_state;
@@ -296,7 +306,10 @@ t64_status t64_digest_stream(const t64_machine *machine,
     return T64_STATUS_NOT_READY;
   }
 
-  if (has_v24_state) {
+  if (has_v25_state) {
+    digest_bytes_class(sink, domain_v25, sizeof domain_v25 - 1u,
+                       T64_DIGEST_CLASS_IDENTITY);
+  } else if (has_v24_state) {
     digest_bytes_class(sink, domain_v24, sizeof domain_v24 - 1u,
                        T64_DIGEST_CLASS_IDENTITY);
   } else if (has_v23_state) {
@@ -351,6 +364,7 @@ t64_status t64_digest_stream(const t64_machine *machine,
     digest_bytes_class(sink, domain_v5, sizeof domain_v5,
                        T64_DIGEST_CLASS_IDENTITY);
   }
+  section_marker(sink, has_v25_state, T64_STATE_SECTION_IDENTITY);
   hash_u32_class(sink, machine->profile.state_serialization_version,
                  T64_DIGEST_CLASS_IDENTITY);
   digest_bytes_class(sink, machine->profile_digest,
@@ -367,17 +381,21 @@ t64_status t64_digest_stream(const t64_machine *machine,
   digest_bytes(sink, machine->rom_game_code,
                sizeof machine->rom_game_code);
   hash_u32(sink, machine->rom_version);
+  section_marker(sink, has_v25_state, T64_STATE_SECTION_MACHINE_CORE);
   hash_u64(sink, machine->tick);
   hash_u64(sink, machine->instruction_count);
   hash_u64(sink, machine->frame_event_count);
   hash_u32(sink, machine->sticky_error_status);
   hash_u32(sink, machine->halted ? UINT32_C(1) : UINT32_C(0));
+  section_marker(sink, has_v25_state, T64_STATE_SECTION_RDRAM);
   hash_u32(sink, machine->profile.rdram_bytes);
   digest_bytes(sink, machine->ram, machine->profile.rdram_bytes);
+  section_marker(sink, has_v25_state, T64_STATE_SECTION_SP_MEMORY);
   hash_u32(sink, (uint32_t)sizeof machine->sp_dmem);
   digest_bytes(sink, machine->sp_dmem, sizeof machine->sp_dmem);
   hash_u32(sink, (uint32_t)sizeof machine->sp_imem);
   digest_bytes(sink, machine->sp_imem, sizeof machine->sp_imem);
+  section_marker(sink, has_v25_state, T64_STATE_SECTION_INTERRUPT_PI_SP);
   hash_u32(sink, machine->mi_pending & T64_MI_INTERRUPT_BITS);
   hash_u32(sink, machine->mi_mask & T64_MI_INTERRUPT_BITS);
   hash_u32(sink, machine->mi_irq_line ? UINT32_C(1) : UINT32_C(0));
@@ -413,6 +431,7 @@ t64_status t64_digest_stream(const t64_machine *machine,
   hash_u64(sink, machine->sp.next_token);
   hash_u32(sink,
            machine->sp.token_exhausted ? UINT32_C(1) : UINT32_C(0));
+  section_marker(sink, has_v25_state, T64_STATE_SECTION_SCHEDULER);
   hash_u32(sink, (uint32_t)machine->queue_count);
   hash_u64(sink, machine->next_sequence);
   hash_u32(sink,
@@ -422,6 +441,7 @@ t64_status t64_digest_stream(const t64_machine *machine,
 
     hash_event(sink, &machine->events[index]);
   }
+  section_marker(sink, has_v25_state, T64_STATE_SECTION_WARM_DEVICES);
   if (has_warm_state) {
     for (i = 0u; i < sizeof machine->boot.asset_sha256; i++) {
       digest_bytes(sink, &machine->boot.asset_sha256[i], 1u);
@@ -558,13 +578,14 @@ t64_status t64_digest_stream(const t64_machine *machine,
     }
     if (has_v13_state) {
       hash_rdram_protocol_state(
-                                sink, &machine->guest_devices.rdram_protocol);
+          sink, &machine->guest_devices.rdram_protocol);
     }
     if (has_rdp_state) {
       const t64_rdp_state *rdp = &machine->rdp;
       const t64_vi_state *vi = &machine->vi;
       size_t logical;
 
+      section_marker(sink, has_v25_state, T64_STATE_SECTION_RDP_VI);
       hash_u32(sink, rdp->dpc_start);
       hash_u32(sink, rdp->dpc_end);
       hash_u32(sink, rdp->dpc_current);
@@ -790,12 +811,14 @@ t64_status t64_digest_stream(const t64_machine *machine,
         hash_u32(sink, info->last_opcode_field);
         hash_u64(sink, info->source_bytes);
         hash_u64(sink, info->packet_bytes);
-        digest_bytes_class(sink, (const uint8_t *)info->profile_id,
-                           sizeof info->profile_id,
-                           T64_DIGEST_CLASS_IDENTITY);
-        digest_bytes_class(sink, (const uint8_t *)info->build_id,
-                           sizeof info->build_id,
-                           T64_DIGEST_CLASS_IDENTITY);
+        if (!has_v25_state) {
+          digest_bytes_class(sink, (const uint8_t *)info->profile_id,
+                             sizeof info->profile_id,
+                             T64_DIGEST_CLASS_IDENTITY);
+          digest_bytes_class(sink, (const uint8_t *)info->build_id,
+                             sizeof info->build_id,
+                             T64_DIGEST_CLASS_IDENTITY);
+        }
         digest_bytes(sink, (const uint8_t *)info->vi_clock_policy,
                      sizeof info->vi_clock_policy);
         if (has_v22_state || has_v23_state) {
@@ -813,10 +836,11 @@ t64_status t64_digest_stream(const t64_machine *machine,
       }
     }
   }
-  if (has_v24_state) {
+  if (has_audio_state) {
     const t64_ai_state *ai = &machine->ai;
     size_t logical;
 
+    section_marker(sink, has_v25_state, T64_STATE_SECTION_AUDIO);
     hash_u32(sink, ai->staged_address);
     hash_u32(sink, ai->address_staged ? 1u : 0u);
     hash_u32(sink, ai->control);
@@ -878,12 +902,14 @@ t64_status t64_digest_stream(const t64_machine *machine,
       hash_u32(sink, info->bits_per_sample);
       hash_u32(sink, info->encoding);
       hash_u64(sink, (uint64_t)info->byte_length);
-      digest_bytes_class(sink, (const uint8_t *)info->profile_id,
-                         sizeof info->profile_id,
-                         T64_DIGEST_CLASS_IDENTITY);
-      digest_bytes_class(sink, (const uint8_t *)info->build_id,
-                         sizeof info->build_id,
-                         T64_DIGEST_CLASS_IDENTITY);
+      if (!has_v25_state) {
+        digest_bytes_class(sink, (const uint8_t *)info->profile_id,
+                           sizeof info->profile_id,
+                           T64_DIGEST_CLASS_IDENTITY);
+        digest_bytes_class(sink, (const uint8_t *)info->build_id,
+                           sizeof info->build_id,
+                           T64_DIGEST_CLASS_IDENTITY);
+      }
     }
   }
   return T64_STATUS_OK;

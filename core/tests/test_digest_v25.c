@@ -518,8 +518,105 @@ static void differential_for_state(const char *label, state_builder build) {
   if (newer != NULL) t64_machine_destroy(newer);
 }
 
+static void sha256_of(const uint8_t *bytes, size_t length,
+                      uint8_t digest[T64_DIGEST_SIZE]) {
+  t64_sha256_ctx context;
+
+  t64_sha256_init(&context);
+  t64_sha256_update(&context, bytes, length);
+  t64_sha256_final(&context, digest);
+}
+
+/*
+ * Framing and sink-seam checks on the real family stream: domain, coalesced
+ * and classed spans, ascending section ids, the hash sink equals SHA-256 of
+ * the buffer sink, and a write past capacity or past the span array sets the
+ * overflow flag, copies nothing and still advances the offset.
+ */
+static void check_family_stream(const t64_machine *machine,
+                                const stream *captured) {
+  uint8_t digest[T64_DIGEST_SIZE];
+  uint8_t expected[T64_DIGEST_SIZE];
+  size_t offset = 0u;
+  size_t i;
+
+  T64_CHECK(captured->length > SI_DOMAIN_LENGTH + 4u);
+  T64_CHECK(memcmp(captured->bytes, SI_DOMAIN, SI_DOMAIN_LENGTH) == 0);
+  T64_CHECK(markers_are_ordered(captured, MARKER_COUNT_FULL, &offset));
+  /* Domain (identity), first marker, then serialization word and profile
+   * digest coalesced into one identity span (4 + 32 bytes). */
+  T64_CHECK(captured->span_count >= 3u);
+  if (captured->span_count >= 3u) {
+    T64_CHECK_INT(captured->spans[0].offset, 0u);
+    T64_CHECK_INT(captured->spans[0].length, SI_DOMAIN_LENGTH);
+    T64_CHECK_INT(captured->spans[0].class, T64_DIGEST_CLASS_IDENTITY);
+    T64_CHECK_INT(captured->spans[1].offset, SI_DOMAIN_LENGTH);
+    T64_CHECK_INT(captured->spans[1].length, 4u);
+    T64_CHECK_INT(captured->spans[1].class, T64_DIGEST_CLASS_MARKER);
+    T64_CHECK_INT(captured->spans[2].offset, SI_DOMAIN_LENGTH + 4u);
+    T64_CHECK_INT(captured->spans[2].length, 4u + T64_DIGEST_SIZE);
+    T64_CHECK_INT(captured->spans[2].class, T64_DIGEST_CLASS_IDENTITY);
+    T64_CHECK_INT(read_u32(captured->bytes + SI_DOMAIN_LENGTH + 4u),
+                  machine->profile.state_serialization_version);
+  }
+  /* Nine markers; no identity span carries a packet profile or build id. */
+  {
+    size_t markers = 0u;
+
+    for (i = 0u; i < captured->span_count; i++) {
+      if (captured->spans[i].class == T64_DIGEST_CLASS_MARKER) markers++;
+      T64_CHECK(captured->spans[i].class != T64_DIGEST_CLASS_NEW);
+    }
+    T64_CHECK_INT(markers, MARKER_COUNT_FULL);
+  }
+  /* Hash sink digest equals SHA-256 of the buffer-sink stream. */
+  T64_CHECK_INT(t64_machine_digest(machine, digest), T64_STATUS_OK);
+  sha256_of(captured->bytes, captured->length, expected);
+  T64_CHECK(memcmp(digest, expected, sizeof digest) == 0);
+
+  /* Overflow: capacity 105 holds the first 95 bytes (domain, marker, serial
+   * word, profile digest, content digest, image flag and length); the 64-byte
+   * header write would pass it, so it copies nothing. */
+  {
+    uint8_t small[105];
+    t64_digest_sink sink;
+
+    (void)memset(small, 0xee, sizeof small);
+    (void)memset(&sink, 0, sizeof sink);
+    sink.buffer = small;
+    sink.capacity = sizeof small;
+    T64_CHECK_INT(t64_digest_stream(machine, &sink), T64_STATUS_OK);
+    T64_CHECK(sink.overflow);
+    T64_CHECK_INT(sink.offset, captured->length);
+    T64_CHECK(memcmp(small, captured->bytes, 95u) == 0);
+    for (i = 95u; i < sizeof small; i++) T64_CHECK_INT(small[i], 0xee);
+  }
+  /* Span array too small: overflow is reported, the stream still completes. */
+  {
+    t64_digest_span one_span[1];
+    t64_digest_sink sink;
+
+    (void)memset(&sink, 0, sizeof sink);
+    sink.spans = one_span;
+    sink.span_capacity = 1u;
+    T64_CHECK_INT(t64_digest_stream(machine, &sink), T64_STATUS_OK);
+    T64_CHECK(sink.overflow);
+    T64_CHECK_INT(sink.span_count, 1u);
+    T64_CHECK_INT(sink.offset, captured->length);
+  }
+}
+
 static void case_v25_strip_differential(void) {
+  t64_machine *family = build_idle(SI_STEM_ID);
+  stream family_stream;
+
   differential_for_state("idle", build_idle);
+  T64_CHECK(family != NULL);
+  if (family != NULL && capture_stream(family, &family_stream)) {
+    check_family_stream(family, &family_stream);
+    free_stream(&family_stream);
+  }
+  if (family != NULL) t64_machine_destroy(family);
 }
 
 int main(int argc, char **argv) {
