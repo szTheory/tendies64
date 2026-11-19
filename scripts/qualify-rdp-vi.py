@@ -141,6 +141,14 @@ def _file_sha(path: Path) -> str:
     return _sha(_read_file(path))
 
 
+def _under(path: Path, parent: Path) -> bool:
+    try:
+        path.resolve().relative_to(parent.resolve())
+        return True
+    except (OSError, ValueError):
+        return False
+
+
 def _private_dir(prefix: str) -> Path:
     PRIVATE_ROOT.mkdir(parents=True, exist_ok=True, mode=0o700)
     result = Path(tempfile.mkdtemp(prefix=prefix, dir=PRIVATE_ROOT))

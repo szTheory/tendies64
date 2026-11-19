@@ -56,6 +56,31 @@ qualify = importlib.util.module_from_spec(_SPEC)
 _SPEC.loader.exec_module(qualify)
 
 
+def _undefined_global_names(path: Path) -> dict[str, int]:
+    """Names loaded somewhere in a script that no statement ever binds."""
+    import ast
+    import builtins
+
+    tree = ast.parse(path.read_text(encoding="utf-8"))
+    bound = set(dir(builtins)) | {"__file__", "__name__"}
+    for node in ast.walk(tree):
+        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
+            bound.add(node.name)
+        elif isinstance(node, ast.Import):
+            bound.update((alias.asname or alias.name).split(".")[0] for alias in node.names)
+        elif isinstance(node, ast.ImportFrom):
+            bound.update(alias.asname or alias.name for alias in node.names)
+        elif isinstance(node, ast.Name) and isinstance(node.ctx, (ast.Store, ast.Del)):
+            bound.add(node.id)
+        elif isinstance(node, ast.arg):
+            bound.add(node.arg)
+        elif isinstance(node, ast.ExceptHandler) and node.name:
+            bound.add(node.name)
+    return {node.id: node.lineno for node in ast.walk(tree)
+            if isinstance(node, ast.Name) and isinstance(node.ctx, ast.Load)
+            and node.id not in bound}
+
+
 def _projection() -> dict[str, Any]:
     digest = "a" * 64
     source_revision = "b" * 40
@@ -652,6 +677,13 @@ class AudioQualificationTests(unittest.TestCase):
         self.assertIn('"$ROOT"/build/gate/08-05-audio-private/*)', gate)
         self.assertIn('step ctest ctest --preset gate --output-junit "$T64_GATE_JUNIT_OUT"', gate)
         self.assertIn('step ctest ctest --preset gate\nfi', gate)
+        # The native wrapper runs scripts/qualify-rdp-vi.py with this hook set.
+        # A text check of gate.sh cannot see an undefined helper in that entry
+        # (the first --native attempt failed with NameError on `_under`), so
+        # require every global name loaded by both qualifiers to be defined.
+        for relative in ("scripts/qualify-rdp-vi.py", "scripts/qualify-audio.py"):
+            self.assertEqual(_undefined_global_names(ROOT / relative), {},
+                             f"{relative} loads names it never defines")
 
     def test_exact_hosted_context_bound(self) -> None:
         value = _projection()
