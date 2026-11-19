@@ -72,10 +72,10 @@ typedef struct {
   char **slots;
   size_t count;
   size_t capacity;
-} child_argv;
+} child_argv_list;
 
 /* False when the next push plus the terminating NULL would not fit. */
-static bool child_argv_push(child_argv *argv, char *value) {
+static bool child_argv_push(child_argv_list *argv, char *value) {
   if (argv->count > SIZE_MAX - 2u || argv->count + 2u > argv->capacity) {
     return false;
   }
@@ -1592,7 +1592,7 @@ static int real_run_mode(const sup_args *args, const char *self_path) {
     char option_artifact_dir[] = "--artifact-dir";
     char option_artifact_max_bytes[] = "--artifact-max-bytes";
     char *child_args[T64_SUP_CHILD_ARGS_CAPACITY];
-    child_argv argv_builder = {child_args, 0u, T64_SUP_CHILD_ARGS_CAPACITY};
+    child_argv_list argv_builder = {child_args, 0u, T64_SUP_CHILD_ARGS_CAPACITY};
     bool argv_ok = true;
 #ifdef T64_SUPERVISOR_TESTING
     if (args->test_fault != NULL &&
