@@ -4,18 +4,18 @@ milestone: v1.1
 milestone_name: Observable Machine
 current_phase: 9
 current_phase_name: Controller, Save Media and Replay
-current_plan: 3
+current_plan: 4
 status: executing
-stopped_at: Completed 09-02-PLAN.md
-last_updated: "2026-11-19T20:59:57.855Z"
+stopped_at: Completed 09-03-PLAN.md
+last_updated: "2026-11-19T21:47:07.430Z"
 last_activity: 2026-11-19
 last_activity_desc: Phase 9 execution started
-state_head: bf75429300bfba00fb2713114504a3404f0f00ff
+state_head: 49518ec166a58786a8e24e43e144e2a8f3117299
 progress:
   total_phases: 3
   completed_phases: 1
   total_plans: 31
-  completed_plans: 19
+  completed_plans: 20
   percent: 33
 ---
 
@@ -31,7 +31,7 @@ See: .planning/PROJECT.md (updated 2026-11-15)
 ## Current Position
 
 Phase: 9 (Controller, Save Media and Replay) — EXECUTING
-Current Plan: 3
+Current Plan: 4
 Total Plans in Phase: 13
 Status: Ready to execute
 Last activity: 2026-11-19 — Phase 9 execution started
@@ -51,6 +51,7 @@ Progress: [███░░░░░░░] 33% of currently planned source plans
 |------|----------|-------|-------|
 | Phase 09 P01 | 36 min | 6 tasks | 18 files |
 | Phase 09 P02 | 32min | 7 tasks | 25 files |
+| Phase 09 P03 | 43min | 5 tasks | 31 files |
 
 ## Accumulated Context
 
@@ -70,6 +71,9 @@ Progress: [███░░░░░░░] 33% of currently planned source plans
 - Phase 9 follow-up (K1): The shipped Phase 8 descriptor 11 profile has RDP depth inactive because the depth predicate is guarded by descriptor version 10; Phase 9 preserves this on descriptor 12; no Phase 9 requirement needs depth and no Phase 9 claim mentions it.
 - [Phase 09]: 09-02: a runner prelaunch refusal of the artifact directory reaches the supervised result as report-error/capture-invalid with guest tick 0; the runner binary itself reports detail refusal
 - [Phase 09]: 09-02: replay artifacts have no fixed binary magic; the rpl extension row is their rights-scanner control and no replay magic row is added
+- [Phase 09]: 09-03: section 10 of the v25 digest also hashes next_token and token_exhausted so no behavior-deciding SI state is outside the digest; the plan's field list named only active_token
+- [Phase 09]: 09-03: a refused CPU step records its attempt (last PCs, opcode, host-error outcome); CPU-path refusal tests pre-apply that record before asserting a bit-identical digest
+- [Phase 09]: 09-03: the SI device was implemented in one coherent start function in Task 1 step 4, so Task 3 and Task 4 groups started green; evidence is out-of-tree mutants, and the step 4 RED is a disclosed reconstruction
 
 ### Pending Todos
 
@@ -91,6 +95,7 @@ question. No oracle authority is part of this decision.
 - D7: name remains uncleared; no branding, logos or store listings.
 - Protected inputs/publication and physical-console measurement retain the explicit stops in [AUTONOMY.md](AUTONOMY.md). No new hardware qualification or broad compatibility claim.
 - 09-02: harness.rdp-oracle-authority fails (fixture manifest SHA-256 changed) because Phase 9 manifest rows move the hash pinned by the Phase 7 oracle request; rebind values are in 09-02-SUMMARY.md and need an orchestrator or owner decision (precedent commit 15fd8d1)
+- 09-03: harness.rdp-oracle-authority still fails after two more manifest rows; recomputed rebind values (manifest sha 23b34424..., request 4200bb02...) are in 09-03-SUMMARY.md and need an orchestrator or owner decision before any push
 
 ## Deferred Items
 
@@ -101,8 +106,8 @@ question. No oracle authority is part of this decision.
 
 ## Session Continuity
 
-Last session: 2026-11-19T20:59:57.726Z
-Stopped at: Completed 09-02-PLAN.md
+Last session: 2026-11-19T21:47:07.229Z
+Stopped at: Completed 09-03-PLAN.md
 Resume file: None
 
 Historical closeout: [v1.0 roadmap](milestones/v1.0-ROADMAP.md), [audit](milestones/v1.0-MILESTONE-AUDIT.md), [lessons](RETROSPECTIVE.md).
