@@ -4,18 +4,18 @@ milestone: v1.1
 milestone_name: Observable Machine
 current_phase: 9
 current_phase_name: Controller, Save Media and Replay
-current_plan: 13
+current_plan: 2
 status: executing
-stopped_at: Phase 9 context gathered
-last_updated: "2026-11-19T19:40:22.342Z"
+stopped_at: Completed 09-01-PLAN.md
+last_updated: "2026-11-19T20:25:33.984Z"
 last_activity: 2026-11-19
-last_activity_desc: Phase 8 complete, transitioned to Phase 7
-state_head: c91fef7d711c53d5445078a57db7b1467cc7b909
+last_activity_desc: Phase 9 execution started
+state_head: 2c8150c99b724fb69c5dc8a50796b5b22336501d
 progress:
   total_phases: 3
   completed_phases: 1
   total_plans: 31
-  completed_plans: 17
+  completed_plans: 18
   percent: 33
 ---
 
@@ -26,15 +26,15 @@ progress:
 See: .planning/PROJECT.md (updated 2026-11-15)
 
 **Core value:** Every Tendies64 support claim is backed by evidence: a named profile, a pinned build and a reproducible, rights-cleared guest result.
-**Current focus:** Phase 8 is complete and qualified (authored scope). Next unblocked work is Phase 9 (depends on Phase 8); Phase 7 Plan 13 / VID-04 stays stopped on oracle authority.
+**Current focus:** Phase 9 — Controller, Save Media and Replay
 
 ## Current Position
 
-Phase: 9 (Controller, Save Media and Replay) — READY TO EXECUTE
-Current Plan: 13
+Phase: 9 (Controller, Save Media and Replay) — EXECUTING
+Current Plan: 2
 Total Plans in Phase: 13
-Status: Blocked: oracle authority (VID-04 and Plan 13); not executable until the owner resolves the stop
-Last activity: 2026-11-19 — Phase 8 complete (native, ASan, GCC13 and both hosted jobs on 3a41734)
+Status: Ready to execute
+Last activity: 2026-11-19 — Phase 9 execution started
 
 Progress: [███░░░░░░░] 33% of currently planned source plans
 
@@ -44,6 +44,12 @@ Progress: [███░░░░░░░] 33% of currently planned source plans
 - Historical v1.0: 6 phases and 73 source plans complete. This is planning completion, not a software release.
 - Prior phase plan counts: 1: 13; 2: 8; 3: 13; 4: 20; 5: 10; 6: 9.
 - Execution timing: not established for v1.1. Historical evidence remains in [v1.0 phase records](milestones/v1.0-phases/).
+
+**Per-Plan Metrics:**
+
+| Plan | Duration | Tasks | Files |
+|------|----------|-------|-------|
+| Phase 09 P01 | 36 min | 6 tasks | 18 files |
 
 ## Accumulated Context
 
@@ -57,6 +63,10 @@ Progress: [███░░░░░░░] 33% of currently planned source plans
 
 - Phase 8 qualified 2026-11-19 on commit 3a41734 (run 44549490908): tier unit-tested, authored scope only; see docs/evidence/phase08-audio.md and docs/claims/phase08.md. The Phase 7 oracle-request re-pin (commit 15fd8d1) changed only identity hashes of authored inputs; after the automated oversight check denied it the work stopped, and the owner approved it in conversation on 2026-11-19 ("yes follow ur recs"). `local_decision` stays blocked and publication not-authorized; this note grants no oracle, rights or publication authority.
 - Post-Phase-8 follow-ups: cache the pinned Binutils build in CI (docs/ci-reviews/LOG.md F-096), the duplicate rsp-no-hle run (F-097), and the supervisor's ~68 KiB per-file capture limit before larger frames can be captured (docs/spec/raw-capture.md).
+- [Phase 09]: 09-01: descriptor 12 is created only under its four registered ids; the family tuple selects ring storage by registered id — an unregistered descriptor 12 would enable the AI gates with no ring storage
+- [Phase 09]: 09-01: AI-device gates share t64_has_ai_device; the digest keeps exact tuple predicates; eight sealed bodies re-pinned in an isolated derived refresh — one token per site; derived digests equal working-tree digests; four seeds still reject an unauthorized change
+- [Phase 09]: 09-01: v25 digest walker emits ascending section ids 1-9 over the v24 block boundaries; packet profile_id and build_id are not hashed under v25 — stripped v25 stream equals the stripped v24 stream across five states
+- Phase 9 follow-up (K1): The shipped Phase 8 descriptor 11 profile has RDP depth inactive because the depth predicate is guarded by descriptor version 10; Phase 9 preserves this on descriptor 12; no Phase 9 requirement needs depth and no Phase 9 claim mentions it.
 
 ### Pending Todos
 
@@ -87,9 +97,9 @@ question. No oracle authority is part of this decision.
 
 ## Session Continuity
 
-Last session: 2026-11-19T16:44:38.502Z
-Stopped at: Phase 9 context gathered
-Resume file: .planning/phases/09-controller-save-media-and-replay/09-CONTEXT.md
+Last session: 2026-11-19T20:25:33.805Z
+Stopped at: Completed 09-01-PLAN.md
+Resume file: None
 
 Historical closeout: [v1.0 roadmap](milestones/v1.0-ROADMAP.md), [audit](milestones/v1.0-MILESTONE-AUDIT.md), [lessons](RETROSPECTIVE.md).
 
