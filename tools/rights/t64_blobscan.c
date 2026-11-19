@@ -496,6 +496,7 @@ static int container_magic(const unsigned char *h, size_t n) {
   }
   if (has_prefix(h, n, "\x28\xb5\x2f\xfd", 4u)) return 1;         /* zstd */
   if (has_prefix(h, n, "\x37\x7a\xbc\xaf\x27\x1c", 6u)) return 1; /* 7z */
+  if (has_prefix(h, n, "T64STATE", 8u)) return 1;                  /* state */
   if (n >= 262u && memcmp(h + 257, "ustar", 5u) == 0) return 1;     /* tar */
   return 0;
 }
@@ -532,7 +533,8 @@ static int is_octal(char c) { return c >= '0' && c <= '7'; }
  * (\n, \t, \ooo, ...) trimmed too. Trimming can only widen the rule. */
 static int denied_ext(const char *path) {
   static const char *const exts[] = {"z64", "n64", "v64", "sav", "eep",
-                                     "sra", "fla", "mpk", "ndd", "d64"};
+                                     "sra", "fla", "mpk", "ndd", "d64",
+                                     "sta", "rpl"};
   size_t len = strlen(path), start = 0, end, dot = 0, i, k;
   int quoted = 0, have_dot = 0;
   char ext[4];

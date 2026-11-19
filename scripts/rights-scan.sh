@@ -597,6 +597,29 @@ selftest() {
   printf 'plain\n' > "$ST/ext-near/x.sav1"
   printf 'plain\n' > "$ST/ext-near/sav"
   case_run ext-near-miss 0 - "$ST/ext-near" --tree
+  # State and replay containers are private (Phase 9, D-33): their extensions
+  # are denied like the save-file ones, case-insensitively and with trailing
+  # punctuation, and near misses stay clean. The replay container is canonical
+  # JSON text with no fixed binary magic, so the extension is its control.
+  mk ext-sta
+  printf 'plain\n' > "$ST/ext-sta/x.sta"
+  case_run ext-state-sta 1 R-DENIED-EXT "$ST/ext-sta" --tree
+  mk ext-rpl
+  printf 'plain\n' > "$ST/ext-rpl/y.rpl"
+  case_run ext-replay-rpl 1 R-DENIED-EXT "$ST/ext-rpl" --tree
+  mk ext-sr-near
+  printf 'plain\n' > "$ST/ext-sr-near/notes.stat"
+  printf 'plain\n' > "$ST/ext-sr-near/x.sta1"
+  printf 'plain\n' > "$ST/ext-sr-near/sta"
+  printf 'plain\n' > "$ST/ext-sr-near/x.rpl2"
+  printf 'plain\n' > "$ST/ext-sr-near/rpl"
+  case_run ext-state-replay-near-miss 0 - "$ST/ext-sr-near" --tree
+  mk ext-sr-trail
+  printf 'plain\n' > "$ST/ext-sr-trail/Z.STA."
+  printf 'plain\n' > "$ST/ext-sr-trail/d.Rpl	"
+  NEED='R-DENIED-EXT Z.STA.'
+  NEED2='R-DENIED-EXT d.Rpl'
+  case_run ext-state-replay-trailing-mixed-case 1 R-DENIED-EXT "$ST/ext-sr-trail" --tree
   # provenance/docs-assets.tsv (WR-14): a row waives only the non-text classes
   # of one docs/ path with one digest, in the tree and in history; it never
   # waives ROM magic, containers, LFS pointers, denied extensions or symlinks,
@@ -689,6 +712,15 @@ selftest() {
   mk bzh
   printf 'BZh is only a word here\nBZh91 no\n' > "$ST/bzh/t.txt"
   case_run bzh-text 0 - "$ST/bzh" --tree
+  # The Phase 9 state container starts with the eight bytes T64STATE.
+  mk t64state
+  printf 'T64STATE and then text\n' > "$ST/t64state/t.txt"
+  case_run magic-t64state 1 R-CONTAINER "$ST/t64state" --tree
+  mk t64state-near
+  printf ' T64STATE is only a word here\n' > "$ST/t64state-near/space.txt"
+  printf 'T64STAT\n' > "$ST/t64state-near/short.txt"
+  printf 't64state lowercase is prose\n' > "$ST/t64state-near/lower.txt"
+  case_run magic-t64state-near-miss 0 - "$ST/t64state-near" --tree
 
   # Git LFS pointer files and attributes hide bytes behind valid text.
   mk lfsp
@@ -756,6 +788,14 @@ selftest() {
   printf 'fine\n' > "$ST/s-fifo/ok.txt"
   mkfifo "$ST/s-fifo/pipe"
   case_run staging-fifo 1 R-SPECIAL "$ST" --staging "$ST/s-fifo"
+  mkdir "$ST/s-state"
+  printf 'fine\n' > "$ST/s-state/ok.txt"
+  printf 'plain\n' > "$ST/s-state/x.sta"
+  case_run staging-state-ext 1 R-DENIED-EXT "$ST" --staging "$ST/s-state"
+  mkdir "$ST/s-magic"
+  printf 'fine\n' > "$ST/s-magic/ok.txt"
+  printf 'T64STATE then bytes\n' > "$ST/s-magic/x.dat"
+  case_run staging-t64state-magic 1 R-CONTAINER "$ST" --staging "$ST/s-magic"
 
   # ---- advisories never fail the scan -----------------------------------------
   mk adv
