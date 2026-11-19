@@ -162,6 +162,7 @@
             "existing-targets-untouched",
             "existing-file-directory-untouched",
             "unsafe-target-parent",
+            "group-writable-parent-no-residue",
             "io-write-close-fsync-rename-failures",
             "host-error-guest-state",
             "normal-cli-rejects-test-fault",

@@ -1984,6 +1984,136 @@ static int run_unsafe_target_parent_case(char *supervisor, char *checker,
   return 0;
 }
 
+/* Lists the destination parent and requires exactly the named entry (or an
+ * empty directory when expected is NULL). Only entry names are reported. */
+static bool parent_holds_only(const char *parent, const char *expected,
+                              const char *label) {
+  DIR *entries = opendir(parent);
+  struct dirent *entry;
+  size_t seen = 0u;
+  bool matched = false;
+  bool clean = true;
+  if (entries == NULL) {
+    fprintf(stderr, "%s: could not list the destination parent\n", label);
+    return false;
+  }
+  while ((entry = readdir(entries)) != NULL) {
+    if (strcmp(entry->d_name, ".") == 0 || strcmp(entry->d_name, "..") == 0) {
+      continue;
+    }
+    seen++;
+    if (expected != NULL && strcmp(entry->d_name, expected) == 0) {
+      matched = true;
+      continue;
+    }
+    clean = false;
+    fprintf(stderr, "%s: unexpected entry %s remained in the destination parent\n",
+            label, entry->d_name);
+  }
+  (void)closedir(entries);
+  if (expected == NULL ? seen != 0u : (!matched || seen != 1u)) clean = false;
+  if (!clean) {
+    fprintf(stderr, "%s: destination parent holds %zu entries, expected %s\n",
+            label, seen, expected == NULL ? "none" : expected);
+  }
+  return clean;
+}
+
+/* A destination parent that is group-writable and not sticky must still end
+ * with exactly the target (success) or nothing (host-side failure): the
+ * identity-checked staging-parent rmdir can only remove an empty directory. */
+static int run_group_writable_parent_case(char *supervisor, char *checker,
+                                          char *fixture, char *input) {
+  const audio_run_case test = {AUDIO_FIXTURE_ID, AUDIO_FIXTURE_SHA256, false};
+  const char *evidence_root = getenv("T64_AUDIO_EVIDENCE_DIR");
+  char pattern[512];
+  char parent[1024];
+  char target[1024];
+  struct stat status;
+  bool ok = true;
+  int length;
+
+  if (evidence_root == NULL || evidence_root[0] == '\0') evidence_root = "/tmp";
+  length = snprintf(pattern, sizeof pattern, "%s/capture-gwparent.XXXXXX",
+                    evidence_root);
+  if (length <= 0 || (size_t)length >= sizeof pattern ||
+      mkdtemp(pattern) == NULL) {
+    fprintf(stderr, "could not create the group-writable-parent test root\n");
+    return 1;
+  }
+  length = snprintf(parent, sizeof parent, "%s/shared", pattern);
+  if (length <= 0 || (size_t)length >= sizeof parent ||
+      mkdir(parent, 0700) != 0 || chmod(parent, 0775) != 0 ||
+      lstat(parent, &status) != 0 || !S_ISDIR(status.st_mode) ||
+      status.st_uid != geteuid() || (status.st_mode & 07777) != 0775) {
+    fprintf(stderr,
+            "could not prepare a mode-0775 non-sticky destination parent\n");
+    return 1;
+  }
+  {
+    const raw_run_options options = {
+        .raw_target_override = target,
+        .test_fault = "capture-fail-rename",
+        .expected_error = "capture-no-replace-commit",
+        .minimum_guest_tick = UINT64_C(551001)};
+    t64_video_observation video = {0};
+    t64_audio_observation audio = {0};
+    char bundle[512] = {0};
+    char digest[65] = {0};
+    length = snprintf(target, sizeof target, "%s/late-failure", parent);
+    if (length <= 0 || (size_t)length >= sizeof target ||
+        !run_supervised(supervisor, checker, fixture, input, &test, &video,
+                        &audio, 0u, bundle, digest, &options) ||
+        (lstat(target, &status) == 0 || errno != ENOENT)) {
+      fprintf(stderr,
+              "late rename failure in the group-writable parent did not report an unpublished host error\n");
+      ok = false;
+    }
+    ok = parent_holds_only(parent, NULL, "after rename failure") && ok;
+  }
+  {
+    const raw_run_options options = {
+        .raw_target_override = target,
+        .test_fault = "capture-fail-write",
+        .expected_error = "capture-write",
+        .minimum_guest_tick = UINT64_C(1)};
+    t64_video_observation video = {0};
+    t64_audio_observation audio = {0};
+    char bundle[512] = {0};
+    char digest[65] = {0};
+    length = snprintf(target, sizeof target, "%s/write-failure", parent);
+    if (length <= 0 || (size_t)length >= sizeof target ||
+        !run_supervised(supervisor, checker, fixture, input, &test, &video,
+                        &audio, 0u, bundle, digest, &options) ||
+        (lstat(target, &status) == 0 || errno != ENOENT)) {
+      fprintf(stderr,
+              "mid-stream write failure in the group-writable parent did not report an unpublished host error\n");
+      ok = false;
+    }
+    ok = parent_holds_only(parent, NULL, "after write failure") && ok;
+  }
+  {
+    const raw_run_options options = {.raw_target_override = target};
+    length = snprintf(target, sizeof target, "%s/accepted-bundle", parent);
+    if (length <= 0 || (size_t)length >= sizeof target ||
+        run_capture_case(supervisor, checker, fixture, input, &options,
+                         NULL) != 0) {
+      fprintf(stderr,
+              "accepted capture into the group-writable parent was not complete\n");
+      ok = false;
+    }
+    ok = parent_holds_only(parent, "accepted-bundle", "after accepted capture") &&
+         ok;
+  }
+  if (lstat(parent, &status) != 0 || (status.st_mode & 07777) != 0775) {
+    fprintf(stderr, "destination parent mode changed during the control\n");
+    ok = false;
+  }
+  if (!ok) return 1;
+  puts("group-writable non-sticky destination parent kept exactly the accepted target and no staging residue after rename and write failures");
+  return 0;
+}
+
 static int run_capture_target_refusals(char *supervisor, char *checker,
                                        char *fixture, char *input) {
   if (run_existing_target_case(supervisor, checker, fixture, input) != 0)
@@ -1993,6 +2123,9 @@ static int run_capture_target_refusals(char *supervisor, char *checker,
   if (run_unsafe_target_parent_case(supervisor, checker, fixture, input) != 0)
     return 1;
   puts("case reached: unsafe-target-parent");
+  if (run_group_writable_parent_case(supervisor, checker, fixture, input) != 0)
+    return 1;
+  puts("case reached: group-writable-parent-no-residue");
   return 0;
 }
 
@@ -3296,6 +3429,7 @@ int main(int argc, char **argv) {
     puts("existing-targets-untouched");
     puts("existing-file-directory-untouched");
     puts("unsafe-target-parent");
+    puts("group-writable-parent-no-residue");
     puts("io-write-close-fsync-rename-failures");
     puts("host-error-guest-state");
     puts("normal-cli-rejects-test-fault");

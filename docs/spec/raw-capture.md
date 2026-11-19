@@ -84,9 +84,16 @@ bound to the retained FD. Unsupported platforms fail closed before guest
 startup. After the target rename succeeds, removal of the now-empty staging
 parent is best-effort and cannot change the successful capture result. Cleanup
 removes only entries whose owner and recorded identity match this attempt; it
-never follows a replacement or searches for a renamed entry. If another
-principal can replace entries in a non-sticky destination parent, an empty
-mode-0700 staging parent may remain after completion or a host-side failure.
+never follows a replacement or searches for a renamed entry. The final removal
+is an identity-checked `rmdir` of the staging parent, which can only remove an
+empty directory and never follows a symlink, so a principal that swaps the
+visible entry cannot redirect it. In an ordinary destination parent, including
+one that is group-writable and not sticky, a completed capture leaves exactly
+the target and a host-side failure before commit leaves nothing. The empty
+mode-0700 staging parent remains only if another principal renamed or replaced
+that entry first. A destination filesystem that cannot represent the required
+mode 0700 (for example FAT or exFAT) fails closed with a host-side `capture-*`
+error before guest execution.
 
 Before the rename, failures return a host-side harness error and do not publish
 this attempt's final target. A competing writer cannot replace a completed

@@ -367,23 +367,13 @@ static bool private_stage_parent_matches(const t64_raw_capture *capture) {
          (status.st_mode & 0777) == 0700;
 }
 
-static bool destination_allows_safe_stage_cleanup(
-    const t64_raw_capture *capture) {
-  struct stat status;
-  if (capture == NULL || capture->parent_fd < 0 ||
-      fstat(capture->parent_fd, &status) != 0 || !S_ISDIR(status.st_mode)) {
-    return false;
-  }
-  return (status.st_mode & S_ISVTX) != 0 ||
-         (status.st_uid == geteuid() && (status.st_mode & 0022) == 0);
-}
-
 static bool create_stage(t64_raw_capture *capture) {
   unsigned attempt;
   for (attempt = 0u; attempt < 32u; attempt++) {
     struct stat created_status;
     struct stat opened_status;
     struct stat target_parent_status;
+    bool created;
     if (!make_stage_name(capture, "stage", attempt,
                          capture->stage_parent_name)) {
       capture->error = "capture-stage-name";
@@ -394,16 +384,21 @@ static bool create_stage(t64_raw_capture *capture) {
       capture->error = "capture-stage-create";
       return false;
     }
-    if (fstat(capture->parent_fd, &target_parent_status) != 0 ||
-        fstatat(capture->parent_fd, capture->stage_parent_name, &created_status,
-                AT_SYMLINK_NOFOLLOW) != 0 || !S_ISDIR(created_status.st_mode) ||
+    created = fstatat(capture->parent_fd, capture->stage_parent_name,
+                      &created_status, AT_SYMLINK_NOFOLLOW) == 0;
+    if (created) {
+      /* Record the identity first so abort's identity-gated rmdir can still
+       * remove this attempt's empty container if a later check refuses. */
+      capture->stage_parent_device = created_status.st_dev;
+      capture->stage_parent_inode = created_status.st_ino;
+    }
+    if (!created || fstat(capture->parent_fd, &target_parent_status) != 0 ||
+        !S_ISDIR(created_status.st_mode) ||
         created_status.st_uid != geteuid() ||
         created_status.st_dev != target_parent_status.st_dev) {
       capture->error = "capture-stage-identity";
       return false;
     }
-    capture->stage_parent_device = created_status.st_dev;
-    capture->stage_parent_inode = created_status.st_ino;
     capture->stage_parent_fd = open_directory_nofollow(
         capture->parent_fd, capture->stage_parent_name);
     if (capture->stage_parent_fd < 0 ||
@@ -482,12 +477,16 @@ static bool create_child_directory(int parent_fd, const char *name,
   struct stat status;
   int child_fd;
   if (mkdirat(parent_fd, name, 0700) != 0) return false;
-  if (fstatat(parent_fd, name, &created_status, AT_SYMLINK_NOFOLLOW) != 0 ||
-      !S_ISDIR(created_status.st_mode) || created_status.st_uid != geteuid()) {
+  if (fstatat(parent_fd, name, &created_status, AT_SYMLINK_NOFOLLOW) != 0) {
     return false;
   }
+  /* Record the identity before the checks below so abort can remove this
+   * attempt's own empty directory if one of them refuses. */
   *device_out = created_status.st_dev;
   *inode_out = created_status.st_ino;
+  if (!S_ISDIR(created_status.st_mode) || created_status.st_uid != geteuid()) {
+    return false;
+  }
   child_fd = open_directory_nofollow(parent_fd, name);
   if (child_fd < 0 || fstat(child_fd, &status) != 0 ||
       !S_ISDIR(status.st_mode) || status.st_uid != geteuid() ||
@@ -1020,8 +1019,11 @@ void t64_raw_capture_abort(t64_raw_capture *capture) {
     (void)unlinkat(capture->stage_parent_fd, capture->stage_name,
                    AT_REMOVEDIR);
   }
-  if (destination_allows_safe_stage_cleanup(capture) &&
-      capture->stage_parent_name[0] != '\0' &&
+  /* Identity-checked best-effort removal of the staging container. The rmdir
+   * only removes an empty directory and never follows a symlink, so a
+   * principal that swaps the visible entry in a writable destination parent
+   * cannot redirect it; at worst the empty container remains. */
+  if (capture->parent_fd >= 0 && capture->stage_parent_name[0] != '\0' &&
       same_owned_directory_entry(capture->parent_fd,
                                  capture->stage_parent_name,
                                  capture->stage_parent_device,
@@ -1337,10 +1339,10 @@ bool t64_raw_capture_finalize(t64_raw_capture *capture, uint64_t guest_tick,
   }
   capture->committed = true;
   /* The target is committed. Removing the now-empty staging container is
-   * best-effort and only attempted when other principals cannot replace its
-   * visible entry between the identity check and rmdir. */
-  if (destination_allows_safe_stage_cleanup(capture) &&
-      same_directory_entry(capture->parent_fd, capture->stage_parent_name,
+   * best-effort: the identity-checked rmdir can only remove an empty
+   * directory and never follows a symlink, so a replaced visible entry is
+   * left alone or is refused rather than redirected. */
+  if (same_directory_entry(capture->parent_fd, capture->stage_parent_name,
                            capture->stage_parent_device,
                            capture->stage_parent_inode)) {
     (void)unlinkat(capture->parent_fd, capture->stage_parent_name,
