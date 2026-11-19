@@ -100,7 +100,8 @@ if [ -n "${T64_GATE_JUNIT_OUT:-}" ]; then
   case "$T64_GATE_JUNIT_OUT" in
     */../*|*/..) echo "[gate] T64_GATE_JUNIT_OUT must not contain .. components" >&2; exit 2 ;;
     "$ROOT"/build/gate/08-05-audio-private/*) ;;
-    *) echo "[gate] T64_GATE_JUNIT_OUT must be a private Phase08 evidence path" >&2; exit 2 ;;
+    "$ROOT"/build/gate/09-11-phase09-private/*) ;;
+    *) echo "[gate] T64_GATE_JUNIT_OUT must be a private Phase08 or Phase09 evidence path" >&2; exit 2 ;;
   esac
   [ ! -e "$T64_GATE_JUNIT_OUT" ] && [ ! -L "$T64_GATE_JUNIT_OUT" ] || {
     echo "[gate] T64_GATE_JUNIT_OUT already exists or is unsafe" >&2

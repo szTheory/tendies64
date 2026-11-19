@@ -213,7 +213,8 @@ runner.profile-table-id-length
 runner.artifact-publisher
 controls.artifact-substitution
 harness.fsize-artifact-real-fault
-harness.fsize-report-capture-still-bounded'
+harness.fsize-report-capture-still-bounded
+harness.phase09-qualification'
 
 CPU_COVERAGE_OPCODES='ADD
 ADDU

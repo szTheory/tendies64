@@ -573,6 +573,13 @@ set_tests_properties(runner.artifact-publisher controls.artifact-substitution
   PROPERTIES LABELS "runner;controls" TIMEOUT 120
   ENVIRONMENT "T64_PHASE09_EVIDENCE_DIR=${CMAKE_BINARY_DIR}/09-02-evidence")
 
+# Phase 9 harness guard and qualifier-stub controls (python, no builds).
+add_test(NAME harness.phase09-qualification
+  COMMAND python3 -B ${CMAKE_SOURCE_DIR}/scripts/tests/test_phase09_qualification.py
+    --selftest)
+set_tests_properties(harness.phase09-qualification PROPERTIES
+  LABELS "harness;qualification" TIMEOUT 120)
+
 # Original-record audio evidence controls. This selftest runs only isolated
 # verifier mutations; hosted emission remains a separate post-gate command.
 set(T64_AUDIO_QUALIFICATION_TEST
