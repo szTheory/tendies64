@@ -743,11 +743,17 @@ static void case_mi_full_falling_edge(void) {
   T64_CHECK_INT(t64_machine_bus_read(machine, AI_STATUS, 4u, &value),
                 T64_STATUS_OK);
   T64_CHECK_INT(value, AI_STATUS_BUSY);
+  /* Acknowledge the 2 -> 1 interrupt, then prove that completing the last
+   * single descriptor (1 -> 0) neither raises nor re-raises MI AI. */
+  T64_CHECK_INT(t64_machine_bus_write(machine, AI_STATUS, 4u, 0u),
+                T64_STATUS_OK);
+  T64_CHECK_INT(machine->mi_pending & T64_MI_INTERRUPT_AI, 0u);
   T64_CHECK(advance_ai_sample(machine));
+  T64_CHECK_INT(machine->ai.descriptor_count, 1u);
+  T64_CHECK_INT(machine->mi_pending & T64_MI_INTERRUPT_AI, 0u);
   T64_CHECK(advance_ai_sample(machine));
   T64_CHECK_INT(machine->ai.descriptor_count, 0u);
-  T64_CHECK_INT(machine->mi_pending & T64_MI_INTERRUPT_AI,
-                T64_MI_INTERRUPT_AI);
+  T64_CHECK_INT(machine->mi_pending & T64_MI_INTERRUPT_AI, 0u);
   t64_machine_destroy(machine);
 }
 

@@ -7,6 +7,7 @@ import ctypes
 import importlib.util
 import json
 import os
+import re
 import subprocess
 import sys
 import tempfile
@@ -827,6 +828,19 @@ class AudioQualificationTests(unittest.TestCase):
         self.assertIn('"$ROOT"/build/gate/08-05-audio-private/*)', gate)
         self.assertIn('step ctest ctest --preset gate --output-junit "$T64_GATE_JUNIT_OUT"', gate)
         self.assertIn('step ctest ctest --preset gate\nfi', gate)
+        # Run the real case block: a `..` component must not escape the private root.
+        block = re.search(r'  case "\$T64_GATE_JUNIT_OUT" in\n.*?\n  esac\n', gate, re.S)
+        self.assertIsNotNone(block)
+        for value, expected in (
+            ("{root}/build/gate/08-05-audio-private/run/junit.xml", 0),
+            ("{root}/build/gate/08-05-audio-private/../x.xml", 2),
+            ("{root}/build/gate/08-05-audio-private/a/..", 2),
+            ("{root}/build/gate/other/junit.xml", 2),
+        ):
+            script = 'ROOT="$1"; T64_GATE_JUNIT_OUT="$2"\n' + block.group(0)
+            result = subprocess.run(["sh", "-c", script, "sh", "/r", value.format(root="/r")],
+                                    capture_output=True, text=True, check=False)
+            self.assertEqual(result.returncode, expected, value)
         # The native wrapper runs scripts/qualify-rdp-vi.py with this hook set.
         # A text check of gate.sh cannot see an undefined helper in that entry
         # (the first --native attempt failed with NameError on `_under`), so
