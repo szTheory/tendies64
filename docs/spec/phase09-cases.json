@@ -1,0 +1,78 @@
+{
+  "schema": "t64.phase09-case-inventory",
+  "schema_version": 1,
+  "suites": {
+    "identity": {
+      "ctest": [
+        "unit.core.profile.predicate-matrix",
+        "unit.core.profile.v12-identity",
+        "unit.core.profile.quantum-identity",
+        "unit.core.profile.family-devices",
+        "unit.core.digest.sink-legacy-identity",
+        "unit.core.digest.v25-reference",
+        "unit.core.digest.v25-strip-differential",
+        "unit.core.sched.ledger",
+        "unit.core.sched.characterize-fifo",
+        "repo.si-membership-sites"
+      ],
+      "binaries": [
+        {
+          "path": "core/test_si_profile",
+          "cases": [
+            "predicate-matrix",
+            "si-profile-identity",
+            "quantum-identity",
+            "family-devices"
+          ]
+        },
+        {
+          "path": "core/test_digest_v25",
+          "cases": [
+            "sink-legacy-identity",
+            "v25-reference",
+            "v25-strip-differential"
+          ]
+        },
+        {
+          "path": "core/test_sched_ledger",
+          "cases": ["ledger", "characterize-fifo"]
+        }
+      ]
+    },
+    "mechanism": {
+      "ctest": [
+        "runner.phase09-tracer",
+        "runner.phase09-admit",
+        "controls.real.phase09-admit-wrong-transcript",
+        "runner.guest-tick-cap",
+        "runner.fixture-transcript-pin",
+        "runner.supervisor-argv-bound",
+        "harness.fsize-artifact-real-fault",
+        "harness.fsize-report-capture-still-bounded",
+        "runner.profile-table-id-length",
+        "runner.artifact-publisher",
+        "controls.artifact-substitution"
+      ],
+      "binaries": [
+        {
+          "path": "runner/test_phase09_runner",
+          "cases": [
+            "tracer-artifact",
+            "admit-ids",
+            "admit-wrong-transcript",
+            "tick-cap",
+            "transcript-pin",
+            "argv-bound",
+            "fsize-artifact",
+            "fsize-report-capture",
+            "profile-table"
+          ]
+        },
+        {
+          "path": "runner/test_artifact_publisher",
+          "cases": ["publish-and-refusals", "substitution"]
+        }
+      ]
+    }
+  }
+}
