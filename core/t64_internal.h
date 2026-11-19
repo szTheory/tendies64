@@ -1457,6 +1457,41 @@ static inline bool t64_internal_storage_range(t64_host_storage storage,
          t64_internal_make_range(storage.data, storage.capacity, range_out);
 }
 
+/*
+ * Canonical state stream sink (Phase 9). One walker produces the digest
+ * preimage; a sink either hashes it, copies it out, or only counts it. Spans
+ * record the non-body regions (identity, marker, new section) so that a
+ * strip-and-compare against an older stream can tell them from body bytes.
+ */
+#define T64_DIGEST_CLASS_BODY UINT32_C(0)
+#define T64_DIGEST_CLASS_IDENTITY UINT32_C(1)
+#define T64_DIGEST_CLASS_MARKER UINT32_C(2)
+#define T64_DIGEST_CLASS_NEW UINT32_C(3)
+
+typedef struct {
+  size_t offset;
+  size_t length;
+  uint32_t class;
+} t64_digest_span;
+
+typedef struct {
+  uint8_t *buffer;         /* copy-out destination, or NULL */
+  size_t capacity;         /* bytes available at buffer */
+  size_t offset;           /* bytes streamed so far, even past capacity */
+  void *hash;              /* t64_sha256_ctx updated as bytes stream, or NULL */
+  t64_digest_span *spans;  /* non-body span records, or NULL */
+  size_t span_count;
+  size_t span_capacity;
+  bool overflow;           /* a write passed capacity or the span array */
+} t64_digest_sink;
+
+/*
+ * Stream the canonical state of an admitted machine into the sink in the
+ * order t64_machine_digest hashes it. NOT_READY before admission.
+ */
+t64_status t64_digest_stream(const t64_machine *machine,
+                             t64_digest_sink *sink);
+
 t64_status t64_rom_input_preflight(
     const t64_profile_descriptor *profile, const uint8_t *bytes,
     size_t length, t64_host_storage machine_storage,

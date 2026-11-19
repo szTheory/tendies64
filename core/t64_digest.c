@@ -4,18 +4,71 @@
 
 #include <stddef.h>
 #include <stdint.h>
+#include <string.h>
 
-static void hash_u32(t64_sha256_ctx *context, uint32_t value) {
+/*
+ * Every byte of the canonical state goes through digest_bytes_class. The sink
+ * copies it out, hashes it, or only counts it; a non-body class is also
+ * recorded as a span so a stream can be compared against an older stream with
+ * its framing removed. A write that would pass the buffer or the span array
+ * sets the overflow flag, copies nothing and still advances the offset.
+ */
+static void digest_bytes_class(t64_digest_sink *sink, const void *data,
+                               size_t length, uint32_t class_id) {
+  if (length == 0u) {
+    return;
+  }
+  if (sink->buffer != NULL) {
+    if (sink->offset <= sink->capacity &&
+        length <= sink->capacity - sink->offset) {
+      (void)memcpy(sink->buffer + sink->offset, data, length);
+    } else {
+      sink->overflow = true;
+    }
+  }
+  if (sink->hash != NULL) {
+    t64_sha256_update((t64_sha256_ctx *)sink->hash, data, length);
+  }
+  if (class_id != T64_DIGEST_CLASS_BODY && sink->spans != NULL) {
+    t64_digest_span *last =
+        sink->span_count > 0u ? &sink->spans[sink->span_count - 1u] : NULL;
+
+    if (last != NULL && last->class == class_id &&
+        last->offset + last->length == sink->offset) {
+      last->length += length;
+    } else if (sink->span_count < sink->span_capacity) {
+      sink->spans[sink->span_count].offset = sink->offset;
+      sink->spans[sink->span_count].length = length;
+      sink->spans[sink->span_count].class = class_id;
+      sink->span_count++;
+    } else {
+      sink->overflow = true;
+    }
+  }
+  sink->offset += length;
+}
+
+static void digest_bytes(t64_digest_sink *sink, const void *data,
+                         size_t length) {
+  digest_bytes_class(sink, data, length, T64_DIGEST_CLASS_BODY);
+}
+
+static void hash_u32_class(t64_digest_sink *sink, uint32_t value,
+                           uint32_t class_id) {
   uint8_t bytes[4];
 
   bytes[0] = (uint8_t)(value >> 24);
   bytes[1] = (uint8_t)(value >> 16);
   bytes[2] = (uint8_t)(value >> 8);
   bytes[3] = (uint8_t)value;
-  t64_sha256_update(context, bytes, sizeof bytes);
+  digest_bytes_class(sink, bytes, sizeof bytes, class_id);
 }
 
-static void hash_u64(t64_sha256_ctx *context, uint64_t value) {
+static void hash_u32(t64_digest_sink *sink, uint32_t value) {
+  hash_u32_class(sink, value, T64_DIGEST_CLASS_BODY);
+}
+
+static void hash_u64(t64_digest_sink *sink, uint64_t value) {
   uint8_t bytes[8];
   unsigned i;
 
@@ -23,152 +76,152 @@ static void hash_u64(t64_sha256_ctx *context, uint64_t value) {
     unsigned shift = 56u - (i * 8u);
     bytes[i] = (uint8_t)(value >> shift);
   }
-  t64_sha256_update(context, bytes, sizeof bytes);
+  digest_bytes(sink, bytes, sizeof bytes);
 }
 
-static void hash_event(t64_sha256_ctx *context, const t64_event *event) {
-  hash_u64(context, event->tick);
-  hash_u64(context, event->sequence);
-  hash_u32(context, event->device);
-  hash_u32(context, event->kind);
-  hash_u64(context, event->value);
-  hash_u64(context, event->token);
+static void hash_event(t64_digest_sink *sink, const t64_event *event) {
+  hash_u64(sink, event->tick);
+  hash_u64(sink, event->sequence);
+  hash_u32(sink, event->device);
+  hash_u32(sink, event->kind);
+  hash_u64(sink, event->value);
+  hash_u64(sink, event->token);
 }
 
-static void hash_sp_descriptor(t64_sha256_ctx *context,
+static void hash_sp_descriptor(t64_digest_sink *sink,
                                const t64_sp_dma_descriptor *descriptor) {
-  hash_u32(context, descriptor->valid ? UINT32_C(1) : UINT32_C(0));
-  hash_u32(context, descriptor->dram_to_sp ? UINT32_C(1) : UINT32_C(0));
-  hash_u32(context, descriptor->imem ? UINT32_C(1) : UINT32_C(0));
-  hash_u32(context, descriptor->raw_mem_address);
-  hash_u32(context, descriptor->raw_dram_address);
-  hash_u32(context, descriptor->raw_length);
-  hash_u32(context, descriptor->aligned_dram_start);
-  hash_u32(context, descriptor->internal_start);
-  hash_u32(context, descriptor->bytes_per_line);
-  hash_u32(context, descriptor->line_count);
-  hash_u32(context, descriptor->skip);
-  hash_u32(context, descriptor->payload_bytes);
-  hash_u64(context, descriptor->start_tick);
-  hash_u64(context, descriptor->end_tick);
-  hash_u64(context, descriptor->token);
+  hash_u32(sink, descriptor->valid ? UINT32_C(1) : UINT32_C(0));
+  hash_u32(sink, descriptor->dram_to_sp ? UINT32_C(1) : UINT32_C(0));
+  hash_u32(sink, descriptor->imem ? UINT32_C(1) : UINT32_C(0));
+  hash_u32(sink, descriptor->raw_mem_address);
+  hash_u32(sink, descriptor->raw_dram_address);
+  hash_u32(sink, descriptor->raw_length);
+  hash_u32(sink, descriptor->aligned_dram_start);
+  hash_u32(sink, descriptor->internal_start);
+  hash_u32(sink, descriptor->bytes_per_line);
+  hash_u32(sink, descriptor->line_count);
+  hash_u32(sink, descriptor->skip);
+  hash_u32(sink, descriptor->payload_bytes);
+  hash_u64(sink, descriptor->start_tick);
+  hash_u64(sink, descriptor->end_tick);
+  hash_u64(sink, descriptor->token);
 }
 
 static void hash_rdram_protocol_state(
-    t64_sha256_ctx *context, const t64_rdram_protocol_state *protocol) {
+    t64_digest_sink *sink, const t64_rdram_protocol_state *protocol) {
   size_t device_index;
   size_t register_index;
 
-  hash_u32(context, protocol->ri_config);
-  hash_u32(context, protocol->ri_config_known ? 1u : 0u);
-  hash_u32(context, protocol->ri_current_load);
-  hash_u32(context, protocol->ri_current_load_known ? 1u : 0u);
-  hash_u64(context, protocol->ri_config_tick);
-  hash_u64(context, protocol->ri_current_load_deadline_tick);
-  hash_u32(context, protocol->ri_mode);
-  hash_u32(context, protocol->ri_mode_known ? 1u : 0u);
-  hash_u64(context, protocol->ri_mode_tick);
-  hash_u64(context, protocol->ri_mode_deadline_tick);
-  hash_u32(context, protocol->ri_refresh);
-  hash_u32(context, protocol->ri_refresh_known ? 1u : 0u);
-  hash_u32(context, protocol->mi_repeat_enabled ? 1u : 0u);
-  hash_u32(context, protocol->mi_repeat_known ? 1u : 0u);
-  hash_u32(context, protocol->mi_repeat_length);
-  hash_u32(context, protocol->mi_upper_mode ? 1u : 0u);
-  hash_u32(context, protocol->broadcast_registers_known);
+  hash_u32(sink, protocol->ri_config);
+  hash_u32(sink, protocol->ri_config_known ? 1u : 0u);
+  hash_u32(sink, protocol->ri_current_load);
+  hash_u32(sink, protocol->ri_current_load_known ? 1u : 0u);
+  hash_u64(sink, protocol->ri_config_tick);
+  hash_u64(sink, protocol->ri_current_load_deadline_tick);
+  hash_u32(sink, protocol->ri_mode);
+  hash_u32(sink, protocol->ri_mode_known ? 1u : 0u);
+  hash_u64(sink, protocol->ri_mode_tick);
+  hash_u64(sink, protocol->ri_mode_deadline_tick);
+  hash_u32(sink, protocol->ri_refresh);
+  hash_u32(sink, protocol->ri_refresh_known ? 1u : 0u);
+  hash_u32(sink, protocol->mi_repeat_enabled ? 1u : 0u);
+  hash_u32(sink, protocol->mi_repeat_known ? 1u : 0u);
+  hash_u32(sink, protocol->mi_repeat_length);
+  hash_u32(sink, protocol->mi_upper_mode ? 1u : 0u);
+  hash_u32(sink, protocol->broadcast_registers_known);
   for (register_index = 0u;
        register_index < T64_RDRAM_PROTOCOL_REGISTER_COUNT;
        register_index++) {
-    hash_u32(context, protocol->broadcast_register_values[register_index]);
+    hash_u32(sink, protocol->broadcast_register_values[register_index]);
   }
-  hash_u32(context, protocol->logical_device_count);
-  hash_u32(context, protocol->capacity_scan_complete ? 1u : 0u);
-  hash_u32(context, protocol->logical_capacity_bytes);
+  hash_u32(sink, protocol->logical_device_count);
+  hash_u32(sink, protocol->capacity_scan_complete ? 1u : 0u);
+  hash_u32(sink, protocol->logical_capacity_bytes);
   for (device_index = 0u; device_index < T64_RDRAM_PROTOCOL_SLOT_COUNT;
        device_index++) {
     const t64_rdram_device_state *device =
         &protocol->devices[device_index];
 
-    hash_u32(context, device->device_id);
-    hash_u32(context, device->calibration_state);
-    hash_u32(context, device->present ? 1u : 0u);
-    hash_u32(context, device->device_id_known ? 1u : 0u);
-    hash_u32(context, device->registers_known);
+    hash_u32(sink, device->device_id);
+    hash_u32(sink, device->calibration_state);
+    hash_u32(sink, device->present ? 1u : 0u);
+    hash_u32(sink, device->device_id_known ? 1u : 0u);
+    hash_u32(sink, device->registers_known);
     for (register_index = 0u;
          register_index < T64_RDRAM_PROTOCOL_REGISTER_COUNT;
          register_index++) {
-      hash_u32(context, device->register_values[register_index]);
+      hash_u32(sink, device->register_values[register_index]);
     }
   }
 }
 
-static void hash_vr4300_cpu_state(t64_sha256_ctx *context,
+static void hash_vr4300_cpu_state(t64_digest_sink *sink,
                                   const t64_cpu_state *cpu) {
   size_t i;
 
-  hash_u64(context, cpu->pc_full);
-  hash_u64(context, cpu->last_pc_full);
-  hash_u64(context, cpu->delay_slot_pc_full);
-  hash_u64(context, cpu->delay_target_full);
-  hash_u64(context, cpu->stop_pc_full);
-  hash_u32(context, cpu->attempt_outcome);
-  hash_u32(context, cpu->semantic_policy_version);
-  hash_u32(context, cpu->cp0_config_init_window ? UINT32_C(1) : UINT32_C(0));
-  hash_u32(context, cpu->tlb_shutdown ? UINT32_C(1) : UINT32_C(0));
-  hash_u32(context, cpu->pending_exception_valid ? UINT32_C(1) : UINT32_C(0));
-  hash_u32(context, cpu->pending_exception_code);
-  hash_u64(context, cpu->pending_exception_address);
-  hash_u64(context, cpu->pending_exception_epc);
-  hash_u32(context, cpu->pending_exception_bd ? UINT32_C(1) : UINT32_C(0));
+  hash_u64(sink, cpu->pc_full);
+  hash_u64(sink, cpu->last_pc_full);
+  hash_u64(sink, cpu->delay_slot_pc_full);
+  hash_u64(sink, cpu->delay_target_full);
+  hash_u64(sink, cpu->stop_pc_full);
+  hash_u32(sink, cpu->attempt_outcome);
+  hash_u32(sink, cpu->semantic_policy_version);
+  hash_u32(sink, cpu->cp0_config_init_window ? UINT32_C(1) : UINT32_C(0));
+  hash_u32(sink, cpu->tlb_shutdown ? UINT32_C(1) : UINT32_C(0));
+  hash_u32(sink, cpu->pending_exception_valid ? UINT32_C(1) : UINT32_C(0));
+  hash_u32(sink, cpu->pending_exception_code);
+  hash_u64(sink, cpu->pending_exception_address);
+  hash_u64(sink, cpu->pending_exception_epc);
+  hash_u32(sink, cpu->pending_exception_bd ? UINT32_C(1) : UINT32_C(0));
 
-  hash_u32(context, T64_VR4300_TLB_ENTRY_COUNT);
+  hash_u32(sink, T64_VR4300_TLB_ENTRY_COUNT);
   for (i = 0u; i < T64_VR4300_TLB_ENTRY_COUNT; i++) {
     const t64_vr4300_tlb_pair *entry = &cpu->tlb[i];
 
-    hash_u64(context, entry->page_mask);
-    hash_u64(context, entry->vpn2);
-    hash_u64(context, entry->region);
-    hash_u32(context, entry->asid);
-    hash_u64(context, entry->entry_lo0);
-    hash_u64(context, entry->entry_lo1);
+    hash_u64(sink, entry->page_mask);
+    hash_u64(sink, entry->vpn2);
+    hash_u64(sink, entry->region);
+    hash_u32(sink, entry->asid);
+    hash_u64(sink, entry->entry_lo0);
+    hash_u64(sink, entry->entry_lo1);
   }
 
-  hash_u64(context, cpu->count_sync_tick);
-  hash_u32(context, cpu->count_half_clock_phase);
-  hash_u64(context, cpu->count_compare_deadline);
-  hash_u64(context, cpu->count_equality_latch_generation);
-  hash_u32(context, cpu->count_equality_latched ? UINT32_C(1) : UINT32_C(0));
-  hash_u32(context, cpu->linked_physical_address);
-  hash_u32(context, cpu->linked_width);
-  hash_u32(context, cpu->linked_valid ? UINT32_C(1) : UINT32_C(0));
+  hash_u64(sink, cpu->count_sync_tick);
+  hash_u32(sink, cpu->count_half_clock_phase);
+  hash_u64(sink, cpu->count_compare_deadline);
+  hash_u64(sink, cpu->count_equality_latch_generation);
+  hash_u32(sink, cpu->count_equality_latched ? UINT32_C(1) : UINT32_C(0));
+  hash_u32(sink, cpu->linked_physical_address);
+  hash_u32(sink, cpu->linked_width);
+  hash_u32(sink, cpu->linked_valid ? UINT32_C(1) : UINT32_C(0));
 
-  hash_u32(context, T64_VR4300_ICACHE_LINE_COUNT);
+  hash_u32(sink, T64_VR4300_ICACHE_LINE_COUNT);
   for (i = 0u; i < T64_VR4300_ICACHE_LINE_COUNT; i++) {
     const t64_vr4300_icache_line *line = &cpu->icache[i];
 
-    hash_u32(context, line->physical_tag);
-    hash_u32(context, line->valid ? UINT32_C(1) : UINT32_C(0));
-    t64_sha256_update(context, line->data, sizeof line->data);
+    hash_u32(sink, line->physical_tag);
+    hash_u32(sink, line->valid ? UINT32_C(1) : UINT32_C(0));
+    digest_bytes(sink, line->data, sizeof line->data);
   }
-  hash_u32(context, T64_VR4300_DCACHE_LINE_COUNT);
+  hash_u32(sink, T64_VR4300_DCACHE_LINE_COUNT);
   for (i = 0u; i < T64_VR4300_DCACHE_LINE_COUNT; i++) {
     const t64_vr4300_dcache_line *line = &cpu->dcache[i];
 
-    hash_u32(context, line->physical_tag);
-    hash_u32(context, line->valid ? UINT32_C(1) : UINT32_C(0));
-    hash_u32(context, line->dirty ? UINT32_C(1) : UINT32_C(0));
-    t64_sha256_update(context, line->data, sizeof line->data);
+    hash_u32(sink, line->physical_tag);
+    hash_u32(sink, line->valid ? UINT32_C(1) : UINT32_C(0));
+    hash_u32(sink, line->dirty ? UINT32_C(1) : UINT32_C(0));
+    digest_bytes(sink, line->data, sizeof line->data);
   }
-  hash_u32(context, 32u);
+  hash_u32(sink, 32u);
   for (i = 0u; i < 32u; i++) {
-    hash_u64(context, cpu->fpr[i]);
+    hash_u64(sink, cpu->fpr[i]);
   }
-  hash_u32(context, cpu->fcr0);
-  hash_u32(context, cpu->fcr31);
+  hash_u32(sink, cpu->fcr0);
+  hash_u32(sink, cpu->fcr31);
 }
 
-t64_status t64_machine_digest(const t64_machine *machine,
-                              uint8_t digest_out[T64_DIGEST_SIZE]) {
+t64_status t64_digest_stream(const t64_machine *machine,
+                             t64_digest_sink *sink) {
   static const uint8_t domain_v5[] = {'t', '6', '4', '.', 's', 't', 'a', 't',
                                       'e', '.', 'v', '5'};
   static const uint8_t domain_v6[] = {'t', '6', '4', '.', 's', 't', 'a', 't',
@@ -195,8 +248,6 @@ t64_status t64_machine_digest(const t64_machine *machine,
   static const uint8_t domain_v22[] = "t64.state.rdp.vi.scanout.22";
   static const uint8_t domain_v23[] = "t64.state.rdp.vi.filter.23";
   static const uint8_t domain_v24[] = "t64.state.audio.ai.24";
-  t64_sha256_ctx context;
-  t64_address_range output_range;
   const bool has_v6_state =
       machine != NULL && machine->profile.state_serialization_version == 6u;
   const bool has_v7_state =
@@ -238,443 +289,460 @@ t64_status t64_machine_digest(const t64_machine *machine,
       has_v10_state || has_v11_state || has_rsp_state;
   size_t i;
 
-  if (machine == NULL || digest_out == NULL ||
-      !t64_internal_make_range(digest_out, T64_DIGEST_SIZE, &output_range) ||
-      !t64_internal_observation_range_is_disjoint(machine, output_range)) {
+  if (machine == NULL || sink == NULL) {
     return T64_STATUS_INVALID_ARGUMENT;
   }
   if (!machine->has_image) {
     return T64_STATUS_NOT_READY;
   }
 
-  t64_sha256_init(&context);
   if (has_v24_state) {
-    t64_sha256_update(&context, domain_v24, sizeof domain_v24 - 1u);
+    digest_bytes_class(sink, domain_v24, sizeof domain_v24 - 1u,
+                       T64_DIGEST_CLASS_IDENTITY);
   } else if (has_v23_state) {
-    t64_sha256_update(&context, domain_v23, sizeof domain_v23 - 1u);
+    digest_bytes_class(sink, domain_v23, sizeof domain_v23 - 1u,
+                       T64_DIGEST_CLASS_IDENTITY);
   } else if (has_v22_state) {
-    t64_sha256_update(&context, domain_v22, sizeof domain_v22 - 1u);
+    digest_bytes_class(sink, domain_v22, sizeof domain_v22 - 1u,
+                       T64_DIGEST_CLASS_IDENTITY);
   } else if (has_v21_state) {
-    t64_sha256_update(&context, domain_v21, sizeof domain_v21 - 1u);
+    digest_bytes_class(sink, domain_v21, sizeof domain_v21 - 1u,
+                       T64_DIGEST_CLASS_IDENTITY);
   } else if (has_v20_state) {
-    t64_sha256_update(&context, domain_v20, sizeof domain_v20 - 1u);
+    digest_bytes_class(sink, domain_v20, sizeof domain_v20 - 1u,
+                       T64_DIGEST_CLASS_IDENTITY);
   } else if (has_v19_state) {
-    t64_sha256_update(&context, domain_v19, sizeof domain_v19 - 1u);
+    digest_bytes_class(sink, domain_v19, sizeof domain_v19 - 1u,
+                       T64_DIGEST_CLASS_IDENTITY);
   } else if (has_v18_state) {
-    t64_sha256_update(&context, domain_v18, sizeof domain_v18 - 1u);
+    digest_bytes_class(sink, domain_v18, sizeof domain_v18 - 1u,
+                       T64_DIGEST_CLASS_IDENTITY);
   } else if (has_v17_state) {
-    t64_sha256_update(&context, domain_v17, sizeof domain_v17 - 1u);
+    digest_bytes_class(sink, domain_v17, sizeof domain_v17 - 1u,
+                       T64_DIGEST_CLASS_IDENTITY);
   } else if (has_v16_state) {
-    t64_sha256_update(&context, domain_v16, sizeof domain_v16 - 1u);
+    digest_bytes_class(sink, domain_v16, sizeof domain_v16 - 1u,
+                       T64_DIGEST_CLASS_IDENTITY);
   } else if (has_v13_state) {
-    t64_sha256_update(&context, domain_v13, sizeof domain_v13 - 1u);
+    digest_bytes_class(sink, domain_v13, sizeof domain_v13 - 1u,
+                       T64_DIGEST_CLASS_IDENTITY);
   } else if (has_v12_state) {
-    t64_sha256_update(&context, domain_v12, sizeof domain_v12 - 1u);
+    digest_bytes_class(sink, domain_v12, sizeof domain_v12 - 1u,
+                       T64_DIGEST_CLASS_IDENTITY);
   } else if (has_v11_state) {
-    t64_sha256_update(&context, domain_v11, sizeof domain_v11);
+    digest_bytes_class(sink, domain_v11, sizeof domain_v11,
+                       T64_DIGEST_CLASS_IDENTITY);
   } else if (has_v10_state) {
-    t64_sha256_update(&context, domain_v10, sizeof domain_v10);
+    digest_bytes_class(sink, domain_v10, sizeof domain_v10,
+                       T64_DIGEST_CLASS_IDENTITY);
   } else if (has_v9_state) {
-    t64_sha256_update(&context, domain_v9, sizeof domain_v9);
+    digest_bytes_class(sink, domain_v9, sizeof domain_v9,
+                       T64_DIGEST_CLASS_IDENTITY);
   } else if (has_v8_state) {
-    t64_sha256_update(&context, domain_v8, sizeof domain_v8);
+    digest_bytes_class(sink, domain_v8, sizeof domain_v8,
+                       T64_DIGEST_CLASS_IDENTITY);
   } else if (has_v7_state) {
-    t64_sha256_update(&context, domain_v7, sizeof domain_v7);
+    digest_bytes_class(sink, domain_v7, sizeof domain_v7,
+                       T64_DIGEST_CLASS_IDENTITY);
   } else if (has_v6_state) {
-    t64_sha256_update(&context, domain_v6, sizeof domain_v6);
+    digest_bytes_class(sink, domain_v6, sizeof domain_v6,
+                       T64_DIGEST_CLASS_IDENTITY);
   } else {
-    t64_sha256_update(&context, domain_v5, sizeof domain_v5);
+    digest_bytes_class(sink, domain_v5, sizeof domain_v5,
+                       T64_DIGEST_CLASS_IDENTITY);
   }
-  hash_u32(&context, machine->profile.state_serialization_version);
-  t64_sha256_update(&context, machine->profile_digest,
-                    sizeof machine->profile_digest);
-  t64_sha256_update(&context, machine->content_digest,
-                    sizeof machine->content_digest);
-  hash_u32(&context, machine->has_image ? UINT32_C(1) : UINT32_C(0));
-  hash_u32(&context, (uint32_t)machine->image_length);
-  t64_sha256_update(&context, machine->rom_header,
-                    sizeof machine->rom_header);
-  t64_sha256_update(&context, machine->rom_title,
-                    sizeof machine->rom_title);
-  t64_sha256_update(&context, machine->rom_game_code,
-                    sizeof machine->rom_game_code);
-  hash_u32(&context, machine->rom_version);
-  hash_u64(&context, machine->tick);
-  hash_u64(&context, machine->instruction_count);
-  hash_u64(&context, machine->frame_event_count);
-  hash_u32(&context, machine->sticky_error_status);
-  hash_u32(&context, machine->halted ? UINT32_C(1) : UINT32_C(0));
-  hash_u32(&context, machine->profile.rdram_bytes);
-  t64_sha256_update(&context, machine->ram, machine->profile.rdram_bytes);
-  hash_u32(&context, (uint32_t)sizeof machine->sp_dmem);
-  t64_sha256_update(&context, machine->sp_dmem, sizeof machine->sp_dmem);
-  hash_u32(&context, (uint32_t)sizeof machine->sp_imem);
-  t64_sha256_update(&context, machine->sp_imem, sizeof machine->sp_imem);
-  hash_u32(&context, machine->mi_pending & T64_MI_INTERRUPT_BITS);
-  hash_u32(&context, machine->mi_mask & T64_MI_INTERRUPT_BITS);
-  hash_u32(&context, machine->mi_irq_line ? UINT32_C(1) : UINT32_C(0));
-  hash_u32(&context, machine->pi.dram_address);
-  hash_u32(&context, machine->pi.cart_address);
-  hash_u32(&context, machine->pi.read_length);
-  hash_u32(&context, machine->pi.write_length);
-  hash_u32(&context, machine->pi.domain1_latency);
-  hash_u32(&context, machine->pi.domain1_pulse_width);
-  hash_u32(&context, machine->pi.domain1_page_size);
-  hash_u32(&context, machine->pi.domain1_release_duration);
-  hash_u32(&context, machine->pi.domain2_latency);
-  hash_u32(&context, machine->pi.domain2_pulse_width);
-  hash_u32(&context, machine->pi.domain2_page_size);
-  hash_u32(&context, machine->pi.domain2_release_duration);
-  hash_u32(&context, machine->pi.error ? UINT32_C(1) : UINT32_C(0));
-  hash_u32(&context, machine->pi.active_valid ? UINT32_C(1) : UINT32_C(0));
-  hash_u32(&context,
+  hash_u32_class(sink, machine->profile.state_serialization_version,
+                 T64_DIGEST_CLASS_IDENTITY);
+  digest_bytes_class(sink, machine->profile_digest,
+                     sizeof machine->profile_digest,
+                     T64_DIGEST_CLASS_IDENTITY);
+  digest_bytes(sink, machine->content_digest,
+               sizeof machine->content_digest);
+  hash_u32(sink, machine->has_image ? UINT32_C(1) : UINT32_C(0));
+  hash_u32(sink, (uint32_t)machine->image_length);
+  digest_bytes(sink, machine->rom_header,
+               sizeof machine->rom_header);
+  digest_bytes(sink, machine->rom_title,
+               sizeof machine->rom_title);
+  digest_bytes(sink, machine->rom_game_code,
+               sizeof machine->rom_game_code);
+  hash_u32(sink, machine->rom_version);
+  hash_u64(sink, machine->tick);
+  hash_u64(sink, machine->instruction_count);
+  hash_u64(sink, machine->frame_event_count);
+  hash_u32(sink, machine->sticky_error_status);
+  hash_u32(sink, machine->halted ? UINT32_C(1) : UINT32_C(0));
+  hash_u32(sink, machine->profile.rdram_bytes);
+  digest_bytes(sink, machine->ram, machine->profile.rdram_bytes);
+  hash_u32(sink, (uint32_t)sizeof machine->sp_dmem);
+  digest_bytes(sink, machine->sp_dmem, sizeof machine->sp_dmem);
+  hash_u32(sink, (uint32_t)sizeof machine->sp_imem);
+  digest_bytes(sink, machine->sp_imem, sizeof machine->sp_imem);
+  hash_u32(sink, machine->mi_pending & T64_MI_INTERRUPT_BITS);
+  hash_u32(sink, machine->mi_mask & T64_MI_INTERRUPT_BITS);
+  hash_u32(sink, machine->mi_irq_line ? UINT32_C(1) : UINT32_C(0));
+  hash_u32(sink, machine->pi.dram_address);
+  hash_u32(sink, machine->pi.cart_address);
+  hash_u32(sink, machine->pi.read_length);
+  hash_u32(sink, machine->pi.write_length);
+  hash_u32(sink, machine->pi.domain1_latency);
+  hash_u32(sink, machine->pi.domain1_pulse_width);
+  hash_u32(sink, machine->pi.domain1_page_size);
+  hash_u32(sink, machine->pi.domain1_release_duration);
+  hash_u32(sink, machine->pi.domain2_latency);
+  hash_u32(sink, machine->pi.domain2_pulse_width);
+  hash_u32(sink, machine->pi.domain2_page_size);
+  hash_u32(sink, machine->pi.domain2_release_duration);
+  hash_u32(sink, machine->pi.error ? UINT32_C(1) : UINT32_C(0));
+  hash_u32(sink, machine->pi.active_valid ? UINT32_C(1) : UINT32_C(0));
+  hash_u32(sink,
            machine->pi.active_canceled ? UINT32_C(1) : UINT32_C(0));
-  hash_u32(&context, machine->pi.active_dram_address);
-  hash_u32(&context, machine->pi.active_cart_address);
-  hash_u32(&context, machine->pi.active_length);
-  hash_u64(&context, machine->pi.active_token);
-  hash_u64(&context, machine->pi.next_token);
-  hash_u32(&context,
+  hash_u32(sink, machine->pi.active_dram_address);
+  hash_u32(sink, machine->pi.active_cart_address);
+  hash_u32(sink, machine->pi.active_length);
+  hash_u64(sink, machine->pi.active_token);
+  hash_u64(sink, machine->pi.next_token);
+  hash_u32(sink,
            machine->pi.token_exhausted ? UINT32_C(1) : UINT32_C(0));
-  hash_u32(&context, machine->sp.mem_address);
-  hash_u32(&context, machine->sp.dram_address);
-  hash_u32(&context, machine->sp.read_length);
-  hash_u32(&context, machine->sp.write_length);
-  hash_sp_descriptor(&context, &machine->sp.active);
-  hash_sp_descriptor(&context, &machine->sp.pending);
-  hash_u64(&context, machine->sp.next_token);
-  hash_u32(&context,
+  hash_u32(sink, machine->sp.mem_address);
+  hash_u32(sink, machine->sp.dram_address);
+  hash_u32(sink, machine->sp.read_length);
+  hash_u32(sink, machine->sp.write_length);
+  hash_sp_descriptor(sink, &machine->sp.active);
+  hash_sp_descriptor(sink, &machine->sp.pending);
+  hash_u64(sink, machine->sp.next_token);
+  hash_u32(sink,
            machine->sp.token_exhausted ? UINT32_C(1) : UINT32_C(0));
-  hash_u32(&context, (uint32_t)machine->queue_count);
-  hash_u64(&context, machine->next_sequence);
-  hash_u32(&context,
+  hash_u32(sink, (uint32_t)machine->queue_count);
+  hash_u64(sink, machine->next_sequence);
+  hash_u32(sink,
            machine->sequence_exhausted ? UINT32_C(1) : UINT32_C(0));
   for (i = 0u; i < machine->queue_count; i++) {
     size_t index = (machine->queue_head + i) % T64_EVENT_QUEUE_CAPACITY;
 
-    hash_event(&context, &machine->events[index]);
+    hash_event(sink, &machine->events[index]);
   }
   if (has_warm_state) {
     for (i = 0u; i < sizeof machine->boot.asset_sha256; i++) {
-      t64_sha256_update(&context, &machine->boot.asset_sha256[i], 1u);
+      digest_bytes(sink, &machine->boot.asset_sha256[i], 1u);
     }
     for (i = 0u; i < sizeof machine->boot.payload_sha256; i++) {
-      t64_sha256_update(&context, &machine->boot.payload_sha256[i], 1u);
+      digest_bytes(sink, &machine->boot.payload_sha256[i], 1u);
     }
     for (i = 0u; i < sizeof machine->boot.policy_sha256; i++) {
-      t64_sha256_update(&context, &machine->boot.policy_sha256[i], 1u);
+      digest_bytes(sink, &machine->boot.policy_sha256[i], 1u);
     }
-    hash_u32(&context, machine->boot.source_offset);
-    hash_u32(&context, machine->boot.payload_length);
-    hash_u32(&context, machine->boot.dmem_offset);
-    hash_u32(&context, machine->boot.entry_pc);
-    hash_u32(&context, machine->boot.seed_reset_version);
-    hash_u32(&context, machine->boot.seed_s3_rom_type);
-    hash_u32(&context, machine->boot.seed_s4_tv_type);
-    hash_u32(&context, machine->boot.seed_s5_reset_type);
-    hash_u32(&context, machine->boot.seed_s6_entropy);
-    hash_u32(&context, machine->boot.seed_s7_boot_info_version);
-    hash_u32(&context, machine->boot.prepared ? UINT32_C(1) : UINT32_C(0));
+    hash_u32(sink, machine->boot.source_offset);
+    hash_u32(sink, machine->boot.payload_length);
+    hash_u32(sink, machine->boot.dmem_offset);
+    hash_u32(sink, machine->boot.entry_pc);
+    hash_u32(sink, machine->boot.seed_reset_version);
+    hash_u32(sink, machine->boot.seed_s3_rom_type);
+    hash_u32(sink, machine->boot.seed_s4_tv_type);
+    hash_u32(sink, machine->boot.seed_s5_reset_type);
+    hash_u32(sink, machine->boot.seed_s6_entropy);
+    hash_u32(sink, machine->boot.seed_s7_boot_info_version);
+    hash_u32(sink, machine->boot.prepared ? UINT32_C(1) : UINT32_C(0));
     for (i = 0u; i < 32u; i++) {
-      hash_u64(&context, machine->cpu.gpr[i]);
+      hash_u64(sink, machine->cpu.gpr[i]);
     }
-    hash_u64(&context, machine->cpu.hi);
-    hash_u64(&context, machine->cpu.lo);
+    hash_u64(sink, machine->cpu.hi);
+    hash_u64(sink, machine->cpu.lo);
     for (i = 0u; i < 32u; i++) {
-      hash_u64(&context, machine->cpu.cp0[i]);
+      hash_u64(sink, machine->cpu.cp0[i]);
     }
-    hash_u64(&context, machine->cpu.retired_instructions);
-    hash_u32(&context, machine->cpu.pc);
-    hash_u32(&context, machine->cpu.last_pc);
-    hash_u32(&context, machine->cpu.last_opcode);
-    hash_u32(&context, machine->cpu.delay_slot_pc);
-    hash_u32(&context, machine->cpu.delay_target);
-    hash_u32(&context,
+    hash_u64(sink, machine->cpu.retired_instructions);
+    hash_u32(sink, machine->cpu.pc);
+    hash_u32(sink, machine->cpu.last_pc);
+    hash_u32(sink, machine->cpu.last_opcode);
+    hash_u32(sink, machine->cpu.delay_slot_pc);
+    hash_u32(sink, machine->cpu.delay_target);
+    hash_u32(sink,
              machine->cpu.delay_slot_pending ? UINT32_C(1) : UINT32_C(0));
-    hash_u32(&context, machine->cpu.stopped ? UINT32_C(1) : UINT32_C(0));
-    hash_u32(&context, machine->cpu.stop_reason);
-    hash_u32(&context, machine->cpu.stop_pc);
-    hash_u32(&context, machine->cpu.stop_opcode);
+    hash_u32(sink, machine->cpu.stopped ? UINT32_C(1) : UINT32_C(0));
+    hash_u32(sink, machine->cpu.stop_reason);
+    hash_u32(sink, machine->cpu.stop_pc);
+    hash_u32(sink, machine->cpu.stop_opcode);
     if (has_v9_state || has_v10_state || has_v11_state || has_rsp_state) {
-      hash_vr4300_cpu_state(&context, &machine->cpu);
+      hash_vr4300_cpu_state(sink, &machine->cpu);
       if (has_v10_state || has_v11_state || has_rsp_state) {
-        hash_u64(&context, machine->cpu.delay_origin_pc_full);
+        hash_u64(sink, machine->cpu.delay_origin_pc_full);
       }
       if (has_v11_state || has_rsp_state) {
-        hash_u64(&context, machine->cpu.cp2_transfer_latch);
+        hash_u64(sink, machine->cpu.cp2_transfer_latch);
       }
     }
-    hash_u32(&context, machine->cache.policy_version);
-    hash_u32(&context, machine->cache.last_operation);
-    hash_u32(&context, machine->cache.last_pc);
-    hash_u32(&context, machine->cache.last_address);
-    hash_u32(&context,
+    hash_u32(sink, machine->cache.policy_version);
+    hash_u32(sink, machine->cache.last_operation);
+    hash_u32(sink, machine->cache.last_pc);
+    hash_u32(sink, machine->cache.last_address);
+    hash_u32(sink,
              machine->cache.operation_seen ? UINT32_C(1) : UINT32_C(0));
-    hash_u32(&context, machine->guest_devices.policy_version);
-    hash_u32(&context, machine->guest_devices.mi_version);
-    hash_u32(&context, machine->guest_devices.ri_select);
-    hash_u32(&context, machine->guest_devices.mi_version_known
-                           ? UINT32_C(1)
-                           : UINT32_C(0));
-    hash_u32(&context, machine->guest_devices.ri_select_known
-                           ? UINT32_C(1)
-                           : UINT32_C(0));
-    hash_u32(&context, machine->output.policy_version);
-    hash_u32(&context, machine->output.video_output_ready ? UINT32_C(1)
-                                                          : UINT32_C(0));
-    hash_u32(&context, machine->output.audio_output_ready ? UINT32_C(1)
-                                                          : UINT32_C(0));
+    hash_u32(sink, machine->guest_devices.policy_version);
+    hash_u32(sink, machine->guest_devices.mi_version);
+    hash_u32(sink, machine->guest_devices.ri_select);
+    hash_u32(sink, machine->guest_devices.mi_version_known
+             ? UINT32_C(1)
+             : UINT32_C(0));
+    hash_u32(sink, machine->guest_devices.ri_select_known
+             ? UINT32_C(1)
+             : UINT32_C(0));
+    hash_u32(sink, machine->output.policy_version);
+    hash_u32(sink, machine->output.video_output_ready ? UINT32_C(1)
+             : UINT32_C(0));
+    hash_u32(sink, machine->output.audio_output_ready ? UINT32_C(1)
+             : UINT32_C(0));
     if (has_v7_state || has_v8_state || has_v9_state || has_v10_state ||
         has_v11_state || has_rsp_state) {
       /* Retained guest output is future state; the host drain cursor is not. */
-      hash_u32(&context, machine->output.magic_register);
-      hash_u32(&context, machine->output.byte_count);
-      hash_u32(&context, T64_ISVIEWER_BUFFER_BYTES);
-      t64_sha256_update(&context, machine->output.buffer,
-                        sizeof machine->output.buffer);
-      hash_u32(&context, machine->output.captured_bytes);
-      hash_u32(&context, T64_ISVIEWER_CAPTURE_BYTES);
-      t64_sha256_update(&context, machine->output.captured,
-                        sizeof machine->output.captured);
-      hash_u32(&context,
+      hash_u32(sink, machine->output.magic_register);
+      hash_u32(sink, machine->output.byte_count);
+      hash_u32(sink, T64_ISVIEWER_BUFFER_BYTES);
+      digest_bytes(sink, machine->output.buffer,
+                   sizeof machine->output.buffer);
+      hash_u32(sink, machine->output.captured_bytes);
+      hash_u32(sink, T64_ISVIEWER_CAPTURE_BYTES);
+      digest_bytes(sink, machine->output.captured,
+                   sizeof machine->output.captured);
+      hash_u32(sink,
                machine->output.lost_output ? UINT32_C(1) : UINT32_C(0));
       if (has_v8_state || has_v9_state || has_v10_state || has_v11_state ||
           has_rsp_state) {
-        hash_u64(&context, machine->output.total_attempted_bytes);
-        hash_u32(&context,
+        hash_u64(sink, machine->output.total_attempted_bytes);
+        hash_u32(sink,
                  machine->output.total_attempted_bytes_saturated
-                     ? UINT32_C(1)
-                     : UINT32_C(0));
+                 ? UINT32_C(1)
+                 : UINT32_C(0));
       }
     }
     if (has_rsp_state) {
       const t64_rsp_state *rsp = &machine->rsp;
 
       for (i = 0u; i < 32u; i++) {
-        hash_u32(&context, rsp->gpr[i]);
+        hash_u32(sink, rsp->gpr[i]);
       }
-      t64_sha256_update(&context, (const uint8_t *)rsp->vector,
-                        sizeof rsp->vector);
+      digest_bytes(sink, (const uint8_t *)rsp->vector,
+                   sizeof rsp->vector);
       for (i = 0u; i < 8u; i++) {
-        hash_u64(&context, rsp->accumulator[i] & UINT64_C(0x0000ffffffffffff));
+        hash_u64(sink, rsp->accumulator[i] & UINT64_C(0x0000ffffffffffff));
       }
-      hash_u32(&context, rsp->vco);
-      hash_u32(&context, rsp->vcc);
-      hash_u32(&context, rsp->vce);
-      hash_u32(&context, rsp->pc);
-      hash_u32(&context, rsp->delay_target);
-      hash_u32(&context, rsp->delay_slot_pending ? 1u : 0u);
-      hash_u32(&context, rsp->branch_bubble_pending ? 1u : 0u);
-      hash_u32(&context, rsp->divider_input);
-      hash_u32(&context, rsp->divider_result);
-      hash_u32(&context, rsp->divider_high_valid ? 1u : 0u);
+      hash_u32(sink, rsp->vco);
+      hash_u32(sink, rsp->vcc);
+      hash_u32(sink, rsp->vce);
+      hash_u32(sink, rsp->pc);
+      hash_u32(sink, rsp->delay_target);
+      hash_u32(sink, rsp->delay_slot_pending ? 1u : 0u);
+      hash_u32(sink, rsp->branch_bubble_pending ? 1u : 0u);
+      hash_u32(sink, rsp->divider_input);
+      hash_u32(sink, rsp->divider_result);
+      hash_u32(sink, rsp->divider_high_valid ? 1u : 0u);
       for (i = 0u; i < 32u; i++) {
-        hash_u64(&context, rsp->scalar_ready_tick[i]);
-        hash_u64(&context, rsp->vector_ready_tick[i]);
+        hash_u64(sink, rsp->scalar_ready_tick[i]);
+        hash_u64(sink, rsp->vector_ready_tick[i]);
       }
       for (i = 0u; i < 8u; i++) {
-        hash_u64(&context, rsp->accumulator_ready_tick[i]);
+        hash_u64(sink, rsp->accumulator_ready_tick[i]);
       }
-      hash_u64(&context, rsp->memory_access_ready_tick);
-      hash_u64(&context, rsp->next_issue_tick);
-      hash_u64(&context, rsp->issue_sequence);
-      hash_u64(&context, rsp->retired_instructions);
-      hash_u64(&context, rsp->stall_slots);
-      hash_u32(&context, rsp->sp_status);
-      hash_u32(&context, rsp->sp_semaphore ? 1u : 0u);
-      hash_u64(&context, rsp->dma_beat_cursor);
-      hash_u64(&context, rsp->dma_setup_remaining);
-      hash_u64(&context, rsp->active_dma_token);
-      hash_u64(&context, rsp->pending_dma_token);
-      hash_u64(&context, rsp->dma_event_sequence);
+      hash_u64(sink, rsp->memory_access_ready_tick);
+      hash_u64(sink, rsp->next_issue_tick);
+      hash_u64(sink, rsp->issue_sequence);
+      hash_u64(sink, rsp->retired_instructions);
+      hash_u64(sink, rsp->stall_slots);
+      hash_u32(sink, rsp->sp_status);
+      hash_u32(sink, rsp->sp_semaphore ? 1u : 0u);
+      hash_u64(sink, rsp->dma_beat_cursor);
+      hash_u64(sink, rsp->dma_setup_remaining);
+      hash_u64(sink, rsp->active_dma_token);
+      hash_u64(sink, rsp->pending_dma_token);
+      hash_u64(sink, rsp->dma_event_sequence);
     }
     if (has_v13_state) {
       hash_rdram_protocol_state(
-          &context, &machine->guest_devices.rdram_protocol);
+                                sink, &machine->guest_devices.rdram_protocol);
     }
     if (has_rdp_state) {
       const t64_rdp_state *rdp = &machine->rdp;
       const t64_vi_state *vi = &machine->vi;
       size_t logical;
 
-      hash_u32(&context, rdp->dpc_start);
-      hash_u32(&context, rdp->dpc_end);
-      hash_u32(&context, rdp->dpc_current);
-      hash_u32(&context, rdp->dpc_status);
-      hash_u32(&context, rdp->dpc_clock_counter);
-      hash_u32(&context, rdp->dpc_buffer_busy_counter);
-      hash_u32(&context, rdp->dpc_pipe_busy_counter);
-      hash_u32(&context, rdp->dpc_tmem_counter);
-      hash_u32(&context, rdp->pending_command_address);
-      hash_u32(&context, rdp->pending_command_byte);
-      hash_u32(&context, rdp->pending_opcode_field);
-      hash_u64(&context, rdp->pending_command_word);
-      hash_u64(&context, rdp->fence_generation);
-      hash_u32(&context, rdp->color_image_address);
-      hash_u32(&context, rdp->color_image_width);
-      hash_u32(&context, rdp->color_image_format);
-      hash_u32(&context, rdp->color_image_size);
-      hash_u32(&context, rdp->scissor_xh);
-      hash_u32(&context, rdp->scissor_yh);
-      hash_u32(&context, rdp->scissor_xl);
-      hash_u32(&context, rdp->scissor_yl);
-      hash_u64(&context, rdp->other_modes);
-      hash_u32(&context, rdp->fill_color);
-      hash_u32(&context, rdp->texture_image_address);
-      hash_u32(&context, rdp->texture_image_width);
-      hash_u32(&context, rdp->texture_image_format);
-      hash_u32(&context, rdp->texture_image_size);
-      hash_u32(&context, rdp->texture_image_valid);
-      hash_u32(&context, rdp->tlut_format);
-      hash_u32(&context, rdp->tlut_valid ? 1u : 0u);
-      hash_u32(&context, rdp->render_kind);
-      hash_u32(&context, rdp->render_texture_tile);
-      hash_u32(&context, (uint32_t)rdp->render_texture_s);
-      hash_u32(&context, (uint32_t)rdp->render_texture_t);
-      hash_u32(&context, (uint32_t)rdp->render_texture_dsdx);
-      hash_u32(&context, (uint32_t)rdp->render_texture_dtdy);
-      hash_u64(&context, rdp->copy_count);
+      hash_u32(sink, rdp->dpc_start);
+      hash_u32(sink, rdp->dpc_end);
+      hash_u32(sink, rdp->dpc_current);
+      hash_u32(sink, rdp->dpc_status);
+      hash_u32(sink, rdp->dpc_clock_counter);
+      hash_u32(sink, rdp->dpc_buffer_busy_counter);
+      hash_u32(sink, rdp->dpc_pipe_busy_counter);
+      hash_u32(sink, rdp->dpc_tmem_counter);
+      hash_u32(sink, rdp->pending_command_address);
+      hash_u32(sink, rdp->pending_command_byte);
+      hash_u32(sink, rdp->pending_opcode_field);
+      hash_u64(sink, rdp->pending_command_word);
+      hash_u64(sink, rdp->fence_generation);
+      hash_u32(sink, rdp->color_image_address);
+      hash_u32(sink, rdp->color_image_width);
+      hash_u32(sink, rdp->color_image_format);
+      hash_u32(sink, rdp->color_image_size);
+      hash_u32(sink, rdp->scissor_xh);
+      hash_u32(sink, rdp->scissor_yh);
+      hash_u32(sink, rdp->scissor_xl);
+      hash_u32(sink, rdp->scissor_yl);
+      hash_u64(sink, rdp->other_modes);
+      hash_u32(sink, rdp->fill_color);
+      hash_u32(sink, rdp->texture_image_address);
+      hash_u32(sink, rdp->texture_image_width);
+      hash_u32(sink, rdp->texture_image_format);
+      hash_u32(sink, rdp->texture_image_size);
+      hash_u32(sink, rdp->texture_image_valid);
+      hash_u32(sink, rdp->tlut_format);
+      hash_u32(sink, rdp->tlut_valid ? 1u : 0u);
+      hash_u32(sink, rdp->render_kind);
+      hash_u32(sink, rdp->render_texture_tile);
+      hash_u32(sink, (uint32_t)rdp->render_texture_s);
+      hash_u32(sink, (uint32_t)rdp->render_texture_t);
+      hash_u32(sink, (uint32_t)rdp->render_texture_dsdx);
+      hash_u32(sink, (uint32_t)rdp->render_texture_dtdy);
+      hash_u64(sink, rdp->copy_count);
       for (i = 0u; i < 6u; i++)
-        hash_u32(&context, rdp->convert_coefficients[i]);
-      hash_u64(&context, rdp->pending_texrect_word);
+        hash_u32(sink, rdp->convert_coefficients[i]);
+      hash_u64(sink, rdp->pending_texrect_word);
       if (has_v17_state || has_v18_state || has_v19_state || has_v20_state ||
           has_v21_state) {
         size_t packet_index;
-        hash_u32(&context, rdp->pending_triangle_word_count);
+        hash_u32(sink, rdp->pending_triangle_word_count);
         for (packet_index = 0u;
              packet_index < rdp->pending_triangle_word_count &&
              packet_index < T64_RDP_TRIANGLE_MAX_WORDS;
              packet_index++) {
-          hash_u64(&context, rdp->pending_triangle_words[packet_index]);
+          hash_u64(sink, rdp->pending_triangle_words[packet_index]);
         }
-        hash_u32(&context, rdp->primitive_color);
-        hash_u32(&context, rdp->primitive_color_valid ? 1u : 0u);
-        hash_u32(&context, rdp->triangle_count);
-        hash_u32(&context, rdp->render_triangle ? 1u : 0u);
-        hash_u32(&context, rdp->shade_triangle ? 1u : 0u);
-        hash_u32(&context, T64_RDP_TRIANGLE_COVERAGE_WIDTH);
-        hash_u32(&context, T64_RDP_TRIANGLE_COVERAGE_HEIGHT);
-        t64_sha256_update(&context, machine->rdp_triangle_coverage,
-                          T64_RDP_TRIANGLE_COVERAGE_BYTES);
+        hash_u32(sink, rdp->primitive_color);
+        hash_u32(sink, rdp->primitive_color_valid ? 1u : 0u);
+        hash_u32(sink, rdp->triangle_count);
+        hash_u32(sink, rdp->render_triangle ? 1u : 0u);
+        hash_u32(sink, rdp->shade_triangle ? 1u : 0u);
+        hash_u32(sink, T64_RDP_TRIANGLE_COVERAGE_WIDTH);
+        hash_u32(sink, T64_RDP_TRIANGLE_COVERAGE_HEIGHT);
+        digest_bytes(sink, machine->rdp_triangle_coverage,
+                     T64_RDP_TRIANGLE_COVERAGE_BYTES);
       }
       if (has_v20_state || has_v21_state) {
-        hash_u32(&context,
+        hash_u32(sink,
                  (uint32_t)T64_RDP_MEMORY_COVERAGE_BYTES(
+                 machine->profile.rdram_bytes));
+        digest_bytes(sink, machine->rdp_memory_coverage,
+                     T64_RDP_MEMORY_COVERAGE_BYTES(
                      machine->profile.rdram_bytes));
-        t64_sha256_update(&context, machine->rdp_memory_coverage,
-                          T64_RDP_MEMORY_COVERAGE_BYTES(
-                              machine->profile.rdram_bytes));
       }
       if (has_v19_state || has_v20_state || has_v21_state) {
-        hash_u32(&context, rdp->primitive_lod_fraction);
-        hash_u32(&context, rdp->environment_color);
-        hash_u32(&context, rdp->fog_color);
-        hash_u32(&context, rdp->blend_color);
-        hash_u64(&context, rdp->combine_mode);
-        hash_u32(&context, rdp->combine_mode_valid ? 1u : 0u);
-        hash_u32(&context, rdp->environment_color_valid ? 1u : 0u);
-        hash_u32(&context, rdp->fog_color_valid ? 1u : 0u);
-        hash_u32(&context, rdp->blend_color_valid ? 1u : 0u);
-        hash_u32(&context, rdp->key_center_valid ? 1u : 0u);
-        hash_u32(&context, rdp->key_scale_valid ? 1u : 0u);
-        hash_u32(&context, rdp->key_width_valid ? 1u : 0u);
+        hash_u32(sink, rdp->primitive_lod_fraction);
+        hash_u32(sink, rdp->environment_color);
+        hash_u32(sink, rdp->fog_color);
+        hash_u32(sink, rdp->blend_color);
+        hash_u64(sink, rdp->combine_mode);
+        hash_u32(sink, rdp->combine_mode_valid ? 1u : 0u);
+        hash_u32(sink, rdp->environment_color_valid ? 1u : 0u);
+        hash_u32(sink, rdp->fog_color_valid ? 1u : 0u);
+        hash_u32(sink, rdp->blend_color_valid ? 1u : 0u);
+        hash_u32(sink, rdp->key_center_valid ? 1u : 0u);
+        hash_u32(sink, rdp->key_scale_valid ? 1u : 0u);
+        hash_u32(sink, rdp->key_width_valid ? 1u : 0u);
         for (i = 0u; i < 3u; i++) {
-          hash_u32(&context, rdp->key_center[i]);
-          hash_u32(&context, rdp->key_scale[i]);
-          hash_u32(&context, rdp->key_width[i]);
+          hash_u32(sink, rdp->key_center[i]);
+          hash_u32(sink, rdp->key_scale[i]);
+          hash_u32(sink, rdp->key_width[i]);
         }
       }
       if (has_v21_state) {
-        hash_u32(&context, rdp->depth_image_address);
-        hash_u32(&context, rdp->depth_image_valid ? 1u : 0u);
-        hash_u32(&context, rdp->primitive_z);
-        hash_u32(&context, rdp->primitive_dz);
-        hash_u32(&context, rdp->primitive_depth_valid ? 1u : 0u);
-        hash_u32(&context,
+        hash_u32(sink, rdp->depth_image_address);
+        hash_u32(sink, rdp->depth_image_valid ? 1u : 0u);
+        hash_u32(sink, rdp->primitive_z);
+        hash_u32(sink, rdp->primitive_dz);
+        hash_u32(sink, rdp->primitive_depth_valid ? 1u : 0u);
+        hash_u32(sink,
                  (uint32_t)T64_RDP_DEPTH_HIDDEN_BYTES(
+                 machine->profile.rdram_bytes));
+        digest_bytes(sink, machine->rdp_depth_hidden,
+                     T64_RDP_DEPTH_HIDDEN_BYTES(
                      machine->profile.rdram_bytes));
-        t64_sha256_update(&context, machine->rdp_depth_hidden,
-                          T64_RDP_DEPTH_HIDDEN_BYTES(
-                              machine->profile.rdram_bytes));
       }
-      hash_u32(&context, rdp->work_policy_version);
-      hash_u32(&context, rdp->random_state);
-      hash_u32(&context, rdp->refusal_reason);
-      hash_u64(&context, rdp->command_count);
-      hash_u64(&context, rdp->fill_count);
-      hash_u64(&context, rdp->fullsync_count);
-      hash_u64(&context, rdp->last_original_word);
-      hash_u32(&context, rdp->last_command_byte);
-      hash_u32(&context, rdp->last_opcode_field);
-      hash_u32(&context, rdp->render_x_begin);
-      hash_u32(&context, rdp->render_x_end);
-      hash_u32(&context, rdp->render_y_begin);
-      hash_u32(&context, rdp->render_y_end);
-      hash_u32(&context, rdp->render_y);
-      hash_u32(&context, rdp->color_image_valid ? 1u : 0u);
-      hash_u32(&context, rdp->scissor_valid ? 1u : 0u);
-      hash_u32(&context, rdp->other_modes_valid ? 1u : 0u);
-      hash_u32(&context, rdp->fill_color_valid ? 1u : 0u);
-      hash_u32(&context, rdp->render_active ? 1u : 0u);
-      hash_u32(&context, rdp->fence_pending ? 1u : 0u);
-      hash_u32(&context, rdp->busy ? 1u : 0u);
-      hash_u32(&context, rdp->dpc_xbus ? 1u : 0u);
-      hash_u32(&context, rdp->dpc_freeze ? 1u : 0u);
-      hash_u32(&context, rdp->dpc_flush ? 1u : 0u);
-      hash_u32(&context, rdp->dpc_start_valid ? 1u : 0u);
-      hash_u32(&context, rdp->dpc_end_valid ? 1u : 0u);
-      hash_u32(&context, rdp->command_pending ? 1u : 0u);
-      hash_u32(&context, rdp->texrect_pending ? 1u : 0u);
-      hash_u32(&context, rdp->render_texture_flip ? 1u : 0u);
+      hash_u32(sink, rdp->work_policy_version);
+      hash_u32(sink, rdp->random_state);
+      hash_u32(sink, rdp->refusal_reason);
+      hash_u64(sink, rdp->command_count);
+      hash_u64(sink, rdp->fill_count);
+      hash_u64(sink, rdp->fullsync_count);
+      hash_u64(sink, rdp->last_original_word);
+      hash_u32(sink, rdp->last_command_byte);
+      hash_u32(sink, rdp->last_opcode_field);
+      hash_u32(sink, rdp->render_x_begin);
+      hash_u32(sink, rdp->render_x_end);
+      hash_u32(sink, rdp->render_y_begin);
+      hash_u32(sink, rdp->render_y_end);
+      hash_u32(sink, rdp->render_y);
+      hash_u32(sink, rdp->color_image_valid ? 1u : 0u);
+      hash_u32(sink, rdp->scissor_valid ? 1u : 0u);
+      hash_u32(sink, rdp->other_modes_valid ? 1u : 0u);
+      hash_u32(sink, rdp->fill_color_valid ? 1u : 0u);
+      hash_u32(sink, rdp->render_active ? 1u : 0u);
+      hash_u32(sink, rdp->fence_pending ? 1u : 0u);
+      hash_u32(sink, rdp->busy ? 1u : 0u);
+      hash_u32(sink, rdp->dpc_xbus ? 1u : 0u);
+      hash_u32(sink, rdp->dpc_freeze ? 1u : 0u);
+      hash_u32(sink, rdp->dpc_flush ? 1u : 0u);
+      hash_u32(sink, rdp->dpc_start_valid ? 1u : 0u);
+      hash_u32(sink, rdp->dpc_end_valid ? 1u : 0u);
+      hash_u32(sink, rdp->command_pending ? 1u : 0u);
+      hash_u32(sink, rdp->texrect_pending ? 1u : 0u);
+      hash_u32(sink, rdp->render_texture_flip ? 1u : 0u);
 
-      t64_sha256_update(&context, rdp->tmem, sizeof rdp->tmem);
+      digest_bytes(sink, rdp->tmem, sizeof rdp->tmem);
       for (i = 0u; i < T64_RDP_TILE_COUNT; i++) {
         const t64_rdp_tile *tile = &rdp->tiles[i];
-        hash_u32(&context, tile->format);
-        hash_u32(&context, tile->size);
-        hash_u32(&context, tile->line_words);
-        hash_u32(&context, tile->tmem_word);
-        hash_u32(&context, tile->palette);
-        hash_u32(&context, tile->mask_s);
-        hash_u32(&context, tile->mask_t);
-        hash_u32(&context, tile->shift_s);
-        hash_u32(&context, tile->shift_t);
-        hash_u32(&context, tile->uls);
-        hash_u32(&context, tile->ult);
-        hash_u32(&context, tile->lrs);
-        hash_u32(&context, tile->lrt);
-        hash_u32(&context, tile->clamp_s ? 1u : 0u);
-        hash_u32(&context, tile->mirror_s ? 1u : 0u);
-        hash_u32(&context, tile->clamp_t ? 1u : 0u);
-        hash_u32(&context, tile->mirror_t ? 1u : 0u);
-        hash_u32(&context, tile->valid ? 1u : 0u);
-        hash_u32(&context, tile->size_valid ? 1u : 0u);
+        hash_u32(sink, tile->format);
+        hash_u32(sink, tile->size);
+        hash_u32(sink, tile->line_words);
+        hash_u32(sink, tile->tmem_word);
+        hash_u32(sink, tile->palette);
+        hash_u32(sink, tile->mask_s);
+        hash_u32(sink, tile->mask_t);
+        hash_u32(sink, tile->shift_s);
+        hash_u32(sink, tile->shift_t);
+        hash_u32(sink, tile->uls);
+        hash_u32(sink, tile->ult);
+        hash_u32(sink, tile->lrs);
+        hash_u32(sink, tile->lrt);
+        hash_u32(sink, tile->clamp_s ? 1u : 0u);
+        hash_u32(sink, tile->mirror_s ? 1u : 0u);
+        hash_u32(sink, tile->clamp_t ? 1u : 0u);
+        hash_u32(sink, tile->mirror_t ? 1u : 0u);
+        hash_u32(sink, tile->valid ? 1u : 0u);
+        hash_u32(sink, tile->size_valid ? 1u : 0u);
       }
 
       for (i = 0u; i < sizeof vi->registers / sizeof vi->registers[0];
            i++) {
-        hash_u32(&context, vi->registers[i]);
+        hash_u32(sink, vi->registers[i]);
       }
-      hash_u64(&context, vi->phase_remainder);
-      hash_u64(&context, vi->phase_cycles);
-      hash_u64(&context, vi->last_guest_tick);
-      hash_u64(&context, vi->next_sequence);
-      hash_u64(&context, vi->event_generation);
-      hash_u32(&context, vi->field);
-      hash_u32(&context, vi->refusal_reason);
-      hash_u32(&context, vi->enabled ? 1u : 0u);
-      hash_u32(&context, vi->sequence_exhausted ? 1u : 0u);
+      hash_u64(sink, vi->phase_remainder);
+      hash_u64(sink, vi->phase_cycles);
+      hash_u64(sink, vi->last_guest_tick);
+      hash_u64(sink, vi->next_sequence);
+      hash_u64(sink, vi->event_generation);
+      hash_u32(sink, vi->field);
+      hash_u32(sink, vi->refusal_reason);
+      hash_u32(sink, vi->enabled ? 1u : 0u);
+      hash_u32(sink, vi->sequence_exhausted ? 1u : 0u);
       if (has_v22_state || has_v23_state) {
         for (i = 0u; i < sizeof vi->active_registers /
                             sizeof vi->active_registers[0];
              i++) {
-          hash_u32(&context, vi->active_registers[i]);
+          hash_u32(sink, vi->active_registers[i]);
         }
-        hash_u64(&context, vi->phase_units);
-        hash_u64(&context, vi->next_boundary_units);
-        hash_u64(&context, vi->field_start_tick);
-        hash_u32(&context, vi->current_readback);
-        hash_u32(&context, vi->latch_pending ? 1u : 0u);
+        hash_u64(sink, vi->phase_units);
+        hash_u64(sink, vi->next_boundary_units);
+        hash_u64(sink, vi->field_start_tick);
+        hash_u32(sink, vi->current_readback);
+        hash_u32(sink, vi->latch_pending ? 1u : 0u);
       }
       /*
        * Packet bytes and metadata retain produced-output history in slots
@@ -688,57 +756,59 @@ t64_status t64_machine_digest(const t64_machine *machine,
         const t64_video_packet_info *info = &vi->packet_info[slot];
         size_t length = vi->packet_lengths[slot];
 
-        hash_u64(&context, length);
+        hash_u64(sink, length);
         if (machine->video_packets != NULL &&
             length <= T64_VIDEO_MAX_PACKET_BYTES) {
-          t64_sha256_update(&context,
-                            machine->video_packets +
-                                slot * T64_VIDEO_MAX_PACKET_BYTES,
-                            length);
+          digest_bytes(sink,
+                       machine->video_packets +
+                       slot * T64_VIDEO_MAX_PACKET_BYTES,
+                       length);
         }
-        hash_u32(&context, info->width);
-        hash_u32(&context, info->height);
-        hash_u32(&context, info->stride_bytes);
-        hash_u32(&context, info->source_address);
-        hash_u32(&context, info->source_format);
-        hash_u32(&context, info->output_encoding);
-        hash_u32(&context, info->field);
-        hash_u32(&context, info->parity);
-        hash_u32(&context, info->control);
-        hash_u32(&context, info->burst);
-        hash_u32(&context, info->h_sync);
-        hash_u32(&context, info->v_sync);
-        hash_u32(&context, info->h_start);
-        hash_u32(&context, info->v_start);
-        hash_u32(&context, info->x_scale);
-        hash_u32(&context, info->y_scale);
-        hash_u64(&context, info->start_tick);
-        hash_u64(&context, info->end_tick);
-        hash_u64(&context, info->sequence);
-        hash_u64(&context, info->commands_completed);
-        hash_u64(&context, info->fullsync_completed);
-        hash_u64(&context, info->last_command_word);
-        hash_u32(&context, info->last_command_byte);
-        hash_u32(&context, info->last_opcode_field);
-        hash_u64(&context, info->source_bytes);
-        hash_u64(&context, info->packet_bytes);
-        t64_sha256_update(&context, (const uint8_t *)info->profile_id,
-                          sizeof info->profile_id);
-        t64_sha256_update(&context, (const uint8_t *)info->build_id,
-                          sizeof info->build_id);
-        t64_sha256_update(&context, (const uint8_t *)info->vi_clock_policy,
-                          sizeof info->vi_clock_policy);
+        hash_u32(sink, info->width);
+        hash_u32(sink, info->height);
+        hash_u32(sink, info->stride_bytes);
+        hash_u32(sink, info->source_address);
+        hash_u32(sink, info->source_format);
+        hash_u32(sink, info->output_encoding);
+        hash_u32(sink, info->field);
+        hash_u32(sink, info->parity);
+        hash_u32(sink, info->control);
+        hash_u32(sink, info->burst);
+        hash_u32(sink, info->h_sync);
+        hash_u32(sink, info->v_sync);
+        hash_u32(sink, info->h_start);
+        hash_u32(sink, info->v_start);
+        hash_u32(sink, info->x_scale);
+        hash_u32(sink, info->y_scale);
+        hash_u64(sink, info->start_tick);
+        hash_u64(sink, info->end_tick);
+        hash_u64(sink, info->sequence);
+        hash_u64(sink, info->commands_completed);
+        hash_u64(sink, info->fullsync_completed);
+        hash_u64(sink, info->last_command_word);
+        hash_u32(sink, info->last_command_byte);
+        hash_u32(sink, info->last_opcode_field);
+        hash_u64(sink, info->source_bytes);
+        hash_u64(sink, info->packet_bytes);
+        digest_bytes_class(sink, (const uint8_t *)info->profile_id,
+                           sizeof info->profile_id,
+                           T64_DIGEST_CLASS_IDENTITY);
+        digest_bytes_class(sink, (const uint8_t *)info->build_id,
+                           sizeof info->build_id,
+                           T64_DIGEST_CLASS_IDENTITY);
+        digest_bytes(sink, (const uint8_t *)info->vi_clock_policy,
+                     sizeof info->vi_clock_policy);
         if (has_v22_state || has_v23_state) {
-          hash_u32(&context, info->h_end);
-          hash_u32(&context, info->v_end);
-          hash_u32(&context, info->source_width);
-          hash_u32(&context, info->source_pitch_bytes);
-          hash_u32(&context, info->source_x_offset);
-          hash_u32(&context, info->source_y_offset);
-          hash_u32(&context, info->filter);
-          t64_sha256_update(&context,
-                            (const uint8_t *)info->vi_output_policy,
-                            sizeof info->vi_output_policy);
+          hash_u32(sink, info->h_end);
+          hash_u32(sink, info->v_end);
+          hash_u32(sink, info->source_width);
+          hash_u32(sink, info->source_pitch_bytes);
+          hash_u32(sink, info->source_x_offset);
+          hash_u32(sink, info->source_y_offset);
+          hash_u32(sink, info->filter);
+          digest_bytes(sink,
+                       (const uint8_t *)info->vi_output_policy,
+                       sizeof info->vi_output_policy);
         }
       }
     }
@@ -747,72 +817,96 @@ t64_status t64_machine_digest(const t64_machine *machine,
     const t64_ai_state *ai = &machine->ai;
     size_t logical;
 
-    hash_u32(&context, ai->staged_address);
-    hash_u32(&context, ai->address_staged ? 1u : 0u);
-    hash_u32(&context, ai->control);
-    hash_u32(&context, ai->dacrate);
-    hash_u32(&context, ai->bitrate);
-    hash_u32(&context, ai->latched_dacrate);
-    hash_u32(&context, ai->latched_bitrate);
-    hash_u64(&context, ai->phase_remainder);
-    hash_u32(&context, ai->active_byte_cursor);
-    hash_u64(&context, ai->sample_index);
-    hash_u64(&context, ai->descriptor_sequence);
-    hash_u64(&context, ai->event_token);
-    hash_u64(&context, ai->event_generation);
-    hash_u64(&context, ai->packet_start_tick);
-    hash_u64(&context, ai->packet_first_sample);
-    hash_u64(&context, (uint64_t)ai->packet_length);
-    hash_u32(&context, (uint32_t)ai->descriptor_count);
-    hash_u32(&context, ai->active ? 1u : 0u);
-    hash_u32(&context, ai->paused ? 1u : 0u);
-    hash_u64(&context, ai->paused_remaining_ticks);
-    hash_u32(&context, ai->packet_reserved ? 1u : 0u);
-    hash_u32(&context, (uint32_t)ai->output_reservation_slot);
-    hash_u32(&context, ai->sequence_exhausted ? 1u : 0u);
+    hash_u32(sink, ai->staged_address);
+    hash_u32(sink, ai->address_staged ? 1u : 0u);
+    hash_u32(sink, ai->control);
+    hash_u32(sink, ai->dacrate);
+    hash_u32(sink, ai->bitrate);
+    hash_u32(sink, ai->latched_dacrate);
+    hash_u32(sink, ai->latched_bitrate);
+    hash_u64(sink, ai->phase_remainder);
+    hash_u32(sink, ai->active_byte_cursor);
+    hash_u64(sink, ai->sample_index);
+    hash_u64(sink, ai->descriptor_sequence);
+    hash_u64(sink, ai->event_token);
+    hash_u64(sink, ai->event_generation);
+    hash_u64(sink, ai->packet_start_tick);
+    hash_u64(sink, ai->packet_first_sample);
+    hash_u64(sink, (uint64_t)ai->packet_length);
+    hash_u32(sink, (uint32_t)ai->descriptor_count);
+    hash_u32(sink, ai->active ? 1u : 0u);
+    hash_u32(sink, ai->paused ? 1u : 0u);
+    hash_u64(sink, ai->paused_remaining_ticks);
+    hash_u32(sink, ai->packet_reserved ? 1u : 0u);
+    hash_u32(sink, (uint32_t)ai->output_reservation_slot);
+    hash_u32(sink, ai->sequence_exhausted ? 1u : 0u);
     for (logical = 0u; logical < ai->descriptor_count; logical++) {
       size_t slot = (ai->descriptor_head + logical) %
                     T64_AUDIO_QUEUE_CAPACITY;
       const t64_ai_dma_descriptor *descriptor = &ai->descriptors[slot];
 
-      hash_u32(&context, descriptor->address);
-      hash_u32(&context, descriptor->length);
-      hash_u64(&context, descriptor->sequence);
-      hash_u32(&context, descriptor->dacrate);
-      hash_u32(&context, descriptor->bitrate);
+      hash_u32(sink, descriptor->address);
+      hash_u32(sink, descriptor->length);
+      hash_u64(sink, descriptor->sequence);
+      hash_u32(sink, descriptor->dacrate);
+      hash_u32(sink, descriptor->bitrate);
     }
-    hash_u64(&context, ai->packet_history_count);
-    t64_sha256_update(&context, ai->packet_history_sha256,
-                      sizeof ai->packet_history_sha256);
+    hash_u64(sink, ai->packet_history_count);
+    digest_bytes(sink, ai->packet_history_sha256,
+                 sizeof ai->packet_history_sha256);
     for (logical = 0u; logical < T64_AUDIO_QUEUE_CAPACITY; logical++) {
       const t64_audio_packet_info *info = &ai->packet_info[logical];
       size_t length = ai->packet_lengths[logical];
 
-      hash_u64(&context, (uint64_t)length);
+      hash_u64(sink, (uint64_t)length);
       if (machine->audio_packets != NULL &&
           length <= T64_AUDIO_MAX_PACKET_BYTES) {
-        t64_sha256_update(&context,
-                          machine->audio_packets +
-                              logical * T64_AUDIO_MAX_PACKET_BYTES,
-                          length);
+        digest_bytes(sink,
+                     machine->audio_packets +
+                     logical * T64_AUDIO_MAX_PACKET_BYTES,
+                     length);
       }
-      hash_u32(&context, info->struct_size);
-      hash_u64(&context, info->sequence);
-      hash_u64(&context, info->first_sample_index);
-      hash_u64(&context, info->first_tick);
-      hash_u64(&context, info->last_tick);
-      hash_u32(&context, info->frame_count);
-      hash_u64(&context, info->rate_numerator);
-      hash_u64(&context, info->rate_denominator);
-      hash_u32(&context, info->channels);
-      hash_u32(&context, info->bits_per_sample);
-      hash_u32(&context, info->encoding);
-      hash_u64(&context, (uint64_t)info->byte_length);
-      t64_sha256_update(&context, (const uint8_t *)info->profile_id,
-                        sizeof info->profile_id);
-      t64_sha256_update(&context, (const uint8_t *)info->build_id,
-                        sizeof info->build_id);
+      hash_u32(sink, info->struct_size);
+      hash_u64(sink, info->sequence);
+      hash_u64(sink, info->first_sample_index);
+      hash_u64(sink, info->first_tick);
+      hash_u64(sink, info->last_tick);
+      hash_u32(sink, info->frame_count);
+      hash_u64(sink, info->rate_numerator);
+      hash_u64(sink, info->rate_denominator);
+      hash_u32(sink, info->channels);
+      hash_u32(sink, info->bits_per_sample);
+      hash_u32(sink, info->encoding);
+      hash_u64(sink, (uint64_t)info->byte_length);
+      digest_bytes_class(sink, (const uint8_t *)info->profile_id,
+                         sizeof info->profile_id,
+                         T64_DIGEST_CLASS_IDENTITY);
+      digest_bytes_class(sink, (const uint8_t *)info->build_id,
+                         sizeof info->build_id,
+                         T64_DIGEST_CLASS_IDENTITY);
     }
+  }
+  return T64_STATUS_OK;
+}
+
+t64_status t64_machine_digest(const t64_machine *machine,
+                              uint8_t digest_out[T64_DIGEST_SIZE]) {
+  t64_sha256_ctx context;
+  t64_digest_sink sink;
+  t64_address_range output_range;
+  t64_status status;
+
+  if (machine == NULL || digest_out == NULL ||
+      !t64_internal_make_range(digest_out, T64_DIGEST_SIZE, &output_range) ||
+      !t64_internal_observation_range_is_disjoint(machine, output_range)) {
+    return T64_STATUS_INVALID_ARGUMENT;
+  }
+  t64_sha256_init(&context);
+  (void)memset(&sink, 0, sizeof sink);
+  sink.hash = &context;
+  status = t64_digest_stream(machine, &sink);
+  if (status != T64_STATUS_OK) {
+    return status;
   }
   t64_sha256_final(&context, digest_out);
   return T64_STATUS_OK;
