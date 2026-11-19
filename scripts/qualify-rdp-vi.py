@@ -1934,6 +1934,7 @@ for source_file in "$@"; do
   case "$source_file" in
     core/tests/*.c) gcc $test_flags -c "$source_file" -o "/tmp/phase07-$index.o" ;;
     core/*.c) gcc $core_flags -c "$source_file" -o "/tmp/phase07-$index.o" ;;
+    runner/tests/test_artifact_publisher.c) gcc $runner_flags -DT64_REAL_RUNNER_TESTING -c "$source_file" -o "/tmp/phase07-$index.o" ;;
     runner/*.c|runner/tests/*.c) gcc $runner_flags -c "$source_file" -o "/tmp/phase07-$index.o" ;;
     tools/common/*.c) gcc -std=c17 -O3 -DNDEBUG -Itools/common $warnings -c "$source_file" -o "/tmp/phase07-$index.o" ;;
     *) echo "outside the Phase07 GCC closure: $source_file" >&2; exit 2 ;;
