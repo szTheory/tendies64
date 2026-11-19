@@ -4,18 +4,18 @@ milestone: v1.1
 milestone_name: Observable Machine
 current_phase: 9
 current_phase_name: Controller, Save Media and Replay
-current_plan: 2
+current_plan: 3
 status: executing
-stopped_at: Completed 09-01-PLAN.md
-last_updated: "2026-11-19T20:25:33.984Z"
+stopped_at: Completed 09-02-PLAN.md
+last_updated: "2026-11-19T20:59:57.855Z"
 last_activity: 2026-11-19
 last_activity_desc: Phase 9 execution started
-state_head: 2c8150c99b724fb69c5dc8a50796b5b22336501d
+state_head: bf75429300bfba00fb2713114504a3404f0f00ff
 progress:
   total_phases: 3
   completed_phases: 1
   total_plans: 31
-  completed_plans: 18
+  completed_plans: 19
   percent: 33
 ---
 
@@ -31,7 +31,7 @@ See: .planning/PROJECT.md (updated 2026-11-15)
 ## Current Position
 
 Phase: 9 (Controller, Save Media and Replay) — EXECUTING
-Current Plan: 2
+Current Plan: 3
 Total Plans in Phase: 13
 Status: Ready to execute
 Last activity: 2026-11-19 — Phase 9 execution started
@@ -50,6 +50,7 @@ Progress: [███░░░░░░░] 33% of currently planned source plans
 | Plan | Duration | Tasks | Files |
 |------|----------|-------|-------|
 | Phase 09 P01 | 36 min | 6 tasks | 18 files |
+| Phase 09 P02 | 32min | 7 tasks | 25 files |
 
 ## Accumulated Context
 
@@ -67,6 +68,8 @@ Progress: [███░░░░░░░] 33% of currently planned source plans
 - [Phase 09]: 09-01: AI-device gates share t64_has_ai_device; the digest keeps exact tuple predicates; eight sealed bodies re-pinned in an isolated derived refresh — one token per site; derived digests equal working-tree digests; four seeds still reject an unauthorized change
 - [Phase 09]: 09-01: v25 digest walker emits ascending section ids 1-9 over the v24 block boundaries; packet profile_id and build_id are not hashed under v25 — stripped v25 stream equals the stripped v24 stream across five states
 - Phase 9 follow-up (K1): The shipped Phase 8 descriptor 11 profile has RDP depth inactive because the depth predicate is guarded by descriptor version 10; Phase 9 preserves this on descriptor 12; no Phase 9 requirement needs depth and no Phase 9 claim mentions it.
+- [Phase 09]: 09-02: a runner prelaunch refusal of the artifact directory reaches the supervised result as report-error/capture-invalid with guest tick 0; the runner binary itself reports detail refusal
+- [Phase 09]: 09-02: replay artifacts have no fixed binary magic; the rpl extension row is their rights-scanner control and no replay magic row is added
 
 ### Pending Todos
 
@@ -87,6 +90,7 @@ question. No oracle authority is part of this decision.
 - D6: releases wait for owner-selected channel/versioning. No software release or version tag is implied by this milestone.
 - D7: name remains uncleared; no branding, logos or store listings.
 - Protected inputs/publication and physical-console measurement retain the explicit stops in [AUTONOMY.md](AUTONOMY.md). No new hardware qualification or broad compatibility claim.
+- 09-02: harness.rdp-oracle-authority fails (fixture manifest SHA-256 changed) because Phase 9 manifest rows move the hash pinned by the Phase 7 oracle request; rebind values are in 09-02-SUMMARY.md and need an orchestrator or owner decision (precedent commit 15fd8d1)
 
 ## Deferred Items
 
@@ -97,8 +101,8 @@ question. No oracle authority is part of this decision.
 
 ## Session Continuity
 
-Last session: 2026-11-19T20:25:33.805Z
-Stopped at: Completed 09-01-PLAN.md
+Last session: 2026-11-19T20:59:57.726Z
+Stopped at: Completed 09-02-PLAN.md
 Resume file: None
 
 Historical closeout: [v1.0 roadmap](milestones/v1.0-ROADMAP.md), [audit](milestones/v1.0-MILESTONE-AUDIT.md), [lessons](RETROSPECTIVE.md).
