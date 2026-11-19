@@ -9,6 +9,8 @@ from __future__ import annotations
 
 import ast
 import builtins
+import copy
+import hashlib
 import importlib.util
 import json
 import os
@@ -35,6 +37,9 @@ else:
 CASE_NAMES: tuple[str, ...] = (
     "gate-junit-hook-private-phase09",
     "stub-modes-refuse",
+    "hosted-rows-pinned-independently",
+    "row-observation-refuses-each-field",
+    "projection-closed-key-set-and-context",
     "zero-case-inventory-refused",
     "inventory-shape-refused",
     "public-members-exact-allowlist",
@@ -51,6 +56,9 @@ CASE_NAMES: tuple[str, ...] = (
 SUITES: dict[str, tuple[str, ...]] = {
     "stub": ("stub-modes-refuse", "zero-case-inventory-refused",
              "inventory-shape-refused"),
+    "hosted-rows": ("hosted-rows-pinned-independently",
+                    "row-observation-refuses-each-field",
+                    "projection-closed-key-set-and-context"),
     "allowlist": ("public-members-exact-allowlist",
                   "public-member-private-suffix-refused",
                   "public-member-state-magic-refused",
@@ -106,6 +114,162 @@ def _undefined_global_names(path: Path) -> dict[str, int]:
 # A placeholder root: no real checkout path appears in this file.
 PLACEHOLDER_ROOT = "/r"
 
+# ---- synthetic evidence helpers --------------------------------------------
+# Shared by the hosted-rows suite and the later suites. Every value below is
+# built here from labels; nothing is copied from a real record.
+
+ORACLE = ROOT / "fixtures/pad/poll_oracle.py"
+ROW_KEYS = ("row_id", "ctest", "fixture_id", "fixture_sha256", "profile_id",
+            "profile_hash", "input_sha256", "expected_outcome", "expected_detail",
+            "log_bytes", "log_sha256")
+ROW_SCENARIOS = {"accepted-baseline": "baseline", "shifted-script": "shifted",
+                 "neutral-script": "neutral", "wrong-rom": "wrong-rom"}
+HEX64 = re.compile(r"^[0-9a-f]{64}$")
+SYNTHETIC_STARTS = (500000, 521200, 542400, 563600)
+SYNTHETIC_COMPLETION = 600000
+SYNTHETIC_SHA = "1" * 40
+
+
+def _digest(label: str) -> str:
+    return hashlib.sha256(label.encode("utf-8")).hexdigest()
+
+
+def _v2_record(row: dict, *, guest_tick: int = SYNTHETIC_COMPLETION,
+               label: str = "synthetic") -> dict:
+    """A result record in the exact v2 field shape that matches one authored row."""
+    if row["expected_outcome"] == "harness-error":
+        return {
+            "build_id": None,
+            "counts": {"log_bytes": "0", "log_bytes_total": "0"},
+            "detail": row["expected_detail"],
+            "evidence_kind": "guest-execution",
+            "evidence_tier": "smoke",
+            "fixture_id": None,
+            "fixture_sha256": None,
+            "guest_stop": {"bound_tick": "1000000", "kind": "refused"},
+            "guest_tick": "0",
+            "input_digest": None,
+            "instruction_count": "0",
+            "ipl3_payload_sha256": None,
+            "ipl3_sha256": None,
+            "log_sha256": None,
+            "milestones": [],
+            "outcome": row["expected_outcome"],
+            "profile_digest": None,
+            "profile_id": None,
+            "schema": "t64.result",
+            "schema_version": 2,
+            "source_revision": None,
+            "state_digest": None,
+        }
+    return {
+        "build_id": "t64-build-v1-" + _digest(label + " core build"),
+        "counts": {"log_bytes": str(row["log_bytes"]),
+                   "log_bytes_total": str(row["log_bytes"])},
+        "detail": row["expected_detail"],
+        "evidence_kind": "guest-execution",
+        "evidence_tier": "smoke",
+        "fixture_id": row["fixture_id"],
+        "fixture_sha256": row["fixture_sha256"],
+        "guest_stop": {"bound_tick": "1000000", "kind": "authored-completion"},
+        "guest_tick": str(guest_tick),
+        "input_digest": row["input_sha256"],
+        "instruction_count": "590000",
+        "ipl3_payload_sha256": _digest("synthetic payload"),
+        "ipl3_sha256": _digest("synthetic ipl3"),
+        "log_sha256": row["log_sha256"],
+        "milestones": [
+            {"guest_tick": "0", "kind": "ipl3-entry", "pc": "ffffffffa4000040"},
+            {"guest_tick": str(guest_tick), "kind": "hello-completion",
+             "pc": "ffffffff800005a8"},
+        ],
+        "outcome": row["expected_outcome"],
+        "profile_digest": row["profile_hash"],
+        "profile_id": row["profile_id"],
+        "schema": "t64.result",
+        "schema_version": 2,
+        "source_revision": SYNTHETIC_SHA,
+        "state_digest": _digest(label + " state " + row["row_id"]),
+    }
+
+
+def _synthetic_summary(platform: str = "linux", label: str = "synthetic") -> dict:
+    """The accepted observations of one platform, as the suite reader returns them."""
+    observations = []
+    for row in qualify.HOSTED_ROWS:
+        tick = 0 if row["expected_outcome"] == "harness-error" else SYNTHETIC_COMPLETION
+        record = _v2_record(row, guest_tick=tick, label=label)
+        observations.append(qualify.row_observation(record, row["input_sha256"], row))
+    return {
+        "platform": platform,
+        "source_revision": SYNTHETIC_SHA,
+        "observations": observations,
+        "timing": {"poll_starts": list(SYNTHETIC_STARTS),
+                   "completion_tick": SYNTHETIC_COMPLETION},
+        "producer": {
+            "source_revision": SYNTHETIC_SHA,
+            "core_build_id": "t64-build-v1-" + _digest(label + " core build"),
+            "runner_build_id": "t64-runner-v1-" + _digest(label + " runner build"),
+            "real_runner_sha256": _digest(label + " runner"),
+            "supervisor_sha256": _digest(label + " supervisor"),
+            "checker_sha256": _digest(label + " checker"),
+            "test_binary_sha256": _digest(label + " test binary"),
+            "core_library_sha256": _digest(label + " core library"),
+        },
+        "execution": {
+            "suite": "hosted",
+            "ctests": ["runner.pad-poll", "controls.real.pad-wrong-value"],
+            "command_sha256": _digest(label + " command"),
+            "last_test_sha256": _digest(label + " last test"),
+            "junit_sha256": _digest(label + " junit"),
+            "return_code": 0, "status": "pass", "timed_out": False,
+        },
+        "inventory": qualify.inventory_snapshot(INVENTORY.read_bytes(), "hosted"),
+    }
+
+
+def _synthetic_projection(job: str = "gate-linux", platform: str | None = None,
+                          label: str = "synthetic", run: str = "4242",
+                          attempt: str = "1") -> dict:
+    if platform is None:
+        platform = "macos" if job == "gate-macos" else "linux"
+    workflow_sha = None if job == "local" else SYNTHETIC_SHA
+    return qualify._projection(
+        _synthetic_summary(platform, label), job=job, workflow_sha=workflow_sha,
+        run_id=None if job == "local" else run,
+        attempt=None if job == "local" else attempt)
+
+
+def _context(job: str = "gate-linux", run: str = "4242", attempt: str = "1") -> dict:
+    local = job == "local"
+    return {"job": job, "sha": None if local else SYNTHETIC_SHA,
+            "run": None if local else run, "attempt": None if local else attempt}
+
+
+def _write_public(directory: Path, projection: dict) -> Path:
+    directory.mkdir(parents=True, exist_ok=True)
+    payload = json.dumps(projection, sort_keys=True, separators=(",", ":")).encode() + b"\n"
+    target = directory / "manifest.json"
+    target.write_bytes(payload)
+    target.chmod(0o644)
+    return directory
+
+
+def _oracle(scenario: str, flag: str) -> bytes:
+    done = subprocess.run([sys.executable, "-B", str(ORACLE), "--scenario", scenario, flag],
+                          capture_output=True, check=True)
+    return done.stdout
+
+
+def _runner_table_row(fixture_id: str) -> tuple[str, str, str]:
+    """(sha256, profile id, profile hash) of one runner/t64_real_fixture.c row."""
+    text = (ROOT / "runner/t64_real_fixture.c").read_text(encoding="utf-8")
+    found = re.search(r'\{"' + re.escape(fixture_id) +
+                      r'",\s*"([0-9a-f]{64})",\s*\d+u,\s*"([^"]+)",\s*"([0-9a-f]{64})"', text)
+    assert found is not None, fixture_id
+    return found.group(1), found.group(2), found.group(3)
+
+
 
 class Phase09Qualification(unittest.TestCase):
     def test_gate_junit_hook_private_phase09(self) -> None:
@@ -146,29 +310,254 @@ class Phase09Qualification(unittest.TestCase):
             'step ctest ctest --preset gate --output-junit "$T64_GATE_JUNIT_OUT"', gate)
         self.assertIn('step ctest ctest --preset gate\nfi', gate)
 
-    # ---- qualifier stub -----------------------------------------------------
+    # ---- evidence modes ----------------------------------------------------
+
+    def _run_qualifier(self, *arguments: str) -> subprocess.CompletedProcess:
+        return subprocess.run([sys.executable, "-B", str(QUALIFIER), *arguments],
+                              capture_output=True, text=True, check=False, cwd=ROOT)
 
     def test_stub_modes_refuse(self) -> None:
-        """Every mode except --selftest refuses; none exits 0 without evidence."""
-        script = str(QUALIFIER)
-        accepted = subprocess.run([sys.executable, "-B", script, "--help"],
-                                  capture_output=True, text=True, check=False)
+        """No mode exits 0 without evidence; each refusal follows an accepted run."""
+        accepted = self._run_qualifier("--help")
         self.assertEqual(accepted.returncode, 0, accepted.stderr)
-        modes = (["--native"], ["--emit-hosted"], ["--collect-hosted"],
-                 ["--verify-evidence"], ["--verify-record", "private-run"],
-                 ["--scan-pii"])
-        for mode in modes:
-            result = subprocess.run([sys.executable, "-B", script, *mode],
-                                    capture_output=True, text=True, check=False,
-                                    cwd=ROOT)
-            self.assertEqual(result.returncode, 1, (mode, result.stdout, result.stderr))
-            self.assertIn("refused original evidence", result.stderr, mode)
-            self.assertIn("not yet present", result.stderr, mode)
-            self.assertEqual(result.stdout, "", mode)
         # No mode at all is a usage error, never a success.
-        none = subprocess.run([sys.executable, "-B", script],
-                              capture_output=True, text=True, check=False)
+        none = self._run_qualifier()
         self.assertNotEqual(none.returncode, 0)
+        (ROOT / "build").mkdir(exist_ok=True)
+        with tempfile.TemporaryDirectory(prefix="t64-p09-modes.") as tmp, \
+                tempfile.TemporaryDirectory(prefix="t64-p09-empty.", dir=ROOT / "build") as empty:
+            root = Path(tmp)
+            # Accepted baseline in the same setup: a real projection passes the scan.
+            good = _write_public(root / "good", _synthetic_projection("local"))
+            (root / "empty-public").mkdir()
+            baseline = self._run_qualifier("--scan-pii", "--job", "local", "--out", str(good))
+            self.assertEqual(baseline.returncode, 0, baseline.stderr)
+            self.assertIn("strict public allowlist and PII scan passed", baseline.stdout)
+            refused = {
+                "emit": self._run_qualifier(
+                    "--emit-hosted", "--job", "local", "--build", empty,
+                    "--suite", "hosted", "--artifact-prefix", "t64-p09-none",
+                    "--out", str(root / "emit-out")),
+                "verify-record": self._run_qualifier(
+                    "--verify-record", str(root / "absent-run"),
+                    "--build", str(ROOT / "build/gate"),
+                    "--last-test", str(root / "LastTest.log"),
+                    "--junit", str(root / "junit.xml")),
+                "scan": self._run_qualifier(
+                    "--scan-pii", "--job", "local", "--out", str(root / "empty-public")),
+            }
+            needles = {"emit": "does not select exactly one",
+                       "verify-record": "required original file is unavailable",
+                       "scan": "no manifest.json"}
+            for name, result in refused.items():
+                self.assertEqual(result.returncode, 1, (name, result.stdout, result.stderr))
+                self.assertIn("refused original evidence", result.stderr, name)
+                self.assertIn(needles[name], result.stderr, name)
+                self.assertEqual(result.stdout, "", name)
+            # The three modes provided by Task 3 still refuse and say so.
+            for mode in (["--native"], ["--collect-hosted"], ["--verify-evidence"]):
+                result = self._run_qualifier(*mode)
+                self.assertEqual(result.returncode, 1, (mode, result.stdout, result.stderr))
+                self.assertIn("refused original evidence", result.stderr, mode)
+                self.assertIn("Task 3", result.stderr, mode)
+                self.assertEqual(result.stdout, "", mode)
+            # The baseline is still accepted after every refusal.
+            again = self._run_qualifier("--scan-pii", "--job", "local", "--out", str(good))
+            self.assertEqual(again.returncode, 0, again.stderr)
+
+    # ---- authored rows, observations and the public projection --------------
+
+    def test_hosted_rows_pinned_independently(self) -> None:
+        """Every row is pinned from the oracle, the manifest and the runner table."""
+        rows = qualify.HOSTED_ROWS
+        self.assertEqual(len(rows), 5)
+        manifest = json.loads((ROOT / "fixtures/manifest.json").read_text(encoding="utf-8"))
+        manifest_rows = {entry["id"]: entry for entry in manifest["entries"]}
+        keys: set[tuple[str, str]] = set()
+        ids: set[str] = set()
+        for row in rows:
+            self.assertEqual(tuple(row), ROW_KEYS, row.get("row_id"))
+            for name in ("fixture_sha256", "profile_hash", "input_sha256", "log_sha256"):
+                self.assertRegex(row[name], HEX64, f"{row['row_id']} {name}")
+            key = (row["fixture_id"], row["input_sha256"])
+            self.assertNotIn(key, keys, f"duplicate (fixture_id, input_sha256) for {row['row_id']}")
+            self.assertNotIn(row["row_id"], ids)
+            keys.add(key)
+            ids.add(row["row_id"])
+            self.assertIn(row["ctest"], ("runner.pad-poll", "controls.real.pad-wrong-value"))
+            scenario = ROW_SCENARIOS.get(row["row_id"])
+            if scenario is not None:
+                transcript = _oracle(scenario, "--print")
+                self.assertEqual(row["log_bytes"], int(_oracle(scenario, "--bytes")), scenario)
+                self.assertEqual(row["log_bytes"], len(transcript), scenario)
+                self.assertEqual(row["log_sha256"], _oracle(scenario, "--sha256").decode().strip())
+                # A second, independent hash over the literal oracle text.
+                self.assertEqual(row["log_sha256"], hashlib.sha256(transcript).hexdigest())
+                # Fixture and profile identity match the manifest and the runner table.
+                self.assertIn(row["fixture_id"], manifest_rows)
+                self.assertEqual(row["fixture_sha256"], manifest_rows[row["fixture_id"]]["sha256"])
+                self.assertEqual(row["profile_id"], manifest_rows[row["fixture_id"]]["profile"])
+                table = _runner_table_row(row["fixture_id"])
+                self.assertEqual((row["fixture_sha256"], row["profile_id"], row["profile_hash"]),
+                                 table, row["row_id"])
+            else:
+                # The replacement row: no transcript, an unregistered altered copy.
+                self.assertEqual(row["row_id"], "replacement-refused")
+                self.assertEqual(row["log_bytes"], 0)
+                self.assertEqual(row["log_sha256"], hashlib.sha256(b"").hexdigest())
+                self.assertEqual((row["expected_outcome"], row["expected_detail"]),
+                                 ("harness-error", "refusal"))
+                self.assertNotIn(row["fixture_id"], manifest_rows)
+                baseline = next(item for item in rows if item["row_id"] == "accepted-baseline")
+                table = _runner_table_row(baseline["fixture_id"])
+                self.assertEqual((row["profile_id"], row["profile_hash"]), table[1:])
+                # The altered copy is the built baseline ROM with its last byte flipped.
+                rom = (ROOT / "build/fixtures/phase09-pad-poll-si-v1.z64").read_bytes()
+                self.assertEqual(hashlib.sha256(rom).hexdigest(), baseline["fixture_sha256"])
+                altered = rom[:-1] + bytes([rom[-1] ^ 1])
+                self.assertEqual(row["fixture_sha256"], hashlib.sha256(altered).hexdigest())
+                self.assertNotEqual(row["fixture_sha256"], baseline["fixture_sha256"])
+        self.assertEqual([row["row_id"] for row in rows[:1]], ["accepted-baseline"])
+        self.assertEqual(rows[0]["ctest"], "runner.pad-poll")
+        self.assertTrue(all(row["ctest"] == "controls.real.pad-wrong-value" for row in rows[1:]))
+        self.assertEqual((qualify.POLL_PAIR_MIN_TICKS, qualify.POLL_HANDSHAKE_TICKS),
+                         (21067, 16971))
+
+    def test_row_observation_refuses_each_field(self) -> None:
+        """A matching v2 record is accepted; each changed field is refused by name."""
+        rows = qualify.HOSTED_ROWS
+        for row in rows:
+            observation = qualify.row_observation(_v2_record(row, guest_tick=0 if
+                                                  row["expected_outcome"] == "harness-error"
+                                                  else 600001), row["input_sha256"], row)
+            self.assertEqual(set(observation) >= {"guest_tick", "state_digest"}, True)
+        pass_row, guest_fail_row, refusal_row = rows[0], rows[1], rows[-1]
+        other = _digest("another value")
+        mutations = (
+            ("outcome", lambda r: r.__setitem__("outcome", "harness-error")),
+            ("detail", lambda r: r.__setitem__("detail", "refusal")),
+            ("log_bytes", lambda r: r["counts"].__setitem__("log_bytes", "67")),
+            ("log_sha256", lambda r: r.__setitem__("log_sha256", other)),
+            ("fixture_id", lambda r: r.__setitem__("fixture_id", "phase09-admit-si-v1")),
+            ("fixture_sha256", lambda r: r.__setitem__("fixture_sha256", other)),
+            ("profile_id", lambda r: r.__setitem__("profile_id", "other-profile")),
+            ("profile_hash", lambda r: r.__setitem__("profile_digest", other)),
+            ("input_sha256", lambda r: r.__setitem__("input_digest", other)),
+            ("guest_tick", lambda r: r.__setitem__("guest_tick", "0")),
+            ("guest_tick", lambda r: r.__setitem__("guest_tick", "not-a-number")),
+        )
+        for row in (pass_row, guest_fail_row):
+            self.assertIsInstance(qualify.row_observation(
+                _v2_record(row), row["input_sha256"], row)["guest_tick"], int)
+            for name, change in mutations:
+                record = copy.deepcopy(_v2_record(row))
+                change(record)
+                with self.assertRaises(qualify.Refusal, msg=(row["row_id"], name)) as caught:
+                    qualify.row_observation(record, row["input_sha256"], row)
+                self.assertIn(f"result {name} differs", str(caught.exception),
+                              (row["row_id"], name))
+                # The same row is still accepted in the same setup.
+                self.assertEqual(qualify.row_observation(
+                    _v2_record(row), row["input_sha256"], row)["guest_tick"],
+                    SYNTHETIC_COMPLETION)
+            # The retained input script is bound too.
+            with self.assertRaises(qualify.Refusal) as caught:
+                qualify.row_observation(_v2_record(row), other, row)
+            self.assertIn("input_sha256", str(caught.exception))
+        # The refusal row: the recorded refusal outcome, detail and guest tick 0.
+        accepted = qualify.row_observation(_v2_record(refusal_row), refusal_row["input_sha256"],
+                                           refusal_row)
+        self.assertEqual(accepted["guest_tick"], 0)
+        for name, change in (
+                ("outcome", lambda r: r.__setitem__("outcome", "pass")),
+                ("detail", lambda r: r.__setitem__("detail", "positive-match")),
+                ("guest_tick", lambda r: r.__setitem__("guest_tick", "5")),
+                ("fixture_id", lambda r: r.__setitem__("fixture_id", pass_row["fixture_id"]))):
+            record = copy.deepcopy(_v2_record(refusal_row))
+            change(record)
+            with self.assertRaises(qualify.Refusal, msg=name) as caught:
+                qualify.row_observation(record, refusal_row["input_sha256"], refusal_row)
+            self.assertIn(f"result {name} differs", str(caught.exception), name)
+            self.assertEqual(qualify.row_observation(
+                _v2_record(refusal_row), refusal_row["input_sha256"], refusal_row)["guest_tick"], 0)
+        # A record that is not the v2 shape is refused before any field is read.
+        for change in (lambda r: r.__setitem__("schema_version", 1),
+                       lambda r: r.__setitem__("schema", "t64.other")):
+            record = copy.deepcopy(_v2_record(pass_row))
+            change(record)
+            with self.assertRaises(qualify.Refusal) as caught:
+                qualify.row_observation(record, pass_row["input_sha256"], pass_row)
+            self.assertIn("v2 shape", str(caught.exception))
+
+    def test_projection_closed_key_set_and_context(self) -> None:
+        """The projection has exactly the public keys and is bound to its context."""
+        host = qualify._host_platform()
+        job = "gate-macos" if host == "macos" else "gate-linux"
+        projection = _synthetic_projection(job, platform=host)
+        self.assertEqual(set(projection), qualify.PUBLIC_KEYS)
+        self.assertEqual([row["row_id"] for row in projection["rows"]],
+                         [row["row_id"] for row in qualify.HOSTED_ROWS])
+        self.assertEqual(projection["platform"], host)
+        for row, public in zip(qualify.HOSTED_ROWS, projection["rows"]):
+            self.assertEqual({k: v for k, v in public.items()
+                              if k not in ("guest_tick", "state_digest")}, row)
+        context = _context(job)
+        self.assertIs(qualify.public_projection(projection, context), projection)
+        # The local entry path is accepted with no run identity at all.
+        local = _synthetic_projection("local", platform=host)
+        self.assertIs(qualify.public_projection(local, _context("local")), local)
+
+        def refuse(value: dict, expected: dict, needle: str, label: str) -> None:
+            with self.assertRaises(qualify.Refusal, msg=label) as caught:
+                qualify.public_projection(value, expected)
+            self.assertIn(needle, str(caught.exception), label)
+            # The accepted baseline is still accepted in the same setup.
+            self.assertIs(qualify.public_projection(projection, context), projection)
+
+        extra = copy.deepcopy(projection)
+        extra["extra"] = 1
+        refuse(extra, context, "unknown or missing top-level fields", "extra key")
+        missing = copy.deepcopy(projection)
+        del missing["timing"]
+        refuse(missing, context, "unknown or missing top-level fields", "missing key")
+        short = copy.deepcopy(projection)
+        short["rows"] = short["rows"][:-1]
+        refuse(short, context, "rows differ", "missing row")
+        longer = copy.deepcopy(projection)
+        longer["rows"].append(dict(longer["rows"][0], row_id="extra-row"))
+        refuse(longer, context, "rows differ", "extra row")
+        duplicated = copy.deepcopy(projection)
+        duplicated["rows"][1] = copy.deepcopy(duplicated["rows"][0])
+        refuse(duplicated, context, "rows differ", "duplicated row")
+        zero = copy.deepcopy(projection)
+        zero["rows"] = []
+        refuse(zero, context, "zero rows", "zero rows")
+        refuse(projection, dict(context, job="gate-linux" if job == "gate-macos" else "gate-macos"),
+               "exact supplied run context", "wrong job")
+        refuse(projection, dict(context, sha="2" * 40), "exact supplied run context", "wrong SHA")
+        refuse(projection, dict(context, run="9999"), "exact supplied run context", "wrong run")
+        refuse(projection, dict(context, attempt="2"), "exact supplied run context",
+               "wrong attempt")
+        no_run = copy.deepcopy(projection)
+        no_run["run_id"] = None
+        refuse(no_run, context, "missing its exact run and attempt", "hosted record without run")
+        no_attempt = copy.deepcopy(projection)
+        no_attempt["run_attempt"] = None
+        refuse(no_attempt, context, "missing its exact run and attempt",
+               "hosted record without attempt")
+        entry_with_run = copy.deepcopy(local)
+        entry_with_run["run_id"] = "7"
+        with self.assertRaises(qualify.Refusal) as caught:
+            qualify.public_projection(entry_with_run, _context("local"))
+        self.assertIn("unexpectedly claims a hosted run", str(caught.exception))
+        other_platform = "linux" if host == "macos" else "macos"
+        wrong_platform = copy.deepcopy(projection)
+        wrong_platform["platform"] = other_platform
+        refuse(wrong_platform, context, "platform does not match the exact workflow job",
+               "platform swapped")
+        unsupported = copy.deepcopy(projection)
+        unsupported["platform"] = "windows"
+        refuse(unsupported, context, "host platform is unsupported", "unsupported platform")
 
     def _inventory(self) -> dict:
         return json.loads(INVENTORY.read_text(encoding="utf-8"))
@@ -549,7 +938,7 @@ def main() -> int:
         result = unittest.TextTestRunner(verbosity=2).run(suite)
         return 0 if result.wasSuccessful() else 1
     print("usage: test_phase09_qualification.py "
-          "--list-cases | --selftest | --case NAME | --suite stub|allowlist",
+          "--list-cases | --selftest | --case NAME | --suite NAME",
           file=sys.stderr)
     return 2
 
