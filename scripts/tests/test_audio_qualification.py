@@ -404,6 +404,17 @@ class AudioQualificationTests(unittest.TestCase):
                 qualify._verify_audio_observation(valid, manifest, entries,
                                                   packet_data, inflated)
 
+    def test_collector_reported_path_accepts_repeat_but_not_ambiguity(self) -> None:
+        # The Phase 07 collector really prints its record path twice (helper and CLI).
+        pattern = rb"^qualify-rdp-vi: private collection records retained at (.+)$"
+        line = b"qualify-rdp-vi: private collection records retained at build/a\n"
+        self.assertEqual(qualify._single_reported_path(line + b"other\n" + line, pattern, "x"),
+                         Path("build/a"))
+        other = line.replace(b"build/a", b"build/b")
+        for output in (b"", line + other):
+            with self.assertRaises(qualify.Refusal):
+                qualify._single_reported_path(output, pattern, "x")
+
     def test_hosted_api_zip_digest_and_context_bound(self) -> None:
         archive = b"bounded synthetic archive bytes"
         digest = "sha256:" + qualify._sha(archive)
@@ -593,6 +604,28 @@ class AudioQualificationTests(unittest.TestCase):
             (public / "gate-macos/manifest.json").unlink()
             with self.assertRaises(qualify.Refusal):
                 qualify._verify_public_pair(public, sha="c" * 40, run="123", attempt="1")
+
+    def test_hosted_pair_ignores_build_bound_hashes_but_not_pcm_or_counts(self) -> None:
+        # Real Linux and macOS manifests differ in every hash that embeds the core build ID.
+        def pair() -> dict[str, dict]:
+            result = {}
+            for job in ("gate-linux", "gate-macos"):
+                projection = _projection()
+                projection.update({"evidence_mode": "hosted-gate", "job_name": job,
+                                   "platform": job.split("-")[1]})
+                result[job] = projection
+            return result
+
+        manifests = pair()
+        for field in ("manifest_sha256", "audio_observer_sha256", "video_observer_sha256"):
+            manifests["gate-macos"]["capture"][field] = "e" * 64
+        qualify._compare_hosted_pair(manifests)
+        for field, value in (("pcm_literal_sha256", "f" * 64), ("audio_packets", 3),
+                             ("video_packets", 30), ("total_bytes", 1)):
+            changed = pair()
+            changed["gate-macos"]["capture"][field] = value
+            with self.assertRaises(qualify.Refusal, msg=field):
+                qualify._compare_hosted_pair(changed)
 
     def test_combined_upload_uses_exact_pii_scan_layout(self) -> None:
         with tempfile.TemporaryDirectory(prefix="t64-audio-pii-layout-") as temporary:

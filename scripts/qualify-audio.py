@@ -660,7 +660,12 @@ def _compare_hosted_pair(manifests: dict[str, dict[str, Any]]) -> None:
             "run_attempt": value["run_attempt"],
             "profile": value["profile"],
             "fixture": value["fixture"],
-            "capture": value["capture"],
+            # The bundle manifest and both observation files embed each platform's own
+            # core build ID, so their hashes legitimately differ between Linux and macOS.
+            # Cross-platform agreement is on the PCM literal, packet counts and byte total.
+            "capture": {key: value["capture"][key] for key in (
+                "audio_packets", "pcm_literal_sha256", "total_bytes", "video_packets",
+            )},
             "execution": {key: execution[key] for key in (
                 "capture_ctest", "race_ctest", "return_code", "status", "timed_out",
             )},
@@ -700,6 +705,14 @@ def _verify_public_pair(directory: Path, *, sha: str, run: str,
     return manifests
 
 
+def _single_reported_path(output: bytes, pattern: bytes, what: str) -> Path:
+    """Return the one distinct path a collector reports; identical repeats are accepted."""
+    found = {match.decode("utf-8", errors="strict") for match in
+             re.findall(pattern, output, flags=re.MULTILINE)}
+    _require(len(found) == 1, what)
+    return Path(next(iter(found)))
+
+
 def _collect_hosted(repo: str, sha: str, run: str, attempt: str,
                     native_path: Path, output_dir: Path) -> Path:
     _require(repo == "szTheory/tendies64" and SHA1_RE.fullmatch(sha) is not None and
@@ -731,13 +744,9 @@ def _collect_hosted(repo: str, sha: str, run: str, attempt: str,
     collect_dir = hosted_private / "collector-command"
     _run_saved_stage(rdp, collect_dir, collect_command, 240)
     output_bytes = _read(collect_dir / "stdout.log", 4 * 1024 * 1024)
-    collection_matches = re.findall(
-        rb"^qualify-rdp-vi: private collection records retained at (.+)$",
-        output_bytes, flags=re.MULTILINE,
-    )
-    _require(len(collection_matches) == 1,
-             "exact hosted collector did not return one private API/ZIP record path")
-    collection_path = Path(collection_matches[0].decode("utf-8", errors="strict"))
+    collection_path = _single_reported_path(
+        output_bytes, rb"^qualify-rdp-vi: private collection records retained at (.+)$",
+        "exact hosted collector did not return one private API/ZIP record path")
     _require(_under(collection_path, ROOT / "build/gate/07-qualification") and
              collection_path.is_dir() and not collection_path.is_symlink(),
              "hosted collection receipt is outside its private record store")
@@ -755,13 +764,9 @@ def _collect_hosted(repo: str, sha: str, run: str, attempt: str,
     }
     _compare_hosted_pair(audio_manifests)
     nested_stdout = _read(collection_path / "collection/stdout.log", 8 * 1024 * 1024)
-    download_matches = re.findall(
-        rb"^collect-boot-evidence: original download records retained at (.+)$",
-        nested_stdout, flags=re.MULTILINE,
-    )
-    _require(len(download_matches) == 1,
-             "collector did not retain one exact set of API and archive originals")
-    downloads = Path(download_matches[0].decode("utf-8", errors="strict"))
+    downloads = _single_reported_path(
+        nested_stdout, rb"^collect-boot-evidence: original download records retained at (.+)$",
+        "collector did not retain one exact set of API and archive originals")
     _require(_under(downloads, ROOT / "build/gate/07-qualification") and
              not downloads.is_symlink(),
              "hosted archive originals are outside their private build store")
