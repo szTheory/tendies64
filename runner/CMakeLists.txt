@@ -521,6 +521,28 @@ set_tests_properties(controls.real.raw-capture-race PROPERTIES
   LABELS "controls;runner" TIMEOUT 120
   ENVIRONMENT "T64_AUDIO_EVIDENCE_DIR=${CMAKE_BINARY_DIR}/08-04-evidence;T64_REAL_KEEP_WORKSET=1")
 
+# Phase 9 runner mechanism controls (per-fixture cap and pin, bounded argv,
+# admit ROMs, artifact pair, table checks). One binary, one CTest name per case.
+add_executable(test_phase09_runner tests/test_phase09_runner.c
+  t64_real_fixture.c)
+target_compile_definitions(test_phase09_runner PRIVATE ${T64_HOST_DEFS})
+target_include_directories(test_phase09_runner PRIVATE
+  ${CMAKE_CURRENT_SOURCE_DIR} ${CMAKE_SOURCE_DIR}/core/include)
+target_link_libraries(test_phase09_runner PRIVATE t64_common t64_core)
+t64_target_warnings(test_phase09_runner)
+add_dependencies(test_phase09_runner t64-supervisor t64-supervisor-test
+  t64-result-check t64-boot-fixtures t64-audio-fixture)
+function(t64_phase09_runner_case TEST_NAME CASE_NAME)
+  add_test(NAME ${TEST_NAME}
+    COMMAND test_phase09_runner ${CASE_NAME}
+      $<TARGET_FILE:t64-supervisor> $<TARGET_FILE:t64-supervisor-test>
+      $<TARGET_FILE:t64-result-check> ${CMAKE_SOURCE_DIR})
+  set_tests_properties(${TEST_NAME} PROPERTIES
+    LABELS "runner;controls" TIMEOUT 120
+    ENVIRONMENT "T64_PHASE09_EVIDENCE_DIR=${CMAKE_BINARY_DIR}/09-02-evidence")
+endfunction()
+t64_phase09_runner_case(runner.guest-tick-cap tick-cap)
+
 # Original-record audio evidence controls. This selftest runs only isolated
 # verifier mutations; hosted emission remains a separate post-gate command.
 set(T64_AUDIO_QUALIFICATION_TEST

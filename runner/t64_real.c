@@ -1000,7 +1000,8 @@ static int run_real(int fixture_fd, int input_fd, const char *requested_profile,
   }
   fixture_identity = t64_real_fixture_find_bytes(fixture.length,
                                                  fixture.sha256_hex);
-  if (fixture_identity == NULL) {
+  if (fixture_identity == NULL ||
+      guest_ticks > t64_real_fixture_tick_cap(fixture_identity)) {
     exit_code = emit_prelaunch("refusal", "refused", guest_ticks, 0);
     goto cleanup;
   }
@@ -1588,7 +1589,7 @@ int main(int argc, char **argv) {
       profile_id = value;
     } else if (strcmp(option, "--guest-ticks") == 0 && !seen_ticks &&
                parse_u64(value, &guest_ticks) && guest_ticks > 0u &&
-               guest_ticks <= UINT64_C(600000)) {
+               guest_ticks <= T64_REAL_GUEST_TICKS_CEILING) {
       seen_ticks = true;
     } else if (strcmp(option, "--video-observation-fd") == 0 &&
                !seen_video_observation && parse_fd(value,

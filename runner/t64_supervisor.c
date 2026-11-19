@@ -603,7 +603,7 @@ static int parse_args(int argc, char **argv, sup_args *a) {
     }
     if (!bad && a->bound == 0u) {
       a->bound = REAL_GUEST_TICKS;
-    } else if (!bad && a->bound > UINT64_C(600000)) {
+    } else if (!bad && a->bound > T64_REAL_GUEST_TICKS_CEILING) {
       bad = 1;
     }
 #ifdef T64_SUPERVISOR_TESTING
@@ -1381,6 +1381,13 @@ static int real_run_mode(const sup_args *args, const char *self_path) {
       (void)real_write_prelaunch(args->result, "harness-error", "refusal",
                                  "refused", args->bound);
     }
+    goto cleanup;
+  }
+  if (args->bound > t64_real_fixture_tick_cap(fixture_identity)) {
+    /* The per-row cap is checked only after the fixture is identified: the
+     * parse-time bound is the ceiling, and only a named long row may use it. */
+    (void)real_write_prelaunch(args->result, "harness-error", "refusal",
+                               "refused", args->bound);
     goto cleanup;
   }
   fixture_status = t64_verified_input_prepare(

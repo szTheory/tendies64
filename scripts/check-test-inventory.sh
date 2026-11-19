@@ -202,7 +202,8 @@ unit.core.digest.v25-reference
 unit.core.digest.v25-strip-differential
 unit.core.sched.ledger
 unit.core.sched.characterize-fifo
-repo.si-membership-sites'
+repo.si-membership-sites
+runner.guest-tick-cap'
 
 CPU_COVERAGE_OPCODES='ADD
 ADDU
