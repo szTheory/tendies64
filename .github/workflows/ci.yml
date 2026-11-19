@@ -27,13 +27,9 @@ jobs:
       - name: Gate
         run: ./scripts/gate.sh
       - name: Run authored audio qualification records
-        run: |
-          PREFIX="08-05-${GITHUB_JOB}-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}-${GITHUB_SHA}"
-          python3 -B scripts/check-audio-cases.py --build build/gate --suite qualification --run --artifact-prefix "$PREFIX"
+        run: python3 -B scripts/check-audio-cases.py --build build/gate --suite qualification --run --artifact-prefix "08-05-${GITHUB_JOB}-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}-${GITHUB_SHA}"
       - name: Emit authored audio evidence
-        run: |
-          PREFIX="08-05-${GITHUB_JOB}-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}-${GITHUB_SHA}"
-          python3 -B scripts/qualify-audio.py --emit-hosted --job "$GITHUB_JOB" --sha "$GITHUB_SHA" --run "$GITHUB_RUN_ID" --attempt "$GITHUB_RUN_ATTEMPT" --build build/gate --suite qualification --artifact-prefix "$PREFIX" --out "build/evidence/combined/$GITHUB_JOB/audio/$GITHUB_JOB"
+        run: python3 -B scripts/qualify-audio.py --emit-hosted --job "$GITHUB_JOB" --sha "$GITHUB_SHA" --run "$GITHUB_RUN_ID" --attempt "$GITHUB_RUN_ATTEMPT" --build build/gate --suite qualification --artifact-prefix "08-05-${GITHUB_JOB}-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}-${GITHUB_SHA}" --out "build/evidence/combined/$GITHUB_JOB/audio/$GITHUB_JOB"
       - name: Emit authored raw RDP VI evidence
         run: python3 -B scripts/qualify-rdp-vi.py --emit-hosted --job "$GITHUB_JOB" --sha "$GITHUB_SHA"
       - name: Emit guest evidence
@@ -73,13 +69,9 @@ jobs:
       - name: Gate
         run: ./scripts/gate.sh
       - name: Run authored audio qualification records
-        run: |
-          PREFIX="08-05-${GITHUB_JOB}-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}-${GITHUB_SHA}"
-          python3 -B scripts/check-audio-cases.py --build build/gate --suite qualification --run --artifact-prefix "$PREFIX"
+        run: python3 -B scripts/check-audio-cases.py --build build/gate --suite qualification --run --artifact-prefix "08-05-${GITHUB_JOB}-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}-${GITHUB_SHA}"
       - name: Emit authored audio evidence
-        run: |
-          PREFIX="08-05-${GITHUB_JOB}-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}-${GITHUB_SHA}"
-          python3 -B scripts/qualify-audio.py --emit-hosted --job "$GITHUB_JOB" --sha "$GITHUB_SHA" --run "$GITHUB_RUN_ID" --attempt "$GITHUB_RUN_ATTEMPT" --build build/gate --suite qualification --artifact-prefix "$PREFIX" --out "build/evidence/combined/$GITHUB_JOB/audio/$GITHUB_JOB"
+        run: python3 -B scripts/qualify-audio.py --emit-hosted --job "$GITHUB_JOB" --sha "$GITHUB_SHA" --run "$GITHUB_RUN_ID" --attempt "$GITHUB_RUN_ATTEMPT" --build build/gate --suite qualification --artifact-prefix "08-05-${GITHUB_JOB}-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}-${GITHUB_SHA}" --out "build/evidence/combined/$GITHUB_JOB/audio/$GITHUB_JOB"
       - name: Emit authored raw RDP VI evidence
         run: python3 -B scripts/qualify-rdp-vi.py --emit-hosted --job "$GITHUB_JOB" --sha "$GITHUB_SHA"
       - name: Emit guest evidence

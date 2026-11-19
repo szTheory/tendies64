@@ -30,7 +30,8 @@
 #   CI-REQUIRED-STEP     jobs and steps cannot weaken required success semantics
 #   CI-SECRETS           no secrets reference in any spelling (secrets.X, secrets['X'], secrets[...],
 #                        toJSON(secrets)) and no token (github.token, github['token'], toJSON(github))
-#   CI-UPLOAD-ARTIFACT   both existing gate jobs upload one exact sanitized evidence directory after both scans
+#   CI-UPLOAD-ARTIFACT   both existing gate jobs upload one exact reviewed list of sanitized evidence
+#                        files after every scan; the upload step's path is the only block scalar admitted
 #   CI-EXPR-IN-RUN       no expression in a run line
 #   CI-GATE-EXEC         the gate script is executable
 #   CI-ZERO-JOBS         the workflow defines no jobs
@@ -71,6 +72,12 @@ scan_yml() {
       }
       ischeckout = 0; pc = 0; fd = 0
     }
+    function expected_upload_path(j,    b) {
+      b = "build/evidence/combined/" j
+      return b "/" j ".json|" b "/rdp-vi/" j "/manifest.json|" b "/rdp-vi/" j "/inventory.json|" \
+             b "/rdp-vi/" j "/observation.json|" b "/rdp-vi/" j "/raw-export.json|" \
+             b "/audio/" j "/manifest.json"
+    }
     function expected_artifact_name() {
       return "t64-authored-evidence-${{ github.sha }}-${{ github.run_id }}-${{ github.run_attempt }}-${{ github.job }}"
     }
@@ -85,35 +92,41 @@ scan_yml() {
           vjob("CI-RUNNER-LABEL", "gate-linux must run on ubuntu-24.04")
         if (job == "gate-macos" && job_runs_on != "macos-26")
           vjob("CI-RUNNER-LABEL", "gate-macos must run on macos-26")
-        if (job_runs != 6 || gate_runs != 1 || raw_emit_runs != 1 || emit_runs != 1 ||
-            rights_runs != 1 || pii_runs != 1 || raw_pii_runs != 1)
+        if (job_runs != 9 || gate_runs != 1 || audio_case_runs != 1 || audio_emit_runs != 1 ||
+            raw_emit_runs != 1 || emit_runs != 1 || rights_runs != 1 || pii_runs != 1 ||
+            raw_pii_runs != 1 || audio_pii_runs != 1)
           vjob("CI-RUN-LINE", "job must run the gate and each exact evidence command once")
-        if (step_count != 8 || checkout_step_count != 1 || gate_step_count != 1 ||
+        if (step_count != 11 || checkout_step_count != 1 || gate_step_count != 1 ||
+            audio_case_step_count != 1 || audio_emit_step_count != 1 ||
             raw_emit_step_count != 1 || emit_step_count != 1 || rights_step_count != 1 ||
-            pii_step_count != 1 || raw_pii_step_count != 1 ||
+            pii_step_count != 1 || raw_pii_step_count != 1 || audio_pii_step_count != 1 ||
             upload_step_count != 1 ||
-            !(checkout_step_line < gate_step_line && gate_step_line < emit_step_line &&
-              gate_step_line < raw_emit_step_line && raw_emit_step_line < emit_step_line &&
-              emit_step_line < rights_step_line && rights_step_line < pii_step_line &&
-              pii_step_line < raw_pii_step_line && raw_pii_step_line < upload_step_line) ||
-            !(gate_run_line > gate_step_line && gate_run_line < raw_emit_step_line &&
+            !(checkout_step_line < gate_step_line && gate_step_line < audio_case_step_line &&
+              audio_case_step_line < audio_emit_step_line && audio_emit_step_line < raw_emit_step_line &&
+              raw_emit_step_line < emit_step_line && emit_step_line < rights_step_line &&
+              rights_step_line < pii_step_line && pii_step_line < raw_pii_step_line &&
+              raw_pii_step_line < audio_pii_step_line && audio_pii_step_line < upload_step_line) ||
+            !(gate_run_line > gate_step_line && gate_run_line < audio_case_step_line &&
+              audio_case_run_line > audio_case_step_line && audio_case_run_line < audio_emit_step_line &&
+              audio_emit_run_line > audio_emit_step_line && audio_emit_run_line < raw_emit_step_line &&
               raw_emit_run_line > raw_emit_step_line && raw_emit_run_line < emit_step_line &&
               emit_run_line > emit_step_line && emit_run_line < rights_step_line &&
               rights_run_line > rights_step_line && rights_run_line < pii_step_line &&
               pii_run_line > pii_step_line && pii_run_line < raw_pii_step_line &&
-              raw_pii_run_line > raw_pii_step_line && raw_pii_run_line < upload_step_line))
-          vjob("CI-UPLOAD-ARTIFACT", "gate, emitter, staged scans, and upload steps must be uniquely named and ordered")
+              raw_pii_run_line > raw_pii_step_line && raw_pii_run_line < audio_pii_step_line &&
+              audio_pii_run_line > audio_pii_step_line && audio_pii_run_line < upload_step_line))
+          vjob("CI-UPLOAD-ARTIFACT", "gate, audio and boot/RDP emitters, staged scans, and upload steps must be uniquely named and ordered")
         if (upload_actions != 1 || upload_name_count != 1 ||
             upload_path_count != 1 || upload_missing_count != 1)
           vjob("CI-UPLOAD-ARTIFACT", "job must upload exactly one scoped record with exact name, path, and error-on-missing")
         if (job == "gate-linux") {
           linux_jobs++
-          if (upload_path != "build/evidence/combined/gate-linux")
-            vjob("CI-UPLOAD-ARTIFACT", "gate-linux may upload only its exact combined authored evidence directory")
+          if (upload_path != expected_upload_path("gate-linux"))
+            vjob("CI-UPLOAD-ARTIFACT", "gate-linux may upload only its exact reviewed authored evidence file list")
         } else if (job == "gate-macos") {
           macos_jobs++
-          if (upload_path != "build/evidence/combined/gate-macos")
-            vjob("CI-UPLOAD-ARTIFACT", "gate-macos may upload only its exact combined authored evidence directory")
+          if (upload_path != expected_upload_path("gate-macos"))
+            vjob("CI-UPLOAD-ARTIFACT", "gate-macos may upload only its exact reviewed authored evidence file list")
         } else {
           vjob("CI-UPLOAD-ARTIFACT", "only gate-linux and gate-macos jobs are permitted")
         }
@@ -147,7 +160,9 @@ scan_yml() {
       if (line ~ /(^|[^A-Za-z0-9_])secrets([^A-Za-z0-9_]|$)/ ||
           line ~ /github[ \t]*(\.[ \t]*token|\[[ \t]*["\047][ \t]*token[ \t]*["\047][ \t]*\])/ ||
           line ~ /[(,][ \t]*github[ \t]*[),]/) viol("CI-SECRETS", "secrets and the github token must not be referenced")
-      if (line ~ /:[ \t]+[|>][-+0-9]*[ \t]*$/) viol("CI-RUN-LINE", "block scalars are forbidden")
+      if (line ~ /:[ \t]+[|>][-+0-9]*[ \t]*$/ &&
+          !(ind == 10 && body ~ /^path:[ \t]+\|[ \t]*$/ && in_upload_with && upload_action))
+        viol("CI-RUN-LINE", "block scalars are forbidden")
 
       key = body; sub(/[ \t]*:.*/, "", key)
       field = key; gsub(/^["\047]|["\047]$/, "", field)
@@ -155,9 +170,18 @@ scan_yml() {
       p = index(body, ":")
       if (p > 0) val = clean(substr(body, p + 1))
 
+      # The admitted upload path block: plain, non-item lines indented under path:.
+      if (in_path_block) {
+        if (ind >= 12 && !isitem) { upload_path = (upload_path == "" ? body : upload_path "|" body); next }
+        in_path_block = 0
+      }
+
       if (body ~ /^run[ \t]*:/) {
         nruns++; job_runs++
         if (val == "./scripts/gate.sh") { gate_runs++; gate_run_line = NR }
+        else if (val == "python3 -B scripts/check-audio-cases.py --build build/gate --suite qualification --run --artifact-prefix \"08-05-${GITHUB_JOB}-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}-${GITHUB_SHA}\"") { audio_case_runs++; audio_case_run_line = NR }
+        else if (val == "python3 -B scripts/qualify-audio.py --emit-hosted --job \"$GITHUB_JOB\" --sha \"$GITHUB_SHA\" --run \"$GITHUB_RUN_ID\" --attempt \"$GITHUB_RUN_ATTEMPT\" --build build/gate --suite qualification --artifact-prefix \"08-05-${GITHUB_JOB}-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}-${GITHUB_SHA}\" --out \"build/evidence/combined/$GITHUB_JOB/audio/$GITHUB_JOB\"") { audio_emit_runs++; audio_emit_run_line = NR }
+        else if (val == "python3 -B scripts/qualify-audio.py --scan-pii --job \"$GITHUB_JOB\" --sha \"$GITHUB_SHA\" --run \"$GITHUB_RUN_ID\" --attempt \"$GITHUB_RUN_ATTEMPT\" --out \"build/evidence/combined/$GITHUB_JOB/audio/$GITHUB_JOB\"") { audio_pii_runs++; audio_pii_run_line = NR }
         else if (val == "python3 -B scripts/qualify-rdp-vi.py --emit-hosted --job \"$GITHUB_JOB\" --sha \"$GITHUB_SHA\"") { raw_emit_runs++; raw_emit_run_line = NR }
         else if (val == "sh scripts/collect-boot-evidence.sh --emit") { emit_runs++; emit_run_line = NR }
         else if (val == "sh scripts/rights-scan.sh --staging build/evidence") { rights_runs++; rights_run_line = NR }
@@ -200,9 +224,12 @@ scan_yml() {
         job_control = 0; job_runs_on = ""
         job_runs = 0; gate_runs = 0; raw_emit_runs = 0; emit_runs = 0
         rights_runs = 0; pii_runs = 0; raw_pii_runs = 0
+        audio_case_runs = 0; audio_emit_runs = 0; audio_pii_runs = 0
         step_count = 0; checkout_step_count = 0; gate_step_count = 0
         raw_emit_step_count = 0; emit_step_count = 0; rights_step_count = 0
         pii_step_count = 0; raw_pii_step_count = 0
+        audio_case_step_count = 0; audio_emit_step_count = 0; audio_pii_step_count = 0
+        in_path_block = 0
         upload_step_count = 0; upload_actions = 0
         upload_name_count = 0; upload_path_count = 0; upload_missing_count = 0
         upload_name = ""; upload_path = ""; upload_action = 0; in_upload_with = 0
@@ -210,8 +237,10 @@ scan_yml() {
         checkout_step_line = 0; gate_step_line = 0; raw_emit_step_line = 0
         emit_step_line = 0; rights_step_line = 0; pii_step_line = 0
         raw_pii_step_line = 0; upload_step_line = 0
+        audio_case_step_line = 0; audio_emit_step_line = 0; audio_pii_step_line = 0
         gate_run_line = 0; raw_emit_run_line = 0; emit_run_line = 0
         rights_run_line = 0; pii_run_line = 0; raw_pii_run_line = 0
+        audio_case_run_line = 0; audio_emit_run_line = 0; audio_pii_run_line = 0
         next
       }
 
@@ -239,6 +268,9 @@ scan_yml() {
           upload_action = 0; in_upload_with = 0
           if (current_step == "Checkout") { checkout_step_count++; checkout_step_line = NR }
           else if (current_step == "Gate") { gate_step_count++; gate_step_line = NR }
+          else if (current_step == "Run authored audio qualification records") { audio_case_step_count++; audio_case_step_line = NR }
+          else if (current_step == "Emit authored audio evidence") { audio_emit_step_count++; audio_emit_step_line = NR }
+          else if (current_step == "PII scan authored audio evidence") { audio_pii_step_count++; audio_pii_step_line = NR }
           else if (current_step == "Emit authored raw RDP VI evidence") { raw_emit_step_count++; raw_emit_step_line = NR }
           else if (current_step == "Emit guest evidence") { emit_step_count++; emit_step_line = NR }
           else if (current_step == "Rights scan sanitized output") { rights_step_count++; rights_step_line = NR }
@@ -255,7 +287,9 @@ scan_yml() {
             if (val != expected_artifact_name())
               vjob("CI-UPLOAD-ARTIFACT", "artifact name must bind the exact SHA, run, attempt, and job")
           } else if (key == "path") {
-            upload_path_count++; upload_path = val
+            upload_path_count++
+            if (val == "|") { upload_path = ""; in_path_block = 1 }
+            else upload_path = val
           } else if (key == "if-no-files-found") {
             upload_missing_count++
             if (val != "error") vjob("CI-UPLOAD-ARTIFACT", "upload must fail when its evidence directory is absent")
@@ -290,8 +324,8 @@ scan_yml() {
         if (njobs != 2 || linux_jobs != 1 || macos_jobs != 1) {
           printf "CI-UPLOAD-ARTIFACT %s: exactly one gate-linux and one gate-macos job are required\n", file; nviol++
         }
-        if (nruns != 12) {
-          printf "CI-RUN-LINE %s: expected twelve gate/evidence commands across two jobs, found %d\n", file, nruns; nviol++
+        if (nruns != 18) {
+          printf "CI-RUN-LINE %s: expected eighteen gate/evidence commands across two jobs, found %d\n", file, nruns; nviol++
         }
       }
     }
@@ -406,9 +440,11 @@ selftest() {
   expect CI-TIMEOUT "a job without a timeout" "$W/timeout.yml"
 
   # Required jobs and steps cannot be skipped or have failures softened.
-  for _step in "Gate" "Emit authored raw RDP VI evidence" "Emit guest evidence" \
+  for _step in "Gate" "Run authored audio qualification records" "Emit authored audio evidence" \
+    "Emit authored raw RDP VI evidence" "Emit guest evidence" \
     "Rights scan sanitized output" "PII scan sanitized output" \
-    "PII scan authored raw RDP VI evidence" "Upload sanitized authored evidence"; do
+    "PII scan authored raw RDP VI evidence" "PII scan authored audio evidence" \
+    "Upload sanitized authored evidence"; do
     _label=$(printf '%s' "$_step" | tr '[:upper:] ' '[:lower:]-')
     inject_step_key "$_step" continue-on-error true "soft-$_label"
     expect CI-REQUIRED-STEP "$_step with continue-on-error enabled" "$W/soft-$_label.yml"
@@ -436,6 +472,45 @@ selftest() {
   expect CI-UPLOAD-ARTIFACT "an artifact name with the wrong run selector" "$W/upload-name.yml"
   mut upload-path 's|build/evidence/combined/gate-linux|build/evidence/combined/other|'
   expect CI-UPLOAD-ARTIFACT "an upload path outside the exact Linux combined evidence directory" "$W/upload-path.yml"
+  # The audio lane is admitted only as exact single-line commands in a fixed order, and the
+  # upload step's path is the only block scalar, equal to one exact reviewed file list per job.
+  awk '/- name: Emit authored audio evidence/ && !done { print; getline; sub(/run: /, "run: |\n          "); print; done = 1; next } { print }' "$REAL" > "$W/audio-run-block.yml"
+  expect CI-RUN-LINE "an audio emit command written as a block scalar" "$W/audio-run-block.yml"
+  mut audio-cmd 's|--suite qualification --run|--suite capture-errors --run|'
+  expect CI-RUN-LINE "an altered audio qualification command" "$W/audio-cmd.yml"
+  mut audio-prefix 's|--artifact-prefix "08-05-\${GITHUB_JOB}|--artifact-prefix "08-05-fixed|'
+  expect CI-RUN-LINE "an audio artifact prefix that no longer binds the job" "$W/audio-prefix.yml"
+  mut audio-emit-sha 's|--sha "\$GITHUB_SHA" --run "\$GITHUB_RUN_ID" --attempt "\$GITHUB_RUN_ATTEMPT" --build|--sha "deadbeef" --run "$GITHUB_RUN_ID" --attempt "$GITHUB_RUN_ATTEMPT" --build|'
+  expect CI-RUN-LINE "an audio emitter that does not bind the workflow SHA" "$W/audio-emit-sha.yml"
+  awk '/- name: Run authored audio qualification records/ && !done { getline; done = 1; next } { print }' "$REAL" > "$W/audio-step-missing.yml"
+  expect CI-RUN-LINE "a job with its audio qualification step removed" "$W/audio-step-missing.yml"
+  awk '/- name: PII scan authored audio evidence/ && !done { getline; done = 1; next } { print }' "$REAL" > "$W/audio-pii-missing.yml"
+  expect CI-RUN-LINE "a job with its audio PII scan removed" "$W/audio-pii-missing.yml"
+  awk '/- name: Emit authored audio evidence/ { held = $0; getline; heldrun = $0; next }
+       /- name: Emit authored raw RDP VI evidence/ && held != "" && !done { print; getline; print; print held; print heldrun; done = 1; next }
+       { print }' "$REAL" > "$W/audio-order.yml"
+  expect CI-UPLOAD-ARTIFACT "audio emission moved after the raw RDP VI emitter" "$W/audio-order.yml"
+  awk '/- name: PII scan authored audio evidence/ { held = $0; getline; heldrun = $0; next }
+       /- name: Upload sanitized authored evidence/ && !done { print "      - name: Gate"; print "        run: ./scripts/gate.sh"; done = 1 }
+       { print }' "$REAL" > "$W/audio-dup-gate.yml"
+  expect CI-RUN-LINE "a duplicated gate step in place of the audio PII scan" "$W/audio-dup-gate.yml"
+  awk '/^            build\/evidence\/combined\/gate-linux\/audio\/gate-linux\/manifest.json$/ { print; print "            build/evidence/combined/gate-linux/audio/gate-linux/raw.bin"; next } { print }' "$REAL" > "$W/upload-extra.yml"
+  expect CI-UPLOAD-ARTIFACT "an extra file in the upload list" "$W/upload-extra.yml"
+  mut upload-dir 's|^            build/evidence/combined/gate-linux/audio/gate-linux/manifest.json$|            build/evidence/combined/gate-linux/audio|'
+  expect CI-UPLOAD-ARTIFACT "a directory in place of the audio manifest in the upload list" "$W/upload-dir.yml"
+  mut upload-glob 's|^            build/evidence/combined/gate-linux/rdp-vi/gate-linux/observation.json$|            build/evidence/combined/gate-linux/rdp-vi/gate-linux/*.json|'
+  expect CI-UPLOAD-ARTIFACT "a wildcard in the upload list" "$W/upload-glob.yml"
+  mut upload-cross 's|^            build/evidence/combined/gate-macos/audio/gate-macos/manifest.json$|            build/evidence/combined/gate-linux/audio/gate-linux/manifest.json|'
+  expect CI-UPLOAD-ARTIFACT "the macOS job uploading the Linux audio manifest" "$W/upload-cross.yml"
+  grep -v '^            build/evidence/combined/gate-linux/audio/gate-linux/manifest.json$' "$REAL" > "$W/upload-short.yml"
+  expect CI-UPLOAD-ARTIFACT "an upload list missing the audio manifest" "$W/upload-short.yml"
+  awk '/^          if-no-files-found: error$/ && !done { print "          path: |"; print "            build/evidence/combined/gate-linux/extra.json"; done = 1 } { print }' "$REAL" > "$W/upload-second-path.yml"
+  expect CI-UPLOAD-ARTIFACT "a second path key after the reviewed upload list" "$W/upload-second-path.yml"
+  awk '/persist-credentials: false/ && !done { print; print "          path: |"; print "            build/evidence/combined/gate-linux/gate-linux.json"; done = 1; next } { print }' "$REAL" > "$W/path-block-checkout.yml"
+  expect CI-RUN-LINE "a path block scalar outside the upload step" "$W/path-block-checkout.yml"
+  mut upload-folded 's#^          path: |$#          path: >#'
+  expect CI-RUN-LINE "a folded block scalar in place of the reviewed upload list" "$W/upload-folded.yml"
+
   mut upload-missing-policy 's|if-no-files-found: error|if-no-files-found: warn|'
   expect CI-UPLOAD-ARTIFACT "an upload that succeeds when its file is missing" "$W/upload-missing-policy.yml"
   sed '/^      - name: Upload sanitized authored evidence$/,/^          if-no-files-found: error$/d' "$REAL" > "$W/upload-missing.yml"
