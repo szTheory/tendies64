@@ -82,6 +82,10 @@ MUTATION_SEEDS = (
     "missing RDP combiner object file",
     "RDP depth evaluate body mutation",
     "missing RDP depth object file",
+    "AI audio copy injected-effect mutation",
+    "bus decode-region injected-effect mutation",
+    "AI device gate revert in t64_audio_info",
+    "AI device gate revert in decode_region",
 )
 
 
@@ -542,6 +546,8 @@ def _check_mutation_suite(temp_root: pathlib.Path) -> int:
         ("core/t64_ai.c", "t64_ai_read_register", "AI write-only MMIO body mutation"),
         ("core/t64_ai.c", "t64_ai_event", "AI sample producer body mutation"),
         ("core/t64_scheduler.c", "event_can_dispatch", "AI scheduler admission body mutation"),
+        ("core/t64_ai.c", "t64_audio_copy", "AI audio copy injected-effect mutation"),
+        ("core/t64_bus.c", "decode_region", "bus decode-region injected-effect mutation"),
     )
     for relative, function_name, label in sealed_body_mutations:
         path = source_root / relative
@@ -556,6 +562,32 @@ def _check_mutation_suite(temp_root: pathlib.Path) -> int:
             "  }\n"
         )
         path.write_text(original[:body_at] + injection + original[body_at:], encoding="utf-8")
+        _must_reject(label, source_root, build_root)
+        path.write_text(original, encoding="utf-8")
+        seeds_run += 1
+
+    # The family AI-device gate is sealed too: undoing it in a reviewed body
+    # (back to the exact Phase 8 tuple predicate) must still be rejected.
+    gate_reverts = (
+        ("core/t64_ai.c", "t64_audio_info", "AI device gate revert in t64_audio_info"),
+        ("core/t64_bus.c", "decode_region", "AI device gate revert in decode_region"),
+    )
+    for relative, function_name, label in gate_reverts:
+        path = source_root / relative
+        original = path.read_text(encoding="utf-8")
+        span = _function_definition_span(original, function_name)
+        if span is None:
+            raise AssertionError(f"{label} anchor no longer exists")
+        helper = "t64_has_ai_device("
+        helper_at = original.find(helper, span[0], span[1])
+        if helper_at < 0:
+            raise AssertionError(f"{label} family gate no longer exists")
+        path.write_text(
+            original[:helper_at]
+            + "t64_has_ai_profile("
+            + original[helper_at + len(helper):],
+            encoding="utf-8",
+        )
         _must_reject(label, source_root, build_root)
         path.write_text(original, encoding="utf-8")
         seeds_run += 1
