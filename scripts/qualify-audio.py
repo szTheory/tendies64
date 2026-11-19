@@ -33,6 +33,29 @@ PCM = bytes.fromhex(
     "00007fff8000ffff1234edcc0001fffe"
     "80007fffffff000055aaaa5500008000"
 )
+# Authored expectations for fixtures/audio/pcm.S, kept independent of any retained
+# record: eight CPU stores from the copy_pcm loop at 0x8000045c into RDRAM 0x3400,
+# seven AI register stores in program order, the guest-owned MI snapshot store to
+# 0x3210, and the final hello-transcript flush store as the last retired instruction.
+AUDIO_PCM_WORDS = (
+    0x00007FFF, 0x8000FFFF, 0x1234EDCC, 0x0001FFFE,
+    0x80007FFF, 0xFFFF0000, 0x55AAAA55, 0x00008000,
+)
+AUDIO_PCM_STORE = (0x8000045C, 0xAD2B0000)
+AUDIO_AI_WRITES = (
+    (0x04500008, 1), (0x04500010, 1103), (0x04500014, 15),
+    (0x04500000, 0x3400), (0x04500004, 16), (0x04500000, 0x3410),
+    (0x04500004, 16),
+)
+AUDIO_AI_STORES = (
+    (0x8000047C, 0xAD090008), (0x80000484, 0xAD090010),
+    (0x8000048C, 0xAD090014), (0x80000494, 0xAD090000),
+    (0x8000049C, 0xAD090004), (0x800004A4, 0xAD090000),
+    (0x800004AC, 0xAD090004),
+)
+AUDIO_MI_SNAPSHOT_ADDRESS = 0x3210
+AUDIO_LAST_CPU_PC = 0x800005E4
+TRACE_KIND_BUS_WRITE32 = 4
 SHA256_RE = re.compile(r"^[0-9a-f]{64}$")
 SHA1_RE = re.compile(r"^[0-9a-f]{40}$")
 DECIMAL_RE = re.compile(r"^[0-9]+$")
@@ -1786,11 +1809,8 @@ def _verify_audio_observation(data: bytes, manifest: dict[str, Any],
                  info.encoding == 1 and info.byte_length == expected["byte_length"],
                  f"PCM observation packet {index} metadata differs from the authored literal")
         for field, value in expected.items():
-            if field in {"sequence", "first_sample_index", "frame_count",
-                         "rate_numerator", "rate_denominator", "channels",
-                         "bits_per_sample", "byte_length"}:
-                _require(_audio_observation_uint(entry.get(field), field) == value,
-                         f"raw audio packet {index} {field} differs from its independent literal")
+            _require(_audio_observation_uint(entry.get(field), field) == value,
+                     f"raw audio packet {index} {field} differs from its independent literal")
         first_tick = _audio_observation_uint(entry.get("first_tick"), "first tick")
         last_tick = _audio_observation_uint(entry.get("last_tick"), "last tick")
         _require(info.first_tick == first_tick and info.last_tick == last_tick and
@@ -1807,6 +1827,86 @@ def _verify_audio_observation(data: bytes, manifest: dict[str, Any],
                  f"PCM observation packet {index} profile or build identity differs")
     _require(expected_ticks[0][1] < expected_ticks[1][0],
              "PCM observation packet tick ranges overlap or are out of order")
+    _verify_audio_observation_tail(observation, stop_tick, expected_ticks, result)
+
+
+def _audio_region_is_zero(value: Any) -> bool:
+    return ctypes.string_at(ctypes.addressof(value), ctypes.sizeof(value)) == \
+        bytes(ctypes.sizeof(value))
+
+
+def _verify_audio_observation_tail(observation: _TAudioObservation, stop_tick: int,
+                                   packet_ticks: list[tuple[int, int]],
+                                   result: dict[str, Any]) -> None:
+    """Bind the trace, retirement, yield and guest-owned fields to the authored fixture."""
+    _require(b"".join(word.to_bytes(4, "big") for word in AUDIO_PCM_WORDS) == PCM,
+             "authored PCM store words differ from the authored PCM literal")
+    _require(observation.guest_first_escape_pc == 0 and
+             observation.guest_first_escape_tick == 0 and
+             observation.guest_first_exception_seen == 0 and
+             observation.guest_first_exception_tick == 0 and
+             observation.guest_first_exception_epc == 0 and
+             observation.guest_first_exception_preceding_tick == 0 and
+             observation.guest_first_exception_preceding_pc == 0 and
+             observation.guest_first_exception_state == 0 and
+             observation.guest_first_exception_mi == 0,
+             "original PCM observation records a guest escape or exception")
+    snapshot = observation.guest_mi_snapshot
+    _require((snapshot & 0x04) != 0 and (snapshot & ~0x3F) == 0,
+             "original PCM observation MI snapshot lacks the AI interrupt or is not a register value")
+
+    expected_writes = [(0x3400 + 4 * index, word)
+                       for index, word in enumerate(AUDIO_PCM_WORDS)]
+    expected_writes.extend(AUDIO_AI_WRITES)
+    previous_tick = 0
+    for index, (address, value) in enumerate(expected_writes):
+        write = observation.bus_writes[index]
+        _require(write.kind == TRACE_KIND_BUS_WRITE32 and write.address == address and
+                 write.value == value and write.tick > previous_tick,
+                 f"PCM observation bus write {index} differs from the authored fixture")
+        previous_tick = write.tick
+    snapshot_write = observation.bus_writes[len(expected_writes)]
+    _require(snapshot_write.kind == TRACE_KIND_BUS_WRITE32 and
+             snapshot_write.address == AUDIO_MI_SNAPSHOT_ADDRESS and
+             snapshot_write.value == snapshot and snapshot_write.tick > previous_tick,
+             "PCM observation MI snapshot write differs from the authored fixture")
+
+    expected_stores = [AUDIO_PCM_STORE] * len(AUDIO_PCM_WORDS) + list(AUDIO_AI_STORES)
+    for index, (pc, opcode) in enumerate(expected_stores):
+        store = observation.sw_retirements[index]
+        _require(store.pc == pc and store.opcode == opcode and
+                 store.tick == observation.bus_writes[index].tick,
+                 f"PCM observation store retirement {index} differs from the authored fixture")
+    _require(_audio_region_is_zero(observation.sw_retirements[len(expected_stores)]),
+             "PCM observation has a store retirement beyond its authored count")
+
+    ai_queued_tick = observation.bus_writes[len(expected_writes) - 1].tick
+    _require(packet_ticks[0][0] > ai_queued_tick and
+             snapshot_write.tick > packet_ticks[1][1] and
+             observation.mi_ai_read_tick >= packet_ticks[1][1] and
+             observation.guest_last_cpu_tick >= max(observation.mi_ai_read_tick,
+                                                    snapshot_write.tick) and
+             observation.guest_last_cpu_tick <= stop_tick,
+             "PCM observation guest progress ticks differ from the authored fixture order")
+    _require(observation.guest_last_cpu_pc == AUDIO_LAST_CPU_PC,
+             "PCM observation last retired instruction differs from the authored fixture")
+    instruction_count = _audio_observation_uint(result.get("instruction_count"),
+                                                "result instruction count")
+    _require(observation.trace_records >= instruction_count + observation.bus_write_count,
+             "PCM observation trace record count is below its retired instructions and writes")
+
+    for index in range(len(observation.yields)):
+        entry = observation.yields[index]
+        if index >= observation.yield_count:
+            _require(_audio_region_is_zero(entry),
+                     "PCM observation has a resource yield beyond its recorded count")
+            continue
+        _require(0 < entry.target_tick and entry.before_tick <= entry.reached_tick and
+                 entry.reached_tick <= entry.target_tick and
+                 entry.reached_tick <= stop_tick and
+                 entry.video_before <= entry.video_after and
+                 entry.audio_before <= entry.audio_after <= 2,
+                 f"PCM observation resource yield {index} is out of bounds")
 
 
 def _capture_record(record: Path, build: Path, last_test_path: Path,

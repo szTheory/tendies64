@@ -36,6 +36,7 @@ CASE_NAMES = (
     "raw-upload-rejected",
     "pii-projection-rejected",
     "hosted-platform-witness-required",
+    "tampered-audio-observation-tail-rejected",
     "exact-hosted-context-bound",
     "native-command-plan-explicit-builds",
     "phase08-gcc-closure-units-and-frame-policy",
@@ -137,64 +138,121 @@ def _projection() -> dict[str, Any]:
     }
 
 
+# Authored expectations for fixtures/audio/pcm.S, written out independently of
+# scripts/qualify-audio.py: eight copied PCM words (copy_pcm loop at 0x8000045c),
+# seven AI register stores in program order, and the guest-owned MI snapshot.
+_AUTHORED_PCM_WORDS = (
+    0x00007FFF, 0x8000FFFF, 0x1234EDCC, 0x0001FFFE,
+    0x80007FFF, 0xFFFF0000, 0x55AAAA55, 0x00008000,
+)
+_AUTHORED_AI_WRITES = (
+    (0x04500008, 1), (0x04500010, 1103), (0x04500014, 15),
+    (0x04500000, 0x3400), (0x04500004, 16), (0x04500000, 0x3410),
+    (0x04500004, 16),
+)
+_AUTHORED_AI_STORE_PCS = (
+    0x8000047C, 0x80000484, 0x8000048C, 0x80000494,
+    0x8000049C, 0x800004A4, 0x800004AC,
+)
+_AUTHORED_AI_STORE_OPCODES = (
+    0xAD090008, 0xAD090010, 0xAD090014, 0xAD090000,
+    0xAD090004, 0xAD090000, 0xAD090004,
+)
+_BUS_WRITE32 = 4
+
+
+def _audio_observation_baseline() -> tuple[bytes, dict[str, Any], list[dict[str, Any]],
+                                           list[bytes], dict[str, Any]]:
+    """Return an accepted version-2 record carrying the full authored tail."""
+    build_id = "t64-build-v1-" + "c" * 64
+    entries = [
+        {
+            "sequence": "1", "first_sample_index": "0",
+            "frame_count": "4", "rate_numerator": "48681812",
+            "rate_denominator": "1104", "channels": "2",
+            "bits_per_sample": "16", "byte_length": "16",
+            "first_tick": "540414", "last_tick": "544666",
+            "encoding": "s16be-interleaved-stereo",
+        },
+        {
+            "sequence": "2", "first_sample_index": "4",
+            "frame_count": "4", "rate_numerator": "48681812",
+            "rate_denominator": "1104", "channels": "2",
+            "bits_per_sample": "16", "byte_length": "16",
+            "first_tick": "546083", "last_tick": "550335",
+            "encoding": "s16be-interleaved-stereo",
+        },
+    ]
+    manifest = {"core_build_id": build_id, "audio": entries}
+    result = {"guest_tick": "551001", "instruction_count": "550970"}
+    observation = qualify._TAudioObservation()
+    observation.magic = 0x54363441
+    observation.version = 2
+    observation.packet_count = 2
+    observation.bus_write_count = 16
+    observation.sw_retirement_count = 15
+    observation.mi_ai_read_seen = 1
+    observation.guest_mi_snapshot_seen = 1
+    observation.guest_mi_snapshot = 0x24
+    observation.trace_records = 2346555
+    observation.mi_ai_read_tick = 550738
+    observation.guest_last_cpu_tick = 551000
+    observation.guest_last_cpu_pc = 0x800005E4
+    observation.guest_stop_tick = 551001
+    observation.guest_stop_reason = 8
+    for index, word in enumerate(_AUTHORED_PCM_WORDS):
+        write = observation.bus_writes[index]
+        write.tick = 538931 + 7 * index
+        write.address = 0x3400 + 4 * index
+        write.value = word
+        write.kind = _BUS_WRITE32
+        store = observation.sw_retirements[index]
+        store.tick = write.tick
+        store.pc = 0x8000045C
+        store.opcode = 0xAD2B0000
+    for index, (address, value) in enumerate(_AUTHORED_AI_WRITES):
+        write = observation.bus_writes[8 + index]
+        write.tick = 538988 + 2 * index
+        write.address = address
+        write.value = value
+        write.kind = _BUS_WRITE32
+        store = observation.sw_retirements[8 + index]
+        store.tick = write.tick
+        store.pc = _AUTHORED_AI_STORE_PCS[index]
+        store.opcode = _AUTHORED_AI_STORE_OPCODES[index]
+    snapshot = observation.bus_writes[15]
+    snapshot.tick = 550343
+    snapshot.address = 0x3210
+    snapshot.value = 0x24
+    snapshot.kind = _BUS_WRITE32
+    packet_data = [qualify.PCM[:16], qualify.PCM[16:]]
+    for index, (entry, raw) in enumerate(zip(entries, packet_data)):
+        packet = observation.packets[index]
+        info = packet.info
+        info.struct_size = ctypes.sizeof(qualify._TAudioPacketInfo)
+        info.sequence = int(entry["sequence"])
+        info.first_sample_index = int(entry["first_sample_index"])
+        info.first_tick = int(entry["first_tick"])
+        info.last_tick = int(entry["last_tick"])
+        info.frame_count = int(entry["frame_count"])
+        info.rate_numerator = int(entry["rate_numerator"])
+        info.rate_denominator = int(entry["rate_denominator"])
+        info.channels = int(entry["channels"])
+        info.bits_per_sample = int(entry["bits_per_sample"])
+        info.encoding = 1
+        info.byte_length = int(entry["byte_length"])
+        info.profile_id = qualify.PROFILE_ID.encode("ascii")
+        info.build_id = build_id.encode("ascii")
+        for byte_index, value in enumerate(raw):
+            packet.bytes[byte_index] = value
+    valid = ctypes.string_at(ctypes.addressof(observation),
+                             ctypes.sizeof(observation))
+    return valid, manifest, entries, packet_data, result
+
+
 class AudioQualificationTests(unittest.TestCase):
     def test_truncated_forged_resealed_audio_observation_rejected(self) -> None:
-        build_id = "t64-build-v1-" + "c" * 64
-        entries = [
-            {
-                "sequence": "1", "first_sample_index": "0",
-                "frame_count": "4", "rate_numerator": "48681812",
-                "rate_denominator": "1104", "channels": "2",
-                "bits_per_sample": "16", "byte_length": "16",
-                "first_tick": "540414", "last_tick": "544666",
-                "encoding": "s16be-interleaved-stereo",
-            },
-            {
-                "sequence": "2", "first_sample_index": "4",
-                "frame_count": "4", "rate_numerator": "48681812",
-                "rate_denominator": "1104", "channels": "2",
-                "bits_per_sample": "16", "byte_length": "16",
-                "first_tick": "546083", "last_tick": "550335",
-                "encoding": "s16be-interleaved-stereo",
-            },
-        ]
-        manifest = {"core_build_id": build_id, "audio": entries}
-        result = {"guest_tick": "551001"}
-        observation = qualify._TAudioObservation()
-        observation.magic = 0x54363441
-        observation.version = 2
-        observation.packet_count = 2
-        observation.bus_write_count = 16
-        observation.sw_retirement_count = 15
-        observation.mi_ai_read_seen = 1
-        observation.guest_mi_snapshot_seen = 1
-        observation.trace_records = 2346555
-        observation.mi_ai_read_tick = 550738
-        observation.guest_last_cpu_tick = 551000
-        observation.guest_stop_tick = 551001
-        observation.guest_stop_reason = 8
-        packet_data = [qualify.PCM[:16], qualify.PCM[16:]]
-        for index, (entry, raw) in enumerate(zip(entries, packet_data)):
-            packet = observation.packets[index]
-            info = packet.info
-            info.struct_size = ctypes.sizeof(qualify._TAudioPacketInfo)
-            info.sequence = int(entry["sequence"])
-            info.first_sample_index = int(entry["first_sample_index"])
-            info.first_tick = int(entry["first_tick"])
-            info.last_tick = int(entry["last_tick"])
-            info.frame_count = int(entry["frame_count"])
-            info.rate_numerator = int(entry["rate_numerator"])
-            info.rate_denominator = int(entry["rate_denominator"])
-            info.channels = int(entry["channels"])
-            info.bits_per_sample = int(entry["bits_per_sample"])
-            info.encoding = 1
-            info.byte_length = int(entry["byte_length"])
-            info.profile_id = qualify.PROFILE_ID.encode("ascii")
-            info.build_id = build_id.encode("ascii")
-            for byte_index, value in enumerate(raw):
-                packet.bytes[byte_index] = value
-        valid = ctypes.string_at(ctypes.addressof(observation),
-                                 ctypes.sizeof(observation))
+        valid, manifest, entries, packet_data, result = _audio_observation_baseline()
 
         qualify._verify_audio_observation(valid, manifest, entries, packet_data, result)
         self.assertEqual(len(valid), 3976)
@@ -223,6 +281,103 @@ class AudioQualificationTests(unittest.TestCase):
                 forged_bytes, resealed_manifest, resealed_manifest["audio"],
                 packet_data, result,
             )
+
+    def test_tampered_audio_observation_tail_rejected(self) -> None:
+        valid, manifest, entries, packet_data, result = _audio_observation_baseline()
+        qualify._verify_audio_observation(valid, manifest, entries, packet_data, result)
+
+        def zero(array: Any) -> None:
+            ctypes.memset(ctypes.addressof(array), 0, ctypes.sizeof(array))
+
+        def xor_packet_byte(observation: Any) -> None:
+            observation.packets[1].bytes[3] ^= 0x01
+
+        def consistent_snapshot(value: int) -> Any:
+            def change(observation: Any) -> None:
+                observation.guest_mi_snapshot = value
+                observation.bus_writes[15].value = value
+            return change
+
+        controls = {
+            # bus_writes region
+            "zeroed bus writes": lambda o: zero(o.bus_writes),
+            "wrong PCM word": lambda o: setattr(o.bus_writes[0], "value", 0x00007FFE),
+            "wrong PCM address": lambda o: setattr(o.bus_writes[2], "address", 0x340C),
+            "wrong AI register address": lambda o: setattr(
+                o.bus_writes[9], "address", 0x04500000),
+            "wrong AI register value": lambda o: setattr(o.bus_writes[9], "value", 1102),
+            "wrong write kind": lambda o: setattr(o.bus_writes[4], "kind", 3),
+            "wrong snapshot address": lambda o: setattr(
+                o.bus_writes[15], "address", 0x3214),
+            "snapshot write without AI bit": consistent_snapshot(0x20),
+            "write tick out of order": lambda o: setattr(o.bus_writes[5], "tick", 1),
+            # sw_retirements region
+            "zeroed retirements": lambda o: zero(o.sw_retirements),
+            "garbage retirement pc": lambda o: setattr(
+                o.sw_retirements[3], "pc", 0xDEADBEEF),
+            "garbage retirement opcode": lambda o: setattr(
+                o.sw_retirements[9], "opcode", 0x0BADF00D),
+            "retirement beyond count": lambda o: setattr(
+                o.sw_retirements[15], "pc", 0x8000045C),
+            "retirement tick differs from its bus write": lambda o: setattr(
+                o.sw_retirements[12], "tick", 538995),
+            # yields region
+            "stale yield beyond count": lambda o: setattr(
+                o.yields[0], "target_tick", 5),
+            "yield counted but empty": lambda o: setattr(o, "yield_count", 1),
+            "yield count above capacity": lambda o: setattr(o, "yield_count", 66),
+            # guest-owned scalar fields
+            "guest exception seen": lambda o: setattr(
+                o, "guest_first_exception_seen", 1),
+            "guest exception epc": lambda o: setattr(
+                o, "guest_first_exception_epc", 0x80000180),
+            "guest escape pc": lambda o: setattr(o, "guest_first_escape_pc", 0x80000180),
+            "guest escape tick": lambda o: setattr(o, "guest_first_escape_tick", 5),
+            "zero MI snapshot": lambda o: setattr(o, "guest_mi_snapshot", 0),
+            "MI snapshot field without AI bit": lambda o: setattr(
+                o, "guest_mi_snapshot", 0x20),
+            "MI snapshot disagrees with its write": lambda o: setattr(
+                o, "guest_mi_snapshot", 0x04),
+            "MI snapshot above register width": consistent_snapshot(0x124),
+            "zero MI AI read tick": lambda o: setattr(o, "mi_ai_read_tick", 0),
+            "MI AI read before last packet": lambda o: setattr(
+                o, "mi_ai_read_tick", 550334),
+            "zero last CPU tick": lambda o: setattr(o, "guest_last_cpu_tick", 0),
+            "wrong last CPU pc": lambda o: setattr(o, "guest_last_cpu_pc", 0x80000400),
+            "zero trace record count": lambda o: setattr(o, "trace_records", 0),
+            "trace overflow": lambda o: setattr(o, "trace_overflow", 1),
+            # packet, profile and build identity regions
+            "tampered packet bytes": xor_packet_byte,
+            "tampered packet tick": lambda o: setattr(
+                o.packets[0].info, "first_tick", 540415),
+            "tampered packet profile": lambda o: setattr(
+                o.packets[1].info, "profile_id",
+                (qualify.PROFILE_ID[:-1] + "2").encode("ascii")),
+            "tampered packet build id": lambda o: setattr(
+                o.packets[0].info, "build_id",
+                ("t64-build-v1-" + "d" * 64).encode("ascii")),
+        }
+        for label, mutate in controls.items():
+            with self.subTest(label):
+                observation = qualify._TAudioObservation.from_buffer_copy(valid)
+                mutate(observation)
+                forged = ctypes.string_at(ctypes.addressof(observation),
+                                          ctypes.sizeof(observation))
+                self.assertNotEqual(forged, valid, f"{label} did not change the record")
+                with self.assertRaises(qualify.Refusal,
+                                       msg=f"{label} was accepted as audio evidence"):
+                    qualify._verify_audio_observation(
+                        forged, manifest, entries, packet_data, result)
+
+        with self.subTest("raw bundle packet differs from the observer"):
+            changed = [packet_data[0], bytes([packet_data[1][0] ^ 0x01]) + packet_data[1][1:]]
+            with self.assertRaises(qualify.Refusal):
+                qualify._verify_audio_observation(valid, manifest, entries, changed, result)
+        with self.subTest("result instruction count exceeds the trace record count"):
+            inflated = dict(result, instruction_count="2346556")
+            with self.assertRaises(qualify.Refusal):
+                qualify._verify_audio_observation(valid, manifest, entries,
+                                                  packet_data, inflated)
 
     def test_hosted_api_zip_digest_and_context_bound(self) -> None:
         archive = b"bounded synthetic archive bytes"
