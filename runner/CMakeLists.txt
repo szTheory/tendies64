@@ -555,6 +555,24 @@ t64_phase09_runner_case(harness.fsize-artifact-real-fault fsize-artifact)
 t64_phase09_runner_case(harness.fsize-report-capture-still-bounded fsize-report-capture)
 t64_phase09_runner_case(runner.profile-table-id-length profile-table)
 
+# Phase 9 pad-poll tracer (plan 09-03): the authored pad-poll ROM through the
+# real supervised runner, with the in-process poll timing measurement.
+add_executable(test_pad_poll tests/test_pad_poll.c)
+target_compile_definitions(test_pad_poll PRIVATE ${T64_HOST_DEFS})
+target_include_directories(test_pad_poll PRIVATE
+  ${CMAKE_CURRENT_SOURCE_DIR} ${CMAKE_SOURCE_DIR}/core/include)
+target_link_libraries(test_pad_poll PRIVATE t64_common t64_core)
+t64_target_warnings(test_pad_poll)
+add_dependencies(test_pad_poll t64-supervisor t64-supervisor-test
+  t64-result-check t64-boot-fixtures t64-phase09-pad-fixture)
+add_test(NAME runner.pad-poll
+  COMMAND test_pad_poll --suite accepted
+    $<TARGET_FILE:t64-supervisor> $<TARGET_FILE:t64-supervisor-test>
+    $<TARGET_FILE:t64-result-check> ${CMAKE_SOURCE_DIR})
+set_tests_properties(runner.pad-poll PROPERTIES
+  LABELS "runner;controls" TIMEOUT 120
+  ENVIRONMENT "T64_PHASE09_EVIDENCE_DIR=${CMAKE_BINARY_DIR}/09-03-evidence")
+
 # Publisher controls: the module is compiled with the testing hooks, like the
 # test twin of the runner, and never reaches the production runner.
 add_executable(test_artifact_publisher tests/test_artifact_publisher.c

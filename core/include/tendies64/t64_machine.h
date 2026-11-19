@@ -386,12 +386,14 @@ t64_status t64_audio_copy(t64_machine *machine, uint8_t *bytes_out,
                           size_t capacity, size_t *length_out);
 
 /*
- * Submit a deterministic port-0 observation event. Buttons are bits 0..15;
- * signed axes are logical 8-bit values in [-128,127]. Events are scheduled
- * and traced in tick/sequence order but are not consumed by SI/PIF or a
- * controller model. Calls must be serialized with advance. Refusals do not
- * change the queue or sequence. Submission is accepted only for an admitted,
- * nonterminal machine and a tick at or after the current guest tick.
+ * Submit a deterministic port-0 input event. Buttons are bits 0..15; signed
+ * axes are logical 8-bit values in [-128,127]. Events are scheduled and traced
+ * in tick/sequence order. Legacy profiles do not consume them; the composite
+ * family latches the value so a poll sampled at tick E sees the last input
+ * stamped strictly before E (provisional until Phase 10). Calls must be
+ * serialized with advance. Refusals do not change the queue or sequence.
+ * Submission is accepted only for an admitted, nonterminal machine and a tick
+ * at or after the current guest tick.
  */
 t64_status t64_machine_queue_input(t64_machine *machine, uint64_t tick,
                                    uint32_t port, uint16_t buttons,

@@ -882,6 +882,35 @@
         "source": "Same pinned stem transcript digest; completion after tick 600000 and before 1500000 asserted as a range in runner/tests/test_phase09_runner.c.",
         "revision": "source-content-sha256:89eb483caad0148bbbb53da8679c6565d1a0aa65ef7aadb867e50db5cdd6b27f"
       }
+    },
+    {
+      "id": "phase09-pad-poll-si-v1",
+      "source": {
+        "repo": "https://github.com/szTheory/tendies64",
+        "revision": "44755ff0aea7b8cf299097a1fd4e886f23af51ce",
+        "path": "fixtures/pad/poll.S"
+      },
+      "build": {
+        "recipe": "Assemble fixtures/pad/poll.S and fixtures/pad/poll.ld with the qualified GNU Binutils 2.45 tools with no defsym, then run sh scripts/build-pad-fixture.sh --build. Fixture source-content SHA-256 0e923ac3ca72a4d5d6f6ffb485c3b4803dba0bf12ad37776cde76b421aef3f46; exact generated ROM SHA-256 29a005be19b2f86e866d00cfb3ab2f8aac39e376d85a5e5d24e78c113a80dab6 (4688 bytes), payload SHA-256 0ab32fa1f09a74dc08db50ddb3a208ee5c253d0737159504e53d2eaf3f90c8cb (592 bytes). Includes only the separately rights-cleared Unlicense IPL3 payload. Generated binaries remain local/build-only.",
+        "toolchain": ["GNU Binutils 2.45"]
+      },
+      "sha256": "29a005be19b2f86e866d00cfb3ab2f8aac39e376d85a5e5d24e78c113a80dab6",
+      "size": 4688,
+      "profile": "ntsc-cart-4m-openipl3-rdram-b-t1-si-v1",
+      "source_rights": "authored-here",
+      "binary_rights": "cleared",
+      "distribution": ["build-only"],
+      "rights_evidence": "The assembly, linker script and packer are authored here under Apache-2.0 (LICENSE). The generated cartridge embeds only the separately recorded 4096-byte Unlicense IPL3 asset and its exact payload. No protected ROM or diagnostic asset is included. Generated ROM and payload are local build outputs and are not committed or uploaded.",
+      "notices": [
+        "Authored assembly and linker script are licensed under Apache-2.0; see LICENSE.",
+        "Embedded IPL3 is covered by the separately recorded pinned Unlicense source asset.",
+        "Generated pad-poll ROM and payload are build-only."
+      ],
+      "expected": {
+        "kind": "self-checking",
+        "source": "Independent 68-byte transcript from fixtures/pad/poll_oracle.py (baseline) and shasum, pinned in runner/t64_real_fixture.c and asserted in runner/tests/test_pad_poll.c. Policy self-consistency only.",
+        "revision": "source-content-sha256:0e923ac3ca72a4d5d6f6ffb485c3b4803dba0bf12ad37776cde76b421aef3f46"
+      }
     }
   ]
 }
