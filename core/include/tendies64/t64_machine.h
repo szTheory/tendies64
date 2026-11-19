@@ -93,6 +93,11 @@
 #define T64_REGION_EUROPE UINT32_C(2)
 #define T64_MEDIA_CARTRIDGE UINT32_C(1)
 #define T64_SAVE_NONE UINT32_C(0)
+/* Provisional until the Phase 10 interface review; no API/ABI freeze. */
+#define T64_SAVE_EEPROM_4K UINT32_C(1)
+#define T64_SAVE_EEPROM_16K UINT32_C(2)
+#define T64_SAVE_SRAM_32K UINT32_C(3)
+#define T64_PERIPHERAL_STANDARD_CONTROLLER_PORT0 UINT32_C(1)
 
 #define T64_STOP_GUEST_TICK UINT32_C(1)
 #define T64_STOP_INSTRUCTION_COUNT UINT32_C(2)
@@ -188,6 +193,10 @@ typedef struct {
   char rdp_depth_policy[T64_PROFILE_TEXT_CAPACITY];
   /* Descriptor v11 field: deterministic AI DMA/sample policy. */
   char ai_policy[T64_PROFILE_TEXT_CAPACITY];
+  /* Descriptor v12 fields: SI/joybus wire policy and explicit save-media
+   * policy. Older descriptor hashes ignore them. Provisional until Phase 10. */
+  char si_policy[T64_PROFILE_TEXT_CAPACITY];
+  char save_policy[T64_PROFILE_TEXT_CAPACITY];
   uint32_t descriptor_version;
   uint32_t machine_model_version;
   uint32_t state_serialization_version;
