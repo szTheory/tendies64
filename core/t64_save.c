@@ -145,3 +145,87 @@ uint8_t t64_save_channel4_execute(t64_machine *machine, uint64_t tick,
   rx[0] = UINT8_C(0x00);
   return 0u;
 }
+
+/*
+ * SRAM window [0x08000000, 0x08008000): reached by aligned 32-bit access and
+ * by PI DMA only, for the explicit SRAM profile. No mirroring, no banking.
+ * Named software-profile policy (single community source for the base
+ * address and size); no hardware accuracy is claimed.
+ */
+t64_status t64_save_sram_read_word(const t64_machine *machine,
+                                   uint32_t address, uint32_t *value_out) {
+  const uint8_t *bytes;
+  uint32_t offset;
+
+  if (machine == NULL || value_out == NULL) {
+    return T64_STATUS_INVALID_ARGUMENT;
+  }
+  if (!t64_has_sram_save(machine) || machine->save.bytes == NULL ||
+      address < T64_SRAM_BASE ||
+      address - T64_SRAM_BASE > T64_SAVE_SRAM_BYTES - 4u) {
+    return T64_STATUS_BUS_UNSUPPORTED;
+  }
+  if ((address & UINT32_C(3)) != 0u) {
+    return T64_STATUS_BUS_ALIGNMENT;
+  }
+  offset = address - T64_SRAM_BASE;
+  bytes = machine->save.bytes + offset;
+  *value_out = ((uint32_t)bytes[0] << 24) | ((uint32_t)bytes[1] << 16) |
+               ((uint32_t)bytes[2] << 8) | (uint32_t)bytes[3];
+  return T64_STATUS_OK;
+}
+
+t64_status t64_save_sram_write_word(t64_machine *machine, uint32_t address,
+                                    uint32_t value) {
+  uint8_t *bytes;
+  uint32_t offset;
+
+  if (machine == NULL) {
+    return T64_STATUS_INVALID_ARGUMENT;
+  }
+  if (!t64_has_sram_save(machine) || machine->save.bytes == NULL ||
+      address < T64_SRAM_BASE ||
+      address - T64_SRAM_BASE > T64_SAVE_SRAM_BYTES - 4u) {
+    return T64_STATUS_BUS_UNSUPPORTED;
+  }
+  if ((address & UINT32_C(3)) != 0u) {
+    return T64_STATUS_BUS_ALIGNMENT;
+  }
+  offset = address - T64_SRAM_BASE;
+  bytes = machine->save.bytes + offset;
+  bytes[0] = (uint8_t)(value >> 24);
+  bytes[1] = (uint8_t)(value >> 16);
+  bytes[2] = (uint8_t)(value >> 8);
+  bytes[3] = (uint8_t)value;
+  return T64_STATUS_OK;
+}
+
+/* The PI DMA effect, applied at the completion event: SRAM to RDRAM copies
+ * the storage into RDRAM and invalidates the RDRAM derived state; RDRAM to
+ * SRAM copies RDRAM into the storage (no RDRAM invalidation). The spans were
+ * validated at the start; they are checked again here with checked sums. */
+t64_status t64_save_sram_dma_apply(t64_machine *machine, uint32_t direction,
+                                   uint32_t dram_address,
+                                   uint32_t sram_offset, uint32_t length) {
+  if (machine == NULL || !t64_has_sram_save(machine) ||
+      machine->save.bytes == NULL || machine->ram == NULL ||
+      (uint64_t)dram_address + (uint64_t)length >
+          (uint64_t)machine->profile.rdram_bytes ||
+      (uint64_t)sram_offset + (uint64_t)length >
+          (uint64_t)T64_SAVE_SRAM_BYTES) {
+    return T64_STATUS_RESOURCE_EXHAUSTED;
+  }
+  if (direction == T64_PI_DIRECTION_SRAM_TO_RDRAM) {
+    (void)memcpy(machine->ram + dram_address,
+                 machine->save.bytes + sram_offset, (size_t)length);
+    t64_rdp_memory_coverage_invalidate(machine, dram_address, length);
+    t64_cpu_link_invalidate_range(machine, dram_address, length);
+    return T64_STATUS_OK;
+  }
+  if (direction == T64_PI_DIRECTION_RDRAM_TO_SRAM) {
+    (void)memcpy(machine->save.bytes + sram_offset,
+                 machine->ram + dram_address, (size_t)length);
+    return T64_STATUS_OK;
+  }
+  return T64_STATUS_INVALID_ARGUMENT;
+}

@@ -1577,6 +1577,15 @@ t64_save_channel4_class t64_save_channel4_classify(const t64_machine *machine,
 uint8_t t64_save_channel4_execute(t64_machine *machine, uint64_t tick,
                                   const uint8_t *tx, uint32_t tx_count,
                                   uint8_t *rx, uint32_t rx_count);
+/* SRAM: aligned word access inside the 32 KiB window (the bus has already
+ * decoded the region) and the PI DMA effect at the completion event. */
+t64_status t64_save_sram_read_word(const t64_machine *machine,
+                                   uint32_t address, uint32_t *value_out);
+t64_status t64_save_sram_write_word(t64_machine *machine, uint32_t address,
+                                    uint32_t value);
+t64_status t64_save_sram_dma_apply(t64_machine *machine, uint32_t direction,
+                                   uint32_t dram_address,
+                                   uint32_t sram_offset, uint32_t length);
 t64_status t64_sp_read_register(t64_machine *machine, uint32_t address,
                                 uint32_t *value_out);
 t64_status t64_sp_peek_register(const t64_machine *machine,

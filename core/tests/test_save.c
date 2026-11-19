@@ -475,6 +475,147 @@ static void case_eeprom_tracer(void) {
 }
 
 /* ------------------------------------------------------------------------ */
+/* Bus and PI helpers for the SRAM cases                                      */
+/* ------------------------------------------------------------------------ */
+
+#define AI_ID "ntsc-cart-4m-openipl3-rdram-b-t1-rdp-vi-filter-v9-ai-v1"
+#define LEGACY_ID "ntsc-cart-4m-openipl3-rdram-b-t1-v1"
+#define SRAM_FIRST UINT32_C(0x08000000)
+#define SRAM_LAST_WORD UINT32_C(0x08007FFC)
+#define PI_DRAM UINT32_C(0x04600000)
+#define PI_CART UINT32_C(0x04600004)
+#define PI_RD_LEN UINT32_C(0x04600008)
+#define PI_WR_LEN UINT32_C(0x0460000C)
+#define PI_STATUS UINT32_C(0x04600010)
+#define ROM_CART_BASE UINT32_C(0x10000000)
+#define MI_PI_BIT UINT32_C(0x10)
+
+static t64_status bus_r32(t64_machine *machine, uint32_t address,
+                          uint32_t *value) {
+  return t64_machine_bus_read(machine, address, 4u, value);
+}
+
+static t64_status bus_w32(t64_machine *machine, uint32_t address,
+                          uint32_t value) {
+  return t64_machine_bus_write(machine, address, 4u, value);
+}
+
+static uint32_t bus_value(t64_machine *machine, uint32_t address) {
+  uint32_t value = UINT32_MAX;
+
+  T64_CHECK_INT(bus_r32(machine, address, &value), T64_STATUS_OK);
+  return value;
+}
+
+/* ------------------------------------------------------------------------ */
+/* sram-window                                                               */
+/* ------------------------------------------------------------------------ */
+
+static void case_sram_window(void) {
+  static const char *const refusing_ids[] = {STEM_ID, E4K_ID, E16K_ID, AI_ID,
+                                             LEGACY_ID};
+  static const uint32_t outside[] = {UINT32_C(0x08008000),
+                                     UINT32_C(0x0800FFFC),
+                                     UINT32_C(0x08010000),
+                                     UINT32_C(0x0FFFFFFC)};
+  t64_machine *machine = create_admitted(S32K_ID);
+  uint8_t before[T64_DIGEST_SIZE];
+  uint8_t after[T64_DIGEST_SIZE];
+  uint8_t copy[T64_SAVE_SRAM_BYTES];
+  uint64_t wide = 0u;
+  size_t index;
+
+  if (machine != NULL) {
+    /* Accepted baseline in the same setup: blank read, first and last word,
+       big-endian bytes in the storage. */
+    T64_CHECK_INT(bus_value(machine, SRAM_LAST_WORD), 0u);
+    T64_CHECK_INT(bus_w32(machine, SRAM_FIRST, UINT32_C(0x01234567)),
+                  T64_STATUS_OK);
+    T64_CHECK_INT(bus_value(machine, SRAM_FIRST), 0x01234567u);
+    T64_CHECK_INT(bus_w32(machine, SRAM_LAST_WORD, UINT32_C(0x89ABCDEF)),
+                  T64_STATUS_OK);
+    T64_CHECK_INT(bus_value(machine, SRAM_LAST_WORD), 0x89ABCDEFu);
+    if (machine->save.bytes != NULL) {
+      T64_CHECK_INT(machine->save.bytes[0], 0x01u);
+      T64_CHECK_INT(machine->save.bytes[1], 0x23u);
+      T64_CHECK_INT(machine->save.bytes[2], 0x45u);
+      T64_CHECK_INT(machine->save.bytes[3], 0x67u);
+      T64_CHECK_INT(machine->save.bytes[T64_SAVE_SRAM_BYTES - 4u], 0x89u);
+      T64_CHECK_INT(machine->save.bytes[T64_SAVE_SRAM_BYTES - 1u], 0xEFu);
+      (void)memcpy(copy, machine->save.bytes, sizeof copy);
+    }
+    digest_of(machine, before);
+
+    /* Every refusal: out-of-window addresses (no mirroring, no banking),
+       widths 1, 2 and 8, and a misaligned word; the digest and the storage
+       stay bit-identical. */
+    for (index = 0u; index < sizeof outside / sizeof outside[0]; index++) {
+      uint32_t value = 0xA5A5A5A5u;
+
+      T64_CHECK_INT(bus_r32(machine, outside[index], &value),
+                    T64_STATUS_BUS_UNSUPPORTED);
+      T64_CHECK_INT(value, 0xA5A5A5A5u);
+      T64_CHECK_INT(bus_w32(machine, outside[index], UINT32_C(0x55555555)),
+                    T64_STATUS_BUS_UNSUPPORTED);
+    }
+    {
+      uint32_t value = 0xA5A5A5A5u;
+
+      T64_CHECK_INT(t64_machine_bus_read(machine, SRAM_FIRST, 1u, &value),
+                    T64_STATUS_BUS_UNSUPPORTED);
+      T64_CHECK_INT(t64_machine_bus_read(machine, SRAM_FIRST + 2u, 2u, &value),
+                    T64_STATUS_BUS_UNSUPPORTED);
+      T64_CHECK_INT(t64_machine_bus_write(machine, SRAM_FIRST, 1u, 0x11u),
+                    T64_STATUS_BUS_UNSUPPORTED);
+      T64_CHECK_INT(t64_machine_bus_write(machine, SRAM_FIRST + 2u, 2u,
+                                          0x2222u),
+                    T64_STATUS_BUS_UNSUPPORTED);
+      T64_CHECK_INT(t64_bus_read_wide(machine, SRAM_FIRST, &wide),
+                    T64_STATUS_BUS_UNSUPPORTED);
+      T64_CHECK_INT(t64_bus_write_masked(machine, SRAM_FIRST, 8u, 0xFFu, 0u),
+                    T64_STATUS_BUS_UNSUPPORTED);
+      /* The literal status of a misaligned word access: the unchanged
+         validation path answers BUS_ALIGNMENT (17) before the decode. */
+      T64_CHECK_INT(bus_r32(machine, SRAM_FIRST + 2u, &value), 17u);
+      T64_CHECK_INT(bus_w32(machine, SRAM_FIRST + 2u, 0u), 17u);
+      T64_CHECK_INT(value, 0xA5A5A5A5u);
+    }
+    {
+      uint8_t reread[T64_DIGEST_SIZE];
+
+      digest_of(machine, reread);
+      T64_CHECK(memcmp(before, reread, T64_DIGEST_SIZE) == 0);
+    }
+    if (machine->save.bytes != NULL) {
+      T64_CHECK(memcmp(copy, machine->save.bytes, sizeof copy) == 0);
+    }
+    t64_machine_destroy(machine);
+  }
+
+  /* Every other profile refuses the window exactly as the legacy pin: the
+     stem, both EEPROM ids, the AI profile and a legacy profile (these rows
+     start green by design: the carve-out must not reach them). */
+  for (index = 0u; index < sizeof refusing_ids / sizeof refusing_ids[0];
+       index++) {
+    t64_machine *other = create_admitted(refusing_ids[index]);
+    uint32_t value = 0xA5A5A5A5u;
+
+    if (other == NULL) continue;
+    digest_of(other, before);
+    T64_CHECK_INT(bus_r32(other, SRAM_FIRST, &value),
+                  T64_STATUS_BUS_UNSUPPORTED);
+    T64_CHECK_INT(bus_w32(other, SRAM_FIRST, UINT32_C(0x01234567)),
+                  T64_STATUS_BUS_UNSUPPORTED);
+    T64_CHECK_INT(bus_r32(other, SRAM_LAST_WORD, &value),
+                  T64_STATUS_BUS_UNSUPPORTED);
+    T64_CHECK_INT(value, 0xA5A5A5A5u);
+    digest_of(other, after);
+    T64_CHECK(memcmp(before, after, T64_DIGEST_SIZE) == 0);
+    t64_machine_destroy(other);
+  }
+}
+
+/* ------------------------------------------------------------------------ */
 /* Dispatch                                                                  */
 /* ------------------------------------------------------------------------ */
 
@@ -486,6 +627,7 @@ typedef struct {
 static const test_case cases[] = {
     {"storage-blank", case_storage_blank},
     {"eeprom-tracer", case_eeprom_tracer},
+    {"sram-window", case_sram_window},
 };
 
 int main(int argc, char **argv) {

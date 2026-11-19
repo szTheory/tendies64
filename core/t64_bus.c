@@ -50,7 +50,8 @@ typedef enum {
   T64_BUS_REGION_RDRAM_PROTOCOL,
   T64_BUS_REGION_ISVIEWER,
   T64_BUS_REGION_ABSENT_RDRAM_PROBE,
-  T64_BUS_REGION_SI
+  T64_BUS_REGION_SI,
+  T64_BUS_REGION_SAVE_SRAM
 } t64_bus_region;
 
 bool t64_cpu_compat_zero_data_range(const t64_machine *machine,
@@ -100,6 +101,13 @@ static t64_bus_region decode_region(const t64_machine *machine,
     return t64_has_rdram_protocol_policy(machine)
                ? T64_BUS_REGION_RDRAM_PROTOCOL
                : T64_BUS_REGION_UNSUPPORTED;
+  }
+  /* The 32 KiB SRAM window is carved out of the domain 2 unsupported arm for
+   * the explicit SRAM id only; every other address and profile keeps the arm. */
+  if (address >= T64_SRAM_BASE &&
+      address < T64_SRAM_BASE + T64_SAVE_SRAM_BYTES &&
+      t64_has_sram_save(machine)) {
+    return T64_BUS_REGION_SAVE_SRAM;
   }
   if ((address >= T64_DOMAIN2_A_BASE && address < T64_DOMAIN2_A_END) ||
       (address >= T64_DOMAIN1_B_BASE && address < T64_DOMAIN1_B_END) ||
@@ -315,6 +323,7 @@ static const uint8_t *region_bytes(const t64_machine *machine,
   case T64_BUS_REGION_ISVIEWER:
   case T64_BUS_REGION_ABSENT_RDRAM_PROBE:
   case T64_BUS_REGION_SI:
+  case T64_BUS_REGION_SAVE_SRAM:
     break;
   }
   *remaining_out = 0u;
@@ -364,7 +373,8 @@ t64_status t64_bus_probe_access(const t64_machine *machine,
                  region == T64_BUS_REGION_RDRAM_PROTOCOL ||
                  region == T64_BUS_REGION_ISVIEWER ||
                  region == T64_BUS_REGION_ABSENT_RDRAM_PROBE ||
-                 region == T64_BUS_REGION_SI
+                 region == T64_BUS_REGION_SI ||
+                 region == T64_BUS_REGION_SAVE_SRAM
              ? T64_STATUS_OK
              : T64_STATUS_BUS_UNMAPPED;
 }
@@ -473,6 +483,14 @@ t64_status t64_bus_read(t64_machine *machine, uint32_t address,
     trace_bus(machine, address, width, value, false);
     return T64_STATUS_OK;
   }
+  if (region == T64_BUS_REGION_SAVE_SRAM) {
+    if (width != 4u) return T64_STATUS_BUS_UNSUPPORTED;
+    status = t64_save_sram_read_word(machine, address, &value);
+    if (status != T64_STATUS_OK) return status;
+    *value_out = value;
+    trace_bus(machine, address, width, value, false);
+    return T64_STATUS_OK;
+  }
   if (region == T64_BUS_REGION_SP_REG) {
     if (width != 4u) {
       return T64_STATUS_BUS_UNSUPPORTED;
@@ -550,7 +568,8 @@ t64_status t64_bus_read_wide(t64_machine *machine, uint32_t address,
   if (region == T64_BUS_REGION_UNMAPPED) {
     return T64_STATUS_BUS_UNMAPPED;
   }
-  if (region == T64_BUS_REGION_UNSUPPORTED) {
+  if (region == T64_BUS_REGION_UNSUPPORTED ||
+      region == T64_BUS_REGION_SAVE_SRAM) {
     return T64_STATUS_BUS_UNSUPPORTED;
   }
   if (region == T64_BUS_REGION_MI || region == T64_BUS_REGION_PI ||
@@ -661,6 +680,12 @@ t64_status t64_bus_write(t64_machine *machine, uint32_t address,
     if (status == T64_STATUS_OK) trace_bus(machine, address, width, value, true);
     return status;
   }
+  if (region == T64_BUS_REGION_SAVE_SRAM) {
+    if (width != 4u) return T64_STATUS_BUS_UNSUPPORTED;
+    status = t64_save_sram_write_word(machine, address, value);
+    if (status == T64_STATUS_OK) trace_bus(machine, address, width, value, true);
+    return status;
+  }
   if (region == T64_BUS_REGION_SP_REG) {
     if (width != 4u) {
       return T64_STATUS_BUS_UNSUPPORTED;
@@ -725,6 +750,7 @@ t64_status t64_bus_write(t64_machine *machine, uint32_t address,
   case T64_BUS_REGION_ISVIEWER:
   case T64_BUS_REGION_ABSENT_RDRAM_PROBE:
   case T64_BUS_REGION_SI:
+  case T64_BUS_REGION_SAVE_SRAM:
     break;
   }
   if (bytes == NULL || (size_t)width > remaining) {
@@ -816,6 +842,8 @@ t64_status t64_bus_write_masked(t64_machine *machine, uint32_t address,
   case T64_BUS_REGION_ABSENT_RDRAM_PROBE:
   case T64_BUS_REGION_SI:
     break;
+  case T64_BUS_REGION_SAVE_SRAM:
+    return T64_STATUS_BUS_UNSUPPORTED;
   }
   if (bytes == NULL) {
     return T64_STATUS_BUS_DEVICE_REFUSED;
@@ -909,6 +937,7 @@ static t64_status cache_writeback_destination(
   case T64_BUS_REGION_ISVIEWER:
   case T64_BUS_REGION_ABSENT_RDRAM_PROBE:
   case T64_BUS_REGION_SI:
+  case T64_BUS_REGION_SAVE_SRAM:
     return T64_STATUS_BUS_DEVICE_REFUSED;
   }
   for (offset = 1u; offset < line_bytes; offset++) {
