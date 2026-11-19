@@ -293,6 +293,11 @@ static void case_sink_legacy_identity(void) {
 #define SI_DOMAIN "t64.state.si.25"
 #define SI_DOMAIN_LENGTH 15u
 #define MARKER_COUNT_FULL 10u
+/* The three save ids add section 11 (save media) after section 10. */
+#define MARKER_COUNT_SAVE 11u
+#define SAVE_E4K_ID "ntsc-cart-4m-openipl3-rdram-b-t1-si-v1-e4k"
+#define SAVE_E16K_ID "ntsc-cart-4m-openipl3-rdram-b-t1-si-v1-e16k"
+#define SAVE_S32K_ID "ntsc-cart-4m-openipl3-rdram-b-t1-si-v1-s32k"
 
 typedef struct {
   uint8_t *bytes;
@@ -387,14 +392,18 @@ static uint32_t read_u32(const uint8_t *bytes) {
  * start, and the serialization word with the profile digest right after the
  * first marker. The only other non-marker span is the one new-class span that
  * carries the body of section 10 (SI, PIF and latch) and runs from the tenth
- * marker to the end of the stream. Any other identity or new-section span is
- * a defect (the packet profile and build ids are omitted under v25).
+ * marker to the end of the stream; a save id adds a second new-class span, the
+ * body of section 11, which then runs to the end of the stream. Any other
+ * identity or new-section span is a defect (the packet profile and build ids
+ * are omitted under v25).
  */
 static bool identity_spans_are_exact(const stream *captured,
+                                     size_t expected_new_spans,
                                      size_t *offset_out) {
   size_t seen = 0u;
   size_t i;
-  bool new_span_seen = false;
+  size_t new_spans = 0u;
+  size_t last_new_end = 0u;
 
   *offset_out = 0u;
   for (i = 0u; i < captured->span_count; i++) {
@@ -409,15 +418,18 @@ static bool identity_spans_are_exact(const stream *captured,
                span->length == 4u + T64_DIGEST_SIZE) {
       seen = 2u;
     } else if (span->class == T64_DIGEST_CLASS_NEW && seen == 2u &&
-               !new_span_seen && span->offset + span->length ==
-                                     captured->length) {
-      new_span_seen = true;
+               new_spans < expected_new_spans) {
+      new_spans++;
+      last_new_end = span->offset + span->length;
     } else {
       *offset_out = span->offset;
       return false;
     }
   }
-  if (seen != 2u) {
+  /* The last new-class span (section 10 for the stem, section 11 for a save
+     id) runs to the end of the stream. */
+  if (seen != 2u || new_spans != expected_new_spans ||
+      last_new_end != captured->length) {
     *offset_out = captured->length;
     return false;
   }
@@ -491,7 +503,9 @@ static cmp_result compare_stripped(const stream *older, const stream *newer,
              memcmp(newer->bytes, SI_DOMAIN, SI_DOMAIN_LENGTH) != 0) {
     result.kind = CMP_BODY_MISMATCH;
     result.offset = 0u;
-  } else if (!identity_spans_are_exact(newer, &result.offset)) {
+  } else if (!identity_spans_are_exact(
+                 newer, marker_count > MARKER_COUNT_FULL ? 2u : 1u,
+                 &result.offset)) {
     result.kind = CMP_IDENTITY_MISMATCH;
   }
   free(old_body);
@@ -747,6 +761,46 @@ static void report_comparison(const char *label, const cmp_result *result) {
             label, (int)result->kind, result->old_length, result->new_length,
             result->offset);
   }
+}
+
+/* The strip differential for a save id: the Phase 8 AI profile and the save
+ * id are built identically; section 11 (and section 10) are new-class spans,
+ * so the stripped streams are equal with eleven markers. A mid-write state is
+ * an EEPROM write executed through the device entry point (the busy window is
+ * open), so the machine state outside the save section is untouched. */
+static void differential_for_save_id(const char *label, const char *save_id,
+                                     bool mid_write) {
+  t64_machine *older = build_idle(AI_PROFILE_ID);
+  t64_machine *newer = build_idle(save_id);
+  stream old_stream;
+  stream new_stream;
+
+  T64_CHECK(older != NULL && newer != NULL);
+  if (older != NULL && newer != NULL && mid_write) {
+    static const uint8_t tx[10] = {0x05, 0x01, 0x11, 0x12, 0x13,
+                                   0x14, 0x15, 0x16, 0x17, 0x18};
+    uint8_t rx[1] = {0xFF};
+
+    T64_CHECK_INT(t64_save_channel4_execute(newer, newer->tick, tx, 10u, rx,
+                                            1u),
+                  0u);
+    T64_CHECK(newer->save.busy_until > newer->tick);
+    T64_CHECK_INT(newer->save.bytes[8], 0x11u);
+  }
+  if (older != NULL && newer != NULL &&
+      capture_stream(older, &old_stream)) {
+    if (capture_stream(newer, &new_stream)) {
+      const cmp_result result =
+          compare_stripped(&old_stream, &new_stream, MARKER_COUNT_SAVE);
+
+      report_comparison(label, &result);
+      T64_CHECK_INT(result.kind, CMP_EQUAL);
+      free_stream(&new_stream);
+    }
+    free_stream(&old_stream);
+  }
+  if (older != NULL) t64_machine_destroy(older);
+  if (newer != NULL) t64_machine_destroy(newer);
 }
 
 static void differential_for_state(const char *label, state_builder build) {
@@ -1312,6 +1366,10 @@ static void case_v25_strip_differential(void) {
   differential_for_state("ai-first-packet", build_ai_first_packet);
   differential_for_state("vi-frame", build_vi_frame);
   differential_for_state("rdp-pending", build_rdp_pending);
+  differential_for_save_id("idle e4k", SAVE_E4K_ID, false);
+  differential_for_save_id("idle e16k", SAVE_E16K_ID, false);
+  differential_for_save_id("idle s32k", SAVE_S32K_ID, false);
+  differential_for_save_id("mid-write e4k", SAVE_E4K_ID, true);
   run_surgery_controls();
   T64_CHECK(family != NULL);
   if (family != NULL && capture_stream(family, &family_stream)) {

@@ -229,3 +229,58 @@ t64_status t64_save_sram_dma_apply(t64_machine *machine, uint32_t direction,
   }
   return T64_STATUS_INVALID_ARGUMENT;
 }
+
+/* True while an EEPROM deadline is in the future at the machine tick, or an
+ * SRAM DMA descriptor (a non-ROM PI direction) is active. */
+bool t64_save_in_flight(const t64_machine *machine) {
+  if (machine == NULL) {
+    return false;
+  }
+  return machine->tick < machine->save.busy_until ||
+         (machine->pi.active_valid &&
+          machine->pi.active_save_direction !=
+              T64_PI_DIRECTION_ROM_TO_RDRAM);
+}
+
+/*
+ * The D-24 check prefix of a save device request, in this exact order:
+ * pointers, admitted, the profile has a device, the kind is known, the kind is
+ * supported, the kind equals the profile's. A profile with no device answers
+ * DEVICE_MISMATCH for any kind (the requested kind versus the profile's none).
+ * The function never writes the machine and writes the output only on
+ * success. The selection reads the profile only.
+ */
+#define SAVE_KIND_LAST_KNOWN UINT32_C(7)
+
+t64_status t64_machine_save_info(const t64_machine *machine,
+                                 uint32_t requested_kind,
+                                 t64_save_info *info_out) {
+  t64_address_range output_range;
+
+  if (machine == NULL || info_out == NULL ||
+      !t64_internal_make_range(info_out, sizeof *info_out, &output_range) ||
+      !t64_internal_observation_range_is_disjoint(machine, output_range)) {
+    return T64_STATUS_INVALID_ARGUMENT;
+  }
+  if (!machine->has_image) {
+    return T64_STATUS_NOT_READY;
+  }
+  if (machine->profile.save_kind == T64_SAVE_NONE) {
+    return T64_STATUS_SAVE_DEVICE_MISMATCH;
+  }
+  if (requested_kind == T64_SAVE_NONE ||
+      requested_kind > SAVE_KIND_LAST_KNOWN) {
+    return T64_STATUS_SAVE_UNKNOWN_DEVICE;
+  }
+  if (requested_kind > T64_SAVE_SRAM_32K) {
+    return T64_STATUS_SAVE_UNSUPPORTED_DEVICE;
+  }
+  if (requested_kind != machine->profile.save_kind) {
+    return T64_STATUS_SAVE_DEVICE_MISMATCH;
+  }
+  info_out->kind = machine->profile.save_kind;
+  info_out->size_bytes =
+      (uint32_t)t64_save_storage_bytes(machine->profile.save_kind);
+  info_out->flags = t64_save_in_flight(machine) ? T64_SAVE_INFO_BUSY : 0u;
+  return T64_STATUS_OK;
+}

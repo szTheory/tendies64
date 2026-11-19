@@ -1585,6 +1585,9 @@ t64_status t64_save_sram_read_word(const t64_machine *machine,
                                    uint32_t address, uint32_t *value_out);
 t64_status t64_save_sram_write_word(t64_machine *machine, uint32_t address,
                                     uint32_t value);
+/* True while an EEPROM deadline is in the future at the machine tick or an
+ * SRAM DMA is active (the in-flight query behind T64_SAVE_INFO_BUSY). */
+bool t64_save_in_flight(const t64_machine *machine);
 t64_status t64_save_sram_dma_apply(t64_machine *machine, uint32_t direction,
                                    uint32_t dram_address,
                                    uint32_t sram_offset, uint32_t length);

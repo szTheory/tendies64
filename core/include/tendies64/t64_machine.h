@@ -90,6 +90,11 @@
 #define T64_STATUS_BUS_ALIGNMENT UINT32_C(17)
 #define T64_STATUS_BUS_RANGE UINT32_C(18)
 #define T64_STATUS_BUS_DEVICE_REFUSED UINT32_C(19)
+/* Save device request refusals (plan 09-04); provisional until Phase 10. A
+ * profile with no device answers any requested kind with DEVICE_MISMATCH. */
+#define T64_STATUS_SAVE_UNKNOWN_DEVICE UINT32_C(20)
+#define T64_STATUS_SAVE_UNSUPPORTED_DEVICE UINT32_C(21)
+#define T64_STATUS_SAVE_DEVICE_MISMATCH UINT32_C(22)
 
 #define T64_TV_NTSC UINT32_C(1)
 #define T64_TV_PAL UINT32_C(2)
@@ -101,6 +106,16 @@
 #define T64_SAVE_EEPROM_4K UINT32_C(1)
 #define T64_SAVE_EEPROM_16K UINT32_C(2)
 #define T64_SAVE_SRAM_32K UINT32_C(3)
+/* Known and unsupported (provisional): requestable through
+ * t64_machine_save_info, refused with T64_STATUS_SAVE_UNSUPPORTED_DEVICE, and
+ * still refused as a profile save_kind at create. */
+#define T64_SAVE_FLASHRAM UINT32_C(4)
+#define T64_SAVE_CONTROLLER_PAK UINT32_C(5)
+#define T64_SAVE_RUMBLE_PAK UINT32_C(6)
+#define T64_SAVE_TRANSFER_PAK UINT32_C(7)
+/* Flag of t64_save_info: an EEPROM deadline is in the future at the current
+ * guest tick, or an SRAM DMA is in flight. */
+#define T64_SAVE_INFO_BUSY UINT32_C(1)
 #define T64_PERIPHERAL_STANDARD_CONTROLLER_PORT0 UINT32_C(1)
 
 #define T64_STOP_GUEST_TICK UINT32_C(1)
@@ -378,6 +393,33 @@ t64_status t64_video_info(const t64_machine *machine,
                           t64_video_packet_info *info_out);
 t64_status t64_video_copy(t64_machine *machine, uint8_t *bytes_out,
                           size_t capacity, size_t *length_out);
+
+/*
+ * Save device information (provisional until Phase 10; no API/ABI freeze).
+ * kind is the profile's device kind, size_bytes its storage size and flags
+ * T64_SAVE_INFO_BUSY while a write window or a DMA is in flight.
+ */
+typedef struct {
+  uint32_t kind;
+  uint32_t size_bytes;
+  uint32_t flags;
+} t64_save_info;
+
+/*
+ * Reports the save device of an admitted machine when the requested kind is
+ * the profile's kind. The check order is exact: argument pointers
+ * (INVALID_ARGUMENT, info untouched), admitted (NOT_READY), the profile has a
+ * device (a profile with none answers T64_STATUS_SAVE_DEVICE_MISMATCH for any
+ * kind), the kind is known (0 and values above 7 answer
+ * T64_STATUS_SAVE_UNKNOWN_DEVICE), the kind is supported (4 to 7 answer
+ * T64_STATUS_SAVE_UNSUPPORTED_DEVICE) and equals the profile kind (otherwise
+ * T64_STATUS_SAVE_DEVICE_MISMATCH). Every refusal leaves the machine and the
+ * output unchanged. The device is selected by the profile only: no header,
+ * title, game code, checksum or file name is an input.
+ */
+t64_status t64_machine_save_info(const t64_machine *machine,
+                                 uint32_t requested_kind,
+                                 t64_save_info *info_out);
 
 /* Audio follows the same bounded, lossless two-packet copy/dequeue contract. */
 t64_status t64_audio_info(const t64_machine *machine,

@@ -1633,6 +1633,708 @@ static void case_eeprom_timing(void) {
 }
 
 /* ------------------------------------------------------------------------ */
+/* selection                                                                 */
+/* ------------------------------------------------------------------------ */
+
+typedef struct {
+  const char *id;
+  uint32_t kind;
+  uint32_t size;
+  bool eeprom;
+} id_row;
+
+/* Independent literals: the kind numbering and byte sizes of the four ids. */
+static const id_row id_rows[] = {
+    {STEM_ID, 0u, 0u, false},
+    {E4K_ID, 1u, 512u, true},
+    {E16K_ID, 2u, 2048u, true},
+    {S32K_ID, 3u, 32768u, false},
+};
+
+static void cancel_cpu_events(t64_machine *machine) {
+  uint64_t cancelled = 0u;
+
+  while (t64_schedule_cancel(machine, T64_DEVICE_CPU, T64_CPU_EVENT_STEP, 0u,
+                             &cancelled) == T64_STATUS_OK) {
+  }
+}
+
+/* One info transaction on channel 4 at the current tick: returns byte 5 and
+ * the three receive bytes. The handshake is 8,876 where an EEPROM answers and
+ * 6,095 (the unanswered cost) elsewhere. */
+static void info_transaction(t64_machine *machine, bool eeprom,
+                             uint8_t *byte5, uint8_t data[3]) {
+  static const uint8_t info_tx[1] = {0x00};
+  uint8_t frame[64];
+  uint8_t image[64];
+
+  build_frame(frame, 1u, 3u, info_tx);
+  run_txn(machine, frame, eeprom ? H_INFO : unanswered_handshake(1u), image);
+  *byte5 = image[5];
+  (void)memcpy(data, rx_at(image, 1u), 3u);
+}
+
+static void check_info_result(const id_row *row, const uint8_t byte5,
+                              const uint8_t data[3]) {
+  if (row->kind == 1u || row->kind == 2u) {
+    T64_CHECK_INT(byte5, 0x03u);
+    T64_CHECK_INT(data[0], 0x00u);
+    T64_CHECK_INT(data[1], row->kind == 1u ? 0x80u : 0xC0u);
+    T64_CHECK_INT(data[2], 0x00u);
+  } else {
+    /* The stem and the SRAM id have no EEPROM: the no-device flag with the
+       fill bytes untouched. */
+    T64_CHECK_INT(byte5, 0x83u);
+    T64_CHECK_INT(data[0], 0xFFu);
+    T64_CHECK_INT(data[1], 0xFFu);
+    T64_CHECK_INT(data[2], 0xFFu);
+  }
+}
+
+/* An authored flat ROM that the openIPL3 profiles admit (the pinned payload at
+ * 0x40 to 0xFFF, the z64 magic, an entry point and a load length equal to the
+ * appended payload): the cleared 4,096-byte asset with its entry point at
+ * 0x08 and load length at 0x10 set and a 64-byte zero-word payload appended.
+ * The openIPL3 profiles refuse every other edit of the exact asset (a finding
+ * recorded in the plan summary), so header edits start from this image. */
+#define AUTHORED_ROM_BYTES (IPL3_ASSET_BYTES + 64u)
+
+static bool make_authored_rom(uint8_t image[AUTHORED_ROM_BYTES]) {
+  uint8_t asset[IPL3_ASSET_BYTES];
+
+  if (!read_openipl3_asset(asset)) return false;
+  (void)memset(image, 0, AUTHORED_ROM_BYTES);
+  (void)memcpy(image, asset, IPL3_ASSET_BYTES);
+  image[0x08] = 0x80; image[0x09] = 0x00; image[0x0A] = 0x04; image[0x0B] = 0x00;
+  image[0x10] = 0x00; image[0x11] = 0x00; image[0x12] = 0x00; image[0x13] = 64u;
+  return true;
+}
+
+static void case_selection(void) {
+  static const uint8_t version_values[] = {0x00, 0x01, 0x02, 0x03, 0x10, 0xFF};
+  size_t index;
+  size_t edit;
+
+  for (index = 0u; index < sizeof id_rows / sizeof id_rows[0]; index++) {
+    const id_row *row = &id_rows[index];
+    t64_machine *machine = make_idle_machine(row->id);
+    uint8_t authored[AUTHORED_ROM_BYTES];
+    uint8_t byte5;
+    uint8_t data[3];
+    t64_save_info info;
+    uint32_t kind;
+
+    if (machine == NULL) continue;
+    T64_CHECK(make_authored_rom(authored));
+    /* The four ids report kinds none, 1, 2 and 3 and sizes 0, 512, 2,048 and
+       32,768 through the info query. */
+    T64_CHECK_INT(machine->profile.save_kind, row->kind);
+    for (kind = 1u; kind <= 3u; kind++) {
+      (void)memset(&info, 0xA5, sizeof info);
+      if (kind == row->kind) {
+        T64_CHECK_INT(t64_machine_save_info(machine, kind, &info),
+                      T64_STATUS_OK);
+        T64_CHECK_INT(info.kind, row->kind);
+        T64_CHECK_INT(info.size_bytes, row->size);
+        T64_CHECK_INT(info.flags, 0u);
+      } else {
+        T64_CHECK_INT(t64_machine_save_info(machine, kind, &info),
+                      T64_STATUS_SAVE_DEVICE_MISMATCH);
+      }
+    }
+    /* Accepted baseline in the same setup: the unmodified authored image is
+       admitted over the machine and answers like the first admission. */
+    T64_CHECK_INT(t64_machine_admit_rom(machine, authored, sizeof authored),
+                  T64_STATUS_OK);
+    cancel_cpu_events(machine);
+    info_transaction(machine, row->eeprom, &byte5, data);
+    check_info_result(row, byte5, data);
+
+    /* The image never selects the device: header byte 0x3F carrying each
+       value, then title, game code and checksum bytes edited, each admitted
+       over the baseline machine; the kind, the info answer and the wire
+       behavior do not change. */
+    for (edit = 0u; edit < sizeof version_values + 3u; edit++) {
+      uint8_t edited[AUTHORED_ROM_BYTES];
+      t64_status status;
+      size_t at;
+
+      (void)memcpy(edited, authored, sizeof edited);
+      if (edit < sizeof version_values) {
+        edited[0x3F] = version_values[edit];
+      } else if (edit == sizeof version_values) {
+        for (at = 0x20u; at < 0x34u; at++) edited[at] = 0x5A; /* title */
+      } else if (edit == sizeof version_values + 1u) {
+        for (at = 0x3Bu; at < 0x3Fu; at++) edited[at] = 0x7A; /* game code */
+      } else {
+        for (at = 0x14u; at < 0x1Cu; at++) edited[at] ^= 0xFF; /* checksum */
+      }
+      status = t64_machine_admit_rom(machine, edited, sizeof edited);
+      if (status != T64_STATUS_OK) {
+        fprintf(stderr, "selection edit %zu: admission status %u\n", edit,
+                (unsigned)status);
+      }
+      T64_CHECK_INT(status, T64_STATUS_OK);
+      if (status != T64_STATUS_OK) continue;
+      cancel_cpu_events(machine);
+      T64_CHECK_INT(machine->profile.save_kind, row->kind);
+      (void)memset(&info, 0xA5, sizeof info);
+      if (row->kind != 0u) {
+        T64_CHECK_INT(t64_machine_save_info(machine, row->kind, &info),
+                      T64_STATUS_OK);
+        T64_CHECK_INT(info.kind, row->kind);
+        T64_CHECK_INT(info.size_bytes, row->size);
+      } else {
+        T64_CHECK_INT(t64_machine_save_info(machine, 1u, &info),
+                      T64_STATUS_SAVE_DEVICE_MISMATCH);
+      }
+      info_transaction(machine, row->eeprom, &byte5, data);
+      check_info_result(row, byte5, data);
+    }
+    t64_machine_destroy(machine);
+  }
+}
+
+/* ------------------------------------------------------------------------ */
+/* refusals                                                                  */
+/* ------------------------------------------------------------------------ */
+
+typedef struct {
+  uint8_t digest[T64_DIGEST_SIZE];
+  uint64_t deadline;
+  size_t queue_head;
+  size_t queue_count;
+  uint64_t tick;
+  uint64_t next_sequence;
+  uint8_t storage[T64_SAVE_SRAM_BYTES];
+  size_t storage_size;
+} machine_snapshot;
+
+static void take_snapshot(const t64_machine *machine, machine_snapshot *out) {
+  digest_of(machine, out->digest);
+  out->deadline = machine->save.busy_until;
+  out->queue_head = machine->queue_head;
+  out->queue_count = machine->queue_count;
+  out->tick = machine->tick;
+  out->next_sequence = machine->next_sequence;
+  out->storage_size = machine->save.bytes == NULL
+                          ? 0u
+                          : t64_save_storage_bytes(machine->profile.save_kind);
+  if (out->storage_size != 0u) {
+    (void)memcpy(out->storage, machine->save.bytes, out->storage_size);
+  }
+}
+
+static void check_snapshot(const char *label, const t64_machine *machine,
+                           const machine_snapshot *before) {
+  machine_snapshot after;
+
+  take_snapshot(machine, &after);
+  if (memcmp(before->digest, after.digest, T64_DIGEST_SIZE) != 0) {
+    fprintf(stderr, "refusal '%s' changed the digest\n", label);
+  }
+  T64_CHECK(memcmp(before->digest, after.digest, T64_DIGEST_SIZE) == 0);
+  T64_CHECK_INT(after.deadline, before->deadline);
+  T64_CHECK_INT(after.queue_head, before->queue_head);
+  T64_CHECK_INT(after.queue_count, before->queue_count);
+  T64_CHECK_INT(after.tick, before->tick);
+  T64_CHECK_INT(after.next_sequence, before->next_sequence);
+  T64_CHECK_INT(after.storage_size, before->storage_size);
+  if (before->storage_size != 0u) {
+    T64_CHECK(memcmp(before->storage, after.storage, before->storage_size) ==
+              0);
+  }
+}
+
+static void expect_refusal(const char *label, t64_machine *machine,
+                           uint32_t kind, t64_status want) {
+  machine_snapshot before;
+  t64_save_info info;
+  t64_save_info sentinel;
+  t64_status status;
+
+  take_snapshot(machine, &before);
+  (void)memset(&info, 0xA5, sizeof info);
+  sentinel = info;
+  status = t64_machine_save_info(machine, kind, &info);
+  if (status != want) {
+    fprintf(stderr, "refusal '%s' kind %u: status %u want %u\n", label,
+            (unsigned)kind, (unsigned)status, (unsigned)want);
+  }
+  T64_CHECK_INT(status, want);
+  T64_CHECK(memcmp(&info, &sentinel, sizeof info) == 0);
+  check_snapshot(label, machine, &before);
+}
+
+static void case_refusals(void) {
+  static const uint32_t unknown[] = {0u, 8u, UINT32_C(0xFFFFFFFF)};
+  static const uint32_t unsupported[] = {4u, 5u, 6u, 7u};
+  static const uint8_t write_tx[10] = {0x05, 0x07, 0xA1, 0xA2, 0xA3,
+                                       0xA4, 0xA5, 0xA6, 0xA7, 0xA8};
+  t64_machine *machine = make_idle_machine(E4K_ID);
+  t64_save_info info;
+  size_t index;
+
+  if (machine != NULL) {
+    uint8_t frame[64];
+    uint8_t image[64];
+
+    /* Accepted success first, in the same setup. */
+    (void)memset(&info, 0xA5, sizeof info);
+    T64_CHECK_INT(t64_machine_save_info(machine, 1u, &info), T64_STATUS_OK);
+    T64_CHECK_INT(info.kind, 1u);
+    T64_CHECK_INT(info.size_bytes, 512u);
+    T64_CHECK_INT(info.flags, 0u);
+    expect_refusal("mismatch 2", machine, 2u, T64_STATUS_SAVE_DEVICE_MISMATCH);
+    expect_refusal("mismatch 3", machine, 3u, T64_STATUS_SAVE_DEVICE_MISMATCH);
+    for (index = 0u; index < sizeof unsupported / sizeof unsupported[0];
+         index++) {
+      expect_refusal("unsupported", machine, unsupported[index],
+                     T64_STATUS_SAVE_UNSUPPORTED_DEVICE);
+    }
+    for (index = 0u; index < sizeof unknown / sizeof unknown[0]; index++) {
+      expect_refusal("unknown", machine, unknown[index],
+                     T64_STATUS_SAVE_UNKNOWN_DEVICE);
+    }
+    /* The busy flag follows the deadline: set after an accepted write (the
+       deadline is in the future at the machine tick), clear at and after the
+       deadline. */
+    build_frame(frame, 10u, 1u, write_tx);
+    run_txn(machine, frame, H_WRITE, image);
+    T64_CHECK_INT(image[5], 0x01u);
+    T64_CHECK(machine->save.busy_until > machine->tick);
+    T64_CHECK(t64_save_in_flight(machine));
+    T64_CHECK_INT(t64_machine_save_info(machine, 1u, &info), T64_STATUS_OK);
+    T64_CHECK_INT(info.flags, T64_SAVE_INFO_BUSY);
+    T64_CHECK(advance_guest_to(machine, machine->save.busy_until - 1u));
+    T64_CHECK_INT(t64_machine_save_info(machine, 1u, &info), T64_STATUS_OK);
+    T64_CHECK_INT(info.flags, T64_SAVE_INFO_BUSY);
+    T64_CHECK(advance_guest_to(machine, machine->save.busy_until));
+    T64_CHECK(!t64_save_in_flight(machine));
+    T64_CHECK_INT(t64_machine_save_info(machine, 1u, &info), T64_STATUS_OK);
+    T64_CHECK_INT(info.flags, 0u);
+    /* Wire-level unsupported requests answer their specific flag or status,
+       never a silent success: an RTC command on channel 4 of the EEPROM id,
+       and an SRAM window access on an EEPROM id. */
+    {
+      static const uint8_t rtc_tx[1] = {0x06};
+      uint32_t value = 0xA5A5A5A5u;
+
+      build_frame(frame, 1u, 3u, rtc_tx);
+      run_txn(machine, frame, unanswered_handshake(1u), image);
+      T64_CHECK_INT(image[5], 0x43u);
+      T64_CHECK(rx_all(image, 1u, 3u, 0xFFu));
+      T64_CHECK_INT(bus_r32(machine, SRAM_FIRST, &value),
+                    T64_STATUS_BUS_UNSUPPORTED);
+      T64_CHECK_INT(value, 0xA5A5A5A5u);
+    }
+    t64_machine_destroy(machine);
+  }
+
+  /* The stem answers every kind with the mismatch status (the profile-device
+     check comes before the kind checks); so does a legacy profile. */
+  {
+    static const char *const no_device_ids[] = {STEM_ID, LEGACY_ID};
+
+    for (index = 0u; index < 2u; index++) {
+      t64_machine *other = create_admitted(no_device_ids[index]);
+      uint32_t kind;
+
+      if (other == NULL) continue;
+      for (kind = 0u; kind <= 9u; kind++) {
+        expect_refusal("no device", other, kind,
+                       T64_STATUS_SAVE_DEVICE_MISMATCH);
+      }
+      expect_refusal("no device", other, UINT32_C(0xFFFFFFFF),
+                     T64_STATUS_SAVE_DEVICE_MISMATCH);
+      t64_machine_destroy(other);
+    }
+  }
+
+  /* Argument and admission checks come first: a NULL machine or info pointer
+     is INVALID_ARGUMENT with the info untouched, an unadmitted machine is
+     NOT_READY (even for an unknown kind, because admission is checked
+     before the kind). */
+  {
+    const t64_profile_descriptor *profile = NULL;
+    t64_machine *raw = NULL;
+    t64_save_info sentinel;
+    t64_machine *admitted = create_admitted(E4K_ID);
+
+    (void)memset(&info, 0xA5, sizeof info);
+    sentinel = info;
+    T64_CHECK_INT(t64_machine_save_info(NULL, 1u, &info),
+                  T64_STATUS_INVALID_ARGUMENT);
+    T64_CHECK(memcmp(&info, &sentinel, sizeof info) == 0);
+    if (admitted != NULL) {
+      T64_CHECK_INT(t64_machine_save_info(admitted, 1u, NULL),
+                    T64_STATUS_INVALID_ARGUMENT);
+      t64_machine_destroy(admitted);
+    }
+    T64_CHECK_INT(t64_profile_lookup(E4K_ID, &profile), T64_STATUS_OK);
+    T64_CHECK_INT(t64_machine_create(&allocator, profile, &raw), T64_STATUS_OK);
+    if (raw != NULL) {
+      T64_CHECK_INT(t64_machine_save_info(raw, 1u, &info), T64_STATUS_NOT_READY);
+      T64_CHECK_INT(t64_machine_save_info(raw, 0u, &info), T64_STATUS_NOT_READY);
+      T64_CHECK(memcmp(&info, &sentinel, sizeof info) == 0);
+      T64_CHECK_INT(t64_machine_save_info(raw, 1u, NULL),
+                    T64_STATUS_INVALID_ARGUMENT);
+      t64_machine_destroy(raw);
+    }
+  }
+
+  /* The SRAM id: the busy flag is set while a DMA is in flight and clear after
+     the completion. */
+  {
+    t64_machine *sram = make_idle_machine(S32K_ID);
+
+    if (sram != NULL) {
+      const uint64_t start = sram->tick;
+
+      T64_CHECK_INT(t64_machine_save_info(sram, 3u, &info), T64_STATUS_OK);
+      T64_CHECK_INT(info.size_bytes, 32768u);
+      T64_CHECK_INT(info.flags, 0u);
+      expect_refusal("sram mismatch", sram, 1u,
+                     T64_STATUS_SAVE_DEVICE_MISMATCH);
+      expect_refusal("sram unsupported", sram, 4u,
+                     T64_STATUS_SAVE_UNSUPPORTED_DEVICE);
+      expect_refusal("sram unknown", sram, 0u, T64_STATUS_SAVE_UNKNOWN_DEVICE);
+      T64_CHECK_INT(pi_start(sram, DMA_DRAM, DMA_CART, PI_RD_LEN, 15u),
+                    T64_STATUS_OK);
+      T64_CHECK(t64_save_in_flight(sram));
+      T64_CHECK_INT(t64_machine_save_info(sram, 3u, &info), T64_STATUS_OK);
+      T64_CHECK_INT(info.flags, T64_SAVE_INFO_BUSY);
+      T64_CHECK(advance_guest_to(sram, start + 9u));
+      T64_CHECK(!t64_save_in_flight(sram));
+      T64_CHECK_INT(t64_machine_save_info(sram, 3u, &info), T64_STATUS_OK);
+      T64_CHECK_INT(info.flags, 0u);
+      t64_machine_destroy(sram);
+    }
+  }
+}
+
+/* ------------------------------------------------------------------------ */
+/* digest-section                                                            */
+/* ------------------------------------------------------------------------ */
+
+#define SECTION_CAPACITY (T64_SAVE_SRAM_BYTES + 64u)
+
+typedef struct {
+  uint8_t bytes[SECTION_CAPACITY];
+  size_t length;
+} section_blob;
+
+static void section_u32(section_blob *out, uint32_t value) {
+  if (out->length + 4u > SECTION_CAPACITY) {
+    T64_CHECK(false);
+    return;
+  }
+  out->bytes[out->length++] = (uint8_t)(value >> 24);
+  out->bytes[out->length++] = (uint8_t)(value >> 16);
+  out->bytes[out->length++] = (uint8_t)(value >> 8);
+  out->bytes[out->length++] = (uint8_t)value;
+}
+
+/* Written from the section 11 field table of docs/spec/save-media.md (big
+ * endian, new-span class): u32 kind, u32 size_bytes, u64 busy_until, u32
+ * pi_save_direction, then size_bytes of storage. It reads no machine field:
+ * every argument is a literal of the state under test. */
+static void encode_section11(section_blob *out, uint32_t kind, uint32_t size,
+                             uint64_t deadline, uint32_t direction,
+                             const uint8_t *storage) {
+  out->length = 0u;
+  section_u32(out, kind);
+  section_u32(out, size);
+  section_u32(out, (uint32_t)(deadline >> 32));
+  section_u32(out, (uint32_t)deadline);
+  section_u32(out, direction);
+  if (out->length + size > SECTION_CAPACITY) {
+    T64_CHECK(false);
+    return;
+  }
+  (void)memcpy(out->bytes + out->length, storage, size);
+  out->length += size;
+}
+
+static section_blob expected_section;
+
+static void check_section(const char *label, const t64_machine *machine,
+                          uint32_t kind, uint32_t size, uint64_t deadline,
+                          uint32_t direction, const uint8_t *storage) {
+  stream captured;
+
+  encode_section11(&expected_section, kind, size, deadline, direction,
+                   storage);
+  if (!capture_stream(machine, &captured)) return;
+  {
+    const size_t span = marker_span(&captured, 11u);
+
+    T64_CHECK(span != SIZE_MAX);
+    if (span != SIZE_MAX && span + 1u < captured.span_count) {
+      const t64_digest_span *body = &captured.spans[span + 1u];
+      const bool same =
+          body->class == T64_DIGEST_CLASS_NEW &&
+          body->length == expected_section.length &&
+          body->offset + body->length == captured.length &&
+          memcmp(captured.bytes + body->offset, expected_section.bytes,
+                 expected_section.length) == 0;
+
+      if (!same) {
+        fprintf(stderr, "section 11 differs from the reference: %s\n", label);
+      }
+      T64_CHECK(same);
+    }
+  }
+  free_stream(&captured);
+}
+
+typedef struct {
+  const char *label;
+  void (*flip)(t64_machine *machine, size_t size);
+} flip_row;
+
+static void flip_deadline(t64_machine *machine, size_t size) {
+  (void)size;
+  machine->save.busy_until ^= UINT64_C(1);
+}
+
+static void flip_direction(t64_machine *machine, size_t size) {
+  (void)size;
+  machine->pi.active_save_direction ^= 1u;
+}
+
+static void flip_first(t64_machine *machine, size_t size) {
+  (void)size;
+  machine->save.bytes[0] ^= UINT8_C(1);
+}
+
+static void flip_middle(t64_machine *machine, size_t size) {
+  machine->save.bytes[size / 2u] ^= UINT8_C(1);
+}
+
+static void flip_last(t64_machine *machine, size_t size) {
+  machine->save.bytes[size - 1u] ^= UINT8_C(1);
+}
+
+static const flip_row flip_rows[] = {
+    {"deadline", flip_deadline}, {"direction", flip_direction},
+    {"first byte", flip_first},  {"middle byte", flip_middle},
+    {"last byte", flip_last},
+};
+
+/* Every field family alters the digest on its own and restores it when
+ * flipped back. */
+static void check_field_flips(t64_machine *machine, size_t size) {
+  uint8_t base[T64_DIGEST_SIZE];
+  uint8_t changed[T64_DIGEST_SIZE];
+  uint8_t restored[T64_DIGEST_SIZE];
+  size_t index;
+
+  digest_of(machine, base);
+  for (index = 0u; index < sizeof flip_rows / sizeof flip_rows[0]; index++) {
+    flip_rows[index].flip(machine, size);
+    digest_of(machine, changed);
+    if (memcmp(base, changed, T64_DIGEST_SIZE) == 0) {
+      fprintf(stderr, "field flip '%s' did not alter the digest\n",
+              flip_rows[index].label);
+    }
+    T64_CHECK(memcmp(base, changed, T64_DIGEST_SIZE) != 0);
+    flip_rows[index].flip(machine, size);
+    digest_of(machine, restored);
+    T64_CHECK(memcmp(base, restored, T64_DIGEST_SIZE) == 0);
+  }
+}
+
+static uint8_t section_model[T64_SAVE_SRAM_BYTES];
+
+static void case_digest_section(void) {
+  static const uint8_t write_tx[10] = {0x05, 0x01, 0x11, 0x12, 0x13,
+                                       0x14, 0x15, 0x16, 0x17, 0x18};
+  uint8_t frame[64];
+  uint8_t image[64];
+
+  /* e4k: blank; after a write (deadline in the future); stale (the stored
+     deadline is kept after it passes). Expected storage is the 0xFF fill with
+     block 1 replaced by 11 to 18; E1 = 10,000 + 22,876 so D = 407,876. */
+  {
+    t64_machine *machine = make_idle_machine(E4K_ID);
+    const uint64_t deadline = UINT64_C(10000) + H_WRITE + BUSY_WINDOW;
+
+    if (machine != NULL) {
+      (void)memset(section_model, 0xFF, 512u);
+      check_section("e4k blank", machine, 1u, 512u, 0u, 0u, section_model);
+      T64_CHECK(advance_guest_to(machine, 3000u));
+      build_frame(frame, 10u, 1u, write_tx);
+      write_frame(machine, frame);
+      read_image(machine, 10000u, H_WRITE, image);
+      (void)memcpy(section_model + 8u, write_tx + 2u, 8u);
+      check_section("e4k after write", machine, 1u, 512u, deadline, 0u,
+                    section_model);
+      T64_CHECK(machine->tick < deadline);
+      check_field_flips(machine, 512u);
+      T64_CHECK(advance_guest_to(machine, deadline + 5000u));
+      check_section("e4k stale deadline", machine, 1u, 512u, deadline, 0u,
+                    section_model);
+      t64_machine_destroy(machine);
+    }
+  }
+  /* e16k blank. */
+  {
+    t64_machine *machine = make_idle_machine(E16K_ID);
+
+    if (machine != NULL) {
+      (void)memset(section_model, 0xFF, 2048u);
+      check_section("e16k blank", machine, 2u, 2048u, 0u, 0u, section_model);
+      check_field_flips(machine, 2048u);
+      t64_machine_destroy(machine);
+    }
+  }
+  /* s32k: blank; after a CPU word write; mid-DMA in both directions. */
+  {
+    t64_machine *machine = make_idle_machine(S32K_ID);
+
+    if (machine != NULL) {
+      const uint64_t start = machine->tick;
+
+      (void)memset(section_model, 0x00, T64_SAVE_SRAM_BYTES);
+      check_section("s32k blank", machine, 3u, 32768u, 0u, 0u, section_model);
+      T64_CHECK_INT(bus_w32(machine, UINT32_C(0x08000104),
+                            UINT32_C(0x12345678)),
+                    T64_STATUS_OK);
+      section_model[0x104] = 0x12;
+      section_model[0x105] = 0x34;
+      section_model[0x106] = 0x56;
+      section_model[0x107] = 0x78;
+      check_section("s32k after word write", machine, 3u, 32768u, 0u, 0u,
+                    section_model);
+      /* RDRAM to SRAM in flight: direction 2, storage unchanged until C. */
+      (void)memcpy(machine->ram + DMA_DRAM, dma_pattern, sizeof dma_pattern);
+      T64_CHECK_INT(pi_start(machine, DMA_DRAM, DMA_CART, PI_RD_LEN, 15u),
+                    T64_STATUS_OK);
+      check_section("s32k mid-DMA RDRAM to SRAM", machine, 3u, 32768u, 0u, 2u,
+                    section_model);
+      check_field_flips(machine, 32768u);
+      T64_CHECK(advance_guest_to(machine, start + 9u));
+      (void)memcpy(section_model + 0x100u, dma_pattern, 16u);
+      /* The CPU word 0x12345678 was stored at 0x104 before the DMA; the DMA
+         then replaced bytes 0x100 to 0x10F with the pattern. */
+      check_section("s32k after DMA", machine, 3u, 32768u, 0u, 0u,
+                    section_model);
+      T64_CHECK_INT(bus_w32(machine, PI_STATUS, 2u), T64_STATUS_OK);
+      /* SRAM to RDRAM in flight: direction 1. */
+      (void)memset(machine->ram + DMA_BACK_DRAM, 0, 16u);
+      T64_CHECK_INT(pi_start(machine, DMA_BACK_DRAM, DMA_CART, PI_WR_LEN, 15u),
+                    T64_STATUS_OK);
+      check_section("s32k mid-DMA SRAM to RDRAM", machine, 3u, 32768u, 0u, 1u,
+                    section_model);
+      T64_CHECK(advance_guest_to(machine, start + 18u));
+      t64_machine_destroy(machine);
+    }
+  }
+  /* The stem has no section 11: markers 1 to 10 only and the idle digest
+     literal of storage-blank. */
+  {
+    t64_machine *machine = create_admitted(STEM_ID);
+    stream captured;
+    uint32_t ids[16];
+
+    if (machine != NULL) {
+      if (capture_stream(machine, &captured)) {
+        T64_CHECK_INT(list_markers(&captured, ids, 16u), 10u);
+        T64_CHECK(marker_span(&captured, 11u) == SIZE_MAX);
+        free_stream(&captured);
+      }
+      t64_machine_destroy(machine);
+    }
+  }
+}
+
+/* ------------------------------------------------------------------------ */
+/* reset-blank                                                               */
+/* ------------------------------------------------------------------------ */
+
+static void case_reset_blank(void) {
+  static const uint8_t write_tx[10] = {0x05, 0x07, 0xA1, 0xA2, 0xA3,
+                                       0xA4, 0xA5, 0xA6, 0xA7, 0xA8};
+  static const struct {
+    const char *id;
+    uint8_t fill;
+    size_t size;
+  } rows[] = {{E4K_ID, 0xFFu, 512u},
+              {E16K_ID, 0xFFu, 2048u},
+              {S32K_ID, 0x00u, 32768u}};
+  size_t index;
+
+  for (index = 0u; index < sizeof rows / sizeof rows[0]; index++) {
+    t64_machine *machine = create_admitted(rows[index].id);
+    t64_machine *fresh = create_admitted(rows[index].id);
+    uint8_t asset[IPL3_ASSET_BYTES];
+    uint8_t garbage[100];
+    uint8_t before[T64_DIGEST_SIZE];
+    uint8_t after[T64_DIGEST_SIZE];
+    uint8_t digest_machine[T64_DIGEST_SIZE];
+    uint8_t digest_fresh[T64_DIGEST_SIZE];
+    size_t at;
+
+    if (machine == NULL || fresh == NULL) {
+      if (machine != NULL) t64_machine_destroy(machine);
+      if (fresh != NULL) t64_machine_destroy(fresh);
+      continue;
+    }
+    T64_CHECK(read_openipl3_asset(asset));
+    /* Write something: a block write on the EEPROM ids, a CPU word store on
+       the SRAM id. */
+    if (rows[index].fill == 0xFFu) {
+      uint8_t rx[1] = {0xFF};
+
+      T64_CHECK_INT(t64_save_channel4_execute(machine, 1000u, write_tx, 10u, rx,
+                                              1u),
+                    0u);
+      T64_CHECK(machine->save.busy_until != 0u);
+    } else {
+      T64_CHECK_INT(bus_w32(machine, UINT32_C(0x08000100), UINT32_C(0xCAFEBABE)),
+                    T64_STATUS_OK);
+    }
+    T64_CHECK(machine->save.bytes[rows[index].fill == 0xFFu ? 8u * 7u : 0x100u] !=
+              rows[index].fill);
+
+    /* A refused replacement (an invalid image) leaves bytes and deadline. */
+    (void)memset(garbage, 0x5A, sizeof garbage);
+    digest_of(machine, before);
+    T64_CHECK(t64_machine_admit_rom(machine, garbage, sizeof garbage) !=
+              T64_STATUS_OK);
+    digest_of(machine, after);
+    T64_CHECK(memcmp(before, after, T64_DIGEST_SIZE) == 0);
+    T64_CHECK(machine->save.bytes[rows[index].fill == 0xFFu ? 8u * 7u : 0x100u] !=
+              rows[index].fill);
+
+    /* A successful replacement restores a blank device and the digest of a
+       freshly created and admitted machine of the same id. */
+    T64_CHECK_INT(t64_machine_admit_rom(machine, asset, sizeof asset),
+                  T64_STATUS_OK);
+    T64_CHECK_INT(machine->save.busy_until, 0u);
+    for (at = 0u; at < rows[index].size; at++) {
+      if (machine->save.bytes[at] != rows[index].fill) {
+        T64_CHECK_INT(machine->save.bytes[at], rows[index].fill);
+        break;
+      }
+    }
+    digest_of(machine, digest_machine);
+    digest_of(fresh, digest_fresh);
+    T64_CHECK(memcmp(digest_machine, digest_fresh, T64_DIGEST_SIZE) == 0);
+
+    /* A direct reset restores the blank state too. */
+    machine->save.bytes[0] = (uint8_t)(rows[index].fill ^ 0x55u);
+    machine->save.busy_until = 99u;
+    t64_save_reset_machine_state(machine);
+    T64_CHECK_INT(machine->save.busy_until, 0u);
+    T64_CHECK_INT(machine->save.bytes[0], rows[index].fill);
+    t64_machine_destroy(machine);
+    t64_machine_destroy(fresh);
+  }
+}
+
+/* ------------------------------------------------------------------------ */
 /* Dispatch                                                                  */
 /* ------------------------------------------------------------------------ */
 
@@ -1650,6 +2352,10 @@ static const test_case cases[] = {
     {"eeprom-blocks", case_eeprom_blocks},
     {"eeprom-busy", case_eeprom_busy},
     {"eeprom-timing", case_eeprom_timing},
+    {"selection", case_selection},
+    {"refusals", case_refusals},
+    {"digest-section", case_digest_section},
+    {"reset-blank", case_reset_blank},
 };
 
 int main(int argc, char **argv) {
