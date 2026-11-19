@@ -34,6 +34,13 @@ MEMBERSHIP_TOKENS = (
     "is_ai_profile",
     "has_rdp_vi_filter_v9_ai_v1_profile_id",
     "ai_profile_id",
+    # Composite family names (plan 09-01): the shared device gate, the family
+    # predicate, and the create-time and id-membership helpers.
+    "t64_has_ai_device",
+    "t64_has_si_profile",
+    "is_ai_family_profile",
+    "is_si_profile",
+    "has_si_family_profile_id",
 )
 
 RESERVE_CALLS = ("t64_schedule_reserve_after", "t64_schedule_reserve")

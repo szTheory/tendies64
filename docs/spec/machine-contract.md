@@ -493,6 +493,67 @@ The state digest of the family uses the `t64.state.si.25` domain and the
 sectioned framing described with the digest encodings. The v25 stream is not
 comparable to the v24 stream of the Phase 8 profile.
 
+## Closed event ledger
+
+The scheduler dispatches events keyed by a device id and a kind. The set of
+pairs is closed: a pair appears in the ledger only when a reservation site
+exists in `core/t64_*.c`, and a later state import refuses an unknown pair.
+
+| Device | Kind | Event | Reservation site |
+| --- | --- | --- | --- |
+| 5 | 1 | CPU step | CPU scheduling, exception entry, successor preflight |
+| 3 | 1 | PI DMA completion | PI cartridge DMA start |
+| 4 | 1 | SP DMA completion | legacy SP DMA start (profiles without the functional RSP) |
+| 4 | 2 | RSP issue | RSP issue scheduling; SP DMA on the functional-RSP profiles also uses it |
+| 6 | 1 | timed input submission | `t64_machine_queue_input` |
+| 7 | 1 | RDP work | RDP command work scheduling |
+| 8 | 1 | VI field | VI register write and field events |
+| 9 | 1 | AI sample | AI DMA start and sample scheduling |
+| `0xffff0001` | 1 to 5 | synthetic test events | test scheduling helpers: no-op, instruction, frame, halt, repeat |
+| 10 | 1 | SI execute | reserved: the constant exists, no reservation site yet |
+| 10 | 2 | SI complete | reserved: the constant exists, no reservation site yet |
+
+Event order stays `tick-sequence-fifo-v1` for every device: events dispatch by
+guest tick and then by reservation sequence, and no device has a rank. Two
+events placed at one tick therefore dispatch in the order they were reserved.
+The ledger test compares an observed set against this table and rejects an
+unlisted pair, a missing row, and a reserved row that appears; a transposed
+copy of the table is rejected. The order test places two events at one tick in
+both insertion orders for every pair of non-reserved rows using label-only
+events through the real scheduler, and for the pairs an existing builder can
+place at one tick it also uses the real device events: PI with SP completion
+(legacy profile), VI with AI sample, and the CPU step with each of PI
+completion, RSP issue, timed input, RDP work, VI field and AI sample. SP
+completion with any CPU or functional-profile device has no builder, because
+the functional-RSP profiles issue SP DMA through RSP issue events; those pairs
+are covered by the label-only case alone.
+
+These are regression pins and self-comparison. The model chooses no hardware
+tie order and no measurement supports one, so a consistently wrong tie would
+pass these tests; the order is a stated software-profile policy, not hardware
+evidence. The list of version-membership and reservation sites is kept in
+`docs/spec/profile-membership-sites.txt`, regenerated and compared by
+`scripts/list-membership-sites.py --check`; a later plan refreshes the list in
+the commit that adds its site.
+
+## F0 identity record
+
+This record freezes the identity slice of the composite family at its first
+point (F0). It is provisional until Phase 10 and implies no API or ABI freeze.
+
+* Profile ids: `ntsc-cart-4m-openipl3-rdram-b-t1-si-v1`, and the same id with
+  the suffixes `-e4k`, `-e16k` and `-s32k`.
+* Tuple: descriptor version 12, machine model version 20, state serialization
+  version 25; `peripheral_flags` 1; `save_kind` 0, 1, 2 and 3 respectively.
+* Labels: `si_policy` is `si-hle-joybus-wire-v1`; `save_policy` is
+  `save-explicit-eeprom4k16k-sram32k-busy6ms-v1`.
+* State stream: domain `t64.state.si.25`, 32-bit big-endian section ids 1 to 9
+  in ascending order with ids 10, 11 and 16 reserved, and the span classes body,
+  identity, marker and new, as described with the digest encodings.
+* Frozen at F0: the version-membership pattern (the listed sites), the section
+  ids and framing, the id scheme and the numeric-field validation. A later change
+  is a recorded deviation with its cost, not a silent edit.
+
 ## Output observation and timed input
 
 `t64_machine_output_drain` is a provisional host observation call, not a frozen

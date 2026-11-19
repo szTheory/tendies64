@@ -199,7 +199,10 @@ unit.core.profile.quantum-identity
 unit.core.profile.family-devices
 unit.core.digest.sink-legacy-identity
 unit.core.digest.v25-reference
-unit.core.digest.v25-strip-differential'
+unit.core.digest.v25-strip-differential
+unit.core.sched.ledger
+unit.core.sched.characterize-fifo
+repo.si-membership-sites'
 
 CPU_COVERAGE_OPCODES='ADD
 ADDU

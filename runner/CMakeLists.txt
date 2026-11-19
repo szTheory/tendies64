@@ -174,6 +174,14 @@ set_tests_properties(repo.rsp-no-hle PROPERTIES
   ENVIRONMENT
     "PYTHONDONTWRITEBYTECODE=1;T64_RSP_NO_HLE_BUILD_DIR=${CMAKE_BINARY_DIR}")
 
+# The version-membership and reservation site list is data; each later plan
+# refreshes it in the commit that adds its site.
+add_test(NAME repo.si-membership-sites
+  COMMAND python3 -B ${CMAKE_SOURCE_DIR}/scripts/list-membership-sites.py
+          --check ${CMAKE_SOURCE_DIR}/docs/spec/profile-membership-sites.txt)
+set_tests_properties(repo.si-membership-sites PROPERTIES
+  LABELS runner TIMEOUT 60 ENVIRONMENT "PYTHONDONTWRITEBYTECODE=1")
+
 add_executable(test_cpu_diagnostic tests/test_cpu_diagnostic.c)
 target_compile_definitions(test_cpu_diagnostic PRIVATE ${T64_HOST_DEFS})
 target_include_directories(test_cpu_diagnostic PRIVATE ${CMAKE_SOURCE_DIR}/core)

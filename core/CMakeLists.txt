@@ -648,6 +648,22 @@ set_tests_properties(unit.core.digest.sink-legacy-identity
   LABELS unit
   ENVIRONMENT "T64_TEST_IPL3_PATH=${T64_BOOT_FIXTURE_DIR}/ipl3_compat.z64")
 
+add_executable(test_sched_ledger tests/test_sched_ledger.c)
+target_include_directories(test_sched_ledger PRIVATE
+  "${CMAKE_SOURCE_DIR}/tests"
+  "${CMAKE_CURRENT_SOURCE_DIR}")
+target_link_libraries(test_sched_ledger PRIVATE t64_core)
+t64_target_warnings(test_sched_ledger)
+add_dependencies(test_sched_ledger t64-boot-fixtures)
+add_test(NAME unit.core.sched.ledger
+  COMMAND test_sched_ledger --case ledger)
+add_test(NAME unit.core.sched.characterize-fifo
+  COMMAND test_sched_ledger --case characterize-fifo)
+set_tests_properties(unit.core.sched.ledger
+  unit.core.sched.characterize-fifo PROPERTIES
+  LABELS unit
+  ENVIRONMENT "T64_TEST_IPL3_PATH=${T64_BOOT_FIXTURE_DIR}/ipl3_compat.z64")
+
 add_executable(test_rom_admission tests/test_rom_admission.c)
 target_include_directories(test_rom_admission PRIVATE
   "${CMAKE_SOURCE_DIR}/tests"
