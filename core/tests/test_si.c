@@ -1704,6 +1704,323 @@ static void case_atomic_queue_full(void) {
 }
 
 /* ------------------------------------------------------------------------ */
+/* input latch                                                               */
+/* ------------------------------------------------------------------------ */
+
+typedef struct {
+  int64_t offset; /* ticks from the execute tick E */
+  uint16_t buttons;
+  int x;
+  int y;
+} stamp;
+
+/* The three states of the poll oracle. */
+#define STATE_A 0x8000u, 1, -1
+#define STATE_B 0x4021u, 127, -128
+#define STATE_C 0x1802u, -1, 1
+
+typedef enum { PARTITION_WHOLE, PARTITION_STEP, PARTITION_STOPS } partition_mode;
+
+/* One poll through the real SI timeline: a parsed one-controller frame is
+ * written, the read starts at tick 3,000, so E = 3,000 + 10,876 = 13,876
+ * (independent policy literals) and C = E + 4,096. Inputs are submitted in the
+ * given order (before or after the read start), the run is advanced with the
+ * given partition, and the four data bytes of the executed image are
+ * returned with the final digest. */
+#define LATCH_START UINT64_C(3000)
+#define LATCH_EXECUTE (LATCH_START + UINT64_C(10876))
+#define LATCH_COMPLETE (LATCH_EXECUTE + UINT64_C(4096))
+
+static bool run_latch_scenario(const stamp *stamps, const size_t *order,
+                               size_t count, bool submit_after_start,
+                               partition_mode mode, uint64_t step,
+                               uint8_t data[4],
+                               uint8_t digest[T64_DIGEST_SIZE]) {
+  t64_machine *machine = make_idle_machine();
+  size_t index;
+
+  if (machine == NULL) return false;
+  settle_write(machine, frame_state_one);
+  T64_CHECK(advance_guest_to(machine, LATCH_START));
+  T64_CHECK_INT(t64_machine_bus_write(machine, SI_DRAM_ADDR, 4u, DST_DRAM),
+                T64_STATUS_OK);
+  if (!submit_after_start) {
+    for (index = 0u; index < count; index++) {
+      const stamp *row = &stamps[order[index]];
+
+      T64_CHECK_INT(t64_machine_queue_input(
+                        machine, (uint64_t)((int64_t)LATCH_EXECUTE + row->offset),
+                        0u, row->buttons, row->x, row->y),
+                    T64_STATUS_OK);
+    }
+  }
+  T64_CHECK_INT(t64_machine_bus_write(machine, SI_RD64B, 4u, PIF_ADDRESS),
+                T64_STATUS_OK);
+  T64_CHECK_INT(machine->si.execute_tick, LATCH_EXECUTE);
+  if (submit_after_start) {
+    for (index = 0u; index < count; index++) {
+      const stamp *row = &stamps[order[index]];
+
+      T64_CHECK_INT(t64_machine_queue_input(
+                        machine, (uint64_t)((int64_t)LATCH_EXECUTE + row->offset),
+                        0u, row->buttons, row->x, row->y),
+                    T64_STATUS_OK);
+    }
+  }
+  if (mode == PARTITION_WHOLE) {
+    T64_CHECK(advance_guest_to(machine, LATCH_COMPLETE));
+  } else if (mode == PARTITION_STEP) {
+    while (machine->tick < LATCH_COMPLETE) {
+      uint64_t next = machine->tick + step;
+
+      if (next > LATCH_COMPLETE) next = LATCH_COMPLETE;
+      T64_CHECK(advance_guest_to(machine, next));
+    }
+  } else {
+    T64_CHECK(advance_guest_to(machine, LATCH_EXECUTE - 1u));
+    T64_CHECK(advance_guest_to(machine, LATCH_EXECUTE));
+    T64_CHECK(advance_guest_to(machine, LATCH_EXECUTE + 1u));
+    T64_CHECK(advance_guest_to(machine, LATCH_COMPLETE));
+  }
+  (void)memcpy(data, machine->si.pif_ram + 3u, 4u);
+  digest_of(machine, digest);
+  T64_CHECK(!machine->si.execute_pending);
+  t64_machine_destroy(machine);
+  return true;
+}
+
+static void expect_bytes(const char *label, const uint8_t data[4],
+                         uint8_t b0, uint8_t b1, uint8_t b2, uint8_t b3) {
+  if (data[0] != b0 || data[1] != b1 || data[2] != b2 || data[3] != b3) {
+    fprintf(stderr, "latch '%s': %02x %02x %02x %02x\n", label,
+            (unsigned)data[0], (unsigned)data[1], (unsigned)data[2],
+            (unsigned)data[3]);
+  }
+  T64_CHECK_INT(data[0], b0);
+  T64_CHECK_INT(data[1], b1);
+  T64_CHECK_INT(data[2], b2);
+  T64_CHECK_INT(data[3], b3);
+}
+
+static void case_latch_strictly_after(void) {
+  static const size_t natural[3] = {0u, 1u, 2u};
+  static const size_t reversed[3] = {1u, 0u, 2u};
+  uint8_t data[4];
+  uint8_t digest[T64_DIGEST_SIZE];
+  t64_machine *machine = make_idle_machine();
+  uint16_t buttons = 0u;
+  uint8_t x = 0u;
+  uint8_t y = 0u;
+
+  /* The literal example: state X stamped at 10 and then state Y stamped at 10
+     (the later host call wins), after an earlier state W at 5. A sample at 10
+     sees W; a sample at 11 sees Y. */
+  if (machine != NULL) {
+    T64_CHECK_INT(t64_machine_queue_input(machine, 5u, 0u, 0x0101u, 1, 1),
+                  T64_STATUS_OK);
+    T64_CHECK_INT(t64_machine_queue_input(machine, 10u, 0u, 0x0202u, 2, 2),
+                  T64_STATUS_OK);
+    T64_CHECK_INT(t64_machine_queue_input(machine, 10u, 0u, 0x0404u, 4, 4),
+                  T64_STATUS_OK);
+    T64_CHECK(advance_guest_to(machine, 10u));
+    t64_si_latch_sample(machine, 0u, 10u, &buttons, &x, &y);
+    T64_CHECK_INT(buttons, 0x0101u);
+    T64_CHECK_INT(x, 1u);
+    T64_CHECK_INT(y, 1u);
+    t64_si_latch_sample(machine, 0u, 11u, &buttons, &x, &y);
+    T64_CHECK_INT(buttons, 0x0404u);
+    T64_CHECK_INT(x, 4u);
+    T64_CHECK_INT(y, 4u);
+    t64_machine_destroy(machine);
+  }
+
+  /* Inputs stamped E-1, E and E+1: the sample at E sees the E-1 value only
+     (A, bytes 80 00 01 FF), in either submission order and whether they are
+     submitted before or after the read start. */
+  {
+    const stamp stamps[3] = {{-1, STATE_A}, {0, STATE_B}, {1, STATE_C}};
+
+    T64_CHECK(run_latch_scenario(stamps, natural, 3u, false, PARTITION_WHOLE,
+                                 0u, data, digest));
+    expect_bytes("E-1, E, E+1", data, 0x80u, 0x00u, 0x01u, 0xFFu);
+    T64_CHECK(run_latch_scenario(stamps, reversed, 3u, true, PARTITION_WHOLE,
+                                 0u, data, digest));
+    expect_bytes("E-1, E, E+1 reversed after start", data, 0x80u, 0x00u,
+                 0x01u, 0xFFu);
+  }
+  /* E and E+1 only: nothing is visible at E (neutral). */
+  {
+    const stamp stamps[2] = {{0, STATE_B}, {1, STATE_C}};
+    static const size_t two[2] = {0u, 1u};
+
+    T64_CHECK(run_latch_scenario(stamps, two, 2u, false, PARTITION_WHOLE, 0u,
+                                 data, digest));
+    expect_bytes("E, E+1", data, 0x00u, 0x00u, 0x00u, 0x00u);
+  }
+  /* E-2 then E-1: the later stamp is the last one below E (B, 40 21 7F 80). */
+  {
+    const stamp stamps[2] = {{-2, STATE_A}, {-1, STATE_B}};
+    static const size_t two[2] = {0u, 1u};
+
+    T64_CHECK(run_latch_scenario(stamps, two, 2u, false, PARTITION_WHOLE, 0u,
+                                 data, digest));
+    expect_bytes("E-2, E-1", data, 0x40u, 0x21u, 0x7Fu, 0x80u);
+  }
+  /* A later host call wins at an equal stamp, in both submission orders. */
+  {
+    const stamp stamps[2] = {{-1, STATE_A}, {-1, STATE_B}};
+    static const size_t forward[2] = {0u, 1u};
+    static const size_t backward[2] = {1u, 0u};
+
+    T64_CHECK(run_latch_scenario(stamps, forward, 2u, false, PARTITION_WHOLE,
+                                 0u, data, digest));
+    expect_bytes("equal stamp, B submitted last", data, 0x40u, 0x21u, 0x7Fu,
+                 0x80u);
+    T64_CHECK(run_latch_scenario(stamps, backward, 2u, false, PARTITION_WHOLE,
+                                 0u, data, digest));
+    expect_bytes("equal stamp, A submitted last", data, 0x80u, 0x00u, 0x01u,
+                 0xFFu);
+  }
+}
+
+static void case_latch_partition(void) {
+  const stamp stamps[3] = {{-1, STATE_A}, {0, STATE_B}, {1, STATE_C}};
+  static const size_t orders[6][3] = {{0u, 1u, 2u}, {0u, 2u, 1u},
+                                      {1u, 0u, 2u}, {1u, 2u, 0u},
+                                      {2u, 0u, 1u}, {2u, 1u, 0u}};
+  static const uint64_t steps[] = {1u, 3u, 7u, 4096u};
+  uint8_t data[4];
+  uint8_t digest[T64_DIGEST_SIZE];
+  uint8_t reference[T64_DIGEST_SIZE];
+  size_t order;
+  size_t index;
+
+  /* Every submission order and every partition samples the same bytes
+     (A at E-1). For one submission order every partition also reaches the
+     same digest; digests across different submission orders are not
+     compared. */
+  for (order = 0u; order < 6u; order++) {
+    T64_CHECK(run_latch_scenario(stamps, orders[order], 3u, false,
+                                 PARTITION_WHOLE, 0u, data, reference));
+    expect_bytes("whole", data, 0x80u, 0x00u, 0x01u, 0xFFu);
+    for (index = 0u; index < sizeof steps / sizeof steps[0]; index++) {
+      T64_CHECK(run_latch_scenario(stamps, orders[order], 3u, false,
+                                   PARTITION_STEP, steps[index], data,
+                                   digest));
+      expect_bytes("step", data, 0x80u, 0x00u, 0x01u, 0xFFu);
+      T64_CHECK(memcmp(reference, digest, T64_DIGEST_SIZE) == 0);
+    }
+    T64_CHECK(run_latch_scenario(stamps, orders[order], 3u, false,
+                                 PARTITION_STOPS, 0u, data, digest));
+    expect_bytes("stops at E-1, E, E+1", data, 0x80u, 0x00u, 0x01u, 0xFFu);
+    T64_CHECK(memcmp(reference, digest, T64_DIGEST_SIZE) == 0);
+    T64_CHECK(run_latch_scenario(stamps, orders[order], 3u, true,
+                                 PARTITION_STOPS, 0u, data, digest));
+    expect_bytes("submitted after the start", data, 0x80u, 0x00u, 0x01u,
+                 0xFFu);
+  }
+}
+
+static void case_latch_port_decode(void) {
+  t64_machine *machine = make_idle_machine();
+  t64_machine *legacy = NULL;
+  uint8_t digest_before[T64_DIGEST_SIZE];
+  uint8_t digest_after[T64_DIGEST_SIZE];
+  uint32_t port;
+  size_t index;
+  bool found = false;
+  t64_si_state zero_si; /* snapshot taken before the input event runs */
+
+  if (machine == NULL) return;
+  /* The family accepts port 0 and refuses ports 1 to 4 with a bit-identical
+     digest (the t64.input v1 parser and its port-0-only rule are unchanged). */
+  T64_CHECK_INT(t64_machine_queue_input(machine, 50u, 0u, 0x1234u, -1, 1),
+                T64_STATUS_OK);
+  for (port = 1u; port <= 4u; port++) {
+    digest_of(machine, digest_before);
+    T64_CHECK_INT(t64_machine_queue_input(machine, 60u, port, 0x1234u, 0, 0),
+                  T64_STATUS_INVALID_ARGUMENT);
+    digest_of(machine, digest_after);
+    T64_CHECK(memcmp(digest_before, digest_after, T64_DIGEST_SIZE) == 0);
+  }
+  /* The family value for port 0 equals the legacy packing 0x01ff1234. */
+  for (index = 0u; index < machine->queue_count; index++) {
+    const t64_event *event =
+        &machine->events[(machine->queue_head + index) % T64_EVENT_QUEUE_CAPACITY];
+
+    if (event->device == T64_TRACE_DEVICE_INPUT) {
+      T64_CHECK_INT(event->value, UINT64_C(0x01ff1234));
+      found = true;
+    }
+  }
+  T64_CHECK(found);
+  /* An event injected through the scheduler with port bits 2 updates only
+     the port 2 latch. */
+  {
+    t64_event_reservation reservation;
+
+    T64_CHECK_INT(t64_schedule_reserve(
+                      machine, 70u, T64_TRACE_DEVICE_INPUT,
+                      T64_TRACE_KIND_INPUT_SUBMITTED,
+                      UINT64_C(0x01ff1234) | (UINT64_C(2) << 32), 0u,
+                      t64_input_event_handler, &reservation),
+                  T64_STATUS_OK);
+    T64_CHECK_INT(t64_schedule_commit(machine, &reservation), T64_STATUS_OK);
+  }
+  T64_CHECK(advance_guest_to(machine, 80u));
+  T64_CHECK_INT(machine->si.latch[2].next_buttons, 0x1234u);
+  T64_CHECK_INT(machine->si.latch[2].next_x, 0xFFu);
+  T64_CHECK_INT(machine->si.latch[2].next_y, 0x01u);
+  T64_CHECK(machine->si.latch[2].next_valid);
+  T64_CHECK_INT(machine->si.latch[2].next_visible_from, 71u);
+  T64_CHECK_INT(machine->si.latch[1].next_buttons, 0u);
+  T64_CHECK(!machine->si.latch[1].next_valid);
+  T64_CHECK(!machine->si.latch[3].next_valid);
+  /* Port 0 got the host call at tick 50 (promoted by the later event). */
+  T64_CHECK_INT(machine->si.latch[0].next_buttons, 0x1234u);
+  t64_machine_destroy(machine);
+
+  /* A legacy profile still refuses port 1, keeps the value 0x01ff1234 and an
+     observer-only handler that changes no state. */
+  legacy = create_admitted(AI_STEM_ID);
+  if (legacy == NULL) return;
+  T64_CHECK_INT(t64_machine_queue_input(legacy, 60u, 1u, 0x1234u, 0, 0),
+                T64_STATUS_INVALID_ARGUMENT);
+  T64_CHECK_INT(t64_machine_queue_input(legacy, 50u, 0u, 0x1234u, -1, 1),
+                T64_STATUS_OK);
+  found = false;
+  for (index = 0u; index < legacy->queue_count; index++) {
+    const t64_event *event =
+        &legacy->events[(legacy->queue_head + index) % T64_EVENT_QUEUE_CAPACITY];
+
+    if (event->device == T64_TRACE_DEVICE_INPUT) {
+      T64_CHECK_INT(event->value, UINT64_C(0x01ff1234));
+      found = true;
+    }
+  }
+  T64_CHECK(found);
+  zero_si = legacy->si; /* the SI state of a legacy profile is never used */
+  T64_CHECK(cancel_boot_cpu_event(legacy));
+  T64_CHECK(advance_guest_to(legacy, 60u));
+  T64_CHECK(memcmp(&legacy->si, &zero_si, sizeof zero_si) == 0);
+  /* Calling the handler directly on the legacy profile also changes nothing. */
+  {
+    t64_event event;
+
+    (void)memset(&event, 0, sizeof event);
+    event.device = T64_TRACE_DEVICE_INPUT;
+    event.kind = T64_TRACE_KIND_INPUT_SUBMITTED;
+    event.value = UINT64_C(0x01ff1234);
+    event.tick = 60u;
+    digest_of(legacy, digest_before);
+    T64_CHECK_INT(t64_input_event_handler(legacy, &event), T64_STATUS_OK);
+    digest_of(legacy, digest_after);
+    T64_CHECK(memcmp(digest_before, digest_after, T64_DIGEST_SIZE) == 0);
+  }
+  t64_machine_destroy(legacy);
+}
+
+/* ------------------------------------------------------------------------ */
 /* Dispatch                                                                  */
 /* ------------------------------------------------------------------------ */
 
@@ -1730,11 +2047,18 @@ static const test_case cases[] = {
     {"reset-replace", case_reset_replace, "device", "unit.core.si.device"},
     {"digest-section", case_digest_section, "device",
      "unit.core.si.device"},
+    {"latch-strictly-after", case_latch_strictly_after, "latch",
+     "unit.core.input.latch-partition"},
+    {"latch-partition", case_latch_partition, "latch",
+     "unit.core.input.latch-partition"},
+    {"latch-port-decode", case_latch_port_decode, "latch",
+     "unit.core.input.latch-partition"},
 };
 
 static const char *suite_finish_name(const char *suite) {
   if (strcmp(suite, "atomic") == 0) return "unit.core.si.atomic-queue-full";
   if (strcmp(suite, "device") == 0) return "unit.core.si.device";
+  if (strcmp(suite, "latch") == 0) return "unit.core.input.latch-partition";
   return NULL;
 }
 

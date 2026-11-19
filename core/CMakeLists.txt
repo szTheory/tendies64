@@ -742,8 +742,24 @@ add_test(NAME unit.core.cpu.si-store-budget
   COMMAND test_si --case cpu-store-budget)
 add_test(NAME unit.core.si.device
   COMMAND test_si --suite device)
+add_test(NAME unit.core.input.latch-partition
+  COMMAND test_si --suite latch)
 set_tests_properties(unit.core.si.atomic-queue-full
-  unit.core.cpu.si-store-budget unit.core.si.device PROPERTIES
+  unit.core.cpu.si-store-budget unit.core.si.device
+  unit.core.input.latch-partition PROPERTIES
+  LABELS unit
+  ENVIRONMENT "T64_TEST_IPL3_PATH=${T64_BOOT_FIXTURE_DIR}/ipl3_compat.z64")
+
+add_executable(test_joybus tests/test_joybus.c)
+target_include_directories(test_joybus PRIVATE
+  "${CMAKE_SOURCE_DIR}/tests"
+  "${CMAKE_CURRENT_SOURCE_DIR}")
+target_link_libraries(test_joybus PRIVATE t64_core)
+t64_target_warnings(test_joybus)
+add_dependencies(test_joybus t64-boot-fixtures)
+add_test(NAME unit.core.joybus.parser
+  COMMAND test_joybus --suite parser)
+set_tests_properties(unit.core.joybus.parser PROPERTIES
   LABELS unit
   ENVIRONMENT "T64_TEST_IPL3_PATH=${T64_BOOT_FIXTURE_DIR}/ipl3_compat.z64")
 
@@ -918,6 +934,12 @@ if(T64_HAS_ADDRESS_AND_UNDEFINED_SANITIZERS)
   t64_target_warnings(test_fuzz_rom_admission)
   add_test(NAME fuzz.rom-admission COMMAND test_fuzz_rom_admission)
   set_tests_properties(fuzz.rom-admission PROPERTIES TIMEOUT 120 LABELS fuzz)
+
+  # The joybus bounded campaign is a case of its gate-preset name; only the
+  # iteration count is raised here (the gate preset keeps the default).
+  set_property(TEST unit.core.joybus.parser APPEND PROPERTY ENVIRONMENT
+    "T64_JOYBUS_FUZZ_ITERATIONS=250000")
+  set_tests_properties(unit.core.joybus.parser PROPERTIES TIMEOUT 600)
 
   add_executable(sanitizer_fault tests/sanitizer_fault.c)
   t64_target_warnings(sanitizer_fault)

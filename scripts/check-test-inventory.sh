@@ -220,7 +220,9 @@ harness.upload-allowlist-artifacts
 unit.core.si.atomic-queue-full
 unit.core.cpu.si-store-budget
 unit.core.si.device
-runner.pad-poll'
+runner.pad-poll
+unit.core.joybus.parser
+unit.core.input.latch-partition'
 
 CPU_COVERAGE_OPCODES='ADD
 ADDU
