@@ -426,6 +426,46 @@ static int case_tick_cap(void) {
   return g_failures == 0 ? 0 : 1;
 }
 
+static void expect_wrong_transcript(const run_out *run) {
+  CHECK(run->parsed);
+  CHECK(run->checker_ok);
+  CHECK(strcmp(run->outcome, "guest-fail") == 0);
+  CHECK(strcmp(run->detail, "wrong-transcript") == 0);
+  CHECK(strcmp(run->stop_kind, "authored-completion") == 0);
+}
+
+/* K4: every legacy row is judged by the legacy pin exactly as before the
+ * per-row pin existed. No pinned row exists yet when this case is first
+ * written, so it starts green by design; it is the characterization that the
+ * pin accessor did not move legacy behavior. */
+static int case_transcript_pin(void) {
+  char path[PATH_MAX];
+  run_spec spec;
+  run_out run;
+  spec.supervisor = g_supervisor;
+  spec.fixture = path;
+  spec.bound = 600000u;
+
+  CHECK(fixture_path(path, "hello"));
+  CHECK(run_supervised(&spec, &run));
+  expect_pass(&run);
+  CHECK(run.log_bytes == T64_REAL_LEGACY_LOG_BYTES);
+  CHECK(strcmp(run.log_sha256,
+               "86594505bea53c9843f9eaf07e4cf0121cbe0055670324674fd8385c88ffd18e") == 0);
+
+  CHECK(fixture_path(path, "hello-wrong-text"));
+  CHECK(run_supervised(&spec, &run));
+  expect_wrong_transcript(&run);
+  CHECK(strcmp(run.fixture_id, "hello-wrong-text") == 0);
+
+  CHECK(fixture_path(path, "audio-pcm"));
+  CHECK(run_supervised(&spec, &run));
+  expect_pass(&run);
+  CHECK(strcmp(run.fixture_id, "audio-pcm-literal") == 0);
+  CHECK(run.log_bytes == T64_REAL_LEGACY_LOG_BYTES);
+  return g_failures == 0 ? 0 : 1;
+}
+
 typedef struct {
   const char *name;
   int (*run)(void);
@@ -433,6 +473,7 @@ typedef struct {
 
 static const case_entry cases[] = {
     {"tick-cap", case_tick_cap},
+    {"transcript-pin", case_transcript_pin},
 };
 
 int main(int argc, char **argv) {

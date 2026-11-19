@@ -24,7 +24,6 @@
 
 #define T64_REAL_FIXTURE_MAX_BYTES (1u << 20)
 #define T64_REAL_OUTPUT_CAPACITY 4096u
-#define T64_REAL_EXPECTED_LOG_BYTES 30u
 #define T64_REAL_TRACE_STEP UINT64_C(16)
 #define T64_REAL_TEST_MAX_ADVANCE_STEP UINT64_C(32)
 #define T64_REAL_MAX_RESOURCE_YIELDS 64u
@@ -41,8 +40,6 @@ _Static_assert(sizeof(t64_audio_observation) <= 4096u,
   "ntsc-cart-4m-openipl3-rdram-b-t1-rdp-vi-filter-v9-ai-v1"
 #define T64_REAL_EXPECTED_FIXTURE_SHA256 \
   "fa276cc175a4e764b6fd5413193c44b51f38fd8135e33e400032827e02f27c7c"
-#define T64_REAL_EXPECTED_LOG_SHA256 \
-  "86594505bea53c9843f9eaf07e4cf0121cbe0055670324674fd8385c88ffd18e"
 #define T64_REAL_HELLO_PC UINT32_C(0x80000478)
 #define T64_REAL_HELLO_ENTRY_PC UINT32_C(0x80000400)
 #define T64_REAL_BREAK_OPCODE UINT32_C(0x0000000d)
@@ -58,7 +55,7 @@ static bool test_fault_is(const char *name) {
 }
 #endif
 
-static const uint8_t expected_log[T64_REAL_EXPECTED_LOG_BYTES + 1u] =
+static const uint8_t expected_log[T64_REAL_LEGACY_LOG_BYTES + 1u] =
     "Tendies64 hello via open IPL3\n";
 
 typedef struct {
@@ -751,6 +748,21 @@ static bool audio_observation_valid(const trace_observation *observation) {
   return true;
 }
 
+/* K4: a registered row is judged by its own pin (length and SHA-256);
+ * unpinned rows keep the legacy three-part comparison unchanged (length,
+ * compiled hello text, SHA-256). */
+static bool transcript_matches_pin(const t64_real_fixture *fixture,
+                                   const uint8_t *output,
+                                   size_t output_length) {
+  size_t pin_bytes = 0u;
+  const char *pin_sha256 = NULL;
+  const bool row_pin = t64_real_fixture_log_pin(fixture, &pin_bytes,
+                                                &pin_sha256);
+  if (output_length != pin_bytes) return false;
+  if (!row_pin && memcmp(output, expected_log, pin_bytes) != 0) return false;
+  return bytes_equal_hex(output, output_length, pin_sha256);
+}
+
 static bool profile_observations_valid(
     const t64_profile_descriptor *profile,
     const trace_observation *observation) {
@@ -1372,10 +1384,8 @@ static int run_real(int fixture_fd, int input_fd, const char *requested_profile,
       } else if (fixture_identity->pass_eligible &&
                  profile_observations_valid(profile, &observations) &&
                  fixture.sha256_hex[0] != '\0' &&
-                 output_length == sizeof expected_log - 1u &&
-                 memcmp(output, expected_log, sizeof expected_log - 1u) == 0 &&
-                 bytes_equal_hex(output, output_length,
-                                 T64_REAL_EXPECTED_LOG_SHA256)) {
+                 transcript_matches_pin(fixture_identity, output,
+                                        output_length)) {
         (void)snprintf(result.outcome, sizeof result.outcome, "pass");
         (void)snprintf(result.detail, sizeof result.detail, "positive-match");
       } else {

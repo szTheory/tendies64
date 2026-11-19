@@ -131,11 +131,8 @@ static const char expected_ipl3_sha256[] =
     "f522db2e31a701f82597f399e76d55c9487760d015aff9d90176b463ae39a068";
 static const char expected_ipl3_payload_sha256[] =
     "f716a90b1d36ec4253d096790791256d3543455e54473a755ff8c3d1199b15d5";
-static const char expected_log_sha256[] =
-    "86594505bea53c9843f9eaf07e4cf0121cbe0055670324674fd8385c88ffd18e";
 static const char expected_empty_sha256[] =
     "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855";
-static const uint64_t expected_log_bytes = 30u;
 static const uint64_t max_real_log_bytes = 4096u;
 
 /* ---- diagnostics --------------------------------------------------------- */
@@ -821,6 +818,19 @@ typedef struct {
   uint64_t tick[4];
 } real_milestone_summary;
 
+/* K4: the transcript pin for the registered row named by the report; an
+ * unregistered pair falls back to the legacy hello pin (the identity check
+ * has already refused such pairs for post-launch records). */
+static void real_row_pin(const t64_json_node *root, size_t *bytes,
+                         const char **sha256_hex) {
+  const t64_json_node *id = t64_json_get(root, "fixture_id");
+  const t64_json_node *sha = t64_json_get(root, "fixture_sha256");
+  (void)t64_real_fixture_log_pin(
+      t64_real_fixture_find_identity(id == NULL ? NULL : id->str,
+                                     sha == NULL ? NULL : sha->str),
+      bytes, sha256_hex);
+}
+
 static int real_pass_matches_registered_fixture(
     const t64_json_node *root, const t64_json_node *milestones_node,
     const real_milestone_summary *milestones, uint64_t instruction_count,
@@ -828,11 +838,17 @@ static int real_pass_matches_registered_fixture(
   const t64_real_fixture *fixture;
   const t64_json_node *completion;
   char expected_pc[17];
+  size_t pin_bytes = 0u;
+  const char *pin_sha256 = NULL;
 
   if (root == NULL || milestones_node == NULL || milestones == NULL ||
       milestones->count != 4u || milestones->index[3] != 3 ||
-      instruction_count == 0u || log_bytes != expected_log_bytes ||
-      log_bytes_total != expected_log_bytes) {
+      instruction_count == 0u) {
+    return 0;
+  }
+  real_row_pin(root, &pin_bytes, &pin_sha256);
+  if (log_bytes != (uint64_t)pin_bytes ||
+      log_bytes_total != (uint64_t)pin_bytes) {
     return 0;
   }
   fixture = t64_real_fixture_find_identity(
@@ -853,7 +869,7 @@ static int real_pass_matches_registered_fixture(
   if (completion != NULL) completion = completion->next;
   if (completion != NULL) completion = completion->next;
   return completion != NULL &&
-         str_is(t64_json_get(root, "log_sha256"), expected_log_sha256) &&
+         str_is(t64_json_get(root, "log_sha256"), pin_sha256) &&
          str_is(t64_json_get(completion, "pc"), expected_pc);
 }
 
@@ -1167,6 +1183,9 @@ static int validate_real_result(const t64_json_node *root, rec *r, diag *d) {
       return 0;
     }
   } else if (str_is(stop_kind, "authored-completion")) {
+    size_t row_pin_bytes = 0u;
+    const char *row_pin_sha256 = NULL;
+    real_row_pin(root, &row_pin_bytes, &row_pin_sha256);
     if (milestones.count != 4u || milestones.index[0] != 0 ||
         milestones.index[1] != 1 || milestones.index[2] != 2 ||
         milestones.index[3] != 3) {
@@ -1179,9 +1198,9 @@ static int validate_real_result(const t64_json_node *root, rec *r, diag *d) {
         set_diag(d, "R-CONSISTENCY", "empty output at authored completion is boot-fail");
         return 0;
       }
-    } else if (str_is(t64_json_get(root, "log_sha256"), expected_log_sha256) &&
-               log_bytes == expected_log_bytes &&
-               log_bytes_total == expected_log_bytes) {
+    } else if (str_is(t64_json_get(root, "log_sha256"), row_pin_sha256) &&
+               log_bytes == (uint64_t)row_pin_bytes &&
+               log_bytes_total == (uint64_t)row_pin_bytes) {
       if (!real_pass_matches_registered_fixture(
               root, milestones_node, &milestones, instruction_count,
               log_bytes, log_bytes_total) ||

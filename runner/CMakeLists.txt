@@ -542,6 +542,7 @@ function(t64_phase09_runner_case TEST_NAME CASE_NAME)
     ENVIRONMENT "T64_PHASE09_EVIDENCE_DIR=${CMAKE_BINARY_DIR}/09-02-evidence")
 endfunction()
 t64_phase09_runner_case(runner.guest-tick-cap tick-cap)
+t64_phase09_runner_case(runner.fixture-transcript-pin transcript-pin)
 
 # Original-record audio evidence controls. This selftest runs only isolated
 # verifier mutations; hosted emission remains a separate post-gate command.
