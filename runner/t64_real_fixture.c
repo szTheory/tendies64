@@ -61,6 +61,12 @@ static const t64_real_fixture fixtures[] = {
      4728u, "ntsc-cart-4m-openipl3-rdram-b-t1-rdp-vi-filter-v9-ai-v1",
      "eaa400aa23bfa3d0c9ba6d475d8eba7a60302151e22b6278ff6a4991d08bb5bf",
      UINT32_C(0x800005e8), true, 0u, 0u, NULL},
+    {"phase09-admit-si-v1",
+     "b3a97e238137feece98b4b39e2f76973a531500c35b39470bfcd6cd23ae67460",
+     4264u, "ntsc-cart-4m-openipl3-rdram-b-t1-si-v1",
+     "661b161dfee9a10857efe3f98d840c09f05cbf0492dfde59e8ec44190dabb6d5",
+     UINT32_C(0x80000470), true, 0u, 20u,
+     "5fc4d0d36f6eb18aeaa37457e14d3020e14614b97b9e94c6c219f6036624fbc9"},
 };
 
 const t64_real_fixture *t64_real_fixture_find_bytes(

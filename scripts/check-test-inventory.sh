@@ -205,7 +205,8 @@ unit.core.sched.characterize-fifo
 repo.si-membership-sites
 runner.guest-tick-cap
 runner.fixture-transcript-pin
-runner.supervisor-argv-bound'
+runner.supervisor-argv-bound
+runner.phase09-tracer'
 
 CPU_COVERAGE_OPCODES='ADD
 ADDU

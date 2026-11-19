@@ -142,6 +142,8 @@ typedef struct {
   uint64_t guest_tick;
   uint64_t bound_tick;
   uint64_t log_bytes;
+  size_t milestone_count;
+  char completion_pc[24]; /* pc of the last milestone, e.g. ffffffff80000470 */
   char dir[PATH_MAX];
   char result_path[PATH_MAX];
 } run_out;
@@ -189,6 +191,18 @@ static bool parse_record(const char *path, run_out *out) {
   if (counts != NULL &&
       t64_json_u64_string(t64_json_get(counts, "log_bytes"), &value)) {
     out->log_bytes = value;
+  }
+  {
+    const t64_json_node *milestones = t64_json_get(doc.root, "milestones");
+    const t64_json_node *item = milestones == NULL ? NULL : milestones->first;
+    out->milestone_count = 0u;
+    out->completion_pc[0] = '\0';
+    while (item != NULL) {
+      out->milestone_count++;
+      copy_string(out->completion_pc, sizeof out->completion_pc,
+                  t64_json_get(item, "pc"));
+      item = item->next;
+    }
   }
   t64_json_free(&doc);
   return true;
@@ -551,12 +565,40 @@ static int case_argv_bound(void) {
   return g_failures == 0 ? 0 : 1;
 }
 
+/* The four transcripts are pinned from literal text with an independent
+ * tool (printf piped to shasum), never from a run. */
+#define PIN_ADMIT_0 \
+  "5fc4d0d36f6eb18aeaa37457e14d3020e14614b97b9e94c6c219f6036624fbc9"
+#define ADMIT_STEM_COMPLETION_PC "ffffffff80000470"
+
+/* Tracer: the stem admit ROM on the stem id is admitted, ticked and passed
+ * through the real supervised runner under its per-row pin. */
+static int case_tracer_artifact(void) {
+  char path[PATH_MAX];
+  run_spec spec = {0};
+  run_out run;
+  spec.supervisor = g_supervisor;
+  spec.fixture = path;
+  spec.bound = 600000u;
+
+  CHECK(fixture_path(path, "phase09-admit-si-v1"));
+  CHECK(run_supervised(&spec, &run));
+  expect_pass(&run);
+  CHECK(strcmp(run.fixture_id, "phase09-admit-si-v1") == 0);
+  CHECK(run.log_bytes == 20u);
+  CHECK(strcmp(run.log_sha256, PIN_ADMIT_0) == 0);
+  CHECK(run.milestone_count == 4u);
+  CHECK(strcmp(run.completion_pc, ADMIT_STEM_COMPLETION_PC) == 0);
+  return g_failures == 0 ? 0 : 1;
+}
+
 typedef struct {
   const char *name;
   int (*run)(void);
 } case_entry;
 
 static const case_entry cases[] = {
+    {"tracer-artifact", case_tracer_artifact},
     {"tick-cap", case_tick_cap},
     {"transcript-pin", case_transcript_pin},
     {"argv-bound", case_argv_bound},

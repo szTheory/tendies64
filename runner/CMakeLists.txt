@@ -531,7 +531,8 @@ target_include_directories(test_phase09_runner PRIVATE
 target_link_libraries(test_phase09_runner PRIVATE t64_common t64_core)
 t64_target_warnings(test_phase09_runner)
 add_dependencies(test_phase09_runner t64-supervisor t64-supervisor-test
-  t64-result-check t64-boot-fixtures t64-audio-fixture)
+  t64-result-check t64-boot-fixtures t64-audio-fixture
+  t64-phase09-admit-fixture)
 function(t64_phase09_runner_case TEST_NAME CASE_NAME)
   add_test(NAME ${TEST_NAME}
     COMMAND test_phase09_runner ${CASE_NAME}
@@ -541,6 +542,7 @@ function(t64_phase09_runner_case TEST_NAME CASE_NAME)
     LABELS "runner;controls" TIMEOUT 120
     ENVIRONMENT "T64_PHASE09_EVIDENCE_DIR=${CMAKE_BINARY_DIR}/09-02-evidence")
 endfunction()
+t64_phase09_runner_case(runner.phase09-tracer tracer-artifact)
 t64_phase09_runner_case(runner.guest-tick-cap tick-cap)
 t64_phase09_runner_case(runner.fixture-transcript-pin transcript-pin)
 t64_phase09_runner_case(runner.supervisor-argv-bound argv-bound)
