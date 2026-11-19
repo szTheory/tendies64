@@ -555,6 +555,15 @@ t64_phase09_runner_case(harness.fsize-artifact-real-fault fsize-artifact)
 t64_phase09_runner_case(harness.fsize-report-capture-still-bounded fsize-report-capture)
 t64_phase09_runner_case(runner.profile-table-id-length profile-table)
 
+# The RDP fill builder recompiles the shared ROM packer in place on every run,
+# and the audio, admit and pad builders only run that packer. Built
+# concurrently (as ninja does with parallel jobs) a consumer can find the file
+# mid-rewrite and fail with "Permission denied", so every consumer builds after
+# the RDP fill target. Hosted run 44631218639 hit this on Linux.
+add_dependencies(t64-audio-fixture t64-rdp-fill-fixture)
+add_dependencies(t64-phase09-admit-fixture t64-rdp-fill-fixture)
+add_dependencies(t64-phase09-pad-fixture t64-rdp-fill-fixture)
+
 # Phase 9 pad-poll tracer (plan 09-03): the authored pad-poll ROM through the
 # real supervised runner, with the in-process poll timing measurement.
 add_executable(test_pad_poll tests/test_pad_poll.c)
