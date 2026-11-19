@@ -134,10 +134,14 @@ static const matrix_row legacy_rows[] = {
  * Composite family stem: the AI row except the exact-tuple AI predicate is
  * false and the family predicate is true. RDP depth stays inactive (K1).
  */
+#define FAMILY_ROW \
+  (P_V9 | P_RDP_VI | P_SCAN | P_TRI | P_TEX | P_COMB | P_BLEND | CHAIN | P_SI)
+
 static const matrix_row family_rows[] = {
-    {"ntsc-cart-4m-openipl3-rdram-b-t1-si-v1",
-     (P_V9 | P_RDP_VI | P_SCAN | P_TRI | P_TEX | P_COMB | P_BLEND | CHAIN |
-      P_SI)},
+    {"ntsc-cart-4m-openipl3-rdram-b-t1-si-v1", FAMILY_ROW},
+    {"ntsc-cart-4m-openipl3-rdram-b-t1-si-v1-e4k", FAMILY_ROW},
+    {"ntsc-cart-4m-openipl3-rdram-b-t1-si-v1-e16k", FAMILY_ROW},
+    {"ntsc-cart-4m-openipl3-rdram-b-t1-si-v1-s32k", FAMILY_ROW},
 };
 
 #define FAMILY_ROW_COUNT (sizeof family_rows / sizeof family_rows[0])
@@ -232,7 +236,10 @@ static void case_predicate_matrix(void) {
   T64_CHECK((legacy_rows[14].expected & P_DEPTH) != 0u);
   T64_CHECK((legacy_rows[15].expected & P_DEPTH) != 0u);
   T64_CHECK((legacy_rows[16].expected & P_DEPTH) == 0u);
-  T64_CHECK((family_rows[0].expected & P_DEPTH) == 0u);
+  for (index = 0u; index < FAMILY_ROW_COUNT; index++) {
+    T64_CHECK((family_rows[index].expected & P_DEPTH) == 0u);
+  }
+  T64_CHECK_INT(FAMILY_ROW_COUNT, 4);
 }
 
 /* ---- shared helpers for the family cases -------------------------------- */

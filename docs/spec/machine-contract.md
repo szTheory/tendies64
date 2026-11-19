@@ -347,6 +347,66 @@ records and leaves the queue intact. Invalid nonzero output buffers are refused
 without draining. Neither trace enablement nor draining calls the host or
 changes the canonical digest.
 
+## Composite SI profile family
+
+This section is provisional. The ids, descriptor fields, constants and section
+numbers below are revisable until the Phase 10 interface review; nothing here is
+an API or ABI freeze.
+
+Four registered profile ids form one family. All share descriptor version 12,
+machine model version 20 and state serialization version 25, and they extend
+the Phase 8 machine (descriptor 11, model 19, state 24) with identity for a
+standard controller on port 0 and an explicit save device. This slice adds
+identity, validation and the state-stream framing only; the SI/PIF, controller
+and save devices are separate, later work.
+
+| Profile id | Id length | `save_kind` |
+| --- | --- | --- |
+| `ntsc-cart-4m-openipl3-rdram-b-t1-si-v1` | 38 | 0, no save device |
+| `ntsc-cart-4m-openipl3-rdram-b-t1-si-v1-e4k` | 42 | 1, EEPROM 4 Kbit |
+| `ntsc-cart-4m-openipl3-rdram-b-t1-si-v1-e16k` | 43 | 2, EEPROM 16 Kbit |
+| `ntsc-cart-4m-openipl3-rdram-b-t1-si-v1-s32k` | 43 | 3, SRAM 32 KiB |
+
+`peripheral_flags` bit 0 (value 1) names the standard controller on port 0. The
+descriptor gains two text fields after `ai_policy`: `si_policy`, with the label
+`si-hle-joybus-wire-v1`, and `save_policy`, with the label
+`save-explicit-eeprom4k16k-sram32k-busy6ms-v1`. Both are project-chosen
+software-profile policy names, not hardware measurements, and their text is
+final at this point of the contract. Descriptor 12 serializes them immediately
+after `ai_policy`. Scheduler version and event-order policy stay
+`tick-sequence-fifo-v1`: this family adds no class ranking to equal-tick order.
+
+Descriptor 12 validates the numeric fields that older versions only hash. The
+`save_kind` must be 0 to 3, `peripheral_flags` may not set any bit other than
+bit 0, the synchronization quantum must be 1, and the CPU:RSP ratio must be
+1:1. Hash, serialize and create each refuse a descriptor that breaks one of
+these rules, return no machine and leave allocator counters unchanged. Machine
+creation also refuses a descriptor 12 under an id outside the four above, and
+every registered id is hash-pinned at creation: a descriptor that differs from
+its canonical bytes in any field is refused. Older descriptor versions keep
+their hashing unchanged, including a non-zero `save_kind` or `peripheral_flags`
+in a hash-only vector, but `t64_machine_create` refuses a non-zero value of
+either field for a version below 12 before any allocation.
+
+The synchronization quantum is measured in RSP issue opportunities, equal to
+guest ticks in these profiles. A quantum or ratio other than 1 and 1:1 is a new
+profile, not a runtime setting. The quantum is bound through `profile_digest`,
+which hashes the descriptor serialization; it is not a separate key of any
+`t64.result` record. The hash-level effect is demonstrated on a descriptor 11
+copy: changing only the quantum alters the serialized bytes in exactly one
+32-bit window and therefore the hash.
+
+The family inherits every Phase 8 device: CPU, RSP, PI, SP, RDP, VI and AI use
+the same behavior as the Phase 8 profile, the ISViewer window is available at
+its Phase 8 address, and the AI register window and events are enabled through
+one shared device gate. RDP depth is not part of the descriptor 11 or
+descriptor 12 state; this is inherited unchanged from Phase 8 and this contract
+states no depth coverage.
+
+The state digest of the family uses the `t64.state.si.25` domain and the
+sectioned framing described with the digest encodings. The v25 stream is not
+comparable to the v24 stream of the Phase 8 profile.
+
 ## Output observation and timed input
 
 `t64_machine_output_drain` is a provisional host observation call, not a frozen

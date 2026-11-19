@@ -41,6 +41,14 @@ bool t64_isviewer_active(const t64_machine *machine) {
       "ntsc-cart-4m-openipl3-rdram-b-t1-rdp-blender-v6";
   static const char ai_profile_id[] =
       "ntsc-cart-4m-openipl3-rdram-b-t1-rdp-vi-filter-v9-ai-v1";
+  static const char si_profile_id[] =
+      "ntsc-cart-4m-openipl3-rdram-b-t1-si-v1";
+  static const char si_e4k_profile_id[] =
+      "ntsc-cart-4m-openipl3-rdram-b-t1-si-v1-e4k";
+  static const char si_e16k_profile_id[] =
+      "ntsc-cart-4m-openipl3-rdram-b-t1-si-v1-e16k";
+  static const char si_s32k_profile_id[] =
+      "ntsc-cart-4m-openipl3-rdram-b-t1-si-v1-s32k";
   bool warm_profile;
   bool cpu_profile;
   bool compat_profile;
@@ -52,6 +60,7 @@ bool t64_isviewer_active(const t64_machine *machine) {
   bool rdp_combiner_profile;
   bool rdp_blender_profile;
   bool ai_profile;
+  bool si_profile;
 
   if (machine == NULL ||
       machine->output.policy_version != T64_ISVIEWER_POLICY_VERSION) {
@@ -120,10 +129,22 @@ bool t64_isviewer_active(const t64_machine *machine) {
                machine->profile.state_serialization_version == 24u &&
                memcmp(machine->profile.profile_id, ai_profile_id,
                       sizeof ai_profile_id) == 0;
+  si_profile = machine->profile.descriptor_version == 12u &&
+               machine->profile.machine_model_version == 20u &&
+               machine->profile.state_serialization_version == 25u &&
+               (memcmp(machine->profile.profile_id, si_profile_id,
+                       sizeof si_profile_id) == 0 ||
+                memcmp(machine->profile.profile_id, si_e4k_profile_id,
+                       sizeof si_e4k_profile_id) == 0 ||
+                memcmp(machine->profile.profile_id, si_e16k_profile_id,
+                       sizeof si_e16k_profile_id) == 0 ||
+                memcmp(machine->profile.profile_id, si_s32k_profile_id,
+                       sizeof si_s32k_profile_id) == 0);
   return warm_profile || cpu_profile || compat_profile ||
          rsp_profile || rdram_t1_profile || rdp_vi_profile ||
          rdp_triangle_profile || rdp_texture_profile ||
          rdp_combiner_profile || rdp_blender_profile || ai_profile ||
+         si_profile ||
          (machine->profile.descriptor_version == 3u &&
           t64_has_cpu_compat_extension_policy(machine) &&
           memcmp(machine->profile.profile_id, compat_v2_profile_id,

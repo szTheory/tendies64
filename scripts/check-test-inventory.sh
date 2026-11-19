@@ -194,6 +194,9 @@ controls.real.raw-capture-target-errors
 harness.audio-qualification'
 
 PHASE09_TESTS='unit.core.profile.predicate-matrix
+unit.core.profile.v12-identity
+unit.core.profile.quantum-identity
+unit.core.profile.family-devices
 unit.core.digest.sink-legacy-identity
 unit.core.digest.v25-strip-differential'
 

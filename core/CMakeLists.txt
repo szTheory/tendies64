@@ -616,7 +616,15 @@ t64_target_warnings(test_si_profile)
 add_dependencies(test_si_profile t64-boot-fixtures)
 add_test(NAME unit.core.profile.predicate-matrix
   COMMAND test_si_profile --case predicate-matrix)
-set_tests_properties(unit.core.profile.predicate-matrix PROPERTIES
+add_test(NAME unit.core.profile.v12-identity
+  COMMAND test_si_profile --case si-profile-identity)
+add_test(NAME unit.core.profile.quantum-identity
+  COMMAND test_si_profile --case quantum-identity)
+add_test(NAME unit.core.profile.family-devices
+  COMMAND test_si_profile --case family-devices)
+set_tests_properties(unit.core.profile.predicate-matrix
+  unit.core.profile.v12-identity unit.core.profile.quantum-identity
+  unit.core.profile.family-devices PROPERTIES
   LABELS unit
   ENVIRONMENT "T64_TEST_IPL3_PATH=${T64_BOOT_FIXTURE_DIR}/ipl3_compat.z64")
 
