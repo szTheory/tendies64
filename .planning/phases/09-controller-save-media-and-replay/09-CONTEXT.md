@@ -714,3 +714,14 @@ the following, resolved as routine reversible planning decisions under the auton
 - **Plan size:** every plan exceeds the generic 100,000-token estimate; recorded as an accepted scope
   decision (the authors already split two plans; the Phase 8 precedent ran five plans at the same
   density; SUMMARY files record actual cost and any further split).
+- **K19 (D-24 check order for the info call):** `t64_machine_save_info` (09-04) must write its output
+  structure, so it validates pointers before admission; the import and export calls (09-05) keep the
+  locked D-24 order (admission first, then pointer and length). The difference is deliberate, recorded
+  in the 09-05 and 09-09 specs, and tested by each plan's refusal matrix; D-24's order governs
+  import and export, and the info call is a provisional API (Phase 10 owns any freeze).
+- **Cold-time basis:** the cold CI projection adds the larger of the measured cold-minus-warm job delta
+  and the fixture-step delta (macOS 186 s from F-100: 461 s cold, 275 s warm; Linux 84 s), so the
+  600-second clause is conservative; warm must stay at or below 540 s.
+- **Replay `save_init`:** the `image` form is verified in process only; the real runner refuses replay
+  together with the save flags, so a supervised run records `blank` only. The replay spec and claim
+  block 10 say so.
