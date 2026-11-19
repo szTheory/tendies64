@@ -30,7 +30,7 @@ created: "2026-11-19"
 - **After every task commit:** the owning `--case` binaries (seconds) and the inventory check for registered names
 - **After every plan wave:** focused CTest regex through the preset, ASan selection for core changes, old-profile pins and refusals
 - **Before `/gsd-verify-work`:** native normal, ASan/UBSan, gcc:13 and both hosted jobs green on one SHA (09-11)
-- **Max feedback latency:** 60 seconds for the focused regex; the full gate is reserved for 09-03, 09-06 and 09-11
+- **Max feedback latency:** 60 seconds for the focused regex; the full local gate runs at the end of 09-03, 09-03.1, 09-06 and 09-10 (rehearsal) and the exact-SHA native gate in 09-11; one non-qualifying hosted rehearsal runs after the 09-10 fix cycle
 - Cheap-first order every plan: fixture identity and rights, claims check, `ast.parse`, PII and rights scans; gcc:13 `-Werror` on changed units; one accepted operation through the real runner; then `--case`, CTest regex, ASan selection, old-profile pins.
 
 ---

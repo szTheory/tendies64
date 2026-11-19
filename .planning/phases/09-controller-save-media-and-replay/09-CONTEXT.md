@@ -675,3 +675,42 @@ autonomy policy, not owner approvals. Planners and executors must cite the K-id.
   sequence headroom for all events the operation needs), then reserve and commit
   sequentially so a refusal leaves no partial state; the CPU store preflight reuses the
   same rule.
+
+## Amendments from plan checking (2026-11-19)
+
+The plan checker and the cross-plan review (`09-PLAN-CHECK.md`, `09-PLAN-CROSSCHECK.md`) found
+the following, resolved as routine reversible planning decisions under the autonomy policy
+(not owner approvals). Where this section and earlier text differ, this section wins.
+
+- **K17 (D-36):** the locked mutant "SI completion from the per-advance budget" is written as
+  `si-completion-from-event-budget` (the literal form is equivalent under the canonical profile),
+  and "sequence at commit instead of reserve" is realized as `cpu-successor-stale-sequence`; two
+  control mutants (`control-equivalent-handler-tick` must SURVIVE, `control-no-compile` must be
+  INVALID) check the driver's own classification. 09-06 carries these.
+- **K18 (D-39):** fixtures use one assembler source and one build script per family (admit, pad,
+  eeprom, sram, roundtrip, mix) instead of three sources; defsym variants provide the wrong-value
+  controls. The rights and manifest rules are unchanged.
+- **FH moves to the end of 09-03.1 (D-06, D-38):** 09-03 builds the SI/joybus/latch tracer and 09-03.1
+  lands the real collector, the ci.yml and check-ci-yml.sh changes, the first hosted pair and FH. The
+  locked full-gate schedule becomes: full local gate at the end of 09-03, 09-03.1, 09-06 and the
+  09-10 rehearsal, the exact-SHA native gate and both hosted jobs in 09-11, and one non-qualifying
+  hosted rehearsal after the 09-10 fix cycle so a hosted-time overrun is repaired before the freeze.
+- **Mid-tick state import (D-36) is owned by 09-09.1:** the boundary matrix carries "export, import
+  at a mid-tick stop, continue equals the uninterrupted run" on production events (the 09-06
+  synthetic-event recipe is refused by the closed handler table and stays a refused control).
+  09-10 carries review findings only (D-46).
+- **`write_generation` on state import:** decided in 09-09 with a test (a successful state import into
+  a profile with a save device increments it exactly once; a refused import never does; replacement
+  resets it to 0). The independent review may challenge the choice.
+- **One artifact producer per run:** save export, state export and replay record publish through the
+  one frozen artifact directory pair; each later flag family refuses combination with earlier
+  families (state export refuses with save and replay flags; state import refuses with all earlier
+  families), and the 09-10 drift sweep verifies the option-pair matrix.
+- **Goal-backward verification before the qualifying cycle:** the independent gsd-verifier pass moves
+  inside 09-10 (between the review/audit and the single fix cycle) so its findings land in the
+  budgeted fix cycle before F2; after 09-11 the orchestrator's verification is confirmatory.
+- **CTest-name budget:** 45 gate names total; the joybus fuzz is a case inside an existing name with
+  environment-raised iteration counts under ASan (no ASan-only name), and 09-10 and 09-11 add zero.
+- **Plan size:** every plan exceeds the generic 100,000-token estimate; recorded as an accepted scope
+  decision (the authors already split two plans; the Phase 8 precedent ran five plans at the same
+  density; SUMMARY files record actual cost and any further split).

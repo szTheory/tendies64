@@ -403,7 +403,9 @@ typedef struct {
 | A7 | Hardware and protocol facts (register map, escapes, EEPROM commands, 6 ms ceiling, 4 Kbit mirror, SRAM base) remain single-source community facts with the proposal's labels | all SAVE rows | Wording must stay "named policy"; never a hardware claim |
 | A8 | The proposed K5 replacement mutants are non-equivalent | K5 | A surviving mutant means a missing control; confirm each fails when built |
 
-## Open Questions
+## Open Questions (RESOLVED)
+
+All six questions are resolved by the 09-CONTEXT amendments and the plans: 1 by K4 (per-fixture pin, 09-02), 2 by K3 (per-fixture cap, 09-02), 3 by K1 (depth inactive on descriptor 12, STATE follow-up), 4 by 09-03 (exact Count assertions stay in process; the real runner prints Count as a two-tick-resolution witness), 5 by K12/K18 (one build script per family), 6 by 09-06 Task 4 (committed driver `scripts/k5-mutants.py`, list in `docs/spec/state-mutants.txt` for state and in the 09-06 mutant list for ordering).
 
 1. **K4 transcript pin versus observation record**
    - Known: pass is hard-wired to one 30-byte transcript in the runner and the strict checker.
