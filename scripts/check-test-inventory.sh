@@ -224,10 +224,10 @@ runner.pad-poll
 unit.core.joybus.parser
 unit.core.input.latch-partition
 controls.real.pad-wrong-value
-harness.phase09-collect-real
 unit.core.save.device
 runner.save-fixtures
-controls.real.save-wrong-byte'
+controls.real.save-wrong-byte
+harness.phase09-collect-real'
 
 CPU_COVERAGE_OPCODES='ADD
 ADDU
