@@ -366,6 +366,22 @@ typedef struct {
   char decoy[PATH_MAX];
 } hook_context;
 
+/* The substitution is the control's attack. If it cannot be mounted the
+ * publisher is not attacked and the control's own comparison fails, so a
+ * failure here is only reported. (glibc marks symlink and symlinkat
+ * warn_unused_result, which a void cast does not silence.) */
+static void attack_symlinkat(const char *target, int parent_fd, const char *name) {
+  if (symlinkat(target, parent_fd, name) != 0) {
+    (void)fprintf(stderr, "substitution symlink could not be created\n");
+  }
+}
+
+static void attack_symlink(const char *target, const char *path) {
+  if (symlink(target, path) != 0) {
+    (void)fprintf(stderr, "substitution symlink could not be created\n");
+  }
+}
+
 static void precommit_hook(void *context, int parent_fd,
                            const char *stage_name, const char *leaf) {
   hook_context *c = (hook_context *)context;
@@ -374,14 +390,14 @@ static void precommit_hook(void *context, int parent_fd,
   switch (c->kind) {
     case SUBSTITUTE_STAGED_FILE:
       (void)unlinkat(parent_fd, staged, 0);
-      (void)symlinkat(c->victim, parent_fd, staged);
+      attack_symlinkat(c->victim, parent_fd, staged);
       break;
     case SUBSTITUTE_PARENT:
       (void)rename(c->directory, c->moved);
-      (void)symlink(c->decoy, c->directory);
+      attack_symlink(c->decoy, c->directory);
       break;
     case SUBSTITUTE_TARGET:
-      (void)symlinkat(c->victim, parent_fd, leaf);
+      attack_symlinkat(c->victim, parent_fd, leaf);
       break;
     case SUBSTITUTE_STAGE_DIR: {
       char away[PATH_MAX];
