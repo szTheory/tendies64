@@ -307,6 +307,11 @@ collect() {
       cp "$slot/audio/$job/manifest.json" "$TMP/publish/audio/$job/manifest.json" ||
         die "cannot retain validated $job audio projection"
     fi
+    if [ -f "$slot/phase09/$job/manifest.json" ]; then
+      mkdir -p "$TMP/publish/phase09/$job" || die "cannot stage $job phase09 projection"
+      cp "$slot/phase09/$job/manifest.json" "$TMP/publish/phase09/$job/manifest.json" ||
+        die "cannot retain validated $job phase09 projection"
+    fi
   done
   linux_artifact_id=$(jq -er --arg name "$linux_name" '.artifacts[] | select(.name == $name) | .id | tostring' "$artifacts_file") || die "cannot read gate-linux artifact ID"
   linux_artifact_digest=$(jq -er --arg name "$linux_name" '.artifacts[] | select(.name == $name) | .digest' "$artifacts_file") || die "cannot read gate-linux artifact digest"
@@ -368,6 +373,13 @@ selftest() {
     python3 -B "$ROOT/scripts/qualify-audio.py" --scan-pii --job "$job" --sha "$sha" \
       --run 123 --attempt 1 --out "$layout/audio/$job" >/dev/null ||
       die "synthetic $job audio sibling failed its strict hosted context/privacy scan"
+    python3 -B "$ROOT/scripts/tests/test_phase09_qualification.py" --layout-fixture \
+      --job "$job" --sha "$sha" --run 123 --attempt 1 \
+      --out "$layout/phase09/$job" >/dev/null ||
+      die "cannot create the synthetic phase09 sibling for the $job upload-layout check"
+    python3 -B "$ROOT/scripts/qualify-phase09.py" --scan-pii --job "$job" --sha "$sha" \
+      --run 123 --attempt 1 --out "$layout/phase09/$job" >/dev/null ||
+      die "synthetic $job phase09 sibling failed its strict hosted context/privacy scan"
     boot_record=$TMP/linux.json
     [ "$job" = gate-linux ] || boot_record=$TMP/macos.json
     cp "$boot_record" "$layout/$job.json"
@@ -385,6 +397,49 @@ selftest() {
       --sha "$sha" --job "$job" --run 123 --attempt 1 \
       --out "$TMP/legacy-$archive_name.zip" >/dev/null ||
       die "historical $job boot/raw upload without audio was no longer accepted"
+    # The three reviewed layouts: boot and raw, plus audio, plus audio and phase09.
+    audio_layout=$TMP/layout-audio-only/$job
+    mkdir -p "$audio_layout/rdp-vi/$job" "$audio_layout/audio/$job"
+    cp "$layout/$job.json" "$audio_layout/$job.json"
+    cp "$layout/rdp-vi/$job"/* "$audio_layout/rdp-vi/$job/"
+    cp "$layout/audio/$job/manifest.json" "$audio_layout/audio/$job/manifest.json"
+    python3 -B "$ROOT/scripts/qualify-rdp-vi.py" --package-upload "$audio_layout" \
+      --sha "$sha" --job "$job" --run 123 --attempt 1 \
+      --out "$TMP/audio-only-$archive_name.zip" >/dev/null ||
+      die "audio-only $job upload layout was no longer accepted"
+    nine_layout=$TMP/layout-phase09-without-audio/$job
+    mkdir -p "$nine_layout/rdp-vi/$job" "$nine_layout/phase09/$job"
+    cp "$layout/$job.json" "$nine_layout/$job.json"
+    cp "$layout/rdp-vi/$job"/* "$nine_layout/rdp-vi/$job/"
+    cp "$layout/phase09/$job/manifest.json" "$nine_layout/phase09/$job/manifest.json"
+    if python3 -B "$ROOT/scripts/qualify-rdp-vi.py" --package-upload "$nine_layout" \
+        --sha "$sha" --job "$job" --run 123 --attempt 1 \
+        --out "$TMP/phase09-without-audio-$archive_name.zip" >/dev/null \
+        2>"$TMP/phase09-without-audio-$job.stderr"; then
+      die "phase09 sibling without its audio sibling was accepted for $job"
+    fi
+    grep -q 'phase09 manifest requires its audio sibling' "$TMP/phase09-without-audio-$job.stderr" ||
+      die "phase09 sibling without its audio sibling was refused for the wrong reason ($job)"
+    other_job=gate-macos
+    [ "$job" = gate-linux ] || other_job=gate-linux
+    other_layout=$TMP/layout-phase09-other-job/$job
+    mkdir -p "$other_layout/rdp-vi/$job" "$other_layout/audio/$job" "$other_layout/phase09/$job"
+    cp "$layout/$job.json" "$other_layout/$job.json"
+    cp "$layout/rdp-vi/$job"/* "$other_layout/rdp-vi/$job/"
+    cp "$layout/audio/$job/manifest.json" "$other_layout/audio/$job/manifest.json"
+    python3 -B "$ROOT/scripts/tests/test_phase09_qualification.py" --layout-fixture \
+      --job "$other_job" --sha "$sha" --run 123 --attempt 1 \
+      --out "$TMP/other-job-phase09-$job" >/dev/null ||
+      die "cannot create the other-job phase09 control for $job"
+    cp "$TMP/other-job-phase09-$job/manifest.json" "$other_layout/phase09/$job/manifest.json"
+    if python3 -B "$ROOT/scripts/qualify-rdp-vi.py" --package-upload "$other_layout" \
+        --sha "$sha" --job "$job" --run 123 --attempt 1 \
+        --out "$TMP/phase09-other-job-$archive_name.zip" >/dev/null \
+        2>"$TMP/phase09-other-job-$job.stderr"; then
+      die "phase09 manifest for the other job was accepted for $job"
+    fi
+    grep -q 'phase09 manifest failed its exact hosted context' "$TMP/phase09-other-job-$job.stderr" ||
+      die "phase09 manifest for the other job was refused for the wrong reason ($job)"
   done
   if ! python3 -B "$ROOT/scripts/qualify-rdp-vi.py" --scan-pii "$TMP/layout" \
       >"$TMP/upload-pii.stdout" 2>"$TMP/upload-pii.stderr"; then
@@ -550,7 +605,7 @@ PY
   fi
   [ -f "$TMP/collected/gate-linux.json" ] && [ ! -L "$TMP/collected/gate-linux.json" ] || die "mocked collector did not publish Linux record"
   [ -f "$TMP/collected/gate-macos.json" ] && [ ! -L "$TMP/collected/gate-macos.json" ] || die "mocked collector did not publish macOS record"
-  [ "$(find "$TMP/collected" -type f | wc -l | tr -d ' ')" = 12 ] || die "mocked collector did not publish the exact boot/raw pair and two audio manifests"
+  [ "$(find "$TMP/collected" -type f | wc -l | tr -d ' ')" = 14 ] || die "mocked collector did not publish the exact boot/raw pair, two audio manifests and two phase09 manifests"
   cmp -s "$TMP/linux.json" "$TMP/collected/gate-linux.json" || die "mocked Linux record changed during collection"
   cmp -s "$TMP/macos.json" "$TMP/collected/gate-macos.json" || die "mocked macOS record changed during collection"
   for job in gate-linux gate-macos; do
@@ -560,6 +615,8 @@ PY
     done
     cmp -s "$TMP/layout/$job/audio/$job/manifest.json" \
       "$TMP/collected/audio/$job/manifest.json" || die "mocked collector changed $job audio projection"
+    cmp -s "$TMP/layout/$job/phase09/$job/manifest.json" \
+      "$TMP/collected/phase09/$job/manifest.json" || die "mocked collector changed $job phase09 projection"
   done
   if ! PATH="$TMP/mockbin:$PATH" T64_EVIDENCE_MOCK_ROOT="$TMP" \
     T64_QUALIFIER="$ROOT/scripts/qualify-rdp-vi.py" \
@@ -570,8 +627,8 @@ PY
     cat "$TMP/raw-collector.stderr" >&2
     die "new raw collector failed the exact mocked combined upload pair"
   fi
-  [ "$(find "$TMP/raw-collected" -type f | wc -l | tr -d ' ')" = 12 ] ||
-    die "new raw collector did not retain both boot records, exact text evidence, and audio manifests"
+  [ "$(find "$TMP/raw-collected" -type f | wc -l | tr -d ' ')" = 14 ] ||
+    die "new raw collector did not retain both boot records, exact text evidence, audio manifests, and phase09 manifests"
   for job in gate-linux gate-macos; do
     for member in manifest.json inventory.json observation.json raw-export.json; do
       cmp -s "$TMP/layout/$job/rdp-vi/$job/$member" "$TMP/raw-collected/rdp-vi/$job/$member" ||
@@ -579,6 +636,8 @@ PY
     done
     cmp -s "$TMP/layout/$job/audio/$job/manifest.json" \
       "$TMP/raw-collected/audio/$job/manifest.json" || die "raw collector changed $job audio projection"
+    cmp -s "$TMP/layout/$job/phase09/$job/manifest.json" \
+      "$TMP/raw-collected/phase09/$job/manifest.json" || die "raw collector changed $job phase09 projection"
   done
   PATH="$TMP/mockbin:$PATH" T64_EVIDENCE_MOCK_ROOT="$TMP" T64_MOCK_CASE=retained-old-attempt \
     sh "$ROOT/scripts/collect-boot-evidence.sh" --collect --repo szTheory/tendies64 \

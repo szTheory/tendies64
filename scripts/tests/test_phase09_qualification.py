@@ -18,8 +18,12 @@ import re
 import shutil
 import subprocess
 import sys
+import stat
 import tempfile
 import unittest
+import warnings
+import zipfile
+from io import BytesIO
 from pathlib import Path
 
 
@@ -40,6 +44,9 @@ CASE_NAMES: tuple[str, ...] = (
     "hosted-rows-pinned-independently",
     "row-observation-refuses-each-field",
     "projection-closed-key-set-and-context",
+    "upload-layouts-exactly-three",
+    "rdp-native-junit-roots",
+    "phase09-sibling-scan-context",
     "zero-case-inventory-refused",
     "inventory-shape-refused",
     "public-members-exact-allowlist",
@@ -59,6 +66,8 @@ SUITES: dict[str, tuple[str, ...]] = {
     "hosted-rows": ("hosted-rows-pinned-independently",
                     "row-observation-refuses-each-field",
                     "projection-closed-key-set-and-context"),
+    "upload-contract": ("upload-layouts-exactly-three", "rdp-native-junit-roots",
+                        "phase09-sibling-scan-context"),
     "allowlist": ("public-members-exact-allowlist",
                   "public-member-private-suffix-refused",
                   "public-member-state-magic-refused",
@@ -193,7 +202,8 @@ def _v2_record(row: dict, *, guest_tick: int = SYNTHETIC_COMPLETION,
     }
 
 
-def _synthetic_summary(platform: str = "linux", label: str = "synthetic") -> dict:
+def _synthetic_summary(platform: str = "linux", label: str = "synthetic",
+                       source_revision: str = SYNTHETIC_SHA) -> dict:
     """The accepted observations of one platform, as the suite reader returns them."""
     observations = []
     for row in qualify.HOSTED_ROWS:
@@ -202,12 +212,12 @@ def _synthetic_summary(platform: str = "linux", label: str = "synthetic") -> dic
         observations.append(qualify.row_observation(record, row["input_sha256"], row))
     return {
         "platform": platform,
-        "source_revision": SYNTHETIC_SHA,
+        "source_revision": source_revision,
         "observations": observations,
         "timing": {"poll_starts": list(SYNTHETIC_STARTS),
                    "completion_tick": SYNTHETIC_COMPLETION},
         "producer": {
-            "source_revision": SYNTHETIC_SHA,
+            "source_revision": source_revision,
             "core_build_id": "t64-build-v1-" + _digest(label + " core build"),
             "runner_build_id": "t64-runner-v1-" + _digest(label + " runner build"),
             "real_runner_sha256": _digest(label + " runner"),
@@ -259,6 +269,22 @@ def _oracle(scenario: str, flag: str) -> bytes:
     done = subprocess.run([sys.executable, "-B", str(ORACLE), "--scenario", scenario, flag],
                           capture_output=True, check=True)
     return done.stdout
+
+
+_RDP_MODULE = None
+
+
+def _rdp():
+    """The shared RDP/VI qualifier module, loaded by path once."""
+    global _RDP_MODULE
+    if _RDP_MODULE is None:
+        spec = importlib.util.spec_from_file_location("t64_qualify_rdp_vi_for_phase09",
+                                                      ROOT / "scripts/qualify-rdp-vi.py")
+        assert spec is not None and spec.loader is not None
+        module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(module)
+        _RDP_MODULE = module
+    return _RDP_MODULE
 
 
 def _runner_table_row(fixture_id: str) -> tuple[str, str, str]:
@@ -558,6 +584,206 @@ class Phase09Qualification(unittest.TestCase):
         unsupported = copy.deepcopy(projection)
         unsupported["platform"] = "windows"
         refuse(unsupported, context, "host platform is unsupported", "unsupported platform")
+
+    # ---- shared upload contract ---------------------------------------------
+
+    @staticmethod
+    def _layout_fixture(script: Path, job: str, sha: str, run: str, attempt: str,
+                        out: Path) -> None:
+        done = subprocess.run(
+            [sys.executable, "-B", str(script), "--layout-fixture", "--job", job,
+             "--sha", sha, "--run", run, "--attempt", attempt, "--out", str(out)],
+            capture_output=True, text=True, check=False, cwd=ROOT)
+        assert done.returncode == 0, done.stderr
+
+    def _combined_members(self, root: Path, job: str, sha: str, run: str,
+                          attempt: str) -> tuple[list[str], dict[str, bytes]]:
+        """Directories and files of the third layout for one job (synthetic)."""
+        phase09 = root / "phase09-fixture"
+        audio = root / "audio-fixture"
+        self._layout_fixture(Path(__file__).resolve(), job, sha, run, attempt, phase09)
+        self._layout_fixture(ROOT / "scripts/tests/test_audio_qualification.py", job, sha,
+                             run, attempt, audio)
+        boot = {"schema": "t64.boot-evidence", "schema_version": 1, "commit_sha": sha,
+                "run_id": run, "run_attempt": attempt, "job_name": job, "result": {}}
+        files = {f"{job}.json": json.dumps(boot, sort_keys=True).encode()}
+        for name in ("manifest.json", "inventory.json", "observation.json", "raw-export.json"):
+            files[f"rdp-vi/{job}/{name}"] = b"{}\n"
+        files[f"audio/{job}/manifest.json"] = (audio / "manifest.json").read_bytes()
+        files[f"phase09/{job}/manifest.json"] = (phase09 / "manifest.json").read_bytes()
+        dirs = ["rdp-vi", f"rdp-vi/{job}", "audio", f"audio/{job}", "phase09", f"phase09/{job}"]
+        return dirs, files
+
+    @staticmethod
+    def _zip_bytes(dirs: list[str], files: dict[str, bytes], *, duplicate: str | None = None,
+                   symlink: str | None = None) -> bytes:
+        buffer = BytesIO()
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore")
+            with zipfile.ZipFile(buffer, "w", compression=zipfile.ZIP_DEFLATED) as archive:
+                for name in sorted(dirs):
+                    archive.writestr(name + "/", b"")
+                for name in sorted(files):
+                    archive.writestr(name, files[name])
+                if duplicate is not None:
+                    archive.writestr(duplicate, files[duplicate])
+                if symlink is not None:
+                    link = zipfile.ZipInfo(symlink)
+                    link.create_system = 3
+                    link.external_attr = (stat.S_IFLNK | 0o777) << 16
+                    archive.writestr(link, b"gate-linux.json")
+        return buffer.getvalue()
+
+    def test_upload_layouts_exactly_three(self) -> None:
+        """Boot and raw, plus audio, plus audio and phase09 are the only layouts."""
+        rdp = _rdp()
+        job, other = "gate-linux", "gate-macos"
+        sha, run, attempt = "a" * 40, "4242", "1"
+        with tempfile.TemporaryDirectory(prefix="t64-p09-upload.") as tmp:
+            root = Path(tmp)
+            dirs, files = self._combined_members(root, job, sha, run, attempt)
+            (root / "other").mkdir()
+            _, other_files = self._combined_members(root / "other", other, sha, run, attempt)
+            counter = [0]
+
+            def extract(archive: bytes, label: str) -> Path:
+                counter[0] += 1
+                destination = root / f"out-{counter[0]}-{label}"
+                rdp._safe_extract_upload(archive, destination, job)
+                return destination
+
+            def layout(include_audio: bool, include_phase09: bool,
+                       raw: bool = True) -> tuple[list[str], dict[str, bytes]]:
+                keep_dirs, keep_files = [], {}
+                for name in files:
+                    top = name.split("/")[0]
+                    if top == "audio" and not include_audio:
+                        continue
+                    if top == "phase09" and not include_phase09:
+                        continue
+                    if top == "rdp-vi" and not raw:
+                        continue
+                    keep_files[name] = files[name]
+                for name in dirs:
+                    top = name.split("/")[0]
+                    if (top == "audio" and not include_audio) or \
+                            (top == "phase09" and not include_phase09) or \
+                            (top == "rdp-vi" and not raw):
+                        continue
+                    keep_dirs.append(name)
+                return keep_dirs, keep_files
+
+            # The three layouts are accepted.
+            for label, (audio, phase09) in (("legacy", (False, False)), ("audio", (True, False)),
+                                            ("phase09", (True, True))):
+                d, f = layout(audio, phase09)
+                destination = extract(self._zip_bytes(d, f), label)
+                self.assertTrue((destination / f"{job}.json").is_file(), label)
+                self.assertEqual((destination / "phase09" / job / "manifest.json").is_file(),
+                                 phase09, label)
+
+            def refuse(archive: bytes, needle: str, label: str) -> None:
+                with self.assertRaises(rdp.Refusal, msg=label) as caught:
+                    extract(archive, "refused")
+                self.assertIn(needle, str(caught.exception), label)
+                # The accepted baseline is still accepted in the same setup.
+                d, f = layout(True, True)
+                accepted = extract(self._zip_bytes(d, f), "again")
+                self.assertTrue((accepted / "phase09" / job / "manifest.json").is_file(), label)
+
+            contract = "differ from the combined CI upload contract"
+            d, f = layout(False, True)
+            refuse(self._zip_bytes(d, f), contract, "phase09 without audio")
+            d, f = layout(True, True, raw=False)
+            refuse(self._zip_bytes(d, f), contract, "phase09 without raw members")
+            d, f = layout(True, True)
+            refuse(self._zip_bytes(d, dict(f, **{"unexpected.txt": b"x"})),
+                   "unexpected or special file", "extra member")
+            refuse(self._zip_bytes(d, f, duplicate=f"phase09/{job}/manifest.json"),
+                   "duplicate or empty members", "duplicate member")
+            refuse(self._zip_bytes(d, dict(f, **{"../escape.json": b"{}"})),
+                   "traversal", "traversal member")
+            moved = {name: data for name, data in f.items() if not name.startswith("phase09/")}
+            moved[f"phase09/{other}/manifest.json"] = f[f"phase09/{job}/manifest.json"]
+            refuse(self._zip_bytes(d + [f"phase09/{other}"], moved),
+                   "unexpected", "phase09 manifest under the other job")
+            wrong_job = dict(f)
+            wrong_job[f"phase09/{job}/manifest.json"] = other_files[f"phase09/{other}/manifest.json"]
+            refuse(self._zip_bytes(d, wrong_job),
+                   "combined phase09 manifest failed its exact hosted context and privacy checks",
+                   "phase09 manifest content for the other job")
+            refuse(self._zip_bytes(d, dict(f, **{f"phase09/{job}/extra.json": b"{}"})),
+                   "unexpected or special file", "extra file inside the phase09 directory")
+            refuse(self._zip_bytes(d, f, symlink="unexpected-link"),
+                   "symlink or encrypted member", "symlink member")
+
+    def test_rdp_native_junit_roots(self) -> None:
+        """The private JUnit predicate admits exactly the two private roots."""
+        rdp = _rdp()
+        roots = rdp.NATIVE_JUNIT_PRIVATE_ROOTS
+        self.assertEqual(tuple(Path(root).relative_to(ROOT).as_posix() for root in roots),
+                         ("build/gate/08-05-audio-private", "build/gate/09-11-phase09-private"))
+        audio_root = ROOT / "build/gate/08-05-audio-private"
+        phase09_root = ROOT / "build/gate/09-11-phase09-private"
+        created = []
+        for root in (audio_root, phase09_root):
+            if not root.exists():
+                root.mkdir(parents=True, mode=0o700)
+                created.append(root)
+        stem = f"t64-p09-junit-{os.getpid()}"
+        existing = phase09_root / f"{stem}-existing.xml"
+        link = phase09_root / f"{stem}-link.xml"
+        try:
+            existing.write_text("x", encoding="utf-8")
+            link.symlink_to(existing)
+            fresh_audio = audio_root / f"{stem}-fresh.xml"
+            fresh_phase09 = phase09_root / f"{stem}-fresh.xml"
+            self.assertTrue(rdp._native_junit_path_ok(str(fresh_audio)))
+            self.assertTrue(rdp._native_junit_path_ok(str(fresh_phase09)))
+            refused = (
+                ("relative path", f"build/gate/09-11-phase09-private/{stem}.xml"),
+                ("existing path", str(existing)),
+                ("symlink", str(link)),
+                ("outside both roots", str(ROOT / "build/gate/other" / f"{stem}.xml")),
+                ("dot-dot component", f"{phase09_root}/../{stem}.xml"),
+                ("dot-dot inside a root", f"{phase09_root}/sub/../{stem}.xml"),
+                ("sibling prefix", f"{phase09_root}x/{stem}.xml"),
+            )
+            for label, value in refused:
+                self.assertFalse(rdp._native_junit_path_ok(value), label)
+                # The accepted fresh path is still accepted in the same setup.
+                self.assertTrue(rdp._native_junit_path_ok(str(fresh_phase09)), label)
+        finally:
+            link.unlink(missing_ok=True)
+            existing.unlink(missing_ok=True)
+            for root in created:
+                shutil.rmtree(root, ignore_errors=True)
+
+    def test_phase09_sibling_scan_context(self) -> None:
+        """The layout fixture passes the scan with its own context, not another."""
+        sha, run, attempt = "b" * 40, "777", "2"
+        with tempfile.TemporaryDirectory(prefix="t64-p09-scan.") as tmp:
+            out = Path(tmp) / "fixture"
+            self._layout_fixture(Path(__file__).resolve(), "gate-macos", sha, run, attempt, out)
+            self.assertEqual([entry.name for entry in out.iterdir()], ["manifest.json"])
+
+            def scan(job: str = "gate-macos", sha_: str = sha, run_: str = run,
+                     attempt_: str = attempt) -> subprocess.CompletedProcess:
+                return self._run_qualifier("--scan-pii", "--job", job, "--sha", sha_,
+                                           "--run", run_, "--attempt", attempt_, "--out", str(out))
+
+            accepted = scan()
+            self.assertEqual(accepted.returncode, 0, accepted.stderr)
+            for label, changed in (("job", {"job": "gate-linux"}), ("sha", {"sha_": "c" * 40}),
+                                   ("run", {"run_": "778"}), ("attempt", {"attempt_": "3"})):
+                refused = scan(**changed)
+                self.assertEqual(refused.returncode, 1, label)
+                self.assertIn("refused original evidence", refused.stderr, label)
+                self.assertTrue(
+                    "exact supplied run context" in refused.stderr or
+                    "does not match the exact workflow job" in refused.stderr, (label, refused.stderr))
+                self.assertEqual(scan().returncode, 0, label)
+
 
     def _inventory(self) -> dict:
         return json.loads(INVENTORY.read_text(encoding="utf-8"))
@@ -914,8 +1140,34 @@ class Phase09CaseChecker:
             tc.assertEqual(again.returncode, 0, again.stdout + again.stderr)
 
 
+def _layout_fixture_main(argv: list[str]) -> int:
+    """Write the synthetic phase09 sibling of an archive-layout control."""
+    import argparse
+
+    parser = argparse.ArgumentParser(description="write a synthetic archive-layout fixture")
+    parser.add_argument("--job", choices=("gate-linux", "gate-macos"), required=True)
+    parser.add_argument("--sha", required=True)
+    parser.add_argument("--run", required=True)
+    parser.add_argument("--attempt", required=True)
+    parser.add_argument("--out", type=Path, required=True)
+    args = parser.parse_args(argv)
+    platform = "linux" if args.job == "gate-linux" else "macos"
+    value = qualify._projection(
+        _synthetic_summary(platform, source_revision=args.sha), job=args.job,
+        workflow_sha=args.sha, run_id=args.run, attempt=args.attempt)
+    qualify.public_projection(value, {"job": args.job, "sha": args.sha, "run": args.run,
+                                      "attempt": args.attempt})
+    args.out.mkdir(parents=True, exist_ok=False)
+    (args.out / "manifest.json").write_text(
+        json.dumps(value, sort_keys=True, separators=(",", ":")) + "\n", encoding="utf-8")
+    print("phase09 qualification: wrote test-only synthetic archive-layout fixture")
+    return 0
+
+
 def main() -> int:
     args = sys.argv[1:]
+    if args and args[0] == "--layout-fixture":
+        return _layout_fixture_main(args[1:])
     if args == ["--list-cases"]:
         print("\n".join(CASE_NAMES))
         return 0

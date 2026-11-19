@@ -68,6 +68,12 @@ NATIVE_INPUT_PATHS = (
 MAX_JSON_BYTES = 4 * 1024 * 1024
 MAX_RAW_BYTES = 64 * 1024 * 1024
 MAX_UPLOAD_BYTES = 1024 * 1024
+# Private directories that may receive the native full-suite JUnit: Phase 8 audio
+# and Phase 9 evidence (a fresh absolute path under exactly one of them).
+NATIVE_JUNIT_PRIVATE_ROOTS = (
+    ROOT / "build/gate/08-05-audio-private",
+    ROOT / "build/gate/09-11-phase09-private",
+)
 
 
 class Refusal(ValueError):
@@ -316,6 +322,19 @@ def _archive_last_test(build_dir: Path, destination: Path, label: str,
     return False
 
 
+def _native_junit_path_ok(value: object) -> bool:
+    """A fresh, absolute, symlink-free path under one private native root."""
+    if not isinstance(value, str) or not value:
+        return False
+    path = Path(value)
+    if not path.is_absolute() or ".." in path.parts:
+        return False
+    if path.exists() or path.is_symlink():
+        return False
+    return any(_under(path, root) and path.resolve() != root.resolve()
+               for root in NATIVE_JUNIT_PRIVATE_ROOTS)
+
+
 def _run_native() -> tuple[Path, str]:
     source_sha = _git_head()
     source_binding = _native_source_snapshot(ROOT, source_sha)
@@ -355,10 +374,8 @@ def _run_native() -> tuple[Path, str]:
     normal_junit_text = os.environ.get("T64_GATE_JUNIT_OUT")
     if normal_junit_text is not None:
         normal_junit = Path(normal_junit_text)
-        if not normal_junit.is_absolute() or not _under(
-                normal_junit, ROOT / "build/gate/08-05-audio-private") or \
-                normal_junit.exists() or normal_junit.is_symlink():
-            raise Refusal("optional gate JUnit path is not fresh private Phase08 evidence")
+        if not _native_junit_path_ok(normal_junit_text):
+            raise Refusal("optional gate JUnit path is not fresh private Phase 7, 8, or 9 evidence")
         native_record["normal_full_ctest_junit_path"] = str(normal_junit)
     _write_json(evidence / "source-binding.json", native_record)
     cheap_passed, cheap_message = _selftest()
@@ -1033,9 +1050,12 @@ def verify_evidence(directory: Path, *, expected_sha: str | None = None,
         raise Refusal("evidence directory contains unexpected files")
 
 
-def _upload_members(job: str, *, include_audio: bool = False) -> tuple[set[str], set[str]]:
+def _upload_members(job: str, *, include_audio: bool = False,
+                    include_phase09: bool = False) -> tuple[set[str], set[str]]:
     if job not in {"gate-linux", "gate-macos"}:
         raise Refusal("upload job must be one of the two named CI jobs")
+    if include_phase09 and not include_audio:
+        raise Refusal("the phase09 upload sibling requires the audio sibling")
     files = {f"{job}.json"}
     raw_dir = f"rdp-vi/{job}"
     files.update(f"{raw_dir}/{name}" for name in (
@@ -1044,6 +1064,9 @@ def _upload_members(job: str, *, include_audio: bool = False) -> tuple[set[str],
     if include_audio:
         files.add(f"audio/{job}/manifest.json")
         directories.update({"audio", f"audio/{job}"})
+    if include_phase09:
+        files.add(f"phase09/{job}/manifest.json")
+        directories.update({"phase09", f"phase09/{job}"})
     return files, directories
 
 
@@ -1074,11 +1097,39 @@ def _verify_audio_upload(directory: Path, *, expected_sha: str, expected_job: st
     return True
 
 
+def _verify_phase09_upload(directory: Path, *, expected_sha: str, expected_job: str,
+                           expected_run: str, expected_attempt: str) -> bool:
+    phase09 = directory / "phase09" / expected_job
+    if not phase09.exists() and not phase09.is_symlink():
+        return False
+    if phase09.is_symlink() or not phase09.is_dir() or {path.name for path in phase09.iterdir()} != {
+            "manifest.json"}:
+        raise Refusal("combined phase09 upload has missing, extra, or unsafe members")
+    if not isinstance(expected_sha, str) or not SHA1_RE.fullmatch(expected_sha) or \
+            not isinstance(expected_run, str) or not DECIMAL_RE.fullmatch(expected_run) or \
+            not isinstance(expected_attempt, str) or not DECIMAL_RE.fullmatch(expected_attempt):
+        raise Refusal("combined phase09 upload has malformed boot context")
+    command = [
+        sys.executable, "-B", str(ROOT / "scripts/qualify-phase09.py"), "--scan-pii",
+        "--job", expected_job, "--sha", expected_sha, "--run", expected_run,
+        "--attempt", expected_attempt, "--out", str(phase09.resolve()),
+    ]
+    try:
+        result = subprocess.run(command, cwd=ROOT, capture_output=True, text=True,
+                                timeout=15, check=False)
+    except (OSError, subprocess.TimeoutExpired) as error:
+        raise Refusal("combined phase09 privacy/context check could not complete") from error
+    if result.returncode != 0:
+        raise Refusal("combined phase09 manifest failed its exact hosted context and privacy checks")
+    return True
+
+
 def _safe_extract_upload(archive_bytes: bytes, destination: Path, job: str) -> None:
     expected_files, expected_dirs = _upload_members(job)
     audio_files, audio_dirs = _upload_members(job, include_audio=True)
-    all_files = expected_files | audio_files
-    all_dirs = expected_dirs | audio_dirs
+    phase09_files, phase09_dirs = _upload_members(job, include_audio=True, include_phase09=True)
+    all_files = expected_files | audio_files | phase09_files
+    all_dirs = expected_dirs | audio_dirs | phase09_dirs
     if destination.is_symlink() or (destination.exists() and
                                     (not destination.is_dir() or any(destination.iterdir()))):
         raise Refusal("upload extraction destination is unsafe or not empty")
@@ -1121,6 +1172,8 @@ def _safe_extract_upload(archive_bytes: bytes, destination: Path, job: str) -> N
             selected_dirs = expected_dirs
         elif frozenset(files) == frozenset(audio_files):
             selected_dirs = audio_dirs
+        elif frozenset(files) == frozenset(phase09_files):
+            selected_dirs = phase09_dirs
         else:
             selected_dirs = set()
         if not selected_dirs or not dirs.issubset(selected_dirs):
@@ -1144,7 +1197,7 @@ def _safe_extract_upload(archive_bytes: bytes, destination: Path, job: str) -> N
                 if total != info.file_size:
                     raise Refusal("hosted artifact member length differs from its ZIP record")
                 target.chmod(0o600)
-            if files == audio_files:
+            if files in (audio_files, phase09_files):
                 boot = _exact_keys(_read_json(destination / f"{job}.json"), {
                     "schema", "schema_version", "commit_sha", "run_id", "run_attempt",
                     "job_name", "result",
@@ -1155,6 +1208,11 @@ def _safe_extract_upload(archive_bytes: bytes, destination: Path, job: str) -> N
                     destination, expected_sha=boot.get("commit_sha"), expected_job=job,
                     expected_run=boot.get("run_id"), expected_attempt=boot.get("run_attempt"),
                 )
+                if files == phase09_files:
+                    _verify_phase09_upload(
+                        destination, expected_sha=boot.get("commit_sha"), expected_job=job,
+                        expected_run=boot.get("run_id"), expected_attempt=boot.get("run_attempt"),
+                    )
         except (OSError, zipfile.BadZipFile, EOFError) as error:
             shutil.rmtree(destination, ignore_errors=True)
             raise Refusal("hosted artifact member could not be extracted safely") from error
@@ -1181,7 +1239,10 @@ def verify_upload(directory: Path, *, expected_sha: str, expected_job: str,
             raise Refusal("combined upload contains a special filesystem entry")
     expected_files, expected_dirs = _upload_members(expected_job)
     audio_files, audio_dirs = _upload_members(expected_job, include_audio=True)
-    has_audio = found_files == audio_files and found_dirs == audio_dirs
+    phase09_files, phase09_dirs = _upload_members(expected_job, include_audio=True,
+                                                  include_phase09=True)
+    has_phase09 = found_files == phase09_files and found_dirs == phase09_dirs
+    has_audio = (found_files == audio_files and found_dirs == audio_dirs) or has_phase09
     legacy_layout = found_files == expected_files and found_dirs == expected_dirs
     if not legacy_layout and not has_audio:
         raise Refusal("combined upload contains missing, extra, duplicate, or nested members")
@@ -1207,6 +1268,11 @@ def verify_upload(directory: Path, *, expected_sha: str, expected_job: str,
     )
     if has_audio:
         _verify_audio_upload(
+            directory, expected_sha=expected_sha, expected_job=expected_job,
+            expected_run=expected_run, expected_attempt=expected_attempt,
+        )
+    if has_phase09:
+        _verify_phase09_upload(
             directory, expected_sha=expected_sha, expected_job=expected_job,
             expected_run=expected_run, expected_attempt=expected_attempt,
         )
@@ -1236,14 +1302,18 @@ def _emit_layout_selftest(destination: Path, *, job: str, commit_sha: str,
 
 def _package_upload(directory: Path, archive_path: Path, *, job: str,
                     commit_sha: str, run_id: str, run_attempt: str) -> None:
+    has_audio = (directory / "audio" / job / "manifest.json").exists()
+    has_phase09 = (directory / "phase09" / job / "manifest.json").exists()
+    if has_phase09 and not has_audio:
+        raise Refusal("a phase09 manifest requires its audio sibling in the combined upload")
     verify_upload(
         directory, expected_sha=commit_sha, expected_job=job,
         expected_run=run_id, expected_attempt=run_attempt,
     )
     if archive_path.is_symlink() or archive_path.exists():
         raise Refusal("upload archive destination already exists or is unsafe")
-    has_audio = (directory / "audio" / job / "manifest.json").exists()
-    expected_files, expected_dirs = _upload_members(job, include_audio=has_audio)
+    expected_files, expected_dirs = _upload_members(
+        job, include_audio=has_audio, include_phase09=has_phase09)
     with zipfile.ZipFile(archive_path, "x", compression=zipfile.ZIP_DEFLATED) as archive:
         for relative in sorted(expected_dirs):
             archive.writestr(relative + "/", b"")
@@ -1344,6 +1414,18 @@ def _verify_collected_pair(directory: Path, *, commit_sha: str, run_id: str,
         expected_dirs.update({"audio", "audio/gate-linux", "audio/gate-macos"})
         expected_files.update({"audio/gate-linux/manifest.json",
                                "audio/gate-macos/manifest.json"})
+    phase09_presence = [
+        (directory / "phase09" / job).exists() or (directory / "phase09" / job).is_symlink()
+        for job in ("gate-linux", "gate-macos")
+    ]
+    if any(phase09_presence):
+        if not all(phase09_presence):
+            raise Refusal("collected pair has a phase09 manifest for only one hosted platform")
+        if not all(audio_presence):
+            raise Refusal("collected pair has a phase09 manifest without its audio sibling")
+        expected_dirs.update({"phase09", "phase09/gate-linux", "phase09/gate-macos"})
+        expected_files.update({"phase09/gate-linux/manifest.json",
+                               "phase09/gate-macos/manifest.json"})
     found_files: set[str] = set()
     found_dirs: set[str] = set()
     for path in directory.rglob("*"):
@@ -1380,6 +1462,11 @@ def _verify_collected_pair(directory: Path, *, commit_sha: str, run_id: str,
         manifests[job] = manifest
         if all(audio_presence):
             _verify_audio_upload(
+                directory, expected_sha=commit_sha, expected_job=job,
+                expected_run=run_id, expected_attempt=run_attempt,
+            )
+        if all(phase09_presence):
+            _verify_phase09_upload(
                 directory, expected_sha=commit_sha, expected_job=job,
                 expected_run=run_id, expected_attempt=run_attempt,
             )
