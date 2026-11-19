@@ -241,6 +241,7 @@ typedef struct {
   const char *test_fault; /* NULL leaves the option out (test twin only) */
   const char *artifact_dir; /* NULL leaves the pair out */
   uint64_t artifact_max;
+  bool retain;            /* keep command.args and input.json for the collector */
 } run_spec;
 
 #define MAX_ARGS 48u
@@ -252,6 +253,52 @@ typedef struct {
 
 static void arg_add(arg_list *list, char *value) {
   if (list->count < MAX_ARGS - 1u) list->items[list->count++] = value;
+}
+
+static bool write_new_file(const char *path, const uint8_t *bytes,
+                           size_t length) {
+  size_t offset = 0u;
+  int fd = open(path, O_WRONLY | O_CREAT | O_EXCL, 0600);
+  if (fd < 0) return false;
+  while (offset < length) {
+    ssize_t written = write(fd, bytes + offset, length - offset);
+    if (written < 0 && errno == EINTR) continue;
+    if (written <= 0) {
+      (void)close(fd);
+      return false;
+    }
+    offset += (size_t)written;
+  }
+  return close(fd) == 0;
+}
+
+/* Keeps the exact command (one argument per line, the supervisor first) and a
+ * copy of the input script next to result.json in the private run directory. */
+static bool retain_run_evidence(const char *dir, const arg_list *list,
+                                const char *input) {
+  char text[8192];
+  char path[PATH_MAX];
+  uint8_t script[8192];
+  size_t script_length = 0u;
+  size_t offset = 0u;
+  size_t i;
+  for (i = 0u; i < list->count; i++) {
+    size_t length = strlen(list->items[i]);
+    if (length + 1u > sizeof text - offset) return false;
+    memcpy(text + offset, list->items[i], length);
+    offset += length;
+    text[offset++] = '\n';
+  }
+  if (!join_path(path, sizeof path, dir, "command.args") ||
+      !write_new_file(path, (const uint8_t *)text, offset)) {
+    return false;
+  }
+  if (!read_file(input, script, sizeof script, &script_length) ||
+      script_length == 0u || script_length >= sizeof script ||
+      !join_path(path, sizeof path, dir, "input.json")) {
+    return false;
+  }
+  return write_new_file(path, script, script_length);
 }
 
 static bool run_supervised(const run_spec *spec, run_out *out) {
@@ -307,10 +354,7 @@ static bool run_supervised(const run_spec *spec, run_out *out) {
   (void)snprintf(audio_text, sizeof audio_text, "%d", spec->audio_fd);
   (void)snprintf(artifact_max_text, sizeof artifact_max_text, "%llu",
                  (unsigned long long)spec->artifact_max);
-  pid = fork();
-  if (pid < 0) return false;
-  if (pid == 0) {
-    arg_list list = {{NULL}, 0u};
+  {
     char real_option[] = "--real";
     char result_option[] = "--result";
     char meta_option[] = "--meta";
@@ -329,6 +373,7 @@ static bool run_supervised(const run_spec *spec, run_out *out) {
     char fault_option[] = "--test-fault";
     char artifact_dir_option[] = "--artifact-dir";
     char artifact_max_option[] = "--artifact-max-bytes";
+    arg_list list = {{NULL}, 0u};
     arg_add(&list, (char *)(uintptr_t)spec->supervisor);
     arg_add(&list, real_option);
     arg_add(&list, result_option);
@@ -378,16 +423,27 @@ static bool run_supervised(const run_spec *spec, run_out *out) {
       arg_add(&list, artifact_max_text);
     }
     list.items[list.count] = NULL;
-    execv(spec->supervisor, list.items);
-    _exit(127);
+    pid = fork();
+    if (pid < 0) return false;
+    if (pid == 0) {
+      execv(spec->supervisor, list.items);
+      _exit(127);
+    }
+    while (waitpid(pid, &status, 0) < 0) {
+      if (errno != EINTR) return false;
+    }
+    out->supervisor_exit = WIFEXITED(status) ? WEXITSTATUS(status) : -1;
+    out->parsed = parse_record(result_path, out);
+    out->checker_ok = out->parsed && checker_accepts(result_path);
+    if (spec->retain && out->parsed && out->checker_ok) {
+      /* Collector interface (plan 09-03.1): the validated record, the exact
+       * command and the input script stay in the private run directory. */
+      if (!retain_run_evidence(out->dir, &list, input)) return false;
+      (void)fprintf(stderr, "private phase09 runner evidence retained at %s\n",
+                    out->dir);
+    }
+    return out->parsed;
   }
-  while (waitpid(pid, &status, 0) < 0) {
-    if (errno != EINTR) return false;
-  }
-  out->supervisor_exit = WIFEXITED(status) ? WEXITSTATUS(status) : -1;
-  out->parsed = parse_record(result_path, out);
-  out->checker_ok = out->parsed && checker_accepts(result_path);
-  return out->parsed;
 }
 
 /* ---- policy literals and expected transcripts --------------------------- */
@@ -575,6 +631,16 @@ static void expect_pass(const run_out *run) {
   CHECK(strcmp(run->stop_kind, "authored-completion") == 0);
 }
 
+/* One marker line per control run for the collector (plan 09-03.1): the case
+ * name, the observed outcome and detail and the guest tick of the run whose
+ * comparator was just reached. The values are cross-checked against the
+ * retained result record by scripts/qualify-phase09.py. */
+static void report_control(const char *name, const run_out *run) {
+  if (!run->parsed) return;
+  (void)printf("case reached: %s outcome=%s detail=%s guest_tick=%llu\n", name,
+               run->outcome, run->detail, (unsigned long long)run->guest_tick);
+}
+
 /* The ROM polls four times; consecutive RD64B starts are at least one full
  * handshake plus read tail apart (21,067 ticks), and E(n) is S(n) plus the
  * 16,971-tick handshake. The neutral run also prints the oracle's neutral
@@ -602,6 +668,14 @@ static int case_poll_timing(void) {
   }
   (void)fprintf(stderr, "neutral completion tick %llu\n",
                 (unsigned long long)measure.completion_tick);
+  if (g_failures == 0 && measure.start_count == POLL_COUNT) {
+    (void)printf("case reached: pad-poll-timing starts S1=%llu S2=%llu "
+                 "S3=%llu S4=%llu\n",
+                 (unsigned long long)measure.starts[0],
+                 (unsigned long long)measure.starts[1],
+                 (unsigned long long)measure.starts[2],
+                 (unsigned long long)measure.starts[3]);
+  }
   return g_failures == 0 ? 0 : 1;
 }
 
@@ -637,6 +711,7 @@ static int case_accepted_poll_sequence(void) {
   spec.fixture = rom;
   spec.input = script;
   spec.bound = 1000000u;
+  spec.retain = true;
   CHECK(run_supervised(&spec, &run));
   expect_pass(&run);
   CHECK(strcmp(run.fixture_id, BASELINE_ROM) == 0);
@@ -646,6 +721,10 @@ static int case_accepted_poll_sequence(void) {
   CHECK(run.guest_tick < 1000000u);
   (void)fprintf(stderr, "accepted run completion tick %llu\n",
                 (unsigned long long)run.guest_tick);
+  if (g_failures == 0) {
+    (void)printf("case reached: pad-poll-accepted completion_tick=%llu\n",
+                 (unsigned long long)run.guest_tick);
+  }
   return g_failures == 0 ? 0 : 1;
 }
 
@@ -748,6 +827,7 @@ static int case_same_setup_wrong_script(void) {
   rows[1].tick = measure.starts[1] + HANDSHAKE_TICKS - 1u;
   CHECK(write_input_script(shifted_path, "pad-shifted.input.json", rows, 3u));
   spec.input = shifted_path;
+  spec.retain = true;
   CHECK(run_supervised(&spec, &run));
   expect_wrong_transcript(&run);
   CHECK(strcmp(run.fixture_id, BASELINE_ROM) == 0);
@@ -755,6 +835,7 @@ static int case_same_setup_wrong_script(void) {
   CHECK(strcmp(run.log_sha256, BASELINE_SHA256) != 0);
   CHECK(capture_equals(&run, shifted_transcript,
                        sizeof shifted_transcript - 1u));
+  report_control("same-setup-wrong-script", &run);
 
   CHECK(write_input_script(neutral_path, "pad-neutral.input.json", rows, 0u));
   spec.input = neutral_path;
@@ -763,6 +844,7 @@ static int case_same_setup_wrong_script(void) {
   CHECK(strcmp(run.log_sha256, NEUTRAL_SHA256) == 0);
   CHECK(capture_equals(&run, neutral_transcript,
                        sizeof neutral_transcript - 1u));
+  report_control("same-setup-wrong-script", &run);
   return g_failures == 0 ? 0 : 1;
 }
 
@@ -792,6 +874,7 @@ static int case_same_setup_wrong_rom(void) {
   CHECK(write_input_script(script, "pad-wrong-rom.input.json", rows, 3u));
   spec.fixture = wrong;
   spec.input = script;
+  spec.retain = true;
   CHECK(run_supervised(&spec, &run));
   expect_wrong_transcript(&run);
   CHECK(strcmp(run.fixture_id, WRONG_ROM) == 0);
@@ -799,6 +882,7 @@ static int case_same_setup_wrong_rom(void) {
   CHECK(strcmp(run.log_sha256, BASELINE_SHA256) != 0);
   CHECK(capture_equals(&run, wrong_rom_transcript,
                        sizeof wrong_rom_transcript - 1u));
+  report_control("same-setup-wrong-rom", &run);
   return g_failures == 0 ? 0 : 1;
 }
 
@@ -842,6 +926,7 @@ static int case_replacement_fixture_refused(void) {
                  g_evidence) < (int)sizeof altered);
   CHECK(write_altered_copy(rom, altered));
   spec.fixture = altered;
+  spec.retain = true;
   CHECK(run_supervised(&spec, &run));
   CHECK(run.parsed);
   CHECK(strcmp(run.outcome, "harness-error") == 0);
@@ -849,6 +934,7 @@ static int case_replacement_fixture_refused(void) {
   CHECK(strcmp(run.stop_kind, "refused") == 0);
   CHECK(run.guest_tick == 0u);
   CHECK(run.fixture_id[0] == '\0');
+  report_control("replacement-fixture-refused", &run);
   return g_failures == 0 ? 0 : 1;
 }
 
