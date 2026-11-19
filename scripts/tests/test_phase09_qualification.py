@@ -844,7 +844,7 @@ class Phase09Qualification(unittest.TestCase):
                                  ("fixture_sha256", _digest("other fixture")),
                                  ("profile_hash", _digest("other profile")),
                                  ("input_sha256", _digest("other input")),
-                                 ("expected_outcome", "pass"), ("expected_detail", "other")):
+                                 ("expected_outcome", "other-outcome"), ("expected_detail", "other")):
                 refuse(f"{row} {field}", f"rows[{index}].{field}",
                        lambda m, i=index, f=field, v=value: m["rows"][i].__setitem__(f, v))
         for index in (0, 1, 2, 3):
@@ -935,17 +935,15 @@ class Phase09Qualification(unittest.TestCase):
         command = rdp._gcc13_closure_command(sources, qualify.EXPECTED_GCC13_IMAGE)
         self.assertEqual(qualify._validate_gcc13_closure(sources, command, head), sources)
 
-        def refuse(label: str, needle: str, closure, built) -> None:
-            fake = mock.Mock()
-            fake._gcc13_closure_command = lambda units, image: built
-            with mock.patch.object(qualify, "_rdp_helpers", return_value=fake):
-                with self.assertRaises(qualify.Refusal, msg=label) as caught:
-                    qualify._validate_gcc13_closure(closure, built, head)
+        def refuse(label: str, needle: str, closure, passed) -> None:
+            with self.assertRaises(qualify.Refusal, msg=label) as caught:
+                qualify._validate_gcc13_closure(closure, passed, head)
             self.assertIn(needle, str(caught.exception), label)
             self.assertEqual(qualify._validate_gcc13_closure(sources, command, head), sources)
 
-        refuse("dropped unit", "omits required", [u for u in sources if u != "core/t64_si.c"],
-               command)
+        trimmed = [u for u in sources if u != "core/t64_si.c"]
+        refuse("dropped unit", "omits required", trimmed,
+               rdp._gcc13_closure_command(trimmed, qualify.EXPECTED_GCC13_IMAGE))
         wrong_image = rdp._gcc13_closure_command(sources, "sha256:" + "0" * 64)
         refuse("image differs", "differs from its exact source unit set", sources, wrong_image)
         # With a builder that agrees with the mutated command, the policy checks fire.
@@ -1119,11 +1117,17 @@ class Phase09Qualification(unittest.TestCase):
                 ("SHA", {"sha": "e" * 40}, "exact supplied run context"),
                 ("run", {"run": "124"}, "exact supplied run context"),
                 ("attempt", {"attempt": "2"}, "exact supplied run context"),
-                ("job", {"job": "gate-macos"}, "platform does not match the exact workflow job")):
+                ("job", {"job": "gate-macos"}, "exact supplied run context")):
             with self.assertRaises(qualify.Refusal, msg=label) as caught:
                 qualify._validate_hosted_context(projection, **dict(context, **changed))
             self.assertIn(needle, str(caught.exception), label)
             self.assertIs(qualify._validate_hosted_context(projection, **context), projection)
+        swapped = copy.deepcopy(projection)
+        swapped["platform"] = "macos"
+        with self.assertRaises(qualify.Refusal) as caught:
+            qualify._validate_hosted_context(swapped, **context)
+        self.assertIn("platform does not match the exact workflow job", str(caught.exception))
+        self.assertIs(qualify._validate_hosted_context(projection, **context), projection)
 
     def test_hosted_record_rejects_entry_smoke_or_missing_platform(self) -> None:
         """A hosted record must be complete hosted evidence for both platforms."""
