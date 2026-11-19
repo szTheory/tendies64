@@ -292,7 +292,7 @@ static void case_sink_legacy_identity(void) {
 #define SPAN_CAPACITY 4096u
 #define SI_DOMAIN "t64.state.si.25"
 #define SI_DOMAIN_LENGTH 15u
-#define MARKER_COUNT_FULL 9u
+#define MARKER_COUNT_FULL 10u
 
 typedef struct {
   uint8_t *bytes;
@@ -385,13 +385,16 @@ static uint32_t read_u32(const uint8_t *bytes) {
 /*
  * The identity-class spans of a v25 stream are exactly two: the domain at the
  * start, and the serialization word with the profile digest right after the
- * first marker. Any other identity or new-section span is a defect (the
- * packet profile and build ids are omitted under v25).
+ * first marker. The only other non-marker span is the one new-class span that
+ * carries the body of section 10 (SI, PIF and latch) and runs from the tenth
+ * marker to the end of the stream. Any other identity or new-section span is
+ * a defect (the packet profile and build ids are omitted under v25).
  */
 static bool identity_spans_are_exact(const stream *captured,
                                      size_t *offset_out) {
   size_t seen = 0u;
   size_t i;
+  bool new_span_seen = false;
 
   *offset_out = 0u;
   for (i = 0u; i < captured->span_count; i++) {
@@ -405,6 +408,10 @@ static bool identity_spans_are_exact(const stream *captured,
                span->offset == SI_DOMAIN_LENGTH + 4u &&
                span->length == 4u + T64_DIGEST_SIZE) {
       seen = 2u;
+    } else if (span->class == T64_DIGEST_CLASS_NEW && seen == 2u &&
+               !new_span_seen && span->offset + span->length ==
+                                     captured->length) {
+      new_span_seen = true;
     } else {
       *offset_out = span->offset;
       return false;
@@ -934,7 +941,7 @@ static void case_v25_reference(void) {
     return;
   }
 
-  /* Domain, then section ids 1..9 literally, ascending. */
+  /* Domain, then section ids 1..10 literally, ascending. */
   T64_CHECK(memcmp(captured.bytes, "t64.state.si.25", 15u) == 0);
   for (id = 1u; id <= MARKER_COUNT_FULL; id++) {
     size_t marker = 0u;
@@ -948,7 +955,7 @@ static void case_v25_reference(void) {
   {
     size_t beyond = 0u;
 
-    /* Reserved ids 10, 11 and 16 emit nothing yet: no tenth marker. */
+    /* Reserved ids 11 and 16 emit nothing yet: no eleventh marker. */
     T64_CHECK(!find_marker(&captured, MARKER_COUNT_FULL + 1u, &beyond));
   }
 
@@ -1017,15 +1024,18 @@ static void check_family_stream(const t64_machine *machine,
     T64_CHECK_INT(read_u32(captured->bytes + SI_DOMAIN_LENGTH + 4u),
                   machine->profile.state_serialization_version);
   }
-  /* Nine markers; no identity span carries a packet profile or build id. */
+  /* Ten markers and exactly one new-class span (the body of section 10);
+   * no identity span carries a packet profile or build id. */
   {
     size_t markers = 0u;
+    size_t new_spans = 0u;
 
     for (i = 0u; i < captured->span_count; i++) {
       if (captured->spans[i].class == T64_DIGEST_CLASS_MARKER) markers++;
-      T64_CHECK(captured->spans[i].class != T64_DIGEST_CLASS_NEW);
+      if (captured->spans[i].class == T64_DIGEST_CLASS_NEW) new_spans++;
     }
     T64_CHECK_INT(markers, MARKER_COUNT_FULL);
+    T64_CHECK_INT(new_spans, 1u);
   }
   /* Hash sink digest equals SHA-256 of the buffer-sink stream. */
   T64_CHECK_INT(t64_machine_digest(machine, digest), T64_STATUS_OK);

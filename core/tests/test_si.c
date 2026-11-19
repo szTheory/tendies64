@@ -609,6 +609,173 @@ static void case_tracer_poll(void) {
 }
 
 /* ------------------------------------------------------------------------ */
+/* digest-section (tracer part)                                              */
+/* ------------------------------------------------------------------------ */
+
+#define SPAN_CAPACITY 4096u
+#define AI_PROFILE_ID_V24 AI_STEM_ID
+
+typedef struct {
+  uint8_t *bytes;
+  size_t length;
+  t64_digest_span spans[SPAN_CAPACITY];
+  size_t span_count;
+} stream;
+
+static bool capture_stream(const t64_machine *machine, stream *out) {
+  t64_digest_sink sink;
+  size_t length;
+
+  (void)memset(out, 0, sizeof *out);
+  (void)memset(&sink, 0, sizeof sink);
+  T64_CHECK_INT(t64_digest_stream(machine, &sink), T64_STATUS_OK);
+  length = sink.offset;
+  out->bytes = (uint8_t *)malloc(length > 0u ? length : 1u);
+  if (out->bytes == NULL) {
+    T64_CHECK(false);
+    return false;
+  }
+  (void)memset(&sink, 0, sizeof sink);
+  sink.buffer = out->bytes;
+  sink.capacity = length;
+  sink.spans = out->spans;
+  sink.span_capacity = SPAN_CAPACITY;
+  T64_CHECK_INT(t64_digest_stream(machine, &sink), T64_STATUS_OK);
+  T64_CHECK(!sink.overflow);
+  T64_CHECK_INT(sink.offset, length);
+  out->length = length;
+  out->span_count = sink.span_count;
+  return !sink.overflow && sink.offset == length;
+}
+
+/* Body bytes outside every non-body span. */
+static size_t strip_stream(const stream *captured, uint8_t *out) {
+  size_t position = 0u;
+  size_t written = 0u;
+  size_t index;
+
+  for (index = 0u; index <= captured->span_count; index++) {
+    const size_t end = index < captured->span_count
+                           ? captured->spans[index].offset
+                           : captured->length;
+
+    if (end > position) {
+      if (out != NULL) {
+        (void)memcpy(out + written, captured->bytes + position,
+                     end - position);
+      }
+      written += end - position;
+    }
+    if (index < captured->span_count) {
+      position = captured->spans[index].offset + captured->spans[index].length;
+    }
+  }
+  return written;
+}
+
+static uint32_t be32(const uint8_t *bytes) {
+  return ((uint32_t)bytes[0] << 24) | ((uint32_t)bytes[1] << 16) |
+         ((uint32_t)bytes[2] << 8) | (uint32_t)bytes[3];
+}
+
+/* The marker span count and ascending ids; returns the span index of marker
+ * `id` or SIZE_MAX. */
+static size_t find_marker_span(const stream *captured, uint32_t id) {
+  size_t index;
+  uint32_t seen = 0u;
+
+  for (index = 0u; index < captured->span_count; index++) {
+    if (captured->spans[index].class != T64_DIGEST_CLASS_MARKER) continue;
+    seen++;
+    if (be32(captured->bytes + captured->spans[index].offset) == id) {
+      return seen == id ? index : SIZE_MAX;
+    }
+  }
+  return SIZE_MAX;
+}
+
+static void case_digest_section(void) {
+  t64_machine *family = make_idle_machine();
+  t64_machine *phase8 = NULL;
+  stream family_stream;
+  stream phase8_stream;
+  uint8_t digest_before[T64_DIGEST_SIZE];
+  uint8_t digest_after[T64_DIGEST_SIZE];
+  uint32_t id;
+
+  if (family == NULL) return;
+  phase8 = create_admitted(AI_PROFILE_ID_V24);
+  if (phase8 == NULL || !cancel_boot_cpu_event(phase8) ||
+      !capture_stream(family, &family_stream)) {
+    t64_machine_destroy(family);
+    t64_machine_destroy(phase8);
+    return;
+  }
+  if (!capture_stream(phase8, &phase8_stream)) {
+    free(family_stream.bytes);
+    t64_machine_destroy(family);
+    t64_machine_destroy(phase8);
+    return;
+  }
+
+  /* Markers 1 to 10 are present, ascending, and section 10 is the last one:
+     its body is one new-class span running to the end of the stream. */
+  for (id = 1u; id <= 10u; id++) {
+    T64_CHECK(find_marker_span(&family_stream, id) != SIZE_MAX);
+  }
+  T64_CHECK(find_marker_span(&family_stream, 11u) == SIZE_MAX);
+  {
+    const size_t marker = find_marker_span(&family_stream, 10u);
+
+    T64_CHECK(marker != SIZE_MAX);
+    if (marker != SIZE_MAX && marker + 1u < family_stream.span_count) {
+      const t64_digest_span *body = &family_stream.spans[marker + 1u];
+
+      T64_CHECK_INT(body->class, T64_DIGEST_CLASS_NEW);
+      T64_CHECK_INT(body->offset,
+                    family_stream.spans[marker].offset +
+                        family_stream.spans[marker].length);
+      T64_CHECK_INT(body->offset + body->length, family_stream.length);
+      T64_CHECK_INT(marker + 2u, family_stream.span_count);
+    } else {
+      T64_CHECK(false);
+    }
+  }
+  /* Strip differential: with markers, identity spans and the new section
+     removed, the family stream equals the Phase 8 stream. */
+  {
+    const size_t old_length = strip_stream(&phase8_stream, NULL);
+    const size_t new_length = strip_stream(&family_stream, NULL);
+    uint8_t *old_body = (uint8_t *)malloc(old_length > 0u ? old_length : 1u);
+    uint8_t *new_body = (uint8_t *)malloc(new_length > 0u ? new_length : 1u);
+
+    T64_CHECK_INT(new_length, old_length);
+    if (old_body != NULL && new_body != NULL && old_length == new_length) {
+      (void)strip_stream(&phase8_stream, old_body);
+      (void)strip_stream(&family_stream, new_body);
+      T64_CHECK(memcmp(old_body, new_body, old_length) == 0);
+    } else {
+      T64_CHECK(false);
+    }
+    free(old_body);
+    free(new_body);
+  }
+  /* One PIF byte flip changes the digest. */
+  T64_CHECK_INT(t64_machine_digest(family, digest_before), T64_STATUS_OK);
+  family->si.pif_ram[5] ^= 0x01u;
+  T64_CHECK_INT(t64_machine_digest(family, digest_after), T64_STATUS_OK);
+  T64_CHECK(memcmp(digest_before, digest_after, T64_DIGEST_SIZE) != 0);
+  family->si.pif_ram[5] ^= 0x01u;
+  T64_CHECK_INT(t64_machine_digest(family, digest_after), T64_STATUS_OK);
+  T64_CHECK(memcmp(digest_before, digest_after, T64_DIGEST_SIZE) == 0);
+
+  free(family_stream.bytes);
+  free(phase8_stream.bytes);
+  t64_machine_destroy(family);
+  t64_machine_destroy(phase8);
+}
+
+/* ------------------------------------------------------------------------ */
 /* Dispatch                                                                  */
 /* ------------------------------------------------------------------------ */
 
@@ -625,6 +792,8 @@ static const test_case cases[] = {
     {"cpu-store-budget", case_cpu_store_budget, NULL,
      "unit.core.cpu.si-store-budget"},
     {"tracer-poll", case_tracer_poll, "device", "unit.core.si.device"},
+    {"digest-section", case_digest_section, "device",
+     "unit.core.si.device"},
 };
 
 static const char *suite_finish_name(const char *suite) {

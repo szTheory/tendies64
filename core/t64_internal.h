@@ -1647,7 +1647,8 @@ typedef struct {
 #define T64_STATE_SECTION_WARM_DEVICES UINT32_C(7)
 #define T64_STATE_SECTION_RDP_VI UINT32_C(8)
 #define T64_STATE_SECTION_AUDIO UINT32_C(9)
-/* Reserved: the SI/PIF section lands with the SI device (plan 09-03). */
+/* Emitted by the v25 walker (plan 09-03): SI, PIF RAM and the input latch,
+ * every field in the new-span class. */
 #define T64_STATE_SECTION_SI_PIF UINT32_C(10)
 /* Reserved: the save-media section lands with the save devices (plan 09-04). */
 #define T64_STATE_SECTION_SAVE_MEDIA UINT32_C(11)

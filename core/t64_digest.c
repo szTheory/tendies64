@@ -79,6 +79,17 @@ static void hash_u64(t64_digest_sink *sink, uint64_t value) {
   digest_bytes(sink, bytes, sizeof bytes);
 }
 
+/* Section 10 (SI, PIF and latch) is a new section: its fields are streamed
+ * in the new-span class so a stripped v25 stream equals the older stream. */
+static void hash_u32_new(t64_digest_sink *sink, uint32_t value) {
+  hash_u32_class(sink, value, T64_DIGEST_CLASS_NEW);
+}
+
+static void hash_u64_new(t64_digest_sink *sink, uint64_t value) {
+  hash_u32_new(sink, (uint32_t)(value >> 32));
+  hash_u32_new(sink, (uint32_t)value);
+}
+
 /* v25 framing: a section id (marker class) precedes each section body. */
 static void section_marker(t64_digest_sink *sink, bool framed, uint32_t id) {
   if (framed) {
@@ -910,6 +921,50 @@ t64_status t64_digest_stream(const t64_machine *machine,
                            sizeof info->build_id,
                            T64_DIGEST_CLASS_IDENTITY);
       }
+    }
+  }
+  if (has_v25_state) {
+    const t64_si_state *si = &machine->si;
+    size_t index;
+
+    section_marker(sink, true, T64_STATE_SECTION_SI_PIF);
+    hash_u32_new(sink, si->dram_address);
+    hash_u32_new(sink, si->error ? 1u : 0u);
+    hash_u32_new(sink, si->active_valid ? 1u : 0u);
+    hash_u32_new(sink, si->active_direction);
+    hash_u32_new(sink, si->active_dram_address);
+    hash_u64_new(sink, si->start_tick);
+    hash_u64_new(sink, si->execute_tick);
+    hash_u64_new(sink, si->complete_tick);
+    hash_u64_new(sink, si->active_token);
+    hash_u64_new(sink, si->next_token);
+    hash_u32_new(sink, si->token_exhausted ? 1u : 0u);
+    hash_u32_new(sink, si->execute_pending ? 1u : 0u);
+    digest_bytes_class(sink, si->pif_ram, sizeof si->pif_ram,
+                       T64_DIGEST_CLASS_NEW);
+    hash_u32_new(sink, si->table.parsed ? 1u : 0u);
+    hash_u32_new(sink, si->table.entry_count);
+    for (index = 0u; index < T64_JOYBUS_CHANNELS; index++) {
+      const t64_joybus_entry *entry = &si->table.entries[index];
+
+      hash_u32_new(sink, entry->kind);
+      hash_u32_new(sink, entry->channel);
+      hash_u32_new(sink, entry->offset);
+      hash_u32_new(sink, entry->tx_count);
+      hash_u32_new(sink, entry->rx_count);
+      hash_u32_new(sink, entry->flags);
+    }
+    for (index = 0u; index < T64_SI_PORTS; index++) {
+      const t64_si_port_latch *latch = &si->latch[index];
+
+      hash_u32_new(sink, latch->current_buttons);
+      hash_u32_new(sink, latch->current_x);
+      hash_u32_new(sink, latch->current_y);
+      hash_u32_new(sink, latch->next_buttons);
+      hash_u32_new(sink, latch->next_x);
+      hash_u32_new(sink, latch->next_y);
+      hash_u64_new(sink, latch->next_visible_from);
+      hash_u32_new(sink, latch->next_valid ? 1u : 0u);
     }
   }
   return T64_STATUS_OK;
