@@ -49,7 +49,8 @@ typedef enum {
   T64_BUS_REGION_WARM,
   T64_BUS_REGION_RDRAM_PROTOCOL,
   T64_BUS_REGION_ISVIEWER,
-  T64_BUS_REGION_ABSENT_RDRAM_PROBE
+  T64_BUS_REGION_ABSENT_RDRAM_PROBE,
+  T64_BUS_REGION_SI
 } t64_bus_region;
 
 bool t64_cpu_compat_zero_data_range(const t64_machine *machine,
@@ -134,6 +135,11 @@ static t64_bus_region decode_region(const t64_machine *machine,
       address < T64_AI_BASE + T64_DEVICE_WINDOW_BYTES) {
     return t64_has_ai_device(machine) ? T64_BUS_REGION_AI
                                        : T64_BUS_REGION_WARM;
+  }
+  if (address >= T64_SI_BASE &&
+      address < T64_SI_BASE + T64_DEVICE_WINDOW_BYTES &&
+      t64_has_si_profile(machine)) {
+    return T64_BUS_REGION_SI;
   }
   if (address == T64_SP_PC_ADDRESS ||
       (address >= T64_SI_BASE &&
@@ -308,6 +314,7 @@ static const uint8_t *region_bytes(const t64_machine *machine,
   case T64_BUS_REGION_RDRAM_PROTOCOL:
   case T64_BUS_REGION_ISVIEWER:
   case T64_BUS_REGION_ABSENT_RDRAM_PROBE:
+  case T64_BUS_REGION_SI:
     break;
   }
   *remaining_out = 0u;
@@ -356,7 +363,8 @@ t64_status t64_bus_probe_access(const t64_machine *machine,
                  region == T64_BUS_REGION_WARM ||
                  region == T64_BUS_REGION_RDRAM_PROTOCOL ||
                  region == T64_BUS_REGION_ISVIEWER ||
-                 region == T64_BUS_REGION_ABSENT_RDRAM_PROBE
+                 region == T64_BUS_REGION_ABSENT_RDRAM_PROBE ||
+                 region == T64_BUS_REGION_SI
              ? T64_STATUS_OK
              : T64_STATUS_BUS_UNMAPPED;
 }
@@ -457,6 +465,14 @@ t64_status t64_bus_read(t64_machine *machine, uint32_t address,
     trace_bus(machine, address, width, value, false);
     return T64_STATUS_OK;
   }
+  if (region == T64_BUS_REGION_SI) {
+    if (width != 4u) return T64_STATUS_BUS_UNSUPPORTED;
+    status = t64_si_read_register(machine, address, &value);
+    if (status != T64_STATUS_OK) return status;
+    *value_out = value;
+    trace_bus(machine, address, width, value, false);
+    return T64_STATUS_OK;
+  }
   if (region == T64_BUS_REGION_SP_REG) {
     if (width != 4u) {
       return T64_STATUS_BUS_UNSUPPORTED;
@@ -542,7 +558,8 @@ t64_status t64_bus_read_wide(t64_machine *machine, uint32_t address,
       region == T64_BUS_REGION_SP_REG || region == T64_BUS_REGION_WARM ||
       region == T64_BUS_REGION_RDRAM_PROTOCOL ||
       region == T64_BUS_REGION_ISVIEWER ||
-      region == T64_BUS_REGION_ABSENT_RDRAM_PROBE) {
+      region == T64_BUS_REGION_ABSENT_RDRAM_PROBE ||
+      region == T64_BUS_REGION_SI) {
     return T64_STATUS_BUS_DEVICE_REFUSED;
   }
   bytes = region_bytes(machine, region, address, &remaining);
@@ -638,6 +655,12 @@ t64_status t64_bus_write(t64_machine *machine, uint32_t address,
     if (status == T64_STATUS_OK) trace_bus(machine, address, width, value, true);
     return status;
   }
+  if (region == T64_BUS_REGION_SI) {
+    if (width != 4u) return T64_STATUS_BUS_UNSUPPORTED;
+    status = t64_si_write_register(machine, address, value);
+    if (status == T64_STATUS_OK) trace_bus(machine, address, width, value, true);
+    return status;
+  }
   if (region == T64_BUS_REGION_SP_REG) {
     if (width != 4u) {
       return T64_STATUS_BUS_UNSUPPORTED;
@@ -701,6 +724,7 @@ t64_status t64_bus_write(t64_machine *machine, uint32_t address,
   case T64_BUS_REGION_RDRAM_PROTOCOL:
   case T64_BUS_REGION_ISVIEWER:
   case T64_BUS_REGION_ABSENT_RDRAM_PROBE:
+  case T64_BUS_REGION_SI:
     break;
   }
   if (bytes == NULL || (size_t)width > remaining) {
@@ -790,6 +814,7 @@ t64_status t64_bus_write_masked(t64_machine *machine, uint32_t address,
   case T64_BUS_REGION_RDRAM_PROTOCOL:
   case T64_BUS_REGION_ISVIEWER:
   case T64_BUS_REGION_ABSENT_RDRAM_PROBE:
+  case T64_BUS_REGION_SI:
     break;
   }
   if (bytes == NULL) {
@@ -883,6 +908,7 @@ static t64_status cache_writeback_destination(
   case T64_BUS_REGION_AI:
   case T64_BUS_REGION_ISVIEWER:
   case T64_BUS_REGION_ABSENT_RDRAM_PROBE:
+  case T64_BUS_REGION_SI:
     return T64_STATUS_BUS_DEVICE_REFUSED;
   }
   for (offset = 1u; offset < line_bytes; offset++) {

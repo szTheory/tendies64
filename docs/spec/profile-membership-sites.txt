@@ -10,7 +10,7 @@ core/t64_ai.c :: t64_ai_read_register :: t64_has_ai_device
 core/t64_ai.c :: t64_ai_write_register :: t64_has_ai_device
 core/t64_ai.c :: t64_audio_copy :: t64_has_ai_device
 core/t64_ai.c :: t64_audio_info :: t64_has_ai_device
-core/t64_bus.c :: decode_region :: t64_has_ai_device
+core/t64_bus.c :: decode_region :: t64_has_ai_device,t64_has_si_profile
 core/t64_cpu.c :: cpu_successor_extra_event_budget :: t64_has_si_profile
 core/t64_digest.c :: t64_digest_stream :: machine_model_version,state_serialization_version,t64_has_ai_profile,t64_has_si_profile,t64_has_vi_filter_v9_profile
 core/t64_internal.h :: t64_has_ai_device :: t64_has_ai_profile,t64_has_si_profile
@@ -45,7 +45,11 @@ core/t64_machine.c :: is_vr4300_openipl3_profile :: descriptor_version
 core/t64_machine.c :: profile_fields_are_valid :: descriptor_version,machine_model_version,state_serialization_version
 core/t64_machine.c :: t64_machine_create :: descriptor_version,has_si_family_profile_id,is_ai_family_profile,machine_model_version,state_serialization_version
 core/t64_machine.c :: write_profile :: descriptor_version,machine_model_version,state_serialization_version
+core/t64_observe.c :: t64_input_event_handler :: t64_has_si_profile
 core/t64_scheduler.c :: vi_event_waits_for_output_capacity :: t64_has_vi_filter_v9_profile
+core/t64_si.c :: t64_si_read_register :: t64_has_si_profile
+core/t64_si.c :: t64_si_reset_machine_state :: t64_has_si_profile
+core/t64_si.c :: t64_si_write_register :: t64_has_si_profile
 core/t64_vi.c :: render_packet :: t64_has_vi_filter_v9_profile
 
 # Block 2: scheduler reservation sites (device / kind)
@@ -63,6 +67,8 @@ core/t64_scheduler.c :: t64_schedule_reserve_after :: t64_schedule_reserve :: de
 core/t64_scheduler.c :: t64_test_reserve_synthetic :: t64_schedule_reserve :: T64_DEVICE_SYNTHETIC_TEST / kind
 core/t64_scheduler.c :: t64_test_schedule_synthetic_after :: t64_schedule_reserve_after :: T64_DEVICE_SYNTHETIC_TEST / kind
 core/t64_scheduler.c :: test_repeat_instruction_handler :: t64_schedule_reserve :: T64_DEVICE_SYNTHETIC_TEST / T64_TEST_EVENT_REPEAT_INSTRUCTION
+core/t64_si.c :: start_dma :: t64_schedule_reserve_after :: T64_SI_DEVICE / T64_SI_EVENT_COMPLETE
+core/t64_si.c :: start_dma :: t64_schedule_reserve_after :: T64_SI_DEVICE / T64_SI_EVENT_EXECUTE
 core/t64_sp.c :: start_dma :: t64_schedule_reserve :: T64_DEVICE_SP / T64_SP_EVENT_COMPLETE
 core/t64_vi.c :: t64_vi_event :: t64_schedule_reserve_after :: T64_VI_DEVICE / T64_VI_EVENT_FIELD
 core/t64_vi.c :: t64_vi_write_register :: t64_schedule_reserve_after :: T64_VI_DEVICE / T64_VI_EVENT_FIELD

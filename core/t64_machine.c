@@ -2146,6 +2146,7 @@ static t64_status reset_guest_state(t64_machine *machine) {
   t64_rdp_reset_machine_state(machine);
   t64_vi_reset_machine_state(machine);
   t64_ai_reset_machine_state(machine);
+  t64_si_reset_machine_state(machine);
   machine->output_drain_cursor = 0u;
   machine->mi_pending = 0u;
   machine->mi_mask = 0u;

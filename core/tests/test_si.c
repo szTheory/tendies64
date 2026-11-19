@@ -466,6 +466,149 @@ static void case_cpu_store_budget(void) {
 }
 
 /* ------------------------------------------------------------------------ */
+/* Bus helpers shared by the device cases                                    */
+/* ------------------------------------------------------------------------ */
+
+#define SI_DRAM_ADDR UINT32_C(0x04800000)
+#define SI_RD64B UINT32_C(0x04800004)
+#define SI_WR64B UINT32_C(0x04800010)
+#define SI_STATUS UINT32_C(0x04800018)
+#define PIF_ADDRESS UINT32_C(0x1FC007C0)
+#define STATUS_BUSY UINT32_C(0x1)
+#define STATUS_ERROR UINT32_C(0x8)
+#define STATUS_INTERRUPT UINT32_C(0x1000)
+
+static bool advance_guest_to(t64_machine *machine, uint64_t tick) {
+  t64_stop_request request = {T64_STOP_GUEST_TICK, tick};
+  t64_stop_result result = {0u, 0u};
+  t64_status status = t64_machine_advance(machine, &request, &result);
+
+  T64_CHECK_INT(status, T64_STATUS_OK);
+  if (status != T64_STATUS_OK) return false;
+  T64_CHECK_INT(result.reason, T64_STOP_REASON_BOUND);
+  T64_CHECK_INT(result.tick, tick);
+  return result.reason == T64_STOP_REASON_BOUND && result.tick == tick;
+}
+
+static uint32_t bus_read32(t64_machine *machine, uint32_t address) {
+  uint32_t value = UINT32_MAX;
+
+  T64_CHECK_INT(t64_machine_bus_read(machine, address, 4u, &value),
+                T64_STATUS_OK);
+  return value;
+}
+
+static uint8_t bus_read8(t64_machine *machine, uint32_t address) {
+  uint32_t value = UINT32_MAX;
+
+  T64_CHECK_INT(t64_machine_bus_read(machine, address, 1u, &value),
+                T64_STATUS_OK);
+  return (uint8_t)value;
+}
+
+static void bus_write_bytes(t64_machine *machine, uint32_t address,
+                            const uint8_t *bytes, size_t count) {
+  size_t index;
+
+  for (index = 0u; index < count; index++) {
+    T64_CHECK_INT(t64_machine_bus_write(machine, address + (uint32_t)index,
+                                        1u, bytes[index]),
+                  T64_STATUS_OK);
+  }
+}
+
+/* A machine with the boot CPU event cancelled so the SI is driven by host
+ * bus writes alone. */
+static t64_machine *make_idle_machine(void) {
+  t64_machine *machine = create_admitted(SI_STEM_ID);
+
+  if (machine == NULL) return NULL;
+  if (!cancel_boot_cpu_event(machine)) {
+    t64_machine_destroy(machine);
+    return NULL;
+  }
+  return machine;
+}
+
+/* ------------------------------------------------------------------------ */
+/* tracer-poll                                                               */
+/* ------------------------------------------------------------------------ */
+
+/* Literal frame: channel 0 and channel 1 each carry command 0x01 expecting
+ * four bytes, then the end escape, and byte 63 requests a parse. */
+static const uint8_t poll_frame[64] = {
+    0x01, 0x04, 0x01, 0xFF, 0xFF, 0xFF, 0xFF,
+    0x01, 0x04, 0x01, 0xFF, 0xFF, 0xFF, 0xFF,
+    0xFE, [63] = 0x01};
+
+static void case_tracer_poll(void) {
+  t64_machine *machine = make_idle_machine();
+  uint8_t image[64];
+  size_t index;
+  /* Independent literals from the policy: entry 0 is channel 0 with one
+     command byte and four response bytes (2000 + 188 + 438 + 8000 + 250 =
+     10,876 ticks); entry 1 is the absent channel 1 (2000 + 188 + 3907 =
+     6,095 ticks). H is their sum, X the read tail. */
+  const uint64_t start = 3000u;
+  const uint64_t handshake = 10876u + 6095u;
+  const uint64_t execute = start + handshake;
+  const uint64_t complete = execute + 4096u;
+
+  if (machine == NULL) return;
+  bus_write_bytes(machine, UINT32_C(0x3800), poll_frame, 64u);
+  T64_CHECK_INT(t64_machine_bus_write(machine, SI_DRAM_ADDR, 4u, 0x3800u),
+                T64_STATUS_OK);
+  T64_CHECK_INT(t64_machine_bus_write(machine, SI_WR64B, 4u, PIF_ADDRESS),
+                T64_STATUS_OK);
+  T64_CHECK_INT(bus_read32(machine, SI_STATUS), STATUS_BUSY);
+  T64_CHECK(advance_guest_to(machine, 2500u));
+  T64_CHECK_INT(bus_read32(machine, SI_STATUS), STATUS_INTERRUPT);
+  T64_CHECK_INT(t64_machine_bus_write(machine, SI_STATUS, 4u, 0u),
+                T64_STATUS_OK);
+  T64_CHECK_INT(bus_read32(machine, SI_STATUS), 0u);
+  /* PIF RAM holds the frame with the command byte cleared and the parsed
+     table has the two channels. */
+  (void)memcpy(image, poll_frame, sizeof image);
+  image[63] = 0u;
+  T64_CHECK(memcmp(machine->si.pif_ram, image, sizeof image) == 0);
+  T64_CHECK(machine->si.table.parsed);
+  T64_CHECK_INT(machine->si.table.entry_count, 2u);
+
+  T64_CHECK(advance_guest_to(machine, start));
+  T64_CHECK_INT(t64_machine_bus_write(machine, SI_DRAM_ADDR, 4u, 0x3900u),
+                T64_STATUS_OK);
+  /* State: A = A pressed, x 1, y -1, stamped one tick below E. */
+  T64_CHECK_INT(t64_machine_queue_input(machine, execute - 1u, 0u, 0x8000u,
+                                        1, -1),
+                T64_STATUS_OK);
+  T64_CHECK_INT(t64_machine_bus_write(machine, SI_RD64B, 4u, PIF_ADDRESS),
+                T64_STATUS_OK);
+  T64_CHECK_INT(machine->si.execute_tick, execute);
+  T64_CHECK_INT(machine->si.complete_tick, complete);
+  T64_CHECK_INT(bus_read32(machine, SI_STATUS), STATUS_BUSY);
+
+  /* One tick before completion: still busy, interrupt clear, destination
+     bytes old (zero). */
+  T64_CHECK(advance_guest_to(machine, complete - 1u));
+  T64_CHECK_INT(bus_read32(machine, SI_STATUS), STATUS_BUSY);
+  T64_CHECK_INT(bus_read8(machine, UINT32_C(0x3903)), 0u);
+  /* At completion: idle, interrupt set, the image is in RDRAM. */
+  T64_CHECK(advance_guest_to(machine, complete));
+  T64_CHECK_INT(bus_read32(machine, SI_STATUS), STATUS_INTERRUPT);
+  T64_CHECK_INT(bus_read8(machine, UINT32_C(0x3903)), 0x80u);
+  T64_CHECK_INT(bus_read8(machine, UINT32_C(0x3904)), 0x00u);
+  T64_CHECK_INT(bus_read8(machine, UINT32_C(0x3905)), 0x01u);
+  T64_CHECK_INT(bus_read8(machine, UINT32_C(0x3906)), 0xFFu);
+  T64_CHECK_INT(bus_read8(machine, UINT32_C(0x3901)), 0x04u);
+  T64_CHECK_INT(bus_read8(machine, UINT32_C(0x3908)), 0x84u);
+  for (index = 10u; index < 14u; index++) {
+    T64_CHECK_INT(bus_read8(machine, UINT32_C(0x3900) + (uint32_t)index),
+                  0xFFu);
+  }
+  t64_machine_destroy(machine);
+}
+
+/* ------------------------------------------------------------------------ */
 /* Dispatch                                                                  */
 /* ------------------------------------------------------------------------ */
 
@@ -481,10 +624,12 @@ static const test_case cases[] = {
      "unit.core.si.atomic-queue-full"},
     {"cpu-store-budget", case_cpu_store_budget, NULL,
      "unit.core.cpu.si-store-budget"},
+    {"tracer-poll", case_tracer_poll, "device", "unit.core.si.device"},
 };
 
 static const char *suite_finish_name(const char *suite) {
   if (strcmp(suite, "atomic") == 0) return "unit.core.si.atomic-queue-full";
+  if (strcmp(suite, "device") == 0) return "unit.core.si.device";
   return NULL;
 }
 

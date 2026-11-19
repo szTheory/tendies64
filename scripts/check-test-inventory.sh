@@ -218,7 +218,8 @@ harness.phase09-qualification
 harness.phase09-stub-fails-closed
 harness.upload-allowlist-artifacts
 unit.core.si.atomic-queue-full
-unit.core.cpu.si-store-budget'
+unit.core.cpu.si-store-budget
+unit.core.si.device'
 
 CPU_COVERAGE_OPCODES='ADD
 ADDU

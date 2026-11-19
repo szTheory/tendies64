@@ -1486,6 +1486,30 @@ t64_status t64_pi_write_register(t64_machine *machine, uint32_t address,
                                  uint32_t value);
 t64_status t64_pi_complete(t64_machine *machine, const t64_event *event);
 void t64_pi_reset_machine_state(t64_machine *machine);
+t64_status t64_si_read_register(const t64_machine *machine, uint32_t address,
+                                uint32_t *value_out);
+t64_status t64_si_write_register(t64_machine *machine, uint32_t address,
+                                 uint32_t value);
+t64_status t64_si_execute_event(t64_machine *machine, const t64_event *event);
+t64_status t64_si_complete_event(t64_machine *machine,
+                                 const t64_event *event);
+void t64_si_reset_machine_state(t64_machine *machine);
+/* Latch store: value packs buttons (bits 0 to 15), x (16 to 23) and y (24 to
+ * 31); tick is the event tick of the input. Latch sample: promote at the
+ * sample tick, then return the current value. */
+void t64_si_input_latch_store(t64_machine *machine, uint32_t port,
+                              uint64_t value, uint64_t tick);
+void t64_si_latch_sample(t64_machine *machine, uint32_t port, uint64_t tick,
+                         uint16_t *buttons_out, uint8_t *x_out,
+                         uint8_t *y_out);
+/* Pure joybus parser, tick planner and executor over a 64-byte PIF image. */
+void t64_joybus_parse(const uint8_t pif_ram[T64_PIF_RAM_BYTES],
+                      t64_joybus_table *table_out);
+uint64_t t64_joybus_plan(const uint8_t pif_ram[T64_PIF_RAM_BYTES],
+                         const t64_joybus_table *table, bool port0_present);
+void t64_joybus_execute(uint8_t pif_ram[T64_PIF_RAM_BYTES],
+                        const t64_joybus_table *table,
+                        const t64_joybus_controller *port0);
 t64_status t64_sp_read_register(t64_machine *machine, uint32_t address,
                                 uint32_t *value_out);
 t64_status t64_sp_peek_register(const t64_machine *machine,

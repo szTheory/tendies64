@@ -90,6 +90,13 @@ t64_status t64_input_event_handler(t64_machine *machine,
       event->kind != T64_TRACE_KIND_INPUT_SUBMITTED) {
     return T64_STATUS_INVALID_ARGUMENT;
   }
+  if (t64_has_si_profile(machine)) {
+    /* Composite family only: the event value carries the port in bits 32 and
+       33 and the controller value in bits 0 to 31. Other profiles keep the
+       observer-only handler. */
+    t64_si_input_latch_store(machine, (uint32_t)((event->value >> 32) & 3u),
+                             event->value, event->tick);
+  }
   return T64_STATUS_OK;
 }
 
