@@ -579,6 +579,17 @@ add_test(NAME harness.phase09-qualification
     --selftest)
 set_tests_properties(harness.phase09-qualification PROPERTIES
   LABELS "harness;qualification" TIMEOUT 120)
+# The same file, two named subsets: the stub refuses every evidence mode, and
+# the upload allowlist admits exactly one manifest.json.
+add_test(NAME harness.phase09-stub-fails-closed
+  COMMAND python3 -B ${CMAKE_SOURCE_DIR}/scripts/tests/test_phase09_qualification.py
+    --suite stub)
+add_test(NAME harness.upload-allowlist-artifacts
+  COMMAND python3 -B ${CMAKE_SOURCE_DIR}/scripts/tests/test_phase09_qualification.py
+    --suite allowlist)
+set_tests_properties(harness.phase09-stub-fails-closed
+  harness.upload-allowlist-artifacts PROPERTIES
+  LABELS "harness;qualification" TIMEOUT 120)
 
 # Original-record audio evidence controls. This selftest runs only isolated
 # verifier mutations; hosted emission remains a separate post-gate command.
