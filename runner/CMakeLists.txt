@@ -596,12 +596,18 @@ target_include_directories(test_save_fixtures PRIVATE
 target_link_libraries(test_save_fixtures PRIVATE t64_common t64_core)
 t64_target_warnings(test_save_fixtures)
 add_dependencies(test_save_fixtures t64-supervisor t64-supervisor-test
-  t64-result-check t64-boot-fixtures t64-phase09-save-fixture)
+  t64-result-check t64-runner-real t64-boot-fixtures t64-phase09-save-fixture)
 add_test(NAME runner.save-fixtures
   COMMAND test_save_fixtures --suite accepted
     $<TARGET_FILE:t64-supervisor> $<TARGET_FILE:t64-supervisor-test>
-    $<TARGET_FILE:t64-result-check> ${CMAKE_SOURCE_DIR})
-set_tests_properties(runner.save-fixtures PROPERTIES
+    $<TARGET_FILE:t64-result-check> ${CMAKE_SOURCE_DIR}
+    $<TARGET_FILE:t64-runner-real>)
+add_test(NAME controls.real.save-wrong-byte
+  COMMAND test_save_fixtures --suite controls
+    $<TARGET_FILE:t64-supervisor> $<TARGET_FILE:t64-supervisor-test>
+    $<TARGET_FILE:t64-result-check> ${CMAKE_SOURCE_DIR}
+    $<TARGET_FILE:t64-runner-real>)
+set_tests_properties(runner.save-fixtures controls.real.save-wrong-byte PROPERTIES
   LABELS "runner;controls" TIMEOUT 120
   ENVIRONMENT "T64_PHASE09_EVIDENCE_DIR=${CMAKE_BINARY_DIR}/09-04-evidence")
 

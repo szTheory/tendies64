@@ -143,6 +143,44 @@
           ]
         }
       ]
+    },
+    "save-device": {
+      "ctest": ["unit.core.save.device"],
+      "binaries": [
+        {
+          "path": "core/test_save",
+          "cases": [
+            "storage-blank",
+            "eeprom-tracer",
+            "sram-window",
+            "sram-dma",
+            "eeprom-commands",
+            "eeprom-blocks",
+            "eeprom-busy",
+            "eeprom-timing",
+            "selection",
+            "refusals",
+            "digest-section",
+            "reset-blank"
+          ]
+        }
+      ]
+    },
+    "save-fixtures": {
+      "ctest": ["runner.save-fixtures", "controls.real.save-wrong-byte"],
+      "binaries": [
+        {
+          "path": "runner/test_save_fixtures",
+          "cases": [
+            "eeprom-4k-accepted",
+            "eeprom-16k-accepted",
+            "sram-accepted",
+            "same-setup-wrong-byte-eeprom",
+            "same-setup-wrong-byte-sram",
+            "rom-profile-mismatch-refused"
+          ]
+        }
+      ]
     }
   }
 }

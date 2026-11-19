@@ -6,8 +6,9 @@
  * figure is a named software-profile policy value; nothing is a hardware or
  * timing claim.
  *
- * usage: test_save_fixtures CASE SUPERVISOR TEST_SUPERVISOR CHECKER ROOT
+ * usage: test_save_fixtures CASE SUPERVISOR TEST_SUPERVISOR CHECKER ROOT RUNNER
  *        test_save_fixtures --suite NAME SUPERVISOR TEST_SUPERVISOR CHECKER ROOT
+ *                           RUNNER
  *        test_save_fixtures --list-cases
  */
 #ifndef _POSIX_C_SOURCE
@@ -32,6 +33,7 @@
 static const char *g_supervisor;
 static const char *g_checker;
 static const char *g_root;
+static const char *g_runner;
 static char g_evidence[PATH_MAX];
 static int g_failures;
 
@@ -294,6 +296,111 @@ static bool run_supervised(const run_spec *spec, run_out *out) {
   return out->parsed;
 }
 
+/* A file descriptor over an unlinked read-only copy of `path`, the way the
+ * supervisor hands a fixture or an input script to the runner. */
+static int open_unlinked_copy(const char *path) {
+  uint8_t bytes[8192];
+  size_t length = 0u;
+  size_t offset = 0u;
+  char name[PATH_MAX];
+  int fd;
+  if (!read_file(path, bytes, sizeof bytes, &length) || length == 0u ||
+      length >= sizeof bytes ||
+      snprintf(name, sizeof name, "%s/direct.XXXXXX", g_evidence) >=
+          (int)sizeof name) {
+    return -1;
+  }
+  fd = mkstemp(name);
+  if (fd < 0) return -1;
+  while (offset < length) {
+    ssize_t written = write(fd, bytes + offset, length - offset);
+    if (written < 0 && errno == EINTR) continue;
+    if (written <= 0) {
+      (void)close(fd);
+      (void)unlink(name);
+      return -1;
+    }
+    offset += (size_t)written;
+  }
+  (void)close(fd);
+  fd = open(name, O_RDONLY);
+  (void)unlink(name);
+  return fd;
+}
+
+/* The real runner binary itself, with the fixture and the input script as
+ * unlinked descriptors and an explicit profile id: proves the identity check
+ * between a ROM and its one profile before the guest starts. */
+static bool run_runner_direct(const char *rom_path, const char *profile_id,
+                              uint64_t bound, run_out *out) {
+  char input[PATH_MAX];
+  char fixture_fd_text[16];
+  char input_fd_text[16];
+  char bound_text[24];
+  char fixture_option[] = "--fixture-fd";
+  char input_option[] = "--input-fd";
+  char profile_option[] = "--profile";
+  char ticks_option[] = "--guest-ticks";
+  char *args[10];
+  pid_t pid;
+  int status = 0;
+  int fixture_fd;
+  int input_fd;
+  int result_fd;
+  memset(out, 0, sizeof *out);
+  if (!make_run_dir(out->dir) || !input_path(input) ||
+      !join_path(out->result_path, sizeof out->result_path, out->dir,
+                 "result.json")) {
+    return false;
+  }
+  fixture_fd = open_unlinked_copy(rom_path);
+  input_fd = open_unlinked_copy(input);
+  result_fd = open(out->result_path, O_WRONLY | O_CREAT | O_EXCL, 0600);
+  if (fixture_fd < 0 || input_fd < 0 || result_fd < 0) return false;
+  (void)snprintf(fixture_fd_text, sizeof fixture_fd_text, "%d", fixture_fd);
+  (void)snprintf(input_fd_text, sizeof input_fd_text, "%d", input_fd);
+  (void)snprintf(bound_text, sizeof bound_text, "%llu",
+                 (unsigned long long)bound);
+  args[0] = (char *)(uintptr_t)g_runner;
+  args[1] = fixture_option;
+  args[2] = fixture_fd_text;
+  args[3] = input_option;
+  args[4] = input_fd_text;
+  args[5] = profile_option;
+  args[6] = (char *)(uintptr_t)profile_id;
+  args[7] = ticks_option;
+  args[8] = bound_text;
+  args[9] = NULL;
+  pid = fork();
+  if (pid < 0) return false;
+  if (pid == 0) {
+    if (dup2(result_fd, STDOUT_FILENO) < 0) _exit(126);
+    execv(g_runner, args);
+    _exit(127);
+  }
+  while (waitpid(pid, &status, 0) < 0) {
+    if (errno != EINTR) return false;
+  }
+  (void)close(fixture_fd);
+  (void)close(input_fd);
+  (void)close(result_fd);
+  out->supervisor_exit = WIFEXITED(status) ? WEXITSTATUS(status) : -1;
+  out->parsed = parse_record(out->result_path, out);
+  return out->parsed;
+}
+
+static bool capture_equals(const run_out *run, const char *literal,
+                           size_t length) {
+  char path[PATH_MAX];
+  uint8_t bytes[512];
+  size_t got = 0u;
+  if (!join_path(path, sizeof path, run->dir, "capture.bin") ||
+      !read_file(path, bytes, sizeof bytes, &got)) {
+    return false;
+  }
+  return got == length && memcmp(bytes, literal, length) == 0;
+}
+
 /* ---- policy literals and expected transcripts --------------------------- */
 
 #define SUPERVISED_BOUND UINT64_C(3000000)
@@ -304,6 +411,44 @@ static bool run_supervised(const run_spec *spec, run_out *out) {
 #define EEPROM_4K_SHA256 \
   "03891120e98176bc11f8d9f6cde6278ff33ef0ebe9018d2f24ce083b3d2c6502"
 #define EEPROM_4K_BYTES 191u
+#define EEPROM_16K_ROM "phase09-eeprom-rw-e16k-v1"
+#define EEPROM_16K_PROFILE "ntsc-cart-4m-openipl3-rdram-b-t1-si-v1-e16k"
+#define EEPROM_16K_SHA256 \
+  "d9a5bf956cce18ea6bc3fd563ae060d7dda3f8554a881b62214ccf89a7f4ca95"
+#define EEPROM_16K_BYTES 192u
+#define EEPROM_WRONG_ROM "phase09-eeprom-rw-wrong-e4k-v1"
+/* Oracle scenario eeprom-wrong-4k: line R2 ends in 19 and nothing else
+ * differs. */
+#define EEPROM_WRONG_SHA256 \
+  "87609f3fa10ce472755b3b501cfb80a457c16be2c20e536b190b8e2002598a7c"
+static const char eeprom_wrong_transcript[] =
+    "EEPROM 4k\n"
+    "I1 03 008000\n"
+    "W1 01 00\n"
+    "I2 03 008080\n"
+    "R1 48 ffffffffffffffff\n"
+    "W2 01 80\n"
+    "I3 03 008000\n"
+    "R2 08 1112131415161719\n"
+    "R5 08 ffffffffffffffff\n"
+    "W3 01 00\n"
+    "R3 08 4142434445464748\n"
+    "R4 08 4142434445464748\n";
+#define SRAM_ROM "phase09-sram-rw-s32k-v1"
+#define SRAM_PROFILE "ntsc-cart-4m-openipl3-rdram-b-t1-si-v1-s32k"
+#define SRAM_SHA256 \
+  "52b0f1caee3ec470f4217236ce6f3da94e6ff1c15fd93143a68f7364b732a026"
+#define SRAM_BYTES 101u
+#define SRAM_WRONG_ROM "phase09-sram-rw-wrong-s32k-v1"
+/* Oracle scenario sram-wrong-32k: lines D and M end in fe. */
+#define SRAM_WRONG_SHA256 \
+  "29174dfa593b7e9b6cc9e979ff7312e1fc39b5fc41ef9b280e8833dfe049f06c"
+static const char sram_wrong_transcript[] =
+    "SRAM 32k\n"
+    "Z 00000000\n"
+    "D 00112233445566778899aabbccddeefe\n"
+    "C 12345678\n"
+    "M 00112233123456788899aabbccddeefe\n";
 
 static void expect_pass(const run_out *run) {
   CHECK(run->parsed);
@@ -342,6 +487,156 @@ static int case_eeprom_4k_accepted(void) {
   return g_failures == 0 ? 0 : 1;
 }
 
+/* One accepted run of a row: pass, positive-match, the exact transcript
+ * length and digest, completion before the bound; prints the completion tick
+ * for the case record. */
+static int accepted_run(const char *name, const char *rom_id,
+                        const char *profile, const char *sha256,
+                        uint64_t bytes) {
+  char rom[PATH_MAX];
+  run_spec spec = {0};
+  run_out run;
+  CHECK(fixture_path(rom, rom_id));
+  spec.supervisor = g_supervisor;
+  spec.fixture = rom;
+  spec.bound = SUPERVISED_BOUND;
+  CHECK(run_supervised(&spec, &run));
+  expect_pass(&run);
+  CHECK(strcmp(run.fixture_id, rom_id) == 0);
+  CHECK(strcmp(run.profile_id, profile) == 0);
+  CHECK(run.log_bytes == bytes);
+  CHECK(strcmp(run.log_sha256, sha256) == 0);
+  CHECK(run.guest_tick < SUPERVISED_BOUND);
+  (void)fprintf(stderr, "%s completion tick %llu\n", name,
+                (unsigned long long)run.guest_tick);
+  if (g_failures == 0) {
+    (void)printf("case reached: %s completion_tick=%llu\n", name,
+                 (unsigned long long)run.guest_tick);
+  }
+  return g_failures == 0 ? 0 : 1;
+}
+
+static int case_eeprom_16k_accepted(void) {
+  return accepted_run("eeprom-16k-accepted", EEPROM_16K_ROM, EEPROM_16K_PROFILE,
+                      EEPROM_16K_SHA256, EEPROM_16K_BYTES);
+}
+
+static int case_sram_accepted(void) {
+  return accepted_run("sram-accepted", SRAM_ROM, SRAM_PROFILE, SRAM_SHA256,
+                      SRAM_BYTES);
+}
+
+/* ---- controls (each runs the accepted baseline in the same setup) ----------- */
+
+static void expect_wrong_transcript(const run_out *run, uint64_t bytes) {
+  CHECK(run->parsed);
+  CHECK(run->checker_ok);
+  CHECK(strcmp(run->outcome, "guest-fail") == 0);
+  CHECK(strcmp(run->detail, "wrong-transcript") == 0);
+  CHECK(strcmp(run->stop_kind, "authored-completion") == 0);
+  CHECK(run->log_bytes == bytes);
+}
+
+static void report_control(const char *name, const run_out *run) {
+  if (!run->parsed) return;
+  (void)printf("case reached: %s outcome=%s detail=%s guest_tick=%llu\n", name,
+               run->outcome, run->detail,
+               (unsigned long long)run->guest_tick);
+}
+
+/* The wrong-byte ROM on its own row carries the same pin as its baseline, so
+ * its text reaches the same comparator and fails it with the oracle's own
+ * transcript. */
+static int wrong_byte_control(const char *name, const char *base_id,
+                              const char *base_sha, uint64_t base_bytes,
+                              const char *wrong_id, const char *wrong_sha,
+                              const char *wrong_text, size_t wrong_length) {
+  char base[PATH_MAX];
+  char wrong[PATH_MAX];
+  run_spec spec = {0};
+  run_out run;
+  CHECK(fixture_path(base, base_id));
+  CHECK(fixture_path(wrong, wrong_id));
+  spec.supervisor = g_supervisor;
+  spec.fixture = base;
+  spec.bound = SUPERVISED_BOUND;
+  CHECK(run_supervised(&spec, &run));
+  expect_pass(&run);
+  CHECK(strcmp(run.log_sha256, base_sha) == 0);
+  CHECK(run.log_bytes == base_bytes);
+  spec.fixture = wrong;
+  CHECK(run_supervised(&spec, &run));
+  expect_wrong_transcript(&run, base_bytes);
+  CHECK(strcmp(run.fixture_id, wrong_id) == 0);
+  CHECK(strcmp(run.log_sha256, wrong_sha) == 0);
+  CHECK(strcmp(run.log_sha256, base_sha) != 0);
+  CHECK(capture_equals(&run, wrong_text, wrong_length));
+  report_control(name, &run);
+  return g_failures == 0 ? 0 : 1;
+}
+
+static int case_same_setup_wrong_byte_eeprom(void) {
+  return wrong_byte_control("same-setup-wrong-byte-eeprom", EEPROM_4K_ROM,
+                            EEPROM_4K_SHA256, EEPROM_4K_BYTES,
+                            EEPROM_WRONG_ROM, EEPROM_WRONG_SHA256,
+                            eeprom_wrong_transcript,
+                            sizeof eeprom_wrong_transcript - 1u);
+}
+
+static int case_same_setup_wrong_byte_sram(void) {
+  return wrong_byte_control("same-setup-wrong-byte-sram", SRAM_ROM, SRAM_SHA256,
+                            SRAM_BYTES, SRAM_WRONG_ROM, SRAM_WRONG_SHA256,
+                            sram_wrong_transcript,
+                            sizeof sram_wrong_transcript - 1u);
+}
+
+/* One ROM binds exactly one profile id (K12): after the accepted baselines
+ * (the supervised run of each ROM, and the real runner binary with the
+ * matching profile), the 4 Kbit ROM bytes under the -s32k profile id and the
+ * SRAM ROM bytes under the -e4k id are refused by the identity check before
+ * the guest starts (guest tick 0). */
+static int case_rom_profile_mismatch_refused(void) {
+  char eeprom_rom[PATH_MAX];
+  char sram_rom[PATH_MAX];
+  run_spec spec = {0};
+  run_out run;
+  CHECK(fixture_path(eeprom_rom, EEPROM_4K_ROM));
+  CHECK(fixture_path(sram_rom, SRAM_ROM));
+  spec.supervisor = g_supervisor;
+  spec.fixture = eeprom_rom;
+  spec.bound = SUPERVISED_BOUND;
+  CHECK(run_supervised(&spec, &run));
+  expect_pass(&run);
+  spec.fixture = sram_rom;
+  CHECK(run_supervised(&spec, &run));
+  expect_pass(&run);
+
+  CHECK(run_runner_direct(eeprom_rom, EEPROM_4K_PROFILE, SUPERVISED_BOUND, &run));
+  CHECK(strcmp(run.outcome, "pass") == 0);
+  CHECK(strcmp(run.fixture_id, EEPROM_4K_ROM) == 0);
+  CHECK(run_runner_direct(sram_rom, SRAM_PROFILE, SUPERVISED_BOUND, &run));
+  CHECK(strcmp(run.outcome, "pass") == 0);
+  CHECK(strcmp(run.fixture_id, SRAM_ROM) == 0);
+
+  CHECK(run_runner_direct(eeprom_rom, SRAM_PROFILE, SUPERVISED_BOUND, &run));
+  CHECK(run.parsed);
+  CHECK(strcmp(run.outcome, "harness-error") == 0);
+  CHECK(strcmp(run.detail, "refusal") == 0);
+  CHECK(strcmp(run.stop_kind, "refused") == 0);
+  CHECK(run.guest_tick == 0u);
+  CHECK(run.fixture_id[0] == '\0');
+  report_control("rom-profile-mismatch-refused", &run);
+  CHECK(run_runner_direct(sram_rom, EEPROM_4K_PROFILE, SUPERVISED_BOUND, &run));
+  CHECK(run.parsed);
+  CHECK(strcmp(run.outcome, "harness-error") == 0);
+  CHECK(strcmp(run.detail, "refusal") == 0);
+  CHECK(strcmp(run.stop_kind, "refused") == 0);
+  CHECK(run.guest_tick == 0u);
+  CHECK(run.fixture_id[0] == '\0');
+  report_control("rom-profile-mismatch-refused", &run);
+  return g_failures == 0 ? 0 : 1;
+}
+
 /* ---- dispatch --------------------------------------------------------------- */
 
 typedef struct {
@@ -352,6 +647,13 @@ typedef struct {
 
 static const case_entry cases[] = {
     {"eeprom-4k-accepted", case_eeprom_4k_accepted, "accepted"},
+    {"eeprom-16k-accepted", case_eeprom_16k_accepted, "accepted"},
+    {"sram-accepted", case_sram_accepted, "accepted"},
+    {"same-setup-wrong-byte-eeprom", case_same_setup_wrong_byte_eeprom,
+     "controls"},
+    {"same-setup-wrong-byte-sram", case_same_setup_wrong_byte_sram, "controls"},
+    {"rom-profile-mismatch-refused", case_rom_profile_mismatch_refused,
+     "controls"},
 };
 
 int main(int argc, char **argv) {
@@ -366,11 +668,11 @@ int main(int argc, char **argv) {
     }
     return 0;
   }
-  suite = argc == 7 && strcmp(argv[1], "--suite") == 0;
-  if (!suite && argc != 6) {
+  suite = argc == 8 && strcmp(argv[1], "--suite") == 0;
+  if (!suite && argc != 7) {
     (void)fprintf(stderr,
                   "usage: %s CASE|--suite NAME SUPERVISOR TEST_SUPERVISOR "
-                  "CHECKER ROOT\n",
+                  "CHECKER ROOT RUNNER\n",
                   argv[0]);
     return 2;
   }
@@ -378,6 +680,7 @@ int main(int argc, char **argv) {
   g_supervisor = argv[base];
   g_checker = argv[base + 2u];
   g_root = argv[base + 3u];
+  g_runner = argv[base + 4u];
   if (!prepare_evidence()) {
     (void)fprintf(stderr, "evidence directory unavailable\n");
     return 2;

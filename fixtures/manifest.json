@@ -968,6 +968,119 @@
         "source": "Independent 191-byte transcript from fixtures/save/save_oracle.py (eeprom-4k) and shasum, pinned in runner/t64_real_fixture.c and asserted in runner/tests/test_save_fixtures.c. Policy self-consistency only.",
         "revision": "source-content-sha256:72f1bb5c589e58b4671fdee7c2e5e55fb934d7ae47ef25d0903f8c675707090b"
       }
+    },
+    {
+      "id": "phase09-eeprom-rw-e16k-v1",
+      "source": {
+        "repo": "https://github.com/szTheory/tendies64",
+        "revision": "faa2a381ca88301017faa39f6d5a846f0c44d872",
+        "path": "fixtures/save/eeprom.S"
+      },
+      "build": {
+        "recipe": "Build the same authored source, linker script and toolchain as phase09-eeprom-rw-e4k-v1 with --defsym T64_EEPROM_16K=1. The header line text changes to 16k and nothing else. Fixture source-content SHA-256 72f1bb5c589e58b4671fdee7c2e5e55fb934d7ae47ef25d0903f8c675707090b; exact generated ROM SHA-256 af3267db49012adeb032d7dd5ca95b4dd8397abb4b8559696a852ab7f2236812 (5584 bytes), payload SHA-256 47b85da389614c7495eaaee11d66b4a43711ffc8ebb188b7cc48a9893f3837e3 (1488 bytes). Generated binaries remain local/build-only.",
+        "toolchain": ["GNU Binutils 2.45"]
+      },
+      "sha256": "af3267db49012adeb032d7dd5ca95b4dd8397abb4b8559696a852ab7f2236812",
+      "size": 5584,
+      "profile": "ntsc-cart-4m-openipl3-rdram-b-t1-si-v1-e16k",
+      "source_rights": "authored-here",
+      "binary_rights": "cleared",
+      "distribution": ["build-only"],
+      "rights_evidence": "This variant is generated from the same Apache-2.0 authored source with a single explicit assembler defsym. It embeds only the separately recorded Unlicense IPL3 asset and its exact payload. No protected ROM, save or diagnostic asset is included. The generated ROM is a local build output and is not committed or uploaded.",
+      "notices": [
+        "Authored assembly and linker script are licensed under Apache-2.0; see LICENSE.",
+        "Generated 16 Kbit ROM and payload are build-only."
+      ],
+      "expected": {
+        "kind": "self-checking",
+        "source": "Independent 192-byte transcript from fixtures/save/save_oracle.py (eeprom-16k) and shasum, pinned in runner/t64_real_fixture.c and asserted in runner/tests/test_save_fixtures.c. Policy self-consistency only.",
+        "revision": "source-content-sha256:72f1bb5c589e58b4671fdee7c2e5e55fb934d7ae47ef25d0903f8c675707090b"
+      }
+    },
+    {
+      "id": "phase09-eeprom-rw-wrong-e4k-v1",
+      "source": {
+        "repo": "https://github.com/szTheory/tendies64",
+        "revision": "faa2a381ca88301017faa39f6d5a846f0c44d872",
+        "path": "fixtures/save/eeprom.S"
+      },
+      "build": {
+        "recipe": "Build the same authored source, linker script and toolchain as phase09-eeprom-rw-e4k-v1 with --defsym T64_SAVE_WRONG=1. Only the last data byte of the first write (0x19 instead of 0x18) changes, so line R2 ends in 19. Fixture source-content SHA-256 72f1bb5c589e58b4671fdee7c2e5e55fb934d7ae47ef25d0903f8c675707090b; exact generated ROM SHA-256 4cab313efe535b2c690d9b2e786d7ac3a3e6b8b39cb490e46b27e417dc339cec (5584 bytes), payload SHA-256 ddf039e2262c3c9141cd8a698e4b28dcaa57b0617202693cc5f4dc2073c1097b (1488 bytes). Generated binaries remain local/build-only.",
+        "toolchain": ["GNU Binutils 2.45"]
+      },
+      "sha256": "4cab313efe535b2c690d9b2e786d7ac3a3e6b8b39cb490e46b27e417dc339cec",
+      "size": 5584,
+      "profile": "ntsc-cart-4m-openipl3-rdram-b-t1-si-v1-e4k",
+      "source_rights": "authored-here",
+      "binary_rights": "cleared",
+      "distribution": ["build-only"],
+      "rights_evidence": "This variant is generated from the same Apache-2.0 authored source with a single explicit assembler defsym. It embeds only the separately recorded Unlicense IPL3 asset and its exact payload. No protected ROM, save or diagnostic asset is included. The generated ROM is a local build output and is not committed or uploaded.",
+      "notices": [
+        "Wrong-byte ROM exists only to prove the real comparator is reached.",
+        "Generated negative-control ROM and payload are build-only."
+      ],
+      "expected": {
+        "kind": "self-checking",
+        "source": "Same-run accepted baseline, then the baseline pin rejects this variant (oracle scenario eeprom-wrong-4k). Policy self-consistency only.",
+        "revision": "source-content-sha256:72f1bb5c589e58b4671fdee7c2e5e55fb934d7ae47ef25d0903f8c675707090b"
+      }
+    },
+    {
+      "id": "phase09-sram-rw-s32k-v1",
+      "source": {
+        "repo": "https://github.com/szTheory/tendies64",
+        "revision": "faa2a381ca88301017faa39f6d5a846f0c44d872",
+        "path": "fixtures/save/sram.S"
+      },
+      "build": {
+        "recipe": "Assemble fixtures/save/sram.S and fixtures/save/sram.ld with the qualified GNU Binutils 2.45 tools with no defsym, then run sh scripts/build-save-fixtures.sh --build. Fixture source-content SHA-256 72f1bb5c589e58b4671fdee7c2e5e55fb934d7ae47ef25d0903f8c675707090b; exact generated ROM SHA-256 9616bd3bfa3d27deed4dcefe206df0b2dc3269424a14bc831210ce0cb8ac07db (4808 bytes), payload SHA-256 003015dcb9b746c7f5d6d157a89dbe5c4d9d9c69cf1faee7bcc42a8cd1912bea (712 bytes). Includes only the separately rights-cleared Unlicense IPL3 payload. Generated binaries remain local/build-only.",
+        "toolchain": ["GNU Binutils 2.45"]
+      },
+      "sha256": "9616bd3bfa3d27deed4dcefe206df0b2dc3269424a14bc831210ce0cb8ac07db",
+      "size": 4808,
+      "profile": "ntsc-cart-4m-openipl3-rdram-b-t1-si-v1-s32k",
+      "source_rights": "authored-here",
+      "binary_rights": "cleared",
+      "distribution": ["build-only"],
+      "rights_evidence": "The assembly, linker script and packer are authored here under Apache-2.0 (LICENSE). The generated cartridge embeds only the separately recorded 4096-byte Unlicense IPL3 asset and its exact payload. No protected ROM, save or diagnostic asset is included. Generated ROM and payload are local build outputs and are not committed or uploaded.",
+      "notices": [
+        "Authored assembly and linker script are licensed under Apache-2.0; see LICENSE.",
+        "Embedded IPL3 is covered by the separately recorded pinned Unlicense source asset.",
+        "Generated sram-rw 32 KiB ROM and payload are build-only."
+      ],
+      "expected": {
+        "kind": "self-checking",
+        "source": "Independent 101-byte transcript from fixtures/save/save_oracle.py (sram-32k) and shasum, pinned in runner/t64_real_fixture.c and asserted in runner/tests/test_save_fixtures.c. Policy self-consistency only.",
+        "revision": "source-content-sha256:72f1bb5c589e58b4671fdee7c2e5e55fb934d7ae47ef25d0903f8c675707090b"
+      }
+    },
+    {
+      "id": "phase09-sram-rw-wrong-s32k-v1",
+      "source": {
+        "repo": "https://github.com/szTheory/tendies64",
+        "revision": "faa2a381ca88301017faa39f6d5a846f0c44d872",
+        "path": "fixtures/save/sram.S"
+      },
+      "build": {
+        "recipe": "Build the same authored source, linker script and toolchain as phase09-sram-rw-s32k-v1 with --defsym T64_SAVE_WRONG=1. Only the last pattern byte (0xfe instead of 0xff) changes, so lines D and M end in fe. Fixture source-content SHA-256 72f1bb5c589e58b4671fdee7c2e5e55fb934d7ae47ef25d0903f8c675707090b; exact generated ROM SHA-256 783f46337a32a61a5e1b3683bac30474674dfdf11fd2aebcad166dd2b753ce67 (4808 bytes), payload SHA-256 3262702707d6271e4f15ee3753003d31eeaeee58f4d558e2826c31fd8babd86d (712 bytes). Generated binaries remain local/build-only.",
+        "toolchain": ["GNU Binutils 2.45"]
+      },
+      "sha256": "783f46337a32a61a5e1b3683bac30474674dfdf11fd2aebcad166dd2b753ce67",
+      "size": 4808,
+      "profile": "ntsc-cart-4m-openipl3-rdram-b-t1-si-v1-s32k",
+      "source_rights": "authored-here",
+      "binary_rights": "cleared",
+      "distribution": ["build-only"],
+      "rights_evidence": "This variant is generated from the same Apache-2.0 authored source with a single explicit assembler defsym. It embeds only the separately recorded Unlicense IPL3 asset and its exact payload. No protected ROM, save or diagnostic asset is included. The generated ROM is a local build output and is not committed or uploaded.",
+      "notices": [
+        "Wrong-byte ROM exists only to prove the real comparator is reached.",
+        "Generated negative-control ROM and payload are build-only."
+      ],
+      "expected": {
+        "kind": "self-checking",
+        "source": "Same-run accepted baseline, then the baseline pin rejects this variant (oracle scenario sram-wrong-32k). Policy self-consistency only.",
+        "revision": "source-content-sha256:72f1bb5c589e58b4671fdee7c2e5e55fb934d7ae47ef25d0903f8c675707090b"
+      }
     }
   ]
 }
