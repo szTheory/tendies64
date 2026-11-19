@@ -35,6 +35,34 @@ path, and if-no-files-found inputs used here. The [official release entry](https
 and [workflow syntax documentation](https://docs.github.com/en/actions/reference/workflows-and-actions/workflow-syntax)
 are the sources checked.
 
+## Binutils cache action pin
+
+Both gate jobs restore the pinned GNU Binutils 2.45 install directory with
+one step, `Restore pinned Binutils`, placed after Checkout and before Gate:
+`actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9`, recorded as release
+v6.1.0 in the workflow comment. The step sets only `path: build/tools/install`
+and a `key` of `binutils-`, the runner OS, the runner architecture and
+`hashFiles('scripts/build-boot-fixtures.sh')`. It sets no `restore-keys`,
+`save-always`, `lookup-only`, `fail-on-cache-miss` or `enableCrossOsArchive`
+input and has no `if` or `continue-on-error`, so a miss rebuilds exactly as
+before. `scripts/check-ci-yml.sh` rule CI-CACHE-RESTORE admits exactly this
+step (pin, path, key, position, count and no other cache action) with
+mutation controls in its selftest.
+
+The cache only skips the source build. `ensure_tools` in
+`scripts/build-boot-fixtures.sh` still re-verifies the tool versions and host
+tool hashes after a restore, and the fixtures it produces are still checked
+against the pinned `fixtures/manifest.json`, so a restored directory is not
+trusted evidence. The review rationale is finding F-096 in
+`docs/ci-reviews/LOG.md`.
+
+Pin checks on 2026-11-19: the tag ref `v6.1.0` in `actions/cache` resolves to
+commit `55cc8345863c7cc4c66a329aec7e433d2d1c52a9` (a merge of pull request 1768,
+committed 2026-06-23); GitHub reports that commit's signature as verified (reason
+`valid`); and release v6.1.0 is a published, non-draft, non-prerelease entry from
+2026-06-26. A local clone confirmed the commit and that the tags `v6` and `v6.1.0`
+both point at it. The release itself is not marked immutable by GitHub.
+
 ## Exact-run collection and comparison
 
 `sh scripts/collect-boot-evidence.sh --collect` checks the run and requested

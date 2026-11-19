@@ -30,6 +30,10 @@
 #   CI-REQUIRED-STEP     jobs and steps cannot weaken required success semantics
 #   CI-SECRETS           no secrets reference in any spelling (secrets.X, secrets['X'], secrets[...],
 #                        toJSON(secrets)) and no token (github.token, github['token'], toJSON(github))
+#   CI-CACHE-RESTORE     each gate job restores the pinned Binutils install directory with exactly one
+#                        reviewed SHA-pinned actions/cache step (exact path and key, no other inputs,
+#                        no other keys on the step, no other cache action), strictly after Checkout
+#                        and before Gate
 #   CI-UPLOAD-ARTIFACT   both existing gate jobs upload one exact reviewed list of sanitized evidence
 #                        files after every scan; the upload step's path is the only block scalar admitted
 #   CI-EXPR-IN-RUN       no expression in a run line
@@ -41,7 +45,7 @@ export LC_ALL
 
 SELF=$0
 ROOT=$(cd "$(dirname "$0")/.." && pwd -P)
-ALL_RULES="CI-RUN-LINE CI-USES-PIN CI-RUNNER-LABEL CI-LATEST-LABEL CI-PR-TARGET CI-TRIGGER CI-WORKFLOW-FILE CI-PERMISSIONS-TOP CI-PERMISSIONS-JOB CI-PERSIST-CREDS CI-FETCH-DEPTH CI-TIMEOUT CI-REQUIRED-STEP CI-SECRETS CI-UPLOAD-ARTIFACT CI-EXPR-IN-RUN CI-GATE-EXEC CI-ZERO-JOBS CI-STRESS-WORKFLOW"
+ALL_RULES="CI-RUN-LINE CI-USES-PIN CI-RUNNER-LABEL CI-LATEST-LABEL CI-PR-TARGET CI-TRIGGER CI-WORKFLOW-FILE CI-PERMISSIONS-TOP CI-PERMISSIONS-JOB CI-PERSIST-CREDS CI-FETCH-DEPTH CI-TIMEOUT CI-REQUIRED-STEP CI-SECRETS CI-UPLOAD-ARTIFACT CI-CACHE-RESTORE CI-EXPR-IN-RUN CI-GATE-EXEC CI-ZERO-JOBS CI-STRESS-WORKFLOW"
 
 usage() {
   echo "usage: check-ci-yml.sh [--file PATH | --dir DIR] [--gate PATH] [--selftest]" >&2
@@ -78,6 +82,12 @@ scan_yml() {
              b "/rdp-vi/" j "/observation.json|" b "/rdp-vi/" j "/raw-export.json|" \
              b "/audio/" j "/manifest.json"
     }
+    function expected_cache_pin() {
+      return "actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9"
+    }
+    function expected_cache_key() {
+      return "binutils-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles(\047scripts/build-boot-fixtures.sh\047) }}"
+    }
     function expected_artifact_name() {
       return "t64-authored-evidence-${{ github.sha }}-${{ github.run_id }}-${{ github.run_attempt }}-${{ github.job }}"
     }
@@ -96,12 +106,13 @@ scan_yml() {
             raw_emit_runs != 1 || emit_runs != 1 || rights_runs != 1 || pii_runs != 1 ||
             raw_pii_runs != 1 || audio_pii_runs != 1)
           vjob("CI-RUN-LINE", "job must run the gate and each exact evidence command once")
-        if (step_count != 11 || checkout_step_count != 1 || gate_step_count != 1 ||
+        if (step_count != 12 || checkout_step_count != 1 || cache_step_count != 1 || gate_step_count != 1 ||
             audio_case_step_count != 1 || audio_emit_step_count != 1 ||
             raw_emit_step_count != 1 || emit_step_count != 1 || rights_step_count != 1 ||
             pii_step_count != 1 || raw_pii_step_count != 1 || audio_pii_step_count != 1 ||
             upload_step_count != 1 ||
-            !(checkout_step_line < gate_step_line && gate_step_line < audio_case_step_line &&
+            !(checkout_step_line < cache_step_line && cache_step_line < gate_step_line &&
+              gate_step_line < audio_case_step_line &&
               audio_case_step_line < audio_emit_step_line && audio_emit_step_line < raw_emit_step_line &&
               raw_emit_step_line < emit_step_line && emit_step_line < rights_step_line &&
               rights_step_line < pii_step_line && pii_step_line < raw_pii_step_line &&
@@ -116,6 +127,11 @@ scan_yml() {
               raw_pii_run_line > raw_pii_step_line && raw_pii_run_line < audio_pii_step_line &&
               audio_pii_run_line > audio_pii_step_line && audio_pii_run_line < upload_step_line))
           vjob("CI-UPLOAD-ARTIFACT", "gate, audio and boot/RDP emitters, staged scans, and upload steps must be uniquely named and ordered")
+        if (cache_step_count != 1 || cache_actions != 1 || cache_pin_count != 1 || cache_with_count != 1 ||
+            cache_path_count != 1 || cache_key_count != 1)
+          vjob("CI-CACHE-RESTORE", "job must restore exactly one reviewed Binutils cache: one cache step, one pinned action, one with block, one path, one key")
+        if (!(checkout_step_line < cache_step_line && cache_step_line < gate_step_line))
+          vjob("CI-CACHE-RESTORE", "the Binutils cache restore must come strictly after Checkout and before Gate")
         if (upload_actions != 1 || upload_name_count != 1 ||
             upload_path_count != 1 || upload_missing_count != 1)
           vjob("CI-UPLOAD-ARTIFACT", "job must upload exactly one scoped record with exact name, path, and error-on-missing")
@@ -230,6 +246,9 @@ scan_yml() {
         pii_step_count = 0; raw_pii_step_count = 0
         audio_case_step_count = 0; audio_emit_step_count = 0; audio_pii_step_count = 0
         in_path_block = 0
+        cache_step_count = 0; cache_actions = 0; cache_pin_count = 0; cache_with_count = 0
+        cache_path_count = 0; cache_key_count = 0; cache_step_line = 0
+        in_cache_step = 0; in_cache_with = 0
         upload_step_count = 0; upload_actions = 0
         upload_name_count = 0; upload_path_count = 0; upload_missing_count = 0
         upload_name = ""; upload_path = ""; upload_action = 0; in_upload_with = 0
@@ -266,6 +285,8 @@ scan_yml() {
           step_count++
           current_step = (key == "name" ? val : "")
           upload_action = 0; in_upload_with = 0
+          in_cache_step = (current_step == "Restore pinned Binutils"); in_cache_with = 0
+          if (in_cache_step) { cache_step_count++; cache_step_line = NR }
           if (current_step == "Checkout") { checkout_step_count++; checkout_step_line = NR }
           else if (current_step == "Gate") { gate_step_count++; gate_step_line = NR }
           else if (current_step == "Run authored audio qualification records") { audio_case_step_count++; audio_case_step_line = NR }
@@ -281,6 +302,29 @@ scan_yml() {
         if (ind == 8 && !isitem && (field == "if" || field == "continue-on-error"))
           vjob("CI-REQUIRED-STEP", "step-level if and continue-on-error controls are forbidden")
         if (ind == 8 && !isitem) in_upload_with = (key == "with" && val == "")
+        # The cache step may hold only its name, its pinned uses and one with block of path and key.
+        if (in_cache_step && !(ind == 6 && isitem)) {
+          if (ind == 8) {
+            in_cache_with = 0
+            if (isitem || (field != "uses" && field != "with"))
+              viol("CI-CACHE-RESTORE", "the cache step may contain only name, uses and with")
+            else if (field == "with") {
+              cache_with_count++
+              if (val == "") in_cache_with = 1
+              else viol("CI-CACHE-RESTORE", "the cache step with must be a block mapping of path and key")
+            }
+          } else if (ind == 10 && in_cache_with && !isitem) {
+            if (field == "path") {
+              cache_path_count++
+              if (val != "build/tools/install") viol("CI-CACHE-RESTORE", "the cache path must be exactly build/tools/install")
+            } else if (field == "key") {
+              cache_key_count++
+              if (val != expected_cache_key()) viol("CI-CACHE-RESTORE", "the cache key must be exactly the reviewed runner OS, architecture and build script hash key")
+            } else viol("CI-CACHE-RESTORE", "the cache step with may contain only path and key")
+          } else if (ind > 8) {
+            viol("CI-CACHE-RESTORE", "unexpected content in the cache step")
+          }
+        }
         if (ind == 10 && !isitem && in_upload_with && upload_action) {
           if (key == "name") {
             upload_name_count++; upload_name = val
@@ -304,6 +348,14 @@ scan_yml() {
         sha = parts[n]
         if (n < 2 || length(sha) != 40 || sha !~ /^[0-9a-f]+$/) viol("CI-USES-PIN", "uses must end in @ plus a 40-character lowercase hex SHA: " val)
         if (val ~ /^actions\/checkout@/) ischeckout = 1
+        if (tolower(val) ~ /cache/) {
+          cache_actions++
+          if (current_step != "Restore pinned Binutils")
+            viol("CI-CACHE-RESTORE", "a cache action is permitted only in the Restore pinned Binutils step: " val)
+          else if (val != expected_cache_pin())
+            viol("CI-CACHE-RESTORE", "the cache step must use exactly the verified actions/cache v6.1.0 full commit pin")
+          else cache_pin_count++
+        }
         if (val ~ /upload(-pages)?-artifact/) {
           upload_actions++
           upload_action = 1
@@ -440,7 +492,7 @@ selftest() {
   expect CI-TIMEOUT "a job without a timeout" "$W/timeout.yml"
 
   # Required jobs and steps cannot be skipped or have failures softened.
-  for _step in "Gate" "Run authored audio qualification records" "Emit authored audio evidence" \
+  for _step in "Restore pinned Binutils" "Gate" "Run authored audio qualification records" "Emit authored audio evidence" \
     "Emit authored raw RDP VI evidence" "Emit guest evidence" \
     "Rights scan sanitized output" "PII scan sanitized output" \
     "PII scan authored raw RDP VI evidence" "PII scan authored audio evidence" \
@@ -510,6 +562,58 @@ selftest() {
   expect CI-RUN-LINE "a path block scalar outside the upload step" "$W/path-block-checkout.yml"
   mut upload-folded 's#^          path: |$#          path: >#'
   expect CI-RUN-LINE "a folded block scalar in place of the reviewed upload list" "$W/upload-folded.yml"
+
+  # The Binutils cache restore is admitted only as the one reviewed SHA-pinned actions/cache step
+  # with exactly the reviewed path and key, strictly between Checkout and Gate in each job.
+  mut cache-tag 's|actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9  # v6.1.0|actions/cache@v6.1.0  # v6.1.0|'
+  expect CI-CACHE-RESTORE "the cache action pinned by tag" "$W/cache-tag.yml"
+  expect CI-USES-PIN "the cache action pinned by tag is also an unpinned action" "$W/cache-tag.yml"
+  mut cache-sha 's|@55cc8345863c7cc4c66a329aec7e433d2d1c52a9|@0123456789abcdef0123456789abcdef01234567|'
+  expect CI-CACHE-RESTORE "the cache action pinned to an unreviewed 40-hex commit" "$W/cache-sha.yml"
+  mut cache-restore-action 's|actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9|actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9|'
+  expect CI-CACHE-RESTORE "the cache restore sub-action in place of the reviewed action" "$W/cache-restore-action.yml"
+  mut cache-path 's|^          path: build/tools/install$|          path: build/gate|'
+  expect CI-CACHE-RESTORE "a cache path that is not the Binutils install directory" "$W/cache-path.yml"
+  mut cache-path-extra 's|^          path: build/tools/install$|          path: build/tools/install/bin|'
+  expect CI-CACHE-RESTORE "a cache path narrowed below the Binutils install directory" "$W/cache-path-extra.yml"
+  awk '/^          key: binutils-/ && !done { print; print "          restore-keys: binutils-"; done = 1; next } { print }' "$REAL" > "$W/cache-restore-keys.yml"
+  expect CI-CACHE-RESTORE "an added restore-keys fallback" "$W/cache-restore-keys.yml"
+  awk '/^          key: binutils-/ && !done { print; print "          save-always: true"; done = 1; next } { print }' "$REAL" > "$W/cache-save-always.yml"
+  expect CI-CACHE-RESTORE "an added save-always input" "$W/cache-save-always.yml"
+  for _input in "lookup-only: true" "fail-on-cache-miss: true" "enableCrossOsArchive: true"; do
+    _label=$(printf '%s' "$_input" | sed 's/:.*//' | tr '[:upper:]' '[:lower:]')
+    awk -v add="          $_input" '/^          key: binutils-/ && !done { print; print add; done = 1; next } { print }' "$REAL" > "$W/cache-input-$_label.yml"
+    expect CI-CACHE-RESTORE "an added $_input input" "$W/cache-input-$_label.yml"
+  done
+  mut cache-key-arch 's|-\${{ runner.arch }}-|-|'
+  expect CI-CACHE-RESTORE "a cache key that no longer binds the runner architecture" "$W/cache-key-arch.yml"
+  mut cache-key-hash 's|hashFiles(.scripts/build-boot-fixtures.sh.)|hashFiles('"'"'scripts/gate.sh'"'"')|'
+  expect CI-CACHE-RESTORE "a cache key that hashes a different file" "$W/cache-key-hash.yml"
+  mut cache-key-fixed 's|^          key: .*$|          key: binutils-fixed|'
+  expect CI-CACHE-RESTORE "a fixed cache key" "$W/cache-key-fixed.yml"
+  awk '/^      - name: Restore pinned Binutils$/ { n++ } n == 2 && /^      - name: Gate$/ { n = 3 } n == 2 { next } { print }' "$REAL" > "$W/cache-missing.yml"
+  expect CI-CACHE-RESTORE "the cache step missing from the macOS job only" "$W/cache-missing.yml"
+  awk '/^      - name: Restore pinned Binutils$/ && !done { held = 1; done = 1 }
+       held && /^      - name: Gate$/ { held = 0; gate = 1 }
+       held { buf = buf $0 "\n"; next }
+       { print }
+       gate && /^        run: .\/scripts\/gate.sh$/ { printf "%s", buf; gate = 0 }' "$REAL" > "$W/cache-after-gate.yml"
+  expect CI-CACHE-RESTORE "the cache step moved after Gate" "$W/cache-after-gate.yml"
+  awk '/^      - name: Restore pinned Binutils$/ && !done { held = 1; done = 1 }
+       held && /^      - name: Gate$/ { held = 0 }
+       held { buf = buf $0 "\n"; next }
+       { out[++n] = $0 }
+       END { for (i = 1; i <= n; i++) { if (out[i] == "      - name: Checkout" && !put) { printf "%s", buf; put = 1 } print out[i] } }' "$REAL" > "$W/cache-before-checkout.yml"
+  expect CI-CACHE-RESTORE "the cache step moved before Checkout" "$W/cache-before-checkout.yml"
+  awk '/^      - name: Restore pinned Binutils$/ && !done { held = 1; done = 1 }
+       held && /^      - name: Gate$/ { held = 0; printf "%s", buf }
+       held { buf = buf $0 "\n" }
+       { print }' "$REAL" > "$W/cache-duplicate.yml"
+  expect CI-CACHE-RESTORE "a duplicated cache step" "$W/cache-duplicate.yml"
+  awk '/^      - name: Gate$/ && !done { print "      - name: Restore unrelated build cache"; print "        uses: buildjet/cache@0123456789abcdef0123456789abcdef01234567"; print "        with:"; print "          path: build/gate"; print "          key: other"; done = 1 } { print }' "$REAL" > "$W/cache-second.yml"
+  expect CI-CACHE-RESTORE "a second, unrelated cache action" "$W/cache-second.yml"
+  expect CI-CACHE-RESTORE "the cache step with a step-level skip condition" "$W/skip-restore-pinned-binutils.yml"
+  expect CI-CACHE-RESTORE "the cache step with continue-on-error enabled" "$W/soft-restore-pinned-binutils.yml"
 
   mut upload-missing-policy 's|if-no-files-found: error|if-no-files-found: warn|'
   expect CI-UPLOAD-ARTIFACT "an upload that succeeds when its file is missing" "$W/upload-missing-policy.yml"
