@@ -609,6 +609,47 @@ static void case_tracer_poll(void) {
 }
 
 /* ------------------------------------------------------------------------ */
+/* Device-case helpers                                                       */
+/* ------------------------------------------------------------------------ */
+
+static const uint8_t frame_empty[64] = {0xFE, [63] = 0x01};
+static const uint8_t frame_state_one[64] = {0x01, 0x04, 0x01, 0xFF, 0xFF,
+                                            0xFF, 0xFF, 0xFE, [63] = 0x01};
+static const uint8_t frame_absent_only[64] = {0x00, 0x01, 0x04, 0x01, 0xFF,
+                                              0xFF, 0xFF, 0xFF, 0xFE,
+                                              [63] = 0x01};
+
+#define SRC_DRAM UINT32_C(0x2000)
+#define DST_DRAM UINT32_C(0x2100)
+
+static void put_frame(t64_machine *machine, uint32_t dram,
+                      const uint8_t frame[64]) {
+  (void)memcpy(machine->ram + dram, frame, 64u);
+}
+
+static t64_status start_dma(t64_machine *machine, uint32_t reg,
+                            uint32_t dram) {
+  T64_CHECK_INT(t64_machine_bus_write(machine, SI_DRAM_ADDR, 4u, dram),
+                T64_STATUS_OK);
+  return t64_machine_bus_write(machine, reg, 4u, PIF_ADDRESS);
+}
+
+static void digest_of(t64_machine *machine, uint8_t digest[T64_DIGEST_SIZE]) {
+  T64_CHECK_INT(t64_machine_digest(machine, digest), T64_STATUS_OK);
+}
+
+/* One complete accepted WR64B (frame in RDRAM at 0x3800, a parse request in
+ * byte 63): advances past the 2,500-tick completion and acknowledges. */
+static void settle_write(t64_machine *machine, const uint8_t frame[64]) {
+  put_frame(machine, UINT32_C(0x3800), frame);
+  T64_CHECK_INT(start_dma(machine, SI_WR64B, UINT32_C(0x3800)),
+                T64_STATUS_OK);
+  T64_CHECK(advance_guest_to(machine, machine->tick + 2500u));
+  T64_CHECK_INT(t64_machine_bus_write(machine, SI_STATUS, 4u, 0u),
+                T64_STATUS_OK);
+}
+
+/* ------------------------------------------------------------------------ */
 /* digest-section (tracer part)                                              */
 /* ------------------------------------------------------------------------ */
 
@@ -694,6 +735,221 @@ static size_t find_marker_span(const stream *captured, uint32_t id) {
   return SIZE_MAX;
 }
 
+/* ---- section 10: independent reference encoder and field flips ----------- */
+
+typedef struct {
+  uint8_t bytes[1024];
+  size_t length;
+} blob;
+
+static void blob_u32(blob *out, uint32_t value) {
+  if (out->length + 4u > sizeof out->bytes) {
+    T64_CHECK(false);
+    return;
+  }
+  out->bytes[out->length++] = (uint8_t)(value >> 24);
+  out->bytes[out->length++] = (uint8_t)(value >> 16);
+  out->bytes[out->length++] = (uint8_t)(value >> 8);
+  out->bytes[out->length++] = (uint8_t)value;
+}
+
+static void blob_u64(blob *out, uint64_t value) {
+  blob_u32(out, (uint32_t)(value >> 32));
+  blob_u32(out, (uint32_t)value);
+}
+
+/* Written from the section 10 field table of docs/spec/si-pif-controller.md
+ * (big-endian, in the new-span class); it reads only the SI state fields and
+ * calls no production digest code. */
+static void encode_section10(blob *out, const t64_si_state *si) {
+  size_t index;
+
+  out->length = 0u;
+  blob_u32(out, si->dram_address);
+  blob_u32(out, si->error ? 1u : 0u);
+  blob_u32(out, si->active_valid ? 1u : 0u);
+  blob_u32(out, si->active_direction);
+  blob_u32(out, si->active_dram_address);
+  blob_u64(out, si->start_tick);
+  blob_u64(out, si->execute_tick);
+  blob_u64(out, si->complete_tick);
+  blob_u64(out, si->active_token);
+  blob_u64(out, si->next_token);
+  blob_u32(out, si->token_exhausted ? 1u : 0u);
+  blob_u32(out, si->execute_pending ? 1u : 0u);
+  for (index = 0u; index < 64u; index++) {
+    out->bytes[out->length++] = si->pif_ram[index];
+  }
+  blob_u32(out, si->table.parsed ? 1u : 0u);
+  blob_u32(out, si->table.entry_count);
+  for (index = 0u; index < 5u; index++) {
+    blob_u32(out, si->table.entries[index].kind);
+    blob_u32(out, si->table.entries[index].channel);
+    blob_u32(out, si->table.entries[index].offset);
+    blob_u32(out, si->table.entries[index].tx_count);
+    blob_u32(out, si->table.entries[index].rx_count);
+    blob_u32(out, si->table.entries[index].flags);
+  }
+  for (index = 0u; index < 4u; index++) {
+    blob_u32(out, si->latch[index].current_buttons);
+    blob_u32(out, si->latch[index].current_x);
+    blob_u32(out, si->latch[index].current_y);
+    blob_u32(out, si->latch[index].next_buttons);
+    blob_u32(out, si->latch[index].next_x);
+    blob_u32(out, si->latch[index].next_y);
+    blob_u64(out, si->latch[index].next_visible_from);
+    blob_u32(out, si->latch[index].next_valid ? 1u : 0u);
+  }
+}
+
+static void check_encoder_matches(const char *label, t64_machine *machine) {
+  stream captured;
+  blob expected;
+  size_t marker;
+
+  if (!capture_stream(machine, &captured)) return;
+  marker = find_marker_span(&captured, 10u);
+  T64_CHECK(marker != SIZE_MAX);
+  if (marker != SIZE_MAX) {
+    const size_t begin = captured.spans[marker].offset +
+                         captured.spans[marker].length;
+
+    encode_section10(&expected, &machine->si);
+    T64_CHECK_INT(captured.length - begin, expected.length);
+    if (captured.length - begin != expected.length ||
+        memcmp(captured.bytes + begin, expected.bytes, expected.length) != 0) {
+      fprintf(stderr, "section 10 differs from the reference in state '%s'\\n",
+              label);
+      T64_CHECK(false);
+    }
+  }
+  free(captured.bytes);
+}
+
+typedef struct {
+  const char *name;
+  size_t offset;
+} flip_field;
+
+#define FLIP(member) {#member, offsetof(t64_si_state, member)}
+
+static const flip_field flip_fields[] = {
+    FLIP(dram_address), FLIP(error), FLIP(active_valid),
+    FLIP(active_direction), FLIP(active_dram_address), FLIP(start_tick),
+    FLIP(execute_tick), FLIP(complete_tick), FLIP(active_token),
+    FLIP(next_token), FLIP(token_exhausted), FLIP(execute_pending),
+    FLIP(pif_ram[0]), FLIP(pif_ram[31]), FLIP(pif_ram[63]),
+    FLIP(table.parsed), FLIP(table.entry_count),
+    FLIP(table.entries[0].kind), FLIP(table.entries[0].channel),
+    FLIP(table.entries[0].offset), FLIP(table.entries[0].tx_count),
+    FLIP(table.entries[0].rx_count), FLIP(table.entries[0].flags),
+    FLIP(table.entries[4].kind), FLIP(table.entries[4].channel),
+    FLIP(table.entries[4].offset), FLIP(table.entries[4].tx_count),
+    FLIP(table.entries[4].rx_count), FLIP(table.entries[4].flags),
+    FLIP(latch[0].current_buttons), FLIP(latch[0].current_x),
+    FLIP(latch[0].current_y), FLIP(latch[0].next_buttons),
+    FLIP(latch[0].next_x), FLIP(latch[0].next_y),
+    FLIP(latch[0].next_visible_from), FLIP(latch[0].next_valid),
+    FLIP(latch[3].current_buttons), FLIP(latch[3].current_x),
+    FLIP(latch[3].current_y), FLIP(latch[3].next_buttons),
+    FLIP(latch[3].next_x), FLIP(latch[3].next_y),
+    FLIP(latch[3].next_visible_from), FLIP(latch[3].next_valid),
+};
+
+static void check_field_flips(t64_machine *machine) {
+  uint8_t baseline[T64_DIGEST_SIZE];
+  uint8_t flipped[T64_DIGEST_SIZE];
+  size_t index;
+
+  digest_of(machine, baseline);
+  for (index = 0u; index < sizeof flip_fields / sizeof flip_fields[0];
+       index++) {
+    unsigned char *byte = (unsigned char *)&machine->si + flip_fields[index].offset;
+
+    *byte ^= 1u;
+    digest_of(machine, flipped);
+    if (memcmp(baseline, flipped, T64_DIGEST_SIZE) == 0) {
+      fprintf(stderr, "field '%s' does not alter the digest\\n",
+              flip_fields[index].name);
+      T64_CHECK(false);
+    }
+    *byte ^= 1u;
+  }
+  digest_of(machine, flipped);
+  T64_CHECK(memcmp(baseline, flipped, T64_DIGEST_SIZE) == 0);
+}
+
+static void check_section_reference(void) {
+  t64_machine *machine;
+  size_t port;
+
+  /* Mid read DMA after the execute event: parsed table, executed PIF image,
+     promoted non-neutral latch. */
+  machine = make_idle_machine();
+  if (machine == NULL) return;
+  settle_write(machine, poll_frame);
+  T64_CHECK(advance_guest_to(machine, 3000u));
+  T64_CHECK_INT(t64_machine_queue_input(machine, 3100u, 0u, 0x8000u, 1, -1),
+                T64_STATUS_OK);
+  T64_CHECK_INT(start_dma(machine, SI_RD64B, DST_DRAM), T64_STATUS_OK);
+  T64_CHECK(advance_guest_to(machine, 3000u + 16971u + 10u));
+  T64_CHECK(machine->si.active_valid && !machine->si.execute_pending);
+  check_encoder_matches("mid read after execute", machine);
+  /* Non-neutral values on every port, an exhausted token and an error flag
+     by direct state, covering fields no scenario reaches. */
+  for (port = 0u; port < 4u; port++) {
+    machine->si.latch[port].current_buttons = (uint16_t)(0x1111u * (port + 1u));
+    machine->si.latch[port].current_x = (uint8_t)(0x10u + port);
+    machine->si.latch[port].current_y = (uint8_t)(0x20u + port);
+    machine->si.latch[port].next_buttons = (uint16_t)(0x2222u * (port + 1u));
+    machine->si.latch[port].next_x = (uint8_t)(0x30u + port);
+    machine->si.latch[port].next_y = (uint8_t)(0x40u + port);
+    machine->si.latch[port].next_visible_from = 0x0102030405060708u + port;
+    machine->si.latch[port].next_valid = (port & 1u) != 0u;
+  }
+  machine->si.error = true;
+  machine->si.token_exhausted = true;
+  machine->si.next_token = 0x1122334455667788u;
+  check_encoder_matches("direct-state latch and flags", machine);
+  /* Every field family changes the digest when flipped; the table entries
+     beyond the two parsed ones are exercised through direct state. */
+  machine->si.table.entries[4].kind = 1u;
+  machine->si.table.entries[4].channel = 4u;
+  machine->si.table.entries[4].offset = 50u;
+  machine->si.table.entries[4].tx_count = 2u;
+  machine->si.table.entries[4].rx_count = 3u;
+  machine->si.table.entries[4].flags = 0x40u;
+  check_encoder_matches("direct-state table entry", machine);
+  check_field_flips(machine);
+  t64_machine_destroy(machine);
+
+  /* Mid write DMA: parsed at the start tick, completion pending. */
+  machine = make_idle_machine();
+  if (machine == NULL) return;
+  put_frame(machine, UINT32_C(0x3800), poll_frame);
+  T64_CHECK(advance_guest_to(machine, 100u));
+  T64_CHECK_INT(start_dma(machine, SI_WR64B, UINT32_C(0x3800)), T64_STATUS_OK);
+  T64_CHECK(advance_guest_to(machine, 1000u));
+  T64_CHECK_INT(machine->si.active_direction, 1u);
+  check_encoder_matches("mid write", machine);
+  t64_machine_destroy(machine);
+
+  /* Mid read before the execute event with a pending, not yet promoted
+     input value. */
+  machine = make_idle_machine();
+  if (machine == NULL) return;
+  settle_write(machine, poll_frame);
+  T64_CHECK(advance_guest_to(machine, 3000u));
+  T64_CHECK_INT(t64_machine_queue_input(machine, 3050u, 0u, 0x0123u, 7, -7),
+                T64_STATUS_OK);
+  T64_CHECK_INT(start_dma(machine, SI_RD64B, DST_DRAM), T64_STATUS_OK);
+  T64_CHECK(advance_guest_to(machine, 3100u));
+  T64_CHECK(machine->si.execute_pending);
+  T64_CHECK(machine->si.latch[0].next_valid);
+  check_encoder_matches("mid read before execute", machine);
+  t64_machine_destroy(machine);
+}
+
 static void case_digest_section(void) {
   t64_machine *family = make_idle_machine();
   t64_machine *phase8 = NULL;
@@ -773,6 +1029,639 @@ static void case_digest_section(void) {
   free(phase8_stream.bytes);
   t64_machine_destroy(family);
   t64_machine_destroy(phase8);
+
+  check_section_reference();
+}
+
+/* ------------------------------------------------------------------------ */
+/* registers                                                                 */
+/* ------------------------------------------------------------------------ */
+
+typedef struct {
+  bool source_moved_to_pif;      /* PIF RAM equals the source image */
+  bool source_unchanged;         /* RDRAM source untouched */
+  bool pif_moved_to_destination; /* destination equals the PIF image */
+  bool pif_unchanged;            /* PIF RAM untouched by the read */
+} direction_outcome;
+
+/* The expectation of a correct model: write moves RDRAM to PIF and leaves
+ * RDRAM alone; read moves PIF to RDRAM and leaves PIF alone. */
+static bool direction_matches(const direction_outcome *actual,
+                              const direction_outcome *expected) {
+  return actual->source_moved_to_pif == expected->source_moved_to_pif &&
+         actual->source_unchanged == expected->source_unchanged &&
+         actual->pif_moved_to_destination ==
+             expected->pif_moved_to_destination &&
+         actual->pif_unchanged == expected->pif_unchanged;
+}
+
+static void case_registers(void) {
+  t64_machine *machine = make_idle_machine();
+  uint32_t value = UINT32_MAX;
+  uint8_t source[64];
+  uint8_t destination_before[64];
+  uint8_t pif_after_write[64];
+  direction_outcome actual;
+  const direction_outcome expected = {true, true, true, true};
+  const direction_outcome swapped = {false, false, false, false};
+  static const uint32_t unmodeled[] = {0x08u, 0x0Cu, 0x14u, 0x1Cu, 0x44u};
+  size_t index;
+
+  if (machine == NULL) return;
+  /* DRAM_ADDR keeps 24 bits. */
+  T64_CHECK_INT(t64_machine_bus_write(machine, SI_DRAM_ADDR, 4u, 0xFF123456u),
+                T64_STATUS_OK);
+  T64_CHECK_INT(bus_read32(machine, SI_DRAM_ADDR), 0x00123456u);
+  /* RD64B and WR64B are write-only; every other offset is unmodeled. */
+  T64_CHECK_INT(t64_machine_bus_read(machine, SI_RD64B, 4u, &value),
+                T64_STATUS_BUS_UNSUPPORTED);
+  T64_CHECK_INT(t64_machine_bus_read(machine, SI_WR64B, 4u, &value),
+                T64_STATUS_BUS_UNSUPPORTED);
+  for (index = 0u; index < sizeof unmodeled / sizeof unmodeled[0]; index++) {
+    T64_CHECK_INT(t64_machine_bus_read(machine, SI_DRAM_ADDR + unmodeled[index],
+                                       4u, &value),
+                  T64_STATUS_BUS_UNSUPPORTED);
+    T64_CHECK_INT(t64_machine_bus_write(machine,
+                                        SI_DRAM_ADDR + unmodeled[index], 4u,
+                                        0u),
+                  T64_STATUS_BUS_UNSUPPORTED);
+  }
+  /* Only 32-bit accesses decode; narrower accesses are unsupported and the
+     wide forms are refused by the window exactly as the AI window refuses
+     them. */
+  T64_CHECK_INT(t64_machine_bus_read(machine, SI_DRAM_ADDR, 1u, &value),
+                T64_STATUS_BUS_UNSUPPORTED);
+  T64_CHECK_INT(t64_machine_bus_read(machine, SI_STATUS, 2u, &value),
+                T64_STATUS_BUS_UNSUPPORTED);
+  T64_CHECK_INT(t64_machine_bus_write(machine, SI_DRAM_ADDR, 1u, 1u),
+                T64_STATUS_BUS_UNSUPPORTED);
+  T64_CHECK_INT(t64_machine_bus_write(machine, SI_STATUS, 2u, 0u),
+                T64_STATUS_BUS_UNSUPPORTED);
+  {
+    uint64_t wide = 0u;
+
+    T64_CHECK_INT(t64_bus_read_wide(machine, SI_DRAM_ADDR, &wide),
+                  T64_STATUS_BUS_DEVICE_REFUSED);
+    T64_CHECK_INT(t64_bus_write_masked(machine, SI_DRAM_ADDR, 8u, 0xFFu, 0u),
+                  T64_STATUS_BUS_DEVICE_REFUSED);
+  }
+
+  /* Direction with distinct source and destination bytes. */
+  for (index = 0u; index < 64u; index++) {
+    source[index] = (uint8_t)(0x40u + index);
+  }
+  source[63] = 0u; /* replace the PIF RAM without parsing */
+  put_frame(machine, SRC_DRAM, source);
+  (void)memset(machine->ram + DST_DRAM, 0xEE, 64u);
+  (void)memcpy(destination_before, machine->ram + DST_DRAM, 64u);
+  T64_CHECK_INT(start_dma(machine, SI_WR64B, SRC_DRAM), T64_STATUS_OK);
+  T64_CHECK(advance_guest_to(machine, 2500u));
+  (void)memcpy(pif_after_write, machine->si.pif_ram, 64u);
+  actual.source_moved_to_pif = memcmp(machine->si.pif_ram, source, 64u) == 0;
+  actual.source_unchanged =
+      memcmp(machine->ram + SRC_DRAM, source, 64u) == 0;
+  /* The write has not touched the destination yet. */
+  T64_CHECK(memcmp(machine->ram + DST_DRAM, destination_before, 64u) == 0);
+  T64_CHECK_INT(t64_machine_bus_write(machine, SI_STATUS, 4u, 0u),
+                T64_STATUS_OK);
+  T64_CHECK_INT(start_dma(machine, SI_RD64B, DST_DRAM), T64_STATUS_OK);
+  T64_CHECK(advance_guest_to(machine, 2500u + 4096u));
+  actual.pif_moved_to_destination =
+      memcmp(machine->ram + DST_DRAM, pif_after_write, 64u) == 0;
+  actual.pif_unchanged =
+      memcmp(machine->si.pif_ram, pif_after_write, 64u) == 0;
+  T64_CHECK(direction_matches(&actual, &expected));
+  /* The comparator rejects the swapped expectation (RD64B taken as RDRAM to
+     PIF and WR64B as PIF to RDRAM). */
+  T64_CHECK(!direction_matches(&actual, &swapped));
+  t64_machine_destroy(machine);
+}
+
+/* ------------------------------------------------------------------------ */
+/* status                                                                    */
+/* ------------------------------------------------------------------------ */
+
+#define STATUS_OTHER_BITS (~(STATUS_BUSY | STATUS_ERROR | STATUS_INTERRUPT))
+
+static void case_status(void) {
+  t64_machine *machine = make_idle_machine();
+  const uint64_t start = 0u;
+  const uint64_t complete = start + 4096u; /* empty table, E == S */
+  uint32_t mask_before;
+  uint32_t pending_before;
+
+  if (machine == NULL) return;
+  T64_CHECK_INT(start_dma(machine, SI_RD64B, DST_DRAM), T64_STATUS_OK);
+  /* Busy from the start tick to one tick before completion; the interrupt
+     and error bits are clear; every other bit reads zero. */
+  T64_CHECK_INT(bus_read32(machine, SI_STATUS), STATUS_BUSY);
+  T64_CHECK(advance_guest_to(machine, start + 1u));
+  T64_CHECK_INT(bus_read32(machine, SI_STATUS), STATUS_BUSY);
+  T64_CHECK(advance_guest_to(machine, complete - 1u));
+  T64_CHECK_INT(bus_read32(machine, SI_STATUS) & STATUS_OTHER_BITS, 0u);
+  T64_CHECK_INT(bus_read32(machine, SI_STATUS), STATUS_BUSY);
+  T64_CHECK(advance_guest_to(machine, complete));
+  T64_CHECK_INT(bus_read32(machine, SI_STATUS), STATUS_INTERRUPT);
+
+  /* Any STATUS write acknowledges only the SI interrupt: other pending MI
+     bits and the mask are untouched. */
+  t64_mi_set_pending(machine, T64_MI_INTERRUPT_AI | UINT32_C(0x10));
+  machine->mi_mask = UINT32_C(0x15);
+  mask_before = machine->mi_mask;
+  pending_before = machine->mi_pending;
+  T64_CHECK((pending_before & T64_MI_INTERRUPT_SI) != 0u);
+  T64_CHECK_INT(t64_machine_bus_write(machine, SI_STATUS, 4u, 0u),
+                T64_STATUS_OK);
+  T64_CHECK_INT(machine->mi_pending, pending_before & ~T64_MI_INTERRUPT_SI);
+  T64_CHECK_INT(machine->mi_mask, mask_before);
+  T64_CHECK_INT(bus_read32(machine, SI_STATUS), 0u);
+  /* The all-ones write after a second completion does the same. */
+  T64_CHECK_INT(start_dma(machine, SI_RD64B, DST_DRAM), T64_STATUS_OK);
+  T64_CHECK(advance_guest_to(machine, complete + 4096u));
+  T64_CHECK_INT(bus_read32(machine, SI_STATUS), STATUS_INTERRUPT);
+  pending_before = machine->mi_pending;
+  T64_CHECK_INT(t64_machine_bus_write(machine, SI_STATUS, 4u, 0xFFFFFFFFu),
+                T64_STATUS_OK);
+  T64_CHECK_INT(machine->mi_pending, pending_before & ~T64_MI_INTERRUPT_SI);
+  T64_CHECK_INT(machine->mi_mask, mask_before);
+  T64_CHECK_INT(bus_read32(machine, SI_STATUS), 0u);
+
+  /* Bit 3 is sticky: a misaligned start sets it, a STATUS write and a later
+     accepted DMA leave it set. */
+  T64_CHECK_INT(start_dma(machine, SI_RD64B, UINT32_C(0x3804)),
+                T64_STATUS_BUS_DEVICE_REFUSED);
+  T64_CHECK_INT(bus_read32(machine, SI_STATUS), STATUS_ERROR);
+  T64_CHECK_INT(t64_machine_bus_write(machine, SI_STATUS, 4u, 0u),
+                T64_STATUS_OK);
+  T64_CHECK_INT(bus_read32(machine, SI_STATUS), STATUS_ERROR);
+  T64_CHECK_INT(start_dma(machine, SI_RD64B, DST_DRAM), T64_STATUS_OK);
+  T64_CHECK_INT(bus_read32(machine, SI_STATUS), STATUS_ERROR | STATUS_BUSY);
+  T64_CHECK(advance_guest_to(machine, complete + 2u * 4096u));
+  T64_CHECK_INT(bus_read32(machine, SI_STATUS), STATUS_ERROR | STATUS_INTERRUPT);
+  T64_CHECK_INT(t64_machine_bus_write(machine, SI_STATUS, 4u, 0u),
+                T64_STATUS_OK);
+  T64_CHECK_INT(bus_read32(machine, SI_STATUS), STATUS_ERROR);
+  t64_machine_destroy(machine);
+}
+
+/* ------------------------------------------------------------------------ */
+/* pif-command                                                               */
+/* ------------------------------------------------------------------------ */
+
+static void case_pif_command(void) {
+  t64_machine *machine = make_idle_machine();
+  uint8_t frame[64];
+  uint8_t second[64];
+  uint8_t image[64];
+  uint8_t digest_before[T64_DIGEST_SIZE];
+  uint8_t digest_after[T64_DIGEST_SIZE];
+  t64_si_state before;
+  static const uint8_t bad_bytes[] = {0x02u, 0x04u, 0x08u, 0x10u,
+                                      0x20u, 0x40u, 0x80u, 0x03u};
+  size_t index;
+
+  if (machine == NULL) return;
+  /* 0x01 parses and then clears the byte. */
+  settle_write(machine, poll_frame);
+  (void)memcpy(image, poll_frame, 64u);
+  image[63] = 0u;
+  T64_CHECK(memcmp(machine->si.pif_ram, image, 64u) == 0);
+  T64_CHECK(machine->si.table.parsed);
+  T64_CHECK_INT(machine->si.table.entry_count, 2u);
+
+  /* 0x00 replaces the RAM without re-parsing: the table of the first frame
+     stays, and the next read re-executes it over the new RAM bytes. */
+  (void)memcpy(second, poll_frame, 64u);
+  second[10] = 0xAAu;
+  second[11] = 0xAAu;
+  second[12] = 0xAAu;
+  second[13] = 0xAAu;
+  second[14] = 0xFEu;
+  second[63] = 0x00u;
+  settle_write(machine, second);
+  T64_CHECK(machine->si.table.parsed);
+  T64_CHECK_INT(machine->si.table.entry_count, 2u);
+  T64_CHECK_INT(machine->si.pif_ram[10], 0xAAu);
+  (void)memset(machine->ram + DST_DRAM, 0, 64u);
+  T64_CHECK_INT(start_dma(machine, SI_RD64B, DST_DRAM), T64_STATUS_OK);
+  T64_CHECK(advance_guest_to(machine, machine->si.complete_tick));
+  T64_CHECK_INT(machine->ram[DST_DRAM + 8u], 0x84u);
+  T64_CHECK_INT(machine->ram[DST_DRAM + 10u], 0xAAu);
+  T64_CHECK_INT(machine->ram[DST_DRAM + 13u], 0xAAu);
+  T64_CHECK_INT(machine->si.table.entry_count, 2u);
+  T64_CHECK_INT(t64_machine_bus_write(machine, SI_STATUS, 4u, 0u),
+                T64_STATUS_OK);
+
+  /* Every other command-byte bit is an unmodeled control function: the start
+     is refused with PIF RAM, the table, the error flag and the digest
+     unchanged. The accepted baseline above ran in the same setup. */
+  for (index = 0u; index < sizeof bad_bytes; index++) {
+    (void)memcpy(frame, poll_frame, 64u);
+    frame[63] = bad_bytes[index];
+    put_frame(machine, UINT32_C(0x3800), frame);
+    T64_CHECK_INT(t64_machine_bus_write(machine, SI_DRAM_ADDR, 4u, 0x3800u),
+                  T64_STATUS_OK);
+    before = machine->si;
+    digest_of(machine, digest_before);
+    T64_CHECK_INT(t64_machine_bus_write(machine, SI_WR64B, 4u, PIF_ADDRESS),
+                  T64_STATUS_BUS_DEVICE_REFUSED);
+    T64_CHECK(memcmp(&before, &machine->si, sizeof before) == 0);
+    T64_CHECK(!machine->si.error);
+    digest_of(machine, digest_after);
+    T64_CHECK(memcmp(digest_before, digest_after, T64_DIGEST_SIZE) == 0);
+  }
+  t64_machine_destroy(machine);
+}
+
+/* ------------------------------------------------------------------------ */
+/* dma-timing                                                                */
+/* ------------------------------------------------------------------------ */
+
+typedef enum {
+  TIMING_EQUAL = 0,
+  TIMING_EXECUTE_MISMATCH = 1,
+  TIMING_COMPLETE_MISMATCH = 2
+} timing_kind;
+
+static timing_kind compare_timing(uint64_t expect_execute,
+                                  uint64_t expect_complete,
+                                  uint64_t actual_execute,
+                                  uint64_t actual_complete) {
+  if (expect_execute != actual_execute) return TIMING_EXECUTE_MISMATCH;
+  if (expect_complete != actual_complete) return TIMING_COMPLETE_MISMATCH;
+  return TIMING_EQUAL;
+}
+
+typedef struct {
+  const char *label;
+  const uint8_t *frame;
+  uint64_t handshake; /* independent literal, policy ticks */
+} timing_row;
+
+static void run_timing_row(const timing_row *row) {
+  t64_machine *machine = make_idle_machine();
+  const uint64_t start = 3000u;
+  const uint64_t execute = start + row->handshake;
+  const uint64_t complete = execute + 4096u;
+
+  if (machine == NULL) return;
+  settle_write(machine, row->frame);
+  T64_CHECK(advance_guest_to(machine, start));
+  T64_CHECK_INT(start_dma(machine, SI_RD64B, DST_DRAM), T64_STATUS_OK);
+  T64_CHECK_INT(compare_timing(execute, complete, machine->si.execute_tick,
+                               machine->si.complete_tick),
+                TIMING_EQUAL);
+  /* The comparator reports a one-tick error as a mismatch kind. */
+  T64_CHECK_INT(compare_timing(execute + 1u, complete,
+                               machine->si.execute_tick,
+                               machine->si.complete_tick),
+                TIMING_EXECUTE_MISMATCH);
+  T64_CHECK_INT(compare_timing(execute, complete + 1u,
+                               machine->si.execute_tick,
+                               machine->si.complete_tick),
+                TIMING_COMPLETE_MISMATCH);
+  if (row->handshake > 0u) {
+    T64_CHECK(advance_guest_to(machine, execute - 1u));
+    T64_CHECK(machine->si.execute_pending);
+  }
+  T64_CHECK(advance_guest_to(machine, execute));
+  T64_CHECK(!machine->si.execute_pending);
+  T64_CHECK(advance_guest_to(machine, complete - 1u));
+  T64_CHECK_INT(bus_read32(machine, SI_STATUS), STATUS_BUSY);
+  T64_CHECK(advance_guest_to(machine, complete));
+  T64_CHECK_INT(bus_read32(machine, SI_STATUS), STATUS_INTERRUPT);
+  if (row->handshake == 0u) {
+    fprintf(stderr, "timing row '%s' ok\n", row->label);
+  }
+  t64_machine_destroy(machine);
+}
+
+static void case_dma_timing(void) {
+  /* H from the D-14 literals: present device 2000n + 188 + 438 + 2000m + 250
+     with n 1 and m 4 is 10,876; an absent channel 2000n + 188 + 3,907 with
+     n 1 is 6,095; an empty frame is 0; the two-channel pad-poll frame is
+     their sum. X is the 4,096-tick read tail. */
+  const timing_row rows[] = {
+      {"one controller state command", frame_state_one, 10876u},
+      {"one absent channel", frame_absent_only, 6095u},
+      {"empty frame", frame_empty, 0u},
+      {"pad-poll two-channel frame", poll_frame, 16971u},
+  };
+  size_t index;
+  t64_machine *machine = make_idle_machine();
+
+  for (index = 0u; index < sizeof rows / sizeof rows[0]; index++) {
+    run_timing_row(&rows[index]);
+  }
+  if (machine == NULL) return;
+  /* WR64B completes at S + 2,500 with the interrupt set at that tick. */
+  put_frame(machine, UINT32_C(0x3800), frame_empty);
+  T64_CHECK(advance_guest_to(machine, 100u));
+  T64_CHECK_INT(start_dma(machine, SI_WR64B, UINT32_C(0x3800)), T64_STATUS_OK);
+  T64_CHECK_INT(machine->si.complete_tick, 100u + 2500u);
+  T64_CHECK(advance_guest_to(machine, 100u + 2499u));
+  T64_CHECK_INT(bus_read32(machine, SI_STATUS), STATUS_BUSY);
+  T64_CHECK(advance_guest_to(machine, 100u + 2500u));
+  T64_CHECK_INT(bus_read32(machine, SI_STATUS), STATUS_INTERRUPT);
+  t64_machine_destroy(machine);
+}
+
+/* ------------------------------------------------------------------------ */
+/* refusals                                                                  */
+/* ------------------------------------------------------------------------ */
+
+/* An accepted baseline in the same setup, then the refusal. The setup is a
+ * fresh idle machine with an accepted empty read DMA completed and
+ * acknowledged. */
+static t64_machine *refusal_machine(void) {
+  t64_machine *machine = make_idle_machine();
+
+  if (machine == NULL) return NULL;
+  T64_CHECK_INT(start_dma(machine, SI_RD64B, DST_DRAM), T64_STATUS_OK);
+  T64_CHECK(advance_guest_to(machine, 4096u));
+  T64_CHECK_INT(t64_machine_bus_write(machine, SI_STATUS, 4u, 0u),
+                T64_STATUS_OK);
+  return machine;
+}
+
+static void expect_refused_unchanged(t64_machine *machine, uint32_t reg,
+                                     uint32_t value, t64_status status) {
+  uint8_t digest_before[T64_DIGEST_SIZE];
+  uint8_t digest_after[T64_DIGEST_SIZE];
+  const size_t queue_before = machine->queue_count;
+  const uint64_t sequence_before = machine->next_sequence;
+
+  digest_of(machine, digest_before);
+  T64_CHECK_INT(t64_machine_bus_write(machine, reg, 4u, value), status);
+  T64_CHECK_INT(machine->queue_count, queue_before);
+  T64_CHECK_INT(machine->next_sequence, sequence_before);
+  digest_of(machine, digest_after);
+  T64_CHECK(memcmp(digest_before, digest_after, T64_DIGEST_SIZE) == 0);
+}
+
+static void case_refusals(void) {
+  static const uint32_t bad_pif[] = {0x1FC007C4u, 0x1FC00000u, 0u,
+                                     0x1FD007C0u};
+  static const uint32_t bad_span[] = {0x003FFFC8u, 0x00400000u};
+  static const uint32_t starts[2] = {SI_WR64B, SI_RD64B};
+  t64_machine *machine;
+  uint8_t digest_before[T64_DIGEST_SIZE];
+  uint8_t digest_expected[T64_DIGEST_SIZE];
+  uint8_t digest_after[T64_DIGEST_SIZE];
+  size_t index;
+  size_t first;
+  size_t second;
+
+  /* A bad PIF address refuses without the sticky error. */
+  for (index = 0u; index < sizeof bad_pif / sizeof bad_pif[0]; index++) {
+    machine = refusal_machine();
+    if (machine == NULL) return;
+    T64_CHECK_INT(t64_machine_bus_write(machine, SI_DRAM_ADDR, 4u, DST_DRAM),
+                  T64_STATUS_OK);
+    expect_refused_unchanged(machine, SI_RD64B, bad_pif[index],
+                             T64_STATUS_BUS_DEVICE_REFUSED);
+    T64_CHECK(!machine->si.error);
+    t64_machine_destroy(machine);
+  }
+  /* Misaligned DRAM address: refused and the sticky error is set; the digest
+     differs from the pre-state only by that flag (compared with a direct-state
+     copy that has only the flag set). */
+  machine = refusal_machine();
+  if (machine == NULL) return;
+  T64_CHECK_INT(t64_machine_bus_write(machine, SI_DRAM_ADDR, 4u, 0x3804u),
+                T64_STATUS_OK);
+  digest_of(machine, digest_before);
+  machine->si.error = true;
+  digest_of(machine, digest_expected);
+  machine->si.error = false;
+  T64_CHECK(memcmp(digest_before, digest_expected, T64_DIGEST_SIZE) != 0);
+  T64_CHECK_INT(t64_machine_bus_write(machine, SI_RD64B, 4u, PIF_ADDRESS),
+                T64_STATUS_BUS_DEVICE_REFUSED);
+  T64_CHECK(machine->si.error);
+  digest_of(machine, digest_after);
+  T64_CHECK(memcmp(digest_expected, digest_after, T64_DIGEST_SIZE) == 0);
+  t64_machine_destroy(machine);
+  /* An out-of-range span refuses without the error; the last in-range span
+     (0x003FFFC0) is accepted in the same setup. */
+  machine = refusal_machine();
+  if (machine == NULL) return;
+  T64_CHECK_INT(start_dma(machine, SI_RD64B, UINT32_C(0x003FFFC0)),
+                T64_STATUS_OK);
+  T64_CHECK(advance_guest_to(machine, machine->si.complete_tick));
+  T64_CHECK_INT(t64_machine_bus_write(machine, SI_STATUS, 4u, 0u),
+                T64_STATUS_OK);
+  t64_machine_destroy(machine);
+  for (index = 0u; index < sizeof bad_span / sizeof bad_span[0]; index++) {
+    machine = refusal_machine();
+    if (machine == NULL) return;
+    T64_CHECK_INT(t64_machine_bus_write(machine, SI_DRAM_ADDR, 4u,
+                                        bad_span[index]),
+                  T64_STATUS_OK);
+    expect_refused_unchanged(machine, SI_WR64B, PIF_ADDRESS,
+                             T64_STATUS_BUS_DEVICE_REFUSED);
+    T64_CHECK(!machine->si.error);
+    t64_machine_destroy(machine);
+  }
+  /* A second start while busy: every write/read combination refuses, sets the
+     error, and the original DMA completes unchanged. */
+  for (first = 0u; first < 2u; first++) {
+    for (second = 0u; second < 2u; second++) {
+      uint64_t original_complete;
+      uint64_t original_token;
+      uint32_t original_direction;
+
+      machine = refusal_machine();
+      if (machine == NULL) return;
+      put_frame(machine, UINT32_C(0x3800), frame_empty);
+      T64_CHECK_INT(start_dma(machine, starts[first], UINT32_C(0x3800)),
+                    T64_STATUS_OK);
+      original_complete = machine->si.complete_tick;
+      original_token = machine->si.active_token;
+      original_direction = machine->si.active_direction;
+      T64_CHECK_INT(t64_machine_bus_write(machine, starts[second], 4u,
+                                          PIF_ADDRESS),
+                    T64_STATUS_BUS_DEVICE_REFUSED);
+      T64_CHECK(machine->si.error);
+      T64_CHECK_INT(machine->si.complete_tick, original_complete);
+      T64_CHECK_INT(machine->si.active_token, original_token);
+      T64_CHECK_INT(machine->si.active_direction, original_direction);
+      T64_CHECK(advance_guest_to(machine, original_complete));
+      T64_CHECK(!machine->si.active_valid);
+      T64_CHECK_INT(bus_read32(machine, SI_STATUS),
+                    STATUS_ERROR | STATUS_INTERRUPT);
+      t64_machine_destroy(machine);
+    }
+  }
+  /* Token exhaustion refuses with RESOURCE_EXHAUSTED before busy is visible
+     and leaves the digest as it was. */
+  machine = refusal_machine();
+  if (machine == NULL) return;
+  machine->si.token_exhausted = true;
+  T64_CHECK_INT(t64_machine_bus_write(machine, SI_DRAM_ADDR, 4u, DST_DRAM),
+                T64_STATUS_OK);
+  expect_refused_unchanged(machine, SI_RD64B, PIF_ADDRESS,
+                           T64_STATUS_RESOURCE_EXHAUSTED);
+  T64_CHECK(!machine->si.active_valid);
+  T64_CHECK(!machine->si.error);
+  t64_machine_destroy(machine);
+}
+
+/* ------------------------------------------------------------------------ */
+/* reset-replace                                                             */
+/* ------------------------------------------------------------------------ */
+
+static void case_reset_replace(void) {
+  t64_machine *machine = make_idle_machine();
+  t64_machine *fresh = make_idle_machine();
+  uint8_t asset[IPL3_ASSET_BYTES];
+  uint8_t digest_fresh[T64_DIGEST_SIZE];
+  uint8_t digest_replaced[T64_DIGEST_SIZE];
+  uint8_t digest_used[T64_DIGEST_SIZE];
+
+  if (machine == NULL || fresh == NULL) {
+    t64_machine_destroy(machine);
+    t64_machine_destroy(fresh);
+    return;
+  }
+  /* A poll leaves a parsed table, a PIF image, a non-neutral latch, a
+     pending interrupt, an in-flight read, the error flag and a pending
+     input event. */
+  settle_write(machine, poll_frame);
+  T64_CHECK_INT(t64_machine_queue_input(machine, 2600u, 0u, 0x8000u, 1, -1),
+                T64_STATUS_OK);
+  T64_CHECK(advance_guest_to(machine, 3000u));
+  T64_CHECK_INT(start_dma(machine, SI_RD64B, DST_DRAM), T64_STATUS_OK);
+  T64_CHECK_INT(t64_machine_bus_write(machine, SI_DRAM_ADDR, 4u, 0x3804u),
+                T64_STATUS_OK);
+  T64_CHECK_INT(t64_machine_bus_write(machine, SI_WR64B, 4u, PIF_ADDRESS),
+                T64_STATUS_BUS_DEVICE_REFUSED);
+  digest_of(machine, digest_used);
+  T64_CHECK(machine->si.active_valid && machine->si.error &&
+            machine->si.table.parsed);
+  /* The real replacement entry is admission on an admitted machine. */
+  T64_CHECK(read_openipl3_asset(asset));
+  T64_CHECK_INT(t64_machine_admit_rom(machine, asset, IPL3_ASSET_BYTES),
+                T64_STATUS_OK);
+  digest_of(machine, digest_replaced);
+  digest_of(fresh, digest_fresh);
+  T64_CHECK(memcmp(digest_used, digest_replaced, T64_DIGEST_SIZE) != 0);
+  /* Boot event of the replaced machine is queued again; the fresh machine
+     cancelled its own, so compare after cancelling it too. */
+  T64_CHECK(cancel_boot_cpu_event(machine));
+  digest_of(machine, digest_replaced);
+  T64_CHECK(memcmp(digest_fresh, digest_replaced, T64_DIGEST_SIZE) == 0);
+  T64_CHECK(!machine->si.active_valid);
+  T64_CHECK(!machine->si.error);
+  T64_CHECK(!machine->si.table.parsed);
+  T64_CHECK_INT(machine->si.next_token, 1u);
+  T64_CHECK_INT(machine->si.latch[0].current_buttons, 0u);
+  T64_CHECK(!machine->si.latch[0].next_valid);
+  T64_CHECK_INT(bus_read32(machine, SI_STATUS), 0u);
+  t64_machine_destroy(machine);
+  t64_machine_destroy(fresh);
+}
+
+/* ------------------------------------------------------------------------ */
+/* atomic-queue-full                                                         */
+/* ------------------------------------------------------------------------ */
+
+#define ATOMIC_QUEUE_LIMIT 8u
+
+/* A host-initiated start under a small queue: fill the queue with synthetic
+ * events until `room` slots are free (N6: edit the in-memory profile). */
+static t64_machine *atomic_machine(size_t room, uint32_t width_bits,
+                                   uint64_t next_sequence) {
+  t64_machine *machine = make_idle_machine();
+  size_t index;
+
+  if (machine == NULL) return NULL;
+  machine->profile.event_queue_capacity = ATOMIC_QUEUE_LIMIT;
+  for (index = 0u; index < ATOMIC_QUEUE_LIMIT - room; index++) {
+    T64_CHECK_INT(t64_test_schedule_synthetic(machine, 1000000u + index,
+                                              T64_TEST_EVENT_NOOP, 0u),
+                  T64_STATUS_OK);
+  }
+  machine->profile.sequence_width_bits = width_bits;
+  machine->next_sequence = next_sequence;
+  T64_CHECK_INT(t64_machine_bus_write(machine, SI_DRAM_ADDR, 4u, DST_DRAM),
+                T64_STATUS_OK);
+  return machine;
+}
+
+/* Accepted: exactly `added` entries queued and the sequence advanced by the
+ * same count. Refused: queue, next_sequence and digest bit-identical and no
+ * sticky error. */
+static void atomic_attempt(const char *label, size_t room, uint32_t width_bits,
+                           uint64_t next_sequence, uint64_t tick,
+                           uint32_t reg, t64_status expected, size_t added) {
+  t64_machine *machine = atomic_machine(room, width_bits, next_sequence);
+  uint8_t digest_before[T64_DIGEST_SIZE];
+  uint8_t digest_after[T64_DIGEST_SIZE];
+  size_t queue_before;
+  uint64_t sequence_before;
+
+  if (machine == NULL) return;
+  machine->tick = tick;
+  queue_before = machine->queue_count;
+  sequence_before = machine->next_sequence;
+  digest_of(machine, digest_before);
+  if (t64_machine_bus_write(machine, reg, 4u, PIF_ADDRESS) != expected) {
+    fprintf(stderr, "atomic row '%s' failed\n", label);
+  }
+  T64_CHECK_INT(machine->queue_count, queue_before + added);
+  {
+    /* Using the last sequence of the width leaves next_sequence at the limit
+       and sets the exhausted flag instead of advancing. */
+    const uint64_t limit =
+        width_bits == 64u ? UINT64_MAX : (UINT64_C(1) << width_bits) - 1u;
+
+    if (added > 0u && sequence_before + added - 1u >= limit) {
+      T64_CHECK_INT(machine->next_sequence, limit);
+      T64_CHECK(machine->sequence_exhausted);
+    } else {
+      T64_CHECK_INT(machine->next_sequence, sequence_before + added);
+      T64_CHECK(!machine->sequence_exhausted ||
+                (machine->sequence_exhausted && next_sequence > limit));
+    }
+  }
+  if (expected != T64_STATUS_OK) {
+    digest_of(machine, digest_after);
+    T64_CHECK(memcmp(digest_before, digest_after, T64_DIGEST_SIZE) == 0);
+    T64_CHECK(!machine->si.error);
+    T64_CHECK(!machine->si.active_valid);
+  } else {
+    T64_CHECK(machine->si.active_valid);
+  }
+  t64_machine_destroy(machine);
+}
+
+static void case_atomic_queue_full(void) {
+  /* RD64B needs two events and WR64B one. */
+  atomic_attempt("RD64B room 1", 1u, 64u, 0u, 0u, SI_RD64B,
+                 T64_STATUS_QUEUE_FULL, 0u);
+  atomic_attempt("RD64B room 2", 2u, 64u, 0u, 0u, SI_RD64B, T64_STATUS_OK, 2u);
+  atomic_attempt("WR64B room 0", 0u, 64u, 0u, 0u, SI_WR64B,
+                 T64_STATUS_QUEUE_FULL, 0u);
+  atomic_attempt("WR64B room 1", 1u, 64u, 0u, 0u, SI_WR64B, T64_STATUS_OK, 1u);
+  /* A narrow sequence width: limit 255. RD64B needs next at most 254, WR64B
+     at most 255. */
+  atomic_attempt("RD64B sequence 255", 8u, 8u, 255u, 0u, SI_RD64B,
+                 T64_STATUS_SEQUENCE_EXHAUSTED, 0u);
+  atomic_attempt("RD64B sequence 254", 8u, 8u, 254u, 0u, SI_RD64B,
+                 T64_STATUS_OK, 2u);
+  atomic_attempt("WR64B sequence 256", 8u, 8u, 256u, 0u, SI_WR64B,
+                 T64_STATUS_SEQUENCE_EXHAUSTED, 0u);
+  atomic_attempt("WR64B sequence 255", 8u, 8u, 255u, 0u, SI_WR64B,
+                 T64_STATUS_OK, 1u);
+  /* A tick near the maximum: the 4,096-tick read tail and the 2,500-tick
+     write completion overflow. */
+  atomic_attempt("RD64B tick overflow", 8u, 64u, 0u, UINT64_MAX - 100u,
+                 SI_RD64B, T64_STATUS_TICK_OVERFLOW, 0u);
+  atomic_attempt("WR64B tick overflow", 8u, 64u, 0u, UINT64_MAX - 100u,
+                 SI_WR64B, T64_STATUS_TICK_OVERFLOW, 0u);
+  /* The CPU-path store at the same rooms is refused before the store; that
+     matrix is the cpu-store-budget case. The shared capacity rule is the
+     capacity-rule case, which runs in the same suite. */
 }
 
 /* ------------------------------------------------------------------------ */
@@ -787,11 +1676,19 @@ typedef struct {
 } test_case;
 
 static const test_case cases[] = {
-    {"capacity-rule", case_capacity_rule, "atomic",
-     "unit.core.si.atomic-queue-full"},
     {"cpu-store-budget", case_cpu_store_budget, NULL,
      "unit.core.cpu.si-store-budget"},
+    {"capacity-rule", case_capacity_rule, "atomic",
+     "unit.core.si.atomic-queue-full"},
+    {"atomic-queue-full", case_atomic_queue_full, "atomic",
+     "unit.core.si.atomic-queue-full"},
     {"tracer-poll", case_tracer_poll, "device", "unit.core.si.device"},
+    {"registers", case_registers, "device", "unit.core.si.device"},
+    {"status", case_status, "device", "unit.core.si.device"},
+    {"pif-command", case_pif_command, "device", "unit.core.si.device"},
+    {"dma-timing", case_dma_timing, "device", "unit.core.si.device"},
+    {"refusals", case_refusals, "device", "unit.core.si.device"},
+    {"reset-replace", case_reset_replace, "device", "unit.core.si.device"},
     {"digest-section", case_digest_section, "device",
      "unit.core.si.device"},
 };

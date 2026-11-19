@@ -4,7 +4,8 @@
  * ledger: the closed (device, kind) table of events the scheduler dispatches.
  * The expected rows are literals; the observed set comes from authored
  * scenarios that make every reservation site run. The SI rows (device 10) are
- * declared reserved and must not appear until a reservation site exists.
+ * declared reserved and must not appear until a reservation site exists. The
+ * SI rows were reserved until plan 09-03 added the first SI reservation site.
  *
  * characterize-fifo: two events at one guest tick dispatch in insertion
  * order, for both insertion orders. Every ledger pair is checked with
@@ -130,8 +131,8 @@ typedef struct {
 #define LEDGER_ROWS 15u
 
 /* Literal table (D-07). Reservation sites: CPU step, PI completion, SP
- * completion and RSP issue, timed input, RDP work, VI field, AI sample, the
- * synthetic test device; SI execute and complete are reserved. */
+ * completion and RSP issue, timed input, RDP work, VI field, AI sample, SI
+ * execute and complete (plan 09-03), the synthetic test device. */
 static const ledger_row ledger_table[LEDGER_ROWS] = {
     {5u, 1u, false},                  /* CPU step */
     {3u, 1u, false},                  /* PI complete */
@@ -146,8 +147,8 @@ static const ledger_row ledger_table[LEDGER_ROWS] = {
     {SYNTHETIC_DEVICE, 3u, false},    /* synthetic frame */
     {SYNTHETIC_DEVICE, 4u, false},    /* synthetic halt */
     {SYNTHETIC_DEVICE, 5u, false},    /* synthetic repeat */
-    {10u, 1u, true},                  /* SI execute (reserved) */
-    {10u, 2u, true},                  /* SI complete (reserved) */
+    {10u, 1u, false},                 /* SI execute */
+    {10u, 2u, false},                 /* SI complete */
 };
 
 typedef enum { LEDGER_EQUAL = 0, LEDGER_TABLE_MISMATCH = 1 } ledger_result;
@@ -251,6 +252,7 @@ static void write32(t64_machine *machine, uint32_t address, uint32_t value) {
                 T64_STATUS_OK);
 }
 
+#define SI_BASE UINT32_C(0x04800000)
 #define PI_BASE UINT32_C(0x04600000)
 #define SP_BASE UINT32_C(0x04040000)
 #define DP_START_REGISTER UINT32_C(0x04100000)
@@ -316,6 +318,13 @@ static void arm_ai(t64_machine *machine) {
   write32(machine, AI_BASE + 0x14u, 15u);
   write32(machine, AI_BASE + 0x00u, UINT32_C(0x100));
   write32(machine, AI_BASE + 0x04u, 16u);
+}
+
+/* Authored RD64B start with no parsed frame: the execute event is queued at
+ * the start tick and the completion event 4,096 ticks later. */
+static void arm_si(t64_machine *machine) {
+  write32(machine, SI_BASE, UINT32_C(0x3900));
+  write32(machine, SI_BASE + 4u, UINT32_C(0x1fc007c0));
 }
 
 static void arm_input(t64_machine *machine) {
@@ -431,11 +440,12 @@ static void case_ledger(void) {
   observe_scenario(&set, arm_rdp, 6u);     /* RDP work */
   observe_scenario(&set, arm_vi, 6u);      /* VI field */
   observe_scenario(&set, arm_ai, 6u);      /* AI sample */
+  observe_scenario(&set, arm_si, 6u);      /* SI execute and complete */
   observe_scenario(&set, arm_input, 12u);  /* queued input */
   observe_synthetic(&set);                 /* synthetic kinds 1 to 5 */
 
-  /* Each non-reserved row is observed at least once, no unlisted pair
-   * appears, and the reserved SI rows are not observed. */
+  /* Each non-reserved row is observed at least once and no unlisted pair
+   * appears; no row is reserved any more. */
   for (i = 0u; i < LEDGER_ROWS; i++) {
     if (ledger_table[i].reserved) {
       T64_CHECK(!in_observed(&set, ledger_table[i].device,
@@ -454,7 +464,7 @@ static void case_ledger(void) {
     }
   }
   T64_CHECK_INT(compare_ledger(ledger_table, LEDGER_ROWS, &set), LEDGER_EQUAL);
-  T64_CHECK_INT(set.count, 13u);
+  T64_CHECK_INT(set.count, 15u);
 
   /* Transposed-table control: with the kinds of the PI row and the RSP issue
    * row swapped the same observation must be reported as a table mismatch. */
@@ -464,9 +474,14 @@ static void case_ledger(void) {
   transposed[3].kind = ledger_table[1].kind;
   T64_CHECK_INT(compare_ledger(transposed, LEDGER_ROWS, &set),
                 LEDGER_TABLE_MISMATCH);
-  /* A reserved row observed is also a mismatch. */
+  /* A reserved row observed is also a mismatch: marking the observed SI
+   * execute row reserved is reported, and so is an unlisted listed row. */
   (void)memcpy(transposed, ledger_table, sizeof transposed);
-  transposed[13].reserved = false;
+  transposed[13].reserved = true;
+  T64_CHECK_INT(compare_ledger(transposed, LEDGER_ROWS, &set),
+                LEDGER_TABLE_MISMATCH);
+  (void)memcpy(transposed, ledger_table, sizeof transposed);
+  transposed[14].device = 11u;
   T64_CHECK_INT(compare_ledger(transposed, LEDGER_ROWS, &set),
                 LEDGER_TABLE_MISMATCH);
 }
@@ -474,7 +489,7 @@ static void case_ledger(void) {
 /* ---- case: characterize-fifo ---------------------------------------------- */
 
 #define ORDER_LOG_CAPACITY 8u
-#define NON_RESERVED_ROWS 13u
+#define NON_RESERVED_ROWS 15u
 
 static uint32_t order_log_device[ORDER_LOG_CAPACITY];
 static uint32_t order_log_kind[ORDER_LOG_CAPACITY];
@@ -737,7 +752,7 @@ static void case_characterize_fifo(void) {
   size_t second;
 
   /* Every non-reserved ledger pair, both insertion orders, label-only events
-   * through the real scheduler: 13 rows, 156 ordered pairs. */
+   * through the real scheduler: 15 rows, 210 ordered pairs. */
   for (first = 0u; first < NON_RESERVED_ROWS; first++) {
     for (second = 0u; second < NON_RESERVED_ROWS; second++) {
       if (first != second) check_label_pair(first, second);
