@@ -256,7 +256,7 @@ t64_status t64_ai_read_register(const t64_machine *machine, uint32_t address,
   if (machine == NULL || value_out == NULL) {
     return T64_STATUS_INVALID_ARGUMENT;
   }
-  if (!machine->has_image || !t64_has_ai_profile(machine)) {
+  if (!machine->has_image || !t64_has_ai_device(machine)) {
     return T64_STATUS_NOT_READY;
   }
   ai = &machine->ai;
@@ -300,7 +300,7 @@ t64_status t64_ai_write_register(t64_machine *machine, uint32_t address,
   t64_status status;
 
   if (machine == NULL) return T64_STATUS_INVALID_ARGUMENT;
-  if (!machine->has_image || !t64_has_ai_profile(machine)) {
+  if (!machine->has_image || !t64_has_ai_device(machine)) {
     return T64_STATUS_NOT_READY;
   }
   ai = &machine->ai;
@@ -377,7 +377,7 @@ bool t64_ai_event_waits_for_output_capacity(const t64_machine *machine,
                                             const t64_event *event) {
   return machine != NULL && event != NULL &&
          event->device == T64_AI_DEVICE &&
-         event->kind == T64_AI_EVENT_SAMPLE && t64_has_ai_profile(machine) &&
+         event->kind == T64_AI_EVENT_SAMPLE && t64_has_ai_device(machine) &&
          machine->ai.active && !machine->ai.paused &&
          event->token == machine->ai.event_token &&
          !machine->ai.packet_reserved &&
@@ -400,7 +400,7 @@ bool t64_ai_event_can_dispatch(const t64_machine *machine,
 
   if (machine == NULL || event == NULL) return false;
   if (event->device != T64_AI_DEVICE || event->kind != T64_AI_EVENT_SAMPLE ||
-      !t64_has_ai_profile(machine)) {
+      !t64_has_ai_device(machine)) {
     return true;
   }
   ai = &machine->ai;
@@ -469,7 +469,7 @@ t64_status t64_ai_event(t64_machine *machine, const t64_event *event) {
   t64_status status;
 
   if (machine == NULL || event == NULL || event->device != T64_AI_DEVICE ||
-      event->kind != T64_AI_EVENT_SAMPLE || !t64_has_ai_profile(machine)) {
+      event->kind != T64_AI_EVENT_SAMPLE || !t64_has_ai_device(machine)) {
     return T64_STATUS_INVALID_ARGUMENT;
   }
   ai = &machine->ai;
@@ -629,7 +629,7 @@ t64_status t64_audio_info(const t64_machine *machine,
       !t64_internal_observation_range_is_disjoint(machine, output_range)) {
     return T64_STATUS_INVALID_ARGUMENT;
   }
-  if (!machine->has_image || !t64_has_ai_profile(machine)) {
+  if (!machine->has_image || !t64_has_ai_device(machine)) {
     return T64_STATUS_NOT_READY;
   }
   if (machine->ai.packet_count == 0u) return T64_STATUS_NOT_READY;
@@ -657,7 +657,7 @@ t64_status t64_audio_copy(t64_machine *machine, uint8_t *bytes_out,
              t64_internal_ranges_overlap(bytes_range, length_range)) {
     return T64_STATUS_INVALID_ARGUMENT;
   }
-  if (!machine->has_image || !t64_has_ai_profile(machine)) {
+  if (!machine->has_image || !t64_has_ai_device(machine)) {
     return T64_STATUS_NOT_READY;
   }
   if (machine->ai.packet_count == 0u) return T64_STATUS_NOT_READY;

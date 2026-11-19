@@ -133,7 +133,7 @@ static t64_bus_region decode_region(const t64_machine *machine,
   }
   if (address >= T64_AI_BASE &&
       address < T64_AI_BASE + T64_DEVICE_WINDOW_BYTES) {
-    return t64_has_ai_profile(machine) ? T64_BUS_REGION_AI
+    return t64_has_ai_device(machine) ? T64_BUS_REGION_AI
                                        : T64_BUS_REGION_WARM;
   }
   if (address == T64_SP_PC_ADDRESS ||

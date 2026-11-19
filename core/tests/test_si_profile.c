@@ -1171,7 +1171,7 @@ static void case_family_devices(void) {
   /* Old-profile contrast: filter v9 still refuses the AI window. */
   run_ai_dma(&host, FILTER_V9_PROFILE_ID, &old_profile);
   T64_CHECK_INT(old_profile.control_write, T64_STATUS_BUS_DEVICE_REFUSED);
-  T64_CHECK_INT(old_profile.length_write, T64_STATUS_BUS_DEVICE_REFUSED);
+  T64_CHECK_INT(old_profile.length_write, T64_STATUS_BUS_UNSUPPORTED);
   T64_CHECK(!old_profile.produced);
   T64_CHECK_INT(state.outstanding, 0u);
   T64_CHECK_INT(state.release_errors, 0u);
