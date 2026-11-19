@@ -110,7 +110,12 @@ except that the composite SI profile family decodes the SI window
 [si-pif-controller.md](si-pif-controller.md): four 32-bit registers at offsets
 `0x00`, `0x04`, `0x10` and `0x18`, with every other offset unsupported. Every
 older profile keeps the warm status stub for that window, and the PIF window
-stays unsupported for every profile.
+stays unsupported for every profile. The SRAM id of that family also decodes the
+32 KiB window `[0x08000000, 0x08008000)` to aligned 32-bit word access (carved
+out of the domain 2 unsupported arm; widths 1, 2 and 8, a misaligned word and
+every address outside it are refused as before), described in
+[save-media.md](save-media.md); every other profile keeps the unsupported arm
+unchanged.
 PI's word registers at `0x04600000..0x04600030` implement the ROM DMA model
 below. MI interrupt-pending is read-only, and MI interrupt-mask supports
 the paired clear/set commands.
@@ -366,11 +371,12 @@ v25 is not comparable to v24 byte for byte but its shared sections are.
 | 8 | rdp and vi | the RDP/VI block, including the retained video packet slots |
 | 9 | audio | the AI block, including the retained audio packet slots |
 | 10 | SI and PIF | emitted by the composite family: SI registers and active descriptor, the 64-byte PIF RAM, the parsed joybus table and the four per-port input latches, every field in the new-span class; the field table is in [si-pif-controller.md](si-pif-controller.md) |
-| 11 | save media | reserved; emitted when the save devices exist |
+| 11 | save media | emitted by the three save ids only: kind, size, EEPROM deadline, active PI save direction and the raw storage, every field in the new-span class; the field table is in [save-media.md](save-media.md) |
 | 16 | observer continuity | reserved; outside the digest |
 
-Reserved ids emit nothing until their section exists; section 10 is the only
-new-class section emitted so far. Stream bytes carry one of
+Reserved ids emit nothing until their section exists; sections 10 and 11 are the
+new-class sections emitted so far (section 11 only when the profile has a save
+device, so the id without one keeps markers 1 to 10). Stream bytes carry one of
 four span classes for comparison: body (ordinary state), identity (the domain,
 the serialization word and profile digest, and in v24 the retained packet
 profile and build ids), marker (a section id) and new (a section with no v24
@@ -452,7 +458,7 @@ the Phase 8 machine (descriptor 11, model 19, state 24) with identity for a
 standard controller on port 0 and an explicit save device. The family carries
 identity, validation and the state-stream framing, and the modeled SI/PIF and
 standard controller described in [si-pif-controller.md](si-pif-controller.md);
-the save devices are separate, later work.
+the save devices are described in [save-media.md](save-media.md).
 
 | Profile id | Id length | `save_kind` |
 | --- | --- | --- |
@@ -481,6 +487,11 @@ its canonical bytes in any field is refused. Older descriptor versions keep
 their hashing unchanged, including a non-zero `save_kind` or `peripheral_flags`
 in a hash-only vector, but `t64_machine_create` refuses a non-zero value of
 either field for a version below 12 before any allocation.
+
+The save device requests answer three status values, `T64_STATUS_SAVE_UNKNOWN_DEVICE`
+(20), `T64_STATUS_SAVE_UNSUPPORTED_DEVICE` (21) and `T64_STATUS_SAVE_DEVICE_MISMATCH`
+(22), through `t64_machine_save_info`; the values and that function are provisional
+until the Phase 10 interface review.
 
 The synchronization quantum is measured in RSP issue opportunities, equal to
 guest ticks in these profiles. A quantum or ratio other than 1 and 1:1 is a new
@@ -536,6 +547,10 @@ completion, RSP issue, timed input, RDP work, VI field and AI sample. SP
 completion with any CPU or functional-profile device has no builder, because
 the functional-RSP profiles issue SP DMA through RSP issue events; those pairs
 are covered by the label-only case alone.
+
+The save devices add no scheduler pair: the SRAM DMA reuses the PI completion
+pair and the EEPROM busy window is a stored deadline with no event, so the table
+above is unchanged by them.
 
 These are regression pins and self-comparison. The model chooses no hardware
 tie order and no measurement supports one, so a consistently wrong tie would
@@ -627,6 +642,7 @@ introduced.
 | PI raw latches, error, active/canceled descriptor and token state | Yes | Clear latches and descriptor, clear active/error/exhaustion flags, reset next token to 1 |
 | Trace records, drop count and enablement | Yes | Clear records and drops; preserve enablement and emit a new admission record when enabled |
 | SI registers, active descriptor, PIF RAM, parsed table, sticky error, input latches and tokens (composite family) | Yes | Cancel the SI events, clear MI SI pending, clear all SI state and set the next token to 1 |
+| Save device storage and EEPROM deadline (composite family save ids) | Yes | Fill with the blank contents (0xFF for the EEPROM, 0x00 for the SRAM) and clear the deadline on a successful replacement; a refused replacement leaves both unchanged |
 | Output-drain cursor | Yes | Reset to zero with guest output; observer-only and excluded from the canonical digest |
 
 Refusal assertions compare every present machine observation, scheduler state,
