@@ -128,6 +128,21 @@
           ]
         }
       ]
+    },
+    "hosted": {
+      "ctest": ["runner.pad-poll", "controls.real.pad-wrong-value"],
+      "binaries": [
+        {
+          "path": "runner/test_pad_poll",
+          "cases": [
+            "poll-timing",
+            "accepted-poll-sequence",
+            "same-setup-wrong-script",
+            "same-setup-wrong-rom",
+            "replacement-fixture-refused"
+          ]
+        }
+      ]
     }
   }
 }
