@@ -4,18 +4,18 @@ milestone: v1.1
 milestone_name: Observable Machine
 current_phase: 9
 current_phase_name: Controller, Save Media and Replay
-current_plan: 4
+current_plan: 5
 status: executing
-stopped_at: Completed 09-03-PLAN.md
-last_updated: "2026-11-19T21:47:07.430Z"
+stopped_at: Completed 09-03.1-PLAN.md
+last_updated: "2026-11-19T23:14:57.692Z"
 last_activity: 2026-11-19
 last_activity_desc: Phase 9 execution started
-state_head: 49518ec166a58786a8e24e43e144e2a8f3117299
+state_head: 1b68595f5c15456446980df3bc395a4faa900809
 progress:
   total_phases: 3
   completed_phases: 1
   total_plans: 31
-  completed_plans: 20
+  completed_plans: 21
   percent: 33
 ---
 
@@ -31,7 +31,7 @@ See: .planning/PROJECT.md (updated 2026-11-15)
 ## Current Position
 
 Phase: 9 (Controller, Save Media and Replay) — EXECUTING
-Current Plan: 4
+Current Plan: 5
 Total Plans in Phase: 13
 Status: Ready to execute
 Last activity: 2026-11-19 — Phase 9 execution started
@@ -52,6 +52,7 @@ Progress: [███░░░░░░░] 33% of currently planned source plans
 | Phase 09 P01 | 36 min | 6 tasks | 18 files |
 | Phase 09 P02 | 32min | 7 tasks | 25 files |
 | Phase 09 P03 | 43min | 5 tasks | 31 files |
+| Phase 09 P03.1 | 70min | 5 tasks | 15 files |
 
 ## Accumulated Context
 
@@ -74,6 +75,10 @@ Progress: [███░░░░░░░] 33% of currently planned source plans
 - [Phase 09]: 09-03: section 10 of the v25 digest also hashes next_token and token_exhausted so no behavior-deciding SI state is outside the digest; the plan's field list named only active_token
 - [Phase 09]: 09-03: a refused CPU step records its attempt (last PCs, opcode, host-error outcome); CPU-path refusal tests pre-apply that record before asserting a bit-identical digest
 - [Phase 09]: 09-03: the SI device was implemented in one coherent start function in Task 1 step 4, so Task 3 and Task 4 groups started green; evidence is out-of-tree mutants, and the step 4 RED is a disclosed reconstruction
+- [Phase 09]: 09-03.1: row matching keys on the SHA-256 of the fixture file named in the retained command plus the input script SHA-256, so the altered-copy refusal row matches its own run; a record made before pending source files exist carries a rehearsal label that must equal the requested verification
+- [Phase 09]: 09-03.1: the combined upload contract admits exactly three layouts per job (boot and raw, plus audio, plus audio and phase09/JOB/manifest.json); phase09 requires audio; the native JUnit private root is a predicate over two named roots
+- [Phase 09]: 09-03.1: hosted Linux compiles are the evidence the local gcc:13 closure cannot give; three Linux-only build defects from 09-02 reached hosted CI, so run the ninja compile commands under the act image's Ubuntu cc before pushing C changes (203 units in about 50 s)
+- [Phase 09]: 09-03.1: FH tag phase09-fh on 2065efc; frozen logic changes since the pair candidate are the inventory data row only; 09-04 to 09-11 add data rows, suites and test names only
 
 ### Pending Todos
 
@@ -106,8 +111,8 @@ question. No oracle authority is part of this decision.
 
 ## Session Continuity
 
-Last session: 2026-11-19T21:47:07.229Z
-Stopped at: Completed 09-03-PLAN.md
+Last session: 2026-11-19T23:14:57.546Z
+Stopped at: Completed 09-03.1-PLAN.md
 Resume file: None
 
 Historical closeout: [v1.0 roadmap](milestones/v1.0-ROADMAP.md), [audit](milestones/v1.0-MILESTONE-AUDIT.md), [lessons](RETROSPECTIVE.md).
