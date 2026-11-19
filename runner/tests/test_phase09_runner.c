@@ -28,8 +28,19 @@
 
 #include "t64_json.h"
 #include "t64_real_fixture.h"
+#include "t64_sha256.h"
+#include "tendies64/t64_machine.h"
 
 #define LEGACY_HELLO_PROFILE "ntsc-cart-4m-openipl3-warm-v1"
+
+/* The four composite family ids registered by 09-01 (final labels). */
+#define PROFILE_STEM "ntsc-cart-4m-openipl3-rdram-b-t1-si-v1"
+#define PROFILE_E4K PROFILE_STEM "-e4k"
+#define PROFILE_E16K PROFILE_STEM "-e16k"
+#define PROFILE_S32K PROFILE_STEM "-s32k"
+
+static const char *const family_ids[4] = {PROFILE_STEM, PROFILE_E4K,
+                                          PROFILE_E16K, PROFILE_S32K};
 
 static const char *g_supervisor;
 static const char *g_test_supervisor;
@@ -551,8 +562,31 @@ static const case_entry cases[] = {
     {"argv-bound", case_argv_bound},
 };
 
+/* Not a case: prints the id, the profile hash and the id length of the four
+ * family ids so fixture rows are re-pinned from output, never by hand. */
+static int print_profile_hashes(void) {
+  size_t i;
+  for (i = 0u; i < sizeof family_ids / sizeof family_ids[0]; i++) {
+    const t64_profile_descriptor *profile = NULL;
+    uint8_t digest[T64_DIGEST_SIZE];
+    char hex[T64_SHA256_HEX_SIZE];
+    if (t64_profile_lookup(family_ids[i], &profile) != T64_STATUS_OK ||
+        profile == NULL ||
+        t64_profile_hash(profile, digest) != T64_STATUS_OK) {
+      (void)fprintf(stderr, "profile unavailable: %s\n", family_ids[i]);
+      return 1;
+    }
+    t64_sha256_hex(digest, hex);
+    (void)printf("%s %s %zu\n", family_ids[i], hex, strlen(family_ids[i]));
+  }
+  return 0;
+}
+
 int main(int argc, char **argv) {
   size_t i;
+  if (argc == 2 && strcmp(argv[1], "--print-profile-hashes") == 0) {
+    return print_profile_hashes();
+  }
   if (argc == 2 && strcmp(argv[1], "--list-cases") == 0) {
     for (i = 0u; i < sizeof cases / sizeof cases[0]; i++) {
       (void)puts(cases[i].name);
