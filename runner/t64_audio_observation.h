@@ -2,6 +2,7 @@
 #ifndef T64_AUDIO_OBSERVATION_H
 #define T64_AUDIO_OBSERVATION_H
 
+#include <stddef.h>
 #include <stdint.h>
 
 #include "tendies64/t64_machine.h"
@@ -75,5 +76,23 @@ typedef struct {
   t64_audio_yield_observation
       yields[T64_AUDIO_OBSERVATION_MAX_YIELDS];
 } t64_audio_observation;
+
+/* The retained record is a raw native-layout copy that scripts/qualify-audio.py
+ * maps with ctypes. Pin the 64-bit version-2 layout so a field edit cannot
+ * silently change the retained 3,976-byte record or its region offsets. */
+#if UINTPTR_MAX == 0xFFFFFFFFFFFFFFFFu
+_Static_assert(sizeof(t64_audio_packet_info) == 280u,
+               "audio packet info layout is part of observation version 2");
+_Static_assert(sizeof(t64_audio_observation) == 3976u,
+               "audio observation version 2 record size changed");
+_Static_assert(offsetof(t64_audio_observation, packets) == 144u,
+               "audio observation packets offset changed");
+_Static_assert(offsetof(t64_audio_observation, bus_writes) == 736u,
+               "audio observation bus-write offset changed");
+_Static_assert(offsetof(t64_audio_observation, sw_retirements) == 1120u,
+               "audio observation retirement offset changed");
+_Static_assert(offsetof(t64_audio_observation, yields) == 1376u,
+               "audio observation yield offset changed");
+#endif
 
 #endif
