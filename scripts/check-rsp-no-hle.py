@@ -43,6 +43,7 @@ CANONICAL_CORE_SOURCES = frozenset(
         "t64_rdram.c",
         "t64_rsp.c",
         "t64_rsp_divider.c",
+        "t64_save.c",
         "t64_scheduler.c",
         "t64_si.c",
         "t64_softfloat.c",
@@ -239,9 +240,9 @@ REVIEWED_AI_FUNCTIONS = frozenset(
 # review and digest refresh; static definition additions/removals also fail the
 # inventory check below.
 REVIEWED_BODY_DIGESTS = {
-    "core/t64_bus.c :: decode_region": "abee4eb6218517121a4a42c18bb969294d39fc1a8293436b095a853e147cda91",
-    "core/t64_bus.c :: t64_bus_write": "58d73a6eee953d098a7310e5605872100642a7b0e854faef883197a0448cee71",
-    "core/t64_bus.c :: t64_bus_write_masked": "bb9b5b266e3c6ebe8962c73539a13f6e85847cbea4ba63167919822cf3cd5b54",
+    "core/t64_bus.c :: decode_region": "2d7897dd4c1b28b787b0dd627b4944bada27569294d23bb57cfc49b2be98562d",
+    "core/t64_bus.c :: t64_bus_write": "c4569fc658790ea4f482b4853d55ca80f582a6274376002d0d748e50d9896baf",
+    "core/t64_bus.c :: t64_bus_write_masked": "54d8061a476f3ca3c6d43cbf1967622d2b6977f18e2f9d3c7e05efee49bf068f",
     "core/t64_bus.c :: t64_bus_writeback_cache_line": "00b198913012b79e8ff87fdc40822b2096e7d6f1ba9d9f8033f6e468e0621e80",
     "core/t64_scheduler.c :: event_can_dispatch": "44dbeef3042a917d47eae797b5c005280573cc7adbada6331fdfab923939c711",
     "core/t64_scheduler.c :: t64_schedule_cancel": "1be0f92eede2acb74e76498c87205e8c4cc9f99de742da23449a20a371eff2f5",
@@ -264,7 +265,7 @@ REVIEWED_BODY_DIGESTS = {
     "core/t64_ai.c :: t64_ai_write_register": "69511e698a08242dc74befa9e6c11b84a43b22673583f297ec13b470e12ee26a",
     "core/t64_ai.c :: t64_audio_copy": "4638a1db12bdb801ff8881108ddfa78771ddb53f03c50f7decca36537b50f2c5",
     "core/t64_ai.c :: t64_audio_info": "f1c0ff86b4cff5f5b4900c9183bc4c18ab093554dc898075ff824a397c62a701",
-    "core/t64_pi.c :: t64_pi_complete": "7edd3c4b64276a9b6698cb13f16b91a183f400cee26347b350b49bccb69e36af",
+    "core/t64_pi.c :: t64_pi_complete": "98459ddc917f56fbc902837822735a1351b7f5b6c7b63b6c4808a1a6f6240c21",
     "core/t64_sp.c :: t64_sp_write_register": "3620ac7c6c379837ebdedcfcf21ca6c887e580880e314311633b08698f75ce09",
     "core/t64_sp.c :: t64_sp_reset_machine_state": "f410fa77785c8b063cde69306ced58702d70dae4c5bca62af2b8adf08529670a",
     "core/t64_sp.c :: t64_sp_read_register": "495be610b9df612b2637f74356824f1a4c6970981041d87dfb666a2f56946e5e",

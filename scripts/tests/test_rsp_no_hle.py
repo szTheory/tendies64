@@ -90,6 +90,10 @@ MUTATION_SEEDS = (
     "SI region decode-region injected-effect mutation",
     "SI region branch removed from decode_region",
     "unreviewed extra core source file",
+    "save PI completion injected-effect mutation",
+    "save decode-region injected-effect mutation",
+    "SRAM region branch removed from decode_region",
+    "unreviewed extra core save source file",
 )
 
 # Plan 09-03 pins: the bus bodies edited for the SI region and the two sources
@@ -100,6 +104,12 @@ NEW_SI_BODY_PINS = (
     "core/t64_bus.c :: t64_bus_write_masked",
 )
 NEW_SI_SOURCES = ("t64_si.c", "t64_joybus.c")
+
+# Plan 09-04 pins: the PI completion body edited for the SRAM directions (the
+# bus bodies re-pinned above carry the SRAM region too) and the save source.
+# Deleting any one of them must fail the guard.
+NEW_SAVE_BODY_PINS = ("core/t64_pi.c :: t64_pi_complete",)
+NEW_SAVE_SOURCES = ("t64_save.c",)
 
 
 def require_nonzero_count(count: int, label: str) -> None:
@@ -183,7 +193,7 @@ def _check_si_pin_deletions(source_root: pathlib.Path,
 
     _assert_clean(source_root, build_root)
     saved_digests = CHECKER.REVIEWED_BODY_DIGESTS
-    for label in NEW_SI_BODY_PINS:
+    for label in NEW_SI_BODY_PINS + NEW_SAVE_BODY_PINS:
         if label not in saved_digests:
             raise AssertionError(f"{label} has no reviewed pin to delete")
         CHECKER.REVIEWED_BODY_DIGESTS = {
@@ -197,7 +207,7 @@ def _check_si_pin_deletions(source_root: pathlib.Path,
         if not any(finding == expected for finding in findings):
             raise AssertionError(f"deleting the pin for {label} was not reported: {findings}")
     saved_sources = CHECKER.CANONICAL_CORE_SOURCES
-    for name in NEW_SI_SOURCES:
+    for name in NEW_SI_SOURCES + NEW_SAVE_SOURCES:
         if name not in saved_sources:
             raise AssertionError(f"{name} is not a reviewed source name")
         CHECKER.CANONICAL_CORE_SOURCES = saved_sources - {name}
@@ -687,6 +697,54 @@ def _check_mutation_suite(temp_root: pathlib.Path) -> int:
     extra_source.write_text("int unreviewed_extra_source;\n", encoding="utf-8")
     _must_reject("unreviewed extra core source file", source_root, build_root)
     extra_source.unlink()
+    seeds_run += 1
+
+    # Plan 09-04: the PI completion body and the bus decoder carry pins that
+    # cover the SRAM directions and the SRAM region. An injected effect in
+    # either, the SRAM region branch removed from decode_region (the pre-SRAM
+    # body no longer equals the refreshed pin) and an unreviewed extra source
+    # next to t64_save.c must all still be rejected.
+    save_mutations = (
+        ("core/t64_pi.c", "t64_pi_complete", "save PI completion injected-effect mutation"),
+        ("core/t64_bus.c", "decode_region", "save decode-region injected-effect mutation"),
+    )
+    for relative, function_name, label in save_mutations:
+        path = source_root / relative
+        original = path.read_text(encoding="utf-8")
+        span = _function_definition_span(original, function_name)
+        if span is None:
+            raise AssertionError(f"{label} anchor no longer exists")
+        body_at = original.index("{", span[0]) + 1
+        injection = (
+            "\n  if (machine != NULL && machine->save.busy_until != 0u) {\n"
+            "    machine->save.busy_until ^= UINT64_C(1);\n"
+            "  }\n"
+        )
+        path.write_text(original[:body_at] + injection + original[body_at:], encoding="utf-8")
+        _must_reject(label, source_root, build_root)
+        path.write_text(original, encoding="utf-8")
+        seeds_run += 1
+
+    bus_path = source_root / "core" / "t64_bus.c"
+    original_bus = bus_path.read_text(encoding="utf-8")
+    sram_branch = (
+        "  if (address >= T64_SRAM_BASE &&\n"
+        "      address < T64_SRAM_BASE + T64_SAVE_SRAM_BYTES &&\n"
+        "      t64_has_sram_save(machine)) {\n"
+        "    return T64_BUS_REGION_SAVE_SRAM;\n"
+        "  }\n"
+    )
+    if original_bus.count(sram_branch) != 1:
+        raise AssertionError("SRAM region branch anchor no longer exists")
+    bus_path.write_text(original_bus.replace(sram_branch, "", 1), encoding="utf-8")
+    _must_reject("SRAM region branch removed from decode_region", source_root, build_root)
+    bus_path.write_text(original_bus, encoding="utf-8")
+    seeds_run += 1
+
+    extra_save_source = source_root / "core" / "t64_extra_save.c"
+    extra_save_source.write_text("int unreviewed_extra_save_source;\n", encoding="utf-8")
+    _must_reject("unreviewed extra core save source file", source_root, build_root)
+    extra_save_source.unlink()
     seeds_run += 1
 
     depth_path = source_root / "core" / "t64_rdp_depth.c"
