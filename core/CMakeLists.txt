@@ -238,6 +238,37 @@ add_custom_command(
 add_custom_target(t64-phase09-admit-fixture DEPENDS ${T64_PHASE09_ADMIT_OUTPUTS})
 add_dependencies(t64-phase09-admit-fixture t64-boot-fixtures)
 
+# Phase 9 pad-poll pair: one authored source builds the baseline ROM and the
+# wrong-port-flag ROM through a defsym; its own recipe keeps the admit, audio
+# and boot builders on their historical source pins.
+set(T64_PHASE09_PAD_STEMS
+  phase09-pad-poll-si-v1 phase09-pad-poll-wrong-si-v1)
+set(T64_PHASE09_PAD_OUTPUTS)
+foreach(T64_PAD_STEM IN LISTS T64_PHASE09_PAD_STEMS)
+  list(APPEND T64_PHASE09_PAD_OUTPUTS
+    "${T64_BOOT_FIXTURE_DIR}/${T64_PAD_STEM}.z64"
+    "${T64_BOOT_FIXTURE_DIR}/${T64_PAD_STEM}.elf"
+    "${T64_BOOT_FIXTURE_DIR}/${T64_PAD_STEM}.payload.bin"
+    "${T64_BOOT_FIXTURE_DIR}/${T64_PAD_STEM}.json")
+endforeach()
+add_custom_command(
+  OUTPUT ${T64_PHASE09_PAD_OUTPUTS}
+  COMMAND "${CMAKE_COMMAND}" -E env "CC=${CMAKE_C_COMPILER}"
+    sh "${CMAKE_SOURCE_DIR}/scripts/build-pad-fixture.sh" --build
+  DEPENDS
+    "${CMAKE_SOURCE_DIR}/fixtures/manifest.json"
+    "${CMAKE_SOURCE_DIR}/fixtures/pad/poll.S"
+    "${CMAKE_SOURCE_DIR}/fixtures/pad/poll.ld"
+    "${CMAKE_SOURCE_DIR}/scripts/build-pad-fixture.sh"
+    "${CMAKE_SOURCE_DIR}/tools/fixture/t64_rom_pack.c"
+    "${CMAKE_SOURCE_DIR}/tools/common/t64_sha256.c"
+    "${CMAKE_SOURCE_DIR}/tools/common/t64_sha256.h"
+  WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}"
+  COMMENT "Building authored Phase 9 pad-poll fixtures"
+  VERBATIM)
+add_custom_target(t64-phase09-pad-fixture DEPENDS ${T64_PHASE09_PAD_OUTPUTS})
+add_dependencies(t64-phase09-pad-fixture t64-boot-fixtures)
+
 add_executable(test_tracer tests/test_tracer.c)
 target_include_directories(test_tracer PRIVATE "${CMAKE_SOURCE_DIR}/tests")
 target_link_libraries(test_tracer PRIVATE t64_core)
