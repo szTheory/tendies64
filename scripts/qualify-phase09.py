@@ -897,14 +897,15 @@ def public_projection(value: Any, expected: dict[str, Any] | None = None, *,
     return value
 
 
-def scan_public_members(directory: Path, expected: dict[str, Any] | None = None,
-                        ) -> dict[str, Any]:
+def scan_public_members(directory: Path, expected: dict[str, Any] | None = None, *,
+                        rows: tuple[dict[str, Any], ...] | None = None) -> dict[str, Any]:
     """Exact upload allowlist: one regular manifest.json and nothing else.
 
     Refuses nested directories, symlinks, members with a private suffix,
     manifest bytes that begin with the state container magic or contain a local
     path or a personal identifier, and an oversized or non-object manifest. With
-    a caller context the manifest must also be a valid public projection.
+    a caller context the manifest must also be a valid public projection; the
+    authored rows default to HOSTED_ROWS and can be given for an older record.
     """
     directory = Path(directory)
     _require(directory.is_dir() and not directory.is_symlink(),
@@ -937,7 +938,7 @@ def scan_public_members(directory: Path, expected: dict[str, Any] | None = None,
         raise Refusal(f"public manifest is not valid JSON: {error}") from error
     _require(isinstance(value, dict), "public manifest must be a JSON object")
     if expected is not None:
-        public_projection(value, expected)
+        public_projection(value, expected, rows=rows)
     return value
 
 
