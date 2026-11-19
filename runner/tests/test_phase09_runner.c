@@ -214,6 +214,10 @@ typedef struct {
   const char *supervisor; /* production or test twin */
   const char *fixture;
   uint64_t bound;         /* 0 leaves the option out */
+  uint64_t advance_step;  /* 0 leaves the option out (test twin only) */
+  int video_fd;           /* 0 leaves the option out */
+  int audio_fd;           /* 0 leaves the option out */
+  const char *test_fault; /* NULL leaves the option out (test twin only) */
 } run_spec;
 
 #define MAX_ARGS 48u
@@ -233,6 +237,9 @@ static bool run_supervised(const run_spec *spec, run_out *out) {
   char capture_path[PATH_MAX];
   char input[PATH_MAX];
   char bound_text[24];
+  char advance_text[24];
+  char video_text[24];
+  char audio_text[24];
   pid_t pid;
   int status = 0;
   memset(out, 0, sizeof *out);
@@ -246,6 +253,10 @@ static bool run_supervised(const run_spec *spec, run_out *out) {
                  result_path);
   (void)snprintf(bound_text, sizeof bound_text, "%llu",
                  (unsigned long long)spec->bound);
+  (void)snprintf(advance_text, sizeof advance_text, "%llu",
+                 (unsigned long long)spec->advance_step);
+  (void)snprintf(video_text, sizeof video_text, "%d", spec->video_fd);
+  (void)snprintf(audio_text, sizeof audio_text, "%d", spec->audio_fd);
   pid = fork();
   if (pid < 0) return false;
   if (pid == 0) {
@@ -260,6 +271,10 @@ static bool run_supervised(const run_spec *spec, run_out *out) {
     char fixture_option[] = "--fixture";
     char input_option[] = "--input";
     char capture_option[] = "--capture-out";
+    char advance_option[] = "--advance-step";
+    char video_option[] = "--video-observation-fd";
+    char audio_option[] = "--audio-observation-fd";
+    char fault_option[] = "--test-fault";
     arg_add(&list, (char *)(uintptr_t)spec->supervisor);
     arg_add(&list, real_option);
     arg_add(&list, result_option);
@@ -280,6 +295,22 @@ static bool run_supervised(const run_spec *spec, run_out *out) {
     arg_add(&list, input);
     arg_add(&list, capture_option);
     arg_add(&list, capture_path);
+    if (spec->advance_step != 0u) {
+      arg_add(&list, advance_option);
+      arg_add(&list, advance_text);
+    }
+    if (spec->video_fd != 0) {
+      arg_add(&list, video_option);
+      arg_add(&list, video_text);
+    }
+    if (spec->audio_fd != 0) {
+      arg_add(&list, audio_option);
+      arg_add(&list, audio_text);
+    }
+    if (spec->test_fault != NULL) {
+      arg_add(&list, fault_option);
+      arg_add(&list, (char *)(uintptr_t)spec->test_fault);
+    }
     list.items[list.count] = NULL;
     execv(spec->supervisor, list.items);
     _exit(127);
@@ -394,7 +425,7 @@ static void expect_usage(const run_out *run) {
  * a bound above the ceiling is refused at parse in both binaries. */
 static int case_tick_cap(void) {
   char hello[PATH_MAX];
-  run_spec spec;
+  run_spec spec = {0};
   run_out run;
   if (!fixture_path(hello, "hello")) return 2;
 
@@ -440,7 +471,7 @@ static void expect_wrong_transcript(const run_out *run) {
  * pin accessor did not move legacy behavior. */
 static int case_transcript_pin(void) {
   char path[PATH_MAX];
-  run_spec spec;
+  run_spec spec = {0};
   run_out run;
   spec.supervisor = g_supervisor;
   spec.fixture = path;
@@ -466,6 +497,49 @@ static int case_transcript_pin(void) {
   return g_failures == 0 ? 0 : 1;
 }
 
+/* K6: the maximum accepted option set runs to a pass through the supervisor
+ * test twin; the capacity-exhausted fault ends the child before exec with a
+ * harness error and no guest run. */
+static int case_argv_bound(void) {
+  char audio[PATH_MAX];
+  run_spec spec = {0};
+  run_out run;
+  int video_pipe[2] = {-1, -1};
+  int audio_pipe[2] = {-1, -1};
+  CHECK(fixture_path(audio, "audio-pcm"));
+  CHECK(pipe(video_pipe) == 0);
+  CHECK(pipe(audio_pipe) == 0);
+  spec.supervisor = g_test_supervisor;
+  spec.fixture = audio;
+  spec.bound = 600000u;
+  spec.advance_step = 16u;
+  spec.video_fd = video_pipe[1];
+  spec.audio_fd = audio_pipe[1];
+
+  /* Accepted baseline with every option: advance step, video fd, audio fd. */
+  CHECK(run_supervised(&spec, &run));
+  expect_pass(&run);
+  CHECK(strcmp(run.fixture_id, "audio-pcm-literal") == 0);
+  CHECK(run.guest_tick != 0u);
+
+  /* Same setup with the capacity-exhausted fault: no guest run. */
+  spec.test_fault = "argv-capacity-exhausted";
+  CHECK(run_supervised(&spec, &run));
+  (void)fprintf(stderr, "argv-capacity-exhausted record: exit=%d outcome=%s "
+                "detail=%s stop=%s guest_tick=%llu\n", run.supervisor_exit,
+                run.outcome, run.detail, run.stop_kind,
+                (unsigned long long)run.guest_tick);
+  CHECK(strcmp(run.outcome, "harness-error") == 0);
+  CHECK(strcmp(run.detail, "runner-exit-nonzero") == 0);
+  CHECK(run.guest_tick == 0u);
+  CHECK(run.supervisor_exit != 0);
+  (void)close(video_pipe[0]);
+  (void)close(video_pipe[1]);
+  (void)close(audio_pipe[0]);
+  (void)close(audio_pipe[1]);
+  return g_failures == 0 ? 0 : 1;
+}
+
 typedef struct {
   const char *name;
   int (*run)(void);
@@ -474,6 +548,7 @@ typedef struct {
 static const case_entry cases[] = {
     {"tick-cap", case_tick_cap},
     {"transcript-pin", case_transcript_pin},
+    {"argv-bound", case_argv_bound},
 };
 
 int main(int argc, char **argv) {

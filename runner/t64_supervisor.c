@@ -42,6 +42,46 @@
 #define LOG_LIMIT_MAX (64ull << 20)
 #define REPORT_MAX_BYTES 512u
 #define FSIZE_SLACK (64ull << 10)
+/* K6: the child argument array is bounded by one checked push helper. The
+ * slot sum below is every slot of the largest accepted option set (the raw
+ * capture and the artifact pair are mutually exclusive, both are counted so
+ * the sum stays an upper bound). A later plan that adds a flag extends the sum
+ * in its own commit; the assertion then proves the array still fits. */
+#define T64_SUP_CHILD_ARGS_CAPACITY 64u
+#define T64_SUP_ARGS_RUNNER_PATH 1u
+#define T64_SUP_ARGS_FIXTURE 2u
+#define T64_SUP_ARGS_INPUT 2u
+#define T64_SUP_ARGS_PROFILE 2u
+#define T64_SUP_ARGS_TICKS 2u
+#define T64_SUP_ARGS_ADVANCE_STEP 2u
+#define T64_SUP_ARGS_VIDEO 2u
+#define T64_SUP_ARGS_AUDIO 2u
+#define T64_SUP_ARGS_RAW_CAPTURE 4u
+#define T64_SUP_ARGS_ARTIFACT 4u
+#define T64_SUP_CHILD_ARGS_SLOT_SUM                                          \
+  (T64_SUP_ARGS_RUNNER_PATH + T64_SUP_ARGS_FIXTURE + T64_SUP_ARGS_INPUT +    \
+   T64_SUP_ARGS_PROFILE + T64_SUP_ARGS_TICKS + T64_SUP_ARGS_ADVANCE_STEP +   \
+   T64_SUP_ARGS_VIDEO + T64_SUP_ARGS_AUDIO + T64_SUP_ARGS_RAW_CAPTURE +      \
+   T64_SUP_ARGS_ARTIFACT)
+_Static_assert(T64_SUP_CHILD_ARGS_SLOT_SUM + 1u <= T64_SUP_CHILD_ARGS_CAPACITY,
+               "the maximum child option set plus the terminating NULL must "
+               "fit the child argument array");
+
+typedef struct {
+  char **slots;
+  size_t count;
+  size_t capacity;
+} child_argv;
+
+/* False when the next push plus the terminating NULL would not fit. */
+static bool child_argv_push(child_argv *argv, char *value) {
+  if (argv->count > SIZE_MAX - 2u || argv->count + 2u > argv->capacity) {
+    return false;
+  }
+  argv->slots[argv->count++] = value;
+  return true;
+}
+
 #define REAL_INPUT_SIZE 54u
 #define REAL_INPUT_MAX_BYTES T64_VERIFIED_SCHEDULE_MAX_BYTES
 #define REAL_GUEST_TICKS UINT64_C(530500)
@@ -621,6 +661,7 @@ static int parse_args(int argc, char **argv, sup_args *a) {
       bad = 1;
     }
     if (a->test_fault != NULL &&
+        strcmp(a->test_fault, "argv-capacity-exhausted") != 0 &&
         strcmp(a->test_fault, "exit-nonzero") != 0 &&
         strcmp(a->test_fault, "capture-closed") != 0 &&
         strcmp(a->test_fault, "crash-after-output") != 0 &&
@@ -1502,38 +1543,58 @@ static int real_run_mode(const sup_args *args, const char *self_path) {
     char option_audio_observation[] = "--audio-observation-fd";
     char option_raw_capture_dir[] = "--raw-capture-dir";
     char option_raw_capture_max_bytes[] = "--raw-capture-max-bytes";
-    char *child_args[24];
-    size_t child_argc = 0u;
-    child_args[child_argc++] = runner_path;
-    child_args[child_argc++] = option_fixture;
-    child_args[child_argc++] = fixture_fd_text;
-    child_args[child_argc++] = option_input;
-    child_args[child_argc++] = input_fd_text;
-    child_args[child_argc++] = option_profile;
-    child_args[child_argc++] = profile_id;
-    child_args[child_argc++] = option_ticks;
-    child_args[child_argc++] = guest_ticks_text;
+    char *child_args[T64_SUP_CHILD_ARGS_CAPACITY];
+    child_argv argv_builder = {child_args, 0u, T64_SUP_CHILD_ARGS_CAPACITY};
+    bool argv_ok = true;
+#ifdef T64_SUPERVISOR_TESTING
+    if (args->test_fault != NULL &&
+        strcmp(args->test_fault, "argv-capacity-exhausted") == 0) {
+      /* Test fault: shrink the capacity so the checked push must refuse. */
+      argv_builder.capacity = 8u;
+    }
+#endif
+    argv_ok = argv_ok && child_argv_push(&argv_builder, runner_path);
+    argv_ok = argv_ok && child_argv_push(&argv_builder, option_fixture);
+    argv_ok = argv_ok && child_argv_push(&argv_builder, fixture_fd_text);
+    argv_ok = argv_ok && child_argv_push(&argv_builder, option_input);
+    argv_ok = argv_ok && child_argv_push(&argv_builder, input_fd_text);
+    argv_ok = argv_ok && child_argv_push(&argv_builder, option_profile);
+    argv_ok = argv_ok && child_argv_push(&argv_builder, profile_id);
+    argv_ok = argv_ok && child_argv_push(&argv_builder, option_ticks);
+    argv_ok = argv_ok && child_argv_push(&argv_builder, guest_ticks_text);
 #ifdef T64_SUPERVISOR_TESTING
     if (args->advance_step_seen) {
-      child_args[child_argc++] = option_advance_step;
-      child_args[child_argc++] = advance_step_text;
+      argv_ok = argv_ok && child_argv_push(&argv_builder, option_advance_step);
+      argv_ok = argv_ok && child_argv_push(&argv_builder, advance_step_text);
     }
 #endif
     if (args->video_observation_fd != 0u) {
-      child_args[child_argc++] = option_video_observation;
-      child_args[child_argc++] = video_observation_fd_text;
+      argv_ok = argv_ok &&
+                child_argv_push(&argv_builder, option_video_observation);
+      argv_ok = argv_ok &&
+                child_argv_push(&argv_builder, video_observation_fd_text);
     }
     if (args->audio_observation_fd != 0u) {
-      child_args[child_argc++] = option_audio_observation;
-      child_args[child_argc++] = audio_observation_fd_text;
+      argv_ok = argv_ok &&
+                child_argv_push(&argv_builder, option_audio_observation);
+      argv_ok = argv_ok &&
+                child_argv_push(&argv_builder, audio_observation_fd_text);
     }
     if (args->raw_capture_dir_seen) {
-      child_args[child_argc++] = option_raw_capture_dir;
-      child_args[child_argc++] = raw_capture_dir_text;
-      child_args[child_argc++] = option_raw_capture_max_bytes;
-      child_args[child_argc++] = raw_capture_max_bytes_text;
+      argv_ok = argv_ok &&
+                child_argv_push(&argv_builder, option_raw_capture_dir);
+      argv_ok = argv_ok &&
+                child_argv_push(&argv_builder, raw_capture_dir_text);
+      argv_ok = argv_ok &&
+                child_argv_push(&argv_builder, option_raw_capture_max_bytes);
+      argv_ok = argv_ok &&
+                child_argv_push(&argv_builder, raw_capture_max_bytes_text);
     }
-    child_args[child_argc] = NULL;
+    if (!argv_ok) {
+      /* Exhausted capacity ends the child before exec with no guest run. */
+      _exit(126);
+    }
+    child_args[argv_builder.count] = NULL;
     setpgid(0, 0);
     limit.rlim_cur = 0;
     limit.rlim_max = 0;
@@ -1557,6 +1618,7 @@ static int real_run_mode(const sup_args *args, const char *self_path) {
     }
 #ifdef T64_SUPERVISOR_TESTING
     if (args->test_fault != NULL &&
+        strcmp(args->test_fault, "argv-capacity-exhausted") != 0 &&
         setenv("T64_REAL_RUNNER_TEST_FAULT", args->test_fault, 1) != 0) {
       _exit(126);
     }

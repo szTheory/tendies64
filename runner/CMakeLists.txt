@@ -543,6 +543,7 @@ function(t64_phase09_runner_case TEST_NAME CASE_NAME)
 endfunction()
 t64_phase09_runner_case(runner.guest-tick-cap tick-cap)
 t64_phase09_runner_case(runner.fixture-transcript-pin transcript-pin)
+t64_phase09_runner_case(runner.supervisor-argv-bound argv-bound)
 
 # Original-record audio evidence controls. This selftest runs only isolated
 # verifier mutations; hosted emission remains a separate post-gate command.
