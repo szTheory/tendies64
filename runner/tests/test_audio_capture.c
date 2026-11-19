@@ -1824,7 +1824,7 @@ static int run_parent_replacement_race(char *supervisor, char *checker,
 static int run_existing_target_case(char *supervisor, char *checker,
                                     char *fixture, char *input) {
   const char *evidence_root = getenv("T64_AUDIO_EVIDENCE_DIR");
-  char directory[512];
+  char directory[1024];
   char file_path[1024];
   char directory_path[1024];
   char nested_path[1024];
@@ -1852,7 +1852,8 @@ static int run_existing_target_case(char *supervisor, char *checker,
     fprintf(stderr, "could not create private existing-target evidence directory\n");
     return 1;
   }
-  (void)snprintf(directory, sizeof directory, "%s", pattern);
+  length = snprintf(directory, sizeof directory, "%s", pattern);
+  if (length <= 0 || (size_t)length >= sizeof directory) return 1;
   length = snprintf(file_path, sizeof file_path, "%s/existing-file", directory);
   if (length <= 0 || (size_t)length >= sizeof file_path) return 1;
   length = snprintf(directory_path, sizeof directory_path, "%s/existing-dir", directory);

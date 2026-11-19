@@ -23,7 +23,7 @@ from typing import Any
 
 ROOT = Path(__file__).resolve().parents[1]
 INVENTORY = ROOT / "docs/spec/audio-cases.json"
-EXPECTED_INVENTORY_SHA256 = "32b0ed5aeef3108cab523adc1846b90f46c0ed9d1aa405a45b69ea114e46eab9"
+EXPECTED_INVENTORY_SHA256 = "2f68e71e9f68f2869dad61b5054f19c9057c5ea6c7a82d06120672d5717874a8"
 PROFILE_ID = "ntsc-cart-4m-openipl3-rdram-b-t1-rdp-vi-filter-v9-ai-v1"
 PROFILE_SHA256 = "eaa400aa23bfa3d0c9ba6d475d8eba7a60302151e22b6278ff6a4991d08bb5bf"
 FIXTURE_ID = "audio-pcm-literal"

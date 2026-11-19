@@ -831,10 +831,10 @@ static bool valid_audio_info(const t64_raw_capture *capture,
       info->rate_numerator == 0u || info->rate_denominator == 0u ||
       info->channels != 2u || info->bits_per_sample != 16u ||
       info->encoding != T64_AUDIO_ENCODING_S16BE ||
-      info->byte_length != length || info->first_tick > info->last_tick ||
-      (uint64_t)info->frame_count > UINT64_MAX / UINT64_C(4)) {
+      info->byte_length != length || info->first_tick > info->last_tick) {
     return false;
   }
+  /* frame_count is 32 bits, so frame_count * 4 cannot overflow uint64_t. */
   expected_bytes = (uint64_t)info->frame_count * UINT64_C(4);
   return expected_bytes == length &&
          strcmp(info->profile_id, capture->profile_id) == 0 &&

@@ -194,7 +194,19 @@
             "stale-or-missing-command-result-rejected",
             "raw-upload-rejected",
             "pii-projection-rejected",
-            "hosted-platform-witness-required"
+            "hosted-platform-witness-required",
+            "tampered-audio-observation-tail-rejected",
+            "exact-hosted-context-bound",
+            "native-command-plan-explicit-builds",
+            "phase08-gcc-closure-units-and-frame-policy",
+            "qualification-header-refuses-smoke-or-incomplete-suites",
+            "gate-junit-hook-is-private-and-opt-in",
+            "hosted-api-zip-digest-and-context-bound",
+            "native-process-record-rejects-failed-or-truncated-tail",
+            "hosted-record-rejects-entry-smoke-or-missing-platform",
+            "public-hosted-pair-requires-both-platforms",
+            "combined-upload-uses-exact-pii-scan-layout",
+            "final-evidence-cli-accepts-explicit-context-and-refuses-missing-record"
           ]
         }
       ]
