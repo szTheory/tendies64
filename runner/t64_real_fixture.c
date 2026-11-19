@@ -67,6 +67,36 @@ static const t64_real_fixture fixtures[] = {
      "661b161dfee9a10857efe3f98d840c09f05cbf0492dfde59e8ec44190dabb6d5",
      UINT32_C(0x80000470), true, 0u, 20u,
      "5fc4d0d36f6eb18aeaa37457e14d3020e14614b97b9e94c6c219f6036624fbc9"},
+    {"phase09-admit-e4k",
+     "5015baa4127a56dca9322a453bd2880ead9c3beb08f3f3dd83aada26f8272d18",
+     4264u, "ntsc-cart-4m-openipl3-rdram-b-t1-si-v1-e4k",
+     "e8dcb8dc80f2d1efabe83ac0fd8b98c8211622750b70ff142e667b0023f63ce1",
+     UINT32_C(0x80000470), true, 0u, 20u,
+     "bd084623780adfd35591144d77f299f3107a3399fe536230c6c891ed7de4f015"},
+    {"phase09-admit-e16k",
+     "f0fbe7d56aa06bbd0bc9eff1961b3985bbcf104264bf7203040ea9194b510588",
+     4264u, "ntsc-cart-4m-openipl3-rdram-b-t1-si-v1-e16k",
+     "22837f619e9537c3c678fbb484747177cbaee93b0bdbfa80d72ac028fda74f3f",
+     UINT32_C(0x80000470), true, 0u, 20u,
+     "c8ba071062fca5ba87baf198de9cf41bf387fa286754844410b644907eaa2bba"},
+    {"phase09-admit-s32k",
+     "73344e3f57c93b715147a0430714c86d46f6f7929c14556f8c0511d7791d2df8",
+     4264u, "ntsc-cart-4m-openipl3-rdram-b-t1-si-v1-s32k",
+     "52c47d606e2a0b4dce7a743327082c505ea6f062648cf37349f6e50ca398e87a",
+     UINT32_C(0x80000470), true, 0u, 20u,
+     "6a0845a8f00f0078e2dc05dddb9daf4ff66430dd2c74010054759107ab25130f"},
+    {"phase09-admit-wrong-si-v1",
+     "1220f8a1230ac83b28601028e8b1ecca84bbc89e8d78c3284a8af8fe51f6f29a",
+     4264u, "ntsc-cart-4m-openipl3-rdram-b-t1-si-v1",
+     "661b161dfee9a10857efe3f98d840c09f05cbf0492dfde59e8ec44190dabb6d5",
+     UINT32_C(0x80000470), true, 0u, 20u,
+     "5fc4d0d36f6eb18aeaa37457e14d3020e14614b97b9e94c6c219f6036624fbc9"},
+    {"phase09-admit-long-si-v1",
+     "6e803800afe03de0604ceb541deabee9a1db1a3a7d6ea397d90d8537c3f77e33",
+     4280u, "ntsc-cart-4m-openipl3-rdram-b-t1-si-v1",
+     "661b161dfee9a10857efe3f98d840c09f05cbf0492dfde59e8ec44190dabb6d5",
+     UINT32_C(0x80000484), true, T64_REAL_GUEST_TICKS_LONG_CAP, 20u,
+     "5fc4d0d36f6eb18aeaa37457e14d3020e14614b97b9e94c6c219f6036624fbc9"},
 };
 
 const t64_real_fixture *t64_real_fixture_find_bytes(
@@ -122,4 +152,13 @@ bool t64_real_fixture_log_pin(const t64_real_fixture *fixture, size_t *bytes,
   *bytes = T64_REAL_LEGACY_LOG_BYTES;
   *sha256_hex = LEGACY_LOG_SHA256;
   return false;
+}
+
+size_t t64_real_fixture_count(void) {
+  return sizeof fixtures / sizeof fixtures[0];
+}
+
+const t64_real_fixture *t64_real_fixture_at(size_t index) {
+  return index < sizeof fixtures / sizeof fixtures[0] ? &fixtures[index]
+                                                      : NULL;
 }

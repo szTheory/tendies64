@@ -739,6 +739,149 @@
         "source": "Independent literal transcript \"t64 phase09 admit 0\" plus a newline (20 bytes) with its SHA-256 computed from the literal text with printf and shasum, pinned in runner/t64_real_fixture.c and asserted in runner/tests/test_phase09_runner.c.",
         "revision": "source-content-sha256:89eb483caad0148bbbb53da8679c6565d1a0aa65ef7aadb867e50db5cdd6b27f"
       }
+    },
+    {
+      "id": "phase09-admit-e4k",
+      "source": {
+        "repo": "https://github.com/szTheory/tendies64",
+        "revision": "c1a0232b95f31c8679ec3ccd5178764eb7b0d640",
+        "path": "fixtures/phase09/admit.S"
+      },
+      "build": {
+        "recipe": "Build the same authored source, linker script and toolchain as phase09-admit-si-v1 with --defsym T64_ADMIT_ID=1. Only the transcript digit 1 and the e4k profile id changes. Source-content SHA-256 89eb483caad0148bbbb53da8679c6565d1a0aa65ef7aadb867e50db5cdd6b27f; generated ROM SHA-256 5015baa4127a56dca9322a453bd2880ead9c3beb08f3f3dd83aada26f8272d18 (4264 bytes), payload SHA-256 3692a4fca6bcebe6859ba692185cd187f807806a624fa7b24f89f2c07d6ea581 (168 bytes). Same rights-cleared IPL3 composition; local/build-only.",
+        "toolchain": ["GNU Binutils 2.45"]
+      },
+      "sha256": "5015baa4127a56dca9322a453bd2880ead9c3beb08f3f3dd83aada26f8272d18",
+      "size": 4264,
+      "profile": "ntsc-cart-4m-openipl3-rdram-b-t1-si-v1-e4k",
+      "source_rights": "authored-here",
+      "binary_rights": "cleared",
+      "distribution": ["build-only"],
+      "rights_evidence": "This variant is generated from the same Apache-2.0 authored source with a single explicit build definition. It embeds only the separately recorded pinned Unlicense IPL3 asset. The ROM and payload remain local/build-only and are not committed or uploaded.",
+      "notices": [
+        "Authored assembly and linker script are licensed under Apache-2.0; see LICENSE.",
+        "Embedded IPL3 is covered by the separately recorded pinned Unlicense source asset.",
+        "Generated admit ROM and payload are build-only."
+      ],
+      "expected": {
+        "kind": "self-checking",
+        "source": "Independent literal transcript \"t64 phase09 admit 1\" plus a newline (20 bytes) with its SHA-256 computed from the literal text with printf and shasum, pinned in runner/t64_real_fixture.c and asserted in runner/tests/test_phase09_runner.c.",
+        "revision": "source-content-sha256:89eb483caad0148bbbb53da8679c6565d1a0aa65ef7aadb867e50db5cdd6b27f"
+      }
+    },
+    {
+      "id": "phase09-admit-e16k",
+      "source": {
+        "repo": "https://github.com/szTheory/tendies64",
+        "revision": "c1a0232b95f31c8679ec3ccd5178764eb7b0d640",
+        "path": "fixtures/phase09/admit.S"
+      },
+      "build": {
+        "recipe": "Build the same authored source, linker script and toolchain as phase09-admit-si-v1 with --defsym T64_ADMIT_ID=2. Only the transcript digit 2 and the e16k profile id changes. Source-content SHA-256 89eb483caad0148bbbb53da8679c6565d1a0aa65ef7aadb867e50db5cdd6b27f; generated ROM SHA-256 f0fbe7d56aa06bbd0bc9eff1961b3985bbcf104264bf7203040ea9194b510588 (4264 bytes), payload SHA-256 b0c9e2cea190ebe0d1ed817dcac5728fd4cb248765d8137c574cb9bceb0bd742 (168 bytes). Same rights-cleared IPL3 composition; local/build-only.",
+        "toolchain": ["GNU Binutils 2.45"]
+      },
+      "sha256": "f0fbe7d56aa06bbd0bc9eff1961b3985bbcf104264bf7203040ea9194b510588",
+      "size": 4264,
+      "profile": "ntsc-cart-4m-openipl3-rdram-b-t1-si-v1-e16k",
+      "source_rights": "authored-here",
+      "binary_rights": "cleared",
+      "distribution": ["build-only"],
+      "rights_evidence": "This variant is generated from the same Apache-2.0 authored source with a single explicit build definition. It embeds only the separately recorded pinned Unlicense IPL3 asset. The ROM and payload remain local/build-only and are not committed or uploaded.",
+      "notices": [
+        "Authored assembly and linker script are licensed under Apache-2.0; see LICENSE.",
+        "Embedded IPL3 is covered by the separately recorded pinned Unlicense source asset.",
+        "Generated admit ROM and payload are build-only."
+      ],
+      "expected": {
+        "kind": "self-checking",
+        "source": "Independent literal transcript \"t64 phase09 admit 2\" plus a newline (20 bytes) with its SHA-256 computed from the literal text with printf and shasum, pinned in runner/t64_real_fixture.c and asserted in runner/tests/test_phase09_runner.c.",
+        "revision": "source-content-sha256:89eb483caad0148bbbb53da8679c6565d1a0aa65ef7aadb867e50db5cdd6b27f"
+      }
+    },
+    {
+      "id": "phase09-admit-s32k",
+      "source": {
+        "repo": "https://github.com/szTheory/tendies64",
+        "revision": "c1a0232b95f31c8679ec3ccd5178764eb7b0d640",
+        "path": "fixtures/phase09/admit.S"
+      },
+      "build": {
+        "recipe": "Build the same authored source, linker script and toolchain as phase09-admit-si-v1 with --defsym T64_ADMIT_ID=3. Only the transcript digit 3 and the s32k profile id changes. Source-content SHA-256 89eb483caad0148bbbb53da8679c6565d1a0aa65ef7aadb867e50db5cdd6b27f; generated ROM SHA-256 73344e3f57c93b715147a0430714c86d46f6f7929c14556f8c0511d7791d2df8 (4264 bytes), payload SHA-256 088a052f6b67a380c4576d25c3ce74b26573a44fc7a2111f7c2f1fd02be9fad1 (168 bytes). Same rights-cleared IPL3 composition; local/build-only.",
+        "toolchain": ["GNU Binutils 2.45"]
+      },
+      "sha256": "73344e3f57c93b715147a0430714c86d46f6f7929c14556f8c0511d7791d2df8",
+      "size": 4264,
+      "profile": "ntsc-cart-4m-openipl3-rdram-b-t1-si-v1-s32k",
+      "source_rights": "authored-here",
+      "binary_rights": "cleared",
+      "distribution": ["build-only"],
+      "rights_evidence": "This variant is generated from the same Apache-2.0 authored source with a single explicit build definition. It embeds only the separately recorded pinned Unlicense IPL3 asset. The ROM and payload remain local/build-only and are not committed or uploaded.",
+      "notices": [
+        "Authored assembly and linker script are licensed under Apache-2.0; see LICENSE.",
+        "Embedded IPL3 is covered by the separately recorded pinned Unlicense source asset.",
+        "Generated admit ROM and payload are build-only."
+      ],
+      "expected": {
+        "kind": "self-checking",
+        "source": "Independent literal transcript \"t64 phase09 admit 3\" plus a newline (20 bytes) with its SHA-256 computed from the literal text with printf and shasum, pinned in runner/t64_real_fixture.c and asserted in runner/tests/test_phase09_runner.c.",
+        "revision": "source-content-sha256:89eb483caad0148bbbb53da8679c6565d1a0aa65ef7aadb867e50db5cdd6b27f"
+      }
+    },
+    {
+      "id": "phase09-admit-wrong-si-v1",
+      "source": {
+        "repo": "https://github.com/szTheory/tendies64",
+        "revision": "c1a0232b95f31c8679ec3ccd5178764eb7b0d640",
+        "path": "fixtures/phase09/admit.S"
+      },
+      "build": {
+        "recipe": "Build the same authored source, linker script and toolchain as phase09-admit-si-v1 with --defsym T64_ADMIT_WRONG=1. Only the transcript digit replaced by the letter x on the stem profile id changes. Source-content SHA-256 89eb483caad0148bbbb53da8679c6565d1a0aa65ef7aadb867e50db5cdd6b27f; generated ROM SHA-256 1220f8a1230ac83b28601028e8b1ecca84bbc89e8d78c3284a8af8fe51f6f29a (4264 bytes), payload SHA-256 4e262a723b9d7b4e8bbb6fb7e26c2c81c5e22e5590c314b6cce97d929a207cb2 (168 bytes). Same rights-cleared IPL3 composition; local/build-only.",
+        "toolchain": ["GNU Binutils 2.45"]
+      },
+      "sha256": "1220f8a1230ac83b28601028e8b1ecca84bbc89e8d78c3284a8af8fe51f6f29a",
+      "size": 4264,
+      "profile": "ntsc-cart-4m-openipl3-rdram-b-t1-si-v1",
+      "source_rights": "authored-here",
+      "binary_rights": "cleared",
+      "distribution": ["build-only"],
+      "rights_evidence": "This variant is generated from the same Apache-2.0 authored source with a single explicit build definition. It embeds only the separately recorded pinned Unlicense IPL3 asset. The ROM and payload remain local/build-only and are not committed or uploaded.",
+      "notices": [
+        "Wrong-transcript bytes exist only to prove the real comparator is reached.",
+        "Generated negative-control ROM and payload are build-only."
+      ],
+      "expected": {
+        "kind": "self-checking",
+        "source": "Same-run accepted stem setup, then the pinned stem transcript digest rejects this variant (digit x) as wrong-transcript in runner/tests/test_phase09_runner.c.",
+        "revision": "source-content-sha256:89eb483caad0148bbbb53da8679c6565d1a0aa65ef7aadb867e50db5cdd6b27f"
+      }
+    },
+    {
+      "id": "phase09-admit-long-si-v1",
+      "source": {
+        "repo": "https://github.com/szTheory/tendies64",
+        "revision": "c1a0232b95f31c8679ec3ccd5178764eb7b0d640",
+        "path": "fixtures/phase09/admit.S"
+      },
+      "build": {
+        "recipe": "Build the same authored source, linker script and toolchain as phase09-admit-si-v1 with --defsym T64_ADMIT_SPIN=100000. Only a 100000-iteration decrement loop before the print on the stem profile id (long tick cap row) changes. Source-content SHA-256 89eb483caad0148bbbb53da8679c6565d1a0aa65ef7aadb867e50db5cdd6b27f; generated ROM SHA-256 6e803800afe03de0604ceb541deabee9a1db1a3a7d6ea397d90d8537c3f77e33 (4280 bytes), payload SHA-256 bff7841544cf57370172359b3d76a827b8ed1b1e1d0ebc7c01af6af51776b122 (184 bytes). Same rights-cleared IPL3 composition; local/build-only.",
+        "toolchain": ["GNU Binutils 2.45"]
+      },
+      "sha256": "6e803800afe03de0604ceb541deabee9a1db1a3a7d6ea397d90d8537c3f77e33",
+      "size": 4280,
+      "profile": "ntsc-cart-4m-openipl3-rdram-b-t1-si-v1",
+      "source_rights": "authored-here",
+      "binary_rights": "cleared",
+      "distribution": ["build-only"],
+      "rights_evidence": "This variant is generated from the same Apache-2.0 authored source with a single explicit build definition. It embeds only the separately recorded pinned Unlicense IPL3 asset. The ROM and payload remain local/build-only and are not committed or uploaded.",
+      "notices": [
+        "The long variant exists only to prove the per-row guest tick cap; its completion tick is asserted as a range.",
+        "Generated ROM and payload are build-only."
+      ],
+      "expected": {
+        "kind": "self-checking",
+        "source": "Same pinned stem transcript digest; completion after tick 600000 and before 1500000 asserted as a range in runner/tests/test_phase09_runner.c.",
+        "revision": "source-content-sha256:89eb483caad0148bbbb53da8679c6565d1a0aa65ef7aadb867e50db5cdd6b27f"
+      }
     }
   ]
 }

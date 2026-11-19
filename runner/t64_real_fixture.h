@@ -45,6 +45,11 @@ bool t64_real_fixture_profile_allowed(const char *profile_id);
  * or when no row is given). */
 uint64_t t64_real_fixture_tick_cap(const t64_real_fixture *fixture);
 
+/* Read-only table access (N5): the number of rows and the row at an index, or
+ * NULL for an index past the count. */
+size_t t64_real_fixture_count(void);
+const t64_real_fixture *t64_real_fixture_at(size_t index);
+
 /* Transcript pin for a row: the row's own pin (returns true) or, for a row
  * with no pin or no row, the legacy hello length and SHA-256 (returns false).
  * Both outputs are always set. */

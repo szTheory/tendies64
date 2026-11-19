@@ -206,7 +206,10 @@ repo.si-membership-sites
 runner.guest-tick-cap
 runner.fixture-transcript-pin
 runner.supervisor-argv-bound
-runner.phase09-tracer'
+runner.phase09-tracer
+runner.phase09-admit
+controls.real.phase09-admit-wrong-transcript
+runner.profile-table-id-length'
 
 CPU_COVERAGE_OPCODES='ADD
 ADDU

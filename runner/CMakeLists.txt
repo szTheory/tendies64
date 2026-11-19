@@ -546,9 +546,12 @@ function(t64_phase09_runner_case TEST_NAME CASE_NAME)
     ENVIRONMENT "T64_PHASE09_EVIDENCE_DIR=${CMAKE_BINARY_DIR}/09-02-evidence")
 endfunction()
 t64_phase09_runner_case(runner.phase09-tracer tracer-artifact)
+t64_phase09_runner_case(runner.phase09-admit admit-ids)
+t64_phase09_runner_case(controls.real.phase09-admit-wrong-transcript admit-wrong-transcript)
 t64_phase09_runner_case(runner.guest-tick-cap tick-cap)
 t64_phase09_runner_case(runner.fixture-transcript-pin transcript-pin)
 t64_phase09_runner_case(runner.supervisor-argv-bound argv-bound)
+t64_phase09_runner_case(runner.profile-table-id-length profile-table)
 
 # Original-record audio evidence controls. This selftest runs only isolated
 # verifier mutations; hosted emission remains a separate post-gate command.

@@ -138,6 +138,7 @@ typedef struct {
   char detail[64];
   char stop_kind[48];
   char fixture_id[96];
+  char profile_id[96];
   char log_sha256[65];
   bool has_log_sha256;
   uint64_t guest_tick;
@@ -178,6 +179,8 @@ static bool parse_record(const char *path, run_out *out) {
               t64_json_get(doc.root, "detail"));
   copy_string(out->fixture_id, sizeof out->fixture_id,
               t64_json_get(doc.root, "fixture_id"));
+  copy_string(out->profile_id, sizeof out->profile_id,
+              t64_json_get(doc.root, "profile_id"));
   copy_string(out->stop_kind, sizeof out->stop_kind,
               stop == NULL ? NULL : t64_json_get(stop, "kind"));
   copy_string(out->log_sha256, sizeof out->log_sha256, digest);
@@ -601,6 +604,42 @@ static int case_tick_cap(void) {
   CHECK(run_runner_direct(hello, LEGACY_HELLO_PROFILE, "4000001", NULL, NULL,
                           &run));
   expect_usage(&run);
+
+  /* The named long row accepts a bound above the default cap and up to the
+   * ceiling; the stem row, with the same bound, is refused. The completion
+   * tick is asserted as a range, never as an exact number. */
+  {
+    char long_rom[PATH_MAX];
+    char stem_rom[PATH_MAX];
+    CHECK(fixture_path(long_rom, "phase09-admit-long-si-v1"));
+    CHECK(fixture_path(stem_rom, "phase09-admit-si-v1"));
+    spec.fixture = stem_rom;
+    spec.bound = 600000u;
+    CHECK(run_supervised(&spec, &run));
+    expect_pass(&run);
+    spec.bound = 1200000u;
+    CHECK(run_supervised(&spec, &run));
+    expect_refusal(&run);
+    spec.fixture = long_rom;
+    CHECK(run_supervised(&spec, &run));
+    expect_pass(&run);
+    CHECK(strcmp(run.fixture_id, "phase09-admit-long-si-v1") == 0);
+    CHECK(run.guest_tick > 600000u);
+    CHECK(run.guest_tick < 1500000u);
+    CHECK(strcmp(run.completion_pc, "ffffffff80000484") == 0);
+    (void)fprintf(stderr, "long row completion tick: %llu\n",
+                  (unsigned long long)run.guest_tick);
+    spec.bound = 4000000u;
+    CHECK(run_supervised(&spec, &run));
+    expect_pass(&run);
+    CHECK(run.bound_tick == 4000000u);
+    spec.bound = 4000001u;
+    CHECK(run_supervised(&spec, &run));
+    expect_usage(&run);
+    spec.fixture = stem_rom;
+    CHECK(run_supervised(&spec, &run));
+    expect_usage(&run);
+  }
   return g_failures == 0 ? 0 : 1;
 }
 
@@ -711,7 +750,17 @@ static void expect_supervised_preflight_refusal(const run_out *run) {
  * tool (printf piped to shasum), never from a run. */
 #define PIN_ADMIT_0 \
   "5fc4d0d36f6eb18aeaa37457e14d3020e14614b97b9e94c6c219f6036624fbc9"
+#define PIN_ADMIT_1 \
+  "bd084623780adfd35591144d77f299f3107a3399fe536230c6c891ed7de4f015"
+#define PIN_ADMIT_2 \
+  "c8ba071062fca5ba87baf198de9cf41bf387fa286754844410b644907eaa2bba"
+#define PIN_ADMIT_3 \
+  "6a0845a8f00f0078e2dc05dddb9daf4ff66430dd2c74010054759107ab25130f"
+/* The wrong variant prints the letter x in place of the digit. */
+#define LITERAL_ADMIT_X \
+  "c1997caafcdcaa870097c2a8745e5286e77f115c99b76d05aaedebe4c8cb40b7"
 #define ADMIT_STEM_COMPLETION_PC "ffffffff80000470"
+#define ADMIT_LONG_COMPLETION_PC "ffffffff80000484"
 
 /* Tracer: the stem admit ROM on the stem id is admitted, ticked and passed
  * through the real supervised runner under its per-row pin. */
@@ -798,6 +847,186 @@ static int case_tracer_artifact(void) {
   return g_failures == 0 ? 0 : 1;
 }
 
+static bool sha256_file_hex(const char *path, char out[65]) {
+  uint8_t bytes[8192];
+  uint8_t digest[T64_SHA256_DIGEST_SIZE];
+  size_t length = 0u;
+  t64_sha256_ctx ctx;
+  if (!read_file(path, bytes, sizeof bytes, &length) || length == 0u ||
+      length >= sizeof bytes) {
+    return false;
+  }
+  t64_sha256_init(&ctx);
+  t64_sha256_update(&ctx, bytes, length);
+  t64_sha256_final(&ctx, digest);
+  t64_sha256_hex(digest, out);
+  return true;
+}
+
+typedef struct {
+  const char *stem;
+  const char *profile;
+  const char *pin;
+} admit_row;
+
+static const admit_row admit_rows[4] = {
+    {"phase09-admit-si-v1", PROFILE_STEM, PIN_ADMIT_0},
+    {"phase09-admit-e4k", PROFILE_E4K, PIN_ADMIT_1},
+    {"phase09-admit-e16k", PROFILE_E16K, PIN_ADMIT_2},
+    {"phase09-admit-s32k", PROFILE_S32K, PIN_ADMIT_3},
+};
+
+/* Each of the four ids admits its own authored ROM and passes under its own
+ * pinned transcript; a ROM under another row's profile id is refused. */
+static int case_admit_ids(void) {
+  char path[PATH_MAX];
+  char other[PATH_MAX];
+  char hashes[4][65];
+  run_spec spec = {0};
+  run_out run;
+  size_t i;
+  size_t j;
+  spec.supervisor = g_supervisor;
+  spec.fixture = path;
+  spec.bound = 600000u;
+  for (i = 0u; i < 4u; i++) {
+    CHECK(fixture_path(path, admit_rows[i].stem));
+    CHECK(sha256_file_hex(path, hashes[i]));
+    CHECK(run_supervised(&spec, &run));
+    expect_pass(&run);
+    CHECK(strcmp(run.fixture_id, admit_rows[i].stem) == 0);
+    CHECK(strcmp(run.profile_id, admit_rows[i].profile) == 0);
+    CHECK(run.log_bytes == 20u);
+    CHECK(strcmp(run.log_sha256, admit_rows[i].pin) == 0);
+    CHECK(run.milestone_count == 4u);
+    CHECK(strcmp(run.completion_pc, ADMIT_STEM_COMPLETION_PC) == 0);
+  }
+  for (i = 0u; i < 4u; i++) {
+    for (j = i + 1u; j < 4u; j++) {
+      CHECK(strcmp(hashes[i], hashes[j]) != 0);
+      CHECK(strcmp(admit_rows[i].pin, admit_rows[j].pin) != 0);
+    }
+  }
+  /* Identity check on the runner binary: the ROM of row 1 under its own
+   * profile id passes in the same setup, under row 0's id it is refused. */
+  CHECK(fixture_path(other, admit_rows[1].stem));
+  CHECK(run_runner_direct(other, admit_rows[1].profile, "600000", NULL, NULL,
+                          &run));
+  CHECK(run.parsed);
+  CHECK(strcmp(run.outcome, "pass") == 0);
+  CHECK(run_runner_direct(other, admit_rows[0].profile, "600000", NULL, NULL,
+                          &run));
+  expect_refusal(&run);
+  return g_failures == 0 ? 0 : 1;
+}
+
+/* The wrong variant reaches the same comparator: it completes at the break
+ * with a 20-byte transcript that differs from the pin. */
+static int case_admit_wrong_transcript(void) {
+  char path[PATH_MAX];
+  run_spec spec = {0};
+  run_out run;
+  spec.supervisor = g_supervisor;
+  spec.fixture = path;
+  spec.bound = 600000u;
+  CHECK(fixture_path(path, "phase09-admit-si-v1"));
+  CHECK(run_supervised(&spec, &run));
+  expect_pass(&run);
+  CHECK(strcmp(run.log_sha256, PIN_ADMIT_0) == 0);
+  CHECK(fixture_path(path, "phase09-admit-wrong-si-v1"));
+  CHECK(run_supervised(&spec, &run));
+  expect_wrong_transcript(&run);
+  CHECK(strcmp(run.fixture_id, "phase09-admit-wrong-si-v1") == 0);
+  CHECK(run.log_bytes == 20u);
+  CHECK(strcmp(run.log_sha256, LITERAL_ADMIT_X) == 0);
+  CHECK(strcmp(run.log_sha256, PIN_ADMIT_0) != 0);
+  CHECK(run.milestone_count == 4u);
+  CHECK(strcmp(run.completion_pc, ADMIT_STEM_COMPLETION_PC) == 0);
+  return g_failures == 0 ? 0 : 1;
+}
+
+static bool is_lower_hex64(const char *text) {
+  size_t i;
+  if (text == NULL || strlen(text) != 64u) return false;
+  for (i = 0u; i < 64u; i++) {
+    const char c = text[i];
+    if (!((c >= '0' && c <= '9') || (c >= 'a' && c <= 'f'))) return false;
+  }
+  return true;
+}
+
+/* N5: the table is read through its accessor. Every id fits the supervisor's
+ * 63-character child buffer, every profile resolves and hashes to its literal,
+ * no two rows share an identity, and pinned rows are well formed. */
+static int case_profile_table(void) {
+  const size_t count = t64_real_fixture_count();
+  size_t i;
+  size_t j;
+  size_t pinned = 0u;
+  size_t seen_family[4] = {0u, 0u, 0u, 0u};
+  char mutated[65];
+  CHECK(count >= 11u);
+  CHECK(t64_real_fixture_at(count) == NULL);
+  for (i = 0u; i < count; i++) {
+    const t64_real_fixture *row = t64_real_fixture_at(i);
+    const t64_profile_descriptor *profile = NULL;
+    uint8_t digest[T64_DIGEST_SIZE];
+    char hex[T64_SHA256_HEX_SIZE];
+    size_t k;
+    CHECK(row != NULL);
+    if (row == NULL) continue;
+    CHECK(strlen(row->id) >= 1u && strlen(row->id) <= 63u);
+    CHECK(strlen(row->profile_id) >= 1u && strlen(row->profile_id) <= 63u);
+    CHECK(t64_profile_lookup(row->profile_id, &profile) == T64_STATUS_OK);
+    CHECK(profile != NULL);
+    if (profile != NULL) {
+      CHECK(t64_profile_hash(profile, digest) == T64_STATUS_OK);
+      t64_sha256_hex(digest, hex);
+      CHECK(strcmp(hex, row->profile_sha256) == 0);
+    }
+    CHECK(is_lower_hex64(row->sha256));
+    CHECK(t64_real_fixture_profile_allowed(row->profile_id));
+    for (k = 0u; k < 4u; k++) {
+      if (strcmp(row->profile_id, family_ids[k]) == 0) seen_family[k]++;
+    }
+    if (row->expected_log_sha256 != NULL) {
+      pinned++;
+      CHECK(row->pass_eligible);
+      CHECK(row->expected_log_bytes >= 1u && row->expected_log_bytes <= 4096u);
+      CHECK(is_lower_hex64(row->expected_log_sha256));
+    } else {
+      CHECK(row->expected_log_bytes == 0u);
+    }
+    CHECK(row->guest_tick_cap == 0u ||
+          row->guest_tick_cap <= T64_REAL_GUEST_TICKS_CEILING);
+    for (j = i + 1u; j < count; j++) {
+      const t64_real_fixture *other = t64_real_fixture_at(j);
+      CHECK(other != NULL);
+      if (other == NULL) continue;
+      CHECK(strcmp(row->id, other->id) != 0);
+      CHECK(!(row->size == other->size &&
+              strcmp(row->sha256, other->sha256) == 0));
+    }
+  }
+  CHECK(pinned >= 6u);
+  /* The four new ids have lengths 38, 42, 43 and 43 and appear in rows. */
+  CHECK(strlen(family_ids[0]) == 38u);
+  CHECK(strlen(family_ids[1]) == 42u);
+  CHECK(strlen(family_ids[2]) == 43u);
+  CHECK(strlen(family_ids[3]) == 43u);
+  for (i = 0u; i < 4u; i++) CHECK(seen_family[i] >= 1u);
+  /* The profile gate accepts registered ids only: an unknown id and a
+   * 64-character mutation of a valid id are refused. */
+  CHECK(!t64_real_fixture_profile_allowed("no-such-profile"));
+  CHECK(!t64_real_fixture_profile_allowed(NULL));
+  (void)memset(mutated, 'x', 64u);
+  mutated[64] = '\0';
+  (void)memcpy(mutated, PROFILE_STEM, strlen(PROFILE_STEM));
+  CHECK(strlen(mutated) == 64u);
+  CHECK(!t64_real_fixture_profile_allowed(mutated));
+  return g_failures == 0 ? 0 : 1;
+}
+
 typedef struct {
   const char *name;
   int (*run)(void);
@@ -805,9 +1034,12 @@ typedef struct {
 
 static const case_entry cases[] = {
     {"tracer-artifact", case_tracer_artifact},
+    {"admit-ids", case_admit_ids},
+    {"admit-wrong-transcript", case_admit_wrong_transcript},
     {"tick-cap", case_tick_cap},
     {"transcript-pin", case_transcript_pin},
     {"argv-bound", case_argv_bound},
+    {"profile-table", case_profile_table},
 };
 
 /* Not a case: prints the id, the profile hash and the id length of the four
