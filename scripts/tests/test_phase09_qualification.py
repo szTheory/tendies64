@@ -56,6 +56,9 @@ CASE_NAMES: tuple[str, ...] = (
     "hosted-record-rejects-entry-smoke-or-missing-platform",
     "rehearsal-flag-and-pending-sources",
     "final-evidence-cli-dispatch",
+    "real-pair-accepted-and-context-bound",
+    "real-pair-invariant-mutations",
+    "real-pair-public-scan-mutations",
     "zero-case-inventory-refused",
     "inventory-shape-refused",
     "public-members-exact-allowlist",
@@ -83,6 +86,8 @@ SUITES: dict[str, tuple[str, ...]] = {
                   "hosted-context-and-api-zip-bound",
                   "hosted-record-rejects-entry-smoke-or-missing-platform",
                   "rehearsal-flag-and-pending-sources", "final-evidence-cli-dispatch"),
+    "collect-real": ("real-pair-accepted-and-context-bound", "real-pair-invariant-mutations",
+                     "real-pair-public-scan-mutations"),
     "allowlist": ("public-members-exact-allowlist",
                   "public-member-private-suffix-refused",
                   "public-member-state-magic-refused",
@@ -1305,6 +1310,196 @@ class Phase09Qualification(unittest.TestCase):
         self.assertEqual(result.returncode, 1)
         self.assertIn("hosted record is outside the private qualification tree", result.stderr)
 
+
+    # ---- the first real hosted pair -------------------------------------------
+
+    PAIR_FILE = ROOT / "docs/evidence/phase09-first-hosted-pair.json"
+
+    def _real_pair(self) -> dict:
+        pair = json.loads(self.PAIR_FILE.read_text(encoding="utf-8"))
+        self.assertEqual(pair["schema"], "t64.phase09-first-hosted-pair")
+        self.assertEqual(pair["status"], "rehearsal")
+        self.assertEqual(set(pair["manifests"]), {"gate-linux", "gate-macos"})
+        return pair
+
+    @staticmethod
+    def _real_rows(pair: dict) -> tuple:
+        """The authored rows the pair was made against (later plans append rows only)."""
+        return tuple({key: value for key, value in row.items()
+                      if key not in ("guest_tick", "state_digest")}
+                     for row in pair["manifests"]["gate-linux"]["rows"])
+
+    @staticmethod
+    def _real_context(pair: dict, job: str) -> dict:
+        return {"job": job, "sha": pair["sha"], "run": pair["run"], "attempt": pair["attempt"]}
+
+    def test_real_pair_accepted_and_context_bound(self) -> None:
+        """The two committed public records are accepted only with their own context."""
+        pair = self._real_pair()
+        rows = self._real_rows(pair)
+        self.assertEqual(rows, qualify.HOSTED_ROWS[:len(rows)])
+        linux, macos = pair["manifests"]["gate-linux"], pair["manifests"]["gate-macos"]
+        with tempfile.TemporaryDirectory(prefix="t64-p09-real.") as tmp:
+            root = Path(tmp)
+            directories = {job: _write_public(root / job, pair["manifests"][job])
+                           for job in pair["manifests"]}
+            for job, directory in directories.items():
+                self.assertEqual(qualify.scan_public_members(
+                    directory, self._real_context(pair, job), rows=rows), pair["manifests"][job])
+
+            def refuse(label: str, where: str, **changes) -> None:
+                context = dict(self._real_context(pair, where), **changes)
+                with self.assertRaises(qualify.Refusal, msg=label) as caught:
+                    qualify.scan_public_members(directories[where], context, rows=rows)
+                self.assertIn("exact supplied run context", str(caught.exception), label)
+                self.assertEqual(qualify.scan_public_members(
+                    directories[where], self._real_context(pair, where), rows=rows),
+                    pair["manifests"][where])
+
+            for job in directories:
+                refuse(f"{job} SHA", job, sha="e" * 40)
+                refuse(f"{job} run", job, run=str(int(pair["run"]) + 1))
+                refuse(f"{job} attempt", job, attempt=str(int(pair["attempt"]) + 1))
+            refuse("job", "gate-linux", job="gate-macos")
+            # The two platforms swapped: each directory holds the other platform's record.
+            swapped = {"gate-linux": _write_public(root / "swap-linux", macos),
+                       "gate-macos": _write_public(root / "swap-macos", linux)}
+            for job, directory in swapped.items():
+                with self.assertRaises(qualify.Refusal, msg=f"swapped {job}"):
+                    qualify.scan_public_members(directory, self._real_context(pair, job),
+                                                rows=rows)
+        qualify.compare_hosted_pair(pair["manifests"])
+        # A copied record cannot stand in for the second platform: the real build
+        # identities and binary hashes differ.
+        for key in ("core_build_id", "runner_build_id", "real_runner_sha256", "supervisor_sha256",
+                    "checker_sha256", "test_binary_sha256", "core_library_sha256"):
+            self.assertNotEqual(linux["producer"][key], macos["producer"][key], key)
+        self.assertEqual(linux["platform"], "linux")
+        self.assertEqual(macos["platform"], "macos")
+        self.assertEqual(linux["source_revision"], pair["sha"])
+        self.assertEqual(macos["source_revision"], pair["sha"])
+        for job in pair["artifacts"]:
+            artifact = pair["artifacts"][job]
+            self.assertRegex(artifact["archive_digest"], r"^sha256:[0-9a-f]{64}$")
+            self.assertGreater(artifact["archive_bytes"], 0)
+
+    @staticmethod
+    def _compared_leaves(manifest: dict):
+        """(path, getter-path tokens) of every scalar the pair comparison reads."""
+        def walk(value, tokens):
+            if isinstance(value, dict):
+                for key in sorted(value):
+                    yield from walk(value[key], tokens + [key])
+            elif isinstance(value, list):
+                for index, item in enumerate(value):
+                    yield from walk(item, tokens + [index])
+            else:
+                yield tokens
+        compared = {key: manifest[key] for key in (
+            "schema", "schema_version", "evidence_mode", "workflow_sha", "source_revision",
+            "run_id", "run_attempt", "rows", "timing", "inventory")}
+        compared["execution"] = {key: manifest["execution"][key]
+                                 for key in ("return_code", "status", "timed_out")}
+        yield from walk(compared, [])
+
+    @staticmethod
+    def _token_path(tokens: list) -> str:
+        text = ""
+        for token in tokens:
+            text += f"[{token}]" if isinstance(token, int) else (f".{token}" if text else token)
+        return text
+
+    def test_real_pair_invariant_mutations(self) -> None:
+        """Every compared field of the real pair, changed on one side only, is refused."""
+        pair = self._real_pair()
+        accepted = pair["manifests"]
+        qualify.compare_hosted_pair(accepted)
+        leaves = list(self._compared_leaves(accepted["gate-macos"]))
+        self.assertGreater(len(leaves), 60)
+        names = {self._token_path(tokens) for tokens in leaves}
+        for needed in ("rows[0].log_sha256", "rows[3].state_digest", "rows[1].guest_tick",
+                       "timing.poll_starts[0]", "timing.poll_starts[3]", "timing.completion_tick",
+                       "evidence_mode", "source_revision", "run_id", "run_attempt",
+                       "execution.status", "inventory.case_count"):
+            self.assertIn(needed, names)
+
+        def changed(value):
+            if isinstance(value, bool):
+                return not value
+            if isinstance(value, int):
+                return value + 1
+            if value is None:
+                return "changed"
+            if isinstance(value, str) and re.fullmatch(r"[0-9a-f]+", value):
+                return value[:-1] + ("0" if value[-1] != "0" else "1")
+            return value + "x"
+
+        for side in ("gate-linux", "gate-macos"):
+            for tokens in leaves:
+                pair_copy = copy.deepcopy(accepted)
+                target = pair_copy[side]
+                for token in tokens[:-1]:
+                    target = target[token]
+                target[tokens[-1]] = changed(target[tokens[-1]])
+                path = self._token_path(tokens)
+                with self.assertRaises(qualify.Refusal, msg=(side, path)) as caught:
+                    qualify.compare_hosted_pair(pair_copy)
+                self.assertIn(f"disagree on {path}", str(caught.exception), (side, path))
+        # A row missing on one side is a length difference of the rows.
+        short = copy.deepcopy(accepted)
+        short["gate-macos"]["rows"].pop()
+        with self.assertRaises(qualify.Refusal) as caught:
+            qualify.compare_hosted_pair(short)
+        self.assertIn("disagree on rows (length)", str(caught.exception))
+        qualify.compare_hosted_pair(accepted)
+
+    def test_real_pair_public_scan_mutations(self) -> None:
+        """The strict public scan refuses every extra, private or unsafe member."""
+        pair = self._real_pair()
+        rows = self._real_rows(pair)
+        job = "gate-macos"
+        context = self._real_context(pair, job)
+        manifest_bytes = (json.dumps(pair["manifests"][job], sort_keys=True,
+                                     separators=(",", ":")) + "\n").encode()
+        with tempfile.TemporaryDirectory(prefix="t64-p09-real-scan.") as tmp:
+            root = Path(tmp)
+            baseline = _write_public(root / "baseline", pair["manifests"][job])
+            self.assertEqual(qualify.scan_public_members(baseline, context, rows=rows),
+                             pair["manifests"][job])
+
+            def fresh(name: str, data: bytes | None = None) -> Path:
+                directory = root / name
+                directory.mkdir()
+                (directory / "manifest.json").write_bytes(manifest_bytes if data is None else data)
+                return directory
+
+            def refuse(label: str, directory: Path, needle: str) -> None:
+                with self.assertRaises(qualify.Refusal, msg=label) as caught:
+                    qualify.scan_public_members(directory, context, rows=rows)
+                self.assertIn(needle, str(caught.exception), label)
+                self.assertEqual(qualify.scan_public_members(baseline, context, rows=rows),
+                                 pair["manifests"][job])
+
+            extra = fresh("extra")
+            (extra / "notes.txt").write_text("x", encoding="utf-8")
+            refuse("extra member", extra, "unexpected member")
+            private = fresh("private")
+            (private / "state.sta").write_bytes(b"private")
+            refuse("private suffix", private, "private-suffix member")
+            linked = fresh("linked")
+            (linked / "alias.json").symlink_to(linked / "manifest.json")
+            refuse("symlink", linked, "symlink")
+            nested = fresh("nested")
+            (nested / "inner").mkdir()
+            refuse("nested directory", nested, "nested directory")
+            refuse("state magic", fresh("magic", b"T64STATE" + manifest_bytes),
+                   "state container magic")
+            home = "/" + "Users" + "/" + "someone" + "/run"
+            polluted = json.loads(manifest_bytes)
+            polluted["where"] = home
+            refuse("local path", fresh("path", json.dumps(polluted).encode()), "local path")
+            refuse("oversize", fresh("oversize", manifest_bytes + b" " * (17 * 1024)),
+                   "bounded size")
 
     def _inventory(self) -> dict:
         return json.loads(INVENTORY.read_text(encoding="utf-8"))

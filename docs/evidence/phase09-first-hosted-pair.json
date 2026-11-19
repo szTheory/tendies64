@@ -1,0 +1,276 @@
+{
+  "artifacts": {
+    "gate-linux": {
+      "archive_bytes": 10881,
+      "archive_digest": "sha256:380b85839ab695a7c798ad53eef5d80356618deb20496f69772a81a1d7c4200f",
+      "artifact_id": "14581074374"
+    },
+    "gate-macos": {
+      "archive_bytes": 10870,
+      "archive_digest": "sha256:a86852cc6ef65edcdba813c5a46a882cb487ca787de4d400f62f82dc2d6fe2a4",
+      "artifact_id": "14581792575"
+    }
+  },
+  "attempt": "1",
+  "manifests": {
+    "gate-linux": {
+      "evidence_mode": "hosted-gate",
+      "execution": {
+        "command_sha256": "37f06d2a48b8732e7bf193ca612d5163a06a3679f71384ee20169213ab2655e5",
+        "ctests": [
+          "runner.pad-poll",
+          "controls.real.pad-wrong-value"
+        ],
+        "junit_sha256": "1ab10c9f16a5202e74c5e7f713057c6d050af6f5dc4d9519922fdd7108d366d2",
+        "last_test_sha256": "728b873d3515f1f9e35e53c8fb24de31a8f63874b85d15cbf0c131b5dcc793b0",
+        "return_code": 0,
+        "status": "pass",
+        "suite": "hosted",
+        "timed_out": false
+      },
+      "inventory": {
+        "case_count": 5,
+        "ctest_count": 2,
+        "snapshot_sha256": "ef7ba0623afd84207999251cc2aaf7ab07a08c192c6e4490f88758f1d6300937",
+        "suite": "hosted"
+      },
+      "job_name": "gate-linux",
+      "platform": "linux",
+      "producer": {
+        "checker_sha256": "59cd63fac5c98782cae7fc9887e2186a3605bc526585189a34b4730abcf26025",
+        "core_build_id": "t64-build-v1-90128e188a49a53457b8083f502c8321f18e22699afab43ecc6b11c486b90477",
+        "core_library_sha256": "2bcb6cdf9d7c7c42d522786929231d28c8260fce2628c7089ca9dccf060c0e2e",
+        "real_runner_sha256": "6655e06e3b7c6474a2ad9c2a496e5b83b8f05d0b18b676b224a3784bb293c85b",
+        "runner_build_id": "t64-runner-v1-096ebdcd64adb32a7033474f4c56ed93184ff36336b3263a9443e8fa2069a495",
+        "source_revision": "2db1be4d7606b1171840c842b9a465b26ae3ef1e",
+        "supervisor_sha256": "d6f4ece3d45c1e600a2c2a23f1eb65f248d1b5add649323090fa22d896de0d51",
+        "test_binary_sha256": "a5c7f7289fe9406e01226ba835115568673bc9e090d11c12a79ce8c5cca3830a"
+      },
+      "rows": [
+        {
+          "ctest": "runner.pad-poll",
+          "expected_detail": "positive-match",
+          "expected_outcome": "pass",
+          "fixture_id": "phase09-pad-poll-si-v1",
+          "fixture_sha256": "29a005be19b2f86e866d00cfb3ab2f8aac39e376d85a5e5d24e78c113a80dab6",
+          "guest_tick": 626225,
+          "input_sha256": "e70838a961dfa08c13d9baf4cbf48fb8e3d14029c348a6e0181771b93ca8d1ba",
+          "log_bytes": 68,
+          "log_sha256": "715aa3854b455dc9fd8e038e1aa27e5d200ea311acbfd032930cdc760498d3f6",
+          "profile_hash": "661b161dfee9a10857efe3f98d840c09f05cbf0492dfde59e8ec44190dabb6d5",
+          "profile_id": "ntsc-cart-4m-openipl3-rdram-b-t1-si-v1",
+          "row_id": "accepted-baseline",
+          "state_digest": "138e8b5300dda10a70004a4604ee2a99348edb24f9ae0929c726b0b3e5dd9588"
+        },
+        {
+          "ctest": "controls.real.pad-wrong-value",
+          "expected_detail": "wrong-transcript",
+          "expected_outcome": "guest-fail",
+          "fixture_id": "phase09-pad-poll-si-v1",
+          "fixture_sha256": "29a005be19b2f86e866d00cfb3ab2f8aac39e376d85a5e5d24e78c113a80dab6",
+          "guest_tick": 626225,
+          "input_sha256": "4c830af94b3e98080f2e1b5da75581599a2523fe2df60d45b06beabc0f35c979",
+          "log_bytes": 68,
+          "log_sha256": "4c78899114ba1e1d4111c02a84a059e3943d6c3d00208c533bbc3e7faeb07910",
+          "profile_hash": "661b161dfee9a10857efe3f98d840c09f05cbf0492dfde59e8ec44190dabb6d5",
+          "profile_id": "ntsc-cart-4m-openipl3-rdram-b-t1-si-v1",
+          "row_id": "shifted-script",
+          "state_digest": "4d97dd8757770fc12f05ed7f74283f8bbde05eb513c93b658c2fae7629dc2f90"
+        },
+        {
+          "ctest": "controls.real.pad-wrong-value",
+          "expected_detail": "wrong-transcript",
+          "expected_outcome": "guest-fail",
+          "fixture_id": "phase09-pad-poll-si-v1",
+          "fixture_sha256": "29a005be19b2f86e866d00cfb3ab2f8aac39e376d85a5e5d24e78c113a80dab6",
+          "guest_tick": 626225,
+          "input_sha256": "6d5593bc2d95465b44ec7ce7785e5ff7d7d53605de9b039a021bc697d226186d",
+          "log_bytes": 68,
+          "log_sha256": "caf55c819271e372f4e4185520a49ed74c36d79c870bfa30d1dbc064c9f9f137",
+          "profile_hash": "661b161dfee9a10857efe3f98d840c09f05cbf0492dfde59e8ec44190dabb6d5",
+          "profile_id": "ntsc-cart-4m-openipl3-rdram-b-t1-si-v1",
+          "row_id": "neutral-script",
+          "state_digest": "2aafb4e44bcf5902f04caaf0549f71871ba66bbcf5a49061104075657260625d"
+        },
+        {
+          "ctest": "controls.real.pad-wrong-value",
+          "expected_detail": "wrong-transcript",
+          "expected_outcome": "guest-fail",
+          "fixture_id": "phase09-pad-poll-wrong-si-v1",
+          "fixture_sha256": "84bacc101384d52b109a4c41e4b4fac340143a89ad79a4fc4460c5890923a8f6",
+          "guest_tick": 626229,
+          "input_sha256": "330be83d0a0bf653375cdb71a5332ac82a6bc2f077e3c63a38b634d91b0a56f2",
+          "log_bytes": 68,
+          "log_sha256": "07de0176dbe67a8c313b1871e019b588d00793e8a4002fae4ce3f6cecf333315",
+          "profile_hash": "661b161dfee9a10857efe3f98d840c09f05cbf0492dfde59e8ec44190dabb6d5",
+          "profile_id": "ntsc-cart-4m-openipl3-rdram-b-t1-si-v1",
+          "row_id": "wrong-rom",
+          "state_digest": "5b22283efea06e1b2330fc0b83b03f051c05df3c70db939f2b286a82646c16b9"
+        },
+        {
+          "ctest": "controls.real.pad-wrong-value",
+          "expected_detail": "refusal",
+          "expected_outcome": "harness-error",
+          "fixture_id": "phase09-pad-poll-si-v1-altered-copy",
+          "fixture_sha256": "96e34dfa34819ee022f83f1e0a9e265f5ffb719ee32cbf2c25408568905cc760",
+          "guest_tick": 0,
+          "input_sha256": "e70838a961dfa08c13d9baf4cbf48fb8e3d14029c348a6e0181771b93ca8d1ba",
+          "log_bytes": 0,
+          "log_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+          "profile_hash": "661b161dfee9a10857efe3f98d840c09f05cbf0492dfde59e8ec44190dabb6d5",
+          "profile_id": "ntsc-cart-4m-openipl3-rdram-b-t1-si-v1",
+          "row_id": "replacement-refused",
+          "state_digest": null
+        }
+      ],
+      "run_attempt": "1",
+      "run_id": "44632478137",
+      "schema": "t64.phase09-qualification",
+      "schema_version": 1,
+      "source_revision": "2db1be4d7606b1171840c842b9a465b26ae3ef1e",
+      "timing": {
+        "completion_tick": 626225,
+        "poll_starts": [
+          541467,
+          562654,
+          583846,
+          605038
+        ]
+      },
+      "workflow_sha": "2db1be4d7606b1171840c842b9a465b26ae3ef1e"
+    },
+    "gate-macos": {
+      "evidence_mode": "hosted-gate",
+      "execution": {
+        "command_sha256": "1f660fd3048d799635b2f434b4427f7cd679ce261663bd9a47e048efad8a0b09",
+        "ctests": [
+          "runner.pad-poll",
+          "controls.real.pad-wrong-value"
+        ],
+        "junit_sha256": "28ea718ab0dbfca1bd53bb231a96460c0437410f091686a718e284a6c11ba657",
+        "last_test_sha256": "1d87cf0f0bdc3ec0f124f285158ec7a9b569e578e79754b411503f763cb3320f",
+        "return_code": 0,
+        "status": "pass",
+        "suite": "hosted",
+        "timed_out": false
+      },
+      "inventory": {
+        "case_count": 5,
+        "ctest_count": 2,
+        "snapshot_sha256": "ef7ba0623afd84207999251cc2aaf7ab07a08c192c6e4490f88758f1d6300937",
+        "suite": "hosted"
+      },
+      "job_name": "gate-macos",
+      "platform": "macos",
+      "producer": {
+        "checker_sha256": "85a1a5cdbeab82dc52d5e63ed237a7eda7cef67d46e6ecb674e3d6b1895e7480",
+        "core_build_id": "t64-build-v1-ad160607e003703eaa79ab6c1119130ca167e9677a404f655660a14dba6caced",
+        "core_library_sha256": "1708ddff6f375c1c2c538fd6c6672793335755a6677f84e5205df736e7c69b6f",
+        "real_runner_sha256": "fdc917e614c8cef2a482eac1a53050b2f6ab717ab467e1d409e46f899595baec",
+        "runner_build_id": "t64-runner-v1-2ac4dde9451baf76065d4ed91b89529754f9a12ed465613ddfe41dc82913fc75",
+        "source_revision": "2db1be4d7606b1171840c842b9a465b26ae3ef1e",
+        "supervisor_sha256": "c15b46a05b6bbeb413140e7aa2f9365bdc2562031ac38da8a5fe071f7230f8ac",
+        "test_binary_sha256": "9b3d2550884eb712bf74a5b484c1df087c25ebaa1b2f117086eabf968a1470cb"
+      },
+      "rows": [
+        {
+          "ctest": "runner.pad-poll",
+          "expected_detail": "positive-match",
+          "expected_outcome": "pass",
+          "fixture_id": "phase09-pad-poll-si-v1",
+          "fixture_sha256": "29a005be19b2f86e866d00cfb3ab2f8aac39e376d85a5e5d24e78c113a80dab6",
+          "guest_tick": 626225,
+          "input_sha256": "e70838a961dfa08c13d9baf4cbf48fb8e3d14029c348a6e0181771b93ca8d1ba",
+          "log_bytes": 68,
+          "log_sha256": "715aa3854b455dc9fd8e038e1aa27e5d200ea311acbfd032930cdc760498d3f6",
+          "profile_hash": "661b161dfee9a10857efe3f98d840c09f05cbf0492dfde59e8ec44190dabb6d5",
+          "profile_id": "ntsc-cart-4m-openipl3-rdram-b-t1-si-v1",
+          "row_id": "accepted-baseline",
+          "state_digest": "138e8b5300dda10a70004a4604ee2a99348edb24f9ae0929c726b0b3e5dd9588"
+        },
+        {
+          "ctest": "controls.real.pad-wrong-value",
+          "expected_detail": "wrong-transcript",
+          "expected_outcome": "guest-fail",
+          "fixture_id": "phase09-pad-poll-si-v1",
+          "fixture_sha256": "29a005be19b2f86e866d00cfb3ab2f8aac39e376d85a5e5d24e78c113a80dab6",
+          "guest_tick": 626225,
+          "input_sha256": "4c830af94b3e98080f2e1b5da75581599a2523fe2df60d45b06beabc0f35c979",
+          "log_bytes": 68,
+          "log_sha256": "4c78899114ba1e1d4111c02a84a059e3943d6c3d00208c533bbc3e7faeb07910",
+          "profile_hash": "661b161dfee9a10857efe3f98d840c09f05cbf0492dfde59e8ec44190dabb6d5",
+          "profile_id": "ntsc-cart-4m-openipl3-rdram-b-t1-si-v1",
+          "row_id": "shifted-script",
+          "state_digest": "4d97dd8757770fc12f05ed7f74283f8bbde05eb513c93b658c2fae7629dc2f90"
+        },
+        {
+          "ctest": "controls.real.pad-wrong-value",
+          "expected_detail": "wrong-transcript",
+          "expected_outcome": "guest-fail",
+          "fixture_id": "phase09-pad-poll-si-v1",
+          "fixture_sha256": "29a005be19b2f86e866d00cfb3ab2f8aac39e376d85a5e5d24e78c113a80dab6",
+          "guest_tick": 626225,
+          "input_sha256": "6d5593bc2d95465b44ec7ce7785e5ff7d7d53605de9b039a021bc697d226186d",
+          "log_bytes": 68,
+          "log_sha256": "caf55c819271e372f4e4185520a49ed74c36d79c870bfa30d1dbc064c9f9f137",
+          "profile_hash": "661b161dfee9a10857efe3f98d840c09f05cbf0492dfde59e8ec44190dabb6d5",
+          "profile_id": "ntsc-cart-4m-openipl3-rdram-b-t1-si-v1",
+          "row_id": "neutral-script",
+          "state_digest": "2aafb4e44bcf5902f04caaf0549f71871ba66bbcf5a49061104075657260625d"
+        },
+        {
+          "ctest": "controls.real.pad-wrong-value",
+          "expected_detail": "wrong-transcript",
+          "expected_outcome": "guest-fail",
+          "fixture_id": "phase09-pad-poll-wrong-si-v1",
+          "fixture_sha256": "84bacc101384d52b109a4c41e4b4fac340143a89ad79a4fc4460c5890923a8f6",
+          "guest_tick": 626229,
+          "input_sha256": "330be83d0a0bf653375cdb71a5332ac82a6bc2f077e3c63a38b634d91b0a56f2",
+          "log_bytes": 68,
+          "log_sha256": "07de0176dbe67a8c313b1871e019b588d00793e8a4002fae4ce3f6cecf333315",
+          "profile_hash": "661b161dfee9a10857efe3f98d840c09f05cbf0492dfde59e8ec44190dabb6d5",
+          "profile_id": "ntsc-cart-4m-openipl3-rdram-b-t1-si-v1",
+          "row_id": "wrong-rom",
+          "state_digest": "5b22283efea06e1b2330fc0b83b03f051c05df3c70db939f2b286a82646c16b9"
+        },
+        {
+          "ctest": "controls.real.pad-wrong-value",
+          "expected_detail": "refusal",
+          "expected_outcome": "harness-error",
+          "fixture_id": "phase09-pad-poll-si-v1-altered-copy",
+          "fixture_sha256": "96e34dfa34819ee022f83f1e0a9e265f5ffb719ee32cbf2c25408568905cc760",
+          "guest_tick": 0,
+          "input_sha256": "e70838a961dfa08c13d9baf4cbf48fb8e3d14029c348a6e0181771b93ca8d1ba",
+          "log_bytes": 0,
+          "log_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+          "profile_hash": "661b161dfee9a10857efe3f98d840c09f05cbf0492dfde59e8ec44190dabb6d5",
+          "profile_id": "ntsc-cart-4m-openipl3-rdram-b-t1-si-v1",
+          "row_id": "replacement-refused",
+          "state_digest": null
+        }
+      ],
+      "run_attempt": "1",
+      "run_id": "44632478137",
+      "schema": "t64.phase09-qualification",
+      "schema_version": 1,
+      "source_revision": "2db1be4d7606b1171840c842b9a465b26ae3ef1e",
+      "timing": {
+        "completion_tick": 626225,
+        "poll_starts": [
+          541467,
+          562654,
+          583846,
+          605038
+        ]
+      },
+      "workflow_sha": "2db1be4d7606b1171840c842b9a465b26ae3ef1e"
+    }
+  },
+  "notice": "Rehearsal record of the first Phase 9 hosted pair, collected through authenticated API records and the original ZIP bytes. It is not qualification evidence, it contains public projections only, and it makes no claim about hardware behavior.",
+  "repository": "szTheory/tendies64",
+  "run": "44632478137",
+  "schema": "t64.phase09-first-hosted-pair",
+  "schema_version": 1,
+  "sha": "2db1be4d7606b1171840c842b9a465b26ae3ef1e",
+  "status": "rehearsal"
+}

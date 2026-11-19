@@ -610,6 +610,13 @@ add_test(NAME harness.phase09-qualification
     --selftest)
 set_tests_properties(harness.phase09-qualification PROPERTIES
   LABELS "harness;qualification" TIMEOUT 120)
+# The cross-platform controls built from the two real records of the first
+# hosted pair (docs/evidence/phase09-first-hosted-pair.json).
+add_test(NAME harness.phase09-collect-real
+  COMMAND python3 -B ${CMAKE_SOURCE_DIR}/scripts/tests/test_phase09_qualification.py
+    --suite collect-real)
+set_tests_properties(harness.phase09-collect-real PROPERTIES
+  LABELS "harness;qualification" TIMEOUT 120)
 # The same file, two named subsets: the stub refuses every evidence mode, and
 # the upload allowlist admits exactly one manifest.json.
 add_test(NAME harness.phase09-stub-fails-closed
