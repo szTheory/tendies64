@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import argparse
+import ctypes
 import hashlib
 import importlib.util
 import json
@@ -59,6 +60,95 @@ OWNER_METADATA_PATHS = ("AGENTS.md", ".planning/config.json", ".planning/AUTONOM
 
 class Refusal(ValueError):
     """Raised when an original record is missing, changed, or unbound."""
+
+
+class _TAudioPacketInfo(ctypes.Structure):
+    _fields_ = [
+        ("struct_size", ctypes.c_uint32),
+        ("sequence", ctypes.c_uint64),
+        ("first_sample_index", ctypes.c_uint64),
+        ("first_tick", ctypes.c_uint64),
+        ("last_tick", ctypes.c_uint64),
+        ("frame_count", ctypes.c_uint32),
+        ("rate_numerator", ctypes.c_uint64),
+        ("rate_denominator", ctypes.c_uint64),
+        ("channels", ctypes.c_uint32),
+        ("bits_per_sample", ctypes.c_uint32),
+        ("encoding", ctypes.c_uint32),
+        ("byte_length", ctypes.c_size_t),
+        ("profile_id", ctypes.c_char * 64),
+        ("build_id", ctypes.c_char * 128),
+    ]
+
+
+class _TAudioPacketObservation(ctypes.Structure):
+    _fields_ = [
+        ("info", _TAudioPacketInfo),
+        ("bytes", ctypes.c_uint8 * 16),
+    ]
+
+
+class _TAudioBusWrite(ctypes.Structure):
+    _fields_ = [
+        ("tick", ctypes.c_uint64),
+        ("address", ctypes.c_uint32),
+        ("value", ctypes.c_uint32),
+        ("kind", ctypes.c_uint32),
+    ]
+
+
+class _TAudioSwRetirement(ctypes.Structure):
+    _fields_ = [
+        ("tick", ctypes.c_uint64),
+        ("pc", ctypes.c_uint32),
+        ("opcode", ctypes.c_uint32),
+    ]
+
+
+class _TAudioYieldObservation(ctypes.Structure):
+    _fields_ = [
+        ("target_tick", ctypes.c_uint64),
+        ("before_tick", ctypes.c_uint64),
+        ("reached_tick", ctypes.c_uint64),
+        ("video_before", ctypes.c_uint32),
+        ("video_after", ctypes.c_uint32),
+        ("audio_before", ctypes.c_uint32),
+        ("audio_after", ctypes.c_uint32),
+    ]
+
+
+class _TAudioObservation(ctypes.Structure):
+    _fields_ = [
+        ("magic", ctypes.c_uint32),
+        ("version", ctypes.c_uint32),
+        ("packet_count", ctypes.c_uint32),
+        ("bus_write_count", ctypes.c_uint32),
+        ("sw_retirement_count", ctypes.c_uint32),
+        ("trace_overflow", ctypes.c_uint32),
+        ("mi_ai_read_seen", ctypes.c_uint32),
+        ("guest_mi_snapshot_seen", ctypes.c_uint32),
+        ("guest_mi_snapshot", ctypes.c_uint32),
+        ("trace_records", ctypes.c_uint64),
+        ("mi_ai_read_tick", ctypes.c_uint64),
+        ("guest_last_cpu_tick", ctypes.c_uint64),
+        ("guest_stop_tick", ctypes.c_uint64),
+        ("guest_first_escape_tick", ctypes.c_uint64),
+        ("guest_first_exception_tick", ctypes.c_uint64),
+        ("guest_first_exception_epc", ctypes.c_uint64),
+        ("guest_first_exception_preceding_tick", ctypes.c_uint64),
+        ("guest_first_exception_state", ctypes.c_uint64),
+        ("guest_first_exception_mi", ctypes.c_uint64),
+        ("guest_last_cpu_pc", ctypes.c_uint32),
+        ("guest_first_escape_pc", ctypes.c_uint32),
+        ("guest_first_exception_preceding_pc", ctypes.c_uint32),
+        ("guest_first_exception_seen", ctypes.c_uint32),
+        ("guest_stop_reason", ctypes.c_uint32),
+        ("yield_count", ctypes.c_uint32),
+        ("packets", _TAudioPacketObservation * 2),
+        ("bus_writes", _TAudioBusWrite * 16),
+        ("sw_retirements", _TAudioSwRetirement * 16),
+        ("yields", _TAudioYieldObservation * 65),
+    ]
 
 
 def _read(path: Path, limit: int = 64 * 1024 * 1024) -> bytes:
@@ -1606,6 +1696,119 @@ def _verify_capture_identities(result: dict[str, Any], manifest: dict[str, Any])
              "runner semantic build identity is malformed")
 
 
+def _audio_observation_native_size() -> int:
+    _require((sys.platform.startswith("linux") or sys.platform == "darwin") and
+             sys.byteorder == "little" and
+             ctypes.sizeof(ctypes.c_void_p) == 8 and
+             ctypes.sizeof(ctypes.c_size_t) == 8,
+             "audio observation native representation is unsupported")
+    _require(ctypes.sizeof(_TAudioPacketInfo) == 280 and
+             ctypes.sizeof(_TAudioObservation) == 3976,
+             "audio observation version 2 native layout differs")
+    return ctypes.sizeof(_TAudioObservation)
+
+
+def _audio_observation_text(info: _TAudioPacketInfo, field: str,
+                            expected: str) -> bool:
+    descriptor = getattr(_TAudioPacketInfo, field)
+    actual = ctypes.string_at(ctypes.addressof(info) + descriptor.offset,
+                              descriptor.size)
+    encoded = expected.encode("ascii")
+    return (len(encoded) < len(actual) and actual[:len(encoded)] == encoded and
+            actual[len(encoded):] == bytes(len(actual) - len(encoded)))
+
+
+def _audio_observation_uint(value: Any, name: str) -> int:
+    _require(isinstance(value, str) and len(value) <= 20 and
+             re.fullmatch(r"[0-9]+", value) is not None,
+             f"audio observation {name} is not an unsigned decimal literal")
+    parsed = int(value)
+    _require(parsed <= 0xFFFFFFFFFFFFFFFF,
+             f"audio observation {name} exceeds its native field width")
+    return parsed
+
+
+def _verify_audio_observation(data: bytes, manifest: dict[str, Any],
+                              audio_entries: list[dict[str, Any]],
+                              packet_data: list[bytes],
+                              result: dict[str, Any]) -> None:
+    expected_size = _audio_observation_native_size()
+    _require(len(data) == expected_size,
+             "original PCM observation has the wrong native record size")
+    observation = _TAudioObservation.from_buffer_copy(data)
+    _require(observation.magic == 0x54363441 and observation.version == 2,
+             "original PCM observation schema or version differs")
+    _require(observation.packet_count == 2 and
+             observation.bus_write_count == 16 and
+             observation.sw_retirement_count == 15 and
+             observation.trace_overflow == 0 and
+             observation.mi_ai_read_seen == 1 and
+             observation.guest_mi_snapshot_seen == 1 and
+             observation.guest_stop_reason == 8 and
+             observation.yield_count <= 65,
+             "original PCM observation counters or completion metadata differ")
+    stop_tick = _audio_observation_uint(result.get("guest_tick"),
+                                        "result guest tick")
+    _require(stop_tick == 551001 and observation.guest_stop_tick == stop_tick and
+             observation.guest_last_cpu_tick <= stop_tick and
+             observation.mi_ai_read_tick <= stop_tick,
+             "original PCM observation completion tick differs from its result")
+    _require(len(audio_entries) == 2 and len(packet_data) == 2,
+             "original PCM observation packet denominator differs")
+    build_id = manifest.get("core_build_id")
+    _require(isinstance(build_id, str) and
+             re.fullmatch(r"t64-build-v1-[0-9a-f]{64}", build_id) is not None,
+             "original PCM observation build identity is malformed")
+    expected_samples = (0, 4)
+    expected_ticks: list[tuple[int, int]] = []
+    for index, (entry, raw_packet) in enumerate(zip(audio_entries, packet_data)):
+        _require(isinstance(entry, dict),
+                 "raw audio packet metadata is malformed")
+        expected = {
+            "sequence": index + 1,
+            "first_sample_index": expected_samples[index],
+            "frame_count": 4,
+            "rate_numerator": 48681812,
+            "rate_denominator": 1104,
+            "channels": 2,
+            "bits_per_sample": 16,
+            "byte_length": 16,
+        }
+        info = observation.packets[index].info
+        _require(info.struct_size == ctypes.sizeof(_TAudioPacketInfo) and
+                 info.sequence == expected["sequence"] and
+                 info.first_sample_index == expected["first_sample_index"] and
+                 info.frame_count == expected["frame_count"] and
+                 info.rate_numerator == expected["rate_numerator"] and
+                 info.rate_denominator == expected["rate_denominator"] and
+                 info.channels == expected["channels"] and
+                 info.bits_per_sample == expected["bits_per_sample"] and
+                 info.encoding == 1 and info.byte_length == expected["byte_length"],
+                 f"PCM observation packet {index} metadata differs from the authored literal")
+        for field, value in expected.items():
+            if field in {"sequence", "first_sample_index", "frame_count",
+                         "rate_numerator", "rate_denominator", "channels",
+                         "bits_per_sample", "byte_length"}:
+                _require(_audio_observation_uint(entry.get(field), field) == value,
+                         f"raw audio packet {index} {field} differs from its independent literal")
+        first_tick = _audio_observation_uint(entry.get("first_tick"), "first tick")
+        last_tick = _audio_observation_uint(entry.get("last_tick"), "last tick")
+        _require(info.first_tick == first_tick and info.last_tick == last_tick and
+                 first_tick <= last_tick < stop_tick and
+                 entry.get("encoding") == "s16be-interleaved-stereo",
+                 f"PCM observation packet {index} tick or encoding metadata differs from its raw bundle")
+        expected_ticks.append((first_tick, last_tick))
+        _require(len(raw_packet) == 16 and
+                 bytes(observation.packets[index].bytes) == raw_packet and
+                 raw_packet == PCM[index * 16:(index + 1) * 16],
+                 f"PCM observation packet {index} bytes differ from the accepted raw bundle or literal")
+        _require(_audio_observation_text(info, "profile_id", PROFILE_ID) and
+                 _audio_observation_text(info, "build_id", build_id),
+                 f"PCM observation packet {index} profile or build identity differs")
+    _require(expected_ticks[0][1] < expected_ticks[1][0],
+             "PCM observation packet tick ranges overlap or are out of order")
+
+
 def _capture_record(record: Path, build: Path, last_test_path: Path,
                     junit_path: Path) -> dict[str, Any]:
     record = record.resolve()
@@ -1698,6 +1901,7 @@ def _capture_record(record: Path, build: Path, last_test_path: Path,
         video_bytes.extend(data)
         expected_files.add(f"video/{name}")
     audio_bytes = bytearray()
+    audio_packet_data: list[bytes] = []
     for index, entry in enumerate(audio):
         name = f"packet-{index:06d}.s16be"
         _require(isinstance(entry, dict) and entry.get("file") == name and
@@ -1711,6 +1915,7 @@ def _capture_record(record: Path, build: Path, last_test_path: Path,
                  "audio packet metadata differs from the authored PCM stream")
         data = _packet_file(bundle / "audio" / name, 16)
         audio_bytes.extend(data)
+        audio_packet_data.append(data)
         expected_files.add(f"audio/{name}")
     _verify_pcm_literal(bytes(audio_bytes))
     actual_files = {
@@ -1729,7 +1934,8 @@ def _capture_record(record: Path, build: Path, last_test_path: Path,
              bytes(video_bytes[:336]) == observer[packet_offset:packet_offset + 336],
              "video packet or observer profile/build identity differs from its original record")
     audio_observer = _read(record / "audio-observation.bin", 16 * 1024)
-    _require(len(audio_observer) > 0, "original PCM observation record is empty")
+    _verify_audio_observation(audio_observer, manifest, audio,
+                              audio_packet_data, result)
 
     fixture = _read(ROOT / "build/fixtures/audio-pcm.z64", 1024 * 1024)
     input_data = _read(ROOT / "build/fixtures/hello.input.json", 64 * 1024)

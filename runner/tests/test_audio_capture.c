@@ -74,6 +74,9 @@ static const char *const raw_capture_host_error_details[] = {
 
 static bool save_evidence(const char *directory, const char *name,
                           const uint8_t *bytes, size_t length);
+static int run_observer_retention_failure(char *supervisor, char *checker,
+                                         char *fixture, char *input);
+static bool fail_next_audio_observation_save;
 
 typedef struct {
   const char *fixture_id;
@@ -298,6 +301,10 @@ static bool save_evidence(const char *directory, const char *name,
                          const uint8_t *bytes, size_t length) {
   char path[4096];
   size_t offset = 0u;
+  size_t write_length = length;
+  bool inject_partial_audio_failure =
+      fail_next_audio_observation_save &&
+      strcmp(name, "audio-observation.bin") == 0;
   int fd;
   int path_length = snprintf(path, sizeof path, "%s/%s", directory, name);
   if (path_length <= 0 || (size_t)path_length >= sizeof path ||
@@ -306,8 +313,12 @@ static bool save_evidence(const char *directory, const char *name,
   }
   fd = open(path, O_WRONLY | O_CREAT | O_EXCL | O_NOFOLLOW, 0600);
   if (fd < 0) return false;
-  while (offset < length) {
-    ssize_t count = write(fd, bytes + offset, length - offset);
+  if (inject_partial_audio_failure) {
+    fail_next_audio_observation_save = false;
+    write_length = length / 2u;
+  }
+  while (offset < write_length) {
+    ssize_t count = write(fd, bytes + offset, write_length - offset);
     if (count < 0 && errno == EINTR) continue;
     if (count <= 0) {
       (void)close(fd);
@@ -315,7 +326,8 @@ static bool save_evidence(const char *directory, const char *name,
     }
     offset += (size_t)count;
   }
-  return close(fd) == 0;
+  if (close(fd) != 0) return false;
+  return !inject_partial_audio_failure;
 }
 
 static bool save_command(const char *directory, char *const *args,
@@ -882,19 +894,36 @@ cleanup:
     uint8_t meta_bytes[4096];
     size_t meta_length = 0u;
     int read_status_length;
+    struct stat original_meta_status;
+    bool original_meta_saved = false;
+    bool video_observer_saved;
+    bool audio_observer_saved;
+    bool read_status_saved = false;
+    bool full_observers_required =
+        raw_options == NULL || raw_options->expected_error == NULL ||
+        (strcmp(raw_options->expected_error, "runner-signalled") != 0 &&
+         strcmp(raw_options->expected_error, "usage") != 0);
     length = snprintf(original_meta_path, sizeof original_meta_path,
                       "%s/supervisor-meta.original.json", directory);
-    if (length > 0 && (size_t)length < sizeof original_meta_path &&
-        access(original_meta_path, F_OK) != 0 &&
-        read_file(meta_path, meta_bytes, sizeof meta_bytes, &meta_length) &&
-        meta_length != 0u) {
-      (void)save_evidence(directory, "supervisor-meta.original.json",
-                          meta_bytes, meta_length);
+    if (length > 0 && (size_t)length < sizeof original_meta_path) {
+      if (lstat(original_meta_path, &original_meta_status) == 0) {
+        original_meta_saved = S_ISREG(original_meta_status.st_mode) &&
+                              (original_meta_status.st_mode & 0777) == 0600;
+      } else if (errno == ENOENT &&
+                 read_file(meta_path, meta_bytes, sizeof meta_bytes,
+                           &meta_length) &&
+                 meta_length != 0u) {
+        original_meta_saved = save_evidence(
+            directory, "supervisor-meta.original.json", meta_bytes,
+            meta_length);
+      }
     }
-    (void)save_evidence(directory, "video-observation.bin",
-                       (const uint8_t *)video, pipes[0].received);
-    (void)save_evidence(directory, "audio-observation.bin",
-                       (const uint8_t *)audio, pipes[1].received);
+    video_observer_saved = save_evidence(
+        directory, "video-observation.bin", (const uint8_t *)video,
+        pipes[0].received);
+    audio_observer_saved = save_evidence(
+        directory, "audio-observation.bin", (const uint8_t *)audio,
+        pipes[1].received);
     read_status_length = snprintf(
         read_status, sizeof read_status,
         "wait_status=%d\npipe_read_ok=%d\nvideo_expected=%zu\nvideo_received=%zu\nvideo_eof=%d\nvideo_overflow=%d\naudio_expected=%zu\naudio_received=%zu\naudio_eof=%d\naudio_overflow=%d\nchecker_ok=%d\nresult_pass=%d\n",
@@ -904,9 +933,22 @@ cleanup:
         result_ok);
     if (read_status_length > 0 &&
         (size_t)read_status_length < sizeof read_status) {
-      (void)save_evidence(directory, "read-status.txt",
-                          (const uint8_t *)read_status,
-                          (size_t)read_status_length);
+      read_status_saved = save_evidence(
+          directory, "read-status.txt", (const uint8_t *)read_status,
+          (size_t)read_status_length);
+    }
+    if (!read_status_saved ||
+        (full_observers_required &&
+         (!video_observer_saved || !audio_observer_saved ||
+          pipes[0].received != sizeof *video ||
+          pipes[1].received != sizeof *audio)) ||
+        (full_observers_required && producer_report_ok &&
+         !original_meta_saved)) {
+      fprintf(stderr,
+              "required supervisor evidence retention failed: meta=%d video=%d/%zu audio=%d/%zu status=%d\n",
+              original_meta_saved, video_observer_saved, pipes[0].received,
+              audio_observer_saved, pipes[1].received, read_status_saved);
+      pass = false;
     }
     fprintf(stderr, "private audio runner evidence retained at %s\n",
             directory);
@@ -2077,6 +2119,10 @@ static int run_capture_io_errors(char *production_supervisor,
     }
     puts("production supervisor rejected --test-fault before guest execution");
   }
+  if (run_observer_retention_failure(production_supervisor, checker, fixture,
+                                     input) != 0) {
+    return 1;
+  }
   return 0;
 }
 
@@ -2485,6 +2531,135 @@ static bool find_result_for_outcome(const char *root, const char *outcome,
   (void)closedir(entries);
   *matches_out = matches;
   return true;
+}
+
+static int run_observer_retention_failure(char *supervisor, char *checker,
+                                         char *fixture, char *input) {
+  const audio_run_case test = {AUDIO_FIXTURE_ID, AUDIO_FIXTURE_SHA256, false};
+  t64_video_observation baseline_video = {0};
+  t64_audio_observation baseline_audio = {0};
+  t64_video_observation failed_video = {0};
+  t64_audio_observation failed_audio = {0};
+  raw_run_options baseline_options = {0};
+  raw_run_options failed_options = {0};
+  char root[512];
+  char baseline_target[1024];
+  char failed_target[1024];
+  char baseline_bundle[512] = {0};
+  char failed_bundle[512] = {0};
+  char failed_evidence[1024];
+  char result_path[1200];
+  char observer_path[1200];
+  char video_path[1200];
+  char status_path[1200];
+  char meta_path[1200];
+  char baseline_digest[65] = {0};
+  char failed_digest[65] = {0};
+  size_t matches = 0u;
+  struct stat observer_status;
+  struct stat video_status;
+  struct stat file_status;
+  bool supervised_pass;
+  int length;
+
+  if (!make_capture_test_root(root) ||
+      setenv("T64_AUDIO_EVIDENCE_DIR", root, 1) != 0) {
+    fprintf(stderr, "could not prepare observer-retention evidence root\n");
+    return 1;
+  }
+  length = snprintf(baseline_target, sizeof baseline_target,
+                    "%s/accepted-baseline", root);
+  if (length <= 0 || (size_t)length >= sizeof baseline_target) return 1;
+  length = snprintf(failed_target, sizeof failed_target,
+                    "%s/partial-save-attempt", root);
+  if (length <= 0 || (size_t)length >= sizeof failed_target) return 1;
+  baseline_options.raw_target_override = baseline_target;
+  if (!run_supervised(supervisor, checker, fixture, input, &test,
+                      &baseline_video, &baseline_audio, 0u, baseline_bundle,
+                      baseline_digest, &baseline_options) ||
+      !fixture_observations_match(&baseline_video, &baseline_audio, false) ||
+      strcmp(baseline_bundle, baseline_target) != 0) {
+    fprintf(stderr,
+            "same-setup observer-retention baseline was not a complete accepted capture\n");
+    return 1;
+  }
+  failed_options.raw_target_override = failed_target;
+  fail_next_audio_observation_save = true;
+  supervised_pass = run_supervised(supervisor, checker, fixture, input, &test,
+                                   &failed_video, &failed_audio, 0u,
+                                   failed_bundle, failed_digest,
+                                   &failed_options);
+  if (fail_next_audio_observation_save) {
+    fail_next_audio_observation_save = false;
+    fprintf(stderr,
+            "partial audio-observation save fault did not reach evidence retention\n");
+    return 1;
+  }
+  if (strcmp(failed_bundle, failed_target) != 0 ||
+      !find_result_for_outcome(root, "pass", failed_target, failed_evidence,
+                               &matches) ||
+      matches != 1u) {
+    fprintf(stderr,
+            "partial observer save did not preserve one accepted producer result\n");
+    return 1;
+  }
+  length = snprintf(result_path, sizeof result_path, "%s/result.json",
+                    failed_evidence);
+  if (length <= 0 || (size_t)length >= sizeof result_path ||
+      !result_is_pass(result_path, &test, failed_digest) ||
+      strcmp(failed_digest, baseline_digest) != 0 ||
+      !capture_bundles_equal(baseline_target, failed_target,
+                             baseline_video.packets_drained,
+                             baseline_audio.packet_count)) {
+    fprintf(stderr,
+            "partial observer-save case did not retain the same accepted guest result and complete raw bundle\n");
+    return 1;
+  }
+  length = snprintf(observer_path, sizeof observer_path,
+                    "%s/audio-observation.bin", failed_evidence);
+  if (length <= 0 || (size_t)length >= sizeof observer_path ||
+      lstat(observer_path, &observer_status) != 0 ||
+      !S_ISREG(observer_status.st_mode) || observer_status.st_size <= 0 ||
+      (size_t)observer_status.st_size >= sizeof failed_audio) {
+    fprintf(stderr,
+            "partial audio-observation record was not preserved at a truncated size\n");
+    return 1;
+  }
+  length = snprintf(video_path, sizeof video_path,
+                    "%s/video-observation.bin", failed_evidence);
+  if (length <= 0 || (size_t)length >= sizeof video_path ||
+      lstat(video_path, &video_status) != 0 ||
+      !S_ISREG(video_status.st_mode) ||
+      (size_t)video_status.st_size != sizeof failed_video) {
+    fprintf(stderr, "required video observation was not retained completely\n");
+    return 1;
+  }
+  length = snprintf(status_path, sizeof status_path, "%s/read-status.txt",
+                    failed_evidence);
+  if (length <= 0 || (size_t)length >= sizeof status_path ||
+      lstat(status_path, &file_status) != 0 || !S_ISREG(file_status.st_mode) ||
+      file_status.st_size <= 0) {
+    fprintf(stderr, "required observer read status was not retained\n");
+    return 1;
+  }
+  length = snprintf(meta_path, sizeof meta_path,
+                    "%s/supervisor-meta.original.json", failed_evidence);
+  if (length <= 0 || (size_t)length >= sizeof meta_path ||
+      lstat(meta_path, &file_status) != 0 || !S_ISREG(file_status.st_mode) ||
+      file_status.st_size <= 0) {
+    fprintf(stderr, "required original supervisor metadata was not retained\n");
+    return 1;
+  }
+  if (supervised_pass) {
+    fprintf(stderr,
+            "RED: accepted guest pass survived a failed partial audio-observation evidence save; evidence=%s observer_bytes=%lld\n",
+            failed_evidence, (long long)observer_status.st_size);
+    return 1;
+  }
+  printf("case reached: partial audio-observation save failure rejected after accepted guest result; evidence=%s baseline=%s observer_bytes=%lld expected_bytes=%zu\n",
+         failed_evidence, baseline_target,
+         (long long)observer_status.st_size, sizeof failed_audio);
+  return 0;
 }
 
 enum {

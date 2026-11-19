@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+import ctypes
 import importlib.util
 import json
 import os
@@ -137,6 +138,92 @@ def _projection() -> dict[str, Any]:
 
 
 class AudioQualificationTests(unittest.TestCase):
+    def test_truncated_forged_resealed_audio_observation_rejected(self) -> None:
+        build_id = "t64-build-v1-" + "c" * 64
+        entries = [
+            {
+                "sequence": "1", "first_sample_index": "0",
+                "frame_count": "4", "rate_numerator": "48681812",
+                "rate_denominator": "1104", "channels": "2",
+                "bits_per_sample": "16", "byte_length": "16",
+                "first_tick": "540414", "last_tick": "544666",
+                "encoding": "s16be-interleaved-stereo",
+            },
+            {
+                "sequence": "2", "first_sample_index": "4",
+                "frame_count": "4", "rate_numerator": "48681812",
+                "rate_denominator": "1104", "channels": "2",
+                "bits_per_sample": "16", "byte_length": "16",
+                "first_tick": "546083", "last_tick": "550335",
+                "encoding": "s16be-interleaved-stereo",
+            },
+        ]
+        manifest = {"core_build_id": build_id, "audio": entries}
+        result = {"guest_tick": "551001"}
+        observation = qualify._TAudioObservation()
+        observation.magic = 0x54363441
+        observation.version = 2
+        observation.packet_count = 2
+        observation.bus_write_count = 16
+        observation.sw_retirement_count = 15
+        observation.mi_ai_read_seen = 1
+        observation.guest_mi_snapshot_seen = 1
+        observation.trace_records = 2346555
+        observation.mi_ai_read_tick = 550738
+        observation.guest_last_cpu_tick = 551000
+        observation.guest_stop_tick = 551001
+        observation.guest_stop_reason = 8
+        packet_data = [qualify.PCM[:16], qualify.PCM[16:]]
+        for index, (entry, raw) in enumerate(zip(entries, packet_data)):
+            packet = observation.packets[index]
+            info = packet.info
+            info.struct_size = ctypes.sizeof(qualify._TAudioPacketInfo)
+            info.sequence = int(entry["sequence"])
+            info.first_sample_index = int(entry["first_sample_index"])
+            info.first_tick = int(entry["first_tick"])
+            info.last_tick = int(entry["last_tick"])
+            info.frame_count = int(entry["frame_count"])
+            info.rate_numerator = int(entry["rate_numerator"])
+            info.rate_denominator = int(entry["rate_denominator"])
+            info.channels = int(entry["channels"])
+            info.bits_per_sample = int(entry["bits_per_sample"])
+            info.encoding = 1
+            info.byte_length = int(entry["byte_length"])
+            info.profile_id = qualify.PROFILE_ID.encode("ascii")
+            info.build_id = build_id.encode("ascii")
+            for byte_index, value in enumerate(raw):
+                packet.bytes[byte_index] = value
+        valid = ctypes.string_at(ctypes.addressof(observation),
+                                 ctypes.sizeof(observation))
+
+        qualify._verify_audio_observation(valid, manifest, entries, packet_data, result)
+        self.assertEqual(len(valid), 3976)
+        with self.assertRaises(qualify.Refusal):
+            qualify._verify_audio_observation(valid[:-1], manifest, entries,
+                                              packet_data, result)
+
+        wrong_version = qualify._TAudioObservation.from_buffer_copy(valid)
+        wrong_version.version = 3
+        forged_version = ctypes.string_at(ctypes.addressof(wrong_version),
+                                          ctypes.sizeof(wrong_version))
+        self.assertEqual(len(qualify._sha(forged_version)), 64)
+        with self.assertRaises(qualify.Refusal):
+            qualify._verify_audio_observation(forged_version, manifest, entries,
+                                              packet_data, result)
+
+        forged = qualify._TAudioObservation.from_buffer_copy(valid)
+        forged.packets[0].info.byte_length = 15
+        forged_bytes = ctypes.string_at(ctypes.addressof(forged),
+                                        ctypes.sizeof(forged))
+        resealed_manifest = json.loads(json.dumps(manifest))
+        resealed_manifest["audio"][0]["byte_length"] = "15"
+        self.assertEqual(len(qualify._sha(forged_bytes)), 64)
+        with self.assertRaises(qualify.Refusal):
+            qualify._verify_audio_observation(
+                forged_bytes, resealed_manifest, resealed_manifest["audio"],
+                packet_data, result,
+            )
+
     def test_hosted_api_zip_digest_and_context_bound(self) -> None:
         archive = b"bounded synthetic archive bytes"
         digest = "sha256:" + qualify._sha(archive)
