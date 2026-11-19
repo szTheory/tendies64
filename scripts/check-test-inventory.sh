@@ -198,6 +198,7 @@ unit.core.profile.v12-identity
 unit.core.profile.quantum-identity
 unit.core.profile.family-devices
 unit.core.digest.sink-legacy-identity
+unit.core.digest.v25-reference
 unit.core.digest.v25-strip-differential'
 
 CPU_COVERAGE_OPCODES='ADD

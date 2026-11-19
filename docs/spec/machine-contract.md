@@ -269,37 +269,123 @@ tick-add overflow are rejected before machine-state mutation; rejected
 reservations do not consume sequence values.
 
 `t64_machine_digest` is a versioned SHA-256 encoding, not a memory dump. The
-v5 encoding streams the `t64.state.v5` domain and fixed-width big-endian
-fields. It includes the complete profile hash, immutable admitted content
-size and hash, parsed header metadata, loaded-image flag, guest tick,
-cumulative counters, sticky error and halt state, RDRAM bytes, SP DMEM and IMEM
-bytes, six-bit MI pending and mask state, the derived IRQ line, all PI raw
-latches and sticky error, PI active/canceled flags and immutable descriptor,
-active/next token and token-exhaustion state, all SP raw latches, both complete
-SP descriptors and SP next-token/exhaustion state, and the logical ordered event
-queue with its count and next-sequence/exhaustion state. Busy/full are derived
-from descriptor validity. Event records encode tick, sequence, device, kind,
-value and token. PI state was not reserved in v3, so the selected profile and
-state schema advanced together to v4; SP state was not reserved in v4, so they
-now advance together to v5. The profile digest is
-`b7d1600ad960b4e04fdc3ec372675edc47b26b15be8e9cd84cbab4fd75835647`; the
-independently assembled default fixture state digest is
-`6813739ff2fc1cffac6d85fa86df0c593e3035f8a640c642e37790acd96b6e77`.
+profile's state serialization version selects the encoding. Every encoding
+starts with a domain string and then streams fixed-width big-endian fields; no
+padding, pointer or host layout is hashed. One walker, `t64_digest_stream`,
+produces the stream and a sink either hashes it, copies it into a buffer, or
+only counts it, so a digest and a buffer copy are the same bytes. A write past a
+buffer's capacity sets the sink's overflow flag, copies nothing and still
+advances the running length, which is how a size query works.
 
-The open IPL3 warm profile preserves separate historical v6 and v7 encodings
-and uses the active `t64.state.v8` encoding. Its v8 extension includes pinned
-boot asset, payload and policy hashes; prepared boot offsets and seed fields;
-CPU GPR/HI/LO/CP0, retirement and stop state; cache and prepared guest-device
-state; and retained ISViewer state, including attempted-byte total and its
-saturation flag. The active state serialization version is 8 and the profile
-digest is `d8c12cb2a00410a2153ca62da318166f3ca029dea8e3d6b9c841262cb8203c71`.
-The independent initial warm-entry state vector is
-`d2212ea39cadf8642cab2451fbcea484f5c6997d51619faef41e9ada24aa9724`; the
-tests retain the prior v6 and v7 vectors as historical evidence.
+The encodings that exist in `core/t64_digest.c`, by state version:
+
+| State version | Domain string | Registered profile ids |
+| --- | --- | --- |
+| 5 | `t64.state.v5` | `ntsc-cart-4m-skeleton` |
+| 6, 7 | `t64.state.v6`, `t64.state.v7` | historical encodings, kept for fixed test vectors |
+| 8 | `t64.state.v8` | `ntsc-cart-4m-openipl3-warm-v1` |
+| 9, 10, 11 | `t64.state.v9`, `t64.state.v10`, `t64.state.v11` | `...-vr4300-v1`, `...-vr4300-compat-v1`, `...-vr4300-compat-v2` |
+| 12 | `t64.state.rsp.functional.12` | `...-rsp-functional-v1` |
+| 13 | `t64.state.rdram.t1.13` | `...-rdram-a-t1-v1`, `...-rdram-b-t1-v1` |
+| 16 | `t64.state.rdp.vi.tmem.16` | `...-rdram-b-t1-rdp-vi-v2` |
+| 17 | `t64.state.rdp.vi.triangle.17` | `...-rdp-triangle-v3` |
+| 18 | `t64.state.rdp.vi.texture.18` | `...-rdp-texture-v4` |
+| 19 | `t64.state.rdp.vi.combiner.19` | `...-rdp-combiner-v5` |
+| 20 | `t64.state.rdp.vi.blender.20` | `...-rdp-blender-v6` |
+| 21 | `t64.state.rdp.vi.depth.21` | `...-rdp-depth-v7` |
+| 22 | `t64.state.rdp.vi.scanout.22` | `...-rdp-vi-v8` |
+| 23 | `t64.state.rdp.vi.filter.23` | `...-rdp-vi-filter-v9` |
+| 24 | `t64.state.audio.ai.24` | `...-rdp-vi-filter-v9-ai-v1` |
+| 25 | `t64.state.si.25` | the four composite SI family ids |
+
+State versions 14 and 15 have no encoding. Each version includes everything the
+earlier ones do for the state its profile has. The v5 encoding hashes the
+domain, the serialization version word, the complete profile hash, the admitted
+content digest, the loaded-image flag and length, the parsed header, title, game
+code and ROM version, the guest tick, instruction and frame-event counters,
+sticky error and halt flag, the RDRAM size word and bytes, the SP DMEM and IMEM
+size words and bytes, the MI pending and mask bits and derived IRQ line, all PI
+latches, flags, descriptor and tokens, all SP latches, both descriptors and
+tokens, and then the ordered event queue (count, next sequence, exhaustion flag
+and each event's tick, sequence, device, kind, value and token). Busy and full
+are derived from descriptor validity. The extensions, in order of appearance:
+
+* v6 to v8 (warm): pinned boot asset, payload and policy hashes, prepared boot
+  offsets and seed fields, CPU GPR/HI/LO/CP0 with retirement and stop state,
+  cache and prepared guest-device state, and the ISViewer buffer, retained
+  prefix and loss flag; v8 adds the attempted-byte total and its saturation
+  flag.
+* v9 to v11: the full VR4300 state (TLB, instruction and data cache lines,
+  FPRs, pending exception, count/compare latches, link state); v10 adds the
+  branch origin; v11 adds the CP2 transfer latch.
+* v12: the RSP register, pipeline, DMA-cursor and scoreboard state.
+* v13: the RDRAM protocol model (RI latches and per-device register state).
+* v16 to v23: the RDP/VI block (DPC state, command, texture, combiner, blender
+  and depth state as each version adds it, the VI registers and phase, and the
+  retained video packet slots with their metadata); v22 and v23 add the
+  latched scanout fields and the filter and output-policy metadata.
+* v24: the audio block (AI latches, rate latch and phase, descriptor queue,
+  packet history hash, and the retained audio packet slots).
+
+Through v24 the retained video and audio packet metadata includes the profile
+id and the build identity string. The profile digest of the default skeleton
+profile is `b7d1600ad960b4e04fdc3ec372675edc47b26b15be8e9cd84cbab4fd75835647`; the
+independently assembled default fixture state digest is
+`6813739ff2fc1cffac6d85fa86df0c593e3035f8a640c642e37790acd96b6e77`. The open
+IPL3 warm profile has the profile digest
+`d8c12cb2a00410a2153ca62da318166f3ca029dea8e3d6b9c841262cb8203c71` and the
+independent initial warm-entry state vector
+`d2212ea39cadf8642cab2451fbcea484f5c6997d51619faef41e9ada24aa9724`; the tests
+retain the prior v6 and v7 vectors as historical evidence. The legacy encodings
+are unchanged by the sink: the idle digest of each of the 17 registered
+pre-family ids, and the Phase 8 audio profile with a DMA active before its
+first sample dispatches, are pinned as literal values captured before the sink
+seam existed.
+
+The v25 encoding frames the stream in sections. After the domain
+`t64.state.si.25` the stream is a repetition of a 32-bit big-endian section id
+followed by that section's body, in ascending id order. Section bodies sit at
+the block boundaries of the v24 stream and no field is reordered or resized, so
+v25 is not comparable to v24 byte for byte but its shared sections are.
+
+| Id | Section | Body |
+| --- | --- | --- |
+| 1 | identity | serialization version word, profile digest, content digest, image flag and length, header, title, game code, ROM version |
+| 2 | machine core | tick, instruction count, frame-event count, sticky error, halt flag |
+| 3 | rdram | RDRAM byte-count word, RDRAM bytes |
+| 4 | sp memory | DMEM size word and bytes, IMEM size word and bytes |
+| 5 | interrupt, PI and SP | MI pending, mask and IRQ line; all PI state; all SP state |
+| 6 | scheduler | queue count, next sequence, exhaustion flag, ordered events |
+| 7 | warm devices | boot, CPU, cache, guest-device, ISViewer, RSP and RDRAM protocol state |
+| 8 | rdp and vi | the RDP/VI block, including the retained video packet slots |
+| 9 | audio | the AI block, including the retained audio packet slots |
+| 10 | SI and PIF | reserved; emitted when the SI device exists |
+| 11 | save media | reserved; emitted when the save devices exist |
+| 16 | observer continuity | reserved; outside the digest |
+
+Reserved ids emit nothing until their section exists. Stream bytes carry one of
+four span classes for comparison: body (ordinary state), identity (the domain,
+the serialization word and profile digest, and in v24 the retained packet
+profile and build ids), marker (a section id) and new (a section with no v24
+counterpart). The v25 stream omits the retained packet `profile_id` and
+`build_id` from the hashed bytes; both stay stored in the packet metadata, and a
+later import re-derives them because profile and build binding is exact.
+
+The strip rule used by the differential test: removing the marker, identity and
+new spans from a v25 stream, and the identity spans from the v24 stream of the
+Phase 8 profile, leaves equal bytes for machines built through the same
+operations. The test applies it to an idle machine, an audio DMA with a packet in
+progress, an audio machine after its first packet, a machine with a retained
+video packet, and a machine with a pending RDP command word. An independent
+reference encoder, written from this table and the machine fields without
+calling production code, reproduces the domain, the section ids and the bodies
+of sections 1, 2, 3, 4 and 6 byte for byte. It is not a second implementation
+of every device section: sections 5, 7, 8 and 9 are covered by the differential
+against the v24 stream, which the pinned legacy literals anchor.
 
 | Private field or state | Digest treatment | Reason |
 | --- | --- | --- |
-| Selected profile and its policy/version fields | Include profile hash | Fixes timing, capacity and model policy for this instance |
+| Selected profile and its policy/version fields, including `si_policy`, `save_policy`, `save_kind` and `peripheral_flags` for descriptor 12 | Include profile hash | Fixes timing, capacity, model and device-set policy for this instance |
 | Admitted image length and content digest | Include | Identifies the immutable installed content |
 | Parsed header, title, game code and version | Include | Records normalized content metadata explicitly |
 | Loaded-image flag | Include | Distinguishes lifecycle state; digest returns not-ready before admission |
@@ -316,7 +402,7 @@ tests retain the prior v6 and v7 vectors as historical evidence.
 | Warm cache policy/last operation and prepared MI/RI device state | Include in warm v6-v8 | Determines later cache/device accesses and readback |
 | ISViewer register buffer, retained prefix, loss, attempted total and saturation | Include in warm v7-v8; v8 adds exact-total fields | Determines future output and whether its total remains exact |
 | Allocator callbacks/context and machine/image storage descriptors | Exclude | Host ownership and pointer locations are not machine behavior |
-| RAM pointer, event handler pointers and build/source identity | Exclude | Storage/code identity is not serialized machine state |
+| RAM pointer, event handler pointers and build/source identity | Exclude, except the retained packet profile and build ids through v24 | Storage/code identity is not machine state; v24 and earlier hash the ids inside retained packet metadata, v25 does not |
 | Queue head, unused event slots, structure padding | Exclude | Physical layout is not logical queue state |
 | Trace configuration, records, drop observation, and output-drain cursor | Exclude | Observer state must not alter guest state or its digest |
 

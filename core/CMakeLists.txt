@@ -638,9 +638,12 @@ t64_target_warnings(test_digest_v25)
 add_dependencies(test_digest_v25 t64-boot-fixtures)
 add_test(NAME unit.core.digest.sink-legacy-identity
   COMMAND test_digest_v25 --case sink-legacy-identity)
+add_test(NAME unit.core.digest.v25-reference
+  COMMAND test_digest_v25 --case v25-reference)
 add_test(NAME unit.core.digest.v25-strip-differential
   COMMAND test_digest_v25 --case v25-strip-differential)
 set_tests_properties(unit.core.digest.sink-legacy-identity
+  unit.core.digest.v25-reference
   unit.core.digest.v25-strip-differential PROPERTIES
   LABELS unit
   ENVIRONMENT "T64_TEST_IPL3_PATH=${T64_BOOT_FIXTURE_DIR}/ipl3_compat.z64")

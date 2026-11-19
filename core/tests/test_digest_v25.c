@@ -382,6 +382,41 @@ static uint32_t read_u32(const uint8_t *bytes) {
          ((uint32_t)bytes[2] << 8) | (uint32_t)bytes[3];
 }
 
+/*
+ * The identity-class spans of a v25 stream are exactly two: the domain at the
+ * start, and the serialization word with the profile digest right after the
+ * first marker. Any other identity or new-section span is a defect (the
+ * packet profile and build ids are omitted under v25).
+ */
+static bool identity_spans_are_exact(const stream *captured,
+                                     size_t *offset_out) {
+  size_t seen = 0u;
+  size_t i;
+
+  *offset_out = 0u;
+  for (i = 0u; i < captured->span_count; i++) {
+    const t64_digest_span *span = &captured->spans[i];
+
+    if (span->class == T64_DIGEST_CLASS_MARKER) continue;
+    if (span->class == T64_DIGEST_CLASS_IDENTITY && seen == 0u &&
+        span->offset == 0u && span->length == SI_DOMAIN_LENGTH) {
+      seen = 1u;
+    } else if (span->class == T64_DIGEST_CLASS_IDENTITY && seen == 1u &&
+               span->offset == SI_DOMAIN_LENGTH + 4u &&
+               span->length == 4u + T64_DIGEST_SIZE) {
+      seen = 2u;
+    } else {
+      *offset_out = span->offset;
+      return false;
+    }
+  }
+  if (seen != 2u) {
+    *offset_out = captured->length;
+    return false;
+  }
+  return true;
+}
+
 /* Marker spans carry ascending section ids 1..count, four bytes each. */
 static bool markers_are_ordered(const stream *captured, size_t count,
                                 size_t *offset_out) {
@@ -408,8 +443,10 @@ static bool markers_are_ordered(const stream *captured, size_t count,
 }
 
 /*
- * Compare the older stream with the newer one after removing framing:
- * length first, then marker order of the newer stream, then body bytes.
+ * Compare the older stream with the newer one after removing framing: the
+ * stripped length first, then marker order of the newer stream, then the
+ * stripped body bytes and the domain text (a body mismatch reports its offset),
+ * then the exact set of identity spans of the newer stream.
  */
 static cmp_result compare_stripped(const stream *older, const stream *newer,
                                    size_t marker_count) {
@@ -443,6 +480,12 @@ static cmp_result compare_stripped(const stream *older, const stream *newer,
     result.kind = CMP_MARKER_ORDER;
   } else if (i != common) {
     result.kind = CMP_BODY_MISMATCH;
+  } else if (newer->length < SI_DOMAIN_LENGTH ||
+             memcmp(newer->bytes, SI_DOMAIN, SI_DOMAIN_LENGTH) != 0) {
+    result.kind = CMP_BODY_MISMATCH;
+    result.offset = 0u;
+  } else if (!identity_spans_are_exact(newer, &result.offset)) {
+    result.kind = CMP_IDENTITY_MISMATCH;
   }
   free(old_body);
   free(new_body);
@@ -485,6 +528,210 @@ static t64_machine *build_idle(const char *profile_id) {
   return machine;
 }
 
+static bool next_ai_sample_tick(const t64_machine *machine, uint64_t *tick) {
+  size_t i;
+
+  for (i = 0u; i < machine->queue_count; i++) {
+    const size_t index = (machine->queue_head + i) % T64_EVENT_QUEUE_CAPACITY;
+    const t64_event *event = &machine->events[index];
+
+    if (event->device == T64_AI_DEVICE && event->kind == T64_AI_EVENT_SAMPLE) {
+      *tick = event->tick;
+      return true;
+    }
+  }
+  return false;
+}
+
+/* Two 16-byte DMAs of literal PCM, the rate pair 1103/15, the CPU in a spin
+ * loop: the descriptor is active and the first sample event is queued. */
+static t64_machine *start_ai_dma_pair(const char *profile_id) {
+  static const uint8_t literal_pcm[32] = {
+      0x00u, 0x00u, 0x7fu, 0xffu, 0x80u, 0x00u, 0xffu, 0xffu,
+      0x12u, 0x34u, 0xedu, 0xccu, 0x00u, 0x01u, 0xffu, 0xfeu,
+      0x80u, 0x00u, 0x7fu, 0xffu, 0xffu, 0xffu, 0x00u, 0x00u,
+      0x55u, 0xaau, 0xaau, 0x55u, 0x00u, 0x00u, 0x80u, 0x00u};
+  t64_machine *machine = create_admitted(profile_id, true);
+
+  if (machine == NULL) return NULL;
+  (void)memcpy(machine->ram + UINT32_C(0x100), literal_pcm, sizeof literal_pcm);
+  T64_CHECK_INT(t64_machine_bus_write(machine, AI_CONTROL, 4u, 1u),
+                T64_STATUS_OK);
+  T64_CHECK_INT(t64_machine_bus_write(machine, AI_DACRATE, 4u, 1103u),
+                T64_STATUS_OK);
+  T64_CHECK_INT(t64_machine_bus_write(machine, AI_BITRATE, 4u, 15u),
+                T64_STATUS_OK);
+  T64_CHECK_INT(t64_machine_bus_write(machine, AI_DRAM_ADDR, 4u, 0x100u),
+                T64_STATUS_OK);
+  T64_CHECK_INT(t64_machine_bus_write(machine, AI_LEN, 4u, 16u),
+                T64_STATUS_OK);
+  T64_CHECK_INT(t64_machine_bus_write(machine, AI_DRAM_ADDR, 4u, 0x110u),
+                T64_STATUS_OK);
+  T64_CHECK_INT(t64_machine_bus_write(machine, AI_LEN, 4u, 16u),
+                T64_STATUS_OK);
+  install_spin_loop(machine);
+  return machine;
+}
+
+/* Advance one AI sample event at a time until `samples` have dispatched. */
+static bool dispatch_ai_samples(t64_machine *machine, uint64_t samples) {
+  while (machine->ai.sample_index < samples) {
+    uint64_t tick = 0u;
+
+    if (!next_ai_sample_tick(machine, &tick)) {
+      T64_CHECK(false);
+      return false;
+    }
+    if (!advance_to(machine, tick)) return false;
+  }
+  return true;
+}
+
+/* AI mid-DMA: the first sample event has dispatched, so a packet is being
+ * built (its metadata, including the profile and build identity, exists) and
+ * no packet is complete. */
+static t64_machine *build_ai_mid_dma_packet(const char *profile_id) {
+  t64_machine *machine = start_ai_dma_pair(profile_id);
+
+  if (machine == NULL) return NULL;
+  T64_CHECK(dispatch_ai_samples(machine, 1u));
+  T64_CHECK(machine->ai.active);
+  T64_CHECK_INT(machine->ai.sample_index, 1u);
+  T64_CHECK_INT(machine->ai.packet_length, 4u);
+  T64_CHECK_INT(machine->ai.packet_history_count, 0u);
+  T64_CHECK_INT(machine->ai.packet_count, 0u);
+  T64_CHECK(machine->ai.packet_info[0].profile_id[0] != '\0');
+  return machine;
+}
+
+/* AI after the first packet: four samples dispatched, one packet complete and
+ * queued, the second descriptor active. */
+static t64_machine *build_ai_first_packet(const char *profile_id) {
+  t64_machine *machine = start_ai_dma_pair(profile_id);
+
+  if (machine == NULL) return NULL;
+  T64_CHECK(dispatch_ai_samples(machine, 4u));
+  T64_CHECK(machine->ai.active);
+  T64_CHECK_INT(machine->ai.packet_history_count, 1u);
+  T64_CHECK_INT(machine->ai.packet_count, 1u);
+  T64_CHECK_INT(machine->ai.descriptor_count, 1u);
+  T64_CHECK_INT(machine->ai.packet_info[0].frame_count, 4u);
+  return machine;
+}
+
+#define VI_BASE UINT32_C(0x04400000)
+#define VI_ORIGIN UINT32_C(0x3000)
+
+static void write_vi_register(t64_machine *machine, uint32_t offset,
+                              uint32_t value) {
+  T64_CHECK_INT(t64_machine_bus_write(machine, VI_BASE + offset, 4u, value),
+                T64_STATUS_OK);
+}
+
+/* A VI field with authored 5551 source pixels: one retained video packet. */
+static t64_machine *build_vi_frame(const char *profile_id) {
+  static const uint16_t source[4] = {UINT16_C(0xf801), UINT16_C(0x07c1),
+                                     UINT16_C(0x003f), UINT16_C(0xffff)};
+  t64_machine *machine = create_admitted(profile_id, true);
+  size_t i;
+
+  if (machine == NULL) return NULL;
+  for (i = 0u; i < sizeof source / sizeof source[0]; i++) {
+    const uint32_t address = VI_ORIGIN + (uint32_t)(i * 2u);
+
+    T64_CHECK_INT(t64_machine_bus_write(machine, address, 2u, source[i]),
+                  T64_STATUS_OK);
+    t64_rdp_memory_coverage_write(machine, address, 2u, 8u);
+  }
+  write_vi_register(machine, UINT32_C(0x04), VI_ORIGIN);
+  write_vi_register(machine, UINT32_C(0x08), UINT32_C(4));
+  write_vi_register(machine, UINT32_C(0x18), UINT32_C(8));
+  write_vi_register(machine, UINT32_C(0x1c), UINT32_C(15));
+  write_vi_register(machine, UINT32_C(0x24), UINT32_C(4));
+  write_vi_register(machine, UINT32_C(0x28), UINT32_C(2));
+  write_vi_register(machine, UINT32_C(0x30), UINT32_C(0x400));
+  write_vi_register(machine, UINT32_C(0x34), UINT32_C(0x400));
+  write_vi_register(machine, UINT32_C(0x00), UINT32_C(2));
+  install_spin_loop(machine);
+  for (i = 0u; i < 512u && machine->vi.packet_count == 0u; i++) {
+    size_t q;
+    uint64_t tick = UINT64_MAX;
+
+    for (q = 0u; q < machine->queue_count; q++) {
+      const size_t index = (machine->queue_head + q) % T64_EVENT_QUEUE_CAPACITY;
+      const t64_event *event = &machine->events[index];
+
+      if (event->device == T64_VI_DEVICE && event->kind == T64_VI_EVENT_FIELD &&
+          event->token == machine->vi.event_generation) {
+        tick = event->tick;
+        break;
+      }
+    }
+    if (tick == UINT64_MAX || !advance_to(machine, tick)) break;
+  }
+  /* Reached: a retained packet exists and carries its identity strings. */
+  T64_CHECK(machine->vi.packet_count >= 1u);
+  T64_CHECK(machine->vi.packet_lengths[machine->vi.packet_head] > 0u);
+  T64_CHECK(machine->vi.packet_info[machine->vi.packet_head].profile_id[0] !=
+            '\0');
+  return machine;
+}
+
+#define DP_START_REGISTER UINT32_C(0x04100000)
+#define DP_END_REGISTER UINT32_C(0x04100004)
+
+/* An RDP command list of four sync words submitted and one work event
+ * dispatched: the first word is fetched and pending, three words remain. */
+static t64_machine *build_rdp_pending(const char *profile_id) {
+  t64_machine *machine = create_admitted(profile_id, true);
+  size_t i;
+  size_t q;
+  uint64_t tick = UINT64_MAX;
+  bool pending = false;
+
+  if (machine == NULL) return NULL;
+  for (i = 0u; i < 4u; i++) {
+    static const uint8_t full_sync[8] = {0xe9u, 0u, 0u, 0u, 0u, 0u, 0u, 0u};
+
+    (void)memcpy(machine->ram + UINT32_C(0x100) + i * 8u, full_sync,
+                 sizeof full_sync);
+  }
+  install_spin_loop(machine);
+  T64_CHECK_INT(t64_machine_bus_write(machine, DP_START_REGISTER, 4u,
+                                      UINT32_C(0x100)),
+                T64_STATUS_OK);
+  T64_CHECK_INT(t64_machine_bus_write(machine, DP_END_REGISTER, 4u,
+                                      UINT32_C(0x120)),
+                T64_STATUS_OK);
+  for (q = 0u; q < machine->queue_count; q++) {
+    const size_t index = (machine->queue_head + q) % T64_EVENT_QUEUE_CAPACITY;
+    const t64_event *event = &machine->events[index];
+
+    if (event->device == T64_RDP_DEVICE && event->kind == T64_RDP_EVENT_WORK) {
+      tick = event->tick;
+      break;
+    }
+  }
+  T64_CHECK(tick != UINT64_MAX);
+  if (tick != UINT64_MAX) T64_CHECK(advance_to(machine, tick));
+  for (q = 0u; q < machine->queue_count; q++) {
+    const size_t index = (machine->queue_head + q) % T64_EVENT_QUEUE_CAPACITY;
+    const t64_event *event = &machine->events[index];
+
+    if (event->device == T64_RDP_DEVICE && event->kind == T64_RDP_EVENT_WORK) {
+      pending = true;
+    }
+  }
+  /* Reached: a fetched command word is pending, more words remain in the
+   * list, and an RDP work event is still queued. */
+  T64_CHECK(pending);
+  T64_CHECK(machine->rdp.command_pending);
+  T64_CHECK(machine->rdp.pending_command_word != 0u);
+  T64_CHECK_INT(machine->rdp.dpc_current, UINT32_C(0x108));
+  T64_CHECK(machine->rdp.dpc_current < machine->rdp.dpc_end);
+  return machine;
+}
+
 static void report_comparison(const char *label, const cmp_result *result) {
   if (result->kind != CMP_EQUAL) {
     fprintf(stderr,
@@ -516,6 +763,217 @@ static void differential_for_state(const char *label, state_builder build) {
   }
   if (older != NULL) t64_machine_destroy(older);
   if (newer != NULL) t64_machine_destroy(newer);
+}
+
+/* ---- independent reference encoder (framing and five sections) --------- */
+
+/*
+ * Written from the documented section table and the machine fields, without
+ * calling production code. It covers the domain, the section ids and the
+ * bodies of sections 1, 2, 3, 4 and 6; sections 5, 7, 8 and 9 are covered by
+ * the differential against the v24 stream, which the legacy digest literals
+ * pin. Fields are fixed-width big-endian.
+ */
+typedef struct {
+  uint8_t *data;
+  size_t length;
+  size_t capacity;
+} blob;
+
+static bool blob_init(blob *out, size_t capacity) {
+  out->data = (uint8_t *)malloc(capacity);
+  out->length = 0u;
+  out->capacity = capacity;
+  return out->data != NULL;
+}
+
+static void blob_bytes(blob *out, const void *bytes, size_t count) {
+  if (out->length + count > out->capacity) {
+    T64_CHECK(false);
+    return;
+  }
+  (void)memcpy(out->data + out->length, bytes, count);
+  out->length += count;
+}
+
+static void blob_u32(blob *out, uint32_t value) {
+  const uint8_t bytes[4] = {(uint8_t)(value >> 24), (uint8_t)(value >> 16),
+                            (uint8_t)(value >> 8), (uint8_t)value};
+
+  blob_bytes(out, bytes, sizeof bytes);
+}
+
+static void blob_u64(blob *out, uint64_t value) {
+  blob_u32(out, (uint32_t)(value >> 32));
+  blob_u32(out, (uint32_t)(value & UINT64_C(0xffffffff)));
+}
+
+static void encode_identity_section(blob *out, const t64_machine *machine) {
+  blob_u32(out, 25u);  /* state serialization version of the family */
+  blob_bytes(out, machine->profile_digest, sizeof machine->profile_digest);
+  blob_bytes(out, machine->content_digest, sizeof machine->content_digest);
+  blob_u32(out, 1u);  /* image admitted */
+  blob_u32(out, (uint32_t)machine->image_length);
+  blob_bytes(out, machine->rom_header, sizeof machine->rom_header);
+  blob_bytes(out, machine->rom_title, sizeof machine->rom_title);
+  blob_bytes(out, machine->rom_game_code, sizeof machine->rom_game_code);
+  blob_u32(out, machine->rom_version);
+}
+
+static void encode_core_section(blob *out, const t64_machine *machine) {
+  blob_u64(out, machine->tick);
+  blob_u64(out, machine->instruction_count);
+  blob_u64(out, machine->frame_event_count);
+  blob_u32(out, machine->sticky_error_status);
+  blob_u32(out, machine->halted ? 1u : 0u);
+}
+
+static void encode_rdram_section(blob *out, const t64_machine *machine) {
+  blob_u32(out, machine->profile.rdram_bytes);
+  blob_bytes(out, machine->ram, machine->profile.rdram_bytes);
+}
+
+static void encode_sp_memory_section(blob *out, const t64_machine *machine) {
+  blob_u32(out, 4096u);
+  blob_bytes(out, machine->sp_dmem, sizeof machine->sp_dmem);
+  blob_u32(out, 4096u);
+  blob_bytes(out, machine->sp_imem, sizeof machine->sp_imem);
+}
+
+static void encode_scheduler_section(blob *out, const t64_machine *machine) {
+  size_t i;
+
+  blob_u32(out, (uint32_t)machine->queue_count);
+  blob_u64(out, machine->next_sequence);
+  blob_u32(out, machine->sequence_exhausted ? 1u : 0u);
+  for (i = 0u; i < machine->queue_count; i++) {
+    const t64_event *event =
+        &machine->events[(machine->queue_head + i) % T64_EVENT_QUEUE_CAPACITY];
+
+    blob_u64(out, event->tick);
+    blob_u64(out, event->sequence);
+    blob_u32(out, event->device);
+    blob_u32(out, event->kind);
+    blob_u64(out, event->value);
+    blob_u64(out, event->token);
+  }
+}
+
+/* Marker span of section `id`: the id-th marker in stream order. */
+static bool find_marker(const stream *captured, uint32_t id,
+                        size_t *offset_out) {
+  uint32_t seen = 0u;
+  size_t i;
+
+  for (i = 0u; i < captured->span_count; i++) {
+    if (captured->spans[i].class != T64_DIGEST_CLASS_MARKER) continue;
+    seen++;
+    if (seen == id) {
+      *offset_out = captured->spans[i].offset;
+      return true;
+    }
+  }
+  return false;
+}
+
+/* Body of section `id`: from its marker's end to the next marker or end. */
+static bool section_body(const stream *captured, uint32_t id, size_t *begin,
+                         size_t *end) {
+  size_t marker;
+  size_t next;
+
+  if (!find_marker(captured, id, &marker)) return false;
+  *begin = marker + 4u;
+  *end = find_marker(captured, id + 1u, &next) ? next : captured->length;
+  return true;
+}
+
+static void check_section_against_reference(const stream *captured,
+                                            uint32_t id, const blob *expected,
+                                            const char *name) {
+  size_t begin = 0u;
+  size_t end = 0u;
+  size_t first_difference = 0u;
+  size_t i;
+
+  T64_CHECK(section_body(captured, id, &begin, &end));
+  T64_CHECK_INT(end - begin, expected->length);
+  if (end - begin != expected->length) {
+    fprintf(stderr, "reference section %s: production %zu bytes, reference "
+            "%zu bytes\n", name, end - begin, expected->length);
+    return;
+  }
+  for (i = 0u; i < expected->length; i++) {
+    if (captured->bytes[begin + i] != expected->data[i]) {
+      first_difference = i + 1u;
+      break;
+    }
+  }
+  if (first_difference != 0u) {
+    fprintf(stderr, "reference section %s differs at body offset %zu\n", name,
+            first_difference - 1u);
+  }
+  T64_CHECK_INT(first_difference, 0u);
+}
+
+static void case_v25_reference(void) {
+  t64_machine *machine = build_ai_mid_dma_packet(SI_STEM_ID);
+  stream captured;
+  blob section;
+  uint32_t id;
+
+  T64_CHECK(machine != NULL);
+  if (machine == NULL) return;
+  /* Make every core counter distinctive; the stream is only captured. */
+  machine->instruction_count = UINT64_C(0x1112131415161718);
+  machine->frame_event_count = UINT64_C(0x0102030405060708);
+  machine->sticky_error_status = UINT32_C(0x21222324);
+  machine->halted = true;
+  if (!capture_stream(machine, &captured)) {
+    t64_machine_destroy(machine);
+    return;
+  }
+
+  /* Domain, then section ids 1..9 literally, ascending. */
+  T64_CHECK(memcmp(captured.bytes, "t64.state.si.25", 15u) == 0);
+  for (id = 1u; id <= MARKER_COUNT_FULL; id++) {
+    size_t marker = 0u;
+
+    T64_CHECK(find_marker(&captured, id, &marker));
+    if (find_marker(&captured, id, &marker)) {
+      T64_CHECK_INT(captured.spans[0].offset, 0u);
+      T64_CHECK_INT(read_u32(captured.bytes + marker), id);
+    }
+  }
+  {
+    size_t beyond = 0u;
+
+    /* Reserved ids 10, 11 and 16 emit nothing yet: no tenth marker. */
+    T64_CHECK(!find_marker(&captured, MARKER_COUNT_FULL + 1u, &beyond));
+  }
+
+  if (blob_init(&section, 8u * 1024u * 1024u)) {
+    section.length = 0u;
+    encode_identity_section(&section, machine);
+    check_section_against_reference(&captured, 1u, &section, "identity");
+    section.length = 0u;
+    encode_core_section(&section, machine);
+    check_section_against_reference(&captured, 2u, &section, "machine core");
+    section.length = 0u;
+    encode_rdram_section(&section, machine);
+    check_section_against_reference(&captured, 3u, &section, "rdram");
+    section.length = 0u;
+    encode_sp_memory_section(&section, machine);
+    check_section_against_reference(&captured, 4u, &section, "sp memory");
+    section.length = 0u;
+    encode_scheduler_section(&section, machine);
+    check_section_against_reference(&captured, 6u, &section, "scheduler");
+    free(section.data);
+  } else {
+    T64_CHECK(false);
+  }
+  free_stream(&captured);
+  t64_machine_destroy(machine);
 }
 
 static void sha256_of(const uint8_t *bytes, size_t length,
@@ -606,11 +1064,245 @@ static void check_family_stream(const t64_machine *machine,
   }
 }
 
+/* ---- stream-surgery controls on the real v25 buffer ---------------------- */
+
+/*
+ * Each control edits a copy of the real family stream into the exact bytes a
+ * walker with one defect would emit, then compares it with the v24 stream of
+ * the Phase 8 profile. The comparator must accept the unmodified stream first
+ * (the same setup) and then report the intended distinct result kind.
+ */
+static bool clone_stream(const stream *source, stream *out) {
+  (void)memset(out, 0, sizeof *out);
+  out->bytes = (uint8_t *)malloc(source->length);
+  out->spans = (t64_digest_span *)calloc(SPAN_CAPACITY, sizeof *out->spans);
+  if (out->bytes == NULL || out->spans == NULL) {
+    free_stream(out);
+    return false;
+  }
+  (void)memcpy(out->bytes, source->bytes, source->length);
+  (void)memcpy(out->spans, source->spans,
+               source->span_count * sizeof *source->spans);
+  out->length = source->length;
+  out->span_count = source->span_count;
+  return true;
+}
+
+/* Remove `count` body bytes at `at`; no span may overlap the cut. */
+static bool erase_bytes(stream *captured, size_t at, size_t count) {
+  size_t i;
+
+  for (i = 0u; i < captured->span_count; i++) {
+    const t64_digest_span *span = &captured->spans[i];
+
+    if (span->offset < at + count && at < span->offset + span->length) {
+      return false;
+    }
+  }
+  (void)memmove(captured->bytes + at, captured->bytes + at + count,
+                captured->length - at - count);
+  captured->length -= count;
+  for (i = 0u; i < captured->span_count; i++) {
+    if (captured->spans[i].offset >= at + count) {
+      captured->spans[i].offset -= count;
+    }
+  }
+  return true;
+}
+
+/* Insert an identity-class span (profile text) before `at`. */
+static bool insert_identity_span(stream *captured, size_t at,
+                                 const uint8_t *bytes, size_t count) {
+  uint8_t *grown = (uint8_t *)malloc(captured->length + count);
+  size_t i;
+  size_t slot = captured->span_count;
+
+  if (grown == NULL || captured->span_count >= SPAN_CAPACITY) {
+    free(grown);
+    return false;
+  }
+  (void)memcpy(grown, captured->bytes, at);
+  (void)memcpy(grown + at, bytes, count);
+  (void)memcpy(grown + at + count, captured->bytes + at,
+               captured->length - at);
+  free(captured->bytes);
+  captured->bytes = grown;
+  captured->length += count;
+  for (i = 0u; i < captured->span_count; i++) {
+    if (captured->spans[i].offset >= at && slot == captured->span_count) {
+      slot = i;
+    }
+  }
+  for (i = captured->span_count; i > slot; i--) {
+    captured->spans[i] = captured->spans[i - 1u];
+    captured->spans[i].offset += count;
+  }
+  captured->spans[slot].offset = at;
+  captured->spans[slot].length = count;
+  captured->spans[slot].class = T64_DIGEST_CLASS_IDENTITY;
+  captured->span_count++;
+  return true;
+}
+
+/* Swap section `id` with section `id + 1` (marker and body as one unit). */
+static bool swap_adjacent_sections(stream *captured, uint32_t id) {
+  size_t first = 0u;
+  size_t second = 0u;
+  size_t after = 0u;
+  size_t first_length;
+  size_t second_length;
+  uint8_t *copy;
+  size_t i;
+
+  if (!find_marker(captured, id, &first) ||
+      !find_marker(captured, id + 1u, &second)) {
+    return false;
+  }
+  after = find_marker(captured, id + 2u, &after) ? after : captured->length;
+  first_length = second - first;
+  second_length = after - second;
+  copy = (uint8_t *)malloc(after - first);
+  if (copy == NULL) return false;
+  (void)memcpy(copy, captured->bytes + second, second_length);
+  (void)memcpy(copy + second_length, captured->bytes + first, first_length);
+  (void)memcpy(captured->bytes + first, copy, after - first);
+  free(copy);
+  for (i = 0u; i < captured->span_count; i++) {
+    t64_digest_span *span = &captured->spans[i];
+
+    if (span->offset >= first && span->offset < second) {
+      span->offset += second_length;
+    } else if (span->offset >= second && span->offset < after) {
+      span->offset -= first_length;
+    }
+  }
+  /* Keep the span array in stream order. */
+  for (i = 1u; i < captured->span_count; i++) {
+    size_t j = i;
+
+    while (j > 0u && captured->spans[j - 1u].offset > captured->spans[j].offset) {
+      const t64_digest_span swap = captured->spans[j - 1u];
+
+      captured->spans[j - 1u] = captured->spans[j];
+      captured->spans[j] = swap;
+      j--;
+    }
+  }
+  return true;
+}
+
+static void expect_comparison(const char *label, cmp_kind want,
+                              const stream *older, const stream *newer) {
+  const cmp_result result = compare_stripped(older, newer, MARKER_COUNT_FULL);
+
+  if (result.kind != want) {
+    fprintf(stderr,
+            "control %s: kind=%d want=%d old_stripped=%zu new_stripped=%zu "
+            "offset=%zu\n",
+            label, (int)result.kind, (int)want, result.old_length,
+            result.new_length, result.offset);
+  }
+  T64_CHECK_INT(result.kind, want);
+}
+
+static void run_surgery_controls(void) {
+  t64_machine *older_machine = build_ai_first_packet(AI_PROFILE_ID);
+  t64_machine *newer_machine = build_ai_first_packet(SI_STEM_ID);
+  t64_machine *older_vi_machine = build_vi_frame(AI_PROFILE_ID);
+  t64_machine *newer_vi_machine = build_vi_frame(SI_STEM_ID);
+  stream older;
+  stream newer;
+  stream older_vi;
+  stream newer_vi;
+  stream edited;
+  size_t at = 0u;
+
+  T64_CHECK(older_machine != NULL && newer_machine != NULL &&
+            older_vi_machine != NULL && newer_vi_machine != NULL);
+  if (older_machine == NULL || newer_machine == NULL ||
+      older_vi_machine == NULL || newer_vi_machine == NULL) {
+    goto done;
+  }
+  T64_CHECK(capture_stream(older_machine, &older));
+  T64_CHECK(capture_stream(newer_machine, &newer));
+  T64_CHECK(capture_stream(older_vi_machine, &older_vi));
+  T64_CHECK(capture_stream(newer_vi_machine, &newer_vi));
+
+  /* Accepted baselines in the same setup. */
+  expect_comparison("baseline audio state", CMP_EQUAL, &older, &newer);
+  expect_comparison("baseline video state", CMP_EQUAL, &older_vi, &newer_vi);
+
+  /* 1. An omitted 8-byte audio field (phase_remainder, 28 bytes into the
+   * audio section): the stripped lengths differ. */
+  if (clone_stream(&newer, &edited)) {
+    T64_CHECK(section_body(&edited, 9u, &at, &(size_t){0u}));
+    T64_CHECK(erase_bytes(&edited, at + 28u, 8u));
+    expect_comparison("omitted audio field", CMP_LENGTH_MISMATCH, &older,
+                      &edited);
+    free_stream(&edited);
+  }
+  /* 2. Two sections swapped (rdp/vi and warm devices are adjacent 7 and 8;
+   * swap 6 and 7 here): section ids leave ascending order. */
+  if (clone_stream(&newer, &edited)) {
+    T64_CHECK(swap_adjacent_sections(&edited, 6u));
+    expect_comparison("two sections swapped", CMP_MARKER_ORDER, &older,
+                      &edited);
+    free_stream(&edited);
+  }
+  /* 3. One flipped domain byte: framing text is wrong. */
+  if (clone_stream(&newer, &edited)) {
+    edited.bytes[0] ^= UINT8_C(1);
+    expect_comparison("flipped domain byte", CMP_BODY_MISMATCH, &older,
+                      &edited);
+    free_stream(&edited);
+  }
+  /* 4. A retained packet profile_id: 64 bytes of identity text inside the
+   * retained video packet, where v25 emits none. Stripping hides the bytes,
+   * so only the exact-identity-span check can see them. */
+  if (clone_stream(&newer_vi, &edited)) {
+    static const char policy[] = "rsp62500000-ntsc48681812-halfline-rational-v2";
+    uint8_t profile_text[T64_PROFILE_TEXT_CAPACITY];
+    size_t found = SIZE_MAX;
+    size_t i;
+
+    (void)memset(profile_text, 0, sizeof profile_text);
+    (void)memcpy(profile_text, SI_STEM_ID, sizeof SI_STEM_ID);
+    for (i = 0u; i + sizeof policy <= edited.length; i++) {
+      if (memcmp(edited.bytes + i, policy, sizeof policy) == 0) {
+        found = i;
+        break;
+      }
+    }
+    T64_CHECK(found != SIZE_MAX);
+    if (found != SIZE_MAX) {
+      T64_CHECK(insert_identity_span(&edited, found, profile_text,
+                                     sizeof profile_text));
+      expect_comparison("retained packet profile_id span",
+                        CMP_IDENTITY_MISMATCH, &older_vi, &edited);
+    }
+    free_stream(&edited);
+  }
+  free_stream(&older);
+  free_stream(&newer);
+  free_stream(&older_vi);
+  free_stream(&newer_vi);
+done:
+  if (older_machine != NULL) t64_machine_destroy(older_machine);
+  if (newer_machine != NULL) t64_machine_destroy(newer_machine);
+  if (older_vi_machine != NULL) t64_machine_destroy(older_vi_machine);
+  if (newer_vi_machine != NULL) t64_machine_destroy(newer_vi_machine);
+}
+
 static void case_v25_strip_differential(void) {
   t64_machine *family = build_idle(SI_STEM_ID);
   stream family_stream;
 
   differential_for_state("idle", build_idle);
+  differential_for_state("ai-mid-dma", build_ai_mid_dma_packet);
+  differential_for_state("ai-first-packet", build_ai_first_packet);
+  differential_for_state("vi-frame", build_vi_frame);
+  differential_for_state("rdp-pending", build_rdp_pending);
+  run_surgery_controls();
   T64_CHECK(family != NULL);
   if (family != NULL && capture_stream(family, &family_stream)) {
     check_family_stream(family, &family_stream);
@@ -620,7 +1312,7 @@ static void case_v25_strip_differential(void) {
 }
 
 int main(int argc, char **argv) {
-  static const char *const cases[] = {"sink-legacy-identity",
+  static const char *const cases[] = {"sink-legacy-identity", "v25-reference",
                                       "v25-strip-differential"};
 
   if (argc == 2 && strcmp(argv[1], "--list-cases") == 0) {
@@ -636,6 +1328,10 @@ int main(int argc, char **argv) {
       case_sink_legacy_identity();
       return T64_TEST_FINISH("unit.core.digest.sink-legacy-identity");
     }
+    if (strcmp(argv[2], "v25-reference") == 0) {
+      case_v25_reference();
+      return T64_TEST_FINISH("unit.core.digest.v25-reference");
+    }
     if (strcmp(argv[2], "v25-strip-differential") == 0) {
       case_v25_strip_differential();
       return T64_TEST_FINISH("unit.core.digest.v25-strip-differential");
@@ -648,6 +1344,7 @@ int main(int argc, char **argv) {
     return 2;
   }
   case_sink_legacy_identity();
+  case_v25_reference();
   case_v25_strip_differential();
   return T64_TEST_FINISH("unit.core.digest.v25");
 }
