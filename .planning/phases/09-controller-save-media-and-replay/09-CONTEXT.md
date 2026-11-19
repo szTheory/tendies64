@@ -40,7 +40,7 @@ the template taxonomy; every profile-scoped choice is `reversible` until the ide
 freeze F2 and becomes a new-profile cost afterwards.
 
 ### Identity, ordering and state (CORE-02, CORE-04, CORE-05)
-- **D-01 Profile family.** One composite family: descriptor 12, model 20, state 25;
+- **D-01:** Profile family. One composite family: descriptor 12, model 20, state 25;
   four registered ids sharing the triple (D-43 scheme); device selected by the existing
   `save_kind` (0 none, 1 EEPROM 4 Kbit, 2 EEPROM 16 Kbit, 3 SRAM 32 KiB) and controller
   presence by `peripheral_flags` bit 0; new text fields `si_policy` and `save_policy`
@@ -50,13 +50,13 @@ freeze F2 and becomes a new-profile cost afterwards.
   [POL] over [CODE]. Reversal: owner wants runtime-selectable media (a Phase 10 facade
   matter). — **Reversibility:** costly — every version-membership site (validator,
   writer, `t64_has_*` chain, create-time storage ladders, runner checks) is touched.
-- **D-02 Scheduler order stays `tick-sequence-fifo-v1`.** No class rank, no new
+- **D-02:** Scheduler order stays `tick-sequence-fifo-v1`. No class rank, no new
   policy string. SI is a new device id (10) with two kinds (execute, complete);
   EEPROM has no event. [POL] (no hardware evidence for any tie; E's rank table would
   reorder qualified Phase 7/8 interplay). Reversal: the characterization or matrix
   finds a guest-history-independent order defect, a real guest needs a specific tie,
   or the owner prefers a specified rank table. — **Reversibility:** reversible.
-- **D-03 Host input.** Strictly-after per-port latch (`current`, `next` with
+- **D-03:** Host input. Strictly-after per-port latch (`current`, `next` with
   `visible_from`): a sample at tick E sees the last input stamped strictly before E;
   later host call wins at equal stamp; `t64_machine_queue_input` API and refusals
   unchanged (port field in event-value bits 32-33 under the new profile only). Replay
@@ -65,14 +65,14 @@ freeze F2 and becomes a new-profile cost afterwards.
   schedules are not claimed. [POL]. Reversal: a coincident pair is partition-variant
   for guest-only reasons, or a guest needs "stamped T visible at T" (then E's rank 0
   in a later profile). — **Reversibility:** reversible.
-- **D-04 Quantum.** Descriptor 12 refuses `synchronization_quantum != 1` and ratio
+- **D-04:** Quantum. Descriptor 12 refuses `synchronization_quantum != 1` and ratio
   other than 1:1; unit "RSP issue opportunities equal to guest ticks"; the only
   documented statement is that another quantum is a new profile (the "differ only for
   CPU-RSP races" sentence is deleted, [UNK]). Hash sensitivity shown at the hash
   function (existing contrast `core/tests/test_profile.c:450-470` plus a new explicit
   control). [CODE] inert today + [POL]. Reversal: a v2 performance milestone. —
   **Reversibility:** reversible.
-- **D-05 Canonical payload is the digest preimage (new profile only).** A sink seam in
+- **D-05:** Canonical payload is the digest preimage (new profile only). A sink seam in
   `core/t64_digest.c` (hash sink; buffer sink for export); v25 branch emits
   `domain || (section id u32 || section bytes)...` in fixed ascending id order,
   self-delimiting fixed-width big-endian fields; legacy profiles unchanged and proven
@@ -85,7 +85,7 @@ freeze F2 and becomes a new-profile cost afterwards.
   after the seam change, which reopens design in 09-01 (there is no pre-approved
   fallback; the earlier "O2 separate exporter" option is retired). — **Reversibility:**
   costly — the walker is shared by digest, export, import and every device section.
-- **D-06 Freezes.** F0 end of 09-01 (membership pattern, section ids and framing, id
+- **D-06:** Freezes. F0 end of 09-01 (membership pattern, section ids and framing, id
   scheme, field validation); FH end of 09-03 (qualifier, collector/verifier, `ci.yml`,
   scanner and inventory logic; data rows only afterwards; flag-forwarding rows and runner
   flags are ordinary plan content qualified once); F1 end of 09-06 (state content;
@@ -93,16 +93,16 @@ freeze F2 and becomes a new-profile cost afterwards.
   (all logic); F2 start of 09-11 (literal hashes, claims, evidence). Tests use a
   symbolic accessor for the unfrozen profile. [POL]. — **Reversibility:** reversible
   before F2; a change after F2 is a declared qualification reset.
-- **D-07 Closed `(device, kind)` handler table** built as the 09-01 ledger (E0), used
+- **D-07:** Closed `(device, kind)` handler table built as the 09-01 ledger (E0), used
   later by state import; unknown pairs are refused at import. [CODE]. —
   **Reversibility:** reversible.
 
 ### SAVE-01: SI, PIF and the standard controller
-- **D-08 HLE PIF, no PIF ROM.** Model-owned 64-byte PIF RAM reachable only through SI
+- **D-08:** HLE PIF, no PIF ROM. Model-owned 64-byte PIF RAM reachable only through SI
   DMA; CPU access to `0x1FC00000..0x1FC007FF` stays unsupported; WR4B/RD4B refused;
   boot info and CIC challenge not modeled. [POL] (PIF ROM is rights-bearing). Reversal:
   a later rights-cleared guest needs direct access. — **Reversibility:** reversible.
-- **D-09 SI registers and DMA.** `+0x00` DRAM address (24 bits), `+0x04` RD64B (PIF to
+- **D-09:** SI registers and DMA. `+0x00` DRAM address (24 bits), `+0x04` RD64B (PIF to
   RDRAM, write-only; the name is a trap, test both directions literally), `+0x10` WR64B,
   `+0x18` STATUS; PIF address must equal `0x1FC007C0`; one DMA at a time; reserve-then-
   commit with all events reserved before busy is visible; completion sets MI SI
@@ -115,7 +115,7 @@ freeze F2 and becomes a new-profile cost afterwards.
   in-flight mutation witness); read DMA copies atomically at completion. [FACT]/[COMM]
   register layout and interrupt acknowledge; rest [POL]. Reversal: a second source for
   alignment, overlap or status effects. — **Reversibility:** reversible.
-- **D-10 PIF command byte (offset 63).** Only bit `0x01` (parse) is honored and cleared
+- **D-10:** PIF command byte (offset 63). Only bit `0x01` (parse) is honored and cleared
   after parsing; bit 0x01 clear with no other bits replaces RAM without re-parse; any
   other bit is an unmodeled control function and refuses the write-DMA start with
   unchanged state. The source lists 0x02 challenge and 0x04/0x08 joybus flag bits
@@ -123,18 +123,18 @@ freeze F2 and becomes a new-profile cost afterwards.
   which bits, so they are [UNK] and unmodeled. [COMM] single source; refusal is [POL],
   a named divergence from the PIF. Reversal: a guest needs another bit or a second
   source resolves the layout. — **Reversibility:** reversible.
-- **D-11 Joybus parser.** Total over all 512-bit inputs, bounded, deterministic; escapes
+- **D-11:** Joybus parser. Total over all 512-bit inputs, bounded, deterministic; escapes
   `0x00` skip, `0xFD` reset, `0xFE` end, `0xFF` nop; TX/RX counts low six bits, flags top
   two; handshake must fit offsets 0..62; five channels; malformed or unsupported frame
   **data** is a guest-visible outcome (DMA completes), never a host refusal; the rule
   "unmodeled function = refusal (D-10), malformed data = guest-visible" is stated once
   in the spec. Bounded fuzz target. [COMM]+[POL]. Reversal: a second source contradicts
   the escapes. — **Reversibility:** reversible.
-- **D-12 Channels and presence.** Channels 0-3 are ports 0-3, channel 4 the cartridge;
+- **D-12:** Channels and presence. Channels 0-3 are ports 0-3, channel 4 the cartridge;
   only port 0 has a controller; absent ports and channel 4 without EEPROM return RX flag
   `0x80`, no data. Schema carries ports 0-3. [COMM]/[POL]. Reversal: multiplayer wanted
   (additive mask). — **Reversibility:** reversible.
-- **D-13 Controller responses.** `0x00` and `0xFF`: `05 00 02`; `0x01`: four bytes
+- **D-13:** Controller responses. `0x00` and `0xFF`: `05 00 02`; `0x01`: four bytes
   (A B Z Start Up Down Left Right; RST 0 L R C-up C-down C-left C-right; signed X; signed
   Y); pak read/write and any other command: timeout flag `0x40`, no data, no fabricated
   pak or CRC. Host `buttons` bits `0x00C0` are masked, not refused; initial latch neutral.
@@ -142,18 +142,18 @@ freeze F2 and becomes a new-profile cost afterwards.
   literal vectors; a second source is sought before any wording beyond "the authored
   mapping". Reversal: a cross-check disagrees. — **Reversibility:** costly — API-visible
   once released; frozen only at Phase 10.
-- **D-14 Timing.** Policy label `si-hle-joybus-wire-v1`-style: channel ticks
+- **D-14:** Timing. Policy label `si-hle-joybus-wire-v1`-style: channel ticks
   `2000n + 188 + 438 + 2000m + 250` (present device), timeout `2000n + 188 + 3907`,
   write DMA `W = 2500`, read tail `X = 4096`, `E = start + handshake total`, `C = E + X`,
   all controllers sampled at `E`. Wire times [COMM] single source; formula and `W`, `X`,
   single sample point [POL] placeholders, no hardware claim. Tests compute `E` and `C`
   from literals independent of production helpers. Reversal: measurement or a second
   primary source. — **Reversibility:** reversible.
-- **D-15 Input schema.** Absolute guest ticks (u64), level semantics, later row wins at
+- **D-15:** Input schema. Absolute guest ticks (u64), level semantics, later row wins at
   equal `(tick, port)`; row `{tick, port, buttons u16, x i8, y i8}`; frame- or VI-relative
   authoring stays host-side. The existing `t64.input` v1 path stays. [POL]. —
   **Reversibility:** costly — replay and runner carry it before the Phase 10 freeze.
-- **D-16 `pad-poll` diagnostic.** Cleared authored MIPS (same build/manifest gate as
+- **D-16:** `pad-poll` diagnostic. Cleared authored MIPS (same build/manifest gate as
   `fixtures/audio/pcm.S`) builds literal joybus blocks, polls via SI DMA and prints one
   ASCII line per poll through the ISViewer window; the ROM also reads CP0 Count before
   each poll and prints it (the model advances Count once per two guest ticks,
@@ -162,7 +162,7 @@ freeze F2 and becomes a new-profile cost afterwards.
   self-consistency); inputs at `E-1`, `E`, `E+1`. Controls that reach their comparator:
   tick shifted across `E`, one wrong byte, wrong port-1 flag, all-neutral baseline. —
   **Reversibility:** reversible.
-- **D-44 Profile-gated CPU store preflight.** First task of 09-03: for the new family
+- **D-44:** Profile-gated CPU store preflight. First task of 09-03: for the new family
   only, the extra-event budget of a 32-bit store to the SI window is 2 for RD64B and 1
   for WR64B (legacy budgets untouched, pinned by old-profile controls); 8-byte stores to
   SI have a defined outcome and a control; atomic refusal at `QUEUE_FULL` and
@@ -171,11 +171,11 @@ freeze F2 and becomes a new-profile cost afterwards.
   **Reversibility:** costly — it is a change on the shared CPU path (gated and pinned).
 
 ### SAVE-02 and SAVE-04: explicit save devices and refusal
-- **D-17 Selection is the profile.** Header, title, game code, checksum and file name
+- **D-17:** Selection is the profile. Header, title, game code, checksum and file name
   are never inputs; an authored ROM with a save-type nibble in header byte `0x3F` is a
   negative control. [CODE]+[POL]. Reversal: runtime selection through a Phase 10 facade.
   — **Reversibility:** reversible.
-- **D-18 EEPROM commands (channel 4, exact lengths).** `0x00` info (tx 1, rx 3):
+- **D-18:** EEPROM commands (channel 4, exact lengths). `0x00` info (tx 1, rx 3):
   `00 80` or `00 C0` plus status (`0x80` busy); `0x04` read (tx 2, rx 8) only when idle;
   `0x05` write (tx 10, rx 1): `0x00` accepted or `0x80` already busy, data committed at
   acceptance, window not extended while busy. Other commands or lengths, and a read while
@@ -183,35 +183,35 @@ freeze F2 and becomes a new-profile cost afterwards.
   [COMM] ids/lengths/status (EEPROM ids and busy bit corroborated by two sources); exact
   lengths and no-reply on busy read [POL]; busy-read hardware behavior [UNK]. —
   **Reversibility:** reversible.
-- **D-19 Block rule.** 4 Kbit: the documented mirror `block & 0x3F` (blocks 64..255 repeat
+- **D-19:** Block rule. 4 Kbit: the documented mirror `block & 0x3F` (blocks 64..255 repeat
   0..63; single-source [COMM], not independently verified); refusal is the recorded
   alternative `eeprom-4k-block-refuse`. 16 Kbit: all 256 blocks. Block-index test patterns
   expose a wrong mask on either part. Reversal: a second source or measurement
   contradicting the mirror. — **Reversibility:** reversible.
-- **D-20 Busy window.** `busy_until` compared at handshake execute ticks; no scheduler
+- **D-20:** Busy window. `busy_until` compared at handshake execute ticks; no scheduler
   event; the sourced "up to 6 milliseconds" ceiling used as a fixed 375,000-tick duration
   (62.5 MHz, `core/t64_vi.c:23`); label `eeprom-busy-ceiling-6ms-v1`, never "exact". Idle
   at exactly `busy_until`. A stale deadline is kept as is. Other figures (about 15 ms,
   30 ms) are uncorroborated. [POL] over a sourced upper bound. Reversal: a primary document
   or measurement (physical measurement would be an AUTONOMY section 4 stop at that time). —
   **Reversibility:** reversible.
-- **D-21 SRAM.** 32 KiB at `[0x08000000, 0x08008000)`; rest of domain 2 unsupported (no
+- **D-21:** SRAM. 32 KiB at `[0x08000000, 0x08008000)`; rest of domain 2 unsupported (no
   mirroring, no banking); PI DMA both directions with the `1 + N/2` duration equation,
   effect atomic at the completion event, direction and target in the active descriptor;
   32-bit aligned word CPU/host access only; profiles without SRAM keep refusing read-length
   starts. Initial contents EEPROM `0xFF`, SRAM `0x00`, never auto-loaded. Base address and
   32-bit direct access [COMM] (not re-verified); size, blank contents and non-mirroring
   [UNK], named [POL]. — **Reversibility:** reversible.
-- **D-22 Channel 4 without EEPROM.** Every handshake returns `0x80` and writes nothing;
+- **D-22:** Channel 4 without EEPROM. Every handshake returns `0x80` and writes nothing;
   RTC commands `0x06..0x08` are unsupported. [COMM]. — **Reversibility:** reversible.
-- **D-23 Unknown, unsupported, deferred requests.** `device_kind` values reserved now
+- **D-23:** Unknown, unsupported, deferred requests. `device_kind` values reserved now
   (1/2/3 supported; FlashRAM and Pak kinds known-unsupported `SAVE_UNSUPPORTED_DEVICE`;
   others `SAVE_UNKNOWN_DEVICE`; kind versus profile `SAVE_DEVICE_MISMATCH`). Tests assert
   the specific status and an unchanged digest, never a silent success. [POL]. —
   **Reversibility:** reversible.
 
 ### SAVE-03: import and export
-- **D-24 API and formats.** Provisional `t64_machine_save_info/export/import`; formats
+- **D-24:** API and formats. Provisional `t64_machine_save_info/export/import`; formats
   `RAW`, `SWAP16`, `WORDREV32`; caller always names kind and format; no autodetect, no
   containers; exact lengths 512 / 2048 / 32,768. Check order, all before any caller-byte
   read or mutation: admitted, pointer/length, profile has a device, kind known, kind
@@ -224,20 +224,20 @@ freeze F2 and becomes a new-profile cost afterwards.
   only, outside the digest) increments. Literal 8-byte vectors pin the transforms; no
   mapping to any other emulator's convention is asserted. [CODE]+[POL]. Reversal: owner
   wants interchange containers or RAW-only. — **Reversibility:** reversible.
-- **D-25 Replacement semantics.** Successful ROM replacement restores blank save content
+- **D-25:** Replacement semantics. Successful ROM replacement restores blank save content
   and clears the deadline; refused admission leaves bytes unchanged; the host imports
   after admission. [CODE]+[INF]. — **Reversibility:** costly — observable in
   replacement-table semantics.
-- **D-26 Persistence is host-owned.** The core never opens files; the runner imports
+- **D-26:** Persistence is host-owned. The core never opens files; the runner imports
   through the verified-input fd path and exports via the 09-02 publisher; no automatic
   load, flush or path derivation; result JSON and logs carry only kind, length, format and
   flags, never save bytes. [CODE]. — **Reversibility:** reversible.
-- **D-27 Save in digest/state.** A `save-media` section holds kind, size, `busy_until` and
+- **D-27:** Save in digest/state. A `save-media` section holds kind, size, `busy_until` and
   all bytes; unselected devices contribute nothing. [CODE]. — **Reversibility:** reversible
   until F1.
 
 ### CORE-02: one scheduler
-- **D-36 Deliverables.** E0 pairwise FIFO characterization on existing profiles (both
+- **D-36:** Deliverables. E0 pairwise FIFO characterization on existing profiles (both
   insertion orders, independent literals, a transposed-table mutation control), CPU-vs-
   device and CPU-vs-RSP probes; SI refusal atomicity; one shared matrix: whole versus
   splits at `{T-1, T, T+1}` and steps `{1, 3, 7, 4096, one-shot}`, mid-tick counter and
@@ -251,28 +251,28 @@ freeze F2 and becomes a new-profile cost afterwards.
   reversed. Evidence limit stated: regression pins plus self-comparison across schedules,
   so a consistently wrong tie would pass. Every tie is [POL] with an owning test name. —
   **Reversibility:** reversible.
-- **D-37 Quantum evidence.** Refusal of `Q != 1` with unchanged allocator counters,
+- **D-37:** Quantum evidence. Refusal of `Q != 1` with unchanged allocator counters,
   accepted `Q = 1`, independent reference hash, the D-04 hash-sensitivity control,
   quantum present in result identity records (check, add if missing). [CODE]. —
   **Reversibility:** reversible.
 
 ### CORE-04: state export and import
-- **D-28 Container (provisional).** Binary, big-endian: magic `T64STATE`, container
+- **D-28:** Container (provisional). Binary, big-endian: magic `T64STATE`, container
   version, state serialization version, total length, section count (at most 32), flags
   (zero), profile digest, content SHA-256 and length, build id, guest tick (cross-checked),
   declared canonical digest, section table (id, flags, offset, length, SHA-256), canonical
   sections, an observer-continuity section outside the digest, SHA-256 trailer; no
   compression, no unknown-section skipping, 64 MiB hard ceiling and a profile-derived
   exact length. [CODE]+[POL]. — **Reversibility:** reversible until Phase 10.
-- **D-29 Exclusions and observers.** Excluded: trace, drain cursors, ring head/count,
+- **D-29:** Exclusions and observers. Excluded: trace, drain cursors, ring head/count,
   `rsp_observed_*`, caller buffers, pointers, allocator, queue head, padding, build identity
   as behavior. Retained packet slots (about 1.1 MiB) are carried because drained slots are
   hashed. Observer state gates dispatch (`packet_count`, `core/t64_scheduler.c:310-336`,
   `core/t64_ai.c:384,416,487`), so default import restores observer continuity; "drop
   observers" is documented as changing stop points (not results) and T3 asserts both. —
   **Reversibility:** reversible.
-- **D-30 Import: validate then apply, no allocation; contract is memory safety plus
-  liveness.** A validated blob cannot cause memory unsafety, an unbounded loop or
+- **D-30:** Import: validate then apply, no allocation; contract is memory safety plus
+  liveness. A validated blob cannot cause memory unsafety, an unbounded loop or
   arithmetic undefined behavior; semantically unreachable states are accepted and then run
   deterministically; hashes are integrity checks, not authentication; reachability is not
   promised. One reader per section with validate and apply modes over the same code; a
@@ -293,14 +293,14 @@ freeze F2 and becomes a new-profile cost afterwards.
   allocation as an explicit allocator-contract extension, a Phase 10 matter, not an owner
   stop). — **Reversibility:** costly — importer rules shape the Phase 10 allocator and
   error contract.
-- **D-45 Generated field-use audit.** A 09-09 script maps every state field used in `core/`
+- **D-45:** Generated field-use audit. A 09-09 script maps every state field used in `core/`
   as an index, length, shift, loop bound or array subscript (about 500 fields) to its import
   range rule and fails on an unmapped field. [INF]. — **Reversibility:** reversible.
-- **D-31 Binding.** Exact profile digest, state version, content digest and build id;
+- **D-31:** Binding. Exact profile digest, state version, content digest and build id;
   cross-build import refused in v1 (a labeled diagnostic mode is deferred); distinct
   statuses PROFILE, CONTENT, BUILD, STATE_VERSION; importer registered per state version.
   [POL]. — **Reversibility:** reversible.
-- **D-32 Proof ladder and construction sources.** T1 round trip, T2 export-import-export
+- **D-32:** Proof ladder and construction sources. T1 round trip, T2 export-import-export
   byte identity, T3 continuation (one-shot and 1/7/31-tick partitions, onto a dirty peer and
   onto the source after advancing), T4 non-interference. Required boundary set and its
   construction sources (each guarded by a "boundary reached" assertion on the state before
@@ -317,14 +317,14 @@ freeze F2 and becomes a new-profile cost afterwards.
   events and near-exhaustion (small queue and sequence width). The required set is capped
   here; each boundary has a one-field perturbation control T3 must detect. Self-consistency
   of the model, not hardware. — **Reversibility:** reversible.
-- **D-33 State privacy.** Blobs private (0600, no-replace, no symlink parents), never
+- **D-33:** State privacy. Blobs private (0600, no-replace, no symlink parents), never
   uploaded or committed; public evidence is a bounded projection of authored-fixture
   digests and sizes; the existing `scripts/rights-scan.sh` denied-extension table is
   extended for state/replay extensions and magic; no host paths, times or user names in
   headers. [CODE]. — **Reversibility:** reversible.
 
 ### CORE-05: replay
-- **D-34 Replay artifact.** Canonical JSON `t64.replay` v1 (closed keys, decimal-string
+- **D-34:** Replay artifact. Canonical JSON `t64.replay` v1 (closed keys, decimal-string
   u64, lowercase SHA-256, no floats, duplicate keys refused, bounded parser, identity =
   SHA-256 of canonical bytes). Header: profile id/digest, descriptor/model/state versions,
   build id (binding), source revision (informational), content SHA-256 and size,
@@ -341,7 +341,7 @@ freeze F2 and becomes a new-profile cost afterwards.
   not replayable. Divergence goes to a separate closed `t64.replay-report` record, not
   `t64.result` v2. Recorder and driver are runner-side. [CODE]+[POL]. —
   **Reversibility:** reversible until Phase 10.
-- **D-35 Runner surface (provisional).** The input schedule keeps its path; flags for save
+- **D-35:** Runner surface (provisional). The input schedule keeps its path; flags for save
   import/export, state export/import and replay record/play validate before guest start, use
   the verified-input snapshot for inputs and the new publisher for outputs, refuse undefined
   combinations, and carry a version string per format. The device is chosen by naming a
@@ -349,7 +349,7 @@ freeze F2 and becomes a new-profile cost afterwards.
   **Reversibility:** reversible.
 
 ### QA, security, CI and claims
-- **D-38 Harness mechanism (09-02, not 09-01).** `--artifact-dir`/`--artifact-max-bytes`
+- **D-38:** Harness mechanism (09-02, not 09-01). `--artifact-dir`/`--artifact-max-bytes`
   supervisor pair setting the real-mode child's `RLIMIT_FSIZE` to exactly
   `artifact_max_bytes + slack` only when present (default 69,632 =
   `T64_REAL_RESULT_MAX_BYTES` 4096 + 64 KiB, `runner/t64_supervisor.c:44,1534-1536`;
@@ -363,12 +363,12 @@ freeze F2 and becomes a new-profile cost afterwards.
   canonical tick on each new id. The real collector/verifier and `ci.yml` steps land once in
   09-03. `scripts/build-boot-fixtures.sh` is not touched (Binutils cache key, F-100). —
   **Reversibility:** reversible.
-- **D-39 Fixtures.** Five authored ROMs from three assembler sources, each with a manifest
+- **D-39:** Fixtures. Five authored ROMs from three assembler sources, each with a manifest
   row, build-only identity and rights gate before guest use, independent literals and a
   same-setup wrong-value control: `pad-poll` (09-03), `eeprom-rw` (4k and 16k builds) and
   `sram-rw` (09-04), `save-roundtrip` (09-05), `replay-mix` (09-07, length measured first).
   — **Reversibility:** reversible.
-- **D-40 Cheap-first order and hosted budget.** In every plan: fixture identity/rights,
+- **D-40:** Cheap-first order and hosted budget. In every plan: fixture identity/rights,
   schema/inventory/claims/CI scanners, `ast.parse` for Python, gcc:13 `-Werror` on changed C
   units, one accepted operation through the real runner with cleared input, focused CTest via
   the existing preset (four jobs), ASan selection, old-profile regressions; full gate only at
@@ -378,21 +378,21 @@ freeze F2 and becomes a new-profile cost afterwards.
   both measured in the first hosted pair; fuzz corpora, ASan, gcc:13, state-hash-heavy loops
   and the replay soak stay native; sampled mutation offsets only. No new CI job. —
   **Reversibility:** reversible.
-- **D-41 Importer security rules.** Parse then validate then commit; caps before allocation;
+- **D-41:** Importer security rules. Parse then validate then commit; caps before allocation;
   checked arithmetic; closed size sets; no overlap with live storage; identity binding;
   no-clobber publication; zero padding and reserved fields; structure-aware mutants that keep
   magic and checksums valid and each reach their specific refusal; independent review and
   security audit (09-10) against real mutated blobs and complete, with its fix loop, before
   F2. — **Reversibility:** reversible.
-- **D-42 Claims.** One `docs/claims/phase09.md`; skeleton checked in 09-02, counts filled in
+- **D-42:** Claims. One `docs/claims/phase09.md`; skeleton checked in 09-02, counts filled in
   09-11; [COMM] facts carry source URL and fetch date in the spec and are restated in
   authored words, not pasted. — **Reversibility:** reversible.
-- **D-43 Profile id scheme.** Stem `ntsc-cart-4m-openipl3-rdram-b-t1-si-v1` (38 characters)
+- **D-43:** Profile id scheme. Stem `ntsc-cart-4m-openipl3-rdram-b-t1-si-v1` (38 characters)
   with suffixes `-e4k`, `-e16k`, `-s32k` (longest 43); a test asserts every registered id is
   at most 63 characters across the core table and the runner allowed-profile table. [CODE]
   (current id 55 of 63, `runner/t64_real.c:40-41,488,681`). — **Reversibility:** costly —
   ids appear in tables, fixtures, manifests and claims.
-- **D-46 Review before freeze.** 09-10 precedes F2; findings are fixed in 09-10 or gap
+- **D-46:** Review before freeze. 09-10 precedes F2; findings are fixed in 09-10 or gap
   plans, never after F2; one fix cycle budgeted. — **Reversibility:** reversible.
 
 ### Locked sequencing: plans and waves (strictly sequential, eleven plans)

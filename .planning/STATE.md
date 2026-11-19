@@ -2,19 +2,19 @@
 gsd_state_version: "1.0"
 milestone: v1.1
 milestone_name: Observable Machine
-current_phase: 7
-current_phase_name: RDP Reference Renderer and VI Scanout
+current_phase: 9
+current_phase_name: Controller, Save Media and Replay
 current_plan: 13
 status: executing
 stopped_at: Phase 9 context gathered
-last_updated: "2026-11-19T16:44:38.612Z"
+last_updated: "2026-11-19T19:40:22.342Z"
 last_activity: 2026-11-19
 last_activity_desc: Phase 8 complete, transitioned to Phase 7
-state_head: 1b8649b840fded8d67862c03e3e98d7daf4f0e5f
+state_head: c91fef7d711c53d5445078a57db7b1467cc7b909
 progress:
   total_phases: 3
   completed_phases: 1
-  total_plans: 18
+  total_plans: 31
   completed_plans: 17
   percent: 33
 ---
@@ -30,9 +30,9 @@ See: .planning/PROJECT.md (updated 2026-11-15)
 
 ## Current Position
 
-Phase: 7 — RDP Reference Renderer and VI Scanout
+Phase: 9 (Controller, Save Media and Replay) — READY TO EXECUTE
 Current Plan: 13
-Total Plans in Phase: 13 (12 complete)
+Total Plans in Phase: 13
 Status: Blocked: oracle authority (VID-04 and Plan 13); not executable until the owner resolves the stop
 Last activity: 2026-11-19 — Phase 8 complete (native, ASan, GCC13 and both hosted jobs on 3a41734)
 

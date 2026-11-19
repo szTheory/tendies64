@@ -143,7 +143,45 @@ Plans:
   2. EEPROM (4 and 16 Kbit, with the busy window and block rules) and SRAM work only when the profile selects them explicitly. Unknown device requests are refused with defined postconditions. Save bytes round-trip through import and export with endianness handling, and a refused import leaves the digest unchanged
   3. Exporting and re-importing machine state reproduces the canonical digest exactly, and a recorded input replay bound to profile, build and content hash reproduces the original run's digests
   4. CPU, RSP, RDP, VI, AI, PI, SI and MI activity is ordered by the same guest-time scheduler, including coincident-event and partition/interleave checks; the CPU-to-RSP quantum remains part of profile identity (CORE-02 completion).
-**Plans**: TBD
+**Plans**: 0/13 plans executed (strictly sequential; declared waves 1-13)
+**Wave 1**
+- [ ] 09-01-PLAN.md — Core identity, v25 digest walker, membership sweep and scheduler ledger
+
+**Wave 2**
+- [ ] 09-02-PLAN.md — Runner harness: per-fixture tick cap, transcript pins, artifact publisher and FSIZE pair
+
+**Wave 3**
+- [ ] 09-03-PLAN.md — SI/PIF/joybus core, strictly-after input latch and pad-poll tracer
+
+**Wave 4**
+- [ ] 09-03.1-PLAN.md — Collector, CI exact-match changes, first hosted pair and the FH freeze
+
+**Wave 5**
+- [ ] 09-04-PLAN.md — EEPROM 4/16 Kbit and SRAM devices with explicit profile selection
+
+**Wave 6**
+- [ ] 09-05-PLAN.md — Save import/export, transforms and refusal postconditions
+
+**Wave 7**
+- [ ] 09-06-PLAN.md — CORE-02 ordering matrix, mutant procedure and the state-content freeze
+
+**Wave 8**
+- [ ] 09-07-PLAN.md — Input replay bound to profile, build and content
+
+**Wave 9**
+- [ ] 09-08-PLAN.md — Versioned machine state export and container
+
+**Wave 10**
+- [ ] 09-09-PLAN.md — State import (validate-then-apply) and exact round trip
+
+**Wave 11**
+- [ ] 09-09.1-PLAN.md — State boundary matrix, mutants, fuzz and field-use audit
+
+**Wave 12**
+- [ ] 09-10-PLAN.md — Independent review, security audit, goal verification and one fix cycle
+
+**Wave 13**
+- [ ] 09-11-PLAN.md — Identity freeze and exact-SHA native and hosted qualification
 
 ## Progress
 
@@ -154,7 +192,7 @@ VID-04's specific acceptance gate does not prevent permitted authored/native wor
 |-------|----------------|--------|-----------|
 | 7. RDP Reference Renderer and VI Scanout | 12/13 | Blocked: oracle authority | - |
 | 8. Audio Interface and Raw Capture | 5/5 | Complete    | 2026-11-19 |
-| 9. Controller, Save Media and Replay | 0/TBD | Not started | - |
+| 9. Controller, Save Media and Replay | 0/13 | Planned, ready to execute | - |
 
 ## v1.2 Embeddable and Playable
 
