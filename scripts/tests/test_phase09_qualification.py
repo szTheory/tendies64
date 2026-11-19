@@ -181,7 +181,11 @@ class Phase09Qualification(unittest.TestCase):
     def test_zero_case_inventory_refused(self) -> None:
         """An inventory with no suites, no cases or no binaries is refused."""
         summary = qualify.validate_case_inventory(INVENTORY)
-        self.assertEqual(summary["suites"], 2)
+        # Later plans add suites as data rows; the summary must count exactly
+        # the suites of the committed inventory and keep the two original ones.
+        suites = self._inventory()["suites"]
+        self.assertEqual(summary["suites"], len(suites))
+        self.assertTrue({"identity", "mechanism"} <= set(suites))
         self.assertGreater(summary["cases"], 0)
         with tempfile.TemporaryDirectory(prefix="t64-p09-inv.") as tmp:
             directory = Path(tmp)
