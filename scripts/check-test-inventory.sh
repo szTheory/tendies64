@@ -171,6 +171,28 @@ controls.real.rdp-drain-cadence
 harness.rdp-vi-qualification
 harness.rdp-oracle-authority'
 
+PHASE08_TESTS='unit.core.ai.tracer
+unit.core.ai.profile
+unit.core.ai.profile-pins
+unit.core.ai.profile-mutations
+unit.core.ai.old-profile-refusals
+unit.core.ai.registers
+unit.core.ai.cadence
+unit.core.ai.output
+unit.core.ai.determinism
+runner.audio-pcm
+runner.raw-capture
+controls.real.audio-wrong-sample
+controls.real.audio-drain-cadence
+controls.real.raw-capture-caps
+controls.real.raw-capture-errors
+controls.real.raw-capture-incomplete
+controls.real.raw-capture-interrupted
+controls.real.raw-capture-io-errors
+controls.real.raw-capture-race
+controls.real.raw-capture-target-errors
+harness.audio-qualification'
+
 CPU_COVERAGE_OPCODES='ADD
 ADDU
 SUB
@@ -272,7 +294,7 @@ expected_names() {
     *) echo "unsupported preset: $_preset" >&2; return 2 ;;
   esac
   {
-    printf '%s\n' "$BASELINE_CORE" "$BASELINE_CONTROLS" "$PHASE02_TESTS" "$PHASE03_TESTS" "$PHASE04_TESTS" "$PHASE05_TESTS" "$PHASE06_TESTS" "$PHASE07_TESTS" "$_extra"
+    printf '%s\n' "$BASELINE_CORE" "$BASELINE_CONTROLS" "$PHASE02_TESTS" "$PHASE03_TESTS" "$PHASE04_TESTS" "$PHASE05_TESTS" "$PHASE06_TESTS" "$PHASE07_TESTS" "$PHASE08_TESTS" "$_extra"
   } | awk 'NF' | sort
 }
 
