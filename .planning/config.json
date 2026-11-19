@@ -32,7 +32,7 @@
       "haiku": "claude-haiku-5-5"
     },
     "codex": {
-      "opus": "gpt-6-sol",
+      "opus": "gpt-6.2-sol",
       "sonnet": "gpt-6-luna",
       "haiku": "gpt-6-luna"
     }

@@ -43,6 +43,14 @@ reopen the choice without materially new evidence.
 
 ## Autonomous GSD development
 
+Use Claude for OpenGSD work until the owner switches runtimes again (owner
+direction, 2026-11-18; Codex was the active runtime from 2026-11-10).
+`.planning/config.json` owns the active runtime, adaptive model profile,
+per-runtime model mappings and tier effort levels. Preserve the separate Codex
+mapping when switching so either runtime can be selected again. Resolve each
+agent's model and effort through OpenGSD and pass both to Claude dispatch when
+supported.
+
 Follow `.planning/AUTONOMY.md` for every phase and milestone. Discuss phases
 must use decision-focused research fan-out and one synthesized, adversarially
 checked recommendation. Routine reversible decisions, phase execution,
