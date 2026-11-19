@@ -96,7 +96,19 @@ step build cmake --build --preset gate
 step boot-evidence-selftest boot_evidence_selftest
 step test-inventory-selftest sh scripts/check-test-inventory.sh --selftest
 step test-inventory sh scripts/check-test-inventory.sh --preset gate
-step ctest ctest --preset gate
+if [ -n "${T64_GATE_JUNIT_OUT:-}" ]; then
+  case "$T64_GATE_JUNIT_OUT" in
+    "$ROOT"/build/gate/08-05-audio-private/*) ;;
+    *) echo "[gate] T64_GATE_JUNIT_OUT must be a private Phase08 evidence path" >&2; exit 2 ;;
+  esac
+  [ ! -e "$T64_GATE_JUNIT_OUT" ] && [ ! -L "$T64_GATE_JUNIT_OUT" ] || {
+    echo "[gate] T64_GATE_JUNIT_OUT already exists or is unsafe" >&2
+    exit 2
+  }
+  step ctest ctest --preset gate --output-junit "$T64_GATE_JUNIT_OUT"
+else
+  step ctest ctest --preset gate
+fi
 step core-lint sh tools/lint/core-lint.sh
 
 GATE_TOTAL=$(($(date +%s) - GATE_T0))

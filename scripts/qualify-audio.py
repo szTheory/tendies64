@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import argparse
 import hashlib
+import importlib.util
 import json
 import os
 import re
@@ -12,6 +13,8 @@ import shlex
 import struct
 import subprocess
 import sys
+import tempfile
+import time
 import xml.etree.ElementTree as ET
 from pathlib import Path
 from typing import Any
@@ -44,12 +47,14 @@ SOURCE_PATHS = (
     "scripts/rights-scan.sh", "scripts/pii-scan.sh",
     "scripts/check-provenance.sh", "scripts/check-claims.sh",
     "scripts/qualify-audio.py", "scripts/tests/test_audio_qualification.py",
+    "scripts/gate.sh",
     "scripts/qualify-rdp-vi.py", "scripts/collect-boot-evidence.sh",
     "fixtures/manifest.json", "fixtures/manifest.schema.json",
     "tools/manifest", "tools/rights",
     "scripts/tests/test_rsp_no_hle.py",
     "docs/spec/audio-cases.json", ".github/workflows/ci.yml",
 )
+OWNER_METADATA_PATHS = ("AGENTS.md", ".planning/config.json", ".planning/AUTONOMY.md")
 
 
 class Refusal(ValueError):
@@ -173,6 +178,37 @@ def _source_snapshot(commit_sha: str, *, require_clean: bool) -> dict[str, Any]:
         "input_manifest_sha256": _sha(encoded),
         "inputs": entries,
     }
+
+
+def _owner_metadata_snapshot() -> list[dict[str, Any]]:
+    """Record known non-build owner inputs without treating them as source code."""
+    entries = []
+    _validate_owner_exclusion_scope(list(OWNER_METADATA_PATHS))
+    for relative in OWNER_METADATA_PATHS:
+        path = ROOT / relative
+        if not path.exists() and not path.is_symlink():
+            entries.append({"path": relative, "present": False, "dirty_status": ""})
+            continue
+        _require(path.is_file() and not path.is_symlink(),
+                 "excluded owner metadata is not a regular file")
+        status = _git(["status", "--porcelain=v1", "-z", "--untracked-files=all",
+                       "--", relative]).decode("utf-8", errors="strict")
+        data = _read(path, 4 * 1024 * 1024)
+        entries.append({
+            "path": relative,
+            "present": True,
+            "dirty_status": status,
+            "size_bytes": len(data),
+            "sha256": _sha(data),
+        })
+    return entries
+
+
+def _validate_owner_exclusion_scope(paths: list[str]) -> list[str]:
+    _require(isinstance(paths, list) and paths and
+             all(path in OWNER_METADATA_PATHS for path in paths),
+             "only named non-build owner metadata may be excluded from local source binding")
+    return paths
 
 
 def _validate_inventory(data: bytes, expected_sha256: str) -> dict[str, Any]:
@@ -302,6 +338,8 @@ def _public_projection(value: Any, expected: dict[str, Any] | None = None) -> di
                  for key in ("manifest_sha256", "pcm_literal_sha256",
                              "video_observer_sha256", "audio_observer_sha256")),
              "projection capture summary is malformed")
+    _require(capture.get("pcm_literal_sha256") == _sha(PCM),
+             "projection PCM identity differs from the independent authored literal")
     _require(isinstance(execution, dict) and set(execution) == {
         "capture_ctest", "race_ctest", "command_sha256", "race_command_sha256",
         "last_test_sha256", "junit_sha256", "return_code", "status", "timed_out",
@@ -347,6 +385,967 @@ def _public_projection(value: Any, expected: dict[str, Any] | None = None) -> di
     return value
 
 
+def _validate_hosted_context(value: Any, *, repo: str, sha: str, run: str,
+                            attempt: str, job: str) -> dict[str, Any]:
+    """Bind one hosted manifest to caller-supplied Actions identity."""
+    _require(repo == "szTheory/tendies64" and SHA1_RE.fullmatch(sha) is not None and
+             DECIMAL_RE.fullmatch(run) is not None and
+             DECIMAL_RE.fullmatch(attempt) is not None and
+             job in {"gate-linux", "gate-macos"},
+             "hosted collection requires an exact repository, SHA, run, attempt, and job")
+    manifest = _public_projection(value, {
+        "job": job, "sha": sha, "run": run, "attempt": attempt,
+    })
+    expected_platform = "linux" if job == "gate-linux" else "macos"
+    _require(manifest.get("platform") == expected_platform and
+             manifest.get("platform_witness", {}).get("platform") == expected_platform,
+             "hosted platform does not match the exact workflow job")
+    return manifest
+
+
+def _verify_artifact_download(artifact: Any, binding: Any, archive: bytes, *,
+                              repo: str, sha: str, run: str, attempt: str,
+                              job: str) -> dict[str, Any]:
+    expected_name = f"t64-authored-evidence-{sha}-{run}-{attempt}-{job}"
+    _require(isinstance(artifact, dict) and artifact.get("name") == expected_name and
+             artifact.get("expired") is False and
+             type(artifact.get("id")) is int and artifact["id"] > 0 and
+             type(artifact.get("size_in_bytes")) is int and
+             0 < artifact["size_in_bytes"] <= 1024 * 1024 and
+             isinstance(artifact.get("digest"), str) and
+             re.fullmatch(r"sha256:[0-9a-f]{64}", artifact["digest"]) is not None and
+             isinstance(artifact.get("workflow_run"), dict) and
+             str(artifact["workflow_run"].get("id")) == run and
+             artifact["workflow_run"].get("head_sha") == sha,
+             "selected hosted artifact API identity differs from the exact attempt")
+    _require(isinstance(binding, dict) and set(binding) == {
+        "artifact_id", "commit_sha", "run_id", "run_attempt", "job_name",
+        "archive_digest", "archive_bytes",
+    } and binding == {
+        "artifact_id": str(artifact["id"]), "commit_sha": sha, "run_id": run,
+        "run_attempt": attempt, "job_name": job,
+        "archive_digest": artifact["digest"], "archive_bytes": len(archive),
+    }, "retained artifact API binding differs from its original ZIP")
+    _require(len(archive) == artifact["size_in_bytes"] and
+             f"sha256:{_sha(archive)}" == artifact["digest"],
+             "original hosted ZIP length or API digest differs")
+    return artifact
+
+
+def _verify_hosted_originals(downloads: Path, combined: Path, *, repo: str, sha: str,
+                             run: str, attempt: str, private_root: Path) -> list[dict[str, Any]]:
+    _require(downloads.is_dir() and not downloads.is_symlink(),
+             "retained hosted API/ZIP originals are missing or unsafe")
+    expected_members = {
+        "run.json", "attempt.json", "jobs.json", "artifacts.json",
+        "gate-linux.zip", "gate-linux-download-exit.txt", "gate-linux-binding.json",
+        "gate-macos.zip", "gate-macos-download-exit.txt", "gate-macos-binding.json",
+    }
+    _require({path.name for path in downloads.iterdir()} == expected_members,
+             "retained hosted API/ZIP directory has missing or unexpected members")
+    rdp = _rdp_helpers()
+    run_record = rdp._read_json(downloads / "run.json")
+    attempt_record = rdp._read_json(downloads / "attempt.json")
+    jobs_record = rdp._read_json(downloads / "jobs.json")
+    artifacts_record = rdp._read_json(downloads / "artifacts.json")
+    repository_record = run_record.get("repository") if isinstance(run_record, dict) else None
+    _require(isinstance(run_record, dict) and isinstance(repository_record, dict) and
+             str(run_record.get("id")) == run and
+             repository_record.get("full_name") == repo and
+             run_record.get("path") == ".github/workflows/ci.yml" and
+             run_record.get("event") == "push" and run_record.get("head_sha") == sha and
+             str(run_record.get("run_attempt")) == attempt and
+             run_record.get("status") == "completed" and run_record.get("conclusion") == "success",
+             "retained run API record differs from the exact successful push context")
+    _require(isinstance(attempt_record, dict) and str(attempt_record.get("id")) == run and
+             attempt_record.get("path") == ".github/workflows/ci.yml" and
+             attempt_record.get("head_sha") == sha and
+             str(attempt_record.get("run_attempt")) == attempt and
+             attempt_record.get("status") == "completed" and
+             attempt_record.get("conclusion") == "success",
+             "retained attempt API record differs from the exact successful context")
+    jobs = jobs_record.get("jobs") if isinstance(jobs_record, dict) else None
+    _require(isinstance(jobs_record, dict) and jobs_record.get("total_count") == 2 and
+             isinstance(jobs, list) and len(jobs) == 2 and
+             {job.get("name") for job in jobs if isinstance(job, dict)} ==
+             {"gate-linux", "gate-macos"} and
+             all(str(job.get("run_id")) == run and str(job.get("run_attempt")) == attempt and
+                 job.get("head_sha") == sha and job.get("status") == "completed" and
+                 job.get("conclusion") == "success" for job in jobs if isinstance(job, dict)),
+             "retained hosted job API record is not exactly the two successful selected jobs")
+    artifacts = artifacts_record.get("artifacts") if isinstance(artifacts_record, dict) else None
+    _require(isinstance(artifacts_record, dict) and
+             artifacts_record.get("total_count") == len(artifacts or []) and
+             isinstance(artifacts, list), "retained artifact enumeration is malformed")
+    selected: dict[str, dict[str, Any]] = {}
+    seen_names: set[str] = set()
+    seen_ids: set[str] = set()
+    proof_prefix = f"t64-authored-evidence-{sha}-{run}-"
+    for artifact in artifacts:
+        _require(isinstance(artifact, dict), "retained artifact API list contains a malformed row")
+        name = artifact.get("name")
+        if not isinstance(name, str) or not name.startswith(proof_prefix):
+            continue
+        match = re.fullmatch(re.escape(proof_prefix) + r"([1-9][0-9]*)-(gate-linux|gate-macos)", name)
+        artifact_id = str(artifact.get("id"))
+        workflow = artifact.get("workflow_run")
+        _require(match is not None and isinstance(workflow, dict) and
+                 name not in seen_names and artifact_id not in seen_ids and
+                 isinstance(artifact.get("expired"), bool) and
+                 int(match.group(1)) <= int(attempt) and
+                 str(workflow.get("id")) == run and workflow.get("head_sha") == sha,
+                 "retained proof artifact has unknown, duplicate, expired, or stale context")
+        seen_names.add(name)
+        seen_ids.add(artifact_id)
+        if match.group(1) == attempt:
+            _require(artifact["expired"] is False,
+                     "selected hosted artifact is expired")
+            selected[match.group(2)] = artifact
+    _require(set(selected) == {"gate-linux", "gate-macos"},
+             "retained API record does not contain exactly both current hosted artifacts")
+    archive_bindings = []
+    for job in ("gate-linux", "gate-macos"):
+        archive = _read(downloads / f"{job}.zip", 1024 * 1024)
+        _require(_read(downloads / f"{job}-download-exit.txt", 32).strip() == b"0",
+                 f"original {job} archive download did not exit successfully")
+        binding = rdp._read_json(downloads / f"{job}-binding.json")
+        artifact = _verify_artifact_download(
+            selected[job], binding, archive, repo=repo, sha=sha, run=run,
+            attempt=attempt, job=job,
+        )
+        with tempfile.TemporaryDirectory(prefix="t64-audio-zip-check-", dir=private_root) as temp:
+            extracted = Path(temp) / job
+            rdp._safe_extract_upload(archive, extracted, job)
+            rdp.verify_upload(extracted, expected_sha=sha, expected_job=job,
+                               expected_run=run, expected_attempt=attempt)
+            zipped_audio = _read(extracted / "audio" / job / "manifest.json", 16 * 1024)
+            published_audio = _read(combined / "audio" / job / "manifest.json", 16 * 1024)
+            _require(zipped_audio == published_audio,
+                     f"original {job} ZIP audio projection differs from collected output")
+        archive_bindings.append({
+            "job": job, "artifact_id": str(artifact["id"]),
+            "archive_bytes": artifact["size_in_bytes"],
+            "archive_digest": artifact["digest"],
+            "audio_manifest_sha256": _file_sha(combined / "audio" / job / "manifest.json"),
+        })
+    return archive_bindings
+
+
+def _compare_hosted_pair(manifests: dict[str, dict[str, Any]]) -> None:
+    _require(set(manifests) == {"gate-linux", "gate-macos"},
+             "hosted audio evidence requires both named platform jobs")
+    def semantics(value: dict[str, Any]) -> dict[str, Any]:
+        execution = value["execution"]
+        witness = value["platform_witness"]
+        return {
+            "schema": value["schema"],
+            "schema_version": value["schema_version"],
+            "evidence_mode": value["evidence_mode"],
+            "workflow_sha": value["workflow_sha"],
+            "source_revision": value["source_revision"],
+            "run_id": value["run_id"],
+            "run_attempt": value["run_attempt"],
+            "profile": value["profile"],
+            "fixture": value["fixture"],
+            "capture": value["capture"],
+            "execution": {key: execution[key] for key in (
+                "capture_ctest", "race_ctest", "return_code", "status", "timed_out",
+            )},
+            "inventory": value["inventory"],
+            "platform_witness_outcomes": witness["outcomes"],
+        }
+    _require(semantics(manifests["gate-linux"]) == semantics(manifests["gate-macos"]),
+             "Linux and macOS audio manifests disagree on authored semantic results")
+
+
+def _build_pii_upload_layout(combined: Path, destination: Path) -> None:
+    _require(not destination.exists() and not destination.is_symlink(),
+             "private PII input directory must be fresh")
+    destination.mkdir(parents=True, mode=0o700)
+    for job in ("gate-linux", "gate-macos"):
+        target = destination / job
+        target.mkdir(mode=0o700)
+        _safe_copy(combined / f"{job}.json", target / f"{job}.json")
+        (target / "rdp-vi").mkdir(mode=0o700)
+        _safe_copy(combined / "rdp-vi" / job, target / "rdp-vi" / job)
+        (target / "audio").mkdir(mode=0o700)
+        _safe_copy(combined / "audio" / job, target / "audio" / job)
+
+
+def _verify_public_pair(directory: Path, *, sha: str, run: str,
+                        attempt: str) -> dict[str, dict[str, Any]]:
+    _require(directory.is_dir() and not directory.is_symlink() and
+             {path.name for path in directory.iterdir()} == {"gate-linux", "gate-macos"} and
+             all(path.is_dir() and not path.is_symlink() for path in directory.iterdir()),
+             "public audio projection does not contain exactly the two hosted jobs")
+    manifests = {}
+    for job in ("gate-linux", "gate-macos"):
+        manifests[job] = _scan_public(directory / job, {
+            "job": job, "sha": sha, "run": run, "attempt": attempt,
+        })
+    _compare_hosted_pair(manifests)
+    return manifests
+
+
+def _collect_hosted(repo: str, sha: str, run: str, attempt: str,
+                    native_path: Path, output_dir: Path) -> Path:
+    _require(repo == "szTheory/tendies64" and SHA1_RE.fullmatch(sha) is not None and
+             DECIMAL_RE.fullmatch(run) is not None and
+             DECIMAL_RE.fullmatch(attempt) is not None and
+             _git(["rev-parse", "HEAD"]).decode().strip() == sha,
+             "hosted collection requires exact repository/SHA/run/attempt on the selected source")
+    _require(not native_path.is_symlink(), "native record path is a symlink")
+    native_path = native_path.resolve()
+    native = _verify_native_record(native_path, sha)
+    private_root = ROOT / "build/gate/08-05-audio-private"
+    hosted_private = private_root / f"hosted-{sha[:12]}-{run}-{attempt}-{time.time_ns()}"
+    _require(not hosted_private.exists() and not hosted_private.is_symlink(),
+             "hosted private destination already exists or is unsafe")
+    hosted_private.mkdir(parents=True, mode=0o700)
+    combined = hosted_private / "combined"
+    public_output = output_dir.resolve()
+    _require(not output_dir.is_symlink() and not _under(public_output, private_root) and
+             not public_output.exists() and
+             not public_output.is_symlink(),
+             "public audio output must be a fresh directory")
+    source_snapshot = _source_snapshot(sha, require_clean=True)
+    _require(source_snapshot == native["source_snapshot"],
+             "hosted collection source inputs differ from the completed native source snapshot")
+    rdp = _rdp_helpers()
+    collect_command = [sys.executable, "-B", str(ROOT / "scripts/qualify-rdp-vi.py"),
+                       "--collect-hosted", "--repo", repo, "--sha", sha,
+                       "--run", run, "--attempt", attempt, "--out", str(combined)]
+    collect_dir = hosted_private / "collector-command"
+    _run_saved_stage(rdp, collect_dir, collect_command, 240)
+    output_bytes = _read(collect_dir / "stdout.log", 4 * 1024 * 1024)
+    collection_matches = re.findall(
+        rb"^qualify-rdp-vi: private collection records retained at (.+)$",
+        output_bytes, flags=re.MULTILINE,
+    )
+    _require(len(collection_matches) == 1,
+             "exact hosted collector did not return one private API/ZIP record path")
+    collection_path = Path(collection_matches[0].decode("utf-8", errors="strict"))
+    _require(_under(collection_path, ROOT / "build/gate/07-qualification") and
+             collection_path.is_dir() and not collection_path.is_symlink(),
+             "hosted collection receipt is outside its private record store")
+    manifests = rdp._verify_collected_pair(
+        combined, commit_sha=sha, run_id=run, run_attempt=attempt,
+    )
+    _require(all((combined / "audio" / job / "manifest.json").is_file()
+                 for job in ("gate-linux", "gate-macos")),
+             "selected hosted artifacts do not both contain audio qualification manifests")
+    audio_manifests = {
+        job: _validate_hosted_context(
+            _json(combined / "audio" / job / "manifest.json", 16 * 1024),
+            repo=repo, sha=sha, run=run, attempt=attempt, job=job,
+        ) for job in ("gate-linux", "gate-macos")
+    }
+    _compare_hosted_pair(audio_manifests)
+    nested_stdout = _read(collection_path / "collection/stdout.log", 8 * 1024 * 1024)
+    download_matches = re.findall(
+        rb"^collect-boot-evidence: original download records retained at (.+)$",
+        nested_stdout, flags=re.MULTILINE,
+    )
+    _require(len(download_matches) == 1,
+             "collector did not retain one exact set of API and archive originals")
+    downloads = Path(download_matches[0].decode("utf-8", errors="strict"))
+    _require(_under(downloads, ROOT / "build/gate/07-qualification") and
+             not downloads.is_symlink(),
+             "hosted archive originals are outside their private build store")
+    archive_bindings = _verify_hosted_originals(
+        downloads, combined, repo=repo, sha=sha, run=run, attempt=attempt,
+        private_root=hosted_private,
+    )
+    pii_input = hosted_private / "pii-upload-layout"
+    _build_pii_upload_layout(combined, pii_input)
+    _run_saved_stage(rdp, hosted_private / "combined-pii-scan", [
+        sys.executable, "-B", str(ROOT / "scripts/qualify-rdp-vi.py"),
+        "--scan-pii", str(pii_input),
+    ], 60)
+    _run_saved_stage(rdp, hosted_private / "combined-rights-scan", [
+        "sh", "scripts/rights-scan.sh", "--staging", str(combined),
+    ], 60)
+    output = public_output
+    output.mkdir(parents=True, mode=0o755)
+    for job in ("gate-linux", "gate-macos"):
+        target = output / job
+        target.mkdir(mode=0o755)
+        manifest_data = _read(combined / "audio" / job / "manifest.json", 16 * 1024)
+        with (target / "manifest.json").open("xb") as stream:
+            stream.write(manifest_data)
+        (target / "manifest.json").chmod(0o644)
+    published = _verify_public_pair(output, sha=sha, run=run, attempt=attempt)
+    _require(_source_snapshot(sha, require_clean=True) == source_snapshot,
+             "source inputs changed during exact hosted collection")
+    record = {
+        "schema": "t64.audio-hosted-collection",
+        "schema_version": 1,
+        "evidence_mode": "hosted-gate",
+        "status": "complete",
+        "repo": repo,
+        "sha": sha,
+        "run": run,
+        "attempt": attempt,
+        "jobs": ["gate-linux", "gate-macos"],
+        "source_snapshot": source_snapshot,
+        "excluded_owner_metadata": _owner_metadata_snapshot(),
+        "native_record_path": str(native_path.resolve()),
+        "native_record_sha256": _file_sha(native_path),
+        "collection_path": str(collection_path),
+        "collection_tree_manifest": _tree_manifest(collection_path),
+        "downloads_path": str(downloads),
+        "downloads_tree_manifest": _tree_manifest(downloads),
+        "archive_bindings": archive_bindings,
+        "combined_path": str(combined),
+        "combined_tree_manifest": _tree_manifest(combined),
+        "pii_input_path": str(pii_input),
+        "pii_input_tree_manifest": _tree_manifest(pii_input),
+        "collector_command_path": str(collect_dir),
+        "collector_process": _json(collect_dir / "process.json", 16 * 1024),
+        "public_output_path": str(output),
+        "public_manifests": {job: _file_sha(output / job / "manifest.json")
+                              for job in published},
+    }
+    record_path = hosted_private / "hosted-record.json"
+    _write_json_private(record_path, record)
+    return record_path
+
+
+def _validate_hosted_record_header(record: Any, *, repo: str, sha: str,
+                                   run: str, attempt: str) -> dict[str, Any]:
+    _require(isinstance(record, dict) and
+             record.get("schema") == "t64.audio-hosted-collection" and
+             record.get("schema_version") == 1 and
+             record.get("evidence_mode") == "hosted-gate" and
+             record.get("status") == "complete" and
+             record.get("repo") == repo and record.get("sha") == sha and
+             record.get("run") == run and record.get("attempt") == attempt and
+             record.get("jobs") == ["gate-linux", "gate-macos"] and
+             isinstance(record.get("source_snapshot"), dict) and
+             isinstance(record.get("excluded_owner_metadata"), list) and
+             isinstance(record.get("native_record_path"), str) and
+             isinstance(record.get("native_record_sha256"), str) and
+             SHA256_RE.fullmatch(record["native_record_sha256"]) is not None and
+             isinstance(record.get("archive_bindings"), list) and
+             len(record["archive_bindings"]) == 2 and
+             all(isinstance(record.get(key), str) for key in (
+                 "collection_path", "downloads_path", "combined_path",
+                 "pii_input_path", "collector_command_path", "public_output_path",
+             )),
+             "hosted record is missing exact context, platforms, or private originals")
+    return record
+
+
+def _verify_hosted_record(path: Path, *, repo: str, sha: str, run: str,
+                          attempt: str, native_path: Path) -> dict[str, Any]:
+    _require(not path.is_symlink(), "hosted record path is a symlink")
+    path = path.resolve()
+    private_root = ROOT / "build/gate/08-05-audio-private"
+    _require(_under(path, private_root) and path.name == "hosted-record.json" and
+             path.is_file(), "explicit hosted record is outside the private qualification tree")
+    record = _validate_hosted_record_header(
+        _json(path, 8 * 1024 * 1024), repo=repo, sha=sha, run=run, attempt=attempt,
+    )
+    _require(not native_path.is_symlink(), "native record path is a symlink")
+    native_path = native_path.resolve()
+    native = _verify_native_record(native_path, sha)
+    _require(record.get("native_record_path") == str(native_path) and
+             record.get("native_record_sha256") == _file_sha(native_path) and
+             record.get("source_snapshot") == native["source_snapshot"] and
+             record.get("source_snapshot") == _source_snapshot(sha, require_clean=True) and
+             record.get("excluded_owner_metadata") == _owner_metadata_snapshot(),
+             "hosted collection is stale against its exact native source binding")
+    rdp = _rdp_helpers()
+    hosted_private = path.parent
+    collection = Path(record["collection_path"])
+    downloads = Path(record["downloads_path"])
+    combined = Path(record["combined_path"])
+    pii_input = Path(record["pii_input_path"])
+    collector_dir = Path(record["collector_command_path"])
+    public = Path(record["public_output_path"])
+    _require(collection.is_dir() and not collection.is_symlink() and
+             downloads.is_dir() and not downloads.is_symlink() and
+             _under(collection, ROOT / "build/gate/07-qualification") and
+             _under(downloads, ROOT / "build/gate/07-qualification") and
+             combined == hosted_private / "combined" and
+             pii_input == hosted_private / "pii-upload-layout" and
+             collector_dir == hosted_private / "collector-command" and
+             record.get("collection_tree_manifest") == _tree_manifest(collection) and
+             record.get("downloads_tree_manifest") == _tree_manifest(downloads) and
+             record.get("combined_tree_manifest") == _tree_manifest(combined),
+             "hosted API, archive, command, or extracted originals changed")
+    _require(record.get("pii_input_tree_manifest") == _tree_manifest(pii_input),
+             "strict PII scanner input layout changed")
+    collector_command = [sys.executable, "-B", str(ROOT / "scripts/qualify-rdp-vi.py"),
+                         "--collect-hosted", "--repo", repo, "--sha", sha,
+                         "--run", run, "--attempt", attempt, "--out", str(combined)]
+    _verify_process_record(
+        collector_dir, collector_command, max_timeout=240,
+        environment={"PYTHONDONTWRITEBYTECODE": "1"},
+    )
+    collection_stdout = _read(collection / "collection/stdout.log", 8 * 1024 * 1024)
+    nested_command = ["sh", "scripts/collect-boot-evidence.sh", "--collect", "--repo", repo,
+                      "--sha", sha, "--run", run, "--attempt", attempt,
+                      "--out", str(combined)]
+    _verify_process_record(collection / "collection", nested_command,
+                           max_timeout=180, environment={})
+    download_matches = re.findall(
+        rb"^collect-boot-evidence: original download records retained at (.+)$",
+        collection_stdout, flags=re.MULTILINE,
+    )
+    _require(len(download_matches) == 1 and
+             Path(download_matches[0].decode("utf-8", errors="strict")) == downloads,
+             "collector no longer names its exact retained API/ZIP originals")
+    rdp._verify_collected_pair(combined, commit_sha=sha, run_id=run, run_attempt=attempt)
+    bindings = _verify_hosted_originals(
+        downloads, combined, repo=repo, sha=sha, run=run, attempt=attempt,
+        private_root=hosted_private,
+    )
+    _require(record.get("archive_bindings") == bindings,
+             "hosted archive API identity or audio projection binding changed")
+    _verify_process_record(
+        hosted_private / "combined-pii-scan", [
+            sys.executable, "-B", str(ROOT / "scripts/qualify-rdp-vi.py"),
+            "--scan-pii", str(pii_input),
+        ], max_timeout=60, environment={"PYTHONDONTWRITEBYTECODE": "1"},
+    )
+    _verify_process_record(
+        hosted_private / "combined-rights-scan", [
+            "sh", "scripts/rights-scan.sh", "--staging", str(combined),
+        ], max_timeout=60, environment={"PYTHONDONTWRITEBYTECODE": "1"},
+    )
+    public_manifests = _verify_public_pair(public, sha=sha, run=run, attempt=attempt)
+    _require(record.get("public_manifests") == {
+        job: _file_sha(public / job / "manifest.json") for job in public_manifests
+    } and all(
+        _read(public / job / "manifest.json", 16 * 1024) ==
+        _read(combined / "audio" / job / "manifest.json", 16 * 1024)
+        for job in public_manifests
+    ), "public hosted projections differ from their exact retained archives")
+    return record
+
+
+def _native_command_plan(prefix: str, normal_junit: Path) -> list[dict[str, Any]]:
+    """Construct explicit normal/ASan audio checks after the shared native gate."""
+    _require(re.fullmatch(r"08-05-[A-Za-z0-9._-]{1,96}", prefix) is not None and
+             normal_junit.is_absolute() and
+             _under(normal_junit, ROOT / "build/gate/08-05-audio-private"),
+             "native artifact prefix is malformed")
+    rdp = ROOT / "scripts/qualify-rdp-vi.py"
+    checker = ROOT / "scripts/check-audio-cases.py"
+    return [
+        {
+            "label": "shared-native-gates",
+            "command": [sys.executable, "-B", str(rdp), "--native"],
+            "timeout_seconds": 2400,
+            "environment": {"T64_GATE_JUNIT_OUT": str(normal_junit)},
+        },
+        {
+            "label": "normal-audio-qualification",
+            "command": [sys.executable, "-B", str(checker), "--build",
+                        str((ROOT / "build/gate").resolve()), "--suite", "qualification",
+                        "--artifact-prefix", f"{prefix}-normal"],
+            "timeout_seconds": 720,
+            "environment": {},
+        },
+        {
+            "label": "asan-audio-qualification",
+            "command": [sys.executable, "-B", str(checker), "--build",
+                        str((ROOT / "build/asan").resolve()), "--suite", "qualification",
+                        "--artifact-prefix", f"{prefix}-asan"],
+            "timeout_seconds": 720,
+            "environment": {},
+        },
+        {
+            "label": "normal-source-body-check",
+            "command": [sys.executable, "-B", str(ROOT / "scripts/check-rsp-no-hle.py"),
+                        "--build", str((ROOT / "build/gate").resolve())],
+            "timeout_seconds": 120,
+            "environment": {},
+        },
+        {
+            "label": "asan-source-body-check",
+            "command": [sys.executable, "-B", str(ROOT / "scripts/check-rsp-no-hle.py"),
+                        "--build", str((ROOT / "build/asan").resolve())],
+            "timeout_seconds": 120,
+            "environment": {},
+        },
+    ]
+
+
+PHASE08_GCC_REQUIRED_UNITS = {
+    "core/t64_ai.c", "core/tests/test_ai.c", "runner/t64_raw_capture.c",
+    "runner/tests/test_audio_capture.c", "runner/t64_real.c",
+    "runner/t64_supervisor.c", "runner/tests/test_rdp_video.c",
+}
+EXPECTED_GCC13_IMAGE = "sha256:ad13696c6b2464e813639c0479ec2f66877516ec18a183c85282378720376786"
+
+
+def _rdp_helpers() -> Any:
+    path = ROOT / "scripts/qualify-rdp-vi.py"
+    spec = importlib.util.spec_from_file_location("t64_audio_rdp_helpers", path)
+    _require(spec is not None and spec.loader is not None,
+             "shared native qualification helpers are unavailable")
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+def _tree_manifest(directory: Path) -> list[dict[str, Any]]:
+    _require(directory.is_dir() and not directory.is_symlink(),
+             "retained private evidence directory is missing or unsafe")
+    entries: list[dict[str, Any]] = []
+    total = 0
+    for path in sorted(directory.rglob("*")):
+        metadata = path.lstat()
+        _require(not path.is_symlink() and (path.is_dir() or path.is_file()),
+                 "private evidence tree contains a symlink or special file")
+        if not path.is_file():
+            continue
+        data = _read(path, 64 * 1024 * 1024)
+        total += len(data)
+        _require(total <= 512 * 1024 * 1024 and len(entries) < 10000,
+                 "private evidence tree exceeds its bounded inventory")
+        entries.append({
+            "path": path.relative_to(directory).as_posix(),
+            "size_bytes": metadata.st_size,
+            "sha256": _sha(data),
+        })
+    _require(bool(entries), "private evidence tree is empty")
+    return entries
+
+
+def _verify_process_record(directory: Path, command: list[str], *, max_timeout: int,
+                           cwd: Path = ROOT,
+                           environment: dict[str, str] | None = None) -> dict[str, Any]:
+    command_record = _json(directory / "command.json", 64 * 1024)
+    process = _json(directory / "process.json", 16 * 1024)
+    _require(isinstance(command_record, dict) and
+             command_record.get("argv") == command and
+             command_record.get("cwd") == str(cwd) and
+             command_record.get("env") == (environment or {}) and
+             isinstance(command_record.get("timeout_seconds"), (int, float)) and
+             0 < command_record["timeout_seconds"] <= max_timeout and
+             isinstance(process, dict) and process.get("return_code") == 0 and
+             process.get("timed_out") is False and
+             process.get("timeout_seconds") == command_record["timeout_seconds"],
+             "original owning command or outcome is absent, stale, or failed")
+    for name in ("stdout", "stderr"):
+        data = _read(directory / f"{name}.log", 64 * 1024 * 1024)
+        _require(len(data) == process.get(f"{name}_bytes") and
+                 _sha(data) == process.get(f"{name}_sha256"),
+                 "original owning command output was changed or truncated")
+    return process
+
+
+def _validate_gcc13_closure(sources: Any, command: Any) -> list[str]:
+    rdp = _rdp_helpers()
+    _require(isinstance(sources, list) and sources == sorted(set(sources)) and
+             PHASE08_GCC_REQUIRED_UNITS.issubset(set(sources)),
+             "GCC13 closure omits required Phase08 production or test C units")
+    _require(isinstance(command, list) and
+             command == rdp._gcc13_closure_command(sources, EXPECTED_GCC13_IMAGE),
+             "GCC13 compiler command differs from its exact source unit set")
+    script = command[command.index("sh") + 2]
+    core_flags = next((line for line in script.splitlines() if line.startswith("core_flags=")), "")
+    test_flags = next((line for line in script.splitlines() if line.startswith("test_flags=")), "")
+    runner_flags = next((line for line in script.splitlines() if line.startswith("runner_flags=")), "")
+    _require("-Wframe-larger-than=2048" in core_flags and
+             "-Wframe-larger-than=" not in test_flags and
+             "-Wframe-larger-than=" not in runner_flags and
+             "-DT64_REAL_RUNNER_TESTING" in script and
+             "-DT64_SUPERVISOR_TESTING" in script,
+             "GCC13 core frame policy or real/test runner compile variants changed")
+    return sources
+
+
+def _verify_rdp_native_receipt(path: Path, source_sha: str,
+                               normal_junit: Path) -> dict[str, Any]:
+    rdp = _rdp_helpers()
+    path = path.resolve()
+    _require(_under(path, ROOT / "build/gate") and path.is_dir() and not path.is_symlink(),
+             "shared native receipt is outside its explicit private gate tree")
+    record_path = path / "source-binding.json"
+    record = _json(record_path, 8 * 1024 * 1024)
+    _require(normal_junit.is_absolute() and
+             _under(normal_junit, ROOT / "build/gate/08-05-audio-private") and
+             normal_junit.is_file() and not normal_junit.is_symlink() and
+             _read(normal_junit, 16 * 1024 * 1024),
+             "owning normal CTest JUnit is missing or outside the explicit private path")
+    _require(isinstance(record, dict) and
+             record.get("schema") == "t64.phase07-native-source-binding" and
+             record.get("schema_version") == 1 and record.get("source_sha") == source_sha and
+             record.get("source_binding_verified_after_all_commands") is True and
+             record.get("normal_full_ctest_junit_path") == str(normal_junit) and
+             record.get("phase07_source_base") == rdp.PHASE07_SOURCE_BASE and
+             record.get("gcc13_image") == {
+                 "image_id": EXPECTED_GCC13_IMAGE, "platform": "linux/amd64",
+             }, "shared native receipt lacks exact source or pinned GCC13 identity")
+    _require(record.get("source_binding") == rdp._native_source_snapshot(ROOT, source_sha),
+             "shared native source/build/fixture input snapshot is stale")
+    sources = record.get("phase07_changed_c_sources")
+    gcc_script = ROOT / "build/gate/07-10-gcc13-command.sh"
+    route = record.get("gcc13_reference_route")
+    _require(isinstance(route, dict) and route.get("path") == "build/gate/07-10-gcc13-command.sh" and
+             route.get("sha256") == _file_sha(gcc_script),
+             "saved GCC13 reference route is missing or changed")
+    expected_gcc = rdp._gcc13_closure_command(sources, EXPECTED_GCC13_IMAGE)
+    _validate_gcc13_closure(sources, record.get("gcc13_command"))
+    _require(record.get("gcc13_command") == expected_gcc and
+             record.get("native_commands") == [
+                 ["sh", "scripts/gate.sh"],
+                 ["cmake", "--preset", "asan"],
+                 ["cmake", "--build", "--preset", "asan", "--parallel", "1"],
+                 ["ctest", "--preset", "asan", "--no-tests=error"],
+             ], "shared native command plan differs from the reviewed bounded route")
+    gcc_cmd = expected_gcc
+    ctest = ["ctest", "--preset", "asan", "--no-tests=error", "--output-junit",
+             str((path / "asan/full-ctest-junit.xml").resolve())]
+    commands = {
+        "gate": ["sh", "scripts/gate.sh"],
+        "asan-configure": ["cmake", "--preset", "asan"],
+        "asan-build": ["cmake", "--build", "--preset", "asan", "--parallel", "1"],
+        "asan-full-ctest": ctest,
+        "gcc13": gcc_cmd,
+    }
+    for label, argv in commands.items():
+        environment = {"T64_GATE_JUNIT_OUT": str(normal_junit)} if label == "gate" else {}
+        if label == "asan-full-ctest":
+            environment = {
+                "ASAN_OPTIONS": "detect_leaks=0:halt_on_error=1",
+                "UBSAN_OPTIONS": "halt_on_error=1:print_stacktrace=1",
+            }
+        _verify_process_record(path / label, argv, max_timeout=2400,
+                               environment=environment)
+    _require((path / "asan/full-ctest-junit.xml").is_file() and
+             (path / "asan/after-full-ctest-LastTest.log").is_file(),
+             "shared ASan full-inventory originals are missing")
+    return record
+
+
+def _run_saved_stage(rdp: Any, directory: Path, command: list[str],
+                     timeout_seconds: int,
+                     extra_environment: dict[str, str] | None = None) -> dict[str, Any]:
+    environment_delta = {"PYTHONDONTWRITEBYTECODE": "1", **(extra_environment or {})}
+    environment = os.environ.copy()
+    environment.update(environment_delta)
+    outcome = rdp._run_bounded(
+        command, cwd=ROOT, environment=environment,
+        timeout_seconds=float(timeout_seconds),
+    )
+    rdp._save_process(directory, command, ROOT, environment_delta, outcome,
+                      float(timeout_seconds))
+    _require(outcome.get("process_group_empty") is True and
+             outcome.get("timed_out") is False and outcome.get("return_code") == 0,
+             f"bounded native stage failed or timed out: {directory.name}")
+    return outcome
+
+
+def _native_suite_records(build: Path, *, prefix: str, last_path: Path,
+                          junit_path: Path) -> dict[str, Any]:
+    """Bind exact authored cases to the full normal/ASan suite originals."""
+    inventory_data = _read(INVENTORY, 128 * 1024)
+    inventory = _validate_inventory(inventory_data, EXPECTED_INVENTORY_SHA256)
+    authored = json.loads(inventory_data)
+    selected = authored["suites"]["qualification"]
+    expected_audio_ctests = selected["ctest"]
+    last_bytes = _read(last_path, 32 * 1024 * 1024)
+    last_text = last_bytes.decode("utf-8", errors="strict")
+    last_names = re.findall(r"^\d+/\d+ Testing: (.+)$", last_text, flags=re.MULTILINE)
+    _require(bool(last_names) and len(last_names) == len(set(last_names)) and
+             all(re.search(rf"^\d+/\d+ Testing: {re.escape(name)}$", last_text,
+                           flags=re.MULTILINE) for name in last_names),
+             "full owning LastTest inventory is empty or duplicated")
+    for name in last_names:
+        _test_section(last_text, name)
+
+    junit_root = ET.fromstring(_read(junit_path, 16 * 1024 * 1024))
+    junit_names = [entry.attrib.get("name") for entry in junit_root.iter("testcase")]
+    _require(junit_names and len(junit_names) == len(set(junit_names)) and
+             set(junit_names) == set(last_names),
+             "owning full-suite JUnit does not match its exact LastTest inventory")
+    for name in junit_names:
+        _junit_passed(junit_path, str(name))
+    _require(set(expected_audio_ctests).issubset(set(last_names)),
+             "full native suite did not reach every authored audio qualification CTest")
+
+    discovery_paths = list(build.glob(f"{prefix}-qualification-*-discovery-stdout.log"))
+    _require(len(discovery_paths) == 1,
+             "non-running audio inventory check did not retain one exact discovery record")
+    token = discovery_paths[0].name.removesuffix("-discovery-stdout.log")
+    discovery_path = build / f"{token}-discovery-stdout.log"
+    discovery_command_path = build / f"{token}-discovery-command.json"
+    build_command_path = build / f"{token}-build-command.json"
+    before_last = build / f"{token}-before-discovery-LastTest.log"
+    after_last = build / f"{token}-after-discovery-LastTest.log"
+    _require(all(path.is_file() and not path.is_symlink() for path in (
+        discovery_path, discovery_command_path, build_command_path, before_last, after_last,
+        build / f"{token}-build-stdout.log", build / f"{token}-build-stderr.log",
+        build / f"{token}-discovery-stderr.log",
+    )), "non-running authored inventory originals are incomplete")
+    expected_build_command = ["cmake", "--build", str(build.resolve()), "--parallel", "1"]
+    expected_discovery_command = ["ctest", "--test-dir", str(build.resolve()),
+                                  "--show-only=json-v1"]
+    _require(_json(build_command_path, 16 * 1024) == expected_build_command and
+             _json(discovery_command_path, 16 * 1024) == expected_discovery_command and
+             _read(before_last, 32 * 1024 * 1024) == last_bytes and
+             _read(after_last, 32 * 1024 * 1024) == last_bytes,
+             "inventory command or retained CTest LastTest changed")
+    discovery = _json(discovery_path, 16 * 1024 * 1024)
+    _require(isinstance(discovery, dict) and isinstance(discovery.get("tests"), list),
+             "full native CTest discovery record is malformed")
+    discovered = [entry.get("name") for entry in discovery["tests"]
+                  if isinstance(entry, dict)]
+    _require(len(discovered) == len(set(discovered)) and
+             set(discovered) == set(last_names) and
+             set(expected_audio_ctests).issubset(set(discovered)),
+             "owning full suite and discovered test inventory differ")
+
+    capture_section = _test_section(last_text, "runner.raw-capture")
+    capture_records = [Path(value).resolve() for value in re.findall(
+        r"^private audio runner evidence retained at (.+)$", capture_section,
+        flags=re.MULTILINE,
+    )]
+    _require(len(capture_records) == 1,
+             "full native suite does not retain one exact actual capture original")
+    summary = _capture_record(capture_records[0], build, last_path, junit_path)
+    summary.update({
+        "inventory": inventory,
+        "suite": "qualification",
+        "artifact_prefix": prefix,
+        "artifact_token": token,
+        "last_test_path": str(last_path.resolve()),
+        "junit_path": str(junit_path.resolve()),
+        "full_ctest_names": last_names,
+        "discovered_ctest_names": discovered,
+        "checker_artifact_paths": [str(path) for path in (
+            build_command_path, discovery_command_path, discovery_path,
+            before_last, after_last, build / f"{token}-build-stdout.log",
+            build / f"{token}-build-stderr.log",
+            build / f"{token}-discovery-stderr.log",
+        )],
+    })
+    return summary
+
+
+def _native_qualify(source_sha: str, output_dir: Path) -> Path:
+    _require(SHA1_RE.fullmatch(source_sha) is not None and
+             _git(["rev-parse", "HEAD"]).decode().strip() == source_sha,
+             "native source SHA must exactly match the checked-out revision")
+    private_root = ROOT / "build/gate/08-05-audio-private"
+    if private_root.exists() or private_root.is_symlink():
+        _require(private_root.is_dir() and not private_root.is_symlink(),
+                 "native private root is unsafe")
+    else:
+        private_root.mkdir(parents=True, mode=0o700)
+    _require(not output_dir.is_symlink(), "native output path is a symlink")
+    output = output_dir.resolve()
+    _require(_under(output, private_root) and not output.exists() and not output.is_symlink(),
+             "native output must be a fresh private directory under build/gate")
+    output.mkdir(parents=True, mode=0o700)
+    source_before = _source_snapshot(source_sha, require_clean=True)
+    prefix = f"08-05-{source_sha[:8]}-{time.time_ns()}"
+    normal_junit = (output / "normal-full-ctest-junit.xml").resolve()
+    plan = _native_command_plan(prefix, normal_junit)
+    rdp = _rdp_helpers()
+    steps_dir = output / "steps"
+    steps_dir.mkdir(mode=0o700)
+    _run_saved_stage(rdp, steps_dir / "shared-native-gates", plan[0]["command"],
+                     plan[0]["timeout_seconds"], plan[0]["environment"])
+    native_stdout = _read(steps_dir / "shared-native-gates/stdout.log", 8 * 1024 * 1024).decode()
+    matches = re.findall(
+        r"^qualify-rdp-vi: private owning command, process, LastTest, and JUnit records: (.+)$",
+        native_stdout, flags=re.MULTILINE,
+    )
+    _require(len(matches) == 1, "shared native runner did not return one explicit original receipt")
+    rdp_native_path = Path(matches[0]).resolve()
+    rdp_record = _verify_rdp_native_receipt(rdp_native_path, source_sha, normal_junit)
+    suite_records: dict[str, Any] = {}
+    for inventory_plan, source_plan, build_name, artifact_suffix, junit_path, last_path in (
+        (plan[1], plan[3], "gate", "normal", normal_junit,
+         rdp_native_path / "normal/after-gate-LastTest.log"),
+        (plan[2], plan[4], "asan", "asan",
+         rdp_native_path / "asan/full-ctest-junit.xml",
+         rdp_native_path / "asan/after-full-ctest-LastTest.log"),
+    ):
+        _run_saved_stage(rdp, steps_dir / inventory_plan["label"],
+                         inventory_plan["command"], inventory_plan["timeout_seconds"])
+        inventory_stdout = _read(
+            steps_dir / inventory_plan["label"] / "stdout.log", 8 * 1024 * 1024,
+        )
+        _require(b"validated nonempty qualification audio case inventory" in inventory_stdout,
+                 f"{artifact_suffix} authored inventory check did not reach its pass marker")
+        build = (ROOT / "build" / build_name).resolve()
+        _run_saved_stage(rdp, steps_dir / source_plan["label"], source_plan["command"],
+                         source_plan["timeout_seconds"])
+        body_stdout = _read(steps_dir / source_plan["label"] / "stdout.log", 4 * 1024 * 1024)
+        _require(body_stdout.startswith(b"PASS: rsp-no-hle"),
+                 f"{artifact_suffix} native source/body/object check did not pass")
+        summary = _native_suite_records(
+            build, prefix=f"{prefix}-{artifact_suffix}", last_path=last_path,
+            junit_path=junit_path,
+        )
+        retained = output / artifact_suffix
+        _retain_originals(retained, build, last_path, junit_path, summary, source_before)
+        _write_json_private(retained / "summary-binding.json", summary)
+        suite_records[artifact_suffix] = {
+            "build_dir": str(build),
+            "artifact_prefix": f"{prefix}-{artifact_suffix}",
+            "summary": summary,
+            "retained_path": str(retained),
+            "retained_manifest": _tree_manifest(retained),
+        }
+        _require(_source_snapshot(source_sha, require_clean=True) == source_before,
+                 "source inputs changed during native audio qualification")
+    _require(_source_snapshot(source_sha, require_clean=True) == source_before,
+             "source inputs changed before native qualification could be sealed")
+    record = {
+        "schema": "t64.audio-native-qualification",
+        "schema_version": 1,
+        "evidence_mode": "native-qualification",
+        "status": "complete",
+        "source_sha": source_sha,
+        "source_snapshot": source_before,
+        "excluded_owner_metadata": _owner_metadata_snapshot(),
+        "inventory": _validate_inventory(_read(INVENTORY, 128 * 1024),
+                                          EXPECTED_INVENTORY_SHA256),
+        "normal_full_ctest_junit_path": str(normal_junit),
+        "shared_native_path": str(rdp_native_path),
+        "shared_native_record_sha256": _file_sha(rdp_native_path / "source-binding.json"),
+        "shared_native_tree_manifest": _tree_manifest(rdp_native_path),
+        "shared_native_closure": {
+            "units": rdp_record["phase07_changed_c_sources"],
+            "gcc13_command": rdp_record["gcc13_command"],
+        },
+        "steps_path": str(steps_dir),
+        "suites": suite_records,
+        "output_path": str(output),
+    }
+    _write_json_private(output / "native-record.json", record)
+    return output / "native-record.json"
+
+
+def _write_json_private(path: Path, value: Any) -> None:
+    payload = json.dumps(value, sort_keys=True, separators=(",", ":")).encode() + b"\n"
+    with path.open("xb") as stream:
+        stream.write(payload)
+    path.chmod(0o600)
+
+
+def _validate_native_record_header(record: Any, expected_sha: str) -> dict[str, Any]:
+    _require(isinstance(record, dict) and
+             record.get("schema") == "t64.audio-native-qualification" and
+             record.get("schema_version") == 1 and
+             record.get("evidence_mode") == "native-qualification" and
+             record.get("status") == "complete" and
+             record.get("source_sha") == expected_sha and
+             isinstance(record.get("source_snapshot"), dict) and
+             isinstance(record.get("excluded_owner_metadata"), list) and
+             isinstance(record.get("normal_full_ctest_junit_path"), str) and
+             isinstance(record.get("shared_native_path"), str) and
+             isinstance(record.get("shared_native_record_sha256"), str) and
+             SHA256_RE.fullmatch(record["shared_native_record_sha256"]) is not None and
+             isinstance(record.get("shared_native_tree_manifest"), list) and
+             isinstance(record.get("steps_path"), str) and
+             isinstance(record.get("suites"), dict) and
+             set(record["suites"]) == {"normal", "asan"},
+             "native evidence is smoke-only, incomplete, or missing a required suite")
+    closure = record.get("shared_native_closure")
+    _require(isinstance(closure, dict) and
+             isinstance(closure.get("units"), list) and
+             PHASE08_GCC_REQUIRED_UNITS.issubset(set(closure["units"])) and
+             isinstance(closure.get("gcc13_command"), list),
+             "native evidence lacks the Phase08 GCC13 source closure")
+    inventory = record.get("inventory")
+    expected_inventory = _validate_inventory(_read(INVENTORY, 128 * 1024),
+                                             EXPECTED_INVENTORY_SHA256)
+    _require(inventory == expected_inventory,
+             "native evidence is missing or reducing the authored case denominator")
+    return record
+
+
+def _verify_native_record(path: Path, expected_sha: str) -> dict[str, Any]:
+    _require(not path.is_symlink(), "native record path is a symlink")
+    path = path.resolve()
+    private_root = ROOT / "build/gate/08-05-audio-private"
+    _require(_under(path, private_root) and path.name == "native-record.json" and
+             path.is_file() and not path.is_symlink(),
+             "explicit native record is outside the private qualification tree")
+    record = _validate_native_record_header(_json(path, 16 * 1024 * 1024), expected_sha)
+    output = path.parent
+    _require(record.get("output_path") == str(output) and
+             record.get("steps_path") == str(output / "steps") and
+             record.get("normal_full_ctest_junit_path") ==
+             str((output / "normal-full-ctest-junit.xml").resolve()),
+             "native record paths differ from its explicit private directory")
+    current_source = _source_snapshot(expected_sha, require_clean=True)
+    _require(record.get("source_snapshot") == current_source,
+             "native source inputs differ from the recorded clean snapshot")
+    _require(record.get("excluded_owner_metadata") == _owner_metadata_snapshot() and
+             [entry.get("path") for entry in record["excluded_owner_metadata"]] ==
+             list(OWNER_METADATA_PATHS),
+             "known excluded owner metadata changed or has an unexpected path")
+    rdp_path = Path(record["shared_native_path"])
+    _require(not rdp_path.is_symlink(), "shared native record path is a symlink")
+    rdp_path = rdp_path.resolve()
+    _require(record.get("shared_native_record_sha256") ==
+             _file_sha(rdp_path / "source-binding.json") and
+             record.get("shared_native_tree_manifest") == _tree_manifest(rdp_path),
+             "shared native command/original record files changed")
+    rdp_record = _verify_rdp_native_receipt(
+        rdp_path, expected_sha, Path(record["normal_full_ctest_junit_path"]),
+    )
+    _require(record["shared_native_closure"] == {
+        "units": rdp_record["phase07_changed_c_sources"],
+        "gcc13_command": rdp_record["gcc13_command"],
+    }, "native GCC13 source and command binding is stale")
+    prefix = record["suites"]["normal"].get("artifact_prefix")
+    _require(isinstance(prefix, str) and prefix.startswith("08-05-") and
+             prefix.endswith("-normal") and
+             record["suites"]["asan"].get("artifact_prefix") == prefix[:-7] + "-asan",
+             "normal and ASan suite prefixes do not belong to the same native attempt")
+    plan = _native_command_plan(prefix[:-7], Path(record["normal_full_ctest_junit_path"]))
+    for index, key in enumerate((
+        "shared-native-gates", "normal-audio-qualification", "asan-audio-qualification",
+        "normal-source-body-check", "asan-source-body-check",
+    )):
+        item = plan[index]
+        _verify_process_record(output / "steps" / key, item["command"],
+                               max_timeout=item["timeout_seconds"],
+                               environment={"PYTHONDONTWRITEBYTECODE": "1",
+                                            **item["environment"]})
+        stdout = _read(output / "steps" / key / "stdout.log", 16 * 1024 * 1024)
+        if "audio-qualification" in key:
+            _require(b"validated nonempty qualification audio case inventory" in stdout,
+                     "native audio inventory pass marker is missing")
+        if "source-body-check" in key:
+            _require(stdout.startswith(b"PASS: rsp-no-hle"),
+                     "native source/body/object pass marker is missing")
+    for suite_name, build_name, artifact_suffix in (
+        ("normal", "gate", "normal"), ("asan", "asan", "asan"),
+    ):
+        selected = record["suites"][suite_name]
+        build = (ROOT / "build" / build_name).resolve()
+        _require(selected.get("build_dir") == str(build) and
+                 selected.get("retained_path") == str(output / artifact_suffix),
+                 f"{suite_name} inventory does not use its explicit owning build directory")
+        last_path = Path(rdp_path / (
+            "normal/after-gate-LastTest.log" if suite_name == "normal" else
+            "asan/after-full-ctest-LastTest.log"
+        ))
+        junit_path = Path(record["normal_full_ctest_junit_path"] if suite_name == "normal" else
+                          rdp_path / "asan/full-ctest-junit.xml")
+        # The JUnit is emitted by the owning full CTest invocation; no nested suite is run here.
+        summary = _native_suite_records(
+            build, prefix=selected["artifact_prefix"], last_path=last_path,
+            junit_path=junit_path,
+        )
+        _require(selected.get("summary") == summary and
+                 selected.get("retained_manifest") == _tree_manifest(output / artifact_suffix),
+                 f"{suite_name} owning command, result, binaries, or originals changed")
+    return record
+
+
 def _scan_public(directory: Path, expected: dict[str, Any] | None = None) -> dict[str, Any]:
     _require(directory.is_dir() and not directory.is_symlink(),
              "public evidence directory is absent or unsafe")
@@ -362,7 +1361,15 @@ def _scan_public(directory: Path, expected: dict[str, Any] | None = None) -> dic
     )
     _require(not any(pattern.search(data) for pattern in patterns),
              "public projection contains a local path, personal identifier, or raw artifact name")
-    value = _public_projection(json.loads(data), expected)
+    projection = json.loads(data)
+    if expected is not None and expected.get("job") in {"gate-linux", "gate-macos"}:
+        value = _validate_hosted_context(
+            projection, repo="szTheory/tendies64", sha=expected.get("sha"),
+            run=expected.get("run"), attempt=expected.get("attempt"),
+            job=expected.get("job"),
+        )
+    else:
+        value = _public_projection(projection, expected)
     _require(len(data) <= 16 * 1024, "public projection exceeds its bounded size")
     return value
 
@@ -1023,15 +2030,21 @@ def main() -> int:
     mode = parser.add_mutually_exclusive_group(required=True)
     mode.add_argument("--selftest", action="store_true")
     mode.add_argument("--emit-hosted", action="store_true")
-    mode.add_argument("--verify-evidence", type=Path, metavar="PRIVATE_RUN")
+    mode.add_argument("--native", action="store_true")
+    mode.add_argument("--collect-hosted", action="store_true")
+    mode.add_argument("--verify-evidence", action="store_true")
+    mode.add_argument("--verify-record", type=Path, metavar="PRIVATE_RUN")
     mode.add_argument("--scan-pii", action="store_true")
     parser.add_argument("--build", type=Path, help="explicit normal or ASAN build directory")
     parser.add_argument("--last-test", type=Path, help="exact owning CTest LastTest.log")
     parser.add_argument("--junit", type=Path, help="exact owning CTest JUnit XML")
     parser.add_argument("--job", choices=("local", "gate-linux", "gate-macos"))
+    parser.add_argument("--repo", help="exact hosted repository full name")
     parser.add_argument("--sha", help="exact workflow source SHA; local smoke may omit")
     parser.add_argument("--run", help="exact workflow run ID")
     parser.add_argument("--attempt", help="exact workflow attempt")
+    parser.add_argument("--native-record", type=Path, help="exact private native record")
+    parser.add_argument("--hosted-record", type=Path, help="exact private hosted collection record")
     parser.add_argument("--suite", choices=("capture-errors", "qualification"))
     parser.add_argument("--artifact-prefix", help="explicit run-bound CTest artifact prefix")
     parser.add_argument("--out", type=Path, help="fresh public projection directory")
@@ -1045,10 +2058,35 @@ def main() -> int:
             )
             _require(result.returncode == 0, "audio qualification controls did not pass")
             return 0
-        if args.verify_evidence is not None:
+        if args.native:
+            if args.sha is None or args.out is None:
+                parser.error("--native requires exact --sha and fresh private --out")
+            native_record = _native_qualify(args.sha, args.out)
+            print(f"qualify-audio: native qualification passed; private originals retained at {native_record}")
+            return 0
+        if args.collect_hosted:
+            if not all((args.repo, args.sha, args.run, args.attempt)) or \
+                    args.native_record is None or args.out is None:
+                parser.error("--collect-hosted requires --repo, --sha, --run, --attempt, --native-record, and --out")
+            hosted_record = _collect_hosted(
+                args.repo, args.sha, args.run, args.attempt, args.native_record, args.out,
+            )
+            print(f"qualify-audio: exact hosted artifacts collected; private originals retained at {hosted_record}")
+            return 0
+        if args.verify_evidence:
+            if not all((args.repo, args.sha, args.run, args.attempt)) or \
+                    args.native_record is None or args.hosted_record is None:
+                parser.error("--verify-evidence requires exact --repo, --sha, --run, --attempt, --native-record, and --hosted-record")
+            _verify_hosted_record(
+                args.hosted_record, repo=args.repo, sha=args.sha, run=args.run,
+                attempt=args.attempt, native_path=args.native_record,
+            )
+            print("qualify-audio: complete native, ASan, GCC13, and both hosted platform records verified")
+            return 0
+        if args.verify_record is not None:
             if args.build is None or args.last_test is None or args.junit is None:
-                parser.error("--verify-evidence requires --build, --last-test, and --junit")
-            summary = _capture_record(args.verify_evidence, args.build,
+                parser.error("--verify-record requires --build, --last-test, and --junit")
+            summary = _capture_record(args.verify_record, args.build,
                                       args.last_test, args.junit)
             print("qualify-audio: accepted retained consumer and race records "
                   f"({summary['video_packets']} video, {summary['audio_packets']} audio, "
@@ -1085,7 +2123,9 @@ def main() -> int:
             print("qualify-audio: strict public allowlist and PII scan passed")
             return 0
         raise Refusal("no supported mode selected")
-    except (OSError, UnicodeDecodeError, json.JSONDecodeError, Refusal) as error:
+    except (OSError, UnicodeDecodeError, json.JSONDecodeError, Refusal,
+            AttributeError, KeyError, TypeError, ValueError, AssertionError,
+            subprocess.TimeoutExpired) as error:
         print(f"qualify-audio: refused original evidence: {error}", file=sys.stderr)
         return 1
 

@@ -344,6 +344,14 @@ def _run_native() -> tuple[Path, str]:
             ["ctest", "--preset", "asan", "--no-tests=error"],
         ],
     }
+    normal_junit_text = os.environ.get("T64_GATE_JUNIT_OUT")
+    if normal_junit_text is not None:
+        normal_junit = Path(normal_junit_text)
+        if not normal_junit.is_absolute() or not _under(
+                normal_junit, ROOT / "build/gate/08-05-audio-private") or \
+                normal_junit.exists() or normal_junit.is_symlink():
+            raise Refusal("optional gate JUnit path is not fresh private Phase08 evidence")
+        native_record["normal_full_ctest_junit_path"] = str(normal_junit)
     _write_json(evidence / "source-binding.json", native_record)
     cheap_passed, cheap_message = _selftest()
     if not cheap_passed:
@@ -361,8 +369,12 @@ def _run_native() -> tuple[Path, str]:
         _assert_native_source_snapshot(source_binding)
         if _file_sha(gcc_script) != gcc_script_sha:
             raise Refusal("saved GCC 13 reference route changed during native qualification")
+        environment = {}
+        if label == "gate" and normal_junit_text is not None:
+            environment["T64_GATE_JUNIT_OUT"] = normal_junit_text
         result = _run_recorded(
-            evidence / label, command, cwd=ROOT, environment={}, timeout_seconds=timeout,
+            evidence / label, command, cwd=ROOT, environment=environment,
+            timeout_seconds=timeout,
         )
         _assert_native_source_snapshot(source_binding)
         if label == "gate":
@@ -1312,9 +1324,18 @@ def _verify_collected_pair(directory: Path, *, commit_sha: str, run_id: str,
         raise Refusal("collected artifact pair is absent or unsafe")
     expected_files = {"gate-linux.json", "gate-macos.json"}
     expected_dirs = {"rdp-vi", "rdp-vi/gate-linux", "rdp-vi/gate-macos"}
+    audio_presence = []
     for job in ("gate-linux", "gate-macos"):
         expected_files.update(f"rdp-vi/{job}/{name}" for name in (
             "manifest.json", "inventory.json", "observation.json", "raw-export.json"))
+        audio_path = directory / "audio" / job
+        audio_presence.append(audio_path.exists() or audio_path.is_symlink())
+    if any(audio_presence):
+        if not all(audio_presence):
+            raise Refusal("collected pair has an audio manifest for only one hosted platform")
+        expected_dirs.update({"audio", "audio/gate-linux", "audio/gate-macos"})
+        expected_files.update({"audio/gate-linux/manifest.json",
+                               "audio/gate-macos/manifest.json"})
     found_files: set[str] = set()
     found_dirs: set[str] = set()
     for path in directory.rglob("*"):
@@ -1349,6 +1370,11 @@ def _verify_collected_pair(directory: Path, *, commit_sha: str, run_id: str,
         manifest = _read_json(raw_dir / "manifest.json")
         assert isinstance(manifest, dict)
         manifests[job] = manifest
+        if all(audio_presence):
+            _verify_audio_upload(
+                directory, expected_sha=commit_sha, expected_job=job,
+                expected_run=run_id, expected_attempt=run_attempt,
+            )
     linux, macos = manifests["gate-linux"], manifests["gate-macos"]
     linux_raw = _verify_public_serialization(
         directory / "rdp-vi/gate-linux", manifests["gate-linux"])

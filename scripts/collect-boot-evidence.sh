@@ -302,6 +302,11 @@ collect() {
       "$slot/rdp-vi/$job/observation.json" "$slot/rdp-vi/$job/raw-export.json" \
       "$TMP/publish/rdp-vi/$job/" ||
       die "cannot retain validated $job raw evidence"
+    if [ -f "$slot/audio/$job/manifest.json" ]; then
+      mkdir -p "$TMP/publish/audio/$job" || die "cannot stage $job audio projection"
+      cp "$slot/audio/$job/manifest.json" "$TMP/publish/audio/$job/manifest.json" ||
+        die "cannot retain validated $job audio projection"
+    fi
   done
   linux_artifact_id=$(jq -er --arg name "$linux_name" '.artifacts[] | select(.name == $name) | .id | tostring' "$artifacts_file") || die "cannot read gate-linux artifact ID"
   linux_artifact_digest=$(jq -er --arg name "$linux_name" '.artifacts[] | select(.name == $name) | .digest' "$artifacts_file") || die "cannot read gate-linux artifact digest"
@@ -545,7 +550,7 @@ PY
   fi
   [ -f "$TMP/collected/gate-linux.json" ] && [ ! -L "$TMP/collected/gate-linux.json" ] || die "mocked collector did not publish Linux record"
   [ -f "$TMP/collected/gate-macos.json" ] && [ ! -L "$TMP/collected/gate-macos.json" ] || die "mocked collector did not publish macOS record"
-  [ "$(find "$TMP/collected" -type f | wc -l | tr -d ' ')" = 10 ] || die "mocked collector did not publish exactly two boot records and eight text evidence files"
+  [ "$(find "$TMP/collected" -type f | wc -l | tr -d ' ')" = 12 ] || die "mocked collector did not publish the exact boot/raw pair and two audio manifests"
   cmp -s "$TMP/linux.json" "$TMP/collected/gate-linux.json" || die "mocked Linux record changed during collection"
   cmp -s "$TMP/macos.json" "$TMP/collected/gate-macos.json" || die "mocked macOS record changed during collection"
   for job in gate-linux gate-macos; do
@@ -553,6 +558,8 @@ PY
       cmp -s "$TMP/layout/$job/rdp-vi/$job/$member" "$TMP/collected/rdp-vi/$job/$member" ||
         die "mocked collector changed $job raw member $member"
     done
+    cmp -s "$TMP/layout/$job/audio/$job/manifest.json" \
+      "$TMP/collected/audio/$job/manifest.json" || die "mocked collector changed $job audio projection"
   done
   if ! PATH="$TMP/mockbin:$PATH" T64_EVIDENCE_MOCK_ROOT="$TMP" \
     T64_QUALIFIER="$ROOT/scripts/qualify-rdp-vi.py" \
@@ -563,13 +570,15 @@ PY
     cat "$TMP/raw-collector.stderr" >&2
     die "new raw collector failed the exact mocked combined upload pair"
   fi
-  [ "$(find "$TMP/raw-collected" -type f | wc -l | tr -d ' ')" = 10 ] ||
-    die "new raw collector did not retain both boot records and the exact text evidence files"
+  [ "$(find "$TMP/raw-collected" -type f | wc -l | tr -d ' ')" = 12 ] ||
+    die "new raw collector did not retain both boot records, exact text evidence, and audio manifests"
   for job in gate-linux gate-macos; do
     for member in manifest.json inventory.json observation.json raw-export.json; do
       cmp -s "$TMP/layout/$job/rdp-vi/$job/$member" "$TMP/raw-collected/rdp-vi/$job/$member" ||
         die "new raw collector changed $job member $member"
     done
+    cmp -s "$TMP/layout/$job/audio/$job/manifest.json" \
+      "$TMP/raw-collected/audio/$job/manifest.json" || die "raw collector changed $job audio projection"
   done
   PATH="$TMP/mockbin:$PATH" T64_EVIDENCE_MOCK_ROOT="$TMP" T64_MOCK_CASE=retained-old-attempt \
     sh "$ROOT/scripts/collect-boot-evidence.sh" --collect --repo szTheory/tendies64 \

@@ -5,6 +5,8 @@ from __future__ import annotations
 
 import importlib.util
 import json
+import os
+import subprocess
 import sys
 import tempfile
 import unittest
@@ -33,6 +35,17 @@ CASE_NAMES = (
     "raw-upload-rejected",
     "pii-projection-rejected",
     "hosted-platform-witness-required",
+    "exact-hosted-context-bound",
+    "native-command-plan-explicit-builds",
+    "phase08-gcc-closure-units-and-frame-policy",
+    "qualification-header-refuses-smoke-or-incomplete-suites",
+    "gate-junit-hook-is-private-and-opt-in",
+    "hosted-api-zip-digest-and-context-bound",
+    "native-process-record-rejects-failed-or-truncated-tail",
+    "hosted-record-rejects-entry-smoke-or-missing-platform",
+    "public-hosted-pair-requires-both-platforms",
+    "combined-upload-uses-exact-pii-scan-layout",
+    "final-evidence-cli-accepts-explicit-context-and-refuses-missing-record",
 )
 
 _SPEC = importlib.util.spec_from_file_location("t64_qualify_audio", QUALIFIER)
@@ -91,7 +104,7 @@ def _projection() -> dict[str, Any]:
             "video_packets": 29,
             "audio_packets": 2,
             "total_bytes": 16581,
-            "pcm_literal_sha256": digest,
+            "pcm_literal_sha256": qualify._sha(qualify.PCM),
             "video_observer_sha256": digest,
             "audio_observer_sha256": digest,
         },
@@ -124,6 +137,309 @@ def _projection() -> dict[str, Any]:
 
 
 class AudioQualificationTests(unittest.TestCase):
+    def test_hosted_api_zip_digest_and_context_bound(self) -> None:
+        archive = b"bounded synthetic archive bytes"
+        digest = "sha256:" + qualify._sha(archive)
+        artifact = {
+            "id": 401,
+            "name": "t64-authored-evidence-" + "c" * 40 + "-123-1-gate-linux",
+            "expired": False,
+            "size_in_bytes": len(archive),
+            "digest": digest,
+            "workflow_run": {"id": 123, "head_sha": "c" * 40},
+        }
+        binding = {
+            "artifact_id": "401", "commit_sha": "c" * 40, "run_id": "123",
+            "run_attempt": "1", "job_name": "gate-linux",
+            "archive_digest": digest, "archive_bytes": len(archive),
+        }
+        qualify._verify_artifact_download(
+            artifact, binding, archive, repo="szTheory/tendies64", sha="c" * 40,
+            run="123", attempt="1", job="gate-linux",
+        )
+        with self.assertRaises(qualify.Refusal):
+            qualify._verify_artifact_download(
+                artifact, binding, archive + b"x", repo="szTheory/tendies64",
+                sha="c" * 40, run="123", attempt="1", job="gate-linux",
+            )
+        wrong_attempt = dict(artifact, name=artifact["name"].replace("-123-1-", "-123-2-"))
+        with self.assertRaises(qualify.Refusal):
+            qualify._verify_artifact_download(
+                wrong_attempt, binding, archive, repo="szTheory/tendies64",
+                sha="c" * 40, run="123", attempt="1", job="gate-linux",
+            )
+        for field in ("id", "size_in_bytes"):
+            forged = dict(artifact, **{field: True})
+            with self.assertRaises(qualify.Refusal):
+                qualify._verify_artifact_download(
+                    forged, binding, archive, repo="szTheory/tendies64",
+                    sha="c" * 40, run="123", attempt="1", job="gate-linux",
+                )
+
+    def test_native_process_record_rejects_failed_or_truncated_tail(self) -> None:
+        import hashlib
+
+        with tempfile.TemporaryDirectory(prefix="t64-audio-process-record-") as temporary:
+            directory = Path(temporary)
+            command = ["tool", "--exact", "argv"]
+            stdout = b"finished successfully\n"
+            stderr = b""
+            (directory / "stdout.log").write_bytes(stdout)
+            (directory / "stderr.log").write_bytes(stderr)
+            (directory / "command.json").write_text(json.dumps({
+                "argv": command, "cwd": str(ROOT), "env": {}, "timeout_seconds": 5,
+            }))
+            process = {
+                "return_code": 0, "timed_out": False, "timeout_seconds": 5,
+                "stdout_bytes": len(stdout), "stderr_bytes": len(stderr),
+                "stdout_sha256": hashlib.sha256(stdout).hexdigest(),
+                "stderr_sha256": hashlib.sha256(stderr).hexdigest(),
+            }
+            process_path = directory / "process.json"
+            process_path.write_text(json.dumps(process))
+            qualify._verify_process_record(directory, command, max_timeout=10)
+            (directory / "stdout.log").write_bytes(stdout[:-3])
+            with self.assertRaises(qualify.Refusal):
+                qualify._verify_process_record(directory, command, max_timeout=10)
+            (directory / "stdout.log").write_bytes(stdout)
+            process["return_code"] = 1
+            process_path.write_text(json.dumps(process))
+            with self.assertRaises(qualify.Refusal):
+                qualify._verify_process_record(directory, command, max_timeout=10)
+
+    def test_hosted_record_rejects_entry_smoke_or_missing_platform(self) -> None:
+        base = {
+            "schema": "t64.audio-hosted-collection",
+            "schema_version": 1,
+            "evidence_mode": "hosted-gate",
+            "status": "complete",
+            "repo": "szTheory/tendies64",
+            "sha": "c" * 40,
+            "run": "123",
+            "attempt": "1",
+            "jobs": ["gate-linux", "gate-macos"],
+            "source_snapshot": {},
+            "excluded_owner_metadata": [],
+            "native_record_path": "/private/native-record.json",
+            "native_record_sha256": "a" * 64,
+            "archive_bindings": [{}, {}],
+            "collection_path": "/private/collection",
+            "downloads_path": "/private/downloads",
+            "combined_path": "/private/combined",
+            "pii_input_path": "/private/pii-upload-layout",
+            "collector_command_path": "/private/collector-command",
+            "public_output_path": "/private/public-audio",
+        }
+        qualify._validate_hosted_record_header(
+            base, repo="szTheory/tendies64", sha="c" * 40, run="123", attempt="1",
+        )
+        smoke = dict(base, evidence_mode="entry-path-validation")
+        with self.assertRaises(qualify.Refusal):
+            qualify._validate_hosted_record_header(
+                smoke, repo="szTheory/tendies64", sha="c" * 40, run="123", attempt="1",
+            )
+        one_platform = dict(base, jobs=["gate-linux"])
+        with self.assertRaises(qualify.Refusal):
+            qualify._validate_hosted_record_header(
+                one_platform, repo="szTheory/tendies64", sha="c" * 40, run="123", attempt="1",
+            )
+        missing_pii = dict(base)
+        missing_pii.pop("pii_input_path")
+        with self.assertRaises(qualify.Refusal):
+            qualify._validate_hosted_record_header(
+                missing_pii, repo="szTheory/tendies64", sha="c" * 40,
+                run="123", attempt="1",
+            )
+
+    def test_public_hosted_pair_requires_both_platforms(self) -> None:
+        with tempfile.TemporaryDirectory(prefix="t64-audio-hosted-pair-") as temporary:
+            public = Path(temporary) / "audio"
+            public.mkdir()
+            for job, platform in (("gate-linux", "linux"), ("gate-macos", "macos")):
+                projection = _projection()
+                projection.update({
+                    "evidence_mode": "hosted-gate",
+                    "workflow_sha": "c" * 40,
+                    "source_revision": "c" * 40,
+                    "job_name": job,
+                    "run_id": "123",
+                    "run_attempt": "1",
+                    "platform": platform,
+                })
+                projection["producer"]["source_revision"] = "c" * 40
+                projection["platform_witness"]["platform"] = platform
+                job_dir = public / job
+                job_dir.mkdir()
+                (job_dir / "manifest.json").write_text(json.dumps(projection))
+            result = qualify._verify_public_pair(public, sha="c" * 40, run="123", attempt="1")
+            self.assertEqual(set(result), {"gate-linux", "gate-macos"})
+            (public / "gate-macos/manifest.json").unlink()
+            with self.assertRaises(qualify.Refusal):
+                qualify._verify_public_pair(public, sha="c" * 40, run="123", attempt="1")
+
+    def test_combined_upload_uses_exact_pii_scan_layout(self) -> None:
+        with tempfile.TemporaryDirectory(prefix="t64-audio-pii-layout-") as temporary:
+            root = Path(temporary)
+            combined = root / "combined"
+            for job in ("gate-linux", "gate-macos"):
+                (combined / "rdp-vi" / job).mkdir(parents=True)
+                (combined / "audio" / job).mkdir(parents=True)
+                (combined / f"{job}.json").write_text("{}\n")
+                (combined / "rdp-vi" / job / "manifest.json").write_text("{}\n")
+                (combined / "audio" / job / "manifest.json").write_text("{}\n")
+            destination = root / "pii-upload-layout"
+            qualify._build_pii_upload_layout(combined, destination)
+            expected = {
+                "gate-linux/gate-linux.json", "gate-linux/rdp-vi/gate-linux/manifest.json",
+                "gate-linux/audio/gate-linux/manifest.json", "gate-macos/gate-macos.json",
+                "gate-macos/rdp-vi/gate-macos/manifest.json",
+                "gate-macos/audio/gate-macos/manifest.json",
+            }
+            actual = {
+                path.relative_to(destination).as_posix()
+                for path in destination.rglob("*") if path.is_file()
+            }
+            self.assertEqual(actual, expected)
+            for job in ("gate-linux", "gate-macos"):
+                for category in ("audio", "rdp-vi"):
+                    source = combined / category / job / "manifest.json"
+                    target = destination / job / category / job / "manifest.json"
+                    self.assertEqual(target.read_bytes(), source.read_bytes())
+            with self.assertRaises(qualify.Refusal):
+                qualify._build_pii_upload_layout(combined, destination)
+
+    def test_final_evidence_cli_accepts_explicit_context_and_refuses_missing_record(self) -> None:
+        result = subprocess.run(
+            [sys.executable, "-B", str(QUALIFIER), "--verify-evidence",
+             "--repo", "szTheory/tendies64", "--sha", "c" * 40,
+             "--run", "123", "--attempt", "1",
+             "--native-record", str(ROOT / "missing-native-record.json"),
+             "--hosted-record", str(ROOT / "missing-hosted-record.json")],
+            cwd=ROOT, env={**os.environ, "PYTHONDONTWRITEBYTECODE": "1"},
+            capture_output=True, text=True, timeout=5, check=False,
+        )
+        self.assertEqual(result.returncode, 1)
+        self.assertIn("hosted record is outside the private qualification tree", result.stderr)
+        self.assertNotIn("unrecognized arguments", result.stderr)
+
+    def test_phase08_gcc_closure_units_and_frame_policy(self) -> None:
+        sources = sorted(qualify.PHASE08_GCC_REQUIRED_UNITS)
+        rdp = qualify._rdp_helpers()
+        command = rdp._gcc13_closure_command(sources, qualify.EXPECTED_GCC13_IMAGE)
+        self.assertEqual(qualify._validate_gcc13_closure(sources, command), sources)
+        with self.assertRaises(qualify.Refusal):
+            qualify._validate_gcc13_closure(
+                [source for source in sources if source != "runner/t64_raw_capture.c"], command,
+            )
+        wrong_image = rdp._gcc13_closure_command(sources, "sha256:" + "0" * 64)
+        with self.assertRaises(qualify.Refusal):
+            qualify._validate_gcc13_closure(sources, wrong_image)
+
+    def test_qualification_header_refuses_smoke_or_incomplete_suites(self) -> None:
+        self.assertEqual(qualify._validate_owner_exclusion_scope(
+            ["AGENTS.md", ".planning/config.json"]),
+            ["AGENTS.md", ".planning/config.json"],
+        )
+        with self.assertRaises(qualify.Refusal):
+            qualify._validate_owner_exclusion_scope(["core/t64_ai.c"])
+        inventory = qualify._validate_inventory(
+            qualify._read(qualify.INVENTORY, 128 * 1024),
+            qualify.EXPECTED_INVENTORY_SHA256,
+        )
+        base: dict[str, Any] = {
+            "schema": "t64.audio-native-qualification",
+            "schema_version": 1,
+            "evidence_mode": "native-qualification",
+            "status": "complete",
+            "source_sha": "c" * 40,
+            "source_snapshot": {},
+            "excluded_owner_metadata": [
+                {"path": path, "present": True, "dirty_status": "", "size_bytes": 1,
+                 "sha256": "e" * 64}
+                for path in qualify.OWNER_METADATA_PATHS
+            ],
+            "normal_full_ctest_junit_path": "/private/normal-full-ctest-junit.xml",
+            "inventory": inventory,
+            "shared_native_path": "/private/native",
+            "shared_native_record_sha256": "a" * 64,
+            "shared_native_tree_manifest": [{"path": "source-binding.json"}],
+            "shared_native_closure": {
+                "units": sorted(qualify.PHASE08_GCC_REQUIRED_UNITS),
+                "gcc13_command": ["docker", "run"],
+            },
+            "steps_path": "/private/steps",
+            "suites": {"normal": {}, "asan": {}},
+        }
+        qualify._validate_native_record_header(base, "c" * 40)
+        smoke = dict(base)
+        smoke["evidence_mode"] = "entry-path-validation"
+        with self.assertRaises(qualify.Refusal):
+            qualify._validate_native_record_header(smoke, "c" * 40)
+        missing_asan = dict(base)
+        missing_asan["suites"] = {"normal": {}}
+        with self.assertRaises(qualify.Refusal):
+            qualify._validate_native_record_header(missing_asan, "c" * 40)
+        reduced = dict(base)
+        reduced["inventory"] = dict(inventory, case_count=inventory["case_count"] - 1)
+        with self.assertRaises(qualify.Refusal):
+            qualify._validate_native_record_header(reduced, "c" * 40)
+
+    def test_native_command_plan_explicit_builds(self) -> None:
+        normal_junit = ROOT / "build/gate/08-05-audio-private/unit/normal-junit.xml"
+        plan = qualify._native_command_plan("08-05-unit", normal_junit)
+        self.assertEqual([item["label"] for item in plan], [
+            "shared-native-gates", "normal-audio-qualification", "asan-audio-qualification",
+            "normal-source-body-check", "asan-source-body-check",
+        ])
+        self.assertEqual(plan[0]["command"][-1], "--native")
+        self.assertEqual(plan[0]["environment"]["T64_GATE_JUNIT_OUT"], str(normal_junit))
+        self.assertEqual(plan[1]["command"][plan[1]["command"].index("--build") + 1],
+                         str((ROOT / "build/gate").resolve()))
+        self.assertEqual(plan[2]["command"][plan[2]["command"].index("--build") + 1],
+                         str((ROOT / "build/asan").resolve()))
+        self.assertEqual(plan[1]["command"][plan[1]["command"].index("--suite") + 1],
+                         "qualification")
+        self.assertEqual(plan[2]["command"][plan[2]["command"].index("--suite") + 1],
+                         "qualification")
+        self.assertNotIn("--run", plan[1]["command"])
+        self.assertNotIn("--run", plan[2]["command"])
+
+    def test_gate_junit_hook_is_private_and_opt_in(self) -> None:
+        gate = (ROOT / "scripts/gate.sh").read_text(encoding="utf-8")
+        self.assertIn('if [ -n "${T64_GATE_JUNIT_OUT:-}" ]; then', gate)
+        self.assertIn('"$ROOT"/build/gate/08-05-audio-private/*)', gate)
+        self.assertIn('step ctest ctest --preset gate --output-junit "$T64_GATE_JUNIT_OUT"', gate)
+        self.assertIn('step ctest ctest --preset gate\nfi', gate)
+
+    def test_exact_hosted_context_bound(self) -> None:
+        value = _projection()
+        value.update({
+            "evidence_mode": "hosted-gate",
+            "workflow_sha": "c" * 40,
+            "job_name": "gate-linux",
+            "run_id": "123",
+            "run_attempt": "2",
+        })
+        value["platform_witness"]["platform"] = "linux"
+        qualify._validate_hosted_context(
+            value, repo="szTheory/tendies64", sha="c" * 40,
+            run="123", attempt="2", job="gate-linux",
+        )
+        with self.assertRaises(qualify.Refusal):
+            qualify._validate_hosted_context(
+                value, repo="szTheory/tendies64", sha="c" * 40,
+                run="123", attempt="3", job="gate-linux",
+            )
+        with self.assertRaises(qualify.Refusal):
+            qualify._validate_hosted_context(
+                value, repo="szTheory/tendies64", sha="c" * 40,
+                run="123", attempt="2", job="gate-macos",
+            )
+        forged_literal = _projection()
+        forged_literal["capture"]["pcm_literal_sha256"] = "a" * 64
+        with self.assertRaises(qualify.Refusal):
+            qualify._public_projection(forged_literal)
+
     def test_accepted_original_binding(self) -> None:
         value = qualify._public_projection(_projection(), {
             "job": "local", "sha": None, "run": None, "attempt": None,
