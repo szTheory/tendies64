@@ -426,11 +426,34 @@ pass/fail completion, resource caps, rights and publication stops remain intact.
   a prose finding alone omits the tested source and completed-run ledger.
   Before closeout, reconcile finding run IDs against Runs rows and recover
   missing metadata from the actual completed run without relaunching CI.
+- CI/CD efficiency and local-first checks (owner direction, 2026-11-19): while
+  any CI or release (CD) run is in flight or finished, look for low-hanging
+  speed, iteration-time and GitHub Actions cost wins (duplicate setup/builds,
+  independent work run serially, oversized matrices, uncached already-audited
+  inputs, long waits a cheap check could have pre-empted) and take those that
+  leave evidence and quality intact. Do not accept a bottleneck by default:
+  step back, measure the critical path, fix the cheapest cause, and log the
+  lesson (docs/ci-reviews/LOG.md) so it is not rediscovered. Reproduce CI
+  locally before waiting on hosted runs: run the repository's own scanners and
+  gates first (check-ci-yml, workflow/policy checks, the gcc:13 warnings route,
+  test-inventory, rights/PII), then use `act` for a Linux-job pre-flight
+  (`act -l`/`-n` parse and wiring; add `--container-architecture linux/amd64`
+  on Apple Silicon; reuse a runner image already on disk, since acquiring a new
+  image still needs the package/provenance audit). `act` cannot run macOS jobs
+  and is never hosted evidence: authenticated hosted runs remain the proof for
+  any hosted claim. In new designs, put cheap consistency checks ahead of long
+  tests, processes and suites. This session's lessons: a stale pinned
+  inventory, workflow/scanner drift and a missing include path were each found
+  only after a long gate; each had a seconds-long local check.
 - Benchmark named workloads/builds with correct output held constant. Report
   emulator throughput and end-to-end latency separately from CI queue/setup/
   build/test time.
 
 ## 3. Milestone close and release
+
+Release and other CD workflows follow the CI/CD efficiency and local-first rule
+in section 2: pre-flight locally, run cheap consistency checks before long
+steps, and log measured wins.
 
 At each milestone close, audit against the goal and evidence, update the rolling
 roadmap and lessons, keep main green, triage pull requests, and target a release

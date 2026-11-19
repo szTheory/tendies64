@@ -27,7 +27,7 @@
   },
   "model_profile_overrides": {
     "claude": {
-      "opus": "claude-opus-5-5",
+      "opus": "claude-sonnet-5-5",
       "sonnet": "claude-sonnet-5-5",
       "haiku": "claude-haiku-5-5"
     },
@@ -49,6 +49,7 @@
     "discuss_fan_out": true,
     "shift_left_verification": true,
     "ci_efficiency_review": true,
+    "ci_local_first": "owner-directed 2026-11-19; see .planning/AUTONOMY.md CI/CD efficiency rule",
     "research_with_subagents": true
   },
   "plan_review": {

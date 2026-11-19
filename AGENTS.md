@@ -58,6 +58,11 @@ verification and roadmap maintenance proceed autonomously under the configured
 GSD workflow. Preserve the policy's explicit rights, authority, physical,
 publication and destructive-action stops.
 
+For every CI or release (CD) run, apply the CI/CD efficiency and local-first
+rule in `.planning/AUTONOMY.md` section 2: reproduce locally (including `act`
+for Linux jobs) and run cheap consistency checks before waiting on hosted runs,
+and take low-risk speed and cost wins without weakening evidence.
+
 At every milestone close, keep the main branch green, triage open PRs, update
 lessons and the rolling roadmap, and target a release from the exact tested
 artifact when the selected license, visibility, rights, qualification and
