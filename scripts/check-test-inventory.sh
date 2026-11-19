@@ -193,6 +193,9 @@ controls.real.raw-capture-race
 controls.real.raw-capture-target-errors
 harness.audio-qualification'
 
+PHASE09_TESTS='unit.core.profile.predicate-matrix
+unit.core.digest.sink-legacy-identity'
+
 CPU_COVERAGE_OPCODES='ADD
 ADDU
 SUB
@@ -294,7 +297,7 @@ expected_names() {
     *) echo "unsupported preset: $_preset" >&2; return 2 ;;
   esac
   {
-    printf '%s\n' "$BASELINE_CORE" "$BASELINE_CONTROLS" "$PHASE02_TESTS" "$PHASE03_TESTS" "$PHASE04_TESTS" "$PHASE05_TESTS" "$PHASE06_TESTS" "$PHASE07_TESTS" "$PHASE08_TESTS" "$_extra"
+    printf '%s\n' "$BASELINE_CORE" "$BASELINE_CONTROLS" "$PHASE02_TESTS" "$PHASE03_TESTS" "$PHASE04_TESTS" "$PHASE05_TESTS" "$PHASE06_TESTS" "$PHASE07_TESTS" "$PHASE08_TESTS" "$PHASE09_TESTS" "$_extra"
   } | awk 'NF' | sort
 }
 

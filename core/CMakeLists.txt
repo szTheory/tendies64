@@ -605,6 +605,35 @@ set_tests_properties(unit.core.ai.profile unit.core.ai.old-profile-refusals
 set_tests_properties(unit.core.ai.profile-pins
   unit.core.ai.profile-mutations PROPERTIES LABELS unit)
 
+# Phase 9 identity, digest and ledger tests (plan 09-01).
+add_executable(test_si_profile tests/test_si_profile.c)
+target_include_directories(test_si_profile PRIVATE
+  "${CMAKE_SOURCE_DIR}/tests"
+  "${CMAKE_CURRENT_SOURCE_DIR}"
+  "${CMAKE_SOURCE_DIR}/tools/common")
+target_link_libraries(test_si_profile PRIVATE t64_core t64_sha256)
+t64_target_warnings(test_si_profile)
+add_dependencies(test_si_profile t64-boot-fixtures)
+add_test(NAME unit.core.profile.predicate-matrix
+  COMMAND test_si_profile --case predicate-matrix)
+set_tests_properties(unit.core.profile.predicate-matrix PROPERTIES
+  LABELS unit
+  ENVIRONMENT "T64_TEST_IPL3_PATH=${T64_BOOT_FIXTURE_DIR}/ipl3_compat.z64")
+
+add_executable(test_digest_v25 tests/test_digest_v25.c)
+target_include_directories(test_digest_v25 PRIVATE
+  "${CMAKE_SOURCE_DIR}/tests"
+  "${CMAKE_CURRENT_SOURCE_DIR}"
+  "${CMAKE_SOURCE_DIR}/tools/common")
+target_link_libraries(test_digest_v25 PRIVATE t64_core t64_sha256)
+t64_target_warnings(test_digest_v25)
+add_dependencies(test_digest_v25 t64-boot-fixtures)
+add_test(NAME unit.core.digest.sink-legacy-identity
+  COMMAND test_digest_v25 --case sink-legacy-identity)
+set_tests_properties(unit.core.digest.sink-legacy-identity PROPERTIES
+  LABELS unit
+  ENVIRONMENT "T64_TEST_IPL3_PATH=${T64_BOOT_FIXTURE_DIR}/ipl3_compat.z64")
+
 add_executable(test_rom_admission tests/test_rom_admission.c)
 target_include_directories(test_rom_admission PRIVATE
   "${CMAKE_SOURCE_DIR}/tests"
