@@ -58,6 +58,8 @@ static const t64_host_allocator allocator = {test_allocate, test_release,
 #define P_COMPAT_EXT (1u << 13)
 #define P_RSP (1u << 14)
 #define P_COMPAT (1u << 15)
+/* Phase 9 family predicate; legacy rows never carry it. */
+#define P_SI (1u << 16)
 
 /* Every predicate reached through t64_has_rdp_vi_profile at descriptor 6+. */
 #define CHAIN                                                                  \
@@ -120,6 +122,19 @@ static const matrix_row legacy_rows[] = {
 };
 
 #define LEGACY_ROW_COUNT (sizeof legacy_rows / sizeof legacy_rows[0])
+#define AI_ROW_INDEX 16u
+
+/*
+ * Composite family stem: the AI row except the exact-tuple AI predicate is
+ * false and the family predicate is true. RDP depth stays inactive (K1).
+ */
+static const matrix_row family_rows[] = {
+    {"ntsc-cart-4m-openipl3-rdram-b-t1-si-v1",
+     (P_V9 | P_RDP_VI | P_SCAN | P_TRI | P_TEX | P_COMB | P_BLEND | CHAIN |
+      P_SI)},
+};
+
+#define FAMILY_ROW_COUNT (sizeof family_rows / sizeof family_rows[0])
 
 static uint32_t observed_row(const t64_machine *machine) {
   uint32_t row = 0u;
@@ -140,6 +155,7 @@ static uint32_t observed_row(const t64_machine *machine) {
   row |= t64_has_cpu_compat_extension_policy(machine) ? P_COMPAT_EXT : 0u;
   row |= t64_has_rsp_functional_profile(machine) ? P_RSP : 0u;
   row |= t64_has_cpu_compat_policy(machine) ? P_COMPAT : 0u;
+  row |= t64_has_si_profile(machine) ? P_SI : 0u;
   return row;
 }
 
@@ -174,11 +190,43 @@ static void case_predicate_matrix(void) {
   }
   T64_CHECK_INT(LEGACY_ROW_COUNT, 17);
 
+  /* The family rows equal the AI row except the AI and family predicates. */
+  for (index = 0u; index < FAMILY_ROW_COUNT; index++) {
+    const matrix_row *row = &family_rows[index];
+    t64_machine *machine = create_machine(row->id);
+    uint32_t observed;
+    uint32_t ai_row = legacy_rows[AI_ROW_INDEX].expected;
+
+    T64_CHECK(machine != NULL);
+    if (machine == NULL) continue;
+    observed = observed_row(machine);
+    if (observed != row->expected) {
+      fprintf(stderr, "predicate row differs for %s: got 0x%05x want 0x%05x\n",
+              row->id, (unsigned)observed, (unsigned)row->expected);
+    }
+    T64_CHECK_INT(observed, row->expected);
+    T64_CHECK_INT(row->expected, (ai_row & ~(uint32_t)P_AI) | P_SI);
+    T64_CHECK((observed & P_DEPTH) == 0u);
+    T64_CHECK(t64_has_ai_device(machine));
+    T64_CHECK(!t64_has_ai_profile(machine));
+    t64_machine_destroy(machine);
+  }
+  for (index = 0u; index < LEGACY_ROW_COUNT; index++) {
+    t64_machine *machine = create_machine(legacy_rows[index].id);
+
+    T64_CHECK(machine != NULL);
+    if (machine == NULL) continue;
+    T64_CHECK(t64_has_ai_device(machine) ==
+              ((legacy_rows[index].expected & P_AI) != 0u));
+    t64_machine_destroy(machine);
+  }
+
   /* K1: depth is active on the three descriptor 10 rows only. */
   T64_CHECK((legacy_rows[13].expected & P_DEPTH) != 0u);
   T64_CHECK((legacy_rows[14].expected & P_DEPTH) != 0u);
   T64_CHECK((legacy_rows[15].expected & P_DEPTH) != 0u);
   T64_CHECK((legacy_rows[16].expected & P_DEPTH) == 0u);
+  T64_CHECK((family_rows[0].expected & P_DEPTH) == 0u);
 }
 
 int main(int argc, char **argv) {

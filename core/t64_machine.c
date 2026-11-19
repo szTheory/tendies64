@@ -1038,6 +1038,80 @@ static const t64_profile_descriptor
         .hle_seed_reset_version = 3u,
 };
 
+/*
+ * Phase 9 composite family (descriptor 12, model 20, state 25): the Phase 8
+ * machine plus the SI/PIF standard controller and an explicit save device
+ * selected by save_kind. The four ids share this body; only profile_id and
+ * save_kind differ. Provisional until Phase 10; no API/ABI freeze.
+ */
+static const t64_profile_descriptor
+    ntsc_cart_4m_openipl3_rdram_b_t1_si_v1_profile = {
+        .profile_id = "ntsc-cart-4m-openipl3-rdram-b-t1-si-v1",
+        .console_target = "NUS-CPU-03",
+        .console_qualification = "unqualified-target-software-seed",
+        .tv_standard = T64_TV_NTSC,
+        .region = T64_REGION_US,
+        .media_kind = T64_MEDIA_CARTRIDGE,
+        .rdram_bytes = T64_BASE_RAM_BYTES,
+        .expansion_bytes = 0u,
+        .peripheral_flags = T64_PERIPHERAL_STANDARD_CONTROLLER_PORT0,
+        .save_kind = T64_SAVE_NONE,
+        .boot_route = "hle-pif+open-ipl3",
+        .boot_status = "prepared-rdram-b-t1-rdp-vi-filter-v9-ai-v1",
+        .guest_tick_unit = "model-rsp-cycle",
+        .cpu_rsp_ratio_numerator = 1u,
+        .cpu_rsp_ratio_denominator = 1u,
+        .synchronization_quantum = 1u,
+        .timing_tier = "t1-instruction-cost-v1",
+        .scheduler_version = "tick-sequence-fifo-v1",
+        .pi_model_version = "pi_dma_bounded_cart_v1",
+        .sp_model_version = "rsp-functional-issue-dma-divider-integer-v1",
+        .rom_min_bytes = 4096u,
+        .rom_max_bytes = T64_VR4300_OPENIPL3_ROM_LIMIT,
+        .event_queue_capacity = 256u,
+        .sequence_width_bits = 64u,
+        .advance_event_budget = 4096u,
+        .pi_duration_base_ticks = 1u,
+        .pi_duration_bytes_divisor = 2u,
+        .sp_duration_base_rsp_cycles = 12u,
+        .sp_duration_bytes_divisor = 8u,
+        .rom_order_policy = T64_VR4300_OPENIPL3_FLAT_ENTRY_POLICY,
+        .event_order_policy = "tick-sequence-fifo-v1",
+        .queue_exhaustion_policy = "reject-before-mutation-v1",
+        .sequence_exhaustion_policy = "reject-before-mutation-v1",
+        .advance_budget_policy = "bounded-4096-events-v1",
+        .guest_time_bound_policy = "inclusive-idle-advance-v1",
+        .halt_precedence_policy = "halt-at-bound-wins-v1",
+        .pi_register_policy = "bounded-pi-register-and-cart-dma-v1",
+        .sp_register_policy = "rsp-issue-status-dma-policy-v1",
+        .device_error_policy = "sticky-pi-error-v1",
+        .dma_cancel_policy = "token-match-complete-once-v1",
+        .dma_visibility_policy = "rsp-one-beat-per-issue-v1",
+        .rdp_work_policy =
+            "dpc-fetch-effect-tmem-copy-tri-tex-comb-blend-depth-row-v8",
+        .vi_clock_policy =
+            "rsp62500000-ntsc48681812-halfline-rational-v2",
+        .rdp_noise_policy = "xorshift32-seed-1-v1",
+        .rdp_undefined_color_policy = "zero-color-v1",
+        .vi_output_policy =
+            "5551-8888-aa53mdtl-q8f-df3-dvmed-bq20f-gd16r8-sqrt255-pcspan-v3",
+        .rdp_triangle_policy =
+            "triangle-twos-complement-q16-logical-coverage-texture-policy-v1",
+        .rdp_combiner_policy = "rgb8-a5-unity32-floor-sidecar-v1",
+        .rdp_depth_policy =
+            "z-q16-floor8192-cfloor-p15s3-dzmax-eq-icvg-xlu-decal-h2-v1",
+        .ai_policy = "fetched-rdram-stereo-s16be-rational-62500000-v1",
+        .si_policy = "si-hle-joybus-wire-v1",
+        .save_policy = "save-explicit-eeprom4k16k-sram32k-busy6ms-v1",
+        .descriptor_version = 12u,
+        .machine_model_version = 20u,
+        .state_serialization_version = 25u,
+        .asset_sha256 = T64_OPENIPL3_ASSET_SHA256_BYTES,
+        .payload_sha256 = T64_OPENIPL3_PAYLOAD_SHA256_BYTES,
+        .boot_policy_sha256 = T64_RDRAM_B_T1_POLICY_SHA256_BYTES,
+        .hle_seed_reset_version = 3u,
+};
+
 static const uint8_t openipl3_asset_sha256[T64_DIGEST_SIZE] =
     T64_OPENIPL3_ASSET_SHA256_BYTES;
 static const uint8_t openipl3_payload_sha256[T64_DIGEST_SIZE] =
@@ -1191,6 +1265,26 @@ static bool is_ai_profile(const t64_profile_descriptor *profile) {
          has_rdp_vi_filter_v9_ai_v1_profile_id(profile);
 }
 
+/* Phase 9 composite family stem id (descriptor 12, no save device). */
+static bool has_si_profile_id(const t64_profile_descriptor *profile) {
+  static const char profile_id[] = "ntsc-cart-4m-openipl3-rdram-b-t1-si-v1";
+
+  return profile != NULL &&
+         bounded_text_equal(profile->profile_id,
+                            sizeof profile->profile_id,
+                            profile_id, sizeof profile_id);
+}
+
+static bool is_si_profile(const t64_profile_descriptor *profile) {
+  return profile != NULL && profile->descriptor_version == 12u &&
+         has_si_profile_id(profile);
+}
+
+/* The AI and composite families share the inherited device storage. */
+static bool is_ai_family_profile(const t64_profile_descriptor *profile) {
+  return is_ai_profile(profile) || is_si_profile(profile);
+}
+
 static bool has_rdp_triangle_profile_id(
     const t64_profile_descriptor *profile) {
   static const char profile_id[] =
@@ -1259,6 +1353,7 @@ static bool has_pinned_openipl3_profile_id(
          has_rdp_vi_v8_profile_id(profile) ||
          has_rdp_vi_filter_v9_profile_id(profile) ||
          has_rdp_vi_filter_v9_ai_v1_profile_id(profile) ||
+         has_si_profile_id(profile) ||
          has_rdp_triangle_profile_id(profile) ||
          has_rdp_texture_profile_id(profile) ||
          has_rdp_combiner_profile_id(profile) ||
@@ -1375,10 +1470,14 @@ static bool is_rdram_b_t1_profile(
        (!has_rdp_vi_filter_v9_profile_id(profile) ||
         profile->descriptor_version != 10u) &&
        (!has_rdp_vi_filter_v9_ai_v1_profile_id(profile) ||
-        profile->descriptor_version != 11u))) {
+        profile->descriptor_version != 11u) &&
+       (!has_si_profile_id(profile) ||
+        profile->descriptor_version != 12u))) {
     return false;
   }
-  if (has_rdp_depth_profile_id(profile)) {
+  if (has_si_profile_id(profile)) {
+    canonical = &ntsc_cart_4m_openipl3_rdram_b_t1_si_v1_profile;
+  } else if (has_rdp_depth_profile_id(profile)) {
     canonical = &ntsc_cart_4m_openipl3_rdram_b_t1_rdp_depth_profile;
   } else if (has_rdp_vi_filter_v9_ai_v1_profile_id(profile)) {
     canonical =
@@ -1528,7 +1627,7 @@ static bool profile_fields_are_valid(const t64_profile_descriptor *profile) {
          T64_PROFILE_TEXT_OK(device_error_policy) &&
          T64_PROFILE_TEXT_OK(dma_cancel_policy) &&
          T64_PROFILE_TEXT_OK(dma_visibility_policy) &&
-         /* Descriptors v5-v11 serialize the RDP/VI policy fields. Keep
+         /* Descriptors v5-v12 serialize the RDP/VI policy fields. Keep
           * the pre-v5 and unknown-version legacy byte layout unchanged. */
          ((profile->descriptor_version != 5u &&
            profile->descriptor_version != 6u &&
@@ -1536,7 +1635,8 @@ static bool profile_fields_are_valid(const t64_profile_descriptor *profile) {
            profile->descriptor_version != 8u &&
            profile->descriptor_version != 9u &&
            profile->descriptor_version != 10u &&
-           profile->descriptor_version != 11u) ||
+           profile->descriptor_version != 11u &&
+           profile->descriptor_version != 12u) ||
           (T64_PROFILE_TEXT_OK(rdp_work_policy) &&
            T64_PROFILE_TEXT_OK(vi_clock_policy) &&
            T64_PROFILE_TEXT_OK(rdp_noise_policy) &&
@@ -1546,18 +1646,25 @@ static bool profile_fields_are_valid(const t64_profile_descriptor *profile) {
            profile->descriptor_version != 8u &&
            profile->descriptor_version != 9u &&
            profile->descriptor_version != 10u &&
-           profile->descriptor_version != 11u) ||
+           profile->descriptor_version != 11u &&
+           profile->descriptor_version != 12u) ||
           T64_PROFILE_TEXT_OK(rdp_triangle_policy)) &&
          ((profile->descriptor_version != 8u &&
            profile->descriptor_version != 9u &&
            profile->descriptor_version != 10u &&
-           profile->descriptor_version != 11u) ||
+           profile->descriptor_version != 11u &&
+           profile->descriptor_version != 12u) ||
           T64_PROFILE_TEXT_OK(rdp_combiner_policy)) &&
          ((profile->descriptor_version != 10u &&
-           profile->descriptor_version != 11u) ||
+           profile->descriptor_version != 11u &&
+           profile->descriptor_version != 12u) ||
           T64_PROFILE_TEXT_OK(rdp_depth_policy)) &&
-         (profile->descriptor_version != 11u ||
+         ((profile->descriptor_version != 11u &&
+           profile->descriptor_version != 12u) ||
           T64_PROFILE_TEXT_OK(ai_policy)) &&
+         (profile->descriptor_version != 12u ||
+          (T64_PROFILE_TEXT_OK(si_policy) &&
+           T64_PROFILE_TEXT_OK(save_policy))) &&
          (profile->tv_standard == T64_TV_NTSC ||
           profile->tv_standard == T64_TV_PAL) &&
          (profile->region == T64_REGION_US ||
@@ -1705,8 +1812,9 @@ static void write_profile(profile_writer *writer,
              profile->descriptor_version == 8u ||
              profile->descriptor_version == 9u ||
              profile->descriptor_version == 10u ||
-             profile->descriptor_version == 11u) {
-    /* Descriptors v5-v11 bind the RDP/VI software model and policies. */
+             profile->descriptor_version == 11u ||
+             profile->descriptor_version == 12u) {
+    /* Descriptors v5-v12 bind the RDP/VI software model and policies. */
     write_openipl3_boot_metadata(writer, profile);
     profile_writer_text(writer, profile->rdp_work_policy,
                         sizeof profile->rdp_work_policy);
@@ -1722,25 +1830,35 @@ static void write_profile(profile_writer *writer,
         profile->descriptor_version == 8u ||
         profile->descriptor_version == 9u ||
         profile->descriptor_version == 10u ||
-        profile->descriptor_version == 11u) {
+        profile->descriptor_version == 11u ||
+        profile->descriptor_version == 12u) {
       profile_writer_text(writer, profile->rdp_triangle_policy,
                           sizeof profile->rdp_triangle_policy);
     }
     if (profile->descriptor_version == 8u ||
         profile->descriptor_version == 9u ||
         profile->descriptor_version == 10u ||
-        profile->descriptor_version == 11u) {
+        profile->descriptor_version == 11u ||
+        profile->descriptor_version == 12u) {
       profile_writer_text(writer, profile->rdp_combiner_policy,
                           sizeof profile->rdp_combiner_policy);
     }
     if (profile->descriptor_version == 10u ||
-        profile->descriptor_version == 11u) {
+        profile->descriptor_version == 11u ||
+        profile->descriptor_version == 12u) {
       profile_writer_text(writer, profile->rdp_depth_policy,
                           sizeof profile->rdp_depth_policy);
     }
-    if (profile->descriptor_version == 11u) {
+    if (profile->descriptor_version == 11u ||
+        profile->descriptor_version == 12u) {
       profile_writer_text(writer, profile->ai_policy,
                           sizeof profile->ai_policy);
+    }
+    if (profile->descriptor_version == 12u) {
+      profile_writer_text(writer, profile->si_policy,
+                          sizeof profile->si_policy);
+      profile_writer_text(writer, profile->save_policy,
+                          sizeof profile->save_policy);
     }
   }
 }
@@ -2010,6 +2128,8 @@ t64_status t64_profile_lookup(const char *profile_id,
       "ntsc-cart-4m-openipl3-rdram-b-t1-rdp-vi-filter-v9";
   static const char rdp_vi_filter_v9_ai_v1_profile_id[] =
       "ntsc-cart-4m-openipl3-rdram-b-t1-rdp-vi-filter-v9-ai-v1";
+  static const char si_v1_profile_id[] =
+      "ntsc-cart-4m-openipl3-rdram-b-t1-si-v1";
 
   if (profile_out == NULL) {
     return T64_STATUS_INVALID_ARGUMENT;
@@ -2124,6 +2244,11 @@ t64_status t64_profile_lookup(const char *profile_id,
         &ntsc_cart_4m_openipl3_rdram_b_t1_rdp_vi_filter_v9_ai_v1_profile;
     return T64_STATUS_OK;
   }
+  if (bounded_text_equal(profile_id, T64_PROFILE_TEXT_CAPACITY,
+                         si_v1_profile_id, sizeof si_v1_profile_id)) {
+    *profile_out = &ntsc_cart_4m_openipl3_rdram_b_t1_si_v1_profile;
+    return T64_STATUS_OK;
+  }
   return T64_STATUS_UNKNOWN_PROFILE;
 }
 
@@ -2226,7 +2351,7 @@ t64_status t64_machine_create(const t64_host_allocator *allocator,
        profile->state_serialization_version == 22u) ||
       (profile->machine_model_version == 18u &&
        profile->state_serialization_version == 23u) ||
-      is_ai_profile(profile)) {
+      is_ai_family_profile(profile)) {
     const size_t coverage_alignment = _Alignof(uint16_t);
     size_t padding = (coverage_alignment - total_size % coverage_alignment) %
                      coverage_alignment;
@@ -2247,7 +2372,7 @@ t64_status t64_machine_create(const t64_host_allocator *allocator,
          profile->state_serialization_version == 22u) ||
         (profile->machine_model_version == 18u &&
          profile->state_serialization_version == 23u) ||
-        is_ai_profile(profile)) {
+        is_ai_family_profile(profile)) {
       memory_coverage_offset = total_size;
       if (total_size > SIZE_MAX -
                            T64_RDP_MEMORY_COVERAGE_BYTES(
@@ -2262,7 +2387,7 @@ t64_status t64_machine_create(const t64_host_allocator *allocator,
          profile->state_serialization_version == 22u) ||
         (profile->machine_model_version == 18u &&
          profile->state_serialization_version == 23u) ||
-        is_ai_profile(profile)) {
+        is_ai_family_profile(profile)) {
       depth_hidden_offset = total_size;
       if (total_size > SIZE_MAX -
                            T64_RDP_DEPTH_HIDDEN_BYTES(profile->rdram_bytes)) {
@@ -2305,7 +2430,7 @@ t64_status t64_machine_create(const t64_host_allocator *allocator,
        profile->state_serialization_version == 22u) ||
       (profile->machine_model_version == 18u &&
        profile->state_serialization_version == 23u) ||
-      is_ai_profile(profile)) {
+      is_ai_family_profile(profile)) {
     if (!allocator->allocate(allocator->context,
                              T64_VIDEO_QUEUE_STORAGE_BYTES, alignment,
                              &video_storage)) {
@@ -2329,7 +2454,7 @@ t64_status t64_machine_create(const t64_host_allocator *allocator,
     machine->video_storage = video_storage;
     machine->video_packets = (uint8_t *)video_storage.data;
   }
-  if (is_ai_profile(profile)) {
+  if (is_ai_family_profile(profile)) {
     if (!allocator->allocate(allocator->context,
                              T64_AUDIO_QUEUE_STORAGE_BYTES, alignment,
                              &audio_storage)) {
@@ -2382,7 +2507,7 @@ t64_status t64_machine_create(const t64_host_allocator *allocator,
        profile->state_serialization_version == 22u) ||
       (profile->machine_model_version == 18u &&
        profile->state_serialization_version == 23u) ||
-      is_ai_profile(profile)) {
+      is_ai_family_profile(profile)) {
     machine->rdp_triangle_coverage =
         (uint16_t *)(machine->ram + coverage_offset);
     (void)memset(machine->rdp_triangle_coverage, 0,
@@ -2395,7 +2520,7 @@ t64_status t64_machine_create(const t64_host_allocator *allocator,
          profile->state_serialization_version == 22u) ||
         (profile->machine_model_version == 18u &&
          profile->state_serialization_version == 23u) ||
-        is_ai_profile(profile)) {
+        is_ai_family_profile(profile)) {
       machine->rdp_memory_coverage =
           machine->ram + memory_coverage_offset;
       (void)memset(machine->rdp_memory_coverage, 0,
@@ -2407,7 +2532,7 @@ t64_status t64_machine_create(const t64_host_allocator *allocator,
          profile->state_serialization_version == 22u) ||
         (profile->machine_model_version == 18u &&
          profile->state_serialization_version == 23u) ||
-        is_ai_profile(profile)) {
+        is_ai_family_profile(profile)) {
       machine->rdp_depth_hidden = machine->ram + depth_hidden_offset;
       (void)memset(machine->rdp_depth_hidden, 0,
                    T64_RDP_DEPTH_HIDDEN_BYTES(profile->rdram_bytes));

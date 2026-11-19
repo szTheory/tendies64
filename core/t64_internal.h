@@ -85,6 +85,9 @@
 #define T64_RDP_DEVICE UINT32_C(7)
 #define T64_VI_DEVICE UINT32_C(8)
 #define T64_AI_DEVICE UINT32_C(9)
+#define T64_SI_DEVICE UINT32_C(10)
+#define T64_SI_EVENT_EXECUTE UINT32_C(1)
+#define T64_SI_EVENT_COMPLETE UINT32_C(2)
 #define T64_MI_INTERRUPT_AI UINT32_C(0x04)
 #define T64_AI_EVENT_SAMPLE UINT32_C(1)
 #define T64_AI_REGISTER_BASE UINT32_C(0x04500000)
@@ -930,12 +933,28 @@ static inline bool t64_has_ai_profile(const t64_machine *machine) {
          machine->profile.state_serialization_version == 24u;
 }
 
+/*
+ * Phase 9 composite family: the Phase 8 machine plus the SI/PIF controller
+ * and an explicit save device, all four registered ids sharing one tuple.
+ */
+static inline bool t64_has_si_profile(const t64_machine *machine) {
+  return machine != NULL && machine->profile.descriptor_version == 12u &&
+         machine->profile.machine_model_version == 20u &&
+         machine->profile.state_serialization_version == 25u;
+}
+
 static inline bool t64_has_vi_filter_v9_profile(
     const t64_machine *machine) {
   return (machine != NULL && machine->profile.descriptor_version == 10u &&
           machine->profile.machine_model_version == 18u &&
           machine->profile.state_serialization_version == 23u) ||
-         t64_has_ai_profile(machine);
+         t64_has_ai_profile(machine) || t64_has_si_profile(machine);
+}
+
+/* The audio interface exists on the Phase 8 profile and on the composite
+ * family; the digest keeps the exact tuple predicates. */
+static inline bool t64_has_ai_device(const t64_machine *machine) {
+  return t64_has_ai_profile(machine) || t64_has_si_profile(machine);
 }
 
 static inline bool t64_has_rdp_vi_profile(const t64_machine *machine) {

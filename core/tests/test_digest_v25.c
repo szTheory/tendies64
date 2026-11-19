@@ -5,6 +5,11 @@
  * registered id, and the Phase 8 audio profile mid-DMA, are pinned as literal
  * hex values captured from the tree before the digest sink seam existed. The
  * values depend only on authored inputs and profile identity.
+ *
+ * v25-strip-differential: the composite family stream, with markers, identity
+ * spans and new-section spans removed, equals the Phase 8 audio profile
+ * stream with its identity spans removed, for machines built by the same
+ * operations.
  */
 #include <stdbool.h>
 #include <stddef.h>
@@ -14,12 +19,14 @@
 #include <string.h>
 
 #include "t64_internal.h"
+#include "t64_sha256.h"
 #include "t64_test.h"
 
 #define IPL3_ASSET_BYTES 4096u
 #define AUTHORED_ROM_BYTES 4096u
 #define AI_PROFILE_ID \
   "ntsc-cart-4m-openipl3-rdram-b-t1-rdp-vi-filter-v9-ai-v1"
+#define SI_STEM_ID "ntsc-cart-4m-openipl3-rdram-b-t1-si-v1"
 #define AI_DRAM_ADDR UINT32_C(0x04500000)
 #define AI_LEN UINT32_C(0x04500004)
 #define AI_CONTROL UINT32_C(0x04500008)
@@ -280,8 +287,244 @@ static void case_sink_legacy_identity(void) {
   }
 }
 
+/* ---- stream capture and the strip-and-compare comparator --------------- */
+
+#define SPAN_CAPACITY 4096u
+#define SI_DOMAIN "t64.state.si.25"
+#define SI_DOMAIN_LENGTH 15u
+#define MARKER_COUNT_FULL 9u
+
+typedef struct {
+  uint8_t *bytes;
+  size_t length;
+  t64_digest_span *spans;
+  size_t span_count;
+} stream;
+
+/* Distinct comparator result kinds; a control must reach its own kind. */
+typedef enum {
+  CMP_EQUAL = 0,
+  CMP_LENGTH_MISMATCH = 1,
+  CMP_MARKER_ORDER = 2,
+  CMP_BODY_MISMATCH = 3,
+  CMP_IDENTITY_MISMATCH = 4
+} cmp_kind;
+
+typedef struct {
+  cmp_kind kind;
+  size_t offset;      /* first differing offset in the stripped streams */
+  size_t old_length;  /* stripped length of the older stream */
+  size_t new_length;  /* stripped length of the newer stream */
+} cmp_result;
+
+static void free_stream(stream *captured) {
+  free(captured->bytes);
+  free(captured->spans);
+  (void)memset(captured, 0, sizeof *captured);
+}
+
+/* Size query first, then the real stream into a buffer sink with spans. */
+static bool capture_stream(const t64_machine *machine, stream *out) {
+  t64_digest_sink sink;
+  size_t length;
+
+  (void)memset(out, 0, sizeof *out);
+  (void)memset(&sink, 0, sizeof sink);
+  T64_CHECK_INT(t64_digest_stream(machine, &sink), T64_STATUS_OK);
+  length = sink.offset;
+  T64_CHECK(length > 0u);
+  out->bytes = (uint8_t *)malloc(length);
+  out->spans = (t64_digest_span *)calloc(SPAN_CAPACITY, sizeof *out->spans);
+  if (out->bytes == NULL || out->spans == NULL || length == 0u) {
+    T64_CHECK(false);
+    free_stream(out);
+    return false;
+  }
+  (void)memset(&sink, 0, sizeof sink);
+  sink.buffer = out->bytes;
+  sink.capacity = length;
+  sink.spans = out->spans;
+  sink.span_capacity = SPAN_CAPACITY;
+  T64_CHECK_INT(t64_digest_stream(machine, &sink), T64_STATUS_OK);
+  T64_CHECK_INT(sink.offset, length);
+  T64_CHECK(!sink.overflow);
+  out->length = length;
+  out->span_count = sink.span_count;
+  return sink.offset == length && !sink.overflow;
+}
+
+/* Copy every body byte (outside all non-body spans); NULL out sizes only. */
+static size_t strip_stream(const stream *captured, uint8_t *out) {
+  size_t position = 0u;
+  size_t written = 0u;
+  size_t i;
+
+  for (i = 0u; i <= captured->span_count; i++) {
+    const size_t end =
+        i < captured->span_count ? captured->spans[i].offset : captured->length;
+
+    if (end > position) {
+      if (out != NULL) {
+        (void)memcpy(out + written, captured->bytes + position,
+                     end - position);
+      }
+      written += end - position;
+    }
+    if (i < captured->span_count) {
+      position = captured->spans[i].offset + captured->spans[i].length;
+    }
+  }
+  return written;
+}
+
+static uint32_t read_u32(const uint8_t *bytes) {
+  return ((uint32_t)bytes[0] << 24) | ((uint32_t)bytes[1] << 16) |
+         ((uint32_t)bytes[2] << 8) | (uint32_t)bytes[3];
+}
+
+/* Marker spans carry ascending section ids 1..count, four bytes each. */
+static bool markers_are_ordered(const stream *captured, size_t count,
+                                size_t *offset_out) {
+  size_t seen = 0u;
+  size_t i;
+
+  *offset_out = 0u;
+  for (i = 0u; i < captured->span_count; i++) {
+    const t64_digest_span *span = &captured->spans[i];
+
+    if (span->class != T64_DIGEST_CLASS_MARKER) continue;
+    if (span->length != 4u ||
+        read_u32(captured->bytes + span->offset) != (uint32_t)(seen + 1u)) {
+      *offset_out = span->offset;
+      return false;
+    }
+    seen++;
+  }
+  if (seen != count) {
+    *offset_out = captured->length;
+    return false;
+  }
+  return true;
+}
+
+/*
+ * Compare the older stream with the newer one after removing framing:
+ * length first, then marker order of the newer stream, then body bytes.
+ */
+static cmp_result compare_stripped(const stream *older, const stream *newer,
+                                   size_t marker_count) {
+  cmp_result result = {CMP_EQUAL, 0u, 0u, 0u};
+  uint8_t *old_body;
+  uint8_t *new_body;
+  size_t common;
+  size_t i;
+
+  result.old_length = strip_stream(older, NULL);
+  result.new_length = strip_stream(newer, NULL);
+  old_body = (uint8_t *)malloc(result.old_length > 0u ? result.old_length : 1u);
+  new_body = (uint8_t *)malloc(result.new_length > 0u ? result.new_length : 1u);
+  if (old_body == NULL || new_body == NULL) {
+    T64_CHECK(false);
+    free(old_body);
+    free(new_body);
+    result.kind = CMP_LENGTH_MISMATCH;
+    return result;
+  }
+  (void)strip_stream(older, old_body);
+  (void)strip_stream(newer, new_body);
+  common = result.old_length < result.new_length ? result.old_length
+                                                  : result.new_length;
+  for (i = 0u; i < common && old_body[i] == new_body[i]; i++) {
+  }
+  result.offset = i;
+  if (result.old_length != result.new_length) {
+    result.kind = CMP_LENGTH_MISMATCH;
+  } else if (!markers_are_ordered(newer, marker_count, &result.offset)) {
+    result.kind = CMP_MARKER_ORDER;
+  } else if (i != common) {
+    result.kind = CMP_BODY_MISMATCH;
+  }
+  free(old_body);
+  free(new_body);
+  return result;
+}
+
+/* ---- machine states built identically on both profile ids -------------- */
+
+typedef t64_machine *(*state_builder)(const char *profile_id);
+
+static void install_spin_loop(t64_machine *machine) {
+  machine->ram[UINT32_C(0x1000)] = 0x08u;
+  machine->ram[UINT32_C(0x1001)] = 0x00u;
+  machine->ram[UINT32_C(0x1002)] = 0x04u;
+  machine->ram[UINT32_C(0x1003)] = 0x00u;
+  (void)memset(machine->ram + UINT32_C(0x1004), 0, 4u);
+  machine->cpu.pc = UINT32_C(0x80001000);
+  machine->cpu.pc_full = t64_cpu_canonical_address(machine->cpu.pc);
+}
+
+static bool advance_to(t64_machine *machine, uint64_t tick) {
+  t64_stop_request request = {T64_STOP_GUEST_TICK, tick};
+  t64_stop_result stop = {0u, 0u};
+  const t64_status status = t64_machine_advance(machine, &request, &stop);
+
+  T64_CHECK_INT(status, T64_STATUS_OK);
+  T64_CHECK_INT(stop.reason, T64_STOP_REASON_BOUND);
+  return status == T64_STATUS_OK && stop.reason == T64_STOP_REASON_BOUND;
+}
+
+/* Idle: admitted, a guest spin loop retiring in RDRAM, tick 64. */
+static t64_machine *build_idle(const char *profile_id) {
+  t64_machine *machine = create_admitted(profile_id, true);
+
+  if (machine == NULL) return NULL;
+  install_spin_loop(machine);
+  T64_CHECK(advance_to(machine, 64u));
+  T64_CHECK_INT(machine->tick, 64u);
+  T64_CHECK(machine->cpu.retired_instructions > 0u);
+  return machine;
+}
+
+static void report_comparison(const char *label, const cmp_result *result) {
+  if (result->kind != CMP_EQUAL) {
+    fprintf(stderr,
+            "differential %s: kind=%d old_stripped=%zu new_stripped=%zu "
+            "first_differing_offset=%zu\n",
+            label, (int)result->kind, result->old_length, result->new_length,
+            result->offset);
+  }
+}
+
+static void differential_for_state(const char *label, state_builder build) {
+  t64_machine *older = build(AI_PROFILE_ID);
+  t64_machine *newer = build(SI_STEM_ID);
+  stream old_stream;
+  stream new_stream;
+
+  T64_CHECK(older != NULL && newer != NULL);
+  if (older != NULL && newer != NULL &&
+      capture_stream(older, &old_stream)) {
+    if (capture_stream(newer, &new_stream)) {
+      const cmp_result result =
+          compare_stripped(&old_stream, &new_stream, MARKER_COUNT_FULL);
+
+      report_comparison(label, &result);
+      T64_CHECK_INT(result.kind, CMP_EQUAL);
+      free_stream(&new_stream);
+    }
+    free_stream(&old_stream);
+  }
+  if (older != NULL) t64_machine_destroy(older);
+  if (newer != NULL) t64_machine_destroy(newer);
+}
+
+static void case_v25_strip_differential(void) {
+  differential_for_state("idle", build_idle);
+}
+
 int main(int argc, char **argv) {
-  static const char *const cases[] = {"sink-legacy-identity"};
+  static const char *const cases[] = {"sink-legacy-identity",
+                                      "v25-strip-differential"};
 
   if (argc == 2 && strcmp(argv[1], "--list-cases") == 0) {
     size_t index;
@@ -296,6 +539,10 @@ int main(int argc, char **argv) {
       case_sink_legacy_identity();
       return T64_TEST_FINISH("unit.core.digest.sink-legacy-identity");
     }
+    if (strcmp(argv[2], "v25-strip-differential") == 0) {
+      case_v25_strip_differential();
+      return T64_TEST_FINISH("unit.core.digest.v25-strip-differential");
+    }
     fprintf(stderr, "unknown case: %s\n", argv[2]);
     return 2;
   }
@@ -304,5 +551,6 @@ int main(int argc, char **argv) {
     return 2;
   }
   case_sink_legacy_identity();
+  case_v25_strip_differential();
   return T64_TEST_FINISH("unit.core.digest.v25");
 }
