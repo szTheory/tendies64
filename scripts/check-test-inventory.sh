@@ -225,7 +225,8 @@ unit.core.joybus.parser
 unit.core.input.latch-partition
 controls.real.pad-wrong-value
 harness.phase09-collect-real
-unit.core.save.device'
+unit.core.save.device
+runner.save-fixtures'
 
 CPU_COVERAGE_OPCODES='ADD
 ADDU

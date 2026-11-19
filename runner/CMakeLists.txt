@@ -587,6 +587,24 @@ set_tests_properties(runner.pad-poll controls.real.pad-wrong-value PROPERTIES
   LABELS "runner;controls" TIMEOUT 120
   ENVIRONMENT "T64_PHASE09_EVIDENCE_DIR=${CMAKE_BINARY_DIR}/09-03-evidence")
 
+# Phase 9 save fixtures (plan 09-04): the authored eeprom-rw and sram-rw ROMs
+# through the real supervised runner on the explicit -e4k, -e16k and -s32k ids.
+add_executable(test_save_fixtures tests/test_save_fixtures.c)
+target_compile_definitions(test_save_fixtures PRIVATE ${T64_HOST_DEFS})
+target_include_directories(test_save_fixtures PRIVATE
+  ${CMAKE_CURRENT_SOURCE_DIR} ${CMAKE_SOURCE_DIR}/core/include)
+target_link_libraries(test_save_fixtures PRIVATE t64_common t64_core)
+t64_target_warnings(test_save_fixtures)
+add_dependencies(test_save_fixtures t64-supervisor t64-supervisor-test
+  t64-result-check t64-boot-fixtures t64-phase09-save-fixture)
+add_test(NAME runner.save-fixtures
+  COMMAND test_save_fixtures --suite accepted
+    $<TARGET_FILE:t64-supervisor> $<TARGET_FILE:t64-supervisor-test>
+    $<TARGET_FILE:t64-result-check> ${CMAKE_SOURCE_DIR})
+set_tests_properties(runner.save-fixtures PROPERTIES
+  LABELS "runner;controls" TIMEOUT 120
+  ENVIRONMENT "T64_PHASE09_EVIDENCE_DIR=${CMAKE_BINARY_DIR}/09-04-evidence")
+
 # Publisher controls: the module is compiled with the testing hooks, like the
 # test twin of the runner, and never reaches the production runner.
 add_executable(test_artifact_publisher tests/test_artifact_publisher.c
