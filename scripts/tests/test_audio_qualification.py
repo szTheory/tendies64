@@ -601,6 +601,42 @@ class AudioQualificationTests(unittest.TestCase):
         wrong_image = rdp._gcc13_closure_command(sources, "sha256:" + "0" * 64)
         with self.assertRaises(qualify.Refusal):
             qualify._validate_gcc13_closure(sources, wrong_image)
+        self._assert_gcc13_include_paths_resolve_every_required_unit()
+
+    def _assert_gcc13_include_paths_resolve_every_required_unit(self) -> None:
+        # The closure compiles each unit with the include paths of its group only.
+        # The first current-source attempt failed because core/tests/test_isviewer.c
+        # includes tools/common/t64_sha256.h and the test group lacked -Itools/common.
+        import re
+
+        sources = sorted(qualify.PHASE08_GCC_REQUIRED_UNITS)
+        self.assertIn("core/tests/test_isviewer.c", sources)
+        rdp = qualify._rdp_helpers()
+        command = rdp._gcc13_closure_command(sources, qualify.EXPECTED_GCC13_IMAGE)
+        script = command[command.index("sh") + 2]
+
+        def flags(name: str) -> list[str]:
+            line = next(item for item in script.splitlines() if item.startswith(name + "="))
+            return re.findall(r"-I(\S+)", line)
+
+        def unresolved(group_flags: dict[str, list[str]]) -> list[tuple[str, str]]:
+            missing: list[tuple[str, str]] = []
+            for source in sources:
+                group = ("test_flags" if source.startswith("core/tests/") else
+                         "core_flags" if source.startswith("core/") else "runner_flags")
+                text = (ROOT / source).read_text(encoding="utf-8")
+                for include in re.findall(r'^#include "([^"]+)"', text, re.MULTILINE):
+                    candidates = [(ROOT / source).parent / include] + [
+                        ROOT / directory / include for directory in group_flags[group]]
+                    if not any(candidate.is_file() for candidate in candidates):
+                        missing.append((source, include))
+            return missing
+
+        actual = {name: flags(name) for name in ("core_flags", "test_flags", "runner_flags")}
+        self.assertEqual(unresolved(actual), [])
+        reduced = dict(actual)
+        reduced["test_flags"] = [item for item in actual["test_flags"] if item != "tools/common"]
+        self.assertIn(("core/tests/test_isviewer.c", "t64_sha256.h"), unresolved(reduced))
 
     def test_qualification_header_refuses_smoke_or_incomplete_suites(self) -> None:
         self.assertEqual(qualify._validate_owner_exclusion_scope(

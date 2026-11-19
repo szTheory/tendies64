@@ -1839,7 +1839,7 @@ def _gcc13_closure_command(source_paths: list[str], image_id: str) -> list[str]:
 set -f
 warnings="-Wall -Wextra -Wpedantic -Wshadow -Wconversion -Wstrict-prototypes -Wmissing-prototypes -Wundef -Wvla -Wcast-qual -Wformat=2 -Wwrite-strings -Werror -Wdouble-promotion"
 core_flags="-std=c17 -O3 -DNDEBUG -DSOFTFLOAT_FAST_INT64=1 -Icore/include -Itools/common -Icore/softfloat -Icore $warnings -Wframe-larger-than=2048"
-test_flags="-std=c17 -O3 -DNDEBUG -Icore/include -Icore -Itests $warnings"
+test_flags="-std=c17 -O3 -DNDEBUG -Icore/include -Icore -Itests -Itools/common $warnings"
 runner_flags="-std=c17 -O3 -DNDEBUG -D_DARWIN_C_SOURCE -D_POSIX_C_SOURCE=200809L -D_XOPEN_SOURCE=700 -Irunner -Itools/common -Icore/include $warnings"
 index=0
 for source_file in "$@"; do

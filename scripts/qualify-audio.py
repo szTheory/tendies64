@@ -987,7 +987,8 @@ def _native_command_plan(prefix: str, normal_junit: Path) -> list[dict[str, Any]
 
 
 PHASE08_GCC_REQUIRED_UNITS = {
-    "core/t64_ai.c", "core/tests/test_ai.c", "runner/t64_raw_capture.c",
+    "core/t64_ai.c", "core/tests/test_ai.c", "core/tests/test_isviewer.c",
+    "runner/t64_raw_capture.c",
     "runner/tests/test_audio_capture.c", "runner/t64_real.c",
     "runner/t64_supervisor.c", "runner/tests/test_rdp_video.c",
 }
