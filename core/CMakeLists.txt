@@ -269,6 +269,41 @@ add_custom_command(
 add_custom_target(t64-phase09-pad-fixture DEPENDS ${T64_PHASE09_PAD_OUTPUTS})
 add_dependencies(t64-phase09-pad-fixture t64-boot-fixtures)
 
+# Phase 9 save fixtures (plan 09-04): two authored sources build the three
+# eeprom-rw ROMs and the two sram-rw ROMs through defsyms; its own recipe keeps
+# the admit, audio, pad and boot builders on their historical source pins.
+set(T64_PHASE09_SAVE_STEMS
+  phase09-eeprom-rw-e4k-v1 phase09-eeprom-rw-e16k-v1
+  phase09-eeprom-rw-wrong-e4k-v1 phase09-sram-rw-s32k-v1
+  phase09-sram-rw-wrong-s32k-v1)
+set(T64_PHASE09_SAVE_OUTPUTS)
+foreach(T64_SAVE_STEM IN LISTS T64_PHASE09_SAVE_STEMS)
+  list(APPEND T64_PHASE09_SAVE_OUTPUTS
+    "${T64_BOOT_FIXTURE_DIR}/${T64_SAVE_STEM}.z64"
+    "${T64_BOOT_FIXTURE_DIR}/${T64_SAVE_STEM}.elf"
+    "${T64_BOOT_FIXTURE_DIR}/${T64_SAVE_STEM}.payload.bin"
+    "${T64_BOOT_FIXTURE_DIR}/${T64_SAVE_STEM}.json")
+endforeach()
+add_custom_command(
+  OUTPUT ${T64_PHASE09_SAVE_OUTPUTS}
+  COMMAND "${CMAKE_COMMAND}" -E env "CC=${CMAKE_C_COMPILER}"
+    sh "${CMAKE_SOURCE_DIR}/scripts/build-save-fixtures.sh" --build
+  DEPENDS
+    "${CMAKE_SOURCE_DIR}/fixtures/manifest.json"
+    "${CMAKE_SOURCE_DIR}/fixtures/save/eeprom.S"
+    "${CMAKE_SOURCE_DIR}/fixtures/save/eeprom.ld"
+    "${CMAKE_SOURCE_DIR}/fixtures/save/sram.S"
+    "${CMAKE_SOURCE_DIR}/fixtures/save/sram.ld"
+    "${CMAKE_SOURCE_DIR}/scripts/build-save-fixtures.sh"
+    "${CMAKE_SOURCE_DIR}/tools/fixture/t64_rom_pack.c"
+    "${CMAKE_SOURCE_DIR}/tools/common/t64_sha256.c"
+    "${CMAKE_SOURCE_DIR}/tools/common/t64_sha256.h"
+  WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}"
+  COMMENT "Building authored Phase 9 save fixtures"
+  VERBATIM)
+add_custom_target(t64-phase09-save-fixture DEPENDS ${T64_PHASE09_SAVE_OUTPUTS})
+add_dependencies(t64-phase09-save-fixture t64-boot-fixtures)
+
 add_executable(test_tracer tests/test_tracer.c)
 target_include_directories(test_tracer PRIVATE "${CMAKE_SOURCE_DIR}/tests")
 target_link_libraries(test_tracer PRIVATE t64_core)
