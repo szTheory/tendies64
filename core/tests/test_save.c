@@ -616,6 +616,403 @@ static void case_sram_window(void) {
 }
 
 /* ------------------------------------------------------------------------ */
+/* sram-dma                                                                  */
+/* ------------------------------------------------------------------------ */
+
+static const uint8_t dma_pattern[16] = {0x00, 0x11, 0x22, 0x33, 0x44, 0x55,
+                                        0x66, 0x77, 0x88, 0x99, 0xAA, 0xBB,
+                                        0xCC, 0xDD, 0xEE, 0xFF};
+#define DMA_DRAM UINT32_C(0x3800)
+#define DMA_BACK_DRAM UINT32_C(0x3A00)
+#define DMA_CART UINT32_C(0x08000100)
+#define SRAM_OFFSET 0x100u
+
+/* Start a PI DMA through the host bus: latch DRAM and cart, then the length
+ * register; returns the status of the length write. */
+static t64_status pi_start(t64_machine *machine, uint32_t dram, uint32_t cart,
+                           uint32_t length_reg, uint32_t raw_length) {
+  T64_CHECK_INT(bus_w32(machine, PI_DRAM, dram), T64_STATUS_OK);
+  T64_CHECK_INT(bus_w32(machine, PI_CART, cart), T64_STATUS_OK);
+  return bus_w32(machine, length_reg, raw_length);
+}
+
+static bool storage_is(const t64_machine *machine, size_t offset,
+                       const uint8_t *expected, size_t count) {
+  return machine->save.bytes != NULL &&
+         memcmp(machine->save.bytes + offset, expected, count) == 0;
+}
+
+static const uint8_t zero_block[16] = {0};
+
+/* One accepted pattern write at tick `start` (RDRAM to SRAM), settled. */
+static void sram_write_pattern(t64_machine *machine) {
+  const uint64_t start = machine->tick;
+
+  (void)memcpy(machine->ram + DMA_DRAM, dma_pattern, sizeof dma_pattern);
+  T64_CHECK_INT(pi_start(machine, DMA_DRAM, DMA_CART, PI_RD_LEN, 15u),
+                T64_STATUS_OK);
+  T64_CHECK(advance_guest_to(machine, start + 9u));
+  T64_CHECK_INT(bus_value(machine, PI_STATUS), 0u);
+  T64_CHECK_INT(bus_w32(machine, PI_STATUS, 2u), T64_STATUS_OK);
+}
+
+typedef struct {
+  const char *label;
+  uint32_t dram;
+  uint32_t cart;
+  uint32_t raw_length;
+} refusal_row;
+
+static void dma_refusal_rows(void) {
+  const uint32_t rdram = 0x400000u; /* 4 MiB: installed on the family ids */
+  const refusal_row rows[] = {
+      {"window overflow", DMA_DRAM, UINT32_C(0x08007FF8), 15u},
+      {"odd length", DMA_DRAM, DMA_CART, 14u},
+      {"odd cart address", DMA_DRAM, UINT32_C(0x08000101), 15u},
+      {"misaligned dram address", UINT32_C(0x3804), DMA_CART, 15u},
+      {"dram span beyond installed rdram", rdram - 8u, DMA_CART, 15u},
+      {"cart below the window", DMA_DRAM, UINT32_C(0x07FFFFF0), 15u},
+  };
+  size_t index;
+
+  for (index = 0u; index < sizeof rows / sizeof rows[0]; index++) {
+    t64_machine *machine = make_idle_machine(S32K_ID);
+    uint8_t snapshot[T64_SAVE_SRAM_BYTES];
+    uint8_t before[T64_DIGEST_SIZE];
+
+    if (machine == NULL) continue;
+    T64_CHECK_INT(machine->profile.rdram_bytes, rdram);
+    sram_write_pattern(machine); /* the accepted baseline, same setup */
+    T64_CHECK(storage_is(machine, SRAM_OFFSET, dma_pattern, 16u));
+    (void)memcpy(snapshot, machine->save.bytes, sizeof snapshot);
+    digest_of(machine, before);
+    {
+      const t64_status status =
+          pi_start(machine, rows[index].dram, rows[index].cart, PI_RD_LEN,
+                   rows[index].raw_length);
+
+      if (status != T64_STATUS_BUS_DEVICE_REFUSED) {
+        fprintf(stderr, "refusal row '%s': status %u\n", rows[index].label,
+                (unsigned)status);
+      }
+      T64_CHECK_INT(status, T64_STATUS_BUS_DEVICE_REFUSED);
+    }
+    T64_CHECK_INT(bus_value(machine, PI_STATUS) & 1u, 0u);
+    T64_CHECK(memcmp(snapshot, machine->save.bytes, sizeof snapshot) == 0);
+    (void)before;
+    t64_machine_destroy(machine);
+  }
+}
+
+/* A CPU store to the PI read-length register of the -s32k id: the authored
+ * program loads the PI base into $t0 (lui 0xA460), 7 into $t1 and stores it at
+ * offset 8, so the length is 8 and the completion is 1 + 8/2 = 5 ticks after
+ * the start. The store outside RDRAM reserves one extra scheduler event beyond
+ * the CPU successor (the existing default budget rule), so free room 1 is
+ * refused with QUEUE_FULL and room 2 is accepted. */
+#define OP_LUI_T0_PI UINT32_C(0x3C08A460)
+#define OP_ADDIU_T1_7 UINT32_C(0x24090007)
+#define OP_SW_T1_RD_LEN UINT32_C(0xAD090008)
+#define STORE_PROGRAM_ADDRESS UINT32_C(0x1000)
+#define STORE_QUEUE_LIMIT 16u
+
+static void put_be32(uint8_t *bytes, uint32_t value) {
+  bytes[0] = (uint8_t)(value >> 24);
+  bytes[1] = (uint8_t)(value >> 16);
+  bytes[2] = (uint8_t)(value >> 8);
+  bytes[3] = (uint8_t)value;
+}
+
+static bool pi_event_tick(const t64_machine *machine, uint64_t *tick_out) {
+  size_t index;
+
+  for (index = 0u; index < machine->queue_count; index++) {
+    const t64_event *event =
+        &machine->events[(machine->queue_head + index) %
+                         T64_EVENT_QUEUE_CAPACITY];
+
+    if (event->device == T64_DEVICE_PI) {
+      *tick_out = event->tick;
+      return true;
+    }
+  }
+  return false;
+}
+
+static void dma_cpu_store_row(size_t room) {
+  t64_machine *machine = make_idle_machine(S32K_ID);
+  const uint32_t program[3] = {OP_LUI_T0_PI, OP_ADDIU_T1_7, OP_SW_T1_RD_LEN};
+  uint8_t zero[16] = {0};
+  size_t index;
+  t64_status status;
+
+  if (machine == NULL) return;
+  for (index = 0u; index < 3u; index++) {
+    put_be32(machine->ram + STORE_PROGRAM_ADDRESS + 4u * index, program[index]);
+  }
+  (void)memcpy(machine->ram + DMA_DRAM, dma_pattern, 8u);
+  T64_CHECK_INT(bus_w32(machine, PI_DRAM, DMA_DRAM), T64_STATUS_OK);
+  T64_CHECK_INT(bus_w32(machine, PI_CART, DMA_CART), T64_STATUS_OK);
+  machine->cpu.pc = UINT32_C(0x80001000);
+  machine->cpu.pc_full = t64_cpu_canonical_address(machine->cpu.pc);
+  for (index = 0u; index < 2u; index++) {
+    T64_CHECK_INT(t64_cpu_step(machine, NULL), T64_STATUS_OK);
+  }
+  T64_CHECK_INT(machine->cpu.retired_instructions, 2u);
+  /* Leave only well-formed events: cancel the CPU successors the manual steps
+     queued, then fill the queue with far-future synthetic events so exactly
+     `room` slots stay free (N6: the capacity edit is on the in-memory copy of
+     the profile after create). */
+  {
+    uint64_t cancelled = 0u;
+
+    while (t64_schedule_cancel(machine, T64_DEVICE_CPU, T64_CPU_EVENT_STEP, 0u,
+                               &cancelled) == T64_STATUS_OK) {
+    }
+  }
+  machine->profile.event_queue_capacity = STORE_QUEUE_LIMIT;
+  /* The queue keeps the profile's other devices' events; pad it up to
+     exactly `room` free slots. */
+  T64_CHECK(machine->queue_count + room <= STORE_QUEUE_LIMIT);
+  while (machine->queue_count + room < STORE_QUEUE_LIMIT) {
+    T64_CHECK_INT(t64_test_schedule_synthetic(machine, UINT64_C(100000),
+                                              T64_TEST_EVENT_NOOP, 0u),
+                  T64_STATUS_OK);
+  }
+  T64_CHECK_INT(machine->queue_count, STORE_QUEUE_LIMIT - room);
+  status = t64_cpu_step(machine, NULL);
+  if (room < 2u) {
+    T64_CHECK_INT(status, T64_STATUS_QUEUE_FULL);
+    T64_CHECK_INT(machine->cpu.retired_instructions, 2u);
+    T64_CHECK(!machine->pi.active_valid);
+    T64_CHECK(storage_is(machine, SRAM_OFFSET, zero, 8u));
+  } else {
+    uint64_t completion = 0u;
+
+    T64_CHECK_INT(status, T64_STATUS_OK);
+    T64_CHECK_INT(machine->cpu.retired_instructions, 3u);
+    T64_CHECK(machine->pi.active_valid);
+    T64_CHECK_INT(machine->pi.active_save_direction,
+                  T64_PI_DIRECTION_RDRAM_TO_SRAM);
+    T64_CHECK(storage_is(machine, SRAM_OFFSET, zero, 8u));
+    T64_CHECK(pi_event_tick(machine, &completion));
+    if (completion != 0u) {
+      T64_CHECK(advance_guest_to(machine, completion - 1u));
+      T64_CHECK(storage_is(machine, SRAM_OFFSET, zero, 8u));
+      T64_CHECK(advance_guest_to(machine, completion));
+      T64_CHECK(storage_is(machine, SRAM_OFFSET, dma_pattern, 8u));
+    }
+  }
+  t64_machine_destroy(machine);
+}
+
+static void case_sram_dma(void) {
+  t64_machine *machine = make_idle_machine(S32K_ID);
+  size_t index;
+
+  if (machine != NULL) {
+    /* Write: RDRAM pattern to the SRAM at cart 0x08000100; N 16 so the
+       completion is start + 1 + 16/2 = 9. */
+    (void)memcpy(machine->ram + DMA_DRAM, dma_pattern, sizeof dma_pattern);
+    T64_CHECK(advance_guest_to(machine, 1000u));
+    T64_CHECK_INT(pi_start(machine, DMA_DRAM, DMA_CART, PI_RD_LEN, 15u),
+                  T64_STATUS_OK);
+    T64_CHECK_INT(bus_value(machine, PI_STATUS), 1u);
+    T64_CHECK(advance_guest_to(machine, 1000u + 8u));
+    T64_CHECK_INT(bus_value(machine, PI_STATUS), 1u);
+    T64_CHECK(storage_is(machine, SRAM_OFFSET, zero_block, 16u));
+    T64_CHECK_INT(machine->mi_pending & MI_PI_BIT, 0u);
+    /* A source byte changed after the start and before the completion reaches
+       the storage: the effect is atomic at the completion event. */
+    machine->ram[DMA_DRAM] = 0xA5u;
+    T64_CHECK(advance_guest_to(machine, 1000u + 9u));
+    T64_CHECK_INT(bus_value(machine, PI_STATUS), 0u);
+    T64_CHECK_INT(machine->save.bytes != NULL ? machine->save.bytes[SRAM_OFFSET]
+                                              : 0xFFu,
+                  0xA5u);
+    T64_CHECK(storage_is(machine, SRAM_OFFSET + 1u, dma_pattern + 1, 15u));
+    T64_CHECK_INT(machine->mi_pending & MI_PI_BIT, MI_PI_BIT);
+    T64_CHECK_INT(bus_w32(machine, PI_STATUS, 2u), T64_STATUS_OK);
+    T64_CHECK_INT(machine->mi_pending & MI_PI_BIT, 0u);
+
+    /* Read: the same cart address back to RDRAM with the write-length
+       register, effect at the completion event. */
+    (void)memset(machine->ram + DMA_BACK_DRAM, 0, 16u);
+    T64_CHECK_INT(pi_start(machine, DMA_BACK_DRAM, DMA_CART, PI_WR_LEN, 15u),
+                  T64_STATUS_OK);
+    T64_CHECK(advance_guest_to(machine, 1000u + 9u + 8u));
+    T64_CHECK(memcmp(machine->ram + DMA_BACK_DRAM, zero_block, 16u) == 0);
+    T64_CHECK(advance_guest_to(machine, 1000u + 9u + 9u));
+    T64_CHECK_INT(machine->ram[DMA_BACK_DRAM], 0xA5u);
+    T64_CHECK(memcmp(machine->ram + DMA_BACK_DRAM + 1u, dma_pattern + 1,
+                     15u) == 0);
+    T64_CHECK_INT(bus_value(machine, PI_STATUS), 0u);
+    T64_CHECK_INT(bus_w32(machine, PI_STATUS, 2u), T64_STATUS_OK);
+
+    /* Durations from literals: N 2 is 1 + 1 = 2, N 16 is 9 (above), N 32,768
+       is 1 + 16,384 = 16,385. */
+    {
+      uint64_t now = machine->tick;
+
+      T64_CHECK_INT(pi_start(machine, DMA_DRAM, DMA_CART, PI_RD_LEN, 1u),
+                    T64_STATUS_OK);
+      T64_CHECK(advance_guest_to(machine, now + 1u));
+      T64_CHECK_INT(bus_value(machine, PI_STATUS), 1u);
+      T64_CHECK(advance_guest_to(machine, now + 2u));
+      T64_CHECK_INT(bus_value(machine, PI_STATUS), 0u);
+      T64_CHECK_INT(bus_w32(machine, PI_STATUS, 2u), T64_STATUS_OK);
+      now = machine->tick;
+      T64_CHECK_INT(pi_start(machine, UINT32_C(0x10000), UINT32_C(0x08000000),
+                             PI_RD_LEN, 32767u),
+                    T64_STATUS_OK);
+      T64_CHECK(advance_guest_to(machine, now + 16384u));
+      T64_CHECK_INT(bus_value(machine, PI_STATUS), 1u);
+      T64_CHECK(advance_guest_to(machine, now + 16385u));
+      T64_CHECK_INT(bus_value(machine, PI_STATUS), 0u);
+      T64_CHECK_INT(bus_w32(machine, PI_STATUS, 2u), T64_STATUS_OK);
+    }
+
+    /* A second start while busy: sticky error set (status bit 2), the first
+       DMA completes unchanged. */
+    {
+      uint64_t now = machine->tick;
+      uint8_t snapshot[16];
+
+      (void)memcpy(machine->ram + DMA_DRAM, dma_pattern, sizeof dma_pattern);
+      T64_CHECK_INT(pi_start(machine, DMA_DRAM, UINT32_C(0x08000200),
+                             PI_RD_LEN, 15u),
+                    T64_STATUS_OK);
+      T64_CHECK_INT(pi_start(machine, DMA_DRAM, UINT32_C(0x08000300),
+                             PI_RD_LEN, 15u),
+                    T64_STATUS_BUS_DEVICE_REFUSED);
+      T64_CHECK_INT(bus_value(machine, PI_STATUS), 5u);
+      T64_CHECK(advance_guest_to(machine, now + 9u));
+      T64_CHECK(storage_is(machine, 0x200u, dma_pattern, 16u));
+      T64_CHECK(storage_is(machine, 0x300u, zero_block, 16u));
+      (void)memcpy(snapshot, machine->save.bytes + 0x200u, sizeof snapshot);
+      T64_CHECK_INT(bus_w32(machine, PI_STATUS, 2u), T64_STATUS_OK);
+    }
+
+    /* A controller reset (status write 1) before the completion cancels the
+       effect and leaves the storage unchanged. */
+    {
+      uint64_t now = machine->tick;
+
+      machine->ram[DMA_DRAM] = 0x7Eu;
+      T64_CHECK_INT(pi_start(machine, DMA_DRAM, UINT32_C(0x08000400),
+                             PI_RD_LEN, 15u),
+                    T64_STATUS_OK);
+      T64_CHECK_INT(bus_w32(machine, PI_STATUS, 1u), T64_STATUS_OK);
+      T64_CHECK(advance_guest_to(machine, now + 9u));
+      T64_CHECK(storage_is(machine, 0x400u, zero_block, 16u));
+      T64_CHECK_INT(bus_value(machine, PI_STATUS) & 1u, 0u);
+      T64_CHECK_INT(bus_w32(machine, PI_STATUS, 2u), T64_STATUS_OK);
+    }
+    t64_machine_destroy(machine);
+  }
+
+  dma_refusal_rows();
+  dma_cpu_store_row(1u);
+  dma_cpu_store_row(2u);
+
+  /* Resource refusals at their direct-state setups: the status is exact, the
+     storage is unchanged, and the digest equals the pre-state once the
+     documented read-length latch is restored through direct state (an
+     accepted baseline runs first in each setup). */
+  for (index = 0u; index < 3u; index++) {
+    t64_machine *other = make_idle_machine(S32K_ID);
+    uint8_t before[T64_DIGEST_SIZE];
+    uint8_t after[T64_DIGEST_SIZE];
+    uint8_t snapshot[T64_SAVE_SRAM_BYTES];
+    uint32_t latch;
+    t64_status want;
+    t64_status status;
+    uint32_t slot;
+
+    if (other == NULL) continue;
+    sram_write_pattern(other);
+    T64_CHECK_INT(bus_w32(other, PI_DRAM, DMA_DRAM), T64_STATUS_OK);
+    T64_CHECK_INT(bus_w32(other, PI_CART, DMA_CART), T64_STATUS_OK);
+    (void)memcpy(snapshot, other->save.bytes, sizeof snapshot);
+    latch = other->pi.read_length;
+    if (index == 0u) {
+      for (slot = 0u; slot < other->profile.event_queue_capacity; slot++) {
+        T64_CHECK_INT(t64_test_schedule_synthetic(other, UINT64_C(100000),
+                                                  T64_TEST_EVENT_NOOP, 0u),
+                      T64_STATUS_OK);
+      }
+      want = T64_STATUS_QUEUE_FULL;
+    } else if (index == 1u) {
+      other->sequence_exhausted = true;
+      want = T64_STATUS_SEQUENCE_EXHAUSTED;
+    } else {
+      other->tick = UINT64_MAX - UINT64_C(8);
+      want = T64_STATUS_TICK_OVERFLOW;
+    }
+    digest_of(other, before);
+    status = bus_w32(other, PI_RD_LEN, 15u);
+    T64_CHECK_INT(status, want);
+    other->pi.read_length = latch;
+    digest_of(other, after);
+    T64_CHECK(memcmp(before, after, T64_DIGEST_SIZE) == 0);
+    T64_CHECK(memcmp(snapshot, other->save.bytes, sizeof snapshot) == 0);
+    T64_CHECK_INT(bus_value(other, PI_STATUS) & 1u, 0u);
+    t64_machine_destroy(other);
+  }
+
+  /* Profiles without the SRAM keep latching and refusing the read-length
+     start, keep refusing a write-length start with an SRAM cart address, and
+     the -s32k id still copies cartridge bytes for ROM DMA (these rows start
+     green by design: the new path must not reach them). */
+  {
+    static const char *const others[] = {STEM_ID, E4K_ID, E16K_ID, AI_ID,
+                                         LEGACY_ID};
+
+    for (index = 0u; index < sizeof others / sizeof others[0]; index++) {
+      t64_machine *other = make_idle_machine(others[index]);
+      uint8_t before[T64_DIGEST_SIZE];
+      uint8_t after[T64_DIGEST_SIZE];
+
+      if (other == NULL) continue;
+      T64_CHECK_INT(bus_w32(other, PI_DRAM, DMA_DRAM), T64_STATUS_OK);
+      T64_CHECK_INT(bus_w32(other, PI_CART, DMA_CART), T64_STATUS_OK);
+      T64_CHECK_INT(bus_w32(other, PI_RD_LEN, 15u),
+                    T64_STATUS_BUS_DEVICE_REFUSED);
+      T64_CHECK_INT(bus_value(other, PI_RD_LEN), 15u);
+      T64_CHECK_INT(bus_value(other, PI_STATUS) & 1u, 0u);
+      digest_of(other, before);
+      T64_CHECK_INT(bus_w32(other, PI_WR_LEN, 15u),
+                    T64_STATUS_BUS_DEVICE_REFUSED);
+      other->pi.write_length = 0u;
+      digest_of(other, after);
+      T64_CHECK(memcmp(before, after, T64_DIGEST_SIZE) == 0);
+      T64_CHECK_INT(bus_value(other, PI_STATUS) & 1u, 0u);
+      t64_machine_destroy(other);
+    }
+  }
+  {
+    t64_machine *other = make_idle_machine(S32K_ID);
+
+    if (other != NULL) {
+      const uint64_t start = other->tick;
+
+      /* ROM DMA on the -s32k id: the first eight image bytes to RDRAM. */
+      (void)memset(other->ram + DMA_BACK_DRAM, 0, 16u);
+      T64_CHECK_INT(pi_start(other, DMA_BACK_DRAM, ROM_CART_BASE, PI_WR_LEN,
+                             7u),
+                    T64_STATUS_OK);
+      T64_CHECK(advance_guest_to(other, start + 5u));
+      T64_CHECK(other->image_storage.data != NULL &&
+                memcmp(other->ram + DMA_BACK_DRAM, other->image_storage.data,
+                       8u) == 0);
+      T64_CHECK(other->save.bytes != NULL &&
+                storage_is(other, 0u, zero_block, 16u));
+      t64_machine_destroy(other);
+    }
+  }
+}
+
+/* ------------------------------------------------------------------------ */
 /* Dispatch                                                                  */
 /* ------------------------------------------------------------------------ */
 
@@ -628,6 +1025,7 @@ static const test_case cases[] = {
     {"storage-blank", case_storage_blank},
     {"eeprom-tracer", case_eeprom_tracer},
     {"sram-window", case_sram_window},
+    {"sram-dma", case_sram_dma},
 };
 
 int main(int argc, char **argv) {

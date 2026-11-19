@@ -45,9 +45,31 @@ static bool request_range_valid(const t64_machine *machine,
          (uint64_t)length <= (uint64_t)machine->image_length - cart_offset;
 }
 
-static t64_status start_rom_dma(t64_machine *machine, uint32_t raw_length) {
+/* The SRAM spans: the DRAM span inside the installed RDRAM and the cart span
+ * inside the 32 KiB window (the carve-out of the domain 2 unsupported arm). */
+static bool request_sram_valid(const t64_machine *machine,
+                               uint32_t dram_address, uint32_t cart_address,
+                               uint32_t length) {
+  uint64_t dram_end = (uint64_t)dram_address + (uint64_t)length;
+  uint64_t cart_end = (uint64_t)cart_address + (uint64_t)length;
+
+  return machine != NULL && machine->has_image && length != 0u &&
+         dram_end <= machine->profile.rdram_bytes &&
+         cart_address >= T64_SRAM_BASE &&
+         cart_end <= (uint64_t)T64_SRAM_BASE + (uint64_t)T64_SAVE_SRAM_BYTES;
+}
+
+/* One shared start for the ROM path (register 0x0c) and the two SRAM
+ * directions (registers 0x08 and 0x0c): the checks, statuses, trace offsets
+ * and ordering of the ROM path are unchanged; the direction only selects the
+ * span check and the latched length register. */
+static t64_status start_dma(t64_machine *machine, uint32_t raw_length,
+                            uint32_t direction, uint32_t register_offset) {
   t64_event_reservation reservation;
   t64_pi_state *pi = &machine->pi;
+  uint32_t *latched_length = register_offset == UINT32_C(0x08)
+                                 ? &pi->read_length
+                                 : &pi->write_length;
   uint32_t length = (raw_length & T64_PI_LENGTH_MASK) + UINT32_C(1);
   uint64_t duration_ticks;
   uint64_t delay;
@@ -56,9 +78,9 @@ static t64_status start_rom_dma(t64_machine *machine, uint32_t raw_length) {
 
   if (pi->active_valid) {
     /* The sticky busy-start ERROR effect is the selected profile policy. */
-    pi->write_length = raw_length & T64_PI_LENGTH_MASK;
+    *latched_length = raw_length & T64_PI_LENGTH_MASK;
     pi->error = true;
-    trace_refusal(machine, UINT32_C(0x0c), T64_STATUS_BUS_DEVICE_REFUSED);
+    trace_refusal(machine, register_offset, T64_STATUS_BUS_DEVICE_REFUSED);
     return T64_STATUS_BUS_DEVICE_REFUSED;
   }
 
@@ -66,21 +88,24 @@ static t64_status start_rom_dma(t64_machine *machine, uint32_t raw_length) {
       (length & UINT32_C(1)) != 0u ||
       (pi->dram_address & UINT32_C(7)) != 0u ||
       (pi->cart_address & UINT32_C(1)) != 0u ||
-      !request_range_valid(machine, pi->dram_address, pi->cart_address,
-                           length)) {
-    pi->write_length = raw_length & T64_PI_LENGTH_MASK;
-    trace_refusal(machine, UINT32_C(0x0c), T64_STATUS_BUS_DEVICE_REFUSED);
+      !(direction == T64_PI_DIRECTION_ROM_TO_RDRAM
+            ? request_range_valid(machine, pi->dram_address, pi->cart_address,
+                                  length)
+            : request_sram_valid(machine, pi->dram_address, pi->cart_address,
+                                 length))) {
+    *latched_length = raw_length & T64_PI_LENGTH_MASK;
+    trace_refusal(machine, register_offset, T64_STATUS_BUS_DEVICE_REFUSED);
     return T64_STATUS_BUS_DEVICE_REFUSED;
   }
   if (pi->token_exhausted) {
-    trace_refusal(machine, UINT32_C(0x0c), T64_STATUS_RESOURCE_EXHAUSTED);
+    trace_refusal(machine, register_offset, T64_STATUS_RESOURCE_EXHAUSTED);
     return T64_STATUS_RESOURCE_EXHAUSTED;
   }
   duration_ticks = (uint64_t)length /
                    (uint64_t)machine->profile.pi_duration_bytes_divisor;
   if ((uint64_t)machine->profile.pi_duration_base_ticks >
       UINT64_MAX - duration_ticks) {
-    trace_refusal(machine, UINT32_C(0x0c), T64_STATUS_TICK_OVERFLOW);
+    trace_refusal(machine, register_offset, T64_STATUS_TICK_OVERFLOW);
     return T64_STATUS_TICK_OVERFLOW;
   }
   delay = (uint64_t)machine->profile.pi_duration_base_ticks +
@@ -91,19 +116,20 @@ static t64_status start_rom_dma(t64_machine *machine, uint32_t raw_length) {
                                       (uint64_t)length, token,
                                       t64_pi_complete, &reservation);
   if (status != T64_STATUS_OK) {
-    trace_refusal(machine, UINT32_C(0x0c), status);
+    trace_refusal(machine, register_offset, status);
     return status;
   }
   status = t64_schedule_commit(machine, &reservation);
   if (status != T64_STATUS_OK) {
-    trace_refusal(machine, UINT32_C(0x0c), status);
+    trace_refusal(machine, register_offset, status);
     return status;
   }
 
   pi->active_dram_address = pi->dram_address;
   pi->active_cart_address = pi->cart_address;
   pi->active_length = length;
-  pi->write_length = raw_length & T64_PI_LENGTH_MASK;
+  *latched_length = raw_length & T64_PI_LENGTH_MASK;
+  pi->active_save_direction = direction;
   pi->active_token = token;
   pi->active_canceled = false;
   pi->active_valid = true;
@@ -206,10 +232,20 @@ t64_status t64_pi_write_register(t64_machine *machine, uint32_t address,
     pi->cart_address = value;
     return T64_STATUS_OK;
   case UINT32_C(0x08):
+    if (t64_has_sram_save(machine)) {
+      return start_dma(machine, value & T64_PI_LENGTH_MASK,
+                       T64_PI_DIRECTION_RDRAM_TO_SRAM, offset);
+    }
     pi->read_length = value & T64_PI_LENGTH_MASK;
     return refuse_semantic(machine, offset);
   case UINT32_C(0x0c):
-    return start_rom_dma(machine, value & T64_PI_LENGTH_MASK);
+    if (t64_has_sram_save(machine) && pi->cart_address >= T64_SRAM_BASE &&
+        pi->cart_address < T64_SRAM_BASE + T64_SAVE_SRAM_BYTES) {
+      return start_dma(machine, value & T64_PI_LENGTH_MASK,
+                       T64_PI_DIRECTION_SRAM_TO_RDRAM, offset);
+    }
+    return start_dma(machine, value & T64_PI_LENGTH_MASK,
+                     T64_PI_DIRECTION_ROM_TO_RDRAM, offset);
   case UINT32_C(0x10):
     if ((value & UINT32_C(1)) != 0u) {
       reset_controller(machine);
@@ -261,27 +297,41 @@ t64_status t64_pi_complete(t64_machine *machine, const t64_event *event) {
     return T64_STATUS_OK;
   }
 
-  cart_offset = (uint64_t)machine->pi.active_cart_address -
-                (uint64_t)T64_PI_CART_BASE;
-  destination_end = (uint64_t)machine->pi.active_dram_address +
-                    (uint64_t)machine->pi.active_length;
-  source_end = cart_offset + (uint64_t)machine->pi.active_length;
-  if (!machine->has_image || machine->image_storage.data == NULL ||
-      machine->ram == NULL ||
-      destination_end > machine->profile.rdram_bytes ||
-      source_end > (uint64_t)machine->image_length) {
-    return T64_STATUS_RESOURCE_EXHAUSTED;
+  if (machine->pi.active_save_direction != T64_PI_DIRECTION_ROM_TO_RDRAM) {
+    /* SRAM directions: the copy happens at this completion event, and a
+       canceled descriptor leaves the storage and RDRAM unchanged. */
+    if (!machine->pi.active_canceled &&
+        t64_save_sram_dma_apply(
+            machine, machine->pi.active_save_direction,
+            machine->pi.active_dram_address,
+            machine->pi.active_cart_address - T64_SRAM_BASE,
+            machine->pi.active_length) != T64_STATUS_OK) {
+      return T64_STATUS_RESOURCE_EXHAUSTED;
+    }
+  } else {
+    cart_offset = (uint64_t)machine->pi.active_cart_address -
+                  (uint64_t)T64_PI_CART_BASE;
+    destination_end = (uint64_t)machine->pi.active_dram_address +
+                      (uint64_t)machine->pi.active_length;
+    source_end = cart_offset + (uint64_t)machine->pi.active_length;
+    if (!machine->has_image || machine->image_storage.data == NULL ||
+        machine->ram == NULL ||
+        destination_end > machine->profile.rdram_bytes ||
+        source_end > (uint64_t)machine->image_length) {
+      return T64_STATUS_RESOURCE_EXHAUSTED;
+    }
+    if (!machine->pi.active_canceled) {
+      (void)memcpy(machine->ram + machine->pi.active_dram_address,
+                   (const uint8_t *)machine->image_storage.data +
+                       (size_t)cart_offset,
+                   (size_t)machine->pi.active_length);
+      t64_rdp_memory_coverage_invalidate(
+          machine, machine->pi.active_dram_address, machine->pi.active_length);
+      t64_cpu_link_invalidate_range(machine, machine->pi.active_dram_address,
+                                    machine->pi.active_length);
+    }
   }
-  if (!machine->pi.active_canceled) {
-    (void)memcpy(machine->ram + machine->pi.active_dram_address,
-                 (const uint8_t *)machine->image_storage.data +
-                     (size_t)cart_offset,
-                 (size_t)machine->pi.active_length);
-    t64_rdp_memory_coverage_invalidate(
-        machine, machine->pi.active_dram_address, machine->pi.active_length);
-    t64_cpu_link_invalidate_range(machine, machine->pi.active_dram_address,
-                                  machine->pi.active_length);
-  }
+  machine->pi.active_save_direction = T64_PI_DIRECTION_ROM_TO_RDRAM;
   machine->pi.active_valid = false;
   machine->pi.active_canceled = false;
   machine->pi.active_dram_address = 0u;

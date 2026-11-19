@@ -61,7 +61,7 @@ core/t64_cpu.c :: cpu_preflight_successor :: t64_schedule_reserve_after :: T64_D
 core/t64_cpu.c :: t64_cpu_schedule :: t64_schedule_reserve_after :: T64_DEVICE_CPU / T64_CPU_EVENT_STEP
 core/t64_exception.c :: t64_cpu_exception_enter :: t64_schedule_reserve_after :: T64_DEVICE_CPU / T64_CPU_EVENT_STEP
 core/t64_observe.c :: t64_machine_queue_input :: t64_schedule_reserve :: T64_TRACE_DEVICE_INPUT / T64_TRACE_KIND_INPUT_SUBMITTED
-core/t64_pi.c :: start_rom_dma :: t64_schedule_reserve_after :: T64_DEVICE_PI / T64_PI_EVENT_COMPLETE
+core/t64_pi.c :: start_dma :: t64_schedule_reserve_after :: T64_DEVICE_PI / T64_PI_EVENT_COMPLETE
 core/t64_rdp.c :: schedule_next_committed :: t64_schedule_reserve_after :: T64_RDP_DEVICE / T64_RDP_EVENT_WORK
 core/t64_rdp.c :: schedule_work_after_committed :: t64_schedule_reserve_after :: T64_RDP_DEVICE / T64_RDP_EVENT_WORK
 core/t64_rsp.c :: t64_rsp_schedule_next :: t64_schedule_reserve_after :: T64_DEVICE_SP / T64_SP_EVENT_RSP_ISSUE

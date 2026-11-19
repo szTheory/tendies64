@@ -209,6 +209,8 @@ typedef struct {
   uint64_t active_token;
   uint64_t next_token;
   bool token_exhausted;
+  /* T64_PI_DIRECTION_* of the active descriptor; 0 for the ROM path. */
+  uint32_t active_save_direction;
 } t64_pi_state;
 
 typedef struct {
