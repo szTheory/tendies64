@@ -176,7 +176,7 @@ static const idle_golden idle_goldens[] = {
 #define IDLE_GOLDEN_COUNT (sizeof idle_goldens / sizeof idle_goldens[0])
 
 static const char ai_mid_dma_golden[] =
-    "3f0ee447442df1fcdf095afd889bccc7876187d887bf71af942680aa56ed6274";
+    "24bbb649254ff4f091a2492734d8995b1fce61c191eba4c9756772aa280643e4";
 
 static void check_digest_literal(const char *label, const t64_machine *machine,
                                  const char *expected_hex) {
@@ -193,9 +193,12 @@ static void check_digest_literal(const char *label, const t64_machine *machine,
 }
 
 /*
- * AI profile with one DMA submitted and the first sample dispatched: the
- * descriptor is active and no packet has completed. Built only through host
- * bus writes and guest-tick advances, as in core/tests/test_ai.c.
+ * AI profile with one DMA submitted and the CPU running, stopped one tick
+ * before the first sample event dispatches: the descriptor is active, the
+ * sample event is queued and no packet exists. Packet metadata (including the
+ * build identity) is first written when that event dispatches, so a digest
+ * taken here depends only on authored inputs and profile identity. Built only
+ * through host bus writes and guest-tick advances, as in core/tests/test_ai.c.
  */
 static t64_machine *build_ai_mid_dma(const char *profile_id) {
   static const uint8_t literal_pcm[16] = {
@@ -236,18 +239,22 @@ static t64_machine *build_ai_mid_dma(const char *profile_id) {
       break;
     }
   }
-  T64_CHECK(sample_tick != UINT64_MAX);
-  if (sample_tick == UINT64_MAX) {
+  T64_CHECK(sample_tick != UINT64_MAX && sample_tick > machine->tick + 8u);
+  if (sample_tick == UINT64_MAX || sample_tick <= machine->tick + 8u) {
     t64_machine_destroy(machine);
     return NULL;
   }
-  request.value = sample_tick;
+  request.value = sample_tick - 1u;
   T64_CHECK_INT(t64_machine_advance(machine, &request, &stop), T64_STATUS_OK);
   T64_CHECK_INT(stop.reason, T64_STOP_REASON_BOUND);
-  /* Reached: the DMA is active and no packet has completed. */
+  /* Reached: DMA active, CPU has run, no sample dispatched, no packet. */
   T64_CHECK(machine->ai.active);
+  T64_CHECK_INT(machine->tick, sample_tick - 1u);
+  T64_CHECK(machine->cpu.retired_instructions > 0u);
+  T64_CHECK_INT(machine->ai.sample_index, 0u);
   T64_CHECK_INT(machine->ai.packet_history_count, 0u);
-  T64_CHECK_INT(machine->ai.sample_index, 1u);
+  T64_CHECK_INT(machine->ai.packet_info[0].struct_size, 0u);
+  T64_CHECK_INT(machine->ai.packet_lengths[0], 0u);
   return machine;
 }
 
