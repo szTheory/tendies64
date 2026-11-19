@@ -269,6 +269,27 @@ prints the count byte with its `0x80` bit cleared.
   in the tests are independent of the production helpers by construction, so a
   consistently wrong policy would pass them.
 
+## Hosted rehearsal of the pad-poll rows
+
+The five authored pad-poll rows (the accepted baseline, a shifted script, a
+neutral script, a wrong ROM and a one-byte altered copy of the baseline ROM)
+ran in both hosted jobs of workflow run 44632478137, attempt 1, on source
+revision `2db1be4d`. The two public manifests were collected from the original
+artifact archives (gate-linux: artifact 14581074374, digest
+`sha256:380b8583...c4200f`; gate-macos: artifact 14581792575, digest
+`sha256:a86852cc...fe2a4`) and are committed in
+`docs/evidence/phase09-first-hosted-pair.json`. Linux and macOS agree on
+exactly the platform-invariant fields of the projection: the transcript byte
+counts and hashes, the fixture and profile identity, the input script hash, the
+state digests, the guest ticks of every row, the four measured poll start ticks
+and the completion tick. The core and runner build identities and the binary
+hashes differ between the platforms by design and are not compared.
+
+This pair is a rehearsal of the collection and verification path. It is not a
+qualification: six files that later plans create are not yet part of the bound
+source tuple, the final record belongs to plan 09-11, and no statement about
+hardware behavior is made here.
+
 ## Sources
 
 Facts below are restated in authored words; no table or vector is pasted.
