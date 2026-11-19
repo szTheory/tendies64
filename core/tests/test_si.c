@@ -1354,14 +1354,53 @@ static void case_dma_timing(void) {
     run_timing_row(&rows[index]);
   }
   if (machine == NULL) return;
+  /* In-flight witnesses (the named difference from the PI model): the WR64B
+     source is read at the start tick, so RDRAM changed afterwards does not
+     reach the PIF RAM; the RD64B destination is written at the completion
+     tick only, so a read before it sees the bytes RDRAM held. */
+  {
+    uint8_t first[64];
+    uint8_t changed[64];
+    uint8_t held[64];
+    size_t byte;
+
+    for (byte = 0u; byte < 64u; byte++) {
+      first[byte] = (uint8_t)(0x10u + byte);
+      changed[byte] = (uint8_t)(0xC0u + byte);
+      held[byte] = (uint8_t)(0x70u + byte);
+    }
+    first[63] = 0u;
+    changed[63] = 0u;
+    put_frame(machine, SRC_DRAM, first);
+    T64_CHECK(advance_guest_to(machine, 20000u));
+    T64_CHECK_INT(start_dma(machine, SI_WR64B, SRC_DRAM), T64_STATUS_OK);
+    put_frame(machine, SRC_DRAM, changed);
+    T64_CHECK(advance_guest_to(machine, 20000u + 2500u));
+    T64_CHECK(memcmp(machine->si.pif_ram, first, 64u) == 0);
+    T64_CHECK_INT(t64_machine_bus_write(machine, SI_STATUS, 4u, 0u),
+                  T64_STATUS_OK);
+    (void)memcpy(machine->ram + DST_DRAM, held, 64u);
+    T64_CHECK_INT(start_dma(machine, SI_RD64B, DST_DRAM), T64_STATUS_OK);
+    /* Right after the start the destination still holds the old bytes. */
+    T64_CHECK_INT(bus_read8(machine, DST_DRAM), held[0]);
+    T64_CHECK(memcmp(machine->ram + DST_DRAM, held, 64u) == 0);
+    (void)memcpy(machine->ram + DST_DRAM, changed, 64u);
+    T64_CHECK(advance_guest_to(machine, machine->si.complete_tick - 1u));
+    T64_CHECK_INT(bus_read8(machine, DST_DRAM), changed[0]);
+    T64_CHECK_INT(bus_read8(machine, DST_DRAM + 63u), changed[63]);
+    T64_CHECK(advance_guest_to(machine, machine->si.complete_tick));
+    T64_CHECK(memcmp(machine->ram + DST_DRAM, first, 64u) == 0);
+    T64_CHECK_INT(t64_machine_bus_write(machine, SI_STATUS, 4u, 0u),
+                  T64_STATUS_OK);
+  }
   /* WR64B completes at S + 2,500 with the interrupt set at that tick. */
   put_frame(machine, UINT32_C(0x3800), frame_empty);
-  T64_CHECK(advance_guest_to(machine, 100u));
+  T64_CHECK(advance_guest_to(machine, 40000u));
   T64_CHECK_INT(start_dma(machine, SI_WR64B, UINT32_C(0x3800)), T64_STATUS_OK);
-  T64_CHECK_INT(machine->si.complete_tick, 100u + 2500u);
-  T64_CHECK(advance_guest_to(machine, 100u + 2499u));
+  T64_CHECK_INT(machine->si.complete_tick, 40000u + 2500u);
+  T64_CHECK(advance_guest_to(machine, 40000u + 2499u));
   T64_CHECK_INT(bus_read32(machine, SI_STATUS), STATUS_BUSY);
-  T64_CHECK(advance_guest_to(machine, 100u + 2500u));
+  T64_CHECK(advance_guest_to(machine, 40000u + 2500u));
   T64_CHECK_INT(bus_read32(machine, SI_STATUS), STATUS_INTERRUPT);
   t64_machine_destroy(machine);
 }
