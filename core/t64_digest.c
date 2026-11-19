@@ -966,6 +966,24 @@ t64_status t64_digest_stream(const t64_machine *machine,
       hash_u64_new(sink, latch->next_visible_from);
       hash_u32_new(sink, latch->next_valid ? 1u : 0u);
     }
+    /* Section 11 exists for the three save ids only, so the stem stream keeps
+     * markers 1 to 10. Every field and the raw storage are in the new-span
+     * class. */
+    if (machine->profile.save_kind != 0u) {
+      const size_t save_size =
+          t64_save_storage_bytes(machine->profile.save_kind);
+
+      section_marker(sink, true, T64_STATE_SECTION_SAVE_MEDIA);
+      hash_u32_new(sink, machine->profile.save_kind);
+      hash_u32_new(sink, (uint32_t)save_size);
+      hash_u64_new(sink, machine->save.busy_until);
+      /* The active PI save direction; wired with the SRAM DMA. */
+      hash_u32_new(sink, 0u);
+      if (machine->save.bytes != NULL) {
+        digest_bytes_class(sink, machine->save.bytes, save_size,
+                           T64_DIGEST_CLASS_NEW);
+      }
+    }
   }
   return T64_STATUS_OK;
 }

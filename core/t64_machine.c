@@ -2147,6 +2147,7 @@ static t64_status reset_guest_state(t64_machine *machine) {
   t64_vi_reset_machine_state(machine);
   t64_ai_reset_machine_state(machine);
   t64_si_reset_machine_state(machine);
+  t64_save_reset_machine_state(machine);
   machine->output_drain_cursor = 0u;
   machine->mi_pending = 0u;
   machine->mi_mask = 0u;
@@ -2415,6 +2416,8 @@ t64_status t64_machine_create(const t64_host_allocator *allocator,
   size_t coverage_offset = 0u;
   size_t memory_coverage_offset = 0u;
   size_t depth_hidden_offset = 0u;
+  size_t save_offset = 0u;
+  size_t save_bytes = 0u;
   size_t alignment = _Alignof(max_align_t);
   t64_machine *machine;
 
@@ -2503,6 +2506,24 @@ t64_status t64_machine_create(const t64_host_allocator *allocator,
       }
       total_size += T64_RDP_DEPTH_HIDDEN_BYTES(profile->rdram_bytes);
     }
+  }
+  /* The save device storage is one more trailing region of the same single
+   * allocation, sized by the profile save_kind alone and aligned to 8. */
+  save_bytes = t64_save_storage_bytes(profile->save_kind);
+  if (save_bytes != 0u) {
+    const size_t save_alignment = 8u;
+    size_t padding = (save_alignment - total_size % save_alignment) %
+                     save_alignment;
+
+    if (total_size > SIZE_MAX - padding) {
+      return T64_STATUS_INVALID_ARGUMENT;
+    }
+    total_size += padding;
+    save_offset = total_size;
+    if (total_size > SIZE_MAX - save_bytes) {
+      return T64_STATUS_INVALID_ARGUMENT;
+    }
+    total_size += save_bytes;
   }
   if (total_size > SIZE_MAX - sizeof(t64_machine)) {
     return T64_STATUS_INVALID_ARGUMENT;
@@ -2645,6 +2666,10 @@ t64_status t64_machine_create(const t64_host_allocator *allocator,
       (void)memset(machine->rdp_depth_hidden, 0,
                    T64_RDP_DEPTH_HIDDEN_BYTES(profile->rdram_bytes));
     }
+  }
+  if (save_bytes != 0u) {
+    machine->save.bytes = machine->ram + save_offset;
+    t64_save_reset_machine_state(machine);
   }
   *machine_out = machine;
   return T64_STATUS_OK;

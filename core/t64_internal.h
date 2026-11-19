@@ -921,6 +921,38 @@ typedef struct {
   t64_si_port_latch latch[T64_SI_PORTS];
 } t64_si_state;
 
+/*
+ * Phase 9 save media (plan 09-04). Named software-profile policy values; no
+ * hardware accuracy or hardware timing is claimed. The storage is a trailing
+ * region of the single machine allocation; the kind comes from the profile
+ * only (never from the image).
+ */
+#define T64_SAVE_EEPROM_4K_BYTES 512u
+#define T64_SAVE_EEPROM_16K_BYTES 2048u
+#define T64_SAVE_SRAM_BYTES 32768u
+#define T64_SAVE_EEPROM_BLOCK_BYTES 8u
+/* eeprom-busy-ceiling-6ms-v1: 375,000 ticks, a named policy built on an
+ * up-to-6-ms ceiling; never an exact or measured value. */
+#define T64_SAVE_EEPROM_BUSY_TICKS UINT64_C(375000)
+#define T64_SRAM_BASE UINT32_C(0x08000000)
+#define T64_PI_DIRECTION_ROM_TO_RDRAM 0u
+#define T64_PI_DIRECTION_SRAM_TO_RDRAM 1u
+#define T64_PI_DIRECTION_RDRAM_TO_SRAM 2u
+
+typedef struct {
+  /* The tick from which the EEPROM answers idle again; 0 until a write. */
+  uint64_t busy_until;
+  /* Storage bytes inside the trailing region; NULL when the profile has no
+   * save device. */
+  uint8_t *bytes;
+} t64_save_state;
+
+typedef enum {
+  T64_SAVE_CH4_ABSENT = 0,
+  T64_SAVE_CH4_VALID = 1,
+  T64_SAVE_CH4_TIMEOUT = 2
+} t64_save_channel4_class;
+
 size_t t64_rdp_triangle_word_count(uint32_t opcode);
 bool t64_rdp_triangle_bounds(const t64_machine *machine, uint32_t opcode,
                              const uint64_t *words, size_t word_count,
@@ -980,6 +1012,7 @@ struct t64_machine {
   uint8_t *video_packets;
   t64_ai_state ai;
   t64_si_state si;
+  t64_save_state save;
   t64_host_storage audio_storage;
   uint8_t *audio_packets;
   /* Host observer cursor; never contributes to guest identity. */
@@ -1049,6 +1082,19 @@ static inline bool t64_has_vi_filter_v9_profile(
  * family; the digest keeps the exact tuple predicates. */
 static inline bool t64_has_ai_device(const t64_machine *machine) {
   return t64_has_ai_profile(machine) || t64_has_si_profile(machine);
+}
+
+/* Save devices exist on the composite family only, selected by the profile
+ * save_kind and by nothing in the image. */
+static inline bool t64_has_eeprom_save(const t64_machine *machine) {
+  return t64_has_si_profile(machine) &&
+         (machine->profile.save_kind == T64_SAVE_EEPROM_4K ||
+          machine->profile.save_kind == T64_SAVE_EEPROM_16K);
+}
+
+static inline bool t64_has_sram_save(const t64_machine *machine) {
+  return t64_has_si_profile(machine) &&
+         machine->profile.save_kind == T64_SAVE_SRAM_32K;
 }
 
 static inline bool t64_has_rdp_vi_profile(const t64_machine *machine) {
@@ -1510,6 +1556,27 @@ uint64_t t64_joybus_plan(const uint8_t pif_ram[T64_PIF_RAM_BYTES],
 void t64_joybus_execute(uint8_t pif_ram[T64_PIF_RAM_BYTES],
                         const t64_joybus_table *table,
                         const t64_joybus_controller *port0);
+/* Machine variants of the planner and executor (plan 09-04): the cartridge
+ * channel (channel 4) is answered by the profile's save device at the execute
+ * tick; the pure variants above keep answering absent there. */
+uint64_t t64_joybus_plan_machine(const t64_machine *machine,
+                                 const uint8_t pif_ram[T64_PIF_RAM_BYTES],
+                                 const t64_joybus_table *table,
+                                 bool port0_present);
+void t64_joybus_execute_machine(t64_machine *machine, uint64_t tick,
+                                uint8_t pif_ram[T64_PIF_RAM_BYTES],
+                                const t64_joybus_table *table,
+                                const t64_joybus_controller *port0);
+/* Save media (core/t64_save.c). */
+size_t t64_save_storage_bytes(uint32_t kind);
+void t64_save_reset_machine_state(t64_machine *machine);
+t64_save_channel4_class t64_save_channel4_classify(const t64_machine *machine,
+                                                   uint8_t command,
+                                                   uint32_t tx_count,
+                                                   uint32_t rx_count);
+uint8_t t64_save_channel4_execute(t64_machine *machine, uint64_t tick,
+                                  const uint8_t *tx, uint32_t tx_count,
+                                  uint8_t *rx, uint32_t rx_count);
 t64_status t64_sp_read_register(t64_machine *machine, uint32_t address,
                                 uint32_t *value_out);
 t64_status t64_sp_peek_register(const t64_machine *machine,

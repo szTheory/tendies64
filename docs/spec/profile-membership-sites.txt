@@ -17,6 +17,7 @@ core/t64_internal.h :: t64_has_ai_device :: t64_has_ai_profile,t64_has_si_profil
 core/t64_internal.h :: t64_has_ai_profile :: descriptor_version,machine_model_version,state_serialization_version
 core/t64_internal.h :: t64_has_cpu_compat_extension_policy :: machine_model_version,state_serialization_version
 core/t64_internal.h :: t64_has_cpu_compat_policy :: machine_model_version,state_serialization_version
+core/t64_internal.h :: t64_has_eeprom_save :: t64_has_si_profile
 core/t64_internal.h :: t64_has_rdp_blender_profile :: machine_model_version,state_serialization_version,t64_has_vi_filter_v9_profile
 core/t64_internal.h :: t64_has_rdp_combiner_profile :: machine_model_version,state_serialization_version,t64_has_vi_filter_v9_profile
 core/t64_internal.h :: t64_has_rdp_depth_profile :: descriptor_version,machine_model_version,state_serialization_version,t64_has_vi_filter_v9_profile
@@ -26,6 +27,7 @@ core/t64_internal.h :: t64_has_rdp_vi_profile :: machine_model_version,state_ser
 core/t64_internal.h :: t64_has_rdram_protocol_policy :: machine_model_version,state_serialization_version
 core/t64_internal.h :: t64_has_rsp_functional_profile :: machine_model_version,state_serialization_version
 core/t64_internal.h :: t64_has_si_profile :: descriptor_version,machine_model_version,state_serialization_version
+core/t64_internal.h :: t64_has_sram_save :: t64_has_si_profile
 core/t64_internal.h :: t64_has_t1_policy :: machine_model_version,state_serialization_version
 core/t64_internal.h :: t64_has_vi_filter_v9_profile :: descriptor_version,machine_model_version,state_serialization_version,t64_has_ai_profile,t64_has_si_profile
 core/t64_internal.h :: t64_has_vi_scanout_profile :: t64_has_vi_filter_v9_profile

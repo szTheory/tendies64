@@ -750,6 +750,21 @@ set_tests_properties(unit.core.si.atomic-queue-full
   LABELS unit
   ENVIRONMENT "T64_TEST_IPL3_PATH=${T64_BOOT_FIXTURE_DIR}/ipl3_compat.z64")
 
+# Phase 9 save media tests (plan 09-04): EEPROM on channel 4, SRAM window and
+# DMA, selection, refusals, the save-media digest section.
+add_executable(test_save tests/test_save.c)
+target_include_directories(test_save PRIVATE
+  "${CMAKE_SOURCE_DIR}/tests"
+  "${CMAKE_CURRENT_SOURCE_DIR}")
+target_link_libraries(test_save PRIVATE t64_core)
+t64_target_warnings(test_save)
+add_dependencies(test_save t64-boot-fixtures)
+add_test(NAME unit.core.save.device
+  COMMAND test_save --suite device)
+set_tests_properties(unit.core.save.device PROPERTIES
+  LABELS unit
+  ENVIRONMENT "T64_TEST_IPL3_PATH=${T64_BOOT_FIXTURE_DIR}/ipl3_compat.z64")
+
 add_executable(test_joybus tests/test_joybus.c)
 target_include_directories(test_joybus PRIVATE
   "${CMAKE_SOURCE_DIR}/tests"
