@@ -977,8 +977,9 @@ t64_status t64_digest_stream(const t64_machine *machine,
       hash_u32_new(sink, machine->profile.save_kind);
       hash_u32_new(sink, (uint32_t)save_size);
       hash_u64_new(sink, machine->save.busy_until);
-      /* The active PI save direction; wired with the SRAM DMA. */
-      hash_u32_new(sink, 0u);
+      /* The active PI save direction: 0 when none or ROM to RDRAM, 1 SRAM to
+       * RDRAM, 2 RDRAM to SRAM. */
+      hash_u32_new(sink, machine->pi.active_save_direction);
       if (machine->save.bytes != NULL) {
         digest_bytes_class(sink, machine->save.bytes, save_size,
                            T64_DIGEST_CLASS_NEW);

@@ -313,8 +313,12 @@ static const blank_row blank_rows[] = {
 #define STEM_IDLE_DIGEST \
   "5ed31137a518103e1086ec9d84350f44306f81fef57145ca4ca72a7f0815d9b0"
 
+static void check_mid_dma_direction(void);
+
 static void case_storage_blank(void) {
   size_t index;
+
+  check_mid_dma_direction();
 
   for (index = 0u; index < sizeof blank_rows / sizeof blank_rows[0];
        index++) {
@@ -613,6 +617,34 @@ static void case_sram_window(void) {
     T64_CHECK(memcmp(before, after, T64_DIGEST_SIZE) == 0);
     t64_machine_destroy(other);
   }
+}
+
+/* The in-flight PI direction is part of section 11: a digest taken mid-DMA
+ * differs from the idle digest, and changing the direction of the active
+ * descriptor alone (through direct state) changes it again. */
+static void check_mid_dma_direction(void) {
+  t64_machine *machine = make_idle_machine(S32K_ID);
+  uint8_t idle[T64_DIGEST_SIZE];
+  uint8_t mid[T64_DIGEST_SIZE];
+  uint8_t flipped[T64_DIGEST_SIZE];
+  uint8_t restored[T64_DIGEST_SIZE];
+
+  if (machine == NULL) return;
+  digest_of(machine, idle);
+  T64_CHECK_INT(bus_w32(machine, PI_DRAM, UINT32_C(0x3800)), T64_STATUS_OK);
+  T64_CHECK_INT(bus_w32(machine, PI_CART, UINT32_C(0x08000100)),
+                T64_STATUS_OK);
+  T64_CHECK_INT(bus_w32(machine, PI_RD_LEN, 15u), T64_STATUS_OK);
+  T64_CHECK_INT(machine->pi.active_save_direction, 2u);
+  digest_of(machine, mid);
+  T64_CHECK(memcmp(idle, mid, T64_DIGEST_SIZE) != 0);
+  machine->pi.active_save_direction = T64_PI_DIRECTION_SRAM_TO_RDRAM;
+  digest_of(machine, flipped);
+  T64_CHECK(memcmp(mid, flipped, T64_DIGEST_SIZE) != 0);
+  machine->pi.active_save_direction = T64_PI_DIRECTION_RDRAM_TO_SRAM;
+  digest_of(machine, restored);
+  T64_CHECK(memcmp(mid, restored, T64_DIGEST_SIZE) == 0);
+  t64_machine_destroy(machine);
 }
 
 /* ------------------------------------------------------------------------ */
