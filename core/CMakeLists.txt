@@ -697,6 +697,20 @@ set_tests_properties(unit.core.sched.ledger
   LABELS unit
   ENVIRONMENT "T64_TEST_IPL3_PATH=${T64_BOOT_FIXTURE_DIR}/ipl3_compat.z64")
 
+# Phase 9 SI, PIF and input-latch tests (plan 09-03).
+add_executable(test_si tests/test_si.c)
+target_include_directories(test_si PRIVATE
+  "${CMAKE_SOURCE_DIR}/tests"
+  "${CMAKE_CURRENT_SOURCE_DIR}")
+target_link_libraries(test_si PRIVATE t64_core)
+t64_target_warnings(test_si)
+add_dependencies(test_si t64-boot-fixtures)
+add_test(NAME unit.core.si.atomic-queue-full
+  COMMAND test_si --suite atomic)
+set_tests_properties(unit.core.si.atomic-queue-full PROPERTIES
+  LABELS unit
+  ENVIRONMENT "T64_TEST_IPL3_PATH=${T64_BOOT_FIXTURE_DIR}/ipl3_compat.z64")
+
 add_executable(test_rom_admission tests/test_rom_admission.c)
 target_include_directories(test_rom_admission PRIVATE
   "${CMAKE_SOURCE_DIR}/tests"

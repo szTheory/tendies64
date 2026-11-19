@@ -146,6 +146,38 @@ t64_status t64_schedule_reserve_after(t64_machine *machine, uint64_t delay,
                               handler, reservation_out);
 }
 
+t64_status t64_schedule_check_capacity(const t64_machine *machine,
+                                       size_t event_count,
+                                       uint64_t max_delay_ticks) {
+  size_t limit;
+  uint32_t width;
+  uint64_t maximum;
+  uint64_t extra_events;
+
+  if (machine == NULL) {
+    return T64_STATUS_INVALID_ARGUMENT;
+  }
+  limit = queue_limit(machine);
+  if (machine->queue_count > limit ||
+      event_count > limit - machine->queue_count) {
+    return T64_STATUS_QUEUE_FULL;
+  }
+  width = machine->profile.sequence_width_bits;
+  if (width == 0u || width > 64u) {
+    return T64_STATUS_INVALID_ARGUMENT;
+  }
+  maximum = sequence_limit(machine);
+  extra_events = event_count > 0u ? (uint64_t)(event_count - 1u) : 0u;
+  if (machine->sequence_exhausted || machine->next_sequence > maximum ||
+      extra_events > maximum - machine->next_sequence) {
+    return T64_STATUS_SEQUENCE_EXHAUSTED;
+  }
+  if (max_delay_ticks > UINT64_MAX - machine->tick) {
+    return T64_STATUS_TICK_OVERFLOW;
+  }
+  return T64_STATUS_OK;
+}
+
 t64_status t64_schedule_commit(t64_machine *machine,
                                t64_event_reservation *reservation) {
   size_t insert_at;

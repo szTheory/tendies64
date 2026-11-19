@@ -216,7 +216,8 @@ harness.fsize-artifact-real-fault
 harness.fsize-report-capture-still-bounded
 harness.phase09-qualification
 harness.phase09-stub-fails-closed
-harness.upload-allowlist-artifacts'
+harness.upload-allowlist-artifacts
+unit.core.si.atomic-queue-full'
 
 CPU_COVERAGE_OPCODES='ADD
 ADDU

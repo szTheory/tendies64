@@ -1140,6 +1140,16 @@ t64_status t64_schedule_reserve_after(t64_machine *machine, uint64_t delay,
                                       uint64_t value, uint64_t token,
                                       t64_event_handler_fn handler,
                                       t64_event_reservation *reservation_out);
+/*
+ * Pure capacity pre-check shared by every operation that needs several events
+ * (CPU preflight, SI start): queue room, sequence headroom and tick headroom
+ * for event_count events whose latest delay is max_delay_ticks. It reserves
+ * nothing and changes nothing; the caller then reserves and commits the events
+ * one after another, so a refusal never leaves a partial start (K16).
+ */
+t64_status t64_schedule_check_capacity(const t64_machine *machine,
+                                       size_t event_count,
+                                       uint64_t max_delay_ticks);
 t64_status t64_schedule_commit(t64_machine *machine,
                                t64_event_reservation *reservation);
 t64_status t64_schedule_cancel(t64_machine *machine, uint32_t device,

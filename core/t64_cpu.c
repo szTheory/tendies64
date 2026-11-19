@@ -1513,36 +1513,19 @@ static size_t cpu_successor_extra_event_budget(const t64_machine *machine,
 static t64_status cpu_preflight_successor(
     t64_machine *machine, uint32_t opcode, uint64_t interval,
     t64_event_reservation *reservation_out) {
-  size_t queue_limit;
   size_t needed_events;
-  uint32_t sequence_bits;
-  uint64_t sequence_limit;
+  t64_status status;
 
   if (machine == NULL || reservation_out == NULL) {
     return T64_STATUS_INVALID_ARGUMENT;
   }
   (void)memset(reservation_out, 0, sizeof *reservation_out);
-  queue_limit = (size_t)machine->profile.event_queue_capacity;
   needed_events = 1u + cpu_successor_extra_event_budget(machine, opcode);
-  sequence_bits = machine->profile.sequence_width_bits;
-  if (queue_limit > T64_EVENT_QUEUE_CAPACITY) {
-    queue_limit = T64_EVENT_QUEUE_CAPACITY;
-  }
-  if (machine->queue_count > queue_limit ||
-      needed_events > queue_limit - machine->queue_count) {
-    return T64_STATUS_QUEUE_FULL;
-  }
-  if (sequence_bits == 0u || sequence_bits > 64u) {
-    return T64_STATUS_INVALID_ARGUMENT;
-  }
-  sequence_limit = sequence_bits == 64u
-                       ? UINT64_MAX
-                       : (UINT64_C(1) << sequence_bits) - UINT64_C(1);
-  if (machine->sequence_exhausted ||
-      machine->next_sequence > sequence_limit ||
-      (uint64_t)(needed_events - 1u) >
-          sequence_limit - machine->next_sequence) {
-    return T64_STATUS_SEQUENCE_EXHAUSTED;
+  /* One scheduler rule decides queue room, sequence headroom and tick
+     headroom for the successor plus every event the instruction may start. */
+  status = t64_schedule_check_capacity(machine, needed_events, interval);
+  if (status != T64_STATUS_OK) {
+    return status;
   }
   return t64_schedule_reserve_after(
       machine, interval, T64_DEVICE_CPU, T64_CPU_EVENT_STEP, UINT64_C(0),
