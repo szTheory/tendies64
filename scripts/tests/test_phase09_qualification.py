@@ -23,6 +23,7 @@ import tempfile
 import unittest
 import warnings
 import zipfile
+from unittest import mock
 from io import BytesIO
 from pathlib import Path
 
@@ -47,6 +48,14 @@ CASE_NAMES: tuple[str, ...] = (
     "upload-layouts-exactly-three",
     "rdp-native-junit-roots",
     "phase09-sibling-scan-context",
+    "platform-pair-compare-invariants",
+    "native-command-plan-and-private-root",
+    "phase09-gcc13-closure-units",
+    "native-record-rejects-failed-truncated-or-stale",
+    "hosted-context-and-api-zip-bound",
+    "hosted-record-rejects-entry-smoke-or-missing-platform",
+    "rehearsal-flag-and-pending-sources",
+    "final-evidence-cli-dispatch",
     "zero-case-inventory-refused",
     "inventory-shape-refused",
     "public-members-exact-allowlist",
@@ -68,6 +77,12 @@ SUITES: dict[str, tuple[str, ...]] = {
                     "projection-closed-key-set-and-context"),
     "upload-contract": ("upload-layouts-exactly-three", "rdp-native-junit-roots",
                         "phase09-sibling-scan-context"),
+    "collector": ("platform-pair-compare-invariants", "native-command-plan-and-private-root",
+                  "phase09-gcc13-closure-units",
+                  "native-record-rejects-failed-truncated-or-stale",
+                  "hosted-context-and-api-zip-bound",
+                  "hosted-record-rejects-entry-smoke-or-missing-platform",
+                  "rehearsal-flag-and-pending-sources", "final-evidence-cli-dispatch"),
     "allowlist": ("public-members-exact-allowlist",
                   "public-member-private-suffix-refused",
                   "public-member-state-magic-refused",
@@ -144,7 +159,7 @@ def _digest(label: str) -> str:
 
 
 def _v2_record(row: dict, *, guest_tick: int = SYNTHETIC_COMPLETION,
-               label: str = "synthetic") -> dict:
+               label: str = "synthetic", state_label: str = "shared-state") -> dict:
     """A result record in the exact v2 field shape that matches one authored row."""
     if row["expected_outcome"] == "harness-error":
         return {
@@ -198,7 +213,7 @@ def _v2_record(row: dict, *, guest_tick: int = SYNTHETIC_COMPLETION,
         "schema": "t64.result",
         "schema_version": 2,
         "source_revision": SYNTHETIC_SHA,
-        "state_digest": _digest(label + " state " + row["row_id"]),
+        "state_digest": _digest(state_label + " state " + row["row_id"]),
     }
 
 
@@ -380,13 +395,24 @@ class Phase09Qualification(unittest.TestCase):
                 self.assertIn("refused original evidence", result.stderr, name)
                 self.assertIn(needles[name], result.stderr, name)
                 self.assertEqual(result.stdout, "", name)
-            # The three modes provided by Task 3 still refuse and say so.
-            for mode in (["--native"], ["--collect-hosted"], ["--verify-evidence"]):
+            # The native, hosted-collection and final modes refuse bad context.
+            missing = str(root / "missing.json")
+            context = ["--repo", "szTheory/tendies64", "--sha", "d" * 40, "--run", "5",
+                       "--attempt", "1"]
+            for label, mode, needle in (
+                    ("native", ["--native", "--sha", "d" * 40, "--out", str(root / "native")],
+                     "native source SHA must exactly match"),
+                    ("collect", ["--collect-hosted", *context, "--native-record", missing,
+                                 "--out", str(root / "public")],
+                     "exact repository/SHA/run/attempt"),
+                    ("verify", ["--verify-evidence", *context, "--native-record", missing,
+                                "--hosted-record", missing],
+                     "hosted record is outside the private qualification tree")):
                 result = self._run_qualifier(*mode)
-                self.assertEqual(result.returncode, 1, (mode, result.stdout, result.stderr))
-                self.assertIn("refused original evidence", result.stderr, mode)
-                self.assertIn("Task 3", result.stderr, mode)
-                self.assertEqual(result.stdout, "", mode)
+                self.assertEqual(result.returncode, 1, (label, result.stdout, result.stderr))
+                self.assertIn("refused original evidence", result.stderr, label)
+                self.assertIn(needle, result.stderr, label)
+                self.assertEqual(result.stdout, "", label)
             # The baseline is still accepted after every refusal.
             again = self._run_qualifier("--scan-pii", "--job", "local", "--out", str(good))
             self.assertEqual(again.returncode, 0, again.stderr)
@@ -785,6 +811,497 @@ class Phase09Qualification(unittest.TestCase):
                 self.assertEqual(scan().returncode, 0, label)
 
 
+    # ---- collector, native record and rehearsal ------------------------------
+
+    def _pair(self, **changes) -> dict[str, dict]:
+        """Two manifests that differ exactly where real records differ by build."""
+        linux = _synthetic_projection("gate-linux", label="linux build")
+        macos = _synthetic_projection("gate-macos", label="macos build")
+        for name, change in changes.items():
+            change(linux if name.startswith("linux") else macos)
+        return {"gate-linux": linux, "gate-macos": macos}
+
+    def test_platform_pair_compare_invariants(self) -> None:
+        """Build identities may differ; every authored and model-time value may not."""
+        accepted = self._pair()
+        # The stand-in is deliberately not an identical copy of one record.
+        self.assertNotEqual(accepted["gate-linux"]["producer"], accepted["gate-macos"]["producer"])
+        self.assertNotEqual(accepted["gate-linux"]["execution"]["command_sha256"],
+                            accepted["gate-macos"]["execution"]["command_sha256"])
+        qualify.compare_hosted_pair(accepted)
+
+        def refuse(label: str, needle: str, change) -> None:
+            pair = self._pair()
+            change(pair["gate-macos"])
+            with self.assertRaises(qualify.Refusal, msg=label) as caught:
+                qualify.compare_hosted_pair(pair)
+            self.assertIn(needle, str(caught.exception), label)
+            qualify.compare_hosted_pair(self._pair())
+
+        for index in (0, 1, 3, 4):
+            row = qualify.HOSTED_ROWS[index]["row_id"]
+            for field, value in (("log_sha256", _digest("other transcript")), ("log_bytes", 67),
+                                 ("fixture_sha256", _digest("other fixture")),
+                                 ("profile_hash", _digest("other profile")),
+                                 ("input_sha256", _digest("other input")),
+                                 ("expected_outcome", "pass"), ("expected_detail", "other")):
+                refuse(f"{row} {field}", f"rows[{index}].{field}",
+                       lambda m, i=index, f=field, v=value: m["rows"][i].__setitem__(f, v))
+        for index in (0, 1, 2, 3):
+            refuse(f"state digest {index}", f"rows[{index}].state_digest",
+                   lambda m, i=index: m["rows"][i].__setitem__("state_digest", _digest("x")))
+            refuse(f"guest tick {index}", f"rows[{index}].guest_tick",
+                   lambda m, i=index: m["rows"][i].__setitem__("guest_tick", 123456))
+        for index in range(qualify.POLL_COUNT):
+            refuse(f"poll start {index}", f"timing.poll_starts[{index}]",
+                   lambda m, i=index: m["timing"]["poll_starts"].__setitem__(
+                       i, m["timing"]["poll_starts"][i] + 1))
+        refuse("completion tick", "timing.completion_tick",
+               lambda m: m["timing"].__setitem__("completion_tick", 600001))
+        refuse("missing row", "rows", lambda m: m["rows"].pop())
+        refuse("evidence mode", "evidence_mode",
+               lambda m: m.__setitem__("evidence_mode", "entry-path-validation"))
+        refuse("source revision", "source_revision",
+               lambda m: m.__setitem__("source_revision", "2" * 40))
+        refuse("run id", "run_id", lambda m: m.__setitem__("run_id", "9999"))
+        refuse("attempt", "run_attempt", lambda m: m.__setitem__("run_attempt", "2"))
+        refuse("execution status", "execution.status",
+               lambda m: m["execution"].__setitem__("status", "fail"))
+        refuse("inventory", "inventory",
+               lambda m: m["inventory"].__setitem__("case_count", 99))
+        with self.assertRaises(qualify.Refusal) as caught:
+            qualify.compare_hosted_pair({"gate-linux": accepted["gate-linux"]})
+        self.assertIn("both named platform jobs", str(caught.exception))
+        twice = {"gate-linux": accepted["gate-linux"],
+                 "gate-macos": copy.deepcopy(accepted["gate-linux"])}
+        with self.assertRaises(qualify.Refusal) as caught:
+            qualify.compare_hosted_pair(twice)
+        self.assertIn("one manifest per platform job", str(caught.exception))
+        qualify.compare_hosted_pair(accepted)
+
+    def test_native_command_plan_and_private_root(self) -> None:
+        """The plan names every inventory suite on both builds under the private root."""
+        suites = list(json.loads(INVENTORY.read_text(encoding="utf-8"))["suites"])
+        self.assertGreaterEqual(len(suites), 5)
+        normal_junit = qualify.PRIVATE_ROOT / "unit/normal-junit.xml"
+        plan = qualify._native_command_plan("09-unit", normal_junit)
+        expected = (["shared-native-gates"] + [f"normal-inventory-{name}" for name in suites]
+                    + [f"asan-inventory-{name}" for name in suites]
+                    + ["normal-source-body-check", "asan-source-body-check"])
+        self.assertEqual([item["label"] for item in plan], expected)
+        shared = plan[0]
+        self.assertEqual(shared["command"][-1], "--native")
+        self.assertEqual(shared["timeout_seconds"], 2400)
+        self.assertEqual(shared["environment"], {"T64_GATE_JUNIT_OUT": str(normal_junit)})
+        build_dirs = {"normal": str((ROOT / "build/gate").resolve()),
+                      "asan": str((ROOT / "build/asan").resolve())}
+        for item in plan[1:-2]:
+            kind, _, suite = item["label"].partition("-inventory-")
+            command = item["command"]
+            self.assertEqual(command[command.index("--build") + 1], build_dirs[kind])
+            self.assertEqual(command[command.index("--suite") + 1], suite)
+            self.assertEqual(command[command.index("--artifact-prefix") + 1], f"09-unit-{kind}")
+            self.assertNotIn("--run", command)
+            self.assertEqual(item["timeout_seconds"], 720)
+        for item, kind in zip(plan[-2:], ("normal", "asan")):
+            self.assertEqual(item["command"][-1], build_dirs[kind])
+            self.assertEqual(item["command"][-2], "--build")
+        for label, prefix, junit in (
+                ("outside the private root", "09-unit", ROOT / "build/gate/other/j.xml"),
+                ("relative path", "09-unit", Path("build/gate/09-11-phase09-private/j.xml")),
+                ("unsafe prefix", "09-un it", normal_junit),
+                ("prefix without the phase marker", "08-unit", normal_junit),
+                ("path escaping the root", "09-unit", qualify.PRIVATE_ROOT / "../j.xml")):
+            with self.assertRaises(qualify.Refusal, msg=label) as caught:
+                qualify._native_command_plan(prefix, junit)
+            self.assertIn("native artifact prefix is malformed", str(caught.exception), label)
+            self.assertEqual(len(qualify._native_command_plan("09-unit", normal_junit)), len(plan))
+
+    def test_phase09_gcc13_closure_units(self) -> None:
+        """The closure covers every changed C unit and keeps its compile policy."""
+        head = subprocess.run(["git", "rev-parse", "HEAD"], cwd=ROOT, capture_output=True,
+                              text=True, check=True).stdout.strip()
+        self.assertRegex(qualify.PHASE09_SOURCE_BASE, r"^[0-9a-f]{40}$")
+        ancestor = subprocess.run(["git", "merge-base", "--is-ancestor",
+                                   qualify.PHASE09_SOURCE_BASE, head], cwd=ROOT, check=False)
+        self.assertEqual(ancestor.returncode, 0)
+        required = qualify._required_gcc_units(head)
+        for unit in ("core/t64_si.c", "core/t64_joybus.c", "core/tests/test_si.c",
+                     "runner/tests/test_pad_poll.c"):
+            self.assertIn(unit, required)
+        self.assertEqual(required, sorted(set(required)))
+        rdp = qualify._rdp_helpers()
+        sources = sorted(set(required) | {"runner/t64_real.c", "runner/t64_supervisor.c"})
+        command = rdp._gcc13_closure_command(sources, qualify.EXPECTED_GCC13_IMAGE)
+        self.assertEqual(qualify._validate_gcc13_closure(sources, command, head), sources)
+
+        def refuse(label: str, needle: str, closure, built) -> None:
+            fake = mock.Mock()
+            fake._gcc13_closure_command = lambda units, image: built
+            with mock.patch.object(qualify, "_rdp_helpers", return_value=fake):
+                with self.assertRaises(qualify.Refusal, msg=label) as caught:
+                    qualify._validate_gcc13_closure(closure, built, head)
+            self.assertIn(needle, str(caught.exception), label)
+            self.assertEqual(qualify._validate_gcc13_closure(sources, command, head), sources)
+
+        refuse("dropped unit", "omits required", [u for u in sources if u != "core/t64_si.c"],
+               command)
+        wrong_image = rdp._gcc13_closure_command(sources, "sha256:" + "0" * 64)
+        refuse("image differs", "differs from its exact source unit set", sources, wrong_image)
+        # With a builder that agrees with the mutated command, the policy checks fire.
+        script_index = command.index("sh") + 2
+
+        def edited(old: str, new: str) -> list[str]:
+            changed = list(command)
+            self.assertIn(old, changed[script_index])
+            changed[script_index] = changed[script_index].replace(old, new)
+            return changed
+
+        for label, needle, built in (
+                ("frame flag absent", "core frame limit",
+                 edited("-Wframe-larger-than=2048", "")),
+                ("real testing define absent", "testing define",
+                 edited("-DT64_REAL_RUNNER_TESTING", "-DT64_REAL")),
+                ("supervisor testing define absent", "testing define",
+                 edited("-DT64_SUPERVISOR_TESTING", "-DT64_SUPERVISOR"))):
+            fake = mock.Mock()
+            fake._gcc13_closure_command = lambda units, image, built=built: built
+            with mock.patch.object(qualify, "_rdp_helpers", return_value=fake):
+                with self.assertRaises(qualify.Refusal, msg=label) as caught:
+                    qualify._validate_gcc13_closure(sources, built, head)
+            self.assertIn(needle, str(caught.exception), label)
+            self.assertEqual(qualify._validate_gcc13_closure(sources, command, head), sources)
+
+    def _native_record(self, sha: str, *, rehearsal: bool = False) -> dict:
+        inventory = qualify._inventory_summary(INVENTORY.read_bytes())
+        suites = list(json.loads(INVENTORY.read_text(encoding="utf-8"))["suites"])
+        return {
+            "schema": "t64.phase09-native-qualification", "schema_version": 1,
+            "evidence_mode": "native-qualification", "status": "complete",
+            "rehearsal": rehearsal, "source_sha": sha,
+            "source_snapshot": {"commit_sha": sha, "inputs": [], "absent_pending": []},
+            "excluded_owner_metadata": [
+                {"path": path, "present": True, "dirty_status": "", "size_bytes": 1,
+                 "sha256": _digest(path)} for path in qualify.OWNER_METADATA_PATHS],
+            "inventory": inventory,
+            "normal_full_ctest_junit_path": "/private/normal-full-ctest-junit.xml",
+            "shared_native_path": "/private/native",
+            "shared_native_record_sha256": _digest("shared"),
+            "shared_native_tree_manifest": [{"path": "source-binding.json"}],
+            "shared_native_closure": {"units": ["core/t64_si.c"], "gcc13_command": ["docker", "run"]},
+            "steps_path": "/private/steps",
+            "suites": {"normal": {"inventory_suites": suites}, "asan": {"inventory_suites": suites}},
+            "output_path": "/private/native-out",
+        }
+
+    def test_native_record_rejects_failed_truncated_or_stale(self) -> None:
+        """A complete record passes; each stale, failed or truncated part is refused."""
+        sha = "c" * 40
+        record = self._native_record(sha)
+        snapshot = record["source_snapshot"]
+        qualify._validate_native_record_header(record, sha, expected_snapshot=snapshot)
+
+        def refuse(label: str, needle: str, change, **kwargs) -> None:
+            value = copy.deepcopy(record)
+            change(value)
+            with self.assertRaises(qualify.Refusal, msg=label) as caught:
+                qualify._validate_native_record_header(
+                    value, kwargs.pop("sha", sha), expected_snapshot=snapshot, **kwargs)
+            self.assertIn(needle, str(caught.exception), label)
+            qualify._validate_native_record_header(record, sha, expected_snapshot=snapshot)
+
+        refuse("schema", "smoke-only, incomplete", lambda r: r.__setitem__("schema", "t64.other"))
+        refuse("status", "smoke-only, incomplete", lambda r: r.__setitem__("status", "failed"))
+        refuse("mode", "smoke-only, incomplete",
+               lambda r: r.__setitem__("evidence_mode", "entry-path-validation"))
+        refuse("source SHA", "smoke-only, incomplete", lambda r: None, sha="d" * 40)
+        refuse("source snapshot", "source inputs differ",
+               lambda r: r["source_snapshot"].__setitem__("commit_sha", "e" * 40))
+        refuse("inventory", "authored case denominator",
+               lambda r: r["inventory"].__setitem__("case_count", r["inventory"]["case_count"] - 1))
+        refuse("suite not in the inventory", "suite that is not in the authored inventory",
+               lambda r: r["suites"]["asan"]["inventory_suites"].append("ghost-suite"))
+        refuse("missing build", "smoke-only, incomplete",
+               lambda r: r["suites"].pop("asan"))
+        # Pending sources: refused without the rehearsal flag, accepted with it.
+        pending = copy.deepcopy(record)
+        pending["source_snapshot"]["absent_pending"] = ["scripts/build-save-fixtures.sh"]
+        with self.assertRaises(qualify.Refusal) as caught:
+            qualify._validate_native_record_header(
+                pending, sha, expected_snapshot=pending["source_snapshot"])
+        self.assertIn("rehearsal", str(caught.exception))
+        pending["rehearsal"] = True
+        qualify._validate_native_record_header(
+            pending, sha, expected_snapshot=pending["source_snapshot"], rehearsal=True)
+        # Process originals: exit status, truncated output, retained tree, missing step.
+        with tempfile.TemporaryDirectory(prefix="t64-p09-native.") as tmp:
+            directory = Path(tmp) / "step"
+            directory.mkdir()
+            command = ["tool", "--exact", "argv"]
+            stdout = b"finished successfully\n"
+            (directory / "stdout.log").write_bytes(stdout)
+            (directory / "stderr.log").write_bytes(b"")
+            (directory / "command.json").write_text(json.dumps({
+                "argv": command, "cwd": str(ROOT), "env": {}, "timeout_seconds": 5}))
+            process = {"return_code": 0, "timed_out": False, "timeout_seconds": 5,
+                       "stdout_bytes": len(stdout), "stderr_bytes": 0,
+                       "stdout_sha256": _digest("x"), "stderr_sha256": _digest("y")}
+            process["stdout_sha256"] = hashlib.sha256(stdout).hexdigest()
+            process["stderr_sha256"] = hashlib.sha256(b"").hexdigest()
+            process_path = directory / "process.json"
+            process_path.write_text(json.dumps(process))
+            qualify._verify_process_record(directory, command, max_timeout=10)
+            retained = qualify._tree_manifest(directory)
+            (directory / "stdout.log").write_bytes(stdout[:-3])
+            with self.assertRaises(qualify.Refusal) as caught:
+                qualify._verify_process_record(directory, command, max_timeout=10)
+            self.assertIn("changed or truncated", str(caught.exception))
+            self.assertNotEqual(qualify._tree_manifest(directory), retained)
+            (directory / "stdout.log").write_bytes(stdout)
+            self.assertEqual(qualify._tree_manifest(directory), retained)
+            for changed, needle in ((dict(process, return_code=1), "absent, stale, or failed"),
+                                    (dict(process, timed_out=True), "absent, stale, or failed")):
+                process_path.write_text(json.dumps(changed))
+                with self.assertRaises(qualify.Refusal) as caught:
+                    qualify._verify_process_record(directory, command, max_timeout=10)
+                self.assertIn(needle, str(caught.exception))
+            process_path.write_text(json.dumps(process))
+            qualify._verify_process_record(directory, command, max_timeout=10)
+            with self.assertRaises(qualify.Refusal) as caught:
+                qualify._tree_manifest(Path(tmp) / "missing-step")
+            self.assertIn("missing or unsafe", str(caught.exception))
+            qualify._verify_process_record(directory, command, max_timeout=10)
+
+    def test_hosted_context_and_api_zip_bound(self) -> None:
+        """The API record, ZIP bytes and binding file all name the exact attempt."""
+        sha, run, attempt, job = "c" * 40, "123", "1", "gate-linux"
+        archive = b"bounded synthetic archive bytes"
+        digest = "sha256:" + hashlib.sha256(archive).hexdigest()
+        artifact = {"id": 401, "name": f"t64-authored-evidence-{sha}-{run}-{attempt}-{job}",
+                    "expired": False, "size_in_bytes": len(archive), "digest": digest,
+                    "workflow_run": {"id": 123, "head_sha": sha}}
+        binding = {"artifact_id": "401", "commit_sha": sha, "run_id": run, "run_attempt": attempt,
+                   "job_name": job, "archive_digest": digest, "archive_bytes": len(archive)}
+        kwargs = dict(repo="szTheory/tendies64", sha=sha, run=run, attempt=attempt, job=job)
+        self.assertIs(qualify._verify_artifact_download(artifact, binding, archive, **kwargs),
+                      artifact)
+
+        def refuse(label: str, needle: str, art=artifact, bind=binding, data=archive) -> None:
+            with self.assertRaises(qualify.Refusal, msg=label) as caught:
+                qualify._verify_artifact_download(art, bind, data, **kwargs)
+            self.assertIn(needle, str(caught.exception), label)
+            self.assertIs(qualify._verify_artifact_download(artifact, binding, archive, **kwargs),
+                          artifact)
+
+        identity = "API identity differs from the exact attempt"
+        refuse("name", identity, art=dict(artifact, name=artifact["name"].replace("-1-", "-2-")))
+        refuse("expired", identity, art=dict(artifact, expired=True))
+        refuse("size", identity, art=dict(artifact, size_in_bytes=2 * 1024 * 1024))
+        refuse("digest format", identity, art=dict(artifact, digest="sha1:abc"))
+        refuse("workflow run id", identity,
+               art=dict(artifact, workflow_run={"id": 124, "head_sha": sha}))
+        refuse("head SHA", identity,
+               art=dict(artifact, workflow_run={"id": 123, "head_sha": "d" * 40}))
+        refuse("id type", identity, art=dict(artifact, id=True))
+        refuse("binding field", "binding differs from its original ZIP",
+               bind=dict(binding, run_attempt="2"))
+        refuse("binding key set", "binding differs from its original ZIP",
+               bind=dict(binding, extra="x"))
+        refuse("archive bytes", "length or API digest differs", data=archive + b"x",
+               bind=dict(binding, archive_bytes=len(archive) + 1))
+        # The hosted context check binds repository, SHA, run, attempt, job and platform.
+        projection = _synthetic_projection(job, run=run, attempt=attempt)
+        context = dict(repo="szTheory/tendies64", sha=SYNTHETIC_SHA, run=run, attempt=attempt,
+                       job=job)
+        self.assertIs(qualify._validate_hosted_context(projection, **context), projection)
+        for label, changed, needle in (
+                ("repository", {"repo": "other/repo"}, "exact repository, SHA, run, attempt"),
+                ("SHA", {"sha": "e" * 40}, "exact supplied run context"),
+                ("run", {"run": "124"}, "exact supplied run context"),
+                ("attempt", {"attempt": "2"}, "exact supplied run context"),
+                ("job", {"job": "gate-macos"}, "platform does not match the exact workflow job")):
+            with self.assertRaises(qualify.Refusal, msg=label) as caught:
+                qualify._validate_hosted_context(projection, **dict(context, **changed))
+            self.assertIn(needle, str(caught.exception), label)
+            self.assertIs(qualify._validate_hosted_context(projection, **context), projection)
+
+    def test_hosted_record_rejects_entry_smoke_or_missing_platform(self) -> None:
+        """A hosted record must be complete hosted evidence for both platforms."""
+        sha = "c" * 40
+        base = {
+            "schema": "t64.phase09-hosted-collection", "schema_version": 1,
+            "evidence_mode": "hosted-gate", "status": "complete", "rehearsal": False,
+            "repo": "szTheory/tendies64", "sha": sha, "run": "123", "attempt": "1",
+            "jobs": ["gate-linux", "gate-macos"],
+            "source_snapshot": {"absent_pending": []}, "excluded_owner_metadata": [],
+            "native_record_path": "/private/native-record.json",
+            "native_record_sha256": _digest("native"),
+            "archive_bindings": [{}, {}],
+            "collection_path": "/private/collection", "downloads_path": "/private/downloads",
+            "combined_path": "/private/combined", "pii_input_path": "/private/pii-upload-layout",
+            "collector_command_path": "/private/collector-command",
+            "public_output_path": "/private/public",
+        }
+        kwargs = dict(repo="szTheory/tendies64", sha=sha, run="123", attempt="1")
+        self.assertIs(qualify._validate_hosted_record_header(base, **kwargs), base)
+
+        def refuse(label: str, needle: str, value: dict, **more) -> None:
+            with self.assertRaises(qualify.Refusal, msg=label) as caught:
+                qualify._validate_hosted_record_header(value, **dict(kwargs, **more))
+            self.assertIn(needle, str(caught.exception), label)
+            self.assertIs(qualify._validate_hosted_record_header(base, **kwargs), base)
+
+        incomplete = "missing exact context, platforms, or private originals"
+        refuse("entry smoke", incomplete, dict(base, evidence_mode="entry-path-validation"))
+        refuse("one platform", incomplete, dict(base, jobs=["gate-linux"]))
+        refuse("status", incomplete, dict(base, status="partial"))
+        refuse("wrong SHA", incomplete, dict(base, sha="d" * 40))
+        refuse("wrong run", incomplete, dict(base), run="124")
+        refuse("missing path", incomplete, {k: v for k, v in base.items() if k != "pii_input_path"})
+        refuse("native binding", incomplete, dict(base, native_record_sha256="short"))
+        refuse("one binding", incomplete, dict(base, archive_bindings=[{}]))
+        pending = dict(base, source_snapshot={"absent_pending": ["scripts/k5-mutants.py"]})
+        refuse("pending without rehearsal", "rehearsal", pending)
+        rehearsal_record = dict(pending, rehearsal=True)
+        self.assertIs(qualify._validate_hosted_record_header(
+            rehearsal_record, rehearsal=True, **kwargs), rehearsal_record)
+        refuse("final record passed as rehearsal", "rehearsal", dict(base), rehearsal=True)
+
+    def test_rehearsal_flag_and_pending_sources(self) -> None:
+        """The final tuple is data; pending files gate final evidence, not rehearsal."""
+        literal = (
+            "CMakeLists.txt", "core", "runner", "tools/manifest", "tools/rights", "fixtures",
+            "scripts/check-phase09-cases.py", "scripts/check-rsp-no-hle.py",
+            "scripts/check-test-inventory.sh", "scripts/check-ci-yml.sh",
+            "scripts/rights-scan.sh", "scripts/pii-scan.sh", "scripts/check-provenance.sh",
+            "scripts/check-claims.sh", "scripts/gate.sh", "scripts/list-membership-sites.py",
+            "docs/spec/profile-membership-sites.txt", "scripts/qualify-phase09.py",
+            "scripts/tests/test_phase09_qualification.py", "scripts/tests/test_rsp_no_hle.py",
+            "docs/spec/phase09-cases.json", ".github/workflows/ci.yml",
+            "scripts/build-phase09-admit-fixture.sh", "scripts/build-pad-fixture.sh",
+            "scripts/collect-boot-evidence.sh", "scripts/qualify-rdp-vi.py",
+            "scripts/qualify-audio.py", "scripts/check-audio-cases.py",
+            "scripts/build-boot-fixtures.sh",
+            "scripts/build-save-fixtures.sh", "scripts/build-replay-fixture.sh",
+            "scripts/check-state-field-use.py", "scripts/k5-mutants.py",
+            "docs/spec/state-field-rules.txt", "docs/spec/state-mutants.txt",
+        )
+        self.assertEqual(qualify.SOURCE_PATHS + tuple(qualify.PENDING_SOURCE_PATHS), literal)
+        self.assertEqual(qualify.PENDING_SOURCE_PATHS, {
+            "scripts/build-save-fixtures.sh": "09-04",
+            "scripts/build-replay-fixture.sh": "09-07",
+            "scripts/check-state-field-use.py": "09-09",
+            "scripts/k5-mutants.py": "09-06",
+            "docs/spec/state-field-rules.txt": "09-09.1",
+            "docs/spec/state-mutants.txt": "09-09.1",
+        })
+        tracked = subprocess.run(["git", "ls-files", "--", *qualify.SOURCE_PATHS], cwd=ROOT,
+                                 capture_output=True, text=True, check=True).stdout.split()
+        for relative in qualify.SOURCE_PATHS:
+            self.assertTrue(any(item == relative or item.startswith(relative + "/")
+                                for item in tracked), f"{relative} is not tracked")
+        head = subprocess.run(["git", "rev-parse", "HEAD"], cwd=ROOT, capture_output=True,
+                              text=True, check=True).stdout.strip()
+        snapshot = qualify._source_snapshot(head, require_clean=False)
+        present = [name for name in qualify.PENDING_SOURCE_PATHS if (ROOT / name).exists()]
+        self.assertEqual(snapshot["absent_pending"],
+                         sorted(set(qualify.PENDING_SOURCE_PATHS) - set(present)))
+        self.assertIsInstance(snapshot["absent_pending"], list)
+        # The gate: absent pending files refuse final evidence, a rehearsal passes.
+        with self.assertRaises(qualify.Refusal) as caught:
+            qualify._rehearsal_gate(["scripts/k5-mutants.py"], False)
+        self.assertIn("pending source paths are absent", str(caught.exception))
+        self.assertIn("rehearsal and not final evidence",
+                      qualify._rehearsal_gate(["scripts/k5-mutants.py"], True))
+        self.assertIsNone(qualify._rehearsal_gate([], False))
+        # --rehearsal belongs to three modes only.
+        for mode in (["--scan-pii", "--job", "local", "--out", "x"],
+                     ["--emit-hosted", "--job", "local", "--build", "x", "--suite", "hosted",
+                      "--artifact-prefix", "p", "--out", "o"],
+                     ["--verify-record", "x", "--build", "b", "--last-test", "l", "--junit", "j"]):
+            result = self._run_qualifier(*mode, "--rehearsal")
+            self.assertEqual(result.returncode, 2, mode)
+            self.assertIn("--rehearsal is only valid with", result.stderr, mode)
+        accepted = self._run_qualifier("--verify-evidence", "--rehearsal")
+        self.assertEqual(accepted.returncode, 2)
+        self.assertNotIn("--rehearsal is only valid with", accepted.stderr)
+
+    def test_final_evidence_cli_dispatch(self) -> None:
+        """Every mode reaches its final entry through main, not only through helpers."""
+        calls: list[tuple] = []
+        ctx = ["--repo", "szTheory/tendies64", "--sha", "c" * 40, "--run", "123",
+               "--attempt", "1"]
+
+        def run_main(*arguments: str) -> tuple[int, str]:
+            import io
+            from contextlib import redirect_stderr, redirect_stdout
+            out, err = io.StringIO(), io.StringIO()
+            with mock.patch.object(sys, "argv", ["qualify-phase09.py", *arguments]), \
+                    redirect_stdout(out), redirect_stderr(err):
+                try:
+                    code = qualify.main()
+                except SystemExit as exit_:
+                    code = int(exit_.code)
+            return code, out.getvalue() + err.getvalue()
+
+        def native(sha, out, *, rehearsal=False):
+            calls.append(("native", sha, str(out), rehearsal))
+            return Path("/private/native-record.json")
+
+        def collect(repo, sha, run, attempt, native_path, out, *, rehearsal=False):
+            calls.append(("collect", repo, sha, run, attempt, str(native_path), str(out), rehearsal))
+            return Path("/private/hosted-record.json")
+
+        def verify(path, *, repo, sha, run, attempt, native_path, rehearsal=False):
+            calls.append(("verify", str(path), repo, sha, run, attempt, str(native_path), rehearsal))
+            return {}
+
+        with mock.patch.object(qualify, "_native_qualify", native), \
+                mock.patch.object(qualify, "_collect_hosted", collect), \
+                mock.patch.object(qualify, "_verify_hosted_record", verify):
+            code, text = run_main("--native", "--sha", "c" * 40, "--out", "o", "--rehearsal")
+            self.assertEqual(code, 0, text)
+            self.assertIn("native qualification passed", text)
+            self.assertIn("rehearsal", text)
+            code, text = run_main("--collect-hosted", *ctx, "--native-record", "n.json",
+                                  "--out", "p")
+            self.assertEqual(code, 0, text)
+            self.assertIn("exact hosted artifacts collected", text)
+            code, text = run_main("--verify-evidence", *ctx, "--native-record", "n.json",
+                                  "--hosted-record", "h.json", "--rehearsal")
+            self.assertEqual(code, 0, text)
+            self.assertIn("complete native, ASan, GCC13, and both hosted platform records verified",
+                          text)
+            self.assertIn("rehearsal and not final evidence", text)
+            code, text = run_main("--verify-evidence", *ctx, "--native-record", "n.json",
+                                  "--hosted-record", "h.json")
+            self.assertEqual(code, 0, text)
+            self.assertNotIn("not final evidence", text)
+        self.assertEqual([call[0] for call in calls], ["native", "collect", "verify", "verify"])
+        self.assertEqual(calls[0], ("native", "c" * 40, "o", True))
+        self.assertEqual(calls[1][-1], False)
+        self.assertEqual(calls[2][-1], True)
+        self.assertEqual(calls[3][-1], False)
+        # Missing context is a usage error, never a success.
+        for label, arguments, needle in (
+                ("native without out", ["--native", "--sha", "c" * 40], "--native requires"),
+                ("collect without native record",
+                 ["--collect-hosted", *ctx, "--out", "p"], "--collect-hosted requires"),
+                ("verify without hosted record",
+                 ["--verify-evidence", *ctx, "--native-record", "n.json"],
+                 "--verify-evidence requires"),
+                ("verify without context", ["--verify-evidence"], "--verify-evidence requires")):
+            code, text = run_main(*arguments)
+            self.assertEqual(code, 2, label)
+            self.assertIn(needle, text, label)
+        # With real missing records the final mode refuses with its own message.
+        result = self._run_qualifier("--verify-evidence", *ctx, "--native-record",
+                                     str(ROOT / "missing-native.json"), "--hosted-record",
+                                     str(ROOT / "missing-hosted.json"))
+        self.assertEqual(result.returncode, 1)
+        self.assertIn("hosted record is outside the private qualification tree", result.stderr)
+
+
     def _inventory(self) -> dict:
         return json.loads(INVENTORY.read_text(encoding="utf-8"))
 
@@ -991,7 +1508,11 @@ class Phase09Qualification(unittest.TestCase):
     def test_source_paths_exist_and_cover_guards(self) -> None:
         paths = qualify.SOURCE_PATHS
         self.assertEqual(len(paths), len(set(paths)), "duplicate source path")
-        for guard in ("scripts/check-rsp-no-hle.py", "scripts/check-test-inventory.sh",
+        for guard in ("scripts/qualify-rdp-vi.py", "scripts/collect-boot-evidence.sh",
+                      "scripts/qualify-audio.py", "scripts/check-audio-cases.py",
+                      "scripts/build-boot-fixtures.sh", "scripts/build-pad-fixture.sh",
+                      "scripts/build-phase09-admit-fixture.sh",
+                      "scripts/check-rsp-no-hle.py", "scripts/check-test-inventory.sh",
                       "scripts/check-ci-yml.sh", "scripts/rights-scan.sh",
                       "scripts/pii-scan.sh", "scripts/check-provenance.sh",
                       "scripts/check-claims.sh", "scripts/gate.sh",
