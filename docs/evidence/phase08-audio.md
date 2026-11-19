@@ -1,6 +1,6 @@
 # Phase08 authored audio and raw-capture qualification
 
-The reviewed source `e15624cbf435a4542d7d2dc1902f92f0ccf2de6e` passed the
+The reviewed source `3a41734c8cc09c0e5cbcf8d32e77a4f53f756ffd` passed the
 complete normal gate, the full ASan/UBSan inventory and the pinned GCC 13 check
 natively, and both existing hosted jobs passed on the same commit. The
 exact-binding verifier (`python3 -B scripts/qualify-audio.py --verify-evidence`)
@@ -20,8 +20,8 @@ no commercial software, ROM, firmware or oracle.
 | Full ASan/UBSan CTest | 181 cases passed |
 | Pinned GCC 13 route | all 39 affected C units compiled with `-Werror` |
 | Audio qualification inventory | 75 cases, 22 CTests, snapshot `2f68e71e9f68f2869dad61b5054f19c9057c5ea6c7a82d06120672d5717874a8` |
-| Source inputs bound | 216 files, manifest `8fbb0e192adbef2cd40b0ab06f5150c590bad2d6c276ca76a6f48f217fe14157` |
-| Native record SHA-256 | `4f6337c6fd73e6601f3ad3fc45dccebf4ef3515aee957b156f2ea2d04b132006` |
+| Source inputs bound | 216 files, manifest `f9263789193f4cb4c15e214b8d3b18e5a2b068c7c74ade5a44226d630f7bc0e6` |
+| Native record SHA-256 | `fcec400ba3582d76f3b08574fd878fe972242d2cc2e919d44703d702db7433c2` |
 
 Each suite retained three production `t64-supervisor` capture records (actual
 accepted A/V bundle, literal PCM files, capture drain and resume), and the
@@ -32,13 +32,13 @@ on the way to this commit are retained too and were not replayed.
 
 ## Hosted record
 
-Run [44542244958](https://github.com/szTheory/tendies64/actions/runs/44542244958),
-attempt 1, workflow `ci`, source `e15624cbf435a4542d7d2dc1902f92f0ccf2de6e`.
+Run [44549490908](https://github.com/szTheory/tendies64/actions/runs/44549490908),
+attempt 1, workflow `ci`, source `3a41734c8cc09c0e5cbcf8d32e77a4f53f756ffd`.
 
 | Job | Result | Duration | Artifact ID | Archive bytes | Archive digest | Audio manifest SHA-256 |
 | --- | --- | ---: | --- | ---: | --- | --- |
-| `gate-linux` | success | 219 s | 14537449911 | 8873 | `sha256:6a2d846e2c33cca81976518ca00d86453fdd607c442ac415c6d698218a2a9632` | `5726551d6f71fc0d9a788043a43eeb3329dd1a4805360d8e62efcbe44372cd91` |
-| `gate-macos` | success | 429 s | 14538264657 | 8865 | `sha256:5ba2821bdec8585257e0cff2e35aea9da7bf536a08afb468b9bbd2d9e7a4b6cc` | `1f5aee32e6a7d52e86647f73543054e83ae05e6699af444b4a475d06b4f0d244` |
+| `gate-linux` | success | 188 s | 14542207032 | 8873 | `sha256:b17981e3a8dbf1f593dc3611d7b63f9626649e82f5bad135d35cb3e4e5f37aa3` | `606a4e0b877c9fad5247aea5eb104129f33de4c3a4d109be155dac126c4f446e` |
+| `gate-macos` | success | 507 s | 14542367221 | 8864 | `sha256:45175af3d69bc378334f3002e20e34563638fe0d7becc8299437a49bd0db9c41` | `a4b40c75759ac3e81b9c2ca6be8510fb8dc74500e27b7fae69abcee90b085713` |
 
 Both archives were downloaded as original ZIPs by artifact ID and checked
 against the API digest, the exact run, attempt, job and commit, and the strict
@@ -89,9 +89,34 @@ control reproduced from the real format: native LastTest retention after test
 discovery, multiple retained capture records per suite, ASan original
 containment, the Phase 07 collector's repeated record-path line, and a
 cross-platform comparison that wrongly required build-identity hashes to match.
-An earlier green hosted run on `1fdd663` (run 44538801603) was not used for
-binding because the collector defects were found after it; the final binding is
-the run above, on the commit whose native record it matches.
+Earlier green hosted runs on `1fdd663` (run 44538801603) and `e15624c` (run
+44542244958) were not used for the final binding. After the second, the
+independent goal verification found that the specified rule "completing a lone
+descriptor raises no MI AI interrupt" was implemented but not pinned: the
+falling-edge case never acknowledged the first interrupt, so
+interrupt-on-every-completion and an extra interrupt on the final completion
+both survived every Phase08 suite. The case now acknowledges the interrupt and
+asserts no re-raise on the 1-to-0 completion, and both mutants fail it. The
+same change refuses `..` components in the gate's private JUnit hook, found by
+the independent security audit. Because these edits are inside the bound source
+snapshot, the final binding is the native record and hosted run above, on the
+commit that contains them.
+
+## Independent review results
+
+The independent security audit (ASVS L1, block on high) closed all 28 declared
+threats with no open item
+(`.planning/phases/08-audio-interface-and-raw-capture/08-SECURITY.md`). The
+independent goal verification confirmed the three success criteria and four
+requirements within the authored scope
+(`.planning/phases/08-audio-interface-and-raw-capture/08-VERIFICATION.md`),
+reproduced the production capture, and killed seven behavior mutants; its one
+unpinned behavior is the fix above. Its three judgment-tier prohibitions
+(authored PCM presented as silicon accuracy, generated ROMs or captures
+published, oracle/physical/paid/install/release stops bypassed) were reviewed by
+the parent and none is violated: this document and the claim state the authored
+and unit-tested limits, no ROM or raw capture is published, and every stop is
+preserved below.
 
 ## Limitations and preserved stops
 
