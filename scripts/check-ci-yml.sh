@@ -35,7 +35,8 @@
 #                        no other keys on the step, no other cache action), strictly after Checkout
 #                        and before Gate
 #   CI-UPLOAD-ARTIFACT   both existing gate jobs upload one exact reviewed list of sanitized evidence
-#                        files after every scan; the upload step's path is the only block scalar admitted
+#                        files (boot, raw RDP VI, audio and Phase 9 manifests) after every scan;
+#                        the upload step's path is the only block scalar admitted
 #   CI-EXPR-IN-RUN       no expression in a run line
 #   CI-GATE-EXEC         the gate script is executable
 #   CI-ZERO-JOBS         the workflow defines no jobs
@@ -80,7 +81,7 @@ scan_yml() {
       b = "build/evidence/combined/" j
       return b "/" j ".json|" b "/rdp-vi/" j "/manifest.json|" b "/rdp-vi/" j "/inventory.json|" \
              b "/rdp-vi/" j "/observation.json|" b "/rdp-vi/" j "/raw-export.json|" \
-             b "/audio/" j "/manifest.json"
+             b "/audio/" j "/manifest.json|" b "/phase09/" j "/manifest.json"
     }
     function expected_cache_pin() {
       return "actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9"
@@ -102,31 +103,39 @@ scan_yml() {
           vjob("CI-RUNNER-LABEL", "gate-linux must run on ubuntu-24.04")
         if (job == "gate-macos" && job_runs_on != "macos-26")
           vjob("CI-RUNNER-LABEL", "gate-macos must run on macos-26")
-        if (job_runs != 9 || gate_runs != 1 || audio_case_runs != 1 || audio_emit_runs != 1 ||
+        if (job_runs != 12 || gate_runs != 1 || audio_case_runs != 1 || audio_emit_runs != 1 ||
+            p9_case_runs != 1 || p9_emit_runs != 1 ||
             raw_emit_runs != 1 || emit_runs != 1 || rights_runs != 1 || pii_runs != 1 ||
-            raw_pii_runs != 1 || audio_pii_runs != 1)
+            raw_pii_runs != 1 || audio_pii_runs != 1 || p9_pii_runs != 1)
           vjob("CI-RUN-LINE", "job must run the gate and each exact evidence command once")
-        if (step_count != 12 || checkout_step_count != 1 || cache_step_count != 1 || gate_step_count != 1 ||
+        if (step_count != 15 || checkout_step_count != 1 || cache_step_count != 1 || gate_step_count != 1 ||
             audio_case_step_count != 1 || audio_emit_step_count != 1 ||
+            p9_case_step_count != 1 || p9_emit_step_count != 1 ||
             raw_emit_step_count != 1 || emit_step_count != 1 || rights_step_count != 1 ||
             pii_step_count != 1 || raw_pii_step_count != 1 || audio_pii_step_count != 1 ||
+            p9_pii_step_count != 1 ||
             upload_step_count != 1 ||
             !(checkout_step_line < cache_step_line && cache_step_line < gate_step_line &&
               gate_step_line < audio_case_step_line &&
-              audio_case_step_line < audio_emit_step_line && audio_emit_step_line < raw_emit_step_line &&
+              audio_case_step_line < p9_case_step_line && p9_case_step_line < audio_emit_step_line &&
+              audio_emit_step_line < p9_emit_step_line && p9_emit_step_line < raw_emit_step_line &&
               raw_emit_step_line < emit_step_line && emit_step_line < rights_step_line &&
               rights_step_line < pii_step_line && pii_step_line < raw_pii_step_line &&
-              raw_pii_step_line < audio_pii_step_line && audio_pii_step_line < upload_step_line) ||
+              raw_pii_step_line < audio_pii_step_line && audio_pii_step_line < p9_pii_step_line &&
+              p9_pii_step_line < upload_step_line) ||
             !(gate_run_line > gate_step_line && gate_run_line < audio_case_step_line &&
-              audio_case_run_line > audio_case_step_line && audio_case_run_line < audio_emit_step_line &&
-              audio_emit_run_line > audio_emit_step_line && audio_emit_run_line < raw_emit_step_line &&
+              audio_case_run_line > audio_case_step_line && audio_case_run_line < p9_case_step_line &&
+              p9_case_run_line > p9_case_step_line && p9_case_run_line < audio_emit_step_line &&
+              audio_emit_run_line > audio_emit_step_line && audio_emit_run_line < p9_emit_step_line &&
+              p9_emit_run_line > p9_emit_step_line && p9_emit_run_line < raw_emit_step_line &&
               raw_emit_run_line > raw_emit_step_line && raw_emit_run_line < emit_step_line &&
               emit_run_line > emit_step_line && emit_run_line < rights_step_line &&
               rights_run_line > rights_step_line && rights_run_line < pii_step_line &&
               pii_run_line > pii_step_line && pii_run_line < raw_pii_step_line &&
               raw_pii_run_line > raw_pii_step_line && raw_pii_run_line < audio_pii_step_line &&
-              audio_pii_run_line > audio_pii_step_line && audio_pii_run_line < upload_step_line))
-          vjob("CI-UPLOAD-ARTIFACT", "gate, audio and boot/RDP emitters, staged scans, and upload steps must be uniquely named and ordered")
+              audio_pii_run_line > audio_pii_step_line && audio_pii_run_line < p9_pii_step_line &&
+              p9_pii_run_line > p9_pii_step_line && p9_pii_run_line < upload_step_line))
+          vjob("CI-UPLOAD-ARTIFACT", "gate, audio, Phase 9 and boot/RDP emitters, staged scans, and upload steps must be uniquely named and ordered")
         if (cache_step_count != 1 || cache_actions != 1 || cache_pin_count != 1 || cache_with_count != 1 ||
             cache_path_count != 1 || cache_key_count != 1)
           vjob("CI-CACHE-RESTORE", "job must restore exactly one reviewed Binutils cache: one cache step, one pinned action, one with block, one path, one key")
@@ -198,6 +207,9 @@ scan_yml() {
         else if (val == "python3 -B scripts/check-audio-cases.py --build build/gate --suite qualification --run --artifact-prefix \"08-05-${GITHUB_JOB}-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}-${GITHUB_SHA}\"") { audio_case_runs++; audio_case_run_line = NR }
         else if (val == "python3 -B scripts/qualify-audio.py --emit-hosted --job \"$GITHUB_JOB\" --sha \"$GITHUB_SHA\" --run \"$GITHUB_RUN_ID\" --attempt \"$GITHUB_RUN_ATTEMPT\" --build build/gate --suite qualification --artifact-prefix \"08-05-${GITHUB_JOB}-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}-${GITHUB_SHA}\" --out \"build/evidence/combined/$GITHUB_JOB/audio/$GITHUB_JOB\"") { audio_emit_runs++; audio_emit_run_line = NR }
         else if (val == "python3 -B scripts/qualify-audio.py --scan-pii --job \"$GITHUB_JOB\" --sha \"$GITHUB_SHA\" --run \"$GITHUB_RUN_ID\" --attempt \"$GITHUB_RUN_ATTEMPT\" --out \"build/evidence/combined/$GITHUB_JOB/audio/$GITHUB_JOB\"") { audio_pii_runs++; audio_pii_run_line = NR }
+        else if (val == "python3 -B scripts/check-phase09-cases.py --build build/gate --suite hosted --run --artifact-prefix \"09-hosted-${GITHUB_JOB}-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}-${GITHUB_SHA}\"") { p9_case_runs++; p9_case_run_line = NR }
+        else if (val == "python3 -B scripts/qualify-phase09.py --emit-hosted --job \"$GITHUB_JOB\" --sha \"$GITHUB_SHA\" --run \"$GITHUB_RUN_ID\" --attempt \"$GITHUB_RUN_ATTEMPT\" --build build/gate --suite hosted --artifact-prefix \"09-hosted-${GITHUB_JOB}-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}-${GITHUB_SHA}\" --out \"build/evidence/combined/$GITHUB_JOB/phase09/$GITHUB_JOB\"") { p9_emit_runs++; p9_emit_run_line = NR }
+        else if (val == "python3 -B scripts/qualify-phase09.py --scan-pii --job \"$GITHUB_JOB\" --sha \"$GITHUB_SHA\" --run \"$GITHUB_RUN_ID\" --attempt \"$GITHUB_RUN_ATTEMPT\" --out \"build/evidence/combined/$GITHUB_JOB/phase09/$GITHUB_JOB\"") { p9_pii_runs++; p9_pii_run_line = NR }
         else if (val == "python3 -B scripts/qualify-rdp-vi.py --emit-hosted --job \"$GITHUB_JOB\" --sha \"$GITHUB_SHA\"") { raw_emit_runs++; raw_emit_run_line = NR }
         else if (val == "sh scripts/collect-boot-evidence.sh --emit") { emit_runs++; emit_run_line = NR }
         else if (val == "sh scripts/rights-scan.sh --staging build/evidence") { rights_runs++; rights_run_line = NR }
@@ -241,10 +253,12 @@ scan_yml() {
         job_runs = 0; gate_runs = 0; raw_emit_runs = 0; emit_runs = 0
         rights_runs = 0; pii_runs = 0; raw_pii_runs = 0
         audio_case_runs = 0; audio_emit_runs = 0; audio_pii_runs = 0
+        p9_case_runs = 0; p9_emit_runs = 0; p9_pii_runs = 0
         step_count = 0; checkout_step_count = 0; gate_step_count = 0
         raw_emit_step_count = 0; emit_step_count = 0; rights_step_count = 0
         pii_step_count = 0; raw_pii_step_count = 0
         audio_case_step_count = 0; audio_emit_step_count = 0; audio_pii_step_count = 0
+        p9_case_step_count = 0; p9_emit_step_count = 0; p9_pii_step_count = 0
         in_path_block = 0
         cache_step_count = 0; cache_actions = 0; cache_pin_count = 0; cache_with_count = 0
         cache_path_count = 0; cache_key_count = 0; cache_step_line = 0
@@ -257,9 +271,11 @@ scan_yml() {
         emit_step_line = 0; rights_step_line = 0; pii_step_line = 0
         raw_pii_step_line = 0; upload_step_line = 0
         audio_case_step_line = 0; audio_emit_step_line = 0; audio_pii_step_line = 0
+        p9_case_step_line = 0; p9_emit_step_line = 0; p9_pii_step_line = 0
         gate_run_line = 0; raw_emit_run_line = 0; emit_run_line = 0
         rights_run_line = 0; pii_run_line = 0; raw_pii_run_line = 0
         audio_case_run_line = 0; audio_emit_run_line = 0; audio_pii_run_line = 0
+        p9_case_run_line = 0; p9_emit_run_line = 0; p9_pii_run_line = 0
         next
       }
 
@@ -292,6 +308,9 @@ scan_yml() {
           else if (current_step == "Run authored audio qualification records") { audio_case_step_count++; audio_case_step_line = NR }
           else if (current_step == "Emit authored audio evidence") { audio_emit_step_count++; audio_emit_step_line = NR }
           else if (current_step == "PII scan authored audio evidence") { audio_pii_step_count++; audio_pii_step_line = NR }
+          else if (current_step == "Run authored Phase 9 qualification records") { p9_case_step_count++; p9_case_step_line = NR }
+          else if (current_step == "Emit authored Phase 9 evidence") { p9_emit_step_count++; p9_emit_step_line = NR }
+          else if (current_step == "PII scan authored Phase 9 evidence") { p9_pii_step_count++; p9_pii_step_line = NR }
           else if (current_step == "Emit authored raw RDP VI evidence") { raw_emit_step_count++; raw_emit_step_line = NR }
           else if (current_step == "Emit guest evidence") { emit_step_count++; emit_step_line = NR }
           else if (current_step == "Rights scan sanitized output") { rights_step_count++; rights_step_line = NR }
@@ -376,8 +395,8 @@ scan_yml() {
         if (njobs != 2 || linux_jobs != 1 || macos_jobs != 1) {
           printf "CI-UPLOAD-ARTIFACT %s: exactly one gate-linux and one gate-macos job are required\n", file; nviol++
         }
-        if (nruns != 18) {
-          printf "CI-RUN-LINE %s: expected eighteen gate/evidence commands across two jobs, found %d\n", file, nruns; nviol++
+        if (nruns != 24) {
+          printf "CI-RUN-LINE %s: expected twenty-four gate/evidence commands across two jobs, found %d\n", file, nruns; nviol++
         }
       }
     }
@@ -493,9 +512,11 @@ selftest() {
 
   # Required jobs and steps cannot be skipped or have failures softened.
   for _step in "Restore pinned Binutils" "Gate" "Run authored audio qualification records" "Emit authored audio evidence" \
+    "Run authored Phase 9 qualification records" "Emit authored Phase 9 evidence" \
     "Emit authored raw RDP VI evidence" "Emit guest evidence" \
     "Rights scan sanitized output" "PII scan sanitized output" \
     "PII scan authored raw RDP VI evidence" "PII scan authored audio evidence" \
+    "PII scan authored Phase 9 evidence" \
     "Upload sanitized authored evidence"; do
     _label=$(printf '%s' "$_step" | tr '[:upper:] ' '[:lower:]-')
     inject_step_key "$_step" continue-on-error true "soft-$_label"
@@ -562,6 +583,35 @@ selftest() {
   expect CI-RUN-LINE "a path block scalar outside the upload step" "$W/path-block-checkout.yml"
   mut upload-folded 's#^          path: |$#          path: >#'
   expect CI-RUN-LINE "a folded block scalar in place of the reviewed upload list" "$W/upload-folded.yml"
+
+  # The Phase 9 triple (case run, emit, PII scan) is admitted as the same kind of exact
+  # single-line commands in a fixed order, and its one manifest follows the audio manifest.
+  awk '/- name: Emit authored Phase 9 evidence/ && !done { print; getline; sub(/run: /, "run: |\n          "); print; done = 1; next } { print }' "$REAL" > "$W/p9-run-block.yml"
+  expect CI-RUN-LINE "a Phase 9 emit command written as a block scalar" "$W/p9-run-block.yml"
+  mut p9-suite 's|check-phase09-cases.py --build build/gate --suite hosted --run|check-phase09-cases.py --build build/gate --suite controller --run|'
+  expect CI-RUN-LINE "an altered Phase 9 suite name" "$W/p9-suite.yml"
+  mut p9-prefix 's|--artifact-prefix "09-hosted-\${GITHUB_JOB}|--artifact-prefix "09-hosted-fixed|'
+  expect CI-RUN-LINE "a Phase 9 artifact prefix that no longer binds the job" "$W/p9-prefix.yml"
+  mut p9-emit-sha '/qualify-phase09.py --emit-hosted/ s|--sha "\$GITHUB_SHA" --run|--sha "deadbeef" --run|'
+  expect CI-RUN-LINE "a Phase 9 emitter that does not bind the workflow SHA" "$W/p9-emit-sha.yml"
+  awk '/- name: Run authored Phase 9 qualification records/ && !done { getline; done = 1; next } { print }' "$REAL" > "$W/p9-case-missing.yml"
+  expect CI-RUN-LINE "a job with its Phase 9 case run removed" "$W/p9-case-missing.yml"
+  awk '/- name: PII scan authored Phase 9 evidence/ && !done { getline; done = 1; next } { print }' "$REAL" > "$W/p9-pii-missing.yml"
+  expect CI-RUN-LINE "a job with its Phase 9 PII scan removed" "$W/p9-pii-missing.yml"
+  awk '/- name: Emit authored Phase 9 evidence/ { held = $0; getline; heldrun = $0; next }
+       /- name: Emit authored raw RDP VI evidence/ && held != "" && !done { print; getline; print; print held; print heldrun; done = 1; next }
+       { print }' "$REAL" > "$W/p9-order.yml"
+  expect CI-UPLOAD-ARTIFACT "Phase 9 emission moved after the raw RDP VI emitter" "$W/p9-order.yml"
+  awk '/^            build\/evidence\/combined\/gate-linux\/phase09\/gate-linux\/manifest.json$/ { print; print "            build/evidence/combined/gate-linux/phase09/gate-linux/raw.bin"; next } { print }' "$REAL" > "$W/p9-upload-extra.yml"
+  expect CI-UPLOAD-ARTIFACT "an extra file after the Phase 9 manifest in the upload list" "$W/p9-upload-extra.yml"
+  grep -v '^            build/evidence/combined/gate-linux/phase09/gate-linux/manifest.json$' "$REAL" > "$W/p9-upload-short.yml"
+  expect CI-UPLOAD-ARTIFACT "an upload list missing the Phase 9 manifest" "$W/p9-upload-short.yml"
+  mut p9-upload-cross 's|^            build/evidence/combined/gate-macos/phase09/gate-macos/manifest.json$|            build/evidence/combined/gate-linux/phase09/gate-linux/manifest.json|'
+  expect CI-UPLOAD-ARTIFACT "the macOS job uploading the Linux Phase 9 manifest" "$W/p9-upload-cross.yml"
+  awk '/- name: PII scan authored Phase 9 evidence/ { held = $0; getline; heldrun = $0; next }
+       /- name: Upload sanitized authored evidence/ && !done { print "      - name: Gate"; print "        run: ./scripts/gate.sh"; done = 1 }
+       { print }' "$REAL" > "$W/p9-dup-gate.yml"
+  expect CI-RUN-LINE "a duplicated gate step in place of the Phase 9 PII scan" "$W/p9-dup-gate.yml"
 
   # The Binutils cache restore is admitted only as the one reviewed SHA-pinned actions/cache step
   # with exactly the reviewed path and key, strictly between Checkout and Gate in each job.

@@ -33,8 +33,12 @@ jobs:
         run: ./scripts/gate.sh
       - name: Run authored audio qualification records
         run: python3 -B scripts/check-audio-cases.py --build build/gate --suite qualification --run --artifact-prefix "08-05-${GITHUB_JOB}-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}-${GITHUB_SHA}"
+      - name: Run authored Phase 9 qualification records
+        run: python3 -B scripts/check-phase09-cases.py --build build/gate --suite hosted --run --artifact-prefix "09-hosted-${GITHUB_JOB}-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}-${GITHUB_SHA}"
       - name: Emit authored audio evidence
         run: python3 -B scripts/qualify-audio.py --emit-hosted --job "$GITHUB_JOB" --sha "$GITHUB_SHA" --run "$GITHUB_RUN_ID" --attempt "$GITHUB_RUN_ATTEMPT" --build build/gate --suite qualification --artifact-prefix "08-05-${GITHUB_JOB}-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}-${GITHUB_SHA}" --out "build/evidence/combined/$GITHUB_JOB/audio/$GITHUB_JOB"
+      - name: Emit authored Phase 9 evidence
+        run: python3 -B scripts/qualify-phase09.py --emit-hosted --job "$GITHUB_JOB" --sha "$GITHUB_SHA" --run "$GITHUB_RUN_ID" --attempt "$GITHUB_RUN_ATTEMPT" --build build/gate --suite hosted --artifact-prefix "09-hosted-${GITHUB_JOB}-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}-${GITHUB_SHA}" --out "build/evidence/combined/$GITHUB_JOB/phase09/$GITHUB_JOB"
       - name: Emit authored raw RDP VI evidence
         run: python3 -B scripts/qualify-rdp-vi.py --emit-hosted --job "$GITHUB_JOB" --sha "$GITHUB_SHA"
       - name: Emit guest evidence
@@ -47,6 +51,8 @@ jobs:
         run: python3 -B scripts/qualify-rdp-vi.py --scan-pii
       - name: PII scan authored audio evidence
         run: python3 -B scripts/qualify-audio.py --scan-pii --job "$GITHUB_JOB" --sha "$GITHUB_SHA" --run "$GITHUB_RUN_ID" --attempt "$GITHUB_RUN_ATTEMPT" --out "build/evidence/combined/$GITHUB_JOB/audio/$GITHUB_JOB"
+      - name: PII scan authored Phase 9 evidence
+        run: python3 -B scripts/qualify-phase09.py --scan-pii --job "$GITHUB_JOB" --sha "$GITHUB_SHA" --run "$GITHUB_RUN_ID" --attempt "$GITHUB_RUN_ATTEMPT" --out "build/evidence/combined/$GITHUB_JOB/phase09/$GITHUB_JOB"
       - name: Upload sanitized authored evidence
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02  # v4.6.2
         with:
@@ -58,6 +64,7 @@ jobs:
             build/evidence/combined/gate-linux/rdp-vi/gate-linux/observation.json
             build/evidence/combined/gate-linux/rdp-vi/gate-linux/raw-export.json
             build/evidence/combined/gate-linux/audio/gate-linux/manifest.json
+            build/evidence/combined/gate-linux/phase09/gate-linux/manifest.json
           if-no-files-found: error
 
   gate-macos:
@@ -80,8 +87,12 @@ jobs:
         run: ./scripts/gate.sh
       - name: Run authored audio qualification records
         run: python3 -B scripts/check-audio-cases.py --build build/gate --suite qualification --run --artifact-prefix "08-05-${GITHUB_JOB}-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}-${GITHUB_SHA}"
+      - name: Run authored Phase 9 qualification records
+        run: python3 -B scripts/check-phase09-cases.py --build build/gate --suite hosted --run --artifact-prefix "09-hosted-${GITHUB_JOB}-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}-${GITHUB_SHA}"
       - name: Emit authored audio evidence
         run: python3 -B scripts/qualify-audio.py --emit-hosted --job "$GITHUB_JOB" --sha "$GITHUB_SHA" --run "$GITHUB_RUN_ID" --attempt "$GITHUB_RUN_ATTEMPT" --build build/gate --suite qualification --artifact-prefix "08-05-${GITHUB_JOB}-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}-${GITHUB_SHA}" --out "build/evidence/combined/$GITHUB_JOB/audio/$GITHUB_JOB"
+      - name: Emit authored Phase 9 evidence
+        run: python3 -B scripts/qualify-phase09.py --emit-hosted --job "$GITHUB_JOB" --sha "$GITHUB_SHA" --run "$GITHUB_RUN_ID" --attempt "$GITHUB_RUN_ATTEMPT" --build build/gate --suite hosted --artifact-prefix "09-hosted-${GITHUB_JOB}-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}-${GITHUB_SHA}" --out "build/evidence/combined/$GITHUB_JOB/phase09/$GITHUB_JOB"
       - name: Emit authored raw RDP VI evidence
         run: python3 -B scripts/qualify-rdp-vi.py --emit-hosted --job "$GITHUB_JOB" --sha "$GITHUB_SHA"
       - name: Emit guest evidence
@@ -94,6 +105,8 @@ jobs:
         run: python3 -B scripts/qualify-rdp-vi.py --scan-pii
       - name: PII scan authored audio evidence
         run: python3 -B scripts/qualify-audio.py --scan-pii --job "$GITHUB_JOB" --sha "$GITHUB_SHA" --run "$GITHUB_RUN_ID" --attempt "$GITHUB_RUN_ATTEMPT" --out "build/evidence/combined/$GITHUB_JOB/audio/$GITHUB_JOB"
+      - name: PII scan authored Phase 9 evidence
+        run: python3 -B scripts/qualify-phase09.py --scan-pii --job "$GITHUB_JOB" --sha "$GITHUB_SHA" --run "$GITHUB_RUN_ID" --attempt "$GITHUB_RUN_ATTEMPT" --out "build/evidence/combined/$GITHUB_JOB/phase09/$GITHUB_JOB"
       - name: Upload sanitized authored evidence
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02  # v4.6.2
         with:
@@ -105,4 +118,5 @@ jobs:
             build/evidence/combined/gate-macos/rdp-vi/gate-macos/observation.json
             build/evidence/combined/gate-macos/rdp-vi/gate-macos/raw-export.json
             build/evidence/combined/gate-macos/audio/gate-macos/manifest.json
+            build/evidence/combined/gate-macos/phase09/gate-macos/manifest.json
           if-no-files-found: error
