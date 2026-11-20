@@ -467,6 +467,50 @@ def parse_mapping(root: pathlib.Path) -> tuple[list[list[str]], list[str]]:
     return rows, findings
 
 
+MUTANT_INVENTORY = "docs/spec/state-mutants.txt"
+CONTAINER_SPEC = "docs/spec/state-container.md"
+MUTANT_GROUPS = ("header", "table", "fields", "queue", "devices", "digest")
+MUTANT_COUNT_SENTENCE = re.compile(
+    r"header\s+\((\d+)\s+rows\),\s+table\s+\((\d+)\),\s+fields\s+\((\d+),"
+    r".*?queue\s+\((\d+)\),\s+devices\s+\((\d+)\)\s+and\s+digest\s+\((\d+)\),"
+    r"\s+(\d+)\s+in\s+all",
+    re.DOTALL,
+)
+
+
+def check_mutant_counts(root: pathlib.Path) -> list[str]:
+    """The mutant counts the state-container spec quotes equal the rows of the
+    authored inventory (plan 09-10 re-check R1 RC-02: five rows were added after
+    the sentence was written and nothing compared the two). The inventory
+    itself is compared with the C table by the `mutant-inventory` case."""
+
+    inventory = root / MUTANT_INVENTORY
+    spec = root / CONTAINER_SPEC
+    if not inventory.is_file() or not spec.is_file():
+        return []
+    counts = {name: 0 for name in MUTANT_GROUPS}
+    group = None
+    for raw in inventory.read_text(encoding="utf-8").splitlines():
+        heading = re.match(r"^# (header|table|fields|queue|devices|digest)\b", raw)
+        if heading:
+            group = heading.group(1)
+            continue
+        if raw.strip() and not raw.startswith("#") and group is not None:
+            counts[group] += 1
+    match = MUTANT_COUNT_SENTENCE.search(spec.read_text(encoding="utf-8"))
+    if match is None:
+        return [f"mutant counts sentence not found in {CONTAINER_SPEC}"]
+    quoted = [int(value) for value in match.groups()]
+    actual = [counts[name] for name in MUTANT_GROUPS] + [sum(counts.values())]
+    findings = []
+    for label, said, real in zip(MUTANT_GROUPS + ("total",), quoted, actual):
+        if said != real:
+            findings.append(
+                f"mutant count drift {label}: the spec says {said}, the inventory has {real}"
+            )
+    return findings
+
+
 def check_tree(root: pathlib.Path) -> list[str]:
     """Run the audit over a source tree; returns the findings."""
 
@@ -521,6 +565,7 @@ def check_tree(root: pathlib.Path) -> list[str]:
                         findings.append(f"masked-at-use row {member} lacks a consuming site")
                 elif len(row) == 5:
                     findings.append(f"unexpected consuming site for {member}")
+        findings.extend(check_mutant_counts(root))
         return findings
     finally:
         ROOT = saved
@@ -568,6 +613,7 @@ SELFTEST_CASES = (
     "mapping-row-removed",
     "unknown-rule-name",
     "reader-lacks-member",
+    "mutant-count-drift",
 )
 
 # The member the first seed adds to a copied structure and the function that
@@ -593,7 +639,7 @@ SEED_NESTED_FUNCTION = (
 SEED_UNKNOWN_RULE = "NO_SUCH_RULE"
 SEED_WRONG_READER = "state_rd32"
 
-COPIED_FILES = (INTERNAL_HEADER, MACHINE_HEADER, MAPPING_FILE)
+COPIED_FILES = (INTERNAL_HEADER, MACHINE_HEADER, MAPPING_FILE, MUTANT_INVENTORY, CONTAINER_SPEC)
 
 
 def copy_tree(source: pathlib.Path, destination: pathlib.Path) -> None:
@@ -677,10 +723,32 @@ def run_case(name: str, root: pathlib.Path) -> str | None:
             lines[index] = " :: ".join(fields[:3])
             mapping.write_text("\n".join(lines) + "\n", encoding="utf-8")
             expected = f"reader {SEED_WRONG_READER} does not mention {member}"
+        elif name == "mutant-count-drift":
+            # one row removed from the copied inventory: the spec sentence then
+            # quotes a count the inventory no longer has
+            inventory = tree / MUTANT_INVENTORY
+            rows = inventory.read_text(encoding="utf-8").splitlines()
+            group = None
+            removed = None
+            for position, row in enumerate(rows):
+                heading = re.match(r"^# (header|table|fields|queue|devices|digest)\b", row)
+                if heading:
+                    group = heading.group(1)
+                    continue
+                if group == "digest" and row.strip() and not row.startswith("#"):
+                    removed = position
+                    break
+            if removed is None:
+                return "the inventory has no digest row to remove"
+            del rows[removed]
+            inventory.write_text("\n".join(rows) + "\n", encoding="utf-8")
+            expected = "mutant count drift"
         else:
             return f"unknown case {name}"
         findings = check_tree(tree)
         own = [item for item in findings if item.startswith(expected)]
+        if name == "mutant-count-drift" and not any(" digest:" in item for item in own):
+            return f"the seed did not reach the digest count finding; got {findings[:3]!r}"
         if not own:
             return f"the seed did not reach its own finding {expected!r}; got {findings[:3]!r}"
         others = [item for item in findings if not item.startswith(expected)]

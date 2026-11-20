@@ -895,10 +895,11 @@ or compatible, and no test states that it is.
 
 **Mutant inventory.** `docs/spec/state-mutants.txt` is the independently authored
 inventory: one row per mutant with its expected status, reason, section and rule,
-grouped under the headings header (9 rows), table (6), fields (26, one per rule id with
+grouped under the headings header (9 rows), table (6), fields (31, one per rule id with
 a reader use, plus the observer range, the EEPROM deadline beyond the window, the
-RDP render extent of a fill render and the eight triangle render rules of plan 09-10),
-queue (8), devices (10) and digest (1), 60 in all. The C mutant
+RDP render extent of a fill render, the eight triangle render rules and the five
+rules of the carried RDP tail of plan 09-10),
+queue (8), devices (10) and digest (1), 65 in all. The C mutant
 table of `core/tests/test_state_import.c` must equal the inventory name by name, in
 order, tuple by tuple (case `mutant-inventory`, the file named by
 `T64_STATE_MUTANT_INVENTORY`; `--list-mutants` prints the names). Every mutant keeps

@@ -355,7 +355,8 @@
             "nested-member-unmapped",
             "mapping-row-removed",
             "unknown-rule-name",
-            "reader-lacks-member"
+            "reader-lacks-member",
+            "mutant-count-drift"
           ]
         }
       ]
