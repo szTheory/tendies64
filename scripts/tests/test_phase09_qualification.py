@@ -334,6 +334,7 @@ NATIVE_LIMIT_PINS: dict[str, float] = {
     "gcc13": 300.0,
     "outer": 4200,
     "record_max": 2400,
+    "full_matrix": 300,
 }
 # The cheap preflight (selftest) and the source-snapshot checks run inside the
 # outer limit next to the five stage commands.
@@ -370,6 +371,7 @@ def _native_limits(plan: list[dict]) -> dict[str, float]:
         "gcc13": rdp.NATIVE_GCC13_TIMEOUT_SECONDS,
         "outer": steps["shared-native-gates"]["timeout_seconds"],
         "record_max": qualify.NATIVE_SHARED_RECORD_MAX_TIMEOUT_SECONDS,
+        "full_matrix": steps[qualify.FULL_MATRIX_LABEL]["timeout_seconds"],
     }
 
 
@@ -391,6 +393,34 @@ def native_limit_problems(limits: dict[str, float], registered: list[int]) -> li
                         f"the largest registered TIMEOUT {max(registered)}")
     return problems
 
+
+
+def _write_synthetic_step(directory: Path, item: dict, stdout: bytes, *,
+                          environment: dict | None = None) -> None:
+    """An original command record shaped like the one _run_saved_stage saves."""
+    directory.mkdir(parents=True, exist_ok=True)
+    (directory / "stdout.log").write_bytes(stdout)
+    (directory / "stderr.log").write_bytes(b"")
+    expected = {"PYTHONDONTWRITEBYTECODE": "1", **item["environment"]}
+    (directory / "command.json").write_text(json.dumps({
+        "argv": item["command"], "cwd": str(ROOT),
+        "env": expected if environment is None else environment,
+        "timeout_seconds": item["timeout_seconds"]}))
+    (directory / "process.json").write_text(json.dumps({
+        "return_code": 0, "timed_out": False, "timeout_seconds": item["timeout_seconds"],
+        "stdout_bytes": len(stdout), "stderr_bytes": 0,
+        "stdout_sha256": hashlib.sha256(stdout).hexdigest(),
+        "stderr_sha256": hashlib.sha256(b"").hexdigest()}))
+
+
+def _synthetic_junit(path: Path, checks: int, *, extra: str = "", count: int = 1) -> None:
+    """A CTest JUnit of the importer test with the check total in its output."""
+    case = ("<testcase name=\"unit.core.state.import\" classname=\"unit.core.state.import\" "
+            "time=\"1\" status=\"run\">" + extra +
+            f"<system-out>fuzz-campaign: iterations 12\nunit.core.state.import: checks={checks} "
+            "failures=0\n</system-out></testcase>")
+    path.write_text("<?xml version=\"1.0\"?><testsuite name=\"(empty)\" tests=\"1\">"
+                    + case * count + "</testsuite>")
 
 
 class Phase09Qualification(unittest.TestCase):
@@ -968,7 +998,8 @@ class Phase09Qualification(unittest.TestCase):
         plan = qualify._native_command_plan("09-unit", normal_junit)
         expected = (["shared-native-gates"] + [f"normal-inventory-{name}" for name in suites]
                     + [f"asan-inventory-{name}" for name in suites]
-                    + ["normal-source-body-check", "asan-source-body-check"])
+                    + ["normal-source-body-check", "asan-source-body-check",
+                       "normal-state-import-full-matrix"])
         self.assertEqual([item["label"] for item in plan], expected)
         shared = plan[0]
         self.assertEqual(shared["command"][-1], "--native")
@@ -976,7 +1007,7 @@ class Phase09Qualification(unittest.TestCase):
         self.assertEqual(shared["environment"], {"T64_GATE_JUNIT_OUT": str(normal_junit)})
         build_dirs = {"normal": str((ROOT / "build/gate").resolve()),
                       "asan": str((ROOT / "build/asan").resolve())}
-        for item in plan[1:-2]:
+        for item in plan[1:-3]:
             kind, _, suite = item["label"].partition("-inventory-")
             command = item["command"]
             self.assertEqual(command[command.index("--build") + 1], build_dirs[kind])
@@ -984,9 +1015,19 @@ class Phase09Qualification(unittest.TestCase):
             self.assertEqual(command[command.index("--artifact-prefix") + 1], f"09-unit-{kind}")
             self.assertNotIn("--run", command)
             self.assertEqual(item["timeout_seconds"], 720)
-        for item, kind in zip(plan[-2:], ("normal", "asan")):
+        for item, kind in zip(plan[-3:-1], ("normal", "asan")):
             self.assertEqual(item["command"][-1], build_dirs[kind])
             self.assertEqual(item["command"][-2], "--build")
+        # The full continuation matrix (plan 09-10, L4 WR-01): the last step, one
+        # CTest of the normal tree with the matrix variable in its recorded
+        # environment, its own fresh JUnit beside the gate's.
+        matrix = plan[-1]
+        self.assertEqual(matrix["command"], [
+            "ctest", "--test-dir", build_dirs["normal"], "--no-tests=error",
+            "-R", r"^unit\.core\.state\.import$", "--output-junit",
+            str(normal_junit.parent / "normal-state-import-full-matrix-junit.xml")])
+        self.assertEqual(matrix["environment"], {"T64_STATE_MATRIX_FULL": "1"})
+        self.assertEqual(matrix["timeout_seconds"], NATIVE_LIMIT_PINS["full_matrix"])
         # The pinned limits and the relations every limit must satisfy, with the
         # control that the check fails on an unauthorized change of each.
         limits = _native_limits(plan)
@@ -1181,6 +1222,99 @@ class Phase09Qualification(unittest.TestCase):
                 qualify._tree_manifest(Path(tmp) / "missing-step")
             self.assertIn("missing or unsafe", str(caught.exception))
             qualify._verify_process_record(directory, command, max_timeout=10)
+        self._full_matrix_step_controls()
+
+    def _full_matrix_step_controls(self) -> None:
+        """The full continuation matrix step (plan 09-10, L4 WR-01) is bound and can fail."""
+        with tempfile.TemporaryDirectory(prefix="t64-p09-matrix.") as tmp, \
+                mock.patch.object(qualify, "PRIVATE_ROOT", Path(tmp)):
+            private = Path(tmp)
+            sampled = private / "normal-full-ctest-junit.xml"
+            _synthetic_junit(sampled, 31026)
+            plan = qualify._native_command_plan("09-unit", sampled)
+            matrix = plan[-1]
+            junit = Path(matrix["command"][-1])
+            passed = b"1/1 Test #64: unit.core.state.import ... Passed\n100% tests passed, 0 tests failed out of 1\n"
+            steps = private / "steps"
+
+            def verify_all(omit: str | None = None) -> None:
+                for item in plan:
+                    if item["label"] == omit:
+                        continue
+                    qualify._verify_native_step(steps / item["label"], item, sampled)
+
+            for item in plan:
+                label = item["label"]
+                if "-inventory-" in label:
+                    stdout = f"validated nonempty {label.partition('-inventory-')[2]} phase09 case inventory\n".encode()
+                elif "source-body-check" in label:
+                    stdout = b"PASS: rsp-no-hle sources_scanned=1\n"
+                elif label == "normal-state-import-full-matrix":
+                    stdout = passed
+                else:
+                    stdout = b"shared stage\n"
+                _write_synthetic_step(steps / label, item, stdout)
+            _synthetic_junit(junit, 52000)
+            verify_all()  # the accepted baseline: every step, the matrix step included
+
+            def refuse(label: str, needle: str, edit) -> None:
+                undo = edit()
+                with self.assertRaises(qualify.Refusal, msg=label) as caught:
+                    verify_all()
+                self.assertIn(needle, str(caught.exception), label)
+                undo()
+                verify_all()
+
+            def edit_text(path: Path, data: bytes):
+                before = path.read_bytes()
+                path.write_bytes(data)
+                return lambda: path.write_bytes(before)
+
+            step = steps / "normal-state-import-full-matrix"
+
+            def drop_step():
+                moved = private / "moved-step"
+                step.rename(moved)
+                return lambda: moved.rename(step)
+
+            def drop_environment():
+                path = step / "command.json"
+                before = path.read_text()
+                record = json.loads(before)
+                record["env"] = {"PYTHONDONTWRITEBYTECODE": "1"}
+                path.write_text(json.dumps(record))
+                return lambda: path.write_text(before)
+
+            refuse("omitted step", "required original file is unavailable", drop_step)
+            refuse("matrix variable not recorded", "original owning command", drop_environment)
+
+            def edit_stdout(data: bytes):
+                undo_out = edit_text(step / "stdout.log", data)
+                process = json.loads((step / "process.json").read_text())
+                before = (step / "process.json").read_text()
+                process["stdout_bytes"] = len(data)
+                process["stdout_sha256"] = hashlib.sha256(data).hexdigest()
+                (step / "process.json").write_text(json.dumps(process))
+                return lambda: (undo_out(), (step / "process.json").write_text(before))
+
+            refuse("CTest did not pass", "did not pass its one CTest",
+                   lambda: edit_stdout(b"0% tests passed, 1 tests failed out of 1\n"))
+            refuse("JUnit missing", "missing or outside the private root",
+                   lambda: (junit.rename(junit.with_suffix(".moved")),
+                            lambda: junit.with_suffix(".moved").rename(junit))[1])
+            refuse("sampled run in place of the full matrix", "no more checks",
+                   lambda: (edit_text(junit, sampled.read_bytes())))
+            refuse("failure element", "does not record one passed",
+                   lambda: (_synthetic_junit(junit, 52000, extra="<failure message=\"x\"/>"),
+                            lambda: _synthetic_junit(junit, 52000))[1])
+            refuse("skipped element", "does not record one passed",
+                   lambda: (_synthetic_junit(junit, 52000, extra="<skipped/>"),
+                            lambda: _synthetic_junit(junit, 52000))[1])
+            refuse("two cases", "does not record one passed",
+                   lambda: (_synthetic_junit(junit, 52000, count=2),
+                            lambda: _synthetic_junit(junit, 52000))[1])
+            outside = Path(tmp).parent / "outside-junit.xml"
+            self.assertFalse(qualify._under(outside, Path(tmp)))
 
     def test_hosted_context_and_api_zip_bound(self) -> None:
         """The API record, ZIP bytes and binding file all name the exact attempt."""

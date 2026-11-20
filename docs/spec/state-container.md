@@ -665,8 +665,11 @@ Rules shared by every row:
 Limit: every row compares the software model with itself. The evidence is that the
 model reproduces its own state across an export and an import, not that the state is
 reachable on hardware, authentic or compatible with another emulator. The test
-environment scales the matrix (`T64_STATE_MATRIX_FULL`) so the gate run is a sample
-and the native sanitizer run is the full set.
+environment scales the matrix (`T64_STATE_MATRIX_FULL`): the gate, hosted and
+sanitizer runs are a sample (the 7 tick partition on twelve of the sixteen rows, every
+partition size on the four full rows, and the instruction-count stop row of the
+mid-tick case only in the full matrix), and the full set runs in one recorded native
+qualification step (`normal-state-import-full-matrix`), not under the sanitizer.
 
 | Id | Name | Construction source | Reached | Perturbation |
 | --- | --- | --- | --- | --- |

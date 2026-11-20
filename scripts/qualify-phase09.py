@@ -64,6 +64,16 @@ REHEARSAL_STATEMENT = "this result is a rehearsal and not final evidence"
 # plus the cheap preflight; the record bound is the largest single stage limit.
 NATIVE_SHARED_STAGE_TIMEOUT_SECONDS = 4200
 NATIVE_SHARED_RECORD_MAX_TIMEOUT_SECONDS = 2400
+# The full continuation matrix of the state importer, run natively and recorded
+# (plan 09-10, L4 WR-01): the sanitizer and hosted runs keep the sampled
+# partitions, so this step is the only run of the 1, 31 and 4,096 tick
+# partitions on every boundary row. It runs last: a second CTest run in the
+# normal build tree rewrites its LastTest.log, which the inventory checks of the
+# earlier steps compare byte for byte with the full gate's original.
+FULL_MATRIX_LABEL = "normal-state-import-full-matrix"
+FULL_MATRIX_CTEST = "unit.core.state.import"
+FULL_MATRIX_ENVIRONMENT = {"T64_STATE_MATRIX_FULL": "1"}
+FULL_MATRIX_TIMEOUT_SECONDS = 300
 # Upload allowlist: exactly one regular file with this name, nothing else.
 PUBLIC_MEMBER = "manifest.json"
 # Private artifact suffixes: state, replay and save media never leave the machine.
@@ -1666,7 +1676,67 @@ def _native_command_plan(prefix: str, normal_junit: Path) -> list[dict[str, Any]
             "timeout_seconds": 120,
             "environment": {},
         })
+    plan.append({
+        "label": FULL_MATRIX_LABEL,
+        "command": ["ctest", "--test-dir", builds["normal"], "--no-tests=error",
+                    "-R", "^" + re.escape(FULL_MATRIX_CTEST) + "$",
+                    "--output-junit",
+                    str(normal_junit.parent / "normal-state-import-full-matrix-junit.xml")],
+        "timeout_seconds": FULL_MATRIX_TIMEOUT_SECONDS,
+        "environment": dict(FULL_MATRIX_ENVIRONMENT),
+    })
     return plan
+
+
+def _state_import_checks(junit: Path) -> int:
+    """The check total the importer test printed into a passed JUnit original."""
+    try:
+        root = ET.fromstring(_read(junit, 16 * 1024 * 1024))
+    except ET.ParseError as error:
+        raise Refusal("original JUnit is malformed") from error
+    cases = [entry for entry in root.iter("testcase")
+             if entry.attrib.get("name") == FULL_MATRIX_CTEST]
+    _require(len(cases) == 1 and cases[0].attrib.get("status") == "run" and
+             not any(child.tag in {"failure", "error", "skipped"} for child in cases[0]),
+             f"JUnit does not record one passed {FULL_MATRIX_CTEST} case")
+    output = "".join(child.text or "" for child in cases[0] if child.tag == "system-out")
+    totals = re.findall(rf"^{re.escape(FULL_MATRIX_CTEST)}: checks=([0-9]+) failures=0$",
+                        output, flags=re.MULTILINE)
+    _require(len(totals) == 1, f"JUnit lacks the {FULL_MATRIX_CTEST} check total")
+    return int(totals[0])
+
+
+def _verify_full_matrix_step(stdout: bytes, junit: Path, sampled_junit: Path) -> None:
+    """The one CTest passed and ran the full matrix, not the sampled partitions.
+
+    The recorded environment names T64_STATE_MATRIX_FULL; the evidence that it
+    took effect is the check total: the full run of the same test must execute
+    more checks than the sampled run of the full normal gate in the same record.
+    """
+    _require(b"100% tests passed, 0 tests failed out of 1" in stdout,
+             "full continuation matrix step did not pass its one CTest")
+    _require(_under(junit, PRIVATE_ROOT) and junit.is_file() and not junit.is_symlink(),
+             "full continuation matrix JUnit original is missing or outside the private root")
+    _require(_state_import_checks(junit) > _state_import_checks(sampled_junit),
+             "full continuation matrix step ran no more checks than the sampled gate run")
+
+
+def _verify_native_step(directory: Path, item: dict[str, Any], sampled_junit: Path) -> bytes:
+    """One plan item: its original command, outcome and output, and its marker."""
+    label = item["label"]
+    _verify_process_record(directory, item["command"], max_timeout=item["timeout_seconds"],
+                           environment={"PYTHONDONTWRITEBYTECODE": "1", **item["environment"]})
+    stdout = _read(directory / "stdout.log")
+    if "-inventory-" in label:
+        suite_name = label.partition("-inventory-")[2]
+        _require(f"validated nonempty {suite_name} phase09 case inventory".encode() in stdout,
+                 f"{label} pass marker is missing")
+    elif "source-body-check" in label:
+        _require(stdout.startswith(b"PASS: rsp-no-hle"),
+                 "native source/body/object pass marker is missing")
+    elif label == FULL_MATRIX_LABEL:
+        _verify_full_matrix_step(stdout, Path(item["command"][-1]), sampled_junit)
+    return stdout
 
 
 def _required_gcc_units(source_sha: str) -> list[str]:
@@ -1926,6 +1996,8 @@ def _native_qualify(source_sha: str, output_dir: Path, *, rehearsal: bool = Fals
             suite_name = label.partition("-inventory-")[2]
             _require(f"validated nonempty {suite_name} phase09 case inventory".encode() in stdout,
                      f"{label} did not reach its pass marker")
+        elif label == FULL_MATRIX_LABEL:
+            _verify_full_matrix_step(stdout, Path(item["command"][-1]), normal_junit)
         else:
             _require(stdout.startswith(b"PASS: rsp-no-hle"),
                      f"{label} native source/body/object check did not pass")
@@ -2058,21 +2130,10 @@ def _verify_native_record(path: Path, expected_sha: str, *,
     _require(isinstance(prefix, str) and prefix.startswith("09-") and prefix.endswith("-normal") and
              record["suites"]["asan"].get("artifact_prefix") == prefix[:-7] + "-asan",
              "normal and ASan suite prefixes do not belong to the same native attempt")
-    plan = _native_command_plan(prefix[:-7], Path(record["normal_full_ctest_junit_path"]))
+    normal_junit_path = Path(record["normal_full_ctest_junit_path"])
+    plan = _native_command_plan(prefix[:-7], normal_junit_path)
     for item in plan:
-        label = item["label"]
-        _verify_process_record(output / "steps" / label, item["command"],
-                               max_timeout=item["timeout_seconds"],
-                               environment={"PYTHONDONTWRITEBYTECODE": "1",
-                                            **item["environment"]})
-        stdout = _read(output / "steps" / label / "stdout.log")
-        if "-inventory-" in label:
-            suite_name = label.partition("-inventory-")[2]
-            _require(f"validated nonempty {suite_name} phase09 case inventory".encode() in stdout,
-                     f"{label} pass marker is missing")
-        elif "source-body-check" in label:
-            _require(stdout.startswith(b"PASS: rsp-no-hle"),
-                     "native source/body/object pass marker is missing")
+        _verify_native_step(output / "steps" / item["label"], item, normal_junit_path)
     for kind, build_name in (("normal", "gate"), ("asan", "asan")):
         selected = record["suites"][kind]
         build = (ROOT / "build" / build_name).resolve()

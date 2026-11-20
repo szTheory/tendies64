@@ -1094,7 +1094,9 @@ if(T64_HAS_ADDRESS_AND_UNDEFINED_SANITIZERS)
   # preset raises only the hostile-input counts (sweep samples and the seeded
   # campaign) and the timeout; the full boundary matrix adds no memory-safety
   # coverage over the sampled one and stays a native option
-  # (T64_STATE_MATRIX_FULL=1). Plan 09-09.1 records the measured seconds.
+  # (T64_STATE_MATRIX_FULL=1), run as one recorded step of the Phase 9 native
+  # qualification (plan 09-10, L4 WR-01). Plan 09-09.1 and 09-10 record the
+  # measured seconds.
   set_property(TEST unit.core.state.import APPEND PROPERTY ENVIRONMENT
     "T64_STATE_FUZZ_ITERATIONS=120;T64_STATE_SWEEP_HEADER=12;T64_STATE_SWEEP_BODY=12;T64_STATE_SWEEP_BLOBS=2")
   set_tests_properties(unit.core.state.import PROPERTIES TIMEOUT 1800)
