@@ -1367,9 +1367,13 @@ static int run_real(int fixture_fd, int input_fd, const char *requested_profile,
     t64_input_event event;
     for (i = 0u; i < t64_input_schedule_event_count(schedule); i++) {
       if (!t64_input_schedule_event(schedule, i, &event) ||
-          t64_machine_queue_input(machine, event.tick, event.port,
-                                  event.buttons, event.axis_x,
-                                  event.axis_y) != T64_STATUS_OK) {
+          (recorder != NULL
+               ? t64_replay_recorder_queue_input(
+                     recorder, machine, 0u, event.tick, event.port,
+                     event.buttons, event.axis_x, event.axis_y)
+               : t64_machine_queue_input(machine, event.tick, event.port,
+                                         event.buttons, event.axis_x,
+                                         event.axis_y)) != T64_STATUS_OK) {
         (void)snprintf(result.guest_stop_kind, sizeof result.guest_stop_kind,
                        "host-error");
         (void)snprintf(result.outcome, sizeof result.outcome,
@@ -1385,6 +1389,12 @@ static int run_real(int fixture_fd, int input_fd, const char *requested_profile,
         guest_ticks - current_tick > advance_step
             ? current_tick + advance_step
             : guest_ticks;
+    if (recorder != NULL) {
+      /* Op-aligned stops: never advance past the next checkpoint tick. */
+      const uint64_t next_checkpoint =
+          (current_tick / replay->interval + 1u) * replay->interval;
+      if (next_checkpoint < target) target = next_checkpoint;
+    }
     for (;;) {
       uint64_t before_records = observations.trace_records;
       uint64_t before_tick = current_tick;
@@ -1501,6 +1511,16 @@ static int run_real(int fixture_fd, int input_fd, const char *requested_profile,
     }
     if (stop.reason == T64_STOP_REASON_BOUND) {
       if (current_tick != target) {
+        (void)snprintf(result.guest_stop_kind, sizeof result.guest_stop_kind,
+                       "host-error");
+        (void)snprintf(result.outcome, sizeof result.outcome,
+                       "harness-error");
+        (void)snprintf(result.detail, sizeof result.detail, "host-error");
+        goto finalize;
+      }
+      if (recorder != NULL && current_tick % replay->interval == 0u &&
+          t64_replay_recorder_checkpoint(recorder, machine, current_tick) !=
+              T64_REPLAY_OK) {
         (void)snprintf(result.guest_stop_kind, sizeof result.guest_stop_kind,
                        "host-error");
         (void)snprintf(result.outcome, sizeof result.outcome,
