@@ -104,3 +104,7 @@ unchanged. Plan12 authored admission is implemented; Plan13 and VID-04 remain bl
 | 2c8e9ef | 41 | 38 | 3 | 0 | Independent gsd-security-auditor, ASVS1 |
 
 The [Plan12 delta](07-12-SECURITY-DELTA.md) closes authority admission after independent review and reached controls: 39/41 rows closed, two future high rows open. Whole-phase sign-off stays blocked; no acknowledgment is needed to preserve the stop.
+
+## Orchestrator note (2026-11-20)
+
+The two open high-severity rows belong to the future oracle work of plan 07-13, which the owner deferred to milestone v1.2 together with VID-04 (2026-11-20). They stay OPEN, are not accepted, and continue to block any oracle execution, acquisition, copying or publication until the owner's D5 decision and the rights audit resolve them. The implemented authored scope remains SECURED (0 open authored threats).

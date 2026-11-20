@@ -190,7 +190,7 @@ VID-04's specific acceptance gate does not prevent permitted authored/native wor
 
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
-| 7. RDP Reference Renderer and VI Scanout | 12/13 | Blocked: oracle authority | - |
+| 7. RDP Reference Renderer and VI Scanout | 12/12 | Complete    | 2026-11-20 |
 | 8. Audio Interface and Raw Capture | 5/5 | Complete    | 2026-11-19 |
 | 9. Controller, Save Media and Replay | 13/13 | Complete    | 2026-11-20 |
 
