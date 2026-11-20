@@ -539,3 +539,16 @@ CI/CD efficiency and cheap-first findings from Phase9 execution; they extend sec
 - Reviewers and auditors must not run `ninja -t clean` or fixture rebuilds in the
   shared tree; use `git archive` scratch builds and re-verify fixture hashes after any
   such incident.
+- Replay the CI steps that run after Gate (evidence emit, upload lists) locally before any
+  push that touches a retained-evidence producer or a shared test helper: a per-process
+  test cleanup scope deleted run directories the hosted emit step reads afterwards and
+  only the hosted run showed it (about 20 s to reproduce locally; docs/ci-reviews/LOG.md F-107).
+- Before the first push of a phase, audit every registered CTest TIMEOUT against the
+  largest native, sanitizer and hosted seconds (hosted macOS ran 2.5x to 3.5x native for
+  the state tests; four timeouts were under 2x). F-108.
+- Check the CI result of the current head before starting a long (25 minute) native
+  qualification rehearsal; a red hosted head makes the native run wasted work.
+- A hosted job time gate that is a projection (warm plus the uncached tool build) on one
+  noisy runner sample (macOS ranged 349 to 433 s on near-identical code) is checked by
+  confirming the cache entries are present and fresh before the final push, not by
+  spending another candidate cycle.
