@@ -287,11 +287,20 @@ typedef struct {
   uint8_t storage[T64_SAVE_SRAM_BYTES];
 } snapshot;
 
+/* FNV-1a over 8-byte words (the structure is about 79 KB; the campaign takes
+ * two of these per request), then over the remaining bytes. */
 static uint64_t fnv1a64(const uint8_t *bytes, size_t length) {
   uint64_t hash = UINT64_C(0xcbf29ce484222325);
-  size_t index;
+  size_t index = 0u;
 
-  for (index = 0u; index < length; index++) {
+  for (; index + 8u <= length; index += 8u) {
+    uint64_t word;
+
+    (void)memcpy(&word, bytes + index, 8u);
+    hash ^= word;
+    hash *= UINT64_C(0x100000001b3);
+  }
+  for (; index < length; index++) {
     hash ^= (uint64_t)bytes[index];
     hash *= UINT64_C(0x100000001b3);
   }
@@ -1448,6 +1457,352 @@ static void case_replacement(void) {
 }
 
 
+
+/* ------------------------------------------------------------------------ */
+/* mutation-bounded                                                          */
+/* ------------------------------------------------------------------------ */
+
+/* The campaign size follows the build: 2,000 requests in the gate preset and
+ * 20,000 under AddressSanitizer. */
+#if defined(__SANITIZE_ADDRESS__)
+#define CAMPAIGN_SANITIZED 1
+#elif defined(__has_feature)
+#if __has_feature(address_sanitizer)
+#define CAMPAIGN_SANITIZED 1
+#endif
+#endif
+#ifdef CAMPAIGN_SANITIZED
+#define CAMPAIGN_REQUESTS 20000u
+#else
+#define CAMPAIGN_REQUESTS 2000u
+#endif
+#define CAMPAIGN_SEED UINT32_C(0x5a7e3d09)
+
+typedef enum {
+  STATE_IDLE = 0,
+  STATE_STALE = 1,
+  STATE_FUTURE = 2,
+  STATE_DMA = 3
+} state_class;
+
+typedef struct {
+  size_t profile;
+  bool admitted;
+  bool is_export;
+  pointer_class pointer;
+  uint32_t kind;
+  uint32_t format;
+  size_t length;
+  state_class state;
+} params;
+
+typedef struct {
+  t64_machine *admitted[PROFILE_ROWS];
+  t64_machine *unadmitted[PROFILE_ROWS];
+  uint8_t asset[IPL3_ASSET_BYTES];
+  size_t rows[10];       /* violated-row counts; index 0 counts successes */
+  size_t requests;
+  size_t resets;
+} pool;
+
+/* An admitted machine with its CPU event cancelled and the tick at 1,000 (a
+ * stale deadline of 500 is then at or below the tick). */
+static bool reidle(t64_machine *machine) {
+  uint64_t cancelled_tick = UINT64_MAX;
+
+  if (t64_schedule_cancel(machine, T64_DEVICE_CPU, T64_CPU_EVENT_STEP, 0u,
+                          &cancelled_tick) != T64_STATUS_OK) {
+    return false;
+  }
+  return advance_guest_to(machine, 1000u);
+}
+
+static bool pool_init(pool *p) {
+  size_t index;
+
+  (void)memset(p, 0, sizeof *p);
+  if (!read_openipl3_asset(p->asset)) return false;
+  for (index = 0u; index < PROFILE_ROWS; index++) {
+    p->admitted[index] = make_idle_machine(profile_rows[index].id);
+    p->unadmitted[index] = create_unadmitted(profile_rows[index].id);
+    if (p->admitted[index] == NULL || p->unadmitted[index] == NULL ||
+        !advance_guest_to(p->admitted[index], 1000u)) {
+      return false;
+    }
+  }
+  fill_image(image_a, T64_SAVE_SRAM_BYTES);
+  return true;
+}
+
+static void pool_destroy(pool *p) {
+  size_t index;
+
+  for (index = 0u; index < PROFILE_ROWS; index++) {
+    if (p->admitted[index] != NULL) t64_machine_destroy(p->admitted[index]);
+    if (p->unadmitted[index] != NULL) t64_machine_destroy(p->unadmitted[index]);
+  }
+}
+
+/* One request against the rule function. Every refusal leaves the compared
+ * state bit-identical; every success is verified against the independent
+ * mapping and followed by a replacement-based reset to a known state. */
+static void execute_request(pool *p, const params *q) {
+  static snapshot before;
+  const profile_row *profile = &profile_rows[q->profile];
+  t64_machine *machine =
+      q->admitted ? p->admitted[q->profile] : p->unadmitted[q->profile];
+  uint8_t *buffer = NULL;
+  size_t length_out = LENGTH_SENTINEL;
+  const bool sram = profile->kind == T64_SAVE_SRAM_32K;
+  bool busy = false;
+  request r;
+  t64_status got;
+  t64_status want;
+  int row;
+
+  /* The state class, edited directly (the N6 pattern). */
+  machine->save.busy_until = 0u;
+  machine->pi.active_valid = false;
+  machine->pi.active_save_direction = T64_PI_DIRECTION_ROM_TO_RDRAM;
+  if (q->admitted && q->state == STATE_STALE) {
+    machine->save.busy_until = 500u;
+  } else if (q->state == STATE_FUTURE) {
+    machine->save.busy_until = machine->tick + 1000u;
+    busy = true;
+  } else if (q->state == STATE_DMA && sram) {
+    machine->pi.active_valid = true;
+    machine->pi.active_save_direction = T64_PI_DIRECTION_RDRAM_TO_SRAM;
+    busy = true;
+  }
+  if (q->pointer == POINTER_VALID) {
+    buffer = q->is_export ? export_buffer : image_a;
+  } else if (q->pointer == POINTER_OVERLAP) {
+    buffer = machine->ram + 0x2000u;
+  }
+  (void)memset(&r, 0, sizeof r);
+  r.is_export = q->is_export;
+  r.admitted = q->admitted;
+  r.pointer = q->pointer;
+  r.address = (uintptr_t)buffer;
+  r.length = q->length;
+  r.profile_kind = profile->kind;
+  r.size = profile->size;
+  r.kind = q->kind;
+  r.format = q->format;
+  r.busy = busy;
+  row = first_violated_row(&r);
+  want = expected_status(&r, row);
+  take_snapshot(machine, false, &before);
+  if (q->is_export) {
+    if (q->pointer == POINTER_VALID) (void)memset(export_buffer, 0xA5, 64u);
+    got = do_export(machine, q->kind, q->format, buffer, q->length,
+                    &length_out);
+  } else {
+    got = do_import(machine, q->kind, q->format, buffer, q->length);
+  }
+  p->requests++;
+  p->rows[row < 0 ? 0 : (size_t)row]++;
+  if (got != want) {
+    fprintf(stderr,
+            "mutation-bounded: %s id=%s admitted=%d pointer=%d kind=%u "
+            "format=%u length=%zu state=%d: got %u want %u (row R%d)\n",
+            q->is_export ? "export" : "import", profile->id, q->admitted,
+            (int)q->pointer, (unsigned)q->kind, (unsigned)q->format,
+            q->length, (int)q->state, (unsigned)got, (unsigned)want, row);
+  }
+  T64_CHECK_INT(got, want);
+  if (row >= 0) {
+    if (q->is_export) {
+      T64_CHECK(length_out == (row == 8 ? profile->size : LENGTH_SENTINEL));
+    }
+    T64_CHECK(snapshot_unchanged("campaign refusal", machine, false, &before));
+    return;
+  }
+  /* A success: verify against the independent mapping, then reset. */
+  if (q->is_export) {
+    T64_CHECK(length_out == profile->size);
+    map_image(machine->save.bytes, profile->size, q->format, expected_buffer);
+    T64_CHECK(memcmp(export_buffer, expected_buffer, profile->size) == 0);
+    T64_CHECK(snapshot_unchanged("campaign export", machine, false, &before));
+  } else {
+    map_image(image_a, profile->size, q->format, expected_buffer);
+    T64_CHECK(memcmp(machine->save.bytes, expected_buffer, profile->size) == 0);
+    T64_CHECK_INT(machine->save.busy_until, 0u);
+    T64_CHECK_INT(machine->save.write_generation, before.generation + 1u);
+    T64_CHECK_INT(machine->tick, before.tick);
+    T64_CHECK_INT(machine->queue_count, before.queue_count);
+    T64_CHECK_INT(machine->next_sequence, before.next_sequence);
+    T64_CHECK_INT(machine->trace_count, before.trace_count);
+  }
+  /* Replacement-based reset: the same asset restores a blank, idle machine. */
+  T64_CHECK_INT(t64_machine_admit_rom(machine, p->asset, IPL3_ASSET_BYTES),
+                T64_STATUS_OK);
+  T64_CHECK(reidle(machine));
+  p->resets++;
+}
+
+static uint32_t campaign_state = CAMPAIGN_SEED;
+
+static uint32_t next_random(void) {
+  uint32_t x = campaign_state;
+
+  x ^= x << 13;
+  x ^= x >> 17;
+  x ^= x << 5;
+  campaign_state = x;
+  return x;
+}
+
+static void case_mutation_bounded(void) {
+  static pool machines;
+  static const uint32_t kind_values[] = {0u, 1u, 2u, 3u, 4u, 5u, 6u, 7u, 8u,
+                                         99u, UINT32_C(0x7FFFFFFF),
+                                         UINT32_C(0xFFFFFFFF)};
+  static const uint32_t format_values[] = {0u, 1u, 2u, 3u, 4u, 99u,
+                                           UINT32_C(0xFFFFFFFF)};
+  size_t sweep_requests = 0u;
+  size_t profile_index;
+  size_t index;
+  size_t row;
+
+  if (!pool_init(&machines)) {
+    T64_CHECK(false);
+    pool_destroy(&machines);
+    return;
+  }
+  /* Single-dimension sweeps from the accepted baseline of each id. */
+  for (profile_index = 0u; profile_index < PROFILE_ROWS; profile_index++) {
+    const profile_row *profile = &profile_rows[profile_index];
+    const size_t ok_length = profile->size != 0u ? profile->size : 512u;
+    const uint32_t ok_kind = profile->kind != 0u ? profile->kind : 3u;
+    const size_t lengths[] = {0u, 1u, ok_length - 1u, ok_length,
+                              ok_length + 1u, 2u * ok_length, SIZE_MAX};
+    size_t direction;
+
+    for (direction = 0u; direction < 2u; direction++) {
+      params base;
+      size_t admitted_index;
+
+      (void)memset(&base, 0, sizeof base);
+      base.profile = profile_index;
+      base.admitted = true;
+      base.is_export = direction == 1u;
+      base.pointer = POINTER_VALID;
+      base.kind = ok_kind;
+      base.format = T64_SAVE_FORMAT_RAW;
+      base.length = ok_length;
+      base.state = STATE_IDLE;
+      execute_request(&machines, &base);
+      sweep_requests++;
+      for (admitted_index = 0u; admitted_index < 2u; admitted_index++) {
+        params q = base;
+        size_t value;
+
+        q.admitted = admitted_index == 0u;
+        execute_request(&machines, &q);
+        sweep_requests++;
+        for (value = 0u; value < sizeof kind_values / sizeof kind_values[0];
+             value++) {
+          q = base;
+          q.admitted = admitted_index == 0u;
+          q.kind = kind_values[value];
+          execute_request(&machines, &q);
+          sweep_requests++;
+        }
+        for (value = 0u; value < sizeof format_values / sizeof format_values[0];
+             value++) {
+          q = base;
+          q.admitted = admitted_index == 0u;
+          q.format = format_values[value];
+          execute_request(&machines, &q);
+          sweep_requests++;
+        }
+        for (value = 0u; value < sizeof lengths / sizeof lengths[0]; value++) {
+          q = base;
+          q.admitted = admitted_index == 0u;
+          q.length = lengths[value];
+          execute_request(&machines, &q);
+          sweep_requests++;
+        }
+        for (value = 0u; value < 4u; value++) {
+          q = base;
+          q.admitted = admitted_index == 0u;
+          q.state = (state_class)value;
+          execute_request(&machines, &q);
+          sweep_requests++;
+        }
+        for (value = 0u; value < 3u; value++) {
+          q = base;
+          q.admitted = admitted_index == 0u;
+          q.pointer = (pointer_class)value;
+          execute_request(&machines, &q);
+          sweep_requests++;
+        }
+      }
+    }
+  }
+  /* The seeded campaign: combined requests drawn from the generator only; the
+     expectations come from the rule function. */
+  campaign_state = CAMPAIGN_SEED;
+  for (index = 0u; index < CAMPAIGN_REQUESTS; index++) {
+    const profile_row *profile;
+    params q;
+    uint32_t draw;
+    size_t ok_length;
+
+    (void)memset(&q, 0, sizeof q);
+    q.profile = next_random() % PROFILE_ROWS;
+    profile = &profile_rows[q.profile];
+    ok_length = profile->size != 0u ? profile->size : 512u;
+    q.admitted = next_random() % 16u != 0u;
+    q.is_export = (next_random() & 1u) != 0u;
+    draw = next_random() % 10u;
+    q.pointer = draw < 8u ? POINTER_VALID
+                          : (draw == 8u ? POINTER_NULL : POINTER_OVERLAP);
+    draw = next_random() % 100u;
+    q.kind = draw < 55u ? (profile->kind != 0u ? profile->kind : 3u)
+                        : kind_values[next_random() %
+                                      (sizeof kind_values /
+                                       sizeof kind_values[0])];
+    draw = next_random() % 100u;
+    q.format = draw < 70u ? 1u + next_random() % 3u
+                          : format_values[next_random() %
+                                          (sizeof format_values /
+                                           sizeof format_values[0])];
+    draw = next_random() % 100u;
+    if (draw < 65u) {
+      q.length = ok_length;
+    } else {
+      const size_t lengths[] = {0u, 1u, ok_length - 1u, ok_length + 1u,
+                                2u * ok_length, SIZE_MAX};
+
+      q.length = lengths[next_random() % (sizeof lengths / sizeof lengths[0])];
+    }
+    draw = next_random() % 10u;
+    q.state = draw < 6u ? STATE_IDLE
+                        : (draw == 6u ? STATE_STALE
+                                      : (draw < 9u ? STATE_FUTURE : STATE_DMA));
+    execute_request(&machines, &q);
+  }
+  /* Every row was reached, and some requests succeeded. */
+  for (row = 0u; row < 10u; row++) {
+    if (machines.rows[row] == 0u) {
+      fprintf(stderr, "mutation-bounded: row %zu never reached\n", row);
+    }
+    T64_CHECK(machines.rows[row] != 0u);
+  }
+  printf("mutation-bounded: sweeps=%zu campaign=%u total=%zu resets=%zu "
+         "successes=%zu refusals by row:",
+         sweep_requests, (unsigned)CAMPAIGN_REQUESTS, machines.requests,
+         machines.resets, machines.rows[0]);
+  for (row = 1u; row < 10u; row++) printf(" R%zu=%zu", row, machines.rows[row]);
+  printf("\n");
+#ifdef CAMPAIGN_SANITIZED
+  printf("mutation-bounded: sanitized build, 20000-request campaign ran\n");
+#endif
+  pool_destroy(&machines);
+}
+
 typedef struct {
   const char *name;
   void (*run)(void);
@@ -1462,6 +1817,7 @@ static const test_case cases[] = {
     {"export-refusals", case_export_refusals},
     {"in-flight-real", case_in_flight_real},
     {"replacement", case_replacement},
+    {"mutation-bounded", case_mutation_bounded},
 };
 
 int main(int argc, char **argv) {
