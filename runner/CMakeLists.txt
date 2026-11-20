@@ -600,7 +600,7 @@ set_tests_properties(runner.pad-poll controls.real.pad-wrong-value PROPERTIES
 # Phase 9 replay (plan 09-07): the authored replay-mix ROM, the replay module
 # tests (suite unit, in process) and the real supervised record and play
 # controls (suite real).
-add_executable(test_replay tests/test_replay.c)
+add_executable(test_replay tests/test_replay.c t64_replay.c)
 target_compile_definitions(test_replay PRIVATE ${T64_HOST_DEFS})
 target_include_directories(test_replay PRIVATE
   ${CMAKE_CURRENT_SOURCE_DIR} ${CMAKE_SOURCE_DIR}/core/include)
