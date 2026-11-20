@@ -36,6 +36,7 @@
 #include "t64_json.h"
 #include "t64_sha256.h"
 #include "tendies64/t64_machine.h"
+#include "t64_test_tree.h"
 
 #define PROFILE_STEM "ntsc-cart-4m-openipl3-rdram-b-t1-si-v1"
 
@@ -106,14 +107,16 @@ static bool prepare_evidence(void) {
     }
     /* A racing mkdir that finds the directory already present is success. */
     if (mkdir(g_evidence, 0700) != 0 && errno != EEXIST) return false;
-    return stat(g_evidence, &info) == 0 && S_ISDIR(info.st_mode);
+    return stat(g_evidence, &info) == 0 && S_ISDIR(info.st_mode) &&
+           t64_test_scope_open(g_evidence, sizeof g_evidence, false);
   }
   if (temp == NULL || temp[0] == '\0') temp = "/tmp";
   if (snprintf(g_evidence, sizeof g_evidence, "%s/t64-state.XXXXXX", temp) >=
       (int)sizeof g_evidence) {
     return false;
   }
-  return mkdtemp(g_evidence) != NULL;
+  return mkdtemp(g_evidence) != NULL &&
+         t64_test_scope_open(g_evidence, sizeof g_evidence, true);
 }
 
 /* A fresh private working directory for one run. */
