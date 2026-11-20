@@ -88,7 +88,13 @@ detection of a lying allocator.
 
 Callbacks run only during machine creation, admission, replacement, and
 destruction. Scheduled guest execution and read-only observations do not call
-the host.
+the host. State import (`t64_machine_state_import`, see
+[state-container.md](state-container.md)) performs no allocation, no host
+callback and no release; beside admission and replacement it is an operation
+that mutates the machine, but only at its single commit point after every check
+has accepted the blob, and a refused import leaves the machine bit-identical.
+Its invariant summary lives in a machine-owned scratch field, not in an
+allocation.
 
 ## Physical bus and MI
 
@@ -647,7 +653,7 @@ introduced.
 | Trace records, drop count and enablement | Yes | Clear records and drops; preserve enablement and emit a new admission record when enabled |
 | SI registers, active descriptor, PIF RAM, parsed table, sticky error, input latches and tokens (composite family) | Yes | Cancel the SI events, clear MI SI pending, clear all SI state and set the next token to 1 |
 | Save device storage and EEPROM deadline (composite family save ids) | Yes | Fill with the blank contents (0xFF for the EEPROM, 0x00 for the SRAM) and clear the deadline on a successful replacement; a refused replacement leaves both unchanged |
-| Save import generation (`write_generation`, composite family save ids; observer-only, outside the digest) | Yes | Reset to zero on a successful replacement together with the blank storage and the cleared deadline; a refused replacement leaves bytes, deadline and generation unchanged |
+| Save import generation (`write_generation`, composite family save ids; observer-only, outside the digest) | Yes | Reset to zero on a successful replacement together with the blank storage and the cleared deadline; a refused replacement leaves bytes, deadline and generation unchanged. A successful state import into a profile with a save device adds one (it replaces the save content as a save import does); a refused import never changes it; it never travels in the state container |
 | Output-drain cursor | Yes | Reset to zero with guest output; observer-only and excluded from the canonical digest |
 
 Refusal assertions compare every present machine observation, scheduler state,
@@ -892,7 +898,7 @@ Every member of `struct t64_machine` in `core/t64_internal.h` has exactly one
 row: the canonical section that carries it, the observer-continuity section (16)
 or an exclusion with its reason class (allocator, pointer, trace, drain cursor,
 rsp observation, padding, queue head), and whether replacement resets it and by
-which function. The member list is the set of declarations in the structure body (comment lines excluded), and has 67 members. Build and source identity is a compile-time string, not a
+which function. The member list is the set of declarations in the structure body (comment lines excluded), and has 68 members. Build and source identity is a compile-time string, not a
 member, and is excluded as behavior (the retained packet metadata keeps the
 profile and build ids only through v24).
 
@@ -927,7 +933,7 @@ profile and build ids only through v24).
 | video_packets | 8, the retained slot bytes up to each slot length | yes, `t64_vi_reset_machine_state` | pointer: the location is excluded, drained slots are hashed |
 | ai | 9 | yes, `t64_ai_reset_machine_state` | AI latches, rate latch, descriptor queue and packet history hash |
 | si | 10 | yes, `t64_si_reset_machine_state` | SI registers, active descriptor, PIF RAM, parsed table and input latches |
-| save | 11, with `write_generation` observer-only | yes, `t64_save_reset_machine_state` | kind, size, EEPROM deadline and raw storage are canonical; the import generation is outside the digest and travels with observer state if the container carries it (decided in plan 09-08) |
+| save | 11, with `write_generation` observer-only | yes, `t64_save_reset_machine_state` | kind, size, EEPROM deadline and raw storage are canonical; the import generation is outside the canonical digest and never travels in the container (plan 09-08), and each successful state import adds one (plan 09-09) |
 | audio_storage | excluded | no, preserved | allocator: the host storage descriptor of the retained audio slots |
 | audio_packets | 9, the retained slot bytes up to each slot length | yes, `t64_ai_reset_machine_state` | pointer: the location is excluded, drained slots are hashed |
 | output_drain_cursor | observer-continuity (16) | yes, `reset_guest_state` | drain cursor: outside the digest; observer state that gates stop points, carried by the container section 16 (content decided in plan 09-08) |
@@ -965,3 +971,4 @@ profile and build ids only through v24).
 | rsp_observed_dma_action | excluded | no, rewritten at the next RSP attempt | rsp observation: diagnostic only |
 | rsp_observed_outcome | excluded | no, rewritten at the next RSP attempt | rsp observation: diagnostic only |
 | rsp_observation_valid | excluded | no, rewritten at the next RSP attempt | rsp observation: diagnostic only |
+| state_summary | excluded | no, cleared by every import attempt | scratch: the invariant summary of the state importer (plan 09-09); zero outside an import attempt, never part of the digest or the export |

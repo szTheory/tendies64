@@ -403,3 +403,71 @@ retained video and audio packet strings (profile and build identity, not part of
 the v25 state) are regenerated from the live machine for each produced slot.
 Profile, content, ROM bytes, the allocator, the storage descriptors and every
 pointer are untouched.
+
+### Save media counters and the deadline bound
+
+- `write_generation` (the observer counter of the save device, plan 09-05): one
+  successful state import into a profile with a save device adds exactly one,
+  saturating at the 64-bit maximum, as the last write of the commit; a refused
+  import never touches it; replacement (`t64_machine_admit_rom`) resets it to 0; a
+  profile without a save device keeps 0. It never travels in the container, is
+  never read from a blob and stays outside the digest, so a peer imported twice from
+  one blob holds a different generation than the source with an equal digest
+  (case `save-media-roundtrip`).
+- `busy_until` (the EEPROM deadline, section 11): an imported deadline is at most
+  the blob tick plus the busy window of the profile save kind (375,000 ticks for
+  the two EEPROM kinds, 0 for SRAM; rule `TICK_LE`, status `STATE_RANGE`). Only the
+  channel-4 EEPROM execute path writes the deadline (`t64_save_channel4_execute` in
+  `core/t64_save.c`) and its execute tick is never above the machine tick, so the
+  bound holds for every reachable state and refuses a hostile far-future deadline
+  that would make every later host save import answer `SAVE_BUSY` for the life of
+  the machine. A deadline at or below the blob tick (zero, or the stale deadline of
+  a finished window, which every machine that completed an EEPROM write exports) is
+  accepted and kept so the digest is reproduced exactly. A different bound,
+  requiring the deadline at or above the tick, was considered and rejected: it
+  would refuse that stale deadline and fail the round trip itself. The consequence
+  is tested: an accepted deadline equal to the blob tick plus the window makes a host
+  save import answer `SAVE_BUSY` at the import tick and at the deadline minus one
+  and succeed at the deadline tick.
+
+### Observer continuity and the drop flag
+
+By default an import restores the observer section: the output drain cursor and
+the video and audio ring head and occupancy of the blob. Their ranges are checked
+before use (`OBSERVER_RANGE`: the cursor at most the retained capture length, a head
+below the ring capacity, an occupancy at most the ring capacity). The flag
+`T64_STATE_IMPORT_DROP_OBSERVERS` is a named policy: both ring occupancies and
+heads become 0 and the drain cursor becomes the retained capture length of the
+blob, so no pre-import byte is delivered again. The canonical digest is the same
+either way (observer state is outside it). Observer state gates dispatch (a full
+ring stalls the VI and the AI), so the two modes may differ in their stop points;
+results are not claimed equal across submission schedules. Any other flag bit is
+refused with `ARG_FLAGS`.
+
+### Same-build ladder
+
+The evidence of the import plan is a ladder of self-consistency checks of the
+software model on authored machines of the composite family:
+
+- T1 round trip: an SI read in flight (execute still pending, one CPU step event)
+  exported and imported into a fresh peer gives the same canonical digest as the
+  source and as the declared digest, the same queue tuples with the ten production
+  handlers, queue head 0, an empty trace with its enablement kept and a clear
+  scratch (case `roundtrip`).
+- T2 export, import, export: byte identical for the idle machine, the SI read state
+  and a machine with written SRAM words (case `idempotence`).
+- T3 continuation: source and peer advanced from the import tick in one shot and in
+  partitions of 1, 7 and 31 ticks for the first 310 ticks and in 4,096 tick steps,
+  with the trace on and off, give equal digests at +310, +10,000 and +30,000 and
+  equal drained ISViewer bytes; a one-field perturbation of the peer after the
+  import is detected at the checkpoint where it is visible (case
+  `continuation-partitions`).
+- A peer that ran 40,000 further ticks of its own SI transaction, and a source that
+  advanced 10,000 ticks and then imports its own earlier blob (a rewind), reproduce
+  the digest and the continuation (case `dirty-peer`).
+
+These are comparisons of the code with itself: a state that every schedule gets
+wrong in the same way would pass them, and the ladder says nothing about a console.
+Fields that the v25 state does not carry (the RDP combiner, depth and blender
+registers, the hidden coverage tables and the diagnostic observation record) are
+reset to zero by the commit, so a peer that used them does not keep them.

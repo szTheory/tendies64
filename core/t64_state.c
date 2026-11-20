@@ -1557,8 +1557,9 @@ static void state_read_rdp(state_reader *r) {
 
 /* One retained video packet slot: its bytes (up to the slot length) and the
  * metadata the v25 walker hashes. The profile and build identity strings are
- * not part of the v25 state; a produced slot gets them from the live machine
- * (same profile, same build), the unused slot keeps zeroes. */
+ * not part of the v25 state; a produced slot (a non-zero length: the first
+ * packet carries sequence 0) gets them from the live machine (same profile,
+ * same build), the unused slot keeps zeroes. */
 static void state_read_video_slot(state_reader *r, size_t slot) {
   t64_machine *m = r->machine;
   t64_video_packet_info info;
@@ -1615,7 +1616,7 @@ static void state_read_video_slot(state_reader *r, size_t slot) {
   info.filter = state_rd32(r);
   state_rd_text(r, info.vi_output_policy, sizeof info.vi_output_policy);
   if (r->mode == STATE_MODE_APPLY) {
-    if (info.sequence != 0u) {
+    if (length != 0u) {
       size_t i = 0u;
 
       while (i + 1u < sizeof info.profile_id &&
@@ -1716,7 +1717,7 @@ static void state_read_audio_slot(state_reader *r, size_t slot) {
               T64_STATE_REASON_FIELD_RANGE, T64_STATE_RULE_LEN_LE);
   info.byte_length = (size_t)byte_length;
   if (r->mode == STATE_MODE_APPLY) {
-    if (info.sequence != 0u) {
+    if (length != 0u) {
       size_t i = 0u;
 
       while (i + 1u < sizeof info.profile_id &&
@@ -2766,6 +2767,15 @@ static void state_commit(t64_machine *machine, const uint8_t *bytes,
   machine->rsp_observed_dma_action = 0u;
   machine->rsp_observed_outcome = 0u;
   machine->rsp_observation_valid = false;
+  /* The generation counts successful imports of save content (plan 09-05): a
+   * state import replaces the save bytes exactly as a save import does, so it
+   * adds one, saturating, and only on a profile with a save device. It never
+   * travels in the container, stays outside the digest and no refusal reaches
+   * this line. The last write of the commit. */
+  if (machine->profile.save_kind != 0u &&
+      machine->save.write_generation != UINT64_MAX) {
+    machine->save.write_generation++;
+  }
 }
 
 bool t64_state_summary_is_clear(const t64_machine *machine) {

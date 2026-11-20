@@ -361,6 +361,10 @@ static void case_roundtrip(void) {
     return;
   }
   T64_CHECK_INT(t64_machine_trace_set_enabled(peer, true), T64_STATUS_OK);
+  /* reached: the peer holds trace records of its own before the import, so a
+   * trace that survived the import would be seen */
+  T64_CHECK(advance_to(peer, 100u));
+  T64_CHECK(peer->trace_count > 0u);
   allocate_before = allocate_calls;
   release_before = release_calls;
   (void)memset(&report, 0xA5, sizeof report);
@@ -2028,6 +2032,603 @@ static void case_refusal_untouched(void) {
 }
 
 
+/* ======================================================================== */
+/* Task 3: the same-build ladder                                            */
+/* ======================================================================== */
+
+#define ISVIEWER_BASE UINT32_C(0x13ff0000)
+#define SRAM_WORD_A UINT32_C(0x08000000)
+#define SRAM_WORD_B UINT32_C(0x08007FFC)
+#define VI_BASE UINT32_C(0x04400000)
+#define VI_ORIGIN UINT32_C(0x3000)
+
+/* Host writes into the ISViewer buffer window (the observable guest output). */
+static void isviewer_emit(t64_machine *machine, const uint8_t *bytes,
+                          size_t count) {
+  size_t i;
+
+  for (i = 0u; i + 4u <= count; i += 4u) {
+    T64_CHECK_INT(t64_machine_bus_write(machine,
+                                        ISVIEWER_BASE + UINT32_C(0x20) +
+                                            (uint32_t)i,
+                                        4u, rd32(bytes + i)),
+                  T64_STATUS_OK);
+  }
+  T64_CHECK_INT(t64_machine_bus_write(machine, ISVIEWER_BASE + UINT32_C(0x14),
+                                      4u, (uint32_t)count),
+                T64_STATUS_OK);
+}
+
+static uint64_t save_generation(t64_machine *machine, uint32_t kind) {
+  t64_save_info info;
+
+  if (kind == 0u) return machine->save.write_generation;
+  T64_CHECK_INT(t64_machine_save_info(machine, kind, &info), T64_STATUS_OK);
+  return info.write_generation;
+}
+
+/* ---- case idempotence (T2) --------------------------------------------- */
+
+static void idempotence_of(t64_machine *source, const char *profile_id) {
+  t64_machine *peer = create_admitted(profile_id);
+  t64_state_import_report report;
+  uint8_t *first;
+  uint8_t *second;
+  size_t first_length = 0u;
+  size_t second_length = 0u;
+
+  if (source == NULL || peer == NULL) {
+    if (peer != NULL) t64_machine_destroy(peer);
+    return;
+  }
+  first = export_blob(source, &first_length);
+  if (first != NULL) {
+    T64_CHECK_INT(
+        t64_machine_state_import(peer, first, first_length, 0u, &report),
+        T64_STATUS_OK);
+    second = export_blob(peer, &second_length);
+    T64_CHECK_INT(second_length, first_length);
+    T64_CHECK(second != NULL && second_length == first_length &&
+              memcmp(first, second, first_length) == 0);
+    free(second);
+  }
+  free(first);
+  t64_machine_destroy(peer);
+}
+
+static t64_machine *build_s32k_with_words(void) {
+  t64_machine *machine = create_admitted(SAVE_S32K_ID);
+
+  if (machine == NULL) return NULL;
+  T64_CHECK(advance_to(machine, 2000u));
+  T64_CHECK_INT(t64_machine_bus_write(machine, SRAM_WORD_A, 4u, 0x11223344u),
+                T64_STATUS_OK);
+  T64_CHECK_INT(t64_machine_bus_write(machine, SRAM_WORD_B, 4u, 0xA5A5A5A5u),
+                T64_STATUS_OK);
+  return machine;
+}
+
+static void case_idempotence(void) {
+  t64_machine *idle = create_admitted(SI_STEM_ID);
+  t64_machine *s1 = build_s1(SI_STEM_ID);
+  t64_machine *sram = build_s32k_with_words();
+
+  if (idle != NULL) T64_CHECK(advance_to(idle, 2000u));
+  idempotence_of(idle, SI_STEM_ID);
+  idempotence_of(s1, SI_STEM_ID);
+  idempotence_of(sram, SAVE_S32K_ID);
+  if (idle != NULL) t64_machine_destroy(idle);
+  if (s1 != NULL) t64_machine_destroy(s1);
+  if (sram != NULL) t64_machine_destroy(sram);
+}
+
+/* ---- case save-media-roundtrip ------------------------------------------ */
+
+/* The 09-05 save import of a patterned image into the machine. */
+static void save_import_pattern(t64_machine *machine, uint32_t kind,
+                                size_t size) {
+  uint8_t *image = (uint8_t *)malloc(size);
+  size_t i;
+
+  if (image == NULL) {
+    T64_CHECK(false);
+    return;
+  }
+  for (i = 0u; i < size; i++) image[i] = (uint8_t)(i * 7u + 3u);
+  T64_CHECK_INT(t64_machine_save_import(machine, kind, T64_SAVE_FORMAT_RAW,
+                                        image, size),
+                T64_STATUS_OK);
+  free(image);
+}
+
+static void case_save_media_roundtrip(void) {
+  t64_machine *source = build_s32k_with_words();
+  t64_machine *peer = create_admitted(SAVE_S32K_ID);
+  t64_machine *wrong = create_admitted(SAVE_E4K_ID);
+  t64_machine *stem = create_admitted(SI_STEM_ID);
+  t64_state_import_report report;
+  uint8_t *blob = NULL;
+  size_t length = 0u;
+  uint32_t value = 0u;
+  uint8_t digest[T64_DIGEST_SIZE];
+
+  if (source == NULL || peer == NULL || wrong == NULL || stem == NULL) {
+    T64_CHECK(false);
+    goto done;
+  }
+  /* Two host save imports give the source a generation of 2; the guest-side
+   * words are written afterwards (guest writes never move the generation). */
+  save_import_pattern(source, T64_SAVE_SRAM_32K, 32768u);
+  save_import_pattern(source, T64_SAVE_SRAM_32K, 32768u);
+  T64_CHECK_INT(t64_machine_bus_write(source, SRAM_WORD_A, 4u, 0x11223344u),
+                T64_STATUS_OK);
+  T64_CHECK_INT(t64_machine_bus_write(source, SRAM_WORD_B, 4u, 0xA5A5A5A5u),
+                T64_STATUS_OK);
+  T64_CHECK_INT(save_generation(source, T64_SAVE_SRAM_32K), 2u);
+  blob = export_blob(source, &length);
+  if (blob == NULL) goto done;
+
+  /* the round trip, with the generation rule */
+  T64_CHECK_INT(save_generation(peer, T64_SAVE_SRAM_32K), 0u);
+  T64_CHECK_INT(t64_machine_state_import(peer, blob, length, 0u, &report),
+                T64_STATUS_OK);
+  T64_CHECK(digests_equal(peer, source));
+  T64_CHECK_INT(t64_machine_bus_read(peer, SRAM_WORD_A, 4u, &value),
+                T64_STATUS_OK);
+  T64_CHECK_INT(value, 0x11223344u);
+  T64_CHECK_INT(t64_machine_bus_read(peer, SRAM_WORD_B, 4u, &value),
+                T64_STATUS_OK);
+  T64_CHECK_INT(value, 0xA5A5A5A5u);
+  /* one successful import increments the counter by exactly one */
+  T64_CHECK_INT(save_generation(peer, T64_SAVE_SRAM_32K), 1u);
+  T64_CHECK_INT(t64_machine_state_import(peer, blob, length, 0u, &report),
+                T64_STATUS_OK);
+  T64_CHECK_INT(save_generation(peer, T64_SAVE_SRAM_32K), 2u);
+  /* the counter is outside the digest and the container: equal digests across
+   * differing generations (the source holds 2, a third import makes it 3 on
+   * the peer) and the exported bytes do not depend on it */
+  T64_CHECK_INT(t64_machine_state_import(peer, blob, length, 0u, &report),
+                T64_STATUS_OK);
+  T64_CHECK_INT(save_generation(peer, T64_SAVE_SRAM_32K), 3u);
+  T64_CHECK_INT(save_generation(source, T64_SAVE_SRAM_32K), 2u);
+  T64_CHECK(digests_equal(peer, source));
+
+  /* a refused import never changes it: another profile, a flipped trailer and
+   * one row per refusal family */
+  T64_CHECK_INT(t64_machine_state_import(wrong, blob, length, 0u, &report),
+                T64_STATUS_STATE_PROFILE);
+  T64_CHECK_INT(report.reason, T64_STATE_REASON_PROFILE_DIGEST);
+  T64_CHECK_INT(save_generation(wrong, T64_SAVE_EEPROM_4K), 0u);
+  {
+    uint8_t *bad = (uint8_t *)malloc(length);
+    size_t offset = 0u;
+    size_t body = 0u;
+
+    if (bad != NULL) {
+      (void)memcpy(bad, blob, length);
+      bad[length - 1u] ^= 1u;
+      T64_CHECK_INT(t64_machine_state_import(peer, bad, length, 0u, &report),
+                    T64_STATUS_STATE_INTEGRITY);
+      T64_CHECK_INT(save_generation(peer, T64_SAVE_SRAM_32K), 3u);
+      (void)memcpy(bad, blob, length);
+      bad[0] ^= 1u; /* the magic */
+      T64_CHECK_INT(t64_machine_state_import(peer, bad, length, 0u, &report),
+                    T64_STATUS_STATE_FORMAT);
+      T64_CHECK_INT(save_generation(peer, T64_SAVE_SRAM_32K), 3u);
+      (void)memcpy(bad, blob, length);
+      put32(bad + D_STATE_VERSION, 24u);
+      blob_resign(bad, length, RS_ALL);
+      T64_CHECK_INT(t64_machine_state_import(peer, bad, length, 0u, &report),
+                    T64_STATUS_STATE_VERSION);
+      T64_CHECK_INT(save_generation(peer, T64_SAVE_SRAM_32K), 3u);
+      /* a re-signed save kind byte: the section 11 field rule, recorded */
+      (void)memcpy(bad, blob, length);
+      T64_CHECK(find_section(bad, T64_STATE_SECTION_SAVE_MEDIA, &offset, &body));
+      put32(bad + offset, 1u);
+      blob_resign(bad, length, RS_ALL);
+      T64_CHECK_INT(t64_machine_state_import(peer, bad, length, 0u, &report),
+                    T64_STATUS_STATE_RANGE);
+      T64_CHECK_INT(report.reason, T64_STATE_REASON_FIELD_DERIVED);
+      T64_CHECK_INT(report.section_id, T64_STATE_SECTION_SAVE_MEDIA);
+      T64_CHECK_INT(report.rule, T64_STATE_RULE_PROFILE_DERIVED);
+      T64_CHECK_INT(save_generation(peer, T64_SAVE_SRAM_32K), 3u);
+      (void)memcpy(bad, blob, length);
+      T64_CHECK(find_section(bad, T64_STATE_SECTION_SAVE_MEDIA, &offset, &body));
+      put64(bad + offset + 8u, UINT64_MAX); /* a deadline above the window */
+      blob_resign(bad, length, RS_ALL);
+      T64_CHECK_INT(t64_machine_state_import(peer, bad, length, 0u, &report),
+                    T64_STATUS_STATE_RANGE);
+      T64_CHECK_INT(report.rule, T64_STATE_RULE_TICK_LE);
+      T64_CHECK_INT(save_generation(peer, T64_SAVE_SRAM_32K), 3u);
+      free(bad);
+    }
+  }
+
+  /* the stem id has no save device: the field stays zero */
+  {
+    size_t stem_length = 0u;
+    uint8_t *stem_blob = export_blob(stem, &stem_length);
+
+    if (stem_blob != NULL) {
+      T64_CHECK_INT(
+          t64_machine_state_import(stem, stem_blob, stem_length, 0u, &report),
+          T64_STATUS_OK);
+      T64_CHECK_INT(save_generation(stem, 0u), 0u);
+      free(stem_blob);
+    }
+  }
+
+  /* replacement with the same authored asset resets the counter and the digest
+   * to the fresh-machine digest */
+  {
+    t64_machine *fresh = create_admitted(SAVE_S32K_ID);
+    uint8_t asset[IPL3_ASSET_BYTES];
+
+    if (fresh != NULL && read_openipl3_asset(asset)) {
+      T64_CHECK_INT(t64_machine_admit_rom(peer, asset, sizeof asset),
+                    T64_STATUS_OK);
+      T64_CHECK_INT(save_generation(peer, T64_SAVE_SRAM_32K), 0u);
+      (void)digest_of(fresh, digest);
+      T64_CHECK(digests_equal(peer, fresh));
+    }
+    if (fresh != NULL) t64_machine_destroy(fresh);
+  }
+
+done:
+  free(blob);
+  if (source != NULL) t64_machine_destroy(source);
+  if (peer != NULL) t64_machine_destroy(peer);
+  if (wrong != NULL) t64_machine_destroy(wrong);
+  if (stem != NULL) t64_machine_destroy(stem);
+}
+
+/* The hostile-deadline consequence: an accepted deadline of the blob tick plus
+ * the window blocks a host save import for exactly the window and never longer. */
+static void case_save_deadline_window(void) {
+  size_t length = 0u;
+  uint8_t *blob;
+  t64_machine *peer;
+  t64_state_import_report report;
+  uint8_t image[512];
+  size_t offset = 0u;
+  size_t body = 0u;
+  uint64_t tick_out = 0u;
+  const uint64_t deadline = 2000u + T64_SAVE_EEPROM_BUSY_TICKS;
+
+  if (!targets_prepare()) return;
+  blob = dup_target(T_E4K, &length);
+  peer = create_admitted(SAVE_E4K_ID);
+  if (blob == NULL || peer == NULL) goto done;
+  T64_CHECK(find_section(blob, T64_STATE_SECTION_SAVE_MEDIA, &offset, &body));
+  put64(blob + offset + 8u, deadline);
+  blob_resign(blob, length, RS_ALL);
+  T64_CHECK_INT(t64_machine_state_import(peer, blob, length, 0u, &report),
+                T64_STATUS_OK);
+  /* park the CPU so the clock can jump across the window */
+  T64_CHECK_INT(t64_schedule_cancel(peer, T64_DEVICE_CPU, T64_CPU_EVENT_STEP,
+                                    0u, &tick_out),
+                T64_STATUS_OK);
+  (void)memset(image, 0x5A, sizeof image);
+  T64_CHECK_INT(t64_machine_save_import(peer, T64_SAVE_EEPROM_4K,
+                                        T64_SAVE_FORMAT_RAW, image,
+                                        sizeof image),
+                T64_STATUS_SAVE_BUSY);
+  T64_CHECK(advance_to(peer, deadline - 1u));
+  T64_CHECK_INT(t64_machine_save_import(peer, T64_SAVE_EEPROM_4K,
+                                        T64_SAVE_FORMAT_RAW, image,
+                                        sizeof image),
+                T64_STATUS_SAVE_BUSY);
+  T64_CHECK(advance_to(peer, deadline));
+  T64_CHECK_INT(t64_machine_save_import(peer, T64_SAVE_EEPROM_4K,
+                                        T64_SAVE_FORMAT_RAW, image,
+                                        sizeof image),
+                T64_STATUS_OK);
+done:
+  free(blob);
+  if (peer != NULL) t64_machine_destroy(peer);
+}
+
+/* ---- case continuation-partitions (T3) --------------------------------- */
+
+/* One source against one imported peer with the given advance partitions and
+ * trace setting: equal digests at +310, +10,000 and +30,000 and equal drained
+ * ISViewer bytes after an identical host write on both. */
+static void partition_run(uint64_t first_step, uint64_t later_step,
+                          bool trace) {
+  t64_machine *source = build_s1(SI_STEM_ID);
+  t64_machine *peer = create_admitted(SI_STEM_ID);
+  t64_state_import_report report;
+  uint8_t *blob = NULL;
+  size_t length = 0u;
+  uint64_t base;
+  static const uint8_t output_text[8] = {'s', 't', 'a', 't', 'e', '0', '9', '!'};
+  uint8_t source_bytes[4096];
+  uint8_t peer_bytes[4096];
+  size_t source_copied = 0u;
+  size_t peer_copied = 0u;
+
+  if (source == NULL || peer == NULL) goto done;
+  T64_CHECK_INT(t64_machine_trace_set_enabled(source, trace), T64_STATUS_OK);
+  T64_CHECK_INT(t64_machine_trace_set_enabled(peer, trace), T64_STATUS_OK);
+  blob = export_blob(source, &length);
+  if (blob == NULL) goto done;
+  T64_CHECK_INT(t64_machine_state_import(peer, blob, length, 0u, &report),
+                T64_STATUS_OK);
+  base = peer->tick;
+  isviewer_emit(source, output_text, sizeof output_text);
+  isviewer_emit(peer, output_text, sizeof output_text);
+  T64_CHECK(digests_equal(source, peer));
+  if (advance_pair(source, peer, base + 310u, first_step)) {
+    T64_CHECK(digests_equal(source, peer));
+  }
+  if (advance_pair(source, peer, base + 10000u, later_step)) {
+    T64_CHECK(digests_equal(source, peer));
+  }
+  if (advance_pair(source, peer, base + 30000u, later_step)) {
+    T64_CHECK(digests_equal(source, peer));
+  }
+  if (drain_output(source, source_bytes, &source_copied) &&
+      drain_output(peer, peer_bytes, &peer_copied)) {
+    T64_CHECK_INT(source_copied, 8u);
+    T64_CHECK_INT(peer_copied, source_copied);
+    T64_CHECK(memcmp(source_bytes, peer_bytes, source_copied) == 0);
+  }
+done:
+  free(blob);
+  if (source != NULL) t64_machine_destroy(source);
+  if (peer != NULL) t64_machine_destroy(peer);
+}
+
+/* The control: one field of the peer is changed after the import; the
+ * comparison that passes unperturbed must now see a difference. */
+static void perturbation_control(bool execute_tick) {
+  t64_machine *source = build_s1(SI_STEM_ID);
+  t64_machine *peer = create_admitted(SI_STEM_ID);
+  t64_state_import_report report;
+  uint8_t *blob = NULL;
+  size_t length = 0u;
+  uint64_t base;
+
+  if (source == NULL || peer == NULL) goto done;
+  blob = export_blob(source, &length);
+  if (blob == NULL) goto done;
+  T64_CHECK_INT(t64_machine_state_import(peer, blob, length, 0u, &report),
+                T64_STATUS_OK);
+  base = peer->tick;
+  if (execute_tick) {
+    peer->si.execute_tick += 1u;
+    /* the execute tick is pending state until the read executes: visible at
+     * the first checkpoint */
+    if (advance_pair(source, peer, base + 310u, 0u)) {
+      T64_CHECK(!digests_equal(source, peer));
+    }
+  } else {
+    peer->si.next_token += 1u;
+    /* the token counter persists: visible at the last checkpoint */
+    if (advance_pair(source, peer, base + 30000u, 0u)) {
+      T64_CHECK(!digests_equal(source, peer));
+    }
+  }
+done:
+  free(blob);
+  if (source != NULL) t64_machine_destroy(source);
+  if (peer != NULL) t64_machine_destroy(peer);
+}
+
+static void case_continuation_partitions(void) {
+  partition_run(0u, 0u, false);
+  partition_run(1u, 0u, false);
+  partition_run(7u, 0u, false);
+  partition_run(31u, 0u, false);
+  partition_run(4096u, 4096u, false);
+  partition_run(0u, 0u, true);
+  partition_run(7u, 4096u, true);
+  perturbation_control(true);
+  perturbation_control(false);
+}
+
+/* ---- case dirty-peer ---------------------------------------------------- */
+
+static void case_dirty_peer(void) {
+  t64_machine *source = build_s1(SI_STEM_ID);
+  t64_machine *dirty = build_s1(SI_STEM_ID);
+  t64_machine *rewound = build_s1(SI_STEM_ID);
+  t64_machine *clone = create_admitted(SI_STEM_ID);
+  t64_state_import_report report;
+  uint8_t *blob = NULL;
+  uint8_t *rewound_blob = NULL;
+  size_t length = 0u;
+  size_t rewound_length = 0u;
+
+  if (source == NULL || dirty == NULL || rewound == NULL || clone == NULL) {
+    goto done;
+  }
+  blob = export_blob(source, &length);
+  rewound_blob = export_blob(rewound, &rewound_length);
+  if (blob == NULL || rewound_blob == NULL) goto done;
+  /* a peer that ran 40,000 further ticks of its own SI transaction */
+  T64_CHECK(advance_to(dirty, source->tick + 40000u));
+  T64_CHECK(!digests_equal(source, dirty));
+  T64_CHECK_INT(t64_machine_state_import(dirty, blob, length, 0u, &report),
+                T64_STATUS_OK);
+  T64_CHECK(digests_equal(source, dirty));
+  T64_CHECK_INT(dirty->tick, source->tick);
+  if (advance_pair(source, dirty, source->tick + 30000u, 0u)) {
+    T64_CHECK(digests_equal(source, dirty));
+  }
+  /* rewind: the source advanced 10,000 ticks beyond the export point imports
+   * its own earlier blob and equals a never-advanced clone */
+  T64_CHECK_INT(t64_machine_state_import(clone, rewound_blob, rewound_length,
+                                         0u, &report),
+                T64_STATUS_OK);
+  T64_CHECK(advance_to(rewound, rewound->tick + 10000u));
+  T64_CHECK(!digests_equal(rewound, clone));
+  T64_CHECK_INT(
+      t64_machine_state_import(rewound, rewound_blob, rewound_length, 0u,
+                               &report),
+      T64_STATUS_OK);
+  T64_CHECK(digests_equal(rewound, clone));
+  T64_CHECK_INT(rewound->tick, clone->tick);
+  if (advance_pair(rewound, clone, rewound->tick + 30000u, 0u)) {
+    T64_CHECK(digests_equal(rewound, clone));
+  }
+done:
+  free(blob);
+  free(rewound_blob);
+  if (source != NULL) t64_machine_destroy(source);
+  if (dirty != NULL) t64_machine_destroy(dirty);
+  if (rewound != NULL) t64_machine_destroy(rewound);
+  if (clone != NULL) t64_machine_destroy(clone);
+}
+
+/* ---- case observer-flag ------------------------------------------------- */
+
+static void write_vi_register(t64_machine *machine, uint32_t offset,
+                              uint32_t value) {
+  T64_CHECK_INT(t64_machine_bus_write(machine, VI_BASE + offset, 4u, value),
+                T64_STATUS_OK);
+}
+
+/* A VI field with authored 5551 source pixels: one retained undrained packet
+ * (the setup of core/tests/test_video_output.c). */
+static t64_machine *build_vi_frame(void) {
+  static const uint16_t source[4] = {UINT16_C(0xf801), UINT16_C(0x07c1),
+                                     UINT16_C(0x003f), UINT16_C(0xffff)};
+  t64_machine *machine = create_admitted(SI_STEM_ID);
+  size_t i;
+
+  if (machine == NULL) return NULL;
+  for (i = 0u; i < sizeof source / sizeof source[0]; i++) {
+    const uint32_t address = VI_ORIGIN + (uint32_t)(i * 2u);
+
+    T64_CHECK_INT(t64_machine_bus_write(machine, address, 2u, source[i]),
+                  T64_STATUS_OK);
+    t64_rdp_memory_coverage_write(machine, address, 2u, 8u);
+  }
+  write_vi_register(machine, UINT32_C(0x04), VI_ORIGIN);
+  write_vi_register(machine, UINT32_C(0x08), UINT32_C(4));
+  write_vi_register(machine, UINT32_C(0x18), UINT32_C(8));
+  write_vi_register(machine, UINT32_C(0x1c), UINT32_C(15));
+  write_vi_register(machine, UINT32_C(0x24), UINT32_C(4));
+  write_vi_register(machine, UINT32_C(0x28), UINT32_C(2));
+  write_vi_register(machine, UINT32_C(0x30), UINT32_C(0x400));
+  write_vi_register(machine, UINT32_C(0x34), UINT32_C(0x400));
+  write_vi_register(machine, UINT32_C(0x00), UINT32_C(2));
+  for (i = 0u; i < 512u && machine->vi.packet_count == 0u; i++) {
+    size_t q;
+    uint64_t tick = UINT64_MAX;
+
+    for (q = 0u; q < machine->queue_count; q++) {
+      const t64_event *event =
+          &machine->events[(machine->queue_head + q) % T64_EVENT_QUEUE_CAPACITY];
+
+      if (event->device == T64_VI_DEVICE && event->kind == T64_VI_EVENT_FIELD &&
+          event->token == machine->vi.event_generation) {
+        tick = event->tick;
+        break;
+      }
+    }
+    if (tick == UINT64_MAX || !advance_to(machine, tick)) break;
+  }
+  /* Reached: a retained, undrained packet exists. */
+  T64_CHECK(machine->vi.packet_count >= 1u);
+  T64_CHECK(machine->vi.packet_lengths[machine->vi.packet_head] > 0u);
+  return machine;
+}
+
+static void case_observer_flag(void) {
+  t64_machine *source = build_vi_frame();
+  t64_machine *keep = create_admitted(SI_STEM_ID);
+  t64_machine *drop = create_admitted(SI_STEM_ID);
+  t64_machine *refused = create_admitted(SI_STEM_ID);
+  t64_state_import_report report;
+  t64_video_packet_info source_info;
+  t64_video_packet_info keep_info;
+  static const uint8_t first[8] = {'o', 'n', 'e', '.', 'o', 'n', 'e', '.'};
+  static const uint8_t second[8] = {'t', 'w', 'o', '.', 't', 'w', 'o', '.'};
+  uint8_t drained[4096];
+  size_t copied = 0u;
+  uint8_t *blob = NULL;
+  size_t length = 0u;
+  snapshot before;
+
+  if (source == NULL || keep == NULL || drop == NULL || refused == NULL) {
+    goto done;
+  }
+  /* observer progress: 16 captured bytes, the first 8 already drained */
+  isviewer_emit(source, first, sizeof first);
+  T64_CHECK(drain_output(source, drained, &copied));
+  T64_CHECK_INT(copied, 8u);
+  isviewer_emit(source, second, sizeof second);
+  T64_CHECK_INT(source->output.captured_bytes, 16u);
+  T64_CHECK_INT(source->output_drain_cursor, 8u);
+  blob = export_blob(source, &length);
+  if (blob == NULL) goto done;
+  T64_CHECK_INT(t64_video_info(source, &source_info), T64_STATUS_OK);
+
+  /* default import: head, count, cursor and the oldest packet are restored */
+  T64_CHECK_INT(t64_machine_state_import(keep, blob, length, 0u, &report),
+                T64_STATUS_OK);
+  T64_CHECK_INT(keep->vi.packet_head, source->vi.packet_head);
+  T64_CHECK_INT(keep->vi.packet_count, source->vi.packet_count);
+  T64_CHECK_INT(keep->ai.packet_head, source->ai.packet_head);
+  T64_CHECK_INT(keep->ai.packet_count, source->ai.packet_count);
+  T64_CHECK_INT(keep->output_drain_cursor, source->output_drain_cursor);
+  T64_CHECK_INT(t64_video_info(keep, &keep_info), T64_STATUS_OK);
+  if (memcmp(&source_info, &keep_info, sizeof source_info) != 0) {
+    size_t i;
+    const uint8_t *a = (const uint8_t *)&source_info;
+    const uint8_t *b = (const uint8_t *)&keep_info;
+
+    for (i = 0u; i < sizeof source_info; i++) {
+      if (a[i] != b[i]) {
+        fprintf(stderr, "video info byte %zu: source %02x peer %02x\n", i, a[i], b[i]);
+      }
+    }
+  }
+  T64_CHECK(memcmp(&source_info, &keep_info, sizeof source_info) == 0);
+  T64_CHECK(digests_equal(source, keep));
+  T64_CHECK(drain_output(keep, drained, &copied));
+  T64_CHECK_INT(copied, 8u);
+  T64_CHECK(memcmp(drained, second, sizeof second) == 0);
+
+  /* drop-observers: both rings empty, the cursor at the retained length, the
+   * canonical digest the same */
+  T64_CHECK_INT(t64_machine_state_import(drop, blob, length,
+                                         T64_STATE_IMPORT_DROP_OBSERVERS,
+                                         &report),
+                T64_STATUS_OK);
+  T64_CHECK_INT(drop->vi.packet_head, 0u);
+  T64_CHECK_INT(drop->vi.packet_count, 0u);
+  T64_CHECK_INT(drop->ai.packet_head, 0u);
+  T64_CHECK_INT(drop->ai.packet_count, 0u);
+  T64_CHECK_INT(drop->output_drain_cursor, drop->output.captured_bytes);
+  T64_CHECK_INT(t64_video_info(drop, &keep_info), T64_STATUS_NOT_READY);
+  T64_CHECK(digests_equal(source, drop));
+  T64_CHECK(drain_output(drop, drained, &copied));
+  T64_CHECK_INT(copied, 0u);
+
+  /* any other flag bit is refused with a bit-identical peer */
+  snapshot_take(refused, &before);
+  T64_CHECK_INT(t64_machine_state_import(refused, blob, length, 0x2u, &report),
+                T64_STATUS_INVALID_ARGUMENT);
+  T64_CHECK_INT(report.reason, T64_STATE_REASON_ARG_FLAGS);
+  T64_CHECK_INT(t64_machine_state_import(refused, blob, length,
+                                         T64_STATE_IMPORT_DROP_OBSERVERS | 0x4u,
+                                         &report),
+                T64_STATUS_INVALID_ARGUMENT);
+  T64_CHECK_INT(report.reason, T64_STATE_REASON_ARG_FLAGS);
+  T64_CHECK(snapshot_matches(refused, &before));
+  snapshot_free(&before);
+done:
+  free(blob);
+  if (source != NULL) t64_machine_destroy(source);
+  if (keep != NULL) t64_machine_destroy(keep);
+  if (drop != NULL) t64_machine_destroy(drop);
+  if (refused != NULL) t64_machine_destroy(refused);
+}
+
+
 /* The case roundtrip: the T1 round trip of the S1 state, then the
  * continuation of the source and of the peer under one-shot and the 1, 7 and
  * 31 tick partitions. */
@@ -2038,20 +2639,32 @@ static void case_roundtrip_all(void) {
 
 /* ---- dispatch ---------------------------------------------------------- */
 
+/* The case save-media-roundtrip: the round trip, the generation rule and the
+ * hostile-deadline window of the save device. */
+static void case_save_media_all(void) {
+  case_save_media_roundtrip();
+  case_save_deadline_window();
+}
+
 int main(int argc, char **argv) {
   static const char *const cases[] = {
       "roundtrip",          "handler-table-ledger", "binding-refusals",
       "container-refusals", "field-range-refusals", "invariant-accepts",
-      "invariant-refusals", "scratch-storage",      "refusal-untouched"};
-  static const char *const suites[] = {"import",   "import",   "refusals",
-                                       "refusals", "refusals", "refusals",
-                                       "refusals", "refusals", "refusals"};
+      "invariant-refusals", "scratch-storage",      "refusal-untouched",
+      "idempotence",        "save-media-roundtrip", "continuation-partitions",
+      "dirty-peer",         "observer-flag"};
+  static const char *const suites[] = {
+      "import",   "import",   "refusals", "refusals", "refusals",
+      "refusals", "refusals", "refusals", "refusals", "ladder",
+      "ladder",   "ladder",   "ladder",   "ladder"};
   static void (*const runners[])(void) = {
       case_roundtrip_all,        case_handler_table_ledger,
       case_binding_refusals,     case_container_refusals,
       case_field_range_refusals, case_invariant_accepts,
       case_invariant_refusals,   case_scratch_storage,
-      case_refusal_untouched};
+      case_refusal_untouched,    case_idempotence,
+      case_save_media_all,       case_continuation_partitions,
+      case_dirty_peer,           case_observer_flag};
   const size_t count = sizeof cases / sizeof cases[0];
   size_t index;
 
