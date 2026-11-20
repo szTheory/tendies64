@@ -403,7 +403,10 @@ the depth members (decision K1), the diagnostic last-coverage members and the
 packet words at or after the packet word count are the named members of
 `t64_rdp_state` that are not state; every other member is in the stream, which the
 completeness test of `core/tests/test_digest_v25.c` (case `v25-reference`) flips
-one byte at a time on the four family ids.
+one byte at a time of every member on the stem id (a member with a named exclusion
+must leave the digest unchanged) and, on the three save ids, only of a
+representative set: the members of the table whose index is a multiple of 11 and
+that carry no named exclusion.
 
 Reserved ids emit nothing until their section exists; sections 10 and 11 are the
 new-class sections emitted so far (section 11 only when the profile has a save
