@@ -397,6 +397,40 @@ def native_limit_problems(limits: dict[str, float], registered: list[int]) -> li
 
 
 
+def runner_build_input_gaps(cmake_text: str) -> list[str]:
+    """Runner files that t64-runner-real compiles or includes but the build id omits.
+
+    T64_RUNNER_BUILD_INPUTS feeds the runner build identity string
+    (t64-runner-v1-...); a source or header missing from it can change without
+    changing the identity (plan 09-10, L4 IN-03).
+    """
+    listed_block = re.search(r"set\(T64_RUNNER_BUILD_INPUTS\n(.*?)\)\n", cmake_text, re.DOTALL)
+    assert listed_block is not None, "T64_RUNNER_BUILD_INPUTS is missing"
+    listed = set(re.findall(r"\$\{CMAKE_CURRENT_SOURCE_DIR\}/([A-Za-z0-9_.]+)",
+                            listed_block.group(1)))
+    target = re.search(r"add_executable\(t64-runner-real\s+([^)]*)\)", cmake_text)
+    assert target is not None, "t64-runner-real is missing"
+    pending = target.group(1).split()
+    # a static library of the runner directory that t64-runner-real links
+    links = re.search(r"target_link_libraries\(t64-runner-real PRIVATE\s+([^)]*)\)", cmake_text)
+    assert links is not None
+    for library in links.group(1).split():
+        found = re.search(r"add_library\(" + re.escape(library) + r" STATIC ([A-Za-z0-9_.]+)\)",
+                          cmake_text)
+        if found is not None:
+            pending.append(found.group(1))
+    seen: set[str] = set()
+    while pending:
+        name = pending.pop()
+        if name in seen or not (ROOT / "runner" / name).is_file():
+            continue
+        seen.add(name)
+        pending.extend(re.findall(r'^#include "([A-Za-z0-9_.]+)"',
+                                  (ROOT / "runner" / name).read_text(encoding="utf-8"),
+                                  flags=re.MULTILINE))
+    return sorted(seen - listed)
+
+
 def _write_synthetic_step(directory: Path, item: dict, stdout: bytes, *,
                           environment: dict | None = None) -> None:
     """An original command record shaped like the one _run_saved_stage saves."""
@@ -1965,6 +1999,16 @@ class Phase09Qualification(unittest.TestCase):
                       "docs/spec/phase09-cases.json", ".github/workflows/ci.yml",
                       "core", "runner", "tools/rights", "tools/manifest", "fixtures"):
             self.assertIn(guard, paths)
+        # The runner build identity covers every runner file t64-runner-real
+        # compiles or includes (L4 IN-03), with the control that an omitted
+        # header is found.
+        cmake_text = (ROOT / "runner/CMakeLists.txt").read_text(encoding="utf-8")
+        self.assertEqual(runner_build_input_gaps(cmake_text), [])
+        for omitted in ("t64_verified_input.h", "t64_input.c", "t64_real_result.h"):
+            entry = "  ${CMAKE_CURRENT_SOURCE_DIR}/" + omitted + "\n"
+            self.assertIn(entry, cmake_text)
+            self.assertEqual(runner_build_input_gaps(cmake_text.replace(entry, "", 1)),
+                             [omitted])
         in_git = subprocess.run(["git", "rev-parse", "--is-inside-work-tree"], cwd=ROOT,
                                 capture_output=True, text=True, check=False)
         for relative in paths:

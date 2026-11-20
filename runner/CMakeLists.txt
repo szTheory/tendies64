@@ -12,8 +12,14 @@ endif()
 set(T64_RUNNER_BUILD_INPUTS
   ${CMAKE_CURRENT_SOURCE_DIR}/t64_real.c
   ${CMAKE_CURRENT_SOURCE_DIR}/t64_real_result.c
+  ${CMAKE_CURRENT_SOURCE_DIR}/t64_real_result.h
   ${CMAKE_CURRENT_SOURCE_DIR}/t64_real_fixture.c
   ${CMAKE_CURRENT_SOURCE_DIR}/t64_real_fixture.h
+  ${CMAKE_CURRENT_SOURCE_DIR}/t64_input.c
+  ${CMAKE_CURRENT_SOURCE_DIR}/t64_input.h
+  ${CMAKE_CURRENT_SOURCE_DIR}/t64_verified_input.h
+  ${CMAKE_CURRENT_SOURCE_DIR}/t64_audio_observation.h
+  ${CMAKE_CURRENT_SOURCE_DIR}/t64_video_observation.h
   ${CMAKE_CURRENT_SOURCE_DIR}/t64_raw_capture.c
   ${CMAKE_CURRENT_SOURCE_DIR}/t64_raw_capture.h
   ${CMAKE_CURRENT_SOURCE_DIR}/t64_artifact_publisher.c
