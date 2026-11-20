@@ -604,6 +604,13 @@ and the native sanitizer run is the full set.
 | B09 | ai-paused-partial | `test_ai.c` pause phase resume (17 ticks before the next sample) | paused, a positive remaining delay, a partial packet length above 0, no sample event | the paused remaining ticks plus 1 |
 | B10 | ai-output-full-stall | `test_ai.c` output-full same event (two completed packets, a third descriptor) | the queue front sample event waits for output capacity and the stalling advance returned the resource-limit stop | the AI phase remainder plus 1 |
 
+| B11 | cpu-delay-dirty-tlb | `test_cpu_time.c` delay slot (a jump to itself) with a cached store, `test_cpu_path.c` TLB pair (direct test-only edit) | CPU between a jump and its delay slot, a dirty D-cache line, one valid TLB pair, one (CPU, STEP) event | one byte of the dirty line |
+| B12 | coincident-events | `test_determinism.c` same-tick order: a PI completion and the CPU step of the same tick (the transfer length is searched over 16 values) | a (PI, COMPLETE) and a (CPU, STEP) event with equal ticks | the PI event token plus 1 |
+| B13 | near-exhaustion | `test_scheduler.c` transactional exhaustion: queue room for two events and four sequence numbers, set in memory after create identically on source and peers | room 2, headroom 4, the 64-bit sequence width | `next_sequence` minus 1 |
+| B14 | si-mid-transaction | the S1 builder: an RD64B in flight before its execute | active read, execute pending, (SI, EXECUTE) and (SI, COMPLETE) events | `si.execute_tick` plus 1 |
+| B15 | eeprom-busy | `test_save.c` tracer on the `-e4k` id: a block write through channel 4 by a WR64B and an RD64B | `busy_until` above the machine tick, SI idle | `busy_until` plus 1 |
+| B16 | pending-input | `t64_machine_queue_input` stamped 20,000 ticks ahead on S1 | an (INPUT, SUBMITTED) event queued above the tick | one button bit of the event value |
+
 Observer outcomes (rows B07 and B10, D-29). A default import restores the observer
 packets, so the occupancy gate that held the event on the source holds it on the
 peer: advancing both to a tick beyond the stalled event returns the same
@@ -644,4 +651,63 @@ tick 7,086, target 7,088, same relation.
 - Perturbations are one-field edits that persist to the first continuation
   checkpoint; a field that the next event overwrites (the RSP next issue tick, the
   pending SP descriptor length) cannot be a perturbation.
+
+### Required set, mid-tick resume and recorded deviations
+
+The required set is exactly sixteen rows, B01 to B16; none was added, removed or
+left unreached. The D-36 case `mid-tick-resume` is the stop-mode variant of B12 and
+is not a seventeenth boundary: B12 keeps its constructed builder and the case adds
+states reached by production stops.
+
+`mid-tick-resume` builds the all-devices workload W-ALL of the scheduler matrix
+(a local copy of its builder: PI, SP and RSP, RDP, AI, VI and SI work, three inputs,
+a horizon of 60,000 ticks) and stops it in the middle of a tick, with the queue front
+still at the machine tick and an event of another device queued at that tick:
+event budget 1, event budget 2 (the in-memory copy of the profile budget edited
+after create), an instruction-count stop (searched over targets 1 to 4,096, run in
+the native sanitizer preset) and a budget stop at the VI and AI coincidence tick
+1,418. Each state exports and imports into a fresh peer with the default budget
+(T1, T2); the source continues under its own budget and the peer in slices to the
+horizon and both end at the digest, queue snapshot and result tuple of the
+uninterrupted run (T3), also after partitions of the first 310 ticks; a one-field
+perturbation of the imported peer changes the digest at the horizon. The 09-06
+synthetic-event state (five synthetic instruction events and three synthetic frame
+events at one tick) exports with OK and is refused on import with
+`QUEUE_KIND_UNKNOWN` (rule `ENUM_CLOSED`, section 6) and a bit-identical peer,
+because the closed handler table refuses the synthetic device; it is kept only as
+that refused control. The evidence is the self-consistency of the software model,
+and nothing is claimed across submission schedules.
+
+Deviations from the plan text, each from the cited device source:
+
+1. B02 is a canceled transfer that is still active with its retained completion
+   (the cancel clears the active flag only at the event), not an idle PI with a
+   stale event: the importer rule, and the source, allow no queued PI event on an
+   idle PI.
+2. B03 names the (SP, RSP issue) event (the profile has no SP completion event) and
+   perturbs the pending DRAM source address, because the pending length is consumed
+   at promotion. B04 perturbs the stored register, because the next issue tick is
+   overwritten by the next issue. B12 perturbs the PI token, because both sequence
+   numbers are erased at their dispatch.
+3. B05 holds a plain command word pending (a pending triangle packet cannot continue
+   equal: the combine mode is outside the v25 state).
+4. The drop mutants of the (SP, RSP issue) and (INPUT, SUBMITTED) pairs are accepted
+   (see "Limits of the matrix"); the token of an input event is never read.
+5. B13: the queue capacity and the sequence width are profile members that the blob
+   does not carry. A peer with the identical in-memory edit accepts and continues
+   with the same result tuple (a resource-limit stop at tick 6 after five CPU
+   steps); a peer without the edit also accepts and continues identically because
+   the exhaustion is the sequence counter's; a peer whose capacity is below the
+   blob queue count is refused at section 6 (`QUEUE_COUNT`, rule `COUNT_CAP`).
+6. `mid-tick-resume` row s4 is a budget stop at the coincidence tick: the frame
+   event counter is incremented only by the synthetic frame event, so a
+   frame-event-count stop cannot happen on production events (the synthetic part
+   keeps its frame events).
+7. Cost control (D-40): in the gate preset every non-full row compares the peer
+   advanced in 7-tick partitions with the one-shot source reference (the one-shot
+   peer, 1, 31 and 4,096 run on the full rows and under `T64_STATE_MATRIX_FULL`);
+   each distinct queue event pair is checked on its first row (all rows under
+   `T64_STATE_MATRIX_FULL`); the digest at the import checkpoint is the T1 case; the
+   whole-machine snapshot of the refusal rows compares the allocation, both packet
+   storages and the image byte for byte and no longer hashes the state twice.
 

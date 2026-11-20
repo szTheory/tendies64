@@ -1131,7 +1131,8 @@ typedef struct {
   size_t video_size;
   uint8_t *audio_bytes;
   size_t audio_size;
-  uint8_t digest[T64_DIGEST_SIZE];
+  uint8_t *image_bytes;
+  size_t image_size;
   size_t trace_count;
   uint64_t trace_drops;
   size_t queue_count;
@@ -1158,7 +1159,12 @@ static void snapshot_take(const t64_machine *machine, snapshot *s) {
   s->video_bytes = copy_region(machine->video_storage.data, s->video_size);
   s->audio_size = machine->audio_storage.capacity;
   s->audio_bytes = copy_region(machine->audio_storage.data, s->audio_size);
-  (void)digest_of(machine, s->digest);
+  /* The digest is a pure function of the machine allocation, the packet storages
+   * and the admitted image, all compared byte for byte below, so no digest pass
+   * over the 6.3 MB state is needed (plan 09-09.1 cost control: two of the six
+   * hashing passes of every refusal row). */
+  s->image_size = machine->image_storage.capacity;
+  s->image_bytes = copy_region(machine->image_storage.data, s->image_size);
   s->trace_count = machine->trace_count;
   s->trace_drops = machine->trace_drop_count;
   s->queue_count = machine->queue_count;
@@ -1172,13 +1178,13 @@ static void snapshot_free(snapshot *s) {
   free(s->machine_bytes);
   free(s->video_bytes);
   free(s->audio_bytes);
+  free(s->image_bytes);
 }
 
 /* Whole-machine comparison: the machine allocation (the structure, RDRAM, the
- * coverage tables and the save bytes), both packet storages, the digest, the
+ * coverage tables and the save bytes), both packet storages, the image, the
  * trace observations, the queue, the tick and the allocator counters. */
 static bool snapshot_matches(const t64_machine *machine, const snapshot *s) {
-  uint8_t digest[T64_DIGEST_SIZE];
   bool same = true;
 
   same = same && s->machine_bytes != NULL &&
@@ -1190,8 +1196,9 @@ static bool snapshot_matches(const t64_machine *machine, const snapshot *s) {
   same = same && (s->audio_bytes == NULL ||
                   memcmp(machine->audio_storage.data, s->audio_bytes,
                          s->audio_size) == 0);
-  same = same && digest_of(machine, digest) &&
-         memcmp(digest, s->digest, sizeof digest) == 0;
+  same = same && (s->image_bytes == NULL ||
+                  memcmp(machine->image_storage.data, s->image_bytes,
+                         s->image_size) == 0);
   same = same && machine->trace_count == s->trace_count &&
          machine->trace_drop_count == s->trace_drops &&
          machine->queue_count == s->queue_count &&
@@ -2318,6 +2325,8 @@ typedef struct {
   uint32_t pair_device[2];               /* the queue events the device owns */
   uint32_t pair_kind[2];
   bool full; /* the full partition set runs on this row in every preset */
+  void (*peer_edit)(t64_machine *peer);  /* applied to every fresh peer, or NULL */
+  void (*extra)(size_t index);           /* row-specific continuation checks */
 } boundary;
 
 /* B01 pi-active: a PI DMA read started through the host bus and stopped one
@@ -2809,37 +2818,361 @@ static void perturb_b10(t64_machine *machine) {
   machine->ai.phase_remainder += 1u;
 }
 
+/* ---- rows B11 to B16 (plan 09-09.1 Task 3) -------------------------------- */
+
+static void extra_b13(size_t index);
+static void extra_b15(size_t index);
+static void peer_edit_b13(t64_machine *peer);
+
+/* B11 cpu-delay-dirty-tlb: a store through cached KSEG0 leaves a dirty D-cache
+ * line, a TLB pair is installed by a direct test-only state edit (the pattern of
+ * test_cpu_path.c install_tlb_pair) and the stop falls between a jump and its
+ * delay slot (source: test_cpu_time.c delay-slot sequence). */
+static t64_machine *build_b11(void) {
+  static const uint32_t program[] = {
+      UINT32_C(0x3c088000), /* lui t0,0x8000 */
+      UINT32_C(0x3c09a5a5), /* lui t1,0xa5a5 */
+      UINT32_C(0xad092000), /* sw  t1,0x2000(t0): a cached store */
+      UINT32_C(0x08000403), /* j   0x8000100c (this jump) */
+      UINT32_C(0x00000000)  /* nop: its delay slot */};
+  t64_machine *machine = create_admitted(SI_STEM_ID);
+  t64_vr4300_tlb_pair *entry;
+  size_t i;
+
+  if (machine == NULL) return NULL;
+  for (i = 0u; i < sizeof program / sizeof program[0]; i++) {
+    put32(machine->ram + 0x1000u + 4u * i, program[i]);
+  }
+  machine->cpu.pc = UINT32_C(0x80001000);
+  machine->cpu.pc_full = t64_cpu_canonical_address(machine->cpu.pc);
+  entry = &machine->cpu.tlb[2];
+  entry->page_mask = 0u;
+  entry->vpn2 = UINT64_C(0x6000);
+  entry->region = 0u;
+  entry->asid = 0u;
+  entry->entry_lo0 = (uint64_t)(((UINT32_C(0x6000) >> 12) << 6) |
+                                (3u << 3) | 2u | 4u);
+  entry->entry_lo1 = entry->entry_lo0;
+  for (i = 0u; i < 64u; i++) {
+    if (machine->cpu.delay_slot_pending && i > 4u) break;
+    T64_CHECK(advance_to(machine, machine->tick + 1u));
+  }
+  return machine;
+}
+
+static size_t first_dirty_line(const t64_machine *machine) {
+  size_t i;
+
+  for (i = 0u; i < T64_VR4300_DCACHE_LINE_COUNT; i++) {
+    if (machine->cpu.dcache[i].dirty) return i;
+  }
+  return T64_VR4300_DCACHE_LINE_COUNT;
+}
+
+static const char *reached_b11(const t64_machine *machine) {
+  if (!machine->cpu.delay_slot_pending) return "cpu.delay_slot_pending";
+  if (first_dirty_line(machine) == T64_VR4300_DCACHE_LINE_COUNT) {
+    return "a dirty dcache line";
+  }
+  if ((machine->cpu.tlb[2].entry_lo0 & 2u) == 0u) return "tlb[2] valid";
+  if (find_event(machine, T64_DEVICE_CPU, T64_CPU_EVENT_STEP) == NULL) {
+    return "queue (CPU, STEP)";
+  }
+  return NULL;
+}
+
+static void perturb_b11(t64_machine *machine) {
+  const size_t line = first_dirty_line(machine);
+
+  if (line < T64_VR4300_DCACHE_LINE_COUNT) machine->cpu.dcache[line].data[0] ^= 1u;
+}
+
+/* B12 coincident-events: a PI completion and the CPU step of the same tick, two
+ * production events of different devices (source: test_determinism.c same-tick
+ * order). The transfer length is searched over 16 values for the first one whose
+ * completion tick equals the next CPU step tick. */
+static bool same_tick_pair(const t64_machine *machine) {
+  const t64_event *pi = find_event(machine, T64_DEVICE_PI, T64_PI_EVENT_COMPLETE);
+  const t64_event *cpu = find_event(machine, T64_DEVICE_CPU, T64_CPU_EVENT_STEP);
+
+  return pi != NULL && cpu != NULL && pi->tick == cpu->tick;
+}
+
+static t64_machine *build_b12(void) {
+  uint32_t length;
+
+  for (length = 15u; length < 15u + 16u * 8u; length += 8u) {
+    t64_machine *machine = create_admitted(SI_STEM_ID);
+    const t64_event *pi;
+
+    if (machine == NULL) return NULL;
+    T64_CHECK(advance_to(machine, 2000u));
+    bus_write32(machine, PI_BASE, UINT32_C(0x3A00));
+    bus_write32(machine, PI_BASE + 4u, CART_BASE + UINT32_C(0x100));
+    bus_write32(machine, PI_BASE + 12u, length);
+    pi = find_event(machine, T64_DEVICE_PI, T64_PI_EVENT_COMPLETE);
+    if (pi != NULL && pi->tick > machine->tick + 1u &&
+        advance_to(machine, pi->tick - 1u) && same_tick_pair(machine)) {
+      return machine;
+    }
+    t64_machine_destroy(machine);
+  }
+  return NULL;
+}
+
+static const char *reached_b12(const t64_machine *machine) {
+  const t64_event *pi = find_event(machine, T64_DEVICE_PI, T64_PI_EVENT_COMPLETE);
+
+  if (pi == NULL) return "queue (PI, COMPLETE)";
+  if (!same_tick_pair(machine)) return "CPU step on the PI completion tick";
+  if (pi->device == T64_DEVICE_CPU) return "distinct devices";
+  return NULL;
+}
+
+/* The plan swaps the two sequence numbers; both events are popped before the
+ * first continuation checkpoint, so that edit leaves no trace there. The PI
+ * token persists (a stale completion never copies). */
+static void perturb_b12(t64_machine *machine) {
+  size_t i;
+
+  for (i = 0u; i < machine->queue_count; i++) {
+    t64_event *event =
+        &machine->events[(machine->queue_head + i) % T64_EVENT_QUEUE_CAPACITY];
+
+    if (event->device == T64_DEVICE_PI && event->kind == T64_PI_EVENT_COMPLETE) {
+      event->token += 1u;
+    }
+  }
+}
+
+/* B13 near-exhaustion: the profile copy of the queue capacity and the
+ * sequence counter are edited in memory after create, identically on the
+ * source and on every peer (never through a mutated descriptor): room for two
+ * more events and four sequence numbers (source: test_scheduler.c transactional
+ * exhaustion). */
+static uint32_t b13_capacity;
+
+static t64_machine *build_b13(void) {
+  t64_machine *machine = build_quiet();
+
+  if (machine == NULL) return NULL;
+  b13_capacity = (uint32_t)machine->queue_count + 2u;
+  machine->profile.event_queue_capacity = b13_capacity;
+  machine->next_sequence = UINT64_MAX - 4u;
+  return machine;
+}
+
+static void peer_edit_b13(t64_machine *peer) {
+  peer->profile.event_queue_capacity = b13_capacity;
+}
+
+static const char *reached_b13(const t64_machine *machine) {
+  if (machine->profile.sequence_width_bits != 64u) return "sequence_width_bits";
+  if (machine->profile.event_queue_capacity - machine->queue_count != 2u) {
+    return "queue room 2";
+  }
+  if (UINT64_MAX - machine->next_sequence != 4u) return "sequence headroom 4";
+  return NULL;
+}
+
+static void perturb_b13(t64_machine *machine) {
+  machine->next_sequence -= 1u;
+}
+
+/* B14 si-mid-transaction: the 09-09 S1 state, an RD64B in flight with its
+ * execute event pending. */
+static t64_machine *build_b14(void) {
+  return build_s1(SI_STEM_ID);
+}
+
+static const char *reached_b14(const t64_machine *machine) {
+  if (!machine->si.active_valid) return "si.active_valid";
+  if (!machine->si.execute_pending) return "si.execute_pending";
+  if (machine->si.active_direction != T64_SI_DIRECTION_RD64B) {
+    return "si.active_direction";
+  }
+  if (find_event(machine, T64_SI_DEVICE, T64_SI_EVENT_EXECUTE) == NULL) {
+    return "queue (SI, EXECUTE)";
+  }
+  if (find_event(machine, T64_SI_DEVICE, T64_SI_EVENT_COMPLETE) == NULL) {
+    return "queue (SI, COMPLETE)";
+  }
+  return NULL;
+}
+
+static void perturb_b14(t64_machine *machine) {
+  machine->si.execute_tick += 1u;
+}
+
+/* B15 eeprom-busy: on the 4 Kbit EEPROM id a block write through channel 4
+ * (command 0x05) started by the SI frame path (a WR64B of the frame, then an
+ * RD64B that executes it), stopped after the read completes while the busy
+ * window is open (source: the 09-04 tracer of test_save.c). */
+#define EEPROM_BUSY_WINDOW UINT64_C(375000)
+#define H_READ_TICKS UINT64_C(20876)
+#define H_WRITE_TICKS UINT64_C(22876)
+#define SEND_DRAM UINT32_C(0x3800)
+#define RECEIVE_DRAM UINT32_C(0x3900)
+#define SI_STATUS_REG UINT32_C(0x04800018)
+
+static const uint8_t eeprom_write_tx[10] = {0x05, 0x01, 0x11, 0x12, 0x13,
+                                            0x14, 0x15, 0x16, 0x17, 0x18};
+static const uint8_t eeprom_read_tx[2] = {0x04, 0x01};
+
+static void eeprom_frame(uint8_t frame[64], uint32_t tx_count,
+                         uint32_t rx_count, const uint8_t *tx) {
+  (void)memset(frame, 0, 64u);
+  frame[4] = (uint8_t)tx_count;
+  frame[5] = (uint8_t)rx_count;
+  (void)memcpy(frame + 6, tx, tx_count);
+  (void)memset(frame + 6 + tx_count, 0xFF, rx_count);
+  frame[6 + tx_count + rx_count] = 0xFE;
+  frame[63] = 0x01;
+}
+
+/* A WR64B of the frame at the current tick, settled and acknowledged. */
+static void eeprom_send(t64_machine *machine, const uint8_t frame[64]) {
+  const uint64_t start = machine->tick;
+
+  (void)memcpy(machine->ram + SEND_DRAM, frame, 64u);
+  bus_write32(machine, SI_DRAM_ADDR, SEND_DRAM);
+  bus_write32(machine, SI_WR64B, PIF_ADDRESS);
+  T64_CHECK(advance_to(machine, start + 2500u));
+  bus_write32(machine, SI_STATUS_REG, 0u);
+}
+
+/* An RD64B started at `start` (the destination pre-filled with 0xAA), settled
+ * at the completion tick; the image the guest finds is returned. */
+static void eeprom_receive(t64_machine *machine, uint64_t start,
+                           uint8_t image[64]) {
+  T64_CHECK(advance_to(machine, start));
+  (void)memset(machine->ram + RECEIVE_DRAM, 0xAA, 64u);
+  bus_write32(machine, SI_DRAM_ADDR, RECEIVE_DRAM);
+  bus_write32(machine, SI_RD64B, PIF_ADDRESS);
+  T64_CHECK(advance_to(machine, machine->si.complete_tick));
+  bus_write32(machine, SI_STATUS_REG, 0u);
+  (void)memcpy(image, machine->ram + RECEIVE_DRAM, 64u);
+}
+
+static t64_machine *build_b15(void) {
+  t64_machine *machine = create_admitted(SAVE_E4K_ID);
+  uint8_t frame[64];
+  uint8_t image[64];
+
+  if (machine == NULL) return NULL;
+  machine->ram[0x1000] = 0x08u;
+  machine->ram[0x1001] = 0x00u;
+  machine->ram[0x1002] = 0x04u;
+  machine->ram[0x1003] = 0x00u;
+  (void)memset(machine->ram + 0x1004, 0, 4u);
+  machine->cpu.pc = UINT32_C(0x80001000);
+  machine->cpu.pc_full = t64_cpu_canonical_address(machine->cpu.pc);
+  T64_CHECK(advance_to(machine, 3000u));
+  eeprom_frame(frame, 10u, 1u, eeprom_write_tx);
+  eeprom_send(machine, frame);
+  eeprom_receive(machine, 10000u, image);
+  T64_CHECK_INT(image[5], 0x01u);
+  return machine;
+}
+
+static const char *reached_b15(const t64_machine *machine) {
+  if (machine->save.busy_until <= machine->tick) return "save.busy_until";
+  if (machine->si.active_valid) return "si idle";
+  return NULL;
+}
+
+static void perturb_b15(t64_machine *machine) {
+  machine->save.busy_until += 1u;
+}
+
+/* B16 pending-input: an input event stamped 20,000 ticks ahead of the S1
+ * state, queued and not dispatched (source: t64_machine_queue_input). */
+static t64_machine *build_b16(void) {
+  t64_machine *machine = build_s1(SI_STEM_ID);
+
+  if (machine == NULL) return NULL;
+  T64_CHECK_INT(t64_machine_queue_input(machine, machine->tick + 20000u, 0u,
+                                        UINT16_C(0x8000), 1, -1),
+                T64_STATUS_OK);
+  return machine;
+}
+
+static const char *reached_b16(const t64_machine *machine) {
+  const t64_event *event = find_event(machine, T64_TRACE_DEVICE_INPUT,
+                                      T64_TRACE_KIND_INPUT_SUBMITTED);
+
+  if (event == NULL) return "queue (INPUT, SUBMITTED)";
+  if (event->tick <= machine->tick) return "input tick above the tick";
+  return NULL;
+}
+
+static void perturb_b16(t64_machine *machine) {
+  size_t i;
+
+  for (i = 0u; i < machine->queue_count; i++) {
+    t64_event *event =
+        &machine->events[(machine->queue_head + i) % T64_EVENT_QUEUE_CAPACITY];
+
+    if (event->device == T64_TRACE_DEVICE_INPUT &&
+        event->kind == T64_TRACE_KIND_INPUT_SUBMITTED) {
+      event->value ^= UINT64_C(1);
+    }
+  }
+}
+
 static const boundary boundaries[] = {
     {"B01", "pi-active", "test_pi_dma.c busy start, stem id", SI_STEM_ID,
      build_b01, reached_b01, perturb_b01,
-     {T64_DEVICE_PI, 0u}, {T64_PI_EVENT_COMPLETE, 0u}, true},
+     {T64_DEVICE_PI, 0u}, {T64_PI_EVENT_COMPLETE, 0u}, true, NULL, NULL},
     {"B02", "pi-canceled", "test_pi_dma.c cancel (PI reset while active)",
      SI_STEM_ID, build_b02, reached_b02, perturb_b02,
-     {T64_DEVICE_PI, 0u}, {T64_PI_EVENT_COMPLETE, 0u}, false},
+     {T64_DEVICE_PI, 0u}, {T64_PI_EVENT_COMPLETE, 0u}, false, NULL, NULL},
     {"B03", "sp-active-pending", "test_sp_dma.c pending queue case",
      SI_STEM_ID, build_b03, reached_b03, perturb_b03,
-     {T64_DEVICE_SP, 0u}, {T64_SP_EVENT_RSP_ISSUE, 0u}, false},
+     {T64_DEVICE_SP, 0u}, {T64_SP_EVENT_RSP_ISSUE, 0u}, false, NULL, NULL},
     {"B04", "rsp-mid-program", "test_rsp_control.c load-store bubble",
      SI_STEM_ID, build_b04, reached_b04, perturb_b04,
-     {T64_DEVICE_SP, 0u}, {T64_SP_EVENT_RSP_ISSUE, 0u}, false},
+     {T64_DEVICE_SP, 0u}, {T64_SP_EVENT_RSP_ISSUE, 0u}, false, NULL, NULL},
     {"B05", "rdp-pending-words", "test_rdp_triangles.c raw words via DP regs",
      SI_STEM_ID, build_b05, reached_b05, perturb_b05,
-     {T64_RDP_DEVICE, 0u}, {T64_RDP_EVENT_WORK, 0u}, false},
+     {T64_RDP_DEVICE, 0u}, {T64_RDP_EVENT_WORK, 0u}, false, NULL, NULL},
     {"B06", "vi-midfield-retained", "test_video_output.c advance_one_field",
      SI_STEM_ID, build_b06, reached_b06, perturb_b06,
-     {T64_VI_DEVICE, 0u}, {T64_VI_EVENT_FIELD, 0u}, false},
+     {T64_VI_DEVICE, 0u}, {T64_VI_EVENT_FIELD, 0u}, false, NULL, NULL},
     {"B07", "vi-stalled-event", "test_video_output.c output-full boundary",
      SI_STEM_ID, build_b07, reached_b07, perturb_b07,
-     {T64_VI_DEVICE, 0u}, {T64_VI_EVENT_FIELD, 0u}, true},
+     {T64_VI_DEVICE, 0u}, {T64_VI_EVENT_FIELD, 0u}, true, NULL, NULL},
     {"B08", "ai-two-descriptors", "test_ai.c prepare_two_descriptor_stream",
      SI_STEM_ID, build_b08, reached_b08, perturb_b08,
-     {T64_AI_DEVICE, 0u}, {T64_AI_EVENT_SAMPLE, 0u}, false},
+     {T64_AI_DEVICE, 0u}, {T64_AI_EVENT_SAMPLE, 0u}, false, NULL, NULL},
     {"B09", "ai-paused-partial", "test_ai.c pause phase resume",
      SI_STEM_ID, build_b09, reached_b09, perturb_b09,
-     {0u, 0u}, {0u, 0u}, false},
+     {0u, 0u}, {0u, 0u}, false, NULL, NULL},
     {"B10", "ai-output-full-stall", "test_ai.c output-full same event",
      SI_STEM_ID, build_b10, reached_b10, perturb_b10,
-     {T64_AI_DEVICE, 0u}, {T64_AI_EVENT_SAMPLE, 0u}, true},
+     {T64_AI_DEVICE, 0u}, {T64_AI_EVENT_SAMPLE, 0u}, true, NULL, NULL},
+    {"B11", "cpu-delay-dirty-tlb", "test_cpu_time.c delay slot, test_cpu_path.c TLB pair",
+     SI_STEM_ID, build_b11, reached_b11, perturb_b11,
+     {T64_DEVICE_CPU, 0u}, {T64_CPU_EVENT_STEP, 0u}, false, NULL, NULL},
+    {"B12", "coincident-events", "test_determinism.c same-tick order",
+     SI_STEM_ID, build_b12, reached_b12, perturb_b12,
+     {T64_DEVICE_PI, T64_DEVICE_CPU}, {T64_PI_EVENT_COMPLETE, T64_CPU_EVENT_STEP},
+     false, NULL, NULL},
+    {"B13", "near-exhaustion", "test_scheduler.c transactional exhaustion",
+     SI_STEM_ID, build_b13, reached_b13, perturb_b13,
+     {T64_DEVICE_CPU, 0u}, {T64_CPU_EVENT_STEP, 0u}, false, peer_edit_b13,
+     extra_b13},
+    {"B14", "si-mid-transaction", "the 09-09 S1 builder (RD64B before its execute)",
+     SI_STEM_ID, build_b14, reached_b14, perturb_b14,
+     {T64_SI_DEVICE, T64_SI_DEVICE}, {T64_SI_EVENT_EXECUTE, T64_SI_EVENT_COMPLETE},
+     true, NULL, NULL},
+    {"B15", "eeprom-busy", "test_save.c tracer (EEPROM write through channel 4)",
+     SAVE_E4K_ID, build_b15, reached_b15, perturb_b15,
+     {0u, 0u}, {0u, 0u}, false, NULL, extra_b15},
+    {"B16", "pending-input", "t64_machine_queue_input 20,000 ticks ahead on S1",
+     SI_STEM_ID, build_b16, reached_b16, perturb_b16,
+     {T64_TRACE_DEVICE_INPUT, 0u}, {T64_TRACE_KIND_INPUT_SUBMITTED, 0u}, false,
+     NULL, NULL},
 };
 
 #define BOUNDARY_COUNT (sizeof boundaries / sizeof boundaries[0])
@@ -2850,13 +3183,18 @@ static bool matrix_full(void) {
   return value != NULL && value[0] == '1';
 }
 
-/* The partition steps of a row: one-shot and 7 always, 1, 31 and 4,096 on the
- * full rows and under T64_STATE_MATRIX_FULL (D-40: sampled in the gate preset). */
+/* The partition steps of a row. Every row compares the imported peer, advanced
+ * in partitions of 7 ticks, with the one-shot source reference (so import
+ * equivalence and partition invariance are checked by one run); the full rows
+ * and T64_STATE_MATRIX_FULL add the one-shot peer and the partitions of 1, 31
+ * and 4,096 ticks (D-40: the gate preset is a sample). */
 static size_t partition_steps(const boundary *b, uint64_t steps[5]) {
   size_t count = 0u;
 
-  steps[count++] = 0u;
-  if (b->full || matrix_full()) steps[count++] = 1u;
+  if (b->full || matrix_full()) {
+    steps[count++] = 0u;
+    steps[count++] = 1u;
+  }
   steps[count++] = 7u;
   if (b->full || matrix_full()) {
     steps[count++] = 31u;
@@ -2941,9 +3279,11 @@ static bool boundary_reference(size_t index) {
       p->ref_tuple[0].tick = machine->tick;
       p->ref_tuple[0].instructions = machine->instruction_count;
       p->ref_tuple[0].frames = machine->frame_event_count;
-    } else {
-      run_to(machine, p->tick + checkpoint_offset[c], 0u, &p->ref_tuple[c]);
+      /* the digest of the build is the digest prepared before the export */
+      (void)memcpy(p->ref_digest[0], p->digest, sizeof p->digest);
+      continue;
     }
+    run_to(machine, p->tick + checkpoint_offset[c], 0u, &p->ref_tuple[c]);
     (void)digest_of(machine, p->ref_digest[c]);
   }
   t64_machine_destroy(machine);
@@ -2969,6 +3309,7 @@ static t64_machine *boundary_peer(size_t index) {
   t64_status status;
 
   if (peer == NULL) return NULL;
+  if (b->peer_edit != NULL) b->peer_edit(peer);
   status = t64_machine_state_import(peer, p->blob, p->length, 0u, &report);
   if (status != T64_STATUS_OK) {
     fprintf(stderr, "boundary %s import: status %u reason %u section %u\n",
@@ -2979,6 +3320,120 @@ static t64_machine *boundary_peer(size_t index) {
     return NULL;
   }
   return peer;
+}
+
+/* The row-specific continuation checks (rows with an extra) -------------- */
+
+/* B13: the identically edited peer is the generic path; here the other peers
+ * of the same blob. Literals are recorded when T64_STATE_MATRIX_TRACE is set. */
+static void extra_b13(size_t index) {
+  const boundary *b = &boundaries[index];
+  t64_state_import_report report;
+  t64_machine *unedited = create_admitted(b->profile);
+  t64_machine *shrunk = create_admitted(b->profile);
+  t64_status status;
+
+  if (unedited == NULL || shrunk == NULL) {
+    T64_CHECK(false);
+  } else {
+    status = t64_machine_state_import(unedited, prepared[index].blob,
+                                      prepared[index].length, 0u, &report);
+    if (getenv("T64_STATE_MATRIX_TRACE") != NULL) {
+      fprintf(stderr, "b13 unedited peer: status %u reason %u section %u rule %u\n",
+              (unsigned)status, (unsigned)report.reason,
+              (unsigned)report.section_id, (unsigned)report.rule);
+    }
+    /* the capacity is a profile member, not a blob member: a peer created
+     * without the identical in-memory edit (room for 256 events) accepts the
+     * blob and, because the exhaustion is the sequence counter's, continues
+     * with the same result tuple */
+    T64_CHECK_INT(status, T64_STATUS_OK);
+    if (status == T64_STATUS_OK) {
+      tuple got;
+
+      run_to(unedited, prepared[index].tick + checkpoint_offset[1], 0u, &got);
+      T64_CHECK(tuples_equal(&got, &prepared[index].ref_tuple[1]));
+      /* the exhaustion is a resource-limit stop short of the checkpoint (the
+       * literal on the gate build: tick 6 after five CPU steps) */
+      T64_CHECK_INT(got.status, T64_STATUS_OK);
+      T64_CHECK_INT(got.reason, T64_STOP_REASON_RESOURCE_LIMIT);
+      T64_CHECK(got.tick < prepared[index].tick + checkpoint_offset[1]);
+      T64_CHECK_INT(got.instructions, 5u);
+    }
+    /* a peer whose capacity is below the blob queue count is refused at the
+     * scheduler section, leaving the machine untouched */
+    shrunk->profile.event_queue_capacity = 0u;
+    status = t64_machine_state_import(shrunk, prepared[index].blob,
+                                      prepared[index].length, 0u, &report);
+    if (getenv("T64_STATE_MATRIX_TRACE") != NULL) {
+      fprintf(stderr, "b13 capacity 0 peer: status %u reason %u section %u rule %u\n",
+              (unsigned)status, (unsigned)report.reason,
+              (unsigned)report.section_id, (unsigned)report.rule);
+    }
+    T64_CHECK_INT(status, T64_STATUS_STATE_INVARIANT);
+    T64_CHECK_INT(report.reason, T64_STATE_REASON_QUEUE_COUNT);
+    T64_CHECK_INT(report.section_id, T64_STATE_SECTION_SCHEDULER);
+    T64_CHECK_INT(report.rule, T64_STATE_RULE_COUNT_CAP);
+    T64_CHECK(t64_state_summary_is_clear(shrunk));
+  }
+  if (unedited != NULL) t64_machine_destroy(unedited);
+  if (shrunk != NULL) t64_machine_destroy(shrunk);
+}
+
+/* B15: the busy-window read across the boundary on the source and on an
+ * imported peer: busy one tick before the deadline, idle at it, and the images
+ * agree. The read executes at deadline + delta, so it starts H_READ before. */
+static void eeprom_probe(t64_machine *machine, int64_t delta, uint8_t image[64]) {
+  uint8_t frame[64];
+  const uint64_t deadline = machine->save.busy_until;
+  const uint64_t execute = (uint64_t)((int64_t)deadline + delta);
+  const uint64_t start = execute - H_READ_TICKS;
+
+  T64_CHECK(advance_to(machine, start - 2600u));
+  eeprom_frame(frame, 2u, 8u, eeprom_read_tx);
+  eeprom_send(machine, frame);
+  eeprom_receive(machine, start, image);
+}
+
+static void extra_b15(size_t index) {
+  const boundary *b = &boundaries[index];
+  size_t k;
+
+  for (k = 0u; k < 2u; k++) {
+    const int64_t delta = k == 0u ? -1 : 0;
+    t64_machine *source = b->build();
+    t64_machine *peer = boundary_peer(index);
+    uint8_t source_image[64];
+    uint8_t peer_image[64];
+    size_t i;
+
+    if (source == NULL || peer == NULL) {
+      T64_CHECK(false);
+      if (source != NULL) t64_machine_destroy(source);
+      if (peer != NULL) t64_machine_destroy(peer);
+      continue;
+    }
+    T64_CHECK_INT(peer->save.busy_until, source->save.busy_until);
+    eeprom_probe(source, delta, source_image);
+    eeprom_probe(peer, delta, peer_image);
+    T64_CHECK(memcmp(source_image, peer_image, sizeof source_image) == 0);
+    if (delta < 0) {
+      /* one tick before the deadline: the read times out */
+      T64_CHECK((source_image[5] & 0x40u) != 0u);
+      T64_CHECK((peer_image[5] & 0x40u) != 0u);
+    } else {
+      /* at the deadline: idle, the block written before the export */
+      T64_CHECK_INT(source_image[5], 0x08u);
+      T64_CHECK_INT(peer_image[5], 0x08u);
+      for (i = 0u; i < 8u; i++) {
+        T64_CHECK_INT(source_image[8u + i], 0x11u + i);
+        T64_CHECK_INT(peer_image[8u + i], 0x11u + i);
+      }
+    }
+    T64_CHECK(digests_equal(source, peer));
+    t64_machine_destroy(source);
+    t64_machine_destroy(peer);
+  }
 }
 
 /* ---- the cases ------------------------------------------------------------ */
@@ -3048,14 +3503,10 @@ static void case_boundary_continuation(void) {
         uint8_t digest[T64_DIGEST_SIZE];
 
         if (c == 0u) {
-          (void)memset(&got, 0, sizeof got);
-          got.tick = peer->tick;
-          got.instructions = peer->instruction_count;
-          got.frames = peer->frame_event_count;
-        } else {
-          run_to(peer, prepared[i].tick + checkpoint_offset[c], steps[s],
-                 &got);
+          /* the import checkpoint digest is the round-trip case (T1) */
+          continue;
         }
+        run_to(peer, prepared[i].tick + checkpoint_offset[c], steps[s], &got);
         (void)digest_of(peer, digest);
         if (!tuples_equal(&got, &prepared[i].ref_tuple[c]) ||
             memcmp(digest, prepared[i].ref_digest[c], sizeof digest) != 0) {
@@ -3080,6 +3531,7 @@ static void case_boundary_continuation(void) {
       }
       t64_machine_destroy(peer);
     }
+    if (b->extra != NULL) b->extra(i);
     matrix_trace("continuation", b, started);
   }
 }
@@ -3090,43 +3542,33 @@ static void case_boundary_perturbation(void) {
   for (i = 0u; i < BOUNDARY_COUNT; i++) {
     const boundary *b = &boundaries[i];
     const clock_t started = clock();
-    t64_machine *clean;
-    t64_machine *edited;
+    t64_machine *peer;
     tuple got;
     uint8_t digest[T64_DIGEST_SIZE];
 
     if (!boundary_reference(i)) continue;
-    /* the control arm in the same setup: the unperturbed peer agrees at the
-     * import checkpoint and at the first continuation checkpoint */
-    clean = boundary_peer(i);
-    edited = boundary_peer(i);
-    if (clean == NULL || edited == NULL) {
-      if (clean != NULL) t64_machine_destroy(clean);
-      if (edited != NULL) t64_machine_destroy(edited);
-      continue;
-    }
-    T64_CHECK(digest_of(clean, digest));
+    peer = boundary_peer(i);
+    if (peer == NULL) continue;
+    /* the control arm in the same setup: before the edit the peer agrees with
+     * the source at the import checkpoint (the first continuation checkpoint is
+     * the unperturbed peer of the continuation case) */
+    T64_CHECK(digest_of(peer, digest));
     T64_CHECK(memcmp(digest, prepared[i].ref_digest[0], sizeof digest) == 0);
-    run_to(clean, prepared[i].tick + checkpoint_offset[1], 0u, &got);
-    T64_CHECK(digest_of(clean, digest));
-    T64_CHECK(memcmp(digest, prepared[i].ref_digest[1], sizeof digest) == 0);
-    T64_CHECK(tuples_equal(&got, &prepared[i].ref_tuple[1]));
     /* the perturbed arm: one field of the imported copy changes the digest at
      * the import checkpoint and at the first continuation checkpoint */
-    b->perturb(edited);
-    T64_CHECK(digest_of(edited, digest));
+    b->perturb(peer);
+    T64_CHECK(digest_of(peer, digest));
     if (memcmp(digest, prepared[i].ref_digest[0], sizeof digest) == 0) {
       fprintf(stderr, "boundary %s perturbation invisible at import\n", b->id);
     }
     T64_CHECK(memcmp(digest, prepared[i].ref_digest[0], sizeof digest) != 0);
-    run_to(edited, prepared[i].tick + checkpoint_offset[1], 0u, &got);
-    T64_CHECK(digest_of(edited, digest));
+    run_to(peer, prepared[i].tick + checkpoint_offset[1], 0u, &got);
+    T64_CHECK(digest_of(peer, digest));
     if (memcmp(digest, prepared[i].ref_digest[1], sizeof digest) == 0) {
       fprintf(stderr, "boundary %s perturbation invisible at +310\n", b->id);
     }
     T64_CHECK(memcmp(digest, prepared[i].ref_digest[1], sizeof digest) != 0);
-    t64_machine_destroy(clean);
-    t64_machine_destroy(edited);
+    t64_machine_destroy(peer);
     matrix_trace("perturbation", b, started);
   }
 }
@@ -3182,6 +3624,24 @@ static void refusal_expect(const char *label, t64_machine *peer,
   T64_CHECK(t64_state_summary_is_clear(peer));
 }
 
+/* True when an earlier row already owns the (device, kind) pair (the gate
+ * preset checks each distinct pair once on its first row; every row runs under
+ * T64_STATE_MATRIX_FULL). */
+static bool pair_seen_before(size_t index, size_t pair) {
+  size_t i;
+  size_t p;
+
+  for (i = 0u; i < index; i++) {
+    for (p = 0u; p < 2u; p++) {
+      if (boundaries[i].pair_device[p] == boundaries[index].pair_device[pair] &&
+          boundaries[i].pair_kind[p] == boundaries[index].pair_kind[pair]) {
+        return true;
+      }
+    }
+  }
+  return false;
+}
+
 static void case_boundary_event_rules(void) {
   size_t i;
 
@@ -3189,7 +3649,15 @@ static void case_boundary_event_rules(void) {
     const boundary *b = &boundaries[i];
     const clock_t started = clock();
     size_t pair;
+    bool any = false;
 
+    for (pair = 0u; pair < 2u; pair++) {
+      if (b->pair_device[pair] != 0u &&
+          (matrix_full() || !pair_seen_before(i, pair))) {
+        any = true;
+      }
+    }
+    if (!any) continue;
     if (!boundary_prepare(i)) continue;
     if (b->pair_device[0] != 0u) {
       /* the accepted legitimate state first, in the same setup */
@@ -3212,6 +3680,7 @@ static void case_boundary_event_rules(void) {
       char label[96];
 
       if (b->pair_device[pair] == 0u) continue;
+      if (!matrix_full() && pair_seen_before(i, pair)) continue;
       removed = blob_edit_pair(prepared[i].blob, prepared[i].length,
                                b->pair_device[pair], b->pair_kind[pair], true,
                                &removed_length);
@@ -3226,13 +3695,37 @@ static void case_boundary_event_rules(void) {
         (void)snprintf(label, sizeof label, "%s skew (%u,%u)", b->id,
                        (unsigned)b->pair_device[pair],
                        (unsigned)b->pair_kind[pair]);
-        refusal_expect(label, peer, skewed, skewed_length,
-                       T64_STATE_REASON_DEVICE_TOKEN_MISMATCH);
+        if (b->pair_device[pair] != T64_TRACE_DEVICE_INPUT) {
+          refusal_expect(label, peer, skewed, skewed_length,
+                         T64_STATE_REASON_DEVICE_TOKEN_MISMATCH);
+        }
         (void)snprintf(label, sizeof label, "%s drop (%u,%u)", b->id,
                        (unsigned)b->pair_device[pair],
                        (unsigned)b->pair_kind[pair]);
-        if (b->pair_device[pair] == T64_DEVICE_SP &&
-            b->pair_kind[pair] == T64_SP_EVENT_RSP_ISSUE) {
+        if (b->pair_device[pair] == T64_TRACE_DEVICE_INPUT) {
+          /* A host-submitted input event owns no device continuation and its
+           * token is never read (t64_input_event_handler uses the value), so
+           * both mutants are accepted and bounded. */
+          t64_state_import_report report;
+          tuple after;
+
+          T64_CHECK_INT(t64_machine_state_import(peer, skewed, skewed_length,
+                                                 0u, &report),
+                        T64_STATUS_OK);
+          run_to(peer, peer->tick + 2000u, 0u, &after);
+          T64_CHECK_INT(after.status, T64_STATUS_OK);
+          t64_machine_destroy(peer);
+          peer = create_admitted(b->profile);
+          T64_CHECK(peer != NULL);
+          if (peer != NULL) {
+            T64_CHECK_INT(t64_machine_state_import(peer, removed,
+                                                   removed_length, 0u, &report),
+                          T64_STATUS_OK);
+            run_to(peer, peer->tick + 2000u, 0u, &after);
+            T64_CHECK_INT(after.status, T64_STATUS_OK);
+          }
+        } else if (b->pair_device[pair] == T64_DEVICE_SP &&
+                   b->pair_kind[pair] == T64_SP_EVENT_RSP_ISSUE) {
           /* The source permits a running RSP without its issue event (an
            * unsupported opcode or an out-of-bank pc leaves it running and not
            * rescheduled, core/t64_rsp.c t64_rsp_issue_event), so the drop
@@ -3258,6 +3751,493 @@ static void case_boundary_event_rules(void) {
     }
     matrix_trace("event-rules", b, started);
   }
+}
+
+
+/* ---- case mid-tick-resume (D-36; plan 09-09.1 Task 3) --------------------- */
+
+/* The all-devices workload W-ALL of core/tests/test_sched_matrix.c (copied: the
+ * builders there are file-static), with the three inputs at E - 1, E and E + 1.
+ * The CPU runs the authored program that starts the SI poll read, the PI and SP
+ * DMA, the RSP program, the RDP full syncs, two AI frames and the VI registers
+ * (v_sync 16, so no third field before the horizon) are all armed by host
+ * writes before the first advance. Only production events are queued, so the
+ * closed handler table of the importer accepts every state of the case. */
+#define W_STORE_TICK UINT64_C(3008)
+#define W_SI_H_POLL UINT64_C(16971)
+#define W_E (W_STORE_TICK + W_SI_H_POLL)
+#define W_H_ALL UINT64_C(60000)
+#define W_VI_AI_TICK UINT64_C(1418)
+
+static const uint32_t w_program[13] = {
+    UINT32_C(0x3C08A480), UINT32_C(0x3C091FC0), UINT32_C(0x352907C0),
+    UINT32_C(0x340B3900), UINT32_C(0x340A03E8), UINT32_C(0x254AFFFF),
+    UINT32_C(0x1540FFFE), UINT32_C(0x00000000), UINT32_C(0xAD000018),
+    UINT32_C(0xAD0B0000), UINT32_C(0xAD090004), UINT32_C(0x1000FFFF),
+    UINT32_C(0x00000000)};
+
+static void w_configure_vi(t64_machine *machine, uint32_t v_sync) {
+  size_t pixel;
+
+  for (pixel = 0u; pixel < 12u; pixel++) {
+    T64_CHECK_INT(t64_machine_bus_write(machine,
+                                        UINT32_C(0x3000) + (uint32_t)(pixel * 2u),
+                                        2u, UINT32_C(0xf801)),
+                  T64_STATUS_OK);
+  }
+  write_vi_register(machine, 0x04u, UINT32_C(0x3000));
+  write_vi_register(machine, 0x08u, UINT32_C(4));
+  write_vi_register(machine, 0x0cu, UINT32_C(2));
+  write_vi_register(machine, 0x14u, UINT32_C(0));
+  write_vi_register(machine, 0x18u, v_sync);
+  write_vi_register(machine, 0x1cu, UINT32_C(2207));
+  write_vi_register(machine, 0x24u, UINT32_C(4));
+  write_vi_register(machine, 0x28u, UINT32_C(0x00020008));
+  write_vi_register(machine, 0x30u, UINT32_C(0x00000400));
+  write_vi_register(machine, 0x34u, UINT32_C(0x00000400));
+  write_vi_register(machine, 0x00u, UINT32_C(2));
+}
+
+static t64_machine *build_w_all(void) {
+  t64_machine *machine = create_admitted(SI_STEM_ID);
+  size_t i;
+
+  if (machine == NULL) return NULL;
+  for (i = 0u; i < sizeof w_program / sizeof w_program[0]; i++) {
+    put32(machine->ram + 0x1000u + 4u * i, w_program[i]);
+  }
+  machine->cpu.pc = UINT32_C(0x80001000);
+  machine->cpu.pc_full = t64_cpu_canonical_address(machine->cpu.pc);
+  (void)memcpy(machine->ram + 0x3800u, poll_frame, sizeof poll_frame);
+  bus_write32(machine, SI_DRAM_ADDR, UINT32_C(0x3800));
+  bus_write32(machine, SI_WR64B, PIF_ADDRESS);
+  /* PI cartridge DMA of 24 bytes to RDRAM 0x200 */
+  bus_write32(machine, PI_BASE, UINT32_C(0x200));
+  bus_write32(machine, PI_BASE + 4u, UINT32_C(0x10000000));
+  bus_write32(machine, PI_BASE + 12u, UINT32_C(23));
+  /* SP DMA of eight bytes, then an RSP program that adds and breaks */
+  bus_write32(machine, SP_BASE, 0u);
+  bus_write32(machine, SP_BASE + 4u, UINT32_C(0x600));
+  bus_write32(machine, SP_BASE + 8u, 0u);
+  bus_write32(machine, UINT32_C(0x04001000), UINT32_C(0x24020009));
+  bus_write32(machine, UINT32_C(0x04001004), UINT32_C(0x0000000d));
+  T64_CHECK_INT(t64_rsp_start(machine), T64_STATUS_OK);
+  /* RDP: four full-sync commands at RDRAM 0x100 */
+  for (i = 0u; i < 4u; i++) {
+    (void)memset(machine->ram + 0x100u + i * 8u, 0, 8u);
+    machine->ram[0x100u + i * 8u] = 0xe9u;
+  }
+  bus_write32(machine, DP_START_REG, UINT32_C(0x100));
+  bus_write32(machine, DP_START_REG + 4u, UINT32_C(0x120));
+  /* AI: two frames; VI: the tracer registers */
+  ai_configure(machine);
+  bus_write32(machine, AI_REG_CONTROL, 1u);
+  bus_write32(machine, AI_BASE, UINT32_C(0x400));
+  bus_write32(machine, AI_REG_LEN, 8u);
+  w_configure_vi(machine, 16u);
+  T64_CHECK_INT(t64_machine_queue_input(machine, W_E - 1u, 0u, UINT16_C(0x8000),
+                                        1, -1),
+                T64_STATUS_OK);
+  T64_CHECK_INT(t64_machine_queue_input(machine, W_E, 0u, UINT16_C(0x4021), 127,
+                                        -128),
+                T64_STATUS_OK);
+  T64_CHECK_INT(t64_machine_queue_input(machine, W_E + 1u, 0u, UINT16_C(0x1802),
+                                        -1, 1),
+                T64_STATUS_OK);
+  return machine;
+}
+
+/* A stop is mid-tick when the queue front is still at the machine tick and an
+ * event of another device is queued at that tick. */
+static bool midtick_reached(const t64_machine *machine) {
+  const t64_event *front;
+  size_t i;
+
+  if (machine->queue_count == 0u) return false;
+  front = &machine->events[machine->queue_head];
+  if (front->tick != machine->tick) return false;
+  for (i = 1u; i < machine->queue_count; i++) {
+    const t64_event *event =
+        &machine->events[(machine->queue_head + i) % T64_EVENT_QUEUE_CAPACITY];
+
+    if (event->tick != machine->tick) break;
+    if (event->device != front->device) return true;
+  }
+  return false;
+}
+
+static bool event_queued_at(const t64_machine *machine, uint32_t device,
+                            uint32_t kind, uint64_t tick) {
+  size_t i;
+
+  for (i = 0u; i < machine->queue_count; i++) {
+    const t64_event *event =
+        &machine->events[(machine->queue_head + i) % T64_EVENT_QUEUE_CAPACITY];
+
+    if (event->device == device && event->kind == kind && event->tick == tick) {
+      return true;
+    }
+  }
+  return false;
+}
+
+typedef struct {
+  size_t count;
+  t64_event events[T64_EVENT_QUEUE_CAPACITY];
+} queue_snapshot;
+
+static void queue_snapshot_take(const t64_machine *machine, queue_snapshot *q) {
+  size_t i;
+
+  q->count = machine->queue_count;
+  for (i = 0u; i < machine->queue_count; i++) {
+    q->events[i] =
+        machine->events[(machine->queue_head + i) % T64_EVENT_QUEUE_CAPACITY];
+  }
+}
+
+static bool queue_snapshot_equal(const t64_machine *machine,
+                                 const queue_snapshot *q) {
+  size_t i;
+
+  if (machine->queue_count != q->count) return false;
+  for (i = 0u; i < q->count; i++) {
+    const t64_event *a =
+        &machine->events[(machine->queue_head + i) % T64_EVENT_QUEUE_CAPACITY];
+    const t64_event *b = &q->events[i];
+
+    if (a->tick != b->tick || a->sequence != b->sequence ||
+        a->device != b->device || a->kind != b->kind || a->value != b->value ||
+        a->token != b->token) {
+      return false;
+    }
+  }
+  return true;
+}
+
+/* The uninterrupted reference: digest, queue and result tuple at the horizon. */
+typedef struct {
+  bool ready;
+  uint8_t digest[T64_DIGEST_SIZE];
+  queue_snapshot queue;
+  tuple final;
+} w_reference;
+
+static w_reference w_ref;
+
+static void w_reference_build(void) {
+  t64_machine *machine;
+
+  if (w_ref.ready) return;
+  w_ref.ready = true;
+  machine = build_w_all();
+  if (machine == NULL) {
+    T64_CHECK(false);
+    return;
+  }
+  /* reached: one VI field and one AI sample coincide on the recorded tick */
+  T64_CHECK(advance_to(machine, W_VI_AI_TICK - 1u));
+  T64_CHECK(event_queued_at(machine, T64_VI_DEVICE, T64_VI_EVENT_FIELD,
+                            W_VI_AI_TICK));
+  T64_CHECK(event_queued_at(machine, T64_AI_DEVICE, T64_AI_EVENT_SAMPLE,
+                            W_VI_AI_TICK));
+  run_to(machine, W_H_ALL, 0u, &w_ref.final);
+  T64_CHECK_INT(w_ref.final.status, T64_STATUS_OK);
+  T64_CHECK_INT(w_ref.final.reason, T64_STOP_REASON_BOUND);
+  T64_CHECK_INT(w_ref.final.tick, W_H_ALL);
+  (void)digest_of(machine, w_ref.digest);
+  queue_snapshot_take(machine, &w_ref.queue);
+  t64_machine_destroy(machine);
+}
+
+/* Continue a stopped source by repeated calls under its own event budget. */
+static void run_budgeted(t64_machine *machine, uint64_t target, tuple *out) {
+  t64_status status = T64_STATUS_OK;
+  t64_stop_result stop = {0u, 0u};
+  size_t calls;
+
+  for (calls = 0u; calls < 400000u && machine->tick < target; calls++) {
+    t64_stop_request request = {T64_STOP_GUEST_TICK, target};
+
+    status = t64_machine_advance(machine, &request, &stop);
+    if (status != T64_STATUS_OK) break;
+    if (stop.reason != T64_STOP_REASON_RESOURCE_LIMIT &&
+        stop.reason != T64_STOP_REASON_BOUND) {
+      break;
+    }
+  }
+  out->status = status;
+  out->reason = stop.reason;
+  out->stop_tick = stop.tick;
+  out->tick = machine->tick;
+  out->instructions = machine->instruction_count;
+  out->frames = machine->frame_event_count;
+}
+
+typedef enum { STOP_BUDGET_1, STOP_BUDGET_2, STOP_INSTRUCTIONS, STOP_COINCIDENCE }
+    stop_row;
+
+static const char *const stop_row_name[] = {"s1 budget 1", "s2 budget 2",
+                                            "s3 instruction count",
+                                            "s4 VI and AI tick"};
+
+/* Build W-ALL and stop it mid-tick; the literal (the counter target or the tick)
+ * is returned. The machine keeps its edited budget for the source's own
+ * continuation. */
+static t64_machine *stop_w_all(stop_row row, uint32_t expected_reason,
+                               uint64_t *literal) {
+  t64_machine *machine = build_w_all();
+  size_t i;
+
+  *literal = 0u;
+  if (machine == NULL) return NULL;
+  if (row == STOP_BUDGET_1 || row == STOP_COINCIDENCE) {
+    machine->profile.advance_event_budget = 1u;
+  }
+  if (row == STOP_BUDGET_2) machine->profile.advance_event_budget = 2u;
+  for (i = 0u; i < 30000u; i++) {
+    t64_stop_result stop = {0u, 0u};
+    t64_status status;
+
+    if (row == STOP_INSTRUCTIONS) {
+      t64_stop_request request = {T64_STOP_INSTRUCTION_COUNT,
+                                  machine->instruction_count + 1u};
+
+      if (request.value > 4096u) break;
+      status = t64_machine_advance(machine, &request, &stop);
+    } else {
+      t64_stop_request request = {T64_STOP_GUEST_TICK, W_H_ALL};
+
+      status = t64_machine_advance(machine, &request, &stop);
+    }
+    T64_CHECK_INT(status, T64_STATUS_OK);
+    if (status != T64_STATUS_OK || stop.reason != expected_reason) break;
+    if (row == STOP_COINCIDENCE) {
+      const bool vi = event_queued_at(machine, T64_VI_DEVICE, T64_VI_EVENT_FIELD,
+                                      W_VI_AI_TICK);
+      const bool ai = event_queued_at(machine, T64_AI_DEVICE, T64_AI_EVENT_SAMPLE,
+                                      W_VI_AI_TICK);
+
+      if (machine->tick == W_VI_AI_TICK && midtick_reached(machine) &&
+          vi != ai) {
+        *literal = machine->tick;
+        return machine;
+      }
+      if (machine->tick > W_VI_AI_TICK) break;
+    } else if (midtick_reached(machine)) {
+      *literal = row == STOP_INSTRUCTIONS ? machine->instruction_count
+                                          : machine->tick;
+      return machine;
+    }
+  }
+  fprintf(stderr, "mid-tick stop %s not reached\n", stop_row_name[row]);
+  T64_CHECK(false);
+  t64_machine_destroy(machine);
+  return NULL;
+}
+
+static void midtick_row(stop_row row, uint32_t expected_reason) {
+  t64_machine *source;
+  t64_machine *peer;
+  t64_state_import_report report;
+  uint64_t literal = 0u;
+  uint8_t *blob;
+  size_t length = 0u;
+  uint8_t digest[T64_DIGEST_SIZE];
+  uint8_t source_digest[T64_DIGEST_SIZE];
+  uint8_t *again;
+  size_t again_length = 0u;
+  tuple got;
+  uint64_t steps[3];
+  size_t step_count = 0u;
+  size_t s;
+  uint64_t stop_tick;
+  const clock_t started = clock();
+
+  source = stop_w_all(row, expected_reason, &literal);
+  if (source == NULL) return;
+  stop_tick = source->tick;
+  if (getenv("T64_STATE_MATRIX_TRACE") != NULL) {
+    fprintf(stderr, "mid-tick %s: stop tick %llu literal %llu queue %zu\n",
+            stop_row_name[row], (unsigned long long)stop_tick,
+            (unsigned long long)literal, source->queue_count);
+  }
+  /* reached before export: the stop reason is the budget or counter reason
+   * (checked inside the search), the queue front is at the machine tick and an
+   * event of another device is queued at that tick */
+  T64_CHECK(midtick_reached(source));
+  blob = export_blob(source, &length);
+  if (blob == NULL) {
+    t64_machine_destroy(source);
+    return;
+  }
+  (void)digest_of(source, source_digest);
+  /* T1 and T2 */
+  peer = create_admitted(SI_STEM_ID);
+  if (peer != NULL) {
+    T64_CHECK_INT(t64_machine_state_import(peer, blob, length, 0u, &report),
+                  T64_STATUS_OK);
+    T64_CHECK(digest_of(peer, digest));
+    T64_CHECK(memcmp(digest, source_digest, sizeof digest) == 0);
+    T64_CHECK(memcmp(digest, blob + D_DECLARED, sizeof digest) == 0);
+    again = export_blob(peer, &again_length);
+    T64_CHECK(again != NULL && again_length == length &&
+              memcmp(again, blob, length) == 0);
+    free(again);
+    /* T3: the source continues under its own budget, the peer in slices; both
+     * end at the uninterrupted reference */
+    run_budgeted(source, W_H_ALL, &got);
+    T64_CHECK(tuples_equal(&got, &w_ref.final));
+    T64_CHECK(digest_of(source, digest));
+    T64_CHECK(memcmp(digest, w_ref.digest, sizeof digest) == 0);
+    T64_CHECK(queue_snapshot_equal(source, &w_ref.queue));
+    run_to(peer, W_H_ALL, 0u, &got);
+    T64_CHECK(tuples_equal(&got, &w_ref.final));
+    T64_CHECK(digest_of(peer, digest));
+    T64_CHECK(memcmp(digest, w_ref.digest, sizeof digest) == 0);
+    T64_CHECK(queue_snapshot_equal(peer, &w_ref.queue));
+    t64_machine_destroy(peer);
+  }
+  /* partitions of the first 310 ticks, then the horizon */
+  steps[step_count++] = 7u;
+  if (matrix_full()) {
+    steps[step_count++] = 1u;
+    steps[step_count++] = 31u;
+  }
+  for (s = 0u; s < step_count; s++) {
+    peer = create_admitted(SI_STEM_ID);
+    if (peer == NULL) continue;
+    T64_CHECK_INT(t64_machine_state_import(peer, blob, length, 0u, &report),
+                  T64_STATUS_OK);
+    run_to(peer, stop_tick + 310u, steps[s], &got);
+    run_to(peer, W_H_ALL, 0u, &got);
+    T64_CHECK(tuples_equal(&got, &w_ref.final));
+    T64_CHECK(digest_of(peer, digest));
+    T64_CHECK(memcmp(digest, w_ref.digest, sizeof digest) == 0);
+    t64_machine_destroy(peer);
+  }
+  /* perturbation: the unperturbed peers above match in the same setup; one
+   * field of the imported queue state changes the digest at the horizon (the
+   * sequence of the front event is erased at its dispatch, so the counter that
+   * every later reservation uses is edited) */
+  peer = create_admitted(SI_STEM_ID);
+  if (peer != NULL) {
+    T64_CHECK_INT(t64_machine_state_import(peer, blob, length, 0u, &report),
+                  T64_STATUS_OK);
+    peer->next_sequence += 1u;
+    run_to(peer, W_H_ALL, 0u, &got);
+    T64_CHECK(digest_of(peer, digest));
+    T64_CHECK(memcmp(digest, w_ref.digest, sizeof digest) != 0);
+    t64_machine_destroy(peer);
+  }
+  free(blob);
+  t64_machine_destroy(source);
+  if (getenv("T64_STATE_MATRIX_TRACE") != NULL) {
+    fprintf(stderr, "matrix-trace mid-tick %s %.2fs\n", stop_row_name[row],
+            (double)(clock() - started) / (double)CLOCKS_PER_SEC);
+  }
+}
+
+/* The 09-06 part b state: five synthetic instruction events and three synthetic
+ * frame events queued at one tick. It exports, and the closed handler table
+ * refuses it on import. */
+static t64_machine *build_synthetic_midtick(void) {
+  t64_machine *machine = create_admitted(SI_STEM_ID);
+  uint64_t cancelled_tick = UINT64_MAX;
+  static const uint32_t first[] = {T64_TEST_EVENT_INSTRUCTION,
+                                   T64_TEST_EVENT_FRAME,
+                                   T64_TEST_EVENT_INSTRUCTION};
+  static const uint32_t second[] = {
+      T64_TEST_EVENT_INSTRUCTION, T64_TEST_EVENT_FRAME,
+      T64_TEST_EVENT_INSTRUCTION, T64_TEST_EVENT_INSTRUCTION,
+      T64_TEST_EVENT_FRAME, T64_TEST_EVENT_NOOP};
+  size_t i;
+
+  if (machine == NULL) return NULL;
+  T64_CHECK_INT(t64_schedule_cancel(machine, T64_DEVICE_CPU, T64_CPU_EVENT_STEP,
+                                    0u, &cancelled_tick),
+                T64_STATUS_OK);
+  bus_write32(machine, SI_DRAM_ADDR, RECEIVE_DRAM);
+  bus_write32(machine, SI_RD64B, PIF_ADDRESS);
+  T64_CHECK_INT(machine->si.complete_tick, 4096u);
+  for (i = 0u; i < 3u; i++) {
+    T64_CHECK_INT(t64_test_schedule_synthetic(machine, 4096u, first[i], 1u),
+                  T64_STATUS_OK);
+  }
+  T64_CHECK(advance_to(machine, 4096u - 13u));
+  bus_write32(machine, PI_BASE, UINT32_C(0x200));
+  bus_write32(machine, PI_BASE + 4u, UINT32_C(0x10000000));
+  bus_write32(machine, PI_BASE + 12u, UINT32_C(23));
+  for (i = 0u; i < 6u; i++) {
+    T64_CHECK_INT(t64_test_schedule_synthetic(machine, 4096u, second[i], 1u),
+                  T64_STATUS_OK);
+  }
+  return machine;
+}
+
+static void midtick_synthetic_control(const uint8_t *baseline, size_t baseline_length) {
+  t64_machine *synthetic = build_synthetic_midtick();
+  t64_machine *peer;
+  t64_state_import_report report;
+  uint8_t *blob;
+  size_t length = 0u;
+  snapshot before;
+
+  if (synthetic == NULL) return;
+  T64_CHECK_INT(synthetic->tick, 4096u - 13u);
+  /* the state exports with OK (export does not apply the handler table) */
+  blob = export_blob(synthetic, &length);
+  t64_machine_destroy(synthetic);
+  if (blob == NULL) return;
+  /* an accepted baseline in the same setup, then the refusal */
+  peer = create_admitted(SI_STEM_ID);
+  if (peer != NULL) {
+    T64_CHECK_INT(t64_machine_state_import(peer, baseline, baseline_length, 0u,
+                                           &report),
+                  T64_STATUS_OK);
+    t64_machine_destroy(peer);
+  }
+  peer = create_admitted(SI_STEM_ID);
+  if (peer != NULL) {
+    const size_t allocs = allocate_calls;
+    const size_t releases = release_calls;
+
+    snapshot_take(peer, &before);
+    T64_CHECK_INT(t64_machine_state_import(peer, blob, length, 0u, &report),
+                  T64_STATUS_STATE_INVARIANT);
+    T64_CHECK_INT(report.reason, T64_STATE_REASON_QUEUE_KIND_UNKNOWN);
+    T64_CHECK_INT(report.section_id, T64_STATE_SECTION_SCHEDULER);
+    T64_CHECK_INT(report.rule, T64_STATE_RULE_ENUM_CLOSED);
+    T64_CHECK(snapshot_matches(peer, &before));
+    T64_CHECK(t64_state_summary_is_clear(peer));
+    T64_CHECK_INT(allocate_calls, allocs);
+    T64_CHECK_INT(release_calls, releases);
+    snapshot_free(&before);
+    t64_machine_destroy(peer);
+  }
+  free(blob);
+}
+
+static void case_mid_tick_resume(void) {
+  t64_machine *source;
+  uint64_t literal = 0u;
+  uint8_t *baseline;
+  size_t baseline_length = 0u;
+
+  w_reference_build();
+  midtick_row(STOP_BUDGET_1, T64_STOP_REASON_RESOURCE_LIMIT);
+  midtick_row(STOP_BUDGET_2, T64_STOP_REASON_RESOURCE_LIMIT);
+  midtick_row(STOP_COINCIDENCE, T64_STOP_REASON_RESOURCE_LIMIT);
+  if (matrix_full()) {
+    midtick_row(STOP_INSTRUCTIONS, T64_STOP_REASON_INSTRUCTION_COUNT);
+  }
+  /* the accepted baseline of the synthetic control is the first stop row */
+  source = stop_w_all(STOP_BUDGET_1, T64_STOP_REASON_RESOURCE_LIMIT, &literal);
+  if (source == NULL) return;
+  baseline = export_blob(source, &baseline_length);
+  t64_machine_destroy(source);
+  if (baseline != NULL) midtick_synthetic_control(baseline, baseline_length);
+  free(baseline);
 }
 
 
@@ -3449,14 +4429,14 @@ int main(int argc, char **argv) {
       "idempotence",        "save-media-roundtrip", "continuation-partitions",
       "dirty-peer",         "observer-flag",
       "boundary-reached",   "boundary-roundtrip",   "boundary-continuation",
-      "boundary-perturbation", "boundary-event-rules",
+      "boundary-perturbation", "boundary-event-rules", "mid-tick-resume",
       "stalled-observer-stop", "drop-observers-outcomes"};
   static const char *const suites[] = {
       "import",   "import",   "refusals", "refusals", "refusals",
       "refusals", "refusals", "refusals", "refusals", "ladder",
       "ladder",   "ladder",   "ladder",   "ladder",
       "boundaries", "boundaries", "boundaries", "boundaries", "boundaries",
-      "observers", "observers"};
+      "boundaries", "observers", "observers"};
   static void (*const runners[])(void) = {
       case_roundtrip_all,        case_handler_table_ledger,
       case_binding_refusals,     case_container_refusals,
@@ -3467,7 +4447,8 @@ int main(int argc, char **argv) {
       case_dirty_peer,           case_observer_flag,
       case_boundary_reached,     case_boundary_roundtrip,
       case_boundary_continuation, case_boundary_perturbation,
-      case_boundary_event_rules, case_stalled_observer_stop,
+      case_boundary_event_rules, case_mid_tick_resume,
+      case_stalled_observer_stop,
       case_drop_observers_outcomes};
   const size_t count = sizeof cases / sizeof cases[0];
   size_t index;
