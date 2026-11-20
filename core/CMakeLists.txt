@@ -269,13 +269,14 @@ add_custom_command(
 add_custom_target(t64-phase09-pad-fixture DEPENDS ${T64_PHASE09_PAD_OUTPUTS})
 add_dependencies(t64-phase09-pad-fixture t64-boot-fixtures)
 
-# Phase 9 save fixtures (plan 09-04): two authored sources build the three
-# eeprom-rw ROMs and the two sram-rw ROMs through defsyms; its own recipe keeps
-# the admit, audio, pad and boot builders on their historical source pins.
+# Phase 9 save fixtures (plan 09-04, plan 09-05): two authored sources build
+# the three eeprom-rw ROMs and the two sram-rw ROMs through defsyms, and a
+# third builds the save-roundtrip ROM; its own recipe keeps the admit, audio,
+# pad and boot builders on their historical source pins.
 set(T64_PHASE09_SAVE_STEMS
   phase09-eeprom-rw-e4k-v1 phase09-eeprom-rw-e16k-v1
   phase09-eeprom-rw-wrong-e4k-v1 phase09-sram-rw-s32k-v1
-  phase09-sram-rw-wrong-s32k-v1)
+  phase09-sram-rw-wrong-s32k-v1 phase09-save-roundtrip-s32k)
 set(T64_PHASE09_SAVE_OUTPUTS)
 foreach(T64_SAVE_STEM IN LISTS T64_PHASE09_SAVE_STEMS)
   list(APPEND T64_PHASE09_SAVE_OUTPUTS
@@ -294,6 +295,8 @@ add_custom_command(
     "${CMAKE_SOURCE_DIR}/fixtures/save/eeprom.ld"
     "${CMAKE_SOURCE_DIR}/fixtures/save/sram.S"
     "${CMAKE_SOURCE_DIR}/fixtures/save/sram.ld"
+    "${CMAKE_SOURCE_DIR}/fixtures/save/roundtrip.S"
+    "${CMAKE_SOURCE_DIR}/fixtures/save/roundtrip.ld"
     "${CMAKE_SOURCE_DIR}/scripts/build-save-fixtures.sh"
     "${CMAKE_SOURCE_DIR}/tools/fixture/t64_rom_pack.c"
     "${CMAKE_SOURCE_DIR}/tools/common/t64_sha256.c"

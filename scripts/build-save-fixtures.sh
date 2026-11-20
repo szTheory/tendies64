@@ -1,6 +1,6 @@
 #!/bin/sh
-# Builds the five Phase 9 save fixture ROMs from fixtures/save/eeprom.S and
-# fixtures/save/sram.S.
+# Builds the six Phase 9 save fixture ROMs from fixtures/save/eeprom.S,
+# fixtures/save/sram.S and fixtures/save/roundtrip.S.
 # Provenance: a copy of scripts/build-pad-fixture.sh, itself a copy of
 # scripts/build-phase09-admit-fixture.sh and scripts/build-audio-fixture.sh
 # (same pinned asset, payload, Binutils and packer source hashes, same
@@ -26,7 +26,10 @@ ASSET_SHA256=f522db2e31a701f82597f399e76d55c9487760d015aff9d90176b463ae39a068
 PAYLOAD_SHA256=f716a90b1d36ec4253d096790791256d3543455e54473a755ff8c3d1199b15d5
 BINUTILS_SHA256=c50c0e7f9cb188980e2cc97e4537626b1672441815587f1eab69d2a1bfbef5d2
 
-SAVE_STEMS='phase09-eeprom-rw-e4k-v1 phase09-eeprom-rw-e16k-v1 phase09-eeprom-rw-wrong-e4k-v1 phase09-sram-rw-s32k-v1 phase09-sram-rw-wrong-s32k-v1'
+# The five stems of plan 09-04 keep their ROM identities; the roundtrip stem
+# of plan 09-05 is added after them (no new build script).
+SAVE_STEMS_0904='phase09-eeprom-rw-e4k-v1 phase09-eeprom-rw-e16k-v1 phase09-eeprom-rw-wrong-e4k-v1 phase09-sram-rw-s32k-v1 phase09-sram-rw-wrong-s32k-v1'
+SAVE_STEMS="$SAVE_STEMS_0904 phase09-save-roundtrip-s32k"
 
 die() { printf 'error: %s\n' "$*" >&2; exit 1; }
 sha256_stream() {
@@ -80,6 +83,7 @@ verify_prerequisites() {
 source_content_sha256() {
     cat fixtures/save/eeprom.S fixtures/save/eeprom.ld \
         fixtures/save/sram.S fixtures/save/sram.ld \
+        fixtures/save/roundtrip.S fixtures/save/roundtrip.ld \
         tools/fixture/t64_rom_pack.c tools/common/t64_sha256.c \
         tools/common/t64_sha256.h scripts/build-save-fixtures.sh | sha256_stream
 }
@@ -155,6 +159,21 @@ write_metadata() {
         > "$output_dir/$stem.build.json"
 }
 
+# Only metadata may change for the 09-04 stems: their ROM SHA-256 and size must
+# equal the committed manifest rows (a hash proves identity, not rights).
+check_existing_rom_identities() {
+    output_dir=$1
+    for stem in $SAVE_STEMS_0904; do
+        expected=$(jq -r --arg id "$stem" \
+            '.entries[] | select(.id == $id) | "\(.sha256) \(.size)"' \
+            fixtures/manifest.json)
+        [ -n "$expected" ] || die "manifest row is absent for $stem"
+        actual="$(sha256_file "$output_dir/$stem.z64") $(file_size "$output_dir/$stem.z64")"
+        [ "$actual" = "$expected" ] || \
+            die "ROM identity of $stem differs from its manifest row"
+    done
+}
+
 run_build() {
     staging="build/fixtures/.phase09-save-stage.$$"
     cleanup() { rm -rf "$staging"; }
@@ -170,6 +189,9 @@ run_build() {
         fixtures/save/sram.S fixtures/save/sram.ld ''
     build_variant "$staging" phase09-sram-rw-wrong-s32k-v1 \
         fixtures/save/sram.S fixtures/save/sram.ld T64_SAVE_WRONG
+    build_variant "$staging" phase09-save-roundtrip-s32k \
+        fixtures/save/roundtrip.S fixtures/save/roundtrip.ld ''
+    check_existing_rom_identities "$staging"
     for stem in $SAVE_STEMS; do
         write_metadata "$staging" "$stem"
         mv "$staging/$stem.z64" "build/fixtures/$stem.z64"
