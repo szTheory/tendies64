@@ -1039,7 +1039,7 @@ static void state_section_scheduler(state_reader *r) {
 
   count = state_rd32(r);
   STATE_CHECK(r, count <= limit, T64_STATE_REASON_QUEUE_COUNT,
-              T64_STATE_RULE_NONE);
+              T64_STATE_RULE_COUNT_CAP);
   if (count > limit) {
     count = 0u;
   }
@@ -1047,7 +1047,7 @@ static void state_section_scheduler(state_reader *r) {
   exhausted = state_rd_bool(r);
   STATE_CHECK(r, next_sequence <= sequence_limit &&
                      (!exhausted || next_sequence == sequence_limit),
-              T64_STATE_REASON_QUEUE_SEQUENCE, T64_STATE_RULE_NONE);
+              T64_STATE_REASON_QUEUE_SEQUENCE, T64_STATE_RULE_SEQ_LT);
   if (r->mode == STATE_MODE_VALIDATE) {
     facts->queue_count = count;
     facts->next_sequence = next_sequence;
@@ -1067,16 +1067,17 @@ static void state_section_scheduler(state_reader *r) {
     event.handler = t64_state_handler_lookup(event.device, event.kind);
     pair = state_pair_index(event.device, event.kind);
     STATE_CHECK(r, event.handler != NULL && pair < T64_STATE_PAIR_COUNT,
-                T64_STATE_REASON_QUEUE_KIND_UNKNOWN, T64_STATE_RULE_NONE);
+                T64_STATE_REASON_QUEUE_KIND_UNKNOWN,
+                T64_STATE_RULE_ENUM_CLOSED);
     STATE_CHECK(r, index == 0u || event.tick > facts->previous_tick ||
                        (event.tick == facts->previous_tick &&
                         event.sequence > facts->previous_sequence),
                 T64_STATE_REASON_QUEUE_ORDER, T64_STATE_RULE_NONE);
     STATE_CHECK(r, exhausted ? event.sequence <= next_sequence
                              : event.sequence < next_sequence,
-                T64_STATE_REASON_QUEUE_SEQUENCE, T64_STATE_RULE_NONE);
+                T64_STATE_REASON_QUEUE_SEQUENCE, T64_STATE_RULE_SEQ_LT);
     STATE_CHECK(r, event.tick >= facts->tick, T64_STATE_REASON_QUEUE_TICK,
-                T64_STATE_RULE_NONE);
+                T64_STATE_RULE_TICK_GE);
     STATE_CHECK(r, pair != PAIR_INPUT || (event.value >> 32) == 0u,
                 T64_STATE_REASON_DEVICE_STATE_INCONSISTENT,
                 T64_STATE_RULE_NONE);

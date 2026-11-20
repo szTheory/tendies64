@@ -1,9 +1,10 @@
-# State container (export)
+# State container (export and import)
 
 The state container is a versioned binary blob that carries the canonical state
 of one machine of the composite family plus the host observer cursors. This
-document specifies the export half (plan 09-08); the import half and the
-boundary matrix are appended by plan 09-09.
+document specifies the export half (plan 09-08) and the import half (plan
+09-09, sections "Import" onward); the boundary matrix, the mutants and the field
+audit follow in plan 09-09.1.
 
 ## Scope and evidence
 
@@ -111,9 +112,10 @@ slots are hashed.
 The observer section holds exactly the five values above and nothing else.
 `write_generation` (a host counter of successful save imports) never travels in
 the container and no export byte reads it; the importer maintains it by its own
-rule in the import plan, so the container and the digest do not depend on it.
+rule (see the import section), so the container and the digest do not depend on
+it.
 Observer state gates dispatch, so a default import restores observer
-continuity; the statement about dropping observers is owned by the import plan.
+continuity; the observer policy is stated in the import section below.
 Observer progress changes only the observer entry hash, the observer body and
 the trailer (case `observer-continuity`); trace enablement and queued trace
 records never reach the blob.
@@ -241,6 +243,163 @@ Option-pair matrix recorded for the later drift sweep:
 
 ## Freeze and status
 
-State content is frozen at F1; this plan changes no section id, marker, body byte
-or digest value. A later change to the container is a recorded defect fix with
-regenerated goldens. The import notes are appended by plan 09-09.
+State content is frozen at F1; the export plan changes no section id, marker,
+body byte or digest value, and neither does the import plan. A later change to
+the container is a recorded defect fix with regenerated goldens.
+
+## Import
+
+`t64_status t64_machine_state_import(t64_machine *machine, const uint8_t *bytes,
+size_t length, uint32_t flags, t64_state_import_report *report_out)`. The name,
+the flag, the report record, the statuses (26 to 33), the reason names and the
+rule names are provisional until Phase 10; no API or ABI freeze is implied.
+
+### Scope and contract
+
+- Import is same-build and same-version only: a container is accepted by a machine
+  of the same profile (digest), the same admitted content (digest and length) and
+  the same build identity, and only for state serialization version 25. Cross-build
+  and cross-version import, a diagnostic override of the build binding,
+  state-anchored replay, compression and the skipping of unknown sections are not
+  implemented; each of those cases is refused with its own status.
+- The contract is memory safety plus liveness. A blob that passes validation cannot
+  cause an out-of-range access, an unbounded loop or undefined arithmetic: every
+  field used as an index, a length, a shift, a loop bound or an array subscript is
+  bounded by a named rule before it is used. A state that passes validation but
+  is semantically unreachable is accepted and then runs deterministically; no
+  statement here or in a test says that an imported state is reachable.
+- Hashes (the section hashes, the declared digest and the trailer) are integrity
+  checks, not authentication: a blob whose bodies and every hash were recomputed is
+  checked by the rules below and nothing else. The evidence is the
+  self-consistency of the software model.
+
+### Order of checks
+
+1. Arguments and disjointness: machine and bytes present (`ARG_NULL`), length
+   non-zero and at most 64 MiB (`ARG_LENGTH`), no flag bit other than
+   `T64_STATE_IMPORT_DROP_OBSERVERS` (`ARG_FLAGS`), the blob span and the report
+   span disjoint from the machine allocation, the admitted image and both packet
+   storages (`ARG_OVERLAP_LIVE`; an unusable report span is never written), then an
+   admitted image (`NOT_ADMITTED`, status `NOT_READY`).
+2. Header: length at least header plus trailer, magic, container version 1, total
+   length equal to the supplied length, section count 1 to 32, header flags zero,
+   and the build identity field holding a terminator with only zero bytes after it
+   (`HEADER_RESERVED`).
+3. Trailer: SHA-256 of every byte before it (`TRAILER_SHA256`, status `STATE_INTEGRITY`).
+4. Identity binding, one status per mismatch: the state version is registered for
+   the machine (`STATE_VERSION`), the profile digest (`PROFILE_DIGEST`, status
+   `STATE_PROFILE`), the content digest and the content length (`CONTENT_DIGEST`,
+   `CONTENT_LENGTH`, status `STATE_CONTENT`) and the 128-byte build identity equal
+   to the live text with NUL padding (`BUILD_ID`, status `STATE_BUILD`). The importer
+   registry has one row, version 25.
+5. Section table with checked arithmetic (`state_add_u64`, `state_mul_u64`,
+   `state_span_within`): known ids (`SECTION_ID_UNKNOWN`; id 11 only for the three
+   save ids), strictly ascending with the observer-continuity id last
+   (`SECTION_ORDER`), flags zero for canonical entries and 1 for the observer entry
+   (`SECTION_FLAGS`), contiguous bodies behind their four-byte markers
+   (`SECTION_OVERLAP` for an earlier offset, `SECTION_BOUNDS` for a gap, an escape
+   from the canonical region or a wrong marker), the exact length for each fixed
+   section (`SECTION_LENGTH_EXPECTED`), the section SHA-256 (`SECTION_SHA256`) and
+   every mandatory section present (`SECTION_MISSING`).
+6. Per-field range rules, one reader per section in ascending id order
+   (`FIELD_RANGE`, `FIELD_PADDING`, `FIELD_RESERVED`, `FIELD_DERIVED`,
+   `OBSERVER_RANGE`; status `STATE_RANGE`), then a section that is not consumed
+   exactly is `SECTION_LENGTH_EXPECTED`.
+7. Structural and per-device invariants over the scheduler queue and the device
+   state (`QUEUE_*` and `DEVICE_*`; status `STATE_INVARIANT`).
+8. The canonical digest recomputed from the blob (the domain bytes, then each
+   canonical section id and body) against the declared digest (`DECLARED_DIGEST`).
+9. One infallible commit.
+
+A refusal reports a closed `(status, reason, section id, rule, position)` record
+(the position is a byte position in the blob; it never carries blob bytes), leaves
+the machine bit-identical, makes no host call and releases nothing. The check order
+of import and export (pointers before admission) differs from the save import and
+export of plan 09-05 (admission first) and from `t64_machine_save_info` of plan
+09-04 (pointers first, because it must write its output); the three differences are
+documented and none is changed here.
+
+### Statuses and reasons
+
+| Status | Reasons |
+| --- | --- |
+| `INVALID_ARGUMENT` | `ARG_NULL`, `ARG_LENGTH`, `ARG_FLAGS`, `ARG_OVERLAP_LIVE` |
+| `NOT_READY` | `NOT_ADMITTED` |
+| `STATE_FORMAT` (26) | `MAGIC`, `CONTAINER_VERSION`, `TOTAL_LENGTH`, `SECTION_COUNT`, `HEADER_FLAGS`, `HEADER_RESERVED`, `SECTION_ID_UNKNOWN`, `SECTION_ORDER`, `SECTION_FLAGS`, `SECTION_BOUNDS`, `SECTION_OVERLAP`, `SECTION_LENGTH_EXPECTED`, `SECTION_MISSING` |
+| `STATE_INTEGRITY` (27) | `TRAILER_SHA256`, `SECTION_SHA256`, `DECLARED_DIGEST` |
+| `STATE_VERSION` (28) | `STATE_VERSION` |
+| `STATE_PROFILE` (29) | `PROFILE_DIGEST` |
+| `STATE_CONTENT` (30) | `CONTENT_DIGEST`, `CONTENT_LENGTH` |
+| `STATE_BUILD` (31) | `BUILD_ID` |
+| `STATE_RANGE` (32) | `FIELD_RANGE`, `FIELD_PADDING`, `FIELD_RESERVED`, `FIELD_DERIVED`, `OBSERVER_RANGE` |
+| `STATE_INVARIANT` (33) | `QUEUE_COUNT`, `QUEUE_ORDER`, `QUEUE_SEQUENCE`, `QUEUE_TICK`, `QUEUE_KIND_UNKNOWN`, `DEVICE_EVENT_MISSING`, `DEVICE_EVENT_EXTRA`, `DEVICE_TOKEN_MISMATCH`, `DEVICE_STATE_INCONSISTENT` |
+
+### Field rules
+
+Every field-level refusal and the queue reasons record one rule: `COUNT_CAP` (a
+count above its capacity), `INDEX_LT` (an index, or a value wider than its member,
+at or above its bound), `ENUM_CLOSED` (outside a closed enumeration or a closed
+event pair), `BOOL_01` (a boolean word other than 0 or 1), `ALIGN`, `ADDR_RANGE`
+(an address span outside installed RDRAM), `TICK_GE` and `TICK_LE` (a tick below or
+above its bound), `SEQ_LT` (a sequence at or above `next_sequence`), `SHIFT_LT` (a
+shift or mask width at its limit), `LEN_LE` (a length above its maximum),
+`PROFILE_DERIVED` (a field that must equal a profile or live value), `DERIVED_EQ`
+(a stored derived value different from its recomputation), `PAD_ZERO` (a text
+member without a terminator or with bytes after it) and `RESERVED_ZERO` (bits
+outside a mask). `MASKED_AT_USE` names a field that is read without a range check
+because its consuming site masks it; the sites are listed here and the field-use
+audit of plan 09-09.1 maps every one:
+
+| Field | Consuming site |
+| --- | --- |
+| `sp.mem_address`, `sp.dram_address`, `sp.read_length`, `sp.write_length` | `decode_descriptor` in `core/t64_sp.c` masks every latch when a DMA starts |
+| `rsp.pc`, `rsp.gpr`, `rsp.delay_target` | `t64_rsp_issue_event` in `core/t64_rsp.c` masks the program counter and every address to the bank |
+| `cpu.gpr`, `cpu.cp0`, the TLB entries | the CPU, memory and MMU units mask or switch over them (`page_size_shift` in `core/t64_mmu.c`) |
+| `rdp.render_x_begin`, `rdp.render_x_end`, `rdp.render_y_begin`, `rdp.render_y_end`, `rdp.render_y` | the row handler of `core/t64_rdp.c` validates every row span against the image and RDRAM before it writes |
+
+Fixed section lengths for this profile: 168, 32, 4 plus the RDRAM size, 8,200, 276,
+43,724 and 404 bytes for ids 1, 2, 3, 4, 5, 7 and 10, 20 plus the save size for id
+11 and 40 for id 16; ids 6, 8 and 9 are consumed exactly by their readers.
+
+### Per-device rules
+
+The per-device pass reads only the scratch facts and a per-(device, kind) queue
+summary (count, first tick, token and value, largest token and how many events
+carry it). Each rule comes from the cited source and is accepted for every state
+the source permits.
+
+| Device | Rule | Source |
+| --- | --- | --- |
+| CPU | at most one (CPU, step) event, token and value 0; exactly one unless the CPU is stopped, the machine halted or the attempt outcome is the host error (a refused re-reserve leaves none) | `t64_cpu_step`, `cpu_commit_preflighted_successor` in `core/t64_cpu.c`; the exception re-reserve in `core/t64_exception.c` |
+| PI | an active transfer owns exactly one completion event with the active token and the transfer length as its value; an idle PI owns none; the SRAM directions need the SRAM save id and an active transfer | `start_dma`, `t64_pi_complete` in `core/t64_pi.c` |
+| SP | no (SP, complete) event on this profile (the functional RSP moves SP DMA through RSP beats); at most one (SP, RSP issue) event whose token is the issue sequence and whose tick is the next issue tick, and none once that tick has passed | `start_rsp_dma` in `core/t64_sp.c`, `t64_rsp_schedule_next` in `core/t64_rsp.c` |
+| RDP | at most one work event with token 0, none while the RDP is idle (not busy, rendering, fencing or holding a pending command) | `schedule_next_committed` and `t64_rdp_event` in `core/t64_rdp.c` |
+| VI | no event of a future generation; an enabled VI owns exactly one event of the current generation (one that waits for output capacity is accepted: the ring occupancy gates dispatch only); a disabled VI owns none of the current generation; older generations are stale and harmless | `t64_vi_write_register`, `t64_vi_event` in `core/t64_vi.c` |
+| AI | an active, unpaused interface owns exactly one sample event with the current token; otherwise none; paused implies active and a positive remaining delay; active implies a queued descriptor | `t64_ai_write_register`, `t64_ai_event` in `core/t64_ai.c` |
+| Input | any number, the port field of the value zero | `t64_machine_queue_input` in `core/t64_observe.c` |
+| SI | idle: no events, no direction, no pending execute; write: one complete event with the active token at the complete tick, no execute event; read: the same, and while the execute is pending exactly one execute event with the active token at the execute tick with start at or below execute at or below complete | `start_dma`, `t64_si_execute_event`, `t64_si_complete_event` in `core/t64_si.c` |
+| Save media | the stored kind equals the profile kind; no events | `core/t64_save.c` |
+
+The uniform queue rules: the count is within the profile queue limit, tuples are
+strictly ordered by tick and then sequence, a sequence is below `next_sequence`
+(or at it when the exhausted flag is set, which requires `next_sequence` to equal
+the sequence limit of the profile), a tick is at or above the machine tick of the
+blob (not the live machine tick, because the commit replaces it), and the
+(device, kind) pair is one of the ten production pairs of the event ledger; the
+synthetic test device is refused.
+
+### Commit
+
+The commit runs after every check has accepted the blob, performs no allocation
+and no host call, and cannot fail: every state structure the container describes
+starts from zero and receives the blob values through the same reader functions in
+apply mode (which evaluate no check), so a member the container does not carry,
+and the dirty state of a peer that ran other work, cannot survive. The queue head
+is 0 and the handlers are rebuilt from the closed table; the trace ring, the drop
+count and the saturation flag are cleared and trace enablement is kept; the RSP
+observation record is cleared; the RDRAM, SP memory, coverage tables and retained
+packet slots are overwritten (the unused part of the packet storages is zeroed); the
+retained video and audio packet strings (profile and build identity, not part of
+the v25 state) are regenerated from the live machine for each produced slot.
+Profile, content, ROM bytes, the allocator, the storage descriptors and every
+pointer are untouched.
