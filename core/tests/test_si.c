@@ -224,6 +224,13 @@ static void case_capacity_rule(void) {
 #define OP_SW_T1_WR64B UINT32_C(0xAD090010) /* sw $t1, 16($t0) */
 #define OP_SW_ZERO_STATUS UINT32_C(0xAD000018) /* sw $zero, 24($t0) */
 #define OP_SD_T1_BASE UINT32_C(0xFD090000)  /* sd $t1, 0($t0)  */
+/* Partial word stores whose merge is a full word at the register (plan 09-10,
+ * review L1 WR-01): SWR at byte 3 and SWL at byte 0 of the word write all four
+ * bytes, so the bus sees a full-mask word write and starts the DMA. */
+#define OP_SWR_T1_RD64B UINT32_C(0xB9090007) /* swr $t1, 7($t0)  */
+#define OP_SWL_T1_RD64B UINT32_C(0xA9090004) /* swl $t1, 4($t0)  */
+#define OP_SWR_T1_WR64B UINT32_C(0xB9090013) /* swr $t1, 19($t0) */
+#define OP_SWL_T1_WR64B UINT32_C(0xA9090010) /* swl $t1, 16($t0) */
 
 #define BUDGET_QUEUE_LIMIT 16u
 #define PROGRAM_ADDRESS UINT32_C(0x1000)
@@ -339,21 +346,26 @@ static bool refused_for_capacity(t64_status status) {
 
 /* One refuse-then-accept pair on a fresh machine each: the refusing room has
  * one event too few for the store, the accepting room has exactly enough. */
-static void budget_room_pair(const char *label, const char *profile_id,
-                             uint32_t store_opcode, size_t refuse_room,
-                             size_t accept_room) {
+static void budget_room_pair_ex(const char *label, const char *profile_id,
+                                uint32_t store_opcode, size_t refuse_room,
+                                size_t accept_room, bool must_retire) {
   t64_machine *machine;
   store_result result;
 
   machine = make_store_machine(profile_id, store_opcode, accept_room, 64u, 0u);
   if (machine == NULL) return;
   result = run_store(machine, store_opcode);
-  /* Accepted baseline in the same setup: the capacity rule did not refuse. */
+  /* Accepted baseline in the same setup: the capacity rule did not refuse,
+   * and where the store is performed it retires as the fourth instruction. */
   if (refused_for_capacity(result.status)) {
     fprintf(stderr, "budget row '%s': accept room %zu refused with %u\n",
             label, accept_room, (unsigned)result.status);
   }
   T64_CHECK(!refused_for_capacity(result.status));
+  if (must_retire) {
+    T64_CHECK_INT(result.status, T64_STATUS_OK);
+    T64_CHECK_INT(result.retired, 4u);
+  }
   t64_machine_destroy(machine);
 
   machine = make_store_machine(profile_id, store_opcode, refuse_room, 64u, 0u);
@@ -361,6 +373,13 @@ static void budget_room_pair(const char *label, const char *profile_id,
   result = run_store(machine, store_opcode);
   check_refused(label, &result, T64_STATUS_QUEUE_FULL, refuse_room, machine);
   t64_machine_destroy(machine);
+}
+
+static void budget_room_pair(const char *label, const char *profile_id,
+                             uint32_t store_opcode, size_t refuse_room,
+                             size_t accept_room) {
+  budget_room_pair_ex(label, profile_id, store_opcode, refuse_room,
+                      accept_room, false);
 }
 
 /* Sequence analogue: width 8 gives a limit of 255. needed events need
@@ -431,6 +450,26 @@ static void case_cpu_store_budget(void) {
                        254u, 253u);
   budget_sequence_pair("family WR64B sequence", SI_STEM_ID, OP_SW_T1_WR64B,
                        255u, 254u);
+  /* The partial stores that merge into a full word at the register start the
+     DMA like sw, so they carry the same budget: refused with room one short,
+     retired as the fourth instruction with exactly enough. */
+  budget_room_pair_ex("family RD64B swr byte 3", SI_STEM_ID, OP_SWR_T1_RD64B,
+                      2u, 3u, true);
+  budget_room_pair_ex("family RD64B swl byte 0", SI_STEM_ID, OP_SWL_T1_RD64B,
+                      2u, 3u, true);
+  budget_room_pair_ex("family WR64B swr byte 3", SI_STEM_ID, OP_SWR_T1_WR64B,
+                      1u, 2u, true);
+  budget_room_pair_ex("family WR64B swl byte 0", SI_STEM_ID, OP_SWL_T1_WR64B,
+                      1u, 2u, true);
+  budget_sequence_pair("family RD64B swr sequence", SI_STEM_ID,
+                       OP_SWR_T1_RD64B, 254u, 253u);
+  budget_sequence_pair("family WR64B swl sequence", SI_STEM_ID,
+                       OP_SWL_T1_WR64B, 255u, 254u);
+  /* the accept halves of the plain rows assert the store retired too */
+  budget_room_pair_ex("family RD64B retires", SI_STEM_ID, OP_SW_T1_RD64B, 2u,
+                      3u, true);
+  budget_room_pair_ex("family WR64B retires", SI_STEM_ID, OP_SW_T1_WR64B, 1u,
+                      2u, true);
   /* Every other SI address and every legacy profile keep the legacy budget
      of one extra event: refused at room 1, accepted at room 2. */
   budget_room_pair("family STATUS store", SI_STEM_ID, OP_SW_ZERO_STATUS, 1u,

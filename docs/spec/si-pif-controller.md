@@ -177,7 +177,14 @@ start that needs one are checked by one scheduler function before anything is
 reserved, and then the events are reserved and committed in turn, so a refusal
 never leaves a partial start. The CPU preflight of a 32-bit store to RD64B needs
 room for two events beyond its successor and a store to WR64B for one (D-44);
-every other store keeps its earlier budget.
+every other store keeps its earlier budget. The budget keys on the word the
+store writes, not on its effective address: a SWL at byte 0 or a SWR at byte 3 of
+the register merges into a full word and starts the DMA like a SW, so it carries
+the same budget (and an SWL or SWR at any other byte of the word is budgeted
+conservatively like the word, although the bus refuses its partial merge). In the
+reverse-endian user mode the word address takes the lane exchange of the store
+path. Control: `unit.core.cpu.si-store-budget` refuses and accepts SW, SWL and SWR
+at both registers and the sequence analogue.
 
 ## Input latch
 

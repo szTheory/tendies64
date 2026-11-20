@@ -1480,6 +1480,8 @@ uint64_t t64_cpu_instruction_cost(const t64_machine *machine,
   }
 }
 
+static bool cpu_reverse_endian_active(const t64_machine *machine);
+
 static size_t cpu_successor_extra_event_budget(const t64_machine *machine,
                                               uint32_t opcode) {
   uint32_t width = 0u;
@@ -1487,15 +1489,17 @@ static size_t cpu_successor_extra_event_budget(const t64_machine *machine,
   bool partial = false;
   t64_mmu_request request;
   t64_mmu_result translation;
+  uint32_t address;
 
   if (!memory_access_info(opcode, &width, &store, &partial) || !store ||
       width != 4u) {
     return 0u;
   }
-  (void)partial;
   request.virtual_address = effective_address(
       &machine->cpu, (opcode >> 21) & UINT32_C(0x1f), (uint16_t)opcode);
-  request.width = width;
+  /* The same translation the store itself performs (core/t64_memory.c
+     translate_effect): a partial store translates its byte. */
+  request.width = partial ? 1u : width;
   request.kind = T64_MMU_ACCESS_WRITE;
   if (!cpu_translate_access(machine, request.virtual_address, request.width,
                             request.kind, &translation) ||
@@ -1506,20 +1510,33 @@ static size_t cpu_successor_extra_event_budget(const t64_machine *machine,
        spare here is conservative if a translation changes between checks. */
     return 1u;
   }
+  /* The word the store writes: a partial store (SWL, SWR) aligns down to its
+     bus word, a full word store in the reverse-endian mode swaps its lane
+     (the lane exchange of translate_effect). The budget keys on that address,
+     not on the effective address, so a SWR at byte 3 of the RD64B register,
+     whose merge is a full word write, is budgeted like the SW. The reverse
+     endian partial store is a masked doubleword write that no SI register
+     accepts; the word address keeps it conservative (plan 09-10, review L1
+     WR-01). */
+  address = (uint32_t)translation.physical_address;
+  if (partial) {
+    address &= ~UINT32_C(3);
+  } else if (cpu_reverse_endian_active(machine)) {
+    address = (address & ~UINT32_C(7)) | ((address & UINT32_C(7)) ^ 4u);
+  }
   if (t64_has_si_profile(machine)) {
     /* Profile policy (D-44): a 32-bit store that starts an SI DMA may
        schedule up to two events beyond the successor (execute and complete
        for the read start, completion only for the write start), so the
        preflight must find room before the store is performed. */
-    if (translation.physical_address == T64_SI_BASE + T64_SI_REG_RD64B) {
+    if (address == T64_SI_BASE + T64_SI_REG_RD64B) {
       return 2u;
     }
-    if (translation.physical_address == T64_SI_BASE + T64_SI_REG_WR64B) {
+    if (address == T64_SI_BASE + T64_SI_REG_WR64B) {
       return 1u;
     }
   }
-  return translation.physical_address < machine->profile.rdram_bytes ? 0u
-                                                                     : 1u;
+  return address < machine->profile.rdram_bytes ? 0u : 1u;
 }
 
 static t64_status cpu_preflight_successor(
