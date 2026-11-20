@@ -620,8 +620,9 @@ Child-only names: the supervisor forwards each verified descriptor to the runner
 under a child option, `--input-fd`, `--save-import-fd`, `--replay-fd` and
 `--state-import-fd`. They are not supervisor options and a caller never passes
 them. The runner accepts only an unlinked read-only regular file as a descriptor
-(it cannot know where the descriptor came from); the exact size and the SHA-256 are
-verified by the supervisor only, so a directly started child skips them. Like every
+(it cannot know where the descriptor came from); the declared size and the SHA-256 are
+verified by the supervisor only, so a directly started child checks the shape of the
+descriptor and, for a save image, the exact kind size, and skips the rest. Like every
 Phase 9 flag name they are provisional until the Phase 10 interface review.
 
 ## Boundary matrix
