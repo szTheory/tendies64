@@ -1737,8 +1737,41 @@ typedef struct {
 #define T64_STATE_SECTION_SI_PIF UINT32_C(10)
 /* Reserved: the save-media section lands with the save devices (plan 09-04). */
 #define T64_STATE_SECTION_SAVE_MEDIA UINT32_C(11)
-/* Reserved: observer continuity, outside the digest (plan 09-08). */
+/* Observer continuity (plan 09-08): written by the state container export
+ * after the canonical region and outside the digest; the walker never emits
+ * it. */
 #define T64_STATE_SECTION_OBSERVER_CONTINUITY UINT32_C(16)
+
+/*
+ * State container (plan 09-08, provisional until Phase 10). All integers are
+ * big-endian. Layout, offsets from the blob start: a 0x120-byte header, a
+ * table of 56-byte entries (id, flags, body offset, body length, body
+ * SHA-256), the canonical region (exactly the v25 digest preimage), the
+ * 40-byte observer body and a 32-byte SHA-256 trailer over every byte before
+ * it. docs/spec/state-container.md carries the literal offsets.
+ */
+#define T64_STATE_CONTAINER_MAGIC "T64STATE"
+#define T64_STATE_CONTAINER_VERSION UINT32_C(1)
+#define T64_STATE_HEADER_BYTES 0x120u
+#define T64_STATE_ENTRY_BYTES 56u
+#define T64_STATE_TRAILER_BYTES 32u
+#define T64_STATE_OBSERVER_BYTES 40u
+#define T64_STATE_MAX_SECTIONS 32u
+#define T64_STATE_MAX_BYTES UINT64_C(67108864)
+#define T64_STATE_BUILD_ID_BYTES 128u
+#define T64_STATE_SECTION_FLAG_OUTSIDE_DIGEST UINT32_C(1)
+
+/*
+ * Total container length for a canonical region of canonical_length bytes
+ * and section_count table entries (the observer entry included): the header,
+ * the table, the canonical region, the observer body and the trailer, in
+ * checked 64-bit arithmetic. Returns false, leaving *length_out unchanged,
+ * for a count of zero or above T64_STATE_MAX_SECTIONS, any arithmetic wrap, or
+ * a total above T64_STATE_MAX_BYTES.
+ */
+bool t64_state_container_length(uint64_t canonical_length,
+                                uint32_t section_count,
+                                uint64_t *length_out);
 
 /*
  * Stream the canonical state of an admitted machine into the sink in the

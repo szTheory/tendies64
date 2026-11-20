@@ -233,7 +233,8 @@ unit.core.save.import-export
 runner.save-roundtrip
 harness.phase09-collect-real
 unit.replay.suite
-runner.replay-mix'
+runner.replay-mix
+unit.core.state.export'
 
 CPU_COVERAGE_OPCODES='ADD
 ADDU

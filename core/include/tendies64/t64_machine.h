@@ -373,6 +373,31 @@ t64_status t64_machine_profile(
     const t64_machine *machine, const t64_profile_descriptor **profile_out);
 t64_status t64_machine_digest(const t64_machine *machine,
                               uint8_t digest_out[T64_DIGEST_SIZE]);
+
+/*
+ * State export (provisional until Phase 10: the name, the container layout
+ * and the format string are not frozen and no API or ABI freeze is implied).
+ * The container is the versioned binary blob described in
+ * docs/spec/state-container.md; it is an integrity-checked copy of the
+ * canonical machine state plus the host observer cursors, not an
+ * authenticated or portable artifact. Export is defined for the composite
+ * family (state serialization version 25) only.
+ *
+ * Size-then-copy-out: a NULL buffer or a capacity below the required length
+ * returns BUFFER_TOO_SMALL, sets *length_out to the required length and
+ * writes no byte of bytes_out. An exact or larger buffer receives the
+ * container, *length_out is its length and no byte past it changes. The
+ * machine is never modified (const). Argument spans must be valid and must
+ * not overlap each other or any machine-owned storage (INVALID_ARGUMENT); no
+ * admitted image is NOT_READY; a profile outside the composite family is
+ * INVALID_ARGUMENT; a container beyond the size ceiling is RESOURCE_EXHAUSTED.
+ * Every refusal leaves the caller bytes, *length_out and the machine intact.
+ */
+#define T64_STATE_CONTAINER_FORMAT "t64.state-container.v1"
+t64_status t64_machine_state_export(const t64_machine *machine,
+                                    uint8_t *bytes_out, size_t capacity,
+                                    size_t *length_out);
+
 /* Returns NOT_READY until a terminal CPU stop; refusals leave output intact. */
 t64_status t64_machine_cpu_stop_detail(
     const t64_machine *machine, t64_cpu_stop_detail *detail_out);
