@@ -1426,6 +1426,62 @@ static void state_read_rdp_tiles(state_reader *r) {
   }
 }
 
+/* A triangle render in progress (09-10 FX-01). The rows run later from the
+ * packet words and the registers, and the rasterizer proved its bounds when it
+ * accepted the command (core/t64_rdp_raster.c t64_rdp_triangle_extent): the
+ * rows index the 1,024-row triangle coverage array and the shade and texture
+ * products must fit 64 bits. The reader therefore re-establishes exactly that
+ * proof from the blob values, through the same function, before the blob can
+ * commit: the rows below the coverage height, an opcode the profile accepts,
+ * the word count of the opcode, the shade flag of the opcode, the products and
+ * the extent, the first and last row the extent gives, and the row being
+ * rendered inside them. */
+typedef struct {
+  const uint64_t *packet;
+  uint32_t word_count;
+  bool shade;
+  t64_rdp_triangle_view view;
+  uint32_t y_begin;
+  uint32_t y_end;
+  uint32_t y_now;
+} state_triangle;
+
+static void state_check_triangle_render(state_reader *r,
+                                        const state_triangle *triangle) {
+  const t64_machine *m = r->machine;
+  uint32_t opcode;
+  uint32_t first = 1u;
+  uint32_t last = 0u;
+  bool extent;
+
+  if (r->mode != STATE_MODE_VALIDATE || r->failed) {
+    return;
+  }
+  STATE_CHECK(r, triangle->y_now < T64_RDP_TRIANGLE_COVERAGE_HEIGHT &&
+                     triangle->y_end < T64_RDP_TRIANGLE_COVERAGE_HEIGHT,
+              T64_STATE_REASON_FIELD_RANGE, T64_STATE_RULE_INDEX_LT);
+  opcode = (uint32_t)((triangle->packet[0] >> 56) & UINT64_C(0x3f));
+  STATE_CHECK(r, t64_rdp_triangle_opcode_accepted(m, opcode),
+              T64_STATE_REASON_FIELD_RANGE, T64_STATE_RULE_ENUM_CLOSED);
+  STATE_CHECK(r, triangle->word_count == t64_rdp_triangle_word_count(opcode),
+              T64_STATE_REASON_FIELD_DERIVED, T64_STATE_RULE_DERIVED_EQ);
+  STATE_CHECK(r, triangle->shade == (opcode == UINT32_C(0x0c) ||
+                                     opcode == UINT32_C(0x0d) ||
+                                     opcode == UINT32_C(0x0e) ||
+                                     opcode == UINT32_C(0x0f)),
+              T64_STATE_REASON_FIELD_DERIVED, T64_STATE_RULE_DERIVED_EQ);
+  extent = r->failed ? false
+                     : t64_rdp_triangle_extent(m, opcode, triangle->packet,
+                                               triangle->word_count,
+                                               &triangle->view, &first, &last);
+  STATE_CHECK(r, extent, T64_STATE_REASON_FIELD_RANGE, T64_STATE_RULE_LEN_LE);
+  STATE_CHECK(r, first == triangle->y_begin && last == triangle->y_end &&
+                     first <= last,
+              T64_STATE_REASON_FIELD_DERIVED, T64_STATE_RULE_DERIVED_EQ);
+  STATE_CHECK(r, triangle->y_now >= first && triangle->y_now <= last,
+              T64_STATE_REASON_FIELD_RANGE, T64_STATE_RULE_INDEX_LT);
+}
+
 static void state_read_rdp(state_reader *r) {
   t64_machine *m = r->machine;
   t64_rdp_state *rdp = &m->rdp;
@@ -1439,12 +1495,19 @@ static void state_read_rdp(state_reader *r) {
   bool freeze;
   bool flush;
   bool render_triangle;
+  bool shade_triangle;
   uint32_t image_address;
   uint32_t image_width;
   uint32_t image_size;
+  uint32_t scissor_xh;
+  uint32_t scissor_yh;
   uint32_t scissor_xl;
+  uint32_t scissor_yl;
+  uint64_t other_modes;
+  uint64_t packet[T64_RDP_TRIANGLE_MAX_WORDS];
   uint32_t x_begin;
   uint32_t x_end;
+  uint32_t y_begin;
   uint32_t y_end;
   uint32_t y_now;
   uint32_t signed_value;
@@ -1476,14 +1539,24 @@ static void state_read_rdp(state_reader *r) {
   STATE_CHECK(r, image_size <= 3u, T64_STATE_REASON_FIELD_RANGE,
               T64_STATE_RULE_ENUM_CLOSED);
   STATE_STORE(r, rdp->color_image_size, image_size);
-  F32_LE(rdp->scissor_xh, UINT32_C(0xfff), T64_STATE_RULE_LEN_LE);
-  F32_LE(rdp->scissor_yh, UINT32_C(0xfff), T64_STATE_RULE_LEN_LE);
+  scissor_xh = state_rd32(r);
+  STATE_CHECK(r, scissor_xh <= UINT32_C(0xfff), T64_STATE_REASON_FIELD_RANGE,
+              T64_STATE_RULE_LEN_LE);
+  STATE_STORE(r, rdp->scissor_xh, scissor_xh);
+  scissor_yh = state_rd32(r);
+  STATE_CHECK(r, scissor_yh <= UINT32_C(0xfff), T64_STATE_REASON_FIELD_RANGE,
+              T64_STATE_RULE_LEN_LE);
+  STATE_STORE(r, rdp->scissor_yh, scissor_yh);
   scissor_xl = state_rd32(r);
   STATE_CHECK(r, scissor_xl <= UINT32_C(0xfff), T64_STATE_REASON_FIELD_RANGE,
               T64_STATE_RULE_LEN_LE);
   STATE_STORE(r, rdp->scissor_xl, scissor_xl);
-  F32_LE(rdp->scissor_yl, UINT32_C(0xfff), T64_STATE_RULE_LEN_LE);
-  F64(rdp->other_modes);
+  scissor_yl = state_rd32(r);
+  STATE_CHECK(r, scissor_yl <= UINT32_C(0xfff), T64_STATE_REASON_FIELD_RANGE,
+              T64_STATE_RULE_LEN_LE);
+  STATE_STORE(r, rdp->scissor_yl, scissor_yl);
+  other_modes = state_rd64(r);
+  STATE_STORE(r, rdp->other_modes, other_modes);
   F32(rdp->fill_color);
   F32(rdp->texture_image_address);
   F32(rdp->texture_image_width);
@@ -1521,8 +1594,10 @@ static void state_read_rdp(state_reader *r) {
     (void)memset(rdp->pending_triangle_words, 0,
                  sizeof rdp->pending_triangle_words);
   }
+  (void)memset(packet, 0, sizeof packet);
   for (i = 0u; i < words && !r->failed; i++) {
-    F64(rdp->pending_triangle_words[i]);
+    packet[i] = state_rd64(r);
+    STATE_STORE(r, rdp->pending_triangle_words[i], packet[i]);
   }
   F32(rdp->primitive_color);
   FBOOL(rdp->primitive_color_valid);
@@ -1535,7 +1610,14 @@ static void state_read_rdp(state_reader *r) {
     render_triangle = v_ != 0u;
     STATE_STORE(r, rdp->render_triangle, render_triangle);
   }
-  FBOOL(rdp->shade_triangle);
+  {
+    const uint32_t v_ = state_rd32(r);
+
+    STATE_CHECK(r, v_ <= 1u, T64_STATE_REASON_FIELD_RANGE,
+                T64_STATE_RULE_BOOL_01);
+    shade_triangle = v_ != 0u;
+    STATE_STORE(r, rdp->shade_triangle, shade_triangle);
+  }
   F32_SAMER(T64_RDP_TRIANGLE_COVERAGE_WIDTH, T64_STATE_RULE_PROFILE_DERIVED);
   F32_SAMER(T64_RDP_TRIANGLE_COVERAGE_HEIGHT, T64_STATE_RULE_PROFILE_DERIVED);
   (void)state_rd_bytes(r, m->rdp_triangle_coverage,
@@ -1555,7 +1637,8 @@ static void state_read_rdp(state_reader *r) {
   STATE_STORE(r, rdp->render_x_begin, x_begin);
   x_end = state_rd32(r);
   STATE_STORE(r, rdp->render_x_end, x_end);
-  F32(rdp->render_y_begin);
+  y_begin = state_rd32(r);
+  STATE_STORE(r, rdp->render_y_begin, y_begin);
   y_end = state_rd32(r);
   STATE_STORE(r, rdp->render_y_end, y_end);
   y_now = state_rd32(r);
@@ -1582,6 +1665,32 @@ static void state_read_rdp(state_reader *r) {
   STATE_STORE(r, rdp->command_pending, command_pending);
   STATE_STORE(r, rdp->texrect_pending, texrect_pending);
   FBOOL(rdp->render_texture_flip);
+  /* A triangle render flag always belongs to a render in progress (the
+   * refusal path and the last row clear both together). */
+  STATE_CHECK(r, !render_triangle || render_active,
+              T64_STATE_REASON_FIELD_DERIVED, T64_STATE_RULE_DERIVED_EQ);
+  if (render_active && render_triangle) {
+    state_triangle triangle;
+
+    triangle.packet = packet;
+    triangle.word_count = words;
+    triangle.shade = shade_triangle;
+    triangle.view.scissor_xh = scissor_xh;
+    triangle.view.scissor_yh = scissor_yh;
+    triangle.view.scissor_xl = scissor_xl;
+    triangle.view.scissor_yl = scissor_yl;
+    triangle.view.image_address = image_address;
+    triangle.view.image_width = image_width;
+    triangle.view.image_size = image_size;
+    triangle.view.other_modes = other_modes;
+    triangle.view.depth_address = 0u;
+    triangle.view.depth_valid = false;
+    triangle.view.primitive_depth_valid = false;
+    triangle.y_begin = y_begin;
+    triangle.y_end = y_end;
+    triangle.y_now = y_now;
+    state_check_triangle_render(r, &triangle);
+  }
   if (render_active) {
     /* A render in progress writes the rows up to render_y_end of the color
      * image: the last pixel of the last row, from the same acceptance extents

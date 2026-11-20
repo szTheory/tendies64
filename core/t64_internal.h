@@ -960,6 +960,28 @@ typedef enum {
 } t64_save_channel4_class;
 
 size_t t64_rdp_triangle_word_count(uint32_t opcode);
+/* The registers a triangle row reads, as plain values: the same view is built
+ * from the live RDP state at command acceptance and from the blob values by
+ * the state importer (09-10 FX-01). */
+typedef struct {
+  uint32_t scissor_xh;
+  uint32_t scissor_yh;
+  uint32_t scissor_xl;
+  uint32_t scissor_yl;
+  uint32_t image_address;
+  uint32_t image_width;
+  uint32_t image_size;
+  uint64_t other_modes;
+  uint32_t depth_address;
+  bool depth_valid;
+  bool primitive_depth_valid;
+} t64_rdp_triangle_view;
+bool t64_rdp_triangle_opcode_accepted(const t64_machine *machine,
+                                      uint32_t opcode);
+bool t64_rdp_triangle_extent(const t64_machine *machine, uint32_t opcode,
+                             const uint64_t *words, size_t word_count,
+                             const t64_rdp_triangle_view *view,
+                             uint32_t *y_begin_out, uint32_t *y_end_out);
 bool t64_rdp_triangle_bounds(const t64_machine *machine, uint32_t opcode,
                              const uint64_t *words, size_t word_count,
                              uint32_t *y_begin_out,

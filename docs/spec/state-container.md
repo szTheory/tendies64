@@ -355,7 +355,7 @@ audit of plan 09-09.1 maps every one:
 | `sp.mem_address`, `sp.dram_address`, `sp.read_length`, `sp.write_length` | `decode_descriptor` in `core/t64_sp.c` masks every latch when a DMA starts |
 | `rsp.pc`, `rsp.gpr`, `rsp.delay_target` | `t64_rsp_issue_event` in `core/t64_rsp.c` masks the program counter and every address to the bank |
 | `cpu.gpr`, `cpu.cp0`, the TLB entries | the CPU, memory and MMU units mask or switch over them (`page_size_shift` in `core/t64_mmu.c`) |
-| `rdp.render_x_begin`, `rdp.render_x_end`, `rdp.render_y_begin`, `rdp.render_y_end`, `rdp.render_y` | the row handler of `core/t64_rdp.c` validates every row span against the image and RDRAM before it writes |
+| `rdp.render_x_begin`, `rdp.render_x_end`, `rdp.render_y_begin`, `rdp.render_y_end`, `rdp.render_y` | none: a render in progress is bounded by the reader (the last pixel inside RDRAM; for a triangle also the 1,024-row coverage height, the packet and the products, see "Triangle render in progress"); the row handlers do not check the extent again |
 
 Fixed section lengths for this profile: 168, 32, 4 plus the RDRAM size, 8,200, 276,
 43,724 and 404 bytes for ids 1, 2, 3, 4, 5, 7 and 10, 20 plus the save size for id
@@ -755,9 +755,32 @@ that way are outside the list (the list has 72 names of 472 reachable members). 
 accepted states are therefore covered by the sweep, the campaign and the liveness
 list, not by the audit alone, and the limit is carried to the review plan.
 
+Triangle render in progress (plan 09-10 fix cycle, review L2 CR-02, audit T-09-67). The rows
+of a triangle run after the command was accepted, from the packet words and the
+registers, and index the 1,024-row triangle coverage array and 64-bit shade and
+texture products that the rasterizer proved bounded only at acceptance
+(`t64_rdp_triangle_extent` in `core/t64_rdp_raster.c`, shared by the acceptance and
+the reader). The reader now establishes that proof from the blob values for every
+state with `render_active` and `render_triangle`, in this order, each refusal being a
+`STATE_RANGE` report in section 8: the rows `render_y` and `render_y_end` below the
+coverage height 1,024 (`FIELD_RANGE`, `INDEX_LT`); the opcode of word 0 one the
+profile accepts, that is 0x08, 0x0a, 0x0c or 0x0e on the composite family
+(`FIELD_RANGE`, `ENUM_CLOSED`); the packet word count equal to the count of the
+opcode (`FIELD_DERIVED`, `DERIVED_EQ`); the shade flag equal to the shade form of the
+opcode (`DERIVED_EQ`); the extent and the shade and texture products inside the
+bounds (`FIELD_RANGE`, `LEN_LE`); `render_y_begin` and `render_y_end` equal to the
+first and last row the extent gives (`DERIVED_EQ`); and `render_y` between them
+(`INDEX_LT`). A triangle render flag without a render in progress is refused as well
+(`DERIVED_EQ`), because a stale flag would run the next fill render through the
+triangle row handler. The tile and TMEM state of a texture triangle is not available
+to the reader (it is read after the render fields) and is checked at use: the TMEM
+accessors validate the tile and every address of each pixel. The mutants
+`render-triangle-*` of the inventory carry one accepted baseline and one refusal per
+rule.
+
 Reader bounds added by the audit. The nine members the 09-09 hand-off listed as
 unbounded were checked against their consuming code. The RDP render rectangle was
-the one real hole: the fill, copy and triangle row handlers index RDRAM from
+the first real hole (the triangle coverage rows and products were the second, found by the 09-10 review and closed by the triangle render rules below): the fill, copy and triangle row handlers index RDRAM from
 `color_image_address`, `color_image_width`, `render_x_begin`, `render_x_end`,
 `render_y` and `render_y_end` without checking them again, because the check ran when
 the command was accepted. The reader now requires, for a render in progress, the
@@ -776,9 +799,10 @@ or compatible, and no test states that it is.
 
 **Mutant inventory.** `docs/spec/state-mutants.txt` is the independently authored
 inventory: one row per mutant with its expected status, reason, section and rule,
-grouped under the headings header (9 rows), table (6), fields (18, one per rule id with
-a reader use, plus the observer range, the EEPROM deadline beyond the window and the
-RDP render extent), queue (8), devices (10) and digest (1), 52 in all. The C mutant
+grouped under the headings header (9 rows), table (6), fields (26, one per rule id with
+a reader use, plus the observer range, the EEPROM deadline beyond the window, the
+RDP render extent of a fill render and the eight triangle render rules of plan 09-10),
+queue (8), devices (10) and digest (1), 60 in all. The C mutant
 table of `core/tests/test_state_import.c` must equal the inventory name by name, in
 order, tuple by tuple (case `mutant-inventory`, the file named by
 `T64_STATE_MUTANT_INVENTORY`; `--list-mutants` prints the names). Every mutant keeps

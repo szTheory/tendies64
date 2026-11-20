@@ -4603,6 +4603,256 @@ static uint8_t *mut_render_extent(target_id target, size_t *length_out) {
   return blob;
 }
 
+/* A triangle render in progress (09-10 FX-01): a flat or a shaded triangle
+ * submitted through the DP registers after the combine mode (the family needs
+ * it for every triangle), stopped after its first row. The source builders of
+ * the mutants below; the accepted baseline of each is the unmutated blob. */
+typedef enum { TRI_FLAT = 0, TRI_SHADE = 1, TRI_COUNT = 2 } tri_kind;
+
+static t64_machine *build_tri_render(tri_kind kind) {
+  static const uint64_t flat[] = {
+      UINT64_C(0x3f10000700005000), /* RGBA16 color image, width 8 */
+      UINT64_C(0x2d00000000020020), /* scissor [0,8) x [0,8) */
+      UINT64_C(0x2f00000000000000), /* one-cycle mode */
+      UINT64_C(0x3a000000c8c8c8ff), /* primitive color */
+      UINT64_C(0x3b000000505050ff), /* environment color */
+      UINT64_C(0xfc55566c8877ffff), /* combine mode */
+      UINT64_C(0x08000014000c0004), /* edge: rows 1 to 4 */
+      UINT64_C(0x00010000fffe8000), UINT64_C(0x0001000000000000),
+      UINT64_C(0x0004000000018000)};
+  static const uint64_t shade[] = {
+      UINT64_C(0x3f10000700005000), UINT64_C(0x2d00000000020020),
+      UINT64_C(0x2f00000000000000), UINT64_C(0x3a000000c8c8c8ff),
+      UINT64_C(0x3b000000505050ff), UINT64_C(0xfc55566c8877ffff),
+      UINT64_C(0x0c000014000c0004), /* shade triangle, 12 words */
+      UINT64_C(0x00010000fffe8000), UINT64_C(0x0001000000008000),
+      UINT64_C(0x0004000000018000), UINT64_C(0x002000400060008f),
+      UINT64_C(0x0008fffb000cfff7), UINT64_C(0x40008000c0004000),
+      UINT64_C(0x8000c000c0008000), UINT64_C(0x00100008fffb0002),
+      UINT64_C(0x0004000c0008fff9), UINT64_C(0x4000c00080004000),
+      UINT64_C(0xc000400080004000)};
+  const uint64_t *words = kind == TRI_SHADE ? shade : flat;
+  const size_t count = kind == TRI_SHADE ? sizeof shade / sizeof shade[0]
+                                         : sizeof flat / sizeof flat[0];
+  t64_machine *machine = build_quiet();
+  size_t i;
+
+  if (machine == NULL) return NULL;
+  for (i = 0u; i < count; i++) {
+    put_be64(machine->ram + B05_COMMAND_ADDRESS + 8u * i, words[i]);
+  }
+  bus_write32(machine, DP_START_REG, B05_COMMAND_ADDRESS);
+  bus_write32(machine, DP_START_REG + 4u,
+              B05_COMMAND_ADDRESS + (uint32_t)(8u * count));
+  for (i = 0u; i < 600u && !(machine->rdp.render_active &&
+                             machine->rdp.render_triangle &&
+                             machine->rdp.render_y > machine->rdp.render_y_begin);
+       i++) {
+    T64_CHECK(advance_to(machine, machine->tick + 1u));
+  }
+  return machine;
+}
+
+typedef struct {
+  uint8_t *blob;
+  size_t length;
+  size_t field; /* render_x_begin inside section 8; x_end, y_begin, y_end and
+                   render_y follow */
+  size_t words; /* pending_triangle_words[0] inside section 8 */
+  size_t count; /* pending_triangle_word_count */
+  size_t render_flag; /* render_triangle; shade_triangle follows */
+  size_t active_flag; /* render_active */
+} tri_blob_info;
+
+static tri_blob_info tri_blobs[TRI_COUNT];
+
+/* The fields are located by value and by the layout offsets the importer
+ * reads them at, and every located value is asserted, so a layout error cannot
+ * patch the wrong bytes. */
+static bool tri_prepare(tri_kind kind) {
+  tri_blob_info *info = &tri_blobs[kind];
+  t64_machine *machine;
+  size_t body = 0u;
+  size_t base = 0u;
+  size_t i;
+  size_t found = 0u;
+
+  if (info->blob != NULL) return true;
+  machine = build_tri_render(kind);
+  if (machine == NULL) return false;
+  T64_CHECK(machine->rdp.render_active && machine->rdp.render_triangle);
+  T64_CHECK_INT(machine->rdp.shade_triangle, kind == TRI_SHADE ? 1u : 0u);
+  T64_CHECK_INT(machine->rdp.pending_triangle_word_count,
+                kind == TRI_SHADE ? 12u : 4u);
+  T64_CHECK(machine->rdp.combine_mode_valid);
+  info->blob = export_blob(machine, &info->length);
+  if (info->blob != NULL &&
+      find_section(info->blob, T64_STATE_SECTION_RDP_VI, &base, &body)) {
+    for (i = 0u; i + 20u <= body; i += 4u) {
+      if (rd32(info->blob + base + i) == machine->rdp.render_x_begin &&
+          rd32(info->blob + base + i + 4u) == machine->rdp.render_x_end &&
+          rd32(info->blob + base + i + 8u) == machine->rdp.render_y_begin &&
+          rd32(info->blob + base + i + 12u) == machine->rdp.render_y_end &&
+          rd32(info->blob + base + i + 16u) == machine->rdp.render_y) {
+        info->field = i;
+        found++;
+      }
+    }
+    info->count = S8_TRIANGLE_WORD_COUNT;
+    info->words = S8_TRIANGLE_WORD_COUNT + 4u;
+    info->render_flag = info->words +
+                        8u * machine->rdp.pending_triangle_word_count + 12u;
+    info->active_flag = info->field + 36u;
+    T64_CHECK_INT(rd32(info->blob + base + info->count),
+                  machine->rdp.pending_triangle_word_count);
+    T64_CHECK(rd64(info->blob + base + info->words) ==
+              machine->rdp.pending_triangle_words[0]);
+    T64_CHECK_INT(rd32(info->blob + base + info->render_flag), 1u);
+    T64_CHECK_INT(rd32(info->blob + base + info->render_flag + 4u),
+                  kind == TRI_SHADE ? 1u : 0u);
+    T64_CHECK_INT(rd32(info->blob + base + info->active_flag), 1u);
+  }
+  T64_CHECK_INT(found, 1u);
+  if (found != 1u) {
+    free(info->blob);
+    info->blob = NULL;
+  }
+  t64_machine_destroy(machine);
+  return info->blob != NULL;
+}
+
+/* One edit of a triangle blob: a 32-bit or a 64-bit write at an offset of
+ * section 8, the section entry, the declared digest and the trailer re-signed. */
+static uint8_t *tri_edit(tri_kind kind, size_t offset, unsigned width,
+                         uint64_t value, size_t *length_out) {
+  tri_blob_info *info = &tri_blobs[kind];
+  uint8_t *blob;
+  size_t base = 0u;
+  size_t body = 0u;
+
+  if (!tri_prepare(kind)) return NULL;
+  blob = (uint8_t *)malloc(info->length);
+  if (blob == NULL) return NULL;
+  (void)memcpy(blob, info->blob, info->length);
+  *length_out = info->length;
+  (void)find_section(blob, T64_STATE_SECTION_RDP_VI, &base, &body);
+  if (width == 4u) put32(blob + base + offset, (uint32_t)value);
+  if (width == 8u) put64(blob + base + offset, value);
+  blob_resign_entry(blob, info->length, T64_STATE_SECTION_RDP_VI);
+  blob_resign(blob, info->length, RS_DECLARED | RS_TRAILER);
+  return blob;
+}
+
+/* rows at or above the 1,024 rows of the triangle coverage array */
+static uint8_t *mut_tri_rows(target_id target, size_t *length_out) {
+  uint8_t *blob;
+  size_t base = 0u;
+  size_t body = 0u;
+
+  (void)target;
+  blob = tri_edit(TRI_FLAT, tri_blobs[TRI_FLAT].field + 12u, 4u, 1500u,
+                  length_out);
+  if (blob == NULL) return NULL;
+  (void)find_section(blob, T64_STATE_SECTION_RDP_VI, &base, &body);
+  put32(blob + base + tri_blobs[TRI_FLAT].field + 16u, 1500u);
+  blob_resign_entry(blob, *length_out, T64_STATE_SECTION_RDP_VI);
+  blob_resign(blob, *length_out, RS_DECLARED | RS_TRAILER);
+  return blob;
+}
+
+/* a first row that differs from the one the packet and the scissor give */
+static uint8_t *mut_tri_begin(target_id target, size_t *length_out) {
+  (void)target;
+  if (!tri_prepare(TRI_FLAT)) return NULL;
+  return tri_edit(TRI_FLAT, tri_blobs[TRI_FLAT].field + 8u, 4u, 0u, length_out);
+}
+
+/* the row being rendered past the last row of the packet */
+static uint8_t *mut_tri_row_past_end(target_id target, size_t *length_out) {
+  (void)target;
+  if (!tri_prepare(TRI_FLAT)) return NULL;
+  return tri_edit(TRI_FLAT, tri_blobs[TRI_FLAT].field + 16u, 4u, 700u,
+                  length_out);
+}
+
+/* a shade slope whose products the rasterizer could not bound */
+static uint8_t *mut_tri_shade_overflow(target_id target, size_t *length_out) {
+  uint8_t *blob;
+  size_t base = 0u;
+  size_t body = 0u;
+
+  (void)target;
+  if (!tri_prepare(TRI_SHADE)) return NULL;
+  blob = tri_edit(TRI_SHADE, tri_blobs[TRI_SHADE].words + 8u * 5u, 8u,
+                  UINT64_C(0x7fff7fff7fff7fff), length_out);
+  if (blob == NULL) return NULL;
+  (void)find_section(blob, T64_STATE_SECTION_RDP_VI, &base, &body);
+  put64(blob + base + tri_blobs[TRI_SHADE].words + 8u * 7u,
+        UINT64_C(0xffffffffffffffff));
+  blob_resign_entry(blob, *length_out, T64_STATE_SECTION_RDP_VI);
+  blob_resign(blob, *length_out, RS_DECLARED | RS_TRAILER);
+  return blob;
+}
+
+/* a packet word count that is not the count of the opcode: the count is 4 and
+ * the body carries four words (a consistent layout, so the reader reaches the
+ * rule and not a later misread field) */
+static uint8_t *mut_tri_word_count(target_id target, size_t *length_out) {
+  const tri_blob_info *info = &tri_blobs[TRI_SHADE];
+  tblob t;
+  size_t i;
+  size_t cut;
+  uint8_t *body;
+
+  (void)target;
+  if (!tri_prepare(TRI_SHADE)) return NULL;
+  if (!tblob_decode(info->blob, info->length, &t)) return NULL;
+  for (i = 0u; i < t.count && t.section[i].id != T64_STATE_SECTION_RDP_VI; i++) {
+  }
+  if (i == t.count) {
+    tblob_free(&t);
+    return NULL;
+  }
+  body = t.section[i].body;
+  cut = info->words + 8u * 4u;
+  put32(body + info->count, 4u);
+  (void)memmove(body + cut, body + info->words + 8u * 12u,
+                t.section[i].length - (info->words + 8u * 12u));
+  t.section[i].length -= 8u * 8u;
+  return encode_edited(&t, length_out);
+}
+
+/* an opcode the profile refuses at acceptance (a depth triangle) */
+static uint8_t *mut_tri_opcode(target_id target, size_t *length_out) {
+  tri_blob_info *info = &tri_blobs[TRI_SHADE];
+  uint64_t word0;
+  size_t base = 0u;
+  size_t body = 0u;
+
+  (void)target;
+  if (!tri_prepare(TRI_SHADE)) return NULL;
+  (void)find_section(info->blob, T64_STATE_SECTION_RDP_VI, &base, &body);
+  word0 = rd64(info->blob + base + info->words);
+  word0 = (word0 & ~(UINT64_C(0x3f) << 56)) | (UINT64_C(0x0d) << 56);
+  return tri_edit(TRI_SHADE, info->words, 8u, word0, length_out);
+}
+
+/* the shade flag that does not follow the opcode */
+static uint8_t *mut_tri_shade_flag(target_id target, size_t *length_out) {
+  (void)target;
+  if (!tri_prepare(TRI_SHADE)) return NULL;
+  return tri_edit(TRI_SHADE, tri_blobs[TRI_SHADE].render_flag + 4u, 4u, 0u,
+                  length_out);
+}
+
+/* a triangle render flag without a render in progress */
+static uint8_t *mut_tri_flag_idle(target_id target, size_t *length_out) {
+  (void)target;
+  if (!tri_prepare(TRI_FLAT)) return NULL;
+  return tri_edit(TRI_FLAT, tri_blobs[TRI_FLAT].active_flag, 4u, 0u,
+                  length_out);
+}
+
 #define BF T64_STATUS_STATE_FORMAT
 #define BR T64_STATUS_STATE_RANGE
 #define SEC_AUDIO T64_STATE_SECTION_AUDIO
@@ -4697,6 +4947,30 @@ static const mutant mutants[] = {
     {"fields", CROW("render-extent-beyond-width", T_S1, mut_render_extent, BR,
                     T64_STATE_REASON_FIELD_RANGE, SEC_RDPVI,
                     T64_STATE_RULE_ADDR_RANGE)},
+    {"fields", CROW("render-triangle-row-beyond-coverage", T_S1, mut_tri_rows,
+                    BR, T64_STATE_REASON_FIELD_RANGE, SEC_RDPVI,
+                    T64_STATE_RULE_INDEX_LT)},
+    {"fields", CROW("render-triangle-flag-idle", T_S1, mut_tri_flag_idle, BR,
+                    T64_STATE_REASON_FIELD_DERIVED, SEC_RDPVI,
+                    T64_STATE_RULE_DERIVED_EQ)},
+    {"fields", CROW("render-triangle-opcode", T_S1, mut_tri_opcode, BR,
+                    T64_STATE_REASON_FIELD_RANGE, SEC_RDPVI,
+                    T64_STATE_RULE_ENUM_CLOSED)},
+    {"fields", CROW("render-triangle-word-count", T_S1, mut_tri_word_count, BR,
+                    T64_STATE_REASON_FIELD_DERIVED, SEC_RDPVI,
+                    T64_STATE_RULE_DERIVED_EQ)},
+    {"fields", CROW("render-triangle-shade-flag", T_S1, mut_tri_shade_flag, BR,
+                    T64_STATE_REASON_FIELD_DERIVED, SEC_RDPVI,
+                    T64_STATE_RULE_DERIVED_EQ)},
+    {"fields", CROW("render-triangle-begin", T_S1, mut_tri_begin, BR,
+                    T64_STATE_REASON_FIELD_DERIVED, SEC_RDPVI,
+                    T64_STATE_RULE_DERIVED_EQ)},
+    {"fields", CROW("render-triangle-shade-products", T_S1,
+                    mut_tri_shade_overflow, BR, T64_STATE_REASON_FIELD_RANGE,
+                    SEC_RDPVI, T64_STATE_RULE_LEN_LE)},
+    {"fields", CROW("render-triangle-row-past-end", T_S1, mut_tri_row_past_end,
+                    BR, T64_STATE_REASON_FIELD_RANGE, SEC_RDPVI,
+                    T64_STATE_RULE_INDEX_LT)},
     {"queue", ROW("queue-count-cap", T_S1, SCHED, 0u, 4u, 257u, RS_ALL, INV,
                   T64_STATE_REASON_QUEUE_COUNT, SCHED, T64_STATE_RULE_COUNT_CAP)},
     {"queue", CROW("queue-order", T_S1, mut_swap_events, INV,
@@ -4819,6 +5093,27 @@ static void case_mutant_refusals(void) {
       T64_CHECK(advance_to(peer, peer->tick + 400u));
       T64_CHECK(advance_to(source, source->tick + 400u));
       T64_CHECK(digests_equal(peer, source));
+    }
+    if (peer != NULL) t64_machine_destroy(peer);
+    if (source != NULL) t64_machine_destroy(source);
+  }
+  /* the accepted baselines of the triangle render mutants (FX-01): the
+   * unmutated blobs import into a fresh peer in the same setup and the peer
+   * continues like the source for 400 ticks */
+  for (i = 0u; i < (size_t)TRI_COUNT; i++) {
+    t64_machine *peer;
+    t64_machine *source;
+    t64_state_import_report report;
+
+    if (!tri_prepare((tri_kind)i)) continue;
+    peer = create_admitted(SI_STEM_ID);
+    source = build_tri_render((tri_kind)i);
+    if (peer != NULL && source != NULL) {
+      T64_CHECK_INT(t64_machine_state_import(peer, tri_blobs[i].blob,
+                                             tri_blobs[i].length, 0u, &report),
+                    T64_STATUS_OK);
+      T64_CHECK(advance_to(peer, peer->tick + 400u));
+      T64_CHECK(advance_to(source, source->tick + 400u));
     }
     if (peer != NULL) t64_machine_destroy(peer);
     if (source != NULL) t64_machine_destroy(source);

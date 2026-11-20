@@ -61,7 +61,7 @@ static bool shade_products_are_bounded(const uint64_t *words,
   return true;
 }
 
-static bool texture_products_are_bounded(const t64_machine *machine,
+static bool texture_products_are_bounded(uint64_t other_modes,
                                          const uint64_t *words,
                                          uint32_t opcode,
                                          uint32_t x0, uint32_t x1,
@@ -137,7 +137,7 @@ static bool texture_products_are_bounded(const t64_machine *machine,
     min_w = min_w > 0 ? min_w : (int64_t)magnitude_i64(max_w);
     max_s = magnitude_i64(base[0]) + contribution[0];
     max_t = magnitude_i64(base[1]) + contribution[1];
-    if (((machine->rdp.other_modes >> 51) & UINT64_C(1)) != 0u) {
+    if (((other_modes >> 51) & UINT64_C(1)) != 0u) {
       uint64_t s_numerator = max_s * UINT64_C(65536);
       uint64_t t_numerator = max_t * UINT64_C(65536);
       if (s_numerator / (uint64_t)min_w > (uint64_t)INT32_MAX ||
@@ -161,11 +161,38 @@ size_t t64_rdp_triangle_word_count(uint32_t opcode) {
   }
 }
 
-bool t64_rdp_triangle_bounds(const t64_machine *machine, uint32_t opcode,
+/* The triangle opcodes a profile accepts (core/t64_rdp.c apply_pending_command
+ * refuses the others): the flat and shade forms with the triangle profile,
+ * the texture forms with the texture profile and every depth form only with
+ * the depth profile. Shared with the state importer. */
+bool t64_rdp_triangle_opcode_accepted(const t64_machine *machine,
+                                      uint32_t opcode) {
+  const bool base = opcode == UINT32_C(0x08) || opcode == UINT32_C(0x09) ||
+                    opcode == UINT32_C(0x0c) || opcode == UINT32_C(0x0d);
+  const bool texture = opcode == UINT32_C(0x0a) || opcode == UINT32_C(0x0b) ||
+                       opcode == UINT32_C(0x0e) || opcode == UINT32_C(0x0f);
+  const bool depth = opcode == UINT32_C(0x09) || opcode == UINT32_C(0x0b) ||
+                     opcode == UINT32_C(0x0d) || opcode == UINT32_C(0x0f);
+
+  return machine != NULL && t64_has_rdp_triangle_profile(machine) &&
+         (base || (texture && t64_has_rdp_texture_profile(machine))) &&
+         (!depth || t64_has_rdp_depth_profile(machine));
+}
+
+/* The geometry and the arithmetic bounds of one triangle packet, from the
+ * packet words and a view of the registers the rows read. Command acceptance
+ * (t64_rdp_triangle_bounds) and the state importer share this function, so the
+ * rows that run after an import were bounded by the same proof as the rows of
+ * a command (09-10 FX-01). It checks the opcode against the profile, the word
+ * count, the vertical ordering, the clamp to the 1,024-row coverage array, the
+ * color image extent in RDRAM, the depth image when the opcode carries depth
+ * and the shade and texture products; it returns true with an empty range
+ * (begin 1, end 0) when no row is covered. The tile and depth-buffer checks
+ * that read machine state stay in t64_rdp_triangle_bounds. */
+bool t64_rdp_triangle_extent(const t64_machine *machine, uint32_t opcode,
                              const uint64_t *words, size_t word_count,
-                             uint32_t *y_begin_out,
-                             uint32_t *y_end_out) {
-  const t64_rdp_state *rdp;
+                             const t64_rdp_triangle_view *view,
+                             uint32_t *y_begin_out, uint32_t *y_end_out) {
   int64_t yh16, ym16, yl16, first, last;
   uint32_t x0, x1, y0, y1;
   uint64_t end;
@@ -178,6 +205,98 @@ bool t64_rdp_triangle_bounds(const t64_machine *machine, uint32_t opcode,
                               opcode == UINT32_C(0x0d) ||
                               opcode == UINT32_C(0x0e) ||
                               opcode == UINT32_C(0x0f);
+  const bool z_triangle = opcode == UINT32_C(0x09) ||
+                          opcode == UINT32_C(0x0b) ||
+                          opcode == UINT32_C(0x0d) ||
+                          opcode == UINT32_C(0x0f);
+
+  if (machine == NULL || words == NULL || view == NULL ||
+      y_begin_out == NULL || y_end_out == NULL ||
+      (opcode != 0x08u && opcode != 0x09u && opcode != 0x0cu &&
+       opcode != 0x0du && !texture_triangle) ||
+      (z_triangle && !t64_has_rdp_depth_profile(machine)) ||
+      (texture_triangle && !t64_has_rdp_texture_profile(machine)) ||
+      machine->rdp_triangle_coverage == NULL ||
+      word_count != t64_rdp_triangle_word_count(opcode)) return false;
+
+  yh16 = sign_extend_u14((uint32_t)(words[0] & UINT64_C(0x3fff))) *
+         INT64_C(16384);
+  ym16 = sign_extend_u14((uint32_t)((words[0] >> 16) & UINT64_C(0x3fff))) *
+         INT64_C(16384);
+  yl16 = sign_extend_u14((uint32_t)((words[0] >> 32) & UINT64_C(0x3fff))) *
+         INT64_C(16384);
+  if (yh16 > ym16 || ym16 > yl16) return false;
+
+  x0 = view->scissor_xh >> 2;
+  x1 = view->scissor_xl >> 2;
+  y0 = view->scissor_yh >> 2;
+  y1 = view->scissor_yl >> 2;
+  if (x1 > view->image_width) x1 = view->image_width;
+  if (x0 > x1) return false;
+  if (x0 == x1 || y0 >= y1) {
+    *y_begin_out = 1u;
+    *y_end_out = 0u;
+    return true;
+  }
+  if (y1 > T64_RDP_TRIANGLE_COVERAGE_HEIGHT) y1 = T64_RDP_TRIANGLE_COVERAGE_HEIGHT;
+  if (y0 > y1) return false;
+  end = (uint64_t)view->image_address +
+        (((uint64_t)(y1 - 1u) * view->image_width + (x1 - 1u)) + 1u) *
+            (view->image_size == 3u ? 4u : 2u);
+  if (end > machine->profile.rdram_bytes) return false;
+  if (z_triangle) {
+    uint64_t depth_end;
+    if (!view->depth_valid ||
+        (view->depth_address & UINT32_C(7)) != 0u ||
+        (((view->other_modes >> 2) & UINT64_C(1)) != 0u &&
+         !view->primitive_depth_valid))
+      return false;
+    depth_end = (uint64_t)view->depth_address +
+                ((uint64_t)(y1 - 1u) * view->image_width +
+                 (x1 - 1u) + UINT64_C(1)) * UINT64_C(2);
+    if (depth_end > machine->profile.rdram_bytes) return false;
+  }
+
+  first = floor_div_i64(yh16, INT64_C(65536));
+  last = floor_div_i64(yl16 + INT64_C(65535), INT64_C(65536)) - 1;
+  if (first < (int64_t)y0) first = (int64_t)y0;
+  if (last >= (int64_t)y1) last = (int64_t)y1 - 1;
+  if (first > last) {
+    *y_begin_out = 1u;
+    *y_end_out = 0u;
+    return true;
+  }
+  if (shade_triangle) {
+    uint64_t y_delta_bound = (uint64_t)(yl16 - yh16) + UINT64_C(65536);
+    uint64_t maximum_slope = UINT64_C(0x80000000);
+    uint64_t x_delta_bound = UINT64_C(0x80000000) +
+        (maximum_slope * y_delta_bound) / UINT64_C(65536) +
+        UINT64_C(1024) * UINT64_C(65536);
+    if (!shade_products_are_bounded(words, 4u, x_delta_bound,
+                                    y_delta_bound))
+      return false;
+  }
+  if (texture_triangle &&
+      !texture_products_are_bounded(view->other_modes, words, opcode, x0, x1,
+                                   (uint32_t)first, (uint32_t)last,
+                                   yh16)) return false;
+  *y_begin_out = (uint32_t)first;
+  *y_end_out = (uint32_t)last;
+  return true;
+}
+
+bool t64_rdp_triangle_bounds(const t64_machine *machine, uint32_t opcode,
+                             const uint64_t *words, size_t word_count,
+                             uint32_t *y_begin_out,
+                             uint32_t *y_end_out) {
+  const t64_rdp_state *rdp;
+  t64_rdp_triangle_view view;
+  uint32_t first, last;
+
+  const bool texture_triangle = opcode == UINT32_C(0x0a) ||
+                                opcode == UINT32_C(0x0b) ||
+                                opcode == UINT32_C(0x0e) ||
+                                opcode == UINT32_C(0x0f);
   const bool z_triangle = opcode == UINT32_C(0x09) ||
                           opcode == UINT32_C(0x0b) ||
                           opcode == UINT32_C(0x0d) ||
@@ -205,92 +324,51 @@ bool t64_rdp_triangle_bounds(const t64_machine *machine, uint32_t opcode,
        (rdp->color_image_size == 3u ? UINT32_C(3) : UINT32_C(1))) != 0u)
     return false;
 
-  yh16 = sign_extend_u14((uint32_t)(words[0] & UINT64_C(0x3fff))) *
-         INT64_C(16384);
-  ym16 = sign_extend_u14((uint32_t)((words[0] >> 16) & UINT64_C(0x3fff))) *
-         INT64_C(16384);
-  yl16 = sign_extend_u14((uint32_t)((words[0] >> 32) & UINT64_C(0x3fff))) *
-         INT64_C(16384);
-  if (yh16 > ym16 || ym16 > yl16) return false;
+  view.scissor_xh = rdp->scissor_xh;
+  view.scissor_yh = rdp->scissor_yh;
+  view.scissor_xl = rdp->scissor_xl;
+  view.scissor_yl = rdp->scissor_yl;
+  view.image_address = rdp->color_image_address;
+  view.image_width = rdp->color_image_width;
+  view.image_size = rdp->color_image_size;
+  view.other_modes = rdp->other_modes;
+  view.depth_address = rdp->depth_image_address;
+  view.depth_valid = rdp->depth_image_valid;
+  view.primitive_depth_valid = rdp->primitive_depth_valid;
+  if (!t64_rdp_triangle_extent(machine, opcode, words, word_count, &view,
+                               &first, &last)) return false;
+  if (first <= last) {
+    const uint32_t x0 = rdp->scissor_xh >> 2;
+    uint32_t x1 = rdp->scissor_xl >> 2;
 
-  x0 = rdp->scissor_xh >> 2;
-  x1 = rdp->scissor_xl >> 2;
-  y0 = rdp->scissor_yh >> 2;
-  y1 = rdp->scissor_yl >> 2;
-  if (x1 > rdp->color_image_width) x1 = rdp->color_image_width;
-  if (x0 > x1) return false;
-  if (x0 == x1 || y0 >= y1) {
-    *y_begin_out = 1u;
-    *y_end_out = 0u;
-    return true;
-  }
-  if (y1 > 1024u) y1 = 1024u;
-  if (y0 > y1) return false;
-  end = (uint64_t)rdp->color_image_address +
-        (((uint64_t)(y1 - 1u) * rdp->color_image_width + (x1 - 1u)) + 1u) *
-            (rdp->color_image_size == 3u ? 4u : 2u);
-  if (end > machine->profile.rdram_bytes) return false;
-  if (z_triangle) {
-    uint64_t depth_end;
-    if (!rdp->depth_image_valid ||
-        (rdp->depth_image_address & UINT32_C(7)) != 0u ||
-        (((rdp->other_modes >> 2) & UINT64_C(1)) != 0u &&
-         !rdp->primitive_depth_valid))
+    if (x1 > rdp->color_image_width) x1 = rdp->color_image_width;
+    if (texture_triangle &&
+        !t64_rdp_tmem_validate_triangle(
+            machine, (uint32_t)((words[0] >> 48) & UINT64_C(7)))) return false;
+    if (z_triangle &&
+        !t64_rdp_depth_triangle_preflight(machine, opcode, words, word_count,
+                                          x0, x1, first, last))
       return false;
-    depth_end = (uint64_t)rdp->depth_image_address +
-                ((uint64_t)(y1 - 1u) * rdp->color_image_width +
-                 (x1 - 1u) + UINT64_C(1)) * UINT64_C(2);
-    if (depth_end > machine->profile.rdram_bytes) return false;
-  }
-
-  first = floor_div_i64(yh16, INT64_C(65536));
-  last = floor_div_i64(yl16 + INT64_C(65535), INT64_C(65536)) - 1;
-  if (first < (int64_t)y0) first = (int64_t)y0;
-  if (last >= (int64_t)y1) last = (int64_t)y1 - 1;
-  if (first > last) {
-    *y_begin_out = 1u;
-    *y_end_out = 0u;
-    return true;
-  }
-  if (shade_triangle) {
-    uint64_t y_delta_bound = (uint64_t)(yl16 - yh16) + UINT64_C(65536);
-    uint64_t maximum_slope = UINT64_C(0x80000000);
-    uint64_t x_delta_bound = UINT64_C(0x80000000) +
-        (maximum_slope * y_delta_bound) / UINT64_C(65536) +
-        UINT64_C(1024) * UINT64_C(65536);
-    if (!shade_products_are_bounded(words, 4u, x_delta_bound,
-                                    y_delta_bound))
-      return false;
-  }
-  if (texture_triangle &&
-      (!t64_rdp_tmem_validate_triangle(
-           machine, (uint32_t)((words[0] >> 48) & UINT64_C(7))) ||
-       !texture_products_are_bounded(machine, words, opcode, x0, x1,
-                                     (uint32_t)first, (uint32_t)last,
-                                     yh16))) return false;
-  if (z_triangle &&
-      !t64_rdp_depth_triangle_preflight(machine, opcode, words, word_count,
-                                        x0, x1, (uint32_t)first,
-                                        (uint32_t)last))
-    return false;
-  if (texture_triangle) {
-    uint32_t detail = (uint32_t)((rdp->other_modes >> 50) & UINT64_C(1));
-    uint32_t sharpen = (uint32_t)((rdp->other_modes >> 49) & UINT64_C(1));
-    uint32_t lod = (uint32_t)((rdp->other_modes >> 48) & UINT64_C(1));
-    uint32_t primitive_tile = (uint32_t)((words[0] >> 48) & UINT64_C(7));
-    uint32_t max_level = (uint32_t)((words[0] >> 51) & UINT64_C(7));
-    uint32_t tile;
-    if ((detail != 0u && sharpen != 0u) ||
-        ((detail != 0u || sharpen != 0u) && lod == 0u)) return false;
-    if (lod != 0u || detail != 0u || sharpen != 0u) {
-      if (max_level >= T64_RDP_TILE_COUNT - primitive_tile) return false;
-      for (tile = primitive_tile; tile <= primitive_tile + max_level; tile++) {
-        if (!t64_rdp_tmem_validate_triangle(machine, tile)) return false;
+    if (texture_triangle) {
+      uint32_t detail = (uint32_t)((rdp->other_modes >> 50) & UINT64_C(1));
+      uint32_t sharpen = (uint32_t)((rdp->other_modes >> 49) & UINT64_C(1));
+      uint32_t lod = (uint32_t)((rdp->other_modes >> 48) & UINT64_C(1));
+      uint32_t primitive_tile = (uint32_t)((words[0] >> 48) & UINT64_C(7));
+      uint32_t max_level = (uint32_t)((words[0] >> 51) & UINT64_C(7));
+      uint32_t tile;
+      if ((detail != 0u && sharpen != 0u) ||
+          ((detail != 0u || sharpen != 0u) && lod == 0u)) return false;
+      if (lod != 0u || detail != 0u || sharpen != 0u) {
+        if (max_level >= T64_RDP_TILE_COUNT - primitive_tile) return false;
+        for (tile = primitive_tile; tile <= primitive_tile + max_level;
+             tile++) {
+          if (!t64_rdp_tmem_validate_triangle(machine, tile)) return false;
+        }
       }
     }
   }
-  *y_begin_out = (uint32_t)first;
-  *y_end_out = (uint32_t)last;
+  *y_begin_out = first;
+  *y_end_out = last;
   return true;
 }
 

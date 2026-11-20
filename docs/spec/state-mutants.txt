@@ -29,7 +29,8 @@ offset-overflow :: STATE_FORMAT :: SECTION_BOUNDS :: 1 :: NONE
 overlap :: STATE_FORMAT :: SECTION_OVERLAP :: 2 :: NONE
 length-short :: STATE_FORMAT :: SECTION_LENGTH_EXPECTED :: 3 :: NONE
 section-sha-stale :: STATE_INTEGRITY :: SECTION_SHA256 :: 1 :: NONE
-# fields (one row per rule id with a reader use, then observer-range, busy-until-future, render-extent)
+# fields (one row per rule id with a reader use, then observer-range, busy-until-future, render-extent,
+# and the eight triangle render rules of plan 09-10)
 count-cap-audio-descriptors :: STATE_RANGE :: FIELD_RANGE :: 9 :: COUNT_CAP
 index-lt-audio-slot :: STATE_RANGE :: FIELD_RANGE :: 9 :: INDEX_LT
 enum-closed-si-direction :: STATE_RANGE :: FIELD_RANGE :: 10 :: ENUM_CLOSED
@@ -48,6 +49,14 @@ reserved-zero-interrupt-pending :: STATE_RANGE :: FIELD_RESERVED :: 5 :: RESERVE
 observer-range :: STATE_RANGE :: OBSERVER_RANGE :: 16 :: LEN_LE
 busy-until-future :: STATE_RANGE :: FIELD_RANGE :: 11 :: TICK_LE
 render-extent-beyond-width :: STATE_RANGE :: FIELD_RANGE :: 8 :: ADDR_RANGE
+render-triangle-row-beyond-coverage :: STATE_RANGE :: FIELD_RANGE :: 8 :: INDEX_LT
+render-triangle-flag-idle :: STATE_RANGE :: FIELD_DERIVED :: 8 :: DERIVED_EQ
+render-triangle-opcode :: STATE_RANGE :: FIELD_RANGE :: 8 :: ENUM_CLOSED
+render-triangle-word-count :: STATE_RANGE :: FIELD_DERIVED :: 8 :: DERIVED_EQ
+render-triangle-shade-flag :: STATE_RANGE :: FIELD_DERIVED :: 8 :: DERIVED_EQ
+render-triangle-begin :: STATE_RANGE :: FIELD_DERIVED :: 8 :: DERIVED_EQ
+render-triangle-shade-products :: STATE_RANGE :: FIELD_RANGE :: 8 :: LEN_LE
+render-triangle-row-past-end :: STATE_RANGE :: FIELD_RANGE :: 8 :: INDEX_LT
 # queue
 queue-count-cap :: STATE_INVARIANT :: QUEUE_COUNT :: 6 :: COUNT_CAP
 queue-order :: STATE_INVARIANT :: QUEUE_ORDER :: 6 :: NONE
