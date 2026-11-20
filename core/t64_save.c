@@ -282,5 +282,31 @@ t64_status t64_machine_save_info(const t64_machine *machine,
   info_out->size_bytes =
       (uint32_t)t64_save_storage_bytes(machine->profile.save_kind);
   info_out->flags = t64_save_in_flight(machine) ? T64_SAVE_INFO_BUSY : 0u;
+  info_out->write_generation = 0u;
   return T64_STATUS_OK;
+}
+
+/* Temporary bodies of the plan 09-05 formal RED; replaced in the next step. */
+t64_status t64_machine_save_export(const t64_machine *machine,
+                                   uint32_t device_kind, uint32_t format,
+                                   uint8_t *bytes_out, size_t capacity,
+                                   size_t *length_out) {
+  (void)machine;
+  (void)device_kind;
+  (void)format;
+  (void)bytes_out;
+  (void)capacity;
+  (void)length_out;
+  return T64_STATUS_NOT_READY;
+}
+
+t64_status t64_machine_save_import(t64_machine *machine, uint32_t device_kind,
+                                   uint32_t format, const uint8_t *bytes,
+                                   size_t length) {
+  (void)machine;
+  (void)device_kind;
+  (void)format;
+  (void)bytes;
+  (void)length;
+  return T64_STATUS_NOT_READY;
 }

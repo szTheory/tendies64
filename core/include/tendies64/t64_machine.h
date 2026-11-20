@@ -95,6 +95,10 @@
 #define T64_STATUS_SAVE_UNKNOWN_DEVICE UINT32_C(20)
 #define T64_STATUS_SAVE_UNSUPPORTED_DEVICE UINT32_C(21)
 #define T64_STATUS_SAVE_DEVICE_MISMATCH UINT32_C(22)
+/* Save import and export refusals (plan 09-05); provisional until Phase 10. */
+#define T64_STATUS_SAVE_BAD_FORMAT UINT32_C(23)
+#define T64_STATUS_SAVE_SIZE_MISMATCH UINT32_C(24)
+#define T64_STATUS_SAVE_BUSY UINT32_C(25)
 
 #define T64_TV_NTSC UINT32_C(1)
 #define T64_TV_PAL UINT32_C(2)
@@ -116,6 +120,13 @@
 /* Flag of t64_save_info: an EEPROM deadline is in the future at the current
  * guest tick, or an SRAM DMA is in flight. */
 #define T64_SAVE_INFO_BUSY UINT32_C(1)
+/* Byte-order selections of save import and export (plan 09-05). Authored
+ * policy, not a hardware fact; provisional until Phase 10. RAW is the identity;
+ * SWAP16 swaps the two bytes inside every 16-bit unit; WORDREV32 reverses the
+ * four bytes inside every 32-bit unit. */
+#define T64_SAVE_FORMAT_RAW UINT32_C(1)
+#define T64_SAVE_FORMAT_SWAP16 UINT32_C(2)
+#define T64_SAVE_FORMAT_WORDREV32 UINT32_C(3)
 #define T64_PERIPHERAL_STANDARD_CONTROLLER_PORT0 UINT32_C(1)
 
 #define T64_STOP_GUEST_TICK UINT32_C(1)
@@ -398,11 +409,15 @@ t64_status t64_video_copy(t64_machine *machine, uint8_t *bytes_out,
  * Save device information (provisional until Phase 10; no API/ABI freeze).
  * kind is the profile's device kind, size_bytes its storage size and flags
  * T64_SAVE_INFO_BUSY while a write window or a DMA is in flight.
+ * write_generation counts successful imports since creation or the last
+ * replacement (observer only: it is outside the canonical digest, guest writes
+ * do not increment it).
  */
 typedef struct {
   uint32_t kind;
   uint32_t size_bytes;
   uint32_t flags;
+  uint64_t write_generation;
 } t64_save_info;
 
 /*
@@ -420,6 +435,44 @@ typedef struct {
 t64_status t64_machine_save_info(const t64_machine *machine,
                                  uint32_t requested_kind,
                                  t64_save_info *info_out);
+
+/*
+ * Host import and export of the save device bytes (plan 09-05; provisional
+ * until Phase 10, no API/ABI freeze). Both move exactly the kind's size
+ * (512, 2048 or 32,768 bytes, no padding, no container, no autodetect) in the
+ * named byte order; the core never opens a file or loads or flushes a save on
+ * its own. The check order is exact and every check precedes any read of
+ * caller bytes and any mutation, so a refusal changes nothing:
+ *   R0 machine NULL                          T64_STATUS_INVALID_ARGUMENT
+ *   R1 no admitted image                     T64_STATUS_NOT_READY
+ *   R2 pointer or span (import: bytes NULL, span overflow, span overlapping
+ *      machine storage; export: length_out NULL, bytes_out NULL with a
+ *      non-zero capacity, span overlapping machine storage or length_out)
+ *                                             T64_STATUS_INVALID_ARGUMENT
+ *   R3 the profile has no save device        T64_STATUS_SAVE_DEVICE_MISMATCH
+ *   R4 kind not in 1 to 7                    T64_STATUS_SAVE_UNKNOWN_DEVICE
+ *   R5 kind in 4 to 7                        T64_STATUS_SAVE_UNSUPPORTED_DEVICE
+ *   R6 kind in 1 to 3 but not the profile's  T64_STATUS_SAVE_DEVICE_MISMATCH
+ *   R7 format not in 1 to 3                  T64_STATUS_SAVE_BAD_FORMAT
+ *   R8 import length not the kind size       T64_STATUS_SAVE_SIZE_MISMATCH
+ *      export capacity below the kind size   T64_STATUS_BUFFER_TOO_SMALL with
+ *      *length_out set to the size and the buffer untouched
+ *   R9 import only: an EEPROM write window is open or an SRAM DMA is active
+ *                                             T64_STATUS_SAVE_BUSY
+ * Export has no R9 and always returns the committed bytes. A successful import
+ * stores the normalized bytes, clears the EEPROM deadline, leaves the
+ * scheduler queue and the guest tick unchanged and increments write_generation
+ * (outside the digest). Replacement (t64_machine_admit_rom on an admitted
+ * machine) restores blank save content, clears the deadline and resets the
+ * generation.
+ */
+t64_status t64_machine_save_export(const t64_machine *machine,
+                                   uint32_t device_kind, uint32_t format,
+                                   uint8_t *bytes_out, size_t capacity,
+                                   size_t *length_out);
+t64_status t64_machine_save_import(t64_machine *machine, uint32_t device_kind,
+                                   uint32_t format, const uint8_t *bytes,
+                                   size_t length);
 
 /* Audio follows the same bounded, lossless two-packet copy/dequeue contract. */
 t64_status t64_audio_info(const t64_machine *machine,

@@ -800,6 +800,22 @@ set_tests_properties(unit.core.save.device PROPERTIES
   LABELS unit
   ENVIRONMENT "T64_TEST_IPL3_PATH=${T64_BOOT_FIXTURE_DIR}/ipl3_compat.z64")
 
+# Phase 9 save import and export tests (plan 09-05): the D-24 check order, the
+# byte-order selections, postconditions and replacement of the core save API.
+add_executable(test_save_transfer tests/test_save_transfer.c)
+target_include_directories(test_save_transfer PRIVATE
+  "${CMAKE_SOURCE_DIR}/tests"
+  "${CMAKE_CURRENT_SOURCE_DIR}")
+target_link_libraries(test_save_transfer PRIVATE t64_core t64_sha256)
+t64_target_warnings(test_save_transfer)
+add_dependencies(test_save_transfer t64-boot-fixtures)
+add_test(NAME unit.core.save.import-export
+  COMMAND test_save_transfer)
+set_tests_properties(unit.core.save.import-export PROPERTIES
+  LABELS unit
+  TIMEOUT 120
+  ENVIRONMENT "T64_TEST_IPL3_PATH=${T64_BOOT_FIXTURE_DIR}/ipl3_compat.z64")
+
 add_executable(test_joybus tests/test_joybus.c)
 target_include_directories(test_joybus PRIVATE
   "${CMAKE_SOURCE_DIR}/tests"
