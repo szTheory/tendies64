@@ -686,6 +686,394 @@ static int case_transcript_pin(void) {
   return g_failures == 0 ? 0 : 1;
 }
 
+/* ---- option-pair matrix (plan 09-10, FX-12; R-01 to R-04, VG-07, T-09-82) ---- */
+
+/* Nine option families (docs/spec/state-container.md, Option-pair matrix) and
+ * every pair of them. A pair is refused as usage at guest tick 0, before any
+ * snapshot, work directory or child, or it is accepted by design; no pair is
+ * undefined. Each family is complete in itself and carries a path that does not
+ * exist, so a supervisor that prepared a snapshot before the pair rule would
+ * report the snapshot refusal (detail refusal) instead of the pair refusal
+ * (detail usage). The accepted baseline of every row is the family alone, which
+ * must not be a usage refusal. @ART and @RAW stand for the private directories
+ * of the run. */
+static bool sha256_file_hex(const char *path, char out[65]);
+
+#define PAIR_H64 \
+  "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
+
+typedef enum {
+  FAM_SAVE_IN,
+  FAM_SAVE_OUT,
+  FAM_REPLAY_REC,
+  FAM_REPLAY_PLAY,
+  FAM_STATE_OUT,
+  FAM_STATE_IN,
+  FAM_RAW,
+  FAM_INPUT,
+  FAM_PAIR,
+  FAM_COUNT
+} option_family;
+
+typedef struct {
+  const char *name;
+  const char *args[14]; /* option and value strings, NULL terminated */
+  bool needs_pair;
+} family_def;
+
+static const family_def families[FAM_COUNT] = {
+    {"SAVE-IN",
+     {"--save-import", "/nonexistent/save.bin", "--save-import-size", "512",
+      "--save-import-sha256", PAIR_H64, "--save-kind", "eeprom4k",
+      "--save-format", "raw-v1", NULL},
+     false},
+    {"SAVE-OUT",
+     {"--save-kind", "eeprom4k", "--save-format", "raw-v1",
+      "--save-export-leaf", "s.eep", "--artifact-dir", "@ART",
+      "--artifact-max-bytes", "4096", NULL},
+     true},
+    {"REPLAY-REC",
+     {"--replay-record", "r.rpl", "--replay-checkpoint-interval", "160000",
+      "--artifact-dir", "@ART", "--artifact-max-bytes", "4096", NULL},
+     true},
+    {"REPLAY-PLAY",
+     {"--replay-play", "/nonexistent/r.rpl", "--replay-play-size", "100",
+      "--replay-play-sha256", PAIR_H64, "--replay-report", "r.rpr",
+      "--artifact-dir", "@ART", "--artifact-max-bytes", "4096", NULL},
+     true},
+    {"STATE-OUT",
+     {"--state-export", "s.sta", "--state-export-format",
+      "t64.state-container.v1", "--artifact-dir", "@ART",
+      "--artifact-max-bytes", "4096", NULL},
+     true},
+    {"STATE-IN",
+     {"--state-import", "/nonexistent/state.sta", "--state-import-size", "100",
+      "--state-import-sha256", PAIR_H64, NULL},
+     false},
+    {"RAW", {"--raw-capture-dir", "@RAW", NULL}, false},
+    {"INPUT", {"--input-size", "100", "--input-sha256", PAIR_H64, NULL}, false},
+    {"PAIR",
+     {"--artifact-dir", "@ART", "--artifact-max-bytes", "4096", NULL},
+     false},
+};
+
+typedef struct {
+  option_family first;
+  option_family second;
+  bool refused; /* true: usage; false: accepted by the pair rule */
+} pair_row;
+
+/* All 36 unordered pairs. The six INPUT combinations (SAVE-IN, SAVE-OUT,
+ * REPLAY-REC, REPLAY-PLAY and RAW with INPUT, and INPUT with PAIR) are accepted
+ * by design: the custom schedule options are not an artifact producer. */
+static const pair_row pair_rows[] = {
+    {FAM_SAVE_IN, FAM_SAVE_OUT, false},
+    {FAM_SAVE_IN, FAM_REPLAY_REC, true},
+    {FAM_SAVE_IN, FAM_REPLAY_PLAY, true},
+    {FAM_SAVE_IN, FAM_STATE_OUT, true},
+    {FAM_SAVE_IN, FAM_STATE_IN, true},
+    {FAM_SAVE_IN, FAM_RAW, true},
+    {FAM_SAVE_IN, FAM_INPUT, false},
+    {FAM_SAVE_IN, FAM_PAIR, false},
+    {FAM_SAVE_OUT, FAM_REPLAY_REC, true},
+    {FAM_SAVE_OUT, FAM_REPLAY_PLAY, true},
+    {FAM_SAVE_OUT, FAM_STATE_OUT, true},
+    {FAM_SAVE_OUT, FAM_STATE_IN, true},
+    {FAM_SAVE_OUT, FAM_RAW, true},
+    {FAM_SAVE_OUT, FAM_INPUT, false},
+    {FAM_SAVE_OUT, FAM_PAIR, false},
+    {FAM_REPLAY_REC, FAM_REPLAY_PLAY, true},
+    {FAM_REPLAY_REC, FAM_STATE_OUT, true},
+    {FAM_REPLAY_REC, FAM_STATE_IN, true},
+    {FAM_REPLAY_REC, FAM_RAW, true},
+    {FAM_REPLAY_REC, FAM_INPUT, false},
+    {FAM_REPLAY_REC, FAM_PAIR, false},
+    {FAM_REPLAY_PLAY, FAM_STATE_OUT, true},
+    {FAM_REPLAY_PLAY, FAM_STATE_IN, true},
+    {FAM_REPLAY_PLAY, FAM_RAW, true},
+    {FAM_REPLAY_PLAY, FAM_INPUT, false},
+    {FAM_REPLAY_PLAY, FAM_PAIR, false},
+    {FAM_STATE_OUT, FAM_STATE_IN, true},
+    {FAM_STATE_OUT, FAM_RAW, true},
+    {FAM_STATE_OUT, FAM_INPUT, false},
+    {FAM_STATE_OUT, FAM_PAIR, false},
+    {FAM_STATE_IN, FAM_RAW, true},
+    {FAM_STATE_IN, FAM_INPUT, true},
+    {FAM_STATE_IN, FAM_PAIR, false},
+    {FAM_RAW, FAM_INPUT, false},
+    {FAM_RAW, FAM_PAIR, true},
+    {FAM_INPUT, FAM_PAIR, false},
+};
+
+#define PAIR_MAX_ARGS 40u
+
+typedef struct {
+  const char *items[PAIR_MAX_ARGS];
+  size_t count;
+} pair_args;
+
+static bool pair_args_has(const pair_args *list, const char *option) {
+  size_t i;
+  for (i = 0u; i + 1u < list->count; i += 2u) {
+    if (strcmp(list->items[i], option) == 0) return true;
+  }
+  return false;
+}
+
+/* Appends a family's options; an option already present (the shared artifact
+ * pair) is not repeated. `skip_pair` leaves the artifact pair out. */
+static void pair_args_add_family(pair_args *list, option_family family,
+                                 const char *artifact, const char *raw,
+                                 bool skip_pair) {
+  const char *const *args = families[family].args;
+  size_t i;
+  for (i = 0u; args[i] != NULL; i += 2u) {
+    const char *value = args[i + 1u];
+    if (skip_pair && (strcmp(args[i], "--artifact-dir") == 0 ||
+                      strcmp(args[i], "--artifact-max-bytes") == 0)) {
+      continue;
+    }
+    if (pair_args_has(list, args[i]) || list->count + 2u > PAIR_MAX_ARGS) {
+      continue;
+    }
+    if (strcmp(value, "@ART") == 0) value = artifact;
+    if (strcmp(value, "@RAW") == 0) value = raw;
+    list->items[list->count++] = args[i];
+    list->items[list->count++] = value;
+  }
+}
+
+/* One supervisor run in the real or the synthetic mode with the given extra
+ * options; the record is read from the result path. */
+static bool run_pair_probe(const pair_args *extra, bool synthetic,
+                           run_out *out) {
+  char result_path[PATH_MAX];
+  char meta_path[PATH_MAX];
+  char capture_path[PATH_MAX];
+  char input[PATH_MAX];
+  char fixture[PATH_MAX];
+  char hello_sha[65];
+  const char *true_program = access("/usr/bin/true", X_OK) == 0
+                                 ? "/usr/bin/true"
+                                 : "/bin/true";
+  const char *argv_list[PAIR_MAX_ARGS + 40u];
+  size_t count = 0u;
+  size_t i;
+  pid_t pid;
+  int status = 0;
+  memset(out, 0, sizeof *out);
+  if (!make_run_dir(out->dir) || !input_path(input) ||
+      !join_path(result_path, sizeof result_path, out->dir, "result.json") ||
+      !join_path(meta_path, sizeof meta_path, out->dir, "meta.json") ||
+      !join_path(capture_path, sizeof capture_path, out->dir, "capture.bin") ||
+      !fixture_path(fixture, synthetic ? "hello" : "phase09-admit-si-v1")) {
+    return false;
+  }
+  (void)snprintf(out->result_path, sizeof out->result_path, "%s",
+                 result_path);
+  argv_list[count++] = g_supervisor;
+  if (synthetic) {
+    if (!sha256_file_hex(fixture, hello_sha)) return false;
+    argv_list[count++] = "--identity";
+    argv_list[count++] = "synthetic";
+    argv_list[count++] = "--result";
+    argv_list[count++] = result_path;
+    argv_list[count++] = "--meta";
+    argv_list[count++] = meta_path;
+    argv_list[count++] = "--work-dir";
+    argv_list[count++] = out->dir;
+    argv_list[count++] = "--wall-ms";
+    argv_list[count++] = "5000";
+    argv_list[count++] = "--bound";
+    argv_list[count++] = "100";
+    argv_list[count++] = "--log-limit";
+    argv_list[count++] = "1024";
+    argv_list[count++] = "--fixture-id";
+    argv_list[count++] = "hello";
+    argv_list[count++] = "--fixture";
+    argv_list[count++] = fixture;
+    argv_list[count++] = "--fixture-sha256";
+    argv_list[count++] = hello_sha;
+    argv_list[count++] = "--expect-pass";
+    argv_list[count++] = "0";
+  } else {
+    argv_list[count++] = "--real";
+    argv_list[count++] = "--result";
+    argv_list[count++] = result_path;
+    argv_list[count++] = "--meta";
+    argv_list[count++] = meta_path;
+    argv_list[count++] = "--work-dir";
+    argv_list[count++] = out->dir;
+    argv_list[count++] = "--wall-ms";
+    argv_list[count++] = "30000";
+    argv_list[count++] = "--bound";
+    argv_list[count++] = "200000";
+    argv_list[count++] = "--fixture";
+    argv_list[count++] = fixture;
+    argv_list[count++] = "--input";
+    argv_list[count++] = input;
+    argv_list[count++] = "--capture-out";
+    argv_list[count++] = capture_path;
+  }
+  for (i = 0u; i < extra->count; i++) argv_list[count++] = extra->items[i];
+  if (synthetic) {
+    argv_list[count++] = "--";
+    argv_list[count++] = true_program;
+  }
+  argv_list[count] = NULL;
+  pid = fork();
+  if (pid < 0) return false;
+  if (pid == 0) {
+    execv(g_supervisor, (char *const *)(uintptr_t)argv_list);
+    _exit(127);
+  }
+  while (waitpid(pid, &status, 0) < 0) {
+    if (errno != EINTR) return false;
+  }
+  out->supervisor_exit = WIFEXITED(status) ? WEXITSTATUS(status) : -1;
+  out->parsed = parse_record(result_path, out);
+  out->checker_ok = out->parsed && checker_accepts(result_path);
+  return out->parsed;
+}
+
+/* The synthetic mode records the v1 result schema (no guest stop object), so
+ * its usage refusal is read by outcome, detail and tick only. */
+static bool is_synthetic_usage_record(const run_out *run) {
+  return run->parsed && strcmp(run->outcome, "harness-error") == 0 &&
+         strcmp(run->detail, "usage") == 0 && run->guest_tick == 0u;
+}
+
+static bool is_usage_record(const run_out *run) {
+  return run->parsed && strcmp(run->outcome, "harness-error") == 0 &&
+         strcmp(run->detail, "usage") == 0 &&
+         strcmp(run->stop_kind, "not-started") == 0 && run->guest_tick == 0u;
+}
+
+/* The accepted side of a row: a record that is not the usage refusal, so the
+ * arguments passed the supervisor's pair rules and reached the snapshot or the
+ * child. */
+static bool is_not_usage_record(const run_out *run) {
+  return run->parsed && strcmp(run->detail, "usage") != 0;
+}
+
+static const char *const synthetic_flags[][2] = {
+    {"--artifact-dir", "@ART"},
+    {"--artifact-max-bytes", "4096"},
+    {"--save-import", "/nonexistent/save.bin"},
+    {"--save-import-size", "512"},
+    {"--save-import-sha256", PAIR_H64},
+    {"--save-kind", "eeprom4k"},
+    {"--save-format", "raw-v1"},
+    {"--save-export-leaf", "s.eep"},
+    {"--replay-record", "r.rpl"},
+    {"--replay-checkpoint-interval", "160000"},
+    {"--replay-play", "/nonexistent/r.rpl"},
+    {"--replay-play-size", "100"},
+    {"--replay-play-sha256", PAIR_H64},
+    {"--replay-report", "r.rpr"},
+    {"--state-export", "s.sta"},
+    {"--state-export-format", "t64.state-container.v1"},
+    {"--state-import", "/nonexistent/state.sta"},
+    {"--state-import-size", "100"},
+    {"--state-import-sha256", PAIR_H64},
+    /* the two Phase 8 families the same rule covers */
+    {"--raw-capture-dir", "@RAW"},
+    {"--input-size", "100"},
+};
+
+/* Fresh private directories for one row, so a row that runs the guest and
+ * publishes (an accepted pair) cannot influence the next. */
+static void fresh_pair_dirs(char artifact[PATH_MAX], char raw[PATH_MAX]) {
+  CHECK(make_artifact_dir(artifact, 0700));
+  CHECK(make_artifact_dir(raw, 0700));
+}
+
+static void option_pair_matrix(void) {
+  char artifact[PATH_MAX];
+  char raw[PATH_MAX];
+  char first[256];
+  run_out run;
+  pair_args args;
+  size_t i;
+
+  /* The accepted baseline of every family: the family alone is not a usage
+   * refusal (the pair rows below can start from it). */
+  for (i = 0u; i < FAM_COUNT; i++) {
+    fresh_pair_dirs(artifact, raw);
+    memset(&args, 0, sizeof args);
+    pair_args_add_family(&args, (option_family)i, artifact, raw, false);
+    CHECK(run_pair_probe(&args, false, &run));
+    if (!is_not_usage_record(&run)) {
+      (void)fprintf(stderr, "family %s alone: detail %s\n", families[i].name,
+                    run.detail);
+    }
+    CHECK(is_not_usage_record(&run));
+  }
+
+  /* Every pair: refused as usage at guest tick 0 with nothing created, or
+   * accepted. */
+  for (i = 0u; i < sizeof pair_rows / sizeof pair_rows[0]; i++) {
+    const pair_row *row = &pair_rows[i];
+    fresh_pair_dirs(artifact, raw);
+    memset(&args, 0, sizeof args);
+    pair_args_add_family(&args, row->first, artifact, raw, false);
+    pair_args_add_family(&args, row->second, artifact, raw, false);
+    CHECK(run_pair_probe(&args, false, &run));
+    if (row->refused ? !is_usage_record(&run) : !is_not_usage_record(&run)) {
+      (void)fprintf(stderr, "pair %s x %s: expected %s, detail %s\n",
+                    families[row->first].name, families[row->second].name,
+                    row->refused ? "usage" : "accepted", run.detail);
+    }
+    if (row->refused) {
+      CHECK(is_usage_record(&run));
+      CHECK(list_directory(artifact, first) == 0u);
+      CHECK(list_directory(raw, first) == 0u);
+    } else {
+      CHECK(is_not_usage_record(&run));
+    }
+  }
+
+  /* A producer that needs the artifact pair without it is refused as usage. */
+  for (i = 0u; i < FAM_COUNT; i++) {
+    if (!families[i].needs_pair) continue;
+    fresh_pair_dirs(artifact, raw);
+    memset(&args, 0, sizeof args);
+    pair_args_add_family(&args, (option_family)i, artifact, raw, true);
+    CHECK(run_pair_probe(&args, false, &run));
+    if (!is_usage_record(&run)) {
+      (void)fprintf(stderr, "family %s without the pair: detail %s\n",
+                    families[i].name, run.detail);
+    }
+    CHECK(is_usage_record(&run));
+  }
+
+  /* Synthetic mode: the accepted baseline runs the stand-in child and ends in
+   * its own record (no result), and every Phase 9 flag (19) plus the two
+   * Phase 8 families the rule also covers is refused as usage. */
+  fresh_pair_dirs(artifact, raw);
+  memset(&args, 0, sizeof args);
+  CHECK(run_pair_probe(&args, true, &run));
+  CHECK(run.parsed);
+  CHECK(strcmp(run.detail, "usage") != 0);
+  CHECK(strcmp(run.detail, "no-result") == 0);
+  for (i = 0u; i < sizeof synthetic_flags / sizeof synthetic_flags[0]; i++) {
+    const char *value = synthetic_flags[i][1];
+    memset(&args, 0, sizeof args);
+    if (strcmp(value, "@ART") == 0) value = artifact;
+    if (strcmp(value, "@RAW") == 0) value = raw;
+    args.items[args.count++] = synthetic_flags[i][0];
+    args.items[args.count++] = value;
+    CHECK(run_pair_probe(&args, true, &run));
+    if (!is_synthetic_usage_record(&run)) {
+      (void)fprintf(stderr, "synthetic mode with %s: detail %s\n",
+                    synthetic_flags[i][0], run.detail);
+    }
+    CHECK(is_synthetic_usage_record(&run));
+  }
+  CHECK(list_directory(artifact, first) == 0u);
+  CHECK(list_directory(raw, first) == 0u);
+}
+
 /* K6: the maximum accepted option set runs to a pass through the supervisor
  * test twin; the capacity-exhausted fault ends the child before exec with a
  * harness error and no guest run. */
@@ -731,6 +1119,7 @@ static int case_argv_bound(void) {
   (void)close(video_pipe[1]);
   (void)close(audio_pipe[0]);
   (void)close(audio_pipe[1]);
+  option_pair_matrix();
   return g_failures == 0 ? 0 : 1;
 }
 

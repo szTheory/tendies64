@@ -1982,6 +1982,17 @@ static int case_import_option_refusals(void) {
   expect_refusal(&run);
   /* one artifact producer per run: each earlier family with the triple */
   CHECK(make_artifact_dir(artifact));
+  /* the triple with the artifact pair alone is allowed (R-02): the pair keeps
+   * its earlier meaning, no producer uses it, the run resumes as the baseline
+   * and the artifact directory stays empty */
+  {
+    char first[256];
+    const char *pair[] = {"--artifact-dir", artifact, "--artifact-max-bytes",
+                          "33554432"};
+    CHECK(run_with_state(&base, rom, LONG_BOUND, pair, 4u, &run));
+    expect_import_ran(&run);
+    CHECK(list_directory(artifact, first) == 0u);
+  }
   for (i = 0u; i < sizeof producers / sizeof producers[0]; i++) {
     const char *more[16];
     size_t count = 0u;

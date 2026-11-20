@@ -1027,6 +1027,207 @@ static void run_refusal(const refusal_row *row, refusal_class want,
   remove_dir_tree(import_dir);
 }
 
+/* ---- direct --save-import-fd (plan 09-10, FX-12; R-04, VG-07) ----------- */
+
+/* The child's own descriptor option, run without the supervisor. Every other
+ * child descriptor option has a direct-runner use in a test; this one was
+ * reached only through the supervisor's forwarding. The runner accepts only
+ * an unlinked, read-only regular file at offset 0 of exactly the kind size and
+ * ends any other descriptor in the existing prelaunch refusal at guest tick 0;
+ * the grammar rule of kind and format is a usage refusal. */
+typedef enum {
+  SAVE_FD_ACCEPTED,
+  SAVE_FD_LINKED,
+  SAVE_FD_WRITABLE,
+  SAVE_FD_OFFSET,
+  SAVE_FD_SHORT,
+  SAVE_FD_PIPE,
+  SAVE_FD_NO_KIND
+} save_fd_mode;
+
+/* An unlinked read-only descriptor on a private copy of `source` (the runner's
+ * own fixture and input intake accept only such snapshots). */
+static int snapshot_fd(const char *source, const uint8_t *literal,
+                       size_t literal_length, const char *directory,
+                       int open_flags, bool unlink_it) {
+  static uint8_t bytes[SRAM_BYTES];
+  size_t length = 0u;
+  char name[PATH_MAX];
+  int fd;
+  if (source != NULL) {
+    if (!read_file(source, bytes, sizeof bytes, &length) || length == 0u ||
+        length >= sizeof bytes) {
+      return -1;
+    }
+    literal = bytes;
+    literal_length = length;
+  }
+  if (!join_path(name, sizeof name, directory, "snapshot.XXXXXX")) return -1;
+  fd = mkstemp(name);
+  if (fd < 0) return -1;
+  {
+    size_t written = 0u;
+    while (written < literal_length) {
+      ssize_t count = write(fd, literal + written, literal_length - written);
+      if (count < 0 && errno == EINTR) continue;
+      if (count <= 0) {
+        (void)close(fd);
+        (void)unlink(name);
+        return -1;
+      }
+      written += (size_t)count;
+    }
+  }
+  (void)close(fd);
+  fd = open(name, open_flags);
+  if (unlink_it) (void)unlink(name);
+  return fd;
+}
+
+static bool run_save_direct(save_fd_mode mode, run_out *out) {
+  char runner[PATH_MAX];
+  char rom[PATH_MAX];
+  char input[PATH_MAX];
+  char stdout_path[PATH_MAX];
+  char fixture_fd_text[24];
+  char input_fd_text[24];
+  char save_fd_text[24];
+  char *slash;
+  int fixture_fd;
+  int input_fd;
+  int save_fd = -1;
+  int pipe_fds[2] = {-1, -1};
+  pid_t pid;
+  int status = 0;
+  static uint8_t image[SRAM_BYTES];
+  size_t image_length = SRAM_BYTES;
+  memset(out, 0, sizeof *out);
+  if (snprintf(runner, sizeof runner, "%s", g_supervisor) >= (int)sizeof runner ||
+      (slash = strrchr(runner, '/')) == NULL ||
+      (size_t)(slash - runner) + sizeof "/t64-runner-real" > sizeof runner) {
+    return false;
+  }
+  (void)snprintf(slash, sizeof runner - (size_t)(slash - runner),
+                 "/t64-runner-real");
+  if (!make_run_dir(out->dir) || !fixture_path(rom, ROUNDTRIP_ROM) ||
+      !input_path(input) ||
+      !join_path(stdout_path, sizeof stdout_path, out->dir, "runner.json")) {
+    return false;
+  }
+  fill_image(image, SRAM_BYTES);
+  if (mode == SAVE_FD_SHORT) image_length = SRAM_BYTES - 1u;
+  fixture_fd = snapshot_fd(rom, NULL, 0u, out->dir, O_RDONLY, true);
+  input_fd = snapshot_fd(input, NULL, 0u, out->dir, O_RDONLY, true);
+  switch (mode) {
+    case SAVE_FD_LINKED:
+      save_fd = snapshot_fd(NULL, image, image_length, out->dir, O_RDONLY,
+                            false);
+      break;
+    case SAVE_FD_WRITABLE:
+      save_fd = snapshot_fd(NULL, image, image_length, out->dir, O_RDWR, true);
+      break;
+    case SAVE_FD_OFFSET:
+      save_fd = snapshot_fd(NULL, image, image_length, out->dir, O_RDONLY,
+                            true);
+      if (save_fd >= 0 && lseek(save_fd, 1, SEEK_SET) != 1) return false;
+      break;
+    case SAVE_FD_PIPE:
+      if (pipe(pipe_fds) != 0) return false;
+      save_fd = pipe_fds[0];
+      break;
+    default:
+      save_fd = snapshot_fd(NULL, image, image_length, out->dir, O_RDONLY,
+                            true);
+      break;
+  }
+  if (fixture_fd <= STDERR_FILENO || input_fd <= STDERR_FILENO ||
+      save_fd <= STDERR_FILENO) {
+    return false;
+  }
+  (void)snprintf(fixture_fd_text, sizeof fixture_fd_text, "%d", fixture_fd);
+  (void)snprintf(input_fd_text, sizeof input_fd_text, "%d", input_fd);
+  (void)snprintf(save_fd_text, sizeof save_fd_text, "%d", save_fd);
+  pid = fork();
+  if (pid < 0) return false;
+  if (pid == 0) {
+    char *args[24];
+    size_t n = 0u;
+    int out_fd = open(stdout_path, O_WRONLY | O_CREAT | O_TRUNC, 0600);
+    if (out_fd < 0 || dup2(out_fd, STDOUT_FILENO) < 0) _exit(126);
+    args[n++] = runner;
+    args[n++] = (char *)(uintptr_t)"--fixture-fd";
+    args[n++] = fixture_fd_text;
+    args[n++] = (char *)(uintptr_t)"--input-fd";
+    args[n++] = input_fd_text;
+    args[n++] = (char *)(uintptr_t)"--profile";
+    args[n++] = (char *)(uintptr_t)ROUNDTRIP_PROFILE;
+    args[n++] = (char *)(uintptr_t)"--guest-ticks";
+    args[n++] = (char *)(uintptr_t)"600000";
+    args[n++] = (char *)(uintptr_t)"--save-import-fd";
+    args[n++] = save_fd_text;
+    if (mode != SAVE_FD_NO_KIND) {
+      args[n++] = (char *)(uintptr_t)"--save-kind";
+      args[n++] = (char *)(uintptr_t)"sram32k";
+    }
+    args[n++] = (char *)(uintptr_t)"--save-format";
+    args[n++] = (char *)(uintptr_t)"raw-v1";
+    args[n] = NULL;
+    execv(runner, args);
+    _exit(127);
+  }
+  (void)close(fixture_fd);
+  (void)close(input_fd);
+  (void)close(save_fd);
+  if (pipe_fds[1] >= 0) (void)close(pipe_fds[1]);
+  while (waitpid(pid, &status, 0) < 0) {
+    if (errno != EINTR) return false;
+  }
+  out->supervisor_exit = WIFEXITED(status) ? WEXITSTATUS(status) : -1;
+  (void)snprintf(out->result_path, sizeof out->result_path, "%s", stdout_path);
+  out->parsed = parse_record(stdout_path, out);
+  return out->parsed;
+}
+
+static void expect_direct_refusal(const run_out *run, const char *detail,
+                                  const char *stop_kind) {
+  CHECK(run->parsed);
+  CHECK(strcmp(run->outcome, "harness-error") == 0);
+  CHECK(strcmp(run->detail, detail) == 0);
+  CHECK(strcmp(run->stop_kind, stop_kind) == 0);
+  CHECK(run->guest_tick == 0u);
+}
+
+static void direct_save_import_fd_rows(void) {
+  run_out run;
+  /* The accepted baseline of the same setup: an unlinked read-only descriptor
+   * of exactly the kind size is imported (the transcript digest of the guest
+   * that reads the image proves the bytes arrived) and the run passes. */
+  CHECK(run_save_direct(SAVE_FD_ACCEPTED, &run));
+  CHECK(run.parsed);
+  CHECK(strcmp(run.outcome, "pass") == 0);
+  CHECK(strcmp(run.detail, "positive-match") == 0);
+  CHECK(strcmp(run.stop_kind, "authored-completion") == 0);
+  CHECK(run.log_bytes == ROUNDTRIP_BYTES);
+  CHECK(strcmp(run.log_sha256, ROUNDTRIP_SHA256) == 0);
+  CHECK(run.guest_tick != 0u);
+  /* Every descriptor the runner must not accept: the existing prelaunch
+   * refusal at guest tick 0. */
+  CHECK(run_save_direct(SAVE_FD_LINKED, &run));
+  expect_direct_refusal(&run, "refusal", "refused");
+  CHECK(run_save_direct(SAVE_FD_WRITABLE, &run));
+  expect_direct_refusal(&run, "refusal", "refused");
+  CHECK(run_save_direct(SAVE_FD_OFFSET, &run));
+  expect_direct_refusal(&run, "refusal", "refused");
+  CHECK(run_save_direct(SAVE_FD_SHORT, &run));
+  expect_direct_refusal(&run, "refusal", "refused");
+  CHECK(run_save_direct(SAVE_FD_PIPE, &run));
+  expect_direct_refusal(&run, "refusal", "refused");
+  /* The grammar rule is repeated by the child: a descriptor without the kind
+   * is a usage refusal, not a descriptor refusal. */
+  CHECK(run_save_direct(SAVE_FD_NO_KIND, &run));
+  expect_direct_refusal(&run, "usage", "not-started");
+}
+
 static int case_import_refused(void) {
   char import_dir[PATH_MAX];
   char export_dir[PATH_MAX];
@@ -1091,6 +1292,7 @@ static int case_import_refused(void) {
       run_refusal(&rows[i].row, rows[i].want, rows[i].label);
     }
   }
+  direct_save_import_fd_rows();
   return g_failures == 0 ? 0 : 1;
 }
 
