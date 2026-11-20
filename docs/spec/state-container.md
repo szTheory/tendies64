@@ -527,9 +527,14 @@ tick, the same final state digest and the same log bytes as the uninterrupted ru
 ends in the closed `harness-error` / `host-error` record (case
 `import-accepted-continues`). A state published by the runner itself is exported after
 the runner drained its whole log (observer cursor at the log length), so its default
-import delivers no earlier byte and the record disagrees with its own log; the
-supervisor ends that run in the closed `report-error` / `report-invalid` record, asserted
-by name in the same case.
+import delivers no earlier byte while the machine's attempted total still counts them.
+Such a run cannot know its log: it ends in the closed unknown-log form of the result
+protocol (both log counts zero, no digest, `harness-error` / `host-error`, the same form a
+saturated attempted total uses), which the checker and the supervisor accept, with the
+uninterrupted run's guest tick and final state digest (plan 09-10, FX-11), asserted in
+the same case and in the tracer baseline row `none`. Before that fix the child wrote a
+record its own checker refused and the supervisor ended the run in the closed
+`report-error` / `report-invalid` record.
 
 ## Option-pair matrix
 

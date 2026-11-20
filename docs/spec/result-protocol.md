@@ -553,7 +553,12 @@ further restrict those pairs:
   the producer emits `harness-error` / `host-error` with `log_sha256: null` and
   both log counts zero to mean the log and total are unknown; zero does not
   assert that the guest emitted no output, and the saturated value is never
-  serialized as an exact count.
+  serialized as an exact count. The same closed unknown-log record is emitted by a
+  run that resumed from an imported state and drained fewer bytes than the
+  machine's attempted total (plan 09-10, FX-11: a state exported after the log was
+  drained, such as the runner's own published state); its log is partial, so no
+  count that disagrees with the total and no digest of the partial capture is
+  serialized.
 - Empty output at authored completion or at the guest bound is always
   `boot-fail` / `empty-output`, with the SHA-256 of the empty byte string. A
   non-empty incomplete capture at the bound is `timeout` / `guest-bound`.

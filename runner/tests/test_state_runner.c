@@ -156,6 +156,8 @@ typedef struct {
   char build_id[96];
   uint64_t guest_tick;
   uint64_t log_bytes;
+  uint64_t log_bytes_total;
+  bool log_sha256_null;
   char dir[PATH_MAX];
   char result_path[PATH_MAX];
   char err_path[PATH_MAX]; /* the direct runner's diagnostic stream */
@@ -182,10 +184,16 @@ static bool parse_record(const char *path, run_out *out) {
   stop = t64_json_get(doc.root, "guest_stop");
   {
     const t64_json_node *counts = t64_json_get(doc.root, "counts");
+    const t64_json_node *digest = t64_json_get(doc.root, "log_sha256");
     if (counts != NULL &&
         t64_json_u64_string(t64_json_get(counts, "log_bytes"), &value)) {
       out->log_bytes = value;
     }
+    if (counts != NULL &&
+        t64_json_u64_string(t64_json_get(counts, "log_bytes_total"), &value)) {
+      out->log_bytes_total = value;
+    }
+    out->log_sha256_null = digest != NULL && digest->type == T64_JSON_NULL;
   }
   copy_string(out->outcome, sizeof out->outcome,
               t64_json_get(doc.root, "outcome"));
@@ -1760,6 +1768,36 @@ static void expect_resumed_like(const run_out *resumed, const run_out *a) {
   CHECK(resumed->guest_tick > IMPORT_TICK);
   CHECK(strcmp(resumed->state_digest, a->state_digest) == 0);
   CHECK(resumed->log_bytes == a->log_bytes);
+  /* a complete log: the counts agree and the digest is present */
+  CHECK(resumed->log_bytes_total == a->log_bytes);
+  CHECK(!resumed->log_sha256_null);
+}
+
+/* The resumed run of a state the runner itself published (FX-11, L3 WR-02,
+ * VG-10). The state was exported after the runner drained its whole log, so a
+ * default import delivers no earlier byte while the machine's attempted total
+ * still counts all of them: the run cannot know its log. Its record is the
+ * closed unknown-log form (both counts zero, no digest) that the checker and
+ * the supervisor accept, the same one a saturated attempted total uses, ending
+ * in harness-error / host-error (a resumed run never reports pass), and the
+ * guest tick and final state digest continue exactly as the uninterrupted run.
+ * Zero counts do not assert that the guest emitted nothing. */
+static void expect_resumed_unknown_log(const run_out *resumed,
+                                       const run_out *a) {
+  char diagnostic[160];
+  CHECK(resumed->parsed);
+  CHECK(run_checker(resumed->result_path, diagnostic) == 0);
+  CHECK(strcmp(resumed->outcome, "harness-error") == 0);
+  CHECK(strcmp(resumed->stop_kind, "host-error") == 0);
+  CHECK(strcmp(resumed->detail, "host-error") == 0);
+  CHECK(resumed->guest_tick == a->guest_tick);
+  CHECK(strcmp(resumed->state_digest, a->state_digest) == 0);
+  CHECK(resumed->log_bytes == 0u);
+  CHECK(resumed->log_bytes_total == 0u);
+  CHECK(resumed->log_sha256_null);
+  /* the uninterrupted run is the comparator: a known log, not the unknown form */
+  CHECK(a->log_bytes != 0u && a->log_bytes_total == a->log_bytes);
+  CHECK(!a->log_sha256_null);
 }
 
 static int case_import_accepted_continues(void) {
@@ -1791,10 +1829,11 @@ static int case_import_accepted_continues(void) {
   expect_resumed_like(&c, &a);
   /* run B publishes the state at authored completion through the runner. That
    * state was exported after the runner drained the whole log (observer cursor
-   * at 20 bytes), so a resumed run delivers no earlier byte and its record
-   * (total 20, captured 0) disagrees with its own log: the supervisor ends it
-   * in the closed report-error record. The limit is the default observer
-   * restore of the import, asserted here by name and not hidden. */
+   * at 20 bytes), so a resumed run delivers no earlier byte while the machine's
+   * attempted total still counts them: its log is unknown and its record is the
+   * closed unknown-log form (counts zero, no digest), valid for the checker and
+   * the supervisor (FX-11). The limit is the default observer restore of the
+   * import, asserted here by name and not hidden. */
   CHECK(make_artifact_dir(artifact));
   spec.artifact_dir = artifact;
   spec.artifact_max = ARTIFACT_MAX;
@@ -1806,11 +1845,7 @@ static int case_import_accepted_continues(void) {
   CHECK(join_path(leaf, sizeof leaf, artifact, STATE_LEAF));
   CHECK(state_file_load(leaf, &published));
   CHECK(run_with_state(&published, rom, LONG_BOUND, NULL, 0u, &c));
-  CHECK(c.parsed);
-  CHECK(strcmp(c.outcome, "harness-error") == 0);
-  CHECK(strcmp(c.stop_kind, "report-error") == 0);
-  CHECK(strcmp(c.detail, "report-invalid") == 0);
-  CHECK(c.guest_tick == 0u);
+  expect_resumed_unknown_log(&c, &a);
   state_file_free(&published);
   state_file_free(&file);
   remove_tree(artifact);
@@ -2446,13 +2481,15 @@ static int tracer_run(const char *row_name) {
              strcmp(direct.detail, "host-error") == 0 &&
              direct.guest_tick == a.guest_tick &&
              strcmp(direct.state_digest, a.state_digest) == 0 &&
-             direct.log_bytes == 0u) {
+             direct.log_bytes == 0u && direct.log_bytes_total == 0u &&
+             direct.log_sha256_null) {
     /* An accepted import resumes to the uninterrupted run's completion tick and
      * final state digest. The runner exported this state after it drained the
      * whole 20-byte log (observer cursor at the log length), so the resumed run
-     * delivers no earlier byte (log bytes 0). Its verdict can never be pass (the
-     * 09-09 evidence limit of a resumed run), so the closed record is the
-     * harness-error host-error one. */
+     * delivers no earlier byte (log bytes 0) and its log is unknown: the closed
+     * unknown-log form (both counts zero, no digest). Its verdict can never be
+     * pass (the 09-09 evidence limit of a resumed run), so the closed record is
+     * the harness-error host-error one. */
     outcome_token = "resumed";
   } else {
     outcome_token = direct.parsed ? direct.outcome : "unparsed";
@@ -2527,16 +2564,15 @@ static int tracer_run(const char *row_name) {
     expect_supervised_preflight_refusal(&supervised);
   } else {
     /* the accepted baseline of the same setup: the importer accepted (no
-     * reason line), the direct record resumed equal, and the supervised record
-     * is the closed report-invalid one of a runner-published state (not the
-     * preflight refusal record of the mutant row) */
+     * reason line), the direct record resumed equal and the checker accepts
+     * it, and the supervised record is the same closed unknown-log record with
+     * the uninterrupted run's tick and state digest (not the preflight refusal
+     * record of the mutant row) */
+    char direct_diagnostic[160];
     CHECK(strcmp(outcome_token, "resumed") == 0);
     CHECK(strcmp(reason, "none") == 0);
-    CHECK(supervised.parsed);
-    CHECK(strcmp(supervised.outcome, "harness-error") == 0);
-    CHECK(strcmp(supervised.stop_kind, "report-error") == 0);
-    CHECK(strcmp(supervised.detail, "report-invalid") == 0);
-    CHECK(supervised.guest_tick == 0u);
+    CHECK(run_checker(direct.result_path, direct_diagnostic) == 0);
+    expect_resumed_unknown_log(&supervised, &a);
   }
   if (have_subject) (void)unlink(subject_path);
   state_file_free(&subject);

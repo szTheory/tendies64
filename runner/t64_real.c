@@ -1972,10 +1972,19 @@ finalize:
   }
   result.guest_tick = stop.tick <= guest_ticks ? stop.tick : current_tick;
   result.instruction_count = observations.retired;
-  if (!output_total_exact) {
-    /* A saturated attempted-byte total is a lower bound, not an exact count.
-     * Do not publish either the saturated value or a partial capture as a
-     * verified log. */
+  if (!output_total_exact ||
+      (output_total != (uint64_t)output_length &&
+       strcmp(result.detail, "output-overflow") != 0)) {
+    /* The log of this run is unknown, not a verified capture: a saturated
+     * attempted-byte total is a lower bound, not an exact count, and a resumed
+     * run whose imported observer state leaves the machine's attempted total
+     * above the bytes this run drained (a state exported after the log was
+     * drained, for example the runner's own published state) has a partial
+     * capture that disagrees with its own total. Publish neither the saturated
+     * or disagreeing value nor the partial capture as a verified log: both
+     * counts zero and no digest, the closed unknown-log form the checker and
+     * the supervisor accept. Zero asserts nothing about what the guest
+     * emitted. */
     output_length = 0u;
     output_total = 0u;
     result.has_log_sha256 = false;
