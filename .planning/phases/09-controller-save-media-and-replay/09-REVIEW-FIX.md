@@ -8,7 +8,7 @@ security_path: .planning/phases/09-controller-save-media-and-replay/09-SECURITY.
 verification_path: .planning/phases/09-controller-save-media-and-replay/09-VERIFICATION.md
 iteration: 1
 cycle_groups: [G1, G2, G3, G4, T6-FX38, T6-FX39]
-status: g1_g2_g3_g4_complete_fx38_fx39_task6_stopped_hosted_time_gate
+status: g1_g2_g3_g4_complete_fx38_fx39_task6_fr_tagged_dev17
 recheck_paths:
   - build/gate/09-10-recheck-R1.md
   - build/gate/09-10-recheck-R2.md
@@ -93,6 +93,10 @@ Found after the one fix cycle ended, by the first hosted run of the fix-cycle he
 ### DEV-16 [Task 6 hosted rehearsal failure, FX-39]: four registered TIMEOUTs had less than twice the measured seconds, one fired on the hosted macOS runner
 
 The first hosted rehearsal (run 44784312630, attempt 1, source `16849e7`) failed the job `gate-macos` at the Gate step: `harness.state-field-use-audit` ended `***Timeout 60.06 sec` against its registered 60 s (the same test took 48.7 s on that runner in run 44776046324 and 17.7 to 21.3 s natively; `gate-linux` succeeded, Gate 147 s, run 189 s, and so proved the FX-38 emit and the rest of the hosted tail on a real runner). Classified from the step log: not product code, not frozen logic and not an infrastructure fault; a registered deadline of 1.0 to 1.2 times the hosted figure, which a rerun would pass or fail on runner noise and which would then fail 09-11's qualifying runs, where logic cannot be edited. A rerun of the same SHA was therefore not used. The repair is data only (CMake registration TIMEOUTs, the lever plan 09-10 Task 6 step 5 names) and is the one repeat of steps 2 to 4: the native rehearsal on `16849e7` (exit 0, 1,652 s) and its record are superseded by a new native rehearsal and a new hosted rehearsal on the repaired candidate. See FX-39.
+
+### DEV-17 [accepted hosted time deviation, orchestrator decision]: the macOS cold projection of the hosted rehearsal is 619 s against the 600 s gate
+
+Plan 09-10 Task 6 step 4 gates the hosted rehearsal on warm at most 540 s and a cold projection (warm plus 186 s macOS or 84 s Linux) at most 600 s on both jobs. The rehearsal on `8dd6af1` (run 44790405712, attempt 1) measured gate-linux warm 242 s, cold projection 326 s, and gate-macos warm 433 s, cold projection 619 s, so the macOS cold projection is 19 s over. The orchestrator **accepted the measured rehearsal with this recorded deviation and ordered no third candidate cycle**. Reasoning: the warm figure 433 s is inside the 540 s warm limit; the cold figure is a projection (the warm time plus the 186 s Binutils source build, F-096 and F-100) that matters only on a Binutils cache miss and then only against the 10 minute job timeout; a cold run was never made or spent; the same macOS job measured 349 s at the plan base `d4ccad5`, 420 s at `7d8f817` and 433 s here on near identical code, so a single sample is as noisy as the margin; both jobs were green and the collector and the rehearsal verifier passed on the pair. The plan's second verify block (the timing awk) therefore exits 1 on the macOS line by design and that exit is this accepted deviation, not a defect; its output is in `build/gate/09-10-timing.txt`. No frozen `.github/workflows/ci.yml` edit is made. **Mitigation obligation for 09-11** (carried in the SUMMARY handoff): before 09-11's first push confirm with `gh cache list` that the Binutils cache entries for both operating systems exist and are fresh with the key unchanged (the key hashes `scripts/build-boot-fixtures.sh`, which is frozen), and treat a cold macOS run as a known risk (a cold macOS job would take about 619 s against the 600 s timeout and could be cancelled by it); 09-11 records its own measured seconds against the same figures.
 
 ### Blocking set
 
@@ -650,7 +654,7 @@ Left unchanged: `unit.core.state.import` under the sanitizer (1,257 s of 2,400 s
 
 ## FR freeze record
 
-Written by plan 09-10 Task 6 step 1, before the rehearsal, so the rehearsed commit contains it; the tree identities were refreshed after FX-38 (the `runner` and `scripts` trees changed by that fix) and after FX-39 (the `runner` tree again, `runner/CMakeLists.txt`); no other tree and no frozen file changed. The local tag `phase09-fr` is created on the rehearsed commit only after both rehearsals pass (step 6) and is not pushed by this plan; plan 09-11 pushes it with its first push. FR is the end of 09-10 (D-06): from the tagged commit on, all logic is frozen and 09-11 may edit data only.
+**Status: in force.** The local tag `phase09-fr` is on `8dd6af1cda44fe021fcc4b42c4103ffd5148c986` (not pushed; 09-11 pushes it with its first push) after both rehearsals, with the accepted hosted time deviation DEV-17 (macOS cold projection 619 s). Written by plan 09-10 Task 6 step 1, before the rehearsal, so the rehearsed commit contains it; the tree identities were refreshed after FX-38 (the `runner` and `scripts` trees changed by that fix) and after FX-39 (the `runner` tree again, `runner/CMakeLists.txt`); no other tree and no frozen file changed. The local tag `phase09-fr` is created on the rehearsed commit only after both rehearsals pass (step 6) and is not pushed by this plan; plan 09-11 pushes it with its first push. FR is the end of 09-10 (D-06): from the tagged commit on, all logic is frozen and 09-11 may edit data only.
 
 ### Frozen logic set
 
@@ -747,6 +751,15 @@ After the tag `phase09-fr` 09-11 may change only:
 
 Everything else is a declared qualification reset. A hosted overrun (warm above 540 s, or cold projection above 600 s) found in 09-11 cannot be repaired there by a logic edit; it is a declared deviation that forces a new candidate cycle, which is why the hosted rehearsal of Task 6 runs in this plan, before the freeze.
 
+### Handoff obligations for 09-11 from Task 6
+
+- **Hosted time (DEV-17).** gate-macos warm 433 s (inside 540 s), cold projection 619 s (19 s over 600 s, accepted); gate-linux warm 242 s, cold 326 s. Before 09-11's first push run `gh cache list --repo szTheory/tendies64` and confirm the Binutils entries for Linux and macOS exist, are recent and carry the current key (`binutils-<OS>-<ARCH>-<hash of scripts/build-boot-fixtures.sh>`, key unchanged because that script is frozen); a cold macOS run is a known risk of about 619 s against the 600 s job timeout. 09-11 adds only a hermetic test-file case pair and documents and records its own measured seconds against these figures; a hosted overrun found there is a declared deviation, not a logic repair.
+- **Stale verifier digest.** The digest of `09-VERIFICATION.md` (`v4:sha256:955f5003...`, verified at `944443f`) predates the K20 amendment of `09-CONTEXT.md`, the Task 6 edits of this record, FX-38 (`runner/tests/t64_test_tree.h`, `runner/tests/test_pad_poll.c`, `scripts/tests/test_phase09_qualification.py`) and FX-39 (`runner/CMakeLists.txt`); 09-11 performs the confirmatory re-verification after F2. Nothing of this plan edits `09-VERIFICATION.md`.
+- **Owner metadata.** A native record binds `AGENTS.md`, `.planning/config.json` and `.planning/AUTONOMY.md` (`OWNER_METADATA_PATHS`); do not edit them between the native qualification run and its hosted verification.
+- **Margins to watch.** `unit.core.state.import` under the sanitizer 1,150 to 1,257 s of 2,400 s (1.9 times, the FX-22 decision; the wrapper, record bound and outer limit are frozen constants); `runner.state-export` under the sanitizer 160 to 182 s of 480 s; hosted macOS `unit.core.state.import` 190 s and `harness.state-field-use-audit` 65 s of 240 s.
+- **Cheap checks to repeat before 09-11's first push** (F-107, F-108): replay the CI steps that follow Gate against the local build (about 20 s), and compare every registered TIMEOUT with the largest native, sanitizer and hosted seconds (at least twice).
+- **Claim wording.** The K20 limits of `09-CONTEXT.md` and the open-findings table above stand; no CTest name may be added (45 of 45).
+
 ### Procedure 09-11 uses to verify the freeze
 
 1. `git diff --quiet phase09-fr HEAD -- core runner tools scripts .github fixtures` must exit 0 except for the data paths above; list the rest with `git diff --stat phase09-fr HEAD -- core runner tools scripts .github fixtures`.
@@ -756,7 +769,7 @@ Everything else is a declared qualification reset. A hosted overrun (warm above 
 
 ## Hosted rehearsal result
 
-**Status: Task 6 stopped at the hosted time gate. The tag `phase09-fr` was not created and the FR record above is not in force.** The one repeat of steps 2 to 4 (plan 09-10 Task 6 step 3) is spent, so the second miss is a recorded stop returned to the orchestrator, not a further loop. Both rehearsal records exist and verify; neither is qualification evidence.
+**Status: accepted with a recorded deviation (DEV-17).** The hosted rehearsal on `8dd6af1` met the warm limit on both jobs and the cold projection on gate-linux; the gate-macos cold projection is 619 s against 600 s. The one repeat of steps 2 to 4 (plan 09-10 Task 6 step 3) was spent (the FX-39 cycle); the orchestrator accepted the measured result instead of a third candidate cycle. The tag `phase09-fr` is on `8dd6af1` (local, not pushed) and the FR record above is in force. Both rehearsal records exist and verify; neither is qualification evidence.
 
 ### The rehearsed candidate
 
@@ -801,7 +814,7 @@ The plan's second verify block exits 1 on the macOS line. The upload stayed insi
 
 **What the number is made of.** macOS ctest: 224 names, summed test time 810 s on four jobs, wall 218 s, the Phase 9 names 449 s (55 percent); `unit.core.state.import` 190 s alone (native 48 s, about 3.9 times) and `harness.state-field-use-audit` 65 s (native 19 s). Run-to-run spread of the same macOS job is as large as the margin: 349 s at the plan base `d4ccad5` (run 44678456339, cold projection 535 s), 420 s at `7d8f817` (run 44713831889, before any fix, 606 s), 433 s here; the Gate step alone ranged 304 to 379 s across near identical code. The two earlier runs of this task, both partial: run 44776046324 (`49069a7`, failed at the emit, DEV-15): Linux 251 s and macOS 367 s up to the failure; run 44784312630 (`16849e7`, macOS failed at Gate, DEV-16): Linux 189 s complete, macOS Gate 379 s and 398 s run before the later steps (about 433 s complete, projected cold about 619 s). The completed-run ledger and findings F-107 to F-110 are in `docs/ci-reviews/LOG.md`.
 
-### The stop and the choices it leaves (orchestrator decision; nothing below was done)
+### The stop and the choices it left (decided: choice 3 with DEV-17; choices 1 and 2 were not taken)
 
 The measured macOS cold projection is at the margin and not a deterministic function of the code; a single sample passes or fails on runner noise. Choices, with the measured cost of each (all are covered edits before the freeze that need a new native and a new hosted rehearsal, a third candidate cycle):
 
@@ -809,4 +822,6 @@ The measured macOS cold projection is at the margin and not a deterministic func
 2. A declared deviation that widens the cold margin (for example the 10 minute `timeout-minutes` of the macOS job, a frozen file edit with an FD entry) or accepts the measured figure with the warm figure inside 540 s, recorded as a known limit for 09-11, which can then only record its own measured seconds.
 3. Accept the single sample as the rehearsal result and record that the cold projection is a projection, not a spent run (a cold run was never made).
 
-State of the tree for any of these: `main` and `origin/main` are at `8dd6af1` plus local `[skip ci]` records; no tag; `git ls-remote --tags origin phase09-fr` prints nothing.
+**Decision (orchestrator):** choice 3, recorded as DEV-17 and in the FR handoff obligations: no third candidate cycle, no frozen `ci.yml` edit, the Binutils cache freshness is checked before 09-11's first push.
+
+State of the tree: the tag `phase09-fr` is on `8dd6af1` and is not pushed (`git ls-remote --tags origin phase09-fr` prints nothing); nothing under `core`, `runner`, `tools`, `scripts`, `.github` or `fixtures` differs between the tag and HEAD; only `docs/ci-reviews/LOG.md` and files under `.planning/` follow the tag.
