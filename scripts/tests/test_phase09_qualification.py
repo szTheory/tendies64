@@ -1273,7 +1273,11 @@ class Phase09Qualification(unittest.TestCase):
             plan = qualify._native_command_plan("09-unit", sampled)
             matrix = plan[-1]
             junit = Path(matrix["command"][-1])
-            passed = b"1/1 Test #64: unit.core.state.import ... Passed\n100% tests passed, 0 tests failed out of 1\n"
+            # the stdout of the real step (ctest 4.4.3, build/gate/09-10-g3/fx-21b-real-ctest-stdout.txt)
+            passed = (b"Test project build/gate\n    Start 64: unit.core.state.import\n"
+                      b"1/1 Test #64: unit.core.state.import ...........   Passed   64.27 sec\n\n"
+                      b"100% tests passed out of 1\n\nTotal Test time (real) =  64.27 sec\n")
+            older = passed.replace(b"passed out of 1", b"passed, 0 tests failed out of 1")
             steps = private / "steps"
 
             def verify_all(omit: str | None = None) -> None:
@@ -1295,6 +1299,7 @@ class Phase09Qualification(unittest.TestCase):
                 _write_synthetic_step(steps / label, item, stdout)
             _synthetic_junit(junit, 52000)
             verify_all()  # the accepted baseline: every step, the matrix step included
+            qualify._verify_full_matrix_step(older, junit, sampled)  # the older CTest wording
 
             def refuse(label: str, needle: str, edit) -> None:
                 undo = edit()
@@ -1338,6 +1343,8 @@ class Phase09Qualification(unittest.TestCase):
 
             refuse("CTest did not pass", "did not pass its one CTest",
                    lambda: edit_stdout(b"0% tests passed, 1 tests failed out of 1\n"))
+            refuse("CTest ran a different count", "did not pass its one CTest",
+                   lambda: edit_stdout(passed.replace(b"out of 1", b"out of 2")))
             refuse("JUnit missing", "missing or outside the private root",
                    lambda: (junit.rename(junit.with_suffix(".moved")),
                             lambda: junit.with_suffix(".moved").rename(junit))[1])

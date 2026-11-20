@@ -1713,7 +1713,9 @@ def _verify_full_matrix_step(stdout: bytes, junit: Path, sampled_junit: Path) ->
     took effect is the check total: the full run of the same test must execute
     more checks than the sampled run of the full normal gate in the same record.
     """
-    _require(b"100% tests passed, 0 tests failed out of 1" in stdout,
+    # CTest 4 prints "100% tests passed out of 1", CTest 3 "100% tests passed, 0 tests failed out of 1"
+    _require(re.search(rb"^100% tests passed(?:, 0 tests failed)? out of 1$", stdout,
+                       flags=re.MULTILINE) is not None,
              "full continuation matrix step did not pass its one CTest")
     _require(_under(junit, PRIVATE_ROOT) and junit.is_file() and not junit.is_symlink(),
              "full continuation matrix JUnit original is missing or outside the private root")
