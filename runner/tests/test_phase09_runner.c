@@ -799,7 +799,7 @@ static const family_def families[FAM_COUNT] = {
       "--artifact-max-bytes", "4096", NULL},
      true},
     {"REPLAY-REC",
-     {"--replay-record", "r.rpl", "--replay-checkpoint-interval", "160000",
+     {"--replay-record", "r.rpl", "--replay-checkpoint-interval", "20000",
       "--artifact-dir", "@ART", "--artifact-max-bytes", "4096", NULL},
      true},
     {"REPLAY-PLAY",
@@ -973,7 +973,7 @@ static bool run_pair_probe(const pair_args *extra, bool synthetic,
     argv_list[count++] = "--wall-ms";
     argv_list[count++] = "30000";
     argv_list[count++] = "--bound";
-    argv_list[count++] = "200000";
+    argv_list[count++] = "20000";
     argv_list[count++] = "--fixture";
     argv_list[count++] = fixture;
     argv_list[count++] = "--input";
@@ -1032,7 +1032,7 @@ static const char *const synthetic_flags[][2] = {
     {"--save-format", "raw-v1"},
     {"--save-export-leaf", "s.eep"},
     {"--replay-record", "r.rpl"},
-    {"--replay-checkpoint-interval", "160000"},
+    {"--replay-checkpoint-interval", "20000"},
     {"--replay-play", "/nonexistent/r.rpl"},
     {"--replay-play-size", "100"},
     {"--replay-play-sha256", PAIR_H64},
