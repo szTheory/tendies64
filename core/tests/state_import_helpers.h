@@ -632,8 +632,24 @@ typedef struct {
   uint64_t accepted;
   uint64_t liveness_stops;
   uint64_t violations;
+  /* Refusals that reached a section reader or a later check (reason
+   * FIELD_RANGE and above); the others stopped at the container level (plan
+   * 09-10 review L2 WR-04). */
+  uint64_t field_level;
   uint64_t by_reason[48];
 } state_fuzz_stats;
+
+/* A window of a section body where the mutators aim: the rule-bearing fields of
+ * a section whose bulk (RDRAM, SP memory, the coverage arrays) has no rule. Set
+ * by the caller before a campaign or a sweep; without windows the mutators pick
+ * a section other than RDRAM and SP memory uniformly. */
+typedef struct {
+  uint32_t section;
+  size_t offset;
+  size_t length;
+} state_fuzz_window;
+
+void state_fuzz_set_windows(const state_fuzz_window *windows, size_t count);
 
 /* One import with the whole contract checked (core/tests/fuzz_state_import.c);
  * returns the peer to use next. */

@@ -857,14 +857,25 @@ video packet length (`len-le-video-packet`), the queue sequence bound
 (`sequence-at-next` and `seq-lt-sequence-above-next`) and the closed (device, kind)
 lookup (`unknown-pair` and `synthetic-device`).
 
-**Sweep and campaign.** The sweep flips one bit at sampled header bytes and strided
-body offsets of the S1 blob and, when `T64_STATE_SWEEP_BLOBS` is above 1, of the
-boundary blobs B05, B07, B10, B04 and B14, in two integrity modes (every field stale,
-every field re-signed). The campaign (`core/tests/fuzz_state_import.c`) is a fixed
-seed xorshift run of `T64_STATE_FUZZ_ITERATIONS` iterations over byte flips,
-truncation, extension, boundary-value field replacement (0, 1, maximum minus one,
-maximum, 0x7FFFFFFF, 0x80000000, 0xFFFFFFFF, 2^32), swapped and duplicated section
-entries, each re-signed with a random choice of which integrity fields stay valid.
+**Sweep and campaign.** The sweep flips one bit at sampled header bytes and at body
+positions inside named windows of the S1 blob (the rule-bearing fields of section 8:
+the RDP scalars and packet words, the tile descriptors and the VI block, and the
+carried tail; whole small sections), and, when `T64_STATE_SWEEP_BLOBS` is above 1, of
+the boundary blobs B05, B07, B10, B04 and B14, in two integrity modes (every field
+stale, every field re-signed). The campaign (`core/tests/fuzz_state_import.c`) is a
+fixed seed xorshift run of `T64_STATE_FUZZ_ITERATIONS` iterations over byte flips and
+boundary-value field replacement (0, 1, maximum minus one, maximum, 0x7FFFFFFF,
+0x80000000, 0xFFFFFFFF, 2^32), seven draws in ten, at positions inside the same
+windows three times in four and otherwise in a section other than RDRAM and SP memory,
+and over truncation and extension (the header total follows the new length) and swapped
+and duplicated section entries, three draws in ten. Six draws in eight re-sign every
+integrity field, one keeps the declared digest stale and one leaves all stale; a
+second run uses a base blob with a shaded triangle render in progress. Reach is
+asserted, not assumed: at least a quarter of the iterations of each run must be
+refused by a reader or a later check (reason `FIELD_RANGE` or above) or be accepted,
+and the sweep asserts the same for its flips (the first version ended 12 of 12
+iterations at the container level, and its `refusals plus acceptances equals
+iterations` assertion was true by construction).
 Every outcome must be a closed refusal (the status and reason pair agrees with the
 reason to status table above) or an acceptance; every refusal leaves the whole
 machine allocation byte identical with the allocator counters unchanged and the

@@ -5547,6 +5547,40 @@ static void print_fuzz_stats(const char *label, const state_fuzz_stats *stats) {
  * each in two integrity modes: every integrity field stale (the trailer check
  * is the first failure) and every integrity field re-signed (the deeper rules
  * run). */
+/* The windows of the campaign and the sweep: the rule-bearing fields of section
+ * 8 (the RDP scalars and the packet words at its start, the tile descriptors and
+ * the VI block before the retained packet slots, and the carried tail) and the
+ * small sections whole (the readers of sections 5, 6, 7, 9, 10, 11 and 16 are
+ * reached through the fallback of the mutator, which skips RDRAM and SP memory). */
+static const state_fuzz_window campaign_windows[] = {
+    {T64_STATE_SECTION_RDP_VI, 0u, 400u},
+    {T64_STATE_SECTION_RDP_VI, S8_TILE0_SHIFT_S - 160u, 1700u},
+    {T64_STATE_SECTION_RDP_VI, S8_TAIL, 96u},
+    {T64_STATE_SECTION_INTERRUPT_PI_SP, 0u, 276u},
+    {T64_STATE_SECTION_SI_PIF, 0u, 404u},
+    {T64_STATE_SECTION_AUDIO, 0u, 336u},
+    {T64_STATE_SECTION_OBSERVER_CONTINUITY, 0u, 40u},
+};
+
+/* A body position of a sweep sample: inside a window of the blob when the
+ * window fits the section, else the strided position of the first version. */
+static size_t sweep_body_position(const uint8_t *blob, size_t length,
+                                  size_t sample, size_t strided) {
+  const state_fuzz_window *w =
+      &campaign_windows[sample % (sizeof campaign_windows /
+                                  sizeof campaign_windows[0])];
+  size_t base = 0u;
+  size_t body = 0u;
+
+  if (find_section(blob, w->section, &base, &body) && w->length >= 8u &&
+      w->offset <= body && w->length <= body - w->offset &&
+      base + w->offset + w->length <= length) {
+    return base + w->offset +
+           ((sample * 40503u + sample / 7u) % (w->length - 4u) & ~(size_t)3u);
+  }
+  return strided;
+}
+
 static void sweep_blob(const uint8_t *blob, size_t length, size_t header_samples,
                        size_t body_samples, state_fuzz_stats *stats) {
   uint8_t *copy = (uint8_t *)malloc(length);
@@ -5563,10 +5597,13 @@ static void sweep_blob(const uint8_t *blob, size_t length, size_t header_samples
     return;
   }
   for (sample = 0u; sample < header_samples + body_samples && peer != NULL; sample++) {
-    const size_t offset = sample < header_samples
-                              ? sample * (header_stride == 0u ? 1u : header_stride)
-                              : D_TABLE + (sample - header_samples) * body_stride +
-                                    (sample % 7u);
+    const size_t offset =
+        sample < header_samples
+            ? sample * (header_stride == 0u ? 1u : header_stride)
+            : sweep_body_position(
+                  blob, length, sample - header_samples,
+                  D_TABLE + (sample - header_samples) * body_stride +
+                      (sample % 7u));
     unsigned mode;
 
     if (offset >= length) continue;
@@ -5593,6 +5630,8 @@ static void case_mutation_sweep(void) {
 
   (void)memset(&total, 0, sizeof total);
   if (!targets_prepare()) return;
+  state_fuzz_set_windows(campaign_windows,
+                         sizeof campaign_windows / sizeof campaign_windows[0]);
   (void)memset(&stats, 0, sizeof stats);
   sweep_blob(target_blob[T_S1], target_length[T_S1], header_samples, body_samples,
              &stats);
@@ -5600,6 +5639,7 @@ static void case_mutation_sweep(void) {
   total.refusals += stats.refusals;
   total.accepted += stats.accepted;
   total.violations += stats.violations;
+  total.field_level += stats.field_level;
   for (i = 1u; i < blobs && i - 1u < sizeof sweep_boundaries / sizeof sweep_boundaries[0];
        i++) {
     const size_t index = boundary_index(sweep_boundaries[i - 1u]);
@@ -5612,11 +5652,14 @@ static void case_mutation_sweep(void) {
     total.refusals += stats.refusals;
     total.accepted += stats.accepted;
     total.violations += stats.violations;
+    total.field_level += stats.field_level;
   }
   if (getenv("T64_STATE_MATRIX_TRACE") != NULL) print_fuzz_stats("sweep", &total);
   T64_CHECK(total.iterations > 0u);
-  T64_CHECK_INT(total.refusals + total.accepted, total.iterations);
   T64_CHECK_INT(total.violations, 0u);
+  /* reach, not a tautology: the re-signed arm of the sweep must be refused by
+   * a reader or a later check or accepted for at least a quarter of its flips */
+  T64_CHECK(total.field_level + total.accepted >= total.iterations / 8u);
 }
 
 static void case_fuzz_campaign(void) {
@@ -5624,12 +5667,33 @@ static void case_fuzz_campaign(void) {
   const uint64_t iterations = env_u64("T64_STATE_FUZZ_ITERATIONS", 12u);
 
   if (!targets_prepare()) return;
+  state_fuzz_set_windows(campaign_windows,
+                         sizeof campaign_windows / sizeof campaign_windows[0]);
   state_fuzz_campaign(target_blob[T_S1], target_length[T_S1], iterations,
                       UINT64_C(0x5EED0911), &stats);
   print_fuzz_stats("fuzz-campaign", &stats);
   T64_CHECK_INT(stats.iterations, iterations);
-  T64_CHECK_INT(stats.refusals + stats.accepted, stats.iterations);
   T64_CHECK_INT(stats.violations, 0u);
+  /* reach: a campaign whose refusals all stop at the container level proves
+   * nothing about the readers (the first version ended 12 of 12 iterations in
+   * TOTAL_LENGTH or TRAILER_SHA256), so at least a quarter of the iterations
+   * (and one) must be refused by a reader or a later check or be accepted */
+  T64_CHECK(stats.field_level + stats.accepted >=
+            (iterations / 4u > 1u ? iterations / 4u : 1u));
+  /* a second base blob with a shaded triangle render in progress, so the
+   * reader rules of the render fields (plan 09-10 FX-01) are in the reach of
+   * the campaign; half the iterations, another seed */
+  if (tri_prepare(TRI_SHADE)) {
+    const uint64_t more = iterations / 2u > 6u ? iterations / 2u : 6u;
+
+    state_fuzz_campaign(tri_blobs[TRI_SHADE].blob, tri_blobs[TRI_SHADE].length,
+                        more, UINT64_C(0x7121A9E), &stats);
+    print_fuzz_stats("fuzz-campaign-triangle", &stats);
+    T64_CHECK_INT(stats.iterations, more);
+    T64_CHECK_INT(stats.violations, 0u);
+    T64_CHECK(stats.field_level + stats.accepted >=
+              (more / 4u > 1u ? more / 4u : 1u));
+  }
 }
 
 /* ---- liveness on hostile and semantically unreachable states --------------- */

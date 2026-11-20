@@ -42,23 +42,78 @@ static void violation(state_fuzz_stats *stats, uint64_t iteration,
           (unsigned long long)iteration, what);
 }
 
-/* A random aligned position inside a uniformly chosen section of the blob, so
- * the small sections that carry the rule-bearing fields are hit as often as the
- * 4 MiB RDRAM and the 2 MiB coverage array. */
+static const state_fuzz_window *fuzz_windows;
+static size_t fuzz_window_count;
+
+void state_fuzz_set_windows(const state_fuzz_window *windows, size_t count) {
+  fuzz_windows = windows;
+  fuzz_window_count = count;
+}
+
+/* The body of a section by id: offset and length in the blob. */
+static bool fuzz_section(const uint8_t *blob, size_t length, uint32_t id,
+                         uint64_t *offset_out, uint64_t *body_out) {
+  const uint32_t count = rd32(blob + 0x018u);
+  uint32_t i;
+
+  if (count == 0u || count > 32u) return false;
+  for (i = 0u; i < count; i++) {
+    const uint8_t *entry = blob + D_TABLE + (size_t)D_ENTRY * i;
+    const uint64_t offset = rd64(entry + E_OFF);
+    const uint64_t body = rd64(entry + E_LEN);
+
+    if (rd32(entry + E_ID) == id && offset < length && body <= length - offset) {
+      *offset_out = offset;
+      *body_out = body;
+      return true;
+    }
+  }
+  return false;
+}
+
+/* A random aligned position where a rule is: three times in four inside a
+ * window the caller named (the rule-bearing fields of a section whose bulk has
+ * none), otherwise inside a section other than RDRAM and SP memory, so the
+ * small sections are hit as often as the large ones and the 4 MiB RDRAM and the
+ * 2 MiB coverage arrays do not take half of the mutations (plan 09-10 review
+ * L2 WR-04). */
 static size_t section_position(rng *r, const uint8_t *blob, size_t length,
                                size_t width) {
   const uint32_t count = rd32(blob + 0x018u);
-  const uint32_t pick = count == 0u || count > 32u ? 0u
-                                                   : (uint32_t)(rng_next(r) % count);
-  const uint8_t *entry = blob + D_TABLE + (size_t)D_ENTRY * pick;
-  const uint64_t offset = rd64(entry + E_OFF);
-  const uint64_t body = rd64(entry + E_LEN);
+  uint64_t offset = 0u;
+  uint64_t body = 0u;
+  unsigned attempt;
 
-  if (count == 0u || count > 32u || offset >= length || body < width ||
-      body > length - offset) {
-    return (size_t)(rng_next(r) % (length - width)) & ~(size_t)3u;
+  if (fuzz_window_count != 0u && (rng_next(r) % 4u) != 0u) {
+    const state_fuzz_window *w = &fuzz_windows[rng_next(r) % fuzz_window_count];
+
+    if (fuzz_section(blob, length, w->section, &offset, &body) &&
+        w->length >= width && w->offset <= body && w->length <= body - w->offset) {
+      return (size_t)(offset + w->offset +
+                      ((rng_next(r) % (w->length - width + 1u)) &
+                       ~(uint64_t)3u));
+    }
   }
-  return (size_t)(offset + ((rng_next(r) % (body - width + 1u)) & ~(uint64_t)3u));
+  for (attempt = 0u; attempt < 8u; attempt++) {
+    const uint32_t pick = count == 0u || count > 32u
+                              ? 0u
+                              : (uint32_t)(rng_next(r) % count);
+    const uint8_t *entry = blob + D_TABLE + (size_t)D_ENTRY * pick;
+    const uint32_t id = rd32(entry + E_ID);
+
+    offset = rd64(entry + E_OFF);
+    body = rd64(entry + E_LEN);
+    if (count == 0u || count > 32u || offset >= length || body < width ||
+        body > length - offset) {
+      break;
+    }
+    if (id == T64_STATE_SECTION_RDRAM || id == T64_STATE_SECTION_SP_MEMORY) {
+      continue;
+    }
+    return (size_t)(offset +
+                    ((rng_next(r) % (body - width + 1u)) & ~(uint64_t)3u));
+  }
+  return (size_t)(rng_next(r) % (length - width)) & ~(size_t)3u;
 }
 
 /* A random mutation of `copy`; returns the new length. */
@@ -69,7 +124,13 @@ static size_t mutate(rng *r, uint8_t *copy, size_t length) {
   size_t i;
   uint64_t value;
 
-  switch (rng_next(r) % 6u) {
+  /* seven in ten mutations are field edits (a flip or a boundary value at a
+   * rule-bearing position), the rest are structural */
+  static const unsigned char kinds[10] = {0u, 0u, 3u, 3u, 3u, 3u, 3u, 1u, 2u, 4u};
+  unsigned kind = kinds[rng_next(r) % 10u];
+
+  if (kind == 4u && (rng_next(r) & 1u) != 0u) kind = 5u;
+  switch (kind) {
   case 0: {
     const size_t flips = 1u + (size_t)(rng_next(r) % 3u);
 
@@ -82,10 +143,14 @@ static size_t mutate(rng *r, uint8_t *copy, size_t length) {
   }
   case 1:
     n = (size_t)(rng_next(r) % length);
+    /* the header total follows the new length, so the check that sees it first
+     * is not always TOTAL_LENGTH */
+    put64(copy + D_TOTAL, (uint64_t)n);
     break;
   case 2:
     n = length + 1u + (size_t)(rng_next(r) % 64u);
     for (i = length; i < n; i++) copy[i] = (uint8_t)rng_next(r);
+    put64(copy + D_TOTAL, (uint64_t)n);
     break;
   case 3: {
     /* a 4 or 8 byte field at a random aligned position, biased to the header,
@@ -163,6 +228,7 @@ t64_machine *state_fuzz_one(t64_machine *peer, const uint8_t *bytes, size_t n,
   } else {
     stats->refusals++;
     if (report.reason < 48u) stats->by_reason[report.reason]++;
+    if (report.reason >= T64_STATE_REASON_FIELD_RANGE) stats->field_level++;
     if (report.status != status ||
         !state_reason_status_consistent(report.reason, (uint32_t)status)) {
       violation(stats, iteration, "the status and reason are not a closed pair");
@@ -196,9 +262,21 @@ void state_fuzz_campaign(const uint8_t *blob, size_t length,
   for (iteration = 0u; iteration < iterations && peer != NULL; iteration++) {
     size_t n;
 
+    unsigned integrity;
+
     (void)memcpy(copy, blob, length);
     n = mutate(&r, copy, length);
-    blob_resign(copy, n, (unsigned)(rng_next(&r) % 8u));
+    /* six draws in eight re-sign every integrity field (the readers and the
+     * later checks run), one keeps the declared digest stale (the last check
+     * fails for a state the readers accepted) and one leaves all of them stale
+     * (the trailer fails first); the first version left the trailer stale in
+     * half the draws */
+    switch (rng_next(&r) % 8u) {
+    case 0u: integrity = 0u; break;
+    case 1u: integrity = RS_SECTIONS | RS_TRAILER; break;
+    default: integrity = RS_ALL; break;
+    }
+    blob_resign(copy, n, integrity);
     peer = state_fuzz_one(peer, copy, n, iteration, stats);
   }
   if (peer == NULL) {
