@@ -9,8 +9,9 @@
  * explicit caps before any allocation. Time: ops carry guest ticks (the tick at
  * which the host submits the call, `at`, and the tick the event is stamped
  * with, `event_tick`); the module never reads a host clock. Output: canonical
- * bytes and a report; publication goes through the private single-file
- * publisher and never writes a host path, time or user name. Errors: every
+ * bytes and a report; the module does not publish (the runner writes the
+ * canonical bytes and the report through the private single-file publisher, and
+ * nothing here writes a host path, time or user name). Errors: every
  * refusal is a named status; the module never aborts. */
 #ifndef T64_REPLAY_H
 #define T64_REPLAY_H
@@ -338,12 +339,5 @@ t64_replay_step_result t64_replay_play(t64_machine *machine,
                                        const t64_replay *replay,
                                        t64_replay_play_options *options,
                                        t64_replay_report *report);
-
-/* Publishes bytes as one private single file through the artifact publisher
- * (0600, no-clobber, never uploaded). *error_out is the publisher's stable
- * error name on failure. */
-bool t64_replay_publish(const char *directory, const char *leaf,
-                        uint64_t byte_cap, const uint8_t *bytes, size_t length,
-                        const char **error_out);
 
 #endif /* T64_REPLAY_H */

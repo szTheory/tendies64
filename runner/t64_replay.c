@@ -8,7 +8,6 @@
 #include <stdlib.h>
 #include <string.h>
 
-#include "t64_artifact_publisher.h"
 #include "t64_json.h"
 #include "t64_jsonw.h"
 #include "t64_sha256.h"
@@ -1594,27 +1593,4 @@ t64_replay_step_result t64_replay_play(t64_machine *machine,
 done:
   t64_replay_player_destroy(player);
   return result;
-}
-
-/* ---- publication ------------------------------------------------------------------------------ */
-
-bool t64_replay_publish(const char *directory, const char *leaf,
-                        uint64_t byte_cap, const uint8_t *bytes, size_t length,
-                        const char **error_out) {
-  t64_artifact_publisher *publisher;
-  const char *error = NULL;
-  bool ok;
-  publisher = t64_artifact_publisher_open(directory, leaf, byte_cap, &error);
-  if (publisher == NULL) {
-    if (error_out != NULL) *error_out = error;
-    return false;
-  }
-  ok = t64_artifact_publisher_write(publisher, bytes, length) &&
-       t64_artifact_publisher_finalize(publisher);
-  if (!ok) {
-    if (error_out != NULL) *error_out = t64_artifact_publisher_error(publisher);
-    t64_artifact_publisher_abort(publisher);
-  }
-  t64_artifact_publisher_destroy(publisher);
-  return ok;
 }
