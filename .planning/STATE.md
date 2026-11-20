@@ -111,6 +111,8 @@ Last activity: 2026-11-20 — Milestone v1.1 completed and archived
 
 - Phase 9 closed 2026-11-20 on source d3211e9 (tag phase09-f2; hosted run 44795894664; tiers unit-tested and regression-pinned, authored scope only). Accepted deviation DEV-17: hosted gate-macos cold projection 673 s exceeds the 600 s job limit (warm 487 s inside 540 s; cold is a projection that matters only on a Binutils cache miss). Follow-ups for the next qualification cycle (docs/ci-reviews/LOG.md F-111, F-114): start unit.core.state.import first by CTest cost (~40 s macOS), drop the duplicated audio-records step (~42 s macOS), raise gate-macos timeout-minutes to 15; ci.yml is bound source so these ride the next requalification.
 
+- Post-close note (2026-11-20): controls.real.raw-capture-target-errors (Phase 8 control) failed once in a local full gate at host load ~15 and passed alone three times and in a full re-run (224/224); treat as a load-dependent flake to watch (build/gate/08-04-evidence accumulates about 2,400 retained run directories). Phase directories moved to .planning/milestones/v1.1-phases/; docs/evidence text paths still name the old location.
+
 ### Pending Todos
 
 Plans01–12 are complete within their authored scope. The concrete oracle
