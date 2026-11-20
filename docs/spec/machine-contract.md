@@ -654,6 +654,134 @@ Refusal assertions compare every present machine observation, scheduler state,
 trace records/drop observation and ownership counter. Later device slices
 must extend this snapshot and preserve the same no-change refusal guarantee.
 
+## CORE-02 ordering evidence
+
+This section records what the ordering matrix (`core/test_sched_matrix`, CTest
+name `unit.core.sched.matrix`, plan 09-06) shows and what it does not. It is
+provisional until Phase 10 and implies no API or ABI freeze.
+
+**Order and its evidence limit.** Events dispatch by guest tick and then by
+reservation sequence, first in first out (`tick-sequence-fifo-v1`); no device has
+a rank. The matrix pins that order as regression behavior and compares the code
+with itself across schedules: one advance, a split at `T - 1`, `T` and `T + 1`,
+steps of 1, 3, 7 and 4,096 ticks, one-tick slices, in-memory event budgets 1, 2,
+3 and 4,096, counter stops that land mid-tick, an output-backpressure stop and
+resume, and two and three interleaved machines (one of another profile), each
+compared with its solo run, with the trace on and off. These are self-comparisons:
+a tie that is consistently wrong in every schedule would pass them. Each tie is
+named software-profile policy with an owning case, a literal expected order
+written independently of the code under test, and a mutant that must fail it.
+No tie or timing result here is hardware evidence.
+
+**Tie labels.** `core/test_sched_matrix --list-ties` prints one line per label
+with its owning case. The pairs of plan 09-01 keep their labels in
+`unit.core.sched.characterize-fifo`.
+
+| Label | Owning case | What it pins |
+| --- | --- | --- |
+| `tie.vi-ai` | `cross-device` | VI field and AI sample on one tick, both insertion orders, the stem id and the Phase 8 AI profile |
+| `tie.pi-sp` | `cross-device` | PI DMA completion and the legacy SP DMA completion on one tick (13), both insertion orders, on the skeleton profile where the legacy completion event exists |
+| `tie.si-execute-input` | `cross-device` | SI execute at E and a host input stamped at E, both insertion orders, with the same-setup control stamping the input at E - 1 |
+| `tie.si-execute-synthetic` | `cross-device` | SI execute at E and a synthetic no-op event at E, both insertion orders |
+| `tie.si-complete-synthetic` | `cross-device` | SI complete at C = E + 4,096 and a synthetic no-op event at C, both insertion orders |
+| `tie.cpu-si-store-sequence` | `cross-device` | a guest store that starts an SI read: the CPU step first, then SI execute at the same tick, and the relative sequences q + 1, q + 2 and q + 3 with next_sequence q + 4 |
+| `tie.vi-ai-tracer` | `tracer-coincident` | the first VI and AI pair, run whole against split, as the tracer of the matrix |
+| `mi.pi` | `mi-producers` | PI completion followed directly by the MI pending record |
+| `mi.sp-dma` | `mi-producers` | SP DMA completion raises no MI bit (recorded as an absence) |
+| `mi.rsp` | `mi-producers` | RSP break with interrupt-on-break set, followed directly by the MI pending record |
+| `mi.rdp` | `mi-producers` | RDP full sync followed directly by the MI pending record |
+| `mi.vi` | `mi-producers` | VI line interrupt followed directly by the MI pending record |
+| `mi.ai` | `mi-producers` | AI descriptor queue falling from two entries to one followed directly by the MI pending record |
+| `mi.si` | `mi-producers` | SI completion followed directly by the MI pending record |
+| `mi.cpu-sampling` | `mi-producers` | a same-tick CPU step sees the interrupt exactly when the producer was sequenced before it |
+
+**MI is not a scheduled device.** MI pending is set synchronously inside the
+producing device's event handler, and the trace shows the producer's event record
+immediately followed by the MI pending record at the same tick. The CPU samples
+the line at the start of its next step, so a same-tick CPU step sees the
+interrupt exactly when the producer's event was sequenced before the step. MI is
+ordered through its producers' events and nothing more; no MI event or hook
+exists. Which producers raise a bit: PI at its completion; the RSP at a break
+when interrupt-on-break is set; the RDP at a full sync; the VI at the scan line
+of its interrupt register; the AI when its descriptor queue falls from two entries
+to one; the SI at its completion. The SP DMA completion raises no bit.
+
+**Quantum.** The synchronization quantum is measured in RSP issue opportunities,
+equal to guest ticks in these profiles. Only the value 1 and the ratio 1:1 exist
+on descriptor 12; another quantum or ratio is a new profile. The quantum reaches
+state identity through `profile_digest`, which hashes the descriptor
+serialization; no key is added to `t64.result` or to any runner file. The owning
+tests are `unit.core.profile.quantum-identity` (descriptor 12 refuses another
+value) and the matrix case `quantum-binding` (the stored digest carries the
+quantum: replacing it with the hash of a quantum 2 copy changes the canonical
+digest and restoring it restores the digest; the hash equals an external SHA-256
+of the serialized bytes).
+
+**Count wrap.** The matrix case `count-wrap` drives a span of 2^33 + 10 and
+2^33 + 9 guest ticks over the direct-state machines of the model 3 profile and
+the stem id, with no guest execution. Independently derived literals: Count 5,
+equality generation 2, latch true and phase 0 for the even span; Count 4,
+generation 1, latch false and phase 1 for the odd span; whole, split and direct
+halves give identical timer state.
+
+**Mutants.** `scripts/k5-mutants.py` applies each edit in a throwaway worktree,
+builds the core library with the gate flags and Werror, requires an accepted
+baseline in that worktree, and classifies a mutant KILLED only when the named
+check fails with its comparator label. Two of the locked mutants are not usable
+as worded: a handler that reads the machine tick instead of the event tick is
+equivalent because dispatch sets the machine tick first, and a sequence taken at
+commit instead of at reserve is equivalent while commit refuses a stale
+reservation and the CPU re-reserves its successor. The realized forms keep each
+intent and are non-equivalent by construction; two controls prove the driver
+classifies correctly. The retained results are in the plan summary.
+
+| Id | Edit | Named check and label |
+| --- | --- | --- |
+| `latch-visible-from-wrong-tick` | an input stamped E becomes visible at E | `cross-device`, `si-sample` |
+| `eeprom-busy-from-store-tick` | EEPROM busy deadline from the RD64B start, not the execute tick | `core/test_save` case `eeprom-busy` |
+| `cpu-successor-stale-sequence` | the CPU successor keeps its preflight sequence after a store commits events | `cross-device`, `queue-snapshot` |
+| `si-completion-from-event-budget` | SI read completion placed by the per-advance event budget | `resource-limit-resume`, `resume-digest` |
+| `latch-promote-sample-reversed` | the latch sample returns the old value before promoting | `cross-device`, `si-sample` |
+| `tie-break-lifo` | equal-tick events dispatch last in, first out | `tracer-coincident`, `trace-order` |
+| `resource-stop-time-jump` | a budget stop moves the machine tick to the request | `resource-limit-resume`, `stop-result` or `resume-liveness` |
+| `control-equivalent-handler-tick` | handler reserves at the machine tick (equivalent) | every case passes: SURVIVED |
+| `control-no-compile` | a source that cannot compile | the build fails: INVALID |
+
+The completion edit is equivalent at the canonical budget of 4,096 and differs at
+the in-memory budgets 1, 2 and 3, so the budget case compares the state at
+checkpoints inside the SI read tail, not only at the horizon.
+
+**Success criterion 4.** CPU, RSP, RDP, VI, AI, PI, SI and MI are ordered by the
+same guest-time scheduler, with coincident-event, partition and interleave
+checks, and the quantum stays in identity. The map below names the tests; each
+cited CTest name exists. The evidence is regression pins and self-comparison:
+a consistently wrong tie would pass.
+
+| Row | CTest names | Matrix cases |
+| --- | --- | --- |
+| CPU | `unit.core.cpu-time`, `unit.core.cpu-exceptions` | `partition`, `cross-device` (`tie.cpu-si-store-sequence`) |
+| RSP | `unit.core.rsp-control`, `unit.core.sp-dma` | `partition` |
+| RDP | `unit.core.rdp.fill` (the RDP and RSP same-tick case) | `partition` |
+| VI and AI | `unit.core.ai.determinism`, `unit.core.vi.timing` | `tracer-coincident`, `cross-device` (`tie.vi-ai`) |
+| PI | `unit.core.pi-dma` | `cross-device` (`tie.pi-sp`) |
+| SI | `unit.core.si.device`, `unit.core.si.atomic-queue-full`, `unit.core.input.latch-partition` | `cross-device` (`tie.si-*`) |
+| MI | none | `mi-producers` |
+| Coincident events | `unit.core.sched.characterize-fifo` | `cross-device` |
+| Partition | none | `partition`, `resource-limit-resume`, `count-wrap` |
+| Interleave | none | `interleave` |
+| Quantum in identity | `unit.core.profile.quantum-identity` | `quantum-binding` |
+
+**State import at a mid-tick stop (hand-off).** Export and import do not exist
+before plans 09-08 and 09-09, so the locked row "state import at a mid-tick stop"
+is carried by the boundary matrix of plan 09-09.1 on production events. Its
+construction sources are the case `resource-limit-resume` part b (instruction and
+frame counter stops that land while same-tick events remain queued) and the
+all-devices workload W-ALL of the case `partition`; the synthetic-event recipe is
+refused by the closed handler table and stays a refused control.
+
+The state content frozen after this plan is recorded under F1 state content
+record below.
+
 ## F1 state content record
 
 This record freezes the content of the v25 state stream at its second point

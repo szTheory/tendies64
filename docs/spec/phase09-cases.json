@@ -214,6 +214,27 @@
           ]
         }
       ]
+    },
+    "sched-matrix": {
+      "ctest": [
+        "unit.core.sched.matrix"
+      ],
+      "binaries": [
+        {
+          "path": "core/test_sched_matrix",
+          "cases": [
+            "tracer-coincident",
+            "cross-device",
+            "partition",
+            "interleave",
+            "resource-limit-resume",
+            "mi-producers",
+            "count-wrap",
+            "quantum-binding",
+            "state-content-f1"
+          ]
+        }
+      ]
     }
   }
 }
