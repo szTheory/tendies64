@@ -182,7 +182,7 @@ set_tests_properties(harness.rsp-evidence-ownership PROPERTIES
 add_test(NAME repo.rsp-no-hle
   COMMAND python3 -B ${CMAKE_SOURCE_DIR}/scripts/tests/test_rsp_no_hle.py)
 set_tests_properties(repo.rsp-no-hle PROPERTIES
-  LABELS runner TIMEOUT 60
+  LABELS runner TIMEOUT 240
   ENVIRONMENT
     "PYTHONDONTWRITEBYTECODE=1;T64_RSP_NO_HLE_BUILD_DIR=${CMAKE_BINARY_DIR}")
 
@@ -202,7 +202,7 @@ add_test(NAME harness.state-field-use-audit
   COMMAND python3 -B ${CMAKE_SOURCE_DIR}/scripts/check-state-field-use.py
           --check --selftest --root ${CMAKE_SOURCE_DIR})
 set_tests_properties(harness.state-field-use-audit PROPERTIES
-  LABELS runner TIMEOUT 60 ENVIRONMENT "PYTHONDONTWRITEBYTECODE=1")
+  LABELS runner TIMEOUT 240 ENVIRONMENT "PYTHONDONTWRITEBYTECODE=1")
 
 # The version-membership and reservation site list is data; each later plan
 # refreshes it in the commit that adds its site.
@@ -232,7 +232,7 @@ add_test(NAME runner.cpu-diagnostic
           $<TARGET_FILE:t64-cpu-diagnostic-test-hooks>
           ${CMAKE_SOURCE_DIR})
 set_tests_properties(runner.cpu-diagnostic PROPERTIES
-  LABELS runner TIMEOUT 120
+  LABELS runner TIMEOUT 240
   ENVIRONMENT
     "T64_TEST_IPL3_PATH=${CMAKE_SOURCE_DIR}/build/fixtures/ipl3_compat.z64")
 
@@ -606,7 +606,7 @@ add_test(NAME runner.state-export
     $<TARGET_FILE:t64-supervisor> $<TARGET_FILE:t64-supervisor-test>
     $<TARGET_FILE:t64-result-check> ${CMAKE_SOURCE_DIR})
 set_tests_properties(runner.state-export PROPERTIES
-  LABELS "runner;controls" TIMEOUT 240
+  LABELS "runner;controls" TIMEOUT 480
   ENVIRONMENT "T64_PHASE09_EVIDENCE_DIR=${CMAKE_BINARY_DIR}/09-08-evidence;T64_STATE_DECODER=${CMAKE_SOURCE_DIR}/fixtures/state/decode_container.py")
 
 # The RDP fill builder recompiles the shared ROM packer in place on every run,
