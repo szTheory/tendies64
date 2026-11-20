@@ -48,7 +48,7 @@ frontend, broad compatibility claim or software release.
 
 ## Phases
 
-- [ ] **Phase 7: RDP Reference Renderer and VI Scanout** - In-tree software RDP and VI produce raw frames, and conformance is reported as labeled differential evidence
+- [x] **Phase 7: RDP Reference Renderer and VI Scanout** - In-tree software RDP and VI produce raw frames, and conformance is reported as labeled differential evidence
 - [x] **Phase 8: Audio Interface and Raw Capture** - AI DMA and cadence produce raw audio with exact-sample diagnostics; raw video and audio are captured as files (completed 2026-11-19)
 - [x] **Phase 9: Controller, Save Media and Replay** - Standard controller over SI/PIF, explicit EEPROM/SRAM devices, versioned state export and input replay (completed 2026-11-20)
 
@@ -57,7 +57,7 @@ frontend, broad compatibility claim or software release.
 ### Phase 7: RDP Reference Renderer and VI Scanout
 **Goal**: Command lists render into RDRAM through an in-tree software RDP, and the VI produces raw frames under the profile's TV timing. Conformance is reported as labeled differential evidence, never as hardware truth
 **Depends on**: Phase 6 (completed v1.0 machine; CPU command-list support from Phase 4 and fetched RSP from Phase 5)
-**Requirements**: VID-01, VID-02, VID-03, VID-04, VID-05, VID-06
+**Requirements**: VID-01, VID-02, VID-03, VID-05, VID-06 (VID-04 descoped to v1.2 by owner decision 2026-11-20)
 **Decision gates**: RDP/VI evidence check at discussion/planning. VID-04 acceptance remains blocked by unresolved D5 oracle authority and the parallel-rdp per-file/asset rights audit. No oracle execution/use/copying or derived-data publication before applicable gates resolve. Permitted authored/native implementation can continue; authored expectations and regression pins cannot replace labeled differential evidence
 **Research**: DEEP phase-level checks (command timing, TMEM and coverage, SYNC_FULL ordering, VI filtering, video-domain clocks); reuse existing milestone research
 **Success Criteria** (what must be TRUE):
@@ -66,7 +66,7 @@ frontend, broad compatibility claim or software release.
   3. Raw frames follow the selected profile's TV timing, interlace, pixel format and filtering and carry resolution and guest-time metadata. Output does not assume 320×240; host scaling and presentation remain separate
   4. Noise seed and undefined memory color are visible as named deterministic policies bound to the affected profile behavior
   5. Once its gates resolve, VID-04 has conformance reports labeling each out-of-tree oracle's name, version and modifications as differential evidence, never hardware truth. Until then it remains explicitly blocked and incomplete
-**Plans**: 12/13 plans executed (Plan12 preserves the existing authority stop)
+**Plans**: 12/12 milestone plans executed; Plan 13 deferred to v1.2 with VID-04 (Plan12 preserves the existing authority stop)
 
 Plans:
 **Wave 1**
@@ -105,8 +105,8 @@ Plans:
 **Wave 12** *(authored preparation complete; existing owner/legal stop preserved)*
 - [x] 07-12-PLAN.md — Prepare a concrete oracle authority record and preserve the existing stop
 
-**Wave 13** *(blocked until genuine oracle authority and applicable rights pass the live gate)*
-- [ ] 07-13-PLAN.md — Run authorized out-of-tree comparisons and label actual differential evidence
+**Wave 13** *(deferred to v1.2: blocked until genuine oracle authority and applicable rights pass the live gate)*
+- [-] 07-13-PLAN.md — Run authorized out-of-tree comparisons and label actual differential evidence (deferred to v1.2 with VID-04; owner decision 2026-11-20)
 
 ### Phase 8: Audio Interface and Raw Capture
 **Goal**: The AI turns guest DMA into raw audio buffers whose cadence comes only from guest time, and a headless run captures raw video and audio as files with metadata

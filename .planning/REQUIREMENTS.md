@@ -6,7 +6,7 @@
 
 ## v1.1 Requirements
 
-These17 requirements are carried verbatim from the v1.0 rolling requirements
+These 16 requirements (VID-04 moved to v1.2 by owner decision on 2026-11-20) are carried verbatim from the v1.0 rolling requirements
 archive. No completion is inferred from prior CPU/RSP work. CORE-02 retains
 its partial scheduler foundation; remaining device integration must be proved.
 
@@ -15,7 +15,6 @@ its partial scheduler foundation; remaining device integration must be proved.
 - [x] **VID-01**: An in-tree software RDP renders command lists (fill, copy, textured and shaded triangles, combiner, blender, coverage, Z) into RDRAM
 - [x] **VID-02**: SYNC_FULL and the DP interrupt behave per the references
 - [x] **VID-03**: A software VI produces raw frames from RDRAM using the profile's TV timing, interlace, pixel format and filtering, never assuming 320×240
-- [ ] **VID-04**: RDP conformance is reported as differential evidence with labeled oracle versions (Angrylion-Plus and parallel-rdp used out-of-tree only), never as hardware truth
 - [x] **VID-05**: Undefined-behavior choices (noise seed, undefined memory color) are recorded as named policy choices
 - [x] **VID-06**: Raw video output stays separate from host scaling and filtering
 
@@ -56,6 +55,7 @@ AUD-01 wording already requires interrupt behavior without that assumption.
 
 ## Future requirements — v1.2
 
+- **VID-04**: RDP conformance is reported as differential evidence with labeled oracle versions (Angrylion-Plus and parallel-rdp used out-of-tree only), never as hardware truth. Descoped from v1.1 on 2026-11-20 by owner decision; promotion needs the D5 local-oracle authority decision, the parallel-rdp per-file/asset rights audit, a rights-cleared exported corpus and a replay adapter (Plan 07-13 and docs/evidence/phase07-oracle-authority.json keep the prepared request)
 - **VER-05**: Maintainer can see a clean installed package run the same permitted headless fixture through an independent consumer, with relocation and negative controls
 - **API-01**: A C-ABI instance API defines lifetime, profile selection, transactional content admission, timed input, bounded advance, output ring buffers with backpressure, reset and unload
 - **API-02**: Errors fall into three classes: refused (state unchanged), guest-stop (not an error) and defect (instance poisoned), each with tested postconditions
@@ -123,7 +123,7 @@ roadmap activation; CORE-02 retains only its verified scheduler foundation.
 | VID-01 | Phase 7 | Complete |
 | VID-02 | Phase 7 | Complete |
 | VID-03 | Phase 7 | Complete |
-| VID-04 | Phase 7 | Blocked acceptance — D5 oracle authority and parallel-rdp per-file/asset audit unresolved |
+| VID-04 | v1.2 | Deferred — descoped from v1.1 by owner decision 2026-11-20; D5 oracle authority and rights audit unresolved |
 | VID-05 | Phase 7 | Complete |
 | VID-06 | Phase 7 | Complete |
 | AUD-01 | Phase 8 | Complete |
@@ -138,4 +138,4 @@ roadmap activation; CORE-02 retains only its verified scheduler foundation.
 | CORE-04 | Phase 9 | Complete |
 | CORE-05 | Phase 9 | Complete |
 
-**Coverage:** 17 active; 17 mapped exactly once; 0 unmapped; 0 duplicate assignments. Phase 7: 6; Phase 8: 4; Phase 9: 7. Eight future v1.2 requirements plus v2 outlines remain deferred.
+**Coverage:** 16 active; 16 mapped exactly once; 0 unmapped; 0 duplicate assignments. Phase 7: 5; Phase 8: 4; Phase 9: 7. Nine future v1.2 requirements (including VID-04) plus v2 outlines remain deferred.
