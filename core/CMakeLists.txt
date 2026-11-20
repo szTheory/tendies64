@@ -269,6 +269,36 @@ add_custom_command(
 add_custom_target(t64-phase09-pad-fixture DEPENDS ${T64_PHASE09_PAD_OUTPUTS})
 add_dependencies(t64-phase09-pad-fixture t64-boot-fixtures)
 
+# Phase 9 replay-mix ROM (plan 09-07): one authored source builds the single
+# replay-mix ROM; its own recipe keeps the admit, audio, pad and boot builders
+# on their historical source pins.
+set(T64_PHASE09_REPLAY_STEMS phase09-replay-mix-si-v1)
+set(T64_PHASE09_REPLAY_OUTPUTS)
+foreach(T64_REPLAY_STEM IN LISTS T64_PHASE09_REPLAY_STEMS)
+  list(APPEND T64_PHASE09_REPLAY_OUTPUTS
+    "${T64_BOOT_FIXTURE_DIR}/${T64_REPLAY_STEM}.z64"
+    "${T64_BOOT_FIXTURE_DIR}/${T64_REPLAY_STEM}.elf"
+    "${T64_BOOT_FIXTURE_DIR}/${T64_REPLAY_STEM}.payload.bin"
+    "${T64_BOOT_FIXTURE_DIR}/${T64_REPLAY_STEM}.json")
+endforeach()
+add_custom_command(
+  OUTPUT ${T64_PHASE09_REPLAY_OUTPUTS}
+  COMMAND "${CMAKE_COMMAND}" -E env "CC=${CMAKE_C_COMPILER}"
+    sh "${CMAKE_SOURCE_DIR}/scripts/build-replay-fixture.sh" --build
+  DEPENDS
+    "${CMAKE_SOURCE_DIR}/fixtures/manifest.json"
+    "${CMAKE_SOURCE_DIR}/fixtures/replay/mix.S"
+    "${CMAKE_SOURCE_DIR}/fixtures/replay/mix.ld"
+    "${CMAKE_SOURCE_DIR}/scripts/build-replay-fixture.sh"
+    "${CMAKE_SOURCE_DIR}/tools/fixture/t64_rom_pack.c"
+    "${CMAKE_SOURCE_DIR}/tools/common/t64_sha256.c"
+    "${CMAKE_SOURCE_DIR}/tools/common/t64_sha256.h"
+  WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}"
+  COMMENT "Building authored Phase 9 replay-mix fixture"
+  VERBATIM)
+add_custom_target(t64-phase09-replay-fixture DEPENDS ${T64_PHASE09_REPLAY_OUTPUTS})
+add_dependencies(t64-phase09-replay-fixture t64-boot-fixtures)
+
 # Phase 9 save fixtures (plan 09-04, plan 09-05): two authored sources build
 # the three eeprom-rw ROMs and the two sram-rw ROMs through defsyms, and a
 # third builds the save-roundtrip ROM; its own recipe keeps the admit, audio,

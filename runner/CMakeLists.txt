@@ -572,6 +572,7 @@ t64_phase09_runner_case(runner.profile-table-id-length profile-table)
 add_dependencies(t64-audio-fixture t64-rdp-fill-fixture)
 add_dependencies(t64-phase09-admit-fixture t64-rdp-fill-fixture)
 add_dependencies(t64-phase09-pad-fixture t64-rdp-fill-fixture)
+add_dependencies(t64-phase09-replay-fixture t64-rdp-fill-fixture)
 add_dependencies(t64-phase09-save-fixture t64-rdp-fill-fixture)
 
 # Phase 9 pad-poll tracer (plan 09-03): the authored pad-poll ROM through the
