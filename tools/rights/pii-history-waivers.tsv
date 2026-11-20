@@ -7,3 +7,4 @@
 # apply to the working tree, to commit messages or to commit metadata. A real
 # private value is an owner stop, never a waiver row.
 097cc7ef456edf787472b75072e7e553910c7198	.planning/phases/01-governance-rights-and-harness-foundation/01-REVIEW.md	P-PRIVATE-PATH	5	WR-12 review text used a fictitious placeholder user name as an example before the stricter pattern; the tree copy now uses <user>
+a5985edeeeb43f954b3219617aa02ffaee7955c6	.planning/phases/09-controller-save-media-and-replay/09-VERIFICATION.md	P-PRIVATE-PATH	1	Owner-approved on 2026-11-20 (explicit choice: waiver, no history rewrite): the committed Phase 9 verification report quoted one workstation clone path; the tree copy is redacted in 1658c89 and the report text was otherwise clean.
