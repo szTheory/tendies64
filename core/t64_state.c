@@ -1436,6 +1436,8 @@ static void state_read_rdp(state_reader *r) {
   bool busy;
   bool command_pending;
   bool texrect_pending;
+  bool freeze;
+  bool flush;
   uint32_t signed_value;
   size_t i;
 
@@ -1537,8 +1539,10 @@ static void state_read_rdp(state_reader *r) {
   STATE_STORE(r, rdp->fence_pending, fence_pending);
   STATE_STORE(r, rdp->busy, busy);
   FBOOL(rdp->dpc_xbus);
-  FBOOL(rdp->dpc_freeze);
-  FBOOL(rdp->dpc_flush);
+  freeze = state_rd_bool(r);
+  flush = state_rd_bool(r);
+  STATE_STORE(r, rdp->dpc_freeze, freeze);
+  STATE_STORE(r, rdp->dpc_flush, flush);
   FBOOL(rdp->dpc_start_valid);
   FBOOL(rdp->dpc_end_valid);
   command_pending = state_rd_bool(r);
@@ -1551,6 +1555,14 @@ static void state_read_rdp(state_reader *r) {
                        !command_pending && !texrect_pending)
                           ? 1u
                           : 0u;
+    /* An operation in flight owns its continuation event unless a freeze or a
+     * flush holds the device (core/t64_rdp.c t64_rdp_event returns before it
+     * reschedules while either is set). */
+    facts->rdp_in_flight = (render_active || fence_pending ||
+                            command_pending || texrect_pending)
+                               ? 1u
+                               : 0u;
+    facts->rdp_held = (freeze || flush) ? 1u : 0u;
   }
   state_read_rdp_tiles(r);
 }
@@ -2178,6 +2190,14 @@ static bool state_check_video_audio_rdp(const t64_state_summary *summary,
                      T64_STATE_SECTION_SCHEDULER);
   STATE_DEVICE_CHECK(rdp->count == 0u || (rdp->token == 0u && rdp->value == 0u),
                      T64_STATE_REASON_DEVICE_TOKEN_MISMATCH, report,
+                     T64_STATE_SECTION_SCHEDULER);
+  /* A fetched command, a render in progress, a pending fence or a pending
+   * texture rectangle is applied by the next work event; only a freeze or a
+   * flush leaves such a state without one (found by the boundary matrix row
+   * B05: the drop mutant was accepted). */
+  STATE_DEVICE_CHECK(rdp->count >= 1u || f->rdp_in_flight == 0u ||
+                         f->rdp_held != 0u,
+                     T64_STATE_REASON_DEVICE_EVENT_MISSING, report,
                      T64_STATE_SECTION_SCHEDULER);
 
   /* VI: an event with an older generation is stale and harmless; an enabled

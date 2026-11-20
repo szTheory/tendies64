@@ -1028,6 +1028,8 @@ typedef struct {
   uint32_t rsp_running;
   uint32_t sp_dma_active;
   uint32_t rdp_idle;
+  uint32_t rdp_in_flight;
+  uint32_t rdp_held;
   uint32_t vi_enabled;
   uint32_t ai_active;
   uint32_t ai_paused;
