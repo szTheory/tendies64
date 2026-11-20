@@ -49,6 +49,7 @@ observer-range :: STATE_RANGE :: OBSERVER_RANGE :: 16 :: LEN_LE
 busy-until-future :: STATE_RANGE :: FIELD_RANGE :: 11 :: TICK_LE
 render-extent-beyond-width :: STATE_RANGE :: FIELD_RANGE :: 8 :: ADDR_RANGE
 # queue
+queue-count-cap :: STATE_INVARIANT :: QUEUE_COUNT :: 6 :: COUNT_CAP
 queue-order :: STATE_INVARIANT :: QUEUE_ORDER :: 6 :: NONE
 equal-tuples :: STATE_INVARIANT :: QUEUE_ORDER :: 6 :: NONE
 sequence-at-next :: STATE_INVARIANT :: QUEUE_SEQUENCE :: 6 :: SEQ_LT
