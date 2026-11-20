@@ -28,13 +28,13 @@ its partial scheduler foundation; remaining device integration must be proved.
 
 ### Controller, saves and reproducibility
 
-- [ ] **SAVE-01**: SI and the PIF state machine parse joybus and deliver the standard controller from timed logical input
-- [ ] **SAVE-02**: EEPROM (4 Kbit and 16 Kbit), with busy window and block rules, and SRAM are supported as explicitly selected save devices, never guessed from the title
-- [ ] **SAVE-03**: Save media can be imported and exported as bytes, with endianness handling and a refusal that leaves the digest unchanged
-- [ ] **SAVE-04**: Unknown or unsupported save device requests are refused with defined postconditions
-- [ ] **CORE-02**: Device activity (CPU, RSP, RDP, VI, AI, PI, SI, MI) is ordered by the scheduler, with the CPU-to-RSP synchronization quantum recorded in the profile identity
-- [ ] **CORE-04**: User can export and import a versioned machine state with a canonical digest, and a restore-then-digest round trip is exact
-- [ ] **CORE-05**: User can record and replay timed input as an artifact bound to profile, build and content hash
+- [x] **SAVE-01**: SI and the PIF state machine parse joybus and deliver the standard controller from timed logical input
+- [x] **SAVE-02**: EEPROM (4 Kbit and 16 Kbit), with busy window and block rules, and SRAM are supported as explicitly selected save devices, never guessed from the title
+- [x] **SAVE-03**: Save media can be imported and exported as bytes, with endianness handling and a refusal that leaves the digest unchanged
+- [x] **SAVE-04**: Unknown or unsupported save device requests are refused with defined postconditions
+- [x] **CORE-02**: Device activity (CPU, RSP, RDP, VI, AI, PI, SI, MI) is ordered by the scheduler, with the CPU-to-RSP synchronization quantum recorded in the profile identity
+- [x] **CORE-04**: User can export and import a versioned machine state with a canonical digest, and a restore-then-digest round trip is exact
+- [x] **CORE-05**: User can record and replay timed input as an artifact bound to profile, build and content hash
 
 ## Evidence and authority limits
 
@@ -130,12 +130,12 @@ roadmap activation; CORE-02 retains only its verified scheduler foundation.
 | AUD-02 | Phase 8 | Complete |
 | AUD-03 | Phase 8 | Complete |
 | RUN-06 | Phase 8 | Complete |
-| SAVE-01 | Phase 9 | Pending |
-| SAVE-02 | Phase 9 | Pending |
-| SAVE-03 | Phase 9 | Pending |
-| SAVE-04 | Phase 9 | Pending |
-| CORE-02 | Phase 9 | Partial — scheduler foundation verified; remaining device integration open |
-| CORE-04 | Phase 9 | Pending |
-| CORE-05 | Phase 9 | Pending |
+| SAVE-01 | Phase 9 | Complete |
+| SAVE-02 | Phase 9 | Complete |
+| SAVE-03 | Phase 9 | Complete |
+| SAVE-04 | Phase 9 | Complete |
+| CORE-02 | Phase 9 | Complete |
+| CORE-04 | Phase 9 | Complete |
+| CORE-05 | Phase 9 | Complete |
 
 **Coverage:** 17 active; 17 mapped exactly once; 0 unmapped; 0 duplicate assignments. Phase 7: 6; Phase 8: 4; Phase 9: 7. Eight future v1.2 requirements plus v2 outlines remain deferred.

@@ -2,21 +2,21 @@
 gsd_state_version: "1.0"
 milestone: v1.1
 milestone_name: Observable Machine
-current_phase: 9
-current_phase_name: Controller, Save Media and Replay
+current_phase: 7
+current_phase_name: RDP Reference Renderer and VI Scanout
 current_plan: 13
-status: verifying
-stopped_at: Completed 09-11-PLAN.md
-last_updated: "2026-11-20T19:34:52.520Z"
-last_activity: 2026-11-19
-last_activity_desc: Phase 9 execution started
-state_head: c2a09579f55532385b3ba696aef691d8c868fe89
+status: executing
+stopped_at: Phase 9 complete, ready to execute Phase 7
+last_updated: "2026-11-20T19:57:31.697Z"
+last_activity: 2026-11-20
+last_activity_desc: Phase 9 complete, transitioned to Phase 7
+state_head: a5985edeeeb43f954b3219617aa02ffaee7955c6
 progress:
   total_phases: 3
-  completed_phases: 1
+  completed_phases: 2
   total_plans: 31
   completed_plans: 30
-  percent: 33
+  percent: 67
 ---
 
 # Project State
@@ -30,13 +30,13 @@ See: .planning/PROJECT.md (updated 2026-11-15)
 
 ## Current Position
 
-Phase: 9 (Controller, Save Media and Replay) — EXECUTING
+Phase: 7 — RDP Reference Renderer and VI Scanout
 Current Plan: 13
 Total Plans in Phase: 13
-Status: Phase complete — ready for verification
-Last activity: 2026-11-19 — Phase 9 execution started
+Status: Ready to execute
+Last activity: 2026-11-20 — Phase 9 complete, transitioned to Phase 7
 
-Progress: [███░░░░░░░] 33% of currently planned source plans
+Progress: [███████░░░] 67% of currently planned source plans
 
 ## Performance Metrics
 
@@ -114,6 +114,8 @@ Progress: [███░░░░░░░] 33% of currently planned source plans
 - [Phase 09]: Plan 09-11: the macOS cold projection of 673 s (warm 487 s) against the 600 s job limit is a recorded deviation extending DEV-17, not repaired (no logic edit after the freeze); the decision to act is the orchestrator's
 - [Phase 09]: Plan 09-11: repo.sched-k5-anchors is a supporting name of claim block 7 and not counted because no suite of the case inventory lists it; block 3 states that no wrong-value row exists for the 16 Kbit ROM
 
+- Phase 9 closed 2026-11-20 on source d3211e9 (tag phase09-f2; hosted run 44795894664; tiers unit-tested and regression-pinned, authored scope only). Accepted deviation DEV-17: hosted gate-macos cold projection 673 s exceeds the 600 s job limit (warm 487 s inside 540 s; cold is a projection that matters only on a Binutils cache miss). Follow-ups for the next qualification cycle (docs/ci-reviews/LOG.md F-111, F-114): start unit.core.state.import first by CTest cost (~40 s macOS), drop the duplicated audio-records step (~42 s macOS), raise gate-macos timeout-minutes to 15; ci.yml is bound source so these ride the next requalification.
+
 ### Pending Todos
 
 Plans01–12 are complete within their authored scope. The concrete oracle
@@ -145,7 +147,7 @@ question. No oracle authority is part of this decision.
 ## Session Continuity
 
 Last session: 2026-11-20T19:34:52.250Z
-Stopped at: Completed 09-11-PLAN.md
+Stopped at: Phase 9 complete, ready to execute Phase 7
 Resume file: None
 
 Historical closeout: [v1.0 roadmap](milestones/v1.0-ROADMAP.md), [audit](milestones/v1.0-MILESTONE-AUDIT.md), [lessons](RETROSPECTIVE.md).
