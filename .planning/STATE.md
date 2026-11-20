@@ -4,18 +4,18 @@ milestone: v1.1
 milestone_name: Observable Machine
 current_phase: 9
 current_phase_name: Controller, Save Media and Replay
-current_plan: 11
+current_plan: 12
 status: executing
-stopped_at: Completed 09-09-PLAN.md
-last_updated: "2026-11-20T03:45:57.717Z"
+stopped_at: Completed 09-09.1-PLAN.md
+last_updated: "2026-11-20T05:02:07.936Z"
 last_activity: 2026-11-19
 last_activity_desc: Phase 9 execution started
-state_head: 1b9d6d34dc59f3d9527f22a29f09337ba9332e47
+state_head: 6d070b76a735e66f64f6926790f8e8c1fa6c468e
 progress:
   total_phases: 3
   completed_phases: 1
   total_plans: 31
-  completed_plans: 27
+  completed_plans: 28
   percent: 33
 ---
 
@@ -31,7 +31,7 @@ See: .planning/PROJECT.md (updated 2026-11-15)
 ## Current Position
 
 Phase: 9 (Controller, Save Media and Replay) — EXECUTING
-Current Plan: 11
+Current Plan: 12
 Total Plans in Phase: 13
 Status: Ready to execute
 Last activity: 2026-11-19 — Phase 9 execution started
@@ -59,6 +59,7 @@ Progress: [███░░░░░░░] 33% of currently planned source plans
 | Phase 09 P07 | 42min | 4 tasks | 18 files |
 | Phase 09 P08 | 40min | 5 tasks | 20 files |
 | Phase 09 P09 | 65min | 5 tasks | 15 files |
+| Phase 9 P09.1 | 95min | 5 tasks | 13 files |
 
 ## Accumulated Context
 
@@ -102,6 +103,9 @@ Progress: [███░░░░░░░] 33% of currently planned source plans
 - [Phase 09]: 09-09: validate-then-apply importer with one reader per section in both modes, a 600-byte machine-owned scratch of per-pair queue aggregates, a closed ten-pair handler table and a commit that zeroes then overlays the structures the v25 state describes
 - [Phase 09]: 09-09: write_generation adds exactly one per successful state import into a profile with a save device (none on refusal); an imported EEPROM deadline is at most the blob tick plus 375,000 (stale values accepted); the report carries closed (status, reason, section, rule, position)
 - [Phase 09]: 09-09: a resumed runner run never reports pass (its verdict needs milestones observed through its own trace); it reaches the same completion tick, final state digest and log bytes as the uninterrupted run, and a state above the bound is the existing prelaunch refusal
+- [Phase 9]: 09-09.1: the importer requires the RDP continuation event while an operation is in flight unless a freeze or flush holds the device, and a render in progress must lie inside RDRAM by the acceptance extents; the drop mutants of the (SP, RSP issue) and (INPUT, SUBMITTED) events are accepted by design (a wedged RSP and a host-submitted input are legitimate states)
+- [Phase 9]: 09-09.1: the v25 state does not carry the RDP combiner block or the RDP memory-coverage table that the filter-v9 family behaves on; a pending triangle and a VI scan-out over coverage marks cannot continue equal after an import (open finding for 09-10 or Phase 10, CORE-04 left unmarked); the field-use scan sees 72 of 472 reachable members
+- [Phase 9]: 09-09.1: the sanitizer preset raises the sweep and campaign counts and the test timeout (1800 s, measured 631.8 s) but not the full boundary matrix; gate cost of unit.core.state.import is 33.2 s native against a 25 s target
 
 ### Pending Todos
 
@@ -133,8 +137,8 @@ question. No oracle authority is part of this decision.
 
 ## Session Continuity
 
-Last session: 2026-11-20T03:45:57.403Z
-Stopped at: Completed 09-09-PLAN.md
+Last session: 2026-11-20T05:02:07.794Z
+Stopped at: Completed 09-09.1-PLAN.md
 Resume file: None
 
 Historical closeout: [v1.0 roadmap](milestones/v1.0-ROADMAP.md), [audit](milestones/v1.0-MILESTONE-AUDIT.md), [lessons](RETROSPECTIVE.md).
