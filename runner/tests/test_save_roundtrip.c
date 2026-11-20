@@ -35,6 +35,7 @@
 #include <unistd.h>
 
 #include "t64_json.h"
+#include "t64_save_flags.h"
 #include "t64_sha256.h"
 
 static const char *g_supervisor;
@@ -1409,6 +1410,229 @@ static int case_argv_max_save(void) {
   return g_failures == 0 ? 0 : 1;
 }
 
+/* ---- upload-allowlist-save ------------------------------------------------------------ */
+
+/* Runs argv in `directory` with T64_BUILD_DIR set, collecting stdout and
+ * stderr into `out`; returns the exit status (or -1). */
+static int run_capture(char *const argv[], const char *directory,
+                       const char *build_dir, char *out, size_t capacity) {
+  int fds[2];
+  pid_t pid;
+  size_t used = 0u;
+  int status = 0;
+  if (pipe(fds) != 0) return -1;
+  pid = fork();
+  if (pid < 0) return -1;
+  if (pid == 0) {
+    (void)close(fds[0]);
+    if (dup2(fds[1], STDOUT_FILENO) < 0 || dup2(fds[1], STDERR_FILENO) < 0 ||
+        chdir(directory) != 0 || setenv("T64_BUILD_DIR", build_dir, 1) != 0) {
+      _exit(126);
+    }
+    execvp(argv[0], argv);
+    _exit(127);
+  }
+  (void)close(fds[1]);
+  for (;;) {
+    ssize_t count = read(fds[0], out + used, capacity - 1u - used);
+    if (count < 0 && errno == EINTR) continue;
+    if (count <= 0) break;
+    used += (size_t)count;
+    if (used >= capacity - 1u) break;
+  }
+  out[used] = '\0';
+  (void)close(fds[0]);
+  while (waitpid(pid, &status, 0) < 0) {
+    if (errno != EINTR) return -1;
+  }
+  return WIFEXITED(status) ? WEXITSTATUS(status) : -1;
+}
+
+/* The public member scan of scripts/qualify-phase09.py, run in isolated mode
+ * (-I) with the qualifier loaded by path: exit 0 and ACCEPTED, or exit 3 and
+ * the refusal message. */
+static const char public_scan_program[] =
+    "import importlib.util, sys\n"
+    "from pathlib import Path\n"
+    "spec = importlib.util.spec_from_file_location('q', sys.argv[1])\n"
+    "mod = importlib.util.module_from_spec(spec)\n"
+    "spec.loader.exec_module(mod)\n"
+    "try:\n"
+    "    mod.scan_public_members(Path(sys.argv[2]))\n"
+    "except mod.Refusal as error:\n"
+    "    print('REFUSED ' + str(error))\n"
+    "    sys.exit(3)\n"
+    "print('ACCEPTED')\n";
+
+static char g_build_dir[PATH_MAX];
+
+static int public_scan(const char *directory, char *out, size_t capacity) {
+  char qualifier[PATH_MAX];
+  char *argv[8];
+  if (!join_path(qualifier, sizeof qualifier, g_root,
+                 "scripts/qualify-phase09.py")) {
+    return -1;
+  }
+  argv[0] = (char *)(uintptr_t)"python3";
+  argv[1] = (char *)(uintptr_t)"-B";
+  argv[2] = (char *)(uintptr_t)"-I";
+  argv[3] = (char *)(uintptr_t)"-c";
+  argv[4] = (char *)(uintptr_t)public_scan_program;
+  argv[5] = qualifier;
+  argv[6] = (char *)(uintptr_t)directory;
+  argv[7] = NULL;
+  return run_capture(argv, g_root, g_build_dir, out, capacity);
+}
+
+static int rights_staging_scan(const char *directory, char *out,
+                               size_t capacity) {
+  char script[PATH_MAX];
+  char *argv[5];
+  if (!join_path(script, sizeof script, g_root, "scripts/rights-scan.sh")) {
+    return -1;
+  }
+  argv[0] = (char *)(uintptr_t)"sh";
+  argv[1] = script;
+  argv[2] = (char *)(uintptr_t)"--staging";
+  argv[3] = (char *)(uintptr_t)directory;
+  argv[4] = NULL;
+  return run_capture(argv, g_root, g_build_dir, out, capacity);
+}
+
+/* A real exported leaf of an EEPROM admit ROM (the image imported RAW and
+ * exported RAW) in `export_dir`. */
+static bool eeprom_export(const eeprom_row *eeprom, char import_dir[PATH_MAX],
+                          char export_dir[PATH_MAX], run_out *run) {
+  char rom[PATH_MAX];
+  char import_path[PATH_MAX];
+  char sha[65];
+  char size_text[24];
+  run_spec spec = {0};
+  fill_image(image_raw, eeprom->size);
+  if (!fixture_path(rom, eeprom->rom) ||
+      !stage_import(image_raw, eeprom->size, import_dir, import_path, sha) ||
+      !make_private_dir(export_dir)) {
+    return false;
+  }
+  (void)snprintf(size_text, sizeof size_text, "%zu", eeprom->size);
+  spec.supervisor = g_supervisor;
+  spec.fixture = rom;
+  spec.bound = SAVE_BOUND;
+  spec.import_path = import_path;
+  spec.import_size = size_text;
+  spec.import_sha256 = sha;
+  spec.kind = eeprom->kind;
+  spec.format = "raw-v1";
+  spec.leaf = eeprom->leaf;
+  spec.artifact_dir = export_dir;
+  spec.artifact_max = size_text;
+  return run_supervised(&spec, run);
+}
+
+/* Copies one exported leaf into a fresh candidate directory and runs both
+ * scanners on it. */
+static void check_leaf_refused(const char *export_dir, const char *leaf) {
+  char candidate[PATH_MAX];
+  char source[PATH_MAX];
+  char target[PATH_MAX];
+  char output[2048];
+  size_t length = 0u;
+  int status;
+  CHECK(make_private_dir(candidate));
+  CHECK(join_path(source, sizeof source, export_dir, leaf));
+  CHECK(join_path(target, sizeof target, candidate, leaf));
+  CHECK(read_file(source, published_bytes, sizeof published_bytes, &length));
+  CHECK(length != 0u);
+  CHECK(write_new_file(target, published_bytes, length));
+  status = public_scan(candidate, output, sizeof output);
+  (void)fprintf(stderr, "upload-allowlist-save '%s': public scan exit %d\n",
+                leaf, status);
+  CHECK(status == 3);
+  CHECK(strstr(output, "REFUSED public upload contains a private-suffix member")
+        != NULL);
+  CHECK(strstr(output, leaf) != NULL);
+  status = rights_staging_scan(candidate, output, sizeof output);
+  CHECK(status == 1);
+  {
+    char expected[128];
+    (void)snprintf(expected, sizeof expected, "RULE R-DENIED-EXT %s", leaf);
+    CHECK(strstr(output, expected) != NULL);
+  }
+  remove_dir_tree(candidate);
+}
+
+static int case_upload_allowlist_save(void) {
+  static const char *const runner_extensions[3] = {"eep", "sra", "sav"};
+  static const char manifest_text[] =
+      "{\"schema\":\"t64.phase09-upload\",\"entries\":[]}\n";
+  char baseline[PATH_MAX];
+  char manifest_path[PATH_MAX];
+  char output[2048];
+  char import_dir[PATH_MAX];
+  char export_dir[PATH_MAX];
+  run_out run;
+  size_t i;
+
+  /* The accepted baseline of this setup: a directory holding only an authored
+     manifest.json is accepted by both scanners. */
+  CHECK(make_private_dir(baseline));
+  CHECK(join_path(manifest_path, sizeof manifest_path, baseline,
+                  "manifest.json"));
+  CHECK(write_new_file(manifest_path, (const uint8_t *)manifest_text,
+                       sizeof manifest_text - 1u));
+  CHECK(public_scan(baseline, output, sizeof output) == 0);
+  CHECK(strstr(output, "ACCEPTED") != NULL);
+  CHECK(rights_staging_scan(baseline, output, sizeof output) == 0);
+  CHECK(strstr(output, "findings=0") != NULL);
+  remove_dir_tree(baseline);
+
+  /* Real exported leaves: the SRAM leaf in two of the allowed extensions and
+     both EEPROM leaves are refused by the public scan (private suffix) and by
+     the staging scan (R-DENIED-EXT). */
+  fill_image(image_raw, SRAM_BYTES);
+  CHECK(roundtrip_run("raw-v1", image_raw, SRAM_BYTES, "roundtrip.sra",
+                      import_dir, export_dir, &run));
+  expect_roundtrip_pass(&run);
+  check_leaf_refused(export_dir, "roundtrip.sra");
+  remove_dir_tree(export_dir);
+  remove_dir_tree(import_dir);
+  CHECK(roundtrip_run("raw-v1", image_raw, SRAM_BYTES, "slot.sav", import_dir,
+                      export_dir, &run));
+  expect_roundtrip_pass(&run);
+  check_leaf_refused(export_dir, "slot.sav");
+  remove_dir_tree(export_dir);
+  remove_dir_tree(import_dir);
+  for (i = 0u; i < 2u; i++) {
+    CHECK(eeprom_export(&eeprom_rows[i], import_dir, export_dir, &run));
+    expect_pass(&run);
+    check_leaf_refused(export_dir, eeprom_rows[i].leaf);
+    remove_dir_tree(export_dir);
+    remove_dir_tree(import_dir);
+  }
+
+  /* The three extensions the runner allows for an export are a subset of the
+     suffixes the public scan refuses: each is accepted by the flag rule and
+     refused as a private suffix, and a non-allowed extension is not allowed by
+     the flag rule. */
+  for (i = 0u; i < 3u; i++) {
+    char leaf[32];
+    char candidate[PATH_MAX];
+    char target[PATH_MAX];
+    (void)snprintf(leaf, sizeof leaf, "probe.%s", runner_extensions[i]);
+    CHECK(t64_save_flags_leaf_extension_ok(leaf));
+    CHECK(make_private_dir(candidate));
+    CHECK(join_path(target, sizeof target, candidate, leaf));
+    CHECK(write_new_file(target, (const uint8_t *)"x", 1u));
+    CHECK(public_scan(candidate, output, sizeof output) == 3);
+    CHECK(strstr(output, "private-suffix member") != NULL);
+    remove_dir_tree(candidate);
+  }
+  CHECK(!t64_save_flags_leaf_extension_ok("probe.bin"));
+  CHECK(!t64_save_flags_leaf_extension_ok("probe.z64"));
+  CHECK(!t64_save_flags_leaf_extension_ok("probe.json"));
+  return g_failures == 0 ? 0 : 1;
+}
+
 /* ---- dispatch --------------------------------------------------------------- */
 
 typedef struct {
@@ -1425,6 +1649,7 @@ static const case_entry cases[] = {
     {"export-publication", case_export_publication},
     {"no-save-bytes-in-result", case_no_save_bytes_in_result},
     {"argv-max-save", case_argv_max_save},
+    {"upload-allowlist-save", case_upload_allowlist_save},
 };
 
 int main(int argc, char **argv) {
@@ -1452,6 +1677,17 @@ int main(int argc, char **argv) {
   g_test_supervisor = argv[base + 1u];
   g_checker = argv[base + 2u];
   g_root = argv[base + 3u];
+  {
+    /* The build directory is two levels above the checker binary. */
+    char checker_copy[PATH_MAX];
+    char *slash;
+    (void)snprintf(checker_copy, sizeof checker_copy, "%s", g_checker);
+    slash = strrchr(checker_copy, '/');
+    if (slash != NULL) *slash = '\0';
+    slash = strrchr(checker_copy, '/');
+    if (slash != NULL) *slash = '\0';
+    (void)snprintf(g_build_dir, sizeof g_build_dir, "%s", checker_copy);
+  }
   if (!prepare_evidence()) {
     (void)fprintf(stderr, "evidence directory unavailable\n");
     return 2;
