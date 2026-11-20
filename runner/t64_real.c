@@ -1082,6 +1082,38 @@ static bool publish_probe_artifact(const char *directory,
 }
 #endif
 
+/* Replay report helpers (plan 09-07). */
+static void report_init(t64_replay_report *report, t64_replay_result result,
+                        t64_replay_detail detail, const char *field,
+                        const t64_replay *replay) {
+  memset(report, 0, sizeof *report);
+  report->result = result;
+  report->detail = detail;
+  (void)snprintf(report->field, sizeof report->field, "%s", field);
+  if (replay != NULL) {
+    report->has_replay_sha256 = true;
+    memcpy(report->replay_sha256, t64_replay_sha256(replay),
+           T64_DIGEST_SIZE);
+  }
+}
+
+/* Encodes the report and publishes it through the open publisher. */
+static bool publish_report(t64_artifact_publisher *publisher,
+                           const t64_replay_report *report) {
+  uint8_t bytes[T64_REPLAY_REPORT_MAX_BYTES + 1u];
+  size_t length = 0u;
+  return t64_replay_report_encode(report, bytes, sizeof bytes, &length) ==
+             T64_REPLAY_REPORT_OK &&
+         length <= T64_REPLAY_REPORT_MAX_BYTES &&
+         t64_artifact_publisher_write(publisher, bytes, length) &&
+         t64_artifact_publisher_finalize(publisher);
+}
+
+static bool leaf_extension_is(const char *leaf, const char *extension) {
+  const char *dot = leaf == NULL ? NULL : strrchr(leaf, '.');
+  return dot != NULL && dot != leaf && strcmp(dot + 1, extension) == 0;
+}
+
 static int run_real(int fixture_fd, int input_fd, const char *requested_profile,
                     uint64_t guest_ticks, uint64_t advance_step,
                     int video_observation_fd, int audio_observation_fd,
@@ -1105,6 +1137,12 @@ static int run_real(int fixture_fd, int input_fd, const char *requested_profile,
   t64_artifact_publisher *replay_publisher = NULL;
   t64_replay_recorder *recorder = NULL;
   bool recorder_ended = false;
+  owned_bytes replay_bytes = {0};
+  t64_replay *play_replay = NULL;
+  t64_replay_player *player = NULL;
+  t64_replay_report replay_report;
+  bool replay_report_ready = false;
+  const bool playing = replay->report_leaf != NULL;
   t64_real_result result;
   trace_observation observations = {0};
   uint8_t output[T64_REAL_OUTPUT_CAPACITY] = {0};
@@ -1185,21 +1223,61 @@ static int run_real(int fixture_fd, int input_fd, const char *requested_profile,
       goto cleanup;
     }
   }
-  if (replay->record_leaf != NULL) {
-    /* Record (plan 09-07): the checkpoint interval is a positive multiple of
-     * the slice and not above the bound; the publisher is opened before the
-     * guest starts so a bad leaf or directory ends the run at tick 0. */
+  if (replay->record_leaf != NULL || playing) {
+    /* Record and play (plan 09-07): the checkpoint interval is a positive
+     * multiple of the slice and not above the bound; the publisher is opened
+     * before the guest starts so a bad leaf or directory ends the run at tick
+     * 0. Play publishes the report (a private single file) in every ending. */
     const char *publisher_error = NULL;
-    if (replay->interval < T64_REPLAY_MIN_INTERVAL ||
-        replay->interval % T64_REAL_TRACE_STEP != 0u ||
-        replay->interval > guest_ticks) {
+    if (replay->record_leaf != NULL &&
+        (replay->interval < T64_REPLAY_MIN_INTERVAL ||
+         replay->interval % T64_REAL_TRACE_STEP != 0u ||
+         replay->interval > guest_ticks ||
+         !leaf_extension_is(replay->record_leaf, "rpl"))) {
+      exit_code = emit_prelaunch("refusal", "refused", guest_ticks, 0);
+      goto cleanup;
+    }
+    if (playing && !leaf_extension_is(replay->report_leaf, "rpr")) {
       exit_code = emit_prelaunch("refusal", "refused", guest_ticks, 0);
       goto cleanup;
     }
     replay_publisher = t64_artifact_publisher_open(
-        artifact_dir, replay->record_leaf, artifact_max_bytes,
+        artifact_dir,
+        replay->record_leaf != NULL ? replay->record_leaf : replay->report_leaf,
+        replay->record_leaf != NULL ? artifact_max_bytes
+                                    : (uint64_t)T64_REPLAY_REPORT_MAX_BYTES,
         &publisher_error);
     if (replay_publisher == NULL) {
+      exit_code = emit_prelaunch("refusal", "refused", guest_ticks, 0);
+      goto cleanup;
+    }
+  }
+  if (playing) {
+    /* The verified replay snapshot is parsed before the guest starts; a refusal
+     * publishes a refused report and ends in the prelaunch refusal. */
+    t64_replay_error parse_error;
+    t64_replay_detail refusal = T64_REPLAY_DETAIL_ARTIFACT_INVALID;
+    bool refused = !read_snapshot(replay->play_fd, T64_REPLAY_MAX_BYTES, 0u,
+                                  &replay_bytes) ||
+                   t64_replay_parse(replay_bytes.bytes, replay_bytes.length,
+                                    &play_replay, &parse_error) !=
+                       T64_REPLAY_OK;
+    if (!refused && t64_input_schedule_event_count(schedule) != 0u) {
+      /* The replay supplies every input: a schedule with events is refused. */
+      refused = true;
+      refusal = T64_REPLAY_DETAIL_INPUT_REFUSED;
+    }
+    if (!refused) {
+      t64_replay_op end_op;
+      refused = !t64_replay_op_get(play_replay,
+                                   t64_replay_op_count(play_replay) - 1u,
+                                   &end_op) ||
+                end_op.at > guest_ticks;
+    }
+    if (refused) {
+      report_init(&replay_report, T64_REPLAY_RESULT_REFUSED, refusal,
+                  T64_REPLAY_FIELD_NONE, play_replay);
+      (void)publish_report(replay_publisher, &replay_report);
       exit_code = emit_prelaunch("refusal", "refused", guest_ticks, 0);
       goto cleanup;
     }
@@ -1284,6 +1362,37 @@ static int run_real(int fixture_fd, int input_fd, const char *requested_profile,
       (void)snprintf(result.detail, sizeof result.detail, "%s",
                      publisher_error == NULL ? "host-error"
                                              : publisher_error);
+      goto finalize;
+    }
+  }
+  if (playing) {
+    /* Identity binding before any guest advance: profile, build, content and
+     * save_init of the live machine must equal the recorded header. */
+    t64_replay_live_identity live;
+    const char *mismatch_field = T64_REPLAY_FIELD_NONE;
+    t64_replay_bind_status bound;
+    if (!t64_replay_live_identity_compose(machine, &live)) {
+      (void)snprintf(result.guest_stop_kind, sizeof result.guest_stop_kind,
+                     "host-error");
+      (void)snprintf(result.outcome, sizeof result.outcome, "harness-error");
+      (void)snprintf(result.detail, sizeof result.detail, "host-error");
+      goto finalize;
+    }
+    bound = t64_replay_bind(t64_replay_header_get(play_replay), &live,
+                            &mismatch_field);
+    if (bound != T64_REPLAY_BIND_OK) {
+      report_init(&replay_report, T64_REPLAY_RESULT_IDENTITY_MISMATCH,
+                  T64_REPLAY_DETAIL_NONE, mismatch_field, play_replay);
+      (void)publish_report(replay_publisher, &replay_report);
+      exit_code = emit_prelaunch("refusal", "refused", guest_ticks, 0);
+      goto cleanup;
+    }
+    player = t64_replay_player_create(play_replay);
+    if (player == NULL) {
+      (void)snprintf(result.guest_stop_kind, sizeof result.guest_stop_kind,
+                     "host-error");
+      (void)snprintf(result.outcome, sizeof result.outcome, "harness-error");
+      (void)snprintf(result.detail, sizeof result.detail, "host-error");
       goto finalize;
     }
   }
@@ -1384,11 +1493,29 @@ static int run_real(int fixture_fd, int input_fd, const char *requested_profile,
     }
   }
 
+  if (player != NULL) {
+    /* Play: every op at tick 0 is applied before the first advance. */
+    const t64_replay_step_result applied = t64_replay_player_step(
+        player, machine, 0u, T64_REPLAY_STOP_NONE, &replay_report);
+    if (applied != T64_REPLAY_STEP_CONTINUE) {
+      replay_report_ready = true;
+      (void)snprintf(result.guest_stop_kind, sizeof result.guest_stop_kind,
+                     "host-error");
+      (void)snprintf(result.outcome, sizeof result.outcome, "harness-error");
+      (void)snprintf(result.detail, sizeof result.detail, "host-error");
+      goto finalize;
+    }
+  }
   while (current_tick < guest_ticks) {
     uint64_t target =
         guest_ticks - current_tick > advance_step
             ? current_tick + advance_step
             : guest_ticks;
+    if (player != NULL) {
+      /* Op-aligned stops: never advance past the next op of the replay. */
+      const uint64_t next_op = t64_replay_player_next_at(player);
+      if (next_op > current_tick && next_op < target) target = next_op;
+    }
     if (recorder != NULL) {
       /* Op-aligned stops: never advance past the next checkpoint tick. */
       const uint64_t next_checkpoint =
@@ -1508,6 +1635,39 @@ static int run_real(int fixture_fd, int input_fd, const char *requested_profile,
         continue;
       }
       break;
+    }
+    if (player != NULL) {
+      /* Play: the ops of the completed tick, then the terminal comparison. */
+      t64_replay_stop terminal = T64_REPLAY_STOP_NONE;
+      t64_replay_step_result applied = T64_REPLAY_STEP_CONTINUE;
+      if (stop.reason == T64_STOP_REASON_GUEST_COMPLETION) {
+        terminal = T64_REPLAY_STOP_GUEST_COMPLETION;
+      } else if (stop.reason == T64_STOP_REASON_BOUND &&
+                 current_tick == guest_ticks) {
+        terminal = T64_REPLAY_STOP_GUEST_BOUND;
+      } else if (stop.reason != T64_STOP_REASON_BOUND) {
+        /* Another terminal stop is no recorded end. */
+        t64_replay_player_refuse(player, current_tick,
+                                 T64_REPLAY_DETAIL_ADVANCE_INVALID,
+                                 &replay_report);
+        applied = T64_REPLAY_STEP_FAILED;
+      }
+      if (applied == T64_REPLAY_STEP_CONTINUE &&
+          (terminal != T64_REPLAY_STOP_NONE ||
+           current_tick == t64_replay_player_next_at(player))) {
+        applied = t64_replay_player_step(player, machine, current_tick,
+                                         terminal, &replay_report);
+      }
+      if (applied == T64_REPLAY_STEP_FAILED) {
+        replay_report_ready = true;
+        (void)snprintf(result.guest_stop_kind, sizeof result.guest_stop_kind,
+                       "host-error");
+        (void)snprintf(result.outcome, sizeof result.outcome,
+                       "harness-error");
+        (void)snprintf(result.detail, sizeof result.detail, "host-error");
+        goto finalize;
+      }
+      if (applied == T64_REPLAY_STEP_MATCH) replay_report_ready = true;
     }
     if (stop.reason == T64_STOP_REASON_BOUND) {
       if (current_tick != target) {
@@ -1846,6 +2006,30 @@ finalize:
       }
       t64_replay_destroy(finished);
     }
+    if (playing) {
+      /* Play: the report is published in every ending (a host loop failure
+       * that never reached the player is a refused report). */
+      if (!replay_report_ready) {
+        if (player != NULL) {
+          t64_replay_player_refuse(player, current_tick,
+                                   T64_REPLAY_DETAIL_ADVANCE_INVALID,
+                                   &replay_report);
+        } else {
+          report_init(&replay_report, T64_REPLAY_RESULT_REFUSED,
+                      T64_REPLAY_DETAIL_ADVANCE_INVALID, T64_REPLAY_FIELD_NONE,
+                      play_replay);
+          replay_report.live_tick = current_tick;
+        }
+      }
+      published = publish_report(replay_publisher, &replay_report);
+      if (!published) {
+        (void)snprintf(result.guest_stop_kind, sizeof result.guest_stop_kind,
+                       "host-error");
+        (void)snprintf(result.outcome, sizeof result.outcome, "harness-error");
+        (void)snprintf(result.detail, sizeof result.detail, "%s",
+                       t64_artifact_publisher_error(replay_publisher));
+      }
+    }
     if (!published) t64_artifact_publisher_abort(replay_publisher);
   }
 #ifdef T64_REAL_RUNNER_TESTING
@@ -1880,6 +2064,9 @@ finalize:
   }
 
 cleanup:
+  t64_replay_player_destroy(player);
+  t64_replay_destroy(play_replay);
+  free(replay_bytes.bytes);
   if (replay_publisher != NULL) {
     t64_artifact_publisher_abort(replay_publisher);
     t64_artifact_publisher_destroy(replay_publisher);
