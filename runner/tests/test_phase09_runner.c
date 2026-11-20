@@ -658,6 +658,69 @@ static void expect_wrong_transcript(const run_out *run) {
  * per-row pin existed. No pinned row exists yet when this case is first
  * written, so it starts green by design; it is the characterization that the
  * pin accessor did not move legacy behavior. */
+/* Drift control (plan 09-10, L3 WR-03): the pass-rule sentence of
+ * docs/spec/result-protocol.md names the pins of the fixture table, so it
+ * cannot go back to describing the one 30-byte hello pin while the table holds
+ * per-row pins. The control derives from the table how many rows carry their
+ * own pin and the distinct pinned lengths, composes the two fragments the spec
+ * must contain, and requires the legacy pin to stay named. */
+static void check_pass_rule_spec(void) {
+  static uint8_t spec[1u << 17];
+  char path[PATH_MAX];
+  char count_fragment[96];
+  char length_fragment[192];
+  size_t length = 0u;
+  size_t pinned = 0u;
+  size_t lengths[32];
+  size_t distinct = 0u;
+  size_t i;
+  size_t k;
+  size_t used;
+  CHECK(join_path(path, sizeof path, g_root, "docs/spec/result-protocol.md"));
+  CHECK(read_file(path, spec, sizeof spec - 1u, &length) && length != 0u);
+  spec[length] = '\0';
+  for (i = 0u; i < t64_real_fixture_count(); i++) {
+    const t64_real_fixture *row = t64_real_fixture_at(i);
+    size_t at = 0u;
+    if (row == NULL || row->expected_log_sha256 == NULL) continue;
+    pinned++;
+    while (at < distinct && lengths[at] < row->expected_log_bytes) at++;
+    if (at < distinct && lengths[at] == row->expected_log_bytes) continue;
+    CHECK(distinct < sizeof lengths / sizeof lengths[0]);
+    if (distinct >= sizeof lengths / sizeof lengths[0]) return;
+    for (k = distinct; k > at; k--) lengths[k] = lengths[k - 1u];
+    lengths[at] = row->expected_log_bytes;
+    distinct++;
+  }
+  CHECK(pinned != 0u && distinct != 0u);
+  (void)snprintf(count_fragment, sizeof count_fragment,
+                 "%zu rows carry their own pinned length and SHA-256", pinned);
+  used = (size_t)snprintf(length_fragment, sizeof length_fragment, "%s", "");
+  for (i = 0u; i < distinct && used < sizeof length_fragment; i++) {
+    used += (size_t)snprintf(length_fragment + used,
+                             sizeof length_fragment - used, "%s%zu",
+                             i == 0u ? "" : (i + 1u == distinct ? " and " : ", "),
+                             lengths[i]);
+  }
+  if (used < sizeof length_fragment) {
+    (void)snprintf(length_fragment + used, sizeof length_fragment - used,
+                   " bytes");
+  }
+  if (strstr((const char *)spec, count_fragment) == NULL ||
+      strstr((const char *)spec, length_fragment) == NULL) {
+    (void)fprintf(stderr,
+                  "result-protocol.md pass rule does not name the table: need "
+                  "\"%s\" and \"%s\"\n",
+                  count_fragment, length_fragment);
+  }
+  CHECK(strstr((const char *)spec, count_fragment) != NULL);
+  CHECK(strstr((const char *)spec, length_fragment) != NULL);
+  /* the legacy pin of the rows without their own stays named */
+  CHECK(strstr((const char *)spec,
+               "86594505bea53c9843f9eaf07e4cf0121cbe0055670324674fd8385c88ffd18e") !=
+        NULL);
+}
+
 static int case_transcript_pin(void) {
   char path[PATH_MAX];
   run_spec spec = {0};
@@ -665,6 +728,7 @@ static int case_transcript_pin(void) {
   spec.supervisor = g_supervisor;
   spec.fixture = path;
   spec.bound = 600000u;
+  check_pass_rule_spec();
 
   CHECK(fixture_path(path, "hello"));
   CHECK(run_supervised(&spec, &run));

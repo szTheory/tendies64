@@ -516,7 +516,11 @@ is `capture-invalid`, `empty-output`, `exec-failed`, `fixture-absent`,
 `guest-bound`, `host-error`, `no-result`, `output-overflow`, `positive-match`,
 `refusal`, `report-error`, `report-invalid`, `runner-exit-nonzero`,
 `runner-signalled`, `supervisor-signalled`, `unsupported-execution`, `usage`,
-`wall-backstop`, and `wrong-transcript`. Details map to one outcome: only
+`wall-backstop`, and `wrong-transcript`. The raw-capture, artifact publisher and
+state-export names of the bullets below, and the Phase 8 and 9 host details the
+checker accepts for a `host-error` stop (`advance-invalid`, `audio-drain-error`,
+`output-drain-error`, `trace-drain-error`, `video-drain-error` and the observation
+names among them), extend this set. Details map to one outcome: only
 `fixture-absent` maps to `missing-fixture`; `empty-output` and
 `unsupported-execution` map to `boot-fail`; `guest-bound` maps to `timeout`;
 `positive-match` maps to `pass`; `wrong-transcript` maps to `guest-fail`; all
@@ -562,10 +566,20 @@ further restrict those pairs:
 - Empty output at authored completion or at the guest bound is always
   `boot-fail` / `empty-output`, with the SHA-256 of the empty byte string. A
   non-empty incomplete capture at the bound is `timeout` / `guest-bound`.
-- Authored completion requires all four ordered milestones. Exactly the
-  manifest fixture, its expected 30-byte transcript (`86594505bea53c9843f9eaf07e4cf0121cbe0055670324674fd8385c88ffd18e`),
-  `positive-match`, and nonzero retired instructions can produce `pass`. Other
-  non-empty completed output is `guest-fail` / `wrong-transcript`.
+- Authored completion requires all four ordered milestones. A registered,
+  pass-eligible fixture row of `runner/t64_real_fixture.c` can produce `pass` with
+  `positive-match`, nonzero retired instructions, its own completion PC on the
+  fourth milestone and a transcript equal to the row's pin. The pin is the row's own
+  pinned length and SHA-256 when it carries one:
+  15 rows carry their own pinned length and SHA-256, with transcripts of
+  20, 68, 72, 101, 144, 191 and 192 bytes. Every other row keeps the legacy 30-byte
+  hello transcript
+  (`86594505bea53c9843f9eaf07e4cf0121cbe0055670324674fd8385c88ffd18e`). The runner
+  (`transcript_matches_pin`) and the checker (`real_row_pin`) judge the same pin, and
+  the test case `transcript-pin` compares this sentence with the table. Other
+  non-empty completed output is `guest-fail` / `wrong-transcript`. A run resumed from
+  an imported state has no milestones of its own and never reports `pass` (see
+  [state-container.md](state-container.md)).
 
 For the authored `hello-openipl3` fixture, the whole normalized ROM identity is
 independent from the upstream IPL3 asset identity: qualified authored-header
