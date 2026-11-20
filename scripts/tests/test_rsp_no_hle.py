@@ -96,6 +96,10 @@ MUTATION_SEEDS = (
     "unreviewed extra core save source file",
     "hidden state source",
     "missing state source",
+    "SRAM DMA coverage invalidation call removed",
+    "SRAM DMA LL-link invalidation call removed",
+    "SI RD64B coverage invalidation call removed",
+    "SI RD64B LL-link invalidation call removed",
 )
 
 # Plan 09-03 pins: the bus bodies edited for the SI region and the two sources
@@ -112,10 +116,16 @@ NEW_SI_SOURCES = ("t64_si.c", "t64_joybus.c")
 # Deleting any one of them must fail the guard.
 # Plan 09-10 (fix FX-01): the two triangle raster bodies added when the bounds
 # function was split so the state importer shares the acceptance proof.
+# Plan 09-10 (fix L4 WR-02, L1 WR-02 guard part): the two RDRAM writers that
+# moved out of the pinned PI body, the SRAM to RDRAM apply of the save device
+# and the SI RD64B completion, each invalidate the coverage sidecar and the
+# LL link; both bodies are pinned now.
 NEW_SAVE_BODY_PINS = (
     "core/t64_pi.c :: t64_pi_complete",
     "core/t64_rdp_raster.c :: t64_rdp_triangle_extent",
     "core/t64_rdp_raster.c :: t64_rdp_triangle_opcode_accepted",
+    "core/t64_save.c :: t64_save_sram_dma_apply",
+    "core/t64_si.c :: t64_si_complete_event",
 )
 NEW_SAVE_SOURCES = ("t64_save.c",)
 
@@ -403,6 +413,67 @@ def _check_helper_inventory_mutations(temp_root: pathlib.Path) -> int:
     return 13
 
 
+# (file, function, call text, label, expected finding when the call is gone)
+RDRAM_WRITER_INVALIDATIONS = (
+    ("core/t64_save.c", "t64_save_sram_dma_apply",
+     "    t64_rdp_memory_coverage_invalidate(machine, dram_address, length);\n",
+     "SRAM DMA coverage invalidation call removed",
+     "core/t64_save.c :: t64_save_sram_dma_apply: accepted SRAM to RDRAM "
+     "transfer bypasses coverage sidecar invalidation"),
+    ("core/t64_save.c", "t64_save_sram_dma_apply",
+     "    t64_cpu_link_invalidate_range(machine, dram_address, length);\n",
+     "SRAM DMA LL-link invalidation call removed",
+     "core/t64_save.c :: t64_save_sram_dma_apply: accepted SRAM to RDRAM "
+     "transfer bypasses LL-link invalidation"),
+    ("core/t64_si.c", "t64_si_complete_event",
+     "    t64_rdp_memory_coverage_invalidate(machine, si->active_dram_address,\n"
+     "                                       T64_PIF_RAM_BYTES);\n",
+     "SI RD64B coverage invalidation call removed",
+     "core/t64_si.c :: t64_si_complete_event: accepted RD64B completion "
+     "bypasses coverage sidecar invalidation"),
+    ("core/t64_si.c", "t64_si_complete_event",
+     "    t64_cpu_link_invalidate_range(machine, si->active_dram_address,\n"
+     "                                  T64_PIF_RAM_BYTES);\n",
+     "SI RD64B LL-link invalidation call removed",
+     "core/t64_si.c :: t64_si_complete_event: accepted RD64B completion "
+     "bypasses LL-link invalidation"),
+)
+
+
+def _check_rdram_writer_invalidation(source_root: pathlib.Path,
+                                     build_root: pathlib.Path) -> int:
+    seeds = 0
+    saved_digests = CHECKER.REVIEWED_BODY_DIGESTS
+    for relative, function_name, call, label, expected in RDRAM_WRITER_INVALIDATIONS:
+        path = source_root / relative
+        original = path.read_text(encoding="utf-8")
+        if original.count(call) != 1:
+            raise AssertionError(f"{label} anchor no longer exists exactly once")
+        mutated = original.replace(call, "", 1)
+        path.write_text(mutated, encoding="utf-8")
+        try:
+            # (1) the pinned body digest rejects the mutated body
+            _must_reject(label, source_root, build_root)
+            # (2) a blind digest refresh to the mutated body does not hide it:
+            # the guard still names the missing invalidation
+            body = CHECKER.function_body(
+                CHECKER.strip_c_comments_and_literals(mutated), function_name)
+            if body is None:
+                raise AssertionError(f"{label}: mutated body not found")
+            key = f"{relative} :: {function_name}"
+            CHECKER.REVIEWED_BODY_DIGESTS = dict(saved_digests)
+            CHECKER.REVIEWED_BODY_DIGESTS[key] = CHECKER.hashlib.sha256(
+                re.sub(r"\s+", "", body).encode()).hexdigest()
+            _must_reject_naming(label + " (digest refreshed)", source_root, expected)
+        finally:
+            CHECKER.REVIEWED_BODY_DIGESTS = saved_digests
+            path.write_text(original, encoding="utf-8")
+        seeds += 1
+    # the accepted baseline: the restored sources are clean again
+    _assert_clean(source_root, build_root)
+    return seeds
+
+
 def _mutate_source(source_root: pathlib.Path, text: str) -> None:
     path = source_root / "core" / "t64_rsp.c"
     original = path.read_text(encoding="utf-8")
@@ -511,6 +582,7 @@ def _check_mutation_suite(temp_root: pathlib.Path) -> int:
         encoding="utf-8",
     )
     _must_reject("RDP fill production body mutation", source_root, build_root)
+    rdp_path.write_text(original_rdp, encoding="utf-8")
     seeds_run += 1
 
     raster_path = source_root / "core" / "t64_rdp_raster.c"
@@ -804,6 +876,12 @@ def _check_mutation_suite(temp_root: pathlib.Path) -> int:
     extra_save_source.unlink()
     seeds_run += 1
 
+    # Plan 09-10 (L4 WR-02): the two RDRAM writers outside the pinned PI body.
+    # Deleting either invalidation call must fail the guard, once through the
+    # body digest and once with the digest refreshed to the mutated body (so
+    # the explicit token check is what rejects it).
+    seeds_run += _check_rdram_writer_invalidation(source_root, build_root)
+
     depth_path = source_root / "core" / "t64_rdp_depth.c"
     original_depth = depth_path.read_text(encoding="utf-8")
     depth_anchor = "result_out->visible_word = z_compress(linear_z, delta_code);"
@@ -870,6 +948,7 @@ def _check_mutation_suite(temp_root: pathlib.Path) -> int:
         encoding="utf-8",
     )
     _must_reject("DPC counter bus-window body mutation", source_root, build_root)
+    bus_path.write_text(original_bus, encoding="utf-8")
     seeds_run += 1
 
     softfloat_sources = source_root / "core" / "softfloat" / "sources.cmake"
@@ -935,6 +1014,31 @@ def _check_mutation_suite(temp_root: pathlib.Path) -> int:
     _must_reject("missing canonical archive object", source_root, build_root)
     ninja_path.write_text(original_ninja, encoding="utf-8")
     seeds_run += 1
+
+    # Every seed restored what it mutated. Plan 09-10 found that the RDP fill
+    # seed had left core/t64_rdp.c mutated for every later seed since plan
+    # 07-01, so each later seed was also rejected for the leftover finding and a
+    # guard regression would have been masked. The clean check fails on such a
+    # leftover, and a control proves it can fail.
+    _assert_clean(source_root, build_root)
+    leak_path = source_root / "core" / "t64_rdp.c"
+    leak_original = leak_path.read_text(encoding="utf-8")
+    leak_anchor = "rdp->fill_color = (uint32_t)word;"
+    if leak_anchor not in leak_original:
+        raise AssertionError("leftover-mutation control anchor no longer exists")
+    leak_path.write_text(
+        leak_original.replace(leak_anchor, leak_anchor + " /* leftover */ rdp->fill_color ^= 1u;", 1),
+        encoding="utf-8",
+    )
+    try:
+        _assert_clean(source_root, build_root)
+    except AssertionError:
+        pass
+    else:
+        raise AssertionError("a leftover mutation was accepted by the clean check")
+    finally:
+        leak_path.write_text(leak_original, encoding="utf-8")
+    _assert_clean(source_root, build_root)
 
     for path in (source_root / "core").glob("t64_*.c"):
         path.unlink()

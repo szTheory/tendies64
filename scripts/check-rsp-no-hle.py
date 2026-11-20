@@ -268,6 +268,8 @@ REVIEWED_BODY_DIGESTS = {
     "core/t64_ai.c :: t64_audio_copy": "4638a1db12bdb801ff8881108ddfa78771ddb53f03c50f7decca36537b50f2c5",
     "core/t64_ai.c :: t64_audio_info": "f1c0ff86b4cff5f5b4900c9183bc4c18ab093554dc898075ff824a397c62a701",
     "core/t64_pi.c :: t64_pi_complete": "98459ddc917f56fbc902837822735a1351b7f5b6c7b63b6c4808a1a6f6240c21",
+    "core/t64_save.c :: t64_save_sram_dma_apply": "1e59b39c246ace1fee454f64e5167a1582b03cbd05ac25c99790e044b0733618",
+    "core/t64_si.c :: t64_si_complete_event": "c54482c62862d4c6b8142d2952de8bdf7a6c57e7f254bafe6463f865c35f6d80",
     "core/t64_sp.c :: t64_sp_write_register": "3620ac7c6c379837ebdedcfcf21ca6c887e580880e314311633b08698f75ce09",
     "core/t64_sp.c :: t64_sp_reset_machine_state": "f410fa77785c8b063cde69306ced58702d70dae4c5bca62af2b8adf08529670a",
     "core/t64_sp.c :: t64_sp_read_register": "495be610b9df612b2637f74356824f1a4c6970981041d87dfb666a2f56946e5e",
@@ -656,11 +658,14 @@ def _check_source_route(root: pathlib.Path) -> tuple[list[str], list[str], int]:
     scheduler_path = root / "core" / "t64_scheduler.c"
     bus_path = root / "core" / "t64_bus.c"
     pi_path = root / "core" / "t64_pi.c"
+    save_path = root / "core" / "t64_save.c"
+    si_path = root / "core" / "t64_si.c"
     if not all(
         path.is_file()
         for path in (
             rsp_path, sp_path, rdp_path, pipeline_path, raster_path, tmem_path,
-            depth_path, vi_path, ai_path, scheduler_path, bus_path, pi_path
+            depth_path, vi_path, ai_path, scheduler_path, bus_path, pi_path,
+            save_path, si_path
         )
     ):
         findings.append(
@@ -684,6 +689,8 @@ def _check_source_route(root: pathlib.Path) -> tuple[list[str], list[str], int]:
     )
     bus = strip_c_comments_and_literals(bus_path.read_text(encoding="utf-8"))
     pi = strip_c_comments_and_literals(pi_path.read_text(encoding="utf-8"))
+    save = strip_c_comments_and_literals(save_path.read_text(encoding="utf-8"))
+    si = strip_c_comments_and_literals(si_path.read_text(encoding="utf-8"))
     rdp_function_names = file_function_names(rdp)
     pipeline_function_names = file_function_names(pipeline)
     vi_function_names = file_function_names(vi)
@@ -771,6 +778,12 @@ def _check_source_route(root: pathlib.Path) -> tuple[list[str], list[str], int]:
             scheduler, "t64_schedule_cancel"
         ),
         "core/t64_pi.c :: t64_pi_complete": function_body(pi, "t64_pi_complete"),
+        "core/t64_save.c :: t64_save_sram_dma_apply": function_body(
+            save, "t64_save_sram_dma_apply"
+        ),
+        "core/t64_si.c :: t64_si_complete_event": function_body(
+            si, "t64_si_complete_event"
+        ),
         "core/t64_rsp.c :: rsp_read_imem_word": function_body(rsp, "rsp_read_imem_word"),
         "core/t64_rsp.c :: t64_rsp_schedule_next": function_body(
             rsp, "t64_rsp_schedule_next"
@@ -957,6 +970,21 @@ def _check_source_route(root: pathlib.Path) -> tuple[list[str], list[str], int]:
         findings.append(
             "core/t64_rdp_depth.c :: t64_rdp_depth_commit_pixel: accepted depth write bypasses overlapping sidecar invalidation"
         )
+    # The two RDRAM writers of the save and SI devices (plan 09-10, L4 WR-02)
+    # write guest memory outside the pinned bus, PI and SP bodies: an accepted
+    # SRAM to RDRAM transfer and an RD64B completion must each invalidate the
+    # coverage sidecar and the LL link of the bytes they rewrite.
+    for label, what in (
+        ("core/t64_save.c :: t64_save_sram_dma_apply", "accepted SRAM to RDRAM transfer"),
+        ("core/t64_si.c :: t64_si_complete_event", "accepted RD64B completion"),
+    ):
+        body = routes[label] or ""
+        if "t64_rdp_memory_coverage_invalidate" not in body:
+            findings.append(
+                f"{label}: {what} bypasses coverage sidecar invalidation"
+            )
+        if "t64_cpu_link_invalidate_range" not in body:
+            findings.append(f"{label}: {what} bypasses LL-link invalidation")
     fetch_body = routes["core/t64_rdp.c :: t64_rdp_event"] or ""
     if "t64_rdp_triangle_word_count" not in fetch_body:
         findings.append(
@@ -1008,6 +1036,7 @@ def _check_source_route(root: pathlib.Path) -> tuple[list[str], list[str], int]:
                 "core/t64_rdp_raster.c :: covered triangle pixel -> t64_rdp_combine_pixel -> t64_rdp_blend_pixel -> versioned color/coverage RDRAM output",
                 "core/t64_rdp_raster.c :: Z triangle preflight -> pixel compare -> accepted color write -> visible depth plus logical hidden sidecar",
                 "core/t64_bus.c / core/t64_pi.c / core/t64_sp.c :: accepted CPU/cache/PI/SP writes invalidate per-instance coverage sidecar",
+                "core/t64_save.c / core/t64_si.c :: accepted SRAM to RDRAM transfer and RD64B completion invalidate the coverage sidecar and the LL link",
                 "core/t64_sp.c :: start_rsp_dma and write_rsp_status -> t64_rsp_ensure_opportunity",
             ]
         )
