@@ -20,7 +20,7 @@ from unittest.mock import patch
 
 ROOT = Path(__file__).resolve().parents[1]
 RECORD_PATH = ROOT / "docs/evidence/phase07-oracle-authority.json"
-PINNED_REQUEST_SHA256 = "9df6a059c9d2696074f4621e4085c7c2c743d790bd6a7f6411be533594676d36"
+PINNED_REQUEST_SHA256 = "6d05bd4f0a5b067c5f541d82d79994335bd00dc0bef2d7036fde53c57a8caa61"
 PINNED_RIGHTS_AUDIT_SHA256 = "7506efecad2511fc2c535ed93b2f65b99dfc2e013508ba8ef760242251f1ff37"
 
 # These are deliberately unset. A JSON field that says "approved" is not

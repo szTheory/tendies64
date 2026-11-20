@@ -3,7 +3,7 @@
   "schema_version": 1,
   "record_id": "phase07-vid04-local-oracle-request-v1",
   "metadata_observed_at_utc": "2026-11-18T04:00:40Z",
-  "request_sha256": "9df6a059c9d2696074f4621e4085c7c2c743d790bd6a7f6411be533594676d36",
+  "request_sha256": "6d05bd4f0a5b067c5f541d82d79994335bd00dc0bef2d7036fde53c57a8caa61",
   "request": {
     "purpose": "Prepare a bounded local-only comparison request pending a rights-cleared exported corpus and replay adapter.",
     "evidence_label": "emulator-to-emulator differential only; never hardware truth",
@@ -19,8 +19,8 @@
       "authored_fixture_ids": ["rdp-fill", "rdp-fill-payload"],
       "fixture_manifest": {
         "path": "fixtures/manifest.json",
-        "sha256": "abbf9c737add67c5ef07617eca9141fc797abf6c61c87db9be4b7a49e41ca2f2",
-        "git_blob_id_sha1": "0f65fb046c6331b4de667ac9d90508a16177ffc1"
+        "sha256": "c1788a2b13daf3c5aa4f0fd5f28c225155fad14d519d2c4ed5b1eaa1786a3034",
+        "git_blob_id_sha1": "622b4f0cca6007efb514f84b7b3e133cdec73ff0"
       },
       "fixture_rights": [
         {
@@ -44,7 +44,7 @@
       ],
       "bound_authored_inputs": [
         {"path": "docs/spec/rdp-vi-cases.json", "sha256": "c915cc38ce78aeccc0d6718351f4968368f35126366e4b353a90037abc98385b", "git_blob_id_sha1": "b44250853f4d920c124b68efd0041de872c4a750"},
-        {"path": "fixtures/manifest.json", "sha256": "abbf9c737add67c5ef07617eca9141fc797abf6c61c87db9be4b7a49e41ca2f2", "git_blob_id_sha1": "0f65fb046c6331b4de667ac9d90508a16177ffc1"},
+        {"path": "fixtures/manifest.json", "sha256": "c1788a2b13daf3c5aa4f0fd5f28c225155fad14d519d2c4ed5b1eaa1786a3034", "git_blob_id_sha1": "622b4f0cca6007efb514f84b7b3e133cdec73ff0"},
         {"path": "fixtures/rdp/fill.S", "sha256": "812ac7ee08914fd3dc505bffb63443413e59109ae07a1664a941fa9503316f20", "git_blob_id_sha1": "403ac990aa679bbe9bce6af693930ac08b93280c"},
         {"path": "scripts/check-rdp-vi-cases.py", "sha256": "07bd79e71de7389f346dd66d28dc7ad2fa6c2cdc6d30978794aa6c27f92ecb4e", "git_blob_id_sha1": "824882d093f8ef57d69920af28a728b50cad9a29"},
         {"path": "core/tests/test_rdp.c", "sha256": "e272451ca0b6214512b19fb4d7b969e7c1264b13918169b60679df26ff6c6074", "git_blob_id_sha1": "8028616394e738fdc1f8265c1d4b107144439821"},
