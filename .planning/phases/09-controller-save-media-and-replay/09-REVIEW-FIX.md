@@ -7,8 +7,8 @@ review_path: .planning/phases/09-controller-save-media-and-replay/09-REVIEW.md
 security_path: .planning/phases/09-controller-save-media-and-replay/09-SECURITY.md
 verification_path: .planning/phases/09-controller-save-media-and-replay/09-VERIFICATION.md
 iteration: 1
-cycle_groups: [G1, G2, G3, G4]
-status: g1_g2_g3_g4_complete
+cycle_groups: [G1, G2, G3, G4, T6-FX38]
+status: g1_g2_g3_g4_complete_fx38_task6
 recheck_paths:
   - build/gate/09-10-recheck-R1.md
   - build/gate/09-10-recheck-R2.md
@@ -85,6 +85,10 @@ R1 RC-01 allowed removing the guard or failing closed. Removing it leaves no con
 ### DEV-14 [registered case renamed, FX-34]: the selftest case of FX-25 is now `doc-count-drift`
 
 FX-25 registered the case `mutant-count-drift` inside `harness.state-field-use-audit`; FX-34 gave the same case a second seed (the matrix size sentence) and renamed it `doc-count-drift` in the script, `docs/spec/phase09-cases.json` and the criteria draft. No CTest name was added or renamed (45 of 45).
+
+### DEV-15 [Task 6 finding, FX-38]: the cleanup scope of FX-12 removed the evidence the hosted collector reads
+
+Found after the one fix cycle ended, by the first hosted run of the fix-cycle head: the orchestrator's push of `49069a7` ran hosted run 44776046324 and both jobs failed at the step "Emit authored Phase 9 evidence" with `qualify-phase09: refused original evidence: retained run directory is missing or unsafe` (the Gate step and the audio steps passed, the steps after the emit never ran). Cause: FX-12 (`e68db4c`) gave every runner test a per-process scope removed at exit, including `runner/tests/test_pad_poll.c`, whose retained run directories (`result.json`, `command.args`, `input.json`, the altered fixture copy) are read by the hosted emit after the process has ended (plan 09-03.1 collector interface). A Rule 1 defect of the fix cycle itself, in a test helper (a test source, not a frozen file). The local gate, the focused CTest batches, the targeted re-check, the security re-audit and the gaps-only re-verification could not see it: no gate test reads a retained directory after its process exits, and the emit replay was not part of the cheap checks. Cost: one more commit (FX-38, `c3bdff5`), the native rehearsal that had started on the earlier candidate was stopped at its ASan stage and restarted on the new candidate (the record of a native run binds the exact source), and the covered files `runner/tests/t64_test_tree.h`, `runner/tests/test_pad_poll.c` and `scripts/tests/test_phase09_qualification.py` changed after the verifier's digest (the digest was already stale from the CONTEXT amendment K20 and this record, see the handoff in the SUMMARY). The repeat budget of Task 6 (one repeat of steps 2 to 4 for a native failure or a hosted overrun) is not spent: no native or hosted rehearsal of this plan had completed when the defect was found, and it was found by a read-only look at a hosted run that already existed.
 
 ### Blocking set
 
@@ -621,9 +625,15 @@ Run on the final G4 tree (HEAD after the commit that adds this record). Host: 18
 - **Next Phase 8 requalification:** the `qualify-audio.py` limits (R3 RC-02, `docs/ci-reviews/LOG.md` F-106).
 - **Phase 10:** R1 RC-06 (version markers of the state content), R1 RC-07, R2 RC-04, RC-06, RC-08, the remaining parts of R3 RC-05, and the items carried from G1 to G3.
 
+## Task 6 repair (FX-38)
+
+### FX-38 [TEST] a runner test that retains run evidence for the hosted collector keeps its scope past exit: regression of FX-12, DEV-15
+
+Commit c3bdff5. **RED** (`build/gate/09-10-g5/rc6-01-red.log`; the public hosted log of run 44776046324 holds the same refusal on both jobs): replayed locally on the clean tree `0d31e0e` with the exact CI lines (`check-phase09-cases.py --suite hosted --run` exit 0, then `qualify-phase09.py --emit-hosted ...`): `refused original evidence: retained run directory is missing or unsafe`, exit 1, about 2 s. Note on the log: it is a transcription of the live terminal output of that replay, not a tool capture (the binary of that moment was replaced by the fix build before the log could be re-run, and the emit refuses a dirty tree); the case-step capture is retained as a scratch file. **Fix (test only):** `t64_test_scope_keep()` in `runner/tests/t64_test_tree.h` makes the scope cleanup return (the flag sits beside the existing `T64_KEEP_TEST_EVIDENCE` condition); `runner/tests/test_pad_poll.c` calls it after `retain_run_evidence` succeeds, before the marker line, so a pad-poll process that retained a run leaves its whole scope in place (the pre-FX-12 behavior for exactly the processes the collector reads; the other six tests still clean up). **Control** (inside `harness.phase09-qualification`, case `hosted-rows-pinned-independently`, no new name): `retained_scope_gaps` finds, after the accepted baseline of the real sources (exactly one retaining test source, `test_pad_poll.c`), the keep call missing between the retain call and the marker, the cleanup not honoring the flag and the helper missing, each removed in turn. This is a static control: the end-to-end proof is the replay of every hosted step after Gate. **Green:** the case step and the Phase 9 emit at `c3bdff5` exit 0, and the whole tail replayed in order with the CI lines (audio case run 17 s, Phase 9 case run 2 s, audio emit, Phase 9 emit, raw RDP VI emit, guest emit, staging rights scan 8 files 0 findings, four PII scans) all exit 0 after a full `sh scripts/gate.sh` (PASS, 140 s); `test_phase09_qualification.py --selftest` passes (29 cases); the pinned gcc:13 closure over the seven units that include the header is clean; the Linux compile pre-flight (219 units, act image, platform not forced) is clean, 50 s.
+
 ## FR freeze record
 
-Written by plan 09-10 Task 6 step 1, before the rehearsal, so the rehearsed commit contains it. The local tag `phase09-fr` is created on the rehearsed commit only after both rehearsals pass (step 6) and is not pushed by this plan; plan 09-11 pushes it with its first push. FR is the end of 09-10 (D-06): from the tagged commit on, all logic is frozen and 09-11 may edit data only.
+Written by plan 09-10 Task 6 step 1, before the rehearsal, so the rehearsed commit contains it; the tree identities were refreshed once after FX-38 (the `runner` and `scripts` trees changed by that fix, no other tree and no frozen file did). The local tag `phase09-fr` is created on the rehearsed commit only after both rehearsals pass (step 6) and is not pushed by this plan; plan 09-11 pushes it with its first push. FR is the end of 09-10 (D-06): from the tagged commit on, all logic is frozen and 09-11 may edit data only.
 
 ### Frozen logic set
 
@@ -632,11 +642,11 @@ Git tree identities at the commit being recorded (`git rev-parse HEAD:PATH`; thi
 | Tree | Identity |
 | --- | --- |
 | `core` | `0b0227638576babc7645c4d653bd4c156b387c77` |
-| `runner` | `c5dd4fcbb839894a5e5f8aae0b3e482b8759d260` |
+| `runner` | `a842e3a3950a726e0494f139cd65dbb18c89ba37` |
 | `fixtures` | `ea48718ab44dde5788863e3bc166d79125e8d2f2` |
 | `tools` | `0f5494fa789999b4132ab8fe57c734937cc96155` |
 | `tools/rights` | `1ac25b4f0027932f555fcf3dea4f23ac32e65e6f` |
-| `scripts` | `4359a989fba21350ce0721cacb202b155eff48d6` |
+| `scripts` | `3ccf2ef074f9a1989de515a82e9c32808ffced37` |
 | `.github` | `2e26a9d64749aaeb5e989cec80348ac6bfffb4d9` |
 
 The frozen file list of Task 1 (SHA-256 at the recorded commit; the verdict is against `phase09-fh`, `build/gate/09-10-freeze-check.py` with the anchored pin pattern of R3 RC-07, `build/gate/09-10-freeze-r3rc07.txt`):
