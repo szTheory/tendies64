@@ -122,7 +122,11 @@ RDRAM when the latched cart address lies in the window; the ROM path is
 unchanged. The duration is the existing `1 + N / 2` ticks, one scheduler event
 `(PI, complete)`, and the effect is atomic at the completion event: the source
 is read at that event, a controller reset before it leaves the storage and RDRAM
-unchanged, and the PI interrupt is pending from it. The alignment rules are the
+unchanged, and the PI interrupt is pending from it. The SRAM to RDRAM completion is
+an RDRAM write like the ROM DMA: it clears the RDP memory coverage marks of the
+destination span and the CPU link of a linked word that overlaps it, and nothing
+outside the span. A transfer that ends exactly at the window end (cart address
+`0x08007FF0`, 16 bytes) is accepted and one that ends two bytes past it is refused. The alignment rules are the
 existing ones (even length, even cart address, DRAM address a multiple of 8);
 the DRAM span must lie in the installed RDRAM and the cart span in the window.
 Every refusal returns `BUS_DEVICE_REFUSED` (or the specific capacity status) and

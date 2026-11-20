@@ -241,6 +241,12 @@ static void case_frame_vectors(void) {
 
 /* ---- responders and ticks ------------------------------------------------ */
 
+/* The receive fill of the frames whose answer is a timeout or an absent device:
+ * not 0xFF, so that "the bytes stay as the guest wrote them" differs from "the
+ * area is filled with 0xFF" (plan 09-10 review L5 WR-02: every frame used 0xFF
+ * and a memset in the timeout branch passed every test). */
+#define RX_FILL 0xA5u
+
 /* A controller on port 0 with a fixed state for the responder cases. */
 static const t64_joybus_controller local_controller = {true, 0x1234u, 0x56u,
                                                        0x9Au};
@@ -307,20 +313,22 @@ static void case_controller_responses(void) {
     size_t index;
 
     for (index = 0u; index < sizeof commands; index++) {
-      const uint8_t bytes[] = {0x01, 0x04, commands[index], 0xFF, 0xFF, 0xFF,
-                               0xFF, 0xFE};
+      const uint8_t bytes[] = {0x01, 0x04, commands[index], RX_FILL, RX_FILL,
+                               RX_FILL, RX_FILL, 0xFE};
 
       ticks = run_frame(frame, bytes, sizeof bytes);
       T64_CHECK_INT(frame[1], 0x44u);
-      T64_CHECK_INT(frame[3], 0xFFu);
-      T64_CHECK_INT(frame[6], 0xFFu);
+      /* no data: the receive bytes keep the fill the guest wrote, which is
+         not 0xFF, so a memset of the area would be seen */
+      T64_CHECK_INT(frame[3], RX_FILL);
+      T64_CHECK_INT(frame[6], RX_FILL);
       T64_CHECK_INT(ticks, 6095u);
     }
     {
       /* Pak read with TX 3 and 33 response bytes: 6,000 + 188 + 3,907. */
       uint8_t bytes[44];
 
-      (void)memset(bytes, 0xFF, sizeof bytes);
+      (void)memset(bytes, RX_FILL, sizeof bytes);
       bytes[0] = 0x03;
       bytes[1] = 0x21;
       bytes[2] = 0x02;
@@ -329,46 +337,47 @@ static void case_controller_responses(void) {
       bytes[38] = 0xFE;
       ticks = run_frame(frame, bytes, sizeof bytes);
       T64_CHECK_INT(frame[1], 0x61u);
-      T64_CHECK_INT(frame[5], 0xFFu);
+      T64_CHECK_INT(frame[5], RX_FILL);
       T64_CHECK_INT(ticks, 10095u);
     }
   }
   /* A TX count other than the expected one is unsupported. */
   {
-    const uint8_t bytes[] = {0x02, 0x04, 0x01, 0x00, 0xFF, 0xFF, 0xFF, 0xFF,
-                             0xFE};
+    const uint8_t bytes[] = {0x02, 0x04, 0x01, 0x00, RX_FILL, RX_FILL, RX_FILL,
+                             RX_FILL, 0xFE};
 
     ticks = run_frame(frame, bytes, sizeof bytes);
     T64_CHECK_INT(frame[1], 0x44u);
-    T64_CHECK_INT(frame[4], 0xFFu);
+    T64_CHECK_INT(frame[4], RX_FILL);
     /* 2 * 2000 + 188 + 3,907 */
     T64_CHECK_INT(ticks, 8095u);
   }
   /* RX count above the response length writes the available bytes and sets
      0x40; below writes only that many; zero writes nothing. */
   {
-    const uint8_t above[] = {0x01, 0x04, 0x00, 0xFF, 0xFF, 0xFF, 0xFF, 0xFE};
-    const uint8_t below[] = {0x01, 0x02, 0x01, 0xFF, 0xFF, 0xFF, 0xFE};
-    const uint8_t zero[] = {0x01, 0x00, 0x01, 0xFF, 0xFE};
+    const uint8_t above[] = {0x01, 0x04, 0x00, RX_FILL, RX_FILL, RX_FILL,
+                             RX_FILL, 0xFE};
+    const uint8_t below[] = {0x01, 0x02, 0x01, RX_FILL, RX_FILL, RX_FILL, 0xFE};
+    const uint8_t zero[] = {0x01, 0x00, 0x01, RX_FILL, 0xFE};
 
     ticks = run_frame(frame, above, sizeof above);
     T64_CHECK_INT(frame[1], 0x44u);
     T64_CHECK_INT(frame[3], 0x05u);
     T64_CHECK_INT(frame[4], 0x00u);
     T64_CHECK_INT(frame[5], 0x02u);
-    T64_CHECK_INT(frame[6], 0xFFu);
+    T64_CHECK_INT(frame[6], RX_FILL);
     /* three transferred bytes: 2000 + 188 + 438 + 6000 + 250 */
     T64_CHECK_INT(ticks, 8876u);
     ticks = run_frame(frame, below, sizeof below);
     T64_CHECK_INT(frame[1], 0x02u);
     T64_CHECK_INT(frame[3], 0x12u);
     T64_CHECK_INT(frame[4], 0x34u & 0x3Fu);
-    T64_CHECK_INT(frame[5], 0xFFu);
+    T64_CHECK_INT(frame[5], RX_FILL);
     /* 2000 + 188 + 438 + 2 * 2000 + 250 */
     T64_CHECK_INT(ticks, 6876u);
     ticks = run_frame(frame, zero, sizeof zero);
     T64_CHECK_INT(frame[1], 0x00u);
-    T64_CHECK_INT(frame[3], 0xFFu);
+    T64_CHECK_INT(frame[3], RX_FILL);
     /* 2000 + 188 + 438 + 0 + 250 */
     T64_CHECK_INT(ticks, 2876u);
   }
@@ -611,10 +620,10 @@ static void case_channels_and_ports(void) {
     bytes[channel * 7u] = 0x01;
     bytes[channel * 7u + 1u] = 0x04;
     bytes[channel * 7u + 2u] = 0x01;
-    bytes[channel * 7u + 3u] = 0xFF;
-    bytes[channel * 7u + 4u] = 0xFF;
-    bytes[channel * 7u + 5u] = 0xFF;
-    bytes[channel * 7u + 6u] = 0xFF;
+    bytes[channel * 7u + 3u] = RX_FILL;
+    bytes[channel * 7u + 4u] = RX_FILL;
+    bytes[channel * 7u + 5u] = RX_FILL;
+    bytes[channel * 7u + 6u] = RX_FILL;
   }
   bytes[35] = 0xFE;
   /* The neutral initial latch yields 00 00 00 00 on channel 0. */
@@ -638,10 +647,10 @@ static void case_channels_and_ports(void) {
   T64_CHECK_INT(frame[6], 0x80u);
   for (channel = 1u; channel < 5u; channel++) {
     T64_CHECK_INT(frame[channel * 7u + 1u], 0x84u);
-    T64_CHECK_INT(frame[channel * 7u + 3u], 0xFFu);
-    T64_CHECK_INT(frame[channel * 7u + 4u], 0xFFu);
-    T64_CHECK_INT(frame[channel * 7u + 5u], 0xFFu);
-    T64_CHECK_INT(frame[channel * 7u + 6u], 0xFFu);
+    T64_CHECK_INT(frame[channel * 7u + 3u], RX_FILL);
+    T64_CHECK_INT(frame[channel * 7u + 4u], RX_FILL);
+    T64_CHECK_INT(frame[channel * 7u + 5u], RX_FILL);
+    T64_CHECK_INT(frame[channel * 7u + 6u], RX_FILL);
   }
   /* Channel 0 with no controller is also absent. */
   make_frame(frame, bytes, sizeof bytes);
@@ -651,7 +660,7 @@ static void case_channels_and_ports(void) {
 
     t64_joybus_execute(frame, &table, &none);
     T64_CHECK_INT(frame[1], 0x84u);
-    T64_CHECK_INT(frame[3], 0xFFu);
+    T64_CHECK_INT(frame[3], RX_FILL);
   }
 }
 

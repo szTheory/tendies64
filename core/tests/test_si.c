@@ -1375,6 +1375,123 @@ static void run_timing_row(const timing_row *row) {
   t64_machine_destroy(machine);
 }
 
+/* ------------------------------------------------------------------------ */
+/* Plan 09-10 (review L5 WR-01 and WR-03, L1 WR-02): the active descriptor is  */
+/* immutable and the RD64B completion invalidates what it overwrites           */
+/* ------------------------------------------------------------------------ */
+
+#define OTHER_DRAM UINT32_C(0x4000)
+#define CANARY 0xCDu
+
+/* A write to SI_DRAM_ADDR while a DMA is active changes only the latch: the
+ * transfer uses the address latched at its start. Each arm runs next to the
+ * accepted baseline of the same setup (no rewrite of the latch), and the
+ * register reads the rewritten latch afterwards. */
+static void check_active_descriptor_immutable(void) {
+  uint8_t pattern[64];
+  size_t byte;
+  unsigned rewrite;
+
+  for (byte = 0u; byte < 64u; byte++) pattern[byte] = (uint8_t)(0x31u + byte);
+  pattern[63] = 0u;
+  for (rewrite = 0u; rewrite < 2u; rewrite++) {
+    /* RD64B: the image of the PIF RAM lands at the latched address */
+    t64_machine *machine = make_idle_machine();
+
+    if (machine == NULL) return;
+    settle_write(machine, pattern);
+    T64_CHECK(memcmp(machine->si.pif_ram, pattern, 64u) == 0);
+    (void)memset(machine->ram + DST_DRAM, 0xEE, 64u);
+    (void)memset(machine->ram + OTHER_DRAM, CANARY, 64u);
+    T64_CHECK_INT(start_dma(machine, SI_RD64B, DST_DRAM), T64_STATUS_OK);
+    T64_CHECK(advance_guest_to(machine, machine->tick + 1000u));
+    if (rewrite != 0u) {
+      T64_CHECK_INT(t64_machine_bus_write(machine, SI_DRAM_ADDR, 4u,
+                                          OTHER_DRAM),
+                    T64_STATUS_OK);
+      T64_CHECK_INT(bus_read32(machine, SI_DRAM_ADDR), OTHER_DRAM);
+    }
+    T64_CHECK(advance_guest_to(machine, machine->si.complete_tick));
+    T64_CHECK(memcmp(machine->ram + DST_DRAM, pattern, 64u) == 0);
+    {
+      uint8_t canary[64];
+
+      (void)memset(canary, CANARY, sizeof canary);
+      T64_CHECK(memcmp(machine->ram + OTHER_DRAM, canary, 64u) == 0);
+    }
+    T64_CHECK_INT(bus_read32(machine, SI_DRAM_ADDR),
+                  rewrite != 0u ? OTHER_DRAM : DST_DRAM);
+    t64_machine_destroy(machine);
+
+    /* WR64B: the source was read at the start, so a later latch rewrite and a
+     * later change of the bytes at the new latch change nothing */
+    machine = make_idle_machine();
+    if (machine == NULL) return;
+    put_frame(machine, SRC_DRAM, pattern);
+    (void)memset(machine->ram + OTHER_DRAM, 0x5A, 64u);
+    T64_CHECK_INT(start_dma(machine, SI_WR64B, SRC_DRAM), T64_STATUS_OK);
+    if (rewrite != 0u) {
+      T64_CHECK_INT(t64_machine_bus_write(machine, SI_DRAM_ADDR, 4u,
+                                          OTHER_DRAM),
+                    T64_STATUS_OK);
+    }
+    T64_CHECK(advance_guest_to(machine, machine->si.complete_tick));
+    T64_CHECK(memcmp(machine->si.pif_ram, pattern, 64u) == 0);
+    T64_CHECK_INT(bus_read32(machine, SI_DRAM_ADDR),
+                  rewrite != 0u ? OTHER_DRAM : SRC_DRAM);
+    t64_machine_destroy(machine);
+  }
+}
+
+/* The RD64B completion clears the RDP memory coverage marks and the CPU link of
+ * the span it overwrote and nothing outside it; the baseline arm of the same
+ * setup completes the DMA to a span that does not overlap them. */
+static void check_rd64b_invalidation(void) {
+  uint8_t pattern[64];
+  size_t byte;
+  unsigned overlaps;
+
+  for (byte = 0u; byte < 64u; byte++) pattern[byte] = (uint8_t)(0x71u + byte);
+  pattern[63] = 0u;
+  for (overlaps = 0u; overlaps < 2u; overlaps++) {
+    t64_machine *machine = make_idle_machine();
+    const uint32_t destination = overlaps != 0u ? DST_DRAM : DST_DRAM + 0x400u;
+    uint32_t offset;
+
+    if (machine == NULL) return;
+    settle_write(machine, pattern);
+    for (offset = 0u; offset < 68u; offset += 2u) {
+      t64_rdp_memory_coverage_write(machine, DST_DRAM - 2u + offset, 2u, 8u);
+    }
+    t64_rdp_memory_coverage_write(machine, 0x5000u, 2u, 8u);
+    machine->cpu.linked_valid = true;
+    machine->cpu.linked_physical_address = DST_DRAM + 8u;
+    machine->cpu.linked_width = 4u;
+    T64_CHECK_INT(start_dma(machine, SI_RD64B, destination), T64_STATUS_OK);
+    T64_CHECK(advance_guest_to(machine, machine->si.complete_tick));
+    T64_CHECK(memcmp(machine->ram + destination, pattern, 64u) == 0);
+    T64_CHECK_INT(t64_rdp_memory_coverage_read(machine, 0x5000u, 2u), 8u);
+    if (overlaps != 0u) {
+      for (offset = 0u; offset < 64u; offset += 2u) {
+        T64_CHECK_INT(
+            t64_rdp_memory_coverage_read(machine, DST_DRAM + offset, 2u), 0u);
+      }
+      T64_CHECK_INT(t64_rdp_memory_coverage_read(machine, DST_DRAM - 2u, 2u), 8u);
+      T64_CHECK_INT(t64_rdp_memory_coverage_read(machine, DST_DRAM + 64u, 2u),
+                    8u);
+      T64_CHECK(!machine->cpu.linked_valid);
+    } else {
+      for (offset = 0u; offset < 64u; offset += 2u) {
+        T64_CHECK_INT(
+            t64_rdp_memory_coverage_read(machine, DST_DRAM + offset, 2u), 8u);
+      }
+      T64_CHECK(machine->cpu.linked_valid);
+      T64_CHECK_INT(machine->cpu.linked_physical_address, DST_DRAM + 8u);
+    }
+    t64_machine_destroy(machine);
+  }
+}
+
 static void case_dma_timing(void) {
   /* H from the D-14 literals: present device 2000n + 188 + 438 + 2000m + 250
      with n 1 and m 4 is 10,876; an absent channel 2000n + 188 + 3,907 with
@@ -1442,6 +1559,8 @@ static void case_dma_timing(void) {
   T64_CHECK(advance_guest_to(machine, 40000u + 2500u));
   T64_CHECK_INT(bus_read32(machine, SI_STATUS), STATUS_INTERRUPT);
   t64_machine_destroy(machine);
+  check_active_descriptor_immutable();
+  check_rd64b_invalidation();
 }
 
 /* ------------------------------------------------------------------------ */

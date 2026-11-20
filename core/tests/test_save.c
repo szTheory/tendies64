@@ -240,16 +240,27 @@ static bool advance_guest_to(t64_machine *machine, uint64_t tick) {
 /* One joybus frame: four skip bytes (channels 0 to 3), the channel 4 counts,
  * the transmit bytes, 0xFF receive fill, the end escape, zero fill and the
  * parse request in byte 63. */
-static void build_frame(uint8_t frame[64], uint32_t tx_count,
-                        uint32_t rx_count, const uint8_t *tx) {
+static void build_frame_fill(uint8_t frame[64], uint32_t tx_count,
+                             uint32_t rx_count, const uint8_t *tx,
+                             uint8_t fill) {
   (void)memset(frame, 0, 64u);
   frame[4] = (uint8_t)tx_count;
   frame[5] = (uint8_t)rx_count;
   (void)memcpy(frame + 6, tx, tx_count);
-  (void)memset(frame + 6 + tx_count, 0xFF, rx_count);
+  (void)memset(frame + 6 + tx_count, fill, rx_count);
   frame[6 + tx_count + rx_count] = 0xFE;
   frame[63] = 0x01;
 }
+
+static void build_frame(uint8_t frame[64], uint32_t tx_count,
+                        uint32_t rx_count, const uint8_t *tx) {
+  build_frame_fill(frame, tx_count, rx_count, tx, 0xFFu);
+}
+
+/* The receive fill of the frames whose answer is a timeout (no data written):
+ * not 0xFF, so that "stays as the guest wrote it" differs from "filled with
+ * 0xFF" (plan 09-10 review L5 WR-02). */
+#define RX_FILL 0xA5u
 
 /* A complete accepted WR64B of the frame at the current tick: moves it into
  * the PIF RAM, parses it, settles the 2,500-tick completion, acknowledges. */
@@ -707,6 +718,7 @@ static void dma_refusal_rows(void) {
       {"misaligned dram address", UINT32_C(0x3804), DMA_CART, 15u},
       {"dram span beyond installed rdram", rdram - 8u, DMA_CART, 15u},
       {"cart below the window", DMA_DRAM, UINT32_C(0x07FFFFF0), 15u},
+      {"window end plus two", DMA_DRAM, UINT32_C(0x08007FF2), 15u},
   };
   size_t index;
 
@@ -841,6 +853,94 @@ static void dma_cpu_store_row(size_t room) {
   t64_machine_destroy(machine);
 }
 
+/* A DMA that ends exactly at the window end is accepted and moves the last 16
+ * bytes (the row "window end plus two" of dma_refusal_rows refuses the span two
+ * bytes past it), and the SRAM to RDRAM completion clears what the destination
+ * span invalidates: the RDP memory coverage marks and the CPU link of the words
+ * it overwrote, and nothing outside the span (plan 09-10 review L5 WR-03, L1
+ * WR-02: deleting both invalidations passed every test). */
+#define SRAM_END_CART UINT32_C(0x08007FF0)
+
+static void mark_coverage(t64_machine *machine, uint32_t address,
+                          uint32_t bytes) {
+  uint32_t offset;
+
+  for (offset = 0u; offset < bytes; offset += 2u) {
+    t64_rdp_memory_coverage_write(machine, address + offset, 2u, 8u);
+  }
+}
+
+static bool coverage_clear(const t64_machine *machine, uint32_t address,
+                           uint32_t bytes) {
+  uint32_t offset;
+
+  for (offset = 0u; offset < bytes; offset += 2u) {
+    if (t64_rdp_memory_coverage_read(machine, address + offset, 2u) != 0u) {
+      return false;
+    }
+  }
+  return true;
+}
+
+/* One SRAM to RDRAM DMA of 16 bytes into `destination` on a machine whose
+ * coverage marks and LL link sit over DMA_BACK_DRAM (marks over 16 bytes and
+ * one granule on each side, a link on the word at +4). */
+static void sram_read_invalidation_arm(uint32_t destination, bool overlaps) {
+  t64_machine *machine = make_idle_machine(S32K_ID);
+  const uint64_t start = 1000u;
+
+  if (machine == NULL) return;
+  T64_CHECK(advance_guest_to(machine, start));
+  (void)memcpy(machine->save.bytes + SRAM_OFFSET, dma_pattern, 16u);
+  mark_coverage(machine, DMA_BACK_DRAM - 2u, 20u);
+  mark_coverage(machine, 0x5000u, 16u);
+  machine->cpu.linked_valid = true;
+  machine->cpu.linked_physical_address = DMA_BACK_DRAM + 4u;
+  machine->cpu.linked_width = 4u;
+  T64_CHECK_INT(pi_start(machine, destination, DMA_CART, PI_WR_LEN, 15u),
+                T64_STATUS_OK);
+  T64_CHECK(advance_guest_to(machine, start + 9u));
+  T64_CHECK_INT(bus_value(machine, PI_STATUS), 0u);
+  /* the transfer landed in either arm */
+  T64_CHECK(memcmp(machine->ram + destination, dma_pattern, 16u) == 0);
+  /* outside the destination span nothing changed, in either arm */
+  T64_CHECK(coverage_clear(machine, 0x5000u, 16u) == false);
+  if (overlaps) {
+    T64_CHECK(coverage_clear(machine, DMA_BACK_DRAM, 16u));
+    T64_CHECK(t64_rdp_memory_coverage_read(machine, DMA_BACK_DRAM - 2u, 2u) ==
+              8u);
+    T64_CHECK(t64_rdp_memory_coverage_read(machine, DMA_BACK_DRAM + 16u, 2u) ==
+              8u);
+    T64_CHECK(!machine->cpu.linked_valid);
+  } else {
+    /* the accepted baseline of the same setup: a span elsewhere leaves the
+     * marks and the link where they were */
+    T64_CHECK(!coverage_clear(machine, DMA_BACK_DRAM, 16u));
+    T64_CHECK(machine->cpu.linked_valid);
+    T64_CHECK_INT(machine->cpu.linked_physical_address, DMA_BACK_DRAM + 4u);
+  }
+  t64_machine_destroy(machine);
+}
+
+static void sram_window_end_and_invalidation(void) {
+  t64_machine *machine = make_idle_machine(S32K_ID);
+
+  if (machine != NULL) {
+    (void)memcpy(machine->save.bytes + T64_SAVE_SRAM_BYTES - 16u, dma_pattern,
+                 16u);
+    (void)memset(machine->ram + DMA_BACK_DRAM, 0, 16u);
+    T64_CHECK_INT(pi_start(machine, DMA_BACK_DRAM, SRAM_END_CART, PI_WR_LEN,
+                           15u),
+                  T64_STATUS_OK);
+    T64_CHECK(advance_guest_to(machine, machine->tick + 9u));
+    T64_CHECK_INT(bus_value(machine, PI_STATUS), 0u);
+    T64_CHECK(memcmp(machine->ram + DMA_BACK_DRAM, dma_pattern, 16u) == 0);
+    t64_machine_destroy(machine);
+  }
+  sram_read_invalidation_arm(DMA_BACK_DRAM + 0x100u, false);
+  sram_read_invalidation_arm(DMA_BACK_DRAM, true);
+}
+
 static void case_sram_dma(void) {
   t64_machine *machine = make_idle_machine(S32K_ID);
   size_t index;
@@ -947,6 +1047,7 @@ static void case_sram_dma(void) {
   }
 
   dma_refusal_rows();
+  sram_window_end_and_invalidation();
   dma_cpu_store_row(1u);
   dma_cpu_store_row(2u);
 
@@ -1111,9 +1212,19 @@ static const command_row unanswered_rows[] = {
     {"info with tx 2", 2u, 3u, {0x00, 0x00}},
     {"read with tx 3", 3u, 8u, {0x04, 0x01, 0x00}},
     {"read with rx 7", 2u, 7u, {0x04, 0x01}},
+    {"read with rx 9", 2u, 9u, {0x04, 0x01}},
     {"write with tx 9", 9u, 1u, {0x05, 0x01, 1, 2, 3, 4, 5, 6, 7}},
     {"write with rx 2", 10u, 2u, {0x05, 0x01, 1, 2, 3, 4, 5, 6, 7, 8}},
 };
+
+static bool rx_all_fill(const uint8_t *rx, uint32_t count, uint8_t value) {
+  uint32_t index;
+
+  for (index = 0u; index < count; index++) {
+    if (rx[index] != value) return false;
+  }
+  return true;
+}
 
 static const uint8_t block_a[8] = {0xA1, 0xA2, 0xA3, 0xA4,
                                    0xA5, 0xA6, 0xA7, 0xA8};
@@ -1133,7 +1244,7 @@ static void check_unanswered_rows(t64_machine *machine, uint8_t flag) {
                             : t64_save_storage_bytes(machine->profile.save_kind);
 
     if (size != 0u) (void)memcpy(snapshot, machine->save.bytes, size);
-    build_frame(frame, row->tx_count, row->rx_count, row->tx);
+    build_frame_fill(frame, row->tx_count, row->rx_count, row->tx, RX_FILL);
     run_txn(machine, frame, unanswered_handshake(row->tx_count), image);
     if (image[5] != (uint8_t)(row->rx_count | flag)) {
       fprintf(stderr, "command row '%s': byte 5 is %02x\n", row->label,
@@ -1141,10 +1252,21 @@ static void check_unanswered_rows(t64_machine *machine, uint8_t flag) {
     }
     T64_CHECK_INT(image[4], row->tx_count);
     T64_CHECK_INT(image[5], row->rx_count | flag);
-    T64_CHECK(rx_all(image, row->tx_count, row->rx_count, 0xFFu));
+    T64_CHECK(rx_all(image, row->tx_count, row->rx_count, RX_FILL));
     T64_CHECK_INT(machine->save.busy_until, deadline);
     if (size != 0u) {
       T64_CHECK(memcmp(snapshot, machine->save.bytes, size) == 0);
+    }
+    /* the device entry point on its own (the wire path classifies first): the
+     * flag and a receive area that keeps its fill */
+    {
+      uint8_t rx[16];
+
+      (void)memset(rx, RX_FILL, sizeof rx);
+      T64_CHECK_INT(t64_save_channel4_execute(machine, machine->tick, row->tx,
+                                              row->tx_count, rx, row->rx_count),
+                    flag);
+      T64_CHECK(rx_all_fill(rx, row->rx_count, RX_FILL));
     }
   }
 }
@@ -1429,7 +1551,7 @@ static t64_machine *busy_probe(probe_kind kind, int64_t delta,
     build_frame(frame, 1u, 3u, info_tx);
     handshake = H_INFO;
   } else if (kind == PROBE_READ) {
-    build_frame(frame, 2u, 8u, read_tx);
+    build_frame_fill(frame, 2u, 8u, read_tx, RX_FILL);
     handshake = H_READ;
   } else {
     build_frame(frame, 10u, 1u, busy_other_tx);
@@ -1474,7 +1596,7 @@ static void case_eeprom_busy(void) {
   machine = busy_probe(PROBE_READ, -1, image);
   if (machine != NULL) {
     T64_CHECK_INT(image[5], 0x48u);
-    T64_CHECK(rx_all(image, 2u, 8u, 0xFFu));
+    T64_CHECK(rx_all(image, 2u, 8u, RX_FILL));
     t64_machine_destroy(machine);
   }
   machine = busy_probe(PROBE_READ, 0, image);

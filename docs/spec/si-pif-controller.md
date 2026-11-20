@@ -67,6 +67,17 @@ witness it: RDRAM changed after a WR64B start never reaches the PIF RAM, and
 the RD64B destination keeps its old bytes, including bytes written by the host,
 until the completion tick overwrites all 64 of them at once.
 
+The active descriptor is immutable. A write to `SI_DRAM_ADDR` while a transfer is
+active changes only the latch (the register then reads the new value); the
+transfer completes at the address latched at its start, so the image lands at the
+old address and the memory at the new one is untouched (test: `dma-timing`, with the
+accepted baseline of the same setup).
+
+An RD64B completion is an RDRAM write like the ROM DMA: it clears the RDP memory
+coverage marks of the 64 bytes it overwrote, and the CPU link (the LL bit) of a
+linked word that overlaps them, and nothing outside the span. The WR64B start reads
+RDRAM and changes neither.
+
 ## PIF command byte
 
 Byte 63 of the written image is the PIF command byte. Value `0x01` asks for a
