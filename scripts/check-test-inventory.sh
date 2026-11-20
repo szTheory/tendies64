@@ -231,7 +231,8 @@ runner.save-fixtures
 controls.real.save-wrong-byte
 unit.core.save.import-export
 runner.save-roundtrip
-harness.phase09-collect-real'
+harness.phase09-collect-real
+unit.replay.suite'
 
 CPU_COVERAGE_OPCODES='ADD
 ADDU
