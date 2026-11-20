@@ -94,6 +94,8 @@ MUTATION_SEEDS = (
     "save decode-region injected-effect mutation",
     "SRAM region branch removed from decode_region",
     "unreviewed extra core save source file",
+    "hidden state source",
+    "missing state source",
 )
 
 # Plan 09-03 pins: the bus bodies edited for the SI region and the two sources
@@ -110,6 +112,10 @@ NEW_SI_SOURCES = ("t64_si.c", "t64_joybus.c")
 # Deleting any one of them must fail the guard.
 NEW_SAVE_BODY_PINS = ("core/t64_pi.c :: t64_pi_complete",)
 NEW_SAVE_SOURCES = ("t64_save.c",)
+
+# Plan 09-08: the state container source has no pinned body, only a roster row;
+# deleting that row must fail the guard naming the source.
+NEW_STATE_SOURCES = ("t64_state.c",)
 
 
 def require_nonzero_count(count: int, label: str) -> None:
@@ -186,6 +192,27 @@ def _must_reject(label: str, source_root: pathlib.Path,
         raise AssertionError(f"mutation accepted: {label}")
 
 
+def _assert_source_only_clean(source_root: pathlib.Path) -> None:
+    findings, _, scanned = CHECKER.inspect_tree(source_root)
+    require_nonzero_count(scanned, "scanned production source")
+    if findings:
+        raise AssertionError(
+            "clean source-only fixture failed: " + " | ".join(findings)
+        )
+
+
+def _must_reject_naming(label: str, source_root: pathlib.Path,
+                        expected: str) -> None:
+    """Like _must_reject, but the guard must also say why (the finding text)."""
+
+    findings, _, scanned = CHECKER.inspect_tree(source_root)
+    require_nonzero_count(scanned, "scanned production source")
+    if not any(finding == expected for finding in findings):
+        raise AssertionError(
+            f"mutation not reported as expected: {label}: want {expected!r}, got {findings}"
+        )
+
+
 def _check_si_pin_deletions(source_root: pathlib.Path,
                             build_root: pathlib.Path) -> None:
     """Delete each plan 09-03 pin or source name once: the clean tree is
@@ -207,7 +234,7 @@ def _check_si_pin_deletions(source_root: pathlib.Path,
         if not any(finding == expected for finding in findings):
             raise AssertionError(f"deleting the pin for {label} was not reported: {findings}")
     saved_sources = CHECKER.CANONICAL_CORE_SOURCES
-    for name in NEW_SI_SOURCES + NEW_SAVE_SOURCES:
+    for name in NEW_SI_SOURCES + NEW_SAVE_SOURCES + NEW_STATE_SOURCES:
         if name not in saved_sources:
             raise AssertionError(f"{name} is not a reviewed source name")
         CHECKER.CANONICAL_CORE_SOURCES = saved_sources - {name}
@@ -343,7 +370,31 @@ def _check_helper_inventory_mutations(temp_root: pathlib.Path) -> int:
         raise AssertionError("SP DMA admission helper definition no longer exists")
     path.write_text(original[: span[0]] + original[span[1] :], encoding="utf-8")
     _must_reject("removed SP DMA helper definition", source_root)
-    return 11
+
+    # Plan 09-08: the state container source. Each setup first shows that the
+    # unmodified fixture inspects clean, then applies one change that must be
+    # rejected with its own finding.
+    source_root = _copy_source_only_fixture(temp_root / "hidden-state-source")
+    _assert_source_only_clean(source_root)
+    (source_root / "core" / "t64_state_unreviewed.c").write_text(
+        "int hidden_state_source;\n", encoding="utf-8"
+    )
+    _must_reject_naming(
+        "hidden state source", source_root,
+        "core: unreviewed t64_*.c production source(s): t64_state_unreviewed.c",
+    )
+
+    source_root = _copy_source_only_fixture(temp_root / "missing-state-source")
+    state_source = source_root / "core" / "t64_state.c"
+    if not state_source.is_file():
+        raise AssertionError("the source-only fixture has no core/t64_state.c to delete")
+    _assert_source_only_clean(source_root)
+    state_source.unlink()
+    _must_reject_naming(
+        "missing state source", source_root,
+        "core: canonical production source(s) missing: t64_state.c",
+    )
+    return 13
 
 
 def _mutate_source(source_root: pathlib.Path, text: str) -> None:

@@ -48,6 +48,7 @@ CANONICAL_CORE_SOURCES = frozenset(
         "t64_si.c",
         "t64_softfloat.c",
         "t64_sp.c",
+        "t64_state.c",
         "t64_trace.c",
         "t64_vi.c",
         "t64_warm_devices.c",
