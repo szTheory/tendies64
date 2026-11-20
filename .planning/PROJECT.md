@@ -62,28 +62,22 @@ breadth or polish.
 - ✓ Rolling milestone v1.0 has48 assigned requirements and six verified phases;
   later outlines retain25 future requirements. This is planning completion,
   not a software release or market-demand claim.
+- ✓ In-tree software RDP (fill, copy, textured and shaded triangles, combiner, blender, coverage, Z) and a software VI that produce raw frames from RDRAM under the profile's TV timing, with SYNC_FULL/DP interrupt behavior and named undefined-behavior policies, kept separate from host scaling — Phase 7, v1.1 (VID-01/02/03/05/06; authored and unit-tested within the named software profiles; verified 10 of 12 with five accepted test-strength gaps).
+- ✓ AI DMA, the two-deep queue, DACRATE cadence and interrupts producing raw audio, an exact-sample authored diagnostic, and headless raw video and audio capture as files — Phase 8, v1.1 (AUD-01/02/03, RUN-06; qualified on 3a41734).
+- ✓ Standard controller over SI/PIF from timed logical input, EEPROM 4/16 Kbit and SRAM save media with explicit device selection, save import/export, a scheduler ordering all devices with the quantum in the profile identity, a versioned canonical machine state export/import, and a timed-input replay artifact bound to profile, build and content hash — Phase 9, v1.1 (SAVE-01..04, CORE-02, CORE-04, CORE-05; unit-tested and regression-pinned, authored scope, qualified on d3211e9). Carried limits: Z depth inactive on the composite profiles, a resumed runner run never reports pass, replay is cold-admit only.
 
 ### Active
 
 These are hypotheses until shipped and verified. They are scoped further in
 `REQUIREMENTS.md`.
 
-- [ ] Complete SI/PIF and later video/audio device integration through the
-      canonical scheduler; current memory, MI, PI, SP and RDRAM paths retain
-      their tested profile limits
+- [ ] RDP differential conformance evidence (VID-04) with labeled out-of-tree oracles, only after the owner's D5 authority decision and the parallel-rdp per-file rights audit; descoped from v1.1 on 2026-11-20
+- [ ] Accessories (Controller Pak, Rumble Pak, Transfer Pak) as separate, explicitly named profiles; RDP depth (Z) on the composite profiles; a composite end-to-end fixture (video, audio, input, save) through the runner
 - [ ] Broader RSP microcode compatibility and later audio/video task evidence,
       beyond the qualified functional profile's ROM-level tests
 - [ ] Public external diagnostic CI only after D2 rights permission; keep
       qualified external diagnostics local and preserve the cleared authored
       hello as the permanent public smoke lane
-- [ ] RDP command processing and VI scanout that produce raw framebuffer
-      output, kept separate from host scaling and presentation
-- [ ] An AI path (DMA, sample cadence, interrupts) that produces raw audio,
-      kept separate from host playback
-- [ ] A cartridge save-media baseline (EEPROM 4/16 Kbit, SRAM, then others)
-      with explicit device selection and refused-operation postconditions
-- [ ] Standard controller input over SI/PIF; accessories (Controller Pak,
-      Rumble Pak, Transfer Pak) as separate, explicitly named profiles
 - [ ] A public core API that defines instance lifetime, profile selection,
       content admission and refusal, timed input, bounded advancement, raw
       output buffers, reset/unload and failure postconditions before it is
@@ -200,11 +194,7 @@ Source/model tests and private diagnostic classification are not silicon or
 broad compatibility proof. Original historical failures and evidence limits
 remain disclosed; current artifacts have immutable consumer/binding retention.
 
-RDP/VI rendering, AI audio, SI/PIF/controller/save integration, an installed
-consumer and a playable cleared homebrew remain later milestone work. The
-milestone audit covers48 requirements;25 future requirements remain open (24 pending and one partial).
-No software release or release-version tag has been published. The working
-name remains uncleared; D2/D5/D6 and physical/rights stops remain unchanged.
+Milestone v1.1 "Observable Machine" (closed 2026-11-20) added the software RDP and VI, the AI path with raw A/V capture, the SI/PIF controller, save media, the full-device scheduler, canonical state export/import and input replay, each qualified on exact native and hosted records with authored-scope, unit-tested claims (Phase 8 on 3a41734, Phase 9 on d3211e9, tag phase09-f2). VID-04 (differential oracle evidence) was descoped to v1.2 by the owner on 2026-11-20 and no oracle was run. The public API/ABI freeze, an installed independent consumer and a playable cleared homebrew remain later milestone work. No software release or release-version tag has been published. The working name remains uncleared; D2/D5/D6 and physical/rights stops remain unchanged.
 
 ## Constraints
 
@@ -251,6 +241,9 @@ name remains uncleared; D2/D5/D6 and physical/rights stops remain unchanged.
 | Exact local reporting before accuracy claims | Independent source/image denominator and C-owned original-record classification stay separate from public authored CI and hardware qualification. | ✓ Phases 4–6, bounded evidence |
 | License: Apache-2.0 (owner, 2026-11-09; MIT was an acceptable alternative) | Owner preference. Permissive, with an explicit patent grant. Code copied from other projects must be license-compatible: ISC, MIT, BSD-3 and Unlicense sources are copyable with notices kept; GPL sources (Project64, Mupen64Plus-core) and the Angrylion-Plus legacy MAME license must not be copied. | ✓ Good |
 | Repository visibility: public under the szTheory GitHub account (owner, 2026-11-09) | Owner decision. No PII, credentials or private paths in any tracked file or commit. Commits use the GitHub noreply address. | ✓ Good |
+| One composite software-profile family (descriptor 12, state v25) for SI/save/AI with the scheduler order and quantum in the profile identity (v1.1 Phase 9) | Adds SI, saves and state without changing the 17 earlier profile ids; digests of all earlier ids stay byte-identical. | ✓ v1.1 verified; RDP combiner and coverage state carried after independent review |
+| Independent review, audit and goal verification before final qualification (v1.1 Phase 9) | Found a digest completeness gap, an importer bounds hole and a timeout that would have blocked qualification, none visible to self-comparing tests. | ✓ Keep for every state-bearing phase |
+| VID-04 descoped to v1.2 (owner, 2026-11-20) | Needs the D5 oracle authority decision, a rights audit, a cleared corpus and a replay adapter. | — Pending (owner, v1.2) |
 | Release channel and versioning | Still an open owner decision. Releases wait on it. | — Pending (owner) |
 
 ## Evolution
@@ -271,14 +264,9 @@ This document evolves at phase transitions and milestone boundaries.
 4. Update Context with current state
 
 ---
-*Last updated: 2026-11-15 after v1.0 milestone audit*
+*Last updated: 2026-11-20 after v1.1 milestone audit*
 
 
-## Current Milestone: v1.1 Observable Machine
+## Next Milestone Goals
 
-Open v1.1 Observable Machine around Phase7 RDP reference rendering/VI,
-Phase8 raw audio and Phase9 controller/save/replay. Reconfirm the provisional
-contracts and scope against completed machine behavior through the installed
-new-milestone flow. Preserve the25 future open requirements and explicit
-rights/oracle/release stops. The v1.0 planning archive is complete; no software
-release or version tag is implied.
+Start the next milestone with `/gsd-new-milestone`. Candidates: the public API/ABI freeze and an installed independent consumer (VER-05, API-01 and the other v1.2 requirements), the composite end-to-end fixture, RDP depth on the composite profiles, the v1.1 test-strength debt (Phase 7 VG-01..05) and, only after the owner's D5 decision, VID-04. Hosted macOS gate time (cold projection above the 10 minute job limit) is a first-class item for the next requalification. No software release or version tag is implied.
