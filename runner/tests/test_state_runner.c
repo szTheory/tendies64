@@ -2045,13 +2045,54 @@ static int case_import_bound_below_tick(void) {
 #define OBSERVER_BODY_BYTES 40u
 #define OBSERVER_VIDEO_HEAD_AT 8u /* the second of the five u64 values */
 
-/* The observer-range mutation (RED stub: the blob is left unchanged; the real
- * re-signing mutation replaces it in the GREEN commit). Returns the id of the
- * entry that was changed, or 0 when the layout does not match. */
+static uint32_t be32_at(const uint8_t *p) {
+  return ((uint32_t)p[0] << 24) | ((uint32_t)p[1] << 16) |
+         ((uint32_t)p[2] << 8) | (uint32_t)p[3];
+}
+
+static uint64_t be64_at(const uint8_t *p) {
+  return ((uint64_t)be32_at(p) << 32) | (uint64_t)be32_at(p + 4);
+}
+
+static void put_be64_at(uint8_t *p, uint64_t value) {
+  unsigned i;
+  for (i = 0u; i < 8u; i++) p[i] = (uint8_t)(value >> (56u - 8u * i));
+}
+
+/* The observer-range mutation with literal layout offsets (the table at 0x120,
+ * 56 bytes an entry: id u32, flags u32, body offset u64, body length u64, body
+ * SHA-256 at +24; section count u32 at 0x18): the video packet head, the
+ * second of the five u64 values of the observer body, becomes the 64-bit
+ * maximum; the observer entry hash and the trailer are recomputed; the declared
+ * digest is untouched (the observer body is outside the canonical region).
+ * Returns the id of the entry that was changed, or 0 when the layout does not
+ * match. */
 static unsigned mutate_observer_range(uint8_t *bytes, size_t size) {
-  (void)bytes;
-  (void)size;
-  return OBSERVER_SECTION_ID;
+  uint32_t count;
+  uint32_t i;
+  if (size < TABLE_OFFSET + TRAILER_BYTES) return 0u;
+  count = be32_at(bytes + 0x18u);
+  for (i = 0u; i < count; i++) {
+    const size_t at = TABLE_OFFSET + (size_t)TABLE_ENTRY_BYTES * i;
+    uint64_t body;
+    uint64_t length;
+    t64_sha256_ctx context;
+    if (at + TABLE_ENTRY_BYTES > size) return 0u;
+    if (be32_at(bytes + at) != OBSERVER_SECTION_ID) continue;
+    body = be64_at(bytes + at + 8u);
+    length = be64_at(bytes + at + 16u);
+    if (be32_at(bytes + at + 4u) != 1u || length != OBSERVER_BODY_BYTES ||
+        body + length + TRAILER_BYTES != (uint64_t)size) {
+      return 0u;
+    }
+    put_be64_at(bytes + body + OBSERVER_VIDEO_HEAD_AT, UINT64_MAX);
+    t64_sha256_init(&context);
+    t64_sha256_update(&context, bytes + body, (size_t)length);
+    t64_sha256_final(&context, bytes + at + 24u);
+    resign_trailer(bytes, size);
+    return OBSERVER_SECTION_ID;
+  }
+  return 0u;
 }
 
 /* One inventory row: name :: status :: reason :: section id :: rule. The
@@ -2289,7 +2330,7 @@ static int tracer_run(const char *row_name) {
     outcome_token = direct.parsed ? direct.outcome : "unparsed";
   }
   if (have_subject) {
-    sha256_file_hex(subject_path, hex);
+    CHECK(sha256_file_hex(subject_path, hex));
   } else {
     (void)snprintf(hex, sizeof hex, "none");
   }
