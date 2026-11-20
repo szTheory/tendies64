@@ -69,6 +69,7 @@ CASE_NAMES: tuple[str, ...] = (
     "no-undefined-global-names",
     "case-checker-selftest-and-mismatch",
     "claim-skeleton-has-no-real-block",
+    "f2-identity-pins",
 )
 
 # Named subsets run by the dedicated CTest names (no new logic, only grouping).
@@ -92,6 +93,7 @@ SUITES: dict[str, tuple[str, ...]] = {
                   "public-member-private-suffix-refused",
                   "public-member-state-magic-refused",
                   "public-member-symlink-or-nested-refused"),
+    "f2": ("f2-identity-pins",),
 }
 
 QUALIFIER = ROOT / "scripts/qualify-phase09.py"
@@ -498,6 +500,244 @@ def _synthetic_junit(path: Path, checks: int, *, extra: str = "", count: int = 1
             "</system-out></testcase>")
     path.write_text("<?xml version=\"1.0\"?><testsuite name=\"(empty)\" tests=\"1\">"
                     + case * count + "</testsuite>")
+
+
+# ---- F2 identity pins (plan 09-11, D-06, D-43, T-09-83) -----------------------
+#
+# The literals below are the F2 freeze of Phase 9: the four profile ids and their
+# lengths (typed by hand from the D-43 stem and suffixes), the four profile hashes,
+# every authored Phase 9 fixture row, the transcript and input pins, the replay golden
+# and oracle digests, the case inventory digest and the claim shape. Each class is
+# compared with an independent carrier by f2_identity_problems: the runner row table,
+# fixtures/manifest.json, the oracle scripts run here, the golden and input file
+# bytes, the inventory file bytes and the test inventory script. A changed literal in
+# any class is refused by its own comparator; changing one is a declared
+# qualification reset (a new native and hosted cycle), never a silent edit.
+F2_PIN_KEYS = ("profile_ids", "id_lengths", "profile_sha256", "fixtures", "transcripts",
+               "inputs", "replay_golden", "oracle_sha256", "inventory_sha256",
+               "claim_block_count", "claim_pairs", "claim_tiers", "claim_counted")
+F2_PINS: dict = {
+    "profile_ids": (
+        "ntsc-cart-4m-openipl3-rdram-b-t1-si-v1",
+        "ntsc-cart-4m-openipl3-rdram-b-t1-si-v1-e4k",
+        "ntsc-cart-4m-openipl3-rdram-b-t1-si-v1-e16k",
+        "ntsc-cart-4m-openipl3-rdram-b-t1-si-v1-s32k",
+    ),
+    "id_lengths": (38, 42, 43, 43),
+    "profile_sha256": {},
+    "fixtures": {},
+    "transcripts": {},
+    "inputs": {},
+    "replay_golden": {},
+    "oracle_sha256": {},
+    "inventory_sha256": "",
+    "claim_block_count": 0,
+    "claim_pairs": (),
+    "claim_tiers": (),
+    "claim_counted": {},
+}
+
+_F2_RUNNER_ROW = re.compile(
+    r'\{"(?P<id>phase09-[a-z0-9-]+)",\s*"(?P<sha256>[0-9a-f]{64})",\s*(?P<size>\d+)u,\s*'
+    r'"(?P<profile_id>[a-z0-9-]+)",\s*"(?P<profile_sha256>[0-9a-f]{64})",\s*'
+    r'UINT32_C\(0x[0-9a-f]+\),\s*(?:true|false),\s*[A-Za-z0-9_]+,\s*(?P<log_bytes>\d+)u,\s*'
+    r'(?:"(?P<log_sha256>[0-9a-f]{64})"|NULL)\}')
+_F2_ORACLE_CACHE: dict[tuple[str, str, str], tuple[int, str, str, int]] = {}
+
+
+def _f2_digest(root: Path, relative: str) -> str:
+    return hashlib.sha256((root / relative).read_bytes()).hexdigest()
+
+
+def _f2_runner_rows(root: Path) -> dict[str, dict[str, str]]:
+    text = (root / "runner/t64_real_fixture.c").read_text(encoding="utf-8")
+    return {found.group("id"): found.groupdict() for found in _F2_RUNNER_ROW.finditer(text)}
+
+
+def _f2_manifest_rows(root: Path) -> dict[str, dict]:
+    manifest = json.loads((root / "fixtures/manifest.json").read_text(encoding="utf-8"))
+    return {entry["id"]: entry for entry in manifest["entries"]
+            if entry["id"].startswith("phase09-")}
+
+
+def _f2_oracle(root: Path, script: str, scenario: str | None) -> tuple[int, str, str, int]:
+    """(--bytes, --sha256, sha256 over the printed text, printed length) of one oracle
+    scenario, each oracle flag run once."""
+    key = (str(root), script, scenario or "")
+    if key not in _F2_ORACLE_CACHE:
+        base = [sys.executable, "-B", str(root / script)]
+        if scenario is not None:
+            base += ["--scenario", scenario]
+
+        def run(flag: str) -> bytes:
+            return subprocess.run(base + [flag], capture_output=True, check=True).stdout
+
+        printed = run("--print")
+        _F2_ORACLE_CACHE[key] = (int(run("--bytes")), run("--sha256").decode().strip(),
+                                 hashlib.sha256(printed).hexdigest(), len(printed))
+    return _F2_ORACLE_CACHE[key]
+
+
+def f2_inventory_ctest_names(root: Path) -> set[str]:
+    """Every CTest name some suite of the case inventory lists."""
+    inventory = json.loads((root / "docs/spec/phase09-cases.json").read_text(encoding="utf-8"))
+    return {name for suite in inventory["suites"].values() for name in suite["ctest"]}
+
+
+def f2_registered_names(root: Path) -> set[str]:
+    """The Phase 9 rows and the baseline lists of scripts/check-test-inventory.sh."""
+    text = (root / "scripts/check-test-inventory.sh").read_text(encoding="utf-8")
+    names: set[str] = set()
+    for found in re.finditer(r"^([A-Z][A-Z0-9_]*)='([^']*)'", text, re.M):
+        if found.group(1) == "PHASE09_TESTS" or found.group(1).startswith("BASELINE_"):
+            names.update(found.group(2).split())
+    return names
+
+
+def f2_identity_problems(pins: dict, root: Path = ROOT) -> list[str]:
+    """Every disagreement of the pin table with its carriers, one 'class: text' each."""
+    out: list[str] = []
+    ids = tuple(pins["profile_ids"])
+    # profile_ids and id_lengths: typed by hand, checked against the sources.
+    if len(ids) != 4 or len(set(ids)) != 4:
+        out.append(f"profile_ids: expected four distinct ids, got {len(ids)}")
+    machine = (root / "core/t64_machine.c").read_text(encoding="utf-8")
+    runner_text = "".join(path.read_text(encoding="utf-8")
+                          for path in sorted((root / "runner").glob("*.c")))
+    for pid in ids:
+        if len(pid) > 63:
+            out.append(f"profile_ids: {pid} is longer than 63 characters")
+        if f'"{pid}"' not in machine:
+            out.append(f"profile_ids: {pid} is not a string literal of core/t64_machine.c")
+        if f'"{pid}"' not in runner_text:
+            out.append(f"profile_ids: {pid} is not a string literal of the runner sources")
+    if tuple(pins["id_lengths"]) != tuple(len(pid) for pid in ids):
+        out.append(f"id_lengths: pinned {tuple(pins['id_lengths'])} but the ids measure "
+                   f"{tuple(len(pid) for pid in ids)}")
+    # profile_sha256: the runner row table carries the literal next to the id.
+    rows = _f2_runner_rows(root)
+    if set(pins["profile_sha256"]) != set(ids):
+        out.append("profile_sha256: pinned ids "
+                   f"{sorted(pins['profile_sha256'])} differ from the profile_ids table")
+    for pid in ids:
+        pinned = pins["profile_sha256"].get(pid)
+        held = {row["profile_sha256"] for row in rows.values() if row["profile_id"] == pid}
+        if pinned is None:
+            out.append(f"profile_sha256: no pinned hash for {pid}; the runner table holds "
+                       f"{sorted(held)}")
+        elif held != {pinned}:
+            out.append(f"profile_sha256: {pid} pinned {pinned} but the runner table holds "
+                       f"{sorted(held)}")
+    # fixtures: the pinned set equals the manifest phase09- rows and the runner rows.
+    manifest = _f2_manifest_rows(root)
+    pinned_fixtures = pins["fixtures"]
+    for fid in sorted(set(manifest) - set(pinned_fixtures)):
+        out.append(f"fixtures: manifest row {fid} is not pinned")
+    for fid in sorted(set(pinned_fixtures) - set(manifest)):
+        out.append(f"fixtures: pinned id {fid} is not a manifest row")
+    for fid in sorted(set(rows) - set(pinned_fixtures)):
+        out.append(f"fixtures: runner row {fid} is not pinned")
+    for fid, pin in sorted(pinned_fixtures.items()):
+        for carrier, row in (("manifest", manifest.get(fid)), ("runner", rows.get(fid))):
+            if row is None:
+                continue
+            have = (row["sha256"], int(row["size"]),
+                    row["profile"] if carrier == "manifest" else row["profile_id"])
+            if have != (pin["sha256"], pin["size"], pin["profile_id"]):
+                out.append(f"fixtures: {fid} pinned {(pin['sha256'], pin['size'], pin['profile_id'])}"
+                           f" but the {carrier} row holds {have}")
+        if pin["profile_id"] not in ids:
+            out.append(f"fixtures: {fid} names profile {pin['profile_id']} outside the id table")
+    # transcripts: each pin equals the oracle output, the hash of its printed text and the
+    # runner row log pin of every row that names it.
+    covered: set[str] = set()
+    for key, pin in sorted(pins["transcripts"].items()):
+        source = pin["oracle"]
+        if source[0] == "literal":
+            text = source[1].encode("utf-8")
+            have = (len(text), hashlib.sha256(text).hexdigest(), hashlib.sha256(text).hexdigest(),
+                    len(text))
+        else:
+            have = _f2_oracle(root, source[0], source[1])
+        if (have[0] != pin["bytes"] or have[3] != pin["bytes"] or have[1] != pin["sha256"]
+                or have[2] != pin["sha256"]):
+            out.append(f"transcripts: {key} pinned ({pin['bytes']}, {pin['sha256']}) but the oracle "
+                       f"prints {have}")
+        holders = {fid for fid, row in rows.items()
+                   if row["log_sha256"] == pin["sha256"] and int(row["log_bytes"]) == pin["bytes"]}
+        if holders != set(pin["rows"]):
+            out.append(f"transcripts: {key} is the log pin of runner rows {sorted(holders)} but "
+                       f"the table names {sorted(pin['rows'])}")
+        covered.update(pin["rows"])
+    for fid, row in sorted(rows.items()):
+        if row["log_sha256"] and fid not in covered:
+            out.append(f"transcripts: runner row {fid} has a log pin that no transcript pin names")
+    # inputs: the pad scripts are carried by the qualifier rows, the replay script by its file.
+    hosted = {row["row_id"]: row for row in qualify.HOSTED_ROWS}
+    for key, pin in sorted(pins["inputs"].items()):
+        if "row" in pin:
+            have = hosted.get(pin["row"], {}).get("input_sha256")
+        else:
+            have = _f2_digest(root, pin["path"])
+        if have != pin["sha256"]:
+            out.append(f"inputs: {key} pinned {pin['sha256']} but the carrier holds {have}")
+    replay_inputs = [pin for pin in pins["inputs"].values() if "path" in pin]
+    for pin in replay_inputs:
+        checked = subprocess.run(
+            [sys.executable, "-B", str(root / "fixtures/replay/mix_oracle.py"),
+             "--check-input", str(root / pin["path"])], capture_output=True, check=False)
+        if checked.returncode != 0:
+            out.append(f"inputs: the replay oracle refuses {pin['path']}")
+    # replay_golden, oracle_sha256 and inventory_sha256 equal the file bytes.
+    golden = pins["replay_golden"]
+    if not golden or _f2_digest(root, golden["path"]) != golden["sha256"]:
+        out.append(f"replay_golden: {golden.get('path')} pinned {golden.get('sha256')} but the file "
+                   f"holds {_f2_digest(root, golden['path']) if golden else None}")
+    for path, digest in sorted(pins["oracle_sha256"].items()):
+        if _f2_digest(root, path) != digest:
+            out.append(f"oracle_sha256: {path} pinned {digest} but the file holds "
+                       f"{_f2_digest(root, path)}")
+    if not pins["oracle_sha256"]:
+        out.append("oracle_sha256: no oracle script is pinned")
+    if _f2_digest(root, "docs/spec/phase09-cases.json") != pins["inventory_sha256"]:
+        out.append(f"inventory_sha256: pinned {pins['inventory_sha256']} but docs/spec/"
+                   f"phase09-cases.json holds {_f2_digest(root, 'docs/spec/phase09-cases.json')}")
+    # claim shape: pairs, tiers and counted names (the counts live in the claims case).
+    pairs = tuple(tuple(pair) for pair in pins["claim_pairs"])
+    counted = pins["claim_counted"]
+    if len(pairs) != pins["claim_block_count"] or len(set(pairs)) != len(pairs):
+        out.append(f"claim_block_count: {pins['claim_block_count']} blocks but {len(pairs)} "
+                   f"pairs ({len(set(pairs))} distinct)")
+    if any(pair[0] not in ids for pair in pairs):
+        out.append("claim_pairs: a profile id is outside the id table")
+    if set(pins["claim_tiers"]) != {"unit-tested", "regression-pinned"}:
+        out.append(f"claim_tiers: {sorted(pins['claim_tiers'])} is not the set unit-tested and "
+                   "regression-pinned")
+    if sorted(counted) != list(range(1, pins["claim_block_count"] + 1)):
+        out.append(f"claim_counted: keys {sorted(counted)} are not the block numbers 1 to "
+                   f"{pins['claim_block_count']}")
+    in_suite = f2_inventory_ctest_names(root)
+    registered = f2_registered_names(root)
+    for number, names in sorted(counted.items()):
+        if not names or len(set(names)) != len(names):
+            out.append(f"claim_counted: block {number} counts {len(names)} names, empty or repeated")
+        for name in names:
+            if number <= 5:
+                row = pinned_fixtures.get(name)
+                if row is None or name not in manifest:
+                    out.append(f"claim_counted: block {number} counts {name}, not a pinned "
+                               "manifest row")
+                elif number <= len(pairs) and row["profile_id"] != pairs[number - 1][0]:
+                    out.append(f"claim_counted: block {number} counts {name} of profile "
+                               f"{row['profile_id']} outside its pair {pairs[number - 1]}")
+            else:
+                if name not in in_suite:
+                    out.append(f"claim_counted: block {number} counts {name}, which no suite of "
+                               "docs/spec/phase09-cases.json lists")
+                if name not in registered:
+                    out.append(f"claim_counted: block {number} counts {name}, which is not a "
+                               "registered Phase 9 or baseline test name")
+    return out
 
 
 class Phase09Qualification(unittest.TestCase):
@@ -2131,6 +2371,91 @@ class Phase09Qualification(unittest.TestCase):
 
     def test_case_checker_selftest_and_mismatch(self) -> None:
         Phase09CaseChecker().check(self)
+
+    def test_f2_identity_pins(self) -> None:
+        """The F2 identity table agrees with every independent carrier (D-06, D-43)."""
+        self.assertEqual(tuple(F2_PINS), F2_PIN_KEYS)
+        baseline = f2_identity_problems(F2_PINS)
+        self.assertEqual(baseline, [], "\n".join(baseline))
+
+        def flip(value: str) -> str:
+            return ("0" if value[0] != "0" else "1") + value[1:]
+
+        def refused(label: str, mutate) -> None:
+            pins = copy.deepcopy(F2_PINS)
+            mutate(pins)
+            problems = f2_identity_problems(pins)
+            self.assertTrue(any(line.startswith(label + ":") for line in problems),
+                            f"the {label} control was not refused: {problems}")
+            # The accepted baseline of the same setup still holds after each refusal.
+            self.assertEqual(f2_identity_problems(F2_PINS), [])
+
+        def first(table: dict) -> str:
+            return sorted(table)[0]
+
+        def mutate_profile_hash(pins: dict) -> None:
+            key = first(pins["profile_sha256"])
+            pins["profile_sha256"][key] = flip(pins["profile_sha256"][key])
+
+        def mutate_fixture_hash(pins: dict) -> None:
+            key = first(pins["fixtures"])
+            pins["fixtures"][key]["sha256"] = flip(pins["fixtures"][key]["sha256"])
+
+        def drop_fixture(pins: dict) -> None:
+            del pins["fixtures"][first(pins["fixtures"])]
+
+        def add_fixture(pins: dict) -> None:
+            pins["fixtures"]["phase09-added-row"] = dict(pins["fixtures"][first(pins["fixtures"])])
+
+        def mutate_transcript(pins: dict) -> None:
+            key = first(pins["transcripts"])
+            pins["transcripts"][key]["sha256"] = flip(pins["transcripts"][key]["sha256"])
+
+        def mutate_pad_input(pins: dict) -> None:
+            key = "pad-baseline"
+            pins["inputs"][key]["sha256"] = flip(pins["inputs"][key]["sha256"])
+
+        def mutate_replay_input(pins: dict) -> None:
+            key = "replay-mix"
+            pins["inputs"][key]["sha256"] = flip(pins["inputs"][key]["sha256"])
+
+        def mutate_golden(pins: dict) -> None:
+            pins["replay_golden"]["sha256"] = flip(pins["replay_golden"]["sha256"])
+
+        def mutate_oracle(pins: dict) -> None:
+            key = first(pins["oracle_sha256"])
+            pins["oracle_sha256"][key] = flip(pins["oracle_sha256"][key])
+
+        def mutate_inventory(pins: dict) -> None:
+            pins["inventory_sha256"] = flip(pins["inventory_sha256"])
+
+        def drop_id(pins: dict) -> None:
+            pins["profile_ids"] = pins["profile_ids"][:-1]
+
+        def change_length(pins: dict) -> None:
+            lengths = list(pins["id_lengths"])
+            lengths[3] -= 1
+            pins["id_lengths"] = tuple(lengths)
+
+        def unlisted_counted_name(pins: dict) -> None:
+            # Registered in PHASE09_TESTS, listed by no inventory suite.
+            pins["claim_counted"][7] = [
+                "repo.sched-k5-anchors" if name == "unit.core.sched.ledger" else name
+                for name in pins["claim_counted"][7]]
+
+        refused("profile_sha256", mutate_profile_hash)
+        refused("fixtures", mutate_fixture_hash)
+        refused("fixtures", drop_fixture)
+        refused("fixtures", add_fixture)
+        refused("transcripts", mutate_transcript)
+        refused("inputs", mutate_pad_input)
+        refused("inputs", mutate_replay_input)
+        refused("replay_golden", mutate_golden)
+        refused("oracle_sha256", mutate_oracle)
+        refused("inventory_sha256", mutate_inventory)
+        refused("profile_ids", drop_id)
+        refused("id_lengths", change_length)
+        refused("claim_counted", unlisted_counted_name)
 
     def test_claim_skeleton_has_no_real_block(self) -> None:
         """The claim file is a skeleton: example fences only, no real block."""
