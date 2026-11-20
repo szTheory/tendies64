@@ -67,11 +67,14 @@
  * replay descriptor 2 and the report leaf 2 (the two groups are mutually
  * exclusive; both are counted so the sum stays an upper bound) */
 #define T64_SUP_ARGS_REPLAY 8u
+/* state export flags 4 (plan 09-08): the leaf 2 and the format 2 */
+#define T64_SUP_ARGS_STATE 4u
 #define T64_SUP_CHILD_ARGS_SLOT_SUM                                          \
   (T64_SUP_ARGS_RUNNER_PATH + T64_SUP_ARGS_FIXTURE + T64_SUP_ARGS_INPUT +    \
    T64_SUP_ARGS_PROFILE + T64_SUP_ARGS_TICKS + T64_SUP_ARGS_ADVANCE_STEP +   \
    T64_SUP_ARGS_VIDEO + T64_SUP_ARGS_AUDIO + T64_SUP_ARGS_RAW_CAPTURE +      \
-   T64_SUP_ARGS_ARTIFACT + T64_SUP_ARGS_SAVE + T64_SUP_ARGS_REPLAY)
+   T64_SUP_ARGS_ARTIFACT + T64_SUP_ARGS_SAVE + T64_SUP_ARGS_REPLAY +         \
+   T64_SUP_ARGS_STATE)
 _Static_assert(T64_SUP_CHILD_ARGS_SLOT_SUM + 1u <= T64_SUP_CHILD_ARGS_CAPACITY,
                "the maximum child option set plus the terminating NULL must "
                "fit the child argument array");
@@ -471,6 +474,8 @@ typedef struct {
   const char *replay_play;
   const char *replay_play_sha256;
   const char *replay_report;
+  const char *state_export;
+  const char *state_export_format;
   uint64_t replay_checkpoint_interval;
   uint64_t replay_play_size;
   uint64_t input_size;
@@ -504,6 +509,8 @@ typedef struct {
   int replay_play_size_seen;
   int replay_play_sha256_seen;
   int replay_report_seen;
+  int state_export_seen;
+  int state_export_format_seen;
 #ifdef T64_SUPERVISOR_TESTING
   int advance_step_seen;
 #endif
@@ -601,6 +608,33 @@ static bool replay_flags_valid(const sup_args *a) {
          leaf_has_extension(a->replay_report, "rpr");
 }
 
+/* Real-mode validation of the state export flags (plan 09-08, usage class):
+ * the leaf and the exact format string come together, both need the artifact
+ * pair, and one run has one artifact producer, so they are refused with raw
+ * capture and with every save and replay flag. The leaf grammar and the
+ * extension are the publisher's and the runner's (state-export-open); the
+ * input triple is not an artifact producer and is allowed. */
+static bool state_export_flags_valid(const sup_args *a) {
+  const int any = a->state_export_seen || a->state_export_format_seen;
+  const int pair = a->artifact_dir_seen && a->artifact_max_bytes_seen;
+  if (!any) return true;
+  if (!a->state_export_seen || !a->state_export_format_seen || !pair ||
+      a->raw_capture_dir_seen) {
+    return false;
+  }
+  if (a->save_import_seen || a->save_import_size_seen ||
+      a->save_import_sha256_seen || a->save_kind_seen ||
+      a->save_format_seen || a->save_export_leaf_seen ||
+      a->replay_record_seen || a->replay_interval_seen ||
+      a->replay_play_seen || a->replay_play_size_seen ||
+      a->replay_play_sha256_seen || a->replay_report_seen) {
+    return false;
+  }
+  return a->state_export != NULL && a->state_export[0] != '\0' &&
+         strlen(a->state_export) <= 36u && a->state_export_format != NULL &&
+         strcmp(a->state_export_format, T64_STATE_CONTAINER_FORMAT) == 0;
+}
+
 static int parse_args(int argc, char **argv, sup_args *a) {
   sup_opt opts[] = {
       {"--identity", &a->identity, NULL, 1, 0},
@@ -642,6 +676,8 @@ static int parse_args(int argc, char **argv, sup_args *a) {
       {"--replay-play-size", NULL, &a->replay_play_size, 0, 0},
       {"--replay-play-sha256", &a->replay_play_sha256, NULL, 0, 0},
       {"--replay-report", &a->replay_report, NULL, 0, 0},
+      {"--state-export", &a->state_export, NULL, 0, 0},
+      {"--state-export-format", &a->state_export_format, NULL, 0, 0},
 #ifdef T64_SUPERVISOR_TESTING
       {"--advance-step", NULL, &a->advance_step, 0, 0},
 #endif
@@ -722,6 +758,12 @@ static int parse_args(int argc, char **argv, sup_args *a) {
     }
     if (strcmp(argv[i], "--replay-report") == 0) {
       a->replay_report_seen = 1;
+    }
+    if (strcmp(argv[i], "--state-export") == 0) {
+      a->state_export_seen = 1;
+    }
+    if (strcmp(argv[i], "--state-export-format") == 0) {
+      a->state_export_format_seen = 1;
     }
 #ifdef T64_SUPERVISOR_TESTING
     if (strcmp(argv[i], "--advance-step") == 0) {
@@ -841,6 +883,10 @@ static int parse_args(int argc, char **argv, sup_args *a) {
     if (!bad && !replay_flags_valid(a)) {
       bad = 1;
     }
+    /* State export (plan 09-08): one artifact producer per run. */
+    if (!bad && !state_export_flags_valid(a)) {
+      bad = 1;
+    }
 #ifdef T64_SUPERVISOR_TESTING
     if (!bad && a->advance_step_seen &&
         (a->advance_step == 0u || a->advance_step > UINT64_C(32))) {
@@ -902,7 +948,8 @@ static int parse_args(int argc, char **argv, sup_args *a) {
          a->save_kind_seen || a->save_format_seen || a->save_export_leaf_seen ||
          a->replay_record_seen || a->replay_interval_seen ||
          a->replay_play_seen || a->replay_play_size_seen ||
-         a->replay_play_sha256_seen || a->replay_report_seen
+         a->replay_play_sha256_seen || a->replay_report_seen ||
+         a->state_export_seen || a->state_export_format_seen
 #ifdef T64_SUPERVISOR_TESTING
          || a->advance_step_seen
 #endif
@@ -1583,6 +1630,8 @@ static int real_run_mode(const sup_args *args, const char *self_path) {
   char replay_interval_text[24];
   char replay_fd_text[24];
   char replay_report_text[128];
+  char state_export_text[64];
+  char state_export_format_text[64];
 #ifdef T64_SUPERVISOR_TESTING
   char advance_step_text[24];
 #endif
@@ -1630,6 +1679,25 @@ static int real_run_mode(const sup_args *args, const char *self_path) {
   replay_interval_text[0] = '\0';
   replay_fd_text[0] = '\0';
   replay_report_text[0] = '\0';
+  state_export_text[0] = '\0';
+  state_export_format_text[0] = '\0';
+  if (args->state_export_seen) {
+    /* Bounded copies; the grammar is validated by the publisher and the
+     * runner in the child before any filesystem effect. */
+    const int leaf_length = snprintf(state_export_text,
+                                     sizeof state_export_text, "%s",
+                                     args->state_export);
+    const int format_length = snprintf(state_export_format_text,
+                                       sizeof state_export_format_text, "%s",
+                                       args->state_export_format);
+    if (leaf_length <= 0 || (size_t)leaf_length >= sizeof state_export_text ||
+        format_length <= 0 ||
+        (size_t)format_length >= sizeof state_export_format_text) {
+      (void)real_write_prelaunch(args->result, "harness-error", "usage",
+                                 "not-started", args->bound);
+      return 1;
+    }
+  }
   if (args->replay_record_seen || args->replay_report_seen) {
     /* The leaves are copied into bounded buffers; their grammar is validated
      * by the artifact publisher in the child before any filesystem effect. */
@@ -1865,6 +1933,8 @@ static int real_run_mode(const sup_args *args, const char *self_path) {
     char option_replay_interval[] = "--replay-checkpoint-interval";
     char option_replay_fd[] = "--replay-fd";
     char option_replay_report[] = "--replay-report";
+    char option_state_export[] = "--state-export";
+    char option_state_export_format[] = "--state-export-format";
     char *child_args[T64_SUP_CHILD_ARGS_CAPACITY];
     child_argv_list argv_builder = {child_args, 0u, T64_SUP_CHILD_ARGS_CAPACITY};
     bool argv_ok = true;
@@ -1919,6 +1989,15 @@ static int real_run_mode(const sup_args *args, const char *self_path) {
                 child_argv_push(&argv_builder, option_artifact_max_bytes);
       argv_ok = argv_ok &&
                 child_argv_push(&argv_builder, artifact_max_bytes_text);
+    }
+    if (args->state_export_seen) {
+      /* state export flags 4: the leaf 2 and the format 2 */
+      argv_ok = argv_ok && child_argv_push(&argv_builder, option_state_export);
+      argv_ok = argv_ok && child_argv_push(&argv_builder, state_export_text);
+      argv_ok = argv_ok &&
+                child_argv_push(&argv_builder, option_state_export_format);
+      argv_ok = argv_ok &&
+                child_argv_push(&argv_builder, state_export_format_text);
     }
     if (args->save_kind_seen) {
       /* save flags 8: import descriptor 2, kind 2, format 2, export leaf 2;

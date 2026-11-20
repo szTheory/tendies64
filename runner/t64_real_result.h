@@ -35,7 +35,9 @@ typedef struct {
   char state_digest[T64_REAL_RESULT_HEX_SIZE];
   char guest_stop_kind[32];
   char outcome[24];
-  char detail[32];
+  /* 48: the longest closed detail name (state-export-incomplete-terminal)
+   * is 32 characters and a 32-byte field would truncate it (plan 09-08). */
+  char detail[48];
   uint64_t bound_tick;
   uint64_t guest_tick;
   uint64_t instruction_count;

@@ -153,6 +153,12 @@ typedef struct {
   const char *report_leaf;  /* NULL when not playing */
 } replay_request;
 
+/* The state export request of one run (plan 09-08): the leaf of the private
+ * .sta file published at authored completion; NULL when not exporting. */
+typedef struct {
+  const char *leaf;
+} state_request;
+
 static bool read_snapshot(int fd, size_t max_bytes, size_t exact_size,
                           owned_bytes *output) {
   struct stat st;
@@ -1122,7 +1128,8 @@ static int run_real(int fixture_fd, int input_fd, const char *requested_profile,
                     const char *artifact_dir,
                     uint64_t artifact_max_bytes,
                     const save_request *save,
-                    const replay_request *replay) {
+                    const replay_request *replay,
+                    const state_request *state) {
   static const t64_host_allocator allocator = {
       allocator_allocate, allocator_release, NULL};
   owned_bytes fixture = {0};
@@ -1135,6 +1142,7 @@ static int run_real(int fixture_fd, int input_fd, const char *requested_profile,
   t64_raw_capture *raw_capture = NULL;
   t64_artifact_publisher *save_publisher = NULL;
   t64_artifact_publisher *replay_publisher = NULL;
+  t64_artifact_publisher *state_publisher = NULL;
   t64_replay_recorder *recorder = NULL;
   bool recorder_ended = false;
   owned_bytes replay_bytes = {0};
@@ -1200,6 +1208,12 @@ static int run_real(int fixture_fd, int input_fd, const char *requested_profile,
       profile == NULL ||
       !bytes_equal_hex(fixture.bytes + 0x40u, 4032u,
                        T64_REAL_EXPECTED_PAYLOAD_SHA256)) {
+    exit_code = emit_prelaunch("refusal", "refused", guest_ticks, 0);
+    goto cleanup;
+  }
+  if (state->leaf != NULL && profile->state_serialization_version != 25u) {
+    /* State export is defined for the composite family (state serialization
+     * version 25) only: the existing prelaunch refusal, guest tick 0. */
     exit_code = emit_prelaunch("refusal", "refused", guest_ticks, 0);
     goto cleanup;
   }
@@ -1362,6 +1376,25 @@ static int run_real(int fixture_fd, int input_fd, const char *requested_profile,
       (void)snprintf(result.detail, sizeof result.detail, "%s",
                      publisher_error == NULL ? "host-error"
                                              : publisher_error);
+      goto finalize;
+    }
+  }
+  if (state->leaf != NULL) {
+    /* The publisher is opened before the guest runs (cap = the artifact
+     * maximum) so a leaf that is not a .sta file, an occupied target or any
+     * publisher refusal ends the run at guest tick 0 with the closed detail
+     * state-export-open; nothing is published unless the guest completes. */
+    const char *publisher_error = NULL;
+    if (leaf_extension_is(state->leaf, "sta")) {
+      state_publisher = t64_artifact_publisher_open(
+          artifact_dir, state->leaf, artifact_max_bytes, &publisher_error);
+    }
+    if (state_publisher == NULL) {
+      (void)snprintf(result.guest_stop_kind, sizeof result.guest_stop_kind,
+                     "host-error");
+      (void)snprintf(result.outcome, sizeof result.outcome, "harness-error");
+      (void)snprintf(result.detail, sizeof result.detail,
+                     "state-export-open");
       goto finalize;
     }
   }
@@ -1941,6 +1974,47 @@ finalize:
       t64_raw_capture_abort(raw_capture);
     }
   }
+  if (state_publisher != NULL) {
+    /* State export (plan 09-08): only at authored completion without a host
+     * error; every failure names its closed detail, replaces only the outcome,
+     * the stop kind and the detail of the guest record, and removes the
+     * private stage. The artifact maximum (at most 32 MiB) is stricter than
+     * the core container ceiling, so the cap is checked before any
+     * allocation; no state byte reaches the log, stdout or the record. */
+    const char *failure = NULL;
+    size_t state_length = 0u;
+    if (stop.reason != T64_STOP_REASON_GUEST_COMPLETION ||
+        strcmp(result.guest_stop_kind, "host-error") == 0) {
+      failure = "state-export-incomplete-terminal";
+    } else if (t64_machine_state_export(machine, NULL, 0u, &state_length) !=
+               T64_STATUS_BUFFER_TOO_SMALL) {
+      failure = "state-export-core";
+    } else if ((uint64_t)state_length > artifact_max_bytes) {
+      failure = "state-export-cap";
+    } else {
+      uint8_t *state_bytes = (uint8_t *)malloc(state_length);
+      size_t state_written = 0u;
+      if (state_bytes == NULL) {
+        failure = "state-export-alloc";
+      } else if (t64_machine_state_export(machine, state_bytes, state_length,
+                                          &state_written) != T64_STATUS_OK ||
+                 state_written != state_length) {
+        failure = "state-export-core";
+      } else if (!t64_artifact_publisher_write(state_publisher, state_bytes,
+                                               state_written) ||
+                 !t64_artifact_publisher_finalize(state_publisher)) {
+        failure = "state-export-publish";
+      }
+      free(state_bytes);
+    }
+    if (failure != NULL) {
+      (void)snprintf(result.guest_stop_kind, sizeof result.guest_stop_kind,
+                     "host-error");
+      (void)snprintf(result.outcome, sizeof result.outcome, "harness-error");
+      (void)snprintf(result.detail, sizeof result.detail, "%s", failure);
+      t64_artifact_publisher_abort(state_publisher);
+    }
+  }
   if (save_publisher != NULL) {
     /* Export only after a pass outcome; every other outcome publishes nothing
      * and removes the private stage. */
@@ -2072,6 +2146,10 @@ cleanup:
     t64_artifact_publisher_destroy(replay_publisher);
   }
   t64_replay_recorder_destroy(recorder);
+  if (state_publisher != NULL) {
+    t64_artifact_publisher_abort(state_publisher);
+    t64_artifact_publisher_destroy(state_publisher);
+  }
   if (save_publisher != NULL) {
     t64_artifact_publisher_abort(save_publisher);
     t64_artifact_publisher_destroy(save_publisher);
@@ -2099,6 +2177,8 @@ int main(int argc, char **argv) {
   const char *save_format_token = NULL;
   save_request save = {-1, false, 0u, 0u, 0u, NULL};
   replay_request replay = {NULL, 0u, -1, NULL};
+  state_request state = {NULL};
+  const char *state_format = NULL;
   uint64_t artifact_max_bytes = 0u;
   uint64_t guest_ticks = 0u;
   uint64_t advance_step = T64_REAL_TRACE_STEP;
@@ -2121,6 +2201,8 @@ int main(int argc, char **argv) {
   bool seen_replay_interval = false;
   bool seen_replay_fd = false;
   bool seen_replay_report = false;
+  bool seen_state_export = false;
+  bool seen_state_format = false;
 #ifdef T64_REAL_RUNNER_TESTING
   bool seen_advance_step = false;
 #endif
@@ -2213,6 +2295,15 @@ int main(int argc, char **argv) {
                !seen_replay_report && value[0] != '\0') {
       replay.report_leaf = value;
       seen_replay_report = true;
+    } else if (strcmp(option, "--state-export") == 0 && !seen_state_export &&
+               value[0] != '\0' && strlen(value) <= 36u) {
+      state.leaf = value;
+      seen_state_export = true;
+    } else if (strcmp(option, "--state-export-format") == 0 &&
+               !seen_state_format && value[0] != '\0' &&
+               strlen(value) <= 36u) {
+      state_format = value;
+      seen_state_format = true;
 #ifdef T64_REAL_RUNNER_TESTING
     } else if (strcmp(option, "--advance-step") == 0 &&
                !seen_advance_step && parse_u64(value, &advance_step) &&
@@ -2278,6 +2369,19 @@ int main(int argc, char **argv) {
       return emit_prelaunch("usage", "not-started", guest_ticks, 2);
     }
   }
+  /* The state export options (plan 09-08): the leaf and the exact format
+   * string come together and need the artifact pair; one run has one artifact
+   * producer, so they exclude raw capture and every save and replay option.
+   * The leaf extension and the publisher grammar are checked in run_real. */
+  if (seen_state_export || seen_state_format) {
+    if (!seen_state_export || !seen_state_format || !seen_artifact_dir ||
+        seen_raw_capture_dir || seen_save_import || seen_save_kind ||
+        seen_save_format || seen_save_export_leaf || seen_replay_record ||
+        seen_replay_interval || seen_replay_fd || seen_replay_report ||
+        strcmp(state_format, T64_STATE_CONTAINER_FORMAT) != 0) {
+      return emit_prelaunch("usage", "not-started", guest_ticks, 2);
+    }
+  }
 #ifdef T64_REAL_RUNNER_TESTING
   g_test_fault = getenv("T64_REAL_RUNNER_TEST_FAULT");
   if (g_test_fault != NULL &&
@@ -2320,7 +2424,7 @@ int main(int argc, char **argv) {
                           advance_step, video_observation_fd,
                           audio_observation_fd, raw_capture_dir,
                           raw_capture_max_bytes, artifact_dir,
-                          artifact_max_bytes, &save, &replay);
+                          artifact_max_bytes, &save, &replay, &state);
 #ifdef T64_REAL_RUNNER_TESTING
     if (status == 0 && (test_fault_is("capture-write-limit-exact") ||
                         test_fault_is("capture-write-limit-over")) &&
