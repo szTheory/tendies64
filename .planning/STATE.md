@@ -4,18 +4,18 @@ milestone: v1.1
 milestone_name: Observable Machine
 current_phase: 9
 current_phase_name: Controller, Save Media and Replay
-current_plan: 12
+current_plan: 13
 status: executing
-stopped_at: "Plan 09-10 Task 6 stopped: hosted macOS cold projection 619 s over 600 s (run 44790405712); FX-38 and FX-39 landed; no tag"
-last_updated: "2026-11-20T18:22:46.553Z"
+stopped_at: Completed 09-10-PLAN.md
+last_updated: "2026-11-20T18:27:27.455Z"
 last_activity: 2026-11-19
 last_activity_desc: Phase 9 execution started
-state_head: f87c84d8209050c4b0ad3a2d8182ddc3393d938e
+state_head: b57ca55803c1df342f637535a8dc1734e5c04565
 progress:
   total_phases: 3
   completed_phases: 1
   total_plans: 31
-  completed_plans: 28
+  completed_plans: 29
   percent: 33
 ---
 
@@ -31,7 +31,7 @@ See: .planning/PROJECT.md (updated 2026-11-15)
 ## Current Position
 
 Phase: 9 (Controller, Save Media and Replay) — EXECUTING
-Current Plan: 12
+Current Plan: 13
 Total Plans in Phase: 13
 Status: Ready to execute
 Last activity: 2026-11-19 — Phase 9 execution started
@@ -60,6 +60,7 @@ Progress: [███░░░░░░░] 33% of currently planned source plans
 | Phase 09 P08 | 40min | 5 tasks | 20 files |
 | Phase 09 P09 | 65min | 5 tasks | 15 files |
 | Phase 9 P09.1 | 95min | 5 tasks | 13 files |
+| Phase 09 P10 | Task 6 1h45m (plan span one day) | 6 tasks | 61 files |
 
 ## Accumulated Context
 
@@ -106,6 +107,8 @@ Progress: [███░░░░░░░] 33% of currently planned source plans
 - [Phase 9]: 09-09.1: the importer requires the RDP continuation event while an operation is in flight unless a freeze or flush holds the device, and a render in progress must lie inside RDRAM by the acceptance extents; the drop mutants of the (SP, RSP issue) and (INPUT, SUBMITTED) events are accepted by design (a wedged RSP and a host-submitted input are legitimate states)
 - [Phase 9]: 09-09.1: the v25 state does not carry the RDP combiner block or the RDP memory-coverage table that the filter-v9 family behaves on; a pending triangle and a VI scan-out over coverage marks cannot continue equal after an import (open finding for 09-10 or Phase 10, CORE-04 left unmarked); the field-use scan sees 72 of 472 reachable members
 - [Phase 9]: 09-09.1: the sanitizer preset raises the sweep and campaign counts and the test timeout (1800 s, measured 631.8 s) but not the full boundary matrix; gate cost of unit.core.state.import is 33.2 s native against a 25 s target
+- [Phase 09]: Plan 09-10: the hosted macOS cold projection 619 s over the 600 s gate is accepted as DEV-17 (no third candidate cycle, no ci.yml edit); 09-11 checks Binutils cache freshness with gh cache list before its first push
+- [Phase 09]: Plan 09-10: FR freeze recorded at 8dd6af1 with the local tag phase09-fr (not pushed); six declared frozen-file deviations FD-01 to FD-06; 09-11 edits data only, no CTest name may be added (45 of 45)
 
 ### Pending Todos
 
@@ -127,7 +130,6 @@ question. No oracle authority is part of this decision.
 - D7: name remains uncleared; no branding, logos or store listings.
 - Protected inputs/publication and physical-console measurement retain the explicit stops in [AUTONOMY.md](AUTONOMY.md). No new hardware qualification or broad compatibility claim.
 - Phase 9 oracle-request rebinds: owner approved in conversation on 2026-11-19 (answer "Yes, rebind per milestone") identity-only rebinds of the Phase 7 oracle request whenever Phase 9 manifest rows move the fixture manifest hash (same scope as 15fd8d1). Each rebind reproduces the old pinned hash first, changes only manifest identities, the derived request hash and PINNED_REQUEST_SHA256, and keeps local_decision blocked. This grants no oracle, rights or publication authority. First Phase 9 rebind: manifest sha256 23b34424...4972, request 4200bb02...5500.
-- Plan 09-10 Task 6 stopped at the hosted time gate: run 44790405712 (8dd6af1) macOS cold projection 619 s over 600 s after the one repeat; native rehearsal and hosted pair verified; phase09-fr not created; orchestrator decides the repair or a declared widening (see 09-REVIEW-FIX.md, Hosted rehearsal result)
 
 ## Deferred Items
 
@@ -138,9 +140,9 @@ question. No oracle authority is part of this decision.
 
 ## Session Continuity
 
-Last session: 2026-11-20T18:22:46.389Z
-Stopped at: Plan 09-10 Task 6 stopped: hosted macOS cold projection 619 s over 600 s (run 44790405712); FX-38 and FX-39 landed; no tag
-Resume file: .planning/phases/09-controller-save-media-and-replay/09-REVIEW-FIX.md
+Last session: 2026-11-20T18:27:27.296Z
+Stopped at: Completed 09-10-PLAN.md
+Resume file: None
 
 Historical closeout: [v1.0 roadmap](milestones/v1.0-ROADMAP.md), [audit](milestones/v1.0-MILESTONE-AUDIT.md), [lessons](RETROSPECTIVE.md).
 
