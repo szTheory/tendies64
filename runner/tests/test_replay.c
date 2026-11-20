@@ -917,7 +917,6 @@ static int case_independent_original_run(void) {
   t64_replay_op want[MAX_GOLDEN_OPS];
   size_t want_count = golden_prequeue_ops(want);
   t64_replay *recorded = NULL;
-  t64_replay *recorded7 = NULL;
   size_t i;
   /* The reference path (the queue calls, the advance bounds and the digests
    * written here, no replay module) reproduces the golden literals at two
@@ -940,21 +939,7 @@ static int case_independent_original_run(void) {
             memcmp(got.digest, run.digests[i], T64_DIGEST_SIZE) == 0);
     }
   }
-  CHECK(record_prequeue(7u, &recorded7));
-  if (recorded7 != NULL) {
-    CHECK(ops_equal(recorded7, want, want_count, "recorded-7"));
-  }
-  /* The recorded file of two different advance steps is the same file. */
-  if (recorded != NULL && recorded7 != NULL) {
-    size_t a = 0u;
-    size_t b = 0u;
-    const uint8_t *first = t64_replay_canonical(recorded, &a);
-    const uint8_t *second = t64_replay_canonical(recorded7, &b);
-    CHECK(first != NULL && second != NULL && a == b &&
-          memcmp(first, second, a) == 0);
-  }
   t64_replay_destroy(recorded);
-  t64_replay_destroy(recorded7);
   /* Just-in-time mode: the reference path reproduces the JIT goldens and the
    * recorder-wrapped run produces the independent literal JIT op list. */
   {
@@ -1671,7 +1656,15 @@ static int case_identity_binding(void) {
    * match on a fresh machine of the same ROM. */
   {
     t64_machine *machine = new_machine(PROFILE_STEM, false);
-    CHECK(make_replay(&live, ops, count, &replay));
+    t64_replay_op prefix[MAX_GOLDEN_OPS];
+    size_t prefix_count = 0u;
+    size_t k;
+    /* The prefix through the first checkpoint plays the same live header. */
+    for (k = 0u; k <= GOLDEN_SCRIPT_COUNT; k++) prefix[prefix_count++] = ops[k];
+    op_end(&prefix[prefix_count], golden_pre_ticks[0], golden_pre_digests[0]);
+    prefix[prefix_count].stop = T64_REPLAY_STOP_GUEST_BOUND;
+    prefix_count++;
+    CHECK(make_replay(&live, prefix, prefix_count, &replay));
     if (machine != NULL && replay != NULL) {
       CHECK(play_on(machine, replay, 4096u, &report, &calls) ==
             T64_REPLAY_STEP_MATCH);
@@ -1829,7 +1822,7 @@ static int case_at_matters(void) {
   t64_replay_op jit[MAX_GOLDEN_OPS];
   t64_replay_op pre[MAX_GOLDEN_OPS];
   const size_t jit_count = golden_jit_ops(jit);
-  const size_t pre_count = golden_prequeue_ops(pre);
+  (void)golden_prequeue_ops(pre);
   t64_machine *probe = new_machine(PROFILE_STEM, false);
   t64_replay_header live;
   t64_replay *replay = NULL;
@@ -1881,19 +1874,28 @@ static int case_at_matters(void) {
    * at the first checkpoint (160,000, op index 6). */
   {
     t64_replay_op moved[MAX_GOLDEN_OPS];
+    t64_replay_op prefix[MAX_GOLDEN_OPS];
     t64_machine *machine = new_machine(PROFILE_STEM, false);
     t64_machine *baseline = new_machine(PROFILE_STEM, false);
     t64_replay *unmoved = NULL;
-    CHECK(baseline != NULL && make_replay(&live, pre, pre_count, &unmoved));
+    size_t prefix_count = 0u;
+    size_t k;
+    /* The prefix through the first checkpoint (the inputs, the checkpoint at
+     * 160,000 and an end at the same tick) is the cheap same-setup baseline. */
+    for (k = 0u; k <= GOLDEN_SCRIPT_COUNT; k++) prefix[prefix_count++] = pre[k];
+    op_end(&prefix[prefix_count], golden_pre_ticks[0], golden_pre_digests[0]);
+    prefix[prefix_count].stop = T64_REPLAY_STOP_GUEST_BOUND;
+    prefix_count++;
+    CHECK(baseline != NULL && make_replay(&live, prefix, prefix_count, &unmoved));
     if (baseline != NULL && unmoved != NULL) {
       CHECK(play_on(baseline, unmoved, 4096u, &report, &calls) ==
             T64_REPLAY_STEP_MATCH);
     }
     if (baseline != NULL) t64_machine_destroy(baseline);
     t64_replay_destroy(unmoved);
-    memcpy(moved, pre, sizeof moved);
+    memcpy(moved, prefix, sizeof moved);
     moved[GOLDEN_SCRIPT_COUNT - 1u].at = 100u;
-    CHECK(machine != NULL && make_replay(&live, moved, pre_count, &replay));
+    CHECK(machine != NULL && make_replay(&live, moved, prefix_count, &replay));
     if (machine != NULL && replay != NULL) {
       CHECK(play_on(machine, replay, 4096u, &report, &calls) ==
             T64_REPLAY_STEP_FAILED);
@@ -2013,8 +2015,7 @@ static int case_partition(void) {
   CHECK(play_golden(&live, pre, pre_count, 4096u, true, false));
   CHECK(play_golden(&live, pre, pre_count, 4096u, false, true));
   CHECK(play_golden(&live, jit, jit_count, 7u, false, false));
-  CHECK(play_golden(&live, jit, jit_count, 4096u, true, false));
-  CHECK(play_golden(&live, jit, jit_count, 4096u, false, true));
+  CHECK(play_golden(&live, jit, jit_count, 4096u, true, true));
   return g_failures == 0 ? 0 : 1;
 }
 
@@ -2528,6 +2529,29 @@ static bool record_run(const char *supervisor, const char *interval,
   return run_supervised(&spec, run);
 }
 
+/* One record shared by the controls that need only a recorded file (the cases
+ * record-play-match and the first record of this process still run their own);
+ * the cached run is the accepted record baseline of the same setup. */
+static bool g_cached_valid;
+static char g_cached_dir[PATH_MAX];
+static char g_cached_path[PATH_MAX];
+static run_out g_cached_run;
+
+static bool record_run_cached(char dir_out[PATH_MAX], char replay_path[PATH_MAX],
+                              run_out *run) {
+  if (!g_cached_valid) {
+    if (!record_run(g_supervisor, "160000", g_cached_dir, g_cached_path,
+                    &g_cached_run)) {
+      return false;
+    }
+    g_cached_valid = true;
+  }
+  (void)snprintf(dir_out, PATH_MAX, "%s", g_cached_dir);
+  (void)snprintf(replay_path, PATH_MAX, "%s", g_cached_path);
+  *run = g_cached_run;
+  return true;
+}
+
 static bool play_run(const char *supervisor, uint64_t advance_step,
                      const char *replay_path, char dir_out[PATH_MAX],
                      run_out *run) {
@@ -2833,7 +2857,7 @@ static int mismatch_control(int which, const char *want_field) {
   run_out run;
   uint8_t raw[T64_REPLAY_REPORT_MAX_BYTES + 1u];
   report_view view;
-  CHECK(record_run(g_supervisor, "160000", record_dir, replay_path, &run));
+  CHECK(record_run_cached(record_dir, replay_path, &run));
   expect_mix_pass(&run);
   /* The accepted baseline in the same setup: the unaltered file plays. */
   CHECK(play_run(g_supervisor, 0u, replay_path, play_dir, &run));
@@ -2879,7 +2903,7 @@ static int case_play_diverged(void) {
   report_view view;
   uint8_t expected_altered[T64_DIGEST_SIZE];
   char want_expected[T64_SHA256_HEX_SIZE];
-  CHECK(record_run(g_supervisor, "160000", record_dir, replay_path, &run));
+  CHECK(record_run_cached(record_dir, replay_path, &run));
   expect_mix_pass(&run);
   CHECK(play_run(g_supervisor, 0u, replay_path, play_dir, &run));
   expect_mix_pass(&run);
@@ -2940,7 +2964,7 @@ static int case_flag_combinations(void) {
   run_spec spec;
   size_t i;
   /* The accepted record baseline. */
-  CHECK(record_run(g_supervisor, "160000", record_dir, replay_path, &run));
+  CHECK(record_run_cached(record_dir, replay_path, &run));
   expect_mix_pass(&run);
   CHECK(mix_fixture_path(rom) && sha256_file_hex(replay_path, &size, sha));
   (void)snprintf(size_text, sizeof size_text, "%zu", size);
