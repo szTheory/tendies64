@@ -27,8 +27,10 @@ size_t t64_save_storage_bytes(uint32_t kind) {
   }
 }
 
-/* Blank fill and a cleared deadline; no effect when the profile has no save
- * device. Runs at create and at the reset site of the admission path. */
+/* Blank fill, a cleared deadline and a cleared import generation; no storage
+ * effect when the profile has no save device. Runs at create and at the reset
+ * site of the admission path (D-25: a successful replacement restores blank
+ * save content; a refused admission never reaches it). */
 void t64_save_reset_machine_state(t64_machine *machine) {
   size_t size;
 
@@ -36,6 +38,7 @@ void t64_save_reset_machine_state(t64_machine *machine) {
     return;
   }
   machine->save.busy_until = 0u;
+  machine->save.write_generation = 0u;
   size = t64_save_storage_bytes(machine->profile.save_kind);
   if (size == 0u || machine->save.bytes == NULL) {
     return;
@@ -243,28 +246,18 @@ bool t64_save_in_flight(const t64_machine *machine) {
 }
 
 /*
- * The D-24 check prefix of a save device request, in this exact order:
- * pointers, admitted, the profile has a device, the kind is known, the kind is
- * supported, the kind equals the profile's. A profile with no device answers
- * DEVICE_MISMATCH for any kind (the requested kind versus the profile's none).
- * The function never writes the machine and writes the output only on
- * success. The selection reads the profile only.
+ * The D-24 rows R3 to R6 of a save device request, shared by the info, import
+ * and export functions so they cannot drift: the profile has a device, the
+ * kind is known, the kind is supported, the kind equals the profile's. A
+ * profile with no device answers DEVICE_MISMATCH for any kind (the requested
+ * kind versus the profile's none), which keeps the order observable: a
+ * no-device profile with an unknown kind reports the mismatch. The helper
+ * reads the profile only and never writes anything.
  */
 #define SAVE_KIND_LAST_KNOWN UINT32_C(7)
 
-t64_status t64_machine_save_info(const t64_machine *machine,
-                                 uint32_t requested_kind,
-                                 t64_save_info *info_out) {
-  t64_address_range output_range;
-
-  if (machine == NULL || info_out == NULL ||
-      !t64_internal_make_range(info_out, sizeof *info_out, &output_range) ||
-      !t64_internal_observation_range_is_disjoint(machine, output_range)) {
-    return T64_STATUS_INVALID_ARGUMENT;
-  }
-  if (!machine->has_image) {
-    return T64_STATUS_NOT_READY;
-  }
+static t64_status save_request_prefix(const t64_machine *machine,
+                                      uint32_t requested_kind) {
   if (machine->profile.save_kind == T64_SAVE_NONE) {
     return T64_STATUS_SAVE_DEVICE_MISMATCH;
   }
@@ -278,35 +271,184 @@ t64_status t64_machine_save_info(const t64_machine *machine,
   if (requested_kind != machine->profile.save_kind) {
     return T64_STATUS_SAVE_DEVICE_MISMATCH;
   }
+  if (machine->save.bytes == NULL) {
+    /* Unreachable while the create path sizes the region from the profile. */
+    return T64_STATUS_RESOURCE_EXHAUSTED;
+  }
+  return T64_STATUS_OK;
+}
+
+/*
+ * The D-24 check prefix of the info request, in this exact order: pointers,
+ * admitted, then rows R3 to R6. (Import and export check admission before the
+ * pointer and span row, because they read or write a caller span; the info
+ * function must write its output, so its pointer row comes first. The
+ * difference is recorded in docs/spec/save-media.md.) The function never
+ * writes the machine and writes the output only on success.
+ */
+t64_status t64_machine_save_info(const t64_machine *machine,
+                                 uint32_t requested_kind,
+                                 t64_save_info *info_out) {
+  t64_address_range output_range;
+  t64_status status;
+
+  if (machine == NULL || info_out == NULL ||
+      !t64_internal_make_range(info_out, sizeof *info_out, &output_range) ||
+      !t64_internal_observation_range_is_disjoint(machine, output_range)) {
+    return T64_STATUS_INVALID_ARGUMENT;
+  }
+  if (!machine->has_image) {
+    return T64_STATUS_NOT_READY;
+  }
+  status = save_request_prefix(machine, requested_kind);
+  if (status != T64_STATUS_OK) {
+    return status;
+  }
   info_out->kind = machine->profile.save_kind;
   info_out->size_bytes =
       (uint32_t)t64_save_storage_bytes(machine->profile.save_kind);
   info_out->flags = t64_save_in_flight(machine) ? T64_SAVE_INFO_BUSY : 0u;
-  info_out->write_generation = 0u;
+  info_out->write_generation = machine->save.write_generation;
   return T64_STATUS_OK;
 }
 
-/* Temporary bodies of the plan 09-05 formal RED; replaced in the next step. */
+/*
+ * Byte-order selections (assumption A1: authored policy, not a hardware fact;
+ * no other emulator's convention is asserted). RAW copies; SWAP16 swaps the
+ * two bytes inside every 16-bit unit; WORDREV32 reverses the four bytes inside
+ * every 32-bit unit. Both transforms are involutions, so import and export
+ * apply the same permutation. The three storage sizes are multiples of 4, so
+ * there is no padding. Source and destination are disjoint spans.
+ */
+static bool save_format_valid(uint32_t format) {
+  return format == T64_SAVE_FORMAT_RAW || format == T64_SAVE_FORMAT_SWAP16 ||
+         format == T64_SAVE_FORMAT_WORDREV32;
+}
+
+static void save_transform_copy(uint8_t *destination, const uint8_t *source,
+                                size_t length, uint32_t format) {
+  size_t offset;
+
+  if (format == T64_SAVE_FORMAT_SWAP16) {
+    for (offset = 0u; offset + 2u <= length; offset += 2u) {
+      destination[offset] = source[offset + 1u];
+      destination[offset + 1u] = source[offset];
+    }
+    return;
+  }
+  if (format == T64_SAVE_FORMAT_WORDREV32) {
+    for (offset = 0u; offset + 4u <= length; offset += 4u) {
+      destination[offset] = source[offset + 3u];
+      destination[offset + 1u] = source[offset + 2u];
+      destination[offset + 2u] = source[offset + 1u];
+      destination[offset + 3u] = source[offset];
+    }
+    return;
+  }
+  (void)memcpy(destination, source, length);
+}
+
+/*
+ * Export, D-24 rows R0 to R8 in this exact order (export has no R9: the
+ * committed bytes are always readable). Every check precedes the first write
+ * to the caller buffer, so a refusal leaves the buffer and the machine
+ * untouched; only the too-small row writes *length_out (the required size).
+ */
 t64_status t64_machine_save_export(const t64_machine *machine,
                                    uint32_t device_kind, uint32_t format,
                                    uint8_t *bytes_out, size_t capacity,
                                    size_t *length_out) {
-  (void)machine;
-  (void)device_kind;
-  (void)format;
-  (void)bytes_out;
-  (void)capacity;
-  (void)length_out;
-  return T64_STATUS_NOT_READY;
+  t64_address_range length_range;
+  t64_address_range bytes_range;
+  t64_status status;
+  size_t size;
+
+  if (machine == NULL) {
+    return T64_STATUS_INVALID_ARGUMENT;
+  }
+  if (!machine->has_image) {
+    return T64_STATUS_NOT_READY;
+  }
+  if (length_out == NULL ||
+      !t64_internal_make_range(length_out, sizeof *length_out,
+                               &length_range) ||
+      !t64_internal_observation_range_is_disjoint(machine, length_range)) {
+    return T64_STATUS_INVALID_ARGUMENT;
+  }
+  if (bytes_out == NULL) {
+    if (capacity != 0u) {
+      return T64_STATUS_INVALID_ARGUMENT;
+    }
+  } else if (!t64_internal_make_range(bytes_out, capacity, &bytes_range) ||
+             !t64_internal_observation_range_is_disjoint(machine,
+                                                         bytes_range) ||
+             t64_internal_ranges_overlap(bytes_range, length_range)) {
+    return T64_STATUS_INVALID_ARGUMENT;
+  }
+  status = save_request_prefix(machine, device_kind);
+  if (status != T64_STATUS_OK) {
+    return status;
+  }
+  if (!save_format_valid(format)) {
+    return T64_STATUS_SAVE_BAD_FORMAT;
+  }
+  size = t64_save_storage_bytes(machine->profile.save_kind);
+  if (capacity < size) {
+    *length_out = size;
+    return T64_STATUS_BUFFER_TOO_SMALL;
+  }
+  save_transform_copy(bytes_out, machine->save.bytes, size, format);
+  *length_out = size;
+  return T64_STATUS_OK;
 }
 
+/*
+ * Import, D-24 rows R0 to R9 in this exact order. A length of 0 is handled
+ * before any span is constructed (an empty span cannot overlap or overflow and
+ * is then refused at row R8). Every check precedes the first read of a caller
+ * byte and the first mutation, so atomicity is structural and no staging
+ * buffer exists. On success the normalized bytes are stored, the deadline is
+ * cleared (an import is not a guest write), the scheduler queue and the guest
+ * tick are untouched, no trace record is written and the observer-only
+ * write_generation advances by one.
+ */
 t64_status t64_machine_save_import(t64_machine *machine, uint32_t device_kind,
                                    uint32_t format, const uint8_t *bytes,
                                    size_t length) {
-  (void)machine;
-  (void)device_kind;
-  (void)format;
-  (void)bytes;
-  (void)length;
-  return T64_STATUS_NOT_READY;
+  t64_address_range span;
+  t64_status status;
+  size_t size;
+
+  if (machine == NULL) {
+    return T64_STATUS_INVALID_ARGUMENT;
+  }
+  if (!machine->has_image) {
+    return T64_STATUS_NOT_READY;
+  }
+  if (bytes == NULL ||
+      (length != 0u &&
+       (!t64_internal_make_range(bytes, length, &span) ||
+        !t64_internal_observation_range_is_disjoint(machine, span)))) {
+    return T64_STATUS_INVALID_ARGUMENT;
+  }
+  status = save_request_prefix(machine, device_kind);
+  if (status != T64_STATUS_OK) {
+    return status;
+  }
+  if (!save_format_valid(format)) {
+    return T64_STATUS_SAVE_BAD_FORMAT;
+  }
+  size = t64_save_storage_bytes(machine->profile.save_kind);
+  if (length != size) {
+    return T64_STATUS_SAVE_SIZE_MISMATCH;
+  }
+  if (t64_save_in_flight(machine)) {
+    return T64_STATUS_SAVE_BUSY;
+  }
+  save_transform_copy(machine->save.bytes, bytes, size, format);
+  machine->save.busy_until = 0u;
+  if (machine->save.write_generation != UINT64_MAX) {
+    machine->save.write_generation++;
+  }
+  return T64_STATUS_OK;
 }

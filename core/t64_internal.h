@@ -944,6 +944,10 @@ typedef struct {
 typedef struct {
   /* The tick from which the EEPROM answers idle again; 0 until a write. */
   uint64_t busy_until;
+  /* Successful host imports since creation or the last replacement (plan
+   * 09-05). Observer only: outside the canonical digest and the walker;
+   * guest writes do not increment it. */
+  uint64_t write_generation;
   /* Storage bytes inside the trailing region; NULL when the profile has no
    * save device. */
   uint8_t *bytes;
