@@ -99,6 +99,17 @@
 #define T64_STATUS_SAVE_BAD_FORMAT UINT32_C(23)
 #define T64_STATUS_SAVE_SIZE_MISMATCH UINT32_C(24)
 #define T64_STATUS_SAVE_BUSY UINT32_C(25)
+/* State import refusals (plan 09-09); provisional until Phase 10. Each status
+ * names one family of refusal and carries a closed reason in the import
+ * report (T64_STATE_REASON_*). */
+#define T64_STATUS_STATE_FORMAT UINT32_C(26)
+#define T64_STATUS_STATE_INTEGRITY UINT32_C(27)
+#define T64_STATUS_STATE_VERSION UINT32_C(28)
+#define T64_STATUS_STATE_PROFILE UINT32_C(29)
+#define T64_STATUS_STATE_CONTENT UINT32_C(30)
+#define T64_STATUS_STATE_BUILD UINT32_C(31)
+#define T64_STATUS_STATE_RANGE UINT32_C(32)
+#define T64_STATUS_STATE_INVARIANT UINT32_C(33)
 
 #define T64_TV_NTSC UINT32_C(1)
 #define T64_TV_PAL UINT32_C(2)
@@ -397,6 +408,110 @@ t64_status t64_machine_digest(const t64_machine *machine,
 t64_status t64_machine_state_export(const t64_machine *machine,
                                     uint8_t *bytes_out, size_t capacity,
                                     size_t *length_out);
+
+/*
+ * State import (plan 09-09; provisional until Phase 10, no API or ABI freeze).
+ * Import accepts a container produced by the same build for the same version,
+ * profile and content. The contract is memory safety plus liveness: a blob
+ * that passes validation cannot cause an out-of-range access, an unbounded
+ * loop or undefined arithmetic, and a state that is valid but semantically
+ * unreachable is accepted and then runs deterministically. The hashes inside
+ * the container are integrity checks, not authentication, and no statement is
+ * made that an imported state is reachable.
+ *
+ * Order: arguments and disjointness from live storage; header; whole-blob
+ * SHA-256 trailer; identity binding (a distinct status per mismatch); section
+ * table; per-field range rules; structural and per-device invariants; the
+ * canonical digest recomputed from the blob bytes against the declared digest;
+ * then one infallible commit. A refusal leaves the machine bit-identical, makes
+ * no host call and releases nothing. The report is a caller record that never
+ * holds blob bytes; it may be NULL.
+ *
+ * Observers: by default the video and audio ring occupancy and the output
+ * drain cursor of the blob are restored. T64_STATE_IMPORT_DROP_OBSERVERS sets
+ * both ring occupancies to empty and the drain cursor to the retained capture
+ * length, so no pre-import byte is re-delivered; the canonical digest is the
+ * same either way.
+ */
+#define T64_STATE_IMPORT_DROP_OBSERVERS UINT32_C(0x1)
+
+/* Closed reasons, in check order. */
+#define T64_STATE_REASON_NONE UINT32_C(0)
+#define T64_STATE_REASON_ARG_NULL UINT32_C(1)
+#define T64_STATE_REASON_ARG_LENGTH UINT32_C(2)
+#define T64_STATE_REASON_ARG_FLAGS UINT32_C(3)
+#define T64_STATE_REASON_ARG_OVERLAP_LIVE UINT32_C(4)
+#define T64_STATE_REASON_NOT_ADMITTED UINT32_C(5)
+#define T64_STATE_REASON_MAGIC UINT32_C(6)
+#define T64_STATE_REASON_CONTAINER_VERSION UINT32_C(7)
+#define T64_STATE_REASON_TOTAL_LENGTH UINT32_C(8)
+#define T64_STATE_REASON_SECTION_COUNT UINT32_C(9)
+#define T64_STATE_REASON_HEADER_FLAGS UINT32_C(10)
+#define T64_STATE_REASON_HEADER_RESERVED UINT32_C(11)
+#define T64_STATE_REASON_TRAILER_SHA256 UINT32_C(12)
+#define T64_STATE_REASON_STATE_VERSION UINT32_C(13)
+#define T64_STATE_REASON_PROFILE_DIGEST UINT32_C(14)
+#define T64_STATE_REASON_CONTENT_DIGEST UINT32_C(15)
+#define T64_STATE_REASON_CONTENT_LENGTH UINT32_C(16)
+#define T64_STATE_REASON_BUILD_ID UINT32_C(17)
+#define T64_STATE_REASON_SECTION_ID_UNKNOWN UINT32_C(18)
+#define T64_STATE_REASON_SECTION_ORDER UINT32_C(19)
+#define T64_STATE_REASON_SECTION_FLAGS UINT32_C(20)
+#define T64_STATE_REASON_SECTION_BOUNDS UINT32_C(21)
+#define T64_STATE_REASON_SECTION_OVERLAP UINT32_C(22)
+#define T64_STATE_REASON_SECTION_LENGTH_EXPECTED UINT32_C(23)
+#define T64_STATE_REASON_SECTION_SHA256 UINT32_C(24)
+#define T64_STATE_REASON_SECTION_MISSING UINT32_C(25)
+#define T64_STATE_REASON_FIELD_RANGE UINT32_C(26)
+#define T64_STATE_REASON_FIELD_PADDING UINT32_C(27)
+#define T64_STATE_REASON_FIELD_RESERVED UINT32_C(28)
+#define T64_STATE_REASON_FIELD_DERIVED UINT32_C(29)
+#define T64_STATE_REASON_QUEUE_COUNT UINT32_C(30)
+#define T64_STATE_REASON_QUEUE_ORDER UINT32_C(31)
+#define T64_STATE_REASON_QUEUE_SEQUENCE UINT32_C(32)
+#define T64_STATE_REASON_QUEUE_TICK UINT32_C(33)
+#define T64_STATE_REASON_QUEUE_KIND_UNKNOWN UINT32_C(34)
+#define T64_STATE_REASON_DEVICE_EVENT_MISSING UINT32_C(35)
+#define T64_STATE_REASON_DEVICE_EVENT_EXTRA UINT32_C(36)
+#define T64_STATE_REASON_DEVICE_TOKEN_MISMATCH UINT32_C(37)
+#define T64_STATE_REASON_DEVICE_STATE_INCONSISTENT UINT32_C(38)
+#define T64_STATE_REASON_DECLARED_DIGEST UINT32_C(39)
+#define T64_STATE_REASON_OBSERVER_RANGE UINT32_C(40)
+
+/* Closed rules, recorded for the field-level reasons. */
+#define T64_STATE_RULE_NONE UINT32_C(0)
+#define T64_STATE_RULE_COUNT_CAP UINT32_C(1)
+#define T64_STATE_RULE_INDEX_LT UINT32_C(2)
+#define T64_STATE_RULE_ENUM_CLOSED UINT32_C(3)
+#define T64_STATE_RULE_BOOL_01 UINT32_C(4)
+#define T64_STATE_RULE_ALIGN UINT32_C(5)
+#define T64_STATE_RULE_ADDR_RANGE UINT32_C(6)
+#define T64_STATE_RULE_TICK_GE UINT32_C(7)
+#define T64_STATE_RULE_TICK_LE UINT32_C(8)
+#define T64_STATE_RULE_SEQ_LT UINT32_C(9)
+#define T64_STATE_RULE_SHIFT_LT UINT32_C(10)
+#define T64_STATE_RULE_LEN_LE UINT32_C(11)
+#define T64_STATE_RULE_PROFILE_DERIVED UINT32_C(12)
+#define T64_STATE_RULE_DERIVED_EQ UINT32_C(13)
+#define T64_STATE_RULE_PAD_ZERO UINT32_C(14)
+#define T64_STATE_RULE_RESERVED_ZERO UINT32_C(15)
+#define T64_STATE_RULE_MASKED_AT_USE UINT32_C(16)
+
+/* Caller record of one import attempt: the status, the first failing reason,
+ * the section id and rule where they apply and a position (a byte position in
+ * the blob or a member ordinal). It never carries blob bytes. */
+typedef struct {
+  t64_status status;
+  uint32_t reason;
+  uint32_t section_id;
+  uint32_t rule;
+  uint64_t position;
+} t64_state_import_report;
+
+t64_status t64_machine_state_import(t64_machine *machine,
+                                    const uint8_t *bytes, size_t length,
+                                    uint32_t flags,
+                                    t64_state_import_report *report_out);
 
 /* Returns NOT_READY until a terminal CPU stop; refusals leave output intact. */
 t64_status t64_machine_cpu_stop_detail(

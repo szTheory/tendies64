@@ -2461,3 +2461,10 @@ t64_status t64_rsp_start(t64_machine *machine) {
   }
   return status;
 }
+
+/* The closed handler table of the state importer (plan 09-09) maps a queued
+ * (SP, RSP_ISSUE) event back to the file-static issue handler through this one
+ * accessor; no existing body or linkage changes. */
+t64_event_handler_fn t64_rsp_issue_event_handler(void) {
+  return t64_rsp_issue_event;
+}

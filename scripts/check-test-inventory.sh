@@ -235,7 +235,8 @@ harness.phase09-collect-real
 unit.replay.suite
 runner.replay-mix
 unit.core.state.export
-runner.state-export'
+runner.state-export
+unit.core.state.import'
 
 CPU_COVERAGE_OPCODES='ADD
 ADDU

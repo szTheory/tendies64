@@ -828,6 +828,22 @@ set_tests_properties(unit.core.state.export PROPERTIES
   TIMEOUT 300
   ENVIRONMENT "T64_TEST_IPL3_PATH=${T64_BOOT_FIXTURE_DIR}/ipl3_compat.z64")
 
+# Phase 9 state container import (plan 09-09).
+add_executable(test_state_import tests/test_state_import.c)
+target_include_directories(test_state_import PRIVATE
+  "${CMAKE_SOURCE_DIR}/tests"
+  "${CMAKE_CURRENT_SOURCE_DIR}"
+  "${CMAKE_SOURCE_DIR}/tools/common")
+target_link_libraries(test_state_import PRIVATE t64_core t64_sha256)
+t64_target_warnings(test_state_import)
+add_dependencies(test_state_import t64-boot-fixtures)
+add_test(NAME unit.core.state.import
+  COMMAND test_state_import)
+set_tests_properties(unit.core.state.import PROPERTIES
+  LABELS unit
+  TIMEOUT 600
+  ENVIRONMENT "T64_TEST_IPL3_PATH=${T64_BOOT_FIXTURE_DIR}/ipl3_compat.z64")
+
 # Phase 9 SI, PIF and input-latch tests (plan 09-03).
 add_executable(test_si tests/test_si.c)
 target_include_directories(test_si PRIVATE

@@ -988,6 +988,69 @@ typedef struct {
   bool valid;
 } t64_event_reservation;
 
+/*
+ * State import scratch (plan 09-09, K8). The validate pass of the importer
+ * records the scalars the structural and per-device checks need, and a
+ * per-(device, kind) summary of the scheduler queue, here instead of on a
+ * stack frame (the core builds with -Wframe-larger-than=2048). The summary is
+ * zero outside an import, never part of the digest, the export or a profile,
+ * and is cleared on every exit path of an attempt.
+ */
+#define T64_STATE_PAIR_COUNT 10u
+#define T64_STATE_SUMMARY_MAX_BYTES 8192u
+
+typedef struct {
+  uint32_t count; /* queued events of this (device, kind) pair */
+  uint32_t reserved;
+  uint64_t tick;  /* the first event seen: tick, token and value */
+  uint64_t token;
+  uint64_t value;
+} t64_state_pair;
+
+typedef struct {
+  uint64_t tick;                 /* machine tick of the blob */
+  uint64_t pi_active_token;
+  uint64_t pi_active_length;
+  uint64_t rsp_issue_sequence;
+  uint64_t rsp_next_issue_tick;
+  uint64_t vi_event_generation;
+  uint64_t ai_event_token;
+  uint64_t ai_paused_remaining_ticks;
+  uint64_t si_start_tick;
+  uint64_t si_execute_tick;
+  uint64_t si_complete_tick;
+  uint64_t si_active_token;
+  uint32_t halted;
+  uint32_t cpu_stopped;
+  uint32_t cpu_attempt_outcome;
+  uint32_t pi_active_valid;
+  uint32_t rsp_running;
+  uint32_t sp_dma_active;
+  uint32_t rdp_idle;
+  uint32_t vi_enabled;
+  uint32_t ai_active;
+  uint32_t ai_paused;
+  uint32_t si_active_valid;
+  uint32_t si_direction;
+  uint32_t si_execute_pending;
+  uint32_t save_kind;
+  uint32_t captured_bytes;
+  uint32_t queue_count;
+  uint32_t sequence_exhausted;
+  uint32_t reserved;
+  uint64_t next_sequence;
+  uint64_t previous_tick;
+  uint64_t previous_sequence;
+} t64_state_device_facts;
+
+typedef struct {
+  t64_state_device_facts facts;
+  t64_state_pair pairs[T64_STATE_PAIR_COUNT];
+} t64_state_summary;
+
+_Static_assert(sizeof(t64_state_summary) <= T64_STATE_SUMMARY_MAX_BYTES,
+               "the import scratch must stay below its size limit");
+
 struct t64_machine {
   t64_host_allocator allocator;
   t64_host_storage machine_storage;
@@ -1058,6 +1121,9 @@ struct t64_machine {
   uint32_t rsp_observed_dma_action;
   uint32_t rsp_observed_outcome;
   bool rsp_observation_valid;
+  /* Import scratch (plan 09-09): zero outside an import attempt; excluded from
+   * the digest, the export and replacement. */
+  t64_state_summary state_summary;
 };
 
 static inline bool t64_has_ai_profile(const t64_machine *machine) {
@@ -1624,6 +1690,16 @@ bool t64_sp_rsp_dma_active(const t64_machine *machine);
 t64_status t64_sp_complete(t64_machine *machine, const t64_event *event);
 void t64_sp_reset_machine_state(t64_machine *machine);
 t64_status t64_rsp_start(t64_machine *machine);
+
+/* State import (core/t64_state.c). The closed handler table maps a queued
+ * (device, kind) pair to its handler, or NULL for any pair outside the ten
+ * production pairs of the event ledger (the synthetic test device included).
+ * t64_rsp_issue_event_handler (core/t64_rsp.c) supplies the one handler that
+ * is file-static. t64_state_summary_is_clear reports whether the scratch is
+ * all zero. */
+t64_event_handler_fn t64_state_handler_lookup(uint32_t device, uint32_t kind);
+t64_event_handler_fn t64_rsp_issue_event_handler(void);
+bool t64_state_summary_is_clear(const t64_machine *machine);
 
 static inline bool t64_internal_make_range(const void *pointer, size_t length,
                                            t64_address_range *range_out) {

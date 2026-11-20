@@ -367,3 +367,39 @@ t64_status t64_machine_state_export(const t64_machine *machine,
   *length_out = (size_t)layout.total;
   return T64_STATUS_OK;
 }
+
+/*
+ * State import (plan 09-09), RED stub: the entry point refuses every request
+ * with NOT_READY until the importer exists.
+ */
+bool t64_state_summary_is_clear(const t64_machine *machine) {
+  const uint8_t *bytes;
+  size_t i;
+
+  if (machine == NULL) {
+    return false;
+  }
+  bytes = (const uint8_t *)&machine->state_summary;
+  for (i = 0u; i < sizeof machine->state_summary; i++) {
+    if (bytes[i] != 0u) {
+      return false;
+    }
+  }
+  return true;
+}
+
+t64_status t64_machine_state_import(t64_machine *machine,
+                                    const uint8_t *bytes, size_t length,
+                                    uint32_t flags,
+                                    t64_state_import_report *report_out) {
+  (void)bytes;
+  (void)length;
+  (void)flags;
+  if (report_out != NULL) {
+    (void)memset(report_out, 0, sizeof *report_out);
+  }
+  if (machine == NULL) {
+    return T64_STATUS_INVALID_ARGUMENT;
+  }
+  return T64_STATUS_NOT_READY;
+}
