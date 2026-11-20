@@ -90,9 +90,18 @@ static void hash_u64_new(t64_digest_sink *sink, uint64_t value) {
   hash_u32_new(sink, (uint32_t)value);
 }
 
-/* v25 framing: a section id (marker class) precedes each section body. */
+/* v25 framing: a section id (marker class) precedes each section body. Every
+ * marker goes through this function, which also feeds the section recorder of
+ * the sink; the bytes written are exactly the marker bytes. */
 static void section_marker(t64_digest_sink *sink, bool framed, uint32_t id) {
   if (framed) {
+    if (sink->section_count < T64_DIGEST_MAX_SECTIONS) {
+      sink->section_ids[sink->section_count] = id;
+      sink->section_offsets[sink->section_count] = sink->offset;
+      sink->section_count++;
+    } else {
+      sink->section_overflow = true;
+    }
     hash_u32_class(sink, id, T64_DIGEST_CLASS_MARKER);
   }
 }

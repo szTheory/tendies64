@@ -1706,6 +1706,9 @@ typedef struct {
   uint32_t class;
 } t64_digest_span;
 
+/* Most section markers one stream can carry (the section recorder below). */
+#define T64_DIGEST_MAX_SECTIONS 32u
+
 typedef struct {
   uint8_t *buffer;         /* copy-out destination, or NULL */
   size_t capacity;         /* bytes available at buffer */
@@ -1715,6 +1718,14 @@ typedef struct {
   size_t span_count;
   size_t span_capacity;
   bool overflow;           /* a write passed capacity or the span array */
+  /* Section recorder (plan 09-08): every v25 marker write appends its id and
+   * the running offset of the marker (the body starts four bytes later). The
+   * legacy streams carry no markers and never record. Callers zero-initialize
+   * the sink, so a stream that does not need the recorder pays nothing. */
+  uint32_t section_ids[T64_DIGEST_MAX_SECTIONS];
+  size_t section_offsets[T64_DIGEST_MAX_SECTIONS];
+  size_t section_count;
+  bool section_overflow;   /* a 33rd marker: nothing further is recorded */
 } t64_digest_sink;
 
 /*
