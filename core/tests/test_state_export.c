@@ -712,10 +712,11 @@ static void case_export_layout(void) {
   status = t64_machine_state_export(machine, NULL, 0u, &required);
   T64_CHECK_INT(status, T64_STATUS_BUFFER_TOO_SMALL);
   /* Independent arithmetic bounds: strictly above the major arrays alone
-   * (RDRAM section 4,194,308, one 2,097,152-byte RDP coverage array, the
-   * 4,096-byte TMEM and the 8,200-byte SP memory section) and below 11 MiB
+   * (RDRAM section 4,194,308, the triangle coverage array and the memory
+   * coverage table of 2,097,152 bytes each since plan 09-10, the 4,096-byte
+   * TMEM and the 8,200-byte SP memory section: 8,400,908) and below 11 MiB
    * (the same plus retained packet slots). */
-  T64_CHECK(required > 6303756u);
+  T64_CHECK(required > 8400908u);
   T64_CHECK(required < 11534336u);
   if (status != T64_STATUS_BUFFER_TOO_SMALL || required < D_TABLE) {
     t64_machine_destroy(machine);

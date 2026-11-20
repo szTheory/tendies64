@@ -66,6 +66,7 @@ color_image_width :: ADDR_RANGE :: state_read_rdp
 render_x_begin :: ADDR_RANGE :: state_read_rdp
 render_x_end :: ADDR_RANGE :: state_read_rdp
 render_y :: ADDR_RANGE :: state_read_rdp
+rdp_memory_coverage :: ENUM_CLOSED :: state_read_rdp_carried
 dpc_current :: MASKED_AT_USE :: state_read_rdp :: core/t64_rdp.c :: t64_rdp_event
 dpc_xbus :: MASKED_AT_USE :: state_read_rdp :: core/t64_rdp.c :: command_span_valid
 # derived values

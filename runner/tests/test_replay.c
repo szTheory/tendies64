@@ -1174,7 +1174,7 @@ static const mrow mutation_rows[] = {
     {"second-end", M_REPLACE, "\"stop\":\"guest-completion\"}]", "\"stop\":\"guest-completion\"}," END_OP_TEXT "]", T64_REPLAY_END_NOT_LAST, 14u},
     {"unknown-op-name", M_REPLACE, "\"op\":\"input\"", "\"op\":\"inpuz\"", T64_REPLAY_INVALID_OP, 0u},
     {"input-with-digest", M_REPLACE, "{\"at\":\"0\",\"buttons\":32768,", "{\"at\":\"0\",\"buttons\":32768,\"digest\":\"" DIGEST_A "\",", T64_REPLAY_INVALID_OP, 0u},
-    {"op-digest-uppercase", M_REPLACE, "\"digest\":\"4a87", "\"digest\":\"4A87", T64_REPLAY_INVALID_OP, 6u},
+    {"op-digest-uppercase", M_REPLACE, "\"digest\":\"d6a7", "\"digest\":\"d6A7", T64_REPLAY_INVALID_OP, 6u},
     {"end-stop-unknown", M_REPLACE, "\"stop\":\"guest-completion\"", "\"stop\":\"guest-completed\"", T64_REPLAY_INVALID_OP, 13u},
     {"depth-5", M_REPLACE, "\"save_init\":{\"kind\":\"blank\"}", "\"save_init\":{\"kind\":\"blank\",\"a\":{\"b\":{\"c\":{\"d\":1}}}}", T64_REPLAY_INVALID_JSON, OFF_ANY},
     {"trailing-bytes", M_APPEND, "{}", NULL, T64_REPLAY_INVALID_JSON, OFF_ANY},

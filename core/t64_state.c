@@ -1862,9 +1862,56 @@ static void state_read_vi(state_reader *r) {
   }
 }
 
+/* The RDP members that end section 8 (plan 09-10, STATE-CONTENT-F1; the
+ * walker streams them in core/t64_digest.c): the combiner block and the
+ * memory coverage table. Before this section part existed the commit zeroed
+ * them, so a peer drew different pixels from the source it had been imported
+ * from. The ranges are the widths of the registers the acceptance stores them
+ * from (core/t64_rdp.c apply_pending_command); a coverage entry is either clear
+ * or the valid bit with a coverage of 0 to 8 (core/t64_rdp_pipeline.c). */
+static void state_read_rdp_carried(state_reader *r) {
+  t64_machine *m = r->machine;
+  t64_rdp_state *rdp = &m->rdp;
+  const size_t table_bytes =
+      T64_RDP_MEMORY_COVERAGE_BYTES(m->profile.rdram_bytes);
+  const uint8_t *entries;
+  size_t i;
+
+  F32_LE(rdp->primitive_lod_fraction, UINT32_C(0xff), T64_STATE_RULE_INDEX_LT);
+  F32(rdp->environment_color);
+  F32(rdp->fog_color);
+  F32(rdp->blend_color);
+  F64(rdp->combine_mode);
+  FBOOL(rdp->combine_mode_valid);
+  FBOOL(rdp->environment_color_valid);
+  FBOOL(rdp->fog_color_valid);
+  FBOOL(rdp->blend_color_valid);
+  FBOOL(rdp->key_center_valid);
+  FBOOL(rdp->key_scale_valid);
+  FBOOL(rdp->key_width_valid);
+  for (i = 0u; i < 3u; i++) {
+    F32_LE(rdp->key_center[i], UINT32_C(0xff), T64_STATE_RULE_INDEX_LT);
+    F32_LE(rdp->key_scale[i], UINT32_C(0xff), T64_STATE_RULE_INDEX_LT);
+    F32_LE(rdp->key_width[i], UINT32_C(0xfff), T64_STATE_RULE_INDEX_LT);
+  }
+  F32_SAMER((uint32_t)table_bytes, T64_STATE_RULE_PROFILE_DERIVED);
+  entries = state_rd_bytes(r, m->rdp_memory_coverage, table_bytes);
+  if (r->mode == STATE_MODE_VALIDATE && entries != NULL) {
+    bool closed = true;
+
+    for (i = 0u; i < table_bytes && closed; i++) {
+      closed = entries[i] == 0u ||
+               (entries[i] >= UINT8_C(0x80) && entries[i] <= UINT8_C(0x88));
+    }
+    STATE_CHECK(r, closed, T64_STATE_REASON_FIELD_RANGE,
+                T64_STATE_RULE_ENUM_CLOSED);
+  }
+}
+
 static void state_section_rdp_vi(state_reader *r) {
   state_read_rdp(r);
   state_read_vi(r);
+  state_read_rdp_carried(r);
 }
 
 /* ---- sections 9 to 11 --------------------------------------------------- */

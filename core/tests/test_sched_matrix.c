@@ -2919,6 +2919,12 @@ static t64_machine *build_f1_state(const f1_state *state) {
  *     branch origin and CP2 latch 16; cache 20; guest devices 20; output and
  *     the ISViewer window (3 + 3 words, 512, 2 words, 4,096, lost flag, total
  *     and saturation) 4,656; RSP 1,408; RDRAM protocol 256            = 43,724
+ *  8  RDP and VI: captured and cross-checked against the v24 stream, except
+ *     the tail the family carries since plan 09-10 (STATE-CONTENT-F1): the
+ *     combiner block (primitive LOD fraction, environment, fog and blend
+ *     colors 4 x 4, combine mode 8, seven valid flags 28, three key words for
+ *     each of three channels 36) 88, then the coverage table size word 4 and
+ *     the table 2,097,152 (one byte per two bytes of 4 MiB RDRAM)  = 2,097,244
  *  10 SI and PIF: 5 words 20, 5 u64 40, 2 words 8, PIF RAM 64, 2 words 8, five
  *     entries of 6 words 120, four ports of 6 words, one u64 and one word 144
  *                                                                       = 404
@@ -2953,7 +2959,7 @@ static const golden_row goldens[F1_ROW_COUNT] = {
     {"idle-stem", 5u, 276u, "15cc6a687b141c3e5e90854599f9d2908b95749664c0418184927a628195be20"},
     {"idle-stem", 6u, 56u, "2d04db54e23eaa8219575be70c424d2ea274da8770485b9d957de66bf6541853"},
     {"idle-stem", 7u, 43724u, "f6948a6a0e1d39e936f5761429c6c96361ab663b3066f4f440a2b1e6b10acb47"},
-    {"idle-stem", 8u, 2103016u, "87adef4ee0974db59ba1eba88437d01f7db040c709aa90c5e70f312e65138065"},
+    {"idle-stem", 8u, 4200260u, "b6c352fc4a1378a5d144f04ba18fa34a60446ac047bff35178c6b5b0b4930e69"},
     {"idle-stem", 9u, 336u, "52a3e0804d93dc525ec3c67ef8ac5b01756ecf0513e36f3c19435e4c82cb5d29"},
     {"idle-stem", 10u, 404u, "aa393fb5f348ef124a46175d478d4246a351c24f2b479c9ce574c158b5bbadba"},
     {"idle-e4k", 2u, 32u, "66687aadf862bd776c8fc18b8e9f8e20089714856ee233b3902a591d0d5f2925"},
@@ -2962,7 +2968,7 @@ static const golden_row goldens[F1_ROW_COUNT] = {
     {"idle-e4k", 5u, 276u, "15cc6a687b141c3e5e90854599f9d2908b95749664c0418184927a628195be20"},
     {"idle-e4k", 6u, 56u, "2d04db54e23eaa8219575be70c424d2ea274da8770485b9d957de66bf6541853"},
     {"idle-e4k", 7u, 43724u, "f6948a6a0e1d39e936f5761429c6c96361ab663b3066f4f440a2b1e6b10acb47"},
-    {"idle-e4k", 8u, 2103016u, "87adef4ee0974db59ba1eba88437d01f7db040c709aa90c5e70f312e65138065"},
+    {"idle-e4k", 8u, 4200260u, "b6c352fc4a1378a5d144f04ba18fa34a60446ac047bff35178c6b5b0b4930e69"},
     {"idle-e4k", 9u, 336u, "52a3e0804d93dc525ec3c67ef8ac5b01756ecf0513e36f3c19435e4c82cb5d29"},
     {"idle-e4k", 10u, 404u, "aa393fb5f348ef124a46175d478d4246a351c24f2b479c9ce574c158b5bbadba"},
     {"idle-e4k", 11u, 532u, "ce276b54e42d1e377ef7d43f652d49f51acfdd62213af71868cc4db2b9945636"},
@@ -2972,7 +2978,7 @@ static const golden_row goldens[F1_ROW_COUNT] = {
     {"idle-e16k", 5u, 276u, "15cc6a687b141c3e5e90854599f9d2908b95749664c0418184927a628195be20"},
     {"idle-e16k", 6u, 56u, "2d04db54e23eaa8219575be70c424d2ea274da8770485b9d957de66bf6541853"},
     {"idle-e16k", 7u, 43724u, "f6948a6a0e1d39e936f5761429c6c96361ab663b3066f4f440a2b1e6b10acb47"},
-    {"idle-e16k", 8u, 2103016u, "87adef4ee0974db59ba1eba88437d01f7db040c709aa90c5e70f312e65138065"},
+    {"idle-e16k", 8u, 4200260u, "b6c352fc4a1378a5d144f04ba18fa34a60446ac047bff35178c6b5b0b4930e69"},
     {"idle-e16k", 9u, 336u, "52a3e0804d93dc525ec3c67ef8ac5b01756ecf0513e36f3c19435e4c82cb5d29"},
     {"idle-e16k", 10u, 404u, "aa393fb5f348ef124a46175d478d4246a351c24f2b479c9ce574c158b5bbadba"},
     {"idle-e16k", 11u, 2068u, "f83831868f121ac1d54cbd1c034f73592c75695302ae5b10f4bb4c8f20c0c4de"},
@@ -2982,7 +2988,7 @@ static const golden_row goldens[F1_ROW_COUNT] = {
     {"idle-s32k", 5u, 276u, "15cc6a687b141c3e5e90854599f9d2908b95749664c0418184927a628195be20"},
     {"idle-s32k", 6u, 56u, "2d04db54e23eaa8219575be70c424d2ea274da8770485b9d957de66bf6541853"},
     {"idle-s32k", 7u, 43724u, "f6948a6a0e1d39e936f5761429c6c96361ab663b3066f4f440a2b1e6b10acb47"},
-    {"idle-s32k", 8u, 2103016u, "87adef4ee0974db59ba1eba88437d01f7db040c709aa90c5e70f312e65138065"},
+    {"idle-s32k", 8u, 4200260u, "b6c352fc4a1378a5d144f04ba18fa34a60446ac047bff35178c6b5b0b4930e69"},
     {"idle-s32k", 9u, 336u, "52a3e0804d93dc525ec3c67ef8ac5b01756ecf0513e36f3c19435e4c82cb5d29"},
     {"idle-s32k", 10u, 404u, "aa393fb5f348ef124a46175d478d4246a351c24f2b479c9ce574c158b5bbadba"},
     {"idle-s32k", 11u, 32788u, "96a813dddb2aed9e4a8070099a5e2afa9d8ed98b29c5a04409bed28e6eb36659"},
@@ -2992,7 +2998,7 @@ static const golden_row goldens[F1_ROW_COUNT] = {
     {"all-stem", 5u, 276u, "d76402d0c97abeead364cda2fd7ba107632608da576dea659f05d0667e8f648e"},
     {"all-stem", 6u, 96u, "da4194e598f9e3e8b0db720185fa6a21194d3c6fd542aa92d0689782632f3c9a"},
     {"all-stem", 7u, 43724u, "12d7b7b731d26cb0c69fd817e787950ce8c4e6bdb0b69d5ac9dc526bdddfa88b"},
-    {"all-stem", 8u, 2103112u, "68e538d595cc112a0f82d1a94539818a58aee372a41adeeb3de5c0ca3dfa705c"},
+    {"all-stem", 8u, 4200356u, "9f7eca0565f3a902c8e55c7f9e1160fa23ed43c8a4ce1158b5668d0b27f9949f"},
     {"all-stem", 9u, 344u, "bdb91a273e1d7a36634d1837c9ef25c274b5abb72591eaa2805b26a47189f58e"},
     {"all-stem", 10u, 404u, "22b74d14eb39b1c125207961e65022947a75724aff09de581405802198483142"},
     {"all-s32k", 2u, 32u, "457af84927bf7a656d18d99b13659c780b5ddcb8ff4255abeae1b573e7e288ce"},
@@ -3001,7 +3007,7 @@ static const golden_row goldens[F1_ROW_COUNT] = {
     {"all-s32k", 5u, 276u, "d76402d0c97abeead364cda2fd7ba107632608da576dea659f05d0667e8f648e"},
     {"all-s32k", 6u, 96u, "da4194e598f9e3e8b0db720185fa6a21194d3c6fd542aa92d0689782632f3c9a"},
     {"all-s32k", 7u, 43724u, "12d7b7b731d26cb0c69fd817e787950ce8c4e6bdb0b69d5ac9dc526bdddfa88b"},
-    {"all-s32k", 8u, 2103112u, "68e538d595cc112a0f82d1a94539818a58aee372a41adeeb3de5c0ca3dfa705c"},
+    {"all-s32k", 8u, 4200356u, "9f7eca0565f3a902c8e55c7f9e1160fa23ed43c8a4ce1158b5668d0b27f9949f"},
     {"all-s32k", 9u, 344u, "bdb91a273e1d7a36634d1837c9ef25c274b5abb72591eaa2805b26a47189f58e"},
     {"all-s32k", 10u, 404u, "22b74d14eb39b1c125207961e65022947a75724aff09de581405802198483142"},
     {"all-s32k", 11u, 32788u, "18027aa2804723811fc26bbe7869393c01a51b8f74981ca5f2228f3a0b70dfbb"},
@@ -3109,7 +3115,8 @@ static void check_f1_state(const f1_state *state) {
 /* Sections 8 and 9 against the stripped v24 stream of the AI profile in the
  * same authored (idle) state: the v24 stream minus its identity spans is the
  * non-identity bytes of section 1 (132 = 32 + 4 + 4 + 64 + 20 + 4 + 4), the
- * hand-derived sections 2 to 7 and sections 8 and 9. */
+ * hand-derived sections 2 to 7 and sections 8 and 9, with the hand-derived
+ * tail of section 8 (the carried RDP members, new-class bytes) removed. */
 static void check_v24_differential(void) {
   t64_machine *stem = create_machine(FAMILY_STEM);
   t64_machine *ai = create_machine(AI_PROFILE);
@@ -3128,9 +3135,11 @@ static void check_v24_differential(void) {
       const size_t hand_2_to_7 = 32u + 4194308u + 8200u + 276u + (16u + 40u) +
                                  43724u;
       const size_t section_1_non_identity = 132u;
+      const size_t section_8_carried_tail = 88u + 4u + 2097152u;
 
       for (i = 0u; i < v25.count; i++) {
         if (v25.ids[i] == 8u || v25.ids[i] == 9u) sum_89 += v25.body_length[i];
+        if (v25.ids[i] == 8u) sum_89 -= section_8_carried_tail;
       }
       T64_CHECK_INT(v24.count, 0u);
       if (v24.length - v24.identity_bytes !=

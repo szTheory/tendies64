@@ -826,10 +826,12 @@ static int case_export_accepted(void) {
   uint64_t size = 0u;
   CHECK(run_accepted(dir, ARTIFACT_MAX, &run, &size));
   /* Larger than the default child limit, within the raised one, and between
-   * the independent arithmetic bounds (the major arrays alone, and 11 MiB). */
+   * the independent arithmetic bounds (the major arrays alone: RDRAM 4,194,308,
+   * two 2,097,152-byte coverage tables, TMEM 4,096 and the SP memory 8,200 are
+   * 8,400,908; and 11 MiB). */
   CHECK(size > DEFAULT_CHILD_LIMIT);
   CHECK(size <= ARTIFACT_MAX + 65536u);
-  CHECK(size > 6303756u);
+  CHECK(size > 8400908u);
   CHECK(size < 11534336u);
   g_state_size = size;
   g_accepted_tick = run.guest_tick;

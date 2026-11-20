@@ -927,7 +927,12 @@ static const row container_rows[] = {
 #define S8_TILE0_SHIFT_S 2101636u
 #define S8_VI_SLOT0 2102416u
 #define S8_VI_SLOT0_CLOCK_POLICY (S8_VI_SLOT0 + 144u)
-#define S8_IDLE_LENGTH 2103016u
+#define S8_IDLE_LENGTH 4200260u
+/* The tail of section 8 (plan 09-10): the combiner block (88 bytes: LOD fraction,
+ * environment, fog and blend colors, combine mode, seven flags at +24, key
+ * center, scale and width of three channels from +52), then the coverage table
+ * size word at +88 and the table at +92. */
+#define S8_TAIL (S8_IDLE_LENGTH - 2097244u)
 #define S5_SP_ACTIVE_END_TICK 176u
 #define BLOB_TICK_S1 13000u
 
@@ -2505,12 +2510,12 @@ static const t64_event *stalled_front_event(const t64_machine *machine) {
                                     : &machine->events[machine->queue_head];
 }
 
-/* The matrix rows leave the hidden RDP memory-coverage table untouched: that
- * table is outside the v25 state (it is zeroed by the import), so a boundary
- * that depended on it could not continue equal; see docs/spec/state-container.md
- * "Limits of the matrix". */
+/* The RDP memory-coverage marks under the source pixels are part of the v25
+ * state since plan 09-10, so the next field the VI scans out reads the same
+ * marks on the peer (it retained 8 source bytes against 16 before the carry);
+ * the rows B06 and B07 therefore build the frame with the marks. */
 static t64_machine *build_b06(void) {
-  return build_vi_frame_with(false);
+  return build_vi_frame_with(true);
 }
 
 static const char *reached_b06(const t64_machine *machine) {
@@ -2529,7 +2534,7 @@ static void perturb_b06(t64_machine *machine) {
  * unchanged: a stall of the occupancy-gated field event, not the event budget of
  * one call (the loop of core/tests/test_vi.c advance_until_video_full). */
 static t64_machine *build_b07(void) {
-  t64_machine *machine = build_vi_frame_with(false);
+  t64_machine *machine = build_vi_frame_with(true);
   size_t attempt;
 
   build_stop_reason = 0u;
@@ -3036,6 +3041,124 @@ static void perturb_b16(t64_machine *machine) {
   }
 }
 
+/* ---- B17 and the carried RDP members (plan 09-10, STATE-CONTENT-F1) ------- */
+
+#define KEY_GB_WORD                                                          \
+  ((UINT64_C(0x2a) << 56) | (UINT64_C(0x123) << 44) |                        \
+   (UINT64_C(0x234) << 32) | (UINT64_C(0x11) << 24) |                        \
+   (UINT64_C(0x22) << 16) | (UINT64_C(0x33) << 8) | UINT64_C(0x44))
+#define KEY_R_WORD                                                           \
+  ((UINT64_C(0x2b) << 56) | (UINT64_C(0x345) << 16) | (UINT64_C(0x55) << 8) | \
+   UINT64_C(0x66))
+
+/* A command list through the real command path: an 8 by 8 fill (the rectangle
+ * includes its last row, so it marks 8 pixels in each of 9 rows: 72 coverage
+ * entries), then the one-cycle mode, the primitive, environment, fog,
+ * blend and key registers and the combine mode, the members the family needs
+ * for every triangle. */
+static const uint64_t rdp_carry_setup[] = {
+    UINT64_C(0x3f10000700005000), /* RGBA16 color image, width 8 */
+    UINT64_C(0x2d00000000020020), /* scissor [0,8) x [0,8) */
+    UINT64_C(0x2f30000000000000), /* fill cycle type */
+    UINT64_C(0x37000000f80107c1), /* fill color */
+    UINT64_C(0x3602002000000000), /* fill rectangle 8 x 8 */
+    UINT64_C(0x2f00000000000000), /* one-cycle mode */
+    UINT64_C(0x3a000000c8c8c8ff), /* primitive color */
+    UINT64_C(0x3b000000505050ff), /* environment color */
+    UINT64_C(0x38000000a1b2c3d4), /* fog color */
+    UINT64_C(0x39000000e1f20304), /* blend color */
+    KEY_GB_WORD,                  /* key green and blue */
+    KEY_R_WORD,                   /* key red */
+    UINT64_C(0xfc55566c8877ffff)};/* combine mode */
+static const uint64_t rdp_carry_triangle[] = {
+    UINT64_C(0x08000014000c0004), /* edge: rows 1 to 4 */
+    UINT64_C(0x00010000fffe8000), UINT64_C(0x0001000000000000),
+    UINT64_C(0x0004000000018000)};
+#define RDP_CARRY_COUNT (sizeof rdp_carry_setup / sizeof rdp_carry_setup[0])
+
+static void rdp_submit(t64_machine *machine, const uint64_t *words,
+                       size_t count) {
+  size_t i;
+
+  for (i = 0u; i < count; i++) {
+    put_be64(machine->ram + B05_COMMAND_ADDRESS + 8u * i, words[i]);
+  }
+  bus_write32(machine, DP_START_REG, B05_COMMAND_ADDRESS);
+  bus_write32(machine, DP_START_REG + 4u,
+              B05_COMMAND_ADDRESS + (uint32_t)(8u * count));
+}
+
+static bool rdp_is_idle(const t64_machine *machine) {
+  return !machine->rdp.busy && !machine->rdp.render_active &&
+         !machine->rdp.command_pending && !machine->rdp.fence_pending &&
+         !machine->rdp.texrect_pending;
+}
+
+/* The machine advances one tick at a time (the RDP works in its own events)
+ * until the command list is done and the RDP is idle. */
+static void rdp_run_idle(t64_machine *machine) {
+  size_t i;
+
+  for (i = 0u; i < 3000u && !rdp_is_idle(machine); i++) {
+    T64_CHECK(advance_to(machine, machine->tick + 1u));
+  }
+  T64_CHECK(rdp_is_idle(machine));
+}
+
+static size_t coverage_marks(const t64_machine *machine) {
+  const size_t table = T64_RDP_MEMORY_COVERAGE_BYTES(machine->profile.rdram_bytes);
+  size_t i;
+  size_t marks = 0u;
+
+  for (i = 0u; i < table; i++) {
+    if (machine->rdp_memory_coverage[i] != 0u) marks++;
+  }
+  return marks;
+}
+
+/* B17 rdp-triangle-render: the setup above and a flat triangle after it, the
+ * machine stopped after the first row of the triangle. */
+static t64_machine *build_b17(void) {
+  uint64_t words[RDP_CARRY_COUNT + 4u];
+  t64_machine *machine = build_quiet();
+  size_t i;
+
+  if (machine == NULL) return NULL;
+  (void)memcpy(words, rdp_carry_setup, sizeof rdp_carry_setup);
+  (void)memcpy(words + RDP_CARRY_COUNT, rdp_carry_triangle,
+               sizeof rdp_carry_triangle);
+  rdp_submit(machine, words, RDP_CARRY_COUNT + 4u);
+  for (i = 0u; i < 3000u && !(machine->rdp.render_active &&
+                              machine->rdp.render_triangle &&
+                              machine->rdp.render_y > machine->rdp.render_y_begin);
+       i++) {
+    T64_CHECK(advance_to(machine, machine->tick + 1u));
+  }
+  return machine;
+}
+
+static const char *reached_b17(const t64_machine *machine) {
+  const t64_rdp_state *rdp = &machine->rdp;
+
+  if (!rdp->render_active || !rdp->render_triangle) return "rdp.render_triangle";
+  if (rdp->render_y <= rdp->render_y_begin) return "rdp.render_y";
+  if (!rdp->combine_mode_valid || !rdp->environment_color_valid ||
+      !rdp->fog_color_valid || !rdp->blend_color_valid ||
+      !rdp->key_center_valid || !rdp->key_scale_valid ||
+      !rdp->key_width_valid) {
+    return "rdp combiner block";
+  }
+  if (coverage_marks(machine) != 72u) return "rdp_memory_coverage";
+  if (find_event(machine, T64_RDP_DEVICE, T64_RDP_EVENT_WORK) == NULL) {
+    return "queue (RDP, WORK)";
+  }
+  return NULL;
+}
+
+static void perturb_b17(t64_machine *machine) {
+  machine->rdp.fog_color ^= UINT32_C(0x00000100);
+}
+
 static const boundary boundaries[] = {
     {"B01", "pi-active", "test_pi_dma.c busy start, stem id", SI_STEM_ID,
      build_b01, reached_b01, perturb_b01,
@@ -3089,6 +3212,9 @@ static const boundary boundaries[] = {
      SI_STEM_ID, build_b16, reached_b16, perturb_b16,
      {T64_TRACE_DEVICE_INPUT, 0u}, {T64_TRACE_KIND_INPUT_SUBMITTED, 0u}, false,
      NULL, NULL},
+    {"B17", "rdp-triangle-render", "test_rdp_triangles.c edge words after a fill and the combiner registers",
+     SI_STEM_ID, build_b17, reached_b17, perturb_b17,
+     {T64_RDP_DEVICE, 0u}, {T64_RDP_EVENT_WORK, 0u}, false, NULL, NULL},
 };
 
 #define BOUNDARY_COUNT (sizeof boundaries / sizeof boundaries[0])
@@ -4853,6 +4979,224 @@ static uint8_t *mut_tri_flag_idle(target_id target, size_t *length_out) {
                   length_out);
 }
 
+/* ---- rdp-state-carry (plan 09-10, STATE-CONTENT-F1) ----------------------- */
+
+static bool rdp_carried_equal(const t64_machine *a, const t64_machine *b) {
+  const t64_rdp_state *x = &a->rdp;
+  const t64_rdp_state *y = &b->rdp;
+  const size_t table = T64_RDP_MEMORY_COVERAGE_BYTES(a->profile.rdram_bytes);
+
+  return x->primitive_lod_fraction == y->primitive_lod_fraction &&
+         x->environment_color == y->environment_color &&
+         x->fog_color == y->fog_color && x->blend_color == y->blend_color &&
+         x->combine_mode == y->combine_mode &&
+         x->combine_mode_valid == y->combine_mode_valid &&
+         x->environment_color_valid == y->environment_color_valid &&
+         x->fog_color_valid == y->fog_color_valid &&
+         x->blend_color_valid == y->blend_color_valid &&
+         x->key_center_valid == y->key_center_valid &&
+         x->key_scale_valid == y->key_scale_valid &&
+         x->key_width_valid == y->key_width_valid &&
+         memcmp(x->key_center, y->key_center, sizeof x->key_center) == 0 &&
+         memcmp(x->key_scale, y->key_scale, sizeof x->key_scale) == 0 &&
+         memcmp(x->key_width, y->key_width, sizeof x->key_width) == 0 &&
+         memcmp(a->rdp_memory_coverage, b->rdp_memory_coverage, table) == 0;
+}
+
+/* What the importer did before the carry: the combiner block and the coverage
+ * table of the peer are zero (the old commit zeroed them and no reader set
+ * them). The control arm of the continuation comparison. */
+static void rdp_drop_carried(t64_machine *machine) {
+  t64_rdp_state *rdp = &machine->rdp;
+
+  rdp->primitive_lod_fraction = 0u;
+  rdp->environment_color = rdp->fog_color = rdp->blend_color = 0u;
+  rdp->combine_mode = 0u;
+  rdp->combine_mode_valid = rdp->environment_color_valid = false;
+  rdp->fog_color_valid = rdp->blend_color_valid = false;
+  rdp->key_center_valid = rdp->key_scale_valid = rdp->key_width_valid = false;
+  (void)memset(rdp->key_center, 0, sizeof rdp->key_center);
+  (void)memset(rdp->key_scale, 0, sizeof rdp->key_scale);
+  (void)memset(rdp->key_width, 0, sizeof rdp->key_width);
+  (void)memset(machine->rdp_memory_coverage, 0,
+               T64_RDP_MEMORY_COVERAGE_BYTES(machine->profile.rdram_bytes));
+}
+
+/* The authored fixture rdp-fill.z64 (built from authored sources, no external
+ * asset) run by its own guest code on the stem id: its fills mark the memory
+ * coverage table with no hand-set state. The machine at the end of the fills
+ * exports, a fresh peer imports it, and the peer holds every mark and the
+ * same digest (the review of plan 09-10 found the table the one member the old
+ * import lost on exactly this fixture; the machine has reached its authored
+ * completion, so the continuation is the job of the rows B17 and of the
+ * register-driven triangle above). */
+/* A host that drains every retained video and audio packet. */
+static void drain_all_packets(t64_machine *machine) {
+  static uint8_t packet[T64_VIDEO_MAX_PACKET_BYTES];
+  size_t copied = 0u;
+
+  while (machine->vi.packet_count > 0u &&
+         t64_video_copy(machine, packet, sizeof packet, &copied) ==
+             T64_STATUS_OK) {
+  }
+  while (machine->ai.packet_count > 0u &&
+         t64_audio_copy(machine, packet, sizeof packet, &copied) ==
+             T64_STATUS_OK) {
+  }
+}
+
+static t64_machine *create_admitted_rom(const char *profile_id,
+                                        const char *path) {
+  const t64_profile_descriptor *profile = NULL;
+  t64_machine *machine = NULL;
+  static uint8_t rom[65536];
+  FILE *file = path == NULL ? NULL : fopen(path, "rb");
+  size_t length = 0u;
+
+  if (file == NULL) {
+    T64_CHECK(false);
+    return NULL;
+  }
+  length = fread(rom, 1u, sizeof rom, file);
+  T64_CHECK(fclose(file) == 0);
+  T64_CHECK(length > 0u && length < sizeof rom);
+  T64_CHECK_INT(t64_profile_lookup(profile_id, &profile), T64_STATUS_OK);
+  if (profile == NULL) return NULL;
+  T64_CHECK_INT(t64_machine_create(&allocator, profile, &machine), T64_STATUS_OK);
+  if (machine == NULL) return NULL;
+  if (t64_machine_admit_rom(machine, rom, length) != T64_STATUS_OK) {
+    T64_CHECK(false);
+    t64_machine_destroy(machine);
+    return NULL;
+  }
+  return machine;
+}
+
+static void rdp_state_fixture(void) {
+  const char *path = getenv("T64_TEST_RDP_FILL_PATH");
+  t64_machine *source = create_admitted_rom(SI_STEM_ID, path);
+  t64_machine *peer = create_admitted_rom(SI_STEM_ID, path);
+  t64_state_import_report report;
+  uint8_t *blob;
+  size_t length = 0u;
+
+  if (source == NULL || peer == NULL) {
+    if (source != NULL) t64_machine_destroy(source);
+    if (peer != NULL) t64_machine_destroy(peer);
+    return;
+  }
+  /* the fixture programs short VI fields: a host that drains every 50 ticks
+   * keeps the two-slot output ring from filling */
+  while (source->tick < 900000u &&
+         !(source->rdp.fill_count != 0u && rdp_is_idle(source))) {
+    t64_stop_request request = {T64_STOP_GUEST_TICK, source->tick + 50u};
+    t64_stop_result stop = {0u, 0u};
+
+    T64_CHECK_INT(t64_machine_advance(source, &request, &stop), T64_STATUS_OK);
+    drain_all_packets(source);
+    if (stop.reason != T64_STOP_REASON_BOUND) break; /* authored completion */
+  }
+  /* reached: the guest ran its fills and left marks in the coverage table */
+  T64_CHECK(source->rdp.fill_count != 0u && rdp_is_idle(source));
+  T64_CHECK(coverage_marks(source) != 0u);
+  blob = export_blob(source, &length);
+  if (blob != NULL) {
+    T64_CHECK_INT(t64_machine_state_import(peer, blob, length, 0u, &report),
+                  T64_STATUS_OK);
+    T64_CHECK(rdp_carried_equal(source, peer));
+    T64_CHECK_INT(coverage_marks(peer), coverage_marks(source));
+    T64_CHECK(digests_equal(source, peer));
+    T64_CHECK_INT(peer->tick, source->tick);
+    free(blob);
+  }
+  t64_machine_destroy(source);
+  t64_machine_destroy(peer);
+}
+
+/* Source and imported peer receive the same triangle: they draw the same
+ * pixels, count the triangle and agree on the digest. The control arm (the
+ * peer of the old importer) refuses the triangle and diverges; the comparator
+ * therefore sees the loss it was written for. */
+static void case_rdp_state_carry(void) {
+  const size_t framebuffer = 0x5000u;
+  const size_t frame_bytes = 8u * 8u * 2u;
+  t64_machine *source = build_quiet();
+  t64_machine *peer = create_admitted(SI_STEM_ID);
+  t64_machine *old_peer = create_admitted(SI_STEM_ID);
+  t64_state_import_report report;
+  uint8_t before[8u * 8u * 2u];
+  uint8_t *blob;
+  size_t length = 0u;
+
+  if (source == NULL || peer == NULL || old_peer == NULL) {
+    T64_CHECK(false);
+    if (source != NULL) t64_machine_destroy(source);
+    if (peer != NULL) t64_machine_destroy(peer);
+    if (old_peer != NULL) t64_machine_destroy(old_peer);
+    return;
+  }
+  rdp_submit(source, rdp_carry_setup, RDP_CARRY_COUNT);
+  rdp_run_idle(source);
+  /* reached: the combiner block and the coverage marks of the fill are set */
+  T64_CHECK(source->rdp.combine_mode_valid && source->rdp.environment_color_valid);
+  T64_CHECK(source->rdp.fog_color_valid && source->rdp.blend_color_valid);
+  T64_CHECK(source->rdp.key_center_valid && source->rdp.key_scale_valid &&
+            source->rdp.key_width_valid);
+  T64_CHECK_INT(source->rdp.fog_color, UINT32_C(0xa1b2c3d4));
+  T64_CHECK_INT(source->rdp.key_width[0], 0x345u);
+  T64_CHECK_INT(coverage_marks(source), 72u); /* 8 pixels in each of 9 rows */
+  (void)memcpy(before, source->ram + framebuffer, frame_bytes);
+
+  blob = export_blob(source, &length);
+  if (blob == NULL) {
+    T64_CHECK(false);
+    t64_machine_destroy(source);
+    t64_machine_destroy(peer);
+    t64_machine_destroy(old_peer);
+    return;
+  }
+  T64_CHECK_INT(t64_machine_state_import(peer, blob, length, 0u, &report),
+                T64_STATUS_OK);
+  T64_CHECK_INT(t64_machine_state_import(old_peer, blob, length, 0u, &report),
+                T64_STATUS_OK);
+  /* the import carries every member and the digests agree */
+  T64_CHECK(rdp_carried_equal(source, peer));
+  T64_CHECK_INT(coverage_marks(peer), 72u);
+  T64_CHECK(digests_equal(source, peer));
+  T64_CHECK_INT(peer->tick, source->tick);
+  /* the control arm: the members an old import left behind */
+  rdp_drop_carried(old_peer);
+  T64_CHECK(!rdp_carried_equal(source, old_peer));
+  T64_CHECK(!digests_equal(source, old_peer));
+
+  rdp_submit(source, rdp_carry_triangle, 4u);
+  rdp_submit(peer, rdp_carry_triangle, 4u);
+  rdp_submit(old_peer, rdp_carry_triangle, 4u);
+  T64_CHECK(advance_to(source, source->tick + 1500u));
+  T64_CHECK(advance_to(peer, peer->tick + 1500u));
+  T64_CHECK(advance_to(old_peer, old_peer->tick + 1500u));
+  /* the source drew the triangle; the peer drew the same pixels */
+  T64_CHECK_INT(source->rdp.triangle_count, 1u);
+  T64_CHECK_INT(source->rdp.refusal_reason, T64_RDP_REFUSAL_NONE);
+  T64_CHECK_INT(peer->rdp.triangle_count, source->rdp.triangle_count);
+  T64_CHECK_INT(peer->rdp.refusal_reason, source->rdp.refusal_reason);
+  T64_CHECK(memcmp(source->ram + framebuffer, before, frame_bytes) != 0);
+  T64_CHECK(memcmp(source->ram + framebuffer, peer->ram + framebuffer,
+                   frame_bytes) == 0);
+  T64_CHECK(digests_equal(source, peer));
+  /* the control arm refuses the triangle: no combine mode */
+  T64_CHECK_INT(old_peer->rdp.triangle_count, 0u);
+  T64_CHECK_INT(old_peer->rdp.refusal_reason, T64_RDP_REFUSAL_RENDER_RANGE);
+  T64_CHECK(memcmp(source->ram + framebuffer, old_peer->ram + framebuffer,
+                   frame_bytes) != 0);
+  T64_CHECK(!digests_equal(source, old_peer));
+  free(blob);
+  t64_machine_destroy(source);
+  t64_machine_destroy(peer);
+  t64_machine_destroy(old_peer);
+  rdp_state_fixture();
+}
+
 #define BF T64_STATUS_STATE_FORMAT
 #define BR T64_STATUS_STATE_RANGE
 #define SEC_AUDIO T64_STATE_SECTION_AUDIO
@@ -4971,6 +5315,22 @@ static const mutant mutants[] = {
     {"fields", CROW("render-triangle-row-past-end", T_S1, mut_tri_row_past_end,
                     BR, T64_STATE_REASON_FIELD_RANGE, SEC_RDPVI,
                     T64_STATE_RULE_INDEX_LT)},
+    {"fields", ROW("rdp-carried-lod-range", T_S1, SEC_RDPVI, S8_TAIL, 4u,
+                   0x100u, RS_ALL, BR, T64_STATE_REASON_FIELD_RANGE, SEC_RDPVI,
+                   T64_STATE_RULE_INDEX_LT)},
+    {"fields", ROW("rdp-carried-flag-bool", T_S1, SEC_RDPVI, S8_TAIL + 24u, 4u,
+                   2u, RS_ALL, BR, T64_STATE_REASON_FIELD_RANGE, SEC_RDPVI,
+                   T64_STATE_RULE_BOOL_01)},
+    {"fields", ROW("rdp-carried-key-width-range", T_S1, SEC_RDPVI, S8_TAIL + 60u,
+                   4u, 0x1000u, RS_ALL, BR, T64_STATE_REASON_FIELD_RANGE,
+                   SEC_RDPVI, T64_STATE_RULE_INDEX_LT)},
+    {"fields", ROW("rdp-carried-table-size", T_S1, SEC_RDPVI, S8_TAIL + 88u, 4u,
+                   0x1000u, RS_ALL, BR, T64_STATE_REASON_FIELD_DERIVED, SEC_RDPVI,
+                   T64_STATE_RULE_PROFILE_DERIVED)},
+    {"fields", ROW("rdp-carried-coverage-entry", T_S1, SEC_RDPVI,
+                   S8_TAIL + 92u + 100u, 1u, 0x89u, RS_ALL, BR,
+                   T64_STATE_REASON_FIELD_RANGE, SEC_RDPVI,
+                   T64_STATE_RULE_ENUM_CLOSED)},
     {"queue", ROW("queue-count-cap", T_S1, SCHED, 0u, 4u, 257u, RS_ALL, INV,
                   T64_STATE_REASON_QUEUE_COUNT, SCHED, T64_STATE_RULE_COUNT_CAP)},
     {"queue", CROW("queue-order", T_S1, mut_swap_events, INV,
@@ -5419,7 +5779,7 @@ int main(int argc, char **argv) {
       "container-refusals", "field-range-refusals", "invariant-accepts",
       "invariant-refusals", "scratch-storage",      "refusal-untouched",
       "idempotence",        "save-media-roundtrip", "continuation-partitions",
-      "dirty-peer",         "observer-flag",
+      "dirty-peer",         "observer-flag",      "rdp-state-carry",
       "boundary-reached",   "boundary-roundtrip",   "boundary-continuation",
       "boundary-perturbation", "boundary-event-rules", "mid-tick-resume",
       "stalled-observer-stop", "drop-observers-outcomes", "mutant-inventory",
@@ -5428,7 +5788,7 @@ int main(int argc, char **argv) {
   static const char *const suites[] = {
       "import",   "import",   "refusals", "refusals", "refusals",
       "refusals", "refusals", "refusals", "refusals", "ladder",
-      "ladder",   "ladder",   "ladder",   "ladder",
+      "ladder",   "ladder",   "ladder",   "ladder",   "ladder",
       "boundaries", "boundaries", "boundaries", "boundaries", "boundaries",
       "boundaries", "observers", "observers", "adversarial", "adversarial",
       "adversarial", "adversarial", "adversarial"};
@@ -5440,6 +5800,7 @@ int main(int argc, char **argv) {
       case_refusal_untouched,    case_idempotence,
       case_save_media_all,       case_continuation_partitions,
       case_dirty_peer,           case_observer_flag,
+      case_rdp_state_carry,
       case_boundary_reached,     case_boundary_roundtrip,
       case_boundary_continuation, case_boundary_perturbation,
       case_boundary_event_rules, case_mid_tick_resume,

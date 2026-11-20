@@ -387,15 +387,20 @@ static uint32_t read_u32(const uint8_t *bytes) {
          ((uint32_t)bytes[2] << 8) | (uint32_t)bytes[3];
 }
 
+static bool find_marker(const stream *captured, uint32_t id,
+                        size_t *offset_out);
+
 /*
  * The identity-class spans of a v25 stream are exactly two: the domain at the
  * start, and the serialization word with the profile digest right after the
- * first marker. The only other non-marker span is the one new-class span that
- * carries the body of section 10 (SI, PIF and latch) and runs from the tenth
- * marker to the end of the stream; a save id adds a second new-class span, the
- * body of section 11, which then runs to the end of the stream. Any other
- * identity or new-section span is a defect (the packet profile and build ids
- * are omitted under v25).
+ * first marker. The other non-marker spans are new-class: the one that ends
+ * section 8 (the RDP members the v24 walker never hashed, plan 09-10: the
+ * combiner block and the memory coverage table; it ends exactly at the marker
+ * of section 9), the one that carries the body of section 10 (SI, PIF and
+ * latch) and runs from the tenth marker to the end of the stream; a save id
+ * adds a further new-class span, the body of section 11, which then runs to
+ * the end of the stream. Any other identity or new-section span is a defect
+ * (the packet profile and build ids are omitted under v25).
  */
 static bool identity_spans_are_exact(const stream *captured,
                                      size_t expected_new_spans,
@@ -404,8 +409,15 @@ static bool identity_spans_are_exact(const stream *captured,
   size_t i;
   size_t new_spans = 0u;
   size_t last_new_end = 0u;
+  bool section8_tail = false;
+  size_t marker8 = 0u;
+  size_t marker9 = 0u;
 
   *offset_out = 0u;
+  if (!find_marker(captured, 8u, &marker8) ||
+      !find_marker(captured, 9u, &marker9)) {
+    return false;
+  }
   for (i = 0u; i < captured->span_count; i++) {
     const t64_digest_span *span = &captured->spans[i];
 
@@ -418,7 +430,11 @@ static bool identity_spans_are_exact(const stream *captured,
                span->length == 4u + T64_DIGEST_SIZE) {
       seen = 2u;
     } else if (span->class == T64_DIGEST_CLASS_NEW && seen == 2u &&
-               new_spans < expected_new_spans) {
+               !section8_tail && span->offset > marker8 &&
+               span->offset + span->length == marker9) {
+      section8_tail = true;
+    } else if (span->class == T64_DIGEST_CLASS_NEW && seen == 2u &&
+               section8_tail && new_spans < expected_new_spans) {
       new_spans++;
       last_new_end = span->offset + span->length;
     } else {
@@ -428,7 +444,7 @@ static bool identity_spans_are_exact(const stream *captured,
   }
   /* The last new-class span (section 10 for the stem, section 11 for a save
      id) runs to the end of the stream. */
-  if (seen != 2u || new_spans != expected_new_spans ||
+  if (seen != 2u || !section8_tail || new_spans != expected_new_spans ||
       last_new_end != captured->length) {
     *offset_out = captured->length;
     return false;
@@ -831,9 +847,11 @@ static void differential_for_state(const char *label, state_builder build) {
 /*
  * Written from the documented section table and the machine fields, without
  * calling production code. It covers the domain, the section ids and the
- * bodies of sections 1, 2, 3, 4 and 6; sections 5, 7, 8 and 9 are covered by
- * the differential against the v24 stream, which the legacy digest literals
- * pin. Fields are fixed-width big-endian.
+ * bodies of sections 1, 2, 3, 4 and 6, and the tail of section 8 that the
+ * family carries since plan 09-10 (the combiner block and the memory coverage
+ * table); sections 5, 7 and 9 and the rest of section 8 are covered by the
+ * differential against the v24 stream, which the legacy digest literals pin.
+ * Fields are fixed-width big-endian.
  */
 typedef struct {
   uint8_t *data;
@@ -920,6 +938,39 @@ static void encode_scheduler_section(blob *out, const t64_machine *machine) {
   }
 }
 
+/* The tail of section 8 (plan 09-10, STATE-CONTENT-F1), written from the
+ * documented layout: primitive LOD fraction, environment, fog and blend colors,
+ * the combine mode, seven valid flags (combine, environment, fog, blend, key
+ * center, key scale, key width), the key center, scale and width of each of the
+ * three channels, then the coverage table size word and the table (one byte per
+ * two bytes of RDRAM). */
+static void encode_rdp_carried_tail(blob *out, const t64_machine *machine) {
+  const t64_rdp_state *rdp = &machine->rdp;
+  size_t i;
+
+  blob_u32(out, rdp->primitive_lod_fraction);
+  blob_u32(out, rdp->environment_color);
+  blob_u32(out, rdp->fog_color);
+  blob_u32(out, rdp->blend_color);
+  blob_u64(out, rdp->combine_mode);
+  blob_u32(out, rdp->combine_mode_valid ? 1u : 0u);
+  blob_u32(out, rdp->environment_color_valid ? 1u : 0u);
+  blob_u32(out, rdp->fog_color_valid ? 1u : 0u);
+  blob_u32(out, rdp->blend_color_valid ? 1u : 0u);
+  blob_u32(out, rdp->key_center_valid ? 1u : 0u);
+  blob_u32(out, rdp->key_scale_valid ? 1u : 0u);
+  blob_u32(out, rdp->key_width_valid ? 1u : 0u);
+  for (i = 0u; i < 3u; i++) {
+    blob_u32(out, rdp->key_center[i]);
+    blob_u32(out, rdp->key_scale[i]);
+    blob_u32(out, rdp->key_width[i]);
+  }
+  blob_u32(out, machine->profile.rdram_bytes / 2u);
+  blob_bytes(out, machine->rdp_memory_coverage,
+             machine->profile.rdram_bytes / 2u);
+}
+
+
 /* Marker span of section `id`: the id-th marker in stream order. */
 static bool find_marker(const stream *captured, uint32_t id,
                         size_t *offset_out) {
@@ -977,6 +1028,305 @@ static void check_section_against_reference(const stream *captured,
   T64_CHECK_INT(first_difference, 0u);
 }
 
+/* The last bytes of section 8 equal the reference tail. */
+static void check_section8_tail(const stream *captured, const blob *expected) {
+  size_t begin = 0u;
+  size_t end = 0u;
+  size_t first_difference = 0u;
+  size_t i;
+
+  T64_CHECK(section_body(captured, 8u, &begin, &end));
+  T64_CHECK(end - begin >= expected->length);
+  if (end - begin < expected->length) return;
+  begin = end - expected->length;
+  for (i = 0u; i < expected->length; i++) {
+    if (captured->bytes[begin + i] != expected->data[i]) {
+      first_difference = i + 1u;
+      break;
+    }
+  }
+  if (first_difference != 0u) {
+    fprintf(stderr, "reference tail of section 8 differs at tail offset %zu\n",
+            first_difference - 1u);
+  }
+  T64_CHECK_INT(first_difference, 0u);
+}
+
+/* ---- digest completeness of the RDP block (plan 09-10, STATE-CONTENT-F1) -- */
+
+/*
+ * Every member of t64_rdp_state is either in the canonical stream of the
+ * composite family (flipping one byte changes the stream, and so the SHA-256
+ * digest, which the hash sink computes over exactly these bytes) or on this
+ * list with the reason it is not state. The table is the complete member list
+ * of the structure: a size assertion fails the build when a member is added
+ * without a row, and every byte that no row covers (padding) is flipped as well
+ * and must not change the stream. The before-state of the old v24 walker had 24
+ * members outside the stream on the family (the review of plan 09-10); this
+ * list has the five depth members that K1 keeps inactive on descriptor 12 and
+ * the three observation members that only core/tests/test_rdp_triangles.c reads.
+ */
+typedef struct {
+  const char *name;
+  size_t offset;
+  size_t size;
+  const char *excluded; /* NULL: the member is in the canonical stream */
+} rdp_member;
+
+#define RDP_DEPTH_REASON                                                     \
+  "K1: depth is inactive on descriptor 12; SetZImage and SetPrimDepth are "  \
+  "refused on the family, the commit zeroes the address"
+#define RDP_OBSERVATION_REASON                                               \
+  "test observation state written by the row handler, read only by the "     \
+  "triangle rasterizer test"
+#define M(name) {#name, offsetof(t64_rdp_state, name),                      \
+                 sizeof(((t64_rdp_state *)0)->name), NULL}
+#define MX(name, reason) {#name, offsetof(t64_rdp_state, name),             \
+                          sizeof(((t64_rdp_state *)0)->name), reason}
+#define MI(name, index) {#name "[" #index "]",                              \
+                         offsetof(t64_rdp_state, name) +                    \
+                         (index) * sizeof(((t64_rdp_state *)0)->name[0]),   \
+                         sizeof(((t64_rdp_state *)0)->name[0]), NULL}
+#define MT(index, field) {"tiles[" #index "]." #field,                      \
+                          offsetof(t64_rdp_state, tiles) +                  \
+                          (index) * sizeof(t64_rdp_tile) +                  \
+                          offsetof(t64_rdp_tile, field),                    \
+                          sizeof(((t64_rdp_tile *)0)->field), NULL}
+#define MTILE(index)                                                        \
+  MT(index, format), MT(index, size), MT(index, line_words),                \
+  MT(index, tmem_word), MT(index, palette), MT(index, mask_s),              \
+  MT(index, mask_t), MT(index, shift_s), MT(index, shift_t),                \
+  MT(index, uls), MT(index, ult), MT(index, lrs), MT(index, lrt),           \
+  MT(index, clamp_s), MT(index, mirror_s), MT(index, clamp_t),              \
+  MT(index, mirror_t), MT(index, valid), MT(index, size_valid)
+
+static const rdp_member rdp_members[] = {
+    M(dpc_start), M(dpc_end), M(dpc_current), M(dpc_status),
+    M(dpc_clock_counter), M(dpc_buffer_busy_counter),
+    M(dpc_pipe_busy_counter), M(dpc_tmem_counter),
+    M(pending_command_address), M(pending_command_byte),
+    M(pending_opcode_field), M(pending_command_word), M(fence_generation),
+    M(color_image_address), MX(depth_image_address, RDP_DEPTH_REASON),
+    M(color_image_width), M(color_image_format), M(color_image_size),
+    M(scissor_xh), M(scissor_yh), M(scissor_xl), M(scissor_yl),
+    M(other_modes), M(fill_color),
+    MX(primitive_z, RDP_DEPTH_REASON), MX(primitive_dz, RDP_DEPTH_REASON),
+    M(texture_image_address), M(texture_image_width),
+    M(texture_image_format), M(texture_image_size), M(texture_image_valid),
+    M(tlut_format), M(render_kind), M(render_texture_tile),
+    M(render_texture_s), M(render_texture_t), M(render_texture_dsdx),
+    M(render_texture_dtdy), M(copy_count),
+    MI(convert_coefficients, 0), MI(convert_coefficients, 1),
+    MI(convert_coefficients, 2), MI(convert_coefficients, 3),
+    MI(convert_coefficients, 4), MI(convert_coefficients, 5),
+    M(pending_texrect_word),
+    /* the four packet words the count of 4 makes state; the words at or after
+     * the count are not state (the reader zeroes them) and the sweep flips
+     * them as inert bytes instead */
+    MI(pending_triangle_words, 0), MI(pending_triangle_words, 1),
+    MI(pending_triangle_words, 2), MI(pending_triangle_words, 3),
+    M(pending_triangle_word_count), M(primitive_color),
+    M(primitive_lod_fraction), M(environment_color), M(fog_color),
+    M(blend_color), M(combine_mode),
+    MI(key_center, 0), MI(key_center, 1), MI(key_center, 2),
+    MI(key_scale, 0), MI(key_scale, 1), MI(key_scale, 2),
+    MI(key_width, 0), MI(key_width, 1), MI(key_width, 2),
+    M(triangle_count),
+    MX(triangle_last_coverage_x, RDP_OBSERVATION_REASON),
+    MX(triangle_last_coverage_y, RDP_OBSERVATION_REASON),
+    MX(triangle_last_coverage_mask, RDP_OBSERVATION_REASON),
+    {"tmem[0]", offsetof(t64_rdp_state, tmem), 1u, NULL},
+    {"tmem[4095]", offsetof(t64_rdp_state, tmem) + 4095u, 1u, NULL},
+    MTILE(0), MTILE(1), MTILE(2), MTILE(3), MTILE(4), MTILE(5), MTILE(6),
+    MTILE(7),
+    M(work_policy_version), M(random_state), M(refusal_reason),
+    M(command_count), M(fill_count), M(fullsync_count), M(last_original_word),
+    M(last_command_byte), M(last_opcode_field), M(render_x_begin),
+    M(render_x_end), M(render_y_begin), M(render_y_end), M(render_y),
+    M(color_image_valid), MX(depth_image_valid, RDP_DEPTH_REASON),
+    MX(primitive_depth_valid, RDP_DEPTH_REASON), M(scissor_valid),
+    M(other_modes_valid), M(fill_color_valid), M(tlut_valid),
+    M(render_active), M(fence_pending), M(busy), M(dpc_xbus), M(dpc_freeze),
+    M(dpc_flush), M(dpc_start_valid), M(dpc_end_valid), M(command_pending),
+    M(texrect_pending), M(render_texture_flip), M(primitive_color_valid),
+    M(environment_color_valid), M(fog_color_valid), M(blend_color_valid),
+    M(key_center_valid), M(key_scale_valid), M(key_width_valid),
+    M(combine_mode_valid), M(render_triangle), M(shade_triangle),
+};
+
+/* The structure has no member the table does not name (a new member changes
+ * the size, or lands in padding that the inert sweep below flips). */
+#define RDP_STATE_SIZE 5144u
+_Static_assert(sizeof(t64_rdp_state) == RDP_STATE_SIZE,
+               "t64_rdp_state changed: add the new member to rdp_members");
+
+static bool capture_into(const t64_machine *machine, uint8_t *buffer,
+                         size_t capacity, size_t *length_out) {
+  t64_digest_sink sink;
+
+  (void)memset(&sink, 0, sizeof sink);
+  sink.buffer = buffer;
+  sink.capacity = capacity;
+  if (t64_digest_stream(machine, &sink) != T64_STATUS_OK || sink.overflow) {
+    return false;
+  }
+  *length_out = sink.offset;
+  return true;
+}
+
+static bool stream_equals(const t64_machine *machine, const uint8_t *baseline,
+                          uint8_t *scratch, size_t length) {
+  size_t got = 0u;
+
+  return capture_into(machine, scratch, length, &got) && got == length &&
+         memcmp(baseline, scratch, length) == 0;
+}
+
+typedef struct {
+  uint8_t *baseline;
+  uint8_t *scratch;
+  size_t length;
+} stream_baseline;
+
+/* One byte flips and the stream is compared with the baseline, then the byte is
+ * restored. A member of the stream must change it; an excluded member, a packet
+ * word at or after the count and padding must not. */
+static void check_byte_flip(t64_machine *machine, const stream_baseline *base,
+                            uint8_t *byte, const char *name,
+                            const char *excluded) {
+  const uint8_t saved = *byte;
+  bool changed;
+
+  *byte = (uint8_t)(saved ^ 0x01u);
+  changed = !stream_equals(machine, base->baseline, base->scratch, base->length);
+  *byte = saved;
+  if (excluded == NULL && !changed) {
+    fprintf(stderr, "digest completeness: %s is not in the canonical stream\n",
+            name);
+  }
+  if (excluded != NULL && changed) {
+    fprintf(stderr, "digest completeness: excluded %s (%s) is in the stream\n",
+            name, excluded);
+  }
+  T64_CHECK(excluded == NULL ? changed : !changed);
+}
+
+/* The canonical stream of the composite family sees every RDP member except
+ * the named exclusions. The sweep flips the first byte of every member row, of
+ * the memory coverage table and of strided TMEM bytes, and every byte no row
+ * claims (padding and the packet words at or after the count) must be inert.
+ * The stem id gets the full sweep; the three save ids a representative one
+ * (the predicate is the family tuple, not the id). One flip is also compared
+ * as a SHA-256 digest, so the stream equality is tied to the digest the
+ * importer declares. */
+static void check_rdp_digest_completeness(void) {
+  static const char *const ids[] = {SI_STEM_ID, SAVE_E4K_ID, SAVE_E16K_ID,
+                                    SAVE_S32K_ID};
+  size_t id_index;
+
+  for (id_index = 0u; id_index < sizeof ids / sizeof ids[0]; id_index++) {
+    const bool full = id_index == 0u;
+    t64_machine *machine = create_admitted(ids[id_index], true);
+    stream_baseline base;
+    uint8_t digest_before[T64_DIGEST_SIZE];
+    uint8_t digest_after[T64_DIGEST_SIZE];
+    uint8_t *rdp_bytes;
+    uint8_t *claimed;
+    size_t covered = 0u;
+    size_t i;
+    size_t byte;
+    t64_digest_sink sink;
+
+    T64_CHECK(machine != NULL);
+    if (machine == NULL) continue;
+    /* a packet whose first four words are state: the count is 4 */
+    machine->rdp.pending_triangle_word_count = 4u;
+    (void)memset(&sink, 0, sizeof sink);
+    T64_CHECK_INT(t64_digest_stream(machine, &sink), T64_STATUS_OK);
+    base.length = sink.offset;
+    base.baseline = (uint8_t *)malloc(base.length);
+    base.scratch = (uint8_t *)malloc(base.length);
+    claimed = (uint8_t *)calloc(sizeof machine->rdp, 1u);
+    T64_CHECK(base.baseline != NULL && base.scratch != NULL && claimed != NULL);
+    if (base.baseline == NULL || base.scratch == NULL || claimed == NULL) {
+      free(base.baseline);
+      free(base.scratch);
+      free(claimed);
+      t64_machine_destroy(machine);
+      continue;
+    }
+    T64_CHECK(capture_into(machine, base.baseline, base.length, &covered));
+    T64_CHECK_INT(covered, base.length);
+    rdp_bytes = (uint8_t *)&machine->rdp;
+    for (i = 0u; i < sizeof rdp_members / sizeof rdp_members[0]; i++) {
+      const rdp_member *member = &rdp_members[i];
+
+      T64_CHECK(member->offset + member->size <= sizeof machine->rdp);
+      for (byte = member->offset; byte < member->offset + member->size &&
+                                  byte < sizeof machine->rdp; byte++) {
+        claimed[byte] = 1u;
+      }
+      /* the saved ids check the members a combiner and a coverage consumer
+       * read, the stem id every row */
+      if (full || member->excluded == NULL) {
+        if (full || (i % 11u) == 0u) {
+          check_byte_flip(machine, &base, rdp_bytes + member->offset,
+                          member->name, member->excluded);
+        }
+      }
+    }
+    /* the memory coverage table: its first and last entries and a middle one */
+    {
+      const size_t table = machine->profile.rdram_bytes / 2u;
+      static const size_t picks[3] = {0u, 0x1234u, 0u};
+      size_t k;
+
+      for (k = 0u; k < 3u; k++) {
+        const size_t at = k == 2u ? table - 1u : picks[k];
+
+        check_byte_flip(machine, &base, machine->rdp_memory_coverage + at,
+                        "rdp_memory_coverage", NULL);
+      }
+    }
+    if (full) {
+      const size_t words_begin = offsetof(t64_rdp_state, pending_triangle_words);
+      const size_t words_end =
+          words_begin + sizeof machine->rdp.pending_triangle_words;
+      const size_t tmem_begin = offsetof(t64_rdp_state, tmem);
+
+      for (byte = 0u; byte < sizeof machine->rdp; byte++) {
+        if (claimed[byte]) continue;
+        if (byte >= tmem_begin && byte < tmem_begin + 4096u) {
+          if ((byte - tmem_begin) % 251u == 0u) {
+            check_byte_flip(machine, &base, rdp_bytes + byte, "tmem", NULL);
+          }
+        } else if (byte >= words_begin && byte < words_end) {
+          if ((byte - words_begin) % 8u == 0u) {
+            check_byte_flip(machine, &base, rdp_bytes + byte,
+                            "pending_triangle_words[>=count]",
+                            "words at or after the count are not state");
+          }
+        } else {
+          check_byte_flip(machine, &base, rdp_bytes + byte, "padding",
+                          "padding");
+        }
+      }
+    }
+    /* every flip was restored: the stream equals its baseline again */
+    T64_CHECK(stream_equals(machine, base.baseline, base.scratch, base.length));
+    /* one flip tied to the digest itself */
+    T64_CHECK_INT(t64_machine_digest(machine, digest_before), T64_STATUS_OK);
+    machine->rdp.combine_mode ^= UINT64_C(1);
+    T64_CHECK_INT(t64_machine_digest(machine, digest_after), T64_STATUS_OK);
+    machine->rdp.combine_mode ^= UINT64_C(1);
+    T64_CHECK(memcmp(digest_before, digest_after, sizeof digest_before) != 0);
+    free(base.baseline);
+    free(base.scratch);
+    free(claimed);
+    t64_machine_destroy(machine);
+  }
+}
+
 static void case_v25_reference(void) {
   t64_machine *machine = build_ai_mid_dma_packet(SI_STEM_ID);
   stream captured;
@@ -990,6 +1340,32 @@ static void case_v25_reference(void) {
   machine->frame_event_count = UINT64_C(0x0102030405060708);
   machine->sticky_error_status = UINT32_C(0x21222324);
   machine->halted = true;
+  /* Distinctive combiner block and coverage marks, so the reference tail of
+   * section 8 is compared on non-default values. */
+  machine->rdp.primitive_lod_fraction = 0x11u;
+  machine->rdp.environment_color = UINT32_C(0x21222324);
+  machine->rdp.fog_color = UINT32_C(0x31323334);
+  machine->rdp.blend_color = UINT32_C(0x41424344);
+  machine->rdp.combine_mode = UINT64_C(0x5152535455565758);
+  machine->rdp.combine_mode_valid = true;
+  machine->rdp.environment_color_valid = true;
+  machine->rdp.fog_color_valid = false;
+  machine->rdp.blend_color_valid = true;
+  machine->rdp.key_center_valid = true;
+  machine->rdp.key_scale_valid = false;
+  machine->rdp.key_width_valid = true;
+  machine->rdp.key_center[0] = 0x61u;
+  machine->rdp.key_center[1] = 0x62u;
+  machine->rdp.key_center[2] = 0x63u;
+  machine->rdp.key_scale[0] = 0x71u;
+  machine->rdp.key_scale[1] = 0x72u;
+  machine->rdp.key_scale[2] = 0x73u;
+  machine->rdp.key_width[0] = 0x181u;
+  machine->rdp.key_width[1] = 0x182u;
+  machine->rdp.key_width[2] = 0x183u;
+  t64_rdp_memory_coverage_write(machine, 0x3000u, 2u, 8u);
+  t64_rdp_memory_coverage_write(machine, 0x3002u, 4u, 5u);
+  t64_rdp_memory_coverage_write(machine, 0x3ffffcu, 4u, 1u);
   if (!capture_stream(machine, &captured)) {
     t64_machine_destroy(machine);
     return;
@@ -1029,12 +1405,18 @@ static void case_v25_reference(void) {
     section.length = 0u;
     encode_scheduler_section(&section, machine);
     check_section_against_reference(&captured, 6u, &section, "scheduler");
+    section.length = 0u;
+    encode_rdp_carried_tail(&section, machine);
+    check_section8_tail(&captured, &section);
+    /* the tail is the combiner block 88, the size word 4 and the table */
+    T64_CHECK_INT(section.length, 88u + 4u + 2097152u);
     free(section.data);
   } else {
     T64_CHECK(false);
   }
   free_stream(&captured);
   t64_machine_destroy(machine);
+  check_rdp_digest_completeness();
 }
 
 static void sha256_of(const uint8_t *bytes, size_t length,
@@ -1078,8 +1460,9 @@ static void check_family_stream(const t64_machine *machine,
     T64_CHECK_INT(read_u32(captured->bytes + SI_DOMAIN_LENGTH + 4u),
                   machine->profile.state_serialization_version);
   }
-  /* Ten markers and exactly one new-class span (the body of section 10);
-   * no identity span carries a packet profile or build id. */
+  /* Ten markers and exactly two new-class spans (the RDP members that end
+   * section 8, and the body of section 10); no identity span carries a packet
+   * profile or build id. */
   {
     size_t markers = 0u;
     size_t new_spans = 0u;
@@ -1089,7 +1472,7 @@ static void check_family_stream(const t64_machine *machine,
       if (captured->spans[i].class == T64_DIGEST_CLASS_NEW) new_spans++;
     }
     T64_CHECK_INT(markers, MARKER_COUNT_FULL);
-    T64_CHECK_INT(new_spans, 1u);
+    T64_CHECK_INT(new_spans, 2u);
   }
   /* Hash sink digest equals SHA-256 of the buffer-sink stream. */
   T64_CHECK_INT(t64_machine_digest(machine, digest), T64_STATUS_OK);

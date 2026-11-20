@@ -324,6 +324,7 @@
             "continuation-partitions",
             "dirty-peer",
             "observer-flag",
+            "rdp-state-carry",
             "boundary-reached",
             "boundary-roundtrip",
             "boundary-continuation",

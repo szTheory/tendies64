@@ -87,7 +87,8 @@ no such section). The id lists written by the export are therefore:
 | the three save ids (suffixes `-e4k`, `-e16k`, `-s32k`) | 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 16 |
 
 Body lengths of the idle stem machine (bytes): 168, 32, 4,194,308, 8,200, 276,
-56, 43,724, 2,103,016, 336 and 404 for ids 1 to 10, and 40 for id 16; the save
+56, 43,724, 4,200,260, 336 and 404 for ids 1 to 10, and 40 for id 16 (the id 8 body
+ends with the carried RDP tail of 2,097,244 bytes, plan 09-10); the save
 ids add 532, 2,068 or 32,788 bytes for id 11.
 
 ## Hash semantics
@@ -160,17 +161,19 @@ records never reach the blob.
   the edge values and a compile-time worst case.
 - The artifact maximum of the runner (at most 32 MiB) is a separate, stricter
   bound than the container ceiling.
-- Measured sizes (bytes): idle stem machine 6,351,551; the save ids 6,352,143
-  (`e4k`), 6,353,679 (`e16k`) and 6,384,399 (`s32k`); the stem machine with an
-  AI packet being built 6,351,643, after its first packet 6,351,631, with a
-  retained video packet 6,351,607 and with a pending RDP command 6,351,591. The
-  blob of the authored admit ROM at authored completion (guest tick 538,781) is
-  6,351,511 bytes.
-- Arithmetic bounds: strictly above 6,303,756 (RDRAM section 4,194,308, one
-  2,097,152-byte RDP coverage array, the 4,096-byte TMEM and the 8,200-byte SP
-  memory section) and below 11,534,336. The video and audio retained packet
-  slots add their packet lengths (at most 307,200 per video packet and 262,136
-  per audio packet, two slots each) only while packets are retained.
+- Measured sizes (bytes), after the carried RDP tail of plan 09-10 (2,097,244
+  bytes in section 8; the values before it were 2,097,244 lower): idle stem
+  machine 8,448,795; the save ids 8,449,387 (`e4k`), 8,450,923 (`e16k`) and
+  8,481,643 (`s32k`); the stem machine with an AI packet being built 8,448,887,
+  after its first packet 8,448,875, with a retained video packet 8,448,851 and
+  with a pending RDP command 8,448,835. The blob of the authored admit ROM at
+  authored completion (guest tick 538,781) is 8,448,755 bytes.
+- Arithmetic bounds: strictly above 8,400,908 (RDRAM section 4,194,308, the
+  2,097,152-byte triangle coverage array, the 2,097,152-byte memory coverage
+  table, the 4,096-byte TMEM and the 8,200-byte SP memory section) and below
+  11,534,336. The video and audio retained packet slots add their packet lengths
+  (at most 307,200 per video packet and 262,136 per audio packet, two slots
+  each) only while packets are retained.
 
 ## Privacy and publication
 
@@ -222,7 +225,7 @@ field is 48 bytes.
 File-size backstop: the supervisor sets the child file-size limit to the artifact
 maximum plus 65,536 bytes only when the pair is present (the exact rule is in
 [raw-capture.md](raw-capture.md)); the default limit stays 69,632 bytes. The
-state blob (6,351,511 bytes for the admit ROM) is larger than the default and
+state blob (8,448,755 bytes for the admit ROM) is larger than the default and
 fits the raised limit: with the maximum equal to the size the file is published,
 one byte below the run ends with `state-export-cap`, and the test twin's exact
 write fault at that size is not signalled while one byte more is
@@ -468,9 +471,12 @@ software model on authored machines of the composite family:
 
 These are comparisons of the code with itself: a state that every schedule gets
 wrong in the same way would pass them, and the ladder says nothing about a console.
-Fields that the v25 state does not carry (the RDP combiner, depth and blender
-registers, the hidden coverage tables and the diagnostic observation record) are
-reset to zero by the commit, so a peer that used them does not keep them.
+Fields that the v25 state does not carry (the RDP depth members, which decision K1
+keeps inactive on this family, the diagnostic last-coverage members and the
+diagnostic observation record) are reset to zero by the commit, so a peer that
+used them does not keep them. The RDP combiner block and the memory coverage
+table are carried since plan 09-10 (the tail of section 8) and are therefore part
+of the continuation ladder.
 
 ## Runner import surface
 
@@ -558,9 +564,11 @@ every Phase 9 flag name they are provisional until the Phase 10 interface review
 ## Boundary matrix
 
 Plan 09-09.1 proves the importer on the boundary classes the device models can
-reach, not on every machine state. The matrix has exactly sixteen rows, ids `B01`
-to `B16`; a seventeenth row or a substituted construction source is a recorded
-deviation, and a row whose boundary cannot be reached is reported, not removed.
+reach, not on every machine state. The matrix has seventeen rows, ids `B01` to
+`B17` (the plan required sixteen; `B17` was added by the fix cycle of plan 09-10
+for the carried RDP members, below); a further row or a substituted construction
+source is a recorded deviation, and a row whose boundary cannot be reached is
+reported, not removed.
 The rows live in one table of `core/tests/test_state_import.c` and a new row is a
 table row plus its builder.
 
@@ -616,6 +624,7 @@ and the native sanitizer run is the full set.
 | B14 | si-mid-transaction | the S1 builder: an RD64B in flight before its execute | active read, execute pending, (SI, EXECUTE) and (SI, COMPLETE) events | `si.execute_tick` plus 1 |
 | B15 | eeprom-busy | `test_save.c` tracer on the `-e4k` id: a block write through channel 4 by a WR64B and an RD64B | `busy_until` above the machine tick, SI idle | `busy_until` plus 1 |
 | B16 | pending-input | `t64_machine_queue_input` stamped 20,000 ticks ahead on S1 | an (INPUT, SUBMITTED) event queued above the tick | one button bit of the event value |
+| B17 | rdp-triangle-render | `test_rdp_triangles.c` edge words after an 8 by 8 fill and the primitive, environment, fog, blend, key and combine registers through the DP registers, stopped after the first row of the triangle | `render_active` with `render_triangle` and a render row above the first row, the combiner block set, 72 memory coverage entries, one (RDP, WORK) event | the fog color (a hashed member that no event overwrites) |
 
 Observer outcomes (rows B07 and B10, D-29). A default import restores the observer
 packets, so the occupancy gate that held the event on the source holds it on the
@@ -635,17 +644,19 @@ tick 7,086, target 7,088, same relation.
 
 ### Limits of the matrix
 
-- **Hidden members outside the v25 state.** The RDP combiner block (the combine
-  mode and its valid flag, the environment, fog and blend colors, the key
-  registers) and the RDP memory-coverage table exist in the filter-v9 family
-  behavior but are not in the v25 canonical state, so the importer zeroes them
-  (09-09 commit) and a state whose continuation depends on them cannot continue
-  equal. Two consequences are recorded, not fixed here because the canonical state
-  content is frozen (F1): a pending triangle packet cannot be a boundary (the
-  family needs the combine mode for every triangle), and a VI scan-out that reads
-  coverage marks written by the RDP produces a different retained packet after an
-  import. Rows B05, B06 and B07 therefore use the nearest builders that do not
-  depend on those members; the finding is carried to the review plan.
+- **Hidden RDP members (closed by plan 09-10).** The RDP combiner block and the
+  RDP memory-coverage table were once outside the v25 state: the importer zeroed
+  them, a state with a pending triangle or a VI scan-out over coverage marks could
+  not continue equal, and the rows B05 to B07 used the nearest builders that avoid
+  them. The review of plan 09-10 reproduced the loss (the same triangle drew on the
+  source and was refused on the peer) and the family state now carries both in the
+  tail of section 8, so the importer restores them and the digest sees them. Row
+  B17 holds a triangle render in progress after a fill and the combiner registers;
+  the rows B06 and B07 build the VI frame with its coverage marks; the case
+  `rdp-state-carry` draws one triangle on the source, on the imported peer and on a
+  control peer without the members (the behavior of the old import), and the
+  authored fixture `rdp-fill` shows the coverage table carried from real guest
+  code.
 - **The RSP issue event is optional.** A running RSP without its issue event is a
   legitimate wedged state (core/t64_rsp.c t64_rsp_issue_event leaves it unscheduled
   after an unsupported opcode or an out-of-bank pc), so the drop mutant of the
@@ -660,8 +671,8 @@ tick 7,086, target 7,088, same relation.
 
 ### Required set, mid-tick resume and recorded deviations
 
-The required set is exactly sixteen rows, B01 to B16; none was added, removed or
-left unreached. The D-36 case `mid-tick-resume` is the stop-mode variant of B12 and
+The required set is sixteen rows, B01 to B16; none was removed or left unreached,
+and plan 09-10 added B17. The D-36 case `mid-tick-resume` is the stop-mode variant of B12 and
 is not a seventeenth boundary: B12 keeps its constructed builder and the case adds
 states reached by production stops.
 
@@ -777,6 +788,18 @@ to the reader (it is read after the render fields) and is checked at use: the TM
 accessors validate the tile and every address of each pixel. The mutants
 `render-triangle-*` of the inventory carry one accepted baseline and one refusal per
 rule.
+
+Carried RDP tail (plan 09-10, state content change). Section 8 ends with the RDP
+combiner block and the memory coverage table (see
+[machine-contract.md](machine-contract.md)); the reader checks, in order of
+appearance: the primitive LOD fraction at most 0xff, the three colors and the combine
+mode unconstrained (any 32 or 64-bit register value is what the acceptance stores),
+the seven valid flags as booleans (`BOOL_01`), each key center and scale at most 0xff
+and each key width at most 0xfff (`INDEX_LT`, the widths of the registers they are
+stored from), the table size word equal to the profile derived size
+(`PROFILE_DERIVED`) and every table entry either clear or the valid bit with a
+coverage of 0 to 8 (`ENUM_CLOSED`). The mutants `rdp-carried-*` of the inventory
+carry one refusal per rule.
 
 Reader bounds added by the audit. The nine members the 09-09 hand-off listed as
 unbounded were checked against their consuming code. The RDP render rectangle was

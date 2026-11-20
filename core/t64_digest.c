@@ -854,6 +854,44 @@ t64_status t64_digest_stream(const t64_machine *machine,
                        sizeof info->vi_output_policy);
         }
       }
+      if (has_v25_state) {
+        /*
+         * The RDP members the composite family computes with and the older
+         * v24 walker never hashed (plan 09-10, STATE-CONTENT-F1): the combiner
+         * block (the members the v19 to v21 walkers hash) and the memory
+         * coverage table. They end section 8 in the new-span class, so the
+         * stripped v25 stream still equals the v24 stream (decision D-05) and
+         * the state of the 17 older profiles is untouched. The depth members
+         * are excluded: depth is inactive on descriptor 12 (K1), and the
+         * diagnostic last-coverage members are test observation state.
+         */
+        hash_u32_new(sink, rdp->primitive_lod_fraction);
+        hash_u32_new(sink, rdp->environment_color);
+        hash_u32_new(sink, rdp->fog_color);
+        hash_u32_new(sink, rdp->blend_color);
+        hash_u64_new(sink, rdp->combine_mode);
+        hash_u32_new(sink, rdp->combine_mode_valid ? 1u : 0u);
+        hash_u32_new(sink, rdp->environment_color_valid ? 1u : 0u);
+        hash_u32_new(sink, rdp->fog_color_valid ? 1u : 0u);
+        hash_u32_new(sink, rdp->blend_color_valid ? 1u : 0u);
+        hash_u32_new(sink, rdp->key_center_valid ? 1u : 0u);
+        hash_u32_new(sink, rdp->key_scale_valid ? 1u : 0u);
+        hash_u32_new(sink, rdp->key_width_valid ? 1u : 0u);
+        for (i = 0u; i < 3u; i++) {
+          hash_u32_new(sink, rdp->key_center[i]);
+          hash_u32_new(sink, rdp->key_scale[i]);
+          hash_u32_new(sink, rdp->key_width[i]);
+        }
+        hash_u32_new(sink,
+                     (uint32_t)T64_RDP_MEMORY_COVERAGE_BYTES(
+                     machine->profile.rdram_bytes));
+        if (machine->rdp_memory_coverage != NULL) {
+          digest_bytes_class(sink, machine->rdp_memory_coverage,
+                             T64_RDP_MEMORY_COVERAGE_BYTES(
+                             machine->profile.rdram_bytes),
+                             T64_DIGEST_CLASS_NEW);
+        }
+      }
     }
   }
   if (has_audio_state) {

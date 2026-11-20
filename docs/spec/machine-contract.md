@@ -316,7 +316,13 @@ The encodings that exist in `core/t64_digest.c`, by state version:
 | 25 | `t64.state.si.25` | the four composite SI family ids |
 
 State versions 14 and 15 have no encoding. Each version includes everything the
-earlier ones do for the state its profile has. The v5 encoding hashes the
+earlier ones do for the state its profile has, with two exact exceptions that
+the walker guards by profile tuple and that stay as they are: the Phase 8 audio
+profile (descriptor 11, v24) does not hash the RDP combiner block or the memory
+coverage table, and no descriptor above 10 hashes the depth members (decision K1:
+depth is inactive there). Both limits are pinned by the legacy digest literals;
+the composite family (v25) carries the combiner block and the coverage table in
+a new-class tail of section 8 (below). The v5 encoding hashes the
 domain, the serialization version word, the complete profile hash, the admitted
 content digest, the loaded-image flag and length, the parsed header, title, game
 code and ROM version, the guest tick, instruction and frame-event counters,
@@ -340,9 +346,15 @@ are derived from descriptor validity. The extensions, in order of appearance:
 * v16 to v23: the RDP/VI block (DPC state, command, texture, combiner, blender
   and depth state as each version adds it, the VI registers and phase, and the
   retained video packet slots with their metadata); v22 and v23 add the
-  latched scanout fields and the filter and output-policy metadata.
+  latched scanout fields and the filter and output-policy metadata. The combiner
+  block is hashed under the exact tuples of v19, v20 and v21 and the coverage
+  table under v20 and v21 (descriptor 10).
 * v24: the audio block (AI latches, rate latch and phase, descriptor queue,
-  packet history hash, and the retained audio packet slots).
+  packet history hash, and the retained audio packet slots); the RDP block of
+  v24 is the filter-v9 block without the combiner block, the coverage table and
+  the depth members.
+* v25: the same blocks in sections, then the SI and save sections and the
+  carried tail of section 8 (combiner block and coverage table, new-span class).
 
 Through v24 the retained video and audio packet metadata includes the profile
 id and the build identity string. The profile digest of the default skeleton
@@ -374,11 +386,24 @@ v25 is not comparable to v24 byte for byte but its shared sections are.
 | 5 | interrupt, PI and SP | MI pending, mask and IRQ line; all PI state; all SP state |
 | 6 | scheduler | queue count, next sequence, exhaustion flag, ordered events |
 | 7 | warm devices | boot, CPU, cache, guest-device, ISViewer, RSP and RDRAM protocol state |
-| 8 | rdp and vi | the RDP/VI block, including the retained video packet slots |
+| 8 | rdp and vi | the RDP/VI block, including the retained video packet slots, then the carried tail in the new-span class (plan 09-10): the primitive LOD fraction, the environment, fog and blend colors, the combine mode, the seven valid flags (combine mode, environment, fog, blend, key center, key scale, key width), the key center, scale and width of each of the three channels (88 bytes), the size word of the memory coverage table and the table (one byte per two bytes of RDRAM, 2,097,152 for 4 MiB) |
 | 9 | audio | the AI block, including the retained audio packet slots |
 | 10 | SI and PIF | emitted by the composite family: SI registers and active descriptor, the 64-byte PIF RAM, the parsed joybus table and the four per-port input latches, every field in the new-span class; the field table is in [si-pif-controller.md](si-pif-controller.md) |
 | 11 | save media | emitted by the three save ids only: kind, size, EEPROM deadline, active PI save direction and the raw storage, every field in the new-span class; the field table is in [save-media.md](save-media.md) |
 | 16 | observer continuity | reserved; outside the digest |
+
+The tail of section 8 is the one place where new-class bytes sit inside an older
+section: the family computes with the combiner block (a triangle is refused
+without a combine mode) and the VI scan-out reads the coverage table, so a state
+that omitted them continued differently after an import while the digest stayed
+equal (found by the review of plan 09-10 as a blocking defect and fixed there as
+a recorded state-content change; the section length grows by 2,097,244 bytes and
+only the family digests move). The tail ends exactly where section 9 begins, and
+the depth members (decision K1), the diagnostic last-coverage members and the
+packet words at or after the packet word count are the named members of
+`t64_rdp_state` that are not state; every other member is in the stream, which the
+completeness test of `core/tests/test_digest_v25.c` (case `v25-reference`) flips
+one byte at a time on the four family ids.
 
 Reserved ids emit nothing until their section exists; sections 10 and 11 are the
 new-class sections emitted so far (section 11 only when the profile has a save
@@ -397,10 +422,11 @@ operations. The test applies it to an idle machine, an audio DMA with a packet i
 progress, an audio machine after its first packet, a machine with a retained
 video packet, and a machine with a pending RDP command word. An independent
 reference encoder, written from this table and the machine fields without
-calling production code, reproduces the domain, the section ids and the bodies
-of sections 1, 2, 3, 4 and 6 byte for byte. It is not a second implementation
-of every device section: sections 5, 7, 8 and 9 are covered by the differential
-against the v24 stream, which the pinned legacy literals anchor.
+calling production code, reproduces the domain, the section ids, the bodies
+of sections 1, 2, 3, 4 and 6 and the carried tail of section 8 byte for byte. It is
+not a second implementation of every device section: sections 5, 7 and 9 and the
+rest of section 8 are covered by the differential against the v24 stream, which
+the pinned legacy literals anchor.
 
 | Private field or state | Digest treatment | Reason |
 | --- | --- | --- |
@@ -631,9 +657,10 @@ the public call keeps accepting port 0 only. On every other profile the event
 only records a deterministic timed input observation and no SI, PIF or
 controller model consumes it. Invalid port/axis values, past
 ticks, unready or terminal machines, a full queue, and sequence exhaustion
-refuse without partial queue or sequence mutation. Input records are
-observer-only; the pending event tuple is included in state-v8 identity until
-it dispatches.
+refuse without partial queue or sequence mutation. Outside the composite family
+input records are observer-only; on the family the per-port latch is canonical
+state (section 10) and guest-visible through the SI. In both cases the pending
+event tuple is included in the state identity until it dispatches.
 
 ## Replacement reset snapshot
 
@@ -830,7 +857,7 @@ four authored words written to the SRAM window first (`0x00000001`,
 | idle-stem | 5 | 276 | 15cc6a687b141c3e5e90854599f9d2908b95749664c0418184927a628195be20 |
 | idle-stem | 6 | 56 | 2d04db54e23eaa8219575be70c424d2ea274da8770485b9d957de66bf6541853 |
 | idle-stem | 7 | 43724 | f6948a6a0e1d39e936f5761429c6c96361ab663b3066f4f440a2b1e6b10acb47 |
-| idle-stem | 8 | 2103016 | 87adef4ee0974db59ba1eba88437d01f7db040c709aa90c5e70f312e65138065 |
+| idle-stem | 8 | 4200260 | b6c352fc4a1378a5d144f04ba18fa34a60446ac047bff35178c6b5b0b4930e69 |
 | idle-stem | 9 | 336 | 52a3e0804d93dc525ec3c67ef8ac5b01756ecf0513e36f3c19435e4c82cb5d29 |
 | idle-stem | 10 | 404 | aa393fb5f348ef124a46175d478d4246a351c24f2b479c9ce574c158b5bbadba |
 | idle-e4k | 2 | 32 | 66687aadf862bd776c8fc18b8e9f8e20089714856ee233b3902a591d0d5f2925 |
@@ -839,7 +866,7 @@ four authored words written to the SRAM window first (`0x00000001`,
 | idle-e4k | 5 | 276 | 15cc6a687b141c3e5e90854599f9d2908b95749664c0418184927a628195be20 |
 | idle-e4k | 6 | 56 | 2d04db54e23eaa8219575be70c424d2ea274da8770485b9d957de66bf6541853 |
 | idle-e4k | 7 | 43724 | f6948a6a0e1d39e936f5761429c6c96361ab663b3066f4f440a2b1e6b10acb47 |
-| idle-e4k | 8 | 2103016 | 87adef4ee0974db59ba1eba88437d01f7db040c709aa90c5e70f312e65138065 |
+| idle-e4k | 8 | 4200260 | b6c352fc4a1378a5d144f04ba18fa34a60446ac047bff35178c6b5b0b4930e69 |
 | idle-e4k | 9 | 336 | 52a3e0804d93dc525ec3c67ef8ac5b01756ecf0513e36f3c19435e4c82cb5d29 |
 | idle-e4k | 10 | 404 | aa393fb5f348ef124a46175d478d4246a351c24f2b479c9ce574c158b5bbadba |
 | idle-e4k | 11 | 532 | ce276b54e42d1e377ef7d43f652d49f51acfdd62213af71868cc4db2b9945636 |
@@ -849,7 +876,7 @@ four authored words written to the SRAM window first (`0x00000001`,
 | idle-e16k | 5 | 276 | 15cc6a687b141c3e5e90854599f9d2908b95749664c0418184927a628195be20 |
 | idle-e16k | 6 | 56 | 2d04db54e23eaa8219575be70c424d2ea274da8770485b9d957de66bf6541853 |
 | idle-e16k | 7 | 43724 | f6948a6a0e1d39e936f5761429c6c96361ab663b3066f4f440a2b1e6b10acb47 |
-| idle-e16k | 8 | 2103016 | 87adef4ee0974db59ba1eba88437d01f7db040c709aa90c5e70f312e65138065 |
+| idle-e16k | 8 | 4200260 | b6c352fc4a1378a5d144f04ba18fa34a60446ac047bff35178c6b5b0b4930e69 |
 | idle-e16k | 9 | 336 | 52a3e0804d93dc525ec3c67ef8ac5b01756ecf0513e36f3c19435e4c82cb5d29 |
 | idle-e16k | 10 | 404 | aa393fb5f348ef124a46175d478d4246a351c24f2b479c9ce574c158b5bbadba |
 | idle-e16k | 11 | 2068 | f83831868f121ac1d54cbd1c034f73592c75695302ae5b10f4bb4c8f20c0c4de |
@@ -859,7 +886,7 @@ four authored words written to the SRAM window first (`0x00000001`,
 | idle-s32k | 5 | 276 | 15cc6a687b141c3e5e90854599f9d2908b95749664c0418184927a628195be20 |
 | idle-s32k | 6 | 56 | 2d04db54e23eaa8219575be70c424d2ea274da8770485b9d957de66bf6541853 |
 | idle-s32k | 7 | 43724 | f6948a6a0e1d39e936f5761429c6c96361ab663b3066f4f440a2b1e6b10acb47 |
-| idle-s32k | 8 | 2103016 | 87adef4ee0974db59ba1eba88437d01f7db040c709aa90c5e70f312e65138065 |
+| idle-s32k | 8 | 4200260 | b6c352fc4a1378a5d144f04ba18fa34a60446ac047bff35178c6b5b0b4930e69 |
 | idle-s32k | 9 | 336 | 52a3e0804d93dc525ec3c67ef8ac5b01756ecf0513e36f3c19435e4c82cb5d29 |
 | idle-s32k | 10 | 404 | aa393fb5f348ef124a46175d478d4246a351c24f2b479c9ce574c158b5bbadba |
 | idle-s32k | 11 | 32788 | 96a813dddb2aed9e4a8070099a5e2afa9d8ed98b29c5a04409bed28e6eb36659 |
@@ -869,7 +896,7 @@ four authored words written to the SRAM window first (`0x00000001`,
 | all-stem | 5 | 276 | d76402d0c97abeead364cda2fd7ba107632608da576dea659f05d0667e8f648e |
 | all-stem | 6 | 96 | da4194e598f9e3e8b0db720185fa6a21194d3c6fd542aa92d0689782632f3c9a |
 | all-stem | 7 | 43724 | 12d7b7b731d26cb0c69fd817e787950ce8c4e6bdb0b69d5ac9dc526bdddfa88b |
-| all-stem | 8 | 2103112 | 68e538d595cc112a0f82d1a94539818a58aee372a41adeeb3de5c0ca3dfa705c |
+| all-stem | 8 | 4200356 | 9f7eca0565f3a902c8e55c7f9e1160fa23ed43c8a4ce1158b5668d0b27f9949f |
 | all-stem | 9 | 344 | bdb91a273e1d7a36634d1837c9ef25c274b5abb72591eaa2805b26a47189f58e |
 | all-stem | 10 | 404 | 22b74d14eb39b1c125207961e65022947a75724aff09de581405802198483142 |
 | all-s32k | 2 | 32 | 457af84927bf7a656d18d99b13659c780b5ddcb8ff4255abeae1b573e7e288ce |
@@ -878,7 +905,7 @@ four authored words written to the SRAM window first (`0x00000001`,
 | all-s32k | 5 | 276 | d76402d0c97abeead364cda2fd7ba107632608da576dea659f05d0667e8f648e |
 | all-s32k | 6 | 96 | da4194e598f9e3e8b0db720185fa6a21194d3c6fd542aa92d0689782632f3c9a |
 | all-s32k | 7 | 43724 | 12d7b7b731d26cb0c69fd817e787950ce8c4e6bdb0b69d5ac9dc526bdddfa88b |
-| all-s32k | 8 | 2103112 | 68e538d595cc112a0f82d1a94539818a58aee372a41adeeb3de5c0ca3dfa705c |
+| all-s32k | 8 | 4200356 | 9f7eca0565f3a902c8e55c7f9e1160fa23ed43c8a4ce1158b5668d0b27f9949f |
 | all-s32k | 9 | 344 | bdb91a273e1d7a36634d1837c9ef25c274b5abb72591eaa2805b26a47189f58e |
 | all-s32k | 10 | 404 | 22b74d14eb39b1c125207961e65022947a75724aff09de581405802198483142 |
 | all-s32k | 11 | 32788 | 18027aa2804723811fc26bbe7869393c01a51b8f74981ca5f2228f3a0b70dfbb |
@@ -890,7 +917,8 @@ and equal the walker (32; 4,194,308; 8,200; 276; 16 plus 40 per queued event;
 captured and checked by a differential: the v24 stream of the Phase 8 audio
 profile in the same idle state, minus its identity spans, equals the 132
 non-identity bytes of section 1, the hand-derived sections 2 to 7 and the
-captured sections 8 and 9. The hash of every section is a regression pin: it is
+captured sections 8 and 9 (section 8 without its carried tail, 2,097,244 bytes
+whose length is derived by hand above). The hash of every section is a regression pin: it is
 the walker compared with itself, so a consistently wrong field would pass. The
 case also shows that a changed body byte reports the label `section-golden` and
 a changed pinned length reports `section-length`. Nothing here is hardware
@@ -916,7 +944,7 @@ profile and build ids only through v24).
 | content_digest | 1 | yes, `t64_machine_admit_rom` | the admitted content identity |
 | ram | 3, the RDRAM bytes | yes, `reset_guest_state` | pointer: the location is excluded, the bytes are section 3 |
 | rdp_triangle_coverage | 8, when the profile has the triangle side table | yes, `reset_guest_state` | pointer: the location is excluded, the table is hashed with the RDP block |
-| rdp_memory_coverage | 8, when the profile has the blender side table | yes, `reset_guest_state` | pointer: the location is excluded, the table is hashed with the RDP block |
+| rdp_memory_coverage | 8, when the profile has the blender side table: under the exact tuples of v20 and v21 and, for the composite family, in the new-class tail of section 8 (not for the Phase 8 audio profile) | yes, `reset_guest_state` | pointer: the location is excluded, the table is hashed with the RDP block |
 | rdp_depth_hidden | 8, only when the depth predicate holds (not for this family) | yes, `reset_guest_state` | pointer: the location is excluded, the table is hashed with the RDP block when present |
 | sp_dmem | 4 | yes, `reset_guest_state` | SP-local memory bank |
 | sp_imem | 4 | yes, `reset_guest_state` | SP-local memory bank |
@@ -931,7 +959,7 @@ profile and build ids only through v24).
 | cache | 7 | yes, `reset_guest_state` | cache policy and last operation |
 | guest_devices | 7 | yes, `reset_guest_state` | prepared MI and RI state and the RDRAM protocol model |
 | output | 7 | yes, `reset_guest_state` | ISViewer window, retained prefix and totals |
-| rdp | 8 | yes, `t64_rdp_reset_machine_state` | DPC, command, texture, combiner, blender and depth state as the profile has them |
+| rdp | 8 | yes, `t64_rdp_reset_machine_state` | DPC, command, texture, combiner and blender state; the combiner block is hashed under the exact tuples of v19 to v21 and, for the composite family, in the new-class tail of section 8; depth state only under v21 (decision K1), and `triangle_last_coverage_*` are observation state |
 | vi | 8 | yes, `t64_vi_reset_machine_state` | VI registers, phase and the retained packet metadata |
 | video_storage | excluded | no, preserved | allocator: the host storage descriptor of the retained video slots |
 | video_packets | 8, the retained slot bytes up to each slot length | yes, `t64_vi_reset_machine_state` | pointer: the location is excluded, drained slots are hashed |

@@ -308,10 +308,13 @@ static const blank_row blank_rows[] = {
     {S32K_ID, 3u, 32768u, 0x00u},
 };
 
-/* The idle digest of the stem id (no save device) captured at the 09-03 tree
- * before this plan's first edit; the section 11 addition must not move it. */
+/* The idle digest of the stem id (no save device), captured at the 09-03 tree
+ * before the save plan's first edit (the section 11 addition must not move it)
+ * and re-captured by the 09-10 fix cycle (STATE-CONTENT-F1): section 8 of the
+ * composite family gained the carried RDP tail (combiner block and memory
+ * coverage table), so every family digest moved, and nothing else did. */
 #define STEM_IDLE_DIGEST \
-  "5ed31137a518103e1086ec9d84350f44306f81fef57145ca4ca72a7f0815d9b0"
+  "ec4be64f3cb70299e4964b74f866fb753208dbad163a9a01ceb5871a03e3a5d8"
 
 static void check_mid_dma_direction(void);
 
