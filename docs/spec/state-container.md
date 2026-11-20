@@ -471,3 +471,80 @@ wrong in the same way would pass them, and the ladder says nothing about a conso
 Fields that the v25 state does not carry (the RDP combiner, depth and blender
 registers, the hidden coverage tables and the diagnostic observation record) are
 reset to zero by the commit, so a peer that used them does not keep them.
+
+## Runner import surface
+
+Flags (real mode, provisional): `--state-import PATH`, `--state-import-size N` and
+`--state-import-sha256 HEX`, all three together and never defaulted, the same triple
+shape as the schedule input. The supervisor copies the file into an exclusive private
+snapshot with its exact size and SHA-256 verified (`t64_verified_input_prepare`,
+ceiling 64 MiB), unlinks it and forwards the descriptor to the child as
+`--state-import-fd N` through the checked argument helper (the per-option slot sum
+counts 2 more slots: 45 of 64 including the terminating NULL, every family counted
+as if all co-occurred). The child never opens the caller path. After the ROM is
+admitted and before the first advance the child reads the exact size and calls
+`t64_machine_state_import` with flags 0; the loop resumes from the guest tick of the
+container header, which the importer cross-checked with the machine core section.
+
+Refusals decided in the supervisor before any snapshot is prepared and before any
+child starts, with detail `usage` and guest tick 0: an incomplete triple, a size of
+zero or above the ceiling, a hash that is not 64 lowercase hex digits, synthetic mode,
+raw capture, a custom schedule (`--input-size` and `--input-sha256`; the input path
+itself is mandatory in real mode and keeps its default), and every flag of an earlier
+artifact family. The child repeats the family rule for its forwarded options (a
+directly started child refuses the same way, guest tick 0, before any import call) and
+refuses a profile outside the composite family with the existing prelaunch refusal
+(detail `refusal`).
+
+An import the importer refuses, an unreadable snapshot, or a state whose tick is above
+the bound ends in the existing prelaunch refusal (`refusal`, `refused`, guest tick 0;
+the supervised record is the report-error classification that every prelaunch refusal
+has) before the first advance. The closed reason name is written once to the child's
+diagnostic stream (`state-import refused: <name>`); the result record keeps its
+schema and never carries a reason, a path or a blob byte, and no state byte reaches any
+log. `docs/spec/result-protocol.md` and the result and fixture sources are unchanged.
+
+Evidence limit of a resumed run: the runner derives the pass verdict from milestones
+and a retirement count it observes through its own trace, which a resumed run does not
+have, so a resumed run never reports `pass`. A state exported in process at a tick inside
+the long authored spin and imported through the runner resumes to the same completion
+tick, the same final state digest and the same log bytes as the uninterrupted run, and
+ends in the closed `harness-error` / `host-error` record (case
+`import-accepted-continues`). A state published by the runner itself is exported after
+the runner drained its whole log (observer cursor at the log length), so its default
+import delivers no earlier byte and the record disagrees with its own log; the
+supervisor ends that run in the closed `report-error` / `report-invalid` record, asserted
+by name in the same case.
+
+## Option-pair matrix
+
+One run has one artifact producer. Families: SAVE-IN (`--save-import`,
+`--save-import-size`, `--save-import-sha256`, `--save-kind`, `--save-format`), SAVE-OUT
+(`--save-export-leaf`), REPLAY-REC (`--replay-record`,
+`--replay-checkpoint-interval`), REPLAY-PLAY (`--replay-play`, `--replay-play-size`,
+`--replay-play-sha256`, `--replay-report`), STATE-OUT (`--state-export`,
+`--state-export-format`), STATE-IN (`--state-import`, `--state-import-size`,
+`--state-import-sha256`), INPUT (`--input-size`, `--input-sha256`; `--input` is
+mandatory and defaulted), RAW (`--raw-capture-dir`) and PAIR (`--artifact-dir`,
+`--artifact-max-bytes`).
+
+| Combination | Result |
+| --- | --- |
+| STATE-IN with INPUT, RAW, SAVE-IN, SAVE-OUT, REPLAY-REC, REPLAY-PLAY, STATE-OUT, synthetic mode | refused (`usage`, guest tick 0) |
+| STATE-IN with the common options only | allowed |
+| STATE-IN with PAIR alone | allowed; the pair keeps its earlier meaning and no producer uses it |
+| STATE-OUT with RAW, SAVE-IN, SAVE-OUT, REPLAY-REC, REPLAY-PLAY, synthetic mode | refused (`usage`) |
+| STATE-OUT without PAIR | refused (`usage`) |
+| STATE-OUT with INPUT | allowed |
+| REPLAY-REC and REPLAY-PLAY with RAW, synthetic mode and the save flags | refused, as the replay plan states |
+| SAVE-IN with SAVE-OUT | allowed (the save round trip) |
+| SAVE-OUT without PAIR | refused |
+
+The ordering proof: each one-producer row of the case `import-option-refusals`
+passes a nonexistent import path; a supervisor that prepared the snapshot first would
+report the snapshot refusal (detail `refusal`) instead of the pair refusal (detail
+`usage`). The control row with the same nonexistent path and no conflicting flag
+reports the snapshot refusal, which shows the pair refusal precedes the snapshot and
+therefore any child start and any guest tick. Rows owned by the save and replay plans
+are copied from their committed text; a disagreement between this table and the code
+is a finding for the drift sweep, not an edit of an earlier plan.

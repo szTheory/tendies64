@@ -69,12 +69,17 @@
 #define T64_SUP_ARGS_REPLAY 8u
 /* state export flags 4 (plan 09-08): the leaf 2 and the format 2 */
 #define T64_SUP_ARGS_STATE 4u
+/* state import flags 2 (plan 09-09): the forwarded descriptor option 2. No
+ * legal run combines the save, replay, state export and state import families
+ * (one artifact producer per run), but the sum counts every family as if all
+ * co-occurred, so it stays an upper bound. */
+#define T64_SUP_ARGS_STATE_IMPORT 2u
 #define T64_SUP_CHILD_ARGS_SLOT_SUM                                          \
   (T64_SUP_ARGS_RUNNER_PATH + T64_SUP_ARGS_FIXTURE + T64_SUP_ARGS_INPUT +    \
    T64_SUP_ARGS_PROFILE + T64_SUP_ARGS_TICKS + T64_SUP_ARGS_ADVANCE_STEP +   \
    T64_SUP_ARGS_VIDEO + T64_SUP_ARGS_AUDIO + T64_SUP_ARGS_RAW_CAPTURE +      \
    T64_SUP_ARGS_ARTIFACT + T64_SUP_ARGS_SAVE + T64_SUP_ARGS_REPLAY +         \
-   T64_SUP_ARGS_STATE)
+   T64_SUP_ARGS_STATE + T64_SUP_ARGS_STATE_IMPORT)
 _Static_assert(T64_SUP_CHILD_ARGS_SLOT_SUM + 1u <= T64_SUP_CHILD_ARGS_CAPACITY,
                "the maximum child option set plus the terminating NULL must "
                "fit the child argument array");
@@ -476,6 +481,9 @@ typedef struct {
   const char *replay_report;
   const char *state_export;
   const char *state_export_format;
+  const char *state_import;
+  const char *state_import_sha256;
+  uint64_t state_import_size;
   uint64_t replay_checkpoint_interval;
   uint64_t replay_play_size;
   uint64_t input_size;
@@ -511,6 +519,9 @@ typedef struct {
   int replay_report_seen;
   int state_export_seen;
   int state_export_format_seen;
+  int state_import_seen;
+  int state_import_size_seen;
+  int state_import_sha256_seen;
 #ifdef T64_SUPERVISOR_TESTING
   int advance_step_seen;
 #endif
@@ -635,6 +646,40 @@ static bool state_export_flags_valid(const sup_args *a) {
          strcmp(a->state_export_format, T64_STATE_CONTAINER_FORMAT) == 0;
 }
 
+/* Real-mode validation of the state import flags (plan 09-09, usage class):
+ * the path, the exact size and the SHA-256 come together, the size is at most
+ * the harness ceiling and the hash is 64 lowercase hex digits. One run has one
+ * artifact producer, so the import is refused with raw capture, a custom input
+ * schedule (the schedule options; the input path itself is mandatory in real
+ * mode and takes its default), every save, replay and state export flag. This
+ * is the same pair-rule block as the earlier families, decided before any
+ * snapshot is prepared and before any child starts. The runner repeats the
+ * family check for its forwarded options and refuses a profile outside the
+ * composite family. */
+static bool state_import_flags_valid(const sup_args *a) {
+  const int any = a->state_import_seen || a->state_import_size_seen ||
+                  a->state_import_sha256_seen;
+  if (!any) return true;
+  if (!a->state_import_seen || !a->state_import_size_seen ||
+      !a->state_import_sha256_seen || a->raw_capture_dir_seen ||
+      a->input_options_seen) {
+    return false;
+  }
+  if (a->save_import_seen || a->save_import_size_seen ||
+      a->save_import_sha256_seen || a->save_kind_seen || a->save_format_seen ||
+      a->save_export_leaf_seen || a->replay_record_seen ||
+      a->replay_interval_seen || a->replay_play_seen ||
+      a->replay_play_size_seen || a->replay_play_sha256_seen ||
+      a->replay_report_seen || a->state_export_seen ||
+      a->state_export_format_seen) {
+    return false;
+  }
+  return a->state_import != NULL && a->state_import[0] != '\0' &&
+         a->state_import_size > 0u &&
+         a->state_import_size <= (uint64_t)T64_VERIFIED_HARNESS_MAX_BYTES &&
+         is_hex64(a->state_import_sha256);
+}
+
 static int parse_args(int argc, char **argv, sup_args *a) {
   sup_opt opts[] = {
       {"--identity", &a->identity, NULL, 1, 0},
@@ -678,6 +723,9 @@ static int parse_args(int argc, char **argv, sup_args *a) {
       {"--replay-report", &a->replay_report, NULL, 0, 0},
       {"--state-export", &a->state_export, NULL, 0, 0},
       {"--state-export-format", &a->state_export_format, NULL, 0, 0},
+      {"--state-import", &a->state_import, NULL, 0, 0},
+      {"--state-import-size", NULL, &a->state_import_size, 0, 0},
+      {"--state-import-sha256", &a->state_import_sha256, NULL, 0, 0},
 #ifdef T64_SUPERVISOR_TESTING
       {"--advance-step", NULL, &a->advance_step, 0, 0},
 #endif
@@ -764,6 +812,15 @@ static int parse_args(int argc, char **argv, sup_args *a) {
     }
     if (strcmp(argv[i], "--state-export-format") == 0) {
       a->state_export_format_seen = 1;
+    }
+    if (strcmp(argv[i], "--state-import") == 0) {
+      a->state_import_seen = 1;
+    }
+    if (strcmp(argv[i], "--state-import-size") == 0) {
+      a->state_import_size_seen = 1;
+    }
+    if (strcmp(argv[i], "--state-import-sha256") == 0) {
+      a->state_import_sha256_seen = 1;
     }
 #ifdef T64_SUPERVISOR_TESTING
     if (strcmp(argv[i], "--advance-step") == 0) {
@@ -887,6 +944,10 @@ static int parse_args(int argc, char **argv, sup_args *a) {
     if (!bad && !state_export_flags_valid(a)) {
       bad = 1;
     }
+    /* State import (plan 09-09): one artifact producer per run. */
+    if (!bad && !state_import_flags_valid(a)) {
+      bad = 1;
+    }
 #ifdef T64_SUPERVISOR_TESTING
     if (!bad && a->advance_step_seen &&
         (a->advance_step == 0u || a->advance_step > UINT64_C(32))) {
@@ -949,7 +1010,9 @@ static int parse_args(int argc, char **argv, sup_args *a) {
          a->replay_record_seen || a->replay_interval_seen ||
          a->replay_play_seen || a->replay_play_size_seen ||
          a->replay_play_sha256_seen || a->replay_report_seen ||
-         a->state_export_seen || a->state_export_format_seen
+         a->state_export_seen || a->state_export_format_seen ||
+         a->state_import_seen || a->state_import_size_seen ||
+         a->state_import_sha256_seen
 #ifdef T64_SUPERVISOR_TESTING
          || a->advance_step_seen
 #endif
@@ -1603,6 +1666,7 @@ static int real_run_mode(const sup_args *args, const char *self_path) {
   t64_verified_input input = {-1, 0u, {0u}, {0}, 0u};
   t64_verified_input save_import = {-1, 0u, {0u}, {0}, 0u};
   t64_verified_input replay_play = {-1, 0u, {0u}, {0}, 0u};
+  t64_verified_input state_import = {-1, 0u, {0u}, {0}, 0u};
   t64_verified_input_status fixture_status;
   t64_verified_input_status input_status;
   t64_verified_input_status save_import_status;
@@ -1630,6 +1694,7 @@ static int real_run_mode(const sup_args *args, const char *self_path) {
   char replay_interval_text[24];
   char replay_fd_text[24];
   char replay_report_text[128];
+  char state_import_fd_text[24];
   char state_export_text[64];
   char state_export_format_text[64];
 #ifdef T64_SUPERVISOR_TESTING
@@ -1679,6 +1744,7 @@ static int real_run_mode(const sup_args *args, const char *self_path) {
   replay_interval_text[0] = '\0';
   replay_fd_text[0] = '\0';
   replay_report_text[0] = '\0';
+  state_import_fd_text[0] = '\0';
   state_export_text[0] = '\0';
   state_export_format_text[0] = '\0';
   if (args->state_export_seen) {
@@ -1833,6 +1899,21 @@ static int real_run_mode(const sup_args *args, const char *self_path) {
       goto cleanup;
     }
   }
+  if (args->state_import_seen) {
+    /* The state file is copied into an exclusive private snapshot with its
+     * exact size and SHA-256 verified, exactly as the schedule input is; the
+     * child never opens the caller path. A snapshot failure is the same
+     * refusal the input path reports. */
+    t64_verified_input_status state_status = t64_verified_input_prepare(
+        args->state_import, args->state_import_size,
+        args->state_import_sha256, (uint64_t)T64_VERIFIED_HARNESS_MAX_BYTES,
+        &state_import);
+    if (state_status != T64_VERIFIED_INPUT_OK) {
+      (void)real_write_prelaunch(args->result, "harness-error", "refusal",
+                                 "refused", args->bound);
+      goto cleanup;
+    }
+  }
   if (real_test_barrier(args) != 0) {
     (void)real_write_prelaunch(args->result, "harness-error", "refusal",
                                "refused", args->bound);
@@ -1886,6 +1967,8 @@ static int real_run_mode(const sup_args *args, const char *self_path) {
   (void)snprintf(save_import_fd_text, sizeof save_import_fd_text, "%d",
                  save_import.fd);
   (void)snprintf(replay_fd_text, sizeof replay_fd_text, "%d", replay_play.fd);
+  (void)snprintf(state_import_fd_text, sizeof state_import_fd_text, "%d",
+                 state_import.fd);
   (void)snprintf(video_observation_fd_text,
                  sizeof video_observation_fd_text, "%llu",
                  (unsigned long long)args->video_observation_fd);
@@ -1935,6 +2018,7 @@ static int real_run_mode(const sup_args *args, const char *self_path) {
     char option_replay_report[] = "--replay-report";
     char option_state_export[] = "--state-export";
     char option_state_export_format[] = "--state-export-format";
+    char option_state_import_fd[] = "--state-import-fd";
     char *child_args[T64_SUP_CHILD_ARGS_CAPACITY];
     child_argv_list argv_builder = {child_args, 0u, T64_SUP_CHILD_ARGS_CAPACITY};
     bool argv_ok = true;
@@ -1989,6 +2073,13 @@ static int real_run_mode(const sup_args *args, const char *self_path) {
                 child_argv_push(&argv_builder, option_artifact_max_bytes);
       argv_ok = argv_ok &&
                 child_argv_push(&argv_builder, artifact_max_bytes_text);
+    }
+    if (args->state_import_seen) {
+      /* state import flags 2: the verified snapshot descriptor */
+      argv_ok = argv_ok &&
+                child_argv_push(&argv_builder, option_state_import_fd);
+      argv_ok = argv_ok &&
+                child_argv_push(&argv_builder, state_import_fd_text);
     }
     if (args->state_export_seen) {
       /* state export flags 4: the leaf 2 and the format 2 */
@@ -2061,6 +2152,7 @@ static int real_run_mode(const sup_args *args, const char *self_path) {
         !real_clear_cloexec(fixture.fd) || !real_clear_cloexec(input.fd) ||
         (args->save_import_seen && !real_clear_cloexec(save_import.fd)) ||
         (args->replay_play_seen && !real_clear_cloexec(replay_play.fd)) ||
+        (args->state_import_seen && !real_clear_cloexec(state_import.fd)) ||
         (args->video_observation_fd != 0u &&
          !real_clear_cloexec((int)args->video_observation_fd)) ||
         (args->audio_observation_fd != 0u &&
@@ -2232,6 +2324,7 @@ cleanup:
   t64_verified_input_release(&input);
   t64_verified_input_release(&save_import);
   t64_verified_input_release(&replay_play);
+  t64_verified_input_release(&state_import);
   return exit_code;
 }
 

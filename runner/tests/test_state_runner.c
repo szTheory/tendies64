@@ -155,6 +155,7 @@ typedef struct {
   uint64_t log_bytes;
   char dir[PATH_MAX];
   char result_path[PATH_MAX];
+  char err_path[PATH_MAX]; /* the direct runner's diagnostic stream */
 } run_out;
 
 static void copy_string(char *out, size_t capacity, const t64_json_node *node) {
@@ -579,6 +580,7 @@ static bool run_runner_direct(const char *fixture, const char *profile,
   char runner[PATH_MAX];
   char input[PATH_MAX];
   char stdout_path[PATH_MAX];
+  char stderr_path[PATH_MAX];
   char fixture_fd_text[24];
   char input_fd_text[24];
   char *slash;
@@ -599,9 +601,11 @@ static bool run_runner_direct(const char *fixture, const char *profile,
   (void)snprintf(slash, sizeof runner - (size_t)(slash - runner),
                  "/t64-runner-real");
   if (!make_run_dir(out->dir) || !input_path(input) ||
-      !join_path(stdout_path, sizeof stdout_path, out->dir, "runner.json")) {
+      !join_path(stdout_path, sizeof stdout_path, out->dir, "runner.json") ||
+      !join_path(stderr_path, sizeof stderr_path, out->dir, "runner.err")) {
     return false;
   }
+  (void)snprintf(out->err_path, sizeof out->err_path, "%s", stderr_path);
   fixture_fd = open_snapshot(fixture, out->dir);
   input_fd = open_snapshot(input, out->dir);
   if (fixture_fd <= STDERR_FILENO || input_fd <= STDERR_FILENO) return false;
@@ -620,9 +624,11 @@ static bool run_runner_direct(const char *fixture, const char *profile,
     size_t count = 0u;
     size_t i;
     int out_fd = open(stdout_path, O_WRONLY | O_CREAT | O_TRUNC, 0600);
-    int null_fd = open("/dev/null", O_WRONLY);
-    if (out_fd < 0 || dup2(out_fd, STDOUT_FILENO) < 0) _exit(126);
-    if (null_fd >= 0) (void)dup2(null_fd, STDERR_FILENO);
+    int err_fd = open(stderr_path, O_WRONLY | O_CREAT | O_TRUNC, 0600);
+    if (out_fd < 0 || err_fd < 0 || dup2(out_fd, STDOUT_FILENO) < 0 ||
+        dup2(err_fd, STDERR_FILENO) < 0) {
+      _exit(126);
+    }
     args[count++] = runner;
     args[count++] = fixture_option;
     args[count++] = fixture_fd_text;
@@ -1453,6 +1459,576 @@ static int case_checker_vocabulary(void) {
 
 /* ---- dispatch ----------------------------------------------------------- */
 
+/* ======================================================================= */
+/* State import through the verified-input path (plan 09-09, suite import)  */
+/* ======================================================================= */
+
+#define LONG_ROM "phase09-admit-long-si-v1"
+#define LONG_BOUND 1200000u
+#define IMPORT_TICK 700000u
+#define BUILD_ID_OFFSET 0xA0u
+#define TRAILER_BYTES 32u
+
+static bool host_allocate(void *context, size_t size, size_t alignment,
+                          t64_host_storage *storage_out) {
+  void *memory;
+  (void)context;
+  if (storage_out == NULL || size == 0u || alignment == 0u) return false;
+  memory = malloc(size);
+  if (memory == NULL || (uintptr_t)memory % alignment != 0u) {
+    free(memory);
+    return false;
+  }
+  storage_out->data = memory;
+  storage_out->capacity = size;
+  storage_out->alignment = alignment;
+  return true;
+}
+
+static void host_release(void *context, t64_host_storage storage) {
+  (void)context;
+  free(storage.data);
+}
+
+/* One state file on disk: the private path, the exact size and the SHA-256 the
+ * supervisor verifies, and the bytes for the test-side edits. */
+typedef struct {
+  char path[PATH_MAX];
+  char hex[65];
+  char size_text[24];
+  size_t size;
+  uint8_t *bytes;
+} state_file;
+
+static void state_file_free(state_file *file) {
+  free(file->bytes);
+  file->bytes = NULL;
+}
+
+/* Re-sign the container trailer (SHA-256 of every byte before it; the layout
+ * offset is the literal of docs/spec/state-container.md). */
+static void resign_trailer(uint8_t *bytes, size_t size) {
+  t64_sha256_ctx context;
+  uint8_t digest[32];
+  t64_sha256_init(&context);
+  t64_sha256_update(&context, bytes, size - TRAILER_BYTES);
+  t64_sha256_final(&context, digest);
+  memcpy(bytes + size - TRAILER_BYTES, digest, TRAILER_BYTES);
+}
+
+/* Write the bytes 0600 into the directory and compute the supervisor triple. */
+static bool state_file_commit(const char *dir, const char *name,
+                              uint8_t *bytes, size_t size,
+                              state_file *out) {
+  t64_sha256_ctx context;
+  uint8_t digest[32];
+  memset(out, 0, sizeof *out);
+  out->bytes = bytes;
+  out->size = size;
+  if (!join_path(out->path, sizeof out->path, dir, name) ||
+      !write_file(out->path, bytes, size)) {
+    return false;
+  }
+  t64_sha256_init(&context);
+  t64_sha256_update(&context, bytes, size);
+  t64_sha256_final(&context, digest);
+  t64_sha256_hex(digest, out->hex);
+  (void)snprintf(out->size_text, sizeof out->size_text, "%llu",
+                 (unsigned long long)size);
+  return true;
+}
+
+/* A state exported in process from the same core library at a tick inside the
+ * long spin. (The runner publishes a state only at authored completion, so a
+ * mid-run state comes from the core API.) */
+static bool native_state_file(const char *dir, uint64_t tick,
+                              state_file *out) {
+  static const t64_host_allocator host = {host_allocate, host_release, NULL};
+  char rom_path[PATH_MAX];
+  uint8_t *rom = (uint8_t *)malloc(1u << 20);
+  size_t rom_length = 0u;
+  const t64_profile_descriptor *profile = NULL;
+  t64_machine *machine = NULL;
+  size_t required = 0u;
+  size_t written = 0u;
+  uint8_t *blob = NULL;
+  bool ok = false;
+  memset(out, 0, sizeof *out);
+  if (rom == NULL || !fixture_path(rom_path, LONG_ROM) ||
+      !read_file(rom_path, rom, 1u << 20, &rom_length) || rom_length == 0u ||
+      t64_profile_lookup(PROFILE_STEM, &profile) != T64_STATUS_OK ||
+      t64_machine_create(&host, profile, &machine) != T64_STATUS_OK ||
+      t64_machine_admit_rom(machine, rom, rom_length) != T64_STATUS_OK) {
+    goto done;
+  }
+  {
+    uint64_t reached = 0u;
+    while (reached < tick) {
+      t64_stop_request request;
+      t64_stop_result stop = {0u, 0u};
+      request.kind = T64_STOP_GUEST_TICK;
+      request.value = tick - reached > 2000u ? reached + 2000u : tick;
+      if (t64_machine_advance(machine, &request, &stop) != T64_STATUS_OK ||
+          stop.reason != T64_STOP_REASON_BOUND) {
+        goto done;
+      }
+      reached = stop.tick;
+    }
+  }
+  if (t64_machine_state_export(machine, NULL, 0u, &required) !=
+          T64_STATUS_BUFFER_TOO_SMALL ||
+      required == 0u || (blob = (uint8_t *)malloc(required)) == NULL ||
+      t64_machine_state_export(machine, blob, required, &written) !=
+          T64_STATUS_OK ||
+      written != required) {
+    goto done;
+  }
+  ok = state_file_commit(dir, "native.sta", blob, written, out);
+  if (ok) blob = NULL;
+done:
+  free(blob);
+  free(rom);
+  if (machine != NULL) t64_machine_destroy(machine);
+  return ok;
+}
+
+/* The supervised run with the state import triple of a file. */
+static bool run_with_state(const state_file *file, const char *rom,
+                           uint64_t bound, const char *const *more,
+                           size_t more_count, run_out *run) {
+  const char *args[MAX_ARGS];
+  size_t count = 0u;
+  size_t i;
+  run_spec spec = {0};
+  args[count++] = "--state-import";
+  args[count++] = file->path;
+  args[count++] = "--state-import-size";
+  args[count++] = file->size_text;
+  args[count++] = "--state-import-sha256";
+  args[count++] = file->hex;
+  for (i = 0u; i < more_count && count < MAX_ARGS - 8u; i++) {
+    args[count++] = more[i];
+  }
+  spec.supervisor = g_supervisor;
+  spec.fixture = rom;
+  spec.bound = bound;
+  spec.extra = args;
+  spec.extra_count = count;
+  return run_supervised(&spec, run);
+}
+
+/* An unlinked read-only descriptor of a copy of the file (the form of the
+ * verified snapshot the child reads) for the direct runner. */
+static int open_state_descriptor(const state_file *file, const char *dir) {
+  char copy[PATH_MAX];
+  int fd;
+  if (!join_path(copy, sizeof copy, dir, "direct.sta") ||
+      !write_file(copy, file->bytes, file->size)) {
+    return -1;
+  }
+  fd = open(copy, O_RDONLY);
+  (void)unlink(copy);
+  return fd;
+}
+
+/* The direct runner with a state descriptor and more options. */
+static bool run_direct_with_state(const state_file *file, const char *rom,
+                                  const char *profile, const char *dir,
+                                  const char *const *more, size_t more_count,
+                                  run_out *run) {
+  const char *args[24];
+  char fd_text[24];
+  size_t count = 0u;
+  size_t i;
+  int fd = open_state_descriptor(file, dir);
+  if (fd <= STDERR_FILENO) return false;
+  (void)snprintf(fd_text, sizeof fd_text, "%d", fd);
+  args[count++] = "--state-import-fd";
+  args[count++] = fd_text;
+  for (i = 0u; i < more_count && count < 22u; i++) args[count++] = more[i];
+  {
+    bool ok = run_runner_direct(rom, profile, "600000", NULL, NULL, args,
+                                count, run);
+    (void)close(fd);
+    return ok;
+  }
+}
+
+/* The diagnostic stream of a direct run holds exactly the closed reason line:
+ * no blob byte, no path. */
+static void expect_diagnostic(const run_out *run, const char *want,
+                              const state_file *file) {
+  uint8_t bytes[512];
+  size_t length = 0u;
+  char expected[128];
+  CHECK(read_file(run->err_path, bytes, sizeof bytes - 1u, &length));
+  bytes[length] = 0u;
+  (void)snprintf(expected, sizeof expected, "state-import refused: %s\n", want);
+  CHECK(length == strlen(expected) && memcmp(bytes, expected, length) == 0);
+  CHECK(strstr((const char *)bytes, file->path) == NULL);
+  CHECK(strstr((const char *)bytes, "T64STATE") == NULL);
+}
+
+/* Guest ticks executed: the run reached the guest (an accepted import). */
+static void expect_import_ran(const run_out *run) {
+  CHECK(run->parsed);
+  CHECK(run->guest_tick > 0u);
+}
+
+/* Load a published state file for the import triple. */
+static bool state_file_load(const char *path, state_file *out) {
+  struct stat info;
+  uint8_t *bytes;
+  size_t length = 0u;
+  t64_sha256_ctx context;
+  uint8_t digest[32];
+  memset(out, 0, sizeof *out);
+  if (stat(path, &info) != 0 || info.st_size <= 0) return false;
+  bytes = (uint8_t *)malloc((size_t)info.st_size);
+  if (bytes == NULL ||
+      !read_file(path, bytes, (size_t)info.st_size, &length) ||
+      length != (size_t)info.st_size) {
+    free(bytes);
+    return false;
+  }
+  out->bytes = bytes;
+  out->size = length;
+  (void)snprintf(out->path, sizeof out->path, "%s", path);
+  t64_sha256_init(&context);
+  t64_sha256_update(&context, bytes, length);
+  t64_sha256_final(&context, digest);
+  t64_sha256_hex(digest, out->hex);
+  (void)snprintf(out->size_text, sizeof out->size_text, "%llu",
+                 (unsigned long long)length);
+  return true;
+}
+
+/* The evidence limit of a resumed run, asserted: its verdict is derived from
+ * milestones and a retirement count observed through the run's own trace, which
+ * a resumed run does not have, so it can never report pass; it ends in the
+ * closed harness-error host-error record, while the guest tick, the final state
+ * digest and the log bytes continue exactly as the uninterrupted run. */
+static void expect_resumed_like(const run_out *resumed, const run_out *a) {
+  char diagnostic[160];
+  CHECK(resumed->parsed);
+  CHECK(run_checker(resumed->result_path, diagnostic) == 0);
+  CHECK(strcmp(resumed->outcome, "harness-error") == 0);
+  CHECK(strcmp(resumed->stop_kind, "host-error") == 0);
+  CHECK(strcmp(resumed->detail, "host-error") == 0);
+  CHECK(resumed->guest_tick == a->guest_tick);
+  CHECK(resumed->guest_tick > IMPORT_TICK);
+  CHECK(strcmp(resumed->state_digest, a->state_digest) == 0);
+  CHECK(resumed->log_bytes == a->log_bytes);
+}
+
+static int case_import_accepted_continues(void) {
+  char rom[PATH_MAX];
+  char dir[PATH_MAX];
+  char artifact[PATH_MAX];
+  char first[256];
+  char leaf[PATH_MAX];
+  state_file file;
+  state_file published;
+  run_spec spec = {0};
+  run_out a;
+  run_out b;
+  run_out c;
+  CHECK(fixture_path(rom, LONG_ROM));
+  CHECK(make_run_dir(dir));
+  /* run A: uninterrupted to authored completion */
+  spec.supervisor = g_supervisor;
+  spec.fixture = rom;
+  spec.bound = LONG_BOUND;
+  CHECK(run_supervised(&spec, &a));
+  expect_pass(&a);
+  CHECK(a.guest_tick > IMPORT_TICK);
+  /* run C: a mid-run state (tick 700,000, inside the spin) through the
+   * verified-input path resumes to the same completion tick, final state digest
+   * and log bytes */
+  CHECK(native_state_file(dir, IMPORT_TICK, &file));
+  CHECK(run_with_state(&file, rom, LONG_BOUND, NULL, 0u, &c));
+  expect_resumed_like(&c, &a);
+  /* run B publishes the state at authored completion through the runner. That
+   * state was exported after the runner drained the whole log (observer cursor
+   * at 20 bytes), so a resumed run delivers no earlier byte and its record
+   * (total 20, captured 0) disagrees with its own log: the supervisor ends it
+   * in the closed report-error record. The limit is the default observer
+   * restore of the import, asserted here by name and not hidden. */
+  CHECK(make_artifact_dir(artifact));
+  spec.artifact_dir = artifact;
+  spec.artifact_max = ARTIFACT_MAX;
+  spec.extra = state_args;
+  spec.extra_count = sizeof state_args / sizeof state_args[0];
+  CHECK(run_supervised(&spec, &b));
+  expect_pass(&b);
+  CHECK(list_directory(artifact, first) == 1u);
+  CHECK(join_path(leaf, sizeof leaf, artifact, STATE_LEAF));
+  CHECK(state_file_load(leaf, &published));
+  CHECK(run_with_state(&published, rom, LONG_BOUND, NULL, 0u, &c));
+  CHECK(c.parsed);
+  CHECK(strcmp(c.outcome, "harness-error") == 0);
+  CHECK(strcmp(c.stop_kind, "report-error") == 0);
+  CHECK(strcmp(c.detail, "report-invalid") == 0);
+  CHECK(c.guest_tick == 0u);
+  state_file_free(&published);
+  state_file_free(&file);
+  remove_tree(artifact);
+  remove_tree(dir);
+  return g_failures == 0 ? 0 : 1;
+}
+
+/* ---- case import-refused-integrity -------------------------------------- */
+
+static int case_import_refused_integrity(void) {
+  char rom[PATH_MAX];
+  char dir[PATH_MAX];
+  state_file base;
+  state_file flipped;
+  uint8_t *copy;
+  run_out run;
+  CHECK(fixture_path(rom, LONG_ROM));
+  CHECK(make_run_dir(dir));
+  CHECK(native_state_file(dir, IMPORT_TICK, &base));
+  /* accepted baseline in the same setup */
+  CHECK(run_with_state(&base, rom, LONG_BOUND, NULL, 0u, &run));
+  expect_import_ran(&run);
+  /* one bit flipped in a section body; size and SHA-256 are recomputed over the
+   * flipped file so the verified-input check passes and the importer's trailer
+   * check is the refusal */
+  copy = (uint8_t *)malloc(base.size);
+  CHECK(copy != NULL);
+  memcpy(copy, base.bytes, base.size);
+  copy[5000] ^= 0x01u;
+  CHECK(state_file_commit(dir, "flipped.sta", copy, base.size, &flipped));
+  CHECK(run_with_state(&flipped, rom, LONG_BOUND, NULL, 0u, &run));
+  expect_supervised_preflight_refusal(&run);
+  /* the direct runner names the closed reason on its diagnostic stream */
+  CHECK(run_direct_with_state(&flipped, rom, PROFILE_STEM, dir, NULL, 0u,
+                              &run));
+  expect_refusal(&run);
+  expect_diagnostic(&run, "trailer-sha256", &flipped);
+  state_file_free(&flipped);
+  state_file_free(&base);
+  remove_tree(dir);
+  return g_failures == 0 ? 0 : 1;
+}
+
+/* ---- case import-refused-build ------------------------------------------ */
+
+static int case_import_refused_build(void) {
+  char rom[PATH_MAX];
+  char dir[PATH_MAX];
+  state_file base;
+  state_file foreign;
+  uint8_t *copy;
+  run_out run;
+  CHECK(fixture_path(rom, LONG_ROM));
+  CHECK(make_run_dir(dir));
+  CHECK(native_state_file(dir, IMPORT_TICK, &base));
+  CHECK(run_with_state(&base, rom, LONG_BOUND, NULL, 0u, &run));
+  expect_import_ran(&run);
+  /* one byte of the header build identity changed, the trailer re-signed with
+   * the literal layout offsets, so the build binding is the refusal */
+  copy = (uint8_t *)malloc(base.size);
+  CHECK(copy != NULL);
+  memcpy(copy, base.bytes, base.size);
+  copy[BUILD_ID_OFFSET] ^= 0x20u;
+  resign_trailer(copy, base.size);
+  CHECK(state_file_commit(dir, "foreign.sta", copy, base.size, &foreign));
+  CHECK(run_with_state(&foreign, rom, LONG_BOUND, NULL, 0u, &run));
+  expect_supervised_preflight_refusal(&run);
+  CHECK(run_direct_with_state(&foreign, rom, PROFILE_STEM, dir, NULL, 0u,
+                              &run));
+  expect_refusal(&run);
+  expect_diagnostic(&run, "build-id", &foreign);
+  state_file_free(&foreign);
+  state_file_free(&base);
+  remove_tree(dir);
+  return g_failures == 0 ? 0 : 1;
+}
+
+/* ---- case import-option-refusals ---------------------------------------- */
+
+static int case_import_option_refusals(void) {
+  char rom[PATH_MAX];
+  char dir[PATH_MAX];
+  char artifact[PATH_MAX];
+  char input_hex[65];
+  char input_path_text[PATH_MAX];
+  state_file base;
+  state_file ghost;
+  run_out run;
+  size_t i;
+  static const char zero_hex[] =
+      "0000000000000000000000000000000000000000000000000000000000000000";
+  const char *const save_import[] = {"--save-import", "/nonexistent/save.bin",
+                                     "--save-import-size", "512",
+                                     "--save-import-sha256", zero_hex};
+  const char *const save_kind[] = {"--save-kind", "eeprom-4k"};
+  const char *const save_format[] = {"--save-format", "raw"};
+  const char *const save_leaf[] = {"--save-export-leaf", "save.eep"};
+  const char *const replay_record[] = {"--replay-record", "r.rpl"};
+  const char *const replay_interval[] = {"--replay-checkpoint-interval", "160"};
+  const char *const replay_play[] = {"--replay-play", "/nonexistent/r.rpl",
+                                     "--replay-play-size", "100",
+                                     "--replay-play-sha256", zero_hex};
+  const char *const replay_report[] = {"--replay-report", "r.rpr"};
+  const char *const state_out[] = {"--state-export", STATE_LEAF,
+                                   "--state-export-format", STATE_FORMAT};
+  const struct {
+    const char *name;
+    const char *const *args;
+    size_t count;
+  } producers[] = {
+      {"save import trio", save_import, 6u},
+      {"save kind", save_kind, 2u},
+      {"save format", save_format, 2u},
+      {"save export leaf", save_leaf, 2u},
+      {"replay record", replay_record, 2u},
+      {"replay interval", replay_interval, 2u},
+      {"replay play", replay_play, 6u},
+      {"replay report", replay_report, 2u},
+      {"state export", state_out, 4u},
+  };
+  CHECK(fixture_path(rom, LONG_ROM));
+  CHECK(make_run_dir(dir));
+  CHECK(native_state_file(dir, IMPORT_TICK, &base));
+  /* the triple alone is accepted: the baseline of every row below */
+  CHECK(run_with_state(&base, rom, LONG_BOUND, NULL, 0u, &run));
+  expect_import_ran(&run);
+  /* the ordering baseline: a nonexistent path with no conflicting flag reports
+   * the snapshot refusal, so a pair refusal reported ahead of it was decided
+   * before the snapshot was prepared, before any child and any guest tick */
+  ghost = base;
+  (void)snprintf(ghost.path, sizeof ghost.path, "%s/no/such/state.sta", dir);
+  CHECK(run_with_state(&ghost, rom, LONG_BOUND, NULL, 0u, &run));
+  expect_refusal(&run);
+  /* one artifact producer per run: each earlier family with the triple */
+  CHECK(make_artifact_dir(artifact));
+  for (i = 0u; i < sizeof producers / sizeof producers[0]; i++) {
+    const char *more[16];
+    size_t count = 0u;
+    size_t k;
+    for (k = 0u; k < producers[i].count; k++) more[count++] = producers[i].args[k];
+    more[count++] = "--artifact-dir";
+    more[count++] = artifact;
+    more[count++] = "--artifact-max-bytes";
+    more[count++] = "33554432";
+    CHECK(run_with_state(&ghost, rom, LONG_BOUND, more, count, &run));
+    if (run.guest_tick != 0u || strcmp(run.detail, "usage") != 0) {
+      (void)fprintf(stderr, "one-producer row %s: detail %s\n",
+                    producers[i].name, run.detail);
+    }
+    expect_usage(&run);
+  }
+  /* a custom input schedule is not combined with a state import */
+  CHECK(input_path(input_path_text) && sha256_file_hex(input_path_text,
+                                                       input_hex));
+  {
+    const char *more[] = {"--input-size", "54", "--input-sha256", input_hex};
+    CHECK(run_with_state(&ghost, rom, LONG_BOUND, more, 4u, &run));
+    expect_usage(&run);
+  }
+  /* raw capture, the incomplete triples, the size and the hash grammar */
+  {
+    const char *raw[] = {"--raw-capture-dir", artifact};
+    CHECK(run_with_state(&ghost, rom, LONG_BOUND, raw, 2u, &run));
+    expect_usage(&run);
+  }
+  {
+    run_spec spec = {0};
+    const char *only_path[] = {"--state-import", "/nonexistent/x.sta"};
+    const char *no_hash[] = {"--state-import", "/nonexistent/x.sta",
+                             "--state-import-size", "100"};
+    const char *no_size[] = {"--state-import", "/nonexistent/x.sta",
+                             "--state-import-sha256", zero_hex};
+    const char *zero_size[] = {"--state-import", "/nonexistent/x.sta",
+                               "--state-import-size", "0",
+                               "--state-import-sha256", zero_hex};
+    const char *huge_size[] = {"--state-import", "/nonexistent/x.sta",
+                               "--state-import-size", "67108865",
+                               "--state-import-sha256", zero_hex};
+    const char *upper_hash[] = {"--state-import", "/nonexistent/x.sta",
+                                "--state-import-size", "100",
+                                "--state-import-sha256",
+                                "ABCDEF0000000000000000000000000000000000000000000000000000000000"};
+    const char *short_hash[] = {"--state-import", "/nonexistent/x.sta",
+                                "--state-import-size", "100",
+                                "--state-import-sha256", "00ff"};
+    const struct {
+      const char *const *args;
+      size_t count;
+    } grammar[] = {{only_path, 2u}, {no_hash, 4u}, {no_size, 4u},
+                   {zero_size, 6u}, {huge_size, 6u}, {upper_hash, 6u},
+                   {short_hash, 6u}};
+    spec.supervisor = g_supervisor;
+    spec.fixture = rom;
+    spec.bound = LONG_BOUND;
+    for (i = 0u; i < sizeof grammar / sizeof grammar[0]; i++) {
+      spec.extra = grammar[i].args;
+      spec.extra_count = grammar[i].count;
+      CHECK(run_supervised(&spec, &run));
+      expect_usage(&run);
+    }
+  }
+  /* the child repeats the family check: started directly with the descriptor
+   * and a conflicting child option it refuses with guest tick 0 and no import
+   * call (no reason line on the diagnostic stream) */
+  {
+    const char *conflict[] = {"--save-kind", "eeprom-4k"};
+    CHECK(run_direct_with_state(&base, rom, PROFILE_STEM, dir, conflict, 2u,
+                                &run));
+    expect_usage(&run);
+    {
+      uint8_t bytes[64];
+      size_t length = 1u;
+      CHECK(read_file(run.err_path, bytes, sizeof bytes, &length));
+      CHECK(length == 0u);
+    }
+  }
+  /* a profile outside the composite family takes the existing refusal */
+  {
+    char audio_rom[PATH_MAX];
+    CHECK(fixture_path(audio_rom, "audio-pcm"));
+    CHECK(run_direct_with_state(
+        &base, audio_rom,
+        "ntsc-cart-4m-openipl3-rdram-b-t1-rdp-vi-filter-v9-ai-v1", dir, NULL,
+        0u, &run));
+    expect_refusal(&run);
+  }
+  remove_tree(artifact);
+  state_file_free(&base);
+  remove_tree(dir);
+  return g_failures == 0 ? 0 : 1;
+}
+
+/* ---- case import-bound-below-tick --------------------------------------- */
+
+static int case_import_bound_below_tick(void) {
+  char rom[PATH_MAX];
+  char dir[PATH_MAX];
+  state_file base;
+  run_out run;
+  CHECK(fixture_path(rom, LONG_ROM));
+  CHECK(make_run_dir(dir));
+  CHECK(native_state_file(dir, IMPORT_TICK, &base));
+  /* accepted baseline: the same state with a bound above its tick */
+  CHECK(run_with_state(&base, rom, LONG_BOUND, NULL, 0u, &run));
+  expect_import_ran(&run);
+  /* a bound below the state tick ends in the existing prelaunch refusal before
+   * any advance (the observed supervised record: harness-error, report-error,
+   * capture-invalid, guest tick 0), and the direct runner names the closed
+   * reason */
+  CHECK(run_with_state(&base, rom, 600000u, NULL, 0u, &run));
+  expect_supervised_preflight_refusal(&run);
+  CHECK(run_direct_with_state(&base, rom, PROFILE_STEM, dir, NULL, 0u, &run));
+  expect_refusal(&run);
+  expect_diagnostic(&run, "tick-above-bound", &base);
+  state_file_free(&base);
+  remove_tree(dir);
+  return g_failures == 0 ? 0 : 1;
+}
+
 typedef struct {
   const char *name;
   int (*run)(void);
@@ -1466,6 +2042,11 @@ static const case_entry cases[] = {
     {"export-nonterminal", case_export_nonterminal},
     {"export-decode", case_export_decode},
     {"checker-vocabulary", case_checker_vocabulary},
+    {"import-accepted-continues", case_import_accepted_continues},
+    {"import-refused-integrity", case_import_refused_integrity},
+    {"import-refused-build", case_import_refused_build},
+    {"import-option-refusals", case_import_option_refusals},
+    {"import-bound-below-tick", case_import_bound_below_tick},
 };
 
 int main(int argc, char **argv) {

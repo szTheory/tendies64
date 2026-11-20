@@ -22,6 +22,7 @@
 #include "t64_replay.h"
 #include "t64_save_flags.h"
 #include "t64_sha256.h"
+#include "t64_verified_input.h"
 #include "t64_video_observation.h"
 #include "tendies64/t64_machine.h"
 
@@ -157,7 +158,62 @@ typedef struct {
  * .sta file published at authored completion; NULL when not exporting. */
 typedef struct {
   const char *leaf;
+  /* The state import request (plan 09-09): the verified snapshot descriptor of
+   * a state container; -1 when not importing. The child never opens a path. */
+  int import_fd;
 } state_request;
+
+/* The closed import reason names written once to the diagnostic stream when a
+ * state import is refused. The result record never carries a reason and no
+ * blob byte or path is written anywhere. */
+static const char *state_import_reason_name(uint32_t reason) {
+  switch (reason) {
+  case T64_STATE_REASON_ARG_NULL: return "arg-null";
+  case T64_STATE_REASON_ARG_LENGTH: return "arg-length";
+  case T64_STATE_REASON_ARG_FLAGS: return "arg-flags";
+  case T64_STATE_REASON_ARG_OVERLAP_LIVE: return "arg-overlap-live";
+  case T64_STATE_REASON_NOT_ADMITTED: return "not-admitted";
+  case T64_STATE_REASON_MAGIC: return "magic";
+  case T64_STATE_REASON_CONTAINER_VERSION: return "container-version";
+  case T64_STATE_REASON_TOTAL_LENGTH: return "total-length";
+  case T64_STATE_REASON_SECTION_COUNT: return "section-count";
+  case T64_STATE_REASON_HEADER_FLAGS: return "header-flags";
+  case T64_STATE_REASON_HEADER_RESERVED: return "header-reserved";
+  case T64_STATE_REASON_TRAILER_SHA256: return "trailer-sha256";
+  case T64_STATE_REASON_STATE_VERSION: return "state-version";
+  case T64_STATE_REASON_PROFILE_DIGEST: return "profile-digest";
+  case T64_STATE_REASON_CONTENT_DIGEST: return "content-digest";
+  case T64_STATE_REASON_CONTENT_LENGTH: return "content-length";
+  case T64_STATE_REASON_BUILD_ID: return "build-id";
+  case T64_STATE_REASON_SECTION_ID_UNKNOWN: return "section-id-unknown";
+  case T64_STATE_REASON_SECTION_ORDER: return "section-order";
+  case T64_STATE_REASON_SECTION_FLAGS: return "section-flags";
+  case T64_STATE_REASON_SECTION_BOUNDS: return "section-bounds";
+  case T64_STATE_REASON_SECTION_OVERLAP: return "section-overlap";
+  case T64_STATE_REASON_SECTION_LENGTH_EXPECTED:
+    return "section-length-expected";
+  case T64_STATE_REASON_SECTION_SHA256: return "section-sha256";
+  case T64_STATE_REASON_SECTION_MISSING: return "section-missing";
+  case T64_STATE_REASON_FIELD_RANGE: return "field-range";
+  case T64_STATE_REASON_FIELD_PADDING: return "field-padding";
+  case T64_STATE_REASON_FIELD_RESERVED: return "field-reserved";
+  case T64_STATE_REASON_FIELD_DERIVED: return "field-derived";
+  case T64_STATE_REASON_QUEUE_COUNT: return "queue-count";
+  case T64_STATE_REASON_QUEUE_ORDER: return "queue-order";
+  case T64_STATE_REASON_QUEUE_SEQUENCE: return "queue-sequence";
+  case T64_STATE_REASON_QUEUE_TICK: return "queue-tick";
+  case T64_STATE_REASON_QUEUE_KIND_UNKNOWN: return "queue-kind-unknown";
+  case T64_STATE_REASON_DEVICE_EVENT_MISSING: return "device-event-missing";
+  case T64_STATE_REASON_DEVICE_EVENT_EXTRA: return "device-event-extra";
+  case T64_STATE_REASON_DEVICE_TOKEN_MISMATCH:
+    return "device-token-mismatch";
+  case T64_STATE_REASON_DEVICE_STATE_INCONSISTENT:
+    return "device-state-inconsistent";
+  case T64_STATE_REASON_DECLARED_DIGEST: return "declared-digest";
+  case T64_STATE_REASON_OBSERVER_RANGE: return "observer-range";
+  default: return "unknown";
+  }
+}
 
 static bool read_snapshot(int fd, size_t max_bytes, size_t exact_size,
                           owned_bytes *output) {
@@ -1211,9 +1267,11 @@ static int run_real(int fixture_fd, int input_fd, const char *requested_profile,
     exit_code = emit_prelaunch("refusal", "refused", guest_ticks, 0);
     goto cleanup;
   }
-  if (state->leaf != NULL && profile->state_serialization_version != 25u) {
-    /* State export is defined for the composite family (state serialization
-     * version 25) only: the existing prelaunch refusal, guest tick 0. */
+  if ((state->leaf != NULL || state->import_fd >= 0) &&
+      profile->state_serialization_version != 25u) {
+    /* State export and import are defined for the composite family (state
+     * serialization version 25) only: the existing prelaunch refusal, guest
+     * tick 0. */
     exit_code = emit_prelaunch("refusal", "refused", guest_ticks, 0);
     goto cleanup;
   }
@@ -1337,6 +1395,50 @@ static int run_real(int fixture_fd, int input_fd, const char *requested_profile,
     (void)snprintf(result.outcome, sizeof result.outcome, "harness-error");
     (void)snprintf(result.detail, sizeof result.detail, "host-error");
     goto finalize;
+  }
+  if (state->import_fd >= 0) {
+    /* State import (plan 09-09): the verified snapshot is read with its exact
+     * size from the inherited descriptor (the child never opens the caller
+     * path) and imported after admission and before any advance. A refusal
+     * writes the closed reason name once to the diagnostic stream, never blob
+     * bytes or the path, and ends in the existing prelaunch refusal. */
+    owned_bytes state_image = {0};
+    t64_state_import_report import_report;
+    bool imported = false;
+    uint64_t imported_tick = 0u;
+    (void)memset(&import_report, 0, sizeof import_report);
+    if (read_snapshot(state->import_fd, (size_t)T64_VERIFIED_HARNESS_MAX_BYTES,
+                      0u, &state_image)) {
+      imported = t64_machine_state_import(machine, state_image.bytes,
+                                          state_image.length, 0u,
+                                          &import_report) == T64_STATUS_OK;
+      if (imported) {
+        /* The container header carries the guest tick of the state (the
+         * importer cross-checked it with the machine core section): the loop
+         * resumes from there. A state past the bound is the existing prelaunch
+         * refusal, before any advance. */
+        size_t at;
+        for (at = 0u; at < 8u; at++) {
+          imported_tick = (imported_tick << 8) | state_image.bytes[0x68u + at];
+        }
+        if (imported_tick > guest_ticks) {
+          imported = false;
+          (void)fprintf(stderr, "state-import refused: tick-above-bound\n");
+        } else {
+          current_tick = imported_tick;
+        }
+      } else {
+        (void)fprintf(stderr, "state-import refused: %s\n",
+                      state_import_reason_name(import_report.reason));
+      }
+    } else {
+      (void)fprintf(stderr, "state-import refused: unreadable\n");
+    }
+    free(state_image.bytes);
+    if (!imported) {
+      exit_code = emit_prelaunch("refusal", "refused", guest_ticks, 0);
+      goto cleanup;
+    }
   }
   if (save->requested) {
     /* The device must be the requested kind (refused before the guest starts
@@ -2177,7 +2279,7 @@ int main(int argc, char **argv) {
   const char *save_format_token = NULL;
   save_request save = {-1, false, 0u, 0u, 0u, NULL};
   replay_request replay = {NULL, 0u, -1, NULL};
-  state_request state = {NULL};
+  state_request state = {NULL, -1};
   const char *state_format = NULL;
   uint64_t artifact_max_bytes = 0u;
   uint64_t guest_ticks = 0u;
@@ -2203,6 +2305,7 @@ int main(int argc, char **argv) {
   bool seen_replay_report = false;
   bool seen_state_export = false;
   bool seen_state_format = false;
+  bool seen_state_import = false;
 #ifdef T64_REAL_RUNNER_TESTING
   bool seen_advance_step = false;
 #endif
@@ -2304,6 +2407,9 @@ int main(int argc, char **argv) {
                strlen(value) <= 36u) {
       state_format = value;
       seen_state_format = true;
+    } else if (strcmp(option, "--state-import-fd") == 0 &&
+               !seen_state_import && parse_fd(value, &state.import_fd)) {
+      seen_state_import = true;
 #ifdef T64_REAL_RUNNER_TESTING
     } else if (strcmp(option, "--advance-step") == 0 &&
                !seen_advance_step && parse_u64(value, &advance_step) &&
@@ -2381,6 +2487,18 @@ int main(int argc, char **argv) {
         strcmp(state_format, T64_STATE_CONTAINER_FORMAT) != 0) {
       return emit_prelaunch("usage", "not-started", guest_ticks, 2);
     }
+  }
+  /* The state import option (plan 09-09): one run has one artifact producer,
+   * so the descriptor excludes raw capture and every save, replay and state
+   * export option (the supervisor decides the same rule before any snapshot is
+   * prepared; a directly started child refuses it the same way, guest tick 0,
+   * before any import call). */
+  if (seen_state_import &&
+      (seen_raw_capture_dir || seen_save_import || seen_save_kind ||
+       seen_save_format || seen_save_export_leaf || seen_replay_record ||
+       seen_replay_interval || seen_replay_fd || seen_replay_report ||
+       seen_state_export || seen_state_format)) {
+    return emit_prelaunch("usage", "not-started", guest_ticks, 2);
   }
 #ifdef T64_REAL_RUNNER_TESTING
   g_test_fault = getenv("T64_REAL_RUNNER_TEST_FAULT");

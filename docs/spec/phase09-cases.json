@@ -292,7 +292,38 @@
             "export-refusals",
             "export-nonterminal",
             "export-decode",
-            "checker-vocabulary"
+            "checker-vocabulary",
+            "import-accepted-continues",
+            "import-refused-integrity",
+            "import-refused-build",
+            "import-option-refusals",
+            "import-bound-below-tick"
+          ]
+        }
+      ]
+    },
+    "state-import": {
+      "ctest": [
+        "unit.core.state.import"
+      ],
+      "binaries": [
+        {
+          "path": "core/test_state_import",
+          "cases": [
+            "roundtrip",
+            "handler-table-ledger",
+            "binding-refusals",
+            "container-refusals",
+            "field-range-refusals",
+            "invariant-accepts",
+            "invariant-refusals",
+            "scratch-storage",
+            "refusal-untouched",
+            "idempotence",
+            "save-media-roundtrip",
+            "continuation-partitions",
+            "dirty-peer",
+            "observer-flag"
           ]
         }
       ]
