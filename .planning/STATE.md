@@ -4,18 +4,18 @@ milestone: v1.1
 milestone_name: Observable Machine
 current_phase: 9
 current_phase_name: Controller, Save Media and Replay
-current_plan: 5
+current_plan: 6
 status: executing
-stopped_at: Completed 09-03.1-PLAN.md
-last_updated: "2026-11-19T23:14:57.692Z"
+stopped_at: Completed 09-04-PLAN.md
+last_updated: "2026-11-20T00:00:24.358Z"
 last_activity: 2026-11-19
 last_activity_desc: Phase 9 execution started
-state_head: 1b68595f5c15456446980df3bc395a4faa900809
+state_head: a8498bde33d5645f77ced37fcab6407018f20df7
 progress:
   total_phases: 3
   completed_phases: 1
   total_plans: 31
-  completed_plans: 21
+  completed_plans: 22
   percent: 33
 ---
 
@@ -31,7 +31,7 @@ See: .planning/PROJECT.md (updated 2026-11-15)
 ## Current Position
 
 Phase: 9 (Controller, Save Media and Replay) — EXECUTING
-Current Plan: 5
+Current Plan: 6
 Total Plans in Phase: 13
 Status: Ready to execute
 Last activity: 2026-11-19 — Phase 9 execution started
@@ -53,6 +53,7 @@ Progress: [███░░░░░░░] 33% of currently planned source plans
 | Phase 09 P02 | 32min | 7 tasks | 25 files |
 | Phase 09 P03 | 43min | 5 tasks | 31 files |
 | Phase 09 P03.1 | 70min | 5 tasks | 15 files |
+| Phase 09 P04 | 42min | 6 tasks | 29 files |
 
 ## Accumulated Context
 
@@ -79,6 +80,10 @@ Progress: [███░░░░░░░] 33% of currently planned source plans
 - [Phase 09]: 09-03.1: the combined upload contract admits exactly three layouts per job (boot and raw, plus audio, plus audio and phase09/JOB/manifest.json); phase09 requires audio; the native JUnit private root is a predicate over two named roots
 - [Phase 09]: 09-03.1: hosted Linux compiles are the evidence the local gcc:13 closure cannot give; three Linux-only build defects from 09-02 reached hosted CI, so run the ninja compile commands under the act image's Ubuntu cc before pushing C changes (203 units in about 50 s)
 - [Phase 09]: 09-03.1: FH tag phase09-fh on 2065efc; frozen logic changes since the pair candidate are the inventory data row only; 09-04 to 09-11 add data rows, suites and test names only
+- [Phase 09]: 09-04: classification is static and outcome is dynamic: only the three exact joybus triples are valid on an EEPROM id, everything else there is a timeout and a profile without EEPROM is absent; a read while busy answers the timeout flag at the execute tick (named policy)
+- [Phase 09]: 09-04: a profile with no save device answers any requested kind with SAVE_DEVICE_MISMATCH (statuses 20 to 22 provisional; 09-05 uses 23 upward); section 11 exists only for the three save ids so the stem stream keeps markers 1 to 10
+- [Phase 09]: 09-04: the busy window is a stored deadline E + 375,000 compared at later execute ticks with no scheduler event (label eeprom-busy-ceiling-6ms-v1, a named ceiling policy, never exact or measured); SRAM DMA reuses the PI completion pair
+- [Phase 09]: 09-04: openIPL3 profile ids admit only the exact asset or an authored flat ROM, so the selection control edits header bytes of an authored flat ROM; the reviewed-source guard was refreshed in an isolated commit for t64_save.c and four bus and PI bodies with derived digests
 
 ### Pending Todos
 
@@ -111,8 +116,8 @@ question. No oracle authority is part of this decision.
 
 ## Session Continuity
 
-Last session: 2026-11-19T23:14:57.546Z
-Stopped at: Completed 09-03.1-PLAN.md
+Last session: 2026-11-20T00:00:24.208Z
+Stopped at: Completed 09-04-PLAN.md
 Resume file: None
 
 Historical closeout: [v1.0 roadmap](milestones/v1.0-ROADMAP.md), [audit](milestones/v1.0-MILESTONE-AUDIT.md), [lessons](RETROSPECTIVE.md).
