@@ -797,6 +797,34 @@ selftest() {
   printf 'T64STATE then bytes\n' > "$ST/s-magic/x.dat"
   case_run staging-t64state-magic 1 R-CONTAINER "$ST" --staging "$ST/s-magic"
 
+  # Exported save files (Phase 9, plan 09-05, D-26): the three extensions the
+  # runner allows for an export leaf (eep, sra, sav) are denied by the scanner,
+  # so a real exported leaf is refused in staging and in the tree. The bytes
+  # are the first 16 bytes of an authored index-derived pattern (binary, no
+  # NUL, no ROM magic); the manifest-only staging directory is the accepted
+  # baseline of the same setup.
+  _SAVE_PATTERN='\013\060\125\172\237\304\351\016\063\130\175\242\307\354\021\066'
+  mkdir "$ST/s-save-man"
+  printf '{"schema":"t64.phase09-upload","entries":[]}\n' > "$ST/s-save-man/manifest.json"
+  NEED='staging=[1-9]'
+  case_run staging-manifest-only-clean 0 - "$ST" --staging "$ST/s-save-man"
+  mkdir "$ST/s-save-eep"
+  printf "$_SAVE_PATTERN" > "$ST/s-save-eep/e4k.eep"
+  NEED='R-DENIED-EXT e4k.eep'
+  case_run staging-save-export-eep 1 R-DENIED-EXT "$ST" --staging "$ST/s-save-eep"
+  mkdir "$ST/s-save-sra"
+  printf "$_SAVE_PATTERN" > "$ST/s-save-sra/roundtrip.sra"
+  NEED='R-DENIED-EXT roundtrip.sra'
+  case_run staging-save-export-sra 1 R-DENIED-EXT "$ST" --staging "$ST/s-save-sra"
+  mkdir "$ST/s-save-sav"
+  printf "$_SAVE_PATTERN" > "$ST/s-save-sav/slot.sav"
+  NEED='R-DENIED-EXT slot.sav'
+  case_run staging-save-export-sav 1 R-DENIED-EXT "$ST" --staging "$ST/s-save-sav"
+  mk save-tree
+  printf "$_SAVE_PATTERN" > "$ST/save-tree/roundtrip.sra"
+  NEED='R-DENIED-EXT roundtrip.sra'
+  case_run tree-save-export-sra 1 R-DENIED-EXT "$ST/save-tree" --tree
+
   # ---- advisories never fail the scan -----------------------------------------
   mk adv
   fill "$ST/adv/t.txt" 4031 a
