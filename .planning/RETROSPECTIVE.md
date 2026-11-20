@@ -79,6 +79,46 @@ Angrylion authority, copy permissions and release channel/versioning retain thei
 owner stops. The original Phase06 Plan02 binary gap is irrecoverable and excluded
 from current support evidence. No tag or software release is implied by v1.0.
 
+## Milestone: v1.1 — Observable Machine
+
+**Shipped:** 2026-11-20 (planning milestone, not a software release)
+**Phases:** 3 | **Plans:** 30 | **Tasks:** 42
+
+### What Was Built
+- Software RDP and VI producing raw frames (Phase 7), the AI path with raw audio/video capture as files (Phase 8), and the SI/PIF controller, EEPROM/SRAM save media, a full-device scheduler order, versioned canonical state export/import and timed-input replay (Phase 9), each qualified on exact native and hosted records within authored, unit-tested scope.
+- VID-04 (differential oracle evidence) was descoped to v1.2 by the owner; no oracle was run.
+
+### What Worked
+- Independent review, audit and goal-backward verification before the final qualification found a digest completeness gap (RDP combiner and coverage state missing from the canonical state), an importer bounds hole and a qualification timeout that would have blocked the final run; no self-comparing test could have seen them.
+- Fan-out discussion, plan checking and cross-plan review kept 13 densely coupled Phase 9 plans sequential and consistent; per-plan executors with RED-first controls and out-of-tree mutants kept every claim attached to a test that can fail.
+- Local-first checks (Linux compile pre-flight in the act image, cheap guard and inventory checks before long suites) caught most defects before hosted runs; the Binutils CI cache cut hosted job time by 31 to 40 percent.
+
+### What Was Inefficient
+- Plans were too large (every Phase 9 plan exceeded the generic token estimate; executors ran 40 to 95 minutes) and the fix cycle needed four groups.
+- The Phase 7 oracle request pinned the whole fixtures manifest hash, forcing five identity-only owner-approved re-pins.
+- ASan cost of hashing a 6 MB state per refusal row (one test is 97 percent of the sanitizer wall) and a 600 second wrapper limit that nobody had checked against measured times.
+- A hosted-only regression (a per-process test cleanup deleting evidence the hosted emit step reads) and four registered timeouts under 2x hosted seconds appeared only on hosted runs.
+- Hosted macOS runs vary 349 to 487 s on identical source against a 10 minute job limit.
+
+### Patterns Established
+- Canonical digests need a completeness flip test over every behavior-bearing member.
+- Derive every wrapper time limit from measured test times and pin the relation between limits.
+- Replay the CI steps that run after the gate locally, and audit registered timeouts against hosted seconds, before the first push of a phase.
+- Reviewers and verifiers work in out-of-tree scratch clones and never clean or rebuild the shared tree.
+
+### Key Lessons
+1. Self-comparing walkers, strip differentials and golden tables cannot detect a member that is absent; an independent encoder and a flip test can.
+2. A pinned whole-file hash in an owner-gated record couples every manifest edit to an owner approval; pin per-row hashes.
+3. A projected hosted time gate on a noisy runner should be judged by cache presence and measured spread, not by spending another candidate cycle.
+4. A real private path in a committed report is an owner stop even in documentation; fix the tree, use the sanctioned single-pair waiver only on the owner's decision, never rewrite history.
+
+### Cost Observations
+- Model mix: sonnet for executors, reviewers, auditors and verifiers; haiku not used for execution.
+- Sessions: one long orchestration session over several context compactions; roughly 20 executor runs of 40 to 95 minutes plus about 20 review, audit and verification runs for Phase 9.
+- Notable: independent review lanes (five) plus audit plus verifier ran in parallel and caught the defects that justified the cost.
+
+---
+
 ## v1.1 planning discovery lesson
 
 The plan initializer treated advisory `*-RESEARCH.md` notes as complete phase
