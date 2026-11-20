@@ -1625,6 +1625,17 @@ class Phase09Qualification(unittest.TestCase):
         pair = self._real_pair()
         rows = self._real_rows(pair)
         self.assertEqual(rows, qualify.HOSTED_ROWS[:len(rows)])
+        # The recorded state digests belong to source revision 2db1be4d only (plan
+        # 09-10 widened the composite family stream, re-check R1 RC-04): the rows
+        # the comparison reads carry neither the digest nor the guest tick, and the
+        # evidence text states the scope.
+        for row in rows:
+            self.assertNotIn("state_digest", row)
+            self.assertNotIn("guest_tick", row)
+        spec = (ROOT / "docs/spec/si-pif-controller.md").read_text(encoding="utf-8")
+        self.assertIn("Scope of the recorded state digests.", spec)
+        self.assertIn("valid for source revision `2db1be4d`", spec)
+        self.assertIn("superseded by the pair of plan 09-11", spec)
         linux, macos = pair["manifests"]["gate-linux"], pair["manifests"]["gate-macos"]
         with tempfile.TemporaryDirectory(prefix="t64-p09-real.") as tmp:
             root = Path(tmp)

@@ -305,6 +305,17 @@ state digests, the guest ticks of every row, the four measured poll start ticks
 and the completion tick. The core and runner build identities and the binary
 hashes differ between the platforms by design and are not compared.
 
+Scope of the recorded state digests. They are the digests that the digest
+function of source revision `2db1be4d` produced for the composite family. Plan
+09-10 widened the canonical stream of every composite family id (the RDP
+combiner block and the memory coverage table now end section 8), so a current
+build does not reproduce them: they are valid for source revision `2db1be4d`
+only and are superseded by the pair of plan 09-11. No test compares them with
+the output of a current build; the pair tests compare the authored rows without
+the `guest_tick` and `state_digest` fields. The transcript hashes, the profile
+and fixture identities and the input script hash of the record are unchanged by
+plan 09-10.
+
 This pair is a rehearsal of the collection and verification path. It is not a
 qualification: six files that later plans create are not yet part of the bound
 source tuple, the final record belongs to plan 09-11, and no statement about
