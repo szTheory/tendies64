@@ -511,6 +511,77 @@ def check_mutant_counts(root: pathlib.Path) -> list[str]:
     return findings
 
 
+IMPORT_TEST_SOURCE = "core/tests/test_state_import.c"
+NUMBER_WORDS = {
+    word: value
+    for value, word in enumerate(
+        (
+            "zero one two three four five six seven eight nine ten eleven twelve "
+            "thirteen fourteen fifteen sixteen seventeen eighteen nineteen twenty"
+        ).split()
+    )
+}
+MATRIX_SIZE_SENTENCE = re.compile(
+    r"The matrix has (\w+) rows, ids\s+`(B\d\d)`\s+to\s+`(B\d\d)`"
+)
+MATRIX_SAMPLE_SENTENCE = re.compile(
+    r"the 7 tick partition on (\w+) of the (\w+) rows,\s+every\s+partition\s+size\s+on\s+"
+    r"the (\w+) full rows \(([^)]*)\)"
+)
+
+
+def check_matrix_counts(root: pathlib.Path) -> list[str]:
+    """The boundary matrix counts the state-container spec quotes equal the
+    rows of its table and the rows the test table marks full (plan 09-10
+    re-check R3 RC-01: the sampling sentence still said twelve of sixteen rows
+    after the fix cycle added B17)."""
+
+    spec = root / CONTAINER_SPEC
+    source = root / IMPORT_TEST_SOURCE
+    if not spec.is_file() or not source.is_file():
+        return []
+    text = spec.read_text(encoding="utf-8")
+    ids = re.findall(r"^\| (B\d\d) \|", text, re.M)
+    expected_ids = [f"B{number:02d}" for number in range(1, len(ids) + 1)]
+    findings = []
+    if ids != expected_ids:
+        findings.append("matrix table rows are not contiguous from B01")
+    table = source.read_text(encoding="utf-8")
+    start = table.find("boundaries[]")
+    full: list[str] = []
+    code_ids: list[str] = []
+    if start >= 0:
+        body = table[start:table.find("};", start)]
+        for chunk in re.split(r'(?=\{"B\d\d",)', body)[1:]:
+            row_id = re.match(r'\{"(B\d\d)"', chunk).group(1)
+            code_ids.append(row_id)
+            flags = re.findall(r"(true|false),\s*(?:NULL|\w+),\s*(?:NULL|\w+)\s*\}", chunk)
+            if flags and flags[-1] == "true":
+                full.append(row_id)
+    if code_ids != ids:
+        findings.append(f"matrix count drift rows: the spec table has {len(ids)}, the test table {len(code_ids)}")
+    size = MATRIX_SIZE_SENTENCE.search(text)
+    sample = MATRIX_SAMPLE_SENTENCE.search(text)
+    if size is None or sample is None:
+        findings.append("matrix count sentences not found in " + CONTAINER_SPEC)
+        return findings
+    if NUMBER_WORDS.get(size.group(1)) != len(ids) or size.group(3) != (ids[-1] if ids else ""):
+        findings.append(
+            f"matrix count drift rows: the spec says {size.group(1)} rows ending at {size.group(3)}, the table has {len(ids)}"
+        )
+    sampled = NUMBER_WORDS.get(sample.group(1))
+    total = NUMBER_WORDS.get(sample.group(2))
+    full_count = NUMBER_WORDS.get(sample.group(3))
+    named = re.findall(r"B\d\d", sample.group(4))
+    if total != len(ids) or full_count != len(full) or sampled != len(ids) - len(full) or named != full:
+        findings.append(
+            "matrix count drift sampling: the spec says "
+            f"{sample.group(1)} of {sample.group(2)} sampled and {sample.group(3)} full {named}, "
+            f"the tables have {len(ids)} rows and {len(full)} full {full}"
+        )
+    return findings
+
+
 def check_tree(root: pathlib.Path) -> list[str]:
     """Run the audit over a source tree; returns the findings."""
 
@@ -566,6 +637,7 @@ def check_tree(root: pathlib.Path) -> list[str]:
                 elif len(row) == 5:
                     findings.append(f"unexpected consuming site for {member}")
         findings.extend(check_mutant_counts(root))
+        findings.extend(check_matrix_counts(root))
         return findings
     finally:
         ROOT = saved
@@ -613,7 +685,7 @@ SELFTEST_CASES = (
     "mapping-row-removed",
     "unknown-rule-name",
     "reader-lacks-member",
-    "mutant-count-drift",
+    "doc-count-drift",
 )
 
 # The member the first seed adds to a copied structure and the function that
@@ -639,7 +711,10 @@ SEED_NESTED_FUNCTION = (
 SEED_UNKNOWN_RULE = "NO_SUCH_RULE"
 SEED_WRONG_READER = "state_rd32"
 
-COPIED_FILES = (INTERNAL_HEADER, MACHINE_HEADER, MAPPING_FILE, MUTANT_INVENTORY, CONTAINER_SPEC)
+COPIED_FILES = (
+    INTERNAL_HEADER, MACHINE_HEADER, MAPPING_FILE, MUTANT_INVENTORY, CONTAINER_SPEC,
+    IMPORT_TEST_SOURCE,
+)
 
 
 def copy_tree(source: pathlib.Path, destination: pathlib.Path) -> None:
@@ -723,7 +798,7 @@ def run_case(name: str, root: pathlib.Path) -> str | None:
             lines[index] = " :: ".join(fields[:3])
             mapping.write_text("\n".join(lines) + "\n", encoding="utf-8")
             expected = f"reader {SEED_WRONG_READER} does not mention {member}"
-        elif name == "mutant-count-drift":
+        elif name == "doc-count-drift":
             # one row removed from the copied inventory: the spec sentence then
             # quotes a count the inventory no longer has
             inventory = tree / MUTANT_INVENTORY
@@ -743,12 +818,26 @@ def run_case(name: str, root: pathlib.Path) -> str | None:
             del rows[removed]
             inventory.write_text("\n".join(rows) + "\n", encoding="utf-8")
             expected = "mutant count drift"
+            # a second seed in the same copy: the sampling sentence of the matrix
+            # quotes a row count the table no longer has
+            spec_copy = tree / CONTAINER_SPEC
+            spec_text = spec_copy.read_text(encoding="utf-8")
+            if "The matrix has seventeen rows" not in spec_text:
+                return "the matrix size sentence is absent from the copied spec"
+            spec_copy.write_text(
+                spec_text.replace("The matrix has seventeen rows", "The matrix has sixteen rows", 1),
+                encoding="utf-8",
+            )
         else:
             return f"unknown case {name}"
         findings = check_tree(tree)
         own = [item for item in findings if item.startswith(expected)]
-        if name == "mutant-count-drift" and not any(" digest:" in item for item in own):
-            return f"the seed did not reach the digest count finding; got {findings[:3]!r}"
+        if name == "doc-count-drift":
+            if not any(" digest:" in item for item in own):
+                return f"the seed did not reach the digest count finding; got {findings[:3]!r}"
+            if not any(item.startswith("matrix count drift rows") for item in findings):
+                return f"the seed did not reach the matrix count finding; got {findings[:4]!r}"
+            return None
         if not own:
             return f"the seed did not reach its own finding {expected!r}; got {findings[:3]!r}"
         others = [item for item in findings if not item.startswith(expected)]

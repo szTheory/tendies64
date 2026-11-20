@@ -2145,8 +2145,9 @@ done:
 
 
 /* ======================================================================== */
-/* Plan 09-09.1: the boundary matrix (D-32, capped at the sixteen rows of    */
-/* the table below; a seventeenth row is a recorded deviation)               */
+/* Plan 09-09.1: the boundary matrix (D-32, the rows B01 to B17 of the table */
+/* below: the sixteen of the plan and B17 of the fix cycle of plan 09-10; a  */
+/* further row is a recorded deviation)                                      */
 /* ======================================================================== */
 
 #define PI_BASE UINT32_C(0x04600000)

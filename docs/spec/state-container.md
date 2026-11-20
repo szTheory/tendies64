@@ -667,8 +667,8 @@ Limit: every row compares the software model with itself. The evidence is that t
 model reproduces its own state across an export and an import, not that the state is
 reachable on hardware, authentic or compatible with another emulator. The test
 environment scales the matrix (`T64_STATE_MATRIX_FULL`): the gate, hosted and
-sanitizer runs are a sample (the 7 tick partition on twelve of the sixteen rows, every
-partition size on the four full rows, and the instruction-count stop row of the
+sanitizer runs are a sample (the 7 tick partition on thirteen of the seventeen rows, every
+partition size on the four full rows (B01, B07, B10 and B14), and the instruction-count stop row of the
 mid-tick case only in the full matrix), and the full set runs in one recorded native
 qualification step (`normal-state-import-full-matrix`), not under the sanitizer.
 
