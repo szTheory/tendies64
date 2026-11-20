@@ -25,6 +25,7 @@
 #include <unistd.h>
 
 #include "t64_artifact_publisher.h"
+#include "t64_test_tree.h"
 
 static char g_evidence[PATH_MAX];
 static int g_failures;
@@ -53,14 +54,16 @@ static bool prepare_evidence(void) {
       return false;
     }
     if (mkdir(g_evidence, 0700) != 0 && errno != EEXIST) return false;
-    return stat(g_evidence, &info) == 0 && S_ISDIR(info.st_mode);
+    return stat(g_evidence, &info) == 0 && S_ISDIR(info.st_mode) &&
+           t64_test_scope_open(g_evidence, sizeof g_evidence, false);
   }
   if (temp == NULL || temp[0] == '\0') temp = "/tmp";
   if (snprintf(g_evidence, sizeof g_evidence, "%s/t64-artifact.XXXXXX",
                temp) >= (int)sizeof g_evidence) {
     return false;
   }
-  return mkdtemp(g_evidence) != NULL;
+  return mkdtemp(g_evidence) != NULL &&
+         t64_test_scope_open(g_evidence, sizeof g_evidence, true);
 }
 
 /* A fresh private (0700) directory for one scenario. */

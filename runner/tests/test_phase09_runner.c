@@ -31,6 +31,7 @@
 #include "t64_real_fixture.h"
 #include "t64_sha256.h"
 #include "tendies64/t64_machine.h"
+#include "t64_test_tree.h"
 
 #define LEGACY_HELLO_PROFILE "ntsc-cart-4m-openipl3-warm-v1"
 
@@ -94,14 +95,16 @@ static bool prepare_evidence(void) {
     /* Concurrent CTest jobs share this directory: a racing mkdir that finds
      * the directory already present is success. */
     if (mkdir(g_evidence, 0700) != 0 && errno != EEXIST) return false;
-    return stat(g_evidence, &info) == 0 && S_ISDIR(info.st_mode);
+    return stat(g_evidence, &info) == 0 && S_ISDIR(info.st_mode) &&
+           t64_test_scope_open(g_evidence, sizeof g_evidence, false);
   }
   if (temp == NULL || temp[0] == '\0') temp = "/tmp";
   if (snprintf(g_evidence, sizeof g_evidence, "%s/t64-phase09.XXXXXX",
                temp) >= (int)sizeof g_evidence) {
     return false;
   }
-  return mkdtemp(g_evidence) != NULL;
+  return mkdtemp(g_evidence) != NULL &&
+         t64_test_scope_open(g_evidence, sizeof g_evidence, true);
 }
 
 /* A fresh private working directory for one run. */
