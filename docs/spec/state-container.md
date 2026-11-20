@@ -548,17 +548,64 @@ One run has one artifact producer. Families: SAVE-IN (`--save-import`,
 mandatory and defaulted), RAW (`--raw-capture-dir`) and PAIR (`--artifact-dir`,
 `--artifact-max-bytes`).
 
-| Combination | Result |
-| --- | --- |
-| STATE-IN with INPUT, RAW, SAVE-IN, SAVE-OUT, REPLAY-REC, REPLAY-PLAY, STATE-OUT, synthetic mode | refused (`usage`, guest tick 0) |
-| STATE-IN with the common options only | allowed |
-| STATE-IN with PAIR alone | allowed; the pair keeps its earlier meaning and no producer uses it |
-| STATE-OUT with RAW, SAVE-IN, SAVE-OUT, REPLAY-REC, REPLAY-PLAY, synthetic mode | refused (`usage`) |
-| STATE-OUT without PAIR | refused (`usage`) |
-| STATE-OUT with INPUT | allowed |
-| REPLAY-REC and REPLAY-PLAY with RAW, synthetic mode and the save flags | refused, as the replay plan states |
-| SAVE-IN with SAVE-OUT | allowed (the save round trip) |
-| SAVE-OUT without PAIR | refused |
+Every pair of the nine families has a defined result; none is undefined (plan 09-10,
+R-03). In the table below `R` is refused (`usage`, guest tick 0, nothing created), `A` is
+accepted by the pair rules (the run goes on to its snapshot and child), and a dot is the
+family with itself. Each family is complete in itself in every row, and the case
+`argv-bound` of `runner/tests/test_phase09_runner.c` runs all 36 pairs, each family
+alone as the accepted baseline, and the pairless forms below.
+
+| | SAVE-IN | SAVE-OUT | REPLAY-REC | REPLAY-PLAY | STATE-OUT | STATE-IN | RAW | INPUT | PAIR |
+|---|---|---|---|---|---|---|---|---|---|
+| SAVE-IN | . | A | R | R | R | R | R | A | A |
+| SAVE-OUT | A | . | R | R | R | R | R | A | A |
+| REPLAY-REC | R | R | . | R | R | R | R | A | A |
+| REPLAY-PLAY | R | R | R | . | R | R | R | A | A |
+| STATE-OUT | R | R | R | R | . | R | R | A | A |
+| STATE-IN | R | R | R | R | R | . | R | R | A |
+| RAW | R | R | R | R | R | R | . | A | R |
+| INPUT | A | A | A | A | A | R | A | . | A |
+| PAIR | A | A | A | A | A | A | R | A | . |
+
+The rule behind the table, in four statements:
+
+1. The producing families are mutually exclusive: SAVE-IN, SAVE-OUT, REPLAY-REC,
+   REPLAY-PLAY, STATE-OUT and STATE-IN refuse each other, with one exception: SAVE-IN
+   with SAVE-OUT is the save round trip and is accepted.
+2. RAW is refused with every Phase 9 producer and with PAIR (the artifact pair is
+   mutually exclusive with raw capture, a Phase 8 contract).
+3. SAVE-OUT, REPLAY-REC, REPLAY-PLAY and STATE-OUT need PAIR and are refused (`usage`)
+   without it. SAVE-IN and STATE-IN do not need it; PAIR alone is accepted with them and
+   no producer uses it.
+4. INPUT (the custom schedule options `--input-size` and `--input-sha256`) is not an
+   artifact producer. **Six combinations are accepted by design:** INPUT with SAVE-IN,
+   SAVE-OUT, REPLAY-REC, REPLAY-PLAY and RAW, and INPUT with PAIR (INPUT with STATE-OUT is
+   accepted as well, from plan 09-08). INPUT with STATE-IN is the only refused INPUT
+   pair (plan 09-09: no custom schedule together with a state import).
+   REPLAY-PLAY with a schedule that has events is accepted by the supervisor and ended
+   by the child with a published `input-refused` report (a content rule, case
+   `flag-combinations` of `runner.replay-mix`); the options themselves are not refused.
+
+The pairless forms: SAVE-OUT, REPLAY-REC, REPLAY-PLAY and STATE-OUT without PAIR are
+refused (`usage`). Synthetic mode refuses every Phase 9 flag, all nineteen of them
+(`--artifact-dir`, `--artifact-max-bytes`, the six save flags, the six replay flags and
+the five state flags), and the two Phase 8 families the same rule covers, RAW and
+INPUT; the case runs each flag alone after a synthetic baseline that is not refused.
+The runner repeats the family checks for the options it receives (a directly started
+child refuses the same way, guest tick 0), and the direct `--save-import-fd` rows of
+`runner.save-roundtrip` pin its descriptor shape.
+
+The child argument array is bounded by one compile-time slot sum, 45 of 64 slots (the
+runner path 1, fixture 2, input 2, profile 2, ticks 2, advance step 2, video 2, audio
+2, raw capture 4, artifact pair 4, save 8, replay 8, state export 4, state import 2),
+asserted in `runner/t64_supervisor.c`. The sum counts every family as if all
+co-occurred, so it is an upper bound; `argv-bound` runs 19 of the 45 slots and
+`argv-max-save` runs 27, and both end in non-pass records on a family id (the video
+observation of an audio fixture), so they prove forwarding and parse, not a passing
+maximum run. The state import triple cannot join them (its audio fixture is outside
+the composite family, a 09-09 deviation), so the compile-time sum is its bound. The
+replay rows state the rule in full: REPLAY-REC and REPLAY-PLAY are refused with RAW,
+with every save flag, with each other and with both state families, and need PAIR.
 
 The ordering proof: each one-producer row of the case `import-option-refusals`
 passes a nonexistent import path; a supervisor that prepared the snapshot first would
