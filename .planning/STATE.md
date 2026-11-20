@@ -4,18 +4,18 @@ milestone: v1.1
 milestone_name: Observable Machine
 current_phase: 9
 current_phase_name: Controller, Save Media and Replay
-current_plan: 9
+current_plan: 10
 status: executing
-stopped_at: Completed 09-07-PLAN.md
-last_updated: "2026-11-20T02:08:13.525Z"
+stopped_at: Completed 09-08-PLAN.md
+last_updated: "2026-11-20T02:47:18.931Z"
 last_activity: 2026-11-19
 last_activity_desc: Phase 9 execution started
-state_head: a3818955e3c0dc98c13f82642c7a65b85ffc93d1
+state_head: 474fd97b9a534fe46493b69c6dc0f1526bbe9c39
 progress:
   total_phases: 3
   completed_phases: 1
   total_plans: 31
-  completed_plans: 25
+  completed_plans: 26
   percent: 33
 ---
 
@@ -31,7 +31,7 @@ See: .planning/PROJECT.md (updated 2026-11-15)
 ## Current Position
 
 Phase: 9 (Controller, Save Media and Replay) — EXECUTING
-Current Plan: 9
+Current Plan: 10
 Total Plans in Phase: 13
 Status: Ready to execute
 Last activity: 2026-11-19 — Phase 9 execution started
@@ -57,6 +57,7 @@ Progress: [███░░░░░░░] 33% of currently planned source plans
 | Phase 09 P05 | 45min | 6 tasks | 24 files |
 | Phase 09 P06 | 36min | 6 tasks | 7 files |
 | Phase 09 P07 | 42min | 4 tasks | 18 files |
+| Phase 09 P08 | 40min | 5 tasks | 20 files |
 
 ## Accumulated Context
 
@@ -94,6 +95,9 @@ Progress: [███░░░░░░░] 33% of currently planned source plans
 - [Phase 09]: 09-06: F1 freezes state content with 58 section goldens and a 67-member audit of struct t64_machine; lengths of sections 2 to 7, 10 and 11 were derived by hand and equal the walker, hashes are regression pins
 - [Phase 09]: 09-07: replay is runner-side; record is the ordinary result plus a private rpl artifact published only at guest-completion or guest-bound, play re-runs the row with an empty schedule and publishes an rpr report in every ending; a pre-guest mismatch is the existing prelaunch refusal and a divergence is the existing harness-error host-error record (no new t64.result key)
 - [Phase 09]: 09-07: the checkpoint interval is validated against the runner slice of 16 ticks and the loop target is the minimum of the slice and the next replay op; identity binding compares profile (five fields), build, content (two fields) then save_init with a status per family and the field name before the first advance; goldens hold ops and checkpoint digests only and the header is composed at test time
+- [Phase 09]: 09-08: the state container observer body is exactly five u64 values (drain cursor, video head and count, audio head and count); write_generation never travels and 09-09 owns its rule; export is defined for state version 25 only and every refusal leaves bytes, length and machine unchanged
+- [Phase 09]: 09-08: the runner opens the .sta publisher before the guest and at authored completion replaces only the outcome, stop kind and detail with the closed state-export-* names (no t64.result key); the result detail field grows to 48 bytes because state-export-incomplete-terminal is 32 characters; the artifact preflight stays first
+- [Phase 09]: 09-08: the real exported state is 6,351,511 bytes for the authored admit ROM (6,351,551 idle stem); the plan's 8.4 to 11.5 MiB arithmetic assumed two coverage arrays, so the bounds are 6,303,756 (above) and 11,534,336 (below)
 
 ### Pending Todos
 
@@ -125,8 +129,8 @@ question. No oracle authority is part of this decision.
 
 ## Session Continuity
 
-Last session: 2026-11-20T02:08:13.379Z
-Stopped at: Completed 09-07-PLAN.md
+Last session: 2026-11-20T02:47:18.792Z
+Stopped at: Completed 09-08-PLAN.md
 Resume file: None
 
 Historical closeout: [v1.0 roadmap](milestones/v1.0-ROADMAP.md), [audit](milestones/v1.0-MILESTONE-AUDIT.md), [lessons](RETROSPECTIVE.md).
