@@ -746,16 +746,21 @@ storage, bound a loop, shift or size a memory function. `--list` is the scan
 (plan 09-09): the members of the structures reachable from `struct t64_machine`
 that occur in a subscript, a loop comparison, the right operand of a shift or the
 length argument of a memory function, directly or through a local that carries them
-(72 member names on the gate tree). `--check` reads the mapping
-`docs/spec/state-field-rules.txt`, one row per used member, and fails on an unmapped
-member, a stale row (a member no longer used), a duplicate row, an unknown rule, a
+(92 member names on the gate tree: 72 from the scan of plan 09-09 and 20 found by
+the nested-access fix of plan 09-10). `--check` reads the mapping
+`docs/spec/state-field-rules.txt`, one or more rows per used member (a name that
+several structures share, or that is bounded two ways, has one row per distinct
+bound: `render_y` is `ADDR_RANGE` for its RDRAM use and `INDEX_LT` for the coverage
+subscript), and fails on an unmapped member, a stale row (a member no longer used),
+an identical row twice, an unknown rule, a
 placeholder (`?`, `TODO`), a reader that is not a file-scope function of
 `core/t64_state.c`, a reader whose body does not mention the member, and a
 `MASKED_AT_USE` row without a consuming site that exists and mentions the member.
-`--selftest` runs the five cases listed by `--list-cases` on temporary copies of the
-tree under `build/`: the unmutated copy passes first, then four seeds (a new indexed
-member, a removed row, a misspelled rule, a reader that lacks the member) each fail
-with their own finding text. The CTest name is `harness.state-field-use-audit`.
+`--selftest` runs the six cases listed by `--list-cases` on temporary copies of the
+tree under `build/`: the unmutated copy passes first, then five seeds (a new indexed
+member, a new member reached by a nested access `machine->pi.member`, a removed row,
+a misspelled rule, a reader that lacks the member) each fail with their own finding
+text. The CTest name is `harness.state-field-use-audit`.
 
 Rules are the `T64_STATE_RULE_*` names without the prefix. `NONE` names an aggregate
 member (its scalar members are mapped under their own names) or a constant-size
@@ -768,12 +773,14 @@ What the audit proves and what it does not. It proves that every member the scan
 reports has a named rule in a named reader and that a new used member cannot land
 unmapped. It does not prove the rule is correct or complete; that is the work of the
 structure-aware mutants, the sweep and the sanitizer-scaled campaign of
-`core/tests/test_state_import.c`. The scan itself matches the forms `->member`,
-`).member` and `].member` and a local that carries them; a nested value access of the
-form `machine->device.member` names the device member only, so scalar members reached
-that way are outside the list (the list has 72 names of 472 reachable members). The
-accepted states are therefore covered by the sweep, the campaign and the liveness
-list, not by the audit alone, and the limit is carried to the review plan.
+`core/tests/test_state_import.c`. The scan matches `->member`, `.member` after any
+expression (including a nested access `machine->rsp.dma_beat_cursor` and an indexed
+one `cpu->tlb[i].asid`) and a local that carries them. It is lexical: it does not
+resolve types, a name that several structures share is mapped for every one of its
+bounds but not per structure, and a reader that only mentions the token satisfies a
+row, so the audit lists the members and their rules and the sweep, the campaign and
+the mutants evidence that the rules are sufficient (the 92 names are the used members
+of 472 declared).
 
 Triangle render in progress (plan 09-10 fix cycle, review L2 CR-02, audit T-09-67). The rows
 of a triangle run after the command was accepted, from the packet words and the

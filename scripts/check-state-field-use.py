@@ -13,7 +13,7 @@ the sweep of the state import test.
 Modes (exit 0 clean, 1 findings, 2 usage):
   --list           the used-member list (plan 09-09)
   --check          the mapped audit; prints one finding per line
-  --selftest       the five self-test cases on temporary copies of the tree
+  --selftest       the six self-test cases on temporary copies of the tree
   --list-cases     the self-test case names, one per line, nothing else
   --case NAME      one self-test case
   --emit-template  one mapping line per used member with suggestions
@@ -38,7 +38,8 @@ Site classes:
   M  the member is in the length argument of memcpy, memmove, memset or
      memcmp
 
-Mapping row format: `member :: RULE :: reader_function`, with the optional
+Mapping row format (a member may have several rows, one per distinct use):
+`member :: RULE :: reader_function`, with the optional
 fourth and fifth fields `:: core/<file>.c :: function` for MASKED_AT_USE (the
 consuming site). Lines beginning with `#` are comments. The rule names are the
 T64_STATE_RULE_* names of core/include/tendies64/t64_machine.h without the
@@ -216,7 +217,10 @@ def function_bodies(text: str) -> list[str]:
 
 def member_pattern(members: set[str]) -> re.Pattern[str]:
     ordered = sorted(members, key=len, reverse=True)
-    return re.compile(r"(?:->|(?<![A-Za-z0-9_])\.)\s*(" + "|".join(map(re.escape, ordered)) + r")\b")
+    # `->name` and `.name` after any expression, including a nested access such as
+    # machine->rsp.dma_beat_cursor or cpu->tlb[i].asid (plan 09-10 review L2 WR-03:
+    # a lookbehind that refused a dot after an identifier hid 19 used members)
+    return re.compile(r"(?:->|(?<!\.)\.)\s*(" + "|".join(map(re.escape, ordered)) + r")\b")
 
 
 def balanced_segment(text: str, start: int, open_char: str, close_char: str) -> int:
@@ -474,44 +478,49 @@ def check_tree(root: pathlib.Path) -> list[str]:
         rules = closed_rules(root)
         readers = function_table(stripped(root / STATE_SOURCE))
         rows, findings = parse_mapping(root)
-        seen: set[str] = set()
-        by_member: dict[str, list[str]] = {}
+        # A member may have several rows, one per distinct use (plan 09-10 review
+        # L2 WR-03: a single row per name could not state two different bounds, so
+        # `render_y :: ADDR_RANGE` satisfied the audit while the coverage subscript
+        # needed another rule); an identical row twice is still a duplicate.
+        seen: set[tuple[str, ...]] = set()
+        by_member: dict[str, list[list[str]]] = {}
         for row in rows:
-            member = row[0]
-            if member in seen:
-                findings.append(f"duplicate mapping row {member}")
+            key = tuple(row)
+            if key in seen:
+                findings.append(f"duplicate mapping row {row[0]}")
                 continue
-            seen.add(member)
-            by_member[member] = row
+            seen.add(key)
+            by_member.setdefault(row[0], []).append(row)
         for member in sorted(used):
             if member not in by_member:
                 findings.append(f"unmapped member {member} (classes {used[member]})")
-        for member, row in sorted(by_member.items()):
+        for member, member_rows in sorted(by_member.items()):
             if member not in used:
                 findings.append(f"stale mapping row {member}")
                 continue
-            rule, reader = row[1], row[2]
-            if rule in ("?", "TODO", "TBD") or reader in ("?", "TODO", "TBD"):
-                findings.append(f"placeholder rule for {member}")
-                continue
-            if rule not in rules:
-                findings.append(f"unknown rule {rule} for {member}")
-                continue
-            if reader not in readers:
-                findings.append(f"reader {reader} not found for {member}")
-            elif not mentions(readers[reader], member):
-                findings.append(f"reader {reader} does not mention {member}")
-            if rule == "MASKED_AT_USE":
-                site_ok = False
-                if len(row) == 5:
-                    site_path = root / row[3]
-                    if site_path.is_file() and row[3].startswith("core/"):
-                        sites = function_table(stripped(site_path))
-                        site_ok = row[4] in sites and mentions(sites[row[4]], member)
-                if not site_ok:
-                    findings.append(f"masked-at-use row {member} lacks a consuming site")
-            elif len(row) == 5:
-                findings.append(f"unexpected consuming site for {member}")
+            for row in member_rows:
+                rule, reader = row[1], row[2]
+                if rule in ("?", "TODO", "TBD") or reader in ("?", "TODO", "TBD"):
+                    findings.append(f"placeholder rule for {member}")
+                    continue
+                if rule not in rules:
+                    findings.append(f"unknown rule {rule} for {member}")
+                    continue
+                if reader not in readers:
+                    findings.append(f"reader {reader} not found for {member}")
+                elif not mentions(readers[reader], member):
+                    findings.append(f"reader {reader} does not mention {member}")
+                if rule == "MASKED_AT_USE":
+                    site_ok = False
+                    if len(row) == 5:
+                        site_path = root / row[3]
+                        if site_path.is_file() and row[3].startswith("core/"):
+                            sites = function_table(stripped(site_path))
+                            site_ok = row[4] in sites and mentions(sites[row[4]], member)
+                    if not site_ok:
+                        findings.append(f"masked-at-use row {member} lacks a consuming site")
+                elif len(row) == 5:
+                    findings.append(f"unexpected consuming site for {member}")
         return findings
     finally:
         ROOT = saved
@@ -555,6 +564,7 @@ def emit_template(root: pathlib.Path) -> list[str]:
 SELFTEST_CASES = (
     "baseline-clean",
     "new-indexed-member-unmapped",
+    "nested-member-unmapped",
     "mapping-row-removed",
     "unknown-rule-name",
     "reader-lacks-member",
@@ -569,6 +579,15 @@ SEED_FUNCTION = (
     "                                   const uint32_t *table) {\n"
     "  const t64_pi_state *pi = &machine->pi;\n"
     "  return table[pi->seeded_audit_index];\n"
+    "}\n"
+)
+# The nested seed: the member is reached as machine->pi.<member>, a dot after an
+# identifier, which the first version of the scan did not see (plan 09-10).
+SEED_NESTED_MEMBER = "seeded_nested_index"
+SEED_NESTED_FUNCTION = (
+    "\nstatic uint32_t seeded_nested_use(const t64_machine *machine,\n"
+    "                                    const uint32_t *table) {\n"
+    "  return table[machine->pi.seeded_nested_index];\n"
     "}\n"
 )
 SEED_UNKNOWN_RULE = "NO_SUCH_RULE"
@@ -620,22 +639,25 @@ def run_case(name: str, root: pathlib.Path) -> str | None:
         index = first_row_index(lines)
         if index < 0:
             return "the mapping has no rows to seed"
-        if name == "new-indexed-member-unmapped":
+        if name in ("new-indexed-member-unmapped", "nested-member-unmapped"):
+            nested = name == "nested-member-unmapped"
+            member = SEED_NESTED_MEMBER if nested else SEED_MEMBER
+            function = SEED_NESTED_FUNCTION if nested else SEED_FUNCTION
             header = tree / INTERNAL_HEADER
             text = header.read_text(encoding="utf-8")
             if SEED_STRUCT_ANCHOR not in text:
                 return "seed anchor not found in the copied header"
             text = text.replace(
                 SEED_STRUCT_ANCHOR,
-                SEED_STRUCT_ANCHOR + f"\n  uint32_t {SEED_MEMBER};",
+                SEED_STRUCT_ANCHOR + f"\n  uint32_t {member};",
                 1,
             )
             header.write_text(text, encoding="utf-8")
             state = tree / STATE_SOURCE
             state.write_text(
-                state.read_text(encoding="utf-8") + SEED_FUNCTION, encoding="utf-8"
+                state.read_text(encoding="utf-8") + function, encoding="utf-8"
             )
-            expected = f"unmapped member {SEED_MEMBER}"
+            expected = f"unmapped member {member}"
         elif name == "mapping-row-removed":
             member = lines[index].split(" :: ")[0].strip()
             del lines[index]

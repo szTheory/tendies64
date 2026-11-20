@@ -66,6 +66,11 @@ color_image_width :: ADDR_RANGE :: state_read_rdp
 render_x_begin :: ADDR_RANGE :: state_read_rdp
 render_x_end :: ADDR_RANGE :: state_read_rdp
 render_y :: ADDR_RANGE :: state_read_rdp
+# the same member is the row subscript of the 1,024-row triangle coverage array
+# (core/t64_rdp_raster.c): the coverage-height bound, rule INDEX_LT, is checked
+# with the rest of the triangle proof of state_check_triangle_render, called from
+# state_read_rdp (plan 09-10, FX-01)
+render_y :: INDEX_LT :: state_read_rdp
 rdp_memory_coverage :: ENUM_CLOSED :: state_read_rdp_carried
 dpc_current :: MASKED_AT_USE :: state_read_rdp :: core/t64_rdp.c :: t64_rdp_event
 dpc_xbus :: MASKED_AT_USE :: state_read_rdp :: core/t64_rdp.c :: command_span_valid
@@ -95,3 +100,30 @@ field :: MASKED_AT_USE :: state_read_vi :: core/t64_vi.c :: t64_vi_read_register
 page_mask :: MASKED_AT_USE :: state_read_cpu_extended :: core/t64_mmu.c :: page_size_shift
 tick :: TICK_GE :: state_section_scheduler
 value :: NONE :: state_section_scheduler
+# nested member accesses (x->device.member), visible since the scan accepts a dot
+# after an identifier (plan 09-10 review L2 WR-03); each name is mapped for its
+# uses and a name several structures share gets one row per distinct bound
+active :: BOOL_01 :: state_section_audio
+active_length :: LEN_LE :: state_section_interrupt_pi_sp
+active_length :: ADDR_RANGE :: state_section_interrupt_pi_sp
+asset_sha256 :: DERIVED_EQ :: state_section_warm_devices
+captured_bytes :: LEN_LE :: state_section_warm_devices
+dcache :: NONE :: state_read_cpu_extended
+icache :: NONE :: state_read_cpu_extended
+tlb :: NONE :: state_read_cpu_extended
+device :: ENUM_CLOSED :: state_section_scheduler
+gpr :: MASKED_AT_USE :: state_read_cpu :: core/t64_cpu.c :: execute_special
+gpr :: MASKED_AT_USE :: state_read_rsp :: core/t64_rsp.c :: t64_rsp_issue_event
+length :: LEN_LE :: state_read_video_slot
+length :: LEN_LE :: state_section_audio
+other_modes :: MASKED_AT_USE :: state_read_rdp :: core/t64_rdp_raster.c :: t64_rdp_triangle_render_row
+packet_lengths :: LEN_LE :: state_read_video_slot
+packet_lengths :: LEN_LE :: state_read_audio_slot
+payload_length :: DERIVED_EQ :: state_section_warm_devices
+payload_sha256 :: DERIVED_EQ :: state_section_warm_devices
+policy_sha256 :: DERIVED_EQ :: state_section_warm_devices
+pc :: MASKED_AT_USE :: state_read_cpu :: core/t64_cpu.c :: t64_cpu_step
+pc :: MASKED_AT_USE :: state_read_rsp :: core/t64_rsp.c :: t64_rsp_issue_event
+pc_full :: MASKED_AT_USE :: state_read_cpu_extended :: core/t64_cpu.c :: t64_cpu_step
+pending :: NONE :: state_section_interrupt_pi_sp
+rdram_protocol :: NONE :: state_read_rdram_protocol
