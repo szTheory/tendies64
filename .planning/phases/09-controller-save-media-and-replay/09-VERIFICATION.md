@@ -1,8 +1,8 @@
 ---
 phase: 09-controller-save-media-and-replay
-verified: 2026-11-20T09:50:00Z
-status: gaps_found
-score: 6/13 must-haves verified
+verified: 2026-11-20T16:40:00Z
+status: passed
+score: 13/13 must-haves verified
 covered_files:
   - ".github/workflows/ci.yml"
   - ".planning/phases/09-controller-save-media-and-replay/09-01-PLAN.md"
@@ -30,6 +30,7 @@ covered_files:
   - ".planning/phases/09-controller-save-media-and-replay/09-10-PLAN.md"
   - ".planning/phases/09-controller-save-media-and-replay/09-11-PLAN.md"
   - ".planning/phases/09-controller-save-media-and-replay/09-CONTEXT.md"
+  - ".planning/phases/09-controller-save-media-and-replay/09-REVIEW-FIX.md"
   - ".planning/phases/09-controller-save-media-and-replay/09-REVIEW.md"
   - ".planning/phases/09-controller-save-media-and-replay/09-SECURITY.md"
   - ".planning/phases/09-controller-save-media-and-replay/09-VALIDATION.md"
@@ -45,6 +46,7 @@ covered_files:
   - "core/t64_machine.c"
   - "core/t64_observe.c"
   - "core/t64_pi.c"
+  - "core/t64_rdp_raster.c"
   - "core/t64_rsp.c"
   - "core/t64_save.c"
   - "core/t64_scheduler.c"
@@ -111,6 +113,7 @@ covered_files:
   - "runner/t64_supervisor.c"
   - "runner/t64_verified_input.h"
   - "runner/tests/replay_mix_golden.h"
+  - "runner/tests/t64_test_tree.h"
   - "runner/tests/test_artifact_publisher.c"
   - "runner/tests/test_pad_poll.c"
   - "runner/tests/test_phase09_runner.c"
@@ -138,174 +141,37 @@ covered_files:
   - "scripts/tests/test_phase09_qualification.py"
   - "scripts/tests/test_rsp_no_hle.py"
   - "tools/rights/t64_blobscan.c"
-covered_digest: "v4:sha256:7b7b070bdbde269b8fc41205c0c0509bc0f458ebf56bf94790d87daa60c65d78"
-behavior_unverified: 4
+covered_digest: "v4:sha256:955f5003487a7aa0743cc08beef7cbe2a0f58ecde5b31950c9a5f8634db6de43"
+behavior_unverified: 0
 overrides_applied: 0
-gaps:
-  - id: VG-01
-    class: blocking
-    truth: "Exporting and re-importing machine state reproduces the canonical digest exactly, so that a restored machine continues as the original did (SC3, CORE-04, the phase goal 'machine state ... reproduce runs exactly')"
-    status: failed
-    reason: "The v25 canonical state, its digest and the container leave out behavior-bearing RDP state of the composite family: the combiner block (combine mode, environment, fog and blend colors, key registers and their valid flags) and the RDP memory-coverage table. The importer zeroes them. The digest therefore stays equal across an import that changes the future of the machine, and no check can see it. Reproduced twice with scratch programs against the public export/import API."
-    artifacts:
-      - path: "core/t64_digest.c"
-        issue: "lines 669 and 677 hash the coverage table and the combiner block only under the older version predicates; core/t64_internal.h:1263 (depth predicate, descriptor 10 only) keeps them false for descriptors 11 and 12"
-      - path: "core/t64_state.c"
-        issue: "readers (1429-1633) carry none of these members; state_commit zeroes them (2821-2828)"
-      - path: "docs/spec/state-container.md"
-        issue: "lines 471-473 and 638-650 record the limit as a documented consequence, not as a decision that satisfies CORE-04"
-    missing:
-      - "a recorded F1 defect-fix decision: carry the members in the canonical state (new-class spans keep the strip-and-compare differential), or in a section outside the digest, or refuse export and import for such states; whichever is chosen, a control in which a source and an imported peer receive the same DP triangle after a SetCombine and agree on triangle count, framebuffer and digest, plus a one-member flip test for every RDP member"
-      - "correct docs/spec/machine-contract.md where it states the members are hashed, and bound the CORE-04 claim text (the pending skeleton says continuation digests are reproduced)"
-  - id: VG-02
-    class: blocking
-    truth: "An accepted state import cannot cause an out-of-range access, an unbounded loop or undefined arithmetic (the importer contract of D-30 and D-41, stated in core/include/tendies64/t64_machine.h above t64_machine_state_import)"
-    status: failed
-    reason: "A hash-valid state with a triangle render in progress is accepted without the bounds the rasterizer proved when it accepted the command: render_y and render_y_end are bounded only against the RDRAM extent, while the row executor indexes a 1,024-row coverage array, and the packet words are free 64-bit values. Acceptance of render_y = 1500 reproduced here (status OK, peer render_y 1500). The signed overflow and the out-of-array write are reported by the independent review and audit with their own harness; I did not reproduce the trap or the write. The write is blocked today only because the commit zeroes the combiner block (VG-01), so fixing VG-01 by carrying that block makes it live."
-    artifacts:
-      - path: "core/t64_state.c"
-        issue: "1513-1542 and 1585-1617: render extent rule checks last row against RDRAM only"
-      - path: "core/t64_rdp_raster.c"
-        issue: "227 (acceptance clamp to 1,024 rows), 661-662 and 811 (coverage index), 385-399 (shade products) trust acceptance-time proofs"
-      - path: "docs/spec/state-field-rules.txt"
-        issue: "68: render_y :: ADDR_RANGE satisfies the field-use audit but is not the sufficient bound"
-    missing:
-      - "reader rule that re-establishes the acceptance bounds for a triangle render in progress (word count for the opcode, accepted opcodes, last row below the coverage height, product bounds) or refuses such a state"
-      - "mutant rows with accepted baselines for a row at or above 1,024 and for an overflowing slope; the campaign base blobs must hold a render in progress; same change as VG-01"
-  - id: VG-03
-    class: blocking
-    truth: "The frozen qualification route can complete with the registered test set, so the criteria can be claimed at the unit-tested tier (validation row 9-V25, D-40)"
-    status: failed
-    reason: "The shared native stage runs the full ASan CTest under a 600 s wrapper while one registered test needs longer than that under ASan. The stage fails closed (no false pass) and deterministically, so no native record can be sealed and the hosted collect and verify can never run."
-    artifacts:
-      - path: "scripts/qualify-rdp-vi.py"
-        issue: "419-430: timeout_seconds=600.0 for ctest --preset asan; a timeout raises Refusal"
-      - path: "core/CMakeLists.txt"
-        issue: "1098-1100: unit.core.state.import TIMEOUT 1800, measured 631.8 s under ASan (09-09.1-SUMMARY.md lines 78 and 177; the retained project ASan log shows 631.80 s; my own loaded-machine run took 1,263 s wall); the last whole-suite ASan measurement 389.7 s predates it (09-03.1-SUMMARY.md line 209)"
-      - path: "scripts/qualify-phase09.py"
-        issue: "1641: outer shared-native-gates limit 2400 s is below the worst case 600 + 600 + 1800 + 120"
-    missing:
-      - "raise the wrapper above the largest registered TIMEOUT with margin, raise the outer limit and the matching bound in the receipt verifier, update the pinned test, and add a control that reads every registered TIMEOUT from ctest --show-only=json-v1 and requires the wrapper to exceed the maximum"
-  - id: VG-04
-    class: non-blocking
-    truth: "A 32-bit store that starts an SI DMA is refused atomically when the queue or the sequence has no room (D-44)"
-    status: partial
-    reason: "The preflight budgets only the exact aligned register address. A full-word SWR at byte offset 3 of the RD64B register (and the mirrored forms) performs the RD64B start but is budgeted as one extra event instead of two. Reproduced with the existing test harness: with room for two events the SW control is refused atomically, the SWR form retires, queues both SI events (queue count 16 against the 14 expected) and leaves no CPU successor. Narrow reach (queue within two slots of its limit), but it is the property the decision locks."
-    artifacts:
-      - path: "core/t64_cpu.c"
-        issue: "1483-1523 cpu_successor_extra_event_budget compares the translated physical address, while core/t64_memory.c:116-136 aligns a partial store down to its bus width"
-      - path: "core/tests/test_si.c"
-        issue: "case_cpu_store_budget (415-470) has only sw and sd rows"
-    missing:
-      - "budget from the address the store will use (aligned word, lane-xor under reverse endian), swr/swl refuse-then-accept rows for both registers and for the sequence analogue"
-  - id: VG-05
-    class: non-blocking
-    truth: "Documented device behaviors that no test can fail on (present and wired, behavior unexercised): active-descriptor immutability, no data written on a timeout or absent answer, RDRAM-write side effects of SI RD64B and SRAM DMA"
-    status: partial
-    reason: "Out-of-tree mutants of each survive every related test: reading the live DRAM latch instead of the latched address at SI completion (13 related tests green); a 0xFF fill of the receive area in the timeout branch (13 green; every frame in tests, ROMs and oracles already uses a 0xFF fill, so untouched and filled are the same bytes; the absent branch is caught only by one 0xAA frame in unit.core.si.device); deleting both coverage and LL-link invalidations in the SI RD64B completion and the SRAM-to-RDRAM DMA apply (10 related tests green, and scripts/check-rsp-no-hle.py exits 0 although its route line claims invalidation by every writer)."
-    artifacts:
-      - path: "core/t64_si.c"
-        issue: "311 (completion address) and 313-316 (invalidations)"
-      - path: "core/t64_joybus.c"
-        issue: "283-295 (timeout and absent branches)"
-      - path: "core/t64_save.c"
-        issue: "224-225 (invalidations)"
-      - path: "scripts/check-rsp-no-hle.py"
-        issue: "pins t64_pi_complete but not t64_save_sram_dma_apply or t64_si_complete_event"
-    missing:
-      - "one control per behavior with an accepted baseline in the same setup: latch rewritten between start and completion; a non-0xFF fill (0xA5) in every unanswered frame; a coverage mark and an LL link over the destination cleared after each DMA and unchanged outside it; spec sentences for the invalidation; guard pins or token checks for the two bodies"
-  - id: VG-06
-    class: non-blocking
-    truth: "EEPROM command lengths are exact and the SRAM DMA span ends at the window end (D-18, D-21)"
-    status: partial
-    reason: "Two boundary rows are absent. A read with a receive count above 8 is not in the unanswered-row table, so classifying (0x04, 2, rx >= 8) as valid survives all 5 save tests. The SRAM DMA refusal table has one overshoot row of 8 bytes, so a span check that tolerates two bytes past the window survives (the apply-time check keeps it memory safe)."
-    artifacts:
-      - path: "core/tests/test_save.c"
-        issue: "unanswered_rows (1098-1112) and the window overflow row (701)"
-    missing:
-      - "read with rx 9 and a DMA ending exactly at the window end (accepted) plus a DMA two bytes past it (refused)"
-  - id: VG-07
-    class: non-blocking
-    truth: "Every option pair the specs define as refused is refused by the real supervisor and pinned by a test; every other pair is stated"
-    status: partial
-    reason: "The code agrees with the plans on every defined pair (my own probe: SAVE-IN with REPLAY-REC, SAVE-OUT with REPLAY-PLAY, REPLAY-PLAY with RAW, and SAVE-OUT or REPLAY-PLAY without the pair each end in a usage refusal at guest tick 0), but nine of those refusals have no test, the synthetic-mode refusal of the Phase 9 families has no test, and --save-import-fd has no direct runner test. Six pairs that combine a family with the custom schedule options are accepted by the code and stated nowhere. The refusal of replay with the save flags is what makes the replay save_init image form unreachable in a supervised run, so that stated limit rests on an unpinned refusal."
-    artifacts:
-      - path: "runner/t64_supervisor.c"
-        issue: "546-681 validators and 995-1021 synthetic branch"
-      - path: "runner/tests/test_replay.c"
-        issue: "case_flag_combinations crosses no save flag with a replay flag"
-    missing:
-      - "tests for the nine pairs, a synthetic-mode row, a direct --save-import-fd row, and spec sentences for the INPUT combinations (R-01 to R-04 of the drift report)"
-  - id: VG-08
-    class: non-blocking
-    truth: "The D-32 continuation set (one-shot and 1, 7, 31 and 4,096 tick partitions) runs for every boundary state in the qualified commands"
-    status: partial
-    reason: "Twelve of sixteen boundary rows run a single partition size in the gate, hosted and ASan presets, the instruction-count mid-tick stop row runs only in the full matrix, and no qualified native step sets T64_STATE_MATRIX_FULL. I ran the full matrix once: unit.core.state.import passes (101.8 s against about 30 s sampled), so the omitted partitions hold today; the claim must say sampled, or the full matrix must be registered."
-    artifacts:
-      - path: "core/tests/test_state_import.c"
-        issue: "3096-3119 partition selection and 4137 mid-tick case"
-    missing:
-      - "register the full matrix in a recorded native step or name the sampling in the CORE-04 claim"
-  - id: VG-09
-    class: non-blocking
-    truth: "The hostile-import evidence tooling reaches what the specs say it reaches (D-41, D-45)"
-    status: partial
-    reason: "The seeded campaign mostly refuses at the container level: at the gate default all 12 iterations end in reasons 8, 12, 19, 21 or 24, and at the sanitizer setting 117 of 120 refuse and only 6 reach a field or later reason (measured here). The tracer mutates the second observer value (rule INDEX_LT) while the inventory row it is named after is the first (LEN_LE) and it compares the reason only. The field-use audit matches a member after a dot only when no identifier precedes it (scripts/check-state-field-use.py:217-219), so nested accesses are invisible, and its one-row-per-name mapping cannot express two different bounds (VG-02). An argument refusal with a report span inside the machine writes the report into the machine (core/t64_state.c:2408-2445 against 2934-2936), against the stated rule."
-    artifacts:
-      - path: "scripts/check-state-field-use.py"
-        issue: "217-219 lookbehind"
-      - path: "core/tests/fuzz_state_import.c"
-        issue: "structural mutants always end in TOTAL_LENGTH or TRAILER_SHA256"
-    missing:
-      - "allow dot-after-identifier and add a nested-access seed, map the new members and require per-site rules; header-aware campaign with a minimum count of field-level refusals; compare the rule in the tracer; check the report span before any early return"
-  - id: VG-10
-    class: non-blocking
-    truth: "A failed publication publishes nothing, and a runner-published state can be imported by the runner into a record its own checker accepts"
-    status: partial
-    reason: "After the no-replace rename commits, a failing directory fsync or post-rename identity check returns failure while the leaf stays published and the stage directory stays (core/t64_artifact_publisher.c:560-578; abort is a no-op once committed). Separately a state exported by the runner at authored completion always re-imports into a record that the checker refuses, so the supervised resumed run ends in the closed report-error record and never reports pass (runner/tests/test_state_runner.c:1727-1775); the equality evidence through the runner is for a state produced by the core API."
-    artifacts:
-      - path: "runner/t64_artifact_publisher.c"
-        issue: "560-578"
-      - path: "runner/t64_real.c"
-        issue: "finalize branch for a resumed run (1976-1992)"
-    missing:
-      - "make the failure contract true (remove the leaf if still the held inode, always remove the stage, probe directory fsync before the guest) or change the spec; give a resumed run its own accepted closed record; state in the CORE-04 claim that the runner shows the mechanism only"
-  - id: VG-11
-    class: non-blocking
-    truth: "The specs and the validation record describe the shipped behavior"
-    status: partial
-    reason: "docs/spec/result-protocol.md:560-563 still says only the 30-byte hello transcript can pass; docs/spec/si-pif-controller.md:26-29 and 112-115 still say channel 4 is absent for every profile and only channel 0 has a device; docs/spec/machine-contract.md names combiner, blender and coverage members as hashed for the family (see VG-01); 09-VALIDATION.md still carries status draft, nyquist_compliant false, all 25 rows pending and an unchecked sign-off although every row resolves."
-    artifacts:
-      - path: "docs/spec/result-protocol.md"
-        issue: "560-563"
-      - path: "docs/spec/si-pif-controller.md"
-        issue: "26-29, 112-115"
-      - path: ".planning/phases/09-controller-save-media-and-replay/09-VALIDATION.md"
-        issue: "frontmatter and status column"
-    missing:
-      - "rewrite the three passages from the code; update the validation record at phase completion"
+re_verification:
+  previous_status: gaps_found
+  previous_score: 6/13
+  gaps_closed:
+    - "VG-01 canonical state and digest carry the RDP combiner block and the memory coverage table (FX-02, FX-24); source and imported peer draw the same triangle and agree on framebuffer and digest; the audio fixture shows 0 differing coverage bytes (first pass 84)"
+    - "VG-02 the importer re-establishes the rasterizer's acceptance bounds for a triangle render in progress (FX-01); row 1,500 and hostile shade slopes refused atomically; a randomized hostile import under ASan and UBSan found nothing"
+    - "VG-03 native stage limits derived from measurements, pinned by value and by relations, and tied to the largest registered TIMEOUT (FX-20 to FX-23); my own ASan measurement of the dominant test is 1,224.02 s against a 2,400 s TIMEOUT and a 3,000 s wrapper"
+    - "VG-04 D-44 store budget from the word the store writes, including partial stores and the reverse-endian arm (FX-04, FX-28)"
+    - "VG-05 controls for active-descriptor immutability, the receive fill and the RDRAM-writer invalidations, plus guard pins (FX-08, FX-19)"
+    - "VG-06 EEPROM read length and SRAM window-end rows (FX-08)"
+    - "VG-07 all 36 option pairs, synthetic-mode rows and --save-import-fd pinned and defined in the spec (FX-13, FX-14, FX-33)"
+    - "VG-08 full continuation matrix registered as a recorded native step; sampling named in the spec (FX-21, FX-34); exact wording constraint stated in the VG-08 row"
+    - "VG-09 campaign and sweep reach reader-level rules, tracer compares the full tuple, nested accesses scanned, report span judged first (FX-03, FX-05, FX-06, FX-07)"
+    - "VG-10 publisher withdraws a failed publication, a resumed run ends in an accepted closed record, supervisor outputs proved before the guest, contract stated by outcome (FX-10, FX-11, FX-29)"
+    - "VG-11 the three spec passages rewritten from the code (FX-09, FX-15, FX-30, FX-35); the validation record stays draft by design (accepted limitation)"
+  gaps_remaining: []
+  accepted_limitations:
+    - "09-VALIDATION.md keeps status draft, nyquist_compliant false and 25 pending rows until the final 09-11 verification (all 25 rows resolve against the built binaries: 36 CTest names, 71 case references, 0 unresolved)"
+    - "Phase 8 qualifier limits (scripts/qualify-audio.py) are below the shared stage's new worst case: a new Phase 8 native qualification would be refused closed by its own verifier (re-check R3 RC-02, owner the next Phase 8 requalification)"
+    - "a resumed run never reports pass, and a runner-published state resumes into the closed unknown-log record: the runner shows the state-resume mechanism only"
+    - "the v25 container and digest carry no marker that the state content changed in plan 09-10 (re-check R1 RC-06): provisional until the Phase 10 freeze, build identity binding refuses older blobs"
+  regressions: []
 deferred: []
-behavior_unverified_items:
-  - truth: "A write to SI_DRAM_ADDR while a DMA is active changes only the latch; the transfer completes at the address latched at its start (docs/spec/si-pif-controller.md register table)"
-    test: "start RD64B with the latch at A, rewrite the latch to B before the completion tick, complete"
-    expected: "the image is at A, RDRAM at B is untouched, the register reads B"
-    why_human: "a completion that reads the live latch (core/t64_si.c:311) passes 13 related tests, so no test sees an immutability invariant by presence"
-  - truth: "A joybus timeout or absent answer writes no receive data; the fill bytes stay as the guest wrote them (docs/spec/si-pif-controller.md and docs/spec/save-media.md)"
-    test: "frames whose receive area is filled with 0xA5 sent to a device that times out and to an absent channel, on the controller and on channel 4"
-    expected: "the receive bytes still read 0xA5 and only the count byte carries the flag"
-    why_human: "every frame in the tests, ROMs and oracles uses a 0xFF fill, so a memset of 0xFF in the timeout branch is invisible"
-  - truth: "The SI RD64B completion and the SRAM-to-RDRAM DMA clear the CPU LL link and the RDP coverage marks over the overwritten span (present at core/t64_si.c:313-316 and core/t64_save.c:224-225)"
-    test: "LL, DMA over the linked word, SC; coverage mark written before the DMA"
-    expected: "the SC fails and the mark reads clear over the span and unchanged outside it"
-    why_human: "deleting both calls passes 10 related tests and the no-HLE guard; no spec sentence states the effect"
-  - truth: "Every option pair the plans define as refused is refused by the real supervisor, including replay with the save flags (the reason the replay save_init image form is in-process only)"
-    test: "supervisor runs with each of the nine untested pairs and with synthetic mode and the Phase 9 families"
-    expected: "a usage refusal at guest tick 0 for each"
-    why_human: "my probe shows the refusals exist, but dropping any of the nine validators fails no test"
+advisory: []
 coincidental_reliance_items:
   - truth: "A recorded input replay reproduces the original run's digests (SC3, CORE-05)"
     reason: fixture-only
-    harden: "the replay-mix guest uses no RDP combiner or coverage state, so the digest blind spot of VG-01 never matters to its equality; once VG-01 is decided, add an RDP-active replay checkpoint so the equality is exercised on the state the digest used to miss"
+    harden: "the replay-mix guest still uses no RDP combiner or coverage state, so its equality is not evidence for the carried members (the state tests and the reproductions below are); add an RDP-active replay checkpoint in a later phase"
 flagged_prohibitions:
   - id: "09-01-P1"
     statement: "No ROM, save, PIF/IPL/firmware image, 64DD media, hardware measurement or oracle is used; only authored inputs and the already cleared openIPL3 asset pinned in earlier phases"
@@ -322,19 +188,19 @@ flagged_prohibitions:
   - id: "09-03-P1"
     statement: "No ROM, save, PIF/IPL/firmware image, 64DD media, hardware measurement or oracle is used; the PIF is a modeled 64-byte RAM with no PIF ROM and pad-poll is authored"
     verification: "command: sh scripts/rights-scan.sh --tree plus the manifest row review"
-    verdict: "not violated (rights scan exit 0, findings=0; manifest rows reviewed by me)"
+    verdict: "not violated (rights scan findings=0; the manifest, the Phase 7 authority record and the first hosted pair record have an empty diff since the first pass)"
     authoritative: "command part yes, manifest review no"
     flag: "unverified-prohibition: human review recommended for the manifest row review (not an acknowledgment gate)"
   - id: "09-03.1-P1"
     statement: "No ROM, save, PIF/IPL/firmware image, 64DD media, hardware measurement or oracle is used; every input is the authored pad-poll fixture and the cleared openIPL3 asset"
     verification: "command: sh scripts/rights-scan.sh --tree (exit 0, no P- or R- finding)"
-    verdict: "not violated (exit 0, findings=0)"
+    verdict: "not violated (findings=0)"
     authoritative: true
     flag: "none"
   - id: "09-04-P1"
     statement: "No ROM, save, PIF/IPL/firmware image, 64DD media, hardware measurement or oracle is used; every EEPROM and SRAM content is an authored byte pattern"
     verification: "command: sh scripts/rights-scan.sh --tree plus the manifest row review"
-    verdict: "not violated (exit 0, findings=0; no tracked save, state or replay extension)"
+    verdict: "not violated (findings=0; no tracked save, state, replay, bin or elf extension)"
     authoritative: "command part yes, manifest review no"
     flag: "unverified-prohibition: human review recommended for the manifest row review (not an acknowledgment gate)"
   - id: "09-05-P1"
@@ -346,7 +212,7 @@ flagged_prohibitions:
   - id: "09-06-P1"
     statement: "No ROM, save, PIF/IPL/firmware image, 64DD media, hardware measurement or oracle is used; no tie or timing result is presented as hardware evidence"
     verification: "command: sh scripts/rights-scan.sh --tree plus the test input review"
-    verdict: "not violated (exit 0, findings=0; tie and timing text in the specs is labeled named software-profile policy)"
+    verdict: "not violated (findings=0; tie and timing text in the specs and claim skeleton is labeled named software-profile policy)"
     authoritative: "command part yes, input review no"
     flag: "unverified-prohibition: human review recommended for the input review (not an acknowledgment gate)"
   - id: "09-07-P1"
@@ -376,7 +242,7 @@ flagged_prohibitions:
   - id: "09-10-P1"
     statement: "No ROM, save, PIF/IPL/firmware image, 64DD media, hardware measurement or oracle is used; every blob lives only under the untracked private directory"
     verification: judgment
-    verdict: "not violated (git status clean; no tracked blob extension)"
+    verdict: "not violated (git status clean; no tracked blob extension; every blob of my reproductions was produced in memory in an out-of-tree scratch clone)"
     authoritative: false
     flag: "unverified-prohibition: human review recommended (not an acknowledgment gate)"
   - id: "09-11-P1"
@@ -390,26 +256,44 @@ flagged_prohibitions:
 # Phase 9: Controller, Save Media and Replay Verification Report
 
 **Phase Goal:** Timed logical input drives the standard controller, explicitly selected save devices behave with defined refusal postconditions, and machine state and input replays reproduce runs exactly
-**Verified:** 2026-11-20T09:50:00Z
-**Status:** gaps_found
-**Re-verification:** No, initial verification (the one gaps-only re-verification over the final tree follows the fix cycle)
-**Verified source:** HEAD `2bac6f6`, tree clean (`git status` empty before and after). The digest above is the pre-fix digest over the 110 listed files plus the 24 PLAN and SUMMARY files the fingerprint command adds; it goes stale on any edit to a covered file.
+**Verified:** 2026-11-20T16:40:00Z
+**Status:** passed
+**Re-verification:** Yes, the one gaps-only re-verification after the single fix cycle (groups G1 to G4, FX-01 to FX-37). The initial report (gaps_found, 6 of 13, gaps VG-01 to VG-11, pre-fix digest `v4:sha256:7b7b070b...`) is preserved verbatim in the build gate directory.
+**Verified source:** HEAD `944443f`, tree clean (`git status` empty before and after). The digest above covers the original 110-file list of the brief, the one file the cycle added (`runner/tests/t64_test_tree.h`), `09-REVIEW-FIX.md`, and one further file the cycle modified that is not on the original list (`core/t64_rdp_raster.c`, the shared triangle extent function of FX-01), plus the 24 PLAN and SUMMARY files the fingerprint command adds (137 files). Computed by `verification.fingerprint`, never by hand, and recomputed once to confirm it is stable. The digest over the literal list without `core/t64_rdp_raster.c` (136 files) is `v4:sha256:61f87122b7b49ed1e4c5638b285d5809e583a5582343e03dcfbbceda486f7481`; the recorded one is the stricter, because an edit to the extent function would change the importer's bounds. It goes stale on any edit to a covered file.
 
 ## Verdict
 
-The goal is not achieved yet. Criteria 1, 2 and 4 and the replay half of criterion 3 hold, and each is pinned by tests that fail under my own out-of-tree mutants. The state half of criterion 3 does not: the exported canonical state omits behavior-bearing RDP state, so "export, import, digest equal" is true while the restored machine continues differently, and the importer accepts an in-flight triangle render without the bounds the rasterizer relies on. A third blocking gap stops the planned native qualification from ever completing. Eight non-blocking gaps and four present-but-behavior-unverified truths are listed; none is softened because a fix cycle follows.
+The goal is achieved for the authored scope the roadmap and claim define. Every one of the eleven previous gaps (VG-01 to VG-11) is closed, and I closed each by reproducing its original failing scenario or its mutant against the current tree, not by reading the FX records. One limitation is accepted by me (VG-11: the validation record stays draft until the final verification) and three more are recorded and accepted as stated limits (see the frontmatter). No regression: the full CTest inventory passes in an independent clone, the criteria check passes, the repository's own scheduler mutant driver gives the same verdicts as before, and 46 of 47 out-of-tree mutants of the pinned behaviors fail named tests (the one survivor is an accept-equivalent redundant check, an INFO observation).
 
-Starting hypothesis was that tasks were completed and the goal missed. Criteria 1, 2 and 4 survived that hypothesis with evidence below; criterion 3 did not, and I reproduced the loss rather than adopting the review's account (two independent reproductions for VG-01, the acceptance half of VG-02, a reproduction of the D-44 defect, and confirmations of the other review and audit findings I tested, named per gap).
+Starting hypothesis was that the fixes closed the findings the reviewers named and no more. It did not survive contact with the evidence: I replayed the exact scenarios of the first pass (the DP-register combiner state and the audio fixture for VG-01, row 1,500 and hostile shade slopes for VG-02, the SWR budget row for VG-04, the aliasing report span, the campaign counts) and then attacked the fix itself with a randomized hostile-triangle import under ASan and UBSan (50 trials: 29 accepted and advanced, no sanitizer report; 21 refused; 0 unexpected). The fixes hold.
 
-## What I ran (independent of the SUMMARY files)
+## What I ran (independent of the SUMMARY and FIX records)
 
-- A clean out-of-tree scratch tree built from `git archive HEAD` with the gate preset flags (Release, `-Werror`), the repository's pinned fixtures copied in; its fixture ROMs are byte-identical to the repository's 26 `.z64` files. In it:
-  - the 23 CTest names mapped by `docs/evidence/phase09-success-criteria.md`: all pass (the k5 anchors test needs a git repository, so it was re-run in the real tree and in a scratch repository: pass);
-  - the full CTest inventory: 224 names, 219 pass; the five that fail there (`harness.base-run`, `runner.cpu-diagnostic`, `integration.rsp-rom-smoke`, `harness.rdp-vi-qualification`, `harness.phase09-qualification`) depend on repository history, tags and untracked assets that a scratch copy lacks, and all five pass in the real tree's gate build;
-  - 46 out-of-tree source mutants applied by my own script (tables below and the VG-05 and VG-04 reproductions) with the same flags, each applied to the scratch copy only, built, run against the related names and reverted; and the repository's own `scripts/k5-mutants.py --run` from a scratch git repository (seven mutants KILLED, the equivalent control SURVIVED, the non-compiling control INVALID).
-- Scratch C programs linked against the HEAD core (and an ASan/UBSan build of it) for VG-01 and VG-02, and a scratch D-44 row added to a copy of `core/tests/test_si.c`.
-- `unit.core.state.import` with `T64_STATE_MATRIX_FULL=1` (passes, 101.8 s), the campaign counts, the supervisor option-pair probe, and `unit.core.state.import` under ASan/UBSan with the registered sanitizer environment (VG-03): passes with no sanitizer report (18,527 checks, 0 failures) but took 1,263 s wall and 1,240 s CPU on a machine that other jobs kept at a load average above 20 for much of the run, so the absolute figure is inflated; the project's own retained ASan log records the same test at 631.80 s, which is also above the 600 s wrapper.
-- Repository checks, all read-only: `sh scripts/rights-scan.sh --tree` (findings=0), `sh scripts/pii-scan.sh --tree` (findings=0), `sh scripts/check-claims.sh` (errors=0), `sh scripts/check-docs.sh`, `sh scripts/check-test-inventory.sh --preset gate` (PASS, 224; the 45 `PHASE09_TESTS` names are all registered, no ASan-only Phase 9 name), `python3 -B scripts/check-phase09-cases.py --selftest`, `sh tools/lint/core-lint.sh`, `sh scripts/check-ci-yml.sh`, `python3 -B scripts/check-state-field-use.py --check` (findings=0), `python3 -B scripts/check-rdp-oracle-authority.py --expect-blocked` (valid; blocked), `git ls-files` for ROM, save, state and replay extensions (empty), and a debt-marker scan of the 105 source-side files (no TBD, FIXME or XXX; the only hits are the audit script's own placeholder rule).
+- A clean out-of-tree clone of HEAD (`git clone --no-local`, full history, the private fixture directory copied in; every `.z64` byte-identical to the repository's) built with the gate preset flags (Release, `-Werror`, 338 steps) and, for the sanitizer work, the asan preset (342 steps). Nothing was built, cleaned or rebuilt in the shared tree.
+  - the full CTest inventory with the gate-script environment: **224 of 224 passed**, 68.97 s at `-j4` (the first pass ran 224 names in a history-less copy where 5 history-dependent names failed; the clone keeps history, so all pass);
+  - `sh scripts/check-test-inventory.sh --preset gate`: PASS, 224; the guard `scripts/check-rsp-no-hle.py --build build/gate` exit 0; `scripts/qualify-phase09.py --selftest` exit 0; `scripts/tests/test_phase09_qualification.py --selftest` pass; `scripts/check-phase09-cases.py --suite state-audit --run` pass.
+- `python3 -I -B build/gate/09-10-criteria-check.py` in the real tree (read only): `criteria map ok: rows=4 named_ctest=23 claim_pairs=10 cases_listed_by=15 binaries`.
+- My own validation-map resolver: 25 rows of `09-VALIDATION.md`, 36 CTest names against `ctest -N`, 71 case references against `--list-cases` of the built binaries: **0 unresolved**.
+- Scratch C programs linked against the HEAD core (release and ASan/UBSan builds) for VG-01, VG-02 and VG-09, and a randomized hostile-triangle importer attack under ASan and UBSan.
+- 47 out-of-tree source mutants applied by my own driver to the clone only (each built, run against the related names, reverted, the clone left clean), plus `scripts/k5-mutants.py --run` in the clone: seven KILLED, the equivalent control SURVIVED, the non-compiling control INVALID, as in the first pass.
+- `unit.core.state.import` under the registered sanitizer environment (VG-03): **passed in 1,224.02 s wall (1,171 s user)** with `ASAN_OPTIONS=detect_leaks=0:halt_on_error=1`, `UBSAN_OPTIONS=halt_on_error=1:print_stacktrace=1` and the registered sanitizer iteration counts, on a host at load average 10 to 16 (so the figure is upper-biased), no sanitizer report.
+- Read-only repository checks in the real tree, all clean: `sh scripts/rights-scan.sh --tree` (findings=0), `sh scripts/pii-scan.sh --tree` (findings=0), `sh scripts/check-claims.sh` (errors=0), `sh scripts/check-docs.sh` ok, `python3 -B scripts/check-state-field-use.py --check` (findings=0) and `--selftest` (seven cases), `python3 -B scripts/check-rdp-oracle-authority.py --expect-blocked` (valid; blocked), `python3 -B scripts/check-phase09-cases.py --selftest`, `sh tools/lint/core-lint.sh` (98 files, 0 violations), `sh scripts/check-ci-yml.sh` ok, `git ls-files` for ROM, save, state, replay, `.bin` and `.elf` extensions (empty), the freeze check against the tag `phase09-fh` (17 files: 9 identical, 2 data, 6 logic, each logic verdict carrying a recorded FD id), and a debt-marker scan of the 112 source-side covered files (no TBD, FIXME or HACK; every `XXX` hit is a `mkstemp` template such as `.tmp.XXXXXX`; the only TODO hits are the audit script's own placeholder-rejection rule and one sentence naming it).
+
+## Re-verification of the eleven gaps
+
+| Gap | Previous class | Verdict | How I closed it (evidence) |
+| --- | --- | --- | --- |
+| VG-01 canonical state omits the RDP combiner block and coverage table | blocking | CLOSED | **Reproduction 1** (stem id, IPL3 asset, DP registers: color image, scissor, fill, one-cycle mode, primitive, environment, fog, blend, combine): the source holds `combine_mode_valid`, `environment_color_valid`, `fog_color_valid` and 72 coverage marks; export 8,448,795 bytes (6,351,551 plus 2,097,244, as `docs/spec/state-container.md` says); the imported peer holds the same flags, `fog_color` 0xa1b2c3d4, 72 marks and an equal digest. The same four-word triangle then sent to both: **source and peer `triangle_count` 1, refusal 0, framebuffers equal, digests equal** (first pass: peer 0 and refusal 5, framebuffers and digests differ). **Reproduction 2** (authored `audio-pcm.z64` on the stem id, tick 540,000, packets drained, export 8,449,595 bytes): **0 coverage bytes differ** (first pass: 84), digests equal, and 20 of 20 continuation checkpoints (1,000-tick steps) equal. **Digest completeness**: flipping each of blend color, combine mode, the combine-valid flag, key width, fog color, environment color, primitive LOD fraction and the first and last coverage byte moves the digest (9 of 9; first pass: unchanged). **Mutants** killed: importer drops the combine mode (N3), digest walker omits the coverage table (N4, five names), the walker's fail-closed guard removed (N18). Code: carried tail read at `core/t64_state.c:1872-1910` (closed entry set 0 or 0x80 to 0x88, which matches every write at `core/t64_rdp_pipeline.c:235-250`), hashed at `core/t64_digest.c:877-900` in the new class, fail-closed at `:328`. Docs: `docs/spec/machine-contract.md` states the members and the 2,097,244-byte growth. The 17 pre-Phase-9 ids are unchanged (the diff of the legacy digest literals removes no hex line; only the stem family literal of `core/tests/test_save.c` moved). |
+| VG-02 importer accepts a triangle render in progress without the rasterizer's bounds | blocking | CLOSED | `core/t64_state.c:1449-1483` re-establishes the acceptance proof through the shared `t64_rdp_triangle_extent` (`core/t64_rdp_raster.c:192-286`). **Reproduction** (render in progress from the DP registers, edited on the source and exported with valid hashes): baseline accepted and continued; `render_y` 1500 refused (status 32, FIELD_RANGE, section 8, INDEX_LT, peer digest unchanged); `render_y_end` 1500 and both 1500 refused the same; a wide shaded triangle (rows 0 to 1022, `render_y` 500) with benign slopes accepted and **advanced 20,000 ticks under ASan and UBSan with no report**; the same with every slope word 0x7FFFFFFF7FFFFFFF refused (FIELD_RANGE, LEN_LE); opcode 0x0B refused (ENUM_CLOSED). **Randomized attack on the fix** (flat and shade triangles, random edge and slope words, random scissor and image width, the rows taken from the extent function, 50 trials under ASan and UBSan): 29 consistent states accepted and each advanced 30,000 ticks with no sanitizer report, 21 inconsistent or unbounded states refused, **0 unexpected** (no consistent state refused, none inconsistent accepted). **Mutants**: the extent and products check always true (N2) killed by `unit.core.state.import`; the first row-range condition removed (N1) survives and is accept-equivalent (Observation 1). Eight `render-triangle-*` rows of `docs/spec/state-mutants.txt` run with accepted baselines in `case_mutant_refusals`. |
+| VG-03 qualification limits | blocking | CLOSED (mechanism and measurement) | Limits are module constants pinned by value and by relations in `scripts/tests/test_phase09_qualification.py`: ASan full CTest wrapper 3,000 s (`scripts/qualify-rdp-vi.py:80`), configure 120, build 600, gate 600, gcc13 300; outer limit 4,800 (`scripts/qualify-phase09.py:65`) at least the stage sum 4,620 plus 120; record bound 3,000 at least the largest stage; the wrapper must exceed the largest registered TIMEOUT (now 2,400, `core/CMakeLists.txt:1106`) by 600. The control reads every `TIMEOUT` literal of the **tracked** `CMakeLists.txt` files (`git ls-files`, at least 40 values, a non-literal TIMEOUT fails the parse), not `ctest --show-only=json-v1` as I first asked (DEV-09): I accept this, because that verb rewrites `LastTest.log` in the build it runs in and a gate test must not do that, and an untracked copy of the repository cannot move the result. **Measurements**: the retained run of the fix tree (226 of 226 passed, no sanitizer report, JUnit and LastTest files present) is 1,380.7 s for the whole ASan CTest and 1,339.5 s for the import test; my own run of the registered command for the import test alone is **1,224.02 s**, a 1.96 times margin to its 2,400 s TIMEOUT and 2.45 times to the 3,000 s wrapper, so the first-pass failure (a 600 s wrapper killing a test that needs about 1,200 s) cannot recur. **Mutants**: the ASan wrapper back to 600 (N11), the outer limit back to 2,400 (N12) and the matrix step without its environment (N15) each fail `harness.phase09-qualification`. Fail-closed behavior is unchanged (a timeout raises `Refusal`, `_run_bounded`). Not run here: the whole native flow end to end; its first run is the Task 6 rehearsal that follows this verification, not an obligation of this report. |
+| VG-04 SWR store budget not atomic | non-blocking | CLOSED | `core/t64_cpu.c:1485-1540` budgets from the word the store writes. The refuse-then-accept rows for SWL and SWR at RD64B, WR64B and the sequence analogue and the TLB-mapped reverse-endian rows bite: partial store not aligned (N5) and the reverse-endian arm deleted (N5b) are both killed by `unit.core.cpu.si-store-budget`. |
+| VG-05 behaviors no test can fail | non-blocking | CLOSED | Active-descriptor immutability: the completion reading the live latch (N6) is killed by `unit.core.si.device` and by the guard `repo.rsp-no-hle`. Invalidations: deleting both calls in the RD64B completion (N7) is killed by `unit.core.si.device` and the guard; deleting both in the SRAM-to-RDRAM apply (N7b) by `unit.core.save.device` and the guard. Timeout-branch fill: a 0xFF fill (N8, the mutant that was invisible in the first pass) is killed by `unit.core.joybus.parser` and `unit.core.save.device`. Spec sentences at `docs/spec/si-pif-controller.md:71-80` and `docs/spec/save-media.md:126-128`; the guard pins the bodies of `t64_save_sram_dma_apply` and `t64_si_complete_event` and their invalidation tokens (FD-04). |
+| VG-06 EEPROM read length and SRAM span rows | non-blocking | CLOSED | A read classified valid for rx at least 8 (V3) and an SRAM DMA span that tolerates two bytes past the window (V4) are each killed by `unit.core.save.device`. |
+| VG-07 option pairs | non-blocking | CLOSED | `runner/tests/test_phase09_runner.c:904-950` holds all 36 unordered pairs behind a `_Static_assert` and a uniqueness check and compares them with the 9 by 9 table of `docs/spec/state-container.md`; synthetic-mode rows for the 19 flags and `--save-import-fd` rows exist. Replay accepting the save flags (N10) is killed by `runner.supervisor-argv-bound`. The six INPUT combinations are defined in the spec. |
+| VG-08 continuation matrix sampling | non-blocking | CLOSED, with a wording constraint | The full matrix is now a recorded native qualification step, `normal-state-import-full-matrix` (`scripts/qualify-phase09.py:73-76,1691-1730`), with its own marker check (the recorded environment, one passed JUnit case, more checks than the sampled run of the same record). **Exact wording constraint for the 09-11 claim**: the full continuation matrix is **17 rows, B01 to B17**; **B01, B07, B10 and B14 run every partition size (one-shot, 1, 7, 31 and 4,096 ticks) in every preset; the other 13 rows are sampled** (the imported peer in 7-tick partitions against the one-shot source) in the gate, hosted and sanitizer runs, and the instruction-count mid-tick stop row runs only in the full matrix; **the full set (all 17 rows, every partition, and that row) runs only in the native qualification step**, not on the hosted platforms and not under the sanitizer; the step records are unsealed originals. I confirmed the table (`core/tests/test_state_import.c:3222-3280`: exactly four rows with `full` true) and the spec (`docs/spec/state-container.md:631-633,670-673,741-743`), and killed a drift of the sampling sentence (N14) and a step without its environment (N15). |
+| VG-09 hostile-import evidence tooling | non-blocking | CLOSED | Campaign reach, measured by running the case: gate default 12 iterations give **9 refusals, 5 at reader level (reasons 26 to 29), 3 accepted** (first pass: 12 of 12 at container level); at the sanitizer count 120 the stem campaign gives 85 refusals, **36 at reader level or later**, 35 accepted, and the triangle-blob campaign 43 refusals and 17 accepted, violations 0 (first pass: 6 of 117). The runner tracer `runner.phase09-tracer` passes and its retained output prints expected and observed tuples, both `STATE_RANGE/OBSERVER_RANGE/16/LEN_LE`. Nested accesses: restoring the pre-fix lookbehind (N13) fails `harness.state-field-use-audit`. **Report span**: with the report pointer inside the machine's RDRAM a NULL blob, a zero length, an oversize length, a bad flag word and a garbage blob all end with status INVALID_ARGUMENT and **no aliased byte changed**, while a disjoint report receives reasons 1, 2, 2, 3 and 8; removing the check (N23) is killed by `unit.core.state.import`. |
+| VG-10 publisher and supervisor contract | non-blocking | CLOSED | Publisher: `runner/t64_artifact_publisher.c:572-660` sets `committed` only after both post-rename checks and withdraws the leaf (only while it is still the held file) and the stage on any later failure; a withdrawal that does not withdraw (N9) is killed by `controls.artifact-substitution` and `runner.state-export`, a withdrawal without the identity test (N20) by `controls.artifact-substitution`. Resumed run: `runner/t64_real.c` ends a resumed run of a runner-published state in the closed unknown-log record; `case_import_accepted_continues` asserts the checker accepts it, the outcome is harness-error, and the guest tick and final state digest equal the uninterrupted run's (`runner/tests/test_state_runner.c:1845-1935`); reverting it (N16) is killed. Supervisor: both post-publication outputs are probed before the guest runs (`runner/t64_supervisor.c:182-203` and the calls in `real_run_mode`), N17 killed. The contract is stated by outcome in `docs/spec/save-media.md:405-452`, which I read: it changes the spec for what a supervisor failure after the commit leaves (DEV-12), a design choice I accept because the record, not the leaf, says whether a run passed and the spec says so. Stated limit: a resumed run never reports pass and a runner-published state resumes into the unknown-log form, so the claim must say the runner shows the mechanism only. |
+| VG-11 spec and validation drift | non-blocking | CLOSED (one accepted limitation) | The three passages are rewritten from the code: `docs/spec/result-protocol.md:580-592` (15 rows with their own pins, the legacy 30-byte pin for the rest, a resumed run never passes), `docs/spec/si-pif-controller.md:27-29,124-128` (channel 4 is answered by the save device on the two EEPROM ids), `docs/spec/machine-contract.md:321-324,349-357,389-405,949-965` (the combiner block and coverage table are hashed in the new-class tail for the family). **Accepted limitation**: `09-VALIDATION.md` keeps frontmatter `status: draft`, `nyquist_compliant: false` and all 25 rows pending until the final 09-11 verification, as the orchestrator stated; everything it can be checked against resolves (25 rows, 36 CTest names, 71 case references, 0 unresolved). |
 
 ## Goal Achievement
 
@@ -417,131 +301,115 @@ Starting hypothesis was that tasks were completed and the goal missed. Criteria 
 
 | # | Truth | Status | Evidence |
 | --- | --- | --- | --- |
-| 1 | SC1 (SAVE-01): a timed-input script drives the standard controller over SI/PIF joybus and an authored ROM reports the expected button states at the expected guest times | VERIFIED | D-03 chain: strictly-after latch `core/t64_si.c:46-92` (a value stamped at T is visible from T+1), sampled at the execute event's own tick `:266-289`; joybus parse, response and timing `core/t64_joybus.c:47-105,136-171,189-204`, low button byte masked `:33`; input event to latch, port 0 only `core/t64_observe.c:86-129`; authored ROM `fixtures/pad/poll.S`; independent oracle `fixtures/pad/poll_oracle.py:51-85` (standard library only); `runner.pad-poll` (`runner/tests/test_pad_poll.c:649-731`) and `controls.real.pad-wrong-value` (same-setup shifted script, wrong ROM, replacement refused). Mutants in the SAVE-01 table below all fail named tests, including a one-tick shift in three forms. Ports 1 to 3 are refused by `t64_machine_queue_input` (`:110`); channels 1 to 3 and channel 4 on a profile without EEPROM answer absent (`core/t64_joybus.c:142-151`, killed mutant M7). Limit, not a gap: the poll start ticks are measured in process and E is that start plus the literal 16,971-tick handshake (`test_pad_poll.c:449-455`), so "expected guest time" is relative to the first poll start; the ROM's Count witness only shows poll spacing. |
-| 2 | SC2 (SAVE-02): EEPROM 4 and 16 Kbit (command lengths, block rules, busy window) and SRAM 32 KiB (window, DMA) work only when the profile selects them explicitly | VERIFIED (two boundary rows missing, VG-06) | Selection is `profile.save_kind` and nothing else: `core/t64_internal.h:1165-1174`, `core/t64_save.c:17-28,73-150`, create-time sizing `core/t64_machine.c:2510-2528`, four ids `:1044-1135`; no ROM header, title or game-code read exists (`git grep save_kind`). Exact triples, 4 Kbit mirror `block & 0x3F`, busy compare and deadline from the execute tick: `core/t64_save.c:73-97,121,138-149`. SRAM window carve-out `core/t64_bus.c:105-110`, word access `core/t64_save.c:158-204`, PI spans `core/t64_pi.c:57-60`, effect at the completion event `core/t64_pi.c:295-312`. Tests: `unit.core.save.device` (12 cases), `runner.save-fixtures`, `controls.real.save-wrong-byte`, oracle `fixtures/save/save_oracle.py`. Of the 15 non-equivalent save mutants, 13 failed named tests (SAVE-02 table); two survive (VG-06). |
-| 3 | SC2 (SAVE-04): unknown or unsupported device requests are refused with defined postconditions | VERIFIED (the no-data rule of the wire path is truth 12) | `core/t64_save.c:259-279` (rows R3 to R6 order), `:289-313` (info, K19 order), tests `refusals` (`core/tests/test_save.c:1869-1980`) and `refusal-matrix`, `no-caller-read`, `export-refusals` (`core/tests/test_save_transfer.c`); unknown-kind mutant killed by two names. Wire level: every non-exact triple answers 0x40 and a profile without EEPROM answers 0x80 (`test_save.c:1098-1147`). |
-| 4 | SC2 (SAVE-03): save bytes round-trip through import and export with endianness handling, and a refused import leaves the digest unchanged | VERIFIED | RAW, SWAP16, WORDREV32 `core/t64_save.c:323-349`; export and import in D-24 order `:359-457` (every check precedes the first caller byte read; zero length constructs no span); tests `transform-vectors`, `import-export-roundtrip`, `refusal-matrix`, `in-flight-real` of `unit.core.save.import-export`, `runner.save-roundtrip` (publisher, wrong-format control), oracle `fixtures/save/roundtrip_oracle.py`. Mutants: import copies before the busy refusal (killed), WORDREV32 lane (killed by two names), format and kind errors (killed). |
-| 5 | SC3 (CORE-04): exporting and re-importing machine state reproduces the canonical digest exactly, so the restored machine continues as the original | FAILED | Digest equality holds for every state the v25 walker covers, but the walker leaves out the RDP combiner block and the memory-coverage table that the family computes with: see VG-01 and the reproductions below. The importer zeroes both. Round trip, idempotence and continuation-partition cases pass only on states that avoid them (`docs/spec/state-container.md:638-650`). |
-| 6 | SC3 (CORE-05): a recorded input replay bound to profile, build and content hash reproduces the original run's digests | VERIFIED (reliance note) | Closed canonical format and bounded parser `runner/t64_replay.c` (62 mutation rows and a 400-flip sweep in `runner/tests/test_replay.c`, counts per the review; the suites pass here), bind in fixed order profile, build, content, save_init `runner/t64_replay.c:969-1021`, player `:1423-1495` (input at `event_tick`, checkpoint and end digests compared), `unit.replay.suite` and `runner.replay-mix`; the original run's digests are goldens from a reference path that does not use the recorder (`runner/tests/replay_mix_golden.h:1-40`), the input script and transcript from `fixtures/replay/mix_oracle.py`. Five replay mutants killed by both names (replay table below). Stated limit confirmed: the `save_init` image form is verified in process only (`docs/spec/replay.md:54-57,291`, `runner/tests/test_replay.c:1732-1806`). |
-| 7 | SC4 (CORE-02): CPU, RSP, RDP, VI, AI, PI, SI and MI activity is ordered by the same guest-time scheduler, with coincident-event and partition/interleave checks, and the quantum stays part of profile identity | VERIFIED | One ordering function `core/t64_scheduler.c:10-13` (tick, then reservation sequence); every reservation site goes through it (`git grep t64_schedule_reserve`: AI, CPU, exception, input, PI, RDP, RSP, SI, SP, VI); MI has no events and is set synchronously by its producers' handlers, which the spec states. Closed (device, kind) ledger and 210 ordered pairs in both insertion orders `core/tests/test_sched_ledger.c:409,750`; coincident rows, partition, interleave, resource-limit resume, MI producers, Count wrap in `core/tests/test_sched_matrix.c:955-3193`. Quantum: validated to 1 and ratio 1:1 for descriptor 12 `core/t64_machine.c:1730-1738`, in the profile hash `:1827`, `unit.core.profile.quantum-identity`. The k5 driver kills all seven mutants and the scheduler mutants below (consistently wrong ranks included) fail named tests. Evidence class is stated by the project: regression pins and self-comparison, so a tie that is wrong relative to hardware would pass; every tie is labeled named policy. |
-| 8 | An accepted state import cannot cause out-of-range access, unbounded loops or undefined arithmetic (D-30, D-41; header contract of `t64_machine_state_import`) | FAILED | See VG-02. Container parsing, caps, checked arithmetic, closed handler table, refusal atomicity and scratch cleanup hold (mutants on the trailer, declared digest and busy bound killed; 6,000-trial sweeps by the review found no refusal-atomicity failure), but the triangle render rule is insufficient. |
-| 9 | The frozen qualification route can complete (row 9-V25, D-40) | FAILED | See VG-03. |
-| 10 | Every option pair the plans define as refused is refused and pinned | PRESENT_BEHAVIOR_UNVERIFIED | Code agrees with the plans (my probe, VG-07); nine refusals have no test. |
-| 11 | SI active-descriptor immutability (a latch write during a DMA does not move it) | PRESENT_BEHAVIOR_UNVERIFIED | Present at `core/t64_si.c:209,311`; mutant survives 13 related tests (VG-05). |
-| 12 | Timeout and absent joybus answers write no receive data | PRESENT_BEHAVIOR_UNVERIFIED | Present at `core/t64_joybus.c:283-295` and `core/t64_save.c:113-117,129-132`; 0xFF-fill mutant survives (VG-05). |
-| 13 | SI RD64B completion and SRAM-to-RDRAM DMA clear the LL link and the RDP coverage marks over their span | PRESENT_BEHAVIOR_UNVERIFIED | Present at `core/t64_si.c:313-316`, `core/t64_save.c:224-225`; deleting both passes 10 related tests and the guard (VG-05). |
+| 1 | SC1 (SAVE-01): a timed-input script drives the standard controller over SI/PIF joybus and an authored ROM reports the expected button states at the expected guest times | VERIFIED | Unchanged chain (strictly-after latch `core/t64_si.c:46-92`, joybus `core/t64_joybus.c`, `fixtures/pad/poll.S`, independent oracle `fixtures/pad/poll_oracle.py`, `runner.pad-poll`, `controls.real.pad-wrong-value`); none of these sources changed in the cycle. The first-pass mutants re-run: latch visible at T (S1), joybus byte ticks (S2), high button byte (S3), low-byte mask (S4), x and y swapped (S5), port above 0 accepted (S6), channel 1 as a controller (S7), a sample one tick early (S8): each fails 1 to 5 named tests. Limit kept: "expected guest time" is relative to the first poll start. |
+| 2 | SC2 (SAVE-02): EEPROM 4 and 16 Kbit and SRAM 32 KiB work only when the profile selects them explicitly | VERIFIED | Selection is `profile.save_kind` only (unchanged). Busy window 375000 to 374999 (V1), busy compare (V2), read length (V3), SRAM span (V4) and a busy write that commits (V5) each fail `unit.core.save.device` or more; the two first-pass survivors are now killed. |
+| 3 | SC2 (SAVE-04): unknown or unsupported device requests are refused with defined postconditions | VERIFIED | `core/t64_save.c:259-313` unchanged; `unit.core.save.device` and `unit.core.save.import-export` pass in the full run and fail under the mutants above. |
+| 4 | SC2 (SAVE-03): save bytes round-trip with endianness handling and a refused import leaves the digest unchanged | VERIFIED | Unchanged transforms; the generation helper is shared and saturating (`core/t64_save.c:73-78`), killed when made a plain increment (N19: `unit.core.save.import-export`, `unit.core.state.import`). |
+| 5 | SC3 (CORE-04): exporting and re-importing machine state reproduces the canonical digest exactly, so the restored machine continues as the original | VERIFIED | VG-01 reproductions; row B17 added to the boundary matrix; N3, N4 and N18 killed; the runner path asserts equal guest tick and final state digest for a mid-run native state. |
+| 6 | SC3 (CORE-05): a recorded input replay bound to profile, build and content hash reproduces the original run's digests | VERIFIED (reliance note) | Unchanged format and binding; the content hash (R1), profile digest (R2) and build id (R3) not compared and the input submitted at `at` instead of `event_tick` (R4) each fail `unit.replay.suite` and `runner.replay-mix`. The goldens were re-captured for the FX-02 digest change; the record says the canonical values were re-derived by a procedure that first reproduced the old pins, and the suites pass. |
+| 7 | SC4 (CORE-02): CPU, RSP, RDP, VI, AI, PI, SI and MI activity is ordered by the same guest-time scheduler, with coincident-event and partition/interleave checks, and the quantum stays part of profile identity | VERIFIED | Tie reversed (C1), tie by device id (C3), quantum omitted from the profile hash (C2) and descriptor 12 accepting any quantum (C4) each fail named tests; `scripts/k5-mutants.py --run`: seven KILLED, the equivalent control SURVIVED, the compile control INVALID. Evidence class unchanged: regression pins and self-comparison, every tie labeled named policy. |
+| 8 | An accepted state import cannot cause out-of-range access, unbounded loops or undefined arithmetic (D-30, D-41) | VERIFIED | VG-02 row: reader rule, reproduction, randomized attack under ASan and UBSan, N2 killed, atomic refusal (peer digest unchanged on every refused row). |
+| 9 | The frozen qualification route can complete (row 9-V25, D-40) | VERIFIED (mechanism and measurement; the end-to-end native flow is the Task 6 rehearsal) | VG-03 row. |
+| 10 | Every option pair the plans define as refused is refused and pinned | VERIFIED | VG-07 row (36 pairs, static assert, spec table compare, N10 killed). |
+| 11 | SI active-descriptor immutability | VERIFIED | N6 killed by `unit.core.si.device` and the guard. |
+| 12 | Timeout and absent joybus answers write no receive data | VERIFIED | N8 killed (frames with a 0xA5 fill). |
+| 13 | SI RD64B completion and SRAM-to-RDRAM DMA clear the LL link and coverage marks over their span | VERIFIED | N7 and N7b killed by behavior tests and by the guard. |
 
-**Score:** 6/13 truths verified (4 present, behavior-unverified; 3 failed). A truth that rests on a state transition or an ordering or cleanup invariant counts as verified only where a named test failed under a mutant of it.
+**Score:** 13/13 truths verified (0 present and behavior-unverified, 0 failed). A truth that rests on a state transition or an ordering or cleanup invariant counts as verified only where a named test failed under a mutant of it; each of truths 5, 6, 7, 8 and 10 to 13 does.
 
-### Mutation evidence (out-of-tree, HEAD, gate flags, each mutant reverted)
+### Mutation evidence (out-of-tree, HEAD, gate flags, each mutant reverted, the clone left clean)
 
-SAVE-01 (tests run: `runner.pad-poll`, `controls.real.pad-wrong-value`, `unit.core.si.device`, `unit.core.joybus.parser`, `unit.core.input.latch-partition`, `unit.core.si.atomic-queue-full`, `unit.core.cpu.si-store-budget`):
-
-| Mutant | Result |
-| --- | --- |
-| latch value visible at T instead of T+1 | FAIL: runner.pad-poll, controls.real.pad-wrong-value, unit.core.input.latch-partition |
-| latch visible at T+2 | FAIL: the same three and unit.core.si.device |
-| execute event samples at E-1 | FAIL: the same four |
-| controller high button byte takes the low byte | FAIL: five names |
-| x and y swapped | FAIL: five names |
-| channel 1 answers as a controller | FAIL: four names |
-| joybus byte ticks 2000 to 2001 | FAIL: five names |
-| read tail 4096 to 4097 | FAIL: unit.core.joybus.parser, unit.core.si.device |
-| low-byte mask 0x3F to 0xFF | FAIL: unit.core.joybus.parser only (the runner scenarios carry no masked bits) |
-| queue_input accepts ports above 0 | FAIL: unit.core.input.latch-partition |
-
-SAVE-02, SAVE-03, SAVE-04 (tests run: `unit.core.save.device`, `unit.core.save.import-export`, `runner.save-fixtures`, `runner.save-roundtrip`, `controls.real.save-wrong-byte`):
+47 mutants: 46 killed, 1 survived (N1, accept-equivalent).
 
 | Mutant | Result |
 | --- | --- |
-| 4 Kbit mirror mask 0x3F to 0x7F | FAIL: three names |
-| 16 Kbit also mirrored | FAIL: unit.core.save.device, runner.save-fixtures |
-| busy compare `<` to `<=` | FAIL: unit.core.save.device |
-| busy write not refused (data commits) | FAIL: three names |
-| busy write extends the window | FAIL: unit.core.save.device, runner.save-fixtures |
-| busy window 375000 to 374999 | FAIL: unit.core.save.device, unit.core.save.import-export |
-| EEPROM blank fill 0xFF to 0x00 | FAIL: four names |
-| 16 Kbit id byte | FAIL: unit.core.save.device, runner.save-fixtures |
-| SRAM DMA directions swapped | FAIL: three names |
-| SRAM word lanes swapped | FAIL: runner.save-fixtures, unit.core.save.device |
-| import copies before the busy refusal | FAIL: unit.core.save.import-export |
-| WORDREV32 wrong lane | FAIL: unit.core.save.import-export, runner.save-roundtrip |
-| unknown device kind accepted | FAIL: unit.core.save.device, unit.core.save.import-export |
-| EEPROM read classification `rx_count >= 8` | SURVIVES all five (VG-06) |
-| SRAM DMA span check tolerates two bytes past the window | SURVIVES all four (VG-06) |
-| SRAM word bound moved past the window in `core/t64_save.c` only | equivalent at the public boundary: the bus carve-out `core/t64_bus.c:105-110` refuses first, and the apply-time check keeps memory safe |
-
-CORE-02 (tests run: `unit.core.sched.matrix`, `unit.core.sched.ledger`, `unit.core.sched.characterize-fifo`, `unit.core.profile.quantum-identity`, `unit.core.scheduler`, `unit.core.profile*`): the seven mutants of `scripts/k5-mutants.py` KILLED in a scratch git repository with the equivalent control SURVIVED and the compile control INVALID; tie by device id ascending, by device id descending and by kind then sequence all FAIL `unit.core.sched.characterize-fifo` and `unit.core.sched.matrix` (the kind rule also `unit.core.scheduler`); quantum omitted from the profile hash FAILS five names; descriptor 12 accepting any quantum and an unconstrained ratio denominator each FAIL `unit.core.profile.quantum-identity` and `unit.core.profile.v12-identity`.
-
-CORE-05 (tests run: `unit.replay.suite`, `runner.replay-mix`): checkpoint digest never compared, input submitted at `at` instead of `event_tick`, build id not compared, content hash not compared, profile digest not compared: each FAILS both names.
-
-CORE-04 (tests run: `unit.core.state.import`, `unit.core.state.export`, `runner.state-export`): declared digest never checked FAILS `unit.core.state.import`; `busy_until` upper bound removed FAILS `unit.core.state.import`; whole-blob trailer never checked FAILS `unit.core.state.import` and `runner.state-export`.
-
-### Reproductions
-
-VG-01, first (guest-reachable state through the DP registers, stem id, authored IPL3 asset as ROM): after SetColorImage, SetScissor, SetOtherModes, SetPrimColor, SetEnvColor and SetCombine the source holds `combine_mode_valid` and `environment_color_valid`. Export 6,351,551 bytes; import into a fresh admitted peer returns status 0, and the two digests are equal. The peer holds `combine_mode_valid` 0 and `environment_color_valid` 0. The same four-word triangle sent to both: the source `triangle_count` 1 and refusal 0; the peer `triangle_count` 0 and refusal 5; the framebuffer bytes and the digests then differ.
-
-VG-01, second (authored fixture, no hand-poked state): `audio-pcm.z64` (4,728 bytes) on the stem id, advanced to guest tick 540,000 with packets drained, exported (6,352,351 bytes) and imported into a fresh peer: status 0, digests equal, and 84 bytes of the RDP memory-coverage table differ between source and peer (the review's figure is also 84). The digests differ at the first continuation checkpoint.
-
-VG-02 (ASan/UBSan scratch build, state taken from a real mid-triangle render and moved to row 1,500 with valid hashes, coverage array height 1,024): `import status=0`, peer `render_y` 1500, `render_triangle` 1. The same acceptance holds for hostile shade-triangle words with slopes of 0x7FFFFFFF. No sanitizer trap occurred in my attempt (the zeroed combiner stops the render before the coverage write, and my row span was empty), so the signed overflow at `core/t64_rdp_raster.c:394` and the out-of-array write are carried from the review and audit, not confirmed here.
-
-D-44 (VG-04): a copy of `case_cpu_store_budget` with a `swr $t1, 7($t0)` row: the accepted room passes; with room for two events the store retires (4 against 3), the queue count is 16 against 14, and the SI state and digest changed, so the refusal is not atomic.
-
-### Confirmation items from the brief
-
-| Item | Verdict | Evidence |
-| --- | --- | --- |
-| `busy_until` bound (plan cross-check M5) | CONFIRMED present and tested | `core/t64_state.c:2013-2040` bounds the deadline by the blob tick plus the profile window (zero for SRAM); `docs/spec/state-mutants.txt:49` carries the row `busy-until-future`; removing the rule fails `unit.core.state.import` (mutant above). The save-side bound is the checked sum at `core/t64_save.c:142-147`. |
-| Replay `save_init` reachability (M6) | CONFIRMED as a stated limit; the refusal that creates it is unpinned | The image form is in process only: `docs/spec/replay.md:54-57,291`, CONTEXT amendment "Replay save_init", `09-07-SUMMARY.md` lines 114 and 254, claim block 10 prose planned in `09-11-PLAN.md`, in-process identity-mismatch rows `runner/tests/test_replay.c:1732-1806`. The real runner refuses replay with the save flags (my probe: usage at guest tick 0) but no test pins it (VG-07). |
-| Hosted rows for the save fixtures (L7) | CONFIRMED as a stated limit | `HOSTED_ROWS` in `scripts/qualify-phase09.py:103` holds five rows, all from `runner.pad-poll` and `controls.real.pad-wrong-value`; the hosted pair covers those only. The eeprom, sram, roundtrip and replay ROMs run in the ordinary hosted `./scripts/gate.sh` (pass or fail only) and are counted from the native normal-gate JUnit, as `09-11-PLAN.md` line 140 states for claim blocks 1 to 5. No claim block exists yet to carry the sentence; it is a 09-11 obligation. |
-| Option-pair matrix (R-01 to R-04, R-06) | Confirmed by my probe, with VG-07 | Defined pairs agree with the code; nine refusals, the synthetic-mode refusal and `--save-import-fd` have no test; six INPUT combinations are stated nowhere. |
-| Mid-tick export and import row (D-36) | PRESENT-GREEN, sampled in the gates | `case_mid_tick_resume` (`core/tests/test_state_import.c:4137`) runs three of four stop rows by default (the instruction-count row needs the full-matrix variable); the full matrix passes here (VG-08). |
-| `write_generation` decision (PD-3) | AGREE, challenged | One saturating increment as the last write of the state commit (`core/t64_state.c:2867-2870`) and in the save import (`core/t64_save.c:453-455`); outside the digest and the container; a refused import never touches it. Duplicate expression is cosmetic (R-05). Residual: the value restarts at 0 on replacement, so a host must also track an admission epoch (review IN-03); not a defect of the criteria. |
+| S1 latch visible at T instead of T+1 | FAIL: runner.pad-poll, controls.real.pad-wrong-value, unit.core.input.latch-partition |
+| S2 joybus byte ticks 2000 to 2001 | FAIL: runner.pad-poll, unit.core.joybus.parser, controls.real.pad-wrong-value, unit.core.input.latch-partition, unit.core.si.device |
+| S3 high button byte takes the low byte | FAIL: the same five names |
+| S4 low-byte mask 0x3F to 0xFF | FAIL: unit.core.joybus.parser |
+| S5 x and y swapped | FAIL: the same five names |
+| S6 queue_input accepts ports above 0 | FAIL: unit.core.input.latch-partition |
+| S7 channel 1 answers as a controller | FAIL: runner.pad-poll, unit.core.joybus.parser, controls.real.pad-wrong-value, unit.core.si.device |
+| S8 latch sampled one tick early | FAIL: runner.pad-poll, controls.real.pad-wrong-value, unit.core.input.latch-partition |
+| V1 EEPROM busy window 375000 to 374999 | FAIL: unit.core.save.import-export, unit.core.save.device |
+| V2 busy compare `<` to `<=` | FAIL: unit.core.save.device |
+| V3 read classified valid for rx at least 8 | FAIL: unit.core.save.device |
+| V4 SRAM DMA span tolerates two bytes past the window | FAIL: unit.core.save.device |
+| V5 busy write commits its data | FAIL: controls.real.save-wrong-byte, runner.save-fixtures, unit.core.save.device |
+| C1 tie by sequence reversed | FAIL: unit.core.sched.characterize-fifo, unit.core.scheduler, unit.core.sched.matrix |
+| C2 quantum omitted from the profile hash | FAIL: unit.core.profile.v12-identity, unit.core.profile.quantum-identity, unit.core.sched.matrix |
+| C3 tie by device id ascending | FAIL: unit.core.sched.characterize-fifo, unit.core.sched.matrix |
+| C4 descriptor 12 accepts any quantum | FAIL: unit.core.profile.v12-identity, unit.core.profile.quantum-identity |
+| R1 to R4 content hash, profile digest and build id not compared; input at `at` | each FAIL: unit.replay.suite and runner.replay-mix |
+| I1 declared digest never checked | FAIL: unit.core.state.import |
+| I2 busy_until upper bound removed | FAIL: unit.core.state.import |
+| I3 trailer never checked | FAIL: runner.state-export, unit.core.state.import |
+| N1 importer: first row-range condition removed | SURVIVES (accept-equivalent, Observation 1) |
+| N2 importer: extent and products check always true | FAIL: unit.core.state.import |
+| N3 importer drops the combine mode | FAIL: unit.core.state.import |
+| N4 digest walker omits the coverage table | FAIL: unit.core.state.export, unit.core.digest.v25-reference, unit.core.sched.matrix, runner.state-export, unit.core.state.import |
+| N5, N5b D-44 partial-store alignment removed; reverse-endian arm deleted | each FAIL: unit.core.cpu.si-store-budget |
+| N6 SI completion reads the live DRAM latch | FAIL: repo.rsp-no-hle, unit.core.si.device |
+| N7 SI RD64B completion drops both invalidations | FAIL: repo.rsp-no-hle, unit.core.si.device |
+| N7b SRAM-to-RDRAM apply drops both invalidations | FAIL: repo.rsp-no-hle, unit.core.save.device |
+| N8 joybus timeout branch fills the receive area with 0xFF | FAIL: unit.core.joybus.parser, unit.core.save.device |
+| N9 publisher: post-rename sync failure does not withdraw | FAIL: controls.artifact-substitution, runner.state-export |
+| N10 supervisor: replay accepts the save flags | FAIL: runner.supervisor-argv-bound |
+| N11, N12 shared ASan wrapper back to 600 s; outer limit back to 2,400 s | each FAIL: harness.phase09-qualification |
+| N13 field-use audit: the pre-fix lookbehind restored | FAIL: harness.state-field-use-audit (my first version of this mutant was a wrong regular expression and survived; it is discarded and the exact pre-fix pattern is what is counted) |
+| N14 sampling sentence of the matrix drifts | FAIL: harness.state-field-use-audit |
+| N15 full-matrix step without its environment | FAIL: harness.phase09-qualification |
+| N16 resumed-run record reverted | FAIL: runner.state-export |
+| N17 supervisor: capture path not probed | FAIL: runner.state-export |
+| N18 digest walker not failing closed | FAIL: unit.core.digest.* (the control aborts on the missing table) |
+| N19 save generation not saturating | FAIL: unit.core.save.import-export, unit.core.state.import |
+| N20 publisher withdrawal without the identity test | FAIL: controls.artifact-substitution |
+| N23 report-span aliasing not judged | FAIL: unit.core.state.import |
 
 ### Required Artifacts
 
 | Artifact | Expected | Status | Details |
 | --- | --- | --- | --- |
-| `core/t64_si.c`, `core/t64_joybus.c`, `core/t64_observe.c` | SI registers, DMA, joybus, latch | VERIFIED | real logic; wired from `core/t64_bus.c` and the scheduler; read in full |
-| `core/t64_save.c`, `core/t64_pi.c`, `core/t64_bus.c` | EEPROM, SRAM, import and export | VERIFIED | real logic; wired through the joybus channel 4 dispatch, the bus carve-out and the PI completion |
-| `core/t64_scheduler.c`, `core/t64_machine.c` | one scheduler, family profile identity | VERIFIED | one ordering function; quantum validated and hashed |
-| `core/t64_digest.c`, `core/t64_state.c` | v25 walker, container export and import | PARTIAL | complete for the members it carries; omits the RDP members of VG-01; importer rule gap of VG-02 |
-| `runner/t64_replay.c`, `runner/t64_supervisor.c`, `runner/t64_real.c`, `runner/t64_artifact_publisher.c` | replay, option surface, runner, publisher | VERIFIED with VG-07 and VG-10 | wired supervisor to child to publisher; failure contract after the rename is incomplete |
-| fixtures `pad`, `save`, `replay`, `phase09`, `state` oracles and ROM sources | authored guests and independent oracles | VERIFIED | oracles import the standard library only; 15 manifest rows, all `build-only`; no tracked ROM, save, state or replay file |
-| `scripts/qualify-phase09.py`, `scripts/qualify-rdp-vi.py` | frozen qualification route | BLOCKED for the native stage | fails closed deterministically (VG-03) |
-| `docs/claims/phase09.md`, `docs/evidence/phase09-success-criteria.md` | claim skeleton and draft map | VERIFIED as drafts | only `t64-claim-example` fences; the map's named tests all exist and pass; its "Limits" section lists the three limits the review turned into VG-01, the runner limit (VG-10) and the save_init limit |
+| `core/t64_si.c`, `core/t64_joybus.c`, `core/t64_observe.c` | SI registers, DMA, joybus, latch | VERIFIED | logic unchanged; what FX-08 added is test coverage |
+| `core/t64_save.c`, `core/t64_pi.c`, `core/t64_bus.c` | EEPROM, SRAM, import and export | VERIFIED | one shared saturating generation helper (`core/t64_save.c:73-78`) |
+| `core/t64_scheduler.c`, `core/t64_machine.c` | one scheduler, family profile identity | VERIFIED | |
+| `core/t64_digest.c`, `core/t64_state.c`, `core/t64_rdp_raster.c` | v25 walker, container export and import, shared extent | VERIFIED | carried tail, triangle render check, fail-closed walker |
+| `runner/t64_replay.c`, `runner/t64_supervisor.c`, `runner/t64_real.c`, `runner/t64_artifact_publisher.c` | replay, option surface, runner, publisher | VERIFIED | withdrawal, probes, closed unknown-log record |
+| fixtures, oracles and ROM sources | authored guests and independent oracles | VERIFIED | `fixtures/manifest.json`, `docs/evidence/phase07-oracle-authority.json` and `docs/evidence/phase09-first-hosted-pair.json` have an empty diff since the first pass; no tracked ROM, save, state or replay file |
+| `scripts/qualify-phase09.py`, `scripts/qualify-rdp-vi.py` | frozen qualification route | VERIFIED (limits) | VG-03 row |
+| `docs/claims/phase09.md`, `docs/evidence/phase09-success-criteria.md` | claim skeleton and draft map | VERIFIED as drafts | the skeleton's CORE-04 sentence ("re-imports and reproduces the canonical digest and the continuation digests for authored machines on the same build") is now true; the criteria check passes |
 
 ### Key Link Verification
 
 | From | To | Via | Status | Details |
 | --- | --- | --- | --- | --- |
-| input rows (`t64.input`) | SI sample | `t64_machine_queue_input` → INPUT event → latch → execute event sample | WIRED | killed mutants M1 to M3 and M10 show the change reaches the transcript |
-| ROM frame | EEPROM bytes and back | WR64B parse → RD64B execute at event tick → `t64_save_channel4_execute` → completion copy | WIRED | save mutants change the ROM transcript through the real runner |
-| profile id | save device | `profile.save_kind` → `t64_has_*_save` → bus and joybus dispatch | WIRED | no ROM-derived selection exists |
-| machine | state container | digest sink sections → exporter; sections → readers → commit | WIRED except the RDP members | VG-01 |
-| replay file | machine | parse → bind → `t64_machine_queue_input` at `event_tick` → digest compare | WIRED | five mutants killed |
-| every device | scheduler | `t64_schedule_reserve*` | WIRED | ten source files reserve events, one ordering function |
+| machine | state container | digest sink sections to exporter; sections to readers to commit | WIRED including the RDP carried tail | VG-01 reproductions; N3 and N4 killed |
+| importer | rasterizer acceptance proof | `state_check_triangle_render` calls `t64_rdp_triangle_extent` | WIRED | N2 killed; randomized attack |
+| publisher | callers | `finalize` withdraws on a post-rename failure; `abort` is a no-op once committed | WIRED | N9, N20 killed |
+| supervisor | result and capture paths | `atomic_write_probe` before the guest | WIRED | N17 killed |
+| qualifier | native stage limits and the matrix step | module constants, `_native_command_plan` | WIRED | N11, N12, N15 killed |
+| input rows, ROM frame, profile id, replay file, every device to the scheduler | unchanged first-pass links | | WIRED | mutants S1 to S8, R1 to R4, C1 to C4 |
 
 ### Data-Flow Trace (Level 4)
 
 | Artifact | Data variable | Source | Produces real data | Status |
 | --- | --- | --- | --- | --- |
-| pad-poll transcript | controller bytes in PIF RAM | latch sample at the execute tick | yes (button, axis and mask mutants change it) | FLOWING |
-| EEPROM and SRAM transcripts | block bytes, busy flag | storage and deadline in `machine->save` | yes | FLOWING |
-| state blob | RDP combiner and coverage members | not read by any section | no | DISCONNECTED (VG-01) |
-| replay checkpoint digests | canonical digest | `t64_machine_digest` | yes, for the members the walker hashes | FLOWING (blind members of VG-01) |
+| state blob | RDP combiner and coverage members | section 8 carried tail, written by the exporter, read by `state_read_rdp_carried` | yes (reproductions 1 and 2) | FLOWING (first pass: DISCONNECTED) |
+| replay checkpoint digests | canonical digest | `t64_machine_digest` including the carried tail | yes | FLOWING (the replay-mix guest uses no RDP state, see the reliance note) |
+| pad-poll, EEPROM and SRAM transcripts | PIF RAM bytes, block bytes, busy flag | latch sample, `machine->save` | yes | FLOWING |
 
 ### Behavioral Spot-Checks
 
 | Behavior | Command | Result | Status |
 | --- | --- | --- | --- |
-| 23 mapped CTest names | `ctest -R` over the names in the criteria map, scratch gate build | 22 pass; `repo.sched-k5-anchors` passes once a git repository exists | PASS |
-| Full inventory | `ctest -j4` in the scratch build | 219 of 224 pass; the 5 history-dependent names pass in the real tree | PASS |
-| k5 mutants | `python3 -B scripts/k5-mutants.py --run` in a scratch git repository | 7 KILLED, equivalent control SURVIVED, compile control INVALID | PASS |
-| Full state matrix | `T64_STATE_MATRIX_FULL=1`, `unit.core.state.import` | pass, 101.8 s | PASS |
-| Validation map | 25 rows, 71 case references resolved against `--list-cases` of the built binaries and every CTest name against `ctest -N` | 0 unresolved | PASS |
-| Phase 9 gate names | `PHASE09_TESTS` against `ctest -N` | 45 of 45 registered, no ASan-only name | PASS |
-| Option pairs | six supervisor probes (VG-07) | usage refusal at tick 0 for the five refused pairs | PASS (the refusals exist; no test pins them) |
+| full inventory | `ctest -j4` in the clean clone | 224 of 224 | PASS |
+| criteria map | `python3 -I -B build/gate/09-10-criteria-check.py` | ok, 23 named CTest names, 10 claim pairs | PASS |
+| validation map | resolver over `09-VALIDATION.md` | 25 rows, 36 names, 71 cases, 0 unresolved | PASS |
+| scheduler mutants | `scripts/k5-mutants.py --run` in the clone | 7 KILLED, control SURVIVED, control INVALID | PASS |
+| state campaign | `test_state_import --case fuzz-campaign` (default and with 120 iterations) | 9 of 12 and 85 of 120 refused, reader level 5 and 36, violations 0 | PASS |
+| importer under sanitizers | scratch programs and the randomized triangle attack | no report | PASS |
+| ASan state import | `ctest --test-dir build/asan -R '^unit\.core\.state\.import$'` | passed, 1,224.02 s | PASS |
+| inventory and guard | `check-test-inventory.sh --preset gate`, `check-rsp-no-hle.py --build` | PASS 224, exit 0 | PASS |
 
 ### Probe Execution
 
@@ -549,66 +417,52 @@ No `probe-*.sh` scripts are declared or exist for this phase. Not applicable.
 
 ### Requirements Coverage
 
-| Requirement | Source plans | Description | Status | Evidence |
-| --- | --- | --- | --- | --- |
-| SAVE-01 | 09-02, 09-03, 09-03.1, 09-10, 09-11 | SI and PIF parse joybus and deliver the standard controller from timed logical input | SATISFIED (authored scope) | truth 1; the SWR budget defect VG-04 and truth 11 sit beside it |
-| SAVE-02 | 09-02, 09-04, 09-10, 09-11 | EEPROM 4 and 16 Kbit with busy window and block rules, and SRAM, explicitly selected | SATISFIED (authored scope) | truth 2; VG-06 |
-| SAVE-03 | 09-02, 09-05, 09-10, 09-11 | import and export bytes with endianness handling and a refusal that leaves the digest unchanged | SATISFIED | truth 4 |
-| SAVE-04 | 09-04, 09-05, 09-10, 09-11 | unknown or unsupported device requests refused with defined postconditions | SATISFIED at the API; wire no-data rule unpinned | truths 3 and 12 |
-| CORE-02 | 09-01, 09-03, 09-03.1, 09-06, 09-10, 09-11 | device activity ordered by the scheduler, quantum in the profile identity | SATISFIED | truth 7 |
-| CORE-04 | 09-01, 09-02, 09-08, 09-09, 09-09.1, 09-10, 09-11 | versioned machine state with a canonical digest; restore-then-digest round trip exact | BLOCKED | truths 5 and 8 (VG-01, VG-02) |
-| CORE-05 | 09-02, 09-07, 09-10, 09-11 | record and replay timed input bound to profile, build and content hash | SATISFIED (authored scope, reliance note) | truth 6 |
+| Requirement | Source plans | Status | Evidence |
+| --- | --- | --- | --- |
+| SAVE-01 | 09-02, 09-03, 09-03.1, 09-10, 09-11 | SATISFIED (authored scope) | truths 1, 11, 12; VG-04 closed |
+| SAVE-02 | 09-02, 09-04, 09-10, 09-11 | SATISFIED (authored scope) | truth 2; VG-06 closed |
+| SAVE-03 | 09-02, 09-05, 09-10, 09-11 | SATISFIED | truth 4 |
+| SAVE-04 | 09-04, 09-05, 09-10, 09-11 | SATISFIED | truths 3 and 12 |
+| CORE-02 | 09-01, 09-03, 09-03.1, 09-06, 09-10, 09-11 | SATISFIED | truth 7 |
+| CORE-04 | 09-01, 09-02, 09-08, 09-09, 09-09.1, 09-10, 09-11 | SATISFIED (unit-tested tier; claim wording constraints below) | truths 5 and 8 |
+| CORE-05 | 09-02, 09-07, 09-10, 09-11 | SATISFIED (authored scope, reliance note) | truth 6 |
 
-REQUIREMENTS.md maps exactly these seven ids to Phase 9 and every plan declares a subset; no orphaned requirement. Every id is claimed by a plan.
+REQUIREMENTS.md maps exactly these seven ids to Phase 9; no orphaned requirement; every id is claimed by a plan.
 
-### Decision and amendment coverage
+### Decision and amendment coverage (regression)
 
-Every D-01 to D-46 and K1 to K19 has an owning plan that names it in its PLAN text (K19 only in the CONTEXT amendment; its behavior is pinned at `core/tests/test_save.c:1966-1980` and `docs/spec/save-media.md:291`) and a named test or recorded process artifact. SUMMARY files do not cite ids, as the brief says. Owner confirmed and evidence, with the decisions whose evidence is weaker than their text marked:
-
-| Ids | Owner | Test or artifact |
-| --- | --- | --- |
-| D-01, D-43, K1, K2, K12 | 09-01 (09-02 for K12) | `unit.core.profile.predicate-matrix`, `.family-devices`, `.v12-identity`, `repo.si-membership-sites`, `runner.profile-table-id-length`; K1 keeps depth inactive on descriptor 12 and says nothing about the combiner block or the coverage table; D-05's strip-and-compare against v24 carries the same omission forward, which is the root of VG-01 |
-| D-02, D-36, K5, K14, K17 | 09-01, 09-06 | `unit.core.sched.characterize-fifo`, `.matrix`, `repo.sched-k5-anchors`; mutants above |
-| D-03, D-15, K7 | 09-03, 09-07 | `unit.core.input.latch-partition`, `runner.pad-poll`; replay port rows |
-| D-04, D-37, K10 | 09-01 | `unit.core.profile.quantum-identity` |
-| D-05 | 09-01 | `unit.core.digest.sink-legacy-identity`, `.v25-reference`, `.v25-strip-differential`; the strip differential inherits the v24 blind spot (VG-01) |
-| D-06, D-40, D-46 | 09-03.1, 09-10 | process: tag `phase09-fh`, freeze baseline re-derived by the audit, this verification |
-| D-07 | 09-01 | `unit.core.sched.ledger`, case `handler-table-ledger` |
-| D-08 to D-14, K16 | 09-03 | `unit.core.si.device`, `unit.core.joybus.parser`, `unit.core.si.atomic-queue-full` |
-| D-16, K3, K4 | 09-03, 09-02 | `runner.pad-poll`, `runner.fixture-transcript-pin`, `runner.phase09-admit` |
-| D-44 | 09-03 | `unit.core.cpu.si-store-budget`; incomplete for partial stores (VG-04) |
-| D-17 to D-23, K19 | 09-04 | `unit.core.save.device`, `runner.save-fixtures`; VG-06 |
-| D-24 to D-27 | 09-05 | `unit.core.save.import-export`, `runner.save-roundtrip` |
-| D-28, D-29, D-33, K8 | 09-08 | `unit.core.state.export`, `runner.state-export`, `runner.artifact-publisher` |
-| D-30 to D-32, D-41, K8 | 09-09, 09-09.1 | `unit.core.state.import`; D-30 and D-41 contract incomplete (VG-02), D-32 sampled (VG-08) |
-| D-45 | 09-09 | `harness.state-field-use-audit`; lexical blind spot (VG-09) |
-| D-34, D-35, K6, K15 | 09-07 | `unit.replay.suite`, `runner.replay-mix`, `runner.supervisor-argv-bound`; VG-07 |
-| D-38, D-39, K9, K18 | 09-02 | `runner.artifact-publisher`, `harness.fsize-artifact-real-fault`, `runner.fixture-descriptor`; manifest rows |
-| D-42, K11, K13 | 09-02, 09-11 | `harness.phase09-qualification` (claim skeleton cases); inventory selftest cost recorded |
-
-No locked decision lacks an owner and a test, so none is blocking on that rule alone.
+No decision lost its owner or its test: 45 of 45 Phase 9 CTest names are still registered and no CTest name was added or renamed (the one case rename, `mutant-count-drift` to `doc-count-drift`, is inside `harness.state-field-use-audit`); `docs/spec/phase09-cases.json` and the criteria map resolve. The evidence of these decisions changed: D-30 and D-41 (the importer contract now includes the triangle render bounds), D-32 (full matrix registered as a native step, sampling named), D-44 (complete for partial stores and the reverse-endian arm), D-45 (nested accesses scanned), D-34 and D-35 (all 36 option pairs pinned), D-05 and K1 (the strip-and-compare against v24 and the inactive depth members stand; the carried tail is new-class), D-06 (six frozen files changed, each with an FD record, as the freeze check shows).
 
 ### Anti-Patterns Found
 
 | File | Line | Pattern | Severity | Impact |
 | --- | --- | --- | --- | --- |
-| none in the 105 source-side files | | TBD, FIXME, XXX, TODO, HACK, PLACEHOLDER | | the only hits are the field-use audit's own placeholder-rejection rule and one doc sentence naming it |
+| none in the 112 source-side covered files | | TBD, FIXME, HACK | | `XXX` matches only `mkstemp` templates |
 
-Stubs: none on a rendering or data path. The weakest artifact is a test that cannot fail on a documented behavior, listed under VG-05 and VG-06.
+Stubs: none on a rendering or data path.
 
 ### Human Verification Required
 
-None is required for the status. The decision VG-01 needs (carry the members, keep them outside the digest, or refuse) is a routine reversible decision under `.planning/AUTONOMY.md` section 2, not an owner stop; no rights, authority, physical, paid, publication or destructive stop is crossed. The 13 prohibition statements above are reported under the autonomous soft gate with non-authoritative judgment verdicts and are not an acknowledgment gate; the Phase 9 re-pins of the Phase 7 oracle request are identity-only and the owner approval they cite is recorded in `.planning/STATE.md` (line 129), the authority record still reads blocked and `scripts/check-rdp-oracle-authority.py --expect-blocked` passes. No human validation is recorded or implied by this report.
+None. The remaining decisions are routine reversible ones under `.planning/AUTONOMY.md` section 2; no rights, authority, physical, paid, publication or destructive stop is crossed. The 12 prohibition statements above are reported under the autonomous soft gate with non-authoritative judgment verdicts and are not an acknowledgment gate. No human validation is recorded or implied by this report.
+
+### Observations (evidence-backed, none a gap)
+
+1. **N1 survives and is accept-equivalent.** The first condition of `state_check_triangle_render` (`y_now < 1024 && y_end < 1024`) is redundant for safety: the extent function clamps the last row to 1,023 and the later derived-equality and range checks refuse every blob the first check refuses, so the set of accepted blobs is identical with or without it; only the reason tuple differs for a `render_y_end` of 1,024 or more. The row `render-triangle-row-beyond-coverage` (`core/tests/test_state_import.c:4933-4947`) cannot see the difference because its first edit, `tri_edit(TRI_FLAT, tri_blobs[TRI_FLAT].field + 12u, ...)`, reads `field` before `tri_prepare` runs (the argument is evaluated first and `field` is still 0 on the first triangle row), so the `render_y_end` edit lands at section offset 12 and only `render_y` is edited. Harmless today (the other arm refuses with the same tuple); the fix is to call `tri_prepare(TRI_FLAT)` before the edit. Owner: Phase 10 test cleanup.
+2. **Phase 8 requalification limits** (re-check R3 RC-02): `scripts/qualify-audio.py` keeps its own outer limit and record bound of 2,400 s, below the shared stage's new worst case, so a new Phase 8 native qualification on this tree would be refused closed by its own verifier (a refusal, not a false pass); the Phase 8 record already sealed still verifies.
+3. **First hosted pair digests** (FX-27): the four non-null `state_digest` values of `docs/evidence/phase09-first-hosted-pair.json` belong to the digest function of source revision 2db1be4d and are superseded by the 09-11 pair; the record is retained unedited and no test compares them with current output.
+4. **State version marker** (re-check R1 RC-06): the v25 container and digest carry no marker that the state content changed in plan 09-10. Accepted: the state and container versions are provisional until the Phase 10 freeze and a blob of another build is refused by the build identity binding.
+5. **Hosted and native evidence still to come**: six logic verdicts of frozen files (FD-01 and FD-03 to FD-06) and the runner identity change (FX-23) need the Task 6 native and hosted rehearsal; this verification does not run qualification.
+6. **Claim wording obligations for 09-11** (recorded in `09-REVIEW-FIX.md`; `09-11-PLAN.md` was not updated by the cycle and does not yet carry them): the matrix wording of the VG-08 row; the runner shows the state-resume mechanism only (a resumed run never reports pass, a runner-published state resumes into the unknown-log record); the supervisor failures after the commit that leave a leaf next to a failure record, and the rule that a caller accepts exit status 0 plus a `pass` record; the hosted pair digests are valid for 2db1be4d only; the step records of the native qualification are unsealed originals; no raw check totals as strength.
 
 ### Advisory (New Scope, Unevidenced)
 
-None. This is an initial verification.
+None.
 
 ### Gaps Summary
 
-Three blocking gaps, in the order they should be fixed together: VG-01 and VG-02 are one change (carrying the combiner block makes the coverage-index hole live), and VG-03 is a data edit to a frozen qualification file that must land before FR. Eight non-blocking gaps follow; VG-04 is a small correctness fix on a locked decision and VG-05 to VG-07 are tests that cannot currently fail. The replay half of criterion 3 and criteria 1, 2 and 4 are achieved for the authored scope the roadmap and claim define, with every timing, tie, busy window and button mapping a named software-profile policy and no hardware or other-emulator statement. The independent review and audit are consistent with everything I reproduced; I confirmed each of their reproducible findings that I tested, and I mark the two consequences of VG-02 that I could not reproduce as carried.
+No gap remains and no regression was found. VG-01 and VG-02 (blocking) are closed by one change and verified together, including an attack on the fix; VG-03 (blocking) is closed at the mechanism and measurement level. The eight non-blocking gaps are closed by tests that fail under my own mutants of the behaviors they pin. `09-VALIDATION.md` stays draft by design until the final verification and is the one accepted limitation of the eleven. The replay half of criterion 3 keeps its fixture-only reliance note (the replay-mix guest uses no RDP state, so its equality is not evidence for the carried members; the state half is evidenced by the state tests and the reproductions above).
 
 ---
 
-_Verified: 2026-11-20T09:50:00Z_
+_Verified: 2026-11-20T16:40:00Z_
 _Verifier: Claude (gsd-verifier)_
