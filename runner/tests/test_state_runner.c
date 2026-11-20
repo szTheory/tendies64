@@ -10,6 +10,9 @@
  *
  * usage: test_state_runner CASE|all SUPERVISOR TEST_SUPERVISOR CHECKER ROOT
  *        test_state_runner --list-cases
+ *        test_state_runner --run-mutant none|observer-range
+ *                          (plan 09-10 tracer option, not a case; reads
+ *                          T64_STATE_MUTANT_INVENTORY; provisional)
  */
 #ifndef _POSIX_C_SOURCE
 #define _POSIX_C_SOURCE 200809L
@@ -2030,6 +2033,372 @@ static int case_import_bound_below_tick(void) {
   return g_failures == 0 ? 0 : 1;
 }
 
+/* ======================================================================= */
+/* Plan 09-10 tracer: one real mutated state blob through the real runner   */
+/* (option --run-mutant ROW, not a case; provisional until Phase 10)        */
+/* ======================================================================= */
+
+#define TRACER_PRIVATE "build/gate/09-10-private"
+#define TABLE_OFFSET 0x120u
+#define TABLE_ENTRY_BYTES 56u
+#define OBSERVER_SECTION_ID 16u
+#define OBSERVER_BODY_BYTES 40u
+#define OBSERVER_VIDEO_HEAD_AT 8u /* the second of the five u64 values */
+
+/* The observer-range mutation (RED stub: the blob is left unchanged; the real
+ * re-signing mutation replaces it in the GREEN commit). Returns the id of the
+ * entry that was changed, or 0 when the layout does not match. */
+static unsigned mutate_observer_range(uint8_t *bytes, size_t size) {
+  (void)bytes;
+  (void)size;
+  return OBSERVER_SECTION_ID;
+}
+
+/* One inventory row: name :: status :: reason :: section id :: rule. The
+ * expectation comes from the file named by T64_STATE_MUTANT_INVENTORY, never
+ * from the production reader. */
+typedef struct {
+  char status[48];
+  char reason[48];
+  char rule[48];
+  unsigned section;
+} inventory_row;
+
+static bool inventory_load(const char *name, inventory_row *out) {
+  const char *path = getenv("T64_STATE_MUTANT_INVENTORY");
+  FILE *file;
+  char line[256];
+  const size_t name_length = strlen(name);
+  bool found = false;
+  if (path == NULL || path[0] == '\0') return false;
+  file = fopen(path, "r");
+  if (file == NULL) return false;
+  while (!found && fgets(line, sizeof line, file) != NULL) {
+    char *fields[5];
+    char *cursor = line;
+    size_t n = 0u;
+    size_t length = strlen(line);
+    while (length > 0u && (line[length - 1u] == '\n' || line[length - 1u] == '\r')) {
+      line[--length] = '\0';
+    }
+    if (strncmp(line, name, name_length) != 0 ||
+        strncmp(line + name_length, " :: ", 4u) != 0) {
+      continue;
+    }
+    while (n < 5u) {
+      char *sep = strstr(cursor, " :: ");
+      fields[n++] = cursor;
+      if (sep == NULL) break;
+      *sep = '\0';
+      cursor = sep + 4;
+    }
+    if (n == 5u && strlen(fields[1]) < sizeof out->status &&
+        strlen(fields[2]) < sizeof out->reason &&
+        strlen(fields[4]) < sizeof out->rule) {
+      (void)snprintf(out->status, sizeof out->status, "%s", fields[1]);
+      (void)snprintf(out->reason, sizeof out->reason, "%s", fields[2]);
+      (void)snprintf(out->rule, sizeof out->rule, "%s", fields[4]);
+      out->section = (unsigned)strtoul(fields[3], NULL, 10);
+      found = true;
+    }
+  }
+  (void)fclose(file);
+  return found;
+}
+
+/* The closed reason name of the inventory spelling (OBSERVER_RANGE) in the
+ * diagnostic spelling of the runner (observer-range). */
+static void reason_to_diagnostic(const char *reason, char *out, size_t capacity) {
+  size_t i;
+  for (i = 0u; reason[i] != '\0' && i + 1u < capacity; i++) {
+    char c = reason[i];
+    out[i] = c == '_' ? '-' : (c >= 'A' && c <= 'Z') ? (char)(c - 'A' + 'a') : c;
+  }
+  out[i] = '\0';
+}
+
+/* The reason the child printed (inventory spelling), or "none". */
+static void diagnostic_reason(const run_out *run, char *out, size_t capacity) {
+  uint8_t bytes[512];
+  size_t length = 0u;
+  const char prefix[] = "state-import refused: ";
+  const char *at;
+  size_t i = 0u;
+  (void)snprintf(out, capacity, "none");
+  if (!read_file(run->err_path, bytes, sizeof bytes - 1u, &length)) return;
+  bytes[length] = 0u;
+  at = strstr((const char *)bytes, prefix);
+  if (at == NULL) return;
+  at += sizeof prefix - 1u;
+  while (*at != '\0' && *at != '\n' && i + 1u < capacity) {
+    char c = *at++;
+    out[i++] = c == '-' ? '_' : (c >= 'a' && c <= 'z') ? (char)(c - 'a' + 'A') : c;
+  }
+  out[i] = '\0';
+}
+
+/* A new private file: 0600, no-replace. */
+static bool write_new_private(const char *path, const uint8_t *bytes,
+                              size_t length) {
+  int fd = open(path, O_WRONLY | O_CREAT | O_EXCL, 0600);
+  size_t done = 0u;
+  if (fd < 0) return false;
+  while (done < length) {
+    ssize_t count = write(fd, bytes + done, length - done);
+    if (count < 0 && errno == EINTR) continue;
+    if (count <= 0) {
+      (void)close(fd);
+      return false;
+    }
+    done += (size_t)count;
+  }
+  return close(fd) == 0;
+}
+
+/* The untracked private directory of the tracer (owner only). */
+static bool tracer_private_dir(char out[PATH_MAX]) {
+  struct stat info;
+  if (!join_path(out, PATH_MAX, g_root, TRACER_PRIVATE)) return false;
+  if (mkdir(out, 0700) != 0 && errno != EEXIST) return false;
+  return lstat(out, &info) == 0 && S_ISDIR(info.st_mode) &&
+         info.st_uid == geteuid() && (info.st_mode & 077) == 0;
+}
+
+/* The direct runner with a state descriptor at an explicit guest-tick bound. */
+static bool run_direct_state_at(const state_file *file, const char *rom,
+                                const char *dir, const char *bound_text,
+                                run_out *run) {
+  const char *args[4];
+  char fd_text[24];
+  int fd = open_state_descriptor(file, dir);
+  bool ok;
+  if (fd <= STDERR_FILENO) return false;
+  (void)snprintf(fd_text, sizeof fd_text, "%d", fd);
+  args[0] = "--state-import-fd";
+  args[1] = fd_text;
+  ok = run_runner_direct(rom, PROFILE_STEM, bound_text, NULL, NULL, args, 2u,
+                         run);
+  (void)close(fd);
+  return ok;
+}
+
+/* ROW none or observer-range. The setup is the one of import-accepted-continues
+ * (run A uninterrupted, run B exporting a state through the real supervised
+ * runner); the blob of run B is copied into the private directory, mutated by
+ * the independent re-signer for a mutant row, and imported through the real
+ * runner (the supervised import triple and the direct runner, which prints the
+ * closed reason on its diagnostic stream). One result line is printed; the
+ * exit status is 0 only when observed equals expected. */
+static int tracer_run(const char *row_name) {
+  const bool mutant = strcmp(row_name, "observer-range") == 0;
+  char rom[PATH_MAX];
+  char dir[PATH_MAX];
+  char artifact[PATH_MAX];
+  char leaf[PATH_MAX];
+  char first[256];
+  char private_dir[PATH_MAX];
+  char subject_path[PATH_MAX];
+  char name[64];
+  char expected[128];
+  char reason[64];
+  char want_diag[64];
+  char hex[65];
+  const char *outcome_token;
+  inventory_row row = {{0}, {0}, {0}, 0u};
+  state_file published;
+  state_file subject;
+  run_spec spec = {0};
+  run_out a;
+  run_out b;
+  run_out supervised;
+  run_out direct;
+  bool have_subject = false;
+  memset(&subject, 0, sizeof subject);
+  memset(&published, 0, sizeof published);
+  if (mutant) {
+    CHECK(inventory_load(row_name, &row));
+    (void)snprintf(expected, sizeof expected, "%s/%s", row.status, row.reason);
+  } else {
+    (void)snprintf(expected, sizeof expected, "OK/NONE");
+  }
+  CHECK(fixture_path(rom, LONG_ROM));
+  CHECK(make_run_dir(dir));
+  CHECK(tracer_private_dir(private_dir));
+  /* run A: uninterrupted to authored completion */
+  spec.supervisor = g_supervisor;
+  spec.fixture = rom;
+  spec.bound = LONG_BOUND;
+  CHECK(run_supervised(&spec, &a));
+  expect_pass(&a);
+  /* run B: the same ROM exporting a state through the real supervised runner */
+  CHECK(make_artifact_dir(artifact));
+  spec.artifact_dir = artifact;
+  spec.artifact_max = ARTIFACT_MAX;
+  spec.extra = state_args;
+  spec.extra_count = sizeof state_args / sizeof state_args[0];
+  CHECK(run_supervised(&spec, &b));
+  expect_pass(&b);
+  CHECK(list_directory(artifact, first) == 1u);
+  CHECK(join_path(leaf, sizeof leaf, artifact, STATE_LEAF));
+  CHECK(state_file_load(leaf, &published));
+  /* the private copy (no-replace), mutated for a mutant row */
+  if (published.bytes != NULL) {
+    uint8_t *copy = (uint8_t *)malloc(published.size);
+    CHECK(copy != NULL);
+    if (copy != NULL) {
+      memcpy(copy, published.bytes, published.size);
+      if (mutant) {
+        CHECK(mutate_observer_range(copy, published.size) == row.section);
+      }
+      (void)snprintf(name, sizeof name, "tracer-%ld-%s.sta", (long)getpid(),
+                     row_name);
+      CHECK(join_path(subject_path, sizeof subject_path, private_dir, name));
+      CHECK(write_new_private(subject_path, copy, published.size));
+      have_subject = state_file_load(subject_path, &subject);
+      CHECK(have_subject);
+      free(copy);
+    }
+  }
+  memset(&supervised, 0, sizeof supervised);
+  memset(&direct, 0, sizeof direct);
+  if (have_subject) {
+    /* the real import triple through the supervisor, then the direct runner for
+     * the closed reason on the diagnostic stream */
+    CHECK(run_with_state(&subject, rom, LONG_BOUND, NULL, 0u, &supervised));
+    CHECK(run_direct_state_at(&subject, rom, dir, "1200000", &direct));
+  }
+  diagnostic_reason(&direct, reason, sizeof reason);
+  if (direct.parsed && strcmp(direct.outcome, "harness-error") == 0 &&
+      strcmp(direct.detail, "refusal") == 0 &&
+      strcmp(direct.stop_kind, "refused") == 0) {
+    outcome_token = "refusal";
+  } else if (direct.parsed && strcmp(direct.outcome, "harness-error") == 0 &&
+             strcmp(direct.stop_kind, "host-error") == 0 &&
+             strcmp(direct.detail, "host-error") == 0 &&
+             direct.guest_tick == a.guest_tick &&
+             strcmp(direct.state_digest, a.state_digest) == 0 &&
+             direct.log_bytes == 0u) {
+    /* An accepted import resumes to the uninterrupted run's completion tick and
+     * final state digest. The runner exported this state after it drained the
+     * whole 20-byte log (observer cursor at the log length), so the resumed run
+     * delivers no earlier byte (log bytes 0). Its verdict can never be pass (the
+     * 09-09 evidence limit of a resumed run), so the closed record is the
+     * harness-error host-error one. */
+    outcome_token = "resumed";
+  } else {
+    outcome_token = direct.parsed ? direct.outcome : "unparsed";
+  }
+  if (have_subject) {
+    sha256_file_hex(subject_path, hex);
+  } else {
+    (void)snprintf(hex, sizeof hex, "none");
+  }
+  (void)printf(
+      "run-mutant %s expected=%s observed outcome=%s detail=%s guest_tick=%llu "
+      "reason=%s blob_bytes=%zu blob_sha256=%s\n",
+      row_name, expected, outcome_token,
+      direct.parsed ? direct.stop_kind : "unparsed",
+      (unsigned long long)direct.guest_tick, reason, subject.size, hex);
+  if (mutant) {
+    reason_to_diagnostic(row.reason, want_diag, sizeof want_diag);
+    CHECK(strcmp(outcome_token, "refusal") == 0);
+    CHECK(direct.guest_tick == 0u);
+    CHECK(strcmp(reason, row.reason) == 0);
+    expect_diagnostic(&direct, want_diag, &subject);
+    expect_supervised_preflight_refusal(&supervised);
+  } else {
+    /* the accepted baseline of the same setup: the importer accepted (no
+     * reason line), the direct record resumed equal, and the supervised record
+     * is the closed report-invalid one of a runner-published state (not the
+     * preflight refusal record of the mutant row) */
+    CHECK(strcmp(outcome_token, "resumed") == 0);
+    CHECK(strcmp(reason, "none") == 0);
+    CHECK(supervised.parsed);
+    CHECK(strcmp(supervised.outcome, "harness-error") == 0);
+    CHECK(strcmp(supervised.stop_kind, "report-error") == 0);
+    CHECK(strcmp(supervised.detail, "report-invalid") == 0);
+    CHECK(supervised.guest_tick == 0u);
+  }
+  if (have_subject) (void)unlink(subject_path);
+  state_file_free(&subject);
+  state_file_free(&published);
+  remove_tree(artifact);
+  remove_tree(dir);
+  /* the private directories go when empty (no blob may remain) */
+  if (strncmp(g_evidence, private_dir, strlen(private_dir)) == 0) {
+    remove_tree(g_evidence); /* every run directory of this run is under it */
+  }
+  (void)rmdir(private_dir);
+  return g_failures == 0 ? 0 : 1;
+}
+
+/* --run-mutant ROW [SUPERVISOR TEST_SUPERVISOR CHECKER ROOT]. Without the four
+ * paths they default to the siblings of this binary and the repository root
+ * three levels above it (build/PRESET/runner/); every blob and working
+ * directory of the run lives under the untracked private directory. */
+static int tracer_main(int argc, char **argv) {
+  static char supervisor[PATH_MAX];
+  static char test_supervisor[PATH_MAX];
+  static char checker[PATH_MAX];
+  static char root[PATH_MAX];
+  char private_dir[PATH_MAX];
+  char evidence[PATH_MAX];
+  if (strcmp(argv[2], "none") != 0 && strcmp(argv[2], "observer-range") != 0) {
+    (void)fprintf(stderr, "unknown mutant row: %s\n", argv[2]);
+    return 2;
+  }
+  if (argc == 7) {
+    g_supervisor = argv[3];
+    g_test_supervisor = argv[4];
+    g_checker = argv[5];
+    g_root = argv[6];
+  } else if (argc == 3) {
+    char here[PATH_MAX];
+    char resolved[PATH_MAX];
+    char *slash;
+    if (snprintf(here, sizeof here, "%s", argv[0]) >= (int)sizeof here ||
+        (slash = strrchr(here, '/')) == NULL) {
+      (void)fprintf(stderr, "run-mutant needs a path to this binary\n");
+      return 2;
+    }
+    *slash = '\0';
+    if (realpath(here, resolved) == NULL ||
+        snprintf(supervisor, sizeof supervisor, "%s/t64-supervisor", resolved) >=
+            (int)sizeof supervisor ||
+        snprintf(test_supervisor, sizeof test_supervisor,
+                 "%s/t64-supervisor-test", resolved) >=
+            (int)sizeof test_supervisor ||
+        snprintf(checker, sizeof checker, "%s/t64-result-check", resolved) >=
+            (int)sizeof checker ||
+        snprintf(here, sizeof here, "%s/../../..", resolved) >=
+            (int)sizeof here ||
+        realpath(here, root) == NULL) {
+      (void)fprintf(stderr, "run-mutant: cannot resolve the sibling paths\n");
+      return 2;
+    }
+    g_supervisor = supervisor;
+    g_test_supervisor = test_supervisor;
+    g_checker = checker;
+    g_root = root;
+  } else {
+    (void)fprintf(stderr,
+                  "usage: %s --run-mutant ROW [SUPERVISOR TEST_SUPERVISOR "
+                  "CHECKER ROOT]\n",
+                  argv[0]);
+    return 2;
+  }
+  if (!tracer_private_dir(private_dir) ||
+      snprintf(evidence, sizeof evidence, "%s/ev", private_dir) >=
+          (int)sizeof evidence ||
+      (getenv("T64_PHASE09_EVIDENCE_DIR") == NULL &&
+       setenv("T64_PHASE09_EVIDENCE_DIR", evidence, 0) != 0) ||
+      !prepare_evidence()) {
+    (void)fprintf(stderr, "run-mutant: private directory unavailable\n");
+    return 2;
+  }
+  return tracer_run(argv[2]);
+}
+
 typedef struct {
   const char *name;
   int (*run)(void);
@@ -2059,10 +2428,14 @@ int main(int argc, char **argv) {
     }
     return 0;
   }
+  if (argc >= 3 && strcmp(argv[1], "--run-mutant") == 0) {
+    return tracer_main(argc, argv);
+  }
   if (argc != 6) {
     (void)fprintf(stderr,
-                  "usage: %s CASE|all SUPERVISOR TEST_SUPERVISOR CHECKER ROOT\n",
-                  argv[0]);
+                  "usage: %s CASE|all SUPERVISOR TEST_SUPERVISOR CHECKER ROOT\n"
+                  "       %s --run-mutant ROW\n",
+                  argv[0], argv[0]);
     return 2;
   }
   g_supervisor = argv[2];
