@@ -413,6 +413,39 @@ the leaf that is not the held file is reported as `artifact-substitution` and ne
 touched. The one case outside this rule is an unlink that itself fails after the
 commit: the leaf then stays, and the record names the same failure.
 
+Supervised runs: what is published when the supervisor ends the run in a failure
+(plan 09-10, re-check R2 RC-01). The runner commits the artifact before it prints
+its result record, and the supervisor, which holds neither the descriptor nor the
+identity of the leaf, cannot withdraw it. The contract is therefore stated by
+outcome, not as one sentence:
+
+- Publishes nothing: every failure inside the publisher and every runner outcome
+  other than a pass for a save export (the rules above); a state export or a
+  replay record that ends in any runner failure; an unusable `--capture-out` or
+  `--result` path, which the supervisor proves writable before the guest runs
+  (a capture path ends the run at guest tick 0 with the usage record, a result
+  path ends it with exit status 1 and no record, because none can be written).
+- Leaves the complete private leaf next to a closed failure record: the
+  supervisor replaces a runner success after the runner committed, with the
+  details `runner-exit-nonzero`, `runner-signalled`, `no-result`,
+  `report-invalid` and `capture-invalid`, with `wall-backstop` and
+  `supervisor-signalled` (the process group is killed in the window after the
+  commit), and with `host-error` when a capture export or the run-meta write
+  fails after it. The test twin reaches `runner-exit-nonzero`, `runner-signalled`,
+  `no-result` and `report-invalid` with the faults `exit-nonzero`,
+  `crash-after-output`, `report-missing` and `report-malformed`; each row is
+  asserted next to the accepted baseline of the same setup (leaf of the exact
+  state size, mode 0600, one link; exit status 1). The two timing details
+  (`wall-backstop`, `supervisor-signalled`) have no control because their window
+  is not deterministic.
+
+The record, not the presence of the leaf, says whether a run passed: a caller
+takes the artifact of a run only with a `pass` record and exit status 0, and
+removes the leaf of any other run itself (a later run with the same leaf is
+refused with `artifact-exists`). Nothing here weakens a pass rule: the
+supervisor still reports a pass only when the runner, the record and the capture
+agree.
+
 Privacy. Saves are private by default and never uploaded. No key is added to the
 closed result record and no log line is added; save bytes appear in neither, and
 the only save bytes a test writes are authored index-derived patterns in

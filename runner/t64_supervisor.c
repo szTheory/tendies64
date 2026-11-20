@@ -173,6 +173,32 @@ static int atomic_write(const char *path, const void *data, size_t len) {
   return 0;
 }
 
+/* The destination checks of atomic_write without writing anything: the
+ * temporary name must be creatable beside the path and the path must not be a
+ * directory (a rename onto one fails). Nothing is left behind. Real mode proves
+ * the outputs that follow an artifact publication before the guest runs, so a
+ * later failure to write them cannot leave a published artifact next to a
+ * failure record (plan 09-10, re-check R2 RC-01). */
+static int atomic_write_probe(const char *path) {
+  char tmp[4096];
+  struct stat info;
+  int fd;
+  int n = snprintf(tmp, sizeof tmp, "%s.tmp.XXXXXX", path);
+  if (n <= 0 || (size_t)n >= sizeof tmp) {
+    return -1;
+  }
+  if (lstat(path, &info) == 0 && S_ISDIR(info.st_mode)) {
+    return -1;
+  }
+  fd = mkstemp(tmp);
+  if (fd < 0) {
+    return -1;
+  }
+  close(fd);
+  unlink(tmp);
+  return 0;
+}
+
 static int is_hex64(const char *s) {
   size_t i;
   if (s == NULL || strlen(s) != 64) {
@@ -1941,6 +1967,20 @@ static int real_run_mode(const sup_args *args, const char *self_path) {
     }
   }
   ws.made_dir = 1;
+  /* The outputs the supervisor writes after the runner may have published an
+   * artifact are proven writable before the guest runs (re-check R2 RC-01). A
+   * result path that cannot be written leaves no record to refuse with, so the
+   * supervisor exits 1 without one; a capture path that cannot be written is a
+   * usage refusal at guest tick 0. */
+  if (atomic_write_probe(args->result) != 0) {
+    goto cleanup;
+  }
+  if (args->capture_out != NULL &&
+      atomic_write_probe(args->capture_out) != 0) {
+    (void)real_write_prelaunch(args->result, "harness-error", "usage",
+                               "not-started", args->bound);
+    goto cleanup;
+  }
   (void)snprintf(ws.report, sizeof ws.report, "%s/report", ws.dir);
   (void)snprintf(ws.capture, sizeof ws.capture, "%s/capture", ws.dir);
   report_fd = create_private(ws.report);

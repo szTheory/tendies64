@@ -2097,6 +2097,11 @@ finalize:
       t64_raw_capture_abort(raw_capture);
     }
   }
+  /* Publication is the runner's last act before it prints its record: a
+   * failure the supervisor reports after this point (a non-zero exit, a kill,
+   * an invalid report) leaves the published leaf next to the closed failure
+   * record. docs/spec/save-media.md states which outcomes publish nothing and
+   * which leave the leaf (plan 09-10, re-check R2 RC-01). */
   if (state_publisher != NULL) {
     /* State export (plan 09-08): only at authored completion without a host
      * error; every failure names its closed detail, replaces only the outcome,

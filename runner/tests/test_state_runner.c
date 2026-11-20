@@ -275,6 +275,8 @@ typedef struct {
   uint64_t artifact_max;
   const char *const *extra; /* more option/value strings, or NULL */
   size_t extra_count;
+  const char *capture_path; /* NULL: capture.bin in the run directory */
+  const char *result_path;  /* NULL: result.json in the run directory */
 } run_spec;
 
 #define MAX_ARGS 64u
@@ -303,6 +305,13 @@ static bool run_supervised(const run_spec *spec, run_out *out) {
       !join_path(meta_path, sizeof meta_path, out->dir, "meta.json") ||
       !join_path(capture_path, sizeof capture_path, out->dir, "capture.bin")) {
     return false;
+  }
+  if (spec->result_path != NULL) {
+    (void)snprintf(result_path, sizeof result_path, "%s", spec->result_path);
+  }
+  if (spec->capture_path != NULL) {
+    (void)snprintf(capture_path, sizeof capture_path, "%s",
+                   spec->capture_path);
   }
   (void)snprintf(out->result_path, sizeof out->result_path, "%s",
                  result_path);
@@ -996,6 +1005,79 @@ static int case_export_fsize(void) {
   expect_supervised_preflight_refusal(&run);
   CHECK(list_directory(dir, first) == 0u);
   remove_tree(dir);
+
+  /* Re-check R2 RC-01: what the supervisor does after the runner committed.
+   * The accepted baseline of the setup is the passing run above (the same
+   * spec, a writable capture and result path, the leaf published). The two
+   * supervisor outputs that follow a publication are proven before the guest
+   * runs, so an unusable path ends the run at guest tick 0 with nothing
+   * published: a capture path inside a directory that does not exist (a usage
+   * refusal with the closed record) and a result path inside one (no record
+   * can be written, the supervisor exits 1). */
+  CHECK(make_artifact_dir(dir));
+  spec.artifact_dir = dir;
+  spec.test_fault = NULL;
+  spec.capture_path = "/nonexistent-t64-dir/capture.bin";
+  CHECK(run_supervised(&spec, &run));
+  expect_usage(&run);
+  CHECK(run.supervisor_exit == 1);
+  CHECK(list_directory(dir, first) == 0u);
+  spec.capture_path = NULL;
+  spec.result_path = "/nonexistent-t64-dir/result.json";
+  CHECK(!run_supervised(&spec, &run));
+  CHECK(run.supervisor_exit == 1);
+  CHECK(list_directory(dir, first) == 0u);
+  spec.result_path = NULL;
+  remove_tree(dir);
+
+  /* The failures that remain possible after the commit leave the published
+   * leaf next to the closed failure record (docs/spec/save-media.md, the
+   * supervised-run contract): the runner publishes before it prints its record
+   * and the supervisor cannot withdraw what it does not hold. Each row is one
+   * trigger of the test twin: the runner exits non-zero after a complete run,
+   * its record is missing, malformed or the runner is killed after writing it.
+   * The leaf is the complete private blob of the accepted run and the record is
+   * a failure the checker accepts. */
+  {
+    static const struct {
+      const char *fault;
+      const char *stop_kind;
+      const char *detail;
+    } after_commit[] = {
+        {"exit-nonzero", "host-error", "runner-exit-nonzero"},
+        {"crash-after-output", "host-error", "runner-signalled"},
+        {"report-missing", "report-error", "no-result"},
+        {"report-malformed", "report-error", "report-invalid"},
+    };
+    size_t row;
+    for (row = 0u; row < sizeof after_commit / sizeof after_commit[0]; row++) {
+      char leaf_path[PATH_MAX];
+      uint64_t leaf_size = 0u;
+      char diagnostic[160];
+
+      CHECK(make_artifact_dir(dir));
+      spec.artifact_dir = dir;
+      spec.test_fault = after_commit[row].fault;
+      CHECK(run_supervised(&spec, &run));
+      CHECK(run.parsed);
+      CHECK(run_checker(run.result_path, diagnostic) == 0);
+      CHECK(run.supervisor_exit == 1);
+      if (strcmp(run.stop_kind, after_commit[row].stop_kind) != 0 ||
+          strcmp(run.detail, after_commit[row].detail) != 0) {
+        fprintf(stderr, "after-commit row %s: stop %s detail %s\n",
+                after_commit[row].fault, run.stop_kind, run.detail);
+      }
+      CHECK(strcmp(run.outcome, "harness-error") == 0);
+      CHECK(strcmp(run.stop_kind, after_commit[row].stop_kind) == 0);
+      CHECK(strcmp(run.detail, after_commit[row].detail) == 0);
+      CHECK(list_directory(dir, first) == 1u);
+      CHECK(strcmp(first, STATE_LEAF) == 0);
+      CHECK(join_path(leaf_path, sizeof leaf_path, dir, STATE_LEAF));
+      CHECK(stat_private_file(leaf_path, &leaf_size));
+      CHECK(leaf_size == g_state_size);
+      remove_tree(dir);
+    }
+  }
   return g_failures == 0 ? 0 : 1;
 }
 
