@@ -263,6 +263,39 @@
           ]
         }
       ]
+    },
+    "state-export": {
+      "ctest": [
+        "unit.core.state.export",
+        "runner.state-export"
+      ],
+      "binaries": [
+        {
+          "path": "core/test_state_export",
+          "cases": [
+            "export-layout",
+            "decoder-controls",
+            "states-and-ids",
+            "observer-continuity",
+            "idempotence-shape",
+            "non-interference",
+            "refusals",
+            "size-arithmetic"
+          ]
+        },
+        {
+          "path": "runner/test_state_runner",
+          "cases": [
+            "export-accepted",
+            "export-size-cap",
+            "export-fsize-at-state-size",
+            "export-refusals",
+            "export-nonterminal",
+            "export-decode",
+            "checker-vocabulary"
+          ]
+        }
+      ]
     }
   }
 }
