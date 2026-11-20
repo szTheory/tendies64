@@ -6,11 +6,11 @@ current_phase: 9
 current_phase_name: Controller, Save Media and Replay
 current_plan: 12
 status: executing
-stopped_at: Completed 09-09.1-PLAN.md
-last_updated: "2026-11-20T05:02:07.936Z"
+stopped_at: "Plan 09-10 Task 6 stopped: hosted macOS cold projection 619 s over 600 s (run 44790405712); FX-38 and FX-39 landed; no tag"
+last_updated: "2026-11-20T18:22:46.553Z"
 last_activity: 2026-11-19
 last_activity_desc: Phase 9 execution started
-state_head: 6d070b76a735e66f64f6926790f8e8c1fa6c468e
+state_head: f87c84d8209050c4b0ad3a2d8182ddc3393d938e
 progress:
   total_phases: 3
   completed_phases: 1
@@ -127,6 +127,7 @@ question. No oracle authority is part of this decision.
 - D7: name remains uncleared; no branding, logos or store listings.
 - Protected inputs/publication and physical-console measurement retain the explicit stops in [AUTONOMY.md](AUTONOMY.md). No new hardware qualification or broad compatibility claim.
 - Phase 9 oracle-request rebinds: owner approved in conversation on 2026-11-19 (answer "Yes, rebind per milestone") identity-only rebinds of the Phase 7 oracle request whenever Phase 9 manifest rows move the fixture manifest hash (same scope as 15fd8d1). Each rebind reproduces the old pinned hash first, changes only manifest identities, the derived request hash and PINNED_REQUEST_SHA256, and keeps local_decision blocked. This grants no oracle, rights or publication authority. First Phase 9 rebind: manifest sha256 23b34424...4972, request 4200bb02...5500.
+- Plan 09-10 Task 6 stopped at the hosted time gate: run 44790405712 (8dd6af1) macOS cold projection 619 s over 600 s after the one repeat; native rehearsal and hosted pair verified; phase09-fr not created; orchestrator decides the repair or a declared widening (see 09-REVIEW-FIX.md, Hosted rehearsal result)
 
 ## Deferred Items
 
@@ -137,9 +138,9 @@ question. No oracle authority is part of this decision.
 
 ## Session Continuity
 
-Last session: 2026-11-20T05:02:07.794Z
-Stopped at: Completed 09-09.1-PLAN.md
-Resume file: None
+Last session: 2026-11-20T18:22:46.389Z
+Stopped at: Plan 09-10 Task 6 stopped: hosted macOS cold projection 619 s over 600 s (run 44790405712); FX-38 and FX-39 landed; no tag
+Resume file: .planning/phases/09-controller-save-media-and-replay/09-REVIEW-FIX.md
 
 Historical closeout: [v1.0 roadmap](milestones/v1.0-ROADMAP.md), [audit](milestones/v1.0-MILESTONE-AUDIT.md), [lessons](RETROSPECTIVE.md).
 

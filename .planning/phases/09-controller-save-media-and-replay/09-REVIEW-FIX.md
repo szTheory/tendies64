@@ -8,7 +8,7 @@ security_path: .planning/phases/09-controller-save-media-and-replay/09-SECURITY.
 verification_path: .planning/phases/09-controller-save-media-and-replay/09-VERIFICATION.md
 iteration: 1
 cycle_groups: [G1, G2, G3, G4, T6-FX38, T6-FX39]
-status: g1_g2_g3_g4_complete_fx38_fx39_task6
+status: g1_g2_g3_g4_complete_fx38_fx39_task6_stopped_hosted_time_gate
 recheck_paths:
   - build/gate/09-10-recheck-R1.md
   - build/gate/09-10-recheck-R2.md
@@ -753,3 +753,60 @@ Everything else is a declared qualification reset. A hosted overrun (warm above 
 2. `python3 -B build/gate/09-10-freeze-check.py` (untracked helper; to compare against `phase09-fr` instead of `phase09-fh` change its `TAG`) and the body comparison it performs: parse `git show phase09-fr:PATH` and the working file, `ast.dump` every top-level function and class, and list the names that differ; allowed differences: none for logic. For `scripts/qualify-phase09.py` only module-level data may differ (`HOSTED_ROWS`, the literal pin constants; `SOURCE_PATHS` and `PENDING_SOURCE_PATHS` must not change); the five shared limits, `FULL_MATRIX_*` and `PHASE09_SOURCE_BASE` are never data. For `scripts/check-test-inventory.sh` every changed line must be a bare test-name row. For the shell, YAML and C files the diff must be empty.
 3. Compare the SHA-256 table above with `shasum -a 256` of each file; a mismatch of a file that steps 1 and 2 passed is legitimate only for `scripts/check-test-inventory.sh` (data rows) and `scripts/qualify-phase09.py` (data tuples).
 4. `sh scripts/check-test-inventory.sh --preset gate` and `ctest --preset gate -N` must print the same Phase 9 name count (45).
+
+## Hosted rehearsal result
+
+**Status: Task 6 stopped at the hosted time gate. The tag `phase09-fr` was not created and the FR record above is not in force.** The one repeat of steps 2 to 4 (plan 09-10 Task 6 step 3) is spent, so the second miss is a recorded stop returned to the orchestrator, not a further loop. Both rehearsal records exist and verify; neither is qualification evidence.
+
+### The rehearsed candidate
+
+Source `8dd6af1cda44fe021fcc4b42c4103ffd5148c986` (prefix `8dd6af1c`), HEAD of `main` when pushed (commits after it: `[skip ci]` records only). It is the second candidate of this task: `0d31e0e` (the FR record; its native start was stopped after 6 minutes when a hosted failure of the same code was found, DEV-15), `16849e7` (FX-38 applied; native exit 0 in 1,652 s; hosted run 44784312630 failed, DEV-16) and `8dd6af1` (FX-39 applied). Repairs made: FX-38 (a runner test that retains run evidence keeps its scope past exit) and FX-39 (four registered TIMEOUTs raised, data only). No frozen file was edited by either: the freeze check against `phase09-fh` after both (`build/gate/09-10-freeze-final.txt`) shows the same table as after G4: 17 files, 9 identical, 2 DATA, 6 LOGIC (FD-01, FD-03 twice, FD-04, FD-05, FD-06), no new FD entry.
+
+### Native rehearsal on 8dd6af1 (`qualify-phase09.py --native --rehearsal`, exit 0, 1,486 s)
+
+Private record: `build/gate/09-11-phase09-private/native-rehearsal-10-8dd6af1cda44fe021fcc4b42c4103ffd5148c986/native-record.json` (untracked, bound by SHA-256 `60b1850b74153b5fb212be96dd55401929d1d60f12abcd7cc25e1bc41a4b78b3` into the hosted record). The record verifies standalone with the rehearsal label and is refused by a final-mode verification (the label differs). Printed: `qualify-phase09: native qualification passed` and `qualify-phase09: this result is a rehearsal and not final evidence`.
+
+| Step | Seconds | Limit |
+| --- | --- | --- |
+| shared native stage | 1,421.6 | 4,800 |
+| normal gate (`sh scripts/gate.sh`) | 136.1 | 600 |
+| ASan configure | 0.2 | 120 |
+| ASan build | 8.0 | 600 |
+| ASan and UBSan full CTest (226 of 226) | 1,184.8 | 3,000 |
+| gcc:13 closure (64 units) | 52.5 | 300 |
+| `normal-state-import-full-matrix` (first run of the new step in the whole flow) | 53.0 | 300 |
+| 26 inventory checks (13 suites, normal and sanitizer builds) and 2 source-body checks | 0.2 to 0.5 each | 720 and 120 |
+
+The ten slowest Phase 9 names in the normal gate JUnit (seconds): `unit.core.state.import` 48.4, `harness.state-field-use-audit` 18.6, `runner.state-export` 7.6, `unit.core.sched.matrix` 6.9, `harness.phase09-qualification` 6.8, `unit.replay.suite` 4.5, `runner.save-roundtrip` 4.5, `runner.replay-mix` 4.4, `unit.core.state.export` 4.3, `unit.core.save.device` 3.2. Under the sanitizer: `unit.core.state.import` 1,149.9 (97 percent of the 1,184.8 s wall), `runner.state-export` 160.4, `unit.core.sched.matrix` 120.4, `runner.replay-mix` 100.7, `unit.replay.suite` 98.1, `runner.save-roundtrip` 92.8. The new limits and the matrix marker were exercised end to end with no refusal. Margins to watch (registered TIMEOUT against the sanitizer figure): `unit.core.state.import` 2,400 against 1,150 to 1,257 s (1.9 times, the FX-22 decision), `runner.state-export` 480 against 160 to 182 s after FX-39.
+
+### Hosted rehearsal: run 44790405712, attempt 1 (public repository run `https://github.com/szTheory/tendies64/actions/runs/44790405712`)
+
+Both jobs succeeded on exactly `8dd6af1c`; Binutils cache hit on both (restored from the key). Collector and rehearsal verifier passed on the pair (`--collect-hosted --rehearsal` 10 s, `--verify-evidence --rehearsal` 5 s): `qualify-phase09: complete native, ASan, GCC13, and both hosted platform records verified` and `qualify-phase09: this result is a rehearsal and not final evidence`. Hosted record `hosted-8dd6af1cda44-44790405712-1-...` under the private root; public output `build/gate/09-10-public-rehearsal-8dd6af1c` (outside the private store, the same correction as 09-03.1 deviation 7: the plan's path under the private root is refused with `public phase09 output must be a fresh directory`).
+
+| | gate-linux | gate-macos |
+| --- | --- | --- |
+| artifact id | 14657170346 | 14657440522 |
+| archive digest | `sha256:faae546de2b47becc721650d604ff5c0a82f8dccfaef232331dfe4e0d370650d` | `sha256:7ed8b5c27f7064907c1c1665419ed406843071756a8f927dfa93bb7bcdab13de` |
+| public manifest SHA-256 | `baabf8038c027d623b97dba9fbb8c2e1e0e444b07a8cc9603dd8b630d326f78c` | `33094c7ec977f66477dae56229abb0700d5e0d08360237ab7923b11c9bd2ae97` |
+| queue / run (warm) | 2 s / 242 s | 2 s / 433 s |
+| Gate step | 194 s (ctest 107, test-inventory-selftest 24, build 19, core-lint 14, lint-selftest 13, boot-evidence-selftest 13) | 361 s (ctest 218, test-inventory-selftest 47, boot-evidence-selftest 31, build 25, core-lint 21, lint-selftest 11) |
+| audio qualification records | 33 s | 37 s |
+| Phase 9 case run, emit, PII scan | 2, 1, 0 s | 6, 0, 1 s |
+| upload | 1 s | 2 s |
+| increment over F-100 (129 s Linux, 275 s macOS) | +113 s | +158 s |
+| cold projection (warm plus 84 s or 186 s) | **326 s** | **619 s** |
+| gate (warm at most 540 s, cold at most 600 s) | pass | **FAIL: cold projection 619 s is 19 s over** (warm 433 s passes) |
+
+The plan's second verify block exits 1 on the macOS line. The upload stayed inside the frozen contract (one public manifest per job, `phase09/gate-*/manifest.json`).
+
+**What the number is made of.** macOS ctest: 224 names, summed test time 810 s on four jobs, wall 218 s, the Phase 9 names 449 s (55 percent); `unit.core.state.import` 190 s alone (native 48 s, about 3.9 times) and `harness.state-field-use-audit` 65 s (native 19 s). Run-to-run spread of the same macOS job is as large as the margin: 349 s at the plan base `d4ccad5` (run 44678456339, cold projection 535 s), 420 s at `7d8f817` (run 44713831889, before any fix, 606 s), 433 s here; the Gate step alone ranged 304 to 379 s across near identical code. The two earlier runs of this task, both partial: run 44776046324 (`49069a7`, failed at the emit, DEV-15): Linux 251 s and macOS 367 s up to the failure; run 44784312630 (`16849e7`, macOS failed at Gate, DEV-16): Linux 189 s complete, macOS Gate 379 s and 398 s run before the later steps (about 433 s complete, projected cold about 619 s). The completed-run ledger and findings F-107 to F-110 are in `docs/ci-reviews/LOG.md`.
+
+### The stop and the choices it leaves (orchestrator decision; nothing below was done)
+
+The measured macOS cold projection is at the margin and not a deterministic function of the code; a single sample passes or fails on runner noise. Choices, with the measured cost of each (all are covered edits before the freeze that need a new native and a new hosted rehearsal, a third candidate cycle):
+
+1. A time repair of macOS by about 60 s of warm time (to about 375 s, cold about 560 s) from levers the plan names: the sampled state import matrix at the gate defaults (190 s of macOS CPU, the longest single test), the field-use audit selftest (65 s of macOS CPU, 15 s natively), and starting the longest test first through the CTest COST property (the wall of 218 s against 203 s of summed time over four jobs). None of these is evidence-neutral without a decision on sampling. The audio qualification records step (37 s macOS, 33 s Linux) re-runs the audio names the Gate already ran (F-097, F-105) but sits in the frozen CI contract (an FD entry for `.github/workflows/ci.yml` and `scripts/check-ci-yml.sh` and a hosted rehearsal).
+2. A declared deviation that widens the cold margin (for example the 10 minute `timeout-minutes` of the macOS job, a frozen file edit with an FD entry) or accepts the measured figure with the warm figure inside 540 s, recorded as a known limit for 09-11, which can then only record its own measured seconds.
+3. Accept the single sample as the rehearsal result and record that the cold projection is a projection, not a spent run (a cold run was never made).
+
+State of the tree for any of these: `main` and `origin/main` are at `8dd6af1` plus local `[skip ci]` records; no tag; `git ls-remote --tags origin phase09-fr` prints nothing.
