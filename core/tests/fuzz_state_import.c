@@ -42,6 +42,25 @@ static void violation(state_fuzz_stats *stats, uint64_t iteration,
           (unsigned long long)iteration, what);
 }
 
+/* A random aligned position inside a uniformly chosen section of the blob, so
+ * the small sections that carry the rule-bearing fields are hit as often as the
+ * 4 MiB RDRAM and the 2 MiB coverage array. */
+static size_t section_position(rng *r, const uint8_t *blob, size_t length,
+                               size_t width) {
+  const uint32_t count = rd32(blob + 0x018u);
+  const uint32_t pick = count == 0u || count > 32u ? 0u
+                                                   : (uint32_t)(rng_next(r) % count);
+  const uint8_t *entry = blob + D_TABLE + (size_t)D_ENTRY * pick;
+  const uint64_t offset = rd64(entry + E_OFF);
+  const uint64_t body = rd64(entry + E_LEN);
+
+  if (count == 0u || count > 32u || offset >= length || body < width ||
+      body > length - offset) {
+    return (size_t)(rng_next(r) % (length - width)) & ~(size_t)3u;
+  }
+  return (size_t)(offset + ((rng_next(r) % (body - width + 1u)) & ~(uint64_t)3u));
+}
+
 /* A random mutation of `copy`; returns the new length. */
 static size_t mutate(rng *r, uint8_t *copy, size_t length) {
   const size_t table_end = D_TABLE + (size_t)D_ENTRY * 16u;
@@ -55,7 +74,8 @@ static size_t mutate(rng *r, uint8_t *copy, size_t length) {
     const size_t flips = 1u + (size_t)(rng_next(r) % 3u);
 
     for (i = 0u; i < flips; i++) {
-      position = (size_t)(rng_next(r) % length);
+      position = (rng_next(r) & 1u) != 0u ? section_position(r, copy, length, 1u)
+                                          : (size_t)(rng_next(r) % length);
       copy[position] ^= (uint8_t)(1u << (rng_next(r) % 8u));
     }
     break;
@@ -71,9 +91,11 @@ static size_t mutate(rng *r, uint8_t *copy, size_t length) {
     /* a 4 or 8 byte field at a random aligned position, biased to the header,
      * the table and the small sections that hold the rule-bearing fields */
     const bool narrow = (rng_next(r) & 1u) != 0u;
-    const size_t window = (rng_next(r) % 3u) == 0u ? table_end : length - 16u;
+    const size_t window = table_end;
 
-    position = (size_t)(rng_next(r) % window) & ~(size_t)3u;
+    position = (rng_next(r) % 4u) == 0u
+                   ? (size_t)(rng_next(r) % window) & ~(size_t)3u
+                   : section_position(r, copy, length, narrow ? 4u : 8u);
     value = wide_values[rng_next(r) % (sizeof wide_values / sizeof wide_values[0])];
     if (narrow) put32(copy + position, (uint32_t)value);
     else put64(copy + position, value);
