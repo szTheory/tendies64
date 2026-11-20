@@ -339,6 +339,9 @@ NATIVE_LIMIT_PINS: dict[str, float] = {
 # The cheap preflight (selftest) and the source-snapshot checks run inside the
 # outer limit next to the five stage commands.
 NATIVE_OUTER_OVERHEAD_SECONDS = 120
+# The wrapper leaves room for the largest per-test TIMEOUT to fire first, so a
+# hung test is reported by its own deadline and not by the wrapper's kill.
+NATIVE_WRAPPER_MARGIN_SECONDS = 600
 # The largest TIMEOUT registered in the CMake text (the state import test under
 # the sanitizer preset); the parse must find it so it cannot silently find none.
 EXPECTED_LARGEST_REGISTERED_TIMEOUT = 2400
@@ -390,11 +393,11 @@ def native_limit_problems(limits: dict[str, float], registered: list[int]) -> li
                         f"{total} plus {NATIVE_OUTER_OVERHEAD_SECONDS}")
     if limits["record_max"] < max(limits[name] for name in stages):
         problems.append(f"record bound {limits['record_max']} is below the largest stage limit")
-    if limits["asan_full_ctest"] <= max(registered):
+    if limits["asan_full_ctest"] < max(registered) + NATIVE_WRAPPER_MARGIN_SECONDS:
         problems.append(f"asan full CTest limit {limits['asan_full_ctest']} does not exceed "
-                        f"the largest registered TIMEOUT {max(registered)}")
+                        f"the largest registered TIMEOUT {max(registered)} by "
+                        f"{NATIVE_WRAPPER_MARGIN_SECONDS}")
     return problems
-
 
 
 def runner_build_input_gaps(cmake_text: str) -> list[str]:
@@ -1089,7 +1092,7 @@ class Phase09Qualification(unittest.TestCase):
                 {"asan_full_ctest": 600.0, "outer": 2400, "record_max": 2400,
                  "asan_build": 600.0, "gcc13": 120.0})
         unsound("a later TIMEOUT raise outgrows the wrapper", "does not exceed the largest registered TIMEOUT",
-                {}, extra=[int(limits["asan_full_ctest"]) + 1])
+                {}, extra=[int(limits["asan_full_ctest"]) - NATIVE_WRAPPER_MARGIN_SECONDS + 1])
         unsound("outer below the stage sum", "outer limit",
                 {"outer": sum(limits[name] for name in (
                     "gate", "asan_configure", "asan_build", "asan_full_ctest", "gcc13"))})
