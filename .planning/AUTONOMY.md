@@ -511,3 +511,31 @@ Plan13 remain incomplete/stopped; this grants no oracle rights, acquisition,
 execution, publication, private-test window, package install or release scope.
 Continue cheap actual-consumer/setup checks before long suites and reuse
 unchanged evidence. Do not re-ask this sequencing question after a restart.
+
+## Phase9 execution lessons (2026-11-20)
+
+CI/CD efficiency and cheap-first findings from Phase9 execution; they extend section 2.
+- Linux-only compile errors (shadowed typedefs, unused results, glibc format
+  truncation, build-graph races) surfaced only on hosted runs until the local Linux
+  pre-flight existed: compile every gate unit inside the `act` Ubuntu image
+  (docs/ci-reviews/LOG.md F-102, about 50 s native, 160 s when the platform is forced
+  to amd64 on an arm host, so do not force it). Run it before any push that changes C.
+- A manifest row edit moves a hash pinned by the owner-gated Phase7 oracle request.
+  After any `fixtures/manifest.json` edit run `ctest -R '^harness\.rdp-oracle-authority$'`
+  (0.2 s) at once; the owner-approved identity-only rebind is an orchestrator task,
+  never an executor edit. Structural option for the owner: bind per-row hashes
+  instead of the whole manifest hash so authored-row additions stop forcing rebinds.
+- Before accepting a plan's verify command, check its regex count with `ctest -N -R`
+  (plan regexes matched 10 not 11 names more than once) and its direct-run
+  environment (`T64_TEST_IPL3_PATH`, mutant inventory env).
+- Wrapper time limits must be derived from measured test times: a 6.3 MB hash per
+  refusal row costs about 22x under ASan, so one state test reached 632 s while the
+  shared qualifier wrapper still killed at 600 s. After raising any test's own
+  TIMEOUT, compare the sum of measured sanitizer times with every enclosing limit.
+- A canonical digest needs a completeness test: flip every behavior-bearing member
+  and require the digest to change. Self-comparing walkers, strip differentials and
+  golden tables cannot see a member that is simply absent; the independent review
+  found the RDP combiner and coverage gap that way after nine plans had passed.
+- Reviewers and auditors must not run `ninja -t clean` or fixture rebuilds in the
+  shared tree; use `git archive` scratch builds and re-verify fixture hashes after any
+  such incident.
