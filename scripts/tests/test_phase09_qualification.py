@@ -443,6 +443,33 @@ def runner_build_input_gaps(cmake_text: str) -> list[str]:
     return sorted(seen - listed)
 
 
+def retained_scope_gaps(source_text: str, header_text: str) -> list[str]:
+    """Where a retaining runner test would still lose its evidence at process exit.
+
+    The hosted collector reads the retained run directories of a runner test after
+    that process has exited, by the path its marker line names. The per-process
+    scope of runner/tests/t64_test_tree.h removes its tree at exit unless the test
+    called t64_test_scope_keep() after retaining (plan 09-10 Task 6: without the
+    call the hosted "Emit authored Phase 9 evidence" step refused on both jobs,
+    run 44776046324). Reports the source when the call does not stand between
+    retain_run_evidence() and the marker line, and the header when its cleanup does
+    not honor the flag.
+    """
+    gaps: list[str] = []
+    marker = source_text.find("private phase09 runner evidence retained at")
+    retain = source_text.find("retain_run_evidence(out->dir")
+    keep = source_text.find("t64_test_scope_keep();", max(retain, 0))
+    if marker < 0 or retain < 0 or not retain < keep < marker:
+        gaps.append("source: t64_test_scope_keep() does not stand between the retain call "
+                    "and the marker line")
+    cleanup = re.search(r"static inline void t64_test_scope_cleanup\(void\) \{(.*?)\n\}\n",
+                        header_text, re.DOTALL)
+    if cleanup is None or "t64_scope_keep" not in cleanup.group(1) or \
+            "static inline void t64_test_scope_keep(void)" not in header_text:
+        gaps.append("header: the scope cleanup does not honor t64_scope_keep")
+    return gaps
+
+
 def _write_synthetic_step(directory: Path, item: dict, stdout: bytes, *,
                           environment: dict | None = None) -> None:
     """An original command record shaped like the one _run_saved_stage saves."""
@@ -584,6 +611,22 @@ class Phase09Qualification(unittest.TestCase):
         """Every row is pinned from the oracle, the manifest and the runner table."""
         rows = qualify.HOSTED_ROWS
         self.assertEqual(len(rows), 5)
+        # The retained run directories the rows read must outlive the test process
+        # (Task 6): accepted baseline first, then each condition removed in turn.
+        header = (ROOT / "runner/tests/t64_test_tree.h").read_text(encoding="utf-8")
+        retaining = [path for path in sorted((ROOT / "runner/tests").glob("*.c"))
+                     if "private phase09 runner evidence retained at"
+                     in path.read_text(encoding="utf-8")]
+        self.assertEqual([path.name for path in retaining], ["test_pad_poll.c"])
+        pad_poll = retaining[0].read_text(encoding="utf-8")
+        self.assertEqual(retained_scope_gaps(pad_poll, header), [])
+        self.assertEqual(len(retained_scope_gaps(
+            pad_poll.replace("t64_test_scope_keep();", "", 1), header)), 1)
+        self.assertEqual(len(retained_scope_gaps(
+            pad_poll, header.replace("t64_scope_keep ||", "", 1))), 1)
+        self.assertEqual(len(retained_scope_gaps(
+            pad_poll, header.replace("static inline void t64_test_scope_keep(void)",
+                                     "static inline void t64_test_scope_keep_x(void)", 1))), 1)
         manifest = json.loads((ROOT / "fixtures/manifest.json").read_text(encoding="utf-8"))
         manifest_rows = {entry["id"]: entry for entry in manifest["entries"]}
         keys: set[tuple[str, str]] = set()

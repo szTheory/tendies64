@@ -13,6 +13,14 @@
  * that exits does not remove the parent's scope. Set T64_KEEP_TEST_EVIDENCE to
  * any value to keep the tree for debugging.
  *
+ * A test whose evidence is read after it exits (the hosted collector reads the
+ * retained run directories of runner/tests/test_pad_poll.c by the path its
+ * marker line names) calls t64_test_scope_keep() once it has retained a run:
+ * that process then leaves its whole scope in place, which is the retention the
+ * collector interface of plan 09-03.1 contracts. Plan 09-10 Task 6 found that
+ * the cleanup without this call removed those directories and made the hosted
+ * "Emit authored Phase 9 evidence" step refuse on both jobs (run 44776046324).
+ *
  * Header-only, static inline: it holds no test logic. */
 
 #include <dirent.h>
@@ -28,6 +36,7 @@
 static char t64_scope_directory[PATH_MAX];
 static char t64_scope_created_parent[PATH_MAX];
 static pid_t t64_scope_owner;
+static bool t64_scope_keep;
 
 /* Removes a directory tree without following symlinks. */
 static inline void t64_test_remove_tree(const char *path) {
@@ -55,7 +64,7 @@ static inline void t64_test_remove_tree(const char *path) {
 
 static inline void t64_test_scope_cleanup(void) {
   if (t64_scope_owner != getpid() || t64_scope_directory[0] == '\0' ||
-      getenv("T64_KEEP_TEST_EVIDENCE") != NULL) {
+      t64_scope_keep || getenv("T64_KEEP_TEST_EVIDENCE") != NULL) {
     return;
   }
   t64_test_remove_tree(t64_scope_directory);
@@ -64,6 +73,10 @@ static inline void t64_test_scope_cleanup(void) {
     (void)rmdir(t64_scope_created_parent);
   }
 }
+
+/* Leaves this process's scope in place at exit: the evidence of a retained run
+ * is read by another process after this one has ended. */
+static inline void t64_test_scope_keep(void) { t64_scope_keep = true; }
 
 /* `evidence` holds the evidence directory on entry and this process's scope on
  * return. `created_parent` is true when the directory itself was made by

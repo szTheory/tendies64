@@ -442,6 +442,8 @@ static bool run_supervised(const run_spec *spec, run_out *out) {
       /* Collector interface (plan 09-03.1): the validated record, the exact
        * command and the input script stay in the private run directory. */
       if (!retain_run_evidence(out->dir, &list, input)) return false;
+      /* The collector reads this directory after the process has exited. */
+      t64_test_scope_keep();
       (void)fprintf(stderr, "private phase09 runner evidence retained at %s\n",
                     out->dir);
     }
