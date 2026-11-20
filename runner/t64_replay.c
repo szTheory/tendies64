@@ -579,6 +579,25 @@ t64_replay_status t64_replay_parse_limits(const uint8_t *bytes, size_t length,
   }
   ops_node = t64_json_get(doc.root, "ops");
   count = ops_node->count;
+  /* The caps are taken from the node counts and checked before any decoded op
+   * array exists (D-41). */
+  if (count > limits->max_ops) {
+    t64_json_free(&doc);
+    return refuse(error_out, T64_REPLAY_OP_LIMIT, count);
+  }
+  {
+    size_t checkpoints = 0u;
+    for (node = ops_node->first; node != NULL; node = node->next) {
+      if (node->type == T64_JSON_OBJECT &&
+          string_equals(t64_json_get(node, "op"), "checkpoint")) {
+        checkpoints++;
+      }
+    }
+    if (checkpoints > limits->max_checkpoints) {
+      t64_json_free(&doc);
+      return refuse(error_out, T64_REPLAY_CHECKPOINT_LIMIT, checkpoints);
+    }
+  }
   if (count > 0u) {
     if (count > SIZE_MAX / sizeof *ops) {
       t64_json_free(&doc);
@@ -591,12 +610,31 @@ t64_replay_status t64_replay_parse_limits(const uint8_t *bytes, size_t length,
     }
   }
   i = 0u;
-  for (node = ops_node->first; node != NULL; node = node->next, i++) {
-    status = parse_op(node, &ops[i]);
-    if (status != T64_REPLAY_OK) {
+  {
+    bool seen_end = false;
+    for (node = ops_node->first; node != NULL; node = node->next, i++) {
+      status = parse_op(node, &ops[i]);
+      /* Ordering in array order: nothing after the end op, `at` never
+       * decreasing, an event stamped no earlier than its submission tick. */
+      if (status == T64_REPLAY_OK && seen_end) {
+        status = T64_REPLAY_END_NOT_LAST;
+      } else if (status == T64_REPLAY_OK && i > 0u && ops[i].at < ops[i - 1u].at) {
+        status = T64_REPLAY_AT_REVERSED;
+      } else if (status == T64_REPLAY_OK && ops[i].kind == T64_REPLAY_OP_INPUT &&
+                 ops[i].event_tick < ops[i].at) {
+        status = T64_REPLAY_EVENT_BEFORE_AT;
+      }
+      if (status != T64_REPLAY_OK) {
+        free(ops);
+        t64_json_free(&doc);
+        return refuse(error_out, status, i);
+      }
+      if (ops[i].kind == T64_REPLAY_OP_END) seen_end = true;
+    }
+    if (!seen_end) {
       free(ops);
       t64_json_free(&doc);
-      return refuse(error_out, status, i);
+      return refuse(error_out, T64_REPLAY_END_MISSING, count);
     }
   }
   t64_json_free(&doc);
@@ -670,6 +708,7 @@ struct t64_replay_recorder {
   t64_replay_op *ops;
   size_t count;
   size_t capacity;
+  size_t checkpoints;
   bool ended;
   t64_replay_status error;
 };
@@ -729,6 +768,12 @@ t64_status t64_replay_recorder_queue_input(t64_replay_recorder *recorder,
   if (recorder->error != T64_REPLAY_OK || recorder->ended) {
     return T64_STATUS_INVALID_ARGUMENT;
   }
+  /* An append that would pass the op cap (one slot stays free for the end op)
+   * is refused before the machine call: the replay is never published. */
+  if (recorder->count + 2u > recorder->limits.max_ops) {
+    recorder->error = T64_REPLAY_OP_LIMIT;
+    return T64_STATUS_RESOURCE_EXHAUSTED;
+  }
   op = recorder_append(recorder);
   if (op == NULL) return T64_STATUS_RESOURCE_EXHAUSTED;
   status = t64_machine_queue_input(machine, event_tick, port, buttons, axis_x,
@@ -751,6 +796,14 @@ t64_replay_status t64_replay_recorder_checkpoint(
   if (recorder == NULL || machine == NULL) return T64_REPLAY_INVALID_ARGUMENT;
   if (recorder->error != T64_REPLAY_OK) return recorder->error;
   if (recorder->ended) return T64_REPLAY_END_NOT_LAST;
+  if (recorder->count + 2u > recorder->limits.max_ops) {
+    recorder->error = T64_REPLAY_OP_LIMIT;
+    return recorder->error;
+  }
+  if (recorder->checkpoints + 1u > recorder->limits.max_checkpoints) {
+    recorder->error = T64_REPLAY_CHECKPOINT_LIMIT;
+    return recorder->error;
+  }
   op = recorder_append(recorder);
   if (op == NULL) return recorder->error;
   op->kind = T64_REPLAY_OP_CHECKPOINT;
@@ -760,6 +813,7 @@ t64_replay_status t64_replay_recorder_checkpoint(
     return recorder->error;
   }
   recorder->count++;
+  recorder->checkpoints++;
   return T64_REPLAY_OK;
 }
 
@@ -774,6 +828,10 @@ t64_replay_status t64_replay_recorder_end(t64_replay_recorder *recorder,
   }
   if (recorder->error != T64_REPLAY_OK) return recorder->error;
   if (recorder->ended) return T64_REPLAY_END_NOT_LAST;
+  if (recorder->count + 1u > recorder->limits.max_ops) {
+    recorder->error = T64_REPLAY_OP_LIMIT;
+    return recorder->error;
+  }
   op = recorder_append(recorder);
   if (op == NULL) return recorder->error;
   op->kind = T64_REPLAY_OP_END;
@@ -960,22 +1018,102 @@ const char *t64_replay_report_status_name(t64_replay_report_status status) {
   return "unknown";
 }
 
-/* Tracer scope: the canonical writer only; the cross-field validation and the
- * checker arrive with the hardening task. */
+/* The closed mismatch field set (plus none). */
+static const char *const report_fields[] = {
+    T64_REPLAY_FIELD_NONE,
+    T64_REPLAY_FIELD_PROFILE_ID,
+    T64_REPLAY_FIELD_PROFILE_DIGEST,
+    T64_REPLAY_FIELD_DESCRIPTOR_VERSION,
+    T64_REPLAY_FIELD_MACHINE_MODEL_VERSION,
+    T64_REPLAY_FIELD_STATE_SERIALIZATION_VERSION,
+    T64_REPLAY_FIELD_BUILD_ID,
+    T64_REPLAY_FIELD_CONTENT_SHA256,
+    T64_REPLAY_FIELD_CONTENT_SIZE,
+    T64_REPLAY_FIELD_SAVE_INIT};
+#define REPORT_FIELD_COUNT (sizeof report_fields / sizeof report_fields[0])
+
+static bool report_field_known(const char *field) {
+  size_t i;
+  for (i = 0u; i < REPORT_FIELD_COUNT; i++) {
+    if (strcmp(field, report_fields[i]) == 0) return true;
+  }
+  return false;
+}
+
+/* The cross-field rules shared by the writer and the checker. */
+static t64_replay_report_status validate_report(const t64_replay_report *r) {
+  const bool digests = r->has_actual_digest || r->has_expected_digest;
+  const bool none_field = strcmp(r->field, T64_REPLAY_FIELD_NONE) == 0;
+  if (r->result < T64_REPLAY_RESULT_MATCH ||
+      r->result > T64_REPLAY_RESULT_REFUSED) {
+    return T64_REPLAY_REPORT_BAD_RESULT;
+  }
+  if (r->detail < T64_REPLAY_DETAIL_NONE ||
+      r->detail > T64_REPLAY_DETAIL_DIGEST) {
+    return T64_REPLAY_REPORT_BAD_DETAIL;
+  }
+  if (!report_field_known(r->field)) return T64_REPLAY_REPORT_BAD_FIELD;
+  if (r->checkpoints_matched > r->ops_applied) {
+    return T64_REPLAY_REPORT_COUNT_ORDER;
+  }
+  switch (r->result) {
+  case T64_REPLAY_RESULT_MATCH:
+    if (!none_field || r->detail != T64_REPLAY_DETAIL_NONE || r->has_op_index ||
+        r->has_at || digests) {
+      return T64_REPLAY_REPORT_MATCH_SHAPE;
+    }
+    break;
+  case T64_REPLAY_RESULT_DIVERGED:
+    if (!none_field ||
+        (r->detail != T64_REPLAY_DETAIL_DIGEST &&
+         r->detail != T64_REPLAY_DETAIL_STOP_EARLY &&
+         r->detail != T64_REPLAY_DETAIL_STOP_KIND) ||
+        !r->has_op_index || !r->has_at || !r->has_expected_digest ||
+        !r->has_actual_digest) {
+      return T64_REPLAY_REPORT_DIVERGED_SHAPE;
+    }
+    break;
+  case T64_REPLAY_RESULT_IDENTITY_MISMATCH:
+    if (none_field || r->detail != T64_REPLAY_DETAIL_NONE || r->has_op_index ||
+        r->has_at || digests) {
+      return T64_REPLAY_REPORT_IDENTITY_SHAPE;
+    }
+    break;
+  case T64_REPLAY_RESULT_REFUSED:
+    if (!none_field ||
+        (r->detail != T64_REPLAY_DETAIL_ARTIFACT_INVALID &&
+         r->detail != T64_REPLAY_DETAIL_INPUT_REFUSED &&
+         r->detail != T64_REPLAY_DETAIL_QUEUE_FULL &&
+         r->detail != T64_REPLAY_DETAIL_ADVANCE_INVALID) ||
+        digests) {
+      return T64_REPLAY_REPORT_REFUSED_SHAPE;
+    }
+    break;
+  }
+  return T64_REPLAY_REPORT_OK;
+}
+
+static bool write_nullable_digest(t64_jsonw *w, const char *key, bool present,
+                                  const uint8_t digest[T64_DIGEST_SIZE]) {
+  if (present) return write_digest(w, key, digest);
+  return write_key(w, key) && W_OK(t64_jsonw_null(w));
+}
+
 t64_replay_report_status t64_replay_report_encode(
     const t64_replay_report *report, uint8_t *bytes_out, size_t capacity,
     size_t *length_out) {
   t64_jsonw writer;
   size_t length = 0u;
+  t64_replay_report_status status;
   if (report == NULL || bytes_out == NULL || length_out == NULL) {
     return T64_REPLAY_REPORT_INVALID_ARGUMENT;
   }
+  status = validate_report(report);
+  if (status != T64_REPLAY_REPORT_OK) return status;
   t64_jsonw_init(&writer, (char *)bytes_out, capacity);
-  if (!W_OK(t64_jsonw_begin_object(&writer))) goto failed;
-  if (report->has_actual_digest) {
-    if (!write_digest(&writer, "actual_digest", report->actual_digest)) goto failed;
-  } else if (!write_key(&writer, "actual_digest") ||
-             !W_OK(t64_jsonw_null(&writer))) {
+  if (!W_OK(t64_jsonw_begin_object(&writer)) ||
+      !write_nullable_digest(&writer, "actual_digest",
+                             report->has_actual_digest, report->actual_digest)) {
     goto failed;
   }
   if (report->has_at) {
@@ -985,18 +1123,11 @@ t64_replay_report_status t64_replay_report_encode(
   }
   if (!write_int(&writer, "checkpoints_matched",
                  (int64_t)report->checkpoints_matched) ||
-      !write_text(&writer, "detail", t64_replay_detail_name(report->detail))) {
-    goto failed;
-  }
-  if (report->has_expected_digest) {
-    if (!write_digest(&writer, "expected_digest", report->expected_digest)) {
-      goto failed;
-    }
-  } else if (!write_key(&writer, "expected_digest") ||
-             !W_OK(t64_jsonw_null(&writer))) {
-    goto failed;
-  }
-  if (!write_text(&writer, "field", report->field) ||
+      !write_text(&writer, "detail", t64_replay_detail_name(report->detail)) ||
+      !write_nullable_digest(&writer, "expected_digest",
+                             report->has_expected_digest,
+                             report->expected_digest) ||
+      !write_text(&writer, "field", report->field) ||
       !write_u64_text(&writer, "live_tick", report->live_tick)) {
     goto failed;
   }
@@ -1005,25 +1136,178 @@ t64_replay_report_status t64_replay_report_encode(
   } else if (!write_key(&writer, "op_index") || !W_OK(t64_jsonw_null(&writer))) {
     goto failed;
   }
-  if (!write_int(&writer, "ops_applied", (int64_t)report->ops_applied)) goto failed;
-  if (report->has_replay_sha256) {
-    if (!write_digest(&writer, "replay_sha256", report->replay_sha256)) goto failed;
-  } else if (!write_key(&writer, "replay_sha256") ||
-             !W_OK(t64_jsonw_null(&writer))) {
-    goto failed;
-  }
-  if (!write_text(&writer, "result", t64_replay_result_name(report->result)) ||
+  if (!write_int(&writer, "ops_applied", (int64_t)report->ops_applied) ||
+      !write_nullable_digest(&writer, "replay_sha256",
+                             report->has_replay_sha256,
+                             report->replay_sha256) ||
+      !write_text(&writer, "result", t64_replay_result_name(report->result)) ||
       !write_text(&writer, "schema", T64_REPLAY_REPORT_FORMAT_NAME) ||
       !write_int(&writer, "schema_version",
                  (int64_t)T64_REPLAY_REPORT_SCHEMA_VERSION) ||
       !W_OK(t64_jsonw_end_object(&writer)) ||
-      !W_OK(t64_jsonw_finish(&writer, &length))) {
+      !W_OK(t64_jsonw_finish(&writer, &length)) ||
+      length > T64_REPLAY_REPORT_MAX_BYTES) {
     goto failed;
   }
   *length_out = length;
   return T64_REPLAY_REPORT_OK;
 failed:
   return T64_REPLAY_REPORT_INVALID_ARGUMENT;
+}
+
+/* A nullable member: JSON null or a node of the wanted type. */
+static bool node_is_null(const t64_json_node *node) {
+  return node != NULL && node->type == T64_JSON_NULL;
+}
+
+t64_replay_report_status t64_replay_report_check(const uint8_t *bytes,
+                                                 size_t length,
+                                                 t64_replay_report *report_out) {
+  static const char *const keys[] = {
+      "actual_digest", "at",      "checkpoints_matched", "detail",
+      "expected_digest", "field", "live_tick",           "op_index",
+      "ops_applied",   "replay_sha256", "result",        "schema",
+      "schema_version"};
+  const t64_json_limits limits = {T64_REPLAY_REPORT_MAX_BYTES, 2u, 64u, 64u};
+  t64_json_doc doc = {0};
+  t64_replay_report r;
+  const t64_json_node *node;
+  const char *bad = NULL;
+  int64_t value;
+  size_t i;
+  if (bytes == NULL) return T64_REPLAY_REPORT_INVALID_ARGUMENT;
+  if (length > T64_REPLAY_REPORT_MAX_BYTES) return T64_REPLAY_REPORT_SIZE_LIMIT;
+  if (t64_json_parse(bytes, length, &limits, &doc, NULL) != 0) {
+    return T64_REPLAY_REPORT_INVALID_JSON;
+  }
+  memset(&r, 0, sizeof r);
+  {
+    t64_replay_report_status status = T64_REPLAY_REPORT_OK;
+    if (t64_json_check_keys(doc.root, keys, 13u, keys, 13u, &bad) !=
+        T64_JSON_KEYS_OK) {
+      status = T64_REPLAY_REPORT_INVALID_SCHEMA;
+    } else if (!string_equals(t64_json_get(doc.root, "schema"),
+                              T64_REPLAY_REPORT_FORMAT_NAME) ||
+               !node_int(t64_json_get(doc.root, "schema_version"), 1, 1,
+                         &value)) {
+      status = T64_REPLAY_REPORT_INVALID_SCHEMA;
+    } else {
+      static const char *const string_keys[] = {"detail", "field", "live_tick",
+                                                "result"};
+      static const char *const nullable_strings[] = {
+          "actual_digest", "at", "expected_digest", "replay_sha256"};
+      for (i = 0u; i < sizeof string_keys / sizeof string_keys[0]; i++) {
+        node = t64_json_get(doc.root, string_keys[i]);
+        if (node == NULL || node->type != T64_JSON_STRING) {
+          status = T64_REPLAY_REPORT_INVALID_SCHEMA;
+        }
+      }
+      for (i = 0u; i < sizeof nullable_strings / sizeof nullable_strings[0]; i++) {
+        node = t64_json_get(doc.root, nullable_strings[i]);
+        if (node == NULL ||
+            (node->type != T64_JSON_STRING && node->type != T64_JSON_NULL)) {
+          status = T64_REPLAY_REPORT_INVALID_SCHEMA;
+        }
+      }
+      node = t64_json_get(doc.root, "op_index");
+      if (node == NULL ||
+          (node->type != T64_JSON_INT && node->type != T64_JSON_NULL)) {
+        status = T64_REPLAY_REPORT_INVALID_SCHEMA;
+      }
+      node = t64_json_get(doc.root, "checkpoints_matched");
+      if (node == NULL || node->type != T64_JSON_INT) {
+        status = T64_REPLAY_REPORT_INVALID_SCHEMA;
+      }
+      node = t64_json_get(doc.root, "ops_applied");
+      if (node == NULL || node->type != T64_JSON_INT) {
+        status = T64_REPLAY_REPORT_INVALID_SCHEMA;
+      }
+    }
+    if (status != T64_REPLAY_REPORT_OK) {
+      t64_json_free(&doc);
+      return status;
+    }
+  }
+  /* Closed enums. */
+  {
+    const t64_json_node *result = t64_json_get(doc.root, "result");
+    const t64_json_node *detail = t64_json_get(doc.root, "detail");
+    const t64_json_node *field = t64_json_get(doc.root, "field");
+    t64_replay_result found_result = (t64_replay_result)0;
+    t64_replay_detail found_detail = (t64_replay_detail)-1;
+    int k;
+    for (k = T64_REPLAY_RESULT_MATCH; k <= T64_REPLAY_RESULT_REFUSED; k++) {
+      if (string_equals(result, t64_replay_result_name((t64_replay_result)k))) {
+        found_result = (t64_replay_result)k;
+      }
+    }
+    for (k = T64_REPLAY_DETAIL_NONE; k <= T64_REPLAY_DETAIL_DIGEST; k++) {
+      if (string_equals(detail, t64_replay_detail_name((t64_replay_detail)k))) {
+        found_detail = (t64_replay_detail)k;
+      }
+    }
+    if ((int)found_result == 0) {
+      t64_json_free(&doc);
+      return T64_REPLAY_REPORT_BAD_RESULT;
+    }
+    if ((int)found_detail < 0) {
+      t64_json_free(&doc);
+      return T64_REPLAY_REPORT_BAD_DETAIL;
+    }
+    if (field->len >= sizeof r.field) {
+      t64_json_free(&doc);
+      return T64_REPLAY_REPORT_BAD_FIELD;
+    }
+    memcpy(r.field, field->str, field->len);
+    r.field[field->len] = '\0';
+    if (!report_field_known(r.field)) {
+      t64_json_free(&doc);
+      return T64_REPLAY_REPORT_BAD_FIELD;
+    }
+    r.result = found_result;
+    r.detail = found_detail;
+  }
+  /* Values. */
+  {
+    const t64_json_node *actual = t64_json_get(doc.root, "actual_digest");
+    const t64_json_node *expected = t64_json_get(doc.root, "expected_digest");
+    const t64_json_node *sha = t64_json_get(doc.root, "replay_sha256");
+    const t64_json_node *at = t64_json_get(doc.root, "at");
+    const t64_json_node *op_index = t64_json_get(doc.root, "op_index");
+    bool ok = true;
+    r.has_actual_digest = !node_is_null(actual);
+    r.has_expected_digest = !node_is_null(expected);
+    r.has_replay_sha256 = !node_is_null(sha);
+    r.has_at = !node_is_null(at);
+    r.has_op_index = !node_is_null(op_index);
+    ok = ok && (!r.has_actual_digest || node_hex_digest(actual, r.actual_digest));
+    ok = ok && (!r.has_expected_digest ||
+                node_hex_digest(expected, r.expected_digest));
+    ok = ok && (!r.has_replay_sha256 || node_hex_digest(sha, r.replay_sha256));
+    ok = ok && (!r.has_at || t64_json_u64_string(at, &r.at));
+    ok = ok && t64_json_u64_string(t64_json_get(doc.root, "live_tick"),
+                                   &r.live_tick);
+    if (r.has_op_index) {
+      ok = ok && op_index->num >= 0;
+      r.op_index = (uint64_t)op_index->num;
+    }
+    node = t64_json_get(doc.root, "checkpoints_matched");
+    ok = ok && node->num >= 0;
+    r.checkpoints_matched = (uint64_t)node->num;
+    node = t64_json_get(doc.root, "ops_applied");
+    ok = ok && node->num >= 0;
+    r.ops_applied = (uint64_t)node->num;
+    if (!ok) {
+      t64_json_free(&doc);
+      return T64_REPLAY_REPORT_BAD_VALUE;
+    }
+  }
+  t64_json_free(&doc);
+  {
+    t64_replay_report_status status = validate_report(&r);
+    if (status == T64_REPLAY_REPORT_OK && report_out != NULL) *report_out = r;
+    return status;
+  }
 }
 
 /* ---- player ------------------------------------------------------------------------------- */

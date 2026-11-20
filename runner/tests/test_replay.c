@@ -894,6 +894,627 @@ static int case_independent_original_run(void) {
   return g_failures == 0 ? 0 : 1;
 }
 
+/* ---- mutation-matrix ---------------------------------------------------------------- */
+
+#define OFF_NONE ((size_t)SIZE_MAX)
+#define OFF_ANY ((size_t)SIZE_MAX - 1u)
+
+static uint8_t g_base[8192];
+static size_t g_base_length;
+static uint8_t g_work[8192 + 1024];
+
+static bool build_base(void) {
+  t64_replay_header header;
+  t64_replay_op ops[MAX_GOLDEN_OPS];
+  size_t n = golden_prequeue_ops(ops);
+  uint8_t *bytes = NULL;
+  size_t length = 0u;
+  fixed_header(&header);
+  if (t64_replay_encode(&header, ops, n, &bytes, &length) != T64_REPLAY_OK ||
+      length > sizeof g_base) {
+    free(bytes);
+    return false;
+  }
+  memcpy(g_base, bytes, length);
+  g_base_length = length;
+  free(bytes);
+  return true;
+}
+
+static const uint8_t *find_text(const uint8_t *src, size_t n, const char *text) {
+  size_t length = strlen(text);
+  size_t i;
+  if (length == 0u || length > n) return NULL;
+  for (i = 0u; i + length <= n; i++) {
+    if (memcmp(src + i, text, length) == 0) return src + i;
+  }
+  return NULL;
+}
+
+/* Replaces the first occurrence of `find` with `repl` in the base text. */
+static bool replace_text(const char *find, const char *repl, size_t *length_out) {
+  const uint8_t *at = find_text(g_base, g_base_length, find);
+  size_t head;
+  size_t flen = strlen(find);
+  size_t rlen = strlen(repl);
+  if (at == NULL) return false;
+  head = (size_t)(at - g_base);
+  if (g_base_length - flen + rlen > sizeof g_work) return false;
+  memcpy(g_work, g_base, head);
+  memcpy(g_work + head, repl, rlen);
+  memcpy(g_work + head + rlen, g_base + head + flen, g_base_length - head - flen);
+  *length_out = g_base_length - flen + rlen;
+  return true;
+}
+
+/* The end of the value that starts at `start` (a top-level member value of the
+ * canonical text: strings hold no braces or commas). */
+static size_t value_end(const uint8_t *text, size_t start, size_t n) {
+  int depth = 0;
+  bool in_string = false;
+  size_t i;
+  for (i = start; i < n; i++) {
+    uint8_t c = text[i];
+    if (c == '"') in_string = !in_string;
+    if (in_string) continue;
+    if (c == '{' || c == '[') depth++;
+    if (c == '}' || c == ']') {
+      if (depth == 0) return i;
+      depth--;
+    }
+    if (c == ',' && depth == 0) return i;
+  }
+  return n;
+}
+
+/* Removes ("remove") or rewrites the value of a root member. */
+static bool edit_root_member(const char *key, const char *new_value,
+                             size_t *length_out) {
+  char pattern[64];
+  const uint8_t *at;
+  size_t start;
+  size_t vstart;
+  size_t vend;
+  size_t tail;
+  size_t out = 0u;
+  (void)snprintf(pattern, sizeof pattern, "\"%s\":", key);
+  at = find_text(g_base, g_base_length, pattern);
+  if (at == NULL) return false;
+  start = (size_t)(at - g_base);
+  vstart = start + strlen(pattern);
+  vend = value_end(g_base, vstart, g_base_length);
+  if (new_value != NULL) {
+    size_t rlen = strlen(new_value);
+    if (g_base_length - (vend - vstart) + rlen > sizeof g_work) return false;
+    memcpy(g_work, g_base, vstart);
+    memcpy(g_work + vstart, new_value, rlen);
+    out = vstart + rlen;
+    tail = g_base_length - vend;
+    memcpy(g_work + out, g_base + vend, tail);
+    *length_out = out + tail;
+    return true;
+  }
+  /* remove the member and one adjoining comma */
+  if (g_base[vend] == ',') {
+    vend++;
+  } else if (start > 0u && g_base[start - 1u] == ',') {
+    start--;
+  }
+  memcpy(g_work, g_base, start);
+  tail = g_base_length - vend;
+  memcpy(g_work + start, g_base + vend, tail);
+  *length_out = start + tail;
+  return true;
+}
+
+static t64_replay_status parse_with(const uint8_t *bytes, size_t length,
+                                    const t64_replay_limits *limits,
+                                    size_t *offset_out, bool *canonical_same) {
+  t64_replay *replay = NULL;
+  t64_replay_error error = {T64_REPLAY_OK, 0u};
+  t64_replay_status status = limits == NULL
+      ? t64_replay_parse(bytes, length, &replay, &error)
+      : t64_replay_parse_limits(bytes, length, limits, &replay, &error);
+  if (offset_out != NULL) *offset_out = error.offset;
+  if (canonical_same != NULL) {
+    size_t clen = 0u;
+    const uint8_t *canonical = replay == NULL ? NULL
+                                              : t64_replay_canonical(replay, &clen);
+    *canonical_same = canonical != NULL && clen == g_base_length &&
+                      memcmp(canonical, g_base, clen) == 0;
+  }
+  t64_replay_destroy(replay);
+  return status;
+}
+
+typedef enum { M_REPLACE, M_REMOVE, M_VALUE, M_APPEND } mkind;
+
+typedef struct {
+  const char *name;
+  mkind kind;
+  const char *a;
+  const char *b;
+  t64_replay_status want;
+  size_t want_offset;
+} mrow;
+
+#define DIGEST_A \
+  "4a873dd8c04ab57e8f5aa64a95268d2f897269ee5a44c03bc498b8a05abcd452"
+#define END_OP_TEXT \
+  "{\"at\":\"1141425\",\"digest\":\"" GOLDEN_PRE_END_DIGEST \
+  "\",\"op\":\"end\",\"stop\":\"guest-completion\"}"
+
+static const mrow mutation_rows[] = {
+    {"unknown-root-key", M_REPLACE, "{\"boot\":", "{\"aaa\":1,\"boot\":", T64_REPLAY_INVALID_SCHEMA, OFF_NONE},
+    {"missing-boot", M_REMOVE, "boot", NULL, T64_REPLAY_INVALID_SCHEMA, OFF_NONE},
+    {"missing-build_id", M_REMOVE, "build_id", NULL, T64_REPLAY_INVALID_SCHEMA, OFF_NONE},
+    {"missing-content_sha256", M_REMOVE, "content_sha256", NULL, T64_REPLAY_INVALID_SCHEMA, OFF_NONE},
+    {"missing-content_size", M_REMOVE, "content_size", NULL, T64_REPLAY_INVALID_SCHEMA, OFF_NONE},
+    {"missing-descriptor_version", M_REMOVE, "descriptor_version", NULL, T64_REPLAY_INVALID_SCHEMA, OFF_NONE},
+    {"missing-input_schema_version", M_REMOVE, "input_schema_version", NULL, T64_REPLAY_INVALID_SCHEMA, OFF_NONE},
+    {"missing-machine_model_version", M_REMOVE, "machine_model_version", NULL, T64_REPLAY_INVALID_SCHEMA, OFF_NONE},
+    {"missing-ops", M_REMOVE, "ops", NULL, T64_REPLAY_INVALID_SCHEMA, OFF_NONE},
+    {"missing-profile_digest", M_REMOVE, "profile_digest", NULL, T64_REPLAY_INVALID_SCHEMA, OFF_NONE},
+    {"missing-profile_id", M_REMOVE, "profile_id", NULL, T64_REPLAY_INVALID_SCHEMA, OFF_NONE},
+    {"missing-save_init", M_REMOVE, "save_init", NULL, T64_REPLAY_INVALID_SCHEMA, OFF_NONE},
+    {"missing-schema", M_REMOVE, "schema", NULL, T64_REPLAY_INVALID_SCHEMA, OFF_NONE},
+    {"missing-schema_version", M_REMOVE, "schema_version", NULL, T64_REPLAY_INVALID_SCHEMA, OFF_NONE},
+    {"missing-source_revision", M_REMOVE, "source_revision", NULL, T64_REPLAY_INVALID_SCHEMA, OFF_NONE},
+    {"missing-state_serialization_version", M_REMOVE, "state_serialization_version", NULL, T64_REPLAY_INVALID_SCHEMA, OFF_NONE},
+    {"duplicate-root-key", M_REPLACE, "\"boot\":\"cold-admit\",", "\"boot\":\"cold-admit\",\"boot\":\"cold-admit\",", T64_REPLAY_INVALID_JSON, OFF_ANY},
+    {"duplicate-op-key", M_REPLACE, "{\"at\":\"0\",\"buttons\":32768,", "{\"at\":\"0\",\"at\":\"0\",\"buttons\":32768,", T64_REPLAY_INVALID_JSON, OFF_ANY},
+    {"type-string-for-integer", M_VALUE, "descriptor_version", "\"12\"", T64_REPLAY_INVALID_SCHEMA, OFF_NONE},
+    {"type-integer-for-string", M_VALUE, "profile_id", "5", T64_REPLAY_INVALID_SCHEMA, OFF_NONE},
+    {"type-object-for-array", M_VALUE, "ops", "{}", T64_REPLAY_INVALID_SCHEMA, OFF_NONE},
+    {"type-array-for-object", M_VALUE, "save_init", "[]", T64_REPLAY_INVALID_SCHEMA, OFF_NONE},
+    {"schema-text", M_REPLACE, "\"schema\":\"t64.replay\"", "\"schema\":\"t64.replaz\"", T64_REPLAY_INVALID_SCHEMA, OFF_NONE},
+    {"schema-version-2", M_REPLACE, "\"schema_version\":1", "\"schema_version\":2", T64_REPLAY_INVALID_SCHEMA, OFF_NONE},
+    {"input-schema-version-2", M_REPLACE, "\"input_schema_version\":1", "\"input_schema_version\":2", T64_REPLAY_INVALID_SCHEMA, OFF_NONE},
+    {"boot-state", M_REPLACE, "\"boot\":\"cold-admit\"", "\"boot\":\"state\"", T64_REPLAY_BOOT_UNSUPPORTED, OFF_NONE},
+    {"boot-other", M_REPLACE, "\"boot\":\"cold-admit\"", "\"boot\":\"warm\"", T64_REPLAY_INVALID_HEADER, OFF_NONE},
+    {"profile-digest-uppercase", M_REPLACE, "\"profile_digest\":\"661b", "\"profile_digest\":\"661B", T64_REPLAY_INVALID_HEADER, OFF_NONE},
+    {"profile-digest-63", M_REPLACE, "dabb6d5\",\"profile_id\"", "dabb6d\",\"profile_id\"", T64_REPLAY_INVALID_HEADER, OFF_NONE},
+    {"profile-digest-nonhex", M_REPLACE, "\"profile_digest\":\"661b", "\"profile_digest\":\"g61b", T64_REPLAY_INVALID_HEADER, OFF_NONE},
+    {"content-sha-uppercase", M_REPLACE, "\"content_sha256\":\"79c5", "\"content_sha256\":\"79C5", T64_REPLAY_INVALID_HEADER, OFF_NONE},
+    {"content-size-leading-zero", M_REPLACE, "\"content_size\":\"4616\"", "\"content_size\":\"04616\"", T64_REPLAY_INVALID_HEADER, OFF_NONE},
+    {"content-size-above-u64", M_REPLACE, "\"content_size\":\"4616\"", "\"content_size\":\"18446744073709551616\"", T64_REPLAY_INVALID_HEADER, OFF_NONE},
+    {"content-size-json-integer", M_REPLACE, "\"content_size\":\"4616\"", "\"content_size\":4616", T64_REPLAY_INVALID_HEADER, OFF_NONE},
+    {"build-id-grammar", M_REPLACE, "\"build_id\":\"t64-build-v1-0", "\"build_id\":\"t64-build-v2-0", T64_REPLAY_INVALID_HEADER, OFF_NONE},
+    {"source-revision-uppercase", M_REPLACE, "\"source_revision\":\"607b3ca", "\"source_revision\":\"607B3ca", T64_REPLAY_INVALID_HEADER, OFF_NONE},
+    {"descriptor-version-zero", M_REPLACE, "\"descriptor_version\":12", "\"descriptor_version\":0", T64_REPLAY_INVALID_HEADER, OFF_NONE},
+    {"save-init-kind-unknown", M_REPLACE, "\"kind\":\"blank\"", "\"kind\":\"blanc\"", T64_REPLAY_INVALID_HEADER, OFF_NONE},
+    {"save-init-blank-extra-key", M_REPLACE, "\"save_init\":{\"kind\":\"blank\"}", "\"save_init\":{\"kind\":\"blank\",\"length\":\"5\"}", T64_REPLAY_INVALID_SCHEMA, OFF_NONE},
+    {"save-init-image-accepted", M_REPLACE, "\"save_init\":{\"kind\":\"blank\"}", "\"save_init\":{\"kind\":\"image\",\"length\":\"512\",\"sha256\":\"" DIGEST_A "\"}", T64_REPLAY_OK, OFF_NONE},
+    {"save-init-image-no-sha", M_REPLACE, "\"save_init\":{\"kind\":\"blank\"}", "\"save_init\":{\"kind\":\"image\",\"length\":\"512\"}", T64_REPLAY_INVALID_SCHEMA, OFF_NONE},
+    {"save-init-image-length-zero", M_REPLACE, "\"save_init\":{\"kind\":\"blank\"}", "\"save_init\":{\"kind\":\"image\",\"length\":\"0\",\"sha256\":\"" DIGEST_A "\"}", T64_REPLAY_INVALID_HEADER, OFF_NONE},
+    {"number-above-2-53", M_REPLACE, "\"descriptor_version\":12", "\"descriptor_version\":9007199254740993", T64_REPLAY_INVALID_JSON, OFF_ANY},
+    {"number-fraction", M_REPLACE, "\"descriptor_version\":12", "\"descriptor_version\":12.5", T64_REPLAY_INVALID_JSON, OFF_ANY},
+    {"number-exponent", M_REPLACE, "\"descriptor_version\":12", "\"descriptor_version\":1e3", T64_REPLAY_INVALID_JSON, OFF_ANY},
+    {"port-1", M_REPLACE, "\"port\":0,\"x\":1", "\"port\":1,\"x\":1", T64_REPLAY_INVALID_OP, 0u},
+    {"port-3", M_REPLACE, "\"port\":0,\"x\":1", "\"port\":3,\"x\":1", T64_REPLAY_INVALID_OP, 0u},
+    {"buttons-65536", M_REPLACE, "\"buttons\":32768", "\"buttons\":65536", T64_REPLAY_INVALID_OP, 0u},
+    {"x-128", M_REPLACE, "\"x\":1,\"y\":-1", "\"x\":128,\"y\":-1", T64_REPLAY_INVALID_OP, 0u},
+    {"y-minus-129", M_REPLACE, "\"x\":1,\"y\":-1", "\"x\":1,\"y\":-129", T64_REPLAY_INVALID_OP, 0u},
+    {"at-leading-zero", M_REPLACE, "{\"at\":\"0\",\"buttons\":32768", "{\"at\":\"00\",\"buttons\":32768", T64_REPLAY_INVALID_OP, 0u},
+    {"event-before-at", M_REPLACE, "{\"at\":\"0\",\"buttons\":32768,\"event_tick\":\"602000\"", "{\"at\":\"700000\",\"buttons\":32768,\"event_tick\":\"602000\"", T64_REPLAY_EVENT_BEFORE_AT, 0u},
+    {"at-reversed", M_REPLACE, "\"at\":\"320000\"", "\"at\":\"100000\"", T64_REPLAY_AT_REVERSED, 7u},
+    {"end-missing", M_REPLACE, "," END_OP_TEXT, "", T64_REPLAY_END_MISSING, 13u},
+    {"end-not-last", M_REPLACE, "\"stop\":\"guest-completion\"}]", "\"stop\":\"guest-completion\"},{\"at\":\"1141425\",\"digest\":\"" GOLDEN_PRE_END_DIGEST "\",\"op\":\"checkpoint\"}]", T64_REPLAY_END_NOT_LAST, 14u},
+    {"second-end", M_REPLACE, "\"stop\":\"guest-completion\"}]", "\"stop\":\"guest-completion\"}," END_OP_TEXT "]", T64_REPLAY_END_NOT_LAST, 14u},
+    {"unknown-op-name", M_REPLACE, "\"op\":\"input\"", "\"op\":\"inpuz\"", T64_REPLAY_INVALID_OP, 0u},
+    {"input-with-digest", M_REPLACE, "{\"at\":\"0\",\"buttons\":32768,", "{\"at\":\"0\",\"buttons\":32768,\"digest\":\"" DIGEST_A "\",", T64_REPLAY_INVALID_OP, 0u},
+    {"op-digest-uppercase", M_REPLACE, "\"digest\":\"4a87", "\"digest\":\"4A87", T64_REPLAY_INVALID_OP, 6u},
+    {"end-stop-unknown", M_REPLACE, "\"stop\":\"guest-completion\"", "\"stop\":\"guest-completed\"", T64_REPLAY_INVALID_OP, 13u},
+    {"depth-5", M_REPLACE, "\"save_init\":{\"kind\":\"blank\"}", "\"save_init\":{\"kind\":\"blank\",\"a\":{\"b\":{\"c\":{\"d\":1}}}}", T64_REPLAY_INVALID_JSON, OFF_ANY},
+    {"trailing-bytes", M_APPEND, "{}", NULL, T64_REPLAY_INVALID_JSON, OFF_ANY},
+};
+
+static bool offset_ok(size_t got, size_t want, size_t length) {
+  if (want == OFF_ANY) return got < length;
+  return got == want;
+}
+
+/* A document of `ops` checkpoints (plus an end) under the fixed header. */
+static t64_replay_status parse_checkpoint_doc(size_t checkpoints,
+                                              size_t inputs,
+                                              const t64_replay_limits *limits,
+                                              size_t *offset_out) {
+  t64_replay_header header;
+  t64_replay_op *ops = (t64_replay_op *)calloc(checkpoints + inputs + 1u,
+                                               sizeof *ops);
+  uint8_t *bytes = NULL;
+  size_t length = 0u;
+  size_t i;
+  size_t n = 0u;
+  t64_replay_status status = T64_REPLAY_ALLOCATION_FAILED;
+  t64_replay *replay = NULL;
+  t64_replay_error error = {T64_REPLAY_OK, 0u};
+  if (ops == NULL) return status;
+  fixed_header(&header);
+  for (i = 0u; i < inputs; i++) op_input(&ops[n++], 0u, &golden_script[i % 6u]);
+  for (i = 0u; i < checkpoints; i++) {
+    op_checkpoint(&ops[n++], 1000u + (uint64_t)i, golden_pre_digests[0]);
+  }
+  op_end(&ops[n++], 100000u, GOLDEN_PRE_END_DIGEST);
+  if (t64_replay_encode(&header, ops, n, &bytes, &length) != T64_REPLAY_OK) {
+    free(ops);
+    return status;
+  }
+  status = limits == NULL
+      ? t64_replay_parse(bytes, length, &replay, &error)
+      : t64_replay_parse_limits(bytes, length, limits, &replay, &error);
+  if (offset_out != NULL) *offset_out = error.offset;
+  t64_replay_destroy(replay);
+  free(bytes);
+  free(ops);
+  return status;
+}
+
+static int case_mutation_matrix(void) {
+  size_t i;
+  size_t length = 0u;
+  size_t offset = 0u;
+  size_t flips = 0u;
+  size_t flip_accepted = 0u;
+  size_t flip_same_canonical = 0u;
+  uint8_t original_sha[T64_SHA256_DIGEST_SIZE];
+  CHECK(build_base());
+  if (g_base_length == 0u) return 1;
+  CHECK(g_base_length == GOLDEN_PRE_CANONICAL_BYTES);
+  /* The accepted baseline of the same bytes, once per row group below too. */
+  CHECK(parse_with(g_base, g_base_length, NULL, &offset, NULL) == T64_REPLAY_OK);
+  for (i = 0u; i < sizeof mutation_rows / sizeof mutation_rows[0]; i++) {
+    const mrow *row = &mutation_rows[i];
+    t64_replay_status status;
+    bool built = false;
+    CHECK(parse_with(g_base, g_base_length, NULL, &offset, NULL) ==
+          T64_REPLAY_OK);
+    if (row->kind == M_REPLACE) {
+      built = replace_text(row->a, row->b, &length);
+    } else if (row->kind == M_REMOVE) {
+      built = edit_root_member(row->a, NULL, &length);
+    } else if (row->kind == M_VALUE) {
+      built = edit_root_member(row->a, row->b, &length);
+    } else {
+      memcpy(g_work, g_base, g_base_length);
+      memcpy(g_work + g_base_length, row->a, strlen(row->a));
+      length = g_base_length + strlen(row->a);
+      built = true;
+    }
+    if (!built) {
+      (void)fprintf(stderr, "row %s: mutation not applicable\n", row->name);
+      CHECK(built);
+      continue;
+    }
+    status = parse_with(g_work, length, NULL, &offset, NULL);
+    if (status != row->want ||
+        (row->want != T64_REPLAY_OK && row->want_offset != OFF_NONE &&
+         !offset_ok(offset, row->want_offset, length)) ||
+        (row->want != T64_REPLAY_OK && row->want_offset == OFF_NONE &&
+         offset != OFF_NONE)) {
+      (void)fprintf(stderr, "row %s: status %s offset %zu want %s offset %zu\n",
+                    row->name, t64_replay_status_name(status), offset,
+                    t64_replay_status_name(row->want), row->want_offset);
+      g_failures++;
+    }
+  }
+  /* A 161-byte string and a 160-byte string (the string limit is 160). */
+  {
+    char value[200];
+    memset(value, 'a', sizeof value);
+    value[0] = '"';
+    memset(value + 1, 'a', 161u);
+    value[162] = '"';
+    value[163] = '\0';
+    CHECK(edit_root_member("profile_id", value, &length));
+    CHECK(parse_with(g_work, length, NULL, &offset, NULL) ==
+              T64_REPLAY_INVALID_JSON && offset < length);
+    memset(value + 1, 'a', 160u);
+    value[161] = '"';
+    value[162] = '\0';
+    CHECK(edit_root_member("profile_id", value, &length));
+    /* 160 characters pass the JSON limit and then fail the profile grammar. */
+    CHECK(parse_with(g_work, length, NULL, &offset, NULL) ==
+          T64_REPLAY_INVALID_HEADER);
+  }
+  /* The byte cap is checked before any parse, at the default limit. */
+  {
+    uint8_t *big = (uint8_t *)malloc((size_t)T64_REPLAY_MAX_BYTES + 1u);
+    t64_replay *replay = NULL;
+    t64_replay_error error = {T64_REPLAY_OK, 0u};
+    CHECK(big != NULL);
+    if (big != NULL) {
+      memset(big, ' ', (size_t)T64_REPLAY_MAX_BYTES + 1u);
+      memcpy(big, g_base, g_base_length);
+      CHECK(t64_replay_parse(big, (size_t)T64_REPLAY_MAX_BYTES + 1u, &replay,
+                             &error) == T64_REPLAY_SIZE_LIMIT);
+      CHECK(error.offset == OFF_NONE && replay == NULL);
+      free(big);
+    }
+  }
+  /* Caps. The default constants are asserted by value. */
+  CHECK(T64_REPLAY_MAX_BYTES == 4194304u && T64_REPLAY_MAX_OPS == 65536u &&
+        T64_REPLAY_MAX_CHECKPOINTS == 4096u);
+  {
+    t64_replay_limits low = {T64_REPLAY_MAX_BYTES, 8u, 2u};
+    /* ops at the cap (5 inputs, 2 checkpoints, the end = 8) and one above. */
+    CHECK(parse_checkpoint_doc(2u, 5u, &low, &offset) == T64_REPLAY_OK);
+    CHECK(parse_checkpoint_doc(2u, 6u, &low, &offset) == T64_REPLAY_OP_LIMIT);
+    /* checkpoints at the cap and one above (the op cap is not reached). */
+    CHECK(parse_checkpoint_doc(2u, 0u, &low, &offset) == T64_REPLAY_OK);
+    CHECK(parse_checkpoint_doc(3u, 0u, &low, &offset) ==
+          T64_REPLAY_CHECKPOINT_LIMIT);
+    /* default limits: the 4,096th checkpoint is accepted, the 4,097th is not.
+     * (The op cap of 65,536 is not reachable with input ops at the default byte
+     * cap: a minimal canonical input op is about 75 bytes.) */
+    CHECK(parse_checkpoint_doc(4096u, 0u, NULL, &offset) == T64_REPLAY_OK);
+    CHECK(parse_checkpoint_doc(4097u, 0u, NULL, &offset) ==
+          T64_REPLAY_CHECKPOINT_LIMIT);
+  }
+  /* Sampled single-bit-flip sweep: every 5th byte of the golden file. */
+  {
+    t64_replay *replay = NULL;
+    t64_replay_error error;
+    CHECK(t64_replay_parse(g_base, g_base_length, &replay, &error) ==
+          T64_REPLAY_OK);
+    if (replay != NULL) {
+      memcpy(original_sha, t64_replay_sha256(replay), sizeof original_sha);
+      t64_replay_destroy(replay);
+    }
+  }
+  for (i = 0u; i < g_base_length; i += 5u) {
+    t64_replay *replay = NULL;
+    t64_replay_error error;
+    memcpy(g_work, g_base, g_base_length);
+    g_work[i] = (uint8_t)(g_work[i] ^ (uint8_t)(1u << (i % 8u)));
+    flips++;
+    if (t64_replay_parse(g_work, g_base_length, &replay, &error) ==
+        T64_REPLAY_OK) {
+      flip_accepted++;
+      if (memcmp(t64_replay_sha256(replay), original_sha,
+                 sizeof original_sha) == 0) {
+        flip_same_canonical++;
+        (void)fprintf(stderr, "flip at byte %zu kept the canonical identity\n", i);
+      }
+    }
+    t64_replay_destroy(replay);
+  }
+  CHECK(flips >= 400u);
+  CHECK(flip_same_canonical == 0u);
+  /* The recorder refuses an append that would pass a cap: the op cap before the
+   * machine call (the machine is unchanged) and the checkpoint cap; the replay
+   * is not published (finish reports the first failure). */
+  {
+    t64_machine *machine = new_machine(PROFILE_STEM, false);
+    t64_replay_header header;
+    t64_replay_limits low_ops = {T64_REPLAY_MAX_BYTES, 3u, 2u};
+    t64_replay_limits low_cp = {T64_REPLAY_MAX_BYTES, 8u, 1u};
+    t64_replay_recorder *recorder = NULL;
+    t64_replay *replay = NULL;
+    t64_replay_error error;
+    uint8_t before[T64_DIGEST_SIZE];
+    uint8_t after[T64_DIGEST_SIZE];
+    CHECK(machine != NULL && compose_live_header(machine, &header));
+    if (machine != NULL) {
+      recorder = t64_replay_recorder_create(&header, &low_ops);
+      CHECK(recorder != NULL);
+      CHECK(t64_replay_recorder_queue_input(recorder, machine, 0u, 1000u, 0u, 1u,
+                                            0, 0) == T64_STATUS_OK);
+      CHECK(t64_replay_recorder_queue_input(recorder, machine, 0u, 2000u, 0u, 2u,
+                                            0, 0) == T64_STATUS_OK);
+      CHECK(t64_machine_digest(machine, before) == T64_STATUS_OK);
+      CHECK(t64_replay_recorder_queue_input(recorder, machine, 0u, 3000u, 0u, 3u,
+                                            0, 0) ==
+            T64_STATUS_RESOURCE_EXHAUSTED);
+      CHECK(t64_machine_digest(machine, after) == T64_STATUS_OK &&
+            memcmp(before, after, sizeof before) == 0);
+      CHECK(t64_replay_recorder_error(recorder) == T64_REPLAY_OP_LIMIT);
+      CHECK(t64_replay_recorder_end(recorder, machine, 0u,
+                                    T64_REPLAY_STOP_GUEST_BOUND) ==
+            T64_REPLAY_OP_LIMIT);
+      CHECK(t64_replay_recorder_finish(recorder, &replay, &error) ==
+                T64_REPLAY_OP_LIMIT &&
+            replay == NULL);
+      t64_replay_recorder_destroy(recorder);
+      recorder = t64_replay_recorder_create(&header, &low_cp);
+      CHECK(recorder != NULL);
+      CHECK(t64_replay_recorder_checkpoint(recorder, machine, 0u) ==
+            T64_REPLAY_OK);
+      CHECK(t64_replay_recorder_checkpoint(recorder, machine, 0u) ==
+            T64_REPLAY_CHECKPOINT_LIMIT);
+      CHECK(t64_replay_recorder_finish(recorder, &replay, &error) ==
+                T64_REPLAY_CHECKPOINT_LIMIT &&
+            replay == NULL);
+      t64_replay_recorder_destroy(recorder);
+      t64_machine_destroy(machine);
+    }
+  }
+  (void)fprintf(stderr, "bit-flip sweep: %zu flips, %zu accepted, %zu refused\n",
+                flips, flip_accepted, flips - flip_accepted);
+  return g_failures == 0 ? 0 : 1;
+}
+
+/* ---- report-record ------------------------------------------------------------------- */
+
+typedef struct {
+  const char *name;
+  const char *find;
+  const char *repl;
+  t64_replay_report_status want;
+} rrow;
+
+static void sample_digest(uint8_t out[T64_DIGEST_SIZE], uint8_t seed) {
+  size_t i;
+  for (i = 0u; i < T64_DIGEST_SIZE; i++) out[i] = (uint8_t)(seed + i);
+}
+
+static void sample_report(t64_replay_report *r, t64_replay_result result) {
+  memset(r, 0, sizeof *r);
+  r->result = result;
+  (void)snprintf(r->field, sizeof r->field, "none");
+  r->has_replay_sha256 = true;
+  sample_digest(r->replay_sha256, 0x10u);
+  r->checkpoints_matched = 2u;
+  r->ops_applied = 8u;
+  r->live_tick = 480000u;
+  if (result == T64_REPLAY_RESULT_DIVERGED) {
+    r->detail = T64_REPLAY_DETAIL_DIGEST;
+    r->has_op_index = true;
+    r->op_index = 8u;
+    r->has_at = true;
+    r->at = 480000u;
+    r->has_expected_digest = true;
+    r->has_actual_digest = true;
+    sample_digest(r->expected_digest, 0x20u);
+    sample_digest(r->actual_digest, 0x30u);
+  } else if (result == T64_REPLAY_RESULT_IDENTITY_MISMATCH) {
+    (void)snprintf(r->field, sizeof r->field, "build-id");
+    r->checkpoints_matched = 0u;
+    r->ops_applied = 0u;
+    r->live_tick = 0u;
+  } else if (result == T64_REPLAY_RESULT_REFUSED) {
+    r->detail = T64_REPLAY_DETAIL_QUEUE_FULL;
+    r->has_op_index = true;
+    r->op_index = 6u;
+    r->has_at = true;
+    r->at = 0u;
+    r->checkpoints_matched = 0u;
+    r->ops_applied = 6u;
+    r->live_tick = 0u;
+  } else {
+    r->ops_applied = 14u;
+    r->checkpoints_matched = 7u;
+    r->live_tick = 1141425u;
+  }
+}
+
+static const rrow report_rows_match[] = {
+    {"match-field", "\"field\":\"none\"", "\"field\":\"build-id\"", T64_REPLAY_REPORT_MATCH_SHAPE},
+    {"match-detail", "\"detail\":\"none\"", "\"detail\":\"digest\"", T64_REPLAY_REPORT_MATCH_SHAPE},
+    {"match-op-index", "\"op_index\":null", "\"op_index\":3", T64_REPLAY_REPORT_MATCH_SHAPE},
+    {"match-at", "\"at\":null", "\"at\":\"5\"", T64_REPLAY_REPORT_MATCH_SHAPE},
+    {"count-order", "\"checkpoints_matched\":7", "\"checkpoints_matched\":15", T64_REPLAY_REPORT_COUNT_ORDER},
+    {"schema-text", "\"schema\":\"t64.replay-report\"", "\"schema\":\"t64.replay-reporx\"", T64_REPLAY_REPORT_INVALID_SCHEMA},
+    {"schema-version", "\"schema_version\":1", "\"schema_version\":2", T64_REPLAY_REPORT_INVALID_SCHEMA},
+    {"unknown-key", "{\"actual_digest\"", "{\"aaa\":1,\"actual_digest\"", T64_REPLAY_REPORT_INVALID_SCHEMA},
+    {"missing-key", "\"live_tick\":\"1141425\",", "", T64_REPLAY_REPORT_INVALID_SCHEMA},
+    {"duplicate-key", "\"field\":\"none\",", "\"field\":\"none\",\"field\":\"none\",", T64_REPLAY_REPORT_INVALID_JSON},
+    {"result-outside-set", "\"result\":\"match\"", "\"result\":\"maybe\"", T64_REPLAY_REPORT_BAD_RESULT},
+    {"detail-outside-set", "\"detail\":\"none\"", "\"detail\":\"zzz\"", T64_REPLAY_REPORT_BAD_DETAIL},
+    {"field-outside-set", "\"field\":\"none\"", "\"field\":\"zzz\"", T64_REPLAY_REPORT_BAD_FIELD},
+};
+static const rrow report_rows_diverged[] = {
+    {"diverged-no-op-index", "\"op_index\":8", "\"op_index\":null", T64_REPLAY_REPORT_DIVERGED_SHAPE},
+    {"diverged-no-at", "\"at\":\"480000\"", "\"at\":null", T64_REPLAY_REPORT_DIVERGED_SHAPE},
+    {"diverged-no-expected", "\"expected_digest\":\"202122232425262728292a2b2c2d2e2f303132333435363738393a3b3c3d3e3f\"", "\"expected_digest\":null", T64_REPLAY_REPORT_DIVERGED_SHAPE},
+    {"diverged-no-actual", "\"actual_digest\":\"303132333435363738393a3b3c3d3e3f404142434445464748494a4b4c4d4e4f\"", "\"actual_digest\":null", T64_REPLAY_REPORT_DIVERGED_SHAPE},
+};
+static const rrow report_rows_identity[] = {
+    {"identity-field-none", "\"field\":\"build-id\"", "\"field\":\"none\"", T64_REPLAY_REPORT_IDENTITY_SHAPE},
+    {"identity-detail", "\"detail\":\"none\"", "\"detail\":\"digest\"", T64_REPLAY_REPORT_IDENTITY_SHAPE},
+    {"identity-field-unknown", "\"field\":\"build-id\"", "\"field\":\"zzz\"", T64_REPLAY_REPORT_BAD_FIELD},
+};
+static const rrow report_rows_refused[] = {
+    {"refused-detail-none", "\"detail\":\"queue-full\"", "\"detail\":\"none\"", T64_REPLAY_REPORT_REFUSED_SHAPE},
+    {"refused-with-digest", "\"expected_digest\":null", "\"expected_digest\":\"" DIGEST_A "\"", T64_REPLAY_REPORT_REFUSED_SHAPE},
+};
+
+static bool report_mutate(const uint8_t *src, size_t n, const char *find,
+                          const char *repl, uint8_t *dst, size_t cap,
+                          size_t *out) {
+  const uint8_t *at = find_text(src, n, find);
+  size_t head;
+  size_t flen = strlen(find);
+  size_t rlen = strlen(repl);
+  if (at == NULL || n - flen + rlen > cap) return false;
+  head = (size_t)(at - src);
+  memcpy(dst, src, head);
+  memcpy(dst + head, repl, rlen);
+  memcpy(dst + head + rlen, src + head + flen, n - head - flen);
+  *out = n - flen + rlen;
+  return true;
+}
+
+static void run_report_rows(const t64_replay_report *base_report,
+                            const rrow *rows, size_t count) {
+  uint8_t bytes[T64_REPLAY_REPORT_MAX_BYTES + 64u];
+  uint8_t mutated[T64_REPLAY_REPORT_MAX_BYTES + 64u];
+  size_t length = 0u;
+  size_t mlength = 0u;
+  size_t i;
+  CHECK(t64_replay_report_encode(base_report, bytes, sizeof bytes, &length) ==
+        T64_REPLAY_REPORT_OK);
+  for (i = 0u; i < count; i++) {
+    t64_replay_report_status status;
+    /* the accepted baseline of the same bytes first */
+    CHECK(t64_replay_report_check(bytes, length, NULL) == T64_REPLAY_REPORT_OK);
+    if (!report_mutate(bytes, length, rows[i].find, rows[i].repl, mutated,
+                       sizeof mutated, &mlength)) {
+      (void)fprintf(stderr, "report row %s: mutation not applicable\n",
+                    rows[i].name);
+      g_failures++;
+      continue;
+    }
+    status = t64_replay_report_check(mutated, mlength, NULL);
+    if (status != rows[i].want) {
+      (void)fprintf(stderr, "report row %s: status %s want %s\n", rows[i].name,
+                    t64_replay_report_status_name(status),
+                    t64_replay_report_status_name(rows[i].want));
+      g_failures++;
+    }
+  }
+}
+
+static int case_report_record(void) {
+  t64_replay_report report;
+  uint8_t bytes[T64_REPLAY_REPORT_MAX_BYTES + 64u];
+  size_t length = 0u;
+  t64_json_doc doc = {0};
+  uint8_t big[T64_REPLAY_REPORT_MAX_BYTES + 2u];
+  const t64_replay_result results[4] = {
+      T64_REPLAY_RESULT_MATCH, T64_REPLAY_RESULT_DIVERGED,
+      T64_REPLAY_RESULT_IDENTITY_MISMATCH, T64_REPLAY_RESULT_REFUSED};
+  size_t i;
+  /* Each result shape encodes to canonical sorted bytes the checker accepts. */
+  for (i = 0u; i < 4u; i++) {
+    t64_replay_report back;
+    sample_report(&report, results[i]);
+    CHECK(t64_replay_report_encode(&report, bytes, sizeof bytes, &length) ==
+          T64_REPLAY_REPORT_OK);
+    CHECK(length > 0u && length <= T64_REPLAY_REPORT_MAX_BYTES &&
+          bytes[length - 1u] == '\n');
+    CHECK(t64_json_parse(bytes, length, NULL, &doc, NULL) == 0);
+    if (doc.root != NULL) CHECK(keys_ascending(doc.root));
+    t64_json_free(&doc);
+    CHECK(t64_replay_report_check(bytes, length, &back) ==
+          T64_REPLAY_REPORT_OK);
+    CHECK(back.result == report.result && back.detail == report.detail &&
+          strcmp(back.field, report.field) == 0 &&
+          back.checkpoints_matched == report.checkpoints_matched &&
+          back.ops_applied == report.ops_applied &&
+          back.live_tick == report.live_tick &&
+          back.has_op_index == report.has_op_index &&
+          back.op_index == report.op_index);
+  }
+  sample_report(&report, T64_REPLAY_RESULT_MATCH);
+  run_report_rows(&report, report_rows_match,
+                  sizeof report_rows_match / sizeof report_rows_match[0]);
+  sample_report(&report, T64_REPLAY_RESULT_DIVERGED);
+  run_report_rows(&report, report_rows_diverged,
+                  sizeof report_rows_diverged / sizeof report_rows_diverged[0]);
+  sample_report(&report, T64_REPLAY_RESULT_IDENTITY_MISMATCH);
+  run_report_rows(&report, report_rows_identity,
+                  sizeof report_rows_identity / sizeof report_rows_identity[0]);
+  sample_report(&report, T64_REPLAY_RESULT_REFUSED);
+  run_report_rows(&report, report_rows_refused,
+                  sizeof report_rows_refused / sizeof report_rows_refused[0]);
+  /* A report above 4,096 bytes is refused before any parse. */
+  memset(big, ' ', sizeof big);
+  CHECK(t64_replay_report_check(big, T64_REPLAY_REPORT_MAX_BYTES + 1u, NULL) ==
+        T64_REPLAY_REPORT_SIZE_LIMIT);
+  return g_failures == 0 ? 0 : 1;
+}
+
 /* ---- real suite: supervised runs ----------------------------------------------------- */
 
 static const char *g_supervisor;
@@ -1416,6 +2037,8 @@ typedef struct {
 static const case_entry cases[] = {
     {"rom-timing", "unit", case_rom_timing},
     {"format-roundtrip", "unit", case_format_roundtrip},
+    {"mutation-matrix", "unit", case_mutation_matrix},
+    {"report-record", "unit", case_report_record},
     {"independent-original-run", "unit", case_independent_original_run},
     {"record-play-match", "real", case_record_play_match},
 };
