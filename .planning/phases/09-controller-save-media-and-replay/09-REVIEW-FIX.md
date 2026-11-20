@@ -7,8 +7,8 @@ review_path: .planning/phases/09-controller-save-media-and-replay/09-REVIEW.md
 security_path: .planning/phases/09-controller-save-media-and-replay/09-SECURITY.md
 verification_path: .planning/phases/09-controller-save-media-and-replay/09-VERIFICATION.md
 iteration: 1
-cycle_groups: [G1, G2, G3, G4, T6-FX38]
-status: g1_g2_g3_g4_complete_fx38_task6
+cycle_groups: [G1, G2, G3, G4, T6-FX38, T6-FX39]
+status: g1_g2_g3_g4_complete_fx38_fx39_task6
 recheck_paths:
   - build/gate/09-10-recheck-R1.md
   - build/gate/09-10-recheck-R2.md
@@ -89,6 +89,10 @@ FX-25 registered the case `mutant-count-drift` inside `harness.state-field-use-a
 ### DEV-15 [Task 6 finding, FX-38]: the cleanup scope of FX-12 removed the evidence the hosted collector reads
 
 Found after the one fix cycle ended, by the first hosted run of the fix-cycle head: the orchestrator's push of `49069a7` ran hosted run 44776046324 and both jobs failed at the step "Emit authored Phase 9 evidence" with `qualify-phase09: refused original evidence: retained run directory is missing or unsafe` (the Gate step and the audio steps passed, the steps after the emit never ran). Cause: FX-12 (`e68db4c`) gave every runner test a per-process scope removed at exit, including `runner/tests/test_pad_poll.c`, whose retained run directories (`result.json`, `command.args`, `input.json`, the altered fixture copy) are read by the hosted emit after the process has ended (plan 09-03.1 collector interface). A Rule 1 defect of the fix cycle itself, in a test helper (a test source, not a frozen file). The local gate, the focused CTest batches, the targeted re-check, the security re-audit and the gaps-only re-verification could not see it: no gate test reads a retained directory after its process exits, and the emit replay was not part of the cheap checks. Cost: one more commit (FX-38, `c3bdff5`), the native rehearsal that had started on the earlier candidate was stopped at its ASan stage and restarted on the new candidate (the record of a native run binds the exact source), and the covered files `runner/tests/t64_test_tree.h`, `runner/tests/test_pad_poll.c` and `scripts/tests/test_phase09_qualification.py` changed after the verifier's digest (the digest was already stale from the CONTEXT amendment K20 and this record, see the handoff in the SUMMARY). The repeat budget of Task 6 (one repeat of steps 2 to 4 for a native failure or a hosted overrun) is not spent: no native or hosted rehearsal of this plan had completed when the defect was found, and it was found by a read-only look at a hosted run that already existed.
+
+### DEV-16 [Task 6 hosted rehearsal failure, FX-39]: four registered TIMEOUTs had less than twice the measured seconds, one fired on the hosted macOS runner
+
+The first hosted rehearsal (run 44784312630, attempt 1, source `16849e7`) failed the job `gate-macos` at the Gate step: `harness.state-field-use-audit` ended `***Timeout 60.06 sec` against its registered 60 s (the same test took 48.7 s on that runner in run 44776046324 and 17.7 to 21.3 s natively; `gate-linux` succeeded, Gate 147 s, run 189 s, and so proved the FX-38 emit and the rest of the hosted tail on a real runner). Classified from the step log: not product code, not frozen logic and not an infrastructure fault; a registered deadline of 1.0 to 1.2 times the hosted figure, which a rerun would pass or fail on runner noise and which would then fail 09-11's qualifying runs, where logic cannot be edited. A rerun of the same SHA was therefore not used. The repair is data only (CMake registration TIMEOUTs, the lever plan 09-10 Task 6 step 5 names) and is the one repeat of steps 2 to 4: the native rehearsal on `16849e7` (exit 0, 1,652 s) and its record are superseded by a new native rehearsal and a new hosted rehearsal on the repaired candidate. See FX-39.
 
 ### Blocking set
 
@@ -625,15 +629,28 @@ Run on the final G4 tree (HEAD after the commit that adds this record). Host: 18
 - **Next Phase 8 requalification:** the `qualify-audio.py` limits (R3 RC-02, `docs/ci-reviews/LOG.md` F-106).
 - **Phase 10:** R1 RC-06 (version markers of the state content), R1 RC-07, R2 RC-04, RC-06, RC-08, the remaining parts of R3 RC-05, and the items carried from G1 to G3.
 
-## Task 6 repair (FX-38)
+## Task 6 repairs (FX-38, FX-39)
 
 ### FX-38 [TEST] a runner test that retains run evidence for the hosted collector keeps its scope past exit: regression of FX-12, DEV-15
 
 Commit c3bdff5. **RED** (`build/gate/09-10-g5/rc6-01-red.log`; the public hosted log of run 44776046324 holds the same refusal on both jobs): replayed locally on the clean tree `0d31e0e` with the exact CI lines (`check-phase09-cases.py --suite hosted --run` exit 0, then `qualify-phase09.py --emit-hosted ...`): `refused original evidence: retained run directory is missing or unsafe`, exit 1, about 2 s. Note on the log: it is a transcription of the live terminal output of that replay, not a tool capture (the binary of that moment was replaced by the fix build before the log could be re-run, and the emit refuses a dirty tree); the case-step capture is retained as a scratch file. **Fix (test only):** `t64_test_scope_keep()` in `runner/tests/t64_test_tree.h` makes the scope cleanup return (the flag sits beside the existing `T64_KEEP_TEST_EVIDENCE` condition); `runner/tests/test_pad_poll.c` calls it after `retain_run_evidence` succeeds, before the marker line, so a pad-poll process that retained a run leaves its whole scope in place (the pre-FX-12 behavior for exactly the processes the collector reads; the other six tests still clean up). **Control** (inside `harness.phase09-qualification`, case `hosted-rows-pinned-independently`, no new name): `retained_scope_gaps` finds, after the accepted baseline of the real sources (exactly one retaining test source, `test_pad_poll.c`), the keep call missing between the retain call and the marker, the cleanup not honoring the flag and the helper missing, each removed in turn. This is a static control: the end-to-end proof is the replay of every hosted step after Gate. **Green:** the case step and the Phase 9 emit at `c3bdff5` exit 0, and the whole tail replayed in order with the CI lines (audio case run 17 s, Phase 9 case run 2 s, audio emit, Phase 9 emit, raw RDP VI emit, guest emit, staging rights scan 8 files 0 findings, four PII scans) all exit 0 after a full `sh scripts/gate.sh` (PASS, 140 s); `test_phase09_qualification.py --selftest` passes (29 cases); the pinned gcc:13 closure over the seven units that include the header is clean; the Linux compile pre-flight (219 units, act image, platform not forced) is clean, 50 s.
 
+### FX-39 [DATA, Task 6 repair, repeat 1 of 1] four registered TIMEOUTs get the margin the measurements need: DEV-16
+
+Commit ba477e2, `runner/CMakeLists.txt` only (four numbers). **Trigger and classification:** DEV-16. **Margin audit** (every registered TIMEOUT of both presets, read with `ctest --show-only=json-v1`, against the largest of: native gate JUnit and native sanitizer JUnit of the rehearsal on `16849e7`, hosted Linux and macOS seconds of runs 44776046324 and 44784312630; the rule is the one of FX-20 and FX-22, at least twice the measurement):
+
+| Name | Registered | Largest measured | Ratio | Basis | Now |
+| --- | --- | --- | --- | --- | --- |
+| `harness.state-field-use-audit` | 60 | 60.1 (killed) | 1.0 | hosted macOS, run 44784312630 (48.7 s in run 44776046324, native 17.7 to 21.3 s) | 240 |
+| `repo.rsp-no-hle` | 60 | 47.9 | 1.25 | hosted Linux, run 44776046324 (73 mutation seeds since FX-19) | 240 |
+| `runner.state-export` | 240 | 182.4 | 1.32 | native sanitizer full run (153.6 s in G4, 131.5 s alone) | 480 |
+| `runner.cpu-diagnostic` | 120 | 62.8 | 1.91 | native sanitizer full run | 240 |
+
+Left unchanged: `unit.core.state.import` under the sanitizer (1,257 s of 2,400 s, 1.91; the margin FX-22 decided together with the wrapper, record bound and outer limit, which are frozen constants), `fuzz.rom-admission` 2.15, every other name 2.19 or more. **Fix:** the four numbers above; a deadline is not a count, case or guard, so no coverage changed and no pass rule moved; a hung test is now reported after 240 or 480 s instead of 60, 120 or 240 s, still inside the 10 minute job limit for the 240 s names (the largest, `runner.state-export`, is a sanitizer-scale test that takes 8 s natively). Read back with `ctest --test-dir build/gate --show-only=json-v1` and the same for `build/asan` after a reconfigure: 240, 240, 240 and 480 on both presets; inventories PASS (224 and 226); the qualifier's registered-TIMEOUT control (maximum 2,400, wrapper 600 s above it) still passes. Cost: the `runner` tree identity changes once (FR record refreshed); a covered file edit after the verifier's digest (see the SUMMARY handoff).
+
 ## FR freeze record
 
-Written by plan 09-10 Task 6 step 1, before the rehearsal, so the rehearsed commit contains it; the tree identities were refreshed once after FX-38 (the `runner` and `scripts` trees changed by that fix, no other tree and no frozen file did). The local tag `phase09-fr` is created on the rehearsed commit only after both rehearsals pass (step 6) and is not pushed by this plan; plan 09-11 pushes it with its first push. FR is the end of 09-10 (D-06): from the tagged commit on, all logic is frozen and 09-11 may edit data only.
+Written by plan 09-10 Task 6 step 1, before the rehearsal, so the rehearsed commit contains it; the tree identities were refreshed after FX-38 (the `runner` and `scripts` trees changed by that fix) and after FX-39 (the `runner` tree again, `runner/CMakeLists.txt`); no other tree and no frozen file changed. The local tag `phase09-fr` is created on the rehearsed commit only after both rehearsals pass (step 6) and is not pushed by this plan; plan 09-11 pushes it with its first push. FR is the end of 09-10 (D-06): from the tagged commit on, all logic is frozen and 09-11 may edit data only.
 
 ### Frozen logic set
 
@@ -642,7 +659,7 @@ Git tree identities at the commit being recorded (`git rev-parse HEAD:PATH`; thi
 | Tree | Identity |
 | --- | --- |
 | `core` | `0b0227638576babc7645c4d653bd4c156b387c77` |
-| `runner` | `a842e3a3950a726e0494f139cd65dbb18c89ba37` |
+| `runner` | `0a82dabe0cf62e333fd319086b5bbd5066f68e04` |
 | `fixtures` | `ea48718ab44dde5788863e3bc166d79125e8d2f2` |
 | `tools` | `0f5494fa789999b4132ab8fe57c734937cc96155` |
 | `tools/rights` | `1ac25b4f0027932f555fcf3dea4f23ac32e65e6f` |
