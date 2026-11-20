@@ -566,6 +566,25 @@ t64_phase09_runner_case(harness.fsize-artifact-real-fault fsize-artifact)
 t64_phase09_runner_case(harness.fsize-report-capture-still-bounded fsize-report-capture)
 t64_phase09_runner_case(runner.profile-table-id-length profile-table)
 
+# Phase 9 state container export through the real supervised runner (plan
+# 09-08): one binary, one CTest name, every case in order.
+add_executable(test_state_runner tests/test_state_runner.c)
+target_compile_definitions(test_state_runner PRIVATE ${T64_HOST_DEFS})
+target_include_directories(test_state_runner PRIVATE
+  ${CMAKE_CURRENT_SOURCE_DIR} ${CMAKE_SOURCE_DIR}/core/include)
+target_link_libraries(test_state_runner PRIVATE t64_common t64_core)
+t64_target_warnings(test_state_runner)
+add_dependencies(test_state_runner t64-supervisor t64-supervisor-test
+  t64-runner-real t64-runner-test t64-result-check t64-boot-fixtures
+  t64-phase09-admit-fixture)
+add_test(NAME runner.state-export
+  COMMAND test_state_runner all
+    $<TARGET_FILE:t64-supervisor> $<TARGET_FILE:t64-supervisor-test>
+    $<TARGET_FILE:t64-result-check> ${CMAKE_SOURCE_DIR})
+set_tests_properties(runner.state-export PROPERTIES
+  LABELS "runner;controls" TIMEOUT 240
+  ENVIRONMENT "T64_PHASE09_EVIDENCE_DIR=${CMAKE_BINARY_DIR}/09-08-evidence;T64_STATE_DECODER=${CMAKE_SOURCE_DIR}/fixtures/state/decode_container.py")
+
 # The RDP fill builder recompiles the shared ROM packer in place on every run,
 # and the audio, admit and pad builders only run that packer. Built
 # concurrently (as ninja does with parallel jobs) a consumer can find the file
