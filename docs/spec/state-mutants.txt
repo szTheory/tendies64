@@ -1,0 +1,71 @@
+# Structure-aware state-import mutants (plan 09-09.1, decision D-41).
+#
+# One row per mutant: name :: status :: reason :: section id :: rule
+# Names are the closed names of core/include/tendies64/t64_machine.h without the
+# T64_STATUS_, T64_STATE_REASON_ and T64_STATE_RULE_ prefixes; section id is the
+# T64_STATE_SECTION_* number of the section the report names (0: none) and the
+# rule is NONE where the reason has none. Authored before the C mutant table of
+# core/tests/test_state_import.c from docs/spec/state-container.md; the test
+# compares the two tables name by name, in this order, tuple by tuple.
+#
+# Every mutant keeps magic, per-section hashes, trailer and (unless the row
+# targets it) the declared digest valid, runs next to an accepted unmutated
+# baseline in the same setup and must reach exactly its own tuple.
+#
+# header
+state-version :: STATE_VERSION :: STATE_VERSION :: 0 :: NONE
+profile-digest :: STATE_PROFILE :: PROFILE_DIGEST :: 0 :: NONE
+content-digest :: STATE_CONTENT :: CONTENT_DIGEST :: 0 :: NONE
+content-length :: STATE_CONTENT :: CONTENT_LENGTH :: 0 :: NONE
+build-id :: STATE_BUILD :: BUILD_ID :: 0 :: NONE
+total-length-plus-one :: STATE_FORMAT :: TOTAL_LENGTH :: 0 :: NONE
+section-count-zero :: STATE_FORMAT :: SECTION_COUNT :: 0 :: NONE
+header-flags :: STATE_FORMAT :: HEADER_FLAGS :: 0 :: NONE
+header-reserved :: STATE_FORMAT :: HEADER_RESERVED :: 0 :: NONE
+# table
+id-order :: STATE_FORMAT :: SECTION_ORDER :: 1 :: NONE
+id-unknown :: STATE_FORMAT :: SECTION_ID_UNKNOWN :: 99 :: NONE
+offset-overflow :: STATE_FORMAT :: SECTION_BOUNDS :: 1 :: NONE
+overlap :: STATE_FORMAT :: SECTION_OVERLAP :: 2 :: NONE
+length-short :: STATE_FORMAT :: SECTION_LENGTH_EXPECTED :: 3 :: NONE
+section-sha-stale :: STATE_INTEGRITY :: SECTION_SHA256 :: 1 :: NONE
+# fields (one row per rule id with a reader use, then observer-range, busy-until-future, render-extent)
+count-cap-audio-descriptors :: STATE_RANGE :: FIELD_RANGE :: 9 :: COUNT_CAP
+index-lt-audio-slot :: STATE_RANGE :: FIELD_RANGE :: 9 :: INDEX_LT
+enum-closed-si-direction :: STATE_RANGE :: FIELD_RANGE :: 10 :: ENUM_CLOSED
+bool-01-pi-error :: STATE_RANGE :: FIELD_RANGE :: 5 :: BOOL_01
+align-si-address :: STATE_RANGE :: FIELD_RANGE :: 10 :: ALIGN
+addr-range-si-address :: STATE_RANGE :: FIELD_RANGE :: 10 :: ADDR_RANGE
+tick-ge-sp-descriptor-end :: STATE_RANGE :: FIELD_RANGE :: 5 :: TICK_GE
+tick-le-sram-deadline :: STATE_RANGE :: FIELD_RANGE :: 11 :: TICK_LE
+seq-lt-sequence-above-next :: STATE_INVARIANT :: QUEUE_SEQUENCE :: 6 :: SEQ_LT
+shift-lt-tile-shift :: STATE_RANGE :: FIELD_RANGE :: 8 :: SHIFT_LT
+len-le-video-packet :: STATE_RANGE :: FIELD_RANGE :: 8 :: LEN_LE
+profile-derived-rdram-size :: STATE_RANGE :: FIELD_DERIVED :: 3 :: PROFILE_DERIVED
+derived-eq-interrupt-line :: STATE_RANGE :: FIELD_DERIVED :: 5 :: DERIVED_EQ
+pad-zero-clock-policy :: STATE_RANGE :: FIELD_PADDING :: 8 :: PAD_ZERO
+reserved-zero-interrupt-pending :: STATE_RANGE :: FIELD_RESERVED :: 5 :: RESERVED_ZERO
+observer-range :: STATE_RANGE :: OBSERVER_RANGE :: 16 :: LEN_LE
+busy-until-future :: STATE_RANGE :: FIELD_RANGE :: 11 :: TICK_LE
+render-extent-beyond-width :: STATE_RANGE :: FIELD_RANGE :: 8 :: ADDR_RANGE
+# queue
+queue-order :: STATE_INVARIANT :: QUEUE_ORDER :: 6 :: NONE
+equal-tuples :: STATE_INVARIANT :: QUEUE_ORDER :: 6 :: NONE
+sequence-at-next :: STATE_INVARIANT :: QUEUE_SEQUENCE :: 6 :: SEQ_LT
+tick-below :: STATE_INVARIANT :: QUEUE_TICK :: 6 :: TICK_GE
+unknown-pair :: STATE_INVARIANT :: QUEUE_KIND_UNKNOWN :: 6 :: ENUM_CLOSED
+synthetic-device :: STATE_INVARIANT :: QUEUE_KIND_UNKNOWN :: 6 :: ENUM_CLOSED
+exhausted-flag :: STATE_INVARIANT :: QUEUE_SEQUENCE :: 6 :: SEQ_LT
+# devices
+cpu-no-step :: STATE_INVARIANT :: DEVICE_EVENT_MISSING :: 6 :: NONE
+cpu-two-steps :: STATE_INVARIANT :: DEVICE_EVENT_EXTRA :: 6 :: NONE
+si-complete-missing :: STATE_INVARIANT :: DEVICE_EVENT_MISSING :: 6 :: NONE
+si-token :: STATE_INVARIANT :: DEVICE_TOKEN_MISMATCH :: 6 :: NONE
+pi-extra :: STATE_INVARIANT :: DEVICE_EVENT_EXTRA :: 6 :: NONE
+sp-complete-extra :: STATE_INVARIANT :: DEVICE_EVENT_EXTRA :: 6 :: NONE
+rsp-token :: STATE_INVARIANT :: DEVICE_TOKEN_MISMATCH :: 6 :: NONE
+rdp-extra :: STATE_INVARIANT :: DEVICE_EVENT_EXTRA :: 6 :: NONE
+vi-token :: STATE_INVARIANT :: DEVICE_TOKEN_MISMATCH :: 6 :: NONE
+ai-token :: STATE_INVARIANT :: DEVICE_TOKEN_MISMATCH :: 6 :: NONE
+# digest
+declared-digest-stale :: STATE_INTEGRITY :: DECLARED_DIGEST :: 0 :: NONE
