@@ -19,6 +19,7 @@
 #include "t64_raw_capture.h"
 #include "t64_real_fixture.h"
 #include "t64_real_result.h"
+#include "t64_replay.h"
 #include "t64_save_flags.h"
 #include "t64_sha256.h"
 #include "t64_video_observation.h"
@@ -142,6 +143,15 @@ typedef struct {
   uint32_t format;
   const char *export_leaf; /* NULL when nothing is exported */
 } save_request;
+
+/* The replay request of one run (plan 09-07): record leaf and checkpoint
+ * interval, or the verified replay descriptor and the report leaf. */
+typedef struct {
+  const char *record_leaf;  /* NULL when not recording */
+  uint64_t interval;
+  int play_fd;              /* -1 when not playing */
+  const char *report_leaf;  /* NULL when not playing */
+} replay_request;
 
 static bool read_snapshot(int fd, size_t max_bytes, size_t exact_size,
                           owned_bytes *output) {
@@ -1079,7 +1089,8 @@ static int run_real(int fixture_fd, int input_fd, const char *requested_profile,
                     uint64_t raw_capture_max_bytes,
                     const char *artifact_dir,
                     uint64_t artifact_max_bytes,
-                    const save_request *save) {
+                    const save_request *save,
+                    const replay_request *replay) {
   static const t64_host_allocator allocator = {
       allocator_allocate, allocator_release, NULL};
   owned_bytes fixture = {0};
@@ -1091,6 +1102,9 @@ static int run_real(int fixture_fd, int input_fd, const char *requested_profile,
   t64_machine *machine = NULL;
   t64_raw_capture *raw_capture = NULL;
   t64_artifact_publisher *save_publisher = NULL;
+  t64_artifact_publisher *replay_publisher = NULL;
+  t64_replay_recorder *recorder = NULL;
+  bool recorder_ended = false;
   t64_real_result result;
   trace_observation observations = {0};
   uint8_t output[T64_REAL_OUTPUT_CAPACITY] = {0};
@@ -1171,7 +1185,25 @@ static int run_real(int fixture_fd, int input_fd, const char *requested_profile,
       goto cleanup;
     }
   }
-  (void)artifact_max_bytes;
+  if (replay->record_leaf != NULL) {
+    /* Record (plan 09-07): the checkpoint interval is a positive multiple of
+     * the slice and not above the bound; the publisher is opened before the
+     * guest starts so a bad leaf or directory ends the run at tick 0. */
+    const char *publisher_error = NULL;
+    if (replay->interval < T64_REPLAY_MIN_INTERVAL ||
+        replay->interval % T64_REAL_TRACE_STEP != 0u ||
+        replay->interval > guest_ticks) {
+      exit_code = emit_prelaunch("refusal", "refused", guest_ticks, 0);
+      goto cleanup;
+    }
+    replay_publisher = t64_artifact_publisher_open(
+        artifact_dir, replay->record_leaf, artifact_max_bytes,
+        &publisher_error);
+    if (replay_publisher == NULL) {
+      exit_code = emit_prelaunch("refusal", "refused", guest_ticks, 0);
+      goto cleanup;
+    }
+  }
   if (!initialize_launched_result(&result, profile, fixture_identity,
                                   fixture.sha256_hex,
                                   input_digest)) {
@@ -1252,6 +1284,30 @@ static int run_real(int fixture_fd, int input_fd, const char *requested_profile,
       (void)snprintf(result.detail, sizeof result.detail, "%s",
                      publisher_error == NULL ? "host-error"
                                              : publisher_error);
+      goto finalize;
+    }
+  }
+  if (replay->record_leaf != NULL) {
+    /* The header is composed from the live identity of the admitted machine:
+     * no host path, time or user name enters the replay. */
+    t64_replay_header header;
+    memset(&header, 0, sizeof header);
+    if (!t64_replay_live_identity_compose(machine, &header.identity) ||
+        strlen(t64_source_revision()) != 40u) {
+      (void)snprintf(result.guest_stop_kind, sizeof result.guest_stop_kind,
+                     "host-error");
+      (void)snprintf(result.outcome, sizeof result.outcome, "harness-error");
+      (void)snprintf(result.detail, sizeof result.detail, "host-error");
+      goto finalize;
+    }
+    (void)snprintf(header.source_revision, sizeof header.source_revision, "%s",
+                   t64_source_revision());
+    recorder = t64_replay_recorder_create(&header, NULL);
+    if (recorder == NULL) {
+      (void)snprintf(result.guest_stop_kind, sizeof result.guest_stop_kind,
+                     "host-error");
+      (void)snprintf(result.outcome, sizeof result.outcome, "harness-error");
+      (void)snprintf(result.detail, sizeof result.detail, "host-error");
       goto finalize;
     }
   }
@@ -1486,6 +1542,19 @@ static int run_real(int fixture_fd, int input_fd, const char *requested_profile,
     (void)snprintf(result.detail, sizeof result.detail,
                    "stop-reason-unexpected");
     goto finalize;
+  }
+
+  if (recorder != NULL &&
+      (stop.reason == T64_STOP_REASON_GUEST_COMPLETION ||
+       (stop.reason == T64_STOP_REASON_BOUND &&
+        current_tick == guest_ticks))) {
+    /* The record ends only at guest-completion or guest-bound. */
+    recorder_ended =
+        t64_replay_recorder_end(
+            recorder, machine, current_tick,
+            stop.reason == T64_STOP_REASON_GUEST_COMPLETION
+                ? T64_REPLAY_STOP_GUEST_COMPLETION
+                : T64_REPLAY_STOP_GUEST_BOUND) == T64_REPLAY_OK;
   }
 
   if (observations.have_video_packet &&
@@ -1724,6 +1793,41 @@ finalize:
       t64_artifact_publisher_abort(save_publisher);
     }
   }
+  if (replay_publisher != NULL) {
+    /* Record: publish the finished canonical bytes only when the loop ended at
+     * guest-completion or guest-bound and nothing failed; every other ending
+     * removes the private stage. */
+    bool published = false;
+    if (recorder != NULL && recorder_ended &&
+        strcmp(result.guest_stop_kind, "host-error") != 0) {
+      t64_replay *finished = NULL;
+      t64_replay_error finish_error;
+      if (t64_replay_recorder_finish(recorder, &finished, &finish_error) ==
+          T64_REPLAY_OK) {
+        size_t length = 0u;
+        const uint8_t *bytes = t64_replay_canonical(finished, &length);
+        published = bytes != NULL &&
+                    t64_artifact_publisher_write(replay_publisher, bytes,
+                                                 length) &&
+                    t64_artifact_publisher_finalize(replay_publisher);
+        if (!published) {
+          (void)snprintf(result.guest_stop_kind, sizeof result.guest_stop_kind,
+                         "host-error");
+          (void)snprintf(result.outcome, sizeof result.outcome,
+                         "harness-error");
+          (void)snprintf(result.detail, sizeof result.detail, "%s",
+                         t64_artifact_publisher_error(replay_publisher));
+        }
+      } else {
+        (void)snprintf(result.guest_stop_kind, sizeof result.guest_stop_kind,
+                       "host-error");
+        (void)snprintf(result.outcome, sizeof result.outcome, "harness-error");
+        (void)snprintf(result.detail, sizeof result.detail, "host-error");
+      }
+      t64_replay_destroy(finished);
+    }
+    if (!published) t64_artifact_publisher_abort(replay_publisher);
+  }
 #ifdef T64_REAL_RUNNER_TESTING
   if (test_fault_is("artifact-publish-probe") && artifact_dir != NULL &&
       strcmp(result.outcome, "pass") == 0 &&
@@ -1756,6 +1860,11 @@ finalize:
   }
 
 cleanup:
+  if (replay_publisher != NULL) {
+    t64_artifact_publisher_abort(replay_publisher);
+    t64_artifact_publisher_destroy(replay_publisher);
+  }
+  t64_replay_recorder_destroy(recorder);
   if (save_publisher != NULL) {
     t64_artifact_publisher_abort(save_publisher);
     t64_artifact_publisher_destroy(save_publisher);
@@ -1782,6 +1891,7 @@ int main(int argc, char **argv) {
   const char *save_kind_token = NULL;
   const char *save_format_token = NULL;
   save_request save = {-1, false, 0u, 0u, 0u, NULL};
+  replay_request replay = {NULL, 0u, -1, NULL};
   uint64_t artifact_max_bytes = 0u;
   uint64_t guest_ticks = 0u;
   uint64_t advance_step = T64_REAL_TRACE_STEP;
@@ -1800,6 +1910,10 @@ int main(int argc, char **argv) {
   bool seen_save_kind = false;
   bool seen_save_format = false;
   bool seen_save_export_leaf = false;
+  bool seen_replay_record = false;
+  bool seen_replay_interval = false;
+  bool seen_replay_fd = false;
+  bool seen_replay_report = false;
 #ifdef T64_REAL_RUNNER_TESTING
   bool seen_advance_step = false;
 #endif
@@ -1878,6 +1992,20 @@ int main(int argc, char **argv) {
                !seen_save_export_leaf && value[0] != '\0') {
       save.export_leaf = value;
       seen_save_export_leaf = true;
+    } else if (strcmp(option, "--replay-record") == 0 && !seen_replay_record &&
+               value[0] != '\0') {
+      replay.record_leaf = value;
+      seen_replay_record = true;
+    } else if (strcmp(option, "--replay-checkpoint-interval") == 0 &&
+               !seen_replay_interval && parse_u64(value, &replay.interval)) {
+      seen_replay_interval = true;
+    } else if (strcmp(option, "--replay-fd") == 0 && !seen_replay_fd &&
+               parse_fd(value, &replay.play_fd)) {
+      seen_replay_fd = true;
+    } else if (strcmp(option, "--replay-report") == 0 &&
+               !seen_replay_report && value[0] != '\0') {
+      replay.report_leaf = value;
+      seen_replay_report = true;
 #ifdef T64_REAL_RUNNER_TESTING
     } else if (strcmp(option, "--advance-step") == 0 &&
                !seen_advance_step && parse_u64(value, &advance_step) &&
@@ -1927,6 +2055,22 @@ int main(int argc, char **argv) {
     }
     save.requested = true;
   }
+  /* The replay options (plan 09-07): record needs its interval and the
+   * artifact pair, play needs the descriptor, the report leaf and the pair,
+   * the two groups exclude each other, raw capture and the save flags. The
+   * value checks (interval, leaf grammar, replay content) are prelaunch
+   * refusals inside run_real. */
+  if (seen_replay_record || seen_replay_interval || seen_replay_fd ||
+      seen_replay_report) {
+    const bool group_record = seen_replay_record || seen_replay_interval;
+    const bool group_play = seen_replay_fd || seen_replay_report;
+    if ((group_record && group_play) || !seen_artifact_dir ||
+        seen_raw_capture_dir || save.requested ||
+        (group_record && !(seen_replay_record && seen_replay_interval)) ||
+        (group_play && !(seen_replay_fd && seen_replay_report))) {
+      return emit_prelaunch("usage", "not-started", guest_ticks, 2);
+    }
+  }
 #ifdef T64_REAL_RUNNER_TESTING
   g_test_fault = getenv("T64_REAL_RUNNER_TEST_FAULT");
   if (g_test_fault != NULL &&
@@ -1969,7 +2113,7 @@ int main(int argc, char **argv) {
                           advance_step, video_observation_fd,
                           audio_observation_fd, raw_capture_dir,
                           raw_capture_max_bytes, artifact_dir,
-                          artifact_max_bytes, &save);
+                          artifact_max_bytes, &save, &replay);
 #ifdef T64_REAL_RUNNER_TESTING
     if (status == 0 && (test_fault_is("capture-write-limit-exact") ||
                         test_fault_is("capture-write-limit-over")) &&

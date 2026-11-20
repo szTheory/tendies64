@@ -894,6 +894,516 @@ static int case_independent_original_run(void) {
   return g_failures == 0 ? 0 : 1;
 }
 
+/* ---- real suite: supervised runs ----------------------------------------------------- */
+
+static const char *g_supervisor;
+static const char *g_test_supervisor;
+static const char *g_checker;
+static const char *g_root;
+static char g_evidence[PATH_MAX];
+
+static bool join_path(char *out, size_t capacity, const char *a,
+                      const char *b) {
+  int length = snprintf(out, capacity, "%s/%s", a, b);
+  return length > 0 && (size_t)length < capacity;
+}
+
+static bool prepare_evidence(void) {
+  const char *configured = getenv("T64_REPLAY_EVIDENCE_DIR");
+  const char *temp = getenv("TMPDIR");
+  struct stat info;
+  if (configured != NULL && configured[0] != '\0') {
+    if (snprintf(g_evidence, sizeof g_evidence, "%s", configured) >=
+        (int)sizeof g_evidence) {
+      return false;
+    }
+    if (mkdir(g_evidence, 0700) != 0 && errno != EEXIST) return false;
+    return stat(g_evidence, &info) == 0 && S_ISDIR(info.st_mode);
+  }
+  if (temp == NULL || temp[0] == '\0') temp = "/tmp";
+  if (snprintf(g_evidence, sizeof g_evidence, "%s/t64-replay.XXXXXX", temp) >=
+      (int)sizeof g_evidence) {
+    return false;
+  }
+  return mkdtemp(g_evidence) != NULL;
+}
+
+static bool make_run_dir(char out[PATH_MAX]) {
+  if (snprintf(out, PATH_MAX, "%s/r07.XXXXXX", g_evidence) >= PATH_MAX) {
+    return false;
+  }
+  return mkdtemp(out) != NULL;
+}
+
+/* A fresh owner-only artifact directory inside a fresh run directory. */
+static bool make_artifact_dir(char out[PATH_MAX]) {
+  char run[PATH_MAX];
+  if (!make_run_dir(run) || !join_path(out, PATH_MAX, run, "art") ||
+      mkdir(out, 0700) != 0) {
+    return false;
+  }
+  return chmod(out, 0700) == 0;
+}
+
+/* Number of entries (hidden ones included); the first name is stored. */
+static size_t list_directory(const char *dir, char first[256]) {
+  DIR *handle = opendir(dir);
+  struct dirent *entry;
+  size_t count = 0u;
+  first[0] = '\0';
+  if (handle == NULL) return (size_t)-1;
+  while ((entry = readdir(handle)) != NULL) {
+    if (strcmp(entry->d_name, ".") == 0 || strcmp(entry->d_name, "..") == 0) {
+      continue;
+    }
+    if (count == 0u) (void)snprintf(first, 256u, "%s", entry->d_name);
+    count++;
+  }
+  (void)closedir(handle);
+  return count;
+}
+
+static bool file_mode_is(const char *path, mode_t want) {
+  struct stat info;
+  return lstat(path, &info) == 0 && S_ISREG(info.st_mode) &&
+         (info.st_mode & 07777) == want;
+}
+
+static bool write_new_file(const char *path, const uint8_t *bytes,
+                           size_t length) {
+  size_t offset = 0u;
+  int fd = open(path, O_WRONLY | O_CREAT | O_EXCL, 0600);
+  if (fd < 0) return false;
+  while (offset < length) {
+    ssize_t written = write(fd, bytes + offset, length - offset);
+    if (written < 0 && errno == EINTR) continue;
+    if (written <= 0) {
+      (void)close(fd);
+      return false;
+    }
+    offset += (size_t)written;
+  }
+  return close(fd) == 0;
+}
+
+static bool sha256_file_hex(const char *path, size_t *size_out,
+                            char out[T64_SHA256_HEX_SIZE]) {
+  static uint8_t bytes[T64_REPLAY_MAX_BYTES + 1u];
+  size_t length = 0u;
+  if (!read_file(path, bytes, sizeof bytes, &length) || length == 0u ||
+      length > T64_REPLAY_MAX_BYTES) {
+    return false;
+  }
+  sha_hex_of(bytes, length, out);
+  *size_out = length;
+  return true;
+}
+
+typedef struct {
+  bool parsed;
+  bool checker_ok;
+  int supervisor_exit;
+  char outcome[48];
+  char detail[64];
+  char stop_kind[48];
+  char log_sha256[65];
+  char state_digest[65];
+  uint64_t guest_tick;
+  uint64_t log_bytes;
+  char dir[PATH_MAX];
+} run_out;
+
+static void copy_string(char *out, size_t capacity, const t64_json_node *node) {
+  out[0] = '\0';
+  if (node != NULL && node->type == T64_JSON_STRING && node->len < capacity) {
+    memcpy(out, node->str, node->len);
+    out[node->len] = '\0';
+  }
+}
+
+static bool parse_record(const char *path, run_out *out) {
+  uint8_t bytes[8192];
+  size_t length = 0u;
+  t64_json_doc doc = {0};
+  const t64_json_node *stop;
+  const t64_json_node *counts;
+  uint64_t value = 0u;
+  if (!read_file(path, bytes, sizeof bytes, &length) || length == 0u ||
+      t64_json_parse(bytes, length, NULL, &doc, NULL) != 0) {
+    return false;
+  }
+  stop = t64_json_get(doc.root, "guest_stop");
+  counts = t64_json_get(doc.root, "counts");
+  copy_string(out->outcome, sizeof out->outcome,
+              t64_json_get(doc.root, "outcome"));
+  copy_string(out->detail, sizeof out->detail,
+              t64_json_get(doc.root, "detail"));
+  copy_string(out->stop_kind, sizeof out->stop_kind,
+              stop == NULL ? NULL : t64_json_get(stop, "kind"));
+  copy_string(out->log_sha256, sizeof out->log_sha256,
+              t64_json_get(doc.root, "log_sha256"));
+  copy_string(out->state_digest, sizeof out->state_digest,
+              t64_json_get(doc.root, "state_digest"));
+  if (t64_json_u64_string(t64_json_get(doc.root, "guest_tick"), &value)) {
+    out->guest_tick = value;
+  }
+  if (counts != NULL &&
+      t64_json_u64_string(t64_json_get(counts, "log_bytes"), &value)) {
+    out->log_bytes = value;
+  }
+  t64_json_free(&doc);
+  return true;
+}
+
+static bool checker_accepts(const char *result_path) {
+  pid_t pid = fork();
+  int status = 0;
+  if (pid < 0) return false;
+  if (pid == 0) {
+    char mode[] = "result";
+    char *args[4];
+    int null_fd = open("/dev/null", O_WRONLY);
+    args[0] = (char *)(uintptr_t)g_checker;
+    args[1] = mode;
+    args[2] = (char *)(uintptr_t)result_path;
+    args[3] = NULL;
+    if (null_fd >= 0) {
+      (void)dup2(null_fd, STDOUT_FILENO);
+      (void)dup2(null_fd, STDERR_FILENO);
+    }
+    execv(g_checker, args);
+    _exit(127);
+  }
+  while (waitpid(pid, &status, 0) < 0) {
+    if (errno != EINTR) return false;
+  }
+  return WIFEXITED(status) && WEXITSTATUS(status) == 0;
+}
+
+/* A supervised real run. Every optional field left NULL (or 0) is omitted. */
+typedef struct {
+  const char *supervisor;
+  const char *fixture;
+  const char *input;        /* NULL: the canonical empty schedule */
+  uint64_t bound;
+  uint64_t advance_step;    /* test twin only */
+  const char *artifact_dir;
+  const char *artifact_max; /* text so refusal rows can pass odd values */
+  const char *record_leaf;
+  const char *interval;
+  const char *play_path;
+  const char *play_size;
+  const char *play_sha;
+  const char *report_leaf;
+  const char *raw_capture_dir;
+} run_spec;
+
+#define MAX_ARGS 48u
+
+static bool write_empty_schedule(char out[PATH_MAX]) {
+  static const char text[] =
+      "{\"events\":[],\"schema\":\"t64.input\",\"schema_version\":1}\n";
+  if (!join_path(out, PATH_MAX, g_evidence, "empty.input.json")) return false;
+  if (access(out, F_OK) == 0) return true;
+  return write_new_file(out, (const uint8_t *)text, sizeof text - 1u) ||
+         access(out, F_OK) == 0;
+}
+
+static bool run_supervised(const run_spec *spec, run_out *out) {
+  char result_path[PATH_MAX];
+  char meta_path[PATH_MAX];
+  char capture_path[PATH_MAX];
+  char input[PATH_MAX];
+  char bound_text[24];
+  char advance_text[24];
+  char input_size_text[24];
+  char input_sha_text[T64_SHA256_HEX_SIZE];
+  char *list[MAX_ARGS];
+  size_t count = 0u;
+  uint8_t script[8192];
+  size_t script_length = 0u;
+  pid_t pid;
+  int status = 0;
+  memset(out, 0, sizeof *out);
+  if (!make_run_dir(out->dir) ||
+      !join_path(result_path, sizeof result_path, out->dir, "result.json") ||
+      !join_path(meta_path, sizeof meta_path, out->dir, "meta.json") ||
+      !join_path(capture_path, sizeof capture_path, out->dir, "capture.bin")) {
+    return false;
+  }
+  if (spec->input != NULL) {
+    (void)snprintf(input, sizeof input, "%s", spec->input);
+  } else if (!write_empty_schedule(input)) {
+    return false;
+  }
+  if (!read_file(input, script, sizeof script, &script_length) ||
+      script_length == 0u || script_length >= sizeof script) {
+    return false;
+  }
+  sha_hex_of(script, script_length, input_sha_text);
+  (void)snprintf(input_size_text, sizeof input_size_text, "%zu", script_length);
+  (void)snprintf(bound_text, sizeof bound_text, "%llu",
+                 (unsigned long long)spec->bound);
+  (void)snprintf(advance_text, sizeof advance_text, "%llu",
+                 (unsigned long long)spec->advance_step);
+#define ARG(text) \
+  do { if (count < MAX_ARGS - 1u) list[count++] = (char *)(uintptr_t)(text); } while (0)
+  ARG(spec->supervisor); ARG("--real");
+  ARG("--result"); ARG(result_path);
+  ARG("--meta"); ARG(meta_path);
+  ARG("--work-dir"); ARG(out->dir);
+  ARG("--wall-ms"); ARG("60000");
+  if (spec->bound != 0u) { ARG("--bound"); ARG(bound_text); }
+  ARG("--fixture"); ARG(spec->fixture);
+  ARG("--input"); ARG(input);
+  ARG("--input-size"); ARG(input_size_text);
+  ARG("--input-sha256"); ARG(input_sha_text);
+  ARG("--capture-out"); ARG(capture_path);
+  if (spec->advance_step != 0u) { ARG("--advance-step"); ARG(advance_text); }
+  if (spec->artifact_dir != NULL) {
+    ARG("--artifact-dir"); ARG(spec->artifact_dir);
+    ARG("--artifact-max-bytes"); ARG(spec->artifact_max);
+  }
+  if (spec->record_leaf != NULL) { ARG("--replay-record"); ARG(spec->record_leaf); }
+  if (spec->interval != NULL) { ARG("--replay-checkpoint-interval"); ARG(spec->interval); }
+  if (spec->play_path != NULL) { ARG("--replay-play"); ARG(spec->play_path); }
+  if (spec->play_size != NULL) { ARG("--replay-play-size"); ARG(spec->play_size); }
+  if (spec->play_sha != NULL) { ARG("--replay-play-sha256"); ARG(spec->play_sha); }
+  if (spec->report_leaf != NULL) { ARG("--replay-report"); ARG(spec->report_leaf); }
+  if (spec->raw_capture_dir != NULL) { ARG("--raw-capture-dir"); ARG(spec->raw_capture_dir); }
+#undef ARG
+  list[count] = NULL;
+  pid = fork();
+  if (pid < 0) return false;
+  if (pid == 0) {
+    int null_fd = open("/dev/null", O_WRONLY);
+    if (null_fd >= 0) (void)dup2(null_fd, STDERR_FILENO);
+    execv(spec->supervisor, list);
+    _exit(127);
+  }
+  while (waitpid(pid, &status, 0) < 0) {
+    if (errno != EINTR) return false;
+  }
+  out->supervisor_exit = WIFEXITED(status) ? WEXITSTATUS(status) : -1;
+  out->parsed = parse_record(result_path, out);
+  out->checker_ok = out->parsed && checker_accepts(result_path);
+  return true;
+}
+
+static void expect_pass(const run_out *run) {
+  CHECK(run->parsed);
+  CHECK(run->checker_ok);
+  CHECK(run->supervisor_exit == 0);
+  CHECK(strcmp(run->outcome, "pass") == 0);
+  CHECK(strcmp(run->detail, "positive-match") == 0);
+  CHECK(strcmp(run->stop_kind, "authored-completion") == 0);
+}
+
+#define MIX_ROM_SHA256 \
+  "79c59149052719baa7080c22d44a21c8d924add1f45b16ced31bb9810bf37df0"
+/* The oracle value (fixtures/replay/mix_oracle.py --sha256) and the
+ * independent shasum of the hand-derived text. */
+#define MIX_TRANSCRIPT_SHA256 \
+  "b16f6575b5f94bee4018f7ef12ad0ca0e1c8134a033479b78e7d8527d20eabe2"
+
+static void expect_mix_pass(const run_out *run) {
+  expect_pass(run);
+  CHECK(run->log_bytes == 72u);
+  CHECK(strcmp(run->log_sha256, MIX_TRANSCRIPT_SHA256) == 0);
+}
+
+/* The report fields read with the plain JSON parser (independent of the module's
+ * checker). */
+typedef struct {
+  bool ok;
+  char result[32];
+  char detail[32];
+  char field[32];
+  char at[24];
+  char live_tick[24];
+  char actual[65];
+  char expected[65];
+  char replay_sha256[65];
+  int64_t checkpoints_matched;
+  int64_t ops_applied;
+  int64_t op_index; /* -1 when null */
+} report_view;
+
+static bool read_report(const char *dir, const char *leaf, report_view *view,
+                        uint8_t *raw, size_t raw_capacity, size_t *raw_length) {
+  char path[PATH_MAX];
+  size_t length = 0u;
+  t64_json_doc doc = {0};
+  const t64_json_node *node;
+  memset(view, 0, sizeof *view);
+  view->op_index = -1;
+  if (!join_path(path, sizeof path, dir, leaf) ||
+      !read_file(path, raw, raw_capacity, &length) || length == 0u ||
+      t64_json_parse(raw, length, NULL, &doc, NULL) != 0) {
+    return false;
+  }
+  if (raw_length != NULL) *raw_length = length;
+  copy_string(view->result, sizeof view->result, t64_json_get(doc.root, "result"));
+  copy_string(view->detail, sizeof view->detail, t64_json_get(doc.root, "detail"));
+  copy_string(view->field, sizeof view->field, t64_json_get(doc.root, "field"));
+  copy_string(view->at, sizeof view->at, t64_json_get(doc.root, "at"));
+  copy_string(view->live_tick, sizeof view->live_tick,
+              t64_json_get(doc.root, "live_tick"));
+  copy_string(view->actual, sizeof view->actual,
+              t64_json_get(doc.root, "actual_digest"));
+  copy_string(view->expected, sizeof view->expected,
+              t64_json_get(doc.root, "expected_digest"));
+  copy_string(view->replay_sha256, sizeof view->replay_sha256,
+              t64_json_get(doc.root, "replay_sha256"));
+  node = t64_json_get(doc.root, "checkpoints_matched");
+  if (node != NULL && node->type == T64_JSON_INT) view->checkpoints_matched = node->num;
+  node = t64_json_get(doc.root, "ops_applied");
+  if (node != NULL && node->type == T64_JSON_INT) view->ops_applied = node->num;
+  node = t64_json_get(doc.root, "op_index");
+  if (node != NULL && node->type == T64_JSON_INT) view->op_index = node->num;
+  t64_json_free(&doc);
+  view->ok = true;
+  return true;
+}
+
+static bool mix_fixture_path(char out[PATH_MAX]) {
+  (void)g_root;
+  return snprintf(out, PATH_MAX, "%s", mix_rom_path()) < PATH_MAX;
+}
+
+/* One supervised record run of the mix ROM into a fresh artifact directory:
+ * returns the published replay path in `replay_path`. */
+static bool record_run(const char *supervisor, const char *interval,
+                       char dir_out[PATH_MAX], char replay_path[PATH_MAX],
+                       run_out *run) {
+  char rom[PATH_MAX];
+  run_spec spec = {0};
+  if (!mix_fixture_path(rom) || !make_artifact_dir(dir_out) ||
+      !join_path(replay_path, PATH_MAX, dir_out, "mix.rpl")) {
+    return false;
+  }
+  spec.supervisor = supervisor;
+  spec.fixture = rom;
+  spec.input = mix_input_path();
+  spec.bound = RUN_BOUND;
+  spec.artifact_dir = dir_out;
+  spec.artifact_max = "65536";
+  spec.record_leaf = "mix.rpl";
+  spec.interval = interval;
+  return run_supervised(&spec, run);
+}
+
+static bool play_run(const char *supervisor, uint64_t advance_step,
+                     const char *replay_path, char dir_out[PATH_MAX],
+                     run_out *run) {
+  char rom[PATH_MAX];
+  char sha[T64_SHA256_HEX_SIZE];
+  char size_text[24];
+  size_t size = 0u;
+  run_spec spec = {0};
+  if (!mix_fixture_path(rom) || !make_artifact_dir(dir_out) ||
+      !sha256_file_hex(replay_path, &size, sha)) {
+    return false;
+  }
+  (void)snprintf(size_text, sizeof size_text, "%zu", size);
+  spec.supervisor = supervisor;
+  spec.fixture = rom;
+  spec.bound = RUN_BOUND;
+  spec.advance_step = advance_step;
+  spec.artifact_dir = dir_out;
+  spec.artifact_max = "65536";
+  spec.play_path = replay_path;
+  spec.play_size = size_text;
+  spec.play_sha = sha;
+  spec.report_leaf = "mix.rpr";
+  return run_supervised(&spec, run);
+}
+
+static int case_record_play_match(void) {
+  char record_dir[PATH_MAX];
+  char replay_path[PATH_MAX];
+  char first[256];
+  char play_dir[PATH_MAX];
+  char twin_dir[PATH_MAX];
+  run_out run;
+  t64_replay_op want[MAX_GOLDEN_OPS];
+  size_t want_count = golden_prequeue_ops(want);
+  t64_replay *replay = NULL;
+  t64_replay_error error;
+  static uint8_t bytes[T64_REPLAY_MAX_BYTES];
+  size_t length = 0u;
+  uint8_t report_a[T64_REPLAY_REPORT_MAX_BYTES + 1u];
+  uint8_t report_b[T64_REPLAY_REPORT_MAX_BYTES + 1u];
+  size_t report_a_length = 0u;
+  size_t report_b_length = 0u;
+  report_view view;
+
+  CHECK(record_run(g_supervisor, "160000", record_dir, replay_path, &run));
+  expect_mix_pass(&run);
+  CHECK(strcmp(run.state_digest, GOLDEN_PRE_END_DIGEST) == 0);
+  /* Exactly one published file: private, with the replay extension. */
+  CHECK(list_directory(record_dir, first) == 1u);
+  CHECK(strcmp(first, "mix.rpl") == 0);
+  CHECK(file_mode_is(replay_path, 0600));
+  CHECK(read_file(replay_path, bytes, sizeof bytes, &length) && length > 0u);
+  CHECK(t64_replay_parse(bytes, length, &replay, &error) == T64_REPLAY_OK);
+  if (replay != NULL) {
+    t64_machine *machine = new_machine(PROFILE_STEM, false);
+    t64_replay_header live;
+    CHECK(ops_equal(replay, want, want_count, "published"));
+    CHECK(machine != NULL && compose_live_header(machine, &live));
+    if (machine != NULL) {
+      const t64_replay_header *got = t64_replay_header_get(replay);
+      CHECK(strcmp(got->identity.profile_id, live.identity.profile_id) == 0);
+      CHECK(strcmp(got->identity.profile_digest, live.identity.profile_digest) == 0);
+      CHECK(got->identity.descriptor_version == live.identity.descriptor_version);
+      CHECK(got->identity.machine_model_version ==
+            live.identity.machine_model_version);
+      CHECK(got->identity.state_serialization_version ==
+            live.identity.state_serialization_version);
+      CHECK(strcmp(got->identity.build_id, live.identity.build_id) == 0);
+      CHECK(strcmp(got->identity.content_sha256, live.identity.content_sha256) == 0);
+      CHECK(strcmp(got->identity.content_sha256, MIX_ROM_SHA256) == 0);
+      CHECK(got->identity.content_size == live.identity.content_size);
+      CHECK(got->identity.save_kind == T64_REPLAY_SAVE_BLANK);
+      CHECK(strcmp(got->source_revision, live.source_revision) == 0);
+      t64_machine_destroy(machine);
+    }
+  }
+  /* Play: an empty schedule, the replay supplies every input. */
+  CHECK(play_run(g_supervisor, 0u, replay_path, play_dir, &run));
+  expect_mix_pass(&run);
+  CHECK(list_directory(play_dir, first) == 1u);
+  CHECK(strcmp(first, "mix.rpr") == 0);
+  {
+    char report_path[PATH_MAX];
+    CHECK(join_path(report_path, sizeof report_path, play_dir, "mix.rpr"));
+    CHECK(file_mode_is(report_path, 0600));
+  }
+  CHECK(read_report(play_dir, "mix.rpr", &view, report_a, sizeof report_a,
+                    &report_a_length));
+  CHECK(strcmp(view.result, "match") == 0);
+  CHECK(strcmp(view.detail, "none") == 0);
+  CHECK(strcmp(view.field, "none") == 0);
+  CHECK(view.checkpoints_matched == (int64_t)GOLDEN_PRE_CHECKPOINTS);
+  CHECK(view.ops_applied == (int64_t)want_count);
+  CHECK(view.op_index == -1);
+  if (replay != NULL) {
+    char hex[T64_SHA256_HEX_SIZE];
+    hex_of(t64_replay_sha256(replay), hex);
+    CHECK(strcmp(view.replay_sha256, hex) == 0);
+  }
+  /* The test twin at advance step 7 gives the same report bytes. */
+  CHECK(play_run(g_test_supervisor, 7u, replay_path, twin_dir, &run));
+  expect_mix_pass(&run);
+  CHECK(read_report(twin_dir, "mix.rpr", &view, report_b, sizeof report_b,
+                    &report_b_length));
+  CHECK(report_a_length == report_b_length &&
+        memcmp(report_a, report_b, report_a_length) == 0);
+  t64_replay_destroy(replay);
+  return g_failures == 0 ? 0 : 1;
+}
+
 /* ---- dispatch ------------------------------------------------------------- */
 
 typedef int (*case_fn)(void);
@@ -907,6 +1417,7 @@ static const case_entry cases[] = {
     {"rom-timing", "unit", case_rom_timing},
     {"format-roundtrip", "unit", case_format_roundtrip},
     {"independent-original-run", "unit", case_independent_original_run},
+    {"record-play-match", "real", case_record_play_match},
 };
 
 int main(int argc, char **argv) {
@@ -931,6 +1442,14 @@ int main(int argc, char **argv) {
     return step == 0u ? 2 : print_goldens(mode, step);
   }
   if (argc >= 3 && strcmp(argv[1], "--suite") == 0) {
+    if (strcmp(argv[2], "real") == 0) {
+      if (argc != 7) return 2;
+      g_supervisor = argv[3];
+      g_test_supervisor = argv[4];
+      g_checker = argv[5];
+      g_root = argv[6];
+      if (!prepare_evidence()) return 2;
+    }
     for (i = 0u; i < sizeof cases / sizeof cases[0]; i++) {
       if (strcmp(cases[i].suite, argv[2]) == 0) {
         int status;

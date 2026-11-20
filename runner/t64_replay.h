@@ -305,6 +305,11 @@ void t64_replay_player_destroy(t64_replay_player *player);
 uint64_t t64_replay_player_next_at(const t64_replay_player *player);
 /* The `at` of the end op. */
 uint64_t t64_replay_player_end_at(const t64_replay_player *player);
+/* Fills a refused report for a failure of the host loop itself (an unexpected
+ * stop or a drain error): result refused with the given detail, no op index. */
+void t64_replay_player_refuse(const t64_replay_player *player, uint64_t tick,
+                              t64_replay_detail detail,
+                              t64_replay_report *report);
 /* Applies, in array order, every op whose `at` equals the completed guest tick
  * `tick`: input ops go through the real t64_machine_queue_input, checkpoints
  * compare the machine digest and the end op compares the terminal stop kind

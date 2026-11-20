@@ -30,6 +30,7 @@
 #include "t64_real_result.h"
 #include "t64_real_fixture.h"
 #include "t64_raw_capture.h"
+#include "t64_replay.h"
 #include "t64_save_flags.h"
 #include "t64_sha256.h"
 #include "t64_verified_input.h"
@@ -62,11 +63,15 @@
 #define T64_SUP_ARGS_ARTIFACT 4u
 /* save flags 8: import descriptor 2, kind 2, format 2, export leaf 2 */
 #define T64_SUP_ARGS_SAVE 8u
+/* replay flags 8 (plan 09-07): record leaf 2 and checkpoint interval 2, or the
+ * replay descriptor 2 and the report leaf 2 (the two groups are mutually
+ * exclusive; both are counted so the sum stays an upper bound) */
+#define T64_SUP_ARGS_REPLAY 8u
 #define T64_SUP_CHILD_ARGS_SLOT_SUM                                          \
   (T64_SUP_ARGS_RUNNER_PATH + T64_SUP_ARGS_FIXTURE + T64_SUP_ARGS_INPUT +    \
    T64_SUP_ARGS_PROFILE + T64_SUP_ARGS_TICKS + T64_SUP_ARGS_ADVANCE_STEP +   \
    T64_SUP_ARGS_VIDEO + T64_SUP_ARGS_AUDIO + T64_SUP_ARGS_RAW_CAPTURE +      \
-   T64_SUP_ARGS_ARTIFACT + T64_SUP_ARGS_SAVE)
+   T64_SUP_ARGS_ARTIFACT + T64_SUP_ARGS_SAVE + T64_SUP_ARGS_REPLAY)
 _Static_assert(T64_SUP_CHILD_ARGS_SLOT_SUM + 1u <= T64_SUP_CHILD_ARGS_CAPACITY,
                "the maximum child option set plus the terminating NULL must "
                "fit the child argument array");
@@ -462,6 +467,12 @@ typedef struct {
   const char *save_kind;
   const char *save_format;
   const char *save_export_leaf;
+  const char *replay_record;
+  const char *replay_play;
+  const char *replay_play_sha256;
+  const char *replay_report;
+  uint64_t replay_checkpoint_interval;
+  uint64_t replay_play_size;
   uint64_t input_size;
   uint64_t wall_ms;
   uint64_t bound;
@@ -487,6 +498,12 @@ typedef struct {
   int save_kind_seen;
   int save_format_seen;
   int save_export_leaf_seen;
+  int replay_record_seen;
+  int replay_interval_seen;
+  int replay_play_seen;
+  int replay_play_size_seen;
+  int replay_play_sha256_seen;
+  int replay_report_seen;
 #ifdef T64_SUPERVISOR_TESTING
   int advance_step_seen;
 #endif
@@ -544,6 +561,46 @@ static bool save_flags_valid(const sup_args *a) {
   return true;
 }
 
+/* True when the leaf ends in the exact lowercase extension. */
+static bool leaf_has_extension(const char *leaf, const char *extension) {
+  const char *dot;
+  if (leaf == NULL || leaf[0] == '\0') return false;
+  dot = strrchr(leaf, '.');
+  return dot != NULL && dot != leaf && strcmp(dot + 1, extension) == 0;
+}
+
+/* Real-mode validation of the replay flags (plan 09-07, usage class): record
+ * needs the artifact pair and an interval that is a positive multiple of 16 not
+ * above the bound; play needs the pair, the verified descriptor triple and a
+ * report leaf; record and play exclude each other, raw capture and the save
+ * flags. The runner repeats the checks before the guest starts. */
+static bool replay_flags_valid(const sup_args *a) {
+  const int group_play = a->replay_play_seen || a->replay_play_size_seen ||
+                         a->replay_play_sha256_seen || a->replay_report_seen;
+  const int group_record = a->replay_record_seen || a->replay_interval_seen;
+  const int pair = a->artifact_dir_seen && a->artifact_max_bytes_seen;
+  if (!group_play && !group_record) return true;
+  if ((group_play && group_record) || a->raw_capture_dir_seen ||
+      a->save_kind_seen || a->save_format_seen || a->save_import_seen ||
+      a->save_export_leaf_seen || !pair) {
+    return false;
+  }
+  if (group_record) {
+    return a->replay_record_seen && a->replay_interval_seen &&
+           leaf_has_extension(a->replay_record, "rpl") &&
+           a->replay_checkpoint_interval >= T64_REPLAY_MIN_INTERVAL &&
+           a->replay_checkpoint_interval % T64_REPLAY_MIN_INTERVAL == 0u &&
+           a->replay_checkpoint_interval <= a->bound;
+  }
+  return a->replay_play_seen && a->replay_play_size_seen &&
+         a->replay_play_sha256_seen && a->replay_report_seen &&
+         a->replay_play != NULL && a->replay_play[0] != '\0' &&
+         a->replay_play_size > 0u &&
+         a->replay_play_size <= (uint64_t)T64_REPLAY_MAX_BYTES &&
+         is_hex64(a->replay_play_sha256) &&
+         leaf_has_extension(a->replay_report, "rpr");
+}
+
 static int parse_args(int argc, char **argv, sup_args *a) {
   sup_opt opts[] = {
       {"--identity", &a->identity, NULL, 1, 0},
@@ -578,6 +635,13 @@ static int parse_args(int argc, char **argv, sup_args *a) {
       {"--save-kind", &a->save_kind, NULL, 0, 0},
       {"--save-format", &a->save_format, NULL, 0, 0},
       {"--save-export-leaf", &a->save_export_leaf, NULL, 0, 0},
+      {"--replay-record", &a->replay_record, NULL, 0, 0},
+      {"--replay-checkpoint-interval", NULL, &a->replay_checkpoint_interval, 0,
+       0},
+      {"--replay-play", &a->replay_play, NULL, 0, 0},
+      {"--replay-play-size", NULL, &a->replay_play_size, 0, 0},
+      {"--replay-play-sha256", &a->replay_play_sha256, NULL, 0, 0},
+      {"--replay-report", &a->replay_report, NULL, 0, 0},
 #ifdef T64_SUPERVISOR_TESTING
       {"--advance-step", NULL, &a->advance_step, 0, 0},
 #endif
@@ -640,6 +704,24 @@ static int parse_args(int argc, char **argv, sup_args *a) {
     }
     if (strcmp(argv[i], "--save-export-leaf") == 0) {
       a->save_export_leaf_seen = 1;
+    }
+    if (strcmp(argv[i], "--replay-record") == 0) {
+      a->replay_record_seen = 1;
+    }
+    if (strcmp(argv[i], "--replay-checkpoint-interval") == 0) {
+      a->replay_interval_seen = 1;
+    }
+    if (strcmp(argv[i], "--replay-play") == 0) {
+      a->replay_play_seen = 1;
+    }
+    if (strcmp(argv[i], "--replay-play-size") == 0) {
+      a->replay_play_size_seen = 1;
+    }
+    if (strcmp(argv[i], "--replay-play-sha256") == 0) {
+      a->replay_play_sha256_seen = 1;
+    }
+    if (strcmp(argv[i], "--replay-report") == 0) {
+      a->replay_report_seen = 1;
     }
 #ifdef T64_SUPERVISOR_TESTING
     if (strcmp(argv[i], "--advance-step") == 0) {
@@ -755,6 +837,10 @@ static int parse_args(int argc, char **argv, sup_args *a) {
     } else if (!bad && a->bound > T64_REAL_GUEST_TICKS_CEILING) {
       bad = 1;
     }
+    /* Replay record and play (plan 09-07): checked after the bound default. */
+    if (!bad && !replay_flags_valid(a)) {
+      bad = 1;
+    }
 #ifdef T64_SUPERVISOR_TESTING
     if (!bad && a->advance_step_seen &&
         (a->advance_step == 0u || a->advance_step > UINT64_C(32))) {
@@ -813,7 +899,10 @@ static int parse_args(int argc, char **argv, sup_args *a) {
          a->raw_capture_max_bytes_seen || a->artifact_dir_seen ||
          a->artifact_max_bytes_seen || a->save_import_seen ||
          a->save_import_size_seen || a->save_import_sha256_seen ||
-         a->save_kind_seen || a->save_format_seen || a->save_export_leaf_seen
+         a->save_kind_seen || a->save_format_seen || a->save_export_leaf_seen ||
+         a->replay_record_seen || a->replay_interval_seen ||
+         a->replay_play_seen || a->replay_play_size_seen ||
+         a->replay_play_sha256_seen || a->replay_report_seen
 #ifdef T64_SUPERVISOR_TESTING
          || a->advance_step_seen
 #endif
@@ -1466,6 +1555,7 @@ static int real_run_mode(const sup_args *args, const char *self_path) {
   t64_verified_input fixture = {-1, 0u, {0u}, {0}, 0u};
   t64_verified_input input = {-1, 0u, {0u}, {0}, 0u};
   t64_verified_input save_import = {-1, 0u, {0u}, {0}, 0u};
+  t64_verified_input replay_play = {-1, 0u, {0u}, {0}, 0u};
   t64_verified_input_status fixture_status;
   t64_verified_input_status input_status;
   t64_verified_input_status save_import_status;
@@ -1489,6 +1579,10 @@ static int real_run_mode(const sup_args *args, const char *self_path) {
   char save_kind_text[24];
   char save_format_text[24];
   char save_export_leaf_text[128];
+  char replay_record_text[128];
+  char replay_interval_text[24];
+  char replay_fd_text[24];
+  char replay_report_text[128];
 #ifdef T64_SUPERVISOR_TESTING
   char advance_step_text[24];
 #endif
@@ -1532,6 +1626,36 @@ static int real_run_mode(const sup_args *args, const char *self_path) {
   save_kind_text[0] = '\0';
   save_format_text[0] = '\0';
   save_export_leaf_text[0] = '\0';
+  replay_record_text[0] = '\0';
+  replay_interval_text[0] = '\0';
+  replay_fd_text[0] = '\0';
+  replay_report_text[0] = '\0';
+  if (args->replay_record_seen || args->replay_report_seen) {
+    /* The leaves are copied into bounded buffers; their grammar is validated
+     * by the artifact publisher in the child before any filesystem effect. */
+    int record_leaf_length = args->replay_record_seen
+                            ? snprintf(replay_record_text,
+                                       sizeof replay_record_text, "%s",
+                                       args->replay_record)
+                            : 1;
+    int report_leaf_length = args->replay_report_seen
+                            ? snprintf(replay_report_text,
+                                       sizeof replay_report_text, "%s",
+                                       args->replay_report)
+                            : 1;
+    if (record_leaf_length <= 0 ||
+        (size_t)record_leaf_length >= sizeof replay_record_text ||
+        report_leaf_length <= 0 ||
+        (size_t)report_leaf_length >= sizeof replay_report_text) {
+      (void)real_write_prelaunch(args->result, "harness-error", "usage",
+                                 "not-started", args->bound);
+      return 1;
+    }
+  }
+  if (args->replay_interval_seen) {
+    (void)snprintf(replay_interval_text, sizeof replay_interval_text, "%llu",
+                   (unsigned long long)args->replay_checkpoint_interval);
+  }
   if (args->save_kind_seen) {
     int kind_length = snprintf(save_kind_text, sizeof save_kind_text, "%s",
                                args->save_kind);
@@ -1629,6 +1753,18 @@ static int real_run_mode(const sup_args *args, const char *self_path) {
       goto cleanup;
     }
   }
+  if (args->replay_play_seen) {
+    /* The replay file is copied into an exclusive private snapshot with its
+     * exact size and SHA-256 verified, exactly as the schedule input is. */
+    t64_verified_input_status replay_status = t64_verified_input_prepare(
+        args->replay_play, args->replay_play_size, args->replay_play_sha256,
+        (uint64_t)T64_REPLAY_MAX_BYTES, &replay_play);
+    if (replay_status != T64_VERIFIED_INPUT_OK) {
+      (void)real_write_prelaunch(args->result, "harness-error", "refusal",
+                                 "refused", args->bound);
+      goto cleanup;
+    }
+  }
   if (real_test_barrier(args) != 0) {
     (void)real_write_prelaunch(args->result, "harness-error", "refusal",
                                "refused", args->bound);
@@ -1681,6 +1817,7 @@ static int real_run_mode(const sup_args *args, const char *self_path) {
   (void)snprintf(input_fd_text, sizeof input_fd_text, "%d", input.fd);
   (void)snprintf(save_import_fd_text, sizeof save_import_fd_text, "%d",
                  save_import.fd);
+  (void)snprintf(replay_fd_text, sizeof replay_fd_text, "%d", replay_play.fd);
   (void)snprintf(video_observation_fd_text,
                  sizeof video_observation_fd_text, "%llu",
                  (unsigned long long)args->video_observation_fd);
@@ -1724,6 +1861,10 @@ static int real_run_mode(const sup_args *args, const char *self_path) {
     char option_save_kind[] = "--save-kind";
     char option_save_format[] = "--save-format";
     char option_save_export_leaf[] = "--save-export-leaf";
+    char option_replay_record[] = "--replay-record";
+    char option_replay_interval[] = "--replay-checkpoint-interval";
+    char option_replay_fd[] = "--replay-fd";
+    char option_replay_report[] = "--replay-report";
     char *child_args[T64_SUP_CHILD_ARGS_CAPACITY];
     child_argv_list argv_builder = {child_args, 0u, T64_SUP_CHILD_ARGS_CAPACITY};
     bool argv_ok = true;
@@ -1799,6 +1940,21 @@ static int real_run_mode(const sup_args *args, const char *self_path) {
                   child_argv_push(&argv_builder, save_export_leaf_text);
       }
     }
+    if (args->replay_record_seen) {
+      /* replay flags 8: record leaf 2 and interval 2, or the descriptor 2 and
+       * the report leaf 2, only when present. */
+      argv_ok = argv_ok && child_argv_push(&argv_builder, option_replay_record);
+      argv_ok = argv_ok && child_argv_push(&argv_builder, replay_record_text);
+      argv_ok = argv_ok &&
+                child_argv_push(&argv_builder, option_replay_interval);
+      argv_ok = argv_ok && child_argv_push(&argv_builder, replay_interval_text);
+    }
+    if (args->replay_play_seen) {
+      argv_ok = argv_ok && child_argv_push(&argv_builder, option_replay_fd);
+      argv_ok = argv_ok && child_argv_push(&argv_builder, replay_fd_text);
+      argv_ok = argv_ok && child_argv_push(&argv_builder, option_replay_report);
+      argv_ok = argv_ok && child_argv_push(&argv_builder, replay_report_text);
+    }
     if (!argv_ok) {
       /* Exhausted capacity ends the child before exec with no guest run. */
       _exit(126);
@@ -1825,6 +1981,7 @@ static int real_run_mode(const sup_args *args, const char *self_path) {
     if (report_fd < 0 || capture_fd < 0 ||
         !real_clear_cloexec(fixture.fd) || !real_clear_cloexec(input.fd) ||
         (args->save_import_seen && !real_clear_cloexec(save_import.fd)) ||
+        (args->replay_play_seen && !real_clear_cloexec(replay_play.fd)) ||
         (args->video_observation_fd != 0u &&
          !real_clear_cloexec((int)args->video_observation_fd)) ||
         (args->audio_observation_fd != 0u &&
@@ -1995,6 +2152,7 @@ cleanup:
   t64_verified_input_release(&fixture);
   t64_verified_input_release(&input);
   t64_verified_input_release(&save_import);
+  t64_verified_input_release(&replay_play);
   return exit_code;
 }
 

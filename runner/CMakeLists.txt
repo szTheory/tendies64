@@ -609,10 +609,17 @@ target_include_directories(test_replay PRIVATE
   ${CMAKE_CURRENT_SOURCE_DIR} ${CMAKE_SOURCE_DIR}/core/include)
 target_link_libraries(test_replay PRIVATE t64_input t64_common t64_core)
 t64_target_warnings(test_replay)
-add_dependencies(test_replay t64-boot-fixtures t64-phase09-replay-fixture)
+add_dependencies(test_replay t64-supervisor t64-supervisor-test
+  t64-result-check t64-boot-fixtures t64-phase09-replay-fixture)
 add_test(NAME unit.replay.suite COMMAND test_replay --suite unit)
-set_tests_properties(unit.replay.suite PROPERTIES
-  LABELS unit TIMEOUT 300
+add_test(NAME runner.replay-mix
+  COMMAND test_replay --suite real
+    $<TARGET_FILE:t64-supervisor> $<TARGET_FILE:t64-supervisor-test>
+    $<TARGET_FILE:t64-result-check> ${CMAKE_SOURCE_DIR})
+set_tests_properties(unit.replay.suite PROPERTIES LABELS unit TIMEOUT 300)
+set_tests_properties(runner.replay-mix PROPERTIES LABELS "runner;controls"
+  TIMEOUT 300)
+set_tests_properties(unit.replay.suite runner.replay-mix PROPERTIES
   ENVIRONMENT "T64_REPLAY_MIX_ROM_PATH=${CMAKE_SOURCE_DIR}/build/fixtures/phase09-replay-mix-si-v1.z64;T64_REPLAY_MIX_INPUT_PATH=${CMAKE_SOURCE_DIR}/fixtures/replay/mix.input.json;T64_REPLAY_EVIDENCE_DIR=${CMAKE_BINARY_DIR}/09-07-evidence")
 
 # Phase 9 save fixtures (plan 09-04): the authored eeprom-rw and sram-rw ROMs

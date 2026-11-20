@@ -1070,6 +1070,13 @@ static void report_begin(const t64_replay_player *player, uint64_t tick,
   memcpy(report->replay_sha256, player->replay->sha256, T64_SHA256_DIGEST_SIZE);
 }
 
+void t64_replay_player_refuse(const t64_replay_player *player, uint64_t tick,
+                              t64_replay_detail detail,
+                              t64_replay_report *report) {
+  if (player == NULL || report == NULL) return;
+  report_begin(player, tick, T64_REPLAY_RESULT_REFUSED, detail, report);
+}
+
 static t64_replay_step_result fail_with_digests(
     const t64_replay_player *player, const t64_machine *machine, uint64_t tick,
     t64_replay_detail detail, size_t op_index, const t64_replay_op *op,

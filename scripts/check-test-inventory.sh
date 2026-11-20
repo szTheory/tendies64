@@ -232,7 +232,8 @@ controls.real.save-wrong-byte
 unit.core.save.import-export
 runner.save-roundtrip
 harness.phase09-collect-real
-unit.replay.suite'
+unit.replay.suite
+runner.replay-mix'
 
 CPU_COVERAGE_OPCODES='ADD
 ADDU
