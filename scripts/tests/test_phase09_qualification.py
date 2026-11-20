@@ -452,12 +452,14 @@ def _write_synthetic_step(directory: Path, item: dict, stdout: bytes, *,
         "stderr_sha256": hashlib.sha256(b"").hexdigest()}))
 
 
-def _synthetic_junit(path: Path, checks: int, *, extra: str = "", count: int = 1) -> None:
+def _synthetic_junit(path: Path, checks: int, *, extra: str = "", count: int = 1,
+                     status: str = "run", failures: int = 0, totals: int = 1) -> None:
     """A CTest JUnit of the importer test with the check total in its output."""
+    total_line = f"unit.core.state.import: checks={checks} failures={failures}\n"
     case = ("<testcase name=\"unit.core.state.import\" classname=\"unit.core.state.import\" "
-            "time=\"1\" status=\"run\">" + extra +
-            f"<system-out>fuzz-campaign: iterations 12\nunit.core.state.import: checks={checks} "
-            "failures=0\n</system-out></testcase>")
+            f"time=\"1\" status=\"{status}\">" + extra +
+            "<system-out>fuzz-campaign: iterations 12\n" + total_line * totals +
+            "</system-out></testcase>")
     path.write_text("<?xml version=\"1.0\"?><testsuite name=\"(empty)\" tests=\"1\">"
                     + case * count + "</testsuite>")
 
@@ -1359,8 +1361,36 @@ class Phase09Qualification(unittest.TestCase):
             refuse("two cases", "does not record one passed",
                    lambda: (_synthetic_junit(junit, 52000, count=2),
                             lambda: _synthetic_junit(junit, 52000))[1])
-            outside = Path(tmp).parent / "outside-junit.xml"
-            self.assertFalse(qualify._under(outside, Path(tmp)))
+            # the remaining conditions of the marker (plan 09-10, re-check R3 RC-03), each
+            # refused after the accepted baseline of the same setup: the real JUnit inside
+            # the private root passes
+            qualify._verify_full_matrix_step(passed, junit, sampled)
+            refuse("case not run", "does not record one passed",
+                   lambda: (_synthetic_junit(junit, 52000, status="notrun"),
+                            lambda: _synthetic_junit(junit, 52000))[1])
+            refuse("check total with failures", "lacks the unit.core.state.import check total",
+                   lambda: (_synthetic_junit(junit, 52000, failures=3),
+                            lambda: _synthetic_junit(junit, 52000))[1])
+            refuse("two check totals", "lacks the unit.core.state.import check total",
+                   lambda: (_synthetic_junit(junit, 52000, totals=2),
+                            lambda: _synthetic_junit(junit, 52000))[1])
+            # a valid original outside the private root, and a symlink inside it to a valid
+            # original: only the location and the link condition refuse them
+            with tempfile.TemporaryDirectory(prefix="t64-p09-outside.") as outside_dir:
+                outside = Path(outside_dir) / "junit.xml"
+                _synthetic_junit(outside, 52000)
+                self.assertFalse(qualify._under(outside, private))
+                with self.assertRaises(qualify.Refusal, msg="JUnit outside the root") as caught:
+                    qualify._verify_full_matrix_step(passed, outside, sampled)
+                self.assertIn("outside the private root", str(caught.exception))
+            link = private / "linked-junit.xml"
+            link.symlink_to(junit)
+            self.assertTrue(qualify._under(link, private) and link.is_file())
+            with self.assertRaises(qualify.Refusal, msg="JUnit symlink") as caught:
+                qualify._verify_full_matrix_step(passed, link, sampled)
+            self.assertIn("outside the private root", str(caught.exception))
+            link.unlink()
+            qualify._verify_full_matrix_step(passed, junit, sampled)
 
     def test_hosted_context_and_api_zip_bound(self) -> None:
         """The API record, ZIP bytes and binding file all name the exact attempt."""
