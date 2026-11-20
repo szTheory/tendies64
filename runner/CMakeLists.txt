@@ -611,6 +611,26 @@ set_tests_properties(runner.save-fixtures controls.real.save-wrong-byte PROPERTI
   LABELS "runner;controls" TIMEOUT 120
   ENVIRONMENT "T64_PHASE09_EVIDENCE_DIR=${CMAKE_BINARY_DIR}/09-04-evidence")
 
+# Phase 9 save import and export (plan 09-05): the authored save-roundtrip ROM
+# through the real supervised runner with a verified import descriptor and the
+# no-clobber export publisher. One CTest name runs every case of the binary.
+add_executable(test_save_roundtrip tests/test_save_roundtrip.c)
+target_compile_definitions(test_save_roundtrip PRIVATE ${T64_HOST_DEFS})
+target_include_directories(test_save_roundtrip PRIVATE
+  ${CMAKE_CURRENT_SOURCE_DIR} ${CMAKE_SOURCE_DIR}/core/include)
+target_link_libraries(test_save_roundtrip PRIVATE t64_common t64_core)
+t64_target_warnings(test_save_roundtrip)
+add_dependencies(test_save_roundtrip t64-supervisor t64-supervisor-test
+  t64-result-check t64-runner-real t64-boot-fixtures t64-phase09-save-fixture)
+add_test(NAME runner.save-roundtrip
+  COMMAND test_save_roundtrip
+    $<TARGET_FILE:t64-supervisor> $<TARGET_FILE:t64-supervisor-test>
+    $<TARGET_FILE:t64-result-check> ${CMAKE_SOURCE_DIR}
+    $<TARGET_FILE:t64-runner-real>)
+set_tests_properties(runner.save-roundtrip PROPERTIES
+  LABELS "runner;controls" TIMEOUT 300
+  ENVIRONMENT "T64_PHASE09_EVIDENCE_DIR=${CMAKE_BINARY_DIR}/09-05-evidence")
+
 # Publisher controls: the module is compiled with the testing hooks, like the
 # test twin of the runner, and never reaches the production runner.
 add_executable(test_artifact_publisher tests/test_artifact_publisher.c

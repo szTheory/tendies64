@@ -228,6 +228,7 @@ unit.core.save.device
 runner.save-fixtures
 controls.real.save-wrong-byte
 unit.core.save.import-export
+runner.save-roundtrip
 harness.phase09-collect-real'
 
 CPU_COVERAGE_OPCODES='ADD
