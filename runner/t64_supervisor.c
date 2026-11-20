@@ -30,6 +30,7 @@
 #include "t64_real_result.h"
 #include "t64_real_fixture.h"
 #include "t64_raw_capture.h"
+#include "t64_save_flags.h"
 #include "t64_sha256.h"
 #include "t64_verified_input.h"
 #include "tendies64/t64_facade.h"
@@ -59,11 +60,13 @@
 #define T64_SUP_ARGS_AUDIO 2u
 #define T64_SUP_ARGS_RAW_CAPTURE 4u
 #define T64_SUP_ARGS_ARTIFACT 4u
+/* save flags 8: import descriptor 2, kind 2, format 2, export leaf 2 */
+#define T64_SUP_ARGS_SAVE 8u
 #define T64_SUP_CHILD_ARGS_SLOT_SUM                                          \
   (T64_SUP_ARGS_RUNNER_PATH + T64_SUP_ARGS_FIXTURE + T64_SUP_ARGS_INPUT +    \
    T64_SUP_ARGS_PROFILE + T64_SUP_ARGS_TICKS + T64_SUP_ARGS_ADVANCE_STEP +   \
    T64_SUP_ARGS_VIDEO + T64_SUP_ARGS_AUDIO + T64_SUP_ARGS_RAW_CAPTURE +      \
-   T64_SUP_ARGS_ARTIFACT)
+   T64_SUP_ARGS_ARTIFACT + T64_SUP_ARGS_SAVE)
 _Static_assert(T64_SUP_CHILD_ARGS_SLOT_SUM + 1u <= T64_SUP_CHILD_ARGS_CAPACITY,
                "the maximum child option set plus the terminating NULL must "
                "fit the child argument array");
@@ -454,12 +457,18 @@ typedef struct {
   const char *capture_out;
   const char *raw_capture_dir;
   const char *artifact_dir;
+  const char *save_import;
+  const char *save_import_sha256;
+  const char *save_kind;
+  const char *save_format;
+  const char *save_export_leaf;
   uint64_t input_size;
   uint64_t wall_ms;
   uint64_t bound;
   uint64_t log_limit;
   uint64_t raw_capture_max_bytes;
   uint64_t artifact_max_bytes;
+  uint64_t save_import_size;
 #ifdef T64_SUPERVISOR_TESTING
   uint64_t advance_step;
 #endif
@@ -472,6 +481,12 @@ typedef struct {
   int raw_capture_max_bytes_seen;
   int artifact_dir_seen;
   int artifact_max_bytes_seen;
+  int save_import_seen;
+  int save_import_size_seen;
+  int save_import_sha256_seen;
+  int save_kind_seen;
+  int save_format_seen;
+  int save_export_leaf_seen;
 #ifdef T64_SUPERVISOR_TESTING
   int advance_step_seen;
 #endif
@@ -491,6 +506,43 @@ typedef struct {
   int required;
   int seen;
 } sup_opt;
+
+/* Real-mode validation of the save flags (usage class). Returns false for any
+ * violation. The runner repeats the grammar checks before the guest starts. */
+static bool save_flags_valid(const sup_args *a) {
+  uint32_t kind = 0u;
+  uint32_t size = 0u;
+  uint32_t format = 0u;
+  const int import_any = a->save_import_seen || a->save_import_size_seen ||
+                         a->save_import_sha256_seen;
+  const int import_all = a->save_import_seen && a->save_import_size_seen &&
+                         a->save_import_sha256_seen;
+
+  if (!a->save_kind_seen && !a->save_format_seen && !import_any &&
+      !a->save_export_leaf_seen) {
+    return true;
+  }
+  if (!a->save_kind_seen || !a->save_format_seen ||
+      !(import_any || a->save_export_leaf_seen) ||
+      (import_any && !import_all) || a->raw_capture_dir_seen ||
+      !t64_save_flags_kind(a->save_kind, &kind, &size) ||
+      !t64_save_flags_format(a->save_format, &format)) {
+    return false;
+  }
+  if (import_all &&
+      (a->save_import == NULL || a->save_import[0] == '\0' ||
+       a->save_import_size != (uint64_t)size ||
+       !is_hex64(a->save_import_sha256))) {
+    return false;
+  }
+  if (a->save_export_leaf_seen &&
+      (a->save_export_leaf == NULL || a->save_export_leaf[0] == '\0' ||
+       !a->artifact_dir_seen || a->artifact_max_bytes < (uint64_t)size ||
+       !t64_save_flags_leaf_extension_ok(a->save_export_leaf))) {
+    return false;
+  }
+  return true;
+}
 
 static int parse_args(int argc, char **argv, sup_args *a) {
   sup_opt opts[] = {
@@ -520,6 +572,12 @@ static int parse_args(int argc, char **argv, sup_args *a) {
       {"--raw-capture-max-bytes", NULL, &a->raw_capture_max_bytes, 0, 0},
       {"--artifact-dir", &a->artifact_dir, NULL, 0, 0},
       {"--artifact-max-bytes", NULL, &a->artifact_max_bytes, 0, 0},
+      {"--save-import", &a->save_import, NULL, 0, 0},
+      {"--save-import-size", NULL, &a->save_import_size, 0, 0},
+      {"--save-import-sha256", &a->save_import_sha256, NULL, 0, 0},
+      {"--save-kind", &a->save_kind, NULL, 0, 0},
+      {"--save-format", &a->save_format, NULL, 0, 0},
+      {"--save-export-leaf", &a->save_export_leaf, NULL, 0, 0},
 #ifdef T64_SUPERVISOR_TESTING
       {"--advance-step", NULL, &a->advance_step, 0, 0},
 #endif
@@ -564,6 +622,24 @@ static int parse_args(int argc, char **argv, sup_args *a) {
     }
     if (strcmp(argv[i], "--artifact-max-bytes") == 0) {
       a->artifact_max_bytes_seen = 1;
+    }
+    if (strcmp(argv[i], "--save-import") == 0) {
+      a->save_import_seen = 1;
+    }
+    if (strcmp(argv[i], "--save-import-size") == 0) {
+      a->save_import_size_seen = 1;
+    }
+    if (strcmp(argv[i], "--save-import-sha256") == 0) {
+      a->save_import_sha256_seen = 1;
+    }
+    if (strcmp(argv[i], "--save-kind") == 0) {
+      a->save_kind_seen = 1;
+    }
+    if (strcmp(argv[i], "--save-format") == 0) {
+      a->save_format_seen = 1;
+    }
+    if (strcmp(argv[i], "--save-export-leaf") == 0) {
+      a->save_export_leaf_seen = 1;
     }
 #ifdef T64_SUPERVISOR_TESTING
     if (strcmp(argv[i], "--advance-step") == 0) {
@@ -666,6 +742,14 @@ static int parse_args(int argc, char **argv, sup_args *a) {
          a->raw_capture_dir_seen)) {
       bad = 1;
     }
+    /* Save import and export (plan 09-05): kind and format come together,
+     * at least one of import or export leaf is present, the import trio is
+     * all or none, tokens are closed lists, the import size is the exact kind
+     * size, and an export leaf needs the artifact pair with a cap of at least
+     * the kind size and an allowed extension. Never with raw capture. */
+    if (!bad && !save_flags_valid(a)) {
+      bad = 1;
+    }
     if (!bad && a->bound == 0u) {
       a->bound = REAL_GUEST_TICKS;
     } else if (!bad && a->bound > T64_REAL_GUEST_TICKS_CEILING) {
@@ -727,7 +811,9 @@ static int parse_args(int argc, char **argv, sup_args *a) {
          a->input != NULL || a->input_options_seen ||
          a->video_observation_fd != 0u || a->raw_capture_dir_seen ||
          a->raw_capture_max_bytes_seen || a->artifact_dir_seen ||
-         a->artifact_max_bytes_seen
+         a->artifact_max_bytes_seen || a->save_import_seen ||
+         a->save_import_size_seen || a->save_import_sha256_seen ||
+         a->save_kind_seen || a->save_format_seen || a->save_export_leaf_seen
 #ifdef T64_SUPERVISOR_TESTING
          || a->advance_step_seen
 #endif
@@ -1379,8 +1465,10 @@ static int real_test_barrier(const sup_args *args) {
 static int real_run_mode(const sup_args *args, const char *self_path) {
   t64_verified_input fixture = {-1, 0u, {0u}, {0}, 0u};
   t64_verified_input input = {-1, 0u, {0u}, {0}, 0u};
+  t64_verified_input save_import = {-1, 0u, {0u}, {0}, 0u};
   t64_verified_input_status fixture_status;
   t64_verified_input_status input_status;
+  t64_verified_input_status save_import_status;
   const t64_real_fixture *fixture_identity = NULL;
   t64_real_result identities;
   workset ws;
@@ -1397,6 +1485,10 @@ static int real_run_mode(const sup_args *args, const char *self_path) {
   char raw_capture_dir_text[4096];
   char artifact_dir_text[4096];
   char artifact_max_bytes_text[24];
+  char save_import_fd_text[24];
+  char save_kind_text[24];
+  char save_format_text[24];
+  char save_export_leaf_text[128];
 #ifdef T64_SUPERVISOR_TESTING
   char advance_step_text[24];
 #endif
@@ -1436,6 +1528,29 @@ static int real_run_mode(const sup_args *args, const char *self_path) {
   raw_capture_dir_text[0] = '\0';
   artifact_dir_text[0] = '\0';
   artifact_max_bytes_text[0] = '\0';
+  save_import_fd_text[0] = '\0';
+  save_kind_text[0] = '\0';
+  save_format_text[0] = '\0';
+  save_export_leaf_text[0] = '\0';
+  if (args->save_kind_seen) {
+    int kind_length = snprintf(save_kind_text, sizeof save_kind_text, "%s",
+                               args->save_kind);
+    int format_length = snprintf(save_format_text, sizeof save_format_text,
+                                 "%s", args->save_format);
+    int leaf_length = args->save_export_leaf_seen
+                          ? snprintf(save_export_leaf_text,
+                                     sizeof save_export_leaf_text, "%s",
+                                     args->save_export_leaf)
+                          : 1;
+    if (kind_length <= 0 || (size_t)kind_length >= sizeof save_kind_text ||
+        format_length <= 0 ||
+        (size_t)format_length >= sizeof save_format_text || leaf_length <= 0 ||
+        (size_t)leaf_length >= sizeof save_export_leaf_text) {
+      (void)real_write_prelaunch(args->result, "harness-error", "usage",
+                                 "not-started", args->bound);
+      return 1;
+    }
+  }
   if (args->raw_capture_dir_seen) {
     int length = snprintf(raw_capture_dir_text, sizeof raw_capture_dir_text,
                           "%s", args->raw_capture_dir);
@@ -1502,6 +1617,18 @@ static int real_run_mode(const sup_args *args, const char *self_path) {
                                "refused", args->bound);
     goto cleanup;
   }
+  if (args->save_import_seen) {
+    /* The import file is copied into an exclusive private snapshot with its
+     * exact size and SHA-256 verified, exactly as the schedule input is. */
+    save_import_status = t64_verified_input_prepare(
+        args->save_import, args->save_import_size, args->save_import_sha256,
+        T64_VERIFIED_SAVE_MAX_BYTES, &save_import);
+    if (save_import_status != T64_VERIFIED_INPUT_OK) {
+      (void)real_write_prelaunch(args->result, "harness-error", "refusal",
+                                 "refused", args->bound);
+      goto cleanup;
+    }
+  }
   if (real_test_barrier(args) != 0) {
     (void)real_write_prelaunch(args->result, "harness-error", "refusal",
                                "refused", args->bound);
@@ -1552,6 +1679,8 @@ static int real_run_mode(const sup_args *args, const char *self_path) {
   }
   (void)snprintf(fixture_fd_text, sizeof fixture_fd_text, "%d", fixture.fd);
   (void)snprintf(input_fd_text, sizeof input_fd_text, "%d", input.fd);
+  (void)snprintf(save_import_fd_text, sizeof save_import_fd_text, "%d",
+                 save_import.fd);
   (void)snprintf(video_observation_fd_text,
                  sizeof video_observation_fd_text, "%llu",
                  (unsigned long long)args->video_observation_fd);
@@ -1591,6 +1720,10 @@ static int real_run_mode(const sup_args *args, const char *self_path) {
     char option_raw_capture_max_bytes[] = "--raw-capture-max-bytes";
     char option_artifact_dir[] = "--artifact-dir";
     char option_artifact_max_bytes[] = "--artifact-max-bytes";
+    char option_save_import_fd[] = "--save-import-fd";
+    char option_save_kind[] = "--save-kind";
+    char option_save_format[] = "--save-format";
+    char option_save_export_leaf[] = "--save-export-leaf";
     char *child_args[T64_SUP_CHILD_ARGS_CAPACITY];
     child_argv_list argv_builder = {child_args, 0u, T64_SUP_CHILD_ARGS_CAPACITY};
     bool argv_ok = true;
@@ -1646,6 +1779,26 @@ static int real_run_mode(const sup_args *args, const char *self_path) {
       argv_ok = argv_ok &&
                 child_argv_push(&argv_builder, artifact_max_bytes_text);
     }
+    if (args->save_kind_seen) {
+      /* save flags 8: import descriptor 2, kind 2, format 2, export leaf 2;
+       * the import and the leaf only when present. */
+      if (args->save_import_seen) {
+        argv_ok = argv_ok &&
+                  child_argv_push(&argv_builder, option_save_import_fd);
+        argv_ok = argv_ok &&
+                  child_argv_push(&argv_builder, save_import_fd_text);
+      }
+      argv_ok = argv_ok && child_argv_push(&argv_builder, option_save_kind);
+      argv_ok = argv_ok && child_argv_push(&argv_builder, save_kind_text);
+      argv_ok = argv_ok && child_argv_push(&argv_builder, option_save_format);
+      argv_ok = argv_ok && child_argv_push(&argv_builder, save_format_text);
+      if (args->save_export_leaf_seen) {
+        argv_ok = argv_ok &&
+                  child_argv_push(&argv_builder, option_save_export_leaf);
+        argv_ok = argv_ok &&
+                  child_argv_push(&argv_builder, save_export_leaf_text);
+      }
+    }
     if (!argv_ok) {
       /* Exhausted capacity ends the child before exec with no guest run. */
       _exit(126);
@@ -1671,6 +1824,7 @@ static int real_run_mode(const sup_args *args, const char *self_path) {
     capture_fd = open(ws.capture, O_WRONLY | O_TRUNC | O_NOFOLLOW);
     if (report_fd < 0 || capture_fd < 0 ||
         !real_clear_cloexec(fixture.fd) || !real_clear_cloexec(input.fd) ||
+        (args->save_import_seen && !real_clear_cloexec(save_import.fd)) ||
         (args->video_observation_fd != 0u &&
          !real_clear_cloexec((int)args->video_observation_fd)) ||
         (args->audio_observation_fd != 0u &&
@@ -1840,6 +1994,7 @@ cleanup:
   free(capture);
   t64_verified_input_release(&fixture);
   t64_verified_input_release(&input);
+  t64_verified_input_release(&save_import);
   return exit_code;
 }
 

@@ -19,6 +19,7 @@
 #include "t64_raw_capture.h"
 #include "t64_real_fixture.h"
 #include "t64_real_result.h"
+#include "t64_save_flags.h"
 #include "t64_sha256.h"
 #include "t64_video_observation.h"
 #include "tendies64/t64_machine.h"
@@ -116,6 +117,31 @@ static bool parse_fd(const char *text, int *fd_out) {
   *fd_out = (int)value;
   return true;
 }
+
+/* The numeric kinds and formats of runner/t64_save_flags.h equal the public
+ * constants (the header is shared with the supervisor, which has no core
+ * link). */
+_Static_assert(T64_SAVE_FLAGS_KIND_EEPROM_4K == T64_SAVE_EEPROM_4K &&
+                   T64_SAVE_FLAGS_KIND_EEPROM_16K == T64_SAVE_EEPROM_16K &&
+                   T64_SAVE_FLAGS_KIND_SRAM_32K == T64_SAVE_SRAM_32K,
+               "save flag kinds must equal the public save kinds");
+_Static_assert(T64_SAVE_FLAGS_FORMAT_RAW == T64_SAVE_FORMAT_RAW &&
+                   T64_SAVE_FLAGS_FORMAT_SWAP16 == T64_SAVE_FORMAT_SWAP16 &&
+                   T64_SAVE_FLAGS_FORMAT_WORDREV32 ==
+                       T64_SAVE_FORMAT_WORDREV32,
+               "save flag formats must equal the public save formats");
+
+/* The save request of one run (plan 09-05): the verified import descriptor,
+ * the kind and format the host named, and the export leaf. Bundled so a later
+ * option is one field, not one more run_real parameter. */
+typedef struct {
+  int import_fd;           /* -1 when no import was requested */
+  bool requested;          /* kind and format were given */
+  uint32_t kind;
+  uint32_t kind_size;
+  uint32_t format;
+  const char *export_leaf; /* NULL when nothing is exported */
+} save_request;
 
 static bool read_snapshot(int fd, size_t max_bytes, size_t exact_size,
                           owned_bytes *output) {
@@ -1052,7 +1078,8 @@ static int run_real(int fixture_fd, int input_fd, const char *requested_profile,
                     const char *raw_capture_dir,
                     uint64_t raw_capture_max_bytes,
                     const char *artifact_dir,
-                    uint64_t artifact_max_bytes) {
+                    uint64_t artifact_max_bytes,
+                    const save_request *save) {
   static const t64_host_allocator allocator = {
       allocator_allocate, allocator_release, NULL};
   owned_bytes fixture = {0};
@@ -1063,6 +1090,7 @@ static int run_real(int fixture_fd, int input_fd, const char *requested_profile,
   const t64_real_fixture *fixture_identity = NULL;
   t64_machine *machine = NULL;
   t64_raw_capture *raw_capture = NULL;
+  t64_artifact_publisher *save_publisher = NULL;
   t64_real_result result;
   trace_observation observations = {0};
   uint8_t output[T64_REAL_OUTPUT_CAPACITY] = {0};
@@ -1185,6 +1213,47 @@ static int run_real(int fixture_fd, int input_fd, const char *requested_profile,
     (void)snprintf(result.outcome, sizeof result.outcome, "harness-error");
     (void)snprintf(result.detail, sizeof result.detail, "host-error");
     goto finalize;
+  }
+  if (save->requested) {
+    /* The device must be the requested kind (refused before the guest starts
+     * with the existing admission-refusal path), then the verified import
+     * descriptor is read with its exact size and imported in the named
+     * format. The result record and the log never carry save bytes. */
+    t64_save_info save_info;
+    owned_bytes save_image = {0};
+    bool save_ok = t64_machine_save_info(machine, save->kind, &save_info) ==
+                       T64_STATUS_OK &&
+                   save_info.size_bytes == save->kind_size;
+    if (save_ok && save->import_fd >= 0) {
+      save_ok = read_snapshot(save->import_fd, save->kind_size,
+                              save->kind_size, &save_image) &&
+                t64_machine_save_import(machine, save->kind, save->format,
+                                        save_image.bytes,
+                                        save_image.length) == T64_STATUS_OK;
+    }
+    free(save_image.bytes);
+    if (!save_ok) {
+      exit_code = emit_prelaunch("refusal", "refused", guest_ticks, 0);
+      goto cleanup;
+    }
+  }
+  if (save->export_leaf != NULL) {
+    /* The publisher is opened before the guest runs (cap = the kind size) so
+     * a bad leaf or directory ends the run with the publisher's own error
+     * name; nothing is published unless the outcome is pass. */
+    const char *publisher_error = NULL;
+    save_publisher = t64_artifact_publisher_open(
+        artifact_dir, save->export_leaf, (uint64_t)save->kind_size,
+        &publisher_error);
+    if (save_publisher == NULL) {
+      (void)snprintf(result.guest_stop_kind, sizeof result.guest_stop_kind,
+                     "host-error");
+      (void)snprintf(result.outcome, sizeof result.outcome, "harness-error");
+      (void)snprintf(result.detail, sizeof result.detail, "%s",
+                     publisher_error == NULL ? "host-error"
+                                             : publisher_error);
+      goto finalize;
+    }
   }
   if (raw_capture_dir != NULL) {
     t64_raw_capture_identity identity;
@@ -1623,6 +1692,38 @@ finalize:
       t64_raw_capture_abort(raw_capture);
     }
   }
+  if (save_publisher != NULL) {
+    /* Export only after a pass outcome; every other outcome publishes nothing
+     * and removes the private stage. */
+    if (strcmp(result.outcome, "pass") == 0) {
+      uint8_t *export_bytes = (uint8_t *)malloc((size_t)save->kind_size);
+      size_t exported = 0u;
+      const bool core_ok =
+          export_bytes != NULL &&
+          t64_machine_save_export(machine, save->kind, save->format,
+                                  export_bytes, (size_t)save->kind_size,
+                                  &exported) == T64_STATUS_OK &&
+          exported == (size_t)save->kind_size;
+      const bool export_ok =
+          core_ok &&
+          t64_artifact_publisher_write(save_publisher, export_bytes,
+                                       exported) &&
+          t64_artifact_publisher_finalize(save_publisher);
+      free(export_bytes);
+      if (!export_ok) {
+        (void)snprintf(result.guest_stop_kind, sizeof result.guest_stop_kind,
+                       "host-error");
+        (void)snprintf(result.outcome, sizeof result.outcome,
+                       "harness-error");
+        (void)snprintf(result.detail, sizeof result.detail, "%s",
+                       core_ok ? t64_artifact_publisher_error(save_publisher)
+                               : "host-error");
+        t64_artifact_publisher_abort(save_publisher);
+      }
+    } else {
+      t64_artifact_publisher_abort(save_publisher);
+    }
+  }
 #ifdef T64_REAL_RUNNER_TESTING
   if (test_fault_is("artifact-publish-probe") && artifact_dir != NULL &&
       strcmp(result.outcome, "pass") == 0 &&
@@ -1655,6 +1756,10 @@ finalize:
   }
 
 cleanup:
+  if (save_publisher != NULL) {
+    t64_artifact_publisher_abort(save_publisher);
+    t64_artifact_publisher_destroy(save_publisher);
+  }
   t64_raw_capture_destroy(raw_capture);
   if (machine != NULL) {
     t64_machine_destroy(machine);
@@ -1674,6 +1779,9 @@ int main(int argc, char **argv) {
   const char *profile_id = NULL;
   const char *raw_capture_dir = NULL;
   const char *artifact_dir = NULL;
+  const char *save_kind_token = NULL;
+  const char *save_format_token = NULL;
+  save_request save = {-1, false, 0u, 0u, 0u, NULL};
   uint64_t artifact_max_bytes = 0u;
   uint64_t guest_ticks = 0u;
   uint64_t advance_step = T64_REAL_TRACE_STEP;
@@ -1688,6 +1796,10 @@ int main(int argc, char **argv) {
   bool seen_raw_capture_max_bytes = false;
   bool seen_artifact_dir = false;
   bool seen_artifact_max_bytes = false;
+  bool seen_save_import = false;
+  bool seen_save_kind = false;
+  bool seen_save_format = false;
+  bool seen_save_export_leaf = false;
 #ifdef T64_REAL_RUNNER_TESTING
   bool seen_advance_step = false;
 #endif
@@ -1751,6 +1863,21 @@ int main(int argc, char **argv) {
                !seen_artifact_max_bytes &&
                parse_u64(value, &artifact_max_bytes)) {
       seen_artifact_max_bytes = true;
+    } else if (strcmp(option, "--save-import-fd") == 0 && !seen_save_import &&
+               parse_fd(value, &save.import_fd)) {
+      seen_save_import = true;
+    } else if (strcmp(option, "--save-kind") == 0 && !seen_save_kind &&
+               value[0] != '\0') {
+      save_kind_token = value;
+      seen_save_kind = true;
+    } else if (strcmp(option, "--save-format") == 0 && !seen_save_format &&
+               value[0] != '\0') {
+      save_format_token = value;
+      seen_save_format = true;
+    } else if (strcmp(option, "--save-export-leaf") == 0 &&
+               !seen_save_export_leaf && value[0] != '\0') {
+      save.export_leaf = value;
+      seen_save_export_leaf = true;
 #ifdef T64_REAL_RUNNER_TESTING
     } else if (strcmp(option, "--advance-step") == 0 &&
                !seen_advance_step && parse_u64(value, &advance_step) &&
@@ -1782,6 +1909,23 @@ int main(int argc, char **argv) {
         artifact_max_bytes > T64_ARTIFACT_MAX_BYTES ||
         seen_raw_capture_dir))) {
     return emit_prelaunch("usage", "not-started", guest_ticks, 2);
+  }
+  /* The save options repeat the supervisor's grammar before the guest starts:
+   * kind and format together, at least one of import or export leaf, closed
+   * tokens, an export leaf only with the artifact pair holding at least the
+   * kind size and an allowed extension, and never with raw capture. */
+  if (seen_save_kind || seen_save_format || seen_save_import ||
+      seen_save_export_leaf) {
+    if (!seen_save_kind || !seen_save_format ||
+        !(seen_save_import || seen_save_export_leaf) || seen_raw_capture_dir ||
+        !t64_save_flags_kind(save_kind_token, &save.kind, &save.kind_size) ||
+        !t64_save_flags_format(save_format_token, &save.format) ||
+        (seen_save_export_leaf &&
+         (!seen_artifact_dir || artifact_max_bytes < (uint64_t)save.kind_size ||
+          !t64_save_flags_leaf_extension_ok(save.export_leaf)))) {
+      return emit_prelaunch("usage", "not-started", guest_ticks, 2);
+    }
+    save.requested = true;
   }
 #ifdef T64_REAL_RUNNER_TESTING
   g_test_fault = getenv("T64_REAL_RUNNER_TEST_FAULT");
@@ -1825,7 +1969,7 @@ int main(int argc, char **argv) {
                           advance_step, video_observation_fd,
                           audio_observation_fd, raw_capture_dir,
                           raw_capture_max_bytes, artifact_dir,
-                          artifact_max_bytes);
+                          artifact_max_bytes, &save);
 #ifdef T64_REAL_RUNNER_TESTING
     if (status == 0 && (test_fault_is("capture-write-limit-exact") ||
                         test_fault_is("capture-write-limit-over")) &&

@@ -8,6 +8,9 @@
 #define T64_VERIFIED_INPUT_SHA256_HEX_SIZE 65u
 #define T64_VERIFIED_FIXTURE_MAX_BYTES (1u << 20)
 #define T64_VERIFIED_SCHEDULE_MAX_BYTES 65536u
+/* The largest save image (the 32 KiB SRAM kind); the save import descriptor of
+ * plan 09-05 is prepared with this bound and the exact kind size. */
+#define T64_VERIFIED_SAVE_MAX_BYTES 32768u
 #define T64_VERIFIED_HARNESS_MAX_BYTES (64ull << 20)
 
 typedef enum {

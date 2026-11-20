@@ -124,6 +124,14 @@ static const char *const raw_capture_detail_names[] = {
     "capture-video-metadata-missing", "capture-video-metadata-shape",
     "capture-video-name", "capture-video-overflow", "capture-video-profile",
     "capture-video-sequence", "capture-write"};
+/* Closed host-error vocabulary of the artifact publisher (the save export of
+ * plan 09-05 and the later replay and state artifacts). Exact strings in one
+ * table, accepted only for a host-error stop, like the raw capture names. */
+static const char *const artifact_detail_names[] = {
+    "artifact-cap", "artifact-dir-unsafe", "artifact-exists",
+    "artifact-leaf-name", "artifact-no-replace-unsupported",
+    "artifact-rename", "artifact-stage", "artifact-substitution",
+    "artifact-write"};
 static const char *const milestone_names[] = {
     "ipl3-entry", "loader-dma", "hello-entry", "hello-completion"};
 
@@ -796,7 +804,9 @@ static int real_detail_outcome_ok(const t64_json_node *detail,
     return str_is(outcome, "pass");
   }
   if (in_list(detail, raw_capture_detail_names,
-              ARRAY_LEN(raw_capture_detail_names))) {
+              ARRAY_LEN(raw_capture_detail_names)) ||
+      in_list(detail, artifact_detail_names,
+              ARRAY_LEN(artifact_detail_names))) {
     return str_is(outcome, "harness-error");
   }
   return str_is(outcome, "harness-error");
@@ -1092,7 +1102,9 @@ static int validate_real_result(const t64_json_node *root, rec *r, diag *d) {
   if (!in_list(outcome, real_outcome_names, ARRAY_LEN(real_outcome_names)) ||
       (!in_list(detail, real_detail_names, ARRAY_LEN(real_detail_names)) &&
        !in_list(detail, raw_capture_detail_names,
-                ARRAY_LEN(raw_capture_detail_names)))) {
+                ARRAY_LEN(raw_capture_detail_names)) &&
+       !in_list(detail, artifact_detail_names,
+                ARRAY_LEN(artifact_detail_names)))) {
     set_diag(d, "R-ENUM", "outcome or detail is outside the closed v2 enum");
     return 0;
   }
@@ -1249,7 +1261,9 @@ static int validate_real_result(const t64_json_node *root, rec *r, diag *d) {
           str_is(detail, "video-observation-invalid") ||
           str_is(detail, "video-observation-write-error") ||
           in_list(detail, raw_capture_detail_names,
-                  ARRAY_LEN(raw_capture_detail_names)))) {
+                  ARRAY_LEN(raw_capture_detail_names)) ||
+          in_list(detail, artifact_detail_names,
+                  ARRAY_LEN(artifact_detail_names)))) {
       set_diag(d, "R-DETAIL-OUTCOME", "host-error stop requires a host harness-error detail");
       return 0;
     }

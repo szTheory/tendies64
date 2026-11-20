@@ -527,6 +527,14 @@ further restrict those pairs:
   malformed report cannot become a guest outcome. `host-error` accepts host,
   wall-backstop, supervisor and runner process details. `report-error` accepts
   report, no-result and capture-invalid details.
+- The artifact publisher details (plan 09-05, provisional until Phase 10) are
+  the closed list `artifact-cap`, `artifact-dir-unsafe`, `artifact-exists`,
+  `artifact-leaf-name`, `artifact-no-replace-unsupported`, `artifact-rename`,
+  `artifact-stage`, `artifact-substitution` and `artifact-write`. Each maps to
+  `harness-error` and is accepted only for a `host-error` stop (the longest is
+  31 characters and fits the 32-byte detail field). A save export records no
+  key, count or format in the closed record: nothing but the publisher error
+  name can appear, and save bytes never appear in the record or in any log.
 - A postlaunch partial-null identity set is limited to input, log and state
   digests under the untrusted-error rule above; all supervisor-known identities
   remain required. A report error after correct guest text still takes

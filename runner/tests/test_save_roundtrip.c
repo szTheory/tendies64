@@ -20,6 +20,7 @@
 #define _POSIX_C_SOURCE 200809L
 #endif
 
+#include <dirent.h>
 #include <errno.h>
 #include <fcntl.h>
 #include <limits.h>
@@ -216,10 +217,20 @@ static bool checker_accepts(const char *result_path) {
 
 /* ---- supervised run ----------------------------------------------------- */
 
+/* Every save option is passed as text, so a control can hand the supervisor a
+ * malformed value; NULL leaves the option out. */
 typedef struct {
   const char *supervisor;
   const char *fixture;
   uint64_t bound; /* 0 leaves the option out */
+  const char *import_path;
+  const char *import_size;
+  const char *import_sha256;
+  const char *kind;
+  const char *format;
+  const char *leaf;
+  const char *artifact_dir;
+  const char *artifact_max;
 } run_spec;
 
 #define MAX_ARGS 40u
@@ -231,6 +242,13 @@ typedef struct {
 
 static void arg_add(arg_list *list, char *value) {
   if (list->count < MAX_ARGS - 1u) list->items[list->count++] = value;
+}
+
+static void arg_add_pair(arg_list *list, const char *option,
+                         const char *value) {
+  if (value == NULL) return;
+  arg_add(list, (char *)(uintptr_t)option);
+  arg_add(list, (char *)(uintptr_t)value);
 }
 
 /* The authored ROM reads no input schedule: the default empty one is used. */
@@ -284,6 +302,14 @@ static bool run_supervised(const run_spec *spec, run_out *out) {
   arg_add(&list, input);
   arg_add(&list, capture_option);
   arg_add(&list, capture_path);
+  arg_add_pair(&list, "--save-import", spec->import_path);
+  arg_add_pair(&list, "--save-import-size", spec->import_size);
+  arg_add_pair(&list, "--save-import-sha256", spec->import_sha256);
+  arg_add_pair(&list, "--save-kind", spec->kind);
+  arg_add_pair(&list, "--save-format", spec->format);
+  arg_add_pair(&list, "--save-export-leaf", spec->leaf);
+  arg_add_pair(&list, "--artifact-dir", spec->artifact_dir);
+  arg_add_pair(&list, "--artifact-max-bytes", spec->artifact_max);
   list.items[list.count] = NULL;
   pid = fork();
   if (pid < 0) return false;
@@ -320,24 +346,189 @@ static void expect_pass(const run_out *run) {
   CHECK(strcmp(run->stop_kind, "authored-completion") == 0);
 }
 
+/* ---- authored images and files (independent of the oracle and the core) ---- */
+
+#define SRAM_BYTES 32768u
+#define W_OFFSET 0x0100u
+#define V_OFFSET 0x7FF0u
+#define BLOCK_BYTES 16u
+
+/* Authored formula: byte i is (37 i + 11 + 101 (i >> 8)) modulo 256. */
+static uint8_t image_byte(size_t index) {
+  return (uint8_t)((37u * (unsigned)index + 11u +
+                    101u * (unsigned)(index >> 8)) &
+                   0xFFu);
+}
+
+static void fill_image(uint8_t *bytes, size_t length) {
+  size_t i;
+  for (i = 0u; i < length; i++) bytes[i] = image_byte(i);
+}
+
+/* The guest literals of fixtures/save/roundtrip.S. */
+static const uint8_t w_block[BLOCK_BYTES] = {
+    0xc3, 0x5a, 0x96, 0xe1, 0x0f, 0x78, 0xb2, 0x4d,
+    0x21, 0x8e, 0xf6, 0x34, 0x69, 0xd0, 0x17, 0xab};
+static const uint8_t v_block[BLOCK_BYTES] = {
+    0x18, 0xe5, 0x7c, 0xb9, 0x03, 0xd6, 0x4a, 0x91,
+    0xff, 0x2e, 0xa7, 0x60, 0xc8, 0x35, 0x8b, 0x5e};
+
+/* The image the guest leaves behind: the pattern with W and V rewritten. */
+static void rewrite_image(uint8_t *image) {
+  memcpy(image + W_OFFSET, w_block, BLOCK_BYTES);
+  memcpy(image + V_OFFSET, v_block, BLOCK_BYTES);
+}
+
+static void sha_hex_of(const uint8_t *data, size_t length, char out[65]) {
+  t64_sha256_ctx ctx;
+  uint8_t digest[T64_SHA256_DIGEST_SIZE];
+  t64_sha256_init(&ctx);
+  t64_sha256_update(&ctx, data, length);
+  t64_sha256_final(&ctx, digest);
+  t64_sha256_hex(digest, out);
+}
+
+/* A new 0600 file; fails when it exists. */
+static bool write_new_file(const char *path, const uint8_t *data,
+                           size_t length) {
+  size_t done = 0u;
+  int fd = open(path, O_WRONLY | O_CREAT | O_EXCL | O_NOFOLLOW, 0600);
+  if (fd < 0) return false;
+  while (done < length) {
+    ssize_t count = write(fd, data + done, length - done);
+    if (count < 0 && errno == EINTR) continue;
+    if (count <= 0) {
+      (void)close(fd);
+      return false;
+    }
+    done += (size_t)count;
+  }
+  return close(fd) == 0;
+}
+
+/* A private 0700 directory for exported leaves (the publisher requires an
+ * owner-only directory), created under the evidence directory. */
+static bool make_private_dir(char out[PATH_MAX]) {
+  if (snprintf(out, PATH_MAX, "%s/exp.XXXXXX", g_evidence) >= PATH_MAX) {
+    return false;
+  }
+  return mkdtemp(out) != NULL;
+}
+
+/* Counts the directory entries other than the dot entries (a published leaf
+ * is one; a left-over stage directory would be another). */
+static int count_entries(const char *directory) {
+  DIR *dir = opendir(directory);
+  struct dirent *entry;
+  int count = 0;
+  if (dir == NULL) return -1;
+  while ((entry = readdir(dir)) != NULL) {
+    if (strcmp(entry->d_name, ".") != 0 && strcmp(entry->d_name, "..") != 0) {
+      count++;
+    }
+  }
+  (void)closedir(dir);
+  return count;
+}
+
+/* Removes the single level of files in a private directory, then the
+ * directory (the images are removed after each case). */
+static void remove_dir_tree(const char *directory) {
+  DIR *dir = opendir(directory);
+  struct dirent *entry;
+  char path[PATH_MAX];
+  if (dir != NULL) {
+    while ((entry = readdir(dir)) != NULL) {
+      if (strcmp(entry->d_name, ".") == 0 || strcmp(entry->d_name, "..") == 0) {
+        continue;
+      }
+      if (join_path(path, sizeof path, directory, entry->d_name)) {
+        (void)unlink(path);
+      }
+    }
+    (void)closedir(dir);
+  }
+  (void)rmdir(directory);
+}
+
+/* ---- literal digests (fixtures/save/roundtrip_oracle.py --image-sha256) ---- */
+
+#define SRAM_IMPORT_RAW_SHA256 \
+  "a4851725208bbacc91017a0663796acb58ad12a8b1061100894fc8df145a9c5d"
+#define SRAM_EXPORT_RAW_SHA256 \
+  "7ffc21818eb8b3f3802176937dfa7dbedb98cdb3f44afbfb467c95e4b9d3e588"
+
 /* ---- cases ---------------------------------------------------------------- */
 
-/* The roundtrip ROM through the supervisor: pass, the pinned transcript. */
+/* The baseline: the authored image imported RAW through a verified descriptor,
+ * rewritten by the guest and exported RAW through the publisher. */
 static int case_sram_roundtrip(void) {
+  static uint8_t image[SRAM_BYTES];
+  static uint8_t expected[SRAM_BYTES];
+  static uint8_t published[SRAM_BYTES + 1u];
   char rom[PATH_MAX];
+  char dir[PATH_MAX];
+  char import_path[PATH_MAX];
+  char leaf_path[PATH_MAX];
+  char import_sha[65];
+  char expected_sha[65];
+  char published_sha[65];
+  size_t published_length = 0u;
+  struct stat info;
   run_spec spec = {0};
   run_out run;
+
+  fill_image(image, sizeof image);
+  sha_hex_of(image, sizeof image, import_sha);
+  CHECK(strcmp(import_sha, SRAM_IMPORT_RAW_SHA256) == 0);
+  memcpy(expected, image, sizeof image);
+  rewrite_image(expected);
+  sha_hex_of(expected, sizeof expected, expected_sha);
+  CHECK(strcmp(expected_sha, SRAM_EXPORT_RAW_SHA256) == 0);
+
   CHECK(fixture_path(rom, ROUNDTRIP_ROM));
-  spec.supervisor = g_supervisor;
-  spec.fixture = rom;
-  spec.bound = SAVE_BOUND;
-  CHECK(run_supervised(&spec, &run));
-  (void)fprintf(stderr,
-                "roundtrip: outcome=%s detail=%s stop=%s log_bytes=%llu "
-                "tick=%llu\n",
-                run.outcome, run.detail, run.stop_kind,
-                (unsigned long long)run.log_bytes,
-                (unsigned long long)run.guest_tick);
+  CHECK(make_private_dir(dir));
+  CHECK(join_path(import_path, sizeof import_path, dir, "import.sav"));
+  CHECK(write_new_file(import_path, image, sizeof image));
+  {
+    char export_dir[PATH_MAX];
+    CHECK(make_private_dir(export_dir));
+    spec.supervisor = g_supervisor;
+    spec.fixture = rom;
+    spec.bound = SAVE_BOUND;
+    spec.import_path = import_path;
+    spec.import_size = "32768";
+    spec.import_sha256 = import_sha;
+    spec.kind = "sram32k";
+    spec.format = "raw-v1";
+    spec.leaf = "roundtrip.sra";
+    spec.artifact_dir = export_dir;
+    spec.artifact_max = "32768";
+    CHECK(run_supervised(&spec, &run));
+    (void)fprintf(stderr,
+                  "roundtrip: outcome=%s detail=%s stop=%s log_bytes=%llu "
+                  "tick=%llu\n",
+                  run.outcome, run.detail, run.stop_kind,
+                  (unsigned long long)run.log_bytes,
+                  (unsigned long long)run.guest_tick);
+    CHECK(join_path(leaf_path, sizeof leaf_path, export_dir, "roundtrip.sra"));
+    if (stat(leaf_path, &info) == 0) {
+      CHECK((info.st_mode & 0777) == 0600);
+      CHECK((uint64_t)info.st_size == SRAM_BYTES);
+    } else {
+      CHECK(false);
+    }
+    CHECK(read_file(leaf_path, published, sizeof published, &published_length));
+    CHECK(published_length == SRAM_BYTES);
+    sha_hex_of(published, published_length, published_sha);
+    CHECK(strcmp(published_sha, SRAM_EXPORT_RAW_SHA256) == 0);
+    CHECK(published_length == SRAM_BYTES &&
+          memcmp(published, expected, SRAM_BYTES) == 0);
+    /* The leaf is the only entry: no stage directory is left behind. */
+    CHECK(count_entries(export_dir) == 1);
+    remove_dir_tree(export_dir);
+  }
+  remove_dir_tree(dir);
   expect_pass(&run);
   CHECK(strcmp(run.fixture_id, ROUNDTRIP_ROM) == 0);
   CHECK(strcmp(run.profile_id, ROUNDTRIP_PROFILE) == 0);
