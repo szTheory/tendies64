@@ -203,6 +203,17 @@ typedef struct {
   uint64_t log_tick;           /* record the records at this tick, or 0 */
   uint64_t find_address;       /* first bus write32 to this address, or 0 */
   uint64_t found_tick;         /* tick of that record, or UINT64_MAX */
+  /* MI watch: every MI pending record must directly follow a record of the
+   * watched producer pair at the same tick. */
+  bool watch_active;
+  uint32_t watch_device;
+  uint32_t watch_kind;
+  uint64_t watch_seen;         /* producer records observed */
+  uint64_t mi_hits;            /* MI pending records observed */
+  bool mi_ok;                  /* every one followed its producer record */
+  t64_trace_record previous;
+  bool previous_valid;
+  uint64_t exception_tick;     /* first CPU exception record, or UINT64_MAX */
   t64_trace_record log[LOG_CAPACITY];
   size_t log_count;
   uint64_t calls;
@@ -218,6 +229,8 @@ static void ctx_start(run_ctx *ctx, t64_machine *machine, bool trace,
   ctx->trace = trace;
   ctx->log_tick = log_tick;
   ctx->found_tick = UINT64_MAX;
+  ctx->mi_ok = true;
+  ctx->exception_tick = UINT64_MAX;
   t64_sha256_init(&ctx->trace_hash);
   if (trace) {
     T64_CHECK_INT(t64_machine_trace_set_enabled(machine, true),
@@ -261,6 +274,28 @@ static void ctx_drain(run_ctx *ctx) {
         ctx->log_count < LOG_CAPACITY) {
       ctx->log[ctx->log_count++] = records[i];
     }
+    if (ctx->watch_active) {
+      if (records[i].device == ctx->watch_device &&
+          records[i].kind == ctx->watch_kind) {
+        ctx->watch_seen++;
+      }
+      if (records[i].device == T64_TRACE_DEVICE_MI &&
+          records[i].kind == T64_TRACE_KIND_MI_PENDING) {
+        ctx->mi_hits++;
+        if (!ctx->previous_valid || ctx->previous.device != ctx->watch_device ||
+            ctx->previous.kind != ctx->watch_kind ||
+            ctx->previous.tick != records[i].tick) {
+          ctx->mi_ok = false;
+        }
+      }
+    }
+    if (records[i].device == T64_TRACE_DEVICE_MACHINE &&
+        records[i].kind == T64_TRACE_KIND_CPU_EXCEPTION &&
+        ctx->exception_tick == UINT64_MAX) {
+      ctx->exception_tick = records[i].tick;
+    }
+    ctx->previous = records[i];
+    ctx->previous_valid = true;
     if (ctx->find_address != 0u && ctx->found_tick == UINT64_MAX &&
         records[i].device == T64_TRACE_DEVICE_BUS &&
         records[i].kind == T64_TRACE_KIND_BUS_WRITE32 &&
@@ -335,6 +370,17 @@ static bool ctx_advance_to(run_ctx *ctx, uint64_t tick) {
     }
     ctx->resource_stops++;
     T64_CHECK_INT(stop.tick, ctx->machine->tick);
+    /* A budget or backpressure stop never moves guest time past the request
+     * or past a queued event. */
+    if (ctx->machine->tick > tick ||
+        (ctx->machine->queue_count > 0u &&
+         ctx->machine->events[ctx->machine->queue_head].tick <
+             ctx->machine->tick)) {
+      fprintf(stderr, "resource stop at tick %llu beyond the request or a queued event\n",
+              (unsigned long long)ctx->machine->tick);
+      comparator_fail("stop-result");
+      return false;
+    }
     {
       progress_mark after = mark_of(ctx->machine);
 
@@ -1385,11 +1431,15 @@ static bool arm_w_devices(t64_machine *machine) {
 /* W-ALL on a profile id, optionally with the three inputs A at E - 1, B at E
  * and C at E + 1 (A buttons 0x8000 x 1 y -1; B 0x4021 x 127 y -128; C 0x1802
  * x -1 y 1). All host writes happen before the first advance. */
-static t64_machine *build_w_all(const char *profile_id, bool with_inputs) {
+static t64_machine *build_w_all_budget(const char *profile_id,
+                                       bool with_inputs, uint32_t budget) {
   t64_machine *machine = create_machine(profile_id);
   bool ok;
 
   if (machine == NULL) return NULL;
+  /* N6: the in-memory copy of the profile is edited after create and
+   * admission; the descriptor itself is hash-pinned and never mutated. */
+  if (budget != 0u) machine->profile.advance_event_budget = budget;
   install_program(machine, w_program, sizeof w_program / sizeof w_program[0]);
   (void)memcpy(machine->ram + SI_STAGE_DRAM, poll_frame, sizeof poll_frame);
   ok = write32(machine, SI_REG(T64_SI_REG_DRAM_ADDR), SI_STAGE_DRAM) &&
@@ -1411,6 +1461,10 @@ static t64_machine *build_w_all(const char *profile_id, bool with_inputs) {
     return NULL;
   }
   return machine;
+}
+
+static t64_machine *build_w_all(const char *profile_id, bool with_inputs) {
+  return build_w_all_budget(profile_id, with_inputs, 0u);
 }
 
 #define W_VI_AI_TICK TRACER_TIED_TICK
@@ -1824,6 +1878,870 @@ static void case_interleave(void) {
   check_interleave(3u);
 }
 
+/* ---- case resource-limit-resume ------------------------------------------- */
+
+/*
+ * Part a: the in-memory event budget of the profile is edited after create
+ * (N6) to the canonical 4,096 and then 1, 2 and 3. A smaller budget only
+ * changes how often an advance stops and must be resumed: every non-bound
+ * result is a resource-limit result at the machine tick, no call may fail to
+ * make progress, and the final digest and queue equal the 4,096 reference.
+ */
+static void check_budget_sweep(void) {
+  /* Stops chosen inside the SI read: the store tick S, E - 1, E, a tick well
+   * inside the 4,096-tick read tail, C - 1, C and the horizon. Comparing at
+   * each of them (not only at the horizon) keeps a budget-dependent event
+   * time from hiding behind a later convergence. */
+  static const uint64_t checkpoints[7] = {
+      W_STORE_TICK, W_E - 1u, W_E, W_E + 100u, W_C - 1u, W_C, H_ALL};
+  static observation reference[7];
+  static observation run;
+  static const uint32_t budgets[4] = {4096u, 1u, 2u, 3u};
+  uint64_t stops[4] = {0u, 0u, 0u, 0u};
+  size_t i;
+  size_t c;
+
+  /* The budget edit does not change the canonical digest: the digest reads
+   * the stored profile digest, not the budget. */
+  {
+    t64_machine *plain = build_w_all(FAMILY_STEM, true);
+    t64_machine *edited = build_w_all_budget(FAMILY_STEM, true, 1u);
+    uint8_t digest_plain[T64_DIGEST_SIZE];
+    uint8_t digest_edited[T64_DIGEST_SIZE];
+
+    if (plain == NULL || edited == NULL) {
+      if (plain != NULL) t64_machine_destroy(plain);
+      if (edited != NULL) t64_machine_destroy(edited);
+      return;
+    }
+    T64_CHECK_INT(plain->profile.advance_event_budget, 4096u);
+    T64_CHECK_INT(edited->profile.advance_event_budget, 1u);
+    T64_CHECK_INT(t64_machine_digest(plain, digest_plain), T64_STATUS_OK);
+    T64_CHECK_INT(t64_machine_digest(edited, digest_edited), T64_STATUS_OK);
+    T64_CHECK(memcmp(digest_plain, digest_edited, sizeof digest_plain) == 0);
+    t64_machine_destroy(plain);
+    t64_machine_destroy(edited);
+  }
+  for (i = 0u; i < 4u; i++) {
+    t64_machine *machine = build_w_all_budget(FAMILY_STEM, true, budgets[i]);
+    run_ctx ctx;
+
+    if (machine == NULL) return;
+    ctx_start(&ctx, machine, false, 0u);
+    for (c = 0u; c < 7u; c++) {
+      observation *target = i == 0u ? &reference[c] : &run;
+
+      if (!ctx_advance_to(&ctx, checkpoints[c])) break;
+      observe(&ctx, target);
+      if (i > 0u) {
+        const char *label = compare_observation(&reference[c], &run);
+
+        if (label != NULL) {
+          fprintf(stderr, "budget %u differs from the 4,096 reference at tick %llu\n",
+                  (unsigned)budgets[i], (unsigned long long)checkpoints[c]);
+          comparator_fail("resume-digest");
+        }
+      }
+    }
+    stops[i] = ctx.resource_stops;
+    t64_machine_destroy(machine);
+  }
+  /* A smaller budget stops more often: budget 1 more than budget 3, budget 3
+   * at least once. */
+  T64_CHECK(stops[1] > stops[3]);
+  T64_CHECK(stops[3] > 0u);
+  T64_CHECK(stops[2] > stops[3]);
+}
+
+/*
+ * Part b: counter stops that land in the middle of a tick. At T = 4,096 the
+ * queue holds, in sequence order, an SI complete event (the RD64B started at
+ * tick 0 with an unparsed frame completes 4,096 ticks later), five synthetic
+ * instruction events and three synthetic frame events interleaved with a PI
+ * completion (started at tick 4,083, 1 + 24 / 2 = 13 ticks), and a trailing
+ * synthetic noop so a stop after any counted event leaves later same-tick
+ * events queued. Each counter target stops with the queue front at T and
+ * resuming with a guest-tick bound equals the uninterrupted run.
+ */
+#define MID_TICK UINT64_C(4096)
+
+static bool schedule_synthetic(t64_machine *machine, uint32_t kind) {
+  t64_status status =
+      t64_test_schedule_synthetic(machine, MID_TICK, kind, 1u);
+
+  T64_CHECK_INT(status, T64_STATUS_OK);
+  return status == T64_STATUS_OK;
+}
+
+static t64_machine *build_midtick(void) {
+  t64_machine *machine = create_machine(FAMILY_STEM);
+  run_ctx ctx;
+  uint64_t pi_tick = UINT64_MAX;
+  bool ok = machine != NULL;
+
+  if (machine == NULL) return NULL;
+  ok = ok && cancel_boot_cpu_event(machine) &&
+       write32(machine, SI_REG(T64_SI_REG_DRAM_ADDR), SI_READ_DRAM) &&
+       write32(machine, SI_REG(T64_SI_REG_RD64B), T64_SI_PIF_ADDRESS);
+  if (ok) T64_CHECK_INT(machine->si.complete_tick, MID_TICK);
+  ok = ok && schedule_synthetic(machine, T64_TEST_EVENT_INSTRUCTION) &&
+       schedule_synthetic(machine, T64_TEST_EVENT_FRAME) &&
+       schedule_synthetic(machine, T64_TEST_EVENT_INSTRUCTION);
+  if (ok) {
+    ctx_start(&ctx, machine, false, 0u);
+    ok = ctx_advance_to(&ctx, MID_TICK - 13u) && arm_pi_dma(machine);
+  }
+  if (ok) {
+    /* Reached: the PI completion lands on T, after the first synthetic
+     * events and before the rest. */
+    T64_CHECK(queued_tick_of(machine, T64_DEVICE_PI, T64_PI_EVENT_COMPLETE,
+                             &pi_tick));
+    T64_CHECK_INT(pi_tick, MID_TICK);
+  }
+  ok = ok && schedule_synthetic(machine, T64_TEST_EVENT_INSTRUCTION) &&
+       schedule_synthetic(machine, T64_TEST_EVENT_FRAME) &&
+       schedule_synthetic(machine, T64_TEST_EVENT_INSTRUCTION) &&
+       schedule_synthetic(machine, T64_TEST_EVENT_INSTRUCTION) &&
+       schedule_synthetic(machine, T64_TEST_EVENT_FRAME) &&
+       schedule_synthetic(machine, T64_TEST_EVENT_NOOP);
+  if (!ok) {
+    t64_machine_destroy(machine);
+    return NULL;
+  }
+  return machine;
+}
+
+static size_t queued_at_tick(const t64_machine *machine, uint64_t tick) {
+  size_t count = 0u;
+  size_t i;
+
+  for (i = 0u; i < machine->queue_count; i++) {
+    const t64_event *event =
+        &machine->events[(machine->queue_head + i) % T64_EVENT_QUEUE_CAPACITY];
+
+    if (event->tick == tick) count++;
+  }
+  return count;
+}
+
+static void check_counter_stop(uint32_t stop_kind, uint64_t target,
+                               uint32_t reason, const observation *reference) {
+  static observation run;
+  t64_machine *machine = build_midtick();
+  t64_stop_request request = {stop_kind, target};
+  t64_stop_result stop = {0u, 0u};
+  run_ctx ctx;
+  const char *label;
+
+  if (machine == NULL) return;
+  T64_CHECK_INT(t64_machine_advance(machine, &request, &stop), T64_STATUS_OK);
+  T64_CHECK_INT(stop.reason, reason);
+  T64_CHECK_INT(stop.tick, MID_TICK);
+  /* Reached: the stop is mid-tick, so the queue front is still at T and later
+   * same-tick events remain queued. */
+  T64_CHECK(machine->queue_count > 0u);
+  if (machine->queue_count > 0u) {
+    T64_CHECK_INT(machine->events[machine->queue_head].tick, MID_TICK);
+  }
+  T64_CHECK(queued_at_tick(machine, MID_TICK) > 0u);
+  ctx_start(&ctx, machine, false, 0u);
+  if (ctx_advance_to(&ctx, MID_TICK + 1u)) {
+    observe(&ctx, &run);
+    label = compare_observation(reference, &run);
+    if (label != NULL) {
+      fprintf(stderr, "counter stop kind %u target %llu: resume differs\n",
+              (unsigned)stop_kind, (unsigned long long)target);
+      comparator_fail("resume-digest");
+    }
+  }
+  t64_machine_destroy(machine);
+}
+
+static void check_midtick_stops(void) {
+  static observation reference;
+  t64_machine *machine = build_midtick();
+  run_ctx ctx;
+  uint64_t target;
+
+  if (machine == NULL) return;
+  /* Reached: all eleven events share the tick, SI complete first. */
+  T64_CHECK_INT(queued_at_tick(machine, MID_TICK), 11u);
+  ctx_start(&ctx, machine, false, 0u);
+  if (ctx_advance_to(&ctx, MID_TICK + 1u)) observe(&ctx, &reference);
+  t64_machine_destroy(machine);
+  for (target = 1u; target <= 5u; target++) {
+    check_counter_stop(T64_STOP_INSTRUCTION_COUNT, target,
+                       T64_STOP_REASON_INSTRUCTION_COUNT, &reference);
+  }
+  for (target = 1u; target <= 3u; target++) {
+    check_counter_stop(T64_STOP_FRAME_EVENT_COUNT, target,
+                       T64_STOP_REASON_FRAME_EVENT_COUNT, &reference);
+  }
+}
+
+/*
+ * Part c: output backpressure. Two completed audio packets fill the packet
+ * queue; a third DMA is submitted and the next sample event cannot be
+ * dispatched until the host drains a packet. The stalled stop leaves tick and
+ * queue unchanged on a repeated advance; after the drain the run resumes and
+ * equals an uninterrupted run drained at the same point. Provenance:
+ * core/tests/test_ai.c prepare_blocked_ai_event and
+ * case_drain_resume_exactly_once.
+ */
+static t64_machine *build_ai_backpressure(uint64_t *blocked_tick_out) {
+  static const uint8_t pcm[24] = {
+      0x00u, 0x01u, 0x00u, 0x02u, 0x00u, 0x03u, 0x00u, 0x04u,
+      0x10u, 0x01u, 0x10u, 0x02u, 0x10u, 0x03u, 0x10u, 0x04u,
+      0x20u, 0x01u, 0x20u, 0x02u, 0x20u, 0x03u, 0x20u, 0x04u};
+  t64_machine *machine = create_machine(FAMILY_STEM);
+  run_ctx ctx;
+  uint64_t tick;
+  size_t sample;
+  bool ok;
+
+  if (machine == NULL) return NULL;
+  (void)memcpy(machine->ram + UINT32_C(0x100), pcm, sizeof pcm);
+  ok = cancel_boot_cpu_event(machine) && configure_ai_rate_pair(machine) &&
+       write32(machine, AI_CONTROL, 1u) &&
+       write32(machine, AI_DRAM_ADDR, UINT32_C(0x100)) &&
+       write32(machine, AI_LEN, 8u) &&
+       write32(machine, AI_DRAM_ADDR, UINT32_C(0x108)) &&
+       write32(machine, AI_LEN, 8u);
+  if (ok) ctx_start(&ctx, machine, false, 0u);
+  /* Four samples complete the two descriptors into two packets. */
+  for (sample = 0u; ok && sample < 4u; sample++) {
+    ok = queued_tick_of(machine, T64_AI_DEVICE, T64_AI_EVENT_SAMPLE, &tick) &&
+         ctx_advance_to(&ctx, tick);
+  }
+  if (ok) {
+    T64_CHECK_INT(machine->ai.packet_count, T64_AUDIO_QUEUE_CAPACITY);
+    ok = write32(machine, AI_DRAM_ADDR, UINT32_C(0x110)) &&
+         write32(machine, AI_LEN, 8u) &&
+         queued_tick_of(machine, T64_AI_DEVICE, T64_AI_EVENT_SAMPLE,
+                        blocked_tick_out);
+  }
+  if (!ok) {
+    t64_machine_destroy(machine);
+    return NULL;
+  }
+  return machine;
+}
+
+static void drain_one_audio_packet(t64_machine *machine) {
+  uint8_t packet[16];
+  size_t copied = 0u;
+  t64_audio_packet_info info;
+
+  T64_CHECK_INT(t64_audio_info(machine, &info), T64_STATUS_OK);
+  T64_CHECK_INT(t64_audio_copy(machine, packet, sizeof packet, &copied),
+                T64_STATUS_OK);
+  T64_CHECK_INT(copied, 8u);
+}
+
+static void check_backpressure(void) {
+  static observation stalled;
+  static observation uninterrupted;
+  uint64_t blocked_tick = 0u;
+  uint64_t stall_tick;
+  uint64_t horizon;
+  t64_machine *machine = build_ai_backpressure(&blocked_tick);
+  t64_stop_request request;
+  t64_stop_result stop = {0u, 0u};
+  progress_mark first;
+  progress_mark second;
+  run_ctx ctx;
+
+  if (machine == NULL) return;
+  horizon = blocked_tick + 1u;
+  request.kind = T64_STOP_GUEST_TICK;
+  request.value = horizon;
+  T64_CHECK_INT(t64_machine_advance(machine, &request, &stop), T64_STATUS_OK);
+  T64_CHECK_INT(stop.reason, T64_STOP_REASON_RESOURCE_LIMIT);
+  T64_CHECK_INT(stop.tick, machine->tick);
+  first = mark_of(machine);
+  stall_tick = machine->tick;
+  T64_CHECK(stall_tick <= blocked_tick);
+  /* No progress without a drain: a repeated advance changes nothing. */
+  stop.reason = 0u;
+  stop.tick = 0u;
+  T64_CHECK_INT(t64_machine_advance(machine, &request, &stop), T64_STATUS_OK);
+  second = mark_of(machine);
+  if (stop.reason != T64_STOP_REASON_RESOURCE_LIMIT || !mark_equal(&first, &second)) {
+    comparator_fail("stop-result");
+  }
+  drain_one_audio_packet(machine);
+  ctx_start(&ctx, machine, false, 0u);
+  if (ctx_advance_to(&ctx, horizon)) observe(&ctx, &stalled);
+  t64_machine_destroy(machine);
+
+  /* The uninterrupted run drains at the same machine tick without ever
+   * having stalled. */
+  machine = build_ai_backpressure(&blocked_tick);
+  if (machine == NULL) return;
+  ctx_start(&ctx, machine, false, 0u);
+  if (stall_tick > machine->tick && !ctx_advance_to(&ctx, stall_tick)) {
+    t64_machine_destroy(machine);
+    return;
+  }
+  drain_one_audio_packet(machine);
+  if (ctx_advance_to(&ctx, horizon)) {
+    const char *label;
+
+    observe(&ctx, &uninterrupted);
+    label = compare_observation(&uninterrupted, &stalled);
+    if (label != NULL) comparator_fail("resume-digest");
+  }
+  t64_machine_destroy(machine);
+}
+
+static void case_resource_limit_resume(void) {
+  check_budget_sweep();
+  check_midtick_stops();
+  check_backpressure();
+}
+
+/* ---- case mi-producers ------------------------------------------------------ */
+
+/*
+ * MI is not a scheduled device and no MI event or hook exists. MI pending is
+ * set synchronously inside the producing device's event handler, so the trace
+ * shows the producer's event record immediately followed by the MI pending
+ * record at the same tick, and the CPU samples the line at the start of its
+ * next step: MI is ordered through its producers' events and nothing more.
+ */
+typedef struct {
+  const char *label;       /* mi.* tie label */
+  const char *profile;
+  t64_machine *(*build)(void);
+  order_pair producer;     /* the producer's event record */
+  uint64_t horizon;
+  uint32_t mi_bit;         /* the MI pending bit the producer sets, 0 = none */
+} mi_row;
+
+static t64_machine *mi_machine_no_cpu(const char *profile) {
+  t64_machine *machine = create_machine(profile);
+
+  if (machine == NULL) return NULL;
+  if (strcmp(profile, SKELETON_PROFILE) != 0 && !cancel_boot_cpu_event(machine)) {
+    t64_machine_destroy(machine);
+    return NULL;
+  }
+  return machine;
+}
+
+static t64_machine *build_mi_pi(void) {
+  t64_machine *machine = mi_machine_no_cpu(FAMILY_STEM);
+
+  if (machine != NULL && !arm_pi_dma(machine)) {
+    t64_machine_destroy(machine);
+    return NULL;
+  }
+  return machine;
+}
+
+/* Legacy SP DMA completion on the skeleton profile. */
+static t64_machine *build_mi_sp_dma(void) {
+  t64_machine *machine = mi_machine_no_cpu(SKELETON_PROFILE);
+
+  if (machine != NULL && !arm_sp_dma_legacy(machine)) {
+    t64_machine_destroy(machine);
+    return NULL;
+  }
+  return machine;
+}
+
+/* An RSP program that breaks with the interrupt-on-break status bit set. */
+static t64_machine *build_mi_rsp(void) {
+  t64_machine *machine = mi_machine_no_cpu(FAMILY_STEM);
+
+  if (machine == NULL) return NULL;
+  if (!write32(machine, UINT32_C(0x04040010), UINT32_C(0x100)) ||
+      !write32(machine, UINT32_C(0x04001000), UINT32_C(0x0000000d)) ||
+      t64_rsp_start(machine) != T64_STATUS_OK) {
+    t64_machine_destroy(machine);
+    return NULL;
+  }
+  return machine;
+}
+
+/* Four full-sync commands at RDRAM 0x100. */
+static t64_machine *build_mi_rdp(void) {
+  t64_machine *machine = mi_machine_no_cpu(FAMILY_STEM);
+  size_t i;
+
+  if (machine == NULL) return NULL;
+  for (i = 0u; i < 4u; i++) {
+    (void)memset(machine->ram + UINT32_C(0x100) + i * 8u, 0, 8u);
+    machine->ram[UINT32_C(0x100) + i * 8u] = 0xe9u;
+  }
+  if (!write32(machine, DP_START_REGISTER, UINT32_C(0x100)) ||
+      !write32(machine, DP_END_REGISTER, UINT32_C(0x120))) {
+    t64_machine_destroy(machine);
+    return NULL;
+  }
+  return machine;
+}
+
+/* The VI registers of the tracer: V_INTR 2 raises the line interrupt at the
+ * second scan-line event. */
+static t64_machine *build_mi_vi(void) {
+  t64_machine *machine = mi_machine_no_cpu(FAMILY_STEM);
+
+  if (machine != NULL && !configure_vi(machine)) {
+    t64_machine_destroy(machine);
+    return NULL;
+  }
+  return machine;
+}
+
+/* Two AI descriptors: the second sample completes the first and takes the
+ * descriptor queue from full to one entry, which raises MI AI. */
+static t64_machine *build_mi_ai(void) {
+  t64_machine *machine = mi_machine_no_cpu(FAMILY_STEM);
+
+  if (machine == NULL) return NULL;
+  if (!configure_ai_rate_pair(machine) || !write32(machine, AI_CONTROL, 1u) ||
+      !write32(machine, AI_DRAM_ADDR, UINT32_C(0x100)) ||
+      !write32(machine, AI_LEN, 8u) ||
+      !write32(machine, AI_DRAM_ADDR, UINT32_C(0x110)) ||
+      !write32(machine, AI_LEN, 8u)) {
+    t64_machine_destroy(machine);
+    return NULL;
+  }
+  return machine;
+}
+
+/* A host RD64B with an unparsed frame: the completion at tick 4,096 raises
+ * MI SI. */
+static t64_machine *build_mi_si(void) {
+  t64_machine *machine = mi_machine_no_cpu(FAMILY_STEM);
+
+  if (machine == NULL) return NULL;
+  if (!write32(machine, SI_REG(T64_SI_REG_DRAM_ADDR), SI_READ_DRAM) ||
+      !write32(machine, SI_REG(T64_SI_REG_RD64B), T64_SI_PIF_ADDRESS)) {
+    t64_machine_destroy(machine);
+    return NULL;
+  }
+  return machine;
+}
+
+/* MI pending bits (the register layout of the MI interrupt register): SP 0x1,
+ * SI 0x2, AI 0x4, VI 0x8, PI 0x10, DP 0x20. */
+#define MI_BIT_VI UINT32_C(0x08)
+#define MI_BIT_PI UINT32_C(0x10)
+
+static const mi_row mi_rows[] = {
+    {"mi.pi", FAMILY_STEM, build_mi_pi, {T64_DEVICE_PI, T64_PI_EVENT_COMPLETE},
+     20u, MI_BIT_PI},
+    /* SP DMA raises no MI bit: its completion handler never sets pending; the
+     * row records that absence (mi_bit 0). */
+    {"mi.sp-dma", SKELETON_PROFILE, build_mi_sp_dma,
+     {T64_DEVICE_SP, T64_SP_EVENT_COMPLETE}, 40u, 0u},
+    {"mi.rsp", FAMILY_STEM, build_mi_rsp,
+     {T64_DEVICE_SP, T64_SP_EVENT_RSP_ISSUE}, 20u, UINT32_C(0x1)},
+    {"mi.rdp", FAMILY_STEM, build_mi_rdp, {T64_RDP_DEVICE, T64_RDP_EVENT_WORK},
+     40u, UINT32_C(0x20)},
+    {"mi.vi", FAMILY_STEM, build_mi_vi, {T64_VI_DEVICE, T64_VI_EVENT_FIELD},
+     3000u, MI_BIT_VI},
+    {"mi.ai", FAMILY_STEM, build_mi_ai, {T64_AI_DEVICE, T64_AI_EVENT_SAMPLE},
+     3000u, T64_MI_INTERRUPT_AI},
+    {"mi.si", FAMILY_STEM, build_mi_si, {T64_SI_DEVICE, T64_SI_EVENT_COMPLETE},
+     4100u, T64_MI_INTERRUPT_SI},
+};
+
+static void check_mi_row(const mi_row *row) {
+  t64_machine *machine = row->build();
+  run_ctx ctx;
+
+  if (machine == NULL) return;
+  ctx_start(&ctx, machine, true, 0u);
+  ctx.watch_active = true;
+  ctx.watch_device = row->producer.device;
+  ctx.watch_kind = row->producer.kind;
+  if (ctx_advance_to(&ctx, row->horizon)) {
+    T64_CHECK_INT(ctx.trace_dropped, 0u);
+    /* Reached: the producer's event was dispatched. */
+    T64_CHECK(ctx.watch_seen > 0u);
+    if (row->mi_bit != 0u) {
+      T64_CHECK(ctx.mi_hits > 0u);
+      T64_CHECK((machine->mi_pending & row->mi_bit) == row->mi_bit);
+      if (!ctx.mi_ok) {
+        fprintf(stderr, "%s: an MI pending record does not follow the "
+                "producer record\n", row->label);
+        comparator_fail("mi-trace");
+      }
+    } else {
+      /* No MI record and no pending bit at all. */
+      T64_CHECK_INT(ctx.mi_hits, 0u);
+      T64_CHECK_INT(machine->mi_pending, 0u);
+    }
+  }
+  t64_machine_destroy(machine);
+}
+
+/*
+ * A same-tick CPU step sees the interrupt exactly when the producer's event
+ * was sequenced before the step. The CPU runs a branch-to-self loop with
+ * Status IE and IM2 set and the SI mask bit enabled; a CPU step event is
+ * placed at the SI completion tick before (order 1) or after (order 0) the
+ * RD64B start. The producer sequenced first makes the exception record land at
+ * the completion tick; the CPU step sequenced first executes the branch at the
+ * tick and samples the interrupt at its successor one issue interval later
+ * (core/t64_internal.h T64_CPU_BASE_ISSUE_INTERVAL_TICKS is 1, and
+ * t64_cpu_instruction_cost returns it for every non-multiply, non-divide
+ * opcode, core/t64_cpu.c). Nothing here makes MI an event.
+ */
+#define CPU_STATUS_REG 12u
+#define STATUS_IE_BIT UINT32_C(0x00000001)
+#define STATUS_IM2_BIT UINT32_C(0x00000400)
+#define MI_SI_MASK_SET_COMMAND UINT32_C(0x8)
+#define CPU_INTERVAL_TICKS UINT64_C(1)
+
+static void check_mi_cpu_sampling_order(int order) {
+  t64_machine *machine = create_machine(FAMILY_STEM);
+  uint64_t completion;
+  uint64_t expected;
+  run_ctx ctx;
+  const order_pair complete = SI_COMPLETE_PAIR;
+  const order_pair cpu = CPU_STEP_PAIR;
+  t64_event_reservation reservation;
+  int pass;
+  bool ok = machine != NULL;
+
+  if (machine == NULL) return;
+  /* branch-to-self with a nop delay slot at 0x1000 and at the exception
+   * vector (Status BEV clear, so the vector is 0x80000180). */
+  ok = ok && cancel_boot_cpu_event(machine);
+  store_word(machine, UINT32_C(0x1000), UINT32_C(0x1000FFFF));
+  store_word(machine, UINT32_C(0x1004), UINT32_C(0x00000000));
+  store_word(machine, UINT32_C(0x180), UINT32_C(0x1000FFFF));
+  store_word(machine, UINT32_C(0x184), UINT32_C(0x00000000));
+  machine->cpu.pc = UINT32_C(0x80001000);
+  machine->cpu.pc_full = t64_cpu_canonical_address(machine->cpu.pc);
+  machine->cpu.cp0[CPU_STATUS_REG] = STATUS_IE_BIT | STATUS_IM2_BIT;
+  ok = ok && write32(machine, UINT32_C(0x0430000c), MI_SI_MASK_SET_COMMAND) &&
+       write32(machine, SI_REG(T64_SI_REG_DRAM_ADDR), SI_READ_DRAM);
+  completion = T64_SI_READ_TAIL_TICKS;
+  for (pass = 0; ok && pass < 2; pass++) {
+    /* order 0: the RD64B start (and so the SI complete) first; order 1: the
+     * CPU step event first. */
+    const bool do_cpu = (pass == 0) == (order == 1);
+
+    if (do_cpu) {
+      T64_CHECK_INT(t64_schedule_reserve(machine, completion, T64_DEVICE_CPU,
+                                         T64_CPU_EVENT_STEP, 0u, 0u,
+                                         t64_cpu_step, &reservation),
+                    T64_STATUS_OK);
+      T64_CHECK_INT(t64_schedule_commit(machine, &reservation), T64_STATUS_OK);
+    } else {
+      ok = write32(machine, SI_REG(T64_SI_REG_RD64B), T64_SI_PIF_ADDRESS);
+    }
+  }
+  if (!ok) {
+    t64_machine_destroy(machine);
+    return;
+  }
+  /* Reached: both events are queued at the completion tick in the order. */
+  T64_CHECK_INT(machine->si.complete_tick, completion);
+  T64_CHECK(order == 0 ? queued_before(machine, completion, complete, cpu)
+                       : queued_before(machine, completion, cpu, complete));
+  expected = order == 0 ? completion : completion + CPU_INTERVAL_TICKS;
+  ctx_start(&ctx, machine, true, 0u);
+  if (ctx_advance_to(&ctx, completion + 2u * CPU_INTERVAL_TICKS)) {
+    T64_CHECK_INT(ctx.trace_dropped, 0u);
+    if (ctx.exception_tick != expected) {
+      fprintf(stderr, "order %d: exception at tick %llu, want %llu\n", order,
+              (unsigned long long)ctx.exception_tick,
+              (unsigned long long)expected);
+      comparator_fail("mi-trace");
+    } else {
+      T64_CHECK(true);
+    }
+  }
+  t64_machine_destroy(machine);
+}
+
+static void case_mi_producers(void) {
+  size_t row;
+
+  for (row = 0u; row < sizeof mi_rows / sizeof mi_rows[0]; row++) {
+    check_mi_row(&mi_rows[row]);
+  }
+  check_mi_cpu_sampling_order(0);
+  check_mi_cpu_sampling_order(1);
+}
+
+/* ---- case count-wrap --------------------------------------------------------- */
+
+/*
+ * A guest-time span longer than one Count wrap, by direct state and no guest
+ * execution. Start: Count 0, Compare 5, half-clock phase 0, sync tick 0.
+ *
+ * Independent derivation (before any run):
+ *  - 2^33 + 10 ticks are an even span, so the phase stays 0 and the Count
+ *    advances (2^33 + 10) / 2 = 2^32 + 5 increments. The Count wraps once and
+ *    ends at 5. Compare 5 is crossed at increment 5 and again at 2^32 + 5, so
+ *    the equality generation is 2 and, ending at 5, equality is latched.
+ *    The next equality is a full modulus away: deadline = sync tick + 2^33.
+ *  - 2^33 + 9 ticks are 2^32 + 4 increments with one half-clock tick left
+ *    over, so the phase is 1 and the Count ends at 4. Compare 5 is crossed
+ *    once, equality is not latched, and the next equality is one tick away
+ *    (distance 1 times two ticks, less the phase 1): deadline = sync tick + 1.
+ *  - Cause IP7 (0x8000) is set in both.
+ */
+#define COUNT_SPAN_EVEN ((UINT64_C(1) << 33) + UINT64_C(10))
+#define COUNT_SPAN_ODD ((UINT64_C(1) << 33) + UINT64_C(9))
+#define CP0_COUNT_REG 9u
+#define CP0_COMPARE_REG 11u
+#define CP0_CAUSE_REG 13u
+#define CAUSE_IP7_BIT UINT32_C(0x00008000)
+
+typedef struct {
+  uint32_t count;
+  uint32_t phase;
+  uint64_t generation;
+  bool latched;
+  uint64_t sync_tick;
+  uint64_t deadline;
+} count_literal;
+
+static const count_literal count_even = {
+    5u, 0u, 2u, true, COUNT_SPAN_EVEN,
+    COUNT_SPAN_EVEN + (UINT64_C(1) << 33)};
+static const count_literal count_odd = {
+    4u, 1u, 1u, false, COUNT_SPAN_ODD, COUNT_SPAN_ODD + UINT64_C(1)};
+
+/* Provenance: core/tests/test_cpu_time.c setup_machine / setup_t1_machine. */
+static bool setup_direct(t64_machine *machine, const char *profile_id) {
+  const t64_profile_descriptor *profile = NULL;
+
+  (void)memset(machine, 0, sizeof *machine);
+  if (t64_profile_lookup(profile_id, &profile) != T64_STATUS_OK ||
+      profile == NULL) {
+    return false;
+  }
+  machine->profile = *profile;
+  machine->has_image = true;
+  machine->cpu.cp0[CP0_COMPARE_REG] = UINT32_C(5);
+  machine->cpu.cp0[1] = UINT32_C(17);
+  machine->cpu.count_compare_deadline = UINT64_MAX;
+  machine->ram = (uint8_t *)calloc(machine->profile.rdram_bytes, 1u);
+  return machine->ram != NULL;
+}
+
+/* Provenance: core/tests/test_cpu_time.c timer_state_equal. */
+static bool timer_state_equal(const t64_machine *left,
+                              const t64_machine *right) {
+  return left->tick == right->tick &&
+         left->cpu.cp0[CP0_COUNT_REG] == right->cpu.cp0[CP0_COUNT_REG] &&
+         left->cpu.cp0[CP0_COMPARE_REG] == right->cpu.cp0[CP0_COMPARE_REG] &&
+         left->cpu.cp0[CP0_CAUSE_REG] == right->cpu.cp0[CP0_CAUSE_REG] &&
+         left->cpu.count_sync_tick == right->cpu.count_sync_tick &&
+         left->cpu.count_half_clock_phase == right->cpu.count_half_clock_phase &&
+         left->cpu.count_compare_deadline == right->cpu.count_compare_deadline &&
+         left->cpu.count_equality_latch_generation ==
+             right->cpu.count_equality_latch_generation &&
+         left->cpu.count_equality_latched == right->cpu.count_equality_latched;
+}
+
+static bool count_matches(const t64_machine *machine,
+                          const count_literal *literal) {
+  return machine->tick == literal->sync_tick &&
+         machine->cpu.cp0[CP0_COUNT_REG] == literal->count &&
+         machine->cpu.cp0[CP0_COMPARE_REG] == UINT64_C(5) &&
+         machine->cpu.count_half_clock_phase == literal->phase &&
+         machine->cpu.count_equality_latch_generation == literal->generation &&
+         machine->cpu.count_equality_latched == literal->latched &&
+         machine->cpu.count_sync_tick == literal->sync_tick &&
+         machine->cpu.count_compare_deadline == literal->deadline &&
+         (((uint32_t)machine->cpu.cp0[CP0_CAUSE_REG]) & CAUSE_IP7_BIT) ==
+             CAUSE_IP7_BIT;
+}
+
+static bool direct_advance(t64_machine *machine, uint64_t tick) {
+  t64_stop_request request = {T64_STOP_GUEST_TICK, tick};
+  t64_stop_result stop = {0u, 0u};
+  t64_status status = t64_machine_advance(machine, &request, &stop);
+
+  T64_CHECK_INT(status, T64_STATUS_OK);
+  T64_CHECK_INT(stop.reason, T64_STOP_REASON_BOUND);
+  return status == T64_STATUS_OK && stop.reason == T64_STOP_REASON_BOUND;
+}
+
+static void check_count_span(const char *profile_id, uint64_t span,
+                             const count_literal *literal) {
+  static t64_machine whole;
+  static t64_machine other;
+  const uint64_t splits[4] = {(UINT64_C(1) << 33) - 1u, UINT64_C(1) << 33,
+                              (UINT64_C(1) << 33) + 1u,
+                              (UINT64_C(1) << 32) + 1u};
+  size_t i;
+
+  if (!setup_direct(&whole, profile_id)) {
+    T64_CHECK(false);
+    return;
+  }
+  if (direct_advance(&whole, span)) {
+    if (!count_matches(&whole, literal)) {
+      fprintf(stderr, "%s span %llu: Count %llu generation %llu\n", profile_id,
+              (unsigned long long)span,
+              (unsigned long long)whole.cpu.cp0[CP0_COUNT_REG],
+              (unsigned long long)whole.cpu.count_equality_latch_generation);
+      comparator_fail("count-state");
+    } else {
+      T64_CHECK(true);
+    }
+    /* Control, after the accepted baseline: a literal with generation 3 is
+     * reported as a mismatch. */
+    {
+      count_literal wrong = *literal;
+
+      wrong.generation = 3u;
+      T64_CHECK(!count_matches(&whole, &wrong));
+    }
+  }
+  for (i = 0u; i < 4u; i++) {
+    if (splits[i] > span) continue;
+    if (!setup_direct(&other, profile_id)) {
+      T64_CHECK(false);
+      free(whole.ram);
+      return;
+    }
+    if (direct_advance(&other, splits[i]) && direct_advance(&other, span)) {
+      if (!timer_state_equal(&whole, &other)) {
+        fprintf(stderr, "%s span %llu: split at %llu differs from whole\n",
+                profile_id, (unsigned long long)span,
+                (unsigned long long)splits[i]);
+        comparator_fail("count-state");
+      } else {
+        T64_CHECK(true);
+      }
+    }
+    free(other.ram);
+    other.ram = NULL;
+  }
+  /* Direct calls of the synchronize function in two halves. */
+  if (setup_direct(&other, profile_id)) {
+    const uint64_t half = (UINT64_C(1) << 32) + 5u;
+
+    other.tick = half;
+    T64_CHECK_INT(t64_cp0_synchronize_guest_time(&other, half), T64_STATUS_OK);
+    other.tick = span;
+    T64_CHECK_INT(t64_cp0_synchronize_guest_time(&other, span), T64_STATUS_OK);
+    if (!timer_state_equal(&whole, &other)) {
+      fprintf(stderr, "%s span %llu: direct halves differ from whole\n",
+              profile_id, (unsigned long long)span);
+      comparator_fail("count-state");
+    } else {
+      T64_CHECK(true);
+    }
+    free(other.ram);
+    other.ram = NULL;
+  }
+  free(whole.ram);
+  whole.ram = NULL;
+}
+
+static void case_count_wrap(void) {
+  static const char *const profiles[2] = {"ntsc-cart-4m-openipl3-vr4300-v1",
+                                          FAMILY_STEM};
+  size_t i;
+
+  for (i = 0u; i < 2u; i++) {
+    check_count_span(profiles[i], COUNT_SPAN_EVEN, &count_even);
+    check_count_span(profiles[i], COUNT_SPAN_ODD, &count_odd);
+  }
+}
+
+/* ---- case quantum-binding ------------------------------------------------------ */
+
+/*
+ * The synchronization quantum is bound through the stored profile digest and
+ * through nothing else: no key is added to t64.result or to any runner file.
+ * Descriptor 12 refusing a quantum other than 1 is owned by
+ * unit.core.profile.quantum-identity (plan 09-01) and is not repeated here.
+ * No assertion depends on a literal profile hash (no literal hash exists
+ * before F2).
+ */
+static bool serialized_hash_equals(const t64_profile_descriptor *profile,
+                                   const uint8_t expected[T64_DIGEST_SIZE]) {
+  uint8_t *bytes;
+  size_t length = 0u;
+  uint8_t digest[T64_SHA256_DIGEST_SIZE];
+  t64_sha256_ctx hash;
+  t64_status status = t64_profile_serialize(profile, NULL, 0u, &length);
+
+  T64_CHECK_INT(status, T64_STATUS_BUFFER_TOO_SMALL);
+  if (status != T64_STATUS_BUFFER_TOO_SMALL || length == 0u) return false;
+  bytes = (uint8_t *)malloc(length);
+  if (bytes == NULL) return false;
+  status = t64_profile_serialize(profile, bytes, length, &length);
+  T64_CHECK_INT(status, T64_STATUS_OK);
+  t64_sha256_init(&hash);
+  t64_sha256_update(&hash, bytes, length);
+  t64_sha256_final(&hash, digest);
+  free(bytes);
+  return status == T64_STATUS_OK &&
+         memcmp(digest, expected, T64_SHA256_DIGEST_SIZE) == 0;
+}
+
+static void check_quantum_binding(const char *profile_id) {
+  t64_machine *machine = create_machine(profile_id);
+  const t64_profile_descriptor *ai_descriptor = NULL;
+  t64_profile_descriptor contrast;
+  uint8_t canonical_hash[T64_DIGEST_SIZE];
+  uint8_t ai_hash[T64_DIGEST_SIZE];
+  uint8_t contrast_hash[T64_DIGEST_SIZE];
+  uint8_t original[T64_DIGEST_SIZE];
+  uint8_t changed[T64_DIGEST_SIZE];
+  uint8_t restored[T64_DIGEST_SIZE];
+  uint8_t saved[T64_DIGEST_SIZE];
+
+  if (machine == NULL) return;
+  /* The contrast is a descriptor 11 copy of the canonical AI profile with
+   * quantum 2 (descriptor 12 refuses it, owned by plan 09-01). */
+  T64_CHECK_INT(t64_profile_lookup(AI_PROFILE, &ai_descriptor), T64_STATUS_OK);
+  if (ai_descriptor == NULL) {
+    t64_machine_destroy(machine);
+    return;
+  }
+  contrast = *ai_descriptor;
+  contrast.synchronization_quantum = 2u;
+  T64_CHECK_INT(t64_profile_hash(&machine->profile, canonical_hash),
+                T64_STATUS_OK);
+  T64_CHECK_INT(t64_profile_hash(ai_descriptor, ai_hash), T64_STATUS_OK);
+  T64_CHECK_INT(t64_profile_hash(&contrast, contrast_hash), T64_STATUS_OK);
+  /* The stored profile digest is the profile hash; the quantum is one of its
+   * inputs, so the quantum 2 hash differs from the canonical AI hash. */
+  T64_CHECK(memcmp(machine->profile_digest, canonical_hash,
+                   T64_DIGEST_SIZE) == 0);
+  T64_CHECK(memcmp(ai_hash, contrast_hash, T64_DIGEST_SIZE) != 0);
+  T64_CHECK(memcmp(canonical_hash, contrast_hash, T64_DIGEST_SIZE) != 0);
+  /* Each hash equals an external SHA-256 of the serialized bytes. */
+  T64_CHECK(serialized_hash_equals(&machine->profile, canonical_hash));
+  T64_CHECK(serialized_hash_equals(&contrast, contrast_hash));
+  /* Swapping the stored digest for the quantum 2 hash changes the canonical
+   * digest; restoring it restores the digest. */
+  T64_CHECK_INT(t64_machine_digest(machine, original), T64_STATUS_OK);
+  (void)memcpy(saved, machine->profile_digest, sizeof saved);
+  (void)memcpy(machine->profile_digest, contrast_hash, sizeof contrast_hash);
+  T64_CHECK_INT(t64_machine_digest(machine, changed), T64_STATUS_OK);
+  if (memcmp(original, changed, sizeof original) == 0) {
+    comparator_fail("identity-digest");
+  }
+  (void)memcpy(machine->profile_digest, saved, sizeof saved);
+  T64_CHECK_INT(t64_machine_digest(machine, restored), T64_STATUS_OK);
+  if (memcmp(original, restored, sizeof original) != 0) {
+    comparator_fail("identity-digest");
+  }
+  t64_machine_destroy(machine);
+}
+
+static void case_quantum_binding(void) {
+  check_quantum_binding(AI_PROFILE);
+  check_quantum_binding(FAMILY_STEM);
+}
+
 /* ---- case table and entry point ------------------------------------------- */
 
 typedef struct {
@@ -1836,6 +2754,10 @@ static const matrix_case cases[] = {
     {"cross-device", case_cross_device},
     {"partition", case_partition},
     {"interleave", case_interleave},
+    {"resource-limit-resume", case_resource_limit_resume},
+    {"mi-producers", case_mi_producers},
+    {"count-wrap", case_count_wrap},
+    {"quantum-binding", case_quantum_binding},
 };
 #define CASE_COUNT (sizeof cases / sizeof cases[0])
 
@@ -1848,6 +2770,14 @@ static const char *const ties[][2] = {
     {"tie.si-complete-synthetic", "cross-device"},
     {"tie.cpu-si-store-sequence", "cross-device"},
     {"tie.vi-ai-tracer", "tracer-coincident"},
+    {"mi.pi", "mi-producers"},
+    {"mi.sp-dma", "mi-producers"},
+    {"mi.rsp", "mi-producers"},
+    {"mi.rdp", "mi-producers"},
+    {"mi.vi", "mi-producers"},
+    {"mi.ai", "mi-producers"},
+    {"mi.si", "mi-producers"},
+    {"mi.cpu-sampling", "mi-producers"},
 };
 #define TIE_COUNT (sizeof ties / sizeof ties[0])
 
