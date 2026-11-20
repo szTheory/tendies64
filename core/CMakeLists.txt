@@ -842,7 +842,7 @@ add_test(NAME unit.core.state.import
 set_tests_properties(unit.core.state.import PROPERTIES
   LABELS unit
   TIMEOUT 600
-  ENVIRONMENT "T64_TEST_IPL3_PATH=${T64_BOOT_FIXTURE_DIR}/ipl3_compat.z64")
+  ENVIRONMENT "T64_TEST_IPL3_PATH=${T64_BOOT_FIXTURE_DIR}/ipl3_compat.z64;T64_STATE_MUTANT_INVENTORY=${CMAKE_SOURCE_DIR}/docs/spec/state-mutants.txt")
 
 # Phase 9 SI, PIF and input-latch tests (plan 09-03).
 add_executable(test_si tests/test_si.c)

@@ -548,3 +548,49 @@ reports the snapshot refusal, which shows the pair refusal precedes the snapshot
 therefore any child start and any guest tick. Rows owned by the save and replay plans
 are copied from their committed text; a disagreement between this table and the code
 is a finding for the drift sweep, not an edit of an earlier plan.
+
+## Boundary matrix
+
+Plan 09-09.1 proves the importer on the boundary classes the device models can
+reach, not on every machine state. The matrix has exactly sixteen rows, ids `B01`
+to `B16`; a seventeenth row or a substituted construction source is a recorded
+deviation, and a row whose boundary cannot be reached is reported, not removed.
+The rows live in one table of `core/tests/test_state_import.c` and a new row is a
+table row plus its builder.
+
+Columns of a row: id, name, construction source (the named test builder, confirmed
+by the reached predicate), the reached predicate, the one-field perturbation, the
+queue events the device owns (the event pair), and the partition policy.
+
+Rules shared by every row:
+
+- **Reached.** The reached predicate is evaluated on the source machine before
+  export; a false predicate fails with the row id and the unreached field. A builder
+  that does not reach its boundary gives no evidence, so the predicate is part of the
+  row, not of a comment.
+- **Ladder.** T1: the imported peer digest equals the source digest and the declared
+  digest. T2: `export(import(export(M)))` equals `export(M)` byte for byte. T3: the
+  source (one-shot) and the peer (the row's partitions) agree on the full advance
+  result tuple (status, stop reason, stop tick, machine tick, instruction and frame
+  counters) and on the digest at the import tick, plus 310, plus 10,000 and plus
+  30,000 ticks. Partitions are one-shot and 7 ticks on every row; 1, 31 and 4,096
+  ticks run on the full rows and on every row when `T64_STATE_MATRIX_FULL=1`.
+- **Perturbation.** One field of an imported copy is edited; the unperturbed peer
+  agrees at the same checkpoints in the same setup and the perturbed peer differs
+  at the import checkpoint and at the first continuation checkpoint. A comparison
+  that cannot fail is not evidence.
+- **Event rules.** For each queue event a device owns, a hash-valid mutant without
+  the event is refused with `DEVICE_EVENT_MISSING` and one with its token increased
+  by one with `DEVICE_TOKEN_MISMATCH`, after the legitimate exported state of the
+  same row is accepted, so a rule that over-refuses a reachable state or admits a
+  broken one is caught from both sides.
+
+Limit: every row compares the software model with itself. The evidence is that the
+model reproduces its own state across an export and an import, not that the state is
+reachable on hardware, authentic or compatible with another emulator. The test
+environment scales the matrix (`T64_STATE_MATRIX_FULL`) so the gate run is a sample
+and the native sanitizer run is the full set.
+
+| Id | Name | Construction source | Reached | Perturbation |
+| --- | --- | --- | --- | --- |
+| B01 | pi-active | `test_pi_dma.c` busy start on the stem id: a cartridge read of 64 bytes started through the host bus and stopped one tick later | PI active, not canceled, one (PI, COMPLETE) event whose token is the active token and whose tick is above the machine tick | the active transfer DRAM address plus 8 |

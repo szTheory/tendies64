@@ -18,6 +18,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <time.h>
 
 #include "t64_internal.h"
 #include "t64_sha256.h"
@@ -2151,6 +2152,540 @@ done:
 }
 
 
+/* ======================================================================== */
+/* Plan 09-09.1: the boundary matrix (D-32, capped at the sixteen rows of    */
+/* the table below; a seventeenth row is a recorded deviation)               */
+/* ======================================================================== */
+
+#define PI_BASE UINT32_C(0x04600000)
+#define CART_BASE UINT32_C(0x10000000)
+#define CHECKPOINT_COUNT 4u
+
+/* Offsets from the import tick of the four compared checkpoints. */
+static const uint64_t checkpoint_offset[CHECKPOINT_COUNT] = {0u, 310u, 10000u,
+                                                             30000u};
+
+/* The full advance result tuple: the status, the stop reason and tick of the
+ * last advance call, the machine tick and the three progress counters. */
+typedef struct {
+  t64_status status;
+  uint32_t reason;
+  uint64_t stop_tick;
+  uint64_t tick;
+  uint64_t instructions;
+  uint64_t frames;
+} tuple;
+
+static bool tuples_equal(const tuple *a, const tuple *b) {
+  return a->status == b->status && a->reason == b->reason &&
+         a->stop_tick == b->stop_tick && a->tick == b->tick &&
+         a->instructions == b->instructions && a->frames == b->frames;
+}
+
+static void tuple_print(const char *label, const tuple *t) {
+  fprintf(stderr,
+          "  %s: status %u reason %u stop %llu tick %llu insn %llu frames %llu\n",
+          label, (unsigned)t->status, (unsigned)t->reason,
+          (unsigned long long)t->stop_tick, (unsigned long long)t->tick,
+          (unsigned long long)t->instructions, (unsigned long long)t->frames);
+}
+
+/* Advance to an absolute tick in partitions of `step` ticks (0: one partition)
+ * each walked in slices of ADVANCE_SLICE_TICKS (the event budget of one call).
+ * A stop other than the bound ends the walk, as the same stop ends it on both
+ * sides of a comparison. */
+static void run_to(t64_machine *machine, uint64_t target, uint64_t step,
+                   tuple *out) {
+  t64_status status = T64_STATUS_OK;
+  t64_stop_result stop = {0u, 0u};
+  bool stopped = false;
+
+  while (machine->tick < target && !stopped) {
+    const uint64_t part =
+        step == 0u || target - machine->tick <= step ? target
+                                                     : machine->tick + step;
+
+    while (machine->tick < part) {
+      const uint64_t next = part - machine->tick > ADVANCE_SLICE_TICKS
+                                ? machine->tick + ADVANCE_SLICE_TICKS
+                                : part;
+      t64_stop_request request = {T64_STOP_GUEST_TICK, next};
+
+      status = t64_machine_advance(machine, &request, &stop);
+      if (status != T64_STATUS_OK || stop.reason != T64_STOP_REASON_BOUND) {
+        stopped = true;
+        break;
+      }
+    }
+  }
+  out->status = status;
+  out->reason = stop.reason;
+  out->stop_tick = stop.tick;
+  out->tick = machine->tick;
+  out->instructions = machine->instruction_count;
+  out->frames = machine->frame_event_count;
+}
+
+static const t64_event *find_event(const t64_machine *machine, uint32_t device,
+                                   uint32_t kind) {
+  size_t i;
+
+  for (i = 0u; i < machine->queue_count; i++) {
+    const t64_event *event =
+        &machine->events[(machine->queue_head + i) % T64_EVENT_QUEUE_CAPACITY];
+
+    if (event->device == device && event->kind == kind) return event;
+  }
+  return NULL;
+}
+
+static void bus_write32(t64_machine *machine, uint32_t address, uint32_t value) {
+  T64_CHECK_INT(t64_machine_bus_write(machine, address, 4u, value),
+                T64_STATUS_OK);
+}
+
+/* ---- the table ----------------------------------------------------------- */
+
+typedef struct {
+  const char *id;
+  const char *name;
+  const char *source; /* the construction source, confirmed by `reached` */
+  const char *profile;
+  t64_machine *(*build)(void);
+  /* NULL when the boundary is reached, else the name of the unreached field */
+  const char *(*reached)(const t64_machine *machine);
+  void (*perturb)(t64_machine *machine); /* one field of an imported copy */
+  uint32_t pair_device[2];               /* the queue events the device owns */
+  uint32_t pair_kind[2];
+  bool full; /* the full partition set runs on this row in every preset */
+} boundary;
+
+/* B01 pi-active: a PI DMA read started through the host bus and stopped one
+ * tick later, before its completion tick (source: test_pi_dma.c busy start). */
+static t64_machine *build_b01(void) {
+  t64_machine *machine = create_admitted(SI_STEM_ID);
+
+  if (machine == NULL) return NULL;
+  T64_CHECK(advance_to(machine, 2000u));
+  T64_CHECK(!machine->pi.active_valid);
+  bus_write32(machine, PI_BASE, UINT32_C(0x3A00));
+  bus_write32(machine, PI_BASE + 4u, CART_BASE + UINT32_C(0x100));
+  bus_write32(machine, PI_BASE + 12u, 63u);
+  T64_CHECK(advance_to(machine, 2001u));
+  return machine;
+}
+
+static const char *reached_b01(const t64_machine *machine) {
+  const t64_event *event = find_event(machine, T64_DEVICE_PI,
+                                      T64_PI_EVENT_COMPLETE);
+
+  if (!machine->pi.active_valid) return "pi.active_valid";
+  if (machine->pi.active_canceled) return "pi.active_canceled";
+  if (event == NULL) return "queue (PI, COMPLETE)";
+  if (event->token != machine->pi.active_token) return "event token";
+  if (event->tick <= machine->tick) return "completion tick above the tick";
+  return NULL;
+}
+
+static void perturb_b01(t64_machine *machine) {
+  machine->pi.active_dram_address += 8u;
+}
+
+static const boundary boundaries[] = {
+    {"B01", "pi-active", "test_pi_dma.c busy start, stem id", SI_STEM_ID,
+     build_b01, reached_b01, perturb_b01,
+     {T64_DEVICE_PI, 0u}, {T64_PI_EVENT_COMPLETE, 0u}, true},
+};
+
+#define BOUNDARY_COUNT (sizeof boundaries / sizeof boundaries[0])
+
+static bool matrix_full(void) {
+  const char *value = getenv("T64_STATE_MATRIX_FULL");
+
+  return value != NULL && value[0] == '1';
+}
+
+/* The partition steps of a row: one-shot and 7 always, 1, 31 and 4,096 on the
+ * full rows and under T64_STATE_MATRIX_FULL (D-40: sampled in the gate preset). */
+static size_t partition_steps(const boundary *b, uint64_t steps[5]) {
+  size_t count = 0u;
+
+  steps[count++] = 0u;
+  if (b->full || matrix_full()) steps[count++] = 1u;
+  steps[count++] = 7u;
+  if (b->full || matrix_full()) {
+    steps[count++] = 31u;
+    steps[count++] = 4096u;
+  }
+  return count;
+}
+
+static void matrix_trace(const char *what, const boundary *b, clock_t since) {
+  if (getenv("T64_STATE_MATRIX_TRACE") != NULL) {
+    fprintf(stderr, "matrix-trace %s %s %.2fs\n", what, b->id,
+            (double)(clock() - since) / (double)CLOCKS_PER_SEC);
+  }
+}
+
+/* ---- the per-row prepared state ----------------------------------------- */
+
+typedef struct {
+  bool built;
+  bool referenced;
+  uint8_t *blob;
+  size_t length;
+  uint64_t tick;
+  uint8_t digest[T64_DIGEST_SIZE];
+  uint8_t ref_digest[CHECKPOINT_COUNT][T64_DIGEST_SIZE];
+  tuple ref_tuple[CHECKPOINT_COUNT];
+} bprep;
+
+static bprep prepared[BOUNDARY_COUNT];
+
+/* Build the boundary machine, assert its reached predicate on the machine
+ * before export, export it and keep the blob and the source digest. */
+static bool boundary_prepare(size_t index) {
+  const boundary *b = &boundaries[index];
+  bprep *p = &prepared[index];
+  t64_machine *machine;
+  const clock_t started = clock();
+  const char *unreached;
+
+  if (p->built) return p->blob != NULL;
+  p->built = true;
+  machine = b->build();
+  if (machine == NULL) {
+    T64_CHECK(false);
+    return false;
+  }
+  unreached = b->reached(machine);
+  if (unreached != NULL) {
+    fprintf(stderr, "boundary %s %s not reached: %s\n", b->id, b->name,
+            unreached);
+    T64_CHECK(false);
+  }
+  p->blob = export_blob(machine, &p->length);
+  p->tick = machine->tick;
+  if (p->blob != NULL) (void)digest_of(machine, p->digest);
+  t64_machine_destroy(machine);
+  matrix_trace("prepare", b, started);
+  return p->blob != NULL;
+}
+
+/* The source reference: a fresh build advanced one-shot through the four
+ * checkpoints, with the tuple and digest at each. */
+static bool boundary_reference(size_t index) {
+  const boundary *b = &boundaries[index];
+  bprep *p = &prepared[index];
+  t64_machine *machine;
+  const clock_t started = clock();
+  size_t c;
+
+  if (!boundary_prepare(index)) return false;
+  if (p->referenced) return true;
+  p->referenced = true;
+  machine = b->build();
+  if (machine == NULL) {
+    T64_CHECK(false);
+    return false;
+  }
+  T64_CHECK_INT(machine->tick, p->tick);
+  for (c = 0u; c < CHECKPOINT_COUNT; c++) {
+    if (c == 0u) {
+      (void)memset(&p->ref_tuple[0], 0, sizeof p->ref_tuple[0]);
+      p->ref_tuple[0].tick = machine->tick;
+      p->ref_tuple[0].instructions = machine->instruction_count;
+      p->ref_tuple[0].frames = machine->frame_event_count;
+    } else {
+      run_to(machine, p->tick + checkpoint_offset[c], 0u, &p->ref_tuple[c]);
+    }
+    (void)digest_of(machine, p->ref_digest[c]);
+  }
+  t64_machine_destroy(machine);
+  matrix_trace("reference", b, started);
+  return true;
+}
+
+static void boundaries_release(void) {
+  size_t i;
+
+  for (i = 0u; i < BOUNDARY_COUNT; i++) {
+    free(prepared[i].blob);
+    (void)memset(&prepared[i], 0, sizeof prepared[i]);
+  }
+}
+
+/* An imported peer of the row, or NULL after recording the failure. */
+static t64_machine *boundary_peer(size_t index) {
+  const boundary *b = &boundaries[index];
+  const bprep *p = &prepared[index];
+  t64_machine *peer = create_admitted(b->profile);
+  t64_state_import_report report;
+  t64_status status;
+
+  if (peer == NULL) return NULL;
+  status = t64_machine_state_import(peer, p->blob, p->length, 0u, &report);
+  if (status != T64_STATUS_OK) {
+    fprintf(stderr, "boundary %s import: status %u reason %u section %u\n",
+            b->id, (unsigned)status, (unsigned)report.reason,
+            (unsigned)report.section_id);
+    T64_CHECK(false);
+    t64_machine_destroy(peer);
+    return NULL;
+  }
+  return peer;
+}
+
+/* ---- the cases ------------------------------------------------------------ */
+
+static void case_boundary_reached(void) {
+  size_t i;
+
+  /* the predicate is asserted inside the preparation, on the machine before
+   * export; the preparation also leaves a blob that carries the machine tick */
+  for (i = 0u; i < BOUNDARY_COUNT; i++) {
+    if (boundary_prepare(i)) {
+      T64_CHECK_INT(rd64(prepared[i].blob + D_TICK), prepared[i].tick);
+      T64_CHECK_INT(rd64(prepared[i].blob + D_TOTAL), prepared[i].length);
+    }
+  }
+}
+
+static void case_boundary_roundtrip(void) {
+  size_t i;
+
+  for (i = 0u; i < BOUNDARY_COUNT; i++) {
+    const boundary *b = &boundaries[i];
+    const clock_t started = clock();
+    t64_machine *peer;
+    uint8_t digest[T64_DIGEST_SIZE];
+    uint8_t *again;
+    size_t again_length = 0u;
+
+    if (!boundary_prepare(i)) continue;
+    peer = boundary_peer(i);
+    if (peer == NULL) continue;
+    /* T1: the peer digest equals the source digest and the declared digest */
+    T64_CHECK(digest_of(peer, digest));
+    T64_CHECK(memcmp(digest, prepared[i].digest, sizeof digest) == 0);
+    T64_CHECK(memcmp(digest, prepared[i].blob + D_DECLARED, sizeof digest) == 0);
+    T64_CHECK_INT(peer->tick, prepared[i].tick);
+    T64_CHECK(handlers_match_production(peer));
+    /* T2: export of the import is the source blob, byte for byte */
+    again = export_blob(peer, &again_length);
+    T64_CHECK_INT(again_length, prepared[i].length);
+    T64_CHECK(again != NULL && again_length == prepared[i].length &&
+              memcmp(again, prepared[i].blob, again_length) == 0);
+    free(again);
+    t64_machine_destroy(peer);
+    matrix_trace("roundtrip", b, started);
+  }
+}
+
+static void case_boundary_continuation(void) {
+  size_t i;
+
+  for (i = 0u; i < BOUNDARY_COUNT; i++) {
+    const boundary *b = &boundaries[i];
+    const clock_t started = clock();
+    uint64_t steps[5];
+    const size_t step_count = partition_steps(b, steps);
+    size_t s;
+
+    if (!boundary_reference(i)) continue;
+    for (s = 0u; s < step_count; s++) {
+      t64_machine *peer = boundary_peer(i);
+      size_t c;
+
+      if (peer == NULL) break;
+      for (c = 0u; c < CHECKPOINT_COUNT; c++) {
+        tuple got;
+        uint8_t digest[T64_DIGEST_SIZE];
+
+        if (c == 0u) {
+          (void)memset(&got, 0, sizeof got);
+          got.tick = peer->tick;
+          got.instructions = peer->instruction_count;
+          got.frames = peer->frame_event_count;
+        } else {
+          run_to(peer, prepared[i].tick + checkpoint_offset[c], steps[s],
+                 &got);
+        }
+        (void)digest_of(peer, digest);
+        if (!tuples_equal(&got, &prepared[i].ref_tuple[c]) ||
+            memcmp(digest, prepared[i].ref_digest[c], sizeof digest) != 0) {
+          fprintf(stderr, "boundary %s partition %llu checkpoint %u differs\n",
+                  b->id, (unsigned long long)steps[s], (unsigned)c);
+          tuple_print("source", &prepared[i].ref_tuple[c]);
+          tuple_print("peer  ", &got);
+        }
+        T64_CHECK(tuples_equal(&got, &prepared[i].ref_tuple[c]));
+        T64_CHECK(memcmp(digest, prepared[i].ref_digest[c], sizeof digest) == 0);
+      }
+      t64_machine_destroy(peer);
+    }
+    matrix_trace("continuation", b, started);
+  }
+}
+
+static void case_boundary_perturbation(void) {
+  size_t i;
+
+  for (i = 0u; i < BOUNDARY_COUNT; i++) {
+    const boundary *b = &boundaries[i];
+    const clock_t started = clock();
+    t64_machine *clean;
+    t64_machine *edited;
+    tuple got;
+    uint8_t digest[T64_DIGEST_SIZE];
+
+    if (!boundary_reference(i)) continue;
+    /* the control arm in the same setup: the unperturbed peer agrees at the
+     * import checkpoint and at the first continuation checkpoint */
+    clean = boundary_peer(i);
+    edited = boundary_peer(i);
+    if (clean == NULL || edited == NULL) {
+      if (clean != NULL) t64_machine_destroy(clean);
+      if (edited != NULL) t64_machine_destroy(edited);
+      continue;
+    }
+    T64_CHECK(digest_of(clean, digest));
+    T64_CHECK(memcmp(digest, prepared[i].ref_digest[0], sizeof digest) == 0);
+    run_to(clean, prepared[i].tick + checkpoint_offset[1], 0u, &got);
+    T64_CHECK(digest_of(clean, digest));
+    T64_CHECK(memcmp(digest, prepared[i].ref_digest[1], sizeof digest) == 0);
+    T64_CHECK(tuples_equal(&got, &prepared[i].ref_tuple[1]));
+    /* the perturbed arm: one field of the imported copy changes the digest at
+     * the import checkpoint and at the first continuation checkpoint */
+    b->perturb(edited);
+    T64_CHECK(digest_of(edited, digest));
+    if (memcmp(digest, prepared[i].ref_digest[0], sizeof digest) == 0) {
+      fprintf(stderr, "boundary %s perturbation invisible at import\n", b->id);
+    }
+    T64_CHECK(memcmp(digest, prepared[i].ref_digest[0], sizeof digest) != 0);
+    run_to(edited, prepared[i].tick + checkpoint_offset[1], 0u, &got);
+    T64_CHECK(digest_of(edited, digest));
+    if (memcmp(digest, prepared[i].ref_digest[1], sizeof digest) == 0) {
+      fprintf(stderr, "boundary %s perturbation invisible at +310\n", b->id);
+    }
+    T64_CHECK(memcmp(digest, prepared[i].ref_digest[1], sizeof digest) != 0);
+    t64_machine_destroy(clean);
+    t64_machine_destroy(edited);
+    matrix_trace("perturbation", b, started);
+  }
+}
+
+/* The blob with the first (device, kind) event removed, or with its token
+ * increased by one, every integrity field recomputed. */
+static uint8_t *blob_edit_pair(const uint8_t *blob, size_t length,
+                               uint32_t device, uint32_t kind, bool remove_it,
+                               size_t *length_out) {
+  tblob t;
+  size_t index;
+  uint8_t *body;
+  long at;
+
+  if (!tblob_decode(blob, length, &t)) return NULL;
+  body = scheduler_body(&t, &index);
+  at = body == NULL ? -1 : queue_find(body, device, kind);
+  if (at < 0) {
+    tblob_free(&t);
+    return NULL;
+  }
+  if (remove_it) {
+    (void)queue_remove(&t, device, kind);
+  } else {
+    uint8_t *event = body + Q_HEADER + (size_t)Q_EVENT * (size_t)at;
+
+    put64(event + 32u, rd64(event + 32u) + 1u);
+  }
+  return encode_edited(&t, length_out);
+}
+
+static void refusal_expect(const char *label, t64_machine *peer,
+                           const uint8_t *blob, size_t length,
+                           uint32_t reason) {
+  t64_state_import_report report;
+  const size_t allocs = allocate_calls;
+  const size_t releases = release_calls;
+  const t64_status status =
+      t64_machine_state_import(peer, blob, length, 0u, &report);
+
+  if (status != T64_STATUS_STATE_INVARIANT || report.reason != reason ||
+      report.section_id != T64_STATE_SECTION_SCHEDULER) {
+    fprintf(stderr, "%s: got status %u reason %u section %u, want reason %u\n",
+            label, (unsigned)status, (unsigned)report.reason,
+            (unsigned)report.section_id, (unsigned)reason);
+  }
+  T64_CHECK_INT(status, T64_STATUS_STATE_INVARIANT);
+  T64_CHECK_INT(report.reason, reason);
+  T64_CHECK_INT(report.section_id, T64_STATE_SECTION_SCHEDULER);
+  T64_CHECK_INT(report.rule, T64_STATE_RULE_NONE);
+  T64_CHECK_INT(allocate_calls, allocs);
+  T64_CHECK_INT(release_calls, releases);
+  T64_CHECK(t64_state_summary_is_clear(peer));
+}
+
+static void case_boundary_event_rules(void) {
+  size_t i;
+
+  for (i = 0u; i < BOUNDARY_COUNT; i++) {
+    const boundary *b = &boundaries[i];
+    const clock_t started = clock();
+    size_t pair;
+
+    if (!boundary_prepare(i)) continue;
+    if (b->pair_device[0] != 0u) {
+      /* the accepted legitimate state first, in the same setup */
+      t64_machine *baseline = boundary_peer(i);
+
+      if (baseline != NULL) {
+        uint8_t digest[T64_DIGEST_SIZE];
+
+        T64_CHECK(digest_of(baseline, digest));
+        T64_CHECK(memcmp(digest, prepared[i].digest, sizeof digest) == 0);
+        t64_machine_destroy(baseline);
+      }
+    }
+    for (pair = 0u; pair < 2u; pair++) {
+      t64_machine *peer;
+      uint8_t *removed;
+      uint8_t *skewed;
+      size_t removed_length = 0u;
+      size_t skewed_length = 0u;
+      char label[96];
+
+      if (b->pair_device[pair] == 0u) continue;
+      removed = blob_edit_pair(prepared[i].blob, prepared[i].length,
+                               b->pair_device[pair], b->pair_kind[pair], true,
+                               &removed_length);
+      skewed = blob_edit_pair(prepared[i].blob, prepared[i].length,
+                              b->pair_device[pair], b->pair_kind[pair], false,
+                              &skewed_length);
+      peer = create_admitted(b->profile);
+      if (removed == NULL || skewed == NULL || peer == NULL) {
+        fprintf(stderr, "boundary %s event mutants not built\n", b->id);
+        T64_CHECK(false);
+      } else {
+        (void)snprintf(label, sizeof label, "%s drop (%u,%u)", b->id,
+                       (unsigned)b->pair_device[pair],
+                       (unsigned)b->pair_kind[pair]);
+        refusal_expect(label, peer, removed, removed_length,
+                       T64_STATE_REASON_DEVICE_EVENT_MISSING);
+        (void)snprintf(label, sizeof label, "%s skew (%u,%u)", b->id,
+                       (unsigned)b->pair_device[pair],
+                       (unsigned)b->pair_kind[pair]);
+        refusal_expect(label, peer, skewed, skewed_length,
+                       T64_STATE_REASON_DEVICE_TOKEN_MISMATCH);
+      }
+      free(removed);
+      free(skewed);
+      if (peer != NULL) t64_machine_destroy(peer);
+    }
+    matrix_trace("event-rules", b, started);
+  }
+}
+
 /* The case roundtrip: the T1 round trip of the S1 state, then the
  * continuation of the source and of the peer under one-shot and the 1, 7 and
  * 31 tick partitions. */
@@ -2174,11 +2709,14 @@ int main(int argc, char **argv) {
       "container-refusals", "field-range-refusals", "invariant-accepts",
       "invariant-refusals", "scratch-storage",      "refusal-untouched",
       "idempotence",        "save-media-roundtrip", "continuation-partitions",
-      "dirty-peer",         "observer-flag"};
+      "dirty-peer",         "observer-flag",
+      "boundary-reached",   "boundary-roundtrip",   "boundary-continuation",
+      "boundary-perturbation", "boundary-event-rules"};
   static const char *const suites[] = {
       "import",   "import",   "refusals", "refusals", "refusals",
       "refusals", "refusals", "refusals", "refusals", "ladder",
-      "ladder",   "ladder",   "ladder",   "ladder"};
+      "ladder",   "ladder",   "ladder",   "ladder",
+      "boundaries", "boundaries", "boundaries", "boundaries", "boundaries"};
   static void (*const runners[])(void) = {
       case_roundtrip_all,        case_handler_table_ledger,
       case_binding_refusals,     case_container_refusals,
@@ -2186,7 +2724,10 @@ int main(int argc, char **argv) {
       case_invariant_refusals,   case_scratch_storage,
       case_refusal_untouched,    case_idempotence,
       case_save_media_all,       case_continuation_partitions,
-      case_dirty_peer,           case_observer_flag};
+      case_dirty_peer,           case_observer_flag,
+      case_boundary_reached,     case_boundary_roundtrip,
+      case_boundary_continuation, case_boundary_perturbation,
+      case_boundary_event_rules};
   const size_t count = sizeof cases / sizeof cases[0];
   size_t index;
 
@@ -2202,6 +2743,7 @@ int main(int argc, char **argv) {
         runners[index]();
         peers_release();
         targets_release();
+        boundaries_release();
         (void)snprintf(name, sizeof name, "unit.core.state.import.%s",
                        cases[index]);
         return T64_TEST_FINISH(name);
@@ -2226,6 +2768,7 @@ int main(int argc, char **argv) {
       return 2;
     }
     targets_release();
+    boundaries_release();
     (void)snprintf(name, sizeof name, "unit.core.state.import.%s", argv[2]);
     return T64_TEST_FINISH(name);
   }
@@ -2237,5 +2780,6 @@ int main(int argc, char **argv) {
   for (index = 0u; index < count; index++) runners[index]();
   peers_release();
   targets_release();
+  boundaries_release();
   return T64_TEST_FINISH("unit.core.state.import");
 }
