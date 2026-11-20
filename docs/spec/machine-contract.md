@@ -991,16 +991,16 @@ profile and build ids only through v24).
 | trace_drop_count | excluded | yes, `t64_trace_reset` | trace: drop observation |
 | trace_drop_count_saturated | excluded | yes, `t64_trace_reset` | trace: drop observation |
 | trace_enabled | excluded | no, preserved | trace: configuration |
-| rsp_observed_pc | excluded | no, rewritten at the next RSP attempt | rsp observation: diagnostic only |
-| rsp_observed_opcode | excluded | no, rewritten at the next RSP attempt | rsp observation: diagnostic only |
-| rsp_observed_second_pc | excluded | no, rewritten at the next RSP attempt | rsp observation: diagnostic only |
-| rsp_observed_second_opcode | excluded | no, rewritten at the next RSP attempt | rsp observation: diagnostic only |
-| rsp_observed_tick | excluded | no, rewritten at the next RSP attempt | rsp observation: diagnostic only |
-| rsp_observed_ready_tick | excluded | no, rewritten at the next RSP attempt | rsp observation: diagnostic only |
-| rsp_observed_dma_cursor | excluded | no, rewritten at the next RSP attempt | rsp observation: diagnostic only |
-| rsp_observed_stall_reason | excluded | no, rewritten at the next RSP attempt | rsp observation: diagnostic only |
-| rsp_observed_refusal_reason | excluded | no, rewritten at the next RSP attempt | rsp observation: diagnostic only |
-| rsp_observed_dma_action | excluded | no, rewritten at the next RSP attempt | rsp observation: diagnostic only |
-| rsp_observed_outcome | excluded | no, rewritten at the next RSP attempt | rsp observation: diagnostic only |
-| rsp_observation_valid | excluded | no, rewritten at the next RSP attempt | rsp observation: diagnostic only |
+| rsp_observed_pc | excluded | yes, `reset_guest_state` (plan 09-10) | rsp observation: diagnostic only |
+| rsp_observed_opcode | excluded | yes, `reset_guest_state` (plan 09-10) | rsp observation: diagnostic only |
+| rsp_observed_second_pc | excluded | yes, `reset_guest_state` (plan 09-10) | rsp observation: diagnostic only |
+| rsp_observed_second_opcode | excluded | yes, `reset_guest_state` (plan 09-10) | rsp observation: diagnostic only |
+| rsp_observed_tick | excluded | yes, `reset_guest_state` (plan 09-10) | rsp observation: diagnostic only |
+| rsp_observed_ready_tick | excluded | yes, `reset_guest_state` (plan 09-10) | rsp observation: diagnostic only |
+| rsp_observed_dma_cursor | excluded | yes, `reset_guest_state` (plan 09-10) | rsp observation: diagnostic only |
+| rsp_observed_stall_reason | excluded | yes, `reset_guest_state` (plan 09-10) | rsp observation: diagnostic only |
+| rsp_observed_refusal_reason | excluded | yes, `reset_guest_state` (plan 09-10) | rsp observation: diagnostic only |
+| rsp_observed_dma_action | excluded | yes, `reset_guest_state` (plan 09-10) | rsp observation: diagnostic only |
+| rsp_observed_outcome | excluded | yes, `reset_guest_state` (plan 09-10) | rsp observation: diagnostic only |
+| rsp_observation_valid | excluded | yes, `reset_guest_state` (plan 09-10) | rsp observation: diagnostic only |
 | state_summary | excluded | no, cleared by every import attempt | scratch: the invariant summary of the state importer (plan 09-09); zero outside an import attempt, never part of the digest or the export |

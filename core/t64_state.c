@@ -3037,10 +3037,7 @@ static void state_commit(t64_machine *machine, const uint8_t *bytes,
    * adds one, saturating, and only on a profile with a save device. It never
    * travels in the container, stays outside the digest and no refusal reaches
    * this line. The last write of the commit. */
-  if (machine->profile.save_kind != 0u &&
-      machine->save.write_generation != UINT64_MAX) {
-    machine->save.write_generation++;
-  }
+  t64_save_generation_advance(machine);
 }
 
 bool t64_state_summary_is_clear(const t64_machine *machine) {

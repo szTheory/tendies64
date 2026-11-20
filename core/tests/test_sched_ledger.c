@@ -3,9 +3,9 @@
  *
  * ledger: the closed (device, kind) table of events the scheduler dispatches.
  * The expected rows are literals; the observed set comes from authored
- * scenarios that make every reservation site run. The SI rows (device 10) are
- * declared reserved and must not appear until a reservation site exists. The
- * SI rows were reserved until plan 09-03 added the first SI reservation site.
+ * scenarios that make every reservation site run. The SI rows (device 10) were
+ * reserved until plan 09-03 added the first SI reservation site; they are
+ * ordinary rows now, and the reserved mechanism is unused.
  *
  * characterize-fifo: two events at one guest tick dispatch in insertion
  * order, for both insertion orders. Every ledger pair is checked with
@@ -216,8 +216,8 @@ static bool in_observed(const observed_set *set, uint32_t device,
 }
 
 /*
- * The observed set must equal the non-reserved rows of the table, and no
- * reserved row may be observed.
+ * The observed set must equal the non-reserved rows of the table (every row is
+ * non-reserved since plan 09-03).
  */
 static ledger_result compare_ledger(const ledger_row *table, size_t rows,
                                     const observed_set *set) {

@@ -857,7 +857,7 @@ static void check_encoder_matches(const char *label, t64_machine *machine) {
     T64_CHECK_INT(captured.length - begin, expected.length);
     if (captured.length - begin != expected.length ||
         memcmp(captured.bytes + begin, expected.bytes, expected.length) != 0) {
-      fprintf(stderr, "section 10 differs from the reference in state '%s'\\n",
+      fprintf(stderr, "section 10 differs from the reference in state '%s'\n",
               label);
       T64_CHECK(false);
     }
@@ -908,7 +908,7 @@ static void check_field_flips(t64_machine *machine) {
     *byte ^= 1u;
     digest_of(machine, flipped);
     if (memcmp(baseline, flipped, T64_DIGEST_SIZE) == 0) {
-      fprintf(stderr, "field '%s' does not alter the digest\\n",
+      fprintf(stderr, "field '%s' does not alter the digest\n",
               flip_fields[index].name);
       T64_CHECK(false);
     }

@@ -2139,6 +2139,20 @@ static t64_status reset_guest_state(t64_machine *machine) {
   if (t64_has_rsp_functional_profile(machine)) {
     machine->rsp.sp_status = T64_RSP_STATUS_HALT;
   }
+  /* The diagnostic RSP observation of the previous run does not survive a
+     replacement, as the state commit clears it (plan 09-10, review L1 IN-05). */
+  machine->rsp_observed_pc = 0u;
+  machine->rsp_observed_opcode = 0u;
+  machine->rsp_observed_second_pc = 0u;
+  machine->rsp_observed_second_opcode = 0u;
+  machine->rsp_observed_tick = 0u;
+  machine->rsp_observed_ready_tick = 0u;
+  machine->rsp_observed_dma_cursor = 0u;
+  machine->rsp_observed_stall_reason = 0u;
+  machine->rsp_observed_refusal_reason = 0u;
+  machine->rsp_observed_dma_action = 0u;
+  machine->rsp_observed_outcome = 0u;
+  machine->rsp_observation_valid = false;
   (void)memset(&machine->boot, 0, sizeof machine->boot);
   (void)memset(&machine->cache, 0, sizeof machine->cache);
   (void)memset(&machine->guest_devices, 0, sizeof machine->guest_devices);

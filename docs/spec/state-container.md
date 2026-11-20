@@ -566,9 +566,11 @@ is a finding for the drift sweep, not an edit of an earlier plan.
 
 Child-only names: the supervisor forwards each verified descriptor to the runner
 under a child option, `--input-fd`, `--save-import-fd`, `--replay-fd` and
-`--state-import-fd`. They are not supervisor options, a caller never passes them
-(the runner refuses a descriptor it did not receive from its supervisor), and like
-every Phase 9 flag name they are provisional until the Phase 10 interface review.
+`--state-import-fd`. They are not supervisor options and a caller never passes
+them. The runner accepts only an unlinked read-only regular file as a descriptor
+(it cannot know where the descriptor came from); the exact size and the SHA-256 are
+verified by the supervisor only, so a directly started child skips them. Like every
+Phase 9 flag name they are provisional until the Phase 10 interface review.
 
 ## Boundary matrix
 

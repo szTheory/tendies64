@@ -70,6 +70,13 @@ void t64_save_reset_machine_state(t64_machine *machine) {
 #define SAVE_ID_16K UINT8_C(0xC0)
 #define SAVE_MIRROR_MASK_4K UINT8_C(0x3F)
 
+void t64_save_generation_advance(t64_machine *machine) {
+  if (machine != NULL && machine->profile.save_kind != 0u &&
+      machine->save.write_generation != UINT64_MAX) {
+    machine->save.write_generation++;
+  }
+}
+
 t64_save_channel4_class t64_save_channel4_classify(const t64_machine *machine,
                                                    uint8_t command,
                                                    uint32_t tx_count,
@@ -450,8 +457,6 @@ t64_status t64_machine_save_import(t64_machine *machine, uint32_t device_kind,
   }
   save_transform_copy(machine->save.bytes, bytes, size, format);
   machine->save.busy_until = 0u;
-  if (machine->save.write_generation != UINT64_MAX) {
-    machine->save.write_generation++;
-  }
+  t64_save_generation_advance(machine);
   return T64_STATUS_OK;
 }

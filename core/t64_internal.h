@@ -953,6 +953,11 @@ typedef struct {
   uint8_t *bytes;
 } t64_save_state;
 
+/* The one saturating increment of the import generation (plan 09-10, review
+ * L1 IN-03 and R-05): a host save import and a state import into a profile with
+ * a save device add one; it never wraps. */
+void t64_save_generation_advance(t64_machine *machine);
+
 typedef enum {
   T64_SAVE_CH4_ABSENT = 0,
   T64_SAVE_CH4_VALID = 1,
@@ -1848,7 +1853,8 @@ typedef struct {
 /* Emitted by the v25 walker (plan 09-03): SI, PIF RAM and the input latch,
  * every field in the new-span class. */
 #define T64_STATE_SECTION_SI_PIF UINT32_C(10)
-/* Reserved: the save-media section lands with the save devices (plan 09-04). */
+/* Emitted by the v25 walker for the three save ids (plan 09-04); the stem
+ * stream stops at section 10. */
 #define T64_STATE_SECTION_SAVE_MEDIA UINT32_C(11)
 /* Observer continuity (plan 09-08): written by the state container export
  * after the canonical region and outside the digest; the walker never emits

@@ -25,8 +25,9 @@ window `0x1fc00000` to `0x1fc007ff` (it stays an unsupported window), the
 four-byte PIF transfers (WR4B and RD4B registers), the boot-time challenge and
 response exchange, other joybus peripherals (controller pak, rumble), and
 physical controller mapping. The cartridge channel (channel 4) answers "absent"
-for every profile id in this slice; the save devices of a later slice replace
-that answer behind the same internal interface.
+on the stem id and the SRAM id (no EEPROM); on the two EEPROM ids it is answered
+by the save device (info, read and write triples and the timeout class, see
+[save-media.md](save-media.md)).
 
 The model has no PIF ROM. The PIF is a 64-byte RAM reachable only through the
 SI DMA start registers, so the model needs no protected firmware image.
@@ -121,9 +122,10 @@ authored vectors for each rule above, and for bounds and repeatability.
 ## Controller and absent-device responses
 
 Channels 0 to 3 stand for ports 0 to 3 and channel 4 for the cartridge. Only
-channel 0 has a device in this slice: the standard controller, present when the
-profile carries `peripheral_flags` bit 0. Every other channel, and channel 0
-without the flag, reports no device.
+channel 0 has a controller: the standard controller, present when the profile
+carries `peripheral_flags` bit 0; channel 4 has the EEPROM on the two EEPROM ids
+(save-media.md). Every other channel, channel 4 on the stem and SRAM ids, and
+channel 0 without the flag, reports no device.
 
 For an executed (not skipped) handshake the model rebuilds the receive byte from
 the parsed count on every execution, so a frame executed again never gathers

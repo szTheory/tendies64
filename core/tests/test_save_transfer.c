@@ -1422,6 +1422,21 @@ static void check_replacement(const profile_row *profile) {
     machine->save.busy_until = machine->tick + BUSY_WINDOW;
   }
   T64_CHECK_INT(machine->save.write_generation, 1u);
+  /* The diagnostic RSP observation of the run before: a replacement is a fresh
+     machine for observers as well (plan 09-10 review L1 IN-05), set directly
+     because the family has no RSP activity of its own here. */
+  machine->rsp_observed_pc = UINT32_C(0x123);
+  machine->rsp_observed_opcode = UINT32_C(0x4567);
+  machine->rsp_observed_second_pc = UINT32_C(0x89a);
+  machine->rsp_observed_second_opcode = UINT32_C(0xbcde);
+  machine->rsp_observed_tick = UINT64_C(77);
+  machine->rsp_observed_ready_tick = UINT64_C(78);
+  machine->rsp_observed_dma_cursor = UINT64_C(79);
+  machine->rsp_observed_stall_reason = 3u;
+  machine->rsp_observed_refusal_reason = 2u;
+  machine->rsp_observed_dma_action = 1u;
+  machine->rsp_observed_outcome = 2u;
+  machine->rsp_observation_valid = true;
 
   /* A refused admission (one asset byte altered) leaves bytes, deadline,
      generation and the digest unchanged. */
@@ -1440,6 +1455,17 @@ static void check_replacement(const profile_row *profile) {
                 T64_STATUS_OK);
   T64_CHECK_INT(machine->save.busy_until, 0u);
   T64_CHECK_INT(machine->save.write_generation, 0u);
+  T64_CHECK(!machine->rsp_observation_valid);
+  T64_CHECK(machine->rsp_observed_pc == 0u && machine->rsp_observed_opcode == 0u &&
+            machine->rsp_observed_second_pc == 0u &&
+            machine->rsp_observed_second_opcode == 0u &&
+            machine->rsp_observed_tick == 0u &&
+            machine->rsp_observed_ready_tick == 0u &&
+            machine->rsp_observed_dma_cursor == 0u &&
+            machine->rsp_observed_stall_reason == 0u &&
+            machine->rsp_observed_refusal_reason == 0u &&
+            machine->rsp_observed_dma_action == 0u &&
+            machine->rsp_observed_outcome == 0u);
   for (at = 0u; at < profile->size; at++) {
     if (machine->save.bytes[at] != profile->blank) {
       T64_CHECK_INT(machine->save.bytes[at], profile->blank);
@@ -1453,10 +1479,35 @@ static void check_replacement(const profile_row *profile) {
   t64_machine_destroy(fresh);
 }
 
+/* The generation saturates at the 64-bit maximum on both writers: a host import
+ * and a state import (the shared helper of plan 09-10, review L5 IN-05). The
+ * state is set directly because 2^64 imports are unreachable. */
+static void check_generation_saturation(const profile_row *profile) {
+  t64_machine *machine = create_admitted(profile->id);
+
+  if (machine == NULL) return;
+  fill_image(image_a, profile->size);
+  machine->save.write_generation = UINT64_MAX - 1u;
+  T64_CHECK_INT(do_import(machine, profile->kind, T64_SAVE_FORMAT_RAW, image_a,
+                          profile->size),
+                T64_STATUS_OK);
+  T64_CHECK_INT(machine->save.write_generation, UINT64_MAX);
+  T64_CHECK_INT(do_import(machine, profile->kind, T64_SAVE_FORMAT_RAW, image_a,
+                          profile->size),
+                T64_STATUS_OK);
+  T64_CHECK_INT(machine->save.write_generation, UINT64_MAX);
+  t64_save_generation_advance(machine);
+  T64_CHECK_INT(machine->save.write_generation, UINT64_MAX);
+  t64_machine_destroy(machine);
+}
+
 static void case_replacement(void) {
   size_t row;
 
-  for (row = 1u; row < PROFILE_ROWS; row++) check_replacement(&profile_rows[row]);
+  for (row = 1u; row < PROFILE_ROWS; row++) {
+    check_replacement(&profile_rows[row]);
+    check_generation_saturation(&profile_rows[row]);
+  }
 }
 
 

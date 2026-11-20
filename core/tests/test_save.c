@@ -725,14 +725,12 @@ static void dma_refusal_rows(void) {
   for (index = 0u; index < sizeof rows / sizeof rows[0]; index++) {
     t64_machine *machine = make_idle_machine(S32K_ID);
     uint8_t snapshot[T64_SAVE_SRAM_BYTES];
-    uint8_t before[T64_DIGEST_SIZE];
 
     if (machine == NULL) continue;
     T64_CHECK_INT(machine->profile.rdram_bytes, rdram);
     sram_write_pattern(machine); /* the accepted baseline, same setup */
     T64_CHECK(storage_is(machine, SRAM_OFFSET, dma_pattern, 16u));
     (void)memcpy(snapshot, machine->save.bytes, sizeof snapshot);
-    digest_of(machine, before);
     {
       const t64_status status =
           pi_start(machine, rows[index].dram, rows[index].cart, PI_RD_LEN,
@@ -746,7 +744,6 @@ static void dma_refusal_rows(void) {
     }
     T64_CHECK_INT(bus_value(machine, PI_STATUS) & 1u, 0u);
     T64_CHECK(memcmp(snapshot, machine->save.bytes, sizeof snapshot) == 0);
-    (void)before;
     t64_machine_destroy(machine);
   }
 }

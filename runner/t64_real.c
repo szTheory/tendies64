@@ -1114,7 +1114,9 @@ static bool capture_write_limit_fault(uint64_t total) {
 
 /* Test twin only (K9): after a guest pass, publish probe.sta of exactly the
  * declared maximum with byte i equal to (i * 7 + 3) modulo 256. The production
- * runner never publishes; with the pair it only runs the preflight. */
+ * runner publishes through the same publisher (a state export, a save export, a
+ * replay record or a replay report, plans 09-05, 09-07 and 09-08); this probe is
+ * the exact-size fault used by the file-size controls. */
 static bool publish_probe_artifact(const char *directory,
                                    uint64_t byte_cap) {
   t64_artifact_publisher *publisher;

@@ -402,7 +402,10 @@ t64_status t64_machine_digest(const t64_machine *machine,
  * not overlap each other or any machine-owned storage (INVALID_ARGUMENT); no
  * admitted image is NOT_READY; a profile outside the composite family is
  * INVALID_ARGUMENT; a container beyond the size ceiling is RESOURCE_EXHAUSTED.
- * Every refusal leaves the caller bytes, *length_out and the machine intact.
+ * Every refusal leaves *length_out and the machine intact and leaves the caller
+ * bytes intact except one case: an internal inconsistency found while writing
+ * (BAD_STORAGE, unreachable for a const machine) clears the first total bytes of
+ * the buffer, so a defect never publishes a partial container.
  */
 #define T64_STATE_CONTAINER_FORMAT "t64.state-container.v1"
 t64_status t64_machine_state_export(const t64_machine *machine,
@@ -549,9 +552,12 @@ t64_status t64_video_copy(t64_machine *machine, uint8_t *bytes_out,
  * Save device information (provisional until Phase 10; no API/ABI freeze).
  * kind is the profile's device kind, size_bytes its storage size and flags
  * T64_SAVE_INFO_BUSY while a write window or a DMA is in flight.
- * write_generation counts successful imports since creation or the last
- * replacement (observer only: it is outside the canonical digest, guest writes
- * do not increment it).
+ * write_generation counts successful save imports and successful state imports
+ * into a profile with a save device since creation or the last replacement
+ * (observer only: it is outside the canonical digest and the state container,
+ * guest writes do not increment it, it saturates at the 64-bit maximum and a
+ * host that compares a remembered value must also track its admissions, because
+ * replacement restarts it at 0).
  */
 typedef struct {
   uint32_t kind;
@@ -638,9 +644,12 @@ t64_status t64_machine_queue_input(t64_machine *machine, uint64_t tick,
  * Host debug access to physical byte addresses, called between advance calls.
  * Width must be 1, 2, or 4. Halfwords and words are big-endian and require
  * natural alignment; individual device registers can further restrict width.
- * Rejected writes have no partial effects, and rejected reads leave value_out
- * unchanged. These calls do not execute guest code or translate virtual
- * addresses.
+ * A write that the bus rejects for its address, width or alignment has no
+ * effect; a write that a device refuses can leave the device's own record of
+ * the refusal (the PI latches its length and sets its sticky error on a busy
+ * start, the SI sets its sticky DMA error and writes a refusal trace record),
+ * and rejected reads leave value_out unchanged. These calls do not execute guest
+ * code or translate virtual addresses.
  */
 t64_status t64_machine_bus_read(t64_machine *machine, uint32_t address,
                                 uint32_t width, uint32_t *value_out);

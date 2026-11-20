@@ -344,7 +344,12 @@ its own generation. Replacement (`t64_machine_admit_rom` on an admitted machine)
 the deadline and resets the generation, so the digest equals a freshly created
 and admitted machine of the same id; a refused admission leaves the bytes, the
 deadline and the generation unchanged. Replacement while a write window is open
-clears the deadline.
+clears the deadline. Because replacement restarts the counter at 0, a value seen
+after an import into ROM A can be seen again after an import into ROM B with
+different content: a host that tracks "the content changed" by comparing a remembered
+generation must also track its own admissions (an epoch). Both writers use one
+internal saturating increment, so the 64-bit maximum is reached by neither wrapping
+nor a second code path.
 
 ### What counts as in flight
 
