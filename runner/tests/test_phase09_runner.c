@@ -826,10 +826,13 @@ static int case_transcript_pin(void) {
 /* Nine option families (docs/spec/state-container.md, Option-pair matrix) and
  * every pair of them. A pair is refused as usage at guest tick 0, before any
  * snapshot, work directory or child, or it is accepted by design; no pair is
- * undefined. Each family is complete in itself and carries a path that does not
- * exist, so a supervisor that prepared a snapshot before the pair rule would
- * report the snapshot refusal (detail refusal) instead of the pair refusal
- * (detail usage). The accepted baseline of every row is the family alone, which
+ * undefined. Each family is complete in itself. The three families that import
+ * a file (SAVE-IN, REPLAY-PLAY and STATE-IN) carry a path that does not exist,
+ * so a supervisor that prepared a snapshot before the pair rule would report
+ * the snapshot refusal (detail refusal) instead of the pair refusal (detail
+ * usage) for every refused pair that holds one of them; for the other pairs the
+ * order "pair rule before snapshot" has no observable effect and this test does
+ * not pin it. The accepted baseline of every row is the family alone, which
  * must not be a usage refusal. @ART and @RAW stand for the private directories
  * of the run. */
 static bool sha256_file_hex(const char *path, char out[65]);
@@ -939,6 +942,91 @@ static const pair_row pair_rows[] = {
     {FAM_RAW, FAM_PAIR, true},
     {FAM_INPUT, FAM_PAIR, false},
 };
+
+/* The 36 unordered pairs of nine families: a dropped or added row fails the
+ * build (plan 09-10, re-check R2 RC-07). */
+_Static_assert(sizeof pair_rows / sizeof pair_rows[0] ==
+                   (size_t)FAM_COUNT * ((size_t)FAM_COUNT - 1u) / 2u,
+               "pair_rows must hold every unordered pair of the families once");
+
+/* Uniqueness, order and the spec: each unordered pair appears exactly once with
+ * the lower family first, and the 9 by 9 table of docs/spec/state-container.md
+ * (R refused, A accepted, a dot the family with itself) equals the rows, in both
+ * triangles. The table and the code were compared by hand before. */
+static void check_pair_table_against_spec(void) {
+  static uint8_t spec[1u << 17];
+  char path[PATH_MAX];
+  size_t length = 0u;
+  bool seen[FAM_COUNT][FAM_COUNT];
+  bool refused[FAM_COUNT][FAM_COUNT];
+  const char *cursor;
+  size_t i;
+  size_t j;
+  size_t checked = 0u;
+  memset(seen, 0, sizeof seen);
+  memset(refused, 0, sizeof refused);
+  for (i = 0u; i < sizeof pair_rows / sizeof pair_rows[0]; i++) {
+    const pair_row *row = &pair_rows[i];
+    CHECK((int)row->first < (int)row->second);
+    CHECK(!seen[row->first][row->second]);
+    seen[row->first][row->second] = true;
+    refused[row->first][row->second] = row->refused;
+    refused[row->second][row->first] = row->refused;
+  }
+  for (i = 0u; i < FAM_COUNT; i++) {
+    for (j = i + 1u; j < FAM_COUNT; j++) CHECK(seen[i][j]);
+  }
+  CHECK(join_path(path, sizeof path, g_root, "docs/spec/state-container.md"));
+  CHECK(read_file(path, spec, sizeof spec - 1u, &length) && length != 0u);
+  spec[length] = '\0';
+  cursor = strstr((const char *)spec,
+                  "| | SAVE-IN | SAVE-OUT | REPLAY-REC | REPLAY-PLAY | STATE-OUT "
+                  "| STATE-IN | RAW | INPUT | PAIR |");
+  CHECK(cursor != NULL);
+  if (cursor == NULL) return;
+  cursor = strchr(cursor, '\n');   /* header */
+  cursor = cursor != NULL ? strchr(cursor + 1, '\n') : NULL; /* separator */
+  for (i = 0u; i < FAM_COUNT && cursor != NULL; i++) {
+    char line[256];
+    const char *end;
+    char *cell;
+    char *save = NULL;
+    size_t column = 0u;
+    cursor++;
+    end = strchr(cursor, '\n');
+    CHECK(end != NULL && (size_t)(end - cursor) < sizeof line);
+    if (end == NULL || (size_t)(end - cursor) >= sizeof line) return;
+    (void)memcpy(line, cursor, (size_t)(end - cursor));
+    line[end - cursor] = '\0';
+    cursor = end;
+    for (cell = strtok_r(line, "|", &save); cell != NULL;
+         cell = strtok_r(NULL, "|", &save), column++) {
+      char text[32];
+      size_t used = 0u;
+      while (*cell == ' ') cell++;
+      while (cell[used] != '\0' && cell[used] != ' ' &&
+             used + 1u < sizeof text) {
+        text[used] = cell[used];
+        used++;
+      }
+      text[used] = '\0';
+      if (column == 0u) {
+        CHECK(strcmp(text, families[i].name) == 0);
+      } else if (column <= FAM_COUNT) {
+        const size_t family = column - 1u;
+        const char *want = family == i ? "." : (refused[i][family] ? "R" : "A");
+        if (strcmp(text, want) != 0) {
+          (void)fprintf(stderr, "spec table %s x %s says %s, the rows say %s\n",
+                        families[i].name, families[family].name, text, want);
+        }
+        CHECK(strcmp(text, want) == 0);
+        checked++;
+      }
+    }
+    CHECK(column == (size_t)FAM_COUNT + 1u);
+  }
+  CHECK(checked == (size_t)FAM_COUNT * (size_t)FAM_COUNT);
+}
 
 #define PAIR_MAX_ARGS 40u
 
@@ -1131,6 +1219,7 @@ static void option_pair_matrix(void) {
   pair_args args;
   size_t i;
 
+  check_pair_table_against_spec();
   /* The accepted baseline of every family: the family alone is not a usage
    * refusal (the pair rows below can start from it). */
   for (i = 0u; i < FAM_COUNT; i++) {
