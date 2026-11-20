@@ -132,6 +132,14 @@ static bool digest_of(const t64_machine *machine,
   return status == T64_STATUS_OK;
 }
 
+static bool digests_equal(const t64_machine *left, const t64_machine *right) {
+  uint8_t a[T64_DIGEST_SIZE];
+  uint8_t b[T64_DIGEST_SIZE];
+
+  if (!digest_of(left, a) || !digest_of(right, b)) return false;
+  return memcmp(a, b, sizeof a) == 0;
+}
+
 /* ---- the S1 state: an SI RD64B in flight with its execute still pending --- */
 
 #define SI_DRAM_ADDR UINT32_C(0x04800000)
@@ -357,10 +365,6 @@ static void case_roundtrip(void) {
   release_before = release_calls;
   (void)memset(&report, 0xA5, sizeof report);
   status = t64_machine_state_import(peer, blob, length, 0u, &report);
-  /* The RED record of plan 09-09 task 1 is the pair printed here. */
-  fprintf(stderr, "roundtrip import: status=%u reason=%u section=%u rule=%u\n",
-          (unsigned)status, (unsigned)report.reason,
-          (unsigned)report.section_id, (unsigned)report.rule);
   T64_CHECK_INT(status, T64_STATUS_OK);
   T64_CHECK_INT(report.status, T64_STATUS_OK);
   T64_CHECK_INT(report.reason, T64_STATE_REASON_NONE);
@@ -386,12 +390,163 @@ static void case_roundtrip(void) {
   t64_machine_destroy(source);
 }
 
+/* ---- case handler-table-ledger -------------------------------------- */
+
+/* The ten production pairs, authored as literals from the 09-01 event ledger
+ * (core/tests/test_sched_ledger.c) without the synthetic test device. */
+static const struct {
+  uint32_t device;
+  uint32_t kind;
+} ledger_pairs[] = {{5u, 1u}, {3u, 1u}, {4u, 1u},  {4u, 2u}, {6u, 1u},
+                    {7u, 1u}, {8u, 1u}, {9u, 1u},  {10u, 1u}, {10u, 2u}};
+
+static bool is_ledger_pair(uint32_t device, uint32_t kind) {
+  size_t i;
+
+  for (i = 0u; i < sizeof ledger_pairs / sizeof ledger_pairs[0]; i++) {
+    if (ledger_pairs[i].device == device && ledger_pairs[i].kind == kind) {
+      return true;
+    }
+  }
+  return false;
+}
+
+static void case_handler_table_ledger(void) {
+  uint32_t device;
+  uint32_t kind;
+  size_t non_null = 0u;
+  static const uint32_t synthetic_devices[] = {UINT32_C(0xffff0001),
+                                               UINT32_C(0xffff0002)};
+  size_t i;
+
+  for (device = 0u; device < 16u; device++) {
+    for (kind = 0u; kind < 16u; kind++) {
+      const t64_event_handler_fn handler =
+          t64_state_handler_lookup(device, kind);
+
+      if (handler != NULL) non_null++;
+      T64_CHECK((handler != NULL) == is_ledger_pair(device, kind));
+      T64_CHECK(handler == expected_handler(device, kind));
+    }
+  }
+  T64_CHECK_INT(non_null, 10u);
+  /* The synthetic test device and the MI test device are refused for every
+   * kind: the closed table is the production ledger only. */
+  for (i = 0u; i < sizeof synthetic_devices / sizeof synthetic_devices[0];
+       i++) {
+    for (kind = 0u; kind < 16u; kind++) {
+      T64_CHECK(t64_state_handler_lookup(synthetic_devices[i], kind) == NULL);
+    }
+  }
+  T64_CHECK(t64_state_handler_lookup(UINT32_MAX, UINT32_MAX) == NULL);
+}
+
+/* ---- continuation (T3) ------------------------------------------------- */
+
+static bool drain_output(t64_machine *machine, uint8_t bytes[4096],
+                         size_t *copied_out) {
+  t64_output_drain_result result;
+  const t64_status status =
+      t64_machine_output_drain(machine, bytes, 4096u, &result);
+
+  T64_CHECK_INT(status, T64_STATUS_OK);
+  *copied_out = result.copied_bytes;
+  return status == T64_STATUS_OK;
+}
+
+/* Advance both machines to the same absolute bound in steps of `step` ticks
+ * (a step of 0 is one call per slice). */
+static bool advance_pair(t64_machine *left, t64_machine *right,
+                         uint64_t target, uint64_t step) {
+  while (left->tick < target) {
+    const uint64_t next = step == 0u || target - left->tick <= step
+                              ? target
+                              : left->tick + step;
+
+    if (!advance_to(left, next) || !advance_to(right, next)) return false;
+  }
+  return left->tick == right->tick;
+}
+
+/* One source against one peer imported from it: equal digests and equal
+ * drained ISViewer bytes at the import tick, at +310 and at +30,000. */
+static void continuation_pair(uint64_t partition) {
+  t64_machine *source = build_s1(SI_STEM_ID);
+  t64_machine *peer;
+  uint8_t *blob;
+  size_t length = 0u;
+  t64_state_import_report report;
+  uint64_t base;
+  uint8_t before[T64_DIGEST_SIZE];
+  uint8_t source_bytes[4096];
+  uint8_t peer_bytes[4096];
+  size_t source_copied = 0u;
+  size_t peer_copied = 0u;
+
+  if (source == NULL) return;
+  blob = export_blob(source, &length);
+  peer = create_admitted(SI_STEM_ID);
+  if (blob == NULL || peer == NULL) {
+    free(blob);
+    if (peer != NULL) t64_machine_destroy(peer);
+    t64_machine_destroy(source);
+    return;
+  }
+  T64_CHECK_INT(t64_machine_state_import(peer, blob, length, 0u, &report),
+                T64_STATUS_OK);
+  base = peer->tick;
+  T64_CHECK_INT(base, source->tick);
+  T64_CHECK(digests_equal(source, peer));
+  (void)digest_of(source, before);
+  if (advance_pair(source, peer, base + 310u, partition)) {
+    T64_CHECK(digests_equal(source, peer));
+  }
+  if (advance_pair(source, peer, base + 30000u, 0u)) {
+    uint8_t after[T64_DIGEST_SIZE];
+
+    T64_CHECK(digests_equal(source, peer));
+    /* The comparison is not vacuous: the state moved, the read completed and
+     * the source and the peer both show it. */
+    (void)digest_of(source, after);
+    T64_CHECK(memcmp(before, after, sizeof before) != 0);
+    T64_CHECK(!source->si.active_valid && !peer->si.active_valid);
+    T64_CHECK((source->mi_pending & T64_MI_INTERRUPT_SI) != 0u);
+    T64_CHECK((peer->mi_pending & T64_MI_INTERRUPT_SI) != 0u);
+  }
+  if (drain_output(source, source_bytes, &source_copied) &&
+      drain_output(peer, peer_bytes, &peer_copied)) {
+    T64_CHECK_INT(source_copied, peer_copied);
+    T64_CHECK(memcmp(source_bytes, peer_bytes, source_copied) == 0);
+  }
+  free(blob);
+  t64_machine_destroy(peer);
+  t64_machine_destroy(source);
+}
+
+static void case_continuation_roundtrip(void) {
+  static const uint64_t partitions[] = {0u, 1u, 7u, 31u};
+  size_t i;
+
+  for (i = 0u; i < sizeof partitions / sizeof partitions[0]; i++) {
+    continuation_pair(partitions[i]);
+  }
+}
+
+/* The case roundtrip: the T1 round trip of the S1 state, then the
+ * continuation of the source and of the peer under one-shot and the 1, 7 and
+ * 31 tick partitions. */
+static void case_roundtrip_all(void) {
+  case_roundtrip();
+  case_continuation_roundtrip();
+}
+
 /* ---- dispatch ---------------------------------------------------------- */
 
 int main(int argc, char **argv) {
-  static const char *const cases[] = {"roundtrip"};
-  static const char *const suites[] = {"import"};
-  static void (*const runners[])(void) = {case_roundtrip};
+  static const char *const cases[] = {"roundtrip", "handler-table-ledger"};
+  static const char *const suites[] = {"import", "import"};
+  static void (*const runners[])(void) = {case_roundtrip_all,
+                                          case_handler_table_ledger};
   const size_t count = sizeof cases / sizeof cases[0];
   size_t index;
 

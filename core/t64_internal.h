@@ -1000,11 +1000,12 @@ typedef struct {
 #define T64_STATE_SUMMARY_MAX_BYTES 8192u
 
 typedef struct {
-  uint32_t count; /* queued events of this (device, kind) pair */
-  uint32_t reserved;
-  uint64_t tick;  /* the first event seen: tick, token and value */
+  uint32_t count;     /* queued events of this (device, kind) pair */
+  uint32_t max_count; /* how many of them carry the largest token */
+  uint64_t tick;      /* the first event seen: tick, token and value */
   uint64_t token;
   uint64_t value;
+  uint64_t token_max; /* the largest token seen */
 } t64_state_pair;
 
 typedef struct {
@@ -1033,7 +1034,8 @@ typedef struct {
   uint32_t si_active_valid;
   uint32_t si_direction;
   uint32_t si_execute_pending;
-  uint32_t save_kind;
+  uint32_t pi_save_direction;
+  uint32_t ai_descriptor_count;
   uint32_t captured_bytes;
   uint32_t queue_count;
   uint32_t sequence_exhausted;
