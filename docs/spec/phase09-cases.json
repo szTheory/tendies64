@@ -352,6 +352,7 @@
           "cases": [
             "baseline-clean",
             "new-indexed-member-unmapped",
+            "nested-member-unmapped",
             "mapping-row-removed",
             "unknown-rule-name",
             "reader-lacks-member"
