@@ -150,7 +150,9 @@ typedef struct {
   char state_digest[65];
   char profile_digest[65];
   char fixture_sha256[65];
+  char build_id[96];
   uint64_t guest_tick;
+  uint64_t log_bytes;
   char dir[PATH_MAX];
   char result_path[PATH_MAX];
 } run_out;
@@ -174,6 +176,13 @@ static bool parse_record(const char *path, run_out *out) {
     return false;
   }
   stop = t64_json_get(doc.root, "guest_stop");
+  {
+    const t64_json_node *counts = t64_json_get(doc.root, "counts");
+    if (counts != NULL &&
+        t64_json_u64_string(t64_json_get(counts, "log_bytes"), &value)) {
+      out->log_bytes = value;
+    }
+  }
   copy_string(out->outcome, sizeof out->outcome,
               t64_json_get(doc.root, "outcome"));
   copy_string(out->detail, sizeof out->detail,
@@ -188,6 +197,8 @@ static bool parse_record(const char *path, run_out *out) {
               t64_json_get(doc.root, "profile_digest"));
   copy_string(out->fixture_sha256, sizeof out->fixture_sha256,
               t64_json_get(doc.root, "fixture_sha256"));
+  copy_string(out->build_id, sizeof out->build_id,
+              t64_json_get(doc.root, "build_id"));
   copy_string(out->stop_kind, sizeof out->stop_kind,
               stop == NULL ? NULL : t64_json_get(stop, "kind"));
   if (t64_json_u64_string(t64_json_get(doc.root, "guest_tick"), &value)) {
@@ -646,6 +657,158 @@ static bool run_runner_direct(const char *fixture, const char *profile,
   return out->parsed;
 }
 
+/* ---- the independent Python decoder ------------------------------------- */
+
+typedef struct {
+  char status[16];
+  char kind[32];
+  char total_length[24];
+  char version[8];
+  char canonical_digest[65];
+  char guest_tick[24];
+  char profile_digest[65];
+  char content_sha256[65];
+  char content_length[24];
+  char build_id[96];
+  char ids[96];
+  char observer[96];
+} decoded_blob;
+
+static void join_array(char *out, size_t capacity, const t64_json_node *array) {
+  const t64_json_node *item = array == NULL ? NULL : array->first;
+  size_t used = 0u;
+  out[0] = '\0';
+  while (item != NULL && item->type == T64_JSON_STRING) {
+    int written = snprintf(out + used, capacity - used, "%s%.*s",
+                           used == 0u ? "" : ",", (int)item->len, item->str);
+    if (written < 0 || (size_t)written >= capacity - used) return;
+    used += (size_t)written;
+    item = item->next;
+  }
+}
+
+/* Runs `python3 -B -I decode_container.py --blob PATH`; returns the decoder
+ * exit status (0 accepted, 1 refused, 2 usage) or -1, and parses its one JSON
+ * line. */
+static int decode_blob(const char *path, decoded_blob *out) {
+  const char *script = getenv("T64_STATE_DECODER");
+  int pipe_fds[2];
+  pid_t pid;
+  int status = 0;
+  uint8_t line[4096];
+  size_t used = 0u;
+  t64_json_doc doc = {0};
+  memset(out, 0, sizeof *out);
+  if (script == NULL || script[0] == '\0' || pipe(pipe_fds) != 0) return -1;
+  pid = fork();
+  if (pid < 0) return -1;
+  if (pid == 0) {
+    char python[] = "python3";
+    char no_bytecode[] = "-B";
+    char isolated[] = "-I";
+    char blob_option[] = "--blob";
+    char *args[7];
+    (void)close(pipe_fds[0]);
+    (void)dup2(pipe_fds[1], STDOUT_FILENO);
+    args[0] = python;
+    args[1] = no_bytecode;
+    args[2] = isolated;
+    args[3] = (char *)(uintptr_t)script;
+    args[4] = blob_option;
+    args[5] = (char *)(uintptr_t)path;
+    args[6] = NULL;
+    execvp(python, args);
+    _exit(127);
+  }
+  (void)close(pipe_fds[1]);
+  for (;;) {
+    ssize_t count = read(pipe_fds[0], line + used, sizeof line - 1u - used);
+    if (count < 0 && errno == EINTR) continue;
+    if (count <= 0) break;
+    used += (size_t)count;
+    if (used + 1u >= sizeof line) break;
+  }
+  (void)close(pipe_fds[0]);
+  while (waitpid(pid, &status, 0) < 0) {
+    if (errno != EINTR) return -1;
+  }
+  if (!WIFEXITED(status)) return -1;
+  if (used > 0u && t64_json_parse(line, used, NULL, &doc, NULL) == 0) {
+    copy_string(out->status, sizeof out->status,
+                t64_json_get(doc.root, "status"));
+    copy_string(out->kind, sizeof out->kind, t64_json_get(doc.root, "kind"));
+    copy_string(out->total_length, sizeof out->total_length,
+                t64_json_get(doc.root, "total_length"));
+    copy_string(out->version, sizeof out->version,
+                t64_json_get(doc.root, "state_serialization_version"));
+    copy_string(out->canonical_digest, sizeof out->canonical_digest,
+                t64_json_get(doc.root, "canonical_digest"));
+    copy_string(out->guest_tick, sizeof out->guest_tick,
+                t64_json_get(doc.root, "guest_tick"));
+    copy_string(out->profile_digest, sizeof out->profile_digest,
+                t64_json_get(doc.root, "profile_digest"));
+    copy_string(out->content_sha256, sizeof out->content_sha256,
+                t64_json_get(doc.root, "content_sha256"));
+    copy_string(out->content_length, sizeof out->content_length,
+                t64_json_get(doc.root, "content_length"));
+    copy_string(out->build_id, sizeof out->build_id,
+                t64_json_get(doc.root, "build_id"));
+    join_array(out->ids, sizeof out->ids,
+               t64_json_get(doc.root, "section_ids"));
+    join_array(out->observer, sizeof out->observer,
+               t64_json_get(doc.root, "observer"));
+    t64_json_free(&doc);
+  }
+  return WEXITSTATUS(status);
+}
+
+/* The decoded values of the real published blob against values the exporting
+ * process did not produce: the supervisor's result record, an in-process
+ * public API call for the profile digest, and SHA-256 and the size of the ROM
+ * file. */
+static void check_decoded_against(const char *blob_path, const char *rom,
+                                  const run_out *run, uint64_t size) {
+  decoded_blob decoded;
+  const t64_profile_descriptor *profile = NULL;
+  uint8_t digest[T64_DIGEST_SIZE];
+  char profile_hex[T64_SHA256_HEX_SIZE];
+  char rom_hex[65];
+  char expected[32];
+  struct stat info;
+  CHECK(decode_blob(blob_path, &decoded) == 0);
+  CHECK(strcmp(decoded.status, "accepted") == 0);
+  CHECK(strcmp(decoded.kind, "ok") == 0);
+  (void)snprintf(expected, sizeof expected, "%llu", (unsigned long long)size);
+  CHECK(strcmp(decoded.total_length, expected) == 0);
+  CHECK(strcmp(decoded.version, "25") == 0);
+  CHECK(strcmp(decoded.ids, "1,2,3,4,5,6,7,8,9,10,16") == 0);
+  CHECK(strcmp(decoded.canonical_digest, run->state_digest) == 0);
+  (void)snprintf(expected, sizeof expected, "%llu",
+                 (unsigned long long)run->guest_tick);
+  CHECK(strcmp(decoded.guest_tick, expected) == 0);
+  CHECK(t64_profile_lookup(PROFILE_STEM, &profile) == T64_STATUS_OK &&
+        profile != NULL && t64_profile_hash(profile, digest) == T64_STATUS_OK);
+  t64_sha256_hex(digest, profile_hex);
+  CHECK(strcmp(decoded.profile_digest, profile_hex) == 0);
+  CHECK(strcmp(decoded.profile_digest, run->profile_digest) == 0);
+  CHECK(sha256_file_hex(rom, rom_hex));
+  CHECK(strcmp(decoded.content_sha256, rom_hex) == 0);
+  CHECK(stat(rom, &info) == 0);
+  (void)snprintf(expected, sizeof expected, "%llu",
+                 (unsigned long long)info.st_size);
+  CHECK(strcmp(decoded.content_length, expected) == 0);
+  /* No host path in the build identity of the header, and it equals the
+   * record's. */
+  CHECK(strcmp(decoded.build_id, run->build_id) == 0);
+  CHECK(strchr(decoded.build_id, '/') == NULL);
+  /* The observer section carries the runner's output drain cursor: the bytes
+   * it drained are the record's log bytes; no video or audio was produced. */
+  (void)snprintf(expected, sizeof expected, "%llu,0,0,0,0",
+                 (unsigned long long)run->log_bytes);
+  CHECK(run->log_bytes > 0u);
+  CHECK(strcmp(decoded.observer, expected) == 0);
+}
+
 /* ---- case export-accepted ----------------------------------------------- */
 
 static int case_export_accepted(void) {
@@ -663,6 +826,13 @@ static int case_export_accepted(void) {
   g_accepted_tick = run.guest_tick;
   (void)fprintf(stderr, "export-accepted: state size %llu, guest tick %llu\n",
                 (unsigned long long)size, (unsigned long long)run.guest_tick);
+  {
+    char rom[PATH_MAX];
+    char blob[PATH_MAX];
+    CHECK(fixture_path(rom, "phase09-admit-si-v1"));
+    CHECK(join_path(blob, sizeof blob, dir, STATE_LEAF));
+    check_decoded_against(blob, rom, &run, size);
+  }
   remove_tree(dir);
   return g_failures == 0 ? 0 : 1;
 }
@@ -1127,6 +1297,80 @@ static int case_export_nonterminal(void) {
   return g_failures == 0 ? 0 : 1;
 }
 
+/* ---- case export-decode ---------------------------------------------------- */
+
+/* Writes a copy of the blob with one byte changed. */
+static bool write_mutated_copy(const char *blob_path, const char *copy_path,
+                               size_t offset) {
+  struct stat info;
+  uint8_t *bytes;
+  size_t length = 0u;
+  bool ok;
+  if (stat(blob_path, &info) != 0 || info.st_size <= 0) return false;
+  bytes = (uint8_t *)malloc((size_t)info.st_size);
+  if (bytes == NULL) return false;
+  ok = read_file(blob_path, bytes, (size_t)info.st_size, &length) &&
+       length == (size_t)info.st_size && offset < length;
+  if (ok) {
+    bytes[offset] = (uint8_t)(bytes[offset] ^ 1u);
+    ok = write_file(copy_path, bytes, length);
+  }
+  free(bytes);
+  return ok;
+}
+
+/* The first u64 body offset of table entry `index` (literal layout: the
+ * table at 0x120, 56 bytes an entry, the body offset at +8). */
+static bool entry_body_offset(const char *blob_path, unsigned index,
+                              size_t *offset_out) {
+  uint8_t head[0x120 + 56u * 12u];
+  size_t length = 0u;
+  const size_t at = 0x120u + 56u * index + 8u;
+  uint64_t value = 0u;
+  unsigned i;
+  if (!read_file(blob_path, head, sizeof head, &length) || length < at + 8u) {
+    return false;
+  }
+  for (i = 0u; i < 8u; i++) value = (value << 8) | head[at + i];
+  *offset_out = (size_t)value;
+  return true;
+}
+
+static int case_export_decode(void) {
+  char dir[PATH_MAX];
+  char rom[PATH_MAX];
+  char blob[PATH_MAX];
+  char copy[PATH_MAX];
+  run_out run;
+  uint64_t size = 0u;
+  decoded_blob decoded;
+  size_t body = 0u;
+  CHECK(fixture_path(rom, "phase09-admit-si-v1"));
+  /* The accepted baseline of this setup: the real blob decodes. */
+  CHECK(run_accepted(dir, ARTIFACT_MAX, &run, &size));
+  CHECK(join_path(blob, sizeof blob, dir, STATE_LEAF));
+  CHECK(join_path(copy, sizeof copy, dir, "mutated.sta"));
+  check_decoded_against(blob, rom, &run, size);
+  /* One RDRAM body byte flipped (index 2 is section 3): its own kind. */
+  CHECK(entry_body_offset(blob, 2u, &body));
+  CHECK(write_mutated_copy(blob, copy, body + 100u));
+  CHECK(decode_blob(copy, &decoded) == 1);
+  CHECK(strcmp(decoded.status, "refused") == 0);
+  CHECK(strcmp(decoded.kind, "section-hash") == 0);
+  /* The last trailer byte flipped. */
+  CHECK(write_mutated_copy(blob, copy, (size_t)size - 1u));
+  CHECK(decode_blob(copy, &decoded) == 1);
+  CHECK(strcmp(decoded.kind, "trailer") == 0);
+  /* A magic byte flipped. */
+  CHECK(write_mutated_copy(blob, copy, 0u));
+  CHECK(decode_blob(copy, &decoded) == 1);
+  CHECK(strcmp(decoded.kind, "magic") == 0);
+  /* A missing file is a usage error. */
+  CHECK(decode_blob("/nonexistent/blob.sta", &decoded) == 2);
+  remove_tree(dir);
+  return g_failures == 0 ? 0 : 1;
+}
+
 /* ---- case checker-vocabulary ------------------------------------------- */
 
 /* Returns the text of a record with every occurrence of one fixed string
@@ -1160,52 +1404,50 @@ static bool write_replaced(const char *source, const char *path,
   return write_file(path, (const uint8_t *)out, used);
 }
 
-/* The record the runner writes at a state-export failure is the guest's own
- * pass record with only the outcome, the stop kind and the detail replaced.
- * The accepted baseline of this case is the real pass record. */
+/* The accepted baseline of this case is the real pass record; the record
+ * under test is the real state-export-cap record of the supervised run whose
+ * artifact maximum is one byte below the state size. */
 static int case_checker_vocabulary(void) {
+  char dir[PATH_MAX];
   char rom[PATH_MAX];
-  char cap_path[PATH_MAX];
   char bogus_path[PATH_MAX];
   char pass_path[PATH_MAX];
   char diagnostic[160];
   run_spec spec = {0};
-  run_out run;
-  spec.supervisor = g_supervisor;
-  spec.bound = 600000u;
+  run_out pass_run;
+  run_out cap_run;
+  uint64_t size = 0u;
+  CHECK(ensure_state_size());
+  CHECK(run_accepted(dir, g_state_size, &pass_run, &size));
+  CHECK(run_checker(pass_run.result_path, diagnostic) == 0);
+  remove_tree(dir);
   CHECK(fixture_path(rom, "phase09-admit-si-v1"));
+  CHECK(make_artifact_dir(dir));
+  spec.supervisor = g_supervisor;
   spec.fixture = rom;
-  CHECK(run_supervised(&spec, &run));
-  expect_pass(&run);
-  CHECK(join_path(cap_path, sizeof cap_path, run.dir, "cap.json"));
-  CHECK(join_path(bogus_path, sizeof bogus_path, run.dir, "bogus.json"));
-  CHECK(join_path(pass_path, sizeof pass_path, run.dir, "outcome-pass.json"));
-  {
-    char shaped_path[PATH_MAX];
-    CHECK(join_path(shaped_path, sizeof shaped_path, run.dir, "shaped.json"));
-    CHECK(write_replaced(run.result_path, shaped_path, "\"detail\":\"positive-match\"",
-                         "\"detail\":\"state-export-cap\""));
-    CHECK(write_replaced(shaped_path, cap_path, "\"kind\":\"authored-completion\"",
-                         "\"kind\":\"host-error\""));
-    CHECK(write_replaced(cap_path, shaped_path, "\"outcome\":\"pass\"",
-                         "\"outcome\":\"harness-error\""));
-    CHECK(rename(shaped_path, cap_path) == 0);
-  }
-  /* The state-export-cap record is accepted: harness-error, host-error stop. */
-  CHECK(run_checker(cap_path, diagnostic) == 0);
-  if (diagnostic[0] != '\0') {
-    (void)fprintf(stderr, "checker (cap record): %s\n", diagnostic);
-  }
+  spec.bound = 600000u;
+  spec.artifact_dir = dir;
+  spec.artifact_max = g_state_size - 1u;
+  spec.extra = state_args;
+  spec.extra_count = sizeof state_args / sizeof state_args[0];
+  CHECK(run_supervised(&spec, &cap_run));
+  expect_state_export(&cap_run, "state-export-cap");
+  CHECK(run_checker(cap_run.result_path, diagnostic) == 0);
+  CHECK(join_path(bogus_path, sizeof bogus_path, cap_run.dir, "bogus.json"));
+  CHECK(join_path(pass_path, sizeof pass_path, cap_run.dir,
+                  "outcome-pass.json"));
   /* An unregistered state-export name is outside the closed enum. */
-  CHECK(write_replaced(cap_path, bogus_path, "state-export-cap",
+  CHECK(write_replaced(cap_run.result_path, bogus_path, "state-export-cap",
                        "state-export-bogus"));
   CHECK(run_checker(bogus_path, diagnostic) == 1);
   CHECK(strncmp(diagnostic, "R-ENUM ", 7u) == 0);
   /* The registered name with the outcome replaced by pass is inconsistent. */
-  CHECK(write_replaced(cap_path, pass_path, "\"outcome\":\"harness-error\"",
+  CHECK(write_replaced(cap_run.result_path, pass_path,
+                       "\"outcome\":\"harness-error\"",
                        "\"outcome\":\"pass\""));
   CHECK(run_checker(pass_path, diagnostic) == 1);
   CHECK(strncmp(diagnostic, "R-DETAIL-OUTCOME ", 17u) == 0);
+  remove_tree(dir);
   return g_failures == 0 ? 0 : 1;
 }
 
@@ -1222,6 +1464,7 @@ static const case_entry cases[] = {
     {"export-fsize-at-state-size", case_export_fsize},
     {"export-refusals", case_export_refusals},
     {"export-nonterminal", case_export_nonterminal},
+    {"export-decode", case_export_decode},
     {"checker-vocabulary", case_checker_vocabulary},
 };
 
