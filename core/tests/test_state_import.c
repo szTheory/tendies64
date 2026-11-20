@@ -1687,6 +1687,21 @@ static void case_save_media_roundtrip(void) {
   T64_CHECK_INT(save_generation(peer, T64_SAVE_SRAM_32K), 3u);
   T64_CHECK_INT(save_generation(source, T64_SAVE_SRAM_32K), 2u);
   T64_CHECK(digests_equal(peer, source));
+  /* the state import saturates at the 64-bit maximum like the host import (the
+   * shared helper of plan 09-10, re-check R1 RC-03; the normal increments just
+   * above are the accepted baseline). A plain increment of the member would
+   * end the second import at 0. The state is set directly because 2^64
+   * imports are unreachable. */
+  peer->save.write_generation = UINT64_MAX - 1u;
+  T64_CHECK_INT(t64_machine_state_import(peer, blob, length, 0u, &report),
+                T64_STATUS_OK);
+  T64_CHECK_INT(save_generation(peer, T64_SAVE_SRAM_32K), UINT64_MAX);
+  T64_CHECK_INT(t64_machine_state_import(peer, blob, length, 0u, &report),
+                T64_STATUS_OK);
+  T64_CHECK_INT(save_generation(peer, T64_SAVE_SRAM_32K), UINT64_MAX);
+  T64_CHECK(digests_equal(peer, source));
+  /* back to the three imports of the rows below */
+  peer->save.write_generation = 3u;
 
   /* a refused import never changes it: another profile, a flipped trailer and
    * one row per refusal family */
