@@ -1900,7 +1900,8 @@ static int case_import_option_refusals(void) {
    * the snapshot refusal, so a pair refusal reported ahead of it was decided
    * before the snapshot was prepared, before any child and any guest tick */
   ghost = base;
-  (void)snprintf(ghost.path, sizeof ghost.path, "%s/no/such/state.sta", dir);
+  (void)snprintf(ghost.path, sizeof ghost.path, "%s",
+                 "/nonexistent/import/state.sta");
   CHECK(run_with_state(&ghost, rom, LONG_BOUND, NULL, 0u, &run));
   expect_refusal(&run);
   /* one artifact producer per run: each earlier family with the triple */
