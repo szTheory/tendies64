@@ -47,7 +47,10 @@ what each one means for the criteria.
   claimed to continue equal on the composite family. The depth members stay inactive there (decision K1)
   and the Phase 8 audio profile does not hash these members (its digest is pinned and unchanged).
 - A run resumed from an imported state ends in a closed harness-error record and never reports a pass
-  verdict (plan 09-09); its guest tick, final state digest and log bytes are compared instead.
+  verdict (plan 09-09); its guest tick, final state digest and log bytes are compared instead. A state
+  published by the runner itself resumes into the closed unknown-log form (both log counts zero, no
+  digest; fix cycle of plan 09-10, FX-11) with the uninterrupted run's guest tick and final state digest,
+  so the log bytes are compared only for a state exported by the core API at a tick before the log.
 - Replay `save_init` in the `image` form is verified in process only; the real runner exercises the
   blank form.
 - Every timing, tie, busy window and button mapping in the named tests is a named software-profile
