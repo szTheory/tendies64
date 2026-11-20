@@ -92,7 +92,7 @@ covered_files:
   - "scripts/qualify-rdp-vi.py"
   - "scripts/tests/test_rdp_oracle_authority.py"
   - "scripts/tests/test_rdp_vi_qualification.py"
-covered_digest: "v4:sha256:8af2e67a6734fd7004672332b559c9e2bc22329c89cc4078a659b17fb570567c"
+covered_digest: "v4:sha256:ce4a2d45420252769a77ee3668ada8118e85582534ea3826c116d78186ace364"
 behavior_unverified: 2
 overrides_applied: 0
 blocked_requirements:
