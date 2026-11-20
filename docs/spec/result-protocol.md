@@ -521,9 +521,18 @@ is `capture-invalid`, `empty-output`, `exec-failed`, `fixture-absent`,
 `runner-signalled`, `supervisor-signalled`, `unsupported-execution`, `usage`,
 `wall-backstop`, and `wrong-transcript`. The raw-capture, artifact publisher and
 state-export names of the bullets below, and the Phase 8 and 9 host details the
-checker accepts for a `host-error` stop (`advance-invalid`, `audio-drain-error`,
-`output-drain-error`, `trace-drain-error`, `video-drain-error` and the observation
-names among them), extend this set. Details map to one outcome: only
+checker accepts for a `host-error` stop, extend this set. Those host details are
+exactly: `advance-invalid` (the machine refused an advance), `audio-drain-error`,
+`output-drain-error`, `trace-drain-error` and `video-drain-error` (a drain of the
+named stream failed), `audio-observation-invalid`, `audio-observation-write-error`,
+`video-observation-invalid` and `video-observation-write-error` (the observation
+record of the stream was invalid or could not be written),
+`resource-yield-limit` (the run needed more resource yields than the bound
+allows), `resource-yield-no-progress` (a resource yield made no progress) and
+`stop-reason-unexpected` (the machine stopped for a reason the runner does not
+handle). A drift control in `runner.fixture-transcript-pin` requires every name of
+the checker's host-detail, artifact publisher and state-export tables to be named
+in this file. Details map to one outcome: only
 `fixture-absent` maps to `missing-fixture`; `empty-output` and
 `unsupported-execution` map to `boot-fail`; `guest-bound` maps to `timeout`;
 `positive-match` maps to `pass`; `wrong-transcript` maps to `guest-fail`; all

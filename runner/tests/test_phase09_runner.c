@@ -723,6 +723,74 @@ static void check_pass_rule_spec(void) {
         NULL);
 }
 
+/* Drift control (plan 09-10, re-check R2 RC-02): the `detail` vocabulary of
+ * docs/spec/result-protocol.md is closed, so every name the checker accepts in
+ * its three tables of runner details (the host and process details, the artifact
+ * publisher details and the state export details) must be named in the spec in
+ * backticks. The raw capture names are specified with the raw capture. */
+static void check_detail_vocabulary_spec(void) {
+  static const char *const tables[] = {"real_detail_names",
+                                       "artifact_detail_names",
+                                       "state_export_detail_names"};
+  static uint8_t spec[1u << 17];
+  static uint8_t source[1u << 18];
+  char path[PATH_MAX];
+  size_t spec_length = 0u;
+  size_t source_length = 0u;
+  size_t table;
+  size_t names_seen = 0u;
+  CHECK(join_path(path, sizeof path, g_root, "docs/spec/result-protocol.md"));
+  CHECK(read_file(path, spec, sizeof spec - 1u, &spec_length) &&
+        spec_length != 0u);
+  spec[spec_length] = '\0';
+  CHECK(join_path(path, sizeof path, g_root, "runner/t64_result_check.c"));
+  CHECK(read_file(path, source, sizeof source - 1u, &source_length) &&
+        source_length != 0u);
+  source[source_length] = '\0';
+  for (table = 0u; table < sizeof tables / sizeof tables[0]; table++) {
+    char header[96];
+    const char *start;
+    const char *end;
+    const char *cursor;
+    (void)snprintf(header, sizeof header, "static const char *const %s[] = {",
+                   tables[table]);
+    start = strstr((const char *)source, header);
+    CHECK(start != NULL);
+    if (start == NULL) continue;
+    start += strlen(header);
+    end = strstr(start, "};");
+    CHECK(end != NULL);
+    if (end == NULL) continue;
+    for (cursor = start; cursor < end; cursor++) {
+      char name[96];
+      char wanted[100];
+      const char *close;
+      size_t name_length;
+      if (*cursor != '"') continue;
+      close = memchr(cursor + 1, '"', (size_t)(end - cursor - 1));
+      CHECK(close != NULL);
+      if (close == NULL) break;
+      name_length = (size_t)(close - cursor - 1);
+      CHECK(name_length != 0u && name_length < sizeof name);
+      if (name_length == 0u || name_length >= sizeof name) break;
+      (void)memcpy(name, cursor + 1, name_length);
+      name[name_length] = '\0';
+      (void)snprintf(wanted, sizeof wanted, "`%s`", name);
+      names_seen++;
+      if (strstr((const char *)spec, wanted) == NULL) {
+        (void)fprintf(stderr,
+                      "result-protocol.md does not name the detail %s of %s\n",
+                      name, tables[table]);
+        g_failures++;
+      }
+      cursor = close;
+    }
+  }
+  /* the three tables hold 31, 9 and 6 names today; a parse that stopped
+   * finding them would otherwise pass vacuously */
+  CHECK(names_seen >= 40u);
+}
+
 static int case_transcript_pin(void) {
   char path[PATH_MAX];
   run_spec spec = {0};
@@ -731,6 +799,7 @@ static int case_transcript_pin(void) {
   spec.fixture = path;
   spec.bound = 600000u;
   check_pass_rule_spec();
+  check_detail_vocabulary_spec();
 
   CHECK(fixture_path(path, "hello"));
   CHECK(run_supervised(&spec, &run));
