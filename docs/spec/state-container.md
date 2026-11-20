@@ -373,7 +373,7 @@ the source permits.
 | CPU | at most one (CPU, step) event, token and value 0; exactly one unless the CPU is stopped, the machine halted or the attempt outcome is the host error (a refused re-reserve leaves none) | `t64_cpu_step`, `cpu_commit_preflighted_successor` in `core/t64_cpu.c`; the exception re-reserve in `core/t64_exception.c` |
 | PI | an active transfer owns exactly one completion event with the active token and the transfer length as its value; an idle PI owns none; the SRAM directions need the SRAM save id and an active transfer | `start_dma`, `t64_pi_complete` in `core/t64_pi.c` |
 | SP | no (SP, complete) event on this profile (the functional RSP moves SP DMA through RSP beats); at most one (SP, RSP issue) event whose token is the issue sequence and whose tick is the next issue tick, and none once that tick has passed | `start_rsp_dma` in `core/t64_sp.c`, `t64_rsp_schedule_next` in `core/t64_rsp.c` |
-| RDP | at most one work event with token 0, none while the RDP is idle (not busy, rendering, fencing or holding a pending command) | `schedule_next_committed` and `t64_rdp_event` in `core/t64_rdp.c` |
+| RDP | at most one work event with token 0, none while the RDP is idle (not busy, rendering, fencing or holding a pending command); one work event while a command, a render, a fence or a texture rectangle is in flight unless a freeze or a flush holds the device | `schedule_next_committed` and `t64_rdp_event` in `core/t64_rdp.c` |
 | VI | no event of a future generation; an enabled VI owns exactly one event of the current generation (one that waits for output capacity is accepted: the ring occupancy gates dispatch only); a disabled VI owns none of the current generation; older generations are stale and harmless | `t64_vi_write_register`, `t64_vi_event` in `core/t64_vi.c` |
 | AI | an active, unpaused interface owns exactly one sample event with the current token; otherwise none; paused implies active and a positive remaining delay; active implies a queued descriptor | `t64_ai_write_register`, `t64_ai_event` in `core/t64_ai.c` |
 | Input | any number, the port field of the value zero | `t64_machine_queue_input` in `core/t64_observe.c` |
@@ -594,3 +594,54 @@ and the native sanitizer run is the full set.
 | Id | Name | Construction source | Reached | Perturbation |
 | --- | --- | --- | --- | --- |
 | B01 | pi-active | `test_pi_dma.c` busy start on the stem id: a cartridge read of 64 bytes started through the host bus and stopped one tick later | PI active, not canceled, one (PI, COMPLETE) event whose token is the active token and whose tick is above the machine tick | the active transfer DRAM address plus 8 |
+| B02 | pi-canceled | `test_pi_dma.c` cancel: the B01 transfer reset through the PI status register | PI active and canceled, one (PI, COMPLETE) event with the active token | the canceled flag cleared |
+| B03 | sp-active-pending | `test_sp_dma.c` pending queue case on a quiet machine (CPU spin loop) with distinct source bytes | an active SP descriptor and a valid pending slot | the pending descriptor DRAM source address plus 8 |
+| B04 | rsp-mid-program | `test_rsp_control.c` load-store bubble program, looped, stopped at tick 4 | RSP running, memory ready tick and next issue tick above the machine tick, one (SP, RSP_ISSUE) event | the stored register (the data memory word it writes) |
+| B05 | rdp-pending-words | `test_rdp_triangles.c` raw words submitted through the DP registers; a command word fetched and waiting for its apply event | `command_pending` with the pending command word, no triangle words, a (RDP, WORK) event and a non-zero triangle coverage word (direct test-only edit) | one bit of the pending command word (the image width) |
+| B06 | vi-midfield-retained | `test_video_output.c` advance_one_field (authored 5551 pixels) | VI enabled, at least one retained packet, a current-generation (VI, FIELD) event | the VI phase remainder plus 1 |
+| B07 | vi-stalled-event | the same frame advanced until the two-packet queue is full and two further calls return the same resource-limit stop at the same tick | `packet_count` equals the queue capacity, the queue front is the current (VI, FIELD) event, the stalling advance returned the resource-limit stop | `next_boundary_units` plus 1 |
+| B08 | ai-two-descriptors | `test_ai.c` prepare_two_descriptor_stream on a quiet machine | two descriptors queued and the sample event present | the second descriptor length minus 8 |
+| B09 | ai-paused-partial | `test_ai.c` pause phase resume (17 ticks before the next sample) | paused, a positive remaining delay, a partial packet length above 0, no sample event | the paused remaining ticks plus 1 |
+| B10 | ai-output-full-stall | `test_ai.c` output-full same event (two completed packets, a third descriptor) | the queue front sample event waits for output capacity and the stalling advance returned the resource-limit stop | the AI phase remainder plus 1 |
+
+Observer outcomes (rows B07 and B10, D-29). A default import restores the observer
+packets, so the occupancy gate that held the event on the source holds it on the
+peer: advancing both to a tick beyond the stalled event returns the same
+resource-limit stop at the same tick with the same result tuple, and the canonical
+digests are equal. An import with the drop-observers flag leaves the canonical
+digest equal at once (the packet occupancy is outside it) but the peer has no
+retained packet, so the gate is open and the event dispatches: the peer reports a
+later stop point (the bound, in the recorded case). After the source drains its
+stalled packets and both machines reach the same tick, the digests of the source,
+the default peer and the drop peer are equal. The flag changes stop points only;
+no equality across submission schedules or host drain schedules is claimed.
+Recorded literals (stem id, gate build): row B07 stalls at tick 246 with the event
+at 247 and the target 248, the source and the default peer return the resource-limit
+stop at tick 246, the drop peer returns the bound at tick 248; row B10 stalls at
+tick 7,086, target 7,088, same relation.
+
+### Limits of the matrix
+
+- **Hidden members outside the v25 state.** The RDP combiner block (the combine
+  mode and its valid flag, the environment, fog and blend colors, the key
+  registers) and the RDP memory-coverage table exist in the filter-v9 family
+  behavior but are not in the v25 canonical state, so the importer zeroes them
+  (09-09 commit) and a state whose continuation depends on them cannot continue
+  equal. Two consequences are recorded, not fixed here because the canonical state
+  content is frozen (F1): a pending triangle packet cannot be a boundary (the
+  family needs the combine mode for every triangle), and a VI scan-out that reads
+  coverage marks written by the RDP produces a different retained packet after an
+  import. Rows B05, B06 and B07 therefore use the nearest builders that do not
+  depend on those members; the finding is carried to the review plan.
+- **The RSP issue event is optional.** A running RSP without its issue event is a
+  legitimate wedged state (core/t64_rsp.c t64_rsp_issue_event leaves it unscheduled
+  after an unsupported opcode or an out-of-bank pc), so the drop mutant of the
+  (SP, RSP_ISSUE) pair is accepted and the machine returns from a bounded advance.
+  The token of a queued issue event is still checked.
+- **The RDP continuation event is required** while an operation is in flight and
+  the device is not frozen or flushed (found by row B05, rule added to the
+  per-device pass: `DEVICE_EVENT_MISSING`).
+- Perturbations are one-field edits that persist to the first continuation
+  checkpoint; a field that the next event overwrites (the RSP next issue tick, the
+  pending SP descriptor length) cannot be a perturbation.
+

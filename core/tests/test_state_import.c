@@ -2014,7 +2014,7 @@ static void write_vi_register(t64_machine *machine, uint32_t offset,
 
 /* A VI field with authored 5551 source pixels: one retained undrained packet
  * (the setup of core/tests/test_video_output.c). */
-static t64_machine *build_vi_frame(void) {
+static t64_machine *build_vi_frame_with(bool coverage) {
   static const uint16_t source[4] = {UINT16_C(0xf801), UINT16_C(0x07c1),
                                      UINT16_C(0x003f), UINT16_C(0xffff)};
   t64_machine *machine = create_admitted(SI_STEM_ID);
@@ -2026,7 +2026,7 @@ static t64_machine *build_vi_frame(void) {
 
     T64_CHECK_INT(t64_machine_bus_write(machine, address, 2u, source[i]),
                   T64_STATUS_OK);
-    t64_rdp_memory_coverage_write(machine, address, 2u, 8u);
+    if (coverage) t64_rdp_memory_coverage_write(machine, address, 2u, 8u);
   }
   write_vi_register(machine, UINT32_C(0x04), VI_ORIGIN);
   write_vi_register(machine, UINT32_C(0x08), UINT32_C(4));
@@ -2057,6 +2057,11 @@ static t64_machine *build_vi_frame(void) {
   T64_CHECK(machine->vi.packet_count >= 1u);
   T64_CHECK(machine->vi.packet_lengths[machine->vi.packet_head] > 0u);
   return machine;
+}
+
+/* The 09-09 observer-flag setup, with the hidden memory-coverage marks. */
+static t64_machine *build_vi_frame(void) {
+  return build_vi_frame_with(true);
 }
 
 static void case_observer_flag(void) {
@@ -2244,6 +2249,61 @@ static void bus_write32(t64_machine *machine, uint32_t address, uint32_t value) 
                 T64_STATUS_OK);
 }
 
+
+/* Diagnostic: the first differing section and offset of two machines' exports
+ * (printed only when T64_STATE_MATRIX_TRACE is set). */
+static void debug_diff(const char *label, const t64_machine *a,
+                       const t64_machine *b) {
+  size_t la = 0u;
+  size_t lb = 0u;
+  uint8_t *ba;
+  uint8_t *bb;
+  uint32_t count;
+  uint32_t i;
+
+  if (getenv("T64_STATE_MATRIX_TRACE") == NULL) return;
+  ba = export_blob(a, &la);
+  bb = export_blob(b, &lb);
+  if (ba != NULL && bb != NULL) {
+    count = rd32(ba + 0x018u);
+    for (i = 0u; i < count; i++) {
+      size_t oa = 0u, na = 0u, ob = 0u, nb = 0u;
+      const uint32_t id = rd32(ba + D_TABLE + (size_t)D_ENTRY * i);
+
+      if (!find_section(ba, id, &oa, &na) || !find_section(bb, id, &ob, &nb) ||
+          na != nb) {
+        fprintf(stderr, "%s: section %u length differs\n", label, (unsigned)id);
+        continue;
+      }
+      if (memcmp(ba + oa, bb + ob, na) != 0) {
+        size_t k = 0u;
+
+        while (ba[oa + k] == bb[ob + k]) k++;
+        fprintf(stderr, "%s: section %u first difference at offset %zu (%02x vs %02x)\n",
+                label, (unsigned)id, k, ba[oa + k], bb[ob + k]);
+      }
+    }
+  }
+  {
+    size_t slot;
+
+    for (slot = 0u; slot < T64_VIDEO_QUEUE_CAPACITY; slot++) {
+      const t64_video_packet_info *x = &a->vi.packet_info[slot];
+      const t64_video_packet_info *y = &b->vi.packet_info[slot];
+
+      fprintf(stderr, "%s: vi slot %zu seq %llu/%llu start %llu/%llu end %llu/%llu count %zu/%zu head %zu/%zu len %zu/%zu\n",
+              label, slot, (unsigned long long)x->sequence,
+              (unsigned long long)y->sequence, (unsigned long long)x->start_tick,
+              (unsigned long long)y->start_tick, (unsigned long long)x->end_tick,
+              (unsigned long long)y->end_tick, a->vi.packet_count,
+              b->vi.packet_count, a->vi.packet_head, b->vi.packet_head,
+              a->vi.packet_lengths[slot], b->vi.packet_lengths[slot]);
+    }
+  }
+  free(ba);
+  free(bb);
+}
+
 /* ---- the table ----------------------------------------------------------- */
 
 typedef struct {
@@ -2291,10 +2351,495 @@ static void perturb_b01(t64_machine *machine) {
   machine->pi.active_dram_address += 8u;
 }
 
+/* ---- rows B02 to B10: the device-queue boundaries (plan 09-09.1 Task 2) -- */
+
+#define SP_BASE UINT32_C(0x04040000)
+#define IMEM_BASE UINT32_C(0x04001000)
+#define DP_START_REG UINT32_C(0x04100000)
+#define AI_BASE UINT32_C(0x04500000)
+#define AI_REG_LEN (AI_BASE + UINT32_C(4))
+#define AI_REG_CONTROL (AI_BASE + UINT32_C(8))
+#define AI_REG_DACRATE (AI_BASE + UINT32_C(0x10))
+#define AI_REG_BITRATE (AI_BASE + UINT32_C(0x14))
+
+/* The stop of the stalling advance a builder ends with (rows B07 and B10). */
+static uint32_t build_stop_reason;
+static uint64_t build_stop_tick;
+
+/* A machine whose CPU runs a two-instruction spin loop at 0x80001000 (the setup
+ * of core/tests/test_ai.c start_ai_spin_loop), so the boundary state is not
+ * disturbed by the boot code. */
+static t64_machine *build_quiet(void) {
+  t64_machine *machine = create_admitted(SI_STEM_ID);
+
+  if (machine == NULL) return NULL;
+  machine->ram[0x1000] = 0x08u;
+  machine->ram[0x1001] = 0x00u;
+  machine->ram[0x1002] = 0x04u;
+  machine->ram[0x1003] = 0x00u;
+  (void)memset(machine->ram + 0x1004, 0, 4u);
+  machine->cpu.pc = UINT32_C(0x80001000);
+  machine->cpu.pc_full = t64_cpu_canonical_address(machine->cpu.pc);
+  return machine;
+}
+
+/* B02 pi-canceled: the B01 transfer reset through the PI status register; the
+ * request stays active, marked canceled, with its completion event retained
+ * (source: test_pi_dma.c cancel and stale completion). */
+static t64_machine *build_b02(void) {
+  t64_machine *machine = build_b01();
+
+  if (machine == NULL) return NULL;
+  bus_write32(machine, PI_BASE + 16u, 1u);
+  return machine;
+}
+
+static const char *reached_b02(const t64_machine *machine) {
+  const t64_event *event =
+      find_event(machine, T64_DEVICE_PI, T64_PI_EVENT_COMPLETE);
+
+  if (!machine->pi.active_valid) return "pi.active_valid";
+  if (!machine->pi.active_canceled) return "pi.active_canceled";
+  if (event == NULL) return "queue (PI, COMPLETE)";
+  if (event->token != machine->pi.active_token) return "event token";
+  return NULL;
+}
+
+static void perturb_b02(t64_machine *machine) {
+  machine->pi.active_canceled = false;
+}
+
+/* B03 sp-active-pending: an SP DMA in flight with a second descriptor in the
+ * pending slot (source: test_sp_dma.c pending queue case). */
+static t64_machine *build_b03(void) {
+  t64_machine *machine = build_quiet();
+  size_t i;
+
+  if (machine == NULL) return NULL;
+  for (i = 0u; i < 0x200u; i++) {
+    machine->ram[0x100u + i] = (uint8_t)(0x31u + i);
+  }
+  bus_write32(machine, SP_BASE, 0u);
+  bus_write32(machine, SP_BASE + 4u, UINT32_C(0x100));
+  bus_write32(machine, SP_BASE + 8u, 0u);
+  bus_write32(machine, SP_BASE, UINT32_C(0x1020));
+  bus_write32(machine, SP_BASE + 4u, UINT32_C(0x200));
+  bus_write32(machine, SP_BASE + 8u, 8u);
+  return machine;
+}
+
+static const char *reached_b03(const t64_machine *machine) {
+  if (!machine->sp.active.valid) return "sp.active.valid";
+  if (!machine->sp.pending.valid) return "sp.pending.valid";
+  return NULL;
+}
+
+/* The plan names the pending length; it is consumed when the slot is
+ * promoted, so the difference would vanish before the first continuation
+ * checkpoint (recorded as a deviation). The DRAM source address of the pending
+ * descriptor changes which bytes the promoted transfer copies. */
+static void perturb_b03(t64_machine *machine) {
+  machine->sp.pending.aligned_dram_start += 8u;
+}
+
+/* B04 rsp-mid-program: a program with a load-store bubble that loops, stopped
+ * at tick 4 after three retired instructions (source: test_rsp_control.c
+ * load_store_bubble_test). */
+static t64_machine *build_b04(void) {
+  static const uint32_t program[] = {
+      UINT32_C(0x24010000), /* ADDIU r1,r0,0 */
+      UINT32_C(0x8c220000), /* LW r2,0(r1) */
+      UINT32_C(0x00000000), /* one intervening issue slot */
+      UINT32_C(0xac230004), /* SW r3,4(r1), independent of the loaded r2 */
+      UINT32_C(0x08000000), /* J 0 */
+      UINT32_C(0x00000000)};
+  t64_machine *machine = build_quiet();
+  size_t i;
+
+  if (machine == NULL) return NULL;
+  machine->rsp.gpr[3] = UINT32_C(0x89abcdef);
+  for (i = 0u; i < sizeof program / sizeof program[0]; i++) {
+    T64_CHECK_INT(t64_machine_bus_write(machine, IMEM_BASE + (uint32_t)(4u * i),
+                                        4u, program[i]),
+                  T64_STATUS_OK);
+  }
+  T64_CHECK_INT(t64_rsp_start(machine), T64_STATUS_OK);
+  T64_CHECK(advance_to(machine, 4u));
+  return machine;
+}
+
+static const char *reached_b04(const t64_machine *machine) {
+  const t64_event *event =
+      find_event(machine, T64_DEVICE_SP, T64_SP_EVENT_RSP_ISSUE);
+
+  if ((machine->rsp.sp_status & T64_RSP_STATUS_HALT) != 0u) return "rsp halted";
+  if (machine->rsp.memory_access_ready_tick <= machine->tick) {
+    return "rsp.memory_access_ready_tick";
+  }
+  if (machine->rsp.next_issue_tick <= machine->tick) {
+    return "rsp.next_issue_tick";
+  }
+  if (event == NULL) return "queue (SP, RSP_ISSUE)";
+  return NULL;
+}
+
+/* The plan names next_issue_tick; the next issue overwrites it, so the
+ * difference would vanish before the first continuation checkpoint (recorded as
+ * a deviation). The stored register persists in the data memory. */
+static void perturb_b04(t64_machine *machine) {
+  machine->rsp.gpr[3] ^= UINT32_C(1);
+}
+
+/* B05 rdp-pending-words: a command word fetched and waiting for its apply
+ * event with triangle coverage present (source: test_rdp_triangles.c raw
+ * words submitted through the RDP registers). A pending triangle packet cannot
+ * be the boundary: triangles need the combine mode of the filter-v9 family and
+ * that register block is outside the v25 state, so the nearest builder that
+ * reaches the boundary class holds a plain command word pending (recorded as a
+ * deviation). The coverage word is a direct test-only state edit. */
+#define B05_COMMAND_ADDRESS UINT32_C(0x4000)
+
+static void put_be64(uint8_t *bytes, uint64_t value) {
+  size_t i;
+
+  for (i = 0u; i < 8u; i++) bytes[i] = (uint8_t)(value >> (56u - 8u * i));
+}
+
+static bool coverage_nonzero(const t64_machine *machine) {
+  size_t i;
+
+  for (i = 0u; i < T64_RDP_TRIANGLE_COVERAGE_BYTES / 2u; i++) {
+    if (machine->rdp_triangle_coverage[i] != 0u) return true;
+  }
+  return false;
+}
+
+static t64_machine *build_b05(void) {
+  static const uint64_t words[] = {
+      UINT64_C(0x3f10000700005000), /* RGBA16 color image, width 8 */
+      UINT64_C(0x2d00000000020020), /* scissor [0,8) x [0,8) */
+      UINT64_C(0x2f00000000000000)};/* 1-cycle mode */
+  t64_machine *machine = build_quiet();
+  size_t i;
+
+  if (machine == NULL) return NULL;
+  for (i = 0u; i < sizeof words / sizeof words[0]; i++) {
+    put_be64(machine->ram + B05_COMMAND_ADDRESS + 8u * i, words[i]);
+  }
+  machine->rdp_triangle_coverage[1234] = UINT16_C(0x8001);
+  bus_write32(machine, DP_START_REG, B05_COMMAND_ADDRESS);
+  bus_write32(machine, DP_START_REG + 4u,
+              B05_COMMAND_ADDRESS + (uint32_t)sizeof words);
+  for (i = 0u; i < 64u && !machine->rdp.command_pending; i++) {
+    T64_CHECK(advance_to(machine, machine->tick + 1u));
+  }
+  return machine;
+}
+
+static const char *reached_b05(const t64_machine *machine) {
+  if (!machine->rdp.command_pending) return "rdp.command_pending";
+  if (machine->rdp.pending_command_word != UINT64_C(0x3f10000700005000)) {
+    return "rdp.pending_command_word";
+  }
+  if (machine->rdp.pending_triangle_word_count != 0u) {
+    return "rdp.pending_triangle_word_count";
+  }
+  if (find_event(machine, T64_RDP_DEVICE, T64_RDP_EVENT_WORK) == NULL) {
+    return "queue (RDP, WORK)";
+  }
+  if (!coverage_nonzero(machine)) return "rdp_triangle_coverage";
+  return NULL;
+}
+
+static void perturb_b05(t64_machine *machine) {
+  machine->rdp.pending_command_word ^= UINT64_C(1) << 32;
+}
+
+/* B06 vi-midfield-retained and B07 vi-stalled-event: the VI frame of the
+ * observer-flag case (authored 5551 source pixels), then, for B07, fields
+ * advanced until the two-packet queue is full and the next field event waits
+ * (sources: test_video_output.c advance_one_field and the output-full pending
+ * boundary; test_vi.c advance_until_video_full). */
+static const t64_event *current_vi_event(const t64_machine *machine) {
+  size_t i;
+
+  for (i = 0u; i < machine->queue_count; i++) {
+    const t64_event *event =
+        &machine->events[(machine->queue_head + i) % T64_EVENT_QUEUE_CAPACITY];
+
+    if (event->device == T64_VI_DEVICE && event->kind == T64_VI_EVENT_FIELD &&
+        event->token == machine->vi.event_generation) {
+      return event;
+    }
+  }
+  return NULL;
+}
+
+static const t64_event *stalled_front_event(const t64_machine *machine) {
+  return machine->queue_count == 0u ? NULL
+                                    : &machine->events[machine->queue_head];
+}
+
+/* The matrix rows leave the hidden RDP memory-coverage table untouched: that
+ * table is outside the v25 state (it is zeroed by the import), so a boundary
+ * that depended on it could not continue equal; see docs/spec/state-container.md
+ * "Limits of the matrix". */
+static t64_machine *build_b06(void) {
+  return build_vi_frame_with(false);
+}
+
+static const char *reached_b06(const t64_machine *machine) {
+  if (!machine->vi.enabled) return "vi.enabled";
+  if (machine->vi.packet_count < 1u) return "vi.packet_count";
+  if (current_vi_event(machine) == NULL) return "queue (VI, FIELD)";
+  return NULL;
+}
+
+static void perturb_b06(t64_machine *machine) {
+  machine->vi.phase_remainder += 1u;
+}
+
+/* Advance toward a far bound until the output queue is full and two further
+ * calls return the same resource-limit stop at the same tick with the queue
+ * unchanged: a stall of the occupancy-gated field event, not the event budget of
+ * one call (the loop of core/tests/test_vi.c advance_until_video_full). */
+static t64_machine *build_b07(void) {
+  t64_machine *machine = build_vi_frame_with(false);
+  size_t attempt;
+
+  build_stop_reason = 0u;
+  build_stop_tick = 0u;
+  if (machine == NULL) return NULL;
+  for (attempt = 0u; attempt < 512u; attempt++) {
+    t64_stop_request request = {T64_STOP_GUEST_TICK,
+                                machine->tick + UINT64_C(4000000)};
+    t64_stop_result stop = {0u, 0u};
+
+    T64_CHECK_INT(t64_machine_advance(machine, &request, &stop), T64_STATUS_OK);
+    if (machine->vi.packet_count >= T64_VIDEO_QUEUE_CAPACITY) {
+      const size_t queue_before = machine->queue_count;
+      const uint64_t tick_before = machine->tick;
+
+      T64_CHECK_INT(t64_machine_advance(machine, &request, &stop),
+                    T64_STATUS_OK);
+      if (stop.reason == T64_STOP_REASON_RESOURCE_LIMIT &&
+          machine->tick == tick_before && machine->queue_count == queue_before) {
+        build_stop_reason = stop.reason;
+        build_stop_tick = stop.tick;
+      }
+      break;
+    }
+    if (stop.reason != T64_STOP_REASON_RESOURCE_LIMIT) break;
+  }
+  return machine;
+}
+
+static const char *reached_b07(const t64_machine *machine) {
+  const t64_event *front = stalled_front_event(machine);
+
+  if (machine->vi.packet_count != T64_VIDEO_QUEUE_CAPACITY) {
+    return "vi.packet_count";
+  }
+  if (front == NULL || front->device != T64_VI_DEVICE ||
+      front->kind != T64_VI_EVENT_FIELD ||
+      front->token != machine->vi.event_generation) {
+    return "queue front (VI, FIELD)";
+  }
+  if (build_stop_reason != T64_STOP_REASON_RESOURCE_LIMIT) {
+    return "resource-limit stop";
+  }
+  if (machine->tick != build_stop_tick) return "stalled tick";
+  return NULL;
+}
+
+static void perturb_b07(t64_machine *machine) {
+  machine->vi.next_boundary_units += 1u;
+}
+
+/* AI rows: the rate pair, the control enable and the descriptor submissions of
+ * test_ai.c on the quiet machine. */
+static void ai_configure(t64_machine *machine) {
+  bus_write32(machine, AI_REG_DACRATE, 1103u);
+  bus_write32(machine, AI_REG_BITRATE, 15u);
+}
+
+static void ai_submit(t64_machine *machine, uint32_t address, uint32_t bytes) {
+  bus_write32(machine, AI_BASE, address);
+  bus_write32(machine, AI_REG_LEN, bytes);
+}
+
+static const t64_event *current_ai_event(const t64_machine *machine) {
+  size_t i;
+
+  for (i = 0u; i < machine->queue_count; i++) {
+    const t64_event *event =
+        &machine->events[(machine->queue_head + i) % T64_EVENT_QUEUE_CAPACITY];
+
+    if (event->device == T64_AI_DEVICE && event->kind == T64_AI_EVENT_SAMPLE &&
+        event->token == machine->ai.event_token) {
+      return event;
+    }
+  }
+  return NULL;
+}
+
+static void advance_to_next_ai_sample(t64_machine *machine) {
+  const t64_event *event = current_ai_event(machine);
+
+  T64_CHECK(event != NULL);
+  if (event != NULL) T64_CHECK(advance_to(machine, event->tick));
+}
+
+static void ai_load_pcm(t64_machine *machine) {
+  static const uint8_t pcm[24] = {
+      0x00u, 0x01u, 0x00u, 0x02u, 0x00u, 0x03u, 0x00u, 0x04u,
+      0x10u, 0x01u, 0x10u, 0x02u, 0x10u, 0x03u, 0x10u, 0x04u,
+      0x20u, 0x01u, 0x20u, 0x02u, 0x20u, 0x03u, 0x20u, 0x04u};
+
+  (void)memcpy(machine->ram + 0x100, pcm, sizeof pcm);
+}
+
+/* B08 ai-two-descriptors (source: test_ai.c prepare_two_descriptor_stream). */
+static t64_machine *build_b08(void) {
+  t64_machine *machine = build_quiet();
+
+  if (machine == NULL) return NULL;
+  ai_load_pcm(machine);
+  ai_configure(machine);
+  bus_write32(machine, AI_REG_CONTROL, 1u);
+  ai_submit(machine, UINT32_C(0x100), 8u);
+  ai_submit(machine, UINT32_C(0x108), 8u);
+  return machine;
+}
+
+static const char *reached_b08(const t64_machine *machine) {
+  if (machine->ai.descriptor_count != 2u) return "ai.descriptor_count";
+  if (current_ai_event(machine) == NULL) return "queue (AI, SAMPLE)";
+  return NULL;
+}
+
+static void perturb_b08(t64_machine *machine) {
+  machine->ai.descriptors[(machine->ai.descriptor_head + 1u) %
+                          T64_AUDIO_QUEUE_CAPACITY].length -= 8u;
+}
+
+/* B09 ai-paused-partial: one sample into a four-frame descriptor, paused 17
+ * ticks before the next sample (source: test_ai.c case_pause_phase_resume). */
+static t64_machine *build_b09(void) {
+  t64_machine *machine = build_quiet();
+  const t64_event *event;
+
+  if (machine == NULL) return NULL;
+  ai_load_pcm(machine);
+  ai_configure(machine);
+  bus_write32(machine, AI_REG_CONTROL, 1u);
+  ai_submit(machine, UINT32_C(0x100), 16u);
+  advance_to_next_ai_sample(machine);
+  event = current_ai_event(machine);
+  T64_CHECK(event != NULL);
+  if (event == NULL) return machine;
+  T64_CHECK(advance_to(machine, event->tick - 17u));
+  bus_write32(machine, AI_REG_CONTROL, 0u);
+  return machine;
+}
+
+static const char *reached_b09(const t64_machine *machine) {
+  if (!machine->ai.paused) return "ai.paused";
+  if (machine->ai.paused_remaining_ticks == 0u) {
+    return "ai.paused_remaining_ticks";
+  }
+  if (machine->ai.packet_length == 0u) return "ai.packet_length";
+  if (current_ai_event(machine) != NULL) return "queue (AI, SAMPLE) present";
+  return NULL;
+}
+
+static void perturb_b09(t64_machine *machine) {
+  machine->ai.paused_remaining_ticks += 1u;
+}
+
+/* B10 ai-output-full-stall: two completed packets, a third descriptor whose
+ * sample event waits for output capacity (source: test_ai.c
+ * prepare_blocked_ai_event and case_output_full_same_event). */
+static t64_machine *build_b10(void) {
+  t64_machine *machine = build_quiet();
+  size_t i;
+
+  build_stop_reason = 0u;
+  build_stop_tick = 0u;
+  if (machine == NULL) return NULL;
+  ai_load_pcm(machine);
+  ai_configure(machine);
+  bus_write32(machine, AI_REG_CONTROL, 1u);
+  ai_submit(machine, UINT32_C(0x100), 8u);
+  ai_submit(machine, UINT32_C(0x108), 8u);
+  for (i = 0u; i < 4u; i++) advance_to_next_ai_sample(machine);
+  ai_submit(machine, UINT32_C(0x110), 8u);
+  if (current_ai_event(machine) != NULL) {
+    t64_stop_request request = {T64_STOP_GUEST_TICK,
+                                current_ai_event(machine)->tick};
+    t64_stop_result stop = {0u, 0u};
+
+    T64_CHECK_INT(t64_machine_advance(machine, &request, &stop), T64_STATUS_OK);
+    build_stop_reason = stop.reason;
+    build_stop_tick = stop.tick;
+  }
+  return machine;
+}
+
+static const char *reached_b10(const t64_machine *machine) {
+  const t64_event *event = current_ai_event(machine);
+
+  if (machine->ai.packet_count != T64_AUDIO_QUEUE_CAPACITY) {
+    return "ai.packet_count";
+  }
+  if (event == NULL) return "queue (AI, SAMPLE)";
+  if (!t64_ai_event_waits_for_output_capacity(machine, event)) {
+    return "event waits for output capacity";
+  }
+  if (build_stop_reason != T64_STOP_REASON_RESOURCE_LIMIT) {
+    return "resource-limit stop";
+  }
+  if (machine->tick != build_stop_tick || machine->tick >= event->tick) {
+    return "stalled tick below the event";
+  }
+  return NULL;
+}
+
+static void perturb_b10(t64_machine *machine) {
+  machine->ai.phase_remainder += 1u;
+}
+
 static const boundary boundaries[] = {
     {"B01", "pi-active", "test_pi_dma.c busy start, stem id", SI_STEM_ID,
      build_b01, reached_b01, perturb_b01,
      {T64_DEVICE_PI, 0u}, {T64_PI_EVENT_COMPLETE, 0u}, true},
+    {"B02", "pi-canceled", "test_pi_dma.c cancel (PI reset while active)",
+     SI_STEM_ID, build_b02, reached_b02, perturb_b02,
+     {T64_DEVICE_PI, 0u}, {T64_PI_EVENT_COMPLETE, 0u}, false},
+    {"B03", "sp-active-pending", "test_sp_dma.c pending queue case",
+     SI_STEM_ID, build_b03, reached_b03, perturb_b03,
+     {T64_DEVICE_SP, 0u}, {T64_SP_EVENT_RSP_ISSUE, 0u}, false},
+    {"B04", "rsp-mid-program", "test_rsp_control.c load-store bubble",
+     SI_STEM_ID, build_b04, reached_b04, perturb_b04,
+     {T64_DEVICE_SP, 0u}, {T64_SP_EVENT_RSP_ISSUE, 0u}, false},
+    {"B05", "rdp-pending-words", "test_rdp_triangles.c raw words via DP regs",
+     SI_STEM_ID, build_b05, reached_b05, perturb_b05,
+     {T64_RDP_DEVICE, 0u}, {T64_RDP_EVENT_WORK, 0u}, false},
+    {"B06", "vi-midfield-retained", "test_video_output.c advance_one_field",
+     SI_STEM_ID, build_b06, reached_b06, perturb_b06,
+     {T64_VI_DEVICE, 0u}, {T64_VI_EVENT_FIELD, 0u}, false},
+    {"B07", "vi-stalled-event", "test_video_output.c output-full boundary",
+     SI_STEM_ID, build_b07, reached_b07, perturb_b07,
+     {T64_VI_DEVICE, 0u}, {T64_VI_EVENT_FIELD, 0u}, true},
+    {"B08", "ai-two-descriptors", "test_ai.c prepare_two_descriptor_stream",
+     SI_STEM_ID, build_b08, reached_b08, perturb_b08,
+     {T64_AI_DEVICE, 0u}, {T64_AI_EVENT_SAMPLE, 0u}, false},
+    {"B09", "ai-paused-partial", "test_ai.c pause phase resume",
+     SI_STEM_ID, build_b09, reached_b09, perturb_b09,
+     {0u, 0u}, {0u, 0u}, false},
+    {"B10", "ai-output-full-stall", "test_ai.c output-full same event",
+     SI_STEM_ID, build_b10, reached_b10, perturb_b10,
+     {T64_AI_DEVICE, 0u}, {T64_AI_EVENT_SAMPLE, 0u}, true},
 };
 
 #define BOUNDARY_COUNT (sizeof boundaries / sizeof boundaries[0])
@@ -2518,6 +3063,17 @@ static void case_boundary_continuation(void) {
                   b->id, (unsigned long long)steps[s], (unsigned)c);
           tuple_print("source", &prepared[i].ref_tuple[c]);
           tuple_print("peer  ", &got);
+          if (getenv("T64_STATE_MATRIX_TRACE") != NULL) {
+            t64_machine *again = b->build();
+            tuple ignored;
+
+            if (again != NULL) {
+              run_to(again, prepared[i].tick + checkpoint_offset[c], 0u,
+                     &ignored);
+              debug_diff(b->id, again, peer);
+              t64_machine_destroy(again);
+            }
+          }
         }
         T64_CHECK(tuples_equal(&got, &prepared[i].ref_tuple[c]));
         T64_CHECK(memcmp(digest, prepared[i].ref_digest[c], sizeof digest) == 0);
@@ -2667,22 +3223,204 @@ static void case_boundary_event_rules(void) {
         fprintf(stderr, "boundary %s event mutants not built\n", b->id);
         T64_CHECK(false);
       } else {
-        (void)snprintf(label, sizeof label, "%s drop (%u,%u)", b->id,
-                       (unsigned)b->pair_device[pair],
-                       (unsigned)b->pair_kind[pair]);
-        refusal_expect(label, peer, removed, removed_length,
-                       T64_STATE_REASON_DEVICE_EVENT_MISSING);
         (void)snprintf(label, sizeof label, "%s skew (%u,%u)", b->id,
                        (unsigned)b->pair_device[pair],
                        (unsigned)b->pair_kind[pair]);
         refusal_expect(label, peer, skewed, skewed_length,
                        T64_STATE_REASON_DEVICE_TOKEN_MISMATCH);
+        (void)snprintf(label, sizeof label, "%s drop (%u,%u)", b->id,
+                       (unsigned)b->pair_device[pair],
+                       (unsigned)b->pair_kind[pair]);
+        if (b->pair_device[pair] == T64_DEVICE_SP &&
+            b->pair_kind[pair] == T64_SP_EVENT_RSP_ISSUE) {
+          /* The source permits a running RSP without its issue event (an
+           * unsupported opcode or an out-of-bank pc leaves it running and not
+           * rescheduled, core/t64_rsp.c t64_rsp_issue_event), so the drop
+           * mutant is accepted and the machine still returns from a bounded
+           * advance: a finding recorded against the plan text, which expected
+           * DEVICE_EVENT_MISSING. */
+          t64_state_import_report report;
+          tuple after;
+
+          T64_CHECK_INT(t64_machine_state_import(peer, removed, removed_length,
+                                                 0u, &report),
+                        T64_STATUS_OK);
+          run_to(peer, peer->tick + 2000u, 0u, &after);
+          T64_CHECK_INT(after.status, T64_STATUS_OK);
+        } else {
+          refusal_expect(label, peer, removed, removed_length,
+                         T64_STATE_REASON_DEVICE_EVENT_MISSING);
+        }
       }
       free(removed);
       free(skewed);
       if (peer != NULL) t64_machine_destroy(peer);
     }
     matrix_trace("event-rules", b, started);
+  }
+}
+
+
+/* ---- the stalled-observer cases (D-29, plan 09-09.1 Task 2) ------------- */
+
+static size_t boundary_index(const char *id) {
+  size_t i;
+
+  for (i = 0u; i < BOUNDARY_COUNT; i++) {
+    if (strcmp(boundaries[i].id, id) == 0) return i;
+  }
+  return BOUNDARY_COUNT;
+}
+
+static void drain_packets(t64_machine *machine, bool video) {
+  uint8_t *buffer = (uint8_t *)malloc(video ? T64_VIDEO_MAX_PACKET_BYTES
+                                            : T64_AUDIO_MAX_PACKET_BYTES);
+  size_t i;
+
+  if (buffer == NULL) {
+    T64_CHECK(false);
+    return;
+  }
+  for (i = 0u; i < 4u && (video ? machine->vi.packet_count
+                                : machine->ai.packet_count) > 0u;
+       i++) {
+    size_t copied = 0u;
+    const t64_status status =
+        video ? t64_video_copy(machine, buffer, T64_VIDEO_MAX_PACKET_BYTES,
+                               &copied)
+              : t64_audio_copy(machine, buffer, T64_AUDIO_MAX_PACKET_BYTES,
+                               &copied);
+
+    T64_CHECK_INT(status, T64_STATUS_OK);
+    if (status != T64_STATUS_OK) break;
+  }
+  T64_CHECK_INT(video ? machine->vi.packet_count : machine->ai.packet_count, 0u);
+  free(buffer);
+}
+
+/* The observed stop literals are recorded by the case when T64_STATE_MATRIX_TRACE
+ * is set; the expectations below are authored from the cited device source:
+ * an occupancy-gated event keeps the machine at the stop tick it reached (the
+ * front event is not dispatchable), a default import restores the occupancy and
+ * therefore the same stop, and the drop flag opens the gate. */
+static const char *const stalled_rows[] = {"B07", "B10"};
+
+static void case_stalled_observer_stop(void) {
+  size_t r;
+
+  for (r = 0u; r < 2u; r++) {
+    const size_t index = boundary_index(stalled_rows[r]);
+    const boundary *b = &boundaries[index];
+    t64_machine *source;
+    t64_machine *peer;
+    tuple expected;
+    tuple got;
+    uint64_t y;
+    uint64_t x0;
+
+    if (index == BOUNDARY_COUNT || !boundary_prepare(index)) continue;
+    source = b->build();
+    peer = boundary_peer(index);
+    if (source == NULL || peer == NULL) {
+      if (source != NULL) t64_machine_destroy(source);
+      if (peer != NULL) t64_machine_destroy(peer);
+      T64_CHECK(false);
+      continue;
+    }
+    T64_CHECK(stalled_front_event(source) != NULL);
+    y = stalled_front_event(source)->tick + 1u;
+    x0 = source->tick;
+    run_to(source, y, 0u, &expected);
+    run_to(peer, y, 0u, &got);
+    if (getenv("T64_STATE_MATRIX_TRACE") != NULL) {
+      fprintf(stderr, "observer-literal %s stalled-at %llu target %llu\n", b->id,
+              (unsigned long long)x0, (unsigned long long)y);
+      tuple_print("source", &expected);
+      tuple_print("default import", &got);
+    }
+    /* authored literals first: the source stops with the resource-limit reason
+     * at the tick of the stall and does not move past it */
+    T64_CHECK_INT(expected.status, T64_STATUS_OK);
+    T64_CHECK_INT(expected.reason, T64_STOP_REASON_RESOURCE_LIMIT);
+    T64_CHECK_INT(expected.stop_tick, x0);
+    T64_CHECK_INT(expected.tick, x0);
+    /* the default import restores observer continuity: the same stop reason at
+     * the same tick with the full tuple equal, and equal digests */
+    T64_CHECK(tuples_equal(&expected, &got));
+    T64_CHECK_INT(got.reason, T64_STOP_REASON_RESOURCE_LIMIT);
+    T64_CHECK_INT(got.stop_tick, x0);
+    T64_CHECK(digests_equal(source, peer));
+    t64_machine_destroy(source);
+    t64_machine_destroy(peer);
+  }
+}
+
+static void case_drop_observers_outcomes(void) {
+  size_t r;
+
+  for (r = 0u; r < 2u; r++) {
+    const size_t index = boundary_index(stalled_rows[r]);
+    const boundary *b = &boundaries[index];
+    const bool video = strcmp(b->id, "B07") == 0;
+    t64_machine *source;
+    t64_machine *dropped;
+    t64_machine *defaulted;
+    t64_state_import_report report;
+    tuple got;
+    uint8_t digest[T64_DIGEST_SIZE];
+    uint64_t x0;
+    uint64_t y;
+
+    if (index == BOUNDARY_COUNT || !boundary_prepare(index)) continue;
+    source = b->build();
+    dropped = create_admitted(b->profile);
+    defaulted = boundary_peer(index);
+    if (source == NULL || dropped == NULL || defaulted == NULL) {
+      if (source != NULL) t64_machine_destroy(source);
+      if (dropped != NULL) t64_machine_destroy(dropped);
+      if (defaulted != NULL) t64_machine_destroy(defaulted);
+      T64_CHECK(false);
+      continue;
+    }
+    x0 = source->tick;
+    y = stalled_front_event(source)->tick + 1u;
+    T64_CHECK_INT(t64_machine_state_import(dropped, prepared[index].blob,
+                                           prepared[index].length,
+                                           T64_STATE_IMPORT_DROP_OBSERVERS,
+                                           &report),
+                  T64_STATUS_OK);
+    /* the canonical digest is equal at once: observer state is outside it */
+    T64_CHECK(digest_of(dropped, digest));
+    T64_CHECK(memcmp(digest, prepared[index].digest, sizeof digest) == 0);
+    T64_CHECK_INT(video ? dropped->vi.packet_count : dropped->ai.packet_count,
+                  0u);
+    T64_CHECK(video ? source->vi.packet_count > 0u
+                    : source->ai.packet_count > 0u);
+    run_to(dropped, y, 0u, &got);
+    if (getenv("T64_STATE_MATRIX_TRACE") != NULL) {
+      fprintf(stderr, "observer-literal %s drop import, stalled-at %llu\n",
+              b->id, (unsigned long long)x0);
+      tuple_print("drop import", &got);
+    }
+    /* the occupancy gate is open: the dispatchable event runs, so the peer is
+     * not stopped at the source's stall tick and reports a later point */
+    T64_CHECK_INT(got.status, T64_STATUS_OK);
+    T64_CHECK(got.tick > x0);
+    T64_CHECK(got.reason != T64_STOP_REASON_RESOURCE_LIMIT ||
+              got.stop_tick > x0);
+    /* after the source drains the stalled packets and both reach the same tick
+     * the canonical digests agree across the three machines */
+    drain_packets(source, video);
+    drain_packets(defaulted, video);
+    run_to(source, y, 0u, &got);
+    run_to(defaulted, y, 0u, &got);
+    T64_CHECK_INT(source->tick, y);
+    T64_CHECK_INT(dropped->tick, y);
+    T64_CHECK(digests_equal(source, dropped));
+    T64_CHECK(digests_equal(source, defaulted));
+    t64_machine_destroy(source);
+    t64_machine_destroy(dropped);
+    t64_machine_destroy(defaulted);
   }
 }
 
@@ -2711,12 +3449,14 @@ int main(int argc, char **argv) {
       "idempotence",        "save-media-roundtrip", "continuation-partitions",
       "dirty-peer",         "observer-flag",
       "boundary-reached",   "boundary-roundtrip",   "boundary-continuation",
-      "boundary-perturbation", "boundary-event-rules"};
+      "boundary-perturbation", "boundary-event-rules",
+      "stalled-observer-stop", "drop-observers-outcomes"};
   static const char *const suites[] = {
       "import",   "import",   "refusals", "refusals", "refusals",
       "refusals", "refusals", "refusals", "refusals", "ladder",
       "ladder",   "ladder",   "ladder",   "ladder",
-      "boundaries", "boundaries", "boundaries", "boundaries", "boundaries"};
+      "boundaries", "boundaries", "boundaries", "boundaries", "boundaries",
+      "observers", "observers"};
   static void (*const runners[])(void) = {
       case_roundtrip_all,        case_handler_table_ledger,
       case_binding_refusals,     case_container_refusals,
@@ -2727,7 +3467,8 @@ int main(int argc, char **argv) {
       case_dirty_peer,           case_observer_flag,
       case_boundary_reached,     case_boundary_roundtrip,
       case_boundary_continuation, case_boundary_perturbation,
-      case_boundary_event_rules};
+      case_boundary_event_rules, case_stalled_observer_stop,
+      case_drop_observers_outcomes};
   const size_t count = sizeof cases / sizeof cases[0];
   size_t index;
 
