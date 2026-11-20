@@ -347,13 +347,22 @@ NATIVE_WRAPPER_MARGIN_SECONDS = 600
 EXPECTED_LARGEST_REGISTERED_TIMEOUT = 2400
 
 
+def _tracked_cmake_lists() -> list[Path]:
+    """The CMakeLists.txt files git tracks: an untracked copy of the repository (an agent
+    worktree, an extracted archive) under the working directory cannot move the result
+    (plan 09-10, re-check R3 RC-05)."""
+    listed = subprocess.run(["git", "ls-files", "-z", "--", "*CMakeLists.txt"], cwd=ROOT,
+                            capture_output=True, check=True, timeout=30).stdout
+    names = sorted(name for name in listed.decode("utf-8").split("\0") if name)
+    assert len(names) >= 8, "git lists too few CMakeLists.txt files"
+    return [ROOT / name for name in names]
+
+
 def _registered_ctest_timeouts() -> list[int]:
-    """Every `TIMEOUT <seconds>` registered by a CMakeLists.txt of the repository."""
+    """Every `TIMEOUT <seconds>` registered by a tracked CMakeLists.txt of the repository."""
     found: list[int] = []
-    for path in sorted(ROOT.rglob("CMakeLists.txt")):
+    for path in _tracked_cmake_lists():
         relative = path.relative_to(ROOT).parts
-        if relative[0] == "build" or ".git" in relative:
-            continue
         # CMake comments are not registrations
         text = "\n".join(line.split("#", 1)[0]
                          for line in path.read_text(encoding="utf-8").splitlines())
