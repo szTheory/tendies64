@@ -160,7 +160,7 @@ Supervisor options (child options in parentheses):
 | Option | Meaning |
 | --- | --- |
 | `--replay-record LEAF` | record; the leaf ends in `rpl` (`--replay-record`) |
-| `--replay-checkpoint-interval TICKS` | a positive multiple of 16 not above the bound (`--replay-checkpoint-interval`) |
+| `--replay-checkpoint-interval TICKS` | a positive multiple of 16 not above the bound (`--replay-checkpoint-interval`); see the checkpoint cap below |
 | `--replay-play PATH` | play; copied into a verified private snapshot (`--replay-fd`) |
 | `--replay-play-size N` | exact size, at most 4,194,304 |
 | `--replay-play-sha256 HEX` | exact SHA-256 |
@@ -177,6 +177,26 @@ size above the cap, an interval of 0, not a multiple of 16 or above the bound, a
 leaf with a slash, an uppercase letter or a four-letter extension, replay with
 raw capture, with the save flags and in synthetic mode. The child-argument slot
 sum grows by 8 and its compile-time assertion still holds.
+
+The checkpoint cap and the interval (a stated limit, plan 09-10, L3 IN-01). The
+recorder holds 4,096 checkpoints, and a checkpoint is a full machine digest taken at
+every multiple of the interval, so a run that ends at tick `T` (authored completion or
+the bound) takes `floor(T / interval)` of them. When that exceeds the cap, the 4,097th
+checkpoint latches `checkpoint-limit` in the recorder, the run ends in the generic
+`host-error` after the guest has run, and nothing is published (the unit cases of
+`unit.replay.suite` pin the recorder side: the cap, the latched error and the refused
+finish). The supervisor and the runner do not refuse such an interval at option parse
+because the end tick of a guest is not known there. Measured on the authored mix row:
+it completes at guest tick 1,141,425, so an interval of 352 takes 3,242 checkpoints
+(4,261 would be demanded by the bound of 1,500,000), the run completes and its cost is
+the digests, about a minute natively, and with `--artifact-max-bytes` 65,536 it ended in
+`artifact-cap` because the document no longer fit; the artifact maximum is therefore the
+first practical limit for a dense interval, the checkpoint cap the second. The rule is
+the stated limit `floor(T / interval) <= 4096`: choose an interval of at least `T / 4096`
+(`T` at most the bound) and an artifact maximum that holds the document. The byte cap
+(4,194,304) and the op cap (65,536) are not reachable first. Naming the recorder failures
+in the closed result vocabulary is a Phase 10 item (it adds closed detail names to the
+result protocol and the checker).
 
 Mapping onto the existing `t64.result`: a record run is the ordinary result and
 the replay is an extra private artifact published only when the loop ended at
