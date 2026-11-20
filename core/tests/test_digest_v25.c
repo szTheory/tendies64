@@ -1327,6 +1327,40 @@ static void check_rdp_digest_completeness(void) {
   }
 }
 
+/* The v25 walker must never silently stop covering the memory coverage table
+ * (plan 09-10, re-check R1 RC-01). The pointer is set at creation for every
+ * family id, so the branch is unreachable through the API; the control edits
+ * the member directly. Accepted baseline in the same setup: the unedited
+ * machine digests, and so does the restored one, with the same digest. A
+ * walker that skipped the table bytes would return OK with a shorter stream. */
+static void check_digest_refuses_missing_coverage_table(void) {
+  static const char *const ids[] = {SI_STEM_ID, SAVE_E4K_ID, SAVE_E16K_ID,
+                                    SAVE_S32K_ID};
+  size_t id_index;
+
+  for (id_index = 0u; id_index < sizeof ids / sizeof ids[0]; id_index++) {
+    t64_machine *machine = create_admitted(ids[id_index], true);
+    uint8_t baseline[T64_DIGEST_SIZE];
+    uint8_t refused[T64_DIGEST_SIZE];
+    uint8_t restored[T64_DIGEST_SIZE];
+    uint8_t *table;
+
+    T64_CHECK(machine != NULL);
+    if (machine == NULL) continue;
+    table = machine->rdp_memory_coverage;
+    T64_CHECK(table != NULL);
+    T64_CHECK_INT(t64_machine_digest(machine, baseline), T64_STATUS_OK);
+    machine->rdp_memory_coverage = NULL;
+    (void)memset(refused, 0xA5, sizeof refused);
+    T64_CHECK_INT(t64_machine_digest(machine, refused),
+                  T64_STATUS_BAD_STORAGE);
+    machine->rdp_memory_coverage = table;
+    T64_CHECK_INT(t64_machine_digest(machine, restored), T64_STATUS_OK);
+    T64_CHECK(memcmp(baseline, restored, T64_DIGEST_SIZE) == 0);
+    t64_machine_destroy(machine);
+  }
+}
+
 static void case_v25_reference(void) {
   t64_machine *machine = build_ai_mid_dma_packet(SI_STEM_ID);
   stream captured;
@@ -1417,6 +1451,7 @@ static void case_v25_reference(void) {
   free_stream(&captured);
   t64_machine_destroy(machine);
   check_rdp_digest_completeness();
+  check_digest_refuses_missing_coverage_table();
 }
 
 static void sha256_of(const uint8_t *bytes, size_t length,

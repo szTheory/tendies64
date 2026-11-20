@@ -325,6 +325,15 @@ t64_status t64_digest_stream(const t64_machine *machine,
   if (!machine->has_image) {
     return T64_STATUS_NOT_READY;
   }
+  if (has_v25_state && machine->rdp_memory_coverage == NULL) {
+    /*
+     * Every family machine owns its coverage table from creation. A walker
+     * that skipped the bytes would return a digest that no longer covers the
+     * member plan 09-10 added, so the stream refuses instead (re-check R1
+     * RC-01).
+     */
+    return T64_STATUS_BAD_STORAGE;
+  }
 
   if (has_v25_state) {
     digest_bytes_class(sink, domain_v25, sizeof domain_v25 - 1u,
@@ -885,12 +894,10 @@ t64_status t64_digest_stream(const t64_machine *machine,
         hash_u32_new(sink,
                      (uint32_t)T64_RDP_MEMORY_COVERAGE_BYTES(
                      machine->profile.rdram_bytes));
-        if (machine->rdp_memory_coverage != NULL) {
-          digest_bytes_class(sink, machine->rdp_memory_coverage,
-                             T64_RDP_MEMORY_COVERAGE_BYTES(
-                             machine->profile.rdram_bytes),
-                             T64_DIGEST_CLASS_NEW);
-        }
+        digest_bytes_class(sink, machine->rdp_memory_coverage,
+                           T64_RDP_MEMORY_COVERAGE_BYTES(
+                           machine->profile.rdram_bytes),
+                           T64_DIGEST_CLASS_NEW);
       }
     }
   }
