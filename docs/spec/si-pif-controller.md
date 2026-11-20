@@ -197,7 +197,11 @@ the same budget (and an SWL or SWR at any other byte of the word is budgeted
 conservatively like the word, although the bus refuses its partial merge). In the
 reverse-endian user mode the word address takes the lane exchange of the store
 path. Control: `unit.core.cpu.si-store-budget` refuses and accepts SW, SWL and SWR
-at both registers and the sequence analogue.
+at both registers and the sequence analogue, and runs a user-mode program that
+reaches the SI page through one TLB pair with and without Status.RE and Config.BE
+(the word at byte 0 of the page then starts RD64B and the word at byte 4 reaches
+DRAM_ADDR; WR64B shares the legacy budget of one event, so the lane exchange has
+no discriminating row in that direction).
 
 ## Input latch
 

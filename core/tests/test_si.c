@@ -231,6 +231,10 @@ static void case_capacity_rule(void) {
 #define OP_SWL_T1_RD64B UINT32_C(0xA9090004) /* swl $t1, 4($t0)  */
 #define OP_SWR_T1_WR64B UINT32_C(0xB9090013) /* swr $t1, 19($t0) */
 #define OP_SWL_T1_WR64B UINT32_C(0xA9090010) /* swl $t1, 16($t0) */
+/* Reverse-endian user mode (plan 09-10, re-check R1 RC-05): the lane of a full
+ * word store is exchanged (address ^ 4), so the word at byte 0 of the page
+ * reaches RD64B and the word at byte 4 reaches DRAM_ADDR. */
+#define OP_SW_T1_BASE UINT32_C(0xAD090000) /* sw $t1, 0($t0)  */
 
 #define BUDGET_QUEUE_LIMIT 16u
 #define PROGRAM_ADDRESS UINT32_C(0x1000)
@@ -382,6 +386,76 @@ static void budget_room_pair(const char *label, const char *profile_id,
                       accept_room, false);
 }
 
+/* A user-mode program with the SI page reached through the TLB (plan 09-10,
+ * re-check R1 RC-05). One TLB pair at user address 0x00400000: the even page
+ * maps the SI registers (uncached), the odd page maps the program page at
+ * RDRAM 0x1000. The machine is positioned at the store with $t0 aiming at the
+ * even page; Status holds user mode, plus Status.RE and Config.BE when
+ * `reverse_endian` asks for the reverse-endian lane exchange. */
+#define RE_USER_PAGE UINT64_C(0x00400000)
+#define RE_STATUS_USER UINT64_C(0x00000010)
+#define RE_STATUS_RE UINT64_C(0x02000000)
+#define RE_CONFIG_BE UINT64_C(0x00008000)
+#define RE_CP0_STATUS 12u
+#define RE_CP0_CONFIG 16u
+#define RE_ENTRYLO_BITS UINT64_C(0x17) /* uncached, valid, dirty, global */
+
+static uint64_t re_entry_lo(uint32_t physical_page) {
+  return (((uint64_t)physical_page >> 12) << 6) | RE_ENTRYLO_BITS;
+}
+
+static t64_machine *make_user_store_machine(uint32_t store_opcode, size_t room,
+                                            bool reverse_endian) {
+  t64_machine *machine =
+      make_store_machine(SI_STEM_ID, store_opcode, room, 64u, 0u);
+  size_t index;
+
+  if (machine == NULL) return NULL;
+  for (index = 0u; index < T64_VR4300_TLB_ENTRY_COUNT; index++) {
+    machine->cpu.tlb[index] = (t64_vr4300_tlb_pair){0};
+    machine->cpu.tlb[index].asid = UINT32_C(0xff);
+  }
+  machine->cpu.tlb[0].page_mask = 0u;
+  machine->cpu.tlb[0].vpn2 = RE_USER_PAGE;
+  machine->cpu.tlb[0].asid = 0u;
+  machine->cpu.tlb[0].entry_lo0 = re_entry_lo(UINT32_C(0x04800000));
+  machine->cpu.tlb[0].entry_lo1 = re_entry_lo(PROGRAM_ADDRESS);
+  machine->cpu.gpr[8] = RE_USER_PAGE;
+  machine->cpu.pc = (uint32_t)(RE_USER_PAGE + PROGRAM_ADDRESS + 12u);
+  machine->cpu.pc_full = RE_USER_PAGE + PROGRAM_ADDRESS + 12u;
+  machine->cpu.cp0[RE_CP0_STATUS] =
+      RE_STATUS_USER | (reverse_endian ? RE_STATUS_RE : UINT64_C(0));
+  if (reverse_endian) machine->cpu.cp0[RE_CP0_CONFIG] |= RE_CONFIG_BE;
+  return machine;
+}
+
+/* One refuse-then-accept pair on the user-mode machine: the accepting room has
+ * exactly enough for the store, which retires as the fourth instruction; the
+ * refusing room is one event short and leaves everything untouched. */
+static void budget_room_pair_user(const char *label, uint32_t store_opcode,
+                                  size_t refuse_room, size_t accept_room,
+                                  bool reverse_endian) {
+  t64_machine *machine;
+  store_result result;
+
+  machine = make_user_store_machine(store_opcode, accept_room, reverse_endian);
+  if (machine == NULL) return;
+  result = run_store(machine, store_opcode);
+  if (result.status != T64_STATUS_OK) {
+    fprintf(stderr, "user budget row '%s': accept room %zu gave status %u\n",
+            label, accept_room, (unsigned)result.status);
+  }
+  T64_CHECK_INT(result.status, T64_STATUS_OK);
+  T64_CHECK_INT(result.retired, 4u);
+  t64_machine_destroy(machine);
+
+  machine = make_user_store_machine(store_opcode, refuse_room, reverse_endian);
+  if (machine == NULL) return;
+  result = run_store(machine, store_opcode);
+  check_refused(label, &result, T64_STATUS_QUEUE_FULL, refuse_room, machine);
+  t64_machine_destroy(machine);
+}
+
 /* Sequence analogue: width 8 gives a limit of 255. needed events need
  * headroom needed - 1 above next_sequence. */
 static void budget_sequence_pair(const char *label, const char *profile_id,
@@ -470,6 +544,23 @@ static void case_cpu_store_budget(void) {
                       3u, true);
   budget_room_pair_ex("family WR64B retires", SI_STEM_ID, OP_SW_T1_WR64B, 1u,
                       2u, true);
+  /* Reverse-endian user mode through a TLB-mapped SI page (re-check R1 RC-05).
+     The user-mode rows without the reverse-endian mode are the accepted
+     baseline of the same mapping: the page reaches the registers as the
+     kernel window does. With Status.RE and Config.BE the word at byte 0 of
+     the page reaches RD64B (two events) and the word at byte 4 reaches
+     DRAM_ADDR (a legacy one-event store). WR64B has the legacy budget of one
+     event, so the lane exchange cannot be told apart there and has no row. */
+  budget_room_pair_user("user RD64B, no reverse endian", OP_SW_T1_RD64B, 2u,
+                        3u, false);
+  budget_room_pair_user("user WR64B, no reverse endian", OP_SW_T1_WR64B, 1u,
+                        2u, false);
+  budget_room_pair_user("user byte 0 is DRAM_ADDR, no reverse endian",
+                        OP_SW_T1_BASE, 1u, 2u, false);
+  budget_room_pair_user("reverse endian byte 0 reaches RD64B", OP_SW_T1_BASE,
+                        2u, 3u, true);
+  budget_room_pair_user("reverse endian byte 4 reaches DRAM_ADDR",
+                        OP_SW_T1_RD64B, 1u, 2u, true);
   /* Every other SI address and every legacy profile keep the legacy budget
      of one extra event: refused at room 1, accepted at room 2. */
   budget_room_pair("family STATUS store", SI_STEM_ID, OP_SW_ZERO_STATUS, 1u,
