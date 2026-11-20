@@ -725,3 +725,15 @@ the following, resolved as routine reversible planning decisions under the auton
 - **Replay `save_init`:** the `image` form is verified in process only; the real runner refuses replay
   together with the save flags, so a supervised run records `blank` only. The replay spec and claim
   block 10 say so.
+
+### K20 (09-10 fix-cycle carry-ins for 09-11; wins over earlier text)
+
+Source: 09-REVIEW-FIX.md, 09-VERIFICATION.md (re-verification, passed 13/13) and the Phase 9 re-check.
+- RDP state: the composite family state and digest now carry the RDP combiner block and the RDP memory-coverage table (FX-02, STATE-CONTENT-F1). Pre-Phase-9 profile ids are unchanged. Claims about continuation equality are scoped to the four family ids and authored fixtures; the Phase 8 descriptor 11 profile keeps its recorded K1 limitation.
+- Continuation matrix wording: 17 rows B01 to B17; B01, B07, B10 and B14 run every partition size (one-shot, 1, 7, 31, 4096); the other 13 rows are sampled (7-tick peer against a one-shot source) in the gate, hosted and sanitizer runs; the full set runs only in the native step `normal-state-import-full-matrix` of the exact-SHA native qualification, whose step records are unsealed originals. Claims must say "sampled" everywhere else. Never say "all 16 rows".
+- Resume: a resumed runner run never reports `pass`; a runner-published state resumes into the closed unknown-log record (harness-error/host-error with the uninterrupted run's tick and state digest). Claim the resume mechanism and digest equality only, not a runner pass.
+- Publication contract: a failed publish publishes nothing; supervisor failures after the runner published (exit-nonzero, crash-after-output, report-missing, report-malformed) can leave the leaf beside a failure record; a caller accepts a leaf only with exit 0 and a `pass` record. Unwritable `--capture-out` and `--result` are probed before the guest runs.
+- Evidence scope: the first hosted pair's state digests (docs/evidence/phase09-first-hosted-pair.json) are valid for source 2db1be4d only; the 09-11 pair supersedes them. Raw check totals are not strength evidence.
+- Qualifier limits (FD-05/FD-06): shared ASan wrapper 3000 s, registered TIMEOUT of unit.core.state.import under ASan 2400 s, outer stage limit 4800 s, record bound 3000 s, gcc13 closure 300 s, full-matrix step 300 s; scripts/qualify-audio.py keeps its own 2400 s limits (known limitation F-106: a new Phase 8 native qualification would be refused closed).
+- Frozen-file logic edits recorded as FD-01 (scripts/tests/test_rsp_no_hle.py), FD-03 (runner/t64_artifact_publisher.c/.h), FD-04 (scripts/check-rsp-no-hle.py _check_source_route), FD-05 (scripts/qualify-phase09.py), FD-06 (scripts/qualify-rdp-vi.py); every one is covered by the 09-10 rehearsal and must be re-bound by the 09-11 F2 pins.
+- Accepted limitations carried into claims: 09-VALIDATION.md stays draft with pending rows until the final verification; no digest/state/container version marker changed in 09-10 (provisional until the Phase 10 freeze).
