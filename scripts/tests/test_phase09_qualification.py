@@ -330,10 +330,10 @@ NATIVE_LIMIT_PINS: dict[str, float] = {
     "gate": 600.0,
     "asan_configure": 120.0,
     "asan_build": 600.0,
-    "asan_full_ctest": 2400.0,
+    "asan_full_ctest": 3000.0,
     "gcc13": 300.0,
-    "outer": 4200,
-    "record_max": 2400,
+    "outer": 4800,
+    "record_max": 3000,
     "full_matrix": 300,
 }
 # The cheap preflight (selftest) and the source-snapshot checks run inside the
@@ -341,7 +341,7 @@ NATIVE_LIMIT_PINS: dict[str, float] = {
 NATIVE_OUTER_OVERHEAD_SECONDS = 120
 # The largest TIMEOUT registered in the CMake text (the state import test under
 # the sanitizer preset); the parse must find it so it cannot silently find none.
-EXPECTED_LARGEST_REGISTERED_TIMEOUT = 1800
+EXPECTED_LARGEST_REGISTERED_TIMEOUT = 2400
 
 
 def _registered_ctest_timeouts() -> list[int]:
@@ -351,7 +351,9 @@ def _registered_ctest_timeouts() -> list[int]:
         relative = path.relative_to(ROOT).parts
         if relative[0] == "build" or ".git" in relative:
             continue
-        text = path.read_text(encoding="utf-8")
+        # CMake comments are not registrations
+        text = "\n".join(line.split("#", 1)[0]
+                         for line in path.read_text(encoding="utf-8").splitlines())
         literal = re.findall(r"\bTIMEOUT\s+([0-9]+)\b", text)
         # A TIMEOUT given by a variable would escape the parse: every mention must be a literal.
         assert len(re.findall(r"\bTIMEOUT\b", text)) == len(literal), (

@@ -62,8 +62,8 @@ REHEARSAL_STATEMENT = "this result is a rehearsal and not final evidence"
 # in scripts/tests/test_phase09_qualification.py.
 # The outer limit of the whole shared stage is the sum of its five stage limits
 # plus the cheap preflight; the record bound is the largest single stage limit.
-NATIVE_SHARED_STAGE_TIMEOUT_SECONDS = 4200
-NATIVE_SHARED_RECORD_MAX_TIMEOUT_SECONDS = 2400
+NATIVE_SHARED_STAGE_TIMEOUT_SECONDS = 4800
+NATIVE_SHARED_RECORD_MAX_TIMEOUT_SECONDS = 3000
 # The full continuation matrix of the state importer, run natively and recorded
 # (plan 09-10, L4 WR-01): the sanitizer and hosted runs keep the sampled
 # partitions, so this step is the only run of the 1, 31 and 4,096 tick

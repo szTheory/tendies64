@@ -1099,7 +1099,11 @@ if(T64_HAS_ADDRESS_AND_UNDEFINED_SANITIZERS)
   # measured seconds.
   set_property(TEST unit.core.state.import APPEND PROPERTY ENVIRONMENT
     "T64_STATE_FUZZ_ITERATIONS=120;T64_STATE_SWEEP_HEADER=12;T64_STATE_SWEEP_BODY=12;T64_STATE_SWEEP_BLOBS=2")
-  set_tests_properties(unit.core.state.import PROPERTIES TIMEOUT 1800)
+  # TIMEOUT: 1,339.5 s measured under the sanitizer on the fix tree (plan 09-10,
+  # 1,198 to 1,339 s over three runs at load 8 to 14), so 1800 was 1.34 times;
+  # 2400 is 1.8 times, and the qualifier's wrapper (scripts/qualify-rdp-vi.py)
+  # stays above the largest TIMEOUT registered here, which a pinned relation checks.
+  set_tests_properties(unit.core.state.import PROPERTIES TIMEOUT 2400)
 
   add_executable(sanitizer_fault tests/sanitizer_fault.c)
   t64_target_warnings(sanitizer_fault)
