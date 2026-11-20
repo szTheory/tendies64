@@ -440,7 +440,14 @@ pointer are untouched.
 By default an import restores the observer section: the output drain cursor and
 the video and audio ring head and occupancy of the blob. Their ranges are checked
 before use (`OBSERVER_RANGE`: the cursor at most the retained capture length, a head
-below the ring capacity, an occupancy at most the ring capacity). The flag
+below the ring capacity, an occupancy at most the ring capacity). Each value is
+checked right after its read, in the order cursor (`LEN_LE`), video head
+(`INDEX_LT`), video occupancy (`COUNT_CAP`), audio head, audio occupancy, so the
+position of a refusal is the byte after the member that failed. The runner tracer
+(`test_state_runner --run-mutant observer-range`) edits the drain cursor, the member
+of the inventory row `observer-range`, and compares the full tuple (status, reason,
+section, rule and position) that the importer of the same core library reports for
+the same blob with the row, next to an accepted baseline. The flag
 `T64_STATE_IMPORT_DROP_OBSERVERS` is a named policy: both ring occupancies and
 heads become 0 and the drain cursor becomes the retained capture length of the
 blob, so no pre-import byte is delivered again. The canonical digest is the same

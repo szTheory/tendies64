@@ -2045,7 +2045,7 @@ static int case_import_bound_below_tick(void) {
 #define TABLE_ENTRY_BYTES 56u
 #define OBSERVER_SECTION_ID 16u
 #define OBSERVER_BODY_BYTES 40u
-#define OBSERVER_VIDEO_HEAD_AT 8u /* the second of the five u64 values */
+#define OBSERVER_DRAIN_CURSOR_AT 0u /* the first of the five u64 values */
 
 static uint32_t be32_at(const uint8_t *p) {
   return ((uint32_t)p[0] << 24) | ((uint32_t)p[1] << 16) |
@@ -2063,10 +2063,13 @@ static void put_be64_at(uint8_t *p, uint64_t value) {
 
 /* The observer-range mutation with literal layout offsets (the table at 0x120,
  * 56 bytes an entry: id u32, flags u32, body offset u64, body length u64, body
- * SHA-256 at +24; section count u32 at 0x18): the video packet head, the
- * second of the five u64 values of the observer body, becomes the 64-bit
- * maximum; the observer entry hash and the trailer are recomputed; the declared
- * digest is untouched (the observer body is outside the canonical region).
+ * SHA-256 at +24; section count u32 at 0x18): the output drain cursor, the
+ * first of the five u64 values of the observer body, becomes the 64-bit
+ * maximum, the member the inventory row observer-range edits (rule LEN_LE; the
+ * review of plan 09-10 found the first version of this tracer editing the
+ * video head, which reaches the rule INDEX_LT of another row); the observer
+ * entry hash and the trailer are recomputed; the declared digest is untouched
+ * (the observer body is outside the canonical region).
  * Returns the id of the entry that was changed, or 0 when the layout does not
  * match. */
 static unsigned mutate_observer_range(uint8_t *bytes, size_t size) {
@@ -2087,12 +2090,28 @@ static unsigned mutate_observer_range(uint8_t *bytes, size_t size) {
         body + length + TRAILER_BYTES != (uint64_t)size) {
       return 0u;
     }
-    put_be64_at(bytes + body + OBSERVER_VIDEO_HEAD_AT, UINT64_MAX);
+    put_be64_at(bytes + body + OBSERVER_DRAIN_CURSOR_AT, UINT64_MAX);
     t64_sha256_init(&context);
     t64_sha256_update(&context, bytes + body, (size_t)length);
     t64_sha256_final(&context, bytes + at + 24u);
     resign_trailer(bytes, size);
     return OBSERVER_SECTION_ID;
+  }
+  return 0u;
+}
+
+/* The body offset of the observer entry (0 when the layout does not match). */
+static uint64_t observer_body_offset(const uint8_t *bytes, size_t size) {
+  uint32_t count;
+  uint32_t i;
+  if (size < TABLE_OFFSET + TRAILER_BYTES) return 0u;
+  count = be32_at(bytes + 0x18u);
+  for (i = 0u; i < count; i++) {
+    const size_t at = TABLE_OFFSET + (size_t)TABLE_ENTRY_BYTES * i;
+    if (at + TABLE_ENTRY_BYTES > size) return 0u;
+    if (be32_at(bytes + at) == OBSERVER_SECTION_ID) {
+      return be64_at(bytes + at + 8u);
+    }
   }
   return 0u;
 }
@@ -2225,6 +2244,75 @@ static bool run_direct_state_at(const state_file *file, const char *rom,
   return ok;
 }
 
+/* The closed names of the tuple a tracer row can carry, in the spelling of the
+ * inventory (docs/spec/state-mutants.txt). The tracer calls the importer of the
+ * same core library in process on the exact blob the runner child imports, so
+ * the full tuple (status, reason, section, rule) is observed and compared with
+ * the row; the child's diagnostic line carries only the reason. */
+typedef struct {
+  const char *name;
+  uint32_t value;
+} tuple_name;
+
+static const tuple_name tuple_statuses[] = {
+    {"OK", (uint32_t)T64_STATUS_OK},
+    {"STATE_RANGE", (uint32_t)T64_STATUS_STATE_RANGE}};
+static const tuple_name tuple_reasons[] = {
+    {"NONE", T64_STATE_REASON_NONE},
+    {"OBSERVER_RANGE", T64_STATE_REASON_OBSERVER_RANGE}};
+static const tuple_name tuple_rules[] = {
+    {"NONE", T64_STATE_RULE_NONE},
+    {"COUNT_CAP", T64_STATE_RULE_COUNT_CAP},
+    {"INDEX_LT", T64_STATE_RULE_INDEX_LT},
+    {"LEN_LE", T64_STATE_RULE_LEN_LE}};
+
+static bool tuple_value(const tuple_name *table, size_t count, const char *name,
+                        uint32_t *out) {
+  size_t i;
+  for (i = 0u; i < count; i++) {
+    if (strcmp(table[i].name, name) == 0) {
+      *out = table[i].value;
+      return true;
+    }
+  }
+  return false;
+}
+
+static const char *tuple_label(const tuple_name *table, size_t count,
+                               uint32_t value) {
+  size_t i;
+  for (i = 0u; i < count; i++) {
+    if (table[i].value == value) return table[i].name;
+  }
+  return "other";
+}
+
+/* Import the blob into a fresh machine of the runner row (the stem profile and
+ * the long admit ROM) and return the closed tuple. */
+static bool inprocess_import(const uint8_t *blob, size_t size,
+                             t64_status *status_out,
+                             t64_state_import_report *report_out) {
+  static const t64_host_allocator host = {host_allocate, host_release, NULL};
+  char rom_path[PATH_MAX];
+  uint8_t *rom = (uint8_t *)malloc(1u << 20);
+  size_t rom_length = 0u;
+  const t64_profile_descriptor *profile = NULL;
+  t64_machine *machine = NULL;
+  bool ok = false;
+  memset(report_out, 0, sizeof *report_out);
+  if (rom != NULL && fixture_path(rom_path, LONG_ROM) &&
+      read_file(rom_path, rom, 1u << 20, &rom_length) && rom_length != 0u &&
+      t64_profile_lookup(PROFILE_STEM, &profile) == T64_STATUS_OK &&
+      t64_machine_create(&host, profile, &machine) == T64_STATUS_OK &&
+      t64_machine_admit_rom(machine, rom, rom_length) == T64_STATUS_OK) {
+    *status_out = t64_machine_state_import(machine, blob, size, 0u, report_out);
+    ok = true;
+  }
+  free(rom);
+  if (machine != NULL) t64_machine_destroy(machine);
+  return ok;
+}
+
 /* ROW none or observer-range. The setup is the one of import-accepted-continues
  * (run A uninterrupted, run B exporting a state through the real supervised
  * runner); the blob of run B is copied into the private directory, mutated by
@@ -2246,6 +2334,7 @@ static int tracer_run(const char *row_name) {
   char reason[64];
   char want_diag[64];
   char hex[65];
+  char observed_tuple[128] = "unobserved";
   const char *outcome_token;
   inventory_row row = {{0}, {0}, {0}, 0u};
   state_file published;
@@ -2260,9 +2349,10 @@ static int tracer_run(const char *row_name) {
   memset(&published, 0, sizeof published);
   if (mutant) {
     CHECK(inventory_load(row_name, &row));
-    (void)snprintf(expected, sizeof expected, "%s/%s", row.status, row.reason);
+    (void)snprintf(expected, sizeof expected, "%s/%s/%u/%s", row.status,
+                   row.reason, row.section, row.rule);
   } else {
-    (void)snprintf(expected, sizeof expected, "OK/NONE");
+    (void)snprintf(expected, sizeof expected, "OK/NONE/0/NONE");
   }
   CHECK(fixture_path(rom, LONG_ROM));
   CHECK(make_run_dir(dir));
@@ -2336,10 +2426,60 @@ static int tracer_run(const char *row_name) {
   } else {
     (void)snprintf(hex, sizeof hex, "none");
   }
+  /* the full tuple of the same blob from the importer of this core library:
+   * the status, the reason, the section and the rule, never only the reason */
+  {
+    t64_status status = T64_STATUS_OK;
+    t64_state_import_report report;
+    uint32_t want_status = 0u;
+    uint32_t want_reason = 0u;
+    uint32_t want_rule = 0u;
+    const char *want_status_name = mutant ? row.status : "OK";
+    const char *want_reason_name = mutant ? row.reason : "NONE";
+    const char *want_rule_name = mutant ? row.rule : "NONE";
+    const unsigned want_section = mutant ? row.section : 0u;
+    const bool ran = have_subject &&
+                     inprocess_import(subject.bytes, subject.size, &status,
+                                      &report);
+
+    CHECK(ran);
+    CHECK(tuple_value(tuple_statuses,
+                      sizeof tuple_statuses / sizeof tuple_statuses[0],
+                      want_status_name, &want_status));
+    CHECK(tuple_value(tuple_reasons,
+                      sizeof tuple_reasons / sizeof tuple_reasons[0],
+                      want_reason_name, &want_reason));
+    CHECK(tuple_value(tuple_rules, sizeof tuple_rules / sizeof tuple_rules[0],
+                      want_rule_name, &want_rule));
+    if (ran) {
+      (void)snprintf(
+          observed_tuple, sizeof observed_tuple, "%s/%s/%u/%s",
+          tuple_label(tuple_statuses,
+                      sizeof tuple_statuses / sizeof tuple_statuses[0],
+                      (uint32_t)status),
+          tuple_label(tuple_reasons,
+                      sizeof tuple_reasons / sizeof tuple_reasons[0],
+                      report.reason),
+          (unsigned)report.section_id,
+          tuple_label(tuple_rules, sizeof tuple_rules / sizeof tuple_rules[0],
+                      report.rule));
+      CHECK((uint32_t)status == want_status);
+      CHECK(report.reason == want_reason);
+      CHECK(report.section_id == want_section);
+      CHECK(report.rule == want_rule);
+      if (mutant) {
+        /* the refusal is raised right after the drain cursor is read, so its
+         * position is the byte after the first value of the observer body */
+        CHECK(report.position ==
+              observer_body_offset(subject.bytes, subject.size) +
+                  OBSERVER_DRAIN_CURSOR_AT + 8u);
+      }
+    }
+  }
   (void)printf(
-      "run-mutant %s expected=%s observed outcome=%s detail=%s guest_tick=%llu "
-      "reason=%s blob_bytes=%zu blob_sha256=%s\n",
-      row_name, expected, outcome_token,
+      "run-mutant %s expected=%s observed-tuple=%s outcome=%s detail=%s "
+      "guest_tick=%llu reason=%s blob_bytes=%zu blob_sha256=%s\n",
+      row_name, expected, observed_tuple, outcome_token,
       direct.parsed ? direct.stop_kind : "unparsed",
       (unsigned long long)direct.guest_tick, reason, subject.size, hex);
   if (mutant) {

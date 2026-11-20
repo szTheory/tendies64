@@ -2208,18 +2208,23 @@ static void state_section_observer(state_reader *r) {
   uint64_t audio_head;
   uint64_t audio_count;
 
+  /* Each value is checked right after its read, so the position of a refusal
+   * names the member (the byte after the value) instead of the end of the
+   * section (plan 09-10 review L2 WR-02). */
   cursor = state_rd64(r);
-  video_head = state_rd64(r);
-  video_count = state_rd64(r);
-  audio_head = state_rd64(r);
-  audio_count = state_rd64(r);
   STATE_CHECK(r, cursor <= (uint64_t)facts->captured_bytes,
               T64_STATE_REASON_OBSERVER_RANGE, T64_STATE_RULE_LEN_LE);
-  STATE_CHECK(r, video_head < T64_VIDEO_QUEUE_CAPACITY &&
-                     audio_head < T64_AUDIO_QUEUE_CAPACITY,
+  video_head = state_rd64(r);
+  STATE_CHECK(r, video_head < T64_VIDEO_QUEUE_CAPACITY,
               T64_STATE_REASON_OBSERVER_RANGE, T64_STATE_RULE_INDEX_LT);
-  STATE_CHECK(r, video_count <= T64_VIDEO_QUEUE_CAPACITY &&
-                     audio_count <= T64_AUDIO_QUEUE_CAPACITY,
+  video_count = state_rd64(r);
+  STATE_CHECK(r, video_count <= T64_VIDEO_QUEUE_CAPACITY,
+              T64_STATE_REASON_OBSERVER_RANGE, T64_STATE_RULE_COUNT_CAP);
+  audio_head = state_rd64(r);
+  STATE_CHECK(r, audio_head < T64_AUDIO_QUEUE_CAPACITY,
+              T64_STATE_REASON_OBSERVER_RANGE, T64_STATE_RULE_INDEX_LT);
+  audio_count = state_rd64(r);
+  STATE_CHECK(r, audio_count <= T64_AUDIO_QUEUE_CAPACITY,
               T64_STATE_REASON_OBSERVER_RANGE, T64_STATE_RULE_COUNT_CAP);
   if (r->mode == STATE_MODE_APPLY) {
     if (r->drop_observers) {
