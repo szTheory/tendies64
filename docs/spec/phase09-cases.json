@@ -235,6 +235,34 @@
           ]
         }
       ]
+    },
+    "replay": {
+      "ctest": [
+        "unit.replay.suite",
+        "runner.replay-mix"
+      ],
+      "binaries": [
+        {
+          "path": "runner/test_replay",
+          "cases": [
+            "rom-timing",
+            "format-roundtrip",
+            "mutation-matrix",
+            "report-record",
+            "independent-original-run",
+            "partition",
+            "at-matters",
+            "queue-full-divergence",
+            "identity-binding",
+            "record-play-match",
+            "mismatch-profile",
+            "mismatch-build",
+            "mismatch-content",
+            "play-diverged",
+            "flag-combinations"
+          ]
+        }
+      ]
     }
   }
 }

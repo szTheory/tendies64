@@ -3054,12 +3054,12 @@ static const case_entry cases[] = {
     {"at-matters", "unit", case_at_matters},
     {"queue-full-divergence", "unit", case_queue_full_divergence},
     {"identity-binding", "unit", case_identity_binding},
+    {"record-play-match", "real", case_record_play_match},
     {"mismatch-profile", "real", case_mismatch_profile},
     {"mismatch-build", "real", case_mismatch_build},
     {"mismatch-content", "real", case_mismatch_content},
     {"play-diverged", "real", case_play_diverged},
     {"flag-combinations", "real", case_flag_combinations},
-    {"record-play-match", "real", case_record_play_match},
 };
 
 int main(int argc, char **argv) {
