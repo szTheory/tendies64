@@ -282,7 +282,9 @@ rule names are provisional until Phase 10; no API or ABI freeze is implied.
    non-zero and at most 64 MiB (`ARG_LENGTH`), no flag bit other than
    `T64_STATE_IMPORT_DROP_OBSERVERS` (`ARG_FLAGS`), the blob span and the report
    span disjoint from the machine allocation, the admitted image and both packet
-   storages (`ARG_OVERLAP_LIVE`; an unusable report span is never written), then an
+   storages (`ARG_OVERLAP_LIVE`; an unusable report span is never written, and the
+   span is judged before every one of these refusals, so even `ARG_NULL`,
+   `ARG_LENGTH` and `ARG_FLAGS` leave an aliasing span untouched), then an
    admitted image (`NOT_ADMITTED`, status `NOT_READY`).
 2. Header: length at least header plus trailer, magic, container version 1, total
    length equal to the supplied length, section count 1 to 32, header flags zero,

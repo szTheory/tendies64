@@ -2571,6 +2571,23 @@ static bool state_check_arguments(const t64_machine *machine,
   t64_address_range report_range;
 
   *report_usable = report_out != NULL;
+  /* The report span is judged before any refusal: a refusal for an argument
+   * error (a NULL blob, a zero or oversize length, a flag word) used to copy
+   * the report into a span that aliased the machine, which changed it (plan
+   * 09-10 review L2 WR-01). An unusable span (a range that wraps, one inside
+   * the machine allocation, the image or a packet storage, or one that
+   * overlaps a plausible blob) is never written, whatever the reason. */
+  if (report_out != NULL &&
+      (!t64_internal_make_range(report_out, sizeof *report_out,
+                                &report_range) ||
+       (machine != NULL &&
+        !t64_internal_observation_range_is_disjoint(machine, report_range)) ||
+       (bytes != NULL && length != 0u &&
+        (uint64_t)length <= T64_STATE_MAX_BYTES &&
+        t64_internal_make_range(bytes, length, &blob_range) &&
+        t64_internal_ranges_overlap(report_range, blob_range)))) {
+    *report_usable = false;
+  }
   if (machine == NULL || bytes == NULL) {
     state_report_failure(report, T64_STATE_REASON_ARG_NULL, 0u, 0u, 0u);
     return false;
@@ -2589,12 +2606,7 @@ static bool state_check_arguments(const t64_machine *machine,
                          0u);
     return false;
   }
-  if (report_out != NULL &&
-      (!t64_internal_make_range(report_out, sizeof *report_out,
-                                &report_range) ||
-       t64_internal_ranges_overlap(report_range, blob_range) ||
-       !t64_internal_observation_range_is_disjoint(machine, report_range))) {
-    *report_usable = false;
+  if (report_out != NULL && !*report_usable) {
     state_report_failure(report, T64_STATE_REASON_ARG_OVERLAP_LIVE, 0u, 0u,
                          0u);
     return false;

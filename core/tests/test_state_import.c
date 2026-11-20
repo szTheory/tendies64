@@ -1315,16 +1315,60 @@ static void case_container_refusals(void) {
                       0u, &report),
                   T64_STATUS_INVALID_ARGUMENT);
     T64_CHECK_INT(report.reason, T64_STATE_REASON_ARG_OVERLAP_LIVE);
-    /* a report span inside live storage is refused and never written */
+    /* a report span inside live storage is refused and never written, for a
+     * valid blob and for every argument refusal that precedes the span check
+     * (plan 09-10 review L2 WR-01: a NULL blob, a zero or oversize length and
+     * a bad flag word used to write the report into the machine); each
+     * refusal runs first with a disjoint report span, so the status is the one
+     * the aliasing call must keep */
     {
       uint8_t before[sizeof report];
       t64_state_import_report *inside =
           (t64_state_import_report *)(void *)(peer->ram + 64u);
+      const struct {
+        const char *name;
+        const uint8_t *bytes;
+        size_t length;
+        uint32_t flags;
+        uint32_t reason;
+      } refusals[] = {
+          {"valid blob", blob, length, 0u, 0u},
+          {"NULL blob", NULL, length, 0u, T64_STATE_REASON_ARG_NULL},
+          {"zero length", blob, 0u, 0u, T64_STATE_REASON_ARG_LENGTH},
+          {"length above the ceiling", &byte,
+           (size_t)T64_STATE_MAX_BYTES + 1u, 0u, T64_STATE_REASON_ARG_LENGTH},
+          {"bad flags", blob, length, 2u, T64_STATE_REASON_ARG_FLAGS},
+          {"blob in live storage", peer->ram, 4096u, 0u,
+           T64_STATE_REASON_ARG_OVERLAP_LIVE},
+      };
+      size_t row;
 
-      (void)memcpy(before, inside, sizeof before);
-      T64_CHECK_INT(t64_machine_state_import(peer, blob, length, 0u, inside),
-                    T64_STATUS_INVALID_ARGUMENT);
-      T64_CHECK(memcmp(before, inside, sizeof before) == 0);
+      for (row = 0u; row < sizeof refusals / sizeof refusals[0]; row++) {
+        t64_state_import_report disjoint;
+        t64_status want;
+
+        want = t64_machine_state_import(peer, refusals[row].bytes,
+                                        refusals[row].length,
+                                        refusals[row].flags, &disjoint);
+        if (refusals[row].reason != 0u) {
+          /* the accepted arm of the same setup: a usable report span records
+           * the reason */
+          T64_CHECK_INT(want, T64_STATUS_INVALID_ARGUMENT);
+          T64_CHECK_INT(disjoint.reason, refusals[row].reason);
+        }
+        (void)memset(inside, 0xA5, sizeof before); /* a canary per row */
+        (void)memcpy(before, inside, sizeof before);
+        T64_CHECK_INT(t64_machine_state_import(peer, refusals[row].bytes,
+                                               refusals[row].length,
+                                               refusals[row].flags, inside),
+                      refusals[row].reason == 0u ? T64_STATUS_INVALID_ARGUMENT
+                                                 : want);
+        if (memcmp(before, inside, sizeof before) != 0) {
+          fprintf(stderr, "aliasing report span written for: %s\n",
+                  refusals[row].name);
+        }
+        T64_CHECK(memcmp(before, inside, sizeof before) == 0);
+      }
     }
     /* a NULL report is allowed: the call still refuses by status */
     T64_CHECK_INT(t64_machine_state_import(peer, blob, 0u, 0u, NULL),
