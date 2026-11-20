@@ -252,6 +252,7 @@ typedef struct {
   const char *test_fault; /* NULL leaves the option out (test twin only) */
   const char *artifact_dir; /* NULL leaves the pair out */
   uint64_t artifact_max;
+  const char *meta_path;  /* NULL uses the run directory's meta.json */
 } run_spec;
 
 #define MAX_ARGS 48u
@@ -319,7 +320,8 @@ static bool run_supervised(const run_spec *spec, run_out *out) {
     arg_add(&list, result_option);
     arg_add(&list, result_path);
     arg_add(&list, meta_option);
-    arg_add(&list, meta_path);
+    arg_add(&list, spec->meta_path != NULL ? (char *)(uintptr_t)spec->meta_path
+                                            : meta_path);
     arg_add(&list, work_option);
     arg_add(&list, out->dir);
     arg_add(&list, wall_option);
@@ -1138,6 +1140,31 @@ static void option_pair_matrix(void) {
   CHECK(list_directory(raw, first) == 0u);
 }
 
+/* ---- supervisor hardening rows (plan 09-10, FX-18; L3 IN-06, meta write) ---- */
+
+static void supervisor_hardening_rows(void) {
+  char rom[PATH_MAX];
+  run_spec spec = {0};
+  run_out run;
+  CHECK(fixture_path(rom, "phase09-admit-si-v1"));
+
+  /* A failed --meta write in real mode fails closed: the result record is
+   * still the valid pass record, the exit status is not 0, so a caller never
+   * takes a missing or stale run-meta for a complete run. The accepted
+   * baseline is the same run with a writable meta path. */
+  spec.fixture = rom;
+  spec.bound = 600000u;
+  spec.supervisor = g_supervisor;
+  CHECK(run_supervised(&spec, &run));
+  expect_pass(&run);
+  spec.meta_path = "/nonexistent-t64-directory/meta.json";
+  CHECK(run_supervised(&spec, &run));
+  CHECK(run.parsed);
+  CHECK(run.checker_ok);
+  CHECK(strcmp(run.outcome, "pass") == 0);
+  CHECK(run.supervisor_exit != 0);
+}
+
 /* K6: the maximum accepted option set runs to a pass through the supervisor
  * test twin; the capacity-exhausted fault ends the child before exec with a
  * harness error and no guest run. */
@@ -1184,6 +1211,7 @@ static int case_argv_bound(void) {
   (void)close(audio_pipe[0]);
   (void)close(audio_pipe[1]);
   option_pair_matrix();
+  supervisor_hardening_rows();
   return g_failures == 0 ? 0 : 1;
 }
 

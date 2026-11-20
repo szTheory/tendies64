@@ -2295,11 +2295,16 @@ static int real_run_mode(const sup_args *args, const char *self_path) {
     }
   }
   {
+    /* A run-meta that cannot be written fails the run closed (exit status 1,
+     * the result record is untouched): a caller must never take a missing or a
+     * stale meta.json at the same path for the meta of this run. */
     char meta_buffer[1024];
     size_t meta_length = 0u;
     if (build_meta(meta_buffer, sizeof meta_buffer, &meta_length, wait_status,
-                   now_ms() - start_ms) == 0) {
-      (void)atomic_write(args->meta, meta_buffer, meta_length);
+                   now_ms() - start_ms) != 0 ||
+        atomic_write(args->meta, meta_buffer, meta_length) != 0) {
+      fprintf(stderr, "t64-supervisor: cannot write run-meta\n");
+      if (exit_code == 0) exit_code = 1;
     }
   }
   goto cleanup;

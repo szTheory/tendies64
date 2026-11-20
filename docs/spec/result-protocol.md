@@ -292,7 +292,10 @@ t64-supervisor --identity synthetic --result PATH --meta PATH --work-dir DIR
   next to PATH (`PATH.tmp.XXXXXX` from `mkstemp`, created with `O_EXCL`) and
   renamed, so a result file is never partial and nothing planted at a
   predictable temporary name is opened. A result is written for every outcome
-  whenever `--result` was given.
+  whenever `--result` was given. A run-meta that cannot be written ends a real-mode
+  run with exit status 1 (the result record is untouched and stays valid), so a
+  caller never takes a missing or a stale `meta.json` at the same path for the
+  meta of this run (plan 09-10, L3 IN-06).
 - A zero runner exit is necessary but not sufficient: the supervisor also
   checks the raw report, capture bytes, report identities and actual process
   status. Any non-zero exit overrides a structurally valid guest pass with
