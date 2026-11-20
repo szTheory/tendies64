@@ -2639,6 +2639,402 @@ static int case_record_play_match(void) {
   return g_failures == 0 ? 0 : 1;
 }
 
+/* ---- real controls ------------------------------------------------------------------- */
+
+/* Rewrites a recorded replay with one change and returns the new path. `which`:
+ * 0 profile digest, 1 build id, 2 content sha256, 3 one checkpoint digest. */
+static bool write_altered_replay(const char *source, int which,
+                                 char dest[PATH_MAX]) {
+  static uint8_t bytes[T64_REPLAY_MAX_BYTES];
+  size_t length = 0u;
+  t64_replay *replay = NULL;
+  t64_replay_error error;
+  t64_replay_header header;
+  t64_replay_op *ops = NULL;
+  uint8_t *encoded = NULL;
+  size_t encoded_length = 0u;
+  size_t count;
+  size_t i;
+  bool ok = false;
+  char name[64];
+  if (!read_file(source, bytes, sizeof bytes, &length) ||
+      t64_replay_parse(bytes, length, &replay, &error) != T64_REPLAY_OK) {
+    return false;
+  }
+  header = *t64_replay_header_get(replay);
+  count = t64_replay_op_count(replay);
+  ops = (t64_replay_op *)calloc(count, sizeof *ops);
+  if (ops == NULL) goto done;
+  for (i = 0u; i < count; i++) {
+    if (!t64_replay_op_get(replay, i, &ops[i])) goto done;
+  }
+  if (which == 0) flip_hex(header.identity.profile_digest, 3u);
+  if (which == 1) {
+    flip_hex(header.identity.build_id, strlen(header.identity.build_id) - 1u);
+  }
+  if (which == 2) flip_hex(header.identity.content_sha256, 5u);
+  if (which == 3) {
+    /* the third checkpoint (op index 8, tick 480,000) */
+    if (ops[GOLDEN_SCRIPT_COUNT + 2u].kind != T64_REPLAY_OP_CHECKPOINT) goto done;
+    ops[GOLDEN_SCRIPT_COUNT + 2u].digest[0] ^= 0x10u;
+  }
+  (void)snprintf(name, sizeof name, "altered-%d.rpl", which);
+  if (t64_replay_encode(&header, ops, count, &encoded, &encoded_length) !=
+          T64_REPLAY_OK ||
+      !make_run_dir(dest)) {
+    goto done;
+  }
+  {
+    char leaf[PATH_MAX];
+    if (!join_path(leaf, sizeof leaf, dest, name)) goto done;
+    (void)snprintf(dest, PATH_MAX, "%s", leaf);
+  }
+  ok = write_new_file(dest, encoded, encoded_length);
+done:
+  free(encoded);
+  free(ops);
+  t64_replay_destroy(replay);
+  return ok;
+}
+
+/* An unlinked read-only private copy of a file: the runner accepts only such
+ * snapshots (the supervisor makes the same kind). */
+static int open_snapshot(const char *source, const char *directory) {
+  static uint8_t bytes[T64_REPLAY_MAX_BYTES];
+  size_t length = 0u;
+  char name[PATH_MAX];
+  size_t written = 0u;
+  int fd;
+  if (!read_file(source, bytes, sizeof bytes, &length) || length == 0u ||
+      !join_path(name, sizeof name, directory, "snapshot.XXXXXX")) {
+    return -1;
+  }
+  fd = mkstemp(name);
+  if (fd < 0) return -1;
+  while (written < length) {
+    ssize_t count = write(fd, bytes + written, length - written);
+    if (count < 0 && errno == EINTR) continue;
+    if (count <= 0) {
+      (void)close(fd);
+      (void)unlink(name);
+      return -1;
+    }
+    written += (size_t)count;
+  }
+  (void)close(fd);
+  fd = open(name, O_RDONLY);
+  (void)unlink(name);
+  return fd;
+}
+
+/* The runner binary run directly with a replay descriptor (the refusal record
+ * reaches the checker only through the supervisor, so the runner's own
+ * prelaunch refusal is read here). */
+static bool run_runner_direct_play(const char *replay_path,
+                                   const char *artifact_dir, run_out *out) {
+  char runner[PATH_MAX];
+  char stdout_path[PATH_MAX];
+  char rom[PATH_MAX];
+  char input[PATH_MAX];
+  char fixture_fd_text[24];
+  char input_fd_text[24];
+  char replay_fd_text[24];
+  char *slash;
+  int fixture_fd;
+  int input_fd;
+  int replay_fd;
+  pid_t pid;
+  int status = 0;
+  memset(out, 0, sizeof *out);
+  if (snprintf(runner, sizeof runner, "%s", g_supervisor) >= (int)sizeof runner ||
+      (slash = strrchr(runner, '/')) == NULL ||
+      (size_t)(slash - runner) + sizeof "/t64-runner-real" > sizeof runner) {
+    return false;
+  }
+  (void)snprintf(slash, sizeof runner - (size_t)(slash - runner),
+                 "/t64-runner-real");
+  if (!make_run_dir(out->dir) || !mix_fixture_path(rom) ||
+      !write_empty_schedule(input) ||
+      !join_path(stdout_path, sizeof stdout_path, out->dir, "runner.json")) {
+    return false;
+  }
+  fixture_fd = open_snapshot(rom, out->dir);
+  input_fd = open_snapshot(input, out->dir);
+  replay_fd = open_snapshot(replay_path, out->dir);
+  if (fixture_fd <= STDERR_FILENO || input_fd <= STDERR_FILENO ||
+      replay_fd <= STDERR_FILENO) {
+    return false;
+  }
+  (void)snprintf(fixture_fd_text, sizeof fixture_fd_text, "%d", fixture_fd);
+  (void)snprintf(input_fd_text, sizeof input_fd_text, "%d", input_fd);
+  (void)snprintf(replay_fd_text, sizeof replay_fd_text, "%d", replay_fd);
+  pid = fork();
+  if (pid < 0) return false;
+  if (pid == 0) {
+    char *args[24];
+    size_t n = 0u;
+    int out_fd = open(stdout_path, O_WRONLY | O_CREAT | O_TRUNC, 0600);
+    int null_fd = open("/dev/null", O_WRONLY);
+    if (out_fd < 0 || dup2(out_fd, STDOUT_FILENO) < 0) _exit(126);
+    if (null_fd >= 0) (void)dup2(null_fd, STDERR_FILENO);
+    args[n++] = runner;
+    args[n++] = (char *)(uintptr_t)"--fixture-fd"; args[n++] = fixture_fd_text;
+    args[n++] = (char *)(uintptr_t)"--input-fd"; args[n++] = input_fd_text;
+    args[n++] = (char *)(uintptr_t)"--profile"; args[n++] = (char *)(uintptr_t)PROFILE_STEM;
+    args[n++] = (char *)(uintptr_t)"--guest-ticks"; args[n++] = (char *)(uintptr_t)"1500000";
+    args[n++] = (char *)(uintptr_t)"--artifact-dir"; args[n++] = (char *)(uintptr_t)artifact_dir;
+    args[n++] = (char *)(uintptr_t)"--artifact-max-bytes"; args[n++] = (char *)(uintptr_t)"65536";
+    args[n++] = (char *)(uintptr_t)"--replay-fd"; args[n++] = replay_fd_text;
+    args[n++] = (char *)(uintptr_t)"--replay-report"; args[n++] = (char *)(uintptr_t)"mix.rpr";
+    args[n] = NULL;
+    execv(runner, args);
+    _exit(127);
+  }
+  (void)close(fixture_fd);
+  (void)close(input_fd);
+  (void)close(replay_fd);
+  while (waitpid(pid, &status, 0) < 0) {
+    if (errno != EINTR) return false;
+  }
+  out->supervisor_exit = WIFEXITED(status) ? WEXITSTATUS(status) : -1;
+  out->parsed = parse_record(stdout_path, out);
+  return out->parsed;
+}
+
+static void expect_supervised_refusal(const run_out *run) {
+  /* A runner prelaunch refusal reaches the supervisor as a record that does
+   * not carry the identities it already holds, so the supervised result is its
+   * post-launch classification (09-02): harness-error, report-error stop,
+   * detail capture-invalid, guest tick 0. */
+  CHECK(run->parsed);
+  CHECK(run->checker_ok);
+  CHECK(strcmp(run->outcome, "harness-error") == 0);
+  CHECK(strcmp(run->stop_kind, "report-error") == 0);
+  CHECK(strcmp(run->detail, "capture-invalid") == 0);
+  CHECK(run->guest_tick == 0u);
+  CHECK(run->log_bytes == 0u);
+}
+
+static void expect_runner_refusal(const run_out *run) {
+  CHECK(run->parsed);
+  CHECK(strcmp(run->outcome, "harness-error") == 0);
+  CHECK(strcmp(run->stop_kind, "refused") == 0);
+  CHECK(strcmp(run->detail, "refusal") == 0);
+  CHECK(run->guest_tick == 0u);
+}
+
+static int mismatch_control(int which, const char *want_field) {
+  char record_dir[PATH_MAX];
+  char replay_path[PATH_MAX];
+  char altered[PATH_MAX];
+  char play_dir[PATH_MAX];
+  char direct_dir[PATH_MAX];
+  char first[256];
+  run_out run;
+  uint8_t raw[T64_REPLAY_REPORT_MAX_BYTES + 1u];
+  report_view view;
+  CHECK(record_run(g_supervisor, "160000", record_dir, replay_path, &run));
+  expect_mix_pass(&run);
+  /* The accepted baseline in the same setup: the unaltered file plays. */
+  CHECK(play_run(g_supervisor, 0u, replay_path, play_dir, &run));
+  expect_mix_pass(&run);
+  CHECK(read_report(play_dir, "mix.rpr", &view, raw, sizeof raw, NULL));
+  CHECK(strcmp(view.result, "match") == 0);
+  /* Exactly one header field altered: refused at guest tick 0. */
+  CHECK(write_altered_replay(replay_path, which, altered));
+  CHECK(play_run(g_supervisor, 0u, altered, play_dir, &run));
+  expect_supervised_refusal(&run);
+  CHECK(list_directory(play_dir, first) == 1u && strcmp(first, "mix.rpr") == 0);
+  CHECK(read_report(play_dir, "mix.rpr", &view, raw, sizeof raw, NULL));
+  CHECK(strcmp(view.result, "identity-mismatch") == 0);
+  CHECK(strcmp(view.detail, "none") == 0);
+  CHECK(strcmp(view.field, want_field) == 0);
+  CHECK(strcmp(view.live_tick, "0") == 0);
+  CHECK(view.checkpoints_matched == 0 && view.ops_applied == 0 &&
+        view.op_index == -1);
+  /* The runner binary reports its own prelaunch refusal record. */
+  CHECK(make_artifact_dir(direct_dir));
+  CHECK(run_runner_direct_play(replay_path, direct_dir, &run));
+  if (strcmp(run.outcome, "pass") != 0) {
+    (void)fprintf(stderr, "direct baseline: outcome %s detail %s stop %s\n",
+                  run.outcome, run.detail, run.stop_kind);
+  }
+  CHECK(strcmp(run.outcome, "pass") == 0);
+  CHECK(run_runner_direct_play(altered, direct_dir, &run));
+  expect_runner_refusal(&run);
+  return g_failures == 0 ? 0 : 1;
+}
+
+static int case_mismatch_profile(void) { return mismatch_control(0, "profile-digest"); }
+static int case_mismatch_build(void) { return mismatch_control(1, "build-id"); }
+static int case_mismatch_content(void) { return mismatch_control(2, "content-sha256"); }
+
+static int case_play_diverged(void) {
+  char record_dir[PATH_MAX];
+  char replay_path[PATH_MAX];
+  char altered[PATH_MAX];
+  char play_dir[PATH_MAX];
+  run_out run;
+  uint8_t raw[T64_REPLAY_REPORT_MAX_BYTES + 1u];
+  report_view view;
+  uint8_t expected_altered[T64_DIGEST_SIZE];
+  char want_expected[T64_SHA256_HEX_SIZE];
+  CHECK(record_run(g_supervisor, "160000", record_dir, replay_path, &run));
+  expect_mix_pass(&run);
+  CHECK(play_run(g_supervisor, 0u, replay_path, play_dir, &run));
+  expect_mix_pass(&run);
+  /* One checkpoint digest altered (the third, op index 8, tick 480,000). */
+  CHECK(write_altered_replay(replay_path, 3, altered));
+  CHECK(play_run(g_supervisor, 0u, altered, play_dir, &run));
+  CHECK(run.parsed && run.checker_ok);
+  CHECK(strcmp(run.outcome, "harness-error") == 0);
+  CHECK(strcmp(run.detail, "host-error") == 0);
+  CHECK(strcmp(run.stop_kind, "host-error") == 0);
+  CHECK(read_report(play_dir, "mix.rpr", &view, raw, sizeof raw, NULL));
+  CHECK(strcmp(view.result, "diverged") == 0);
+  CHECK(strcmp(view.detail, "digest") == 0);
+  CHECK(strcmp(view.field, "none") == 0);
+  CHECK(view.op_index == (int64_t)(GOLDEN_SCRIPT_COUNT + 2u));
+  CHECK(strcmp(view.at, "480000") == 0 && strcmp(view.live_tick, "480000") == 0);
+  CHECK(view.checkpoints_matched == 2);
+  CHECK(view.ops_applied == (int64_t)(GOLDEN_SCRIPT_COUNT + 2u));
+  CHECK(hex_to_digest(golden_pre_digests[2], expected_altered));
+  expected_altered[0] ^= 0x10u;
+  hex_of(expected_altered, want_expected);
+  CHECK(strcmp(view.expected, want_expected) == 0);
+  CHECK(strcmp(view.actual, golden_pre_digests[2]) == 0);
+  return g_failures == 0 ? 0 : 1;
+}
+
+/* Refused before the guest starts: no zero exit, guest tick 0 when a record
+ * exists and nothing published. */
+static void expect_refused_before_guest(const char *name, const run_out *run,
+                                        const char *dir, bool published_ok) {
+  char first[256];
+  size_t entries = list_directory(dir, first);
+  if (run->supervisor_exit == 0) {
+    (void)fprintf(stderr, "row %s: supervisor exit 0\n", name);
+    g_failures++;
+  }
+  if (run->parsed &&
+      (strcmp(run->outcome, "harness-error") != 0 || run->guest_tick != 0u)) {
+    (void)fprintf(stderr, "row %s: outcome %s tick %llu\n", name, run->outcome,
+                  (unsigned long long)run->guest_tick);
+    g_failures++;
+  }
+  if (!published_ok && entries != 0u) {
+    (void)fprintf(stderr, "row %s: %zu files published\n", name, entries);
+    g_failures++;
+  }
+}
+
+static int case_flag_combinations(void) {
+  char record_dir[PATH_MAX];
+  char replay_path[PATH_MAX];
+  char dir[PATH_MAX];
+  char rom[PATH_MAX];
+  char sha[T64_SHA256_HEX_SIZE];
+  char size_text[24];
+  size_t size = 0u;
+  run_out run;
+  run_spec spec;
+  size_t i;
+  /* The accepted record baseline. */
+  CHECK(record_run(g_supervisor, "160000", record_dir, replay_path, &run));
+  expect_mix_pass(&run);
+  CHECK(mix_fixture_path(rom) && sha256_file_hex(replay_path, &size, sha));
+  (void)snprintf(size_text, sizeof size_text, "%zu", size);
+#define BASE_RECORD(spec_name)                          \
+  memset(&(spec_name), 0, sizeof(spec_name));           \
+  (spec_name).supervisor = g_supervisor;                \
+  (spec_name).fixture = rom;                            \
+  (spec_name).input = mix_input_path();                 \
+  (spec_name).bound = RUN_BOUND;                        \
+  (spec_name).artifact_dir = dir;                       \
+  (spec_name).artifact_max = "65536";                   \
+  (spec_name).record_leaf = "mix.rpl";                  \
+  (spec_name).interval = "160000"
+#define BASE_PLAY(spec_name)                            \
+  memset(&(spec_name), 0, sizeof(spec_name));           \
+  (spec_name).supervisor = g_supervisor;                \
+  (spec_name).fixture = rom;                            \
+  (spec_name).bound = RUN_BOUND;                        \
+  (spec_name).artifact_dir = dir;                       \
+  (spec_name).artifact_max = "65536";                   \
+  (spec_name).play_path = replay_path;                  \
+  (spec_name).play_size = size_text;                    \
+  (spec_name).play_sha = sha;                           \
+  (spec_name).report_leaf = "mix.rpr"
+  /* record together with play */
+  CHECK(make_artifact_dir(dir));
+  BASE_RECORD(spec);
+  spec.play_path = replay_path; spec.play_size = size_text;
+  spec.play_sha = sha; spec.report_leaf = "mix.rpr";
+  CHECK(run_supervised(&spec, &run));
+  expect_refused_before_guest("record-with-play", &run, dir, false);
+  /* record without the artifact pair */
+  CHECK(make_artifact_dir(dir));
+  BASE_RECORD(spec);
+  spec.artifact_dir = NULL;
+  CHECK(run_supervised(&spec, &run));
+  expect_refused_before_guest("record-no-pair", &run, dir, false);
+  /* play without a report leaf */
+  CHECK(make_artifact_dir(dir));
+  BASE_PLAY(spec);
+  spec.report_leaf = NULL;
+  CHECK(run_supervised(&spec, &run));
+  expect_refused_before_guest("play-no-report", &run, dir, false);
+  /* play with a non-empty schedule: the runner refuses after the pair is
+   * accepted; the published report says refused with input-refused. */
+  CHECK(make_artifact_dir(dir));
+  BASE_PLAY(spec);
+  spec.input = mix_input_path();
+  CHECK(run_supervised(&spec, &run));
+  expect_refused_before_guest("play-non-empty-schedule", &run, dir, true);
+  {
+    report_view view;
+    uint8_t raw[T64_REPLAY_REPORT_MAX_BYTES + 1u];
+    CHECK(read_report(dir, "mix.rpr", &view, raw, sizeof raw, NULL));
+    CHECK(strcmp(view.result, "refused") == 0 &&
+          strcmp(view.detail, "input-refused") == 0);
+  }
+  /* intervals: 0, 17 (not a multiple of 16) and one above the bound */
+  {
+    static const char *const intervals[] = {"0", "17", "1500016"};
+    for (i = 0u; i < sizeof intervals / sizeof intervals[0]; i++) {
+      CHECK(make_artifact_dir(dir));
+      BASE_RECORD(spec);
+      spec.interval = intervals[i];
+      CHECK(run_supervised(&spec, &run));
+      expect_refused_before_guest(intervals[i], &run, dir, false);
+    }
+  }
+  /* leaves: a slash, an uppercase letter and a four-letter extension */
+  {
+    static const char *const leaves[] = {"a/b.rpl", "MIX.rpl", "mix.rplx"};
+    for (i = 0u; i < sizeof leaves / sizeof leaves[0]; i++) {
+      CHECK(make_artifact_dir(dir));
+      BASE_RECORD(spec);
+      spec.record_leaf = leaves[i];
+      CHECK(run_supervised(&spec, &run));
+      expect_refused_before_guest(leaves[i], &run, dir, false);
+    }
+  }
+  /* replay with raw capture */
+  {
+    char raw_dir[PATH_MAX];
+    CHECK(make_artifact_dir(dir));
+    CHECK(make_artifact_dir(raw_dir));
+    BASE_RECORD(spec);
+    spec.raw_capture_dir = raw_dir;
+    CHECK(run_supervised(&spec, &run));
+    expect_refused_before_guest("record-with-raw-capture", &run, dir, false);
+  }
+#undef BASE_RECORD
+#undef BASE_PLAY
+  return g_failures == 0 ? 0 : 1;
+}
+
 /* ---- dispatch ------------------------------------------------------------- */
 
 typedef int (*case_fn)(void);
@@ -2658,6 +3054,11 @@ static const case_entry cases[] = {
     {"at-matters", "unit", case_at_matters},
     {"queue-full-divergence", "unit", case_queue_full_divergence},
     {"identity-binding", "unit", case_identity_binding},
+    {"mismatch-profile", "real", case_mismatch_profile},
+    {"mismatch-build", "real", case_mismatch_build},
+    {"mismatch-content", "real", case_mismatch_content},
+    {"play-diverged", "real", case_play_diverged},
+    {"flag-combinations", "real", case_flag_combinations},
     {"record-play-match", "real", case_record_play_match},
 };
 
