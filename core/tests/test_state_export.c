@@ -742,6 +742,12 @@ static void case_export_layout(void) {
       fprintf(stderr, "export-layout: decoder kind %s\n", dec_names[kind]);
     }
     T64_CHECK_INT(kind, DEC_OK);
+    if (kind != DEC_OK) {
+      /* The fields below are meaningful only for an accepted blob. */
+      free(buffer);
+      t64_machine_destroy(machine);
+      return;
+    }
     T64_CHECK_INT(info.container_version, 1);
     T64_CHECK_INT(info.state_version, 25);
     T64_CHECK_INT(info.flags, 0);
