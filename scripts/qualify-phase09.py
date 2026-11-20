@@ -56,6 +56,14 @@ RESULT_SCHEMA = "t64.result"
 #   -> c173a5e23e8a8cc09a1c7d118c06d1cf282ad2af; its parent is the base below.
 PHASE09_SOURCE_BASE = "cfe4d34bb2f6090359bcf0251bbdff93938fb1ff"
 REHEARSAL_STATEMENT = "this result is a rehearsal and not final evidence"
+# Hard limits of the shared native stage and of its verification (plan 09-10,
+# L4 CR-01 and IN-01). The stage limits themselves live in qualify-rdp-vi.py
+# (NATIVE_*_TIMEOUT_SECONDS); the derivation is in 09-REVIEW-FIX.md and the pins
+# in scripts/tests/test_phase09_qualification.py.
+# The outer limit of the whole shared stage is the sum of its five stage limits
+# plus the cheap preflight; the record bound is the largest single stage limit.
+NATIVE_SHARED_STAGE_TIMEOUT_SECONDS = 4200
+NATIVE_SHARED_RECORD_MAX_TIMEOUT_SECONDS = 2400
 # Upload allowlist: exactly one regular file with this name, nothing else.
 PUBLIC_MEMBER = "manifest.json"
 # Private artifact suffixes: state, replay and save media never leave the machine.
@@ -1638,7 +1646,7 @@ def _native_command_plan(prefix: str, normal_junit: Path) -> list[dict[str, Any]
     plan: list[dict[str, Any]] = [{
         "label": "shared-native-gates",
         "command": [sys.executable, "-B", str(ROOT / "scripts/qualify-rdp-vi.py"), "--native"],
-        "timeout_seconds": 2400,
+        "timeout_seconds": NATIVE_SHARED_STAGE_TIMEOUT_SECONDS,
         "environment": {"T64_GATE_JUNIT_OUT": str(normal_junit)},
     }]
     for kind in ("normal", "asan"):
@@ -1746,7 +1754,9 @@ def _verify_rdp_native_receipt(path: Path, source_sha: str, normal_junit: Path) 
         if label == "asan-full-ctest":
             environment = {"ASAN_OPTIONS": "detect_leaks=0:halt_on_error=1",
                            "UBSAN_OPTIONS": "halt_on_error=1:print_stacktrace=1"}
-        _verify_process_record(path / label, argv, max_timeout=2400, environment=environment)
+        _verify_process_record(path / label, argv,
+                               max_timeout=NATIVE_SHARED_RECORD_MAX_TIMEOUT_SECONDS,
+                               environment=environment)
     _require((path / "asan/full-ctest-junit.xml").is_file() and
              (path / "asan/after-full-ctest-LastTest.log").is_file(),
              "shared ASan full-inventory originals are missing")

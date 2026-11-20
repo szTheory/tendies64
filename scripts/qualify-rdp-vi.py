@@ -68,6 +68,17 @@ NATIVE_INPUT_PATHS = (
 MAX_JSON_BYTES = 4 * 1024 * 1024
 MAX_RAW_BYTES = 64 * 1024 * 1024
 MAX_UPLOAD_BYTES = 1024 * 1024
+# Hard limits of the shared native stage (plan 09-10, L4 CR-01 and IN-01). Each
+# is the kill deadline of one recorded command: a limit under the real cost of a
+# stage fails every native qualification closed. The Phase 7 values were
+# measured before the Phase 9 tests existed; the derivation of the present
+# values from quiet-host measurements is in 09-REVIEW-FIX.md and the pins and
+# relations that guard them are in scripts/tests/test_phase09_qualification.py.
+NATIVE_GATE_TIMEOUT_SECONDS = 600.0
+NATIVE_ASAN_CONFIGURE_TIMEOUT_SECONDS = 120.0
+NATIVE_ASAN_BUILD_TIMEOUT_SECONDS = 600.0
+NATIVE_ASAN_FULL_CTEST_TIMEOUT_SECONDS = 2400.0
+NATIVE_GCC13_TIMEOUT_SECONDS = 300.0
 # Private directories that may receive the native full-suite JUnit: Phase 8 audio
 # and Phase 9 evidence (a fresh absolute path under exactly one of them).
 NATIVE_JUNIT_PRIVATE_ROOTS = (
@@ -385,9 +396,11 @@ def _run_native() -> tuple[Path, str]:
     normal_build = ROOT / "build/gate"
     asan_build = ROOT / "build/asan"
     normal_commands = [
-        ("gate", ["sh", "scripts/gate.sh"], 600.0),
-        ("asan-configure", ["cmake", "--preset", "asan"], 120.0),
-        ("asan-build", ["cmake", "--build", "--preset", "asan", "--parallel", "1"], 600.0),
+        ("gate", ["sh", "scripts/gate.sh"], NATIVE_GATE_TIMEOUT_SECONDS),
+        ("asan-configure", ["cmake", "--preset", "asan"],
+         NATIVE_ASAN_CONFIGURE_TIMEOUT_SECONDS),
+        ("asan-build", ["cmake", "--build", "--preset", "asan", "--parallel", "1"],
+         NATIVE_ASAN_BUILD_TIMEOUT_SECONDS),
     ]
     _archive_last_test(normal_build, evidence / "normal", "before-gate", required=False)
     for label, command, timeout in normal_commands:
@@ -422,7 +435,7 @@ def _run_native() -> tuple[Path, str]:
             "ASAN_OPTIONS": "detect_leaks=0:halt_on_error=1",
             "UBSAN_OPTIONS": "halt_on_error=1:print_stacktrace=1",
         },
-        timeout_seconds=600.0,
+        timeout_seconds=NATIVE_ASAN_FULL_CTEST_TIMEOUT_SECONDS,
     )
     _assert_native_source_snapshot(source_binding)
     _archive_last_test(asan_build, evidence / "asan", "after-full-ctest", required=True)
@@ -433,7 +446,8 @@ def _run_native() -> tuple[Path, str]:
     if _file_sha(gcc_script) != gcc_script_sha or _gcc13_image_identity() != gcc_image:
         raise Refusal("GCC 13 route or local image identity changed during native qualification")
     gcc = _run_recorded(
-        evidence / "gcc13", gcc_command, cwd=ROOT, environment={}, timeout_seconds=120.0,
+        evidence / "gcc13", gcc_command, cwd=ROOT, environment={},
+        timeout_seconds=NATIVE_GCC13_TIMEOUT_SECONDS,
     )
     _assert_native_source_snapshot(source_binding)
     if gcc["timed_out"] or gcc["return_code"] != 0:

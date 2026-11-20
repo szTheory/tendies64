@@ -317,6 +317,82 @@ def _runner_table_row(fixture_id: str) -> tuple[str, str, str]:
 
 
 
+# ---- hard limits of the shared native stage (plan 09-10, L4 CR-01 and IN-01) ----
+#
+# The literals are the reviewed pins. A change of any limit in
+# scripts/qualify-rdp-vi.py or scripts/qualify-phase09.py fails the pinned check
+# until the pin is edited here, with its derivation recorded in 09-REVIEW-FIX.md.
+# The relations hold whatever the values are: each limit is a kill deadline, so
+# a limit under the real cost of a stage fails every native qualification
+# closed (the 600 s wrapper of Phase 7 did, once the ASan state-import test
+# needed more than 600 s alone).
+NATIVE_LIMIT_PINS: dict[str, float] = {
+    "gate": 600.0,
+    "asan_configure": 120.0,
+    "asan_build": 600.0,
+    "asan_full_ctest": 2400.0,
+    "gcc13": 300.0,
+    "outer": 4200,
+    "record_max": 2400,
+}
+# The cheap preflight (selftest) and the source-snapshot checks run inside the
+# outer limit next to the five stage commands.
+NATIVE_OUTER_OVERHEAD_SECONDS = 120
+# The largest TIMEOUT registered in the CMake text (the state import test under
+# the sanitizer preset); the parse must find it so it cannot silently find none.
+EXPECTED_LARGEST_REGISTERED_TIMEOUT = 1800
+
+
+def _registered_ctest_timeouts() -> list[int]:
+    """Every `TIMEOUT <seconds>` registered by a CMakeLists.txt of the repository."""
+    found: list[int] = []
+    for path in sorted(ROOT.rglob("CMakeLists.txt")):
+        relative = path.relative_to(ROOT).parts
+        if relative[0] == "build" or ".git" in relative:
+            continue
+        text = path.read_text(encoding="utf-8")
+        literal = re.findall(r"\bTIMEOUT\s+([0-9]+)\b", text)
+        # A TIMEOUT given by a variable would escape the parse: every mention must be a literal.
+        assert len(re.findall(r"\bTIMEOUT\b", text)) == len(literal), (
+            f"{'/'.join(relative)}: a TIMEOUT is not a literal number")
+        found.extend(int(value) for value in literal)
+    return found
+
+
+def _native_limits(plan: list[dict]) -> dict[str, float]:
+    rdp = _rdp()
+    steps = {item["label"]: item for item in plan}
+    return {
+        "gate": rdp.NATIVE_GATE_TIMEOUT_SECONDS,
+        "asan_configure": rdp.NATIVE_ASAN_CONFIGURE_TIMEOUT_SECONDS,
+        "asan_build": rdp.NATIVE_ASAN_BUILD_TIMEOUT_SECONDS,
+        "asan_full_ctest": rdp.NATIVE_ASAN_FULL_CTEST_TIMEOUT_SECONDS,
+        "gcc13": rdp.NATIVE_GCC13_TIMEOUT_SECONDS,
+        "outer": steps["shared-native-gates"]["timeout_seconds"],
+        "record_max": qualify.NATIVE_SHARED_RECORD_MAX_TIMEOUT_SECONDS,
+    }
+
+
+def native_limit_problems(limits: dict[str, float], registered: list[int]) -> list[str]:
+    """The reasons a set of native stage limits is unsound; empty when sound."""
+    problems: list[str] = []
+    for name, pinned in NATIVE_LIMIT_PINS.items():
+        if limits.get(name) != pinned:
+            problems.append(f"{name} limit {limits.get(name)} differs from its reviewed pin {pinned}")
+    stages = ("gate", "asan_configure", "asan_build", "asan_full_ctest", "gcc13")
+    total = sum(limits[name] for name in stages)
+    if limits["outer"] < total + NATIVE_OUTER_OVERHEAD_SECONDS:
+        problems.append(f"outer limit {limits['outer']} is below the five stage limits "
+                        f"{total} plus {NATIVE_OUTER_OVERHEAD_SECONDS}")
+    if limits["record_max"] < max(limits[name] for name in stages):
+        problems.append(f"record bound {limits['record_max']} is below the largest stage limit")
+    if limits["asan_full_ctest"] <= max(registered):
+        problems.append(f"asan full CTest limit {limits['asan_full_ctest']} does not exceed "
+                        f"the largest registered TIMEOUT {max(registered)}")
+    return problems
+
+
+
 class Phase09Qualification(unittest.TestCase):
     def test_gate_junit_hook_private_phase09(self) -> None:
         """The N2 arm admits one more private directory and nothing else."""
@@ -896,7 +972,7 @@ class Phase09Qualification(unittest.TestCase):
         self.assertEqual([item["label"] for item in plan], expected)
         shared = plan[0]
         self.assertEqual(shared["command"][-1], "--native")
-        self.assertEqual(shared["timeout_seconds"], 2400)
+        self.assertEqual(shared["timeout_seconds"], NATIVE_LIMIT_PINS["outer"])
         self.assertEqual(shared["environment"], {"T64_GATE_JUNIT_OUT": str(normal_junit)})
         build_dirs = {"normal": str((ROOT / "build/gate").resolve()),
                       "asan": str((ROOT / "build/asan").resolve())}
@@ -911,6 +987,37 @@ class Phase09Qualification(unittest.TestCase):
         for item, kind in zip(plan[-2:], ("normal", "asan")):
             self.assertEqual(item["command"][-1], build_dirs[kind])
             self.assertEqual(item["command"][-2], "--build")
+        # The pinned limits and the relations every limit must satisfy, with the
+        # control that the check fails on an unauthorized change of each.
+        limits = _native_limits(plan)
+        registered = _registered_ctest_timeouts()
+        self.assertGreaterEqual(len(registered), 40, "the TIMEOUT parse found too few names")
+        self.assertEqual(max(registered), EXPECTED_LARGEST_REGISTERED_TIMEOUT)
+        self.assertEqual(native_limit_problems(limits, registered), [])
+
+        def unsound(label: str, needle: str, changed: dict, extra: list[int] | None = None) -> None:
+            found = native_limit_problems(dict(limits, **changed), registered + (extra or []))
+            self.assertTrue(any(needle in problem for problem in found), (label, found))
+            self.assertEqual(native_limit_problems(limits, registered), [], label)
+
+        for name in NATIVE_LIMIT_PINS:
+            unsound(f"{name} raised by one", "differs from its reviewed pin",
+                    {name: limits[name] + 1})
+            unsound(f"{name} lowered by one", "differs from its reviewed pin",
+                    {name: limits[name] - 1})
+        # the limits before the fix (Phase 7 values): the wrapper is killed by a
+        # registered TIMEOUT it was meant to outlive, and the outer limit is
+        # below the sum of its stages
+        unsound("limits before plan 09-10", "does not exceed the largest registered TIMEOUT",
+                {"asan_full_ctest": 600.0, "outer": 2400, "record_max": 2400,
+                 "asan_build": 600.0, "gcc13": 120.0})
+        unsound("a later TIMEOUT raise outgrows the wrapper", "does not exceed the largest registered TIMEOUT",
+                {}, extra=[int(limits["asan_full_ctest"]) + 1])
+        unsound("outer below the stage sum", "outer limit",
+                {"outer": sum(limits[name] for name in (
+                    "gate", "asan_configure", "asan_build", "asan_full_ctest", "gcc13"))})
+        unsound("record bound below the largest stage", "record bound",
+                {"record_max": limits["asan_full_ctest"] - 1})
         for label, prefix, junit in (
                 ("outside the private root", "09-unit", ROOT / "build/gate/other/j.xml"),
                 ("relative path", "09-unit", Path("build/gate/09-11-phase09-private/j.xml")),
