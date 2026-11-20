@@ -18,6 +18,8 @@ set(T64_RUNNER_BUILD_INPUTS
   ${CMAKE_CURRENT_SOURCE_DIR}/t64_raw_capture.h
   ${CMAKE_CURRENT_SOURCE_DIR}/t64_artifact_publisher.c
   ${CMAKE_CURRENT_SOURCE_DIR}/t64_artifact_publisher.h
+  ${CMAKE_CURRENT_SOURCE_DIR}/t64_replay.c
+  ${CMAKE_CURRENT_SOURCE_DIR}/t64_replay.h
   ${CMAKE_CURRENT_SOURCE_DIR}/t64_save_flags.h
   ${CMAKE_CURRENT_SOURCE_DIR}/CMakeLists.txt)
 set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS
@@ -311,7 +313,7 @@ t64_target_warnings(t64-supervisor)
 # First headless real guest producer. It consumes verified inherited snapshots
 # and emits a canonical t64.result v2 record.
 add_executable(t64-runner-real t64_real.c t64_real_result.c t64_real_fixture.c
-  t64_raw_capture.c t64_artifact_publisher.c)
+  t64_raw_capture.c t64_artifact_publisher.c t64_replay.c)
 target_compile_definitions(t64-runner-real PRIVATE ${T64_HOST_DEFS}
   T64_RUNNER_BUILD_ID=\"t64-runner-v1-${T64_RUNNER_PROD_BUILD_FINGERPRINT}\")
 target_link_libraries(t64-runner-real PRIVATE
@@ -321,7 +323,7 @@ add_dependencies(t64-supervisor t64-runner-real)
 
 # Test-only twin permits bounded post-guest report/process fault injection.
 add_executable(t64-runner-test t64_real.c t64_real_result.c t64_real_fixture.c
-  t64_raw_capture.c t64_artifact_publisher.c)
+  t64_raw_capture.c t64_artifact_publisher.c t64_replay.c)
 target_compile_definitions(t64-runner-test PRIVATE
   ${T64_HOST_DEFS}
   T64_RUNNER_BUILD_ID=\"t64-runner-v1-${T64_RUNNER_TEST_BUILD_FINGERPRINT}\"
@@ -600,7 +602,8 @@ set_tests_properties(runner.pad-poll controls.real.pad-wrong-value PROPERTIES
 # Phase 9 replay (plan 09-07): the authored replay-mix ROM, the replay module
 # tests (suite unit, in process) and the real supervised record and play
 # controls (suite real).
-add_executable(test_replay tests/test_replay.c t64_replay.c)
+add_executable(test_replay tests/test_replay.c t64_replay.c
+  t64_artifact_publisher.c)
 target_compile_definitions(test_replay PRIVATE ${T64_HOST_DEFS})
 target_include_directories(test_replay PRIVATE
   ${CMAKE_CURRENT_SOURCE_DIR} ${CMAKE_SOURCE_DIR}/core/include)
