@@ -430,14 +430,19 @@ outcome, not as one sentence:
   details `runner-exit-nonzero`, `runner-signalled`, `no-result`,
   `report-invalid` and `capture-invalid`, with `wall-backstop` and
   `supervisor-signalled` (the process group is killed in the window after the
-  commit), and with `host-error` when a capture export or the run-meta write
-  fails after it. The test twin reaches `runner-exit-nonzero`, `runner-signalled`,
+  commit), and with `host-error` when the capture export fails after the
+  probe (a full disk, for example). The test twin reaches `runner-exit-nonzero`, `runner-signalled`,
   `no-result` and `report-invalid` with the faults `exit-nonzero`,
   `crash-after-output`, `report-missing` and `report-malformed`; each row is
   asserted next to the accepted baseline of the same setup (leaf of the exact
   state size, mode 0600, one link; exit status 1). The two timing details
   (`wall-backstop`, `supervisor-signalled`) have no control because their window
   is not deterministic.
+
+A run-meta write that fails after the commit is the one case without a failure
+record: the record stays the runner's `pass` (the result protocol keeps it
+untouched), the supervisor exits 1 and the leaf stays, so exit status 0 is part of
+what a caller accepts.
 
 The record, not the presence of the leaf, says whether a run passed: a caller
 takes the artifact of a run only with a `pass` record and exit status 0, and
