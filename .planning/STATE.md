@@ -5,17 +5,17 @@ milestone_name: Observable Machine
 current_phase: 9
 current_phase_name: Controller, Save Media and Replay
 current_plan: 13
-status: executing
-stopped_at: Completed 09-10-PLAN.md
-last_updated: "2026-11-20T18:27:27.455Z"
+status: verifying
+stopped_at: Completed 09-11-PLAN.md
+last_updated: "2026-11-20T19:34:52.520Z"
 last_activity: 2026-11-19
 last_activity_desc: Phase 9 execution started
-state_head: b57ca55803c1df342f637535a8dc1734e5c04565
+state_head: c2a09579f55532385b3ba696aef691d8c868fe89
 progress:
   total_phases: 3
   completed_phases: 1
   total_plans: 31
-  completed_plans: 29
+  completed_plans: 30
   percent: 33
 ---
 
@@ -33,7 +33,7 @@ See: .planning/PROJECT.md (updated 2026-11-15)
 Phase: 9 (Controller, Save Media and Replay) — EXECUTING
 Current Plan: 13
 Total Plans in Phase: 13
-Status: Ready to execute
+Status: Phase complete — ready for verification
 Last activity: 2026-11-19 — Phase 9 execution started
 
 Progress: [███░░░░░░░] 33% of currently planned source plans
@@ -61,6 +61,7 @@ Progress: [███░░░░░░░] 33% of currently planned source plans
 | Phase 09 P09 | 65min | 5 tasks | 15 files |
 | Phase 9 P09.1 | 95min | 5 tasks | 13 files |
 | Phase 09 P10 | Task 6 1h45m (plan span one day) | 6 tasks | 61 files |
+| Phase 09 P11 | 85min | 6 tasks | 5 files |
 
 ## Accumulated Context
 
@@ -109,6 +110,9 @@ Progress: [███░░░░░░░] 33% of currently planned source plans
 - [Phase 9]: 09-09.1: the sanitizer preset raises the sweep and campaign counts and the test timeout (1800 s, measured 631.8 s) but not the full boundary matrix; gate cost of unit.core.state.import is 33.2 s native against a 25 s target
 - [Phase 09]: Plan 09-10: the hosted macOS cold projection 619 s over the 600 s gate is accepted as DEV-17 (no third candidate cycle, no ci.yml edit); 09-11 checks Binutils cache freshness with gh cache list before its first push
 - [Phase 09]: Plan 09-10: FR freeze recorded at 8dd6af1 with the local tag phase09-fr (not pushed); six declared frozen-file deviations FD-01 to FD-06; 09-11 edits data only, no CTest name may be added (45 of 45)
+- [Phase 09]: Plan 09-11: suite-level claim blocks bind the stem id only; the other family ids the state, scheduler and save suites exercise are listed in docs/evidence/phase09-qualification.md and are not claimed
+- [Phase 09]: Plan 09-11: the macOS cold projection of 673 s (warm 487 s) against the 600 s job limit is a recorded deviation extending DEV-17, not repaired (no logic edit after the freeze); the decision to act is the orchestrator's
+- [Phase 09]: Plan 09-11: repo.sched-k5-anchors is a supporting name of claim block 7 and not counted because no suite of the case inventory lists it; block 3 states that no wrong-value row exists for the 16 Kbit ROM
 
 ### Pending Todos
 
@@ -140,8 +144,8 @@ question. No oracle authority is part of this decision.
 
 ## Session Continuity
 
-Last session: 2026-11-20T18:27:27.296Z
-Stopped at: Completed 09-10-PLAN.md
+Last session: 2026-11-20T19:34:52.250Z
+Stopped at: Completed 09-11-PLAN.md
 Resume file: None
 
 Historical closeout: [v1.0 roadmap](milestones/v1.0-ROADMAP.md), [audit](milestones/v1.0-MILESTONE-AUDIT.md), [lessons](RETROSPECTIVE.md).
