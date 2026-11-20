@@ -847,6 +847,70 @@ done:
   return ok;
 }
 
+/* The just-in-time reference through the recorder wrapper: advance to the
+ * completed boundary at event tick less 5,000, then submit (same-tick events in
+ * array order), advance to stamp less 2,500, checkpoint; then the end. */
+static bool record_jit(uint64_t step, t64_replay **replay_out) {
+  t64_machine *machine = new_machine(PROFILE_STEM, false);
+  t64_input_schedule *schedule = NULL;
+  t64_replay_recorder *recorder = NULL;
+  t64_replay_header header;
+  t64_replay_error error;
+  uint64_t tick = 0u;
+  uint32_t reason = 0u;
+  size_t i = 0u;
+  size_t count;
+  bool ok = false;
+  if (machine == NULL || !load_script(&schedule) ||
+      !compose_live_header(machine, &header)) {
+    goto done;
+  }
+  recorder = t64_replay_recorder_create(&header, NULL);
+  if (recorder == NULL) goto done;
+  count = t64_input_schedule_event_count(schedule);
+  while (i < count) {
+    t64_input_event event;
+    uint64_t stamp;
+    if (!t64_input_schedule_event(schedule, i, &event)) goto done;
+    stamp = event.tick;
+    if (!advance_to(machine, &tick, stamp - JIT_LEAD, step, &reason) ||
+        reason != T64_STOP_REASON_BOUND) {
+      goto done;
+    }
+    while (i < count && t64_input_schedule_event(schedule, i, &event) &&
+           event.tick == stamp) {
+      if (t64_replay_recorder_queue_input(recorder, machine, tick, event.tick,
+                                          event.port, event.buttons,
+                                          event.axis_x, event.axis_y) !=
+          T64_STATUS_OK) {
+        goto done;
+      }
+      i++;
+    }
+    if (!advance_to(machine, &tick, stamp - JIT_CHECKPOINT_LEAD, step,
+                    &reason) ||
+        reason != T64_STOP_REASON_BOUND ||
+        t64_replay_recorder_checkpoint(recorder, machine, tick) !=
+            T64_REPLAY_OK) {
+      goto done;
+    }
+  }
+  if (!advance_to(machine, &tick, RUN_BOUND, step, &reason) ||
+      reason != T64_STOP_REASON_GUEST_COMPLETION ||
+      t64_replay_recorder_end(recorder, machine, tick,
+                              T64_REPLAY_STOP_GUEST_COMPLETION) !=
+          T64_REPLAY_OK) {
+    goto done;
+  }
+  ok = t64_replay_recorder_finish(recorder, replay_out, &error) ==
+       T64_REPLAY_OK;
+done:
+  t64_replay_recorder_destroy(recorder);
+  t64_input_schedule_destroy(schedule);
+  if (machine != NULL) t64_machine_destroy(machine);
+  return ok;
+}
+
 static int case_independent_original_run(void) {
   ref_run run;
   ref_run run_step7;
@@ -891,6 +955,28 @@ static int case_independent_original_run(void) {
   }
   t64_replay_destroy(recorded);
   t64_replay_destroy(recorded7);
+  /* Just-in-time mode: the reference path reproduces the JIT goldens and the
+   * recorder-wrapped run produces the independent literal JIT op list. */
+  {
+    ref_run jit;
+    t64_replay_op jit_want[MAX_GOLDEN_OPS];
+    size_t jit_count = golden_jit_ops(jit_want);
+    t64_replay *recorded_jit = NULL;
+    CHECK(reference_jit(4096u, &jit));
+    CHECK(jit.count == GOLDEN_JIT_CHECKPOINTS);
+    for (i = 0u; i < jit.count && i < GOLDEN_JIT_CHECKPOINTS; i++) {
+      CHECK(jit.ticks[i] == golden_jit_ticks[i]);
+      CHECK(digest_equals_hex(jit.digests[i], golden_jit_digests[i]));
+    }
+    CHECK(jit.end_tick == GOLDEN_END_TICK &&
+          jit.end_reason == T64_STOP_REASON_GUEST_COMPLETION &&
+          digest_equals_hex(jit.end_digest, GOLDEN_JIT_END_DIGEST));
+    CHECK(record_jit(4096u, &recorded_jit));
+    if (recorded_jit != NULL) {
+      CHECK(ops_equal(recorded_jit, jit_want, jit_count, "recorded-jit"));
+    }
+    t64_replay_destroy(recorded_jit);
+  }
   return g_failures == 0 ? 0 : 1;
 }
 
@@ -1515,6 +1601,534 @@ static int case_report_record(void) {
   return g_failures == 0 ? 0 : 1;
 }
 
+/* ---- driver helpers ------------------------------------------------------------------ */
+
+/* A named assertion: out-of-tree mutants must fail at their named comparator. */
+static void check_named(bool ok, const char *label) {
+  if (!ok) {
+    g_failures++;
+    (void)fprintf(stderr, "FAIL assertion %s\n", label);
+  }
+}
+
+static bool make_replay(const t64_replay_header *header,
+                        const t64_replay_op *ops, size_t count,
+                        t64_replay **replay_out) {
+  uint8_t *bytes = NULL;
+  size_t length = 0u;
+  t64_replay_error error;
+  bool ok = t64_replay_encode(header, ops, count, &bytes, &length) ==
+                T64_REPLAY_OK &&
+            t64_replay_parse(bytes, length, replay_out, &error) == T64_REPLAY_OK;
+  free(bytes);
+  return ok;
+}
+
+static t64_replay_step_result play_on(t64_machine *machine,
+                                      const t64_replay *replay, uint64_t step,
+                                      t64_replay_report *report,
+                                      uint64_t *calls_out) {
+  t64_replay_play_options options;
+  t64_replay_step_result result;
+  memset(&options, 0, sizeof options);
+  options.advance_step = step;
+  result = t64_replay_play(machine, replay, &options, report);
+  if (calls_out != NULL) *calls_out = options.advance_calls;
+  return result;
+}
+
+static bool report_is(const t64_replay_report *r, t64_replay_result result,
+                      t64_replay_detail detail, const char *field) {
+  return r->result == result && r->detail == detail &&
+         strcmp(r->field, field) == 0;
+}
+
+/* ---- identity-binding ----------------------------------------------------------------- */
+
+static void flip_hex(char *text, size_t index) {
+  text[index] = text[index] == '0' ? '1' : '0';
+}
+
+static int case_identity_binding(void) {
+  t64_replay_op ops[MAX_GOLDEN_OPS];
+  const size_t count = golden_prequeue_ops(ops);
+  t64_machine *probe = new_machine(PROFILE_STEM, false);
+  t64_replay_header live;
+  t64_replay_header altered;
+  t64_replay *replay = NULL;
+  t64_replay_report report;
+  uint8_t admitted_digest[T64_DIGEST_SIZE];
+  uint64_t calls = 0u;
+  size_t i;
+  static const char *const names[] = {"profile-digest", "build-id",
+                                      "content-sha256", "content-size",
+                                      "profile-id", "profile-and-build"};
+  CHECK(probe != NULL && compose_live_header(probe, &live));
+  if (probe == NULL) return 1;
+  CHECK(t64_machine_digest(probe, admitted_digest) == T64_STATUS_OK);
+  t64_machine_destroy(probe);
+  /* The accepted baseline in the same setup: the unaltered replay plays to a
+   * match on a fresh machine of the same ROM. */
+  {
+    t64_machine *machine = new_machine(PROFILE_STEM, false);
+    CHECK(make_replay(&live, ops, count, &replay));
+    if (machine != NULL && replay != NULL) {
+      CHECK(play_on(machine, replay, 4096u, &report, &calls) ==
+            T64_REPLAY_STEP_MATCH);
+      CHECK(report_is(&report, T64_REPLAY_RESULT_MATCH, T64_REPLAY_DETAIL_NONE,
+                      "none"));
+      CHECK(calls > 0u);
+    }
+    if (machine != NULL) t64_machine_destroy(machine);
+    t64_replay_destroy(replay);
+    replay = NULL;
+  }
+  /* Each header field family refuses with its own field before any advance. */
+  for (i = 0u; i < sizeof names / sizeof names[0]; i++) {
+    t64_machine *machine = new_machine(PROFILE_STEM, false);
+    t64_replay_live_identity identity;
+    const char *field = NULL;
+    uint8_t after[T64_DIGEST_SIZE];
+    const char *want_field = names[i];
+    bool refused;
+    altered = live;
+    if (i == 0u) flip_hex(altered.identity.profile_digest, 3u);
+    if (i == 1u) {
+      size_t n = strlen(altered.identity.build_id);
+      flip_hex(altered.identity.build_id, n - 1u);
+    }
+    if (i == 2u) flip_hex(altered.identity.content_sha256, 5u);
+    if (i == 3u) altered.identity.content_size += 1u;
+    if (i == 4u) {
+      (void)snprintf(altered.identity.profile_id,
+                     sizeof altered.identity.profile_id, "%s-e4k", PROFILE_STEM);
+    }
+    if (i == 5u) {
+      /* The order row: profile and build both altered reports the profile. */
+      flip_hex(altered.identity.profile_digest, 3u);
+      flip_hex(altered.identity.build_id,
+               strlen(altered.identity.build_id) - 1u);
+      want_field = "profile-digest";
+    }
+    CHECK(machine != NULL && make_replay(&altered, ops, count, &replay));
+    if (machine == NULL || replay == NULL) {
+      if (machine != NULL) t64_machine_destroy(machine);
+      t64_replay_destroy(replay);
+      replay = NULL;
+      continue;
+    }
+    /* Accepted baseline for the same setup: the live identity binds. */
+    CHECK(t64_replay_live_identity_compose(machine, &identity));
+    CHECK(t64_replay_bind(&live, &identity, &field) == T64_REPLAY_BIND_OK);
+    refused = play_on(machine, replay, 4096u, &report, &calls) ==
+              T64_REPLAY_STEP_FAILED;
+    if (i == 1u) check_named(refused, "build-mismatch-refused");
+    if (i == 0u) check_named(refused, "profile-mismatch-refused");
+    CHECK(refused);
+    CHECK(report_is(&report, T64_REPLAY_RESULT_IDENTITY_MISMATCH,
+                    T64_REPLAY_DETAIL_NONE, want_field));
+    CHECK(calls == 0u);
+    CHECK(report.live_tick == 0u && report.ops_applied == 0u &&
+          report.checkpoints_matched == 0u);
+    CHECK(t64_machine_digest(machine, after) == T64_STATUS_OK &&
+          memcmp(after, admitted_digest, sizeof after) == 0);
+    t64_machine_destroy(machine);
+    t64_replay_destroy(replay);
+    replay = NULL;
+  }
+  /* save_init on an -e4k machine holding an authored 512-byte image. */
+  {
+    t64_machine *with_image = new_machine(PROFILE_STEM "-e4k", false);
+    t64_machine *blank_device = new_machine(PROFILE_STEM "-e4k", false);
+    t64_machine *no_device = new_machine(PROFILE_STEM, false);
+    uint8_t image[512];
+    uint8_t sha[T64_SHA256_DIGEST_SIZE];
+    t64_replay_live_identity held;
+    t64_replay_live_identity empty;
+    t64_replay_live_identity stem;
+    t64_replay_header recorded;
+    const char *field = NULL;
+    size_t k;
+    for (k = 0u; k < sizeof image; k++) image[k] = (uint8_t)(k * 5u + 1u);
+    CHECK(with_image != NULL && blank_device != NULL && no_device != NULL);
+    if (with_image != NULL && blank_device != NULL && no_device != NULL) {
+      CHECK(t64_machine_save_import(with_image, T64_SAVE_EEPROM_4K,
+                                    T64_SAVE_FORMAT_RAW, image,
+                                    sizeof image) == T64_STATUS_OK);
+      CHECK(t64_replay_live_identity_compose(with_image, &held));
+      CHECK(t64_replay_live_identity_compose(blank_device, &empty));
+      CHECK(t64_replay_live_identity_compose(no_device, &stem));
+      CHECK(held.save_kind == T64_REPLAY_SAVE_IMAGE && held.save_length == 512u);
+      CHECK(empty.save_kind == T64_REPLAY_SAVE_BLANK);
+      CHECK(stem.save_kind == T64_REPLAY_SAVE_BLANK);
+      {
+        t64_sha256_ctx ctx;
+        t64_sha256_init(&ctx);
+        t64_sha256_update(&ctx, image, sizeof image);
+        t64_sha256_final(&ctx, sha);
+        t64_sha256_hex(sha, recorded.identity.save_sha256);
+      }
+      CHECK(strcmp(held.save_sha256, recorded.identity.save_sha256) == 0);
+      /* recorded blank: binds the blank device, refused on the held image */
+      memset(&recorded, 0, sizeof recorded);
+      recorded.identity = empty;
+      recorded.identity.save_kind = T64_REPLAY_SAVE_BLANK;
+      CHECK(t64_replay_bind(&recorded, &empty, &field) == T64_REPLAY_BIND_OK);
+      CHECK(t64_replay_bind(&recorded, &held, &field) ==
+                T64_REPLAY_BIND_SAVE_INIT &&
+            strcmp(field, "save-init") == 0);
+      /* recorded image: binds only the machine holding the same image */
+      recorded.identity = held;
+      CHECK(t64_replay_bind(&recorded, &held, &field) == T64_REPLAY_BIND_OK);
+      CHECK(t64_replay_bind(&recorded, &empty, &field) ==
+                T64_REPLAY_BIND_SAVE_INIT &&
+            strcmp(field, "save-init") == 0);
+      /* a stem machine has no device: only blank binds, image does not */
+      recorded.identity = stem;
+      recorded.identity.save_kind = T64_REPLAY_SAVE_BLANK;
+      CHECK(t64_replay_bind(&recorded, &stem, &field) == T64_REPLAY_BIND_OK);
+      recorded.identity.save_kind = T64_REPLAY_SAVE_IMAGE;
+      recorded.identity.save_length = 512u;
+      (void)snprintf(recorded.identity.save_sha256,
+                     sizeof recorded.identity.save_sha256, "%s", held.save_sha256);
+      CHECK(t64_replay_bind(&recorded, &stem, &field) ==
+                T64_REPLAY_BIND_SAVE_INIT &&
+            strcmp(field, "save-init") == 0);
+      /* the full driver: a recorded blank refused on the held image before
+       * any advance */
+      {
+        t64_replay_op one_end[1];
+        t64_replay *blank_replay = NULL;
+        recorded.identity = held;
+        recorded.identity.save_kind = T64_REPLAY_SAVE_BLANK;
+        (void)snprintf(recorded.source_revision, sizeof recorded.source_revision,
+                       "%s", live.source_revision);
+        op_end(&one_end[0], 10u, GOLDEN_PRE_END_DIGEST);
+        one_end[0].stop = T64_REPLAY_STOP_GUEST_BOUND;
+        CHECK(make_replay(&recorded, one_end, 1u, &blank_replay));
+        if (blank_replay != NULL) {
+          CHECK(play_on(with_image, blank_replay, 16u, &report, &calls) ==
+                T64_REPLAY_STEP_FAILED);
+          CHECK(report_is(&report, T64_REPLAY_RESULT_IDENTITY_MISMATCH,
+                          T64_REPLAY_DETAIL_NONE, "save-init"));
+          CHECK(calls == 0u && report.live_tick == 0u);
+        }
+        t64_replay_destroy(blank_replay);
+      }
+    }
+    if (with_image != NULL) t64_machine_destroy(with_image);
+    if (blank_device != NULL) t64_machine_destroy(blank_device);
+    if (no_device != NULL) t64_machine_destroy(no_device);
+  }
+  return g_failures == 0 ? 0 : 1;
+}
+
+/* ---- at-matters ------------------------------------------------------------------------ */
+
+static int case_at_matters(void) {
+  t64_replay_op jit[MAX_GOLDEN_OPS];
+  t64_replay_op pre[MAX_GOLDEN_OPS];
+  const size_t jit_count = golden_jit_ops(jit);
+  const size_t pre_count = golden_prequeue_ops(pre);
+  t64_machine *probe = new_machine(PROFILE_STEM, false);
+  t64_replay_header live;
+  t64_replay *replay = NULL;
+  t64_replay_report report;
+  uint64_t calls = 0u;
+  CHECK(probe != NULL && compose_live_header(probe, &live));
+  if (probe == NULL) return 1;
+  t64_machine_destroy(probe);
+  /* The baseline just-in-time replay matches its goldens. */
+  {
+    t64_machine *machine = new_machine(PROFILE_STEM, false);
+    bool matched = false;
+    CHECK(machine != NULL && make_replay(&live, jit, jit_count, &replay));
+    if (machine != NULL && replay != NULL) {
+      matched = play_on(machine, replay, 4096u, &report, &calls) ==
+                T64_REPLAY_STEP_MATCH;
+    }
+    check_named(matched, "jit-golden-match");
+    if (machine != NULL) t64_machine_destroy(machine);
+    t64_replay_destroy(replay);
+    replay = NULL;
+  }
+  /* The first input op moved to at 0 (still nondecreasing) diverges at its
+   * first following checkpoint (op index 1, tick 599,500). */
+  {
+    t64_replay_op moved[MAX_GOLDEN_OPS];
+    t64_machine *machine = new_machine(PROFILE_STEM, false);
+    memcpy(moved, jit, sizeof moved);
+    moved[0].at = 0u;
+    CHECK(machine != NULL && make_replay(&live, moved, jit_count, &replay));
+    if (machine != NULL && replay != NULL) {
+      CHECK(play_on(machine, replay, 4096u, &report, &calls) ==
+            T64_REPLAY_STEP_FAILED);
+      CHECK(report_is(&report, T64_REPLAY_RESULT_DIVERGED,
+                      T64_REPLAY_DETAIL_DIGEST, "none"));
+      CHECK(report.has_op_index && report.op_index == 1u);
+      CHECK(report.has_at && report.at == golden_jit_ticks[0]);
+      CHECK(report.live_tick == golden_jit_ticks[0] && report.live_tick != 0u);
+      CHECK(report.checkpoints_matched == 0u);
+      CHECK(report.has_expected_digest && report.has_actual_digest &&
+            memcmp(report.expected_digest, report.actual_digest,
+                   T64_DIGEST_SIZE) != 0);
+    }
+    if (machine != NULL) t64_machine_destroy(machine);
+    t64_replay_destroy(replay);
+    replay = NULL;
+  }
+  /* The pre-queue golden with its last input op at 100 instead of 0 diverges
+   * at the first checkpoint (160,000, op index 6). */
+  {
+    t64_replay_op moved[MAX_GOLDEN_OPS];
+    t64_machine *machine = new_machine(PROFILE_STEM, false);
+    t64_machine *baseline = new_machine(PROFILE_STEM, false);
+    t64_replay *unmoved = NULL;
+    CHECK(baseline != NULL && make_replay(&live, pre, pre_count, &unmoved));
+    if (baseline != NULL && unmoved != NULL) {
+      CHECK(play_on(baseline, unmoved, 4096u, &report, &calls) ==
+            T64_REPLAY_STEP_MATCH);
+    }
+    if (baseline != NULL) t64_machine_destroy(baseline);
+    t64_replay_destroy(unmoved);
+    memcpy(moved, pre, sizeof moved);
+    moved[GOLDEN_SCRIPT_COUNT - 1u].at = 100u;
+    CHECK(machine != NULL && make_replay(&live, moved, pre_count, &replay));
+    if (machine != NULL && replay != NULL) {
+      CHECK(play_on(machine, replay, 4096u, &report, &calls) ==
+            T64_REPLAY_STEP_FAILED);
+      CHECK(report_is(&report, T64_REPLAY_RESULT_DIVERGED,
+                      T64_REPLAY_DETAIL_DIGEST, "none"));
+      CHECK(report.has_op_index && report.op_index == GOLDEN_SCRIPT_COUNT);
+      CHECK(report.live_tick == GOLDEN_PRE_INTERVAL);
+    }
+    if (machine != NULL) t64_machine_destroy(machine);
+    t64_replay_destroy(replay);
+    replay = NULL;
+  }
+  /* Witness only (a non-claim): pre-queue and just-in-time submission give
+   * different digests at the first checkpoint where the first event is still
+   * pending (tick 599,500). No equality across submission schedules is
+   * claimed anywhere. */
+  {
+    t64_machine *machine = new_machine(PROFILE_STEM, false);
+    t64_input_schedule *schedule = NULL;
+    uint8_t digest[T64_DIGEST_SIZE];
+    uint64_t tick = 0u;
+    uint32_t reason = 0u;
+    size_t i;
+    CHECK(machine != NULL && load_script(&schedule));
+    if (machine != NULL && schedule != NULL) {
+      for (i = 0u; i < t64_input_schedule_event_count(schedule); i++) {
+        t64_input_event event;
+        CHECK(t64_input_schedule_event(schedule, i, &event) &&
+              t64_machine_queue_input(machine, event.tick, event.port,
+                                      event.buttons, event.axis_x,
+                                      event.axis_y) == T64_STATUS_OK);
+      }
+      CHECK(advance_to(machine, &tick, golden_jit_ticks[0], 4096u, &reason));
+      CHECK(tick == golden_jit_ticks[0] &&
+            t64_machine_digest(machine, digest) == T64_STATUS_OK);
+      CHECK(!digest_equals_hex(digest, golden_jit_digests[0]));
+    }
+    t64_input_schedule_destroy(schedule);
+    if (machine != NULL) t64_machine_destroy(machine);
+  }
+  return g_failures == 0 ? 0 : 1;
+}
+
+/* ---- partition ---------------------------------------------------------------------------- */
+
+typedef struct {
+  t64_machine *other;
+  uint64_t tick;
+} interleave;
+
+static void advance_other(void *context, uint64_t tick) {
+  interleave *state = (interleave *)context;
+  uint32_t reason = 0u;
+  if (state->other != NULL && tick > state->tick) {
+    (void)advance_to(state->other, &state->tick, tick, 4096u, &reason);
+  }
+}
+
+/* One full play of a golden at an advance step with the trace on or off and an
+ * optional second machine advanced between the slices. */
+static bool play_golden(const t64_replay_header *live, const t64_replay_op *ops,
+                        size_t count, uint64_t step, bool trace,
+                        bool second_machine) {
+  t64_machine *machine = new_machine(PROFILE_STEM, trace);
+  t64_machine *other = second_machine ? new_machine(PROFILE_STEM, false) : NULL;
+  t64_replay *replay = NULL;
+  t64_replay_report report;
+  t64_replay_play_options options;
+  interleave state = {other, 0u};
+  bool ok = false;
+  memset(&options, 0, sizeof options);
+  options.advance_step = step;
+  options.after_advance = advance_other;
+  options.context = &state;
+  if (machine != NULL && (!second_machine || other != NULL) &&
+      make_replay(live, ops, count, &replay)) {
+    ok = t64_replay_play(machine, replay, &options, &report) ==
+         T64_REPLAY_STEP_MATCH;
+  }
+  if (!ok) {
+    (void)fprintf(stderr,
+                  "partition: step %llu trace %d second %d did not match "
+                  "(result %d detail %d op %llu)\n",
+                  (unsigned long long)step, trace, second_machine,
+                  (int)report.result, (int)report.detail,
+                  (unsigned long long)report.op_index);
+  }
+  t64_replay_destroy(replay);
+  if (machine != NULL) t64_machine_destroy(machine);
+  if (other != NULL) t64_machine_destroy(other);
+  return ok;
+}
+
+static int case_partition(void) {
+  t64_replay_op pre[MAX_GOLDEN_OPS];
+  t64_replay_op jit[MAX_GOLDEN_OPS];
+  t64_replay_op prefix[MAX_GOLDEN_OPS];
+  const size_t pre_count = golden_prequeue_ops(pre);
+  const size_t jit_count = golden_jit_ops(jit);
+  t64_machine *probe = new_machine(PROFILE_STEM, false);
+  t64_replay_header live;
+  size_t n = 0u;
+  size_t i;
+  CHECK(probe != NULL && compose_live_header(probe, &live));
+  if (probe == NULL) return 1;
+  t64_machine_destroy(probe);
+  /* Step 1 over the prefix through the first checkpoint: the inputs, the
+   * checkpoint at 160,000 and an end at the same tick (guest-bound). */
+  for (i = 0u; i < GOLDEN_SCRIPT_COUNT; i++) prefix[n++] = pre[i];
+  prefix[n++] = pre[GOLDEN_SCRIPT_COUNT];
+  op_end(&prefix[n], golden_pre_ticks[0], golden_pre_digests[0]);
+  prefix[n].stop = T64_REPLAY_STOP_GUEST_BOUND;
+  n++;
+  CHECK(play_golden(&live, prefix, n, 1u, false, false));
+  CHECK(play_golden(&live, pre, pre_count, 7u, false, false));
+  CHECK(play_golden(&live, pre, pre_count, 4096u, false, false));
+  CHECK(play_golden(&live, pre, pre_count, 4096u, true, false));
+  CHECK(play_golden(&live, pre, pre_count, 4096u, false, true));
+  CHECK(play_golden(&live, jit, jit_count, 7u, false, false));
+  CHECK(play_golden(&live, jit, jit_count, 4096u, true, false));
+  CHECK(play_golden(&live, jit, jit_count, 4096u, false, true));
+  return g_failures == 0 ? 0 : 1;
+}
+
+/* ---- queue-full-divergence --------------------------------------------------------------- */
+
+static int case_queue_full_divergence(void) {
+  enum { INPUTS = 300 };
+  t64_replay_op *ops = (t64_replay_op *)calloc(INPUTS + 1u, sizeof *ops);
+  t64_machine *counter = new_machine(PROFILE_STEM, false);
+  t64_machine *machine = new_machine(PROFILE_STEM, false);
+  t64_machine *reference = new_machine(PROFILE_STEM, false);
+  t64_replay_header live;
+  t64_replay *replay = NULL;
+  t64_replay_report report;
+  uint8_t before[T64_DIGEST_SIZE];
+  uint8_t after[T64_DIGEST_SIZE];
+  uint64_t calls = 0u;
+  size_t accepted = 0u;
+  size_t i;
+  CHECK(ops != NULL && counter != NULL && machine != NULL && reference != NULL);
+  if (ops == NULL || counter == NULL || machine == NULL || reference == NULL) {
+    free(ops);
+    return 1;
+  }
+  CHECK(compose_live_header(machine, &live));
+  /* An independent reference counts k: the accepted calls on a fresh admitted
+   * machine before the first QUEUE_FULL. */
+  for (i = 0u; i < INPUTS; i++) {
+    t64_status status = t64_machine_queue_input(
+        counter, 1000u + 1000u * (uint64_t)i, 0u, (uint16_t)(i + 1u),
+        (int32_t)(i % 100u) - 50, 7);
+    if (status == T64_STATUS_QUEUE_FULL) break;
+    CHECK(status == T64_STATUS_OK);
+    accepted++;
+  }
+  CHECK(accepted > 0u && accepted < INPUTS);
+  for (i = 0u; i < INPUTS; i++) {
+    golden_event event;
+    event.event_tick = 1000u + 1000u * (uint64_t)i;
+    event.buttons = (uint16_t)(i + 1u);
+    event.x = (int32_t)(i % 100u) - 50;
+    event.y = 7;
+    op_input(&ops[i], 0u, &event);
+  }
+  op_end(&ops[INPUTS], 100u, GOLDEN_PRE_END_DIGEST);
+  ops[INPUTS].stop = T64_REPLAY_STOP_GUEST_BOUND;
+  /* The accepted baseline: exactly k inputs and an end whose digest comes from
+   * the reference run to tick 100. */
+  {
+    uint64_t tick = 0u;
+    uint32_t reason = 0u;
+    t64_replay_op baseline[INPUTS + 1u];
+    t64_replay *good = NULL;
+    t64_machine *runner = new_machine(PROFILE_STEM, false);
+    for (i = 0u; i < accepted; i++) {
+      CHECK(t64_machine_queue_input(
+                reference, 1000u + 1000u * (uint64_t)i, 0u,
+                (uint16_t)(i + 1u), (int32_t)(i % 100u) - 50, 7) ==
+            T64_STATUS_OK);
+    }
+    CHECK(advance_to(reference, &tick, 100u, 16u, &reason));
+    CHECK(t64_machine_digest(reference, after) == T64_STATUS_OK);
+    for (i = 0u; i < accepted; i++) baseline[i] = ops[i];
+    memset(&baseline[accepted], 0, sizeof baseline[accepted]);
+    baseline[accepted].kind = T64_REPLAY_OP_END;
+    baseline[accepted].at = 100u;
+    baseline[accepted].stop = T64_REPLAY_STOP_GUEST_BOUND;
+    memcpy(baseline[accepted].digest, after, T64_DIGEST_SIZE);
+    CHECK(make_replay(&live, baseline, accepted + 1u, &good));
+    if (runner != NULL && good != NULL) {
+      CHECK(play_on(runner, good, 16u, &report, &calls) ==
+            T64_REPLAY_STEP_MATCH);
+    }
+    if (runner != NULL) t64_machine_destroy(runner);
+    t64_replay_destroy(good);
+  }
+  /* The authored replay with 300 inputs parses; the player refuses op k. */
+  CHECK(make_replay(&live, ops, INPUTS + 1u, &replay));
+  if (replay != NULL) {
+    CHECK(t64_machine_digest(machine, before) == T64_STATUS_OK);
+    (void)before;
+    CHECK(play_on(machine, replay, 16u, &report, &calls) ==
+          T64_REPLAY_STEP_FAILED);
+    CHECK(report_is(&report, T64_REPLAY_RESULT_REFUSED,
+                    T64_REPLAY_DETAIL_QUEUE_FULL, "none"));
+    CHECK(report.has_op_index && report.op_index == accepted);
+    CHECK(report.ops_applied == accepted && report.live_tick == 0u);
+    CHECK(calls == 0u);
+    /* The refused op changed nothing: the machine equals the one holding the
+     * k accepted calls. */
+    {
+      uint8_t reference_digest[T64_DIGEST_SIZE];
+      t64_machine *held = new_machine(PROFILE_STEM, false);
+      CHECK(held != NULL);
+      for (i = 0u; i < accepted && held != NULL; i++) {
+        CHECK(t64_machine_queue_input(
+                  held, 1000u + 1000u * (uint64_t)i, 0u, (uint16_t)(i + 1u),
+                  (int32_t)(i % 100u) - 50, 7) == T64_STATUS_OK);
+      }
+      CHECK(held != NULL &&
+            t64_machine_digest(held, reference_digest) == T64_STATUS_OK &&
+            t64_machine_digest(machine, after) == T64_STATUS_OK &&
+            memcmp(reference_digest, after, T64_DIGEST_SIZE) == 0);
+      if (held != NULL) t64_machine_destroy(held);
+    }
+  }
+  t64_replay_destroy(replay);
+  t64_machine_destroy(counter);
+  t64_machine_destroy(machine);
+  t64_machine_destroy(reference);
+  free(ops);
+  return g_failures == 0 ? 0 : 1;
+}
+
 /* ---- real suite: supervised runs ----------------------------------------------------- */
 
 static const char *g_supervisor;
@@ -2040,6 +2654,10 @@ static const case_entry cases[] = {
     {"mutation-matrix", "unit", case_mutation_matrix},
     {"report-record", "unit", case_report_record},
     {"independent-original-run", "unit", case_independent_original_run},
+    {"partition", "unit", case_partition},
+    {"at-matters", "unit", case_at_matters},
+    {"queue-full-divergence", "unit", case_queue_full_divergence},
+    {"identity-binding", "unit", case_identity_binding},
     {"record-play-match", "real", case_record_play_match},
 };
 

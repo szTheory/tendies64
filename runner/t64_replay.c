@@ -4,6 +4,7 @@
  * reaches the core except the public machine API. No API or ABI freeze. */
 #include "t64_replay.h"
 
+#include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 
@@ -961,14 +962,55 @@ bool t64_replay_live_identity_compose(const t64_machine *machine,
   return t64_replay_live_save_init(machine, identity);
 }
 
-/* Tracer scope: the per-field comparisons arrive with the binding task; until
- * then every header that parsed is accepted. */
+/* Compares in the fixed order profile, build, content, save_init (D-31): the
+ * three families are separate statuses and the field names the first mismatch.
+ * Every comparison is against the live machine; nothing is bound to a host
+ * path, time or user name. */
 t64_replay_bind_status t64_replay_bind(const t64_replay_header *recorded,
                                        const t64_replay_live_identity *live,
                                        const char **field_out) {
-  (void)recorded;
-  (void)live;
+  const t64_replay_live_identity *a;
   if (field_out != NULL) *field_out = T64_REPLAY_FIELD_NONE;
+  if (recorded == NULL || live == NULL) return T64_REPLAY_BIND_PROFILE;
+  a = &recorded->identity;
+#define BIND_MISMATCH(status, field)                 \
+  do {                                               \
+    if (field_out != NULL) *field_out = (field);     \
+    return (status);                                 \
+  } while (0)
+  if (strcmp(a->profile_id, live->profile_id) != 0) {
+    BIND_MISMATCH(T64_REPLAY_BIND_PROFILE, T64_REPLAY_FIELD_PROFILE_ID);
+  }
+  if (strcmp(a->profile_digest, live->profile_digest) != 0) {
+    BIND_MISMATCH(T64_REPLAY_BIND_PROFILE, T64_REPLAY_FIELD_PROFILE_DIGEST);
+  }
+  if (a->descriptor_version != live->descriptor_version) {
+    BIND_MISMATCH(T64_REPLAY_BIND_PROFILE, T64_REPLAY_FIELD_DESCRIPTOR_VERSION);
+  }
+  if (a->machine_model_version != live->machine_model_version) {
+    BIND_MISMATCH(T64_REPLAY_BIND_PROFILE,
+                  T64_REPLAY_FIELD_MACHINE_MODEL_VERSION);
+  }
+  if (a->state_serialization_version != live->state_serialization_version) {
+    BIND_MISMATCH(T64_REPLAY_BIND_PROFILE,
+                  T64_REPLAY_FIELD_STATE_SERIALIZATION_VERSION);
+  }
+  if (strcmp(a->build_id, live->build_id) != 0) {
+    BIND_MISMATCH(T64_REPLAY_BIND_BUILD, T64_REPLAY_FIELD_BUILD_ID);
+  }
+  if (strcmp(a->content_sha256, live->content_sha256) != 0) {
+    BIND_MISMATCH(T64_REPLAY_BIND_CONTENT, T64_REPLAY_FIELD_CONTENT_SHA256);
+  }
+  if (a->content_size != live->content_size) {
+    BIND_MISMATCH(T64_REPLAY_BIND_CONTENT, T64_REPLAY_FIELD_CONTENT_SIZE);
+  }
+  if (a->save_kind != live->save_kind ||
+      (a->save_kind == T64_REPLAY_SAVE_IMAGE &&
+       (a->save_length != live->save_length ||
+        strcmp(a->save_sha256, live->save_sha256) != 0))) {
+    BIND_MISMATCH(T64_REPLAY_BIND_SAVE_INIT, T64_REPLAY_FIELD_SAVE_INIT);
+  }
+#undef BIND_MISMATCH
   return T64_REPLAY_BIND_OK;
 }
 
@@ -1403,8 +1445,13 @@ t64_replay_step_result t64_replay_player_step(t64_replay_player *player,
           machine, op->event_tick, op->port, op->buttons, op->axis_x,
           op->axis_y);
       if (status != T64_STATUS_OK) {
+        /* A refusal by the machine ends the play at the op: QUEUE_FULL is its
+         * own detail, any other refusal is input-refused. */
         report_begin(player, tick, T64_REPLAY_RESULT_REFUSED,
-                     T64_REPLAY_DETAIL_INPUT_REFUSED, report);
+                     status == T64_STATUS_QUEUE_FULL
+                         ? T64_REPLAY_DETAIL_QUEUE_FULL
+                         : T64_REPLAY_DETAIL_INPUT_REFUSED,
+                     report);
         report->has_op_index = true;
         report->op_index = (uint64_t)player->index;
         report->has_at = true;
@@ -1470,6 +1517,26 @@ t64_replay_step_result t64_replay_play(t64_machine *machine,
   options->advance_calls = 0u;
   player = t64_replay_player_create(replay);
   if (player == NULL) return T64_REPLAY_STEP_FAILED;
+  {
+    /* The binding comes first: a mismatch ends the play before any guest
+     * advance (zero advance calls, live tick 0). */
+    t64_replay_live_identity live;
+    const char *field = T64_REPLAY_FIELD_NONE;
+    if (!t64_replay_live_identity_compose(machine, &live)) {
+      report_begin(player, 0u, T64_REPLAY_RESULT_REFUSED,
+                   T64_REPLAY_DETAIL_ADVANCE_INVALID, report);
+      t64_replay_player_destroy(player);
+      return T64_REPLAY_STEP_FAILED;
+    }
+    if (t64_replay_bind(t64_replay_header_get(replay), &live, &field) !=
+        T64_REPLAY_BIND_OK) {
+      report_begin(player, 0u, T64_REPLAY_RESULT_IDENTITY_MISMATCH,
+                   T64_REPLAY_DETAIL_NONE, report);
+      (void)snprintf(report->field, sizeof report->field, "%s", field);
+      t64_replay_player_destroy(player);
+      return T64_REPLAY_STEP_FAILED;
+    }
+  }
   result = t64_replay_player_step(player, machine, tick, T64_REPLAY_STOP_NONE,
                                   report);
   while (result == T64_REPLAY_STEP_CONTINUE) {
