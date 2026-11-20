@@ -58,7 +58,10 @@ static bool read_openipl3_asset(uint8_t bytes[IPL3_ASSET_BYTES]) {
   int read_error;
   int close_error;
 
-  if (path == NULL || path[0] == '\0' || bytes == NULL) return false;
+  /* CTest sets the path; a direct run from the repository root (the verify
+   * commands of the plan) finds the built asset at its fixed relative place. */
+  if (path == NULL || path[0] == '\0') path = "build/fixtures/ipl3_compat.z64";
+  if (bytes == NULL) return false;
   file = fopen(path, "rb");
   if (file == NULL) return false;
   length = fread(bytes, 1u, IPL3_ASSET_BYTES, file);
