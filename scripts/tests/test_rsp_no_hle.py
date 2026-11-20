@@ -110,7 +110,13 @@ NEW_SI_SOURCES = ("t64_si.c", "t64_joybus.c")
 # Plan 09-04 pins: the PI completion body edited for the SRAM directions (the
 # bus bodies re-pinned above carry the SRAM region too) and the save source.
 # Deleting any one of them must fail the guard.
-NEW_SAVE_BODY_PINS = ("core/t64_pi.c :: t64_pi_complete",)
+# Plan 09-10 (fix FX-01): the two triangle raster bodies added when the bounds
+# function was split so the state importer shares the acceptance proof.
+NEW_SAVE_BODY_PINS = (
+    "core/t64_pi.c :: t64_pi_complete",
+    "core/t64_rdp_raster.c :: t64_rdp_triangle_extent",
+    "core/t64_rdp_raster.c :: t64_rdp_triangle_opcode_accepted",
+)
 NEW_SAVE_SOURCES = ("t64_save.c",)
 
 # Plan 09-08: the state container source has no pinned body, only a roster row;
