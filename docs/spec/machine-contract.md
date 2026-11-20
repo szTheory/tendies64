@@ -501,7 +501,11 @@ until the Phase 10 interface review. Host import and export of the save bytes
 (`t64_machine_save_import`, `t64_machine_save_export`, the three byte-order
 selections, the statuses 23 to 25 and the observer-only import generation) are
 specified in `docs/spec/save-media.md` under Host import and export; they are
-provisional on the same terms.
+provisional on the same terms. The complete status list is the `T64_STATUS_`
+block of `core/include/tendies64/t64_machine.h`, unique and contiguous from 0:
+0 to 19 are the earlier values, 20 to 25 the save statuses (20 to 22 from the
+device request, 23 to 25 from host import and export) and 26 to 33 the state
+container statuses (`docs/spec/state-container.md`, Statuses and reasons).
 
 The synchronization quantum is measured in RSP issue opportunities, equal to
 guest ticks in these profiles. A quantum or ratio other than 1 and 1:1 is a new

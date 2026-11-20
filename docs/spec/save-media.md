@@ -148,11 +148,18 @@ answer `SAVE_UNKNOWN_DEVICE`), the kind is supported (4 to 7 answer
 the flag `T64_SAVE_INFO_BUSY` while an EEPROM deadline is in the future or an
 SRAM DMA is active.
 
+The save statuses are the values 20 to 25 of the public header: the first three
+answer the device request above, the last three answer host import and export
+(Host import and export, below).
+
 | Status | Value |
 | --- | --- |
 | `T64_STATUS_SAVE_UNKNOWN_DEVICE` | 20 |
 | `T64_STATUS_SAVE_UNSUPPORTED_DEVICE` | 21 |
 | `T64_STATUS_SAVE_DEVICE_MISMATCH` | 22 |
+| `T64_STATUS_SAVE_BAD_FORMAT` | 23 |
+| `T64_STATUS_SAVE_SIZE_MISMATCH` | 24 |
+| `T64_STATUS_SAVE_BUSY` | 25 |
 
 The reserved requestable kinds are FlashRAM (4), Controller Pak (5), Rumble Pak
 (6) and Transfer Pak (7); they are known and unsupported, and descriptor
@@ -322,10 +329,14 @@ SWAP16 vector declared as WORDREV32 (and the reverse) stores `02 03 00 01 06 07
 
 `write_generation` is an observer-only counter that lives in the machine and is
 outside the canonical digest. It counts successful imports since creation or the
-last replacement; guest writes do not increment it (a Phase 10 follow-up), and
-whether it travels in the observer-continuity section of the state container is
-an open item for plan 09-08. Replacement (`t64_machine_admit_rom` on an admitted
-machine) restores blank save content (`0xFF` for EEPROM, `0x00` for SRAM), clears
+last replacement; guest writes do not increment it (a Phase 10 follow-up). A
+successful state import (`t64_machine_state_import`) into a profile with a save
+device adds exactly one, saturating, as the last write of its commit, because it
+replaces the save bytes as a save import does; a refused state import never
+touches the counter and a profile with no save device keeps 0. The counter never
+travels in the state container (decided in plan 09-09, `docs/spec/state-container.md`,
+Save media counters and the deadline bound), so a peer imported from one blob holds
+its own generation. Replacement (`t64_machine_admit_rom` on an admitted machine) restores blank save content (`0xFF` for EEPROM, `0x00` for SRAM), clears
 the deadline and resets the generation, so the digest equals a freshly created
 and admitted machine of the same id; a refused admission leaves the bytes, the
 deadline and the generation unchanged. Replacement while a write window is open
