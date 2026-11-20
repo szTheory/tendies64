@@ -766,6 +766,22 @@ set_tests_properties(unit.core.sched.ledger
   LABELS unit
   ENVIRONMENT "T64_TEST_IPL3_PATH=${T64_BOOT_FIXTURE_DIR}/ipl3_compat.z64")
 
+# Phase 9 CORE-02 ordering matrix and the F1 state content record (plan 09-06).
+add_executable(test_sched_matrix tests/test_sched_matrix.c)
+target_include_directories(test_sched_matrix PRIVATE
+  "${CMAKE_SOURCE_DIR}/tests"
+  "${CMAKE_CURRENT_SOURCE_DIR}"
+  "${CMAKE_SOURCE_DIR}/tools/common")
+target_link_libraries(test_sched_matrix PRIVATE t64_core t64_sha256)
+t64_target_warnings(test_sched_matrix)
+add_dependencies(test_sched_matrix t64-boot-fixtures)
+add_test(NAME unit.core.sched.matrix
+  COMMAND test_sched_matrix --suite matrix)
+set_tests_properties(unit.core.sched.matrix PROPERTIES
+  LABELS unit
+  TIMEOUT 300
+  ENVIRONMENT "T64_TEST_IPL3_PATH=${T64_BOOT_FIXTURE_DIR}/ipl3_compat.z64")
+
 # Phase 9 SI, PIF and input-latch tests (plan 09-03).
 add_executable(test_si tests/test_si.c)
 target_include_directories(test_si PRIVATE
