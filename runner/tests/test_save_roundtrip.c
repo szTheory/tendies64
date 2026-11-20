@@ -38,6 +38,7 @@
 #include "t64_sha256.h"
 
 static const char *g_supervisor;
+static const char *g_test_supervisor;
 static const char *g_checker;
 static const char *g_root;
 static char g_evidence[PATH_MAX];
@@ -231,9 +232,13 @@ typedef struct {
   const char *leaf;
   const char *artifact_dir;
   const char *artifact_max;
+  uint64_t advance_step;  /* the test twin only; 0 leaves it out */
+  int video_fd;           /* the test twin only; 0 leaves it out */
+  int audio_fd;           /* the test twin only; 0 leaves it out */
+  const char *raw_capture_dir;
 } run_spec;
 
-#define MAX_ARGS 40u
+#define MAX_ARGS 64u
 
 typedef struct {
   char *items[MAX_ARGS];
@@ -258,6 +263,9 @@ static bool run_supervised(const run_spec *spec, run_out *out) {
   char capture_path[PATH_MAX];
   char input[PATH_MAX];
   char bound_text[24];
+  char advance_text[24];
+  char video_text[24];
+  char audio_text[24];
   char real_option[] = "--real";
   char result_option[] = "--result";
   char meta_option[] = "--meta";
@@ -310,10 +318,39 @@ static bool run_supervised(const run_spec *spec, run_out *out) {
   arg_add_pair(&list, "--save-export-leaf", spec->leaf);
   arg_add_pair(&list, "--artifact-dir", spec->artifact_dir);
   arg_add_pair(&list, "--artifact-max-bytes", spec->artifact_max);
+  arg_add_pair(&list, "--raw-capture-dir", spec->raw_capture_dir);
+  if (spec->advance_step != 0u) {
+    (void)snprintf(advance_text, sizeof advance_text, "%llu",
+                   (unsigned long long)spec->advance_step);
+    arg_add_pair(&list, "--advance-step", advance_text);
+  }
+  if (spec->video_fd != 0) {
+    (void)snprintf(video_text, sizeof video_text, "%d", spec->video_fd);
+    arg_add_pair(&list, "--video-observation-fd", video_text);
+  }
+  if (spec->audio_fd != 0) {
+    (void)snprintf(audio_text, sizeof audio_text, "%d", spec->audio_fd);
+    arg_add_pair(&list, "--audio-observation-fd", audio_text);
+  }
   list.items[list.count] = NULL;
   pid = fork();
   if (pid < 0) return false;
   if (pid == 0) {
+    /* What the supervisor prints is kept for the no-save-bytes scan. */
+    char out_path[PATH_MAX];
+    char err_path[PATH_MAX];
+    int out_fd;
+    int err_fd;
+    if (!join_path(out_path, sizeof out_path, out->dir, "supervisor.out") ||
+        !join_path(err_path, sizeof err_path, out->dir, "supervisor.err")) {
+      _exit(126);
+    }
+    out_fd = open(out_path, O_WRONLY | O_CREAT | O_TRUNC, 0600);
+    err_fd = open(err_path, O_WRONLY | O_CREAT | O_TRUNC, 0600);
+    if (out_fd < 0 || err_fd < 0 || dup2(out_fd, STDOUT_FILENO) < 0 ||
+        dup2(err_fd, STDERR_FILENO) < 0) {
+      _exit(126);
+    }
     execv(spec->supervisor, list.items);
     _exit(127);
   }
@@ -542,6 +579,836 @@ static int case_sram_roundtrip(void) {
   return g_failures == 0 ? 0 : 1;
 }
 
+/* ---- more literals and helpers for the format, refusal and publication cases -- */
+
+#define EEPROM_4K_BYTES 512u
+#define EEPROM_16K_BYTES 2048u
+#define ADMIT_E4K_ROM "phase09-admit-e4k"
+#define ADMIT_E16K_ROM "phase09-admit-e16k"
+#define ADMIT_STEM_ROM "phase09-admit-si-v1"
+#define ADMIT_E4K_PROFILE "ntsc-cart-4m-openipl3-rdram-b-t1-si-v1-e4k"
+#define ADMIT_E16K_PROFILE "ntsc-cart-4m-openipl3-rdram-b-t1-si-v1-e16k"
+#define ADMIT_BYTES 20u
+/* The admit transcripts (independently pinned in 09-02). */
+#define ADMIT_E4K_SHA256 \
+  "bd084623780adfd35591144d77f299f3107a3399fe536230c6c891ed7de4f015"
+#define ADMIT_E16K_SHA256 \
+  "c8ba071062fca5ba87baf198de9cf41bf387fa286754844410b644907eaa2bba"
+/* Oracle scenario swap16-as-raw (fixtures/save/roundtrip_oracle.py --sha256),
+ * also the independent shasum of the four hand-derived lines. */
+#define SWAP16_AS_RAW_SHA256 \
+  "3717361f6b106331021025e25a738598b01a52bffb68bd33507b0ec948369128"
+
+/* The three selections: the token, the XOR mask of the offset mapping and the
+ * oracle digests (--image-sha256 import and export) of each kind. The EEPROM
+ * admit ROMs write nothing, so their import and export digests are equal. */
+typedef struct {
+  const char *token;
+  unsigned mask;
+  const char *sram_import;
+  const char *sram_export;
+  const char *eeprom4k;
+  const char *eeprom16k;
+} format_row;
+
+static const format_row format_rows[3] = {
+    {"raw-v1", 0u,
+     "a4851725208bbacc91017a0663796acb58ad12a8b1061100894fc8df145a9c5d",
+     "7ffc21818eb8b3f3802176937dfa7dbedb98cdb3f44afbfb467c95e4b9d3e588",
+     "cd2e4a856f596727b039028313ca8d3556a46e82deb7980021dcdfac0840440b",
+     "849ee493e7d9f2544d84fa3b7fcaa747a38c8d0d6ba79e57dfa005c58e1ebb39"},
+    {"swap16-v1", 1u,
+     "06677b257fe8f10fbc0c98e2df281bb88c207403b3a1d14aa3d77ece6bc1af75",
+     "72a127590999f35722b42409f542226ec288d00316fecb4aa83ce528efec1b33",
+     "e417bc4d4be5242179a7ffbbbb71f04e37cf5a0d1b32801c538c012474ca0f11",
+     "55c8d93c9c6744ad62011b4fa3456a98730376a0f0cd212f832a53d1f2fb2d09"},
+    {"wordrev32-v1", 3u,
+     "c21e698fc968f0b2bde2d06b0b710f92d75adcd1f5c872d479b9c7a8515477e7",
+     "3cc27bde2b0c8d2196e4c3a7bf8d4f11e74964717f7ae92b5bdec3cc0b3b5a41",
+     "be5d23c803e41af29b81bd65a753c9ef596f5744ded227e6ab518b18f0f87c4f",
+     "0210891e2c384c0a89a38d6ee94e630e095532514fb3f8f648fc3663bf1472d2"},
+};
+
+/* The offset mapping of a selection: out[i] = raw[i XOR mask]. */
+static void encode_image(const uint8_t *raw, size_t length, unsigned mask,
+                         uint8_t *out) {
+  size_t i;
+  for (i = 0u; i < length; i++) out[i] = raw[i ^ (size_t)mask];
+}
+
+static void hex_text(const uint8_t *bytes, size_t length, char *out) {
+  static const char digits[] = "0123456789abcdef";
+  size_t i;
+  for (i = 0u; i < length; i++) {
+    out[2u * i] = digits[bytes[i] >> 4];
+    out[2u * i + 1u] = digits[bytes[i] & 0x0fu];
+  }
+  out[2u * length] = '\0';
+}
+
+static uint8_t image_raw[SRAM_BYTES + 8u];
+static uint8_t image_encoded[SRAM_BYTES];
+static uint8_t image_final[SRAM_BYTES];
+static uint8_t published_bytes[SRAM_BYTES + 1u];
+static uint8_t converted_bytes[SRAM_BYTES];
+
+/* Stages an import file of `length` bytes in a fresh private directory and
+ * fills in its path and SHA-256. */
+static bool stage_import(const uint8_t *bytes, size_t length,
+                         char dir[PATH_MAX], char path[PATH_MAX],
+                         char sha[65]) {
+  if (!make_private_dir(dir) || !join_path(path, PATH_MAX, dir, "import.dat") ||
+      !write_new_file(path, bytes, length)) {
+    return false;
+  }
+  sha_hex_of(bytes, length, sha);
+  return true;
+}
+
+/* The published leaf: exactly this mode, size and digest. */
+static void check_leaf(const char *directory, const char *leaf, size_t size,
+                       const char *expected_sha) {
+  char path[PATH_MAX];
+  char sha[65];
+  size_t length = 0u;
+  struct stat info;
+  CHECK(join_path(path, sizeof path, directory, leaf));
+  if (stat(path, &info) != 0) {
+    CHECK(false);
+    return;
+  }
+  CHECK((info.st_mode & 0777) == 0600);
+  CHECK((uint64_t)info.st_size == (uint64_t)size);
+  CHECK(read_file(path, published_bytes, sizeof published_bytes, &length));
+  CHECK(length == size);
+  sha_hex_of(published_bytes, length, sha);
+  CHECK(strcmp(sha, expected_sha) == 0);
+}
+
+static void expect_usage(const run_out *run) {
+  CHECK(run->parsed);
+  CHECK(run->checker_ok);
+  CHECK(strcmp(run->outcome, "harness-error") == 0);
+  CHECK(strcmp(run->detail, "usage") == 0);
+  CHECK(strcmp(run->stop_kind, "not-started") == 0);
+  CHECK(run->guest_tick == 0u);
+}
+
+/* The supervisor refuses before launch (a verified-input failure). */
+static void expect_supervisor_refusal(const run_out *run) {
+  CHECK(run->parsed);
+  CHECK(run->checker_ok);
+  CHECK(strcmp(run->outcome, "harness-error") == 0);
+  CHECK(strcmp(run->detail, "refusal") == 0);
+  CHECK(strcmp(run->stop_kind, "refused") == 0);
+  CHECK(run->guest_tick == 0u);
+}
+
+/* The runner refuses before the guest starts: the supervised record is its
+ * post-launch classification (report-error, capture-invalid, guest tick 0). */
+static void expect_runner_refusal(const run_out *run) {
+  CHECK(run->parsed);
+  CHECK(run->checker_ok);
+  CHECK(strcmp(run->outcome, "harness-error") == 0);
+  CHECK(strcmp(run->stop_kind, "report-error") == 0);
+  CHECK(strcmp(run->detail, "capture-invalid") == 0);
+  CHECK(run->guest_tick == 0u);
+}
+
+static void expect_host_error(const run_out *run, const char *detail) {
+  CHECK(run->parsed);
+  CHECK(run->checker_ok);
+  CHECK(strcmp(run->outcome, "harness-error") == 0);
+  CHECK(strcmp(run->stop_kind, "host-error") == 0);
+  CHECK(strcmp(run->detail, detail) == 0);
+}
+
+/* The roundtrip run of the SRAM ROM with the given tokens, import image and
+ * leaf, into a fresh export directory; fills `import_dir` and `export_dir`. */
+static bool roundtrip_run(const char *format, const uint8_t *import_bytes,
+                          size_t import_length, const char *leaf,
+                          char import_dir[PATH_MAX], char export_dir[PATH_MAX],
+                          run_out *run) {
+  char rom[PATH_MAX];
+  char import_path[PATH_MAX];
+  char sha[65];
+  char size_text[24];
+  run_spec spec = {0};
+  if (!fixture_path(rom, ROUNDTRIP_ROM) ||
+      !stage_import(import_bytes, import_length, import_dir, import_path,
+                    sha) ||
+      !make_private_dir(export_dir)) {
+    return false;
+  }
+  (void)snprintf(size_text, sizeof size_text, "%zu", import_length);
+  spec.supervisor = g_supervisor;
+  spec.fixture = rom;
+  spec.bound = SAVE_BOUND;
+  spec.import_path = import_path;
+  spec.import_size = size_text;
+  spec.import_sha256 = sha;
+  spec.kind = "sram32k";
+  spec.format = format;
+  spec.leaf = leaf;
+  spec.artifact_dir = export_dir;
+  spec.artifact_max = "32768";
+  return run_supervised(&spec, run);
+}
+
+static void expect_roundtrip_pass(const run_out *run) {
+  expect_pass(run);
+  CHECK(strcmp(run->fixture_id, ROUNDTRIP_ROM) == 0);
+  CHECK(strcmp(run->profile_id, ROUNDTRIP_PROFILE) == 0);
+  CHECK(run->log_bytes == ROUNDTRIP_BYTES);
+  CHECK(strcmp(run->log_sha256, ROUNDTRIP_SHA256) == 0);
+}
+
+/* ---- format-matrix ----------------------------------------------------------- */
+
+static int case_format_matrix(void) {
+  /* (import format, export format) as indexes of format_rows. The runner takes
+   * one --save-format for the import and the export (the flag set of 09-05),
+   * so a cross pair is run in its import format and the published file is
+   * converted to the export format by the independent mapping before its
+   * digest is compared with the oracle value of that format. */
+  static const unsigned pairs[5][2] = {{0, 0}, {1, 1}, {2, 2}, {1, 0}, {2, 1}};
+  char same_format_sha[3][65] = {{0}};
+  size_t i;
+
+  fill_image(image_raw, SRAM_BYTES);
+  memcpy(image_final, image_raw, SRAM_BYTES);
+  rewrite_image(image_final);
+  for (i = 0u; i < 5u; i++) {
+    const format_row *in = &format_rows[pairs[i][0]];
+    const format_row *out = &format_rows[pairs[i][1]];
+    char import_dir[PATH_MAX];
+    char export_dir[PATH_MAX];
+    char import_sha[65];
+    char derived_sha[65];
+    run_out run;
+
+    encode_image(image_raw, SRAM_BYTES, in->mask, image_encoded);
+    sha_hex_of(image_encoded, SRAM_BYTES, import_sha);
+    CHECK(strcmp(import_sha, in->sram_import) == 0);
+    CHECK(roundtrip_run(in->token, image_encoded, SRAM_BYTES, "roundtrip.sra",
+                        import_dir, export_dir, &run));
+    expect_roundtrip_pass(&run);
+    /* The published file is the final image encoded in the run's format. */
+    encode_image(image_final, SRAM_BYTES, in->mask, converted_bytes);
+    sha_hex_of(converted_bytes, SRAM_BYTES, derived_sha);
+    CHECK(strcmp(derived_sha, in->sram_export) == 0);
+    check_leaf(export_dir, "roundtrip.sra", SRAM_BYTES, in->sram_export);
+    if (pairs[i][0] == pairs[i][1]) {
+      sha_hex_of(published_bytes, SRAM_BYTES, same_format_sha[pairs[i][0]]);
+    } else {
+      /* Convert to the export format: decode with the run's mapping, encode
+         with the export mapping; the digest equals the oracle value. */
+      char converted_sha[65];
+      encode_image(published_bytes, SRAM_BYTES, in->mask, image_encoded);
+      encode_image(image_encoded, SRAM_BYTES, out->mask, converted_bytes);
+      sha_hex_of(converted_bytes, SRAM_BYTES, converted_sha);
+      CHECK(strcmp(converted_sha, out->sram_export) == 0);
+    }
+    remove_dir_tree(export_dir);
+    remove_dir_tree(import_dir);
+  }
+  /* The three same-format exports differ pairwise. */
+  CHECK(strcmp(same_format_sha[0], same_format_sha[1]) != 0);
+  CHECK(strcmp(same_format_sha[0], same_format_sha[2]) != 0);
+  CHECK(strcmp(same_format_sha[1], same_format_sha[2]) != 0);
+  return g_failures == 0 ? 0 : 1;
+}
+
+/* ---- eeprom-passthrough --------------------------------------------------- */
+
+typedef struct {
+  const char *rom;
+  const char *profile;
+  const char *kind;
+  const char *transcript_sha;
+  const char *leaf;
+  size_t size;
+} eeprom_row;
+
+static const eeprom_row eeprom_rows[2] = {
+    {ADMIT_E4K_ROM, ADMIT_E4K_PROFILE, "eeprom4k", ADMIT_E4K_SHA256, "e4k.eep",
+     EEPROM_4K_BYTES},
+    {ADMIT_E16K_ROM, ADMIT_E16K_PROFILE, "eeprom16k", ADMIT_E16K_SHA256,
+     "e16k.eep", EEPROM_16K_BYTES},
+};
+
+static int case_eeprom_passthrough(void) {
+  size_t row;
+  size_t f;
+
+  for (row = 0u; row < 2u; row++) {
+    const eeprom_row *eeprom = &eeprom_rows[row];
+    for (f = 0u; f < 3u; f++) {
+      const format_row *selection = &format_rows[f];
+      const char *oracle_import =
+          row == 0u ? selection->eeprom4k : selection->eeprom16k;
+      char rom[PATH_MAX];
+      char import_dir[PATH_MAX];
+      char import_path[PATH_MAX];
+      char export_dir[PATH_MAX];
+      char sha[65];
+      char size_text[24];
+      size_t other;
+      run_spec spec = {0};
+      run_out run;
+
+      fill_image(image_raw, eeprom->size);
+      encode_image(image_raw, eeprom->size, selection->mask, image_encoded);
+      sha_hex_of(image_encoded, eeprom->size, sha);
+      CHECK(strcmp(sha, oracle_import) == 0);
+      CHECK(fixture_path(rom, eeprom->rom));
+      CHECK(stage_import(image_encoded, eeprom->size, import_dir, import_path,
+                         sha));
+      CHECK(make_private_dir(export_dir));
+      (void)snprintf(size_text, sizeof size_text, "%zu", eeprom->size);
+      spec.supervisor = g_supervisor;
+      spec.fixture = rom;
+      spec.bound = SAVE_BOUND;
+      spec.import_path = import_path;
+      spec.import_size = size_text;
+      spec.import_sha256 = sha;
+      spec.kind = eeprom->kind;
+      spec.format = selection->token;
+      spec.leaf = eeprom->leaf;
+      spec.artifact_dir = export_dir;
+      spec.artifact_max = size_text;
+      CHECK(run_supervised(&spec, &run));
+      expect_pass(&run);
+      CHECK(strcmp(run.fixture_id, eeprom->rom) == 0);
+      CHECK(strcmp(run.profile_id, eeprom->profile) == 0);
+      CHECK(run.log_bytes == ADMIT_BYTES);
+      CHECK(strcmp(run.log_sha256, eeprom->transcript_sha) == 0);
+      /* No guest write: the exported file is the imported file. */
+      check_leaf(export_dir, eeprom->leaf, eeprom->size, oracle_import);
+      /* An export in a different format equals the oracle digest of the image
+         in that format (the file is converted by the independent mapping). */
+      for (other = 0u; other < 3u; other++) {
+        const char *want = row == 0u ? format_rows[other].eeprom4k
+                                     : format_rows[other].eeprom16k;
+        char converted_sha[65];
+        encode_image(published_bytes, eeprom->size, selection->mask,
+                     image_final);
+        encode_image(image_final, eeprom->size, format_rows[other].mask,
+                     converted_bytes);
+        sha_hex_of(converted_bytes, eeprom->size, converted_sha);
+        CHECK(strcmp(converted_sha, want) == 0);
+      }
+      remove_dir_tree(export_dir);
+      remove_dir_tree(import_dir);
+    }
+  }
+  return g_failures == 0 ? 0 : 1;
+}
+
+/* ---- same-setup-wrong-format ------------------------------------------------- */
+
+static int case_same_setup_wrong_format(void) {
+  char import_dir[PATH_MAX];
+  char export_dir[PATH_MAX];
+  run_out run;
+
+  fill_image(image_raw, SRAM_BYTES);
+  /* The accepted baseline of this setup. */
+  CHECK(roundtrip_run("raw-v1", image_raw, SRAM_BYTES, "roundtrip.sra",
+                      import_dir, export_dir, &run));
+  expect_roundtrip_pass(&run);
+  check_leaf(export_dir, "roundtrip.sra", SRAM_BYTES,
+             format_rows[0].sram_export);
+  remove_dir_tree(export_dir);
+  remove_dir_tree(import_dir);
+
+  /* An image encoded SWAP16 but declared raw-v1 reaches the transcript
+     comparator: guest-fail, wrong-transcript, the oracle scenario digest, and
+     nothing is published. */
+  encode_image(image_raw, SRAM_BYTES, 1u, image_encoded);
+  CHECK(roundtrip_run("raw-v1", image_encoded, SRAM_BYTES, "roundtrip.sra",
+                      import_dir, export_dir, &run));
+  CHECK(run.parsed);
+  CHECK(run.checker_ok);
+  CHECK(strcmp(run.outcome, "guest-fail") == 0);
+  CHECK(strcmp(run.detail, "wrong-transcript") == 0);
+  CHECK(strcmp(run.stop_kind, "authored-completion") == 0);
+  CHECK(run.log_bytes == ROUNDTRIP_BYTES);
+  CHECK(strcmp(run.log_sha256, SWAP16_AS_RAW_SHA256) == 0);
+  CHECK(strcmp(run.log_sha256, ROUNDTRIP_SHA256) != 0);
+  CHECK(count_entries(export_dir) == 0);
+  remove_dir_tree(export_dir);
+  remove_dir_tree(import_dir);
+
+  /* A SWAP16 file declared swap16-v1 and read back: the published file is the
+     SWAP16 encoding of the final image; read in the WORDREV32 selection (the
+     independent mapping) its digest equals the oracle value, which differs
+     from the oracle RAW value. */
+  CHECK(roundtrip_run("swap16-v1", image_encoded, SRAM_BYTES, "roundtrip.sra",
+                      import_dir, export_dir, &run));
+  expect_roundtrip_pass(&run);
+  check_leaf(export_dir, "roundtrip.sra", SRAM_BYTES,
+             format_rows[1].sram_export);
+  {
+    char converted_sha[65];
+    encode_image(published_bytes, SRAM_BYTES, 1u, image_final);
+    encode_image(image_final, SRAM_BYTES, 3u, converted_bytes);
+    sha_hex_of(converted_bytes, SRAM_BYTES, converted_sha);
+    CHECK(strcmp(converted_sha, format_rows[2].sram_export) == 0);
+    CHECK(strcmp(converted_sha, format_rows[0].sram_export) != 0);
+  }
+  remove_dir_tree(export_dir);
+  remove_dir_tree(import_dir);
+  return g_failures == 0 ? 0 : 1;
+}
+
+/* ---- import-refused ------------------------------------------------------------ */
+
+typedef struct {
+  const char *rom;
+  const char *kind;
+  const char *format;
+  size_t length;       /* bytes of the import file */
+  const char *size_text;   /* NULL: the decimal length */
+  bool wrong_sha;
+  bool omit_size;
+  bool omit_sha;
+  bool omit_kind;
+  bool omit_format;
+} refusal_row;
+
+typedef enum {
+  CLASS_USAGE,
+  CLASS_SUPERVISOR_REFUSAL,
+  CLASS_RUNNER_REFUSAL,
+  CLASS_HOST_ERROR
+} refusal_class;
+
+static void run_refusal(const refusal_row *row, refusal_class want,
+                        const char *label) {
+  char rom[PATH_MAX];
+  char import_dir[PATH_MAX];
+  char import_path[PATH_MAX];
+  char export_dir[PATH_MAX];
+  char sha[65];
+  char size_text[24];
+  run_spec spec = {0};
+  run_out run;
+
+  fill_image(image_raw, SRAM_BYTES + 8u);
+  CHECK(fixture_path(rom, row->rom));
+  CHECK(stage_import(image_raw, row->length, import_dir, import_path, sha));
+  CHECK(make_private_dir(export_dir));
+  (void)snprintf(size_text, sizeof size_text, "%zu", row->length);
+  if (row->wrong_sha) sha[0] = sha[0] == '0' ? '1' : '0';
+  spec.supervisor = g_supervisor;
+  spec.fixture = rom;
+  spec.bound = SAVE_BOUND;
+  spec.import_path = import_path;
+  spec.import_size = row->omit_size ? NULL
+                                    : (row->size_text != NULL ? row->size_text
+                                                              : size_text);
+  spec.import_sha256 = row->omit_sha ? NULL : sha;
+  spec.kind = row->omit_kind ? NULL : row->kind;
+  spec.format = row->omit_format ? NULL : row->format;
+  spec.leaf = "roundtrip.sra";
+  spec.artifact_dir = export_dir;
+  spec.artifact_max = "32768";
+  CHECK(run_supervised(&spec, &run));
+  (void)fprintf(stderr, "import-refused '%s': outcome=%s detail=%s stop=%s "
+                "tick=%llu\n", label, run.outcome, run.detail, run.stop_kind,
+                (unsigned long long)run.guest_tick);
+  if (want == CLASS_USAGE) expect_usage(&run);
+  else if (want == CLASS_SUPERVISOR_REFUSAL) expect_supervisor_refusal(&run);
+  else expect_runner_refusal(&run);
+  CHECK(count_entries(export_dir) == 0);
+  remove_dir_tree(export_dir);
+  remove_dir_tree(import_dir);
+}
+
+static int case_import_refused(void) {
+  char import_dir[PATH_MAX];
+  char export_dir[PATH_MAX];
+  run_out run;
+
+  /* The accepted baseline of the same setup. */
+  fill_image(image_raw, SRAM_BYTES);
+  CHECK(roundtrip_run("raw-v1", image_raw, SRAM_BYTES, "roundtrip.sra",
+                      import_dir, export_dir, &run));
+  expect_roundtrip_pass(&run);
+  remove_dir_tree(export_dir);
+  remove_dir_tree(import_dir);
+
+  {
+    static const struct {
+      const char *label;
+      refusal_class want;
+      refusal_row row;
+    } rows[] = {
+        {"file of 32767 bytes", CLASS_USAGE,
+         {ROUNDTRIP_ROM, "sram32k", "raw-v1", 32767u, NULL, false, false,
+          false, false, false}},
+        {"file of 32769 bytes", CLASS_USAGE,
+         {ROUNDTRIP_ROM, "sram32k", "raw-v1", 32769u, NULL, false, false,
+          false, false, false}},
+        {"wrong sha256", CLASS_SUPERVISOR_REFUSAL,
+         {ROUNDTRIP_ROM, "sram32k", "raw-v1", 32768u, NULL, true, false,
+          false, false, false}},
+        {"kind eeprom4k on the SRAM id", CLASS_RUNNER_REFUSAL,
+         {ROUNDTRIP_ROM, "eeprom4k", "raw-v1", 512u, NULL, false, false,
+          false, false, false}},
+        {"kind sram32k on the 4 Kbit id", CLASS_RUNNER_REFUSAL,
+         {ADMIT_E4K_ROM, "sram32k", "raw-v1", 32768u, NULL, false, false,
+          false, false, false}},
+        {"kind eeprom4k on the no-device id", CLASS_RUNNER_REFUSAL,
+         {ADMIT_STEM_ROM, "eeprom4k", "raw-v1", 512u, NULL, false, false,
+          false, false, false}},
+        {"unknown format token", CLASS_USAGE,
+         {ROUNDTRIP_ROM, "sram32k", "raw-v2", 32768u, NULL, false, false,
+          false, false, false}},
+        {"unversioned format token raw", CLASS_USAGE,
+         {ROUNDTRIP_ROM, "sram32k", "raw", 32768u, NULL, false, false, false,
+          false, false}},
+        {"kind without format", CLASS_USAGE,
+         {ROUNDTRIP_ROM, "sram32k", "raw-v1", 32768u, NULL, false, false,
+          false, false, true}},
+        {"format without kind", CLASS_USAGE,
+         {ROUNDTRIP_ROM, "sram32k", "raw-v1", 32768u, NULL, false, false,
+          false, true, false}},
+        {"import trio missing its size", CLASS_USAGE,
+         {ROUNDTRIP_ROM, "sram32k", "raw-v1", 32768u, NULL, false, true,
+          false, false, false}},
+        {"import trio missing its digest", CLASS_USAGE,
+         {ROUNDTRIP_ROM, "sram32k", "raw-v1", 32768u, NULL, false, false,
+          true, false, false}},
+        {"declared size differs from the kind size", CLASS_USAGE,
+         {ROUNDTRIP_ROM, "sram32k", "raw-v1", 32768u, "32767", false, false,
+          false, false, false}},
+    };
+    size_t i;
+    for (i = 0u; i < sizeof rows / sizeof rows[0]; i++) {
+      run_refusal(&rows[i].row, rows[i].want, rows[i].label);
+    }
+  }
+  return g_failures == 0 ? 0 : 1;
+}
+
+/* ---- export-publication --------------------------------------------------------- */
+
+static void run_publication_row(const char *label, const char *leaf,
+                                const char *artifact_max, bool with_pair,
+                                const char *directory_override,
+                                const char *want_detail, refusal_class want) {
+  char rom[PATH_MAX];
+  char import_dir[PATH_MAX];
+  char import_path[PATH_MAX];
+  char export_dir[PATH_MAX];
+  char sha[65];
+  run_spec spec = {0};
+  run_out run;
+
+  fill_image(image_raw, SRAM_BYTES);
+  CHECK(fixture_path(rom, ROUNDTRIP_ROM));
+  CHECK(stage_import(image_raw, SRAM_BYTES, import_dir, import_path, sha));
+  CHECK(make_private_dir(export_dir));
+  spec.supervisor = g_supervisor;
+  spec.fixture = rom;
+  spec.bound = SAVE_BOUND;
+  spec.import_path = import_path;
+  spec.import_size = "32768";
+  spec.import_sha256 = sha;
+  spec.kind = "sram32k";
+  spec.format = "raw-v1";
+  spec.leaf = leaf;
+  if (with_pair) {
+    spec.artifact_dir = directory_override != NULL ? directory_override
+                                                   : export_dir;
+    spec.artifact_max = artifact_max;
+  }
+  CHECK(run_supervised(&spec, &run));
+  (void)fprintf(stderr, "export-publication '%s': outcome=%s detail=%s "
+                "stop=%s tick=%llu\n", label, run.outcome, run.detail,
+                run.stop_kind, (unsigned long long)run.guest_tick);
+  if (want == CLASS_USAGE) {
+    expect_usage(&run);
+  } else if (want == CLASS_RUNNER_REFUSAL) {
+    expect_runner_refusal(&run);
+  } else if (want == CLASS_SUPERVISOR_REFUSAL) {
+    expect_supervisor_refusal(&run);
+  } else {
+    expect_host_error(&run, want_detail);
+    CHECK(run.guest_tick == 0u);
+  }
+  CHECK(count_entries(export_dir) == 0);
+  remove_dir_tree(export_dir);
+  remove_dir_tree(import_dir);
+}
+
+static int case_export_publication(void) {
+  char import_dir[PATH_MAX];
+  char export_dir[PATH_MAX];
+  char path[PATH_MAX];
+  uint8_t original[64];
+  uint8_t read_back[64];
+  size_t length = 0u;
+  run_out run;
+  size_t i;
+
+  /* The accepted baseline of this setup: the leaf is published once. */
+  fill_image(image_raw, SRAM_BYTES);
+  CHECK(roundtrip_run("raw-v1", image_raw, SRAM_BYTES, "roundtrip.sra",
+                      import_dir, export_dir, &run));
+  expect_roundtrip_pass(&run);
+  check_leaf(export_dir, "roundtrip.sra", SRAM_BYTES,
+             format_rows[0].sram_export);
+  CHECK(count_entries(export_dir) == 1);
+  remove_dir_tree(export_dir);
+  remove_dir_tree(import_dir);
+
+  /* An existing target: host-error stop, detail artifact-exists, the original
+     file bytes unchanged and no stage directory left behind. */
+  for (i = 0u; i < sizeof original; i++) original[i] = (uint8_t)(0x40u + i);
+  {
+    char rom[PATH_MAX];
+    char import_path[PATH_MAX];
+    char sha[65];
+    run_spec spec = {0};
+
+    CHECK(fixture_path(rom, ROUNDTRIP_ROM));
+    CHECK(stage_import(image_raw, SRAM_BYTES, import_dir, import_path, sha));
+    CHECK(make_private_dir(export_dir));
+    CHECK(join_path(path, sizeof path, export_dir, "roundtrip.sra"));
+    CHECK(write_new_file(path, original, sizeof original));
+    spec.supervisor = g_supervisor;
+    spec.fixture = rom;
+    spec.bound = SAVE_BOUND;
+    spec.import_path = import_path;
+    spec.import_size = "32768";
+    spec.import_sha256 = sha;
+    spec.kind = "sram32k";
+    spec.format = "raw-v1";
+    spec.leaf = "roundtrip.sra";
+    spec.artifact_dir = export_dir;
+    spec.artifact_max = "32768";
+    CHECK(run_supervised(&spec, &run));
+    expect_host_error(&run, "artifact-exists");
+    /* The publisher is opened before the guest runs, so the occupied target
+       ends the run at guest tick 0 with no instruction retired. */
+    CHECK(run.guest_tick == 0u);
+    CHECK(read_file(path, read_back, sizeof read_back, &length));
+    CHECK(length == sizeof original);
+    CHECK(memcmp(read_back, original, sizeof original) == 0);
+    CHECK(count_entries(export_dir) == 1);
+    remove_dir_tree(export_dir);
+    remove_dir_tree(import_dir);
+  }
+
+  /* An unsafe parent: a group-writable directory and a path through a
+     symlink are refused before the guest starts and nothing is created. */
+  {
+    char link_path[PATH_MAX];
+    char group_dir[PATH_MAX];
+    char real_dir[PATH_MAX];
+
+    CHECK(make_private_dir(group_dir));
+    CHECK(chmod(group_dir, 0770) == 0);
+    run_publication_row("group-writable directory", "roundtrip.sra", "32768",
+                        true, group_dir, NULL, CLASS_RUNNER_REFUSAL);
+    CHECK(count_entries(group_dir) == 0);
+    remove_dir_tree(group_dir);
+    CHECK(make_private_dir(real_dir));
+    CHECK(snprintf(link_path, sizeof link_path, "%s.link", real_dir) <
+          (int)sizeof link_path);
+    CHECK(symlink(real_dir, link_path) == 0);
+    run_publication_row("symlink component", "roundtrip.sra", "32768", true,
+                        link_path, NULL, CLASS_RUNNER_REFUSAL);
+    CHECK(count_entries(real_dir) == 0);
+    (void)unlink(link_path);
+    remove_dir_tree(real_dir);
+  }
+
+  /* Bad leaves: the extension rule is the usage class; the grammar belongs to
+     the publisher and ends the run with its own error name before the guest
+     starts. */
+  run_publication_row("extension bin", "roundtrip.bin", "32768", true, NULL,
+                      NULL, CLASS_USAGE);
+  run_publication_row("uppercase stem", "Roundtrip.sra", "32768", true, NULL,
+                      "artifact-leaf-name", CLASS_HOST_ERROR);
+  run_publication_row("path separator", "a/b.sra", "32768", true, NULL,
+                      "artifact-leaf-name", CLASS_HOST_ERROR);
+  run_publication_row("37-character stem",
+                      "abcdefghijklmnopqrstuvwxyz0123456789a.sra", "32768",
+                      true, NULL, "artifact-leaf-name",
+                      CLASS_HOST_ERROR);
+  /* The artifact cap below the kind size and an export leaf without the
+     artifact pair are usage. */
+  run_publication_row("cap below the kind size", "roundtrip.sra", "32767", true,
+                      NULL, NULL, CLASS_USAGE);
+  run_publication_row("no artifact pair", "roundtrip.sra", NULL, false, NULL,
+                      NULL, CLASS_USAGE);
+  return g_failures == 0 ? 0 : 1;
+}
+
+/* ---- no-save-bytes-in-result ----------------------------------------------------- */
+
+static bool file_contains(const char *path, const char *needle) {
+  static uint8_t text[65536];
+  size_t length = 0u;
+  size_t needle_length = strlen(needle);
+  size_t i;
+  if (!read_file(path, text, sizeof text - 1u, &length)) return false;
+  for (i = 0u; i + needle_length <= length; i++) {
+    if (memcmp(text + i, needle, needle_length) == 0) return true;
+  }
+  return false;
+}
+
+/* The closed t64.result v2 key set (22 keys); no key was added for saves. */
+static const char *const result_keys[22] = {
+    "build_id", "counts", "detail", "evidence_kind", "evidence_tier",
+    "fixture_id", "fixture_sha256", "guest_stop", "guest_tick", "input_digest",
+    "instruction_count", "ipl3_payload_sha256", "ipl3_sha256", "log_sha256",
+    "milestones", "outcome", "profile_digest", "profile_id", "schema",
+    "schema_version", "source_revision", "state_digest"};
+
+static int case_no_save_bytes_in_result(void) {
+  char import_dir[PATH_MAX];
+  char export_dir[PATH_MAX];
+  char names[4][PATH_MAX];
+  char needles[3][33];
+  char capture_path[PATH_MAX];
+  uint8_t bytes[8192];
+  size_t length = 0u;
+  t64_json_doc doc = {0};
+  const char *bad_key = NULL;
+  run_out run;
+  size_t file;
+  size_t needle;
+
+  fill_image(image_raw, SRAM_BYTES);
+  CHECK(roundtrip_run("raw-v1", image_raw, SRAM_BYTES, "roundtrip.sra",
+                      import_dir, export_dir, &run));
+  expect_roundtrip_pass(&run);
+  /* The lowercase hex of the first 16 imported bytes, the W block and the V
+     block. */
+  hex_text(image_raw, BLOCK_BYTES, needles[0]);
+  hex_text(w_block, BLOCK_BYTES, needles[1]);
+  hex_text(v_block, BLOCK_BYTES, needles[2]);
+  CHECK(strcmp(needles[0], "0b30557a9fc4e90e33587da2c7ec1136") == 0);
+  CHECK(join_path(names[0], PATH_MAX, run.dir, "result.json"));
+  CHECK(join_path(names[1], PATH_MAX, run.dir, "meta.json"));
+  CHECK(join_path(names[2], PATH_MAX, run.dir, "supervisor.out"));
+  CHECK(join_path(names[3], PATH_MAX, run.dir, "supervisor.err"));
+  /* The guest transcript prints the strings (the scan strings are the right
+     ones); the record, the meta and everything the supervisor printed do not. */
+  CHECK(join_path(capture_path, sizeof capture_path, run.dir, "capture.bin"));
+  for (needle = 0u; needle < 3u; needle++) {
+    CHECK(file_contains(capture_path, needles[needle]));
+    for (file = 0u; file < 4u; file++) {
+      CHECK(!file_contains(names[file], needles[needle]));
+    }
+  }
+  /* The record keeps its closed key set. */
+  CHECK(read_file(names[0], bytes, sizeof bytes, &length));
+  CHECK(t64_json_parse(bytes, length, NULL, &doc, NULL) == 0);
+  if (doc.root != NULL) {
+    CHECK(t64_json_check_keys(doc.root, result_keys, 22u, result_keys, 22u,
+                              &bad_key) == T64_JSON_KEYS_OK);
+    t64_json_free(&doc);
+  }
+  CHECK(run.checker_ok);
+  remove_dir_tree(export_dir);
+  remove_dir_tree(import_dir);
+  return g_failures == 0 ? 0 : 1;
+}
+
+/* ---- argv-max-save ----------------------------------------------------------------- */
+
+/* The supervisor test twin with every accepted option together (advance step,
+ * video and audio observation descriptors, the artifact pair and the save
+ * flags). The observation validators belong to the audio and VI fixtures, so
+ * on a family id their descriptors end every run as video-observation-invalid:
+ * that is the accepted baseline outcome of this setup (the same twin run with
+ * the descriptors and the pair but no save flag). The full set must end with
+ * the same outcome, with the imported image visible in the transcript digest
+ * (the flags were parsed, forwarded and used) and nothing published (a run
+ * that is not a pass publishes nothing). The same set plus a raw capture
+ * directory is refused as usage. The compile-time slot sum is the build's own
+ * _Static_assert in the supervisor. */
+static int case_argv_max_save(void) {
+  char rom[PATH_MAX];
+  char import_dir[PATH_MAX];
+  char import_path[PATH_MAX];
+  char export_dir[PATH_MAX];
+  char capture_dir[PATH_MAX];
+  char sha[65];
+  char baseline_sha[65];
+  int video_pipe[2] = {-1, -1};
+  int audio_pipe[2] = {-1, -1};
+  run_spec spec = {0};
+  run_out run;
+
+  fill_image(image_raw, SRAM_BYTES);
+  CHECK(fixture_path(rom, ROUNDTRIP_ROM));
+  CHECK(stage_import(image_raw, SRAM_BYTES, import_dir, import_path, sha));
+  CHECK(make_private_dir(export_dir));
+  CHECK(make_private_dir(capture_dir));
+  CHECK(pipe(video_pipe) == 0);
+  CHECK(pipe(audio_pipe) == 0);
+  spec.supervisor = g_test_supervisor;
+  spec.fixture = rom;
+  spec.bound = SAVE_BOUND;
+  spec.advance_step = 16u;
+  spec.video_fd = video_pipe[1];
+  spec.audio_fd = audio_pipe[1];
+  spec.artifact_dir = export_dir;
+  spec.artifact_max = "32768";
+
+  /* The accepted baseline of this setup: no save flag. */
+  CHECK(run_supervised(&spec, &run));
+  (void)fprintf(stderr, "argv-max-save baseline: outcome=%s detail=%s stop=%s\n",
+                run.outcome, run.detail, run.stop_kind);
+  CHECK(run.parsed);
+  CHECK(run.checker_ok);
+  CHECK(strcmp(run.outcome, "harness-error") == 0);
+  CHECK(strcmp(run.stop_kind, "host-error") == 0);
+  CHECK(strcmp(run.detail, "video-observation-invalid") == 0);
+  CHECK(strcmp(run.log_sha256, ROUNDTRIP_SHA256) != 0);
+  (void)snprintf(baseline_sha, sizeof baseline_sha, "%s", run.log_sha256);
+
+  /* Every option together. */
+  spec.import_path = import_path;
+  spec.import_size = "32768";
+  spec.import_sha256 = sha;
+  spec.kind = "sram32k";
+  spec.format = "raw-v1";
+  spec.leaf = "roundtrip.sra";
+  CHECK(run_supervised(&spec, &run));
+  (void)fprintf(stderr, "argv-max-save: outcome=%s detail=%s stop=%s\n",
+                run.outcome, run.detail, run.stop_kind);
+  CHECK(run.parsed);
+  CHECK(run.checker_ok);
+  CHECK(strcmp(run.outcome, "harness-error") == 0);
+  CHECK(strcmp(run.stop_kind, "host-error") == 0);
+  CHECK(strcmp(run.detail, "video-observation-invalid") == 0);
+  CHECK(strcmp(run.log_sha256, ROUNDTRIP_SHA256) == 0);
+  CHECK(strcmp(run.log_sha256, baseline_sha) != 0);
+  CHECK(count_entries(export_dir) == 0);
+
+  /* The same set plus a raw capture directory is refused as usage. */
+  spec.raw_capture_dir = capture_dir;
+  CHECK(run_supervised(&spec, &run));
+  expect_usage(&run);
+  (void)close(video_pipe[0]);
+  (void)close(video_pipe[1]);
+  (void)close(audio_pipe[0]);
+  (void)close(audio_pipe[1]);
+  remove_dir_tree(export_dir);
+  remove_dir_tree(capture_dir);
+  remove_dir_tree(import_dir);
+  return g_failures == 0 ? 0 : 1;
+}
+
 /* ---- dispatch --------------------------------------------------------------- */
 
 typedef struct {
@@ -551,6 +1418,13 @@ typedef struct {
 
 static const case_entry cases[] = {
     {"sram-roundtrip", case_sram_roundtrip},
+    {"format-matrix", case_format_matrix},
+    {"eeprom-passthrough", case_eeprom_passthrough},
+    {"same-setup-wrong-format", case_same_setup_wrong_format},
+    {"import-refused", case_import_refused},
+    {"export-publication", case_export_publication},
+    {"no-save-bytes-in-result", case_no_save_bytes_in_result},
+    {"argv-max-save", case_argv_max_save},
 };
 
 int main(int argc, char **argv) {
@@ -575,6 +1449,7 @@ int main(int argc, char **argv) {
   }
   base = single ? 3u : 1u;
   g_supervisor = argv[base];
+  g_test_supervisor = argv[base + 1u];
   g_checker = argv[base + 2u];
   g_root = argv[base + 3u];
   if (!prepare_evidence()) {
