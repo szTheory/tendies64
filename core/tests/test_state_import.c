@@ -1341,31 +1341,31 @@ static void case_container_refusals(void) {
           {"blob in live storage", peer->ram, 4096u, 0u,
            T64_STATE_REASON_ARG_OVERLAP_LIVE},
       };
-      size_t row;
+      size_t arm;
 
-      for (row = 0u; row < sizeof refusals / sizeof refusals[0]; row++) {
+      for (arm = 0u; arm < sizeof refusals / sizeof refusals[0]; arm++) {
         t64_state_import_report disjoint;
         t64_status want;
 
-        want = t64_machine_state_import(peer, refusals[row].bytes,
-                                        refusals[row].length,
-                                        refusals[row].flags, &disjoint);
-        if (refusals[row].reason != 0u) {
+        want = t64_machine_state_import(peer, refusals[arm].bytes,
+                                        refusals[arm].length,
+                                        refusals[arm].flags, &disjoint);
+        if (refusals[arm].reason != 0u) {
           /* the accepted arm of the same setup: a usable report span records
            * the reason */
           T64_CHECK_INT(want, T64_STATUS_INVALID_ARGUMENT);
-          T64_CHECK_INT(disjoint.reason, refusals[row].reason);
+          T64_CHECK_INT(disjoint.reason, refusals[arm].reason);
         }
         (void)memset(inside, 0xA5, sizeof before); /* a canary per row */
         (void)memcpy(before, inside, sizeof before);
-        T64_CHECK_INT(t64_machine_state_import(peer, refusals[row].bytes,
-                                               refusals[row].length,
-                                               refusals[row].flags, inside),
-                      refusals[row].reason == 0u ? T64_STATUS_INVALID_ARGUMENT
+        T64_CHECK_INT(t64_machine_state_import(peer, refusals[arm].bytes,
+                                               refusals[arm].length,
+                                               refusals[arm].flags, inside),
+                      refusals[arm].reason == 0u ? T64_STATUS_INVALID_ARGUMENT
                                                  : want);
         if (memcmp(before, inside, sizeof before) != 0) {
           fprintf(stderr, "aliasing report span written for: %s\n",
-                  refusals[row].name);
+                  refusals[arm].name);
         }
         T64_CHECK(memcmp(before, inside, sizeof before) == 0);
       }
