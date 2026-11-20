@@ -402,6 +402,17 @@ result details of a publisher error are `artifact-cap`, `artifact-dir-unsafe`,
 `artifact-rename`, `artifact-stage`, `artifact-substitution` and
 `artifact-write`, accepted only for a host-error stop.
 
+A failed publication publishes nothing and strands nothing (plan 09-10, FX-10).
+The directory sync that makes the rename durable is proven twice before the
+commit: by the artifact preflight (a filesystem that cannot sync a directory is
+refused before the guest starts, with the same refusal as an unusable
+directory) and once more immediately before the rename. A failure after the
+no-replace rename (the published-leaf identity check, the directory sync) removes
+the leaf when it is still the held file and always removes the stage; an entry at
+the leaf that is not the held file is reported as `artifact-substitution` and never
+touched. The one case outside this rule is an unlink that itself fails after the
+commit: the leaf then stays, and the record names the same failure.
+
 Privacy. Saves are private by default and never uploaded. No key is added to the
 closed result record and no log line is added; save bytes appear in neither, and
 the only save bytes a test writes are authored index-derived patterns in

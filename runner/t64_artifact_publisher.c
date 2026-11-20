@@ -54,9 +54,17 @@ struct t64_artifact_publisher {
 #ifdef T64_REAL_RUNNER_TESTING
   t64_artifact_precommit_hook hook;
   void *hook_context;
+  t64_artifact_precommit_hook postcommit_hook;
+  void *postcommit_context;
+  unsigned sync_faults;
   bool preserve_stage;
 #endif
 };
+
+#ifdef T64_REAL_RUNNER_TESTING
+/* Test twins only: a forced failure of the directory sync of the preflight. */
+static bool g_preflight_sync_fault;
+#endif
 
 /* ---- leaf grammar ------------------------------------------------------- */
 
@@ -364,6 +372,19 @@ bool t64_artifact_preflight(const char *directory, const char **error_out) {
       errno != EEXIST) {
     error = "artifact-no-replace-unsupported";
   }
+  /* The directory sync that makes a rename durable is part of the publish
+   * transaction; a filesystem that cannot do it is refused here, before the
+   * guest runs, so a publish never has to fail on it after the commit. */
+  if (error == NULL) {
+#ifdef T64_REAL_RUNNER_TESTING
+    if (g_preflight_sync_fault) {
+      error = "artifact-write";
+    } else
+#endif
+    if (fsync(parent_fd) != 0) {
+      error = "artifact-write";
+    }
+  }
 cleanup:
   if (file_fd >= 0) (void)close(file_fd);
   if (target_created) {
@@ -399,6 +420,22 @@ cleanup:
 }
 
 /* ---- publisher ---------------------------------------------------------- */
+
+/* The directory sync of the parent; the only fallible step after the rename
+ * apart from the identity check. A test twin can force either position to
+ * fail. */
+static bool publisher_sync_parent(const t64_artifact_publisher *publisher,
+                                  unsigned position) {
+#ifdef T64_REAL_RUNNER_TESTING
+  if ((publisher->sync_faults & position) != 0u) {
+    errno = EIO;
+    return false;
+  }
+#else
+  (void)position;
+#endif
+  return fsync(publisher->parent_fd) == 0;
+}
 
 static void publisher_close_fds(t64_artifact_publisher *publisher) {
   if (publisher->file_fd >= 0) (void)close(publisher->file_fd);
@@ -527,6 +564,28 @@ static bool staged_identity_holds(const t64_artifact_publisher *publisher) {
                                  publisher->stage_inode);
 }
 
+/* Withdraws a publication whose commit has already happened. The leaf is
+ * removed only while it is still the held file (an entry that is not the held
+ * file belongs to somebody else and is never touched), and the stage is removed
+ * after its own identity check, so a failed finalize publishes nothing and
+ * strands nothing. Idempotent: abort may run it again. */
+static void withdraw_publication(t64_artifact_publisher *publisher) {
+  struct stat entry;
+  if (publisher->parent_fd >= 0 &&
+      fstatat(publisher->parent_fd, publisher->leaf, &entry,
+              AT_SYMLINK_NOFOLLOW) == 0 &&
+      S_ISREG(entry.st_mode) && entry.st_dev == publisher->file_device &&
+      entry.st_ino == publisher->file_inode) {
+    (void)unlinkat(publisher->parent_fd, publisher->leaf, 0);
+  }
+  if (publisher->parent_fd >= 0 &&
+      owned_directory_entry(publisher->parent_fd, publisher->stage_name,
+                            publisher->stage_device,
+                            publisher->stage_inode)) {
+    (void)unlinkat(publisher->parent_fd, publisher->stage_name, AT_REMOVEDIR);
+  }
+}
+
 bool t64_artifact_publisher_finalize(t64_artifact_publisher *publisher) {
   struct stat published;
   if (publisher == NULL || publisher->error != NULL || publisher->committed) {
@@ -546,6 +605,13 @@ bool t64_artifact_publisher_finalize(t64_artifact_publisher *publisher) {
     publisher->error = "artifact-substitution";
     return false;
   }
+  /* Every check that does not depend on the rename runs before it, so that the
+   * failures left after the commit are only the ones the rename itself can
+   * cause. The directory sync is proven here as well as in the preflight. */
+  if (!publisher_sync_parent(publisher, T64_ARTIFACT_FAULT_SYNC_BEFORE_RENAME)) {
+    publisher->error = "artifact-write";
+    return false;
+  }
   if (rename_noreplace(publisher->stage_fd, publisher->leaf,
                        publisher->parent_fd, publisher->leaf) != 0) {
     if (errno == EEXIST) {
@@ -557,18 +623,30 @@ bool t64_artifact_publisher_finalize(t64_artifact_publisher *publisher) {
     }
     return false;
   }
-  publisher->committed = true;
+  /* The file is now visible at its public name. Until the two checks below
+   * pass, `committed` stays false and any failure withdraws the publication
+   * (docs/spec/save-media.md: every outcome but success publishes nothing). */
+#ifdef T64_REAL_RUNNER_TESTING
+  if (publisher->postcommit_hook != NULL) {
+    publisher->postcommit_hook(publisher->postcommit_context,
+                               publisher->parent_fd, publisher->stage_name,
+                               publisher->leaf);
+  }
+#endif
   if (fstatat(publisher->parent_fd, publisher->leaf, &published,
               AT_SYMLINK_NOFOLLOW) != 0 ||
       !S_ISREG(published.st_mode) || published.st_dev != publisher->file_device ||
       published.st_ino != publisher->file_inode) {
     publisher->error = "artifact-substitution";
+    withdraw_publication(publisher);
     return false;
   }
-  if (fsync(publisher->parent_fd) != 0) {
+  if (!publisher_sync_parent(publisher, T64_ARTIFACT_FAULT_SYNC_AFTER_RENAME)) {
     publisher->error = "artifact-write";
+    withdraw_publication(publisher);
     return false;
   }
+  publisher->committed = true;
   if (owned_directory_entry(publisher->parent_fd, publisher->stage_name,
                             publisher->stage_device,
                             publisher->stage_inode)) {
@@ -634,5 +712,22 @@ void t64_artifact_publisher_set_precommit_hook_for_test(
 void t64_artifact_publisher_preserve_stage_for_test(
     t64_artifact_publisher *publisher) {
   if (publisher != NULL) publisher->preserve_stage = true;
+}
+
+void t64_artifact_publisher_set_postcommit_hook_for_test(
+    t64_artifact_publisher *publisher, t64_artifact_precommit_hook hook,
+    void *context) {
+  if (publisher == NULL) return;
+  publisher->postcommit_hook = hook;
+  publisher->postcommit_context = context;
+}
+
+void t64_artifact_publisher_set_sync_faults_for_test(
+    t64_artifact_publisher *publisher, unsigned faults) {
+  if (publisher != NULL) publisher->sync_faults = faults;
+}
+
+void t64_artifact_preflight_set_sync_fault_for_test(bool fail) {
+  g_preflight_sync_fault = fail;
 }
 #endif

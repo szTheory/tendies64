@@ -1292,6 +1292,10 @@ static int run_real(int fixture_fd, int input_fd, const char *requested_profile,
     /* The directory is checked and the host's no-replace rename probed before
      * the guest starts; a refusal here is the existing prelaunch refusal. */
     const char *artifact_error = NULL;
+#ifdef T64_REAL_RUNNER_TESTING
+    t64_artifact_preflight_set_sync_fault_for_test(
+        test_fault_is("artifact-sync-preflight"));
+#endif
     if (!t64_artifact_preflight(artifact_dir, &artifact_error)) {
       exit_code = emit_prelaunch("refusal", "refused", guest_ticks, 0);
       goto cleanup;
@@ -1501,6 +1505,12 @@ static int run_real(int fixture_fd, int input_fd, const char *requested_profile,
                      "state-export-open");
       goto finalize;
     }
+#ifdef T64_REAL_RUNNER_TESTING
+    if (test_fault_is("artifact-sync-after-rename")) {
+      t64_artifact_publisher_set_sync_faults_for_test(
+          state_publisher, T64_ARTIFACT_FAULT_SYNC_AFTER_RENAME);
+    }
+#endif
   }
   if (playing) {
     /* Identity binding before any guest advance: profile, build, content and
@@ -2528,13 +2538,17 @@ int main(int argc, char **argv) {
       strcmp(g_test_fault, "artifact-publish-probe") != 0 &&
       strcmp(g_test_fault, "artifact-write-limit-exact") != 0 &&
       strcmp(g_test_fault, "artifact-write-limit-over") != 0 &&
+      strcmp(g_test_fault, "artifact-sync-preflight") != 0 &&
+      strcmp(g_test_fault, "artifact-sync-after-rename") != 0 &&
       strcmp(g_test_fault, "capture-write-limit-exact") != 0 &&
       strcmp(g_test_fault, "capture-write-limit-over") != 0) {
     return emit_prelaunch("usage", "not-started", guest_ticks, 2);
   }
   if ((test_fault_is("artifact-publish-probe") ||
        test_fault_is("artifact-write-limit-exact") ||
-       test_fault_is("artifact-write-limit-over")) &&
+       test_fault_is("artifact-write-limit-over") ||
+       test_fault_is("artifact-sync-preflight") ||
+       test_fault_is("artifact-sync-after-rename")) &&
       !seen_artifact_dir) {
     return emit_prelaunch("usage", "not-started", guest_ticks, 2);
   }

@@ -518,11 +518,226 @@ static int run_substitution(substitution kind) {
   return g_failures == 0 ? 0 : 1;
 }
 
+/* ---- failures after the rename has committed (plan 09-10, FX-10) -------- */
+
+/* The contract of docs/spec/save-media.md: every outcome other than a successful
+ * finalize publishes nothing and leaves no stage. A failure after the no-replace
+ * rename must therefore remove the leaf it published (when it is still the held
+ * file) and the stage, and must never touch an entry that is not the held
+ * file. Each scenario runs after the accepted baseline of the same setup (the
+ * same flow with no fault ends published, no stage). */
+typedef enum {
+  POST_NONE,                 /* accepted baseline: hooks installed, no fault */
+  POST_SYNC_BEFORE_RENAME,   /* the capability sync fails before the commit */
+  POST_SYNC_AFTER_RENAME,    /* the durability sync fails after the commit */
+  POST_LEAF_SYMLINK,         /* the published leaf replaced by a symlink */
+  POST_LEAF_OTHER_FILE       /* the published leaf replaced by another file */
+} post_kind;
+
+typedef struct {
+  post_kind kind;
+  char victim[PATH_MAX];
+} post_context;
+
+static const char k_other_bytes[] = "another principal's bytes, not ours";
+
+static void postcommit_hook(void *context, int parent_fd,
+                            const char *stage_name, const char *leaf) {
+  post_context *c = (post_context *)context;
+  (void)stage_name;
+  if (c->kind == POST_LEAF_SYMLINK) {
+    (void)unlinkat(parent_fd, leaf, 0);
+    attack_symlinkat(c->victim, parent_fd, leaf);
+  } else if (c->kind == POST_LEAF_OTHER_FILE) {
+    int fd;
+    (void)unlinkat(parent_fd, leaf, 0);
+    fd = openat(parent_fd, leaf, O_WRONLY | O_CREAT | O_EXCL | O_NOFOLLOW,
+                0600);
+    if (fd >= 0) {
+      if (write(fd, k_other_bytes, sizeof k_other_bytes - 1u) < 0) {
+        (void)fprintf(stderr, "substitution file could not be written\n");
+      }
+      (void)close(fd);
+    }
+  }
+}
+
+/* Entries of the directory other than the accepted baseline: none, or exactly
+ * the named one. */
+static bool only_baseline_and(const char *dir, const char *extra) {
+  DIR *handle = opendir(dir);
+  struct dirent *entry;
+  bool saw_base = false;
+  bool saw_extra = false;
+  bool clean = true;
+  if (handle == NULL) return false;
+  while ((entry = readdir(handle)) != NULL) {
+    if (strcmp(entry->d_name, ".") == 0 || strcmp(entry->d_name, "..") == 0) {
+      continue;
+    }
+    if (strcmp(entry->d_name, "base.sta") == 0) {
+      saw_base = true;
+    } else if (extra != NULL && strcmp(entry->d_name, extra) == 0) {
+      saw_extra = true;
+    } else {
+      clean = false; /* a stage directory or anything else left behind */
+    }
+  }
+  (void)closedir(handle);
+  return clean && saw_base && (extra == NULL || saw_extra);
+}
+
+static int run_post_commit(post_kind kind) {
+  char root[PATH_MAX];
+  char dir[PATH_MAX];
+  char path[PATH_MAX];
+  char link_target[PATH_MAX];
+  const char *error = NULL;
+  post_context context;
+  t64_artifact_publisher *p;
+  uint8_t bytes[64];
+  bool finalized;
+  struct stat info;
+  memset(&context, 0, sizeof context);
+  context.kind = kind;
+  CHECK(fresh_dir(root));
+  CHECK(join_path(dir, sizeof dir, root, "art"));
+  CHECK(mkdir(dir, 0700) == 0);
+  CHECK(join_path(context.victim, sizeof context.victim, root, "victim.dat"));
+  CHECK(write_victim(context.victim));
+  CHECK(join_path(path, sizeof path, dir, "probe.sta"));
+
+  /* Accepted baseline in the same setup. */
+  CHECK(publish_pattern(dir, "base.sta", 64u));
+  CHECK(leaf_is_published(dir, "base.sta", 64u));
+  CHECK(only_baseline_and(dir, NULL));
+
+  fill_pattern(bytes, sizeof bytes, 0u);
+  p = t64_artifact_publisher_open(dir, "probe.sta", 64u, &error);
+  CHECK(p != NULL);
+  if (p == NULL) return 1;
+  CHECK(t64_artifact_publisher_write(p, bytes, sizeof bytes));
+  t64_artifact_publisher_set_postcommit_hook_for_test(p, postcommit_hook,
+                                                      &context);
+  if (kind == POST_SYNC_BEFORE_RENAME) {
+    t64_artifact_publisher_set_sync_faults_for_test(
+        p, T64_ARTIFACT_FAULT_SYNC_BEFORE_RENAME);
+  } else if (kind == POST_SYNC_AFTER_RENAME) {
+    t64_artifact_publisher_set_sync_faults_for_test(
+        p, T64_ARTIFACT_FAULT_SYNC_AFTER_RENAME);
+  }
+  finalized = t64_artifact_publisher_finalize(p);
+  switch (kind) {
+    case POST_NONE:
+      CHECK(finalized);
+      CHECK(leaf_is_published(dir, "probe.sta", 64u));
+      CHECK(only_baseline_and(dir, "probe.sta"));
+      break;
+    case POST_SYNC_BEFORE_RENAME:
+      /* Refused before the commit: nothing is published, and the stage is the
+       * caller's abort to remove (checked after the abort below). */
+      CHECK(!finalized);
+      CHECK(strcmp(t64_artifact_publisher_error(p), "artifact-write") == 0);
+      CHECK(lstat(path, &info) != 0);
+      break;
+    case POST_SYNC_AFTER_RENAME:
+      /* The failure names the write error, the published leaf is withdrawn and
+       * the stage is gone as soon as finalize returns (no abort needed). */
+      CHECK(!finalized);
+      CHECK(strcmp(t64_artifact_publisher_error(p), "artifact-write") == 0);
+      CHECK(lstat(path, &info) != 0);
+      CHECK(only_baseline_and(dir, NULL));
+      break;
+    case POST_LEAF_SYMLINK:
+      /* A leaf that is not the held file is reported and never touched, and
+       * the victim behind the symlink is never written. */
+      CHECK(!finalized);
+      CHECK(strcmp(t64_artifact_publisher_error(p), "artifact-substitution") ==
+            0);
+      CHECK(victim_unchanged(context.victim));
+      CHECK(lstat(path, &info) == 0 && S_ISLNK(info.st_mode));
+      {
+        const ssize_t length = readlink(path, link_target, sizeof link_target - 1u);
+        CHECK(length > 0);
+        if (length > 0) {
+          link_target[length] = '\0';
+          CHECK(strcmp(link_target, context.victim) == 0);
+        }
+      }
+      CHECK(only_baseline_and(dir, "probe.sta"));
+      break;
+    case POST_LEAF_OTHER_FILE: {
+      uint8_t other[64];
+      size_t length = 0u;
+      CHECK(!finalized);
+      CHECK(strcmp(t64_artifact_publisher_error(p), "artifact-substitution") ==
+            0);
+      CHECK(read_back(path, other, sizeof other, &length) &&
+            length == sizeof k_other_bytes - 1u &&
+            memcmp(other, k_other_bytes, length) == 0);
+      CHECK(only_baseline_and(dir, "probe.sta"));
+      break;
+    }
+  }
+  /* Abort after a failed or finished finalize changes nothing more. */
+  t64_artifact_publisher_abort(p);
+  t64_artifact_publisher_destroy(p);
+  CHECK(leaf_is_published(dir, "base.sta", 64u));
+  switch (kind) {
+    case POST_NONE:
+      CHECK(only_baseline_and(dir, "probe.sta"));
+      break;
+    case POST_SYNC_BEFORE_RENAME:
+    case POST_SYNC_AFTER_RENAME:
+      CHECK(only_baseline_and(dir, NULL));
+      break;
+    case POST_LEAF_SYMLINK:
+    case POST_LEAF_OTHER_FILE:
+      CHECK(only_baseline_and(dir, "probe.sta"));
+      break;
+  }
+  /* The leaf name is free again after every rollback of the held file. */
+  if (kind == POST_SYNC_BEFORE_RENAME || kind == POST_SYNC_AFTER_RENAME) {
+    CHECK(publish_pattern(dir, "probe.sta", 64u));
+    CHECK(leaf_is_published(dir, "probe.sta", 64u));
+  }
+  return g_failures == 0 ? 0 : 1;
+}
+
+/* The preflight proves the directory sync before the guest runs, so a
+ * filesystem that cannot sync a directory is refused with the write error and
+ * the directory is left as it was. */
+static int run_preflight_sync(void) {
+  char dir[PATH_MAX];
+  char first[256];
+  const char *error = NULL;
+  CHECK(fresh_dir(dir));
+  /* accepted baseline: the probe passes and leaves nothing */
+  CHECK(t64_artifact_preflight(dir, &error));
+  CHECK(list_directory(dir, first) == 0u);
+  t64_artifact_preflight_set_sync_fault_for_test(true);
+  error = NULL;
+  CHECK(!t64_artifact_preflight(dir, &error));
+  CHECK(error != NULL && strcmp(error, "artifact-write") == 0);
+  CHECK(list_directory(dir, first) == 0u);
+  t64_artifact_preflight_set_sync_fault_for_test(false);
+  error = NULL;
+  CHECK(t64_artifact_preflight(dir, &error));
+  CHECK(list_directory(dir, first) == 0u);
+  return g_failures == 0 ? 0 : 1;
+}
+
 static int case_substitution(void) {
   (void)run_substitution(SUBSTITUTE_STAGED_FILE);
   (void)run_substitution(SUBSTITUTE_PARENT);
   (void)run_substitution(SUBSTITUTE_TARGET);
   (void)run_substitution(SUBSTITUTE_STAGE_DIR);
+  (void)run_post_commit(POST_NONE);
+  (void)run_post_commit(POST_SYNC_BEFORE_RENAME);
+  (void)run_post_commit(POST_SYNC_AFTER_RENAME);
+  (void)run_post_commit(POST_LEAF_SYMLINK);
+  (void)run_post_commit(POST_LEAF_OTHER_FILE);
+  (void)run_preflight_sync();
   return g_failures == 0 ? 0 : 1;
 }
 

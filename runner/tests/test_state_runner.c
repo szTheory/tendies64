@@ -952,6 +952,42 @@ static int case_export_fsize(void) {
     CHECK((info.st_mode & 0777) == 0600);
   }
   remove_tree(dir);
+
+  /* FX-10 (L3 WR-01, VG-10): a failed publication publishes nothing. The
+   * accepted baseline of the same setup (test twin, state export, no fault)
+   * publishes the leaf and passes. The directory sync that follows the commit
+   * then fails (test fault): the record names the closed state-export-publish
+   * detail, the leaf is withdrawn and no stage is left, so the directory is
+   * empty. A directory that cannot sync is refused by the preflight before
+   * the guest starts (guest tick 0), also with an empty directory. */
+  spec.extra = state_args;
+  spec.extra_count = sizeof state_args / sizeof state_args[0];
+  spec.artifact_max = ARTIFACT_MAX;
+  CHECK(make_artifact_dir(dir));
+  spec.artifact_dir = dir;
+  spec.test_fault = NULL;
+  CHECK(run_supervised(&spec, &run));
+  expect_pass(&run);
+  CHECK(list_directory(dir, first) == 1u);
+  CHECK(strcmp(first, STATE_LEAF) == 0);
+  remove_tree(dir);
+
+  CHECK(make_artifact_dir(dir));
+  spec.artifact_dir = dir;
+  spec.test_fault = "artifact-sync-after-rename";
+  CHECK(run_supervised(&spec, &run));
+  expect_state_export(&run, "state-export-publish");
+  CHECK(run.guest_tick == g_accepted_tick);
+  CHECK(list_directory(dir, first) == 0u);
+  remove_tree(dir);
+
+  CHECK(make_artifact_dir(dir));
+  spec.artifact_dir = dir;
+  spec.test_fault = "artifact-sync-preflight";
+  CHECK(run_supervised(&spec, &run));
+  expect_supervised_preflight_refusal(&run);
+  CHECK(list_directory(dir, first) == 0u);
+  remove_tree(dir);
   return g_failures == 0 ? 0 : 1;
 }
 

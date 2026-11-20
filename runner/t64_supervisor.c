@@ -967,6 +967,8 @@ static int parse_args(int argc, char **argv, sup_args *a) {
         strcmp(a->test_fault, "artifact-publish-probe") != 0 &&
         strcmp(a->test_fault, "artifact-write-limit-exact") != 0 &&
         strcmp(a->test_fault, "artifact-write-limit-over") != 0 &&
+        strcmp(a->test_fault, "artifact-sync-preflight") != 0 &&
+        strcmp(a->test_fault, "artifact-sync-after-rename") != 0 &&
         strcmp(a->test_fault, "capture-write-limit-exact") != 0 &&
         strcmp(a->test_fault, "capture-write-limit-over") != 0 &&
         strcmp(a->test_fault, "exit-nonzero") != 0 &&
