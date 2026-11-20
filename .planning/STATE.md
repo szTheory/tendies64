@@ -4,18 +4,18 @@ milestone: v1.1
 milestone_name: Observable Machine
 current_phase: 9
 current_phase_name: Controller, Save Media and Replay
-current_plan: 6
+current_plan: 7
 status: executing
-stopped_at: Completed 09-04-PLAN.md
-last_updated: "2026-11-20T00:00:24.358Z"
+stopped_at: Completed 09-05-PLAN.md
+last_updated: "2026-11-20T00:44:47.961Z"
 last_activity: 2026-11-19
 last_activity_desc: Phase 9 execution started
-state_head: a8498bde33d5645f77ced37fcab6407018f20df7
+state_head: 865a60bff5dc997043cf1e569f5e53b6a49fb9ed
 progress:
   total_phases: 3
   completed_phases: 1
   total_plans: 31
-  completed_plans: 22
+  completed_plans: 23
   percent: 33
 ---
 
@@ -31,7 +31,7 @@ See: .planning/PROJECT.md (updated 2026-11-15)
 ## Current Position
 
 Phase: 9 (Controller, Save Media and Replay) — EXECUTING
-Current Plan: 6
+Current Plan: 7
 Total Plans in Phase: 13
 Status: Ready to execute
 Last activity: 2026-11-19 — Phase 9 execution started
@@ -54,6 +54,7 @@ Progress: [███░░░░░░░] 33% of currently planned source plans
 | Phase 09 P03 | 43min | 5 tasks | 31 files |
 | Phase 09 P03.1 | 70min | 5 tasks | 15 files |
 | Phase 09 P04 | 42min | 6 tasks | 29 files |
+| Phase 09 P05 | 45min | 6 tasks | 24 files |
 
 ## Accumulated Context
 
@@ -84,6 +85,7 @@ Progress: [███░░░░░░░] 33% of currently planned source plans
 - [Phase 09]: 09-04: a profile with no save device answers any requested kind with SAVE_DEVICE_MISMATCH (statuses 20 to 22 provisional; 09-05 uses 23 upward); section 11 exists only for the three save ids so the stem stream keeps markers 1 to 10
 - [Phase 09]: 09-04: the busy window is a stored deadline E + 375,000 compared at later execute ticks with no scheduler event (label eeprom-busy-ceiling-6ms-v1, a named ceiling policy, never exact or measured); SRAM DMA reuses the PI completion pair
 - [Phase 09]: 09-04: openIPL3 profile ids admit only the exact asset or an authored flat ROM, so the selection control edits header bytes of an authored flat ROM; the reviewed-source guard was refreshed in an isolated commit for t64_save.c and four bus and PI bodies with derived digests
+- [Phase 09]: 09-05: import and export check admission before the pointer and span row while the 09-04 info function keeps pointer-first; a zero length constructs no span; one --save-format governs import and export of a run; the artifact publisher opens before the guest so an occupied target ends the run at guest tick 0; byte-order selections are authored policy (A1)
 
 ### Pending Todos
 
@@ -115,8 +117,8 @@ question. No oracle authority is part of this decision.
 
 ## Session Continuity
 
-Last session: 2026-11-20T00:00:24.208Z
-Stopped at: Completed 09-04-PLAN.md
+Last session: 2026-11-20T00:44:47.832Z
+Stopped at: Completed 09-05-PLAN.md
 Resume file: None
 
 Historical closeout: [v1.0 roadmap](milestones/v1.0-ROADMAP.md), [audit](milestones/v1.0-MILESTONE-AUDIT.md), [lessons](RETROSPECTIVE.md).
