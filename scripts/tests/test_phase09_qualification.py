@@ -524,17 +524,186 @@ F2_PINS: dict = {
         "ntsc-cart-4m-openipl3-rdram-b-t1-si-v1-s32k",
     ),
     "id_lengths": (38, 42, 43, 43),
-    "profile_sha256": {},
-    "fixtures": {},
-    "transcripts": {},
-    "inputs": {},
-    "replay_golden": {},
-    "oracle_sha256": {},
-    "inventory_sha256": "",
-    "claim_block_count": 0,
-    "claim_pairs": (),
-    "claim_tiers": (),
-    "claim_counted": {},
+    "profile_sha256": {
+        "ntsc-cart-4m-openipl3-rdram-b-t1-si-v1":
+            "661b161dfee9a10857efe3f98d840c09f05cbf0492dfde59e8ec44190dabb6d5",
+        "ntsc-cart-4m-openipl3-rdram-b-t1-si-v1-e4k":
+            "e8dcb8dc80f2d1efabe83ac0fd8b98c8211622750b70ff142e667b0023f63ce1",
+        "ntsc-cart-4m-openipl3-rdram-b-t1-si-v1-e16k":
+            "22837f619e9537c3c678fbb484747177cbaee93b0bdbfa80d72ac028fda74f3f",
+        "ntsc-cart-4m-openipl3-rdram-b-t1-si-v1-s32k":
+            "52c47d606e2a0b4dce7a743327082c505ea6f062648cf37349f6e50ca398e87a",
+    },
+    "fixtures": {
+        "phase09-admit-e16k": {
+            "sha256": "f0fbe7d56aa06bbd0bc9eff1961b3985bbcf104264bf7203040ea9194b510588",
+            "size": 4264, "profile_id": "ntsc-cart-4m-openipl3-rdram-b-t1-si-v1-e16k"},
+        "phase09-admit-e4k": {
+            "sha256": "5015baa4127a56dca9322a453bd2880ead9c3beb08f3f3dd83aada26f8272d18",
+            "size": 4264, "profile_id": "ntsc-cart-4m-openipl3-rdram-b-t1-si-v1-e4k"},
+        "phase09-admit-long-si-v1": {
+            "sha256": "6e803800afe03de0604ceb541deabee9a1db1a3a7d6ea397d90d8537c3f77e33",
+            "size": 4280, "profile_id": "ntsc-cart-4m-openipl3-rdram-b-t1-si-v1"},
+        "phase09-admit-s32k": {
+            "sha256": "73344e3f57c93b715147a0430714c86d46f6f7929c14556f8c0511d7791d2df8",
+            "size": 4264, "profile_id": "ntsc-cart-4m-openipl3-rdram-b-t1-si-v1-s32k"},
+        "phase09-admit-si-v1": {
+            "sha256": "b3a97e238137feece98b4b39e2f76973a531500c35b39470bfcd6cd23ae67460",
+            "size": 4264, "profile_id": "ntsc-cart-4m-openipl3-rdram-b-t1-si-v1"},
+        "phase09-admit-wrong-si-v1": {
+            "sha256": "1220f8a1230ac83b28601028e8b1ecca84bbc89e8d78c3284a8af8fe51f6f29a",
+            "size": 4264, "profile_id": "ntsc-cart-4m-openipl3-rdram-b-t1-si-v1"},
+        "phase09-eeprom-rw-e16k-v1": {
+            "sha256": "af3267db49012adeb032d7dd5ca95b4dd8397abb4b8559696a852ab7f2236812",
+            "size": 5584, "profile_id": "ntsc-cart-4m-openipl3-rdram-b-t1-si-v1-e16k"},
+        "phase09-eeprom-rw-e4k-v1": {
+            "sha256": "0f3cf3c72a0312d90c915f5d148817f9d5f201b96f1575abbc96a81e389be0e9",
+            "size": 5584, "profile_id": "ntsc-cart-4m-openipl3-rdram-b-t1-si-v1-e4k"},
+        "phase09-eeprom-rw-wrong-e4k-v1": {
+            "sha256": "4cab313efe535b2c690d9b2e786d7ac3a3e6b8b39cb490e46b27e417dc339cec",
+            "size": 5584, "profile_id": "ntsc-cart-4m-openipl3-rdram-b-t1-si-v1-e4k"},
+        "phase09-pad-poll-si-v1": {
+            "sha256": "29a005be19b2f86e866d00cfb3ab2f8aac39e376d85a5e5d24e78c113a80dab6",
+            "size": 4688, "profile_id": "ntsc-cart-4m-openipl3-rdram-b-t1-si-v1"},
+        "phase09-pad-poll-wrong-si-v1": {
+            "sha256": "84bacc101384d52b109a4c41e4b4fac340143a89ad79a4fc4460c5890923a8f6",
+            "size": 4688, "profile_id": "ntsc-cart-4m-openipl3-rdram-b-t1-si-v1"},
+        "phase09-replay-mix-si-v1": {
+            "sha256": "79c59149052719baa7080c22d44a21c8d924add1f45b16ced31bb9810bf37df0",
+            "size": 4616, "profile_id": "ntsc-cart-4m-openipl3-rdram-b-t1-si-v1"},
+        "phase09-save-roundtrip-s32k": {
+            "sha256": "ec744b26449cafbc73fb5c0e8ebaceb58573cfd224bb8e30adae361927f977eb",
+            "size": 5000, "profile_id": "ntsc-cart-4m-openipl3-rdram-b-t1-si-v1-s32k"},
+        "phase09-sram-rw-s32k-v1": {
+            "sha256": "9616bd3bfa3d27deed4dcefe206df0b2dc3269424a14bc831210ce0cb8ac07db",
+            "size": 4808, "profile_id": "ntsc-cart-4m-openipl3-rdram-b-t1-si-v1-s32k"},
+        "phase09-sram-rw-wrong-s32k-v1": {
+            "sha256": "783f46337a32a61a5e1b3683bac30474674dfdf11fd2aebcad166dd2b753ce67",
+            "size": 4808, "profile_id": "ntsc-cart-4m-openipl3-rdram-b-t1-si-v1-s32k"},
+    },
+    "transcripts": {
+        "admit-0": {
+            "bytes": 20, "sha256": "5fc4d0d36f6eb18aeaa37457e14d3020e14614b97b9e94c6c219f6036624fbc9",
+            "oracle": ("literal", "t64 phase09 admit 0\n"),
+            "rows": ("phase09-admit-long-si-v1", "phase09-admit-si-v1", "phase09-admit-wrong-si-v1")},
+        "admit-1": {
+            "bytes": 20, "sha256": "bd084623780adfd35591144d77f299f3107a3399fe536230c6c891ed7de4f015",
+            "oracle": ("literal", "t64 phase09 admit 1\n"),
+            "rows": ("phase09-admit-e4k",)},
+        "admit-2": {
+            "bytes": 20, "sha256": "c8ba071062fca5ba87baf198de9cf41bf387fa286754844410b644907eaa2bba",
+            "oracle": ("literal", "t64 phase09 admit 2\n"),
+            "rows": ("phase09-admit-e16k",)},
+        "admit-3": {
+            "bytes": 20, "sha256": "6a0845a8f00f0078e2dc05dddb9daf4ff66430dd2c74010054759107ab25130f",
+            "oracle": ("literal", "t64 phase09 admit 3\n"),
+            "rows": ("phase09-admit-s32k",)},
+        "pad-baseline": {
+            "bytes": 68, "sha256": "715aa3854b455dc9fd8e038e1aa27e5d200ea311acbfd032930cdc760498d3f6",
+            "oracle": ("fixtures/pad/poll_oracle.py", "baseline"),
+            "rows": ("phase09-pad-poll-si-v1", "phase09-pad-poll-wrong-si-v1")},
+        "pad-shifted": {
+            "bytes": 68, "sha256": "4c78899114ba1e1d4111c02a84a059e3943d6c3d00208c533bbc3e7faeb07910",
+            "oracle": ("fixtures/pad/poll_oracle.py", "shifted"),
+            "rows": ()},
+        "pad-neutral": {
+            "bytes": 68, "sha256": "caf55c819271e372f4e4185520a49ed74c36d79c870bfa30d1dbc064c9f9f137",
+            "oracle": ("fixtures/pad/poll_oracle.py", "neutral"),
+            "rows": ()},
+        "pad-wrong-rom": {
+            "bytes": 68, "sha256": "07de0176dbe67a8c313b1871e019b588d00793e8a4002fae4ce3f6cecf333315",
+            "oracle": ("fixtures/pad/poll_oracle.py", "wrong-rom"),
+            "rows": ()},
+        "save-eeprom-4k": {
+            "bytes": 191, "sha256": "03891120e98176bc11f8d9f6cde6278ff33ef0ebe9018d2f24ce083b3d2c6502",
+            "oracle": ("fixtures/save/save_oracle.py", "eeprom-4k"),
+            "rows": ("phase09-eeprom-rw-e4k-v1", "phase09-eeprom-rw-wrong-e4k-v1")},
+        "save-eeprom-16k": {
+            "bytes": 192, "sha256": "d9a5bf956cce18ea6bc3fd563ae060d7dda3f8554a881b62214ccf89a7f4ca95",
+            "oracle": ("fixtures/save/save_oracle.py", "eeprom-16k"),
+            "rows": ("phase09-eeprom-rw-e16k-v1",)},
+        "save-eeprom-wrong-4k": {
+            "bytes": 191, "sha256": "87609f3fa10ce472755b3b501cfb80a457c16be2c20e536b190b8e2002598a7c",
+            "oracle": ("fixtures/save/save_oracle.py", "eeprom-wrong-4k"),
+            "rows": ()},
+        "save-sram-32k": {
+            "bytes": 101, "sha256": "52b0f1caee3ec470f4217236ce6f3da94e6ff1c15fd93143a68f7364b732a026",
+            "oracle": ("fixtures/save/save_oracle.py", "sram-32k"),
+            "rows": ("phase09-sram-rw-s32k-v1", "phase09-sram-rw-wrong-s32k-v1")},
+        "save-sram-wrong-32k": {
+            "bytes": 101, "sha256": "29174dfa593b7e9b6cc9e979ff7312e1fc39b5fc41ef9b280e8833dfe049f06c",
+            "oracle": ("fixtures/save/save_oracle.py", "sram-wrong-32k"),
+            "rows": ()},
+        "roundtrip-baseline": {
+            "bytes": 144, "sha256": "649b62940ace25d9e4c31e12381f38df779a5bbef90dcf0baf1be1458e6b75c4",
+            "oracle": ("fixtures/save/roundtrip_oracle.py", "baseline"),
+            "rows": ("phase09-save-roundtrip-s32k",)},
+        "roundtrip-swap16-as-raw": {
+            "bytes": 144, "sha256": "3717361f6b106331021025e25a738598b01a52bffb68bd33507b0ec948369128",
+            "oracle": ("fixtures/save/roundtrip_oracle.py", "swap16-as-raw"),
+            "rows": ()},
+        "replay-mix": {
+            "bytes": 72, "sha256": "b16f6575b5f94bee4018f7ef12ad0ca0e1c8134a033479b78e7d8527d20eabe2",
+            "oracle": ("fixtures/replay/mix_oracle.py", None),
+            "rows": ("phase09-replay-mix-si-v1",)},
+    },
+    "inputs": {
+        "pad-baseline": {"sha256": "e70838a961dfa08c13d9baf4cbf48fb8e3d14029c348a6e0181771b93ca8d1ba", "row": "accepted-baseline"},
+        "pad-shifted": {"sha256": "4c830af94b3e98080f2e1b5da75581599a2523fe2df60d45b06beabc0f35c979", "row": "shifted-script"},
+        "pad-neutral": {"sha256": "6d5593bc2d95465b44ec7ce7785e5ff7d7d53605de9b039a021bc697d226186d", "row": "neutral-script"},
+        "pad-wrong-rom": {"sha256": "330be83d0a0bf653375cdb71a5332ac82a6bc2f077e3c63a38b634d91b0a56f2", "row": "wrong-rom"},
+        "replay-mix": {"sha256": "e61dcd21ca31d936142622e6ece22f6689f2eed816f2fb4bd50d5efca6a4acbf", "path": "fixtures/replay/mix.input.json"},
+    },
+    "replay_golden": {"path": "runner/tests/replay_mix_golden.h",
+                      "sha256": "3004debb649da008a662f84f5657a42962c6a020e19ab12098d0529e3443d490"},
+    "oracle_sha256": {
+        "fixtures/pad/poll_oracle.py":
+            "a5e7c143d9a093572037f8acbb29d7c66f844baee6ee94a39c72c442c4c8cfe2",
+        "fixtures/save/save_oracle.py":
+            "a004436952b41eed65d565eb52085548103a353aedc0159b421f70b11cd34600",
+        "fixtures/save/roundtrip_oracle.py":
+            "e12ce2f5c8171c0aa3aa4dda6193499a30e4d29bdfb1f7827d8fb7d8a76fcc51",
+        "fixtures/replay/mix_oracle.py":
+            "70188af9c254722517ec5537e5071641c82220f9ed452ca5a32332f9fb77ce97",
+        "fixtures/state/decode_container.py":
+            "e02a755112851f0ef137573d50562c0e17a0dd538c1335b7bb5bc8b1376011c8",
+    },
+    "inventory_sha256": "3f490463f872e1c72d7ac61cbe260be4fbd3cb7f39f3f1d68c1e4d2d5eb49bdf",
+    "claim_block_count": 10,
+    # (profile id, fixture set) of the ten claim blocks of docs/claims/phase09.md, in order.
+    "claim_pairs": (
+        ("ntsc-cart-4m-openipl3-rdram-b-t1-si-v1", "phase09-pad-poll"),
+        ("ntsc-cart-4m-openipl3-rdram-b-t1-si-v1-e4k", "phase09-eeprom-rw"),
+        ("ntsc-cart-4m-openipl3-rdram-b-t1-si-v1-e16k", "phase09-eeprom-rw"),
+        ("ntsc-cart-4m-openipl3-rdram-b-t1-si-v1-s32k", "phase09-sram-rw"),
+        ("ntsc-cart-4m-openipl3-rdram-b-t1-si-v1-s32k", "phase09-save-roundtrip"),
+        ("ntsc-cart-4m-openipl3-rdram-b-t1-si-v1", "phase09-save-refusals"),
+        ("ntsc-cart-4m-openipl3-rdram-b-t1-si-v1", "phase09-scheduler-order"),
+        ("ntsc-cart-4m-openipl3-rdram-b-t1-si-v1", "phase09-state-roundtrip"),
+        ("ntsc-cart-4m-openipl3-rdram-b-t1-si-v1", "phase09-replay-mix-goldens"),
+        ("ntsc-cart-4m-openipl3-rdram-b-t1-si-v1", "phase09-replay-format"),
+    ),
+    "claim_tiers": ("unit-tested", "regression-pinned"),
+    # The counted unit of each block (plan 09-11, T-09-85): blocks 1 to 5 count the accepted
+    # authored ROM row that reported pass in the real runner, blocks 6 to 10 count registered
+    # CTest names that some suite of docs/spec/phase09-cases.json lists. Other tests a block
+    # mentions (for example repo.sched-k5-anchors, a registered name no suite lists) are
+    # supporting tests in its prose and are not counted.
+    "claim_counted": {
+        1: ["phase09-pad-poll-si-v1"],
+        2: ["phase09-eeprom-rw-e4k-v1"],
+        3: ["phase09-eeprom-rw-e16k-v1"],
+        4: ["phase09-sram-rw-s32k-v1"],
+        5: ["phase09-save-roundtrip-s32k"],
+        6: ["unit.core.save.device", "unit.core.save.import-export"],
+        7: ["unit.core.sched.matrix", "unit.core.sched.ledger",
+            "unit.core.sched.characterize-fifo", "unit.core.profile.quantum-identity"],
+        8: ["unit.core.digest.sink-legacy-identity", "unit.core.digest.v25-reference",
+            "unit.core.digest.v25-strip-differential", "unit.core.state.export",
+            "unit.core.state.import", "runner.state-export", "harness.state-field-use-audit"],
+        9: ["runner.replay-mix"],
+        10: ["unit.replay.suite"],
+    },
 }
 
 _F2_RUNNER_ROW = re.compile(
