@@ -323,7 +323,32 @@
             "save-media-roundtrip",
             "continuation-partitions",
             "dirty-peer",
-            "observer-flag"
+            "observer-flag",
+            "boundary-reached",
+            "boundary-roundtrip",
+            "boundary-continuation",
+            "boundary-perturbation",
+            "boundary-event-rules",
+            "mid-tick-resume",
+            "stalled-observer-stop",
+            "drop-observers-outcomes"
+          ]
+        }
+      ]
+    },
+    "state-audit": {
+      "ctest": [
+        "harness.state-field-use-audit"
+      ],
+      "binaries": [
+        {
+          "path": "runner/check_state_field_use",
+          "cases": [
+            "baseline-clean",
+            "new-indexed-member-unmapped",
+            "mapping-row-removed",
+            "unknown-rule-name",
+            "reader-lacks-member"
           ]
         }
       ]

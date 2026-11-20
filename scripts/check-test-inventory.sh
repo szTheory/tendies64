@@ -236,7 +236,8 @@ unit.replay.suite
 runner.replay-mix
 unit.core.state.export
 runner.state-export
-unit.core.state.import'
+unit.core.state.import
+harness.state-field-use-audit'
 
 CPU_COVERAGE_OPCODES='ADD
 ADDU

@@ -180,6 +180,24 @@ set_tests_properties(repo.rsp-no-hle PROPERTIES
   ENVIRONMENT
     "PYTHONDONTWRITEBYTECODE=1;T64_RSP_NO_HLE_BUILD_DIR=${CMAKE_BINARY_DIR}")
 
+# Phase 9 state field-use audit (plan 09-09.1, D-45): every state member used as
+# an index, length, shift or loop bound maps to a closed importer rule and a
+# named reader of core/t64_state.c; the self-test seeds each fail for their own
+# reason. The case-inventory entry names the build-directory copy.
+set(T64_STATE_FIELD_AUDIT_COPY
+  "${CMAKE_BINARY_DIR}/runner/check_state_field_use")
+configure_file(
+  "${CMAKE_SOURCE_DIR}/scripts/check-state-field-use.py"
+  "${T64_STATE_FIELD_AUDIT_COPY}" COPYONLY)
+file(CHMOD "${T64_STATE_FIELD_AUDIT_COPY}"
+  PERMISSIONS OWNER_READ OWNER_WRITE OWNER_EXECUTE GROUP_READ GROUP_EXECUTE
+              WORLD_READ WORLD_EXECUTE)
+add_test(NAME harness.state-field-use-audit
+  COMMAND python3 -B ${CMAKE_SOURCE_DIR}/scripts/check-state-field-use.py
+          --check --selftest --root ${CMAKE_SOURCE_DIR})
+set_tests_properties(harness.state-field-use-audit PROPERTIES
+  LABELS runner TIMEOUT 60 ENVIRONMENT "PYTHONDONTWRITEBYTECODE=1")
+
 # The version-membership and reservation site list is data; each later plan
 # refreshes it in the commit that adds its site.
 add_test(NAME repo.si-membership-sites

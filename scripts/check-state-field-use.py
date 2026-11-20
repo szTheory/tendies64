@@ -567,7 +567,8 @@ SEED_STRUCT_ANCHOR = "typedef struct {\n  uint32_t dram_address;\n  uint32_t car
 SEED_FUNCTION = (
     "\nstatic uint32_t seeded_audit_use(const t64_machine *machine,\n"
     "                                   const uint32_t *table) {\n"
-    "  return table[machine->pi.seeded_audit_index];\n"
+    "  const t64_pi_state *pi = &machine->pi;\n"
+    "  return table[pi->seeded_audit_index];\n"
     "}\n"
 )
 SEED_UNKNOWN_RULE = "NO_SUCH_RULE"
@@ -657,10 +658,11 @@ def run_case(name: str, root: pathlib.Path) -> str | None:
         else:
             return f"unknown case {name}"
         findings = check_tree(tree)
-        if expected not in findings:
+        own = [item for item in findings if item.startswith(expected)]
+        if not own:
             return f"the seed did not reach its own finding {expected!r}; got {findings[:3]!r}"
-        others = [item for item in findings if item != expected]
-        if others and name != "new-indexed-member-unmapped":
+        others = [item for item in findings if not item.startswith(expected)]
+        if others:
             return f"the seed produced an unrelated finding {others[0]!r}"
         return None
 

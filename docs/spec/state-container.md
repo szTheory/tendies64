@@ -711,3 +711,52 @@ Deviations from the plan text, each from the cited device source:
    whole-machine snapshot of the refusal rows compares the allocation, both packet
    storages and the image byte for byte and no longer hashes the state twice.
 
+
+## Field-use audit
+
+`scripts/check-state-field-use.py` (plan 09-09.1, decision D-45) closes the gap
+between the importer's readers and the members that device code uses to index
+storage, bound a loop, shift or size a memory function. `--list` is the scan
+(plan 09-09): the members of the structures reachable from `struct t64_machine`
+that occur in a subscript, a loop comparison, the right operand of a shift or the
+length argument of a memory function, directly or through a local that carries them
+(72 member names on the gate tree). `--check` reads the mapping
+`docs/spec/state-field-rules.txt`, one row per used member, and fails on an unmapped
+member, a stale row (a member no longer used), a duplicate row, an unknown rule, a
+placeholder (`?`, `TODO`), a reader that is not a file-scope function of
+`core/t64_state.c`, a reader whose body does not mention the member, and a
+`MASKED_AT_USE` row without a consuming site that exists and mentions the member.
+`--selftest` runs the five cases listed by `--list-cases` on temporary copies of the
+tree under `build/`: the unmutated copy passes first, then four seeds (a new indexed
+member, a removed row, a misspelled rule, a reader that lacks the member) each fail
+with their own finding text. The CTest name is `harness.state-field-use-audit`.
+
+Rules are the `T64_STATE_RULE_*` names without the prefix. `NONE` names an aggregate
+member (its scalar members are mapped under their own names) or a constant-size
+array used only under `sizeof`; `PROFILE_DERIVED` a member the blob never supplies
+(the commit zeroes it or the profile fixes it); `DERIVED_EQ` a member equal to a value
+the reader recomputes or fixes; `MASKED_AT_USE` a member whose blob value is masked or
+validated where it is consumed, with that consuming site named.
+
+What the audit proves and what it does not. It proves that every member the scan
+reports has a named rule in a named reader and that a new used member cannot land
+unmapped. It does not prove the rule is correct or complete; that is the work of the
+structure-aware mutants, the sweep and the sanitizer-scaled campaign of
+`core/tests/test_state_import.c`. The scan itself matches the forms `->member`,
+`).member` and `].member` and a local that carries them; a nested value access of the
+form `machine->device.member` names the device member only, so scalar members reached
+that way are outside the list (the list has 72 names of 472 reachable members). The
+accepted states are therefore covered by the sweep, the campaign and the liveness
+list, not by the audit alone, and the limit is carried to the review plan.
+
+Reader bounds added by the audit. The nine members the 09-09 hand-off listed as
+unbounded were checked against their consuming code. The RDP render rectangle was
+the one real hole: the fill, copy and triangle row handlers index RDRAM from
+`color_image_address`, `color_image_width`, `render_x_begin`, `render_x_end`,
+`render_y` and `render_y_end` without checking them again, because the check ran when
+the command was accepted. The reader now requires, for a render in progress, the
+acceptance extents (the last pixel of the last row inside RDRAM, an aligned image,
+`render_x_end` inside the image width) with reason `FIELD_RANGE` and rule
+`ADDR_RANGE`; the other listed members are masked or validated at use (the VI
+geometry, the DP command span, the SP DMA start, the TLB page mask switch, the RSP
+register masks) and are mapped `MASKED_AT_USE` with their sites.

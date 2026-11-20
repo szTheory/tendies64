@@ -1,0 +1,96 @@
+# State field-use mapping (plan 09-09.1, decision D-45).
+#
+# One row per member that core code uses as an index, a length, a shift or a
+# loop bound (the scan of scripts/check-state-field-use.py --list). Row format:
+#   member :: RULE :: reader_function
+# with two more fields for MASKED_AT_USE (the consuming site):
+#   member :: MASKED_AT_USE :: reader_function :: core/<file>.c :: function
+# RULE is a T64_STATE_RULE_* name of core/include/tendies64/t64_machine.h without
+# the prefix; reader_function is a file-scope function of core/t64_state.c whose
+# body mentions the member. The audit proves each used member has a named rule in
+# a named reader; it does not prove the rule is correct (the structure-aware
+# mutants, the sweep and the campaign of core/tests/test_state_import.c do).
+#
+# The scan is lexical and does not resolve types, so a name that several
+# structures share is one row for the weakest of its uses, and an aggregate
+# member (a structure whose scalar members are used and mapped under their own
+# names) or a constant-size array used only under sizeof is rule NONE.
+#
+# aggregates and constant-size arrays (NONE)
+ai :: NONE :: state_section_audio
+boot :: DERIVED_EQ :: state_section_warm_devices
+broadcast_register_values :: NONE :: state_read_rdram_protocol
+cache :: NONE :: state_section_warm_devices
+cpu :: NONE :: state_read_cpu
+data :: NONE :: state_read_cpu_extended
+devices :: NONE :: state_read_rdram_protocol
+events :: NONE :: state_section_scheduler
+guest_devices :: NONE :: state_section_warm_devices
+output :: NONE :: state_section_warm_devices
+packet_info :: NONE :: state_read_video_slot
+pi :: NONE :: state_section_interrupt_pi_sp
+rdp :: NONE :: state_read_rdp
+rsp :: NONE :: state_read_rsp
+si :: NONE :: state_section_si_pif
+sp :: NONE :: state_section_interrupt_pi_sp
+state_summary :: NONE :: state_section_machine_core
+vi :: NONE :: state_read_vi
+# counts, heads, slots and lengths
+count :: COUNT_CAP :: state_section_scheduler
+descriptor_count :: COUNT_CAP :: state_section_audio
+descriptor_head :: DERIVED_EQ :: state_section_audio
+entries :: COUNT_CAP :: state_section_si_pif
+entry_count :: COUNT_CAP :: state_section_si_pif
+offset :: INDEX_LT :: state_section_si_pif
+output_drain_cursor :: LEN_LE :: state_section_observer
+output_reservation_slot :: INDEX_LT :: state_section_audio
+packet_count :: COUNT_CAP :: state_section_observer
+packet_head :: INDEX_LT :: state_section_observer
+pending_triangle_word_count :: COUNT_CAP :: state_read_rdp
+pending_triangle_words :: COUNT_CAP :: state_read_rdp
+queue_count :: COUNT_CAP :: state_section_scheduler
+queue_head :: DERIVED_EQ :: state_section_scheduler
+rx_count :: LEN_LE :: state_section_si_pif
+kind :: ENUM_CLOSED :: state_section_scheduler
+render_texture_tile :: INDEX_LT :: state_read_rdp
+scissor_xh :: LEN_LE :: state_read_rdp
+scissor_xl :: LEN_LE :: state_read_rdp
+size :: ENUM_CLOSED :: state_read_rdp_tiles
+tiles :: INDEX_LT :: state_read_rdp_tiles
+color_image_size :: ENUM_CLOSED :: state_read_rdp
+# addresses and RDP render state (the render rectangle is range checked in the reader)
+address :: ADDR_RANGE :: state_section_audio
+dram_address :: MASKED_AT_USE :: state_section_interrupt_pi_sp :: core/t64_sp.c :: decode_descriptor
+color_image_address :: ADDR_RANGE :: state_read_rdp
+color_image_width :: ADDR_RANGE :: state_read_rdp
+render_x_begin :: ADDR_RANGE :: state_read_rdp
+render_x_end :: ADDR_RANGE :: state_read_rdp
+render_y :: ADDR_RANGE :: state_read_rdp
+dpc_current :: MASKED_AT_USE :: state_read_rdp :: core/t64_rdp.c :: t64_rdp_event
+dpc_xbus :: MASKED_AT_USE :: state_read_rdp :: core/t64_rdp.c :: command_span_valid
+# derived values
+aligned_dram_start :: DERIVED_EQ :: state_read_sp_descriptor
+bytes_per_line :: DERIVED_EQ :: state_read_sp_descriptor
+internal_start :: DERIVED_EQ :: state_read_sp_descriptor
+line_count :: DERIVED_EQ :: state_read_sp_descriptor
+# profile derived or not carried by the container
+content_digest :: PROFILE_DERIVED :: state_check_binding
+profile :: PROFILE_DERIVED :: state_section_identity
+profile_digest :: PROFILE_DERIVED :: state_check_binding
+ram :: PROFILE_DERIVED :: state_section_rdram
+rom_game_code :: PROFILE_DERIVED :: state_section_identity
+rom_header :: PROFILE_DERIVED :: state_section_identity
+rom_title :: PROFILE_DERIVED :: state_section_identity
+sp_dmem :: PROFILE_DERIVED :: state_section_sp_memory
+sp_imem :: PROFILE_DERIVED :: state_section_sp_memory
+depth_image_address :: PROFILE_DERIVED :: state_commit
+trace_count :: PROFILE_DERIVED :: state_commit
+trace_head :: PROFILE_DERIVED :: state_commit
+trace_records :: PROFILE_DERIVED :: state_commit
+# masked or validated where they are consumed
+active_registers :: MASKED_AT_USE :: state_read_vi :: core/t64_scheduler.c :: vi_event_waits_for_output_capacity
+registers :: MASKED_AT_USE :: state_read_vi :: core/t64_vi.c :: geometry_for
+field :: MASKED_AT_USE :: state_read_vi :: core/t64_vi.c :: t64_vi_read_register
+page_mask :: MASKED_AT_USE :: state_read_cpu_extended :: core/t64_mmu.c :: page_size_shift
+tick :: TICK_GE :: state_section_scheduler
+value :: NONE :: state_section_scheduler

@@ -1438,6 +1438,15 @@ static void state_read_rdp(state_reader *r) {
   bool texrect_pending;
   bool freeze;
   bool flush;
+  bool render_triangle;
+  uint32_t image_address;
+  uint32_t image_width;
+  uint32_t image_size;
+  uint32_t scissor_xl;
+  uint32_t x_begin;
+  uint32_t x_end;
+  uint32_t y_end;
+  uint32_t y_now;
   uint32_t signed_value;
   size_t i;
 
@@ -1454,13 +1463,25 @@ static void state_read_rdp(state_reader *r) {
   F32(rdp->pending_opcode_field);
   F64(rdp->pending_command_word);
   F64(rdp->fence_generation);
-  F32(rdp->color_image_address);
-  F32(rdp->color_image_width);
+  /* The image and scissor values are kept in locals: a render in progress is
+   * checked against them below (the fill, copy and triangle row handlers of
+   * core/t64_rdp.c and core/t64_rdp_raster.c index RDRAM from these values
+   * without checking them again). */
+  image_address = state_rd32(r);
+  STATE_STORE(r, rdp->color_image_address, image_address);
+  image_width = state_rd32(r);
+  STATE_STORE(r, rdp->color_image_width, image_width);
   F32_LE(rdp->color_image_format, 7u, T64_STATE_RULE_ENUM_CLOSED);
-  F32_LE(rdp->color_image_size, 3u, T64_STATE_RULE_ENUM_CLOSED);
+  image_size = state_rd32(r);
+  STATE_CHECK(r, image_size <= 3u, T64_STATE_REASON_FIELD_RANGE,
+              T64_STATE_RULE_ENUM_CLOSED);
+  STATE_STORE(r, rdp->color_image_size, image_size);
   F32_LE(rdp->scissor_xh, UINT32_C(0xfff), T64_STATE_RULE_LEN_LE);
   F32_LE(rdp->scissor_yh, UINT32_C(0xfff), T64_STATE_RULE_LEN_LE);
-  F32_LE(rdp->scissor_xl, UINT32_C(0xfff), T64_STATE_RULE_LEN_LE);
+  scissor_xl = state_rd32(r);
+  STATE_CHECK(r, scissor_xl <= UINT32_C(0xfff), T64_STATE_REASON_FIELD_RANGE,
+              T64_STATE_RULE_LEN_LE);
+  STATE_STORE(r, rdp->scissor_xl, scissor_xl);
   F32_LE(rdp->scissor_yl, UINT32_C(0xfff), T64_STATE_RULE_LEN_LE);
   F64(rdp->other_modes);
   F32(rdp->fill_color);
@@ -1506,7 +1527,14 @@ static void state_read_rdp(state_reader *r) {
   F32(rdp->primitive_color);
   FBOOL(rdp->primitive_color_valid);
   F32(rdp->triangle_count);
-  FBOOL(rdp->render_triangle);
+  {
+    const uint32_t v_ = state_rd32(r);
+
+    STATE_CHECK(r, v_ <= 1u, T64_STATE_REASON_FIELD_RANGE,
+                T64_STATE_RULE_BOOL_01);
+    render_triangle = v_ != 0u;
+    STATE_STORE(r, rdp->render_triangle, render_triangle);
+  }
   FBOOL(rdp->shade_triangle);
   F32_SAMER(T64_RDP_TRIANGLE_COVERAGE_WIDTH, T64_STATE_RULE_PROFILE_DERIVED);
   F32_SAMER(T64_RDP_TRIANGLE_COVERAGE_HEIGHT, T64_STATE_RULE_PROFILE_DERIVED);
@@ -1523,11 +1551,15 @@ static void state_read_rdp(state_reader *r) {
   F64(rdp->last_original_word);
   F32(rdp->last_command_byte);
   F32(rdp->last_opcode_field);
-  F32(rdp->render_x_begin);
-  F32(rdp->render_x_end);
+  x_begin = state_rd32(r);
+  STATE_STORE(r, rdp->render_x_begin, x_begin);
+  x_end = state_rd32(r);
+  STATE_STORE(r, rdp->render_x_end, x_end);
   F32(rdp->render_y_begin);
-  F32(rdp->render_y_end);
-  F32(rdp->render_y);
+  y_end = state_rd32(r);
+  STATE_STORE(r, rdp->render_y_end, y_end);
+  y_now = state_rd32(r);
+  STATE_STORE(r, rdp->render_y, y_now);
   FBOOL(rdp->color_image_valid);
   FBOOL(rdp->scissor_valid);
   FBOOL(rdp->other_modes_valid);
@@ -1550,6 +1582,39 @@ static void state_read_rdp(state_reader *r) {
   STATE_STORE(r, rdp->command_pending, command_pending);
   STATE_STORE(r, rdp->texrect_pending, texrect_pending);
   FBOOL(rdp->render_texture_flip);
+  if (render_active) {
+    /* A render in progress writes the rows up to render_y_end of the color
+     * image: the last pixel of the last row, from the same acceptance extents
+     * as the command (core/t64_rdp.c validate_fill_store and
+     * core/t64_rdp_raster.c t64_rdp_triangle_bounds), must lie inside RDRAM.
+     * The rows are not checked again when they run. */
+    const uint64_t ram = (uint64_t)m->profile.rdram_bytes;
+    const uint32_t pixel_bytes = image_size == 3u ? 4u : 2u;
+    const uint32_t last_row = y_now > y_end ? y_now : y_end;
+    uint64_t row_pixels = 0u;
+    uint64_t last_byte = 0u;
+
+    if (render_triangle) {
+      const uint32_t clip = scissor_xl >> 2;
+
+      row_pixels = clip < image_width ? clip : image_width;
+    } else if (x_begin <= x_end) {
+      row_pixels = (uint64_t)x_end + 1u;
+    }
+    STATE_CHECK(r, row_pixels == 0u ||
+                       ((image_size == 2u || image_size == 3u) &&
+                        image_width != 0u && row_pixels <= image_width &&
+                        image_width <= ram && last_row <= ram &&
+                        (image_address & (pixel_bytes - 1u)) == 0u),
+                T64_STATE_REASON_FIELD_RANGE, T64_STATE_RULE_ADDR_RANGE);
+    if (row_pixels != 0u && !r->failed) {
+      last_byte = (uint64_t)image_address +
+                  ((uint64_t)last_row * image_width + row_pixels) *
+                      (uint64_t)pixel_bytes;
+    }
+    STATE_CHECK(r, last_byte <= ram, T64_STATE_REASON_FIELD_RANGE,
+                T64_STATE_RULE_ADDR_RANGE);
+  }
   if (r->mode == STATE_MODE_VALIDATE) {
     facts->rdp_idle = (!busy && !render_active && !fence_pending &&
                        !command_pending && !texrect_pending)
@@ -2773,8 +2838,15 @@ static void state_commit(t64_machine *machine, const uint8_t *bytes,
   }
   (void)state_run_sections(machine, bytes, length, table, flags,
                            STATE_MODE_APPLY, NULL);
-  /* The trace ring and its drop observation clear; enablement stays. */
+  /* The trace ring and its drop observation clear; enablement stays. The ring
+   * indices and the depth image address are never read from the blob; they are
+   * named here so the field-use audit (docs/spec/state-field-rules.txt) maps
+   * them to this commit. */
   t64_trace_reset(machine);
+  machine->trace_head = 0u;
+  machine->trace_count = 0u;
+  (void)memset(machine->trace_records, 0, sizeof machine->trace_records);
+  machine->rdp.depth_image_address = 0u;
   machine->rsp_observed_pc = 0u;
   machine->rsp_observed_opcode = 0u;
   machine->rsp_observed_second_pc = 0u;
