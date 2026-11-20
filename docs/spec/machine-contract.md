@@ -653,3 +653,187 @@ introduced.
 Refusal assertions compare every present machine observation, scheduler state,
 trace records/drop observation and ownership counter. Later device slices
 must extend this snapshot and preserve the same no-change refusal guarantee.
+
+## F1 state content record
+
+This record freezes the content of the v25 state stream at its second point
+(F1), after the SI and PIF section (10) and the save-media section (11) exist.
+It is provisional until Phase 10 and implies no API or ABI freeze.
+
+F1 statement: the section ids, the framing and the per-section content of the
+stream frozen here equal the F0 table above plus the section 10 and 11 bodies
+specified in [si-pif-controller.md](si-pif-controller.md) and
+[save-media.md](save-media.md). A later change to the content of any section is
+a recorded defect fix with the affected goldens regenerated in the same plan and
+the dependent plans re-run, never a silent edit. Replay checkpoints (plan
+09-07), the state container (plan 09-08) and the readers (plan 09-09) are built
+on this content.
+
+The goldens below are the length and the SHA-256 of each section body (the bytes
+between a section marker and the next marker) of six authored states. Section 1
+carries the profile digest and is not pinned (no literal profile hash exists
+before F2). The authored states are: `idle-stem`, `idle-e4k`, `idle-e16k` and
+`idle-s32k`, the four ids admitted with the cleared openIPL3 asset at tick 0
+with the boot CPU event queued; `all-stem`, the stem id at tick 60,000 after the
+all-devices workload W-ALL of `core/test_sched_matrix` (CPU, RSP, RDP, VI, AI,
+PI and SI live, three host inputs), where only the CPU step and the next VI line
+event remain queued; and `all-s32k`, the SRAM id after the same workload with
+four authored words written to the SRAM window first (`0x00000001`,
+`0x23456789`, `0xABCDEF01` and `0xFFFFFFFF` at `0x08000000`, `0x08000004`,
+`0x08007FF8` and `0x08007FFC`). The rows are produced by
+`core/test_sched_matrix --print-sections` and compared by the case
+`state-content-f1`.
+
+| State | Section id | Length | SHA-256 |
+| --- | --- | --- | --- |
+| idle-stem | 2 | 32 | 66687aadf862bd776c8fc18b8e9f8e20089714856ee233b3902a591d0d5f2925 |
+| idle-stem | 3 | 4194308 | 092c3dd93f8ac49c788bedfbd21e919be94c99512009c180f25b602babd2c6cd |
+| idle-stem | 4 | 8200 | 1b38310e5191489195ce799377f93da6368cc18437eb60c19ed4e886a8271d02 |
+| idle-stem | 5 | 276 | 15cc6a687b141c3e5e90854599f9d2908b95749664c0418184927a628195be20 |
+| idle-stem | 6 | 56 | 2d04db54e23eaa8219575be70c424d2ea274da8770485b9d957de66bf6541853 |
+| idle-stem | 7 | 43724 | f6948a6a0e1d39e936f5761429c6c96361ab663b3066f4f440a2b1e6b10acb47 |
+| idle-stem | 8 | 2103016 | 87adef4ee0974db59ba1eba88437d01f7db040c709aa90c5e70f312e65138065 |
+| idle-stem | 9 | 336 | 52a3e0804d93dc525ec3c67ef8ac5b01756ecf0513e36f3c19435e4c82cb5d29 |
+| idle-stem | 10 | 404 | aa393fb5f348ef124a46175d478d4246a351c24f2b479c9ce574c158b5bbadba |
+| idle-e4k | 2 | 32 | 66687aadf862bd776c8fc18b8e9f8e20089714856ee233b3902a591d0d5f2925 |
+| idle-e4k | 3 | 4194308 | 092c3dd93f8ac49c788bedfbd21e919be94c99512009c180f25b602babd2c6cd |
+| idle-e4k | 4 | 8200 | 1b38310e5191489195ce799377f93da6368cc18437eb60c19ed4e886a8271d02 |
+| idle-e4k | 5 | 276 | 15cc6a687b141c3e5e90854599f9d2908b95749664c0418184927a628195be20 |
+| idle-e4k | 6 | 56 | 2d04db54e23eaa8219575be70c424d2ea274da8770485b9d957de66bf6541853 |
+| idle-e4k | 7 | 43724 | f6948a6a0e1d39e936f5761429c6c96361ab663b3066f4f440a2b1e6b10acb47 |
+| idle-e4k | 8 | 2103016 | 87adef4ee0974db59ba1eba88437d01f7db040c709aa90c5e70f312e65138065 |
+| idle-e4k | 9 | 336 | 52a3e0804d93dc525ec3c67ef8ac5b01756ecf0513e36f3c19435e4c82cb5d29 |
+| idle-e4k | 10 | 404 | aa393fb5f348ef124a46175d478d4246a351c24f2b479c9ce574c158b5bbadba |
+| idle-e4k | 11 | 532 | ce276b54e42d1e377ef7d43f652d49f51acfdd62213af71868cc4db2b9945636 |
+| idle-e16k | 2 | 32 | 66687aadf862bd776c8fc18b8e9f8e20089714856ee233b3902a591d0d5f2925 |
+| idle-e16k | 3 | 4194308 | 092c3dd93f8ac49c788bedfbd21e919be94c99512009c180f25b602babd2c6cd |
+| idle-e16k | 4 | 8200 | 1b38310e5191489195ce799377f93da6368cc18437eb60c19ed4e886a8271d02 |
+| idle-e16k | 5 | 276 | 15cc6a687b141c3e5e90854599f9d2908b95749664c0418184927a628195be20 |
+| idle-e16k | 6 | 56 | 2d04db54e23eaa8219575be70c424d2ea274da8770485b9d957de66bf6541853 |
+| idle-e16k | 7 | 43724 | f6948a6a0e1d39e936f5761429c6c96361ab663b3066f4f440a2b1e6b10acb47 |
+| idle-e16k | 8 | 2103016 | 87adef4ee0974db59ba1eba88437d01f7db040c709aa90c5e70f312e65138065 |
+| idle-e16k | 9 | 336 | 52a3e0804d93dc525ec3c67ef8ac5b01756ecf0513e36f3c19435e4c82cb5d29 |
+| idle-e16k | 10 | 404 | aa393fb5f348ef124a46175d478d4246a351c24f2b479c9ce574c158b5bbadba |
+| idle-e16k | 11 | 2068 | f83831868f121ac1d54cbd1c034f73592c75695302ae5b10f4bb4c8f20c0c4de |
+| idle-s32k | 2 | 32 | 66687aadf862bd776c8fc18b8e9f8e20089714856ee233b3902a591d0d5f2925 |
+| idle-s32k | 3 | 4194308 | 092c3dd93f8ac49c788bedfbd21e919be94c99512009c180f25b602babd2c6cd |
+| idle-s32k | 4 | 8200 | 1b38310e5191489195ce799377f93da6368cc18437eb60c19ed4e886a8271d02 |
+| idle-s32k | 5 | 276 | 15cc6a687b141c3e5e90854599f9d2908b95749664c0418184927a628195be20 |
+| idle-s32k | 6 | 56 | 2d04db54e23eaa8219575be70c424d2ea274da8770485b9d957de66bf6541853 |
+| idle-s32k | 7 | 43724 | f6948a6a0e1d39e936f5761429c6c96361ab663b3066f4f440a2b1e6b10acb47 |
+| idle-s32k | 8 | 2103016 | 87adef4ee0974db59ba1eba88437d01f7db040c709aa90c5e70f312e65138065 |
+| idle-s32k | 9 | 336 | 52a3e0804d93dc525ec3c67ef8ac5b01756ecf0513e36f3c19435e4c82cb5d29 |
+| idle-s32k | 10 | 404 | aa393fb5f348ef124a46175d478d4246a351c24f2b479c9ce574c158b5bbadba |
+| idle-s32k | 11 | 32788 | 96a813dddb2aed9e4a8070099a5e2afa9d8ed98b29c5a04409bed28e6eb36659 |
+| all-stem | 2 | 32 | 457af84927bf7a656d18d99b13659c780b5ddcb8ff4255abeae1b573e7e288ce |
+| all-stem | 3 | 4194308 | 8750bf1a32a94778f11024ad176e8fe449af78baa1fa1f1a1b7b793afe7079e4 |
+| all-stem | 4 | 8200 | b0f31494ac3e56d1a19d67e697a61176c808f67e3aa008dce54d72d25c9dcba7 |
+| all-stem | 5 | 276 | d76402d0c97abeead364cda2fd7ba107632608da576dea659f05d0667e8f648e |
+| all-stem | 6 | 96 | da4194e598f9e3e8b0db720185fa6a21194d3c6fd542aa92d0689782632f3c9a |
+| all-stem | 7 | 43724 | 12d7b7b731d26cb0c69fd817e787950ce8c4e6bdb0b69d5ac9dc526bdddfa88b |
+| all-stem | 8 | 2103112 | 68e538d595cc112a0f82d1a94539818a58aee372a41adeeb3de5c0ca3dfa705c |
+| all-stem | 9 | 344 | bdb91a273e1d7a36634d1837c9ef25c274b5abb72591eaa2805b26a47189f58e |
+| all-stem | 10 | 404 | 22b74d14eb39b1c125207961e65022947a75724aff09de581405802198483142 |
+| all-s32k | 2 | 32 | 457af84927bf7a656d18d99b13659c780b5ddcb8ff4255abeae1b573e7e288ce |
+| all-s32k | 3 | 4194308 | 8750bf1a32a94778f11024ad176e8fe449af78baa1fa1f1a1b7b793afe7079e4 |
+| all-s32k | 4 | 8200 | b0f31494ac3e56d1a19d67e697a61176c808f67e3aa008dce54d72d25c9dcba7 |
+| all-s32k | 5 | 276 | d76402d0c97abeead364cda2fd7ba107632608da576dea659f05d0667e8f648e |
+| all-s32k | 6 | 96 | da4194e598f9e3e8b0db720185fa6a21194d3c6fd542aa92d0689782632f3c9a |
+| all-s32k | 7 | 43724 | 12d7b7b731d26cb0c69fd817e787950ce8c4e6bdb0b69d5ac9dc526bdddfa88b |
+| all-s32k | 8 | 2103112 | 68e538d595cc112a0f82d1a94539818a58aee372a41adeeb3de5c0ca3dfa705c |
+| all-s32k | 9 | 344 | bdb91a273e1d7a36634d1837c9ef25c274b5abb72591eaa2805b26a47189f58e |
+| all-s32k | 10 | 404 | 22b74d14eb39b1c125207961e65022947a75724aff09de581405802198483142 |
+| all-s32k | 11 | 32788 | 18027aa2804723811fc26bbe7869393c01a51b8f74981ca5f2228f3a0b70dfbb |
+
+Where the lengths come from, and what the goldens are. The lengths of sections
+2 to 7, 10 and 11 were derived by hand from the field tables before any capture
+and equal the walker (32; 4,194,308; 8,200; 276; 16 plus 40 per queued event;
+43,724; 404; and 20 plus the storage size). The lengths of sections 8 and 9 are
+captured and checked by a differential: the v24 stream of the Phase 8 audio
+profile in the same idle state, minus its identity spans, equals the 132
+non-identity bytes of section 1, the hand-derived sections 2 to 7 and the
+captured sections 8 and 9. The hash of every section is a regression pin: it is
+the walker compared with itself, so a consistently wrong field would pass. The
+case also shows that a changed body byte reports the label `section-golden` and
+a changed pinned length reports `section-length`. Nothing here is hardware
+evidence, and the hosted jobs of plan 09-11 add the check on a second platform.
+
+### State member audit
+
+Every member of `struct t64_machine` in `core/t64_internal.h` has exactly one
+row: the canonical section that carries it, the observer-continuity section (16)
+or an exclusion with its reason class (allocator, pointer, trace, drain cursor,
+rsp observation, padding, queue head), and whether replacement resets it and by
+which function. The member list is the set of declarations in the structure body (comment lines excluded), and has 67 members. Build and source identity is a compile-time string, not a
+member, and is excluded as behavior (the retained packet metadata keeps the
+profile and build ids only through v24).
+
+| Member | Section | Reset by replacement | Reason |
+| --- | --- | --- | --- |
+| allocator | excluded | no, preserved | allocator: host callbacks and context are not machine behavior |
+| machine_storage | excluded | no, preserved | allocator: the host storage descriptor of the machine allocation |
+| image_storage | excluded | yes, `t64_machine_admit_rom` installs the candidate storage | pointer: the storage location is host layout; the image is identified by the content digest in section 1 |
+| profile | 1, through `profile_digest` | no, preserved | the descriptor is hash-pinned and every policy field, including the synchronization quantum, is bound through its hash |
+| profile_digest | 1, identity span | no, preserved | identity: the hash of the descriptor serialization |
+| content_digest | 1 | yes, `t64_machine_admit_rom` | the admitted content identity |
+| ram | 3, the RDRAM bytes | yes, `reset_guest_state` | pointer: the location is excluded, the bytes are section 3 |
+| rdp_triangle_coverage | 8, when the profile has the triangle side table | yes, `reset_guest_state` | pointer: the location is excluded, the table is hashed with the RDP block |
+| rdp_memory_coverage | 8, when the profile has the blender side table | yes, `reset_guest_state` | pointer: the location is excluded, the table is hashed with the RDP block |
+| rdp_depth_hidden | 8, only when the depth predicate holds (not for this family) | yes, `reset_guest_state` | pointer: the location is excluded, the table is hashed with the RDP block when present |
+| sp_dmem | 4 | yes, `reset_guest_state` | SP-local memory bank |
+| sp_imem | 4 | yes, `reset_guest_state` | SP-local memory bank |
+| mi_pending | 5 | yes, `reset_guest_state` | device interrupt state |
+| mi_mask | 5 | yes, `reset_guest_state` | device interrupt state |
+| mi_irq_line | 5 | yes, `reset_guest_state` | derived line kept as state for the CPU seam |
+| pi | 5 | yes, `t64_pi_reset_machine_state` | latches, descriptor and tokens |
+| sp | 5 | yes, `t64_sp_reset_machine_state` | latches, descriptors and tokens |
+| rsp | 7 | yes, `reset_guest_state` (halted again on the functional-RSP profiles) | registers, pipeline, scoreboard and DMA cursors |
+| cpu | 7 | yes, `reset_guest_state` then the warm entry preparation | registers, CP0, TLB, caches, FPRs, timer and link state |
+| boot | 7 | yes, `reset_guest_state` then the warm entry preparation | prepared boot hashes, offsets and seed fields |
+| cache | 7 | yes, `reset_guest_state` | cache policy and last operation |
+| guest_devices | 7 | yes, `reset_guest_state` | prepared MI and RI state and the RDRAM protocol model |
+| output | 7 | yes, `reset_guest_state` | ISViewer window, retained prefix and totals |
+| rdp | 8 | yes, `t64_rdp_reset_machine_state` | DPC, command, texture, combiner, blender and depth state as the profile has them |
+| vi | 8 | yes, `t64_vi_reset_machine_state` | VI registers, phase and the retained packet metadata |
+| video_storage | excluded | no, preserved | allocator: the host storage descriptor of the retained video slots |
+| video_packets | 8, the retained slot bytes up to each slot length | yes, `t64_vi_reset_machine_state` | pointer: the location is excluded, drained slots are hashed |
+| ai | 9 | yes, `t64_ai_reset_machine_state` | AI latches, rate latch, descriptor queue and packet history hash |
+| si | 10 | yes, `t64_si_reset_machine_state` | SI registers, active descriptor, PIF RAM, parsed table and input latches |
+| save | 11, with `write_generation` observer-only | yes, `t64_save_reset_machine_state` | kind, size, EEPROM deadline and raw storage are canonical; the import generation is outside the digest and travels with observer state if the container carries it (decided in plan 09-08) |
+| audio_storage | excluded | no, preserved | allocator: the host storage descriptor of the retained audio slots |
+| audio_packets | 9, the retained slot bytes up to each slot length | yes, `t64_ai_reset_machine_state` | pointer: the location is excluded, drained slots are hashed |
+| output_drain_cursor | observer-continuity (16) | yes, `reset_guest_state` | drain cursor: outside the digest; observer state that gates stop points, carried by the container section 16 (content decided in plan 09-08) |
+| image_length | 1 | yes, `t64_machine_admit_rom` | the admitted image length |
+| tick | 2 | yes, `t64_machine_reset_execution_state` | guest time |
+| instruction_count | 2 | yes, `t64_machine_reset_execution_state` | cumulative counter |
+| frame_event_count | 2 | yes, `t64_machine_reset_execution_state` | cumulative counter |
+| sticky_error_status | 2 | yes, `t64_machine_reset_execution_state` | sticky host-error status |
+| rom_header | 1 | yes, `t64_machine_admit_rom` | normalized header |
+| rom_title | 1 | yes, `t64_machine_admit_rom` | normalized title |
+| rom_game_code | 1 | yes, `t64_machine_admit_rom` | normalized game code |
+| rom_version | 1 | yes, `t64_machine_admit_rom` | normalized version |
+| has_image | 1 | yes, `t64_machine_admit_rom` | loaded-image flag |
+| halted | 2 | yes, `t64_machine_reset_execution_state` | halt flag |
+| events | 6, the logical queue only | yes, queue emptied by `t64_machine_reset_execution_state` | pointer and padding: the handler pointers and the unused ring slots are excluded; handlers are re-derived from the closed event ledger |
+| queue_head | excluded | yes, `t64_machine_reset_execution_state` (set to 0) | queue head: the physical ring position is not logical queue state |
+| queue_count | 6 | yes, `t64_machine_reset_execution_state` | scheduler state |
+| next_sequence | 6 | yes, `t64_machine_reset_execution_state` | scheduler state |
+| sequence_exhausted | 6 | yes, `t64_machine_reset_execution_state` | scheduler state |
+| trace_records | excluded | yes, `t64_trace_reset` | trace: observer ring, never alters guest state |
+| trace_head | excluded | yes, `t64_trace_reset` | trace: ring head |
+| trace_count | excluded | yes, `t64_trace_reset` | trace: ring count |
+| trace_drop_count | excluded | yes, `t64_trace_reset` | trace: drop observation |
+| trace_drop_count_saturated | excluded | yes, `t64_trace_reset` | trace: drop observation |
+| trace_enabled | excluded | no, preserved | trace: configuration |
+| rsp_observed_pc | excluded | no, rewritten at the next RSP attempt | rsp observation: diagnostic only |
+| rsp_observed_opcode | excluded | no, rewritten at the next RSP attempt | rsp observation: diagnostic only |
+| rsp_observed_second_pc | excluded | no, rewritten at the next RSP attempt | rsp observation: diagnostic only |
+| rsp_observed_second_opcode | excluded | no, rewritten at the next RSP attempt | rsp observation: diagnostic only |
+| rsp_observed_tick | excluded | no, rewritten at the next RSP attempt | rsp observation: diagnostic only |
+| rsp_observed_ready_tick | excluded | no, rewritten at the next RSP attempt | rsp observation: diagnostic only |
+| rsp_observed_dma_cursor | excluded | no, rewritten at the next RSP attempt | rsp observation: diagnostic only |
+| rsp_observed_stall_reason | excluded | no, rewritten at the next RSP attempt | rsp observation: diagnostic only |
+| rsp_observed_refusal_reason | excluded | no, rewritten at the next RSP attempt | rsp observation: diagnostic only |
+| rsp_observed_dma_action | excluded | no, rewritten at the next RSP attempt | rsp observation: diagnostic only |
+| rsp_observed_outcome | excluded | no, rewritten at the next RSP attempt | rsp observation: diagnostic only |
+| rsp_observation_valid | excluded | no, rewritten at the next RSP attempt | rsp observation: diagnostic only |

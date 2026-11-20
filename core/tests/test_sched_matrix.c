@@ -2742,6 +2742,458 @@ static void case_quantum_binding(void) {
   check_quantum_binding(FAMILY_STEM);
 }
 
+/* ---- case state-content-f1 ---------------------------------------------------- */
+
+/*
+ * F1: the state content freeze (D-06). After this point the canonical content
+ * of every section of the v25 stream is frozen. A later change to a section's
+ * content is a recorded defect fix with the affected goldens regenerated in
+ * the same plan, never a silent edit. The goldens are regression pins: the
+ * lengths of sections 2 to 7, 10 and 11 were derived by hand from the
+ * documented field tables before any capture (below); the lengths of sections
+ * 8 and 9 and the hash of every section are captured, and 8 plus 9 are
+ * cross-checked against the stripped v24 stream of the AI profile. Section 1
+ * carries the profile digest and is not pinned (no literal profile hash exists
+ * before F2). Nothing here is hardware evidence.
+ */
+#define F1_MAX_SECTIONS 12u
+#define F1_SPAN_CAPACITY 64u
+#define F1_STATE_COUNT 6u
+#define F1_ROW_COUNT 58u
+
+typedef struct {
+  uint8_t *bytes;
+  size_t length;
+  uint32_t ids[F1_MAX_SECTIONS];
+  size_t body_offset[F1_MAX_SECTIONS];
+  size_t body_length[F1_MAX_SECTIONS];
+  size_t count;
+  size_t identity_bytes;  /* total length of identity-class spans */
+} section_stream;
+
+/* The stream of a machine in two passes: a counting pass for the size, then a
+ * copy into a buffer with the span records. Test code may allocate. */
+static bool capture_stream(const t64_machine *machine, section_stream *out) {
+  t64_digest_sink size_sink;
+  t64_digest_sink copy_sink;
+  t64_digest_span spans[F1_SPAN_CAPACITY];
+  size_t i;
+
+  (void)memset(out, 0, sizeof *out);
+  (void)memset(&size_sink, 0, sizeof size_sink);
+  T64_CHECK_INT(t64_digest_stream(machine, &size_sink), T64_STATUS_OK);
+  out->length = size_sink.offset;
+  out->bytes = (uint8_t *)malloc(out->length);
+  if (out->bytes == NULL) return false;
+  (void)memset(&copy_sink, 0, sizeof copy_sink);
+  copy_sink.buffer = out->bytes;
+  copy_sink.capacity = out->length;
+  copy_sink.spans = spans;
+  copy_sink.span_capacity = F1_SPAN_CAPACITY;
+  T64_CHECK_INT(t64_digest_stream(machine, &copy_sink), T64_STATUS_OK);
+  T64_CHECK(!copy_sink.overflow);
+  T64_CHECK_INT(copy_sink.offset, out->length);
+  for (i = 0u; i < copy_sink.span_count; i++) {
+    if (spans[i].class == T64_DIGEST_CLASS_IDENTITY) {
+      out->identity_bytes += spans[i].length;
+    }
+    if (spans[i].class == T64_DIGEST_CLASS_MARKER && spans[i].length == 4u &&
+        out->count < F1_MAX_SECTIONS) {
+      const uint8_t *id = out->bytes + spans[i].offset;
+
+      out->ids[out->count] = ((uint32_t)id[0] << 24) | ((uint32_t)id[1] << 16) |
+                             ((uint32_t)id[2] << 8) | (uint32_t)id[3];
+      out->body_offset[out->count] = spans[i].offset + 4u;
+      out->count++;
+    }
+  }
+  for (i = 0u; i < out->count; i++) {
+    const size_t end = i + 1u < out->count ? out->body_offset[i + 1u] - 4u
+                                           : out->length;
+
+    out->body_length[i] = end - out->body_offset[i];
+  }
+  return true;
+}
+
+static void hash_hex(const uint8_t *bytes, size_t length, char hex[65]) {
+  uint8_t digest[T64_SHA256_DIGEST_SIZE];
+  t64_sha256_ctx hash;
+
+  t64_sha256_init(&hash);
+  t64_sha256_update(&hash, bytes, length);
+  t64_sha256_final(&hash, digest);
+  t64_sha256_hex(digest, hex);
+}
+
+typedef struct {
+  const char *name;
+  const char *profile;
+  bool all_devices;       /* W-ALL to H_ALL (inputs on) instead of idle */
+  bool sram_words;        /* four authored words in the SRAM window first */
+  uint32_t save_bytes;    /* 0 when the id has no save device */
+  size_t queue_count;     /* the queue length the state is derived to have */
+} f1_state;
+
+#define SAVE_ID_E4K "ntsc-cart-4m-openipl3-rdram-b-t1-si-v1-e4k"
+#define SAVE_ID_E16K "ntsc-cart-4m-openipl3-rdram-b-t1-si-v1-e16k"
+#define SAVE_ID_S32K "ntsc-cart-4m-openipl3-rdram-b-t1-si-v1-s32k"
+
+/* Idle: tick 0 with the boot CPU event queued (one event). All devices: the
+ * end of W-ALL at tick 60,000, where the AI frames are consumed, the RSP has
+ * broken, and only the CPU step and the next VI line event remain queued (two
+ * events). */
+static const f1_state f1_states[F1_STATE_COUNT] = {
+    {"idle-stem", FAMILY_STEM, false, false, 0u, 1u},
+    {"idle-e4k", SAVE_ID_E4K, false, false, 512u, 1u},
+    {"idle-e16k", SAVE_ID_E16K, false, false, 2048u, 1u},
+    {"idle-s32k", SAVE_ID_S32K, false, false, 32768u, 1u},
+    {"all-stem", FAMILY_STEM, true, false, 0u, 2u},
+    {"all-s32k", SAVE_ID_S32K, true, true, 32768u, 2u},
+};
+
+/* The four authored SRAM words (D-21: aligned words only). */
+static bool write_sram_words(t64_machine *machine) {
+  static const struct {
+    uint32_t address;
+    uint32_t value;
+  } words[4] = {{UINT32_C(0x08000000), UINT32_C(0x00000001)},
+                {UINT32_C(0x08000004), UINT32_C(0x23456789)},
+                {UINT32_C(0x08007FF8), UINT32_C(0xABCDEF01)},
+                {UINT32_C(0x08007FFC), UINT32_C(0xFFFFFFFF)}};
+  size_t i;
+
+  for (i = 0u; i < 4u; i++) {
+    if (!write32(machine, words[i].address, words[i].value)) return false;
+  }
+  return true;
+}
+
+static t64_machine *build_f1_state(const f1_state *state) {
+  t64_machine *machine;
+  run_ctx ctx;
+
+  if (!state->all_devices) return create_machine(state->profile);
+  machine = build_w_all(state->profile, true);
+  if (machine == NULL) return NULL;
+  if (state->sram_words && !write_sram_words(machine)) {
+    t64_machine_destroy(machine);
+    return NULL;
+  }
+  ctx_start(&ctx, machine, false, 0u);
+  if (!ctx_advance_to(&ctx, H_ALL)) {
+    t64_machine_destroy(machine);
+    return NULL;
+  }
+  return machine;
+}
+
+/*
+ * Section lengths derived by hand from the documented field tables (the
+ * machine-contract section table, the digest field widths, the section 10 table
+ * of docs/spec/si-pif-controller.md and the section 11 table of
+ * docs/spec/save-media.md) before any capture. Widths: u32 four bytes, u64
+ * eight, a byte array its size. Sections 8 and 9 return 0: they are captured
+ * and cross-checked against the v24 stream instead.
+ *
+ *  2  machine core: tick, instruction count, frame-event count (3 x 8), sticky
+ *     error and halt flag (2 x 4)                                       = 32
+ *  3  rdram: size word 4 + 4,194,304 bytes                              = 4,194,308
+ *  4  sp memory: (4 + 4,096) for DMEM and again for IMEM                = 8,200
+ *  5  interrupt, PI and SP: MI pending, mask, line (3 x 4) 12; PI 92 = four
+ *     raw words 16, eight domain words 32, error, active valid, canceled 12,
+ *     three active words 12, two tokens 16, exhaustion 4; SP 172 = four raw
+ *     words 16, two descriptors of 72 (three flags 12, nine words 36, three
+ *     u64 24), next token 8, exhaustion 4                               = 276
+ *  6  scheduler: count 4, next sequence 8, exhaustion 4, then per queued event
+ *     tick, sequence, value, token (4 x 8) and device, kind (2 x 4) = 40
+ *                                                                       = 16 + 40 n
+ *  7  warm devices: boot 3 x 32 hashes and 11 words = 140; CPU registers 32 x 8,
+ *     hi and lo, 32 CP0 x 8, retired count, ten words = 576; VR4300 state
+ *     84 + TLB (4 + 32 x 44) 1,412 + timer and link 44 + icache (4 + 512 x 40)
+ *     20,484 + dcache (4 + 512 x 28) 14,340 + FPRs and control 268 = 36,632;
+ *     branch origin and CP2 latch 16; cache 20; guest devices 20; output and
+ *     the ISViewer window (3 + 3 words, 512, 2 words, 4,096, lost flag, total
+ *     and saturation) 4,656; RSP 1,408; RDRAM protocol 256            = 43,724
+ *  10 SI and PIF: 5 words 20, 5 u64 40, 2 words 8, PIF RAM 64, 2 words 8, five
+ *     entries of 6 words 120, four ports of 6 words, one u64 and one word 144
+ *                                                                       = 404
+ *  11 save media: kind 4, size 4, deadline 8, direction 4, storage     = 20 + storage
+ */
+static uint32_t hand_length(uint32_t id, const f1_state *state) {
+  switch (id) {
+  case 2u: return 32u;
+  case 3u: return 4194308u;
+  case 4u: return 8200u;
+  case 5u: return 276u;
+  case 6u: return (uint32_t)(16u + 40u * state->queue_count);
+  case 7u: return 43724u;
+  case 10u: return 404u;
+  case 11u: return 20u + state->save_bytes;
+  default: return 0u;
+  }
+}
+
+typedef struct {
+  const char *state;
+  uint32_t id;
+  uint32_t length;
+  const char *sha256;
+} golden_row;
+
+/* F1-GOLDENS-BEGIN */
+static const golden_row goldens[F1_ROW_COUNT] = {
+    {"idle-stem", 2u, 32u, "66687aadf862bd776c8fc18b8e9f8e20089714856ee233b3902a591d0d5f2925"},
+    {"idle-stem", 3u, 4194308u, "092c3dd93f8ac49c788bedfbd21e919be94c99512009c180f25b602babd2c6cd"},
+    {"idle-stem", 4u, 8200u, "1b38310e5191489195ce799377f93da6368cc18437eb60c19ed4e886a8271d02"},
+    {"idle-stem", 5u, 276u, "15cc6a687b141c3e5e90854599f9d2908b95749664c0418184927a628195be20"},
+    {"idle-stem", 6u, 56u, "2d04db54e23eaa8219575be70c424d2ea274da8770485b9d957de66bf6541853"},
+    {"idle-stem", 7u, 43724u, "f6948a6a0e1d39e936f5761429c6c96361ab663b3066f4f440a2b1e6b10acb47"},
+    {"idle-stem", 8u, 2103016u, "87adef4ee0974db59ba1eba88437d01f7db040c709aa90c5e70f312e65138065"},
+    {"idle-stem", 9u, 336u, "52a3e0804d93dc525ec3c67ef8ac5b01756ecf0513e36f3c19435e4c82cb5d29"},
+    {"idle-stem", 10u, 404u, "aa393fb5f348ef124a46175d478d4246a351c24f2b479c9ce574c158b5bbadba"},
+    {"idle-e4k", 2u, 32u, "66687aadf862bd776c8fc18b8e9f8e20089714856ee233b3902a591d0d5f2925"},
+    {"idle-e4k", 3u, 4194308u, "092c3dd93f8ac49c788bedfbd21e919be94c99512009c180f25b602babd2c6cd"},
+    {"idle-e4k", 4u, 8200u, "1b38310e5191489195ce799377f93da6368cc18437eb60c19ed4e886a8271d02"},
+    {"idle-e4k", 5u, 276u, "15cc6a687b141c3e5e90854599f9d2908b95749664c0418184927a628195be20"},
+    {"idle-e4k", 6u, 56u, "2d04db54e23eaa8219575be70c424d2ea274da8770485b9d957de66bf6541853"},
+    {"idle-e4k", 7u, 43724u, "f6948a6a0e1d39e936f5761429c6c96361ab663b3066f4f440a2b1e6b10acb47"},
+    {"idle-e4k", 8u, 2103016u, "87adef4ee0974db59ba1eba88437d01f7db040c709aa90c5e70f312e65138065"},
+    {"idle-e4k", 9u, 336u, "52a3e0804d93dc525ec3c67ef8ac5b01756ecf0513e36f3c19435e4c82cb5d29"},
+    {"idle-e4k", 10u, 404u, "aa393fb5f348ef124a46175d478d4246a351c24f2b479c9ce574c158b5bbadba"},
+    {"idle-e4k", 11u, 532u, "ce276b54e42d1e377ef7d43f652d49f51acfdd62213af71868cc4db2b9945636"},
+    {"idle-e16k", 2u, 32u, "66687aadf862bd776c8fc18b8e9f8e20089714856ee233b3902a591d0d5f2925"},
+    {"idle-e16k", 3u, 4194308u, "092c3dd93f8ac49c788bedfbd21e919be94c99512009c180f25b602babd2c6cd"},
+    {"idle-e16k", 4u, 8200u, "1b38310e5191489195ce799377f93da6368cc18437eb60c19ed4e886a8271d02"},
+    {"idle-e16k", 5u, 276u, "15cc6a687b141c3e5e90854599f9d2908b95749664c0418184927a628195be20"},
+    {"idle-e16k", 6u, 56u, "2d04db54e23eaa8219575be70c424d2ea274da8770485b9d957de66bf6541853"},
+    {"idle-e16k", 7u, 43724u, "f6948a6a0e1d39e936f5761429c6c96361ab663b3066f4f440a2b1e6b10acb47"},
+    {"idle-e16k", 8u, 2103016u, "87adef4ee0974db59ba1eba88437d01f7db040c709aa90c5e70f312e65138065"},
+    {"idle-e16k", 9u, 336u, "52a3e0804d93dc525ec3c67ef8ac5b01756ecf0513e36f3c19435e4c82cb5d29"},
+    {"idle-e16k", 10u, 404u, "aa393fb5f348ef124a46175d478d4246a351c24f2b479c9ce574c158b5bbadba"},
+    {"idle-e16k", 11u, 2068u, "f83831868f121ac1d54cbd1c034f73592c75695302ae5b10f4bb4c8f20c0c4de"},
+    {"idle-s32k", 2u, 32u, "66687aadf862bd776c8fc18b8e9f8e20089714856ee233b3902a591d0d5f2925"},
+    {"idle-s32k", 3u, 4194308u, "092c3dd93f8ac49c788bedfbd21e919be94c99512009c180f25b602babd2c6cd"},
+    {"idle-s32k", 4u, 8200u, "1b38310e5191489195ce799377f93da6368cc18437eb60c19ed4e886a8271d02"},
+    {"idle-s32k", 5u, 276u, "15cc6a687b141c3e5e90854599f9d2908b95749664c0418184927a628195be20"},
+    {"idle-s32k", 6u, 56u, "2d04db54e23eaa8219575be70c424d2ea274da8770485b9d957de66bf6541853"},
+    {"idle-s32k", 7u, 43724u, "f6948a6a0e1d39e936f5761429c6c96361ab663b3066f4f440a2b1e6b10acb47"},
+    {"idle-s32k", 8u, 2103016u, "87adef4ee0974db59ba1eba88437d01f7db040c709aa90c5e70f312e65138065"},
+    {"idle-s32k", 9u, 336u, "52a3e0804d93dc525ec3c67ef8ac5b01756ecf0513e36f3c19435e4c82cb5d29"},
+    {"idle-s32k", 10u, 404u, "aa393fb5f348ef124a46175d478d4246a351c24f2b479c9ce574c158b5bbadba"},
+    {"idle-s32k", 11u, 32788u, "96a813dddb2aed9e4a8070099a5e2afa9d8ed98b29c5a04409bed28e6eb36659"},
+    {"all-stem", 2u, 32u, "457af84927bf7a656d18d99b13659c780b5ddcb8ff4255abeae1b573e7e288ce"},
+    {"all-stem", 3u, 4194308u, "8750bf1a32a94778f11024ad176e8fe449af78baa1fa1f1a1b7b793afe7079e4"},
+    {"all-stem", 4u, 8200u, "b0f31494ac3e56d1a19d67e697a61176c808f67e3aa008dce54d72d25c9dcba7"},
+    {"all-stem", 5u, 276u, "d76402d0c97abeead364cda2fd7ba107632608da576dea659f05d0667e8f648e"},
+    {"all-stem", 6u, 96u, "da4194e598f9e3e8b0db720185fa6a21194d3c6fd542aa92d0689782632f3c9a"},
+    {"all-stem", 7u, 43724u, "12d7b7b731d26cb0c69fd817e787950ce8c4e6bdb0b69d5ac9dc526bdddfa88b"},
+    {"all-stem", 8u, 2103112u, "68e538d595cc112a0f82d1a94539818a58aee372a41adeeb3de5c0ca3dfa705c"},
+    {"all-stem", 9u, 344u, "bdb91a273e1d7a36634d1837c9ef25c274b5abb72591eaa2805b26a47189f58e"},
+    {"all-stem", 10u, 404u, "22b74d14eb39b1c125207961e65022947a75724aff09de581405802198483142"},
+    {"all-s32k", 2u, 32u, "457af84927bf7a656d18d99b13659c780b5ddcb8ff4255abeae1b573e7e288ce"},
+    {"all-s32k", 3u, 4194308u, "8750bf1a32a94778f11024ad176e8fe449af78baa1fa1f1a1b7b793afe7079e4"},
+    {"all-s32k", 4u, 8200u, "b0f31494ac3e56d1a19d67e697a61176c808f67e3aa008dce54d72d25c9dcba7"},
+    {"all-s32k", 5u, 276u, "d76402d0c97abeead364cda2fd7ba107632608da576dea659f05d0667e8f648e"},
+    {"all-s32k", 6u, 96u, "da4194e598f9e3e8b0db720185fa6a21194d3c6fd542aa92d0689782632f3c9a"},
+    {"all-s32k", 7u, 43724u, "12d7b7b731d26cb0c69fd817e787950ce8c4e6bdb0b69d5ac9dc526bdddfa88b"},
+    {"all-s32k", 8u, 2103112u, "68e538d595cc112a0f82d1a94539818a58aee372a41adeeb3de5c0ca3dfa705c"},
+    {"all-s32k", 9u, 344u, "bdb91a273e1d7a36634d1837c9ef25c274b5abb72591eaa2805b26a47189f58e"},
+    {"all-s32k", 10u, 404u, "22b74d14eb39b1c125207961e65022947a75724aff09de581405802198483142"},
+    {"all-s32k", 11u, 32788u, "18027aa2804723811fc26bbe7869393c01a51b8f74981ca5f2228f3a0b70dfbb"},
+};
+/* F1-GOLDENS-END */
+
+static const golden_row *find_golden(const char *state, uint32_t id) {
+  size_t i;
+
+  for (i = 0u; i < F1_ROW_COUNT; i++) {
+    if (goldens[i].state != NULL && strcmp(goldens[i].state, state) == 0 &&
+        goldens[i].id == id) {
+      return &goldens[i];
+    }
+  }
+  return NULL;
+}
+
+/* The comparator label of one section against its golden, or NULL: the pinned
+ * length first, then the pinned hash. */
+static const char *golden_label(const golden_row *row, size_t length,
+                                const uint8_t *body) {
+  char hex[65];
+
+  if (row == NULL || length != row->length) return "section-length";
+  hash_hex(body, length, hex);
+  return strcmp(hex, row->sha256) == 0 ? NULL : "section-golden";
+}
+
+static void print_sections(void) {
+  size_t s;
+
+  for (s = 0u; s < F1_STATE_COUNT; s++) {
+    t64_machine *machine = build_f1_state(&f1_states[s]);
+    section_stream stream;
+    size_t i;
+
+    if (machine == NULL) continue;
+    if (capture_stream(machine, &stream)) {
+      for (i = 0u; i < stream.count; i++) {
+        char hex[65];
+
+        if (stream.ids[i] < 2u) continue;
+        hash_hex(stream.bytes + stream.body_offset[i], stream.body_length[i],
+                 hex);
+        printf("%s %u %zu %s\n", f1_states[s].name, (unsigned)stream.ids[i],
+               stream.body_length[i], hex);
+      }
+      free(stream.bytes);
+    }
+    t64_machine_destroy(machine);
+  }
+}
+
+static void check_f1_state(const f1_state *state) {
+  t64_machine *machine = build_f1_state(state);
+  section_stream stream;
+  size_t expected_count = state->save_bytes == 0u ? 10u : 11u;
+  size_t i;
+
+  if (machine == NULL) return;
+  /* Reached: the state has the queue length it is derived to have. */
+  T64_CHECK_INT(machine->queue_count, state->queue_count);
+  if (!capture_stream(machine, &stream)) {
+    t64_machine_destroy(machine);
+    return;
+  }
+  /* The marker ids are ascending 1 to 10 (1 to 11 with a save device). */
+  T64_CHECK_INT(stream.count, expected_count);
+  for (i = 0u; i < stream.count && i < expected_count; i++) {
+    if (stream.ids[i] != (uint32_t)(i + 1u)) {
+      fprintf(stderr, "%s: marker %zu is %u\n", state->name, i,
+              (unsigned)stream.ids[i]);
+      T64_CHECK(false);
+    }
+  }
+  for (i = 0u; i < stream.count; i++) {
+    const uint32_t id = stream.ids[i];
+    const golden_row *row;
+    const char *label;
+    const uint32_t hand = hand_length(id, state);
+
+    if (id < 2u) continue;
+    /* The hand-derived length, where one exists, equals the walker's. */
+    if (hand != 0u && hand != stream.body_length[i]) {
+      fprintf(stderr, "%s section %u: length %zu, hand-derived %u\n",
+              state->name, (unsigned)id, stream.body_length[i], (unsigned)hand);
+      comparator_fail("section-length");
+    }
+    row = find_golden(state->name, id);
+    label = golden_label(row, stream.body_length[i],
+                         stream.bytes + stream.body_offset[i]);
+    if (label != NULL) {
+      fprintf(stderr, "%s section %u differs from its golden\n", state->name,
+              (unsigned)id);
+      comparator_fail(label);
+    } else {
+      T64_CHECK(true);
+    }
+  }
+  free(stream.bytes);
+  t64_machine_destroy(machine);
+}
+
+/* Sections 8 and 9 against the stripped v24 stream of the AI profile in the
+ * same authored (idle) state: the v24 stream minus its identity spans is the
+ * non-identity bytes of section 1 (132 = 32 + 4 + 4 + 64 + 20 + 4 + 4), the
+ * hand-derived sections 2 to 7 and sections 8 and 9. */
+static void check_v24_differential(void) {
+  t64_machine *stem = create_machine(FAMILY_STEM);
+  t64_machine *ai = create_machine(AI_PROFILE);
+  section_stream v25;
+  section_stream v24;
+  size_t sum_89 = 0u;
+  size_t i;
+
+  if (stem == NULL || ai == NULL) {
+    if (stem != NULL) t64_machine_destroy(stem);
+    if (ai != NULL) t64_machine_destroy(ai);
+    return;
+  }
+  if (capture_stream(stem, &v25)) {
+    if (capture_stream(ai, &v24)) {
+      const size_t hand_2_to_7 = 32u + 4194308u + 8200u + 276u + (16u + 40u) +
+                                 43724u;
+      const size_t section_1_non_identity = 132u;
+
+      for (i = 0u; i < v25.count; i++) {
+        if (v25.ids[i] == 8u || v25.ids[i] == 9u) sum_89 += v25.body_length[i];
+      }
+      T64_CHECK_INT(v24.count, 0u);
+      if (v24.length - v24.identity_bytes !=
+          section_1_non_identity + hand_2_to_7 + sum_89) {
+        fprintf(stderr, "v24 stripped %zu, sections 1 to 7 and 8 plus 9 %zu\n",
+                v24.length - v24.identity_bytes,
+                section_1_non_identity + hand_2_to_7 + sum_89);
+        comparator_fail("section-length");
+      } else {
+        T64_CHECK(true);
+      }
+      free(v24.bytes);
+    }
+    free(v25.bytes);
+  }
+  t64_machine_destroy(stem);
+  t64_machine_destroy(ai);
+}
+
+/* Controls on a copy of the stream, after an accepted baseline in the same
+ * setup: a perturbed body byte reports section-golden and a perturbed pinned
+ * length reports section-length. */
+static void check_f1_controls(void) {
+  t64_machine *machine = create_machine(FAMILY_STEM);
+  section_stream stream;
+  size_t i;
+
+  if (machine == NULL) return;
+  if (!capture_stream(machine, &stream)) {
+    t64_machine_destroy(machine);
+    return;
+  }
+  for (i = 0u; i < stream.count; i++) {
+    const size_t length = stream.body_length[i];
+    const uint8_t *body = stream.bytes + stream.body_offset[i];
+
+    if (stream.ids[i] == 6u) {
+      const golden_row *row = find_golden("idle-stem", 6u);
+      uint8_t *copy = (uint8_t *)malloc(length);
+
+      if (copy == NULL) continue;
+      (void)memcpy(copy, body, length);
+      T64_CHECK(golden_label(row, length, copy) == NULL);
+      copy[length - 1u] ^= 0x01u;
+      T64_CHECK_STR(golden_label(row, length, copy), "section-golden");
+      free(copy);
+    }
+    if (stream.ids[i] == 2u && find_golden("idle-stem", 2u) != NULL) {
+      golden_row longer = *find_golden("idle-stem", 2u);
+
+      T64_CHECK(golden_label(&longer, length, body) == NULL);
+      longer.length += 1u;
+      T64_CHECK_STR(golden_label(&longer, length, body), "section-length");
+    }
+  }
+  free(stream.bytes);
+  t64_machine_destroy(machine);
+}
+
+static void case_state_content_f1(void) {
+  size_t s;
+
+  for (s = 0u; s < F1_STATE_COUNT; s++) check_f1_state(&f1_states[s]);
+  check_v24_differential();
+  check_f1_controls();
+}
+
 /* ---- case table and entry point ------------------------------------------- */
 
 typedef struct {
@@ -2758,6 +3210,7 @@ static const matrix_case cases[] = {
     {"mi-producers", case_mi_producers},
     {"count-wrap", case_count_wrap},
     {"quantum-binding", case_quantum_binding},
+    {"state-content-f1", case_state_content_f1},
 };
 #define CASE_COUNT (sizeof cases / sizeof cases[0])
 
@@ -2799,6 +3252,7 @@ int main(int argc, char **argv) {
     return 0;
   }
   if (argc == 2 && strcmp(argv[1], "--print-sections") == 0) {
+    print_sections();
     return 0;
   }
   if (argc == 3 && strcmp(argv[1], "--case") == 0) {
