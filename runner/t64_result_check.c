@@ -132,6 +132,13 @@ static const char *const artifact_detail_names[] = {
     "artifact-leaf-name", "artifact-no-replace-unsupported",
     "artifact-rename", "artifact-stage", "artifact-substitution",
     "artifact-write"};
+/* Closed host-error vocabulary of the state container export (plan 09-08):
+ * the guest outcome is kept and only the three outcome fields are replaced.
+ * Exact strings in one table, accepted only for a host-error stop. */
+static const char *const state_export_detail_names[] = {
+    "state-export-alloc", "state-export-cap", "state-export-core",
+    "state-export-incomplete-terminal", "state-export-open",
+    "state-export-publish"};
 static const char *const milestone_names[] = {
     "ipl3-entry", "loader-dma", "hello-entry", "hello-completion"};
 
@@ -806,7 +813,9 @@ static int real_detail_outcome_ok(const t64_json_node *detail,
   if (in_list(detail, raw_capture_detail_names,
               ARRAY_LEN(raw_capture_detail_names)) ||
       in_list(detail, artifact_detail_names,
-              ARRAY_LEN(artifact_detail_names))) {
+              ARRAY_LEN(artifact_detail_names)) ||
+      in_list(detail, state_export_detail_names,
+              ARRAY_LEN(state_export_detail_names))) {
     return str_is(outcome, "harness-error");
   }
   return str_is(outcome, "harness-error");
@@ -1104,7 +1113,9 @@ static int validate_real_result(const t64_json_node *root, rec *r, diag *d) {
        !in_list(detail, raw_capture_detail_names,
                 ARRAY_LEN(raw_capture_detail_names)) &&
        !in_list(detail, artifact_detail_names,
-                ARRAY_LEN(artifact_detail_names)))) {
+                ARRAY_LEN(artifact_detail_names)) &&
+       !in_list(detail, state_export_detail_names,
+                ARRAY_LEN(state_export_detail_names)))) {
     set_diag(d, "R-ENUM", "outcome or detail is outside the closed v2 enum");
     return 0;
   }
@@ -1263,7 +1274,9 @@ static int validate_real_result(const t64_json_node *root, rec *r, diag *d) {
           in_list(detail, raw_capture_detail_names,
                   ARRAY_LEN(raw_capture_detail_names)) ||
           in_list(detail, artifact_detail_names,
-                  ARRAY_LEN(artifact_detail_names)))) {
+                  ARRAY_LEN(artifact_detail_names)) ||
+          in_list(detail, state_export_detail_names,
+                  ARRAY_LEN(state_export_detail_names)))) {
       set_diag(d, "R-DETAIL-OUTCOME", "host-error stop requires a host harness-error detail");
       return 0;
     }
