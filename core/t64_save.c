@@ -352,7 +352,9 @@ static void save_transform_copy(uint8_t *destination, const uint8_t *source,
  * Export, D-24 rows R0 to R8 in this exact order (export has no R9: the
  * committed bytes are always readable). Every check precedes the first write
  * to the caller buffer, so a refusal leaves the buffer and the machine
- * untouched; only the too-small row writes *length_out (the required size).
+ * untouched; only the too-small row writes *length_out (the required size). A
+ * zero capacity constructs no span (an empty span cannot overlap or overflow)
+ * and asks for the required length.
  */
 t64_status t64_machine_save_export(const t64_machine *machine,
                                    uint32_t device_kind, uint32_t format,
@@ -379,10 +381,11 @@ t64_status t64_machine_save_export(const t64_machine *machine,
     if (capacity != 0u) {
       return T64_STATUS_INVALID_ARGUMENT;
     }
-  } else if (!t64_internal_make_range(bytes_out, capacity, &bytes_range) ||
-             !t64_internal_observation_range_is_disjoint(machine,
-                                                         bytes_range) ||
-             t64_internal_ranges_overlap(bytes_range, length_range)) {
+  } else if (capacity != 0u &&
+             (!t64_internal_make_range(bytes_out, capacity, &bytes_range) ||
+              !t64_internal_observation_range_is_disjoint(machine,
+                                                          bytes_range) ||
+              t64_internal_ranges_overlap(bytes_range, length_range))) {
     return T64_STATUS_INVALID_ARGUMENT;
   }
   status = save_request_prefix(machine, device_kind);
