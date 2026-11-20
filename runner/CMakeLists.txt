@@ -186,6 +186,14 @@ add_test(NAME repo.si-membership-sites
 set_tests_properties(repo.si-membership-sites PROPERTIES
   LABELS runner TIMEOUT 60 ENVIRONMENT "PYTHONDONTWRITEBYTECODE=1")
 
+# The mutant table of the CORE-02 matrix (plan 09-06): every edit anchor must
+# still occur exactly once in its tracked file, so a refactor cannot silently
+# retire a mutant. The mutant procedure itself is run on demand, not by CTest.
+add_test(NAME repo.sched-k5-anchors
+  COMMAND python3 -B ${CMAKE_SOURCE_DIR}/scripts/k5-mutants.py --check-anchors)
+set_tests_properties(repo.sched-k5-anchors PROPERTIES
+  LABELS runner TIMEOUT 60 ENVIRONMENT "PYTHONDONTWRITEBYTECODE=1")
+
 add_executable(test_cpu_diagnostic tests/test_cpu_diagnostic.c)
 target_compile_definitions(test_cpu_diagnostic PRIVATE ${T64_HOST_DEFS})
 target_include_directories(test_cpu_diagnostic PRIVATE ${CMAKE_SOURCE_DIR}/core)

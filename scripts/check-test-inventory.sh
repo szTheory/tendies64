@@ -204,6 +204,7 @@ unit.core.sched.ledger
 unit.core.sched.characterize-fifo
 unit.core.sched.matrix
 repo.si-membership-sites
+repo.sched-k5-anchors
 runner.guest-tick-cap
 runner.fixture-transcript-pin
 runner.supervisor-argv-bound
