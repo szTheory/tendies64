@@ -620,3 +620,109 @@ Run on the final G4 tree (HEAD after the commit that adds this record). Host: 18
 - **Margin to watch:** `runner.state-export` under the sanitizer measures 131.5 s alone and 153.6 s loaded against its TIMEOUT of 240 s.
 - **Next Phase 8 requalification:** the `qualify-audio.py` limits (R3 RC-02, `docs/ci-reviews/LOG.md` F-106).
 - **Phase 10:** R1 RC-06 (version markers of the state content), R1 RC-07, R2 RC-04, RC-06, RC-08, the remaining parts of R3 RC-05, and the items carried from G1 to G3.
+
+## FR freeze record
+
+Written by plan 09-10 Task 6 step 1, before the rehearsal, so the rehearsed commit contains it. The local tag `phase09-fr` is created on the rehearsed commit only after both rehearsals pass (step 6) and is not pushed by this plan; plan 09-11 pushes it with its first push. FR is the end of 09-10 (D-06): from the tagged commit on, all logic is frozen and 09-11 may edit data only.
+
+### Frozen logic set
+
+Git tree identities at the commit being recorded (`git rev-parse HEAD:PATH`; this docs commit touches only `.planning/`, so the identities are the same before and after it):
+
+| Tree | Identity |
+| --- | --- |
+| `core` | `0b0227638576babc7645c4d653bd4c156b387c77` |
+| `runner` | `c5dd4fcbb839894a5e5f8aae0b3e482b8759d260` |
+| `fixtures` | `ea48718ab44dde5788863e3bc166d79125e8d2f2` |
+| `tools` | `0f5494fa789999b4132ab8fe57c734937cc96155` |
+| `tools/rights` | `1ac25b4f0027932f555fcf3dea4f23ac32e65e6f` |
+| `scripts` | `4359a989fba21350ce0721cacb202b155eff48d6` |
+| `.github` | `2e26a9d64749aaeb5e989cec80348ac6bfffb4d9` |
+
+The frozen file list of Task 1 (SHA-256 at the recorded commit; the verdict is against `phase09-fh`, `build/gate/09-10-freeze-check.py` with the anchored pin pattern of R3 RC-07, `build/gate/09-10-freeze-r3rc07.txt`):
+
+| File | SHA-256 | Verdict against `phase09-fh` |
+| --- | --- | --- |
+| `scripts/qualify-phase09.py` | `1dc15977afcd03ee8cbcc9932749a21865bff723b9bd61bb668c365c92a2a9fb` | LOGIC, FD-05 |
+| `.github/workflows/ci.yml` | `e226f9456847272d2070d86b41d2e2abee55995c32c220c9affbb7463e06eda0` | identical |
+| `scripts/check-ci-yml.sh` | `d6f89479155df5699b7665403356404f13c8e7913302d928d4c5970fcb79d754` | identical |
+| `scripts/gate.sh` | `d95ca44eca9757e09918b43ac9dd5c4f0c6e23b25a8a3785339cd9988038e242` | identical |
+| `scripts/rights-scan.sh` | `f1aaf59c51a2fc959aaf6e0f0ce93e5a6ed78163bf72aac287a4bf97736fdb06` | DATA (selftest cases beside existing ones, 09-05) |
+| `tools/rights/t64_blobscan.c` | `d2e506ea05130c32917c4143231b8d0d3a3b02f4d889f26c7bb0aac72bb133f1` | identical |
+| `scripts/check-test-inventory.sh` | `253b855d62a0f134651821897165861b9a506b25bbe2f8204414d54ffe87b986` | DATA (15 test-name rows) |
+| `scripts/check-rsp-no-hle.py` | `29079d8cbe46a4f09270aa1f69d5d9c771e5110518fbf083bf8b8afc89d9a18d` | LOGIC, FD-04 (data names: the digest table, the canonical source list and the raster function inventory, FD-02) |
+| `scripts/tests/test_rsp_no_hle.py` | `4bfc6cb345493f4d5965c40e8532e12c2291e31c9d74b9719f49be2e8e7be177` | LOGIC, FD-01 |
+| `scripts/check-phase09-cases.py` | `469ffe807205c52b2b1990f3762f8e3bea945bbbb3f96cd072355e8269305c92` | identical |
+| `scripts/qualify-rdp-vi.py` | `164ba18975d5654e642913959ae4f16b5f65752d8c2b867b403d13b887d4cde9` | LOGIC, FD-06 |
+| `scripts/qualify-audio.py` | `d6d391bc54c97b7dab3b1c4c996d7e3e51d4de46eb0321e7857a9ce77ec63b9d` | identical |
+| `scripts/check-audio-cases.py` | `fd2b1745f13d27c50607b618b230f924e6ee69b09fd085b86a111c054f62e44f` | identical |
+| `scripts/collect-boot-evidence.sh` | `8c41f7f9ca6d845d7a367c314a98a248ca57a74cad7d43d651dd39842b51c241` | identical |
+| `runner/t64_artifact_publisher.c` | `2903dc1448f97f2e9a682c39ddaca97a9e378b1c31dbd5497f01e8c5e7acdcf5` | LOGIC, FD-03 |
+| `runner/t64_artifact_publisher.h` | `1834611746bf5665a6ab146e529339040840f320bdf8d6f3a17ea4907f15c79f` | LOGIC, FD-03 |
+| `scripts/build-boot-fixtures.sh` | `f2defb1eed35c3bc9aa72e87b64f97a23bab7973e5c949ce108b3c316d644d11` | identical |
+
+17 files: 9 identical, 2 DATA, 6 LOGIC (five FD ids, FD-03 covers two files). The R3 RC-07 correction of the table changed one thing: `NATIVE_SHARED_STAGE_TIMEOUT_SECONDS` and `NATIVE_SHARED_RECORD_MAX_TIMEOUT_SECONDS` of `scripts/qualify-phase09.py` are now reported as LOGIC assignments inside FD-05 (the old substring pattern `_SHA` matched `_SHARED` and listed them as data); the file was LOGIC through FD-05 before, so no verdict moved. `scripts/build-boot-fixtures.sh` is identical, as required.
+
+### Declared FH deviations (FD) and their cost
+
+Each is a logic change to a file frozen at `phase09-fh`, made by this plan's fix cycle for a recorded finding (reason and no-weakening statement in the DEV entry named):
+
+| Id | Files | Entry | Cost |
+| --- | --- | --- | --- |
+| FD-01 | `scripts/tests/test_rsp_no_hle.py` | DEV-06 (and the data rows of DEV-03) | 73 mutation seeds, one new helper, two test defects of plan 07-01 repaired; no check removed or weakened |
+| FD-02 | `scripts/check-rsp-no-hle.py` (the raster function inventory literal only) | DEV-03 | DATA under the corrected table; two names and four digests |
+| FD-03 | `runner/t64_artifact_publisher.c`, `runner/t64_artifact_publisher.h` | DEV-04 | the publisher transaction changed after the only real hosted pair |
+| FD-04 | `scripts/check-rsp-no-hle.py` (`_check_source_route`) | DEV-05 | two more bodies pinned and two invalidation tokens checked |
+| FD-05 | `scripts/qualify-phase09.py` | DEV-07 | native limits, the full-matrix step and its marker check; one more native original step (74 s natively) |
+| FD-06 | `scripts/qualify-rdp-vi.py` | DEV-08 | the five shared stage limits named, the ASan and gcc13 values raised; Phase 8 `scripts/qualify-audio.py` keeps its own 2,400 s limits (F-106) |
+
+Common cost: every file above is in the bound source set, so the source digest of the qualification differs from the one of the first hosted pair (`2db1be4`), and the changed logic has no hosted data from before this plan. The hosted rehearsal of Task 6 on the rehearsed commit (the commit the tag `phase09-fr` marks) is the hosted evidence for all of them; its result is in the section `Hosted rehearsal result`. No other file of the frozen list differs from the tag.
+
+### Open non-blocking findings and the wording they impose on 09-11
+
+| Finding | Owner | Wording impact for the claims and their `not_claimed` lists |
+| --- | --- | --- |
+| R1 RC-06 | Phase 10 | the state and digest versions are provisional and no version marker moved with the new state content; claim equality and refusal behavior on the exact SHA only, not a durable state format |
+| R1 RC-07 | Phase 10 | none (a NULL-guard convention) |
+| R2 RC-04 | Phase 10 | none (a dead link input of `test_replay`) |
+| R2 RC-06 | Phase 10 | do not write "never touched" or "publishes nothing" without the stated limits: a same-uid swap and a kill between the rename and the withdrawal can leave a leaf (FX-29, security F-3) |
+| R2 RC-08 | Phase 10 | none (a failing runner test erases its own evidence unless `T64_KEEP_TEST_EVIDENCE` is set; CI does not upload those directories) |
+| R3 RC-02 | next Phase 8 requalification | a new Phase 8 native qualification on this tree would be refused closed by its own verifier (F-106); do not claim Phase 8 requalification on this tree |
+| R3 RC-04 | 09-11 | the step records of the native qualification are unsealed originals; the matrix JUnit is the only proof that `T64_STATE_MATRIX_FULL=1` took effect |
+| R3 RC-05 (remaining) | Phase 10 | none for claims (the TIMEOUT control reads tracked `CMakeLists.txt` files only) |
+| R3 RC-07 | orchestrator script, closed by this task | none |
+| L4 IN-04 | 09-11 | a manifest of a rehearsal SHA is distinguished from a qualifying one by `workflow_sha` only |
+| L4 IN-05 | 09-11 | the first hosted pair's state digests are valid for source `2db1be4d` only (FX-27); the 09-11 pair supersedes them |
+| Security F-1 | Phase 10 | the triangle campaign at gate defaults reaches reason 40 only; the field readers are reached by the registered sanitizer counts and the named mutants; do not claim reader reach from the gate run |
+| Security F-2 | Phase 10 | `RLIMIT_FSIZE` and `RLIMIT_CORE` results are discarded in the child; the exact-backstop claim does not hold on a host whose inherited hard limit is lower |
+| Security F-3, F-5 | Phase 10 | the publisher withdraw is check-then-unlink against a same-uid race; `T64_REAL_KEEP_WORKSET` is still honored and a verified-input copy sits in `TMPDIR` (mode 0600) until unlinked; no claim of protection against a same-uid actor |
+| Security F-8 and the margin items | Phase 10 | native qualification costs about 30 minutes or more; `unit.core.state.import` under the sanitizer is 97 percent of the sanitizer wall and a split needs a name the budget forbids |
+
+Claim-wording limits that come from the fix cycle itself, carried in `09-CONTEXT.md` K20: 17 matrix rows B01 to B17 (four full, thirteen sampled, the full set only in the native step `normal-state-import-full-matrix`), a resumed runner run never reports `pass`, the publication contract by outcome (a caller accepts a leaf only with exit status 0 and a `pass` record), the RDP state carried for the four family ids only, raw check totals are not strength evidence, and `09-VALIDATION.md` stays draft until the final verification.
+
+### Final gate-name count
+
+45 Phase 9 CTest names (the `PHASE09_TESTS` block of `scripts/check-test-inventory.sh`, 45 of the K13 budget of 45), no ASan-only name added (`ASAN_ONLY` holds the pre-Phase-9 `fuzz.rom-admission`), gate inventory 224 names and sanitizer inventory 226. Plan 09-11 may add none; a hermetic case pair inside an existing test file is the only test addition it may make.
+
+### What 09-11 may change (data only) and what is a qualification reset
+
+After the tag `phase09-fr` 09-11 may change only:
+
+- the literal pin constants and the `HOSTED_ROWS` data of `scripts/qualify-phase09.py` (constants and data tuples, no function body);
+- the PHASE09 rows of `scripts/check-test-inventory.sh` (a row may be removed with its budget record; none may be added);
+- `fixtures/manifest.json` pins (and, if a row moves, the owner-gated oracle request is an orchestrator task: run `ctest -R '^harness\.rdp-oracle-authority$'` at once);
+- `docs/spec/phase09-cases.json`;
+- `docs/claims/phase09.md`;
+- `docs/evidence/phase09-*`, including the completion of the success-criteria draft of Task 4 from the retained originals;
+- `docs/ci-reviews/LOG.md`, only through `scripts/ci-review.sh --append`;
+- `.planning/`;
+- the one sanctioned exception `scripts/tests/test_phase09_qualification.py` (the F2 pin table and the claims-final case replacing the skeleton case), declared here so the freeze check does not file it as an FD.
+
+Everything else is a declared qualification reset. A hosted overrun (warm above 540 s, or cold projection above 600 s) found in 09-11 cannot be repaired there by a logic edit; it is a declared deviation that forces a new candidate cycle, which is why the hosted rehearsal of Task 6 runs in this plan, before the freeze.
+
+### Procedure 09-11 uses to verify the freeze
+
+1. `git diff --quiet phase09-fr HEAD -- core runner tools scripts .github fixtures` must exit 0 except for the data paths above; list the rest with `git diff --stat phase09-fr HEAD -- core runner tools scripts .github fixtures`.
+2. `python3 -B build/gate/09-10-freeze-check.py` (untracked helper; to compare against `phase09-fr` instead of `phase09-fh` change its `TAG`) and the body comparison it performs: parse `git show phase09-fr:PATH` and the working file, `ast.dump` every top-level function and class, and list the names that differ; allowed differences: none for logic. For `scripts/qualify-phase09.py` only module-level data may differ (`HOSTED_ROWS`, the literal pin constants; `SOURCE_PATHS` and `PENDING_SOURCE_PATHS` must not change); the five shared limits, `FULL_MATRIX_*` and `PHASE09_SOURCE_BASE` are never data. For `scripts/check-test-inventory.sh` every changed line must be a bare test-name row. For the shell, YAML and C files the diff must be empty.
+3. Compare the SHA-256 table above with `shasum -a 256` of each file; a mismatch of a file that steps 1 and 2 passed is legitimate only for `scripts/check-test-inventory.sh` (data rows) and `scripts/qualify-phase09.py` (data tuples).
+4. `sh scripts/check-test-inventory.sh --preset gate` and `ctest --preset gate -N` must print the same Phase 9 name count (45).
