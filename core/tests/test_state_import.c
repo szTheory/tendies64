@@ -1124,90 +1124,6 @@ static const row invariant_rows[] = {
 
 /* ---- the row runner ------------------------------------------------------ */
 
-typedef struct {
-  uint8_t *machine_bytes;
-  size_t machine_size;
-  uint8_t *video_bytes;
-  size_t video_size;
-  uint8_t *audio_bytes;
-  size_t audio_size;
-  uint8_t *image_bytes;
-  size_t image_size;
-  size_t trace_count;
-  uint64_t trace_drops;
-  size_t queue_count;
-  uint64_t next_sequence;
-  uint64_t tick;
-  size_t allocs;
-  size_t releases;
-} snapshot;
-
-static uint8_t *copy_region(const void *data, size_t size) {
-  uint8_t *copy;
-
-  if (data == NULL || size == 0u) return NULL;
-  copy = (uint8_t *)malloc(size);
-  if (copy != NULL) (void)memcpy(copy, data, size);
-  return copy;
-}
-
-static void snapshot_take(const t64_machine *machine, snapshot *s) {
-  (void)memset(s, 0, sizeof *s);
-  s->machine_size = machine->machine_storage.capacity;
-  s->machine_bytes = copy_region(machine->machine_storage.data, s->machine_size);
-  s->video_size = machine->video_storage.capacity;
-  s->video_bytes = copy_region(machine->video_storage.data, s->video_size);
-  s->audio_size = machine->audio_storage.capacity;
-  s->audio_bytes = copy_region(machine->audio_storage.data, s->audio_size);
-  /* The digest is a pure function of the machine allocation, the packet storages
-   * and the admitted image, all compared byte for byte below, so no digest pass
-   * over the 6.3 MB state is needed (plan 09-09.1 cost control: two of the six
-   * hashing passes of every refusal row). */
-  s->image_size = machine->image_storage.capacity;
-  s->image_bytes = copy_region(machine->image_storage.data, s->image_size);
-  s->trace_count = machine->trace_count;
-  s->trace_drops = machine->trace_drop_count;
-  s->queue_count = machine->queue_count;
-  s->next_sequence = machine->next_sequence;
-  s->tick = machine->tick;
-  s->allocs = allocate_calls;
-  s->releases = release_calls;
-}
-
-static void snapshot_free(snapshot *s) {
-  free(s->machine_bytes);
-  free(s->video_bytes);
-  free(s->audio_bytes);
-  free(s->image_bytes);
-}
-
-/* Whole-machine comparison: the machine allocation (the structure, RDRAM, the
- * coverage tables and the save bytes), both packet storages, the image, the
- * trace observations, the queue, the tick and the allocator counters. */
-static bool snapshot_matches(const t64_machine *machine, const snapshot *s) {
-  bool same = true;
-
-  same = same && s->machine_bytes != NULL &&
-         memcmp(machine->machine_storage.data, s->machine_bytes,
-                s->machine_size) == 0;
-  same = same && (s->video_bytes == NULL ||
-                  memcmp(machine->video_storage.data, s->video_bytes,
-                         s->video_size) == 0);
-  same = same && (s->audio_bytes == NULL ||
-                  memcmp(machine->audio_storage.data, s->audio_bytes,
-                         s->audio_size) == 0);
-  same = same && (s->image_bytes == NULL ||
-                  memcmp(machine->image_storage.data, s->image_bytes,
-                         s->image_size) == 0);
-  same = same && machine->trace_count == s->trace_count &&
-         machine->trace_drop_count == s->trace_drops &&
-         machine->queue_count == s->queue_count &&
-         machine->next_sequence == s->next_sequence &&
-         machine->tick == s->tick && allocate_calls == s->allocs &&
-         release_calls == s->releases;
-  return same;
-}
-
 #define CHECK_UNTOUCHED 1u
 #define CHECK_SCRATCH 2u
 
@@ -3984,22 +3900,22 @@ static const char *const stop_row_name[] = {"s1 budget 1", "s2 budget 2",
 /* Build W-ALL and stop it mid-tick; the literal (the counter target or the tick)
  * is returned. The machine keeps its edited budget for the source's own
  * continuation. */
-static t64_machine *stop_w_all(stop_row row, uint32_t expected_reason,
+static t64_machine *stop_w_all(stop_row which, uint32_t expected_reason,
                                uint64_t *literal) {
   t64_machine *machine = build_w_all();
   size_t i;
 
   *literal = 0u;
   if (machine == NULL) return NULL;
-  if (row == STOP_BUDGET_1 || row == STOP_COINCIDENCE) {
+  if (which == STOP_BUDGET_1 || which == STOP_COINCIDENCE) {
     machine->profile.advance_event_budget = 1u;
   }
-  if (row == STOP_BUDGET_2) machine->profile.advance_event_budget = 2u;
+  if (which == STOP_BUDGET_2) machine->profile.advance_event_budget = 2u;
   for (i = 0u; i < 30000u; i++) {
     t64_stop_result stop = {0u, 0u};
     t64_status status;
 
-    if (row == STOP_INSTRUCTIONS) {
+    if (which == STOP_INSTRUCTIONS) {
       t64_stop_request request = {T64_STOP_INSTRUCTION_COUNT,
                                   machine->instruction_count + 1u};
 
@@ -4012,7 +3928,7 @@ static t64_machine *stop_w_all(stop_row row, uint32_t expected_reason,
     }
     T64_CHECK_INT(status, T64_STATUS_OK);
     if (status != T64_STATUS_OK || stop.reason != expected_reason) break;
-    if (row == STOP_COINCIDENCE) {
+    if (which == STOP_COINCIDENCE) {
       const bool vi = event_queued_at(machine, T64_VI_DEVICE, T64_VI_EVENT_FIELD,
                                       W_VI_AI_TICK);
       const bool ai = event_queued_at(machine, T64_AI_DEVICE, T64_AI_EVENT_SAMPLE,
@@ -4025,18 +3941,18 @@ static t64_machine *stop_w_all(stop_row row, uint32_t expected_reason,
       }
       if (machine->tick > W_VI_AI_TICK) break;
     } else if (midtick_reached(machine)) {
-      *literal = row == STOP_INSTRUCTIONS ? machine->instruction_count
+      *literal = which == STOP_INSTRUCTIONS ? machine->instruction_count
                                           : machine->tick;
       return machine;
     }
   }
-  fprintf(stderr, "mid-tick stop %s not reached\n", stop_row_name[row]);
+  fprintf(stderr, "mid-tick stop %s not reached\n", stop_row_name[which]);
   T64_CHECK(false);
   t64_machine_destroy(machine);
   return NULL;
 }
 
-static void midtick_row(stop_row row, uint32_t expected_reason) {
+static void midtick_row(stop_row which, uint32_t expected_reason) {
   t64_machine *source;
   t64_machine *peer;
   t64_state_import_report report;
@@ -4054,12 +3970,12 @@ static void midtick_row(stop_row row, uint32_t expected_reason) {
   uint64_t stop_tick;
   const clock_t started = clock();
 
-  source = stop_w_all(row, expected_reason, &literal);
+  source = stop_w_all(which, expected_reason, &literal);
   if (source == NULL) return;
   stop_tick = source->tick;
   if (getenv("T64_STATE_MATRIX_TRACE") != NULL) {
     fprintf(stderr, "mid-tick %s: stop tick %llu literal %llu queue %zu\n",
-            stop_row_name[row], (unsigned long long)stop_tick,
+            stop_row_name[which], (unsigned long long)stop_tick,
             (unsigned long long)literal, source->queue_count);
   }
   /* reached before export: the stop reason is the budget or counter reason
@@ -4133,7 +4049,7 @@ static void midtick_row(stop_row row, uint32_t expected_reason) {
   free(blob);
   t64_machine_destroy(source);
   if (getenv("T64_STATE_MATRIX_TRACE") != NULL) {
-    fprintf(stderr, "matrix-trace mid-tick %s %.2fs\n", stop_row_name[row],
+    fprintf(stderr, "matrix-trace mid-tick %s %.2fs\n", stop_row_name[which],
             (double)(clock() - started) / (double)CLOCKS_PER_SEC);
   }
 }
@@ -4404,6 +4320,786 @@ static void case_drop_observers_outcomes(void) {
   }
 }
 
+/* ======================================================================== */
+/* Plan 09-09.1 Task 5: the structure-aware mutants, the sweep, the          */
+/* sanitizer-scaled campaign and the liveness list (D-30, D-41)              */
+/* ======================================================================== */
+
+/* ---- the independently authored inventory (docs/spec/state-mutants.txt) --- */
+
+typedef struct {
+  const char *name;
+  uint32_t value;
+} nv;
+
+#define NV_STATUS(x) {#x, (uint32_t)T64_STATUS_##x}
+#define NV_REASON(x) {#x, (uint32_t)T64_STATE_REASON_##x}
+#define NV_RULE(x) {#x, (uint32_t)T64_STATE_RULE_##x}
+
+static const nv status_names[] = {
+    NV_STATUS(STATE_FORMAT),   NV_STATUS(STATE_INTEGRITY),
+    NV_STATUS(STATE_VERSION),  NV_STATUS(STATE_PROFILE),
+    NV_STATUS(STATE_CONTENT),  NV_STATUS(STATE_BUILD),
+    NV_STATUS(STATE_RANGE),    NV_STATUS(STATE_INVARIANT)};
+
+static const nv reason_names[] = {
+    NV_REASON(STATE_VERSION),        NV_REASON(PROFILE_DIGEST),
+    NV_REASON(CONTENT_DIGEST),       NV_REASON(CONTENT_LENGTH),
+    NV_REASON(BUILD_ID),             NV_REASON(TOTAL_LENGTH),
+    NV_REASON(SECTION_COUNT),        NV_REASON(HEADER_FLAGS),
+    NV_REASON(HEADER_RESERVED),      NV_REASON(SECTION_ORDER),
+    NV_REASON(SECTION_ID_UNKNOWN),   NV_REASON(SECTION_BOUNDS),
+    NV_REASON(SECTION_OVERLAP),      NV_REASON(SECTION_LENGTH_EXPECTED),
+    NV_REASON(SECTION_SHA256),       NV_REASON(FIELD_RANGE),
+    NV_REASON(FIELD_DERIVED),        NV_REASON(FIELD_PADDING),
+    NV_REASON(FIELD_RESERVED),       NV_REASON(OBSERVER_RANGE),
+    NV_REASON(QUEUE_ORDER),          NV_REASON(QUEUE_SEQUENCE),
+    NV_REASON(QUEUE_TICK),           NV_REASON(QUEUE_KIND_UNKNOWN),
+    NV_REASON(DEVICE_EVENT_MISSING), NV_REASON(DEVICE_EVENT_EXTRA),
+    NV_REASON(DEVICE_TOKEN_MISMATCH), NV_REASON(DECLARED_DIGEST)};
+
+static const nv rule_names[] = {
+    NV_RULE(NONE),          NV_RULE(COUNT_CAP),    NV_RULE(INDEX_LT),
+    NV_RULE(ENUM_CLOSED),   NV_RULE(BOOL_01),      NV_RULE(ALIGN),
+    NV_RULE(ADDR_RANGE),    NV_RULE(TICK_GE),      NV_RULE(TICK_LE),
+    NV_RULE(SEQ_LT),        NV_RULE(SHIFT_LT),     NV_RULE(LEN_LE),
+    NV_RULE(PROFILE_DERIVED), NV_RULE(DERIVED_EQ), NV_RULE(PAD_ZERO),
+    NV_RULE(RESERVED_ZERO)};
+
+static bool nv_lookup(const nv *table, size_t count, const char *name,
+                      uint32_t *out) {
+  size_t i;
+
+  for (i = 0u; i < count; i++) {
+    if (strcmp(table[i].name, name) == 0) {
+      *out = table[i].value;
+      return true;
+    }
+  }
+  return false;
+}
+
+#define NV_FIND(table, name, out) nv_lookup(table, sizeof table / sizeof table[0], name, out)
+
+typedef struct {
+  char name[56];
+  char cls[12];
+  uint32_t status;
+  uint32_t reason;
+  uint32_t section;
+  uint32_t rule;
+} inventory_row;
+
+#define INVENTORY_MAX 96u
+
+static size_t inventory_rows;
+static inventory_row inventory[INVENTORY_MAX];
+static bool inventory_ok;
+
+static bool inventory_load(void) {
+  const char *path = getenv("T64_STATE_MUTANT_INVENTORY");
+  FILE *file;
+  char line[256];
+  char cls[12] = "";
+
+  if (inventory_rows != 0u) return inventory_ok;
+  if (path == NULL || path[0] == '\0') return false;
+  file = fopen(path, "r");
+  if (file == NULL) return false;
+  inventory_ok = true;
+  while (fgets(line, sizeof line, file) != NULL) {
+    size_t length = strlen(line);
+    char *field[5];
+    size_t n = 0u;
+    char *cursor = line;
+    inventory_row *item;
+
+    while (length > 0u && (line[length - 1u] == '\n' || line[length - 1u] == '\r')) {
+      line[--length] = '\0';
+    }
+    if (length == 0u) continue;
+    if (line[0] == '#') {
+      static const char *const classes[] = {"header", "table",   "fields",
+                                            "queue",  "devices", "digest"};
+      size_t k;
+
+      for (k = 0u; k < sizeof classes / sizeof classes[0]; k++) {
+        const size_t cl = strlen(classes[k]);
+
+        if (strncmp(line, "# ", 2u) == 0 &&
+            strncmp(line + 2, classes[k], cl) == 0 &&
+            (line[2 + cl] == '\0' || line[2 + cl] == ' ')) {
+          (void)snprintf(cls, sizeof cls, "%s", classes[k]);
+        }
+      }
+      continue;
+    }
+    while (n < 5u) {
+      char *sep = strstr(cursor, " :: ");
+
+      field[n++] = cursor;
+      if (sep == NULL) break;
+      *sep = '\0';
+      cursor = sep + 4;
+    }
+    if (n != 5u || inventory_rows >= INVENTORY_MAX) {
+      inventory_ok = false;
+      break;
+    }
+    item = &inventory[inventory_rows++];
+    (void)snprintf(item->name, sizeof item->name, "%s", field[0]);
+    (void)snprintf(item->cls, sizeof item->cls, "%s", cls);
+    item->section = (uint32_t)strtoul(field[3], NULL, 10);
+    if (!NV_FIND(status_names, field[1], &item->status) ||
+        !NV_FIND(reason_names, field[2], &item->reason) ||
+        !NV_FIND(rule_names, field[4], &item->rule)) {
+      fprintf(stderr, "inventory row %s: unknown name\n", item->name);
+      inventory_ok = false;
+    }
+  }
+  (void)fclose(file);
+  return inventory_ok;
+}
+
+/* ---- the C mutant table --------------------------------------------------- */
+
+typedef struct {
+  const char *cls;
+  row r;
+} mutant;
+
+static uint8_t *mut_total_plus_one(target_id target, size_t *length_out) {
+  uint8_t *blob = dup_target(target, length_out);
+
+  if (blob == NULL) return NULL;
+  put64(blob + D_TOTAL, (uint64_t)*length_out + 1u);
+  blob_resign(blob, *length_out, RS_TRAILER);
+  return blob;
+}
+
+static size_t boundary_index(const char *id);
+
+/* The token of one queue event of a boundary blob, skewed by one: the legitimate
+ * boundary blob is imported first (an accepted baseline in the same setup). */
+static bool boundary_baselined[BOUNDARY_COUNT];
+
+static uint8_t *mut_boundary_token(const char *id, uint32_t device,
+                                   uint32_t kind, size_t *length_out) {
+  const size_t index = boundary_index(id);
+
+  if (index == BOUNDARY_COUNT || !boundary_prepare(index)) return NULL;
+  if (!boundary_baselined[index]) {
+    t64_machine *baseline;
+
+    boundary_baselined[index] = true;
+    baseline = boundary_peer(index);
+    if (baseline != NULL) t64_machine_destroy(baseline);
+  }
+  return blob_edit_pair(prepared[index].blob, prepared[index].length, device,
+                        kind, false, length_out);
+}
+
+static uint8_t *mut_rsp_token(target_id target, size_t *length_out) {
+  (void)target;
+  return mut_boundary_token("B04", T64_DEVICE_SP, T64_SP_EVENT_RSP_ISSUE,
+                            length_out);
+}
+
+static uint8_t *mut_vi_token(target_id target, size_t *length_out) {
+  (void)target;
+  return mut_boundary_token("B06", T64_VI_DEVICE, T64_VI_EVENT_FIELD, length_out);
+}
+
+static uint8_t *mut_ai_token(target_id target, size_t *length_out) {
+  (void)target;
+  return mut_boundary_token("B08", T64_AI_DEVICE, T64_AI_EVENT_SAMPLE,
+                            length_out);
+}
+
+/* A render in progress (an 8 by 8 fill through the DP registers, stopped after
+ * the first row): the accepted baseline of the render-extent mutant. */
+static t64_machine *build_render(void) {
+  static const uint64_t words[] = {
+      UINT64_C(0x3f10000700005000), /* RGBA16 color image, width 8 */
+      UINT64_C(0x2d00000000020020), /* scissor [0,8) x [0,8) */
+      UINT64_C(0x2f30000000000000), /* fill cycle type */
+      UINT64_C(0x37000000f80107c1), /* fill color */
+      UINT64_C(0x3602002000000000)  /* fill rectangle 8 x 8 */};
+  t64_machine *machine = build_quiet();
+  size_t i;
+
+  if (machine == NULL) return NULL;
+  for (i = 0u; i < sizeof words / sizeof words[0]; i++) {
+    put_be64(machine->ram + B05_COMMAND_ADDRESS + 8u * i, words[i]);
+  }
+  bus_write32(machine, DP_START_REG, B05_COMMAND_ADDRESS);
+  bus_write32(machine, DP_START_REG + 4u,
+              B05_COMMAND_ADDRESS + (uint32_t)sizeof words);
+  for (i = 0u; i < 400u && !(machine->rdp.render_active &&
+                             machine->rdp.render_y > machine->rdp.render_y_begin);
+       i++) {
+    T64_CHECK(advance_to(machine, machine->tick + 1u));
+  }
+  return machine;
+}
+
+static uint8_t *render_blob;
+static size_t render_length;
+static size_t render_field_offset; /* of render_x_begin inside section 8 */
+
+static bool render_prepare(void) {
+  t64_machine *machine;
+  size_t body = 0u;
+  size_t base = 0u;
+  size_t i;
+  size_t found = 0u;
+
+  if (render_blob != NULL) return true;
+  machine = build_render();
+  if (machine == NULL) return false;
+  T64_CHECK(machine->rdp.render_active);
+  T64_CHECK(machine->rdp.render_x_end == 7u && machine->rdp.render_y_end == 8u);
+  render_blob = export_blob(machine, &render_length);
+  if (render_blob != NULL && find_section(render_blob, T64_STATE_SECTION_RDP_VI,
+                                          &base, &body)) {
+    /* the five consecutive render fields are located by value and the match
+     * must be unique, so a layout error cannot patch the wrong bytes */
+    for (i = 0u; i + 20u <= body; i += 4u) {
+      if (rd32(render_blob + base + i) == machine->rdp.render_x_begin &&
+          rd32(render_blob + base + i + 4u) == machine->rdp.render_x_end &&
+          rd32(render_blob + base + i + 8u) == machine->rdp.render_y_begin &&
+          rd32(render_blob + base + i + 12u) == machine->rdp.render_y_end &&
+          rd32(render_blob + base + i + 16u) == machine->rdp.render_y) {
+        render_field_offset = i;
+        found++;
+      }
+    }
+  }
+  T64_CHECK_INT(found, 1u);
+  if (found != 1u) {
+    free(render_blob);
+    render_blob = NULL;
+  }
+  t64_machine_destroy(machine);
+  return render_blob != NULL;
+}
+
+static uint8_t *mut_render_extent(target_id target, size_t *length_out) {
+  uint8_t *blob;
+  size_t base = 0u;
+  size_t body = 0u;
+
+  (void)target;
+  if (!render_prepare()) return NULL;
+  blob = (uint8_t *)malloc(render_length);
+  if (blob == NULL) return NULL;
+  (void)memcpy(blob, render_blob, render_length);
+  *length_out = render_length;
+  (void)find_section(blob, T64_STATE_SECTION_RDP_VI, &base, &body);
+  put32(blob + base + render_field_offset + 4u, UINT32_C(0x00ffffff));
+  blob_resign_entry(blob, render_length, T64_STATE_SECTION_RDP_VI);
+  blob_resign(blob, render_length, RS_DECLARED | RS_TRAILER);
+  return blob;
+}
+
+#define BF T64_STATUS_STATE_FORMAT
+#define BR T64_STATUS_STATE_RANGE
+#define SEC_AUDIO T64_STATE_SECTION_AUDIO
+#define SEC_SI T64_STATE_SECTION_SI_PIF
+#define SEC_PI T64_STATE_SECTION_INTERRUPT_PI_SP
+#define SEC_RDPVI T64_STATE_SECTION_RDP_VI
+#define SEC_SAVE T64_STATE_SECTION_SAVE_MEDIA
+#define SEC_OBS T64_STATE_SECTION_OBSERVER_CONTINUITY
+
+static const mutant mutants[] = {
+    {"header", ROW("state-version", T_S1, 0u, D_STATE_VERSION, 4u, 24u, RS_ALL,
+                   T64_STATUS_STATE_VERSION, T64_STATE_REASON_STATE_VERSION, 0u, NR)},
+    {"header", ROW("profile-digest", T_S1, 0u, D_PROFILE + 3u, 1u, 0x5Au, RS_ALL,
+                   T64_STATUS_STATE_PROFILE, T64_STATE_REASON_PROFILE_DIGEST, 0u, NR)},
+    {"header", ROW("content-digest", T_S1, 0u, D_CONTENT_SHA + 7u, 1u, 0x5Au, RS_ALL,
+                   T64_STATUS_STATE_CONTENT, T64_STATE_REASON_CONTENT_DIGEST, 0u, NR)},
+    {"header", ROW("content-length", T_S1, 0u, D_CONTENT_LEN + 7u, 1u, 0x01u, RS_ALL,
+                   T64_STATUS_STATE_CONTENT, T64_STATE_REASON_CONTENT_LENGTH, 0u, NR)},
+    {"header", ROW("build-id", T_S1, 0u, D_BUILD, 1u, 0x7Eu, RS_ALL,
+                   T64_STATUS_STATE_BUILD, T64_STATE_REASON_BUILD_ID, 0u, NR)},
+    {"header", CROW("total-length-plus-one", T_S1, mut_total_plus_one, BF,
+                    T64_STATE_REASON_TOTAL_LENGTH, 0u, NR)},
+    {"header", ROW("section-count-zero", T_S1, 0u, 0x018u, 4u, 0u, 0u, BF,
+                   T64_STATE_REASON_SECTION_COUNT, 0u, NR)},
+    {"header", ROW("header-flags", T_S1, 0u, D_FLAGS, 4u, 1u, 0u, BF,
+                   T64_STATE_REASON_HEADER_FLAGS, 0u, NR)},
+    {"header", ROW("header-reserved", T_S1, 0u, 0x11Fu, 1u, 1u, 0u, BF,
+                   T64_STATE_REASON_HEADER_RESERVED, 0u, NR)},
+    {"table", CROW("id-order", T_S1, mut_entry_out_of_order, BF,
+                   T64_STATE_REASON_SECTION_ORDER, 1u, NR)},
+    {"table", CROW("id-unknown", T_S1, mut_entry_unknown_id, BF,
+                   T64_STATE_REASON_SECTION_ID_UNKNOWN, 99u, NR)},
+    {"table", CROW("offset-overflow", T_S1, mut_entry_overflow, BF,
+                   T64_STATE_REASON_SECTION_BOUNDS, 1u, NR)},
+    {"table", CROW("overlap", T_S1, mut_entry_overlap, BF,
+                   T64_STATE_REASON_SECTION_OVERLAP, 2u, NR)},
+    {"table", CROW("length-short", T_S1, mut_rdram_short, BF,
+                   T64_STATE_REASON_SECTION_LENGTH_EXPECTED, 3u, NR)},
+    {"table", CROW("section-sha-stale", T_S1, mut_section_hash_only,
+                   T64_STATUS_STATE_INTEGRITY, T64_STATE_REASON_SECTION_SHA256,
+                   1u, NR)},
+    {"fields", ROW("count-cap-audio-descriptors", T_S1, SEC_AUDIO, 96u, 4u, 3u,
+                   RS_ALL, BR, T64_STATE_REASON_FIELD_RANGE, SEC_AUDIO,
+                   T64_STATE_RULE_COUNT_CAP)},
+    {"fields", ROW("index-lt-audio-slot", T_S1, SEC_AUDIO, 120u, 4u, 2u, RS_ALL,
+                   BR, T64_STATE_REASON_FIELD_RANGE, SEC_AUDIO,
+                   T64_STATE_RULE_INDEX_LT)},
+    {"fields", ROW("enum-closed-si-direction", T_S1, SEC_SI, 12u, 4u, 3u, RS_ALL,
+                   BR, T64_STATE_REASON_FIELD_RANGE, SEC_SI,
+                   T64_STATE_RULE_ENUM_CLOSED)},
+    {"fields", ROW("bool-01-pi-error", T_S1, SEC_PI, 60u, 4u, 2u, RS_ALL, BR,
+                   T64_STATE_REASON_FIELD_RANGE, SEC_PI, T64_STATE_RULE_BOOL_01)},
+    {"fields", ROW("align-si-address", T_S1, SEC_SI, 16u, 4u, 0x3901u, RS_ALL, BR,
+                   T64_STATE_REASON_FIELD_RANGE, SEC_SI, T64_STATE_RULE_ALIGN)},
+    {"fields", ROW("addr-range-si-address", T_S1, SEC_SI, 16u, 4u, 0x400000u,
+                   RS_ALL, BR, T64_STATE_REASON_FIELD_RANGE, SEC_SI,
+                   T64_STATE_RULE_ADDR_RANGE)},
+    {"fields", ROW("tick-ge-sp-descriptor-end", T_S1, SEC_PI, S5_SP_ACTIVE_END_TICK,
+                   8u, 0u, RS_ALL, BR, T64_STATE_REASON_FIELD_RANGE, SEC_PI,
+                   T64_STATE_RULE_TICK_GE)},
+    {"fields", ROW("tick-le-sram-deadline", T_S32K, SEC_SAVE, 8u, 8u, 2001u, RS_ALL,
+                   BR, T64_STATE_REASON_FIELD_RANGE, SEC_SAVE,
+                   T64_STATE_RULE_TICK_LE)},
+    {"fields", CROW("seq-lt-sequence-above-next", T_S1, mut_sequence_above, INV,
+                    T64_STATE_REASON_QUEUE_SEQUENCE, SCHED,
+                    T64_STATE_RULE_SEQ_LT)},
+    {"fields", ROW("shift-lt-tile-shift", T_S1, SEC_RDPVI, S8_TILE0_SHIFT_S, 4u,
+                   16u, RS_ALL, BR, T64_STATE_REASON_FIELD_RANGE, SEC_RDPVI,
+                   T64_STATE_RULE_SHIFT_LT)},
+    {"fields", ROW("len-le-video-packet", T_S1, SEC_RDPVI, S8_VI_SLOT0 + 4u, 4u,
+                   0x00080000u, RS_ALL, BR, T64_STATE_REASON_FIELD_RANGE,
+                   SEC_RDPVI, T64_STATE_RULE_LEN_LE)},
+    {"fields", ROW("profile-derived-rdram-size", T_S1, T64_STATE_SECTION_RDRAM,
+                   0u, 4u, 0x200000u, RS_ALL, BR, T64_STATE_REASON_FIELD_DERIVED,
+                   T64_STATE_SECTION_RDRAM, T64_STATE_RULE_PROFILE_DERIVED)},
+    {"fields", ROW("derived-eq-interrupt-line", T_S1, SEC_PI, 8u, 4u, 1u, RS_ALL,
+                   BR, T64_STATE_REASON_FIELD_DERIVED, SEC_PI,
+                   T64_STATE_RULE_DERIVED_EQ)},
+    {"fields", ROW("pad-zero-clock-policy", T_S1, SEC_RDPVI,
+                   S8_VI_SLOT0_CLOCK_POLICY + 10u, 1u, 0x78u, RS_ALL, BR,
+                   T64_STATE_REASON_FIELD_PADDING, SEC_RDPVI,
+                   T64_STATE_RULE_PAD_ZERO)},
+    {"fields", ROW("reserved-zero-interrupt-pending", T_S1, SEC_PI, 3u, 1u, 0x80u,
+                   RS_ALL, BR, T64_STATE_REASON_FIELD_RESERVED, SEC_PI,
+                   T64_STATE_RULE_RESERVED_ZERO)},
+    {"fields", ROW("observer-range", T_S1, SEC_OBS, 0u, 8u, UINT64_C(1) << 40,
+                   RS_ALL, BR, T64_STATE_REASON_OBSERVER_RANGE, SEC_OBS,
+                   T64_STATE_RULE_LEN_LE)},
+    {"fields", ROW("busy-until-future", T_E4K, SEC_SAVE, 8u, 8u, 2000u + 375001u,
+                   RS_ALL, BR, T64_STATE_REASON_FIELD_RANGE, SEC_SAVE,
+                   T64_STATE_RULE_TICK_LE)},
+    {"fields", CROW("render-extent-beyond-width", T_S1, mut_render_extent, BR,
+                    T64_STATE_REASON_FIELD_RANGE, SEC_RDPVI,
+                    T64_STATE_RULE_ADDR_RANGE)},
+    {"queue", ROW("queue-count-cap", T_S1, SCHED, 0u, 4u, 257u, RS_ALL, INV,
+                  T64_STATE_REASON_QUEUE_COUNT, SCHED, T64_STATE_RULE_COUNT_CAP)},
+    {"queue", CROW("queue-order", T_S1, mut_swap_events, INV,
+                   T64_STATE_REASON_QUEUE_ORDER, SCHED, NR)},
+    {"queue", CROW("equal-tuples", T_S1, mut_equal_tuples, INV,
+                   T64_STATE_REASON_QUEUE_ORDER, SCHED, NR)},
+    {"queue", CROW("sequence-at-next", T_S1, mut_sequence_equal, INV,
+                   T64_STATE_REASON_QUEUE_SEQUENCE, SCHED,
+                   T64_STATE_RULE_SEQ_LT)},
+    {"queue", CROW("tick-below", T_S1, mut_tick_below, INV,
+                   T64_STATE_REASON_QUEUE_TICK, SCHED, T64_STATE_RULE_TICK_GE)},
+    {"queue", CROW("unknown-pair", T_S1, mut_pair_outside, INV,
+                   T64_STATE_REASON_QUEUE_KIND_UNKNOWN, SCHED,
+                   T64_STATE_RULE_ENUM_CLOSED)},
+    {"queue", CROW("synthetic-device", T_S1, mut_pair_synthetic, INV,
+                   T64_STATE_REASON_QUEUE_KIND_UNKNOWN, SCHED,
+                   T64_STATE_RULE_ENUM_CLOSED)},
+    {"queue", ROW("exhausted-flag", T_S1, SCHED, 12u, 4u, 1u, RS_ALL, INV,
+                  T64_STATE_REASON_QUEUE_SEQUENCE, SCHED,
+                  T64_STATE_RULE_SEQ_LT)},
+    {"devices", CROW("cpu-no-step", T_S1, mut_remove_cpu, INV,
+                     T64_STATE_REASON_DEVICE_EVENT_MISSING, SCHED, NR)},
+    {"devices", CROW("cpu-two-steps", T_S1, mut_append_cpu, INV,
+                     T64_STATE_REASON_DEVICE_EVENT_EXTRA, SCHED, NR)},
+    {"devices", CROW("si-complete-missing", T_S1, mut_remove_si_complete, INV,
+                     T64_STATE_REASON_DEVICE_EVENT_MISSING, SCHED, NR)},
+    {"devices", CROW("si-token", T_S1, mut_si_token_skew, INV,
+                     T64_STATE_REASON_DEVICE_TOKEN_MISMATCH, SCHED, NR)},
+    {"devices", CROW("pi-extra", T_S1, mut_append_pi, INV,
+                     T64_STATE_REASON_DEVICE_EVENT_EXTRA, SCHED, NR)},
+    {"devices", CROW("sp-complete-extra", T_S1, mut_append_sp_complete, INV,
+                     T64_STATE_REASON_DEVICE_EVENT_EXTRA, SCHED, NR)},
+    {"devices", CROW("rsp-token", T_S1, mut_rsp_token, INV,
+                     T64_STATE_REASON_DEVICE_TOKEN_MISMATCH, SCHED, NR)},
+    {"devices", CROW("rdp-extra", T_S1, mut_append_rdp, INV,
+                     T64_STATE_REASON_DEVICE_EVENT_EXTRA, SCHED, NR)},
+    {"devices", CROW("vi-token", T_S1, mut_vi_token, INV,
+                     T64_STATE_REASON_DEVICE_TOKEN_MISMATCH, SCHED, NR)},
+    {"devices", CROW("ai-token", T_S1, mut_ai_token, INV,
+                     T64_STATE_REASON_DEVICE_TOKEN_MISMATCH, SCHED, NR)},
+    {"digest", ROW("declared-digest-stale", T_S1, T64_STATE_SECTION_MACHINE_CORE,
+                   8u, 8u, 0x1234u, RS_SECTIONS | RS_TRAILER,
+                   T64_STATUS_STATE_INTEGRITY, T64_STATE_REASON_DECLARED_DIGEST,
+                   0u, NR)},
+};
+
+#define MUTANT_COUNT (sizeof mutants / sizeof mutants[0])
+
+/* ---- the cases ------------------------------------------------------------- */
+
+static uint64_t env_u64(const char *name, uint64_t fallback) {
+  const char *value = getenv(name);
+
+  return value != NULL && value[0] != '\0' ? strtoull(value, NULL, 10) : fallback;
+}
+
+static void case_mutant_inventory(void) {
+  static const char *const classes[] = {"header", "table",   "fields",
+                                        "queue",  "devices", "digest"};
+  static const size_t minimum[] = {9u, 6u, 15u, 7u, 10u, 1u};
+  size_t i;
+  size_t k;
+
+  T64_CHECK(inventory_load());
+  T64_CHECK(MUTANT_COUNT >= 40u);
+  T64_CHECK_INT(inventory_rows, MUTANT_COUNT);
+  for (i = 0u; i < MUTANT_COUNT && i < inventory_rows; i++) {
+    const mutant *m = &mutants[i];
+
+    if (strcmp(m->r.name, inventory[i].name) != 0 ||
+        strcmp(m->cls, inventory[i].cls) != 0 ||
+        (uint32_t)m->r.status != inventory[i].status ||
+        m->r.reason != inventory[i].reason ||
+        m->r.section_id != inventory[i].section || m->r.rule != inventory[i].rule) {
+      fprintf(stderr, "mutant %zu: table %s/%s differs from inventory %s/%s\n", i,
+              m->r.name, m->cls, inventory[i].name, inventory[i].cls);
+    }
+    T64_CHECK_STR(m->r.name, inventory[i].name);
+    T64_CHECK_STR(m->cls, inventory[i].cls);
+    T64_CHECK_INT(m->r.status, inventory[i].status);
+    T64_CHECK_INT(m->r.reason, inventory[i].reason);
+    T64_CHECK_INT(m->r.section_id, inventory[i].section);
+    T64_CHECK_INT(m->r.rule, inventory[i].rule);
+  }
+  for (k = 0u; k < sizeof classes / sizeof classes[0]; k++) {
+    size_t count = 0u;
+
+    for (i = 0u; i < MUTANT_COUNT; i++) {
+      if (strcmp(mutants[i].cls, classes[k]) == 0) count++;
+    }
+    T64_CHECK(count >= minimum[k]);
+  }
+  /* the names are unique */
+  for (i = 0u; i < MUTANT_COUNT; i++) {
+    for (k = i + 1u; k < MUTANT_COUNT; k++) {
+      T64_CHECK(strcmp(mutants[i].r.name, mutants[k].r.name) != 0);
+    }
+  }
+}
+
+static void case_mutant_refusals(void) {
+  static row rows[MUTANT_COUNT];
+  size_t i;
+
+  if (!targets_prepare()) return;
+  for (i = 0u; i < MUTANT_COUNT; i++) rows[i] = mutants[i].r;
+  run_rows(rows, MUTANT_COUNT, CHECK_UNTOUCHED | CHECK_SCRATCH);
+  /* the accepted baseline of the render-extent mutant: the unmutated render
+   * state imports and its continuation equals the source */
+  if (render_prepare()) {
+    t64_machine *peer = create_admitted(SI_STEM_ID);
+    t64_machine *source = build_render();
+    t64_state_import_report report;
+
+    if (peer != NULL && source != NULL) {
+      T64_CHECK_INT(t64_machine_state_import(peer, render_blob, render_length,
+                                             0u, &report),
+                    T64_STATUS_OK);
+      T64_CHECK(digests_equal(peer, source));
+      T64_CHECK(advance_to(peer, peer->tick + 400u));
+      T64_CHECK(advance_to(source, source->tick + 400u));
+      T64_CHECK(digests_equal(peer, source));
+    }
+    if (peer != NULL) t64_machine_destroy(peer);
+    if (source != NULL) t64_machine_destroy(source);
+  }
+}
+
+static void print_fuzz_stats(const char *label, const state_fuzz_stats *stats) {
+  size_t i;
+
+  fprintf(stderr,
+          "%s: iterations %llu refusals %llu accepted %llu liveness-stops %llu "
+          "violations %llu; by reason:",
+          label, (unsigned long long)stats->iterations,
+          (unsigned long long)stats->refusals,
+          (unsigned long long)stats->accepted,
+          (unsigned long long)stats->liveness_stops,
+          (unsigned long long)stats->violations);
+  for (i = 0u; i < 48u; i++) {
+    if (stats->by_reason[i] != 0u) {
+      fprintf(stderr, " %zu=%llu", i, (unsigned long long)stats->by_reason[i]);
+    }
+  }
+  fputc('\n', stderr);
+}
+
+/* A bit flip at sampled header bytes and strided body offsets of one blob,
+ * each in two integrity modes: every integrity field stale (the trailer check
+ * is the first failure) and every integrity field re-signed (the deeper rules
+ * run). */
+static void sweep_blob(const uint8_t *blob, size_t length, size_t header_samples,
+                       size_t body_samples, state_fuzz_stats *stats) {
+  uint8_t *copy = (uint8_t *)malloc(length);
+  t64_machine *peer = create_admitted(SI_STEM_ID);
+  const size_t header_stride = header_samples == 0u ? D_TABLE : D_TABLE / header_samples;
+  const size_t body_stride = body_samples == 0u ? length : (length - D_TABLE) / body_samples;
+  size_t sample;
+  uint64_t index = 0u;
+
+  if (copy == NULL || peer == NULL) {
+    T64_CHECK(false);
+    free(copy);
+    if (peer != NULL) t64_machine_destroy(peer);
+    return;
+  }
+  for (sample = 0u; sample < header_samples + body_samples && peer != NULL; sample++) {
+    const size_t offset = sample < header_samples
+                              ? sample * (header_stride == 0u ? 1u : header_stride)
+                              : D_TABLE + (sample - header_samples) * body_stride +
+                                    (sample % 7u);
+    unsigned mode;
+
+    if (offset >= length) continue;
+    for (mode = 0u; mode < 2u && peer != NULL; mode++) {
+      (void)memcpy(copy, blob, length);
+      copy[offset] ^= (uint8_t)(1u << (offset & 7u));
+      if (mode == 1u) blob_resign(copy, length, RS_ALL);
+      peer = state_fuzz_one(peer, copy, length, index++, stats);
+    }
+  }
+  if (peer != NULL) t64_machine_destroy(peer);
+  free(copy);
+}
+
+static const char *const sweep_boundaries[] = {"B05", "B07", "B10", "B04", "B14"};
+
+static void case_mutation_sweep(void) {
+  state_fuzz_stats total;
+  state_fuzz_stats stats;
+  const size_t header_samples = (size_t)env_u64("T64_STATE_SWEEP_HEADER", 6u);
+  const size_t body_samples = (size_t)env_u64("T64_STATE_SWEEP_BODY", 6u);
+  const size_t blobs = (size_t)env_u64("T64_STATE_SWEEP_BLOBS", 1u);
+  size_t i;
+
+  (void)memset(&total, 0, sizeof total);
+  if (!targets_prepare()) return;
+  (void)memset(&stats, 0, sizeof stats);
+  sweep_blob(target_blob[T_S1], target_length[T_S1], header_samples, body_samples,
+             &stats);
+  total.iterations += stats.iterations;
+  total.refusals += stats.refusals;
+  total.accepted += stats.accepted;
+  total.violations += stats.violations;
+  for (i = 1u; i < blobs && i - 1u < sizeof sweep_boundaries / sizeof sweep_boundaries[0];
+       i++) {
+    const size_t index = boundary_index(sweep_boundaries[i - 1u]);
+
+    if (index == BOUNDARY_COUNT || !boundary_prepare(index)) continue;
+    (void)memset(&stats, 0, sizeof stats);
+    sweep_blob(prepared[index].blob, prepared[index].length, header_samples,
+               body_samples, &stats);
+    total.iterations += stats.iterations;
+    total.refusals += stats.refusals;
+    total.accepted += stats.accepted;
+    total.violations += stats.violations;
+  }
+  if (getenv("T64_STATE_MATRIX_TRACE") != NULL) print_fuzz_stats("sweep", &total);
+  T64_CHECK(total.iterations > 0u);
+  T64_CHECK_INT(total.refusals + total.accepted, total.iterations);
+  T64_CHECK_INT(total.violations, 0u);
+}
+
+static void case_fuzz_campaign(void) {
+  state_fuzz_stats stats;
+  const uint64_t iterations = env_u64("T64_STATE_FUZZ_ITERATIONS", 12u);
+
+  if (!targets_prepare()) return;
+  state_fuzz_campaign(target_blob[T_S1], target_length[T_S1], iterations,
+                      UINT64_C(0x5EED0911), &stats);
+  print_fuzz_stats("fuzz-campaign", &stats);
+  T64_CHECK_INT(stats.iterations, iterations);
+  T64_CHECK_INT(stats.refusals + stats.accepted, stats.iterations);
+  T64_CHECK_INT(stats.violations, 0u);
+}
+
+/* ---- liveness on hostile and semantically unreachable states --------------- */
+
+typedef struct {
+  const char *name;
+  t64_machine *(*build)(void);
+  void (*edit)(t64_machine *machine);
+  int expect;           /* 1 accepted, -1 refused, 0 either */
+  const char *profile;  /* the peer profile (the blob binds it) */
+} hostile;
+
+static void edit_vi_zero_period(t64_machine *m) {
+  m->vi.registers[6] = 0u;
+  m->vi.active_registers[6] = 0u;
+}
+
+static void edit_vi_zero_h_sync(t64_machine *m) {
+  m->vi.registers[7] = 0u;
+  m->vi.active_registers[7] = 0u;
+}
+
+static void edit_ai_zero_length(t64_machine *m) {
+  m->ai.descriptors[m->ai.descriptor_head].length = 0u;
+}
+
+static void edit_ai_max_length(t64_machine *m) {
+  m->ai.descriptors[m->ai.descriptor_head].length = UINT32_C(0x3fff8);
+}
+
+static void edit_tick_max(t64_machine *m) {
+  size_t i;
+
+  for (i = 0u; i < m->queue_count; i++) {
+    t64_event *e = &m->events[(m->queue_head + i) % T64_EVENT_QUEUE_CAPACITY];
+
+    if (e->device == T64_DEVICE_PI) e->tick = UINT64_MAX;
+  }
+}
+
+static void edit_tick_max_minus_one(t64_machine *m) {
+  size_t i;
+
+  for (i = 0u; i < m->queue_count; i++) {
+    t64_event *e = &m->events[(m->queue_head + i) % T64_EVENT_QUEUE_CAPACITY];
+
+    if (e->device == T64_DEVICE_PI) e->tick = UINT64_MAX - 1u;
+  }
+}
+
+static void edit_si_table_max(t64_machine *m) {
+  size_t i;
+
+  m->si.table.entry_count = 5u;
+  for (i = 0u; i < 5u; i++) {
+    m->si.table.entries[i].channel = (uint32_t)i;
+    m->si.table.entries[i].offset = 0u;
+    m->si.table.entries[i].tx_count = 61u;
+    m->si.table.entries[i].rx_count = 61u;
+  }
+}
+
+static void edit_pi_length_zero(t64_machine *m) {
+  m->pi.active_length = 0u;
+}
+
+static void edit_sp_length_zero(t64_machine *m) {
+  m->sp.active.raw_length = 0u;
+  m->sp.active.payload_bytes = 0u;
+  m->sp.active.line_count = 0u;
+  m->sp.pending.valid = false;
+}
+
+static void edit_render_inverted(t64_machine *m) {
+  m->rdp.render_x_begin = 6u;
+  m->rdp.render_x_end = 2u;
+}
+
+static void edit_cpu_pc_top(t64_machine *m) {
+  m->cpu.pc = UINT32_C(0xFFFFFFFC);
+  m->cpu.pc_full = t64_cpu_canonical_address(m->cpu.pc);
+}
+
+static void edit_busy_window(t64_machine *m) {
+  m->save.busy_until = m->tick + EEPROM_BUSY_WINDOW;
+}
+
+static void edit_busy_max(t64_machine *m) {
+  m->save.busy_until = UINT64_MAX;
+}
+
+static void edit_sequence_max(t64_machine *m) {
+  m->next_sequence = UINT64_MAX;
+}
+
+static t64_machine *build_quiet_hostile(void) {
+  return build_quiet();
+}
+
+static t64_machine *build_h_b01(void) { return build_b01(); }
+static t64_machine *build_h_b03(void) { return build_b03(); }
+static t64_machine *build_h_b06(void) { return build_b06(); }
+static t64_machine *build_h_b08(void) { return build_b08(); }
+static t64_machine *build_h_b15(void) { return build_b15(); }
+static t64_machine *build_h_s1(void) { return build_s1(SI_STEM_ID); }
+
+static const hostile hostile_states[] = {
+    {"vi zero vertical period", build_h_b06, edit_vi_zero_period, 1, SI_STEM_ID},
+    {"vi zero horizontal sync", build_h_b06, edit_vi_zero_h_sync, 1, SI_STEM_ID},
+    {"ai descriptor length 0", build_h_b08, edit_ai_zero_length, 0, SI_STEM_ID},
+    {"ai descriptor length maximum", build_h_b08, edit_ai_max_length, 0, SI_STEM_ID},
+    {"event tick 64-bit maximum", build_h_b01, edit_tick_max, 0, SI_STEM_ID},
+    {"event tick maximum minus one", build_h_b01, edit_tick_max_minus_one, 0, SI_STEM_ID},
+    {"si table five entries at their maximum", build_h_s1, edit_si_table_max, 0, SI_STEM_ID},
+    {"pi transfer length 0", build_h_b01, edit_pi_length_zero, -1, SI_STEM_ID},
+    {"sp transfer length 0", build_h_b03, edit_sp_length_zero, 0, SI_STEM_ID},
+    {"rdp render range inverted", build_render, edit_render_inverted, 1, SI_STEM_ID},
+    {"cpu pc at the top of the address space", build_quiet_hostile, edit_cpu_pc_top, 1, SI_STEM_ID},
+    {"eeprom busy_until at the window", build_h_b15, edit_busy_window, 1, SAVE_E4K_ID},
+    {"eeprom busy_until at the 64-bit maximum", build_h_b15, edit_busy_max, -1, SAVE_E4K_ID},
+    {"next_sequence at the maximum", build_quiet_hostile, edit_sequence_max, 0, SI_STEM_ID},
+};
+
+static void case_liveness_bounded_advance(void) {
+  state_fuzz_stats stats;
+  size_t i;
+
+  (void)memset(&stats, 0, sizeof stats);
+  for (i = 0u; i < sizeof hostile_states / sizeof hostile_states[0]; i++) {
+    const hostile *h = &hostile_states[i];
+    t64_machine *source = h->build();
+    t64_machine *peer = create_admitted(h->profile);
+    uint8_t *blob;
+    size_t length = 0u;
+    const uint64_t accepted_before = stats.accepted;
+    const uint64_t refusals_before = stats.refusals;
+
+    if (source == NULL || peer == NULL) {
+      fprintf(stderr, "hostile state %s not built\n", h->name);
+      T64_CHECK(false);
+      if (source != NULL) t64_machine_destroy(source);
+      if (peer != NULL) t64_machine_destroy(peer);
+      continue;
+    }
+    h->edit(source);
+    blob = export_blob(source, &length);
+    t64_machine_destroy(source);
+    if (blob != NULL) {
+      peer = state_fuzz_one(peer, blob, length, (uint64_t)i, &stats);
+      if (getenv("T64_STATE_MATRIX_TRACE") != NULL) {
+        fprintf(stderr, "liveness %s: %s\n", h->name,
+                stats.accepted > accepted_before ? "accepted, advance returned"
+                                                 : "refused");
+      }
+      if (h->expect > 0) T64_CHECK(stats.accepted > accepted_before);
+      if (h->expect < 0) T64_CHECK(stats.refusals > refusals_before);
+      free(blob);
+    }
+    if (peer != NULL) t64_machine_destroy(peer);
+  }
+  if (getenv("T64_STATE_MATRIX_TRACE") != NULL) print_fuzz_stats("liveness", &stats);
+  T64_CHECK_INT(stats.violations, 0u);
+  T64_CHECK_INT(stats.refusals + stats.accepted, stats.iterations);
+}
+
+static void mutants_release(void) {
+  free(render_blob);
+  render_blob = NULL;
+}
+
 /* The case roundtrip: the T1 round trip of the S1 state, then the
  * continuation of the source and of the peer under one-shot and the 1, 7 and
  * 31 tick partitions. */
@@ -4430,13 +5126,16 @@ int main(int argc, char **argv) {
       "dirty-peer",         "observer-flag",
       "boundary-reached",   "boundary-roundtrip",   "boundary-continuation",
       "boundary-perturbation", "boundary-event-rules", "mid-tick-resume",
-      "stalled-observer-stop", "drop-observers-outcomes"};
+      "stalled-observer-stop", "drop-observers-outcomes", "mutant-inventory",
+      "mutant-refusals", "mutation-sweep", "fuzz-campaign",
+      "liveness-bounded-advance"};
   static const char *const suites[] = {
       "import",   "import",   "refusals", "refusals", "refusals",
       "refusals", "refusals", "refusals", "refusals", "ladder",
       "ladder",   "ladder",   "ladder",   "ladder",
       "boundaries", "boundaries", "boundaries", "boundaries", "boundaries",
-      "boundaries", "observers", "observers"};
+      "boundaries", "observers", "observers", "adversarial", "adversarial",
+      "adversarial", "adversarial", "adversarial"};
   static void (*const runners[])(void) = {
       case_roundtrip_all,        case_handler_table_ledger,
       case_binding_refusals,     case_container_refusals,
@@ -4449,12 +5148,20 @@ int main(int argc, char **argv) {
       case_boundary_continuation, case_boundary_perturbation,
       case_boundary_event_rules, case_mid_tick_resume,
       case_stalled_observer_stop,
-      case_drop_observers_outcomes};
+      case_drop_observers_outcomes, case_mutant_inventory,
+      case_mutant_refusals, case_mutation_sweep, case_fuzz_campaign,
+      case_liveness_bounded_advance};
   const size_t count = sizeof cases / sizeof cases[0];
   size_t index;
 
   if (argc == 2 && strcmp(argv[1], "--list-cases") == 0) {
     for (index = 0u; index < count; index++) printf("%s\n", cases[index]);
+    return 0;
+  }
+  if (argc == 2 && strcmp(argv[1], "--list-mutants") == 0) {
+    for (index = 0u; index < MUTANT_COUNT; index++) {
+      printf("%s\n", mutants[index].r.name);
+    }
     return 0;
   }
   if (argc == 3 && strcmp(argv[1], "--case") == 0) {
@@ -4466,6 +5173,7 @@ int main(int argc, char **argv) {
         peers_release();
         targets_release();
         boundaries_release();
+        mutants_release();
         (void)snprintf(name, sizeof name, "unit.core.state.import.%s",
                        cases[index]);
         return T64_TEST_FINISH(name);
@@ -4491,11 +5199,12 @@ int main(int argc, char **argv) {
     }
     targets_release();
     boundaries_release();
+    mutants_release();
     (void)snprintf(name, sizeof name, "unit.core.state.import.%s", argv[2]);
     return T64_TEST_FINISH(name);
   }
   if (argc != 1) {
-    fprintf(stderr, "usage: %s [--list-cases|--case NAME|--suite NAME]\n",
+    fprintf(stderr, "usage: %s [--list-cases|--list-mutants|--case NAME|--suite NAME]\n",
             argv[0]);
     return 2;
   }
@@ -4503,5 +5212,6 @@ int main(int argc, char **argv) {
   peers_release();
   targets_release();
   boundaries_release();
+  mutants_release();
   return T64_TEST_FINISH("unit.core.state.import");
 }

@@ -760,3 +760,65 @@ acceptance extents (the last pixel of the last row inside RDRAM, an aligned imag
 `ADDR_RANGE`; the other listed members are masked or validated at use (the VI
 geometry, the DP command span, the SP DMA start, the TLB page mask switch, the RSP
 register masks) and are mapped `MASKED_AT_USE` with their sites.
+
+## Hostile-input evidence
+
+Plan 09-09.1 completes the importer evidence with structure-aware mutants, a sweep,
+a seeded campaign and a liveness list. The contract stays memory safety and
+liveness: an accepted state is never claimed reachable, authentic, hardware accurate
+or compatible, and no test states that it is.
+
+**Mutant inventory.** `docs/spec/state-mutants.txt` is the independently authored
+inventory: one row per mutant with its expected status, reason, section and rule,
+grouped under the headings header (9 rows), table (6), fields (18, one per rule id with
+a reader use, plus the observer range, the EEPROM deadline beyond the window and the
+RDP render extent), queue (8), devices (10) and digest (1), 52 in all. The C mutant
+table of `core/tests/test_state_import.c` must equal the inventory name by name, in
+order, tuple by tuple (case `mutant-inventory`, the file named by
+`T64_STATE_MUTANT_INVENTORY`; `--list-mutants` prints the names). Every mutant keeps
+magic, section hashes, trailer and, unless its row targets it, the declared digest
+valid, is applied next to an accepted unmutated baseline in the same setup, and must
+reach exactly its own tuple with the machine allocation, both packet storages and the
+image byte identical and the allocator counters unchanged (case `mutant-refusals`).
+Five reader-rule removals made out of the tree (a recorded textual edit of a copy of
+`core/t64_state.c`, compiled with the gate flags under `-Werror`, linked into a copy
+of the test) are each caught by their named row and by no other: the queue count cap
+(`queue-count-cap`), the audio reservation slot index (`index-lt-audio-slot`), the
+video packet length (`len-le-video-packet`), the queue sequence bound
+(`sequence-at-next` and `seq-lt-sequence-above-next`) and the closed (device, kind)
+lookup (`unknown-pair` and `synthetic-device`).
+
+**Sweep and campaign.** The sweep flips one bit at sampled header bytes and strided
+body offsets of the S1 blob and, when `T64_STATE_SWEEP_BLOBS` is above 1, of the
+boundary blobs B05, B07, B10, B04 and B14, in two integrity modes (every field stale,
+every field re-signed). The campaign (`core/tests/fuzz_state_import.c`) is a fixed
+seed xorshift run of `T64_STATE_FUZZ_ITERATIONS` iterations over byte flips,
+truncation, extension, boundary-value field replacement (0, 1, maximum minus one,
+maximum, 0x7FFFFFFF, 0x80000000, 0xFFFFFFFF, 2^32), swapped and duplicated section
+entries, each re-signed with a random choice of which integrity fields stay valid.
+Every outcome must be a closed refusal (the status and reason pair agrees with the
+reason to status table above) or an acceptance; every refusal leaves the whole
+machine allocation byte identical with the allocator counters unchanged and the
+scratch clear; every acceptance returns from a bounded advance. The statistics
+record (iterations, refusals by reason, acceptances, liveness stops) is printed at
+the end. Counts are scaled by the environment: the gate preset samples (6 header and
+6 body offsets of the S1 blob, 12 iterations), the sanitizer preset raises them
+(12 and 12 offsets over two blobs, 120 iterations), because every input costs several
+hashing passes over a 6.3 MB container and sanitizer instrumentation multiplies that
+about 22 times. These are samples, not an exhaustive search; the audit and the
+rules are the structural defence and the sanitizer runs are the memory-safety
+evidence for the inputs tried.
+
+**Liveness.** The case `liveness-bounded-advance` builds semantically unreachable
+states by editing a source machine and exporting it (a hash-valid blob by
+construction): a VI with a zero vertical period or a zero horizontal sync, an AI
+descriptor of length 0 and of the maximum, a queue event at the 64-bit maximum tick
+and one below it, an SI table of five entries at their maximum counts, a PI or SP
+transfer of length 0, an RDP render range inverted, a CPU program counter at the top of
+the address space, an EEPROM deadline at the window and at the 64-bit maximum, and
+`next_sequence` at the maximum. An accepted state returns from an advance of 2,000
+ticks with a defined status; a refused one is a closed refusal. The recorded
+outcomes on the gate build: ten are accepted and return, four are refused (the AI
+descriptor of length 0 and the SP transfer of length 0 and the PI transfer of length 0
+by a field rule, the EEPROM deadline at the maximum by `TICK_LE`). That a state is
+accepted is not a statement that the machine can reach it.

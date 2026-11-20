@@ -505,4 +505,144 @@ static inline uint8_t *tblob_encode(const tblob *t, size_t *length_out) {
   return blob;
 }
 
+/* ---- whole-machine snapshot (moved from test_state_import.c) ---- */
+
+typedef struct {
+  uint8_t *machine_bytes;
+  size_t machine_size;
+  uint8_t *video_bytes;
+  size_t video_size;
+  uint8_t *audio_bytes;
+  size_t audio_size;
+  uint8_t *image_bytes;
+  size_t image_size;
+  size_t trace_count;
+  uint64_t trace_drops;
+  size_t queue_count;
+  uint64_t next_sequence;
+  uint64_t tick;
+  size_t allocs;
+  size_t releases;
+} snapshot;
+
+static inline uint8_t *copy_region(const void *data, size_t size) {
+  uint8_t *copy;
+
+  if (data == NULL || size == 0u) return NULL;
+  copy = (uint8_t *)malloc(size);
+  if (copy != NULL) (void)memcpy(copy, data, size);
+  return copy;
+}
+
+static inline void snapshot_take(const t64_machine *machine, snapshot *s) {
+  (void)memset(s, 0, sizeof *s);
+  s->machine_size = machine->machine_storage.capacity;
+  s->machine_bytes = copy_region(machine->machine_storage.data, s->machine_size);
+  s->video_size = machine->video_storage.capacity;
+  s->video_bytes = copy_region(machine->video_storage.data, s->video_size);
+  s->audio_size = machine->audio_storage.capacity;
+  s->audio_bytes = copy_region(machine->audio_storage.data, s->audio_size);
+  /* The digest is a pure function of the machine allocation, the packet storages
+   * and the admitted image, all compared byte for byte below, so no digest pass
+   * over the 6.3 MB state is needed (plan 09-09.1 cost control: two of the six
+   * hashing passes of every refusal row). */
+  s->image_size = machine->image_storage.capacity;
+  s->image_bytes = copy_region(machine->image_storage.data, s->image_size);
+  s->trace_count = machine->trace_count;
+  s->trace_drops = machine->trace_drop_count;
+  s->queue_count = machine->queue_count;
+  s->next_sequence = machine->next_sequence;
+  s->tick = machine->tick;
+  s->allocs = allocate_calls;
+  s->releases = release_calls;
+}
+
+static inline void snapshot_free(snapshot *s) {
+  free(s->machine_bytes);
+  free(s->video_bytes);
+  free(s->audio_bytes);
+  free(s->image_bytes);
+}
+
+/* Whole-machine comparison: the machine allocation (the structure, RDRAM, the
+ * coverage tables and the save bytes), both packet storages, the image, the
+ * trace observations, the queue, the tick and the allocator counters. */
+static inline bool snapshot_matches(const t64_machine *machine, const snapshot *s) {
+  bool same = true;
+
+  same = same && s->machine_bytes != NULL &&
+         memcmp(machine->machine_storage.data, s->machine_bytes,
+                s->machine_size) == 0;
+  same = same && (s->video_bytes == NULL ||
+                  memcmp(machine->video_storage.data, s->video_bytes,
+                         s->video_size) == 0);
+  same = same && (s->audio_bytes == NULL ||
+                  memcmp(machine->audio_storage.data, s->audio_bytes,
+                         s->audio_size) == 0);
+  same = same && (s->image_bytes == NULL ||
+                  memcmp(machine->image_storage.data, s->image_bytes,
+                         s->image_size) == 0);
+  same = same && machine->trace_count == s->trace_count &&
+         machine->trace_drop_count == s->trace_drops &&
+         machine->queue_count == s->queue_count &&
+         machine->next_sequence == s->next_sequence &&
+         machine->tick == s->tick && allocate_calls == s->allocs &&
+         release_calls == s->releases;
+  return same;
+}
+
+/* ---- the closed outcome table and the fuzz campaign interface (09-09.1) --- */
+
+/* The reason to status table, authored from the "Statuses and reasons" table
+ * of docs/spec/state-container.md (not from the importer). True when the pair
+ * is one the contract allows. */
+static inline bool state_reason_status_consistent(uint32_t reason,
+                                                  uint32_t status) {
+  switch (reason) {
+  case 1u: case 2u: case 3u: case 4u:
+    return status == (uint32_t)T64_STATUS_INVALID_ARGUMENT;
+  case 5u:
+    return status == (uint32_t)T64_STATUS_NOT_READY;
+  case 6u: case 7u: case 8u: case 9u: case 10u: case 11u: case 18u: case 19u:
+  case 20u: case 21u: case 22u: case 23u: case 25u:
+    return status == 26u;
+  case 12u: case 24u: case 39u:
+    return status == 27u;
+  case 13u:
+    return status == 28u;
+  case 14u:
+    return status == 29u;
+  case 15u: case 16u:
+    return status == 30u;
+  case 17u:
+    return status == 31u;
+  case 26u: case 27u: case 28u: case 29u: case 40u:
+    return status == 32u;
+  case 30u: case 31u: case 32u: case 33u: case 34u: case 35u: case 36u:
+  case 37u: case 38u:
+    return status == 33u;
+  default:
+    return false;
+  }
+}
+
+typedef struct {
+  uint64_t iterations;
+  uint64_t refusals;
+  uint64_t accepted;
+  uint64_t liveness_stops;
+  uint64_t violations;
+  uint64_t by_reason[48];
+} state_fuzz_stats;
+
+/* One import with the whole contract checked (core/tests/fuzz_state_import.c);
+ * returns the peer to use next. */
+t64_machine *state_fuzz_one(t64_machine *peer, const uint8_t *bytes, size_t n,
+                            uint64_t iteration, state_fuzz_stats *stats);
+
+/* Defined in core/tests/fuzz_state_import.c; holds no main. */
+void state_fuzz_campaign(const uint8_t *blob, size_t length,
+                         uint64_t iterations, uint64_t seed,
+                         state_fuzz_stats *stats);
+
 #endif

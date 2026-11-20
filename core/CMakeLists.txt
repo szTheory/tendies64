@@ -829,7 +829,8 @@ set_tests_properties(unit.core.state.export PROPERTIES
   ENVIRONMENT "T64_TEST_IPL3_PATH=${T64_BOOT_FIXTURE_DIR}/ipl3_compat.z64")
 
 # Phase 9 state container import (plan 09-09).
-add_executable(test_state_import tests/test_state_import.c)
+add_executable(test_state_import tests/test_state_import.c
+  tests/fuzz_state_import.c)
 target_include_directories(test_state_import PRIVATE
   "${CMAKE_SOURCE_DIR}/tests"
   "${CMAKE_CURRENT_SOURCE_DIR}"
@@ -1087,6 +1088,16 @@ if(T64_HAS_ADDRESS_AND_UNDEFINED_SANITIZERS)
   set_property(TEST unit.core.joybus.parser APPEND PROPERTY ENVIRONMENT
     "T64_JOYBUS_FUZZ_ITERATIONS=250000")
   set_tests_properties(unit.core.joybus.parser PROPERTIES TIMEOUT 600)
+
+  # The state import test hashes a 6.3 MB container several times per input and
+  # sanitizer instrumentation multiplies that about 22 times, so the sanitizer
+  # preset raises only the hostile-input counts (sweep samples and the seeded
+  # campaign) and the timeout; the full boundary matrix adds no memory-safety
+  # coverage over the sampled one and stays a native option
+  # (T64_STATE_MATRIX_FULL=1). Plan 09-09.1 records the measured seconds.
+  set_property(TEST unit.core.state.import APPEND PROPERTY ENVIRONMENT
+    "T64_STATE_FUZZ_ITERATIONS=120;T64_STATE_SWEEP_HEADER=12;T64_STATE_SWEEP_BODY=12;T64_STATE_SWEEP_BLOBS=2")
+  set_tests_properties(unit.core.state.import PROPERTIES TIMEOUT 1800)
 
   add_executable(sanitizer_fault tests/sanitizer_fault.c)
   t64_target_warnings(sanitizer_fault)

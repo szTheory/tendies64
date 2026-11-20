@@ -331,7 +331,12 @@
             "boundary-event-rules",
             "mid-tick-resume",
             "stalled-observer-stop",
-            "drop-observers-outcomes"
+            "drop-observers-outcomes",
+            "mutant-inventory",
+            "mutant-refusals",
+            "mutation-sweep",
+            "fuzz-campaign",
+            "liveness-bounded-advance"
           ]
         }
       ]
