@@ -181,6 +181,39 @@
           ]
         }
       ]
+    },
+    "save-transfer": {
+      "ctest": ["unit.core.save.import-export", "runner.save-roundtrip"],
+      "binaries": [
+        {
+          "path": "core/test_save_transfer",
+          "cases": [
+            "tracer-sram-raw",
+            "transform-vectors",
+            "import-export-roundtrip",
+            "refusal-matrix",
+            "no-caller-read",
+            "export-refusals",
+            "in-flight-real",
+            "replacement",
+            "mutation-bounded"
+          ]
+        },
+        {
+          "path": "runner/test_save_roundtrip",
+          "cases": [
+            "sram-roundtrip",
+            "format-matrix",
+            "eeprom-passthrough",
+            "same-setup-wrong-format",
+            "import-refused",
+            "export-publication",
+            "no-save-bytes-in-result",
+            "argv-max-save",
+            "upload-allowlist-save"
+          ]
+        }
+      ]
     }
   }
 }

@@ -491,7 +491,11 @@ either field for a version below 12 before any allocation.
 The save device requests answer three status values, `T64_STATUS_SAVE_UNKNOWN_DEVICE`
 (20), `T64_STATUS_SAVE_UNSUPPORTED_DEVICE` (21) and `T64_STATUS_SAVE_DEVICE_MISMATCH`
 (22), through `t64_machine_save_info`; the values and that function are provisional
-until the Phase 10 interface review.
+until the Phase 10 interface review. Host import and export of the save bytes
+(`t64_machine_save_import`, `t64_machine_save_export`, the three byte-order
+selections, the statuses 23 to 25 and the observer-only import generation) are
+specified in `docs/spec/save-media.md` under Host import and export; they are
+provisional on the same terms.
 
 The synchronization quantum is measured in RSP issue opportunities, equal to
 guest ticks in these profiles. A quantum or ratio other than 1 and 1:1 is a new
@@ -643,6 +647,7 @@ introduced.
 | Trace records, drop count and enablement | Yes | Clear records and drops; preserve enablement and emit a new admission record when enabled |
 | SI registers, active descriptor, PIF RAM, parsed table, sticky error, input latches and tokens (composite family) | Yes | Cancel the SI events, clear MI SI pending, clear all SI state and set the next token to 1 |
 | Save device storage and EEPROM deadline (composite family save ids) | Yes | Fill with the blank contents (0xFF for the EEPROM, 0x00 for the SRAM) and clear the deadline on a successful replacement; a refused replacement leaves both unchanged |
+| Save import generation (`write_generation`, composite family save ids; observer-only, outside the digest) | Yes | Reset to zero on a successful replacement together with the blank storage and the cleared deadline; a refused replacement leaves bytes, deadline and generation unchanged |
 | Output-drain cursor | Yes | Reset to zero with guest output; observer-only and excluded from the canonical digest |
 
 Refusal assertions compare every present machine observation, scheduler state,

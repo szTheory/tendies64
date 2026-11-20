@@ -20,13 +20,15 @@ tests prove that the model follows the rules below and nothing more. The
 `save_policy` label of descriptor 12 is
 `save-explicit-eeprom4k16k-sram32k-busy6ms-v1`.
 
-Not part of this slice: import and export of save bytes, the byte formats of
-those operations, any file or other persistence, and the replacement table
-rows beyond the one stated under Storage and reset. Nothing here is an API or
-ABI freeze; the status values, the kind constants, `t64_save_info` and
-`t64_machine_save_info` are provisional until the Phase 10 interface review, and
-only the kind numbering above and the `save_policy` label stay fixed for the
-rest of Phase 9.
+Import and export of save bytes, their byte formats and the runner flags that
+carry them are specified under Host import and export below. Not part of this
+slice: any automatic load or flush, any file container other than the headerless
+byte images named there, autodetection of a format, and persistence by the core.
+Nothing here is an API or ABI freeze; the status values, the kind and format
+constants, `t64_save_info`, `t64_machine_save_info`, `t64_machine_save_import`,
+`t64_machine_save_export`, the flag names and the detail names are provisional
+until the Phase 10 interface review, and only the kind numbering above and the
+`save_policy` label stay fixed for the rest of Phase 9.
 
 ## Profile selection
 
@@ -171,7 +173,8 @@ at creation and at the reset site of ROM admission, so a successful replacement
 by `t64_machine_admit_rom` on an admitted machine restores a blank device and
 the digest of a freshly created machine of the same id. A refused replacement
 (for example an invalid image) leaves the bytes and the deadline unchanged. The
-rest of the replacement matrix belongs to a later plan.
+replacement rule for the import generation is stated under Host import and
+export.
 
 ## Section 11 field table
 
@@ -228,6 +231,167 @@ the guest starts. The measured completion ticks of the real supervised runs are
 1,567,331 (4 Kbit), 1,567,338 (16 Kbit) and 539,986 (SRAM), all below the
 3,000,000-tick bound; the per-row cap is the long cap.
 
+## Host import and export
+
+Plan 09-05. Save bytes move in and out of a machine as explicit, named,
+headerless byte images. The core never opens a file, derives a path,
+autodetects a format, parses a container, or loads or flushes a save on its own;
+persistence is a host decision made through explicit flags. Every rule below is
+a named software-profile policy.
+
+### API
+
+```
+t64_status t64_machine_save_import(t64_machine *machine, uint32_t device_kind,
+                                   uint32_t format, const uint8_t *bytes,
+                                   size_t length);
+t64_status t64_machine_save_export(const t64_machine *machine,
+                                   uint32_t device_kind, uint32_t format,
+                                   uint8_t *bytes_out, size_t capacity,
+                                   size_t *length_out);
+```
+
+`device_kind` is one of the requestable kinds (1 to 7). `format` is
+`T64_SAVE_FORMAT_RAW` 1, `T64_SAVE_FORMAT_SWAP16` 2 or
+`T64_SAVE_FORMAT_WORDREV32` 3. Both calls move exactly the storage size of the
+profile kind: 512, 2,048 or 32,768 bytes, no padding, no truncation and no
+container. The info function gains a trailing `write_generation` field.
+
+### Check order
+
+The order is exact. Row names are the ones the test table `D24_ORDER` uses.
+
+| Row | Condition | Status |
+| --- | --- | --- |
+| R0 | machine is NULL | `T64_STATUS_INVALID_ARGUMENT` |
+| R1 | no admitted image | `T64_STATUS_NOT_READY` |
+| R2 | pointer or span: import, bytes NULL, span arithmetic overflow, span overlapping machine storage; export, length_out NULL, bytes_out NULL with a non-zero capacity, span overlapping machine storage or length_out | `T64_STATUS_INVALID_ARGUMENT` |
+| R3 | the profile has no save device (`save_kind` 0) | `T64_STATUS_SAVE_DEVICE_MISMATCH` (22) |
+| R4 | kind not in 1 to 7 | `T64_STATUS_SAVE_UNKNOWN_DEVICE` (20) |
+| R5 | kind in 4 to 7 | `T64_STATUS_SAVE_UNSUPPORTED_DEVICE` (21) |
+| R6 | kind in 1 to 3 but not the profile kind | `T64_STATUS_SAVE_DEVICE_MISMATCH` (22) |
+| R7 | format not in 1 to 3 | `T64_STATUS_SAVE_BAD_FORMAT` (23) |
+| R8 | import, length not equal to the kind size (a length of 0 included); export, capacity below the kind size | `T64_STATUS_SAVE_SIZE_MISMATCH` (24); `T64_STATUS_BUFFER_TOO_SMALL` (9) with `*length_out` set to the size and the buffer untouched |
+| R9 | import only: an EEPROM write window is open or an SRAM DMA is active | `T64_STATUS_SAVE_BUSY` (25) |
+
+Export has no R9. A profile with no device answers every requested kind with the
+mismatch status at R3, so a no-device profile with an unknown kind reports the
+mismatch, not the unknown-kind status; this keeps the order observable. A zero
+length constructs no span (an empty span cannot overlap or overflow). Every
+check precedes the first read of a caller byte and the first mutation, so
+atomicity is structural and no staging buffer exists.
+
+The info function checks its pointers before admission because it must write
+its output; import and export check admission (R1) before the pointer and span
+row (R2) because they read or write a caller span. The two orders are kept as
+they are and this is the one place they differ.
+
+### Postconditions
+
+A refusal leaves the canonical digest, the device bytes, the busy deadline, the
+scheduler queue and its next sequence, the guest tick, the trace, the allocator
+counters and `write_generation` bit-identical; a refused export also leaves the
+caller buffer unchanged, except that R8 writes the required length to
+`*length_out`. A successful import stores the normalized bytes, sets the deadline
+to 0 (an import is not a guest write, so a stale deadline is cleared), leaves the
+queue and the tick unchanged, writes no trace record, makes no allocator call and
+increments `write_generation`. Export is always allowed and returns the
+committed bytes: during an EEPROM window the block written through the SI is
+already in the storage, and during an SRAM DMA the storage still holds the bytes
+from before the DMA, because that effect is applied atomically at the completion
+event.
+
+### Byte-order selections (authored policy)
+
+The three selections are authored policy under assumption A1. They are not a
+hardware fact, and no mapping to any other emulator's convention is asserted or
+implied; a host that wants another container converts outside the core.
+
+| Selection | Definition | The RAW bytes `00 01 02 03 04 05 06 07` encoded as |
+| --- | --- | --- |
+| RAW | identity | `00 01 02 03 04 05 06 07` |
+| SWAP16 | swap the two bytes inside every 16-bit unit (offset XOR 1) | `01 00 03 02 05 04 07 06` |
+| WORDREV32 | reverse the four bytes inside every 32-bit unit (offset XOR 3) | `03 02 01 00 07 06 05 04` |
+
+Both transforms are involutions, so import and export apply the same
+permutation. The three sizes are multiples of 4, so there is no padding. A
+SWAP16 vector declared as WORDREV32 (and the reverse) stores `02 03 00 01 06 07
+04 05`, which is neither of the two vectors.
+
+### Import generation and replacement
+
+`write_generation` is an observer-only counter that lives in the machine and is
+outside the canonical digest. It counts successful imports since creation or the
+last replacement; guest writes do not increment it (a Phase 10 follow-up), and
+whether it travels in the observer-continuity section of the state container is
+an open item for plan 09-08. Replacement (`t64_machine_admit_rom` on an admitted
+machine) restores blank save content (`0xFF` for EEPROM, `0x00` for SRAM), clears
+the deadline and resets the generation, so the digest equals a freshly created
+and admitted machine of the same id; a refused admission leaves the bytes, the
+deadline and the generation unchanged. Replacement while a write window is open
+clears the deadline.
+
+### What counts as in flight
+
+D-24 names two conditions: the EEPROM deadline above the machine tick, and an
+active PI DMA to or from the SRAM. An SI transaction that is pending between its
+start and its execute tick is not refused; it reads the imported bytes at its
+execute tick.
+
+### Runner flags
+
+The supervisor and the real runner carry the explicit flags below (the names,
+the version-suffixed format tokens and the detail names are provisional).
+
+| Flag | Meaning |
+| --- | --- |
+| `--save-import PATH`, `--save-import-size N`, `--save-import-sha256 HEX` | the import file, its exact size and its SHA-256, all three together; prepared as a private verified descriptor with a 32,768-byte bound and forwarded as `--save-import-fd FD` |
+| `--save-kind TOKEN` | `eeprom4k` (512 bytes), `eeprom16k` (2,048) or `sram32k` (32,768) |
+| `--save-format TOKEN` | `raw-v1`, `swap16-v1` or `wordrev32-v1`; the version suffix is the per-format version string and there is no unversioned token |
+| `--save-export-leaf NAME` | the published leaf; requires the artifact pair, with `--artifact-max-bytes` at least the kind size |
+
+Validation, all in the usage class and repeated by the runner before the guest
+starts: kind and format are required together with at least one of import or
+export leaf; tokens are exactly the closed lists; the import size equals the
+kind size and the import trio is all or none; an export leaf needs the artifact
+pair and one of the allowed extensions; the save options are refused together
+with `--raw-capture-dir` and in synthetic mode. One `--save-format` governs the
+import and the export of a run; a conversion between two selections is a file
+conversion outside the run.
+
+Run behavior. After admission the runner checks the device kind with the info
+function and imports the verified descriptor in the named format; any failure
+ends the run before the guest starts, at guest tick 0, with the existing
+admission-refusal classification. The publisher is opened before the guest runs
+with a byte cap equal to the kind size, so a bad parent directory, a bad leaf
+grammar or an occupied target ends the run at guest tick 0 with the publisher's
+own error name. Export happens only after a pass outcome; every other outcome
+aborts the publisher and publishes nothing.
+
+Leaf extensions. Exported leaves carry exactly one of the lowercase extensions
+`eep`, `sra` and `sav`, all of which are in the rights scanner's denied-extension
+list and in the public upload member scan's private suffixes, so an exported save
+is never mistaken for a publishable file. The leaf grammar (a lowercase stem of 1
+to 32 characters, one dot, three lowercase letters) is the publisher's.
+
+Publication rules are those of the 09-02 private no-clobber publisher: an
+owner-only parent opened without following symlinks, a private stage, a real
+no-replace rename, a hard byte cap and identity-checked cleanup. The closed
+result details of a publisher error are `artifact-cap`, `artifact-dir-unsafe`,
+`artifact-exists`, `artifact-leaf-name`, `artifact-no-replace-unsupported`,
+`artifact-rename`, `artifact-stage`, `artifact-substitution` and
+`artifact-write`, accepted only for a host-error stop.
+
+Privacy. Saves are private by default and never uploaded. No key is added to the
+closed result record and no log line is added; save bytes appear in neither, and
+the only save bytes a test writes are authored index-derived patterns in
+temporary directories.
+
+Evidence limits. The tests establish authored self-consistency: the model
+follows the rules above against independent literals and an independent oracle.
+The transform definitions are policy. Nothing here is a statement about a
+physical console, a game, or the behavior of any other emulator.
+
 ## Determinism checks
 
 `unit.core.save.device` runs twelve cases: blank storage and section 11 markers,
@@ -241,6 +405,21 @@ duration without the base tick) each compile under the gate warning flags and
 fail a named comparator. No new scheduler event pair exists, so the closed event
 ledger and the membership list are unchanged except for the two save predicates
 and the rename of the one PI reservation site.
+
+`unit.core.save.import-export` runs nine cases: a tracer, the transform vectors
+and full-size mapping, success postconditions, the refusal cross product with
+every row proven reached, forked reads against an inaccessible span, export
+refusals, the real in-flight paths, replacement, and a bounded sweep with a
+seeded campaign (2,000 requests, 20,000 under AddressSanitizer). Seven
+out-of-tree mutants (the length check before the format check, the busy check
+before the kind checks, a caller read before the last check, SWAP16 as the
+WORDREV32 permutation, an import that keeps the deadline and the generation, a
+generation increment on a refusal path and an inclusive busy compare) each
+compile under the gate warning flags and fail a named comparator.
+`runner.save-roundtrip` runs nine cases through the real supervised runner: the
+roundtrip ROM, the format matrix, EEPROM passthrough, the wrong-format control,
+the refused imports, the publication rules, the no-save-bytes scan, the maximum
+option set and the upload allowlist.
 
 ## Sources
 
