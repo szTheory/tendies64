@@ -68,8 +68,8 @@ CASE_NAMES: tuple[str, ...] = (
     "source-paths-exist-and-cover-guards",
     "no-undefined-global-names",
     "case-checker-selftest-and-mismatch",
-    "claim-skeleton-has-no-real-block",
     "f2-identity-pins",
+    "claims-final-blocks",
 )
 
 # Named subsets run by the dedicated CTest names (no new logic, only grouping).
@@ -93,7 +93,7 @@ SUITES: dict[str, tuple[str, ...]] = {
                   "public-member-private-suffix-refused",
                   "public-member-state-magic-refused",
                   "public-member-symlink-or-nested-refused"),
-    "f2": ("f2-identity-pins",),
+    "f2": ("f2-identity-pins", "claims-final-blocks"),
 }
 
 QUALIFIER = ROOT / "scripts/qualify-phase09.py"
@@ -906,6 +906,208 @@ def f2_identity_problems(pins: dict, root: Path = ROOT) -> list[str]:
                 if name not in registered:
                     out.append(f"claim_counted: block {number} counts {name}, which is not a "
                                "registered Phase 9 or baseline test name")
+    return out
+
+
+# ---- final claim blocks (plan 09-11, K11, D-42, T-09-85) ---------------------------
+#
+# docs/claims/phase09.md holds ten real t64-claim blocks. claims_final_problems compares
+# them with the F2 pins and with the claims checker; the controls of the case change one
+# thing at a time and require the matching message. The statement is rendered here from the
+# docs/claims/TEMPLATE.md sentence, independently of scripts/check-claims.sh.
+CLAIM_KEYS = ("build_id", "profile_id", "tier", "fixture_set", "manifest_digest", "pass",
+              "total", "guest_fail", "boot_fail", "timeout", "missing", "harness_error",
+              "skipped", "oracle_kind", "oracle_revision", "not_claimed", "statement")
+CLAIM_COUNT_KEYS = ("guest_fail", "boot_fail", "timeout", "missing", "harness_error", "skipped")
+CLAIM_PHRASE = {"smoke": "smoke-tested", "regression-pinned": "regression-pinned",
+                "unit-tested": "unit-tested"}
+CLAIM_REGRESSION_PINNED_BLOCKS = (9,)
+CLAIM_NOT_CLAIMED_PHRASES = ("other builds", "other profiles and fixture sets",
+                             "unexercised behavior", "commercial software")
+# Per block: oracle kind, oracle revision prefix and the F2 pin the revision carries.
+CLAIM_ORACLES = {
+    1: ("authored-transcript-literal", "pad-poll-transcript-sha256:",
+        ("transcripts", "pad-baseline", "sha256")),
+    2: ("authored-transcript-literal", "eeprom-rw-e4k-transcript-sha256:",
+        ("transcripts", "save-eeprom-4k", "sha256")),
+    3: ("authored-transcript-literal", "eeprom-rw-e16k-transcript-sha256:",
+        ("transcripts", "save-eeprom-16k", "sha256")),
+    4: ("authored-transcript-literal", "sram-rw-transcript-sha256:",
+        ("transcripts", "save-sram-32k", "sha256")),
+    5: ("authored-transform-vectors", "save-roundtrip-transcript-sha256:",
+        ("transcripts", "roundtrip-baseline", "sha256")),
+    6: ("authored-literal-expectations", "phase09-cases-sha256:", ("inventory_sha256",)),
+    7: ("authored-literal-expectations", "phase09-cases-sha256:", ("inventory_sha256",)),
+    8: ("authored-reference-decoder-and-literals", "state-decoder-sha256:",
+        ("oracle_sha256", "fixtures/state/decode_container.py")),
+    9: ("independently-authored-input-script-and-golden-digests", "replay-golden-sha256:",
+        ("replay_golden", "sha256")),
+    10: ("authored-literal-expectations", "phase09-cases-sha256:", ("inventory_sha256",)),
+}
+_CLAIM_RESERVED = re.compile(r"\b(accurate|compatible|supports)\b", re.I)
+_CLAIM_PROJECT_LINE = re.compile(r"^\s*(?:[-*+>]\s*)*Tendies64 ")
+_CLAIM_BUILD = re.compile(r"^0\.0\.0\+t64-build-v1-[0-9a-f]{64}$")
+
+
+def claim_blocks(text: str) -> tuple[list[tuple[dict[str, str], int, int]], int]:
+    """The real t64-claim blocks as (keys, opening line, closing line) and the number of
+    example fences (line numbers are zero-based indexes)."""
+    blocks: list[tuple[dict[str, str], int, int]] = []
+    examples = 0
+    state = None
+    current: dict[str, str] = {}
+    start = 0
+    for number, line in enumerate(text.split("\n")):
+        if state is None:
+            if line == "```t64-claim":
+                state, current, start = "real", {}, number
+            elif line == "```t64-claim-example":
+                state = "example"
+                examples += 1
+        elif line == "```":
+            if state == "real":
+                blocks.append((current, start, number))
+            state = None
+        elif state == "real":
+            key, _, value = line.partition(": ")
+            current[key] = value
+    return blocks, examples
+
+
+def claim_statement(block: dict[str, str]) -> str:
+    return (f"Tendies64 {block['build_id']} on profile {block['profile_id']}: "
+            f"{CLAIM_PHRASE[block['tier']]} for {block['fixture_set']} @ "
+            f"{block['manifest_digest']} ({block['pass']}/{block['total']}; "
+            f"missing {block['missing']}, skipped {block['skipped']}, timeout {block['timeout']}, "
+            f"harness-error {block['harness_error']}, guest-fail {block['guest_fail']}, "
+            f"boot-fail {block['boot_fail']}). Oracle: {block['oracle_kind']} "
+            f"{block['oracle_revision']}. Not claimed: {block['not_claimed']}.")
+
+
+def claim_with(text: str, index: int, **changes) -> str:
+    """The text with block INDEX (1-based) changed; its statement is rendered again unless
+    the caller gives one."""
+    lines = text.split("\n")
+    blocks, _ = claim_blocks(text)
+    keys, start, end = blocks[index - 1]
+    keys = dict(keys)
+    keys.update({name: str(value) for name, value in changes.items()})
+    if "statement" not in changes:
+        keys["statement"] = claim_statement(keys)
+    lines[start + 1:end] = [f"{name}: {keys[name]}" for name in CLAIM_KEYS]
+    return "\n".join(lines)
+
+
+def claim_without(text: str, index: int) -> str:
+    lines = text.split("\n")
+    _, start, end = claim_blocks(text)[0][index - 1]
+    del lines[start:end + 1]
+    return "\n".join(lines)
+
+
+def _claim_checker(text: str, root: Path) -> list[str]:
+    """Run scripts/check-claims.sh on the text; its RULE lines and a summary mismatch."""
+    with tempfile.TemporaryDirectory(prefix="t64-claims-final.") as scratch:
+        target = Path(scratch) / "phase09.md"
+        target.write_text(text, encoding="utf-8")
+        done = subprocess.run(["sh", str(root / "scripts/check-claims.sh"), "--files", str(target)],
+                              capture_output=True, text=True, check=False, cwd=root)
+    found = [f"check-claims: {line.split(' ', 2)[1]} {line.split(': ', 1)[-1]}"
+             for line in done.stdout.splitlines() if line.startswith("RULE ")]
+    expected = f"claims: files=1 blocks={len(claim_blocks(text)[0])} errors=0"
+    if done.returncode != 0 or expected not in done.stdout.splitlines():
+        found.append(f"check-claims: exit {done.returncode}, no summary line '{expected}'")
+    return found
+
+
+def claims_final_problems(text: str, pins: dict, root: Path = ROOT, *,
+                          run_checker: bool = True) -> list[str]:
+    """Every disagreement of the claim file with the pins, one 'claims-final: text' each."""
+    out: list[str] = []
+    blocks, examples = claim_blocks(text)
+    lines = text.split("\n")
+    if len(blocks) != pins["claim_block_count"]:
+        out.append(f"claims-final: {len(blocks)} real blocks but {pins['claim_block_count']} "
+                   "expected")
+    if examples:
+        out.append(f"claims-final: {examples} example fence(s) remain")
+    pairs = [(keys.get("profile_id"), keys.get("fixture_set")) for keys, _, _ in blocks]
+    if len(set(pairs)) != len(pairs):
+        out.append("claims-final: a (profile id, fixture set) pair is duplicated")
+    if pairs != [tuple(pair) for pair in pins["claim_pairs"]]:
+        out.append(f"claims-final: the pairs {pairs} differ from the pinned pairs")
+    manifest_digest = "sha256:" + _f2_digest(root, "fixtures/manifest.json")
+    if len({keys.get("build_id") for keys, _, _ in blocks}) > 1:
+        out.append("claims-final: the blocks name different build ids")
+    previous_end = -1
+    for number, (keys, start, end) in enumerate(blocks, 1):
+        label = f"block {number}"
+        if tuple(keys) != CLAIM_KEYS:
+            out.append(f"claims-final: {label} keys {tuple(keys)} differ from the closed key list")
+            previous_end = end
+            continue
+        if not _CLAIM_BUILD.match(keys["build_id"]):
+            out.append(f"claims-final: {label} build_id {keys['build_id']} is not a t64 build id")
+        if keys["profile_id"] not in pins["profile_ids"]:
+            out.append(f"claims-final: {label} profile {keys['profile_id']} is outside the id table")
+        wanted = ("regression-pinned" if number in CLAIM_REGRESSION_PINNED_BLOCKS
+                  else "unit-tested")
+        if keys["tier"] not in pins["claim_tiers"]:
+            out.append(f"claims-final: {label} tier {keys['tier']} is outside the pinned tiers")
+        elif keys["tier"] != wanted:
+            out.append(f"claims-final: {label} tier {keys['tier']} but {wanted} is required")
+        counted = pins["claim_counted"].get(number, [])
+        try:
+            passed, total = int(keys["pass"]), int(keys["total"])
+        except ValueError:
+            out.append(f"claims-final: {label} pass or total is not an integer")
+            passed = total = -1
+        if passed != total:
+            out.append(f"claims-final: {label} pass {passed} differs from total {total}")
+        if total != len(counted):
+            out.append(f"claims-final: {label} total {total} differs from the counted list "
+                       f"length {len(counted)}")
+        if any(keys[name] != "0" for name in CLAIM_COUNT_KEYS):
+            out.append(f"claims-final: {label} has a non-zero count besides pass")
+        if keys["manifest_digest"] != manifest_digest:
+            out.append(f"claims-final: {label} manifest_digest {keys['manifest_digest']} differs "
+                       f"from {manifest_digest}")
+        kind, prefix, path = CLAIM_ORACLES[number]
+        pin = pins
+        for step in path:
+            pin = pin[step]
+        if (keys["oracle_kind"], keys["oracle_revision"]) != (kind, prefix + pin):
+            out.append(f"claims-final: {label} oracle {keys['oracle_kind']} "
+                       f"{keys['oracle_revision']} differs from {kind} {prefix}{pin}")
+        for phrase in CLAIM_NOT_CLAIMED_PHRASES:
+            if phrase not in keys["not_claimed"]:
+                out.append(f"claims-final: {label} not_claimed lacks '{phrase}'")
+        try:
+            rendered = claim_statement(keys)
+        except KeyError:
+            rendered = ""
+        if keys["statement"] != rendered:
+            out.append(f"claims-final: {label} statement differs from the template rendering")
+        prose = "\n".join(lines[previous_end + 1:start])
+        for name in counted:
+            if name not in prose:
+                out.append(f"claims-final: the prose before {label} does not name the counted "
+                           f"unit {name}")
+        if number > 5:
+            for name in counted:
+                if name not in f2_inventory_ctest_names(root):
+                    out.append(f"claims-final: {label} counts {name}, which no suite of "
+                               "docs/spec/phase09-cases.json lists")
+        previous_end = end
+    inside = {number for _, start, end in blocks for number in range(start, end + 1)}
+    for number, line in enumerate(lines):
+        found = _CLAIM_RESERVED.search(line)
+        if found:
+            out.append(f"claims-final: reserved word '{found.group(1)}' on line {number + 1}")
+        if number not in inside and _CLAIM_PROJECT_LINE.match(line):
+            out.append(f"claims-final: line {number + 1} starts with the project name")
+    if run_checker:
+        out.extend(_claim_checker(text, root))
     return out
 
 
@@ -2626,17 +2828,41 @@ class Phase09Qualification(unittest.TestCase):
         refused("id_lengths", change_length)
         refused("claim_counted", unlisted_counted_name)
 
-    def test_claim_skeleton_has_no_real_block(self) -> None:
-        """The claim file is a skeleton: example fences only, no real block."""
-        path = ROOT / "docs/claims/phase09.md"
-        lines = path.read_text(encoding="utf-8").splitlines()
-        self.assertNotIn("```t64-claim", lines)
-        self.assertGreaterEqual(lines.count("```t64-claim-example"), 6)
-        checked = subprocess.run(
-            ["sh", str(ROOT / "scripts/check-claims.sh"), "--files",
-             str(path.relative_to(ROOT))],
-            capture_output=True, text=True, check=False, cwd=ROOT)
-        self.assertEqual(checked.returncode, 0, checked.stdout + checked.stderr)
+    def test_claims_final_blocks(self) -> None:
+        """docs/claims/phase09.md holds exactly the ten pinned claim blocks (K11, T-09-85)."""
+        text = (ROOT / "docs/claims/phase09.md").read_text(encoding="utf-8")
+        baseline = claims_final_problems(text, F2_PINS)
+        self.assertEqual(baseline, [], "\n".join(baseline))
+
+        def refused(label: str, needle: str, mutated: str, pins: dict | None = None) -> None:
+            problems = claims_final_problems(mutated, pins if pins is not None else F2_PINS)
+            self.assertTrue(any(needle in line for line in problems),
+                            f"the {label} control was not refused with '{needle}': {problems}")
+            # The accepted baseline of the same setup still holds after each refusal.
+            self.assertEqual(claims_final_problems(text, F2_PINS), [])
+
+        blocks, _ = claim_blocks(text)
+        not_claimed = blocks[0][0]["not_claimed"]
+        refused("reserved word", "reserved word 'accurate'",
+                claim_with(text, 1, not_claimed=not_claimed + ", accurate timing"))
+        statement = blocks[1][0]["statement"]
+        refused("statement byte", "statement differs from the template rendering",
+                claim_with(text, 2, statement=statement[:40] + "X" + statement[41:]))
+        refused("duplicated pair", "pair is duplicated",
+                claim_with(text, 3, profile_id=blocks[1][0]["profile_id"]))
+        refused("tier smoke", "tier smoke is outside the pinned tiers",
+                claim_with(text, 4, tier="smoke"))
+        refused("pass differs from total", "pass 0 differs from total 1",
+                claim_with(text, 1, **{"pass": 0}))
+        refused("total differs from counted", "total 2 differs from the counted list length 1",
+                claim_with(text, 1, **{"pass": 2, "total": 2}))
+        moved = copy.deepcopy(F2_PINS)
+        moved["claim_counted"][7] = ["repo.sched-k5-anchors" if name == "unit.core.sched.ledger"
+                                     else name for name in moved["claim_counted"][7]]
+        refused("counted name outside every suite",
+                "counts repo.sched-k5-anchors, which no suite of docs/spec/phase09-cases.json lists",
+                text, moved)
+        refused("block removed", "9 real blocks but 10 expected", claim_without(text, 10))
 
 
 def _run_checker(build: Path, inventory: Path, suite: str) -> subprocess.CompletedProcess[str]:
