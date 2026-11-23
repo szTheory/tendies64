@@ -552,3 +552,28 @@ CI/CD efficiency and cheap-first findings from Phase9 execution; they extend sec
   noisy runner sample (macOS ranged 349 to 433 s on near-identical code) is checked by
   confirming the cache entries are present and fresh before the final push, not by
   spending another candidate cycle.
+
+## New-milestone ritual (owner direction 2026-11-23)
+
+At every `/gsd-new-milestone`, without being asked: (1) clean up first (consume the handoff, commit stray planning or config edits, reconcile STATE.md, PII scan); (2) fan out read-only subagent lenses per phase group plus a rolling-roadmap lens and an adversarial process lens, each with role perspectives, pros/cons, anti-patterns and primary-source prior art, then synthesize one set of recommendations and follow it; (3) refresh the Rolling Roadmap in ROADMAP.md with priority-ordered horizons (next, near, mid, long) and their promotion evidence; (4) record the takeaways in `research/<milestone>-fanout/`, STATE.md and the owner-memory file; (5) give the owner the exact autonomous launch command and the pre-resolved owner decisions. Lens reports for v1.2 are in `research/v1.2-fanout/`.
+
+## v1.2 execution rules (fan-out 2026-11-23)
+
+- Open every phase with a scripted local preflight under about 90 s that replays the Phase 9 lessons (act-image Linux compile, post-Gate CI steps, CTest regex counts and TIMEOUT audit, oracle-authority check, PII scan, head CI status, host load) and cite it from every plan.
+- Review per wave in scratch clones (`git archive`), not once at phase end; Phase 9's blocking defect surfaced only in the late review.
+- Plans are capped at 4 tasks and about 45 minutes; no decimal plans; a defect fix is a new numbered plan.
+- `parallelization` is false because executors share one build tree and git index.
+- Prune closed-phase run directories (about 2,400 under build/gate/08-04-evidence) and check host load before native runs.
+
+## Prompt dispositions for unattended `/gsd-autonomous` runs
+
+| Prompt or state | Disposition |
+|-----------------|-------------|
+| Discuss-phase hard-to-reverse choice already locked in ROADMAP.md, STATE.md or the fan-out synthesis | Use the locked decision; do not re-ask |
+| `gaps_found` after verification | One automatic fix plan and re-verify; then record as tech debt and continue unless it is a must-have |
+| `human_needed` (visual or physical check) | Record as a non-blocking owner-attested item; never stop the run; never a must-have |
+| Milestone audit `tech_debt` | Accept, list in the audit and RETROSPECTIVE, continue to complete and cleanup |
+| Git tag creation | Never (`git.create_tag` is false; D6) |
+| Oracle-request identity rebind | Approved for v1.2 manifest rows per STATE.md; orchestrator only |
+| Any listed owner stop (rights, PII, hardware, paid, D2/D4/D5/D6/D7/D8) | Stop and batch the question |
+

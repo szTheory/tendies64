@@ -2,7 +2,7 @@
   "runtime": "claude",
   "mode": "yolo",
   "granularity": "standard",
-  "parallelization": true,
+  "parallelization": false,
   "commit_docs": true,
   "model_profile": "adaptive",
   "workflow": {
@@ -12,18 +12,21 @@
     "nyquist_validation": true,
     "ai_integration_phase": true,
     "use_worktrees": false,
-    "auto_advance": true,
+    "auto_advance": false,
     "human_verify_mode": "end-of-phase",
     "skip_discuss": false,
-    "code_review": true,
+    "code_review": false,
     "pattern_mapper": true,
     "security_enforcement": true,
     "security_asvs_level": 1,
     "security_block_on": "high",
-    "_auto_chain_active": true
+    "_auto_chain_active": true,
+    "ui_phase": false,
+    "ui_review": false
   },
   "git": {
-    "allow_default_branch_commits": true
+    "allow_default_branch_commits": true,
+    "create_tag": false
   },
   "model_profile_overrides": {
     "claude": {

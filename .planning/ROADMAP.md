@@ -4,8 +4,8 @@
 
 - ✅ **v1.0 Verified Headless Core** — Phases 1–6 complete; planning archive 2026-11-15. [Verified scope and history](milestones/v1.0-ROADMAP.md). This is not a software release.
 - ✅ **v1.1 Observable Machine** — Phases 7–9 complete 2026-11-20 (VID-04 descoped to v1.2 by owner decision). [Archive](milestones/v1.1-ROADMAP.md), [requirements](milestones/v1.1-REQUIREMENTS.md), [audit](milestones/v1.1-MILESTONE-AUDIT.md), [phase records](milestones/v1.1-phases/). This is not a software release.
-- 🚧 **v1.2 Embeddable and Playable** — Phases 10–12; planned 2026-11-23. 13 requirements mapped; VID-04 deferred and unscheduled. This is a planning identifier, not a software release.
-- 📋 **v2.0 Breadth, Accuracy and Performance** — provisional future scope.
+- 🚧 **v1.2 Embeddable and Playable** — Phases 10–12; planned 2026-11-23. 14 requirements mapped; scope refined by fan-out 2026-11-23; VID-04 deferred and unscheduled. This is a planning identifier, not a software release.
+- 📋 **Rolling horizons (v1.3 near, v1.4 mid, v1.5+ later)** — refreshed every milestone; see [Rolling Roadmap](#rolling-roadmap-refreshed-2026-11-23).
 
 ## Decision Gates
 
@@ -43,79 +43,80 @@ paid services.
 rights-cleared homebrew that plays in a minimal host, so Tendies64 does not stay tests-only.
 
 **Ordering rule (decided at v1.2 start):** every carry-in that changes state, descriptors or
-digests (VID-07, CORE-06, VER-06, RUN-07, GATE-01) closes in Phase 10, before the C-ABI freeze in
-Phase 11, so the frozen API and state format rest on settled behavior. Phase 12 builds only on the
-frozen API.
+digests (VID-07, CORE-06, VER-06, RUN-07, GATE-01) closes in Phase 10, before the C-ABI shape is set in
+Phase 11, so the API and state format rest on settled behavior. Phase 11 ends with a bound freeze
+candidate; the final bind happens at the end of Phase 12, after a real host has used the API
+(fan-out decision 2026-11-23; no external consumer exists, so an early lock protects nobody).
 
 **Deferred, not scheduled:** VID-04 (differential oracle evidence) is unmapped. It joins v1.2 only
 by an owner D5 decision plus the parallel-rdp per-file rights audit, a rights-cleared exported
 corpus and a replay adapter (Plan 07-13). No oracle work happens until then.
 
-- [ ] **Phase 10: Carry-in Closure Before the Freeze** - Z depth on the composite profiles, complete RDP/VI state, the Phase 7 test-strength debt, one composite end-to-end fixture and a hosted macOS gate inside its limit
-- [ ] **Phase 11: Installed Consumer and Frozen API** - C-ABI postconditions exercised through a clean installed package by an independent consumer, then frozen
-- [ ] **Phase 12: Minimal Host and Playable Homebrew** - Optional SDL3 host on the frozen API, a rights-cleared playable title and a LibFuturo fit evaluation
+- [ ] **Phase 10: Carry-in Closure Before the Freeze** - Per-row oracle pins, the macOS gate inside its limit, the Phase 7 test-strength debt, Z depth under new profile ids with one state/container version marker, and one composite end-to-end fixture
+- [ ] **Phase 11: Installed Consumer and Freeze Candidate** - Installable instance API, an independent installed consumer with a host-shaped loop, mechanical API-04 and refusal-is-a-no-op checks, then a bound freeze candidate
+- [ ] **Phase 12: Minimal Host, Playable Homebrew and Final Bind** - Host pump and optional SDL3 shell on the installed API, an authored playable title, the LibFuturo evaluation, then the final ABI bind
+
+**Execution notes (fan-out 2026-11-23; see [synthesis](research/v1.2-fanout/SYNTHESIS.md)):** one phase per group, about 10-15 plans each, plans capped at 4 tasks and about 45 minutes with no decimal plans; every phase opens with a scripted preflight under about 90 s and closes with a review-fix-reverify wave run in scratch clones; at most 3 phases and one owner-decision batch per milestone.
 
 ### Phase 10: Carry-in Closure Before the Freeze
-**Goal**: The composite profiles render depth, export and import every RDP and VI field they behave on, and carry independently checked tests for the accepted Phase 7 gaps; one composite fixture runs end to end through the runner; and the hosted gate fits its job limit, so the state, descriptors and digests that Phase 11 freezes are settled
+**Goal**: Everything that changes state, descriptors or digests lands once, before the API is shaped: the composite profiles render depth under new ids, the state container carries one version marker, the accepted Phase 7 gaps have independent tests, one composite fixture runs end to end, and the gate fits its job limit
 **Depends on**: Phase 9
-**Requirements**: VID-07, CORE-06, VER-06, RUN-07, GATE-01
-**Decision gates**: D5 (no oracle material; every expected value is authored independently). A `fixtures/manifest.json` row edit moves the Phase 7 oracle-request pin; check the scope of the recorded owner rebind approval (STATE.md Blockers) before relying on it, and keep `local_decision` blocked
-**Research**: LIGHT (codebase-internal; recheck RDP depth semantics against the primary RDP documentation before deriving expected values)
+**Requirements**: GATE-02, GATE-01, VER-06, VID-07, CORE-06, RUN-07
+**Decision gates**: D5 (no oracle material; every expected value is authored independently). Owner approval 2026-11-23: per-row oracle pins (GATE-02) plus a standing identity-only rebind for v1.2 manifest rows until it lands (reproduce the old pinned hash, change only manifest identities and the derived request hash, keep `local_decision` blocked, grant no oracle, rights or publication authority)
+**Research**: LIGHT (recheck RDP depth semantics against the primary RDP documentation before deriving expected values)
+**Wave order**: 0 scripted preflight, pin-impact map, GATE-02 and GATE-01 (ci.yml, check-ci-yml.sh and gate.sh are bound source, so they change first); 1 VER-06 (VG-01 on descriptor 10 before depth is enabled elsewhere); 2 VID-07 and CORE-06 as one identity and state bump (new registered ids, state v26 and container v2, v24/v25 byte-identical, completeness flip test first); 3 RUN-07 (the one manifest-moving commit); 4 independent review per wave and one qualification. Triage the Phase 9 items tagged for this phase (splitting `unit.core.state.import`, replay-driver duplication, the dead publisher link) as done, deferred or dropped
 **Success Criteria** (what must be TRUE):
-  1. An authored depth fixture on descriptors 11 and 12 produces Z-tested pixels and depth values that equal independently calculated literals, a wrong-depth control fails, and the digests of all 17 pre-Phase-9 profile ids and the existing composite profile identities stay as documented (byte-identical, or versioned under the compatibility policy with the change recorded)
-  2. A state exported in the middle of an RDP primitive and during a VI scan-out over coverage marks imports and continues to the same frames, digest and outputs as the uninterrupted run; the container carries a state/container version marker, and a digest-completeness test that flips every behavior-bearing RDP and VI member (combiner block and memory-coverage table included) sees each flip
-  3. VG-01 to VG-05 and the standard-NTSC VI clock vector each have independently derived expected values and at least one mutant that fails when the behavior is wrong
-  4. One composite fixture driving video, audio, input and save on a named profile runs through the real supervised runner and reports exact raw video and audio bytes, the final digest and the save bytes, each compared with independent expectations
-  5. A hosted gate-macos run on a cold Binutils cache finishes inside its job limit with the CTest cost ordering and the duplicated audio-records step removed, and the qualification outer limits from F-106, F-111 and F-114 are recorded in docs/ci-reviews/LOG.md
+  1. An authored depth fixture on the new composite ids produces Z-tested pixels and depth values equal to independently calculated literals, a wrong-depth control fails, and the shipped ids keep their digests and Z refusal byte-identical across the 17 pre-Phase-9 profiles and the Phase 8/9 composites
+  2. A state exported mid-primitive and mid-scan-out, with depth active, imports and continues to the same frames, digest and outputs; one version marker is present, a flip-every-member test sees each RDP and VI member, and the docs state that blobs are build-identity-bound and outside the ABI promise
+  3. VG-01 to VG-05 and the standard-NTSC VI clock vector each have independently derived expected values and at least one mutant that fails
+  4. One composite guest reports exact raw video and audio from a capture run and exact save bytes from a save-out run with the same final digest, each output compared with its own independent expectation and each with a wrong-value control
+  5. A measured cold-cache hosted gate-macos run finishes inside its limit; before/after step timings, the 15-minute limit with its scanner rule, and the pinned limit relation are recorded; adding a manifest row no longer requires an oracle-request rebind
 **Plans**: TBD
 
-### Phase 11: Installed Consumer and Frozen API
-**Goal**: An independent consumer, using only a clean installed package, exercises every lifetime, admission, advance, output and failure postcondition of the C-ABI, and only then is the C-ABI frozen
+### Phase 11: Installed Consumer and Freeze Candidate
+**Goal**: An independent consumer using only a clean installed package exercises every lifetime, admission, advance, output and failure postcondition of the C-ABI, including a host-shaped loop, and the API reaches a bound freeze candidate that the host work can still amend only by evidence
 **Depends on**: Phase 10
 **Requirements**: VER-05, API-01, API-02, API-03, API-04
-**Decision gates**: D6 (the installed package and the freeze are local; neither is a release, version tag or packaging channel)
-**Research**: MODERATE
+**Decision gates**: D6 (installing and freezing are local; neither is a release, tag or packaging channel; "mismatched version" means an ABI constant, never a release version). Set `git.create_tag` false
+**Research**: DEEP (facade, packaging and ABI identity are greenfield: no `install()` rules, no reset/unload/poison/status classes today; also do the paper LibFuturo contract read here)
+**Order**: API shape changes land first and once (struct_size, ABI handshake, status classes, poison, reset/unload, internal symbol prefixing, `__stack_chk_*` decision, 20 stale "Phase 10 freeze" mentions relabeled); then installability (fold sha256 into core, relocatable package config, SameMinorVersion); then the independent consumer (do not re-point the runner at the installed package: three-way agreement keeps independence and runner-keyed evidence); cheap-first checks (self-contained header compile, layout asserts, `cmake --install` from the existing build tree, `nm` golden, object lint, absolute-path scan) before the long suite
 **Success Criteria** (what must be TRUE):
-  1. A consumer built against a relocated, clean installed package (no source tree visible) runs the Phase 10 composite fixture and gets the same result as the in-tree runner. Negative controls, such as a missing package, a mismatched version or a visible source tree, fail
-  2. Through the installed consumer, the C-ABI covers instance lifetime, profile selection, transactional content admission, timed input, bounded advance, output ring buffers with backpressure, reset and unload, each with an accepted operation and a refusal
-  3. Each error class has tested postconditions through the installed consumer: a refusal leaves state bit-identical, a guest-stop is reported as not an error and can be resumed, and a defect poisons the instance so that later calls refuse
-  4. The installed core library owns no files, clocks, entropy or threads: the host supplies them, and a check of the installed library's imported symbols fails if one appears
-  5. The C-ABI is frozen only after criteria 1 to 4 pass through the installed consumer; the freeze record binds the header and ABI identity, and an incompatible header or ABI change fails a check
+  1. A consumer built against a relocated clean install runs the Phase 10 composite fixture and agrees with the in-tree runner and independent literals; missing-package, version-mismatch, visible-source-tree, doctored-header and symbol-collision controls fail
+  2. Through the installed consumer every API-01 operation has an accepted case and a refusal, including output rings with forced backpressure and two instances in one process, in a host-shaped loop (frame-paced advance, drain in host order)
+  3. A call-sequence generator proves every refused status leaves observations bit-identical, a guest-stop resumes, and a defect poisons the instance, under ASan and UBSan against the shipped library; every status and stop reason appears once in the class table
+  4. The installed archive's members import no file, clock, entropy or thread symbol, and a seeded violating object fails the check
+  5. A bound freeze-candidate record (header hash, public symbol list, struct-layout table, status-class table) exists and an incompatible change fails a check; an additive-extension rule (size fields, additive profiles, devices and error subcodes) is documented
 **Plans**: TBD
 
-### Phase 12: Minimal Host and Playable Homebrew
-**Goal**: A rights-cleared homebrew title runs headlessly and plays in a minimal host window with a physical controller, using only the frozen API, without the core depending on the host
+### Phase 12: Minimal Host, Playable Homebrew and Final Bind
+**Goal**: An authored, rights-cleared title runs headlessly and in a minimal host built only on the installed API, the core stays free of the host, and the ABI is bound for good once nothing found in the host work needs amending
 **Depends on**: Phase 11
 **Requirements**: API-05, API-06, API-07
-**Decision gates**: D7 (no branding in the host or packaging). D6 applies to any release. D4 covers SDL3, which is zlib-licensed and link-only. Pin the route B libdragon toolchain and record its GCC/newlib notices
-**Research**: DEEP (playable toolchain route; LibFuturo contract recheck)
+**Decision gates**: D7 (neutral window title such as "t64 minimal host (development)", no icon, bundle or product name); D6 (no tag or binary redistribution); D4 (SDL3 is zlib: link-only against a system install, never vendored, vendoring is an owner stop); the physical-controller play-through is one owner-attested, non-blocking checklist (owner-held hardware), never a must-have
+**Research**: MODERATE (route A is decided: authored assembly title with the pinned Binutils and open IPL3; the libdragon route is research only; SDL3 driver strings and headless gamepad init on both runners are still to verify)
 **Success Criteria** (what must be TRUE):
-  1. A rights-cleared homebrew title (authored here or built from a pinned libdragon toolchain, with its manifest entry) produces the expected guest output headlessly through the runner and through the installed consumer
-  2. The same title plays in the minimal host: it presents the raw video and audio, and a physical controller mapped by the host to logical input moves the game; scripted host input produces the same guest result as the headless run
-  3. The minimal host is an optional SDL3 target built on the frozen API from the installed package; the core library builds and links with no SDL dependency, and a build without the host target succeeds
-  4. A written LibFuturo fit evaluation against its then-current contract exists. Any adapter is optional and leaves the frozen core API unchanged
+  1. An authored title (16x16 square moved by the D-pad or stick, one fixed AI tone on A, one save slot; frame-locked on the VI interrupt; no Z, textures, RSP microcode or TLB) has manifest rows and produces expected checkpoint digests headlessly through the runner and through the installed consumer
+  2. The host pump (ring draining, injected clock, input mapping, scripted input) is unit-tested in the required gate; scripted input gives byte-identical video, audio and save results to the headless run at two fake-clock speeds; a virtual joystick under SDL dummy drivers exercises button and axis mapping
+  3. The SDL3 shell is optional, off by default and in a non-gating lane; the core builds and links with no SDL dependency and a build without the host target succeeds
+  4. A written LibFuturo fit evaluation pinned to a commit SHA exists with an expected no-adapter-now conclusion, and the final ABI bind is made, or each defect-driven amendment is recorded with evidence and a re-run installed-consumer suite
 **Plans**: TBD
-**UI hint**: yes
+**UI hint**: no (a development window only; skip UI-SPEC and UI-review steps)
 
-## v2.0 Breadth, Accuracy and Performance
+## Rolling Roadmap (refreshed 2026-11-23)
 
-**Milestone Goal (outline):** Broaden accurate N64 coverage beyond the first profile, and make it
-fast without changing results. Phases are numbered when this milestone opens. Each item is promoted
-by the evidence named in `REQUIREMENTS.md` (v2), never by schedule.
+Priority order. NEXT and NEAR items name their promotion evidence and blocking decision; MID and LATER name only the evidence class. Refreshed at every new milestone from a fan-out; milestone ids are planning identifiers, not software versions. Source: [fan-out roadmap lens](research/v1.2-fanout/lens-roadmap.md).
 
-- **Performance:** named benchmark workloads with output held constant, throughput and latency
-  reported separately from CI time (PERF-01), then a cached interpreter and RSP decode cache
-  (PERF-02), and a block JIT last with lockstep digest equality (PERF-03)
-- **Accuracy:** cycle-accurate CPU timing and CP0 hazards (ACC-01); hardware-derived public
-  vectors where they strengthen a material claim (ACC-02)
-- **Expansion profiles:** Expansion Pak 8 MB (EXP-01), PAL and MPAL (EXP-02), other CICs and the
-  PIF challenge model (EXP-03), FlashRAM (EXP-04), Controller/Rumble/Transfer Pak (EXP-05),
-  RTC (EXP-06), and 64DD as a separate system profile once a rights-cleared disk route exists
-  (EXP-07)
-- **Player features:** save-state UI, rewind and fast-forward (PLAY-01); an optional GPU renderer
-  as host presentation (PLAY-02); a GDB stub over the trace seam (PLAY-03)
-- **Compatibility claims:** commercial-title behavior is claimed only per named profile with
-  evidence tiers, never from boots, screenshots or agreement with another emulator
+**Guardrails.** G1 after the freeze, no ABI break to add a profile, device or error subcode. G2 compatibility appears only as per-profile evidence tiers; private-lane results are never public claims. G3 at most 5 carried warning-level gaps; carry-ins older than two milestones are closed or moved to Out of Scope. G4 the required gate may not grow without removing equal time; toolchain builds, the SDL3 host and any oracle run in cached or optional lanes. G5 at most 3 phases per milestone, about 10-15 plans per phase, one owner-decision batch per milestone, and every conditional phase names its fallback. G6 no evidence derived from the producer under test; oracle agreement is not hardware truth. G7 per-file rights rows before first use of any corpus; commercial content only under a decided private lane.
+
+| Horizon | Milestone | Goal | Promotion evidence / blocker |
+|---------|-----------|------|------------------------------|
+| NEXT | v1.2 Embeddable and Playable | Frozen C-ABI proven by an installed consumer, authored playable title in a minimal host | Defined above |
+| NEAR | v1.3 Real Microcode | RSP-to-RDP and RSP-to-AI paths driven by a real rights-cleared microcode corpus (libdragon rspq/rdpq/mixer, per-file license to confirm), PERF-01 measurement only, EXP-01 Expansion Pak (additive profile). Conditional phase: VID-04 oracle conformance if D5 is granted; fallback ACC-02 hardware-derived public vectors | Per-file rights rows for the corpus; D4 and D5 decisions; real microcode is the gate to any retail-shaped boot |
+| MID | v1.4 Commercial-Shaped Boot and Private Lane | HLE boot per CIC profile (EXP-03, 6105 last), large ROMs, FlashRAM and Controller Pak (EXP-04/05), a local private lane for owner-held commercial ROMs with hash-keyed local results and tier labels, PERF-02 only if measurement points at the bottleneck | New decision D8 (private lane); v1.3 evidence |
+| LATER | v1.5 and beyond | ACC-01 timing, PAL/MPAL (EXP-02), RTC (EXP-06), Rumble/Transfer Pak, then PERF-03 JIT last; PLAY-01 and PLAY-03 as cheap fillers | Primary-document timing sources; lockstep digest equality for any JIT |
+| LONG | Open | 64DD (EXP-07, rights-blocked), optional GPU renderer (PLAY-02), a LibFuturo adapter, public external CI (D2) | Rights-cleared disk route; owner decisions |
+
+**Owner-decision batches.** Batch 1 (any time; does not block v1.2): D4 allowlist additions (BSD-2, zlib, MIT-0, Apache-2.0 sibling code), D5 local parallel-rdp oracle after the per-file audit, D6 release channel and versioning, D7 name posture. Batch 2 (at v1.2 close): D8 private commercial-ROM lane; D2 stays deferred because the authored hello is the public smoke lane. Batch 3 (at v1.3 close, optional): whether the owner will ever run test ROMs on their own console.
 
 ## Progress
 
@@ -124,5 +125,5 @@ by the evidence named in `REQUIREMENTS.md` (v2), never by schedule.
 | Phase | Milestone | Plans Complete | Status | Completed |
 |-------|-----------|----------------|--------|-----------|
 | 10. Carry-in Closure Before the Freeze | v1.2 | 0/TBD | Not started | - |
-| 11. Installed Consumer and Frozen API | v1.2 | 0/TBD | Not started | - |
-| 12. Minimal Host and Playable Homebrew | v1.2 | 0/TBD | Not started | - |
+| 11. Installed Consumer and Freeze Candidate | v1.2 | 0/TBD | Not started | - |
+| 12. Minimal Host, Playable Homebrew and Final Bind | v1.2 | 0/TBD | Not started | - |

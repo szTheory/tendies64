@@ -114,11 +114,14 @@ Progress: [░░░░░░░░░░] 0% (0 of 3 v1.2 phases complete)
 
 - Post-close note (2026-11-20): controls.real.raw-capture-target-errors (Phase 8 control) failed once in a local full gate at host load ~15 and passed alone three times and in a full re-run (224/224); treat as a load-dependent flake to watch (build/gate/08-04-evidence accumulates about 2,400 retained run directories). Phase directories moved to .planning/milestones/v1.1-phases/; docs/evidence text paths still name the old location.
 
+- v1.2 fan-out (2026-11-23, five read-only lenses; reports in research/v1.2-fanout/): Phase 10 carries GATE-02 and GATE-01 first, then VER-06, then VID-07 and CORE-06 as one identity/state bump under new profile ids (shipped ids stay byte-identical), then RUN-07; Phase 11 ends with a bound freeze candidate and the final ABI bind moves to the end of Phase 12; API-06 is the authored route A (libdragon research only); SDL3 is link-only, off by default, non-gating; CORE-06's old premise was stale because plan 09-10 already carries the combiner and coverage members.
+- Owner approval 2026-11-23 (answer "Per-row binding + standing approval"): Phase 10 changes the oracle check to per-row pins (GATE-02); until it lands, identity-only rebinds of the Phase 7 oracle request are approved for all v1.2 manifest rows (reproduce the old pinned hash first, change only manifest identities and the derived request hash and PINNED_REQUEST_SHA256, keep local_decision blocked, orchestrator task only). No oracle, rights or publication authority is granted.
+
 ### Pending Todos
 
 None for v1.1. Carry-ins for v1.2 are listed in the Deferred Items table, the v1.1 audit (milestones/v1.1-MILESTONE-AUDIT.md) and docs/ci-reviews/LOG.md F-096..F-114. VID-04 and Plan 07-13 remain blocked by competent authority, per-file/build-input rights and missing exported replay inputs; do not infer a grant.
 
-### Blockers/Concerns
+### Standing gates (not blockers; none stops v1.2 planning)
 
 - VID-04: D5 Angrylion-Plus authority is unresolved (owner/legal); parallel-rdp needs a per-file/asset rights audit. This blocks that differential acceptance, not permitted authored/native RDP/VI work. Do not execute/use/copy oracle material until applicable gates resolve; authored tests cannot substitute for it.
 - D2: external diagnostic public CI/results remain blocked on documented owner rights. Existing qualified local-only routes retain their exact limits.
@@ -126,7 +129,7 @@ None for v1.1. Carry-ins for v1.2 are listed in the Deferred Items table, the v1
 - D6: releases wait for owner-selected channel/versioning. No software release or version tag is implied by this milestone.
 - D7: name remains uncleared; no branding, logos or store listings.
 - Protected inputs/publication and physical-console measurement retain the explicit stops in [AUTONOMY.md](AUTONOMY.md). No new hardware qualification or broad compatibility claim.
-- Phase 9 oracle-request rebinds: owner approved in conversation on 2026-11-19 (answer "Yes, rebind per milestone") identity-only rebinds of the Phase 7 oracle request whenever Phase 9 manifest rows move the fixture manifest hash (same scope as 15fd8d1). Each rebind reproduces the old pinned hash first, changes only manifest identities, the derived request hash and PINNED_REQUEST_SHA256, and keeps local_decision blocked. This grants no oracle, rights or publication authority. First Phase 9 rebind: manifest sha256 23b34424...4972, request 4200bb02...5500.
+- Superseded 2026-11-23 by the v1.2 oracle-pin approval below. Phase 9 oracle-request rebinds: owner approved in conversation on 2026-11-19 (answer "Yes, rebind per milestone") identity-only rebinds of the Phase 7 oracle request whenever Phase 9 manifest rows move the fixture manifest hash (same scope as 15fd8d1). Each rebind reproduces the old pinned hash first, changes only manifest identities, the derived request hash and PINNED_REQUEST_SHA256, and keeps local_decision blocked. This grants no oracle, rights or publication authority. First Phase 9 rebind: manifest sha256 23b34424...4972, request 4200bb02...5500.
 
 ## Deferred Items
 
