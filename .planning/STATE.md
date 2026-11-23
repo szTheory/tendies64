@@ -20,7 +20,7 @@ progress:
 See: .planning/PROJECT.md (updated 2026-11-20)
 
 **Core value:** Every Tendies64 support claim is backed by evidence: a named profile, a pinned build and a reproducible, rights-cleared guest result.
-**Current focus:** No active phase. v1.1 is closed; next is v1.2 via /gsd-new-milestone
+**Current focus:** Milestone v1.2 — defining requirements and roadmap
 
 ## Current Position
 
