@@ -51,25 +51,25 @@ retrospective and CI review log. Scope was set by the owner's standing autonomy 
 
 ## Traceability
 
-Filled by the roadmapper.
+Filled by the roadmapper on 2026-11-23. Carry-ins close in Phase 10, before the C-ABI freeze in Phase 11.
 
 | Requirement | Phase | Status |
 |-------------|-------|--------|
-| VID-07 | TBD | Pending |
-| CORE-06 | TBD | Pending |
-| VER-06 | TBD | Pending |
-| RUN-07 | TBD | Pending |
-| GATE-01 | TBD | Pending |
-| VER-05 | TBD | Pending |
-| API-01 | TBD | Pending |
-| API-02 | TBD | Pending |
-| API-03 | TBD | Pending |
-| API-04 | TBD | Pending |
-| API-05 | TBD | Pending |
-| API-06 | TBD | Pending |
-| API-07 | TBD | Pending |
+| VID-07 | Phase 10 | Pending |
+| CORE-06 | Phase 10 | Pending |
+| VER-06 | Phase 10 | Pending |
+| RUN-07 | Phase 10 | Pending |
+| GATE-01 | Phase 10 | Pending |
+| VER-05 | Phase 11 | Pending |
+| API-01 | Phase 11 | Pending |
+| API-02 | Phase 11 | Pending |
+| API-03 | Phase 11 | Pending |
+| API-04 | Phase 11 | Pending |
+| API-05 | Phase 12 | Pending |
+| API-06 | Phase 12 | Pending |
+| API-07 | Phase 12 | Pending |
 
-**Coverage:** 13 v1.2 requirements; 0 mapped; VID-04 deliberately unmapped.
+**Coverage:** 13 v1.2 requirements; 13 mapped (Phase 10: 5, Phase 11: 5, Phase 12: 3); 0 unmapped. VID-04 deliberately unmapped (deferred, not scheduled).
 
 ---
-*Requirements defined: 2026-11-23*
+*Requirements defined: 2026-11-23; traceability filled 2026-11-23 (roadmap Phases 10-12)*

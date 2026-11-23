@@ -3,10 +3,10 @@ gsd_state_version: "1.0"
 milestone: v1.2
 milestone_name: Embeddable and Playable
 status: planning
-last_updated: "2026-11-23T21:39:36.715Z"
+last_updated: "2026-11-23T21:42:17.000Z"
 last_activity: 2026-11-23
 progress:
-  total_phases: 0
+  total_phases: 3
   completed_phases: 0
   total_plans: 0
   completed_plans: 0
@@ -17,17 +17,19 @@ progress:
 
 ## Project Reference
 
-See: .planning/PROJECT.md (updated 2026-11-20)
+See: .planning/PROJECT.md (updated 2026-11-23)
 
 **Core value:** Every Tendies64 support claim is backed by evidence: a named profile, a pinned build and a reproducible, rights-cleared guest result.
-**Current focus:** Milestone v1.2 — defining requirements and roadmap
+**Current focus:** Milestone v1.2 — Phase 10 Carry-in Closure Before the Freeze (next: plan Phase 10)
 
 ## Current Position
 
-Phase: Not started (defining requirements)
-Plan: —
-Status: Defining requirements
-Last activity: 2026-11-23 — Milestone v1.2 started
+Phase: 10 of 12 (Carry-in Closure Before the Freeze) — v1.2 spans Phases 10–12
+Plan: — (not planned yet)
+Status: Ready to plan
+Last activity: 2026-11-23 — v1.2 roadmap created (3 phases, 13/13 requirements mapped; VID-04 deferred and unmapped)
+
+Progress: [░░░░░░░░░░] 0% (0 of 3 v1.2 phases complete)
 
 
 ## Performance Metrics
@@ -106,6 +108,8 @@ Last activity: 2026-11-23 — Milestone v1.2 started
 - [Phase 09]: Plan 09-11: the macOS cold projection of 673 s (warm 487 s) against the 600 s job limit is a recorded deviation extending DEV-17, not repaired (no logic edit after the freeze); the decision to act is the orchestrator's
 - [Phase 09]: Plan 09-11: repo.sched-k5-anchors is a supporting name of claim block 7 and not counted because no suite of the case inventory lists it; block 3 states that no wrong-value row exists for the 16 Kbit ROM
 
+- v1.2 roadmap (2026-11-23): three phases. Phase 10 closes the carry-ins that change state, descriptors or digests (VID-07, CORE-06, VER-06, RUN-07, GATE-01) before the freeze; Phase 11 proves the C-ABI through a clean installed package and only then freezes it (VER-05, API-01..04); Phase 12 builds the optional SDL3 host, the rights-cleared playable title and the LibFuturo evaluation on the frozen API (API-05..07). This supersedes the earlier note that placed the API freeze and installed consumer in Phase 10; they are now Phase 11. VID-04 stays unmapped until the owner decides D5.
+
 - Phase 9 closed 2026-11-20 on source d3211e9 (tag phase09-f2; hosted run 44795894664; tiers unit-tested and regression-pinned, authored scope only). Accepted deviation DEV-17: hosted gate-macos cold projection 673 s exceeds the 600 s job limit (warm 487 s inside 540 s; cold is a projection that matters only on a Binutils cache miss). Follow-ups for the next qualification cycle (docs/ci-reviews/LOG.md F-111, F-114): start unit.core.state.import first by CTest cost (~40 s macOS), drop the duplicated audio-records step (~42 s macOS), raise gate-macos timeout-minutes to 15; ci.yml is bound source so these ride the next requalification.
 
 - Post-close note (2026-11-20): controls.real.raw-capture-target-errors (Phase 8 control) failed once in a local full gate at host load ~15 and passed alone three times and in a full re-run (224/224); treat as a load-dependent flake to watch (build/gate/08-04-evidence accumulates about 2,400 retained run directories). Phase directories moved to .planning/milestones/v1.1-phases/; docs/evidence text paths still name the old location.
@@ -128,13 +132,14 @@ None for v1.1. Carry-ins for v1.2 are listed in the Deferred Items table, the v1
 
 | Category | Item | Status | Deferred At | Milestone |
 |----------|------|--------|-------------|-----------|
-| Integration | Public API/ABI freeze, installed consumer, minimal host, playable homebrew, LibFuturo evaluation | Eight requirements deferred | v1.1 activation | v1.2 |
+| Integration | Public API/ABI freeze, installed consumer, minimal host, playable homebrew, LibFuturo evaluation | Scheduled: Phases 11–12 (VER-05, API-01..07) | v1.1 activation | v1.2 |
+| RDP oracle | VID-04 differential oracle evidence (Plan 07-13) | Deferred, unmapped; needs owner D5 decision and parallel-rdp rights audit | v1.1 close (2026-11-20) | v1.2 only by owner decision |
 | Breadth | Performance, hardware accuracy, expansion/accessories and player features | Provisional evidence-driven outline | v1.1 activation | v2.0 |
 
 ## Session Continuity
 
 Last session: 2026-11-23
-Stopped at: Pause handoff consumed; reconciled for /gsd-new-milestone
+Stopped at: v1.2 roadmap created (Phases 10–12); awaiting orchestrator approval and commit
 Resume file: None
 
 Historical closeout: [v1.0 roadmap](milestones/v1.0-ROADMAP.md), [audit](milestones/v1.0-MILESTONE-AUDIT.md), [lessons](RETROSPECTIVE.md).
@@ -142,7 +147,7 @@ Historical closeout: [v1.0 roadmap](milestones/v1.0-ROADMAP.md), [audit](milesto
 ## Operator Next Steps
 
 
-- Start the next milestone with /gsd-new-milestone
+- Plan Phase 10 with /gsd-plan-phase 10 (discuss first per AUTONOMY.md)
 
 
 ## Resolved local privacy stop
