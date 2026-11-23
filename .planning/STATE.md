@@ -21,10 +21,10 @@ current_phase: 7
 
 ## Project Reference
 
-See: .planning/PROJECT.md (updated 2026-11-15)
+See: .planning/PROJECT.md (updated 2026-11-20)
 
 **Core value:** Every Tendies64 support claim is backed by evidence: a named profile, a pinned build and a reproducible, rights-cleared guest result.
-**Current focus:** Phase 9 — Controller, Save Media and Replay
+**Current focus:** No active phase. v1.1 is closed; next is v1.2 via /gsd-new-milestone
 
 ## Current Position
 
@@ -35,7 +35,7 @@ Last activity: 2026-11-20 — Milestone v1.1 completed and archived
 
 ## Performance Metrics
 
-- Active milestone:0 completed phases and16 completed plans;18 plans defined across Phases7–8.
+- v1.1 (closed 2026-11-20): 3 phases (7–9) and 30 plans complete; Phase 9 had 13 plans. Plan 07-13 and VID-04 descoped to v1.2. Planning completion, not a software release.
 - Historical v1.0: 6 phases and 73 source plans complete. This is planning completion, not a software release.
 - Prior phase plan counts: 1: 13; 2: 8; 3: 13; 4: 20; 5: 10; 6: 9.
 - Execution timing: not established for v1.1. Historical evidence remains in [v1.0 phase records](milestones/v1.0-phases/).
@@ -115,14 +115,7 @@ Last activity: 2026-11-20 — Milestone v1.1 completed and archived
 
 ### Pending Todos
 
-Plans01–12 are complete within their authored scope. The concrete oracle
-request/checker is independently reviewed, locally qualified and fail-closed;
-production approval pins remain unset. Plan13 and VID-04 remain blocked by
-competent authority, per-file/build-input rights and missing exported replay
-inputs. Do not infer a grant from this preparation. Both final-batch hosted jobs and exact downloaded raw/boot, privacy and rights checks pass. Owner approved Phase8 from the qualified authored foundation on2026-11-18.
-Five plans passed independent checks. Plans08-01–04 are complete; execute08-05 sequentially,
-including actual-consumer preflight, tests, review and cohesive qualification. Do not repeat the sequencing
-question. No oracle authority is part of this decision.
+None for v1.1. Carry-ins for v1.2 are listed in the Deferred Items table, the v1.1 audit (milestones/v1.1-MILESTONE-AUDIT.md) and docs/ci-reviews/LOG.md F-096..F-114. VID-04 and Plan 07-13 remain blocked by competent authority, per-file/build-input rights and missing exported replay inputs; do not infer a grant.
 
 ### Blockers/Concerns
 
@@ -143,8 +136,8 @@ question. No oracle authority is part of this decision.
 
 ## Session Continuity
 
-Last session: 2026-11-20T19:34:52.250Z
-Stopped at: Phase 7 complete — all phases complete
+Last session: 2026-11-23
+Stopped at: Pause handoff consumed; reconciled for /gsd-new-milestone
 Resume file: None
 
 Historical closeout: [v1.0 roadmap](milestones/v1.0-ROADMAP.md), [audit](milestones/v1.0-MILESTONE-AUDIT.md), [lessons](RETROSPECTIVE.md).
