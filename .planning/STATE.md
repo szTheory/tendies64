@@ -1,20 +1,16 @@
 ---
 gsd_state_version: "1.0"
-milestone: v1.1
-milestone_name: Observable Machine
-status: Awaiting next milestone
-stopped_at: Phase 7 complete — all phases complete
-last_updated: "2026-11-20T21:22:04.241Z"
-last_activity: 2026-11-20
-last_activity_desc: Milestone v1.1 completed and archived
-state_head: 12ceb64f4011e8c733e9170529ca1e4814135b8e
+milestone: v1.2
+milestone_name: Embeddable and Playable
+status: planning
+last_updated: "2026-11-23T21:39:36.715Z"
+last_activity: 2026-11-23
 progress:
-  total_phases: 3
-  completed_phases: 3
-  total_plans: 30
-  completed_plans: 30
-  percent: 100
-current_phase: 7
+  total_phases: 0
+  completed_phases: 0
+  total_plans: 0
+  completed_plans: 0
+  percent: 0
 ---
 
 # Project State
@@ -28,10 +24,11 @@ See: .planning/PROJECT.md (updated 2026-11-20)
 
 ## Current Position
 
-Phase: Milestone v1.1 complete
+Phase: Not started (defining requirements)
 Plan: —
-Status: Awaiting next milestone
-Last activity: 2026-11-20 — Milestone v1.1 completed and archived
+Status: Defining requirements
+Last activity: 2026-11-23 — Milestone v1.2 started
+
 
 ## Performance Metrics
 

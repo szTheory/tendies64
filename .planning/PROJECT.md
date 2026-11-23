@@ -19,6 +19,16 @@ build and a reproducible, rights-cleared guest result. When tradeoffs arise,
 correct and deterministic behavior that can be verified comes before speed,
 breadth or polish.
 
+## Current Milestone: v1.2 Embeddable and Playable
+
+**Goal:** A frozen C-ABI proven through an independent installed consumer, plus a rights-cleared homebrew that plays in a minimal host, so Tendies64 does not stay tests-only.
+
+**Target features:**
+- Installed-package consumer (VER-05) and a C-ABI instance API with tested refusal, guest-stop and defect postconditions, frozen only after those tests pass (API-01..04)
+- Optional SDL3 minimal host, a rights-cleared playable homebrew path and a written LibFuturo fit evaluation (API-05..07)
+- Carry-ins from v1.1: Phase 7 test-strength debt (VG-01..05), RDP depth on the composite profiles, a composite end-to-end fixture, state-version and RDP-state completeness before the freeze, and hosted macOS gate-time and requalification follow-ups
+- VID-04 (differential oracle evidence) stays deferred and unscheduled until the owner decides D5 and the parallel-rdp rights audit completes; it is not a v1.2 phase requirement
+
 ## Requirements
 
 ### Validated
@@ -264,9 +274,4 @@ This document evolves at phase transitions and milestone boundaries.
 4. Update Context with current state
 
 ---
-*Last updated: 2026-11-20 after v1.1 milestone audit*
-
-
-## Next Milestone Goals
-
-Start the next milestone with `/gsd-new-milestone`. Candidates: the public API/ABI freeze and an installed independent consumer (VER-05, API-01 and the other v1.2 requirements), the composite end-to-end fixture, RDP depth on the composite profiles, the v1.1 test-strength debt (Phase 7 VG-01..05) and, only after the owner's D5 decision, VID-04. Hosted macOS gate time (cold projection above the 10 minute job limit) is a first-class item for the next requalification. No software release or version tag is implied.
+*Last updated: 2026-11-23 after starting milestone v1.2*
