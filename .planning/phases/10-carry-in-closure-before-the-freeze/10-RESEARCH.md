@@ -361,14 +361,18 @@ Two-run RUN-07 flow (shapes from `docs/spec/state-container.md:539-626` option m
 | A8 | Hosted macOS step costs after Phase 10 stay inside 900 s cold (673 s cold projection today plus new tests, minus COST saving about 40 s) | Pattern 5 | If the cold run exceeds, trim tests or move work to non-gating lanes (G4) |
 | A9 | New CTest names outside Phase 9's 45-name bound are acceptable now | Pitfall 7 | CONTEXT says plans may add names; Phase 9's bound was frozen to its own phase |
 
-## Open Questions
+## Open Questions (RESOLVED)
 
 1. **Does the owner/orchestrator widen GATE-02 to stop whole-file binding of the 12 mutable bound test/script sources (C1), or keep them and rely on new-file placement?**
    - Known: new-file placement avoids all rebinds after GATE-02. Unknown: whether a defect fix in an old test file will be needed (VG vectors may expose a real defect; budget one fix per VG per CONTEXT). A production fix in core source does not move the oracle pin (the 14 bound files are tests, scripts, the inventory, the fill guest and the manifest) but does move the build id.
    - Recommendation: keep file hashes, new files only, and pre-agree that a forced edit of a bound file is a batched orchestrator rebind (the standing approval's text names "manifest identities"; treat this as the same identity-only class but record it).
+   - RESOLVED: keep file hashes, new files only; a forced edit of a bound file is a batched orchestrator rebind (10-CONTEXT 'GATE-02 scope').
 2. **Guard removal (C3) versus Phase 8 qualifier freeze.** Recommendation: schedule last in GATE-01, measure first, and decline with a recorded reason if it requires editing `qualify-audio.py`.
+   - RESOLVED: 10-CONTEXT 'GATE-01 guard'.
 3. **Hosted footprint of the Phase 10 qualification.** Recommendation: none new in `ci.yml`; decide in Wave 0 so `ci.yml` is final.
+   - RESOLVED: 10-CONTEXT 'Hosted footprint' (no new hosted step).
 4. **Does RUN-07 need descriptor-13 `-s32k` only, or all four ids?** Recommendation: one save id for the fixture, all four ids registered.
+   - RESOLVED: 10-CONTEXT 'Identity naming'; RUN-07 runs on `-s32k`.
 
 ## Environment Availability
 
