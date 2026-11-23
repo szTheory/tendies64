@@ -71,7 +71,28 @@ corpus and a replay adapter (Plan 07-13). No oracle work happens until then.
   3. VG-01 to VG-05 and the standard-NTSC VI clock vector each have independently derived expected values and at least one mutant that fails
   4. One composite guest reports exact raw video and audio from a capture run and exact save bytes from a save-out run with the same final digest, each output compared with its own independent expectation and each with a wrong-value control
   5. A measured cold-cache hosted gate-macos run finishes inside its limit; before/after step timings, the 15-minute limit with its scanner rule, and the pinned limit relation are recorded; adding a manifest row no longer requires an oracle-request rebind
-**Plans**: TBD
+**Plans:** 19 plans (linear chain; phase-waves 0-4; review plans 10-05, 10-08, 10-13, 10-18)
+
+Plans:
+- [ ] 10-01-PLAN.md — W0: scripted preflight, pin-impact map with the one-way id record, mutant driver skeleton
+- [ ] 10-02-PLAN.md — W0: K1 Z-refusal characterization on descriptors 11/12, committed two-tree digest sweep
+- [ ] 10-03-PLAN.md — W0: GATE-02 per-row oracle pins (orchestrator-only checker edit and rebind)
+- [ ] 10-04-PLAN.md — W0: GATE-01 COST order, guard disposition, gate-macos 15 min with scanner rule and selftest, LOG rows
+- [ ] 10-05-PLAN.md — W0 review in a scratch clone, push, warm after-timings
+- [ ] 10-06-PLAN.md — W1: VG-01 on descriptor 10, Z exponent boundaries, NTSC clock vector, mutants
+- [ ] 10-07-PLAN.md — W1: VG-02 to VG-05 with independent literals and mutants
+- [ ] 10-08-PLAN.md — W1 review, re-derivation, push
+- [ ] 10-09-PLAN.md — W2: descriptor-13 family registration, RED completeness test, depth activation and v26 digest
+- [ ] 10-10-PLAN.md — W2: depth behavior literals and wrong-depth control, predicate matrix, shipped-id proof, depth/K1 docs
+- [ ] 10-11-PLAN.md — W2: state 26 export, container v2, runner format pairing, build-identity docs
+- [ ] 10-12-PLAN.md — W2: state 26 import, mid-primitive and mid-scan-out round trips, rules, fuzz
+- [ ] 10-13-PLAN.md — W2 review of the identity/state bump, push
+- [ ] 10-14-PLAN.md — W3: authored composite guest, builder, oracle, the one manifest-moving commit
+- [ ] 10-15-PLAN.md — W3: two supervised runs with equal digest, per-output expectations and controls
+- [ ] 10-16-PLAN.md — W4: provisional-name sweep of 7 spec docs, Phase 9 carry-in triage
+- [ ] 10-17-PLAN.md — W4: thin-delta Phase 10 qualifier and rehearsal
+- [ ] 10-18-PLAN.md — W4: Wave 3 review and final independent audit, push
+- [ ] 10-19-PLAN.md — W4: qualification, orchestrator cold-cache hosted run, evidence and claims
 
 ### Phase 11: Installed Consumer and Freeze Candidate
 **Goal**: An independent consumer using only a clean installed package exercises every lifetime, admission, advance, output and failure postcondition of the C-ABI, including a host-shaped loop, and the API reaches a bound freeze candidate that the host work can still amend only by evidence
@@ -124,6 +145,6 @@ Priority order. NEXT and NEAR items name their promotion evidence and blocking d
 
 | Phase | Milestone | Plans Complete | Status | Completed |
 |-------|-----------|----------------|--------|-----------|
-| 10. Carry-in Closure Before the Freeze | v1.2 | 0/TBD | Not started | - |
+| 10. Carry-in Closure Before the Freeze | v1.2 | 0/19 | Planned | - |
 | 11. Installed Consumer and Freeze Candidate | v1.2 | 0/TBD | Not started | - |
 | 12. Minimal Host, Playable Homebrew and Final Bind | v1.2 | 0/TBD | Not started | - |
