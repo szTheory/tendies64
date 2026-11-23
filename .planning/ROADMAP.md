@@ -72,11 +72,12 @@ corpus and a replay adapter (Plan 07-13). No oracle work happens until then.
   4. One composite guest reports exact raw video and audio from a capture run and exact save bytes from a save-out run with the same final digest, each output compared with its own independent expectation and each with a wrong-value control
   5. A measured cold-cache hosted gate-macos run finishes inside its limit; before/after step timings, the 15-minute limit with its scanner rule, and the pinned limit relation are recorded; adding a manifest row no longer requires an oracle-request rebind
 **Plans:** 19 plans (linear chain; phase-waves 0-4; review plans 10-05, 10-08, 10-13, 10-18)
+**G5 exception (recorded 2026-11-23, plan check iteration 1):** 19 plans exceed the about 10-15 guideline because the four per-wave review plans are mandated by AUTONOMY v1.2 ("review per wave in scratch clones") and the qualifier (10-17) is split from the one qualification (10-19); folding them would break the 4-task / about 45-minute plan cap, so the plans are not folded.
 
 Plans:
 - [ ] 10-01-PLAN.md — W0: scripted preflight, pin-impact map with the one-way id record, mutant driver skeleton
 - [ ] 10-02-PLAN.md — W0: K1 Z-refusal characterization on descriptors 11/12, committed two-tree digest sweep
-- [ ] 10-03-PLAN.md — W0: GATE-02 per-row oracle pins (orchestrator-only checker edit and rebind)
+- [ ] 10-03-PLAN.md — W0: GATE-02 per-row oracle pins of every manifest row (orchestrator-only checker edit and rebind) and the Phase 9 claim-block binding to the pinned Phase 9 manifest rows
 - [ ] 10-04-PLAN.md — W0: GATE-01 COST order, guard disposition, gate-macos 15 min with scanner rule and selftest, LOG rows
 - [ ] 10-05-PLAN.md — W0 review in a scratch clone, push, warm after-timings
 - [ ] 10-06-PLAN.md — W1: VG-01 on descriptor 10, Z exponent boundaries, NTSC clock vector, mutants
