@@ -616,9 +616,102 @@ static void check_differential_detects_body_change(void) {
   if (newer != NULL) t64_machine_destroy(newer);
 }
 
+/* Offset of the marker of section `id` (markers are the MARKER spans, in
+ * order, so section ids ascend from 1). */
+static bool marker_offset(const stream *captured, uint32_t id,
+                          size_t *offset_out) {
+  uint32_t seen = 0u;
+  size_t i;
+
+  for (i = 0u; i < captured->span_count; i++) {
+    if (captured->spans[i].class != T64_DIGEST_CLASS_MARKER) continue;
+    seen++;
+    if (seen == id) {
+      *offset_out = captured->spans[i].offset;
+      return true;
+    }
+  }
+  return false;
+}
+
+/*
+ * Layout of the two v26 depth blocks inside section 8, derived from the
+ * documented member order and sizes rather than from the walker: the five
+ * depth scalars (20 bytes, new class) sit immediately before the 4-byte
+ * work_policy_version word, and the section 8 tail is the 88-byte combiner
+ * block, the 4-byte coverage length and the coverage table, then the 4-byte
+ * hidden length and the hidden depth table, ending at the marker of section 9.
+ */
+static void check_v26_depth_layout(const char *profile_id) {
+  t64_machine *machine = build_idle(profile_id);
+  stream captured;
+  size_t marker8 = 0u;
+  size_t marker9 = 0u;
+  size_t scalar_spans = 0u;
+  size_t tail_spans = 0u;
+  size_t i;
+  const size_t coverage_bytes =
+      T64_RDP_MEMORY_COVERAGE_BYTES(UINT32_C(4) * 1024u * 1024u);
+  const size_t hidden_bytes =
+      T64_RDP_DEPTH_HIDDEN_BYTES(UINT32_C(4) * 1024u * 1024u);
+
+  T64_CHECK(machine != NULL);
+  if (machine == NULL) return;
+  machine->rdp.depth_image_address = UINT32_C(0x00006000);
+  machine->rdp.depth_image_valid = true;
+  machine->rdp.primitive_z = UINT32_C(0x1357);
+  machine->rdp.primitive_dz = 9u;
+  machine->rdp.primitive_depth_valid = true;
+  machine->rdp_depth_hidden[0] = 0x83u;
+  if (capture_stream(machine, &captured)) {
+    T64_CHECK(marker_offset(&captured, 8u, &marker8));
+    T64_CHECK(marker_offset(&captured, 9u, &marker9));
+    for (i = 0u; i < captured.span_count; i++) {
+      const t64_digest_span *span = &captured.spans[i];
+
+      if (span->class != T64_DIGEST_CLASS_NEW || span->offset <= marker8 ||
+          span->offset >= marker9) {
+        continue;
+      }
+      if (span->offset + span->length == marker9) {
+        const size_t tail_end = span->offset + span->length;
+        const size_t hidden_at = tail_end - hidden_bytes;
+
+        tail_spans++;
+        T64_CHECK_INT(span->length,
+                      88u + 4u + coverage_bytes + 4u + hidden_bytes);
+        T64_CHECK_INT(read_u32(captured.bytes + hidden_at - 4u), hidden_bytes);
+        T64_CHECK_INT(read_u32(captured.bytes + hidden_at - 4u - coverage_bytes -
+                               4u),
+                      coverage_bytes);
+        T64_CHECK_INT(captured.bytes[hidden_at], 0x83u);
+      } else {
+        scalar_spans++;
+        T64_CHECK_INT(span->length, 20u);
+        T64_CHECK_INT(read_u32(captured.bytes + span->offset),
+                      UINT32_C(0x00006000));
+        T64_CHECK_INT(read_u32(captured.bytes + span->offset + 4u), 1u);
+        T64_CHECK_INT(read_u32(captured.bytes + span->offset + 8u),
+                      UINT32_C(0x1357));
+        T64_CHECK_INT(read_u32(captured.bytes + span->offset + 12u), 9u);
+        T64_CHECK_INT(read_u32(captured.bytes + span->offset + 16u), 1u);
+        T64_CHECK_INT(read_u32(captured.bytes + span->offset + 20u),
+                      machine->rdp.work_policy_version);
+      }
+    }
+    T64_CHECK_INT(scalar_spans, 1u);
+    T64_CHECK_INT(tail_spans, 1u);
+    free_stream(&captured);
+  }
+  t64_machine_destroy(machine);
+}
+
 static void case_v26_strip_differential(void) {
   size_t i;
 
+  for (i = 0u; i < FAMILY_COUNT; i++) {
+    check_v26_depth_layout(pairs[i].v26_id);
+  }
   check_differential_detects_body_change();
   for (i = 0u; i < FAMILY_COUNT; i++) {
     differential_for_state("idle", &pairs[i], build_idle);
