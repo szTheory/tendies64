@@ -76,6 +76,7 @@ TEST_SOURCES = {
     "test_vg_gaps": "core/tests/test_vg_gaps.c",
     "test_rdp_depth_composite": "core/tests/test_rdp_depth_composite.c",
     "test_digest_v26": "core/tests/test_digest_v26.c",
+    "test_state_export_v26": "core/tests/test_state_export_v26.c",
 }
 
 OWN_CHECK_LINE = re.compile(r"test_[a-z_0-9]+\.c:\d+: CHECK(_INT|_STR)? failed")
@@ -438,6 +439,57 @@ MUTANTS = [
         "record": [],
     },
     {
+        "id": "v26-export-omit-hidden",
+        "tag": "mutant",
+        "expect": "KILLED",
+        "title": "the hidden depth table bytes removed from the section 8 tail the state 26 export streams (plan 10-11; export-v26-idle sees the size and the decoder mismatch)",
+        "edits": [
+            (
+                "core/t64_digest.c",
+                "          digest_bytes_class(sink, machine->rdp_depth_hidden,\n"
+                "                             T64_RDP_DEPTH_HIDDEN_BYTES(\n"
+                "                             machine->profile.rdram_bytes),\n"
+                "                             T64_DIGEST_CLASS_NEW);\n",
+                "          (void)machine->rdp_depth_hidden;\n",
+            )
+        ],
+        "kill": [own_check("test_state_export_v26", ["--case", "export-v26-idle"])],
+        "record": [],
+    },
+    {
+        "id": "v26-export-version-word-1",
+        "tag": "mutant",
+        "expect": "KILLED",
+        "title": "state_container_version_for returns the version 1 word for state 26 too (the writer stops marking state 26 with word 2; plan 10-11)",
+        "edits": [
+            (
+                "core/t64_state.c",
+                "  return state_version == 26u ? T64_STATE_CONTAINER_VERSION_V2\n"
+                "                              : T64_STATE_CONTAINER_VERSION;\n",
+                "  (void)state_version;\n"
+                "  return T64_STATE_CONTAINER_VERSION;\n",
+            )
+        ],
+        "kill": [own_check("test_state_export_v26", ["--case", "export-v26-idle"])],
+        "record": [],
+    },
+    {
+        "id": "v26-reader-pairing-dropped",
+        "tag": "mutant",
+        "expect": "KILLED",
+        "title": "the importer's header check no longer pairs the version word with the state word (any word up to 2 passes; plan 10-11, T-10-52)",
+        "edits": [
+            (
+                "core/t64_state.c",
+                "  if (state_be32(bytes + HDR_CONTAINER_VERSION) !=\n"
+                "      state_container_version_for(state_be32(bytes + HDR_STATE_VERSION))) {\n",
+                "  if (state_be32(bytes + HDR_CONTAINER_VERSION) > 2u) {\n",
+            )
+        ],
+        "kill": [own_check("test_state_export_v26", ["--case", "export-v26-idle"])],
+        "record": [],
+    },
+    {
         "id": "control-no-compile",
         "tag": "control",
         "expect": "INVALID",
@@ -614,7 +666,18 @@ def preset_values_ok():
 
 class Worktree:
     def __init__(self, asset, fill_rom):
-        self.env = {"T64_TEST_IPL3_PATH": asset, "T64_TEST_RDP_FILL_PATH": fill_rom}
+        self.env = {
+            "T64_TEST_IPL3_PATH": asset,
+            "T64_TEST_RDP_FILL_PATH": fill_rom,
+            # plan 10-11: the container decoders and the private blob directory
+            # of test_state_export_v26 (inside the throwaway worktree)
+            "T64_STATE_DECODER": os.path.join(
+                worktree_path(), "fixtures", "state", "decode_container_v2.py"),
+            "T64_STATE_DECODER_V1": os.path.join(
+                worktree_path(), "fixtures", "state", "decode_container.py"),
+            "T64_PHASE10_EVIDENCE_DIR": os.path.join(
+                worktree_path(), "build", "mut", "evidence"),
+        }
         self.objects = os.path.join(worktree_path(), "build", "mut")
         self.last_build = None
 

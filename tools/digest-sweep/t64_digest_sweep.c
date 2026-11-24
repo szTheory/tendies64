@@ -15,6 +15,10 @@
  *   ID export SHA256HEX           SHA-256 of the state container of the first
  *                                 admitted ROM at its last checkpoint, for
  *                                 ids whose profile supports state export
+ *                                 (the four si-v1 ids, container version 1,
+ *                                 and since plan 10-11 the four si-v2 ids,
+ *                                 container version 2: head-only lines, the
+ *                                 base list has no such id)
  *
  * Only the public machine API is used so the same source builds against the
  * base tree and the head tree. No path, host name or time is printed. The ROMs

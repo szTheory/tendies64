@@ -970,7 +970,10 @@ t64_target_warnings(test_state_export_v26)
 add_dependencies(test_state_export_v26 t64-boot-fixtures)
 add_test(NAME unit.core.state.export-v26
   COMMAND test_state_export_v26 --case export-v26-idle)
-set_tests_properties(unit.core.state.export-v26 PROPERTIES
+add_test(NAME unit.core.state.export-v26-bounds
+  COMMAND test_state_export_v26 --case export-v26-bounds)
+set_tests_properties(unit.core.state.export-v26
+  unit.core.state.export-v26-bounds PROPERTIES
   LABELS "unit;phase10"
   TIMEOUT 300
   ENVIRONMENT "T64_TEST_IPL3_PATH=${T64_BOOT_FIXTURE_DIR}/ipl3_compat.z64;T64_STATE_DECODER=${CMAKE_SOURCE_DIR}/fixtures/state/decode_container_v2.py;T64_STATE_DECODER_V1=${CMAKE_SOURCE_DIR}/fixtures/state/decode_container.py;T64_PHASE10_EVIDENCE_DIR=${CMAKE_BINARY_DIR}/10-11-evidence")
