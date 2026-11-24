@@ -138,3 +138,82 @@ plan moves non-essential Phase 10 cases (sampled sanitizer runs, duplicate-path 
 trips) to a non-gating lane and the cold run is repeated. The exception covers Phase 10
 only; Phases 11 and 12 follow G4 as written. The redundant `rsp-no-hle` guard is a
 stop-loss that is not counted as an offset unless its removal is measured.
+
+## 7. Sweep baseline
+
+Written by plan 10-02 (phase-wave 0) before any identity edit. Evidence tier: a
+measurement of the tree at the commit below; it states that the sweep tool works
+and what it covers, not that any later tree is unchanged.
+
+Tool: `scripts/digest-sweep.py` (driver) and `tools/digest-sweep/t64_digest_sweep.c`
+(per-tree printer). Command, with a 40-hex base (the driver refuses `HEAD`, a
+ref name or a short hash as `--base` with exit 2):
+
+    base=$(git rev-parse HEAD) && python3 -B scripts/digest-sweep.py --base "$base" --head HEAD
+
+It extracts the base commit and the head tree with `git archive` into
+`build/10-sweep/<role>-<label>` (the main `build/gate` tree and `build/fixtures`
+are never written), rewrites the `set(T64_BUILD_ID ...)` line of `core/CMakeLists.txt`
+in each scratch copy to `t64-build-v1-sweep` (the build identity enters the
+packet-bearing digests; the 09-10 comparison with a different identity differed in
+30 of 792 lines), builds only `t64_core` and `t64_sha256` (Ninja, Release,
+`T64_WERROR=ON`), runs the printer on both with the same `build/fixtures`, sorts
+the lines by id, ROM and checkpoint and compares them. The head list may carry
+extra ids (`--head-extra-id`) for the four ids of plans 10-09 onward; the base list
+is always the 21 shipped ids. Checkpoints: guest ticks 0, 1, 16, 256, 4096, 65536,
+262144, 1048576, 2097152 and 4194304; a resource-limit stop is continued as a yield
+(the replay player rule) and a terminal stop (guest completion, CPU unsupported or a
+stalled resource limit) is printed as a `stop` line and ends that ROM. Candidate ROMs:
+the eight authored or cleared fixtures `ipl3_compat`, `hello`, `rdp-fill`,
+`audio-pcm` and the four `phase09-admit-*` images, plus one generated authored 4 KiB
+image (`authored-4k`) that only the skeleton id admits (status 5, invalid ROM, for the
+other 20). The report file records the SHA-256 of every candidate fixture.
+
+Baseline commit (informational; later sweeps use the Wave 0 and Wave 2 base records
+of section 5, never this line and never `HEAD`): `1ebd3d38c784f230930514d27144f8e1eb0acfcf`
+
+| Measure | Value |
+|---------|-------|
+| shared lines between two trees of this commit | 1599 (0 differences, 0 head-only lines) |
+| line kinds | 1460 digest lines, 115 stop lines (reasons: guest completion 55, CPU unsupported 42, stalled resource limit 18), 20 skip lines (all `authored-4k`, status 5), 4 export lines |
+| distinct ids with at least one digest line | 21 of 21 |
+| export lines | the four si-v1 ids (state container hash of the first admitted ROM at its last checkpoint) |
+| seconds per run (one tree, printer only) | 38.1 to 38.8 |
+| seconds per tree build (t64_core and t64_sha256 only) | 0.1 to 2.7 |
+| wall seconds for a two-tree comparison (builds and sweeps in parallel) | 41.7 |
+| wall seconds for `--selftest` (three sweeps, base reused) | 81.9 to 84.6 |
+| 1-minute host load during the runs | 7.9 to 10 (other sessions on the same machine; an upper bound for a quiet host) |
+
+Per-id coverage at the baseline commit:
+
+| Registered id | ROMs admitted | digest lines | stop lines | export line |
+|---------------|---------------|--------------|------------|-------------|
+| ntsc-cart-4m-skeleton | 9 | 90 | 0 | no |
+| ntsc-cart-4m-openipl3-warm-v1 | 8 | 64 | 8 | no |
+| ntsc-cart-4m-openipl3-vr4300-v1 | 8 | 74 | 3 | no |
+| ntsc-cart-4m-openipl3-vr4300-compat-v1 | 8 | 74 | 3 | no |
+| ntsc-cart-4m-openipl3-vr4300-compat-v2 | 8 | 74 | 3 | no |
+| ntsc-cart-4m-openipl3-rsp-functional-v1 | 8 | 74 | 3 | no |
+| ntsc-cart-4m-openipl3-rdram-a-t1-v1 | 8 | 74 | 3 | no |
+| ntsc-cart-4m-openipl3-rdram-b-t1-v1 | 8 | 74 | 3 | no |
+| ntsc-cart-4m-openipl3-rdram-b-t1-rdp-vi-v2 | 8 | 64 | 8 | no |
+| ntsc-cart-4m-openipl3-rdram-b-t1-rdp-triangle-v3 | 8 | 64 | 8 | no |
+| ntsc-cart-4m-openipl3-rdram-b-t1-rdp-texture-v4 | 8 | 64 | 8 | no |
+| ntsc-cart-4m-openipl3-rdram-b-t1-rdp-combiner-v5 | 8 | 64 | 8 | no |
+| ntsc-cart-4m-openipl3-rdram-b-t1-rdp-blender-v6 | 8 | 64 | 8 | no |
+| ntsc-cart-4m-openipl3-rdram-b-t1-rdp-depth-v7 | 8 | 74 | 3 | no |
+| ntsc-cart-4m-openipl3-rdram-b-t1-rdp-vi-v8 | 8 | 74 | 3 | no |
+| ntsc-cart-4m-openipl3-rdram-b-t1-rdp-vi-filter-v9 | 8 | 74 | 3 | no |
+| ntsc-cart-4m-openipl3-rdram-b-t1-rdp-vi-filter-v9-ai-v1 | 8 | 64 | 8 | no |
+| ntsc-cart-4m-openipl3-rdram-b-t1-si-v1 | 8 | 64 | 8 | yes |
+| ntsc-cart-4m-openipl3-rdram-b-t1-si-v1-e4k | 8 | 64 | 8 | yes |
+| ntsc-cart-4m-openipl3-rdram-b-t1-si-v1-e16k | 8 | 64 | 8 | yes |
+| ntsc-cart-4m-openipl3-rdram-b-t1-si-v1-s32k | 8 | 64 | 8 | yes |
+
+Proof that the sweep can fail (`python3 -B scripts/digest-sweep.py --selftest`, exit 0):
+identical trees (base and head both the commit at selftest start, each extracted and
+built on its own) report 0 differences in 1599 shared lines; a head scratch copy whose
+`core/t64_digest.c` has one character of the state version 20 domain string changed
+(`t64.state.rdp.vi.blender.20` to `...2X`, scratch copy only) reports 64 differences,
+all in the `ntsc-cart-4m-openipl3-rdram-b-t1-rdp-blender-v6` id; `--base HEAD` is
+refused with exit 2.
