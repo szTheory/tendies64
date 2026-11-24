@@ -5,16 +5,16 @@ milestone_name: Embeddable and Playable
 current_phase: 10
 current_phase_name: Carry-in Closure Before the Freeze
 status: executing
-stopped_at: v1.2 roadmap created (Phases 10–12); awaiting orchestrator approval and commit
-last_updated: "2026-11-24T00:28:36.471Z"
+stopped_at: Completed 10-01-PLAN.md
+last_updated: "2026-11-24T00:55:16.672Z"
 last_activity: 2026-11-23
-last_activity_desc: v1.2 roadmap created (3 phases, 13/13 requirements mapped; VID-04 deferred and unmapped)
-state_head: c1f4ecf30827ba3ad4b216673fdeb4e0e8153922
+last_activity_desc: Phase 10 execution started
+state_head: dc317c32fbba0470d081341d194826191054816c
 progress:
   total_phases: 3
   completed_phases: 0
   total_plans: 19
-  completed_plans: 0
+  completed_plans: 1
   percent: 0
 ---
 
@@ -25,14 +25,14 @@ progress:
 See: .planning/PROJECT.md (updated 2026-11-23)
 
 **Core value:** Every Tendies64 support claim is backed by evidence: a named profile, a pinned build and a reproducible, rights-cleared guest result.
-**Current focus:** Milestone v1.2 — Phase 10 Carry-in Closure Before the Freeze (next: plan Phase 10)
+**Current focus:** Phase 10 — Carry-in Closure Before the Freeze
 
 ## Current Position
 
-Phase: 10 (Carry-in Closure Before the Freeze) — READY TO EXECUTE
-Plan: — (not planned yet)
+Phase: 10 (Carry-in Closure Before the Freeze) — EXECUTING
+Plan: 2 of 19
 Status: Ready to execute
-Last activity: 2026-11-23 — v1.2 roadmap created (3 phases, 13/13 requirements mapped; VID-04 deferred and unmapped)
+Last activity: 2026-11-23 — Phase 10 execution started
 
 Progress: [░░░░░░░░░░] 0% (0 of 3 v1.2 phases complete)
 
@@ -61,6 +61,7 @@ Progress: [░░░░░░░░░░] 0% (0 of 3 v1.2 phases complete)
 | Phase 9 P09.1 | 95min | 5 tasks | 13 files |
 | Phase 09 P10 | Task 6 1h45m (plan span one day) | 6 tasks | 61 files |
 | Phase 09 P11 | 85min | 6 tasks | 5 files |
+| Phase 10 P01 | 23 min | 4 tasks | 6 files |
 
 ## Accumulated Context
 
@@ -121,6 +122,10 @@ Progress: [░░░░░░░░░░] 0% (0 of 3 v1.2 phases complete)
 
 - v1.2 fan-out (2026-11-23, five read-only lenses; reports in research/v1.2-fanout/): Phase 10 carries GATE-02 and GATE-01 first, then VER-06, then VID-07 and CORE-06 as one identity/state bump under new profile ids (shipped ids stay byte-identical), then RUN-07; Phase 11 ends with a bound freeze candidate and the final ABI bind moves to the end of Phase 12; API-06 is the authored route A (libdragon research only); SDL3 is link-only, off by default, non-gating; CORE-06's old premise was stale because plan 09-10 already carries the combiner and coverage members.
 - Owner approval 2026-11-23 (answer "Per-row binding + standing approval"): Phase 10 changes the oracle check to per-row pins (GATE-02); until it lands, identity-only rebinds of the Phase 7 oracle request are approved for all v1.2 manifest rows (reproduce the old pinned hash first, change only manifest identities and the derived request hash and PINNED_REQUEST_SHA256, keep local_decision blocked, orchestrator task only). No oracle, rights or publication authority is granted.
+- [Phase 10]: 10-01: registered ids ntsc-cart-4m-openipl3-rdram-b-t1-si-v2 (+ -e4k -e16k -s32k), tuple 13/21/26, digest domain t64.state.si.26, container word 2 / t64.state-container.v2 recorded in PIN-IMPACT.md before any digest pin (one-way once 10-09 pins a digest)
+- [Phase 10]: 10-01: Wave 0 decisions: no new hosted CI step, no Phase 10 JUnit root in gate.sh, GATE-02 keeps whole-file hashes of the other 13 bound files (new tests in new files), rsp-no-hle guard removal measured last and declined if it needs a qualify-audio.py edit, make -j2 declined
+- [Phase 10]: 10-01: sh scripts/preflight-phase10.sh is cited by every Phase 10 plan (23 s no C change, 57 to 70 s with one); --no-replay mid-task, clean committed tree before a push; each new CTest name needs PHASE10_TESTS, label phase10 and a regex count row
+- [Phase 10]: 10-01: p10-mutants.py dirty-tree check counts only tracked changes outside .planning/ (planning records cannot affect a mutant built from HEAD)
 
 ### Pending Todos
 
@@ -146,8 +151,8 @@ None for v1.1. Carry-ins for v1.2 are listed in the Deferred Items table, the v1
 
 ## Session Continuity
 
-Last session: 2026-11-23
-Stopped at: v1.2 roadmap created (Phases 10–12); awaiting orchestrator approval and commit
+Last session: 2026-11-24T00:55:16.652Z
+Stopped at: Completed 10-01-PLAN.md
 Resume file: None
 
 Historical closeout: [v1.0 roadmap](milestones/v1.0-ROADMAP.md), [audit](milestones/v1.0-MILESTONE-AUDIT.md), [lessons](RETROSPECTIVE.md).
