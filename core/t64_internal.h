@@ -1897,6 +1897,11 @@ typedef struct {
  */
 #define T64_STATE_CONTAINER_MAGIC "T64STATE"
 #define T64_STATE_CONTAINER_VERSION UINT32_C(1)
+/* Container version word of a state 26 blob (plan 10-11). It is the one
+ * version marker of the state 26 bump: a blob carries 1 with state 25 and 2
+ * with state 26, never another pairing. Both are state-format constants of a
+ * build-identity-bound artifact and sit outside the ABI promise. */
+#define T64_STATE_CONTAINER_VERSION_V2 UINT32_C(2)
 #define T64_STATE_HEADER_BYTES 0x120u
 #define T64_STATE_ENTRY_BYTES 56u
 #define T64_STATE_TRAILER_BYTES 32u

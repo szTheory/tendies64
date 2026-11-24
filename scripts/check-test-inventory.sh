@@ -253,6 +253,7 @@ unit.core.digest.v26-strip-differential
 unit.core.rdp.depth-composite-accepted
 unit.core.rdp.depth-composite-wrong-depth
 unit.core.rdp.depth-composite-sidecar
+unit.core.state.export-v26
 unit.core.vg.decal-equality
 unit.core.vg.primitive-z-saturation
 unit.core.vg.delta-ceiling

@@ -954,6 +954,27 @@ set_tests_properties(unit.core.state.export PROPERTIES
   TIMEOUT 300
   ENVIRONMENT "T64_TEST_IPL3_PATH=${T64_BOOT_FIXTURE_DIR}/ipl3_compat.z64")
 
+# Phase 10 state container export for state 26 (plan 10-11): container version
+# word 2, the section 8 depth layout, the derived sizes and the v26 upper bound,
+# in a new binary so the phase09-inventoried test_state_export stays unchanged.
+# The independent decoder is a separate script, fixtures/state/decode_container_v2.py,
+# because fixtures/state/decode_container.py is a pinned Phase 9 oracle; the version
+# 1 decoder is passed as well so the test compares both on the same v25 blob.
+add_executable(test_state_export_v26 tests/test_state_export_v26.c)
+target_include_directories(test_state_export_v26 PRIVATE
+  "${CMAKE_SOURCE_DIR}/tests"
+  "${CMAKE_CURRENT_SOURCE_DIR}"
+  "${CMAKE_SOURCE_DIR}/tools/common")
+target_link_libraries(test_state_export_v26 PRIVATE t64_core t64_sha256)
+t64_target_warnings(test_state_export_v26)
+add_dependencies(test_state_export_v26 t64-boot-fixtures)
+add_test(NAME unit.core.state.export-v26
+  COMMAND test_state_export_v26 --case export-v26-idle)
+set_tests_properties(unit.core.state.export-v26 PROPERTIES
+  LABELS "unit;phase10"
+  TIMEOUT 300
+  ENVIRONMENT "T64_TEST_IPL3_PATH=${T64_BOOT_FIXTURE_DIR}/ipl3_compat.z64;T64_STATE_DECODER=${CMAKE_SOURCE_DIR}/fixtures/state/decode_container_v2.py;T64_STATE_DECODER_V1=${CMAKE_SOURCE_DIR}/fixtures/state/decode_container.py;T64_PHASE10_EVIDENCE_DIR=${CMAKE_BINARY_DIR}/10-11-evidence")
+
 # Phase 9 state container import (plan 09-09).
 add_executable(test_state_import tests/test_state_import.c
   tests/fuzz_state_import.c)

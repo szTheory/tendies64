@@ -42,3 +42,5 @@
 1	^unit\.core\.rdp\.depth-composite-sidecar$
 1	^unit\.core\.profile\.v26-predicate-matrix$
 3	^(unit\.core\.profile\.v26-predicate-matrix|unit\.core\.k1\..*)$
+1	^unit\.core\.state\.export-v26$
+3	^(unit\.core\.state\.export|unit\.core\.state\.import|runner\.state-export)$

@@ -112,6 +112,19 @@ static bool put_u64(uint8_t *base, uint64_t total, uint64_t offset,
 }
 
 /*
+ * The container version word that belongs to a state serialization version:
+ * 2 for state 26 and 1 for every other state word. The exporter writes it
+ * and the importer's header check compares the blob's word with it, so only
+ * the pairs (1, 25) and (2, 26) can pass the header and the registry
+ * (plan 10-11): version 1 with state 26 and version 2 with state 25 both
+ * refuse with the container version reason before any apply.
+ */
+static uint32_t state_container_version_for(uint32_t state_version) {
+  return state_version == 26u ? T64_STATE_CONTAINER_VERSION_V2
+                              : T64_STATE_CONTAINER_VERSION;
+}
+
+/*
  * Planning pass: stream the canonical state into a counting sink and turn the
  * recorded markers into the section layout. The sink lives only in this
  * frame; the layout record belongs to the caller.
@@ -266,7 +279,9 @@ static bool write_header(const t64_machine *machine,
   const char *build = t64_build_identity();
 
   return put_bytes(bytes, total, 0x000u, T64_STATE_CONTAINER_MAGIC, 8u) &&
-         put_u32(bytes, total, 0x008u, T64_STATE_CONTAINER_VERSION) &&
+         put_u32(bytes, total, 0x008u,
+                 state_container_version_for(
+                     machine->profile.state_serialization_version)) &&
          put_u32(bytes, total, 0x00Cu,
                  machine->profile.state_serialization_version) &&
          put_u64(bytes, total, 0x010u, total) &&
@@ -345,9 +360,11 @@ t64_status t64_machine_state_export(const t64_machine *machine,
   if (!machine->has_image) {
     return T64_STATUS_NOT_READY;
   }
-  /* Export is defined for the composite family (state version 25) only; the
-   * state 26 family has no container row until plan 10-11. */
-  if (!t64_has_si_v25_profile(machine)) {
+  /* Export is defined for the two composite families: state 25 (container
+   * version 1) and, since plan 10-11, state 26 (container version 2). The
+   * walker already streams the state 26 layout (plan 10-09), so the container
+   * around it is the only addition. */
+  if (!t64_has_si_profile(machine)) {
     return T64_STATUS_INVALID_ARGUMENT;
   }
   status = plan_layout(machine, &layout);
@@ -390,6 +407,7 @@ t64_status t64_machine_state_export(const t64_machine *machine,
 #define STATE_DOMAIN "t64.state.si.25"
 #define STATE_DOMAIN_BYTES 15u
 #define STATE_VERSION_REGISTERED 25u
+#define STATE_VERSION_REGISTERED_V26 26u
 #define STATE_TABLE_ID_MAX 32u
 
 typedef enum { STATE_MODE_VALIDATE = 0, STATE_MODE_APPLY = 1 } state_mode;
@@ -2655,7 +2673,13 @@ static bool state_parse_header(const uint8_t *bytes, uint64_t length,
     state_report_failure(report, T64_STATE_REASON_MAGIC, 0u, 0u, HDR_MAGIC);
     return false;
   }
-  if (state_be32(bytes + HDR_CONTAINER_VERSION) != T64_STATE_CONTAINER_VERSION) {
+  /* The version word is paired with the state word of the same header (plan
+   * 10-11): (1, 25) and (2, 26) are the only pairs the later checks can
+   * accept; every other pair, version 1 with state 26 included, refuses here
+   * at the version word, before any later header check and before any apply.
+   * The state word itself is judged by the registry in state_check_binding. */
+  if (state_be32(bytes + HDR_CONTAINER_VERSION) !=
+      state_container_version_for(state_be32(bytes + HDR_STATE_VERSION))) {
     state_report_failure(report, T64_STATE_REASON_CONTAINER_VERSION, 0u, 0u,
                          HDR_CONTAINER_VERSION);
     return false;
@@ -2718,12 +2742,19 @@ static bool state_verify_trailer(const uint8_t *bytes, uint64_t length,
 }
 
 /* The importer registry: one row per state serialization version, so an
- * unregistered version reports STATE_VERSION. */
+ * unregistered version reports STATE_VERSION. Row 25 is the exact v25 tuple;
+ * row 26 (plan 10-11) is the exact v26 tuple, so a blob of one state is
+ * never taken by a machine of the other. The section readers below know only
+ * the state 25 layout until plan 10-12; state_parse_table keeps every state 26
+ * machine refused until then. */
 static bool state_version_registered(const t64_machine *machine,
                                      uint32_t version) {
-  return version == STATE_VERSION_REGISTERED &&
-         t64_has_si_v25_profile(machine) &&
-         machine->profile.state_serialization_version == version;
+  return machine != NULL &&
+         machine->profile.state_serialization_version == version &&
+         ((version == STATE_VERSION_REGISTERED &&
+           t64_has_si_v25_profile(machine)) ||
+          (version == STATE_VERSION_REGISTERED_V26 &&
+           t64_has_si_v26_profile(machine)));
 }
 
 static bool state_check_binding(const t64_machine *machine,
@@ -2831,7 +2862,14 @@ static bool state_parse_table(const t64_machine *machine,
                          HDR_CANONICAL_OFFSET);
     return false;
   }
-  if (memcmp(bytes + (size_t)table->canonical_offset, STATE_DOMAIN,
+  /* The readers parse the state 25 layout and the digest recomputation uses
+   * the state 25 domain, so only a state 25 machine can take a blob here. A
+   * state 26 machine passes the registry (plan 10-11) but stays refused at the
+   * domain bytes, for a genuine blob (domain t64.state.si.26) and for one whose
+   * domain was forged to the state 25 text alike, until plan 10-12 adds the
+   * state 26 readers and the state 26 domain. */
+  if (!t64_has_si_v25_profile(machine) ||
+      memcmp(bytes + (size_t)table->canonical_offset, STATE_DOMAIN,
              STATE_DOMAIN_BYTES) != 0) {
     state_report_failure(report, T64_STATE_REASON_SECTION_BOUNDS, 0u, 0u,
                          table->canonical_offset);
