@@ -5,16 +5,16 @@ milestone_name: Embeddable and Playable
 current_phase: 10
 current_phase_name: Carry-in Closure Before the Freeze
 status: executing
-stopped_at: Completed 10-09-PLAN.md
-last_updated: "2026-11-24T04:16:21.871Z"
+stopped_at: Completed 10-10-PLAN.md
+last_updated: "2026-11-24T04:43:43.867Z"
 last_activity: 2026-11-23
 last_activity_desc: Phase 10 execution started
-state_head: 4093a2fed66733410be1ba37d46d408c67fef5d8
+state_head: 84768f9e48a6f900bd3bae4f3130e801bfb97bf6
 progress:
   total_phases: 3
   completed_phases: 0
   total_plans: 19
-  completed_plans: 9
+  completed_plans: 10
   percent: 0
 ---
 
@@ -30,7 +30,7 @@ See: .planning/PROJECT.md (updated 2026-11-23)
 ## Current Position
 
 Phase: 10 (Carry-in Closure Before the Freeze) — EXECUTING
-Plan: 10 of 19
+Plan: 11 of 19
 Status: Ready to execute
 Last activity: 2026-11-23 — Phase 10 execution started
 
@@ -70,6 +70,7 @@ Progress: [░░░░░░░░░░] 0% (0 of 3 v1.2 phases complete)
 | Phase 10 P07 | 22 min | 4 tasks | 5 files |
 | Phase 10 P08 | 28 min | 3 tasks | 3 files |
 | Phase 10 P09 | 23 min | 3 tasks | 13 files |
+| Phase 10 P10 | 27 min | 4 tasks | 11 files |
 
 ## Accumulated Context
 
@@ -155,6 +156,7 @@ Progress: [░░░░░░░░░░] 0% (0 of 3 v1.2 phases complete)
 - [Phase 10]: 10-09: registered ids ntsc-cart-4m-openipl3-rdram-b-t1-si-v2 (+ -e4k -e16k -s32k), tuple 13/21/26, profile hashes pinned (3bc028bd, 0a4bfc45, 34f767b0, 9dfb90d8 prefixes; PIN-IMPACT.md 2.1); exact v25 and v26 predicates drive the digest domain, the state registry and the exporter while t64_has_si_profile is their union, so no sealed body changed
 - [Phase 10]: 10-09: v26 walker keeps v25 framing, streams the five depth scalars inside the RDP block as new-span members before work_policy_version and the length-prefixed hidden table after the coverage table; completeness flip test RED for exactly the depth members then GREEN; shipped ids byte-identical (sweep 1599 lines, 0 differences)
 - [Phase 10]: 10-09: t64_machine_state_export and state_version_registered stay exact v25 (state 26 export refused INVALID_ARGUMENT, import reports the state-version reason) until plans 10-11 and 10-12; ISViewer widened to the eight SI-family ids
+- [Phase 10]: 10-10: depth literals on the descriptor 13 ids come from a scratch calculator over the z_format[8] table and the V7 rules; the wrong-depth control compares a 5 byte window (color word, depth word, sidecar entry) of the covered pixel, not the whole Z image, because the covered pixel set is a rasterization result not independently derived
 
 ### Pending Todos
 
@@ -180,8 +182,8 @@ None for v1.1. Carry-ins for v1.2 are listed in the Deferred Items table, the v1
 
 ## Session Continuity
 
-Last session: 2026-11-24T04:16:21.846Z
-Stopped at: Completed 10-09-PLAN.md
+Last session: 2026-11-24T04:43:43.841Z
+Stopped at: Completed 10-10-PLAN.md
 Resume file: None
 
 Historical closeout: [v1.0 roadmap](milestones/v1.0-ROADMAP.md), [audit](milestones/v1.0-MILESTONE-AUDIT.md), [lessons](RETROSPECTIVE.md).
