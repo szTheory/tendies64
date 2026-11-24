@@ -74,6 +74,8 @@ TEST_SOURCES = {
     "test_rdp_depth": "core/tests/test_rdp_depth.c",
     "test_k1_refusal": "core/tests/test_k1_refusal.c",
     "test_vg_gaps": "core/tests/test_vg_gaps.c",
+    "test_rdp_depth_composite": "core/tests/test_rdp_depth_composite.c",
+    "test_digest_v26": "core/tests/test_digest_v26.c",
 }
 
 OWN_CHECK_LINE = re.compile(r"test_[a-z_0-9]+\.c:\d+: CHECK(_INT|_STR)? failed")
@@ -385,6 +387,54 @@ MUTANTS = [
             )
         ],
         "kill": [own_check("test_vg_gaps", ["--case", "shade-floor-bayer"])],
+        "record": [],
+    },
+    {
+        "id": "v26-sidecar-invalidation-removed",
+        "tag": "mutant",
+        "expect": "KILLED",
+        "title": "the hidden depth sidecar entry of a written granule is no longer cleared in t64_rdp_memory_coverage_invalidate (plan 10-10; the descriptor 10 test_rdp_depth also kills it and is recorded)",
+        "edits": [
+            (
+                "core/t64_rdp_pipeline.c",
+                "      machine->rdp_depth_hidden[granule] = 0u;\n",
+                "      (void)granule;\n",
+            )
+        ],
+        "kill": [own_check("test_rdp_depth_composite", ["--case", "depth-composite-sidecar"])],
+        "record": [own_check("test_rdp_depth", [])],
+    },
+    {
+        "id": "v26-digest-omit-scalar",
+        "tag": "mutant",
+        "expect": "KILLED",
+        "title": "the primitive_z depth scalar hash call removed from the v26 branch of t64_digest_stream (moved here from plan 10-09)",
+        "edits": [
+            (
+                "core/t64_digest.c",
+                "        hash_u32_new(sink, rdp->primitive_z);\n",
+                "        (void)rdp->primitive_z;\n",
+            )
+        ],
+        "kill": [own_check("test_digest_v26", ["--case", "v26-completeness"])],
+        "record": [],
+    },
+    {
+        "id": "v26-digest-omit-hidden",
+        "tag": "mutant",
+        "expect": "KILLED",
+        "title": "the hidden depth table emission removed from the section 8 tail of the v26 stream (moved here from plan 10-09)",
+        "edits": [
+            (
+                "core/t64_digest.c",
+                "          digest_bytes_class(sink, machine->rdp_depth_hidden,\n"
+                "                             T64_RDP_DEPTH_HIDDEN_BYTES(\n"
+                "                             machine->profile.rdram_bytes),\n"
+                "                             T64_DIGEST_CLASS_NEW);\n",
+                "          (void)machine->rdp_depth_hidden;\n",
+            )
+        ],
+        "kill": [own_check("test_digest_v26", ["--case", "v26-completeness"])],
         "record": [],
     },
     {

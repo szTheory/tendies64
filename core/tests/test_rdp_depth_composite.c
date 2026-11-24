@@ -6,12 +6,26 @@
  * go through the DP_START / DP_END registers exactly as in
  * core/tests/test_rdp_depth.c (that file is oracle-bound and is never
  * edited); the command words and the pixel literals here are copied from its
- * derivation records, never computed by a production helper.
+ * derivation records or derived by hand from docs/spec/rdp.md V7 and the
+ * z_format[8] table (Nintendo 64 Programming Manual NU6-06-0030-001G,
+ * printed p. 324), never computed by a production helper (z_compress,
+ * z_decompress and the rest of core/t64_rdp_depth.c are not called).
  *
  * depth-composite-accepted: SetZImage, SetPrimDepth and a primitive-Z
- *     triangle write exact color, depth and hidden-sidecar bytes; a farther
- *     second primitive is Z-tested away and a nearer third replaces the
- *     pixel.
+ *     triangle write exact color, depth and hidden-sidecar bytes on each of
+ *     the four ids; a farther second primitive is Z-tested away and a nearer
+ *     third replaces the pixel.
+ * depth-composite-wrong-depth: the same setup compared with expected windows
+ *     in which one literal byte is changed must diverge at exactly that byte
+ *     (the idiom of core/tests/test_vi.c case_vi_filter_wrong_expected), and
+ *     a setup that differs by one input must diverge at the byte that input
+ *     controls.
+ * depth-composite-sidecar: all four Z triangle opcodes (0x09, 0x0b, 0x0d,
+ *     0x0f), the opaque, transparent, interpenetrating and decal modes, the
+ *     compare and update combinations and the far word 0xfffc; then an
+ *     accepted CPU store, a PI DMA and an SP DMA over the depth image each
+ *     clear exactly the overlapped sidecar granules, and a reset clears the
+ *     whole sidecar.
  *
  * Evidence tier: unit-tested, authored scope. The hidden sidecar is a logical
  * model and the Z mode precedence is software policy (docs/spec/rdp.md V7),
@@ -213,12 +227,27 @@ static void second_primitive(uint64_t prim_depth, uint64_t prim_color,
   out[8] = UINT64_C(0x2900000000000000);
 }
 
-static void expect_pixel(const t64_machine *machine, uint16_t color,
-                         uint16_t depth, uint8_t hidden) {
-  T64_CHECK_INT(machine->rdp.refusal_reason, T64_RDP_REFUSAL_NONE);
-  T64_CHECK_INT(read_be16(machine->ram + PIXEL_COLOR_ADDRESS), color);
-  T64_CHECK_INT(read_be16(machine->ram + PIXEL_DEPTH_ADDRESS), depth);
-  T64_CHECK_INT(machine->rdp_depth_hidden[PIXEL_DEPTH_ADDRESS / 2u], hidden);
+/* Compare one integer and name the id and the item on a mismatch (the
+ * T64_CHECK_INT line of this helper is the failed check). */
+static void expect_eq(const char *id, const char *what, long long got,
+                      long long want) {
+  if (got != want) {
+    fprintf(stderr, "%s: %s got 0x%llx want 0x%llx\n", id, what,
+            (unsigned long long)got, (unsigned long long)want);
+  }
+  T64_CHECK_INT(got, want);
+}
+
+static void expect_pixel(const char *id, const t64_machine *machine,
+                         uint16_t color, uint16_t depth, uint8_t hidden) {
+  expect_eq(id, "refusal reason", machine->rdp.refusal_reason,
+            T64_RDP_REFUSAL_NONE);
+  expect_eq(id, "color word", read_be16(machine->ram + PIXEL_COLOR_ADDRESS),
+            color);
+  expect_eq(id, "depth word", read_be16(machine->ram + PIXEL_DEPTH_ADDRESS),
+            depth);
+  expect_eq(id, "sidecar entry",
+            machine->rdp_depth_hidden[PIXEL_DEPTH_ADDRESS / 2u], hidden);
 }
 
 /* ---- depth-composite-accepted ------------------------------------------- */
@@ -258,7 +287,7 @@ static void check_accepted_effect(const char *profile_id) {
   second_primitive(UINT64_C(0x2e00000020000009),
                    UINT64_C(0x3a000000ff0000ff), more);
   run_commands(machine, more, 9u);
-  expect_pixel(machine, 0x07c1u, 0x09a8u, 0x83u);
+  expect_pixel(profile_id, machine, 0x07c1u, 0x09a8u, 0x83u);
 
   /* A nearer third primitive: raw 0x0800 gives linear 0x4000, which is
    * below the 0x9a80 + 9 threshold, so it passes and replaces the pixel:
@@ -267,17 +296,537 @@ static void check_accepted_effect(const char *profile_id) {
   second_primitive(UINT64_C(0x2e00000008000009),
                    UINT64_C(0x3a0000000000ffff), more);
   run_commands(machine, more, 9u);
-  expect_pixel(machine, 0x003fu, 0x0400u, 0x83u);
+  expect_pixel(profile_id, machine, 0x003fu, 0x0400u, 0x83u);
   t64_machine_destroy(machine);
 }
 
 static void case_depth_composite_accepted(void) {
-  /* Tracer: one id. */
-  check_accepted_effect(family_ids[0]);
+  size_t i;
+
+  for (i = 0u; i < FAMILY_COUNT; i++) check_accepted_effect(family_ids[i]);
+}
+
+/* ---- depth-composite-wrong-depth ---------------------------------------- */
+
+#define WINDOW_BYTES 5u
+
+/* The observed window of the covered pixel: color word, depth word, sidecar
+ * entry. */
+static void capture_window(const t64_machine *machine,
+                           uint8_t window[WINDOW_BYTES]) {
+  window[0] = machine->ram[PIXEL_COLOR_ADDRESS];
+  window[1] = machine->ram[PIXEL_COLOR_ADDRESS + 1u];
+  window[2] = machine->ram[PIXEL_DEPTH_ADDRESS];
+  window[3] = machine->ram[PIXEL_DEPTH_ADDRESS + 1u];
+  window[4] = machine->rdp_depth_hidden[PIXEL_DEPTH_ADDRESS / 2u];
+}
+
+static size_t first_difference(const uint8_t *left, const uint8_t *right,
+                               size_t length) {
+  size_t i;
+
+  for (i = 0u; i < length; i++) {
+    if (left[i] != right[i]) return i;
+  }
+  return SIZE_MAX;
+}
+
+/* The first pass with another SetPrimDepth word, on a fresh machine. */
+static void capture_first_pass(const char *profile_id, uint64_t prim_depth,
+                               uint8_t window[WINDOW_BYTES]) {
+  t64_machine *machine = create_admitted(profile_id);
+  uint64_t commands[sizeof first_pass / sizeof first_pass[0]];
+
+  (void)memset(window, 0, WINDOW_BYTES);
+  if (machine == NULL) return;
+  (void)memcpy(commands, first_pass, sizeof commands);
+  commands[4] = prim_depth;
+  seed_images(machine);
+  run_commands(machine, commands, sizeof commands / sizeof commands[0]);
+  T64_CHECK_INT(machine->rdp.refusal_reason, T64_RDP_REFUSAL_NONE);
+  capture_window(machine, window);
+  t64_machine_destroy(machine);
+}
+
+static void check_wrong_depth(const char *profile_id) {
+  /* color 0x07c1, depth 0x09a8, sidecar 0x83: the literals of the accepted
+   * case (PrimDepth Z 0x1357, dZ 9). */
+  static const uint8_t expected[WINDOW_BYTES] = {0x07u, 0xc1u, 0x09u, 0xa8u,
+                                                 0x83u};
+  /* Setups that differ in one input, each with the byte it must change:
+   *   Z 0x1358: 0x1358*8 = 0x9ac0, mantissa 0x9ac0 >> 6 = 0x26b, visible
+   *     0x26b << 2 = 0x09ac: the depth low byte (index 3).
+   *   Z 0x2000: 0x2000*8 = 0x10000, mantissa 0x400, visible 0x1000: the depth
+   *     high byte (index 2) and the low byte, whose first difference is
+   *     index 2.
+   *   dZ 0x10: highest set bit index 4, delta code 4: high two bits 1 join
+   *     the visible word (0x09a9) and the low two bits 0 give the entry 0x80:
+   *     first difference at the depth low byte (index 3).
+   *   dZ 2: delta code 1: visible unchanged, entry 0x81: the sidecar byte
+   *     (index 4). */
+  static const struct {
+    uint64_t prim_depth;
+    uint8_t window[WINDOW_BYTES];
+    size_t first_difference;
+  } setups[] = {
+      {UINT64_C(0x2e00000013570009), {0x07u, 0xc1u, 0x09u, 0xa8u, 0x83u},
+       SIZE_MAX},
+      {UINT64_C(0x2e00000013580009), {0x07u, 0xc1u, 0x09u, 0xacu, 0x83u}, 3u},
+      {UINT64_C(0x2e00000020000009), {0x07u, 0xc1u, 0x10u, 0x00u, 0x83u}, 2u},
+      {UINT64_C(0x2e00000013570010), {0x07u, 0xc1u, 0x09u, 0xa9u, 0x80u}, 3u},
+      {UINT64_C(0x2e00000013570002), {0x07u, 0xc1u, 0x09u, 0xa8u, 0x81u}, 4u},
+  };
+  uint8_t actual[WINDOW_BYTES];
+  uint8_t wrong[WINDOW_BYTES];
+  size_t i;
+
+  /* The accepted setup equals the literals. */
+  capture_first_pass(profile_id, first_pass[4], actual);
+  expect_eq(profile_id, "accepted window difference",
+            (long long)first_difference(actual, expected, WINDOW_BYTES),
+            (long long)SIZE_MAX);
+  /* Control: one literal byte changed at a time; the first difference must be
+   * exactly that byte. */
+  for (i = 0u; i < WINDOW_BYTES; i++) {
+    (void)memcpy(wrong, expected, sizeof wrong);
+    wrong[i] = (uint8_t)(wrong[i] ^ 0x01u);
+    expect_eq(profile_id, "wrong-literal first difference",
+              (long long)first_difference(actual, wrong, WINDOW_BYTES),
+              (long long)i);
+  }
+  /* Control: a depth word one raw unit apart (0x09a8 against 0x09a9) diverges
+   * at the low byte only. */
+  (void)memcpy(wrong, expected, sizeof wrong);
+  wrong[3] = 0xa9u;
+  expect_eq(profile_id, "depth low byte control",
+            (long long)first_difference(actual, wrong, WINDOW_BYTES), 3);
+  /* Setups that differ by one input. */
+  for (i = 0u; i < sizeof setups / sizeof setups[0]; i++) {
+    capture_first_pass(profile_id, setups[i].prim_depth, actual);
+    expect_eq(profile_id, "setup window difference from the literals",
+              (long long)first_difference(actual, expected, WINDOW_BYTES),
+              (long long)setups[i].first_difference);
+    expect_eq(profile_id, "setup window against its own literals",
+              (long long)first_difference(actual, setups[i].window,
+                                          WINDOW_BYTES),
+              (long long)SIZE_MAX);
+  }
+}
+
+static void case_depth_composite_wrong_depth(void) {
+  size_t i;
+
+  for (i = 0u; i < FAMILY_COUNT; i++) check_wrong_depth(family_ids[i]);
+}
+
+/* ---- depth-composite-sidecar -------------------------------------------- */
+
+#define TEXTURE_ADDRESS UINT32_C(0x4000)
+#define PI_BASE UINT32_C(0x04600000)
+#define SP_BASE UINT32_C(0x04040000)
+#define DMEM_BASE UINT32_C(0x04000000)
+#define CART_BASE UINT32_C(0x10000000)
+#define WINDOW_GRANULES 64u
+#define WINDOW_FIRST (DEPTH_IMAGE_ADDRESS / 2u)
+
+/* Z triangle opcodes: command words of core/tests/test_rdp_depth.c
+ * case_all_z_triangle_opcodes_reach_pixel (the same packet layouts), with its
+ * expected pixel literals. Opcode 0x0f is run with the combiner that selects
+ * shade times texel and with the triangle Z group W20 = 8.0 (Q16.16): linear
+ * (8 << 16) / 8192 = 0x40, exponent 0, mantissa 1, visible 0x0004, delta 0,
+ * entry 0x80; the color is (128, 64, 192) from the shade base: 128 >> 3 = 16,
+ * 64 >> 3 = 8, 192 >> 3 = 24, so 0x8000 | 0x0200 | 0x0030 | 1 = 0x8231. */
+static const uint64_t head_words[] = {
+    UINT64_C(0x3f10000700005000), UINT64_C(0x2d00000000020020),
+    UINT64_C(0x2f00000000000034), UINT64_C(0x3e00000000006000),
+    UINT64_C(0x2e00000013570009), UINT64_C(0x3a00000000ff00ff),
+    UINT64_C(0xfc00000000018600),
+};
+static const uint64_t texture_setup[] = {
+    UINT64_C(0x3d10000700004000), UINT64_C(0x3510040000080200),
+    UINT64_C(0x320000000001c01c), UINT64_C(0x340000000001c01c),
+};
+static const uint64_t edge_words[] = {
+    UINT64_C(0x00010000fffe8000), UINT64_C(0x0001000000000000),
+    UINT64_C(0x0004000000018000),
+};
+
+static const struct {
+  uint32_t opcode;
+  uint16_t color;
+  uint16_t depth;
+  uint8_t hidden;
+} opcode_rows[] = {
+    {0x09u, 0x07c1u, 0x09a8u, 0x83u},
+    {0x0bu, 0x07c1u, 0x09a8u, 0x83u},
+    {0x0du, 0x07c1u, 0x09a8u, 0x83u},
+    {0x0fu, 0x8231u, 0x0004u, 0x80u},
+};
+
+static void check_z_triangle(const char *profile_id, uint32_t opcode,
+                             uint16_t color, uint16_t depth,
+                             uint8_t hidden) {
+  const bool textured = opcode == 0x0bu || opcode == 0x0fu;
+  const bool shaded = opcode == 0x0du || opcode == 0x0fu;
+  uint64_t commands[40];
+  size_t count = 0u;
+  size_t triangle_at;
+  uint32_t i;
+  t64_machine *machine = create_admitted(profile_id);
+
+  if (machine == NULL) return;
+  (void)memcpy(commands + count, head_words, sizeof head_words);
+  count += sizeof head_words / sizeof head_words[0];
+  if (textured) {
+    (void)memcpy(commands + count, texture_setup, sizeof texture_setup);
+    count += sizeof texture_setup / sizeof texture_setup[0];
+    /* Opcode 0x0f: only texel (0,0) is white, so a wrong W4 coordinate
+     * clamps to a black texel and the color proves the offset. */
+    for (i = 0u; i < 8u * 8u; i++) {
+      write_be16(machine->ram + TEXTURE_ADDRESS + i * 2u,
+                 opcode == 0x0fu && i != 0u ? 0u : UINT16_C(0xffff));
+    }
+  }
+  triangle_at = count;
+  commands[count++] = UINT64_C(0x00000014000c0004) | ((uint64_t)opcode << 56);
+  (void)memcpy(commands + count, edge_words, sizeof edge_words);
+  count += sizeof edge_words / sizeof edge_words[0];
+  if (shaded && textured) {
+    /* Shade base RGBA = (128, 64, 192, 255), zero gradients. */
+    commands[count++] = UINT64_C(0x0080004000c000ff);
+    for (i = 0u; i < 7u; i++) commands[count++] = 0u;
+  }
+  if (textured) {
+    /* S and T are 0 and W is 1.0 in the third 16-bit lane of W12. */
+    commands[count++] = UINT64_C(0x0000000000010000);
+    for (i = 0u; i < 7u; i++) commands[count++] = 0u;
+  }
+  if (shaded && !textured) {
+    for (i = 0u; i < 8u; i++) commands[count++] = 0u;
+  }
+  commands[count++] = UINT64_C(0x0000000000000000);
+  commands[count++] = UINT64_C(0x0000000000000000);
+  if (opcode == 0x0fu) {
+    /* FC121800 selects (texel0 - 0) * shade / 255 for RGB and alpha; the Z
+     * mode takes the triangle plane (no primitive Z); W20 is 8.0. */
+    commands[6] = UINT64_C(0xfc12180000000000);
+    commands[2] = UINT64_C(0x2f00000000000030);
+    commands[count - 2u] = UINT64_C(0x0008000000000000);
+  }
+  commands[count++] = UINT64_C(0x2900000000000000);
+  expect_eq(profile_id, "opcode of the built packet",
+            (long long)((commands[triangle_at] >> 56) & UINT64_C(0x3f)),
+            (long long)opcode);
+  seed_images(machine);
+  run_commands(machine, commands, count);
+  expect_eq(profile_id, "last opcode", machine->rdp.last_opcode_field,
+            UINT32_C(0x29));
+  T64_CHECK(machine->rdp.fullsync_count > 0u);
+  T64_CHECK((machine->rdp.dpc_status & T64_RDP_STATUS_ERROR) == 0u);
+  expect_pixel(profile_id, machine, color, depth, hidden);
+  t64_machine_destroy(machine);
+}
+
+/* Primitive-Z vectors of core/tests/test_rdp_depth.c
+ * case_depth_compare_update_and_coverage_modes, with the old depth and the
+ * old color coverage seeded, and one literal result each. Rules (rdp.md V7):
+ * opaque passes when newZ <= oldZ + max(dZ new, dZ old); decal when
+ * |newZ - oldZ| <= that tolerance; interpenetrating also passes when the
+ * incoming coverage exceeds the stored coverage; transparent and decal never
+ * update depth; compare off passes; update off never writes. The new linear Z
+ * is raw * 8: 0x1350 gives 0x9a80, 0x1351 gives 0x9a88, 0x1352 gives 0x9a90,
+ * 0x1357 gives 0x9ab8. The stored word 0x09a8 decodes to 0x26a << 6 = 0x9a80
+ * (stored delta code 0 here: no sidecar entry, visible low bits 0, decoded
+ * 1) and the incoming dZ is 9, so the tolerance is 9: 0x9a88 is within it,
+ * 0x9a90 and 0x9ab8 are not. */
+typedef struct {
+  const char *name;
+  uint64_t modes;
+  uint64_t prim_depth;
+  uint16_t old_depth;
+  uint8_t old_coverage;
+  uint16_t color;
+  uint16_t depth;
+  uint8_t hidden;
+} mode_vector;
+
+#define MODE_OPAQUE UINT64_C(0x2f00000000000034)
+#define MODE_DECAL UINT64_C(0x2f00000000000c34)
+#define MODE_INTERPENETRATING UINT64_C(0x2f00000000000434)
+#define MODE_TRANSPARENT UINT64_C(0x2f00000000000834)
+#define PRIM_1350 UINT64_C(0x2e00000013500009)
+#define PRIM_1351 UINT64_C(0x2e00000013510009)
+#define PRIM_1352 UINT64_C(0x2e00000013520009)
+#define PRIM_1357 UINT64_C(0x2e00000013570009)
+
+static const mode_vector mode_vectors[] = {
+    /* name, modes, primitive depth, old depth, old coverage, then the
+     * expected color, depth and sidecar entry */
+    {"opaque over the far word", MODE_OPAQUE, PRIM_1357, 0xfffcu, 0u,
+     0x07c1u, 0x09a8u, 0x83u},
+    {"opaque nearer", MODE_OPAQUE, PRIM_1350, 0x09acu, 0u, 0x07c1u, 0x09a8u,
+     0x83u},
+    {"opaque equal", MODE_OPAQUE, PRIM_1350, 0x09a8u, 0u, 0x07c1u, 0x09a8u,
+     0x83u},
+    {"opaque farther", MODE_OPAQUE, PRIM_1350, 0x09a4u, 0u, 0xa5a5u, 0x09a4u,
+     0u},
+    {"opaque farther by the word", MODE_OPAQUE, PRIM_1357, 0x09a8u, 0u,
+     0xa5a5u, 0x09a8u, 0u},
+    {"decal within tolerance", MODE_DECAL, PRIM_1351, 0x09a8u, 0u, 0x07c1u,
+     0x09a8u, 0u},
+    {"decal beyond tolerance", MODE_DECAL, PRIM_1352, 0x09a8u, 0u, 0xa5a5u,
+     0x09a8u, 0u},
+    {"decal exact", MODE_DECAL, PRIM_1350, 0x09a8u, 0u, 0x07c1u, 0x09a8u, 0u},
+    {"interpenetrating, stored coverage 1", MODE_INTERPENETRATING, PRIM_1357,
+     0x09a8u, 1u, 0x07c1u, 0x09a8u, 0x83u},
+    {"interpenetrating, stored coverage 8", MODE_INTERPENETRATING, PRIM_1357,
+     0x09a8u, 8u, 0xa5a5u, 0x09a8u, 0u},
+    {"transparent, farther", MODE_TRANSPARENT, PRIM_1357, 0x09a8u, 0u, 0xa5a5u,
+     0x09a8u, 0u},
+    {"transparent over the far word", MODE_TRANSPARENT, PRIM_1357, 0xfffcu,
+     0u, 0x07c1u, 0xfffcu, 0u},
+    {"update without compare", UINT64_C(0x2f00000000000024), PRIM_1357,
+     0x09a8u, 0u, 0x07c1u, 0x09a8u, 0x83u},
+    {"compare without update", UINT64_C(0x2f00000000000014), PRIM_1357,
+     0xfffcu, 0u, 0x07c1u, 0xfffcu, 0u},
+    {"neither compare nor update", UINT64_C(0x2f00000000000004), PRIM_1357,
+     0xfffcu, 0u, 0x07c1u, 0xfffcu, 0u},
+};
+
+static void check_mode_vector(const char *profile_id,
+                              const mode_vector *vector) {
+  const uint64_t commands[] = {
+      UINT64_C(0x3f10000700005000), UINT64_C(0x2d00000000020020),
+      vector->modes,                UINT64_C(0x3e00000000006000),
+      vector->prim_depth,           UINT64_C(0x3a00000000ff00ff),
+      UINT64_C(0xfc00000000018600), UINT64_C(0x09000014000c0004),
+      UINT64_C(0x00010000fffe8000), UINT64_C(0x0001000000000000),
+      UINT64_C(0x0004000000018000), UINT64_C(0x0000000000000000),
+      UINT64_C(0x0000000000000000), UINT64_C(0x2900000000000000),
+  };
+  t64_machine *machine = create_admitted(profile_id);
+  uint32_t i;
+
+  if (machine == NULL) return;
+  (void)memset(machine->ram + FRAMEBUFFER_ADDRESS, 0xa5, 8u * 8u * 2u);
+  for (i = 0u; i < 8u * 8u; i++) {
+    write_be16(machine->ram + DEPTH_IMAGE_ADDRESS + i * 2u,
+               vector->old_depth);
+  }
+  if (vector->old_coverage != 0u) {
+    machine->rdp_memory_coverage[PIXEL_COLOR_ADDRESS / 2u] =
+        (uint8_t)(UINT8_C(0x80) | vector->old_coverage);
+  }
+  run_commands(machine, commands, sizeof commands / sizeof commands[0]);
+  if (machine->rdp.refusal_reason != T64_RDP_REFUSAL_NONE ||
+      read_be16(machine->ram + PIXEL_COLOR_ADDRESS) != vector->color ||
+      read_be16(machine->ram + PIXEL_DEPTH_ADDRESS) != vector->depth ||
+      machine->rdp_depth_hidden[PIXEL_DEPTH_ADDRESS / 2u] != vector->hidden) {
+    fprintf(stderr, "mode vector failed: %s\n", vector->name);
+  }
+  expect_pixel(profile_id, machine, vector->color, vector->depth,
+               vector->hidden);
+  T64_CHECK_INT(machine->rdp.fullsync_count, 1u);
+  t64_machine_destroy(machine);
+}
+
+/* A machine that has drawn the accepted triangle, with sentinel sidecar
+ * entries in rows that the triangle does not reach (it covers rows 1 to 4 of
+ * the 8 by 8 image: YH = 1, YL = 5): granule 0 is 0x81, granule 43 (row 5,
+ * x 3) is 0x82, granule 63 (row 7, x 7) is 0x83. The window of the 64
+ * sidecar entries of the depth image is captured after the draw. */
+static t64_machine *drawn_machine(const char *profile_id,
+                                  uint8_t before[WINDOW_GRANULES]) {
+  t64_machine *machine = create_admitted(profile_id);
+
+  if (machine == NULL) return NULL;
+  seed_images(machine);
+  machine->rdp_depth_hidden[WINDOW_FIRST + 0u] = UINT8_C(0x81);
+  machine->rdp_depth_hidden[WINDOW_FIRST + 43u] = UINT8_C(0x82);
+  machine->rdp_depth_hidden[WINDOW_FIRST + 63u] = UINT8_C(0x83);
+  run_commands(machine, first_pass, sizeof first_pass / sizeof first_pass[0]);
+  expect_pixel(profile_id, machine, 0x07c1u, 0x09a8u, 0x83u);
+  (void)memcpy(before, machine->rdp_depth_hidden + WINDOW_FIRST,
+               WINDOW_GRANULES);
+  expect_eq(profile_id, "sentinel 0", before[0], 0x81);
+  expect_eq(profile_id, "sentinel 43", before[43], 0x82);
+  expect_eq(profile_id, "sentinel 63", before[63], 0x83);
+  return machine;
+}
+
+/* Bits first .. first + count - 1 of a 64 bit granule mask. */
+static uint64_t granule_mask(uint32_t first, uint32_t count) {
+  uint64_t mask = 0u;
+  uint32_t i;
+
+  for (i = 0u; i < count; i++) mask |= UINT64_C(1) << (first + i);
+  return mask;
+}
+
+/* Every sidecar entry of the window equals its entry before the write except
+ * the granules of the mask, which are zero. */
+static void expect_window(const char *profile_id, const char *what,
+                          const t64_machine *machine,
+                          const uint8_t before[WINDOW_GRANULES],
+                          uint64_t cleared) {
+  uint32_t i;
+
+  for (i = 0u; i < WINDOW_GRANULES; i++) {
+    const uint8_t want = (cleared >> i) & 1u ? 0u : before[i];
+    const uint8_t got = machine->rdp_depth_hidden[WINDOW_FIRST + i];
+
+    if (got != want) {
+      fprintf(stderr, "%s: %s: granule %u got 0x%02x want 0x%02x\n",
+              profile_id, what, (unsigned)i, (unsigned)got, (unsigned)want);
+    }
+    T64_CHECK_INT(got, want);
+  }
+}
+
+static void check_cpu_store(const char *profile_id) {
+  uint8_t before[WINDOW_GRANULES];
+  t64_machine *machine = drawn_machine(profile_id, before);
+  uint64_t cleared;
+
+  if (machine == NULL) return;
+  /* The covered pixel (1,2) holds the accepted entry 0x83 at granule 17. */
+  expect_eq(profile_id, "granule 17 before", before[17], 0x83);
+  /* A one byte store into the second byte of its halfword (granule 17). */
+  T64_CHECK_INT(t64_machine_bus_write(machine, PIXEL_DEPTH_ADDRESS + 1u, 1u,
+                                      UINT32_C(0x12)), T64_STATUS_OK);
+  expect_eq(profile_id, "stored byte", machine->ram[PIXEL_DEPTH_ADDRESS + 1u],
+            0x12);
+  expect_eq(profile_id, "neighbor byte", machine->ram[PIXEL_DEPTH_ADDRESS],
+            0x09);
+  cleared = granule_mask(17u, 1u);
+  expect_window(profile_id, "byte store", machine, before, cleared);
+  expect_eq(profile_id, "granule 17 after",
+            machine->rdp_depth_hidden[WINDOW_FIRST + 17u], 0);
+  /* A word store at the start of row 1 overlaps granules 8 and 9. */
+  T64_CHECK_INT(t64_machine_bus_write(machine, DEPTH_IMAGE_ADDRESS + 16u, 4u,
+                                      UINT32_C(0x12345678)), T64_STATUS_OK);
+  expect_eq(profile_id, "word store first byte",
+            machine->ram[DEPTH_IMAGE_ADDRESS + 16u], 0x12);
+  expect_eq(profile_id, "word store last byte",
+            machine->ram[DEPTH_IMAGE_ADDRESS + 19u], 0x78);
+  cleared |= granule_mask(8u, 2u);
+  expect_window(profile_id, "word store", machine, before, cleared);
+  /* A store just past the 128 byte image does not reach the window. */
+  T64_CHECK_INT(t64_machine_bus_write(machine, DEPTH_IMAGE_ADDRESS + 128u, 1u,
+                                      UINT32_C(0x34)), T64_STATUS_OK);
+  expect_window(profile_id, "store past the image", machine, before, cleared);
+  t64_machine_destroy(machine);
+}
+
+static void check_pi_dma(const char *profile_id) {
+  uint8_t before[WINDOW_GRANULES];
+  t64_machine *machine = drawn_machine(profile_id, before);
+  const uint32_t dram = DEPTH_IMAGE_ADDRESS + 32u; /* row 2, granules 16-19 */
+  uint32_t i;
+
+  if (machine == NULL) return;
+  expect_eq(profile_id, "granule 17 before", before[17], 0x83);
+  machine->queue_head = 0u;
+  machine->queue_count = 0u;
+  T64_CHECK_INT(t64_machine_bus_write(machine, PI_BASE, 4u, dram),
+                T64_STATUS_OK);
+  T64_CHECK_INT(t64_machine_bus_write(machine, PI_BASE + 4u, 4u,
+                                      CART_BASE + 0x100u), T64_STATUS_OK);
+  T64_CHECK_INT(t64_machine_bus_write(machine, PI_BASE + 12u, 4u, 7u),
+                T64_STATUS_OK);
+  dispatch_all(machine);
+  /* The eight bytes of the cleared asset at cart offset 0x100 landed. */
+  for (i = 0u; i < 8u; i++) {
+    expect_eq(profile_id, "pi byte", machine->ram[dram + i],
+              openipl3_asset[0x100u + i]);
+  }
+  expect_window(profile_id, "pi dma", machine, before, granule_mask(16u, 4u));
+  expect_eq(profile_id, "granule 17 after",
+            machine->rdp_depth_hidden[WINDOW_FIRST + 17u], 0);
+  t64_machine_destroy(machine);
+}
+
+static void check_sp_dma(const char *profile_id) {
+  uint8_t before[WINDOW_GRANULES];
+  t64_machine *machine = drawn_machine(profile_id, before);
+  const uint32_t dram = DEPTH_IMAGE_ADDRESS + 48u; /* row 3, granules 24-27 */
+  uint32_t i;
+
+  if (machine == NULL) return;
+  expect_eq(profile_id, "granule 25 before", before[25], 0x83);
+  machine->queue_head = 0u;
+  machine->queue_count = 0u;
+  for (i = 0u; i < 8u; i++) {
+    T64_CHECK_INT(t64_machine_bus_write(machine, DMEM_BASE + i, 1u,
+                                        UINT32_C(0xa0) + i), T64_STATUS_OK);
+  }
+  T64_CHECK_INT(t64_machine_bus_write(machine, SP_BASE, 4u, 0u),
+                T64_STATUS_OK);
+  T64_CHECK_INT(t64_machine_bus_write(machine, SP_BASE + 4u, 4u, dram),
+                T64_STATUS_OK);
+  T64_CHECK_INT(t64_machine_bus_write(machine, SP_BASE + 12u, 4u, 7u),
+                T64_STATUS_OK);
+  dispatch_all(machine);
+  for (i = 0u; i < 8u; i++) {
+    expect_eq(profile_id, "sp byte", machine->ram[dram + i], 0xa0u + i);
+  }
+  expect_window(profile_id, "sp dma", machine, before, granule_mask(24u, 4u));
+  expect_eq(profile_id, "granule 25 after",
+            machine->rdp_depth_hidden[WINDOW_FIRST + 25u], 0);
+  t64_machine_destroy(machine);
+}
+
+/* Reset (a fresh admission) clears the whole sidecar, not only the window:
+ * every entry is made nonzero first. */
+static void check_reset(const char *profile_id) {
+  uint8_t before[WINDOW_GRANULES];
+  t64_machine *machine = drawn_machine(profile_id, before);
+  size_t bytes;
+  size_t i;
+  size_t nonzero = 0u;
+
+  if (machine == NULL) return;
+  bytes = T64_RDP_DEPTH_HIDDEN_BYTES(machine->profile.rdram_bytes);
+  (void)memset(machine->rdp_depth_hidden, 0x83, bytes);
+  T64_CHECK(machine->rdp.depth_image_valid);
+  T64_CHECK_INT(t64_machine_admit_rom(machine, openipl3_asset,
+                                      sizeof openipl3_asset), T64_STATUS_OK);
+  for (i = 0u; i < bytes; i++) {
+    if (machine->rdp_depth_hidden[i] != 0u) nonzero++;
+  }
+  expect_eq(profile_id, "nonzero sidecar entries after reset",
+            (long long)nonzero, 0);
+  T64_CHECK(!machine->rdp.depth_image_valid);
+  expect_eq(profile_id, "depth word after reset",
+            read_be16(machine->ram + PIXEL_DEPTH_ADDRESS), 0);
+  t64_machine_destroy(machine);
+}
+
+static void case_depth_composite_sidecar(void) {
+  size_t id;
+  size_t i;
+
+  for (id = 0u; id < FAMILY_COUNT; id++) {
+    const char *profile_id = family_ids[id];
+
+    for (i = 0u; i < sizeof opcode_rows / sizeof opcode_rows[0]; i++) {
+      check_z_triangle(profile_id, opcode_rows[i].opcode, opcode_rows[i].color,
+                       opcode_rows[i].depth, opcode_rows[i].hidden);
+    }
+    for (i = 0u; i < sizeof mode_vectors / sizeof mode_vectors[0]; i++) {
+      check_mode_vector(profile_id, &mode_vectors[i]);
+    }
+    check_cpu_store(profile_id);
+    check_pi_dma(profile_id);
+    check_sp_dma(profile_id);
+    check_reset(profile_id);
+  }
 }
 
 int main(int argc, char **argv) {
-  static const char *const cases[] = {"depth-composite-accepted"};
+  static const char *const cases[] = {"depth-composite-accepted",
+                                      "depth-composite-wrong-depth",
+                                      "depth-composite-sidecar"};
 
   if (argc == 2 && strcmp(argv[1], "--list-cases") == 0) {
     size_t index;
@@ -292,6 +841,14 @@ int main(int argc, char **argv) {
       case_depth_composite_accepted();
       return T64_TEST_FINISH("unit.core.rdp.depth-composite-accepted");
     }
+    if (strcmp(argv[2], "depth-composite-wrong-depth") == 0) {
+      case_depth_composite_wrong_depth();
+      return T64_TEST_FINISH("unit.core.rdp.depth-composite-wrong-depth");
+    }
+    if (strcmp(argv[2], "depth-composite-sidecar") == 0) {
+      case_depth_composite_sidecar();
+      return T64_TEST_FINISH("unit.core.rdp.depth-composite-sidecar");
+    }
     fprintf(stderr, "unknown case: %s\n", argv[2]);
     return 2;
   }
@@ -300,5 +857,7 @@ int main(int argc, char **argv) {
     return 2;
   }
   case_depth_composite_accepted();
+  case_depth_composite_wrong_depth();
+  case_depth_composite_sidecar();
   return T64_TEST_FINISH("unit.core.rdp.depth-composite");
 }

@@ -850,7 +850,13 @@ t64_target_warnings(test_rdp_depth_composite)
 add_dependencies(test_rdp_depth_composite t64-boot-fixtures)
 add_test(NAME unit.core.rdp.depth-composite-accepted
   COMMAND test_rdp_depth_composite --case depth-composite-accepted)
-set_tests_properties(unit.core.rdp.depth-composite-accepted PROPERTIES
+add_test(NAME unit.core.rdp.depth-composite-wrong-depth
+  COMMAND test_rdp_depth_composite --case depth-composite-wrong-depth)
+add_test(NAME unit.core.rdp.depth-composite-sidecar
+  COMMAND test_rdp_depth_composite --case depth-composite-sidecar)
+set_tests_properties(unit.core.rdp.depth-composite-accepted
+  unit.core.rdp.depth-composite-wrong-depth
+  unit.core.rdp.depth-composite-sidecar PROPERTIES
   LABELS "unit;phase10"
   ENVIRONMENT "T64_TEST_IPL3_PATH=${T64_BOOT_FIXTURE_DIR}/ipl3_compat.z64")
 

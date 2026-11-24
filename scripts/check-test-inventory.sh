@@ -250,6 +250,8 @@ unit.core.profile.v26-isviewer
 unit.core.digest.v26-completeness
 unit.core.digest.v26-strip-differential
 unit.core.rdp.depth-composite-accepted
+unit.core.rdp.depth-composite-wrong-depth
+unit.core.rdp.depth-composite-sidecar
 unit.core.vg.decal-equality
 unit.core.vg.primitive-z-saturation
 unit.core.vg.delta-ceiling
