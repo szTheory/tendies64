@@ -59,6 +59,29 @@ the format string feed every later pin, replay binding and the Phase 11 consumer
 They are recorded here before any digest pin exists and are frozen once plan 10-09
 pins a digest; a later change needs a new identity bump, not an edit.
 
+### 2.1 Pins captured by plan 10-09 (the identity record is now frozen)
+
+Written by plan 10-09 (phase-wave 2). Evidence tier: code observations and unit-test
+results at commit `286ccbb` (registration) and `831c947` (depth activation); nothing here
+is a compatibility or hardware claim. The profile hashes below are the one-way pins of
+`unit.core.profile.v26-identity` (`core/tests/test_profile_v26.c`); each equals a SHA-256
+the test computes over the serialized descriptor bytes outside the core.
+
+| Registered id | Profile SHA-256 | Serialized bytes |
+|---------------|-----------------|------------------|
+| ntsc-cart-4m-openipl3-rdram-b-t1-si-v2 | `3bc028bdb4c6f9622e20ecfff828a26245adc04ea69ddeeefdbb08d5b27dbc47` | 1358 |
+| ntsc-cart-4m-openipl3-rdram-b-t1-si-v2-e4k | `0a4bfc455adc8b66c4666087c71ff5c0ce3b2f46ab6c83784a37d862956c1fe8` | 1362 |
+| ntsc-cart-4m-openipl3-rdram-b-t1-si-v2-e16k | `34f767b0a9495d604719288515951c2e2ae726ef661f6a7c5fc378397718536c` | 1363 |
+| ntsc-cart-4m-openipl3-rdram-b-t1-si-v2-s32k | `9dfb90d8055b822a1767be1c5594d1b2d904f042ef6fe82f2e7a3243e5756578` | 1363 |
+
+| Item | Value |
+|------|-------|
+| descriptor body | equals the si-v1 body except the id digit, the three version words (12 to 13, 20 to 21, 25 to 26) and the `boot_status` text, which is `prepared-rdram-b-t1-si-v2` (si-v1 keeps `prepared-rdram-b-t1-rdp-vi-filter-v9-ai-v1`); the test proves exactly four differing bytes outside the removed `boot_status` field; `rdp_depth_policy` keeps the shared `z-q16-floor8192-cfloor-p15s3-dzmax-eq-icvg-xlu-decal-h2-v1` text |
+| v26 stream layout (domain `t64.state.si.26`) | framing exactly as v25 (section ids 1 to 9, plus 10 and 11 for the three save ids); the five depth scalars are a 20-byte new-span block inside section 8 immediately before `work_policy_version`; the section 8 tail is the 88-byte combiner block, the 4-byte coverage length and table, then the 4-byte hidden depth length and the hidden table, ending at the section 9 marker |
+| exact versus family predicates | `t64_has_si_v25_profile` and `t64_has_si_v26_profile` select the digest domain and the state version registry; `t64_machine_state_export` uses the v25 predicate until plan 10-11; `t64_has_si_profile` is the union and widens the ISViewer window (`core/t64_isviewer.c`, eight ids) |
+| pins that did not move | the four si-v1 F2 profile hashes (`harness.phase09-qualification`), the five K1 refusal digests, and the digest sweep of the 21 shipped ids against the Wave 2 base (1599 shared lines, 0 differences; the four si-v2 ids add 64 head-only digest lines each) |
+| sealed bodies | none changed; `scripts/check-rsp-no-hle.py --build build/gate` passes with no re-pin |
+
 ## 3. Wave 0 decisions
 
 | Decision | Choice | Reason |
