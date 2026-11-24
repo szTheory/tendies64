@@ -372,3 +372,49 @@ longest test of 47.7 to 51.4 s, so the ordering saves little here. The F-111 est
 up to about 40 s hosted (macOS ctest 251 s against a 210 s longest test that started late)
 is not measured by this plan; plan 10-05 reads the hosted ctest wall and the start order
 of the four tests against this band and the F-114 spread (up to 52 s macOS).
+
+### 10.2 The repeated rsp-no-hle work in the audio-records step (Task 2)
+
+Measured before `ci.yml` was edited. Evidence tier: local measurements on the gate
+preset at the Task 1 commit, and the hosted macOS job log of the F-111 reference run
+44795894664 (source `d3211e9`); no source file was edited by this task.
+
+The step "Run authored audio qualification records" runs
+`python3 -B scripts/check-audio-cases.py --build build/gate --suite qualification --run`,
+which does two rsp-no-hle things, and they have different costs:
+
+| Work in the step | What it is | Local seconds | Hosted macOS seconds (F-111 run, job log) |
+|------------------|------------|---------------|-------------------------------------------|
+| direct source-body guard | `scripts/check-rsp-no-hle.py --build build/gate` (`scripts/check-audio-cases.py:240-262`), whose command and stdout the emit step requires | 0.19, 0.19, 0.20 (three runs alone) | below 1 (not separately logged; the step is 42 s and its ctest part 41.07 s) |
+| CTest name `repo.rsp-no-hle` | `scripts/tests/test_rsp_no_hle.py` (mutation seeds and fetched controls), one of the four names the step's `ctest -R` regex runs | 14.12 (of a 22 s step; the other three names 0.3, 0.7 and 1.2 s) | 41.06 (the step's whole ctest part is 41.07 s of the 42 s step) |
+| the same CTest name in the full Gate ctest | the first run of it | 15.0 and 15.3 in the two fresh runs of section 10.1 | 48.34 |
+
+The seconds the plan estimated for the guard (about 25 to 32 s of 42 s macOS) are
+not what the F-111 log shows: the repeated cost is the CTest name, not the direct guard
+(F-097 and F-105 measured the older, smaller step totals of 25 s macOS and 32 s Linux).
+The removable duplicate, if any, is therefore the CTest name `repo.rsp-no-hle` in the
+audio-records step: up to about 41 s of the 42 s hosted macOS step. The direct guard
+cannot go: the hosted emit step requires its command and a `PASS: rsp-no-hle` stdout.
+
+Dependency evidence (why removing the CTest name needs a closed Phase 8 qualifier edit):
+
+| File and line | Evidence |
+|---------------|----------|
+| `docs/spec/audio-cases.json:182` | `repo.rsp-no-hle` is listed in the `qualification` suite `ctest` array (`grep -c` counts 1) |
+| `scripts/qualify-audio.py:26` | `EXPECTED_INVENTORY_SHA256 = "2f68e71e..."` is the SHA-256 of that whole file (`shasum -a 256 docs/spec/audio-cases.json` reproduces it today); lines 475, 1223, 1399, 1449, 2158 and 2467 refuse any other digest |
+| `scripts/tests/test_audio_qualification.py:92, 734, 945` | the closed Phase 8 test of the qualifier reads the same constant |
+| `scripts/qualify-audio.py:979-990, 1367, 1510, 2197-2201` | the native plan and the hosted emit require the direct guard's command and its `PASS: rsp-no-hle` stdout (not the CTest name) |
+
+Deleting the array entry changes the inventory bytes, hence its SHA-256, hence
+`EXPECTED_INVENTORY_SHA256` in `scripts/qualify-audio.py`, which F-106 keeps closed
+together with `docs/evidence/phase08-audio.md`.
+
+**Disposition: declined.** Removal needs a closed Phase 8 qualifier edit (F-106 keeps
+it untouched); the 15-minute limit already fits the 673 s cold projection with 227 s
+margin (F-111; 279 s margin on the 621 s of F-114). The foregone saving (about 41 s hosted
+macOS, about 30 s Linux step) is not counted as an offset in the section 6 ledger. The
+decision is reversible: it can be taken at the next Phase 8 requalification, together
+with the F-106 literals. `git diff --quiet` over `scripts/qualify-audio.py`,
+`docs/spec/audio-cases.json` and `scripts/check-audio-cases.py` exits 0 after the
+measurement. The measurement run used a unique artifact prefix and removed only the 18
+files it created under `build/gate`.
