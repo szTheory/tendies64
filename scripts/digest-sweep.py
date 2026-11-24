@@ -512,8 +512,61 @@ def main(argv):
     return 1 if differences else 0
 
 
+# The seeded edit of the selftest: one character of the digest domain string of
+# state version 20, which only the rdp-blender-v6 id hashes. The edit is made
+# in the scratch copy of the head tree; the working tree is never touched.
+SEED_FILE = "core/t64_digest.c"
+SEED_OLD = '"t64.state.rdp.vi.blender.20"'
+SEED_NEW = '"t64.state.rdp.vi.blender.2X"'
+SEED_IDS = {"ntsc-cart-4m-openipl3-rdram-b-t1-rdp-blender-v6"}
+
+
+def line_id(line):
+    tokens = line.split()
+    return tokens[1] if tokens and tokens[0] in ("skip", "stop") else tokens[0]
+
+
 def selftest():
-    raise SweepError("--selftest is added by the next task")
+    """Prove that the sweep reports no difference for identical trees, reports
+    a difference confined to the right ids for a seeded digest edit, and
+    refuses a symbolic base. Exit 0 only when all three hold."""
+    head = git(["rev-parse", "HEAD"]).stdout.strip()
+    resolve_base(head)
+    cache = {}
+    ok = True
+
+    shared, differences, _head_only = sweep_pair(head, head, [], cache)
+    if differences == 0 and shared > 0:
+        log("selftest: identical trees 0 differences (%d shared lines)" % shared)
+    else:
+        log("selftest: FAIL identical trees reported %d differences" % differences)
+        ok = False
+
+    seeded = ("edit", head, SEED_FILE, SEED_OLD, SEED_NEW)
+    report = os.path.join(ROOT, REPORT_ROOT, "%s-seeded.txt" % head[:12])
+    _shared, differences, _head_only = sweep_pair(head, seeded, [], cache)
+    with open(report, "r", encoding="utf-8") as handle:
+        changed = {line_id(l[2:]) for l in handle.read().split("\n")
+                   if l.startswith(("< ", "> "))}
+    if differences > 0 and changed and changed <= SEED_IDS:
+        log("selftest: seeded edit detected (%d differences, only the ids of state version 20)"
+            % differences)
+    else:
+        log("selftest: FAIL seeded edit gave %d differences in %d ids"
+            % (differences, len(changed)))
+        ok = False
+
+    done = subprocess.run(
+        [sys.executable, "-B", os.path.join(ROOT, "scripts", "digest-sweep.py"),
+         "--base", "HEAD", "--head", "HEAD"],
+        cwd=ROOT, capture_output=True, text=True, check=False)
+    if done.returncode == 2 and "base must be a 40-hex commit id" in done.stdout:
+        log("selftest: symbolic base refused with exit 2")
+    else:
+        log("selftest: FAIL symbolic base exit %d" % done.returncode)
+        ok = False
+    log("selftest: %s" % ("PASS" if ok else "FAIL"))
+    return 0 if ok else 1
 
 
 if __name__ == "__main__":
