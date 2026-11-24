@@ -822,12 +822,15 @@ add_test(NAME unit.core.vg.ntsc-clock
   COMMAND test_vg_gaps --case ntsc-clock)
 add_test(NAME unit.core.vg.rgba5551-alpha-clear
   COMMAND test_vg_gaps --case rgba5551-alpha-clear)
+add_test(NAME unit.core.vg.serrate-filter-parity
+  COMMAND test_vg_gaps --case serrate-filter-parity)
 set_tests_properties(unit.core.vg.decal-equality
   unit.core.vg.primitive-z-saturation
   unit.core.vg.delta-ceiling
   unit.core.vg.z-exponent-boundaries
   unit.core.vg.ntsc-clock
-  unit.core.vg.rgba5551-alpha-clear PROPERTIES
+  unit.core.vg.rgba5551-alpha-clear
+  unit.core.vg.serrate-filter-parity PROPERTIES
   LABELS "unit;phase10"
   ENVIRONMENT "T64_TEST_IPL3_PATH=${T64_BOOT_FIXTURE_DIR}/ipl3_compat.z64;T64_TEST_RDP_FILL_PATH=${T64_BOOT_FIXTURE_DIR}/rdp-fill.z64")
 

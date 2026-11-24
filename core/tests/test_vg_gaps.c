@@ -947,6 +947,105 @@ static void case_rgba5551_alpha_clear(void) {
   T64_CHECK_INT(first_difference(v9_packets[0], wrong, sizeof wrong), 3u);
 }
 
+static void fill_packet(uint8_t packet[VI_PACKET_BYTES],
+                        const uint8_t pixel[4]) {
+  size_t i;
+  for (i = 0u; i < VI_PACKET_BYTES; i++) packet[i] = pixel[i % 4u];
+}
+
+/*
+ * VG-02: v9 filtered output under serrate uses the selected parity row and the
+ * same-parity next row.
+ *
+ * Independent derivation (vi.md "Composite v9 filtered profile": "Serrate uses
+ * the selected parity and same-parity next row"; v8 policy: serrate maps output
+ * row n to source row 2 * n + field parity). With STATUS 0x242 (mode 2, serrate
+ * bit 6, anti-alias mode 2, no smoothing, no divot, no gamma) and field 1, the
+ * two source rows blended for output row n are 2n + 1 and 2n + 3.
+ *
+ * The 4 x 8 source is built so that the CORRECT pair is uniform: every odd row
+ * holds X = 0xc27d, every even row holds Y = 0x1f18, in every column.
+ *   X = 11000 01001 11110 1 -> R5 24, G5 9, B5 30, alpha 1
+ *     -> expand (v << 3) | (v >> 2): 24 -> 192|6 = 198, 9 -> 72|2 = 74,
+ *        30 -> 240|7 = 247, alpha 255
+ *   Y = 00011 11100 01100 0 -> R5 3, G5 28, B5 12, alpha 0
+ *     -> 3 -> 24|0 = 24, 28 -> 224|7 = 231, 12 -> 96|3 = 99, alpha 0
+ * X and Y differ in every channel and in alpha. Y_SCALE is 0x02000400 (step
+ * 1.0, source offset 0.5), so every output row has the vertical fraction 512 of
+ * 1024 and the horizontal fraction is 0.
+ *
+ *   field 1, correct rows 2n+1 and 2n+3: both X, so the filtered value is
+ *     (X * w + X * (2^20 - w)) >> 20 = X for every weight w: the literal does
+ *     not depend on the filter weights. Output pixel 198,74,247,255.
+ *   field 1, parity ignored (rows 2n and 2n+2): both Y, so 24,231,99 with
+ *     alpha 0 (alpha comes from the first row): differs from X at byte 0.
+ *   field 1, next row instead of the same-parity next row (rows 2n+1 and
+ *     2n+2, X above Y): weights 2^19 each, so floor((198 + 24) / 2) = 111,
+ *     floor((74 + 231) / 2) = 152, floor((247 + 99) / 2) = 173 and alpha 255
+ *     from row 2n+1: 111,152,173,255: differs from X at byte 0.
+ *   field 0, correct rows 2n and 2n+2: both Y, so 24,231,99,0 (an independent
+ *     literal that the parity term must select; it also differs from field 1).
+ *
+ * source_bytes (vi.md: the bounding span from ORIGIN through the highest valid
+ * source-color tap actually read): the highest row read is 2 * 2 + 1 + 2 = 7
+ * in field 1 and 2 * 2 + 2 = 6 in field 0, in column 3 of a 4-pixel row:
+ * (7 * 4 + 3 + 1) * 2 = 64 and (6 * 4 + 3 + 1) * 2 = 56 bytes.
+ */
+static void case_serrate_filter_parity(void) {
+  static const uint16_t row_x = UINT16_C(0xc27d);
+  static const uint16_t row_y = UINT16_C(0x1f18);
+  static const uint8_t pixel_x[4] = {198u, 74u, 247u, 255u};
+  static const uint8_t pixel_y[4] = {24u, 231u, 99u, 0u};
+  static const uint8_t pixel_blend[4] = {111u, 152u, 173u, 255u};
+  uint16_t source[4u * 8u];
+  uint8_t packets[2][VI_PACKET_BYTES];
+  t64_video_packet_info infos[2];
+  uint8_t expected_field1[VI_PACKET_BYTES];
+  uint8_t expected_field0[VI_PACKET_BYTES];
+  uint8_t wrong[VI_PACKET_BYTES];
+  uint32_t status_readback = 0u;
+  uint32_t row;
+  uint32_t column;
+
+  for (row = 0u; row < 8u; row++)
+    for (column = 0u; column < 4u; column++)
+      source[row * 4u + column] = (row & 1u) != 0u ? row_x : row_y;
+  fill_packet(expected_field1, pixel_x);
+  fill_packet(expected_field0, pixel_y);
+  memset(packets, 0, sizeof packets);
+  memset(infos, 0, sizeof infos);
+
+  T64_CHECK(scan_out_5551(VI_V9_PROFILE_ID, UINT32_C(0x242), 4u, 8u, source,
+                          UINT32_C(0x00020008), UINT32_C(0x02000400), 2u,
+                          packets, infos, &status_readback));
+  /* STATUS bit 6 (serrate) reads back as written. */
+  T64_CHECK_INT(status_readback & UINT32_C(0x40), UINT32_C(0x40));
+  T64_CHECK_INT(status_readback, UINT32_C(0x242));
+  T64_CHECK_INT(infos[0].field, 0u);
+  T64_CHECK_INT(infos[1].field, 1u);
+  T64_CHECK_INT(infos[1].parity, 1u);
+  T64_CHECK_INT(infos[1].control & UINT32_C(0x40), UINT32_C(0x40));
+  T64_CHECK_INT(infos[1].filter, T64_VIDEO_FILTER_RESAMPLE_Q20);
+
+  T64_CHECK_INT(first_difference(packets[1], expected_field1,
+                                 sizeof expected_field1), SIZE_MAX);
+  T64_CHECK_INT(first_difference(packets[0], expected_field0,
+                                 sizeof expected_field0), SIZE_MAX);
+  T64_CHECK_INT(infos[1].source_bytes, 64u);
+  T64_CHECK_INT(infos[0].source_bytes, 56u);
+
+  /* Same-setup wrong-value controls: the three candidate pairings give three
+   * different literals, each rejected at byte 0 by the observed field 1
+   * packet, and one changed byte of the right literal is reported there. */
+  fill_packet(wrong, pixel_y);
+  T64_CHECK_INT(first_difference(packets[1], wrong, sizeof wrong), 0u);
+  fill_packet(wrong, pixel_blend);
+  T64_CHECK_INT(first_difference(packets[1], wrong, sizeof wrong), 0u);
+  memcpy(wrong, expected_field1, sizeof wrong);
+  wrong[21] = (uint8_t)(wrong[21] + 1u);
+  T64_CHECK_INT(first_difference(packets[1], wrong, sizeof wrong), 21u);
+}
+
 typedef struct {
   const char *name;
   void (*run)(void);
@@ -959,6 +1058,7 @@ static const test_case cases[] = {
     {"z-exponent-boundaries", case_z_exponent_boundaries},
     {"ntsc-clock", case_ntsc_clock},
     {"rgba5551-alpha-clear", case_rgba5551_alpha_clear},
+    {"serrate-filter-parity", case_serrate_filter_parity},
 };
 
 int main(int argc, char **argv) {

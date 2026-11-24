@@ -262,6 +262,36 @@ MUTANTS = [
         "record": [],
     },
     {
+        "id": "vg02-parity-ignored",
+        "tag": "mutant",
+        "expect": "KILLED",
+        "title": "selected parity term (vi->field & 1) removed from the v9 filter row index (VG-02)",
+        "edits": [
+            (
+                "core/t64_vi.c",
+                "                                     ? source_y_index * 2u + (vi->field & 1u)\n",
+                "                                     ? source_y_index * 2u\n",
+            )
+        ],
+        "kill": [own_check("test_vg_gaps", ["--case", "serrate-filter-parity"])],
+        "record": [],
+    },
+    {
+        "id": "vg02-next-row",
+        "tag": "mutant",
+        "expect": "KILLED",
+        "title": "v9 same-parity next row (+2 under serrate) replaced by the next row (+1) (VG-02)",
+        "edits": [
+            (
+                "core/t64_vi.c",
+                "      const uint64_t source_y1 = serrate ? source_y0 + 2u : source_y0 + 1u;\n",
+                "      const uint64_t source_y1 = source_y0 + 1u;\n",
+            )
+        ],
+        "kill": [own_check("test_vg_gaps", ["--case", "serrate-filter-parity"])],
+        "record": [],
+    },
+    {
         "id": "control-no-compile",
         "tag": "control",
         "expect": "INVALID",

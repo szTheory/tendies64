@@ -250,7 +250,8 @@ unit.core.vg.primitive-z-saturation
 unit.core.vg.delta-ceiling
 unit.core.vg.z-exponent-boundaries
 unit.core.vg.ntsc-clock
-unit.core.vg.rgba5551-alpha-clear'
+unit.core.vg.rgba5551-alpha-clear
+unit.core.vg.serrate-filter-parity'
 
 CPU_COVERAGE_OPCODES='ADD
 ADDU
