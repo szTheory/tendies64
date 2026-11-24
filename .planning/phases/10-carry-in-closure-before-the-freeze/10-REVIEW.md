@@ -287,4 +287,59 @@ finding was found and no warning was found.
 | W1-04 | info | `core/tests/test_vg_gaps.c` delta-ceiling rows 8191 and 0 | the depth word stores only the priority code, so 8191, 8192 and 0 store the same code 0 and are not independent edges; the effective edges are 8192 (kills `+ 8192`) and 8193 (kills a floor or `+ 8190`). Recorded by plan 10-06 as a note | none; accepted |
 | W1-05 | info | plan 10-08 text | the plan counts 13 mutants; the table has 15 KILLED because plan 10-06 added two rows (deviation 2 of 10-07 records the count) | none |
 
+Deferred item DEF-W1-01 (from W1-01): behavioral pins for the three sibling copies of the perspective
+and major-edge floor. Not required by VER-06, not a defect, no blocking effect on Wave 2. If taken, it is
+a new numbered plan with its own mutant rows; otherwise it stays recorded for the Phase 10 close-out.
+
+### Task 3: preflight, push and the hosted pair
+
+Preflight on the clean committed tree (`sh scripts/preflight-phase10.sh`, head `a0c0a38`): `[preflight]
+PASS`, total 63 s (oracle-authority 0 s; ctest-counts 24 regex rows, 0 mismatches, 12 tests carry the
+label `phase10` as the `PHASE10_TESTS` block says; host-load 0 s at load 7.67; head-ci 1 s, `origin/main`
+`33f6e9c` completed with success; timeout-audit 1 s, 97 TIMEOUTs, 0 too low, 0 unmeasured, lowest ratio
+2.9 on `unit.core.state.import`; pii 0 s with the tree and the 18-commit range at 0 findings; linux-compile
+35 s with 221 units under the act image cc 13.3.0, because `core/CMakeLists.txt` changed since the
+preflight base; post-gate-replay 26 s with 11 `ci.yml` steps). No host-load WARN.
+
+Push (AUTONOMY section 4 routine push to the public repository, no force, no tag): the pinned refspec
+`a0c0a388d08d34fde358609e432b40c5c8ca9377:refs/heads/main` moved `origin/main` from `33f6e9c` to
+`a0c0a38` (fast-forward, 18 commits: 4 `docs(10-05)`, 4 `test(10-06)`, 2 `docs(10-06)`, 4 `test(10-07)`, 2
+`docs(10-07)` and 2 `docs(10-08)`). Before the push: no binary or ROM-extension file in the range, no
+workstation path or e-mail address in any added line, 13 changed files (5 outside `.planning/` and
+`docs/`: all text), a single commit author (the public no-reply identity), the PII scan clean on the
+tree and the range, and no protected material (the new test is authored, its literals are hand
+derivations, no oracle or ROM content).
+
+Hosted pair: run `45321391540` (`ci.yml`, event `push`, head `a0c0a38`), status completed, conclusion
+**success** on both jobs, Binutils cache hit on both with the key of F-111 and F-120 (`69d0bfd4...`), no
+cache deleted or changed. The run was found by `headSha` equal to `git rev-parse origin/main` and waited
+for with `gh run watch` (one wait, no retry needed).
+
+| Measure | gate-macos | gate-linux | Wave 0 reference (F-120, run 45311817943) |
+|---------|------------|------------|-------------------------------------------|
+| queue | 2 s | 3 s | 2 s, 3 s |
+| run | 326 s | 230 s | 346 s, 229 s |
+| Gate step | 288 s | 181 s | 298 s, 181 s |
+| ctest (`Total Test time`), 236 of 236 | 187 s | 115 s | 184 s, 114 s (227 names) |
+| test-inventory-selftest | 38 s | 8 s | 42 s, 9 s |
+| audio qualification records | 21 s | 28 s | 28 s, 26 s |
+| `unit.core.state.import` start position and seconds | 2nd of 236, 172.55 s | 2nd of 236, 103.11 s | 2nd of 227, 162.57 s and 101.53 s |
+| the other three COST tests (start position, seconds) | state-field-use-audit 3rd 60.91 s, rsp-no-hle 4th 43.49 s, phase09-qualification 5th 26.83 s | 3rd 37.32 s, 4th 40.52 s, 5th 9.29 s | 3rd 56.09 s, 4th 38.56 s, 5th 21.56 s (macOS) |
+| the nine `unit.core.vg.*` names, summed | 0.29 s | 0.51 s | not present |
+
+Reading (F-119 noise band): the macOS ctest wall is 3 s above the Wave 0 row and the macOS run 20 s
+below it; both deltas are inside the 52 s spread of F-119, so the nine new names are recorded as no
+visible hosted cost, not as growth and not as a saving. The macOS run of 326 s is the lowest of seven
+samples (326 to 487 s); one more sample does not change the F-120 reading that the COST start order
+cannot be told apart from runner spread. The Linux run of 230 s lies inside the earlier 189 to 305 s.
+Recorded in `docs/ci-reviews/LOG.md`: the Runs row for the run and finding F-121. The Wave 1 row of the
+PIN-IMPACT.md "Gate-growth ledger" is added in the same commit. The cold measurement stays plan 10-19 and
+no hosted cache was deleted here.
+
+Plan 10-08 reviewed 10-06 and 10-07 without a blocking finding: the Wave 1 head passes the gate in
+isolation, 94 literal comparisons match a calculator written from the documents, no production or
+oracle-bound file moved, the sweep reports 0 differences, 15 mutants are KILLED with both controls as
+expected, and the pushed head's hosted pair is green. Wave 2 (plans 10-09 to 10-13, VID-07 and CORE-06)
+may start at the Wave 2 base recorded in PIN-IMPACT.md "Wave bases".
+
 
