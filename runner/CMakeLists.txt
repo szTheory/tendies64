@@ -220,6 +220,14 @@ add_test(NAME repo.sched-k5-anchors
 set_tests_properties(repo.sched-k5-anchors PROPERTIES
   LABELS runner TIMEOUT 60 ENVIRONMENT "PYTHONDONTWRITEBYTECODE=1")
 
+# The mutant table of the Phase 10 VG, VID and CORE tests (plan 10-01): every
+# edit anchor must still occur exactly once in its tracked file. The mutant
+# procedure itself (--run) is run on demand per wave, not by CTest.
+add_test(NAME repo.p10-mutant-anchors
+  COMMAND python3 -B ${CMAKE_SOURCE_DIR}/scripts/p10-mutants.py --check-anchors)
+set_tests_properties(repo.p10-mutant-anchors PROPERTIES
+  LABELS "runner;phase10" TIMEOUT 60 ENVIRONMENT "PYTHONDONTWRITEBYTECODE=1")
+
 add_executable(test_cpu_diagnostic tests/test_cpu_diagnostic.c)
 target_compile_definitions(test_cpu_diagnostic PRIVATE ${T64_HOST_DEFS})
 target_include_directories(test_cpu_diagnostic PRIVATE ${CMAKE_SOURCE_DIR}/core)

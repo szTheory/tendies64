@@ -15,7 +15,8 @@
 #   oracle-authority  the owner-gated oracle request check, read-only
 #   ctest-counts      every row of scripts/preflight-phase10-regexes.txt
 #                     (ctest -N -R count against the expected count) and the
-#                     phase10 label against the PHASE10_TESTS inventory block
+#                     tests of ctest -N -L phase10 against the names of the
+#                     PHASE10_TESTS block of scripts/check-test-inventory.sh
 #   host-load         the 1-minute load average; WARN above 8, never fails
 #   head-ci           hosted ci.yml result of origin/main (F-107 lesson); fails
 #                     only on a completed failure; gh unreachable is not a failure
@@ -25,7 +26,9 @@
 #   linux-compile     the gate compile units rerun with the Ubuntu cc of the act
 #                     image already on disk (F-102), only when a C change exists
 #   post-gate-replay  the ci.yml run lines after Gate, replayed against the
-#                     local build with a fresh run id (F-107, F-113)
+#                     local build with a fresh run id (F-107, F-113); run it on
+#                     a clean tree: the emit steps bind the hosted source
+#                     inputs to HEAD, so uncommitted edits of bound sources fail
 # then "[preflight] summary:" lines, "[preflight] total Ns" and "[preflight] PASS".
 #
 # Timing: whole seconds from one date +%s source. Each step starts where the
@@ -164,6 +167,33 @@ check_ctest_counts() {
     return 1
   fi
   echo "[preflight] ctest-counts: $_pf_rows regex rows, $_pf_bad mismatch(es)"
+  # phase10-label: every name of the PHASE10_TESTS inventory block carries the
+  # label phase10 and no other test does.
+  _pf_inv=$(awk -v q="'" '
+    /^PHASE10_TESTS=/ { inblock = 1; sub("^PHASE10_TESTS=" q, "") }
+    inblock {
+      line = $0
+      closing = (line ~ (q "$"))
+      sub(q "$", "", line)
+      if (line != "") n++
+      if (closing) { inblock = 0; found = 1 }
+    }
+    END { if (found) print n + 0; else print "absent" }
+  ' scripts/check-test-inventory.sh)
+  if ! _pf_labeled=$(ctest --test-dir build/gate -N -L phase10 2>&1); then
+    echo "[preflight] ctest -N -L phase10 failed" >&2
+    return 1
+  fi
+  _pf_nlabel=$(printf '%s\n' "$_pf_labeled" | awk '/^ *Test +#[0-9]+:/ { n++ } END { print n + 0 }')
+  if [ "$_pf_inv" = absent ]; then
+    echo "[preflight] phase10-label: no PHASE10_TESTS block in scripts/check-test-inventory.sh" >&2
+    _pf_bad=$((_pf_bad + 1))
+  elif [ "$_pf_inv" != "$_pf_nlabel" ]; then
+    echo "[preflight] phase10-label mismatch: $_pf_nlabel tests carry the label phase10, the PHASE10_TESTS block names $_pf_inv"
+    _pf_bad=$((_pf_bad + 1))
+  else
+    echo "[preflight] phase10-label: $_pf_nlabel tests carry the label phase10, matching the PHASE10_TESTS block"
+  fi
   [ "$_pf_bad" -eq 0 ]
 }
 
@@ -428,7 +458,11 @@ check_post_gate_replay() {
       sh -c "$_pf_scmd"
     ) > "$PF_WORK/replay-step-$_pf_n.log" 2>&1; then
       tail -n 20 "$PF_WORK/replay-step-$_pf_n.log" >&2
-      echo "[preflight] post-gate-replay: step $_pf_n '$_pf_sname' failed (a defect that only a hosted run would show, F-107)" >&2
+      echo "[preflight] post-gate-replay: step $_pf_n '$_pf_sname' failed (the kind of defect that only a hosted run showed, F-107)" >&2
+      _pf_dirty=$(git status --porcelain --untracked-files=no -- . ':(exclude).planning' | awk 'END { print NR + 0 }')
+      if [ "$_pf_dirty" -gt 0 ]; then
+        echo "[preflight] post-gate-replay: $_pf_dirty tracked file(s) outside .planning/ differ from HEAD; the emit steps refuse hosted source inputs that differ from the selected clean commit (as a hosted checkout is clean). Commit them and rerun, or use --no-replay while the plan is mid-task" >&2
+      fi
       replay_cleanup "$_pf_rid" "$_pf_sha"
       return 1
     fi

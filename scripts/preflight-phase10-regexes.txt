@@ -16,6 +16,7 @@
 1	^unit\.core\.state\.import$
 1	^harness\.phase09-qualification$
 1	^repo\.sched-k5-anchors$
+1	^repo\.p10-mutant-anchors$
 6	^unit\.core\.profile
 4	^unit\.core\.digest
 0	^unit\.core\.vg\.

@@ -239,6 +239,11 @@ runner.state-export
 unit.core.state.import
 harness.state-field-use-audit'
 
+# Phase 10 names (carry-in closure before the freeze): every name also carries
+# the extra CTest label phase10, which sh scripts/preflight-phase10.sh compares
+# with this block.
+PHASE10_TESTS='repo.p10-mutant-anchors'
+
 CPU_COVERAGE_OPCODES='ADD
 ADDU
 SUB
@@ -340,7 +345,7 @@ expected_names() {
     *) echo "unsupported preset: $_preset" >&2; return 2 ;;
   esac
   {
-    printf '%s\n' "$BASELINE_CORE" "$BASELINE_CONTROLS" "$PHASE02_TESTS" "$PHASE03_TESTS" "$PHASE04_TESTS" "$PHASE05_TESTS" "$PHASE06_TESTS" "$PHASE07_TESTS" "$PHASE08_TESTS" "$PHASE09_TESTS" "$_extra"
+    printf '%s\n' "$BASELINE_CORE" "$BASELINE_CONTROLS" "$PHASE02_TESTS" "$PHASE03_TESTS" "$PHASE04_TESTS" "$PHASE05_TESTS" "$PHASE06_TESTS" "$PHASE07_TESTS" "$PHASE08_TESTS" "$PHASE09_TESTS" "$PHASE10_TESTS" "$_extra"
   } | awk 'NF' | sort
 }
 
