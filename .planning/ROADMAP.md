@@ -73,6 +73,7 @@ corpus and a replay adapter (Plan 07-13). No oracle work happens until then.
   5. A measured cold-cache hosted gate-macos run finishes inside its limit; before/after step timings, the 15-minute limit with its scanner rule, and the pinned limit relation are recorded; adding a manifest row no longer requires an oracle-request rebind
 **Plans:** 19 plans (linear chain; phase-waves 0-4; review plans 10-05, 10-08, 10-13, 10-18)
 **G5 exception (recorded 2026-11-23, plan check iteration 1):** 19 plans exceed the about 10-15 guideline because the four per-wave review plans are mandated by AUTONOMY v1.2 ("review per wave in scratch clones") and the qualifier (10-17) is split from the one qualification (10-19); folding them would break the 4-task / about 45-minute plan cap, so the plans are not folded.
+**G4 exception (recorded 2026-11-23, plan check iteration 2):** the required gate grows in Phase 10 without removing equal time, because the new tests (K1 Z refusal, the VG vectors, the v26 identity and state round trips, the RUN-07 composite runs and the per-row binding controls) are the required evidence of this phase's success criteria and must gate everything later phases build on. The offset plan replaces equal removal: GATE-01's explicit CTest COST ordering, the 15-minute gate-macos limit with its scanner rule, and SC5's measured cold-cache run. Reversal evidence: the PIN-IMPACT.md "Gate-growth ledger" records each wave's new names, measured added native seconds, hosted delta and margin to 900 s; if the measured cold-cache gate-macos run (plan 10-19) exceeds 900 s or is cancelled at the limit, a new numbered plan moves non-essential Phase 10 cases (sampled sanitizer runs, duplicate-path round trips) to a non-gating lane and the cold run is repeated. The exception covers Phase 10 only; Phases 11 and 12 follow G4 as written.
 
 Plans:
 - [ ] 10-01-PLAN.md — W0: scripted preflight, pin-impact map with the one-way id record, mutant driver skeleton
@@ -85,11 +86,11 @@ Plans:
 - [ ] 10-08-PLAN.md — W1 review, re-derivation, push
 - [ ] 10-09-PLAN.md — W2: descriptor-13 family registration, RED completeness test, depth activation and v26 digest
 - [ ] 10-10-PLAN.md — W2: depth behavior literals and wrong-depth control, predicate matrix, shipped-id proof, depth/K1 docs
-- [ ] 10-11-PLAN.md — W2: state 26 export, container v2, runner format pairing, build-identity docs
+- [ ] 10-11-PLAN.md — W2: state 26 export, container v2 version marker, independent decoder, build-identity docs
 - [ ] 10-12-PLAN.md — W2: state 26 import, mid-primitive and mid-scan-out round trips, rules, fuzz
 - [ ] 10-13-PLAN.md — W2 review of the identity/state bump, push
 - [ ] 10-14-PLAN.md — W3: authored composite guest, builder, oracle, the one manifest-moving commit
-- [ ] 10-15-PLAN.md — W3: two supervised runs with equal digest, per-output expectations and controls
+- [ ] 10-15-PLAN.md — W3: two supervised runs with equal digest, per-output expectations and controls, runner container-v2 format pairing
 - [ ] 10-16-PLAN.md — W4: provisional-name sweep of 7 spec docs, Phase 9 carry-in triage
 - [ ] 10-17-PLAN.md — W4: thin-delta Phase 10 qualifier and rehearsal
 - [ ] 10-18-PLAN.md — W4: Wave 3 review and final independent audit, push
