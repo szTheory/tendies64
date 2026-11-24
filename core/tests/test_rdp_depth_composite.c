@@ -22,10 +22,10 @@
  *     controls.
  * depth-composite-sidecar: all four Z triangle opcodes (0x09, 0x0b, 0x0d,
  *     0x0f), the opaque, transparent, interpenetrating and decal modes, the
- *     compare and update combinations and the far word 0xfffc; then an
- *     accepted CPU store, a PI DMA and an SP DMA over the depth image each
- *     clear exactly the overlapped sidecar granules, and a reset clears the
- *     whole sidecar.
+ *     compare and update combinations and the far word 0xfffc; the aliased
+ *     16-bit and 32-bit color and Z images; then an accepted CPU store, a PI
+ *     DMA and an SP DMA over the depth image each clear exactly the
+ *     overlapped sidecar granules, and a reset clears the whole sidecar.
  *
  * Evidence tier: unit-tested, authored scope. The hidden sidecar is a logical
  * model and the Z mode precedence is software policy (docs/spec/rdp.md V7),
@@ -802,6 +802,122 @@ static void check_reset(const char *profile_id) {
   t64_machine_destroy(machine);
 }
 
+/* Aliased color and Z images (command words and literals of
+ * core/tests/test_rdp_depth.c
+ * case_aliased_coverage_and_alpha_preserve_hidden_depth; V7: coverage-only
+ * changes write no color bytes and preserve the aliased hidden depth, an
+ * alpha-rejected write suppresses the color write and the depth update, and
+ * an actual color write invalidates the hidden entry of every written
+ * granule). */
+static void check_aliases(const char *profile_id) {
+  static const uint64_t coverage_only[] = {
+      UINT64_C(0x3f10000700006000), UINT64_C(0x2d00000000020020),
+      UINT64_C(0x2f000000000000b4), UINT64_C(0x3e00000000006000),
+      UINT64_C(0x2e00000008000000), UINT64_C(0x3a00000000ff00ff),
+      UINT64_C(0xfc00000000018600), UINT64_C(0x09000014000c0004),
+      UINT64_C(0x00010000fffe8000), UINT64_C(0x0001000000000000),
+      UINT64_C(0x0004000000018000), 0u, 0u, UINT64_C(0x2900000000000000),
+  };
+  static const uint64_t follow_coverage[] = {
+      UINT64_C(0x2f00000000000014), UINT64_C(0x2e00000008010000),
+      UINT64_C(0x09000014000c0004), UINT64_C(0x00010000fffe8000),
+      UINT64_C(0x0001000000000000), UINT64_C(0x0004000000018000),
+      0u, 0u, UINT64_C(0x2900000000000000),
+  };
+  static const uint64_t alpha_rejected[] = {
+      UINT64_C(0x3f18000700005fdc), UINT64_C(0x2d00000000020020),
+      UINT64_C(0x2f00000000000035), UINT64_C(0x3e00000000006000),
+      UINT64_C(0x2e00000008000000), UINT64_C(0x3a00000000ff0000),
+      UINT64_C(0xf9000000000000ff), UINT64_C(0xfc00000000018600),
+      UINT64_C(0x09000014000c0004), UINT64_C(0x00010000fffe8000),
+      UINT64_C(0x0001000000000000), UINT64_C(0x0004000000018000),
+      0u, 0u, UINT64_C(0x2900000000000000),
+  };
+  static const uint64_t follow_alpha[] = {
+      UINT64_C(0x2f00000000000014), UINT64_C(0x2e00000008010000),
+      UINT64_C(0x3a00000000ff00ff), UINT64_C(0x09000014000c0004),
+      UINT64_C(0x00010000fffe8000), UINT64_C(0x0001000000000000),
+      UINT64_C(0x0004000000018000), 0u, 0u, UINT64_C(0x2900000000000000),
+  };
+  /* The RGBA32 color image starts 36 bytes before the Z image, so its pixel
+   * 18 (4 bytes) and the Z pixel 18 (2 bytes) begin at the same address. */
+  const uint32_t coverage_pixel = DEPTH_IMAGE_ADDRESS + 34u;
+  const uint32_t rgba32_color_base = DEPTH_IMAGE_ADDRESS - 36u;
+  const uint32_t rgba32_pixel = rgba32_color_base + 18u * 4u;
+  const uint32_t rgba32_depth = DEPTH_IMAGE_ADDRESS + 18u * 2u;
+  uint8_t before_rgba32[4];
+  t64_machine *machine = create_admitted(profile_id);
+  uint32_t i;
+
+  if (machine == NULL) return;
+  /* 16-bit alias: the RGBA16 color image and the Z image are the same words.
+   * Color-on-coverage records coverage 8 (entry 0x88) and leaves the bytes
+   * and the hidden entry 0x83; a later real color write replaces the word
+   * with 0x07c1 and clears the entry. */
+  for (i = 0u; i < 8u * 8u; i++) {
+    write_be16(machine->ram + DEPTH_IMAGE_ADDRESS + i * 2u, UINT16_C(0x0400));
+    machine->rdp_depth_hidden[DEPTH_IMAGE_ADDRESS / 2u + i] = UINT8_C(0x83);
+  }
+  run_commands(machine, coverage_only,
+               sizeof coverage_only / sizeof coverage_only[0]);
+  expect_eq(profile_id, "alias16 refusal", machine->rdp.refusal_reason,
+            T64_RDP_REFUSAL_NONE);
+  expect_eq(profile_id, "alias16 word high", machine->ram[coverage_pixel],
+            0x04);
+  expect_eq(profile_id, "alias16 word low", machine->ram[coverage_pixel + 1u],
+            0x00);
+  expect_eq(profile_id, "alias16 hidden kept",
+            machine->rdp_depth_hidden[coverage_pixel / 2u], 0x83);
+  expect_eq(profile_id, "alias16 coverage entry",
+            machine->rdp_memory_coverage[coverage_pixel / 2u], 0x88);
+  run_commands(machine, follow_coverage,
+               sizeof follow_coverage / sizeof follow_coverage[0]);
+  expect_eq(profile_id, "alias16 follow refusal", machine->rdp.refusal_reason,
+            T64_RDP_REFUSAL_NONE);
+  expect_eq(profile_id, "alias16 color high", machine->ram[coverage_pixel],
+            0x07);
+  expect_eq(profile_id, "alias16 color low", machine->ram[coverage_pixel + 1u],
+            0xc1);
+  expect_eq(profile_id, "alias16 hidden cleared",
+            machine->rdp_depth_hidden[coverage_pixel / 2u], 0);
+  t64_machine_destroy(machine);
+
+  /* 32-bit alias: an alpha-rejected write leaves the RGBA32 pixel bytes and
+   * the hidden entry of the aliased Z word; the following opaque write stores
+   * (0, 255, 0, 255) and clears both halfword entries. */
+  machine = create_admitted(profile_id);
+  if (machine == NULL) return;
+  (void)memset(machine->ram + rgba32_color_base, 0xa5, 8u * 8u * 4u);
+  for (i = 0u; i < 8u * 8u; i++) {
+    write_be16(machine->ram + DEPTH_IMAGE_ADDRESS + i * 2u, UINT16_C(0x0400));
+  }
+  machine->rdp_depth_hidden[rgba32_depth / 2u] = UINT8_C(0x83);
+  (void)memcpy(before_rgba32, machine->ram + rgba32_pixel,
+               sizeof before_rgba32);
+  expect_eq(profile_id, "alias32 addresses", rgba32_pixel, rgba32_depth);
+  run_commands(machine, alpha_rejected,
+               sizeof alpha_rejected / sizeof alpha_rejected[0]);
+  expect_eq(profile_id, "alias32 refusal", machine->rdp.refusal_reason,
+            T64_RDP_REFUSAL_NONE);
+  T64_CHECK(memcmp(machine->ram + rgba32_pixel, before_rgba32,
+                   sizeof before_rgba32) == 0);
+  expect_eq(profile_id, "alias32 hidden kept",
+            machine->rdp_depth_hidden[rgba32_depth / 2u], 0x83);
+  run_commands(machine, follow_alpha,
+               sizeof follow_alpha / sizeof follow_alpha[0]);
+  expect_eq(profile_id, "alias32 follow refusal", machine->rdp.refusal_reason,
+            T64_RDP_REFUSAL_NONE);
+  expect_eq(profile_id, "alias32 red", machine->ram[rgba32_pixel], 0);
+  expect_eq(profile_id, "alias32 green", machine->ram[rgba32_pixel + 1u], 255);
+  expect_eq(profile_id, "alias32 blue", machine->ram[rgba32_pixel + 2u], 0);
+  expect_eq(profile_id, "alias32 alpha", machine->ram[rgba32_pixel + 3u], 255);
+  expect_eq(profile_id, "alias32 hidden cleared",
+            machine->rdp_depth_hidden[rgba32_depth / 2u], 0);
+  expect_eq(profile_id, "alias32 next hidden cleared",
+            machine->rdp_depth_hidden[rgba32_depth / 2u + 1u], 0);
+  t64_machine_destroy(machine);
+}
+
 static void case_depth_composite_sidecar(void) {
   size_t id;
   size_t i;
@@ -816,6 +932,7 @@ static void case_depth_composite_sidecar(void) {
     for (i = 0u; i < sizeof mode_vectors / sizeof mode_vectors[0]; i++) {
       check_mode_vector(profile_id, &mode_vectors[i]);
     }
+    check_aliases(profile_id);
     check_cpu_store(profile_id);
     check_pi_dma(profile_id);
     check_sp_dma(profile_id);

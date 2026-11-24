@@ -564,7 +564,8 @@ literals, a Z-tested farther primitive and a nearer replacement),
 setup change diverges at the intended byte) and
 `unit.core.rdp.depth-composite-sidecar` (the four Z triangle opcodes, the
 opaque, transparent, interpenetrating and decal modes, the far word `0xfffc`,
-and CPU, PI DMA, SP DMA and reset effects on the sidecar). Their expected
+the aliased 16-bit and 32-bit color and Z images, and CPU, PI DMA, SP DMA and
+reset effects on the sidecar). Their expected
 values are hand-written literals taken from the derivation records and from
 this table, never from `z_compress`, `z_decompress` or another production
 helper.
