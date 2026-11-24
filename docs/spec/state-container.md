@@ -4,7 +4,9 @@ The state container is a versioned binary blob that carries the canonical state
 of one machine of the composite family plus the host observer cursors. This
 document specifies the export half (plan 09-08) and the import half (plan
 09-09, sections "Import" onward); the boundary matrix, the mutants and the field
-audit follow in plan 09-09.1.
+audit follow in plan 09-09.1. Container version 1 carries state 25 (the four
+si-v1 ids); container version 2 carries state 26 (the four si-v2 ids, plan
+10-11) and is specified in the section "Container v2 (state 26)".
 
 ## Scope and evidence
 
@@ -12,6 +14,13 @@ audit follow in plan 09-09.1.
   one build's canonical state: there is no cross-build, cross-version or
   cross-implementation portability statement, and nothing here describes a
   console or any other emulator.
+- Stability: state blobs are build-identity-bound and outside the ABI promise: a
+  blob is accepted only by the build identity and profile that wrote it, and no
+  cross-build or cross-version portability is promised. The container version
+  word, the container format constants and the section layout are state-format
+  facts of one build family, not public API; they may change with the next
+  state serialization version without a compatibility path. Blobs stay private
+  0600 artifacts and are never committed.
 - Name, layout, format string, flag names and detail names are provisional until
   Phase 10. No API or ABI freeze is implied.
 - The evidence is the independent decoders: the literal-offset decoder in
@@ -33,8 +42,8 @@ Header, 0x120 bytes:
 | Offset | Width | Field |
 | --- | --- | --- |
 | 0x000 | 8 | magic, the bytes `T64STATE` |
-| 0x008 | 4 | container version, 1 |
-| 0x00C | 4 | state serialization version, 25 |
+| 0x008 | 4 | container version: 1 for state 25, 2 for state 26 (the version word is paired with the state word below) |
+| 0x00C | 4 | state serialization version, 25 or 26 |
 | 0x010 | 8 | total length of the blob |
 | 0x018 | 4 | section count (table entries, the observer entry included) |
 | 0x01C | 4 | flags, zero |
@@ -54,9 +63,11 @@ flags 0. The last entry is the observer-continuity section: id 16, flags 1
 (outside the digest), body offset at the end of the canonical region and body
 length 40.
 
-Canonical region, at the canonical offset: exactly the v25 digest preimage, that
-is the domain bytes `t64.state.si.25` (15 bytes) and then, for each canonical
-section, its 32-bit big-endian id followed by its body. A canonical entry's body
+Canonical region, at the canonical offset: exactly the digest preimage of the
+state (the v25 preimage for state 25, the v26 preimage for state 26), that is
+the domain bytes `t64.state.si.25` (state 25) or `t64.state.si.26` (state 26),
+15 bytes, and then, for each canonical section, its 32-bit big-endian id followed
+by its body. A canonical entry's body
 offset points at the body, so the id sits at the offset minus 4, the first id
 follows the domain bytes, and each next id starts where the previous body ends.
 
@@ -134,8 +145,8 @@ records never reach the blob.
 - Check order: a NULL machine or length pointer, a length span inside
   machine-owned storage, and (when a buffer is given) an invalid span or one
   overlapping machine storage or the length value return `INVALID_ARGUMENT`; no
-  admitted image is `NOT_READY`; a profile outside the composite family (state
-  serialization version other than 25) is `INVALID_ARGUMENT`. A section recorder
+  admitted image is `NOT_READY`; a profile outside the two composite families
+  (state serialization version other than 25 and 26) is `INVALID_ARGUMENT`. A section recorder
   overflow, a build identity of 128 bytes or longer, or a container above the
   size ceiling is `RESOURCE_EXHAUSTED`. An internal inconsistency found while
   writing (unreachable for a const machine) clears the first total bytes of the
@@ -171,9 +182,76 @@ records never reach the blob.
 - Arithmetic bounds: strictly above 8,400,908 (RDRAM section 4,194,308, the
   2,097,152-byte triangle coverage array, the 2,097,152-byte memory coverage
   table, the 4,096-byte TMEM and the 8,200-byte SP memory section) and below
-  11,534,336. The video and audio retained packet slots add their packet lengths
-  (at most 307,200 per video packet and 262,136 per audio packet, two slots
-  each) only while packets are retained.
+  11,534,336 (the bound of state 25, unchanged). The video and audio retained
+  packet slots add their packet lengths (at most 307,200 per video packet and
+  262,136 per audio packet, two slots each) only while packets are retained.
+- State 26 bound (plan 10-11): the stale statement above ("below 11,534,336") does
+  not hold for state 26, whose section 8 is 2,097,176 bytes longer. The derived
+  bounds are strictly above 10,498,084 (8,400,908 plus 2,097,176) and below
+  12,582,912 (12 MiB): the largest idle blob (`s32k`, 10,578,819) plus two video
+  packets of 307,200 and two audio packets of 262,136 is 11,717,491, which rounds
+  up to 12,582,912. The measured sizes are in the section "Container v2 (state
+  26)".
+
+## Container v2 (state 26)
+
+Container version 2 is the one version marker of the state 26 bump (plan 10-11).
+It is written by the exporter for the four si-v2 ids (descriptor 13, machine
+model 21, state serialization version 26) and differs from container version 1
+only where listed here.
+
+- Header: the word at 0x008 is 2 and the word at 0x00C is 26; a state 25 blob
+  keeps container version word 1 and stays byte for byte as it was. The pairing is a
+  function of the state word: 2 for state 26 and 1 for every other state word.
+  The exporter writes it and the importer's header check compares the blob's
+  version word with it, before any later header check and before any apply, so
+  only the pairs (1, 25) and (2, 26) can pass the header and the registry. Version
+  1 with state 26 and version 2 with state 25 are refused with the container
+  version reason at offset 0x008. The independent decoder
+  `fixtures/state/decode_container_v2.py` (a separate script: the version 1
+  decoder is a pinned Phase 9 oracle and is not edited) enforces the same pairing
+  with the refusal kind `container-version`.
+- Canonical region: the domain bytes are `t64.state.si.26`. The section ids,
+  their order and the framing are those of state 25: ids 1 to 10, plus 11 for the
+  three save ids, then the observer section 16.
+- Section 8 (RDP and VI), offsets from the body start: `pending_triangle_word_count`
+  n (u32, at most 22) at 196, the n pending words (8 bytes each) from 200, seven
+  u32 words after them (primitive color, its valid flag, triangle count, the
+  render and shade flags and the triangle coverage width and height, both 1,024),
+  then the 2,097,152-byte triangle coverage array. The five depth scalars follow,
+  inside the RDP block at the position the v21 depth block had, as five u32 words:
+  `depth_image_address`, `depth_image_valid`, `primitive_z`, `primitive_dz`,
+  `primitive_depth_valid` (the two valid words are 0 or 1). Their body offset is
+  228 + 8n + 2,097,152. They travel as exact words, with no rounding or packing.
+- The tail of section 8 ends with the 88-byte combiner block, the 4-byte
+  coverage length and the memory coverage table, and then, for state 26 only, the
+  4-byte hidden depth length (2,097,152 for 4 MiB of RDRAM) and the hidden depth
+  table of that size, byte for byte, ending the body at the section 9 marker.
+- Sizes: the state 26 blob of a machine is the state 25 blob of the same builder
+  on the matching si-v1 id plus 20 bytes of scalars, 4 bytes of hidden length and
+  2,097,152 hidden bytes, 2,097,176 in all, and only section 8 grows. Measured
+  idle sizes (bytes, spin loop at guest tick 64): stem 10,545,971, `e4k`
+  10,546,563, `e16k` 10,548,099, `s32k` 10,578,819 (each the state 25 idle size of
+  the section "Size accounting" plus 2,097,176). A Z triangle in flight (the stem id) is 10,546,059
+  and section 8 grows by the pending words alone (8 per word); both video slots and
+  both audio slots occupied is 10,546,075 (the `s32k` values are 10,578,907 and
+  10,578,923). All are below 12,582,912.
+- Import: state 26 is registered in the importer registry, but the section
+  readers and the state 26 domain belong to plan 10-12; until then a state 26
+  machine refuses every blob at the domain bytes, a genuine one and one whose
+  domain was forged to the state 25 text alike, with the machine unchanged.
+
+Evidence: `unit.core.state.export-v26` (case `export-v26-idle`: header words,
+section ids, the hand-derived idle sizes of the four ids, decoder acceptance, the
+parity of the two decoders on a state 25 blob and the version and state pairing
+in both the decoder and the importer) and `unit.core.state.export-v26-bounds`
+(mid Z-triangle and retained-packet exports, the upper bound, one byte short and
+one byte long refused by the decoder, the scalars and the hidden table compared
+word for word and byte for byte). The mutants `v26-export-omit-hidden`,
+`v26-export-version-word-1` and `v26-reader-pairing-dropped` of
+`scripts/p10-mutants.py` are each killed by `export-v26-idle`. These are
+comparisons of the code with itself and with a decoder written from the layout;
+they make no claim about any other build or implementation.
 
 ## Privacy and publication
 
@@ -480,10 +558,13 @@ software model on authored machines of the composite family:
 
 These are comparisons of the code with itself: a state that every schedule gets
 wrong in the same way would pass them, and the ladder says nothing about a console.
-Fields that the v25 state does not carry (the RDP depth members, which decision K1
-keeps inactive on this family, the diagnostic last-coverage members and the
-diagnostic observation record) are reset to zero by the commit, so a peer that
-used them does not keep them. The RDP combiner block and the memory coverage
+Fields that the state 25 container does not carry (the RDP depth members and the
+hidden depth table, which decision K1 keeps inactive on the state 25 family:
+excluded for state 25, carried for state 26; the diagnostic last-coverage members
+and the diagnostic observation record) are reset to zero by the commit, so a peer
+that used them does not keep them. The state 26 container carries the depth
+members (the section "Container v2 (state 26)"); the importer of state 26 is plan
+10-12, and until then a machine of a state 26 id refuses every blob. The RDP combiner block and the memory coverage
 table are carried since plan 09-10 (the tail of section 8) and are therefore part
 of the continuation ladder.
 

@@ -5,6 +5,14 @@ admission, refusal, and reset behavior that the native core currently
 implements. It does not claim boot, CPU execution, hardware timing, or a frozen
 external ABI.
 
+ABI notes. State blobs (the container of [state-container.md](state-container.md),
+versions 1 and 2) are build-identity-bound and outside the ABI promise: a blob is
+accepted only by the build identity and profile that wrote it, and no cross-build
+or cross-version portability is promised. The container version word and the
+state serialization word are state-format constants of one build family, not
+public API: container version 1 pairs with state 25 and container version 2 with
+state 26.
+
 ## Raw ROM admission
 
 `t64_machine_admit_rom` accepts one caller-provided readable byte span. The
