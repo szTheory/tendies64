@@ -82,6 +82,23 @@ the test computes over the serialized descriptor bytes outside the core.
 | pins that did not move | the four si-v1 F2 profile hashes (`harness.phase09-qualification`), the five K1 refusal digests, and the digest sweep of the 21 shipped ids against the Wave 2 base (1599 shared lines, 0 differences; the four si-v2 ids add 64 head-only digest lines each) |
 | sealed bodies | none changed; `scripts/check-rsp-no-hle.py --build build/gate` passes with no re-pin |
 
+### 2.2 Wave 2 shipped-id proof (plan 10-10)
+
+Written by plan 10-10 (phase-wave 2). Evidence tier: code observations and unit-test
+results at the working tree of commit `9a5dfd8` plus the Task 3 test edit; no core
+source (`core/t64_*.c`, `core/t64_internal.h`, `core/include`) differs from the plan 10-09
+head `3d5b3bd`, so the sweep head is the same machine as that plan's. Nothing here is a
+compatibility or hardware claim.
+
+| Item | Value |
+|------|-------|
+| base | the Wave 2 base of section 5 (`6dd785986f6aa78c6da5573a558b15b386a4edee`, read with the 40-hex sed, `grep -cEx`, `git cat-file -e`; never `HEAD`) |
+| command, as the plan prints it | `python3 -B scripts/digest-sweep.py --base "$base" --head WORKTREE` gives `sweep: 1599 shared lines, 0 differences, 0 head-only lines` (the 21 shipped ids) |
+| command, with the four head-only ids | the same plus four `--head-extra-id` (the si-v2 ids) gives `sweep: 1599 shared lines, 0 differences, 292 head-only lines`: per si-v2 id 64 digest lines and 9 stop or skip lines (4 x 73) |
+| shipped-id byte identity | 21 of 21 shipped ids at every ROM and checkpoint of the sweep (section 7), 0 changed lines and 0 lines present only in the base |
+| K1 refusal | `unit.core.k1.dispatch-refusal` and `unit.core.k1.apply-refusal` pass (the five shipped composite ids still refuse SetZImage, SetPrimDepth and the four Z triangles) |
+| predicate scope | `unit.core.profile.v26-predicate-matrix` prints `rows=25` (17 earlier ids, four si-v1, four si-v2): `t64_has_rdp_depth_profile` is true on exactly seven ids (rdp-depth-v7, rdp-vi-v8, rdp-vi-filter-v9 and the four si-v2 ids) and false on the descriptor 11 id and the four descriptor 12 ids |
+
 ## 3. Wave 0 decisions
 
 | Decision | Choice | Reason |

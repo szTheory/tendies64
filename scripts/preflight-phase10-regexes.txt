@@ -17,7 +17,7 @@
 1	^harness\.phase09-qualification$
 1	^repo\.sched-k5-anchors$
 1	^repo\.p10-mutant-anchors$
-8	^unit\.core\.profile
+9	^unit\.core\.profile
 6	^unit\.core\.digest
 9	^unit\.core\.vg\.
 1	^unit\.core\.vg\.decal-equality$
@@ -40,3 +40,5 @@
 1	^unit\.core\.rdp\.depth-composite-accepted$
 1	^unit\.core\.rdp\.depth-composite-wrong-depth$
 1	^unit\.core\.rdp\.depth-composite-sidecar$
+1	^unit\.core\.profile\.v26-predicate-matrix$
+3	^(unit\.core\.profile\.v26-predicate-matrix|unit\.core\.k1\..*)$

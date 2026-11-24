@@ -13,6 +13,13 @@
  *     are accepted on each id (RDP depth is active there).
  * v26-isviewer: the ISViewer window is active on the eight SI family ids
  *     (four si-v1, four si-v2) and absent on an id outside the family.
+ * v26-predicate-matrix (plan 10-10): over all 25 registered ids (17 before
+ *     Phase 9, four si-v1, four si-v2) the predicates t64_has_rdp_depth_profile,
+ *     t64_has_si_profile, t64_has_si_v25_profile, t64_has_si_v26_profile and
+ *     t64_has_ai_device match an expected table written below as literals:
+ *     depth is active on the three descriptor 10 depth ids and the four
+ *     descriptor 13 ids only, inactive on the descriptor 11 id and the four
+ *     descriptor 12 ids (K1 preserved).
  *
  * Expected values are literals written here or computed from the documented
  * layout, never read back from the production writer alone.
@@ -951,8 +958,112 @@ static void case_v26_isviewer(void) {
   T64_CHECK_INT(refused_ids, 1u);
 }
 
+/* ---- predicate matrix over all 25 registered ids ------------------------ */
+
+typedef struct {
+  const char *id;
+  bool depth;
+  bool si;
+  bool v25;
+  bool v26;
+  bool ai_device;
+} matrix_row;
+
+/* Written by hand from the descriptor and tuple of each id, not read from the
+ * predicates. Tuples (descriptor, model, state): the 17 earlier ids run from
+ * (1,1,5) to (11,19,24); depth needs descriptor 10 with model 16, 17 or 18
+ * (rows depth-v7, vi-v8, vi-filter-v9); the AI row (11,19,24) has the AI
+ * device but no depth; the si-v1 family is (12,20,25); the si-v2 family is
+ * (13,21,26) with depth. */
+#define PRE_V9 "ntsc-cart-4m-openipl3-rdram-b-t1-"
+static const matrix_row matrix_rows[] = {
+    /* id, depth, si family, exact 12/20/25, exact 13/21/26, ai device */
+    {"ntsc-cart-4m-skeleton", false, false, false, false, false},
+    {"ntsc-cart-4m-openipl3-warm-v1", false, false, false, false, false},
+    {"ntsc-cart-4m-openipl3-vr4300-v1", false, false, false, false, false},
+    {"ntsc-cart-4m-openipl3-vr4300-compat-v1", false, false, false, false,
+     false},
+    {"ntsc-cart-4m-openipl3-vr4300-compat-v2", false, false, false, false,
+     false},
+    {"ntsc-cart-4m-openipl3-rsp-functional-v1", false, false, false, false,
+     false},
+    {"ntsc-cart-4m-openipl3-rdram-a-t1-v1", false, false, false, false,
+     false},
+    {PRE_V9 "v1", false, false, false, false, false},
+    {PRE_V9 "rdp-vi-v2", false, false, false, false, false},
+    {PRE_V9 "rdp-triangle-v3", false, false, false, false, false},
+    {PRE_V9 "rdp-texture-v4", false, false, false, false, false},
+    {PRE_V9 "rdp-combiner-v5", false, false, false, false, false},
+    {PRE_V9 "rdp-blender-v6", false, false, false, false, false},
+    {PRE_V9 "rdp-depth-v7", true, false, false, false, false},
+    {PRE_V9 "rdp-vi-v8", true, false, false, false, false},
+    {PRE_V9 "rdp-vi-filter-v9", true, false, false, false, false},
+    {PRE_V9 "rdp-vi-filter-v9-ai-v1", false, false, false, false, true},
+    {V1_STEM, false, true, true, false, true},
+    {V1_STEM "-e4k", false, true, true, false, true},
+    {V1_STEM "-e16k", false, true, true, false, true},
+    {V1_STEM "-s32k", false, true, true, false, true},
+    {V2_STEM, true, true, false, true, true},
+    {V2_STEM "-e4k", true, true, false, true, true},
+    {V2_STEM "-e16k", true, true, false, true, true},
+    {V2_STEM "-s32k", true, true, false, true, true},
+};
+
+#define MATRIX_ROW_COUNT (sizeof matrix_rows / sizeof matrix_rows[0])
+
+static void expect_flag(const char *id, const char *name, bool got,
+                        bool want) {
+  if (got != want) {
+    fprintf(stderr, "v26-predicate-matrix: %s: %s is %s, expected %s\n", id,
+            name, got ? "true" : "false", want ? "true" : "false");
+  }
+  T64_CHECK(got == want);
+}
+
+static void case_v26_predicate_matrix(void) {
+  size_t i;
+  size_t depth_rows = 0u;
+  size_t checked = 0u;
+
+  T64_CHECK_INT(MATRIX_ROW_COUNT, 25);
+  for (i = 0u; i < MATRIX_ROW_COUNT; i++) {
+    const matrix_row *row = &matrix_rows[i];
+    const t64_profile_descriptor *profile = lookup_profile(row->id);
+    t64_machine *machine = NULL;
+
+    if (profile == NULL) continue;
+    T64_CHECK_INT(t64_machine_create(&allocator, profile, &machine),
+                  T64_STATUS_OK);
+    if (machine == NULL) continue;
+    expect_flag(row->id, "t64_has_rdp_depth_profile",
+                t64_has_rdp_depth_profile(machine), row->depth);
+    expect_flag(row->id, "t64_has_si_profile", t64_has_si_profile(machine),
+                row->si);
+    expect_flag(row->id, "t64_has_si_v25_profile",
+                t64_has_si_v25_profile(machine), row->v25);
+    expect_flag(row->id, "t64_has_si_v26_profile",
+                t64_has_si_v26_profile(machine), row->v26);
+    expect_flag(row->id, "t64_has_ai_device", t64_has_ai_device(machine),
+                row->ai_device);
+    /* The exact predicates are disjoint and the family is their union. */
+    T64_CHECK(!(t64_has_si_v25_profile(machine) &&
+                t64_has_si_v26_profile(machine)));
+    T64_CHECK(t64_has_si_profile(machine) ==
+              (t64_has_si_v25_profile(machine) ||
+               t64_has_si_v26_profile(machine)));
+    if (row->depth) depth_rows++;
+    checked++;
+    t64_machine_destroy(machine);
+  }
+  /* Depth: three descriptor 10 ids plus the four descriptor 13 ids. */
+  T64_CHECK_INT(depth_rows, 7);
+  printf("v26-predicate-matrix: rows=%zu\n", checked);
+  T64_CHECK_INT(checked, 25);
+}
+
 int main(int argc, char **argv) {
-  static const char *const cases[] = {"v26-identity", "v26-isviewer"};
+  static const char *const cases[] = {"v26-identity", "v26-isviewer",
+                                      "v26-predicate-matrix"};
 
   if (argc == 2 && strcmp(argv[1], "--list-cases") == 0) {
     size_t index;
@@ -971,6 +1082,10 @@ int main(int argc, char **argv) {
       case_v26_isviewer();
       return T64_TEST_FINISH("unit.core.profile.v26-isviewer");
     }
+    if (strcmp(argv[2], "v26-predicate-matrix") == 0) {
+      case_v26_predicate_matrix();
+      return T64_TEST_FINISH("unit.core.profile.v26-predicate-matrix");
+    }
     fprintf(stderr, "unknown case: %s\n", argv[2]);
     return 2;
   }
@@ -980,5 +1095,6 @@ int main(int argc, char **argv) {
   }
   case_v26_identity();
   case_v26_isviewer();
+  case_v26_predicate_matrix();
   return T64_TEST_FINISH("unit.core.profile.v26");
 }

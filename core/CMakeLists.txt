@@ -800,7 +800,8 @@ set_tests_properties(unit.core.k1.dispatch-refusal
   ENVIRONMENT "T64_TEST_IPL3_PATH=${T64_BOOT_FIXTURE_DIR}/ipl3_compat.z64")
 
 # Descriptor 13 family (plan 10-09): the four registered si-v2 ids with their
-# pinned profile hashes, and ISViewer activity on the eight SI family ids.
+# pinned profile hashes, and ISViewer activity on the eight SI family ids; plan
+# 10-10 adds the predicate matrix over all 25 registered ids.
 add_executable(test_profile_v26 tests/test_profile_v26.c)
 target_include_directories(test_profile_v26 PRIVATE
   "${CMAKE_SOURCE_DIR}/tests"
@@ -813,8 +814,11 @@ add_test(NAME unit.core.profile.v26-identity
   COMMAND test_profile_v26 --case v26-identity)
 add_test(NAME unit.core.profile.v26-isviewer
   COMMAND test_profile_v26 --case v26-isviewer)
+add_test(NAME unit.core.profile.v26-predicate-matrix
+  COMMAND test_profile_v26 --case v26-predicate-matrix)
 set_tests_properties(unit.core.profile.v26-identity
-  unit.core.profile.v26-isviewer PROPERTIES
+  unit.core.profile.v26-isviewer
+  unit.core.profile.v26-predicate-matrix PROPERTIES
   LABELS "unit;phase10"
   ENVIRONMENT "T64_TEST_IPL3_PATH=${T64_BOOT_FIXTURE_DIR}/ipl3_compat.z64")
 
