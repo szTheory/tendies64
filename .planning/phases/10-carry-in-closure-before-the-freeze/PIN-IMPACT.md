@@ -162,7 +162,8 @@ the lines by id, ROM and checkpoint and compares them. The head list may carry
 extra ids (`--head-extra-id`) for the four ids of plans 10-09 onward; the base list
 is always the 21 shipped ids. Checkpoints: guest ticks 0, 1, 16, 256, 4096, 65536,
 262144, 1048576, 2097152 and 4194304; a resource-limit stop is continued as a yield
-(the replay player rule) and a terminal stop (guest completion, CPU unsupported or a
+(the replay player rule, at most 64 calls without progress: the digest of a stalled
+machine depends on how many advance calls were made) and a terminal stop (guest completion, CPU unsupported or a
 stalled resource limit) is printed as a `stop` line and ends that ROM. Candidate ROMs:
 the eight authored or cleared fixtures `ipl3_compat`, `hello`, `rdp-fill`,
 `audio-pcm` and the four `phase09-admit-*` images, plus one generated authored 4 KiB
@@ -170,7 +171,7 @@ image (`authored-4k`) that only the skeleton id admits (status 5, invalid ROM, f
 other 20). The report file records the SHA-256 of every candidate fixture.
 
 Baseline commit (informational; later sweeps use the Wave 0 and Wave 2 base records
-of section 5, never this line and never `HEAD`): `1ebd3d38c784f230930514d27144f8e1eb0acfcf`
+of section 5, never this line and never `HEAD`): `18e41b47c173e6cdcccda8805a715b57742f9b90`
 
 | Measure | Value |
 |---------|-------|
@@ -178,10 +179,10 @@ of section 5, never this line and never `HEAD`): `1ebd3d38c784f230930514d27144f8
 | line kinds | 1460 digest lines, 115 stop lines (reasons: guest completion 55, CPU unsupported 42, stalled resource limit 18), 20 skip lines (all `authored-4k`, status 5), 4 export lines |
 | distinct ids with at least one digest line | 21 of 21 |
 | export lines | the four si-v1 ids (state container hash of the first admitted ROM at its last checkpoint) |
-| seconds per run (one tree, printer only) | 38.1 to 38.8 |
-| seconds per tree build (t64_core and t64_sha256 only) | 0.1 to 2.7 |
-| wall seconds for a two-tree comparison (builds and sweeps in parallel) | 41.7 |
-| wall seconds for `--selftest` (three sweeps, base reused) | 81.9 to 84.6 |
+| seconds per run (one tree, printer only) | 40.9 to 60.4 (38.1 to 38.8 with the earlier bound of 8 yields) |
+| seconds per tree build (t64_core and t64_sha256 only) | 0.1 to 3.7 |
+| wall seconds for a two-tree comparison (builds and sweeps in parallel) | 60.6 at 1-minute load 8.5 |
+| wall seconds for `--selftest` (three sweeps, base reused) | 91.2 |
 | 1-minute host load during the runs | 7.9 to 10 (other sessions on the same machine; an upper bound for a quiet host) |
 
 Per-id coverage at the baseline commit:
