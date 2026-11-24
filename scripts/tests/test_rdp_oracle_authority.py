@@ -31,7 +31,6 @@ MANIFEST_RELATIVE = "fixtures/manifest.json"
 MIRROR_EXTRA = (MANIFEST_RELATIVE,)
 BOUND_FILES = (
     "docs/spec/rdp-vi-cases.json",
-    "fixtures/manifest.json",
     "fixtures/rdp/fill.S",
     "scripts/check-rdp-vi-cases.py",
     "core/tests/test_rdp.c",
@@ -541,6 +540,10 @@ def main() -> int:
         "out-of-tree-private-root",
         "nested-private-path-refusal",
         "duplicate-record-key",
+        "fixture-manifest-empty-bound-rows",
+        "fixture-manifest-duplicate-bound-id",
+        "fixture-manifest-bound-row-changed",
+        "fixture-manifest-bound-row-missing",
         "missing-authority",
         "approved-scoped-synthetic",
         "local-request-revision-binding",

@@ -12,9 +12,9 @@ command that detects the move. Run the cheap check in the commit that makes the 
 
 | Edit | Pin or check it moves | Cheap check |
 |------|-----------------------|-------------|
-| any of the 14 files in `EXPECTED_CORPUS_PATHS` of `scripts/check-rdp-oracle-authority.py`: `core/tests/test_rdp.c`, `test_rdp_copy.c`, `test_rdp_triangles.c`, `test_rdp_texture.c`, `test_rdp_combiner.c`, `test_rdp_blender.c`, `test_rdp_depth.c`, `core/tests/test_vi.c`, `test_video_output.c`, `runner/tests/test_rdp_video.c`, `scripts/check-rdp-vi-cases.py`, `docs/spec/rdp-vi-cases.json`, `fixtures/rdp/fill.S`, `fixtures/manifest.json` | whole-file SHA-256 and blob id of each file, hence the derived request hash `PINNED_REQUEST_SHA256` (line 23); refusal text "authored corpus SHA-256 changed". Edits belong to the orchestrator only | `ctest --test-dir build/gate -R '^harness\.rdp-oracle-authority$'` and `python3 -B scripts/check-rdp-oracle-authority.py --expect-blocked` |
+| any of the 13 files in `EXPECTED_CORPUS_PATHS` of `scripts/check-rdp-oracle-authority.py` (14 at the Wave 0 base; `fixtures/manifest.json` left the whole-file set in plan 10-03, see the next row): `core/tests/test_rdp.c`, `test_rdp_copy.c`, `test_rdp_triangles.c`, `test_rdp_texture.c`, `test_rdp_combiner.c`, `test_rdp_blender.c`, `test_rdp_depth.c`, `core/tests/test_vi.c`, `test_video_output.c`, `runner/tests/test_rdp_video.c`, `scripts/check-rdp-vi-cases.py`, `docs/spec/rdp-vi-cases.json`, `fixtures/rdp/fill.S` | whole-file SHA-256 and blob id of each file, hence the derived request hash `PINNED_REQUEST_SHA256` (line 23); refusal text "authored corpus SHA-256 changed". Edits belong to the orchestrator only | `ctest --test-dir build/gate -R '^harness\.rdp-oracle-authority$'` and `python3 -B scripts/check-rdp-oracle-authority.py --expect-blocked` |
 | `docs/spec/rdp-vi-cases.json` (needed to list new cases of a Phase 7 binary) | `CASE_INVENTORY_SHA256` at `scripts/qualify-rdp-vi.py:28`, enforced at `:561` by the hosted step "Emit authored raw RDP VI evidence", plus the oracle request | replay the hosted emit step (`sh scripts/preflight-phase10.sh`); `python3 -B scripts/check-rdp-vi-cases.py --build build/gate --suite <name>` (not in the gate) |
-| a `fixtures/manifest.json` row | the oracle request until GATE-02 lands (per-row pins afterwards); the `phase09-*` rows are F2-pinned and are never touched | `ctest -R '^harness\.rdp-oracle-authority$'`; `ctest -R '^harness\.phase09-qualification$'` |
+| a `fixtures/manifest.json` row | per-row pin of every row present at the rebind (39 rows, each by its own canonical hash in `corpus.fixture_manifest.bound_rows`, looked up by id); appended rows need no rebind (verified by `append-unrelated-row`); changing, removing or duplicating any existing row still refuses (verified by `existing-row-changed`, `bound-row-changed` and `duplicate-bound-id`). The `phase09-*` rows are F2-pinned and are never touched. The Phase 9 claim blocks bind the manifest by the pinned Phase 9 identity plus a per-row view (section 9) | `ctest -R '^harness\.rdp-oracle-authority$'`; `ctest -R '^harness\.phase09-qualification$'` |
 | any core `.c` or `.h` text | the build id fingerprint (`core/CMakeLists.txt:20-66`), hence packet-bearing digests of pre-v25 ids; the sealed function bodies of `REVIEWED_BODY_DIGESTS` when a sealed body changes (rows by file at the base: `t64_rdp_depth.c` 14, `t64_rdp.c` 24, `t64_rdp_pipeline.c` 20, `t64_rdp_raster.c` 26, `t64_ai.c` 19, `t64_bus.c` 4, `t64_si.c` 1, `t64_save.c` 1, `t64_pi.c` 1) | `python3 -B scripts/check-rsp-no-hle.py --build build/gate`; the two-tree digest sweep tool of plan 10-02 |
 | `docs/spec/phase09-cases.json`, existing `phase09-*` rows, existing profile fields | the F2 identity pins of `harness.phase09-qualification` (`scripts/tests/test_phase09_qualification.py` F2 block) | `ctest -R '^harness\.phase09-qualification$'` |
 | `docs/spec/audio-cases.json` or removal of `repo.rsp-no-hle` from its `qualification` suite | `EXPECTED_INVENTORY_SHA256` at `scripts/qualify-audio.py:26`; the native plan lines that require `PASS: rsp-no-hle` | `ctest -R '^harness\.audio-qualification$'`; the post-gate replay of `sh scripts/preflight-phase10.sh` |
@@ -218,3 +218,36 @@ built on its own) report 0 differences in 1599 shared lines; a head scratch copy
 (`t64.state.rdp.vi.blender.20` to `...2X`, scratch copy only) reports 64 differences,
 all in the `ntsc-cart-4m-openipl3-rdram-b-t1-rdp-blender-v6` id; `--base HEAD` is
 refused with exit 2.
+
+## 8. GATE-02 per-row oracle pin record
+
+Written by plan 10-03 (phase-wave 0). Evidence tier: code observation and test
+results at the commit that records it. The change is an identity-only rebind of the
+Phase 7 oracle request: it grants no oracle, rights or publication authority, and
+`local_decision` stays blocked.
+
+| Item | Value |
+|------|-------|
+| what changed | `corpus.fixture_manifest` of `docs/evidence/phase07-oracle-authority.json` went from `{path, sha256, git_blob_id_sha1}` (whole file) to `{path, bound_rows: [{id, row_sha256}]}`; `fixtures/manifest.json` left `EXPECTED_CORPUS_PATHS` and `bound_authored_inputs` |
+| bound rows | 39 (every manifest row at the rebind, manifest order, `rdp-fill` and `rdp-fill-payload` included); `row_sha256` is `_canonical_sha256` of the row |
+| whole-file bound set | 13 paths (14 at the Wave 0 base) |
+| old `PINNED_REQUEST_SHA256` | `a4bb7774b72321261e37a44bbb518161b9b564e4beb076dfebe06881aab67733` (reproduced from the committed record before the edit) |
+| new `PINNED_REQUEST_SHA256` | `e131cbe7e255052e706668b6cb0d7192c4ac877b65bd7c3a33e65194962927ab` |
+| who | the orchestrator, commit `b64098f` (checker edit, record, `phase07-oracle-authority.md`); the executor wrote only the tests (`ff341a0`, then the BOUND_FILES alignment of this plan) |
+| unchanged | `TRUSTED_LOCAL_DECISION_SHA256` and `TRUSTED_PUBLICATION_DECISION_SHA256` stay `None`; `--require-approved` exits 2 with "no pinned competent owner/legal decision"; `--expect-blocked` exits 0 with "blocked: no oracle operation is authorized"; VID-04 stays deferred |
+| selftest | 26 controls (22 plus `fixture-manifest-empty-bound-rows`, `fixture-manifest-duplicate-bound-id`, `fixture-manifest-bound-row-changed`, `fixture-manifest-bound-row-missing`) |
+
+Behavior proved by `scripts/tests/test_rdp_oracle_authority.py` against scratch
+mirrors (RED report of Task 1 in `build/gate/10-03-task1/red.txt`: exactly
+`append-unrelated-row`, `old-whole-file-mutation` and `reorder-bound-rows` failed
+against the whole-file checker; all nine cases pass after the rebind): an appended
+row and a whitespace-only reformat leave the record valid and blocked; a reorder is
+accepted (lookup by id); a changed bound row (`rdp-fill` sha256, size, source_rights,
+binary_rights, distribution, `rdp-fill-payload` sha256), a changed or removed row the
+request does not consume (`hello-openipl3`), a duplicated bound id, a row cloned under
+another id, a missing manifest, an empty or absent row list refuse with the checker's
+own exit 2.
+
+Consequence for later plans: appending a manifest row (plan 10-14) needs no oracle
+rebind. Changing, removing or duplicating any of the 39 bound rows is still an
+orchestrator-only identity-only rebind.
