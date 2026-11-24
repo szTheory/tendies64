@@ -21,3 +21,4 @@
 4	^unit\.core\.digest
 0	^unit\.core\.vg\.
 0	^runner\.composite
+1	^unit\.core\.k1\.dispatch-refusal$

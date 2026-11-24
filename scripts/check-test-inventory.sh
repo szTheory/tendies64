@@ -242,7 +242,8 @@ harness.state-field-use-audit'
 # Phase 10 names (carry-in closure before the freeze): every name also carries
 # the extra CTest label phase10, which sh scripts/preflight-phase10.sh compares
 # with this block.
-PHASE10_TESTS='repo.p10-mutant-anchors'
+PHASE10_TESTS='repo.p10-mutant-anchors
+unit.core.k1.dispatch-refusal'
 
 CPU_COVERAGE_OPCODES='ADD
 ADDU

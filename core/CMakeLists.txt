@@ -780,6 +780,22 @@ set_tests_properties(unit.core.digest.sink-legacy-identity
   LABELS unit
   ENVIRONMENT "T64_TEST_IPL3_PATH=${T64_BOOT_FIXTURE_DIR}/ipl3_compat.z64")
 
+# K1 characterization (plan 10-02): Z refusal on the shipped composite ids,
+# pinned before any edit of the depth predicate.
+add_executable(test_k1_refusal tests/test_k1_refusal.c)
+target_include_directories(test_k1_refusal PRIVATE
+  "${CMAKE_SOURCE_DIR}/tests"
+  "${CMAKE_CURRENT_SOURCE_DIR}"
+  "${CMAKE_SOURCE_DIR}/tools/common")
+target_link_libraries(test_k1_refusal PRIVATE t64_core t64_sha256)
+t64_target_warnings(test_k1_refusal)
+add_dependencies(test_k1_refusal t64-boot-fixtures)
+add_test(NAME unit.core.k1.dispatch-refusal
+  COMMAND test_k1_refusal --case dispatch-refusal)
+set_tests_properties(unit.core.k1.dispatch-refusal PROPERTIES
+  LABELS "unit;phase10"
+  ENVIRONMENT "T64_TEST_IPL3_PATH=${T64_BOOT_FIXTURE_DIR}/ipl3_compat.z64")
+
 add_executable(test_sched_ledger tests/test_sched_ledger.c)
 target_include_directories(test_sched_ledger PRIVATE
   "${CMAKE_SOURCE_DIR}/tests"
