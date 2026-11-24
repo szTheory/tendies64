@@ -315,6 +315,10 @@ t64_status t64_digest_stream(const t64_machine *machine,
   const bool has_v25_state = t64_has_si_v25_profile(machine);
   const bool has_v26_state = t64_has_si_v26_profile(machine);
   const bool has_v25_framing = has_v25_state || has_v26_state;
+  /* The depth block of the v21 body (descriptor 10 profiles). The v26 family
+   * has depth active but keeps the v25 body: its depth scalars are new-span
+   * members of the RDP block and its hidden table ends section 8. */
+  const bool has_v21_body = has_v21_state && !has_v26_state;
   const bool has_audio_state = has_v24_state || has_v25_framing;
   const bool has_rdp_state = has_v16_state || has_v17_state ||
                              has_v18_state || has_v19_state || has_v20_state ||
@@ -338,6 +342,11 @@ t64_status t64_digest_stream(const t64_machine *machine,
      * member plan 09-10 added, so the stream refuses instead (re-check R1
      * RC-01).
      */
+    return T64_STATUS_BAD_STORAGE;
+  }
+  if (has_v26_state && machine->rdp_depth_hidden == NULL) {
+    /* The hidden depth table is owned from creation on every descriptor 13
+     * machine, and the v26 walker must not stream a missing table. */
     return T64_STATUS_BAD_STORAGE;
   }
 
@@ -684,7 +693,7 @@ t64_status t64_digest_stream(const t64_machine *machine,
         digest_bytes(sink, machine->rdp_triangle_coverage,
                      T64_RDP_TRIANGLE_COVERAGE_BYTES);
       }
-      if (has_v20_state || has_v21_state) {
+      if (has_v20_state || has_v21_body) {
         hash_u32(sink,
                  (uint32_t)T64_RDP_MEMORY_COVERAGE_BYTES(
                  machine->profile.rdram_bytes));
@@ -692,7 +701,7 @@ t64_status t64_digest_stream(const t64_machine *machine,
                      T64_RDP_MEMORY_COVERAGE_BYTES(
                      machine->profile.rdram_bytes));
       }
-      if (has_v19_state || has_v20_state || has_v21_state) {
+      if (has_v19_state || has_v20_state || has_v21_body) {
         hash_u32(sink, rdp->primitive_lod_fraction);
         hash_u32(sink, rdp->environment_color);
         hash_u32(sink, rdp->fog_color);
@@ -711,7 +720,7 @@ t64_status t64_digest_stream(const t64_machine *machine,
           hash_u32(sink, rdp->key_width[i]);
         }
       }
-      if (has_v21_state) {
+      if (has_v21_body) {
         hash_u32(sink, rdp->depth_image_address);
         hash_u32(sink, rdp->depth_image_valid ? 1u : 0u);
         hash_u32(sink, rdp->primitive_z);
@@ -723,6 +732,19 @@ t64_status t64_digest_stream(const t64_machine *machine,
         digest_bytes(sink, machine->rdp_depth_hidden,
                      T64_RDP_DEPTH_HIDDEN_BYTES(
                      machine->profile.rdram_bytes));
+      } else if (has_v26_state) {
+        /*
+         * State 26 (plan 10-09): the five depth scalars stay inside the RDP
+         * block at the fixed v21 position, before work_policy_version, so an
+         * importer proves a Z triangle in flight with them before the tail.
+         * They are new-span members: the stripped v26 stream equals the
+         * stripped v25 stream.
+         */
+        hash_u32_new(sink, rdp->depth_image_address);
+        hash_u32_new(sink, rdp->depth_image_valid ? 1u : 0u);
+        hash_u32_new(sink, rdp->primitive_z);
+        hash_u32_new(sink, rdp->primitive_dz);
+        hash_u32_new(sink, rdp->primitive_depth_valid ? 1u : 0u);
       }
       hash_u32(sink, rdp->work_policy_version);
       hash_u32(sink, rdp->random_state);
@@ -880,8 +902,9 @@ t64_status t64_digest_stream(const t64_machine *machine,
          * coverage table. They end section 8 in the new-span class, so the
          * stripped v25 stream still equals the v24 stream (decision D-05) and
          * the state of the 17 older profiles is untouched. The depth members
-         * are excluded: depth is inactive on descriptor 12 (K1), and the
-         * diagnostic last-coverage members are test observation state.
+         * are excluded on descriptor 12 (K1: depth is inactive there) and
+         * streamed on descriptor 13 (the two v26 blocks); the diagnostic
+         * last-coverage members are test observation state.
          */
         hash_u32_new(sink, rdp->primitive_lod_fraction);
         hash_u32_new(sink, rdp->environment_color);
@@ -907,6 +930,16 @@ t64_status t64_digest_stream(const t64_machine *machine,
                            T64_RDP_MEMORY_COVERAGE_BYTES(
                            machine->profile.rdram_bytes),
                            T64_DIGEST_CLASS_NEW);
+        if (has_v26_state) {
+          /* The hidden depth table follows the coverage table (state 26). */
+          hash_u32_new(sink,
+                       (uint32_t)T64_RDP_DEPTH_HIDDEN_BYTES(
+                       machine->profile.rdram_bytes));
+          digest_bytes_class(sink, machine->rdp_depth_hidden,
+                             T64_RDP_DEPTH_HIDDEN_BYTES(
+                             machine->profile.rdram_bytes),
+                             T64_DIGEST_CLASS_NEW);
+        }
       }
     }
   }

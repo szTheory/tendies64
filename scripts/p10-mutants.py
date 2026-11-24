@@ -151,12 +151,12 @@ MUTANTS = [
             (
                 "core/t64_internal.h",
                 "static inline bool t64_has_rdp_depth_profile(const t64_machine *machine) {\n"
-                "  return machine != NULL && machine->profile.descriptor_version == 10u &&\n",
+                "  return (machine != NULL && machine->profile.descriptor_version == 10u &&\n",
                 "static inline bool t64_has_rdp_depth_profile(const t64_machine *machine) {\n"
-                "  return machine != NULL &&\n"
-                "         (machine->profile.descriptor_version == 10u ||\n"
-                "          machine->profile.descriptor_version == 11u ||\n"
-                "          machine->profile.descriptor_version == 12u) &&\n",
+                "  return (machine != NULL &&\n"
+                "          (machine->profile.descriptor_version == 10u ||\n"
+                "           machine->profile.descriptor_version == 11u ||\n"
+                "           machine->profile.descriptor_version == 12u) &&\n",
             )
         ],
         "kill": [

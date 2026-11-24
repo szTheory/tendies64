@@ -1306,13 +1306,20 @@ static inline bool t64_has_rdp_blender_profile(const t64_machine *machine) {
           t64_has_vi_filter_v9_profile(machine));
 }
 
+/*
+ * RDP depth is active on the descriptor 10 profiles of models 16 to 18 and on
+ * the descriptor 13 family (plan 10-09). The v26 term sits outside the
+ * descriptor 10 conjunction, so the descriptor 11 and 12 composite ids keep
+ * their Z refusal (K1) although the family predicates below include them.
+ */
 static inline bool t64_has_rdp_depth_profile(const t64_machine *machine) {
-  return machine != NULL && machine->profile.descriptor_version == 10u &&
-         ((machine->profile.machine_model_version == 16u &&
-           machine->profile.state_serialization_version == 21u) ||
-          (machine->profile.machine_model_version == 17u &&
-           machine->profile.state_serialization_version == 22u) ||
-          t64_has_vi_filter_v9_profile(machine));
+  return (machine != NULL && machine->profile.descriptor_version == 10u &&
+          ((machine->profile.machine_model_version == 16u &&
+            machine->profile.state_serialization_version == 21u) ||
+           (machine->profile.machine_model_version == 17u &&
+            machine->profile.state_serialization_version == 22u) ||
+           t64_has_vi_filter_v9_profile(machine))) ||
+         t64_has_si_v26_profile(machine);
 }
 
 static inline bool t64_has_vr4300_cpu_state(const t64_machine *machine) {

@@ -9,7 +9,8 @@
  *     version words and the boot status text. Every text, boot and numeric
  *     field is mutated through the public hash, serialize and create calls.
  *     Machine creation under an unregistered descriptor 13 id refuses before
- *     any allocation. RDP depth commands are checked against DEPTH_ACTIVE.
+ *     any allocation. SetZImage, SetPrimDepth and the four Z triangle opcodes
+ *     are accepted on each id (RDP depth is active there).
  * v26-isviewer: the ISViewer window is active on the eight SI family ids
  *     (four si-v1, four si-v2) and absent on an id outside the family.
  *
@@ -33,10 +34,6 @@
 #define V2_STEM "ntsc-cart-4m-openipl3-rdram-b-t1-si-v2"
 #define OUTSIDE_FAMILY_ID "ntsc-cart-4m-openipl3-rdram-b-t1-rdp-vi-filter-v9"
 #define FAMILY_COUNT 4u
-
-/* Plan 10-09 Task 1 registers the family with depth inactive; Task 3 turns
- * depth on for the four ids and flips this to true. */
-#define DEPTH_ACTIVE false
 
 typedef struct {
   const char *id;
@@ -609,7 +606,7 @@ static void check_family_row(size_t index) {
     T64_CHECK(machine->rdp_depth_hidden != NULL);
     T64_CHECK(machine->video_packets != NULL);
     T64_CHECK(machine->audio_packets != NULL);
-    T64_CHECK(t64_has_rdp_depth_profile(machine) == DEPTH_ACTIVE);
+    T64_CHECK(t64_has_rdp_depth_profile(machine));
     t64_machine_destroy(machine);
   }
   T64_CHECK_INT(state.outstanding, 0u);
@@ -691,6 +688,14 @@ static void check_unregistered_ids(void) {
 #define COMMAND_ADDRESS UINT32_C(0x100)
 #define DP_START UINT32_C(0x04100000)
 #define DP_END (DP_START + UINT32_C(4))
+#define FRAMEBUFFER_ADDRESS UINT32_C(0x5000)
+#define DEPTH_IMAGE_ADDRESS UINT32_C(0x6000)
+#define TEXTURE_ADDRESS UINT32_C(0x4000)
+
+static void write_be16(uint8_t *bytes, uint16_t value) {
+  bytes[0] = (uint8_t)(value >> 8);
+  bytes[1] = (uint8_t)value;
+}
 
 static void write_be64(uint8_t *bytes, uint64_t value) {
   uint32_t i;
@@ -732,110 +737,122 @@ static void run_commands(t64_machine *machine, const uint64_t *words,
   dispatch_all(machine);
 }
 
-/* Words of core/tests/test_rdp_depth.c, as in core/tests/test_k1_refusal.c. */
-static const uint64_t setup_words[] = {
-    UINT64_C(0x3f10000700005000), /* RGBA16 color image, width 8 */
-    UINT64_C(0x2d00000000020020), /* scissor [0,8) x [0,8) */
-    UINT64_C(0x2f00000000000034), /* primitive Z, compare, update */
-    UINT64_C(0x3a00000000ff00ff), /* green primitive color, opaque alpha */
-    UINT64_C(0xfc00000000018600), /* literal combiner selects primitive */
+/* Command words of core/tests/test_rdp_depth.c
+ * case_all_z_triangle_opcodes_reach_pixel (that file is oracle-bound and is
+ * never edited): the RGBA16 color image at 0x5000 of width 8, the scissor, the
+ * primitive Z mode, SetZImage at 0x6000, SetPrimDepth Z=0x1357 dZ=9, the
+ * primitive color and the combiner that selects it. */
+static const uint64_t head_words[] = {
+    UINT64_C(0x3f10000700005000), UINT64_C(0x2d00000000020020),
+    UINT64_C(0x2f00000000000034), UINT64_C(0x3e00000000006000),
+    UINT64_C(0x2e00000013570009), UINT64_C(0x3a00000000ff00ff),
+    UINT64_C(0xfc00000000018600),
 };
-static const uint64_t set_z_image = UINT64_C(0x3e00000000006000);
-static const uint64_t set_prim_depth = UINT64_C(0x2e00000013570009);
-static const uint64_t packet_09[] = {
-    UINT64_C(0x09000014000c0004), UINT64_C(0x00010000fffe8000),
-    UINT64_C(0x0001000000008000), UINT64_C(0x0004000000018000),
-    UINT64_C(0x0000000000000000), UINT64_C(0x0000000000000000),
+static const uint64_t texture_setup[] = {
+    UINT64_C(0x3d10000700004000), UINT64_C(0x3510040000080200),
+    UINT64_C(0x320000000001c01c), UINT64_C(0x340000000001c01c),
 };
-static const uint64_t packet_0b[] = {
-    UINT64_C(0x0b000014000c0004), UINT64_C(0x00010000fffe8000),
-    UINT64_C(0x0001000000008000), UINT64_C(0x0004000000018000),
-    UINT64_C(0x0000000000010000), 0u, 0u, 0u, 0u, 0u, 0u, 0u,
-    UINT64_C(0x0000000000000000), UINT64_C(0x0000000000000000),
-};
-static const uint64_t packet_0d[] = {
-    UINT64_C(0x0d000014000c0004), UINT64_C(0x00010000fffe8000),
-    UINT64_C(0x0001000000008000), UINT64_C(0x0004000000018000),
-    UINT64_C(0x0080004000c000ff), 0u, 0u, 0u, 0u, 0u, 0u, 0u,
-    UINT64_C(0x0000000000000000), UINT64_C(0x0000000000000000),
-};
-static const uint64_t packet_0f[] = {
-    UINT64_C(0x0f000014000c0004), UINT64_C(0x00010000fffe8000),
-    UINT64_C(0x0001000000008000), UINT64_C(0x0004000000018000),
-    UINT64_C(0x0080004000c000ff), 0u, 0u, 0u, 0u, 0u, 0u, 0u,
-    UINT64_C(0x0000000000010000), 0u, 0u, 0u, 0u, 0u, 0u, 0u,
-    UINT64_C(0x0000000000000000), UINT64_C(0x0000000000000000),
+static const uint64_t edge_words[] = {
+    UINT64_C(0x00010000fffe8000), UINT64_C(0x0001000000000000),
+    UINT64_C(0x0004000000018000),
 };
 
-typedef struct {
-  const uint64_t *words;
-  size_t count;
-  uint32_t opcode;
-} z_triangle;
-
-static const z_triangle z_triangles[] = {
-    {packet_09, sizeof packet_09 / sizeof packet_09[0], 0x09u},
-    {packet_0b, sizeof packet_0b / sizeof packet_0b[0], 0x0bu},
-    {packet_0d, sizeof packet_0d / sizeof packet_0d[0], 0x0du},
-    {packet_0f, sizeof packet_0f / sizeof packet_0f[0], 0x0fu},
-};
-
-static void check_refusal_or_accept(const t64_machine *machine,
-                                    uint32_t opcode) {
-  if (DEPTH_ACTIVE) {
-    T64_CHECK_INT(machine->rdp.refusal_reason, T64_RDP_REFUSAL_NONE);
-    T64_CHECK((machine->rdp.dpc_status & T64_RDP_STATUS_ERROR) == 0u);
-  } else {
-    T64_CHECK_INT(machine->rdp.refusal_reason,
-                  T64_RDP_REFUSAL_UNSUPPORTED_OPCODE);
-    T64_CHECK_INT(machine->rdp.last_opcode_field, opcode);
-    T64_CHECK((machine->rdp.dpc_status & T64_RDP_STATUS_ERROR) != 0u);
-  }
-}
-
-/* One depth command on one id after the accepted setup baseline: refused as
- * an unsupported opcode while depth is inactive, accepted with no refusal
- * once it is active. The Z triangles follow SetZImage and SetPrimDepth, which
- * are accepted only when depth is active. */
-static void check_depth_command(const char *profile_id, const uint64_t *words,
-                                size_t count, uint32_t opcode,
-                                bool preface) {
+/* SetZImage and SetPrimDepth are accepted and latch their operands. */
+static void check_depth_state_commands(const char *profile_id) {
   t64_machine *machine = create_admitted(profile_id);
 
   if (machine == NULL) return;
-  run_commands(machine, setup_words, sizeof setup_words / sizeof setup_words[0]);
+  run_commands(machine, head_words, 3u);
   T64_CHECK_INT(machine->rdp.refusal_reason, T64_RDP_REFUSAL_NONE);
-  if (preface && DEPTH_ACTIVE) {
-    run_commands(machine, &set_z_image, 1u);
-    T64_CHECK_INT(machine->rdp.refusal_reason, T64_RDP_REFUSAL_NONE);
-    run_commands(machine, &set_prim_depth, 1u);
-    T64_CHECK_INT(machine->rdp.refusal_reason, T64_RDP_REFUSAL_NONE);
+  T64_CHECK(!machine->rdp.depth_image_valid);
+  T64_CHECK(!machine->rdp.primitive_depth_valid);
+  run_commands(machine, head_words + 3u, 1u);
+  T64_CHECK_INT(machine->rdp.refusal_reason, T64_RDP_REFUSAL_NONE);
+  T64_CHECK((machine->rdp.dpc_status & T64_RDP_STATUS_ERROR) == 0u);
+  T64_CHECK(machine->rdp.depth_image_valid);
+  T64_CHECK_INT(machine->rdp.depth_image_address, DEPTH_IMAGE_ADDRESS);
+  run_commands(machine, head_words + 4u, 1u);
+  T64_CHECK_INT(machine->rdp.refusal_reason, T64_RDP_REFUSAL_NONE);
+  T64_CHECK(machine->rdp.primitive_depth_valid);
+  T64_CHECK_INT(machine->rdp.primitive_z, 0x1357u);
+  T64_CHECK_INT(machine->rdp.primitive_dz, 9u);
+  t64_machine_destroy(machine);
+}
+
+/* One Z triangle opcode runs through to its full sync on one id: no refusal,
+ * and the depth word at pixel (1,2) and its hidden low bits are the literals
+ * of the depth profile test (0x09a8 and 0x83; 0x0004 and 0x80 for opcode 0x0f
+ * with Z base 8.0). */
+static void check_z_triangle(const char *profile_id, uint32_t opcode) {
+  const bool textured = opcode == 0x0bu || opcode == 0x0fu;
+  const bool shaded = opcode == 0x0du || opcode == 0x0fu;
+  uint64_t commands[40];
+  size_t count = 0u;
+  size_t triangle_at;
+  uint32_t i;
+  t64_machine *machine = create_admitted(profile_id);
+  const uint32_t depth_address = DEPTH_IMAGE_ADDRESS + (2u * 8u + 1u) * 2u;
+
+  if (machine == NULL) return;
+  (void)memcpy(commands + count, head_words, sizeof head_words);
+  count += sizeof head_words / sizeof head_words[0];
+  if (textured) {
+    (void)memcpy(commands + count, texture_setup, sizeof texture_setup);
+    count += sizeof texture_setup / sizeof texture_setup[0];
+    for (i = 0u; i < 8u * 8u; i++) {
+      write_be16(machine->ram + TEXTURE_ADDRESS + i * 2u,
+                 opcode == 0x0fu && i != 0u ? 0u : UINT16_C(0xffff));
+    }
   }
-  run_commands(machine, words, count);
-  check_refusal_or_accept(machine, opcode);
-  if (DEPTH_ACTIVE && opcode == 0x3eu) {
-    T64_CHECK(machine->rdp.depth_image_valid);
-    T64_CHECK_INT(machine->rdp.depth_image_address, 0x6000u);
+  triangle_at = count;
+  commands[count++] = (UINT64_C(0x0000000014000c0004) |
+                       ((uint64_t)opcode << 56));
+  (void)memcpy(commands + count, edge_words, sizeof edge_words);
+  count += sizeof edge_words / sizeof edge_words[0];
+  if (shaded && textured) {
+    commands[count++] = UINT64_C(0x0080004000c000ff);
+    for (i = 0u; i < 7u; i++) commands[count++] = 0u;
   }
-  if (DEPTH_ACTIVE && opcode == 0x2eu) {
-    T64_CHECK(machine->rdp.primitive_depth_valid);
-    T64_CHECK_INT(machine->rdp.primitive_z, 0x1357u);
+  if (textured) {
+    commands[count++] = UINT64_C(0x0000000000010000);
+    for (i = 0u; i < 7u; i++) commands[count++] = 0u;
   }
-  if (!DEPTH_ACTIVE) {
-    T64_CHECK(!machine->rdp.depth_image_valid);
-    T64_CHECK(!machine->rdp.primitive_depth_valid);
+  if (shaded && !textured) {
+    for (i = 0u; i < 8u; i++) commands[count++] = 0u;
   }
+  commands[count++] = UINT64_C(0x0000000000000000);
+  commands[count++] = UINT64_C(0x0000000000000000);
+  if (opcode == 0x0fu) {
+    commands[6] = UINT64_C(0xfc12180000000000);
+    commands[2] = UINT64_C(0x2f00000000000030);
+    commands[count - 2u] = UINT64_C(0x0008000000000000);
+  }
+  commands[count++] = UINT64_C(0x2900000000000000);
+  T64_CHECK_INT((commands[triangle_at] >> 56) & UINT64_C(0x3f), opcode);
+  (void)memset(machine->ram + FRAMEBUFFER_ADDRESS, 0xa5, 8u * 8u * 2u);
+  for (i = 0u; i < 8u * 8u; i++) {
+    write_be16(machine->ram + DEPTH_IMAGE_ADDRESS + i * 2u, UINT16_C(0xfffc));
+  }
+  run_commands(machine, commands, count);
+  T64_CHECK_INT(machine->rdp.refusal_reason, T64_RDP_REFUSAL_NONE);
+  T64_CHECK_INT(machine->rdp.last_opcode_field, UINT32_C(0x29));
+  T64_CHECK((machine->rdp.dpc_status & T64_RDP_STATUS_ERROR) == 0u);
+  T64_CHECK(machine->rdp.fullsync_count > 0u);
+  T64_CHECK_INT((machine->ram[depth_address] << 8) |
+                    machine->ram[depth_address + 1u],
+                opcode == 0x0fu ? 0x0004u : 0x09a8u);
+  T64_CHECK_INT(machine->rdp_depth_hidden[depth_address / 2u],
+                opcode == 0x0fu ? 0x80u : 0x83u);
   t64_machine_destroy(machine);
 }
 
 static void check_depth_commands(const char *profile_id) {
+  static const uint32_t opcodes[] = {0x09u, 0x0bu, 0x0du, 0x0fu};
   size_t i;
 
-  check_depth_command(profile_id, &set_z_image, 1u, 0x3eu, false);
-  check_depth_command(profile_id, &set_prim_depth, 1u, 0x2eu, false);
-  for (i = 0u; i < sizeof z_triangles / sizeof z_triangles[0]; i++) {
-    check_depth_command(profile_id, z_triangles[i].words,
-                        z_triangles[i].count, z_triangles[i].opcode, true);
+  check_depth_state_commands(profile_id);
+  for (i = 0u; i < sizeof opcodes / sizeof opcodes[0]; i++) {
+    check_z_triangle(profile_id, opcodes[i]);
   }
 }
 
