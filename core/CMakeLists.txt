@@ -799,6 +799,23 @@ set_tests_properties(unit.core.k1.dispatch-refusal
   LABELS "unit;phase10"
   ENVIRONMENT "T64_TEST_IPL3_PATH=${T64_BOOT_FIXTURE_DIR}/ipl3_compat.z64")
 
+# VER-06 gap vectors (plan 10-06): VG-01, the Z exponent boundaries and the
+# standard-NTSC VI clock vector, one CTest name per case, in a new binary so
+# the oracle-bound depth and VI tests stay unchanged.
+add_executable(test_vg_gaps tests/test_vg_gaps.c)
+target_include_directories(test_vg_gaps PRIVATE
+  "${CMAKE_SOURCE_DIR}/tests"
+  "${CMAKE_CURRENT_SOURCE_DIR}"
+  "${CMAKE_SOURCE_DIR}/tools/common")
+target_link_libraries(test_vg_gaps PRIVATE t64_core t64_sha256)
+t64_target_warnings(test_vg_gaps)
+add_dependencies(test_vg_gaps t64-rdp-fill-fixture)
+add_test(NAME unit.core.vg.decal-equality
+  COMMAND test_vg_gaps --case decal-equality)
+set_tests_properties(unit.core.vg.decal-equality PROPERTIES
+  LABELS "unit;phase10"
+  ENVIRONMENT "T64_TEST_IPL3_PATH=${T64_BOOT_FIXTURE_DIR}/ipl3_compat.z64;T64_TEST_RDP_FILL_PATH=${T64_BOOT_FIXTURE_DIR}/rdp-fill.z64")
+
 add_executable(test_sched_ledger tests/test_sched_ledger.c)
 target_include_directories(test_sched_ledger PRIVATE
   "${CMAKE_SOURCE_DIR}/tests"

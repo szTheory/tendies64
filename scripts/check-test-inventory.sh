@@ -244,7 +244,8 @@ harness.state-field-use-audit'
 # with this block.
 PHASE10_TESTS='repo.p10-mutant-anchors
 unit.core.k1.dispatch-refusal
-unit.core.k1.apply-refusal'
+unit.core.k1.apply-refusal
+unit.core.vg.decal-equality'
 
 CPU_COVERAGE_OPCODES='ADD
 ADDU

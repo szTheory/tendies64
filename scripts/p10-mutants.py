@@ -73,6 +73,7 @@ INCLUDES = ["-I", "core", "-I", "core/include", "-I", "tools/common", "-I", "tes
 TEST_SOURCES = {
     "test_rdp_depth": "core/tests/test_rdp_depth.c",
     "test_k1_refusal": "core/tests/test_k1_refusal.c",
+    "test_vg_gaps": "core/tests/test_vg_gaps.c",
 }
 
 OWN_CHECK_LINE = re.compile(r"test_[a-z_0-9]+\.c:\d+: CHECK(_INT|_STR)? failed")
@@ -129,6 +130,21 @@ MUTANTS = [
             own_check("test_k1_refusal", ["--case", "dispatch-refusal"]),
             own_check("test_k1_refusal", ["--case", "apply-refusal"]),
         ],
+        "record": [],
+    },
+    {
+        "id": "vg01-decal-strict",
+        "tag": "mutant",
+        "expect": "KILLED",
+        "title": "decal tolerance comparison <= written as < (equality must pass, VG-01 a)",
+        "edits": [
+            (
+                "core/t64_rdp_depth.c",
+                "      passed = difference <= tolerance;\n",
+                "      passed = difference < tolerance;\n",
+            )
+        ],
+        "kill": [own_check("test_vg_gaps", ["--case", "decal-equality"])],
         "record": [],
     },
     {
