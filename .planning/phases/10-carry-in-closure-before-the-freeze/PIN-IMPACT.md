@@ -418,3 +418,53 @@ with the F-106 literals. `git diff --quiet` over `scripts/qualify-audio.py`,
 `docs/spec/audio-cases.json` and `scripts/check-audio-cases.py` exits 0 after the
 measurement. The measurement run used a unique artifact prefix and removed only the 18
 files it created under `build/gate`.
+
+### 10.3 The single bound-CI edit (Task 3, commit `4ca1054`)
+
+`.github/workflows/ci.yml` and `scripts/check-ci-yml.sh` changed in one commit, the only
+change of either file (and of `scripts/gate.sh`, which is unchanged) in Phase 10.
+
+| Item | Before | After |
+|------|--------|-------|
+| `gate-macos` `timeout-minutes` (`ci.yml` line 74) | 10 | 15 |
+| `gate-linux` `timeout-minutes` (`ci.yml` line 20) | 10 | 10 (kept, so the two first-match `awk '/timeout-minutes: 10/ ...'` secrets injections of the selftest still bind to the gate-linux line; `grep -c` counts 1 for `timeout-minutes: 15` and 1 for `timeout-minutes: 10`) |
+| CI-TIMEOUT rule | 1 to 10 for every gate job | 1 to 15 when `job == "gate-macos"`, 1 to 10 otherwise; the comment (line 27) and the message carry the same text |
+| selftest | 133 cases | 138 cases: the same 133 plus five `mut_timeout` mutations (`gate-macos` 16, 0, 15.5 and 14.5, `gate-linux` 11); the 14.5 case is the only one that tells an integer check from a bound check, because 15.5 is also above the limit |
+
+RED, captured in a scratch root (`build/gate/10-04-task3/red.txt`, local and ignored: the
+new cases, the old rule and a copy of `ci.yml` with `gate-macos` at 15): exactly two cases
+fail, `clean` first ("the unmodified copy was rejected: ... line 74: timeout-minutes must
+be an integer from 1 to 10") and `dir-clean`; the five new mutation cases pass against the
+old rule for the wrong reason (it refuses every value above 10), so they are not counted
+as RED evidence. GREEN (`build/gate/10-04-task3/green.txt`): 138 cases, 0 failures.
+
+Proof that each new case can fail, six scanner mutants in scratch copies of the final
+scanner (each run with `--selftest`, exit 1, listed failures only):
+
+| Scanner mutant | Failing case |
+|----------------|--------------|
+| bound 10 for every job | `clean`, `dir-clean` (gate-macos 15 refused) |
+| bound 15 for every job | `gate-linux timeout-minutes 11` |
+| gate-macos bound 16 | `gate-macos timeout-minutes 16` |
+| lower bound 0 instead of 1 | `gate-macos timeout-minutes 0` |
+| decimals accepted (`[0-9.]+`) | `gate-macos timeout-minutes 14.5` |
+| the wide bound given to `gate-linux` | `clean`, `dir-clean` |
+
+Other checks at the commit: `sh scripts/check-ci-yml.sh` clean; `ctest -R
+'^repo\.ci-yml(-selftest)?$'` 2 of 2; `actionlint .github/workflows/ci.yml` exit 0;
+`act -l` lists `gate-linux` and `gate-macos`; `harness.phase09-qualification`,
+`harness.audio-qualification` and `harness.rdp-oracle-authority` pass; `git diff --quiet`
+over `scripts/gate.sh` exits 0. Every other scanner rule, and every other existing
+selftest case, is unchanged and still passes.
+
+### 10.4 Records of this plan (Task 4)
+
+`docs/ci-reviews/LOG.md` gets F-115 to F-119 (append-only, run column 44795894664, the
+reference run of F-111): F-115 taken (COST and timeout 15), F-116 declined (guard), F-117
+declined (F-106 outer limits), F-118 declined (Binutils build parallelism), F-119 taken
+(the run-to-run noise band, which also answers the open question of F-114). Correction of
+the section 3 row "Optional `make -j2`": `scripts/build-boot-fixtures.sh` already runs
+`make -j2 all-binutils all-gas all-ld` (line 259, since commit `e6f0655`), so F-118 records
+the real remaining lever (a higher job count) and declines it for the cache-key reason of
+section 3. `.planning/REQUIREMENTS.md` carries the one-line GATE-01 annotation. GATE-01
+stays unchecked: its success criterion is the measured cold-cache hosted run of plan 10-19.
