@@ -818,6 +818,25 @@ set_tests_properties(unit.core.profile.v26-identity
   LABELS "unit;phase10"
   ENVIRONMENT "T64_TEST_IPL3_PATH=${T64_BOOT_FIXTURE_DIR}/ipl3_compat.z64")
 
+# Digest v26 (plan 10-09): the completeness flip over every member of the RDP
+# block and the tables, and the strip differential against the v25 stream.
+add_executable(test_digest_v26 tests/test_digest_v26.c)
+target_include_directories(test_digest_v26 PRIVATE
+  "${CMAKE_SOURCE_DIR}/tests"
+  "${CMAKE_CURRENT_SOURCE_DIR}"
+  "${CMAKE_SOURCE_DIR}/tools/common")
+target_link_libraries(test_digest_v26 PRIVATE t64_core t64_sha256)
+t64_target_warnings(test_digest_v26)
+add_dependencies(test_digest_v26 t64-boot-fixtures)
+add_test(NAME unit.core.digest.v26-completeness
+  COMMAND test_digest_v26 --case v26-completeness)
+add_test(NAME unit.core.digest.v26-strip-differential
+  COMMAND test_digest_v26 --case v26-strip-differential)
+set_tests_properties(unit.core.digest.v26-completeness
+  unit.core.digest.v26-strip-differential PROPERTIES
+  LABELS "unit;phase10"
+  ENVIRONMENT "T64_TEST_IPL3_PATH=${T64_BOOT_FIXTURE_DIR}/ipl3_compat.z64")
+
 # VER-06 gap vectors (plans 10-06 and 10-07): VG-01 to VG-05, the Z exponent
 # boundaries and the standard-NTSC VI clock vector, one CTest name per case, in
 # a new binary so the oracle-bound depth, VI, texture, triangle and blender
