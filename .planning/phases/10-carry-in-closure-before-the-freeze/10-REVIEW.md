@@ -170,3 +170,121 @@ Phase 10 `unit.core.vg.*` names (five from plan 10-06, four from plan 10-07). Th
 0.00 to 0.02 s each at ctest resolution (`unit.core.vg.ntsc-clock` is the longest at 0.10 s in
 `CTestCostData.txt`); the `phase10` label total is 0.80 s for 12 tests.
 
+### Task 2: independent re-derivation, no-production-change proof, mutants and reading
+
+`WAVE1_BASE` is `f6ab8c26d008b8301b729b5aae2715e1b1079318`, read from PIN-IMPACT.md with the base
+extraction idiom (exactly one 40-hex line, an existing commit, an ancestor of the head). `HEAD` is the
+head of the Task 1 commit (`bd37f85`, which adds only this file to the gated tree `37151eb`).
+
+**Re-derivation.** A fresh calculator was written before the committed literals were read, from the
+documents only (`docs/spec/vi.md` "Clock and boundary policy" and the v9 filter text,
+`07-08-DEPTH-FIELDS.md` exponent table, `docs/spec/rdp.md` "V7 depth policy", the shade, perspective and
+Bayer text). Its constants were then checked against the documents by program: the eight-row exponent
+table equals the 07-08 table and the 4 x 4 Bayer matrix equals the matrix printed in `rdp.md`. A second
+script extracted the literals from `core/tests/test_vg_gaps.c` and compared them with the derived values:
+94 comparisons, 0 mismatches. Both scripts live under the ignored `build/10-review/w1/` and are not
+committed. The sampled rows named by the plan, then the rest:
+
+| Value | Document and method | Derived | Committed literal | Match |
+|-------|---------------------|---------|-------------------|-------|
+| NTSC first field deadline | vi.md: (3093+1) * 525 / 2 = 812,175 source cycles; ticks = 812,175 * 62,500,000 / 48,681,812 = 1,042,708.4657 exactly (`fractions.Fraction`); ceil (vi.md line 196 states the ceil rule) | 1,042,709 (floor would be 1,042,708) | `first_field_ticks` 1042709, byte literal `0x000fe915` | yes |
+| NTSC first sampled line | 3094 cycles * 62,500,000 / 48,681,812 = 3972.2227, ceil | 3973 | `first_line_ticks` 3973 | yes |
+| NTSC mutant clock 48,600,000 | same arithmetic, other clock | 1,044,464 and 3979 | comment values 1,044,464 and 3979 | yes (the mutant moves both deadlines, so it is reachable) |
+| Z exponent boundary, exponent 0 | 07-08 table: shift 6, add 0; linear 0x3f and 0x40 and 0x1ffff | visible 0x0000, 0x0004, 0x1ffc; decoded 0x00000, 0x00040, 0x1ffc0 | `visible`, `decoded` arrays | yes |
+| Z exponent boundary, exponent 3 | shift 3, add 0x38000; linear 0x38000 and 0x3bfff | visible 0x6000 and 0x7ffc; decoded 0x38000 and 0x3bff8 | same arrays | yes |
+| Z exponent boundary, exponent 7 and the far word | shift 0, add 0x3f800; linear 0x3f800 and 0x3ffff | visible 0xe000 and 0xfffc; decoded 0x3f800 and 0x3ffff | same arrays; `decoded[16]` 0x3ffff | yes |
+| all 17 linear, visible and decoded values | lowest and highest value of each of the eight ranges plus the lossy 0x3f; the rows tile 0 .. 0x3ffff (asserted) | 17 visible and 17 decoded words | 17 + 17 + 17 literals | yes (34 comparisons) |
+| decal tolerance case | old primitive Z 0x2000, dZ 9: linear 0x10000, visible 0x1000, code 3, hidden 0x83, stored delta 8; new dZ 2: tolerance max(2, 8) = 8; raw 0x2001 and 0x1fff differ by 8 (pass), 0x2002 and 0x1ffe by 16 (fail) | tolerance 8; pass, pass, fail, pass, fail for raw 0x2000, 0x2001, 0x2002, 0x1fff, 0x1ffe | `vectors` (drawn, drawn, untouched, drawn, untouched), `expected_equality` 07 c1 10 00 83 | yes |
+| primitive-Z saturation | min(raw, 0x7fff) << 3, all in exponent 7 | 0xffc0, 0xffe0, 0xffe0, 0xffe0 for raw 0x7ffe, 0x7fff, 0x8000, 0xffff | `vectors` | yes |
+| delta ceiling, nine rows | plane evaluated with floor at pixel offsets 0x8000 and 0x18000 from base 0x00080000, ceil(sum / 8192) clamped to 65535, code = index of the top bit | visible 0x0004 (0x0000 for the sixth row, 0xffff for the clamp row) and hidden 0x81, 0x80, 0x80, 0x80, 0x81, 0x81, 0x82, 0x81, 0x83 | `vectors` (nine rows) | yes (18 comparisons) |
+| RGBA5551 alpha clear | (v << 3) \| (v >> 2); alpha bit 0 to 0 or 255 | 0xf800 -> 255,0,0,0 | `expected` byte 3 = 0 | yes |
+| serrate X, Y, blend | 0xc27d -> 198,74,247,255; 0x1f18 -> 24,231,99,0; 2^19 weights: floor of the means | 111,152,173,255; `source_bytes` 64 and 56 | `pixel_x`, `pixel_y`, `pixel_blend`, 64, 56 | yes |
+| perspective floor | S = -131073, W = 131072: floor(S * 65536 / W) = -65537 (texel 6 after the mask-3 wrap), truncation -65536 (texel 7); texel word ((x+1) << 11) \| ((y+1) << 6) \| (((x+y) & 31) << 1) \| 1 | 0x384d, 0x404f, 0x09cd, 0x0a0f; exact rows 0x404f and 0x0a0f; operand split 0xfffd / 0xffff | `floor_word`, `truncated_word`, operand words | yes |
+| shade floor | packet words W4 to W7 rebuilt from the bases and slopes; floor of Dx * 0.5 and Dx * 1.5 pixels | 0x3c17 and 0x3bd7 (truncation 0x4417 and 0x3c17) | `shade`, 0x3c17, 0x3bd7, 0x4417 | yes |
+| Bayer | (c + bias) >> 3 with the printed matrix; the 128-value rule c + bias >= 80 gives 10, else 9 | pixel (2,1) bias 7: 0x5309; bias 3: 0x4ac9; 79 on every channel: 0x4a53 | `printed`, 0x5309, 0x4ac9, 0x4a53 | yes |
+
+The derivation uses one assumption that is not a primary-document sentence: the texel coordinate of the
+perspective vector is floor(Q16 quotient / 65536) taken modulo the mask-3 period 8 (the 10-07 summary
+and the test comment state the same mapping). It reproduces both texel words and both truncation
+words, so it is consistent, not independently proven by the tile code.
+
+**Mechanical checks.**
+
+| Check | Command or method | Result |
+|-------|-------------------|--------|
+| (a) no production source | `git diff --name-only WAVE1_BASE..HEAD` filtered for `core/*.c`, `core/*.h`, `core/include/`, `runner/*.c` and `runner/*.h` | empty (exit 1 of `grep`); the 11 changed files are 6 planning records and `core/CMakeLists.txt`, `core/tests/test_vg_gaps.c`, `scripts/check-test-inventory.sh`, `scripts/p10-mutants.py`, `scripts/preflight-phase10-regexes.txt` |
+| (b) no oracle-bound or bound-CI file | the 13 `EXPECTED_CORPUS_PATHS` read from `scripts/check-rdp-oracle-authority.py` by `ast`, plus `fixtures/manifest.json`, `scripts/qualify-rdp-vi.py`, `docs/spec/rdp-vi-cases.json`, `docs/spec/phase09-cases.json`, `docs/spec/audio-cases.json`, `scripts/qualify-audio.py`, `scripts/qualify-phase09.py`, `docs/evidence/phase08-audio.md`, `.github/workflows/ci.yml`, `scripts/check-ci-yml.sh`, `scripts/gate.sh` | empty intersection with the 13 paths; the 11 other files unchanged |
+| (c) digest sweep | `python3 -B scripts/digest-sweep.py --base WAVE1_BASE --head HEAD` | `sweep: 1599 shared lines, 0 differences, 0 head-only lines`, exit 0 (21 shipped ids, two trees built with the forced build identity, 39 s per tree sweep at 1-minute load 12 to 16) |
+| (d) mutant anchors | `python3 -B scripts/p10-mutants.py --check-anchors` in the scratch clone | exit 0 |
+| (e) mutants | `python3 -B scripts/p10-mutants.py --run` in the scratch clone (no mutant run in the shared tree) | exit 0, 40 s; table below |
+| (f) measured commit counts | `git rev-list --count` over the `plan_head_before..plan_head_after` pairs of the 10-06 and 10-07 summaries | 4 and 4, equal to their `commits:` |
+
+**Mutant table** (the `--run` classification of the Wave 1 head: baseline of 12 checks passed in the
+throwaway worktree first; a kill needs a failed CHECK line of the new test file itself):
+
+| Mutant | Expected | Class | Killed by |
+|--------|----------|-------|-----------|
+| control-equivalent-depth-cap | SURVIVED | SURVIVED | - |
+| k1-predicate-widened | KILLED | KILLED | test_k1_refusal:apply-refusal |
+| vg01-decal-strict | KILLED | KILLED | test_vg_gaps:decal-equality |
+| vg01-zcap-7ffe | KILLED | KILLED | test_vg_gaps:primitive-z-saturation (the existing `test_rdp_depth` also fails, exit 1) |
+| vg01-delta-floor | KILLED | KILLED | test_vg_gaps:delta-ceiling |
+| vg-zexp-decode-top | KILLED | KILLED | test_vg_gaps:z-exponent-boundaries (the existing `test_rdp_depth` exits 0, so only the new case sees it) |
+| vg-zexp-compress-round | KILLED | KILLED | test_vg_gaps:z-exponent-boundaries (`test_rdp_depth` exit 1) |
+| vi-clock-48600000 | KILLED | KILLED | test_vg_gaps:ntsc-clock |
+| vg03-alpha255-v9 | KILLED | KILLED | test_vg_gaps:rgba5551-alpha-clear |
+| vg03-alpha255-v8 | KILLED | KILLED | test_vg_gaps:rgba5551-alpha-clear |
+| vg02-parity-ignored | KILLED | KILLED | test_vg_gaps:serrate-filter-parity |
+| vg02-next-row | KILLED | KILLED | test_vg_gaps:serrate-filter-parity |
+| vg04-floor-off-s | KILLED | KILLED | test_vg_gaps:perspective-floor |
+| vg04-floor-off-t | KILLED | KILLED | test_vg_gaps:perspective-floor |
+| vg05-shade-trunc | KILLED | KILLED | test_vg_gaps:shade-floor-bayer |
+| vg05-bayer-shift2 | KILLED | KILLED | test_vg_gaps:shade-floor-bayer |
+| control-no-compile | INVALID | INVALID | - |
+
+That is 15 KILLED (the plan's 13: K1 plus 12 VG and VI rows, and the two exponent rows that plan 10-06
+added), the SURVIVED control and the INVALID control, each as expected; no SURVIVED or INVALID mutant.
+
+**Reading of each new case for a reachable comparator.** Every case in `core/tests/test_vg_gaps.c` was
+read. Each has a hand derivation above it, literals typed as hex, a same-setup wrong-value control and
+at least one killed mutant. Each control asserts the byte index where its wrong copy first differs from
+the observed bytes, and all nine cases pass in the gate, so every control does diverge at its intended
+byte (decal-equality byte 3, primitive-z-saturation byte 1, delta-ceiling byte 2, z-exponent-boundaries
+byte 0, ntsc-clock byte 7, rgba5551-alpha-clear byte 3 on both paths, serrate-filter-parity bytes 0, 0 and
+21, perspective-floor byte 0 on the two inexact rows and byte 1 on all four, the two exact-quotient
+rows having equal floor and truncation words by design, shade-floor-bayer bytes 0, 0 and 1 for the
+shade words and 0 and 1 for the Bayer words). Every mutant sits on the production line that its vector
+reaches, and its kill is a failed CHECK of that case after a green baseline, so a green process never
+stands for a reached comparator. No case has an unreachable comparator.
+
+**Sibling copies of the perspective floor (assessment of the 10-07 observation).** Plan 10-07 named
+three copies of the floor text that no VG mutant pins: the S and T corrections of
+`t64_rdp_tmem_triangle_pixel_rgba8` (`core/t64_rdp_tmem.c:1218-1221`, combiner profiles v5 and later),
+the S and T corrections of `project_texture_q16` (`core/t64_rdp_raster.c:556-557`, the LOD path) and the
+`from_major` floor of `texture_channel_q16` (`core/t64_rdp_raster.c:495`). The texts equal the pinned v4
+lines (`core/t64_rdp_tmem.c:1147-1150`, the `from_major` of `shade_channel` at `:472`) apart from the
+variable names. To classify them with a measurement instead of an opinion, five throwaway mutants (S and
+T of the rgba8 copy, S and T of the projection, the `from_major` truncation) were applied one at a time in
+the scratch clone (the correction replaced by `(void)remainder;` as `scripts/p10-mutants.py` does, so the
+build stays warning-clean; the truncation as plain division, as `vg05-shade-trunc` does), the
+gate preset rebuilt and the whole `ctest --preset gate` run, then reverted (`git status --short` clean
+afterwards, scratch tree rebuilt). In all five the only failing test was `repo.rsp-no-hle`, whose message
+is "executable body changed; fetched-path review is required" (the sealed-body guard that fires on any
+text edit of a sealed function). All 235 other tests passed, so no behavioral test kills a change of
+those copies. They are residual, not defects: the code is correct against `rdp.md` and equal to the
+pinned copies, and any edit of them fails closed at the seal.
+
+### Findings
+
+Columns: id, severity (blocking, warning, info), file and line, finding, disposition. No blocking
+finding was found and no warning was found.
+
+| id | severity | file:line | finding | disposition |
+|----|----------|-----------|---------|-------------|
+| W1-01 | info | `core/t64_rdp_tmem.c:1218-1221`, `core/t64_rdp_raster.c:495` and `:556-557` | the three sibling copies of the floor text are not pinned behaviorally by any test (five scratch mutants, whole gate ctest each: only the `repo.rsp-no-hle` body seal fails). VER-06's named gaps VG-01 to VG-05 and the NTSC vector are closed; this is the same class of gap on code paths the gaps did not name | residual, deferred item DEF-W1-01: a small follow-up vector (a combiner-profile v5 perspective row through the rgba8 path, an LOD row through `project_texture_q16`, a negative-gradient texture row for `texture_channel_q16`) can be added as a new numbered plan if its cost is worth it before the freeze; it is not required by VER-06 and widens no scope here |
+| W1-02 | info | `core/tests/test_vg_gaps.c` (all wrong-value controls) | a same-setup control compares the observed bytes with a byte-edited copy of the committed literal and asserts the divergence index; it shows that the comparator reports the intended byte, not that production would behave differently. The discriminating evidence is the killed mutants, whose kill needs a failed CHECK line after a passing baseline | none; same reading as W0-03 (the kill column names the last failing kill check, and every Wave 1 row has exactly one) |
+| W1-03 | info | `core/tests/test_vg_gaps.c:730-744` (comment) and `docs/spec/vi.md:196` | the NTSC comment cites "Clock and boundary policy" for the rounding ("first whole tick at or after the exact phase"), but that section does not state the rounding; the ceil rule is printed in the tracer example of `vi.md` (`ceil(15 x 62,500,000 / 48,681,812) = 20`) and the v8 profile inherits the clock. 1,042,709 needs the ceil (floor gives 1,042,708) | none for the vector; one sentence stating the ceil in the v8 clock section can go into the Phase 10 documentation sweep |
+| W1-04 | info | `core/tests/test_vg_gaps.c` delta-ceiling rows 8191 and 0 | the depth word stores only the priority code, so 8191, 8192 and 0 store the same code 0 and are not independent edges; the effective edges are 8192 (kills `+ 8192`) and 8193 (kills a floor or `+ 8190`). Recorded by plan 10-06 as a note | none; accepted |
+| W1-05 | info | plan 10-08 text | the plan counts 13 mutants; the table has 15 KILLED because plan 10-06 added two rows (deviation 2 of 10-07 records the count) | none |
+
+
