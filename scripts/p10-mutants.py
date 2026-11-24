@@ -89,6 +89,39 @@ def matrix_check(binary, args, labels):
     return {"bin": binary, "args": list(args), "labels": labels}
 
 
+# The v4 perspective division of core/t64_rdp_tmem.c (t64_rdp_tmem_triangle_pixel)
+# is textually repeated in t64_rdp_tmem_triangle_pixel_rgba8; the first
+# function's header lines make an anchor unique, so the lane anchors below start
+# there and run to the correction they remove.
+TMEM_V4_PERSPECTIVE_HEAD = (
+    "      tile_index >= T64_RDP_TILE_COUNT ||\n"
+    "      !t64_rdp_tmem_validate_triangle(machine, tile_index) ||\n"
+    "      s_q16 < INT32_MIN || s_q16 > INT32_MAX ||\n"
+    "      t_q16 < INT32_MIN || t_q16 > INT32_MAX ||\n"
+    "      w_q16 < INT32_MIN || w_q16 > INT32_MAX) return false;\n"
+    "  s = s_q16;\n"
+    "  t = t_q16;\n"
+    "  if (perspective) {\n"
+    "    int64_t s_numerator, t_numerator;\n"
+    "    int64_t s_quotient, t_quotient;\n"
+    "    int64_t s_remainder, t_remainder;\n"
+    "    if (w_q16 == 0) return false;\n"
+    "    s_numerator = s * INT64_C(65536);\n"
+    "    t_numerator = t * INT64_C(65536);\n"
+    "    s_quotient = s_numerator / w_q16;\n"
+    "    t_quotient = t_numerator / w_q16;\n"
+    "    s_remainder = s_numerator % w_q16;\n"
+    "    t_remainder = t_numerator % w_q16;\n"
+)
+TMEM_V4_S_FLOOR = (
+    "    if (s_remainder != 0 && ((s_numerator < 0) != (w_q16 < 0)))\n"
+    "      s_quotient--;\n"
+)
+TMEM_V4_T_FLOOR = (
+    "    if (t_remainder != 0 && ((t_numerator < 0) != (w_q16 < 0)))\n"
+    "      t_quotient--;\n"
+)
+
 # One table. Anchors are the shortest unique multi-line strings of the committed
 # source; the anchor check keeps a refactor from silently retiring a mutant.
 MUTANTS = [
@@ -289,6 +322,36 @@ MUTANTS = [
             )
         ],
         "kill": [own_check("test_vg_gaps", ["--case", "serrate-filter-parity"])],
+        "record": [],
+    },
+    {
+        "id": "vg04-floor-off-s",
+        "tag": "mutant",
+        "expect": "KILLED",
+        "title": "perspective division: the negative-remainder floor correction of the S lane removed in the v4 texel path (VG-04)",
+        "edits": [
+            (
+                "core/t64_rdp_tmem.c",
+                TMEM_V4_PERSPECTIVE_HEAD + TMEM_V4_S_FLOOR + TMEM_V4_T_FLOOR,
+                TMEM_V4_PERSPECTIVE_HEAD + "    (void)s_remainder;\n" + TMEM_V4_T_FLOOR,
+            )
+        ],
+        "kill": [own_check("test_vg_gaps", ["--case", "perspective-floor"])],
+        "record": [],
+    },
+    {
+        "id": "vg04-floor-off-t",
+        "tag": "mutant",
+        "expect": "KILLED",
+        "title": "perspective division: the negative-remainder floor correction of the T lane removed in the v4 texel path (VG-04)",
+        "edits": [
+            (
+                "core/t64_rdp_tmem.c",
+                TMEM_V4_PERSPECTIVE_HEAD + TMEM_V4_S_FLOOR + TMEM_V4_T_FLOOR,
+                TMEM_V4_PERSPECTIVE_HEAD + TMEM_V4_S_FLOOR + "    (void)t_remainder;\n",
+            )
+        ],
+        "kill": [own_check("test_vg_gaps", ["--case", "perspective-floor"])],
         "record": [],
     },
     {

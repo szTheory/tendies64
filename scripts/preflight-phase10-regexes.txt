@@ -19,12 +19,13 @@
 1	^repo\.p10-mutant-anchors$
 6	^unit\.core\.profile
 4	^unit\.core\.digest
-7	^unit\.core\.vg\.
+8	^unit\.core\.vg\.
 1	^unit\.core\.vg\.decal-equality$
 1	^unit\.core\.vg\.z-exponent-boundaries$
 1	^unit\.core\.vg\.ntsc-clock$
 1	^unit\.core\.vg\.rgba5551-alpha-clear$
 1	^unit\.core\.vg\.serrate-filter-parity$
+1	^unit\.core\.vg\.perspective-floor$
 0	^runner\.composite
 1	^unit\.core\.k1\.dispatch-refusal$
 2	^unit\.core\.k1\.

@@ -1046,6 +1046,176 @@ static void case_serrate_filter_parity(void) {
   T64_CHECK_INT(first_difference(packets[1], wrong, sizeof wrong), 21u);
 }
 
+/* Logical texel (x, y) of a 16-bit tile at TMEM word 0 whose line is two
+ * 64-bit words: byte offset y * 16 + x * 2, with the odd rows swapped by
+ * 4 bytes (the layout of test_rdp_texture.c, copied and never included). */
+static void set_logical_texel16(t64_machine *machine, uint32_t x, uint32_t y,
+                                uint16_t value) {
+  size_t offset = (size_t)y * 16u + (size_t)x * 2u;
+  if ((y & 1u) != 0u) offset ^= 4u;
+  machine->rdp.tmem[offset] = (uint8_t)(value >> 8);
+  machine->rdp.tmem[offset + 1u] = (uint8_t)value;
+}
+
+/* The authored 8 x 8 RGBA5551 texture: red = x + 1, green = y + 1,
+ * blue = (x + y) & 31 and alpha 1, so every texel is distinct. */
+static uint16_t authored_texel(uint32_t x, uint32_t y) {
+  return (uint16_t)(((x + 1u) << 11) | ((y + 1u) << 6) |
+                    (((x + y) & 31u) << 1) | 1u);
+}
+
+#define TEXTURE_PROFILE_ID "ntsc-cart-4m-openipl3-rdram-b-t1-rdp-texture-v4"
+
+/* Draw one perspective textured triangle (opcode 0x0a, point sampling, LOD
+ * off) of constant S, T and W (every slope is zero) over a wrap/mask tile of
+ * 8 x 8 texels, and return the 16-bit framebuffer words at the two covered
+ * pixels (1,4) and (3,7) and at the uncovered pixel (6,4). `base_int` and
+ * `base_frac` are the packet words W4 and W6: the 16-bit integer and fraction
+ * halves of the Q16.16 S, T and W bases in bits 63..48, 47..32 and 31..16.
+ * The geometry (W0 to W3) is the Phase 7 texture triangle: major edge
+ * vertical at x = 4 on the right, minor edge from (4,0) to (0,4) and then
+ * vertical at x = 0 down to y = 8, so rows 4 to 7 cover x in [0,4). */
+static bool run_perspective_triangle(uint64_t base_int, uint64_t base_frac,
+                                     uint16_t *covered_a, uint16_t *covered_b,
+                                     uint16_t *outside, uint32_t *refusal) {
+  const uint64_t commands[] = {
+      UINT64_C(0x3f10000700005000),  /* SetColorImage RGBA16 width 8 at 0x5000 */
+      UINT64_C(0x2d00000000020020),  /* SetScissor [0,8) x [0,8) */
+      UINT64_C(0x2f080c0000000000),  /* perspective bit 51, point sampling */
+      UINT64_C(0x351004000000c030),  /* SetTile RGBA16, line 2, mask 3 / 3 */
+      UINT64_C(0x320000000001c01c),  /* SetTileSize 0..7 x 0..7 */
+      UINT64_C(0x0a80002000100000),  /* W0: 0x0a, lft, YL 8.0, YM 4.0, YH 0 */
+      UINT64_C(0x0000000000000000),  /* W1: XL 0, DxLDy 0 */
+      UINT64_C(0x0004000000000000),  /* W2: XH 4.0, DxHDy 0 */
+      UINT64_C(0x00000000ffff0000),  /* W3: XM 0, DxMDy -1.0 */
+      base_int,                      /* W4: S, T, W integer parts */
+      UINT64_C(0x0000000000000000),  /* W5: dx integer parts */
+      base_frac,                     /* W6: S, T, W fraction parts */
+      UINT64_C(0x0000000000000000),  /* W7: dx fraction parts */
+      UINT64_C(0x0000000000000000),  /* W8 */
+      UINT64_C(0x0000000000000000),  /* W9 */
+      UINT64_C(0x0000000000000000),  /* W10 */
+      UINT64_C(0x0000000000000000),  /* W11 */
+  };
+  t64_machine *machine = create_machine_for_profile(TEXTURE_PROFILE_ID);
+  uint32_t x;
+  uint32_t y;
+
+  if (machine == NULL) return false;
+  memset(machine->ram + FRAMEBUFFER_ADDRESS, 0xa5, 8u * 8u * 2u);
+  for (y = 0u; y < 8u; y++)
+    for (x = 0u; x < 8u; x++)
+      set_logical_texel16(machine, x, y, authored_texel(x, y));
+  if (!run_commands(machine, commands, sizeof commands / sizeof commands[0])) {
+    t64_machine_destroy(machine);
+    return false;
+  }
+  *refusal = machine->rdp.refusal_reason;
+  *covered_a = (uint16_t)(((uint16_t)machine->ram[FRAMEBUFFER_ADDRESS + 66u]
+                           << 8) | machine->ram[FRAMEBUFFER_ADDRESS + 67u]);
+  *covered_b = (uint16_t)(((uint16_t)machine->ram[FRAMEBUFFER_ADDRESS + 118u]
+                           << 8) | machine->ram[FRAMEBUFFER_ADDRESS + 119u]);
+  *outside = (uint16_t)(((uint16_t)machine->ram[FRAMEBUFFER_ADDRESS + 76u]
+                         << 8) | machine->ram[FRAMEBUFFER_ADDRESS + 77u]);
+  t64_machine_destroy(machine);
+  return true;
+}
+
+/*
+ * VG-04: the perspective division floors negative quotients.
+ *
+ * Independent derivation (rdp.md "Textured triangles": perspective mode
+ * computes floor(S * 65536 / W); the tile is an 8 x 8 RGBA5551 tile
+ * (SetTileSize lrs = lrt = 0x1c = 7.0) with mask 3 and no clamp or mirror on
+ * both axes, so a texel coordinate wraps with period 8; shifts are 0 and
+ * point sampling picks the containing texel floor(coordinate)).
+ *
+ * Chosen operands, all Q16.16 two's-complement (A7 of the research: the
+ * proposed pair S = -131073, W = 131072 was confirmed against the tile
+ * path and kept):
+ *   S = -131073 = 0xfffdffff: integer word 0xfffd, fraction word 0xffff
+ *   W =  131072 = 0x00020000 (2.0)
+ *   exact quotient S * 65536 / W = -8,590,000,128 / 131,072 = -65536.5
+ *     floor      -65537  -> texel coordinate -65537 / 65536 = -1.0000153,
+ *                           floor -2, wrapped modulo 8 = 6   (candidate A)
+ *     truncation -65536  -> coordinate -1.0 exactly, floor -1, wrapped = 7
+ *                                                              (candidate B)
+ * so a missing floor correction moves the sample from texel 6 to texel 7. T
+ * is chosen 0 for this vector (quotient 0, row 0), so the S vector samples
+ * texel (6, 0) with floor and (7, 0) with truncation. The T vector swaps the
+ * lanes: T = -131073, S = 0, texels (0, 6) against (0, 7). Two more rows use
+ * the exact quotient -65536 (S or T = -131072, remainder 0), where floor and
+ * truncation agree and the texel is 7: they pin that the correction applies
+ * only when the remainder is nonzero.
+ *
+ * The authored texel (x, y) is ((x + 1) << 11) | ((y + 1) << 6) |
+ * (((x + y) & 31) << 1) | 1, so by hand:
+ *   (6,0) = 0x3800 | 0x0040 | 0x000c | 1 = 0x384d
+ *   (7,0) = 0x4000 | 0x0040 | 0x000e | 1 = 0x404f
+ *   (0,6) = 0x0800 | 0x01c0 | 0x000c | 1 = 0x09cd
+ *   (0,7) = 0x0800 | 0x0200 | 0x000e | 1 = 0x0a0f
+ * (no combiner: the textured triangle writes the texel word itself). The
+ * triangle is constant over its area, so the pixels (1,4) and (3,7) both show
+ * the sampled texel and (6,4) stays 0xa5a5.
+ */
+static void case_perspective_floor(void) {
+  static const struct {
+    const char *name;
+    uint64_t base_int;
+    uint64_t base_frac;
+    uint16_t floor_word;
+    uint16_t truncated_word;
+  } vectors[] = {
+      /* S = -131073, T = 0, W = 131072 */
+      {"S lane", UINT64_C(0xfffd000000020000), UINT64_C(0xffff000000000000),
+       0x384du, 0x404fu},
+      /* S = 0, T = -131073, W = 131072 */
+      {"T lane", UINT64_C(0x0000fffd00020000), UINT64_C(0x0000ffff00000000),
+       0x09cdu, 0x0a0fu},
+      /* S = -131072 (exact -65536), T = 0: floor equals truncation */
+      {"S exact", UINT64_C(0xfffe000000020000), UINT64_C(0),
+       0x404fu, 0x404fu},
+      /* S = 0, T = -131072 (exact), W = 131072 */
+      {"T exact", UINT64_C(0x0000fffe00020000), UINT64_C(0),
+       0x0a0fu, 0x0a0fu},
+  };
+  uint8_t observed[2];
+  uint8_t literal[2];
+  uint8_t wrong[2];
+  size_t i;
+
+  for (i = 0u; i < sizeof vectors / sizeof vectors[0]; i++) {
+    uint16_t covered_a = 0u;
+    uint16_t covered_b = 0u;
+    uint16_t outside = 0u;
+    uint32_t refusal = UINT32_MAX;
+
+    T64_CHECK(run_perspective_triangle(vectors[i].base_int,
+                                       vectors[i].base_frac, &covered_a,
+                                       &covered_b, &outside, &refusal));
+    T64_CHECK_INT(refusal, T64_RDP_REFUSAL_NONE);
+    T64_CHECK_INT(covered_a, vectors[i].floor_word);
+    T64_CHECK_INT(covered_b, vectors[i].floor_word);
+    T64_CHECK_INT(outside, COLOR_UNTOUCHED);
+
+    /* Same-setup wrong-value control: the truncated texel's word, as two
+     * big-endian bytes, is rejected at the first byte whenever it differs
+     * from the floor texel, and a one-byte change of the right literal is
+     * reported at that byte. */
+    write_be16(observed, covered_a);
+    write_be16(literal, vectors[i].floor_word);
+    write_be16(wrong, vectors[i].truncated_word);
+    T64_CHECK_INT(first_difference(observed, literal, 2u), SIZE_MAX);
+    T64_CHECK_INT(first_difference(observed, wrong, 2u),
+                  vectors[i].floor_word == vectors[i].truncated_word
+                      ? SIZE_MAX
+                      : 0u);
+    memcpy(wrong, literal, sizeof wrong);
+    wrong[1] = (uint8_t)(wrong[1] ^ 1u);
+    T64_CHECK_INT(first_difference(observed, wrong, 2u), 1u);
+  }
+}
+
 typedef struct {
   const char *name;
   void (*run)(void);
@@ -1059,6 +1229,7 @@ static const test_case cases[] = {
     {"ntsc-clock", case_ntsc_clock},
     {"rgba5551-alpha-clear", case_rgba5551_alpha_clear},
     {"serrate-filter-parity", case_serrate_filter_parity},
+    {"perspective-floor", case_perspective_floor},
 };
 
 int main(int argc, char **argv) {
