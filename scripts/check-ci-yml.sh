@@ -24,7 +24,8 @@
 #   CI-PERMISSIONS-JOB   each job grants exactly contents: read
 #   CI-PERSIST-CREDS     each checkout step sets persist-credentials: false
 #   CI-FETCH-DEPTH       each checkout step sets fetch-depth: 0 (full-history rights scan)
-#   CI-TIMEOUT           required gate jobs set timeout-minutes from 1 to 10
+#   CI-TIMEOUT           required gate jobs set timeout-minutes as an integer from 1 to 15 for
+#                        gate-macos and from 1 to 10 for the other gate jobs
 #   CI-STRESS-WORKFLOW   the separate authored-only stress workflow matches its reviewed
 #                        exact contract: weekly/dispatch, no uploads, 15-minute job
 #   CI-REQUIRED-STEP     jobs and steps cannot weaken required success semantics
@@ -284,8 +285,9 @@ scan_yml() {
           inperm = (field == "permissions" && val == "")
           if (field == "if" || field == "continue-on-error") job_control = 1
           if (field == "timeout-minutes") {
-            if (val ~ /^[0-9]+$/ && val + 0 >= 1 && val + 0 <= 10) hastimeout = 1
-            else viol("CI-TIMEOUT", "timeout-minutes must be an integer from 1 to 10")
+            tmax = (job == "gate-macos" ? 15 : 10)
+            if (val ~ /^[0-9]+$/ && val + 0 >= 1 && val + 0 <= tmax) hastimeout = 1
+            else viol("CI-TIMEOUT", "timeout-minutes must be an integer from 1 to 15 for gate-macos and 1 to 10 for other gate jobs")
           }
           if (field == "runs-on") {
             hasruns = 1
@@ -447,6 +449,16 @@ inject_job_key() {
   ' "$REAL" > "$W/$4.yml"
 }
 
+# mut_timeout JOB VALUE NAME: a copy of the real workflow whose JOB has timeout-minutes VALUE.
+mut_timeout() {
+  awk -v target="$1" -v value="$2" '
+    /^  [A-Za-z0-9_-]+:[ \t]*$/ { injob = ($1 == target ":") }
+    injob && /^    timeout-minutes:/ { print "    timeout-minutes: " value; found = 1; next }
+    { print }
+    END { if (!found) exit 2 }
+  ' "$REAL" > "$W/$3.yml"
+}
+
 selftest() {
   REAL=$ROOT/.github/workflows/ci.yml
   if [ ! -f "$REAL" ]; then echo "check-ci-yml: workflow not found: $REAL" >&2; return 1; fi
@@ -509,6 +521,20 @@ selftest() {
   expect CI-FETCH-DEPTH "a shallow checkout" "$W/fetch.yml"
   grep -v 'timeout-minutes' "$REAL" > "$W/timeout.yml" || true
   expect CI-TIMEOUT "a job without a timeout" "$W/timeout.yml"
+  # The bound is per job: the clean copy above passes with gate-macos at its limit of 15 and
+  # gate-linux at its limit of 10; each case below moves one job's value across its own limit
+  # (the only CI-TIMEOUT violation of the copy), so a global bound of 10 (rejects the clean
+  # copy), of 15 (accepts linux-11), or a missing lower or integer check fails a case.
+  mut_timeout gate-macos 16 timeout-macos-16
+  expect CI-TIMEOUT "gate-macos timeout-minutes 16, above its limit of 15" "$W/timeout-macos-16.yml"
+  mut_timeout gate-linux 11 timeout-linux-11
+  expect CI-TIMEOUT "gate-linux timeout-minutes 11, above its limit of 10" "$W/timeout-linux-11.yml"
+  mut_timeout gate-macos 0 timeout-macos-0
+  expect CI-TIMEOUT "gate-macos timeout-minutes 0, below the minimum of 1" "$W/timeout-macos-0.yml"
+  mut_timeout gate-macos 15.5 timeout-macos-fraction
+  expect CI-TIMEOUT "gate-macos timeout-minutes 15.5, not an integer" "$W/timeout-macos-fraction.yml"
+  mut_timeout gate-macos 14.5 timeout-macos-fraction-inside
+  expect CI-TIMEOUT "gate-macos timeout-minutes 14.5, not an integer although below the limit" "$W/timeout-macos-fraction-inside.yml"
 
   # Required jobs and steps cannot be skipped or have failures softened.
   for _step in "Restore pinned Binutils" "Gate" "Run authored audio qualification records" "Emit authored audio evidence" \
