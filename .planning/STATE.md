@@ -5,16 +5,16 @@ milestone_name: Embeddable and Playable
 current_phase: 10
 current_phase_name: Carry-in Closure Before the Freeze
 status: executing
-stopped_at: Completed 10-08-PLAN.md
-last_updated: "2026-11-24T03:52:08.951Z"
+stopped_at: Completed 10-09-PLAN.md
+last_updated: "2026-11-24T04:16:21.871Z"
 last_activity: 2026-11-23
 last_activity_desc: Phase 10 execution started
-state_head: 9450f67ba7ae74e6e4a7367109246266fbc4a05f
+state_head: 4093a2fed66733410be1ba37d46d408c67fef5d8
 progress:
   total_phases: 3
   completed_phases: 0
   total_plans: 19
-  completed_plans: 8
+  completed_plans: 9
   percent: 0
 ---
 
@@ -30,7 +30,7 @@ See: .planning/PROJECT.md (updated 2026-11-23)
 ## Current Position
 
 Phase: 10 (Carry-in Closure Before the Freeze) — EXECUTING
-Plan: 9 of 19
+Plan: 10 of 19
 Status: Ready to execute
 Last activity: 2026-11-23 — Phase 10 execution started
 
@@ -69,6 +69,7 @@ Progress: [░░░░░░░░░░] 0% (0 of 3 v1.2 phases complete)
 | Phase 10 P06 | 22 min | 4 tasks | 5 files |
 | Phase 10 P07 | 22 min | 4 tasks | 5 files |
 | Phase 10 P08 | 28 min | 3 tasks | 3 files |
+| Phase 10 P09 | 23 min | 3 tasks | 13 files |
 
 ## Accumulated Context
 
@@ -151,6 +152,9 @@ Progress: [░░░░░░░░░░] 0% (0 of 3 v1.2 phases complete)
 - [Phase 10]: 10-08: Wave 1 (10-06, 10-07) reviewed in a clone detached at the head: gate 236 of 236, 94 literal comparisons match a document-derived calculator, no production or oracle-bound file moved, sweep 0 differences, 15 mutants KILLED; no blocking finding, VER-06 gaps VG-01 to VG-05 and the NTSC vector confirmed closed
 - [Phase 10]: 10-08: three sibling copies of the perspective and major-edge floor are residual (five scratch mutants pass every behavioral test, only the rsp-no-hle body seal fails); deferred item DEF-W1-01, optional new numbered plan
 - [Phase 10]: 10-08: second hosted pair green (run 45321391540, head a0c0a38, gate-macos 326 s, ctest 187 s of 236); nine new vg names show no visible cost inside the F-119 band (F-121); Wave 2 base 6dd785986f6aa78c6da5573a558b15b386a4edee recorded
+- [Phase 10]: 10-09: registered ids ntsc-cart-4m-openipl3-rdram-b-t1-si-v2 (+ -e4k -e16k -s32k), tuple 13/21/26, profile hashes pinned (3bc028bd, 0a4bfc45, 34f767b0, 9dfb90d8 prefixes; PIN-IMPACT.md 2.1); exact v25 and v26 predicates drive the digest domain, the state registry and the exporter while t64_has_si_profile is their union, so no sealed body changed
+- [Phase 10]: 10-09: v26 walker keeps v25 framing, streams the five depth scalars inside the RDP block as new-span members before work_policy_version and the length-prefixed hidden table after the coverage table; completeness flip test RED for exactly the depth members then GREEN; shipped ids byte-identical (sweep 1599 lines, 0 differences)
+- [Phase 10]: 10-09: t64_machine_state_export and state_version_registered stay exact v25 (state 26 export refused INVALID_ARGUMENT, import reports the state-version reason) until plans 10-11 and 10-12; ISViewer widened to the eight SI-family ids
 
 ### Pending Todos
 
@@ -176,8 +180,8 @@ None for v1.1. Carry-ins for v1.2 are listed in the Deferred Items table, the v1
 
 ## Session Continuity
 
-Last session: 2026-11-24T03:52:08.929Z
-Stopped at: Completed 10-08-PLAN.md
+Last session: 2026-11-24T04:16:21.846Z
+Stopped at: Completed 10-09-PLAN.md
 Resume file: None
 
 Historical closeout: [v1.0 roadmap](milestones/v1.0-ROADMAP.md), [audit](milestones/v1.0-MILESTONE-AUDIT.md), [lessons](RETROSPECTIVE.md).

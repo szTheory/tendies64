@@ -130,7 +130,7 @@ coverage:
     human_judgment: true
     rationale: "A label text and a tooling-coverage trade-off; no test asserts that they are the best choices, only that the hashes pin the chosen text and the list still passes its own check"
 
-duration: 27min
+duration: 23min
 completed: 2026-11-24
 status: complete
 commits: 5
@@ -144,7 +144,7 @@ plan_head_after: 2649a715e7d40dce15abd5edb73a5598bbc82a07
 
 ## Performance
 
-- **Duration:** 27 min (2026-11-24T03:53:35Z to about 04:20Z); host 1-minute load 6 to 10, so seconds are upper bounds
+- **Duration:** 23 min (2026-11-24T03:53:35Z to about 04:16Z); host 1-minute load 6 to 10, so seconds are upper bounds
 - **Tasks:** 3 (Task 1 tracer, Tasks 2 and 3 tdd), 5 commits
 - **Files:** 13 (11 planned plus `scripts/p10-mutants.py` and `PIN-IMPACT.md`); 2 new test binaries
 
