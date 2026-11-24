@@ -1,0 +1,22 @@
+# Expected "ctest -N -R" counts for every regex a Phase 10 verify command uses.
+# Read by scripts/preflight-phase10.sh (step ctest-counts), which runs
+#   ctest --test-dir build/gate -N -R "<regex>"
+# and fails when the number of "Test #" lines differs from the count below.
+# Row format: <expected count><TAB><regex>. Lines starting with # are comments.
+# A zero row proves absence until the plan that owns the names adds them; the
+# owning plan then raises the count in the same commit (AUTONOMY Phase 9
+# lesson: plan regexes matched 10 names, not 11, more than once).
+# Counts measured at the Wave 0 base (224 names in the gate preset).
+1	^harness\.rdp-oracle-authority$
+2	^harness\.rdp-(oracle-authority|vi-qualification)$
+2	^repo\.ci-yml(-selftest)?$
+1	^repo\.si-membership-sites$
+1	^harness\.state-field-use-audit$
+1	^repo\.rsp-no-hle$
+1	^unit\.core\.state\.import$
+1	^harness\.phase09-qualification$
+1	^repo\.sched-k5-anchors$
+6	^unit\.core\.profile
+4	^unit\.core\.digest
+0	^unit\.core\.vg\.
+0	^runner\.composite
