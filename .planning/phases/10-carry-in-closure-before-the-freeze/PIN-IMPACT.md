@@ -251,3 +251,78 @@ own exit 2.
 Consequence for later plans: appending a manifest row (plan 10-14) needs no oracle
 rebind. Changing, removing or duplicating any of the 39 bound rows is still an
 orchestrator-only identity-only rebind.
+
+## 9. Phase 9 claim binding (recorded exception)
+
+Written by plan 10-03 Task 4 (checker B1). Evidence tier: code observation and test
+results at the commit that records it; no claim, tier, count or oracle revision changes.
+
+**What changed.** `claims_final_problems` in `scripts/tests/test_phase09_qualification.py`
+compared each of the ten claim blocks' `manifest_digest` with the SHA-256 of the live
+`fixtures/manifest.json`. That is a second whole-file manifest binding in the tree (the
+first was the Phase 7 oracle request, section 8): the plan 10-14 manifest commit would
+have moved it and failed `harness.phase09-qualification` with "block N manifest_digest ...
+differs". It now compares each block with `sha256:` plus the pinned constant
+`PHASE09_CLAIM_MANIFEST_SHA256`, and calls the new `claim_manifest_problems(manifest_bytes)`
+once. That function looks the 39 pinned ids (`PHASE09_CLAIM_MANIFEST_IDS`) up by id, never by
+position, requires each exactly once, and compares the canonical digest of the view
+`{schema, schema_version, entries}` (the 39 rows in pinned order, encoded as
+`_canonical_sha256` of `scripts/check-rdp-oracle-authority.py` encodes) with
+`PHASE09_CLAIM_MANIFEST_VIEW_SHA256`. Rows whose id is not pinned (later phases) are ignored.
+The three constants sit outside `F2_PINS` and `F2_PIN_KEYS`.
+
+| Before | After |
+|--------|-------|
+| block `manifest_digest` equals sha256 of the live manifest file | block `manifest_digest` equals the pinned Phase 9 qualification manifest digest; the 39 rows that manifest held are bound by a canonical per-row view; appended or moved rows do not move either |
+
+**Values reproduced on the unchanged tree before the edit.**
+
+| Value | Observed |
+|-------|----------|
+| sha256 of `fixtures/manifest.json` (the `manifest_digest` of all ten blocks) | `b75864fdf4404a4691bfed12ccaceaca22879e60ea739ef3cf89ca1eee6e80e0` |
+| manifest entries | 39 (39 distinct ids) |
+| canonical view digest | `beb2b1c8b209480199ce53d0ce30c51887bfb0769d7a6d522fd7bbe7bf2aec5f` |
+
+**Unchanged.** `docs/claims/phase09.md`, `docs/evidence/phase09-qualification.md`,
+`fixtures/manifest.json`, the `F2_PINS` literal, tiers, counts and oracle revisions
+(proved against the Wave 0 base `4ac633e880e0c26005cb03092e8d8485e721034c` by the Task 4
+verify: `git diff --quiet` on the three files and an equal `ast.unparse` of the `F2_PINS`
+literal). No Phase 9 claim content, tier or authority changes. No closed digest is
+re-pinned.
+
+**Evidence.** RED (`build/gate/10-03-task4/red.txt`, unchanged comparator): the appended
+row and both reorder variants (`rdp-fill` moved to the end, every row reversed) failed
+with "manifest_digest ... differs"; all fifteen refused controls and the block-digest
+control already passed on the common needle `claims-final:`; no needle-setup error.
+GREEN (`build/gate/10-03-task4/green.txt`): the same controls pass and every refused
+control's line begins `claims-final: manifest` (changed, removed, duplicated or
+re-id'd row, schema change, empty or malformed manifest). Mutation check in a scratch copy:
+without the view-digest comparison the three changed-row controls fail; with a count test
+that allows duplicates the duplicated-row control fails; with the live-file digest back in
+the block comparison the three accepted controls fail.
+
+**Consumer audit** (every live-tree consumer of `fixtures/manifest.json`; observed exit
+codes are for the Wave 0 base, a clean local clone of `4ac633e`, and for this checkout):
+
+| | Consumer | Exercised by | Effect of an appended row |
+|---|----------|--------------|---------------------------|
+| (a) | `claims_final_problems` in `scripts/tests/test_phase09_qualification.py` | `harness.phase09-qualification` (this task) | none after this task; changed, removed or duplicated Phase-9-era rows refuse |
+| (b) | `scripts/check-rdp-oracle-authority.py` | `harness.rdp-oracle-authority` | none; per-row since Tasks 2 and 3 (section 8) |
+| (c) | `scripts/qualify-phase09.py` `SOURCE_PATHS` (the whole `fixtures/` directory, `scripts/tests/test_phase09_qualification.py`, `runner/`) | no gate consumer: every snapshot mode requires the checked-out HEAD to equal the record's commit, so a closed Phase 9 record is verified only at its own commit; `--emit-hosted` (ci.yml Phase 9 emit steps and the preflight post-gate replay) snapshots the current commit fresh and cannot refuse on an appended row; `--verify-evidence` is run by no CTest, `gate.sh` or `ci.yml` step | none |
+| (d) | `scripts/qualify-audio.py` `SOURCE_PATHS` | no gate consumer of the binding: `harness.audio-qualification` loads the module but never calls `_source_snapshot` or computes `input_manifest_sha256`; the only live use is the ci.yml audio emit step and its preflight replay, which snapshot the current commit | none |
+| (e) | `scripts/check-rsp-evidence.py` with `docs/evidence/phase05-final-rsp-evidence.json` (`verification_sha256` over all of `scripts/` plus `fixtures/manifest.json`) | no gate consumer: only `check-rsp-evidence.py --check` reads it, no CTest runs it (`harness.rsp-evidence-ownership` runs the single archive test `test_owned_tables_survive_milestone_archive`). Observed: `--check` exits 1 ("final RSP evidence is incomplete or inconsistent") at the Wave 0 base and in this checkout; recorded `verification_sha256` `be5b9776...` against computed `97d76933...` at the base. Pre-existing failure, neither caused nor fixed here | none that matters (already failing) |
+| (f) | `scripts/check-base-evidence.py` with `docs/evidence/phase06-final.json` (pins manifest sha256 `9ed5d63f4928b340e8ceb8e5dd965c860b8adb80eb2f5bbe42a8322b6a2e0ad1`; the live manifest is `b75864fd...`, a pre-existing mismatch) | `harness.base-evidence` uses its own scratch inputs: unaffected. Observed in this checkout: `--check-current` exits 0 and `--check-artifacts` exits 2 ("BASE evidence refused", the private artifacts are absent). In a clean clone of the base both exit 2 because `build/private-base-diagnostic` does not exist there | none; pre-existing pin mismatch recorded |
+| (g) | the prose digest in `docs/evidence/phase09-qualification.md` | no checker reads it (a repo-wide search for the digest finds only that file, `docs/claims/phase09.md`, the test constants and planning records) | none; it names the qualification-time manifest |
+
+**Authority basis, stated honestly.** Delegated autonomy for routine reversible
+engineering (`.planning/AUTONOMY.md`); ROADMAP Phase 10 success criterion 5 ("adding a
+manifest row no longer requires an oracle-request rebind"); CONTEXT locked decision GATE-02
+("per-row oracle pins replace the whole-file hash"); the 2026-11-23 owner approval of
+per-row binding. This is not an owner approval of this specific comparator change. The
+change is reversible test code (reverting restores whole-file binding), touches no closed
+record and no authority pin. The plan 10-19 summary and the claim documents must surface it
+to the owner as a recorded exception.
+
+**Rejected alternative.** Re-pinning the ten closed claim blocks to a moved manifest digest.
+That edits a closed record and is not taken. If a later phase ever needs it, it is an
+orchestrator-only reproduce-then-change-identities-only task, never an executor edit.

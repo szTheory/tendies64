@@ -949,6 +949,77 @@ _CLAIM_PROJECT_LINE = re.compile(r"^\s*(?:[-*+>]\s*)*Tendies64 ")
 _CLAIM_BUILD = re.compile(r"^0\.0\.0\+t64-build-v1-[0-9a-f]{64}$")
 
 
+# ---- Phase 9 claim blocks: manifest binding (plan 10-03 Task 4, GATE-02 follow-up) --------
+#
+# The ten claim blocks name the fixture manifest of the Phase 9 qualification, not the live
+# file: a later phase appends authored rows, which must not move any closed claim. The
+# constants below pin that manifest by its whole-file digest (the value of every block's
+# manifest_digest) and by a canonical per-row view of the 39 rows it held, so a changed,
+# removed or duplicated Phase-9-era row is still refused by content. This is an identity-binding
+# refinement of plan 10-03, parallel to the GATE-02 per-row oracle pins; no claim, tier, count,
+# oracle revision or F2 literal changes, so it is not a qualification reset. The constants sit
+# outside F2_PINS and F2_PIN_KEYS on purpose. See PIN-IMPACT.md "Phase 9 claim binding".
+PHASE09_CLAIM_MANIFEST_SHA256 = "b75864fdf4404a4691bfed12ccaceaca22879e60ea739ef3cf89ca1eee6e80e0"
+PHASE09_CLAIM_MANIFEST_VIEW_SHA256 = (
+    "beb2b1c8b209480199ce53d0ce30c51887bfb0769d7a6d522fd7bbe7bf2aec5f")
+# The ids of the rows that manifest held, in its order; the view is built in this order.
+PHASE09_CLAIM_MANIFEST_IDS = (
+    "nemu64-test-base", "openipl3-compat-asset", "openipl3-compat-payload", "hello-openipl3",
+    "hello-empty-break", "hello-wrong-text", "hello-empty-loop", "hello-incomplete-loop",
+    "hello-unsupported", "hello-output-overflow", "t64-authored-rsp-smoke",
+    "t64-authored-rsp-smoke-wrong-result", "t64-authored-rsp-smoke-unsupported-opcode",
+    "t64-authored-rsp-smoke-missing-break", "t64-authored-rsp-smoke-altered-delay",
+    "t64-authored-rsp-smoke-same-bank-wrap", "nintendo-pif-boot-rom",
+    "commercial-cartridge-roms", "hello-openipl3-rdram-a-t1", "hello-openipl3-rdram-b-t1",
+    "rdp-fill", "rdp-fill-payload", "audio-pcm-literal", "audio-pcm-wrong-sample",
+    "phase09-admit-si-v1", "phase09-admit-e4k", "phase09-admit-e16k", "phase09-admit-s32k",
+    "phase09-admit-wrong-si-v1", "phase09-admit-long-si-v1", "phase09-pad-poll-si-v1",
+    "phase09-pad-poll-wrong-si-v1", "phase09-replay-mix-si-v1", "phase09-eeprom-rw-e4k-v1",
+    "phase09-eeprom-rw-e16k-v1", "phase09-eeprom-rw-wrong-e4k-v1", "phase09-sram-rw-s32k-v1",
+    "phase09-sram-rw-wrong-s32k-v1", "phase09-save-roundtrip-s32k",
+)
+
+
+def claim_manifest_problems(manifest_bytes: bytes) -> list[str]:
+    """Disagreements of a manifest with the Phase 9 qualification manifest, one
+    'claims-final: manifest ...' each. Rows are looked up by id (never by position); rows whose
+    id is not pinned (later phases) are ignored."""
+    try:
+        data = json.loads(manifest_bytes.decode("utf-8"))
+    except (UnicodeDecodeError, ValueError):
+        return ["claims-final: manifest is not valid JSON"]
+    if not isinstance(data, dict) or not isinstance(data.get("entries"), list):
+        return ["claims-final: manifest has no entries list"]
+    version = data.get("schema_version")
+    if data.get("schema") != "t64.manifest" or version != 1 or isinstance(version, bool):
+        return ["claims-final: manifest schema or schema_version differs from t64.manifest 1"]
+    pinned = set(PHASE09_CLAIM_MANIFEST_IDS)
+    held: dict[str, list] = {}
+    for entry in data["entries"]:
+        if isinstance(entry, dict) and isinstance(entry.get("id"), str) and entry["id"] in pinned:
+            held.setdefault(entry["id"], []).append(entry)
+    out: list[str] = []
+    for row_id in PHASE09_CLAIM_MANIFEST_IDS:
+        count = len(held.get(row_id, []))
+        if count != 1:
+            out.append(f"claims-final: manifest holds the Phase 9 row {row_id} {count} times "
+                       "instead of once")
+    if out:
+        return out
+    view = {"schema": data["schema"], "schema_version": version,
+            "entries": [held[row_id][0] for row_id in PHASE09_CLAIM_MANIFEST_IDS]}
+    try:
+        encoded = json.dumps(view, sort_keys=True, separators=(",", ":"), ensure_ascii=True,
+                             allow_nan=False).encode("ascii")
+    except ValueError:
+        return ["claims-final: manifest rows are not canonical JSON"]
+    digest = hashlib.sha256(encoded).hexdigest()
+    if digest != PHASE09_CLAIM_MANIFEST_VIEW_SHA256:
+        out.append(f"claims-final: manifest per-row view {digest} differs from the pinned "
+                   f"Phase 9 view {PHASE09_CLAIM_MANIFEST_VIEW_SHA256}")
+    return out
+
+
 def claim_blocks(text: str) -> tuple[list[tuple[dict[str, str], int, int]], int]:
     """The real t64-claim blocks as (keys, opening line, closing line) and the number of
     example fences (line numbers are zero-based indexes)."""
@@ -1036,7 +1107,7 @@ def claims_final_problems(text: str, pins: dict, root: Path = ROOT, *,
         out.append("claims-final: a (profile id, fixture set) pair is duplicated")
     if pairs != [tuple(pair) for pair in pins["claim_pairs"]]:
         out.append(f"claims-final: the pairs {pairs} differ from the pinned pairs")
-    manifest_digest = "sha256:" + _f2_digest(root, "fixtures/manifest.json")
+    manifest_digest = "sha256:" + PHASE09_CLAIM_MANIFEST_SHA256
     if len({keys.get("build_id") for keys, _, _ in blocks}) > 1:
         out.append("claims-final: the blocks name different build ids")
     previous_end = -1
@@ -1106,6 +1177,10 @@ def claims_final_problems(text: str, pins: dict, root: Path = ROOT, *,
             out.append(f"claims-final: reserved word '{found.group(1)}' on line {number + 1}")
         if number not in inside and _CLAIM_PROJECT_LINE.match(line):
             out.append(f"claims-final: line {number + 1} starts with the project name")
+    try:
+        out.extend(claim_manifest_problems((root / "fixtures/manifest.json").read_bytes()))
+    except OSError:
+        out.append("claims-final: manifest fixtures/manifest.json is unreadable")
     if run_checker:
         out.extend(_claim_checker(text, root))
     return out
@@ -2863,6 +2938,124 @@ class Phase09Qualification(unittest.TestCase):
                 "counts repo.sched-k5-anchors, which no suite of docs/spec/phase09-cases.json lists",
                 text, moved)
         refused("block removed", "9 real blocks but 10 expected", claim_without(text, 10))
+        refused("block manifest digest", "block 1 manifest_digest",
+                claim_with(text, 1, manifest_digest="sha256:" + "0" * 64))
+        self._claims_manifest_binding_controls(text)
+
+    def _claims_manifest_binding_controls(self, text: str) -> None:
+        """The claim blocks name the manifest of the Phase 9 qualification (plan 10-03,
+        Task 4): rows appended or moved later leave them accepted, while any change, removal
+        or duplication of a Phase-9-era row is refused. Each case runs against a private
+        scratch root that holds only the two files claims_final_problems reads."""
+        original = (ROOT / "fixtures/manifest.json").read_bytes()
+        manifest = json.loads(original)
+        rows = manifest["entries"]
+
+        def encoded(data: object) -> bytes:
+            return (json.dumps(data, indent=2, ensure_ascii=True) + "\n").encode("utf-8")
+
+        def problems_for(raw: bytes) -> list[str]:
+            with tempfile.TemporaryDirectory(prefix="t64-claims-manifest.") as scratch:
+                root = Path(scratch)
+                (root / "fixtures").mkdir()
+                (root / "docs/spec").mkdir(parents=True)
+                (root / "fixtures/manifest.json").write_bytes(raw)
+                shutil.copy2(INVENTORY, root / "docs/spec/phase09-cases.json")
+                return claims_final_problems(text, F2_PINS, root, run_checker=False)
+
+        def mutated(change) -> bytes:
+            data = copy.deepcopy(manifest)
+            change(data)
+            return encoded(data)
+
+        def accepted(label: str, raw: bytes) -> None:
+            # A subtest per control: one failing control must not hide the others.
+            with self.subTest(f"accepted: {label}"):
+                found = problems_for(raw)
+                self.assertEqual(found, [], f"the {label} control was refused: {found}")
+                print(f"claims-final control accepted {label}")
+
+        def refused_manifest(label: str, raw: bytes) -> None:
+            with self.subTest(f"refused: {label}"):
+                found = problems_for(raw)
+                self.assertTrue(any("claims-final:" in line for line in found),
+                                f"the {label} control was not refused: {found}")
+                # Only manifest lines: a setup error elsewhere must not pass as a refusal.
+                self.assertTrue(all("manifest" in line for line in found),
+                                f"the {label} control was refused for another reason: {found}")
+                print(f"claims-final control refused {label}: {found[0]}")
+
+        def row(data: dict, row_id: str) -> dict:
+            found = [entry for entry in data["entries"] if entry["id"] == row_id]
+            self.assertEqual(len(found), 1, row_id)
+            return found[0]
+
+        accepted("unmodified scratch copy", original)
+
+        # An unrelated authored row appended by text, so every existing byte stays.
+        tail = "\n  ]\n}\n"
+        self.assertTrue(original.decode("utf-8").endswith(tail))
+        probe = copy.deepcopy(rows[-1])
+        probe["id"] = "phase10-binding-probe"
+        body = "\n".join("    " + line for line in json.dumps(probe, indent=2).splitlines())
+        appended = original.decode("utf-8")[:-len(tail)] + ",\n" + body + tail
+        self.assertEqual(len(json.loads(appended)["entries"]), len(rows) + 1)
+        accepted("appended row", appended.encode("utf-8"))
+
+        def rdp_fill_last(data: dict) -> None:
+            moved = row(data, "rdp-fill")
+            data["entries"] = [entry for entry in data["entries"] if entry is not moved] + [moved]
+        accepted("rdp-fill moved to the end", mutated(rdp_fill_last))
+        accepted("every row reversed",
+                 mutated(lambda data: data.update(entries=list(reversed(data["entries"])))))
+
+        def change(row_id: str, key: str, value):
+            return lambda data: row(data, row_id).update({key: value(row(data, row_id)[key])})
+
+        def flip(value: str) -> str:
+            return ("1" if value[0] == "0" else "0") + value[1:]
+
+        refused_manifest("phase09-save-roundtrip-s32k sha256 changed",
+                         mutated(change("phase09-save-roundtrip-s32k", "sha256", flip)))
+        refused_manifest("hello-openipl3 size changed",
+                         mutated(change("hello-openipl3", "size", lambda size: size + 1)))
+        refused_manifest("phase09-admit-si-v1 profile changed",
+                         mutated(change("phase09-admit-si-v1", "profile", lambda name: name + "x")))
+
+        def remove(row_id: str):
+            return lambda data: data.update(
+                entries=[entry for entry in data["entries"] if entry["id"] != row_id])
+        refused_manifest("phase09-save-roundtrip-s32k removed",
+                         mutated(remove("phase09-save-roundtrip-s32k")))
+        refused_manifest("hello-openipl3 removed", mutated(remove("hello-openipl3")))
+
+        def rename_clone(data: dict) -> None:
+            original_row = row(data, "rdp-fill")
+            clone = copy.deepcopy(original_row)
+            clone["id"] = "rdp-fill-clone"
+            data["entries"][data["entries"].index(original_row)] = clone
+        refused_manifest("rdp-fill replaced by its own bytes under another id",
+                         mutated(rename_clone))
+        refused_manifest("rdp-fill duplicated",
+                         mutated(lambda data: data["entries"].append(copy.deepcopy(
+                             row(data, "rdp-fill")))))
+
+        def altered_copy_first(data: dict) -> None:
+            first = row(data, "rdp-fill")
+            altered = copy.deepcopy(first)
+            altered["sha256"] = flip(altered["sha256"])
+            data["entries"].insert(data["entries"].index(first), altered)
+        refused_manifest("rdp-fill altered copy before the original", mutated(altered_copy_first))
+
+        refused_manifest("schema_version changed",
+                         mutated(lambda data: data.update(schema_version=2)))
+        refused_manifest("schema_version as a boolean",
+                         mutated(lambda data: data.update(schema_version=True)))
+        refused_manifest("schema changed", mutated(lambda data: data.update(schema="t64.other")))
+        refused_manifest("no rows", mutated(lambda data: data.update(entries=[])))
+        refused_manifest("entries not a list", mutated(lambda data: data.update(entries="rows")))
+        refused_manifest("invalid json", b"{")
+        refused_manifest("not an object", b"[]")
 
 
 def _run_checker(build: Path, inventory: Path, suite: str) -> subprocess.CompletedProcess[str]:
