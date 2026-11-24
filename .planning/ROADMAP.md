@@ -76,24 +76,61 @@ corpus and a replay adapter (Plan 07-13). No oracle work happens until then.
 **G4 exception (recorded 2026-11-23, plan check iterations 2 and 3; for owner review):** the required gate grows in Phase 10 without removing equal time, because the new tests (K1 Z refusal, the VG vectors, the v26 identity and state round trips, the RUN-07 composite runs and the per-row binding controls) are the required evidence of this phase's success criteria and must gate everything later phases build on. No offset removes measured gate time: GATE-01's explicit CTest COST properties change the ctest scheduling order only, and the 15-minute gate-macos limit with its scanner rule and SC5's measured cold-cache run raise the ceiling and measure the result, but shorten nothing; the redundant rsp-no-hle guard in the audio-records step (about 25-32 s, research C3) is a stop-loss that may be declined, so it is not counted as an offset unless its removal is measured. Expected growth: the gate grows by the summed native seconds of every new Phase 10 CTest name; that value is not known at planning and is the PIN-IMPACT.md "Gate-growth ledger" total row (per-wave rows from 10-05, 10-08, 10-13 and 10-18, the measured total from 10-17 before the cold run), and the binding figure is the measured cold-cache gate-macos job seconds of plan 10-19 against the 900 s limit (pre-Phase-10 cold projection 673 s). Reversal evidence: the PIN-IMPACT.md "Gate-growth ledger" records each wave's new names, measured added native seconds, hosted delta and margin to 900 s; if the measured cold-cache gate-macos run (plan 10-19) exceeds 900 s or is cancelled at the limit, a new numbered plan moves non-essential Phase 10 cases (sampled sanitizer runs, duplicate-path round trips) to a non-gating lane and the cold run is repeated. The exception covers Phase 10 only; Phases 11 and 12 follow G4 as written.
 
 Plans:
+**Wave 1**
 - [ ] 10-01-PLAN.md — W0: scripted preflight, pin-impact map with the one-way id record, mutant driver skeleton
+
+**Wave 2** *(blocked on Wave 1 completion)*
 - [ ] 10-02-PLAN.md — W0: K1 Z-refusal characterization on descriptors 11/12, committed two-tree digest sweep
+
+**Wave 3** *(blocked on Wave 2 completion)*
 - [ ] 10-03-PLAN.md — W0: GATE-02 per-row oracle pins of every manifest row (orchestrator-only checker edit and rebind) and the Phase 9 claim-block binding to the pinned Phase 9 manifest rows
+
+**Wave 4** *(blocked on Wave 3 completion)*
 - [ ] 10-04-PLAN.md — W0: GATE-01 COST order, guard disposition, gate-macos 15 min with scanner rule and selftest, LOG rows
+
+**Wave 5** *(blocked on Wave 4 completion)*
 - [ ] 10-05-PLAN.md — W0 review in a scratch clone, push, warm after-timings
+
+**Wave 6** *(blocked on Wave 5 completion)*
 - [ ] 10-06-PLAN.md — W1: VG-01 on descriptor 10, Z exponent boundaries, NTSC clock vector, mutants
+
+**Wave 7** *(blocked on Wave 6 completion)*
 - [ ] 10-07-PLAN.md — W1: VG-02 to VG-05 with independent literals and mutants
+
+**Wave 8** *(blocked on Wave 7 completion)*
 - [ ] 10-08-PLAN.md — W1 review, re-derivation, push
+
+**Wave 9** *(blocked on Wave 8 completion)*
 - [ ] 10-09-PLAN.md — W2: descriptor-13 family registration, RED completeness test, depth activation and v26 digest
+
+**Wave 10** *(blocked on Wave 9 completion)*
 - [ ] 10-10-PLAN.md — W2: depth behavior literals and wrong-depth control, predicate matrix, shipped-id proof, depth/K1 docs
+
+**Wave 11** *(blocked on Wave 10 completion)*
 - [ ] 10-11-PLAN.md — W2: state 26 export, container v2 version marker, independent decoder, build-identity docs
+
+**Wave 12** *(blocked on Wave 11 completion)*
 - [ ] 10-12-PLAN.md — W2: state 26 import, mid-primitive and mid-scan-out round trips, rules, fuzz
+
+**Wave 13** *(blocked on Wave 12 completion)*
 - [ ] 10-13-PLAN.md — W2 review of the identity/state bump, push
+
+**Wave 14** *(blocked on Wave 13 completion)*
 - [ ] 10-14-PLAN.md — W3: authored composite guest, builder, oracle, the one manifest-moving commit
+
+**Wave 15** *(blocked on Wave 14 completion)*
 - [ ] 10-15-PLAN.md — W3: two supervised runs with equal digest, per-output expectations and controls, runner container-v2 format pairing
+
+**Wave 16** *(blocked on Wave 15 completion)*
 - [ ] 10-16-PLAN.md — W4: provisional-name sweep of 7 spec docs, Phase 9 carry-in triage
+
+**Wave 17** *(blocked on Wave 16 completion)*
 - [ ] 10-17-PLAN.md — W4: thin-delta Phase 10 qualifier and rehearsal
+
+**Wave 18** *(blocked on Wave 17 completion)*
 - [ ] 10-18-PLAN.md — W4: Wave 3 review and final independent audit, push
+
+**Wave 19** *(blocked on Wave 18 completion)*
 - [ ] 10-19-PLAN.md — W4: qualification, orchestrator cold-cache hosted run, evidence and claims
 
 ### Phase 11: Installed Consumer and Freeze Candidate

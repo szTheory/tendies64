@@ -38,7 +38,7 @@ Filled by the planner per task; requirement-level map:
 | GATE-01 | scanner selftest | `ctest -R '^repo\.ci-yml(-selftest)?$'`; COST in `ctest --show-only=json-v1` | edit `scripts/check-ci-yml.sh` |
 | GATE-01 (measured) | hosted cold run | `gh cache delete`, `gh workflow run`, `gh run view --json jobs` | orchestrator step |
 | VER-06 | unit + mutant driver | `ctest -R 'unit\.core\.(vg|vi\.clock)'`; `python3 -B scripts/p10-mutants.py --run` | ❌ W0 (new files; never edit the 14 oracle-bound files) |
-| VID-07 | unit | `ctest -R 'unit\.core\.(profile|digest|rdp\.depth)'`; K1 characterization before/after; digest sweep | ❌ W0 |
+| VID-07 | unit | `ctest -R 'unit\.core\.(profile|digest|rdp\.depth)' (incl. unit.core.profile.v26-isviewer: ISViewer accepted on the 8 SI-family ids, refused outside)`; K1 characterization before/after; digest sweep | ❌ W0 |
 | CORE-06 | unit | `ctest -R 'unit\.core\.(digest\.v26|state\.(export|import))'`; `harness.state-field-use-audit` | ❌ W0 |
 | RUN-07 | runner integration | `ctest -R 'runner\.composite'` | ❌ W0 |
 
