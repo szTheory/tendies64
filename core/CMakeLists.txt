@@ -863,6 +863,12 @@ set_tests_properties(unit.core.state.import PROPERTIES
   LABELS unit
   TIMEOUT 600
   ENVIRONMENT "T64_TEST_IPL3_PATH=${T64_BOOT_FIXTURE_DIR}/ipl3_compat.z64;T64_TEST_RDP_FILL_PATH=${T64_BOOT_FIXTURE_DIR}/rdp-fill.z64;T64_STATE_MUTANT_INVENTORY=${CMAKE_SOURCE_DIR}/docs/spec/state-mutants.txt")
+# Phase 10 GATE-01: a fresh hosted runner has no Testing/Temporary/CTestCostData.txt,
+# so ctest starts every test at cost 0 in registration order and this one (210 s on
+# the hosted macOS runner, docs/ci-reviews/LOG.md F-111) started late. COST is plain
+# decimal seconds, it orders parallel starts only, and it changes no name or inventory.
+# It sits outside the sanitizer conditional below so both presets order the same way.
+set_tests_properties(unit.core.state.import PROPERTIES COST 210)
 
 # Phase 9 SI, PIF and input-latch tests (plan 09-03).
 add_executable(test_si tests/test_si.c)

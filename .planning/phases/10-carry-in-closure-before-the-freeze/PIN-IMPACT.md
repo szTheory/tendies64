@@ -326,3 +326,49 @@ to the owner as a recorded exception.
 **Rejected alternative.** Re-pinning the ten closed claim blocks to a moved manifest digest.
 That edits a closed record and is not taken. If a later phase ever needs it, it is an
 orchestrator-only reproduce-then-change-identities-only task, never an executor edit.
+
+## 10. GATE-01 measurements
+
+Written by plan 10-04 (phase-wave 0). Evidence tier: measurements on the local gate
+preset at the commit that records them, at a 1-minute host load of 8.4 to 9.6 (above
+the quiet-host threshold of 8, so seconds are upper bounds). Nothing here is a hosted
+measurement: the hosted warm run is plan 10-05 and the cold run is plan 10-19.
+
+### 10.1 COST properties and fresh-runner start order (Task 1)
+
+`COST` is set beside each registration, outside the sanitizer conditional, as plain
+decimal seconds taken from the hosted macOS run of F-111 (run 44795894664):
+
+| Test | COST | File |
+|------|------|------|
+| `unit.core.state.import` | 210 | `core/CMakeLists.txt` |
+| `harness.state-field-use-audit` | 71 | `runner/CMakeLists.txt` |
+| `repo.rsp-no-hle` | 48 | `runner/CMakeLists.txt` |
+| `harness.phase09-qualification` | 35 | `runner/CMakeLists.txt` |
+
+Read back with `ctest --show-only=json-v1`: the four values appear on the gate preset
+(227 names) and on the asan preset (229 names, four `COST` entries, one per test), and
+`sh scripts/check-test-inventory.sh --preset gate` and `--preset asan` pass with no name
+change.
+
+Fresh-runner simulation: `build/gate/Testing/Temporary/CTestCostData.txt` moved aside
+before each run (a hosted runner has none), `ctest --preset gate` (4 jobs), start order
+read from the `Start N: name` lines, the original cost file restored afterwards.
+
+| Run | Start position of `unit.core.state.import` (test number 66) | Start positions of the other three | ctest wall (`Total Test time (real)`) | Longest test |
+|-----|---|---|---|---|
+| without the COST lines (scratch revert of the two files, reconfigured, then re-applied) | 66th of 227 (registration order) | `repo.rsp-no-hle` 125th, `harness.state-field-use-audit` 126th, `harness.phase09-qualification` 174th | 70.1 s | not recorded |
+| with COST, run 1 | 2nd | `harness.state-field-use-audit` 3rd, `repo.rsp-no-hle` 4th, `harness.phase09-qualification` 5th | 68.9 s | `unit.core.state.import` 47.7 s |
+| with COST, run 2 | 2nd | the same three in the same order | 72.9 s | `unit.core.state.import` 51.4 s |
+
+Reading: with COST the four tests are the second to fifth starts of the run. The test
+that starts first is `runner.fixture-descriptor` (0.01 s, no COST), with and without
+the COST lines, because `controls.real.source-replaced` declares `DEPENDS` on it
+(`runner/CMakeLists.txt:386-387`, the only `DEPENDS` prerequisite in the tree); it frees
+its slot at once, so `unit.core.state.import` effectively starts first. Without COST the
+same test starts 66th, behind 65 mostly sub-second tests. Locally the wall time is the same inside the
+noise (68.9, 72.9 and 70.1 s at load 8.4 to 9.6): the local run has a cheap prefix and a
+longest test of 47.7 to 51.4 s, so the ordering saves little here. The F-111 estimate of
+up to about 40 s hosted (macOS ctest 251 s against a 210 s longest test that started late)
+is not measured by this plan; plan 10-05 reads the hosted ctest wall and the start order
+of the four tests against this band and the F-114 spread (up to 52 s macOS).

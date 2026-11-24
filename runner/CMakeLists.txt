@@ -185,6 +185,9 @@ set_tests_properties(repo.rsp-no-hle PROPERTIES
   LABELS runner TIMEOUT 240
   ENVIRONMENT
     "PYTHONDONTWRITEBYTECODE=1;T64_RSP_NO_HLE_BUILD_DIR=${CMAKE_BINARY_DIR}")
+# Phase 10 GATE-01: hosted macOS seconds (F-111) so a runner without cost history
+# starts the longest tests first; COST orders only (see core/CMakeLists.txt).
+set_tests_properties(repo.rsp-no-hle PROPERTIES COST 48)
 
 # Phase 9 state field-use audit (plan 09-09.1, D-45): every state member used as
 # an index, length, shift or loop bound maps to a closed importer rule and a
@@ -203,6 +206,8 @@ add_test(NAME harness.state-field-use-audit
           --check --selftest --root ${CMAKE_SOURCE_DIR})
 set_tests_properties(harness.state-field-use-audit PROPERTIES
   LABELS runner TIMEOUT 240 ENVIRONMENT "PYTHONDONTWRITEBYTECODE=1")
+# Phase 10 GATE-01: hosted macOS seconds (F-111), see repo.rsp-no-hle above.
+set_tests_properties(harness.state-field-use-audit PROPERTIES COST 71)
 
 # The version-membership and reservation site list is data; each later plan
 # refreshes it in the commit that adds its site.
@@ -741,6 +746,8 @@ add_test(NAME harness.phase09-qualification
     --selftest)
 set_tests_properties(harness.phase09-qualification PROPERTIES
   LABELS "harness;qualification" TIMEOUT 120)
+# Phase 10 GATE-01: hosted macOS seconds (F-111), see repo.rsp-no-hle above.
+set_tests_properties(harness.phase09-qualification PROPERTIES COST 35)
 # The cross-platform controls built from the two real records of the first
 # hosted pair (docs/evidence/phase09-first-hosted-pair.json).
 add_test(NAME harness.phase09-collect-real
