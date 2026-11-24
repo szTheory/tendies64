@@ -792,7 +792,10 @@ t64_target_warnings(test_k1_refusal)
 add_dependencies(test_k1_refusal t64-boot-fixtures)
 add_test(NAME unit.core.k1.dispatch-refusal
   COMMAND test_k1_refusal --case dispatch-refusal)
-set_tests_properties(unit.core.k1.dispatch-refusal PROPERTIES
+add_test(NAME unit.core.k1.apply-refusal
+  COMMAND test_k1_refusal --case apply-refusal)
+set_tests_properties(unit.core.k1.dispatch-refusal
+  unit.core.k1.apply-refusal PROPERTIES
   LABELS "unit;phase10"
   ENVIRONMENT "T64_TEST_IPL3_PATH=${T64_BOOT_FIXTURE_DIR}/ipl3_compat.z64")
 
