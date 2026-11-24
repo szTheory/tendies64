@@ -1216,6 +1216,212 @@ static void case_perspective_floor(void) {
   }
 }
 
+#define TRIANGLE_PROFILE_ID "ntsc-cart-4m-openipl3-rdram-b-t1-rdp-triangle-v3"
+#define BLENDER_PROFILE_ID "ntsc-cart-4m-openipl3-rdram-b-t1-rdp-blender-v6"
+
+/* One shaded edge-plus-shade triangle (opcode 0x0c, one-cycle, no
+ * combiner) on the v3 triangle profile: the Phase 7 geometry whose major edge
+ * is vertical at x = 1.0 on the left (XH 1.0, DxHDy 0, lft 0), rows 1 to 5.
+ * `shade` holds W4 to W11: the integer halves of the R, G, B and A bases (W4),
+ * of Dx (W5), then the fraction halves of the bases (W6) and of Dx (W7), and
+ * zero De and Dy. Returns the 16-bit framebuffer words at the pixels (1,2) and
+ * (2,2). */
+static bool run_shade_triangle(const uint64_t shade[8], uint16_t *pixel_1_2,
+                               uint16_t *pixel_2_2, uint32_t *refusal) {
+  const uint64_t commands[] = {
+      UINT64_C(0x3f10000700005000),  /* SetColorImage RGBA16 width 8 at 0x5000 */
+      UINT64_C(0x2d00000000020020),  /* SetScissor [0,8) x [0,8) */
+      UINT64_C(0x2f00000000000000),  /* one-cycle, no other mode bits */
+      UINT64_C(0x0c000014000c0004),  /* W0: 0x0c, lft 0, YL 5.0, YM 3.0, YH 1.0 */
+      UINT64_C(0x00010000fffe8000),  /* W1: XL 1.0, DxLDy -1.5 */
+      UINT64_C(0x0001000000000000),  /* W2: XH 1.0, DxHDy 0 */
+      UINT64_C(0x0004000000018000),  /* W3: XM 4.0, DxMDy 1.5 */
+      shade[0], shade[1], shade[2], shade[3], shade[4], shade[5], shade[6],
+      shade[7],
+  };
+  t64_machine *machine = create_machine_for_profile(TRIANGLE_PROFILE_ID);
+
+  if (machine == NULL) return false;
+  memset(machine->ram + FRAMEBUFFER_ADDRESS, 0xa5, 8u * 8u * 2u);
+  if (!run_commands(machine, commands, sizeof commands / sizeof commands[0])) {
+    t64_machine_destroy(machine);
+    return false;
+  }
+  *refusal = machine->rdp.refusal_reason;
+  *pixel_1_2 = (uint16_t)(((uint16_t)machine->ram[FRAMEBUFFER_ADDRESS + 18u]
+                           << 8) | machine->ram[FRAMEBUFFER_ADDRESS + 19u]);
+  *pixel_2_2 = (uint16_t)(((uint16_t)machine->ram[FRAMEBUFFER_ADDRESS + 20u]
+                           << 8) | machine->ram[FRAMEBUFFER_ADDRESS + 21u]);
+  t64_machine_destroy(machine);
+  return true;
+}
+
+/*
+ * VG-05 (a): the shade intermediate products use explicit floor division.
+ *
+ * Independent derivation (rdp.md "Triangle profile": signed 64-bit products
+ * with explicit floor division; every coefficient is a signed 32-bit Q16
+ * value; a channel at a pixel centre is
+ *   floor((base + floor(Dx * (x - xmajor) / 65536) + 0 + 0) / 65536)
+ * with De = Dy = 0 here, clamped to 0..255, then RGB5 = value >> 3 and the
+ * alpha bit is value >= 128).
+ *
+ * The major edge is vertical at x = 1.0 = 65536 (Q16) on the left, so the
+ * pixel centre (1.5, 2.5) is at x - xmajor = +32768 and (2.5, 2.5) at +98304.
+ * Lanes (Q16 raw base, Dx raw):
+ *   R base 64 * 65536 = 0x00400000, Dx -1
+ *     pixel (1,2): -1 * 32768 = -32768, / 65536 = -0.5: floor -1, truncation 0
+ *       floor: floor((4194304 - 1) / 65536) = 63 -> 5-bit 7
+ *       trunc: floor((4194304 + 0) / 65536) = 64 -> 5-bit 8
+ *     pixel (2,2): -98304 / 65536 = -1.5: floor -2, trunc -1: both give 63
+ *   G base 128 * 65536 + 1 = 0x00800001, Dx -1
+ *     pixel (1,2): floor -1: 8388608 + 1 - 1 -> 128 -> 16 (trunc: also 128)
+ *     pixel (2,2): floor -2: 8388608 + 1 - 2 = 8388607 -> 127 -> 5-bit 15
+ *                  trunc -1: 8388608 -> 128 -> 5-bit 16
+ *   B base 96 * 65536, Dx -2 (a control lane: the products -65536 and
+ *     -196608 are exact multiples of 65536, so floor equals truncation)
+ *     pixel (1,2): 6291456 - 1 -> 95 -> 11; pixel (2,2): 6291456 - 3 -> 95
+ *   A base 200 * 65536, Dx 0 -> alpha bit 1
+ * hence by hand
+ *   pixel (1,2) = (7 << 11) | (16 << 6) | (11 << 1) | 1 = 0x3c17
+ *                 (truncation would give 8 in R: 0x4417)
+ *   pixel (2,2) = (7 << 11) | (15 << 6) | (11 << 1) | 1 = 0x3bd7
+ *                 (truncation would give 16 in G: 0x3c17)
+ * The Q16 words are: W4 (integer halves) R 0x0040, G 0x0080, B 0x0060, A
+ * 0x00c8; W5 (Dx integer halves) 0xffff for R, G and B (a small negative Q16
+ * value has integer half 0xffff), A 0; W6 (base fractions) G 0x0001; W7 (Dx
+ * fractions) R 0xffff (-1), G 0xffff (-1), B 0xfffe (-2).
+ */
+static void case_shade_floor(void) {
+  static const uint64_t shade[8] = {
+      UINT64_C(0x00400080006000c8), UINT64_C(0xffffffffffff0000),
+      UINT64_C(0x0000000100000000), UINT64_C(0xfffffffffffe0000),
+      UINT64_C(0), UINT64_C(0), UINT64_C(0), UINT64_C(0),
+  };
+  uint16_t pixel_1_2 = 0u;
+  uint16_t pixel_2_2 = 0u;
+  uint32_t refusal = UINT32_MAX;
+  uint8_t observed[2];
+  uint8_t literal[2];
+  uint8_t wrong[2];
+
+  T64_CHECK(run_shade_triangle(shade, &pixel_1_2, &pixel_2_2, &refusal));
+  T64_CHECK_INT(refusal, T64_RDP_REFUSAL_NONE);
+  T64_CHECK_INT(pixel_1_2, 0x3c17u);
+  T64_CHECK_INT(pixel_2_2, 0x3bd7u);
+
+  /* Same-setup wrong-value control: the truncating words differ at byte 0 on
+   * both pixels, and one changed byte of the right literal is reported at
+   * byte 1. */
+  write_be16(observed, pixel_1_2);
+  write_be16(literal, 0x3c17u);
+  write_be16(wrong, 0x4417u);
+  T64_CHECK_INT(first_difference(observed, literal, 2u), SIZE_MAX);
+  T64_CHECK_INT(first_difference(observed, wrong, 2u), 0u);
+  write_be16(observed, pixel_2_2);
+  write_be16(wrong, 0x3c17u);
+  T64_CHECK_INT(first_difference(observed, wrong, 2u), 0u);
+  write_be16(literal, 0x3bd7u);
+  T64_CHECK_INT(first_difference(observed, literal, 2u), SIZE_MAX);
+  memcpy(wrong, literal, sizeof wrong);
+  wrong[1] = (uint8_t)(wrong[1] ^ 1u);
+  T64_CHECK_INT(first_difference(observed, wrong, 2u), 1u);
+}
+
+/*
+ * VG-05 (b): the Bayer colour-dither bias table (selector 1).
+ *
+ * Independent derivation (rdp.md blender section): the printed Bayer matrix is
+ *   0 4 1 5
+ *   6 2 7 3
+ *   1 5 0 4
+ *   7 3 6 2
+ * (rows y & 3, columns x & 3); "RGB8 channels add that 0-7 bias, clamp to 255,
+ * then take the upper five bits", so a channel c quantizes to
+ * (min(c + bias, 255)) >> 3. With RGB dither selector 1 (bits 39:38 of
+ * SetOtherModes) and alpha dither disabled (bits 37:36 = 3), every channel
+ * c = 8m - bias(x & 3, y & 3) is the first value that quantizes to m and
+ * c - 1 quantizes to m - 1.
+ *
+ * Table pin: for each of the 16 cells and for c = 72 .. 79 (m = 10, 8m = 80)
+ * the 5-bit channel is 10 exactly when c + bias >= 80 and 9 otherwise; eight
+ * values of c fix every bias 0..7 exactly, so a bias too small or too large
+ * by one, or a table with a different shift, fails at least one cell (the
+ * Phase 7 test only looked at pixel (3,2)).
+ *
+ * Named pixel (x 2, y 1), bias 7: R = 8 * 10 - 7 = 73 (-> 10), G = 8 * 12 - 7
+ * = 89 (-> 12), B = 8 * 5 - 7 - 1 = 32 (one below the threshold -> 4), alpha
+ * 0xff (-> bit 1, alpha dither off). The colour word is 0x495920ff and the
+ * RGBA5551 result (10 << 11) | (12 << 6) | (4 << 1) | 1 = 0x5309. A bias
+ * shifted right by 2 instead of 1 would give bias 14 >> 2 = 3 at that cell:
+ * 76 -> 9, 92 -> 11, 35 -> 4, the word 0x4ac9.
+ */
+static void case_bayer_table(void) {
+  static const uint8_t printed[4][4] = {
+      {0u, 4u, 1u, 5u}, {6u, 2u, 7u, 3u}, {1u, 5u, 0u, 4u}, {7u, 3u, 6u, 2u},
+  };
+  static const uint64_t other_modes =
+      (UINT64_C(1) << 38) | (UINT64_C(3) << 36);
+  t64_machine *machine = create_machine_for_profile(BLENDER_PROFILE_ID);
+  unsigned cells = 0u;
+  unsigned cell_values = 0u;
+  uint8_t observed[2];
+  uint8_t literal[2];
+  uint8_t wrong[2];
+  uint32_t x;
+  uint32_t y;
+  uint32_t c;
+
+  if (machine == NULL) return;
+  machine->rdp.other_modes = other_modes;
+  for (y = 0u; y < 4u; y++) {
+    for (x = 0u; x < 4u; x++) {
+      cells++;
+      for (c = 72u; c <= 79u; c++) {
+        const uint32_t color = (c << 24) | (c << 16) | (c << 8) | UINT32_C(0xff);
+        const uint32_t channel = c + printed[y][x] >= 80u ? 10u : 9u;
+        const uint16_t expected =
+            (uint16_t)((channel << 11) | (channel << 6) | (channel << 1) | 1u);
+        T64_CHECK_INT(t64_rdp_quantize_rgba5551_v6(machine, color, x, y),
+                      expected);
+        /* The matrix repeats every four pixels in both directions. */
+        T64_CHECK_INT(t64_rdp_quantize_rgba5551_v6(machine, color, x + 4u,
+                                                   y + 8u), expected);
+        cell_values++;
+      }
+    }
+  }
+  T64_CHECK_INT(cells, 16u);
+  T64_CHECK_INT(cell_values, 128u);
+
+  /* Named pixel literals (hand derivation above). */
+  T64_CHECK_INT(printed[1][2], 7u);
+  T64_CHECK_INT(t64_rdp_quantize_rgba5551_v6(machine, UINT32_C(0x495920ff), 2u,
+                                              1u), 0x5309u);
+  /* One below the threshold on every channel: 72 + 7 = 79 -> 9. */
+  T64_CHECK_INT(t64_rdp_quantize_rgba5551_v6(machine, UINT32_C(0x484848ff), 2u,
+                                              1u), 0x4a53u);
+
+  /* Same-setup wrong-value control: the shifted-by-2 word is rejected at byte
+   * 0 and a one-byte change of the right literal is reported at byte 1. */
+  write_be16(observed, t64_rdp_quantize_rgba5551_v6(machine,
+                                                    UINT32_C(0x495920ff), 2u,
+                                                    1u));
+  write_be16(literal, 0x5309u);
+  write_be16(wrong, 0x4ac9u);
+  T64_CHECK_INT(first_difference(observed, literal, 2u), SIZE_MAX);
+  T64_CHECK_INT(first_difference(observed, wrong, 2u), 0u);
+  memcpy(wrong, literal, sizeof wrong);
+  wrong[1] = (uint8_t)(wrong[1] ^ 1u);
+  T64_CHECK_INT(first_difference(observed, wrong, 2u), 1u);
+  t64_machine_destroy(machine);
+}
+
+static void case_shade_floor_bayer(void) {
+  case_shade_floor();
+  case_bayer_table();
+}
+
 typedef struct {
   const char *name;
   void (*run)(void);
@@ -1230,6 +1436,7 @@ static const test_case cases[] = {
     {"rgba5551-alpha-clear", case_rgba5551_alpha_clear},
     {"serrate-filter-parity", case_serrate_filter_parity},
     {"perspective-floor", case_perspective_floor},
+    {"shade-floor-bayer", case_shade_floor_bayer},
 };
 
 int main(int argc, char **argv) {

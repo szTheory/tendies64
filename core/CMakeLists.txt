@@ -799,9 +799,10 @@ set_tests_properties(unit.core.k1.dispatch-refusal
   LABELS "unit;phase10"
   ENVIRONMENT "T64_TEST_IPL3_PATH=${T64_BOOT_FIXTURE_DIR}/ipl3_compat.z64")
 
-# VER-06 gap vectors (plan 10-06): VG-01, the Z exponent boundaries and the
-# standard-NTSC VI clock vector, one CTest name per case, in a new binary so
-# the oracle-bound depth and VI tests stay unchanged.
+# VER-06 gap vectors (plans 10-06 and 10-07): VG-01 to VG-05, the Z exponent
+# boundaries and the standard-NTSC VI clock vector, one CTest name per case, in
+# a new binary so the oracle-bound depth, VI, texture, triangle and blender
+# tests stay unchanged.
 add_executable(test_vg_gaps tests/test_vg_gaps.c)
 target_include_directories(test_vg_gaps PRIVATE
   "${CMAKE_SOURCE_DIR}/tests"
@@ -826,6 +827,8 @@ add_test(NAME unit.core.vg.serrate-filter-parity
   COMMAND test_vg_gaps --case serrate-filter-parity)
 add_test(NAME unit.core.vg.perspective-floor
   COMMAND test_vg_gaps --case perspective-floor)
+add_test(NAME unit.core.vg.shade-floor-bayer
+  COMMAND test_vg_gaps --case shade-floor-bayer)
 set_tests_properties(unit.core.vg.decal-equality
   unit.core.vg.primitive-z-saturation
   unit.core.vg.delta-ceiling
@@ -833,7 +836,8 @@ set_tests_properties(unit.core.vg.decal-equality
   unit.core.vg.ntsc-clock
   unit.core.vg.rgba5551-alpha-clear
   unit.core.vg.serrate-filter-parity
-  unit.core.vg.perspective-floor PROPERTIES
+  unit.core.vg.perspective-floor
+  unit.core.vg.shade-floor-bayer PROPERTIES
   LABELS "unit;phase10"
   ENVIRONMENT "T64_TEST_IPL3_PATH=${T64_BOOT_FIXTURE_DIR}/ipl3_compat.z64;T64_TEST_RDP_FILL_PATH=${T64_BOOT_FIXTURE_DIR}/rdp-fill.z64")
 

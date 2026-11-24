@@ -355,6 +355,39 @@ MUTANTS = [
         "record": [],
     },
     {
+        "id": "vg05-shade-trunc",
+        "tag": "mutant",
+        "expect": "KILLED",
+        "title": "shade_channel: the major-displacement product dx * (x - major) truncates toward zero instead of flooring (VG-05 a; the texture sibling texture_channel_q16 is not touched)",
+        "edits": [
+            (
+                "core/t64_rdp_raster.c",
+                "  int64_t dy = pair_q16(words[9], words[11], (unsigned)shift);\n"
+                "  int64_t from_major = floor_div_i64(dx * (x16 - major_x16),\n"
+                "                                     INT64_C(65536));\n",
+                "  int64_t dy = pair_q16(words[9], words[11], (unsigned)shift);\n"
+                "  int64_t from_major = (dx * (x16 - major_x16)) / INT64_C(65536);\n",
+            )
+        ],
+        "kill": [own_check("test_vg_gaps", ["--case", "shade-floor-bayer"])],
+        "record": [],
+    },
+    {
+        "id": "vg05-bayer-shift2",
+        "tag": "mutant",
+        "expect": "KILLED",
+        "title": "Bayer colour-dither bias shifted right by 2 instead of 1 (VG-05 b)",
+        "edits": [
+            (
+                "core/t64_rdp_raster.c",
+                "  case 1u: return (uint8_t)(bayer[y & 3u][x & 3u] >> 1);\n",
+                "  case 1u: return (uint8_t)(bayer[y & 3u][x & 3u] >> 2);\n",
+            )
+        ],
+        "kill": [own_check("test_vg_gaps", ["--case", "shade-floor-bayer"])],
+        "record": [],
+    },
+    {
         "id": "control-no-compile",
         "tag": "control",
         "expect": "INVALID",

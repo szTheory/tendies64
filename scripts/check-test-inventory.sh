@@ -252,7 +252,8 @@ unit.core.vg.z-exponent-boundaries
 unit.core.vg.ntsc-clock
 unit.core.vg.rgba5551-alpha-clear
 unit.core.vg.serrate-filter-parity
-unit.core.vg.perspective-floor'
+unit.core.vg.perspective-floor
+unit.core.vg.shade-floor-bayer'
 
 CPU_COVERAGE_OPCODES='ADD
 ADDU
