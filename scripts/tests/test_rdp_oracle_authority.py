@@ -3,6 +3,8 @@
 
 from __future__ import annotations
 
+import contextlib
+import copy
 import hashlib
 import importlib.util
 import json
@@ -13,12 +15,20 @@ import stat
 import subprocess
 import sys
 import tempfile
+from collections.abc import Callable, Iterator
 from datetime import datetime, timedelta, timezone
+from typing import Any
 
 
 ROOT = Path(__file__).resolve().parents[2]
 CHECKER = ROOT / "scripts/check-rdp-oracle-authority.py"
 PRIVATE_TEST_ROOT = ROOT / "build/gate/07-12-task1/authority-repair-tests"
+RECORD_RELATIVE = "docs/evidence/phase07-oracle-authority.json"
+CHECKER_RELATIVE = "scripts/check-rdp-oracle-authority.py"
+MANIFEST_RELATIVE = "fixtures/manifest.json"
+# Scratch mirrors must stay complete after the manifest leaves BOUND_FILES
+# (GATE-02 binds its rows individually, not the whole file).
+MIRROR_EXTRA = (MANIFEST_RELATIVE,)
 BOUND_FILES = (
     "docs/spec/rdp-vi-cases.json",
     "fixtures/manifest.json",
@@ -107,18 +117,25 @@ def verify_private_test_root() -> None:
             raise AssertionError("refused test root changed its symlink target")
 
 
+def populate_mirror(mirror: Path) -> None:
+    """Copy everything the real CLI reads into a scratch root; mutate only the copy."""
+    copied: set[str] = set()
+    for relative in (*BOUND_FILES, *MIRROR_EXTRA, RECORD_RELATIVE, CHECKER_RELATIVE):
+        if relative in copied:
+            continue
+        copied.add(relative)
+        destination = mirror / relative
+        destination.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(ROOT / relative, destination)
+
+
 def invoke_forged_approval(*, publication: bool = False) -> subprocess.CompletedProcess[str]:
     """Run the real CLI against a complete mirror with self-declared grants."""
     with private_temporary_directory("t64-oracle-authority-test-") as tmp:
         mirror = Path(tmp)
-        copy_paths = (*BOUND_FILES, "docs/evidence/phase07-oracle-authority.json",
-                      "scripts/check-rdp-oracle-authority.py")
-        for relative in copy_paths:
-            destination = mirror / relative
-            destination.parent.mkdir(parents=True, exist_ok=True)
-            shutil.copy2(ROOT / relative, destination)
+        populate_mirror(mirror)
 
-        record_path = mirror / "docs/evidence/phase07-oracle-authority.json"
+        record_path = mirror / RECORD_RELATIVE
         record = json.loads(record_path.read_text(encoding="utf-8"))
         now = datetime.now(timezone.utc)
         utc = lambda value: value.isoformat(timespec="seconds").replace("+00:00", "Z")
@@ -214,6 +231,307 @@ def verify_resolved_storage_root() -> None:
             raise AssertionError("symlink resolving into synthetic worktree was admitted")
 
 
+class SetupError(Exception):
+    """The scratch mirror or its mutation is invalid, so a case result would mean nothing."""
+
+
+BOUND_IDS = ("rdp-fill", "rdp-fill-payload")
+PROBE_ROW_ID = "phase10-binding-probe"
+MANIFEST_TAIL = "\n  ]\n}\n"
+BLOCKED_TEXT = "blocked: no oracle operation is authorized"
+PIN_REFUSAL_TEXT = "no pinned competent owner/legal decision"
+
+
+@contextlib.contextmanager
+def scratch_mirror() -> Iterator[Path]:
+    # A private directory per case: parallel CTest jobs never share a mirror and
+    # nothing here writes to the repository.
+    with private_temporary_directory("t64-oracle-binding-") as tmp:
+        mirror = Path(tmp)
+        populate_mirror(mirror)
+        yield mirror
+
+
+def run_in(mirror: Path, flag: str) -> subprocess.CompletedProcess[str]:
+    return invoke(flag, checker=mirror / CHECKER_RELATIVE, cwd=mirror)
+
+
+def load_manifest(mirror: Path) -> dict[str, Any]:
+    data = json.loads((mirror / MANIFEST_RELATIVE).read_text(encoding="utf-8"))
+    if not isinstance(data, dict) or not isinstance(data.get("entries"), list):
+        raise SetupError("scratch manifest has no entries list")
+    return data
+
+
+def store_manifest(mirror: Path, data: dict[str, Any], *, indent: int = 2) -> None:
+    text = json.dumps(data, indent=indent, ensure_ascii=True) + "\n"
+    (mirror / MANIFEST_RELATIVE).write_text(text, encoding="utf-8")
+
+
+def find_row(data: dict[str, Any], row_id: str) -> dict[str, Any]:
+    matches = [row for row in data["entries"] if row.get("id") == row_id]
+    if len(matches) != 1:
+        raise SetupError(f"scratch manifest does not hold exactly one row {row_id!r}")
+    return matches[0]
+
+
+def splice_rows(mirror: Path, rows: list[dict[str, Any]]) -> None:
+    """Append rows by text so every existing byte of the manifest stays as it was."""
+    path = mirror / MANIFEST_RELATIVE
+    before = len(load_manifest(mirror)["entries"])
+    text = path.read_text(encoding="utf-8")
+    if not text.endswith(MANIFEST_TAIL):
+        raise SetupError("manifest layout changed; cannot append a row by text")
+    chunks = []
+    for row in rows:
+        body = json.dumps(row, indent=2, ensure_ascii=True)
+        chunks.append(",\n" + "\n".join("    " + line for line in body.splitlines()))
+    path.write_text(text[: -len(MANIFEST_TAIL)] + "".join(chunks) + MANIFEST_TAIL,
+                    encoding="utf-8")
+    if len(load_manifest(mirror)["entries"]) != before + len(rows):
+        raise SetupError("appended manifest rows were not parsed back")
+
+
+def probe_row(mirror: Path) -> dict[str, Any]:
+    """An unrelated authored row, shaped like the Phase 9 rows already in the manifest."""
+    row = copy.deepcopy(find_row(load_manifest(mirror), "phase09-save-roundtrip-s32k"))
+    row["id"] = PROBE_ROW_ID
+    return row
+
+
+def flip_hex(value: str) -> str:
+    return ("1" if value[0] == "0" else "0") + value[1:]
+
+
+def change_field(
+    row_id: str, field: str, change: Callable[[Any], Any],
+) -> Callable[[dict[str, Any]], None]:
+    def apply(data: dict[str, Any]) -> None:
+        row = find_row(data, row_id)
+        row[field] = change(row[field])
+    return apply
+
+
+def remove_row(row_id: str) -> Callable[[dict[str, Any]], None]:
+    def apply(data: dict[str, Any]) -> None:
+        find_row(data, row_id)
+        data["entries"] = [row for row in data["entries"] if row.get("id") != row_id]
+    return apply
+
+
+def expect_valid_blocked(result: subprocess.CompletedProcess[str], what: str) -> None:
+    require(result.returncode == 0 and BLOCKED_TEXT in result.stdout, what, result)
+
+
+def expect_refused(result: subprocess.CompletedProcess[str], what: str) -> None:
+    # A refusal is the checker's own controlled exit 2, never a crash.
+    require(
+        result.returncode == 2
+        and result.stderr.startswith("oracle-authority:")
+        and "Traceback" not in result.stderr,
+        what,
+        result,
+    )
+
+
+def refuse_after(
+    label: str, mutate: Callable[[dict[str, Any]], None], what: str,
+) -> None:
+    with scratch_mirror() as mirror:
+        data = load_manifest(mirror)
+        mutate(data)
+        store_manifest(mirror, data)
+        expect_refused(run_in(mirror, "--expect-blocked"), f"{what}: {label}")
+
+
+def verify_mirror_baseline() -> None:
+    """An unchanged mirror must be valid, or no case below can be trusted."""
+    with scratch_mirror() as mirror:
+        result = run_in(mirror, "--expect-blocked")
+        if result.returncode != 0 or BLOCKED_TEXT not in result.stdout:
+            raise SetupError(
+                "an unmodified scratch mirror is not accepted as valid-and-blocked; "
+                f"exit={result.returncode}; output={(result.stdout + result.stderr).strip()!r}"
+            )
+
+
+def case_append_unrelated_row() -> None:
+    with scratch_mirror() as mirror:
+        splice_rows(mirror, [probe_row(mirror)])
+        expect_valid_blocked(
+            run_in(mirror, "--expect-blocked"),
+            "appending an unrelated authored row to the manifest changed the blocked verdict",
+        )
+        approval = run_in(mirror, "--require-approved")
+        require(
+            approval.returncode == 2 and PIN_REFUSAL_TEXT in approval.stderr,
+            "an appended row changed the live pre-use refusal",
+            approval,
+        )
+
+
+def case_old_whole_file_mutation() -> None:
+    with scratch_mirror() as mirror:
+        path = mirror / MANIFEST_RELATIVE
+        original = path.read_bytes()
+        data = load_manifest(mirror)
+        row_hashes = [canonical_sha256(row) for row in data["entries"]]
+        store_manifest(mirror, data, indent=4)
+        if path.read_bytes() == original:
+            raise SetupError("the reformatted manifest is byte-identical to the original")
+        if row_hashes != [canonical_sha256(row) for row in load_manifest(mirror)["entries"]]:
+            raise SetupError("the reformat changed a row's canonical bytes")
+        expect_valid_blocked(
+            run_in(mirror, "--expect-blocked"),
+            "a whitespace-only reformat that keeps every row's canonical bytes was refused",
+        )
+
+
+def case_bound_row_changed() -> None:
+    changes: tuple[tuple[str, Callable[[dict[str, Any]], None]], ...] = (
+        ("rdp-fill sha256", change_field("rdp-fill", "sha256", flip_hex)),
+        ("rdp-fill size", change_field("rdp-fill", "size", lambda value: value + 1)),
+        ("rdp-fill source_rights",
+         change_field("rdp-fill", "source_rights", lambda value: "pending")),
+        ("rdp-fill binary_rights",
+         change_field("rdp-fill", "binary_rights", lambda value: "pending")),
+        ("rdp-fill distribution",
+         change_field("rdp-fill", "distribution", lambda value: ["local-only"])),
+        ("rdp-fill-payload sha256", change_field("rdp-fill-payload", "sha256", flip_hex)),
+    )
+    for label, mutate in changes:
+        refuse_after(label, mutate, "a changed bound row was accepted")
+
+
+def case_existing_row_changed() -> None:
+    # Rows the oracle request does not consume lose no protection: the whole-file
+    # hash covered them, so their own row hashes must.
+    changes: tuple[tuple[str, Callable[[dict[str, Any]], None]], ...] = (
+        ("hello-openipl3 sha256", change_field("hello-openipl3", "sha256", flip_hex)),
+        ("hello-openipl3 rights_evidence",
+         change_field("hello-openipl3", "rights_evidence", lambda value: value + " ")),
+        ("hello-openipl3 row removed", remove_row("hello-openipl3")),
+    )
+    for label, mutate in changes:
+        refuse_after(label, mutate, "a changed existing row was accepted")
+
+
+def case_reorder_bound_rows() -> None:
+    def bound_to_end(data: dict[str, Any]) -> None:
+        moved = [row for row in data["entries"] if row.get("id") in BOUND_IDS]
+        rest = [row for row in data["entries"] if row.get("id") not in BOUND_IDS]
+        if len(moved) != len(BOUND_IDS) or data["entries"] == rest + moved:
+            raise SetupError("the bound rows were not moved to another position")
+        data["entries"] = rest + moved
+
+    def reversed_rows(data: dict[str, Any]) -> None:
+        data["entries"] = list(reversed(data["entries"]))
+
+    for label, mutate in (
+        ("bound rows moved to the end", bound_to_end),
+        ("every row in reverse order", reversed_rows),
+    ):
+        with scratch_mirror() as mirror:
+            data = load_manifest(mirror)
+            mutate(data)
+            store_manifest(mirror, data)
+            expect_valid_blocked(
+                run_in(mirror, "--expect-blocked"),
+                f"rows are looked up by id, not position, but a reorder was refused: {label}",
+            )
+
+
+def case_duplicate_bound_id() -> None:
+    with scratch_mirror() as mirror:
+        splice_rows(mirror, [copy.deepcopy(find_row(load_manifest(mirror), "rdp-fill"))])
+        expect_refused(
+            run_in(mirror, "--expect-blocked"),
+            "a duplicated bound id was accepted: identical copy appended",
+        )
+
+    def altered_copy_first(data: dict[str, Any]) -> None:
+        original = find_row(data, "rdp-fill")
+        altered = copy.deepcopy(original)
+        altered["sha256"] = flip_hex(altered["sha256"])
+        data["entries"].insert(data["entries"].index(original), altered)
+
+    # A lookup that keeps the last row of a duplicated id would accept this.
+    refuse_after("altered copy before the original", altered_copy_first,
+                 "a duplicated bound id was accepted")
+
+
+def case_same_bytes_other_id() -> None:
+    def other_id(data: dict[str, Any]) -> None:
+        original = find_row(data, "rdp-fill")
+        clone = copy.deepcopy(original)
+        clone["id"] = "rdp-fill-clone"
+        data["entries"][data["entries"].index(original)] = clone
+
+    refuse_after("rdp-fill replaced by its own bytes under another id", other_id,
+                 "binding by hash alone accepted a row under another id")
+
+
+def case_empty() -> None:
+    with scratch_mirror() as mirror:
+        (mirror / MANIFEST_RELATIVE).unlink()
+        expect_refused(run_in(mirror, "--expect-blocked"),
+                       "a missing manifest passed as valid-and-blocked")
+
+    def empty_rows(data: dict[str, Any]) -> None:
+        data["entries"] = []
+
+    def no_rows_key(data: dict[str, Any]) -> None:
+        del data["entries"]
+
+    refuse_after("empty entries list", empty_rows, "an empty manifest passed")
+    refuse_after("entries key absent", no_rows_key, "a manifest without rows passed")
+
+
+def case_require_approved() -> None:
+    with scratch_mirror() as mirror:
+        approval = run_in(mirror, "--require-approved")
+    require(
+        approval.returncode == 2 and PIN_REFUSAL_TEXT in approval.stderr,
+        "the pre-use gate did not refuse the absent competent authority pin",
+        approval,
+    )
+    source = CHECKER.read_text(encoding="utf-8").splitlines()
+    for pin in ("TRUSTED_LOCAL_DECISION_SHA256", "TRUSTED_PUBLICATION_DECISION_SHA256"):
+        require(
+            f"{pin}: str | None = None" in source,
+            f"{pin} is no longer unset in the checker source",
+            approval,
+        )
+
+
+BINDING_CASES: tuple[tuple[str, Callable[[], None]], ...] = (
+    ("append-unrelated-row", case_append_unrelated_row),
+    ("old-whole-file-mutation", case_old_whole_file_mutation),
+    ("bound-row-changed", case_bound_row_changed),
+    ("existing-row-changed", case_existing_row_changed),
+    ("reorder-bound-rows", case_reorder_bound_rows),
+    ("duplicate-bound-id", case_duplicate_bound_id),
+    ("same-bytes-other-id", case_same_bytes_other_id),
+    ("empty", case_empty),
+    ("require-approved", case_require_approved),
+)
+
+
+def run_binding_cases() -> list[str]:
+    """Run every per-row binding case; a failure is named, not allowed to hide later cases."""
+    verify_mirror_baseline()
+    failed: list[str] = []
+    for name, case in BINDING_CASES:
+        try:
+            case()
+        except AssertionError as error:
+            failed.append(name)
+            print(f"case FAIL {name}: {error}", flush=True)
+        else:
+            print(f"case PASS {name}", flush=True)
+    return failed
+
+
 def main() -> int:
     selftest = invoke("--selftest")
     self_output = selftest.stdout + selftest.stderr
@@ -290,7 +608,17 @@ def main() -> int:
         "local live CLI accepted a self-declared publication grant",
         forged_publication,
     )
+    failed = run_binding_cases()
+    if failed:
+        sys.stdout.flush()
+        print(
+            "rdp-oracle-authority: per-row manifest binding cases failed: "
+            + ", ".join(failed),
+            file=sys.stderr,
+        )
+        return 1
     print("rdp-oracle-authority: blocked, forged local, and forged publication records refused")
+    print(f"rdp-oracle-authority: {len(BINDING_CASES)} per-row manifest binding cases passed")
     return 0
 
 
