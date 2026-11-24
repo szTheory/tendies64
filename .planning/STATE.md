@@ -5,16 +5,16 @@ milestone_name: Embeddable and Playable
 current_phase: 10
 current_phase_name: Carry-in Closure Before the Freeze
 status: executing
-stopped_at: Completed 10-07-PLAN.md
-last_updated: "2026-11-24T03:20:25.287Z"
+stopped_at: Completed 10-08-PLAN.md
+last_updated: "2026-11-24T03:52:08.951Z"
 last_activity: 2026-11-23
 last_activity_desc: Phase 10 execution started
-state_head: 5a489dbbdc20f0b64d3bf6ecba09c0eae55c8e39
+state_head: 9450f67ba7ae74e6e4a7367109246266fbc4a05f
 progress:
   total_phases: 3
   completed_phases: 0
   total_plans: 19
-  completed_plans: 7
+  completed_plans: 8
   percent: 0
 ---
 
@@ -30,7 +30,7 @@ See: .planning/PROJECT.md (updated 2026-11-23)
 ## Current Position
 
 Phase: 10 (Carry-in Closure Before the Freeze) — EXECUTING
-Plan: 8 of 19
+Plan: 9 of 19
 Status: Ready to execute
 Last activity: 2026-11-23 — Phase 10 execution started
 
@@ -68,6 +68,7 @@ Progress: [░░░░░░░░░░] 0% (0 of 3 v1.2 phases complete)
 | Phase 10 P05 | 21 min | 3 tasks | 3 files |
 | Phase 10 P06 | 22 min | 4 tasks | 5 files |
 | Phase 10 P07 | 22 min | 4 tasks | 5 files |
+| Phase 10 P08 | 28 min | 3 tasks | 3 files |
 
 ## Accumulated Context
 
@@ -147,6 +148,9 @@ Progress: [░░░░░░░░░░] 0% (0 of 3 v1.2 phases complete)
 - [Phase 10]: 10-06: VI vectors must enable the VI at machine tick 0 before the guest runs, because the authored fill guest programs and enables the VI itself; the primitive-Z cap mutant is also killed by the existing test_rdp_depth, so the recorded kill is the named check of primitive-z-saturation
 - [Phase 10]: 10-07: VG-02 to VG-05 all pass against current code on the first run (no defect, no fix plan); VG-04 uses a mask-3 wrap tile because a clamped tile maps both floor and truncation candidates to texel 0, and VG-05 (b) sweeps all 16 Bayer cells over c = 72..79 by a direct quantizer call
 - [Phase 10]: 10-07: the perspective floor text is repeated in t64_rdp_tmem_triangle_pixel_rgba8 (combiner profiles), project_texture_q16 (LOD path) and texture_channel_q16 (from_major); the VG-04 and VG-05 mutants cover only the v4 texel path and shade_channel, so the siblings are unpinned and left to the 10-08 review or the orchestrator
+- [Phase 10]: 10-08: Wave 1 (10-06, 10-07) reviewed in a clone detached at the head: gate 236 of 236, 94 literal comparisons match a document-derived calculator, no production or oracle-bound file moved, sweep 0 differences, 15 mutants KILLED; no blocking finding, VER-06 gaps VG-01 to VG-05 and the NTSC vector confirmed closed
+- [Phase 10]: 10-08: three sibling copies of the perspective and major-edge floor are residual (five scratch mutants pass every behavioral test, only the rsp-no-hle body seal fails); deferred item DEF-W1-01, optional new numbered plan
+- [Phase 10]: 10-08: second hosted pair green (run 45321391540, head a0c0a38, gate-macos 326 s, ctest 187 s of 236); nine new vg names show no visible cost inside the F-119 band (F-121); Wave 2 base 6dd785986f6aa78c6da5573a558b15b386a4edee recorded
 
 ### Pending Todos
 
@@ -172,8 +176,8 @@ None for v1.1. Carry-ins for v1.2 are listed in the Deferred Items table, the v1
 
 ## Session Continuity
 
-Last session: 2026-11-24T03:20:25.264Z
-Stopped at: Completed 10-07-PLAN.md
+Last session: 2026-11-24T03:52:08.929Z
+Stopped at: Completed 10-08-PLAN.md
 Resume file: None
 
 Historical closeout: [v1.0 roadmap](milestones/v1.0-ROADMAP.md), [audit](milestones/v1.0-MILESTONE-AUDIT.md), [lessons](RETROSPECTIVE.md).
