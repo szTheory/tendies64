@@ -36,3 +36,5 @@
 6	^(unit\.core\.profile\.v26-identity|unit\.core\.profile\.v26-isviewer|unit\.core\.k1\..*|repo\.si-membership-sites|harness\.phase09-qualification)$
 1	^unit\.core\.digest\.v26-completeness$
 1	^unit\.core\.digest\.v26-strip-differential$
+2	^unit\.core\.rdp\.depth
+1	^unit\.core\.rdp\.depth-composite-accepted$

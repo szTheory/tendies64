@@ -837,6 +837,23 @@ set_tests_properties(unit.core.digest.v26-completeness
   LABELS "unit;phase10"
   ENVIRONMENT "T64_TEST_IPL3_PATH=${T64_BOOT_FIXTURE_DIR}/ipl3_compat.z64")
 
+# Depth on the descriptor 13 family (plan 10-10): accepted effect with exact
+# color, depth and sidecar literals, the wrong-depth control, and the four Z
+# opcodes, modes and sidecar writers, in a new binary so the oracle-bound
+# depth test stays unchanged.
+add_executable(test_rdp_depth_composite tests/test_rdp_depth_composite.c)
+target_include_directories(test_rdp_depth_composite PRIVATE
+  "${CMAKE_SOURCE_DIR}/tests"
+  "${CMAKE_CURRENT_SOURCE_DIR}")
+target_link_libraries(test_rdp_depth_composite PRIVATE t64_core)
+t64_target_warnings(test_rdp_depth_composite)
+add_dependencies(test_rdp_depth_composite t64-boot-fixtures)
+add_test(NAME unit.core.rdp.depth-composite-accepted
+  COMMAND test_rdp_depth_composite --case depth-composite-accepted)
+set_tests_properties(unit.core.rdp.depth-composite-accepted PROPERTIES
+  LABELS "unit;phase10"
+  ENVIRONMENT "T64_TEST_IPL3_PATH=${T64_BOOT_FIXTURE_DIR}/ipl3_compat.z64")
+
 # VER-06 gap vectors (plans 10-06 and 10-07): VG-01 to VG-05, the Z exponent
 # boundaries and the standard-NTSC VI clock vector, one CTest name per case, in
 # a new binary so the oracle-bound depth, VI, texture, triangle and blender
