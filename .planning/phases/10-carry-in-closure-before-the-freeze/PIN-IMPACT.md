@@ -468,3 +468,26 @@ the section 3 row "Optional `make -j2`": `scripts/build-boot-fixtures.sh` alread
 the real remaining lever (a higher job count) and declines it for the cache-key reason of
 section 3. `.planning/REQUIREMENTS.md` carries the one-line GATE-01 annotation. GATE-01
 stays unchecked: its success criterion is the measured cold-cache hosted run of plan 10-19.
+
+### 10.5 COST weights `CTestCostData.txt` (found by the Task 4 preflight, commit `df5442f`)
+
+CTest keeps the explicit `COST` property as the running mean of its cost history: the
+stored value after a run is `(runs * COST + this run) / (runs + 1)` (checked on
+`harness.phase09-qualification`, 55 prior runs, COST 35, a run of 8.07 s stored 34.52; and
+on `repo.rsp-no-hle`, 112 prior runs, COST 48, a run of 14.1 s stored 47.70). For the four
+COST tests, `build/gate/Testing/Temporary/CTestCostData.txt` therefore stops holding native
+seconds after the first local run. Two consequences:
+
+- The timeout audit of `sh scripts/preflight-phase10.sh` read that file as native seconds
+  and failed `harness.phase09-qualification` (TIMEOUT 120 s against 3.5 times 34.52 s). A
+  test with an explicit COST is now audited against 2 times its COST (hosted seconds, the
+  "below 2x" line of F-108): `unit.core.state.import` 600/210 = 2.86,
+  `harness.state-field-use-audit` 240/71 = 3.38, `repo.rsp-no-hle` 240/48 = 5.0,
+  `harness.phase09-qualification` 120/35 = 3.43, all above 2. Every other test keeps 3.5
+  times its recorded native seconds. The full preflight passes at the fix commit (63 s,
+  replay of 11 steps).
+- The section 6 ledger rule "the sum of the new names' seconds from `CTestCostData.txt`"
+  stays valid for new Phase 10 names (none carries COST); for the four COST tests read
+  native seconds from a `ctest` run log, not from that file. The native seconds of this
+  plan's fresh runs are in section 10.1 (state.import 47.7 and 51.4 s, field-use audit
+  17.1 and 17.6 s, rsp-no-hle 15.0 and 15.3 s, phase09-qualification 8.6 and 8.8 s).
