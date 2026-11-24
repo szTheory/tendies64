@@ -1,7 +1,8 @@
 # VI scanout contracts
 
 This document covers the legacy v2 diagnostic profile, the later v8 composite
-VI profile, and the v9 filtered VI profile. All emit canonical machine packets,
+VI profile, the v9 filtered VI profile and the descriptor 13 composite profiles
+that reuse it. All emit canonical machine packets,
 separate from host scaling, filtering, files and display APIs. Authored software
 behavior is not hardware qualification, and VID-04 remains blocked.
 
@@ -54,6 +55,24 @@ tap actually read, including filter and resample neighbors. The `filter`
 packet field reports selected stages: bit 0 AA, bit 1 smoothing, bit 2 divot,
 bit 3 Q20 resampling, bit 4 gamma dither, and bit 5 gamma. These are v9 packet
 semantics; v8 packet bytes and metadata remain unchanged.
+
+## Composite descriptor 13 profiles
+
+The four profiles `ntsc-cart-4m-openipl3-rdram-b-t1-si-v2`, `...-si-v2-e4k`,
+`...-si-v2-e16k` and `...-si-v2-s32k` (descriptor version 13, machine model
+version 21, state serialization version 26) scan out through the v9 filtered
+VI above, and their VI behavior is unchanged from the descriptor 12 family
+(`...-si-v1` and its three save variants): the registers, clock, field and
+latch rules, packet layout, `vi_output_policy` text, coverage use and source
+span are the same. What differs is the color image the VI reads. RDP depth is
+active on these profiles (`rdp.md`, V7), so a triangle drawn with Z compare
+writes only Z-tested pixels into the RDRAM color image, and the scan-out
+packet shows that image. The VI does not read the Z image or the hidden depth
+sidecar. The depth tests check the RDRAM color and depth words and the sidecar,
+not VI packets; the packet bytes of these profiles rest on the unchanged v9
+code and its existing tests. Depth stays inactive on the descriptor 11 and 12
+profiles (decision K1). Evidence tier: unit-tested, authored scope; VID-04
+remains blocked.
 
 ## Composite v8 profile
 

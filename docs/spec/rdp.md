@@ -448,6 +448,18 @@ combiner, blender, color sidecar, and VI rules while binding the following
 depth-specific software policy. Earlier profile identifiers, semantics, and
 serialized bytes remain unchanged.
 
+The same policy is active, unchanged, on four later composite profiles:
+`ntsc-cart-4m-openipl3-rdram-b-t1-si-v2`, `...-si-v2-e4k`, `...-si-v2-e16k`
+and `...-si-v2-s32k` (descriptor 13, machine model 21, state serialization 26,
+digest domain `t64.state.si.26`). They are the descriptor 12 composite family
+(SI/PIF, save media, audio, filtered VI) plus this depth policy; the
+exponent table, the sidecar and the mode rules below apply to them exactly as
+to V7. Depth stays inactive (decision K1) on the descriptor 11 profile
+`...-rdp-vi-filter-v9-ai-v1` and on the four descriptor 12 profiles
+`...-si-v1`, `...-si-v1-e4k`, `...-si-v1-e16k` and `...-si-v1-s32k`:
+SetZImage, SetPrimDepth and the four Z triangle opcodes are refused there,
+which `unit.core.k1.dispatch-refusal` and `unit.core.k1.apply-refusal` pin.
+
 The raw Set Z Image address is an aligned byte address. A Z pixel has the same
 linear index as its color pixel, using the color image width; one 16-bit
 visible word is stored per pixel. The software hidden sidecar has one byte per
@@ -496,6 +508,42 @@ The software numeric policies are explicit and reversible:
   saturated far value under the documented table. No hidden value is inferred
   from neighboring pixels.
 
+### Z exponent table
+
+The stored visible word is the 3-bit exponent, the 11-bit mantissa `m` and the
+high two bits of the 4-bit dZ code. The 18-bit linear Z decodes as
+`(m << shift) + add`; compression picks the row whose range holds the linear Z
+and floors the mantissa. The eight rows are printed here so this policy does
+not depend on any other file:
+
+| Exponent | Shift | Add | Decode from the stored 11-bit mantissa `m` | Linear range |
+|---:|---:|---:|---|---|
+| 0 | 6 | `0x00000` | `(m << 6) + 0x00000` | `0x00000` to `0x1ffff` |
+| 1 | 5 | `0x20000` | `(m << 5) + 0x20000` | `0x20000` to `0x2ffff` |
+| 2 | 4 | `0x30000` | `(m << 4) + 0x30000` | `0x30000` to `0x37fff` |
+| 3 | 3 | `0x38000` | `(m << 3) + 0x38000` | `0x38000` to `0x3bfff` |
+| 4 | 2 | `0x3c000` | `(m << 2) + 0x3c000` | `0x3c000` to `0x3dfff` |
+| 5 | 1 | `0x3e000` | `(m << 1) + 0x3e000` | `0x3e000` to `0x3efff` |
+| 6 | 0 | `0x3f000` | `(m << 0) + 0x3f000` | `0x3f000` to `0x3f7ff` |
+| 7 | 0 | `0x3f800` | `(m << 0) + 0x3f800` | `0x3f800` to `0x3ffff` |
+
+The rows tile the 18-bit range: each add equals the previous add plus 2048
+shifted left by the previous shift, and the last row ends at `0x40000`. The
+worked example is PrimDepth `0x1357` with dZ 9: `0x1357 * 8 = 0x9ab8`, row 0,
+mantissa `floor(0x9ab8 / 64) = 0x26a`, visible word `0x26a << 2 = 0x09a8`, dZ
+code 3 (highest set bit of 9), so the sidecar entry is `0x80 | 3 = 0x83`.
+
+Sources, by title, edition and page: Nintendo, *Nintendo 64 Programming
+Manual*, document NU6-06-0030-001G (draft edition), "Z Image Format" and its
+`z_format[8]` decode table on printed p. 324, with the Z calculation, Z image
+format and blender mode text on printed pp. 318 to 336; Silicon Graphics,
+*Nintendo Ultra64 RDP Command Summary*, version 2.0 (1996), Tables 11, 15, 20
+and 26 for the Z triangle packet fields (printed pp. 12 to 20, 27, 28 and 35);
+Nintendo SDK `gbi.h`, revision 1.138 (24 December 1998), for the Z source and
+render-mode constants. The manual does not state a PrimDepth conversion, the
+`z_update_en` precedence of the transparent and decal modes, or a physical
+hidden-bit address mapping; those three are the software policy named above.
+
 The authored depth matrix pins the exact raw words and independently expected
 values for every compression row and transition, zero/maximum delta and
 priority boundary, less/equal/greater comparison, four distinguishable depth
@@ -505,3 +553,18 @@ and bounds refusals, 16/32-bit aliases, external-write invalidation, reset,
 split/interleaved state, digest sensitivity, and FullSync ordering. These
 results qualify only this v7 software contract; they are not VID-04 or
 hardware-accuracy evidence.
+
+Evidence tier on all seven depth profiles (the three descriptor 10 profiles
+and the four descriptor 13 profiles): unit-tested, authored scope; the hidden
+sidecar is a logical model; the Z mode precedence is software policy, not
+hardware truth. The descriptor 13 tests are
+`unit.core.rdp.depth-composite-accepted` (exact color, depth and sidecar
+literals, a Z-tested farther primitive and a nearer replacement),
+`unit.core.rdp.depth-composite-wrong-depth` (a changed literal or a one-input
+setup change diverges at the intended byte) and
+`unit.core.rdp.depth-composite-sidecar` (the four Z triangle opcodes, the
+opaque, transparent, interpenetrating and decal modes, the far word `0xfffc`,
+and CPU, PI DMA, SP DMA and reset effects on the sidecar). Their expected
+values are hand-written literals taken from the derivation records and from
+this table, never from `z_compress`, `z_decompress` or another production
+helper.

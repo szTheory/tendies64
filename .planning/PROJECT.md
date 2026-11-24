@@ -26,7 +26,7 @@ breadth or polish.
 **Target features:**
 - Installed-package consumer (VER-05) and a C-ABI instance API with tested refusal, guest-stop and defect postconditions, frozen only after those tests pass (API-01..04)
 - Optional SDL3 minimal host, a rights-cleared playable homebrew path and a written LibFuturo fit evaluation (API-05..07)
-- Carry-ins from v1.1: Phase 7 test-strength debt (VG-01..05), RDP depth on the composite profiles, a composite end-to-end fixture, state-version and RDP-state completeness before the freeze, and hosted macOS gate-time and requalification follow-ups
+- Carry-ins from v1.1: Phase 7 test-strength debt (VG-01..05), RDP depth on the composite profiles (active on the descriptor 13 family under new registered ids, unit-tested and authored scope; inactive on descriptors 11 and 12 by decision K1), a composite end-to-end fixture, state-version and RDP-state completeness before the freeze, and hosted macOS gate-time and requalification follow-ups
 - VID-04 (differential oracle evidence) stays deferred and unscheduled until the owner decides D5 and the parallel-rdp rights audit completes; it is not a v1.2 phase requirement
 
 ## Requirements
@@ -74,7 +74,7 @@ breadth or polish.
   not a software release or market-demand claim.
 - ✓ In-tree software RDP (fill, copy, textured and shaded triangles, combiner, blender, coverage, Z) and a software VI that produce raw frames from RDRAM under the profile's TV timing, with SYNC_FULL/DP interrupt behavior and named undefined-behavior policies, kept separate from host scaling — Phase 7, v1.1 (VID-01/02/03/05/06; authored and unit-tested within the named software profiles; verified 10 of 12 with five accepted test-strength gaps).
 - ✓ AI DMA, the two-deep queue, DACRATE cadence and interrupts producing raw audio, an exact-sample authored diagnostic, and headless raw video and audio capture as files — Phase 8, v1.1 (AUD-01/02/03, RUN-06; qualified on 3a41734).
-- ✓ Standard controller over SI/PIF from timed logical input, EEPROM 4/16 Kbit and SRAM save media with explicit device selection, save import/export, a scheduler ordering all devices with the quantum in the profile identity, a versioned canonical machine state export/import, and a timed-input replay artifact bound to profile, build and content hash — Phase 9, v1.1 (SAVE-01..04, CORE-02, CORE-04, CORE-05; unit-tested and regression-pinned, authored scope, qualified on d3211e9). Carried limits: Z depth inactive on the composite profiles, a resumed runner run never reports pass, replay is cold-admit only.
+- ✓ Standard controller over SI/PIF from timed logical input, EEPROM 4/16 Kbit and SRAM save media with explicit device selection, save import/export, a scheduler ordering all devices with the quantum in the profile identity, a versioned canonical machine state export/import, and a timed-input replay artifact bound to profile, build and content hash — Phase 9, v1.1 (SAVE-01..04, CORE-02, CORE-04, CORE-05; unit-tested and regression-pinned, authored scope, qualified on d3211e9). Carried limits: Z depth inactive on the descriptor 11 and 12 composite profiles (decision K1, pinned by `unit.core.k1.*`; v1.2 Phase 10 activates it on the four descriptor 13 ids and keeps K1 for descriptors 11 and 12), a resumed runner run never reports pass, replay is cold-admit only.
 
 ### Active
 

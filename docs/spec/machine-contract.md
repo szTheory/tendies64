@@ -314,15 +314,19 @@ The encodings that exist in `core/t64_digest.c`, by state version:
 | 23 | `t64.state.rdp.vi.filter.23` | `...-rdp-vi-filter-v9` |
 | 24 | `t64.state.audio.ai.24` | `...-rdp-vi-filter-v9-ai-v1` |
 | 25 | `t64.state.si.25` | the four composite SI family ids |
+| 26 | `t64.state.si.26` | the four descriptor 13 ids `...-si-v2`, `...-si-v2-e4k`, `...-si-v2-e16k`, `...-si-v2-s32k` (RDP depth active) |
 
 State versions 14 and 15 have no encoding. Each version includes everything the
 earlier ones do for the state its profile has, with two exact exceptions that
 the walker guards by profile tuple and that stay as they are: the Phase 8 audio
 profile (descriptor 11, v24) does not hash the RDP combiner block or the memory
-coverage table, and no descriptor above 10 hashes the depth members (decision K1:
-depth is inactive there). Both limits are pinned by the legacy digest literals;
-the composite family (v25) carries the combiner block and the coverage table in
-a new-class tail of section 8 (below). The v5 encoding hashes the
+coverage table, and no descriptor 11 or 12 id hashes the depth members
+(decision K1: depth is inactive on descriptors 11 and 12, pinned by
+`unit.core.k1.dispatch-refusal` and `unit.core.k1.apply-refusal`). Both limits
+are pinned by the legacy digest literals; the composite family (v25) carries
+the combiner block and the coverage table in a new-class tail of section 8
+(below). Descriptor 13 (v26) is the one place above descriptor 10 where depth is
+active; it hashes the depth members as described under v26. The v5 encoding hashes the
 domain, the serialization version word, the complete profile hash, the admitted
 content digest, the loaded-image flag and length, the parsed header, title, game
 code and ROM version, the guest tick, instruction and frame-event counters,
@@ -355,6 +359,13 @@ are derived from descriptor validity. The extensions, in order of appearance:
   the depth members.
 * v25: the same blocks in sections, then the SI and save sections and the
   carried tail of section 8 (combiner block and coverage table, new-span class).
+* v26: the v25 sections and framing, with RDP depth active. The five depth
+  scalars (depth image address and valid flag, primitive Z, primitive dZ and
+  its valid flag) are a new-span block inside the RDP block immediately before
+  the work policy version, so the stripped v26 stream equals the stripped v25
+  stream; the hidden depth table follows the coverage table in the tail of
+  section 8, length-prefixed in the new class. Depth is active on descriptor 13
+  only (decision K1 keeps it inactive on descriptors 11 and 12).
 
 Through v24 the retained video and audio packet metadata includes the profile
 id and the build identity string. The profile digest of the default skeleton
@@ -399,7 +410,8 @@ that omitted them continued differently after an import while the digest stayed
 equal (found by the review of plan 09-10 as a blocking defect and fixed there as
 a recorded state-content change; the section length grows by 2,097,244 bytes and
 only the family digests move). The tail ends exactly where section 9 begins, and
-the depth members (decision K1), the diagnostic last-coverage members and the
+the depth members of the descriptor 11 and 12 ids (decision K1; the v26 stream
+carries them), the diagnostic last-coverage members and the
 packet words at or after the packet word count are the named members of
 `t64_rdp_state` that are not state; every other member is in the stream, which the
 completeness test of `core/tests/test_digest_v25.c` (case `v25-reference`) flips
@@ -548,8 +560,11 @@ The family inherits every Phase 8 device: CPU, RSP, PI, SP, RDP, VI and AI use
 the same behavior as the Phase 8 profile, the ISViewer window is available at
 its Phase 8 address, and the AI register window and events are enabled through
 one shared device gate. RDP depth is not part of the descriptor 11 or
-descriptor 12 state; this is inherited unchanged from Phase 8 and this contract
-states no depth coverage.
+descriptor 12 state (decision K1, inherited unchanged from Phase 8 and pinned
+by `unit.core.k1.dispatch-refusal` and `unit.core.k1.apply-refusal`); this
+contract states no depth coverage for them. Depth is active on the four
+descriptor 13 ids (state 26), which add it to this family under new registered
+ids.
 
 The state digest of the family uses the `t64.state.si.25` domain and the
 sectioned framing described with the digest encodings. The v25 stream is not
@@ -948,7 +963,7 @@ profile and build ids only through v24).
 | ram | 3, the RDRAM bytes | yes, `reset_guest_state` | pointer: the location is excluded, the bytes are section 3 |
 | rdp_triangle_coverage | 8, when the profile has the triangle side table | yes, `reset_guest_state` | pointer: the location is excluded, the table is hashed with the RDP block |
 | rdp_memory_coverage | 8, when the profile has the blender side table: under the exact tuples of v20 and v21 and, for the composite family, in the new-class tail of section 8 (not for the Phase 8 audio profile) | yes, `reset_guest_state` | pointer: the location is excluded, the table is hashed with the RDP block |
-| rdp_depth_hidden | 8, only when the depth predicate holds (not for this family) | yes, `reset_guest_state` | pointer: the location is excluded, the table is hashed with the RDP block when present |
+| rdp_depth_hidden | 8, only when the depth predicate holds: with the RDP block on the descriptor 10 depth profiles (v21 to v23) and in the new-class tail of section 8, after the coverage table, on descriptor 13 (v26); not for the descriptor 11 or 12 ids (decision K1) | yes, `reset_guest_state` | pointer: the location is excluded, the table is hashed when present |
 | sp_dmem | 4 | yes, `reset_guest_state` | SP-local memory bank |
 | sp_imem | 4 | yes, `reset_guest_state` | SP-local memory bank |
 | mi_pending | 5 | yes, `reset_guest_state` | device interrupt state |
@@ -962,7 +977,7 @@ profile and build ids only through v24).
 | cache | 7 | yes, `reset_guest_state` | cache policy and last operation |
 | guest_devices | 7 | yes, `reset_guest_state` | prepared MI and RI state and the RDRAM protocol model |
 | output | 7 | yes, `reset_guest_state` | ISViewer window, retained prefix and totals |
-| rdp | 8 | yes, `t64_rdp_reset_machine_state` | DPC, command, texture, combiner and blender state; the combiner block is hashed under the exact tuples of v19 to v21 and, for the composite family, in the new-class tail of section 8; depth state only under v21 (decision K1), and `triangle_last_coverage_*` are observation state |
+| rdp | 8 | yes, `t64_rdp_reset_machine_state` | DPC, command, texture, combiner and blender state; the combiner block is hashed under the exact tuples of v19 to v21 and, for the composite family, in the new-class tail of section 8; depth state only on the descriptor 10 depth profiles (v21 to v23) and, in new-class form, under v26 (decision K1 keeps it out of descriptors 11 and 12), and `triangle_last_coverage_*` are observation state |
 | vi | 8 | yes, `t64_vi_reset_machine_state` | VI registers, phase and the retained packet metadata |
 | video_storage | excluded | no, preserved | allocator: the host storage descriptor of the retained video slots |
 | video_packets | 8, the retained slot bytes up to each slot length | yes, `t64_vi_reset_machine_state` | pointer: the location is excluded, drained slots are hashed |
