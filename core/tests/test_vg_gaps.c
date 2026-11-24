@@ -41,6 +41,9 @@
 #define MI_INTR UINT32_C(0x04300008)
 #define MI_INTR_MASK UINT32_C(0x0430000c)
 #define VI_V8_PROFILE_ID "ntsc-cart-4m-openipl3-rdram-b-t1-rdp-vi-v8"
+#define VI_V9_PROFILE_ID "ntsc-cart-4m-openipl3-rdram-b-t1-rdp-vi-filter-v9"
+#define VI_SOURCE_ORIGIN UINT32_C(0x3000)
+#define VI_PACKET_BYTES 48u
 
 /* The pixel every vector observes: column 1, row 2 of the 8-pixel-wide
  * images, so a halfword index of 2 * 8 + 1 = 17 (byte offset 34). */
@@ -797,6 +800,153 @@ static void case_ntsc_clock(void) {
   t64_machine_destroy(machine);
 }
 
+/* Program the short-field window of the Phase 7 VI tests: H_SYNC 15 and
+ * V_SYNC 8 give a field of (15 + 1) * 8 / 2 = 64 source cycles, so the first
+ * field boundary is the 83rd tick and the second the 166th. `output_width`
+ * is the H_START end (start 0), `v_start` the whole V_START word. The guest
+ * of the fill ROM programs the VI itself only after the first few hundred
+ * ticks (see case_ntsc_clock), so these two boundaries are the vector's own. */
+static bool configure_short_vi(t64_machine *machine, uint32_t status,
+                               uint32_t source_width, uint32_t output_width,
+                               uint32_t v_start, uint32_t y_scale) {
+  return vi_write(machine, UINT32_C(0x04), VI_SOURCE_ORIGIN) &&
+         vi_write(machine, UINT32_C(0x08), source_width) &&
+         vi_write(machine, UINT32_C(0x0c), UINT32_C(0)) &&
+         vi_write(machine, UINT32_C(0x14), UINT32_C(0)) &&
+         vi_write(machine, UINT32_C(0x18), UINT32_C(8)) &&
+         vi_write(machine, UINT32_C(0x1c), UINT32_C(15)) &&
+         vi_write(machine, UINT32_C(0x20), UINT32_C(0)) &&
+         vi_write(machine, UINT32_C(0x24), output_width) &&
+         vi_write(machine, UINT32_C(0x28), v_start) &&
+         vi_write(machine, UINT32_C(0x2c), UINT32_C(0)) &&
+         vi_write(machine, UINT32_C(0x30), UINT32_C(0x00000400)) &&
+         vi_write(machine, UINT32_C(0x34), y_scale) &&
+         vi_write(machine, UINT32_C(0x00), status);
+}
+
+/* Seed `source_width * source_rows` big-endian RGBA5551 words at 0x3000, scan
+ * out `fields` consecutive fields (1 or 2) of a 4 x 3 window and copy each
+ * 48-byte packet. When `status_out` is not NULL the STATUS register is read
+ * back after the programming. A field is drained before the next boundary so
+ * that the second packet is the one of field 1. */
+static bool scan_out_5551(const char *profile_id, uint32_t status,
+                          uint32_t source_width, uint32_t source_rows,
+                          const uint16_t *pixels, uint32_t v_start,
+                          uint32_t y_scale, unsigned fields,
+                          uint8_t packets[2][VI_PACKET_BYTES],
+                          t64_video_packet_info infos[2],
+                          uint32_t *status_out) {
+  static const uint64_t boundary_ticks[2] = {UINT64_C(83), UINT64_C(166)};
+  t64_machine *machine = create_machine_for_profile(profile_id);
+  t64_stop_result stop = {UINT32_MAX, UINT64_MAX};
+  size_t length = 0u;
+  unsigned field;
+  uint32_t i;
+  bool ok = true;
+
+  if (machine == NULL || fields == 0u || fields > 2u) return false;
+  for (i = 0u; i < source_width * source_rows; i++) {
+    t64_status written = t64_machine_bus_write(
+        machine, VI_SOURCE_ORIGIN + i * 2u, 2u, pixels[i]);
+    T64_CHECK_INT(written, T64_STATUS_OK);
+    if (written != T64_STATUS_OK) ok = false;
+  }
+  ok = ok && configure_short_vi(machine, status, source_width, 4u, v_start,
+                                y_scale);
+  if (ok && status_out != NULL) {
+    uint32_t value = UINT32_MAX;
+    T64_CHECK_INT(t64_machine_bus_read(machine, VI_BASE, 4u, &value),
+                  T64_STATUS_OK);
+    *status_out = value;
+  }
+  for (field = 0u; ok && field < fields; field++) {
+    ok = advance_guest_to_tick(machine, boundary_ticks[field], &stop);
+    T64_CHECK(ok);
+    if (!ok) break;
+    T64_CHECK_INT(t64_video_info(machine, &infos[field]), T64_STATUS_OK);
+    T64_CHECK_INT(infos[field].packet_bytes, VI_PACKET_BYTES);
+    T64_CHECK_INT(infos[field].field, field);
+    T64_CHECK_INT(t64_video_copy(machine, packets[field], VI_PACKET_BYTES,
+                                 &length), T64_STATUS_OK);
+    T64_CHECK_INT(length, VI_PACKET_BYTES);
+  }
+  t64_machine_destroy(machine);
+  return ok;
+}
+
+/*
+ * VG-03: an RGBA5551 source pixel with bit 0 clear scans out with alpha 0.
+ *
+ * Independent derivation (vi.md "v8 geometry policy": STATUS mode 2 reads
+ * big-endian RGBA5551, each RGB5 channel expands as (value << 3) | (value >> 2)
+ * and alpha bit 0 maps to 0/255): the channel value 31 expands to
+ * (31 << 3) | (31 >> 2) = 248 | 7 = 255 and 0 stays 0. The 4 x 3 source
+ *   0xf800 0x07c1 0x003f 0xffff
+ *   0x07c1 0xf801 0xffff 0x003f
+ *   0x003f 0xffff 0xf801 0x07c1
+ * is the Phase 7 witness with one change: pixel (0,0) is 0xf800 (red 31,
+ * green 0, blue 0, alpha bit CLEAR) instead of 0xf801. Reading the words by
+ * hand: 0xf800 = 11111 00000 00000 0 -> 255,0,0, alpha 0; 0x07c1 = 00000
+ * 11111 00000 1 -> 0,255,0 alpha 255; 0x003f = 00000 00000 11111 1 -> 0,0,255
+ * alpha 255; 0xf801 -> 255,0,0 alpha 255; 0xffff -> 255,255,255,255. The 48
+ * output bytes follow. The same 48-byte literal is asserted through the v8
+ * path (render_packet) and through the v9 path (vi_read_source_pixel via
+ * render_filter_packet, STATUS 0x302: mode 2, anti-alias mode 3 = nearest
+ * sample, no filter stage), so a constant 255 alpha in either function turns
+ * byte 3 into 255.
+ */
+static void case_rgba5551_alpha_clear(void) {
+  static const uint16_t pixels[12] = {
+      UINT16_C(0xf800), UINT16_C(0x07c1), UINT16_C(0x003f), UINT16_C(0xffff),
+      UINT16_C(0x07c1), UINT16_C(0xf801), UINT16_C(0xffff), UINT16_C(0x003f),
+      UINT16_C(0x003f), UINT16_C(0xffff), UINT16_C(0xf801), UINT16_C(0x07c1),
+  };
+  static const uint8_t expected[VI_PACKET_BYTES] = {
+      255, 0,   0,   0,   0,   255, 0,   255, 0,   0,   255, 255,
+      255, 255, 255, 255, 0,   255, 0,   255, 255, 0,   0,   255,
+      255, 255, 255, 255, 0,   0,   255, 255, 0,   0,   255, 255,
+      255, 255, 255, 255, 255, 0,   0,   255, 0,   255, 0,   255,
+  };
+  uint8_t v8_packets[2][VI_PACKET_BYTES];
+  uint8_t v9_packets[2][VI_PACKET_BYTES];
+  uint8_t wrong[VI_PACKET_BYTES];
+  t64_video_packet_info v8_infos[2];
+  t64_video_packet_info v9_infos[2];
+
+  memset(v8_packets, 0, sizeof v8_packets);
+  memset(v9_packets, 0, sizeof v9_packets);
+  memset(v8_infos, 0, sizeof v8_infos);
+  memset(v9_infos, 0, sizeof v9_infos);
+
+  T64_CHECK(scan_out_5551(VI_V8_PROFILE_ID, UINT32_C(0x02), 4u, 3u, pixels,
+                          UINT32_C(0x00020008), UINT32_C(0x400), 1u,
+                          v8_packets, v8_infos, NULL));
+  T64_CHECK_INT(v8_infos[0].source_format, T64_VIDEO_SOURCE_RGBA5551);
+  T64_CHECK_INT(v8_infos[0].filter, 0u);
+  T64_CHECK_INT(first_difference(v8_packets[0], expected, sizeof expected),
+                SIZE_MAX);
+  T64_CHECK_INT(v8_packets[0][3], 0u);
+  T64_CHECK_INT(v8_packets[0][7], 255u);
+
+  T64_CHECK(scan_out_5551(VI_V9_PROFILE_ID, UINT32_C(0x302), 4u, 3u, pixels,
+                          UINT32_C(0x00020008), UINT32_C(0x400), 1u,
+                          v9_packets, v9_infos, NULL));
+  T64_CHECK_INT(v9_infos[0].source_format, T64_VIDEO_SOURCE_RGBA5551);
+  T64_CHECK_INT(v9_infos[0].filter, 0u);
+  T64_CHECK_INT(first_difference(v9_packets[0], expected, sizeof expected),
+                SIZE_MAX);
+  T64_CHECK_INT(v9_packets[0][3], 0u);
+  T64_CHECK_INT(v9_packets[0][7], 255u);
+
+  /* Same-setup wrong-value control: the literal with alpha forced to 255 at
+   * pixel (0,0) is what a constant-255 alpha would produce, and the first
+   * difference from the observed packet is byte 3 on both paths. */
+  memcpy(wrong, expected, sizeof wrong);
+  wrong[3] = 255u;
+  T64_CHECK_INT(first_difference(v8_packets[0], wrong, sizeof wrong), 3u);
+  T64_CHECK_INT(first_difference(v9_packets[0], wrong, sizeof wrong), 3u);
+}
+
 typedef struct {
   const char *name;
   void (*run)(void);
@@ -808,6 +958,7 @@ static const test_case cases[] = {
     {"delta-ceiling", case_delta_ceiling},
     {"z-exponent-boundaries", case_z_exponent_boundaries},
     {"ntsc-clock", case_ntsc_clock},
+    {"rgba5551-alpha-clear", case_rgba5551_alpha_clear},
 };
 
 int main(int argc, char **argv) {

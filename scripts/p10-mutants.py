@@ -231,6 +231,37 @@ MUTANTS = [
         "record": [],
     },
     {
+        "id": "vg03-alpha255-v9",
+        "tag": "mutant",
+        "expect": "KILLED",
+        "title": "v9 read function alpha (bit 0 clear maps to 0) replaced by the constant 255 (VG-03)",
+        "edits": [
+            (
+                "core/t64_vi.c",
+                "    sample_out->alpha = (pixel & UINT16_C(1)) != 0u ? 255u : 0u;\n",
+                "    sample_out->alpha = 255u;\n",
+            )
+        ],
+        "kill": [own_check("test_vg_gaps", ["--case", "rgba5551-alpha-clear"])],
+        "record": [],
+    },
+    {
+        "id": "vg03-alpha255-v8",
+        "tag": "mutant",
+        "expect": "KILLED",
+        "title": "v8 renderer alpha (bit 0 clear maps to 0) replaced by the constant 255 (VG-03)",
+        "edits": [
+            (
+                "core/t64_vi.c",
+                "        output[output_index + 3u] =\n"
+                "            (pixel & UINT16_C(1)) != 0u ? 255u : 0u;\n",
+                "        output[output_index + 3u] = 255u;\n",
+            )
+        ],
+        "kill": [own_check("test_vg_gaps", ["--case", "rgba5551-alpha-clear"])],
+        "record": [],
+    },
+    {
         "id": "control-no-compile",
         "tag": "control",
         "expect": "INVALID",
