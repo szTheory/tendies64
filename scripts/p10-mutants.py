@@ -216,6 +216,21 @@ MUTANTS = [
         "record": [own_check("test_rdp_depth", [])],
     },
     {
+        "id": "vi-clock-48600000",
+        "tag": "mutant",
+        "expect": "KILLED",
+        "title": "VI source clock 48,681,812 changed to 48,600,000 in core/t64_vi.c (standard NTSC field vector; core/t64_ai.c is not touched)",
+        "edits": [
+            (
+                "core/t64_vi.c",
+                "#define T64_VI_SOURCE_CLOCK UINT64_C(48681812)\n",
+                "#define T64_VI_SOURCE_CLOCK UINT64_C(48600000)\n",
+            )
+        ],
+        "kill": [own_check("test_vg_gaps", ["--case", "ntsc-clock"])],
+        "record": [],
+    },
+    {
         "id": "control-no-compile",
         "tag": "control",
         "expect": "INVALID",

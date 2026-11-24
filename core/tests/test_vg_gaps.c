@@ -37,6 +37,10 @@
 #define DEPTH_IMAGE_ADDRESS UINT32_C(0x6000)
 #define DP_START UINT32_C(0x04100000)
 #define DP_END (DP_START + UINT32_C(4))
+#define VI_BASE UINT32_C(0x04400000)
+#define MI_INTR UINT32_C(0x04300008)
+#define MI_INTR_MASK UINT32_C(0x0430000c)
+#define VI_V8_PROFILE_ID "ntsc-cart-4m-openipl3-rdram-b-t1-rdp-vi-v8"
 
 /* The pixel every vector observes: column 1, row 2 of the 8-pixel-wide
  * images, so a halfword index of 2 * 8 + 1 = 17 (byte offset 34). */
@@ -636,6 +640,163 @@ static void case_z_exponent_boundaries(void) {
          visible_literals, decoded_literals, decode_probes, primitive_rows);
 }
 
+static bool vi_write(t64_machine *machine, uint32_t offset, uint32_t value) {
+  t64_status status = t64_machine_bus_write(machine, VI_BASE + offset, 4u,
+                                            value);
+  T64_CHECK_INT(status, T64_STATUS_OK);
+  return status == T64_STATUS_OK;
+}
+
+/* Twelve RGBA5551 source pixels at 0x3000 (a 4 x 3 window), the same literal
+ * words as the VI witness of test_vi.c. */
+static bool seed_vi_source(t64_machine *machine) {
+  static const uint16_t pixels[12] = {
+      UINT16_C(0xf801), UINT16_C(0x07c1), UINT16_C(0x003f), UINT16_C(0xffff),
+      UINT16_C(0x07c1), UINT16_C(0xf801), UINT16_C(0xffff), UINT16_C(0x003f),
+      UINT16_C(0x003f), UINT16_C(0xffff), UINT16_C(0xf801), UINT16_C(0x07c1),
+  };
+  size_t i;
+
+  if (machine == NULL) return false;
+  for (i = 0u; i < sizeof pixels / sizeof pixels[0]; i++) {
+    t64_status status = t64_machine_bus_write(
+        machine, UINT32_C(0x3000) + (uint32_t)(i * 2u), 2u, pixels[i]);
+    T64_CHECK_INT(status, T64_STATUS_OK);
+    if (status != T64_STATUS_OK) return false;
+  }
+  return true;
+}
+
+/* Program the 4 x 3 window with the standard NTSC sync registers
+ * (H_SYNC low 12 bits 3093, V_SYNC low 10 bits 525, VI interrupt line 2),
+ * unmask the VI interrupt and enable 16-bit output. The enabling write is the
+ * last one, so the field starts at the machine tick of the call. */
+static bool configure_standard_ntsc(t64_machine *machine) {
+  return seed_vi_source(machine) &&
+         vi_write(machine, UINT32_C(0x04), UINT32_C(0x3000)) &&
+         vi_write(machine, UINT32_C(0x08), UINT32_C(4)) &&
+         vi_write(machine, UINT32_C(0x0c), UINT32_C(2)) &&
+         vi_write(machine, UINT32_C(0x14), UINT32_C(0)) &&
+         vi_write(machine, UINT32_C(0x18), UINT32_C(525)) &&
+         vi_write(machine, UINT32_C(0x1c), UINT32_C(3093)) &&
+         vi_write(machine, UINT32_C(0x24), UINT32_C(4)) &&
+         vi_write(machine, UINT32_C(0x28), UINT32_C(0x00020008)) &&
+         vi_write(machine, UINT32_C(0x30), UINT32_C(0x00000400)) &&
+         vi_write(machine, UINT32_C(0x34), UINT32_C(0x00000400)) &&
+         t64_machine_bus_write(machine, MI_INTR_MASK, 4u,
+                               UINT32_C(0x80)) == T64_STATUS_OK &&
+         vi_write(machine, UINT32_C(0x00), UINT32_C(2));
+}
+
+static bool advance_guest_to_tick(t64_machine *machine, uint64_t tick,
+                                  t64_stop_result *stop_out) {
+  size_t attempt;
+
+  for (attempt = 0u; attempt < 512u; attempt++) {
+    t64_status status = t64_machine_advance(
+        machine, &(t64_stop_request){T64_STOP_GUEST_TICK, tick}, stop_out);
+
+    T64_CHECK_INT(status, T64_STATUS_OK);
+    if (status != T64_STATUS_OK) return false;
+    if (stop_out->reason != T64_STOP_REASON_RESOURCE_LIMIT)
+      return stop_out->reason == T64_STOP_REASON_BOUND &&
+             machine->tick == tick;
+  }
+  T64_CHECK(false);
+  return false;
+}
+
+static uint32_t vi_register(t64_machine *machine, uint32_t offset) {
+  uint32_t value = UINT32_MAX;
+  T64_CHECK_INT(t64_machine_bus_read(machine, VI_BASE + offset, 4u, &value),
+                T64_STATUS_OK);
+  return value;
+}
+
+static uint32_t mi_interrupt(t64_machine *machine) {
+  uint32_t value = UINT32_MAX;
+  T64_CHECK_INT(t64_machine_bus_read(machine, MI_INTR, 4u, &value),
+                T64_STATUS_OK);
+  return value;
+}
+
+/*
+ * Standard NTSC VI clock vector (the gap that 07-VERIFICATION.md Observation 3
+ * records: the witness fields of 64 source cycles cannot see the source clock).
+ *
+ * Independent derivation (vi.md "Clock and boundary policy": one horizontal
+ * period is (H_SYNC.low12 + 1) source cycles, V_SYNC.low10 counts half-lines
+ * in a field, guest ticks run at 62,500,000 per second, the source clock is
+ * 48,681,812 Hz, a boundary is the first whole tick at or after the exact
+ * phase):
+ *   field = (3093 + 1) * 525 / 2 = 812,175 source cycles
+ *   ticks = 812175 * 62,500,000 / 48,681,812 = 1,042,708.4657..., so the
+ *           first field boundary is the 1,042,709th tick after the enabling
+ *           write and the tick before it (1,042,708) has none.
+ *   line  = VI_INTR 2 is sampled after two half-lines = 3094 source cycles
+ *           = 3094 * 62,500,000 / 48,681,812 = 3972.2227... ticks, so the
+ *           interrupt and VI_CURRENT = 2 appear at tick 3973 and not at 3972.
+ * (Both quotients were computed with exact rational arithmetic.) A source
+ * clock of 48,600,000 would give 1,044,464 and 3979 instead.
+ */
+static void case_ntsc_clock(void) {
+  static const uint64_t first_field_ticks = UINT64_C(1042709);
+  static const uint64_t first_line_ticks = UINT64_C(3973);
+  t64_machine *machine = create_machine_for_profile(VI_V8_PROFILE_ID);
+  t64_stop_result stop = {UINT32_MAX, UINT64_MAX};
+  t64_video_packet_info info = {0};
+  uint64_t t0;
+  uint8_t observed_ticks_bytes[8];
+  uint8_t expected_ticks_bytes[8];
+  uint8_t wrong[8];
+
+  if (machine == NULL) return;
+  t0 = machine->tick;
+  T64_CHECK(configure_standard_ntsc(machine));
+  T64_CHECK(machine->vi.enabled);
+  T64_CHECK_INT(machine->vi.field_start_tick, t0);
+
+  /* One tick before the first line sample: nothing is pending. */
+  T64_CHECK(advance_guest_to_tick(machine, t0 + first_line_ticks - 1u, &stop));
+  T64_CHECK_INT(mi_interrupt(machine) & UINT32_C(0x08), 0u);
+  T64_CHECK_INT(vi_register(machine, UINT32_C(0x10)), 0u);
+  T64_CHECK_INT(machine->vi.packet_count, 0u);
+  T64_CHECK(advance_guest_to_tick(machine, t0 + first_line_ticks, &stop));
+  T64_CHECK_INT(mi_interrupt(machine) & UINT32_C(0x08), UINT32_C(0x08));
+  T64_CHECK_INT(vi_register(machine, UINT32_C(0x10)), 2u);
+
+  /* One tick before the first field boundary: no packet. */
+  T64_CHECK(advance_guest_to_tick(machine, t0 + first_field_ticks - 1u,
+                                  &stop));
+  T64_CHECK_INT(machine->vi.packet_count, 0u);
+  T64_CHECK_INT(t64_video_info(machine, &info), T64_STATUS_NOT_READY);
+
+  /* The boundary tick itself: exactly one packet, ending at that tick. */
+  T64_CHECK(advance_guest_to_tick(machine, t0 + first_field_ticks, &stop));
+  T64_CHECK_INT(machine->vi.packet_count, 1u);
+  T64_CHECK_INT(t64_video_info(machine, &info), T64_STATUS_OK);
+  T64_CHECK_INT(info.start_tick, t0);
+  T64_CHECK_INT(info.end_tick, t0 + first_field_ticks);
+  T64_CHECK_INT(info.field, 0u);
+  T64_CHECK_INT(info.h_sync, 3093u);
+  T64_CHECK_INT(info.v_sync, 525u);
+
+  /* Same-setup wrong-value control: the observed duration, as eight
+   * big-endian bytes, equals the literal 1,042,709 = 0x000fe915 and a copy
+   * holding the floor neighbor 1,042,708 = 0x000fe914 differs at the low
+   * byte (index 7). */
+  write_be64(observed_ticks_bytes, info.end_tick - info.start_tick);
+  write_be64(expected_ticks_bytes, UINT64_C(0x00000000000fe915));
+  T64_CHECK_INT(first_difference(observed_ticks_bytes, expected_ticks_bytes,
+                                 sizeof expected_ticks_bytes),
+                SIZE_MAX);
+  memcpy(wrong, expected_ticks_bytes, sizeof wrong);
+  wrong[7] = (uint8_t)(wrong[7] - 1u);
+  T64_CHECK_INT(first_difference(observed_ticks_bytes, wrong, sizeof wrong),
+                7u);
+  t64_machine_destroy(machine);
+}
+
 typedef struct {
   const char *name;
   void (*run)(void);
@@ -646,6 +807,7 @@ static const test_case cases[] = {
     {"primitive-z-saturation", case_primitive_z_saturation},
     {"delta-ceiling", case_delta_ceiling},
     {"z-exponent-boundaries", case_z_exponent_boundaries},
+    {"ntsc-clock", case_ntsc_clock},
 };
 
 int main(int argc, char **argv) {
