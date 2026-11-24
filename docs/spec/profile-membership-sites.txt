@@ -12,7 +12,7 @@ core/t64_ai.c :: t64_audio_copy :: t64_has_ai_device
 core/t64_ai.c :: t64_audio_info :: t64_has_ai_device
 core/t64_bus.c :: decode_region :: t64_has_ai_device,t64_has_si_profile
 core/t64_cpu.c :: cpu_successor_extra_event_budget :: t64_has_si_profile
-core/t64_digest.c :: t64_digest_stream :: machine_model_version,state_serialization_version,t64_has_ai_profile,t64_has_si_profile,t64_has_vi_filter_v9_profile
+core/t64_digest.c :: t64_digest_stream :: machine_model_version,state_serialization_version,t64_has_ai_profile,t64_has_vi_filter_v9_profile
 core/t64_internal.h :: t64_has_ai_device :: t64_has_ai_profile,t64_has_si_profile
 core/t64_internal.h :: t64_has_ai_profile :: descriptor_version,machine_model_version,state_serialization_version
 core/t64_internal.h :: t64_has_cpu_compat_extension_policy :: machine_model_version,state_serialization_version
@@ -26,14 +26,15 @@ core/t64_internal.h :: t64_has_rdp_triangle_profile :: machine_model_version,sta
 core/t64_internal.h :: t64_has_rdp_vi_profile :: machine_model_version,state_serialization_version,t64_has_vi_filter_v9_profile
 core/t64_internal.h :: t64_has_rdram_protocol_policy :: machine_model_version,state_serialization_version
 core/t64_internal.h :: t64_has_rsp_functional_profile :: machine_model_version,state_serialization_version
-core/t64_internal.h :: t64_has_si_profile :: descriptor_version,machine_model_version,state_serialization_version
+core/t64_internal.h :: t64_has_si_v25_profile :: descriptor_version,machine_model_version,state_serialization_version
+core/t64_internal.h :: t64_has_si_v26_profile :: descriptor_version,machine_model_version,state_serialization_version
 core/t64_internal.h :: t64_has_sram_save :: t64_has_si_profile
 core/t64_internal.h :: t64_has_t1_policy :: machine_model_version,state_serialization_version
 core/t64_internal.h :: t64_has_vi_filter_v9_profile :: descriptor_version,machine_model_version,state_serialization_version,t64_has_ai_profile,t64_has_si_profile
 core/t64_internal.h :: t64_has_vi_scanout_profile :: t64_has_vi_filter_v9_profile
 core/t64_internal.h :: t64_has_vi_scanout_v8_profile :: descriptor_version,machine_model_version,state_serialization_version
 core/t64_internal.h :: t64_has_vr4300_cpu_state :: machine_model_version,state_serialization_version
-core/t64_isviewer.c :: t64_isviewer_active :: ai_profile_id,descriptor_version,machine_model_version,state_serialization_version
+core/t64_isviewer.c :: t64_isviewer_active :: ai_profile_id,descriptor_version,machine_model_version,state_serialization_version,t64_has_si_profile
 core/t64_machine.c :: has_pinned_openipl3_profile_id :: has_rdp_vi_filter_v9_ai_v1_profile_id,has_si_family_profile_id
 core/t64_machine.c :: is_ai_family_profile :: is_ai_profile,is_si_profile
 core/t64_machine.c :: is_ai_profile :: descriptor_version,has_rdp_vi_filter_v9_ai_v1_profile_id
@@ -42,6 +43,7 @@ core/t64_machine.c :: is_rdram_a_t1_profile :: descriptor_version
 core/t64_machine.c :: is_rdram_b_t1_profile :: descriptor_version,has_rdp_vi_filter_v9_ai_v1_profile_id,has_si_family_profile_id
 core/t64_machine.c :: is_rsp_functional_profile :: descriptor_version
 core/t64_machine.c :: is_si_profile :: descriptor_version,has_si_family_profile_id
+core/t64_machine.c :: is_si_v2_profile :: descriptor_version
 core/t64_machine.c :: is_vr4300_compat_profile :: descriptor_version
 core/t64_machine.c :: is_vr4300_openipl3_profile :: descriptor_version
 core/t64_machine.c :: profile_fields_are_valid :: descriptor_version,machine_model_version,state_serialization_version
@@ -53,8 +55,7 @@ core/t64_si.c :: t64_si_read_register :: t64_has_si_profile
 core/t64_si.c :: t64_si_reset_machine_state :: t64_has_si_profile
 core/t64_si.c :: t64_si_write_register :: t64_has_si_profile
 core/t64_state.c :: state_section_identity :: state_serialization_version
-core/t64_state.c :: state_version_registered :: state_serialization_version,t64_has_si_profile
-core/t64_state.c :: t64_machine_state_export :: t64_has_si_profile
+core/t64_state.c :: state_version_registered :: state_serialization_version
 core/t64_state.c :: write_header :: state_serialization_version
 core/t64_vi.c :: render_packet :: t64_has_vi_filter_v9_profile
 

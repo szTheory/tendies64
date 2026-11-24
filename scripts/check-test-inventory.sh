@@ -245,6 +245,8 @@ harness.state-field-use-audit'
 PHASE10_TESTS='repo.p10-mutant-anchors
 unit.core.k1.dispatch-refusal
 unit.core.k1.apply-refusal
+unit.core.profile.v26-identity
+unit.core.profile.v26-isviewer
 unit.core.vg.decal-equality
 unit.core.vg.primitive-z-saturation
 unit.core.vg.delta-ceiling

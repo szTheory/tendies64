@@ -49,6 +49,14 @@ bool t64_isviewer_active(const t64_machine *machine) {
       "ntsc-cart-4m-openipl3-rdram-b-t1-si-v1-e16k";
   static const char si_s32k_profile_id[] =
       "ntsc-cart-4m-openipl3-rdram-b-t1-si-v1-s32k";
+  static const char si_v2_profile_id[] =
+      "ntsc-cart-4m-openipl3-rdram-b-t1-si-v2";
+  static const char si_v2_e4k_profile_id[] =
+      "ntsc-cart-4m-openipl3-rdram-b-t1-si-v2-e4k";
+  static const char si_v2_e16k_profile_id[] =
+      "ntsc-cart-4m-openipl3-rdram-b-t1-si-v2-e16k";
+  static const char si_v2_s32k_profile_id[] =
+      "ntsc-cart-4m-openipl3-rdram-b-t1-si-v2-s32k";
   bool warm_profile;
   bool cpu_profile;
   bool compat_profile;
@@ -129,9 +137,9 @@ bool t64_isviewer_active(const t64_machine *machine) {
                machine->profile.state_serialization_version == 24u &&
                memcmp(machine->profile.profile_id, ai_profile_id,
                       sizeof ai_profile_id) == 0;
-  si_profile = machine->profile.descriptor_version == 12u &&
-               machine->profile.machine_model_version == 20u &&
-               machine->profile.state_serialization_version == 25u &&
+  /* The SI device family (both exact tuples, t64_has_si_profile) under one
+   * of its eight registered ids; any other id of either tuple is refused. */
+  si_profile = t64_has_si_profile(machine) &&
                (memcmp(machine->profile.profile_id, si_profile_id,
                        sizeof si_profile_id) == 0 ||
                 memcmp(machine->profile.profile_id, si_e4k_profile_id,
@@ -139,7 +147,15 @@ bool t64_isviewer_active(const t64_machine *machine) {
                 memcmp(machine->profile.profile_id, si_e16k_profile_id,
                        sizeof si_e16k_profile_id) == 0 ||
                 memcmp(machine->profile.profile_id, si_s32k_profile_id,
-                       sizeof si_s32k_profile_id) == 0);
+                       sizeof si_s32k_profile_id) == 0 ||
+                memcmp(machine->profile.profile_id, si_v2_profile_id,
+                       sizeof si_v2_profile_id) == 0 ||
+                memcmp(machine->profile.profile_id, si_v2_e4k_profile_id,
+                       sizeof si_v2_e4k_profile_id) == 0 ||
+                memcmp(machine->profile.profile_id, si_v2_e16k_profile_id,
+                       sizeof si_v2_e16k_profile_id) == 0 ||
+                memcmp(machine->profile.profile_id, si_v2_s32k_profile_id,
+                       sizeof si_v2_s32k_profile_id) == 0);
   return warm_profile || cpu_profile || compat_profile ||
          rsp_profile || rdram_t1_profile || rdp_vi_profile ||
          rdp_triangle_profile || rdp_texture_profile ||

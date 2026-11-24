@@ -799,6 +799,25 @@ set_tests_properties(unit.core.k1.dispatch-refusal
   LABELS "unit;phase10"
   ENVIRONMENT "T64_TEST_IPL3_PATH=${T64_BOOT_FIXTURE_DIR}/ipl3_compat.z64")
 
+# Descriptor 13 family (plan 10-09): the four registered si-v2 ids with their
+# pinned profile hashes, and ISViewer activity on the eight SI family ids.
+add_executable(test_profile_v26 tests/test_profile_v26.c)
+target_include_directories(test_profile_v26 PRIVATE
+  "${CMAKE_SOURCE_DIR}/tests"
+  "${CMAKE_CURRENT_SOURCE_DIR}"
+  "${CMAKE_SOURCE_DIR}/tools/common")
+target_link_libraries(test_profile_v26 PRIVATE t64_core t64_sha256)
+t64_target_warnings(test_profile_v26)
+add_dependencies(test_profile_v26 t64-boot-fixtures)
+add_test(NAME unit.core.profile.v26-identity
+  COMMAND test_profile_v26 --case v26-identity)
+add_test(NAME unit.core.profile.v26-isviewer
+  COMMAND test_profile_v26 --case v26-isviewer)
+set_tests_properties(unit.core.profile.v26-identity
+  unit.core.profile.v26-isviewer PROPERTIES
+  LABELS "unit;phase10"
+  ENVIRONMENT "T64_TEST_IPL3_PATH=${T64_BOOT_FIXTURE_DIR}/ipl3_compat.z64")
+
 # VER-06 gap vectors (plans 10-06 and 10-07): VG-01 to VG-05, the Z exponent
 # boundaries and the standard-NTSC VI clock vector, one CTest name per case, in
 # a new binary so the oracle-bound depth, VI, texture, triangle and blender

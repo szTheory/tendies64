@@ -345,8 +345,9 @@ t64_status t64_machine_state_export(const t64_machine *machine,
   if (!machine->has_image) {
     return T64_STATUS_NOT_READY;
   }
-  /* Export is defined for the composite family (state version 25) only. */
-  if (!t64_has_si_profile(machine)) {
+  /* Export is defined for the composite family (state version 25) only; the
+   * state 26 family has no container row until plan 10-11. */
+  if (!t64_has_si_v25_profile(machine)) {
     return T64_STATUS_INVALID_ARGUMENT;
   }
   status = plan_layout(machine, &layout);
@@ -2720,7 +2721,8 @@ static bool state_verify_trailer(const uint8_t *bytes, uint64_t length,
  * unregistered version reports STATE_VERSION. */
 static bool state_version_registered(const t64_machine *machine,
                                      uint32_t version) {
-  return version == STATE_VERSION_REGISTERED && t64_has_si_profile(machine) &&
+  return version == STATE_VERSION_REGISTERED &&
+         t64_has_si_v25_profile(machine) &&
          machine->profile.state_serialization_version == version;
 }
 

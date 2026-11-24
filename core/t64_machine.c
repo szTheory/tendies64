@@ -1132,6 +1132,101 @@ static const t64_profile_descriptor
         .save_kind = T64_SAVE_SRAM_32K,
         T64_SI_FAMILY_COMMON_FIELDS};
 
+/*
+ * Phase 10 composite family (descriptor 13, model 21, state 26; plan 10-09):
+ * the descriptor 12 machine with RDP depth active, under four new registered
+ * ids. The body equals T64_SI_FAMILY_COMMON_FIELDS except the version tuple
+ * and boot_status, which names this family; no descriptor 12 field changes,
+ * so the four si-v1 profile hashes stay pinned.
+ */
+#define T64_SI_V2_FAMILY_COMMON_FIELDS \
+        .console_target = "NUS-CPU-03", \
+        .console_qualification = "unqualified-target-software-seed", \
+        .tv_standard = T64_TV_NTSC, \
+        .region = T64_REGION_US, \
+        .media_kind = T64_MEDIA_CARTRIDGE, \
+        .rdram_bytes = T64_BASE_RAM_BYTES, \
+        .expansion_bytes = 0u, \
+        .peripheral_flags = T64_PERIPHERAL_STANDARD_CONTROLLER_PORT0, \
+        .boot_route = "hle-pif+open-ipl3", \
+        .boot_status = "prepared-rdram-b-t1-si-v2", \
+        .guest_tick_unit = "model-rsp-cycle", \
+        .cpu_rsp_ratio_numerator = 1u, \
+        .cpu_rsp_ratio_denominator = 1u, \
+        .synchronization_quantum = 1u, \
+        .timing_tier = "t1-instruction-cost-v1", \
+        .scheduler_version = "tick-sequence-fifo-v1", \
+        .pi_model_version = "pi_dma_bounded_cart_v1", \
+        .sp_model_version = "rsp-functional-issue-dma-divider-integer-v1", \
+        .rom_min_bytes = 4096u, \
+        .rom_max_bytes = T64_VR4300_OPENIPL3_ROM_LIMIT, \
+        .event_queue_capacity = 256u, \
+        .sequence_width_bits = 64u, \
+        .advance_event_budget = 4096u, \
+        .pi_duration_base_ticks = 1u, \
+        .pi_duration_bytes_divisor = 2u, \
+        .sp_duration_base_rsp_cycles = 12u, \
+        .sp_duration_bytes_divisor = 8u, \
+        .rom_order_policy = T64_VR4300_OPENIPL3_FLAT_ENTRY_POLICY, \
+        .event_order_policy = "tick-sequence-fifo-v1", \
+        .queue_exhaustion_policy = "reject-before-mutation-v1", \
+        .sequence_exhaustion_policy = "reject-before-mutation-v1", \
+        .advance_budget_policy = "bounded-4096-events-v1", \
+        .guest_time_bound_policy = "inclusive-idle-advance-v1", \
+        .halt_precedence_policy = "halt-at-bound-wins-v1", \
+        .pi_register_policy = "bounded-pi-register-and-cart-dma-v1", \
+        .sp_register_policy = "rsp-issue-status-dma-policy-v1", \
+        .device_error_policy = "sticky-pi-error-v1", \
+        .dma_cancel_policy = "token-match-complete-once-v1", \
+        .dma_visibility_policy = "rsp-one-beat-per-issue-v1", \
+        .rdp_work_policy = \
+            "dpc-fetch-effect-tmem-copy-tri-tex-comb-blend-depth-row-v8", \
+        .vi_clock_policy = \
+            "rsp62500000-ntsc48681812-halfline-rational-v2", \
+        .rdp_noise_policy = "xorshift32-seed-1-v1", \
+        .rdp_undefined_color_policy = "zero-color-v1", \
+        .vi_output_policy = \
+            "5551-8888-aa53mdtl-q8f-df3-dvmed-bq20f-gd16r8-sqrt255-pcspan-v3", \
+        .rdp_triangle_policy = \
+            "triangle-twos-complement-q16-logical-coverage-texture-policy-v1", \
+        .rdp_combiner_policy = "rgb8-a5-unity32-floor-sidecar-v1", \
+        .rdp_depth_policy = \
+            "z-q16-floor8192-cfloor-p15s3-dzmax-eq-icvg-xlu-decal-h2-v1", \
+        .ai_policy = "fetched-rdram-stereo-s16be-rational-62500000-v1", \
+        .si_policy = "si-hle-joybus-wire-v1", \
+        .save_policy = "save-explicit-eeprom4k16k-sram32k-busy6ms-v1", \
+        .descriptor_version = 13u, \
+        .machine_model_version = 21u, \
+        .state_serialization_version = 26u, \
+        .asset_sha256 = T64_OPENIPL3_ASSET_SHA256_BYTES, \
+        .payload_sha256 = T64_OPENIPL3_PAYLOAD_SHA256_BYTES, \
+        .boot_policy_sha256 = T64_RDRAM_B_T1_POLICY_SHA256_BYTES, \
+        .hle_seed_reset_version = 3u,
+
+static const t64_profile_descriptor
+    ntsc_cart_4m_openipl3_rdram_b_t1_si_v2_profile = {
+        .profile_id = "ntsc-cart-4m-openipl3-rdram-b-t1-si-v2",
+        .save_kind = T64_SAVE_NONE,
+        T64_SI_V2_FAMILY_COMMON_FIELDS};
+
+static const t64_profile_descriptor
+    ntsc_cart_4m_openipl3_rdram_b_t1_si_v2_e4k_profile = {
+        .profile_id = "ntsc-cart-4m-openipl3-rdram-b-t1-si-v2-e4k",
+        .save_kind = T64_SAVE_EEPROM_4K,
+        T64_SI_V2_FAMILY_COMMON_FIELDS};
+
+static const t64_profile_descriptor
+    ntsc_cart_4m_openipl3_rdram_b_t1_si_v2_e16k_profile = {
+        .profile_id = "ntsc-cart-4m-openipl3-rdram-b-t1-si-v2-e16k",
+        .save_kind = T64_SAVE_EEPROM_16K,
+        T64_SI_V2_FAMILY_COMMON_FIELDS};
+
+static const t64_profile_descriptor
+    ntsc_cart_4m_openipl3_rdram_b_t1_si_v2_s32k_profile = {
+        .profile_id = "ntsc-cart-4m-openipl3-rdram-b-t1-si-v2-s32k",
+        .save_kind = T64_SAVE_SRAM_32K,
+        T64_SI_V2_FAMILY_COMMON_FIELDS};
+
 static const uint8_t openipl3_asset_sha256[T64_DIGEST_SIZE] =
     T64_OPENIPL3_ASSET_SHA256_BYTES;
 static const uint8_t openipl3_payload_sha256[T64_DIGEST_SIZE] =
@@ -1336,9 +1431,63 @@ static bool is_si_profile(const t64_profile_descriptor *profile) {
          has_si_family_profile_id(profile);
 }
 
+/* Phase 10 composite family ids (descriptor 13, plan 10-09): the same four
+ * save selections under the si-v2 names. */
+static bool has_si_v2_profile_id(const t64_profile_descriptor *profile) {
+  static const char profile_id[] = "ntsc-cart-4m-openipl3-rdram-b-t1-si-v2";
+
+  return profile != NULL &&
+         bounded_text_equal(profile->profile_id,
+                            sizeof profile->profile_id,
+                            profile_id, sizeof profile_id);
+}
+
+static bool has_si_v2_e4k_profile_id(const t64_profile_descriptor *profile) {
+  static const char profile_id[] =
+      "ntsc-cart-4m-openipl3-rdram-b-t1-si-v2-e4k";
+
+  return profile != NULL &&
+         bounded_text_equal(profile->profile_id,
+                            sizeof profile->profile_id,
+                            profile_id, sizeof profile_id);
+}
+
+static bool has_si_v2_e16k_profile_id(const t64_profile_descriptor *profile) {
+  static const char profile_id[] =
+      "ntsc-cart-4m-openipl3-rdram-b-t1-si-v2-e16k";
+
+  return profile != NULL &&
+         bounded_text_equal(profile->profile_id,
+                            sizeof profile->profile_id,
+                            profile_id, sizeof profile_id);
+}
+
+static bool has_si_v2_s32k_profile_id(const t64_profile_descriptor *profile) {
+  static const char profile_id[] =
+      "ntsc-cart-4m-openipl3-rdram-b-t1-si-v2-s32k";
+
+  return profile != NULL &&
+         bounded_text_equal(profile->profile_id,
+                            sizeof profile->profile_id,
+                            profile_id, sizeof profile_id);
+}
+
+static bool has_si_v2_family_profile_id(
+    const t64_profile_descriptor *profile) {
+  return has_si_v2_profile_id(profile) || has_si_v2_e4k_profile_id(profile) ||
+         has_si_v2_e16k_profile_id(profile) ||
+         has_si_v2_s32k_profile_id(profile);
+}
+
+static bool is_si_v2_profile(const t64_profile_descriptor *profile) {
+  return profile != NULL && profile->descriptor_version == 13u &&
+         has_si_v2_family_profile_id(profile);
+}
+
 /* The AI and composite families share the inherited device storage. */
 static bool is_ai_family_profile(const t64_profile_descriptor *profile) {
-  return is_ai_profile(profile) || is_si_profile(profile);
+  return is_ai_profile(profile) || is_si_profile(profile) ||
+         is_si_v2_profile(profile);
 }
 
 static bool has_rdp_triangle_profile_id(
@@ -1410,6 +1559,7 @@ static bool has_pinned_openipl3_profile_id(
          has_rdp_vi_filter_v9_profile_id(profile) ||
          has_rdp_vi_filter_v9_ai_v1_profile_id(profile) ||
          has_si_family_profile_id(profile) ||
+         has_si_v2_family_profile_id(profile) ||
          has_rdp_triangle_profile_id(profile) ||
          has_rdp_texture_profile_id(profile) ||
          has_rdp_combiner_profile_id(profile) ||
@@ -1528,10 +1678,20 @@ static bool is_rdram_b_t1_profile(
        (!has_rdp_vi_filter_v9_ai_v1_profile_id(profile) ||
         profile->descriptor_version != 11u) &&
        (!has_si_family_profile_id(profile) ||
-        profile->descriptor_version != 12u))) {
+        profile->descriptor_version != 12u) &&
+       (!has_si_v2_family_profile_id(profile) ||
+        profile->descriptor_version != 13u))) {
     return false;
   }
-  if (has_si_profile_id(profile)) {
+  if (has_si_v2_profile_id(profile)) {
+    canonical = &ntsc_cart_4m_openipl3_rdram_b_t1_si_v2_profile;
+  } else if (has_si_v2_e4k_profile_id(profile)) {
+    canonical = &ntsc_cart_4m_openipl3_rdram_b_t1_si_v2_e4k_profile;
+  } else if (has_si_v2_e16k_profile_id(profile)) {
+    canonical = &ntsc_cart_4m_openipl3_rdram_b_t1_si_v2_e16k_profile;
+  } else if (has_si_v2_s32k_profile_id(profile)) {
+    canonical = &ntsc_cart_4m_openipl3_rdram_b_t1_si_v2_s32k_profile;
+  } else if (has_si_profile_id(profile)) {
     canonical = &ntsc_cart_4m_openipl3_rdram_b_t1_si_v1_profile;
   } else if (has_si_e4k_profile_id(profile)) {
     canonical = &ntsc_cart_4m_openipl3_rdram_b_t1_si_v1_e4k_profile;
@@ -1698,7 +1858,8 @@ static bool profile_fields_are_valid(const t64_profile_descriptor *profile) {
            profile->descriptor_version != 9u &&
            profile->descriptor_version != 10u &&
            profile->descriptor_version != 11u &&
-           profile->descriptor_version != 12u) ||
+           profile->descriptor_version != 12u &&
+           profile->descriptor_version != 13u) ||
           (T64_PROFILE_TEXT_OK(rdp_work_policy) &&
            T64_PROFILE_TEXT_OK(vi_clock_policy) &&
            T64_PROFILE_TEXT_OK(rdp_noise_policy) &&
@@ -1709,26 +1870,31 @@ static bool profile_fields_are_valid(const t64_profile_descriptor *profile) {
            profile->descriptor_version != 9u &&
            profile->descriptor_version != 10u &&
            profile->descriptor_version != 11u &&
-           profile->descriptor_version != 12u) ||
+           profile->descriptor_version != 12u &&
+           profile->descriptor_version != 13u) ||
           T64_PROFILE_TEXT_OK(rdp_triangle_policy)) &&
          ((profile->descriptor_version != 8u &&
            profile->descriptor_version != 9u &&
            profile->descriptor_version != 10u &&
            profile->descriptor_version != 11u &&
-           profile->descriptor_version != 12u) ||
+           profile->descriptor_version != 12u &&
+           profile->descriptor_version != 13u) ||
           T64_PROFILE_TEXT_OK(rdp_combiner_policy)) &&
          ((profile->descriptor_version != 10u &&
            profile->descriptor_version != 11u &&
-           profile->descriptor_version != 12u) ||
+           profile->descriptor_version != 12u &&
+           profile->descriptor_version != 13u) ||
           T64_PROFILE_TEXT_OK(rdp_depth_policy)) &&
          ((profile->descriptor_version != 11u &&
-           profile->descriptor_version != 12u) ||
+           profile->descriptor_version != 12u &&
+           profile->descriptor_version != 13u) ||
           T64_PROFILE_TEXT_OK(ai_policy)) &&
-         (profile->descriptor_version != 12u ||
+         ((profile->descriptor_version != 12u &&
+           profile->descriptor_version != 13u) ||
           (T64_PROFILE_TEXT_OK(si_policy) &&
            T64_PROFILE_TEXT_OK(save_policy) &&
-           /* Descriptor 12 validates the numeric fields that older versions
-            * only hash: a registered save device, only the standard
+           /* Descriptors 12 and 13 validate the numeric fields that older
+            * versions only hash: a registered save device, only the standard
             * controller on port 0, and one quantum at a 1:1 ratio. */
            profile->save_kind <= T64_SAVE_SRAM_32K &&
            (profile->peripheral_flags &
@@ -1884,8 +2050,9 @@ static void write_profile(profile_writer *writer,
              profile->descriptor_version == 9u ||
              profile->descriptor_version == 10u ||
              profile->descriptor_version == 11u ||
-             profile->descriptor_version == 12u) {
-    /* Descriptors v5-v12 bind the RDP/VI software model and policies. */
+             profile->descriptor_version == 12u ||
+             profile->descriptor_version == 13u) {
+    /* Descriptors v5-v13 bind the RDP/VI software model and policies. */
     write_openipl3_boot_metadata(writer, profile);
     profile_writer_text(writer, profile->rdp_work_policy,
                         sizeof profile->rdp_work_policy);
@@ -1902,7 +2069,8 @@ static void write_profile(profile_writer *writer,
         profile->descriptor_version == 9u ||
         profile->descriptor_version == 10u ||
         profile->descriptor_version == 11u ||
-        profile->descriptor_version == 12u) {
+        profile->descriptor_version == 12u ||
+        profile->descriptor_version == 13u) {
       profile_writer_text(writer, profile->rdp_triangle_policy,
                           sizeof profile->rdp_triangle_policy);
     }
@@ -1910,22 +2078,26 @@ static void write_profile(profile_writer *writer,
         profile->descriptor_version == 9u ||
         profile->descriptor_version == 10u ||
         profile->descriptor_version == 11u ||
-        profile->descriptor_version == 12u) {
+        profile->descriptor_version == 12u ||
+        profile->descriptor_version == 13u) {
       profile_writer_text(writer, profile->rdp_combiner_policy,
                           sizeof profile->rdp_combiner_policy);
     }
     if (profile->descriptor_version == 10u ||
         profile->descriptor_version == 11u ||
-        profile->descriptor_version == 12u) {
+        profile->descriptor_version == 12u ||
+        profile->descriptor_version == 13u) {
       profile_writer_text(writer, profile->rdp_depth_policy,
                           sizeof profile->rdp_depth_policy);
     }
     if (profile->descriptor_version == 11u ||
-        profile->descriptor_version == 12u) {
+        profile->descriptor_version == 12u ||
+        profile->descriptor_version == 13u) {
       profile_writer_text(writer, profile->ai_policy,
                           sizeof profile->ai_policy);
     }
-    if (profile->descriptor_version == 12u) {
+    if (profile->descriptor_version == 12u ||
+        profile->descriptor_version == 13u) {
       profile_writer_text(writer, profile->si_policy,
                           sizeof profile->si_policy);
       profile_writer_text(writer, profile->save_policy,
@@ -2223,6 +2395,14 @@ t64_status t64_profile_lookup(const char *profile_id,
       "ntsc-cart-4m-openipl3-rdram-b-t1-si-v1-e16k";
   static const char si_v1_s32k_profile_id[] =
       "ntsc-cart-4m-openipl3-rdram-b-t1-si-v1-s32k";
+  static const char si_v2_profile_id[] =
+      "ntsc-cart-4m-openipl3-rdram-b-t1-si-v2";
+  static const char si_v2_e4k_profile_id[] =
+      "ntsc-cart-4m-openipl3-rdram-b-t1-si-v2-e4k";
+  static const char si_v2_e16k_profile_id[] =
+      "ntsc-cart-4m-openipl3-rdram-b-t1-si-v2-e16k";
+  static const char si_v2_s32k_profile_id[] =
+      "ntsc-cart-4m-openipl3-rdram-b-t1-si-v2-s32k";
 
   if (profile_out == NULL) {
     return T64_STATUS_INVALID_ARGUMENT;
@@ -2360,6 +2540,29 @@ t64_status t64_profile_lookup(const char *profile_id,
     *profile_out = &ntsc_cart_4m_openipl3_rdram_b_t1_si_v1_s32k_profile;
     return T64_STATUS_OK;
   }
+  if (bounded_text_equal(profile_id, T64_PROFILE_TEXT_CAPACITY,
+                         si_v2_profile_id, sizeof si_v2_profile_id)) {
+    *profile_out = &ntsc_cart_4m_openipl3_rdram_b_t1_si_v2_profile;
+    return T64_STATUS_OK;
+  }
+  if (bounded_text_equal(profile_id, T64_PROFILE_TEXT_CAPACITY,
+                         si_v2_e4k_profile_id,
+                         sizeof si_v2_e4k_profile_id)) {
+    *profile_out = &ntsc_cart_4m_openipl3_rdram_b_t1_si_v2_e4k_profile;
+    return T64_STATUS_OK;
+  }
+  if (bounded_text_equal(profile_id, T64_PROFILE_TEXT_CAPACITY,
+                         si_v2_e16k_profile_id,
+                         sizeof si_v2_e16k_profile_id)) {
+    *profile_out = &ntsc_cart_4m_openipl3_rdram_b_t1_si_v2_e16k_profile;
+    return T64_STATUS_OK;
+  }
+  if (bounded_text_equal(profile_id, T64_PROFILE_TEXT_CAPACITY,
+                         si_v2_s32k_profile_id,
+                         sizeof si_v2_s32k_profile_id)) {
+    *profile_out = &ntsc_cart_4m_openipl3_rdram_b_t1_si_v2_s32k_profile;
+    return T64_STATUS_OK;
+  }
   return T64_STATUS_UNKNOWN_PROFILE;
 }
 
@@ -2459,6 +2662,13 @@ t64_status t64_machine_create(const t64_host_allocator *allocator,
    * under any other id cannot create a machine. */
   if (profile->descriptor_version == 12u &&
       !has_si_family_profile_id(profile)) {
+    return T64_STATUS_INVALID_ARGUMENT;
+  }
+  /* The same rule for descriptor 13 (plan 10-09): its ring storage and depth
+   * sidecar follow the registered si-v2 id, so any other id is refused before
+   * anything is allocated. */
+  if (profile->descriptor_version == 13u &&
+      !has_si_v2_family_profile_id(profile)) {
     return T64_STATUS_INVALID_ARGUMENT;
   }
   total_size = (size_t)profile->rdram_bytes;

@@ -17,7 +17,7 @@
 1	^harness\.phase09-qualification$
 1	^repo\.sched-k5-anchors$
 1	^repo\.p10-mutant-anchors$
-6	^unit\.core\.profile
+8	^unit\.core\.profile
 4	^unit\.core\.digest
 9	^unit\.core\.vg\.
 1	^unit\.core\.vg\.decal-equality$
@@ -31,3 +31,6 @@
 1	^unit\.core\.k1\.dispatch-refusal$
 2	^unit\.core\.k1\.
 1	^unit\.core\.k1\.apply-refusal$
+1	^unit\.core\.profile\.v26-identity$
+1	^unit\.core\.profile\.v26-isviewer$
+6	^(unit\.core\.profile\.v26-identity|unit\.core\.profile\.v26-isviewer|unit\.core\.k1\..*|repo\.si-membership-sites|harness\.phase09-qualification)$

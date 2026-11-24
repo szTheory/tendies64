@@ -1166,11 +1166,30 @@ static inline bool t64_has_ai_profile(const t64_machine *machine) {
 /*
  * Phase 9 composite family: the Phase 8 machine plus the SI/PIF controller
  * and an explicit save device, all four registered ids sharing one tuple.
+ * This exact tuple selects the state 25 digest domain, the state version
+ * registry row and the exporter.
  */
-static inline bool t64_has_si_profile(const t64_machine *machine) {
+static inline bool t64_has_si_v25_profile(const t64_machine *machine) {
   return machine != NULL && machine->profile.descriptor_version == 12u &&
          machine->profile.machine_model_version == 20u &&
          machine->profile.state_serialization_version == 25u;
+}
+
+/*
+ * Phase 10 composite family (plan 10-09): the same devices under four new
+ * registered ids with RDP depth active, one tuple. This exact tuple selects
+ * the state 26 digest domain; the registry and the exporter refuse it until
+ * their rows exist.
+ */
+static inline bool t64_has_si_v26_profile(const t64_machine *machine) {
+  return machine != NULL && machine->profile.descriptor_version == 13u &&
+         machine->profile.machine_model_version == 21u &&
+         machine->profile.state_serialization_version == 26u;
+}
+
+/* SI device family: the exact 12/20/25 tuple or the exact 13/21/26 tuple. */
+static inline bool t64_has_si_profile(const t64_machine *machine) {
+  return t64_has_si_v25_profile(machine) || t64_has_si_v26_profile(machine);
 }
 
 static inline bool t64_has_vi_filter_v9_profile(
