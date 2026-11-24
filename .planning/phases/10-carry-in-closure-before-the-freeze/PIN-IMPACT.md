@@ -104,6 +104,7 @@ record below is the only line of this form written by plan 10-01.
 
 - Wave 0 base: 4ac633e880e0c26005cb03092e8d8485e721034c
 - Wave 1 base: f6ab8c26d008b8301b729b5aae2715e1b1079318
+- Wave 2 base: 6dd785986f6aa78c6da5573a558b15b386a4edee
 
 ## 6. Gate-growth ledger
 
