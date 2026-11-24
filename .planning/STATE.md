@@ -5,16 +5,16 @@ milestone_name: Embeddable and Playable
 current_phase: 10
 current_phase_name: Carry-in Closure Before the Freeze
 status: executing
-stopped_at: Completed 10-05-PLAN.md
-last_updated: "2026-11-24T02:31:54.281Z"
+stopped_at: Completed 10-06-PLAN.md
+last_updated: "2026-11-24T02:56:33.135Z"
 last_activity: 2026-11-23
 last_activity_desc: Phase 10 execution started
-state_head: 46697d320edfd589d75ffeaad7bf1402d111e64a
+state_head: 1dc7a979f6bb098acae9ad11dac1b5e84623acf1
 progress:
   total_phases: 3
   completed_phases: 0
   total_plans: 19
-  completed_plans: 5
+  completed_plans: 6
   percent: 0
 ---
 
@@ -30,7 +30,7 @@ See: .planning/PROJECT.md (updated 2026-11-23)
 ## Current Position
 
 Phase: 10 (Carry-in Closure Before the Freeze) — EXECUTING
-Plan: 6 of 19
+Plan: 7 of 19
 Status: Ready to execute
 Last activity: 2026-11-23 — Phase 10 execution started
 
@@ -66,6 +66,7 @@ Progress: [░░░░░░░░░░] 0% (0 of 3 v1.2 phases complete)
 | Phase 10 P03 | 18 min | 4 tasks | 6 files |
 | Phase 10 P04 | 19 min | 4 tasks | 8 files |
 | Phase 10 P05 | 21 min | 3 tasks | 3 files |
+| Phase 10 P06 | 22 min | 4 tasks | 5 files |
 
 ## Accumulated Context
 
@@ -140,6 +141,9 @@ Progress: [░░░░░░░░░░] 0% (0 of 3 v1.2 phases complete)
 - [Phase 10]: 10-05: Wave 0 reviewed in a clone-based scratch gate (227 of 227, 119 s) with nine mechanical checks and no blocking finding; the bare git archive tree of the plan cannot pass the gate (no repository), so the later review plans use a local clone detached at the head plus a copy of build/tools/install
 - [Phase 10]: 10-05: head 33f6e9c pushed (origin/main 612a3ad to 33f6e9c, 48 commits) after a 67 s preflight; first hosted pair run 45311817943 green (gate-macos 346 s, ctest 184 s, gate-linux 229 s), unit.core.state.import starts 2nd of 227 on both OSes; the saving is not claimed from one sample against the F-119 band (F-120), the cold run stays plan 10-19
 - [Phase 10]: 10-05: Wave 1 base f6ab8c26d008b8301b729b5aae2715e1b1079318 recorded in PIN-IMPACT.md section 5; Gate-growth ledger Wave 0 row records 0.36 native seconds for the three Wave 0 names under the G4 exception
+- [Phase 10]: 10-06: all VG-01, Z exponent table and standard-NTSC clock vectors pass against current code on the first run; no defect, no fix plan; descriptor 10 may carry depth into Wave 2
+- [Phase 10]: 10-06: the exponent-table decode is proved with decal probes at decoded -2..+2 (tolerance 1) because an opaque compare passes every nearer value; two mutant rows added beyond the plan so the case has a recorded kill (vg-zexp-decode-top survives the existing test_rdp_depth)
+- [Phase 10]: 10-06: VI vectors must enable the VI at machine tick 0 before the guest runs, because the authored fill guest programs and enables the VI itself; the primitive-Z cap mutant is also killed by the existing test_rdp_depth, so the recorded kill is the named check of primitive-z-saturation
 
 ### Pending Todos
 
@@ -165,8 +169,8 @@ None for v1.1. Carry-ins for v1.2 are listed in the Deferred Items table, the v1
 
 ## Session Continuity
 
-Last session: 2026-11-24T02:31:54.260Z
-Stopped at: Completed 10-05-PLAN.md
+Last session: 2026-11-24T02:56:33.114Z
+Stopped at: Completed 10-06-PLAN.md
 Resume file: None
 
 Historical closeout: [v1.0 roadmap](milestones/v1.0-ROADMAP.md), [audit](milestones/v1.0-MILESTONE-AUDIT.md), [lessons](RETROSPECTIVE.md).
