@@ -5,16 +5,16 @@ milestone_name: Embeddable and Playable
 current_phase: 10
 current_phase_name: Carry-in Closure Before the Freeze
 status: executing
-stopped_at: Completed 10-04-PLAN.md
-last_updated: "2026-11-24T02:07:39.009Z"
+stopped_at: Completed 10-05-PLAN.md
+last_updated: "2026-11-24T02:31:54.281Z"
 last_activity: 2026-11-23
 last_activity_desc: Phase 10 execution started
-state_head: 13de8a2c10e246e6bda7acd280861eb0d2576b10
+state_head: 46697d320edfd589d75ffeaad7bf1402d111e64a
 progress:
   total_phases: 3
   completed_phases: 0
   total_plans: 19
-  completed_plans: 4
+  completed_plans: 5
   percent: 0
 ---
 
@@ -30,7 +30,7 @@ See: .planning/PROJECT.md (updated 2026-11-23)
 ## Current Position
 
 Phase: 10 (Carry-in Closure Before the Freeze) — EXECUTING
-Plan: 5 of 19
+Plan: 6 of 19
 Status: Ready to execute
 Last activity: 2026-11-23 — Phase 10 execution started
 
@@ -65,6 +65,7 @@ Progress: [░░░░░░░░░░] 0% (0 of 3 v1.2 phases complete)
 | Phase 10 P02 | 32 min | 4 tasks | 8 files |
 | Phase 10 P03 | 18 min | 4 tasks | 6 files |
 | Phase 10 P04 | 19 min | 4 tasks | 8 files |
+| Phase 10 P05 | 21 min | 3 tasks | 3 files |
 
 ## Accumulated Context
 
@@ -136,6 +137,9 @@ Progress: [░░░░░░░░░░] 0% (0 of 3 v1.2 phases complete)
 - [Phase 10]: 10-04: explicit CTest COST 210, 71, 48 and 35 (hosted macOS seconds of the F-111 run) on unit.core.state.import, harness.state-field-use-audit, repo.rsp-no-hle and harness.phase09-qualification; gate-macos timeout-minutes 15, gate-linux 10, CI-TIMEOUT bound per job; ci.yml, check-ci-yml.sh and gate.sh are final for Phase 10 (commit 4ca1054)
 - [Phase 10]: 10-04: the rsp-no-hle guard removal is declined: the repeated cost is the CTest name repo.rsp-no-hle in the audio-records step (41 of 42 s hosted macOS), not the direct guard (0.19 s); removal edits docs/spec/audio-cases.json:182 and EXPECTED_INVENTORY_SHA256 of the closed Phase 8 qualifier (F-116)
 - [Phase 10]: 10-04: CTest weights an explicit COST into CTestCostData.txt, so the preflight timeout audit holds a COST test to 2 times its COST (hosted seconds) and the native seconds of those four tests are read from a ctest log (PIN-IMPACT.md 10.5); GATE-01 stays open until the measured cold run of plan 10-19
+- [Phase 10]: 10-05: Wave 0 reviewed in a clone-based scratch gate (227 of 227, 119 s) with nine mechanical checks and no blocking finding; the bare git archive tree of the plan cannot pass the gate (no repository), so the later review plans use a local clone detached at the head plus a copy of build/tools/install
+- [Phase 10]: 10-05: head 33f6e9c pushed (origin/main 612a3ad to 33f6e9c, 48 commits) after a 67 s preflight; first hosted pair run 45311817943 green (gate-macos 346 s, ctest 184 s, gate-linux 229 s), unit.core.state.import starts 2nd of 227 on both OSes; the saving is not claimed from one sample against the F-119 band (F-120), the cold run stays plan 10-19
+- [Phase 10]: 10-05: Wave 1 base f6ab8c26d008b8301b729b5aae2715e1b1079318 recorded in PIN-IMPACT.md section 5; Gate-growth ledger Wave 0 row records 0.36 native seconds for the three Wave 0 names under the G4 exception
 
 ### Pending Todos
 
@@ -161,8 +165,8 @@ None for v1.1. Carry-ins for v1.2 are listed in the Deferred Items table, the v1
 
 ## Session Continuity
 
-Last session: 2026-11-24T02:07:38.972Z
-Stopped at: Completed 10-04-PLAN.md
+Last session: 2026-11-24T02:31:54.260Z
+Stopped at: Completed 10-05-PLAN.md
 Resume file: None
 
 Historical closeout: [v1.0 roadmap](milestones/v1.0-ROADMAP.md), [audit](milestones/v1.0-MILESTONE-AUDIT.md), [lessons](RETROSPECTIVE.md).
