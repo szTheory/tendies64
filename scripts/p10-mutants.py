@@ -72,6 +72,7 @@ INCLUDES = ["-I", "core", "-I", "core/include", "-I", "tools/common", "-I", "tes
 # sources here.
 TEST_SOURCES = {
     "test_rdp_depth": "core/tests/test_rdp_depth.c",
+    "test_k1_refusal": "core/tests/test_k1_refusal.c",
 }
 
 OWN_CHECK_LINE = re.compile(r"test_[a-z_0-9]+\.c:\d+: CHECK(_INT|_STR)? failed")
@@ -106,6 +107,29 @@ MUTANTS = [
         "record": [],
         # The whole existing depth test binary (every case) must still pass.
         "all_pass": [own_check("test_rdp_depth", [])],
+    },
+    {
+        "id": "k1-predicate-widened",
+        "tag": "mutant",
+        "expect": "KILLED",
+        "title": "depth predicate widened to descriptors 11 and 12 (shipped Z refusal must be pinned by K1)",
+        "edits": [
+            (
+                "core/t64_internal.h",
+                "static inline bool t64_has_rdp_depth_profile(const t64_machine *machine) {\n"
+                "  return machine != NULL && machine->profile.descriptor_version == 10u &&\n",
+                "static inline bool t64_has_rdp_depth_profile(const t64_machine *machine) {\n"
+                "  return machine != NULL &&\n"
+                "         (machine->profile.descriptor_version == 10u ||\n"
+                "          machine->profile.descriptor_version == 11u ||\n"
+                "          machine->profile.descriptor_version == 12u) &&\n",
+            )
+        ],
+        "kill": [
+            own_check("test_k1_refusal", ["--case", "dispatch-refusal"]),
+            own_check("test_k1_refusal", ["--case", "apply-refusal"]),
+        ],
+        "record": [],
     },
     {
         "id": "control-no-compile",
