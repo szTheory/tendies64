@@ -21,7 +21,11 @@
 #   head-ci           hosted ci.yml result of origin/main (F-107 lesson); fails
 #                     only on a completed failure; gh unreachable is not a failure
 #   timeout-audit     every registered TIMEOUT against 3.5 times the recorded
-#                     native seconds (F-108); tests without cost data are listed
+#                     native seconds (F-108); tests without cost data are listed;
+#                     a test with an explicit COST (hosted seconds, plan 10-04) is
+#                     held to 2 times that COST instead, because ctest seeds its
+#                     cost history with the property and the file then no longer
+#                     records native seconds
 #   pii               scripts/pii-scan.sh --tree, and --range origin/main..HEAD
 #   linux-compile     the gate compile units rerun with the Ubuntu cc of the act
 #                     image already on disk (F-102), only when a C change exists
@@ -253,7 +257,13 @@ check_head_ci() {
 }
 
 # timeout-audit: a registered TIMEOUT must be at least 3.5 times the recorded
-# native seconds, the hosted macOS ratio upper bound of F-108.
+# native seconds, the hosted macOS ratio upper bound of F-108. A test with an
+# explicit COST property is the exception (plan 10-04, GATE-01): its COST is a
+# hosted macOS measurement and ctest weights the property into
+# CTestCostData.txt (a recorded cost of (runs * COST + this run) / (runs + 1)),
+# so the file value stops being a native measurement after the first local run.
+# Such a test is held to HOSTED_RATIO (2, the "below 2x" line of F-108) times its
+# COST, which is already the hosted seconds.
 check_timeout_audit() {
   fresh_work
   ctest --test-dir build/gate --show-only=json-v1 > "$PF_WORK/tests.json" || return 1
@@ -262,6 +272,7 @@ import json
 import sys
 
 RATIO = 3.5
+HOSTED_RATIO = 2.0
 with open(sys.argv[1], encoding="utf-8") as handle:
     tests = json.load(handle)["tests"]
 cost = {}
@@ -288,23 +299,28 @@ for test in tests:
         continue
     name = test["name"]
     timeout = float(props["TIMEOUT"])
-    seconds = cost.get(name)
+    if "COST" in props:
+        seconds = float(props["COST"])
+        required = HOSTED_RATIO
+    else:
+        seconds = cost.get(name)
+        required = RATIO
     if seconds is None or seconds <= 0.0:
         unmeasured.append(name)
         continue
     checked += 1
     ratio = timeout / seconds
-    if worst is None or ratio < worst[0]:
-        worst = (ratio, name, timeout, seconds)
-    if timeout < RATIO * seconds:
-        low.append((name, timeout, seconds))
-for name, timeout, seconds in low:
+    if worst is None or ratio / required < worst[0] / worst[4]:
+        worst = (ratio, name, timeout, seconds, required)
+    if timeout < required * seconds:
+        low.append((name, timeout, seconds, required))
+for name, timeout, seconds, required in low:
     print("[preflight] timeout-audit: %s TIMEOUT %g s is below %.1f times the recorded %.2f s"
-          % (name, timeout, RATIO, seconds))
+          % (name, timeout, required, seconds))
 detail = ""
 if worst is not None:
-    detail = ", lowest ratio %.1f (%s: TIMEOUT %g s, recorded %.2f s)" % (
-        worst[0], worst[1], worst[2], worst[3])
+    detail = ", lowest ratio %.1f (%s: TIMEOUT %g s, recorded %.2f s, required %.1f)" % (
+        worst[0], worst[1], worst[2], worst[3], worst[4])
 print("[preflight] timeout-audit: %d registered TIMEOUTs checked, %d too low, %d unmeasured%s"
       % (checked, len(low), len(unmeasured), detail))
 if unmeasured:
