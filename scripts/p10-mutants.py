@@ -148,6 +148,36 @@ MUTANTS = [
         "record": [],
     },
     {
+        "id": "vg01-zcap-7ffe",
+        "tag": "mutant",
+        "expect": "KILLED",
+        "title": "primitive Z cap 0x7fff lowered to 0x7ffe in both literals (VG-01 b; the existing test_rdp_depth also kills it, so the named check here is the recorded kill)",
+        "edits": [
+            (
+                "core/t64_rdp_depth.c",
+                "    if (raw_z > UINT32_C(0x7fff)) raw_z = UINT32_C(0x7fff);\n",
+                "    if (raw_z > UINT32_C(0x7ffe)) raw_z = UINT32_C(0x7ffe);\n",
+            )
+        ],
+        "kill": [own_check("test_vg_gaps", ["--case", "primitive-z-saturation"])],
+        "record": [own_check("test_rdp_depth", [])],
+    },
+    {
+        "id": "vg01-delta-floor",
+        "tag": "mutant",
+        "expect": "KILLED",
+        "title": "per-pixel delta ceiling written as a floor, the + UINT64_C(8191) term removed (VG-01 c)",
+        "edits": [
+            (
+                "core/t64_rdp_depth.c",
+                "    delta_sum = (delta_sum + UINT64_C(8191)) / UINT64_C(8192);\n",
+                "    delta_sum = delta_sum / UINT64_C(8192);\n",
+            )
+        ],
+        "kill": [own_check("test_vg_gaps", ["--case", "delta-ceiling"])],
+        "record": [],
+    },
+    {
         "id": "control-no-compile",
         "tag": "control",
         "expect": "INVALID",

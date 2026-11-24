@@ -812,7 +812,13 @@ t64_target_warnings(test_vg_gaps)
 add_dependencies(test_vg_gaps t64-rdp-fill-fixture)
 add_test(NAME unit.core.vg.decal-equality
   COMMAND test_vg_gaps --case decal-equality)
-set_tests_properties(unit.core.vg.decal-equality PROPERTIES
+add_test(NAME unit.core.vg.primitive-z-saturation
+  COMMAND test_vg_gaps --case primitive-z-saturation)
+add_test(NAME unit.core.vg.delta-ceiling
+  COMMAND test_vg_gaps --case delta-ceiling)
+set_tests_properties(unit.core.vg.decal-equality
+  unit.core.vg.primitive-z-saturation
+  unit.core.vg.delta-ceiling PROPERTIES
   LABELS "unit;phase10"
   ENVIRONMENT "T64_TEST_IPL3_PATH=${T64_BOOT_FIXTURE_DIR}/ipl3_compat.z64;T64_TEST_RDP_FILL_PATH=${T64_BOOT_FIXTURE_DIR}/rdp-fill.z64")
 

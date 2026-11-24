@@ -232,6 +232,29 @@ static bool run_primitive(uint64_t modes, uint64_t primitive_depth,
                            old_depth, old_hidden, result);
 }
 
+/* The same accepted triangle with an interpolated Z plane (SetOtherModes has
+ * the primitive-Z bit clear). The two Z coefficient words are
+ * {base, dZ/dx} and {dZ/de, dZ/dy}, every field a two's-complement Q16.16
+ * value; dZ/de is zero here because the major edge is vertical (DxHDy 0),
+ * so the observed pixel (column 1, row 2) sees
+ *   x offset = (1 + 1/2) - 1 = 1/2   (pixel center minus the major edge x),
+ *   y offset = (2 + 1/2) - 1 = 3/2   (pixel center minus YH),
+ * i.e. 0x8000 and 0x18000 in Q16. */
+static bool run_plane(uint64_t modes, uint32_t z_base, uint32_t dzdx,
+                      uint32_t dzdy, uint16_t old_depth, uint8_t old_hidden,
+                      pixel_result *result) {
+  const uint64_t commands[] = {
+      UINT64_C(0x3f10000700005000), UINT64_C(0x2d00000000020020), modes,
+      UINT64_C(0x3e00000000006000), UINT64_C(0x3a00000000ff00ff),
+      UINT64_C(0xfc00000000018600), UINT64_C(0x09000014000c0004),
+      UINT64_C(0x00010000fffe8000), UINT64_C(0x0001000000000000),
+      UINT64_C(0x0004000000018000), ((uint64_t)z_base << 32) | dzdx,
+      (uint64_t)dzdy, UINT64_C(0x2900000000000000),
+  };
+  return run_seeded_stream(commands, sizeof commands / sizeof commands[0],
+                           old_depth, old_hidden, result);
+}
+
 /* SetPrimDepth word for a raw 16-bit Z and a 16-bit dZ. */
 static uint64_t primitive_depth_word(uint32_t raw_z, uint32_t dz) {
   return UINT64_C(0x2e00000000000000) | ((uint64_t)(raw_z & 0xffffu) << 16) |
@@ -323,6 +346,142 @@ static void case_decal_equality(void) {
   T64_CHECK_INT(first_difference(observed, wrong, sizeof wrong), 3u);
 }
 
+/*
+ * VG-01 (b): primitive Z saturation.
+ *
+ * Independent derivation (rdp.md V7 "Primitive Z is min(raw16, 0x7fff) << 3"):
+ *   raw 0x7ffe -> 0x7ffe << 3 = 0x3fff0
+ *   raw 0x7fff -> 0x7fff << 3 = 0x3fff8
+ *   raw 0x8000 -> capped to 0x7fff -> 0x3fff8
+ *   raw 0xffff -> capped to 0x7fff -> 0x3fff8
+ * All four lie in exponent 7 (0x3f800 .. 0x3ffff, shift 0). The mantissa is
+ * linear - 0x3f800: 0x7f0, 0x7f8, 0x7f8, 0x7f8. With dZ 0 the priority code
+ * is 0, so the visible word is 0xe000 | (mantissa << 2) and the hidden byte
+ * is 0x80:
+ *   0xe000 | 0x1fc0 = 0xffc0, 0xe000 | 0x1fe0 = 0xffe0 (three times).
+ * The cap therefore separates raw 0x7ffe from every value at or above 0x7fff,
+ * and a cap one lower (0x7ffe) turns the second to fourth words into 0xffc0.
+ */
+static void case_primitive_z_saturation(void) {
+  static const uint64_t opaque_update = UINT64_C(0x2f00000000000034);
+  static const struct {
+    uint32_t raw_z;
+    uint16_t expected_depth;
+  } vectors[] = {
+      {0x7ffeu, 0xffc0u},
+      {0x7fffu, 0xffe0u},
+      {0x8000u, 0xffe0u},
+      {0xffffu, 0xffe0u},
+  };
+  static const uint8_t expected_cap[2] = {0xffu, 0xe0u};
+  pixel_result capped = {0};
+  uint8_t observed[5];
+  uint8_t wrong[2];
+  size_t i;
+
+  for (i = 0u; i < sizeof vectors / sizeof vectors[0]; i++) {
+    pixel_result result = {0};
+    T64_CHECK(run_primitive(opaque_update,
+                            primitive_depth_word(vectors[i].raw_z, 0u),
+                            0xfffcu, 0u, &result));
+    T64_CHECK_INT(result.refusal, T64_RDP_REFUSAL_NONE);
+    T64_CHECK_INT(result.color, COLOR_DRAWN);
+    T64_CHECK_INT(result.depth, vectors[i].expected_depth);
+    T64_CHECK_INT(result.hidden, 0x80u);
+  }
+
+  /* Wrong-value control on the first capped vector (raw 0x7fff): the
+   * accepted word equals the literal and a copy with the low byte lowered to
+   * the uncapped value 0xc0 differs at byte 1. */
+  T64_CHECK(run_primitive(opaque_update, primitive_depth_word(0x7fffu, 0u),
+                          0xfffcu, 0u, &capped));
+  observe_bytes(&capped, observed);
+  T64_CHECK_INT(first_difference(observed + 2, expected_cap,
+                                 sizeof expected_cap),
+                SIZE_MAX);
+  memcpy(wrong, expected_cap, sizeof wrong);
+  wrong[1] = 0xc0u;
+  T64_CHECK_INT(first_difference(observed + 2, wrong, sizeof wrong), 1u);
+}
+
+/*
+ * VG-01 (c): per-pixel delta ceiling.
+ *
+ * Independent derivation (rdp.md V7: "Per-pixel delta is
+ * ceil((abs(dx)+abs(dy))/8192), clamped to 16 bits"; priority code
+ * floor(log2 delta), at most 15). The plane base is 0x00080000 (8.0 in Q16.16,
+ * 524288), so with zero slopes floor(524288 / 8192) = 64 = 0x40 and the
+ * visible word is 0x0004 (exponent 0, mantissa 0x40 >> 6 = 1). At the
+ * observed pixel the plane evaluates to
+ *   q16 = 524288 + floor(dzdx * 0x8000 / 65536) + floor(dzdy * 0x18000 / 65536)
+ * and linear Z = floor(q16 / 8192). Visible high bits are code >> 2 (0 below
+ * code 4) and the hidden byte is 0x80 | (code & 3).
+ *
+ *   dzdx 8193      x 4096          q16 528384  linear 0x40  sum 8193 delta 2 code 1
+ *   dzdx 8192      x 4096          q16 528384  linear 0x40  sum 8192 delta 1 code 0
+ *   dzdx 8191      x 4095          q16 528383  linear 0x40  sum 8191 delta 1 code 0
+ *   0, 0                           q16 524288  linear 0x40  sum 0    delta 0 code 0
+ *   dzdx -4097, dzdy 4096   x -2049 y 6144  q16 528383  linear 0x40  sum 8193 delta 2 code 1
+ *   dzdx 4096, dzdy -4097   x 2048 y -6146  q16 520190  linear 0x3f  sum 8193 delta 2 code 1
+ *     (linear 0x3f is exponent 0, mantissa 0, visible 0x0000: compression is lossy)
+ *   dzdx 24577     x 12288         q16 536576  linear 0x41  sum 24577 delta 4 code 2
+ *   dzdx 24576     x 12288         q16 536576  linear 0x41  sum 24576 delta 3 code 1
+ *   dzdx = dzdy = 0x7fffffff  q16 4295491581  linear clamp 0x3ffff
+ *     (exponent 7, mantissa 0x7ff, 0xfffc); sum 4294967294, delta ceil
+ *     524288 clamped to 65535, code 15, visible high bits 3, so 0xffff, and
+ *     hidden 0x80 | 3 = 0x83.
+ *
+ * Under a floor instead of a ceiling the first, fifth, sixth and seventh
+ * rows lose their code (8193 -> delta 1, 24577 -> delta 3).
+ */
+static void case_delta_ceiling(void) {
+  static const uint64_t opaque_update = UINT64_C(0x2f00000000000030);
+  static const uint32_t plane_base = UINT32_C(0x00080000);
+  static const struct {
+    uint32_t dzdx;
+    uint32_t dzdy;
+    uint16_t expected_depth;
+    uint8_t expected_hidden;
+  } vectors[] = {
+      {UINT32_C(0x00002001), UINT32_C(0x00000000), 0x0004u, 0x81u},
+      {UINT32_C(0x00002000), UINT32_C(0x00000000), 0x0004u, 0x80u},
+      {UINT32_C(0x00001fff), UINT32_C(0x00000000), 0x0004u, 0x80u},
+      {UINT32_C(0x00000000), UINT32_C(0x00000000), 0x0004u, 0x80u},
+      {UINT32_C(0xffffefff), UINT32_C(0x00001000), 0x0004u, 0x81u},
+      {UINT32_C(0x00001000), UINT32_C(0xffffefff), 0x0000u, 0x81u},
+      {UINT32_C(0x00006001), UINT32_C(0x00000000), 0x0004u, 0x82u},
+      {UINT32_C(0x00006000), UINT32_C(0x00000000), 0x0004u, 0x81u},
+      {UINT32_C(0x7fffffff), UINT32_C(0x7fffffff), 0xffffu, 0x83u},
+  };
+  static const uint8_t expected_ceiling[3] = {0x00u, 0x04u, 0x81u};
+  pixel_result ceiling = {0};
+  uint8_t observed[5];
+  uint8_t wrong[3];
+  size_t i;
+
+  for (i = 0u; i < sizeof vectors / sizeof vectors[0]; i++) {
+    pixel_result result = {0};
+    T64_CHECK(run_plane(opaque_update, plane_base, vectors[i].dzdx,
+                        vectors[i].dzdy, 0xfffcu, 0u, &result));
+    T64_CHECK_INT(result.refusal, T64_RDP_REFUSAL_NONE);
+    T64_CHECK_INT(result.color, COLOR_DRAWN);
+    T64_CHECK_INT(result.depth, vectors[i].expected_depth);
+    T64_CHECK_INT(result.hidden, vectors[i].expected_hidden);
+  }
+
+  /* Wrong-value control on the 8193 row: the hidden byte of a floor result
+   * would be 0x80, so a copy carrying it differs at byte 2. */
+  T64_CHECK(run_plane(opaque_update, plane_base, UINT32_C(0x00002001),
+                      UINT32_C(0), 0xfffcu, 0u, &ceiling));
+  observe_bytes(&ceiling, observed);
+  T64_CHECK_INT(first_difference(observed + 2, expected_ceiling,
+                                 sizeof expected_ceiling),
+                SIZE_MAX);
+  memcpy(wrong, expected_ceiling, sizeof wrong);
+  wrong[2] = 0x80u;
+  T64_CHECK_INT(first_difference(observed + 2, wrong, sizeof wrong), 2u);
+}
+
 typedef struct {
   const char *name;
   void (*run)(void);
@@ -330,6 +489,8 @@ typedef struct {
 
 static const test_case cases[] = {
     {"decal-equality", case_decal_equality},
+    {"primitive-z-saturation", case_primitive_z_saturation},
+    {"delta-ceiling", case_delta_ceiling},
 };
 
 int main(int argc, char **argv) {
