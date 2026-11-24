@@ -20,7 +20,7 @@ from unittest.mock import patch
 
 ROOT = Path(__file__).resolve().parents[1]
 RECORD_PATH = ROOT / "docs/evidence/phase07-oracle-authority.json"
-PINNED_REQUEST_SHA256 = "a4bb7774b72321261e37a44bbb518161b9b564e4beb076dfebe06881aab67733"
+PINNED_REQUEST_SHA256 = "e131cbe7e255052e706668b6cb0d7192c4ac877b65bd7c3a33e65194962927ab"
 PINNED_RIGHTS_AUDIT_SHA256 = "7506efecad2511fc2c535ed93b2f65b99dfc2e013508ba8ef760242251f1ff37"
 
 # These are deliberately unset. A JSON field that says "approved" is not
@@ -36,7 +36,6 @@ EXPECTED_TOP_LEVEL_KEYS = {
 }
 EXPECTED_CORPUS_PATHS = {
     "docs/spec/rdp-vi-cases.json",
-    "fixtures/manifest.json",
     "fixtures/rdp/fill.S",
     "scripts/check-rdp-vi-cases.py",
     "core/tests/test_rdp.c",
@@ -308,10 +307,14 @@ def _verify_corpus(request: dict[str, Any]) -> str:
     fixture_manifest = corpus.get("fixture_manifest")
     if not isinstance(fixture_manifest, dict):
         raise Refusal("authored fixture manifest identity is missing")
+    if set(fixture_manifest) != {"path", "bound_rows"} or \
+            fixture_manifest.get("path") != "fixtures/manifest.json":
+        raise Refusal("authored fixture manifest identity is malformed")
     fixture_path = _safe_repo_path(fixture_manifest.get("path"))
     fixture_bytes = fixture_path.read_bytes()
-    if hashlib.sha256(fixture_bytes).hexdigest() != fixture_manifest.get("sha256"):
-        raise Refusal("fixture manifest SHA-256 changed")
+    bound_rows = fixture_manifest.get("bound_rows")
+    if not isinstance(bound_rows, list) or not bound_rows:
+        raise Refusal("fixture manifest bound row set is empty")
 
     files = corpus.get("bound_authored_inputs")
     if not isinstance(files, list) or not files:
@@ -380,6 +383,30 @@ def _verify_corpus(request: dict[str, Any]) -> str:
     fixture_rows = fixture_data.get("entries") if isinstance(fixture_data, dict) else None
     if not isinstance(fixture_rows, list):
         raise Refusal("fixture manifest rows are missing")
+    # GATE-02: each manifest row present at the rebind is pinned by its own
+    # canonical hash and looked up by id (never by position). Rows appended
+    # later are outside this request and need no rebind. A missing, duplicated
+    # or changed bound row, or an empty bound set, refuses.
+    bound_ids: list[Any] = []
+    for bound in bound_rows:
+        if not isinstance(bound, dict) or set(bound) != {"id", "row_sha256"} or \
+                not isinstance(bound["id"], str) or not bound["id"] or \
+                not HEX_64.fullmatch(str(bound["row_sha256"])):
+            raise Refusal("fixture manifest bound row is malformed")
+        bound_ids.append(bound["id"])
+    if len(bound_ids) != len(set(bound_ids)):
+        raise Refusal("fixture manifest bound rows are duplicated")
+    for bound in bound_rows:
+        matches = [
+            entry for entry in fixture_rows
+            if isinstance(entry, dict) and entry.get("id") == bound["id"]
+        ]
+        if len(matches) != 1:
+            raise Refusal(
+                f"fixture manifest bound row is missing or duplicated: {bound['id']}"
+            )
+        if _canonical_sha256(matches[0]) != bound["row_sha256"]:
+            raise Refusal(f"fixture manifest bound row changed: {bound['id']}")
     rows = {entry.get("id"): entry for entry in fixture_rows if isinstance(entry, dict)}
     fixture_ids = corpus.get("authored_fixture_ids")
     if fixture_ids != ["rdp-fill", "rdp-fill-payload"]:
@@ -742,6 +769,30 @@ def _run_selftests(record: dict[str, Any]) -> list[str]:
         "duplicate JSON key",
     )
     passed.append("duplicate-record-key")
+
+    def _mutated_fixture_manifest(mutate: Any) -> dict[str, Any]:
+        changed = deepcopy(request)
+        mutate(changed["corpus"]["fixture_manifest"])
+        return changed
+
+    for name, mutate, needle in (
+        ("fixture-manifest-empty-bound-rows",
+         lambda value: value.update({"bound_rows": []}), "bound row set is empty"),
+        ("fixture-manifest-duplicate-bound-id",
+         lambda value: value["bound_rows"].append(dict(value["bound_rows"][0])),
+         "duplicated"),
+        ("fixture-manifest-bound-row-changed",
+         lambda value: value["bound_rows"][0].update({"row_sha256": "0" * 64}),
+         "bound row changed"),
+        ("fixture-manifest-bound-row-missing",
+         lambda value: value["bound_rows"][0].update({"id": "no-such-row"}),
+         "missing or duplicated"),
+    ):
+        _expect_refusal(
+            lambda changed=_mutated_fixture_manifest(mutate): _verify_corpus(changed),
+            needle,
+        )
+        passed.append(name)
 
     missing = deepcopy(record)
     missing["local_decision"] = None
