@@ -5,16 +5,16 @@ milestone_name: Embeddable and Playable
 current_phase: 10
 current_phase_name: Carry-in Closure Before the Freeze
 status: executing
-stopped_at: Completed 10-01-PLAN.md
-last_updated: "2026-11-24T00:55:16.672Z"
+stopped_at: Completed 10-02-PLAN.md
+last_updated: "2026-11-24T01:28:24.870Z"
 last_activity: 2026-11-23
 last_activity_desc: Phase 10 execution started
-state_head: dc317c32fbba0470d081341d194826191054816c
+state_head: 792e0edf24a1cc52a3e8a056b4607b4c214cf857
 progress:
   total_phases: 3
   completed_phases: 0
   total_plans: 19
-  completed_plans: 1
+  completed_plans: 2
   percent: 0
 ---
 
@@ -30,7 +30,7 @@ See: .planning/PROJECT.md (updated 2026-11-23)
 ## Current Position
 
 Phase: 10 (Carry-in Closure Before the Freeze) — EXECUTING
-Plan: 2 of 19
+Plan: 3 of 19
 Status: Ready to execute
 Last activity: 2026-11-23 — Phase 10 execution started
 
@@ -62,6 +62,7 @@ Progress: [░░░░░░░░░░] 0% (0 of 3 v1.2 phases complete)
 | Phase 09 P10 | Task 6 1h45m (plan span one day) | 6 tasks | 61 files |
 | Phase 09 P11 | 85min | 6 tasks | 5 files |
 | Phase 10 P01 | 23 min | 4 tasks | 6 files |
+| Phase 10 P02 | 32 min | 4 tasks | 8 files |
 
 ## Accumulated Context
 
@@ -126,6 +127,8 @@ Progress: [░░░░░░░░░░] 0% (0 of 3 v1.2 phases complete)
 - [Phase 10]: 10-01: Wave 0 decisions: no new hosted CI step, no Phase 10 JUnit root in gate.sh, GATE-02 keeps whole-file hashes of the other 13 bound files (new tests in new files), rsp-no-hle guard removal measured last and declined if it needs a qualify-audio.py edit, make -j2 declined
 - [Phase 10]: 10-01: sh scripts/preflight-phase10.sh is cited by every Phase 10 plan (23 s no C change, 57 to 70 s with one); --no-replay mid-task, clean committed tree before a push; each new CTest name needs PHASE10_TESTS, label phase10 and a regex count row
 - [Phase 10]: 10-01: p10-mutants.py dirty-tree check counts only tracked changes outside .planning/ (planning records cannot affect a mutant built from HEAD)
+- [Phase 10]: 10-02: K1 pins Z refusal on all five shipped composite ids at dispatch (SetZImage, SetPrimDepth) and apply (four Z triangles) with 30 build-identity-independent digest literals
+- [Phase 10]: 10-02: digest-sweep.py refuses any --base that is not a 40-hex commit id and forces one T64_BUILD_ID; the printer continues resource-limit yields to the replay player bound of 64
 
 ### Pending Todos
 
@@ -151,8 +154,8 @@ None for v1.1. Carry-ins for v1.2 are listed in the Deferred Items table, the v1
 
 ## Session Continuity
 
-Last session: 2026-11-24T00:55:16.652Z
-Stopped at: Completed 10-01-PLAN.md
+Last session: 2026-11-24T01:28:24.850Z
+Stopped at: Completed 10-02-PLAN.md
 Resume file: None
 
 Historical closeout: [v1.0 roadmap](milestones/v1.0-ROADMAP.md), [audit](milestones/v1.0-MILESTONE-AUDIT.md), [lessons](RETROSPECTIVE.md).
