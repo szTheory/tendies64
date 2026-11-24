@@ -19,8 +19,9 @@
 1	^repo\.p10-mutant-anchors$
 6	^unit\.core\.profile
 4	^unit\.core\.digest
-3	^unit\.core\.vg\.
+4	^unit\.core\.vg\.
 1	^unit\.core\.vg\.decal-equality$
+1	^unit\.core\.vg\.z-exponent-boundaries$
 0	^runner\.composite
 1	^unit\.core\.k1\.dispatch-refusal$
 2	^unit\.core\.k1\.

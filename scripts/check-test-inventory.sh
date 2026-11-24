@@ -247,7 +247,8 @@ unit.core.k1.dispatch-refusal
 unit.core.k1.apply-refusal
 unit.core.vg.decal-equality
 unit.core.vg.primitive-z-saturation
-unit.core.vg.delta-ceiling'
+unit.core.vg.delta-ceiling
+unit.core.vg.z-exponent-boundaries'
 
 CPU_COVERAGE_OPCODES='ADD
 ADDU

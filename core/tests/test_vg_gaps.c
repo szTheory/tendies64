@@ -482,6 +482,160 @@ static void case_delta_ceiling(void) {
   T64_CHECK_INT(first_difference(observed + 2, wrong, sizeof wrong), 2u);
 }
 
+/*
+ * Z exponent table boundaries (VER-06 numeric edges).
+ *
+ * The eight-row table printed in 07-08-DEPTH-FIELDS.md (manual p. 324) is
+ *   exponent 0 shift 6 add 0x00000   exponent 4 shift 2 add 0x3c000
+ *   exponent 1 shift 5 add 0x20000   exponent 5 shift 1 add 0x3e000
+ *   exponent 2 shift 4 add 0x30000   exponent 6 shift 0 add 0x3f000
+ *   exponent 3 shift 3 add 0x38000   exponent 7 shift 0 add 0x3f800
+ * and each row spans 2048 << shift linear values, so the rows tile 0 .. 0x3ffff
+ * exactly. A linear Z picks the last row whose add does not exceed it,
+ * mantissa = floor((Z - add) / 2^shift) clamped to 0x7ff, and the visible word
+ * is exponent << 13 | mantissa << 2 (delta code 0, hidden 0x80). The value read
+ * back is (mantissa << shift) + add. Compression is lossy: the values below
+ * are the first and last of each exponent range.
+ *
+ *   linear   exp mantissa  visible  decoded
+ *   0x3f      0   0x000    0x0000   0x00000   (6 low bits dropped)
+ *   0x40      0   0x001    0x0004   0x00040
+ *   0x1ffff   0   0x7ff    0x1ffc   0x1ffc0
+ *   0x20000   1   0x000    0x2000   0x20000
+ *   0x2ffff   1   0x7ff    0x3ffc   0x2ffe0
+ *   0x30000   2   0x000    0x4000   0x30000
+ *   0x37fff   2   0x7ff    0x5ffc   0x37ff0
+ *   0x38000   3   0x000    0x6000   0x38000
+ *   0x3bfff   3   0x7ff    0x7ffc   0x3bff8
+ *   0x3c000   4   0x000    0x8000   0x3c000
+ *   0x3dfff   4   0x7ff    0x9ffc   0x3dffc
+ *   0x3e000   5   0x000    0xa000   0x3e000
+ *   0x3efff   5   0x7ff    0xbffc   0x3effe
+ *   0x3f000   6   0x000    0xc000   0x3f000
+ *   0x3f7ff   6   0x7ff    0xdffc   0x3f7ff
+ *   0x3f800   7   0x000    0xe000   0x3f800
+ *   0x3ffff   7   0x7ff    0xfffc   0x3ffff   (the far word)
+ *
+ * Every value is produced exactly through the command path: a plane Z with
+ * base = linear * 8192 (Q16.16) and zero slopes has floor(base / 8192) =
+ * linear at every pixel, and the eight multiples of 8 (0x40, 0x20000,
+ * 0x30000, 0x38000, 0x3c000, 0x3e000, 0x3f000, 0x3f800) are also produced
+ * through primitive Z with raw = linear >> 3. No value needed replacing by a
+ * neighbor.
+ *
+ * Decode proof: with the visible word as the old depth (no hidden byte, so
+ * the stored delta decodes to 1) and a decal plane Z of delta 0, the
+ * tolerance is max(0, 1) = 1 and a new linear Z passes exactly when
+ * |newZ - decoded| <= 1. The probes decoded - 2 .. decoded + 2 therefore
+ * pass at -1, 0 and +1 and fail at -2 and +2 (where the value is inside
+ * 0 .. 0x3ffff), which fixes the decoded value without calling a decode
+ * routine. Decal never updates, so the stored word must not change.
+ */
+static void case_z_exponent_boundaries(void) {
+  static const uint64_t opaque_plane = UINT64_C(0x2f00000000000030);
+  static const uint64_t opaque_primitive = UINT64_C(0x2f00000000000034);
+  static const uint64_t decal_plane = UINT64_C(0x2f00000000000c30);
+  static const uint32_t linear[17] = {
+      0x0003fu, 0x00040u, 0x1ffffu, 0x20000u, 0x2ffffu, 0x30000u,
+      0x37fffu, 0x38000u, 0x3bfffu, 0x3c000u, 0x3dfffu, 0x3e000u,
+      0x3efffu, 0x3f000u, 0x3f7ffu, 0x3f800u, 0x3ffffu,
+  };
+  static const uint16_t visible[17] = {
+      0x0000u, 0x0004u, 0x1ffcu, 0x2000u, 0x3ffcu, 0x4000u,
+      0x5ffcu, 0x6000u, 0x7ffcu, 0x8000u, 0x9ffcu, 0xa000u,
+      0xbffcu, 0xc000u, 0xdffcu, 0xe000u, 0xfffcu,
+  };
+  static const uint32_t decoded[17] = {
+      0x00000u, 0x00040u, 0x1ffc0u, 0x20000u, 0x2ffe0u, 0x30000u,
+      0x37ff0u, 0x38000u, 0x3bff8u, 0x3c000u, 0x3dffcu, 0x3e000u,
+      0x3effeu, 0x3f000u, 0x3f7ffu, 0x3f800u, 0x3ffffu,
+  };
+  static const uint8_t expected_row_2[2] = {0x1fu, 0xfcu};
+  unsigned visible_literals = 0u;
+  unsigned decoded_literals = 0u;
+  unsigned decode_probes = 0u;
+  unsigned primitive_rows = 0u;
+  pixel_result control = {0};
+  pixel_result far_word = {0};
+  uint8_t observed[5];
+  uint8_t wrong[2];
+  size_t i;
+  int offset;
+
+  for (i = 0u; i < sizeof linear / sizeof linear[0]; i++) {
+    pixel_result plane = {0};
+
+    T64_CHECK(run_plane(opaque_plane, linear[i] << 13, 0u, 0u, 0xfffcu, 0u,
+                        &plane));
+    T64_CHECK_INT(plane.refusal, T64_RDP_REFUSAL_NONE);
+    T64_CHECK_INT(plane.color, COLOR_DRAWN);
+    T64_CHECK_INT(plane.depth, visible[i]);
+    T64_CHECK_INT(plane.hidden, 0x80u);
+    visible_literals++;
+
+    if (linear[i] % 8u == 0u) {
+      pixel_result primitive = {0};
+      T64_CHECK(run_primitive(opaque_primitive,
+                              primitive_depth_word(linear[i] >> 3, 0u),
+                              0xfffcu, 0u, &primitive));
+      T64_CHECK_INT(primitive.refusal, T64_RDP_REFUSAL_NONE);
+      T64_CHECK_INT(primitive.color, COLOR_DRAWN);
+      T64_CHECK_INT(primitive.depth, visible[i]);
+      T64_CHECK_INT(primitive.hidden, 0x80u);
+      primitive_rows++;
+    }
+
+    for (offset = -2; offset <= 2; offset++) {
+      const int64_t probe = (int64_t)decoded[i] + offset;
+      const bool passes = offset >= -1 && offset <= 1;
+      pixel_result decal = {0};
+
+      if (probe < 0 || probe > INT64_C(0x3ffff)) continue;
+      T64_CHECK(run_plane(decal_plane, (uint32_t)probe << 13, 0u, 0u,
+                          visible[i], 0u, &decal));
+      T64_CHECK_INT(decal.refusal, T64_RDP_REFUSAL_NONE);
+      T64_CHECK_INT(decal.color, passes ? COLOR_DRAWN : COLOR_UNTOUCHED);
+      T64_CHECK_INT(decal.depth, visible[i]);
+      T64_CHECK_INT(decal.hidden, 0u);
+      decode_probes++;
+    }
+    decoded_literals++;
+  }
+
+  /* The word that machines and tests seed as uninitialized depth, 0xfffc,
+   * decodes to the saturated far value 0x3ffff: the last row above, and an
+   * explicit probe that two linear steps nearer fails the decal comparison
+   * while the far value itself passes. */
+  T64_CHECK_INT(visible[16], 0xfffcu);
+  T64_CHECK_INT(decoded[16], 0x3ffffu);
+  T64_CHECK(run_plane(decal_plane, UINT32_C(0x3ffff) << 13, 0u, 0u, 0xfffcu,
+                      0u, &far_word));
+  T64_CHECK_INT(far_word.color, COLOR_DRAWN);
+  T64_CHECK(run_plane(decal_plane, UINT32_C(0x3fffd) << 13, 0u, 0u, 0xfffcu,
+                      0u, &far_word));
+  T64_CHECK_INT(far_word.color, COLOR_UNTOUCHED);
+
+  /* Wrong-value control on the 0x1ffff row: the accepted word equals the
+   * literal 0x1ffc and a copy whose high byte names the next exponent
+   * (0x20) differs at byte 0. */
+  T64_CHECK(run_plane(opaque_plane, UINT32_C(0x1ffff) << 13, 0u, 0u, 0xfffcu,
+                      0u, &control));
+  observe_bytes(&control, observed);
+  T64_CHECK_INT(first_difference(observed + 2, expected_row_2,
+                                 sizeof expected_row_2),
+                SIZE_MAX);
+  memcpy(wrong, expected_row_2, sizeof wrong);
+  wrong[0] = 0x20u;
+  T64_CHECK_INT(first_difference(observed + 2, wrong, sizeof wrong), 0u);
+
+  T64_CHECK_INT(visible_literals, 17u);
+  T64_CHECK_INT(primitive_rows, 8u);
+  printf("z-exponent-boundaries: %u visible-word literals, %u decoded-value "
+         "literals, %u decode probes, %u primitive-Z rows, far word 0xfffc "
+         "decodes to 0x3ffff\n",
+         visible_literals, decoded_literals, decode_probes, primitive_rows);
+}
+
 typedef struct {
   const char *name;
   void (*run)(void);
@@ -491,6 +645,7 @@ static const test_case cases[] = {
     {"decal-equality", case_decal_equality},
     {"primitive-z-saturation", case_primitive_z_saturation},
     {"delta-ceiling", case_delta_ceiling},
+    {"z-exponent-boundaries", case_z_exponent_boundaries},
 };
 
 int main(int argc, char **argv) {

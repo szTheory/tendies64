@@ -178,6 +178,44 @@ MUTANTS = [
         "record": [],
     },
     {
+        "id": "vg-zexp-decode-top",
+        "tag": "mutant",
+        "expect": "KILLED",
+        "title": "exponent 7 decode add 0x3f800 raised to 0x3f801 (the new decal probes fix every decoded value to the unit; an added row beyond the 10-06 list)",
+        "edits": [
+            (
+                "core/t64_rdp_depth.c",
+                "  static const uint32_t add[8] = {\n"
+                "      UINT32_C(0x00000), UINT32_C(0x20000), UINT32_C(0x30000),\n"
+                "      UINT32_C(0x38000), UINT32_C(0x3c000), UINT32_C(0x3e000),\n"
+                "      UINT32_C(0x3f000), UINT32_C(0x3f800)};\n",
+                "  static const uint32_t add[8] = {\n"
+                "      UINT32_C(0x00000), UINT32_C(0x20000), UINT32_C(0x30000),\n"
+                "      UINT32_C(0x38000), UINT32_C(0x3c000), UINT32_C(0x3e000),\n"
+                "      UINT32_C(0x3f000), UINT32_C(0x3f801)};\n",
+            )
+        ],
+        "kill": [own_check("test_vg_gaps", ["--case", "z-exponent-boundaries"])],
+        "record": [own_check("test_rdp_depth", [])],
+    },
+    {
+        "id": "vg-zexp-compress-round",
+        "tag": "mutant",
+        "expect": "KILLED",
+        "title": "mantissa floored by the table shift written as round-half-up (linear 0x3f must keep mantissa 0; an added row beyond the 10-06 list)",
+        "edits": [
+            (
+                "core/t64_rdp_depth.c",
+                "  mantissa = (linear_z - start[exponent]) >> shift[exponent];\n",
+                "  mantissa = ((linear_z - start[exponent]) +\n"
+                "              ((UINT32_C(1) << shift[exponent]) >> 1)) >>\n"
+                "             shift[exponent];\n",
+            )
+        ],
+        "kill": [own_check("test_vg_gaps", ["--case", "z-exponent-boundaries"])],
+        "record": [own_check("test_rdp_depth", [])],
+    },
+    {
         "id": "control-no-compile",
         "tag": "control",
         "expect": "INVALID",

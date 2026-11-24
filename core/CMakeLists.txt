@@ -816,9 +816,12 @@ add_test(NAME unit.core.vg.primitive-z-saturation
   COMMAND test_vg_gaps --case primitive-z-saturation)
 add_test(NAME unit.core.vg.delta-ceiling
   COMMAND test_vg_gaps --case delta-ceiling)
+add_test(NAME unit.core.vg.z-exponent-boundaries
+  COMMAND test_vg_gaps --case z-exponent-boundaries)
 set_tests_properties(unit.core.vg.decal-equality
   unit.core.vg.primitive-z-saturation
-  unit.core.vg.delta-ceiling PROPERTIES
+  unit.core.vg.delta-ceiling
+  unit.core.vg.z-exponent-boundaries PROPERTIES
   LABELS "unit;phase10"
   ENVIRONMENT "T64_TEST_IPL3_PATH=${T64_BOOT_FIXTURE_DIR}/ipl3_compat.z64;T64_TEST_RDP_FILL_PATH=${T64_BOOT_FIXTURE_DIR}/rdp-fill.z64")
 
