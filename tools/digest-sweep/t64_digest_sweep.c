@@ -34,7 +34,10 @@
 #define MAX_ROM_BYTES (64u * 1024u * 1024u)
 #define MAX_ID_BYTES 128u
 #define AUTHORED_ROM_BYTES 4096u
-#define YIELDS_WITHOUT_PROGRESS 8u
+/* The replay player bound (REPLAY_MAX_YIELDS_WITHOUT_PROGRESS in
+ * runner/t64_replay.c): the digest of a stalled machine depends on how many
+ * advance calls were made, so the sweep makes the same number as the player. */
+#define YIELDS_WITHOUT_PROGRESS 64u
 
 /* Candidate ROMs, in output order of the first admitted one (used for the
  * export line). "authored-4k" is generated in memory (the image the skeleton
