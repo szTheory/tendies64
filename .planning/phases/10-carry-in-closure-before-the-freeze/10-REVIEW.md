@@ -138,3 +138,35 @@ order itself is a measured fact on both runners (2nd to 5th). Recorded in
 PIN-IMPACT.md "Gate-growth ledger" is added in the same commit. The cold measurement stays plan
 10-19 and no hosted cache was deleted here.
 
+## Wave 1
+
+Plans 10-06 and 10-07 (phase-wave 1, VER-06: the VG-01 to VG-05 gap vectors and the standard-NTSC
+VI clock vector). Reviewed by plan 10-08 (Task 1 to Task 3 below). Wave 1 is a test-only wave: the
+claim under review is that it added tests, a mutant table and registrations, and moved no production
+source and no oracle-bound file.
+
+| Item | Value |
+|------|-------|
+| Wave 1 base | `f6ab8c26d008b8301b729b5aae2715e1b1079318` (extracted from PIN-IMPACT.md "Wave bases" with the 10-01 base extraction idiom: exactly one 40-hex line, an existing commit, an ancestor of the head) |
+| Reviewed head | `37151ebea980b6fad54edcc493b25d60dc00d4bd` (15 commits after the base; 11 files changed, 5 of them outside `.planning/`: `core/CMakeLists.txt`, `core/tests/test_vg_gaps.c`, `scripts/check-test-inventory.sh`, `scripts/p10-mutants.py`, `scripts/preflight-phase10-regexes.txt`; 1775 insertions and 2 deletions outside `.planning/`) |
+| Host | Darwin arm64, 1-minute load 7.1 to 11.9 during the scratch gate (other sessions on the same machine, so seconds are upper bounds for a quiet host) |
+
+### Task 1: scratch gate of the Wave 1 head
+
+Method: the W0-01 form, not a bare `git archive` tree. `git clone --no-checkout --no-hardlinks` of
+the main repository into `build/10-review/w1/src`, `git checkout --detach 37151eb...`, and a copy (not
+a symlink) of `build/tools/install` into the clone so the pinned Binutils 2.45 is reused. `git status
+--short` of the clone was empty, and `git archive HEAD` of the clone and of the main repository have the
+same SHA-256 (`5c9db0eb4cc5b7374774c6d3dd51fed8145e941659c03362d9a32db3b80d1825`), so the scratch tree
+is exactly the archive of the head. Command: `sh scripts/gate.sh` inside the clone, default environment
+(no `CI` or `GITHUB_*` variable). The shared tree was not written (`git status --short` of the main tree
+was empty before and after).
+
+Result: `[gate] PASS`, `[gate] total 123s`, exit 0, first attempt. Steps in seconds: sh-n 0,
+lint-selftest 4, fixture-qualification 1, configure 0, build 6, boot-evidence-selftest 12,
+test-inventory-selftest 20, test-inventory 0, ctest 71 (`100% tests passed out of 236`, `Total Test time
+(real) = 70.33 sec`), core-lint 9. The CTest count is the 227 names of the Wave 0 head plus the nine
+Phase 10 `unit.core.vg.*` names (five from plan 10-06, four from plan 10-07). The nine names ran in
+0.00 to 0.02 s each at ctest resolution (`unit.core.vg.ntsc-clock` is the longest at 0.10 s in
+`CTestCostData.txt`); the `phase10` label total is 0.80 s for 12 tests.
+
