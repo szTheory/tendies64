@@ -103,6 +103,7 @@ Qualification base, each after its plan's last non-recording commit. The Wave 0
 record below is the only line of this form written by plan 10-01.
 
 - Wave 0 base: 4ac633e880e0c26005cb03092e8d8485e721034c
+- Wave 1 base: f6ab8c26d008b8301b729b5aae2715e1b1079318
 
 ## 6. Gate-growth ledger
 
