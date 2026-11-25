@@ -285,7 +285,8 @@ unit.core.api.refusals-never-poison
 unit.core.api.reentrant
 unit.core.api.null-machine
 unit.core.api.defect-sites
-unit.core.api.bus-carve-out'
+unit.core.api.bus-carve-out
+unit.core.api.reset'
 
 CPU_COVERAGE_OPCODES='ADD
 ADDU

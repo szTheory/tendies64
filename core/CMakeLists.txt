@@ -886,6 +886,23 @@ set_tests_properties(unit.core.api.bus-carve-out PROPERTIES
   COST 3
   ENVIRONMENT "T64_TEST_IPL3_PATH=${T64_BOOT_FIXTURE_DIR}/ipl3_compat.z64")
 
+# Lifecycle and output surface (plan 11-04). Public header only: the poisoned,
+# reentrant and NULL-machine answers of the new entries are proved with the
+# other entries in test_api_poison.
+add_executable(test_api_lifecycle tests/test_api_lifecycle.c)
+target_include_directories(test_api_lifecycle PRIVATE
+  "${CMAKE_SOURCE_DIR}/tests")
+target_link_libraries(test_api_lifecycle PRIVATE t64_core)
+t64_target_warnings(test_api_lifecycle)
+add_dependencies(test_api_lifecycle t64-boot-fixtures t64-rdp-fill-fixture)
+add_test(NAME unit.core.api.reset
+  COMMAND test_api_lifecycle --case reset)
+set_tests_properties(unit.core.api.reset PROPERTIES
+  LABELS "unit;phase11"
+  TIMEOUT 60
+  COST 1
+  ENVIRONMENT "T64_BOOT_FIXTURES_DIR=${T64_BOOT_FIXTURE_DIR}")
+
 # Descriptor 13 family (plan 10-09): the four registered si-v2 ids with their
 # pinned profile hashes, and ISViewer activity on the eight SI family ids; plan
 # 10-10 adds the predicate matrix over all 25 registered ids.

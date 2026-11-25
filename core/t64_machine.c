@@ -3042,6 +3042,32 @@ t64_status t64_machine_admit_rom(t64_machine *machine, const uint8_t *bytes,
   return status;
 }
 
+/*
+ * Public reset (plan 11-04): the sequence admit_rom runs after the image swap,
+ * on the image that is already admitted. reset_guest_state clears the guest
+ * state and prepares the same boot entry, and the admission record is emitted
+ * as admission does, so the instance is bit for bit what the first admission
+ * of the same image left. Reset calls neither allocator callback, so the
+ * in-call flag stays down. Every refusal precedes the first write; a failing
+ * reset_guest_state has already touched state that cannot be rolled back, so
+ * it is a defect that poisons (DR-11), as in admission.
+ */
+t64_status t64_machine_reset(t64_machine *machine) {
+  t64_status status;
+
+  T64_ENTRY_GUARD(machine);
+  if (!machine->has_image) {
+    return T64_STATUS_NOT_READY;
+  }
+  status = reset_guest_state(machine);
+  t64_trace_emit(machine, machine->tick, T64_TRACE_DEVICE_MACHINE,
+                 T64_TRACE_KIND_ROM_ADMITTED, (uint64_t)machine->image_length);
+  if (status != T64_STATUS_OK) {
+    return t64_internal_defect(machine);
+  }
+  return T64_STATUS_OK;
+}
+
 t64_status t64_machine_advance(t64_machine *machine,
                                const t64_stop_request *request,
                                t64_stop_result *result_out) {

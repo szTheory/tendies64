@@ -47,7 +47,7 @@
 #define SAVE_PROFILE_ID SI_STEM "-e4k"
 #define LEGACY_PROFILE_ID \
   "ntsc-cart-4m-openipl3-rdram-b-t1-rdp-vi-filter-v9-ai-v1"
-#define ENTRY_COUNT 23u
+#define ENTRY_COUNT 24u
 #define MAX_LIVE 16u
 #define MIN_REFUSED_SHAPES 40u
 
@@ -246,7 +246,7 @@ static const char *const entry_names[ENTRY_COUNT] = {
     "state_import",  "cpu_stop_detail", "output_drain",  "video_info",
     "video_copy",    "save_info",      "save_export",    "save_import",
     "audio_info",    "audio_copy",     "queue_input",    "bus_read",
-    "bus_write",     "trace_set_enabled", "trace_drain"};
+    "bus_write",     "trace_set_enabled", "trace_drain", "reset"};
 
 /* The save device kind of the profile under test; a plain value so an entry
  * can be called with a NULL machine. */
@@ -320,6 +320,8 @@ static t64_status call_entry(unsigned entry, t64_machine *machine,
   case 22:
     return t64_machine_trace_drain(machine, s->records, 2u, &s->trace_count,
                                    &s->trace_dropped, &s->trace_saturated);
+  case 23:
+    return t64_machine_reset(machine);
   default:
     return T64_STATUS_INVALID_ARGUMENT;
   }

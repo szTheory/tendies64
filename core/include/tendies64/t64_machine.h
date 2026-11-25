@@ -429,6 +429,24 @@ T64_API t64_status t64_machine_is_poisoned(const t64_machine *machine,
                                            uint32_t *poisoned_out);
 T64_API t64_status t64_machine_admit_rom(t64_machine *machine, const uint8_t *bytes,
                                          size_t length);
+/*
+ * Returns the admitted guest to its first-admit state (plan 11-04). The
+ * postcondition is that of replacing the image with the same bytes: guest
+ * tick, instruction and frame counters, RDRAM, SP memories, CPU and RSP state,
+ * the scheduler queue, every device and the save device are back at the values
+ * right after the first admission, the video and audio rings and the ISViewer
+ * drain cursor are empty, the trace records and drop count are cleared (trace
+ * enablement is kept and one admission record is emitted when it is enabled),
+ * and the machine digest equals the digest taken right after the first
+ * admission. The image, the profile and the allocator are kept; reset calls
+ * neither allocator callback. A machine without an admitted image answers
+ * T64_STATUS_NOT_READY, a NULL machine T64_STATUS_INVALID_ARGUMENT, a poisoned
+ * instance T64_STATUS_POISONED and a call from inside an allocator callback
+ * T64_STATUS_REENTRANT, each with the instance unchanged. A failure after
+ * state was touched is a defect: it answers T64_STATUS_INTERNAL_DEFECT and
+ * poisons the instance.
+ */
+T64_API t64_status t64_machine_reset(t64_machine *machine);
 T64_API t64_status t64_machine_advance(t64_machine *machine,
                                        const t64_stop_request *request,
                                        t64_stop_result *result_out);
