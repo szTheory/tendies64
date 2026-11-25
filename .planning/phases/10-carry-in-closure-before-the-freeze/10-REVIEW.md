@@ -355,7 +355,7 @@ so the review re-derives and re-measures instead of reading the plan summaries. 
 |------|-------|
 | Wave 2 base | `6dd785986f6aa78c6da5573a558b15b386a4edee` (extracted from PIN-IMPACT.md "Wave bases" with the 10-01 base extraction idiom: exactly one 40-hex line, an existing commit, an ancestor of the head) |
 | Wave 0 base | `4ac633e880e0c26005cb03092e8d8485e721034c` (same idiom, for the whole-phase sweep) |
-| Reviewed head | `96c8711188a287756393c1871e7dda1e0a73f4af` (30 commits after the Wave 2 base; 24 files changed outside `.planning/`, 7,235 insertions and 132 deletions; the four production sources that changed are `core/t64_digest.c`, `core/t64_internal.h`, `core/t64_isviewer.c`, `core/t64_machine.c` and `core/t64_state.c`) |
+| Reviewed head | `96c8711188a287756393c1871e7dda1e0a73f4af` (30 commits after the Wave 2 base; 24 files changed outside `.planning/`, 7,235 insertions and 132 deletions; the five production sources that changed are `core/t64_digest.c`, `core/t64_internal.h`, `core/t64_isviewer.c`, `core/t64_machine.c` and `core/t64_state.c`) |
 | Host | Darwin arm64, 1-minute load 12 to 15 during every run below (other sessions on the same machine, so every second count is an upper bound for a quiet host) |
 
 ### Task 1: scratch gate and sanitizer selection of the Wave 2 head
@@ -407,5 +407,165 @@ run overlapped one digest sweep (two trees), so each second is an upper bound.
 The slowest sanitizer name is `unit.core.state.import-v26-hostile` at 144.60 s against its sanitizer TIMEOUT of
 900 s (6.2 times); `import-v26-roundtrip` 47.97 s against 600 s (12.5 times); `export-v26` and `export-v26-bounds`
 34.36 and 23.79 s against their 300 s (8.7 and 12.6 times). All four are above the 2 times line of F-108.
+
+### Task 2: whole-bump byte identity, completeness audit and single-bump check
+
+`WAVE0_BASE` and `WAVE2_BASE` are the two 40-hex literals above, read from PIN-IMPACT.md with the base
+extraction idiom (`sed` on the exact label, `grep -cEx '[0-9a-f]{40}'` equal to 1, `git cat-file -e`, an
+ancestor of the head; never `HEAD`). `HEAD` is the head of the plan's Task 1 commit (`f32a01f`, which adds only
+this file to the gated tree `96c8711`). Every command ran in the scratch clone of Task 1.
+
+**(a) Digest sweep.** `python3 -B scripts/digest-sweep.py` (two trees built with the forced build identity):
+
+| Run | Result | Seconds |
+|-----|--------|---------|
+| `--base WAVE0_BASE --head HEAD` (the plan's command) | `sweep: 1599 shared lines, 0 differences, 0 head-only lines`, exit 0 | 51 |
+| the same plus four `--head-extra-id` (the si-v2 ids) | `sweep: 1599 shared lines, 0 differences, 296 head-only lines`, exit 0 | 52 |
+| `--base WAVE2_BASE --head HEAD` plus the four `--head-extra-id` | `sweep: 1599 shared lines, 0 differences, 296 head-only lines`, exit 0 | 72 |
+
+Reading: over the 21 shipped ids, 1599 lines (1460 digest lines, 115 stop lines, 20 skip lines and the four
+si-v1 export lines) are byte identical from the Wave 0 base to the head, so the whole of Phase 10 so far
+(Waves 0 to 2) is invisible to every shipped id, the v25 export lines included. The W0-02 gap (an extra id that
+admits no ROM would pass silently) was closed by reading the head-only lines instead of the count:
+`comm -13` of the sorted base and head `sweep.txt` gives, for each of the four si-v2 ids, 64 digest lines and 1
+export line, and over the four ids 32 stop lines and 4 skip lines (8 stop and 1 skip each, as for the si-v1
+ids), 4 x 65 + 36 = 296; `comm -23` (lines only in the base) is empty. K1 and the F2 pins:
+`ctest -R '^(unit\.core\.k1\..*|harness\.phase09-qualification|repo\.si-membership-sites)$'` gives 4 of 4
+passed (`unit.core.k1.dispatch-refusal`, `unit.core.k1.apply-refusal`, `harness.phase09-qualification`,
+`repo.si-membership-sites`).
+
+**(b) Sealed bodies and bound files.** `python3 -B scripts/check-rsp-no-hle.py --build build/gate`: `PASS:
+rsp-no-hle sources_scanned=85`, exit 0, no re-pin. The ten sealed-body source files
+(`core/t64_bus.c`, `t64_si.c`, `t64_ai.c`, `t64_pi.c`, `t64_save.c`, `t64_rdp.c`, `t64_rdp_depth.c`,
+`t64_rdp_pipeline.c`, `t64_rdp_raster.c`, `t64_rdp_tmem.c`) have no diff against `WAVE2_BASE`, and neither does
+the public header directory `core/include`. The 13 `EXPECTED_CORPUS_PATHS` of `scripts/check-rdp-oracle-authority.py`
+(read by `ast`) have an empty intersection with the diff from `WAVE0_BASE`; `fixtures/manifest.json`,
+`docs/spec/phase09-cases.json`, `docs/spec/audio-cases.json`, `scripts/qualify-audio.py`,
+`scripts/qualify-phase09.py`, `scripts/qualify-rdp-vi.py`, `docs/spec/rdp-vi-cases.json`, `scripts/gate.sh`,
+`.github/workflows/ci.yml`, `scripts/check-ci-yml.sh`, `scripts/list-membership-sites.py`,
+`fixtures/state/decode_container.py`, `core/tests/test_state_import.c`, `core/tests/test_state_export.c`,
+`core/tests/state_import_helpers.h` and `docs/spec/state-mutants.txt` have no diff against `WAVE2_BASE` (the
+last five are the frozen Phase 9 state files that the 10-11 and 10-12 plans had to leave alone; of the files
+in this list only the two CI files differ from `WAVE0_BASE`, by the single Wave 0 commit `4ca1054`). The 24
+files that changed outside `.planning/` are 6 in `core/`, 6 in `core/tests/`, 7 in `docs/spec/`, 3 in
+`scripts/`, 1 in `fixtures/state/` (the new `decode_container_v2.py`) and 1 in `tools/digest-sweep/`.
+
+**(c) Completeness audit against the struct definitions.** Done by program over the committed sources, then by
+a byte-flip probe (probe sources are kept outside the repository, not committed):
+
+| Structure | Method | Result |
+|-----------|--------|--------|
+| `t64_rdp_state` (100 members) | the members of the struct in `core/t64_internal.h` read by program and compared with the `M`, `MX` and `MI` rows of `rdp_members` in `core/tests/test_digest_v26.c`; `MTILE` fields compared with `t64_rdp_tile` | 0 members without a row, 0 rows naming no member; 3 `MX` exclusions (`triangle_last_coverage_x`, `_y` and `_mask`, test observation state written by the row handler); `convert_coefficients` 0 to 5, `pending_triangle_words` 0 to 3 (the four words the count of 4 makes state; the sweep flips the rest as inert), `key_center`, `key_scale` and `key_width` 0 to 2 as rows; the 19 `MTILE` fields equal the 19 tile fields for all eight tiles; the five depth members (`depth_image_address`, `depth_image_valid`, `primitive_z`, `primitive_dz`, `primitive_depth_valid`) are plain `M` rows, not exclusions; `_Static_assert(sizeof(t64_rdp_state) == 5144u)` holds in the gate (so a new member cannot enter unnoticed) |
+| memory coverage table, hidden depth table | read of the sweep | first, a middle and the last byte of each, flipped, must change the stream |
+| `t64_vi_state` (1,208 bytes) | the test file has no VI rows, so the plan's reading of "the VI state" was done by a probe: every byte of `machine->vi` flipped one bit at a time on the four si-v2 ids and on `si-v1`, the stream compared with its baseline | 417 inert bytes on every id, the same set on all five: `packet_head` and `packet_count` (8 + 8, the documented host observer cursors), the 64-byte `profile_id` and 128-byte `build_id` of each of the two packet slots (384, the identity strings that the v25 framing does not hash, bound by the identity section and the header instead) and 17 bytes of padding; every other byte changes the stream. The Wave 2 diff of `t64_digest.c` adds, removes and reorders no VI member: its two VI-adjacent hunks only rename the framing predicate (`has_v25_state` to `has_v25_framing`, true for both families) at the section 8 marker and at the packet identity strings, and `has_v22_state || has_v23_state` is true for both families, so v26 equals v25 here by construction |
+| the depth effect itself | `core/t64_rdp_depth.c` read for every write | `t64_rdp_depth_commit_pixel` writes only RDRAM (`machine->ram`, the visible word) and `rdp_depth_hidden`; both are in the stream |
+
+**(d) One v26 idle size by hand.** From `docs/spec/state-container.md` only (not from the test): total length is
+`0x120 + 56 x section count + canonical length + 40 + 32`; the canonical length is 15 domain bytes plus 4 + body
+for each canonical section. The idle stem state 25 bodies are 168, 32, 4,194,308, 8,200, 276, 56, 43,724,
+4,200,260, 336 and 404 for ids 1 to 10 and 11 table entries: 288 + 616 + (15 + 40 + 8,447,764) + 72 =
+8,448,795. State 26 grows section 8 only, by 20 bytes of scalars, 4 bytes of hidden length and 4,194,304 / 2 =
+2,097,152 hidden bytes, 2,097,176 in all, so the idle stem is 8,448,795 + 2,097,176 = **10,545,971**, equal to the
+literal `10545971u` of `core/tests/test_state_export_v26.c` and to the document. The same calculation for the
+save ids (section 11 of 532, 2,068 and 32,788 bytes plus its id and table entry) gives 10,546,563, 10,548,099 and
+10,578,819, equal to the other three literals.
+
+**(e) Single bump.** `git diff WAVE2_BASE HEAD` on the production sources (added lines only):
+
+| Item | Added | Result |
+|------|-------|--------|
+| profile tuple | `.descriptor_version = 13u`, `.machine_model_version = 21u`, `.state_serialization_version = 26u` once in `T64_SI_V2_FAMILY_COMMON_FIELDS`, and the matching exact predicate `t64_has_si_v26_profile` | exactly one new tuple, 13 / 21 / 26; every other added version literal is a re-indented existing one (16, 17, 21, 22 in `t64_has_rdp_depth_profile`) or the `13u` arm of an existing descriptor-12 list |
+| digest domain | `domain_v26[] = "t64.state.si.26"` in `core/t64_digest.c` and `STATE_DOMAIN_V26` in `core/t64_state.c` | exactly one new domain text; the 17 earlier texts and `t64.state.si.25` are unchanged |
+| container version word | `git diff WAVE2_BASE HEAD -- core/t64_internal.h`, one added line: `#define T64_STATE_CONTAINER_VERSION_V2 UINT32_C(2)` (line 1904); no added or removed line changes `#define T64_STATE_CONTAINER_VERSION UINT32_C(1)` (line 1899); `state_container_version_for` (`core/t64_state.c:122`) maps only state 26 to the V2 constant | exactly one new container value, 2; v1 unchanged |
+| format string | `T64_STATE_CONTAINER_FORMAT` | still `t64.state-container.v1` (`core/include/tendies64/t64_machine.h:410`, no diff): the v2 format string and its pairing are plan 10-15 |
+
+No second family, version or domain was introduced. The shipped sweep above shows the state 25 export of the
+four si-v1 ids is byte identical (their export lines are shared lines with 0 differences).
+
+**Version pairing at the reader (T-10-52).** Committed evidence: the frozen v25 hostile row `container version`
+(value 2 at 0x008 of a state 25 blob, `core/tests/test_state_import.c:879`) still refuses with
+`CONTAINER_VERSION` (`unit.core.state.import` passes in the gate); `unit.core.state.export-v26` refuses (2, 26)
+rewritten to (1, 26) and to (2, 25), and (1, 25) rewritten to (2, 25) and to (1, 26), at 0x008 on all four ids,
+with the machine unchanged; the mutant `v26-reader-pairing-dropped` is killed. Independent probe: for the two
+si-v1 ids and the four si-v2 ids, an exported blob had its version word set to each of 0, 1, 2, 3 and
+0xffffffff and its state word to each of 24, 25, 26, 27, 0 and 0xffffffff (30 combinations per id, header
+patched without re-signing) and was imported into a fresh machine of the same id: 180 cases, the 6 unmodified
+pairs ((1, 25) on state 25 ids, (2, 26) on state 26 ids) imported, the other 174 were refused, the 144 whose
+version word differs from the word that belongs to the state word were refused with reason `CONTAINER_VERSION`
+at position 8, and the digest of the machine was unchanged by every refused import.
+
+**Importer reading.** `git diff WAVE2_BASE HEAD -- core/t64_state.c`, written for the importer half: every new
+store goes through `STATE_STORE` or `state_rd_bytes`, which copy only in apply mode; the five scalars and the
+hidden length are read and checked in the validate pass (`ADDR_RANGE`, `BOOL_01`, 16-bit `INDEX_LT`,
+`PROFILE_DERIVED`, per-byte `ENUM_CLOSED` only when `mode == VALIDATE`); the commit zeroes the structures first and
+then applies the sections, and `state_commit` writes `depth_image_address = 0` only for a machine that is not state
+26. No apply-before-validate path exists. The domain text is a function of the machine (`state_domain_for`) and
+both texts are 15 bytes, so the digest recomputation and the domain check cannot read past the same
+`STATE_DOMAIN_BYTES`. The field-use audit (`scripts/check-state-field-use.py --root . --check`) gives
+`findings=0` and lists exactly `depth_image_address` and `rdp_depth_hidden` among the new members, which have the
+rows `ADDR_RANGE` and `ENUM_CLOSED`; the other four scalars have no audit row (the audit lists only members its
+scan sees stored or looped), carry their rule in the reader (`F32_U16`, `state_rd_bool`), appear in the table of
+`docs/spec/state-container.md` and have their own hostile rows in `docs/spec/state-mutants-v26.txt`
+(`v26-depth-valid-two`, `v26-primitive-z-beyond-16-bits`, `v26-primitive-dz-beyond-16-bits`,
+`v26-primitive-valid-two`).
+
+**Design decision D10 (the written-out Z product bound).** Assessed against the sealed
+`t64_rdp_depth_triangle_preflight` (`core/t64_rdp_depth.c:83`): `state_z_products_bounded`
+(`core/t64_state.c:1490`) is the same arithmetic line by line (the same `yh16`, `yl16`, `xh16`, `dxh`, `y_bound`,
+`edge_bound`, `x_bound`, the same quarter of `INT64_MAX` limit and the same three division tests). Two
+differences were read and found harmless: the copy does not return early for `x0 >= x1` or `y_begin > y_end`, but
+the importer reaches the copy only after `t64_rdp_triangle_extent`, which returns `first > last` for an empty
+span (refused by the proof's `first <= last` check) and refuses `x0 > x1`, so the copy runs only for `x0 < x1`
+and `first <= last`; and the live checks on the depth image (valid, aligned to 8, primitive depth, extent inside
+RDRAM) are the extent function's own checks on the blob values. Independent differential, with the function
+text extracted verbatim from the committed source and called beside the live preflight on a machine of the
+state 26 stem id: 6,000,000 packets over the four Z opcodes (3,694,534 accepted, 2,305,466 refused, field
+values from a table of edge and power-of-two cases mixed with uniform values), 0 mismatches; and for 4,000 random
+edge and scissor setups the largest accepted magnitude of each of `dzdx`, `dzde` and `dzdy` found by bisection
+against the live preflight, the copy compared at that value, one above it and the negative edge: 22,140 comparisons,
+0 mismatches. Sanity of the probe: with the limit divisor 2 instead of 4 it reports 308,462 random and 10,140
+boundary mismatches, with the `dy` divisor `y_bound + 1` it reports 2 random mismatches, and with `abs_de >=`
+in place of `>` it reports 476 random and 2,338 boundary mismatches, so it can fail. Sealed bodies: no sealed
+body text moved (check (b)). The mutant `v26-import-z-products-unchecked` is KILLED by `import-v26-hostile`.
+Verdict: the design is accepted (no refactor of a sealed body, the copy equals the live function on every
+packet tried), with the pinning weakness of finding W2-01.
+
+**(f) Mutant classification.** `python3 -B scripts/p10-mutants.py --check-anchors` exit 0, then `--run` in the
+scratch clone (the tree is committed and clean, no mutant in the shared tree): exit 0, 117 s together; baseline of
+17 checks in the throwaway worktree passed first; a kill needs a failed CHECK line of the new test itself.
+
+| Mutant | Expected | Class | Killed by |
+|--------|----------|-------|-----------|
+| control-equivalent-depth-cap | SURVIVED | SURVIVED | - |
+| k1-predicate-widened | KILLED | KILLED | test_k1_refusal:apply-refusal |
+| vg01-decal-strict, vg01-zcap-7ffe, vg01-delta-floor, vg-zexp-decode-top, vg-zexp-compress-round | KILLED | KILLED | test_vg_gaps (decal-equality, primitive-z-saturation, delta-ceiling, z-exponent-boundaries twice) |
+| vi-clock-48600000, vg03-alpha255-v9, vg03-alpha255-v8, vg02-parity-ignored, vg02-next-row, vg04-floor-off-s, vg04-floor-off-t, vg05-shade-trunc, vg05-bayer-shift2 | KILLED | KILLED | test_vg_gaps (ntsc-clock, rgba5551-alpha-clear twice, serrate-filter-parity twice, perspective-floor twice, shade-floor-bayer twice) |
+| v26-sidecar-invalidation-removed | KILLED | KILLED | test_rdp_depth_composite:depth-composite-sidecar |
+| v26-digest-omit-scalar, v26-digest-omit-hidden | KILLED | KILLED | test_digest_v26:v26-completeness |
+| v26-export-omit-hidden, v26-export-version-word-1, v26-reader-pairing-dropped | KILLED | KILLED | test_state_export_v26:export-v26-idle |
+| v26-import-skip-hidden, v26-import-depth-after-proof | KILLED | KILLED | test_state_import_v26:roundtrip |
+| v26-import-addr-unchecked, v26-import-z-products-unchecked | KILLED | KILLED | test_state_import_v26:hostile |
+| control-no-compile | INVALID | INVALID | - |
+
+25 KILLED, the SURVIVED control and the INVALID control, each as expected; no SURVIVED or INVALID mutant
+among the 25. To test the pin strength of D10, two probe mutants were added to the table of the scratch clone
+(a scratch commit on a throwaway branch, removed again; the clone is back at the head and its archive hash is
+unchanged): the product limit divisor 2 instead of 4, and the `dy` product test against `y_bound + 1`. Both
+are SURVIVED (the hostile and roundtrip cases both pass with either), which is finding W2-01.
+
+### Findings
+
+Columns: id, severity (blocking, warning, info), file and line, finding, disposition. No blocking finding was
+found.
+
+| id | severity | file:line | finding | disposition |
+|----|----------|-----------|---------|-------------|
+| W2-01 | warning | `core/t64_state.c:1490` (`state_z_products_bounded`) and `core/tests/test_state_import_v26.c:1295` (`check_preflight_parity`) | the written-out copy equals the live preflight today (D10, 6,000,000-packet differential, 22,140 boundary comparisons), but nothing committed pins its constants: the parity case compares two packets (a zero Z plane accepted and a saturated one refused) and the one mutant removes the whole check. A limit of `INT64_MAX / 2`, a divisor `y_bound + 1` or the same drift in a later edit of either function passes every committed test (two probe mutants SURVIVED under the project's own driver), and a copy that is more permissive than the preflight lets a crafted packet reach the signed 64-bit products of `t64_rdp_depth_evaluate_pixel` | D10 accepted. A new numbered fix plan should add a boundary parity (bisection of each derivative against the live preflight on a few edge setups, which costs well under a second) and the two mutants as table rows; it widens no scope and moves no sealed body. Not blocking: the code is correct now and both functions are sealed or covered by the hostile row |
+| W2-02 | warning | `scripts/list-membership-sites.py:28-44` (`MEMBERSHIP_TOKENS`) and `docs/spec/profile-membership-sites.txt` | the two exact-tuple predicates `t64_has_si_v25_profile` and `t64_has_si_v26_profile` are not tokens, so the sites that now consult only them left the list: measured by adding both tokens to a copy of the generator, the list would gain `core/t64_internal.h :: t64_has_si_profile` and the five importer sites `state_commit`, `state_domain_for`, `state_parse_table`, `state_read_rdp` and `state_read_rdp_carried`, and three existing rows (`t64_digest_stream`, `t64_has_rdp_depth_profile`, `state_version_registered`) would name the predicates; `repo.si-membership-sites` passes because it compares the generator with the committed file under the shipped token set (regenerated equals committed). This weakens the discovery aid ("a family added later must be wired into each listed site"), not the v26 behavior: the exact-tuple registry, the domain check, `unit.core.profile.v26-predicate-matrix` (25 ids) and the digest tests are independent guards | recorded; `scripts/list-membership-sites.py` is not edited here (Phase 9 bound path, listed in `scripts/qualify-phase09.py` `SOURCE_PATHS`, which a closed record verifies only at its own commit). A later numbered plan (before the Phase 11 freeze or at the Phase 10 close-out) should add the two tokens and regenerate the list in one commit; until then a future family author must grep for `t64_has_si_v26_profile`, not read the list |
+| W2-03 | info | `core/tests/test_digest_v26.c:741-818` | the completeness table covers `t64_rdp_state` and the two tables only; the plan's check (c) also names the VI state, which has no rows. The VI walker is unchanged against the Wave 2 base and the probe above shows the same inert byte set (observer cursors, the two identity strings per slot, padding) on the five family ids | none for the bump (v26 equals v25 outside the new span, shown by `v26-strip-differential`); a VI row set can join a later completeness test if the owner wants VI covered in the v26 file |
+| W2-04 | info | `runner/t64_real.c:1273` | the runner refuses a state export or import on any profile whose state version is not 25, and `T64_STATE_CONTAINER_FORMAT` stays `t64.state-container.v1`, so no runner path can label a container v2 blob as v1 before plan 10-15 adds the v2 format string and pairing (fail closed) | none; plan 10-15 |
+| W2-05 | info | `core/CMakeLists.txt` (the asan block of the two import names) | the sanitizer TIMEOUTs of `unit.core.state.export-v26` and `export-v26-bounds` stay at the gate value 300 s against 34.36 and 23.79 s of ASan (8.7 and 12.6 times); `import-v26-hostile` is 144.60 s against 900 s (6.2 times), against 111.9 and 119.4 s in the 10-12 record (this run overlapped a digest sweep at 1-minute load 14) | none; the preflight timeout audit holds the gate values and F-108 holds the ratio |
+| W2-06 | info | `docs/spec/state-container.md:150-195`, `core/tests/test_state_export_v26.c:94` | the idle sizes 10,545,971, 10,546,563, 10,548,099 and 10,578,819 are derived by the test as the measured state 25 size plus 2,097,176; the review recomputed all four from the documented section lengths and the layout (check (d)), so the literals do not rest on the measurement alone | none |
+| W2-07 | info | `.planning/phases/10-carry-in-closure-before-the-freeze/PIN-IMPACT.md` section 9 | T-10-49 (the 10-03 recorded exception: the ten closed Phase 9 claim blocks compare the pinned Phase 9 manifest digest and a per-row view, not the live manifest file) is unchanged: no byte of `scripts/tests/test_phase09_qualification.py`, `docs/claims/phase09.md`, `docs/evidence/phase09-qualification.md`, `fixtures/manifest.json` or the authority checker and record changed since the Wave 0 head, `harness.phase09-qualification` passes in the scratch gate, and plan 10-19 requires the section "Recorded exceptions for owner review" and a repeat in its summary | recorded exception stands and stays flagged; it is not an owner approval of the comparator change |
 
 
