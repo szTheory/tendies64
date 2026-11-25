@@ -632,6 +632,7 @@ add_dependencies(t64-phase09-admit-fixture t64-rdp-fill-fixture)
 add_dependencies(t64-phase09-pad-fixture t64-rdp-fill-fixture)
 add_dependencies(t64-phase09-replay-fixture t64-rdp-fill-fixture)
 add_dependencies(t64-phase09-save-fixture t64-rdp-fill-fixture)
+add_dependencies(t64-phase10-composite-fixture t64-rdp-fill-fixture)
 
 # Phase 9 pad-poll tracer (plan 09-03): the authored pad-poll ROM through the
 # real supervised runner, with the in-process poll timing measurement.

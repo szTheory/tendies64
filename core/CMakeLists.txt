@@ -337,6 +337,38 @@ add_custom_command(
 add_custom_target(t64-phase09-save-fixture DEPENDS ${T64_PHASE09_SAVE_OUTPUTS})
 add_dependencies(t64-phase09-save-fixture t64-boot-fixtures)
 
+# Phase 10 composite fixture (plan 10-14, RUN-07): one authored guest builds the
+# accepted ROM and its one-defsym wrong-byte control; its own builder keeps the
+# Phase 9 builders on their historical source pins.
+set(T64_PHASE10_COMPOSITE_STEMS
+  phase10-composite-s32k phase10-composite-wrong-s32k)
+set(T64_PHASE10_COMPOSITE_OUTPUTS)
+foreach(T64_COMPOSITE_STEM IN LISTS T64_PHASE10_COMPOSITE_STEMS)
+  list(APPEND T64_PHASE10_COMPOSITE_OUTPUTS
+    "${T64_BOOT_FIXTURE_DIR}/${T64_COMPOSITE_STEM}.z64"
+    "${T64_BOOT_FIXTURE_DIR}/${T64_COMPOSITE_STEM}.elf"
+    "${T64_BOOT_FIXTURE_DIR}/${T64_COMPOSITE_STEM}.payload.bin"
+    "${T64_BOOT_FIXTURE_DIR}/${T64_COMPOSITE_STEM}.json")
+endforeach()
+add_custom_command(
+  OUTPUT ${T64_PHASE10_COMPOSITE_OUTPUTS}
+  COMMAND "${CMAKE_COMMAND}" -E env "CC=${CMAKE_C_COMPILER}"
+    sh "${CMAKE_SOURCE_DIR}/scripts/build-composite-fixture.sh" --build
+  DEPENDS
+    "${CMAKE_SOURCE_DIR}/fixtures/manifest.json"
+    "${CMAKE_SOURCE_DIR}/fixtures/composite/composite.S"
+    "${CMAKE_SOURCE_DIR}/fixtures/composite/composite.ld"
+    "${CMAKE_SOURCE_DIR}/scripts/build-composite-fixture.sh"
+    "${CMAKE_SOURCE_DIR}/tools/fixture/t64_rom_pack.c"
+    "${CMAKE_SOURCE_DIR}/tools/common/t64_sha256.c"
+    "${CMAKE_SOURCE_DIR}/tools/common/t64_sha256.h"
+  WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}"
+  COMMENT "Building authored Phase 10 composite fixtures"
+  VERBATIM)
+add_custom_target(t64-phase10-composite-fixture
+  DEPENDS ${T64_PHASE10_COMPOSITE_OUTPUTS})
+add_dependencies(t64-phase10-composite-fixture t64-boot-fixtures)
+
 add_executable(test_tracer tests/test_tracer.c)
 target_include_directories(test_tracer PRIVATE "${CMAKE_SOURCE_DIR}/tests")
 target_link_libraries(test_tracer PRIVATE t64_core)
