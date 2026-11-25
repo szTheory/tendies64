@@ -5,16 +5,16 @@ milestone_name: Embeddable and Playable
 current_phase: 10
 current_phase_name: Carry-in Closure Before the Freeze
 status: executing
-stopped_at: Completed 10-20-PLAN.md (20 of 21); gap closure W2-03 closed; 10-21 re-qualification and push pending
-last_updated: "2026-11-25T15:40:46.162Z"
+stopped_at: Completed 10-21-PLAN.md (21 of 21); Phase 10 re-qualified and pushed (85ba477), hosted pair green; phase re-verification pending
+last_updated: "2026-11-25T16:15:28.157Z"
 last_activity: 2026-11-23
 last_activity_desc: Phase 10 execution started
-state_head: c16c90b2439a88216c56c2a6378a5feb55659bd4
+state_head: 342951fa193902ba3209a44512bd169439476c65
 progress:
   total_phases: 3
   completed_phases: 0
   total_plans: 21
-  completed_plans: 20
+  completed_plans: 21
   percent: 0
 ---
 
@@ -30,7 +30,7 @@ See: .planning/PROJECT.md (updated 2026-11-23)
 ## Current Position
 
 Phase: 10 (Carry-in Closure Before the Freeze) — EXECUTING
-Plan: 20 of 21
+Plan: 21 of 21
 Status: Plan 10-20 complete (20 of 21, gap closure): W2-03 closed by committed VI completeness rows in v26-completeness (RED by mutant v26-digest-omit-vi-phase-cycles SURVIVED, GREEN KILLED; 26 mutants and 2 controls); local gate, sweep and full preflight pass; the plan 10-19 qualification record is superseded by design; next 10-21 (clone review, new Qualification base, native re-qualification, push and hosted pair, refreshed evidence and claims); local commits not yet pushed
 Last activity: 2026-11-23 — Phase 10 execution started
 
@@ -80,6 +80,7 @@ Progress: [░░░░░░░░░░] 0% (0 of 3 v1.2 phases complete)
 | Phase 10 P18 | 27 min | 4 tasks | 4 files |
 | Phase 10 P19 | 40 min | 4 tasks | 4 files |
 | Phase 10 P20 | 17min | 4 tasks | 5 files |
+| Phase 10 P21 | 33min | 4 tasks | 6 files |
 
 ## Accumulated Context
 
@@ -188,6 +189,10 @@ Progress: [░░░░░░░░░░] 0% (0 of 3 v1.2 phases complete)
 - [Phase 10]: 10-19: the final native qualification passed on attempt 4 (record 20261125T134440416529Z-b9d957c3, verified once at head b9d957c); three earlier attempts failed at supervisor wall backstops under unrelated host load and stay in the evidence, no limit widened, no source changed (PIN-IMPACT.md 15.1, F-125)
 - [Phase 10]: 10-19: docs/claims/phase10.md holds eight unit-tested blocks (each unit.core.vg name bound to one id) and docs/evidence/phase10-qualification.md lists eight recorded exceptions for owner review, none an approval; do not re-run qualify-phase10.py --verify after the evidence commit (the new documents are bound inputs)
 - [Phase 10]: 10-20: W2-03 closed by 120 committed VI rows in the existing case v26-completeness (791 member, 400 named-exclusion and 17 padding bytes of 1,208; every byte flipped on the stem id with exactly 417 inert; representative sweep on the three save ids and the state 25 stem); the mutant v26-digest-omit-vi-phase-cycles SURVIVED the case before the rows (RED, be683bf) and is KILLED after them (GREEN, 0ed0d75); no production source, CTest name or limit changed; the plan 10-19 qualification record is superseded by design and plan 10-21 re-qualifies
+- [Phase 10]: 10-21: the plan 10-20 wave passes an independent clone review (gate 254 of 254, ASan completeness case, 26 KILLED mutants with both controls as expected, 120 compiler members against 120 VI rows, seven extra walker probes caught); findings R21-01 to R21-03 are info only
+- [Phase 10]: 10-21: Qualification base 76451024e148073804e162841c3d0a3543bd2567 is the only record line of PIN-IMPACT.md section 5 (the plan 10-18 value ad39b6be... is a labelled historical line); native record 20261125T155456703622Z-1fc0b1da passed on the first attempt (410.78 s, --verify exit 0), qualified commit 1fc0b1d, no limit widened
+- [Phase 10]: 10-21: the verified head 85ba477 is on origin/main (fast-forward, 26 commits, no tag) with a green hosted pair, run 45650890027: gate-macos 368 s and gate-linux 254 s; F-126 and the gap-closure ledger row recorded; the cold run of F-124 (731 s, earlier tree) was not repeated
+- [Phase 10]: 10-21: evidence and claims refreshed for the re-qualified tree (28 mutant rows, VI rows in CORE-06, exceptions 3 and 8 updated, new exception 9); W2-03 closed not carried; ROADMAP Phase 11 carry-ins now list all five carried items; origin/main trails local by the document commits
 
 ### Pending Todos
 
@@ -213,8 +218,8 @@ None for v1.1. Carry-ins for v1.2 are listed in the Deferred Items table, the v1
 
 ## Session Continuity
 
-Last session: 2026-11-25T15:40:46.025Z
-Stopped at: Completed 10-20-PLAN.md (20 of 21); gap closure W2-03 closed; 10-21 re-qualification and push pending
+Last session: 2026-11-25T16:15:27.996Z
+Stopped at: Completed 10-21-PLAN.md (21 of 21); Phase 10 re-qualified and pushed (85ba477), hosted pair green; phase re-verification pending
 Resume file: None
 
 Historical closeout: [v1.0 roadmap](milestones/v1.0-ROADMAP.md), [audit](milestones/v1.0-MILESTONE-AUDIT.md), [lessons](RETROSPECTIVE.md).
