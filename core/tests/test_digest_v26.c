@@ -10,6 +10,17 @@
  * and packet words at or after the count must not change it. One flip is tied
  * to the SHA-256 digest. The test was written and run before RDP depth was
  * activated on the family: its first failure then named a depth member.
+ * The same case flips every member of t64_vi_state (plan 10-20, review
+ * finding W2-03), including all 37 fields of both t64_video_packet_info
+ * slots. The named exclusions are packet_head, packet_count (host observer
+ * state) and the per-slot profile_id and build_id strings (hashed only
+ * without the v25 framing); the 17 padding bytes are swept as inert. The tally
+ * is 791 member bytes, 400 excluded bytes and 17 padding bytes of 1,208. On
+ * the descriptor 13 stem id every byte is flipped and exactly 417 flips leave
+ * the stream unchanged; the three save ids and the state 25 stem id
+ * (ntsc-cart-4m-openipl3-rdram-b-t1-si-v1) get the representative sweep. The
+ * mutant row v26-digest-omit-vi-phase-cycles of scripts/p10-mutants.py proves
+ * the rows reach the comparator.
  *
  * v26-strip-differential: with the markers, the identity spans and every
  * new-span class removed, a v26 stream equals the v25 stream of the
@@ -1065,6 +1076,28 @@ static void check_vi_completeness(const char *profile_id, bool every_byte) {
       }
     }
     T64_CHECK_INT(inert, VI_INERT_BYTES);
+  } else {
+    /* representative: the first byte of every row (a member row must change
+     * the stream, an excluded row must not), the last byte of every excluded
+     * row and every unclaimed byte (padding, must not change it) */
+    for (i = 0u; i < row_count; i++) {
+      const rdp_member *row = &vi_members[i];
+
+      if (row->offset + row->size > VI_STATE_SIZE) continue;
+      (void)check_byte_flip(machine, &base, vi_bytes + row->offset, row->name,
+                            row->excluded);
+      if (row->excluded != NULL) {
+        (void)check_byte_flip(machine, &base,
+                              vi_bytes + row->offset + row->size - 1u,
+                              row->name, row->excluded);
+      }
+    }
+    for (byte = 0u; byte < VI_STATE_SIZE; byte++) {
+      if (owner[byte] == 0u) {
+        (void)check_byte_flip(machine, &base, vi_bytes + byte, "padding",
+                              "padding");
+      }
+    }
   }
   /* every flip was restored: the stream equals its baseline again */
   T64_CHECK(stream_equals(machine, base.baseline, base.scratch, base.length));
@@ -1089,7 +1122,14 @@ static void check_vi_completeness(const char *profile_id, bool every_byte) {
  * full sweep; the three save ids a representative one that always includes
  * the five depth members and the hidden table. One flip is also compared as a
  * SHA-256 digest, so the stream equality is tied to the digest the importer
- * declares. */
+ * declares.
+ *
+ * After the RDP loop the same case sweeps the VI state (check_vi_completeness
+ * and vi_members): every byte of the 1,208 on the descriptor 13 stem id, with
+ * the two named exclusion reasons (host observer cursors, packet identity
+ * strings), the padding bytes inert and the 791 / 400 / 17 byte tallies
+ * checked; the first byte of every row, the last byte of every excluded row
+ * and every padding byte on the three save ids and on the state 25 stem id. */
 static void case_v26_completeness(void) {
   size_t id_index;
 
@@ -1206,8 +1246,14 @@ static void case_v26_completeness(void) {
     free(claimed);
     t64_machine_destroy(machine);
   }
-  /* the VI state: every byte of it on the stem id (plan 10-20) */
+  /* the VI state (plan 10-20): every byte on the stem id, the representative
+   * sweep on the three save ids and on the state 25 stem (the v25 framing,
+   * which skips the packet identity strings exactly as the v26 family does) */
   check_vi_completeness(pairs[0].v26_id, true);
+  for (id_index = 1u; id_index < FAMILY_COUNT; id_index++) {
+    check_vi_completeness(pairs[id_index].v26_id, false);
+  }
+  check_vi_completeness(pairs[0].v25_id, false);
 }
 
 
