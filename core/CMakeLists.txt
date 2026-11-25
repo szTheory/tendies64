@@ -1285,6 +1285,15 @@ if(T64_HAS_ADDRESS_AND_UNDEFINED_SANITIZERS)
   # stays above the largest TIMEOUT registered here, which a pinned relation checks.
   set_tests_properties(unit.core.state.import PROPERTIES TIMEOUT 2400)
 
+  # Phase 10 plan 10-12: the two state 26 import names, measured under the
+  # sanitizer in the plan (PIN-IMPACT.md section 2.3): about 20 times their
+  # native seconds. The registered gate TIMEOUT of 300 s already exceeds the
+  # measured seconds; these raise the margin for a loaded host to 7 and 5 times.
+  set_tests_properties(unit.core.state.import-v26-roundtrip PROPERTIES
+    TIMEOUT 600)
+  set_tests_properties(unit.core.state.import-v26-hostile PROPERTIES
+    TIMEOUT 900)
+
   add_executable(sanitizer_fault tests/sanitizer_fault.c)
   t64_target_warnings(sanitizer_fault)
   add_test(NAME sanitizer.negative-control

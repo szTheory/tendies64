@@ -236,10 +236,63 @@ only where listed here.
   and section 8 grows by the pending words alone (8 per word); both video slots and
   both audio slots occupied is 10,546,075 (the `s32k` values are 10,578,907 and
   10,578,923). All are below 12,582,912.
-- Import: state 26 is registered in the importer registry, but the section
-  readers and the state 26 domain belong to plan 10-12; until then a state 26
-  machine refuses every blob at the domain bytes, a genuine one and one whose
-  domain was forged to the state 25 text alike, with the machine unchanged.
+- Import (plan 10-12): the importer reads the layout above only for a machine of
+  the state 26 tuple, and the domain text it checks and hashes is the machine's
+  own (`t64.state.si.26` for a state 26 machine, `t64.state.si.25` for a state
+  25 machine). A blob whose domain was forged to the other text, even fully
+  re-signed, is refused at the domain bytes (`SECTION_BOUNDS`, section 0, rule
+  `NONE`) and never reaches a reader of the other layout; a state 25 blob on a
+  state 26 machine and a state 26 blob on a state 25 machine are refused at the
+  registry (`STATE_VERSION` at offset 0x00C) after the version pairing of the
+  header check has passed. Within section 8 the reader order is the stream order,
+  which puts the five depth scalars before the triangle-render proof (they sit in
+  the RDP block, before `work_policy_version`), so the proof of a Z triangle in
+  flight is run from the blob values: the same extent function as the acceptance
+  (`t64_rdp_triangle_extent`, which takes the depth address, the depth-valid flag
+  and the primitive-depth flag from the view), then the Z product bound of the
+  acceptance preflight written out over the packet words (the preflight reads the
+  live registers, which a validate pass must not write). A reader that took the
+  scalars after the proof saw depth-valid false and refused every Z triangle in
+  flight; the importer does not.
+- Per-member rules of the state 26 members (the audit rows are in
+  `docs/spec/state-field-rules.txt`):
+
+  | Member | Rule | Closed range |
+  |--------|------|--------------|
+  | `depth_image_address` | `ADDR_RANGE` | aligned to 8 bytes and its first halfword inside RDRAM (what SetZImage accepts); for a Z triangle in flight the pixel extent is part of the render proof (`LEN_LE`) |
+  | `depth_image_valid`, `primitive_depth_valid` | `BOOL_01` | 0 or 1 |
+  | `primitive_z`, `primitive_dz` | `INDEX_LT` | at most 0xFFFF (the 16-bit registers SetPrimDepth keeps) |
+  | hidden table length | `PROFILE_DERIVED` | the RDRAM size divided by 2 (2,097,152 for 4 MiB) |
+  | each hidden table byte | `ENUM_CLOSED` | 0, or 0x80 to 0x83 (valid bit and the two low delta bits; the writer stores nothing else and every accepted backing write clears the entry) |
+
+  The commit writes the five scalars and the hidden table from the blob for a
+  state 26 machine and keeps the Phase 9 behavior for a state 25 machine (both
+  stay zero: a peer whose hidden table was dirtied first has every byte zero
+  after a state 25 import, case `v25-hidden-zero`). The validation pass runs the
+  whole blob before the commit, so a refused state 26 import leaves the machine
+  allocation byte for byte and the allocator counters as they were.
+
+Import evidence: `unit.core.state.import-v26-roundtrip` (case `roundtrip`: an
+idle state on each of the four ids with an all-zero hidden table; a Z triangle in
+flight, imported at its first row and run on equal with the source, with the color
+and depth bytes and the hidden table compared; a Z-tested frame inside a scan-out
+with a retained video packet and two PCM DMAs in flight on the `s32k` id with an
+SRAM write and on the `e4k` id with an EEPROM write, compared field by field for
+digests, video and audio packet bytes and save bytes; `v25-hidden-zero`) and
+`unit.core.state.import-v26-hostile` (case `hostile`: the rows of
+`docs/spec/state-mutants-v26.txt`, the agreement of the importer's Z product proof
+with the live acceptance preflight, and the v26 fuzz windows of
+`core/tests/fuzz_state_import.c` over the depth scalars, the hidden length, the
+hidden entries and the pending Z packet words). The file
+`docs/spec/state-mutants-v26.txt` is the state 26 counterpart of the Phase 9
+inventory `docs/spec/state-mutants.txt`, which is frozen with its own count sentence
+(section "Hostile-input evidence"); it has 16 rows, read by the test through
+`T64_STATE_MUTANT_INVENTORY_V26` and compared with the C table name by name, in
+order, tuple by tuple. The mutants `v26-import-skip-hidden`,
+`v26-import-depth-after-proof`, `v26-import-addr-unchecked` and
+`v26-import-z-products-unchecked` of `scripts/p10-mutants.py` are killed by the
+roundtrip case (the first two) and the hostile case (the last two). These are
+comparisons of the code with itself and with a layout written from this document.
 
 Evidence: `unit.core.state.export-v26` (case `export-v26-idle`: header words,
 section ids, the hand-derived idle sizes of the four ids, decoder acceptance, the
@@ -563,8 +616,8 @@ hidden depth table, which decision K1 keeps inactive on the state 25 family:
 excluded for state 25, carried for state 26; the diagnostic last-coverage members
 and the diagnostic observation record) are reset to zero by the commit, so a peer
 that used them does not keep them. The state 26 container carries the depth
-members (the section "Container v2 (state 26)"); the importer of state 26 is plan
-10-12, and until then a machine of a state 26 id refuses every blob. The RDP combiner block and the memory coverage
+members (the section "Container v2 (state 26)"), and the importer of a state 26
+machine restores them (plan 10-12). The RDP combiner block and the memory coverage
 table are carried since plan 09-10 (the tail of section 8) and are therefore part
 of the continuation ladder.
 
@@ -885,8 +938,9 @@ storage, bound a loop, shift or size a memory function. `--list` is the scan
 (plan 09-09): the members of the structures reachable from `struct t64_machine`
 that occur in a subscript, a loop comparison, the right operand of a shift or the
 length argument of a memory function, directly or through a local that carries them
-(92 member names on the gate tree: 72 from the scan of plan 09-09 and 20 found by
-the nested-access fix of plan 09-10). `--check` reads the mapping
+(93 member names on the gate tree: 72 from the scan of plan 09-09, 20 found by
+the nested-access fix of plan 09-10 and `rdp_depth_hidden`, which the state 26
+reader of plan 10-12 loops over). `--check` reads the mapping
 `docs/spec/state-field-rules.txt`, one or more rows per used member (a name that
 several structures share, or that is bounded two ways, has one row per distinct
 bound: `render_y` is `ADDR_RANGE` for its RDRAM use and `INDEX_LT` for the coverage
@@ -918,7 +972,7 @@ one `cpu->tlb[i].asid`) and a local that carries them. It is lexical: it does no
 resolve types, a name that several structures share is mapped for every one of its
 bounds but not per structure, and a reader that only mentions the token satisfies a
 row, so the audit lists the members and their rules and the sweep, the campaign and
-the mutants evidence that the rules are sufficient (the 92 names are the used members
+the mutants evidence that the rules are sufficient (the 93 names are the used members
 of 472 declared).
 
 Triangle render in progress (plan 09-10 fix cycle, review L2 CR-02, audit T-09-67). The rows
