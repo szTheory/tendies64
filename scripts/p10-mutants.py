@@ -577,6 +577,21 @@ MUTANTS = [
         "record": [],
     },
     {
+        "id": "v26-digest-omit-vi-phase-cycles",
+        "tag": "mutant",
+        "expect": "KILLED",
+        "title": "the phase_cycles hash call removed from the VI section of t64_digest_stream (plan 10-20, W2-03: the committed completeness case must see a dropped VI member)",
+        "edits": [
+            (
+                "core/t64_digest.c",
+                "      hash_u64(sink, vi->phase_cycles);\n",
+                "      (void)vi->phase_cycles;\n",
+            )
+        ],
+        "kill": [own_check("test_digest_v26", ["--case", "v26-completeness"])],
+        "record": [],
+    },
+    {
         "id": "control-no-compile",
         "tag": "control",
         "expect": "INVALID",
