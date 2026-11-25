@@ -449,3 +449,29 @@ repeats and duplicate-path controls) to a non-gating local lane and the measurem
 repeated. A review plan that projects less than 120 s of margin reports it as a warning in its
 ledger row. The first measurement is the SHAPE-wave review (11-15), whose push is the first
 hosted run of this phase.
+
+## Shape steps
+
+Appended by each SHAPE plan after its before/after proof (plan 11-02 starts the table).
+Columns: the plan, the files it changed, the two-tree sweep result line against the Wave 0
+base of "Wave bases" (never the moving reference HEAD), whether `T64_BUILD_ID` moved, the
+sealed bodies (`REVIEWED_BODY_DIGESTS`) changed, and the CTest names the plan registered with
+their native seconds. Native seconds are the `Passed` seconds that ctest printed on the local
+host (load 8 to 15, a range over repeated runs), not the values of `CTestCostData.txt`: each new
+name carries an explicit `COST` of 1 (DR-21, rounded up from the measured seconds), and ctest
+then blends that property into the recorded cost, so the file no longer holds native seconds.
+
+| Plan | Files changed | Sweep result | Build id moved | Sealed bodies changed | New CTest names (native seconds) |
+|------|---------------|--------------|----------------|-----------------------|----------------------------------|
+| 11-02 | `core/include/tendies64/t64_machine.h` (T64_API, `extern "C"`, ABI constants, `t64_abi_version`, statuses 34 to 38), `core/t64_machine.c` (`t64_abi_version` definition), `core/tests/test_api_surface.c` (new), `core/CMakeLists.txt`, `docs/abi/status-classes.txt` (new), `scripts/check-abi.py` (new), `tools/abi/CMakeLists.txt` (new), `scripts/check-test-inventory.sh` (`PHASE11_TESTS`), `scripts/preflight-phase11-regexes.txt` (rows `^repo\.abi` 3, `^unit\.core\.api\.` 1) | `sweep: 1599 shared lines, 0 differences, 0 head-only lines` (base `f9124ae9fce1`, head `a396fa904bf7`, the Task 2 commit) | yes, by design (a `core` text edit changes the build fingerprint; the sweep forces one build id, so it is not a difference) | none: `python3 -B scripts/check-rsp-no-hle.py --build build/gate` exits 0 with the checker unchanged, and `repo.rsp-no-hle` passes | 4: `unit.core.api.abi-version` 0.00 s, `repo.abi-header` 0.09 to 0.16 s, `repo.abi-status-classes` 0.03 to 0.08 s, `repo.abi-selftest` 0.45 to 0.94 s (about 0.6 to 1.2 s summed; all `COST 1`, `TIMEOUT` 30 or 60) |
+
+Plan 11-02 evidence (all at the Task 2 commit, tree clean): the inventory count is 258
+(254 + 4), the label comparison reports 4 tests carrying `phase11` against a 4-name block,
+`harness.rdp-oracle-authority`, `repo.si-membership-sites`, `harness.state-field-use-audit`,
+`repo.p10-mutant-anchors` and `repo.rsp-no-hle` pass, and the full `sh scripts/preflight-phase11.sh`
+(including the 229-unit `linux-compile` with the act image gcc 13.3.0, which covers the new
+`extern "C"` block, and the post-gate replay) reports PASS in 77 s. The `linux-compile` step
+compiles C units only, so the C++17 compile of the header is the local `repo.abi-header` only. No
+status value 0 to 33 and no stop reason 1 to 8 changed (`git diff` shows no removed
+`#define` line); the table holds 47 rows against 47 constants. Evidence tier: unit-tested,
+authored scope; a software-interface claim only.
