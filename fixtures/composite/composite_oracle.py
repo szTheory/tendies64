@@ -25,12 +25,25 @@ Usage:
       [--variant accepted|wrong]
   python3 -B fixtures/composite/composite_oracle.py --transcript [--input PATH]
       [--variant accepted|wrong]
+  python3 -B fixtures/composite/composite_oracle.py --write FILE [--input PATH]
+  python3 -B fixtures/composite/composite_oracle.py --check FILE [--input PATH]
 
-Without --input the input script is empty. --variant wrong models the ROM built
-with --defsym T64_COMPOSITE_WRONG=1: the low bit of the last record word is
-flipped (same comparator, wrong value). The exit status is 2 when the input
-script is invalid or a stamp lies too close to a controller poll for the
-strictly-after rule to decide it (the ordering would depend on the timing).
+Without --input the input script is empty, except for --write and --check,
+which default to composite.input.json beside this script. --variant wrong models
+the ROM built with --defsym T64_COMPOSITE_WRONG=1: the low bit of the last
+record word is flipped (same comparator, wrong value). The exit status is 2
+when the input script is invalid or a stamp lies too close to a controller poll
+for the strictly-after rule to decide it (the ordering would depend on the
+timing).
+
+--write FILE writes the committed expectation (fixtures/composite/
+composite.expected.json): the scenario document of the accepted ROM plus a
+"wrong" section for the wrong-byte ROM (its transcript and the offset of the
+first difference of its save image from the accepted one). --check FILE
+regenerates the same text and exits 1, naming the first differing byte, when
+FILE is not byte for byte equal to it; the committed file therefore cannot
+drift from this script, and a runner test that reads it compares against values
+this script derived, never against any output of the build under test.
 """
 
 from __future__ import annotations
@@ -38,6 +51,7 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
+import os
 import sys
 from fractions import Fraction
 
@@ -380,17 +394,83 @@ def build(stamps, wrong: bool) -> dict:
     return result
 
 
+def first_difference(left: bytes, right: bytes) -> int:
+    """Index of the first byte at which the two images differ."""
+    for index in range(min(len(left), len(right))):
+        if left[index] != right[index]:
+            return index
+    if len(left) != len(right):
+        return min(len(left), len(right))
+    raise Refused("the images are equal")
+
+
+def expected_document(stamps) -> dict:
+    """The committed expectation: the accepted scenario plus the wrong-byte ROM."""
+    document = build(stamps, False)
+    polled = polled_words(stamps)
+    accepted = save_image(polled[-1], False)
+    wrong = save_image(polled[-1], True)
+    wrong_scenario = scenario(stamps, True)
+    offset = first_difference(accepted, wrong)
+    document["wrong"] = {
+        "save_first_difference": offset,
+        "save_accepted_byte": accepted[offset],
+        "save_wrong_byte": wrong[offset],
+        "save_sha256": wrong_scenario["save_sha256"],
+        "transcript": wrong_scenario["transcript"],
+        "transcript_sha256": wrong_scenario["transcript_sha256"],
+        "variant": "wrong",
+    }
+    return document
+
+
+def expected_text(stamps) -> str:
+    return json.dumps(expected_document(stamps), indent=2, sort_keys=True) + "\n"
+
+
+def default_script() -> str:
+    return os.path.join(os.path.dirname(os.path.abspath(__file__)), "composite.input.json")
+
+
 def main(argv: list[str]) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--input", help="input script (default: the empty script)")
     parser.add_argument("--variant", choices=("accepted", "wrong"), default="accepted")
     parser.add_argument("--transcript", action="store_true", help="print only the transcript")
+    parser.add_argument("--write", metavar="FILE", help="write the committed expectation")
+    parser.add_argument("--check", metavar="FILE", help="compare FILE with the regenerated text")
     args = parser.parse_args(argv)
+    if args.write is not None and args.check is not None:
+        print("composite oracle refused: --write and --check are exclusive", file=sys.stderr)
+        return 2
     try:
         stamps = []
-        if args.input is not None:
-            with open(args.input, "r", encoding="ascii") as handle:
+        script = args.input
+        if script is None and (args.write is not None or args.check is not None):
+            script = default_script()
+        if script is not None:
+            with open(script, "r", encoding="ascii") as handle:
                 stamps = parse_input(handle.read())
+        if args.write is not None or args.check is not None:
+            text = expected_text(stamps).encode("ascii")
+            if args.write is not None:
+                with open(args.write, "wb") as handle:
+                    handle.write(text)
+                return 0
+            with open(args.check, "rb") as handle:
+                committed = handle.read()
+            if committed == text:
+                print("composite expectation equals the oracle (%d bytes)" % len(text))
+                return 0
+            index = 0
+            while index < min(len(committed), len(text)) and committed[index] == text[index]:
+                index += 1
+            print(
+                "composite expectation differs from the oracle at byte %d "
+                "(file %d bytes, oracle %d bytes)" % (index, len(committed), len(text)),
+                file=sys.stderr,
+            )
+            return 1
         result = build(stamps, args.variant == "wrong")
     except (Refused, ValueError, KeyError, TypeError, OSError) as error:
         print("composite oracle refused: %s" % error, file=sys.stderr)

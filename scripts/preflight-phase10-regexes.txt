@@ -29,6 +29,8 @@
 1	^unit\.core\.vg\.shade-floor-bayer$
 1	^runner\.composite
 1	^runner\.composite-two-run$
+1	^harness\.composite-oracle$
+1	^controls\.real\.composite-wrong-rom$
 1	^unit\.core\.k1\.dispatch-refusal$
 2	^unit\.core\.k1\.
 1	^unit\.core\.k1\.apply-refusal$

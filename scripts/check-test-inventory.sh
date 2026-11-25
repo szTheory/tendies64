@@ -266,7 +266,9 @@ unit.core.vg.rgba5551-alpha-clear
 unit.core.vg.serrate-filter-parity
 unit.core.vg.perspective-floor
 unit.core.vg.shade-floor-bayer
-runner.composite-two-run'
+runner.composite-two-run
+harness.composite-oracle
+controls.real.composite-wrong-rom'
 
 CPU_COVERAGE_OPCODES='ADD
 ADDU

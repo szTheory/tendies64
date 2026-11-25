@@ -1,0 +1,84 @@
+{
+  "audio": {
+    "packet_bytes": 16,
+    "packet_count": 2,
+    "packets": [
+      "000040002000e0007fff80010123fedd",
+      "1111eeef800000015a5aa5a6ffff0000"
+    ]
+  },
+  "empty": {
+    "audio": {
+      "packet_bytes": 16,
+      "packet_count": 2,
+      "packets": [
+        "000040002000e0007fff80010123fedd",
+        "1111eeef800000015a5aa5a6ffff0000"
+      ]
+    },
+    "polled": [
+      "00000000",
+      "00000000",
+      "00000000"
+    ],
+    "save": {
+      "bytes": 32768,
+      "nonzero": [
+        {
+          "hex": "54363443",
+          "offset": 256
+        },
+        {
+          "hex": "5436344354363443",
+          "offset": 264
+        }
+      ]
+    },
+    "save_sha256": "a7762195a09b78d930db2bd627429c7c6c2ea4389dc658c23df8d8b3124a3a34",
+    "transcript": "VC 07c107c107c107c107c107c107c107c107c107c107c107c1\nVZ 09a809a809a809a809a809a809a809a809a809a809a809a8\nI1 00000000\nI2 00000000\nI3 00000000\nSR 54363443000000005436344354363443\nAI 00000004\n",
+    "transcript_bytes": 188,
+    "transcript_sha256": "a99af82e3f0ec8df350822f9170034f1797adc902fc5392a2b3808695c4ed04e",
+    "video": {
+      "height": 3,
+      "packet_bytes": 48,
+      "rgba8": "00ff00ff00ff00ff00ff00ff00ff00ff00ff00ff00ff00ff00ff00ff00ff00ff00ff00ff00ff00ff00ff00ff00ff00ff",
+      "width": 4
+    }
+  },
+  "polled": [
+    "00000000",
+    "080114ec",
+    "44109c64"
+  ],
+  "save": {
+    "bytes": 32768,
+    "nonzero": [
+      {
+        "hex": "5436344344109c649846d0a71026a827",
+        "offset": 256
+      }
+    ]
+  },
+  "save_sha256": "f0b7fe880aeed453233a0b07ab62301420967a959bd1d43e9dd49e23d3e6926d",
+  "schema": "t64.composite-oracle",
+  "schema_version": 1,
+  "transcript": "VC 07c107c107c107c107c107c107c107c107c107c107c107c1\nVZ 09a809a809a809a809a809a809a809a809a809a809a809a8\nI1 00000000\nI2 080114ec\nI3 44109c64\nSR 5436344344109c649846d0a71026a827\nAI 00000004\n",
+  "transcript_bytes": 188,
+  "transcript_sha256": "da07d916f0314db05e8d609326242d7f944098e96ce19a96339ef1cd6a7aad39",
+  "variant": "accepted",
+  "video": {
+    "height": 3,
+    "packet_bytes": 48,
+    "rgba8": "00ff00ff00ff00ff00ff00ff00ff00ff00ff00ff00ff00ff00ff00ff00ff00ff00ff00ff00ff00ff00ff00ff00ff00ff",
+    "width": 4
+  },
+  "wrong": {
+    "save_accepted_byte": 39,
+    "save_first_difference": 271,
+    "save_sha256": "54de078fcb2bb4088938f2133088a0aad2c3e45dc288ae19264d1278bda54808",
+    "save_wrong_byte": 38,
+    "transcript": "VC 07c107c107c107c107c107c107c107c107c107c107c107c1\nVZ 09a809a809a809a809a809a809a809a809a809a809a809a8\nI1 00000000\nI2 080114ec\nI3 44109c64\nSR 5436344344109c649846d0a71026a826\nAI 00000004\n",
+    "transcript_sha256": "93eb137cb33df6cf7a69267095085fd09c3c11e6acf0e95146bb3cd5f2d33293",
+    "variant": "wrong"
+  }
+}

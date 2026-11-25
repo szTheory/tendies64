@@ -738,17 +738,25 @@ t64_target_warnings(test_composite_two_run)
 add_dependencies(test_composite_two_run t64-supervisor t64-supervisor-test
   t64-result-check t64-runner-real t64-boot-fixtures
   t64-phase10-composite-fixture)
-function(t64_phase10_composite_case TEST_NAME CASE_NAME TIMEOUT_SECONDS)
+function(t64_phase10_composite_case TEST_NAME CASE_NAME)
   add_test(NAME ${TEST_NAME}
     COMMAND test_composite_two_run --case ${CASE_NAME}
       $<TARGET_FILE:t64-supervisor> $<TARGET_FILE:t64-supervisor-test>
       $<TARGET_FILE:t64-result-check> ${CMAKE_SOURCE_DIR}
       $<TARGET_FILE:t64-runner-real>)
   set_tests_properties(${TEST_NAME} PROPERTIES
-    LABELS "runner;controls;phase10" TIMEOUT ${TIMEOUT_SECONDS}
+    LABELS "runner;controls;phase10" TIMEOUT 120
     ENVIRONMENT "T64_PHASE10_EVIDENCE_DIR=${CMAKE_BINARY_DIR}/10-15-evidence;T64_COMPOSITE_EXPECTED=${CMAKE_SOURCE_DIR}/fixtures/composite/composite.expected.json;T64_STATE_DECODER=${CMAKE_SOURCE_DIR}/fixtures/state/decode_container_v2.py")
 endfunction()
-t64_phase10_composite_case(runner.composite-two-run two-run 120)
+t64_phase10_composite_case(runner.composite-two-run two-run)
+t64_phase10_composite_case(controls.real.composite-wrong-rom wrong-rom)
+# The committed expectation equals the independent oracle byte for byte, so a
+# runner test that reads it compares against values the script derived.
+add_test(NAME harness.composite-oracle
+  COMMAND python3 -B ${CMAKE_SOURCE_DIR}/fixtures/composite/composite_oracle.py
+    --check ${CMAKE_SOURCE_DIR}/fixtures/composite/composite.expected.json)
+set_tests_properties(harness.composite-oracle PROPERTIES
+  LABELS "harness;phase10" TIMEOUT 60 ENVIRONMENT "PYTHONDONTWRITEBYTECODE=1")
 
 # Publisher controls: the module is compiled with the testing hooks, like the
 # test twin of the runner, and never reaches the production runner.

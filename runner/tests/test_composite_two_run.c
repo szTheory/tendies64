@@ -57,6 +57,7 @@ static void check_impl(bool ok, const char *expr, int line) {
 /* ---- policy literals ---------------------------------------------------- */
 
 #define COMPOSITE_ROM "phase10-composite-s32k"
+#define WRONG_ROM "phase10-composite-wrong-s32k"
 #define COMPOSITE_PROFILE "ntsc-cart-4m-openipl3-rdram-b-t1-si-v2-s32k"
 #define GUEST_BOUND "600000"
 #define SAVE_BYTES 32768u
@@ -411,12 +412,321 @@ static void expect_pass(const run_out *run) {
   CHECK(strcmp(run->profile_id, COMPOSITE_PROFILE) == 0);
 }
 
-/* ---- case two-run ------------------------------------------------------- */
+/* ---- the independent expectation ------------------------------------------ */
+
+/* The committed expectation (fixtures/composite/composite.expected.json) is the
+ * output of fixtures/composite/composite_oracle.py, which the CTest name
+ * harness.composite-oracle proves byte for byte. This file never derives an
+ * expected value from a runner or core output. */
+#define VIDEO_BYTES 48u
+#define AUDIO_PACKET_BYTES 16u
+#define AUDIO_PACKETS 2u
+#define MAX_FRAMES 8u
+#define TRANSCRIPT_MAX 512u
+#define MAX_RANGES 8u
+#define RANGE_BYTES 64u
+#define RECORD_OFFSET 0x100u
+#define RECORD_BYTES 16u
+
+typedef struct {
+  size_t offset;
+  size_t length;
+  uint8_t bytes[RANGE_BYTES];
+} nonzero_range;
+
+typedef struct {
+  uint8_t video[VIDEO_BYTES];
+  uint8_t audio[AUDIO_PACKETS][AUDIO_PACKET_BYTES];
+  uint8_t save[SAVE_BYTES];
+  char save_sha256[65];
+  size_t range_count;
+  nonzero_range ranges[MAX_RANGES];
+  uint8_t transcript[TRANSCRIPT_MAX];
+  size_t transcript_len;
+  size_t wrong_first_difference;
+  uint8_t wrong_transcript[TRANSCRIPT_MAX];
+  size_t wrong_transcript_len;
+} expectation;
+
+static int hex_value(char c) {
+  if (c >= '0' && c <= '9') return c - '0';
+  if (c >= 'a' && c <= 'f') return c - 'a' + 10;
+  return -1;
+}
+
+static bool hex_decode(const t64_json_node *node, uint8_t *out, size_t bytes) {
+  size_t i;
+  if (node == NULL || node->type != T64_JSON_STRING || node->len != 2u * bytes) {
+    return false;
+  }
+  for (i = 0u; i < bytes; i++) {
+    const int high = hex_value(node->str[2u * i]);
+    const int low = hex_value(node->str[2u * i + 1u]);
+    if (high < 0 || low < 0) return false;
+    out[i] = (uint8_t)((high << 4) | low);
+  }
+  return true;
+}
+
+static const t64_json_node *array_item(const t64_json_node *array, size_t index) {
+  const t64_json_node *item;
+  if (array == NULL || array->type != T64_JSON_ARRAY || index >= array->count) {
+    return NULL;
+  }
+  item = array->first;
+  while (index > 0u && item != NULL) {
+    item = item->next;
+    index--;
+  }
+  return item;
+}
+
+static bool json_int(const t64_json_node *node, size_t *out) {
+  if (node == NULL || node->type != T64_JSON_INT || node->num < 0) return false;
+  *out = (size_t)node->num;
+  return true;
+}
+
+static bool copy_text(const t64_json_node *node, uint8_t *out, size_t capacity,
+                      size_t *length_out) {
+  if (node == NULL || node->type != T64_JSON_STRING || node->len == 0u ||
+      node->len > capacity) {
+    return false;
+  }
+  memcpy(out, node->str, node->len);
+  *length_out = node->len;
+  return true;
+}
+
+/* Reads the committed expectation named by T64_COMPOSITE_EXPECTED. */
+static bool load_expectation(expectation *exp) {
+  const char *path = getenv("T64_COMPOSITE_EXPECTED");
+  static uint8_t bytes[16384];
+  size_t length = 0u;
+  t64_json_doc doc = {0};
+  const t64_json_node *video;
+  const t64_json_node *audio;
+  const t64_json_node *save;
+  const t64_json_node *wrong;
+  const t64_json_node *ranges;
+  size_t value = 0u;
+  size_t i;
+  bool ok;
+  memset(exp, 0, sizeof *exp);
+  if (path == NULL || path[0] == '\0' ||
+      !read_file(path, bytes, sizeof bytes, &length) || length == 0u ||
+      length >= sizeof bytes ||
+      t64_json_parse(bytes, length, NULL, &doc, NULL) != 0) {
+    return false;
+  }
+  video = t64_json_get(doc.root, "video");
+  audio = t64_json_get(doc.root, "audio");
+  save = t64_json_get(doc.root, "save");
+  wrong = t64_json_get(doc.root, "wrong");
+  ranges = save == NULL ? NULL : t64_json_get(save, "nonzero");
+  ok = video != NULL && audio != NULL && save != NULL && wrong != NULL &&
+       ranges != NULL && ranges->type == T64_JSON_ARRAY &&
+       ranges->count <= MAX_RANGES &&
+       hex_decode(t64_json_get(video, "rgba8"), exp->video, VIDEO_BYTES) &&
+       json_int(t64_json_get(video, "packet_bytes"), &value) &&
+       value == VIDEO_BYTES && json_int(t64_json_get(audio, "packet_count"), &value) &&
+       value == AUDIO_PACKETS && json_int(t64_json_get(save, "bytes"), &value) &&
+       value == SAVE_BYTES &&
+       copy_text(t64_json_get(doc.root, "transcript"), exp->transcript,
+                 sizeof exp->transcript, &exp->transcript_len) &&
+       copy_text(t64_json_get(doc.root, "save_sha256"),
+                 (uint8_t *)(void *)exp->save_sha256, 64u, &value) &&
+       value == 64u &&
+       json_int(t64_json_get(wrong, "save_first_difference"),
+                &exp->wrong_first_difference) &&
+       copy_text(t64_json_get(wrong, "transcript"), exp->wrong_transcript,
+                 sizeof exp->wrong_transcript, &exp->wrong_transcript_len);
+  for (i = 0u; ok && i < AUDIO_PACKETS; i++) {
+    ok = hex_decode(array_item(t64_json_get(audio, "packets"), i), exp->audio[i],
+                    AUDIO_PACKET_BYTES);
+  }
+  exp->range_count = ok ? ranges->count : 0u;
+  for (i = 0u; ok && i < exp->range_count; i++) {
+    const t64_json_node *entry = array_item(ranges, i);
+    const t64_json_node *hex = entry == NULL ? NULL : t64_json_get(entry, "hex");
+    nonzero_range *range = &exp->ranges[i];
+    ok = hex != NULL && hex->type == T64_JSON_STRING && hex->len % 2u == 0u &&
+         hex->len / 2u > 0u && hex->len / 2u <= RANGE_BYTES &&
+         json_int(t64_json_get(entry, "offset"), &range->offset) &&
+         hex_decode(hex, range->bytes, hex->len / 2u) &&
+         range->offset + hex->len / 2u <= SAVE_BYTES;
+    if (ok) range->length = hex->len / 2u;
+  }
+  t64_json_free(&doc);
+  if (!ok) return false;
+  /* The save image is blank SRAM (0x00) with the oracle's nonzero ranges. */
+  for (i = 0u; i < exp->range_count; i++) {
+    memcpy(exp->save + exp->ranges[i].offset, exp->ranges[i].bytes,
+           exp->ranges[i].length);
+  }
+  return true;
+}
+
+/* ---- comparators ------------------------------------------------------------ */
+
+/* The first index at which two byte strings differ, or SIZE_MAX when they are
+ * equal. A string that is a proper prefix of the other differs at its length. */
+static size_t first_diff(const uint8_t *a, size_t a_length, const uint8_t *b,
+                         size_t b_length) {
+  const size_t common = a_length < b_length ? a_length : b_length;
+  size_t i;
+  for (i = 0u; i < common; i++) {
+    if (a[i] != b[i]) return i;
+  }
+  return a_length == b_length ? SIZE_MAX : common;
+}
+
+/* The first difference over a list of equal-sized packets: *packet and *offset
+ * name it; false when every packet is equal and the counts agree. */
+static bool packets_differ(const uint8_t *expected, size_t expected_count,
+                           const uint8_t *actual, size_t actual_count,
+                           size_t each, size_t *packet, size_t *offset) {
+  const size_t common =
+      expected_count < actual_count ? expected_count : actual_count;
+  size_t i;
+  for (i = 0u; i < common; i++) {
+    const size_t at =
+        first_diff(expected + i * each, each, actual + i * each, each);
+    if (at != SIZE_MAX) {
+      *packet = i;
+      *offset = at;
+      return true;
+    }
+  }
+  if (expected_count != actual_count) {
+    *packet = common;
+    *offset = 0u;
+    return true;
+  }
+  return false;
+}
+
+static void sha256_hex_of(const uint8_t *bytes, size_t length, char out[65]) {
+  t64_sha256_ctx context;
+  uint8_t digest[T64_SHA256_DIGEST_SIZE];
+  t64_sha256_init(&context);
+  t64_sha256_update(&context, bytes, length);
+  t64_sha256_final(&context, digest);
+  t64_sha256_hex(digest, out);
+}
+
+/* ---- the outputs of one raw-capture run and one save-out run ------------------ */
 
 typedef struct {
   char digest_raw[65];
   char digest_save[65];
+  size_t video_count;
+  uint8_t video[MAX_FRAMES][VIDEO_BYTES];
+  uint64_t video_end_tick[MAX_FRAMES];
+  uint64_t video_sequence[MAX_FRAMES];
+  size_t audio_count;
+  uint8_t audio[AUDIO_PACKETS][AUDIO_PACKET_BYTES];
+  uint64_t audio_sequence[AUDIO_PACKETS];
+  uint8_t manifest[8192];
+  size_t manifest_length;
+  uint8_t save[SAVE_BYTES + 1u];
+  size_t save_length;
+  uint8_t transcript[TRANSCRIPT_MAX];
+  size_t transcript_length;
 } pair_out;
+
+/* A name from the manifest is a leaf of the bundle, never a path. */
+static bool leaf_name_ok(const t64_json_node *node) {
+  size_t i;
+  if (node == NULL || node->type != T64_JSON_STRING || node->len == 0u ||
+      node->len > 64u || node->str[0] == '.') {
+    return false;
+  }
+  for (i = 0u; i < node->len; i++) {
+    if (node->str[i] == '/' || node->str[i] == '\0') return false;
+  }
+  return true;
+}
+
+/* Reads the bundle of the raw-capture run: every video frame and audio packet
+ * in the order the manifest lists them, with the sort keys the ordering edge
+ * checks (end tick for video, sequence for audio). */
+static bool load_bundle(const char *raw_dir, pair_out *out) {
+  char path[PATH_MAX];
+  t64_json_doc doc = {0};
+  const t64_json_node *video;
+  const t64_json_node *audio;
+  size_t i;
+  bool ok;
+  if (!join_path(path, sizeof path, raw_dir, "manifest.json") ||
+      !read_file(path, out->manifest, sizeof out->manifest,
+                 &out->manifest_length) ||
+      out->manifest_length == 0u ||
+      out->manifest_length >= sizeof out->manifest ||
+      t64_json_parse(out->manifest, out->manifest_length, NULL, &doc, NULL) !=
+          0) {
+    return false;
+  }
+  video = t64_json_get(doc.root, "video");
+  audio = t64_json_get(doc.root, "audio");
+  ok = video != NULL && video->type == T64_JSON_ARRAY && video->count >= 1u &&
+       video->count <= MAX_FRAMES && audio != NULL &&
+       audio->type == T64_JSON_ARRAY && audio->count == AUDIO_PACKETS;
+  out->video_count = ok ? video->count : 0u;
+  out->audio_count = ok ? audio->count : 0u;
+  for (i = 0u; ok && i < out->video_count; i++) {
+    const t64_json_node *entry = array_item(video, i);
+    const t64_json_node *name = entry == NULL ? NULL : t64_json_get(entry, "file");
+    char dir[PATH_MAX];
+    char frame[PATH_MAX];
+    uint64_t byte_length = 0u;
+    size_t length = 0u;
+    ok = entry != NULL && leaf_name_ok(name) &&
+         t64_json_u64_string(t64_json_get(entry, "sequence"),
+                             &out->video_sequence[i]) &&
+         t64_json_u64_string(t64_json_get(entry, "last_tick"),
+                             &out->video_end_tick[i]) &&
+         t64_json_u64_string(t64_json_get(entry, "byte_length"), &byte_length) &&
+         byte_length == VIDEO_BYTES &&
+         join_path(dir, sizeof dir, raw_dir, "video") &&
+         snprintf(frame, sizeof frame, "%s/%.*s", dir, (int)name->len,
+                  name->str) < (int)sizeof frame &&
+         read_file(frame, out->video[i], VIDEO_BYTES, &length) &&
+         length == VIDEO_BYTES;
+  }
+  for (i = 0u; ok && i < out->audio_count; i++) {
+    const t64_json_node *entry = array_item(audio, i);
+    const t64_json_node *name = entry == NULL ? NULL : t64_json_get(entry, "file");
+    char dir[PATH_MAX];
+    char packet[PATH_MAX];
+    uint64_t byte_length = 0u;
+    size_t length = 0u;
+    ok = entry != NULL && leaf_name_ok(name) &&
+         t64_json_u64_string(t64_json_get(entry, "sequence"),
+                             &out->audio_sequence[i]) &&
+         t64_json_u64_string(t64_json_get(entry, "byte_length"), &byte_length) &&
+         byte_length == AUDIO_PACKET_BYTES &&
+         join_path(dir, sizeof dir, raw_dir, "audio") &&
+         snprintf(packet, sizeof packet, "%s/%.*s", dir, (int)name->len,
+                  name->str) < (int)sizeof packet &&
+         read_file(packet, out->audio[i], AUDIO_PACKET_BYTES, &length) &&
+         length == AUDIO_PACKET_BYTES;
+  }
+  t64_json_free(&doc);
+  return ok;
+}
+
+/* Reads the exported save image and the captured transcript of the save-out
+ * run. */
+static bool load_save_run(const run_out *run, pair_out *out) {
+  char path[PATH_MAX];
+  return join_path(path, sizeof path, run->aux_dir, SAVE_LEAF) &&
+         read_file(path, out->save, sizeof out->save, &out->save_length) &&
+         read_file(run->capture_path, out->transcript, sizeof out->transcript,
+                   &out->transcript_length);
+}
+
+/* ---- case two-run ------------------------------------------------------- */
 
 /* One raw-capture run and one save-out run of the composite guest, in fresh
  * directories, as two separate supervisor invocations. */
@@ -427,6 +737,7 @@ static bool run_pair(pair_out *pair) {
   char path[PATH_MAX];
   struct stat info;
   char first[256];
+  const int failures_before = g_failures;
   memset(pair, 0, sizeof *pair);
 
   spec.stem = COMPOSITE_ROM;
@@ -437,10 +748,12 @@ static bool run_pair(pair_out *pair) {
   CHECK(raw_run.has_state_digest && is_hex64(raw_run.state_digest));
   CHECK(join_path(path, sizeof path, raw_run.raw_dir, "manifest.json"));
   CHECK(lstat(path, &info) == 0 && S_ISREG(info.st_mode));
+  CHECK(load_bundle(raw_run.raw_dir, pair));
 
   memset(&spec, 0, sizeof spec);
   spec.stem = COMPOSITE_ROM;
   spec.script = true;
+  spec.capture = true;
   spec.save_leaf = SAVE_LEAF;
   CHECK(run_supervised(&spec, &save_run));
   expect_pass(&save_run);
@@ -450,12 +763,13 @@ static bool run_pair(pair_out *pair) {
   CHECK(join_path(path, sizeof path, save_run.aux_dir, SAVE_LEAF));
   CHECK(lstat(path, &info) == 0 && S_ISREG(info.st_mode) &&
         (uint64_t)info.st_size == SAVE_BYTES);
+  CHECK(load_save_run(&save_run, pair));
 
   (void)snprintf(pair->digest_raw, sizeof pair->digest_raw, "%s",
                  raw_run.state_digest);
   (void)snprintf(pair->digest_save, sizeof pair->digest_save, "%s",
                  save_run.state_digest);
-  return g_failures == 0;
+  return g_failures == failures_before;
 }
 
 /* RUN-07 adjacency edge: one invocation with the raw-capture directory and the
@@ -482,17 +796,250 @@ static void check_exclusion(void) {
                run.outcome, run.detail, (unsigned long long)run.guest_tick);
 }
 
+/* The accepted comparison of every output of one pair against the expectation,
+ * each followed by a same-setup control: one expected byte is changed in a copy
+ * and the same comparator, on the same actual bytes, must report that exact
+ * offset as the first difference. */
+static void compare_outputs(const pair_out *pair, const expectation *exp) {
+  uint8_t expected_video[MAX_FRAMES][VIDEO_BYTES];
+  uint8_t actual_video[MAX_FRAMES][VIDEO_BYTES];
+  expectation mutated;
+  size_t packet = 0u;
+  size_t offset = 0u;
+  size_t at;
+  size_t i;
+  char sha[65];
+
+  /* video: every frame in end-tick order is the expected 48-byte packet */
+  for (i = 0u; i < pair->video_count; i++) {
+    memcpy(expected_video[i], exp->video, VIDEO_BYTES);
+    memcpy(actual_video[i], pair->video[i], VIDEO_BYTES);
+    if (i > 0u) {
+      CHECK(pair->video_end_tick[i - 1u] <= pair->video_end_tick[i]);
+      CHECK(pair->video_sequence[i - 1u] < pair->video_sequence[i]);
+    }
+  }
+  CHECK(pair->video_count >= 1u);
+  CHECK(!packets_differ(&expected_video[0][0], pair->video_count,
+                        &actual_video[0][0], pair->video_count, VIDEO_BYTES,
+                        &packet, &offset));
+  (void)printf("compare video: %zu frames of %u bytes in end_tick order equal "
+               "the expectation\n",
+               pair->video_count, VIDEO_BYTES);
+  mutated = *exp;
+  mutated.video[17] = (uint8_t)(mutated.video[17] ^ 0x01u);
+  memcpy(expected_video[0], mutated.video, VIDEO_BYTES);
+  CHECK(packets_differ(&expected_video[0][0], pair->video_count,
+                       &actual_video[0][0], pair->video_count, VIDEO_BYTES,
+                       &packet, &offset));
+  CHECK(packet == 0u && offset == 17u);
+  (void)printf("control video: expected byte 17 changed, first difference at "
+               "frame %zu offset %zu\n",
+               packet, offset);
+
+  /* audio: the two packets in sequence order 1 then 2 */
+  CHECK(pair->audio_count == AUDIO_PACKETS);
+  CHECK(pair->audio_sequence[0] == 1u && pair->audio_sequence[1] == 2u);
+  CHECK(!packets_differ(&exp->audio[0][0], AUDIO_PACKETS, &pair->audio[0][0],
+                        pair->audio_count, AUDIO_PACKET_BYTES, &packet,
+                        &offset));
+  (void)printf("compare audio: packets %llu and %llu of %u bytes in sequence "
+               "order equal the expectation\n",
+               (unsigned long long)pair->audio_sequence[0],
+               (unsigned long long)pair->audio_sequence[1], AUDIO_PACKET_BYTES);
+  mutated = *exp;
+  mutated.audio[1][5] = (uint8_t)(mutated.audio[1][5] ^ 0x01u);
+  CHECK(packets_differ(&mutated.audio[0][0], AUDIO_PACKETS, &pair->audio[0][0],
+                       pair->audio_count, AUDIO_PACKET_BYTES, &packet,
+                       &offset));
+  CHECK(packet == 1u && offset == 5u);
+  (void)printf("control audio: expected byte 5 of packet 2 changed, first "
+               "difference at packet index %zu offset %zu\n",
+               packet, offset);
+
+  /* save: the image, its SHA-256 and its nonzero ranges */
+  CHECK(pair->save_length == SAVE_BYTES);
+  CHECK(first_diff(exp->save, SAVE_BYTES, pair->save, pair->save_length) ==
+        SIZE_MAX);
+  sha256_hex_of(pair->save, pair->save_length, sha);
+  CHECK(strcmp(sha, exp->save_sha256) == 0);
+  {
+    /* The nonzero ranges of the actual image, in order, against the oracle's. */
+    size_t found = 0u;
+    size_t cursor = 0u;
+    while (cursor < pair->save_length && found <= exp->range_count) {
+      size_t start;
+      if (pair->save[cursor] == 0u) {
+        cursor++;
+        continue;
+      }
+      start = cursor;
+      while (cursor < pair->save_length && pair->save[cursor] != 0u) cursor++;
+      if (found < exp->range_count) {
+        CHECK(exp->ranges[found].offset == start);
+        CHECK(exp->ranges[found].length == cursor - start);
+        CHECK(first_diff(exp->ranges[found].bytes, exp->ranges[found].length,
+                         pair->save + start, cursor - start) == SIZE_MAX);
+      }
+      found++;
+    }
+    CHECK(found == exp->range_count);
+  }
+  (void)printf("compare save: %zu bytes, sha256 %s, %zu nonzero range(s) equal "
+               "the expectation\n",
+               pair->save_length, sha, exp->range_count);
+  mutated = *exp;
+  mutated.save[12345] = (uint8_t)(mutated.save[12345] ^ 0x01u);
+  at = first_diff(mutated.save, SAVE_BYTES, pair->save, pair->save_length);
+  CHECK(at == 12345u);
+  (void)printf("control save: expected byte 12345 changed, first difference at "
+               "offset %zu\n",
+               at);
+
+  /* transcript: the text the guest printed, captured from the save-out run */
+  CHECK(first_diff(exp->transcript, exp->transcript_len, pair->transcript,
+                   pair->transcript_length) == SIZE_MAX);
+  (void)printf("compare transcript: %zu bytes equal the expectation\n",
+               pair->transcript_length);
+  mutated = *exp;
+  mutated.transcript[100] = (uint8_t)(mutated.transcript[100] ^ 0x01u);
+  at = first_diff(mutated.transcript, mutated.transcript_len, pair->transcript,
+                  pair->transcript_length);
+  CHECK(at == 100u);
+  (void)printf("control transcript: expected byte 100 changed, first "
+               "difference at offset %zu\n",
+               at);
+}
+
+/* RUN-07 idempotency edge: a second execution in fresh directories yields the
+ * same outputs, the same manifest bytes and the same digest. */
+static void check_same_outputs(const pair_out *a, const pair_out *b) {
+  CHECK(strcmp(a->digest_raw, b->digest_raw) == 0);
+  CHECK(strcmp(a->digest_save, b->digest_save) == 0);
+  CHECK(a->video_count == b->video_count);
+  CHECK(memcmp(a->video, b->video, sizeof a->video) == 0);
+  CHECK(memcmp(a->video_end_tick, b->video_end_tick, sizeof a->video_end_tick) ==
+        0);
+  CHECK(memcmp(a->audio, b->audio, sizeof a->audio) == 0);
+  CHECK(a->manifest_length == b->manifest_length);
+  CHECK(a->manifest_length == b->manifest_length &&
+        memcmp(a->manifest, b->manifest, a->manifest_length) == 0);
+  CHECK(a->save_length == b->save_length &&
+        memcmp(a->save, b->save, a->save_length) == 0);
+  CHECK(a->transcript_length == b->transcript_length &&
+        memcmp(a->transcript, b->transcript, a->transcript_length) == 0);
+  (void)printf("idempotency: a second run pair in fresh directories equals the "
+               "first (digest, video, audio, manifest, save, transcript)\n");
+}
+
+static pair_out g_pair_first;
+static pair_out g_pair_second;
+static expectation g_expected;
+
 static int case_two_run(void) {
-  pair_out pair;
-  const bool pair_ok = run_pair(&pair);
-  CHECK(pair_ok);
-  if (pair_ok) {
-    (void)printf("state_digest raw-run=%s save-run=%s\n", pair.digest_raw,
-                 pair.digest_save);
-    CHECK(is_hex64(pair.digest_raw));
-    CHECK(strcmp(pair.digest_raw, pair.digest_save) == 0);
+  CHECK(load_expectation(&g_expected));
+  if (run_pair(&g_pair_first)) {
+    (void)printf("state_digest raw-run=%s save-run=%s\n",
+                 g_pair_first.digest_raw, g_pair_first.digest_save);
+    CHECK(is_hex64(g_pair_first.digest_raw));
+    CHECK(strcmp(g_pair_first.digest_raw, g_pair_first.digest_save) == 0);
+    compare_outputs(&g_pair_first, &g_expected);
+    if (run_pair(&g_pair_second)) {
+      check_same_outputs(&g_pair_first, &g_pair_second);
+    } else {
+      CHECK(false);
+    }
+  } else {
+    CHECK(false);
   }
   check_exclusion();
+  return g_failures == 0 ? 0 : 1;
+}
+
+/* ---- case wrong-rom ------------------------------------------------------- */
+
+/* The record line of a transcript: "SR " and 32 lowercase hex digits. */
+static bool transcript_record(const uint8_t *text, size_t length,
+                              uint8_t record[RECORD_BYTES]) {
+  size_t i;
+  for (i = 0u; i + 3u + 2u * RECORD_BYTES <= length; i++) {
+    if ((i == 0u || text[i - 1u] == '\n') && text[i] == 'S' &&
+        text[i + 1u] == 'R' && text[i + 2u] == ' ') {
+      size_t j;
+      for (j = 0u; j < RECORD_BYTES; j++) {
+        const int high = hex_value((char)text[i + 3u + 2u * j]);
+        const int low = hex_value((char)text[i + 4u + 2u * j]);
+        if (high < 0 || low < 0) return false;
+        record[j] = (uint8_t)((high << 4) | low);
+      }
+      return true;
+    }
+  }
+  return false;
+}
+
+/* The wrong-byte ROM carries the same pin as the accepted one, so a pass is
+ * impossible and the supervisor publishes no save image for it (the export is
+ * after a pass outcome only). Its save record is observed through the
+ * transcript the guest prints after reading the record back from the save
+ * device; the image the comparator sees is the accepted expectation with that
+ * observed record in place, so the same comparator that accepts the real
+ * exported image must report the authored wrong byte. */
+static int case_wrong_rom(void) {
+  expectation exp;
+  pair_out base;
+  pair_out wrong;
+  run_spec spec = {0};
+  run_out run;
+  uint8_t record[RECORD_BYTES];
+  uint8_t observed[SAVE_BYTES];
+  char first[256];
+  size_t at;
+  CHECK(load_expectation(&exp));
+
+  /* The accepted baseline of this setup: same options, the accepted ROM. */
+  spec.stem = COMPOSITE_ROM;
+  spec.script = true;
+  spec.capture = true;
+  spec.save_leaf = SAVE_LEAF;
+  memset(&base, 0, sizeof base);
+  CHECK(run_supervised(&spec, &run));
+  expect_pass(&run);
+  CHECK(load_save_run(&run, &base));
+  CHECK(first_diff(exp.save, SAVE_BYTES, base.save, base.save_length) ==
+        SIZE_MAX);
+  CHECK(first_diff(exp.transcript, exp.transcript_len, base.transcript,
+                   base.transcript_length) == SIZE_MAX);
+  (void)printf("baseline wrong-rom setup: accepted ROM save image equals the "
+               "expectation (first difference none)\n");
+
+  /* The wrong-byte ROM, same options. */
+  spec.stem = WRONG_ROM;
+  memset(&wrong, 0, sizeof wrong);
+  CHECK(run_supervised(&spec, &run));
+  CHECK(run.parsed);
+  CHECK(run.checker_ok);
+  CHECK(strcmp(run.outcome, "guest-fail") == 0);
+  CHECK(strcmp(run.detail, "wrong-transcript") == 0);
+  CHECK(strcmp(run.stop_kind, "authored-completion") == 0);
+  CHECK(strcmp(run.fixture_id, WRONG_ROM) == 0);
+  CHECK(strcmp(run.profile_id, COMPOSITE_PROFILE) == 0);
+  CHECK(list_directory(run.aux_dir, first) == 0u);
+  CHECK(read_file(run.capture_path, wrong.transcript, sizeof wrong.transcript,
+                  &wrong.transcript_length));
+  CHECK(first_diff(exp.wrong_transcript, exp.wrong_transcript_len,
+                   wrong.transcript, wrong.transcript_length) == SIZE_MAX);
+  CHECK(transcript_record(wrong.transcript, wrong.transcript_length, record));
+  memcpy(observed, exp.save, SAVE_BYTES);
+  memcpy(observed + RECORD_OFFSET, record, RECORD_BYTES);
+  at = first_diff(exp.save, SAVE_BYTES, observed, SAVE_BYTES);
+  CHECK(at == exp.wrong_first_difference);
+  CHECK(at >= RECORD_OFFSET && at < RECORD_OFFSET + RECORD_BYTES);
+  (void)printf("control wrong-rom: %s (%s/%s) fails the save comparator, first "
+               "difference at offset %zu (expected byte 0x%02x, observed 0x%02x)\n",
+               WRONG_ROM, run.outcome, run.detail, at,
+               at < SAVE_BYTES ? exp.save[at] : 0u,
+               at < SAVE_BYTES ? observed[at] : 0u);
   return g_failures == 0 ? 0 : 1;
 }
 
@@ -505,6 +1052,7 @@ typedef struct {
 
 static const case_entry cases[] = {
     {"two-run", case_two_run},
+    {"wrong-rom", case_wrong_rom},
 };
 
 int main(int argc, char **argv) {
