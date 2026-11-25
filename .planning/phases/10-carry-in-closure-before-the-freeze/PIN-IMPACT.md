@@ -862,3 +862,78 @@ Findings of the rehearsal:
   `da6af0d`; the one qualification of plan 10-19 runs fresh on the audited head.
 - The hermetic test `harness.phase10-qualification` took 5.2 to 6.4 s natively at load 8 to 13
   (8.99 s inside the loaded JUnit run), under the 10 s of the plan; its `TIMEOUT` is 120 s.
+
+## 15. Qualification (plan 10-19)
+
+Written by plan 10-19 Task 1 (phase-wave 4). Evidence tier: a native attempt of the Phase 10
+qualifier on the audited tree, recorded as it happened. **Attempt 1 failed in the gate stage and
+produced no record; the plan stopped at the tracer gate and was returned to the orchestrator.**
+No source, test, script or pin was edited after the failure, and the executor did not retry the
+qualification (the plan says a failed stage stops the plan). There is no qualification record
+yet, so nothing below is a pass.
+
+Command: `python3 -B scripts/qualify-phase10.py --native` (no `--rehearsal`), exit 1, last line
+`qualify-phase10: refused original evidence: stage gate command 0 exited 1, expected 0`. The
+private step logs of the attempt are under
+`build/gate/10-qualification-private/20261125T051452604175Z-1f862a0f/steps/` and are not
+committed; no `record.json` exists in that directory.
+
+| Item | Value |
+|------|-------|
+| source head at the attempt | `1f862a0f7a255c5f0dd1dabb488acf44dc0a5259`, tree clean (`git status --short` empty) before and after |
+| Qualification base | `ad39b6be2f803af45af15d4ed511b72a89460339` (section 5) |
+| changed paths, base to head | `.planning/ROADMAP.md`, `.planning/STATE.md`, `10-18-SUMMARY.md` and `PIN-IMPACT.md` only (the Task 1 changed-path check passed), so every bound source input equals that of the base |
+| preflight at the start | `sh scripts/preflight-phase10.sh` PASS in 41 s (oracle-authority 0, ctest-counts 1, host-load 0, head-ci 1, timeout-audit 0, pii 0, linux-compile skipped, post-gate-replay 39) |
+| host | macOS, 18 logical cores; 1-minute load 6.19 at the start of the attempt and 21.56 at its end (the preflight read 7.26 and the changed-path check 6.47 shortly before) |
+| cold-boot attempt counters | 2 and 2 before the attempt (cap 99), so the D-10-17-01 cause was not reached |
+
+| Stage | Result | Seconds (limit) | Observed |
+|-------|--------|-----------------|----------|
+| ci-scanner | ok | 1.79 (90) | `check-ci-yml.sh` ok, selftest 138 cases, 0 failures |
+| inventory | ok | 0.58 (60) | count 254 |
+| oracle | ok | 0.14 (60) | blocked as expected, `--require-approved` exit 2 |
+| gate | **failed** | 441 wall (600) | `scripts/gate.sh` steps before ctest passed (lint-selftest 3, boot-evidence-selftest 11, test-inventory-selftest 35); `ctest --preset gate`: 251 of 254 passed, 3 failed, `Total Test time (real) = 389.31 sec` against 103.34 s in the 10-17 rehearsal |
+| phase10-junit, asan, mutants, sweep | not run | | the qualifier stops at the first failed stage |
+
+The three failures are supervised-run tests of Phases 8 and 9 (labels `controls runner`); none is
+a Phase 10 name:
+
+| Test | Seconds in the attempt | Observed | Expected |
+|------|------------------------|----------|----------|
+| `runner.save-roundtrip` | 45.73 | the baseline run passed (tick 540,634) and every case up to `import-refused` was ok; in the `export-publication` case `run->supervisor_exit == 0`, `outcome == "pass"`, `detail == "positive-match"`, `stop_kind == "authored-completion"`, `log_bytes == 144` and the log SHA-256 checks failed (lines 384 to 387, 766, 767, 681 of `runner/tests/test_save_roundtrip.c`) | all cases ok |
+| `runner.state-export` | 97.34 | `case import-option-refusals: FAILED`, `FAIL line 1813: run->guest_tick > 0u` (every case before it was ok) | all cases ok |
+| `controls.real.rdp-drain-cadence` | 42.74 | failed; its own output was not read before it was overwritten (see below) | pass |
+
+What the data say. The slowdown was machine-wide and bursty, not specific to the failed tests:
+the slowest passing tests ran far above their usual seconds in the same window
+(`harness.phase10-qualification` 91.64 s against 5 to 9 s, `unit.core.state.import` 221.65 s,
+`runner.cpu-diagnostic` 71.19 s, `gov.pii.repo` 71.10 s, `unit.core.state.import-v26-hostile`
+62.19 s), and the host load rose from 6 to 21. The supervised runs of these tests carry wall
+backstops (`--wall-ms 30000` in the save round trip harness, shorter ones in the controls suite);
+a supervised child that is starved past its backstop ends non-zero and fails exactly the
+assertions above. That is the most likely cause but it is an inference: the attempt's own
+`LastTest.log` was overwritten by the first diagnostic below before the third test's output was
+read (lesson: copy `build/gate/Testing/Temporary/LastTest.log` before any further ctest run), and
+the cause of the load spike on the shared host was not identified. The persistent load before the
+attempt (about three busy cores) comes from unrelated long-running processes, and a Docker
+virtual machine held about 10.8 GB resident.
+
+Diagnostics run after the failure. None is a qualification record and none changed a tracked file:
+
+| Diagnostic | Result |
+|------------|--------|
+| `ctest --test-dir build/gate -R` the three names, `-j1`, load 13.6 | 3 of 3 passed: `controls.real.rdp-drain-cadence` 0.29 s (42.74 s in the attempt), `runner.state-export` 6.43 s (97.34 s), `runner.save-roundtrip` 46.46 s (45.73 s) |
+| `sh scripts/gate.sh` once more on the same tree, load 7.7 at the start and 9.3 at the end | failed again in ctest with three other names: 251 of 254 passed, `Total Test time (real) = 213.23 sec` (103.34 s in the rehearsal), test-inventory-selftest 80 s (23 to 35 s before). `runner.cpu-diagnostic` (112.79 s): `guest record control exit=4 output=classification=harness-error status=child-or-wall-bound`; `integration.open-ipl3-hello` (45.19 s): TAP `not ok 22 - wall kill after correct guest text takes harness-error precedence`; `controls.suite-dropped` (11.84 s): `case truncated-verdict failed: t64-supervisor: outcome=harness-error detail=wall-backstop`. No name is in both runs, and every one reports a supervisor wall limit |
+
+Reading. The tree did not change between the 10-17 rehearsal (254 of 254 at load 12 to 14), the
+10-18 clone gate (254 of 254, 123 s, load 6 to 10.7) and these runs, while the same gate now fails
+three different supervised-run tests per run with ctest wall 213 to 389 s, so the evidence points
+at the host state, not at a Phase 10 edit; it does not prove it. The qualification must not be
+repeated until a plain `sh scripts/gate.sh` passes on this host, and a repeat that passes is
+recorded together with this failed attempt, not instead of it.
+
+Disposition. Stopped at the tracer gate per the plan; no expansion task (the recording of the cold
+run, the evidence and the claims) was started. The choice between a repeat on a quiet host and a
+numbered fix plan belongs to the orchestrator. A repeat creates a new record directory and
+consumes one cold-boot attempt number per gate run (the counters stand at 4 and 4 after the gate
+stage of the attempt and the diagnostic gate run).
