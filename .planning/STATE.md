@@ -5,16 +5,16 @@ milestone_name: Embeddable and Playable
 current_phase: 10
 current_phase_name: Carry-in Closure Before the Freeze
 status: executing
-stopped_at: Completed 10-17-PLAN.md
-last_updated: "2026-11-25T04:26:45.852Z"
+stopped_at: Completed 10-18-PLAN.md
+last_updated: "2026-11-25T04:56:36.440Z"
 last_activity: 2026-11-23
 last_activity_desc: Phase 10 execution started
-state_head: 8b05176840c6278cf195ffd7f16313e02538faf1
+state_head: 2402fefbff303203a1b56f2e74152be09deeee9d
 progress:
   total_phases: 3
   completed_phases: 0
   total_plans: 19
-  completed_plans: 17
+  completed_plans: 18
   percent: 0
 ---
 
@@ -30,7 +30,7 @@ See: .planning/PROJECT.md (updated 2026-11-23)
 ## Current Position
 
 Phase: 10 (Carry-in Closure Before the Freeze) — EXECUTING
-Plan: 18 of 19
+Plan: 19 of 19
 Status: Ready to execute
 Last activity: 2026-11-23 — Phase 10 execution started
 
@@ -77,6 +77,7 @@ Progress: [░░░░░░░░░░] 0% (0 of 3 v1.2 phases complete)
 | Phase 10 P15 | 41 min | 4 tasks | 12 files |
 | Phase 10 P16 | 12 min | 3 tasks | 10 files |
 | Phase 10 P17 | 44 min | 3 tasks | 7 files |
+| Phase 10 P18 | 27 min | 4 tasks | 4 files |
 
 ## Accumulated Context
 
@@ -178,6 +179,9 @@ Progress: [░░░░░░░░░░] 0% (0 of 3 v1.2 phases complete)
 - [Phase 10]: 10-17: qualify-phase10.py binds the files changed since the Wave 0 base (40-hex literal) plus 14 tools, excludes .planning/ and docs/ci-reviews/LOG.md from the bound inputs and the dirty check, and a final record requires the Qualification base and refuses non-planning drift since it
 - [Phase 10]: 10-17: stage limits are data rows at least twice their measured seconds (gate 600 s, ASan selection 600 s, mutants 600 s, sweep 300 s); the rehearsal on da6af0d took 506 s at host load 12 to 13.6 and verified; the projected cold gate-macos is 696 to 735 s with a 94 s serialized-ceiling warning for 10-18 and 10-19
 - [Phase 10]: 10-17: the 99-attempt cap of the Phase 6 cold-boot tests failed the first rehearsal gate; the 193 attempt directories were archived by a move, the broader prune of closed-phase evidence directories was refused by the permission system and not done (deferred-items.md D-10-17-01)
+- [Phase 10]: 10-18: Wave 3 and the final audit pass with no blocking finding (scratch gate 254 of 254 in 123 s and ASan phase10 30 of 30 in 128 s in a clone whose archive hash equals the head's; sweep 0 differences over the 21 shipped ids; 25 mutants KILLED with both controls as expected; --require-approved still exits 2); the 10-15 deviations (one literal in test_state_runner.c, wrong-ROM read-back comparison) are accepted as W3-01 and W3-02
+- [Phase 10]: 10-18: head f081d39 pushed (origin/main f57b019 to f081d39, 29 commits, no tag); hosted pair run 45548987145 green: gate-macos 385 s (ctest 196 s of 254 names), gate-linux 233 s; warm plus the 186 s Binutils delta projects a cold 571 s (margin 329 s), below the 10-17 projection of 696 to 735 s, F-123; the cold run stays plan 10-19
+- [Phase 10]: 10-18: Qualification base ad39b6be2f803af45af15d4ed511b72a89460339 recorded in PIN-IMPACT.md Wave bases (planning-only commit 3860717) after the one source edit of this plan (qualifier derivation sentence 25 mutants and 2 controls, 4dd936a); carried items now count five against G3 with D-10-17-01, and T-10-49 stays flagged for owner review
 
 ### Pending Todos
 
@@ -203,8 +207,8 @@ None for v1.1. Carry-ins for v1.2 are listed in the Deferred Items table, the v1
 
 ## Session Continuity
 
-Last session: 2026-11-25T04:26:45.825Z
-Stopped at: Completed 10-17-PLAN.md
+Last session: 2026-11-25T04:56:36.416Z
+Stopped at: Completed 10-18-PLAN.md
 Resume file: None
 
 Historical closeout: [v1.0 roadmap](milestones/v1.0-ROADMAP.md), [audit](milestones/v1.0-MILESTONE-AUDIT.md), [lessons](RETROSPECTIVE.md).
