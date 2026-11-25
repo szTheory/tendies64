@@ -867,6 +867,8 @@ add_test(NAME unit.core.api.null-machine
   COMMAND test_api_poison --case null-machine)
 add_test(NAME unit.core.api.defect-sites
   COMMAND test_api_poison --case defect-sites)
+add_test(NAME unit.core.api.bus-carve-out
+  COMMAND test_api_poison --case bus-carve-out)
 set_tests_properties(unit.core.api.poison
   unit.core.api.refusals-never-poison
   unit.core.api.reentrant
@@ -875,6 +877,13 @@ set_tests_properties(unit.core.api.poison
   LABELS "unit;phase11"
   TIMEOUT 60
   COST 1
+  ENVIRONMENT "T64_TEST_IPL3_PATH=${T64_BOOT_FIXTURE_DIR}/ipl3_compat.z64")
+# The carve-out case snapshots the whole instance around eighteen writes
+# (measured 2.2 s native), so it declares its own cost.
+set_tests_properties(unit.core.api.bus-carve-out PROPERTIES
+  LABELS "unit;phase11"
+  TIMEOUT 60
+  COST 3
   ENVIRONMENT "T64_TEST_IPL3_PATH=${T64_BOOT_FIXTURE_DIR}/ipl3_compat.z64")
 
 # Descriptor 13 family (plan 10-09): the four registered si-v2 ids with their

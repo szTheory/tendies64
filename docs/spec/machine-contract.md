@@ -719,6 +719,15 @@ Refusal assertions compare every present machine observation, scheduler state,
 trace records/drop observation and ownership counter. Later device slices
 must extend this snapshot and preserve the same no-change refusal guarantee.
 
+One public call is outside that guarantee by a written, tested carve-out (plan
+11-03, `unit.core.api.bus-carve-out`): `t64_machine_bus_write` is the host's view
+of a guest store, so a write that answers `BUS_DEVICE_REFUSED` may change the
+latched PI transfer length register, the sticky PI error flag (a request made
+while a transfer is active), the sticky SI DMA error flag and, when tracing is
+enabled, one refusal record, and nothing else. Writes refused for address, width,
+alignment or range change no byte. The instance also carries the `poisoned` and
+`in_call` flags (section "State member audit"), which no refusal can set.
+
 ## CORE-02 ordering evidence
 
 This section records what the ordering matrix (`core/test_sched_matrix`, CTest
@@ -960,7 +969,7 @@ Every member of `struct t64_machine` in `core/t64_internal.h` has exactly one
 row: the canonical section that carries it, the observer-continuity section (16)
 or an exclusion with its reason class (allocator, pointer, trace, drain cursor,
 rsp observation, padding, queue head), and whether replacement resets it and by
-which function. The member list is the set of declarations in the structure body (comment lines excluded), and has 68 members. Build and source identity is a compile-time string, not a
+which function. The member list is the set of declarations in the structure body (comment lines excluded), and has 70 members. Build and source identity is a compile-time string, not a
 member, and is excluded as behavior (the retained packet metadata keeps the
 profile and build ids only through v24).
 
@@ -1010,6 +1019,8 @@ profile and build ids only through v24).
 | rom_version | 1 | yes, `t64_machine_admit_rom` | normalized version |
 | has_image | 1 | yes, `t64_machine_admit_rom` | loaded-image flag |
 | halted | 2 | yes, `t64_machine_reset_execution_state` | halt flag |
+| poisoned | excluded | no, never cleared by replacement or import | flag outside the digest and the state container: set only by `t64_internal_defect` at an internal invariant violation (plan 11-03); once set, every machine-taking entry except destroy and the poison query answers POISONED |
+| in_call | excluded | no, set and cleared around host allocator callbacks | flag outside the digest and the state container: non-zero while the core calls the host allocator for this instance, so a reentrant call answers REENTRANT (plan 11-03) |
 | events | 6, the logical queue only | yes, queue emptied by `t64_machine_reset_execution_state` | pointer and padding: the handler pointers and the unused ring slots are excluded; handlers are re-derived from the closed event ledger |
 | queue_head | excluded | yes, `t64_machine_reset_execution_state` (set to 0) | queue head: the physical ring position is not logical queue state |
 | queue_count | 6 | yes, `t64_machine_reset_execution_state` | scheduler state |

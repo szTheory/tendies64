@@ -725,12 +725,28 @@ T64_API t64_status t64_machine_queue_input(t64_machine *machine, uint64_t tick,
  * Host debug access to physical byte addresses, called between advance calls.
  * Width must be 1, 2, or 4. Halfwords and words are big-endian and require
  * natural alignment; individual device registers can further restrict width.
- * A write that the bus rejects for its address, width or alignment has no
- * effect; a write that a device refuses can leave the device's own record of
- * the refusal (the PI latches its length and sets its sticky error on a busy
- * start, the SI sets its sticky DMA error and writes a refusal trace record),
- * and rejected reads leave value_out unchanged. These calls do not execute guest
- * code or translate virtual addresses.
+ * These calls do not execute guest code or translate virtual addresses, and
+ * rejected reads leave value_out unchanged.
+ *
+ * t64_machine_bus_write is carved out of the rule that a refused call changes
+ * nothing (plan 11-03, AMBIG-D). It is the host's view of a guest store, and a
+ * device that refuses a store records the refusal itself. A write that answers
+ * T64_STATUS_BUS_DEVICE_REFUSED (a refused-class status) may change exactly
+ * these records and no other byte of the instance or of any public observation
+ * (save info, video and audio info, CPU stop detail, ROM size and header,
+ * content digest):
+ *   - PI: the latched transfer length register that the refused request
+ *     addressed (a request the device rejects, or made while a transfer is
+ *     active) and, for a request made while a transfer is active, the sticky PI
+ *     error flag;
+ *   - SI: the sticky SI DMA error flag (a request made while a transfer is
+ *     active, or with an RDRAM address that is not 8-byte aligned);
+ *   - one refusal record in the trace buffer, when tracing is enabled.
+ * A write the bus rejects for its address, width, alignment or range
+ * (T64_STATUS_BUS_UNMAPPED, BUS_UNSUPPORTED, BUS_ALIGNMENT, BUS_RANGE) or as an
+ * invalid argument changes nothing at all, and a device refusal that has no
+ * record to keep (the read-only cartridge window) changes nothing either.
+ * Neither kind ever poisons the instance.
  */
 T64_API t64_status t64_machine_bus_read(t64_machine *machine, uint32_t address,
                                         uint32_t width, uint32_t *value_out);

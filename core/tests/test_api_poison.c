@@ -23,6 +23,10 @@
  *                    replacement and destruction, gets T64_STATUS_REENTRANT
  *                    with every output untouched; admission then completes OK
  *                    and the digest equals a run without the callback calls
+ *   bus-carve-out    t64_machine_bus_write is outside the refusal-is-a-no-op
+ *                    domain: a write a device refuses changes exactly the
+ *                    records the header names and nothing else; address,
+ *                    width, alignment and range refusals change no byte
  *   null-machine     every machine-taking entry with a NULL machine answers
  *                    T64_STATUS_INVALID_ARGUMENT and leaves every sentinel
  *                    output untouched; destroy(NULL) is a no-op
@@ -1035,10 +1039,262 @@ static void case_defect_sites(void) {
   }
 }
 
+/* ---- t64_machine_bus_write carve-out (AMBIG-D) ----------------------- */
+
+/* A byte range of the instance that a refused write is allowed to change. */
+typedef struct {
+  size_t offset;
+  size_t length;
+} allowed_span;
+
+#define ALLOWED(member_)                                                     \
+  {offsetof(t64_machine, member_), sizeof(((t64_machine *)0)->member_)}
+
+/* The members the header names for a write that a device refuses: the
+ * latched PI length registers and the sticky PI and SI error flags, plus the
+ * trace buffer when tracing is enabled (one record). */
+static const allowed_span pi_latches[] = {ALLOWED(pi.read_length),
+                                          ALLOWED(pi.write_length),
+                                          ALLOWED(pi.error)};
+static const allowed_span si_latches[] = {ALLOWED(si.error)};
+static const allowed_span trace_members[] = {
+    ALLOWED(trace_records), ALLOWED(trace_head), ALLOWED(trace_count),
+    ALLOWED(trace_drop_count), ALLOWED(trace_drop_count_saturated)};
+
+static bool span_allowed(size_t index, const allowed_span *spans,
+                         size_t count) {
+  size_t i;
+
+  for (i = 0u; i < count; i++) {
+    if (index >= spans[i].offset && index - spans[i].offset < spans[i].length) {
+      return true;
+    }
+  }
+  return false;
+}
+
+/* Bytes of the instance that differ and are not inside an allowed span. */
+static size_t unexpected_changes(const uint8_t *before, const uint8_t *after,
+                                 const allowed_span *first, size_t first_count,
+                                 const allowed_span *second,
+                                 size_t second_count, size_t *changed_out) {
+  size_t index;
+  size_t unexpected = 0u;
+
+  *changed_out = 0u;
+  for (index = 0u; index < sizeof(t64_machine); index++) {
+    if (before[index] != after[index]) {
+      (*changed_out)++;
+      if (!span_allowed(index, first, first_count) &&
+          !span_allowed(index, second, second_count)) {
+        unexpected++;
+      }
+    }
+  }
+  return unexpected;
+}
+
+/* Every public observation that must not move on any refused write. */
+typedef struct {
+  t64_status status[7];
+  t64_save_info save;
+  t64_video_packet_info video;
+  t64_audio_packet_info audio;
+  t64_cpu_stop_detail detail;
+  size_t rom_size;
+  uint8_t header[T64_ROM_HEADER_BYTES];
+  size_t header_length;
+  uint8_t content[T64_DIGEST_SIZE];
+} observations;
+
+static void observe(t64_machine *machine, observations *o) {
+  (void)memset(o, 0xa5, sizeof *o);
+  o->status[0] = t64_machine_save_info(machine, entry_save_kind, &o->save);
+  o->status[1] = t64_video_info(machine, &o->video);
+  o->status[2] = t64_audio_info(machine, &o->audio);
+  o->status[3] = t64_machine_cpu_stop_detail(machine, &o->detail);
+  o->status[4] = t64_machine_rom_size(machine, &o->rom_size);
+  o->status[5] = t64_machine_rom_header(machine, o->header, sizeof o->header,
+                                        &o->header_length);
+  o->status[6] = t64_machine_content_digest(machine, o->content);
+}
+
+typedef struct {
+  instance item;
+  uint8_t *before;
+  uint8_t *after;
+  observations seen_before;
+  observations seen_after;
+  uint8_t digest_before[T64_DIGEST_SIZE];
+  uint8_t digest_after[T64_DIGEST_SIZE];
+} carve_fixture;
+
+static bool carve_begin(carve_fixture *f, bool tracing) {
+  (void)memset(f, 0, sizeof *f);
+  if (!make_instance(&f->item, SAVE_PROFILE_ID, true)) return false;
+  entry_save_kind = f->item.machine->profile.save_kind;
+  f->before = (uint8_t *)malloc(sizeof(t64_machine));
+  f->after = (uint8_t *)malloc(sizeof(t64_machine));
+  if (f->before == NULL || f->after == NULL) {
+    T64_CHECK(false);
+    return false;
+  }
+  T64_CHECK_INT(t64_machine_trace_set_enabled(f->item.machine, tracing),
+                T64_STATUS_OK);
+  return true;
+}
+
+/* Take the before-snapshot, make the refused write, take the after-snapshot
+ * and check what moved. */
+static void carve_write(carve_fixture *f, uint32_t address, uint32_t width,
+                        uint32_t value, t64_status expected,
+                        const allowed_span *latches, size_t latch_count,
+                        bool tracing, size_t *changed_out) {
+  t64_machine *machine = f->item.machine;
+  size_t unexpected;
+  size_t trace_before = machine->trace_count;
+
+  (void)memcpy(f->before, machine, sizeof(t64_machine));
+  observe(machine, &f->seen_before);
+  T64_CHECK_INT(t64_machine_digest(machine, f->digest_before), T64_STATUS_OK);
+  T64_CHECK_INT(t64_machine_bus_write(machine, address, width, value),
+                expected);
+  (void)memcpy(f->after, machine, sizeof(t64_machine));
+  observe(machine, &f->seen_after);
+  T64_CHECK_INT(t64_machine_digest(machine, f->digest_after), T64_STATUS_OK);
+  unexpected = unexpected_changes(
+      f->before, f->after, latches, latch_count,
+      tracing ? trace_members : NULL,
+      tracing ? sizeof trace_members / sizeof trace_members[0] : 0u,
+      changed_out);
+  T64_CHECK_INT(unexpected, 0);
+  T64_CHECK(memcmp(&f->seen_before, &f->seen_after, sizeof f->seen_before) ==
+            0);
+  if (tracing && latch_count != 0u) {
+    /* A device refusal writes exactly one refusal record. */
+    T64_CHECK_INT(machine->trace_count - trace_before, 1);
+  } else {
+    T64_CHECK_INT(machine->trace_count, trace_before);
+  }
+  T64_CHECK(not_poisoned(machine));
+}
+
+static void carve_end(carve_fixture *f) {
+  free(f->before);
+  free(f->after);
+  destroy_and_check(&f->item);
+}
+
+static void carve_pi(bool tracing) {
+  carve_fixture f;
+  size_t changed = 0u;
+  t64_machine *machine;
+
+  if (!carve_begin(&f, tracing)) return;
+  machine = f.item.machine;
+  /* A request made while a transfer is active: the length register latches
+   * the refused request and the sticky error is set. */
+  T64_CHECK_INT(t64_machine_bus_write(machine, UINT32_C(0x04600000), 4u,
+                                      UINT32_C(0x1000)), T64_STATUS_OK);
+  T64_CHECK_INT(t64_machine_bus_write(machine, UINT32_C(0x04600004), 4u,
+                                      UINT32_C(0x10000000)), T64_STATUS_OK);
+  T64_CHECK_INT(t64_machine_bus_write(machine, UINT32_C(0x0460000c), 4u,
+                                      UINT32_C(0x3f)), T64_STATUS_OK);
+  T64_CHECK(!machine->pi.error);
+  carve_write(&f, UINT32_C(0x0460000c), 4u, UINT32_C(0x1f),
+              T64_STATUS_BUS_DEVICE_REFUSED, pi_latches,
+              sizeof pi_latches / sizeof pi_latches[0], tracing, &changed);
+  T64_CHECK(machine->pi.error);
+  T64_CHECK_INT(machine->pi.write_length, 0x1f);
+  T64_CHECK(changed > 0u);
+  carve_end(&f);
+
+  /* A request the device rejects while idle (source beyond the cart window)
+   * latches the length register only. */
+  if (!carve_begin(&f, tracing)) return;
+  machine = f.item.machine;
+  T64_CHECK_INT(t64_machine_bus_write(machine, UINT32_C(0x04600000), 4u,
+                                      UINT32_C(0x1000)), T64_STATUS_OK);
+  T64_CHECK_INT(t64_machine_bus_write(machine, UINT32_C(0x04600004), 4u,
+                                      UINT32_C(0x10100000)), T64_STATUS_OK);
+  carve_write(&f, UINT32_C(0x0460000c), 4u, UINT32_C(0x3f),
+              T64_STATUS_BUS_DEVICE_REFUSED, pi_latches,
+              sizeof pi_latches / sizeof pi_latches[0], tracing, &changed);
+  T64_CHECK(!machine->pi.error);
+  T64_CHECK_INT(machine->pi.write_length, 0x3f);
+  carve_end(&f);
+}
+
+static void carve_si(bool tracing) {
+  carve_fixture f;
+  size_t changed = 0u;
+  t64_machine *machine;
+
+  if (!carve_begin(&f, tracing)) return;
+  machine = f.item.machine;
+  /* A misaligned RDRAM address: the sticky SI DMA error latches. */
+  T64_CHECK_INT(t64_machine_bus_write(machine, T64_SI_BASE + T64_SI_REG_DRAM_ADDR,
+                                      4u, UINT32_C(0x1004)), T64_STATUS_OK);
+  T64_CHECK(!machine->si.error);
+  carve_write(&f, T64_SI_BASE + T64_SI_REG_WR64B, 4u, T64_SI_PIF_ADDRESS,
+              T64_STATUS_BUS_DEVICE_REFUSED, si_latches,
+              sizeof si_latches / sizeof si_latches[0], tracing, &changed);
+  T64_CHECK(machine->si.error);
+  T64_CHECK(changed > 0u);
+  carve_end(&f);
+}
+
+/* Refusals for address, width, alignment and range change nothing at all
+ * (every byte of the instance), and a device refusal with no latch (the
+ * cartridge window is read-only) changes nothing either. */
+static void carve_plain_refusals(void) {
+  static const struct {
+    uint32_t address;
+    uint32_t width;
+    t64_status expected;
+  } probes[] = {
+      {UINT32_C(0x80000000), 4u, T64_STATUS_BUS_UNMAPPED},
+      {UINT32_C(0x04900000), 4u, T64_STATUS_BUS_UNMAPPED},
+      {UINT32_C(0x00800000), 4u, T64_STATUS_BUS_UNSUPPORTED},
+      {UINT32_C(0x04600034), 4u, T64_STATUS_BUS_UNSUPPORTED},
+      {UINT32_C(0x00000001), 4u, T64_STATUS_BUS_ALIGNMENT},
+      {UINT32_C(0x00000001), 2u, T64_STATUS_BUS_ALIGNMENT},
+      {UINT32_C(0xfffffffe), 4u, T64_STATUS_BUS_RANGE},
+      {UINT32_C(0xffffffff), 2u, T64_STATUS_BUS_RANGE},
+      {UINT32_C(0x10000000), 4u, T64_STATUS_BUS_DEVICE_REFUSED}};
+  size_t index;
+
+  for (index = 0u; index < sizeof probes / sizeof probes[0]; index++) {
+    unsigned tracing;
+
+    for (tracing = 0u; tracing < 2u; tracing++) {
+      carve_fixture f;
+      size_t changed = 99u;
+
+      if (!carve_begin(&f, tracing != 0u)) return;
+      carve_write(&f, probes[index].address, probes[index].width,
+                  UINT32_C(0xdeadbeef), probes[index].expected, NULL, 0u,
+                  false, &changed);
+      T64_CHECK_INT(changed, 0);
+      T64_CHECK(memcmp(f.digest_before, f.digest_after,
+                       sizeof f.digest_before) == 0);
+      carve_end(&f);
+    }
+  }
+}
+
+static void case_bus_carve_out(void) {
+  carve_pi(false);
+  carve_pi(true);
+  carve_si(false);
+  carve_si(true);
+  carve_plain_refusals();
+}
+
 int main(int argc, char **argv) {
   static const char *const cases[] = {"poison", "refusals-never-poison",
                                       "reentrant", "null-machine",
-                                      "defect-sites"};
+                                      "defect-sites", "bus-carve-out"};
   const char *selected = NULL;
   size_t index;
   bool ran = false;
@@ -1079,6 +1335,10 @@ int main(int argc, char **argv) {
     case_defect_sites();
     ran = true;
   }
+  if (selected == NULL || strcmp(selected, "bus-carve-out") == 0) {
+    case_bus_carve_out();
+    ran = true;
+  }
   if (!ran) {
     fprintf(stderr, "unknown case: %s\n", selected);
     return 2;
@@ -1097,6 +1357,9 @@ int main(int argc, char **argv) {
   }
   if (strcmp(selected, "defect-sites") == 0) {
     return T64_TEST_FINISH("unit.core.api.defect-sites");
+  }
+  if (strcmp(selected, "bus-carve-out") == 0) {
+    return T64_TEST_FINISH("unit.core.api.bus-carve-out");
   }
   return T64_TEST_FINISH("unit.core.api.refusals-never-poison");
 }
