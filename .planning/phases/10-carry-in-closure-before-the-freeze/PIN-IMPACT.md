@@ -628,5 +628,15 @@ row f), so it is read beside the worktree after-value, not against the main tree
 
 | Script | Before (main tree) | Before (worktree of the Wave 3 base) | After (main tree, rows commit) | After (worktree, rows commit) |
 |--------|--------------------|--------------------------------------|--------------------------------|-------------------------------|
-| `check-rsp-evidence.py --check` | 1 | 1 | recorded below | recorded below |
-| `check-base-evidence.py --check-current` | 0 | 2 | recorded below | recorded below |
+| `check-rsp-evidence.py --check` | 1 | 1 | 1 | 1 |
+| `check-base-evidence.py --check-current` | 0 | 2 | 0 | 2 |
+
+After-record. The rows commit is `f027b05` (full hash
+`f027b055a1cd14e7cb84e0fd9f9a31b243f175cb`). Every status is unchanged by the commit, so no
+consumer outside the gate moved. Right after the commit: the four manifest-adjacent CTests
+(`harness.rdp-oracle-authority` and `harness.phase09-qualification` exercise the manifest
+binding; `harness.audio-qualification` and `harness.rsp-evidence-ownership` are regression runs
+only, section 9) pass 4 of 4; `sh scripts/preflight-phase10.sh` on the clean committed tree
+passes in 76 s (227 units compiled with the act image cc 13.3.0, 11 post-Gate steps replayed
+with the real `qualify-audio.py` and `qualify-phase09.py` emit steps over the new manifest);
+`git log` since the Wave 3 base lists exactly this one commit for `fixtures/manifest.json`.
