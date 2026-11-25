@@ -559,3 +559,74 @@ seconds after the first local run. Two consequences:
   native seconds from a `ctest` run log, not from that file. The native seconds of this
   plan's fresh runs are in section 10.1 (state.import 47.7 and 51.4 s, field-use audit
   17.1 and 17.6 s, rsp-no-hle 15.0 and 15.3 s, phase09-qualification 8.6 and 8.8 s).
+
+## 11. Manifest-moving commit (plan 10-14, RUN-07 and the GATE-02 real-row proof)
+
+Written by plan 10-14 (phase-wave 3). Evidence tier: code observations and supervised-run
+results on the gate preset at the commits named below; the guest is authored here (D2, D5),
+embeds only the pinned openIPL3 asset the earlier builders use, and nothing here is a
+compatibility or hardware claim. The 1-minute host load was 12 to 15 (above the quiet-host
+threshold of 8), so seconds are upper bounds.
+
+**Commits.** The guest sources, builder, oracle and input script are commit `419275d`
+(no manifest row and no runner table row). The manifest rows and runner rows are the one
+commit of this phase that changes `fixtures/manifest.json` (subject `feat(10-14): composite
+manifest and runner rows`; its hash is in the after-record of section 11.4). The two are
+separate so that `source.revision` of the new rows names a commit that already holds
+`fixtures/composite/composite.S` (the Phase 9 rows do the same); the guest source is frozen
+before the rows are computed from it.
+
+### 11.1 Rows
+
+| Row id | ROM SHA-256 | ROM size | Payload SHA-256 (size) | Completion PC | Runner cap |
+|--------|-------------|----------|------------------------|---------------|------------|
+| `phase10-composite-s32k` | `7a0426b49eb8f4288c70414e9b34cc6e4fdfb8052335976f8fc43d886e954945` | 5,496 | `a908ce5882787f107335a7f45a671d02df6ae7b77ab665239e33dadbfcc3146b` (1,400) | `0x800007a4` | long cap |
+| `phase10-composite-wrong-s32k` | `dbb52ad154e77c41d148eaef9ce704c425aad68ca49f4726708c3e0b13da7514` | 5,496 | `c9a40d0c07dde87e4455a6a68561291cc0a97898dc57edbb8045f88ae0e6b86e` (1,400) | `0x800007a8` | long cap |
+
+Both rows: profile `ntsc-cart-4m-openipl3-rdram-b-t1-si-v2-s32k` (profile hash
+`9dfb90d8055b822a1767be1c5594d1b2d904f042ef6fe82f2e7a3243e5756578`, section 2.1),
+`authored-here`, `cleared`, `build-only`, source-content SHA-256
+`311a8dbc86f6624948b14320d25bc24ecabf3e3735f5a27f829b94589a5e4c6f` (the builder's file list
+leaves out the oracle and the input script, so plan 10-15 can add oracle modes without moving
+the rows). Runner pin of both rows: 188 bytes, SHA-256
+`da07d916f0314db05e8d609326242d7f944098e96ce19a96339ef1cd6a7aad39` (the transcript of the
+accepted ROM with `fixtures/composite/composite.input.json`; the wrong ROM is judged by the
+same pin and fails it). The long cap (4,000,000 guest ticks) is used instead of the default
+600,000: IPL3 hands over at about tick 539,200 and the guest completes at tick 599,357, 643
+ticks below the default cap, because each SI DMA models thousands of ticks.
+
+### 11.2 Pins that did not move
+
+| Item | Value |
+|------|-------|
+| `PINNED_REQUEST_SHA256` (`scripts/check-rdp-oracle-authority.py`, line 23) | `e131cbe7e255052e706668b6cb0d7192c4ac877b65bd7c3a33e65194962927ab`, unchanged; the file, `scripts/tests/test_phase09_qualification.py`, `runner/t64_real.c` and `runner/t64_supervisor.c` are byte-identical to the Wave 3 base |
+| manifest rows of the Wave 3 base | 39, equal in canonical JSON and in position; two rows appended (41) |
+| closed Phase 9 records | `docs/claims/phase09.md` and `docs/evidence/phase09-qualification.md` are byte-identical to both the Wave 0 and the Wave 3 base |
+| `harness.rdp-oracle-authority`, `harness.phase09-qualification` | pass on the appended rows with no oracle rebind (per-row binding of plan 10-03, GATE-02 on a real row) |
+| one consumer the plan did not name | `runner.fixture-transcript-pin` compares the pass-rule sentence of `docs/spec/result-protocol.md` with the runner table (drift control of plan 09-10). The two new pinned rows made it say "17 rows" and add the 188-byte length; the sentence was updated (the only text change outside the plan list) and the control passes. `check-rsp-evidence.py` hashes that document too, but already exits 1 (section 9, row e) |
+
+### 11.3 Supervised runs (accepted ROM with `composite.input.json`)
+
+| Item | Value |
+|------|-------|
+| raw-capture run (`--raw-capture-dir`) | outcome `pass`, `positive-match`, guest tick 599,357, state digest `97f270274d456e883ceaa11f100f92c7fbf3150e89031fa51164e79991f1267c` |
+| save-out run (`--artifact-dir`, `--artifact-max-bytes 32768`, `--save-export-leaf composite.sra`, `--save-kind sram32k`, `--save-format raw-v1`) | outcome `pass`, guest tick 599,357, the same state digest; one exported file of 32,768 bytes, SHA-256 `f0b7fe880aeed453233a0b07ab62301420967a959bd1d43e9dd49e23d3e6926d` |
+| raw capture sizes (limit 69,632 per file) | 3 video frames of 48 bytes (4x3 RGBA8), 2 audio packets of 16 bytes (S16BE), `manifest.json` 2,273 bytes, data 176 bytes, total 2,449 bytes: the largest file is 3.3 percent of the limit |
+| oracle agreement (`fixtures/composite/composite_oracle.py --input fixtures/composite/composite.input.json`) | video bytes, both audio packets, the save SHA-256 and the 188-byte transcript (SHA-256 above) are equal to the run outputs; the wrong ROM prints the SR line the oracle gives for `--variant wrong` (last digit 6, not 7) and fails the pin with `wrong-transcript`; the empty input script completes and prints the oracle's empty transcript (SHA-256 `a99af82e3f0ec8df350822f9170034f1797adc902fc5392a2b3808695c4ed04e`, save image `a7762195a09b78d930db2bd627429c7c6c2ea4389dc658c23df8d8b3124a3a34`) |
+| controller poll ticks (measured once from the neutral run with 116 probe stamps, 400 ticks apart, strictly-after rule) | poll 1 in (555,400, 555,800], poll 2 in (573,400, 573,800], poll 3 in (591,400, 591,800]; the input script stamps at 564,000 and 582,000, at least 8,200 ticks from every poll; the oracle refuses a stamp within 2,000 ticks of a nominal poll tick (exit 2) |
+| raw run before audio existed | with no AI the raw capture ends `harness-error` / `capture-incomplete-streams` (a bundle needs both streams), so the tracer carried the audio phase |
+
+### 11.4 Consumers of `fixtures/manifest.json` that no gate test exercises
+
+Exit statuses of the two scripts of the section 9 audit (rows e and f), before the rows
+commit. "Before" is the main tree with the Wave 3 base manifest (equal to the committed
+manifest at the plan start): `check-rsp-evidence.py --check` 1 and `check-base-evidence.py
+--check-current` 0, the statuses the 10-03 audit recorded. A throwaway worktree of the Wave 3
+base gives 1 and 2: the second is environmental (the private BASE artifacts of
+`build/private-base-diagnostic` are not part of a worktree; a clean clone also exits 2, section 9
+row f), so it is read beside the worktree after-value, not against the main tree.
+
+| Script | Before (main tree) | Before (worktree of the Wave 3 base) | After (main tree, rows commit) | After (worktree, rows commit) |
+|--------|--------------------|--------------------------------------|--------------------------------|-------------------------------|
+| `check-rsp-evidence.py --check` | 1 | 1 | recorded below | recorded below |
+| `check-base-evidence.py --check-current` | 0 | 2 | recorded below | recorded below |

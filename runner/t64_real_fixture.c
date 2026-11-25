@@ -151,6 +151,18 @@ static const t64_real_fixture fixtures[] = {
      "52c47d606e2a0b4dce7a743327082c505ea6f062648cf37349f6e50ca398e87a",
      UINT32_C(0x800005f0), true, T64_REAL_GUEST_TICKS_LONG_CAP, 101u,
      "52b0f1caee3ec470f4217236ce6f3da94e6ff1c15fd93143a68f7364b732a026"},
+    {"phase10-composite-s32k",
+     "7a0426b49eb8f4288c70414e9b34cc6e4fdfb8052335976f8fc43d886e954945",
+     5496u, "ntsc-cart-4m-openipl3-rdram-b-t1-si-v2-s32k",
+     "9dfb90d8055b822a1767be1c5594d1b2d904f042ef6fe82f2e7a3243e5756578",
+     UINT32_C(0x800007a4), true, T64_REAL_GUEST_TICKS_LONG_CAP, 188u,
+     "da07d916f0314db05e8d609326242d7f944098e96ce19a96339ef1cd6a7aad39"},
+    {"phase10-composite-wrong-s32k",
+     "dbb52ad154e77c41d148eaef9ce704c425aad68ca49f4726708c3e0b13da7514",
+     5496u, "ntsc-cart-4m-openipl3-rdram-b-t1-si-v2-s32k",
+     "9dfb90d8055b822a1767be1c5594d1b2d904f042ef6fe82f2e7a3243e5756578",
+     UINT32_C(0x800007a8), true, T64_REAL_GUEST_TICKS_LONG_CAP, 188u,
+     "da07d916f0314db05e8d609326242d7f944098e96ce19a96339ef1cd6a7aad39"},
 };
 
 const t64_real_fixture *t64_real_fixture_find_bytes(
