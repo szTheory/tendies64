@@ -831,6 +831,21 @@ set_tests_properties(unit.core.k1.dispatch-refusal
   LABELS "unit;phase10"
   ENVIRONMENT "T64_TEST_IPL3_PATH=${T64_BOOT_FIXTURE_DIR}/ipl3_compat.z64")
 
+# Phase 11 public surface (plan 11-02): the test includes only the public
+# header and tests/t64_test.h, so it sees what an installed consumer sees.
+# Later shape plans add cases of the unit.core.api family here.
+add_executable(test_api_surface tests/test_api_surface.c)
+target_include_directories(test_api_surface PRIVATE
+  "${CMAKE_SOURCE_DIR}/tests")
+target_link_libraries(test_api_surface PRIVATE t64_core)
+t64_target_warnings(test_api_surface)
+add_test(NAME unit.core.api.abi-version
+  COMMAND test_api_surface --case abi-version)
+set_tests_properties(unit.core.api.abi-version PROPERTIES
+  LABELS "unit;phase11"
+  TIMEOUT 30
+  COST 1)
+
 # Descriptor 13 family (plan 10-09): the four registered si-v2 ids with their
 # pinned profile hashes, and ISViewer activity on the eight SI family ids; plan
 # 10-10 adds the predicate matrix over all 25 registered ids.

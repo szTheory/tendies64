@@ -6,9 +6,34 @@
 #ifndef TENDIES64_T64_MACHINE_H
 #define TENDIES64_T64_MACHINE_H
 
+/* C++ has bool; C99 needs the header (only function parameters use bool). */
+#ifndef __cplusplus
 #include <stdbool.h>
+#endif
 #include <stddef.h>
 #include <stdint.h>
+
+/*
+ * Every public function is marked T64_API: default symbol visibility under
+ * GCC and Clang, nothing elsewhere. A host that links the installed archive
+ * sees exactly the marked functions.
+ */
+#if defined(__GNUC__) || defined(__clang__)
+#define T64_API __attribute__((visibility("default")))
+#else
+#define T64_API
+#endif
+
+/*
+ * ABI version of this header: the major in the upper 16 bits and the minor in
+ * the lower 16. T64_ABI_VERSION is the value t64_abi_version() returns for the
+ * library built from the same sources, so a host can assert that the header
+ * it compiled against and the library it linked agree.
+ */
+#define T64_ABI_VERSION_MAJOR UINT32_C(0)
+#define T64_ABI_VERSION_MINOR UINT32_C(1)
+#define T64_ABI_VERSION                                                        \
+  ((T64_ABI_VERSION_MAJOR << 16) | T64_ABI_VERSION_MINOR)
 
 #define T64_DIGEST_SIZE 32u
 #define T64_ROM_HEADER_SIZE 64u
@@ -153,13 +178,19 @@
 /* Software debug-stop convention; it is not a guest pass or CPU exception. */
 #define T64_STOP_REASON_GUEST_COMPLETION UINT32_C(8)
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 typedef uint32_t t64_status;
 
 typedef struct t64_machine t64_machine;
 
 /* Build identity is separate from machine/profile/state identity. */
-const char *t64_build_identity(void);
-const char *t64_source_revision(void);
+T64_API const char *t64_build_identity(void);
+T64_API const char *t64_source_revision(void);
+/* The ABI version of the library as a uint32_t (T64_ABI_VERSION). */
+T64_API uint32_t t64_abi_version(void);
 
 typedef struct {
   void *data;
@@ -344,46 +375,46 @@ typedef struct {
 #define T64_AUDIO_ENCODING_S16BE UINT32_C(1)
 
 /* The returned descriptor is immutable and remains valid for program life. */
-t64_status t64_profile_lookup(const char *profile_id,
-                              const t64_profile_descriptor **profile_out);
-t64_status t64_profile_hash(const t64_profile_descriptor *profile,
-                            uint8_t digest_out[T64_DIGEST_SIZE]);
+T64_API t64_status t64_profile_lookup(const char *profile_id,
+                                      const t64_profile_descriptor **profile_out);
+T64_API t64_status t64_profile_hash(const t64_profile_descriptor *profile,
+                                    uint8_t digest_out[T64_DIGEST_SIZE]);
 /*
  * Output spans must not overlap each other or the source profile. On
  * BUFFER_TOO_SMALL, length_out receives the required size; bytes stay intact.
  */
-t64_status t64_profile_serialize(const t64_profile_descriptor *profile,
-                                 uint8_t *bytes_out, size_t capacity,
-                                 size_t *length_out);
+T64_API t64_status t64_profile_serialize(const t64_profile_descriptor *profile,
+                                         uint8_t *bytes_out, size_t capacity,
+                                         size_t *length_out);
 
 /* Create/destroy and admission are the only operations that call the host. */
-t64_status t64_machine_create(const t64_host_allocator *allocator,
-                              const t64_profile_descriptor *profile,
-                              t64_machine **machine_out);
-void t64_machine_destroy(t64_machine *machine);
-t64_status t64_machine_admit_rom(t64_machine *machine, const uint8_t *bytes,
-                                 size_t length);
-t64_status t64_machine_advance(t64_machine *machine,
-                               const t64_stop_request *request,
-                               t64_stop_result *result_out);
-t64_status t64_machine_content_digest(
+T64_API t64_status t64_machine_create(const t64_host_allocator *allocator,
+                                      const t64_profile_descriptor *profile,
+                                      t64_machine **machine_out);
+T64_API void t64_machine_destroy(t64_machine *machine);
+T64_API t64_status t64_machine_admit_rom(t64_machine *machine, const uint8_t *bytes,
+                                         size_t length);
+T64_API t64_status t64_machine_advance(t64_machine *machine,
+                                       const t64_stop_request *request,
+                                       t64_stop_result *result_out);
+T64_API t64_status t64_machine_content_digest(
     const t64_machine *machine, uint8_t digest_out[T64_DIGEST_SIZE]);
 /* Read-only admission observations; outputs are unchanged on NOT_READY/refusal. */
-t64_status t64_machine_rom_size(const t64_machine *machine,
-                                size_t *size_out);
+T64_API t64_status t64_machine_rom_size(const t64_machine *machine,
+                                        size_t *size_out);
 /*
  * Copies the fixed normalized header on success. A NULL/zero-capacity query
  * returns BUFFER_TOO_SMALL and the required 64-byte length. On any
  * BUFFER_TOO_SMALL result the output bytes remain unchanged.
  */
-t64_status t64_machine_rom_header(const t64_machine *machine,
-                                  uint8_t *header_out, size_t capacity,
-                                  size_t *length_out);
+T64_API t64_status t64_machine_rom_header(const t64_machine *machine,
+                                          uint8_t *header_out, size_t capacity,
+                                          size_t *length_out);
 /* The returned descriptor is borrowed and valid until machine destruction. */
-t64_status t64_machine_profile(
+T64_API t64_status t64_machine_profile(
     const t64_machine *machine, const t64_profile_descriptor **profile_out);
-t64_status t64_machine_digest(const t64_machine *machine,
-                              uint8_t digest_out[T64_DIGEST_SIZE]);
+T64_API t64_status t64_machine_digest(const t64_machine *machine,
+                                      uint8_t digest_out[T64_DIGEST_SIZE]);
 
 /*
  * State export (provisional until Phase 10: the name, the container layout
@@ -409,9 +440,9 @@ t64_status t64_machine_digest(const t64_machine *machine,
  * the buffer, so a defect never publishes a partial container.
  */
 #define T64_STATE_CONTAINER_FORMAT "t64.state-container.v1"
-t64_status t64_machine_state_export(const t64_machine *machine,
-                                    uint8_t *bytes_out, size_t capacity,
-                                    size_t *length_out);
+T64_API t64_status t64_machine_state_export(const t64_machine *machine,
+                                            uint8_t *bytes_out, size_t capacity,
+                                            size_t *length_out);
 /*
  * The public name of container version 2 (plan 10-15, CORE-06), beside
  * T64_STATE_CONTAINER_FORMAT above: a state serialization version 26 machine
@@ -523,13 +554,13 @@ typedef struct {
   uint64_t position;
 } t64_state_import_report;
 
-t64_status t64_machine_state_import(t64_machine *machine,
-                                    const uint8_t *bytes, size_t length,
-                                    uint32_t flags,
-                                    t64_state_import_report *report_out);
+T64_API t64_status t64_machine_state_import(t64_machine *machine,
+                                            const uint8_t *bytes, size_t length,
+                                            uint32_t flags,
+                                            t64_state_import_report *report_out);
 
 /* Returns NOT_READY until a terminal CPU stop; refusals leave output intact. */
-t64_status t64_machine_cpu_stop_detail(
+T64_API t64_status t64_machine_cpu_stop_detail(
     const t64_machine *machine, t64_cpu_stop_detail *detail_out);
 
 /*
@@ -545,9 +576,9 @@ t64_status t64_machine_cpu_stop_detail(
  * after a terminal CPU stop; reset or successful image replacement clears
  * both capture and observer cursor.
  */
-t64_status t64_machine_output_drain(t64_machine *machine, uint8_t *bytes_out,
-                                   size_t capacity,
-                                   t64_output_drain_result *result_out);
+T64_API t64_status t64_machine_output_drain(t64_machine *machine, uint8_t *bytes_out,
+                                           size_t capacity,
+                                           t64_output_drain_result *result_out);
 
 /*
  * Raw video is a bounded, lossless, two-packet queue on the RDP/VI profile.
@@ -555,10 +586,10 @@ t64_status t64_machine_output_drain(t64_machine *machine, uint8_t *bytes_out,
  * leaves the queue untouched; a successful full copy dequeues that packet.
  * Refused or undersized copies leave both output bytes and queue unchanged.
  */
-t64_status t64_video_info(const t64_machine *machine,
-                          t64_video_packet_info *info_out);
-t64_status t64_video_copy(t64_machine *machine, uint8_t *bytes_out,
-                          size_t capacity, size_t *length_out);
+T64_API t64_status t64_video_info(const t64_machine *machine,
+                                  t64_video_packet_info *info_out);
+T64_API t64_status t64_video_copy(t64_machine *machine, uint8_t *bytes_out,
+                                  size_t capacity, size_t *length_out);
 
 /*
  * Save device information (provisional until Phase 10; no API/ABI freeze).
@@ -590,9 +621,9 @@ typedef struct {
  * output unchanged. The device is selected by the profile only: no header,
  * title, game code, checksum or file name is an input.
  */
-t64_status t64_machine_save_info(const t64_machine *machine,
-                                 uint32_t requested_kind,
-                                 t64_save_info *info_out);
+T64_API t64_status t64_machine_save_info(const t64_machine *machine,
+                                         uint32_t requested_kind,
+                                         t64_save_info *info_out);
 
 /*
  * Host import and export of the save device bytes (plan 09-05; provisional
@@ -624,19 +655,19 @@ t64_status t64_machine_save_info(const t64_machine *machine,
  * machine) restores blank save content, clears the deadline and resets the
  * generation.
  */
-t64_status t64_machine_save_export(const t64_machine *machine,
-                                   uint32_t device_kind, uint32_t format,
-                                   uint8_t *bytes_out, size_t capacity,
-                                   size_t *length_out);
-t64_status t64_machine_save_import(t64_machine *machine, uint32_t device_kind,
-                                   uint32_t format, const uint8_t *bytes,
-                                   size_t length);
+T64_API t64_status t64_machine_save_export(const t64_machine *machine,
+                                           uint32_t device_kind, uint32_t format,
+                                           uint8_t *bytes_out, size_t capacity,
+                                           size_t *length_out);
+T64_API t64_status t64_machine_save_import(t64_machine *machine, uint32_t device_kind,
+                                           uint32_t format, const uint8_t *bytes,
+                                           size_t length);
 
 /* Audio follows the same bounded, lossless two-packet copy/dequeue contract. */
-t64_status t64_audio_info(const t64_machine *machine,
-                          t64_audio_packet_info *info_out);
-t64_status t64_audio_copy(t64_machine *machine, uint8_t *bytes_out,
-                          size_t capacity, size_t *length_out);
+T64_API t64_status t64_audio_info(const t64_machine *machine,
+                                  t64_audio_packet_info *info_out);
+T64_API t64_status t64_audio_copy(t64_machine *machine, uint8_t *bytes_out,
+                                  size_t capacity, size_t *length_out);
 
 /*
  * Submit a deterministic port-0 input event. Buttons are bits 0..15; signed
@@ -648,9 +679,9 @@ t64_status t64_audio_copy(t64_machine *machine, uint8_t *bytes_out,
  * Submission is accepted only for an admitted, nonterminal machine and a tick
  * at or after the current guest tick.
  */
-t64_status t64_machine_queue_input(t64_machine *machine, uint64_t tick,
-                                   uint32_t port, uint16_t buttons,
-                                   int32_t axis_x, int32_t axis_y);
+T64_API t64_status t64_machine_queue_input(t64_machine *machine, uint64_t tick,
+                                           uint32_t port, uint16_t buttons,
+                                           int32_t axis_x, int32_t axis_y);
 
 /*
  * Host debug access to physical byte addresses, called between advance calls.
@@ -663,22 +694,26 @@ t64_status t64_machine_queue_input(t64_machine *machine, uint64_t tick,
  * and rejected reads leave value_out unchanged. These calls do not execute guest
  * code or translate virtual addresses.
  */
-t64_status t64_machine_bus_read(t64_machine *machine, uint32_t address,
-                                uint32_t width, uint32_t *value_out);
-t64_status t64_machine_bus_write(t64_machine *machine, uint32_t address,
-                                 uint32_t width, uint32_t value);
+T64_API t64_status t64_machine_bus_read(t64_machine *machine, uint32_t address,
+                                        uint32_t width, uint32_t *value_out);
+T64_API t64_status t64_machine_bus_write(t64_machine *machine, uint32_t address,
+                                         uint32_t width, uint32_t value);
 
 /* Trace state is observer-only and never changes the canonical digest. */
-t64_status t64_machine_trace_set_enabled(t64_machine *machine, bool enabled);
+T64_API t64_status t64_machine_trace_set_enabled(t64_machine *machine, bool enabled);
 /*
  * Copies up to capacity whole records in FIFO order and reports the
  * cumulative saturated drop observation. A zero capacity permits NULL
  * records_out, copies nothing, and leaves queued records intact. All output
  * parameters are required; invalid outputs leave observer state unchanged.
  */
-t64_status t64_machine_trace_drain(
+T64_API t64_status t64_machine_trace_drain(
     t64_machine *machine, t64_trace_record *records_out, size_t capacity,
     size_t *count_out, uint64_t *dropped_out,
     bool *drop_count_saturated_out);
+
+#ifdef __cplusplus
+}
+#endif
 
 #endif /* TENDIES64_T64_MACHINE_H */

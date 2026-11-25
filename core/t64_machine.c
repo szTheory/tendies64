@@ -2352,6 +2352,8 @@ const char *t64_build_identity(void) { return T64_BUILD_ID; }
 
 const char *t64_source_revision(void) { return T64_SOURCE_REVISION; }
 
+uint32_t t64_abi_version(void) { return T64_ABI_VERSION; }
+
 t64_status t64_profile_lookup(const char *profile_id,
                               const t64_profile_descriptor **profile_out) {
   static const char skeleton_profile_id[] = "ntsc-cart-4m-skeleton";

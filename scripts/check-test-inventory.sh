@@ -273,6 +273,12 @@ runner.state-format-v26
 runner.composite-state-v2
 harness.phase10-qualification'
 
+# Phase 11 names (installed consumer and freeze candidate): every name also
+# carries the extra CTest label phase11, which sh scripts/preflight-phase11.sh
+# compares with this block. One name per line, closing quote on the last name.
+PHASE11_TESTS='repo.abi-header
+unit.core.api.abi-version'
+
 CPU_COVERAGE_OPCODES='ADD
 ADDU
 SUB
@@ -374,7 +380,7 @@ expected_names() {
     *) echo "unsupported preset: $_preset" >&2; return 2 ;;
   esac
   {
-    printf '%s\n' "$BASELINE_CORE" "$BASELINE_CONTROLS" "$PHASE02_TESTS" "$PHASE03_TESTS" "$PHASE04_TESTS" "$PHASE05_TESTS" "$PHASE06_TESTS" "$PHASE07_TESTS" "$PHASE08_TESTS" "$PHASE09_TESTS" "$PHASE10_TESTS" "$_extra"
+    printf '%s\n' "$BASELINE_CORE" "$BASELINE_CONTROLS" "$PHASE02_TESTS" "$PHASE03_TESTS" "$PHASE04_TESTS" "$PHASE05_TESTS" "$PHASE06_TESTS" "$PHASE07_TESTS" "$PHASE08_TESTS" "$PHASE09_TESTS" "$PHASE10_TESTS" "$PHASE11_TESTS" "$_extra"
   } | awk 'NF' | sort
 }
 

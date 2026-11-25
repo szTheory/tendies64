@@ -16,12 +16,12 @@
 1	^runner\.composite-two-run$
 1	^harness\.composite-oracle$
 # Phase 11 name families, zero until the owning plan registers them.
-0	^repo\.abi
+1	^repo\.abi
 0	^install\.
 0	^installed\.consumer\.
 0	^installed\.controls\.
 0	^api04\.
-0	^unit\.core\.api\.
+1	^unit\.core\.api\.
 0	^repo\.consumer-include-guard$
 0	^repo\.api-init-guard
 0	^repo\.stale-freeze-text$
