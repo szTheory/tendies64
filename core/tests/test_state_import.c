@@ -1360,7 +1360,7 @@ static void case_container_refusals(void) {
           T64_CHECK_INT(want, T64_STATUS_INVALID_ARGUMENT);
           T64_CHECK_INT(disjoint.reason, refusals[arm].reason);
         }
-        (void)memset(inside, 0xA5, sizeof before); /* a canary per row */
+        poison_import_report(inside); /* a canary per row */
         (void)memcpy(before, inside, sizeof before);
         T64_CHECK_INT(t64_machine_state_import(peer, refusals[arm].bytes,
                                                refusals[arm].length,

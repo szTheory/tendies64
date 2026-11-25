@@ -2472,7 +2472,7 @@ static bool inprocess_import(const uint8_t *blob, size_t size,
   const t64_profile_descriptor *profile = NULL;
   t64_machine *machine = NULL;
   bool ok = false;
-  memset(report_out, 0, sizeof *report_out);
+  *report_out = (t64_state_import_report)T64_STATE_IMPORT_REPORT_INIT;
   if (rom != NULL && fixture_path(rom_path, LONG_ROM) &&
       read_file(rom_path, rom, 1u << 20, &rom_length) && rom_length != 0u &&
       t64_profile_lookup(PROFILE_STEM, &profile) == T64_STATUS_OK &&
