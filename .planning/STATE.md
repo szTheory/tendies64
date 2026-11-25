@@ -5,16 +5,16 @@ milestone_name: Embeddable and Playable
 current_phase: 11
 current_phase_name: Installed Consumer and Freeze Candidate
 status: executing
-stopped_at: Phase 10 complete, ready to plan Phase 11
-last_updated: "2026-11-25T19:02:42.453Z"
+stopped_at: Completed 11-01-PLAN.md
+last_updated: "2026-11-25T19:35:06.383Z"
 last_activity: 2026-11-25
 last_activity_desc: Phase 11 execution started
-state_head: f9124ae9fce134f31b645c6f2911a6f27fa41b9a
+state_head: c1ef5c88351cbf9e40a927b14fb990a15d9044fc
 progress:
   total_phases: 3
   completed_phases: 1
   total_plans: 46
-  completed_plans: 21
+  completed_plans: 22
   percent: 33
 ---
 
@@ -30,8 +30,8 @@ See: .planning/PROJECT.md (updated 2026-11-23)
 ## Current Position
 
 Phase: 11 (Installed Consumer and Freeze Candidate) — EXECUTING
-Plan: 1 of 25
-Status: Executing Phase 11
+Plan: 2 of 25
+Status: Ready to execute
 Last activity: 2026-11-25 — Phase 11 execution started
 
 Progress: [███░░░░░░░] 33% (0 of 3 v1.2 phases complete)
@@ -81,6 +81,7 @@ Progress: [███░░░░░░░] 33% (0 of 3 v1.2 phases complete)
 | Phase 10 P19 | 40 min | 4 tasks | 4 files |
 | Phase 10 P20 | 17min | 4 tasks | 5 files |
 | Phase 10 P21 | 33min | 4 tasks | 6 files |
+| Phase 11 P01 | 29 min | 4 tasks | 4 files |
 
 ## Accumulated Context
 
@@ -193,6 +194,13 @@ Progress: [███░░░░░░░] 33% (0 of 3 v1.2 phases complete)
 - [Phase 10]: 10-21: Qualification base 76451024e148073804e162841c3d0a3543bd2567 is the only record line of PIN-IMPACT.md section 5 (the plan 10-18 value ad39b6be... is a labelled historical line); native record 20261125T155456703622Z-1fc0b1da passed on the first attempt (410.78 s, --verify exit 0), qualified commit 1fc0b1d, no limit widened
 - [Phase 10]: 10-21: the verified head 85ba477 is on origin/main (fast-forward, 26 commits, no tag) with a green hosted pair, run 45650890027: gate-macos 368 s and gate-linux 254 s; F-126 and the gap-closure ledger row recorded; the cold run of F-124 (731 s, earlier tree) was not repeated
 - [Phase 10]: 10-21: evidence and claims refreshed for the re-qualified tree (28 mutant rows, VI rows in CORE-06, exceptions 3 and 8 updated, new exception 9); W2-03 closed not carried; ROADMAP Phase 11 carry-ins now list all five carried items; origin/main trails local by the document commits
+- [Phase 11]: 11-01: owner answer A (2026-11-25) extends the call-site-only rebind approval to the single initializer hunk core/tests/test_rdp.c:486 and no further; t64_host_storage keeps its leading struct_size, filled by the core before each allocate call (DR-06 INFO-03, DR-27); plan 11-14 applies the hunk in its isolated orchestrator commit
+- [Phase 11]: 11-01: PIN-IMPACT.md decision record DR-01 to DR-32 binds the shape wave: statuses 34 to 38 appended after 33, ABI 0.1 with SameMinorVersion, create-info handshake, the struct_size set, fixed-width members, init macros, retained slots t64_vi_packet_slot 488 and t64_ai_packet_slot 280, t64i_ prefix, DEV-11-01 window from the 11-12 flip to the 11-14 bound commit
+- [Phase 11]: 11-01: bound-file probe measured the planned shape against the nine API-using bound files: 17 call expressions, 120 object initializers and one approved other hunk (110 hunks, 154 diagnostics); runner/tests/test_rdp_video.c needs no edit
+- [Phase 11]: 11-01: carry-ins triaged: W2-01, W1-03, D-10-17-01 and T8 done in 11-22; W2-02, T4 and T7 done in 11-11; T3 done in Phase 10; DEF-W1-01 deferred to v1.3, T1 beyond v1.2, T2, T5 and T6 to Phase 12; G3 count projected to one carried gap
+- [Phase 11]: 11-01: LibFuturo paper read at local, unpublished commit 4177a43 amends no locked decision; any adapter stays optional and the written evaluation is Phase 12
+- [Phase 11]: 11-01: Phase 11 G4 exception for owner review recorded (no offset; new names are required SC1 to SC5 evidence); baseline measured cold gate-macos 731 s of 900 s (margin 169 s); reversal if a review plan projects a cold run above 900 s
+- [Phase 11]: 11-01: digest-sweep printer compiles against both API generations through one defined(T64_MACHINE_CREATE_INFO_INIT) selector; sweep reports 1599 shared lines and 0 differences; sh scripts/preflight-phase11.sh passes in 41 s without replay
 
 ### Pending Todos
 
@@ -218,8 +226,8 @@ None for v1.1. Carry-ins for v1.2 are listed in the Deferred Items table, the v1
 
 ## Session Continuity
 
-Last session: 2026-11-25T16:15:27.996Z
-Stopped at: Phase 10 complete, ready to plan Phase 11
+Last session: 2026-11-25T19:35:06.344Z
+Stopped at: Completed 11-01-PLAN.md
 Resume file: None
 
 Historical closeout: [v1.0 roadmap](milestones/v1.0-ROADMAP.md), [audit](milestones/v1.0-MILESTONE-AUDIT.md), [lessons](RETROSPECTIVE.md).
