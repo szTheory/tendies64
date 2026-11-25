@@ -140,7 +140,7 @@ sh scripts/check-ci-yml.sh && sh scripts/check-ci-yml.sh --selftest
 sh scripts/check-test-inventory.sh --preset gate
 python3 -B scripts/check-rsp-no-hle.py --build build/gate
 python3 -B scripts/p10-mutants.py --check-anchors
-python3 -B scripts/p10-mutants.py --run          # 25 KILLED, 1 SURVIVED (control), 1 INVALID (control)
+python3 -B scripts/p10-mutants.py --run          # 26 KILLED, 1 SURVIVED (control), 1 INVALID (control); 28 rows
 python3 -B scripts/digest-sweep.py --base <Wave 0 base from PIN-IMPACT.md> --head HEAD
 python3 -B scripts/digest-sweep.py --selftest
 python3 -B fixtures/composite/composite_oracle.py --check fixtures/composite/composite.expected.json
@@ -154,7 +154,7 @@ gh run view 45550277510 --json conclusion,jobs
 - [x] `scripts/preflight-phase10.sh` exists with its 46 count rows in `scripts/preflight-phase10-regexes.txt`; every row was re-counted against `ctest -N -R` in this audit with 0 mismatches. The script itself was not re-executed (it can rebuild and rewrites its own replay directories under the gate tree); recorded PASS at 82 s (10-18) and 40 s (10-19)
 - [x] committed two-tree digest sweep with forced build identity (`scripts/digest-sweep.py`, `tools/digest-sweep/t64_digest_sweep.c`): re-run 1599 shared lines, 0 differences; `--selftest` PASS
 - [x] `core/tests/test_k1_refusal.c` characterization: first commit `093fb27` precedes the first Phase 10 edit of `core/t64_internal.h` (`286ccbb`); `unit.core.k1.dispatch-refusal` and `unit.core.k1.apply-refusal` pass
-- [x] `scripts/p10-mutants.py` with anchors for the VG and VID mutants: 27 rows, all as expected in a fresh run
+- [x] `scripts/p10-mutants.py` with anchors for the VG and VID mutants: 28 rows (plan 10-20 added v26-digest-omit-vi-phase-cycles), all as expected in a fresh run
 - [x] `core/tests/test_digest_v26.c` RED completeness test before the walker change: RED `42f64db` precedes the activation commit `831c947`
 - [x] pin-impact map committed (`.planning/phases/10-carry-in-closure-before-the-freeze/PIN-IMPACT.md`)
 
