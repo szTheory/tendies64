@@ -5,16 +5,16 @@ milestone_name: Embeddable and Playable
 current_phase: 10
 current_phase_name: Carry-in Closure Before the Freeze
 status: executing
-stopped_at: Completed 10-10-PLAN.md
-last_updated: "2026-11-24T05:10:33.463Z"
+stopped_at: Completed 10-12-PLAN.md
+last_updated: "2026-11-25T01:43:31.536Z"
 last_activity: 2026-11-23
 last_activity_desc: Phase 10 execution started
-state_head: 227a14eee85fa87fc29823d4121594f4f54800aa
+state_head: 7ac4029a94997e6159aa608cc63dfee62535355b
 progress:
   total_phases: 3
   completed_phases: 0
   total_plans: 19
-  completed_plans: 11
+  completed_plans: 12
   percent: 0
 ---
 
@@ -30,7 +30,7 @@ See: .planning/PROJECT.md (updated 2026-11-23)
 ## Current Position
 
 Phase: 10 (Carry-in Closure Before the Freeze) — EXECUTING
-Plan: 12 of 19
+Plan: 13 of 19
 Status: Ready to execute
 Last activity: 2026-11-23 — Phase 10 execution started
 
@@ -71,6 +71,7 @@ Progress: [░░░░░░░░░░] 0% (0 of 3 v1.2 phases complete)
 | Phase 10 P08 | 28 min | 3 tasks | 3 files |
 | Phase 10 P09 | 23 min | 3 tasks | 13 files |
 | Phase 10 P10 | 27 min | 4 tasks | 11 files |
+| Phase 10 P12 | 38 min | 4 tasks | 11 files |
 
 ## Accumulated Context
 
@@ -157,6 +158,7 @@ Progress: [░░░░░░░░░░] 0% (0 of 3 v1.2 phases complete)
 - [Phase 10]: 10-09: v26 walker keeps v25 framing, streams the five depth scalars inside the RDP block as new-span members before work_policy_version and the length-prefixed hidden table after the coverage table; completeness flip test RED for exactly the depth members then GREEN; shipped ids byte-identical (sweep 1599 lines, 0 differences)
 - [Phase 10]: 10-09: t64_machine_state_export and state_version_registered stay exact v25 (state 26 export refused INVALID_ARGUMENT, import reports the state-version reason) until plans 10-11 and 10-12; ISViewer widened to the eight SI-family ids
 - [Phase 10]: 10-10: depth literals on the descriptor 13 ids come from a scratch calculator over the z_format[8] table and the V7 rules; the wrong-depth control compares a 5 byte window (color word, depth word, sidecar entry) of the covered pixel, not the whole Z image, because the covered pixel set is a rasterization result not independently derived
+- [Phase 10]: State 26 import (plan 10-12): the canonical domain text follows the machine (t64.state.si.26 for the v26 tuple, t64.state.si.25 for v25), the five depth scalars are read before the triangle-render proof (ADDR_RANGE, BOOL_01, 16-bit INDEX_LT), the hidden table is ENUM_CLOSED per byte (0 or 0x80 to 0x83) and written by the commit for state 26 only; the Z product bound of the acceptance preflight is re-proved from the blob values by a written-out copy guarded by a parity case
 
 ### Pending Todos
 
@@ -182,8 +184,8 @@ None for v1.1. Carry-ins for v1.2 are listed in the Deferred Items table, the v1
 
 ## Session Continuity
 
-Last session: 2026-11-24T04:43:43.841Z
-Stopped at: Completed 10-10-PLAN.md
+Last session: 2026-11-25T01:43:31.511Z
+Stopped at: Completed 10-12-PLAN.md
 Resume file: None
 
 Historical closeout: [v1.0 roadmap](milestones/v1.0-ROADMAP.md), [audit](milestones/v1.0-MILESTONE-AUDIT.md), [lessons](RETROSPECTIVE.md).
