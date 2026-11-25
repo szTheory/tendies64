@@ -447,6 +447,21 @@ T64_API t64_status t64_machine_admit_rom(t64_machine *machine, const uint8_t *by
  * poisons the instance.
  */
 T64_API t64_status t64_machine_reset(t64_machine *machine);
+/*
+ * Releases the admitted image storage through the host allocator and clears
+ * the image (plan 11-04). The guest state is cleared as for a replacement, the
+ * profile and the allocator are kept, and the instance answers every entry
+ * that needs an image with T64_STATUS_NOT_READY and untouched outputs, exactly
+ * as an instance that never admitted one (docs/spec/machine-contract.md lists
+ * the answer of every entry). Admission after an unload equals a first
+ * admission: the machine digest is the one a fresh instance reports, and
+ * destroy after an unload leaves no outstanding host allocation. Unload with
+ * no admitted image answers T64_STATUS_NOT_READY and a NULL machine
+ * T64_STATUS_INVALID_ARGUMENT, a poisoned instance T64_STATUS_POISONED and a
+ * call from inside an allocator callback T64_STATUS_REENTRANT, each with the
+ * instance unchanged. The release callback runs with the in-call flag raised.
+ */
+T64_API t64_status t64_machine_unload(t64_machine *machine);
 T64_API t64_status t64_machine_advance(t64_machine *machine,
                                        const t64_stop_request *request,
                                        t64_stop_result *result_out);

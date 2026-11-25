@@ -47,7 +47,7 @@
 #define SAVE_PROFILE_ID SI_STEM "-e4k"
 #define LEGACY_PROFILE_ID \
   "ntsc-cart-4m-openipl3-rdram-b-t1-rdp-vi-filter-v9-ai-v1"
-#define ENTRY_COUNT 24u
+#define ENTRY_COUNT 25u
 #define MAX_LIVE 16u
 #define MIN_REFUSED_SHAPES 40u
 
@@ -246,7 +246,8 @@ static const char *const entry_names[ENTRY_COUNT] = {
     "state_import",  "cpu_stop_detail", "output_drain",  "video_info",
     "video_copy",    "save_info",      "save_export",    "save_import",
     "audio_info",    "audio_copy",     "queue_input",    "bus_read",
-    "bus_write",     "trace_set_enabled", "trace_drain", "reset"};
+    "bus_write",     "trace_set_enabled", "trace_drain", "reset",
+    "unload"};
 
 /* The save device kind of the profile under test; a plain value so an entry
  * can be called with a NULL machine. */
@@ -322,6 +323,8 @@ static t64_status call_entry(unsigned entry, t64_machine *machine,
                                    &s->trace_dropped, &s->trace_saturated);
   case 23:
     return t64_machine_reset(machine);
+  case 24:
+    return t64_machine_unload(machine);
   default:
     return T64_STATUS_INVALID_ARGUMENT;
   }
@@ -687,6 +690,26 @@ static void case_reentrant(void) {
     T64_CHECK_INT(control.counts.hook_calls, 0);
     destroy_and_check(&control);
   }
+  /* Unload returns the image through the host allocator: the release
+   * callback sees REENTRANT on every entry, including unload itself. */
+  hooked.counts.hook_machine = hooked.machine;
+  {
+    const unsigned release_calls_before = hooked.counts.hook_release_calls;
+    const unsigned calls_before = hooked.counts.hook_calls;
+    const unsigned entries_before = hooked.counts.hook_entries;
+
+    T64_CHECK_INT(t64_machine_unload(hooked.machine), T64_STATUS_OK);
+    T64_CHECK_INT(hooked.counts.hook_release_calls - release_calls_before, 1);
+    T64_CHECK_INT(hooked.counts.hook_entries - entries_before,
+                  (hooked.counts.hook_calls - calls_before) * ENTRY_COUNT);
+  }
+  T64_CHECK_INT(hooked.counts.hook_reentrant, hooked.counts.hook_entries);
+  T64_CHECK_INT(hooked.counts.hook_untouched, hooked.counts.hook_entries);
+  T64_CHECK(not_poisoned(hooked.machine));
+  hooked.counts.hook_machine = NULL;
+  T64_CHECK_INT(t64_machine_admit_rom(hooked.machine, asset_bytes,
+                                      sizeof asset_bytes),
+                T64_STATUS_OK);
   /* Destruction calls the host too: the release callbacks see REENTRANT. */
   hooked.counts.hook_machine = hooked.machine;
   {

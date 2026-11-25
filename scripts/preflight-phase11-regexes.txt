@@ -21,7 +21,7 @@
 0	^installed\.consumer\.
 0	^installed\.controls\.
 0	^api04\.
-8	^unit\.core\.api\.
+10	^unit\.core\.api\.
 0	^repo\.consumer-include-guard$
 0	^repo\.api-init-guard
 0	^repo\.stale-freeze-text$

@@ -2289,7 +2289,12 @@ static t64_status prepare_openipl3_vr4300_entry(t64_machine *machine) {
   return t64_cpu_schedule(machine);
 }
 
-static t64_status reset_guest_state(t64_machine *machine) {
+/*
+ * Clears every guest-derived member to its post-admission starting value,
+ * before the boot entry is prepared. Admission, public reset and public unload
+ * share it; only the first two follow it with a boot entry.
+ */
+static void clear_guest_state(t64_machine *machine) {
   t64_machine_reset_execution_state(machine);
   (void)memset(machine->ram, 0, machine->profile.rdram_bytes);
   if (t64_has_rdp_triangle_profile(machine)) {
@@ -2339,6 +2344,10 @@ static t64_status reset_guest_state(t64_machine *machine) {
   machine->mi_mask = 0u;
   machine->mi_irq_line = false;
   t64_trace_reset(machine);
+}
+
+static t64_status reset_guest_state(t64_machine *machine) {
+  clear_guest_state(machine);
   if (is_openipl3_profile(&machine->profile)) {
     return prepare_openipl3_warm_entry(machine);
   }
@@ -3065,6 +3074,42 @@ t64_status t64_machine_reset(t64_machine *machine) {
   if (status != T64_STATUS_OK) {
     return t64_internal_defect(machine);
   }
+  return T64_STATUS_OK;
+}
+
+/*
+ * Public unload (plan 11-04): the admitted image goes back to the host and the
+ * instance returns to the state of an instance that never admitted one. The
+ * guest state is cleared as for a replacement, without a boot entry; the
+ * image-derived members (storage, size, header, title, game code, version and
+ * content digest) are cleared; has_image goes down first, so every entry that
+ * needs an image answers NOT_READY from here on. The one allocator callback
+ * (the release of the image storage) runs with the in-call flag raised, so a
+ * call made from inside it is refused. Profile and allocator are kept, and a
+ * later admission equals a first admission.
+ */
+t64_status t64_machine_unload(t64_machine *machine) {
+  t64_host_storage image;
+
+  T64_ENTRY_GUARD(machine);
+  if (!machine->has_image) {
+    return T64_STATUS_NOT_READY;
+  }
+  image = machine->image_storage;
+  clear_guest_state(machine);
+  machine->has_image = false;
+  machine->image_storage.data = NULL;
+  machine->image_storage.capacity = 0u;
+  machine->image_storage.alignment = 0u;
+  machine->image_length = 0u;
+  (void)memset(machine->content_digest, 0, sizeof machine->content_digest);
+  (void)memset(machine->rom_header, 0, sizeof machine->rom_header);
+  (void)memset(machine->rom_title, 0, sizeof machine->rom_title);
+  (void)memset(machine->rom_game_code, 0, sizeof machine->rom_game_code);
+  machine->rom_version = 0u;
+  machine->in_call = 1u;
+  machine->allocator.release(machine->allocator.context, image);
+  machine->in_call = 0u;
   return T64_STATUS_OK;
 }
 

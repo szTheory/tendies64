@@ -286,7 +286,9 @@ unit.core.api.reentrant
 unit.core.api.null-machine
 unit.core.api.defect-sites
 unit.core.api.bus-carve-out
-unit.core.api.reset'
+unit.core.api.reset
+unit.core.api.unload
+unit.core.api.not-ready-table'
 
 CPU_COVERAGE_OPCODES='ADD
 ADDU

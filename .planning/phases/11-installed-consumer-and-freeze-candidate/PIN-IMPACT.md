@@ -605,3 +605,53 @@ commit. `repo.rsp-no-hle` was red between commits `82aa24f` and `7592675` by des
 re-pinned bodies). Measured handler statuses, the static whitelist, the defect-site table and the
 state-export order are in section "DR-12 record". Evidence tier: unit-tested, authored scope; a
 software-interface claim only.
+
+### 11-04 NOT_READY table: every machine-taking entry after `t64_machine_unload`
+
+Written by plan 11-04 Task 2 from the code of each entry (grep of `has_image` over `core/*.c`)
+and pinned by `unit.core.api.not-ready-table`, which runs every row on four profiles (the warm
+skeleton-class profile, the composite family profile with the 4 KiB EEPROM, the VI profile and
+the VI plus AI profile) against an unloaded instance and, for each row, against an instance that
+never admitted an image (the same status both times, so unload leaves no image-derived state).
+Rule: an entry that needs an image answers `NOT_READY` and leaves every output byte as the
+caller left it; an entry documented as image-independent answers as it does on a new instance.
+No entry needed a new `has_image` test; the three entries that do not test it are image
+independent by their code (the debug bus reaches RDRAM and device registers, the trace calls
+are observer controls over a ring that exists from creation, and `t64_machine_profile` reads the
+kept descriptor).
+
+| # | Entry | After unload | Outputs | Decision source |
+|---|-------|--------------|---------|-----------------|
+| 1 | `t64_machine_admit_rom` | OK (admits) | written | image-independent: an unloaded instance admits exactly as a new one; digest equals a fresh admission (`unit.core.api.unload`) |
+| 2 | `t64_machine_advance` | NOT_READY | untouched | `core/t64_machine.c` has_image test |
+| 3 | `t64_machine_content_digest` | NOT_READY | untouched | has_image test |
+| 4 | `t64_machine_rom_size` | NOT_READY | untouched | has_image test |
+| 5 | `t64_machine_rom_header` | NOT_READY | untouched | has_image test |
+| 6 | `t64_machine_profile` | OK | written | image-independent: profile and allocator are kept |
+| 7 | `t64_machine_digest` | NOT_READY | untouched | `core/t64_digest.c` walker refuses without an image |
+| 8 | `t64_machine_state_export` | NOT_READY | untouched | `core/t64_state.c` has_image test, before any write |
+| 9 | `t64_machine_state_import` | NOT_READY | the import report is filled (reason `NOT_ADMITTED`), no other byte | `core/t64_state.c`; the report is the caller record of the attempt |
+| 10 | `t64_machine_cpu_stop_detail` | NOT_READY | untouched | has_image test |
+| 11 | `t64_machine_output_drain` | NOT_READY | untouched | `core/t64_observe.c` has_image and boot-prepared test |
+| 12 | `t64_video_info` | NOT_READY | untouched | `core/t64_vi.c` has_image test |
+| 13 | `t64_video_copy` | NOT_READY | untouched | `core/t64_vi.c` has_image test |
+| 14 | `t64_machine_save_info` | NOT_READY | untouched | `core/t64_save.c` has_image test (precedes the device checks) |
+| 15 | `t64_machine_save_export` | NOT_READY | untouched | `core/t64_save.c` has_image test |
+| 16 | `t64_machine_save_import` | NOT_READY | n/a (input only) | `core/t64_save.c` has_image test |
+| 17 | `t64_audio_info` | NOT_READY | untouched | `core/t64_ai.c` has_image test |
+| 18 | `t64_audio_copy` | NOT_READY | untouched | `core/t64_ai.c` has_image test |
+| 19 | `t64_machine_queue_input` | NOT_READY | n/a | `core/t64_observe.c` has_image test |
+| 20 | `t64_machine_bus_read` (RDRAM address) | OK | written | image-independent: RDRAM and device registers exist from creation |
+| 21 | `t64_machine_bus_read` (cartridge window) | BUS_UNSUPPORTED | untouched | the window has no bytes without an image, and a new instance answers the same; an admitted instance answers OK |
+| 22 | `t64_machine_bus_write` (RDRAM address) | OK | n/a | image-independent |
+| 23 | `t64_machine_bus_write` (cartridge window) | BUS_DEVICE_REFUSED | n/a | the window is read-only with or without an image (the DR-13 carve-out names what a refusing device may latch) |
+| 24 | `t64_machine_trace_set_enabled` | OK | n/a | observer control, image-independent |
+| 25 | `t64_machine_trace_drain` | OK (zero records) | written | observer ring exists from creation; unload clears it |
+| 26 | `t64_machine_reset` | NOT_READY | n/a | no image to reset |
+| 27 | `t64_machine_unload` | NOT_READY | n/a | no image to release; counters unchanged |
+| 28 | `t64_machine_is_poisoned` | OK (0) | written | query, no guard |
+| 29 | `t64_machine_destroy` | releases the remaining blocks (no image block) | n/a | `unit.core.api.unload` asserts allocations equal releases and zero outstanding after unload then destroy |
+
+`t64_machine_output_status` is added to this table by plan 11-04 Task 3. Row 21 is the one
+row where an image-requiring read does not answer `NOT_READY`: it keeps today's bus answer so no
+pre-admission observation changes.

@@ -415,6 +415,391 @@ static void case_reset(void) {
   reset_refusals();
 }
 
+/* ---- unload ------------------------------------------------------------ */
+
+/* The digest of an instance that admitted `image` and ran to `tick` (0 for no
+ * run), taken from a fresh instance of the profile. */
+static bool fresh_digest(const char *profile_id, const uint8_t *image,
+                         size_t image_length, uint64_t tick,
+                         uint8_t digest[T64_DIGEST_SIZE]) {
+  instance fresh;
+  bool ok;
+
+  if (!make_instance(&fresh, profile_id, image, image_length)) return false;
+  if (tick != 0u) (void)advance_to(fresh.machine, tick);
+  ok = digest_of(fresh.machine, digest);
+  destroy_and_check(&fresh);
+  return ok;
+}
+
+static void unload_accepted(const char *profile_id, const uint8_t *image,
+                            size_t image_length, const uint8_t *other_image,
+                            size_t other_length) {
+  instance item;
+  size_t allocations;
+  size_t releases;
+  size_t live;
+  size_t image_block_size;
+  uint8_t fresh[T64_DIGEST_SIZE];
+  uint8_t again[T64_DIGEST_SIZE];
+
+  if (!make_instance(&item, profile_id, image, image_length)) return;
+  /* The image block is the allocation the admission made last. */
+  image_block_size = item.counts.live_size[item.counts.live_count - 1u];
+  T64_CHECK(image_block_size >= image_length);
+  (void)advance_to(item.machine, UINT64_C(60000));
+  allocations = item.counts.allocations;
+  releases = item.counts.releases;
+  live = item.counts.live_count;
+
+  T64_CHECK_INT(t64_machine_unload(item.machine), T64_STATUS_OK);
+  /* Exactly the image storage went back to the host, and nothing was taken. */
+  T64_CHECK_INT(item.counts.allocations, allocations);
+  T64_CHECK_INT(item.counts.releases, releases + 1u);
+  T64_CHECK_INT(item.counts.live_count, live - 1u);
+  T64_CHECK_INT(item.counts.last_release_size, image_block_size);
+  T64_CHECK_INT(item.counts.unknown_releases, 0);
+
+  /* Admission after an unload equals a fresh admission, now and after a run. */
+  T64_CHECK_INT(t64_machine_admit_rom(item.machine, image, image_length),
+                T64_STATUS_OK);
+  T64_CHECK(digest_of(item.machine, again));
+  T64_CHECK(fresh_digest(profile_id, image, image_length, 0u, fresh));
+  T64_CHECK(same_digest(fresh, again));
+  (void)advance_to(item.machine, UINT64_C(60000));
+  T64_CHECK(digest_of(item.machine, again));
+  T64_CHECK(fresh_digest(profile_id, image, image_length, UINT64_C(60000),
+                         fresh));
+  T64_CHECK(same_digest(fresh, again));
+
+  /* Unload, then a different image: no state of the first one survives. */
+  T64_CHECK_INT(t64_machine_unload(item.machine), T64_STATUS_OK);
+  T64_CHECK_INT(t64_machine_admit_rom(item.machine, other_image, other_length),
+                T64_STATUS_OK);
+  T64_CHECK(digest_of(item.machine, again));
+  T64_CHECK(fresh_digest(profile_id, other_image, other_length, 0u, fresh));
+  T64_CHECK_INT(item.counts.unknown_releases, 0);
+  T64_CHECK(same_digest(fresh, again));
+
+  /* Unload then destroy: every block is back, none twice. */
+  T64_CHECK_INT(t64_machine_unload(item.machine), T64_STATUS_OK);
+  destroy_and_check(&item);
+}
+
+static void unload_refused(void) {
+  instance item;
+  size_t allocations;
+  size_t releases;
+  size_t live;
+  uint32_t poisoned = 99u;
+
+  T64_CHECK_INT(t64_machine_unload(NULL), T64_STATUS_INVALID_ARGUMENT);
+  /* No image yet. */
+  if (!make_instance(&item, HELLO_PROFILE, NULL, 0u)) return;
+  allocations = item.counts.allocations;
+  releases = item.counts.releases;
+  live = item.counts.live_count;
+  T64_CHECK_INT(t64_machine_unload(item.machine), T64_STATUS_NOT_READY);
+  T64_CHECK_INT(item.counts.allocations, allocations);
+  T64_CHECK_INT(item.counts.releases, releases);
+  T64_CHECK_INT(item.counts.live_count, live);
+  T64_CHECK_INT(t64_machine_is_poisoned(item.machine, &poisoned),
+                T64_STATUS_OK);
+  T64_CHECK_INT(poisoned, 0);
+  /* Unloaded twice: the second call is the no-image refusal. */
+  T64_CHECK_INT(t64_machine_admit_rom(item.machine, hello_rom, hello_length),
+                T64_STATUS_OK);
+  T64_CHECK_INT(t64_machine_unload(item.machine), T64_STATUS_OK);
+  releases = item.counts.releases;
+  live = item.counts.live_count;
+  T64_CHECK_INT(t64_machine_unload(item.machine), T64_STATUS_NOT_READY);
+  T64_CHECK_INT(item.counts.releases, releases);
+  T64_CHECK_INT(item.counts.live_count, live);
+  destroy_and_check(&item);
+}
+
+static void case_unload(void) {
+  unload_accepted(HELLO_PROFILE, hello_rom, hello_length, fill_rom,
+                  fill_length);
+  unload_accepted(VI_PROFILE, fill_rom, fill_length, hello_rom, hello_length);
+  unload_refused();
+}
+
+/* ---- the NOT_READY table ------------------------------------------------ */
+
+/* Every out parameter of every machine-taking entry, one scratch record, filled
+ * with 0xA5 before a call and compared byte for byte afterwards. */
+typedef struct {
+  t64_stop_result stop_result;
+  uint8_t digest[T64_DIGEST_SIZE];
+  size_t size;
+  uint8_t header[T64_ROM_HEADER_SIZE];
+  size_t header_length;
+  const t64_profile_descriptor *profile;
+  uint8_t export_bytes[64];
+  size_t export_length;
+  t64_state_import_report report;
+  t64_cpu_stop_detail detail;
+  uint8_t drain_bytes[64];
+  t64_output_drain_result drain;
+  t64_video_packet_info video_info;
+  uint8_t video_bytes[64];
+  size_t video_length;
+  t64_save_info save_info;
+  uint8_t save_bytes[64];
+  size_t save_length;
+  t64_audio_packet_info audio_info;
+  uint8_t audio_bytes[64];
+  size_t audio_length;
+  uint32_t bus_value;
+  t64_trace_record records[2];
+  size_t trace_count;
+  uint64_t trace_dropped;
+  bool trace_saturated;
+} scratch;
+
+enum {
+  E_ADMIT_ROM,
+  E_ADVANCE,
+  E_CONTENT_DIGEST,
+  E_ROM_SIZE,
+  E_ROM_HEADER,
+  E_PROFILE,
+  E_DIGEST,
+  E_STATE_EXPORT,
+  E_STATE_IMPORT,
+  E_CPU_STOP_DETAIL,
+  E_OUTPUT_DRAIN,
+  E_VIDEO_INFO,
+  E_VIDEO_COPY,
+  E_SAVE_INFO,
+  E_SAVE_EXPORT,
+  E_SAVE_IMPORT,
+  E_AUDIO_INFO,
+  E_AUDIO_COPY,
+  E_QUEUE_INPUT,
+  E_BUS_READ_RAM,
+  E_BUS_READ_CART,
+  E_BUS_WRITE_RAM,
+  E_BUS_WRITE_CART,
+  E_TRACE_SET_ENABLED,
+  E_TRACE_DRAIN,
+  E_RESET,
+  E_UNLOAD,
+  E_IS_POISONED,
+  E_COUNT
+};
+
+/* The decided answer of every entry on an instance whose image was unloaded.
+ * Entries that need an image answer NOT_READY with every output untouched;
+ * the others do not depend on an image (decided from the code of each entry,
+ * recorded in PIN-IMPACT.md "Shape steps", row 11-04). */
+typedef struct {
+  unsigned entry;
+  const char *name;
+  t64_status after_unload;
+  bool outputs_untouched;
+} table_row;
+
+static const table_row table[E_COUNT] = {
+    {E_ADMIT_ROM, "admit_rom", T64_STATUS_OK, false},
+    {E_ADVANCE, "advance", T64_STATUS_NOT_READY, true},
+    {E_CONTENT_DIGEST, "content_digest", T64_STATUS_NOT_READY, true},
+    {E_ROM_SIZE, "rom_size", T64_STATUS_NOT_READY, true},
+    {E_ROM_HEADER, "rom_header", T64_STATUS_NOT_READY, true},
+    {E_PROFILE, "profile", T64_STATUS_OK, false},
+    {E_DIGEST, "digest", T64_STATUS_NOT_READY, true},
+    {E_STATE_EXPORT, "state_export", T64_STATUS_NOT_READY, true},
+    /* The import report is the caller record of the attempt, so a refusal
+     * fills it (reason NOT_ADMITTED); no other byte is written. */
+    {E_STATE_IMPORT, "state_import", T64_STATUS_NOT_READY, false},
+    {E_CPU_STOP_DETAIL, "cpu_stop_detail", T64_STATUS_NOT_READY, true},
+    {E_OUTPUT_DRAIN, "output_drain", T64_STATUS_NOT_READY, true},
+    {E_VIDEO_INFO, "video_info", T64_STATUS_NOT_READY, true},
+    {E_VIDEO_COPY, "video_copy", T64_STATUS_NOT_READY, true},
+    {E_SAVE_INFO, "save_info", T64_STATUS_NOT_READY, true},
+    {E_SAVE_EXPORT, "save_export", T64_STATUS_NOT_READY, true},
+    {E_SAVE_IMPORT, "save_import", T64_STATUS_NOT_READY, true},
+    {E_AUDIO_INFO, "audio_info", T64_STATUS_NOT_READY, true},
+    {E_AUDIO_COPY, "audio_copy", T64_STATUS_NOT_READY, true},
+    {E_QUEUE_INPUT, "queue_input", T64_STATUS_NOT_READY, true},
+    {E_BUS_READ_RAM, "bus_read (RDRAM)", T64_STATUS_OK, false},
+    /* Not gated on an image: the window has no bytes while none is admitted,
+     * and the bus answers BUS_UNSUPPORTED as it does on a new instance. */
+    {E_BUS_READ_CART, "bus_read (cartridge window)", T64_STATUS_BUS_UNSUPPORTED,
+     true},
+    {E_BUS_WRITE_RAM, "bus_write (RDRAM)", T64_STATUS_OK, false},
+    {E_BUS_WRITE_CART, "bus_write (cartridge window)",
+     T64_STATUS_BUS_DEVICE_REFUSED, false},
+    {E_TRACE_SET_ENABLED, "trace_set_enabled", T64_STATUS_OK, false},
+    {E_TRACE_DRAIN, "trace_drain", T64_STATUS_OK, false},
+    {E_RESET, "reset", T64_STATUS_NOT_READY, true},
+    {E_UNLOAD, "unload", T64_STATUS_NOT_READY, true},
+    {E_IS_POISONED, "is_poisoned", T64_STATUS_OK, false},
+};
+
+static uint32_t table_save_kind = 1u;
+
+static t64_status call_table_entry(unsigned entry, t64_machine *machine,
+                                   scratch *s) {
+  t64_stop_request request;
+  uint8_t blob[64];
+
+  request.kind = T64_STOP_GUEST_TICK;
+  request.value = UINT64_C(100000);
+  (void)memset(blob, 0x5a, sizeof blob);
+  switch (entry) {
+  case E_ADMIT_ROM:
+    return t64_machine_admit_rom(machine, hello_rom, hello_length);
+  case E_ADVANCE:
+    return t64_machine_advance(machine, &request, &s->stop_result);
+  case E_CONTENT_DIGEST:
+    return t64_machine_content_digest(machine, s->digest);
+  case E_ROM_SIZE:
+    return t64_machine_rom_size(machine, &s->size);
+  case E_ROM_HEADER:
+    return t64_machine_rom_header(machine, s->header, sizeof s->header,
+                                  &s->header_length);
+  case E_PROFILE:
+    return t64_machine_profile(machine, &s->profile);
+  case E_DIGEST:
+    return t64_machine_digest(machine, s->digest);
+  case E_STATE_EXPORT:
+    return t64_machine_state_export(machine, s->export_bytes,
+                                    sizeof s->export_bytes, &s->export_length);
+  case E_STATE_IMPORT:
+    return t64_machine_state_import(machine, blob, sizeof blob, 0u,
+                                    &s->report);
+  case E_CPU_STOP_DETAIL:
+    return t64_machine_cpu_stop_detail(machine, &s->detail);
+  case E_OUTPUT_DRAIN:
+    return t64_machine_output_drain(machine, s->drain_bytes,
+                                    sizeof s->drain_bytes, &s->drain);
+  case E_VIDEO_INFO:
+    return t64_video_info(machine, &s->video_info);
+  case E_VIDEO_COPY:
+    return t64_video_copy(machine, s->video_bytes, sizeof s->video_bytes,
+                          &s->video_length);
+  case E_SAVE_INFO:
+    return t64_machine_save_info(machine, table_save_kind, &s->save_info);
+  case E_SAVE_EXPORT:
+    return t64_machine_save_export(machine, table_save_kind,
+                                   T64_SAVE_FORMAT_RAW, s->save_bytes,
+                                   sizeof s->save_bytes, &s->save_length);
+  case E_SAVE_IMPORT:
+    return t64_machine_save_import(machine, table_save_kind,
+                                   T64_SAVE_FORMAT_RAW, blob, sizeof blob);
+  case E_AUDIO_INFO:
+    return t64_audio_info(machine, &s->audio_info);
+  case E_AUDIO_COPY:
+    return t64_audio_copy(machine, s->audio_bytes, sizeof s->audio_bytes,
+                          &s->audio_length);
+  case E_QUEUE_INPUT:
+    return t64_machine_queue_input(machine, UINT64_C(200000), 0u, 0u, 0, 0);
+  case E_BUS_READ_RAM:
+    return t64_machine_bus_read(machine, UINT32_C(0x100), 4u, &s->bus_value);
+  case E_BUS_READ_CART:
+    return t64_machine_bus_read(machine, UINT32_C(0x10000000), 4u,
+                                &s->bus_value);
+  case E_BUS_WRITE_RAM:
+    return t64_machine_bus_write(machine, UINT32_C(0x100), 4u,
+                                 UINT32_C(0xdeadbeef));
+  case E_BUS_WRITE_CART:
+    return t64_machine_bus_write(machine, UINT32_C(0x10000000), 4u,
+                                 UINT32_C(0xdeadbeef));
+  case E_TRACE_SET_ENABLED:
+    return t64_machine_trace_set_enabled(machine, true);
+  case E_TRACE_DRAIN:
+    return t64_machine_trace_drain(machine, s->records, 2u, &s->trace_count,
+                                   &s->trace_dropped, &s->trace_saturated);
+  case E_RESET:
+    return t64_machine_reset(machine);
+  case E_UNLOAD:
+    return t64_machine_unload(machine);
+  case E_IS_POISONED: {
+    uint32_t poisoned = 99u;
+    const t64_status status = t64_machine_is_poisoned(machine, &poisoned);
+
+    return status == T64_STATUS_OK && poisoned == 0u
+               ? T64_STATUS_OK
+               : T64_STATUS_INTERNAL_DEFECT;
+  }
+  default:
+    return T64_STATUS_INVALID_ARGUMENT;
+  }
+}
+
+/* One instance of the profile, unloaded; run every entry once against it and
+ * require the table's class. Entries that change the instance (admit_rom,
+ * advance, reset) are not required to leave it unloaded, so each row gets its
+ * own instance. */
+static void table_for_profile(const char *profile_id) {
+  unsigned row;
+
+  for (row = 0u; row < E_COUNT; row++) {
+    instance item;
+    scratch actual;
+    scratch expected;
+    scratch fresh_scratch;
+    t64_status status;
+    size_t allocations;
+    size_t releases;
+    const t64_profile_descriptor *profile = NULL;
+
+    if (!make_instance(&item, profile_id, hello_rom, hello_length)) return;
+    T64_CHECK_INT(t64_machine_profile(item.machine, &profile), T64_STATUS_OK);
+    table_save_kind =
+        profile != NULL && profile->save_kind != 0u ? profile->save_kind : 1u;
+    T64_CHECK_INT(t64_machine_unload(item.machine), T64_STATUS_OK);
+    allocations = item.counts.allocations;
+    releases = item.counts.releases;
+    (void)memset(&actual, 0xa5, sizeof actual);
+    (void)memset(&expected, 0xa5, sizeof expected);
+    status = call_table_entry(table[row].entry, item.machine, &actual);
+    if (status != table[row].after_unload) {
+      fprintf(stderr, "%s unloaded %s: status %u, table says %u\n", profile_id,
+              table[row].name, (unsigned)status,
+              (unsigned)table[row].after_unload);
+    }
+    T64_CHECK_INT(table[row].entry, row);
+    T64_CHECK_INT(status, table[row].after_unload);
+    if (table[row].entry == E_STATE_IMPORT) {
+      T64_CHECK_INT(actual.report.status, T64_STATUS_NOT_READY);
+      T64_CHECK_INT(actual.report.reason, T64_STATE_REASON_NOT_ADMITTED);
+    }
+    if (table[row].outputs_untouched) {
+      if (memcmp(&actual, &expected, sizeof actual) != 0) {
+        fprintf(stderr, "%s unloaded %s: an output byte changed\n", profile_id,
+                table[row].name);
+      }
+      T64_CHECK(memcmp(&actual, &expected, sizeof actual) == 0);
+      /* A refusal takes nothing from and gives nothing to the host. */
+      T64_CHECK_INT(item.counts.allocations, allocations);
+      T64_CHECK_INT(item.counts.releases, releases);
+    }
+    destroy_and_check(&item);
+
+    /* Unload leaves no image-derived state: an instance that never admitted
+     * an image gives the same answer to the same call. */
+    if (make_instance(&item, profile_id, NULL, 0u)) {
+      (void)memset(&fresh_scratch, 0xa5, sizeof fresh_scratch);
+      T64_CHECK_INT(
+          call_table_entry(table[row].entry, item.machine, &fresh_scratch),
+          table[row].after_unload);
+      destroy_and_check(&item);
+    }
+  }
+}
+
+static void case_not_ready_table(void) {
+  /* The legacy skeleton-class profile (no VI, AI or SI), the composite family
+   * profile with the 4 KiB EEPROM, and the VI and AI profiles. */
+  table_for_profile(HELLO_PROFILE);
+  table_for_profile("ntsc-cart-4m-openipl3-rdram-b-t1-si-v1-e4k");
+  table_for_profile(VI_PROFILE);
+  table_for_profile("ntsc-cart-4m-openipl3-rdram-b-t1-rdp-vi-filter-v9-ai-v1");
+}
+
 static bool load_fixtures(void) {
   return read_fixture("hello.z64", hello_rom, sizeof hello_rom,
                       &hello_length) &&
@@ -423,7 +808,7 @@ static bool load_fixtures(void) {
 }
 
 int main(int argc, char **argv) {
-  static const char *const cases[] = {"reset"};
+  static const char *const cases[] = {"reset", "unload", "not-ready-table"};
   const char *selected = NULL;
   size_t index;
   bool ran = false;
@@ -448,12 +833,26 @@ int main(int argc, char **argv) {
     case_reset();
     ran = true;
   }
+  if (selected == NULL || strcmp(selected, "unload") == 0) {
+    case_unload();
+    ran = true;
+  }
+  if (selected == NULL || strcmp(selected, "not-ready-table") == 0) {
+    case_not_ready_table();
+    ran = true;
+  }
   if (!ran) {
     fprintf(stderr, "unknown case: %s\n", selected);
     return 2;
   }
   if (selected == NULL) {
     return T64_TEST_FINISH("unit.core.api.lifecycle");
+  }
+  if (strcmp(selected, "unload") == 0) {
+    return T64_TEST_FINISH("unit.core.api.unload");
+  }
+  if (strcmp(selected, "not-ready-table") == 0) {
+    return T64_TEST_FINISH("unit.core.api.not-ready-table");
   }
   return T64_TEST_FINISH("unit.core.api.reset");
 }
