@@ -24,6 +24,19 @@
  * base tree and the head tree. No path, host name or time is printed. The ROMs
  * are authored or cleared fixtures already built into build/fixtures; this
  * program only reads them.
+ *
+ * Two API generations (plan 11-01, PATTERNS H4). The Phase 11 shape wave
+ * replaces the positional struct initializers and the three-argument create
+ * call with the public init macros and a create-info, so one source has to
+ * compile against both. The head path is selected by whether the header
+ * defines T64_MACHINE_CREATE_INFO_INIT (born with the flip of plan 11-12);
+ * the base path is the code as it was before. The selector is a defined()
+ * test, never a bare macro value, because -Wundef is on. Every site that
+ * differs is behind the local names SWEEP_ALLOCATOR_INIT,
+ * SWEEP_STOP_REQUEST_INIT, SWEEP_STOP_RESULT_INIT and sweep_create, so the
+ * observations printed are the same in both generations. The allocator
+ * callbacks keep their signatures in both generations and write the storage
+ * fields by name, which compiles whether a member is size_t or uint64_t.
  */
 #include <stdbool.h>
 #include <stddef.h>
@@ -86,8 +99,32 @@ static void sweep_release(void *context, t64_host_storage storage) {
   free(storage.data);
 }
 
-static const t64_host_allocator allocator = {sweep_allocate, sweep_release,
-                                             NULL};
+#if defined(T64_MACHINE_CREATE_INFO_INIT)
+/* Head generation: public init macros and the create-info handshake. */
+#define SWEEP_ALLOCATOR_INIT \
+  T64_HOST_ALLOCATOR_INIT(sweep_allocate, sweep_release, NULL)
+#define SWEEP_STOP_REQUEST_INIT(kind, value) T64_STOP_REQUEST_INIT(kind, value)
+#define SWEEP_STOP_RESULT_INIT T64_STOP_RESULT_INIT
+#else
+/* Base generation: positional initializers and the three-argument create. */
+#define SWEEP_ALLOCATOR_INIT {sweep_allocate, sweep_release, NULL}
+#define SWEEP_STOP_REQUEST_INIT(kind, value) {kind, value}
+#define SWEEP_STOP_RESULT_INIT {0u, 0u}
+#endif
+
+static const t64_host_allocator allocator = SWEEP_ALLOCATOR_INIT;
+
+static t64_status sweep_create(const t64_profile_descriptor *profile,
+                               t64_machine **machine_out) {
+#if defined(T64_MACHINE_CREATE_INFO_INIT)
+  t64_machine_create_info info = T64_MACHINE_CREATE_INFO_INIT(&allocator,
+                                                              profile);
+
+  return t64_machine_create(&info, machine_out);
+#else
+  return t64_machine_create(&allocator, profile, machine_out);
+#endif
+}
 
 static void to_hex(const uint8_t *bytes, size_t length, char *hex) {
   static const char digits[] = "0123456789abcdef";
@@ -197,7 +234,7 @@ static bool sweep_one(const t64_profile_descriptor *profile, const char *id,
   t64_status status;
   size_t index;
 
-  status = t64_machine_create(&allocator, profile, &machine);
+  status = sweep_create(profile, &machine);
   if (status != T64_STATUS_OK || machine == NULL) {
     printf("skip %s %s create-%u\n", id, rom, (unsigned)status);
     return false;
@@ -213,8 +250,9 @@ static bool sweep_one(const t64_profile_descriptor *profile, const char *id,
     bool stopped = false;
 
     if (tick != 0u) {
-      t64_stop_request request = {T64_STOP_GUEST_TICK, tick};
-      t64_stop_result result = {0u, 0u};
+      t64_stop_request request = SWEEP_STOP_REQUEST_INIT(T64_STOP_GUEST_TICK,
+                                                         tick);
+      t64_stop_result result = SWEEP_STOP_RESULT_INIT;
       unsigned stalled = 0u;
 
       /* A resource-limit stop is a yield: the host calls advance again, as
