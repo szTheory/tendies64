@@ -426,7 +426,7 @@ static bool drain_guest_observers(t64_machine *machine,
   uint64_t dropped = 0u;
   bool saturated = false;
   size_t i;
-  t64_output_drain_result output;
+  t64_output_drain_result output = T64_OUTPUT_DRAIN_RESULT_INIT;
   size_t available = RSP_CAPTURE_LIMIT - report->capture_length;
   if (t64_machine_trace_drain(machine, trace,
                               sizeof trace / sizeof trace[0], &count,
@@ -490,7 +490,8 @@ static void execute_guest(int snapshot_fd, size_t rom_size,
                           uint32_t registration_index, uint32_t value_index,
                           rsp_child_report *report) {
   const t64_profile_descriptor *profile = NULL;
-  t64_host_allocator allocator = {allocate_machine, release_machine, NULL};
+  t64_host_allocator allocator =
+      T64_HOST_ALLOCATOR_INIT(allocate_machine, release_machine, NULL);
   t64_machine *machine = NULL;
   uint8_t *rom = NULL;
   uint64_t current_tick = 0u;
@@ -515,9 +516,11 @@ static void execute_guest(int snapshot_fd, size_t rom_size,
   while (current_tick < tick_bound) {
     uint64_t target = tick_bound - current_tick > RSP_STEP_TICKS
                           ? current_tick + RSP_STEP_TICKS : tick_bound;
-    t64_stop_result stop = {0u, 0u};
+    t64_stop_result stop = T64_STOP_RESULT_INIT;
     t64_status status = t64_machine_advance(
-        machine, &(t64_stop_request){T64_STOP_GUEST_TICK, target}, &stop);
+        machine,
+        &(t64_stop_request)T64_STOP_REQUEST_INIT(T64_STOP_GUEST_TICK, target),
+        &stop);
     if (status != T64_STATUS_OK || stop.tick < current_tick ||
         stop.tick > target) {
       report->status = T64_RSP_DIAG_INVALID_ARGUMENT;
@@ -540,7 +543,7 @@ static void execute_guest(int snapshot_fd, size_t rom_size,
     current_tick = stop.tick;
     report->tick = current_tick;
     if (stop.reason == T64_STOP_REASON_CPU_UNSUPPORTED) {
-      t64_cpu_stop_detail detail = {0u, 0u, 0u};
+      t64_cpu_stop_detail detail = T64_CPU_STOP_DETAIL_INIT;
       if (t64_machine_cpu_stop_detail(machine, &detail) == T64_STATUS_OK) {
         report->pc = detail.pc;
         report->opcode = detail.opcode;

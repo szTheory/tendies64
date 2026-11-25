@@ -324,7 +324,7 @@ static bool observe_machine(t64_machine *machine, uint8_t *capture,
   uint64_t dropped = 0u;
   bool saturated = false;
   size_t i;
-  t64_output_drain_result output;
+  t64_output_drain_result output = T64_OUTPUT_DRAIN_RESULT_INIT;
   if (t64_machine_trace_drain(machine, trace,
                               sizeof trace / sizeof trace[0], &count,
                               &dropped, &saturated) != T64_STATUS_OK ||
@@ -378,7 +378,8 @@ static t64_base_diag_outcome execute_tier_b_t1(
     uint32_t *last_pc, uint32_t *last_opcode, const char **stage_out,
     t64_base_diag_execution *proof) {
   const t64_profile_descriptor *profile = NULL;
-  t64_host_allocator allocator = {allocate_machine, release_machine, NULL};
+  t64_host_allocator allocator =
+      T64_HOST_ALLOCATOR_INIT(allocate_machine, release_machine, NULL);
   t64_machine *machine = NULL;
   uint8_t *rom = NULL;
   uint64_t current_tick = 0u;
@@ -411,10 +412,12 @@ static t64_base_diag_outcome execute_tier_b_t1(
   while (current_tick < tick_bound) {
     uint64_t target = tick_bound - current_tick > BASE_STEP_TICKS
                           ? current_tick + BASE_STEP_TICKS : tick_bound;
-    t64_stop_result stop = {0u, 0u};
+    t64_stop_result stop = T64_STOP_RESULT_INIT;
     *stage_out = "canonical-core-advance";
     if (t64_machine_advance(
-            machine, &(t64_stop_request){T64_STOP_GUEST_TICK, target},
+            machine,
+            &(t64_stop_request)T64_STOP_REQUEST_INIT(T64_STOP_GUEST_TICK,
+                                                     target),
             &stop) != T64_STATUS_OK || stop.tick < current_tick ||
         stop.tick > target ||
         !observe_machine(machine, capture, capture_length, saw_entry,

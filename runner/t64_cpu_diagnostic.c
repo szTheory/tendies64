@@ -390,7 +390,7 @@ static bool drain_guest_observers(t64_machine *machine, child_report *report,
   uint64_t dropped = 0u;
   bool saturated = false;
   size_t i;
-  t64_output_drain_result output;
+  t64_output_drain_result output = T64_OUTPUT_DRAIN_RESULT_INIT;
   if (t64_machine_trace_drain(machine, trace,
                               sizeof trace / sizeof trace[0], &count,
                               &dropped, &saturated) != T64_STATUS_OK ||
@@ -459,7 +459,8 @@ static void execute_guest(int snapshot_fd, size_t rom_size,
                           uint32_t registration_index, uint32_t value_index,
                           child_report *report) {
   const t64_profile_descriptor *profile = NULL;
-  t64_host_allocator allocator = {allocate_machine, release_machine, NULL};
+  t64_host_allocator allocator =
+      T64_HOST_ALLOCATOR_INIT(allocate_machine, release_machine, NULL);
   t64_machine *machine = NULL;
   uint8_t *rom = NULL;
   uint64_t current_tick = 0u;
@@ -503,9 +504,11 @@ static void execute_guest(int snapshot_fd, size_t rom_size,
     uint64_t target = tick_bound - current_tick > CPU_STEP_TICKS
                           ? current_tick + CPU_STEP_TICKS
                           : tick_bound;
-    t64_stop_result stop = {0u, 0u};
+    t64_stop_result stop = T64_STOP_RESULT_INIT;
     status = t64_machine_advance(
-        machine, &(t64_stop_request){T64_STOP_GUEST_TICK, target}, &stop);
+        machine,
+        &(t64_stop_request)T64_STOP_REQUEST_INIT(T64_STOP_GUEST_TICK, target),
+        &stop);
     if (status != T64_STATUS_OK || stop.tick < current_tick ||
         stop.tick > target ||
         !drain_guest_observers(machine, report, &park_sequence)) {

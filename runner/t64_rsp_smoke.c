@@ -282,7 +282,7 @@ static void observe_rsp(t64_machine *machine, observations *seen) {
 
 static bool drain_output(t64_machine *machine, uint8_t *capture,
                          size_t *length, uint64_t *attempted_total) {
-  t64_output_drain_result output = {0};
+  t64_output_drain_result output = T64_OUTPUT_DRAIN_RESULT_INIT;
   size_t available = RSP_SMOKE_CAPTURE_LIMIT - *length;
   if (t64_machine_output_drain(machine, capture + *length, available,
                                &output) != T64_STATUS_OK ||
@@ -325,8 +325,8 @@ static uint64_t monotonic_ms(void) {
 
 static int run_smoke(const char *path, const char *expected_sha,
                      uint64_t boot_step_max) {
-  static const t64_host_allocator allocator = {
-      allocate_machine, release_machine, NULL};
+  static const t64_host_allocator allocator =
+      T64_HOST_ALLOCATOR_INIT(allocate_machine, release_machine, NULL);
   static const uint8_t expected_output[] = "T64-RSP-SMOKE:PASS\n";
   static const uint8_t expected_guest_failure[] = "FAIL\n";
   rom_input rom = {0};
@@ -410,7 +410,7 @@ static int run_smoke(const char *path, const char *expected_sha,
   }
 
   while (current_tick < RSP_SMOKE_TICK_LIMIT) {
-    t64_stop_result stop = {0u, 0u};
+    t64_stop_result stop = T64_STOP_RESULT_INIT;
     uint64_t delta = seen.cpu_entered_payload ? UINT64_C(1) : boot_step_max;
     uint64_t remaining = RSP_SMOKE_TICK_LIMIT - current_tick;
     uint64_t target = current_tick + (delta < remaining ? delta : remaining);
@@ -421,7 +421,9 @@ static int run_smoke(const char *path, const char *expected_sha,
       goto cleanup;
     }
     t64_status status = t64_machine_advance(
-        machine, &(t64_stop_request){T64_STOP_GUEST_TICK, target}, &stop);
+        machine,
+        &(t64_stop_request)T64_STOP_REQUEST_INIT(T64_STOP_GUEST_TICK, target),
+        &stop);
     if (!child_deadline_ok(start_ms, monotonic_ms())) {
       (void)puts("classification=timeout reason=child-wall-deadline");
       result = 3;
@@ -445,7 +447,7 @@ static int run_smoke(const char *path, const char *expected_sha,
     }
     if (stop.reason == T64_STOP_REASON_CPU_UNSUPPORTED &&
         seen.cpu_unsupported) {
-      t64_cpu_stop_detail detail = {0u, 0u, 0u};
+      t64_cpu_stop_detail detail = T64_CPU_STOP_DETAIL_INIT;
       uint64_t store_base = machine->cpu.gpr[20];
       uint64_t store_address = store_base + (uint64_t)(int64_t)(int16_t)
           (seen.unsupported_cpu_opcode & UINT32_C(0xffff));

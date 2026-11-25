@@ -881,7 +881,7 @@ t64_replay_status t64_replay_recorder_finish(t64_replay_recorder *recorder,
 bool t64_replay_live_save_init(const t64_machine *machine,
                                t64_replay_live_identity *identity) {
   const t64_profile_descriptor *profile = NULL;
-  t64_save_info info;
+  t64_save_info info = T64_SAVE_INFO_INIT;
   uint8_t *bytes;
   size_t length = 0u;
   uint8_t blank;
@@ -1543,7 +1543,7 @@ t64_replay_step_result t64_replay_play(t64_machine *machine,
     const uint64_t end_at = t64_replay_player_end_at(player);
     uint64_t target = next_at < tick + step ? next_at : tick + step;
     t64_replay_stop terminal = T64_REPLAY_STOP_NONE;
-    t64_stop_result stop = {0u, 0u};
+    t64_stop_result stop = T64_STOP_RESULT_INIT;
     unsigned stalled = 0u;
     if (target <= tick) {
       report_begin(player, tick, T64_REPLAY_RESULT_REFUSED,
@@ -1552,7 +1552,8 @@ t64_replay_step_result t64_replay_play(t64_machine *machine,
       break;
     }
     for (;;) {
-      t64_stop_request request = {T64_STOP_GUEST_TICK, target};
+      t64_stop_request request =
+          T64_STOP_REQUEST_INIT(T64_STOP_GUEST_TICK, target);
       const uint64_t before = tick;
       if (t64_machine_advance(machine, &request, &stop) != T64_STATUS_OK ||
           stop.tick < before || stop.tick > target) {

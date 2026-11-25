@@ -859,7 +859,7 @@ static int terminal_controls(void) {
 }
 
 static bool drain_output(t64_machine *machine, cold_output *output) {
-  t64_output_drain_result result = {0};
+  t64_output_drain_result result = T64_OUTPUT_DRAIN_RESULT_INIT;
   size_t capacity = sizeof output->bytes - output->length;
   if (t64_machine_output_drain(machine, output->bytes + output->length,
                                capacity, &result) != T64_STATUS_OK ||
@@ -888,11 +888,11 @@ static const char *stop_name(uint32_t reason) {
 static const char *run_complete_profile(const cold_rom *rom,
                                        const char *profile_id,
                                        cold_profile_result *result) {
-  static const t64_host_allocator allocator = {
-      allocate_machine, release_machine, NULL};
+  static const t64_host_allocator allocator =
+      T64_HOST_ALLOCATOR_INIT(allocate_machine, release_machine, NULL);
   const t64_profile_descriptor *profile = NULL;
   t64_machine *machine = NULL;
-  t64_stop_result stop = {T64_STOP_REASON_BOUND, 0u};
+  t64_stop_result stop = T64_STOP_RESULT_INIT_WITH(T64_STOP_REASON_BOUND, 0u);
   uint64_t current_tick = 0u;
   uint64_t dropped_total = 0u;
   uint8_t content_digest[T64_DIGEST_SIZE];
@@ -942,7 +942,9 @@ static const char *run_complete_profile(const cold_rom *rom,
     uint64_t target = current_tick +
         (remaining < quantum ? remaining : quantum);
     t64_status status = t64_machine_advance(
-        machine, &(t64_stop_request){T64_STOP_GUEST_TICK, target}, &stop);
+        machine,
+        &(t64_stop_request)T64_STOP_REQUEST_INIT(T64_STOP_GUEST_TICK, target),
+        &stop);
     current_tick = stop.tick;
     if (status != T64_STATUS_OK) {
       if (machine->cpu.stopped) {
@@ -1176,14 +1178,14 @@ static int run_compare(const char *profile_a, const char *profile_b,
 }
 
 static int run_probe(const char *profile_id, const char *fixture_path) {
-  static const t64_host_allocator allocator = {
-      allocate_machine, release_machine, NULL};
+  static const t64_host_allocator allocator =
+      T64_HOST_ALLOCATOR_INIT(allocate_machine, release_machine, NULL);
   cold_rom rom = {{0}, 0u, {0}};
   cold_operation operation = {0};
   cold_output output = {{0}, 0u, 0u, true, false};
   const t64_profile_descriptor *profile = NULL;
   t64_machine *machine = NULL;
-  t64_stop_result stop = {T64_STOP_REASON_BOUND, 0u};
+  t64_stop_result stop = T64_STOP_RESULT_INIT_WITH(T64_STOP_REASON_BOUND, 0u);
   uint64_t current_tick = 0u;
   uint64_t dropped_total = 0u;
   uint8_t content_digest[T64_DIGEST_SIZE];
@@ -1235,7 +1237,9 @@ static int run_probe(const char *profile_id, const char *fixture_path) {
     uint64_t target = current_tick +
         (remaining < COLD_TRACE_STEP ? remaining : COLD_TRACE_STEP);
     t64_status status = t64_machine_advance(
-        machine, &(t64_stop_request){T64_STOP_GUEST_TICK, target}, &stop);
+        machine,
+        &(t64_stop_request)T64_STOP_REQUEST_INIT(T64_STOP_GUEST_TICK, target),
+        &stop);
     current_tick = stop.tick;
     if (status != T64_STATUS_OK) {
       if (machine->cpu.stopped &&

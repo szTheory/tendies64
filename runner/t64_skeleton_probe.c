@@ -137,7 +137,8 @@ static void fill_authored_image(uint8_t image[ROM_BYTES]) {
 
 static bool advance_to(t64_machine *machine, uint64_t tick,
                        t64_stop_result *result) {
-  const t64_stop_request request = {T64_STOP_GUEST_TICK, tick};
+  const t64_stop_request request =
+      T64_STOP_REQUEST_INIT(T64_STOP_GUEST_TICK, tick);
   return t64_machine_advance(machine, &request, result) == T64_STATUS_OK;
 }
 
@@ -167,15 +168,15 @@ static bool run_probe(const char *profile_id, assertions *counts,
                       uint8_t content_digest[T64_DIGEST_SIZE],
                       uint8_t state_digest[T64_DIGEST_SIZE],
                       uint64_t *tick_out) {
-  const t64_host_allocator allocator = {allocate_storage, release_storage,
-                                        NULL};
+  const t64_host_allocator allocator =
+      T64_HOST_ALLOCATOR_INIT(allocate_storage, release_storage, NULL);
   const t64_profile_descriptor *profile = NULL;
   t64_machine *machine = NULL;
   uint8_t image[ROM_BYTES];
   uint8_t expected_profile_hash[T64_DIGEST_SIZE];
   uint8_t value_byte = 0u;
   uint32_t value = 0u;
-  t64_stop_result stop = {0u, 0u};
+  t64_stop_result stop = T64_STOP_RESULT_INIT;
   size_t i;
   bool completed = false;
 
