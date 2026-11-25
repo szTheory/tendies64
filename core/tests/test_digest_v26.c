@@ -11,7 +11,7 @@
  * to the SHA-256 digest. The test was written and run before RDP depth was
  * activated on the family: its first failure then named a depth member.
  * The same case flips every member of t64_vi_state (plan 10-20, review
- * finding W2-03), including all 37 fields of both t64_video_packet_info
+ * finding W2-03), including all 37 fields of both t64_vi_packet_slot
  * slots. The named exclusions are packet_head, packet_count (host observer
  * state) and the per-slot profile_id and build_id strings (hashed only
  * without the v25 framing); the 17 padding bytes are swept as inert. The tally
@@ -861,15 +861,15 @@ _Static_assert(sizeof(t64_rdp_state) == RDP_STATE_SIZE,
                           sizeof(((t64_vi_state *)0)->name[0]), NULL}
 #define VMT(slot, member) {"packet_info[" #slot "]." #member,               \
                            offsetof(t64_vi_state, packet_info) +            \
-                           (slot) * sizeof(t64_video_packet_info) +         \
-                           offsetof(t64_video_packet_info, member),         \
-                           sizeof(((t64_video_packet_info *)0)->member),    \
+                           (slot) * sizeof(t64_vi_packet_slot) +           \
+                           offsetof(t64_vi_packet_slot, member),           \
+                           sizeof(((t64_vi_packet_slot *)0)->member),      \
                            NULL}
 #define VMTX(slot, member, reason) {"packet_info[" #slot "]." #member,      \
                            offsetof(t64_vi_state, packet_info) +            \
-                           (slot) * sizeof(t64_video_packet_info) +         \
-                           offsetof(t64_video_packet_info, member),         \
-                           sizeof(((t64_video_packet_info *)0)->member),    \
+                           (slot) * sizeof(t64_vi_packet_slot) +           \
+                           offsetof(t64_vi_packet_slot, member),           \
+                           sizeof(((t64_vi_packet_slot *)0)->member),      \
                            reason}
 /* All 37 members of one retained packet slot, in declaration order. */
 #define VMSLOT(slot)                                                        \
@@ -914,15 +914,15 @@ static const rdp_member vi_members[] = {
     VM(enabled), VM(sequence_exhausted), VM(latch_pending),
 };
 
-/* A new member of t64_vi_state or of t64_video_packet_info changes one of the
+/* A new member of t64_vi_state or of t64_vi_packet_slot changes one of the
  * sizes (or lands in padding, which the byte sweep flips as inert); the build
  * then fails until the new member has a row. */
 #define VI_STATE_SIZE 1208u
 _Static_assert(sizeof(t64_vi_state) == VI_STATE_SIZE,
                "t64_vi_state changed: add the new member to vi_members");
 #define VIDEO_PACKET_INFO_SIZE 488u
-_Static_assert(sizeof(t64_video_packet_info) == VIDEO_PACKET_INFO_SIZE,
-               "t64_video_packet_info changed: add the new member to the "
+_Static_assert(sizeof(t64_vi_packet_slot) == VIDEO_PACKET_INFO_SIZE,
+               "t64_vi_packet_slot changed: add the new member to the "
                "VMSLOT rows of vi_members");
 /* Byte tallies of the rows over the 1,208 bytes: 791 member bytes, 400 bytes
  * of named exclusions (8 + 8 + 2 x (64 + 128)) and 17 bytes of padding. */

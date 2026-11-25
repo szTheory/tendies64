@@ -1950,7 +1950,7 @@ static void state_read_rdp(state_reader *r) {
  * same build), the unused slot keeps zeroes. */
 static void state_read_video_slot(state_reader *r, size_t slot) {
   t64_machine *m = r->machine;
-  t64_video_packet_info info;
+  t64_vi_packet_slot info;
   const uint64_t length = state_rd64(r);
   uint64_t source_bytes;
   uint64_t packet_bytes;
@@ -2146,7 +2146,7 @@ static void state_section_rdp_vi(state_reader *r) {
 
 static void state_read_audio_slot(state_reader *r, size_t slot) {
   t64_machine *m = r->machine;
-  t64_audio_packet_info info;
+  t64_ai_packet_slot info;
   const uint64_t length = state_rd64(r);
   uint64_t byte_length;
 

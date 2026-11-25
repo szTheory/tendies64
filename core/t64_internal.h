@@ -763,6 +763,92 @@ typedef struct {
   bool update;
 } t64_rdp_depth_pixel_result;
 
+/*
+ * Retained packet slots (plan 11-04, DR-08). The VI and AI queues keep their
+ * packet metadata in these two internal types, member for member the layout of
+ * today's public t64_video_packet_info and t64_audio_packet_info (488 and 280
+ * bytes on LP64), so the public copy-out structs can grow a leading struct_size
+ * at the flip without moving a retained byte, a digest member or a state
+ * container byte. The audio slot keeps its own leading struct_size member: the
+ * value (sizeof the slot) is stored at fill time, hashed by the digest and
+ * restored by state import (PATTERNS H1).
+ */
+typedef struct {
+  uint32_t width;
+  uint32_t height;
+  uint32_t stride_bytes;
+  uint32_t source_address;
+  uint32_t source_format;
+  uint32_t output_encoding;
+  uint32_t field;
+  uint32_t parity;
+  uint32_t control;
+  uint32_t burst;
+  uint32_t h_sync;
+  uint32_t v_sync;
+  uint32_t h_start;
+  uint32_t h_end;
+  uint32_t v_start;
+  uint32_t v_end;
+  uint32_t source_width;
+  uint32_t source_pitch_bytes;
+  uint32_t source_x_offset;
+  uint32_t source_y_offset;
+  uint32_t x_scale;
+  uint32_t y_scale;
+  uint32_t filter;
+  uint64_t start_tick;
+  uint64_t end_tick;
+  uint64_t sequence;
+  uint64_t commands_completed;
+  uint64_t fullsync_completed;
+  uint64_t last_command_word;
+  uint32_t last_command_byte;
+  uint32_t last_opcode_field;
+  size_t source_bytes;
+  size_t packet_bytes;
+  char profile_id[T64_PROFILE_TEXT_CAPACITY];
+  char build_id[128];
+  char vi_clock_policy[T64_PROFILE_TEXT_CAPACITY];
+  char vi_output_policy[T64_PROFILE_TEXT_CAPACITY];
+} t64_vi_packet_slot;
+
+typedef struct {
+  uint32_t struct_size;
+  uint64_t sequence;
+  uint64_t first_sample_index;
+  uint64_t first_tick;
+  uint64_t last_tick;
+  uint32_t frame_count;
+  uint64_t rate_numerator;
+  uint64_t rate_denominator;
+  uint32_t channels;
+  uint32_t bits_per_sample;
+  uint32_t encoding;
+  size_t byte_length;
+  char profile_id[T64_PROFILE_TEXT_CAPACITY];
+  char build_id[128];
+} t64_ai_packet_slot;
+
+#if UINTPTR_MAX == UINT64_MAX
+_Static_assert(sizeof(t64_vi_packet_slot) == 488u,
+               "retained VI slot layout is pinned by the digest and the state");
+_Static_assert(offsetof(t64_vi_packet_slot, width) == 0u,
+               "retained VI slot first member moved");
+_Static_assert(offsetof(t64_vi_packet_slot, vi_output_policy) +
+                       sizeof(((t64_vi_packet_slot *)0)->vi_output_policy) ==
+                   488u,
+               "retained VI slot last member moved");
+_Static_assert(sizeof(t64_ai_packet_slot) == 280u,
+               "retained AI slot layout is pinned by the digest and the state");
+_Static_assert(offsetof(t64_ai_packet_slot, struct_size) == 0u,
+               "retained AI slot first member moved");
+_Static_assert(offsetof(t64_ai_packet_slot, build_id) +
+                       sizeof(((t64_ai_packet_slot *)0)->build_id) ==
+                   280u,
+               "retained AI slot last member moved");
+#endif
+
 typedef struct {
   uint32_t registers[14];
   uint32_t active_registers[14];
@@ -778,7 +864,7 @@ typedef struct {
   uint32_t current_readback;
   uint32_t refusal_reason;
   size_t packet_lengths[T64_VIDEO_QUEUE_CAPACITY];
-  t64_video_packet_info packet_info[T64_VIDEO_QUEUE_CAPACITY];
+  t64_vi_packet_slot packet_info[T64_VIDEO_QUEUE_CAPACITY];
   /* Host observer cursor and occupancy; neither is part of guest identity. */
   size_t packet_head;
   size_t packet_count;
@@ -812,7 +898,7 @@ typedef struct {
   uint64_t packet_first_sample;
   size_t packet_length;
   size_t packet_lengths[T64_AUDIO_QUEUE_CAPACITY];
-  t64_audio_packet_info packet_info[T64_AUDIO_QUEUE_CAPACITY];
+  t64_ai_packet_slot packet_info[T64_AUDIO_QUEUE_CAPACITY];
   t64_ai_dma_descriptor descriptors[T64_AUDIO_QUEUE_CAPACITY];
   size_t descriptor_head;
   size_t descriptor_count;

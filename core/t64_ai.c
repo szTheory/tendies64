@@ -155,7 +155,7 @@ static t64_status activate_queued_descriptor(t64_machine *machine) {
 }
 
 static void hash_completed_packet(t64_machine *machine, uint32_t slot,
-                                   const t64_audio_packet_info *info) {
+                                   const t64_ai_packet_slot *info) {
   t64_sha256_ctx context;
   uint8_t digest[T64_DIGEST_SIZE];
 
@@ -457,7 +457,7 @@ bool t64_ai_event_can_dispatch(const t64_machine *machine,
 t64_status t64_ai_event(t64_machine *machine, const t64_event *event) {
   t64_ai_state *ai;
   t64_ai_dma_descriptor *descriptor;
-  t64_audio_packet_info info;
+  t64_ai_packet_slot info;
   uint8_t *packet;
   uint64_t next_remainder = 0u;
   uint64_t next_token = UINT64_C(0);
@@ -634,7 +634,33 @@ t64_status t64_audio_info(const t64_machine *machine,
     return T64_STATUS_NOT_READY;
   }
   if (machine->ai.packet_count == 0u) return T64_STATUS_NOT_READY;
-  *info_out = machine->ai.packet_info[machine->ai.packet_head];
+  /* Copy-out of the oldest retained slot into the public struct, member by
+   * member (plan 11-04, DR-08): the retained slot is an internal type, so the
+   * public struct can change its layout without moving a retained byte. The
+   * destination is cleared first, which keeps the bytes (padding included)
+   * exactly those of the slot copy this replaces while the layouts are equal. */
+  {
+    const t64_ai_packet_slot *slot =
+        &machine->ai.packet_info[machine->ai.packet_head];
+
+    (void)memset(info_out, 0, sizeof *info_out);
+    info_out->struct_size = slot->struct_size;
+    info_out->sequence = slot->sequence;
+    info_out->first_sample_index = slot->first_sample_index;
+    info_out->first_tick = slot->first_tick;
+    info_out->last_tick = slot->last_tick;
+    info_out->frame_count = slot->frame_count;
+    info_out->rate_numerator = slot->rate_numerator;
+    info_out->rate_denominator = slot->rate_denominator;
+    info_out->channels = slot->channels;
+    info_out->bits_per_sample = slot->bits_per_sample;
+    info_out->encoding = slot->encoding;
+    info_out->byte_length = slot->byte_length;
+    (void)memcpy(info_out->profile_id, slot->profile_id,
+                 sizeof info_out->profile_id);
+    (void)memcpy(info_out->build_id, slot->build_id,
+                 sizeof info_out->build_id);
+  }
   return T64_STATUS_OK;
 }
 

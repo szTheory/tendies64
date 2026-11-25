@@ -2276,8 +2276,8 @@ static void debug_diff(const char *label, const t64_machine *a,
     size_t slot;
 
     for (slot = 0u; slot < T64_VIDEO_QUEUE_CAPACITY; slot++) {
-      const t64_video_packet_info *x = &a->vi.packet_info[slot];
-      const t64_video_packet_info *y = &b->vi.packet_info[slot];
+      const t64_vi_packet_slot *x = &a->vi.packet_info[slot];
+      const t64_vi_packet_slot *y = &b->vi.packet_info[slot];
 
       fprintf(stderr, "%s: vi slot %zu seq %llu/%llu start %llu/%llu end %llu/%llu count %zu/%zu head %zu/%zu len %zu/%zu\n",
               label, slot, (unsigned long long)x->sequence,

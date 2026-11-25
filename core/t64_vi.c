@@ -522,7 +522,7 @@ static uint8_t vi_gamma_adjust(uint8_t channel, bool round_up) {
 
 static void render_filter_packet(t64_machine *machine, uint32_t slot,
                                  const t64_vi_geometry *geometry,
-                                 t64_video_packet_info *info) {
+                                 t64_vi_packet_slot *info) {
   static const uint8_t gamma_dither[4][4] = {
       {0u, 8u, 2u, 10u}, {12u, 4u, 14u, 6u},
       {3u, 11u, 1u, 9u}, {15u, 7u, 13u, 5u},
@@ -630,7 +630,7 @@ static void render_filter_packet(t64_machine *machine, uint32_t slot,
 
 static void render_packet(t64_machine *machine, uint32_t slot,
                           const t64_vi_geometry *geometry,
-                          t64_video_packet_info *info) {
+                          t64_vi_packet_slot *info) {
   if (t64_has_vi_filter_v9_profile(machine)) {
     render_filter_packet(machine, slot, geometry, info);
     return;
@@ -1023,7 +1023,7 @@ static t64_status vi_v8_event(t64_machine *machine, const t64_event *event) {
     if (set_interrupt) t64_mi_set_pending(machine, T64_MI_INTERRUPT_VI);
   }
   if (field_boundary) {
-    t64_video_packet_info info;
+    t64_vi_packet_slot info;
     uint32_t slot;
     (void)memset(&info, 0, sizeof info);
     info.width = geometry.width;
@@ -1164,7 +1164,7 @@ static t64_status vi_v8_event(t64_machine *machine, const t64_event *event) {
 t64_status t64_vi_event(t64_machine *machine, const t64_event *event) {
   t64_vi_state *vi;
   t64_vi_geometry geometry;
-  t64_video_packet_info info;
+  t64_vi_packet_slot info;
   t64_event_reservation reservation;
   uint64_t phase_cycles;
   uint64_t phase_remainder;
@@ -1281,7 +1281,58 @@ t64_status t64_video_info(const t64_machine *machine,
   if (!machine->has_image || !t64_has_rdp_vi_profile(machine))
     return T64_STATUS_NOT_READY;
   if (machine->vi.packet_count == 0u) return T64_STATUS_NOT_READY;
-  *info_out = machine->vi.packet_info[machine->vi.packet_head];
+  /* Copy-out of the oldest retained slot into the public struct, member by
+   * member (plan 11-04, DR-08): the retained slot is an internal type, so the
+   * public struct can change its layout without moving a retained byte. The
+   * destination is cleared first, which keeps the bytes (padding included)
+   * exactly those of the slot copy this replaces while the layouts are equal. */
+  {
+    const t64_vi_packet_slot *slot =
+        &machine->vi.packet_info[machine->vi.packet_head];
+
+    (void)memset(info_out, 0, sizeof *info_out);
+    info_out->width = slot->width;
+    info_out->height = slot->height;
+    info_out->stride_bytes = slot->stride_bytes;
+    info_out->source_address = slot->source_address;
+    info_out->source_format = slot->source_format;
+    info_out->output_encoding = slot->output_encoding;
+    info_out->field = slot->field;
+    info_out->parity = slot->parity;
+    info_out->control = slot->control;
+    info_out->burst = slot->burst;
+    info_out->h_sync = slot->h_sync;
+    info_out->v_sync = slot->v_sync;
+    info_out->h_start = slot->h_start;
+    info_out->h_end = slot->h_end;
+    info_out->v_start = slot->v_start;
+    info_out->v_end = slot->v_end;
+    info_out->source_width = slot->source_width;
+    info_out->source_pitch_bytes = slot->source_pitch_bytes;
+    info_out->source_x_offset = slot->source_x_offset;
+    info_out->source_y_offset = slot->source_y_offset;
+    info_out->x_scale = slot->x_scale;
+    info_out->y_scale = slot->y_scale;
+    info_out->filter = slot->filter;
+    info_out->start_tick = slot->start_tick;
+    info_out->end_tick = slot->end_tick;
+    info_out->sequence = slot->sequence;
+    info_out->commands_completed = slot->commands_completed;
+    info_out->fullsync_completed = slot->fullsync_completed;
+    info_out->last_command_word = slot->last_command_word;
+    info_out->last_command_byte = slot->last_command_byte;
+    info_out->last_opcode_field = slot->last_opcode_field;
+    info_out->source_bytes = slot->source_bytes;
+    info_out->packet_bytes = slot->packet_bytes;
+    (void)memcpy(info_out->profile_id, slot->profile_id,
+                 sizeof info_out->profile_id);
+    (void)memcpy(info_out->build_id, slot->build_id,
+                 sizeof info_out->build_id);
+    (void)memcpy(info_out->vi_clock_policy, slot->vi_clock_policy,
+                 sizeof info_out->vi_clock_policy);
+    (void)memcpy(info_out->vi_output_policy, slot->vi_output_policy,
+                 sizeof info_out->vi_output_policy);
+  }
   return T64_STATUS_OK;
 }
 

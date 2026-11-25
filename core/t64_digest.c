@@ -834,7 +834,7 @@ t64_status t64_digest_stream(const t64_machine *machine,
        */
       for (logical = 0u; logical < T64_VIDEO_QUEUE_CAPACITY; logical++) {
         size_t slot = logical;
-        const t64_video_packet_info *info = &vi->packet_info[slot];
+        const t64_vi_packet_slot *info = &vi->packet_info[slot];
         size_t length = vi->packet_lengths[slot];
 
         hash_u64(sink, length);
@@ -986,7 +986,7 @@ t64_status t64_digest_stream(const t64_machine *machine,
     digest_bytes(sink, ai->packet_history_sha256,
                  sizeof ai->packet_history_sha256);
     for (logical = 0u; logical < T64_AUDIO_QUEUE_CAPACITY; logical++) {
-      const t64_audio_packet_info *info = &ai->packet_info[logical];
+      const t64_ai_packet_slot *info = &ai->packet_info[logical];
       size_t length = ai->packet_lengths[logical];
 
       hash_u64(sink, (uint64_t)length);
