@@ -135,6 +135,19 @@
 #define T64_STATUS_STATE_BUILD UINT32_C(31)
 #define T64_STATUS_STATE_RANGE UINT32_C(32)
 #define T64_STATUS_STATE_INVARIANT UINT32_C(33)
+/* Appended after 33; no value 0 to 33 moves. The class of each status is in
+ * docs/abi/status-classes.txt. */
+/* refused: the create-info abi_version does not match this header's ABI. */
+#define T64_STATUS_ABI_MISMATCH UINT32_C(34)
+/* refused: a caller-filled struct_size is below the v1 minimum. */
+#define T64_STATUS_STRUCT_TOO_SMALL UINT32_C(35)
+/* refused: a call arrived while a call on the same instance is in progress. */
+#define T64_STATUS_REENTRANT UINT32_C(36)
+/* defect: the instance is poisoned; only destroy and the poison query work. */
+#define T64_STATUS_POISONED UINT32_C(37)
+/* defect: an internal invariant violation was found and the instance is
+ * now poisoned. */
+#define T64_STATUS_INTERNAL_DEFECT UINT32_C(38)
 
 #define T64_TV_NTSC UINT32_C(1)
 #define T64_TV_PAL UINT32_C(2)

@@ -277,6 +277,8 @@ harness.phase10-qualification'
 # carries the extra CTest label phase11, which sh scripts/preflight-phase11.sh
 # compares with this block. One name per line, closing quote on the last name.
 PHASE11_TESTS='repo.abi-header
+repo.abi-status-classes
+repo.abi-selftest
 unit.core.api.abi-version'
 
 CPU_COVERAGE_OPCODES='ADD

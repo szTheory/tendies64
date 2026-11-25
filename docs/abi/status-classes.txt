@@ -1,0 +1,75 @@
+# Status-class table of the public C API (Phase 11 plan 11-02, DR-16).
+#
+# One row per T64_STATUS_* and T64_STOP_REASON_* constant of
+# core/include/tendies64/t64_machine.h, in value order. Row format:
+#   NAME :: VALUE :: CLASS :: RESUME :: note
+# CLASS is one of
+#   ok          success
+#   refused     the call is rejected, the instance and every observation stay
+#               bit-identical (the one carve-out is t64_machine_bus_write, see
+#               BUS_DEVICE_REFUSED); the caller fixed the call or the host
+#   guest-stop  not an error: a stop reason of advance, the guest state is valid
+#   defect      an internal invariant violation: the instance is poisoned, only
+#               destroy and the poison query succeed, outputs stay untouched
+#   reserved    a value kept for numbering, never returned through the
+#               installed API; classified here so no value is unclassified
+# RESUME is one of resumable, terminal or n/a (n/a for ok, refused and defect
+# rows other than the one that says otherwise). A caller fault never poisons.
+#
+# scripts/check-abi.py classes fails when a constant of the header has no row,
+# a row has no constant, a name appears twice, a value differs from the header,
+# or a class or resume field is outside the closed sets above; its seeded
+# self-test (repo.abi-selftest) proves each failure. Values are not renumbered:
+# 6 and stop reason 4 stay reserved. The table is one of the four bound goldens
+# of the freeze record; rows are re-bindable until the final bind.
+#
+# statuses
+T64_STATUS_OK :: 0 :: ok :: n/a :: success; every call that completes.
+T64_STATUS_INVALID_ARGUMENT :: 1 :: refused :: n/a :: NULL, overlap, width and range checks; a NULL machine answers it and every output stays untouched.
+T64_STATUS_UNKNOWN_PROFILE :: 2 :: refused :: n/a :: profile lookup found no descriptor; no instance exists.
+T64_STATUS_ALLOCATION_FAILED :: 3 :: refused :: n/a :: the host allocator refused storage at create or admit.
+T64_STATUS_BAD_STORAGE :: 4 :: refused :: n/a :: the host allocator broke its contract at create or admit; internal inconsistency sites answer INTERNAL_DEFECT instead.
+T64_STATUS_INVALID_ROM :: 5 :: refused :: n/a :: the image failed admission checks.
+T64_STATUS_UNSUPPORTED_ROM_ORDER :: 6 :: reserved :: n/a :: never returned; the value is kept and not renumbered.
+T64_STATUS_NOT_READY :: 7 :: refused :: n/a :: no admitted image, or no terminal CPU stop for the query.
+T64_STATUS_TIME_REVERSED :: 8 :: refused :: n/a :: a requested time is behind guest time.
+T64_STATUS_BUFFER_TOO_SMALL :: 9 :: refused :: n/a :: size-then-copy-out query; the required length is reported and the output bytes stay intact.
+T64_STATUS_LIMIT_REVERSED :: 10 :: refused :: n/a :: a stop limit is behind the current counter.
+T64_STATUS_QUEUE_FULL :: 11 :: refused :: n/a :: a queue is full; the host advances, then retries.
+T64_STATUS_SEQUENCE_EXHAUSTED :: 12 :: refused :: terminal :: the event sequence is spent; permanent until the machine is reset.
+T64_STATUS_TICK_OVERFLOW :: 13 :: refused :: n/a :: a guest tick would overflow 64 bits.
+T64_STATUS_RESOURCE_EXHAUSTED :: 14 :: refused :: n/a :: container size ceiling at the API boundary; inside the scheduler the same value is a backpressure signal that advance reports as STOP_REASON_RESOURCE_LIMIT, never as this status.
+T64_STATUS_BUS_UNMAPPED :: 15 :: refused :: n/a :: the physical address decodes to no region.
+T64_STATUS_BUS_UNSUPPORTED :: 16 :: refused :: n/a :: the address decodes to a region the profile does not support for debug access.
+T64_STATUS_BUS_ALIGNMENT :: 17 :: refused :: n/a :: a halfword or word access that is not naturally aligned.
+T64_STATUS_BUS_RANGE :: 18 :: refused :: n/a :: the access leaves the 32-bit address space or the region's mapped bytes.
+T64_STATUS_BUS_DEVICE_REFUSED :: 19 :: refused :: n/a :: a device refused the write; t64_machine_bus_write carve-out: a refusing device can latch its own record (PI length and sticky error, SI sticky DMA error and a trace record), see the t64_machine_bus_write comment of the header; ABI rules land in docs/spec/api.md.
+T64_STATUS_SAVE_UNKNOWN_DEVICE :: 20 :: refused :: n/a :: save request names an unknown device kind; check order R0 to R9 in the header text.
+T64_STATUS_SAVE_UNSUPPORTED_DEVICE :: 21 :: refused :: n/a :: save request names a known, unsupported device kind; check order R0 to R9 in the header text.
+T64_STATUS_SAVE_DEVICE_MISMATCH :: 22 :: refused :: n/a :: the profile has no such save device; check order R0 to R9 in the header text.
+T64_STATUS_SAVE_BAD_FORMAT :: 23 :: refused :: n/a :: the requested byte-order selection is not RAW, SWAP16 or WORDREV32.
+T64_STATUS_SAVE_SIZE_MISMATCH :: 24 :: refused :: n/a :: the import length differs from the device storage size.
+T64_STATUS_SAVE_BUSY :: 25 :: refused :: n/a :: the save device is busy; clears after the busy window.
+T64_STATUS_STATE_FORMAT :: 26 :: refused :: n/a :: state import: container format refusal; the machine stays bit-identical.
+T64_STATUS_STATE_INTEGRITY :: 27 :: refused :: n/a :: state import: integrity refusal; the machine stays bit-identical.
+T64_STATUS_STATE_VERSION :: 28 :: refused :: n/a :: state import: version refusal; the machine stays bit-identical.
+T64_STATUS_STATE_PROFILE :: 29 :: refused :: n/a :: state import: profile refusal; the machine stays bit-identical.
+T64_STATUS_STATE_CONTENT :: 30 :: refused :: n/a :: state import: content refusal; the machine stays bit-identical.
+T64_STATUS_STATE_BUILD :: 31 :: refused :: n/a :: state import: build identity refusal; the machine stays bit-identical.
+T64_STATUS_STATE_RANGE :: 32 :: refused :: n/a :: state import: range refusal; the machine stays bit-identical.
+T64_STATUS_STATE_INVARIANT :: 33 :: refused :: n/a :: state import: a blob fault, not an instance defect; the machine stays bit-identical.
+T64_STATUS_ABI_MISMATCH :: 34 :: refused :: n/a :: returned by create only: the create-info abi_version does not match the library.
+T64_STATUS_STRUCT_TOO_SMALL :: 35 :: refused :: n/a :: a caller-filled struct_size is below the v1 minimum; state and outputs unchanged.
+T64_STATUS_REENTRANT :: 36 :: refused :: n/a :: a call while a call on the same instance is in progress (for example from an allocator callback).
+T64_STATUS_POISONED :: 37 :: defect :: n/a :: the answer of every call on a poisoned instance except destroy and the poison query.
+T64_STATUS_INTERNAL_DEFECT :: 38 :: defect :: n/a :: returned by the call that detects an internal invariant violation; the instance is then poisoned.
+#
+# stop reasons (advance result)
+T64_STOP_REASON_BOUND :: 1 :: guest-stop :: resumable :: the guest tick bound was reached.
+T64_STOP_REASON_INSTRUCTION_COUNT :: 2 :: guest-stop :: resumable :: the instruction count limit was reached.
+T64_STOP_REASON_FRAME_EVENT_COUNT :: 3 :: guest-stop :: resumable :: the frame event count limit was reached.
+T64_STOP_REASON_HALT :: 4 :: reserved :: terminal :: unreachable through the installed API (set only by the in-tree synthetic halt event); terminal until reset.
+T64_STOP_REASON_QUIESCENT :: 5 :: guest-stop :: resumable :: counter bound reached with an empty event queue; resumable by queued input only.
+T64_STOP_REASON_RESOURCE_LIMIT :: 6 :: guest-stop :: resumable :: resumable after drain or yield; causes: the per-advance event budget, an event that cannot dispatch for VI or AI output backpressure or counter overflow, and a masked non-OK handler status; a stall with no progress after a full drain is permanent.
+T64_STOP_REASON_CPU_UNSUPPORTED :: 7 :: guest-stop :: terminal :: the CPU met an instruction it does not implement; neither poisons nor claims the guest chose to stop; an emulator limitation.
+T64_STOP_REASON_GUEST_COMPLETION :: 8 :: guest-stop :: terminal :: software debug-stop convention, not a guest pass or CPU exception.
