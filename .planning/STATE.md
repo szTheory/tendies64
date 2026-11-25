@@ -6,10 +6,10 @@ current_phase: 11
 current_phase_name: Installed Consumer and Freeze Candidate
 status: executing
 stopped_at: Phase 10 complete, ready to plan Phase 11
-last_updated: "2026-11-25T19:01:52.595Z"
+last_updated: "2026-11-25T19:02:42.453Z"
 last_activity: 2026-11-25
-last_activity_desc: Phase 10 complete, transitioned to Phase 11
-state_head: 27cc1127da156ae57d33aa47d6f351e935d2cf59
+last_activity_desc: Phase 11 execution started
+state_head: f9124ae9fce134f31b645c6f2911a6f27fa41b9a
 progress:
   total_phases: 3
   completed_phases: 1
@@ -25,14 +25,14 @@ progress:
 See: .planning/PROJECT.md (updated 2026-11-23)
 
 **Core value:** Every Tendies64 support claim is backed by evidence: a named profile, a pinned build and a reproducible, rights-cleared guest result.
-**Current focus:** Phase 10 — Carry-in Closure Before the Freeze
+**Current focus:** Phase 11 — Installed Consumer and Freeze Candidate
 
 ## Current Position
 
-Phase: 11 (Installed Consumer and Freeze Candidate) — READY TO EXECUTE
-Plan: Not started
-Status: Ready to execute
-Last activity: 2026-11-25 — Phase 10 complete, transitioned to Phase 11
+Phase: 11 (Installed Consumer and Freeze Candidate) — EXECUTING
+Plan: 1 of 25
+Status: Executing Phase 11
+Last activity: 2026-11-25 — Phase 11 execution started
 
 Progress: [███░░░░░░░] 33% (0 of 3 v1.2 phases complete)
 
@@ -242,3 +242,4 @@ None
 
 - Owner approval 2026-11-25 (answer "Approve call-site-only rebind", Phase 11 plan-phase): Phase 11 may perform an identity-only, orchestrator-only rebind of the Phase 7 oracle request after API call-site-only edits to the nine bound test files (core/tests/test_rdp{,_copy,_triangles,_texture,_combiner,_blender,_depth}.c, test_vi.c, test_video_output.c, runner/tests/test_rdp_video.c): reproduce the old pinned hash first, change only those call sites and the derived hashes and PINNED_REQUEST_SHA256, keep local_decision blocked, isolate in one commit. No oracle, rights or publication authority granted.
   - Planner note 2026-11-25 (plan check item I-1; not owner text, the approval above is unchanged): the approval says "nine" and lists ten paths. Phase 11 reads it as nine API-using files edited (the seven test_rdp files, test_vi.c, test_video_output.c) and runner/tests/test_rdp_video.c listed but not edited (it needs no call-site change and keeps its hash); recorded as DR-27 in plan 11-01 and applied by plan 11-14.
+- Owner approval 2026-11-25 (answer "A: Extend approval to this initializer", Phase 11 execution, plan 11-01 checkpoint): the 2026-11-25 call-site-only rebind approval also covers the single value-neutral initializer update core/tests/test_rdp.c:486 (t64_host_storage image = {NULL, 0u, 0u} becomes {0}), same identity-only, orchestrator-only, one-isolated-commit, local_decision-blocked terms; no expected value, check, case name, sizeof pin or control-flow edit in any bound file is covered. t64_host_storage keeps its leading struct_size.
