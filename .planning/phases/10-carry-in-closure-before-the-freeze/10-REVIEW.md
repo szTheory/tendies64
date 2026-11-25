@@ -702,3 +702,82 @@ The slowest sanitizer name is `unit.core.state.import-v26-hostile` at 120.95 s a
 s (7.4 times); of the Wave 3 and 4 names `runner.state-format-v26` is 31.08 s against 300 s (9.7 times),
 `runner.composite-two-run` 13.46 s against 120 s (8.9 times) and the other four are at least 17 times below their
 limits. All are above the 2 times line of F-108.
+
+### Task 2: composite evidence independence and the unrelaxed raw-capture exclusion
+
+`WAVE0_BASE` and `WAVE3_BASE` are the two 40-hex literals above (base extraction idiom, never `HEAD`). `HEAD` is the
+reviewed head `4dd936a`. Commands ran in the main tree where they only read (the oracle script, `git diff`,
+`git log`, the supervisor and the fixture ROM, with scratch output in a private directory outside the repository)
+and in the scratch clone where they needed a build.
+
+| # | Check | Command or method | Result |
+|---|-------|-------------------|--------|
+| a | the committed expectation equals the independent oracle | `python3 -B fixtures/composite/composite_oracle.py --check fixtures/composite/composite.expected.json` | exit 0, "composite expectation equals the oracle (2737 bytes)" |
+| b | the oracle is independent of the producer | read of `fixtures/composite/composite_oracle.py` | imports only `argparse`, `hashlib`, `json`, `os`, `sys` and `fractions`; no import from `runner/`, `core/` or `tools/`, no subprocess, no `sys.path` edit; the only files it opens are the input script named by `--input`, the `--write` target and the `--check` file; the header says it reads no ROM, core, runner or tool. A search for `runner`, `core/`, `tools/` and `build/` finds only comment sentences (header lines 9 and 45). No blocking finding |
+| c | one manifest-moving commit | `git log --format=%H WAVE0_BASE..HEAD -- fixtures/manifest.json` and the same from `WAVE3_BASE` | exactly one commit in both ranges, `f027b055a1cd14e7cb84e0fd9f9a31b243f175cb` (`feat(10-14): composite manifest and runner rows`); the manifest holds 41 rows, the 39 of the Wave 0 base equal in canonical JSON and in position, and two appended (`phase10-composite-s32k`, `phase10-composite-wrong-s32k`) |
+| d | two-commit shape of plan 10-14 | `git show --stat` of both commits and `git cat-file` | `419275d` (guest source, linker script, builder, oracle, input script, the CMake registrations of the fixture build; no manifest row and no runner row) precedes `f027b05` (`fixtures/manifest.json`, `runner/t64_real_fixture.c`, one sentence of `docs/spec/result-protocol.md`, `PIN-IMPACT.md`); `419275d` holds `fixtures/composite/composite.S` and is the `source.revision` of both new rows, so each row names a commit that holds its source. Accepted: the shape is what the Phase 9 rows do and it keeps the hash chain honest |
+| e | the oracle request pin | `PINNED_REQUEST_SHA256` at `WAVE0_BASE`, `WAVE1_BASE`, `WAVE3_BASE` and the head | `a4bb7774...` at the Wave 0 base, `e131cbe7e255052e706668b6cb0d7192c4ac877b65bd7c3a33e65194962927ab` at the Wave 1 base, the Wave 3 base and the head: it moved once (`b64098f`, the 10-03 orchestrator rebind of GATE-02, identity only) and the two composite rows of this wave moved it not at all, which is the GATE-02 outcome on a real appended row. `harness.rdp-oracle-authority` passes on the 41-row manifest |
+| f | closed Phase 9 records | `git diff --quiet WAVE0_BASE HEAD -- docs/claims/phase09.md docs/evidence/phase09-qualification.md`; `ast` comparison of the `F2_PINS` and `F2_PIN_KEYS` assignments of `scripts/tests/test_phase09_qualification.py` | both documents byte identical to the Wave 0 base (exit 0); both literals `ast.unparse` equal to the Wave 0 base |
+| g | supervisor and real runner diff | `git diff WAVE0_BASE..HEAD -- runner/t64_supervisor.c runner/t64_real.c` (46 insertions, 11 deletions) | only the container format pairing of plan 10-15 Task 3: a comment and the closed-set test `{v1, v2}` in `state_export_flags_valid`; a `format` member of `state_request`, the function `state_request_admitted` (export admitted as (25, v1) or (26, v2), import only on 25, everything else the existing prelaunch refusal at guest tick 0) replacing the old state-25-only guard, and the parser accepting the same closed set. Zero added or removed lines contain the word "raw". The exclusion lines read in place are unchanged: `runner/t64_supervisor.c:588` (save), `:627` (replay), `:664` (state export), `:696` (state import) and `:955` (the artifact pair), each carrying `raw_capture_dir_seen`. No blocking finding |
+| h | live refused invocations (the manual supervised run of the plan) | the supervisor of the shared gate preset on `build/fixtures/phase10-composite-s32k.z64` with `composite.input.json`, scratch output outside the repository, an accepted baseline first | baseline raw run: `pass`, `positive-match`, guest tick 599,357, state digest `97f270274d456e883ceaa11f100f92c7fbf3150e89031fa51164e79991f1267c`; baseline save-out run: the same outcome, tick and digest, `composite.sra` 32,768 bytes. `--raw-capture-dir` with the artifact pair, with the save-out options, with `--state-export` (v1 and v2 strings) and with `--replay-record`, and with a save-out leaf and no artifact pair: each exit 2, `harness-error` / `usage`, guest tick 0, nothing created. Controls without the raw directory: the v2 state export on this state 26 profile passes (10,578,907 bytes, same digest) and the v1 string on it is the runner's prelaunch pairing refusal (`capture-invalid`, tick 0), a different layer from the usage refusal |
+| i | raw capture sizes | the files of the baseline raw run (limit 69,632 bytes per file, `docs/spec/raw-capture.md`) | `manifest.json` 2,273 bytes, three video frames of 48 bytes, two audio packets of 16 bytes: the largest file is 3.3 percent of the limit. (The test removes its evidence directory at exit, so the run of the same arguments is the measurement; `build/gate/10-15-evidence/state-format` is an empty scope directory left behind, 0 bytes.) |
+| j | rights rows | `fixtures/manifest.json` | both rows: `source_rights` `authored-here`, `binary_rights` `cleared`, `distribution` `["build-only"]`, profile `ntsc-cart-4m-openipl3-rdram-b-t1-si-v2-s32k` |
+
+**Assessments the plan dispatch asks for.**
+
+1. *Plan 10-15 deviation 1: one literal of `runner/tests/test_state_runner.c`* (a Phase 9 inventoried file) changed from
+   `t64.state-container.v2` to `t64.state-container.v3` as the "wrong string" of case `export-refusals`, because
+   v2 joined the closed set. Read: `git diff 925aca4^ 925aca4 -- runner/tests/test_state_runner.c` is one literal
+   and a four-line comment (5 insertions, 1 deletion). The case name `export-refusals` and the case list are unchanged;
+   `docs/spec/phase09-cases.json` is byte identical to the Wave 0 base and
+   `python3 -B scripts/check-phase09-cases.py --build build/gate --suite state-export` prints "validated nonempty
+   state-export phase09 case inventory" (20 cases over `core/test_state_export` and `runner/test_state_runner`);
+   the F2 pins name no file hash of `test_state_runner.c` (`inventory_sha256` is the digest of the unchanged
+   inventory file; `git grep test_state_runner` outside `.planning/` finds only the inventory, a spec mention and
+   `runner/CMakeLists.txt`); the Phase 9 source binding of `scripts/qualify-phase09.py` (`SOURCE_PATHS` names
+   `runner` as a directory) is verified only at the Phase 9 qualification commit, as for the six other `runner/`
+   files that Phase 10 changed. By hand, with the supervisor of the shared tree: `t64.state-container.v3` and
+   `t64.state-container.v0` on the same setup as an accepted v2 export are `harness-error` / `usage` at tick 0
+   (the control still controls: a string outside the closed set is the usage refusal). The v2-on-25 pairing that
+   the old literal exercised is now covered, next to accepted baselines, by `runner.state-format-v26`.
+   **Accepted** (finding W3-01, info). One reading to carry: plan 10-11 prohibition P2 says this file gets "no new
+   cases" and its "v25 bound assertions stay as they are"; no case was added and the changed literal is a
+   negative-control string, not a v25 bound assertion.
+2. *Plan 10-15 deviation 2: the wrong-ROM control's save comparison.* The wrong ROM carries the accepted pin, fails
+   it (`guest-fail`, `wrong-transcript`) and the supervisor exports a save only after a pass, so no image of the
+   failing run exists to compare. The case asserts, in order: the accepted ROM in the same setup gives an image equal
+   to the expectation and a transcript equal to the oracle's; the wrong ROM ends `guest-fail` / `wrong-transcript` /
+   `authored-completion` with the wrong fixture id and the profile, publishes nothing (empty artifact directory),
+   and its captured transcript equals the oracle's `wrong.transcript` byte for byte (a whole 188-byte comparison
+   including the `SR` line the guest read back from the save device); then it places the 16 bytes of that `SR`
+   record into the accepted expected image and runs the same first-difference comparator, which must report offset
+   271, the oracle's independent `wrong.save_first_difference` (record offset 256 plus the last byte of the 16, a
+   one-bit change of the last word; the oracle prints 0x27 against 0x26). I re-derived 271 from the oracle output
+   (`--variant wrong` gives the record `5436344344109c649846d0a71026a826` against the accepted
+   `...a827`). Strength: the transcript comparison is strong and independent (the whole read-back record is
+   predicted by the oracle, and it fails the runner's pin); the derived save comparison proves that the comparator
+   discriminates exactly that one-bit save error and reports the right offset, but it does not prove that a
+   failing run's exported 32,768-byte file would differ, because by design no such file exists. The full-image
+   comparator has its own controls on the accepted ROM (save offset 12,345 and a mutated expectation file fails the
+   case). **Accepted** (finding W3-02, info): the weakened form is what the platform can observe; a stronger form
+   would need the supervisor to export on failure, which is a result-protocol change and out of this phase.
+3. *Plan 10-14 two-commit shape:* check d. **Confirmed**; check c shows the one manifest-moving commit and check e
+   the unchanged `PINNED_REQUEST_SHA256` (`e131cbe7...`) since the Wave 1 base, with `docs/claims/phase09.md`,
+   `docs/evidence/phase09-qualification.md` and the `F2_PINS` literal byte identical or `ast` equal to the Wave 0
+   base (check f).
+4. *The raw-capture exclusion is not relaxed:* check g (no changed line mentions raw) and check h (every
+   combination refused at tick 0, with a same-setup accepted baseline).
+
+### Findings (Wave 3)
+
+Columns: id, severity (blocking, warning, info), file and line, finding, disposition. No blocking finding was
+found.
+
+| id | severity | file:line | finding | disposition |
+|----|----------|-----------|---------|-------------|
+| W3-01 | info | `runner/tests/test_state_runner.c:1229` | the Phase 9 wrong-format literal moved from the v2 to the v3 string; case, case list, inventory and pins unchanged (assessment 1) | accepted |
+| W3-02 | info | `runner/tests/test_composite_two_run.c:1035-1040` | the wrong-ROM save comparison runs on the guest's read-back record placed into the accepted image, because a failing run publishes no save (assessment 2) | accepted; no stronger form exists without a supervisor change |
+| W3-03 | info | `scripts/check-rdp-oracle-authority.py:23` | `PINNED_REQUEST_SHA256` is `e131cbe7...` unchanged from the Wave 1 base on; it was `a4bb7774...` at the Wave 0 base and moved once by the recorded 10-03 orchestrator rebind. A reader of "unchanged since the Wave 0 base" must read it as "unchanged by any Wave 3 or 4 plan" | recorded |
+| W3-04 | info | `scripts/qualify-phase10.py:465` | the mutants stage derivation sentence said 26 mutants (driver: 25 mutants and 2 controls, 27 rows; the stage check itself is exact) | fixed in `4dd936a` before the audit and the qualification base (text only; `harness.phase10-qualification` 5.9 s) |
+| W3-05 | info | `fixtures/composite/composite_oracle.py` | the oracle is independent of the producer in code and in values (standard library only, no ROM or build output read, constants from the authored source and the policy text of the spec documents), not in authorship: the guest and the oracle have one author. Mitigation: a wrong-value control for each of the four outputs, a mutated expectation file that fails the case, and the second computation by `--check` | recorded; evidence tier stays "unit-tested, authored scope" |
+| W3-06 | info | `build/gate/06-05-cold-hello-attempt-NN`, `runner/tests/test_cold_boot.c:124-139` | D-10-17-01 (the 99 attempt cap of two Phase 6 tests in a long-lived build tree) is still open and still a Phase 11 test hygiene item; the shared tree stands at 2 attempts of each family after the archive move of plan 10-17, so the qualification of plan 10-19 and its few full gate runs have room | recorded in `deferred-items.md`; checked again at the end of this plan |
