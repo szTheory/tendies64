@@ -82,7 +82,8 @@ static void fill_authored_image(uint8_t *image, size_t length) {
 
 static bool create_test_machine(t64_machine **machine_out, uint8_t *image,
                                 size_t image_length) {
-  const t64_host_allocator allocator = {test_allocate, test_release, NULL};
+  const t64_host_allocator allocator =
+      T64_HOST_ALLOCATOR_INIT(test_allocate, test_release, NULL);
   const t64_profile_descriptor *profile = NULL;
   t64_machine *machine = NULL;
   t64_status status;
@@ -111,11 +112,13 @@ static bool create_test_machine(t64_machine **machine_out, uint8_t *image,
 
 static void test_delayed_rom_copy(void) {
   uint8_t image[TEST_ROM_BYTES];
-  const t64_host_allocator allocator = {test_allocate, test_release, NULL};
+  const t64_host_allocator allocator =
+      T64_HOST_ALLOCATOR_INIT(test_allocate, test_release, NULL);
   const t64_profile_descriptor *profile = NULL;
   t64_machine *machine = NULL;
-  t64_stop_request request = {T64_STOP_GUEST_TICK, UINT64_C(8)};
-  t64_stop_result result;
+  t64_stop_request request =
+      T64_STOP_REQUEST_INIT(T64_STOP_GUEST_TICK, UINT64_C(8));
+  t64_stop_result result = T64_STOP_RESULT_INIT;
   uint32_t value = 0u;
   size_t i;
 
@@ -220,12 +223,14 @@ static void test_delayed_rom_copy(void) {
 
 static void test_profile_pi_duration_controls_completion_tick(void) {
   uint8_t image[TEST_ROM_BYTES];
-  const t64_host_allocator allocator = {test_allocate, test_release, NULL};
+  const t64_host_allocator allocator =
+      T64_HOST_ALLOCATOR_INIT(test_allocate, test_release, NULL);
   const t64_profile_descriptor *base_profile = NULL;
   t64_profile_descriptor profile;
   t64_machine *machine = NULL;
-  t64_stop_request request = {T64_STOP_GUEST_TICK, UINT64_C(6)};
-  t64_stop_result result = {0u, 0u};
+  t64_stop_request request =
+      T64_STOP_REQUEST_INIT(T64_STOP_GUEST_TICK, UINT64_C(6));
+  t64_stop_result result = T64_STOP_RESULT_INIT;
   uint32_t value = 0u;
 
   fill_authored_image(image, sizeof image);
@@ -383,11 +388,13 @@ static void test_register_masks_and_invalid_requests(void) {
 
 static void test_busy_start_and_model_minimum(void) {
   uint8_t image[TEST_ROM_BYTES];
-  const t64_host_allocator allocator = {test_allocate, test_release, NULL};
+  const t64_host_allocator allocator =
+      T64_HOST_ALLOCATOR_INIT(test_allocate, test_release, NULL);
   const t64_profile_descriptor *profile = NULL;
   t64_machine *machine = NULL;
-  t64_stop_request request = {T64_STOP_GUEST_TICK, UINT64_C(1)};
-  t64_stop_result result;
+  t64_stop_request request =
+      T64_STOP_REQUEST_INIT(T64_STOP_GUEST_TICK, UINT64_C(1));
+  t64_stop_result result = T64_STOP_RESULT_INIT;
   uint32_t value = 0u;
 
   fill_authored_image(image, sizeof image);
@@ -509,8 +516,9 @@ static void test_busy_start_and_model_minimum(void) {
 static void test_exact_range_boundaries(void) {
   uint8_t image[TEST_ROM_BYTES];
   t64_machine *machine = NULL;
-  t64_stop_request request = {T64_STOP_GUEST_TICK, UINT64_C(9)};
-  t64_stop_result result;
+  t64_stop_request request =
+      T64_STOP_REQUEST_INIT(T64_STOP_GUEST_TICK, UINT64_C(9));
+  t64_stop_result result = T64_STOP_RESULT_INIT;
   uint32_t value = 0u;
 
   if (!create_test_machine(&machine, image, sizeof image)) {
@@ -581,9 +589,9 @@ static void test_largest_profile_transfer(void) {
   const size_t image_length = (size_t)UINT32_C(0x00400000);
   uint8_t *image = (uint8_t *)malloc(image_length);
   t64_machine *machine = NULL;
-  t64_stop_request request = {T64_STOP_GUEST_TICK,
-                              UINT64_C(2097152)};
-  t64_stop_result result;
+  t64_stop_request request =
+      T64_STOP_REQUEST_INIT(T64_STOP_GUEST_TICK, UINT64_C(2097152));
+  t64_stop_result result = T64_STOP_RESULT_INIT;
   uint32_t value = 0u;
 
   check_u64("Largest PI fixture allocation succeeds", image != NULL,
@@ -785,12 +793,13 @@ static t64_status schedule_pi_clear(t64_machine *machine, uint64_t tick) {
 static void test_cancel_and_stale_completion(void) {
   uint8_t image[TEST_ROM_BYTES];
   size_t callback_calls = 0u;
-  const t64_host_allocator allocator = {test_allocate, test_release,
-                                        &callback_calls};
+  const t64_host_allocator allocator =
+      T64_HOST_ALLOCATOR_INIT(test_allocate, test_release, &callback_calls);
   const t64_profile_descriptor *profile = NULL;
   t64_machine *machine = NULL;
-  t64_stop_request request = {T64_STOP_GUEST_TICK, UINT64_C(8)};
-  t64_stop_result result;
+  t64_stop_request request =
+      T64_STOP_REQUEST_INIT(T64_STOP_GUEST_TICK, UINT64_C(8));
+  t64_stop_result result = T64_STOP_RESULT_INIT;
   t64_event stale = {0};
   uint32_t value = 0u;
   uint8_t digest_before_stale[T64_DIGEST_SIZE];
@@ -923,8 +932,8 @@ static void test_cancel_and_stale_completion(void) {
   check_u64("Stale token cannot change the newer active token",
             machine->pi.active_token != canceled_token, 1u);
   check_status("New request completes at its own deadline",
-               t64_machine_advance(machine, &(t64_stop_request){
-                                                  T64_STOP_GUEST_TICK, 18u},
+               t64_machine_advance(machine, &(t64_stop_request)T64_STOP_REQUEST_INIT(T64_STOP_GUEST_TICK,
+                                                                                     18u),
                                    &result),
                T64_STATUS_OK);
   check_status("New destination contains the new source bytes",
@@ -946,8 +955,8 @@ static void test_same_tick_clear_fifo(void) {
   uint8_t image_b[TEST_ROM_BYTES];
   t64_machine *machine_a = NULL;
   t64_machine *machine_b = NULL;
-  t64_stop_request request = {T64_STOP_GUEST_TICK, 9u};
-  t64_stop_result result;
+  t64_stop_request request = T64_STOP_REQUEST_INIT(T64_STOP_GUEST_TICK, 9u);
+  t64_stop_result result = T64_STOP_RESULT_INIT;
 
   if (!create_test_machine(&machine_a, image_a, sizeof image_a) ||
       !create_test_machine(&machine_b, image_b, sizeof image_b)) {
@@ -997,8 +1006,8 @@ static void test_pi_trace_observer(void) {
   uint8_t image[TEST_ROM_BYTES];
   t64_machine *machine = NULL;
   t64_trace_record records[T64_TRACE_RECORD_CAPACITY];
-  t64_stop_request request = {T64_STOP_GUEST_TICK, 9u};
-  t64_stop_result result;
+  t64_stop_request request = T64_STOP_REQUEST_INIT(T64_STOP_GUEST_TICK, 9u);
+  t64_stop_result result = T64_STOP_RESULT_INIT;
   uint8_t digest_before[T64_DIGEST_SIZE];
   uint8_t digest_after[T64_DIGEST_SIZE];
   size_t count = 0u;

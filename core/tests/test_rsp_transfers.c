@@ -54,8 +54,8 @@ static bool fixture_create(rsp_transfer_fixture *fixture) {
     return false;
   }
   (void)memset(fixture, 0, sizeof *fixture);
-  fixture->allocator.allocate = fixture_allocate;
-  fixture->allocator.release = fixture_release;
+  fixture->allocator = (t64_host_allocator)T64_HOST_ALLOCATOR_INIT(
+      fixture_allocate, fixture_release, NULL);
   status = t64_profile_lookup(
       "ntsc-cart-4m-openipl3-rsp-functional-v1", &profile);
   if (status != T64_STATUS_OK || profile == NULL ||
@@ -135,8 +135,9 @@ static bool prepare_instruction(rsp_transfer_fixture *fixture,
 static bool execute_prepared(rsp_transfer_fixture *fixture,
                              rsp_transfer_observation *observed) {
   t64_machine *machine;
-  t64_stop_request request = {T64_STOP_GUEST_TICK, UINT64_C(1)};
-  t64_stop_result result = {0u, 0u};
+  t64_stop_request request =
+      T64_STOP_REQUEST_INIT(T64_STOP_GUEST_TICK, UINT64_C(1));
+  t64_stop_result result = T64_STOP_RESULT_INIT;
 
   if (fixture == NULL || fixture->machine == NULL || observed == NULL) {
     return false;
@@ -455,8 +456,8 @@ static bool transfer_vadd_dependency_test(rsp_transfer_fixture *fixture) {
   for (size_t i = 0u; i < sizeof words / sizeof words[0]; i++) {
     rsp_transfer_observation observed;
     t64_machine *m = fixture->machine;
-    t64_stop_request request = {T64_STOP_GUEST_TICK, 5u};
-    t64_stop_result result = {0u, 0u};
+    t64_stop_request request = T64_STOP_REQUEST_INIT(T64_STOP_GUEST_TICK, 5u);
+    t64_stop_result result = T64_STOP_RESULT_INIT;
     uint16_t expected = i == 1u ? 0x1202u : (i == 3u ? 2u : 3u);
     if (!prepare_instruction(fixture, words[i], 0x100u)) { return false; }
     (void)memset(m->rsp.vector, 0, sizeof m->rsp.vector);

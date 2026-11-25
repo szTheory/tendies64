@@ -57,6 +57,23 @@ static void check_status(t64_status actual, t64_status expected,
   }
 }
 
+/*
+ * Fills every member of a drain result with a recognizable non-zero value, so a
+ * call that must leave the result alone (or must overwrite it) is told apart
+ * from one that writes zeros. It starts from the init macro, so the leading
+ * struct_size that the init macro owns survives the poisoning; a byte-wise
+ * memset would overwrite it.
+ */
+static void poison_drain_result(t64_output_drain_result *result) {
+  *result = (t64_output_drain_result)T64_OUTPUT_DRAIN_RESULT_INIT;
+  result->copied_bytes = (size_t)UINT64_C(0xa5a5a5a5a5a5a5a5);
+  result->required_bytes = (size_t)UINT64_C(0xa5a5a5a5a5a5a5a5);
+  result->total_attempted_bytes = UINT64_C(0xa5a5a5a5a5a5a5a5);
+  (void)memset(result->captured_sha256, 0xa5, sizeof result->captured_sha256);
+  result->lost_output = true;
+  result->total_attempted_bytes_exact = true;
+}
+
 static bool read_file(const char *path, uint8_t *bytes, size_t capacity,
                       size_t *length_out) {
   FILE *file;
@@ -251,7 +268,7 @@ static bool bytes_are(const uint8_t *bytes, size_t length, uint8_t value) {
 static t64_status advance_guest_in_chunks(t64_machine *machine,
                                           uint64_t limit_tick,
                                           t64_stop_result *result_out) {
-  t64_stop_request request = {T64_STOP_GUEST_TICK, 0u};
+  t64_stop_request request = T64_STOP_REQUEST_INIT(T64_STOP_GUEST_TICK, 0u);
 
   if (machine == NULL || result_out == NULL || limit_tick < machine->tick) {
     return T64_STATUS_INVALID_ARGUMENT;
@@ -338,7 +355,7 @@ static void test_public_output_and_input_seams(
   static const uint8_t next_bytes[] = {'D', 'E', 'F'};
   static const uint8_t reset_bytes[] = {'N', 'E', 'W'};
   t64_machine *machine = create_machine(allocator, asset, asset_length);
-  t64_output_drain_result drain = {0};
+  t64_output_drain_result drain = T64_OUTPUT_DRAIN_RESULT_INIT;
   uint8_t bytes[sizeof expected_bytes] = {0};
   uint8_t too_small[2] = {UINT8_C(0x5a), UINT8_C(0x5a)};
   uint8_t state_before[T64_DIGEST_SIZE];
@@ -378,7 +395,7 @@ static void test_public_output_and_input_seams(
         "copying output does not change the canonical machine digest");
 
   (void)memset(bytes, 0x5a, sizeof bytes);
-  drain = (t64_output_drain_result){0};
+  drain = (t64_output_drain_result)T64_OUTPUT_DRAIN_RESULT_INIT;
   check_status(t64_machine_output_drain(machine, bytes, sizeof bytes, &drain),
                T64_STATUS_OK, "repeated empty drain succeeds");
   check(drain.copied_bytes == 0u && drain.required_bytes == 0u &&
@@ -390,7 +407,7 @@ static void test_public_output_and_input_seams(
         "next output chunk is captured independently");
   check(state_digest(machine, state_before),
         "state digest is available before short-buffer query");
-  (void)memset(&drain, 0xa5, sizeof drain);
+  poison_drain_result(&drain);
   check_status(t64_machine_output_drain(machine, too_small, sizeof too_small,
                                         &drain),
                T64_STATUS_BUFFER_TOO_SMALL,
@@ -454,8 +471,8 @@ static void test_output_drain_refusals_and_isolation(
   t64_machine *machine = create_machine(allocator, asset, asset_length);
   t64_machine *other = create_machine(allocator, asset, asset_length);
   t64_machine *unadmitted = create_unadmitted_machine(allocator);
-  t64_output_drain_result result;
-  t64_output_drain_result before_result;
+  t64_output_drain_result result = T64_OUTPUT_DRAIN_RESULT_INIT;
+  t64_output_drain_result before_result = T64_OUTPUT_DRAIN_RESULT_INIT;
   uint8_t output[sizeof seeded];
   uint8_t before_output[sizeof seeded];
   uint8_t state_before[T64_DIGEST_SIZE];
@@ -479,7 +496,7 @@ static void test_output_drain_refusals_and_isolation(
         "refusal test seeds a pending output chunk");
   check(state_digest(machine, state_before),
         "refusal test captures its pre-call state digest");
-  (void)memset(&result, 0xa5, sizeof result);
+  poison_drain_result(&result);
   (void)memcpy(&before_result, &result, sizeof result);
   (void)memset(output, 0x5a, sizeof output);
   (void)memcpy(before_output, output, sizeof output);
@@ -490,7 +507,7 @@ static void test_output_drain_refusals_and_isolation(
             memcmp(output, before_output, sizeof output) == 0,
         "overflow refusal leaves caller result and bytes unchanged");
 
-  (void)memset(&result, 0xa5, sizeof result);
+  poison_drain_result(&result);
   (void)memcpy(&before_result, &result, sizeof result);
   status = t64_machine_output_drain(machine, NULL, sizeof output, &result);
   check_status(status, T64_STATUS_INVALID_ARGUMENT,
@@ -501,7 +518,7 @@ static void test_output_drain_refusals_and_isolation(
                T64_STATUS_INVALID_ARGUMENT,
                "null result span is refused");
 
-  (void)memset(&overlap, 0xa5, sizeof overlap);
+  poison_drain_result(&overlap.result);
   (void)memcpy(owned_before, overlap.bytes, sizeof owned_before);
   status = t64_machine_output_drain(machine, overlap.bytes, sizeof seeded,
                                     &overlap.result);
@@ -511,7 +528,7 @@ static void test_output_drain_refusals_and_isolation(
   check(memcmp(owned_before, owned_after, sizeof owned_before) == 0,
         "pairwise alias refusal leaves the shared caller bytes unchanged");
 
-  (void)memset(&result, 0xa5, sizeof result);
+  poison_drain_result(&result);
   (void)memcpy(&before_result, &result, sizeof result);
   (void)memcpy(owned_before, machine->ram, sizeof owned_before);
   check_status(t64_machine_output_drain(machine, machine->ram, sizeof seeded,
@@ -543,7 +560,7 @@ static void test_output_drain_refusals_and_isolation(
             memcmp(state_before, state_after, sizeof state_before) == 0,
         "all invalid output spans leave guest future state unchanged");
 
-  (void)memset(&result, 0xa5, sizeof result);
+  poison_drain_result(&result);
   (void)memcpy(&before_result, &result, sizeof result);
   (void)memset(output, 0x5a, sizeof output);
   (void)memcpy(before_output, output, sizeof output);
@@ -581,7 +598,7 @@ static void test_output_loss_observation(
     const t64_host_allocator *allocator, const uint8_t *asset,
     size_t asset_length) {
   t64_machine *machine = create_machine(allocator, asset, asset_length);
-  t64_output_drain_result result = {0};
+  t64_output_drain_result result = T64_OUTPUT_DRAIN_RESULT_INIT;
   uint8_t full_capture[T64_ISVIEWER_CAPTURE_BYTES];
   size_t i;
 
@@ -641,8 +658,8 @@ static void test_input_refusals_and_identity(
   t64_machine *terminal = create_machine(allocator, asset, asset_length);
   uint8_t before[T64_DIGEST_SIZE];
   uint8_t after[T64_DIGEST_SIZE];
-  t64_stop_request request = {T64_STOP_GUEST_TICK, 1u};
-  t64_stop_result result;
+  t64_stop_request request = T64_STOP_REQUEST_INIT(T64_STOP_GUEST_TICK, 1u);
+  t64_stop_result result = T64_STOP_RESULT_INIT;
   t64_status status;
 
   if (first == NULL || same == NULL || different == NULL || unadmitted == NULL ||
@@ -746,8 +763,8 @@ static void test_input_trace_order_and_observer_invariance(
   t64_machine *traced = create_machine(allocator, asset, asset_length);
   t64_machine *untraced = create_machine(allocator, asset, asset_length);
   t64_trace_record records[T64_TRACE_RECORD_CAPACITY];
-  t64_output_drain_result drain = {0};
-  t64_stop_result result;
+  t64_output_drain_result drain = T64_OUTPUT_DRAIN_RESULT_INIT;
+  t64_stop_result result = T64_STOP_RESULT_INIT;
   size_t record_count = 0u;
   uint64_t dropped = 0u;
   bool saturated = false;
@@ -1044,7 +1061,7 @@ static void test_oversize_and_total_limit(
   t64_machine *oversize = create_machine(allocator, asset, asset_length);
   t64_machine *total = create_machine(allocator, asset, asset_length);
   t64_machine *saturated = create_machine(allocator, asset, asset_length);
-  t64_output_drain_result saturation_result = {0};
+  t64_output_drain_result saturation_result = T64_OUTPUT_DRAIN_RESULT_INIT;
   uint32_t previous_count;
   bool full_capture;
   size_t i;
@@ -1227,10 +1244,14 @@ static void test_actual_hello(const t64_host_allocator *allocator,
                               const uint8_t *hello, size_t hello_length) {
   static const uint8_t expected[] = "Tendies64 hello via open IPL3\n";
   t64_machine *machine = create_machine(allocator, hello, hello_length);
-  t64_stop_request request = {T64_STOP_GUEST_TICK, UINT64_C(700000)};
-  t64_stop_result result = {UINT32_MAX, UINT64_MAX};
-  t64_cpu_stop_detail detail = {UINT64_MAX, UINT32_MAX, UINT32_MAX};
-  t64_output_drain_result drain = {0};
+  t64_stop_request request =
+      T64_STOP_REQUEST_INIT(T64_STOP_GUEST_TICK, UINT64_C(700000));
+  t64_stop_result result = T64_STOP_RESULT_INIT_WITH(UINT32_MAX, UINT64_MAX);
+  t64_cpu_stop_detail detail = T64_CPU_STOP_DETAIL_INIT;
+  detail.retired_instructions = UINT64_MAX;
+  detail.pc = UINT32_MAX;
+  detail.opcode = UINT32_MAX;
+  t64_output_drain_result drain = T64_OUTPUT_DRAIN_RESULT_INIT;
   uint8_t host_output[sizeof expected - 1u] = {0};
   t64_status status;
   bool exact;
@@ -1284,8 +1305,9 @@ static void test_actual_overflow_guest(const t64_host_allocator *allocator,
                                        size_t overflow_length) {
   t64_machine *machine =
       create_machine(allocator, overflow_rom, overflow_length);
-  t64_stop_request request = {T64_STOP_GUEST_TICK, UINT64_C(700000)};
-  t64_stop_result result = {UINT32_MAX, UINT64_MAX};
+  t64_stop_request request =
+      T64_STOP_REQUEST_INIT(T64_STOP_GUEST_TICK, UINT64_C(700000));
+  t64_stop_result result = T64_STOP_RESULT_INIT_WITH(UINT32_MAX, UINT64_MAX);
   bool exact;
 
   if (machine == NULL) {
@@ -1316,7 +1338,8 @@ static void test_actual_overflow_guest(const t64_host_allocator *allocator,
 }
 
 int main(void) {
-  const t64_host_allocator allocator = {test_allocate, test_release, NULL};
+  const t64_host_allocator allocator =
+      T64_HOST_ALLOCATOR_INIT(test_allocate, test_release, NULL);
   uint8_t asset[T64_IPL3_ASSET_BYTES];
   uint8_t *hello = (uint8_t *)malloc(T64_MAX_FIXTURE_BYTES);
   uint8_t *overflow = (uint8_t *)malloc(T64_MAX_FIXTURE_BYTES);

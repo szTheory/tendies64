@@ -41,8 +41,8 @@ static bool fixture_create(rsp_divider_fixture *fixture) {
   t64_status status;
 
   (void)memset(fixture, 0, sizeof *fixture);
-  fixture->allocator.allocate = fixture_allocate;
-  fixture->allocator.release = fixture_release;
+  fixture->allocator = (t64_host_allocator)T64_HOST_ALLOCATOR_INIT(
+      fixture_allocate, fixture_release, NULL);
   status = t64_profile_lookup(
       "ntsc-cart-4m-openipl3-rsp-functional-v1", &profile);
   if (status != T64_STATUS_OK || profile == NULL ||
@@ -101,9 +101,9 @@ static bool execute_fetched(t64_machine *machine, uint32_t instruction) {
     return false;
   }
   for (attempt = 0u; attempt < 8u; attempt++) {
-    t64_stop_request request = {T64_STOP_GUEST_TICK,
-                                machine->tick + UINT64_C(1)};
-    t64_stop_result result = {0u, 0u};
+    t64_stop_request request =
+        T64_STOP_REQUEST_INIT(T64_STOP_GUEST_TICK, machine->tick + UINT64_C(1));
+    t64_stop_result result = T64_STOP_RESULT_INIT;
 
     if (t64_machine_advance(machine, &request, &result) != T64_STATUS_OK) {
       return false;
@@ -288,8 +288,9 @@ static bool fetched_vrcph_returns_previous_high_and_latches_input(
   const uint32_t instruction =
       encode_vector(0u, 2u, 1u, 3u, UINT32_C(0x32));
   t64_machine *machine = fixture->machine;
-  t64_stop_request request = {T64_STOP_GUEST_TICK, UINT64_C(1)};
-  t64_stop_result result = {0u, 0u};
+  t64_stop_request request =
+      T64_STOP_REQUEST_INIT(T64_STOP_GUEST_TICK, UINT64_C(1));
+  t64_stop_result result = T64_STOP_RESULT_INIT;
   uint64_t accumulator_before[8];
   uint32_t lane;
 

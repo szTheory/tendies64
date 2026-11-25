@@ -63,8 +63,8 @@ static void test_release(void *context, t64_host_storage storage) {
   free(storage.data);
 }
 
-static const t64_host_allocator allocator = {
-    test_allocate, test_release, NULL};
+static const t64_host_allocator allocator =
+    T64_HOST_ALLOCATOR_INIT(test_allocate, test_release, NULL);
 
 static t64_machine *create_admitted_profile(const char *profile_id,
                                              uint8_t ipl3_asset[IPL3_ASSET_BYTES]) {
@@ -126,8 +126,8 @@ static bool find_next_ai_sample_tick(const t64_machine *machine,
 }
 
 static bool advance_guest_to(t64_machine *machine, uint64_t tick) {
-  t64_stop_request request = {T64_STOP_GUEST_TICK, tick};
-  t64_stop_result result = {0u, 0u};
+  t64_stop_request request = T64_STOP_REQUEST_INIT(T64_STOP_GUEST_TICK, tick);
+  t64_stop_result result = T64_STOP_RESULT_INIT;
   t64_status status = t64_machine_advance(machine, &request, &result);
 
   T64_CHECK_INT(status, T64_STATUS_OK);
@@ -220,9 +220,9 @@ static uint64_t expected_audio_elapsed_ticks(uint64_t samples,
 static void case_admitted_profile_dma_queue(void) {
   const t64_profile_descriptor *profile = NULL;
   t64_machine *machine = NULL;
-  t64_stop_result stop = {0};
-  t64_audio_packet_info info;
-  t64_stop_request request = {T64_STOP_GUEST_TICK, 0u};
+  t64_stop_result stop = T64_STOP_RESULT_INIT;
+  t64_audio_packet_info info = T64_AUDIO_PACKET_INFO_INIT;
+  t64_stop_request request = T64_STOP_REQUEST_INIT(T64_STOP_GUEST_TICK, 0u);
   uint8_t first_packet[16];
   uint8_t second_packet[16];
   uint8_t ipl3_asset[IPL3_ASSET_BYTES];
@@ -349,8 +349,8 @@ static void case_new_profile_inherited_devices(void) {
   uint8_t ipl3_asset[IPL3_ASSET_BYTES];
   t64_machine *machine =
       create_admitted_profile(AI_PROFILE_ID, ipl3_asset);
-  t64_stop_request request;
-  t64_stop_result stop = {0};
+  t64_stop_request request = T64_STOP_REQUEST_INIT(0u, 0u);
+  t64_stop_result stop = T64_STOP_RESULT_INIT;
   uint32_t instruction;
   size_t index;
 
@@ -364,7 +364,8 @@ static void case_new_profile_inherited_devices(void) {
   machine->ram[UINT32_C(0x1003)] = 0x07u;
   machine->cpu.pc = UINT32_C(0x80001000);
   machine->cpu.pc_full = t64_cpu_canonical_address(machine->cpu.pc);
-  request = (t64_stop_request){T64_STOP_GUEST_TICK, machine->tick + 1u};
+  request = (t64_stop_request)T64_STOP_REQUEST_INIT(T64_STOP_GUEST_TICK,
+                                                    machine->tick + 1u);
   T64_CHECK_INT(t64_machine_advance(machine, &request, &stop), T64_STATUS_OK);
   T64_CHECK_INT(machine->cpu.gpr[8], 7u);
   T64_CHECK(machine->cpu.retired_instructions > 0u);
@@ -859,7 +860,7 @@ static bool assert_boundary_audio(uint32_t address, uint32_t length,
   uint8_t ipl3_asset[IPL3_ASSET_BYTES];
   uint8_t actual[16];
   t64_machine *machine = create_admitted_profile(AI_PROFILE_ID, ipl3_asset);
-  t64_audio_packet_info info;
+  t64_audio_packet_info info = T64_AUDIO_PACKET_INFO_INIT;
   size_t copied = 0u;
   uint32_t attempts = 0u;
 
@@ -930,7 +931,7 @@ static void case_register_suite(void) {
 static void run_rational_boundary_case(uint32_t dacrate) {
   uint8_t ipl3_asset[IPL3_ASSET_BYTES];
   t64_machine *machine = create_admitted_profile(AI_PROFILE_ID, ipl3_asset);
-  t64_audio_packet_info info;
+  t64_audio_packet_info info = T64_AUDIO_PACKET_INFO_INIT;
   uint64_t origin_tick;
   uint64_t first_tick;
   uint64_t second_tick;
@@ -1044,7 +1045,7 @@ static void case_active_rate_latch(void) {
   uint8_t ipl3_asset[IPL3_ASSET_BYTES];
   uint8_t packet[8];
   t64_machine *machine = create_admitted_profile(AI_PROFILE_ID, ipl3_asset);
-  t64_audio_packet_info info;
+  t64_audio_packet_info info = T64_AUDIO_PACKET_INFO_INIT;
   size_t copied = 0u;
   uint64_t origin_tick;
   uint64_t first_sample_tick;
@@ -1504,8 +1505,9 @@ static void assert_ai_event_refusal_held(t64_machine *machine,
   uint8_t digest_before[T64_DIGEST_SIZE];
   uint8_t digest_after[T64_DIGEST_SIZE];
   t64_ai_state ai_before = machine->ai;
-  t64_stop_request request = {T64_STOP_GUEST_TICK, event_tick};
-  t64_stop_result result = {UINT32_MAX, UINT64_MAX};
+  t64_stop_request request =
+      T64_STOP_REQUEST_INIT(T64_STOP_GUEST_TICK, event_tick);
+  t64_stop_result result = T64_STOP_RESULT_INIT_WITH(UINT32_MAX, UINT64_MAX);
   size_t queue_count_before = machine->queue_count;
   uint64_t next_sequence_before = machine->next_sequence;
   uint64_t tick_before = machine->tick;
@@ -1642,7 +1644,7 @@ static void case_audio_info_copy_atomic(void) {
   uint8_t digest_before[T64_DIGEST_SIZE];
   uint8_t digest_after[T64_DIGEST_SIZE];
   t64_machine *machine = create_admitted_profile(AI_PROFILE_ID, ipl3_asset);
-  t64_audio_packet_info info;
+  t64_audio_packet_info info = T64_AUDIO_PACKET_INFO_INIT;
   size_t required = SIZE_MAX;
   size_t copied = 0u;
   uint32_t remaining = UINT32_MAX;
@@ -1771,8 +1773,8 @@ static void case_output_full_same_event(void) {
   uint8_t ipl3_asset[IPL3_ASSET_BYTES];
   t64_machine *machine = create_admitted_profile(AI_PROFILE_ID, ipl3_asset);
   t64_event expected_event;
-  t64_stop_request request;
-  t64_stop_result stop = {0u, 0u};
+  t64_stop_request request = T64_STOP_REQUEST_INIT(0u, 0u);
+  t64_stop_result stop = T64_STOP_RESULT_INIT;
   uint64_t sample_before;
   size_t cursor_before;
   uint64_t phase_before;
@@ -1835,7 +1837,7 @@ static void case_copy_alias_and_overflow(void) {
   uint8_t overlap[16];
   uint8_t ram_before[8];
   t64_machine *machine = create_admitted_profile(AI_PROFILE_ID, ipl3_asset);
-  t64_audio_packet_info info;
+  t64_audio_packet_info info = T64_AUDIO_PACKET_INFO_INIT;
   size_t required = (size_t)UINT32_C(0x12345678);
   size_t queue_before;
   size_t i;
@@ -1915,9 +1917,9 @@ static void case_drain_resume_exactly_once(void) {
   t64_machine *machine = create_admitted_profile(AI_PROFILE_ID, ipl3_asset);
   t64_event blocked_event;
   t64_event retained_event;
-  t64_audio_packet_info info;
-  t64_stop_request request;
-  t64_stop_result stop = {0u, 0u};
+  t64_audio_packet_info info = T64_AUDIO_PACKET_INFO_INIT;
+  t64_stop_request request = T64_STOP_REQUEST_INIT(0u, 0u);
+  t64_stop_result stop = T64_STOP_RESULT_INIT;
   size_t copied = 0u;
   size_t offset;
   size_t cursor_before;
@@ -2084,8 +2086,8 @@ static void case_reserve_before_first_sample(void) {
   uint8_t ipl3_asset[IPL3_ASSET_BYTES];
   t64_machine *machine = create_admitted_profile(AI_PROFILE_ID, ipl3_asset);
   t64_event event;
-  t64_stop_request request;
-  t64_stop_result stop = {0u, 0u};
+  t64_stop_request request = T64_STOP_REQUEST_INIT(0u, 0u);
+  t64_stop_result stop = T64_STOP_RESULT_INIT;
   size_t sample_slot = SIZE_MAX;
   size_t i;
   uint64_t sample_before;
@@ -2154,7 +2156,7 @@ static void case_canonical_producer_history(void) {
   uint8_t digest_changed[T64_DIGEST_SIZE];
   t64_machine *machine_a = create_admitted_profile(AI_PROFILE_ID, asset_a);
   t64_machine *machine_b = create_admitted_profile(AI_PROFILE_ID, asset_b);
-  t64_audio_packet_info info;
+  t64_audio_packet_info info = T64_AUDIO_PACKET_INFO_INIT;
   size_t copied = 0u;
   size_t i;
   uint64_t tick_before;
@@ -2312,8 +2314,10 @@ static void case_whole_versus_split(void) {
   uint8_t digest_split[T64_DIGEST_SIZE];
   t64_machine *whole = create_admitted_profile(AI_PROFILE_ID, asset_whole);
   t64_machine *split = create_admitted_profile(AI_PROFILE_ID, asset_split);
-  t64_audio_packet_info whole_info[2];
-  t64_audio_packet_info split_info[2];
+  t64_audio_packet_info whole_info[2] = {T64_AUDIO_PACKET_INFO_INIT,
+                                         T64_AUDIO_PACKET_INFO_INIT};
+  t64_audio_packet_info split_info[2] = {T64_AUDIO_PACKET_INFO_INIT,
+                                         T64_AUDIO_PACKET_INFO_INIT};
   uint64_t whole_origin = 0u;
   uint64_t split_origin = 0u;
   uint64_t first_tick;
@@ -2384,8 +2388,12 @@ static void case_interleaved_machine_isolation(void) {
   uint8_t reference_bytes[2][2][8];
   uint8_t interleaved_digest[T64_DIGEST_SIZE];
   uint8_t reference_digest[T64_DIGEST_SIZE];
-  t64_audio_packet_info interleaved_info[2][2];
-  t64_audio_packet_info reference_info[2][2];
+  t64_audio_packet_info interleaved_info[2][2] = {
+      {T64_AUDIO_PACKET_INFO_INIT, T64_AUDIO_PACKET_INFO_INIT},
+      {T64_AUDIO_PACKET_INFO_INIT, T64_AUDIO_PACKET_INFO_INIT}};
+  t64_audio_packet_info reference_info[2][2] = {
+      {T64_AUDIO_PACKET_INFO_INIT, T64_AUDIO_PACKET_INFO_INIT},
+      {T64_AUDIO_PACKET_INFO_INIT, T64_AUDIO_PACKET_INFO_INIT}};
   t64_machine *machines[4];
   uint64_t origins[4] = {0u, 0u, 0u, 0u};
   uint64_t *sample_origins[4] = {&origins[0], &origins[1], &origins[2],
@@ -2531,10 +2539,10 @@ static void case_independent_audio_video_full(void) {
   t64_event blocked_video_event;
   t64_event next_audio_before_video_block;
   t64_event pending;
-  t64_audio_packet_info audio_info;
-  t64_video_packet_info video_info;
-  t64_stop_request request;
-  t64_stop_result stop = {0u, 0u};
+  t64_audio_packet_info audio_info = T64_AUDIO_PACKET_INFO_INIT;
+  t64_video_packet_info video_info = T64_VIDEO_PACKET_INFO_INIT;
+  t64_stop_request request = T64_STOP_REQUEST_INIT(0u, 0u);
+  t64_stop_result stop = T64_STOP_RESULT_INIT;
   uint64_t origin = 0u;
   uint64_t next_audio_tick = UINT64_MAX;
   uint64_t audio_sample_before = 0u;
@@ -2581,8 +2589,8 @@ static void case_independent_audio_video_full(void) {
   }
   T64_CHECK_INT(next_vi_before_audio_block.tick > blocked_audio_event.tick,
                 1);
-  request = (t64_stop_request){T64_STOP_GUEST_TICK,
-                               blocked_audio_event.tick};
+  request = (t64_stop_request)T64_STOP_REQUEST_INIT(T64_STOP_GUEST_TICK,
+                                                    blocked_audio_event.tick);
   T64_CHECK_INT(t64_machine_advance(audio_full, &request, &stop),
                 T64_STATUS_OK);
   T64_CHECK_INT(stop.reason, T64_STOP_REASON_RESOURCE_LIMIT);
@@ -2681,7 +2689,8 @@ static void case_independent_audio_video_full(void) {
         T64_CHECK(false);
         break;
       }
-      request = (t64_stop_request){T64_STOP_GUEST_TICK, pending.tick};
+      request = (t64_stop_request)T64_STOP_REQUEST_INIT(T64_STOP_GUEST_TICK,
+                                                        pending.tick);
       stop.reason = 0u;
       stop.tick = 0u;
       T64_CHECK_INT(t64_machine_advance(video_full, &request, &stop),

@@ -55,8 +55,8 @@ static bool bytes_are_zero(t64_machine *machine, uint32_t address,
 }
 
 static bool advance_to(t64_machine *machine, uint64_t tick) {
-  t64_stop_request request = {T64_STOP_GUEST_TICK, tick};
-  t64_stop_result result = {0u, 0u};
+  t64_stop_request request = T64_STOP_REQUEST_INIT(T64_STOP_GUEST_TICK, tick);
+  t64_stop_result result = T64_STOP_RESULT_INIT;
 
   return t64_machine_advance(machine, &request, &result) == T64_STATUS_OK &&
          result.tick == tick;
@@ -98,9 +98,8 @@ static bool fixture_init_profile(fixture *value, const char *profile_id) {
   size_t i;
 
   memset(value, 0, sizeof *value);
-  value->allocator.allocate = test_allocate;
-  value->allocator.release = test_release;
-  value->allocator.context = value;
+  value->allocator = (t64_host_allocator)T64_HOST_ALLOCATOR_INIT(
+      test_allocate, test_release, value);
   for (i = 0u; i < sizeof value->image; i++) {
     value->image[i] = (uint8_t)((i * 29u + 7u) & 0xffu);
   }
@@ -136,9 +135,8 @@ static bool fixture_create_profile(fixture *value, const char *profile_id) {
   t64_status create_status;
 
   memset(value, 0, sizeof *value);
-  value->allocator.allocate = test_allocate;
-  value->allocator.release = test_release;
-  value->allocator.context = value;
+  value->allocator = (t64_host_allocator)T64_HOST_ALLOCATOR_INIT(
+      test_allocate, test_release, value);
   lookup_status = t64_profile_lookup(profile_id, &profile);
   create_status = lookup_status == T64_STATUS_OK && profile != NULL
                       ? t64_machine_create(&value->allocator, profile,
@@ -417,8 +415,9 @@ static bool rsp_fetched_vadd_test(void) {
       UINT32_C(0x0000000d)  /* BREAK */
   };
   fixture value;
-  t64_stop_request request = {T64_STOP_GUEST_TICK, UINT64_C(6)};
-  t64_stop_result result = {0u, 0u};
+  t64_stop_request request =
+      T64_STOP_REQUEST_INIT(T64_STOP_GUEST_TICK, UINT64_C(6));
+  t64_stop_result result = T64_STOP_RESULT_INIT;
   static const uint8_t expected_dmem[] = {0u, 0u, 0x7fu, 0xffu};
   static const uint8_t expected_vector[] = {0x7fu, 0xffu, 0u, 0u,
                                             0u,    0u,    0u, 0u,
@@ -526,8 +525,9 @@ static bool rsp_fetched_vadd_test(void) {
 
 static bool rsp_break_allows_queued_pi_completion_test(void) {
   fixture value;
-  t64_stop_request request = {T64_STOP_GUEST_TICK, UINT64_C(3)};
-  t64_stop_result result = {0u, 0u};
+  t64_stop_request request =
+      T64_STOP_REQUEST_INIT(T64_STOP_GUEST_TICK, UINT64_C(3));
+  t64_stop_result result = T64_STOP_RESULT_INIT;
   uint32_t instruction = UINT32_C(0x0000000d);
   bool passed = fixture_create_profile(
       &value, "ntsc-cart-4m-openipl3-rsp-functional-v1");
@@ -600,8 +600,9 @@ static bool rsp_store_preserves_only_nonoverlapping_seeded_links_test(void) {
   for (case_index = 0u; case_index < sizeof cases / sizeof cases[0];
        case_index++) {
     fixture value;
-    t64_stop_request request = {T64_STOP_GUEST_TICK, UINT64_C(2)};
-    t64_stop_result result = {0u, 0u};
+    t64_stop_request request =
+        T64_STOP_REQUEST_INIT(T64_STOP_GUEST_TICK, UINT64_C(2));
+    t64_stop_result result = T64_STOP_RESULT_INIT;
     size_t instruction_index;
     bool fixture_ok = fixture_create_profile(
         &value, "ntsc-cart-4m-openipl3-rsp-functional-v1");
@@ -656,8 +657,9 @@ static bool rsp_store_preserves_only_nonoverlapping_seeded_links_test(void) {
 static bool rsp_refuses_unknown_opcode_atomically_test(void) {
   fixture value;
   t64_rsp_state before_rsp;
-  t64_stop_request request = {T64_STOP_GUEST_TICK, UINT64_C(1)};
-  t64_stop_result result = {0u, 0u};
+  t64_stop_request request =
+      T64_STOP_REQUEST_INIT(T64_STOP_GUEST_TICK, UINT64_C(1));
+  t64_stop_result result = T64_STOP_RESULT_INIT;
   uint8_t before_digest[T64_DIGEST_SIZE];
   uint8_t after_digest[T64_DIGEST_SIZE];
   uint32_t unsupported = UINT32_C(0x4a0108df);
@@ -715,8 +717,9 @@ static bool rsp_old_profile_refusal_test(void) {
 
 static bool source_at_completion_test(void) {
   fixture value;
-  t64_stop_request request = {T64_STOP_GUEST_TICK, UINT64_C(12)};
-  t64_stop_result result = {0u, 0u};
+  t64_stop_request request =
+      T64_STOP_REQUEST_INIT(T64_STOP_GUEST_TICK, UINT64_C(12));
+  t64_stop_result result = T64_STOP_RESULT_INIT;
   uint8_t expected[8];
   uint32_t byte = 0u;
   size_t i;

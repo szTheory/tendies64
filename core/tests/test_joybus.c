@@ -450,8 +450,8 @@ static void joybus_test_release(void *context, t64_host_storage storage) {
   free(storage.data);
 }
 
-static const t64_host_allocator allocator = {joybus_test_allocate,
-                                             joybus_test_release, NULL};
+static const t64_host_allocator allocator =
+    T64_HOST_ALLOCATOR_INIT(joybus_test_allocate, joybus_test_release, NULL);
 
 /* An RD64B timeline over the info frame and the reset frame: C = S + H + X. */
 static void check_timeline(const uint8_t *bytes, size_t count,
@@ -489,8 +489,9 @@ static void check_timeline(const uint8_t *bytes, size_t count,
                                       4u, T64_SI_PIF_ADDRESS),
                 T64_STATUS_OK);
   {
-    t64_stop_request request = {T64_STOP_GUEST_TICK, start};
-    t64_stop_result result = {0u, 0u};
+    t64_stop_request request =
+        T64_STOP_REQUEST_INIT(T64_STOP_GUEST_TICK, start);
+    t64_stop_result result = T64_STOP_RESULT_INIT;
 
     T64_CHECK_INT(t64_machine_advance(machine, &request, &result),
                   T64_STATUS_OK);

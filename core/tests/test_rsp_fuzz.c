@@ -55,8 +55,8 @@ static bool fixture_create(rsp_fuzz_fixture *fixture) {
   t64_host_storage image = {NULL, 0u, 0u};
 
   (void)memset(fixture, 0, sizeof *fixture);
-  fixture->allocator.allocate = fixture_allocate;
-  fixture->allocator.release = fixture_release;
+  fixture->allocator = (t64_host_allocator)T64_HOST_ALLOCATOR_INIT(
+      fixture_allocate, fixture_release, NULL);
   if (t64_profile_lookup("ntsc-cart-4m-openipl3-rsp-functional-v1", &profile) !=
           T64_STATUS_OK ||
       profile == NULL ||
@@ -103,8 +103,8 @@ static uint16_t read_lane(const uint8_t vector[16], uint32_t lane) {
 }
 
 static bool execute_fetched(t64_machine *machine, uint32_t instruction) {
-  t64_stop_request request;
-  t64_stop_result result = {0u, 0u};
+  t64_stop_request request = T64_STOP_REQUEST_INIT(0u, 0u);
+  t64_stop_result result = T64_STOP_RESULT_INIT;
   uint32_t pc = machine->rsp.pc & UINT32_C(0x0ffc);
   uint64_t retired_before = machine->rsp.retired_instructions;
 
@@ -139,8 +139,8 @@ static bool execute_fetched_until_retired(t64_machine *machine,
   machine->sp_imem[(pc + 3u) & UINT32_C(0x0fff)] = (uint8_t)instruction;
   if (t64_rsp_start(machine) != T64_STATUS_OK) return false;
   for (uint32_t elapsed = 0u; elapsed < maximum_ticks; elapsed++) {
-    t64_stop_request request;
-    t64_stop_result result = {0u, 0u};
+    t64_stop_request request = T64_STOP_REQUEST_INIT(0u, 0u);
+    t64_stop_result result = T64_STOP_RESULT_INIT;
     request.kind = T64_STOP_GUEST_TICK;
     request.value = machine->tick + UINT64_C(1);
     if (t64_machine_advance(machine, &request, &result) != T64_STATUS_OK ||
@@ -2260,8 +2260,8 @@ static bool expect_fetched_refusal(rsp_fuzz_fixture *fixture,
                                    uint32_t expected_reason,
                                    uint32_t seed) {
   t64_machine *machine = fixture->machine;
-  t64_stop_request request;
-  t64_stop_result result = {0u, 0u};
+  t64_stop_request request = T64_STOP_REQUEST_INIT(0u, 0u);
+  t64_stop_result result = T64_STOP_RESULT_INIT;
   uint8_t vectors_before[32][16];
   uint8_t dmem_before[T64_SP_BANK_BYTES];
   uint64_t accumulators_before[8];

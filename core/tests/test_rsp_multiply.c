@@ -40,8 +40,8 @@ static bool fixture_create(rsp_multiply_fixture *fixture) {
   t64_status status;
 
   (void)memset(fixture, 0, sizeof *fixture);
-  fixture->allocator.allocate = fixture_allocate;
-  fixture->allocator.release = fixture_release;
+  fixture->allocator = (t64_host_allocator)T64_HOST_ALLOCATOR_INIT(
+      fixture_allocate, fixture_release, NULL);
   status = t64_profile_lookup(
       "ntsc-cart-4m-openipl3-rsp-functional-v1", &profile);
   if (status != T64_STATUS_OK || profile == NULL ||
@@ -96,8 +96,9 @@ static bool execute_vmulf_red(rsp_multiply_fixture *fixture) {
       UINT64_C(0x000000017ffe), UINT64_C(0x000000018000)};
   const uint32_t instruction = UINT32_C(0x4a0208c0);
   t64_machine *machine = fixture->machine;
-  t64_stop_request request = {T64_STOP_GUEST_TICK, UINT64_C(1)};
-  t64_stop_result result = {0u, 0u};
+  t64_stop_request request =
+      T64_STOP_REQUEST_INIT(T64_STOP_GUEST_TICK, UINT64_C(1));
+  t64_stop_result result = T64_STOP_RESULT_INIT;
   uint8_t vectors_before[32][16];
   uint8_t vectors_expected[32][16];
   uint64_t accumulator_before[8];
@@ -216,8 +217,9 @@ static bool execute_multiply_case(
     const uint64_t accumulator_before[8], const uint16_t expected_vector[8],
     const uint64_t expected_accumulator[8]) {
   t64_machine *machine = fixture->machine;
-  t64_stop_request request = {T64_STOP_GUEST_TICK, UINT64_C(1)};
-  t64_stop_result result = {0u, 0u};
+  t64_stop_request request =
+      T64_STOP_REQUEST_INIT(T64_STOP_GUEST_TICK, UINT64_C(1));
+  t64_stop_result result = T64_STOP_RESULT_INIT;
   uint8_t vectors_expected[32][16];
   uint32_t instruction = encode_vector(element, source_b_register,
                                        source_a_register, destination,
@@ -673,8 +675,9 @@ static bool execute_repeated_vmacf(rsp_multiply_fixture *fixture) {
       UINT64_C(0x000000040000), UINT64_C(0x00000103ff00),
       UINT64_C(0x800000040000), UINT64_C(0x000000040001)};
   t64_machine *machine = fixture->machine;
-  t64_stop_request request = {T64_STOP_GUEST_TICK, UINT64_C(2)};
-  t64_stop_result result = {0u, 0u};
+  t64_stop_request request =
+      T64_STOP_REQUEST_INIT(T64_STOP_GUEST_TICK, UINT64_C(2));
+  t64_stop_result result = T64_STOP_RESULT_INIT;
   uint8_t vectors_expected[32][16];
   uint32_t instruction = encode_vector(0u, 2u, 1u, 3u, 0x08u);
   uint32_t lane;
@@ -733,8 +736,9 @@ static bool execute_invalid_multiply_selector(
       UINT64_C(0x5555aaaa5555), UINT64_C(0xaaaa5555aaaa),
       UINT64_C(0x7fff8000ffff), UINT64_C(0xffff00008000)};
   t64_machine *machine = fixture->machine;
-  t64_stop_request request = {T64_STOP_GUEST_TICK, UINT64_C(1)};
-  t64_stop_result result = {0u, 0u};
+  t64_stop_request request =
+      T64_STOP_REQUEST_INIT(T64_STOP_GUEST_TICK, UINT64_C(1));
+  t64_stop_result result = T64_STOP_RESULT_INIT;
   uint8_t vectors_before[32][16];
   uint64_t accumulator_before[8];
   uint32_t instruction =

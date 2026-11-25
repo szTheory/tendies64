@@ -40,8 +40,8 @@ static bool fixture_create(rsp_compare_fixture *fixture) {
   t64_status status;
 
   (void)memset(fixture, 0, sizeof *fixture);
-  fixture->allocator.allocate = fixture_allocate;
-  fixture->allocator.release = fixture_release;
+  fixture->allocator = (t64_host_allocator)T64_HOST_ALLOCATOR_INIT(
+      fixture_allocate, fixture_release, NULL);
   status = t64_profile_lookup(
       "ntsc-cart-4m-openipl3-rsp-functional-v1", &profile);
   if (status != T64_STATUS_OK || profile == NULL ||
@@ -91,8 +91,9 @@ static bool vlt_fetched_red(rsp_compare_fixture *fixture) {
       0x8000, 0x0001, 0x8000, 0x0000, 0x8000, 0x0001, 0xffff, 0x0005};
   const uint32_t instruction = UINT32_C(0x4a0208e0);
   t64_machine *machine = fixture->machine;
-  t64_stop_request request = {T64_STOP_GUEST_TICK, UINT64_C(1)};
-  t64_stop_result result = {0u, 0u};
+  t64_stop_request request =
+      T64_STOP_REQUEST_INIT(T64_STOP_GUEST_TICK, UINT64_C(1));
+  t64_stop_result result = T64_STOP_RESULT_INIT;
   uint8_t vector_before[32][16];
   uint64_t accumulator_before[8];
   uint32_t lane;
@@ -188,8 +189,8 @@ static void prepare_machine(t64_machine *machine) {
 
 static bool run_fetched(t64_machine *machine, uint32_t instruction,
                         uint32_t ticks, bool expect_retired) {
-  t64_stop_request request = {T64_STOP_GUEST_TICK, ticks};
-  t64_stop_result result = {0u, 0u};
+  t64_stop_request request = T64_STOP_REQUEST_INIT(T64_STOP_GUEST_TICK, ticks);
+  t64_stop_result result = T64_STOP_RESULT_INIT;
 
   machine->sp_imem[0] = (uint8_t)(instruction >> 24);
   machine->sp_imem[1] = (uint8_t)(instruction >> 16);
@@ -408,8 +409,9 @@ static bool clip_chain_and_vcr(rsp_compare_fixture *fixture) {
     return false;
   }
   {
-    t64_stop_request request = {T64_STOP_GUEST_TICK, UINT64_C(1)};
-    t64_stop_result result = {0u, 0u};
+    t64_stop_request request =
+        T64_STOP_REQUEST_INIT(T64_STOP_GUEST_TICK, UINT64_C(1));
+    t64_stop_result result = T64_STOP_RESULT_INIT;
     if (t64_machine_advance(machine, &request, &result) != T64_STATUS_OK ||
         machine->rsp.retired_instructions != UINT64_C(1) ||
         machine->rsp.pc != UINT32_C(4) ||
@@ -425,8 +427,9 @@ static bool clip_chain_and_vcr(rsp_compare_fixture *fixture) {
     return false;
   }
   {
-    t64_stop_request request = {T64_STOP_GUEST_TICK, UINT64_C(2)};
-    t64_stop_result result = {0u, 0u};
+    t64_stop_request request =
+        T64_STOP_REQUEST_INIT(T64_STOP_GUEST_TICK, UINT64_C(2));
+    t64_stop_result result = T64_STOP_RESULT_INIT;
     if (t64_machine_advance(machine, &request, &result) != T64_STATUS_OK ||
         machine->rsp.retired_instructions != UINT64_C(2) ||
         machine->rsp.pc != UINT32_C(8) ||
@@ -642,8 +645,8 @@ static bool vnop_encoding_and_issue_test(rsp_compare_fixture *fixture) {
   {
     uint8_t vectors[32][16];
     uint64_t accumulators[8];
-    t64_stop_request request = {T64_STOP_GUEST_TICK, 1u};
-    t64_stop_result result = {0u, 0u};
+    t64_stop_request request = T64_STOP_REQUEST_INIT(T64_STOP_GUEST_TICK, 1u);
+    t64_stop_result result = T64_STOP_RESULT_INIT;
     memcpy(vectors, m->rsp.vector, sizeof vectors);
     memcpy(accumulators, m->rsp.accumulator, sizeof accumulators);
     if (t64_rsp_start(m) != T64_STATUS_OK ||

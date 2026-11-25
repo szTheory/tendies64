@@ -91,7 +91,8 @@ static bool read_ipl3_asset(uint8_t bytes[IPL3_ASSET_BYTES]) {
 
 static bool create_machine(const char *profile_id,
                            t64_machine **machine_out) {
-  const t64_host_allocator allocator = {test_allocate, test_release, NULL};
+  const t64_host_allocator allocator =
+      T64_HOST_ALLOCATOR_INIT(test_allocate, test_release, NULL);
   const t64_profile_descriptor *profile = NULL;
   uint8_t ipl3_asset[IPL3_ASSET_BYTES];
   t64_status status;
@@ -276,8 +277,9 @@ static void test_current_load_after_source_wait(void) {
      that interval to 256 guest ticks; it is not a hardware timing claim. */
   for (index = 0u; index < delay_instructions; index++) {
     const uint64_t target_tick = machine->tick + UINT64_C(1);
-    const t64_stop_request request = {T64_STOP_GUEST_TICK, target_tick};
-    t64_stop_result result = {UINT32_MAX, UINT64_MAX};
+    const t64_stop_request request =
+        T64_STOP_REQUEST_INIT(T64_STOP_GUEST_TICK, target_tick);
+    t64_stop_result result = T64_STOP_RESULT_INIT_WITH(UINT32_MAX, UINT64_MAX);
 
     T64_CHECK_INT(t64_machine_advance(machine, &request, &result),
                   T64_STATUS_OK);
@@ -298,8 +300,9 @@ static void test_current_load_after_source_wait(void) {
 }
 
 static void advance_to_guest_tick(t64_machine *machine, uint64_t target_tick) {
-  const t64_stop_request request = {T64_STOP_GUEST_TICK, target_tick};
-  t64_stop_result result = {UINT32_MAX, UINT64_MAX};
+  const t64_stop_request request =
+      T64_STOP_REQUEST_INIT(T64_STOP_GUEST_TICK, target_tick);
+  t64_stop_result result = T64_STOP_RESULT_INIT_WITH(UINT32_MAX, UINT64_MAX);
 
   T64_CHECK_INT(t64_machine_advance(machine, &request, &result),
                 T64_STATUS_OK);

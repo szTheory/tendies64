@@ -67,9 +67,8 @@ static bool fixture_create(rsp_control_fixture *fixture) {
     return false;
   }
   (void)memset(fixture, 0, sizeof *fixture);
-  fixture->allocator.allocate = fixture_allocate;
-  fixture->allocator.release = fixture_release;
-  fixture->allocator.context = fixture;
+  fixture->allocator = (t64_host_allocator)T64_HOST_ALLOCATOR_INIT(
+      fixture_allocate, fixture_release, fixture);
   status = t64_profile_lookup(
       "ntsc-cart-4m-openipl3-rsp-functional-v1", &profile);
   if (status != T64_STATUS_OK || profile == NULL) {
@@ -99,8 +98,8 @@ static bool fixture_create(rsp_control_fixture *fixture) {
 }
 
 static bool advance_to(t64_machine *machine, uint64_t tick) {
-  t64_stop_request request = {T64_STOP_GUEST_TICK, tick};
-  t64_stop_result result = {0u, 0u};
+  t64_stop_request request = T64_STOP_REQUEST_INIT(T64_STOP_GUEST_TICK, tick);
+  t64_stop_result result = T64_STOP_RESULT_INIT;
 
   return t64_machine_advance(machine, &request, &result) == T64_STATUS_OK &&
          result.tick == tick;
@@ -913,8 +912,9 @@ static bool guest_status_invalid_command_test(uint32_t command) {
   bool link_valid_before;
   bool mi_irq_before;
   uint64_t next_sequence_before;
-  t64_stop_request request = {T64_STOP_GUEST_TICK, UINT64_C(1)};
-  t64_stop_result result = {0u, 0u};
+  t64_stop_request request =
+      T64_STOP_REQUEST_INIT(T64_STOP_GUEST_TICK, UINT64_C(1));
+  t64_stop_result result = T64_STOP_RESULT_INIT;
   t64_status advance_status;
   bool passed;
 
@@ -1259,8 +1259,9 @@ static bool dma_mtc0_refusal_unchanged(
     uint32_t *actual_refusal_out, uint64_t *active_token_after_out) {
   t64_rsp_state expected_rsp = snapshot->rsp;
   t64_event expected_event = snapshot->queued_event;
-  t64_stop_request request = {T64_STOP_GUEST_TICK, event_tick};
-  t64_stop_result result = {0u, 0u};
+  t64_stop_request request =
+      T64_STOP_REQUEST_INIT(T64_STOP_GUEST_TICK, event_tick);
+  t64_stop_result result = T64_STOP_RESULT_INIT;
   t64_status advance_status;
   const t64_event *next_event;
   uint64_t expected_trace_value =
@@ -1934,8 +1935,9 @@ static bool unsupported_dp_cp0_refusal_test(void) {
   t64_sp_state sp_before;
   uint8_t digest_before[T64_DIGEST_SIZE];
   uint8_t digest_after[T64_DIGEST_SIZE];
-  t64_stop_request request = {T64_STOP_GUEST_TICK, UINT64_C(1)};
-  t64_stop_result result = {0u, 0u};
+  t64_stop_request request =
+      T64_STOP_REQUEST_INIT(T64_STOP_GUEST_TICK, UINT64_C(1));
+  t64_stop_result result = T64_STOP_RESULT_INIT;
   t64_status advance_status;
   bool passed = fixture_create(&fixture);
 

@@ -55,8 +55,8 @@ static bool fixture_create(rsp_scalar_fixture *fixture) {
     return false;
   }
   (void)memset(fixture, 0, sizeof *fixture);
-  fixture->allocator.allocate = fixture_allocate;
-  fixture->allocator.release = fixture_release;
+  fixture->allocator = (t64_host_allocator)T64_HOST_ALLOCATOR_INIT(
+      fixture_allocate, fixture_release, NULL);
   status = t64_profile_lookup(
       "ntsc-cart-4m-openipl3-rsp-functional-v1", &profile);
   if (status != T64_STATUS_OK || profile == NULL ||
@@ -132,8 +132,8 @@ static bool run_program(rsp_scalar_fixture *fixture, const uint32_t *program,
                         const uint32_t registers[32], uint64_t ticks,
                         rsp_scalar_observation *observation) {
   t64_machine *machine;
-  t64_stop_request request = {T64_STOP_GUEST_TICK, 0u};
-  t64_stop_result result = {0u, 0u};
+  t64_stop_request request = T64_STOP_REQUEST_INIT(T64_STOP_GUEST_TICK, 0u);
+  t64_stop_result result = T64_STOP_RESULT_INIT;
 
   if (observation == NULL || !prepare_program(fixture, program,
                                                instruction_count, registers)) {
@@ -273,8 +273,9 @@ static bool expect_load(rsp_scalar_fixture *fixture, const char *name,
     return false;
   }
   {
-    t64_stop_request request = {T64_STOP_GUEST_TICK, UINT64_C(1)};
-    t64_stop_result result = {0u, 0u};
+    t64_stop_request request =
+        T64_STOP_REQUEST_INIT(T64_STOP_GUEST_TICK, UINT64_C(1));
+    t64_stop_result result = T64_STOP_RESULT_INIT;
 
     if (t64_machine_advance(fixture->machine, &request, &result) !=
             T64_STATUS_OK ||
@@ -379,8 +380,9 @@ static bool scalar_store_matrix_test(rsp_scalar_fixture *fixture) {
       continue;
     }
     {
-      t64_stop_request request = {T64_STOP_GUEST_TICK, UINT64_C(1)};
-      t64_stop_result result = {0u, 0u};
+      t64_stop_request request =
+          T64_STOP_REQUEST_INIT(T64_STOP_GUEST_TICK, UINT64_C(1));
+      t64_stop_result result = T64_STOP_RESULT_INIT;
 
       if (t64_machine_advance(fixture->machine, &request, &result) !=
               T64_STATUS_OK ||
@@ -558,8 +560,9 @@ static bool jump_source_quadrant_test(rsp_scalar_fixture *fixture) {
       for (size_t j = 0u; j < sizeof targets / sizeof targets[0]; j++) {
         uint32_t word = (op << 26) | (targets[j] >> 2);
         uint32_t zero = 0u;
-        t64_stop_request request = {T64_STOP_GUEST_TICK, 2u};
-        t64_stop_result result = {0u, 0u};
+        t64_stop_request request =
+            T64_STOP_REQUEST_INIT(T64_STOP_GUEST_TICK, 2u);
+        t64_stop_result result = T64_STOP_RESULT_INIT;
         t64_machine *m = fixture->machine;
         if (!prepare_program(fixture, &zero, 1u, NULL) ||
             t64_machine_bus_write(m, TEST_IMEM_BASE + starts[i], 4u, word) != T64_STATUS_OK) {
@@ -606,8 +609,9 @@ static bool cp0_matrix_test(rsp_scalar_fixture *fixture) {
       continue;
     }
     {
-      t64_stop_request request = {T64_STOP_GUEST_TICK, UINT64_C(1)};
-      t64_stop_result result = {0u, 0u};
+      t64_stop_request request =
+          T64_STOP_REQUEST_INIT(T64_STOP_GUEST_TICK, UINT64_C(1));
+      t64_stop_result result = T64_STOP_RESULT_INIT;
 
       if (t64_machine_advance(fixture->machine, &request, &result) !=
               T64_STATUS_OK ||
@@ -666,8 +670,9 @@ static bool cp0_matrix_test(rsp_scalar_fixture *fixture) {
     (void)memcpy(dmem_before, fixture->machine->sp_dmem,
                  sizeof dmem_before);
     {
-      t64_stop_request request = {T64_STOP_GUEST_TICK, UINT64_C(1)};
-      t64_stop_result result = {0u, 0u};
+      t64_stop_request request =
+          T64_STOP_REQUEST_INIT(T64_STOP_GUEST_TICK, UINT64_C(1));
+      t64_stop_result result = T64_STOP_RESULT_INIT;
 
       if (t64_machine_advance(fixture->machine, &request, &result) !=
               T64_STATUS_OK ||
@@ -746,8 +751,9 @@ static bool cp0_matrix_test(rsp_scalar_fixture *fixture) {
       (void)memcpy(dmem_before, fixture->machine->sp_dmem,
                    sizeof dmem_before);
       {
-        t64_stop_request request = {T64_STOP_GUEST_TICK, UINT64_C(1)};
-        t64_stop_result result = {0u, 0u};
+        t64_stop_request request =
+            T64_STOP_REQUEST_INIT(T64_STOP_GUEST_TICK, UINT64_C(1));
+        t64_stop_result result = T64_STOP_RESULT_INIT;
 
         if (t64_machine_advance(fixture->machine, &request, &result) !=
                 T64_STATUS_OK ||
@@ -812,8 +818,9 @@ static bool cp0_matrix_test(rsp_scalar_fixture *fixture) {
       (void)memcpy(dmem_before, fixture->machine->sp_dmem,
                    sizeof dmem_before);
       {
-        t64_stop_request request = {T64_STOP_GUEST_TICK, UINT64_C(1)};
-        t64_stop_result result = {0u, 0u};
+        t64_stop_request request =
+            T64_STOP_REQUEST_INIT(T64_STOP_GUEST_TICK, UINT64_C(1));
+        t64_stop_result result = T64_STOP_RESULT_INIT;
 
         if (t64_machine_advance(fixture->machine, &request, &result) !=
                 T64_STATUS_OK ||

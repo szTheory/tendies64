@@ -42,8 +42,8 @@ static bool fixture_create(rsp_vector_fixture *fixture) {
   t64_status status;
 
   (void)memset(fixture, 0, sizeof *fixture);
-  fixture->allocator.allocate = fixture_allocate;
-  fixture->allocator.release = fixture_release;
+  fixture->allocator = (t64_host_allocator)T64_HOST_ALLOCATOR_INIT(
+      fixture_allocate, fixture_release, NULL);
   status = t64_profile_lookup(
       "ntsc-cart-4m-openipl3-rsp-functional-v1", &profile);
   if (status != T64_STATUS_OK || profile == NULL ||
@@ -96,8 +96,9 @@ static void reset_machine(rsp_vector_fixture *fixture) {
 
 static bool execute_word(rsp_vector_fixture *fixture, uint32_t instruction) {
   t64_machine *machine = fixture->machine;
-  t64_stop_request request = {T64_STOP_GUEST_TICK, UINT64_C(1)};
-  t64_stop_result result = {0u, 0u};
+  t64_stop_request request =
+      T64_STOP_REQUEST_INIT(T64_STOP_GUEST_TICK, UINT64_C(1));
+  t64_stop_result result = T64_STOP_RESULT_INIT;
 
   machine->sp_imem[0] = (uint8_t)(instruction >> 24);
   machine->sp_imem[1] = (uint8_t)(instruction >> 16);
