@@ -750,6 +750,10 @@ function(t64_phase10_composite_case TEST_NAME CASE_NAME)
 endfunction()
 t64_phase10_composite_case(runner.composite-two-run two-run)
 t64_phase10_composite_case(controls.real.composite-wrong-rom wrong-rom)
+t64_phase10_composite_case(runner.composite-state-v2 state-v2)
+# TIMEOUTs (F-108): the helper's literal 120 s against native 0.4 to 0.8 s and
+# sanitizer 17.5 s (two-run), 6.4 s (wrong-rom) and 4.5 s (state-v2) at load 12,
+# the lowest margin being 6.9 times the sanitizer figure.
 # The committed expectation equals the independent oracle byte for byte, so a
 # runner test that reads it compares against values the script derived.
 add_test(NAME harness.composite-oracle
@@ -777,8 +781,11 @@ add_test(NAME runner.state-format-v26
     $<TARGET_FILE:t64-supervisor> $<TARGET_FILE:t64-supervisor-test>
     $<TARGET_FILE:t64-result-check> ${CMAKE_SOURCE_DIR}
     $<TARGET_FILE:t64-runner-real>)
+# TIMEOUT by the F-108 rule: 1.4 to 2.0 s native, 33.9 s under the sanitizer
+# (load 12), so 300 s is 8.9 times the sanitizer figure; the container blob is
+# written and hashed six times in one process.
 set_tests_properties(runner.state-format-v26 PROPERTIES
-  LABELS "runner;controls;phase10" TIMEOUT 120
+  LABELS "runner;controls;phase10" TIMEOUT 300
   ENVIRONMENT "T64_PHASE10_EVIDENCE_DIR=${CMAKE_BINARY_DIR}/10-15-evidence/state-format")
 
 # Publisher controls: the module is compiled with the testing hooks, like the

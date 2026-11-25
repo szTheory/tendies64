@@ -199,6 +199,7 @@ typedef struct {
   char stop_kind[48];
   char fixture_id[96];
   char profile_id[96];
+  char profile_digest[65];
   char state_digest[65];
   bool has_state_digest;
   uint64_t guest_tick;
@@ -240,6 +241,8 @@ static bool parse_record(const char *path, run_out *out) {
               t64_json_get(doc.root, "profile_id"));
   copy_string(out->stop_kind, sizeof out->stop_kind,
               stop == NULL ? NULL : t64_json_get(stop, "kind"));
+  copy_string(out->profile_digest, sizeof out->profile_digest,
+              t64_json_get(doc.root, "profile_digest"));
   copy_string(out->state_digest, sizeof out->state_digest, digest);
   out->has_state_digest = digest != NULL && digest->type == T64_JSON_STRING;
   if (t64_json_u64_string(t64_json_get(doc.root, "guest_tick"), &value)) {
@@ -1043,6 +1046,174 @@ static int case_wrong_rom(void) {
   return g_failures == 0 ? 0 : 1;
 }
 
+/* ---- case state-v2 ---------------------------------------------------------- */
+
+#define STATE_V2_LEAF "composite.sta"
+#define STATE_FORMAT_V2 "t64.state-container.v2"
+
+/* The values the independent version 2 decoder (fixtures/state/
+ * decode_container_v2.py, named by T64_STATE_DECODER) reports for a blob. */
+typedef struct {
+  char status[16];
+  char kind[32];
+  char total_length[24];
+  char container_version[8];
+  char version[8];
+  char canonical_digest[65];
+  char guest_tick[24];
+  char profile_digest[65];
+  char content_sha256[65];
+  char content_length[24];
+} decoded_blob;
+
+/* Runs `python3 -B -I DECODER --blob PATH`; returns the decoder exit status
+ * (0 accepted, 1 refused, 2 usage) or -1, and parses its one JSON line. */
+static int decode_blob(const char *path, decoded_blob *out) {
+  const char *script = getenv("T64_STATE_DECODER");
+  int pipe_fds[2];
+  pid_t pid;
+  int status = 0;
+  static uint8_t line[8192];
+  size_t used = 0u;
+  t64_json_doc doc = {0};
+  memset(out, 0, sizeof *out);
+  if (script == NULL || script[0] == '\0' || pipe(pipe_fds) != 0) return -1;
+  pid = fork();
+  if (pid < 0) return -1;
+  if (pid == 0) {
+    char *args[7];
+    (void)close(pipe_fds[0]);
+    (void)dup2(pipe_fds[1], STDOUT_FILENO);
+    args[0] = (char *)(uintptr_t)"python3";
+    args[1] = (char *)(uintptr_t)"-B";
+    args[2] = (char *)(uintptr_t)"-I";
+    args[3] = (char *)(uintptr_t)script;
+    args[4] = (char *)(uintptr_t)"--blob";
+    args[5] = (char *)(uintptr_t)path;
+    args[6] = NULL;
+    execvp("python3", args);
+    _exit(127);
+  }
+  (void)close(pipe_fds[1]);
+  for (;;) {
+    ssize_t count = read(pipe_fds[0], line + used, sizeof line - 1u - used);
+    if (count < 0 && errno == EINTR) continue;
+    if (count <= 0) break;
+    used += (size_t)count;
+    if (used + 1u >= sizeof line) break;
+  }
+  (void)close(pipe_fds[0]);
+  while (waitpid(pid, &status, 0) < 0) {
+    if (errno != EINTR) return -1;
+  }
+  if (!WIFEXITED(status)) return -1;
+  if (used > 0u && t64_json_parse(line, used, NULL, &doc, NULL) == 0) {
+    copy_string(out->status, sizeof out->status,
+                t64_json_get(doc.root, "status"));
+    copy_string(out->kind, sizeof out->kind, t64_json_get(doc.root, "kind"));
+    copy_string(out->total_length, sizeof out->total_length,
+                t64_json_get(doc.root, "total_length"));
+    copy_string(out->container_version, sizeof out->container_version,
+                t64_json_get(doc.root, "container_version"));
+    copy_string(out->version, sizeof out->version,
+                t64_json_get(doc.root, "state_serialization_version"));
+    copy_string(out->canonical_digest, sizeof out->canonical_digest,
+                t64_json_get(doc.root, "canonical_digest"));
+    copy_string(out->guest_tick, sizeof out->guest_tick,
+                t64_json_get(doc.root, "guest_tick"));
+    copy_string(out->profile_digest, sizeof out->profile_digest,
+                t64_json_get(doc.root, "profile_digest"));
+    copy_string(out->content_sha256, sizeof out->content_sha256,
+                t64_json_get(doc.root, "content_sha256"));
+    copy_string(out->content_length, sizeof out->content_length,
+                t64_json_get(doc.root, "content_length"));
+    t64_json_free(&doc);
+  }
+  return WEXITSTATUS(status);
+}
+
+static uint32_t be32(const uint8_t *bytes) {
+  return ((uint32_t)bytes[0] << 24) | ((uint32_t)bytes[1] << 16) |
+         ((uint32_t)bytes[2] << 8) | (uint32_t)bytes[3];
+}
+
+static uint64_t be64(const uint8_t *bytes) {
+  return ((uint64_t)be32(bytes) << 32) | (uint64_t)be32(bytes + 4);
+}
+
+/* The container v2 positive path (plan 10-15): the composite on the si-v2 id
+ * exports its state with the v2 string, which the runner's pairing guard admits
+ * for state 26. The published blob carries container version word 2 and state
+ * word 26 at the header offsets of docs/spec/state-container.md (read here
+ * directly, big-endian), and the independent version 2 decoder accepts it and
+ * reports the values the run and the ROM file determine. The v1 string on this
+ * id is the prelaunch refusal asserted in runner.state-format-v26. */
+static int case_state_v2(void) {
+  run_spec spec = {0};
+  run_out run;
+  decoded_blob decoded;
+  static uint8_t header[0x120];
+  static uint8_t rom_bytes[16384];
+  char first[256];
+  char path[PATH_MAX];
+  char rom_path[PATH_MAX];
+  char expected[24];
+  char rom_sha[65];
+  size_t length = 0u;
+  size_t rom_length = 0u;
+  struct stat info;
+
+  spec.stem = COMPOSITE_ROM;
+  spec.script = true;
+  spec.state_leaf = STATE_V2_LEAF;
+  spec.state_format = STATE_FORMAT_V2;
+  CHECK(run_supervised(&spec, &run));
+  expect_pass(&run);
+  CHECK(run.has_state_digest && is_hex64(run.state_digest));
+  CHECK(list_directory(run.aux_dir, first) == 1u);
+  CHECK(strcmp(first, STATE_V2_LEAF) == 0);
+  CHECK(join_path(path, sizeof path, run.aux_dir, STATE_V2_LEAF));
+  CHECK(lstat(path, &info) == 0 && S_ISREG(info.st_mode) &&
+        (info.st_mode & 0777) == 0600 && info.st_size > 0x120);
+
+  /* the header words, read from the file */
+  CHECK(read_file(path, header, sizeof header, &length) && length == sizeof header);
+  CHECK(memcmp(header, "T64STATE", 8u) == 0);
+  CHECK(be32(header + 0x008) == 2u);
+  CHECK(be32(header + 0x00C) == 26u);
+  CHECK(be64(header + 0x010) == (uint64_t)info.st_size);
+
+  /* the independent decoder of container version 2 */
+  CHECK(fixture_path(rom_path, COMPOSITE_ROM));
+  CHECK(read_file(rom_path, rom_bytes, sizeof rom_bytes, &rom_length) &&
+        rom_length > 0u && rom_length < sizeof rom_bytes);
+  sha256_hex_of(rom_bytes, rom_length, rom_sha);
+  CHECK(decode_blob(path, &decoded) == 0);
+  CHECK(strcmp(decoded.status, "accepted") == 0);
+  CHECK(strcmp(decoded.kind, "ok") == 0);
+  CHECK(strcmp(decoded.container_version, "2") == 0);
+  CHECK(strcmp(decoded.version, "26") == 0);
+  (void)snprintf(expected, sizeof expected, "%llu",
+                 (unsigned long long)info.st_size);
+  CHECK(strcmp(decoded.total_length, expected) == 0);
+  CHECK(strcmp(decoded.canonical_digest, run.state_digest) == 0);
+  (void)snprintf(expected, sizeof expected, "%llu",
+                 (unsigned long long)run.guest_tick);
+  CHECK(strcmp(decoded.guest_tick, expected) == 0);
+  CHECK(strcmp(decoded.profile_digest, run.profile_digest) == 0);
+  CHECK(strcmp(decoded.content_sha256, rom_sha) == 0);
+  (void)snprintf(expected, sizeof expected, "%zu", rom_length);
+  CHECK(strcmp(decoded.content_length, expected) == 0);
+  (void)printf("state-v2: %s exported %lld bytes with %s; container version "
+               "word %u, state word %u, decoded %s/%s (container version %s, "
+               "state %s) at guest tick %s\n",
+               COMPOSITE_PROFILE, (long long)info.st_size, STATE_FORMAT_V2,
+               be32(header + 0x008), be32(header + 0x00C), decoded.status,
+               decoded.kind, decoded.container_version, decoded.version,
+               decoded.guest_tick);
+  return g_failures == 0 ? 0 : 1;
+}
+
 /* ---- dispatch ----------------------------------------------------------- */
 
 typedef struct {
@@ -1053,6 +1224,7 @@ typedef struct {
 static const case_entry cases[] = {
     {"two-run", case_two_run},
     {"wrong-rom", case_wrong_rom},
+    {"state-v2", case_state_v2},
 };
 
 int main(int argc, char **argv) {
