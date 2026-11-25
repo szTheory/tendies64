@@ -199,6 +199,7 @@ margin to the 900 s gate-macos limit.
 | 0 (plans 10-01 to 10-04, head `33f6e9c`, run 45311817943) | `repo.p10-mutant-anchors`, `unit.core.k1.dispatch-refusal`, `unit.core.k1.apply-refusal` (224 to 227 names) | 0.36 s (0.03, 0.10 and 0.23 s from `CTestCostData.txt`; none carries `COST`); the `check-test-inventory.sh` selftest cost of about 0.2 s per name is not separately measured | ctest wall 184 s against 251 s (F-111) and 215 s (F-114): 67 s and 31 s lower. Not read as a saving or growth: the 52 s run-to-run spread of F-119 covers the second delta, and the first coincides with the `COST` start order (`unit.core.state.import` 2nd of 227, 162.57 s against 210.19 s), which one sample cannot separate from runner spread | G4 exception (ROADMAP Phase 10): the three names are required pre-freeze evidence (K1 pins Z refusal of the five shipped composite ids before any depth predicate edit that plans 10-09 to 10-12 and Phase 11 build on; the anchor test keeps the mutant table honest). No offset is claimed: `COST` reorders starts and removes no test time, and the rsp-no-hle guard removal stays declined (F-116) | warm: gate-macos run 346 s (Gate 298 s), margin 554 s. Cold projection: warm plus the Binutils build delta of 186 s that F-111 and F-114 both measured is 532 s, margin 368 s; the measured cold run is plan 10-19 |
 | 1 (plans 10-06 and 10-07, head `a0c0a38`, run 45321391540) | `unit.core.vg.decal-equality`, `unit.core.vg.primitive-z-saturation`, `unit.core.vg.delta-ceiling`, `unit.core.vg.z-exponent-boundaries`, `unit.core.vg.ntsc-clock`, `unit.core.vg.rgba5551-alpha-clear`, `unit.core.vg.serrate-filter-parity`, `unit.core.vg.perspective-floor`, `unit.core.vg.shade-floor-bayer` (227 to 236 names) | 0.14 s (one fresh run in the review scratch clone, from `CTestCostData.txt`: 0.004, 0.003, 0.004, 0.021, 0.098, 0.003, 0.002, 0.002 and 0.003 s; none carries `COST`; 0.07 s as the running mean of 4 to 11 runs in the shared tree). The `check-test-inventory.sh` selftest cost of about 0.2 s per name (section 1) was 20 s in the scratch gate against 19 s at the Wave 0 review, which host load hides | ctest wall 187 s against 184 s in the F-120 row: +3 s, inside the 52 s run-to-run spread of F-119, so no growth is read. The nine names ran in 0.29 s on macOS and 0.51 s on Linux, and the macOS selftest step took 38 s against 42 s | G4 exception (ROADMAP Phase 10): the nine names are the required independent VG-01 to VG-05 and standard-NTSC clock evidence of VER-06 that the Phase 7 verification left open, each with a killed mutant, and the Phase 11 freeze builds on them. No offset is claimed: the rsp-no-hle guard removal stays declined (F-116) | warm: gate-macos run 326 s (Gate 288 s), margin 574 s. Cold projection: warm plus the Binutils build delta of 186 s is 512 s, margin 388 s; the measured cold run is plan 10-19 |
 | 2 (plans 10-09 to 10-12, head `f57b019`, run 45530265365) | `unit.core.profile.v26-identity`, `unit.core.profile.v26-isviewer`, `unit.core.profile.v26-predicate-matrix`, `unit.core.digest.v26-completeness`, `unit.core.digest.v26-strip-differential`, `unit.core.rdp.depth-composite-accepted`, `unit.core.rdp.depth-composite-wrong-depth`, `unit.core.rdp.depth-composite-sidecar`, `unit.core.state.export-v26`, `unit.core.state.export-v26-bounds`, `unit.core.state.import-v26-roundtrip`, `unit.core.state.import-v26-hostile` (236 to 248 names) | 15.13 s (one fresh run in the review scratch clone from `CTestCostData.txt` at 1-minute load 12 to 15, so an upper bound: import-v26-hostile 8.63, export-v26 2.20, import-v26-roundtrip 2.20, export-v26-bounds 1.57, digest.v26-completeness 0.40, strip-differential 0.05, depth-composite-sidecar 0.03 and the other five 0.006 to 0.016 s; none carries `COST`; the shared tree's running means are lower, 3.99 s, because they include the RED and early runs of the same names, and are not used). The `check-test-inventory.sh` selftest cost of about 0.2 s per name (section 1) was 21 s in the scratch gate against 20 s at the Wave 1 review, which host load hides | ctest wall 260 s against 187 s (F-121) and 184 s (F-120): +73 s and +76 s, above the 52 s spread of F-119 by 21 to 24 s. Not read as growth of the new names alone: the same sample is slow in every step no Wave 2 edit touches (build 34 against 17 s, boot-evidence-selftest 39 against 19 s, core-lint 23 against 15 s) and the unchanged critical-path test `unit.core.state.import` ran 216.18 s against 172.55 s. The 12 names run 53.91 s in total on macOS and 29.47 s on Linux (Linux ctest 125 s against 115 s, +10 s, inside the spread); that sum is the upper bound of their share. F-122 | G4 exception (ROADMAP Phase 10): the 12 names are the required pre-freeze evidence of VID-07 and CORE-06 that the Phase 11 runner and API freeze build on (the v26 digest completeness flip and strip differential, the registered family and its predicate matrix, depth accepted with an independent wrong-depth control, the state 26 export with container version 2 and the state 26 import with depth-inclusive round trips, 16 hostile rows and fuzz windows). No offset is claimed: the rsp-no-hle guard removal stays declined (F-116) | warm: gate-macos run 496 s (Gate 424 s), the slowest of eight warm samples, margin 404 s. Cold projection: warm plus the Binutils build delta of 186 s is 682 s, margin 218 s (673 s in F-111); plan 10-17 re-reads the total before the measured cold run of plan 10-19 |
+| Total before the cold run (plan 10-17; rehearsal head `da6af0d`, record `20261125T041245798491Z-da6af0d6`, 1-minute host load 12.0 to 13.6, an upper bound) | all 30 `PHASE10_TESTS` names (224 names at the Wave 0 baseline, 254 now); of them 6 are the Wave 3 and 4 names (`runner.composite-two-run`, `harness.composite-oracle`, `controls.real.composite-wrong-rom`, `runner.state-format-v26`, `runner.composite-state-v2`, `harness.phase10-qualification`) | 30.61 s: one fresh `ctest -L phase10` run, the JUnit `time` of the 30 names at 4 jobs (`import-v26-hostile` 9.88, the qualifier's own hermetic test 8.99, `import-v26-roundtrip` 2.58, `export-v26` 2.54, `state-format-v26` 1.81, `export-v26-bounds` 1.78, the other 24 names 0.003 to 0.7 s each); the Wave 3 and 4 names are 12.20 s of it. The mean of the `CTestCostData.txt` history (8 to 22 runs per name at mixed load) is 18.83 s. Under the sanitizer the selection took 163.52 s wall and 387.25 s summed (not a hosted lane) | Not a hosted measurement. Native: `ctest --preset gate` wall 103.34 s at 254 names against 99.7 s at 224 names in the baseline row (+3.6 s, +3.7 percent, both at load 12 to 16), and the whole gate stage 155.88 s (the same gate took 143 s with ctest 84.94 s at load 7.4 to 9 on commit `48c928e`). Projected hosted (native sum times the F-111 hosted over native ratio: 2.8 for the Python harness test of F-111 and 4.34 for `unit.core.state.import`, 210.19 s over 48.4 s): the 30 names add 85.7 to 132.9 hosted seconds of summed test time, which is 23 to 36 s of ctest wall packed on 4 jobs (wall about 1.08 times a quarter of the sum, F-109) and at most the whole 133 s if every second landed on the critical path; the six Wave 3 and 4 names add 34.2 to 53.0 summed seconds, 9 to 14 s packed. The one hosted measurement of Waves 0 to 2 (24 names, 18.41 s native) was +9 s of ctest wall against F-111 (260 against 251 s), inside the F-119 spread of 52 s | G4 exception (ROADMAP Phase 10), carried forward unchanged per wave and with no offset claimed anywhere: Wave 0, the K1 refusal pins and the mutant anchor test (required pre-freeze evidence before any depth predicate edit); Wave 1, the nine VG and NTSC-clock tests of VER-06 that Phase 7 left open; Wave 2, the 12 v26 identity, digest, depth and state 26 export and import tests of VID-07 and CORE-06 that the Phase 11 runner and API freeze build on; Wave 3 and 4, the composite two-run, wrong-ROM, oracle and state-container-format tests of RUN-07 and CORE-06 and the qualifier's hermetic test (about 5 s natively by design, F-113). The rsp-no-hle guard removal stays declined (F-116), so no time is removed elsewhere. Reversal rule: restated below the table and in section 6.1 | Projected cold gate-macos 696 s (packed) to 735 s (all six Wave 3 and 4 names serialized): the Wave 2 cold projection 682 s plus their 9 to 53 s; margin 204 s to 165 s. Cross-check from the F-111 baseline cold projection 673 s plus all 30 names: 709 s (packed) to 806 s (serialized), margin 191 s to 94 s; the 94 s end is below 120 s and is recorded as a warning for plans 10-18 and 10-19 (section 6.1); the measured cold run is plan 10-19 |
 
 Reversal rule of the G4 exception (ROADMAP Phase 10): if the measured cold-cache
 gate-macos run of plan 10-19 exceeds 900 s or is cancelled at the limit, a new numbered
@@ -206,6 +207,43 @@ plan moves non-essential Phase 10 cases (sampled sanitizer runs, duplicate-path 
 trips) to a non-gating lane and the cold run is repeated. The exception covers Phase 10
 only; Phases 11 and 12 follow G4 as written. The redundant `rsp-no-hle` guard is a
 stop-loss that is not counted as an offset unless its removal is measured.
+
+### 6.1 Total before the cold run (plan 10-17)
+
+Written by plan 10-17 (phase-wave 4) from the rehearsal of section 14 and the earlier
+ledger rows. Evidence tier: native measurements at host load 12.0 to 13.6 (above the
+quiet-host threshold of 8, so every native second is an upper bound) and projections
+from recorded hosted measurements; nothing here is a hosted measurement of the Phase 10
+tree, and the measured cold run is plan 10-19.
+
+| Input | Value |
+|-------|-------|
+| native `ctest --preset gate` wall, 254 names | 103.34 s (rehearsal) against 99.7 s for 224 names in the Wave 0 baseline: +3.6 s, +3.7 percent, at comparable load; 84.94 s at load 7.4 to 9 (commit `48c928e`) |
+| native gate stage (`scripts/gate.sh`, whole script) | 155.88 s (steps: sh-n 0, lint-selftest 4, fixture-qualification 1, configure 0, build 0, boot-evidence-selftest 11, test-inventory-selftest 23, test-inventory 1, ctest 103, core-lint 13); 143 s at load 7.4 to 9 |
+| summed native seconds of all 30 `PHASE10_TESTS` names | 30.61 s (JUnit of one fresh run) and 18.83 s (mean of the `CTestCostData.txt` history); the sum of the per-wave ledger rows is 0.36 + 0.14 + 15.13 = 15.63 s for Waves 0 to 2 (taken at different loads) plus the Wave 3 and 4 names |
+| hosted over native ratio of F-111 | 2.8 (the Python harness test) as the central value and 4.34 (`unit.core.state.import`, 210.19 s over 48.4 s) as the upper value |
+| projected hosted summed seconds of the 30 names | 85.7 (central) to 132.9 (upper) |
+| projected hosted ctest wall delta of the 30 names | 23 to 36 s packed on 4 jobs; 86 to 133 s only if the whole sum landed on the critical path (it does not: `unit.core.state.import` starts first by `COST` and is the longest test, F-115, F-120) |
+| projected hosted ctest wall delta of the Wave 3 and 4 names alone | 9 to 14 s packed, 34 to 53 s serialized (12.20 s native) |
+| primary cold projection | Wave 2 cold projection 682 s (warm 496 s, the slowest of eight warm samples, plus the Binutils build delta 186 s, F-122) plus the Wave 3 and 4 delta: 696 s (packed) to 735 s (serialized), margin 204 s to 165 s of the 900 s limit |
+| cross-check projection | F-111 cold projection 673 s plus all 30 names: 709 s (packed) to 806 s (serialized), margin 191 s to 94 s |
+
+Warning for plans 10-18 and 10-19: the serialized end of the cross-check leaves 94 s, less
+than the 120 s the plan sets as the warning margin. The primary projection leaves at least
+165 s and the one hosted measurement of 24 of the 30 names added only 9 s of ctest wall, so
+the serialized bound is a ceiling, not a forecast. Plan 10-18 compares its first warm
+hosted run of the Wave 3 and 4 head with these numbers (a warm gate-macos run above 700 s
+is already a warning in that plan); plan 10-19 measures the cold run.
+
+Offsets and exception reasons carried forward from the ledger rows: no row claims an
+offset. Waves 0 to 2 and 3 to 4 each rest on the G4 exception reason of their row. The
+redundant `rsp-no-hle` guard stays a declined stop-loss (F-116) and counts for nothing.
+
+Reversal rule of the G4 exception (restated, ROADMAP Phase 10): if the measured cold-cache
+gate-macos run of plan 10-19 exceeds 900 s or is cancelled at the limit, a new numbered
+plan moves non-essential Phase 10 cases (sampled sanitizer runs, duplicate-path round
+trips) to a non-gating lane and the cold run is repeated. The exception covers Phase 10
+only; Phases 11 and 12 follow G4 as written.
 
 ## 7. Sweep baseline
 
@@ -750,3 +788,71 @@ ROADMAP Phase 11 carries these in its "Carry-ins" line (docs only, added by plan
 | `grep -c "build-identity-bound"` in `docs/spec/state-container.md` and `docs/spec/machine-contract.md` | 2 and 1 (written in plan 10-11, checked here and not rewritten: `machine-contract.md:9` and `state-container.md:17, 217`) |
 | `sh scripts/preflight-phase10.sh` after commit `3deee7d` (clean committed tree, host load 9.5, above the quiet-host threshold of 8, so seconds are an upper bound) | PASS in 86 s: oracle-authority, ctest-counts (45 rows, 0 mismatches), host-load WARN only, head-ci green on `f57b019`, timeout-audit (106 TIMEOUTs, lowest ratio 2.9), pii, linux-compile 46 s (228 units), post-gate-replay 38 s (11 steps) |
 | `PINNED_REQUEST_SHA256` | unchanged (`e131cbe7...`); `harness.rdp-oracle-authority` passes |
+
+## 14. Qualification rehearsal (plan 10-17)
+
+Written by plan 10-17 (phase-wave 4). Evidence tier: a native rehearsal of the Phase 10
+qualifier on the head `da6af0d` (plan 10-17 Tasks 1 and 2 committed, tree clean). It shows
+that the qualifier runs every stage and verifies its own record on this tree. It is a
+rehearsal, not the qualification: plan 10-19 runs it once on the audited head. Nothing here
+claims hardware accuracy or an oracle comparison; the recorded tier is "unit-tested, authored
+scope". The private record and its raw logs stay under
+`build/gate/10-qualification-private/20261125T041245798491Z-da6af0d6/` and are not committed.
+
+Commands: `python3 -B scripts/qualify-phase10.py --native --rehearsal` (exit 0) and
+`python3 -B scripts/qualify-phase10.py --verify build/gate/10-qualification-private/20261125T041245798491Z-da6af0d6/record.json --rehearsal`
+(exit 0, prints "this result is a rehearsal and not final evidence"). The same record
+presented without `--rehearsal` exits 1: "a rehearsal record is not final evidence; it is
+refused as final".
+
+| Item | Value |
+|------|-------|
+| source snapshot | 60 bound inputs (changed since the Wave 0 base `4ac633e880e0c26005cb03092e8d8485e721034c` plus the 14 tools of `TOOL_PATHS`), no deleted path, clean tree |
+| wave bases bound | Wave 0 `4ac633e8`, Wave 1 `f6ab8c26`, Wave 2 `6dd78598`, Wave 3 `1cded8de` (40-hex literals read from section 5; the Qualification base line does not exist yet, plan 10-18 records it, and a final record requires it) |
+| test inventory | 30 `PHASE10_TESTS` names equal the 30 names of `ctest -N -L phase10` |
+| tested artifact identity | core `t64-build-v1-b6c298e66f1c...`, runner `t64-runner-v1-684d67...`, runner test twin `t64-runner-v1-2d3ac6...`, ASan core `t64-build-v1-63fe5be...` (the ids embedded in `build/gate` and `build/asan`) |
+| host | macOS, 1-minute load 12.03 at the start and 13.64 at the end (above the quiet-host threshold of 8, so every second below is an upper bound) |
+| record total | 506.35 s on the qualifier clock (about 511 s wall with interpreter start) |
+
+| Stage | Seconds | Limit (sum of its commands) | Largest measured before (Task 2 table) | What was observed |
+|-------|---------|-----------------------------|----------------------------------------|-------------------|
+| ci-scanner | 1.98 | 90 | 0.03 and 2.0 | `check-ci-yml.sh` ok; selftest 138 cases, 0 failures |
+| inventory | 0.62 | 60 | 1.0 | `check-test-inventory.sh --preset gate` PASS, count 254 |
+| oracle | 0.14 | 60 | 0.09 each | `--expect-blocked` exit 0 ("blocked: no oracle operation is authorized"), `--require-approved` exit 2 ("no pinned competent owner/legal decision") |
+| gate | 155.88 | 600 | 143 | `gate.sh` PASS; steps sh-n 0, lint-selftest 4, fixture-qualification 1, configure 0, build 0, boot-evidence-selftest 11, test-inventory-selftest 23, test-inventory 1, ctest 103, core-lint 13, total 156; `ctest --preset gate` wall 103.34 s, 254 of 254 passed |
+| phase10-junit | 9.90 | 120 | 7.2 | `ctest --preset gate -L phase10`: 30 testcases equal the block, none failed or skipped, 30.61 s summed |
+| asan | 175.12 | 1,320 (120 + 600 + 600) | 1, 16 and 121 | configure 0.21, build 11.39, `ctest --preset asan -L phase10` 163.52 s wall: 30 testcases equal the block, 387.25 s summed (`import-v26-hostile` 163.51, `import-v26-roundtrip` 50.42, `state-format-v26` 47.93, `export-v26` 34.00, `export-v26-bounds` 21.27, `composite-two-run` 19.47) |
+| mutants | 110.72 | 600 | 97 | 27 rows equal the driver's `--list`: 25 mutants KILLED, the equivalent control SURVIVED and the non-compiling control INVALID, each as expected |
+| sweep | 51.54 | 300 | 60.6 (section 7) | `sweep: 1599 shared lines, 0 differences, 0 head-only lines` against the Wave 0 literal |
+
+Every stage ended inside its limit; the smallest ratios of limit to observed seconds are 3.7
+(the ASan selection, 600 s against 163.52 s) and 3.8 (the gate, 600 s against 155.88 s), so
+every limit is still at least twice the largest second observed in the rehearsal and none
+needed a change (the hermetic test requires each limit to be at least twice its recorded
+measurement; the rehearsal seconds are above the recorded measurements where the host load
+was higher). Limits were derived from the Task 2
+measurements at commit `48c928e` (host load 7.4 to 13.7): gate 143 s, ctest -L phase10 7.2 s,
+ASan configure 1 s, build 16 s and selection 120.9 s, mutants 97 s, sweep 41 s (60.6 s in
+section 7), scanner selftest 2 s, inventory 1 s, oracle 0.09 s.
+
+Findings of the rehearsal:
+
+- First attempt (record directory `20261125T040923048566Z-da6af0d6`, no record written): the
+  gate stage failed its ctest step because `integration.cold-hello` printed `not ok cold
+  startup evidence directory prepared`; the Phase 6 test creates `06-05-cold-hello-attempt-NN`
+  for NN 01 to 99 and all 99 existed. Environmental and pre-existing, not a Phase 10 defect;
+  recorded in `deferred-items.md` as D-10-17-01 with the cause, the workaround (the 193 attempt
+  directories of the two cold tests were moved, not deleted, into
+  `build/gate/archived-closed-phase-runs/`) and a suggested owner. The second attempt above
+  is the rehearsal.
+- The AUTONOMY v1.2 prune of closed-phase run directories under `build/gate` was only done
+  in that narrow, non-destructive form. The broader prune of `build/gate/08-04-evidence`
+  (3,404 entries, 467 MB) and `build/gate/09-05-evidence` (2,044 entries) was refused by the
+  permission system and was not performed; no test depends on it.
+- The derivation text of the `mutants` stage in `scripts/qualify-phase10.py` and the plan
+  commit message count "26 mutants and 2 controls"; the driver lists 25 mutants and 2
+  controls (27 rows). The check itself is exact (rows equal `--list`); only the sentence is
+  off by one. It is not edited here so that the rehearsal stays the run of the committed
+  code; plan 10-18 corrects it with the other audit edits, if any.
+- The hermetic test `harness.phase10-qualification` took 5.2 to 6.4 s natively at load 8 to 13
+  (8.99 s inside the loaded JUnit run), under the 10 s of the plan; its `TIMEOUT` is 120 s.
