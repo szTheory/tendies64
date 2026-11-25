@@ -5,16 +5,16 @@ milestone_name: Embeddable and Playable
 current_phase: 10
 current_phase_name: Carry-in Closure Before the Freeze
 status: executing
-stopped_at: "Halted 10-19 at Task 1: final native qualification refused at the gate stage (host stalls); repeat on a quiet host or insert a numbered fix plan"
-last_updated: "2026-11-25T05:36:58.803Z"
+stopped_at: Completed 10-19-PLAN.md (19 of 19); Phase 10 ready for verification, push pending (orchestrator)
+last_updated: "2026-11-25T14:09:52.730Z"
 last_activity: 2026-11-23
 last_activity_desc: Phase 10 execution started
-state_head: 30a03d1ed48d4fe94d78716a358d0dcc820bd81d
+state_head: c4794ce9fd606824b806e51ddd9151463ef6bc4d
 progress:
   total_phases: 3
   completed_phases: 0
   total_plans: 19
-  completed_plans: 18
+  completed_plans: 19
   percent: 0
 ---
 
@@ -31,7 +31,7 @@ See: .planning/PROJECT.md (updated 2026-11-23)
 
 Phase: 10 (Carry-in Closure Before the Freeze) — EXECUTING
 Plan: 19 of 19
-Status: Halted at plan 10-19 Task 1 (final qualification refused at the gate stage); see Blockers
+Status: Plan 10-19 complete (19 of 19): final qualification passed on attempt 4, cold-cache gate-macos 731 s of 900 s, evidence and claims written; Phase 10 ready for verification, local commits not yet pushed
 Last activity: 2026-11-23 — Phase 10 execution started
 
 Progress: [░░░░░░░░░░] 0% (0 of 3 v1.2 phases complete)
@@ -78,6 +78,7 @@ Progress: [░░░░░░░░░░] 0% (0 of 3 v1.2 phases complete)
 | Phase 10 P16 | 12 min | 3 tasks | 10 files |
 | Phase 10 P17 | 44 min | 3 tasks | 7 files |
 | Phase 10 P18 | 27 min | 4 tasks | 4 files |
+| Phase 10 P19 | 40 min | 4 tasks | 4 files |
 
 ## Accumulated Context
 
@@ -182,6 +183,9 @@ Progress: [░░░░░░░░░░] 0% (0 of 3 v1.2 phases complete)
 - [Phase 10]: 10-18: Wave 3 and the final audit pass with no blocking finding (scratch gate 254 of 254 in 123 s and ASan phase10 30 of 30 in 128 s in a clone whose archive hash equals the head's; sweep 0 differences over the 21 shipped ids; 25 mutants KILLED with both controls as expected; --require-approved still exits 2); the 10-15 deviations (one literal in test_state_runner.c, wrong-ROM read-back comparison) are accepted as W3-01 and W3-02
 - [Phase 10]: 10-18: head f081d39 pushed (origin/main f57b019 to f081d39, 29 commits, no tag); hosted pair run 45548987145 green: gate-macos 385 s (ctest 196 s of 254 names), gate-linux 233 s; warm plus the 186 s Binutils delta projects a cold 571 s (margin 329 s), below the 10-17 projection of 696 to 735 s, F-123; the cold run stays plan 10-19
 - [Phase 10]: 10-18: Qualification base ad39b6be2f803af45af15d4ed511b72a89460339 recorded in PIN-IMPACT.md Wave bases (planning-only commit 3860717) after the one source edit of this plan (qualifier derivation sentence 25 mutants and 2 controls, 4dd936a); carried items now count five against G3 with D-10-17-01, and T-10-49 stays flagged for owner review
+- [Phase 10]: 10-19: GATE-01 met by a measured cold-cache run, run 45550277510, gate-macos 731 s against the 900 s limit (margin 169 s); above the F-111 (673 s) and plan 10-18 (571 s) projections, inside the 10-17 ranges; the G4 reversal rule is not triggered (F-124)
+- [Phase 10]: 10-19: the final native qualification passed on attempt 4 (record 20261125T134440416529Z-b9d957c3, verified once at head b9d957c); three earlier attempts failed at supervisor wall backstops under unrelated host load and stay in the evidence, no limit widened, no source changed (PIN-IMPACT.md 15.1, F-125)
+- [Phase 10]: 10-19: docs/claims/phase10.md holds eight unit-tested blocks (each unit.core.vg name bound to one id) and docs/evidence/phase10-qualification.md lists eight recorded exceptions for owner review, none an approval; do not re-run qualify-phase10.py --verify after the evidence commit (the new documents are bound inputs)
 
 ### Pending Todos
 
@@ -207,9 +211,9 @@ None for v1.1. Carry-ins for v1.2 are listed in the Deferred Items table, the v1
 
 ## Session Continuity
 
-Last session: 2026-11-25T05:36:58.691Z
-Stopped at: Halted 10-19 at Task 1: final native qualification refused at the gate stage (host stalls); repeat on a quiet host or insert a numbered fix plan
-Resume file: .planning/phases/10-carry-in-closure-before-the-freeze/10-19-SUMMARY.md
+Last session: 2026-11-25T14:09:52.704Z
+Stopped at: Completed 10-19-PLAN.md (19 of 19); Phase 10 ready for verification, push pending (orchestrator)
+Resume file: None
 
 Historical closeout: [v1.0 roadmap](milestones/v1.0-ROADMAP.md), [audit](milestones/v1.0-MILESTONE-AUDIT.md), [lessons](RETROSPECTIVE.md).
 
@@ -227,5 +231,4 @@ exact tested artifacts remain retained locally; full privacy and the final gate
 pass. This approval applies to that specific repair, not future private values.
 
 ### Blockers
-
-- 10-19 Task 1: python3 -B scripts/qualify-phase10.py --native refused at the gate stage (ctest 251 of 254, supervisor wall backstops, host 2 to 4 times slower than at the rehearsal); no qualification record; Tasks 3 and 4 open. Orchestrator decision: repeat on a quiet host (after a plain gate.sh passes) or a numbered fix plan. See PIN-IMPACT.md section 15.
+None

@@ -15,13 +15,13 @@ retrospective and CI review log. Scope was set by the owner's standing autonomy 
 
 Scope refined 2026-11-23 by a five-lens fan-out ([synthesis](research/v1.2-fanout/SYNTHESIS.md)).
 
-- [ ] **GATE-02**: The Phase 7 oracle request pins each fixture-manifest row by its own hash, so adding an authored guest-ROM row no longer forces an identity-only rebind; `local_decision` stays blocked and no oracle, rights or publication authority is granted
-- [ ] **GATE-01**: The hosted macOS gate has a measured cold-cache run inside its job limit. Route: explicit CTest COST properties so the longest test starts first, the redundant rsp-no-hle guard in the audio-records step removed (the step itself stays: the emit step consumes it), `timeout-minutes` raised to 15 with the CI-TIMEOUT scanner rule and its self-test changed together, before/after step timings recorded, and the outer limits of F-106, F-111 and F-114 recorded
+- [x] **GATE-02**: The Phase 7 oracle request pins each fixture-manifest row by its own hash, so adding an authored guest-ROM row no longer forces an identity-only rebind; `local_decision` stays blocked and no oracle, rights or publication authority is granted
+- [x] **GATE-01**: The hosted macOS gate has a measured cold-cache run inside its job limit. Route: explicit CTest COST properties so the longest test starts first, the redundant rsp-no-hle guard in the audio-records step removed (the step itself stays: the emit step consumes it), `timeout-minutes` raised to 15 with the CI-TIMEOUT scanner rule and its self-test changed together, before/after step timings recorded, and the outer limits of F-106, F-111 and F-114 recorded
   Recorded 10-04: the rsp-no-hle guard removal is declined (F-116; removal needs a closed Phase 8 qualifier edit); the step stays.
-- [ ] **VER-06**: The Phase 7 test-strength gaps VG-01 to VG-05 and the standard-NTSC VI clock vector are closed with independently derived expected values and mutants that fail when the behavior is wrong; VG-01 lands on descriptor 10 before depth is enabled elsewhere
-- [ ] **VID-07**: RDP depth (Z) is active on composite profiles under new registered profile ids (the shipped descriptor 11 and 12 ids keep their identities, digests and Z-refusal behavior byte-identical), with independently calculated expected values and a wrong-value control
-- [ ] **CORE-06**: One state/container version marker covers the Phase 9 plan 09-10 content change (the RDP combiner block and memory-coverage table already travel in section 8) and the depth members VID-07 makes behavior-bearing; a mid-primitive and mid-scan-out round trip that includes depth is exact, a flip-every-member completeness test sees each member, and state blobs are documented as build-identity-bound and outside the ABI promise
-- [ ] **RUN-07**: One composite guest (video, audio, input, save) runs through the real supervised runner twice (a raw-capture run, then a save-out run with the same final digest), each output compared with independent expectations; the Phase 9 raw-capture exclusion is not relaxed
+- [x] **VER-06**: The Phase 7 test-strength gaps VG-01 to VG-05 and the standard-NTSC VI clock vector are closed with independently derived expected values and mutants that fail when the behavior is wrong; VG-01 lands on descriptor 10 before depth is enabled elsewhere
+- [x] **VID-07**: RDP depth (Z) is active on composite profiles under new registered profile ids (the shipped descriptor 11 and 12 ids keep their identities, digests and Z-refusal behavior byte-identical), with independently calculated expected values and a wrong-value control
+- [x] **CORE-06**: One state/container version marker covers the Phase 9 plan 09-10 content change (the RDP combiner block and memory-coverage table already travel in section 8) and the depth members VID-07 makes behavior-bearing; a mid-primitive and mid-scan-out round trip that includes depth is exact, a flip-every-member completeness test sees each member, and state blobs are documented as build-identity-bound and outside the ABI promise
+- [x] **RUN-07**: One composite guest (video, audio, input, save) runs through the real supervised runner twice (a raw-capture run, then a save-out run with the same final digest), each output compared with independent expectations; the Phase 9 raw-capture exclusion is not relaxed
 
 ### Installed consumer and frozen API
 
@@ -62,12 +62,12 @@ Filled by the roadmapper on 2026-11-23. Carry-ins close in Phase 10, before the 
 
 | Requirement | Phase | Status |
 |-------------|-------|--------|
-| GATE-02 | Phase 10 | Pending |
-| VID-07 | Phase 10 | Pending |
-| CORE-06 | Phase 10 | Pending |
-| VER-06 | Phase 10 | Pending |
-| RUN-07 | Phase 10 | Pending |
-| GATE-01 | Phase 10 | Pending |
+| GATE-02 | Phase 10 | Complete |
+| VID-07 | Phase 10 | Complete |
+| CORE-06 | Phase 10 | Complete |
+| VER-06 | Phase 10 | Complete |
+| RUN-07 | Phase 10 | Complete |
+| GATE-01 | Phase 10 | Complete |
 | VER-05 | Phase 11 | Pending |
 | API-01 | Phase 11 | Pending |
 | API-02 | Phase 11 | Pending |
