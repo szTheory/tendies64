@@ -72,6 +72,13 @@ render_y :: ADDR_RANGE :: state_read_rdp
 # state_read_rdp (plan 09-10, FX-01)
 render_y :: INDEX_LT :: state_read_rdp
 rdp_memory_coverage :: ENUM_CLOSED :: state_read_rdp_carried
+# state 26 depth members (plan 10-12): the depth image address is read before the
+# triangle-render proof and bounded (aligned to 8, first halfword inside RDRAM)
+# and the 2,097,152-byte hidden table is closed per byte (0 or 0x80 to 0x83); a
+# state 25 machine keeps the depth address zero by the commit, depth being
+# inactive there (decision K1)
+depth_image_address :: ADDR_RANGE :: state_read_rdp
+rdp_depth_hidden :: ENUM_CLOSED :: state_read_rdp_carried
 dpc_current :: MASKED_AT_USE :: state_read_rdp :: core/t64_rdp.c :: t64_rdp_event
 dpc_xbus :: MASKED_AT_USE :: state_read_rdp :: core/t64_rdp.c :: command_span_valid
 # derived values
@@ -89,7 +96,6 @@ rom_header :: PROFILE_DERIVED :: state_section_identity
 rom_title :: PROFILE_DERIVED :: state_section_identity
 sp_dmem :: PROFILE_DERIVED :: state_section_sp_memory
 sp_imem :: PROFILE_DERIVED :: state_section_sp_memory
-depth_image_address :: PROFILE_DERIVED :: state_commit
 trace_count :: PROFILE_DERIVED :: state_commit
 trace_head :: PROFILE_DERIVED :: state_commit
 trace_records :: PROFILE_DERIVED :: state_commit

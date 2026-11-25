@@ -1466,6 +1466,76 @@ typedef struct {
   uint32_t y_now;
 } state_triangle;
 
+/* The product half of the Z acceptance proof, from the blob values. The
+ * acceptance path (core/t64_rdp_raster.c t64_rdp_triangle_bounds) runs
+ * t64_rdp_depth_triangle_preflight after the extent, and that function reads the
+ * live registers, which a validate pass must not write. The arithmetic is the
+ * same: the Z plane products of the three derivatives against the pixel and edge
+ * bounds of the rows must fit a quarter of the signed 64-bit range, so no row of
+ * a state accepted here can overflow (core/t64_rdp_depth.c
+ * t64_rdp_depth_evaluate_pixel multiplies the same products). The test
+ * core/tests/test_state_import_v26.c compares the verdict with the live
+ * preflight for the same packet. */
+static int64_t state_signed_i32(uint32_t value) {
+  return (value & UINT32_C(0x80000000)) != 0u
+             ? (int64_t)value - INT64_C(0x100000000)
+             : (int64_t)value;
+}
+
+static uint64_t state_magnitude_i64(int64_t value) {
+  return value < 0 ? (uint64_t)(-(value + INT64_C(1))) + UINT64_C(1)
+                   : (uint64_t)value;
+}
+
+static bool state_z_products_bounded(const uint64_t *words, size_t word_count,
+                                     uint32_t x0, uint32_t x1) {
+  const uint64_t product_limit = (uint64_t)INT64_MAX / UINT64_C(4);
+  uint64_t y_bound;
+  uint64_t edge_bound;
+  uint64_t x_bound;
+  uint64_t abs_dx;
+  uint64_t abs_de;
+  uint64_t abs_dy;
+  size_t offset;
+  int64_t yh16;
+  int64_t yl16;
+  int64_t xh16;
+  int64_t dxh;
+
+  if (word_count < 6u) {
+    return false;
+  }
+  yh16 = state_signed_i32((uint32_t)((words[0] & UINT64_C(0x3fff)) << 18)) /
+         INT64_C(4);
+  yl16 = state_signed_i32(
+             (uint32_t)(((words[0] >> 32) & UINT64_C(0x3fff)) << 18)) /
+         INT64_C(4);
+  xh16 = state_signed_i32((uint32_t)(words[2] >> 32));
+  dxh = state_signed_i32((uint32_t)words[2]);
+  y_bound = state_magnitude_i64(yl16 - yh16) + UINT64_C(65536);
+  abs_dx = state_magnitude_i64(dxh);
+  if (y_bound != 0u && abs_dx > (uint64_t)INT64_MAX / y_bound) {
+    return false;
+  }
+  edge_bound = (abs_dx * y_bound) / UINT64_C(65536) + UINT64_C(1);
+  x_bound = state_magnitude_i64((int64_t)x0 * INT64_C(65536) - xh16);
+  if (state_magnitude_i64((int64_t)x1 * INT64_C(65536) - xh16) > x_bound) {
+    x_bound = state_magnitude_i64((int64_t)x1 * INT64_C(65536) - xh16);
+  }
+  if (x_bound > UINT64_MAX - edge_bound - UINT64_C(65536)) {
+    return false;
+  }
+  x_bound += edge_bound + UINT64_C(65536);
+  offset = word_count - 2u;
+  abs_dx = state_magnitude_i64(state_signed_i32((uint32_t)words[offset]));
+  abs_de = state_magnitude_i64(
+      state_signed_i32((uint32_t)(words[offset + 1u] >> 32)));
+  abs_dy = state_magnitude_i64(state_signed_i32((uint32_t)words[offset + 1u]));
+  return !((x_bound != 0u && abs_dx > product_limit / x_bound) ||
+           (edge_bound != 0u && abs_de > product_limit / edge_bound) ||
+           (y_bound != 0u && abs_dy > product_limit / y_bound));
+}
+
 static void state_check_triangle_render(state_reader *r,
                                         const state_triangle *triangle) {
   const t64_machine *m = r->machine;
@@ -1498,6 +1568,21 @@ static void state_check_triangle_render(state_reader *r,
   STATE_CHECK(r, first == triangle->y_begin && last == triangle->y_end &&
                      first <= last,
               T64_STATE_REASON_FIELD_DERIVED, T64_STATE_RULE_DERIVED_EQ);
+  if (!r->failed && (opcode == UINT32_C(0x09) || opcode == UINT32_C(0x0b) ||
+                     opcode == UINT32_C(0x0d) || opcode == UINT32_C(0x0f))) {
+    /* The Z products, with the pixel span the acceptance used (the scissor
+     * columns clipped to the color image width). */
+    const uint32_t x0 = triangle->view.scissor_xh >> 2;
+    uint32_t x1 = triangle->view.scissor_xl >> 2;
+
+    if (x1 > triangle->view.image_width) {
+      x1 = triangle->view.image_width;
+    }
+    STATE_CHECK(r, triangle->view.image_width != 0u &&
+                       state_z_products_bounded(triangle->packet,
+                                                triangle->word_count, x0, x1),
+                T64_STATE_REASON_FIELD_RANGE, T64_STATE_RULE_LEN_LE);
+  }
   STATE_CHECK(r, triangle->y_now >= first && triangle->y_now <= last,
               T64_STATE_REASON_FIELD_RANGE, T64_STATE_RULE_INDEX_LT);
 }
@@ -1524,6 +1609,9 @@ static void state_read_rdp(state_reader *r) {
   uint32_t scissor_xl;
   uint32_t scissor_yl;
   uint64_t other_modes;
+  uint32_t depth_address = 0u;
+  bool depth_valid = false;
+  bool primitive_depth_valid = false;
   uint64_t packet[T64_RDP_TRIANGLE_MAX_WORDS];
   uint32_t x_begin;
   uint32_t x_end;
@@ -1644,14 +1732,27 @@ static void state_read_rdp(state_reader *r) {
                        T64_RDP_TRIANGLE_COVERAGE_BYTES);
 
   if (t64_has_si_v26_profile(m)) {
-    /* State 26 layout (plan 10-12): the five depth scalars sit here, inside
-     * the RDP block and before the render proof below. */
-    uint32_t skipped;
-
-    for (i = 0u; i < 5u; i++) {
-      skipped = state_rd32(r);
-      (void)skipped;
-    }
+    /* State 26 (plan 10-12): the five depth scalars sit here, inside the RDP
+     * block and so before the triangle-render proof below, which needs them
+     * to prove a Z triangle in flight (a reader that took them after the
+     * proof saw depth_valid false and refused every such state). SetZImage
+     * accepts only an address aligned to 8 bytes with its first halfword
+     * inside RDRAM (core/t64_rdp.c apply_pending_command); the pixel extent
+     * of a triangle in flight is proven with the rest of the render proof.
+     * The two primitive words are 16-bit registers (SetPrimDepth keeps the
+     * low halves of its two fields). */
+    depth_address = state_rd32(r);
+    STATE_CHECK(r, (depth_address & UINT32_C(7)) == 0u &&
+                       (uint64_t)depth_address + 2u <=
+                           (uint64_t)m->profile.rdram_bytes,
+                T64_STATE_REASON_FIELD_RANGE, T64_STATE_RULE_ADDR_RANGE);
+    STATE_STORE(r, rdp->depth_image_address, depth_address);
+    depth_valid = state_rd_bool(r);
+    STATE_STORE(r, rdp->depth_image_valid, depth_valid);
+    F32_U16(rdp->primitive_z);
+    F32_U16(rdp->primitive_dz);
+    primitive_depth_valid = state_rd_bool(r);
+    STATE_STORE(r, rdp->primitive_depth_valid, primitive_depth_valid);
   }
   F32(rdp->work_policy_version);
   F32(rdp->random_state);
@@ -1713,9 +1814,11 @@ static void state_read_rdp(state_reader *r) {
     triangle.view.image_width = image_width;
     triangle.view.image_size = image_size;
     triangle.view.other_modes = other_modes;
-    triangle.view.depth_address = 0u;
-    triangle.view.depth_valid = false;
-    triangle.view.primitive_depth_valid = false;
+    /* The depth members are the blob values read above: all zero and false
+     * on state 25, where depth is inactive and a Z opcode is refused. */
+    triangle.view.depth_address = depth_address;
+    triangle.view.depth_valid = depth_valid;
+    triangle.view.primitive_depth_valid = primitive_depth_valid;
     triangle.y_begin = y_begin;
     triangle.y_end = y_end;
     triangle.y_now = y_now;
@@ -1937,11 +2040,26 @@ static void state_read_rdp_carried(state_reader *r) {
                 T64_STATE_RULE_ENUM_CLOSED);
   }
   if (t64_has_si_v26_profile(m)) {
-    /* State 26 layout (plan 10-12): the hidden depth table ends section 8. */
-    F32_SAMER((uint32_t)T64_RDP_DEPTH_HIDDEN_BYTES(m->profile.rdram_bytes),
-              T64_STATE_RULE_PROFILE_DERIVED);
-    (void)state_rd_bytes(r, NULL,
-                         T64_RDP_DEPTH_HIDDEN_BYTES(m->profile.rdram_bytes));
+    /* State 26 (plan 10-12): the hidden depth table ends section 8, one byte
+     * per RDRAM halfword. The depth writer stores 0x80 | (code & 3) and every
+     * accepted backing write clears the entry (core/t64_rdp_depth.c,
+     * core/t64_rdp_pipeline.c), so an entry is 0 or 0x80 to 0x83 and any
+     * other byte is outside the closed set. */
+    const size_t hidden_bytes =
+        T64_RDP_DEPTH_HIDDEN_BYTES(m->profile.rdram_bytes);
+
+    F32_SAMER((uint32_t)hidden_bytes, T64_STATE_RULE_PROFILE_DERIVED);
+    entries = state_rd_bytes(r, m->rdp_depth_hidden, hidden_bytes);
+    if (r->mode == STATE_MODE_VALIDATE && entries != NULL) {
+      bool closed = true;
+
+      for (i = 0u; i < hidden_bytes && closed; i++) {
+        closed = entries[i] == 0u ||
+                 (entries[i] >= UINT8_C(0x80) && entries[i] <= UINT8_C(0x83));
+      }
+      STATE_CHECK(r, closed, T64_STATE_REASON_FIELD_RANGE,
+                  T64_STATE_RULE_ENUM_CLOSED);
+    }
   }
 }
 
@@ -3077,14 +3195,17 @@ static void state_commit(t64_machine *machine, const uint8_t *bytes,
   (void)state_run_sections(machine, bytes, length, table, flags,
                            STATE_MODE_APPLY, NULL);
   /* The trace ring and its drop observation clear; enablement stays. The ring
-   * indices and the depth image address are never read from the blob; they are
-   * named here so the field-use audit (docs/spec/state-field-rules.txt) maps
-   * them to this commit. */
+   * indices are never read from the blob, and neither is the depth image address
+   * of a state 25 machine (depth is inactive there); they are named here so the
+   * field-use audit (docs/spec/state-field-rules.txt) maps them to this commit.
+   * A state 26 machine receives the depth address from its blob. */
   t64_trace_reset(machine);
   machine->trace_head = 0u;
   machine->trace_count = 0u;
   (void)memset(machine->trace_records, 0, sizeof machine->trace_records);
-  machine->rdp.depth_image_address = 0u;
+  if (!t64_has_si_v26_profile(machine)) {
+    machine->rdp.depth_image_address = 0u;
+  }
   machine->rsp_observed_pc = 0u;
   machine->rsp_observed_opcode = 0u;
   machine->rsp_observed_second_pc = 0u;
