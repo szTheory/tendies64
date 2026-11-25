@@ -781,6 +781,8 @@ documentation work that does not change a shipped digest. Counted against guardr
 | DEF-W1-01 | `10-REVIEW.md` Wave 1 (W1-01), `10-08-SUMMARY.md` | Three sibling copies of the perspective and major-edge floor are unpinned behaviorally: `t64_rdp_tmem_triangle_pixel_rgba8` (combiner-profile texel path), `project_texture_q16` (LOD projection) and `texture_channel_q16` (major edge), at `core/t64_rdp_tmem.c:1218-1221`, `core/t64_rdp_raster.c:495` and `:556-557`; five scratch mutants pass every behavioral test | Not required by VER-06 (VG-01 to VG-05 and the NTSC vector are closed); a new numbered plan with its own mutant rows if the freeze-candidate review judges the cost worth it |
 | W1-03 | `10-REVIEW.md` Wave 1 | One sentence stating the `ceil` rule in the v8 clock section of `docs/spec/vi.md` (the NTSC comment cites a section that does not state the rounding) | `docs/spec/vi.md` is not one of the seven docs of the plan and a new sentence is not a relabel; docs only |
 
+W2-03 (the VI state had no committed completeness rows) was not carried: it is closed by plan 10-20 (section 16), so the G3 count stays at five (W2-01, W2-02, DEF-W1-01, W1-03 and D-10-17-01).
+
 ROADMAP Phase 11 carries these in its "Carry-ins" line (docs only, added by plan 10-16).
 
 ### 13.2 Checks of the plan end
@@ -1062,3 +1064,76 @@ recorded in the ledger: no offset is claimed, the redundant `rsp-no-hle` guard s
 its removal needs `scripts/qualify-audio.py` and `docs/spec/audio-cases.json` edits that F-106
 freezes) and Phases 11 and 12 follow G4 as written. If a later cold run is spent, it would have to
 be read against the 169 s margin and the 52 s spread: a run above about 850 s is a warning.
+
+## 16. VI completeness rows (plan 10-20, gap closure of W2-03)
+
+Written by plan 10-20 Task 3 (gap closure after `10-VERIFICATION.md`, status `gaps_found`, success criterion 2, VI
+half). Evidence tier: code observations and native measurements on this host at the commits named; test source, one
+mutant-driver row and qualifier text only. No production source changed (nothing under `core/` outside `core/tests/`,
+nothing under `runner/` or `tools/`), so every build id and shipped digest stays as qualified; no CTest name was added
+(254 gate names, 30 `phase10` names, two cases of `test_digest_v26`); the gate, K1, sweep and preflight results of Task 4 are recorded in section 16.3.
+
+| Item | Value |
+|------|-------|
+| rows | `vi_members` in `core/tests/test_digest_v26.c`: 120 rows over `t64_vi_state` (1,208 bytes, 17 padding bytes unclaimed): 114 member rows (14 `registers`, 14 `active_registers`, 8 64-bit counters, `field`, `current_readback`, `refusal_reason`, 2 `packet_lengths`, the 37 members of each of the 2 `t64_video_packet_info` slots less the 2 excluded strings, `enabled`, `sequence_exhausted`, `latch_pending`) and 6 named exclusion rows |
+| byte tallies (checked on every id) | 791 member bytes, 400 excluded bytes (8 + 8 + 2 x (64 + 128)), 17 padding bytes (4 after `refusal_reason`, 4 after `filter` in each slot, 5 after `latch_pending`); 791 + 400 + 17 = 1,208 |
+| size pins | `_Static_assert(sizeof(t64_vi_state) == 1208)` and `_Static_assert(sizeof(t64_video_packet_info) == 488)`; a new member fails the build until it has a row. The layout was read from the compiler (`offsetof` and `sizeof` of every member) before the literals were written and equals the facts of the plan |
+| exclusion reason 1 (`packet_head`, `packet_count`) | host observer cursor and occupancy, not guest identity: `core/t64_internal.h` ("Host observer cursor and occupancy; neither is part of guest identity") and the packet comment of the VI section of `core/t64_digest.c` ("packet_head/count are observer state and intentionally stay out of the digest"), so the host drain cadence cannot move the digest |
+| exclusion reason 2 (per-slot `profile_id`, `build_id`) | `core/t64_digest.c` hashes them only under `!has_v25_framing`; the v25 and v26 families (the si-v1 and si-v2 ids) bind identity through the domain string and the profile digest of the identity section instead |
+| ids | the descriptor 13 stem `ntsc-cart-4m-openipl3-rdram-b-t1-si-v2`: **every byte** (1,208 flips, exactly 417 inert, 791 change the stream); the three save ids `-e4k`, `-e16k`, `-s32k` and the state 25 stem `ntsc-cart-4m-openipl3-rdram-b-t1-si-v1`: representative (first byte of every row, last byte of every excluded row, every padding byte). One flip of `vi.phase_cycles` is tied to the SHA-256 digest on each id |
+| W2-03 | CLOSED. The finding was written at the Wave 2 head (`10-REVIEW.md`); the closing note and the section "Gap closure (plans 10-20 and 10-21)" there record the closure, and the Final audit SC2 row no longer says the VI state was covered by committed rows at the audited head |
+
+### 16.0 RED and GREEN by mutant
+
+The mutant row `v26-digest-omit-vi-phase-cycles` removes the `hash_u64(sink, vi->phase_cycles)` call of the VI section of
+`t64_digest_stream` (anchor: that one line, exactly one occurrence; `--check-anchors` exits 0).
+
+| Step | Commit | Command | Result |
+|------|--------|---------|--------|
+| RED | `be683bf` (row only, tree clean) | `python3 -B scripts/p10-mutants.py --run v26-digest-omit-vi-phase-cycles --no-controls` | exit 1, row **SURVIVED** against the expected KILLED, 3.2 s (`build/gate/10-20-red-mutant.log`, `build/gate/10-20-red-results.txt`, private, not committed) |
+| attribution of the RED | scratch probe, not committed | the canonical stream of the retained-packet state of the stem id (`build_vi_frame`), before and after flipping bit 0 of `vi.phase_cycles`, on a copy of the digest walker with the row's one-line edit and on the main tree | `existing-case-under-mutant: exit 0` (1,556 checks, 0 failures), `stream-equal-under-mutant: yes` (10,545,043 bytes), `stream-equal-unmutated: no` (10,545,051 bytes, the 8-byte difference is the removed call) |
+| GREEN | `0ed0d75` (rows on the stem id), `49c935a` (four more ids) | the same command on the clean committed tree | exit 0, row **KILLED** by `test_digest_v26:v26-completeness`, 5.9 s (`build/gate/10-20-green-mutant.log`) |
+| what the case reports under the mutant | scratch control | the committed case linked with the mutated digest object | all 8 bytes of `phase_cycles` are "not in the canonical stream", inert count 425 against 417, the digest tie fails; after `49c935a` one more failure on each of the other four ids (12 byte failures, 5 tie failures in total) |
+
+Full driver run on the clean committed tree at `49c935a` (`python3 -B scripts/p10-mutants.py --run`,
+`build/gate/10-20-full-mutants.log`): 28 rows (`--list` prints 28, 26 expected KILLED), 26 KILLED,
+`control-equivalent-depth-cap` SURVIVED, `control-no-compile` INVALID, every row as expected. **147 s wall** at 1-minute
+host load 10.7 at the start and 13.5 at the end (above the quiet-host threshold of 8, so an upper bound); the new row 5.9 s,
+the slowest rows `v26-import-z-products-unchecked` 14.8 s and `v26-import-addr-unchecked` 12.7 s.
+
+### 16.1 Qualifier derivation figures and case cost
+
+Commit `7e9f3b8` changes only derivation text and `measured_seconds` arguments of the `mutants`, `gate` and `asan`
+stages of `scripts/qualify-phase10.py` (and one sentence of the `_stage_table` docstring pointing here); no limit literal,
+regex, marker, check or other stage moved, and `scripts/tests/test_phase10_qualification.py` is unchanged. The hermetic
+test (`harness.phase10-qualification`) and `repo.p10-mutant-anchors` pass.
+
+| Stage | Text before | Text now (source) | `measured_seconds` | Limit (unchanged) |
+|-------|-------------|-------------------|--------------------|-------------------|
+| mutants | 25 mutants and 2 controls, 27 rows, 97 s at load 8 | 26 mutants and 2 controls, 28 rows, 147 s (this section) | 97 to 147 | 600 (4.1 times) |
+| gate | 143 s on a warm build at load 7.4 (plan 10-17) | 129.41 s, the passing plan 10-19 record (section 15.1, load 16.1 at the start and 6.8 at the end) | 143 to 129 | 600 (4.6 times) |
+| asan | 1 s, 16 s and 120.9 s wall, 278.5 s summed (plan 10-17) | 0.19 s, 7.71 s and 129.05 s wall, 305.08 s summed (section 15.1, same loads) | 1, 16, 121 to 0.2, 7.7, 129 | 120, 600, 600 (the CTest limit is 4.6 times the wall and 1.97 times the serial sum) |
+
+No newer measurement of the whole gate stage or of the whole ASan selection existed when the text was refreshed (the
+Task 4 gate run of this plan is recorded in section 16.3, after this commit), so the derivations say so instead of inventing a figure.
+Reading, with its limit: the 600 s CTest limit of the asan stage is 1.97 times the serial sum of 305.08 s, not 2 times;
+the hermetic factor rule is taken on the wall seconds (129, 4.65 times), the four-job preset overlaps the names and the
+longest name alone is 129.03 s. It is a margin for plan 10-21 to watch, not a limit that was widened or changed here.
+
+| Measure of `unit.core.digest.v26-completeness` | Seconds | Host load (1-minute) |
+|-----------------------------------------------|---------|----------------------|
+| native, Wave 2 row of the Gate-growth ledger (section 6, scratch clone, before any VI row) | 0.40 | 12 to 15 |
+| native, after the VI rows (three runs, `ctest --preset gate -R`) | 1.10, 1.10, 1.08 | 15.8, 14.9, 14.9 |
+| native, one run in the first build after the stem rows | 0.81 | 13.0 |
+| ASan and UBSan (`ctest --preset asan -R`, configure 0.14 s, build 1.3 s) | 7.92 | 13.9, no sanitizer report |
+
+The case grew by about 0.7 s natively at comparable load (the stem sweep is 1,208 stream captures of 10.5 MB each); the
+budget of the plan (5 s native at load 8 or below) holds, so the representative mode was not narrowed and no row, id or
+sweep was dropped. The case carries no `COST` and no `TIMEOUT` property, so the timeout audit has nothing to compare.
+
+### 16.2 The record of plan 10-19 is superseded by design
+
+The qualifier source (`scripts/qualify-phase10.py`, a bound input) and a bound test source
+(`core/tests/test_digest_v26.c`) changed after the passing record of section 15.1, and the record binds the stage
+table text, so it no longer verifies against this tree. Plan 10-21 re-qualifies and records the new evidence; nothing in
+section 15 was rewritten.

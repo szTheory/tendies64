@@ -568,6 +568,8 @@ found.
 | W2-06 | info | `docs/spec/state-container.md:150-195`, `core/tests/test_state_export_v26.c:94` | the idle sizes 10,545,971, 10,546,563, 10,548,099 and 10,578,819 are derived by the test as the measured state 25 size plus 2,097,176; the review recomputed all four from the documented section lengths and the layout (check (d)), so the literals do not rest on the measurement alone | none |
 | W2-07 | info | `.planning/phases/10-carry-in-closure-before-the-freeze/PIN-IMPACT.md` section 9 | T-10-49 (the 10-03 recorded exception: the ten closed Phase 9 claim blocks compare the pinned Phase 9 manifest digest and a per-row view, not the live manifest file) is unchanged: no byte of `scripts/tests/test_phase09_qualification.py`, `docs/claims/phase09.md`, `docs/evidence/phase09-qualification.md`, `fixtures/manifest.json` or the authority checker and record changed since the Wave 0 head, `harness.phase09-qualification` passes in the scratch gate, and plan 10-19 requires the section "Recorded exceptions for owner review" and a repeat in its summary | recorded exception stands and stays flagged; it is not an owner approval of the comparator change |
 
+Closing note (plan 10-20): W2-03 is CLOSED by plan 10-20. The VI rows were added to the committed case `v26-completeness` (commits `0ed0d75` and `49c935a`), the mutant row `v26-digest-omit-vi-phase-cycles` (commit `be683bf`) SURVIVED the case before the rows existed and is KILLED by it after them, and the record is in the section "Gap closure (plans 10-20 and 10-21)" below and in PIN-IMPACT.md section 16. The W2-03 row above is the finding as it was written at the Wave 2 head and is not rewritten.
+
 ### Task 3: preflight, push and the hosted pair
 
 Preflight on the clean committed tree (`sh scripts/preflight-phase10.sh`, head `f57b019`): `[preflight] PASS`,
@@ -817,7 +819,7 @@ material (D5) was used and VID-04 stays deferred and unclaimed.
 | Id | Criterion (ROADMAP Phase 10) | Evidence (now or recorded) | Result | Plans |
 |----|------------------------------|----------------------------|--------|-------|
 | SC1 | an authored depth fixture on the new composite ids gives Z-tested pixels and depth equal to independent literals; a wrong-depth control fails; shipped ids keep digests and Z refusal byte identical across the 17 pre-Phase-9 profiles and the Phase 8 and 9 composites | now: `unit.core.rdp.depth-composite-accepted`, `-wrong-depth` and `-sidecar` pass natively and under ASan (literals from a calculator over the `z_format[8]` table and the V7 rules, wrong-depth compares a 5-byte window of the covered pixel); rows 1 and 2 (0 differences over the 21 ids and 296 head-only lines of the four si-v2 ids); row 4 (K1 dispatch and apply, F2 pins); `unit.core.profile.v26-predicate-matrix` (25 ids) in the gate and under ASan; mutants `k1-predicate-widened` and `v26-sidecar-invalidation-removed` KILLED | verified | 10-02, 10-09, 10-10 (review 10-13) |
-| SC2 | a state exported mid-primitive and mid-scan-out with depth active imports and continues to the same frames, digest and outputs; one version marker; a flip-every-member test sees each RDP and VI member; docs state that blobs are build-identity-bound and outside the ABI promise | now: `unit.core.state.import-v26-roundtrip` (idle, a Z triangle in flight and a scan-out with a retained video packet, `test_state_import_v26.c:287-717`) and `unit.core.digest.v26-completeness` with `-strip-differential` pass in the gate and under ASan; mutants `v26-digest-omit-scalar`, `v26-digest-omit-hidden`, `v26-import-skip-hidden` and `v26-import-depth-after-proof` KILLED; row 11 (one tuple, one domain, one container value); `grep -n build-identity-bound` finds `docs/spec/state-container.md:17` and `docs/spec/machine-contract.md:9`. Recorded: the 100 members of `t64_rdp_state` each have a row, the VI state and both tables are covered (the Wave 2 section, W2-03) | verified | 10-09, 10-11, 10-12, 10-15 (format string), review 10-13 |
+| SC2 | a state exported mid-primitive and mid-scan-out with depth active imports and continues to the same frames, digest and outputs; one version marker; a flip-every-member test sees each RDP and VI member; docs state that blobs are build-identity-bound and outside the ABI promise | now: `unit.core.state.import-v26-roundtrip` (idle, a Z triangle in flight and a scan-out with a retained video packet, `test_state_import_v26.c:287-717`) and `unit.core.digest.v26-completeness` with `-strip-differential` pass in the gate and under ASan; mutants `v26-digest-omit-scalar`, `v26-digest-omit-hidden`, `v26-import-skip-hidden` and `v26-import-depth-after-proof` KILLED; row 11 (one tuple, one domain, one container value); `grep -n build-identity-bound` finds `docs/spec/state-container.md:17` and `docs/spec/machine-contract.md:9`. Recorded: the 100 members of `t64_rdp_state` and both tables have committed rows; the VI half was covered at the audited head only by the Wave 2 probe (W2-03), and committed VI rows were added by plan 10-20 (the section "Gap closure") | verified | 10-09, 10-11, 10-12, 10-15 (format string), review 10-13 |
 | SC3 | VG-01 to VG-05 and the standard-NTSC VI clock vector each have independently derived expected values and at least one failing mutant | now: the nine `unit.core.vg.*` names pass in the gate and under ASan; row 3 (14 VG and clock mutants KILLED, each by the named `test_vg_gaps` check). Recorded: the 94 literal comparisons were matched against a calculator written from the documents in the Wave 1 section; sibling copies of the floor are residual (DEF-W1-01) | verified | 10-06, 10-07 (review 10-08) |
 | SC4 | one composite guest reports exact raw video and audio from a capture run and exact save bytes from a save-out run with the same final digest, each output against its own independent expectation and each with a wrong-value control | now: `runner.composite-two-run`, `harness.composite-oracle`, `controls.real.composite-wrong-rom` and `runner.composite-state-v2` pass in the gate and under ASan; Wave 3 checks a, h and i (by hand: raw run and save-out run both `pass` at guest tick 599,357 with state digest `97f27027...1267c`, a 2,449-byte bundle, a 32,768-byte save); controls at video frame 0 offset 17, audio packet 1 offset 5, save offset 12,345, transcript offset 100 and the wrong ROM at save offset 271 (Wave 3 assessment 2) | verified | 10-14, 10-15 |
 | SC5 | a measured cold-cache hosted gate-macos run finishes inside its limit; before and after step timings, the 15-minute limit with its scanner rule and the pinned limit relation are recorded; adding a manifest row no longer requires an oracle-request rebind | now: row 9 and row 4 (`repo.ci-yml-selftest`: 138 cases, the per-job CI-TIMEOUT bound with `mut_timeout` cases); `PINNED_REQUEST_SHA256` unchanged by the two appended composite rows and `harness.rdp-oracle-authority` passing on 41 rows (Wave 3 check e). Recorded: warm timings F-120 to F-122 and the Gate-growth ledger (PIN-IMPACT.md section 6, 6.1) with this plan's hosted sample added in Task 4. The measured cold-cache run itself: **pending 10-19 (orchestrator)** | pending 10-19 (orchestrator) | 10-03, 10-04, 10-05, 10-17; 10-19 |
@@ -993,3 +995,62 @@ because the Wave 2 sample alone swung 136 s, and the measured cold run stays pla
 `docs/ci-reviews/LOG.md`: the Runs row for the run and finding F-123. The Waves 3 and 4 row of the PIN-IMPACT.md
 "Gate-growth ledger" is added in the same commit. No hosted cache was deleted here, and the G4 reversal rule (a cold run
 above 900 s) stays the stop-loss.
+
+## Gap closure (plans 10-20 and 10-21)
+
+Written by plan 10-20 (gap closure after `10-VERIFICATION.md`, status `gaps_found`). Evidence tier: code
+observations and measurements on this host at the commits named; nothing here is a hardware or compatibility claim.
+Plan 10-21 appends its independent review of this closure below.
+
+**The gap.** ROADMAP Phase 10 success criterion 2 says "a flip-every-member test sees each RDP and VI member". At the
+audited head the committed case `v26-completeness` of `core/tests/test_digest_v26.c` had rows for the RDP block and the
+two tables only; the VI half rested on the uncommitted probe of the Wave 2 section (417 inert bytes of 1,208), which is
+finding W2-03. CORE-06 (one version marker, round trip, completeness test, build-identity-bound docs) was therefore
+evidenced for the RDP half by a committed test and for the VI half by a probe.
+
+**What plan 10-20 committed** (test source, a driver row and qualifier text; no production source):
+
+| Commit | Change |
+|--------|--------|
+| `be683bf` (RED) | `scripts/p10-mutants.py` row `v26-digest-omit-vi-phase-cycles`: the `hash_u64(sink, vi->phase_cycles)` call of the VI section of `t64_digest_stream` is replaced by a cast-to-void read; kill check `test_digest_v26 --case v26-completeness` |
+| `0ed0d75` (GREEN) | `vi_members`: 120 rows over `t64_vi_state` (114 member rows including all 37 members of both `t64_video_packet_info` slots, and 6 named exclusion rows: `packet_head`, `packet_count` and the per-slot `profile_id` and `build_id`); `_Static_assert` on `sizeof(t64_vi_state) == 1208` and `sizeof(t64_video_packet_info) == 488`; the helper `check_vi_completeness`; the descriptor 13 stem id flips every one of the 1,208 bytes and requires exactly 417 inert flips (791 member bytes change the stream, 400 excluded bytes and 17 padding bytes do not); one flip is tied to the SHA-256 digest |
+| `49c935a` | the representative sweep (first byte of every row, last byte of every excluded row, every padding byte) on the three save ids and on the state 25 stem id `ntsc-cart-4m-openipl3-rdram-b-t1-si-v1`; header and case comments |
+| `7e9f3b8` | `scripts/qualify-phase10.py`: the mutants stage derivation says 26 mutants and 2 controls, 28 rows; the gate and asan derivation texts carry the figures of the passing plan 10-19 record; no limit literal moved |
+
+The two named exclusion reasons were re-derived from the code, not copied from this review: the observer cursors
+(`core/t64_internal.h`: "Host observer cursor and occupancy; neither is part of guest identity"; `core/t64_digest.c`: the
+packet comment of the VI section) and the packet identity strings (`core/t64_digest.c` hashes them only under
+`!has_v25_framing`; the v25 and v26 families bind identity through the domain and the profile digest of the identity
+section). The layout was confirmed from the compiler before any literal was written: 1,208 and 488 bytes, 17 padding
+bytes (4 after `refusal_reason`, 4 after `filter` in each slot, 5 after `latch_pending`). No CTest name was added: the
+gate still has 254 names, 30 carry the label `phase10`, and `test_digest_v26 --list-cases` lists two cases.
+
+**RED, by behavior.** With the mutant row committed and no VI row (`be683bf`, tree clean),
+`python3 -B scripts/p10-mutants.py --run v26-digest-omit-vi-phase-cycles --no-controls` exited 1 and classified the row
+SURVIVED against the expected KILLED (3.2 s). The classification is attributable to the omitted member: a scratch probe
+(not committed) built the retained-packet state of the stem id (`build_vi_frame`) and compared the canonical streams
+before and after flipping bit 0 of `vi.phase_cycles`. On the mutated build the stream is 10,545,043 bytes and the flip
+leaves it equal (the committed case passes there, exit 0, 1,556 checks, 0 failures); on the unmutated tree the stream is
+10,545,051 bytes and the same flip changes it. The member is real and the equality is caused by the omission alone.
+
+**GREEN.** After `0ed0d75` the same command exits 0 and classifies the row KILLED by `test_digest_v26:v26-completeness`
+(5.9 s). Under the mutated build the case reports all eight bytes of `phase_cycles` as "not in the canonical stream", an
+inert count of 425 against the required 417 and a failed digest tie. After `49c935a` the representative sweep reports the
+same member on the other four ids (a scratch control with the mutated digest object: 12 member-byte failures, the
+eight bytes of the stem and one on each of the three save ids and the state 25 stem, and 5 digest-tie failures).
+
+**Case cost.** Native: 0.40 s in the Wave 2 row of the Gate-growth ledger, 1.08 to 1.10 s after the rows (three runs at
+1-minute load 14.9 to 15.8). Under ASan and UBSan 7.92 s, no sanitizer report. The budget of the plan (5 s native at load
+8 or below) holds with room, so the representative mode was not narrowed.
+
+**Full mutant run** on the clean committed tree at `49c935a`: `python3 -B scripts/p10-mutants.py --run`, 28 rows: 26
+KILLED, `control-equivalent-depth-cap` SURVIVED and `control-no-compile` INVALID, every row as expected, 147 s wall at
+1-minute load 10.7 to 13.5.
+
+**Consequence for the record of plan 10-19.** The qualifier source and a bound test source changed, so the plan 10-19
+native record no longer verifies against the tree; that is by design. Plan 10-21 re-qualifies. Plan 10-20 Task 4 records
+the local gate, K1, sweep, protected-path and full-preflight results in PIN-IMPACT.md section 16.
+
+**W2-03 is CLOSED.** The VI half of success criterion 2 is met by a committed test: every member of `t64_vi_state` is
+flipped, each flip of a member byte changes the canonical stream, the inert bytes are named exclusions with reasons or
+padding, and a mutant that drops a VI member from the walker is killed by the case.
