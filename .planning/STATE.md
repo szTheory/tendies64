@@ -5,16 +5,16 @@ milestone_name: Embeddable and Playable
 current_phase: 10
 current_phase_name: Carry-in Closure Before the Freeze
 status: executing
-stopped_at: Completed 10-16-PLAN.md
-last_updated: "2026-11-25T03:37:03.516Z"
+stopped_at: Completed 10-17-PLAN.md
+last_updated: "2026-11-25T04:26:45.852Z"
 last_activity: 2026-11-23
 last_activity_desc: Phase 10 execution started
-state_head: aa8ae55fa065b315f2d95c5247e20b40c8a6e417
+state_head: 8b05176840c6278cf195ffd7f16313e02538faf1
 progress:
   total_phases: 3
   completed_phases: 0
   total_plans: 19
-  completed_plans: 16
+  completed_plans: 17
   percent: 0
 ---
 
@@ -30,7 +30,7 @@ See: .planning/PROJECT.md (updated 2026-11-23)
 ## Current Position
 
 Phase: 10 (Carry-in Closure Before the Freeze) — EXECUTING
-Plan: 17 of 19
+Plan: 18 of 19
 Status: Ready to execute
 Last activity: 2026-11-23 — Phase 10 execution started
 
@@ -76,6 +76,7 @@ Progress: [░░░░░░░░░░] 0% (0 of 3 v1.2 phases complete)
 | Phase 10 P14 | 26 min | 4 tasks | 11 files |
 | Phase 10 P15 | 41 min | 4 tasks | 12 files |
 | Phase 10 P16 | 12 min | 3 tasks | 10 files |
+| Phase 10 P17 | 44 min | 3 tasks | 7 files |
 
 ## Accumulated Context
 
@@ -174,6 +175,9 @@ Progress: [░░░░░░░░░░] 0% (0 of 3 v1.2 phases complete)
 - [Phase 10]: 10-16: only the container format strings t64.state-container.v1 and v2 and their pairing with states 25 and 26 are settled in Phase 10; every other provisional name in the 7 live spec docs (15 sites plus two settle rows) now reads provisional until the Phase 11 freeze candidate (final ABI bind at the end of Phase 12); the relabel gate prints stale 0 and no closed record or pin moved
 - [Phase 10]: 10-16: Phase 9 triage in PIN-IMPACT.md section 13: unit.core.state.import split, replay-driver duplication and the stale production comments deferred to Phase 11; the dead t64_artifact_publisher.c link dropped from test_replay (3deee7d, case inventory unchanged); the deferred comments are 20 lines in 8 files by a wrap-aware search, not 19 (git grep -n -i -E 'until (the )?Phase 10' -- core runner tools must print nothing in Phase 11)
 - [Phase 10]: 10-16: W2-01 (Z product bound unpinned), W2-02 (two exact-tuple predicates are not membership tokens) and DEF-W1-01 (three unpinned perspective-floor copies) are recorded as deferred to the Phase 11 freeze-candidate review and named in the ROADMAP Phase 11 Carry-ins line; this plan fixed none of them
+- [Phase 10]: 10-17: qualify-phase10.py binds the files changed since the Wave 0 base (40-hex literal) plus 14 tools, excludes .planning/ and docs/ci-reviews/LOG.md from the bound inputs and the dirty check, and a final record requires the Qualification base and refuses non-planning drift since it
+- [Phase 10]: 10-17: stage limits are data rows at least twice their measured seconds (gate 600 s, ASan selection 600 s, mutants 600 s, sweep 300 s); the rehearsal on da6af0d took 506 s at host load 12 to 13.6 and verified; the projected cold gate-macos is 696 to 735 s with a 94 s serialized-ceiling warning for 10-18 and 10-19
+- [Phase 10]: 10-17: the 99-attempt cap of the Phase 6 cold-boot tests failed the first rehearsal gate; the 193 attempt directories were archived by a move, the broader prune of closed-phase evidence directories was refused by the permission system and not done (deferred-items.md D-10-17-01)
 
 ### Pending Todos
 
@@ -199,8 +203,8 @@ None for v1.1. Carry-ins for v1.2 are listed in the Deferred Items table, the v1
 
 ## Session Continuity
 
-Last session: 2026-11-25T03:37:03.483Z
-Stopped at: Completed 10-16-PLAN.md
+Last session: 2026-11-25T04:26:45.825Z
+Stopped at: Completed 10-17-PLAN.md
 Resume file: None
 
 Historical closeout: [v1.0 roadmap](milestones/v1.0-ROADMAP.md), [audit](milestones/v1.0-MILESTONE-AUDIT.md), [lessons](RETROSPECTIVE.md).
