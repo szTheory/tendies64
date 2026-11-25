@@ -21,6 +21,7 @@ import hashlib
 import importlib.util
 import json
 import os
+import re
 import subprocess
 import sys
 import tempfile
@@ -51,15 +52,22 @@ CASE_NAMES: tuple[str, ...] = (
     "verify-refuses-failed-stage",
     "verify-refuses-missing-stage",
     "native-refuses-failed-stage-and-writes-no-record",
+    "verify-refuses-changed-bindings",
     "private-root-unsafe-refuses",
     "bounded-runner-deadline-and-descendant",
     "tier-and-claims-pinned",
+    "stage-table-shape",
+    "junit-count-rule",
+    "mutant-gate-sweep-output-rules",
+    "tool-paths-and-real-pin-line",
     "real-stage-commands-start",
     "cli-modes-and-help",
     "no-undefined-global-names",
 )
 
 STUB_NAMES = ["t.one", "t.two"]
+EXPECTED_STAGES = ["ci-scanner", "inventory", "oracle", "gate", "phase10-junit", "asan",
+                   "mutants", "sweep"]
 PIN_RELATIVE = qualify.PIN_IMPACT_SUBPATH
 
 
@@ -197,6 +205,26 @@ def _undefined_global_names(path: Path) -> dict[str, int]:
                 and node.id not in bound:
             missing.setdefault(node.id, node.lineno)
     return missing
+
+
+def _junit(names: list[str], *, failing: tuple[str, ...] = (), skipped: tuple[str, ...] = (),
+           notrun: tuple[str, ...] = (), times: dict[str, str] | None = None) -> bytes:
+    """A CTest-shaped JUnit document (testsuite, testcase with status, optional children)."""
+    cases = []
+    for name in names:
+        time = (times or {}).get(name, "0.25")
+        status = "run"
+        children = ""
+        if name in failing:
+            status, children = "fail", '<failure message="Failed"/>'
+        if name in skipped:
+            children = "<skipped/>"
+        if name in notrun:
+            status = "notrun"
+        cases.append(f'<testcase name="{name}" classname="{name}" time="{time}" '
+                     f'status="{status}">{children}</testcase>')
+    return (f'<?xml version="1.0" encoding="UTF-8"?><testsuite name="(empty)" '
+            f'tests="{len(names)}">' + "".join(cases) + "</testsuite>").encode()
 
 
 class Phase10Qualification(unittest.TestCase):
@@ -473,8 +501,48 @@ class Phase10Qualification(unittest.TestCase):
                                     (too_slow, "timed out")):
                 with mock.patch.object(qualify, "_stage_table", builder):
                     self.refuses(needle, qualify.native_qualify, rehearsal=True)
+            # A command that exits cleanly but leaves its process group behind.
+            lingering = {"return_code": 0, "timed_out": False, "seconds": 0.1,
+                         "stdout": b"alpha ok\n", "stderr": b"", "process_group_empty": False}
+            with mock.patch.object(qualify, "_stage_table", _stub_table), \
+                    mock.patch.object(qualify, "run_bounded", return_value=lingering):
+                self.refuses("left a process group", qualify.native_qualify, rehearsal=True)
+            # The label selection must equal the PHASE10_TESTS block before any stage runs.
+            with mock.patch.object(qualify, "_stage_table", _stub_table), \
+                    mock.patch.object(qualify, "label_names", return_value=["t.one"]):
+                self.refuses("selects different names", qualify.native_qualify, rehearsal=True)
             for record in (scratch["root"] / qualify.PRIVATE_SUBPATH).rglob("record.json"):
                 self.fail(f"a failed run left a record: {record}")
+
+    def test_verify_refuses_changed_bindings(self) -> None:
+        with scratch_repo() as scratch:
+            path = self._native(scratch, rehearsal=True)
+            with mock.patch.object(qualify, "_stage_table", _stub_table):
+                qualify.verify_record(path, rehearsal=True)
+                cases = {
+                    "test inventory differs": lambda r: r["inventory"].update(
+                        count=r["inventory"]["count"] + 1),
+                    "test inventory differs (names)": lambda r: r["inventory"].update(
+                        names=["t.one"]),
+                    "artifact identity differs": lambda r: r.update(artifact_identity={
+                        "core": {"path": "x", "build_id": "t64-build-v1-" + "0" * 64}}),
+                    "wave bases differ": lambda r: r.update(wave_bases={
+                        **r["wave_bases"], "Wave 0 base": "0" * 40}),
+                    "recorded commit": lambda r: r.update(commit_sha="0" * 40),
+                    "recorded commit (short)": lambda r: r.update(commit_sha="abc"),
+                    "not a complete Phase 10": lambda r: r.update(schema="t64.phase09-qualification"),
+                    "not a complete Phase 10 (version)": lambda r: r.update(schema_version=2),
+                    "not a complete Phase 10 (status)": lambda r: r.update(status="failed"),
+                    "not a complete Phase 10 (id)": lambda r: r.update(record_id="other"),
+                    "rehearsal label": lambda r: r.pop("rehearsal"),
+                    "recorded qualification drift": lambda r: r.update(
+                        qualification_drift_paths=["a.c"]),
+                }
+                for needle, change in cases.items():
+                    with mutated_record(path, change):
+                        self.refuses(needle.split(" (")[0], qualify.verify_record, path,
+                                     rehearsal=True)
+                qualify.verify_record(path, rehearsal=True)
 
     def test_private_root_unsafe_refuses(self) -> None:
         with scratch_repo() as scratch:
@@ -534,6 +602,199 @@ class Phase10Qualification(unittest.TestCase):
                                      rehearsal=True)
                 qualify.verify_record(path, rehearsal=True)
 
+    # -- stage table and output rules ----------------------------------------------
+
+    def test_stage_table_shape(self) -> None:
+        bases = {qualify.WAVE0_LABEL: "ab" * 20}
+        table = qualify._stage_table(bases)
+        self.assertEqual([stage["name"] for stage in table], EXPECTED_STAGES)
+        self.assertEqual(len({stage["name"] for stage in table}), len(table))
+        for stage in table:
+            name = stage["name"]
+            self.assertTrue(stage["commands"], name)
+            self.assertGreater(len(stage["derivation"]), 40, name)
+            self.assertEqual(stage["limit_seconds"],
+                             sum(spec["limit_seconds"] for spec in stage["commands"]), name)
+            for spec in stage["commands"]:
+                label = (name, spec["argv"])
+                self.assertTrue(spec["argv"] and all(
+                    isinstance(item, str) and item for item in spec["argv"]), label)
+                self.assertGreater(spec["measured_seconds"], 0, label)
+                # The limit is a kill deadline derived from measured seconds: at
+                # least twice the largest measurement, and a bounded value.
+                self.assertGreaterEqual(spec["limit_seconds"], 2 * spec["measured_seconds"], label)
+                self.assertLessEqual(spec["limit_seconds"], 3600, label)
+                if spec["marker"] is not None:
+                    re.compile(spec["marker"])
+                self.assertIn(spec["check"], (None, "gate", "ci-selftest", "inventory",
+                                              "mutants", "sweep", "junit:phase10-junit.xml",
+                                              "junit:asan-phase10-junit.xml"), label)
+                # Records stay portable: placeholders, never a workstation path.
+                for text in (*spec["argv"], *spec["env"].values()):
+                    self.assertFalse(text.startswith("/"), label)
+                self.assertTrue(spec["marker"] is not None or spec["check"] is not None
+                                or name == "asan", label)
+        by_name = {stage["name"]: stage for stage in table}
+        # The sweep reads the 40-hex Wave 0 literal, never HEAD, as its base.
+        sweep = by_name["sweep"]["commands"][0]["argv"]
+        self.assertEqual(sweep[sweep.index("--base") + 1], "ab" * 20)
+        self.assertEqual(sweep[sweep.index("--head") + 1], "HEAD")
+        self.assertEqual(sweep.count("HEAD"), 1)
+        # Artifact identity comes from the stages that built the artifacts.
+        self.assertEqual(by_name["gate"]["artifacts"], ["core", "runner_real", "runner_test"])
+        self.assertEqual(by_name["asan"]["artifacts"], ["asan_core"])
+        self.assertEqual(qualify._artifact_names(table),
+                         ["asan_core", "core", "runner_real", "runner_test"])
+        # The two oracle commands: blocked passes, approval refuses with exit 2.
+        oracle = by_name["oracle"]["commands"]
+        self.assertEqual([spec["expect_exit"] for spec in oracle], [0, 2])
+        self.assertIn("--expect-blocked", oracle[0]["argv"])
+        self.assertIn("--require-approved", oracle[1]["argv"])
+        # The JUnit commands write under the record directory only.
+        for stage in ("phase10-junit", "asan"):
+            junit = [spec for spec in by_name[stage]["commands"]
+                     if "--output-junit" in spec["argv"]]
+            self.assertEqual(len(junit), 1)
+            self.assertTrue(junit[0]["argv"][junit[0]["argv"].index("--output-junit") + 1]
+                            .startswith("{record}/"))
+            self.assertIn("-L", junit[0]["argv"])
+            self.assertEqual(junit[0]["argv"][junit[0]["argv"].index("-L") + 1], "phase10")
+        # A wrong table value is refused by the shape rules above: lower a limit.
+        broken = qualify._command(["true"], 3, 2.0)
+        self.assertLess(broken["limit_seconds"], 2 * broken["measured_seconds"])
+
+    def test_junit_count_rule(self) -> None:
+        names = ["a.one", "a.two", "a.three"]
+        accepted = qualify.junit_problems(
+            _junit(names, times={"a.one": "1.5", "a.two": "0.5", "a.three": "2.25"}), names)
+        self.assertEqual(accepted["testcases"], 3)
+        self.assertEqual(accepted["seconds"], {"a.one": 1.5, "a.three": 2.25, "a.two": 0.5})
+        self.assertEqual(accepted["seconds_sum"], 4.25)
+        refuse = self.refuses
+        refuse("lacks the Phase 10 test(s): a.three", qualify.junit_problems,
+               _junit(names[:2]), names)
+        refuse("outside the Phase 10 inventory: a.four", qualify.junit_problems,
+               _junit([*names, "a.four"]), names)
+        refuse("lists a test case twice", qualify.junit_problems,
+               _junit([*names, "a.two"]), names)
+        refuse("failed, skipped or not run", qualify.junit_problems,
+               _junit(names, failing=("a.two",)), names)
+        refuse("failed, skipped or not run", qualify.junit_problems,
+               _junit(names, skipped=("a.one",)), names)
+        refuse("failed, skipped or not run", qualify.junit_problems,
+               _junit(names, notrun=("a.three",)), names)
+        refuse("time of a.one is not a number", qualify.junit_problems,
+               _junit(names, times={"a.one": "fast"}), names)
+        refuse("JUnit is malformed", qualify.junit_problems, b"<testsuite><testcase", names)
+        refuse("lacks the Phase 10 test(s)", qualify.junit_problems, _junit([]), names)
+        # The count rule is relative to the block: a longer block with the same
+        # JUnit is a missing test, a shorter block is an extra one.
+        refuse("lacks the Phase 10 test(s): a.four", qualify.junit_problems, _junit(names),
+               [*names, "a.four"])
+        refuse("outside the Phase 10 inventory: a.three", qualify.junit_problems, _junit(names),
+               names[:2])
+        # command_details reads the retained file and records its hash.
+        spec = qualify._command(["true"], 10, 1.0, check="junit:j.xml")
+        with tempfile.TemporaryDirectory(prefix="t64-p10q-junit-") as name:
+            directory = Path(name)
+            (directory / "j.xml").write_bytes(_junit(STUB_NAMES))
+            with scratch_repo():
+                details = qualify.command_details(spec, b"", b"", directory)
+            self.assertEqual(details["testcases"], 2)
+            self.assertEqual(details["junit_sha256"],
+                             hashlib.sha256((directory / "j.xml").read_bytes()).hexdigest())
+
+    def test_mutant_gate_sweep_output_rules(self) -> None:
+        listed = {"m-one": "KILLED", "m-two": "KILLED", "control-eq": "SURVIVED",
+                  "control-bad": "INVALID"}
+
+        def output(rows: dict[str, tuple[str, str]]) -> bytes:
+            lines = [f"mutant {name} {got} 1.0" for name, (got, _) in rows.items()]
+            lines += [f"{name} {got} {want} 1.0 test_x:case" for name, (got, want) in rows.items()]
+            return ("step build 1.0\n" + "\n".join(lines) + "\n").encode()
+
+        good = {name: (want, want) for name, want in listed.items()}
+        accepted = qualify.mutant_problems(output(good), listed)
+        self.assertEqual(accepted, {"mutants": 4, "killed": 2, "survived": 1, "invalid": 1})
+        survivor = dict(good, **{"m-two": ("SURVIVED", "KILLED")})
+        self.refuses("mutant m-two ended SURVIVED, the table expects KILLED",
+                     qualify.mutant_problems, output(survivor), listed)
+        flipped = dict(good, **{"control-eq": ("KILLED", "SURVIVED")})
+        self.refuses("control-eq ended KILLED", qualify.mutant_problems, output(flipped), listed)
+        # The driver's own expectation must equal the table: a driver that lowered
+        # a mutant's expectation to SURVIVED is not accepted.
+        lowered = dict(good, **{"m-one": ("SURVIVED", "SURVIVED")})
+        self.refuses("mutant m-one ended SURVIVED, the table expects KILLED",
+                     qualify.mutant_problems, output(lowered), listed)
+        self.refuses("does not cover exactly the listed mutants", qualify.mutant_problems,
+                     output({k: v for k, v in good.items() if k != "m-one"}), listed)
+        self.refuses("does not cover exactly the listed mutants", qualify.mutant_problems,
+                     output(dict(good, extra=("KILLED", "KILLED"))), listed)
+        self.refuses("names a mutant twice", qualify.mutant_problems,
+                     output(good) + b"m-one KILLED KILLED 1.0 -\n", listed)
+        self.refuses("no mutant was killed", qualify.mutant_problems,
+                     output({"control-eq": ("SURVIVED", "SURVIVED")}),
+                     {"control-eq": "SURVIVED"})
+        # The gate summary: PASS line, the four steps and the CTest wall.
+        gate = ("Total Test time (real) =  84.94 sec\n[gate] ctest ok (85s)\n[gate] summary:\n"
+                "[gate]   build 0s\n[gate]   test-inventory 1s\n[gate]   ctest 85s\n"
+                "[gate]   core-lint 9s\n[gate] total 143s\n[gate] PASS\n").encode()
+        details = qualify.gate_details(gate)
+        self.assertEqual(details["gate_total_seconds"], 143)
+        self.assertEqual(details["ctest_wall_seconds"], 84.94)
+        self.assertEqual(details["steps"]["ctest"], 85)
+        self.refuses("did not print its PASS line", qualify.gate_details,
+                     gate.replace(b"[gate] PASS", b"[gate] ok"))
+        self.refuses("lacks the ctest step", qualify.gate_details,
+                     gate.replace(b"[gate]   ctest 85s\n", b""))
+        self.refuses("lacks its total or CTest wall", qualify.gate_details,
+                     gate.replace(b"Total Test time (real) =  84.94 sec\n", b""))
+        # The sweep: pinned coverage, zero differences, zero head-only lines.
+        covered = f"sweep: {qualify.SWEEP_SHARED_LINES} shared lines, 0 differences, 0 head-only lines\n"
+        self.assertEqual(qualify._sweep_details(covered.encode())["differences"], 0)
+        self.refuses("1 differences", qualify._sweep_details,
+                     covered.replace("0 differences", "1 differences").encode())
+        self.refuses("head-only lines", qualify._sweep_details,
+                     covered.replace("0 head-only", "4 head-only").encode())
+        self.refuses("pinned coverage", qualify._sweep_details,
+                     covered.replace(str(qualify.SWEEP_SHARED_LINES), "1598").encode())
+        self.refuses("no summary line", qualify._sweep_details, b"error: nothing\n")
+        # Scanner selftest and inventory summaries.
+        self.assertEqual(qualify._ci_selftest_details(
+            b"check-ci-yml selftest: cases=138 failures=0\n"), {"cases": 138})
+        self.refuses("fewer than 138", qualify._ci_selftest_details,
+                     b"check-ci-yml selftest: cases=137 failures=0\n")
+        self.refuses("no clean summary line", qualify._ci_selftest_details,
+                     b"check-ci-yml selftest: cases=138 failures=1\n")
+        self.assertEqual(qualify._inventory_details(
+            b"test inventory PASS preset=gate count=254\n"), {"count": 254})
+        self.refuses("did not pass", qualify._inventory_details, b"test inventory FAIL\n")
+
+    def test_tool_paths_and_real_pin_line(self) -> None:
+        listed = subprocess.run(["git", "ls-files", "-z"], cwd=ROOT, capture_output=True,
+                                check=True).stdout.split(b"\0")
+        tracked = {item.decode() for item in listed if item}
+        for relative in qualify.TOOL_PATHS:
+            self.assertIn(relative, tracked, relative)
+            self.assertTrue((ROOT / relative).is_file(), relative)
+        self.assertEqual(len(qualify.TOOL_PATHS), len(set(qualify.TOOL_PATHS)))
+        for _, relative, _ in qualify.ARTIFACTS:
+            self.assertTrue(relative.startswith("build/"), relative)
+        # The real PIN-IMPACT.md carries exactly one strict Wave 0 base line (a
+        # textual check: no git history is needed, so a shallow clone is fine).
+        text = (ROOT / PIN_RELATIVE).read_text(encoding="utf-8")
+        lines = [line for line in text.splitlines() if line.startswith("- Wave 0 base:")]
+        self.assertEqual(len(lines), 1)
+        self.assertRegex(lines[0], r"^- Wave 0 base: [0-9a-f]{40}$")
+        self.assertEqual(qualify.BASE_LABELS[0], "Wave 0 base")
+        self.assertEqual(qualify.QUALIFICATION_LABEL, "Qualification base")
+        # The excluded rule is exactly planning metadata and the CI ledger.
+        self.assertTrue(qualify._excluded(".planning/STATE.md"))
+        self.assertTrue(qualify._excluded("docs/ci-reviews/LOG.md"))
+        for relative in ("docs/ci-reviews/other.md", "docs/evidence/phase10.md",
+                         "scripts/qualify-phase10.py", "core/t64_machine.c"):
+            self.assertFalse(qualify._excluded(relative), relative)
+
     # -- real, read-only stage commands ------------------------------------------
 
     def test_real_stage_commands_start(self) -> None:
@@ -541,13 +802,17 @@ class Phase10Qualification(unittest.TestCase):
         bases = {qualify.WAVE0_LABEL: "0" * 40}
         table = {stage["name"]: stage for stage in qualify._stage_table(bases)}
         self.assertIn("oracle", table)
-        for name in ("oracle",):
-            for spec in table[name]["commands"]:
-                outcome = qualify.run_bounded(spec["argv"],
-                                              timeout_seconds=spec["limit_seconds"])
-                self.assertEqual(outcome["return_code"], spec["expect_exit"], spec["argv"])
-                self.assertFalse(outcome["timed_out"])
-                qualify.command_details(spec, outcome["stdout"], outcome["stderr"], ROOT)
+        started = [(name, spec) for name in ("oracle", "ci-scanner")
+                   for spec in table[name]["commands"] if "--selftest" not in spec["argv"]]
+        self.assertEqual(len(started), 3)
+        for name, spec in started:
+            outcome = qualify.run_bounded(spec["argv"], timeout_seconds=spec["limit_seconds"])
+            self.assertEqual(outcome["return_code"], spec["expect_exit"], spec["argv"])
+            self.assertFalse(outcome["timed_out"])
+            qualify.command_details(spec, outcome["stdout"], outcome["stderr"], ROOT)
+        # The marker is a gate, not decoration: the same output without it refuses.
+        spec = table["oracle"]["commands"][0]
+        self.refuses("lacks its pass marker", qualify.command_details, spec, b"", b"", ROOT)
 
     def test_cli_modes_and_help(self) -> None:
         def run(*args: str) -> subprocess.CompletedProcess:

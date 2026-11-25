@@ -113,6 +113,13 @@ ARTIFACTS = (
 
 # Measured limits: see _stage_table for the derivation of each limit.
 PYTHON = "python3"
+# The scanner selftest had 138 cases when ci.yml, check-ci-yml.sh and gate.sh
+# became final for Phase 10 (PIN-IMPACT section 10.3); it may only grow.
+CI_SELFTEST_MIN_CASES = 138
+# Lines the digest sweep compares between the 21 shipped ids at the Wave 0 base
+# and at HEAD (PIN-IMPACT sections 2.1, 2.2 and 7): 1599 shared lines. A smaller
+# number would mean the sweep silently covers fewer ROMs, ids or checkpoints.
+SWEEP_SHARED_LINES = 1599
 
 
 class Refusal(ValueError):
@@ -367,16 +374,58 @@ def _stage(name: str, derivation: str, commands: list[dict[str, Any]],
             "limit_seconds": sum(item["limit_seconds"] for item in commands)}
 
 
+def _gate_env() -> dict[str, str]:
+    """The environment scripts/gate.sh exports before its CTest step."""
+    return {
+        "T64_REQUIRE_FIXTURES": "0",
+        "T64_BOOT_FIXTURES_DIR": "{root}/build/fixtures",
+        "T64_BOOT_CONTRACT_PATH": "{root}/fixtures/boot-contract.json",
+        "T64_TEST_IPL3_PATH": "{root}/build/fixtures/ipl3_compat.z64",
+    }
+
+
 def _stage_table(bases: dict[str, str]) -> list[dict[str, Any]]:
     """Every stage with its commands, markers and limits (cheap stages first).
 
     A limit is a kill deadline: at least 2 times the largest measured seconds of
-    the command, native or under the sanitizer, on a loaded shared host (the
-    F-108 and F-112 lessons). The measured value sits beside each limit and the
-    hermetic tests enforce the factor, so a limit cannot drift below its
-    derivation unnoticed.
+    the command, native or under the sanitizer, on the shared host (the F-108
+    and F-112 lessons; a limit under the real cost fails every qualification
+    closed, as the 600 s wrapper of Phase 7 once did). The measured value sits
+    beside each limit, in the record as well, and the hermetic tests enforce the
+    factor, so a limit cannot drift below its derivation unnoticed. Measurements:
+    plan 10-17 Task 2, commit 48c928e, 1-minute host load 7.4 to
+    13.7 on a shared 18-core host: gate.sh 143 s (CTest wall 84.9 s, 254 names),
+    ctest -L phase10 7.2 s, ASan configure 1 s, ASan build 16 s, ASan ctest -L
+    phase10 120.9 s wall (import-v26-hostile alone 120.9 s; the 30 ASan test
+    seconds sum to 278.5 s), mutant run 97 s, digest sweep 41 s (60.6 s in
+    PIN-IMPACT section 7), CI scanner 0.03 s and its selftest 1.8 to 2 s,
+    inventory check 0.6 to 1 s, oracle check 0.09 s.
     """
+    wave0 = bases[WAVE0_LABEL]
+    gate_env = _gate_env()
+    asan_env = {**gate_env, "ASAN_OPTIONS": "detect_leaks=0:halt_on_error=1",
+                "UBSAN_OPTIONS": "halt_on_error=1:print_stacktrace=1"}
+    ctest = ["ctest", "--preset", "gate", "-L", "phase10", "--no-tests=error",
+             "--output-junit", "{record}/phase10-junit.xml"]
+    asan_ctest = ["ctest", "--preset", "asan", "-L", "phase10", "--no-tests=error",
+                  "--output-junit", "{record}/asan-phase10-junit.xml"]
     return [
+        _stage(
+            "ci-scanner",
+            "CI workflow scanner and its 138-case selftest (F-115): measured 0.03 s and 2 s natively; limits of 30 s and 60 s cover interpreter and shell start on a loaded host",
+            [
+                _command(["sh", "scripts/check-ci-yml.sh"], 30, 0.03,
+                         marker=r"^check-ci-yml: ok$"),
+                _command(["sh", "scripts/check-ci-yml.sh", "--selftest"], 60,
+                         2.0, check="ci-selftest",
+                         marker=r"^check-ci-yml selftest: cases=[0-9]+ failures=0$"),
+            ]),
+        _stage(
+            "inventory",
+            "exact test inventory of the gate preset (the PHASE10_TESTS block is part of it): measured 0.6 to 1 s natively; limit 60 s",
+            [_command(["sh", "scripts/check-test-inventory.sh", "--preset", "gate"],
+                      60, 1.0, check="inventory",
+                      marker=r"^test inventory PASS preset=gate count=[0-9]+$")]),
         _stage(
             "oracle",
             "owner-gated oracle request stays blocked (PIN-IMPACT section 8): measured "
@@ -389,6 +438,39 @@ def _stage_table(bases: dict[str, str]) -> list[dict[str, Any]]:
                           "--require-approved"], 30, 0.09, expect=2,
                          marker=r"no pinned competent owner/legal decision"),
             ]),
+        _stage(
+            "gate",
+            "the full gate (scripts/gate.sh): measured 143 s on a warm build at load 7.4, so 600 s is 4.2 times; a cold Binutils fixture build adds about 186 s (F-111) and stays inside; the Phase 9 gate stage took 136 to 220 s (F-110, F-112)",
+            [_command(["sh", "scripts/gate.sh"], 600, 143,
+                      marker=r"^\[gate\] PASS$", check="gate")],
+            artifacts=("core", "runner_real", "runner_test")),
+        _stage(
+            "phase10-junit",
+            "the 30 Phase 10 CTest names with JUnit on the gate preset: measured 7.2 s wall (22 s summed) at load 13.7, so 120 s is 16 times",
+            [_command(ctest, 120, 7.2, env=gate_env,
+                      marker=r"^100% tests passed", check="junit:phase10-junit.xml")]),
+        _stage(
+            "asan",
+            "ASan and UBSan configure, build and the Phase 10 selection: measured 1 s, 16 s and 120.9 s wall (load 12 to 13; the 30 names sum to 278.5 s with import-v26-hostile alone 120.9 s), so the 600 s CTest limit is 5 times the wall and 2.2 times the serial sum, and the 600 s build limit covers an incremental rebuild after core edits",
+            [
+                _command(["cmake", "--preset", "asan"], 120, 1),
+                _command(["cmake", "--build", "--preset", "asan", "--parallel", "1"],
+                         600, 16),
+                _command(asan_ctest, 600, 121, env=asan_env,
+                         marker=r"^100% tests passed", check="junit:asan-phase10-junit.xml"),
+            ],
+            artifacts=("asan_core",)),
+        _stage(
+            "mutants",
+            "out-of-tree mutant driver (26 mutants and 2 controls): measured 97 s at load 8, so 600 s is 6 times",
+            [_command([PYTHON, "-B", "scripts/p10-mutants.py", "--run"], 600,
+                      97, check="mutants")]),
+        _stage(
+            "sweep",
+            "digest sweep of the 21 shipped ids against the Wave 0 base (two tree builds and two sweeps in parallel): measured 41 s here and 60.6 s at load 8.5 in PIN-IMPACT section 7, so 300 s is 4.9 times the larger",
+            [_command([PYTHON, "-B", "scripts/digest-sweep.py", "--base", wave0, "--head",
+                       "HEAD"], 300, 60.6, check="sweep",
+                      marker=r"^sweep: [0-9]+ shared lines")]),
     ]
 
 
@@ -558,6 +640,24 @@ def listed_mutants() -> dict[str, str]:
     return dict(rows)
 
 
+def _ci_selftest_details(stdout: bytes) -> dict[str, Any]:
+    text = stdout.decode("utf-8", errors="replace")
+    found = re.findall(r"^check-ci-yml selftest: cases=([0-9]+) failures=0$", text,
+                       flags=re.MULTILINE)
+    _require(len(found) == 1, "the CI scanner selftest printed no clean summary line")
+    _require(int(found[0]) >= CI_SELFTEST_MIN_CASES,
+             f"the CI scanner selftest ran {found[0]} cases, fewer than {CI_SELFTEST_MIN_CASES}")
+    return {"cases": int(found[0])}
+
+
+def _inventory_details(stdout: bytes) -> dict[str, Any]:
+    text = stdout.decode("utf-8", errors="replace")
+    found = re.findall(r"^test inventory PASS preset=gate count=([0-9]+)$", text,
+                       flags=re.MULTILINE)
+    _require(len(found) == 1 and int(found[0]) > 0, "the test inventory check did not pass")
+    return {"count": int(found[0])}
+
+
 def _sweep_details(stdout: bytes) -> dict[str, Any]:
     text = stdout.decode("utf-8", errors="replace")
     found = re.findall(r"^sweep: ([0-9]+) shared lines, ([0-9]+) differences, "
@@ -566,7 +666,8 @@ def _sweep_details(stdout: bytes) -> dict[str, Any]:
     shared, differences, head_only = (int(value) for value in found[0])
     _require(differences == 0, f"the digest sweep reports {differences} differences")
     _require(head_only == 0, f"the digest sweep reports {head_only} head-only lines")
-    _require(shared > 0, "the digest sweep compared no line")
+    _require(shared == SWEEP_SHARED_LINES,
+             f"the digest sweep compared {shared} lines, the pinned coverage is {SWEEP_SHARED_LINES}")
     return {"shared_lines": shared, "differences": differences, "head_only_lines": head_only}
 
 
@@ -582,6 +683,10 @@ def command_details(spec: dict[str, Any], stdout: bytes, stderr: bytes,
         return None
     if check == "gate":
         return gate_details(stdout)
+    if check == "ci-selftest":
+        return _ci_selftest_details(stdout)
+    if check == "inventory":
+        return _inventory_details(stdout)
     if check == "mutants":
         return mutant_problems(stdout, listed_mutants())
     if check == "sweep":
@@ -594,8 +699,16 @@ def command_details(spec: dict[str, Any], stdout: bytes, stderr: bytes,
 
 # ---- records ------------------------------------------------------------------
 
+def _expand_text(value: str, directory: Path) -> str:
+    return value.replace("{record}", str(directory)).replace("{root}", str(ROOT))
+
+
 def _expand(argv: list[str], directory: Path) -> list[str]:
-    return [item.replace("{record}", str(directory)) for item in argv]
+    return [_expand_text(item, directory) for item in argv]
+
+
+def _expand_env(env: dict[str, str], directory: Path) -> dict[str, str]:
+    return {name: _expand_text(value, directory) for name, value in env.items()}
 
 
 def _private_root_ready() -> Path:
@@ -665,7 +778,8 @@ def native_qualify(*, rehearsal: bool) -> Path:
             "limit_seconds": stage["limit_seconds"], "commands": [], "details": {}}
         for index, spec in enumerate(stage["commands"]):
             outcome = run_bounded(_expand(spec["argv"], directory),
-                                  timeout_seconds=spec["limit_seconds"], env_delta=spec["env"])
+                                  timeout_seconds=spec["limit_seconds"],
+                                  env_delta=_expand_env(spec["env"], directory))
             stem = f"{stage['name']}.{index}"
             _write_private(steps_dir / f"{stem}.stdout.log", outcome["stdout"])
             _write_private(steps_dir / f"{stem}.stderr.log", outcome["stderr"])
