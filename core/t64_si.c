@@ -18,6 +18,8 @@ _Static_assert(T64_TRACE_KIND_SI_EXECUTE == T64_SI_EVENT_EXECUTE,
                "public SI execute kind alias must equal the event kind");
 _Static_assert(T64_TRACE_KIND_SI_COMPLETE == T64_SI_EVENT_COMPLETE,
                "public SI complete kind alias must equal the event kind");
+_Static_assert(T64_TRACE_KIND_SI_REFUSED == T64_SI_TRACE_KIND_REFUSED,
+               "public SI refused kind alias must equal the trace kind");
 
 #define SI_WINDOW_BYTES UINT32_C(0x00100000)
 #define SI_DRAM_ALIGNMENT_MASK UINT32_C(7)

@@ -41,6 +41,10 @@ MEMBERSHIP_TOKENS = (
     "is_ai_family_profile",
     "is_si_profile",
     "has_si_family_profile_id",
+    # Phase 10 version predicates (plan 11-11, W2-02): the state 25 and state 26
+    # composite-family gates, so every body that names them is a listed site.
+    "t64_has_si_v25_profile",
+    "t64_has_si_v26_profile",
 )
 
 RESERVE_CALLS = ("t64_schedule_reserve_after", "t64_schedule_reserve")

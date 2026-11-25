@@ -87,6 +87,10 @@
 #define T64_TRACE_KIND_VI_FRAME UINT32_C(1)
 #define T64_TRACE_KIND_SI_EXECUTE UINT32_C(1)
 #define T64_TRACE_KIND_SI_COMPLETE UINT32_C(2)
+/* A refused SI register write; the value carries the refusal status in the
+ * upper 32 bits and the register offset in the lower 32. Trace-only: it is
+ * no scheduled event. */
+#define T64_TRACE_KIND_SI_REFUSED UINT32_C(3)
 #define T64_VIDEO_SOURCE_RGBA5551 UINT32_C(2)
 #define T64_VIDEO_SOURCE_RGBA8888 UINT32_C(3)
 #define T64_VIDEO_ENCODING_RGBA8 UINT32_C(1)
