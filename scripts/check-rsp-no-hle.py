@@ -265,8 +265,8 @@ REVIEWED_BODY_DIGESTS = {
     "core/t64_ai.c :: t64_ai_read_register": "712bae79d7a46f36cc17b0ee3180ca12e13180cffded853238b2b16ec8893ec9",
     "core/t64_ai.c :: t64_ai_reset_machine_state": "6fe0e4ae3f5203072e13c5bd94bdb62d08cb9ffaf0a19fdaffa07510f94a3c1c",
     "core/t64_ai.c :: t64_ai_write_register": "69511e698a08242dc74befa9e6c11b84a43b22673583f297ec13b470e12ee26a",
-    "core/t64_ai.c :: t64_audio_copy": "4638a1db12bdb801ff8881108ddfa78771ddb53f03c50f7decca36537b50f2c5",
-    "core/t64_ai.c :: t64_audio_info": "f1c0ff86b4cff5f5b4900c9183bc4c18ab093554dc898075ff824a397c62a701",
+    "core/t64_ai.c :: t64_audio_copy": "5eda0f7a9276824dab2b37b60c27fbc072f834736b3803211e6fb888b63f0bb9",
+    "core/t64_ai.c :: t64_audio_info": "4211b4454f16728f75c6b595e45353d3e480d8921e3845e902dae95aa08b3c22",
     "core/t64_pi.c :: t64_pi_complete": "98459ddc917f56fbc902837822735a1351b7f5b6c7b63b6c4808a1a6f6240c21",
     "core/t64_save.c :: t64_save_sram_dma_apply": "1e59b39c246ace1fee454f64e5167a1582b03cbd05ac25c99790e044b0733618",
     "core/t64_si.c :: t64_si_complete_event": "c54482c62862d4c6b8142d2952de8bdf7a6c57e7f254bafe6463f865c35f6d80",
@@ -471,8 +471,8 @@ REVIEWED_BODY_DIGESTS = {
     "core/t64_vi.c :: t64_vi_read_register": "dec8d91eaf14db9cd26becbcd4b99ae30d7e872995386299ae594bf96626c2c9",
     "core/t64_vi.c :: t64_vi_reset_machine_state": "4aed279f94c4064aec968cf30f14f90f138e7b9fe736e8d4bac549829ea15982",
     "core/t64_vi.c :: t64_vi_write_register": "58eb5261b7a609f47ac28a4aebf675404b27407a738e03f2e377a25927f9e7b0",
-    "core/t64_vi.c :: t64_video_copy": "4de19a66521dee9c26a4e4598f4881aa45ab69a554669dc6320fd1cfe39d6a62",
-    "core/t64_vi.c :: t64_video_info": "7552591d2934e6f2278089a9536d33e3aadba3ac2f6a3321f25d0be7dc76110c",
+    "core/t64_vi.c :: t64_video_copy": "6ccc261ee4ece454d4294ef8ec25f50d4c75e5896f435f8cc3f8060cdf5caf62",
+    "core/t64_vi.c :: t64_video_info": "8535e2caade82efbe845651bf92c8e093f63439f3007641e091c64f0ae226319",
 }
 
 
