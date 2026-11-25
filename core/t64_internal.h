@@ -1,6 +1,10 @@
 #ifndef TENDIES64_T64_INTERNAL_H
 #define TENDIES64_T64_INTERNAL_H
 
+/* Internal symbols are renamed to t64i_<name> (DR-17); every core unit,
+ * white-box test and the determinism lint reach the generated rename header
+ * through this include or core/softfloat/platform.h. */
+#include "t64_prefix.h"
 #include "tendies64/t64_machine.h"
 #include "softfloat/softfloat_types.h"
 

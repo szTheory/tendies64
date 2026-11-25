@@ -40,7 +40,6 @@ SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "platform.h"
 #include "primitives.h"
 
-#ifndef softfloat_shortShiftRightJam64
 
 uint64_t softfloat_shortShiftRightJam64(t64_softfloat_context *context, uint64_t a, uint_fast8_t dist)
 {
@@ -50,4 +49,3 @@ uint64_t softfloat_shortShiftRightJam64(t64_softfloat_context *context, uint64_t
 
 }
 
-#endif

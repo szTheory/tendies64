@@ -38,6 +38,10 @@
 #include <stddef.h>
 #include <stdint.h>
 
+/* Renames t64_core_identity to t64i_core_identity (DR-17); the stub defines
+ * and the runner calls the same renamed symbol. */
+#include "t64_prefix.h"
+
 typedef enum { T64_STOP_BOUND = 1, T64_STOP_HALT = 2 } t64_stop_reason;
 
 typedef struct {

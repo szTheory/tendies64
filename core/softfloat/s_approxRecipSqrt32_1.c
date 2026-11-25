@@ -40,7 +40,6 @@ SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "platform.h"
 #include "primitives.h"
 
-#ifndef softfloat_approxRecipSqrt32_1
 
 extern const uint16_t softfloat_approxRecipSqrt_1k0s[];
 extern const uint16_t softfloat_approxRecipSqrt_1k1s[];
@@ -75,4 +74,3 @@ uint32_t softfloat_approxRecipSqrt32_1(t64_softfloat_context *context, unsigned 
 
 }
 
-#endif

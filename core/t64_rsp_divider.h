@@ -4,6 +4,10 @@
 #include <stdbool.h>
 #include <stdint.h>
 
+/* The divider functions are renamed to t64i_<name> (DR-17); the divider unit
+ * includes only this header, so it carries the rename include. */
+#include "t64_prefix.h"
+
 typedef struct {
   uint32_t input;
   uint32_t result;

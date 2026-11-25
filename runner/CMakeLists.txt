@@ -277,6 +277,8 @@ set_tests_properties(unit.classify PROPERTIES LABELS unit)
 add_executable(t64-runner-synthetic t64_synthetic.c)
 target_compile_definitions(t64-runner-synthetic PRIVATE ${T64_HOST_DEFS})
 target_link_libraries(t64-runner-synthetic PRIVATE t64_common t64_core)
+# The facade header includes core/t64_prefix.h (plan 11-11, DR-17).
+target_include_directories(t64-runner-synthetic PRIVATE ${CMAKE_SOURCE_DIR}/core)
 t64_target_warnings(t64-runner-synthetic)
 
 add_library(t64_verified_input STATIC t64_verified_input.c)
@@ -345,6 +347,8 @@ target_compile_definitions(t64-supervisor PRIVATE
   T64_BUILD_ID=\"${PROJECT_VERSION}+synthetic\")
 target_link_libraries(t64-supervisor PRIVATE
   t64_classify t64_input t64_common t64_core t64_verified_input)
+# The facade header includes core/t64_prefix.h (plan 11-11, DR-17).
+target_include_directories(t64-supervisor PRIVATE ${CMAKE_SOURCE_DIR}/core)
 t64_target_warnings(t64-supervisor)
 
 # First headless real guest producer. It consumes verified inherited snapshots
@@ -401,6 +405,8 @@ target_compile_definitions(t64-supervisor-test PRIVATE
   ${T64_HOST_DEFS} T64_SUPERVISOR_TESTING)
 target_link_libraries(t64-supervisor-test PRIVATE
   t64_classify t64_input t64_common t64_core t64_verified_input)
+# The facade header includes core/t64_prefix.h (plan 11-11, DR-17).
+target_include_directories(t64-supervisor-test PRIVATE ${CMAKE_SOURCE_DIR}/core)
 t64_target_warnings(t64-supervisor-test)
 add_dependencies(t64-supervisor-test t64-runner-test t64-result-check)
 

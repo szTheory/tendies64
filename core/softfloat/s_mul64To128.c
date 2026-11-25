@@ -41,7 +41,6 @@ SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "primitiveTypes.h"
 #include "primitives.h"
 
-#ifndef softfloat_mul64To128
 
 struct uint128 softfloat_mul64To128(t64_softfloat_context *context, uint64_t a, uint64_t b)
 {
@@ -67,4 +66,3 @@ struct uint128 softfloat_mul64To128(t64_softfloat_context *context, uint64_t a, 
 
 }
 
-#endif

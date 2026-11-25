@@ -41,7 +41,6 @@ SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "primitiveTypes.h"
 #include "primitives.h"
 
-#ifndef softfloat_shiftRightJam64Extra
 
 struct uint64_extra
  softfloat_shiftRightJam64Extra(t64_softfloat_context *context, uint64_t a, uint64_t extra, uint_fast32_t dist)
@@ -61,4 +60,3 @@ struct uint64_extra
 
 }
 
-#endif
