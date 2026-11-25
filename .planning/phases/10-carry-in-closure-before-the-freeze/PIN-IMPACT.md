@@ -1137,3 +1137,25 @@ The qualifier source (`scripts/qualify-phase10.py`, a bound input) and a bound t
 (`core/tests/test_digest_v26.c`) changed after the passing record of section 15.1, and the record binds the stage
 table text, so it no longer verifies against this tree. Plan 10-21 re-qualifies and records the new evidence; nothing in
 section 15 was rewritten.
+
+### 16.3 Local gate, K1, sweep, protected paths and preflight (plan 10-20 Task 4)
+
+Run on the clean committed tree at head `e705ce1` (the docs commit that follows `7e9f3b8` and `49c935a`); every
+command ran once, nothing was retried and no limit was widened. Evidence tier: native measurements; the 1-minute host
+load is given for each, and a start above the quiet-host threshold of 8 makes the seconds an upper bound.
+
+| Check | Result | Seconds and load |
+|-------|--------|------------------|
+| cold-boot attempt counters (D-10-17-01, directories `06-05-cold-hello-attempt-NN` and `06-05-cold-startup-attempt-NN` under `build/gate`) | 9 and 9 (cap 99, workaround threshold 90), nothing moved | |
+| preflight at the start of the plan (`sh scripts/preflight-phase10.sh --no-replay`, clean tree before the first commit) | PASS, total 3 s | load 6.68 |
+| `sh scripts/gate.sh` | `[gate] PASS`, 254 of 254 passed, `Total Test time (real) = 81.69 sec` | total 136 s (sh-n 0, lint-selftest 4, fixture-qualification 1, configure 0, build 2, boot-evidence-selftest 13, test-inventory-selftest 22, test-inventory 1, ctest 81, core-lint 12); load 5.9 at the start and 11.5 at the end |
+| `ctest --preset gate -R '^unit\.core\.k1\.'` | 2 of 2 passed (`k1.dispatch-refusal` 0.19 s, `k1.apply-refusal` 0.39 s) | |
+| `python3 -B scripts/digest-sweep.py --base <Wave 0 base> --head HEAD` (Wave 0 base `4ac633e880e0c26005cb03092e8d8485e721034c` read by the base extraction idiom) | `sweep: 1599 shared lines, 0 differences, 0 head-only lines`, as expected because no production source changed | 45 s wall (two builds of 2.5 and 2.6 s, two sweeps of 42.3 s in parallel) |
+| production paths since the Qualification base `ad39b6be2f803af45af15d4ed511b72a89460339` | `git diff --name-only <base> HEAD -- core runner tools` lists `core/tests/test_digest_v26.c` only | |
+| protected paths against the Qualification base | `git diff --quiet` exits 0 for `scripts/check-rdp-oracle-authority.py`, `fixtures/manifest.json`, `fixtures/state/decode_container.py`, `core/CMakeLists.txt`, `scripts/check-test-inventory.sh`, `docs/claims/phase09.md` and `docs/evidence/phase09-qualification.md`; `PINNED_REQUEST_SHA256` is still `e131cbe7...` | |
+| `python3 -B scripts/check-rdp-oracle-authority.py --expect-blocked` | exit 0, "authority record valid; blocked: no oracle operation is authorized" | |
+| full `sh scripts/preflight-phase10.sh` (no `--no-replay`) | `[preflight] PASS`, total 73 s: oracle-authority 1, ctest-counts 0 (46 regex rows, 0 mismatches; 30 tests carry the label `phase10`), host-load 0 (WARN at 10.93), head-ci 2 (`origin/main` `f081d39` completed with success), timeout-audit 0 (107 TIMEOUTs, 0 too low, 0 unmeasured, lowest ratio 2.9), pii 0, linux-compile 49 (C changed since `f081d39`, first path `core/tests/test_digest_v26.c`; 228 units compiled with the act image cc 13.3.0), post-gate-replay 21 (11 `ci.yml` steps, outputs removed) | load 10.93 at the start and 11.77 at the end |
+
+The Linux compile of the changed test unit is the first hosted-toolchain check of the VI rows; nothing was pushed (plan
+10-21 pushes) and no tag was created. Plan 10-21 carries the re-qualification, the claim and evidence documents and the
+independent review of this closure.
