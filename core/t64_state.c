@@ -405,6 +405,7 @@ t64_status t64_machine_state_export(const t64_machine *machine,
  */
 
 #define STATE_DOMAIN "t64.state.si.25"
+#define STATE_DOMAIN_V26 "t64.state.si.26"
 #define STATE_DOMAIN_BYTES 15u
 #define STATE_VERSION_REGISTERED 25u
 #define STATE_VERSION_REGISTERED_V26 26u
@@ -1642,6 +1643,16 @@ static void state_read_rdp(state_reader *r) {
   (void)state_rd_bytes(r, m->rdp_triangle_coverage,
                        T64_RDP_TRIANGLE_COVERAGE_BYTES);
 
+  if (t64_has_si_v26_profile(m)) {
+    /* State 26 layout (plan 10-12): the five depth scalars sit here, inside
+     * the RDP block and before the render proof below. */
+    uint32_t skipped;
+
+    for (i = 0u; i < 5u; i++) {
+      skipped = state_rd32(r);
+      (void)skipped;
+    }
+  }
   F32(rdp->work_policy_version);
   F32(rdp->random_state);
   F32_LE(rdp->refusal_reason, T64_RDP_REFUSAL_TEXTURE_RANGE,
@@ -1924,6 +1935,13 @@ static void state_read_rdp_carried(state_reader *r) {
     }
     STATE_CHECK(r, closed, T64_STATE_REASON_FIELD_RANGE,
                 T64_STATE_RULE_ENUM_CLOSED);
+  }
+  if (t64_has_si_v26_profile(m)) {
+    /* State 26 layout (plan 10-12): the hidden depth table ends section 8. */
+    F32_SAMER((uint32_t)T64_RDP_DEPTH_HIDDEN_BYTES(m->profile.rdram_bytes),
+              T64_STATE_RULE_PROFILE_DERIVED);
+    (void)state_rd_bytes(r, NULL,
+                         T64_RDP_DEPTH_HIDDEN_BYTES(m->profile.rdram_bytes));
   }
 }
 
@@ -2744,9 +2762,8 @@ static bool state_verify_trailer(const uint8_t *bytes, uint64_t length,
 /* The importer registry: one row per state serialization version, so an
  * unregistered version reports STATE_VERSION. Row 25 is the exact v25 tuple;
  * row 26 (plan 10-11) is the exact v26 tuple, so a blob of one state is
- * never taken by a machine of the other. The section readers below know only
- * the state 25 layout until plan 10-12; state_parse_table keeps every state 26
- * machine refused until then. */
+ * never taken by a machine of the other. The section readers parse the state 26
+ * layout (plan 10-12) only for a machine of the v26 tuple. */
 static bool state_version_registered(const t64_machine *machine,
                                      uint32_t version) {
   return machine != NULL &&
@@ -2755,6 +2772,12 @@ static bool state_version_registered(const t64_machine *machine,
            t64_has_si_v25_profile(machine)) ||
           (version == STATE_VERSION_REGISTERED_V26 &&
            t64_has_si_v26_profile(machine)));
+}
+
+/* The canonical domain text of the machine's state version (both texts are
+ * STATE_DOMAIN_BYTES long). Only a registered family machine reaches it. */
+static const char *state_domain_for(const t64_machine *machine) {
+  return t64_has_si_v26_profile(machine) ? STATE_DOMAIN_V26 : STATE_DOMAIN;
 }
 
 static bool state_check_binding(const t64_machine *machine,
@@ -2862,15 +2885,15 @@ static bool state_parse_table(const t64_machine *machine,
                          HDR_CANONICAL_OFFSET);
     return false;
   }
-  /* The readers parse the state 25 layout and the digest recomputation uses
-   * the state 25 domain, so only a state 25 machine can take a blob here. A
-   * state 26 machine passes the registry (plan 10-11) but stays refused at the
-   * domain bytes, for a genuine blob (domain t64.state.si.26) and for one whose
-   * domain was forged to the state 25 text alike, until plan 10-12 adds the
-   * state 26 readers and the state 26 domain. */
-  if (!t64_has_si_v25_profile(machine) ||
-      memcmp(bytes + (size_t)table->canonical_offset, STATE_DOMAIN,
-             STATE_DOMAIN_BYTES) != 0) {
+  /* The domain bytes are the text of the machine's own state version
+   * (state_domain_for): a state 25 machine takes only t64.state.si.25 and a
+   * state 26 machine only t64.state.si.26 (plan 10-12). The readers and the
+   * digest recomputation follow the same version, so a blob whose domain was
+   * forged to the other text, even fully re-signed, is refused here and never
+   * reaches a reader of the other layout. */
+  if ((!t64_has_si_v25_profile(machine) && !t64_has_si_v26_profile(machine)) ||
+      memcmp(bytes + (size_t)table->canonical_offset,
+             state_domain_for(machine), STATE_DOMAIN_BYTES) != 0) {
     state_report_failure(report, T64_STATE_REASON_SECTION_BOUNDS, 0u, 0u,
                          table->canonical_offset);
     return false;
@@ -2979,14 +3002,16 @@ static bool state_parse_table(const t64_machine *machine,
 /* The canonical digest recomputed from the blob: the domain bytes, then for each
  * canonical section its big-endian id and its body, exactly as
  * t64_digest_stream hashes them, against the declared digest of the header. */
-static bool state_recompute_digest(const uint8_t *bytes, const state_table *table,
+static bool state_recompute_digest(const t64_machine *machine,
+                                   const uint8_t *bytes,
+                                   const state_table *table,
                                    t64_state_import_report *report) {
   t64_sha256_ctx context;
   uint8_t digest[T64_DIGEST_SIZE];
   uint32_t index;
 
   t64_sha256_init(&context);
-  t64_sha256_update(&context, (const uint8_t *)STATE_DOMAIN,
+  t64_sha256_update(&context, (const uint8_t *)state_domain_for(machine),
                     STATE_DOMAIN_BYTES);
   for (index = 0u; index < table->count; index++) {
     const state_section *section = &table->sections[index];
@@ -3119,7 +3144,7 @@ static t64_status state_import_attempt(
   if (!state_run_sections(machine, bytes, (uint64_t)length, &table, flags,
                           STATE_MODE_VALIDATE, report) ||
       !state_check_devices(machine, report) ||
-      !state_recompute_digest(bytes, &table, report)) {
+      !state_recompute_digest(machine, bytes, &table, report)) {
     return report->status;
   }
   state_commit(machine, bytes, (uint64_t)length, &table, flags);

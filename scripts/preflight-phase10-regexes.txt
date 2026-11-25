@@ -45,4 +45,5 @@
 1	^unit\.core\.state\.export-v26$
 2	^unit\.core\.state\.export-v26
 1	^unit\.core\.state\.export-v26-bounds$
+1	^unit\.core\.state\.import-v26
 3	^(unit\.core\.state\.export|unit\.core\.state\.import|runner\.state-export)$

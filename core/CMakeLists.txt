@@ -978,6 +978,27 @@ set_tests_properties(unit.core.state.export-v26
   TIMEOUT 300
   ENVIRONMENT "T64_TEST_IPL3_PATH=${T64_BOOT_FIXTURE_DIR}/ipl3_compat.z64;T64_STATE_DECODER=${CMAKE_SOURCE_DIR}/fixtures/state/decode_container_v2.py;T64_STATE_DECODER_V1=${CMAKE_SOURCE_DIR}/fixtures/state/decode_container.py;T64_PHASE10_EVIDENCE_DIR=${CMAKE_BINARY_DIR}/10-11-evidence")
 
+# Phase 10 state container import for state 26 (plan 10-12): the depth scalars
+# before the render proof, the hidden table, the mid Z-triangle and mid scan-out
+# round trips and the v26 hostile rows, in a new binary so the phase09-inventoried
+# test_state_import keeps its case list. The binary links the fuzz campaign of
+# core/tests/fuzz_state_import.c (no main there) and calls its v26 entry.
+add_executable(test_state_import_v26 tests/test_state_import_v26.c
+  tests/fuzz_state_import.c)
+target_include_directories(test_state_import_v26 PRIVATE
+  "${CMAKE_SOURCE_DIR}/tests"
+  "${CMAKE_CURRENT_SOURCE_DIR}"
+  "${CMAKE_SOURCE_DIR}/tools/common")
+target_link_libraries(test_state_import_v26 PRIVATE t64_core t64_sha256)
+t64_target_warnings(test_state_import_v26)
+add_dependencies(test_state_import_v26 t64-boot-fixtures)
+add_test(NAME unit.core.state.import-v26-roundtrip
+  COMMAND test_state_import_v26 --case roundtrip)
+set_tests_properties(unit.core.state.import-v26-roundtrip PROPERTIES
+  LABELS "unit;phase10"
+  TIMEOUT 300
+  ENVIRONMENT "T64_TEST_IPL3_PATH=${T64_BOOT_FIXTURE_DIR}/ipl3_compat.z64")
+
 # Phase 9 state container import (plan 09-09).
 add_executable(test_state_import tests/test_state_import.c
   tests/fuzz_state_import.c)

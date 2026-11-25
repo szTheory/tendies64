@@ -255,6 +255,7 @@ unit.core.rdp.depth-composite-wrong-depth
 unit.core.rdp.depth-composite-sidecar
 unit.core.state.export-v26
 unit.core.state.export-v26-bounds
+unit.core.state.import-v26-roundtrip
 unit.core.vg.decal-equality
 unit.core.vg.primitive-z-saturation
 unit.core.vg.delta-ceiling
