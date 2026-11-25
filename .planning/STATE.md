@@ -5,16 +5,16 @@ milestone_name: Embeddable and Playable
 current_phase: 11
 current_phase_name: Installed Consumer and Freeze Candidate
 status: executing
-stopped_at: Completed 11-10-PLAN.md
-last_updated: "2026-11-25T23:15:10.712Z"
+stopped_at: Completed 11-11-PLAN.md
+last_updated: "2026-11-25T23:47:51.513Z"
 last_activity: 2026-11-25
 last_activity_desc: Phase 11 execution started
-state_head: 1186ae36192193ad12a4428e62fbb9072b9d9e7d
+state_head: 90a1f71abdf6b9fa06ad090ac1b6387ee417c727
 progress:
   total_phases: 3
   completed_phases: 1
   total_plans: 46
-  completed_plans: 31
+  completed_plans: 32
   percent: 33
 ---
 
@@ -30,7 +30,7 @@ See: .planning/PROJECT.md (updated 2026-11-23)
 ## Current Position
 
 Phase: 11 (Installed Consumer and Freeze Candidate) — EXECUTING
-Plan: 11 of 25
+Plan: 12 of 25
 Status: Ready to execute
 Last activity: 2026-11-25 — Phase 11 execution started
 
@@ -91,6 +91,7 @@ Progress: [███░░░░░░░] 33% (0 of 3 v1.2 phases complete)
 | Phase 11 P08 | 12min | 2 tasks | 14 files |
 | Phase 11 P09 | 19 min | 2 tasks | 13 files |
 | Phase 11 P10 | 22 min | 2 tasks | 13 files |
+| Phase 11 P11 | 32 min | 4 tasks | 36 files |
 
 ## Accumulated Context
 
@@ -218,6 +219,7 @@ Progress: [███░░░░░░░] 33% (0 of 3 v1.2 phases complete)
 - [Phase 11]: Plan 11-08: a 0xa5 fill of an import report or a save info becomes a poison helper (INIT assignment, then every member set to 0xa5.. by name; the shared helper lives in state_import_helpers.h, the save helper is file-local), zeroing memsets of reports and drain results become INIT assignments; a NULL-machine row of test_state_import.c that read a never-written report on stack residue now poisons the report and checks it untouched, matching the status-classes contract that a NULL machine leaves every output untouched; the codemod does not see a pointer-form memset of a macro-type object (report_out), so 11-09/11-10 must grep for it
 - [Phase 11]: Plan 11-09: sentinel fills of public in/out records in the two API tests use file-local poison helpers (INIT form, then the 0xa5 values by name) and a scratch or observations record is poisoned member by member with a memcpy reference, so struct_size stays valid after the flip and the byte-for-byte untouched checks keep their power; the helpers are duplicated in the public-only and the white-box test because the plan writes no shared header (11-15 review candidate)
 - [Phase 11]: Plan 11-10: the init-form guard (scripts/check-api-init.py) rejects an uninitialized, positional, zero, compound-literal or memset (value and pointer form) use of a public in/out struct outside the T64_*_INIT form, accepts an array whose entries all use the macro, designated descriptor lists, a lone-zero descriptor fixture and the exempt types t64_host_storage and t64_trace_record, and reports exactly the 120 category (b) sites of the 11-01 probe in the nine bound files; the memset rule found two pointer-form import-report fills the codemod does not see (fixed from the INIT form); the codemod --check still lists the 7 INIT-initialized arrays by design, so the guard is the arbiter
+- [Phase 11]: Plan 11-11: internal symbols are renamed t64_X to t64i_X and every other core global (the unprefixed SoftFloat names) to t64i_<name> through the generated core/t64_prefix.h (220 entries, scripts/gen-prefix-header.py --write and --check, CTest repo.abi-prefix), reached by one #include from t64_internal.h, softfloat/platform.h, t64_rsp_divider.h and t64_facade.h (core on the t64_core, lint and three runner include paths) instead of -include; the nine vendored SoftFloat primitives lose their self-defining guard (20 deleted lines, provenance recorded); checkers that read object symbols resolve names through the header (check-rsp-no-hle.py, two checker-only commits); the 20 stale until-Phase-10 production lines and the t64_machine.h and t64_facade.h banners are relabeled (repo.stale-freeze-text guards it), runner headers are stated outside the ABI and the freeze record, ADR-0002 and ADR-0006 carry the 2026-11-25 amendments, W2-02 and T7 are done (T64_TRACE_KIND_SI_REFUSED)
 
 ### Pending Todos
 
@@ -243,8 +245,8 @@ None for v1.1. Carry-ins for v1.2 are listed in the Deferred Items table, the v1
 
 ## Session Continuity
 
-Last session: 2026-11-25T23:15:10.571Z
-Stopped at: Completed 11-10-PLAN.md
+Last session: 2026-11-25T23:47:51.325Z
+Stopped at: Completed 11-11-PLAN.md
 Resume file: None
 
 Historical closeout: [v1.0 roadmap](milestones/v1.0-ROADMAP.md), [audit](milestones/v1.0-MILESTONE-AUDIT.md), [lessons](RETROSPECTIVE.md).
