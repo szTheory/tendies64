@@ -5,16 +5,16 @@ milestone_name: Embeddable and Playable
 current_phase: 11
 current_phase_name: Installed Consumer and Freeze Candidate
 status: executing
-stopped_at: Completed 11-04-PLAN.md
-last_updated: "2026-11-25T21:03:45.276Z"
+stopped_at: Completed 11-05-PLAN.md
+last_updated: "2026-11-25T21:25:18.518Z"
 last_activity: 2026-11-25
 last_activity_desc: Phase 11 execution started
-state_head: 10967ee9181ac989b365186bdfd45a065e97f683
+state_head: 0d0d25e248cdea3f30aa72ebc5ab08ebd7179538
 progress:
   total_phases: 3
   completed_phases: 1
   total_plans: 46
-  completed_plans: 25
+  completed_plans: 26
   percent: 33
 ---
 
@@ -30,7 +30,7 @@ See: .planning/PROJECT.md (updated 2026-11-23)
 ## Current Position
 
 Phase: 11 (Installed Consumer and Freeze Candidate) — EXECUTING
-Plan: 5 of 25
+Plan: 6 of 25
 Status: Ready to execute
 Last activity: 2026-11-25 — Phase 11 execution started
 
@@ -85,6 +85,7 @@ Progress: [███░░░░░░░] 33% (0 of 3 v1.2 phases complete)
 | Phase 11 P02 | 15 min | 3 tasks | 10 files |
 | Phase 11 P03 | 35min | 4 tasks | 24 files |
 | Phase 11 P04 | 25min | 4 tasks | 19 files |
+| Phase 11 P05 | 22min | 2 tasks | 10 files |
 
 ## Accumulated Context
 
@@ -207,6 +208,7 @@ Progress: [███░░░░░░░] 33% (0 of 3 v1.2 phases complete)
 - [Phase 11]: 11-02: T64_ABI_VERSION is the constant expression ((MAJOR << 16) | MINOR) of two UINT32_C values, T64_API is not overridable by a host define, and docs/abi/status-classes.txt classifies all 39 statuses and 8 stop reasons (SEQUENCE_EXHAUSTED is the one refused row with RESUME terminal); repo.abi-status-classes and its ten-case selftest fail on an unclassified, duplicate, renumbered, orphan or malformed row
 - [Phase 11]: 11-03: poison and in-call flags with one entry guard on all 23 machine-taking entries; scheduler handler-error whitelist by status value (INVALID_ARGUMENT and unlisted statuses poison); state export checks before it writes; bus-write carve-out written and tested
 - [Phase 11]: Plan 11-04: reset emits the admission record and raises no in-call flag; unload clears guest state without a boot entry and releases the image with the flag raised; output status without an image is OK with zero counts and full free capacity; t64_output_status is 48 bytes; slot copy-out is inline in the two sealed observers; 13 slot member names mapped NONE in state-field-rules
+- [Phase 11]: Plan 11-05: DR-09 macros list every member explicitly so the flip edits only the first element; codemod fails closed on EXPECTED_CORPUS_PATHS, the printer and any scratch root that is not below build/ with its own toplevel and the marker; sentinel values on a zero-only type become INIT plus named member assignments; a memset of a converted object is a hand site (it would clear struct_size after the flip)
 
 ### Pending Todos
 
@@ -232,8 +234,8 @@ None for v1.1. Carry-ins for v1.2 are listed in the Deferred Items table, the v1
 
 ## Session Continuity
 
-Last session: 2026-11-25T21:03:45.127Z
-Stopped at: Completed 11-04-PLAN.md
+Last session: 2026-11-25T21:25:18.392Z
+Stopped at: Completed 11-05-PLAN.md
 Resume file: None
 
 Historical closeout: [v1.0 roadmap](milestones/v1.0-ROADMAP.md), [audit](milestones/v1.0-MILESTONE-AUDIT.md), [lessons](RETROSPECTIVE.md).
