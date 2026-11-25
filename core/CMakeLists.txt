@@ -994,10 +994,13 @@ t64_target_warnings(test_state_import_v26)
 add_dependencies(test_state_import_v26 t64-boot-fixtures)
 add_test(NAME unit.core.state.import-v26-roundtrip
   COMMAND test_state_import_v26 --case roundtrip)
-set_tests_properties(unit.core.state.import-v26-roundtrip PROPERTIES
+add_test(NAME unit.core.state.import-v26-hostile
+  COMMAND test_state_import_v26 --case hostile)
+set_tests_properties(unit.core.state.import-v26-roundtrip
+  unit.core.state.import-v26-hostile PROPERTIES
   LABELS "unit;phase10"
   TIMEOUT 300
-  ENVIRONMENT "T64_TEST_IPL3_PATH=${T64_BOOT_FIXTURE_DIR}/ipl3_compat.z64")
+  ENVIRONMENT "T64_TEST_IPL3_PATH=${T64_BOOT_FIXTURE_DIR}/ipl3_compat.z64;T64_STATE_MUTANT_INVENTORY_V26=${CMAKE_SOURCE_DIR}/docs/spec/state-mutants-v26.txt")
 
 # Phase 9 state container import (plan 09-09).
 add_executable(test_state_import tests/test_state_import.c

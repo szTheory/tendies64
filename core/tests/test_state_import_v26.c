@@ -60,6 +60,69 @@
 #define S8_SCALARS_BASE 228u
 #define S8_TRIANGLE_COVERAGE 2097152u
 
+/* ---- the independent v26 re-signing helper (domain t64.state.si.26) ------ */
+
+static void v26_resign(uint8_t *blob, size_t length, unsigned flags) {
+  const uint32_t count = rd32(blob + 0x018u);
+  uint32_t i;
+
+  if (length < D_TABLE + D_TRAILER_BYTES || count > 32u) return;
+  if ((flags & RS_SECTIONS) != 0u) {
+    for (i = 0u; i < count; i++) {
+      uint8_t *entry = blob + D_TABLE + (size_t)D_ENTRY * i;
+      const uint64_t offset = rd64(entry + E_OFF);
+      const uint64_t body = rd64(entry + E_LEN);
+
+      if (offset <= length && body <= length - offset) {
+        sha_of(blob + offset, (size_t)body, entry + E_HASH);
+      }
+    }
+  }
+  if ((flags & RS_DECLARED) != 0u) {
+    t64_sha256_ctx context;
+    uint8_t digest[T64_DIGEST_SIZE];
+
+    t64_sha256_init(&context);
+    t64_sha256_update(&context, (const uint8_t *)V26_DOMAIN, D_DOMAIN_BYTES);
+    for (i = 0u; i < count; i++) {
+      const uint8_t *entry = blob + D_TABLE + (size_t)D_ENTRY * i;
+      const uint32_t id = rd32(entry + E_ID);
+      const uint64_t offset = rd64(entry + E_OFF);
+      const uint64_t body = rd64(entry + E_LEN);
+      uint8_t marker[4];
+
+      if (id == 16u) continue;
+      put32(marker, id);
+      t64_sha256_update(&context, marker, sizeof marker);
+      if (offset <= length && body <= length - offset) {
+        t64_sha256_update(&context, blob + offset, (size_t)body);
+      }
+    }
+    t64_sha256_final(&context, digest);
+    (void)memcpy(blob + 0x070u, digest, sizeof digest);
+  }
+  if ((flags & RS_TRAILER) != 0u) {
+    sha_of(blob, length - D_TRAILER_BYTES, blob + length - D_TRAILER_BYTES);
+  }
+}
+
+static bool find_section(const uint8_t *blob, uint32_t id, size_t *offset,
+                         size_t *length) {
+  const uint32_t count = rd32(blob + 0x018u);
+  uint32_t i;
+
+  for (i = 0u; i < count && i < 32u; i++) {
+    const uint8_t *entry = blob + D_TABLE + (size_t)D_ENTRY * i;
+
+    if (rd32(entry + E_ID) == id) {
+      *offset = (size_t)rd64(entry + E_OFF);
+      *length = (size_t)rd64(entry + E_LEN);
+      return true;
+    }
+  }
+  return false;
+}
+
 /* ---- builders ----------------------------------------------------------- */
 
 static void install_spin_loop(t64_machine *machine) {
@@ -737,8 +800,631 @@ static void case_roundtrip(void) {
   check_v25_hidden_zero();
 }
 
+
+/* ======================================================================== */
+/* The hostile rows, the preflight parity and the v26 fuzz windows           */
+/* ======================================================================== */
+
+/* Defined in core/tests/fuzz_state_import.c (declared there as well). */
+void state_fuzz_campaign_v26(const uint8_t *blob, size_t length,
+                             uint64_t iterations, uint64_t seed,
+                             state_fuzz_stats *stats);
+
+/* ---- the independently authored inventory (docs/spec/state-mutants-v26.txt) */
+
+typedef struct {
+  const char *name;
+  uint32_t value;
+} nv;
+
+#define NV_STATUS(x) {#x, (uint32_t)T64_STATUS_##x}
+#define NV_REASON(x) {#x, (uint32_t)T64_STATE_REASON_##x}
+#define NV_RULE(x) {#x, (uint32_t)T64_STATE_RULE_##x}
+
+static const nv status_names[] = {
+    NV_STATUS(STATE_FORMAT),   NV_STATUS(STATE_INTEGRITY),
+    NV_STATUS(STATE_VERSION),  NV_STATUS(STATE_PROFILE),
+    NV_STATUS(STATE_CONTENT),  NV_STATUS(STATE_BUILD),
+    NV_STATUS(STATE_RANGE),    NV_STATUS(STATE_INVARIANT)};
+
+static const nv reason_names[] = {
+    NV_REASON(STATE_VERSION),    NV_REASON(SECTION_BOUNDS),
+    NV_REASON(FIELD_RANGE),      NV_REASON(FIELD_DERIVED),
+    NV_REASON(FIELD_PADDING),    NV_REASON(FIELD_RESERVED),
+    NV_REASON(CONTAINER_VERSION), NV_REASON(TOTAL_LENGTH)};
+
+static const nv rule_names[] = {
+    NV_RULE(NONE),          NV_RULE(COUNT_CAP),    NV_RULE(INDEX_LT),
+    NV_RULE(ENUM_CLOSED),   NV_RULE(BOOL_01),      NV_RULE(ALIGN),
+    NV_RULE(ADDR_RANGE),    NV_RULE(LEN_LE),       NV_RULE(PROFILE_DERIVED),
+    NV_RULE(DERIVED_EQ)};
+
+static bool nv_lookup(const nv *table, size_t count, const char *name,
+                      uint32_t *out) {
+  size_t i;
+
+  for (i = 0u; i < count; i++) {
+    if (strcmp(table[i].name, name) == 0) {
+      *out = table[i].value;
+      return true;
+    }
+  }
+  return false;
+}
+
+#define NV_FIND(table, name, out) \
+  nv_lookup(table, sizeof table / sizeof table[0], name, out)
+
+typedef struct {
+  char name[64];
+  uint32_t status;
+  uint32_t reason;
+  uint32_t section;
+  uint32_t rule;
+} inventory_row;
+
+#define INVENTORY_MAX 48u
+
+static size_t inventory_rows;
+static inventory_row inventory[INVENTORY_MAX];
+
+static bool inventory_load(void) {
+  const char *path = getenv("T64_STATE_MUTANT_INVENTORY_V26");
+  FILE *file;
+  char line[256];
+  bool ok = true;
+
+  if (path == NULL || path[0] == '\0') return false;
+  file = fopen(path, "r");
+  if (file == NULL) return false;
+  inventory_rows = 0u;
+  while (fgets(line, sizeof line, file) != NULL) {
+    size_t length = strlen(line);
+    char *field[5];
+    size_t n = 0u;
+    char *cursor = line;
+    inventory_row *item;
+
+    while (length > 0u && (line[length - 1u] == '\n' || line[length - 1u] == '\r')) {
+      line[--length] = '\0';
+    }
+    if (length == 0u || line[0] == '#') continue;
+    while (n < 5u) {
+      char *sep = strstr(cursor, " :: ");
+
+      field[n++] = cursor;
+      if (sep == NULL) break;
+      *sep = '\0';
+      cursor = sep + 4;
+    }
+    if (n != 5u || inventory_rows >= INVENTORY_MAX) {
+      ok = false;
+      break;
+    }
+    item = &inventory[inventory_rows++];
+    (void)snprintf(item->name, sizeof item->name, "%s", field[0]);
+    item->section = (uint32_t)strtoul(field[3], NULL, 10);
+    if (!NV_FIND(status_names, field[1], &item->status) ||
+        !NV_FIND(reason_names, field[2], &item->reason) ||
+        !NV_FIND(rule_names, field[4], &item->rule)) {
+      fprintf(stderr, "inventory row %s: unknown name\n", item->name);
+      ok = false;
+    }
+  }
+  (void)fclose(file);
+  return ok;
+}
+
+/* ---- the base blobs and the located fields -------------------------------- */
+
+typedef struct {
+  uint8_t *blob;
+  size_t length;
+  size_t base;      /* section 8 body offset in the blob */
+  size_t body;      /* section 8 body length */
+  size_t pending;   /* pending_triangle_words[0] */
+  size_t scalars;   /* depth_image_address; the four others follow */
+  size_t hidden_len; /* the hidden length word */
+  size_t hidden;    /* the first hidden byte */
+} base_blob;
+
+typedef enum { BASE_IDLE = 0, BASE_Z, BASE_V25, BASE_COUNT } base_id;
+
+static base_blob bases[BASE_COUNT];
+
+/* The fields are located by the layout offsets of the document and every
+ * located value is asserted against the machine the blob came from, so a layout
+ * error cannot patch the wrong bytes. */
+static bool base_prepare(base_id id) {
+  base_blob *b = &bases[id];
+  t64_machine *machine;
+  size_t n;
+  size_t i;
+
+  if (b->blob != NULL) return true;
+  if (id == BASE_IDLE) machine = build_idle(V2_STEM);
+  else if (id == BASE_Z) machine = build_mid_z_triangle(V2_STEM);
+  else machine = build_idle(SI_STEM_ID);
+  if (machine == NULL) return false;
+  b->blob = export_blob(machine, &b->length);
+  if (b->blob != NULL && find_section(b->blob, T64_STATE_SECTION_RDP_VI,
+                                      &b->base, &b->body)) {
+    n = rd32(b->blob + b->base + S8_PENDING_COUNT);
+    T64_CHECK_INT(n, machine->rdp.pending_triangle_word_count);
+    b->pending = b->base + S8_PENDING_WORDS;
+    b->scalars = b->base + S8_SCALARS_BASE + 8u * n + S8_TRIANGLE_COVERAGE;
+    b->hidden_len = b->base + b->body - HIDDEN_BYTES - 4u;
+    b->hidden = b->base + b->body - HIDDEN_BYTES;
+    if (id != BASE_V25) {
+      T64_CHECK_INT(rd32(b->blob + b->scalars), machine->rdp.depth_image_address);
+      T64_CHECK_INT(rd32(b->blob + b->scalars + 4u),
+                    machine->rdp.depth_image_valid ? 1u : 0u);
+      T64_CHECK_INT(rd32(b->blob + b->scalars + 8u), machine->rdp.primitive_z);
+      T64_CHECK_INT(rd32(b->blob + b->scalars + 12u),
+                    machine->rdp.primitive_dz);
+      T64_CHECK_INT(rd32(b->blob + b->scalars + 16u),
+                    machine->rdp.primitive_depth_valid ? 1u : 0u);
+      T64_CHECK_INT(rd32(b->blob + b->hidden_len), HIDDEN_BYTES);
+      for (i = 0u; i < HIDDEN_BYTES; i += 0x100u) {
+        T64_CHECK_INT(b->blob[b->hidden + i], machine->rdp_depth_hidden[i]);
+      }
+      {
+        /* the entries around the depth image (RDRAM 0x6000 is entry 0x3000):
+         * the blob equals the machine, and a Z triangle in flight has written
+         * some of them */
+        size_t written = 0u;
+
+        for (i = 0x3000u; i < 0x3040u; i++) {
+          T64_CHECK_INT(b->blob[b->hidden + i], machine->rdp_depth_hidden[i]);
+          if (machine->rdp_depth_hidden[i] != 0u) written++;
+        }
+        T64_CHECK((id == BASE_Z) == (written != 0u));
+      }
+      if (id == BASE_Z) {
+        T64_CHECK_INT(n, 6u);
+        T64_CHECK(rd64(b->blob + b->pending) ==
+                  machine->rdp.pending_triangle_words[0]);
+      }
+      {
+        /* the integrity fields of the exporter's blob equal a re-signing
+         * from the container definition, so a refusal below is the rule */
+        uint8_t *copy = (uint8_t *)malloc(b->length);
+
+        T64_CHECK(copy != NULL);
+        if (copy != NULL) {
+          (void)memcpy(copy, b->blob, b->length);
+          v26_resign(copy, b->length, RS_ALL);
+          T64_CHECK(memcmp(copy, b->blob, b->length) == 0);
+          free(copy);
+        }
+      }
+    }
+  } else {
+    T64_CHECK(false);
+  }
+  t64_machine_destroy(machine);
+  return b->blob != NULL && b->body != 0u;
+}
+
+static void bases_release(void) {
+  size_t i;
+
+  for (i = 0u; i < BASE_COUNT; i++) {
+    free(bases[i].blob);
+    bases[i].blob = NULL;
+  }
+}
+
+/* A copy of a base blob with one 32-bit edit in section 8 and the integrity
+ * fields re-signed with the domain text of the blob. */
+static uint8_t *dup_base(base_id id, size_t *length_out) {
+  uint8_t *copy;
+
+  if (!base_prepare(id)) return NULL;
+  copy = (uint8_t *)malloc(bases[id].length);
+  if (copy == NULL) return NULL;
+  (void)memcpy(copy, bases[id].blob, bases[id].length);
+  *length_out = bases[id].length;
+  return copy;
+}
+
+static void sign26(uint8_t *blob, size_t length) {
+  blob_resign_entry(blob, length, T64_STATE_SECTION_RDP_VI);
+  v26_resign(blob, length, RS_DECLARED | RS_TRAILER);
+}
+
+static uint8_t *edit_word(base_id id, size_t base_offset, uint32_t value,
+                          size_t *length_out) {
+  uint8_t *blob = dup_base(id, length_out);
+
+  if (blob == NULL) return NULL;
+  put32(blob + base_offset, value);
+  sign26(blob, *length_out);
+  return blob;
+}
+
+static uint8_t *m_depth_address_beyond_ram(size_t *length) {
+  return edit_word(BASE_IDLE, bases[BASE_IDLE].scalars, 0x00400000u, length);
+}
+static uint8_t *m_depth_address_unaligned(size_t *length) {
+  return edit_word(BASE_IDLE, bases[BASE_IDLE].scalars, 0x00006004u, length);
+}
+static uint8_t *m_depth_valid_two(size_t *length) {
+  return edit_word(BASE_IDLE, bases[BASE_IDLE].scalars + 4u, 2u, length);
+}
+static uint8_t *m_primitive_z_wide(size_t *length) {
+  return edit_word(BASE_IDLE, bases[BASE_IDLE].scalars + 8u, 0x00010000u,
+                   length);
+}
+static uint8_t *m_primitive_dz_wide(size_t *length) {
+  return edit_word(BASE_IDLE, bases[BASE_IDLE].scalars + 12u, 0x00010000u,
+                   length);
+}
+static uint8_t *m_primitive_valid_two(size_t *length) {
+  return edit_word(BASE_IDLE, bases[BASE_IDLE].scalars + 16u, 2u, length);
+}
+
+/* A hidden entry with the valid bit and a bit of the reserved field 6:2. */
+static uint8_t *m_hidden_byte(size_t *length) {
+  uint8_t *blob = dup_base(BASE_IDLE, length);
+
+  if (blob == NULL) return NULL;
+  blob[bases[BASE_IDLE].hidden + 0x3000u] = 0x84u;
+  sign26(blob, *length);
+  return blob;
+}
+
+static uint8_t *m_hidden_length_short(size_t *length) {
+  return edit_word(BASE_IDLE, bases[BASE_IDLE].hidden_len, HIDDEN_BYTES - 4u,
+                   length);
+}
+
+/* A consistent shorter layout: eight table bytes cut off the end of section 8
+ * and the length word lowered to match, so the reader reaches the rule and not
+ * a later misread. The structural encoder writes the state 25 domain text, which
+ * is patched to the state 26 text before the re-signing. */
+static uint8_t *m_hidden_truncated(size_t *length) {
+  const base_blob *b = &bases[BASE_IDLE];
+  tblob t;
+  uint8_t *blob;
+  size_t i;
+
+  if (!base_prepare(BASE_IDLE)) return NULL;
+  if (!tblob_decode(b->blob, b->length, &t)) return NULL;
+  for (i = 0u; i < t.count &&
+               t.section[i].id != T64_STATE_SECTION_RDP_VI; i++) {
+  }
+  if (i == t.count) {
+    tblob_free(&t);
+    return NULL;
+  }
+  put32(t.section[i].body + (b->hidden_len - b->base), HIDDEN_BYTES - 8u);
+  t.section[i].length -= 8u;
+  blob = tblob_encode(&t, length);
+  tblob_free(&t);
+  if (blob == NULL) return NULL;
+  (void)memcpy(blob + (size_t)rd64(blob + D_CANON_OFF), V26_DOMAIN,
+               D_DOMAIN_BYTES);
+  v26_resign(blob, *length, RS_ALL);
+  return blob;
+}
+
+static uint8_t *m_z_without_depth_image(size_t *length) {
+  return edit_word(BASE_Z, bases[BASE_Z].scalars + 4u, 0u, length);
+}
+
+/* The last depth word of the first row is inside RDRAM, the pixel extent of
+ * the triangle is not (the extent of the render proof, not the base rule). */
+static uint8_t *m_z_extent_beyond_ram(size_t *length) {
+  return edit_word(BASE_Z, bases[BASE_Z].scalars, 0x003ffff8u, length);
+}
+
+/* The Z plane derivatives and the major edge slope are the largest 16.16
+ * values, so the products of the rows cannot be proven to fit; the extent of the
+ * rows (the first and last row) does not move. */
+static uint8_t *m_z_products(size_t *length) {
+  uint8_t *blob = dup_base(BASE_Z, length);
+
+  if (blob == NULL) return NULL;
+  put64(blob + bases[BASE_Z].pending + 8u * 2u, UINT64_C(0x000100007fffffff));
+  put64(blob + bases[BASE_Z].pending + 8u * 4u, UINT64_C(0x7fffffff7fffffff));
+  put64(blob + bases[BASE_Z].pending + 8u * 5u, UINT64_C(0x7fffffff7fffffff));
+  sign26(blob, *length);
+  return blob;
+}
+
+/* The canonical domain text forged to the other state version and the whole
+ * blob re-signed under the forged text. */
+static uint8_t *m_v26_domain_25(size_t *length) {
+  uint8_t *blob = dup_base(BASE_IDLE, length);
+
+  if (blob == NULL) return NULL;
+  (void)memcpy(blob + (size_t)rd64(blob + D_CANON_OFF), D_DOMAIN,
+               D_DOMAIN_BYTES);
+  blob_resign(blob, *length, RS_ALL);
+  return blob;
+}
+
+static uint8_t *m_v25_domain_26(size_t *length) {
+  uint8_t *blob = dup_base(BASE_V25, length);
+
+  if (blob == NULL) return NULL;
+  (void)memcpy(blob + (size_t)rd64(blob + D_CANON_OFF), V26_DOMAIN,
+               D_DOMAIN_BYTES);
+  v26_resign(blob, *length, RS_ALL);
+  return blob;
+}
+
+static uint8_t *m_state_25_blob(size_t *length) {
+  return dup_base(BASE_V25, length);
+}
+
+static uint8_t *m_state_26_blob(size_t *length) {
+  return dup_base(BASE_IDLE, length);
+}
+
+typedef enum { TARGET_V26 = 0, TARGET_V25, TARGET_COUNT } target_id;
+
+typedef struct {
+  const char *name;
+  uint32_t status;
+  uint32_t reason;
+  uint32_t section;
+  uint32_t rule;
+  target_id target;
+  uint8_t *(*mutate)(size_t *length);
+} hostile_row;
+
+#define S8 ((uint32_t)T64_STATE_SECTION_RDP_VI)
+
+/* The C table: the same rows in the same order as the inventory file, with the
+ * tuple written with the closed names of the header. */
+static const hostile_row hostile_rows[] = {
+    {"v26-depth-address-beyond-ram", T64_STATUS_STATE_RANGE,
+     T64_STATE_REASON_FIELD_RANGE, S8, T64_STATE_RULE_ADDR_RANGE, TARGET_V26,
+     m_depth_address_beyond_ram},
+    {"v26-depth-address-unaligned", T64_STATUS_STATE_RANGE,
+     T64_STATE_REASON_FIELD_RANGE, S8, T64_STATE_RULE_ADDR_RANGE, TARGET_V26,
+     m_depth_address_unaligned},
+    {"v26-depth-valid-two", T64_STATUS_STATE_RANGE,
+     T64_STATE_REASON_FIELD_RANGE, S8, T64_STATE_RULE_BOOL_01, TARGET_V26,
+     m_depth_valid_two},
+    {"v26-primitive-z-beyond-16-bits", T64_STATUS_STATE_RANGE,
+     T64_STATE_REASON_FIELD_RANGE, S8, T64_STATE_RULE_INDEX_LT, TARGET_V26,
+     m_primitive_z_wide},
+    {"v26-primitive-dz-beyond-16-bits", T64_STATUS_STATE_RANGE,
+     T64_STATE_REASON_FIELD_RANGE, S8, T64_STATE_RULE_INDEX_LT, TARGET_V26,
+     m_primitive_dz_wide},
+    {"v26-primitive-valid-two", T64_STATUS_STATE_RANGE,
+     T64_STATE_REASON_FIELD_RANGE, S8, T64_STATE_RULE_BOOL_01, TARGET_V26,
+     m_primitive_valid_two},
+    {"v26-hidden-byte-outside-set", T64_STATUS_STATE_RANGE,
+     T64_STATE_REASON_FIELD_RANGE, S8, T64_STATE_RULE_ENUM_CLOSED, TARGET_V26,
+     m_hidden_byte},
+    {"v26-hidden-length-short", T64_STATUS_STATE_RANGE,
+     T64_STATE_REASON_FIELD_DERIVED, S8, T64_STATE_RULE_PROFILE_DERIVED,
+     TARGET_V26, m_hidden_length_short},
+    {"v26-hidden-table-truncated", T64_STATUS_STATE_RANGE,
+     T64_STATE_REASON_FIELD_DERIVED, S8, T64_STATE_RULE_PROFILE_DERIVED,
+     TARGET_V26, m_hidden_truncated},
+    {"v26-z-triangle-without-depth-image", T64_STATUS_STATE_RANGE,
+     T64_STATE_REASON_FIELD_RANGE, S8, T64_STATE_RULE_LEN_LE, TARGET_V26,
+     m_z_without_depth_image},
+    {"v26-z-triangle-depth-extent-beyond-ram", T64_STATUS_STATE_RANGE,
+     T64_STATE_REASON_FIELD_RANGE, S8, T64_STATE_RULE_LEN_LE, TARGET_V26,
+     m_z_extent_beyond_ram},
+    {"v26-z-triangle-products", T64_STATUS_STATE_RANGE,
+     T64_STATE_REASON_FIELD_RANGE, S8, T64_STATE_RULE_LEN_LE, TARGET_V26,
+     m_z_products},
+    {"v26-domain-state-25-text", T64_STATUS_STATE_FORMAT,
+     T64_STATE_REASON_SECTION_BOUNDS, 0u, T64_STATE_RULE_NONE, TARGET_V26,
+     m_v26_domain_25},
+    {"v25-domain-state-26-text", T64_STATUS_STATE_FORMAT,
+     T64_STATE_REASON_SECTION_BOUNDS, 0u, T64_STATE_RULE_NONE, TARGET_V25,
+     m_v25_domain_26},
+    {"v26-machine-state-25-blob", T64_STATUS_STATE_VERSION,
+     T64_STATE_REASON_STATE_VERSION, 0u, T64_STATE_RULE_NONE, TARGET_V26,
+     m_state_25_blob},
+    {"v25-machine-state-26-blob", T64_STATUS_STATE_VERSION,
+     T64_STATE_REASON_STATE_VERSION, 0u, T64_STATE_RULE_NONE, TARGET_V25,
+     m_state_26_blob},
+};
+#define HOSTILE_COUNT (sizeof hostile_rows / sizeof hostile_rows[0])
+
+/* The inventory file and the C table agree name by name, in order, tuple by
+ * tuple, and the file has at least nine data rows. */
+static void check_inventory(void) {
+  size_t i;
+
+  T64_CHECK(inventory_load());
+  T64_CHECK_INT(inventory_rows, HOSTILE_COUNT);
+  T64_CHECK(inventory_rows >= 9u);
+  for (i = 0u; i < inventory_rows && i < HOSTILE_COUNT; i++) {
+    const hostile_row *row = &hostile_rows[i];
+
+    if (strcmp(inventory[i].name, row->name) != 0 ||
+        inventory[i].status != (uint32_t)row->status ||
+        inventory[i].reason != row->reason ||
+        inventory[i].section != row->section || inventory[i].rule != row->rule) {
+      fprintf(stderr, "inventory row %zu: %s does not match the table row %s\n",
+              i, inventory[i].name, row->name);
+      T64_CHECK(false);
+    }
+  }
+}
+
+static void run_hostile_row(const hostile_row *row, t64_machine *machine) {
+  t64_state_import_report report;
+  snapshot before;
+  uint8_t *blob;
+  size_t length = 0u;
+  t64_status status;
+
+  blob = row->mutate(&length);
+  if (blob == NULL) {
+    fprintf(stderr, "hostile row %s: no blob\n", row->name);
+    T64_CHECK(false);
+    return;
+  }
+  snapshot_take(machine, &before);
+  (void)memset(&report, 0xA5, sizeof report);
+  status = t64_machine_state_import(machine, blob, length, 0u, &report);
+  if (status != row->status || report.status != row->status ||
+      report.reason != row->reason || report.section_id != row->section ||
+      report.rule != row->rule) {
+    fprintf(stderr,
+            "hostile row %s: got status %u reason %u section %u rule %u, "
+            "wanted %u %u %u %u\n",
+            row->name, (unsigned)status, (unsigned)report.reason,
+            (unsigned)report.section_id, (unsigned)report.rule,
+            (unsigned)row->status, (unsigned)row->reason,
+            (unsigned)row->section, (unsigned)row->rule);
+    T64_CHECK(false);
+  }
+  T64_CHECK(snapshot_matches(machine, &before));
+  T64_CHECK(t64_state_summary_is_clear(machine));
+  snapshot_free(&before);
+  free(blob);
+}
+
+/* The importer's Z product proof and the live acceptance preflight give the
+ * same verdict for the same packet: a machine of the state 26 id holds the
+ * registers of the Z triangle setup and the preflight of core/t64_rdp_depth.c
+ * is called with the benign packet (accepted) and with the packet of the
+ * hostile row (refused). */
+static void check_preflight_parity(void) {
+  t64_machine *machine = create_admitted(V2_STEM);
+  uint64_t benign[6];
+  uint64_t hostile[6];
+  size_t i;
+
+  if (machine == NULL) return;
+  machine->rdp.depth_image_valid = true;
+  machine->rdp.depth_image_address = DEPTH_IMAGE_ADDRESS;
+  machine->rdp.color_image_width = 8u;
+  /* primitive depth source with compare and update (bits 2, 4 and 5) */
+  machine->rdp.other_modes = UINT64_C(0x0000000000000034);
+  machine->rdp.primitive_depth_valid = true;
+  for (i = 0u; i < 6u; i++) benign[i] = hostile[i] = z_triangle_words[7u + i];
+  hostile[2] = UINT64_C(0x000100007fffffff);
+  hostile[4] = UINT64_C(0x7fffffff7fffffff);
+  hostile[5] = UINT64_C(0x7fffffff7fffffff);
+  T64_CHECK(t64_rdp_depth_triangle_preflight(machine, 0x09u, benign, 6u, 0u, 8u,
+                                             1u, 4u));
+  T64_CHECK(!t64_rdp_depth_triangle_preflight(machine, 0x09u, hostile, 6u, 0u,
+                                              8u, 1u, 4u));
+  /* the same two packets through the importer: the benign one is the accepted
+   * Z base blob, the hostile one is the products row above */
+  fprintf(stderr,
+          "preflight-parity: the live preflight accepts the benign packet and "
+          "refuses the packet of v26-z-triangle-products\n");
+  t64_machine_destroy(machine);
+}
+
+/* Windows over the new section 8 bytes of one base blob: the five scalars, the
+ * hidden length word, the hidden entries around the sidecar the Z triangle
+ * wrote and, for a Z triangle in flight, its packet words. */
+static void fuzz_one_base(base_id id, const char *label, uint64_t iterations,
+                          uint64_t seed) {
+  state_fuzz_window windows[4];
+  size_t count = 0u;
+  state_fuzz_stats stats;
+  const base_blob *b;
+
+  if (!base_prepare(id)) return;
+  b = &bases[id];
+  windows[count].section = T64_STATE_SECTION_RDP_VI;
+  windows[count].offset = b->scalars - b->base;
+  windows[count].length = 20u;
+  count++;
+  windows[count].section = T64_STATE_SECTION_RDP_VI;
+  windows[count].offset = b->hidden_len - b->base;
+  windows[count].length = 4u;
+  count++;
+  windows[count].section = T64_STATE_SECTION_RDP_VI;
+  windows[count].offset = b->hidden - b->base + 0x2ff0u;
+  windows[count].length = 0x60u;
+  count++;
+  if (id == BASE_Z) {
+    windows[count].section = T64_STATE_SECTION_RDP_VI;
+    windows[count].offset = b->pending - b->base;
+    windows[count].length = 8u * 6u;
+    count++;
+  }
+  state_fuzz_set_windows(windows, count);
+  state_fuzz_campaign_v26(b->blob, b->length, iterations, seed, &stats);
+  state_fuzz_set_windows(NULL, 0u);
+  fprintf(stderr,
+          "fuzz-v26-%s: %llu iterations, %llu refused (%llu by a reader or a "
+          "later check), %llu accepted, %llu violations\n",
+          label, (unsigned long long)stats.iterations,
+          (unsigned long long)stats.refusals,
+          (unsigned long long)stats.field_level,
+          (unsigned long long)stats.accepted,
+          (unsigned long long)stats.violations);
+  T64_CHECK_INT(stats.iterations, iterations);
+  T64_CHECK_INT(stats.violations, 0u);
+  /* reach: at least a quarter of the iterations get past the container level */
+  T64_CHECK(stats.field_level + stats.accepted >=
+            (iterations / 4u > 1u ? iterations / 4u : 1u));
+}
+
+static uint64_t env_u64(const char *name, uint64_t fallback) {
+  const char *text = getenv(name);
+  char *end = NULL;
+  unsigned long long value;
+
+  if (text == NULL || text[0] == '\0') return fallback;
+  value = strtoull(text, &end, 10);
+  return end != NULL && *end == '\0' ? (uint64_t)value : fallback;
+}
+
+static void case_hostile(void) {
+  t64_machine *machines[TARGET_COUNT];
+  size_t i;
+
+  check_inventory();
+  machines[TARGET_V26] = create_admitted(V2_STEM);
+  machines[TARGET_V25] = create_admitted(SI_STEM_ID);
+  T64_CHECK(machines[TARGET_V26] != NULL && machines[TARGET_V25] != NULL);
+  if (machines[TARGET_V26] != NULL && machines[TARGET_V25] != NULL &&
+      base_prepare(BASE_IDLE) && base_prepare(BASE_Z) &&
+      base_prepare(BASE_V25)) {
+    /* the accepted baselines of the same setup: each base blob imports into a
+     * fresh machine of its own id before any mutant runs */
+    for (i = 0u; i < BASE_COUNT; i++) {
+      t64_state_import_report report;
+      t64_status status = T64_STATUS_OK;
+      t64_machine *fresh =
+          import_fresh(i == BASE_V25 ? SI_STEM_ID : V2_STEM, bases[i].blob,
+                       bases[i].length, "baseline", &status, &report);
+
+      T64_CHECK_INT(status, T64_STATUS_OK);
+      if (fresh != NULL) t64_machine_destroy(fresh);
+    }
+    for (i = 0u; i < HOSTILE_COUNT; i++) {
+      run_hostile_row(&hostile_rows[i], machines[hostile_rows[i].target]);
+    }
+    fprintf(stderr, "hostile: %zu rows refused with their own tuple, machine "
+                    "allocation and allocator counters unchanged\n",
+            (size_t)HOSTILE_COUNT);
+    check_preflight_parity();
+    {
+      const uint64_t iterations = env_u64("T64_STATE_FUZZ_ITERATIONS", 24u);
+
+      fuzz_one_base(BASE_IDLE, "idle", iterations, UINT64_C(0x5EED2612));
+      fuzz_one_base(BASE_Z, "mid-z-triangle", iterations,
+                    UINT64_C(0x7121A926));
+    }
+  }
+  for (i = 0u; i < TARGET_COUNT; i++) {
+    if (machines[i] != NULL) t64_machine_destroy(machines[i]);
+  }
+  bases_release();
+}
+
 int main(int argc, char **argv) {
-  static const char *const cases[] = {"roundtrip"};
+  static const char *const cases[] = {"roundtrip", "hostile"};
 
   if (argc == 2 && strcmp(argv[1], "--list-cases") == 0) {
     size_t index;
@@ -753,6 +1439,10 @@ int main(int argc, char **argv) {
       case_roundtrip();
       return T64_TEST_FINISH("unit.core.state.import-v26-roundtrip");
     }
+    if (strcmp(argv[2], "hostile") == 0) {
+      case_hostile();
+      return T64_TEST_FINISH("unit.core.state.import-v26-hostile");
+    }
     fprintf(stderr, "unknown case: %s\n", argv[2]);
     return 2;
   }
@@ -761,5 +1451,6 @@ int main(int argc, char **argv) {
     return 2;
   }
   case_roundtrip();
+  case_hostile();
   return T64_TEST_FINISH("unit.core.state.import-v26-all");
 }

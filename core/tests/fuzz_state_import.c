@@ -12,6 +12,13 @@
  * campaign holds no main: core/tests/test_state_import.c calls it with an
  * iteration count from the environment. No state is stored or logged; blobs
  * exist only in process memory.
+ *
+ * Plan 10-12 adds the state 26 entry state_fuzz_campaign_v26 (called by
+ * core/tests/test_state_import_v26.c with windows over the new section 8
+ * bytes): the same mutators and the same contract, with a peer of the si-v2
+ * stem id and the integrity fields re-signed under the domain t64.state.si.26.
+ * The state 25 entry keeps its peer, its domain and its behavior; the phase09
+ * case list of core/test_state_import is not touched.
  */
 #include "state_import_helpers.h"
 
@@ -44,6 +51,64 @@ static void violation(state_fuzz_stats *stats, uint64_t iteration,
 
 static const state_fuzz_window *fuzz_windows;
 static size_t fuzz_window_count;
+
+/* The peer a campaign imports into and the domain text its re-signing uses:
+ * the si-v1 stem and t64.state.si.25 unless state_fuzz_campaign_v26 runs. */
+#define FUZZ_V26_PEER_ID "ntsc-cart-4m-openipl3-rdram-b-t1-si-v2"
+#define FUZZ_V26_DOMAIN "t64.state.si.26"
+static const char *fuzz_peer_id = SI_STEM_ID;
+static bool fuzz_domain_v26;
+
+/* blob_resign of the helper header with the domain text of the campaign: the
+ * state 25 path calls the helper itself, so its behavior is the Phase 9 one. */
+static void fuzz_resign(uint8_t *blob, size_t length, unsigned flags) {
+  const uint32_t count = rd32(blob + 0x018u);
+  uint32_t i;
+
+  if (!fuzz_domain_v26) {
+    blob_resign(blob, length, flags);
+    return;
+  }
+  if (length < D_TABLE + D_TRAILER_BYTES || count > 32u) return;
+  if ((flags & RS_SECTIONS) != 0u) {
+    for (i = 0u; i < count; i++) {
+      uint8_t *entry = blob + D_TABLE + (size_t)D_ENTRY * i;
+      const uint64_t offset = rd64(entry + E_OFF);
+      const uint64_t body = rd64(entry + E_LEN);
+
+      if (offset <= length && body <= length - offset) {
+        sha_of(blob + offset, (size_t)body, entry + E_HASH);
+      }
+    }
+  }
+  if ((flags & RS_DECLARED) != 0u) {
+    t64_sha256_ctx context;
+    uint8_t digest[T64_DIGEST_SIZE];
+
+    t64_sha256_init(&context);
+    t64_sha256_update(&context, (const uint8_t *)FUZZ_V26_DOMAIN,
+                      D_DOMAIN_BYTES);
+    for (i = 0u; i < count; i++) {
+      const uint8_t *entry = blob + D_TABLE + (size_t)D_ENTRY * i;
+      const uint32_t id = rd32(entry + E_ID);
+      const uint64_t offset = rd64(entry + E_OFF);
+      const uint64_t body = rd64(entry + E_LEN);
+      uint8_t marker[4];
+
+      if (id == 16u) continue;
+      put32(marker, id);
+      t64_sha256_update(&context, marker, sizeof marker);
+      if (offset <= length && body <= length - offset) {
+        t64_sha256_update(&context, blob + offset, (size_t)body);
+      }
+    }
+    t64_sha256_final(&context, digest);
+    (void)memcpy(blob + 0x070u, digest, sizeof digest);
+  }
+  if ((flags & RS_TRAILER) != 0u) {
+    sha_of(blob, length - D_TRAILER_BYTES, blob + length - D_TRAILER_BYTES);
+  }
+}
 
 void state_fuzz_set_windows(const state_fuzz_window *windows, size_t count) {
   fuzz_windows = windows;
@@ -224,7 +289,7 @@ t64_machine *state_fuzz_one(t64_machine *peer, const uint8_t *bytes, size_t n,
                 "an accepted state ended in an undefined advance status");
     }
     t64_machine_destroy(peer);
-    peer = create_admitted(SI_STEM_ID);
+    peer = create_admitted(fuzz_peer_id);
   } else {
     stats->refusals++;
     if (report.reason < 48u) stats->by_reason[report.reason]++;
@@ -244,12 +309,12 @@ t64_machine *state_fuzz_one(t64_machine *peer, const uint8_t *bytes, size_t n,
   return peer;
 }
 
-void state_fuzz_campaign(const uint8_t *blob, size_t length,
-                         uint64_t iterations, uint64_t seed,
-                         state_fuzz_stats *stats) {
+static void fuzz_campaign_run(const uint8_t *blob, size_t length,
+                              uint64_t iterations, uint64_t seed,
+                              state_fuzz_stats *stats) {
   rng r = {seed == 0u ? UINT64_C(0x9E3779B97F4A7C15) : seed};
   uint8_t *copy = (uint8_t *)malloc(length + 128u);
-  t64_machine *peer = create_admitted(SI_STEM_ID);
+  t64_machine *peer = create_admitted(fuzz_peer_id);
   uint64_t iteration;
 
   (void)memset(stats, 0, sizeof *stats);
@@ -276,7 +341,7 @@ void state_fuzz_campaign(const uint8_t *blob, size_t length,
     case 1u: integrity = RS_SECTIONS | RS_TRAILER; break;
     default: integrity = RS_ALL; break;
     }
-    blob_resign(copy, n, integrity);
+    fuzz_resign(copy, n, integrity);
     peer = state_fuzz_one(peer, copy, n, iteration, stats);
   }
   if (peer == NULL) {
@@ -286,4 +351,25 @@ void state_fuzz_campaign(const uint8_t *blob, size_t length,
   }
   free(copy);
   stats->violations += (uint64_t)t64_test_failures;
+}
+
+void state_fuzz_campaign(const uint8_t *blob, size_t length,
+                         uint64_t iterations, uint64_t seed,
+                         state_fuzz_stats *stats) {
+  fuzz_campaign_run(blob, length, iterations, seed, stats);
+}
+
+/* The state 26 entry (declared by its caller, core/tests/test_state_import_v26.c):
+ * a peer of the si-v2 stem id and the state 26 domain for the re-signing. */
+void state_fuzz_campaign_v26(const uint8_t *blob, size_t length,
+                             uint64_t iterations, uint64_t seed,
+                             state_fuzz_stats *stats);
+void state_fuzz_campaign_v26(const uint8_t *blob, size_t length,
+                             uint64_t iterations, uint64_t seed,
+                             state_fuzz_stats *stats) {
+  fuzz_peer_id = FUZZ_V26_PEER_ID;
+  fuzz_domain_v26 = true;
+  fuzz_campaign_run(blob, length, iterations, seed, stats);
+  fuzz_peer_id = SI_STEM_ID;
+  fuzz_domain_v26 = false;
 }

@@ -1,0 +1,48 @@
+# Structure-aware state-import mutants for state 26 (plan 10-12, decision D-41
+# carried to the descriptor 13 family).
+#
+# One row per mutant: name :: status :: reason :: section id :: rule
+# The row format, the names and the reading are those of docs/spec/state-mutants.txt,
+# which stays frozen at its Phase 9 rows (phase09-inventoried, plan 09-09.1); the
+# state 26 rows live here so that file and its count sentence in
+# docs/spec/state-container.md do not move. Names are the closed names of
+# core/include/tendies64/t64_machine.h without the T64_STATUS_, T64_STATE_REASON_
+# and T64_STATE_RULE_ prefixes; section id is the T64_STATE_SECTION_* number of
+# the section the report names (0: none) and the rule is NONE where the reason
+# has none. Section 8 is the RDP and VI section.
+#
+# Authored before the C table of core/tests/test_state_import_v26.c from the
+# layout of docs/spec/state-container.md ("Container v2 (state 26)"): section 8
+# carries the five depth scalars as u32 words (depth_image_address,
+# depth_image_valid, primitive_z, primitive_dz, primitive_depth_valid) inside the
+# RDP block and the hidden depth table (a 4-byte length, 2,097,152 for 4 MiB of
+# RDRAM, then one byte per RDRAM halfword) at the end. The test compares this file
+# with its table name by name, in this order, tuple by tuple.
+#
+# Every mutant is applied to an accepted state 26 blob (idle or with a Z triangle
+# in flight, both of the stem id si-v2), keeps magic, per-section hashes, trailer
+# and declared digest valid by re-signing with the domain text of the blob, and
+# must reach exactly its own tuple with the machine allocation byte identical and
+# the allocator counters unchanged. The two state 25 rows at the end start from a
+# state 25 blob of the matching si-v1 machine.
+#
+# scalars
+v26-depth-address-beyond-ram :: STATE_RANGE :: FIELD_RANGE :: 8 :: ADDR_RANGE
+v26-depth-address-unaligned :: STATE_RANGE :: FIELD_RANGE :: 8 :: ADDR_RANGE
+v26-depth-valid-two :: STATE_RANGE :: FIELD_RANGE :: 8 :: BOOL_01
+v26-primitive-z-beyond-16-bits :: STATE_RANGE :: FIELD_RANGE :: 8 :: INDEX_LT
+v26-primitive-dz-beyond-16-bits :: STATE_RANGE :: FIELD_RANGE :: 8 :: INDEX_LT
+v26-primitive-valid-two :: STATE_RANGE :: FIELD_RANGE :: 8 :: BOOL_01
+# hidden table
+v26-hidden-byte-outside-set :: STATE_RANGE :: FIELD_RANGE :: 8 :: ENUM_CLOSED
+v26-hidden-length-short :: STATE_RANGE :: FIELD_DERIVED :: 8 :: PROFILE_DERIVED
+v26-hidden-table-truncated :: STATE_RANGE :: FIELD_DERIVED :: 8 :: PROFILE_DERIVED
+# a Z triangle in flight, proven from the blob values
+v26-z-triangle-without-depth-image :: STATE_RANGE :: FIELD_RANGE :: 8 :: LEN_LE
+v26-z-triangle-depth-extent-beyond-ram :: STATE_RANGE :: FIELD_RANGE :: 8 :: LEN_LE
+v26-z-triangle-products :: STATE_RANGE :: FIELD_RANGE :: 8 :: LEN_LE
+# the state 26 domain and the state pairing
+v26-domain-state-25-text :: STATE_FORMAT :: SECTION_BOUNDS :: 0 :: NONE
+v25-domain-state-26-text :: STATE_FORMAT :: SECTION_BOUNDS :: 0 :: NONE
+v26-machine-state-25-blob :: STATE_VERSION :: STATE_VERSION :: 0 :: NONE
+v25-machine-state-26-blob :: STATE_VERSION :: STATE_VERSION :: 0 :: NONE
