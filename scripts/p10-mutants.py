@@ -77,7 +77,24 @@ TEST_SOURCES = {
     "test_rdp_depth_composite": "core/tests/test_rdp_depth_composite.c",
     "test_digest_v26": "core/tests/test_digest_v26.c",
     "test_state_export_v26": "core/tests/test_state_export_v26.c",
+    # plan 10-12: the v26 importer test links the fuzz campaign of the Phase 9
+    # import test, so its entry is a list: the test source first, then the others
+    "test_state_import_v26": [
+        "core/tests/test_state_import_v26.c",
+        "core/tests/fuzz_state_import.c",
+    ],
 }
+
+
+def source_list(value):
+    """The sources of one test binary (a string or a list of strings)."""
+    return [value] if isinstance(value, str) else list(value)
+
+
+def object_name(name, source, index):
+    """The object file name of one source of a test binary."""
+    return name + ".o" if index == 0 else "%s-%s.o" % (
+        name, os.path.splitext(os.path.basename(source))[0])
 
 OWN_CHECK_LINE = re.compile(r"test_[a-z_0-9]+\.c:\d+: CHECK(_INT|_STR)? failed")
 
@@ -490,6 +507,76 @@ MUTANTS = [
         "record": [],
     },
     {
+        "id": "v26-import-skip-hidden",
+        "tag": "mutant",
+        "expect": "KILLED",
+        "title": "the state 26 reader consumes the hidden depth table but never copies it into the machine, so the commit leaves it zeroed (plan 10-12; import-v26-roundtrip sees the table and the digest differ)",
+        "edits": [
+            (
+                "core/t64_state.c",
+                "    entries = state_rd_bytes(r, m->rdp_depth_hidden, hidden_bytes);\n",
+                "    entries = state_rd_bytes(r, NULL, hidden_bytes);\n",
+            )
+        ],
+        "kill": [own_check("test_state_import_v26", ["--case", "roundtrip"])],
+        "record": [],
+    },
+    {
+        "id": "v26-import-depth-after-proof",
+        "tag": "mutant",
+        "expect": "KILLED",
+        "title": "the triangle-render proof gets no depth members, as when the scalars were applied after it (the state 25 reading; plan 10-12, Research Pitfall 3: a Z triangle in flight is refused)",
+        "edits": [
+            (
+                "core/t64_state.c",
+                "    triangle.view.depth_address = depth_address;\n"
+                "    triangle.view.depth_valid = depth_valid;\n"
+                "    triangle.view.primitive_depth_valid = primitive_depth_valid;\n",
+                "    triangle.view.depth_address = 0u;\n"
+                "    triangle.view.depth_valid = false;\n"
+                "    triangle.view.primitive_depth_valid = false;\n",
+            )
+        ],
+        "kill": [own_check("test_state_import_v26", ["--case", "roundtrip"])],
+        "record": [],
+    },
+    {
+        "id": "v26-import-addr-unchecked",
+        "tag": "mutant",
+        "expect": "KILLED",
+        "title": "the ADDR_RANGE check of the depth image address removed from the state 26 reader (plan 10-12, T-10-26; import-v26-hostile sees the out-of-range and unaligned rows accepted)",
+        "edits": [
+            (
+                "core/t64_state.c",
+                "    STATE_CHECK(r, (depth_address & UINT32_C(7)) == 0u &&\n"
+                "                       (uint64_t)depth_address + 2u <=\n"
+                "                           (uint64_t)m->profile.rdram_bytes,\n"
+                "                T64_STATE_REASON_FIELD_RANGE, T64_STATE_RULE_ADDR_RANGE);\n",
+                "    STATE_CHECK(r, true,\n"
+                "                T64_STATE_REASON_FIELD_RANGE, T64_STATE_RULE_ADDR_RANGE);\n",
+            )
+        ],
+        "kill": [own_check("test_state_import_v26", ["--case", "hostile"])],
+        "record": [],
+    },
+    {
+        "id": "v26-import-z-products-unchecked",
+        "tag": "mutant",
+        "expect": "KILLED",
+        "title": "the Z product proof of the triangle-render proof never runs (the image width test short-circuits it; plan 10-12, T-10-26; import-v26-hostile sees the overflowing packet accepted)",
+        "edits": [
+            (
+                "core/t64_state.c",
+                "    STATE_CHECK(r, triangle->view.image_width != 0u &&\n"
+                "                       state_z_products_bounded(triangle->packet,\n",
+                "    STATE_CHECK(r, triangle->view.image_width != 0u ||\n"
+                "                       state_z_products_bounded(triangle->packet,\n",
+            )
+        ],
+        "kill": [own_check("test_state_import_v26", ["--case", "hostile"])],
+        "record": [],
+    },
+    {
         "id": "control-no-compile",
         "tag": "control",
         "expect": "INVALID",
@@ -527,9 +614,10 @@ def check_anchors(selected=None):
         ["git", "ls-files"], cwd=ROOT, capture_output=True, text=True, check=False
     )
     tracked_files = set(tracked.stdout.split("\n")) if tracked.returncode == 0 else None
-    for name, source in TEST_SOURCES.items():
-        if tracked_files is not None and source not in tracked_files:
-            problems.append("%s: test source not tracked: %s" % (name, source))
+    for name, value in TEST_SOURCES.items():
+        for source in source_list(value):
+            if tracked_files is not None and source not in tracked_files:
+                problems.append("%s: test source not tracked: %s" % (name, source))
     for mutant in MUTANTS:
         if selected is not None and mutant["id"] not in selected:
             continue
@@ -677,6 +765,9 @@ class Worktree:
                 worktree_path(), "fixtures", "state", "decode_container.py"),
             "T64_PHASE10_EVIDENCE_DIR": os.path.join(
                 worktree_path(), "build", "mut", "evidence"),
+            # plan 10-12: the independently authored v26 hostile rows
+            "T64_STATE_MUTANT_INVENTORY_V26": os.path.join(
+                worktree_path(), "docs", "spec", "state-mutants-v26.txt"),
         }
         self.objects = os.path.join(worktree_path(), "build", "mut")
         self.last_build = None
@@ -693,23 +784,29 @@ class Worktree:
     def compile_tests(self):
         os.makedirs(self.objects, exist_ok=True)
         total = 0.0
-        for name, source in TEST_SOURCES.items():
-            done, seconds = run(
-                ["cc"] + COMPILE_FLAGS + INCLUDES
-                + ["-c", "-o", os.path.join("build", "mut", name + ".o"), source],
-                worktree_path(),
-            )
-            total += seconds
-            if done.returncode != 0:
-                return False, total
+        for name, value in TEST_SOURCES.items():
+            for index, source in enumerate(source_list(value)):
+                done, seconds = run(
+                    ["cc"] + COMPILE_FLAGS + INCLUDES
+                    + ["-c", "-o",
+                       os.path.join("build", "mut", object_name(name, source, index)),
+                       source],
+                    worktree_path(),
+                )
+                total += seconds
+                if done.returncode != 0:
+                    return False, total
         return True, total
 
     def link_tests(self):
-        for name in TEST_SOURCES:
+        for name, value in TEST_SOURCES.items():
+            objects = [
+                os.path.join("build", "mut", object_name(name, source, index))
+                for index, source in enumerate(source_list(value))
+            ]
             done, _ = run(
-                ["cc", "-o", os.path.join("build", "mut", name),
-                 os.path.join("build", "mut", name + ".o"),
-                 os.path.join("build", "gate", "core", "libt64_core.a"),
+                ["cc", "-o", os.path.join("build", "mut", name)] + objects
+                + [os.path.join("build", "gate", "core", "libt64_core.a"),
                  os.path.join("build", "gate", "tools", "common", "libt64_sha256.a")],
                 worktree_path(),
             )
