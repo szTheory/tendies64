@@ -819,6 +819,107 @@ static const rdp_member rdp_members[] = {
 _Static_assert(sizeof(t64_rdp_state) == RDP_STATE_SIZE,
                "t64_rdp_state changed: add the new member to rdp_members");
 
+/* ---- completeness rows of the VI state (plan 10-20, W2-03) --------------
+ * The same row type as the RDP table. Two member groups are named exclusions,
+ * each with the reason re-derived from the code:
+ *   - packet_head and packet_count: core/t64_internal.h calls them the "host
+ *     observer cursor and occupancy; neither is part of guest identity", and
+ *     the VI section of core/t64_digest.c states that they intentionally stay
+ *     out of the digest so that the host drain cadence cannot move it;
+ *   - the per-slot profile_id and build_id strings: core/t64_digest.c hashes
+ *     them only under `!has_v25_framing`; the v25 and v26 families (the
+ *     si-v1 and si-v2 ids) bind identity through the domain string and the
+ *     profile digest of the identity section instead.
+ * Bytes no row claims are padding (4 after refusal_reason, 4 after filter in
+ * each packet slot, 5 after latch_pending) and must not change the stream. */
+#define VI_OBSERVER_REASON                                                   \
+  "host observer cursor and occupancy, not guest identity; the VI section "  \
+  "keeps them out of the walker so the host drain cadence cannot move the "  \
+  "digest (core/t64_internal.h, core/t64_digest.c)"
+#define VI_IDENTITY_STRINGS_REASON                                           \
+  "hashed only without the v25 framing; the v25 and v26 families bind "      \
+  "identity through the domain and the profile digest of the identity "      \
+  "section (core/t64_digest.c)"
+#define VM(name) {#name, offsetof(t64_vi_state, name),                      \
+                  sizeof(((t64_vi_state *)0)->name), NULL}
+#define VMX(name, reason) {#name, offsetof(t64_vi_state, name),             \
+                           sizeof(((t64_vi_state *)0)->name), reason}
+#define VMI(name, index) {#name "[" #index "]",                             \
+                          offsetof(t64_vi_state, name) +                    \
+                          (index) * sizeof(((t64_vi_state *)0)->name[0]),   \
+                          sizeof(((t64_vi_state *)0)->name[0]), NULL}
+#define VMT(slot, member) {"packet_info[" #slot "]." #member,               \
+                           offsetof(t64_vi_state, packet_info) +            \
+                           (slot) * sizeof(t64_video_packet_info) +         \
+                           offsetof(t64_video_packet_info, member),         \
+                           sizeof(((t64_video_packet_info *)0)->member),    \
+                           NULL}
+#define VMTX(slot, member, reason) {"packet_info[" #slot "]." #member,      \
+                           offsetof(t64_vi_state, packet_info) +            \
+                           (slot) * sizeof(t64_video_packet_info) +         \
+                           offsetof(t64_video_packet_info, member),         \
+                           sizeof(((t64_video_packet_info *)0)->member),    \
+                           reason}
+/* All 37 members of one retained packet slot, in declaration order. */
+#define VMSLOT(slot)                                                        \
+  VMT(slot, width), VMT(slot, height), VMT(slot, stride_bytes),             \
+  VMT(slot, source_address), VMT(slot, source_format),                      \
+  VMT(slot, output_encoding), VMT(slot, field), VMT(slot, parity),          \
+  VMT(slot, control), VMT(slot, burst), VMT(slot, h_sync),                  \
+  VMT(slot, v_sync), VMT(slot, h_start), VMT(slot, h_end),                  \
+  VMT(slot, v_start), VMT(slot, v_end), VMT(slot, source_width),            \
+  VMT(slot, source_pitch_bytes), VMT(slot, source_x_offset),                \
+  VMT(slot, source_y_offset), VMT(slot, x_scale), VMT(slot, y_scale),       \
+  VMT(slot, filter), VMT(slot, start_tick), VMT(slot, end_tick),            \
+  VMT(slot, sequence), VMT(slot, commands_completed),                       \
+  VMT(slot, fullsync_completed), VMT(slot, last_command_word),              \
+  VMT(slot, last_command_byte), VMT(slot, last_opcode_field),               \
+  VMT(slot, source_bytes), VMT(slot, packet_bytes),                         \
+  VMTX(slot, profile_id, VI_IDENTITY_STRINGS_REASON),                       \
+  VMTX(slot, build_id, VI_IDENTITY_STRINGS_REASON),                         \
+  VMT(slot, vi_clock_policy), VMT(slot, vi_output_policy)
+
+static const rdp_member vi_members[] = {
+    VMI(registers, 0), VMI(registers, 1), VMI(registers, 2),
+    VMI(registers, 3), VMI(registers, 4), VMI(registers, 5),
+    VMI(registers, 6), VMI(registers, 7), VMI(registers, 8),
+    VMI(registers, 9), VMI(registers, 10), VMI(registers, 11),
+    VMI(registers, 12), VMI(registers, 13),
+    VMI(active_registers, 0), VMI(active_registers, 1),
+    VMI(active_registers, 2), VMI(active_registers, 3),
+    VMI(active_registers, 4), VMI(active_registers, 5),
+    VMI(active_registers, 6), VMI(active_registers, 7),
+    VMI(active_registers, 8), VMI(active_registers, 9),
+    VMI(active_registers, 10), VMI(active_registers, 11),
+    VMI(active_registers, 12), VMI(active_registers, 13),
+    VM(phase_remainder), VM(phase_cycles), VM(phase_units),
+    VM(next_boundary_units), VM(last_guest_tick), VM(field_start_tick),
+    VM(next_sequence), VM(event_generation),
+    VM(field), VM(current_readback), VM(refusal_reason),
+    VMI(packet_lengths, 0), VMI(packet_lengths, 1),
+    VMSLOT(0), VMSLOT(1),
+    VMX(packet_head, VI_OBSERVER_REASON),
+    VMX(packet_count, VI_OBSERVER_REASON),
+    VM(enabled), VM(sequence_exhausted), VM(latch_pending),
+};
+
+/* A new member of t64_vi_state or of t64_video_packet_info changes one of the
+ * sizes (or lands in padding, which the byte sweep flips as inert); the build
+ * then fails until the new member has a row. */
+#define VI_STATE_SIZE 1208u
+_Static_assert(sizeof(t64_vi_state) == VI_STATE_SIZE,
+               "t64_vi_state changed: add the new member to vi_members");
+#define VIDEO_PACKET_INFO_SIZE 488u
+_Static_assert(sizeof(t64_video_packet_info) == VIDEO_PACKET_INFO_SIZE,
+               "t64_video_packet_info changed: add the new member to the "
+               "VMSLOT rows of vi_members");
+/* Byte tallies of the rows over the 1,208 bytes: 791 member bytes, 400 bytes
+ * of named exclusions (8 + 8 + 2 x (64 + 128)) and 17 bytes of padding. */
+#define VI_MEMBER_BYTES 791u
+#define VI_EXCLUDED_BYTES 400u
+#define VI_PADDING_BYTES 17u
+#define VI_INERT_BYTES (VI_EXCLUDED_BYTES + VI_PADDING_BYTES)
+
 static bool capture_into(const t64_machine *machine, uint8_t *buffer,
                          size_t capacity, size_t *length_out) {
   t64_digest_sink sink;
@@ -849,8 +950,9 @@ typedef struct {
 
 /* One byte flips and the stream is compared with the baseline, then the byte is
  * restored. A member of the stream must change it; an excluded member, a packet
- * word at or after the count and padding must not. */
-static void check_byte_flip(t64_machine *machine, const stream_baseline *base,
+ * word at or after the count and padding must not. Returns whether the flip
+ * changed the stream (the VI sweep counts the inert bytes). */
+static bool check_byte_flip(t64_machine *machine, const stream_baseline *base,
                             uint8_t *byte, const char *name,
                             const char *excluded) {
   const uint8_t saved = *byte;
@@ -868,6 +970,7 @@ static void check_byte_flip(t64_machine *machine, const stream_baseline *base,
             name, excluded);
   }
   T64_CHECK(excluded == NULL ? changed : !changed);
+  return changed;
 }
 
 static bool is_depth_member(const char *name) {
@@ -880,6 +983,101 @@ static bool is_depth_member(const char *name) {
     if (strcmp(name, names[i]) == 0) return true;
   }
   return false;
+}
+
+/* The VI state of a machine holding a retained video packet (so the identity
+ * strings and one packet length are non-zero). The rows of vi_members claim
+ * their bytes (a row that overruns the state or claims a byte twice is a
+ * failure); the tallies are 791 member bytes, 400 excluded bytes and 17
+ * unclaimed (padding) bytes. In the every-byte mode bit 0 of each of the 1,208
+ * bytes is flipped: a member byte must change the canonical stream, an
+ * excluded or padding byte must not, and exactly VI_INERT_BYTES (417) flips
+ * leave the stream unchanged. One flip is also tied to the SHA-256 digest. */
+static void check_vi_completeness(const char *profile_id, bool every_byte) {
+  const size_t row_count = sizeof vi_members / sizeof vi_members[0];
+  t64_machine *machine = build_vi_frame(profile_id);
+  stream_baseline base;
+  uint8_t digest_before[T64_DIGEST_SIZE];
+  uint8_t digest_after[T64_DIGEST_SIZE];
+  uint8_t *vi_bytes;
+  size_t *owner; /* 0: no row claims the byte, else the row index plus one */
+  size_t member_bytes = 0u;
+  size_t excluded_bytes = 0u;
+  size_t unclaimed_bytes = 0u;
+  size_t inert = 0u;
+  size_t covered = 0u;
+  size_t i;
+  size_t byte;
+  t64_digest_sink sink;
+
+  T64_CHECK(machine != NULL);
+  if (machine == NULL) return;
+  (void)memset(&sink, 0, sizeof sink);
+  T64_CHECK_INT(t64_digest_stream(machine, &sink), T64_STATUS_OK);
+  base.length = sink.offset;
+  base.baseline = (uint8_t *)malloc(base.length);
+  base.scratch = (uint8_t *)malloc(base.length);
+  owner = (size_t *)calloc(VI_STATE_SIZE, sizeof *owner);
+  T64_CHECK(base.baseline != NULL && base.scratch != NULL && owner != NULL);
+  if (base.baseline == NULL || base.scratch == NULL || owner == NULL) {
+    free(base.baseline);
+    free(base.scratch);
+    free(owner);
+    t64_machine_destroy(machine);
+    return;
+  }
+  T64_CHECK(capture_into(machine, base.baseline, base.length, &covered));
+  T64_CHECK_INT(covered, base.length);
+  vi_bytes = (uint8_t *)&machine->vi;
+  for (i = 0u; i < row_count; i++) {
+    const rdp_member *row = &vi_members[i];
+
+    T64_CHECK(row->offset + row->size <= VI_STATE_SIZE);
+    for (byte = row->offset; byte < row->offset + row->size &&
+                             byte < VI_STATE_SIZE; byte++) {
+      T64_CHECK(owner[byte] == 0u); /* no byte is claimed twice */
+      owner[byte] = i + 1u;
+    }
+  }
+  for (byte = 0u; byte < VI_STATE_SIZE; byte++) {
+    if (owner[byte] == 0u) {
+      unclaimed_bytes++;
+    } else if (vi_members[owner[byte] - 1u].excluded == NULL) {
+      member_bytes++;
+    } else {
+      excluded_bytes++;
+    }
+  }
+  T64_CHECK_INT(member_bytes, VI_MEMBER_BYTES);
+  T64_CHECK_INT(excluded_bytes, VI_EXCLUDED_BYTES);
+  T64_CHECK_INT(unclaimed_bytes, VI_PADDING_BYTES);
+  T64_CHECK_INT(member_bytes + excluded_bytes + unclaimed_bytes,
+                VI_STATE_SIZE);
+  if (every_byte) {
+    for (byte = 0u; byte < VI_STATE_SIZE; byte++) {
+      const rdp_member *row = owner[byte] == 0u ? NULL
+                                                : &vi_members[owner[byte] - 1u];
+
+      if (!check_byte_flip(machine, &base, vi_bytes + byte,
+                           row == NULL ? "padding" : row->name,
+                           row == NULL ? "padding" : row->excluded)) {
+        inert++;
+      }
+    }
+    T64_CHECK_INT(inert, VI_INERT_BYTES);
+  }
+  /* every flip was restored: the stream equals its baseline again */
+  T64_CHECK(stream_equals(machine, base.baseline, base.scratch, base.length));
+  /* one flip tied to the digest itself */
+  T64_CHECK_INT(t64_machine_digest(machine, digest_before), T64_STATUS_OK);
+  machine->vi.phase_cycles ^= UINT64_C(1);
+  T64_CHECK_INT(t64_machine_digest(machine, digest_after), T64_STATUS_OK);
+  machine->vi.phase_cycles ^= UINT64_C(1);
+  T64_CHECK(memcmp(digest_before, digest_after, sizeof digest_before) != 0);
+  free(base.baseline);
+  free(base.scratch);
+  free(owner);
+  t64_machine_destroy(machine);
 }
 
 /* The canonical stream of the descriptor 13 family sees every RDP member
@@ -1008,6 +1206,8 @@ static void case_v26_completeness(void) {
     free(claimed);
     t64_machine_destroy(machine);
   }
+  /* the VI state: every byte of it on the stem id (plan 10-20) */
+  check_vi_completeness(pairs[0].v26_id, true);
 }
 
 
