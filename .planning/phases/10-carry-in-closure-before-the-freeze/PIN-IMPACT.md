@@ -640,3 +640,27 @@ only, section 9) pass 4 of 4; `sh scripts/preflight-phase10.sh` on the clean com
 passes in 76 s (227 units compiled with the act image cc 13.3.0, 11 post-Gate steps replayed
 with the real `qualify-audio.py` and `qualify-phase09.py` emit steps over the new manifest);
 `git log` since the Wave 3 base lists exactly this one commit for `fixtures/manifest.json`.
+
+## 12. Provisional-name sweep
+
+Written by plan 10-16 (phase-wave 4). Evidence tier: code observation of the seven live spec
+docs at the commits named below; docs only, nothing here moves a build id, a pin or a
+compatibility or hardware claim. The freeze is a Phase 11 candidate and the final ABI bind
+is at the end of Phase 12 (ROADMAP Phase 11 and 12); the sweep adds no API or ABI freeze
+statement. A relabel changes the name of the milestone a statement waits for, never the
+statement.
+
+Gate (whitespace-normalized, so a phrase that wraps over two lines counts):
+
+    python3 -c "import re,pathlib,sys; fs='raw-capture result-protocol machine-contract replay state-container si-pif-controller save-media'.split(); rx=re.compile(r'(provisional|revisable)\s+until\s+(the\s+)?Phase\s+10|Phase\s+10\s+(interface\s+review|item|follow-up)'); n=sum(len(rx.findall(pathlib.Path('docs/spec/'+f+'.md').read_text())) for f in fs); print('stale', n); sys.exit(1 if n else 0)"
+
+Baseline re-measured at the plan start (commit `9c60de0`): stale 15 (raw-capture 1,
+result-protocol 2, machine-contract 5, replay 2, state-container 3, si-pif-controller 0,
+save-media 2), equal to the planning baseline. The replacement phrase used for every
+relabel is the one literal "provisional until the Phase 11 freeze candidate (final ABI bind
+at the end of Phase 12)" (and "revisable until" in the one site that said revisable), so
+Phase 11 and 12 can find every site with one search.
+
+| # | Site at the plan start (file:line) | Old phrase | New phrase or settlement |
+|---|-----------------------------------|------------|--------------------------|
+| 1 | `docs/spec/raw-capture.md:132` (artifact pair, Phase 9) | provisional until Phase 10 | provisional until the Phase 11 freeze candidate (final ABI bind at the end of Phase 12) |

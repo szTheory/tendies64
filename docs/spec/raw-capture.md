@@ -129,7 +129,8 @@ limit is raised for the capture directory. The accepted authored case is
 16,581 bytes in total and is unaffected; the current real runner accepts only
 that authored guest.
 
-Artifact pair (Phase 9, provisional until Phase 10): with `--artifact-dir` and
+Artifact pair (Phase 9, provisional until the Phase 11 freeze candidate (final ABI
+bind at the end of Phase 12)): with `--artifact-dir` and
 `--artifact-max-bytes` (both required together, no default, at most 33,554,432
 bytes, refused together with `--raw-capture-dir`) the child limit is exactly the
 declared maximum plus 65,536 bytes; without the pair it stays at 69,632 bytes as
