@@ -462,7 +462,7 @@ def _stage_table(bases: dict[str, str]) -> list[dict[str, Any]]:
             artifacts=("asan_core",)),
         _stage(
             "mutants",
-            "out-of-tree mutant driver (26 mutants and 2 controls): measured 97 s at load 8, so 600 s is 6 times",
+            "out-of-tree mutant driver (25 mutants and 2 controls, 27 rows): measured 97 s at load 8, so 600 s is 6 times",
             [_command([PYTHON, "-B", "scripts/p10-mutants.py", "--run"], 600,
                       97, check="mutants")]),
         _stage(
