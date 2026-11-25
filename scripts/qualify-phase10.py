@@ -399,7 +399,9 @@ def _stage_table(bases: dict[str, str]) -> list[dict[str, Any]]:
     phase10 120.9 s wall (import-v26-hostile alone 120.9 s; the 30 ASan test
     seconds sum to 278.5 s), mutant run 97 s, digest sweep 41 s (60.6 s in
     PIN-IMPACT section 7), CI scanner 0.03 s and its selftest 1.8 to 2 s,
-    inventory check 0.6 to 1 s, oracle check 0.09 s.
+    inventory check 0.6 to 1 s, oracle check 0.09 s. Plan 10-20 refreshed the
+    gate, asan and mutants figures (see their derivations and PIN-IMPACT
+    section 16); the other stages keep the plan 10-17 figures above.
     """
     wave0 = bases[WAVE0_LABEL]
     gate_env = _gate_env()
@@ -440,8 +442,8 @@ def _stage_table(bases: dict[str, str]) -> list[dict[str, Any]]:
             ]),
         _stage(
             "gate",
-            "the full gate (scripts/gate.sh): measured 143 s on a warm build at load 7.4, so 600 s is 4.2 times; a cold Binutils fixture build adds about 186 s (F-111) and stays inside; the Phase 9 gate stage took 136 to 220 s (F-110, F-112)",
-            [_command(["sh", "scripts/gate.sh"], 600, 143,
+            "the full gate (scripts/gate.sh): measured 129.41 s in the passing plan 10-19 qualification record (PIN-IMPACT section 15.1; 1-minute load 16.1 at the start and 6.8 at the end), so 600 s is 4.6 times; the plan 10-17 figure of 143 s (warm build, load 7.4) is superseded, and no newer measurement of the whole stage existed when plan 10-20 refreshed this text; a cold Binutils fixture build adds about 186 s (F-111) and stays inside; the Phase 9 gate stage took 136 to 220 s (F-110, F-112)",
+            [_command(["sh", "scripts/gate.sh"], 600, 129,
                       marker=r"^\[gate\] PASS$", check="gate")],
             artifacts=("core", "runner_real", "runner_test")),
         _stage(
@@ -451,20 +453,20 @@ def _stage_table(bases: dict[str, str]) -> list[dict[str, Any]]:
                       marker=r"^100% tests passed", check="junit:phase10-junit.xml")]),
         _stage(
             "asan",
-            "ASan and UBSan configure, build and the Phase 10 selection: measured 1 s, 16 s and 120.9 s wall (load 12 to 13; the 30 names sum to 278.5 s with import-v26-hostile alone 120.9 s), so the 600 s CTest limit is 5 times the wall and 2.2 times the serial sum, and the 600 s build limit covers an incremental rebuild after core edits",
+            "ASan and UBSan configure, build and the Phase 10 selection: measured 0.19 s, 7.71 s and 129.05 s wall in the passing plan 10-19 qualification record (PIN-IMPACT section 15.1; 1-minute load 16.1 at the start and 6.8 at the end; the 30 names sum to 305.08 s with import-v26-hostile alone 129.03 s), so the 600 s CTest limit is 4.6 times the wall and 1.97 times the serial sum (the four-job preset overlaps the names, and the longest name alone is 129.03 s), and the 600 s build limit covers an incremental rebuild after core edits; the plan 10-17 figures (1 s, 16 s, 120.9 s wall and a 278.5 s sum) are superseded, and no newer measurement of the whole selection existed when plan 10-20 refreshed this text",
             [
-                _command(["cmake", "--preset", "asan"], 120, 1),
+                _command(["cmake", "--preset", "asan"], 120, 0.2),
                 _command(["cmake", "--build", "--preset", "asan", "--parallel", "1"],
-                         600, 16),
-                _command(asan_ctest, 600, 121, env=asan_env,
+                         600, 7.7),
+                _command(asan_ctest, 600, 129, env=asan_env,
                          marker=r"^100% tests passed", check="junit:asan-phase10-junit.xml"),
             ],
             artifacts=("asan_core",)),
         _stage(
             "mutants",
-            "out-of-tree mutant driver (25 mutants and 2 controls, 27 rows): measured 97 s at load 8, so 600 s is 6 times",
+            "out-of-tree mutant driver (26 mutants and 2 controls, 28 rows): measured 147 s at 1-minute load 10.7 to 13.5 (plan 10-20 Task 3, all 28 rows as expected), so 600 s is 4.1 times; the previous measurement was 97 s for 27 rows at load 8 (plan 10-17) and 100.72 s in the passing plan 10-19 record",
             [_command([PYTHON, "-B", "scripts/p10-mutants.py", "--run"], 600,
-                      97, check="mutants")]),
+                      147, check="mutants")]),
         _stage(
             "sweep",
             "digest sweep of the 21 shipped ids against the Wave 0 base (two tree builds and two sweeps in parallel): measured 41 s here and 60.6 s at load 8.5 in PIN-IMPACT section 7, so 300 s is 4.9 times the larger",
