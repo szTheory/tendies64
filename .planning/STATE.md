@@ -4,16 +4,16 @@ milestone: v1.2
 milestone_name: Embeddable and Playable
 current_phase: 11
 current_phase_name: Installed Consumer and Freeze Candidate
-status: planning
+status: executing
 stopped_at: Phase 10 complete, ready to plan Phase 11
-last_updated: "2026-11-25T16:28:38.720Z"
+last_updated: "2026-11-25T19:01:52.595Z"
 last_activity: 2026-11-25
 last_activity_desc: Phase 10 complete, transitioned to Phase 11
-state_head: ad621d3e648fb276256ca563502625812f45c436
+state_head: 27cc1127da156ae57d33aa47d6f351e935d2cf59
 progress:
   total_phases: 3
   completed_phases: 1
-  total_plans: 21
+  total_plans: 46
   completed_plans: 21
   percent: 33
 ---
@@ -29,9 +29,9 @@ See: .planning/PROJECT.md (updated 2026-11-23)
 
 ## Current Position
 
-Phase: 11 — Installed Consumer and Freeze Candidate
+Phase: 11 (Installed Consumer and Freeze Candidate) — READY TO EXECUTE
 Plan: Not started
-Status: Ready to plan
+Status: Ready to execute
 Last activity: 2026-11-25 — Phase 10 complete, transitioned to Phase 11
 
 Progress: [███░░░░░░░] 33% (0 of 3 v1.2 phases complete)
@@ -241,3 +241,4 @@ pass. This approval applies to that specific repair, not future private values.
 None
 
 - Owner approval 2026-11-25 (answer "Approve call-site-only rebind", Phase 11 plan-phase): Phase 11 may perform an identity-only, orchestrator-only rebind of the Phase 7 oracle request after API call-site-only edits to the nine bound test files (core/tests/test_rdp{,_copy,_triangles,_texture,_combiner,_blender,_depth}.c, test_vi.c, test_video_output.c, runner/tests/test_rdp_video.c): reproduce the old pinned hash first, change only those call sites and the derived hashes and PINNED_REQUEST_SHA256, keep local_decision blocked, isolate in one commit. No oracle, rights or publication authority granted.
+  - Planner note 2026-11-25 (plan check item I-1; not owner text, the approval above is unchanged): the approval says "nine" and lists ten paths. Phase 11 reads it as nine API-using files edited (the seven test_rdp files, test_vi.c, test_video_output.c) and runner/tests/test_rdp_video.c listed but not edited (it needs no call-site change and keeps its hash); recorded as DR-27 in plan 11-01 and applied by plan 11-14.

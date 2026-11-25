@@ -410,14 +410,16 @@ Deprecated: unprefixed SoftFloat names and unprefixed `t64_*` internals in the a
 | A9 | TSan result is clean | Sanitizers | A real shared-state defect surfaces (a finding, not a plan break) |
 | A10 | SDL3/Vulkan/SQLite prior-art statements from the lens still hold | Prior art | Wording only |
 
-## Open Questions
+## Open Questions (RESOLVED)
 
-1. **Is the oracle-request rebind for edited bound test files pre-approved?** Known: approvals cover manifest rows (STATE.md 143, 150, 209). Unclear: whole-file hashes of nine test sources. Recommendation: the planner's first plan records the question and the orchestrator resolves it before the shape wave; fallback is a compat shim only for those nine files (not recommended: positional initializers cannot be shimmed).
-2. **AMBIG-A to E** (section "Status and stop-reason inventory"): BUS_DEVICE_REFUSED carve-out, BAD_STORAGE split with a new defect status, RESOURCE_LIMIT stall wording, NULL-machine statuses, dead status 6. Recommend deciding in the class-table plan with code evidence from the sweep.
-3. **`t64_core_identity`:** keep unprefixed (golden annotation) or move the stub to the runner.
-4. **Package version number:** `0.1.0` as the first ABI candidate (scratch used it); the planner picks the number and the bump rule (minor on any golden change).
-5. **Hosted lane for the fuller fresh-archive variant:** a new workflow needs scanner rules (`CI-WORKFLOW-FILE`, `CI-STRESS-WORKFLOW`-style exact contract). Recommend a local script plus the qualifier only, no new workflow.
-6. **Space-containing prefix and `lint-objects`:** run lint on members extracted into a space-free temp path; whether `ar x` from a spaced prefix works with the script's `$@` quoting was not tried.
+Resolved 2026-11-25 at planning; each answer cites where it lives. Q6 stays an explicit verification item of plan 11-17 whose outcome is recorded there.
+
+1. **Is the oracle-request rebind for edited bound test files pre-approved?** Known: approvals cover manifest rows (STATE.md 143, 150, 209). Unclear: whole-file hashes of nine test sources. Recommendation: the planner's first plan records the question and the orchestrator resolves it before the shape wave; fallback is a compat shim only for those nine files (not recommended: positional initializers cannot be shimmed). **RESOLVED:** owner approval 2026-11-25 "Approve call-site-only rebind" (STATE.md, last Blockers entry; CONTEXT "Owner approval 2026-11-25"); implemented by plans 11-12 (scratch proof), 11-14 (orchestrator commit) and decision rows DR-22 and DR-27 of 11-01.
+2. **AMBIG-A to E** (section "Status and stop-reason inventory"): BUS_DEVICE_REFUSED carve-out, BAD_STORAGE split with a new defect status, RESOURCE_LIMIT stall wording, NULL-machine statuses, dead status 6. Recommend deciding in the class-table plan with code evidence from the sweep. **RESOLVED:** CONTEXT "Decided autonomously" rows AMBIG-A to AMBIG-E, dead values and NULL machine; DR-11 to DR-15 of 11-01; implemented in 11-02 (class table) and 11-03 (defect sites, static and measured scheduler whitelist, bus carve-out).
+3. **`t64_core_identity`:** keep unprefixed (golden annotation) or move the stub to the runner. **RESOLVED:** neither; it ships as `t64i_core_identity` through the facade's include of the prefix header (CONTEXT "Installed headers"; DR-17 and DR-18 of 11-01; plan 11-11 Task 1).
+4. **Package version number:** `0.1.0` as the first ABI candidate (scratch used it); the planner picks the number and the bump rule (minor on any golden change). **RESOLVED:** package 0.1.0 with SameMinorVersion, ABI 0.1, minor increments on any freeze-record golden change before the final bind (DR-02 and DR-20 of 11-01; plans 11-16 and 11-23).
+5. **Hosted lane for the fuller fresh-archive variant:** a new workflow needs scanner rules (`CI-WORKFLOW-FILE`, `CI-STRESS-WORKFLOW`-style exact contract). Recommend a local script plus the qualifier only, no new workflow. **RESOLVED:** as recommended (CONTEXT "Hosted footprint"; DR-23 of 11-01; scripts/check-install.sh fresh-archive run by the qualifier in plan 11-24).
+6. **Space-containing prefix and `lint-objects`:** run lint on members extracted into a space-free temp path; whether `ar x` from a spaced prefix works with the script's `$@` quoting was not tried. **RESOLVED as a verification item:** plan 11-17 Task 3 runs `ar x` on the archive inside the spaced, moved prefix and `lint-objects.sh --objects` on the extracted members, records the outcome in PIN-IMPACT "Install steps" row "Q6 spaced-prefix ar x", and falls back to copying the archive into the space-free directory first if it fails.
 
 ## Environment Availability
 

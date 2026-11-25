@@ -153,7 +153,87 @@ Plans:
   3. A call-sequence generator proves every refused status leaves observations bit-identical, a guest-stop resumes, and a defect poisons the instance, under ASan and UBSan against the shipped library; every status and stop reason appears once in the class table
   4. The installed archive's members import no file, clock, entropy or thread symbol, and a seeded violating object fails the check
   5. A bound freeze-candidate record (header hash, public symbol list, struct-layout table, status-class table) exists and an incompatible change fails a check; an additive-extension rule (size fields, additive profiles, devices and error subcodes) is documented
-**Plans**: TBD
+**Plans:** 25 plans (linear chain; phase-waves W0 11-01, SHAPE 11-02 to 11-14 reviewed by 11-15, INSTALL 11-16 to 11-20 reviewed by 11-21, FREEZE 11-22 to 11-24, final audit and qualification 11-25)
+**G5 note (planning 2026-11-25, revised after plan check iteration 1):** 25 plans exceed the about 10-15 guideline and the research estimate of 14-16. The one-way shape wave was first split into six plans so none passes the 4-task / about 45-minute cap; the plan check (B-4) then required at most 15 files per plan, so the init-macro codemod became six directory-group plans (11-05 runner/, 11-06 to 11-09 core/tests groups A to D, 11-10 runner/tests plus the init-form guard, each at most 15 files) and the flip became three plans (11-12 the atomic flip, 11-13 the separable struct_size prologues, 11-14 the bound re-proof and orchestrator commit); three review/audit plans are mandated by AUTONOMY v1.2. **File-count exception (11-12):** 81 files, of which 67 are the output of one codemod invocation (--create --trace over every non-bound caller), because the create and trace_drain signatures and their callers must change in one compile state (a commit with the new signatures and one unconverted caller does not compile); the 14 hand-edited files are within the cap and everything separable moved to 11-13; the three 11-12 tasks are one coupled commit and cannot be split at a task boundary. **File-count exceptions 11-03, 11-04, 11-11 (accepted by orchestrator ruling, plan check iteration 2: project rules cap tasks and time per plan, not files):** 11-03 (24 files) keeps the poison flag, in-call flag and entry guard over all 23 machine-taking entries in nine core sources in one plan, because the API-02 defect postcondition holds only when no entry is left unguarded, and the sealed-observer guards are followed by their isolated no-HLE refresh in the same plan; 11-04 (18 files) is ordered before 11-11 and 11-12 because it adds the last new public symbols (the prefix header is generated after them) and the retained-slot types the flip relies on, and its four tasks are separable; 11-11 (33 files) commits the nine SoftFloat guard removals (20 deleted lines: 3 in each of the two s_countLeadingZeros files, 2 in each of the other seven) together with the generated prefix header because the rename cannot apply to a self-guarded name, and carries the build-id-moving relabel inside the shape wave before the flip; its Tasks 3 and 4 are separable from Tasks 1-2. 11-04 and 11-11 keep their separable tasks together to avoid a further plan renumbering and one extra review/rebase hop (accepted trade-off). Reversal: if execution shows any of these plans exceeding about 45 minutes, the executor stops at a task boundary and the orchestrator splits the rest into a new numbered plan appended after 11-25 (never a decimal plan number). Each stays within the 4-task cap. **DEV-11-01 (PIN-IMPACT DR-22, corrected after the plan check):** from the 11-12 flip commit to the 11-14 bound commit the nine oracle-bound test executables do not build in the shared tree, because the 2026-11-25 owner approval requires their call-site edits as one isolated commit placed last in the shape wave; the commits in that window are not consecutive (refresh, prologue and planning commits sit between), each code commit there is made only after the full gate passes in a marked scratch clone with the proven bound patch, nothing is pushed or gated until 11-15 (every pushed head compiles), and git bisect across the window is unsupported for those nine tests. **G4:** Phase 11 records its own gate-growth exception for owner review in its PIN-IMPACT ledger (new names are required evidence and each carries a COST property; reversal: a projected cold gate-macos above 900 s moves non-essential Phase 11 names to a local lane).
+
+Plans:
+**Wave 1**
+- [ ] 11-01-PLAN.md — W0: scripted preflight, Wave 0 base, bound-file scratch inventory, class inventory, decision record (DR-01 to DR-32), carry-in triage, LibFuturo paper read, sweep printer shim
+
+**Wave 2** *(blocked on Wave 1 completion)*
+- [ ] 11-02-PLAN.md — SHAPE: T64_API, extern "C", ABI constants and t64_abi_version, statuses 34-38, status-class table and checker
+
+**Wave 3** *(blocked on Wave 2 completion)*
+- [ ] 11-03-PLAN.md — SHAPE: poison and in-call guards (t64_rom.c allocator sites included), poison query, AMBIG-A/B defect sites, code-derived scheduler whitelist, bus-write carve-out
+
+**Wave 4** *(blocked on Wave 3 completion)*
+- [ ] 11-04-PLAN.md — SHAPE: public reset, unload and output status; internal retained-slot types
+
+**Wave 5** *(blocked on Wave 4 completion)*
+- [ ] 11-05-PLAN.md — SHAPE: public init macros, the codemod with its marked-scratch-root exception, runner/ group
+
+**Wave 6** *(blocked on Wave 5 completion)*
+- [ ] 11-06-PLAN.md — SHAPE: codemod core/tests group A (CPU, boot, ROM admission)
+
+**Wave 7** *(blocked on Wave 6 completion)*
+- [ ] 11-07-PLAN.md — SHAPE: codemod core/tests group B (RSP, DMA, RDRAM, devices)
+
+**Wave 8** *(blocked on Wave 7 completion)*
+- [ ] 11-08-PLAN.md — SHAPE: codemod core/tests group C (state, save, digest, trace)
+
+**Wave 9** *(blocked on Wave 8 completion)*
+- [ ] 11-09-PLAN.md — SHAPE: codemod core/tests group D (scheduler, profile, lifecycle, composite, Phase 11 API tests)
+
+**Wave 10** *(blocked on Wave 9 completion)*
+- [ ] 11-10-PLAN.md — SHAPE: codemod runner/tests group and the init-form guard
+
+**Wave 11** *(blocked on Wave 10 completion)*
+- [ ] 11-11-PLAN.md — SHAPE: SoftFloat guard edits and t64i_ prefix header, stale freeze-text relabel and guard, ADR-0002/0006 amendments, W2-02, T4 and T7
+
+**Wave 12** *(blocked on Wave 11 completion)*
+- [ ] 11-12-PLAN.md — SHAPE: the atomic flip (struct_size layouts, create-info handshake, record_size, 67 mechanical callers; file-count exception), scratch bound-patch proof before the commit
+
+**Wave 13** *(blocked on Wave 12 completion)*
+- [ ] 11-13-PLAN.md — SHAPE: struct_size prologues on every remaining in/out entry, scratch proof before the commit
+
+**Wave 14** *(blocked on Wave 13 completion)*
+- [ ] 11-14-PLAN.md — SHAPE: bound-patch re-proof and the orchestrator-only bound-file commit with identity-only rebind (closes the DEV-11-01 window)
+
+**Wave 15** *(blocked on Wave 14 completion)*
+- [ ] 11-15-PLAN.md — SHAPE review in a scratch clone, push, hosted pair, Install base
+
+**Wave 16** *(blocked on Wave 15 completion)*
+- [ ] 11-16-PLAN.md — INSTALL tracer: sha256 fold, package export, relocated install, independent consumer smoke, independence guards, Linux undefined set, first hosted install run
+
+**Wave 17** *(blocked on Wave 16 completion)*
+- [ ] 11-17-PLAN.md — INSTALL: cheap-first ABI checks (header, layout, nm golden, absolute paths) and API-04 object checks with seeded violations and the Q6 spaced-prefix check
+
+**Wave 18** *(blocked on Wave 17 completion)*
+- [ ] 11-18-PLAN.md — INSTALL: composite fixture through the installed package (three-way, runner-recorded pins labeled) and accepted/refused cases for every operation
+
+**Wave 19** *(blocked on Wave 18 completion)*
+- [ ] 11-19-PLAN.md — INSTALL: host-shaped loop and two instances, negative-control matrix, symbol collision, plain cc
+
+**Wave 20** *(blocked on Wave 19 completion)*
+- [ ] 11-20-PLAN.md — INSTALL: call-sequence generator, local ASan/UBSan and TSan lanes
+
+**Wave 21** *(blocked on Wave 20 completion)*
+- [ ] 11-21-PLAN.md — INSTALL review in a scratch clone, push, hosted pair, Freeze base
+
+**Wave 22** *(blocked on Wave 21 completion)*
+- [ ] 11-22-PLAN.md — FREEZE: docs/spec/api.md and carry-ins W2-01, W1-03, D-10-17-01, T8
+
+**Wave 23** *(blocked on Wave 22 completion)*
+- [ ] 11-23-PLAN.md — FREEZE: bound freeze-candidate record and the incompatible-change check
+
+**Wave 24** *(blocked on Wave 23 completion)*
+- [ ] 11-24-PLAN.md — FREEZE: Phase 11 qualifier, fresh-archive lane, hermetic test, rehearsal
+
+**Wave 25** *(blocked on Wave 24 completion)*
+- [ ] 11-25-PLAN.md — FREEZE: final independent audit, qualification, claims and evidence, hosted pair at a pinned SHA
+
+**Cross-cutting constraints:** <!-- gsd:generated -->
+- No oracle-bound file, no expected value, check, case name or control flow changes; only initializer forms [CTX: Owner approval 2026-11-25: bound-file edits only in the one isolated commit placed last in the shape wave]
 
 ### Phase 12: Minimal Host, Playable Homebrew and Final Bind
 **Goal**: An authored, rights-cleared title runs headlessly and in a minimal host built only on the installed API, the core stays free of the host, and the ABI is bound for good once nothing found in the host work needs amending
@@ -192,5 +272,5 @@ Priority order. NEXT and NEAR items name their promotion evidence and blocking d
 | Phase | Milestone | Plans Complete | Status | Completed |
 |-------|-----------|----------------|--------|-----------|
 | 10. Carry-in Closure Before the Freeze | v1.2 | 21/21 | Complete    | 2026-11-25 |
-| 11. Installed Consumer and Freeze Candidate | v1.2 | 0/TBD | Not started | - |
+| 11. Installed Consumer and Freeze Candidate | v1.2 | 0/25 | Planned | - |
 | 12. Minimal Host, Playable Homebrew and Final Bind | v1.2 | 0/TBD | Not started | - |
