@@ -5,16 +5,16 @@ milestone_name: Embeddable and Playable
 current_phase: 10
 current_phase_name: Carry-in Closure Before the Freeze
 status: executing
-stopped_at: Completed 10-19-PLAN.md (19 of 19); Phase 10 ready for verification, push pending (orchestrator)
-last_updated: "2026-11-25T14:09:52.730Z"
+stopped_at: Completed 10-20-PLAN.md (20 of 21); gap closure W2-03 closed; 10-21 re-qualification and push pending
+last_updated: "2026-11-25T15:40:46.162Z"
 last_activity: 2026-11-23
 last_activity_desc: Phase 10 execution started
-state_head: c4794ce9fd606824b806e51ddd9151463ef6bc4d
+state_head: c16c90b2439a88216c56c2a6378a5feb55659bd4
 progress:
   total_phases: 3
   completed_phases: 0
-  total_plans: 19
-  completed_plans: 19
+  total_plans: 21
+  completed_plans: 20
   percent: 0
 ---
 
@@ -30,8 +30,8 @@ See: .planning/PROJECT.md (updated 2026-11-23)
 ## Current Position
 
 Phase: 10 (Carry-in Closure Before the Freeze) — EXECUTING
-Plan: 19 of 19
-Status: Plan 10-19 complete (19 of 19): final qualification passed on attempt 4, cold-cache gate-macos 731 s of 900 s, evidence and claims written; Phase 10 ready for verification, local commits not yet pushed
+Plan: 20 of 21
+Status: Plan 10-20 complete (20 of 21, gap closure): W2-03 closed by committed VI completeness rows in v26-completeness (RED by mutant v26-digest-omit-vi-phase-cycles SURVIVED, GREEN KILLED; 26 mutants and 2 controls); local gate, sweep and full preflight pass; the plan 10-19 qualification record is superseded by design; next 10-21 (clone review, new Qualification base, native re-qualification, push and hosted pair, refreshed evidence and claims); local commits not yet pushed
 Last activity: 2026-11-23 — Phase 10 execution started
 
 Progress: [░░░░░░░░░░] 0% (0 of 3 v1.2 phases complete)
@@ -79,6 +79,7 @@ Progress: [░░░░░░░░░░] 0% (0 of 3 v1.2 phases complete)
 | Phase 10 P17 | 44 min | 3 tasks | 7 files |
 | Phase 10 P18 | 27 min | 4 tasks | 4 files |
 | Phase 10 P19 | 40 min | 4 tasks | 4 files |
+| Phase 10 P20 | 17min | 4 tasks | 5 files |
 
 ## Accumulated Context
 
@@ -186,6 +187,7 @@ Progress: [░░░░░░░░░░] 0% (0 of 3 v1.2 phases complete)
 - [Phase 10]: 10-19: GATE-01 met by a measured cold-cache run, run 45550277510, gate-macos 731 s against the 900 s limit (margin 169 s); above the F-111 (673 s) and plan 10-18 (571 s) projections, inside the 10-17 ranges; the G4 reversal rule is not triggered (F-124)
 - [Phase 10]: 10-19: the final native qualification passed on attempt 4 (record 20261125T134440416529Z-b9d957c3, verified once at head b9d957c); three earlier attempts failed at supervisor wall backstops under unrelated host load and stay in the evidence, no limit widened, no source changed (PIN-IMPACT.md 15.1, F-125)
 - [Phase 10]: 10-19: docs/claims/phase10.md holds eight unit-tested blocks (each unit.core.vg name bound to one id) and docs/evidence/phase10-qualification.md lists eight recorded exceptions for owner review, none an approval; do not re-run qualify-phase10.py --verify after the evidence commit (the new documents are bound inputs)
+- [Phase 10]: 10-20: W2-03 closed by 120 committed VI rows in the existing case v26-completeness (791 member, 400 named-exclusion and 17 padding bytes of 1,208; every byte flipped on the stem id with exactly 417 inert; representative sweep on the three save ids and the state 25 stem); the mutant v26-digest-omit-vi-phase-cycles SURVIVED the case before the rows (RED, be683bf) and is KILLED after them (GREEN, 0ed0d75); no production source, CTest name or limit changed; the plan 10-19 qualification record is superseded by design and plan 10-21 re-qualifies
 
 ### Pending Todos
 
@@ -211,8 +213,8 @@ None for v1.1. Carry-ins for v1.2 are listed in the Deferred Items table, the v1
 
 ## Session Continuity
 
-Last session: 2026-11-25T14:09:52.704Z
-Stopped at: Completed 10-19-PLAN.md (19 of 19); Phase 10 ready for verification, push pending (orchestrator)
+Last session: 2026-11-25T15:40:46.025Z
+Stopped at: Completed 10-20-PLAN.md (20 of 21); gap closure W2-03 closed; 10-21 re-qualification and push pending
 Resume file: None
 
 Historical closeout: [v1.0 roadmap](milestones/v1.0-ROADMAP.md), [audit](milestones/v1.0-MILESTONE-AUDIT.md), [lessons](RETROSPECTIVE.md).
