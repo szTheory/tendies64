@@ -162,13 +162,19 @@ before the next wave's first commit, written here as exactly one line per label 
 committed in a commit that changes only this file. Later labels are appended by plan
 10-05 for Wave 1, plan 10-08 for Wave 2, plan 10-13 for Wave 3 and plan 10-18 for the
 Qualification base, each after its plan's last non-recording commit. The Wave 0
-record below is the only line of this form written by plan 10-01.
+record below is the only line of this form written by plan 10-01. The gap closure of
+plans 10-20 and 10-21 moved the bound sources (a test source and the qualifier) after the first
+qualification, so plan 10-21 re-recorded the Qualification base after the independent review of
+that closure and relabelled the plan 10-18 line as historical, so that exactly one record line
+remains (the base extraction idiom and `read_bases` of `scripts/qualify-phase10.py` match
+only lines that start with the label and a colon).
 
 - Wave 0 base: 4ac633e880e0c26005cb03092e8d8485e721034c
 - Wave 1 base: f6ab8c26d008b8301b729b5aae2715e1b1079318
 - Wave 2 base: 6dd785986f6aa78c6da5573a558b15b386a4edee
 - Wave 3 base: 1cded8de34b0c2f5c5bea903095ffc7f1e55d6fc
-- Qualification base: ad39b6be2f803af45af15d4ed511b72a89460339
+- Historical qualification base (plan 10-18, superseded by plan 10-21): ad39b6be2f803af45af15d4ed511b72a89460339
+- Qualification base: 76451024e148073804e162841c3d0a3543bd2567
 
 ## 6. Gate-growth ledger
 
