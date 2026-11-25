@@ -222,6 +222,19 @@ typedef struct {
   void *context;
 } t64_host_allocator;
 
+/*
+ * Initializer macros of the caller-owned structs (plan 11-05). Each expands to
+ * a positional brace initializer in member order, with no designated
+ * initializer, so it is valid in C99 and C++17. Use it in a declaration, as in
+ * "t64_host_allocator allocator = T64_HOST_ALLOCATOR_INIT(f, g, NULL);", or in
+ * C as the tail of a compound literal, as in
+ * "&(t64_stop_request)T64_STOP_REQUEST_INIT(kind, value)". A caller
+ * initializes every such object through its macro, so the header and not the
+ * call site owns the layout of the object.
+ */
+#define T64_HOST_ALLOCATOR_INIT(allocate_fn, release_fn, context_ptr) \
+  {(allocate_fn), (release_fn), (context_ptr)}
+
 typedef struct {
   char profile_id[T64_PROFILE_TEXT_CAPACITY];
   char console_target[T64_PROFILE_TEXT_CAPACITY];
@@ -296,17 +309,26 @@ typedef struct {
   uint32_t kind;
   uint64_t value;
 } t64_stop_request;
+/* A stop request of the given T64_STOP_* kind and value. */
+#define T64_STOP_REQUEST_INIT(request_kind, request_value) \
+  {(request_kind), (request_value)}
 
 typedef struct {
   uint32_t reason;
   uint64_t tick;
 } t64_stop_result;
+/* An all-zero result record, and a result record with a given reason and
+ * tick (a host that seeds a sentinel before the call). */
+#define T64_STOP_RESULT_INIT {0u, 0u}
+#define T64_STOP_RESULT_INIT_WITH(stop_reason, stop_tick) \
+  {(stop_reason), (stop_tick)}
 
 typedef struct {
   uint64_t retired_instructions;
   uint32_t pc;
   uint32_t opcode;
 } t64_cpu_stop_detail;
+#define T64_CPU_STOP_DETAIL_INIT {0u, 0u, 0u}
 
 typedef struct {
   uint64_t tick;
@@ -324,6 +346,7 @@ typedef struct {
   bool lost_output;
   bool total_attempted_bytes_exact;
 } t64_output_drain_result;
+#define T64_OUTPUT_DRAIN_RESULT_INIT {0u, 0u, 0u, {0u}, false, false}
 
 /*
  * Pacing information of the output rings (plan 11-04), reported by
@@ -398,6 +421,15 @@ typedef struct {
   char vi_clock_policy[T64_PROFILE_TEXT_CAPACITY];
   char vi_output_policy[T64_PROFILE_TEXT_CAPACITY];
 } t64_video_packet_info;
+/* All-zero record: 23 uint32_t members, 6 uint64_t members, 2 uint32_t
+ * members, 2 size_t members and the 4 text members, in declaration order. */
+#define T64_VIDEO_PACKET_INFO_INIT                                           \
+  {0u, 0u, 0u, 0u, 0u, 0u, 0u, 0u, 0u, 0u, 0u, 0u, 0u, 0u, 0u, 0u, 0u, 0u, \
+   0u, 0u, 0u, 0u, 0u,                                                       \
+   0u, 0u, 0u, 0u, 0u, 0u,                                                   \
+   0u, 0u,                                                                   \
+   0u, 0u,                                                                   \
+   {0}, {0}, {0}, {0}}
 
 /* One retained raw stereo PCM packet produced by AI DMA. */
 typedef struct {
@@ -416,6 +448,11 @@ typedef struct {
   char profile_id[T64_PROFILE_TEXT_CAPACITY];
   char build_id[128];
 } t64_audio_packet_info;
+/* All-zero record with struct_size set to the size of the struct (the callee
+ * writes struct_size itself today). */
+#define T64_AUDIO_PACKET_INFO_INIT                                         \
+  {(uint32_t)sizeof(t64_audio_packet_info), 0u, 0u, 0u, 0u, 0u, 0u, 0u, 0u, \
+   0u, 0u, 0u, {0}, {0}}
 
 #define T64_AUDIO_ENCODING_S16BE UINT32_C(1)
 
@@ -656,6 +693,7 @@ typedef struct {
   uint32_t rule;
   uint64_t position;
 } t64_state_import_report;
+#define T64_STATE_IMPORT_REPORT_INIT {0u, 0u, 0u, 0u, 0u}
 
 T64_API t64_status t64_machine_state_import(t64_machine *machine,
                                             const uint8_t *bytes, size_t length,
@@ -728,6 +766,7 @@ typedef struct {
   uint32_t flags;
   uint64_t write_generation;
 } t64_save_info;
+#define T64_SAVE_INFO_INIT {0u, 0u, 0u, 0u}
 
 /*
  * Reports the save device of an admitted machine when the requested kind is

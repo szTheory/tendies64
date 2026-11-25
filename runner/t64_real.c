@@ -582,7 +582,7 @@ static bool drain_video(t64_machine *machine,
                         uint8_t *packet_scratch, size_t packet_capacity,
                         t64_raw_capture *raw_capture) {
   for (;;) {
-    t64_video_packet_info info;
+    t64_video_packet_info info = T64_VIDEO_PACKET_INFO_INIT;
     const bool audio_profile =
         observation->result != NULL &&
         strcmp(observation->result->profile_id,
@@ -710,7 +710,7 @@ static bool drain_audio(t64_machine *machine,
     t64_audio_packet_observation *packet;
     size_t copied = 0u;
     uint8_t *dynamic_packet = NULL;
-    t64_audio_packet_info info;
+    t64_audio_packet_info info = T64_AUDIO_PACKET_INFO_INIT;
     t64_status status = t64_audio_info(machine, &info);
     if (status == T64_STATUS_NOT_READY) return true;
     if (status != T64_STATUS_OK || info.byte_length == 0u) {
@@ -887,7 +887,7 @@ static bool profile_observations_valid(
 static bool drain_output(t64_machine *machine, uint8_t output[4096],
                          size_t *length_io, uint64_t *total_out,
                          bool *lost_out, bool *total_exact_out) {
-  t64_output_drain_result result;
+  t64_output_drain_result result = T64_OUTPUT_DRAIN_RESULT_INIT;
   size_t capacity;
   t64_status status;
 
@@ -1215,8 +1215,8 @@ static int run_real(int fixture_fd, int input_fd, const char *requested_profile,
                     const save_request *save,
                     const replay_request *replay,
                     const state_request *state) {
-  static const t64_host_allocator allocator = {
-      allocator_allocate, allocator_release, NULL};
+  static const t64_host_allocator allocator =
+      T64_HOST_ALLOCATOR_INIT(allocator_allocate, allocator_release, NULL);
   owned_bytes fixture = {0};
   owned_bytes input = {0};
   t64_input_schedule *schedule = NULL;
@@ -1246,8 +1246,11 @@ static int run_real(int fixture_fd, int input_fd, const char *requested_profile,
   bool output_total_exact = true;
   uint64_t current_tick = 0u;
   uint64_t resource_yields = 0u;
-  t64_stop_result stop = {UINT32_MAX, UINT64_MAX};
-  t64_cpu_stop_detail stop_detail = {UINT64_MAX, UINT32_MAX, UINT32_MAX};
+  t64_stop_result stop = T64_STOP_RESULT_INIT_WITH(UINT32_MAX, UINT64_MAX);
+  t64_cpu_stop_detail stop_detail = T64_CPU_STOP_DETAIL_INIT;
+  stop_detail.retired_instructions = UINT64_MAX;
+  stop_detail.pc = UINT32_MAX;
+  stop_detail.opcode = UINT32_MAX;
   t64_status status;
   int exit_code = 0;
   char input_digest[T64_SHA256_HEX_SIZE];
@@ -1438,10 +1441,9 @@ static int run_real(int fixture_fd, int input_fd, const char *requested_profile,
      * writes the closed reason name once to the diagnostic stream, never blob
      * bytes or the path, and ends in the existing prelaunch refusal. */
     owned_bytes state_image = {0};
-    t64_state_import_report import_report;
+    t64_state_import_report import_report = T64_STATE_IMPORT_REPORT_INIT;
     bool imported = false;
     uint64_t imported_tick = 0u;
-    (void)memset(&import_report, 0, sizeof import_report);
     if (read_snapshot(state->import_fd, (size_t)T64_VERIFIED_HARNESS_MAX_BYTES,
                       0u, &state_image)) {
       imported = t64_machine_state_import(machine, state_image.bytes,
@@ -1480,7 +1482,7 @@ static int run_real(int fixture_fd, int input_fd, const char *requested_profile,
      * with the existing admission-refusal path), then the verified import
      * descriptor is read with its exact size and imported in the named
      * format. The result record and the log never carry save bytes. */
-    t64_save_info save_info;
+    t64_save_info save_info = T64_SAVE_INFO_INIT;
     owned_bytes save_image = {0};
     bool save_ok = t64_machine_save_info(machine, save->kind, &save_info) ==
                        T64_STATUS_OK &&
@@ -1708,7 +1710,8 @@ static int run_real(int fixture_fd, int input_fd, const char *requested_profile,
       uint32_t before_video_packets = observations.video.packets_drained;
       status = t64_machine_advance(
           machine,
-          &(t64_stop_request){T64_STOP_GUEST_TICK, target}, &stop);
+          &(t64_stop_request)T64_STOP_REQUEST_INIT(T64_STOP_GUEST_TICK, target),
+          &stop);
       if (status != T64_STATUS_OK || stop.tick < current_tick ||
           stop.tick > target) {
         (void)snprintf(result.guest_stop_kind, sizeof result.guest_stop_kind,
