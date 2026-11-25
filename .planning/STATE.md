@@ -5,16 +5,16 @@ milestone_name: Embeddable and Playable
 current_phase: 11
 current_phase_name: Installed Consumer and Freeze Candidate
 status: executing
-stopped_at: Completed 11-01-PLAN.md
-last_updated: "2026-11-25T19:35:06.383Z"
+stopped_at: Completed 11-02-PLAN.md
+last_updated: "2026-11-25T19:53:33.244Z"
 last_activity: 2026-11-25
 last_activity_desc: Phase 11 execution started
-state_head: c1ef5c88351cbf9e40a927b14fb990a15d9044fc
+state_head: db8e24d3fb0f1f97dfd0cb66eba2f572b7eae529
 progress:
   total_phases: 3
   completed_phases: 1
   total_plans: 46
-  completed_plans: 22
+  completed_plans: 23
   percent: 33
 ---
 
@@ -30,7 +30,7 @@ See: .planning/PROJECT.md (updated 2026-11-23)
 ## Current Position
 
 Phase: 11 (Installed Consumer and Freeze Candidate) — EXECUTING
-Plan: 2 of 25
+Plan: 3 of 25
 Status: Ready to execute
 Last activity: 2026-11-25 — Phase 11 execution started
 
@@ -82,6 +82,7 @@ Progress: [███░░░░░░░] 33% (0 of 3 v1.2 phases complete)
 | Phase 10 P20 | 17min | 4 tasks | 5 files |
 | Phase 10 P21 | 33min | 4 tasks | 6 files |
 | Phase 11 P01 | 29 min | 4 tasks | 4 files |
+| Phase 11 P02 | 15 min | 3 tasks | 10 files |
 
 ## Accumulated Context
 
@@ -201,6 +202,7 @@ Progress: [███░░░░░░░] 33% (0 of 3 v1.2 phases complete)
 - [Phase 11]: 11-01: LibFuturo paper read at local, unpublished commit 4177a43 amends no locked decision; any adapter stays optional and the written evaluation is Phase 12
 - [Phase 11]: 11-01: Phase 11 G4 exception for owner review recorded (no offset; new names are required SC1 to SC5 evidence); baseline measured cold gate-macos 731 s of 900 s (margin 169 s); reversal if a review plan projects a cold run above 900 s
 - [Phase 11]: 11-01: digest-sweep printer compiles against both API generations through one defined(T64_MACHINE_CREATE_INFO_INIT) selector; sweep reports 1599 shared lines and 0 differences; sh scripts/preflight-phase11.sh passes in 41 s without replay
+- [Phase 11]: 11-02: T64_ABI_VERSION is the constant expression ((MAJOR << 16) | MINOR) of two UINT32_C values, T64_API is not overridable by a host define, and docs/abi/status-classes.txt classifies all 39 statuses and 8 stop reasons (SEQUENCE_EXHAUSTED is the one refused row with RESUME terminal); repo.abi-status-classes and its ten-case selftest fail on an unclassified, duplicate, renumbered, orphan or malformed row
 
 ### Pending Todos
 
@@ -226,8 +228,8 @@ None for v1.1. Carry-ins for v1.2 are listed in the Deferred Items table, the v1
 
 ## Session Continuity
 
-Last session: 2026-11-25T19:35:06.344Z
-Stopped at: Completed 11-01-PLAN.md
+Last session: 2026-11-25T19:53:33.121Z
+Stopped at: Completed 11-02-PLAN.md
 Resume file: None
 
 Historical closeout: [v1.0 roadmap](milestones/v1.0-ROADMAP.md), [audit](milestones/v1.0-MILESTONE-AUDIT.md), [lessons](RETROSPECTIVE.md).
