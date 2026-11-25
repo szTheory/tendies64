@@ -1062,10 +1062,16 @@ def _prefix_renames(root: pathlib.Path) -> dict[str, str]:
 
     The canonical-symbol lookups below read object files, which hold the
     renamed (t64i_) symbol; the mapping is read from the generated header and
-    is never restated here. A tree without the header maps every name to itself.
+    is never restated here. A source fixture that does not carry the header
+    (the control suite copies a fixed file set next to the real build objects)
+    reads the header of this checker's own repository, which the objects were
+    compiled from; with no header at all every name maps to itself and the
+    lookups fail closed.
     """
     renames: dict[str, str] = {}
     header = root / "core" / "t64_prefix.h"
+    if not header.is_file():
+        header = pathlib.Path(__file__).resolve().parents[1] / "core" / "t64_prefix.h"
     if header.is_file():
         for line in header.read_text(encoding="utf-8").splitlines():
             found = re.fullmatch(r"#define ([A-Za-z_]\w*) ([A-Za-z_]\w*)", line)
