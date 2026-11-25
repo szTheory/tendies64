@@ -270,7 +270,8 @@ runner.composite-two-run
 harness.composite-oracle
 controls.real.composite-wrong-rom
 runner.state-format-v26
-runner.composite-state-v2'
+runner.composite-state-v2
+harness.phase10-qualification'
 
 CPU_COVERAGE_OPCODES='ADD
 ADDU

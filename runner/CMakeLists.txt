@@ -787,6 +787,18 @@ set_tests_properties(runner.state-format-v26 PROPERTIES
   LABELS "runner;controls;phase10" TIMEOUT 300
   ENVIRONMENT "T64_PHASE10_EVIDENCE_DIR=${CMAKE_BINARY_DIR}/10-15-evidence/state-format")
 
+# Phase 10 qualifier controls (plan 10-17): hermetic python cases of
+# scripts/qualify-phase10.py in scratch git repositories with stub stage tables;
+# no build and no nested CTest run here (F-113). TIMEOUT by the F-108 rule: about
+# 5 s native (the cases are git and interpreter starts, not instrumented code, so
+# the sanitizer preset runs them at the same speed) and under 20 s on a hosted
+# runner at 3.5 times, so 120 s is more than 20 times the native figure.
+add_test(NAME harness.phase10-qualification
+  COMMAND python3 -B ${CMAKE_SOURCE_DIR}/scripts/tests/test_phase10_qualification.py
+    --selftest)
+set_tests_properties(harness.phase10-qualification PROPERTIES
+  LABELS "harness;qualification;phase10" TIMEOUT 120)
+
 # Publisher controls: the module is compiled with the testing hooks, like the
 # test twin of the runner, and never reaches the production runner.
 add_executable(test_artifact_publisher tests/test_artifact_publisher.c

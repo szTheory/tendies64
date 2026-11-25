@@ -52,3 +52,4 @@
 1	^unit\.core\.state\.export-v26-bounds$
 2	^unit\.core\.state\.import-v26
 3	^(unit\.core\.state\.export|unit\.core\.state\.import|runner\.state-export)$
+1	^harness\.phase10-qualification$
