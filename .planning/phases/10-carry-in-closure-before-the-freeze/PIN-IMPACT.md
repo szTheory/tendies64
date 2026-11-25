@@ -1165,3 +1165,59 @@ load is given for each, and a start above the quiet-host threshold of 8 makes th
 The Linux compile of the changed test unit is the first hosted-toolchain check of the VI rows; nothing was pushed (plan
 10-21 pushes) and no tag was created. Plan 10-21 carries the re-qualification, the claim and evidence documents and the
 independent review of this closure.
+
+## 17. Re-qualification after the gap closure (plan 10-21)
+
+Written by plan 10-21 Task 2. Evidence tier: one native qualification (`python3 -B scripts/qualify-phase10.py --native`, no
+`--rehearsal`) on the tree that contains the VI rows, recorded as it happened; the record is private build output and this
+section holds digests, counts and seconds only. **It passed on the first attempt**: no failed attempt, no retry, no limit
+widened, no source, test, script or pin edited between the base and the record.
+
+Why it exists: plan 10-20 changed a bound test source (`core/tests/test_digest_v26.c`), the mutant driver
+(`scripts/p10-mutants.py`) and the qualifier (`scripts/qualify-phase10.py`), so the plan 10-19 record of section 15.1 no
+longer verifies against this tree (section 16.2). **That record is superseded and kept as history**: section 15 was not
+rewritten, its record directory stays under `build/gate/10-qualification-private`, and its four attempts stay in the
+evidence. The independent review of the 10-20 wave (`10-REVIEW.md`, "Wave 20 independent review") ran first and its
+reviewed head is `2a840a9885879b6306a51991fe7676249920605c`.
+
+| Item | Value |
+|------|-------|
+| record id and directory | `20261125T155456703622Z-1fc0b1da`, `build/gate/10-qualification-private/20261125T155456703622Z-1fc0b1da/record.json` (private, not committed) |
+| record SHA-256 | `1099e3971e0cca245844641ad4977b3dbc3ce523e452449efb551d75a9d487fc` |
+| `commit_sha`, rehearsal, status | `1fc0b1da70acf6c9b0f3baf0b46abf9d5a69468f` (**H2**, the qualified commit: the commit that recorded the new base), `rehearsal: false`, `status: complete`, tree clean (`dirty_status_sha256` is the SHA-256 of the empty string) |
+| pushed head | **H3** is the head that Task 3 pushes: H2 plus this section's one planning-only commit. Both are named in the evidence document. `git diff --name-only H2 H3` lists only `.planning/` paths, so H3 has the identical bound source snapshot of H2 |
+| Qualification base | `76451024e148073804e162841c3d0a3543bd2567` (section 5; recorded after the review commit `7645102` in the planning-only commit `1fc0b1d`; the plan 10-18 value `ad39b6be...` is the historical line); `qualification_drift_paths` is `[]`, so every bound input equals the tree of the base. `git diff --name-only <base> H2` lists `PIN-IMPACT.md` only |
+| origin/main hosted status checked before the run | `git fetch origin`, `origin/main` `f081d392763ad384c3d50ae1b24b709d5af3b7d4`; the newest `ci.yml` push run, 45548987145, has `headSha` equal to it, `status` completed and `conclusion` success |
+| `--verify` | `python3 -B scripts/qualify-phase10.py --verify <record>` exit 0, "record verified against the current tree", run at H2 before any other commit (one-shot: it refuses once a bound document changes). The record check preceding it (newest record, `commit_sha` an ancestor of `HEAD`, not a rehearsal, complete, empty drift, `wave_bases` names the new base) passed |
+| source snapshot | 62 bound inputs, `input_manifest_sha256` `eb28495da4fb2a271c65f01d3a375b6b386d36160b55c792fd6cacc7c144aa15`, no deleted path, excluded `.planning/` and `docs/ci-reviews/LOG.md`. Against the 60 inputs of the plan 10-19 record: two added (`docs/claims/phase10.md` and `docs/evidence/phase10-qualification.md`, the plan 10-19 documents, which the earlier base preceded) and three with new content (`core/tests/test_digest_v26.c`, `scripts/p10-mutants.py`, `scripts/qualify-phase10.py`); no path removed |
+| inventory | 30 `PHASE10_TESTS` names equal the 30 names of `ctest -N -L phase10`; names SHA-256 `c0e7d637b3f1c181b4f7cb08f032bf3aa5a84a04241005114459b08eff156f28` (unchanged from section 15.1); 254 names in the gate |
+| tested build ids (compared with the plan 10-19 record) | core `t64-build-v1-b6c298e66f1cbecb45d9f939a62d1c5b93dbc466c1ba7cf7980c291b2f136884`, runner `t64-runner-v1-684d67fa59f416d1549be743c93cfd451fc8b1ab849ac31fdd643ef2e7811f55`, runner test twin `t64-runner-v1-2d3ac6f8be3b8203341f9238c3d2c07d52a3f3363ee6a078ef870d9b29f60051`, ASan core `t64-build-v1-63fe5be296b2b623822ce9f111b6474eb0c4462e1de642718c31f9bc31b7ad5a`: **all four equal the plan 10-19 ids**, as expected, because no production source changed (the only core path since the base is `core/tests/test_digest_v26.c`, and the build id hashes production content and the compiler policy), so the claim `build_id` values do not move |
+| preconditions | tree clean; cold-boot attempt counters (D-10-17-01) 10 and 10 before the plain gate run (cap 99, workaround threshold 90), nothing moved; plain `sh scripts/gate.sh` `[gate] PASS` in 139 s (254 of 254, `Total Test time (real) = 77.94 sec`) at 1-minute load 6.91 at its start and 11.09 at its end; then the load wait (below) |
+| host load | 1-minute load 7.54 after a 50 s wait (the limit of the plan is 8 and the wait budget 15 minutes), 9.10 when the qualifier started (the record's `load_start`) and 7.28 at its end (`load_end`); the start is slightly above the quiet-host threshold of 8, so the seconds below are upper bounds |
+| total | 410.78 s on the qualifier clock, 2026-11-25T15:54:56Z to 16:01:47Z (6 min 51 s wall) |
+
+| Stage | Seconds | Limit | Observed |
+|-------|---------|-------|----------|
+| ci-scanner | 2.98 | 90 | `check-ci-yml.sh` ok, selftest 138 cases, 0 failures |
+| inventory | 1.10 | 60 | `check-test-inventory.sh --preset gate` PASS, count 254 |
+| oracle | 0.22 | 60 | `--expect-blocked` exit 0, `--require-approved` exit 2 (blocked, no oracle operation authorized) |
+| gate | 128.13 | 600 | `gate.sh` PASS, total 128 s (sh-n 0, lint-selftest 5, fixture-qualification 1, configure 0, build 0, boot-evidence-selftest 12, test-inventory-selftest 23, test-inventory 1, ctest 76, core-lint 10); 254 of 254 passed, ctest wall 76.18 s |
+| phase10-junit | 7.02 | 120 | 30 testcases equal the block, none failed or skipped, 23.82 s summed; JUnit SHA-256 `4d4e9987113ae7e3743681502ecc150d720d801f5d66e1a0cd6947e8b2c2214d`; the qualifier hermetic test 7.00 s, `import-v26-hostile` 7.01 s, `import-v26-roundtrip` 1.94 s, `export-v26` 1.94 s, `state-format-v26` 1.43 s, **`unit.core.digest.v26-completeness` 1.13 s** (0.40 s before the VI rows, section 16.1), the other 24 names 0.002 to 1.45 s |
+| asan | 125.10 | 1,320 (120 + 600 + 600) | configure 0.14 s, build 7.84 s, `ctest --preset asan -L phase10` 117.12 s wall (274.81 s summed): 30 testcases equal the block, none failed or skipped; JUnit SHA-256 `db0cb3fb19eb490224cbf72052d4a446bdaecfe8dc4fcc9e65412d4f2a7977cc`; `import-v26-hostile` 117.10 s, `import-v26-roundtrip` 34.11 s, `state-format-v26` 30.95 s, `export-v26` 22.73 s, **`unit.core.digest.v26-completeness` 8.67 s**, no sanitizer report |
+| mutants | 105.00 | 600 | 28 rows equal the driver's `--list`: **26 KILLED** (the new `v26-digest-omit-vi-phase-cycles` among them), the equivalent control `control-equivalent-depth-cap` SURVIVED and the non-compiling control `control-no-compile` INVALID, each as expected |
+| sweep | 40.77 | 300 | `sweep: 1599 shared lines, 0 differences, 0 head-only lines` (21 shipped ids, Wave 0 base to head) |
+
+Every stage ended inside its limit. The smallest ratios of limit to seconds are 4.7 (the gate, 600 s against 128.13 s, the
+rule the hermetic test enforces for the whole stage), 5.1 (the ASan selection wall, 600 s against 117.12 s), 5.7 (the
+mutants), 7.4 (the sweep) and 17.1 (the JUnit stage). The watch item of plan 10-20, the ASan CTest limit against the
+serial sum, reads 600 s against 274.81 s, 2.18 times (1.97 times against the 305.08 s of the plan 10-19 record); the serial
+sum is not the rule (four jobs overlap the names and the longest name alone is 117.10 s), and no limit moved. The qualifier
+derivation text still carries the plan 10-19 and 10-20 figures (129.41 s, 129.05 s, 147 s); the measurements above are
+all inside them, which is why no text or limit changes here.
+
+Comparison with the plan 10-19 record (section 15.1): same four build ids, same 30 names, same 254 gate names, same sweep
+(1599 shared lines, 0 differences); gate 128.13 against 129.41 s, ASan wall 117.12 against 129.05 s, mutants 105.00
+against 100.72 s for 28 rows against 27, JUnit 7.02 against 7.16 s, sweep 40.77 against 41.02 s. The one measurable cost of
+the VI rows is the case itself: 1.13 s natively (0.7 s more than before) and 8.67 s under ASan and UBSan (7.92 s in section
+16.1). The plan 10-19 host-load failures did not recur: the plain gate precondition ran at 1-minute load 6.91 and the native run
+started after the load wait.
