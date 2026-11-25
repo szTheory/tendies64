@@ -585,6 +585,7 @@ then blends that property into the recorded cost, so the file no longer holds na
 | 11-02 | `core/include/tendies64/t64_machine.h` (T64_API, `extern "C"`, ABI constants, `t64_abi_version`, statuses 34 to 38), `core/t64_machine.c` (`t64_abi_version` definition), `core/tests/test_api_surface.c` (new), `core/CMakeLists.txt`, `docs/abi/status-classes.txt` (new), `scripts/check-abi.py` (new), `tools/abi/CMakeLists.txt` (new), `scripts/check-test-inventory.sh` (`PHASE11_TESTS`), `scripts/preflight-phase11-regexes.txt` (rows `^repo\.abi` 3, `^unit\.core\.api\.` 1) | `sweep: 1599 shared lines, 0 differences, 0 head-only lines` (base `f9124ae9fce1`, head `a396fa904bf7`, the Task 2 commit) | yes, by design (a `core` text edit changes the build fingerprint; the sweep forces one build id, so it is not a difference) | none: `python3 -B scripts/check-rsp-no-hle.py --build build/gate` exits 0 with the checker unchanged, and `repo.rsp-no-hle` passes | 4: `unit.core.api.abi-version` 0.00 s, `repo.abi-header` 0.09 to 0.16 s, `repo.abi-status-classes` 0.03 to 0.08 s, `repo.abi-selftest` 0.45 to 0.94 s (about 0.6 to 1.2 s summed; all `COST 1`, `TIMEOUT` 30 or 60) |
 | 11-03 | `core/t64_internal.h` (members `poisoned` and `in_call`, `T64_ENTRY_GUARD`, `t64_internal_defect`, `t64_test_force_defect`), `core/t64_machine.c` (poison functions, `t64_machine_is_poisoned`, in-call brackets in `admit_rom` and destroy, defect sites), the 23 entry guards in `core/t64_machine.c`, `t64_digest.c`, `t64_state.c` (export write order), `t64_observe.c`, `t64_save.c`, `t64_bus.c`, `t64_trace.c`, `t64_vi.c`, `t64_ai.c`, `core/t64_cp0.c`, `core/t64_scheduler.c` (whitelist and poison hook), `core/include/tendies64/t64_machine.h` (poison query, export and bus-write statements), `core/tests/test_api_poison.c` (new), `core/tests/fuzz_rom_admission.c`, `test_boot_entry.c`, `test_digest_v25.c`, `core/CMakeLists.txt`, `docs/abi/status-classes.txt` (notes), `docs/spec/machine-contract.md` (member rows, carve-out note), `scripts/check-rsp-no-hle.py` (four digests, isolated commit `7592675`), `scripts/check-test-inventory.sh`, `scripts/preflight-phase11-regexes.txt` (`^unit\.core\.api\.` 7) | `sweep: 1599 shared lines, 0 differences, 0 head-only lines` (base `f9124ae9fce1`, head `eb3148ee8c32`, the Task 4 code commit); statuses 37/38 in head sweep output: 0 (115 `stop` lines carry status 0, 20 `skip` lines carry status 5; the head output equals the base output line for line) | yes, by design (the sweep forces one build id, so it is not a difference) | four, in one isolated commit: `t64_video_info`, `t64_video_copy` (`core/t64_vi.c`), `t64_audio_info`, `t64_audio_copy` (`core/t64_ai.c`); the checker diff is 4 old and 4 new digest lines and nothing else; `python3 -B scripts/check-rsp-no-hle.py --build build/gate` exits 0 | 6: `unit.core.api.poison` 0.09 to 0.10 s, `unit.core.api.refusals-never-poison` 0.15 to 0.17 s, `unit.core.api.reentrant` 0.06 to 0.07 s, `unit.core.api.null-machine` 0.00 s, `unit.core.api.defect-sites` 0.10 to 0.12 s (all `COST 1`, `TIMEOUT` 60) and `unit.core.api.bus-carve-out` 1.6 to 2.3 s (`COST 3`, `TIMEOUT` 60); about 2.1 to 2.9 s summed |
 | 11-04 | `core/include/tendies64/t64_machine.h` (`t64_machine_reset`, `t64_machine_unload`, `t64_machine_output_status`, `t64_output_status`, `T64_OUTPUT_STATUS_V1_SIZE`, `T64_OUTPUT_STATUS_INIT`), `core/t64_machine.c` (reset, unload, `clear_guest_state` split out of `reset_guest_state`), `core/t64_observe.c` (output status), `core/t64_internal.h` (`t64_vi_packet_slot`, `t64_ai_packet_slot` with size and member asserts; the two retained arrays use them), `core/t64_vi.c`, `core/t64_ai.c`, `core/t64_digest.c`, `core/t64_state.c` (slot types; copy-out member by member in `t64_video_info` and `t64_audio_info`), `core/tests/test_api_lifecycle.c` (new), `core/tests/test_api_poison.c` (26 entries), `core/tests/test_digest_v26.c` (slot type, same 1208/488/37 pins), `core/tests/test_state_import.c` (diagnostic dump type), `core/CMakeLists.txt`, `docs/spec/machine-contract.md`, `docs/spec/state-field-rules.txt` (13 slot member rows), `scripts/check-rsp-no-hle.py` (five digests, isolated commit `fbe5704`), `scripts/check-test-inventory.sh`, `scripts/preflight-phase11-regexes.txt` (`^unit\.core\.api\.` 11) | `sweep: 1599 shared lines, 0 differences, 0 head-only lines` (base `f9124ae9fce1`, head `fbe5704a16b1`, the isolated refresh commit) | yes, by design (the sweep forces one build id, so it is not a difference) | five, in one isolated commit: `t64_vi_event`, `vi_v8_event`, `t64_video_info` (`core/t64_vi.c`), `t64_ai_event`, `t64_audio_info` (`core/t64_ai.c`); the checker diff is 5 old and 5 new digest lines and nothing else; `python3 -B scripts/check-rsp-no-hle.py --build build/gate` exits 0 | 4: `unit.core.api.reset` 0.17 to 0.18 s, `unit.core.api.unload` 0.23 s, `unit.core.api.not-ready-table` 0.03 s, `unit.core.api.output-status` 0.86 to 0.87 s (all `COST 1`, `TIMEOUT` 60); about 1.3 s summed |
+| 11-10 | `runner/tests/test_cpu_diagnostic.c`, `test_fixture_descriptor.c`, `test_input.c`, `test_pad_poll.c`, `test_real_runner.c`, `test_replay.c`, `test_state_runner.c` (init macros, commit `ad1dd6c`); `core/tests/test_state_import.c` and `runner/tests/test_state_runner.c` (two pointer-form import-report fills found by the guard, commit `e22030d`); `scripts/check-api-init.py` (new), `tools/abi/CMakeLists.txt`, `scripts/check-test-inventory.sh` (`PHASE11_TESTS`), `scripts/preflight-phase11-regexes.txt` (`^repo\.api-init-guard` 2) | not run: no production source changed (test sources, one script, CMake registrations and records only), so the two-tree sweep has nothing to compare | no (the build fingerprint hashes the production core sources only) | none | 2: `repo.api-init-guard` 0.73 to 0.83 s, `repo.api-init-guard-selftest` 0.08 to 0.10 s (both `COST 1`, `TIMEOUT` 60); about 0.9 s summed |
 
 Plan 11-02 evidence (all at the Task 2 commit, tree clean): the inventory count is 258
 (254 + 4), the label comparison reports 4 tests carrying `phase11` against a 4-name block,
@@ -619,6 +620,140 @@ audit, so 13 member names (`width`, `height`, `stride_bytes`, `source_width`, `s
 `struct_size`) got rule NONE rows with a comment, because the slot values are echoed metadata and the
 lexical hits belong to same-named geometry members. Evidence tier: unit-tested, authored scope; a
 software-interface claim only.
+
+Plan 11-10 evidence: the inventory count is 270 (268 + 2) and the label comparison reports 16 tests
+carrying `phase11` against a 16-name block. The full `ctest --preset gate` passed 268 of 268 at the
+Task 1 commit (102.6 s, start load 8.9) and 270 of 270 before the Task 2 commit (116.3 s, start load
+9.6); `harness.rdp-oracle-authority`, `repo.si-membership-sites`, `harness.state-field-use-audit`,
+`repo.p10-mutant-anchors` and `repo.rsp-no-hle` are in that run and unchanged. The RED report
+`build/gate/11-10-task2/red.txt` shows 10 of the 17 selftest cases failing before the rules existed
+(the four mandatory seeds, the positional descriptor, the two memset forms, the two array forms and
+the oracle-bound flag case) and the seven clean-case seeds passing; the selftest then passes 17 of 17.
+Evidence tier: unit-tested, authored scope; a software-interface claim only.
+
+### 11-05 to 11-10 codemod
+
+Written by plan 11-10 Task 2 from the "Per-file converted counts" tables of the 11-05 to 11-09
+SUMMARY files and the 11-10 Task 1 run (one row per file the plans listed, a count of 0 is a
+recorded count). "Converted" is the tool's own per-file count of brace initializers,
+uninitialized declarations and compound literals moved to the DR-09 init macros by
+`scripts/codemod-phase11.py`; "Hand-converted residuals" are the sites the tool reports as hand
+sites (memsets of a converted object, arrays, sentinel fills) or does not detect (struct member
+fills, pointer-form memsets), each done from the INIT form. Plan 11-05 covered the `runner/`
+sources, 11-06 to 11-09 the four `core/tests` groups, 11-10 the `runner/tests` group.
+
+| Plan | File | Converted | Hand-converted residuals |
+|------|------|-----------|--------------------------|
+| 11-05 | `runner/t64_real.c` | 9 | 1 (memset removed by hand) |
+| 11-05 | `runner/t64_base_diagnostic.c` | 4 | none |
+| 11-05 | `runner/t64_cold_boot.c` | 7 | none |
+| 11-05 | `runner/t64_cpu_diagnostic.c` | 4 | none |
+| 11-05 | `runner/t64_replay.c` | 3 | none |
+| 11-05 | `runner/t64_rsp_diagnostic.c` | 5 | none |
+| 11-05 | `runner/t64_rsp_smoke.c` | 5 | none |
+| 11-05 | `runner/t64_skeleton_probe.c` | 3 | none |
+| 11-05 | `runner/t64_raw_capture.c` | 0 | none |
+| 11-05 | `runner/t64_raw_capture.h` | 0 | none |
+| 11-05 | `runner/t64_audio_observation.h` | 0 | none |
+| 11-05 | `runner/t64_supervisor.c` | 0 | none |
+| 11-06 | `core/tests/fuzz_rom_admission.c` | 1 | none |
+| 11-06 | `core/tests/test_rom_admission.c` | 4 | none |
+| 11-06 | `core/tests/test_boot_determinism.c` | 15 | 2 (`machine_run.stop` after the memset in `initialize_run`, and for `observation`) |
+| 11-06 | `core/tests/test_boot_entry.c` | 14 | none |
+| 11-06 | `core/tests/test_bus.c` | 9 | none |
+| 11-06 | `core/tests/test_cop1.c` | 5 | none |
+| 11-06 | `core/tests/test_cpu_cache.c` | 3 | none |
+| 11-06 | `core/tests/test_cpu_exceptions.c` | 7 | none |
+| 11-06 | `core/tests/test_cpu_integer.c` | 4 | none |
+| 11-06 | `core/tests/test_cpu_link.c` | 4 | 1 (`fixture.allocator`) |
+| 11-06 | `core/tests/test_cpu_memory.c` | 1 | none |
+| 11-06 | `core/tests/test_cpu_mmu.c` | 1 | none |
+| 11-06 | `core/tests/test_cpu_path.c` | 54 | none |
+| 11-06 | `core/tests/test_cpu_time.c` | 25 | none |
+| 11-07 | `core/tests/test_rsp_compare.c` | 10 | 1 (`fixture->allocator`) |
+| 11-07 | `core/tests/test_rsp_control.c` | 8 | 1 (`fixture->allocator`, context = fixture) |
+| 11-07 | `core/tests/test_rsp_divider.c` | 4 | 1 (`fixture->allocator`) |
+| 11-07 | `core/tests/test_rsp_fuzz.c` | 6 | 1 (`fixture->allocator`) |
+| 11-07 | `core/tests/test_rsp_multiply.c` | 8 | 1 (`fixture->allocator`) |
+| 11-07 | `core/tests/test_rsp_scalar.c` | 16 | 1 (`fixture->allocator`) |
+| 11-07 | `core/tests/test_rsp_transfers.c` | 4 | 1 (`fixture->allocator`) |
+| 11-07 | `core/tests/test_rsp_vector.c` | 2 | 1 (`fixture->allocator`) |
+| 11-07 | `core/tests/test_sp_dma.c` | 12 | 2 (`value->allocator`, two fixture init functions, context = value) |
+| 11-07 | `core/tests/test_pi_dma.c` | 22 | none |
+| 11-07 | `core/tests/test_rdram.c` | 5 | none |
+| 11-07 | `core/tests/test_ai.c` | 30 | 4 (arrays `whole_info`, `split_info`, `interleaved_info`, `reference_info`) |
+| 11-07 | `core/tests/test_isviewer.c` | 18 | 6 sentinel fills (1 in `test_public_output_and_input_seams`, 4 in `test_output_drain_refusals_and_isolation`, 1 on `overlap.result`); 5 (reported by the tool; the sixth, on the union, was not) |
+| 11-07 | `core/tests/test_joybus.c` | 3 | none |
+| 11-08 | `core/tests/fuzz_state_import.c` | 3 | 1 (0xA5 fill of a report (poisoned)) |
+| 11-08 | `core/tests/state_import_helpers.h` | 4 | 0 (adds `poison_import_report`, `import_report_is_poisoned`) |
+| 11-08 | `core/tests/test_state_export.c` | 6 | 2 (zeroing memset of a drain result) |
+| 11-08 | `core/tests/test_state_export_v26.c` | 1 | 6 (zeroing memset of a report) |
+| 11-08 | `core/tests/test_state_import.c` | 43 | 2 (+1 corrected row) (0xA5 fill of a report (poisoned)) |
+| 11-08 | `core/tests/test_state_import_v26.c` | 12 | 2 (1 reported 0xA5 fill; 1 pointer-form fill of `*report_out` the tool did not report) |
+| 11-08 | `core/tests/test_save.c` | 8 | 5 (0xA5 fill of a save info (poisoned)) |
+| 11-08 | `core/tests/test_save_transfer.c` | 6 | 5 (0xA5 fill of a save info (poisoned)) |
+| 11-08 | `core/tests/test_digest_trace.c` | 27 | none |
+| 11-08 | `core/tests/test_digest_v25.c` | 5 | none |
+| 11-08 | `core/tests/test_digest_v26.c` | 3 | none |
+| 11-08 | `core/tests/test_determinism.c` | 7 | 1 (allocator member of the fixture) |
+| 11-08 | `core/tests/test_tracer.c` | 19 | none |
+| 11-08 | `core/tests/test_si.c` | 3 | none |
+| 11-09 | `core/tests/test_si_profile.c` | 13 | 1 (`ai_run.info` member) |
+| 11-09 | `core/tests/test_sched_ledger.c` | 10 | none |
+| 11-09 | `core/tests/test_sched_matrix.c` | 12 | none |
+| 11-09 | `core/tests/test_scheduler.c` | 18 | 1 (`machine_fixture.allocator` member) |
+| 11-09 | `core/tests/test_profile.c` | 2 | none |
+| 11-09 | `core/tests/test_profile_v26.c` | 7 | none |
+| 11-09 | `core/tests/test_lifecycle.c` | 13 | none |
+| 11-09 | `core/tests/test_k1_refusal.c` | 1 | none |
+| 11-09 | `core/tests/test_rdp_depth_composite.c` | 1 | none |
+| 11-09 | `core/tests/test_vg_gaps.c` | 5 | 6 (3 arrays, 3 memsets) |
+| 11-09 | `core/tests/test_warm_devices.c` | 10 | none |
+| 11-09 | `core/tests/test_api_surface.c` | 0 | none |
+| 11-09 | `core/tests/test_api_poison.c` | 13 | 3 (sentinel fills of `t64_stop_result`); 5 (3 scratch fill sites, 1 pointer-form fill of `observations`, 1 `instance.allocator` member) |
+| 11-09 | `core/tests/test_api_lifecycle.c` | 18 | 15 (8 zeroing, 7 sentinel); 4 (1 scratch fill site, 1 `fresh_scratch`, 1 `larger` fill, 1 `instance.allocator` member) |
+| 11-10 | `runner/tests/test_audio_capture.c` | 0 | none (a `const t64_audio_packet_info *` only) |
+| 11-10 | `runner/tests/test_cpu_diagnostic.c` | 7 | none |
+| 11-10 | `runner/tests/test_fixture_descriptor.c` | 1 | none |
+| 11-10 | `runner/tests/test_input.c` | 4 | none |
+| 11-10 | `runner/tests/test_pad_poll.c` | 4 | 1 (zeroing memset of `drain` removed) |
+| 11-10 | `runner/tests/test_phase09_runner.c` | 0 | none (two `t64_profile_descriptor` lookups; no initializer) |
+| 11-10 | `runner/tests/test_real_controls.c` | 0 | none (the edited descriptor copy is a whole-struct assignment `changed = *profile`, kept: after the flip it carries the registry's `struct_size`) |
+| 11-10 | `runner/tests/test_real_runner.c` | 1 | none |
+| 11-10 | `runner/tests/test_replay.c` | 6 | 1 (zeroing memset of `drain` removed) |
+| 11-10 | `runner/tests/test_state_runner.c` | 5 | 1 (zeroing memset of `*report_out` in `inprocess_import`, found by the guard, commit `e22030d`) |
+| 11-10 | `core/tests/test_state_import.c` | 0 | 1 (0xA5 canary memset of the aliasing report span becomes `poison_import_report`, found by the guard, commit `e22030d`; the 43 conversions of 11-08 are above) |
+
+Totals converted by the tool: 11-05 40, 11-06 147, 11-07 148, 11-08 147, 11-09 123, 11-10 28
+(brace 22, uninitialized 5, compound literal 1); 633 in all. Hand-converted residuals as the
+SUMMARY files record them: 11-05 1, 11-06 3, 11-07 20, 11-08 24, 11-09 35, 11-10 4 (two memsets
+removed in Task 1, two pointer-form report fills found by the guard); 87 in all. The `runner`
+directory beyond the 12 files of 11-05 and the `tests` and `tools` directories hold no site.
+
+Reconciliation with "Bound-file inventory" (11-01). The nine API-using bound files are the only
+files with an initializer form left; `runner/tests/test_rdp_video.c` has none. Run without the flag,
+`python3 -B scripts/check-api-init.py` reports 120 findings in exactly those nine files, the 120
+category (b) edits of the probe, per file: `test_rdp.c` 5, `test_rdp_copy.c` 2,
+`test_rdp_triangles.c` 2, `test_rdp_texture.c` 2, `test_rdp_combiner.c` 2, `test_rdp_blender.c` 3,
+`test_rdp_depth.c` 2, `test_vi.c` 90 (75 positional, 13 compound literal, 2 uninitialized),
+`test_video_output.c` 12 (9 positional, 3 compound literal); by type `t64_host_allocator` 16,
+`t64_stop_request` 16, `t64_stop_result` 35, `t64_cpu_stop_detail` 1, `t64_video_packet_info` 52
+(the probe's 16, 16, 35, 1 and 52). The 17 category (a) edits are call expressions, which no
+initializer rule sees, and the one category (c) hunk (`test_rdp.c` line 486, `t64_host_storage`) is
+exempt by type (the core fills `t64_host_storage.struct_size`, DR-06), so neither is a finding.
+With `--exclude-oracle-bound` the guard scans 172 files and reports 0.
+
+State at the end of 11-10 (`python3 -B scripts/codemod-phase11.py --check core/tests runner tests`):
+the nine bound files and `runner/tests/test_rdp_video.c` listed as excluded, `runner` and `tests`
+with no site, and `core/tests` with 7 hand listings that are all arrays whose every entry already
+uses the INIT form (4 in `test_ai.c`, 3 in `test_vg_gaps.c`): the tool lists every array of a macro
+type as a hand site by design (recorded since 11-07), so its exit status stays 1; the guard accepts
+such arrays and is the arbiter from here on. Open item for plans 11-12 and 11-13, not acted on
+here: `core/tests/test_profile.c` line 340 (`t64_profile_descriptor empty = {0};` hashed for an
+INVALID_ARGUMENT check) is the one non-bound zero descriptor; the guard accepts a lone zero for a
+descriptor (the deliberate empty-descriptor fixture), but after the flip its leading `struct_size`
+is 0, so the expected status of that row changes and the test needs the descriptor's `struct_size`
+set by hand.
 
 ### 11-04 NOT_READY table: every machine-taking entry after `t64_machine_unload`
 

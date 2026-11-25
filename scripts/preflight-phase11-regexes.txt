@@ -23,7 +23,7 @@
 0	^api04\.
 11	^unit\.core\.api\.
 0	^repo\.consumer-include-guard$
-0	^repo\.api-init-guard
+2	^repo\.api-init-guard
 0	^repo\.stale-freeze-text$
 0	^repo\.installed-case-map$
 0	^harness\.phase11-qualification$

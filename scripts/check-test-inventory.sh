@@ -289,7 +289,9 @@ unit.core.api.bus-carve-out
 unit.core.api.reset
 unit.core.api.unload
 unit.core.api.not-ready-table
-unit.core.api.output-status'
+unit.core.api.output-status
+repo.api-init-guard
+repo.api-init-guard-selftest'
 
 CPU_COVERAGE_OPCODES='ADD
 ADDU

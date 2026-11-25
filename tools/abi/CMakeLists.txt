@@ -43,3 +43,33 @@ set_tests_properties(repo.abi-selftest PROPERTIES
   TIMEOUT 60
   COST 1
   ENVIRONMENT "PYTHONDONTWRITEBYTECODE=1")
+
+# repo.api-init-guard (plan 11-10): every declaration, brace initializer,
+# compound literal and memset of a public in/out struct of the header uses the
+# T64_*_INIT form (a caller-filled leading struct_size is not visible to the
+# compiler otherwise). --exclude-oracle-bound skips the ten oracle-bound test
+# files until plan 11-16 removes the flag; the rule set and the exempt types
+# are in the script header.
+add_test(NAME repo.api-init-guard
+  COMMAND python3 -B ${CMAKE_SOURCE_DIR}/scripts/check-api-init.py
+          --exclude-oracle-bound
+  WORKING_DIRECTORY ${CMAKE_SOURCE_DIR})
+set_tests_properties(repo.api-init-guard PROPERTIES
+  LABELS "repo;phase11"
+  TIMEOUT 60
+  COST 1
+  ENVIRONMENT "PYTHONDONTWRITEBYTECODE=1")
+
+# repo.api-init-guard-selftest: seeded sources in a temporary tree under build/,
+# one per rule (uninitialized, positional, zero, compound literal, memset in
+# value and pointer form, array forms, descriptor forms, exempt types, members,
+# the oracle-bound flag and the fixed exclusion) must be reported or accepted
+# exactly as seeded.
+add_test(NAME repo.api-init-guard-selftest
+  COMMAND python3 -B ${CMAKE_SOURCE_DIR}/scripts/check-api-init.py --selftest
+  WORKING_DIRECTORY ${CMAKE_SOURCE_DIR})
+set_tests_properties(repo.api-init-guard-selftest PROPERTIES
+  LABELS "repo;phase11"
+  TIMEOUT 60
+  COST 1
+  ENVIRONMENT "PYTHONDONTWRITEBYTECODE=1")
